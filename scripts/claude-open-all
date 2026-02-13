@@ -12,12 +12,12 @@ for arg in "$@"; do
         --new-window|-w)
             NEW_WINDOW=true
             ;;
-        integrator|i|splitly|s|safesplit|all)
+        integrator|i|splitly|s|safesplit|agent-orchestrator|ao|all)
             PROJECT="$arg"
             ;;
         *)
             echo "Unknown argument: $arg"
-            echo "Usage: ~/claude-open-all [--new-window] [integrator|splitly|all]"
+            echo "Usage: ~/claude-open-all [--new-window] [integrator|splitly|ao|all]"
             exit 1
             ;;
     esac
@@ -94,8 +94,12 @@ case "$PROJECT" in
         SESSIONS=($(get_sessions "splitly"))
         echo "Opening ${#SESSIONS[@]} splitly sessions..."
         ;;
+    agent-orchestrator|ao)
+        SESSIONS=($(get_sessions "ao"))
+        echo "Opening ${#SESSIONS[@]} ao sessions..."
+        ;;
     all|"")
-        SESSIONS=($(get_sessions "integrator") $(get_sessions "splitly"))
+        SESSIONS=($(get_sessions "integrator") $(get_sessions "splitly") $(get_sessions "ao"))
         echo "Opening ${#SESSIONS[@]} total sessions..."
         ;;
 esac

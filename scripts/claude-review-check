@@ -14,8 +14,12 @@ case "$PROJECT" in
         SESSION_PREFIX="splitly"
         SESSION_DATA_DIR="$HOME/.splitly-sessions"
         ;;
+    agent-orchestrator|ao)
+        SESSION_PREFIX="ao"
+        SESSION_DATA_DIR="$HOME/.ao-sessions"
+        ;;
     *)
-        echo "Usage: ~/claude-review-check [integrator|splitly]"
+        echo "Usage: ~/claude-review-check [integrator|splitly|ao]"
         exit 1
         ;;
 esac
