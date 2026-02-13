@@ -62,7 +62,7 @@ const ProjectConfigSchema = z.object({
   repo: z.string(),
   path: z.string(),
   defaultBranch: z.string().default("main"),
-  sessionPrefix: z.string().optional(),
+  sessionPrefix: z.string().regex(/^[a-zA-Z0-9_-]+$/, "sessionPrefix must match [a-zA-Z0-9_-]+").optional(),
   runtime: z.string().optional(),
   agent: z.string().optional(),
   workspace: z.string().optional(),
@@ -130,8 +130,9 @@ function applyProjectDefaults(config: OrchestratorConfig): OrchestratorConfig {
     }
 
     // Derive session prefix from project ID if not set
+    // Sanitize to match metadata ID rules: [a-zA-Z0-9_-]+
     if (!project.sessionPrefix) {
-      project.sessionPrefix = id;
+      project.sessionPrefix = id.replace(/[^a-zA-Z0-9_-]/g, "-");
     }
 
     // Infer SCM from repo if not set

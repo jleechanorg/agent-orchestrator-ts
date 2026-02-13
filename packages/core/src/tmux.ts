@@ -139,7 +139,7 @@ export async function sendKeys(
 
     const bufferName = `ao-${randomUUID().slice(0, 8)}`;
     const tmpFile = join(tmpdir(), `ao-tmux-${bufferName}.txt`);
-    writeFileSync(tmpFile, text, "utf-8");
+    writeFileSync(tmpFile, text, { encoding: "utf-8", mode: 0o600 });
 
     try {
       await tmux("load-buffer", "-b", bufferName, tmpFile);
