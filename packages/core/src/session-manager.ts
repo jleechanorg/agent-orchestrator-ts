@@ -185,15 +185,17 @@ export function createSessionManager(deps: SessionManagerDeps): SessionManager {
       });
       workspacePath = wsInfo.path;
 
-      // Run post-create hooks — clean up workspace on failure
+      // Run post-create hooks — clean up workspace on failure (skip if project root)
       if (plugins.workspace.postCreate) {
         try {
           await plugins.workspace.postCreate(wsInfo, project);
         } catch (err) {
-          try {
-            await plugins.workspace.destroy(workspacePath);
-          } catch {
-            /* best effort */
+          if (workspacePath !== project.path) {
+            try {
+              await plugins.workspace.destroy(workspacePath);
+            } catch {
+              /* best effort */
+            }
           }
           throw err;
         }
@@ -353,13 +355,13 @@ export function createSessionManager(deps: SessionManagerDeps): SessionManager {
     const projectId = raw["project"] ?? "";
     const project = config.projects[projectId];
 
-    // Destroy runtime (attempt even without project config using default runtime)
+    // Destroy runtime — use handle's runtimeName to find the correct plugin
     if (raw["runtimeHandle"]) {
       const handle = safeJsonParse<RuntimeHandle>(raw["runtimeHandle"]);
       if (handle) {
         const runtimePlugin = project
           ? resolvePlugins(project).runtime
-          : registry.get<Runtime>("runtime", config.defaults.runtime);
+          : registry.get<Runtime>("runtime", handle.runtimeName ?? config.defaults.runtime);
         if (runtimePlugin) {
           try {
             await runtimePlugin.destroy(handle);
