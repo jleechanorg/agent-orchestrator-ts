@@ -87,7 +87,7 @@ export function createPluginRegistry(): PluginRegistry {
       }
     },
 
-    async loadFromConfig(config: OrchestratorConfig): Promise<void> {
+    async loadFromConfig(_config: OrchestratorConfig): Promise<void> {
       // First, load all built-ins
       await this.loadBuiltins();
 

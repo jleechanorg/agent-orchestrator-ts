@@ -4,3 +4,6 @@ dist/
 *.tsbuildinfo
 .env
 .env.local
+coverage/
+*.patch
+*-context.md
