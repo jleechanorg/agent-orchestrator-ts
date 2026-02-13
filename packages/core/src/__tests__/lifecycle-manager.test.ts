@@ -601,6 +601,79 @@ describe("reactions", () => {
 
     expect(mockSessionManager.send).not.toHaveBeenCalled();
   });
+  it("suppresses immediate notification when send-to-agent reaction handles the event", async () => {
+    const mockNotifier: Notifier = {
+      name: "mock-notifier",
+      notify: vi.fn().mockResolvedValue(undefined),
+    };
+
+    const mockSCM: SCM = {
+      name: "mock-scm",
+      detectPR: vi.fn(),
+      getPRState: vi.fn().mockResolvedValue("open"),
+      mergePR: vi.fn(),
+      closePR: vi.fn(),
+      getCIChecks: vi.fn(),
+      getCISummary: vi.fn().mockResolvedValue("failing"),
+      getReviews: vi.fn(),
+      getReviewDecision: vi.fn(),
+      getPendingComments: vi.fn(),
+      getAutomatedComments: vi.fn(),
+      getMergeability: vi.fn(),
+    };
+
+    const registryWithNotifier: PluginRegistry = {
+      ...mockRegistry,
+      get: vi.fn().mockImplementation((slot: string, name: string) => {
+        if (slot === "runtime") return mockRuntime;
+        if (slot === "agent") return mockAgent;
+        if (slot === "scm") return mockSCM;
+        if (slot === "notifier" && name === "desktop") return mockNotifier;
+        return null;
+      }),
+    };
+
+    // Session transitions from pr_open → ci_failed, which maps to ci-failed reaction
+    const session = makeSession({ status: "pr_open", pr: makePR() });
+    vi.mocked(mockSessionManager.get).mockResolvedValue(session);
+    vi.mocked(mockSessionManager.send).mockResolvedValue(undefined);
+
+    writeMetadata(dataDir, "app-1", {
+      worktree: "/tmp",
+      branch: "main",
+      status: "pr_open",
+      project: "my-app",
+    });
+
+    // Configure send-to-agent reaction for ci-failed with retries
+    const configWithReaction = {
+      ...config,
+      reactions: {
+        "ci-failed": {
+          auto: true,
+          action: "send-to-agent" as const,
+          message: "Fix CI",
+          retries: 3,
+          escalateAfter: 3,
+        },
+      },
+    };
+
+    const lm = createLifecycleManager({
+      config: configWithReaction,
+      registry: registryWithNotifier,
+      sessionManager: mockSessionManager,
+    });
+
+    await lm.check("app-1");
+
+    expect(lm.getStates().get("app-1")).toBe("ci_failed");
+    // send-to-agent reaction should have been executed
+    expect(mockSessionManager.send).toHaveBeenCalledWith("app-1", "Fix CI");
+    // Notifier should NOT have been called — the reaction is handling it
+    expect(mockNotifier.notify).not.toHaveBeenCalled();
+  });
+
   it("notifies humans on significant transitions without reaction config", async () => {
     const mockNotifier: Notifier = {
       name: "mock-notifier",

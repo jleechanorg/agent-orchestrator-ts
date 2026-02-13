@@ -444,10 +444,11 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
                 reactionKey,
                 reactionConfig as ReactionConfig,
               );
-              // "notify" and "auto-merge" reactions already call notifyHuman
-              if (reactionConfig.action === "notify" || reactionConfig.action === "auto-merge") {
-                reactionHandledNotify = true;
-              }
+              // Reaction is handling this event — suppress immediate human notification.
+              // "send-to-agent" retries + escalates on its own; "notify"/"auto-merge"
+              // already call notifyHuman internally. Notifying here would bypass the
+              // delayed escalation behaviour configured via retries/escalateAfter.
+              reactionHandledNotify = true;
             }
           }
         }
