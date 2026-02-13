@@ -4,15 +4,39 @@
 
 ## Core Philosophy
 
-**Optimize human attention.** The orchestrator's job is to ensure humans spend their limited attention on the right things at the right time — not babysitting agents, not polling dashboards, not wondering "what's stuck?"
+**Push, not pull.** The human never polls. The human never checks a dashboard wondering "what's happening?" The system pushes notifications to the human exactly when their attention is needed — and stays silent otherwise.
+
+The dashboard is a **drill-down tool** you open after receiving a notification, not something you sit and watch. The **Notifier is the primary interface.**
+
+### Interaction Model
+
+```
+Human spawns 20 agents → walks away → lives their life
+                                          │
+          ┌───────────────────────────────┘
+          │
+          ▼
+    Orchestrator runs autonomously:
+    ├── Agents work on issues
+    ├── CI fails? → auto-send fix to agent → resolved silently
+    ├── Review comments? → auto-send to agent → resolved silently
+    ├── Agent stuck? → NOTIFY HUMAN
+    ├── Agent needs input? → NOTIFY HUMAN
+    ├── PR ready to merge? → NOTIFY HUMAN (or auto-merge if configured)
+    ├── Agent errored? → NOTIFY HUMAN
+    └── All done? → NOTIFY HUMAN with summary
+
+Human only intervenes when notified. Everything else is handled.
+```
 
 ### Design Principles
 
-1. **Server-centric**: All agents report to a central server. The server coordinates everything.
-2. **Plugin everything**: 8 pluggable abstraction slots. Swap any component.
-3. **Works out of the box**: Default config (tmux + claude-code + worktree + github) requires zero setup beyond `npx agent-orchestrator init`.
-4. **Human attention optimization**: Proactive notifications when agents need input, are stuck, are done, or when PRs need review. Silence when everything is fine.
-5. **Runtime agnostic**: tmux is just one way to run agents. Docker, K8s, cloud, SSH, child processes — all through the same interface.
+1. **Push, not pull**: Notifications are the primary interface. Dashboard is secondary drill-down.
+2. **Server-centric**: All agents report to a central server. The server coordinates everything.
+3. **Plugin everything**: 8 pluggable abstraction slots. Swap any component.
+4. **Works out of the box**: Default config (tmux + claude-code + worktree + github) requires zero setup beyond `npx agent-orchestrator init`.
+5. **Silence by default, loud when needed**: Auto-handle routine issues (CI failures, review comments). Only notify the human when their judgment or action is truly required.
+6. **Runtime agnostic**: tmux is just one way to run agents. Docker, K8s, cloud, SSH, child processes — all through the same interface.
 
 ---
 
@@ -226,26 +250,41 @@ interface SCM {
 | `gitlab` | REST API | MR/pipeline/review support |
 | `bitbucket` | REST API | PR/pipeline support |
 
-### 6. Notifier — Alerts and communication
+### 6. Notifier — THE PRIMARY INTERFACE
+
+The notifier is not a nice-to-have — it is the primary way the system communicates with humans. The human walks away after spawning agents. Notifications bring them back only when needed.
 
 ```typescript
 interface Notifier {
   readonly name: string;
 
+  // Core: push a notification to the human
   notify(event: OrchestratorEvent): Promise<void>;
 
-  // Optional: richer communication
+  // Optional: actionable notifications (buttons/links)
+  notifyWithActions?(event: OrchestratorEvent, actions: NotifyAction[]): Promise<void>;
+
+  // Optional: richer communication (post to channel)
   post?(message: string, context?: NotifyContext): Promise<string | null>;
+}
+
+// Notifications can include actions the human can take directly
+interface NotifyAction {
+  label: string;           // "Merge PR", "Open Dashboard", "Kill Session"
+  url?: string;            // Deep link to dashboard action
+  callback?: string;       // API endpoint to call
 }
 ```
 
-| Implementation | Channel | Best for |
-|---------------|---------|----------|
-| `desktop` (default) | OS notifications | Solo developer |
-| `slack` | Slack messages | Teams |
-| `discord` | Discord messages | Communities |
-| `webhook` | HTTP POST | Custom integrations |
-| `email` | Email | Async/digest |
+| Implementation | Channel | Best for | Actionable? |
+|---------------|---------|----------|-------------|
+| `desktop` (default) | OS notifications (clickable) | Solo developer | Click → opens dashboard |
+| `slack` | Slack messages with buttons | Teams | Buttons → merge, review, kill |
+| `discord` | Discord messages | Communities | Links |
+| `webhook` | HTTP POST | Custom integrations | Custom |
+| `email` | Email digest | Async | Links |
+
+**Multiple notifiers can be active simultaneously.** E.g., desktop for immediate alerts + Slack for team visibility + email for daily digest.
 
 ### 7. Terminal — Human interaction interface
 
@@ -348,21 +387,71 @@ The Lifecycle Manager is the orchestrator's brain. It:
 
 ## Human Attention Optimization
 
-The core differentiator. The system proactively manages human attention:
+**The system notifies the human. The human never polls.**
 
-### Notification Events (when to alert humans)
+The orchestrator operates on a simple principle: handle everything you can automatically, and push a notification to the human only when their judgment or action is truly required. The human spawns agents, walks away, and gets notified.
 
-| Event | Priority | Default Action |
-|-------|----------|---------------|
-| **Agent needs input** (permission prompt, question) | HIGH | Desktop + Slack notification |
-| **Agent stuck** (idle > threshold, no progress) | HIGH | Desktop notification after 5min, Slack after 15min |
-| **Agent errored** (crashed, unhandled error) | HIGH | Immediate notification |
-| **PR ready for review** | MEDIUM | Notification with PR link |
-| **CI failed** | LOW | Auto-send fix prompt to agent, notify if 2nd failure |
-| **Review comments** | LOW | Auto-send to agent, notify if not addressed in 30min |
-| **PR approved + CI green** | MEDIUM | Notification with merge button |
-| **Session completed** | LOW | Summary notification |
-| **All sessions idle** | INFO | "All agents done" digest |
+### Two-Tier Event Handling
+
+**Tier 1: Auto-handled (human never sees these)**
+The orchestrator resolves these silently. The human is only notified if auto-resolution fails.
+
+| Event | Auto-Response | Escalation |
+|-------|--------------|------------|
+| CI failed | Send fix prompt to agent | Notify after 2 failed attempts |
+| Review comments | Send "address comments" to agent | Notify if unresolved after 30min |
+| Bugbot/linter comments | Send fix prompt to agent | Notify if unresolved after 30min |
+| Merge conflicts | Send "rebase" to agent | Notify if unresolved after 15min |
+
+**Tier 2: Notify human (requires human judgment)**
+These always push a notification. The human's phone buzzes, Slack pings, etc.
+
+| Event | Priority | Notification |
+|-------|----------|-------------|
+| **Agent needs input** (permission, question, stuck) | URGENT | "Session X needs your input" + deep link |
+| **Agent errored** (crashed, unrecoverable) | URGENT | "Session X crashed" + error context |
+| **PR ready to merge** (approved + CI green) | ACTION | "PR #42 ready to merge" + merge button |
+| **Agent idle too long** (no PR, no progress) | WARNING | "Session X idle for 15min, may need help" |
+| **Auto-fix failed** (CI fix failed 2x, comments not addressed) | WARNING | "Session X couldn't resolve CI/review — needs you" |
+| **All work complete** | INFO | "All 20 sessions done. 18 PRs merged, 2 need review." |
+
+### Escalation Chains
+
+Events start at auto-handle and escalate through notification tiers:
+
+```
+Event detected
+    │
+    ▼
+Can auto-handle? ──yes──► Auto-respond (send to agent)
+    │                          │
+    no                    Resolved? ──yes──► Done (silent)
+    │                          │
+    ▼                          no (retry N times)
+NOTIFY HUMAN                   │
+    │                          ▼
+    │                     NOTIFY HUMAN
+    │                     "Tried to auto-fix, couldn't resolve"
+    ▼
+Human acts via:
+  ├── Notification action button (merge, kill, open)
+  ├── Dashboard deep link
+  ├── CLI command
+  └── Direct tmux attach
+```
+
+### Notification Channels (Priority-Based Routing)
+
+Different priorities route to different channels:
+
+```yaml
+notifications:
+  routing:
+    urgent: [desktop, slack, sms]    # Agent stuck, errored, needs input
+    action: [desktop, slack]          # PR ready to merge
+    warning: [slack]                  # Auto-fix failed, idle too long
+    info: [slack]                     # Summary, all done
+```
 
 ### Reactions (configurable auto-responses)
 
@@ -370,51 +459,74 @@ The core differentiator. The system proactively manages human attention:
 # agent-orchestrator.yaml
 reactions:
   ci-failed:
-    auto: true  # automatically handled
+    auto: true
     action: send-to-agent
     message: "CI is failing. Run `gh pr checks` to see failures, fix them, and push."
     retries: 2
-    escalate-after: 2  # notify human after 2 failed attempts
+    escalate-after: 2  # notify human after 2 failed auto-fix attempts
 
   changes-requested:
     auto: true
     action: send-to-agent
     message: "Review comments on your PR. Check with `gh pr view --comments` and address each one."
-    escalate-after: 30m  # notify human if not resolved
+    escalate-after: 30m
 
   bugbot-comments:
     auto: true
     action: send-to-agent
     message: "Automated review comments found. Fix the issues flagged by the bot."
+    escalate-after: 30m
+
+  merge-conflicts:
+    auto: true
+    action: send-to-agent
+    message: "Your branch has merge conflicts. Rebase on the default branch and resolve them."
+    escalate-after: 15m
 
   approved-and-green:
     auto: false  # require human confirmation by default
     action: notify
+    priority: action
     message: "PR is ready to merge"
-    # Set auto: true to enable auto-merge
+    # Set auto: true + action: auto-merge for full automation
 
   agent-stuck:
-    threshold: 10m  # idle for 10 minutes
+    threshold: 10m
     action: notify
-    message: "Agent appears stuck"
+    priority: urgent
 
   agent-needs-input:
     action: notify
-    priority: high
-    message: "Agent is waiting for input"
+    priority: urgent
 
   agent-exited:
     action: notify
-    message: "Agent process has exited"
+    priority: urgent
+
+  all-complete:
+    action: notify
+    priority: info
+    message: "All sessions complete"
+    include-summary: true  # PRs merged, pending, failed
+
+  agent-idle-no-pr:
+    threshold: 30m  # working for 30min with no PR
+    action: notify
+    priority: warning
+    message: "Agent has been working for 30min without creating a PR"
 ```
 
-### Attention Dashboard
+### Dashboard (Secondary — Drill-Down Tool)
 
-The web dashboard is designed around attention priority:
-- **Red zone** (top): Sessions needing human input RIGHT NOW
-- **Yellow zone**: Sessions with issues (CI failed, stuck, review comments)
-- **Green zone**: Sessions working normally
-- **Grey zone**: Completed/merged sessions
+The dashboard exists for when you get a notification and need to drill down. It's organized by attention priority:
+
+- **Red zone** (top): URGENT — sessions needing human input RIGHT NOW
+- **Orange zone**: ACTION — PRs ready to merge, decisions needed
+- **Yellow zone**: WARNING — auto-fix failed, agents idle too long
+- **Green zone**: Sessions working normally (collapsed by default)
+- **Grey zone**: Completed/merged (collapsed by default)
+
+Clicking a notification deep-links directly to the relevant session/PR in the dashboard.
 
 ---
 
