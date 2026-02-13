@@ -10,6 +10,7 @@ export default tseslint.config(
       "**/node_modules/**",
       "**/.next/**",
       "**/coverage/**",
+      "packages/web/next-env.d.ts",
       "packages/web/next.config.js",
       "packages/web/postcss.config.mjs",
     ],
