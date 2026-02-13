@@ -200,7 +200,7 @@ export function createSessionManager(deps: SessionManagerDeps): SessionManager {
       }
     }
 
-    // Get agent launch config
+    // Get agent launch config and create runtime — clean up workspace on failure
     const agentLaunchConfig = {
       sessionId,
       projectConfig: project,
@@ -210,12 +210,11 @@ export function createSessionManager(deps: SessionManagerDeps): SessionManager {
       model: project.agentConfig?.model,
     };
 
-    const launchCommand = plugins.agent.getLaunchCommand(agentLaunchConfig);
-    const environment = plugins.agent.getEnvironment(agentLaunchConfig);
-
-    // Create runtime session — clean up workspace on failure
     let handle: RuntimeHandle;
     try {
+      const launchCommand = plugins.agent.getLaunchCommand(agentLaunchConfig);
+      const environment = plugins.agent.getEnvironment(agentLaunchConfig);
+
       handle = await plugins.runtime.create({
         sessionId,
         workspacePath,
@@ -226,7 +225,7 @@ export function createSessionManager(deps: SessionManagerDeps): SessionManager {
         },
       });
     } catch (err) {
-      // Clean up workspace if runtime creation failed
+      // Clean up workspace if agent config or runtime creation failed
       if (plugins.workspace && workspacePath !== project.path) {
         try {
           await plugins.workspace.destroy(workspacePath);
@@ -371,14 +370,16 @@ export function createSessionManager(deps: SessionManagerDeps): SessionManager {
       }
     }
 
-    // Destroy workspace (attempt even without project config using default workspace)
-    if (raw["worktree"]) {
+    // Destroy workspace — skip if worktree is the project path (no isolation was used)
+    const worktree = raw["worktree"];
+    const isProjectPath = project && worktree === project.path;
+    if (worktree && !isProjectPath) {
       const workspacePlugin = project
         ? resolvePlugins(project).workspace
         : registry.get<Workspace>("workspace", config.defaults.workspace);
       if (workspacePlugin) {
         try {
-          await workspacePlugin.destroy(raw["worktree"]);
+          await workspacePlugin.destroy(worktree);
         } catch {
           // Workspace might already be gone
         }
