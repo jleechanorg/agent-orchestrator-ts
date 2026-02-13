@@ -13,6 +13,7 @@ import type {
   Runtime,
   Agent,
   SCM,
+  Notifier,
   ActivityState,
   PRInfo,
 } from "../types.js";
@@ -250,6 +251,56 @@ describe("check (single session)", () => {
 
     await lm.check("app-1");
 
+    expect(lm.getStates().get("app-1")).toBe("needs_input");
+  });
+
+  it("preserves stuck state when detectActivity throws", async () => {
+    vi.mocked(mockAgent.detectActivity).mockRejectedValue(new Error("probe failed"));
+
+    const session = makeSession({ status: "stuck" });
+    vi.mocked(mockSessionManager.get).mockResolvedValue(session);
+
+    writeMetadata(dataDir, "app-1", {
+      worktree: "/tmp",
+      branch: "main",
+      status: "stuck",
+      project: "my-app",
+    });
+
+    const lm = createLifecycleManager({
+      config,
+      registry: mockRegistry,
+      sessionManager: mockSessionManager,
+    });
+
+    await lm.check("app-1");
+
+    // Should preserve "stuck" — NOT coerce to "working"
+    expect(lm.getStates().get("app-1")).toBe("stuck");
+  });
+
+  it("preserves needs_input state when detectActivity throws", async () => {
+    vi.mocked(mockAgent.detectActivity).mockRejectedValue(new Error("probe failed"));
+
+    const session = makeSession({ status: "needs_input" });
+    vi.mocked(mockSessionManager.get).mockResolvedValue(session);
+
+    writeMetadata(dataDir, "app-1", {
+      worktree: "/tmp",
+      branch: "main",
+      status: "needs_input",
+      project: "my-app",
+    });
+
+    const lm = createLifecycleManager({
+      config,
+      registry: mockRegistry,
+      sessionManager: mockSessionManager,
+    });
+
+    await lm.check("app-1");
+
+    // Should preserve "needs_input" — NOT coerce to "working"
     expect(lm.getStates().get("app-1")).toBe("needs_input");
   });
 
@@ -549,6 +600,64 @@ describe("reactions", () => {
     await lm.check("app-1");
 
     expect(mockSessionManager.send).not.toHaveBeenCalled();
+  });
+  it("notifies humans on significant transitions without reaction config", async () => {
+    const mockNotifier: Notifier = {
+      name: "mock-notifier",
+      notify: vi.fn().mockResolvedValue(undefined),
+    };
+
+    const mockSCM: SCM = {
+      name: "mock-scm",
+      detectPR: vi.fn(),
+      getPRState: vi.fn().mockResolvedValue("merged"),
+      mergePR: vi.fn(),
+      closePR: vi.fn(),
+      getCIChecks: vi.fn(),
+      getCISummary: vi.fn(),
+      getReviews: vi.fn(),
+      getReviewDecision: vi.fn(),
+      getPendingComments: vi.fn(),
+      getAutomatedComments: vi.fn(),
+      getMergeability: vi.fn(),
+    };
+
+    const registryWithNotifier: PluginRegistry = {
+      ...mockRegistry,
+      get: vi.fn().mockImplementation((slot: string, name: string) => {
+        if (slot === "runtime") return mockRuntime;
+        if (slot === "agent") return mockAgent;
+        if (slot === "scm") return mockSCM;
+        if (slot === "notifier" && name === "desktop") return mockNotifier;
+        return null;
+      }),
+    };
+
+    // merge.completed has "action" priority but NO reaction key mapping,
+    // so it must reach notifyHuman directly
+    const session = makeSession({ status: "approved", pr: makePR() });
+    vi.mocked(mockSessionManager.get).mockResolvedValue(session);
+
+    writeMetadata(dataDir, "app-1", {
+      worktree: "/tmp",
+      branch: "main",
+      status: "approved",
+      project: "my-app",
+    });
+
+    const lm = createLifecycleManager({
+      config,
+      registry: registryWithNotifier,
+      sessionManager: mockSessionManager,
+    });
+
+    await lm.check("app-1");
+
+    expect(lm.getStates().get("app-1")).toBe("merged");
+    expect(mockNotifier.notify).toHaveBeenCalled();
+    expect(mockNotifier.notify).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "merge.completed" }),
+    );
   });
 });
 

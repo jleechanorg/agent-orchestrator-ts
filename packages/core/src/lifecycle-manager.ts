@@ -192,10 +192,18 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
 
     // 2. Check agent activity
     if (agent) {
-      const activity = await agent.detectActivity(session).catch(() => session.activity);
-      if (activity === "exited") return "killed";
-      if (activity === "blocked") return "stuck";
-      if (activity === "waiting_input") return "needs_input";
+      try {
+        const activity = await agent.detectActivity(session);
+        if (activity === "exited") return "killed";
+        if (activity === "blocked") return "stuck";
+        if (activity === "waiting_input") return "needs_input";
+      } catch {
+        // On probe failure, preserve current stuck/needs_input state rather
+        // than letting the fallback at the bottom coerce them to "working"
+        if (session.status === "stuck" || session.status === "needs_input") {
+          return session.status;
+        }
+      }
     }
 
     // 3. Check PR state if PR exists
@@ -412,10 +420,12 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         }
       }
 
-      // Check if there's a reaction for this transition
+      // Handle transition: notify humans and/or trigger reactions
       const eventType = statusToEventType(oldStatus, newStatus);
       if (eventType) {
+        let reactionHandledNotify = false;
         const reactionKey = eventToReactionKey(eventType);
+
         if (reactionKey) {
           // Merge project-specific overrides with global defaults
           const project = config.projects[session.projectId];
@@ -434,7 +444,25 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
                 reactionKey,
                 reactionConfig as ReactionConfig,
               );
+              // "notify" and "auto-merge" reactions already call notifyHuman
+              if (reactionConfig.action === "notify" || reactionConfig.action === "auto-merge") {
+                reactionHandledNotify = true;
+              }
             }
+          }
+        }
+
+        // For significant transitions not already notified by a reaction, notify humans
+        if (!reactionHandledNotify) {
+          const priority = inferPriority(eventType);
+          if (priority !== "info") {
+            const event = createEvent(eventType, {
+              sessionId: session.id,
+              projectId: session.projectId,
+              message: `${session.id}: ${oldStatus} → ${newStatus}`,
+              data: { oldStatus, newStatus },
+            });
+            await notifyHuman(event, priority);
           }
         }
       }
