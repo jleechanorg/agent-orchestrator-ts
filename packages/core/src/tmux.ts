@@ -1,0 +1,194 @@
+/**
+ * tmux command wrappers — async helpers for tmux operations.
+ *
+ * Uses child_process.execFile for safe command execution (no shell injection).
+ */
+
+import { execFile } from "node:child_process";
+
+/** Run a tmux command and return stdout. */
+function tmux(...args: string[]): Promise<string> {
+  return new Promise((resolve, reject) => {
+    execFile("tmux", args, { timeout: 10_000 }, (error, stdout, stderr) => {
+      if (error) {
+        // tmux exits non-zero for many benign cases (no sessions, etc.)
+        reject(new Error(`tmux ${args[0]} failed: ${stderr || error.message}`));
+        return;
+      }
+      resolve(stdout);
+    });
+  });
+}
+
+/** Check if tmux server is running. */
+export async function isTmuxAvailable(): Promise<boolean> {
+  try {
+    await tmux("list-sessions", "-F", "#{session_name}");
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export interface TmuxSessionInfo {
+  name: string;
+  created: string;
+  attached: boolean;
+  windows: number;
+}
+
+/** List all tmux sessions. */
+export async function listSessions(): Promise<TmuxSessionInfo[]> {
+  try {
+    const output = await tmux(
+      "list-sessions",
+      "-F",
+      "#{session_name}\t#{session_created_string}\t#{session_attached}\t#{session_windows}"
+    );
+
+    return output
+      .trim()
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => {
+        const [name = "", created = "", attached = "0", windows = "1"] = line.split("\t");
+        return {
+          name,
+          created,
+          attached: attached !== "0",
+          windows: parseInt(windows, 10) || 1,
+        };
+      });
+  } catch {
+    // No tmux server or no sessions
+    return [];
+  }
+}
+
+/** Check if a specific tmux session exists. */
+export async function hasSession(sessionName: string): Promise<boolean> {
+  try {
+    await tmux("has-session", "-t", sessionName);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export interface NewSessionOptions {
+  /** Session name */
+  name: string;
+  /** Working directory */
+  cwd: string;
+  /** Initial command to run */
+  command?: string;
+  /** Environment variables to set */
+  environment?: Record<string, string>;
+  /** Window width/height */
+  width?: number;
+  height?: number;
+}
+
+/** Create a new tmux session (detached). */
+export async function newSession(opts: NewSessionOptions): Promise<void> {
+  const args = ["new-session", "-d", "-s", opts.name, "-c", opts.cwd];
+
+  // Add environment variables
+  if (opts.environment) {
+    for (const [key, value] of Object.entries(opts.environment)) {
+      args.push("-e", `${key}=${value}`);
+    }
+  }
+
+  // Window size
+  if (opts.width) {
+    args.push("-x", String(opts.width));
+  }
+  if (opts.height) {
+    args.push("-y", String(opts.height));
+  }
+
+  await tmux(...args);
+
+  // Send the initial command if provided
+  if (opts.command) {
+    await sendKeys(opts.name, opts.command);
+  }
+}
+
+/**
+ * Send keys (text + Enter) to a tmux session.
+ * For long/multiline messages, uses load-buffer + paste-buffer.
+ */
+export async function sendKeys(
+  sessionName: string,
+  text: string,
+  pressEnter = true
+): Promise<void> {
+  if (text.includes("\n") || text.length > 200) {
+    // Use load-buffer for long/multiline text (avoids tmux escaping issues)
+    const { writeFileSync, unlinkSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const { randomUUID } = await import("node:crypto");
+
+    const tmpFile = join(tmpdir(), `ao-tmux-${randomUUID()}.txt`);
+    writeFileSync(tmpFile, text, "utf-8");
+
+    try {
+      await tmux("load-buffer", tmpFile);
+      await tmux("paste-buffer", "-t", sessionName);
+    } finally {
+      try { unlinkSync(tmpFile); } catch { /* ignore cleanup errors */ }
+    }
+  } else {
+    await tmux("send-keys", "-t", sessionName, text);
+  }
+
+  if (pressEnter) {
+    // Small delay for paste to complete before sending Enter
+    if (text.includes("\n") || text.length > 200) {
+      await new Promise((resolve) => setTimeout(resolve, 300));
+    }
+    await tmux("send-keys", "-t", sessionName, "Enter");
+  }
+}
+
+/**
+ * Capture recent output from a tmux pane.
+ *
+ * @param sessionName - tmux session name
+ * @param lines - Number of scrollback lines to capture (default 30)
+ */
+export async function capturePane(
+  sessionName: string,
+  lines = 30
+): Promise<string> {
+  return tmux(
+    "capture-pane",
+    "-t",
+    sessionName,
+    "-p",
+    "-S",
+    `-${lines}`
+  );
+}
+
+/** Kill a tmux session. */
+export async function killSession(sessionName: string): Promise<void> {
+  await tmux("kill-session", "-t", sessionName);
+}
+
+/**
+ * Get the TTY device for a tmux session's first pane.
+ * Useful for finding processes running in the session.
+ */
+export async function getPaneTTY(sessionName: string): Promise<string | null> {
+  try {
+    const output = await tmux("list-panes", "-t", sessionName, "-F", "#{pane_tty}");
+    const tty = output.trim().split("\n")[0];
+    return tty || null;
+  } catch {
+    return null;
+  }
+}
