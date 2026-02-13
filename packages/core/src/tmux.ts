@@ -152,7 +152,9 @@ export async function sendKeys(
       }
     }
   } else {
-    await tmux("send-keys", "-t", sessionName, text);
+    // Use -l (literal) to prevent tmux from interpreting text as key names
+    // (e.g. "Enter", "Escape", "C-c" would be treated as keypresses without -l)
+    await tmux("send-keys", "-t", sessionName, "-l", text);
   }
 
   if (pressEnter) {

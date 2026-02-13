@@ -190,7 +190,7 @@ describe("sendKeys", () => {
     expect(escapeArgs).toEqual(["send-keys", "-t", "app-1", "Escape"]);
     // Call 1: text
     const textArgs = mockExecFile.mock.calls[1][1] as string[];
-    expect(textArgs).toEqual(["send-keys", "-t", "app-1", "hello world"]);
+    expect(textArgs).toEqual(["send-keys", "-t", "app-1", "-l", "hello world"]);
     // Call 2: Enter
     const enterArgs = mockExecFile.mock.calls[2][1] as string[];
     expect(enterArgs).toEqual(["send-keys", "-t", "app-1", "Enter"]);

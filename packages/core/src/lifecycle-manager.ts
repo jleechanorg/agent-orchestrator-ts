@@ -453,6 +453,21 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       // Poll all sessions concurrently
       await Promise.allSettled(sessionsToCheck.map((s) => checkSession(s)));
 
+      // Prune stale entries from states and reactionTrackers for sessions
+      // that no longer appear in the session list (e.g., after kill/cleanup)
+      const currentSessionIds = new Set(sessions.map((s) => s.id));
+      for (const trackedId of states.keys()) {
+        if (!currentSessionIds.has(trackedId)) {
+          states.delete(trackedId);
+        }
+      }
+      for (const trackerKey of reactionTrackers.keys()) {
+        const sessionId = trackerKey.split(":")[0];
+        if (sessionId && !currentSessionIds.has(sessionId)) {
+          reactionTrackers.delete(trackerKey);
+        }
+      }
+
       // Check if all sessions are complete (emit only once)
       const activeSessions = sessions.filter((s) => s.status !== "merged" && s.status !== "killed");
       if (sessions.length > 0 && activeSessions.length === 0 && !allCompleteEmitted) {
