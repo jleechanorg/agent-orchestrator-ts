@@ -1,11 +1,11 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
 import { createSessionManager } from "../session-manager.js";
 import { createEventBus } from "../event-bus.js";
-import { writeMetadata, readMetadata, listMetadata } from "../metadata.js";
+import { writeMetadata, readMetadata } from "../metadata.js";
 import type {
   OrchestratorConfig,
   PluginRegistry,
@@ -70,7 +70,7 @@ beforeEach(() => {
 
   mockRegistry = {
     register: vi.fn(),
-    get: vi.fn().mockImplementation((slot: string, name: string) => {
+    get: vi.fn().mockImplementation((slot: string, _name: string) => {
       if (slot === "runtime") return mockRuntime;
       if (slot === "agent") return mockAgent;
       if (slot === "workspace") return mockWorkspace;
@@ -496,10 +496,7 @@ describe("send", () => {
     const sm = createSessionManager({ config, registry: mockRegistry, eventBus });
     await sm.send("app-1", "Fix the CI failures");
 
-    expect(mockRuntime.sendMessage).toHaveBeenCalledWith(
-      makeHandle("rt-1"),
-      "Fix the CI failures"
-    );
+    expect(mockRuntime.sendMessage).toHaveBeenCalledWith(makeHandle("rt-1"), "Fix the CI failures");
   });
 
   it("throws for nonexistent session", async () => {

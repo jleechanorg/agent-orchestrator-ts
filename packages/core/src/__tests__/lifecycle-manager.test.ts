@@ -14,7 +14,6 @@ import type {
   Runtime,
   Agent,
   SCM,
-  Notifier,
   EventBus,
   OrchestratorEvent,
   ActivityState,

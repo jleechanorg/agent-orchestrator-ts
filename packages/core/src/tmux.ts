@@ -43,7 +43,7 @@ export async function listSessions(): Promise<TmuxSessionInfo[]> {
     const output = await tmux(
       "list-sessions",
       "-F",
-      "#{session_name}\t#{session_created_string}\t#{session_attached}\t#{session_windows}"
+      "#{session_name}\t#{session_created_string}\t#{session_attached}\t#{session_windows}",
     );
 
     return output
@@ -125,7 +125,7 @@ export async function newSession(opts: NewSessionOptions): Promise<void> {
 export async function sendKeys(
   sessionName: string,
   text: string,
-  pressEnter = true
+  pressEnter = true,
 ): Promise<void> {
   // Clear any partial input first (matches bash reference scripts)
   await tmux("send-keys", "-t", sessionName, "Escape");
@@ -145,7 +145,11 @@ export async function sendKeys(
       await tmux("load-buffer", "-b", bufferName, tmpFile);
       await tmux("paste-buffer", "-b", bufferName, "-d", "-t", sessionName);
     } finally {
-      try { unlinkSync(tmpFile); } catch { /* ignore cleanup errors */ }
+      try {
+        unlinkSync(tmpFile);
+      } catch {
+        /* ignore cleanup errors */
+      }
     }
   } else {
     await tmux("send-keys", "-t", sessionName, text);
@@ -166,18 +170,8 @@ export async function sendKeys(
  * @param sessionName - tmux session name
  * @param lines - Number of scrollback lines to capture (default 30)
  */
-export async function capturePane(
-  sessionName: string,
-  lines = 30
-): Promise<string> {
-  return tmux(
-    "capture-pane",
-    "-t",
-    sessionName,
-    "-p",
-    "-S",
-    `-${lines}`
-  );
+export async function capturePane(sessionName: string, lines = 30): Promise<string> {
+  return tmux("capture-pane", "-t", sessionName, "-p", "-S", `-${lines}`);
 }
 
 /** Kill a tmux session. */

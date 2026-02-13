@@ -12,7 +12,14 @@
  *   issue=https://linear.app/team/issue/INT-1234
  */
 
-import { readFileSync, writeFileSync, existsSync, mkdirSync, unlinkSync, readdirSync } from "node:fs";
+import {
+  readFileSync,
+  writeFileSync,
+  existsSync,
+  mkdirSync,
+  unlinkSync,
+  readdirSync,
+} from "node:fs";
 import { join, dirname } from "node:path";
 import type { SessionId, SessionMetadata } from "./types.js";
 
@@ -37,10 +44,12 @@ function parseMetadataFile(content: string): Record<string, string> {
 
 /** Serialize a record back to key=value format. */
 function serializeMetadata(data: Record<string, string>): string {
-  return Object.entries(data)
-    .filter(([, v]) => v !== undefined && v !== "")
-    .map(([k, v]) => `${k}=${v}`)
-    .join("\n") + "\n";
+  return (
+    Object.entries(data)
+      .filter(([, v]) => v !== undefined && v !== "")
+      .map(([k, v]) => `${k}=${v}`)
+      .join("\n") + "\n"
+  );
 }
 
 /** Validate sessionId to prevent path traversal. */
@@ -61,10 +70,7 @@ function metadataPath(dataDir: string, sessionId: SessionId): string {
 /**
  * Read metadata for a session. Returns null if the file doesn't exist.
  */
-export function readMetadata(
-  dataDir: string,
-  sessionId: SessionId
-): SessionMetadata | null {
+export function readMetadata(dataDir: string, sessionId: SessionId): SessionMetadata | null {
   const path = metadataPath(dataDir, sessionId);
   if (!existsSync(path)) return null;
 
@@ -89,7 +95,7 @@ export function readMetadata(
  */
 export function readMetadataRaw(
   dataDir: string,
-  sessionId: SessionId
+  sessionId: SessionId,
 ): Record<string, string> | null {
   const path = metadataPath(dataDir, sessionId);
   if (!existsSync(path)) return null;
@@ -102,7 +108,7 @@ export function readMetadataRaw(
 export function writeMetadata(
   dataDir: string,
   sessionId: SessionId,
-  metadata: SessionMetadata
+  metadata: SessionMetadata,
 ): void {
   const path = metadataPath(dataDir, sessionId);
   mkdirSync(dirname(path), { recursive: true });
@@ -130,7 +136,7 @@ export function writeMetadata(
 export function updateMetadata(
   dataDir: string,
   sessionId: SessionId,
-  updates: Partial<Record<string, string>>
+  updates: Partial<Record<string, string>>,
 ): void {
   const path = metadataPath(dataDir, sessionId);
   let existing: Record<string, string> = {};
@@ -139,11 +145,12 @@ export function updateMetadata(
     existing = parseMetadataFile(readFileSync(path, "utf-8"));
   }
 
-  // Merge updates — delete keys set to empty string
+  // Merge updates — remove keys set to empty string
   for (const [key, value] of Object.entries(updates)) {
     if (value === undefined) continue;
     if (value === "") {
-      delete existing[key];
+      const { [key]: _, ...rest } = existing;
+      existing = rest;
     } else {
       existing[key] = value;
     }
@@ -157,11 +164,7 @@ export function updateMetadata(
  * Delete a session's metadata file.
  * Optionally archive it to an `archive/` subdirectory.
  */
-export function deleteMetadata(
-  dataDir: string,
-  sessionId: SessionId,
-  archive = true
-): void {
+export function deleteMetadata(dataDir: string, sessionId: SessionId, archive = true): void {
   const path = metadataPath(dataDir, sessionId);
   if (!existsSync(path)) return;
 
@@ -183,7 +186,5 @@ export function listMetadata(dataDir: string): SessionId[] {
   const dir = join(dataDir, "sessions");
   if (!existsSync(dir)) return [];
 
-  return readdirSync(dir).filter(
-    (name) => name !== "archive" && !name.startsWith(".")
-  );
+  return readdirSync(dir).filter((name) => name !== "archive" && !name.startsWith("."));
 }

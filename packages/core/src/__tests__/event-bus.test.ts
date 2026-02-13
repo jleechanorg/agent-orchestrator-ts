@@ -1,10 +1,10 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdirSync, rmSync, readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
 import { createEventBus, createEvent } from "../event-bus.js";
-import type { OrchestratorEvent, EventType } from "../types.js";
+import type { OrchestratorEvent } from "../types.js";
 
 let tmpDir: string;
 
@@ -36,16 +36,37 @@ describe("createEvent", () => {
   });
 
   it("infers priority from event type", () => {
-    expect(createEvent("session.stuck", { sessionId: "a", projectId: "p", message: "" }).priority).toBe("urgent");
-    expect(createEvent("session.needs_input", { sessionId: "a", projectId: "p", message: "" }).priority).toBe("urgent");
-    expect(createEvent("session.errored", { sessionId: "a", projectId: "p", message: "" }).priority).toBe("urgent");
-    expect(createEvent("review.approved", { sessionId: "a", projectId: "p", message: "" }).priority).toBe("action");
-    expect(createEvent("merge.ready", { sessionId: "a", projectId: "p", message: "" }).priority).toBe("action");
-    expect(createEvent("merge.completed", { sessionId: "a", projectId: "p", message: "" }).priority).toBe("action");
-    expect(createEvent("ci.failing", { sessionId: "a", projectId: "p", message: "" }).priority).toBe("warning");
-    expect(createEvent("review.changes_requested", { sessionId: "a", projectId: "p", message: "" }).priority).toBe("warning");
-    expect(createEvent("session.spawned", { sessionId: "a", projectId: "p", message: "" }).priority).toBe("info");
-    expect(createEvent("pr.created", { sessionId: "a", projectId: "p", message: "" }).priority).toBe("info");
+    expect(
+      createEvent("session.stuck", { sessionId: "a", projectId: "p", message: "" }).priority,
+    ).toBe("urgent");
+    expect(
+      createEvent("session.needs_input", { sessionId: "a", projectId: "p", message: "" }).priority,
+    ).toBe("urgent");
+    expect(
+      createEvent("session.errored", { sessionId: "a", projectId: "p", message: "" }).priority,
+    ).toBe("urgent");
+    expect(
+      createEvent("review.approved", { sessionId: "a", projectId: "p", message: "" }).priority,
+    ).toBe("action");
+    expect(
+      createEvent("merge.ready", { sessionId: "a", projectId: "p", message: "" }).priority,
+    ).toBe("action");
+    expect(
+      createEvent("merge.completed", { sessionId: "a", projectId: "p", message: "" }).priority,
+    ).toBe("action");
+    expect(
+      createEvent("ci.failing", { sessionId: "a", projectId: "p", message: "" }).priority,
+    ).toBe("warning");
+    expect(
+      createEvent("review.changes_requested", { sessionId: "a", projectId: "p", message: "" })
+        .priority,
+    ).toBe("warning");
+    expect(
+      createEvent("session.spawned", { sessionId: "a", projectId: "p", message: "" }).priority,
+    ).toBe("info");
+    expect(
+      createEvent("pr.created", { sessionId: "a", projectId: "p", message: "" }).priority,
+    ).toBe("info");
   });
 
   it("allows explicit priority override", () => {
@@ -124,7 +145,9 @@ describe("createEventBus (no persistence)", () => {
     const bus = createEventBus(null);
     const received: OrchestratorEvent[] = [];
 
-    bus.on("session.spawned", () => { throw new Error("boom"); });
+    bus.on("session.spawned", () => {
+      throw new Error("boom");
+    });
     bus.on("session.spawned", (e) => received.push(e));
 
     bus.emit(createEvent("session.spawned", { sessionId: "a", projectId: "p", message: "" }));
@@ -206,7 +229,13 @@ describe("getHistory", () => {
     const bus = createEventBus(null);
 
     for (let i = 0; i < 10; i++) {
-      bus.emit(createEvent("session.spawned", { sessionId: `s-${i}`, projectId: "p", message: `msg-${i}` }));
+      bus.emit(
+        createEvent("session.spawned", {
+          sessionId: `s-${i}`,
+          projectId: "p",
+          message: `msg-${i}`,
+        }),
+      );
     }
 
     const result = bus.getHistory({ limit: 3 });
@@ -225,7 +254,9 @@ describe("getHistory", () => {
 
     expect(bus.getHistory({ sessionId: "a", projectId: "p1" })).toHaveLength(2);
     expect(bus.getHistory({ sessionId: "a", type: "session.spawned" })).toHaveLength(2);
-    expect(bus.getHistory({ sessionId: "a", projectId: "p1", type: "session.spawned" })).toHaveLength(1);
+    expect(
+      bus.getHistory({ sessionId: "a", projectId: "p1", type: "session.spawned" }),
+    ).toHaveLength(1);
   });
 });
 
@@ -247,11 +278,16 @@ describe("JSONL persistence", () => {
     expect(parsed.timestamp).toBeTruthy();
   });
 
-  it("loads history from existing JSONL file on creation", () => {
+  it("loads history from existing JSONL file on creation", async () => {
     const logPath = join(tmpDir, "existing.jsonl");
-    const event = createEvent("session.spawned", { sessionId: "old", projectId: "p", message: "old event" });
+    const event = createEvent("session.spawned", {
+      sessionId: "old",
+      projectId: "p",
+      message: "old event",
+    });
     const serialized = JSON.stringify({ ...event, timestamp: event.timestamp.toISOString() });
-    require("node:fs").writeFileSync(logPath, serialized + "\n", "utf-8");
+    const { writeFileSync } = await import("node:fs");
+    writeFileSync(logPath, serialized + "\n", "utf-8");
 
     const bus = createEventBus(logPath);
     const history = bus.getHistory();

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import * as childProcess from "node:child_process";
 import {
   isTmuxAvailable,
@@ -18,19 +18,21 @@ vi.mock("node:child_process", () => ({
 
 const mockExecFile = vi.mocked(childProcess.execFile);
 
+type ExecFileCallback = (error: Error | null, stdout: string, stderr: string) => void;
+
 /** Helper to make execFile resolve with stdout. */
 function mockTmuxSuccess(stdout: string) {
   mockExecFile.mockImplementation((_cmd, _args, _opts, callback) => {
-    (callback as Function)(null, stdout, "");
-    return {} as any;
+    (callback as ExecFileCallback)(null, stdout, "");
+    return {} as ReturnType<typeof childProcess.execFile>;
   });
 }
 
 /** Helper to make execFile reject with an error. */
 function mockTmuxError(message: string) {
   mockExecFile.mockImplementation((_cmd, _args, _opts, callback) => {
-    (callback as Function)(new Error(message), "", message);
-    return {} as any;
+    (callback as ExecFileCallback)(new Error(message), "", message);
+    return {} as ReturnType<typeof childProcess.execFile>;
   });
 }
 
@@ -41,11 +43,11 @@ function mockTmuxSequence(results: Array<{ stdout?: string; error?: string }>) {
     const result = results[callIndex] ?? results[results.length - 1];
     callIndex++;
     if (result.error) {
-      (callback as Function)(new Error(result.error), "", result.error);
+      (callback as ExecFileCallback)(new Error(result.error), "", result.error);
     } else {
-      (callback as Function)(null, result.stdout ?? "", "");
+      (callback as ExecFileCallback)(null, result.stdout ?? "", "");
     }
-    return {} as any;
+    return {} as ReturnType<typeof childProcess.execFile>;
   });
 }
 
@@ -68,8 +70,7 @@ describe("isTmuxAvailable", () => {
 describe("listSessions", () => {
   it("parses tmux session list", async () => {
     mockTmuxSuccess(
-      "app-1\tMon Jan  1 00:00:00 2025\t0\t2\n" +
-      "app-2\tTue Jan  2 00:00:00 2025\t1\t1\n"
+      "app-1\tMon Jan  1 00:00:00 2025\t0\t2\n" + "app-2\tTue Jan  2 00:00:00 2025\t1\t1\n",
     );
 
     const sessions = await listSessions();
@@ -107,7 +108,7 @@ describe("hasSession", () => {
       "tmux",
       ["has-session", "-t", "app-1"],
       expect.any(Object),
-      expect.any(Function)
+      expect.any(Function),
     );
   });
 
@@ -127,7 +128,7 @@ describe("newSession", () => {
       "tmux",
       ["new-session", "-d", "-s", "test-1", "-c", "/tmp/workspace"],
       expect.any(Object),
-      expect.any(Function)
+      expect.any(Function),
     );
   });
 
@@ -160,12 +161,7 @@ describe("newSession", () => {
 
   it("sends initial command after creation", async () => {
     // Calls: new-session, send-keys Escape, send-keys text, send-keys Enter
-    mockTmuxSequence([
-      { stdout: "" },
-      { stdout: "" },
-      { stdout: "" },
-      { stdout: "" },
-    ]);
+    mockTmuxSequence([{ stdout: "" }, { stdout: "" }, { stdout: "" }, { stdout: "" }]);
 
     await newSession({ name: "test-4", cwd: "/tmp", command: "echo hello" });
 
@@ -274,7 +270,7 @@ describe("capturePane", () => {
       "tmux",
       ["capture-pane", "-t", "app-1", "-p", "-S", "-30"],
       expect.any(Object),
-      expect.any(Function)
+      expect.any(Function),
     );
   });
 
@@ -298,7 +294,7 @@ describe("killSession", () => {
       "tmux",
       ["kill-session", "-t", "app-1"],
       expect.any(Object),
-      expect.any(Function)
+      expect.any(Function),
     );
   });
 

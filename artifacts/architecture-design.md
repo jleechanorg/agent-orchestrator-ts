@@ -1,6 +1,6 @@
 # Architecture Design — Agent Orchestrator
 
-*Compiled: 2026-02-13*
+_Compiled: 2026-02-13_
 
 ## Core Philosophy
 
@@ -42,18 +42,18 @@ Human only intervenes when notified. Everything else is handled.
 
 ## Nomenclature
 
-| Term | Definition | Examples |
-|------|-----------|---------|
-| **Orchestrator** | The central server that manages everything | The Next.js app |
-| **Project** | A configured repository to work on | `my-app`, `backend-api` |
-| **Session** | A running agent instance working on a task | `my-app-1`, `my-app-2` |
-| **Runtime** | Where/how the session executes | tmux, docker, k8s, process |
-| **Agent** | The AI coding tool being used | claude-code, codex, aider |
-| **Workspace** | Isolated code copy for a session | git worktree, clone, volume |
-| **Tracker** | Issue/task tracking system | github, linear, jira |
-| **SCM** | Source code management platform | github, gitlab, bitbucket |
-| **Notifier** | Communication/alert channel | slack, discord, desktop, webhook |
-| **Terminal** | Human interaction interface | iterm2, web terminal, none |
+| Term             | Definition                                 | Examples                         |
+| ---------------- | ------------------------------------------ | -------------------------------- |
+| **Orchestrator** | The central server that manages everything | The Next.js app                  |
+| **Project**      | A configured repository to work on         | `my-app`, `backend-api`          |
+| **Session**      | A running agent instance working on a task | `my-app-1`, `my-app-2`           |
+| **Runtime**      | Where/how the session executes             | tmux, docker, k8s, process       |
+| **Agent**        | The AI coding tool being used              | claude-code, codex, aider        |
+| **Workspace**    | Isolated code copy for a session           | git worktree, clone, volume      |
+| **Tracker**      | Issue/task tracking system                 | github, linear, jira             |
+| **SCM**          | Source code management platform            | github, gitlab, bitbucket        |
+| **Notifier**     | Communication/alert channel                | slack, discord, desktop, webhook |
+| **Terminal**     | Human interaction interface                | iterm2, web terminal, none       |
 
 ---
 
@@ -124,23 +124,23 @@ interface Runtime {
 }
 ```
 
-| Implementation | How it works | Best for |
-|---------------|-------------|----------|
-| `tmux` (default) | tmux sessions + send-keys | Local development, interactive |
-| `process` | Child processes + stdin/stdout | Headless, CI/CD, scripting |
-| `docker` | Docker containers + exec | Isolation, reproducibility |
-| `kubernetes` | K8s pods/jobs | Scale, enterprise |
-| `ssh` | SSH to remote + tmux/process | Remote machines |
-| `e2b` | E2B SDK (Firecracker microVMs) | Cloud sandboxes |
-| `fly` | Fly.io Machines API | Cost-effective cloud |
-| `modal` | Modal Sandboxes | GPU, autoscaling |
+| Implementation   | How it works                   | Best for                       |
+| ---------------- | ------------------------------ | ------------------------------ |
+| `tmux` (default) | tmux sessions + send-keys      | Local development, interactive |
+| `process`        | Child processes + stdin/stdout | Headless, CI/CD, scripting     |
+| `docker`         | Docker containers + exec       | Isolation, reproducibility     |
+| `kubernetes`     | K8s pods/jobs                  | Scale, enterprise              |
+| `ssh`            | SSH to remote + tmux/process   | Remote machines                |
+| `e2b`            | E2B SDK (Firecracker microVMs) | Cloud sandboxes                |
+| `fly`            | Fly.io Machines API            | Cost-effective cloud           |
+| `modal`          | Modal Sandboxes                | GPU, autoscaling               |
 
 ### 2. Agent — AI coding tool
 
 ```typescript
 interface Agent {
   readonly name: string;
-  readonly processName: string;  // for detection
+  readonly processName: string; // for detection
 
   // Launch
   getLaunchCommand(session: SessionConfig, project: ProjectConfig): string;
@@ -159,14 +159,14 @@ interface Agent {
 }
 ```
 
-| Implementation | Launch command | Activity detection |
-|---------------|---------------|-------------------|
+| Implementation          | Launch command                          | Activity detection         |
+| ----------------------- | --------------------------------------- | -------------------------- |
 | `claude-code` (default) | `claude --dangerously-skip-permissions` | JSONL mtime + process tree |
-| `claude-headless` | `claude -p --output-format stream-json` | stdout parsing |
-| `codex` | `codex` | Process detection |
-| `aider` | `aider --no-auto-commits` | Process detection |
-| `goose` | `goose session` | Process detection |
-| `custom` | User-defined command | Configurable |
+| `claude-headless`       | `claude -p --output-format stream-json` | stdout parsing             |
+| `codex`                 | `codex`                                 | Process detection          |
+| `aider`                 | `aider --no-auto-commits`               | Process detection          |
+| `goose`                 | `goose session`                         | Process detection          |
+| `custom`                | User-defined command                    | Configurable               |
 
 ### 3. Workspace — Code isolation
 
@@ -183,12 +183,12 @@ interface Workspace {
 }
 ```
 
-| Implementation | How | Tradeoff |
-|---------------|-----|----------|
-| `worktree` (default) | `git worktree add` | Fast, shared objects, requires same repo |
-| `clone` | `git clone` | Full isolation, slower, more disk |
-| `copy` | `cp -r` | No git dependency, heaviest |
-| `volume` | Docker/K8s volume mounts | For container runtimes |
+| Implementation       | How                      | Tradeoff                                 |
+| -------------------- | ------------------------ | ---------------------------------------- |
+| `worktree` (default) | `git worktree add`       | Fast, shared objects, requires same repo |
+| `clone`              | `git clone`              | Full isolation, slower, more disk        |
+| `copy`               | `cp -r`                  | No git dependency, heaviest              |
+| `volume`             | Docker/K8s volume mounts | For container runtimes                   |
 
 ### 4. Tracker — Issue/task tracking
 
@@ -209,12 +209,12 @@ interface Tracker {
 }
 ```
 
-| Implementation | API | Auth |
-|---------------|-----|------|
-| `github` (default) | `gh` CLI | GitHub token |
-| `linear` | GraphQL API | Linear API key |
-| `jira` | REST API | Jira token |
-| `plain` | Local files | None |
+| Implementation     | API         | Auth           |
+| ------------------ | ----------- | -------------- |
+| `github` (default) | `gh` CLI    | GitHub token   |
+| `linear`           | GraphQL API | Linear API key |
+| `jira`             | REST API    | Jira token     |
+| `plain`            | Local files | None           |
 
 ### 5. SCM — Source code platform (PR, CI, Reviews)
 
@@ -244,11 +244,11 @@ interface SCM {
 }
 ```
 
-| Implementation | API | Features |
-|---------------|-----|----------|
-| `github` (default) | `gh` CLI + REST API | Full PR/CI/review support |
-| `gitlab` | REST API | MR/pipeline/review support |
-| `bitbucket` | REST API | PR/pipeline support |
+| Implementation     | API                 | Features                   |
+| ------------------ | ------------------- | -------------------------- |
+| `github` (default) | `gh` CLI + REST API | Full PR/CI/review support  |
+| `gitlab`           | REST API            | MR/pipeline/review support |
+| `bitbucket`        | REST API            | PR/pipeline support        |
 
 ### 6. Notifier — THE PRIMARY INTERFACE
 
@@ -270,19 +270,19 @@ interface Notifier {
 
 // Notifications can include actions the human can take directly
 interface NotifyAction {
-  label: string;           // "Merge PR", "Open Dashboard", "Kill Session"
-  url?: string;            // Deep link to dashboard action
-  callback?: string;       // API endpoint to call
+  label: string; // "Merge PR", "Open Dashboard", "Kill Session"
+  url?: string; // Deep link to dashboard action
+  callback?: string; // API endpoint to call
 }
 ```
 
-| Implementation | Channel | Best for | Actionable? |
-|---------------|---------|----------|-------------|
-| `desktop` (default) | OS notifications (clickable) | Solo developer | Click → opens dashboard |
-| `slack` | Slack messages with buttons | Teams | Buttons → merge, review, kill |
-| `discord` | Discord messages | Communities | Links |
-| `webhook` | HTTP POST | Custom integrations | Custom |
-| `email` | Email digest | Async | Links |
+| Implementation      | Channel                      | Best for            | Actionable?                   |
+| ------------------- | ---------------------------- | ------------------- | ----------------------------- |
+| `desktop` (default) | OS notifications (clickable) | Solo developer      | Click → opens dashboard       |
+| `slack`             | Slack messages with buttons  | Teams               | Buttons → merge, review, kill |
+| `discord`           | Discord messages             | Communities         | Links                         |
+| `webhook`           | HTTP POST                    | Custom integrations | Custom                        |
+| `email`             | Email digest                 | Async               | Links                         |
 
 **Multiple notifiers can be active simultaneously.** E.g., desktop for immediate alerts + Slack for team visibility + email for daily digest.
 
@@ -300,17 +300,18 @@ interface Terminal {
 }
 ```
 
-| Implementation | How | Platform |
-|---------------|-----|----------|
-| `auto` (default) | Detect best available | Any |
-| `iterm2` | AppleScript API | macOS |
-| `web` | xterm.js in browser | Any |
-| `tmux-attach` | `tmux attach` in terminal | Any with tmux |
-| `none` | Headless | CI/CD |
+| Implementation   | How                       | Platform      |
+| ---------------- | ------------------------- | ------------- |
+| `auto` (default) | Detect best available     | Any           |
+| `iterm2`         | AppleScript API           | macOS         |
+| `web`            | xterm.js in browser       | Any           |
+| `tmux-attach`    | `tmux attach` in terminal | Any with tmux |
+| `none`           | Headless                  | CI/CD         |
 
 ### 8. Lifecycle Manager (Core — not pluggable)
 
 The Lifecycle Manager is the orchestrator's brain. It:
+
 - Polls SCM + Agent plugins on configurable intervals
 - Maintains state machine per session
 - Emits events on state transitions
@@ -396,24 +397,24 @@ The orchestrator operates on a simple principle: handle everything you can autom
 **Tier 1: Auto-handled (human never sees these)**
 The orchestrator resolves these silently. The human is only notified if auto-resolution fails.
 
-| Event | Auto-Response | Escalation |
-|-------|--------------|------------|
-| CI failed | Send fix prompt to agent | Notify after 2 failed attempts |
-| Review comments | Send "address comments" to agent | Notify if unresolved after 30min |
-| Bugbot/linter comments | Send fix prompt to agent | Notify if unresolved after 30min |
-| Merge conflicts | Send "rebase" to agent | Notify if unresolved after 15min |
+| Event                  | Auto-Response                    | Escalation                       |
+| ---------------------- | -------------------------------- | -------------------------------- |
+| CI failed              | Send fix prompt to agent         | Notify after 2 failed attempts   |
+| Review comments        | Send "address comments" to agent | Notify if unresolved after 30min |
+| Bugbot/linter comments | Send fix prompt to agent         | Notify if unresolved after 30min |
+| Merge conflicts        | Send "rebase" to agent           | Notify if unresolved after 15min |
 
 **Tier 2: Notify human (requires human judgment)**
 These always push a notification. The human's phone buzzes, Slack pings, etc.
 
-| Event | Priority | Notification |
-|-------|----------|-------------|
-| **Agent needs input** (permission, question, stuck) | URGENT | "Session X needs your input" + deep link |
-| **Agent errored** (crashed, unrecoverable) | URGENT | "Session X crashed" + error context |
-| **PR ready to merge** (approved + CI green) | ACTION | "PR #42 ready to merge" + merge button |
-| **Agent idle too long** (no PR, no progress) | WARNING | "Session X idle for 15min, may need help" |
-| **Auto-fix failed** (CI fix failed 2x, comments not addressed) | WARNING | "Session X couldn't resolve CI/review — needs you" |
-| **All work complete** | INFO | "All 20 sessions done. 18 PRs merged, 2 need review." |
+| Event                                                          | Priority | Notification                                          |
+| -------------------------------------------------------------- | -------- | ----------------------------------------------------- |
+| **Agent needs input** (permission, question, stuck)            | URGENT   | "Session X needs your input" + deep link              |
+| **Agent errored** (crashed, unrecoverable)                     | URGENT   | "Session X crashed" + error context                   |
+| **PR ready to merge** (approved + CI green)                    | ACTION   | "PR #42 ready to merge" + merge button                |
+| **Agent idle too long** (no PR, no progress)                   | WARNING  | "Session X idle for 15min, may need help"             |
+| **Auto-fix failed** (CI fix failed 2x, comments not addressed) | WARNING  | "Session X couldn't resolve CI/review — needs you"    |
+| **All work complete**                                          | INFO     | "All 20 sessions done. 18 PRs merged, 2 need review." |
 
 ### Escalation Chains
 
@@ -447,10 +448,10 @@ Different priorities route to different channels:
 ```yaml
 notifications:
   routing:
-    urgent: [desktop, slack, sms]    # Agent stuck, errored, needs input
-    action: [desktop, slack]          # PR ready to merge
-    warning: [slack]                  # Auto-fix failed, idle too long
-    info: [slack]                     # Summary, all done
+    urgent: [desktop, slack, sms] # Agent stuck, errored, needs input
+    action: [desktop, slack] # PR ready to merge
+    warning: [slack] # Auto-fix failed, idle too long
+    info: [slack] # Summary, all done
 ```
 
 ### Reactions (configurable auto-responses)
@@ -463,7 +464,7 @@ reactions:
     action: send-to-agent
     message: "CI is failing. Run `gh pr checks` to see failures, fix them, and push."
     retries: 2
-    escalate-after: 2  # notify human after 2 failed auto-fix attempts
+    escalate-after: 2 # notify human after 2 failed auto-fix attempts
 
   changes-requested:
     auto: true
@@ -484,7 +485,7 @@ reactions:
     escalate-after: 15m
 
   approved-and-green:
-    auto: false  # require human confirmation by default
+    auto: false # require human confirmation by default
     action: notify
     priority: action
     message: "PR is ready to merge"
@@ -507,10 +508,10 @@ reactions:
     action: notify
     priority: info
     message: "All sessions complete"
-    include-summary: true  # PRs merged, pending, failed
+    include-summary: true # PRs merged, pending, failed
 
   agent-idle-no-pr:
-    threshold: 30m  # working for 30min with no PR
+    threshold: 30m # working for 30min with no PR
     action: notify
     priority: warning
     message: "Agent has been working for 30min without creating a PR"
@@ -543,6 +544,7 @@ projects:
 ```
 
 Everything else uses sensible defaults:
+
 - Runtime: tmux
 - Agent: claude-code
 - Workspace: worktree
@@ -555,9 +557,9 @@ Everything else uses sensible defaults:
 
 ```yaml
 # agent-orchestrator.yaml
-dataDir: ~/.agent-orchestrator     # metadata storage
-worktreeDir: ~/.worktrees          # workspace root
-port: 3000                         # web dashboard port
+dataDir: ~/.agent-orchestrator # metadata storage
+worktreeDir: ~/.worktrees # workspace root
+port: 3000 # web dashboard port
 
 defaults:
   runtime: tmux
@@ -596,13 +598,13 @@ projects:
 
     # Agent-specific config
     agentConfig:
-      permissions: skip  # --dangerously-skip-permissions
+      permissions: skip # --dangerously-skip-permissions
       model: opus
 
     # Reaction overrides
     reactions:
       approved-and-green:
-        auto: true  # enable auto-merge for this project
+        auto: true # enable auto-merge for this project
 
 # Notification channels
 notifiers:
@@ -634,17 +636,17 @@ reactions:
 
 ## Tech Stack
 
-| Segment | Choice | Why |
-|---------|--------|-----|
-| **Core library** | TypeScript | Shared types across all packages |
-| **Web + API** | Next.js 15 (App Router) | SSR + API routes in one process |
-| **Styling** | Tailwind CSS | Dark theme, responsive |
-| **Real-time** | Server-Sent Events | One-way push, auto-reconnect, simpler than WebSocket |
-| **CLI** | TypeScript + Commander.js | Shares types with core |
-| **Config** | YAML + Zod validation | Human-readable, type-safe |
-| **State** | Flat metadata files + Event log (JSONL) | Stateless orchestrator, crash recovery |
-| **Package manager** | pnpm workspaces | Fast, monorepo-native |
-| **Distribution** | npm (`npx agent-orchestrator`) | Zero install |
+| Segment             | Choice                                  | Why                                                  |
+| ------------------- | --------------------------------------- | ---------------------------------------------------- |
+| **Core library**    | TypeScript                              | Shared types across all packages                     |
+| **Web + API**       | Next.js 15 (App Router)                 | SSR + API routes in one process                      |
+| **Styling**         | Tailwind CSS                            | Dark theme, responsive                               |
+| **Real-time**       | Server-Sent Events                      | One-way push, auto-reconnect, simpler than WebSocket |
+| **CLI**             | TypeScript + Commander.js               | Shares types with core                               |
+| **Config**          | YAML + Zod validation                   | Human-readable, type-safe                            |
+| **State**           | Flat metadata files + Event log (JSONL) | Stateless orchestrator, crash recovery               |
+| **Package manager** | pnpm workspaces                         | Fast, monorepo-native                                |
+| **Distribution**    | npm (`npx agent-orchestrator`)          | Zero install                                         |
 
 ### Why TypeScript Throughout
 
@@ -744,6 +746,7 @@ agent-orchestrator/
 ## Implementation Phases
 
 ### Phase 1: Foundation (Dog-food ready)
+
 - Monorepo scaffolding
 - Core types + interfaces
 - Config loader
@@ -758,6 +761,7 @@ agent-orchestrator/
 - Reaction engine (CI failed, changes requested, agent stuck)
 
 ### Phase 2: Multi-Runtime + More Plugins
+
 - Process runtime (headless claude -p)
 - Docker runtime
 - Codex + Aider agent adapters
@@ -766,12 +770,14 @@ agent-orchestrator/
 - Web terminal (xterm.js)
 
 ### Phase 3: Cloud + Scale
+
 - Kubernetes runtime
 - E2B / Fly.io runtimes
 - Cost tracking
 - Webhook-triggered spawning
 
 ### Phase 4: Team + Enterprise
+
 - Dashboard auth
 - Role-based access
 - Remote session support

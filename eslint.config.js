@@ -43,7 +43,7 @@ export default tseslint.config(
       "no-template-curly-in-string": "warn",
       "prefer-const": "error",
       "no-var": "error",
-      "eqeqeq": ["error", "always"],
+      eqeqeq: ["error", "always"],
 
       // TypeScript
       "@typescript-eslint/no-unused-vars": [
@@ -51,10 +51,7 @@ export default tseslint.config(
         { argsIgnorePattern: "^_", varsIgnorePattern: "^_" },
       ],
       "@typescript-eslint/no-explicit-any": "error",
-      "@typescript-eslint/consistent-type-imports": [
-        "error",
-        { prefer: "type-imports" },
-      ],
+      "@typescript-eslint/consistent-type-imports": ["error", { prefer: "type-imports" }],
       "@typescript-eslint/no-non-null-assertion": "warn",
       "@typescript-eslint/no-require-imports": "error",
     },
@@ -76,5 +73,5 @@ export default tseslint.config(
     rules: {
       "no-console": "off", // Next.js uses console for server logs
     },
-  }
+  },
 );

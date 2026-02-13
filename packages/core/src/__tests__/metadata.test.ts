@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdirSync, rmSync, readFileSync, existsSync, writeFileSync } from "node:fs";
+import { mkdirSync, rmSync, readFileSync, existsSync, writeFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
@@ -100,7 +100,7 @@ describe("readMetadataRaw", () => {
     writeFileSync(
       join(dataDir, "sessions", "raw-1"),
       "worktree=/tmp/w\nbranch=main\ncustom_key=custom_value\n",
-      "utf-8"
+      "utf-8",
     );
 
     const raw = readMetadataRaw(dataDir, "raw-1");
@@ -117,7 +117,7 @@ describe("readMetadataRaw", () => {
     writeFileSync(
       join(dataDir, "sessions", "raw-2"),
       "# This is a comment\n\nkey1=value1\n\n# Another comment\nkey2=value2\n",
-      "utf-8"
+      "utf-8",
     );
 
     const raw = readMetadataRaw(dataDir, "raw-2");
@@ -128,7 +128,7 @@ describe("readMetadataRaw", () => {
     writeFileSync(
       join(dataDir, "sessions", "raw-3"),
       'runtimeHandle={"id":"foo","data":{"key":"val"}}\n',
-      "utf-8"
+      "utf-8",
     );
 
     const raw = readMetadataRaw(dataDir, "raw-3");
@@ -144,7 +144,10 @@ describe("updateMetadata", () => {
       status: "spawning",
     });
 
-    updateMetadata(dataDir, "upd-1", { status: "working", pr: "https://github.com/org/repo/pull/1" });
+    updateMetadata(dataDir, "upd-1", {
+      status: "working",
+      pr: "https://github.com/org/repo/pull/1",
+    });
 
     const meta = readMetadata(dataDir, "upd-1");
     expect(meta!.status).toBe("working");
@@ -203,7 +206,7 @@ describe("deleteMetadata", () => {
     expect(existsSync(join(dataDir, "sessions", "del-1"))).toBe(false);
     const archiveDir = join(dataDir, "sessions", "archive");
     expect(existsSync(archiveDir)).toBe(true);
-    const files = require("node:fs").readdirSync(archiveDir) as string[];
+    const files = readdirSync(archiveDir);
     expect(files.length).toBe(1);
     expect(files[0]).toMatch(/^del-1_/);
   });

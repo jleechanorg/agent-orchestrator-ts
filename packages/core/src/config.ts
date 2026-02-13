@@ -88,14 +88,12 @@ const OrchestratorConfigSchema = z.object({
   defaults: DefaultPluginsSchema.default({}),
   projects: z.record(ProjectConfigSchema),
   notifiers: z.record(NotifierConfigSchema).default({}),
-  notificationRouting: z
-    .record(z.array(z.string()))
-    .default({
-      urgent: ["desktop", "slack"],
-      action: ["desktop", "slack"],
-      warning: ["slack"],
-      info: ["slack"],
-    }),
+  notificationRouting: z.record(z.array(z.string())).default({
+    urgent: ["desktop", "slack"],
+    action: ["desktop", "slack"],
+    warning: ["slack"],
+    info: ["slack"],
+  }),
   reactions: z.record(ReactionConfigSchema).default({}),
 });
 
@@ -124,9 +122,7 @@ function expandPaths(config: OrchestratorConfig): OrchestratorConfig {
 }
 
 /** Apply defaults to project configs */
-function applyProjectDefaults(
-  config: OrchestratorConfig
-): OrchestratorConfig {
+function applyProjectDefaults(config: OrchestratorConfig): OrchestratorConfig {
   for (const [id, project] of Object.entries(config.projects)) {
     // Derive name from project ID if not set
     if (!project.name) {
@@ -153,10 +149,8 @@ function applyProjectDefaults(
 }
 
 /** Apply default reactions */
-function applyDefaultReactions(
-  config: OrchestratorConfig
-): OrchestratorConfig {
-  const defaults: Record<string, typeof config.reactions[string]> = {
+function applyDefaultReactions(config: OrchestratorConfig): OrchestratorConfig {
+  const defaults: Record<string, (typeof config.reactions)[string]> = {
     "ci-failed": {
       auto: true,
       action: "send-to-agent",
@@ -175,15 +169,13 @@ function applyDefaultReactions(
     "bugbot-comments": {
       auto: true,
       action: "send-to-agent",
-      message:
-        "Automated review comments found on your PR. Fix the issues flagged by the bot.",
+      message: "Automated review comments found on your PR. Fix the issues flagged by the bot.",
       escalateAfter: "30m",
     },
     "merge-conflicts": {
       auto: true,
       action: "send-to-agent",
-      message:
-        "Your branch has merge conflicts. Rebase on the default branch and resolve them.",
+      message: "Your branch has merge conflicts. Rebase on the default branch and resolve them.",
       escalateAfter: "15m",
     },
     "approved-and-green": {
@@ -252,9 +244,7 @@ export function loadConfig(configPath?: string): OrchestratorConfig {
   const path = configPath ?? findConfigFile();
 
   if (!path) {
-    throw new Error(
-      "No agent-orchestrator.yaml found. Run `ao init` to create one."
-    );
+    throw new Error("No agent-orchestrator.yaml found. Run `ao init` to create one.");
   }
 
   const raw = readFileSync(path, "utf-8");

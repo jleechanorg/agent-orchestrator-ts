@@ -41,11 +41,11 @@ export type SessionStatus =
 
 /** Activity state as detected by the agent plugin */
 export type ActivityState =
-  | "active"        // agent is processing (thinking, writing code)
-  | "idle"          // agent is at prompt, waiting for input
+  | "active" // agent is processing (thinking, writing code)
+  | "idle" // agent is at prompt, waiting for input
   | "waiting_input" // agent is asking a question / permission prompt
-  | "blocked"       // agent hit an error or is stuck
-  | "exited";       // agent process is no longer running
+  | "blocked" // agent hit an error or is stuck
+  | "exited"; // agent process is no longer running
 
 /** A running agent session */
 export interface Session {

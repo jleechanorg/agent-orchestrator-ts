@@ -40,48 +40,72 @@ function parseDuration(str: string): number {
   if (!match) return 0;
   const value = parseInt(match[1], 10);
   switch (match[2]) {
-    case "s": return value * 1000;
-    case "m": return value * 60_000;
-    case "h": return value * 3_600_000;
-    default: return 0;
+    case "s":
+      return value * 1000;
+    case "m":
+      return value * 60_000;
+    case "h":
+      return value * 3_600_000;
+    default:
+      return 0;
   }
 }
 
 /** Determine which event type corresponds to a status transition. */
-function statusToEventType(
-  _from: SessionStatus | undefined,
-  to: SessionStatus
-): EventType | null {
+function statusToEventType(_from: SessionStatus | undefined, to: SessionStatus): EventType | null {
   switch (to) {
-    case "working": return "session.working";
-    case "pr_open": return "pr.created";
-    case "ci_failed": return "ci.failing";
-    case "review_pending": return "review.pending";
-    case "changes_requested": return "review.changes_requested";
-    case "approved": return "review.approved";
-    case "mergeable": return "merge.ready";
-    case "merged": return "merge.completed";
-    case "needs_input": return "session.needs_input";
-    case "stuck": return "session.stuck";
-    case "errored": return "session.errored";
-    case "killed": return "session.killed";
-    default: return null;
+    case "working":
+      return "session.working";
+    case "pr_open":
+      return "pr.created";
+    case "ci_failed":
+      return "ci.failing";
+    case "review_pending":
+      return "review.pending";
+    case "changes_requested":
+      return "review.changes_requested";
+    case "approved":
+      return "review.approved";
+    case "mergeable":
+      return "merge.ready";
+    case "merged":
+      return "merge.completed";
+    case "needs_input":
+      return "session.needs_input";
+    case "stuck":
+      return "session.stuck";
+    case "errored":
+      return "session.errored";
+    case "killed":
+      return "session.killed";
+    default:
+      return null;
   }
 }
 
 /** Map event type to reaction config key. */
 function eventToReactionKey(eventType: EventType): string | null {
   switch (eventType) {
-    case "ci.failing": return "ci-failed";
-    case "review.changes_requested": return "changes-requested";
-    case "automated_review.found": return "bugbot-comments";
-    case "merge.conflicts": return "merge-conflicts";
-    case "merge.ready": return "approved-and-green";
-    case "session.stuck": return "agent-stuck";
-    case "session.needs_input": return "agent-needs-input";
-    case "session.killed": return "agent-exited";
-    case "summary.all_complete": return "all-complete";
-    default: return null;
+    case "ci.failing":
+      return "ci-failed";
+    case "review.changes_requested":
+      return "changes-requested";
+    case "automated_review.found":
+      return "bugbot-comments";
+    case "merge.conflicts":
+      return "merge-conflicts";
+    case "merge.ready":
+      return "approved-and-green";
+    case "session.stuck":
+      return "agent-stuck";
+    case "session.needs_input":
+      return "agent-needs-input";
+    case "session.killed":
+      return "agent-exited";
+    case "summary.all_complete":
+      return "all-complete";
+    default:
+      return null;
   }
 }
 
@@ -99,9 +123,7 @@ interface ReactionTracker {
 }
 
 /** Create a LifecycleManager instance. */
-export function createLifecycleManager(
-  deps: LifecycleManagerDeps
-): LifecycleManager {
+export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleManager {
   const { config, registry, sessionManager, eventBus } = deps;
 
   const states = new Map<SessionId, SessionStatus>();
@@ -124,13 +146,21 @@ export function createLifecycleManager(
     const typeHandlers = handlers.get(event.type);
     if (typeHandlers) {
       for (const handler of typeHandlers) {
-        try { handler(event); } catch { /* ignore */ }
+        try {
+          handler(event);
+        } catch {
+          /* ignore */
+        }
       }
     }
     const wildcardHandlers = handlers.get("*");
     if (wildcardHandlers) {
       for (const handler of wildcardHandlers) {
-        try { handler(event); } catch { /* ignore */ }
+        try {
+          handler(event);
+        } catch {
+          /* ignore */
+        }
       }
     }
   }
@@ -140,20 +170,12 @@ export function createLifecycleManager(
     const project = config.projects[session.projectId];
     if (!project) return session.status;
 
-    const agent = registry.get<Agent>(
-      "agent",
-      project.agent ?? config.defaults.agent
-    );
-    const scm = project.scm
-      ? registry.get<SCM>("scm", project.scm.plugin)
-      : null;
+    const agent = registry.get<Agent>("agent", project.agent ?? config.defaults.agent);
+    const scm = project.scm ? registry.get<SCM>("scm", project.scm.plugin) : null;
 
     // 1. Check if runtime is alive
     if (session.runtimeHandle) {
-      const runtime = registry.get<Runtime>(
-        "runtime",
-        project.runtime ?? config.defaults.runtime
-      );
+      const runtime = registry.get<Runtime>("runtime", project.runtime ?? config.defaults.runtime);
       if (runtime) {
         const alive = await runtime.isAlive(session.runtimeHandle).catch(() => true);
         if (!alive) return "killed";
@@ -204,7 +226,7 @@ export function createLifecycleManager(
   async function executeReaction(
     event: OrchestratorEvent,
     reactionKey: string,
-    reactionConfig: ReactionConfig
+    reactionConfig: ReactionConfig,
   ): Promise<ReactionResult> {
     const trackerKey = `${event.sessionId}:${reactionKey}`;
     let tracker = reactionTrackers.get(trackerKey);
@@ -263,7 +285,7 @@ export function createLifecycleManager(
                 projectId: event.projectId,
                 message: `Reaction '${reactionKey}' sent message to agent`,
                 data: { reactionKey, attempts: tracker.attempts },
-              })
+              }),
             );
 
             return {
@@ -274,13 +296,12 @@ export function createLifecycleManager(
               escalated: false,
             };
           } catch {
-            // Send failed — escalate
-            await notifyHuman(event, reactionConfig.priority ?? "warning");
+            // Send failed — allow retry on next poll cycle (don't escalate immediately)
             return {
               reactionType: reactionKey,
               success: false,
               action: "send-to-agent",
-              escalated: true,
+              escalated: false,
             };
           }
         }
@@ -319,10 +340,7 @@ export function createLifecycleManager(
   }
 
   /** Send a notification to all configured notifiers. */
-  async function notifyHuman(
-    event: OrchestratorEvent,
-    priority: EventPriority
-  ): Promise<void> {
+  async function notifyHuman(event: OrchestratorEvent, priority: EventPriority): Promise<void> {
     const eventWithPriority = { ...event, priority };
     const notifierNames = config.notificationRouting[priority] ?? config.defaults.notifiers;
 
@@ -355,6 +373,15 @@ export function createLifecycleManager(
         allCompleteEmitted = false;
       }
 
+      // Clear reaction trackers for the old status so retries reset on state changes
+      const oldEventType = statusToEventType(undefined, oldStatus);
+      if (oldEventType) {
+        const oldReactionKey = eventToReactionKey(oldEventType);
+        if (oldReactionKey) {
+          reactionTrackers.delete(`${session.id}:${oldReactionKey}`);
+        }
+      }
+
       // Emit transition event
       const eventType = statusToEventType(oldStatus, newStatus);
       if (eventType) {
@@ -373,16 +400,10 @@ export function createLifecycleManager(
         if (reactionKey) {
           // Check project-specific overrides first, then global
           const project = config.projects[session.projectId];
-          const reactionConfig =
-            project?.reactions?.[reactionKey] ??
-            config.reactions[reactionKey];
+          const reactionConfig = project?.reactions?.[reactionKey] ?? config.reactions[reactionKey];
 
           if (reactionConfig && reactionConfig.auto !== false && reactionConfig.action) {
-            await executeReaction(
-              event,
-              reactionKey,
-              reactionConfig as ReactionConfig
-            );
+            await executeReaction(event, reactionKey, reactionConfig as ReactionConfig);
           }
         }
       }
@@ -401,16 +422,20 @@ export function createLifecycleManager(
     try {
       const sessions = await sessionManager.list();
 
-      const activeSessions = sessions.filter(
-        (s) => s.status !== "merged" && s.status !== "killed"
-      );
+      // Include sessions that are active OR whose status changed from what we last saw
+      // (e.g., list() detected a dead runtime and marked it "killed" — we need to
+      // process that transition even though the new status is terminal)
+      const sessionsToCheck = sessions.filter((s) => {
+        if (s.status !== "merged" && s.status !== "killed") return true;
+        const tracked = states.get(s.id);
+        return tracked !== undefined && tracked !== s.status;
+      });
 
-      // Poll all active sessions concurrently
-      await Promise.allSettled(
-        activeSessions.map((s) => checkSession(s))
-      );
+      // Poll all sessions concurrently
+      await Promise.allSettled(sessionsToCheck.map((s) => checkSession(s)));
 
       // Check if all sessions are complete (emit only once)
+      const activeSessions = sessions.filter((s) => s.status !== "merged" && s.status !== "killed");
       if (sessions.length > 0 && activeSessions.length === 0 && !allCompleteEmitted) {
         allCompleteEmitted = true;
         const event = createEvent("summary.all_complete", {

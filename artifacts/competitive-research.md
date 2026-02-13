@@ -1,6 +1,6 @@
 # Competitive Research — Agent Orchestration Tools
 
-*Compiled: 2026-02-13*
+_Compiled: 2026-02-13_
 
 ## Overview
 
@@ -18,26 +18,27 @@ Research into 16+ projects that orchestrate AI coding agents. The goal: understa
 
 **Architecture — MEOW Stack (Molecular Expression of Work):**
 
-| Layer | What | How |
-|-------|------|-----|
-| **Beads** | Atomic work units | JSONL files tracked in Git. IDs like `gt-abc12`. Universal data/control plane. |
-| **Epics** | Hierarchical collections | Organize beads into tree structures for parallel/sequential execution |
-| **Molecules** | Workflow graphs | Sequenced beads with dependencies, gates, loops |
-| **Protomolecules & Formulas** | Reusable templates | TOML format workflow definitions |
+| Layer                         | What                     | How                                                                            |
+| ----------------------------- | ------------------------ | ------------------------------------------------------------------------------ |
+| **Beads**                     | Atomic work units        | JSONL files tracked in Git. IDs like `gt-abc12`. Universal data/control plane. |
+| **Epics**                     | Hierarchical collections | Organize beads into tree structures for parallel/sequential execution          |
+| **Molecules**                 | Workflow graphs          | Sequenced beads with dependencies, gates, loops                                |
+| **Protomolecules & Formulas** | Reusable templates       | TOML format workflow definitions                                               |
 
 **Agent Roles (7 roles, 2 scopes):**
 
-| Role | Scope | Purpose |
-|------|-------|---------|
-| **Mayor** | Town | Chief AI coordinator with full workspace context |
-| **Deacon** | Town | Health daemon running patrol loops |
-| **Dogs** | Town | Maintenance helpers |
-| **Crew** | Rig | Named, persistent agents for sustained design/review work |
-| **Polecats** | Rig | Ephemeral "cattle" workers spawned for specific tasks |
-| **Refinery** | Rig | Merge queue manager handling conflicts |
-| **Witness** | Rig | Supervises polecats, unblocks stuck work |
+| Role         | Scope | Purpose                                                   |
+| ------------ | ----- | --------------------------------------------------------- |
+| **Mayor**    | Town  | Chief AI coordinator with full workspace context          |
+| **Deacon**   | Town  | Health daemon running patrol loops                        |
+| **Dogs**     | Town  | Maintenance helpers                                       |
+| **Crew**     | Rig   | Named, persistent agents for sustained design/review work |
+| **Polecats** | Rig   | Ephemeral "cattle" workers spawned for specific tasks     |
+| **Refinery** | Rig   | Merge queue manager handling conflicts                    |
+| **Witness**  | Rig   | Supervises polecats, unblocks stuck work                  |
 
 **Other Abstractions:**
+
 - **Town** — Workspace directory (`~/gt/`) housing all projects
 - **Rigs** — Project containers wrapping git repositories
 - **Hooks** — Git worktree-based persistent storage surviving crashes
@@ -47,6 +48,7 @@ Research into 16+ projects that orchestrate AI coding agents. The goal: understa
 **Runtime Backends:** claude, gemini, codex, cursor, auggie, amp (per-rig config)
 
 **Communication/Isolation:**
+
 - Git worktrees for filesystem isolation per agent
 - Beads/Hooks for coordination (external state, not shared context windows)
 - GUPP: deterministic handoffs through version control, not LLM-judged phase gates
@@ -63,12 +65,14 @@ Research into 16+ projects that orchestrate AI coding agents. The goal: understa
 - **Closest to our current approach**
 
 **Key Abstractions:**
+
 - **Sessions**: Single-repo isolated branches via git worktrees + tmux sessions
 - **Workspaces**: Multi-repo synchronized development contexts
 - **Control Center**: Unified tmux session with windows for each context
 - **Labels**: Globally unique, human-readable names
 
 **Features:**
+
 - `par start my-feature` — creates worktree + branch + tmux session
 - `par send <label> "<command>"` — execute commands in specific sessions remotely
 - `par send all "<command>"` — broadcast to all sessions
@@ -87,6 +91,7 @@ Research into 16+ projects that orchestrate AI coding agents. The goal: understa
 - **Stack**: Python, tmux, HTTP server (localhost:9889)
 
 **Key Abstractions:**
+
 - **Supervisor + Workers**: Hierarchical model with three coordination patterns:
   - **Handoff**: Synchronous task transfer
   - **Assign**: Asynchronous spawning with callback
@@ -107,6 +112,7 @@ Research into 16+ projects that orchestrate AI coding agents. The goal: understa
 - **Stack**: Rust (2024 edition), ratatui TUI, Tokio async, OpenTelemetry
 
 **Key Abstractions:**
+
 - **ProactiveMaster**: Orchestration core with zero shared state (message-passing channels)
 - **Specialized Agent Pools**: Frontend, Backend, DevOps, QA
 - **Multi-Provider Layer**: Claude Code, Aider, OpenAI Codex, custom tools
@@ -125,6 +131,7 @@ Research into 16+ projects that orchestrate AI coding agents. The goal: understa
 - **Stack**: Rust 92.8%, npm distribution
 
 **Key Abstractions:**
+
 - **Agent Client Protocol (ACP)**: Standardized interface across all agents
 - **Process Isolation**: Each agent in its own process with UDS socket
 - **Remote Access**: Interact with any agent from any terminal
@@ -143,6 +150,7 @@ Research into 16+ projects that orchestrate AI coding agents. The goal: understa
 - **Claims**: 100K+ monthly active users, 84.8% SWE-Bench solve rate
 
 **Key Abstractions:**
+
 - **Swarm Topologies**: mesh, hierarchical, ring, star configurations
 - **Queen-Led Hierarchies**: Strategic Queens (planning), Tactical Queens (execution), Adaptive Queens (optimization)
 - **8 Worker Types**: researcher, coder, analyst, tester, architect, reviewer, optimizer, documenter
@@ -153,6 +161,7 @@ Research into 16+ projects that orchestrate AI coding agents. The goal: understa
 - **Consensus Mechanisms**: Raft, Byzantine, Gossip, Weighted, Majority
 
 **Extension System:**
+
 - 17 integration hooks (pre-task, post-task, etc.)
 - Custom workers (12 context-triggered background services)
 - Plugin SDK with IPFS marketplace distribution
@@ -171,6 +180,7 @@ Research into 16+ projects that orchestrate AI coding agents. The goal: understa
 - **Stack**: Python 75.5%, TypeScript/React 22.3%, Docker, Kubernetes
 
 **Key Abstractions:**
+
 - **Software Agent SDK**: Composable Python library
 - **Runtime/Sandbox**: Docker-based sandboxed execution environments
 - **Event Stream Architecture**: Event-driven communication between backend and frontend
@@ -191,12 +201,14 @@ Research into 16+ projects that orchestrate AI coding agents. The goal: understa
 - **Stack**: Python 94.6%
 
 **Key Abstractions:**
+
 - **SWEEnv**: Environment manager (thin wrapper around SWE-ReX)
 - **Agent**: Configured via single YAML file
 - **ACI (Agent-Computer Interface)**: Custom tools installed in container
 - **Deployment**: Abstraction over execution targets
 
 **Runtime Backends (SWE-ReX):**
+
 - Local Docker containers
 - Modal (serverless compute)
 - AWS Fargate (container orchestration)
@@ -216,6 +228,7 @@ Agent code remains the same regardless of deployment target.
 - **Stack**: Rust 58.9%, TypeScript 33.0%, Go (temporal scheduler)
 
 **Key Abstractions:**
+
 - **Crate architecture**: goose (core), goose-cli, goose-server, goose-mcp, mcp-client, mcp-core
 - **Sessions**: Stateful autonomous execution environments
 - **Recipes**: Task automation workflows
@@ -233,6 +246,7 @@ Agent code remains the same regardless of deployment target.
 - **Stack**: TypeScript, Node.js, esbuild
 
 **Key Abstractions:**
+
 - **Sequential Decision Loop**: Analysis → Planning → Execution → Monitoring → Iteration
 - **Checkpoint System**: Workspace snapshots at each step for compare/restore
 - **Context Attachments**: @file, @folder, @url, @problems
@@ -249,6 +263,7 @@ Agent code remains the same regardless of deployment target.
 - **Reached #13 on Stanford's TerminalBench**
 
 **Key Abstractions:**
+
 - **Orchestrator Agent**: Strategic coordinator; never touches code
 - **Explorer Agent**: Read-only investigation specialist
 - **Coder Agent**: Implementation specialist with write access
@@ -270,6 +285,7 @@ Agent code remains the same regardless of deployment target.
 - **Stack**: Python, GitHub REST API, Claude Code
 
 **Key Abstractions:**
+
 - **5-Phase Workflow**: Brainstorm → Document → Plan → Decompose → Execute
 - **GitHub Issues as Database**: Issues store specs, comments provide audit trail
 - **Epic Worktrees**: Each epic spawns a dedicated worktree
@@ -283,6 +299,7 @@ Agent code remains the same regardless of deployment target.
 - **Stack**: Python (Flask + Socket.IO), Vue 3 + Vite, Docker/Kubernetes
 
 **Key Abstractions:**
+
 - **Workflow Presets**: Default (Codex→Gemini→Claude), Quick, Thorough, Review-Only, Document
 - **AI Adapters**: Standardized interfaces per agent tool
 - **Session Manager**: Context across workflow steps
@@ -296,6 +313,7 @@ Agent code remains the same regardless of deployment target.
 - **Stack**: Claude Code plugin ecosystem
 
 **Key Abstractions:**
+
 - **Plugins**: 73 plugins, 112 agents, 146 skills, 79 tools
 - **Progressive Disclosure Skills**: 3-tier knowledge
 - **16 Workflow Orchestrators**: review, debug, feature, fullstack, research, security, migration
@@ -308,23 +326,25 @@ Agent code remains the same regardless of deployment target.
 
 ### Cloud Sandbox Platforms
 
-| Platform | Startup Time | Isolation | API Style | Cost |
-|----------|-------------|-----------|-----------|------|
-| **Docker (local)** | ~1-5s | Container namespace | Docker CLI/API | Free |
-| **E2B** | ~200-400ms | Firecracker microVMs | Python/JS SDK | Pay-per-use |
-| **Daytona** | ~27-90ms | OCI containers | Python/TS SDK + REST | Open source |
-| **Modal Sandboxes** | Sub-second | gVisor containers | Python SDK | $0.03/hr |
-| **Fly.io Machines** | ~200ms-1s | Firecracker microVMs | REST API | $0.02/hr |
+| Platform            | Startup Time | Isolation            | API Style            | Cost        |
+| ------------------- | ------------ | -------------------- | -------------------- | ----------- |
+| **Docker (local)**  | ~1-5s        | Container namespace  | Docker CLI/API       | Free        |
+| **E2B**             | ~200-400ms   | Firecracker microVMs | Python/JS SDK        | Pay-per-use |
+| **Daytona**         | ~27-90ms     | OCI containers       | Python/TS SDK + REST | Open source |
+| **Modal Sandboxes** | Sub-second   | gVisor containers    | Python SDK           | $0.03/hr    |
+| **Fly.io Machines** | ~200ms-1s    | Firecracker microVMs | REST API             | $0.02/hr    |
 
 ### Agent-Sandbox Connection Patterns (per LangChain)
 
 **Pattern 1: Agent IN Sandbox**
+
 - Agent runs inside the container/VM
 - Communicates outward via HTTP/WebSocket
 - Pro: Direct filesystem access, mirrors local dev
 - Con: API keys inside sandbox
 
 **Pattern 2: Sandbox AS Tool**
+
 - Agent runs on orchestrator/server
 - Calls sandbox via SDK/API for code execution
 - Pro: API keys secure, parallel execution
@@ -332,36 +352,38 @@ Agent code remains the same regardless of deployment target.
 
 ### Communication Protocols
 
-| Protocol | Use Case | Used By |
-|----------|----------|---------|
-| **REST API** | Request/response | OpenHands, Fly.io, Daytona |
-| **WebSocket** | Bidirectional streaming | OpenHands, Claude Agent SDK |
-| **stdio/subprocess** | Child process | Claude Agent SDK, Codex CLI, MCP |
-| **tmux send-keys** | Terminal injection | Our orchestrator, Par, CAO |
-| **SSE** | Server → client push | MCP remote transport |
+| Protocol             | Use Case                | Used By                          |
+| -------------------- | ----------------------- | -------------------------------- |
+| **REST API**         | Request/response        | OpenHands, Fly.io, Daytona       |
+| **WebSocket**        | Bidirectional streaming | OpenHands, Claude Agent SDK      |
+| **stdio/subprocess** | Child process           | Claude Agent SDK, Codex CLI, MCP |
+| **tmux send-keys**   | Terminal injection      | Our orchestrator, Par, CAO       |
+| **SSE**              | Server → client push    | MCP remote transport             |
 
 ### Heartbeat / Health Detection
 
-| Pattern | Description | Used By |
-|---------|-------------|---------|
-| **WebSocket ping/pong** | Periodic heartbeats | OpenHands |
-| **Process polling** | Check PID alive | Claude Agent SDK |
-| **tmux capture-pane** | Scrape terminal output | Our `claude-session-status` |
-| **File-based signaling** | Status to shared filesystem | Our metadata files |
-| **HTTP health endpoint** | `/health` or `/status` | OpenHands server |
-| **JSONL mtime** | Check session file modification time | Our `claude-status` |
+| Pattern                  | Description                          | Used By                     |
+| ------------------------ | ------------------------------------ | --------------------------- |
+| **WebSocket ping/pong**  | Periodic heartbeats                  | OpenHands                   |
+| **Process polling**      | Check PID alive                      | Claude Agent SDK            |
+| **tmux capture-pane**    | Scrape terminal output               | Our `claude-session-status` |
+| **File-based signaling** | Status to shared filesystem          | Our metadata files          |
+| **HTTP health endpoint** | `/health` or `/status`               | OpenHands server            |
+| **JSONL mtime**          | Check session file modification time | Our `claude-status`         |
 
 ---
 
 ## Key Findings & Gaps
 
 ### What Everyone Does
+
 1. **Git worktrees** = standard isolation primitive
 2. **tmux** = dominant session manager for local
 3. **External state > context windows** (Beads, Context Store, GitHub Issues)
 4. **MCP** = emerging extension protocol
 
 ### What Nobody Does Well (Our Opportunity)
+
 1. **Multiple runtime backends** (tmux + Docker + cloud) with same interface
 2. **Multiple agent support** with proper abstraction
 3. **Human-in-the-loop optimization** (our core differentiator — everyone else optimizes for autonomous)
@@ -371,6 +393,7 @@ Agent code remains the same regardless of deployment target.
 7. **Full PR lifecycle management** (CI checks, review comments, merge readiness, auto-reactions)
 
 ### Best Ideas to Steal
+
 - **Gas Town**: Git-backed state (Beads), role-based agents, crash recovery
 - **OpenHands**: Event-sourced architecture, Docker/K8s runtime abstraction
 - **SWE-ReX**: Clean deployment backend interface (`swe-rex[modal]`, `swe-rex[fargate]`)

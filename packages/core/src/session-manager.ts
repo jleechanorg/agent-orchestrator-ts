@@ -29,12 +29,7 @@ import type {
   PluginRegistry,
   RuntimeHandle,
 } from "./types.js";
-import {
-  readMetadataRaw,
-  writeMetadata,
-  deleteMetadata,
-  listMetadata,
-} from "./metadata.js";
+import { readMetadataRaw, writeMetadata, deleteMetadata, listMetadata } from "./metadata.js";
 import { createEvent } from "./event-bus.js";
 
 /** Escape regex metacharacters in a string. */
@@ -43,10 +38,7 @@ function escapeRegex(str: string): string {
 }
 
 /** Get the next session number for a project. */
-function getNextSessionNumber(
-  existingSessions: string[],
-  prefix: string
-): number {
+function getNextSessionNumber(existingSessions: string[], prefix: string): number {
   let max = 0;
   const pattern = new RegExp(`^${escapeRegex(prefix)}-(\\d+)$`);
   for (const name of existingSessions) {
@@ -70,9 +62,19 @@ function safeJsonParse<T>(str: string): T | null {
 
 /** Valid session statuses for validation. */
 const VALID_STATUSES: ReadonlySet<string> = new Set([
-  "spawning", "working", "pr_open", "ci_failed", "review_pending",
-  "changes_requested", "approved", "mergeable", "merged",
-  "needs_input", "stuck", "errored", "killed",
+  "spawning",
+  "working",
+  "pr_open",
+  "ci_failed",
+  "review_pending",
+  "changes_requested",
+  "approved",
+  "mergeable",
+  "merged",
+  "needs_input",
+  "stuck",
+  "errored",
+  "killed",
 ]);
 
 /** Validate and normalize a status string. */
@@ -82,10 +84,7 @@ function validateStatus(raw: string | undefined): SessionStatus {
 }
 
 /** Reconstruct a Session object from raw metadata key=value pairs. */
-function metadataToSession(
-  sessionId: SessionId,
-  meta: Record<string, string>
-): Session {
+function metadataToSession(sessionId: SessionId, meta: Record<string, string>): Session {
   return {
     id: sessionId,
     projectId: meta["project"] ?? "",
@@ -109,9 +108,7 @@ function metadataToSession(
     runtimeHandle: meta["runtimeHandle"]
       ? safeJsonParse<RuntimeHandle>(meta["runtimeHandle"])
       : null,
-    agentInfo: meta["summary"]
-      ? { summary: meta["summary"], agentSessionId: null }
-      : null,
+    agentInfo: meta["summary"] ? { summary: meta["summary"], agentSessionId: null } : null,
     createdAt: meta["createdAt"] ? new Date(meta["createdAt"]) : new Date(),
     lastActivityAt: new Date(),
     metadata: meta,
@@ -130,24 +127,16 @@ export function createSessionManager(deps: SessionManagerDeps): SessionManager {
 
   /** Resolve which plugins to use for a project. */
   function resolvePlugins(project: ProjectConfig) {
-    const runtime = registry.get<Runtime>(
-      "runtime",
-      project.runtime ?? config.defaults.runtime
-    );
-    const agent = registry.get<Agent>(
-      "agent",
-      project.agent ?? config.defaults.agent
-    );
+    const runtime = registry.get<Runtime>("runtime", project.runtime ?? config.defaults.runtime);
+    const agent = registry.get<Agent>("agent", project.agent ?? config.defaults.agent);
     const workspace = registry.get<Workspace>(
       "workspace",
-      project.workspace ?? config.defaults.workspace
+      project.workspace ?? config.defaults.workspace,
     );
     const tracker = project.tracker
       ? registry.get<Tracker>("tracker", project.tracker.plugin)
       : null;
-    const scm = project.scm
-      ? registry.get<SCM>("scm", project.scm.plugin)
-      : null;
+    const scm = project.scm ? registry.get<SCM>("scm", project.scm.plugin) : null;
 
     return { runtime, agent, workspace, tracker, scm };
   }
@@ -229,23 +218,16 @@ export function createSessionManager(deps: SessionManagerDeps): SessionManager {
     } catch (err) {
       // Clean up workspace if runtime creation failed
       if (plugins.workspace && workspacePath !== project.path) {
-        try { await plugins.workspace.destroy(workspacePath); } catch { /* best effort */ }
+        try {
+          await plugins.workspace.destroy(workspacePath);
+        } catch {
+          /* best effort */
+        }
       }
       throw err;
     }
 
-    // Write metadata
-    writeMetadata(config.dataDir, sessionId, {
-      worktree: workspacePath,
-      branch,
-      status: "spawning",
-      issue: spawnConfig.issueId,
-      project: spawnConfig.projectId,
-      createdAt: new Date().toISOString(),
-      runtimeHandle: JSON.stringify(handle),
-    });
-
-    // Post-launch setup (if agent supports it)
+    // Write metadata and run post-launch setup — clean up on failure
     const session: Session = {
       id: sessionId,
       projectId: spawnConfig.projectId,
@@ -262,8 +244,40 @@ export function createSessionManager(deps: SessionManagerDeps): SessionManager {
       metadata: {},
     };
 
-    if (plugins.agent.postLaunchSetup) {
-      await plugins.agent.postLaunchSetup(session);
+    try {
+      writeMetadata(config.dataDir, sessionId, {
+        worktree: workspacePath,
+        branch,
+        status: "spawning",
+        issue: spawnConfig.issueId,
+        project: spawnConfig.projectId,
+        createdAt: new Date().toISOString(),
+        runtimeHandle: JSON.stringify(handle),
+      });
+
+      if (plugins.agent.postLaunchSetup) {
+        await plugins.agent.postLaunchSetup(session);
+      }
+    } catch (err) {
+      // Clean up runtime and workspace on post-launch failure
+      try {
+        await plugins.runtime.destroy(handle);
+      } catch {
+        /* best effort */
+      }
+      if (plugins.workspace && workspacePath !== project.path) {
+        try {
+          await plugins.workspace.destroy(workspacePath);
+        } catch {
+          /* best effort */
+        }
+      }
+      try {
+        deleteMetadata(config.dataDir, sessionId, false);
+      } catch {
+        /* best effort */
+      }
+      throw err;
     }
 
     // Emit event
@@ -273,7 +287,7 @@ export function createSessionManager(deps: SessionManagerDeps): SessionManager {
         projectId: spawnConfig.projectId,
         message: `Session ${sessionId} spawned${spawnConfig.issueId ? ` for ${spawnConfig.issueId}` : ""}`,
         data: { branch, workspacePath, issueId: spawnConfig.issueId },
-      })
+      }),
     );
 
     return session;
@@ -330,14 +344,16 @@ export function createSessionManager(deps: SessionManagerDeps): SessionManager {
     const projectId = raw["project"] ?? "";
     const project = config.projects[projectId];
 
-    // Destroy runtime
-    if (raw["runtimeHandle"] && project) {
-      const plugins = resolvePlugins(project);
-      if (plugins.runtime) {
-        const handle = safeJsonParse<RuntimeHandle>(raw["runtimeHandle"]);
-        if (handle) {
+    // Destroy runtime (attempt even without project config using default runtime)
+    if (raw["runtimeHandle"]) {
+      const handle = safeJsonParse<RuntimeHandle>(raw["runtimeHandle"]);
+      if (handle) {
+        const runtimePlugin = project
+          ? resolvePlugins(project).runtime
+          : registry.get<Runtime>("runtime", config.defaults.runtime);
+        if (runtimePlugin) {
           try {
-            await plugins.runtime.destroy(handle);
+            await runtimePlugin.destroy(handle);
           } catch {
             // Runtime might already be gone
           }
@@ -345,12 +361,14 @@ export function createSessionManager(deps: SessionManagerDeps): SessionManager {
       }
     }
 
-    // Destroy workspace
-    if (raw["worktree"] && project) {
-      const plugins = resolvePlugins(project);
-      if (plugins.workspace) {
+    // Destroy workspace (attempt even without project config using default workspace)
+    if (raw["worktree"]) {
+      const workspacePlugin = project
+        ? resolvePlugins(project).workspace
+        : registry.get<Workspace>("workspace", config.defaults.workspace);
+      if (workspacePlugin) {
         try {
-          await plugins.workspace.destroy(raw["worktree"]);
+          await workspacePlugin.destroy(raw["worktree"]);
         } catch {
           // Workspace might already be gone
         }
@@ -366,7 +384,7 @@ export function createSessionManager(deps: SessionManagerDeps): SessionManager {
         sessionId,
         projectId,
         message: `Session ${sessionId} killed`,
-      })
+      }),
     );
   }
 
@@ -400,10 +418,7 @@ export function createSessionManager(deps: SessionManagerDeps): SessionManager {
         // Check if issue is completed
         if (!shouldKill && session.issueId && plugins.tracker) {
           try {
-            const completed = await plugins.tracker.isCompleted(
-              session.issueId,
-              project
-            );
+            const completed = await plugins.tracker.isCompleted(session.issueId, project);
             if (completed) shouldKill = true;
           } catch {
             // Can't check issue — skip
