@@ -418,8 +418,11 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
             ? { ...globalReaction, ...projectReaction }
             : globalReaction;
 
-          if (reactionConfig && reactionConfig.auto !== false && reactionConfig.action) {
-            await executeReaction(event, reactionKey, reactionConfig as ReactionConfig);
+          if (reactionConfig && reactionConfig.action) {
+            // auto: false skips automated agent actions but still allows notifications
+            if (reactionConfig.auto !== false || reactionConfig.action === "notify") {
+              await executeReaction(event, reactionKey, reactionConfig as ReactionConfig);
+            }
           }
         }
       }
@@ -467,8 +470,10 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         const reactionKey = eventToReactionKey("summary.all_complete");
         if (reactionKey) {
           const reactionConfig = config.reactions[reactionKey];
-          if (reactionConfig && reactionConfig.auto !== false && reactionConfig.action) {
-            await executeReaction(event, reactionKey, reactionConfig as ReactionConfig);
+          if (reactionConfig && reactionConfig.action) {
+            if (reactionConfig.auto !== false || reactionConfig.action === "notify") {
+              await executeReaction(event, reactionKey, reactionConfig as ReactionConfig);
+            }
           }
         }
       }

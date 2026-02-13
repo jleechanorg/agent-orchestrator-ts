@@ -192,28 +192,38 @@ export function createSessionManager(deps: SessionManagerDeps): SessionManager {
     // Create workspace (if workspace plugin is available)
     let workspacePath = project.path;
     if (plugins.workspace) {
-      const wsInfo = await plugins.workspace.create({
-        projectId: spawnConfig.projectId,
-        project,
-        sessionId,
-        branch,
-      });
-      workspacePath = wsInfo.path;
+      try {
+        const wsInfo = await plugins.workspace.create({
+          projectId: spawnConfig.projectId,
+          project,
+          sessionId,
+          branch,
+        });
+        workspacePath = wsInfo.path;
 
-      // Run post-create hooks — clean up workspace on failure (skip if project root)
-      if (plugins.workspace.postCreate) {
-        try {
-          await plugins.workspace.postCreate(wsInfo, project);
-        } catch (err) {
-          if (workspacePath !== project.path) {
-            try {
-              await plugins.workspace.destroy(workspacePath);
-            } catch {
-              /* best effort */
+        // Run post-create hooks — clean up workspace on failure
+        if (plugins.workspace.postCreate) {
+          try {
+            await plugins.workspace.postCreate(wsInfo, project);
+          } catch (err) {
+            if (workspacePath !== project.path) {
+              try {
+                await plugins.workspace.destroy(workspacePath);
+              } catch {
+                /* best effort */
+              }
             }
+            throw err;
           }
-          throw err;
         }
+      } catch (err) {
+        // Clean up reserved session ID on workspace failure
+        try {
+          deleteMetadata(config.dataDir, sessionId, false);
+        } catch {
+          /* best effort */
+        }
+        throw err;
       }
     }
 
@@ -242,13 +252,18 @@ export function createSessionManager(deps: SessionManagerDeps): SessionManager {
         },
       });
     } catch (err) {
-      // Clean up workspace if agent config or runtime creation failed
+      // Clean up workspace and reserved ID if agent config or runtime creation failed
       if (plugins.workspace && workspacePath !== project.path) {
         try {
           await plugins.workspace.destroy(workspacePath);
         } catch {
           /* best effort */
         }
+      }
+      try {
+        deleteMetadata(config.dataDir, sessionId, false);
+      } catch {
+        /* best effort */
       }
       throw err;
     }
