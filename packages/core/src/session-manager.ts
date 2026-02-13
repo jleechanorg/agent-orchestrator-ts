@@ -29,7 +29,13 @@ import type {
   PluginRegistry,
   RuntimeHandle,
 } from "./types.js";
-import { readMetadataRaw, writeMetadata, deleteMetadata, listMetadata } from "./metadata.js";
+import {
+  readMetadataRaw,
+  writeMetadata,
+  deleteMetadata,
+  listMetadata,
+  reserveSessionId,
+} from "./metadata.js";
 import { createEvent } from "./event-bus.js";
 
 /** Escape regex metacharacters in a string. */
@@ -157,10 +163,19 @@ export function createSessionManager(deps: SessionManagerDeps): SessionManager {
       throw new Error(`Agent plugin '${project.agent ?? config.defaults.agent}' not found`);
     }
 
-    // Determine session ID
+    // Determine session ID — atomically reserve to prevent concurrent collisions
     const existingSessions = listMetadata(config.dataDir);
-    const num = getNextSessionNumber(existingSessions, project.sessionPrefix);
-    const sessionId = `${project.sessionPrefix}-${num}`;
+    let num = getNextSessionNumber(existingSessions, project.sessionPrefix);
+    let sessionId: string;
+    for (let attempts = 0; attempts < 10; attempts++) {
+      sessionId = `${project.sessionPrefix}-${num}`;
+      if (reserveSessionId(config.dataDir, sessionId)) break;
+      num++;
+      if (attempts === 9) {
+        throw new Error(`Failed to reserve session ID after 10 attempts (prefix: ${project.sessionPrefix})`);
+      }
+    }
+    sessionId = `${project.sessionPrefix}-${num}`;
 
     // Determine branch name — explicit branch always takes priority
     let branch: string;
@@ -355,13 +370,14 @@ export function createSessionManager(deps: SessionManagerDeps): SessionManager {
     const projectId = raw["project"] ?? "";
     const project = config.projects[projectId];
 
-    // Destroy runtime — use handle's runtimeName to find the correct plugin
+    // Destroy runtime — prefer handle.runtimeName to find the correct plugin
     if (raw["runtimeHandle"]) {
       const handle = safeJsonParse<RuntimeHandle>(raw["runtimeHandle"]);
       if (handle) {
-        const runtimePlugin = project
-          ? resolvePlugins(project).runtime
-          : registry.get<Runtime>("runtime", handle.runtimeName ?? config.defaults.runtime);
+        const runtimePlugin = registry.get<Runtime>(
+          "runtime",
+          handle.runtimeName ?? (project ? project.runtime ?? config.defaults.runtime : config.defaults.runtime),
+        );
         if (runtimePlugin) {
           try {
             await runtimePlugin.destroy(handle);
@@ -469,14 +485,6 @@ export function createSessionManager(deps: SessionManagerDeps): SessionManager {
     const raw = readMetadataRaw(config.dataDir, sessionId);
     if (!raw) throw new Error(`Session ${sessionId} not found`);
 
-    const project = config.projects[raw["project"] ?? ""];
-    if (!project) throw new Error(`Project not found for session ${sessionId}`);
-
-    const plugins = resolvePlugins(project);
-    if (!plugins.runtime) {
-      throw new Error(`No runtime plugin for session ${sessionId}`);
-    }
-
     if (!raw["runtimeHandle"]) {
       throw new Error(`No runtime handle for session ${sessionId}`);
     }
@@ -486,7 +494,17 @@ export function createSessionManager(deps: SessionManagerDeps): SessionManager {
       throw new Error(`Corrupted runtime handle for session ${sessionId}`);
     }
 
-    await plugins.runtime.sendMessage(handle, message);
+    // Prefer handle.runtimeName to find the correct plugin
+    const project = config.projects[raw["project"] ?? ""];
+    const runtimePlugin = registry.get<Runtime>(
+      "runtime",
+      handle.runtimeName ?? (project ? project.runtime ?? config.defaults.runtime : config.defaults.runtime),
+    );
+    if (!runtimePlugin) {
+      throw new Error(`No runtime plugin for session ${sessionId}`);
+    }
+
+    await runtimePlugin.sendMessage(handle, message);
   }
 
   return { spawn, list, get, kill, cleanup, send };

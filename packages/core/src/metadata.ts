@@ -19,6 +19,9 @@ import {
   mkdirSync,
   unlinkSync,
   readdirSync,
+  openSync,
+  closeSync,
+  constants,
 } from "node:fs";
 import { join, dirname } from "node:path";
 import type { SessionId, SessionMetadata } from "./types.js";
@@ -187,4 +190,20 @@ export function listMetadata(dataDir: string): SessionId[] {
   if (!existsSync(dir)) return [];
 
   return readdirSync(dir).filter((name) => name !== "archive" && !name.startsWith("."));
+}
+
+/**
+ * Atomically reserve a session ID by creating its metadata file with O_EXCL.
+ * Returns true if the ID was successfully reserved, false if it already exists.
+ */
+export function reserveSessionId(dataDir: string, sessionId: SessionId): boolean {
+  const path = metadataPath(dataDir, sessionId);
+  mkdirSync(dirname(path), { recursive: true });
+  try {
+    const fd = openSync(path, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL);
+    closeSync(fd);
+    return true;
+  } catch {
+    return false;
+  }
 }
