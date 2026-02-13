@@ -117,9 +117,13 @@ export function createEventBus(logPath: string | null): EventBus {
 
   return {
     emit(event: OrchestratorEvent): void {
-      // Persist to JSONL
+      // Persist to JSONL (non-fatal on disk errors)
       if (logPath) {
-        appendFileSync(logPath, serializeEvent(event) + "\n", "utf-8");
+        try {
+          appendFileSync(logPath, serializeEvent(event) + "\n", "utf-8");
+        } catch {
+          // Disk error — event still propagated in-memory
+        }
       }
 
       // Store in memory

@@ -43,8 +43,18 @@ function serializeMetadata(data: Record<string, string>): string {
     .join("\n") + "\n";
 }
 
+/** Validate sessionId to prevent path traversal. */
+const VALID_SESSION_ID = /^[a-zA-Z0-9_-]+$/;
+
+function validateSessionId(sessionId: SessionId): void {
+  if (!VALID_SESSION_ID.test(sessionId)) {
+    throw new Error(`Invalid session ID: ${sessionId}`);
+  }
+}
+
 /** Get the metadata file path for a session. */
 function metadataPath(dataDir: string, sessionId: SessionId): string {
+  validateSessionId(sessionId);
   return join(dataDir, "sessions", sessionId);
 }
 

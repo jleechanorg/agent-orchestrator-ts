@@ -68,6 +68,19 @@ function safeJsonParse<T>(str: string): T | null {
   }
 }
 
+/** Valid session statuses for validation. */
+const VALID_STATUSES: ReadonlySet<string> = new Set([
+  "spawning", "working", "pr_open", "ci_failed", "review_pending",
+  "changes_requested", "approved", "mergeable", "merged",
+  "needs_input", "stuck", "errored", "killed",
+]);
+
+/** Validate and normalize a status string. */
+function validateStatus(raw: string | undefined): SessionStatus {
+  if (raw && VALID_STATUSES.has(raw)) return raw as SessionStatus;
+  return "spawning";
+}
+
 /** Reconstruct a Session object from raw metadata key=value pairs. */
 function metadataToSession(
   sessionId: SessionId,
@@ -76,7 +89,7 @@ function metadataToSession(
   return {
     id: sessionId,
     projectId: meta["project"] ?? "",
-    status: (meta["status"] ?? "unknown") as SessionStatus,
+    status: validateStatus(meta["status"]),
     activity: "idle",
     branch: meta["branch"] || null,
     issueId: meta["issue"] || null,
@@ -201,16 +214,25 @@ export function createSessionManager(deps: SessionManagerDeps): SessionManager {
     const launchCommand = plugins.agent.getLaunchCommand(agentLaunchConfig);
     const environment = plugins.agent.getEnvironment(agentLaunchConfig);
 
-    // Create runtime session
-    const handle = await plugins.runtime.create({
-      sessionId,
-      workspacePath,
-      launchCommand,
-      environment: {
-        ...environment,
-        AO_SESSION: sessionId,
-      },
-    });
+    // Create runtime session — clean up workspace on failure
+    let handle: RuntimeHandle;
+    try {
+      handle = await plugins.runtime.create({
+        sessionId,
+        workspacePath,
+        launchCommand,
+        environment: {
+          ...environment,
+          AO_SESSION: sessionId,
+        },
+      });
+    } catch (err) {
+      // Clean up workspace if runtime creation failed
+      if (plugins.workspace && workspacePath !== project.path) {
+        try { await plugins.workspace.destroy(workspacePath); } catch { /* best effort */ }
+      }
+      throw err;
+    }
 
     // Write metadata
     writeMetadata(config.dataDir, sessionId, {

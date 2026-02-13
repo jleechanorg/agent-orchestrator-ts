@@ -79,7 +79,7 @@ function eventToReactionKey(eventType: EventType): string | null {
     case "merge.ready": return "approved-and-green";
     case "session.stuck": return "agent-stuck";
     case "session.needs_input": return "agent-needs-input";
-    case "session.exited": return "agent-exited";
+    case "session.killed": return "agent-exited";
     case "summary.all_complete": return "all-complete";
     default: return null;
   }
@@ -92,9 +92,9 @@ export interface LifecycleManagerDeps {
   eventBus: EventBus;
 }
 
-/** Track retry counts for reactions per session. */
+/** Track attempt counts for reactions per session. */
 interface ReactionTracker {
-  retries: number;
+  attempts: number;
   firstTriggered: Date;
 }
 
@@ -210,16 +210,19 @@ export function createLifecycleManager(
     let tracker = reactionTrackers.get(trackerKey);
 
     if (!tracker) {
-      tracker = { retries: 0, firstTriggered: new Date() };
+      tracker = { attempts: 0, firstTriggered: new Date() };
       reactionTrackers.set(trackerKey, tracker);
     }
+
+    // Increment attempts before checking escalation
+    tracker.attempts++;
 
     // Check if we should escalate
     const maxRetries = reactionConfig.retries ?? Infinity;
     const escalateAfter = reactionConfig.escalateAfter;
     let shouldEscalate = false;
 
-    if (tracker.retries >= maxRetries) {
+    if (tracker.attempts > maxRetries) {
       shouldEscalate = true;
     }
 
@@ -230,7 +233,7 @@ export function createLifecycleManager(
       }
     }
 
-    if (typeof escalateAfter === "number" && tracker.retries >= escalateAfter) {
+    if (typeof escalateAfter === "number" && tracker.attempts > escalateAfter) {
       shouldEscalate = true;
     }
 
@@ -253,14 +256,13 @@ export function createLifecycleManager(
         if (reactionConfig.message) {
           try {
             await sessionManager.send(event.sessionId, reactionConfig.message);
-            tracker.retries++;
 
             eventBus.emit(
               createEvent("reaction.triggered", {
                 sessionId: event.sessionId,
                 projectId: event.projectId,
                 message: `Reaction '${reactionKey}' sent message to agent`,
-                data: { reactionKey, retries: tracker.retries },
+                data: { reactionKey, attempts: tracker.attempts },
               })
             );
 
