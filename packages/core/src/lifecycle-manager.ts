@@ -219,7 +219,14 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     }
 
     // 4. Default: if agent is active, it's working
-    return session.status === "spawning" ? "working" : session.status;
+    if (
+      session.status === "spawning" ||
+      session.status === "stuck" ||
+      session.status === "needs_input"
+    ) {
+      return "working";
+    }
+    return session.status;
   }
 
   /** Execute a reaction for an event. */
@@ -398,9 +405,13 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         // Check if there's a reaction for this event
         const reactionKey = eventToReactionKey(eventType);
         if (reactionKey) {
-          // Check project-specific overrides first, then global
+          // Merge project-specific overrides with global defaults
           const project = config.projects[session.projectId];
-          const reactionConfig = project?.reactions?.[reactionKey] ?? config.reactions[reactionKey];
+          const globalReaction = config.reactions[reactionKey];
+          const projectReaction = project?.reactions?.[reactionKey];
+          const reactionConfig = projectReaction
+            ? { ...globalReaction, ...projectReaction }
+            : globalReaction;
 
           if (reactionConfig && reactionConfig.auto !== false && reactionConfig.action) {
             await executeReaction(event, reactionKey, reactionConfig as ReactionConfig);

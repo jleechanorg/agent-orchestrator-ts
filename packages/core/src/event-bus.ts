@@ -52,6 +52,10 @@ function inferPriority(type: EventType): EventPriority {
   if (type.includes("stuck") || type.includes("needs_input") || type.includes("errored")) {
     return "urgent";
   }
+  // summary.all_complete is informational, not actionable
+  if (type.startsWith("summary.")) {
+    return "info";
+  }
   if (
     type.includes("approved") ||
     type.includes("ready") ||
