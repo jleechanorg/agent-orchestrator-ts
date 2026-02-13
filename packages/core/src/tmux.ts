@@ -118,26 +118,32 @@ export async function newSession(opts: NewSessionOptions): Promise<void> {
 
 /**
  * Send keys (text + Enter) to a tmux session.
- * For long/multiline messages, uses load-buffer + paste-buffer.
+ * For long/multiline messages, uses load-buffer + paste-buffer with
+ * a named buffer to avoid racing on the global paste buffer.
+ * Sends Escape first to clear any partial input in the agent.
  */
 export async function sendKeys(
   sessionName: string,
   text: string,
   pressEnter = true
 ): Promise<void> {
+  // Clear any partial input first (matches bash reference scripts)
+  await tmux("send-keys", "-t", sessionName, "Escape");
+
   if (text.includes("\n") || text.length > 200) {
-    // Use load-buffer for long/multiline text (avoids tmux escaping issues)
+    // Use a named buffer to avoid global paste buffer race conditions
     const { writeFileSync, unlinkSync } = await import("node:fs");
     const { tmpdir } = await import("node:os");
     const { join } = await import("node:path");
     const { randomUUID } = await import("node:crypto");
 
-    const tmpFile = join(tmpdir(), `ao-tmux-${randomUUID()}.txt`);
+    const bufferName = `ao-${randomUUID().slice(0, 8)}`;
+    const tmpFile = join(tmpdir(), `ao-tmux-${bufferName}.txt`);
     writeFileSync(tmpFile, text, "utf-8");
 
     try {
-      await tmux("load-buffer", tmpFile);
-      await tmux("paste-buffer", "-t", sessionName);
+      await tmux("load-buffer", "-b", bufferName, tmpFile);
+      await tmux("paste-buffer", "-b", bufferName, "-d", "-t", sessionName);
     } finally {
       try { unlinkSync(tmpFile); } catch { /* ignore cleanup errors */ }
     }

@@ -19,10 +19,10 @@ import type {
   EventBus,
   OrchestratorEvent,
   OrchestratorConfig,
-  ProjectConfig,
   ReactionConfig,
   ReactionResult,
   PluginRegistry,
+  Runtime,
   Agent,
   SCM,
   Notifier,
@@ -47,25 +47,9 @@ function parseDuration(str: string): number {
   }
 }
 
-/** Map from event type prefix to session status. */
-const STATUS_FROM_EVENT: Partial<Record<EventType, SessionStatus>> = {
-  "session.spawned": "spawning",
-  "session.working": "working",
-  "session.stuck": "stuck",
-  "session.needs_input": "needs_input",
-  "session.errored": "errored",
-  "session.killed": "killed",
-  "pr.created": "pr_open",
-  "ci.failing": "ci_failed",
-  "review.changes_requested": "changes_requested",
-  "review.approved": "approved",
-  "merge.ready": "mergeable",
-  "merge.completed": "merged",
-};
-
 /** Determine which event type corresponds to a status transition. */
 function statusToEventType(
-  from: SessionStatus | undefined,
+  _from: SessionStatus | undefined,
   to: SessionStatus
 ): EventType | null {
   switch (to) {
@@ -124,6 +108,8 @@ export function createLifecycleManager(
   const handlers = new Map<string, Set<EventHandler>>();
   const reactionTrackers = new Map<string, ReactionTracker>(); // "sessionId:reactionKey"
   let pollTimer: ReturnType<typeof setInterval> | null = null;
+  let polling = false; // re-entrancy guard
+  let allCompleteEmitted = false; // guard against repeated all_complete
 
   function getOrCreateSet(key: string): Set<EventHandler> {
     let set = handlers.get(key);
@@ -164,7 +150,7 @@ export function createLifecycleManager(
 
     // 1. Check if runtime is alive
     if (session.runtimeHandle) {
-      const runtime = registry.get<import("./types.js").Runtime>(
+      const runtime = registry.get<Runtime>(
         "runtime",
         project.runtime ?? config.defaults.runtime
       );
@@ -260,7 +246,9 @@ export function createLifecycleManager(
     }
 
     // Execute the reaction action
-    switch (reactionConfig.action) {
+    const action = reactionConfig.action ?? "notify";
+
+    switch (action) {
       case "send-to-agent": {
         if (reactionConfig.message) {
           try {
@@ -323,7 +311,7 @@ export function createLifecycleManager(
     return {
       reactionType: reactionKey,
       success: false,
-      action: reactionConfig.action,
+      action,
       escalated: false,
     };
   }
@@ -360,6 +348,11 @@ export function createLifecycleManager(
       // Update metadata
       updateMetadata(config.dataDir, session.id, { status: newStatus });
 
+      // Reset allCompleteEmitted when any session becomes active again
+      if (newStatus !== "merged" && newStatus !== "killed") {
+        allCompleteEmitted = false;
+      }
+
       // Emit transition event
       const eventType = statusToEventType(oldStatus, newStatus);
       if (eventType) {
@@ -382,7 +375,7 @@ export function createLifecycleManager(
             project?.reactions?.[reactionKey] ??
             config.reactions[reactionKey];
 
-          if (reactionConfig && (reactionConfig as ReactionConfig).auto !== false) {
+          if (reactionConfig && reactionConfig.auto !== false && reactionConfig.action) {
             await executeReaction(
               event,
               reactionKey,
@@ -399,19 +392,25 @@ export function createLifecycleManager(
 
   /** Run one polling cycle across all sessions. */
   async function pollAll(): Promise<void> {
+    // Re-entrancy guard: skip if previous poll is still running
+    if (polling) return;
+    polling = true;
+
     try {
       const sessions = await sessionManager.list();
 
-      for (const session of sessions) {
-        if (session.status === "merged" || session.status === "killed") continue;
-        await checkSession(session);
-      }
-
-      // Check if all sessions are complete
       const activeSessions = sessions.filter(
         (s) => s.status !== "merged" && s.status !== "killed"
       );
-      if (sessions.length > 0 && activeSessions.length === 0) {
+
+      // Poll all active sessions concurrently
+      await Promise.allSettled(
+        activeSessions.map((s) => checkSession(s))
+      );
+
+      // Check if all sessions are complete (emit only once)
+      if (sessions.length > 0 && activeSessions.length === 0 && !allCompleteEmitted) {
+        allCompleteEmitted = true;
         const event = createEvent("summary.all_complete", {
           sessionId: "system",
           projectId: "all",
@@ -423,6 +422,8 @@ export function createLifecycleManager(
       }
     } catch {
       // Poll cycle failed — will retry next interval
+    } finally {
+      polling = false;
     }
   }
 

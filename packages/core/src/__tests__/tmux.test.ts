@@ -159,8 +159,9 @@ describe("newSession", () => {
   });
 
   it("sends initial command after creation", async () => {
-    // First call: new-session, Second call: send-keys, Third call: send-keys Enter
+    // Calls: new-session, send-keys Escape, send-keys text, send-keys Enter
     mockTmuxSequence([
+      { stdout: "" },
       { stdout: "" },
       { stdout: "" },
       { stdout: "" },
@@ -168,39 +169,53 @@ describe("newSession", () => {
 
     await newSession({ name: "test-4", cwd: "/tmp", command: "echo hello" });
 
-    // Should have called new-session then send-keys twice (text + Enter)
-    expect(mockExecFile).toHaveBeenCalledTimes(3);
-    const secondCallArgs = mockExecFile.mock.calls[1][1] as string[];
-    expect(secondCallArgs).toContain("send-keys");
-    expect(secondCallArgs).toContain("echo hello");
+    expect(mockExecFile).toHaveBeenCalledTimes(4);
+    // Call 0: new-session
+    // Call 1: send-keys Escape (clear partial input)
+    const escapeArgs = mockExecFile.mock.calls[1][1] as string[];
+    expect(escapeArgs).toEqual(["send-keys", "-t", "test-4", "Escape"]);
+    // Call 2: send-keys text
+    const textArgs = mockExecFile.mock.calls[2][1] as string[];
+    expect(textArgs).toContain("send-keys");
+    expect(textArgs).toContain("echo hello");
   });
 });
 
 describe("sendKeys", () => {
   it("sends short text with send-keys", async () => {
-    mockTmuxSequence([{ stdout: "" }, { stdout: "" }]);
+    // Calls: send-keys Escape, send-keys text, send-keys Enter
+    mockTmuxSequence([{ stdout: "" }, { stdout: "" }, { stdout: "" }]);
 
     await sendKeys("app-1", "hello world");
 
-    expect(mockExecFile).toHaveBeenCalledTimes(2);
-    const firstArgs = mockExecFile.mock.calls[0][1] as string[];
-    expect(firstArgs).toEqual(["send-keys", "-t", "app-1", "hello world"]);
-    // Second call is Enter
-    const secondArgs = mockExecFile.mock.calls[1][1] as string[];
-    expect(secondArgs).toEqual(["send-keys", "-t", "app-1", "Enter"]);
+    expect(mockExecFile).toHaveBeenCalledTimes(3);
+    // Call 0: Escape to clear partial input
+    const escapeArgs = mockExecFile.mock.calls[0][1] as string[];
+    expect(escapeArgs).toEqual(["send-keys", "-t", "app-1", "Escape"]);
+    // Call 1: text
+    const textArgs = mockExecFile.mock.calls[1][1] as string[];
+    expect(textArgs).toEqual(["send-keys", "-t", "app-1", "hello world"]);
+    // Call 2: Enter
+    const enterArgs = mockExecFile.mock.calls[2][1] as string[];
+    expect(enterArgs).toEqual(["send-keys", "-t", "app-1", "Enter"]);
   });
 
   it("skips Enter when pressEnter=false", async () => {
-    mockTmuxSuccess("");
+    // Calls: send-keys Escape, send-keys text (no Enter)
+    mockTmuxSequence([{ stdout: "" }, { stdout: "" }]);
 
     await sendKeys("app-1", "hello", false);
 
-    expect(mockExecFile).toHaveBeenCalledTimes(1);
+    expect(mockExecFile).toHaveBeenCalledTimes(2);
+    const escapeArgs = mockExecFile.mock.calls[0][1] as string[];
+    expect(escapeArgs).toEqual(["send-keys", "-t", "app-1", "Escape"]);
   });
 
-  it("uses load-buffer for long text", async () => {
+  it("uses load-buffer with named buffer for long text", async () => {
     const longText = "a".repeat(250);
+    // Calls: send-keys Escape, load-buffer -b name, paste-buffer -b name -d, send-keys Enter
     mockTmuxSequence([
+      { stdout: "" }, // send-keys Escape
       { stdout: "" }, // load-buffer
       { stdout: "" }, // paste-buffer
       { stdout: "" }, // send-keys Enter
@@ -208,15 +223,32 @@ describe("sendKeys", () => {
 
     await sendKeys("app-1", longText);
 
-    const firstArgs = mockExecFile.mock.calls[0][1] as string[];
-    expect(firstArgs[0]).toBe("load-buffer");
+    expect(mockExecFile).toHaveBeenCalledTimes(4);
 
-    const secondArgs = mockExecFile.mock.calls[1][1] as string[];
-    expect(secondArgs).toEqual(["paste-buffer", "-t", "app-1"]);
+    // Call 0: Escape
+    const escapeArgs = mockExecFile.mock.calls[0][1] as string[];
+    expect(escapeArgs).toEqual(["send-keys", "-t", "app-1", "Escape"]);
+
+    // Call 1: load-buffer with named buffer
+    const loadArgs = mockExecFile.mock.calls[1][1] as string[];
+    expect(loadArgs[0]).toBe("load-buffer");
+    expect(loadArgs[1]).toBe("-b");
+    expect(loadArgs[2]).toMatch(/^ao-/); // named buffer
+
+    // Call 2: paste-buffer with named buffer and -d (delete after paste)
+    const pasteArgs = mockExecFile.mock.calls[2][1] as string[];
+    expect(pasteArgs[0]).toBe("paste-buffer");
+    expect(pasteArgs[1]).toBe("-b");
+    expect(pasteArgs[2]).toMatch(/^ao-/);
+    expect(pasteArgs).toContain("-d");
+    expect(pasteArgs).toContain("-t");
+    expect(pasteArgs).toContain("app-1");
   });
 
   it("uses load-buffer for multiline text", async () => {
+    // Calls: send-keys Escape, load-buffer, paste-buffer, send-keys Enter
     mockTmuxSequence([
+      { stdout: "" }, // send-keys Escape
       { stdout: "" }, // load-buffer
       { stdout: "" }, // paste-buffer
       { stdout: "" }, // send-keys Enter
@@ -224,8 +256,11 @@ describe("sendKeys", () => {
 
     await sendKeys("app-1", "line1\nline2");
 
-    const firstArgs = mockExecFile.mock.calls[0][1] as string[];
-    expect(firstArgs[0]).toBe("load-buffer");
+    expect(mockExecFile).toHaveBeenCalledTimes(4);
+    // Call 1 (after Escape) should be load-buffer
+    const loadArgs = mockExecFile.mock.calls[1][1] as string[];
+    expect(loadArgs[0]).toBe("load-buffer");
+    expect(loadArgs[1]).toBe("-b"); // named buffer
   });
 });
 

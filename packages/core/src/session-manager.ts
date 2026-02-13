@@ -11,7 +11,6 @@
  * Reference: scripts/claude-ao-session, scripts/send-to-session
  */
 
-import { execFile } from "node:child_process";
 import type {
   SessionManager,
   Session,
@@ -28,23 +27,19 @@ import type {
   SCM,
   EventBus,
   PluginRegistry,
+  RuntimeHandle,
 } from "./types.js";
 import {
-  readMetadata,
+  readMetadataRaw,
   writeMetadata,
-  updateMetadata,
   deleteMetadata,
   listMetadata,
 } from "./metadata.js";
 import { createEvent } from "./event-bus.js";
 
-/** Get the current git branch in a directory. */
-function getGitBranch(dir: string): Promise<string> {
-  return new Promise((resolve) => {
-    execFile("git", ["-C", dir, "branch", "--show-current"], (error, stdout) => {
-      resolve(error ? "unknown" : stdout.trim());
-    });
-  });
+/** Escape regex metacharacters in a string. */
+function escapeRegex(str: string): string {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 /** Get the next session number for a project. */
@@ -53,7 +48,7 @@ function getNextSessionNumber(
   prefix: string
 ): number {
   let max = 0;
-  const pattern = new RegExp(`^${prefix}-(\\d+)$`);
+  const pattern = new RegExp(`^${escapeRegex(prefix)}-(\\d+)$`);
   for (const name of existingSessions) {
     const match = name.match(pattern);
     if (match) {
@@ -64,7 +59,16 @@ function getNextSessionNumber(
   return max + 1;
 }
 
-/** Reconstruct a Session object from metadata + live data. */
+/** Safely parse JSON, returning null on failure. */
+function safeJsonParse<T>(str: string): T | null {
+  try {
+    return JSON.parse(str) as T;
+  } catch {
+    return null;
+  }
+}
+
+/** Reconstruct a Session object from raw metadata key=value pairs. */
 function metadataToSession(
   sessionId: SessionId,
   meta: Record<string, string>
@@ -90,7 +94,7 @@ function metadataToSession(
       : null,
     workspacePath: meta["worktree"] || null,
     runtimeHandle: meta["runtimeHandle"]
-      ? JSON.parse(meta["runtimeHandle"])
+      ? safeJsonParse<RuntimeHandle>(meta["runtimeHandle"])
       : null,
     agentInfo: meta["summary"]
       ? { summary: meta["summary"], agentSessionId: null }
@@ -135,294 +139,305 @@ export function createSessionManager(deps: SessionManagerDeps): SessionManager {
     return { runtime, agent, workspace, tracker, scm };
   }
 
-  return {
-    async spawn(spawnConfig: SessionSpawnConfig): Promise<Session> {
-      const project = config.projects[spawnConfig.projectId];
-      if (!project) {
-        throw new Error(`Unknown project: ${spawnConfig.projectId}`);
-      }
+  // Define methods as local functions so `this` is not needed
+  async function spawn(spawnConfig: SessionSpawnConfig): Promise<Session> {
+    const project = config.projects[spawnConfig.projectId];
+    if (!project) {
+      throw new Error(`Unknown project: ${spawnConfig.projectId}`);
+    }
 
-      const plugins = resolvePlugins(project);
-      if (!plugins.runtime) {
-        throw new Error(`Runtime plugin '${project.runtime ?? config.defaults.runtime}' not found`);
-      }
-      if (!plugins.agent) {
-        throw new Error(`Agent plugin '${project.agent ?? config.defaults.agent}' not found`);
-      }
+    const plugins = resolvePlugins(project);
+    if (!plugins.runtime) {
+      throw new Error(`Runtime plugin '${project.runtime ?? config.defaults.runtime}' not found`);
+    }
+    if (!plugins.agent) {
+      throw new Error(`Agent plugin '${project.agent ?? config.defaults.agent}' not found`);
+    }
 
-      // Determine session ID
-      const existingSessions = listMetadata(config.dataDir);
-      const num = getNextSessionNumber(existingSessions, project.sessionPrefix);
-      const sessionId = `${project.sessionPrefix}-${num}`;
+    // Determine session ID
+    const existingSessions = listMetadata(config.dataDir);
+    const num = getNextSessionNumber(existingSessions, project.sessionPrefix);
+    const sessionId = `${project.sessionPrefix}-${num}`;
 
-      // Determine branch name
-      let branch = spawnConfig.branch ?? project.defaultBranch;
-      if (spawnConfig.issueId && plugins.tracker) {
-        branch = plugins.tracker.branchName(spawnConfig.issueId, project);
-      } else if (spawnConfig.issueId) {
-        branch = `feat/${spawnConfig.issueId}`;
-      }
+    // Determine branch name — explicit branch always takes priority
+    let branch: string;
+    if (spawnConfig.branch) {
+      branch = spawnConfig.branch;
+    } else if (spawnConfig.issueId && plugins.tracker) {
+      branch = plugins.tracker.branchName(spawnConfig.issueId, project);
+    } else if (spawnConfig.issueId) {
+      branch = `feat/${spawnConfig.issueId}`;
+    } else {
+      branch = project.defaultBranch;
+    }
 
-      // Create workspace (if workspace plugin is available)
-      let workspacePath = project.path;
-      if (plugins.workspace) {
-        const wsInfo = await plugins.workspace.create({
-          projectId: spawnConfig.projectId,
-          project,
-          sessionId,
-          branch,
-        });
-        workspacePath = wsInfo.path;
-
-        // Run post-create hooks
-        if (plugins.workspace.postCreate) {
-          await plugins.workspace.postCreate(wsInfo, project);
-        }
-      }
-
-      // Get agent launch config
-      const agentLaunchConfig = {
-        sessionId,
-        projectConfig: project,
-        issueId: spawnConfig.issueId,
-        prompt: spawnConfig.prompt,
-        permissions: project.agentConfig?.permissions,
-        model: project.agentConfig?.model,
-      };
-
-      const launchCommand = plugins.agent.getLaunchCommand(agentLaunchConfig);
-      const environment = plugins.agent.getEnvironment(agentLaunchConfig);
-
-      // Create runtime session
-      const handle = await plugins.runtime.create({
-        sessionId,
-        workspacePath,
-        launchCommand,
-        environment: {
-          ...environment,
-          AO_SESSION: sessionId,
-        },
-      });
-
-      // Write metadata
-      writeMetadata(config.dataDir, sessionId, {
-        worktree: workspacePath,
-        branch,
-        status: "spawning",
-        issue: spawnConfig.issueId,
-        project: spawnConfig.projectId,
-        createdAt: new Date().toISOString(),
-        runtimeHandle: JSON.stringify(handle),
-      });
-
-      // Post-launch setup (if agent supports it)
-      const session: Session = {
-        id: sessionId,
+    // Create workspace (if workspace plugin is available)
+    let workspacePath = project.path;
+    if (plugins.workspace) {
+      const wsInfo = await plugins.workspace.create({
         projectId: spawnConfig.projectId,
-        status: "spawning",
-        activity: "active",
+        project,
+        sessionId,
         branch,
-        issueId: spawnConfig.issueId ?? null,
-        pr: null,
-        workspacePath,
-        runtimeHandle: handle,
-        agentInfo: null,
-        createdAt: new Date(),
-        lastActivityAt: new Date(),
-        metadata: {},
-      };
+      });
+      workspacePath = wsInfo.path;
 
-      if (plugins.agent.postLaunchSetup) {
-        await plugins.agent.postLaunchSetup(session);
+      // Run post-create hooks
+      if (plugins.workspace.postCreate) {
+        await plugins.workspace.postCreate(wsInfo, project);
       }
+    }
 
-      // Emit event
-      eventBus.emit(
-        createEvent("session.spawned", {
-          sessionId,
-          projectId: spawnConfig.projectId,
-          message: `Session ${sessionId} spawned${spawnConfig.issueId ? ` for ${spawnConfig.issueId}` : ""}`,
-          data: { branch, workspacePath, issueId: spawnConfig.issueId },
-        })
-      );
+    // Get agent launch config
+    const agentLaunchConfig = {
+      sessionId,
+      projectConfig: project,
+      issueId: spawnConfig.issueId,
+      prompt: spawnConfig.prompt,
+      permissions: project.agentConfig?.permissions,
+      model: project.agentConfig?.model,
+    };
 
-      return session;
-    },
+    const launchCommand = plugins.agent.getLaunchCommand(agentLaunchConfig);
+    const environment = plugins.agent.getEnvironment(agentLaunchConfig);
 
-    async list(projectId?: string): Promise<Session[]> {
-      const sessionIds = listMetadata(config.dataDir);
-      const sessions: Session[] = [];
+    // Create runtime session
+    const handle = await plugins.runtime.create({
+      sessionId,
+      workspacePath,
+      launchCommand,
+      environment: {
+        ...environment,
+        AO_SESSION: sessionId,
+      },
+    });
 
-      for (const sid of sessionIds) {
-        const raw = readMetadata(config.dataDir, sid);
-        if (!raw) continue;
+    // Write metadata
+    writeMetadata(config.dataDir, sessionId, {
+      worktree: workspacePath,
+      branch,
+      status: "spawning",
+      issue: spawnConfig.issueId,
+      project: spawnConfig.projectId,
+      createdAt: new Date().toISOString(),
+      runtimeHandle: JSON.stringify(handle),
+    });
 
-        // Filter by project if specified
-        if (projectId && raw.project !== projectId) continue;
+    // Post-launch setup (if agent supports it)
+    const session: Session = {
+      id: sessionId,
+      projectId: spawnConfig.projectId,
+      status: "spawning",
+      activity: "active",
+      branch,
+      issueId: spawnConfig.issueId ?? null,
+      pr: null,
+      workspacePath,
+      runtimeHandle: handle,
+      agentInfo: null,
+      createdAt: new Date(),
+      lastActivityAt: new Date(),
+      metadata: {},
+    };
 
-        const session = metadataToSession(sid, raw as unknown as Record<string, string>);
+    if (plugins.agent.postLaunchSetup) {
+      await plugins.agent.postLaunchSetup(session);
+    }
 
-        // Check if runtime is still alive
-        if (session.runtimeHandle) {
-          const project = config.projects[session.projectId];
-          if (project) {
-            const plugins = resolvePlugins(project);
-            if (plugins.runtime) {
-              try {
-                const alive = await plugins.runtime.isAlive(session.runtimeHandle);
-                if (!alive) {
-                  session.status = "killed";
-                  session.activity = "exited";
-                }
-              } catch {
-                // Can't check — assume still alive
+    // Emit event
+    eventBus.emit(
+      createEvent("session.spawned", {
+        sessionId,
+        projectId: spawnConfig.projectId,
+        message: `Session ${sessionId} spawned${spawnConfig.issueId ? ` for ${spawnConfig.issueId}` : ""}`,
+        data: { branch, workspacePath, issueId: spawnConfig.issueId },
+      })
+    );
+
+    return session;
+  }
+
+  async function list(projectId?: string): Promise<Session[]> {
+    const sessionIds = listMetadata(config.dataDir);
+    const sessions: Session[] = [];
+
+    for (const sid of sessionIds) {
+      const raw = readMetadataRaw(config.dataDir, sid);
+      if (!raw) continue;
+
+      // Filter by project if specified
+      if (projectId && raw["project"] !== projectId) continue;
+
+      const session = metadataToSession(sid, raw);
+
+      // Check if runtime is still alive
+      if (session.runtimeHandle) {
+        const project = config.projects[session.projectId];
+        if (project) {
+          const plugins = resolvePlugins(project);
+          if (plugins.runtime) {
+            try {
+              const alive = await plugins.runtime.isAlive(session.runtimeHandle);
+              if (!alive) {
+                session.status = "killed";
+                session.activity = "exited";
               }
+            } catch {
+              // Can't check — assume still alive
             }
           }
         }
-
-        sessions.push(session);
       }
 
-      return sessions;
-    },
+      sessions.push(session);
+    }
 
-    async get(sessionId: SessionId): Promise<Session | null> {
-      const raw = readMetadata(config.dataDir, sessionId);
-      if (!raw) return null;
-      return metadataToSession(sessionId, raw as unknown as Record<string, string>);
-    },
+    return sessions;
+  }
 
-    async kill(sessionId: SessionId): Promise<void> {
-      const raw = readMetadata(config.dataDir, sessionId);
-      if (!raw) throw new Error(`Session ${sessionId} not found`);
+  async function get(sessionId: SessionId): Promise<Session | null> {
+    const raw = readMetadataRaw(config.dataDir, sessionId);
+    if (!raw) return null;
+    return metadataToSession(sessionId, raw);
+  }
 
-      const projectId = raw.project ?? "";
-      const project = config.projects[projectId];
+  async function kill(sessionId: SessionId): Promise<void> {
+    const raw = readMetadataRaw(config.dataDir, sessionId);
+    if (!raw) throw new Error(`Session ${sessionId} not found`);
 
-      // Destroy runtime
-      if (raw.runtimeHandle && project) {
-        const plugins = resolvePlugins(project);
-        if (plugins.runtime) {
+    const projectId = raw["project"] ?? "";
+    const project = config.projects[projectId];
+
+    // Destroy runtime
+    if (raw["runtimeHandle"] && project) {
+      const plugins = resolvePlugins(project);
+      if (plugins.runtime) {
+        const handle = safeJsonParse<RuntimeHandle>(raw["runtimeHandle"]);
+        if (handle) {
           try {
-            const handle = JSON.parse(raw.runtimeHandle);
             await plugins.runtime.destroy(handle);
           } catch {
             // Runtime might already be gone
           }
         }
       }
+    }
 
-      // Destroy workspace
-      if (raw.worktree && project) {
-        const plugins = resolvePlugins(project);
-        if (plugins.workspace) {
-          try {
-            await plugins.workspace.destroy(raw.worktree);
-          } catch {
-            // Workspace might already be gone
-          }
-        }
-      }
-
-      // Archive metadata
-      deleteMetadata(config.dataDir, sessionId, true);
-
-      // Emit event
-      eventBus.emit(
-        createEvent("session.killed", {
-          sessionId,
-          projectId,
-          message: `Session ${sessionId} killed`,
-        })
-      );
-    },
-
-    async cleanup(projectId?: string): Promise<CleanupResult> {
-      const result: CleanupResult = { killed: [], skipped: [], errors: [] };
-      const sessions = await this.list(projectId);
-
-      for (const session of sessions) {
-        try {
-          const project = config.projects[session.projectId];
-          if (!project) {
-            result.skipped.push(session.id);
-            continue;
-          }
-
-          const plugins = resolvePlugins(project);
-          let shouldKill = false;
-
-          // Check if PR is merged
-          if (session.pr && plugins.scm) {
-            try {
-              const prState = await plugins.scm.getPRState(session.pr);
-              if (prState === "merged" || prState === "closed") {
-                shouldKill = true;
-              }
-            } catch {
-              // Can't check PR — skip
-            }
-          }
-
-          // Check if issue is completed
-          if (!shouldKill && session.issueId && plugins.tracker) {
-            try {
-              const completed = await plugins.tracker.isCompleted(
-                session.issueId,
-                project
-              );
-              if (completed) shouldKill = true;
-            } catch {
-              // Can't check issue — skip
-            }
-          }
-
-          // Check if runtime is dead
-          if (!shouldKill && session.runtimeHandle && plugins.runtime) {
-            try {
-              const alive = await plugins.runtime.isAlive(session.runtimeHandle);
-              if (!alive) shouldKill = true;
-            } catch {
-              // Can't check — skip
-            }
-          }
-
-          if (shouldKill) {
-            await this.kill(session.id);
-            result.killed.push(session.id);
-          } else {
-            result.skipped.push(session.id);
-          }
-        } catch (err) {
-          result.errors.push({
-            sessionId: session.id,
-            error: err instanceof Error ? err.message : String(err),
-          });
-        }
-      }
-
-      return result;
-    },
-
-    async send(sessionId: SessionId, message: string): Promise<void> {
-      const raw = readMetadata(config.dataDir, sessionId);
-      if (!raw) throw new Error(`Session ${sessionId} not found`);
-
-      const project = config.projects[raw.project ?? ""];
-      if (!project) throw new Error(`Project not found for session ${sessionId}`);
-
+    // Destroy workspace
+    if (raw["worktree"] && project) {
       const plugins = resolvePlugins(project);
-      if (!plugins.runtime) {
-        throw new Error(`No runtime plugin for session ${sessionId}`);
+      if (plugins.workspace) {
+        try {
+          await plugins.workspace.destroy(raw["worktree"]);
+        } catch {
+          // Workspace might already be gone
+        }
       }
+    }
 
-      if (!raw.runtimeHandle) {
-        throw new Error(`No runtime handle for session ${sessionId}`);
+    // Archive metadata
+    deleteMetadata(config.dataDir, sessionId, true);
+
+    // Emit event
+    eventBus.emit(
+      createEvent("session.killed", {
+        sessionId,
+        projectId,
+        message: `Session ${sessionId} killed`,
+      })
+    );
+  }
+
+  async function cleanup(projectId?: string): Promise<CleanupResult> {
+    const result: CleanupResult = { killed: [], skipped: [], errors: [] };
+    const sessions = await list(projectId);
+
+    for (const session of sessions) {
+      try {
+        const project = config.projects[session.projectId];
+        if (!project) {
+          result.skipped.push(session.id);
+          continue;
+        }
+
+        const plugins = resolvePlugins(project);
+        let shouldKill = false;
+
+        // Check if PR is merged
+        if (session.pr && plugins.scm) {
+          try {
+            const prState = await plugins.scm.getPRState(session.pr);
+            if (prState === "merged" || prState === "closed") {
+              shouldKill = true;
+            }
+          } catch {
+            // Can't check PR — skip
+          }
+        }
+
+        // Check if issue is completed
+        if (!shouldKill && session.issueId && plugins.tracker) {
+          try {
+            const completed = await plugins.tracker.isCompleted(
+              session.issueId,
+              project
+            );
+            if (completed) shouldKill = true;
+          } catch {
+            // Can't check issue — skip
+          }
+        }
+
+        // Check if runtime is dead
+        if (!shouldKill && session.runtimeHandle && plugins.runtime) {
+          try {
+            const alive = await plugins.runtime.isAlive(session.runtimeHandle);
+            if (!alive) shouldKill = true;
+          } catch {
+            // Can't check — skip
+          }
+        }
+
+        if (shouldKill) {
+          await kill(session.id);
+          result.killed.push(session.id);
+        } else {
+          result.skipped.push(session.id);
+        }
+      } catch (err) {
+        result.errors.push({
+          sessionId: session.id,
+          error: err instanceof Error ? err.message : String(err),
+        });
       }
+    }
 
-      const handle = JSON.parse(raw.runtimeHandle);
-      await plugins.runtime.sendMessage(handle, message);
-    },
-  };
+    return result;
+  }
+
+  async function send(sessionId: SessionId, message: string): Promise<void> {
+    const raw = readMetadataRaw(config.dataDir, sessionId);
+    if (!raw) throw new Error(`Session ${sessionId} not found`);
+
+    const project = config.projects[raw["project"] ?? ""];
+    if (!project) throw new Error(`Project not found for session ${sessionId}`);
+
+    const plugins = resolvePlugins(project);
+    if (!plugins.runtime) {
+      throw new Error(`No runtime plugin for session ${sessionId}`);
+    }
+
+    if (!raw["runtimeHandle"]) {
+      throw new Error(`No runtime handle for session ${sessionId}`);
+    }
+
+    const handle = safeJsonParse<RuntimeHandle>(raw["runtimeHandle"]);
+    if (!handle) {
+      throw new Error(`Corrupted runtime handle for session ${sessionId}`);
+    }
+
+    await plugins.runtime.sendMessage(handle, message);
+  }
+
+  return { spawn, list, get, kill, cleanup, send };
 }
