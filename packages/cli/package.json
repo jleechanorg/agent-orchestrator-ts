@@ -1,0 +1,27 @@
+{
+  "name": "@agent-orchestrator/cli",
+  "version": "0.1.0",
+  "description": "CLI for agent-orchestrator — the `ao` command",
+  "type": "module",
+  "bin": {
+    "ao": "dist/index.js"
+  },
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/index.ts",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@agent-orchestrator/core": "workspace:*",
+    "chalk": "^5.4.0",
+    "commander": "^13.0.0",
+    "ora": "^8.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^25.2.3",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0"
+  }
+}
