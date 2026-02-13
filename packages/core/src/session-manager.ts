@@ -184,9 +184,18 @@ export function createSessionManager(deps: SessionManagerDeps): SessionManager {
       });
       workspacePath = wsInfo.path;
 
-      // Run post-create hooks
+      // Run post-create hooks — clean up workspace on failure
       if (plugins.workspace.postCreate) {
-        await plugins.workspace.postCreate(wsInfo, project);
+        try {
+          await plugins.workspace.postCreate(wsInfo, project);
+        } catch (err) {
+          try {
+            await plugins.workspace.destroy(workspacePath);
+          } catch {
+            /* best effort */
+          }
+          throw err;
+        }
       }
     }
 

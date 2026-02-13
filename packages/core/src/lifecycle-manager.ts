@@ -446,6 +446,15 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         });
         eventBus.emit(event);
         emitToHandlers(event);
+
+        // Execute all-complete reaction if configured
+        const reactionKey = eventToReactionKey("summary.all_complete");
+        if (reactionKey) {
+          const reactionConfig = config.reactions[reactionKey];
+          if (reactionConfig && reactionConfig.auto !== false && reactionConfig.action) {
+            await executeReaction(event, reactionKey, reactionConfig as ReactionConfig);
+          }
+        }
       }
     } catch {
       // Poll cycle failed — will retry next interval
