@@ -800,27 +800,6 @@ export interface LifecycleManager {
 
   /** Force-check a specific session now */
   check(sessionId: SessionId): Promise<void>;
-
-  /** Subscribe to lifecycle events */
-  on(event: EventType | "*", handler: (event: OrchestratorEvent) => void): void;
-  off(event: EventType | "*", handler: (event: OrchestratorEvent) => void): void;
-}
-
-/** Event bus — pub/sub + persistence */
-export interface EventBus {
-  emit(event: OrchestratorEvent): void;
-  on(event: EventType | "*", handler: (event: OrchestratorEvent) => void): void;
-  off(event: EventType | "*", handler: (event: OrchestratorEvent) => void): void;
-  getHistory(filter?: EventFilter): OrchestratorEvent[];
-}
-
-export interface EventFilter {
-  sessionId?: SessionId;
-  projectId?: string;
-  type?: EventType;
-  priority?: EventPriority;
-  since?: Date;
-  limit?: number;
 }
 
 /** Plugin registry — discovery + loading */

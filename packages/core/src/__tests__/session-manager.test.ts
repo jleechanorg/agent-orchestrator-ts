@@ -4,7 +4,6 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
 import { createSessionManager } from "../session-manager.js";
-import { createEventBus } from "../event-bus.js";
 import { writeMetadata, readMetadata } from "../metadata.js";
 import type {
   OrchestratorConfig,
@@ -15,12 +14,9 @@ import type {
   Tracker,
   SCM,
   RuntimeHandle,
-  EventBus,
-  OrchestratorEvent,
 } from "../types.js";
 
 let dataDir: string;
-let eventBus: EventBus;
 let mockRuntime: Runtime;
 let mockAgent: Agent;
 let mockWorkspace: Workspace;
@@ -34,8 +30,6 @@ function makeHandle(id: string): RuntimeHandle {
 beforeEach(() => {
   dataDir = join(tmpdir(), `ao-test-session-mgr-${randomUUID()}`);
   mkdirSync(join(dataDir, "sessions"), { recursive: true });
-
-  eventBus = createEventBus(null);
 
   mockRuntime = {
     name: "mock",
@@ -119,7 +113,7 @@ afterEach(() => {
 
 describe("spawn", () => {
   it("creates a session with workspace, runtime, and agent", async () => {
-    const sm = createSessionManager({ config, registry: mockRegistry, eventBus });
+    const sm = createSessionManager({ config, registry: mockRegistry });
 
     const session = await sm.spawn({ projectId: "my-app" });
 
@@ -137,7 +131,7 @@ describe("spawn", () => {
   });
 
   it("uses issue ID to derive branch name", async () => {
-    const sm = createSessionManager({ config, registry: mockRegistry, eventBus });
+    const sm = createSessionManager({ config, registry: mockRegistry });
 
     const session = await sm.spawn({ projectId: "my-app", issueId: "INT-100" });
 
@@ -169,7 +163,6 @@ describe("spawn", () => {
     const sm = createSessionManager({
       config,
       registry: registryWithTracker,
-      eventBus,
     });
 
     const session = await sm.spawn({ projectId: "my-app", issueId: "INT-100" });
@@ -177,7 +170,7 @@ describe("spawn", () => {
   });
 
   it("increments session numbers correctly", async () => {
-    const sm = createSessionManager({ config, registry: mockRegistry, eventBus });
+    const sm = createSessionManager({ config, registry: mockRegistry });
 
     // Pre-create some metadata to simulate existing sessions
     writeMetadata(dataDir, "app-3", { worktree: "/tmp", branch: "b", status: "working" });
@@ -187,20 +180,8 @@ describe("spawn", () => {
     expect(session.id).toBe("app-8");
   });
 
-  it("emits session.spawned event", async () => {
-    const received: OrchestratorEvent[] = [];
-    eventBus.on("session.spawned", (e) => received.push(e));
-
-    const sm = createSessionManager({ config, registry: mockRegistry, eventBus });
-    await sm.spawn({ projectId: "my-app" });
-
-    expect(received).toHaveLength(1);
-    expect(received[0].type).toBe("session.spawned");
-    expect(received[0].sessionId).toBe("app-1");
-  });
-
   it("writes metadata file", async () => {
-    const sm = createSessionManager({ config, registry: mockRegistry, eventBus });
+    const sm = createSessionManager({ config, registry: mockRegistry });
     await sm.spawn({ projectId: "my-app", issueId: "INT-42" });
 
     const meta = readMetadata(dataDir, "app-1");
@@ -211,7 +192,7 @@ describe("spawn", () => {
   });
 
   it("throws for unknown project", async () => {
-    const sm = createSessionManager({ config, registry: mockRegistry, eventBus });
+    const sm = createSessionManager({ config, registry: mockRegistry });
     await expect(sm.spawn({ projectId: "nonexistent" })).rejects.toThrow("Unknown project");
   });
 
@@ -221,7 +202,7 @@ describe("spawn", () => {
       get: vi.fn().mockReturnValue(null),
     };
 
-    const sm = createSessionManager({ config, registry: emptyRegistry, eventBus });
+    const sm = createSessionManager({ config, registry: emptyRegistry });
     await expect(sm.spawn({ projectId: "my-app" })).rejects.toThrow("not found");
   });
 });
@@ -241,7 +222,7 @@ describe("list", () => {
       project: "my-app",
     });
 
-    const sm = createSessionManager({ config, registry: mockRegistry, eventBus });
+    const sm = createSessionManager({ config, registry: mockRegistry });
     const sessions = await sm.list();
 
     expect(sessions).toHaveLength(2);
@@ -262,7 +243,7 @@ describe("list", () => {
       project: "other",
     });
 
-    const sm = createSessionManager({ config, registry: mockRegistry, eventBus });
+    const sm = createSessionManager({ config, registry: mockRegistry });
     const sessions = await sm.list("my-app");
 
     expect(sessions).toHaveLength(1);
@@ -291,7 +272,7 @@ describe("list", () => {
       runtimeHandle: JSON.stringify(makeHandle("rt-1")),
     });
 
-    const sm = createSessionManager({ config, registry: registryWithDead, eventBus });
+    const sm = createSessionManager({ config, registry: registryWithDead });
     const sessions = await sm.list();
 
     expect(sessions[0].status).toBe("killed");
@@ -309,7 +290,7 @@ describe("get", () => {
       pr: "https://github.com/org/repo/pull/42",
     });
 
-    const sm = createSessionManager({ config, registry: mockRegistry, eventBus });
+    const sm = createSessionManager({ config, registry: mockRegistry });
     const session = await sm.get("app-1");
 
     expect(session).not.toBeNull();
@@ -320,7 +301,7 @@ describe("get", () => {
   });
 
   it("returns null for nonexistent session", async () => {
-    const sm = createSessionManager({ config, registry: mockRegistry, eventBus });
+    const sm = createSessionManager({ config, registry: mockRegistry });
     expect(await sm.get("nonexistent")).toBeNull();
   });
 });
@@ -335,7 +316,7 @@ describe("kill", () => {
       runtimeHandle: JSON.stringify(makeHandle("rt-1")),
     });
 
-    const sm = createSessionManager({ config, registry: mockRegistry, eventBus });
+    const sm = createSessionManager({ config, registry: mockRegistry });
     await sm.kill("app-1");
 
     expect(mockRuntime.destroy).toHaveBeenCalledWith(makeHandle("rt-1"));
@@ -343,26 +324,8 @@ describe("kill", () => {
     expect(readMetadata(dataDir, "app-1")).toBeNull(); // archived + deleted
   });
 
-  it("emits session.killed event", async () => {
-    writeMetadata(dataDir, "app-1", {
-      worktree: "/tmp",
-      branch: "main",
-      status: "working",
-      project: "my-app",
-    });
-
-    const received: OrchestratorEvent[] = [];
-    eventBus.on("session.killed", (e) => received.push(e));
-
-    const sm = createSessionManager({ config, registry: mockRegistry, eventBus });
-    await sm.kill("app-1");
-
-    expect(received).toHaveLength(1);
-    expect(received[0].sessionId).toBe("app-1");
-  });
-
   it("throws for nonexistent session", async () => {
-    const sm = createSessionManager({ config, registry: mockRegistry, eventBus });
+    const sm = createSessionManager({ config, registry: mockRegistry });
     await expect(sm.kill("nonexistent")).rejects.toThrow("not found");
   });
 
@@ -388,7 +351,7 @@ describe("kill", () => {
       runtimeHandle: JSON.stringify(makeHandle("rt-1")),
     });
 
-    const sm = createSessionManager({ config, registry: registryWithFail, eventBus });
+    const sm = createSessionManager({ config, registry: registryWithFail });
     // Should not throw even though runtime.destroy fails
     await expect(sm.kill("app-1")).resolves.toBeUndefined();
   });
@@ -431,7 +394,7 @@ describe("cleanup", () => {
       runtimeHandle: JSON.stringify(makeHandle("rt-1")),
     });
 
-    const sm = createSessionManager({ config, registry: registryWithSCM, eventBus });
+    const sm = createSessionManager({ config, registry: registryWithSCM });
     const result = await sm.cleanup();
 
     expect(result.killed).toContain("app-1");
@@ -446,7 +409,7 @@ describe("cleanup", () => {
       project: "my-app",
     });
 
-    const sm = createSessionManager({ config, registry: mockRegistry, eventBus });
+    const sm = createSessionManager({ config, registry: mockRegistry });
     const result = await sm.cleanup();
 
     expect(result.killed).toHaveLength(0);
@@ -476,7 +439,7 @@ describe("cleanup", () => {
       runtimeHandle: JSON.stringify(makeHandle("rt-1")),
     });
 
-    const sm = createSessionManager({ config, registry: registryWithDead, eventBus });
+    const sm = createSessionManager({ config, registry: registryWithDead });
     const result = await sm.cleanup();
 
     expect(result.killed).toContain("app-1");
@@ -493,14 +456,14 @@ describe("send", () => {
       runtimeHandle: JSON.stringify(makeHandle("rt-1")),
     });
 
-    const sm = createSessionManager({ config, registry: mockRegistry, eventBus });
+    const sm = createSessionManager({ config, registry: mockRegistry });
     await sm.send("app-1", "Fix the CI failures");
 
     expect(mockRuntime.sendMessage).toHaveBeenCalledWith(makeHandle("rt-1"), "Fix the CI failures");
   });
 
   it("throws for nonexistent session", async () => {
-    const sm = createSessionManager({ config, registry: mockRegistry, eventBus });
+    const sm = createSessionManager({ config, registry: mockRegistry });
     await expect(sm.send("nope", "hello")).rejects.toThrow("not found");
   });
 
@@ -512,7 +475,7 @@ describe("send", () => {
       project: "my-app",
     });
 
-    const sm = createSessionManager({ config, registry: mockRegistry, eventBus });
+    const sm = createSessionManager({ config, registry: mockRegistry });
     await expect(sm.send("app-1", "hello")).rejects.toThrow("No runtime handle");
   });
 });

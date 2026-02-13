@@ -10,13 +10,13 @@
  * Reference: scripts/claude-session-status, scripts/claude-review-check
  */
 
+import { randomUUID } from "node:crypto";
 import type {
   LifecycleManager,
   SessionManager,
   SessionId,
   SessionStatus,
   EventType,
-  EventBus,
   OrchestratorEvent,
   OrchestratorConfig,
   ReactionConfig,
@@ -29,10 +29,7 @@ import type {
   Session,
   EventPriority,
 } from "./types.js";
-import { createEvent } from "./event-bus.js";
 import { updateMetadata } from "./metadata.js";
-
-type EventHandler = (event: OrchestratorEvent) => void;
 
 /** Parse a duration string like "10m", "30s", "1h" to milliseconds. */
 function parseDuration(str: string): number {
@@ -49,6 +46,51 @@ function parseDuration(str: string): number {
     default:
       return 0;
   }
+}
+
+/** Infer a reasonable priority from event type. */
+function inferPriority(type: EventType): EventPriority {
+  if (type.includes("stuck") || type.includes("needs_input") || type.includes("errored")) {
+    return "urgent";
+  }
+  if (type.startsWith("summary.")) {
+    return "info";
+  }
+  if (
+    type.includes("approved") ||
+    type.includes("ready") ||
+    type.includes("merged") ||
+    type.includes("completed")
+  ) {
+    return "action";
+  }
+  if (type.includes("fail") || type.includes("changes_requested") || type.includes("conflicts")) {
+    return "warning";
+  }
+  return "info";
+}
+
+/** Create an OrchestratorEvent with defaults filled in. */
+function createEvent(
+  type: EventType,
+  opts: {
+    sessionId: SessionId;
+    projectId: string;
+    message: string;
+    priority?: EventPriority;
+    data?: Record<string, unknown>;
+  },
+): OrchestratorEvent {
+  return {
+    id: randomUUID(),
+    type,
+    priority: opts.priority ?? inferPriority(type),
+    sessionId: opts.sessionId,
+    projectId: opts.projectId,
+    timestamp: new Date(),
+    message: opts.message,
+    data: opts.data ?? {},
+  };
 }
 
 /** Determine which event type corresponds to a status transition. */
@@ -113,7 +155,6 @@ export interface LifecycleManagerDeps {
   config: OrchestratorConfig;
   registry: PluginRegistry;
   sessionManager: SessionManager;
-  eventBus: EventBus;
 }
 
 /** Track attempt counts for reactions per session. */
@@ -124,46 +165,13 @@ interface ReactionTracker {
 
 /** Create a LifecycleManager instance. */
 export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleManager {
-  const { config, registry, sessionManager, eventBus } = deps;
+  const { config, registry, sessionManager } = deps;
 
   const states = new Map<SessionId, SessionStatus>();
-  const handlers = new Map<string, Set<EventHandler>>();
   const reactionTrackers = new Map<string, ReactionTracker>(); // "sessionId:reactionKey"
   let pollTimer: ReturnType<typeof setInterval> | null = null;
   let polling = false; // re-entrancy guard
   let allCompleteEmitted = false; // guard against repeated all_complete
-
-  function getOrCreateSet(key: string): Set<EventHandler> {
-    let set = handlers.get(key);
-    if (!set) {
-      set = new Set();
-      handlers.set(key, set);
-    }
-    return set;
-  }
-
-  function emitToHandlers(event: OrchestratorEvent): void {
-    const typeHandlers = handlers.get(event.type);
-    if (typeHandlers) {
-      for (const handler of typeHandlers) {
-        try {
-          handler(event);
-        } catch {
-          /* ignore */
-        }
-      }
-    }
-    const wildcardHandlers = handlers.get("*");
-    if (wildcardHandlers) {
-      for (const handler of wildcardHandlers) {
-        try {
-          handler(event);
-        } catch {
-          /* ignore */
-        }
-      }
-    }
-  }
 
   /** Determine current status for a session by polling plugins. */
   async function determineStatus(session: Session): Promise<SessionStatus> {
@@ -229,13 +237,14 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     return session.status;
   }
 
-  /** Execute a reaction for an event. */
+  /** Execute a reaction for a session. */
   async function executeReaction(
-    event: OrchestratorEvent,
+    sessionId: SessionId,
+    projectId: string,
     reactionKey: string,
     reactionConfig: ReactionConfig,
   ): Promise<ReactionResult> {
-    const trackerKey = `${event.sessionId}:${reactionKey}`;
+    const trackerKey = `${sessionId}:${reactionKey}`;
     let tracker = reactionTrackers.get(trackerKey);
 
     if (!tracker) {
@@ -268,6 +277,12 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
 
     if (shouldEscalate) {
       // Escalate to human
+      const event = createEvent("reaction.escalated", {
+        sessionId,
+        projectId,
+        message: `Reaction '${reactionKey}' escalated after ${tracker.attempts} attempts`,
+        data: { reactionKey, attempts: tracker.attempts },
+      });
       await notifyHuman(event, reactionConfig.priority ?? "urgent");
       return {
         reactionType: reactionKey,
@@ -284,16 +299,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       case "send-to-agent": {
         if (reactionConfig.message) {
           try {
-            await sessionManager.send(event.sessionId, reactionConfig.message);
-
-            eventBus.emit(
-              createEvent("reaction.triggered", {
-                sessionId: event.sessionId,
-                projectId: event.projectId,
-                message: `Reaction '${reactionKey}' sent message to agent`,
-                data: { reactionKey, attempts: tracker.attempts },
-              }),
-            );
+            await sessionManager.send(sessionId, reactionConfig.message);
 
             return {
               reactionType: reactionKey,
@@ -316,6 +322,12 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       }
 
       case "notify": {
+        const event = createEvent("reaction.triggered", {
+          sessionId,
+          projectId,
+          message: `Reaction '${reactionKey}' triggered notification`,
+          data: { reactionKey },
+        });
         await notifyHuman(event, reactionConfig.priority ?? "info");
         return {
           reactionType: reactionKey,
@@ -328,6 +340,12 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       case "auto-merge": {
         // Auto-merge is handled by the SCM plugin
         // For now, just notify
+        const event = createEvent("reaction.triggered", {
+          sessionId,
+          projectId,
+          message: `Reaction '${reactionKey}' triggered auto-merge`,
+          data: { reactionKey },
+        });
         await notifyHuman(event, "action");
         return {
           reactionType: reactionKey,
@@ -394,20 +412,9 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         }
       }
 
-      // Emit transition event
+      // Check if there's a reaction for this transition
       const eventType = statusToEventType(oldStatus, newStatus);
       if (eventType) {
-        const event = createEvent(eventType, {
-          sessionId: session.id,
-          projectId: session.projectId,
-          message: `${session.id}: ${oldStatus} → ${newStatus}`,
-          data: { oldStatus, newStatus },
-        });
-
-        eventBus.emit(event);
-        emitToHandlers(event);
-
-        // Check if there's a reaction for this event
         const reactionKey = eventToReactionKey(eventType);
         if (reactionKey) {
           // Merge project-specific overrides with global defaults
@@ -421,7 +428,12 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
           if (reactionConfig && reactionConfig.action) {
             // auto: false skips automated agent actions but still allows notifications
             if (reactionConfig.auto !== false || reactionConfig.action === "notify") {
-              await executeReaction(event, reactionKey, reactionConfig as ReactionConfig);
+              await executeReaction(
+                session.id,
+                session.projectId,
+                reactionKey,
+                reactionConfig as ReactionConfig,
+              );
             }
           }
         }
@@ -468,18 +480,10 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         }
       }
 
-      // Check if all sessions are complete (emit only once)
+      // Check if all sessions are complete (trigger reaction only once)
       const activeSessions = sessions.filter((s) => s.status !== "merged" && s.status !== "killed");
       if (sessions.length > 0 && activeSessions.length === 0 && !allCompleteEmitted) {
         allCompleteEmitted = true;
-        const event = createEvent("summary.all_complete", {
-          sessionId: "system",
-          projectId: "all",
-          message: `All ${sessions.length} sessions complete`,
-          data: { totalSessions: sessions.length },
-        });
-        eventBus.emit(event);
-        emitToHandlers(event);
 
         // Execute all-complete reaction if configured
         const reactionKey = eventToReactionKey("summary.all_complete");
@@ -487,7 +491,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
           const reactionConfig = config.reactions[reactionKey];
           if (reactionConfig && reactionConfig.action) {
             if (reactionConfig.auto !== false || reactionConfig.action === "notify") {
-              await executeReaction(event, reactionKey, reactionConfig as ReactionConfig);
+              await executeReaction("system", "all", reactionKey, reactionConfig as ReactionConfig);
             }
           }
         }
@@ -522,18 +526,6 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       const session = await sessionManager.get(sessionId);
       if (!session) throw new Error(`Session ${sessionId} not found`);
       await checkSession(session);
-    },
-
-    on(event: EventType | "*", handler: EventHandler): void {
-      getOrCreateSet(event).add(handler);
-    },
-
-    off(event: EventType | "*", handler: EventHandler): void {
-      const set = handlers.get(event);
-      if (set) {
-        set.delete(handler);
-        if (set.size === 0) handlers.delete(event);
-      }
     },
   };
 }

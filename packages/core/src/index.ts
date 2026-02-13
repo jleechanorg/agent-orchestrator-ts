@@ -24,9 +24,6 @@ export {
   listMetadata,
 } from "./metadata.js";
 
-// Event bus — pub/sub with JSONL persistence
-export { createEventBus, createEvent } from "./event-bus.js";
-
 // tmux — command wrappers
 export {
   isTmuxAvailable,

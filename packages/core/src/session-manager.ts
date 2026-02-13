@@ -25,7 +25,6 @@ import type {
   Workspace,
   Tracker,
   SCM,
-  EventBus,
   PluginRegistry,
   RuntimeHandle,
 } from "./types.js";
@@ -36,7 +35,6 @@ import {
   listMetadata,
   reserveSessionId,
 } from "./metadata.js";
-import { createEvent } from "./event-bus.js";
 
 /** Escape regex metacharacters in a string. */
 function escapeRegex(str: string): string {
@@ -125,12 +123,11 @@ function metadataToSession(sessionId: SessionId, meta: Record<string, string>): 
 export interface SessionManagerDeps {
   config: OrchestratorConfig;
   registry: PluginRegistry;
-  eventBus: EventBus;
 }
 
 /** Create a SessionManager instance. */
 export function createSessionManager(deps: SessionManagerDeps): SessionManager {
-  const { config, registry, eventBus } = deps;
+  const { config, registry } = deps;
 
   /** Resolve which plugins to use for a project. */
   function resolvePlugins(project: ProjectConfig) {
@@ -321,16 +318,6 @@ export function createSessionManager(deps: SessionManagerDeps): SessionManager {
       throw err;
     }
 
-    // Emit event
-    eventBus.emit(
-      createEvent("session.spawned", {
-        sessionId,
-        projectId: spawnConfig.projectId,
-        message: `Session ${sessionId} spawned${spawnConfig.issueId ? ` for ${spawnConfig.issueId}` : ""}`,
-        data: { branch, workspacePath, issueId: spawnConfig.issueId },
-      }),
-    );
-
     return session;
   }
 
@@ -421,15 +408,6 @@ export function createSessionManager(deps: SessionManagerDeps): SessionManager {
 
     // Archive metadata
     deleteMetadata(config.dataDir, sessionId, true);
-
-    // Emit event
-    eventBus.emit(
-      createEvent("session.killed", {
-        sessionId,
-        projectId,
-        message: `Session ${sessionId} killed`,
-      }),
-    );
   }
 
   async function cleanup(projectId?: string): Promise<CleanupResult> {

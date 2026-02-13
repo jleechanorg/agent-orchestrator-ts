@@ -19,6 +19,7 @@ import {
   mkdirSync,
   unlinkSync,
   readdirSync,
+  statSync,
   openSync,
   closeSync,
   constants,
@@ -189,7 +190,14 @@ export function listMetadata(dataDir: string): SessionId[] {
   const dir = join(dataDir, "sessions");
   if (!existsSync(dir)) return [];
 
-  return readdirSync(dir).filter((name) => name !== "archive" && !name.startsWith("."));
+  return readdirSync(dir).filter((name) => {
+    if (name === "archive" || name.startsWith(".")) return false;
+    try {
+      return statSync(join(dir, name)).isFile();
+    } catch {
+      return false;
+    }
+  });
 }
 
 /**

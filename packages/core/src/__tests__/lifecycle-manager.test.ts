@@ -4,7 +4,6 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
 import { createLifecycleManager } from "../lifecycle-manager.js";
-import { createEventBus } from "../event-bus.js";
 import { writeMetadata, readMetadataRaw } from "../metadata.js";
 import type {
   OrchestratorConfig,
@@ -14,14 +13,11 @@ import type {
   Runtime,
   Agent,
   SCM,
-  EventBus,
-  OrchestratorEvent,
   ActivityState,
   PRInfo,
 } from "../types.js";
 
 let dataDir: string;
-let eventBus: EventBus;
 let mockSessionManager: SessionManager;
 let mockRuntime: Runtime;
 let mockAgent: Agent;
@@ -64,8 +60,6 @@ function makePR(overrides: Partial<PRInfo> = {}): PRInfo {
 beforeEach(() => {
   dataDir = join(tmpdir(), `ao-test-lifecycle-${randomUUID()}`);
   mkdirSync(join(dataDir, "sessions"), { recursive: true });
-
-  eventBus = createEventBus(null);
 
   mockRuntime = {
     name: "mock",
@@ -148,7 +142,6 @@ describe("start / stop", () => {
       config,
       registry: mockRegistry,
       sessionManager: mockSessionManager,
-      eventBus,
     });
 
     lm.start(60_000);
@@ -173,21 +166,15 @@ describe("check (single session)", () => {
       project: "my-app",
     });
 
-    const received: OrchestratorEvent[] = [];
-    eventBus.on("session.working", (e) => received.push(e));
-
     const lm = createLifecycleManager({
       config,
       registry: mockRegistry,
       sessionManager: mockSessionManager,
-      eventBus,
     });
 
     await lm.check("app-1");
 
     expect(lm.getStates().get("app-1")).toBe("working");
-    expect(received).toHaveLength(1);
-    expect(received[0].type).toBe("session.working");
 
     // Metadata should be updated
     const meta = readMetadataRaw(dataDir, "app-1");
@@ -211,7 +198,6 @@ describe("check (single session)", () => {
       config,
       registry: mockRegistry,
       sessionManager: mockSessionManager,
-      eventBus,
     });
 
     await lm.check("app-1");
@@ -236,7 +222,6 @@ describe("check (single session)", () => {
       config,
       registry: mockRegistry,
       sessionManager: mockSessionManager,
-      eventBus,
     });
 
     await lm.check("app-1");
@@ -261,7 +246,6 @@ describe("check (single session)", () => {
       config,
       registry: mockRegistry,
       sessionManager: mockSessionManager,
-      eventBus,
     });
 
     await lm.check("app-1");
@@ -309,7 +293,6 @@ describe("check (single session)", () => {
       config,
       registry: registryWithSCM,
       sessionManager: mockSessionManager,
-      eventBus,
     });
 
     await lm.check("app-1");
@@ -357,7 +340,6 @@ describe("check (single session)", () => {
       config,
       registry: registryWithSCM,
       sessionManager: mockSessionManager,
-      eventBus,
     });
 
     await lm.check("app-1");
@@ -411,7 +393,6 @@ describe("check (single session)", () => {
       config,
       registry: registryWithSCM,
       sessionManager: mockSessionManager,
-      eventBus,
     });
 
     await lm.check("app-1");
@@ -426,13 +407,12 @@ describe("check (single session)", () => {
       config,
       registry: mockRegistry,
       sessionManager: mockSessionManager,
-      eventBus,
     });
 
     await expect(lm.check("nonexistent")).rejects.toThrow("not found");
   });
 
-  it("does not emit event when status unchanged", async () => {
+  it("does not change state when status is unchanged", async () => {
     const session = makeSession({ status: "working" });
     vi.mocked(mockSessionManager.get).mockResolvedValue(session);
 
@@ -443,28 +423,18 @@ describe("check (single session)", () => {
       project: "my-app",
     });
 
-    const received: OrchestratorEvent[] = [];
-    eventBus.on("*", (e) => received.push(e));
-
     const lm = createLifecycleManager({
       config,
       registry: mockRegistry,
       sessionManager: mockSessionManager,
-      eventBus,
     });
 
-    // First check: spawning (from states map, empty) → working = transition
-    // But the session's status is "working" and determineStatus returns "working"
-    // Since states map is empty, oldStatus = session.status = "working", newStatus = "working"
-    // So no transition
-    // We need to seed the states map first
-    // Actually, let's check twice: first time sets it, second time same = no event
     await lm.check("app-1");
-    const eventsAfterFirst = [...received];
+    expect(lm.getStates().get("app-1")).toBe("working");
 
+    // Second check — status remains working, no transition
     await lm.check("app-1");
-    // No new events emitted since status didn't change
-    expect(received.length).toBe(eventsAfterFirst.length);
+    expect(lm.getStates().get("app-1")).toBe("working");
   });
 });
 
@@ -519,7 +489,6 @@ describe("reactions", () => {
       config,
       registry: registryWithSCM,
       sessionManager: mockSessionManager,
-      eventBus,
     });
 
     await lm.check("app-1");
@@ -575,98 +544,11 @@ describe("reactions", () => {
       config,
       registry: registryWithSCM,
       sessionManager: mockSessionManager,
-      eventBus,
     });
 
     await lm.check("app-1");
 
     expect(mockSessionManager.send).not.toHaveBeenCalled();
-  });
-});
-
-describe("on / off event handlers", () => {
-  it("subscribes and receives lifecycle events", async () => {
-    const session = makeSession({ status: "spawning" });
-    vi.mocked(mockSessionManager.get).mockResolvedValue(session);
-
-    writeMetadata(dataDir, "app-1", {
-      worktree: "/tmp",
-      branch: "main",
-      status: "spawning",
-      project: "my-app",
-    });
-
-    const received: OrchestratorEvent[] = [];
-
-    const lm = createLifecycleManager({
-      config,
-      registry: mockRegistry,
-      sessionManager: mockSessionManager,
-      eventBus,
-    });
-
-    lm.on("session.working", (e) => received.push(e));
-
-    await lm.check("app-1");
-
-    expect(received).toHaveLength(1);
-    expect(received[0].type).toBe("session.working");
-  });
-
-  it("unsubscribes handlers", async () => {
-    const session = makeSession({ status: "spawning" });
-    vi.mocked(mockSessionManager.get).mockResolvedValue(session);
-
-    writeMetadata(dataDir, "app-1", {
-      worktree: "/tmp",
-      branch: "main",
-      status: "spawning",
-      project: "my-app",
-    });
-
-    const received: OrchestratorEvent[] = [];
-    const handler = (e: OrchestratorEvent) => received.push(e);
-
-    const lm = createLifecycleManager({
-      config,
-      registry: mockRegistry,
-      sessionManager: mockSessionManager,
-      eventBus,
-    });
-
-    lm.on("session.working", handler);
-    lm.off("session.working", handler);
-
-    await lm.check("app-1");
-
-    expect(received).toHaveLength(0);
-  });
-
-  it("wildcard handler receives all events", async () => {
-    const session = makeSession({ status: "spawning" });
-    vi.mocked(mockSessionManager.get).mockResolvedValue(session);
-
-    writeMetadata(dataDir, "app-1", {
-      worktree: "/tmp",
-      branch: "main",
-      status: "spawning",
-      project: "my-app",
-    });
-
-    const received: OrchestratorEvent[] = [];
-
-    const lm = createLifecycleManager({
-      config,
-      registry: mockRegistry,
-      sessionManager: mockSessionManager,
-      eventBus,
-    });
-
-    lm.on("*", (e) => received.push(e));
-
-    await lm.check("app-1");
-
-    expect(received.length).toBeGreaterThan(0);
   });
 });
 
@@ -686,7 +568,6 @@ describe("getStates", () => {
       config,
       registry: mockRegistry,
       sessionManager: mockSessionManager,
-      eventBus,
     });
 
     await lm.check("app-1");
