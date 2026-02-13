@@ -52,7 +52,7 @@ function inferPriority(type: EventType): EventPriority {
   if (type.includes("stuck") || type.includes("needs_input") || type.includes("errored")) {
     return "urgent";
   }
-  if (type.includes("approved") || type.includes("ready") || type.includes("merged")) {
+  if (type.includes("approved") || type.includes("ready") || type.includes("merged") || type.includes("completed")) {
     return "action";
   }
   if (type.includes("fail") || type.includes("changes_requested") || type.includes("conflicts")) {
