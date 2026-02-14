@@ -89,7 +89,7 @@ describe("workspace-worktree (integration)", () => {
   it("lists the worktree", async () => {
     const list = await workspace.list("inttest");
     expect(list.length).toBeGreaterThanOrEqual(1);
-    const found = list.find((w) => w.sessionId === "session-1");
+    const found = list.find((w: { sessionId: string }) => w.sessionId === "session-1");
     expect(found).toBeDefined();
     expect(found!.branch).toBe("feat/test-branch");
   });
@@ -124,7 +124,7 @@ describe("workspace-worktree (integration)", () => {
 
   it("list returns empty after destroy", async () => {
     const list = await workspace.list("inttest");
-    const found = list.find((w) => w.sessionId === "session-1");
+    const found = list.find((w: { sessionId: string }) => w.sessionId === "session-1");
     expect(found).toBeUndefined();
   });
 });

@@ -3,7 +3,7 @@
  */
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import type { Session, PRInfo, SCM } from "@agent-orchestrator/core";
+import type { Session, PRInfo, SCM } from "@composio/ao-core";
 import { sessionToDashboard, enrichSessionPR } from "../serialize";
 import { prCache, prCacheKey } from "../cache";
 import type { DashboardSession } from "../types";

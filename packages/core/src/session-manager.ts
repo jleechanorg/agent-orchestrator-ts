@@ -83,6 +83,8 @@ const VALID_STATUSES: ReadonlySet<string> = new Set([
   "stuck",
   "errored",
   "killed",
+  "done",
+  "terminated",
 ]);
 
 /** Validate and normalize a status string. */

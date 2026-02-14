@@ -231,7 +231,7 @@ describe.skipIf(!canRun)("tracker-linear (integration)", () => {
       project,
     );
 
-    const found = issues.find((i) => i.id === issueIdentifier);
+    const found = issues.find((i: { id: string }) => i.id === issueIdentifier);
     expect(found).toBeDefined();
     expect(found!.title).toContain("[AO Integration Test]");
   });
