@@ -78,7 +78,7 @@ const DefaultPluginsSchema = z.object({
   runtime: z.string().default("tmux"),
   agent: z.string().default("claude-code"),
   workspace: z.string().default("worktree"),
-  notifiers: z.array(z.string()).default(["desktop"]),
+  notifiers: z.array(z.string()).default(["composio", "desktop"]),
 });
 
 const OrchestratorConfigSchema = z.object({
@@ -89,10 +89,10 @@ const OrchestratorConfigSchema = z.object({
   projects: z.record(ProjectConfigSchema),
   notifiers: z.record(NotifierConfigSchema).default({}),
   notificationRouting: z.record(z.array(z.string())).default({
-    urgent: ["desktop", "slack"],
-    action: ["desktop", "slack"],
-    warning: ["slack"],
-    info: ["slack"],
+    urgent: ["desktop", "composio"],
+    action: ["desktop", "composio"],
+    warning: ["composio"],
+    info: ["composio"],
   }),
   reactions: z.record(ReactionConfigSchema).default({}),
 });

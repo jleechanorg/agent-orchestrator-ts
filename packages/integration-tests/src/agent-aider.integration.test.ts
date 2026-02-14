@@ -72,7 +72,9 @@ async function canAiderConnect(bin: string): Promise<boolean> {
 
 const tmuxOk = await isTmuxAvailable();
 const aiderBin = await findAiderBinary();
-const aiderReady = aiderBin !== null && (await canAiderConnect(aiderBin));
+const hasApiKey = Boolean(process.env.ANTHROPIC_API_KEY || process.env.OPENAI_API_KEY);
+// Skip the expensive canAiderConnect probe if no API key is available
+const aiderReady = hasApiKey && aiderBin !== null && (await canAiderConnect(aiderBin));
 const canRun = tmuxOk && aiderReady;
 
 // ---------------------------------------------------------------------------

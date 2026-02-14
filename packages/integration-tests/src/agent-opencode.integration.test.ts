@@ -65,7 +65,9 @@ async function canOpencodeRun(bin: string): Promise<boolean> {
 
 const tmuxOk = await isTmuxAvailable();
 const opencodeBin = await findOpencodeBinary();
-const opencodeReady = opencodeBin !== null && (await canOpencodeRun(opencodeBin));
+const hasApiKey = Boolean(process.env.ANTHROPIC_API_KEY || process.env.OPENAI_API_KEY);
+// Skip the expensive canOpencodeRun probe if no API key is available
+const opencodeReady = hasApiKey && opencodeBin !== null && (await canOpencodeRun(opencodeBin));
 const canRun = tmuxOk && opencodeReady;
 
 // ---------------------------------------------------------------------------

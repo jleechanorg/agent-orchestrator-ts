@@ -43,7 +43,8 @@ async function findClaudeBinary(): Promise<string | null> {
 
 const tmuxOk = await isTmuxAvailable();
 const claudeBin = await findClaudeBinary();
-const canRun = tmuxOk && claudeBin !== null;
+const hasApiKey = Boolean(process.env.ANTHROPIC_API_KEY);
+const canRun = tmuxOk && claudeBin !== null && hasApiKey;
 
 // ---------------------------------------------------------------------------
 // Tests

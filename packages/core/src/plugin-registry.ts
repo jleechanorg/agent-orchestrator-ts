@@ -40,6 +40,7 @@ const BUILTIN_PLUGINS: Array<{ slot: PluginSlot; name: string; pkg: string }> = 
   // SCM
   { slot: "scm", name: "github", pkg: "@agent-orchestrator/plugin-scm-github" },
   // Notifiers
+  { slot: "notifier", name: "composio", pkg: "@agent-orchestrator/plugin-notifier-composio" },
   { slot: "notifier", name: "desktop", pkg: "@agent-orchestrator/plugin-notifier-desktop" },
   { slot: "notifier", name: "slack", pkg: "@agent-orchestrator/plugin-notifier-slack" },
   { slot: "notifier", name: "webhook", pkg: "@agent-orchestrator/plugin-notifier-webhook" },

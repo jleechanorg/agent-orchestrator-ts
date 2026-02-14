@@ -43,7 +43,8 @@ async function findCodexBinary(): Promise<string | null> {
 
 const tmuxOk = await isTmuxAvailable();
 const codexBin = await findCodexBinary();
-const canRun = tmuxOk && codexBin !== null;
+const hasApiKey = Boolean(process.env.OPENAI_API_KEY);
+const canRun = tmuxOk && codexBin !== null && hasApiKey;
 
 // ---------------------------------------------------------------------------
 // Tests
