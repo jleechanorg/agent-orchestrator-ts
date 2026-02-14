@@ -7,3 +7,4 @@ dist/
 coverage/
 *.patch
 *-context.md
+packages/web/screenshots/
