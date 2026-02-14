@@ -279,6 +279,7 @@ export function createSessionManager(deps: SessionManagerDeps): SessionManager {
         environment: {
           ...environment,
           AO_SESSION: sessionId,
+          AO_DATA_DIR: config.dataDir,
         },
       });
     } catch (err) {
