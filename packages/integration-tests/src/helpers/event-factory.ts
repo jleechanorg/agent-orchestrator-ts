@@ -1,7 +1,6 @@
 import type {
   OrchestratorEvent,
   Session,
-  NotifyAction,
   EventPriority,
   EventType,
   SessionStatus,
@@ -47,21 +46,4 @@ export function makeSession(overrides: Partial<Session> = {}): Session {
     metadata: {},
     ...overrides,
   };
-}
-
-/**
- * Create a set of test NotifyActions.
- */
-export function makeActions(overrides?: Partial<NotifyAction>[]): NotifyAction[] {
-  const defaults: NotifyAction[] = [
-    { label: "View PR", url: "https://github.com/org/repo/pull/42" },
-    { label: "Kill Session", callbackEndpoint: "/api/sessions/app-1/kill" },
-  ];
-
-  if (!overrides) return defaults;
-
-  return overrides.map((o, i) => ({
-    ...defaults[i % defaults.length],
-    ...o,
-  }));
 }
