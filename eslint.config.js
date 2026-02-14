@@ -68,6 +68,14 @@ export default tseslint.config(
     },
   },
 
+  // CLI package uses console.log/error for user output
+  {
+    files: ["packages/cli/**/*.ts"],
+    rules: {
+      "no-console": "off",
+    },
+  },
+
   // Relaxed rules for Next.js pages/components
   {
     files: ["packages/web/**/*.tsx", "packages/web/**/*.ts"],

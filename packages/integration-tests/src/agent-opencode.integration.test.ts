@@ -17,7 +17,7 @@ import { promisify } from "node:util";
 import type { ActivityState, AgentSessionInfo } from "@agent-orchestrator/core";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import opencodePlugin from "@agent-orchestrator/plugin-agent-opencode";
-import { isTmuxAvailable, killSessionsByPrefix, createSession, killSession } from "./helpers/tmux.js";
+import { isTmuxAvailable, killSessionsByPrefix, createSession, killSession, capturePane } from "./helpers/tmux.js";
 import { pollUntilEqual, sleep } from "./helpers/polling.js";
 import { makeTmuxHandle, makeSession } from "./helpers/session-factory.js";
 
@@ -102,7 +102,8 @@ describe.skipIf(!canRun)("agent-opencode (integration)", () => {
       const running = await agent.isProcessRunning(handle);
       if (running) {
         aliveRunning = true;
-        const activity = await agent.detectActivity(session);
+        const output = await capturePane(sessionName);
+        const activity = agent.detectActivity(output);
         if (activity !== "exited") {
           aliveActivity = activity;
           break;
@@ -118,7 +119,8 @@ describe.skipIf(!canRun)("agent-opencode (integration)", () => {
       { timeoutMs: 90_000, intervalMs: 2_000 },
     );
 
-    exitedActivity = await agent.detectActivity(session);
+    const exitedOutput = await capturePane(sessionName);
+    exitedActivity = agent.detectActivity(exitedOutput);
     sessionInfo = await agent.getSessionInfo(session);
   }, 120_000);
 
@@ -144,8 +146,10 @@ describe.skipIf(!canRun)("agent-opencode (integration)", () => {
     expect(exitedRunning).toBe(false);
   });
 
-  it("detectActivity → exited after agent exits", () => {
-    expect(exitedActivity).toBe("exited");
+  it("detectActivity → idle after agent exits", () => {
+    // detectActivity is a pure terminal-text classifier; it returns "idle"
+    // for empty/shell-prompt output. Process exit is detected by isProcessRunning.
+    expect(exitedActivity).toBe("idle");
   });
 
   it("getSessionInfo → null (not implemented for opencode)", () => {

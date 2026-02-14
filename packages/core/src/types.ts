@@ -182,8 +182,8 @@ export interface Agent {
   /** Get environment variables for the agent process */
   getEnvironment(config: AgentLaunchConfig): Record<string, string>;
 
-  /** Detect what the agent is currently doing */
-  detectActivity(session: Session): Promise<ActivityState>;
+  /** Detect what the agent is currently doing from terminal output */
+  detectActivity(terminalOutput: string): ActivityState;
 
   /** Check if agent process is running (given runtime handle) */
   isProcessRunning(handle: RuntimeHandle): Promise<boolean>;

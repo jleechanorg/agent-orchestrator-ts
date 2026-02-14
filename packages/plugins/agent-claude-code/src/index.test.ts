@@ -96,47 +96,6 @@ function mockTmuxWithProcess(processName = "claude", tty = "/dev/ttys001", pid =
   });
 }
 
-/** Mock detectActivity: process is alive and JSONL has given content/mtime */
-function mockProcessAliveWithJsonl(
-  content: string | null,
-  mtime: Date = new Date(),
-) {
-  // findClaudeProcess: tmux pane + ps
-  mockExecFileAsync.mockImplementation((cmd: string, args: string[]) => {
-    if (cmd === "tmux" && args[0] === "list-panes") {
-      return Promise.resolve({ stdout: "/dev/ttys001\n", stderr: "" });
-    }
-    if (cmd === "ps") {
-      return Promise.resolve({
-        stdout: "  PID TT       ARGS\n  123 ttys001  claude\n",
-        stderr: "",
-      });
-    }
-    return Promise.reject(new Error(`Unexpected: ${cmd} ${args.join(" ")}`));
-  });
-  if (content !== null) {
-    // findLatestSessionFile: readdir + stat
-    mockReaddir.mockResolvedValue(["session-abc.jsonl"]);
-    mockStat.mockResolvedValue({ mtimeMs: mtime.getTime(), mtime });
-    // readLastJsonlEntry: open + read + close
-    const buf = Buffer.from(content, "utf-8");
-    const fh = {
-      stat: vi.fn().mockResolvedValue({ size: buf.length, mtime }),
-      read: vi.fn().mockImplementation(
-        (buffer: Buffer, offset: number, length: number, position: number) => {
-          buf.copy(buffer, offset, position, position + length);
-          return Promise.resolve({ bytesRead: length, buffer });
-        },
-      ),
-      close: vi.fn().mockResolvedValue(undefined),
-    };
-    mockOpen.mockResolvedValue(fh);
-  } else {
-    // No JSONL files
-    mockReaddir.mockResolvedValue([]);
-  }
-}
-
 function mockJsonlFiles(
   jsonlContent: string,
   files = ["session-abc123.jsonl"],
@@ -359,87 +318,77 @@ describe("isProcessRunning", () => {
 });
 
 // =========================================================================
-// detectActivity — JSONL-based
+// detectActivity — terminal output classification
 // =========================================================================
 describe("detectActivity", () => {
   const agent = create();
 
-  it("returns exited when no runtime handle", async () => {
-    expect(await agent.detectActivity(makeSession())).toBe("exited");
+  it("returns idle for empty terminal output", () => {
+    expect(agent.detectActivity("")).toBe("idle");
   });
 
-  it("returns exited when process is not found", async () => {
-    mockExecFileAsync.mockImplementation((cmd: string) => {
-      if (cmd === "tmux") return Promise.resolve({ stdout: "/dev/ttys001\n", stderr: "" });
-      if (cmd === "ps") return Promise.resolve({ stdout: "  PID TT ARGS\n", stderr: "" });
-      return Promise.reject(new Error("unexpected"));
-    });
-    const session = makeSession({ runtimeHandle: makeTmuxHandle() });
-    expect(await agent.detectActivity(session)).toBe("exited");
+  it("returns idle for whitespace-only terminal output", () => {
+    expect(agent.detectActivity("   \n  \n  ")).toBe("idle");
   });
 
-  it("returns active when no workspacePath (process alive, can't check JSONL)", async () => {
-    mockProcessAliveWithJsonl(null);
-    const session = makeSession({ runtimeHandle: makeTmuxHandle(), workspacePath: null });
-    expect(await agent.detectActivity(session)).toBe("active");
+  it("returns active when 'esc to interrupt' is visible", () => {
+    expect(agent.detectActivity("Working... esc to interrupt\n")).toBe("active");
   });
 
-  it("returns active when no JSONL files exist (process alive, conservative)", async () => {
-    mockProcessAliveWithJsonl(null);
-    const session = makeSession({ runtimeHandle: makeTmuxHandle() });
-    expect(await agent.detectActivity(session)).toBe("active");
+  it("returns active when Thinking indicator is visible", () => {
+    expect(agent.detectActivity("Thinking...\n")).toBe("active");
   });
 
-  it("returns idle when JSONL file is older than 30 seconds", async () => {
-    const oldTime = new Date(Date.now() - 60_000);
-    const content = '{"type":"user","message":{"content":"hello"}}\n';
-    mockProcessAliveWithJsonl(content, oldTime);
-    const session = makeSession({ runtimeHandle: makeTmuxHandle() });
-    expect(await agent.detectActivity(session)).toBe("idle");
+  it("returns active when Reading indicator is visible", () => {
+    expect(agent.detectActivity("Reading file src/index.ts\n")).toBe("active");
   });
 
-  it("returns idle when last type is assistant", async () => {
-    const content = [
-      '{"type":"user","message":{"content":"fix bug"}}',
-      '{"type":"assistant","message":{"content":"I fixed it"}}',
-    ].join("\n") + "\n";
-    mockProcessAliveWithJsonl(content);
-    const session = makeSession({ runtimeHandle: makeTmuxHandle() });
-    expect(await agent.detectActivity(session)).toBe("idle");
+  it("returns active when Writing indicator is visible", () => {
+    expect(agent.detectActivity("Writing to src/main.ts\n")).toBe("active");
   });
 
-  it("returns idle when last type is system", async () => {
-    const content = [
-      '{"type":"user","message":{"content":"hello"}}',
-      '{"type":"system","summary":"session started"}',
-    ].join("\n") + "\n";
-    mockProcessAliveWithJsonl(content);
-    const session = makeSession({ runtimeHandle: makeTmuxHandle() });
-    expect(await agent.detectActivity(session)).toBe("idle");
+  it("returns active when Searching indicator is visible", () => {
+    expect(agent.detectActivity("Searching codebase...\n")).toBe("active");
   });
 
-  it("returns active when last type is user and file is recent", async () => {
-    const content = '{"type":"user","message":{"content":"fix this"}}\n';
-    mockProcessAliveWithJsonl(content);
-    const session = makeSession({ runtimeHandle: makeTmuxHandle() });
-    expect(await agent.detectActivity(session)).toBe("active");
+  it("returns waiting_input for permission prompt (Y/N)", () => {
+    expect(agent.detectActivity("Do you want to proceed? (Y)es / (N)o\n")).toBe("waiting_input");
   });
 
-  it("returns active when last type is progress and file is recent", async () => {
-    const content = [
-      '{"type":"user","message":{"content":"do it"}}',
-      '{"type":"progress","status":"running tool"}',
-    ].join("\n") + "\n";
-    mockProcessAliveWithJsonl(content);
-    const session = makeSession({ runtimeHandle: makeTmuxHandle() });
-    expect(await agent.detectActivity(session)).toBe("active");
+  it("returns waiting_input for 'Do you want to proceed?' prompt", () => {
+    expect(agent.detectActivity("Do you want to proceed?\n")).toBe("waiting_input");
   });
 
-  it("returns active for non-tmux runtime when process alive but no workspace", async () => {
-    const killSpy = vi.spyOn(process, "kill").mockImplementation(() => true);
-    const session = makeSession({ runtimeHandle: makeProcessHandle(555), workspacePath: null });
-    expect(await agent.detectActivity(session)).toBe("active");
-    killSpy.mockRestore();
+  it("returns waiting_input for bypass permissions prompt", () => {
+    expect(agent.detectActivity("bypass all future permissions for this session\n")).toBe("waiting_input");
+  });
+
+  it("returns active when queued message indicator is visible", () => {
+    expect(agent.detectActivity("Press up to edit queued messages\n")).toBe("active");
+  });
+
+  it("returns idle when shell prompt is visible", () => {
+    expect(agent.detectActivity("some output\n> ")).toBe("idle");
+    expect(agent.detectActivity("some output\n$ ")).toBe("idle");
+  });
+
+  it("returns idle when prompt follows historical activity indicators", () => {
+    // Key regression test: historical "Reading file..." output in the buffer
+    // should NOT override an idle prompt on the last line.
+    expect(agent.detectActivity("Reading file src/index.ts\nWriting to out.ts\n❯ ")).toBe("idle");
+    expect(agent.detectActivity("Thinking...\nSearching codebase...\n$ ")).toBe("idle");
+  });
+
+  it("returns waiting_input when permission prompt follows historical activity", () => {
+    // Permission prompt at the bottom should NOT be overridden by historical
+    // "Reading"/"Thinking" output higher in the buffer.
+    expect(agent.detectActivity("Reading file src/index.ts\nThinking...\nDo you want to proceed?\n")).toBe("waiting_input");
+    expect(agent.detectActivity("Searching codebase...\n(Y)es / (N)o\n")).toBe("waiting_input");
+    expect(agent.detectActivity("Writing to out.ts\nbypass all future permissions for this session\n")).toBe("waiting_input");
+  });
+
+  it("returns active for non-empty output with no special patterns", () => {
+    expect(agent.detectActivity("some random terminal output\n")).toBe("active");
   });
 });
 
