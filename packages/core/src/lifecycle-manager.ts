@@ -203,13 +203,13 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
           const activity = agent.detectActivity(terminalOutput);
           if (activity === "waiting_input") return "needs_input";
 
-          // If the terminal looks idle, check whether the agent process is
-          // still running. An idle terminal with no agent process means the
-          // agent has exited (e.g. finished its task or crashed).
-          if (activity === "idle") {
-            const processAlive = await agent.isProcessRunning(session.runtimeHandle);
-            if (!processAlive) return "killed";
-          }
+          // Check whether the agent process is still alive. Some agents
+          // (codex, aider, opencode) return "active" for any non-empty
+          // terminal output, including the shell prompt visible after exit.
+          // Checking isProcessRunning for both "idle" and "active" ensures
+          // exit detection works regardless of the agent's classifier.
+          const processAlive = await agent.isProcessRunning(session.runtimeHandle);
+          if (!processAlive) return "killed";
         }
       } catch {
         // On probe failure, preserve current stuck/needs_input state rather

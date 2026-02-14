@@ -77,7 +77,7 @@ beforeEach(() => {
     getLaunchCommand: vi.fn(),
     getEnvironment: vi.fn(),
     detectActivity: vi.fn().mockReturnValue("active" as ActivityState),
-    isProcessRunning: vi.fn(),
+    isProcessRunning: vi.fn().mockResolvedValue(true),
     isProcessing: vi.fn().mockResolvedValue(false),
     getSessionInfo: vi.fn().mockResolvedValue(null),
   };
@@ -209,6 +209,33 @@ describe("check (single session)", () => {
 
   it("detects killed state when agent process exits (idle terminal + dead process)", async () => {
     vi.mocked(mockAgent.detectActivity).mockReturnValue("idle");
+    vi.mocked(mockAgent.isProcessRunning).mockResolvedValue(false);
+
+    const session = makeSession({ status: "working" });
+    vi.mocked(mockSessionManager.get).mockResolvedValue(session);
+
+    writeMetadata(dataDir, "app-1", {
+      worktree: "/tmp",
+      branch: "main",
+      status: "working",
+      project: "my-app",
+    });
+
+    const lm = createLifecycleManager({
+      config,
+      registry: mockRegistry,
+      sessionManager: mockSessionManager,
+    });
+
+    await lm.check("app-1");
+
+    expect(lm.getStates().get("app-1")).toBe("killed");
+  });
+
+  it("detects killed state when agent process exits (active terminal + dead process)", async () => {
+    // Stub agents (codex, aider, opencode) return "active" for any non-empty
+    // terminal output, including the shell prompt after the agent exits.
+    vi.mocked(mockAgent.detectActivity).mockReturnValue("active");
     vi.mocked(mockAgent.isProcessRunning).mockResolvedValue(false);
 
     const session = makeSession({ status: "working" });
