@@ -241,16 +241,16 @@ describe("scm-github plugin", () => {
   describe("getCIChecks", () => {
     it("maps various check states correctly", async () => {
       mockGh([
-        { name: "build", state: "COMPLETED", conclusion: "SUCCESS", detailsUrl: "https://ci/1", startedAt: "2025-01-01T00:00:00Z", completedAt: "2025-01-01T00:05:00Z" },
-        { name: "lint", state: "COMPLETED", conclusion: "FAILURE", detailsUrl: "", startedAt: "", completedAt: "" },
-        { name: "deploy", state: "PENDING", conclusion: "", detailsUrl: "", startedAt: "", completedAt: "" },
-        { name: "e2e", state: "IN_PROGRESS", conclusion: "", detailsUrl: "", startedAt: "", completedAt: "" },
-        { name: "optional", state: "COMPLETED", conclusion: "SKIPPED", detailsUrl: "", startedAt: "", completedAt: "" },
-        { name: "neutral", state: "COMPLETED", conclusion: "NEUTRAL", detailsUrl: "", startedAt: "", completedAt: "" },
-        { name: "timeout", state: "COMPLETED", conclusion: "TIMED_OUT", detailsUrl: "", startedAt: "", completedAt: "" },
-        { name: "queued", state: "QUEUED", conclusion: "", detailsUrl: "", startedAt: "", completedAt: "" },
-        { name: "cancelled", state: "COMPLETED", conclusion: "CANCELLED", detailsUrl: "", startedAt: "", completedAt: "" },
-        { name: "action_req", state: "COMPLETED", conclusion: "ACTION_REQUIRED", detailsUrl: "", startedAt: "", completedAt: "" },
+        { name: "build", state: "SUCCESS", link: "https://ci/1", startedAt: "2025-01-01T00:00:00Z", completedAt: "2025-01-01T00:05:00Z" },
+        { name: "lint", state: "FAILURE", link: "", startedAt: "", completedAt: "" },
+        { name: "deploy", state: "PENDING", link: "", startedAt: "", completedAt: "" },
+        { name: "e2e", state: "IN_PROGRESS", link: "", startedAt: "", completedAt: "" },
+        { name: "optional", state: "SKIPPED", link: "", startedAt: "", completedAt: "" },
+        { name: "neutral", state: "NEUTRAL", link: "", startedAt: "", completedAt: "" },
+        { name: "timeout", state: "TIMED_OUT", link: "", startedAt: "", completedAt: "" },
+        { name: "queued", state: "QUEUED", link: "", startedAt: "", completedAt: "" },
+        { name: "cancelled", state: "CANCELLED", link: "", startedAt: "", completedAt: "" },
+        { name: "action_req", state: "ACTION_REQUIRED", link: "", startedAt: "", completedAt: "" },
       ]);
 
       const checks = await scm.getCIChecks(pr);
@@ -279,7 +279,7 @@ describe("scm-github plugin", () => {
     });
 
     it("handles missing optional fields gracefully", async () => {
-      mockGh([{ name: "test", state: "COMPLETED", conclusion: "SUCCESS" }]);
+      mockGh([{ name: "test", state: "SUCCESS" }]);
       const checks = await scm.getCIChecks(pr);
       expect(checks[0].url).toBeUndefined();
       expect(checks[0].startedAt).toBeUndefined();
@@ -292,24 +292,24 @@ describe("scm-github plugin", () => {
   describe("getCISummary", () => {
     it('returns "failing" when any check failed', async () => {
       mockGh([
-        { name: "a", state: "COMPLETED", conclusion: "SUCCESS" },
-        { name: "b", state: "COMPLETED", conclusion: "FAILURE" },
+        { name: "a", state: "SUCCESS" },
+        { name: "b", state: "FAILURE" },
       ]);
       expect(await scm.getCISummary(pr)).toBe("failing");
     });
 
     it('returns "pending" when checks are running', async () => {
       mockGh([
-        { name: "a", state: "COMPLETED", conclusion: "SUCCESS" },
-        { name: "b", state: "IN_PROGRESS", conclusion: "" },
+        { name: "a", state: "SUCCESS" },
+        { name: "b", state: "IN_PROGRESS" },
       ]);
       expect(await scm.getCISummary(pr)).toBe("pending");
     });
 
     it('returns "passing" when all checks passed', async () => {
       mockGh([
-        { name: "a", state: "COMPLETED", conclusion: "SUCCESS" },
-        { name: "b", state: "COMPLETED", conclusion: "SUCCESS" },
+        { name: "a", state: "SUCCESS" },
+        { name: "b", state: "SUCCESS" },
       ]);
       expect(await scm.getCISummary(pr)).toBe("passing");
     });
@@ -326,8 +326,8 @@ describe("scm-github plugin", () => {
 
     it('returns "none" when all checks are skipped', async () => {
       mockGh([
-        { name: "a", state: "COMPLETED", conclusion: "SKIPPED" },
-        { name: "b", state: "COMPLETED", conclusion: "NEUTRAL" },
+        { name: "a", state: "SKIPPED" },
+        { name: "b", state: "NEUTRAL" },
       ]);
       expect(await scm.getCISummary(pr)).toBe("none");
     });
@@ -540,7 +540,7 @@ describe("scm-github plugin", () => {
       // PR view
       mockGh({ mergeable: "MERGEABLE", reviewDecision: "APPROVED", mergeStateStatus: "CLEAN", isDraft: false });
       // CI checks (called by getCISummary)
-      mockGh([{ name: "build", state: "COMPLETED", conclusion: "SUCCESS" }]);
+      mockGh([{ name: "build", state: "SUCCESS" }]);
 
       const result = await scm.getMergeability(pr);
       expect(result).toEqual({
@@ -554,7 +554,7 @@ describe("scm-github plugin", () => {
 
     it("reports CI failures as blockers", async () => {
       mockGh({ mergeable: "MERGEABLE", reviewDecision: "APPROVED", mergeStateStatus: "UNSTABLE", isDraft: false });
-      mockGh([{ name: "build", state: "COMPLETED", conclusion: "FAILURE" }]);
+      mockGh([{ name: "build", state: "FAILURE" }]);
 
       const result = await scm.getMergeability(pr);
       expect(result.ciPassing).toBe(false);
@@ -602,7 +602,7 @@ describe("scm-github plugin", () => {
 
     it("reports UNKNOWN mergeable as noConflicts false", async () => {
       mockGh({ mergeable: "UNKNOWN", reviewDecision: "APPROVED", mergeStateStatus: "CLEAN", isDraft: false });
-      mockGh([{ name: "build", state: "COMPLETED", conclusion: "SUCCESS" }]);
+      mockGh([{ name: "build", state: "SUCCESS" }]);
 
       const result = await scm.getMergeability(pr);
       expect(result.noConflicts).toBe(false);
@@ -612,7 +612,7 @@ describe("scm-github plugin", () => {
 
     it("reports draft status as blocker", async () => {
       mockGh({ mergeable: "MERGEABLE", reviewDecision: "APPROVED", mergeStateStatus: "DRAFT", isDraft: true });
-      mockGh([{ name: "build", state: "COMPLETED", conclusion: "SUCCESS" }]);
+      mockGh([{ name: "build", state: "SUCCESS" }]);
 
       const result = await scm.getMergeability(pr);
       expect(result.blockers).toContain("PR is still a draft");
@@ -621,7 +621,7 @@ describe("scm-github plugin", () => {
 
     it("reports multiple blockers simultaneously", async () => {
       mockGh({ mergeable: "CONFLICTING", reviewDecision: "CHANGES_REQUESTED", mergeStateStatus: "DIRTY", isDraft: true });
-      mockGh([{ name: "build", state: "COMPLETED", conclusion: "FAILURE" }]);
+      mockGh([{ name: "build", state: "FAILURE" }]);
 
       const result = await scm.getMergeability(pr);
       expect(result.blockers).toHaveLength(4);

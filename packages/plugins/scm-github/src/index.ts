@@ -208,14 +208,13 @@ function createGitHubSCM(): SCM {
           "--repo",
           repoFlag(pr),
           "--json",
-          "name,state,conclusion,detailsUrl,startedAt,completedAt",
+          "name,state,link,startedAt,completedAt",
         ]);
 
         const checks: Array<{
           name: string;
           state: string;
-          conclusion: string;
-          detailsUrl: string;
+          link: string;
           startedAt: string;
           completedAt: string;
         }> = JSON.parse(raw);
@@ -223,33 +222,33 @@ function createGitHubSCM(): SCM {
         return checks.map((c) => {
           let status: CICheck["status"];
           const state = c.state?.toUpperCase();
-          const conclusion = c.conclusion?.toUpperCase();
 
+          // gh pr checks returns state directly: SUCCESS, FAILURE, PENDING, QUEUED, etc.
           if (state === "PENDING" || state === "QUEUED") {
             status = "pending";
           } else if (state === "IN_PROGRESS") {
             status = "running";
-          } else if (conclusion === "SUCCESS") {
+          } else if (state === "SUCCESS") {
             status = "passed";
           } else if (
-            conclusion === "FAILURE" ||
-            conclusion === "TIMED_OUT" ||
-            conclusion === "CANCELLED" ||
-            conclusion === "ACTION_REQUIRED"
+            state === "FAILURE" ||
+            state === "TIMED_OUT" ||
+            state === "CANCELLED" ||
+            state === "ACTION_REQUIRED"
           ) {
             status = "failed";
-          } else if (conclusion === "SKIPPED" || conclusion === "NEUTRAL") {
+          } else if (state === "SKIPPED" || state === "NEUTRAL") {
             status = "skipped";
           } else {
-            // Unknown conclusion on a completed check — fail closed
+            // Unknown state on a check — fail closed for safety
             status = "failed";
           }
 
           return {
             name: c.name,
             status,
-            url: c.detailsUrl || undefined,
-            conclusion: c.conclusion || undefined,
+            url: c.link || undefined,
+            conclusion: state || undefined, // Store original state for debugging
             startedAt: c.startedAt ? new Date(c.startedAt) : undefined,
             completedAt: c.completedAt ? new Date(c.completedAt) : undefined,
           };

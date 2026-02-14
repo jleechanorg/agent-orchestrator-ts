@@ -318,15 +318,27 @@ function getAlerts(session: DashboardSession): Alert[] {
   if (pr.ciStatus === "failing") {
     const failedCheck = pr.ciChecks.find((c) => c.status === "failed");
     const failCount = pr.ciChecks.filter((c) => c.status === "failed").length;
-    alerts.push({
-      key: "ci-fail",
-      label: `${failCount} CI check${failCount > 1 ? "s" : ""} failing`,
-      className:
-        "border-[rgba(248,81,73,0.3)] bg-[rgba(248,81,73,0.15)] text-[var(--color-accent-red)]",
-      url: failedCheck?.url ?? pr.url + "/checks",
-      actionLabel: "ask to fix CI",
-      actionMessage: `Please fix the failing CI checks on ${pr.url}`,
-    });
+
+    // If ciStatus is "failing" but no failed checks, the API likely failed
+    if (failCount === 0) {
+      alerts.push({
+        key: "ci-unknown",
+        label: "CI status unknown",
+        className:
+          "border-[rgba(210,153,34,0.3)] bg-[rgba(210,153,34,0.15)] text-[var(--color-accent-yellow)]",
+        url: pr.url + "/checks",
+      });
+    } else {
+      alerts.push({
+        key: "ci-fail",
+        label: `${failCount} CI check${failCount > 1 ? "s" : ""} failing`,
+        className:
+          "border-[rgba(248,81,73,0.3)] bg-[rgba(248,81,73,0.15)] text-[var(--color-accent-red)]",
+        url: failedCheck?.url ?? pr.url + "/checks",
+        actionLabel: "ask to fix CI",
+        actionMessage: `Please fix the failing CI checks on ${pr.url}`,
+      });
+    }
   }
 
   // Changes requested

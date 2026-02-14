@@ -436,9 +436,9 @@ describe("plugin integration", () => {
       // gh calls for determineStatus:
       // 1. getPRState → open
       mockGh({ state: "OPEN" });
-      // 2. getCISummary → failing (pr checks returns array of checks)
+      // 2. getCISummary → failing (pr checks returns array of checks with correct field names)
       mockGh([
-        { name: "lint", state: "COMPLETED", conclusion: "FAILURE", detailsUrl: "", startedAt: "", completedAt: "" },
+        { name: "lint", state: "FAILURE", link: "", startedAt: "", completedAt: "" },
       ]);
 
       await lm.check("app-1");
@@ -492,9 +492,9 @@ describe("plugin integration", () => {
 
       // 1. getPRState → open
       mockGh({ state: "OPEN" });
-      // 2. getCISummary → passing
+      // 2. getCISummary → passing (using correct field names: state and link)
       mockGh([
-        { name: "lint", state: "COMPLETED", conclusion: "SUCCESS", detailsUrl: "", startedAt: "", completedAt: "" },
+        { name: "lint", state: "SUCCESS", link: "", startedAt: "", completedAt: "" },
       ]);
       // 3. getReviewDecision (gh pr view with reviewDecision)
       mockGh({ reviewDecision: "CHANGES_REQUESTED" });

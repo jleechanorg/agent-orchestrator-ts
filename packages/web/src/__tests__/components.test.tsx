@@ -253,6 +253,31 @@ describe("SessionCard", () => {
     expect(screen.getByText("1 CI check failing")).toBeInTheDocument();
   });
 
+  it("shows CI status unknown when ciStatus is failing but no failed checks", () => {
+    // This happens when GitHub API fails - getCISummary returns "failing"
+    // but getCIChecks returns empty array
+    const pr = makePR({
+      state: "open",
+      ciStatus: "failing",
+      ciChecks: [], // Empty - API failed to fetch checks
+      reviewDecision: "none",
+      mergeability: {
+        mergeable: false,
+        ciPassing: false,
+        approved: false,
+        noConflicts: true,
+        blockers: ["CI is failing"],
+      },
+    });
+    const session = makeSession({ status: "ci_failed", activity: "idle", pr });
+    render(<SessionCard session={session} />);
+    expect(screen.getByText("CI status unknown")).toBeInTheDocument();
+    // Should NOT show "0 CI check failing"
+    expect(screen.queryByText(/0.*CI check.*failing/i)).not.toBeInTheDocument();
+    // Should NOT show "ask to fix CI" action
+    expect(screen.queryByText("ask to fix CI")).not.toBeInTheDocument();
+  });
+
   it("shows changes requested alert", () => {
     const pr = makePR({
       state: "open",
