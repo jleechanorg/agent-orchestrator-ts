@@ -1,5 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { validateIdentifier } from "@/lib/validation";
+import { getServices } from "@/lib/services";
+import { sessionToDashboard } from "@/lib/serialize";
 
 /** POST /api/spawn — Spawn a new session */
 export async function POST(request: NextRequest) {
@@ -20,20 +22,18 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  // TODO: wire to core SessionManager.spawn()
-  const mockSession = {
-    id: `session-${Date.now()}`,
-    projectId: body.projectId as string,
-    issueId: (body.issueId as string) ?? null,
-    status: "spawning",
-    activity: "active",
-    branch: null,
-    summary: `Spawning session for ${(body.issueId as string) ?? body.projectId}`,
-    createdAt: new Date().toISOString(),
-    lastActivityAt: new Date().toISOString(),
-    pr: null,
-    metadata: {},
-  };
+  try {
+    const { sessionManager } = await getServices();
+    const session = await sessionManager.spawn({
+      projectId: body.projectId as string,
+      issueId: (body.issueId as string) ?? undefined,
+    });
 
-  return NextResponse.json({ session: mockSession }, { status: 201 });
+    return NextResponse.json({ session: sessionToDashboard(session) }, { status: 201 });
+  } catch (err) {
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : "Failed to spawn session" },
+      { status: 500 },
+    );
+  }
 }

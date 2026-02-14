@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
-import { getMockSession } from "@/lib/mock-data";
+import { getServices } from "@/lib/services";
+import { sessionToDashboard } from "@/lib/serialize";
 import { SessionDetail } from "@/components/SessionDetail";
 
 interface Props {
@@ -8,11 +9,17 @@ interface Props {
 
 export default async function SessionPage({ params }: Props) {
   const { id } = await params;
-  const session = getMockSession(id);
 
-  if (!session) {
+  const { sessionManager } = await getServices().catch(() => {
+    notFound();
+    // notFound() throws, so this never runs, but TS needs the return type
+    return null as never;
+  });
+
+  const coreSession = await sessionManager.get(id);
+  if (!coreSession) {
     notFound();
   }
 
-  return <SessionDetail session={session} />;
+  return <SessionDetail session={sessionToDashboard(coreSession)} />;
 }

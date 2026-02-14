@@ -1,6 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server";
-import { getMockSession } from "@/lib/mock-data";
 import { validateIdentifier, validateString, stripControlChars } from "@/lib/validation";
+import { getServices } from "@/lib/services";
 
 const MAX_MESSAGE_LENGTH = 10_000;
 
@@ -10,11 +10,6 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   const idErr = validateIdentifier(id, "id");
   if (idErr) {
     return NextResponse.json({ error: idErr }, { status: 400 });
-  }
-
-  const session = getMockSession(id);
-  if (!session) {
-    return NextResponse.json({ error: "Session not found" }, { status: 404 });
   }
 
   const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
@@ -34,6 +29,13 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     );
   }
 
-  // TODO: wire to core SessionManager.send()
-  return NextResponse.json({ ok: true, sessionId: id, message });
+  try {
+    const { sessionManager } = await getServices();
+    await sessionManager.send(id, message);
+    return NextResponse.json({ ok: true, sessionId: id, message });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "Failed to send message";
+    const status = msg.includes("not found") ? 404 : 500;
+    return NextResponse.json({ error: msg }, { status });
+  }
 }

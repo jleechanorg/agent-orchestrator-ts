@@ -1,6 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server";
-import { getMockSession } from "@/lib/mock-data";
 import { validateIdentifier } from "@/lib/validation";
+import { getServices } from "@/lib/services";
 
 /** POST /api/sessions/:id/kill — Kill a session */
 export async function POST(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -10,11 +10,13 @@ export async function POST(_request: NextRequest, { params }: { params: Promise<
     return NextResponse.json({ error: idErr }, { status: 400 });
   }
 
-  const session = getMockSession(id);
-  if (!session) {
-    return NextResponse.json({ error: "Session not found" }, { status: 404 });
+  try {
+    const { sessionManager } = await getServices();
+    await sessionManager.kill(id);
+    return NextResponse.json({ ok: true, sessionId: id });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "Failed to kill session";
+    const status = msg.includes("not found") ? 404 : 500;
+    return NextResponse.json({ error: msg }, { status });
   }
-
-  // TODO: wire to core SessionManager.kill()
-  return NextResponse.json({ ok: true, sessionId: id });
 }

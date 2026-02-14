@@ -1,5 +1,5 @@
 import { type NextRequest, NextResponse } from "next/server";
-import { mockSessions } from "@/lib/mock-data";
+import { getServices, getSCM } from "@/lib/services";
 
 /** POST /api/prs/:id/merge — Merge a PR */
 export async function POST(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -9,26 +9,41 @@ export async function POST(_request: NextRequest, { params }: { params: Promise<
   }
   const prNumber = Number(id);
 
-  const session = mockSessions.find((s) => s.pr?.number === prNumber);
-  if (!session?.pr) {
-    return NextResponse.json({ error: "PR not found" }, { status: 404 });
-  }
+  try {
+    const { config, registry, sessionManager } = await getServices();
+    const sessions = await sessionManager.list();
 
-  if (session.pr.state !== "open") {
-    return NextResponse.json({ error: `PR is ${session.pr.state}, not open` }, { status: 409 });
-  }
+    const session = sessions.find((s) => s.pr?.number === prNumber);
+    if (!session?.pr) {
+      return NextResponse.json({ error: "PR not found" }, { status: 404 });
+    }
 
-  if (session.pr.isDraft) {
-    return NextResponse.json({ error: "Cannot merge a draft PR" }, { status: 422 });
-  }
+    const project = config.projects[session.projectId];
+    const scm = getSCM(registry, project);
+    if (!scm) {
+      return NextResponse.json({ error: "No SCM plugin configured for this project" }, { status: 500 });
+    }
 
-  if (!session.pr.mergeability.mergeable) {
+    // Validate PR is in a mergeable state
+    const state = await scm.getPRState(session.pr);
+    if (state !== "open") {
+      return NextResponse.json({ error: `PR is ${state}, not open` }, { status: 409 });
+    }
+
+    const mergeability = await scm.getMergeability(session.pr);
+    if (!mergeability.mergeable) {
+      return NextResponse.json(
+        { error: "PR is not mergeable", blockers: mergeability.blockers },
+        { status: 422 },
+      );
+    }
+
+    await scm.mergePR(session.pr, "squash");
+    return NextResponse.json({ ok: true, prNumber, method: "squash" });
+  } catch (err) {
     return NextResponse.json(
-      { error: "PR is not mergeable", blockers: session.pr.mergeability.blockers },
-      { status: 422 },
+      { error: err instanceof Error ? err.message : "Failed to merge PR" },
+      { status: 500 },
     );
   }
-
-  // TODO: wire to core SCM.mergePR()
-  return NextResponse.json({ ok: true, prNumber, method: "squash" });
 }
