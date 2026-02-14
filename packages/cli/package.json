@@ -20,6 +20,7 @@
     "@agent-orchestrator/plugin-agent-claude-code": "workspace:*",
     "@agent-orchestrator/plugin-agent-codex": "workspace:*",
     "@agent-orchestrator/plugin-agent-aider": "workspace:*",
+    "@agent-orchestrator/plugin-scm-github": "workspace:*",
     "chalk": "^5.4.0",
     "commander": "^13.0.0",
     "ora": "^8.1.0",

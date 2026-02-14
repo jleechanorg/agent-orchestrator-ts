@@ -1,4 +1,5 @@
 import chalk from "chalk";
+import type { CIStatus, ReviewDecision, ActivityState } from "@agent-orchestrator/core";
 
 export function header(title: string): string {
   const line = "─".repeat(76);
@@ -54,4 +55,66 @@ export function statusColor(status: string): string {
     default:
       return status;
   }
+}
+
+export function ciStatusIcon(status: CIStatus | null): string {
+  switch (status) {
+    case "passing":
+      return chalk.green("pass");
+    case "failing":
+      return chalk.red("fail");
+    case "pending":
+      return chalk.yellow("pend");
+    case "none":
+    case null:
+      return chalk.dim("-");
+  }
+}
+
+export function reviewDecisionIcon(decision: ReviewDecision | null): string {
+  switch (decision) {
+    case "approved":
+      return chalk.green("ok");
+    case "changes_requested":
+      return chalk.red("chg!");
+    case "pending":
+      return chalk.yellow("rev?");
+    case "none":
+    case null:
+      return chalk.dim("-");
+  }
+}
+
+export function activityIcon(activity: ActivityState | null): string {
+  switch (activity) {
+    case "active":
+      return chalk.green("working");
+    case "idle":
+      return chalk.yellow("idle");
+    case "waiting_input":
+      return chalk.magenta("waiting");
+    case "blocked":
+      return chalk.red("blocked");
+    case "exited":
+      return chalk.dim("exited");
+    case null:
+      return chalk.dim("-");
+  }
+}
+
+// eslint-disable-next-line no-control-regex
+const ANSI_RE = /\u001b\[[0-9;]*m/g;
+
+/** Pad/truncate a string to exactly `width` visible characters */
+export function padCol(str: string, width: number): string {
+  // Strip ANSI codes to measure visible length
+  const visible = str.replace(ANSI_RE, "");
+  if (visible.length > width) {
+    // Truncate visible content, re-apply truncation
+    const plain = visible.slice(0, width - 1) + "\u2026";
+    return plain.padEnd(width);
+  }
+  // Pad with spaces based on visible length
+  const padding = width - visible.length;
+  return str + " ".repeat(Math.max(0, padding));
 }
