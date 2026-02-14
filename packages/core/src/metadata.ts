@@ -192,6 +192,7 @@ export function listMetadata(dataDir: string): SessionId[] {
 
   return readdirSync(dir).filter((name) => {
     if (name === "archive" || name.startsWith(".")) return false;
+    if (!VALID_SESSION_ID.test(name)) return false;
     try {
       return statSync(join(dir, name)).isFile();
     } catch {
