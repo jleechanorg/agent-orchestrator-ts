@@ -1,7 +1,7 @@
 {
-  "name": "@agent-orchestrator/plugin-agent-aider",
+  "name": "@agent-orchestrator/plugin-agent-opencode",
   "version": "0.1.0",
-  "description": "Agent plugin: Aider",
+  "description": "Agent plugin: OpenCode",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

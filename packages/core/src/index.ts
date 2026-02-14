@@ -43,3 +43,6 @@ export type { SessionManagerDeps } from "./session-manager.js";
 // Lifecycle manager — state machine + reaction engine
 export { createLifecycleManager } from "./lifecycle-manager.js";
 export type { LifecycleManagerDeps } from "./lifecycle-manager.js";
+
+// Shared utilities
+export { shellEscape } from "./utils.js";

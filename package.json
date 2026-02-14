@@ -18,6 +18,7 @@
     "format:check": "prettier --check .",
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm -r --filter '!@agent-orchestrator/web' test",
+    "test:integration": "pnpm --filter @agent-orchestrator/integration-tests test:integration",
     "clean": "pnpm -r clean"
   },
   "devDependencies": {

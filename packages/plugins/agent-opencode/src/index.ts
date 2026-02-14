@@ -18,9 +18,9 @@ const execFileAsync = promisify(execFile);
 // =============================================================================
 
 export const manifest = {
-  name: "aider",
+  name: "opencode",
   slot: "agent" as const,
-  description: "Agent plugin: Aider",
+  description: "Agent plugin: OpenCode",
   version: "0.1.0",
 };
 
@@ -28,24 +28,20 @@ export const manifest = {
 // Agent Implementation
 // =============================================================================
 
-function createAiderAgent(): Agent {
+function createOpenCodeAgent(): Agent {
   return {
-    name: "aider",
-    processName: "aider",
+    name: "opencode",
+    processName: "opencode",
 
     getLaunchCommand(config: AgentLaunchConfig): string {
-      const parts: string[] = ["aider"];
+      const parts: string[] = ["opencode"];
 
-      if (config.permissions === "skip") {
-        parts.push("--yes");
+      if (config.prompt) {
+        parts.push("run", shellEscape(config.prompt));
       }
 
       if (config.model) {
         parts.push("--model", shellEscape(config.model));
-      }
-
-      if (config.prompt) {
-        parts.push("--message", shellEscape(config.prompt));
       }
 
       return parts.join(" ");
@@ -67,7 +63,7 @@ function createAiderAgent(): Agent {
       const running = await this.isProcessRunning(session.runtimeHandle);
       if (!running) return "exited";
 
-      // Aider doesn't have rich terminal output patterns yet
+      // OpenCode doesn't have rich introspection yet
       return "active";
     },
 
@@ -90,7 +86,7 @@ function createAiderAgent(): Agent {
 
           const { stdout: psOut } = await execFileAsync("ps", ["-eo", "pid,tty,args"], { timeout: 30_000 });
           const ttySet = new Set(ttys.map((t) => t.replace(/^\/dev\//, "")));
-          const processRe = /(?:^|\/)aider(?:\s|$)/;
+          const processRe = /(?:^|\/)opencode(?:\s|$)/;
           for (const line of psOut.split("\n")) {
             const cols = line.trimStart().split(/\s+/);
             if (cols.length < 3 || !ttySet.has(cols[1] ?? "")) continue;
@@ -122,15 +118,15 @@ function createAiderAgent(): Agent {
       }
     },
 
-    // NOTE: Aider lacks introspection to distinguish "processing" from "idle at prompt".
-    // Falling back to process liveness until richer detection is implemented (see #18).
+    // NOTE: OpenCode lacks introspection to distinguish "processing" from "idle at prompt".
+    // Falling back to process liveness until richer detection is implemented (see #19).
     async isProcessing(session: Session): Promise<boolean> {
       if (!session.runtimeHandle) return false;
       return this.isProcessRunning(session.runtimeHandle);
     },
 
     async getSessionInfo(_session: Session): Promise<AgentSessionInfo | null> {
-      // Aider doesn't have JSONL session files for introspection yet
+      // OpenCode doesn't have JSONL session files for introspection yet
       return null;
     },
   };
@@ -141,7 +137,7 @@ function createAiderAgent(): Agent {
 // =============================================================================
 
 export function create(): Agent {
-  return createAiderAgent();
+  return createOpenCodeAgent();
 }
 
 export default { manifest, create } satisfies PluginModule<Agent>;

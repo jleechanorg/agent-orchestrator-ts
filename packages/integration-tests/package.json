@@ -1,0 +1,24 @@
+{
+  "name": "@agent-orchestrator/integration-tests",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Integration tests — requires real binaries and tmux",
+  "type": "module",
+  "scripts": {
+    "test": "echo 'Skipped — run test:integration instead'",
+    "test:integration": "vitest run --config vitest.config.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@agent-orchestrator/core": "workspace:*",
+    "@agent-orchestrator/plugin-agent-claude-code": "workspace:*",
+    "@agent-orchestrator/plugin-agent-codex": "workspace:*",
+    "@agent-orchestrator/plugin-agent-aider": "workspace:*",
+    "@agent-orchestrator/plugin-agent-opencode": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^25.2.3",
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0"
+  }
+}
