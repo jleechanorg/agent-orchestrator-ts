@@ -329,6 +329,20 @@ function createLinearTracker(query: GraphQLTransport): Tracker {
       return `https://linear.app/issue/${identifier}`;
     },
 
+    issueLabel(url: string, _project: ProjectConfig): string {
+      // Extract identifier from Linear URL
+      // Examples:
+      //   https://linear.app/composio/issue/INT-1327
+      //   https://linear.app/issue/INT-1327
+      const match = url.match(/\/issue\/([A-Z]+-\d+)/);
+      if (match) {
+        return match[1];
+      }
+      // Fallback: return the last segment of the URL
+      const parts = url.split("/");
+      return parts[parts.length - 1] || url;
+    },
+
     branchName(identifier: string, _project: ProjectConfig): string {
       // Linear convention: feat/INT-1330
       return `feat/${identifier}`;

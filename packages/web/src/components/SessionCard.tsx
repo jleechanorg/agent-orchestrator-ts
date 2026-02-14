@@ -101,13 +101,22 @@ export function SessionCard({ session, onSend, onKill, onMerge, onRestore }: Ses
             restore session
           </button>
         )}
-        <a
-          href={`/sessions/${encodeURIComponent(session.id)}`}
-          onClick={(e) => e.stopPropagation()}
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            const port = process.env.NEXT_PUBLIC_TERMINAL_PORT ?? "3001";
+            fetch(`http://localhost:${port}/terminal?session=${encodeURIComponent(session.id)}`)
+              .then((res) => res.json() as Promise<{ url: string }>)
+              .then((data) => window.open(data.url, `terminal-${session.id}`))
+              .catch(() => {
+                // Fall back to session detail page
+                window.location.href = `/sessions/${encodeURIComponent(session.id)}`;
+              });
+          }}
           className="shrink-0 rounded-md border border-[var(--color-border-default)] px-2.5 py-0.5 text-[11px] text-[var(--color-text-secondary)] transition-colors hover:border-[var(--color-accent-blue)] hover:text-[var(--color-accent-blue)]"
         >
           terminal
-        </a>
+        </button>
       </div>
 
       {/* Meta row: branch + PR pills */}
@@ -183,9 +192,16 @@ export function SessionCard({ session, onSend, onKill, onMerge, onRestore }: Ses
             </DetailSection>
           )}
 
-          {session.issueId && (
+          {session.issueUrl && (
             <DetailSection label="Issue">
-              <span className="text-xs text-[var(--color-accent-blue)]">{session.issueId}</span>
+              <a
+                href={session.issueUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-xs text-[var(--color-accent-blue)] hover:underline"
+              >
+                {session.issueLabel || session.issueUrl}
+              </a>
             </DetailSection>
           )}
 

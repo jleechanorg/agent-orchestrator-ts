@@ -52,7 +52,9 @@ export interface DashboardSession {
   status: SessionStatus;
   activity: ActivityState;
   branch: string | null;
-  issueId: string | null;
+  issueId: string | null; // Deprecated: use issueUrl instead
+  issueUrl: string | null; // Full issue URL
+  issueLabel: string | null; // Human-readable label (e.g., "INT-1327", "#42")
   summary: string | null;
   createdAt: string;
   lastActivityAt: string;

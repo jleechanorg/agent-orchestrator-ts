@@ -8,3 +8,7 @@ coverage/
 *.patch
 *-context.md
 packages/web/screenshots/
+
+# Development symlinks (created per-worktree, not committed)
+.claude
+packages/web/agent-orchestrator.yaml

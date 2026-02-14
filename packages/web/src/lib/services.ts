@@ -18,6 +18,7 @@ import {
   type PluginRegistry,
   type SessionManager,
   type SCM,
+  type Tracker,
   type ProjectConfig,
 } from "@agent-orchestrator/core";
 
@@ -27,6 +28,7 @@ import pluginAgentClaudeCode from "@agent-orchestrator/plugin-agent-claude-code"
 import pluginWorkspaceWorktree from "@agent-orchestrator/plugin-workspace-worktree";
 import pluginScmGithub from "@agent-orchestrator/plugin-scm-github";
 import pluginTrackerGithub from "@agent-orchestrator/plugin-tracker-github";
+import pluginTrackerLinear from "@agent-orchestrator/plugin-tracker-linear";
 
 export interface Services {
   config: OrchestratorConfig;
@@ -66,6 +68,7 @@ async function initServices(): Promise<Services> {
   registry.register(pluginWorkspaceWorktree);
   registry.register(pluginScmGithub);
   registry.register(pluginTrackerGithub);
+  registry.register(pluginTrackerLinear);
 
   const sessionManager = createSessionManager({ config, registry });
 
@@ -81,4 +84,13 @@ export function getSCM(
 ): SCM | null {
   if (!project?.scm) return null;
   return registry.get<SCM>("scm", project.scm.plugin);
+}
+
+/** Resolve the Tracker plugin for a project. Returns null if not configured. */
+export function getTracker(
+  registry: PluginRegistry,
+  project: ProjectConfig | undefined,
+): Tracker | null {
+  if (!project?.tracker) return null;
+  return registry.get<Tracker>("tracker", project.tracker.plugin);
 }

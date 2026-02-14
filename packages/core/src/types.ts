@@ -282,6 +282,9 @@ export interface Tracker {
   /** Generate a URL for the issue */
   issueUrl(identifier: string, project: ProjectConfig): string;
 
+  /** Extract a human-readable label from an issue URL (e.g., "INT-1327", "#42") */
+  issueLabel?(url: string, project: ProjectConfig): string;
+
   /** Generate a git branch name for the issue */
   branchName(identifier: string, project: ProjectConfig): string;
 

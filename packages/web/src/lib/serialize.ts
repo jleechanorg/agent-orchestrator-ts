@@ -5,10 +5,10 @@
  * (string dates, flattened DashboardPR) suitable for JSON serialization.
  */
 
-import type { Session, SCM, PRInfo } from "@agent-orchestrator/core";
+import type { Session, SCM, PRInfo, Tracker, ProjectConfig } from "@agent-orchestrator/core";
 import type { DashboardSession, DashboardPR, DashboardStats } from "./types.js";
 
-/** Convert a core Session to a DashboardSession (without PR enrichment). */
+/** Convert a core Session to a DashboardSession (without PR/issue enrichment). */
 export function sessionToDashboard(session: Session): DashboardSession {
   return {
     id: session.id,
@@ -16,7 +16,9 @@ export function sessionToDashboard(session: Session): DashboardSession {
     status: session.status,
     activity: session.activity,
     branch: session.branch,
-    issueId: session.issueId,
+    issueId: session.issueId, // Deprecated: kept for backwards compatibility
+    issueUrl: session.issueId, // issueId is actually the full URL
+    issueLabel: null, // Will be enriched by enrichSessionIssue()
     summary: session.agentInfo?.summary ?? session.metadata["summary"] ?? null,
     createdAt: session.createdAt.toISOString(),
     lastActivityAt: session.lastActivityAt.toISOString(),
@@ -113,6 +115,30 @@ export async function enrichSessionPR(
       author: c.author,
       body: c.body,
     }));
+  }
+}
+
+/** Enrich a DashboardSession's issue label using the tracker plugin. */
+export function enrichSessionIssue(
+  dashboard: DashboardSession,
+  tracker: Tracker,
+  project: ProjectConfig,
+): void {
+  if (!dashboard.issueUrl) return;
+
+  // Use tracker plugin to extract human-readable label from URL
+  if (tracker.issueLabel) {
+    try {
+      dashboard.issueLabel = tracker.issueLabel(dashboard.issueUrl, project);
+    } catch {
+      // If extraction fails, fall back to extracting from URL manually
+      const parts = dashboard.issueUrl.split("/");
+      dashboard.issueLabel = parts[parts.length - 1] || dashboard.issueUrl;
+    }
+  } else {
+    // Fallback if tracker doesn't implement issueLabel method
+    const parts = dashboard.issueUrl.split("/");
+    dashboard.issueLabel = parts[parts.length - 1] || dashboard.issueUrl;
   }
 }
 

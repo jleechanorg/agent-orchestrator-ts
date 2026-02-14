@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { setTimeout as sleep } from "node:timers/promises";
 import { randomUUID } from "node:crypto";
 import { writeFileSync, unlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -120,6 +121,9 @@ export function create(): Runtime {
         await tmux("send-keys", "-t", handle.id, "-l", message);
       }
 
+      // Small delay to let tmux process the pasted text before pressing Enter.
+      // Without this, Enter can arrive before the text is fully rendered.
+      await sleep(300);
       await tmux("send-keys", "-t", handle.id, "Enter");
     },
 

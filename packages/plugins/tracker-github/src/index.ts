@@ -114,6 +114,19 @@ function createGitHubTracker(): Tracker {
       return `https://github.com/${project.repo}/issues/${num}`;
     },
 
+    issueLabel(url: string, _project: ProjectConfig): string {
+      // Extract issue number from GitHub URL
+      // Example: https://github.com/owner/repo/issues/42 → "#42"
+      const match = url.match(/\/issues\/(\d+)/);
+      if (match) {
+        return `#${match[1]}`;
+      }
+      // Fallback: return the last segment of the URL
+      const parts = url.split("/");
+      const lastPart = parts[parts.length - 1];
+      return lastPart ? `#${lastPart}` : url;
+    },
+
     branchName(identifier: string, _project: ProjectConfig): string {
       const num = identifier.replace(/^#/, "");
       return `feat/issue-${num}`;
