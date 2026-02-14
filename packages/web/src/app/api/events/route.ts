@@ -56,22 +56,28 @@ export async function GET(): Promise<Response> {
       // Poll for session state changes every 5 seconds
       updates = setInterval(() => {
         void (async () => {
+          let dashboardSessions;
           try {
             const { sessionManager } = await getServices();
             const sessions = await sessionManager.list();
-            const dashboardSessions = sessions.map(sessionToDashboard);
+            dashboardSessions = sessions.map(sessionToDashboard);
+          } catch {
+            // Transient service error — skip this poll, retry on next interval
+            return;
+          }
 
-            for (const s of dashboardSessions) {
-              const event = {
-                type: "session.activity",
-                sessionId: s.id,
-                activity: s.activity,
+          try {
+            const event = {
+              type: "snapshot",
+              sessions: dashboardSessions.map((s) => ({
+                id: s.id,
                 status: s.status,
+                activity: s.activity,
                 attentionLevel: getAttentionLevel(s),
-                timestamp: new Date().toISOString(),
-              };
-              controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
-            }
+                lastActivityAt: s.lastActivityAt,
+              })),
+            };
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
           } catch {
             // enqueue failure means the stream is closed — clean up both intervals
             clearInterval(updates);
