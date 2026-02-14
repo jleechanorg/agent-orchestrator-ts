@@ -807,8 +807,8 @@ export interface LifecycleManager {
 
 /** Plugin registry — discovery + loading */
 export interface PluginRegistry {
-  /** Register a plugin */
-  register(plugin: PluginModule): void;
+  /** Register a plugin, optionally with config to pass to create() */
+  register(plugin: PluginModule, config?: Record<string, unknown>): void;
 
   /** Get a plugin by slot and name */
   get<T>(slot: PluginSlot, name: string): T | null;
@@ -816,8 +816,8 @@ export interface PluginRegistry {
   /** List plugins for a slot */
   list(slot: PluginSlot): PluginManifest[];
 
-  /** Load built-in plugins */
-  loadBuiltins(): Promise<void>;
+  /** Load built-in plugins, optionally with orchestrator config for plugin settings */
+  loadBuiltins(config?: OrchestratorConfig): Promise<void>;
 
   /** Load plugins from config (npm packages, local paths) */
   loadFromConfig(config: OrchestratorConfig): Promise<void>;

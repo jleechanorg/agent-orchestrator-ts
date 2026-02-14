@@ -88,6 +88,18 @@ importers:
       '@agent-orchestrator/plugin-agent-opencode':
         specifier: workspace:*
         version: link:../plugins/agent-opencode
+      '@agent-orchestrator/plugin-runtime-process':
+        specifier: workspace:*
+        version: link:../plugins/runtime-process
+      '@agent-orchestrator/plugin-runtime-tmux':
+        specifier: workspace:*
+        version: link:../plugins/runtime-tmux
+      '@agent-orchestrator/plugin-workspace-clone':
+        specifier: workspace:*
+        version: link:../plugins/workspace-clone
+      '@agent-orchestrator/plugin-workspace-worktree':
+        specifier: workspace:*
+        version: link:../plugins/workspace-worktree
     devDependencies:
       '@types/node':
         specifier: ^25.2.3
@@ -214,6 +226,9 @@ importers:
       typescript:
         specifier: ^5.7.0
         version: 5.9.3
+      vitest:
+        specifier: ^3.0.0
+        version: 3.2.4(@types/node@25.2.3)(jiti@2.6.1)(jsdom@25.0.1)(lightningcss@1.30.2)(tsx@4.21.0)(yaml@2.8.2)
 
   packages/plugins/runtime-tmux:
     dependencies:
@@ -227,6 +242,9 @@ importers:
       typescript:
         specifier: ^5.7.0
         version: 5.9.3
+      vitest:
+        specifier: ^3.0.0
+        version: 3.2.4(@types/node@25.2.3)(jiti@2.6.1)(jsdom@25.0.1)(lightningcss@1.30.2)(tsx@4.21.0)(yaml@2.8.2)
 
   packages/plugins/scm-github:
     dependencies:
@@ -305,6 +323,9 @@ importers:
       typescript:
         specifier: ^5.7.0
         version: 5.9.3
+      vitest:
+        specifier: ^3.0.0
+        version: 3.2.4(@types/node@25.2.3)(jiti@2.6.1)(jsdom@25.0.1)(lightningcss@1.30.2)(tsx@4.21.0)(yaml@2.8.2)
 
   packages/plugins/workspace-worktree:
     dependencies:
@@ -318,6 +339,9 @@ importers:
       typescript:
         specifier: ^5.7.0
         version: 5.9.3
+      vitest:
+        specifier: ^3.0.0
+        version: 3.2.4(@types/node@25.2.3)(jiti@2.6.1)(jsdom@25.0.1)(lightningcss@1.30.2)(tsx@4.21.0)(yaml@2.8.2)
 
   packages/web:
     dependencies:

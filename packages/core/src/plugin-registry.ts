@@ -48,14 +48,30 @@ const BUILTIN_PLUGINS: Array<{ slot: PluginSlot; name: string; pkg: string }> = 
   { slot: "terminal", name: "web", pkg: "@agent-orchestrator/plugin-terminal-web" },
 ];
 
+/** Extract plugin-specific config from orchestrator config */
+function extractPluginConfig(
+  slot: PluginSlot,
+  name: string,
+  config: OrchestratorConfig,
+): Record<string, unknown> | undefined {
+  // Map well-known orchestrator config fields to plugin config
+  if (slot === "workspace" && name === "worktree" && config.worktreeDir) {
+    return { worktreeDir: config.worktreeDir };
+  }
+  if (slot === "workspace" && name === "clone" && config.worktreeDir) {
+    return { cloneDir: config.worktreeDir };
+  }
+  return undefined;
+}
+
 export function createPluginRegistry(): PluginRegistry {
   const plugins: PluginMap = new Map();
 
   return {
-    register(plugin: PluginModule): void {
+    register(plugin: PluginModule, config?: Record<string, unknown>): void {
       const { manifest } = plugin;
       const key = makeKey(manifest.slot, manifest.name);
-      const instance = plugin.create();
+      const instance = plugin.create(config);
       plugins.set(key, { manifest, instance });
     },
 
@@ -74,12 +90,15 @@ export function createPluginRegistry(): PluginRegistry {
       return result;
     },
 
-    async loadBuiltins(): Promise<void> {
+    async loadBuiltins(orchestratorConfig?: OrchestratorConfig): Promise<void> {
       for (const builtin of BUILTIN_PLUGINS) {
         try {
           const mod = (await import(builtin.pkg)) as PluginModule;
           if (mod.manifest && typeof mod.create === "function") {
-            this.register(mod);
+            const pluginConfig = orchestratorConfig
+              ? extractPluginConfig(builtin.slot, builtin.name, orchestratorConfig)
+              : undefined;
+            this.register(mod, pluginConfig);
           }
         } catch {
           // Plugin not installed — that's fine, only load what's available
@@ -87,9 +106,9 @@ export function createPluginRegistry(): PluginRegistry {
       }
     },
 
-    async loadFromConfig(_config: OrchestratorConfig): Promise<void> {
-      // First, load all built-ins
-      await this.loadBuiltins();
+    async loadFromConfig(config: OrchestratorConfig): Promise<void> {
+      // Load built-ins with orchestrator config so plugins receive their settings
+      await this.loadBuiltins(config);
 
       // Then, load any additional plugins specified in project configs
       // (future: support npm package names and local file paths)
