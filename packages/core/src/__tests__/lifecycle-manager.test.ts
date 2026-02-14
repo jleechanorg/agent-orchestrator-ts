@@ -60,7 +60,7 @@ function makePR(overrides: Partial<PRInfo> = {}): PRInfo {
 
 beforeEach(() => {
   dataDir = join(tmpdir(), `ao-test-lifecycle-${randomUUID()}`);
-  mkdirSync(join(dataDir, "sessions"), { recursive: true });
+  mkdirSync(dataDir, { recursive: true });
 
   mockRuntime = {
     name: "mock",

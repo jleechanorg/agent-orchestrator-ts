@@ -116,7 +116,7 @@ beforeEach(() => {
   vi.clearAllMocks();
 
   dataDir = join(tmpdir(), `ao-test-plugin-int-${randomUUID()}`);
-  mkdirSync(join(dataDir, "sessions"), { recursive: true });
+  mkdirSync(dataDir, { recursive: true });
 
   mockRuntime = {
     name: "mock",

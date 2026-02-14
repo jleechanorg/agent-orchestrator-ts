@@ -29,7 +29,7 @@ function makeHandle(id: string): RuntimeHandle {
 
 beforeEach(() => {
   dataDir = join(tmpdir(), `ao-test-session-mgr-${randomUUID()}`);
-  mkdirSync(join(dataDir, "sessions"), { recursive: true });
+  mkdirSync(dataDir, { recursive: true });
 
   mockRuntime = {
     name: "mock",

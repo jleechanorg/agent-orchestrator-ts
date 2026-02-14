@@ -68,7 +68,7 @@ function validateSessionId(sessionId: SessionId): void {
 /** Get the metadata file path for a session. */
 function metadataPath(dataDir: string, sessionId: SessionId): string {
   validateSessionId(sessionId);
-  return join(dataDir, "sessions", sessionId);
+  return join(dataDir, sessionId);
 }
 
 /**
@@ -173,7 +173,7 @@ export function deleteMetadata(dataDir: string, sessionId: SessionId, archive = 
   if (!existsSync(path)) return;
 
   if (archive) {
-    const archiveDir = join(dataDir, "sessions", "archive");
+    const archiveDir = join(dataDir, "archive");
     mkdirSync(archiveDir, { recursive: true });
     const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
     const archivePath = join(archiveDir, `${sessionId}_${timestamp}`);
@@ -187,7 +187,7 @@ export function deleteMetadata(dataDir: string, sessionId: SessionId, archive = 
  * List all session IDs that have metadata files.
  */
 export function listMetadata(dataDir: string): SessionId[] {
-  const dir = join(dataDir, "sessions");
+  const dir = dataDir;
   if (!existsSync(dir)) return [];
 
   return readdirSync(dir).filter((name) => {
