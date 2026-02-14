@@ -267,8 +267,17 @@ function createGitHubSCM(): SCM {
       try {
         checks = await this.getCIChecks(pr);
       } catch {
-        // Fail closed: if we can't fetch CI status, report as failing
-        // rather than "none" (which getMergeability treats as passing).
+        // Before fail-closing, check if the PR is merged/closed —
+        // GitHub may not return check data for those, and reporting
+        // "failing" for a merged PR is wrong.
+        try {
+          const state = await this.getPRState(pr);
+          if (state === "merged" || state === "closed") return "none";
+        } catch {
+          // Can't determine state either; fall through to fail-closed.
+        }
+        // Fail closed for open PRs: report as failing rather than
+        // "none" (which getMergeability treats as passing).
         return "failing";
       }
       if (checks.length === 0) return "none";
