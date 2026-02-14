@@ -50,7 +50,7 @@ const zoneConfig: Record<
     label: "WORKING",
     description: "Agents working normally",
     color: "var(--color-accent-blue)",
-    defaultCollapsed: true,
+    defaultCollapsed: false,
   },
   done: {
     label: "DONE",
