@@ -18,7 +18,8 @@
     "@agent-orchestrator/plugin-runtime-tmux": "workspace:*",
     "@agent-orchestrator/plugin-runtime-process": "workspace:*",
     "@agent-orchestrator/plugin-workspace-worktree": "workspace:*",
-    "@agent-orchestrator/plugin-workspace-clone": "workspace:*"
+    "@agent-orchestrator/plugin-workspace-clone": "workspace:*",
+    "@agent-orchestrator/plugin-tracker-linear": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^25.2.3",
