@@ -49,24 +49,25 @@ You are the **orchestrator agent** for the agent-orchestrator project. You manag
 
 ## Commands Reference
 
-| Task | Command |
-|------|---------|
-| **See all sessions** | `~/claude-status` |
-| **Batch spawn** | `~/claude-batch-spawn ao AO-1 AO-2 AO-3` |
-| **Single spawn** | `~/claude-spawn ao AO-1` |
-| **List sessions** | `~/claude-ao-session ls` |
-| **Attach** | `~/claude-ao-session attach ao-1` |
-| **Kill** | `~/claude-ao-session kill ao-1` |
-| **Cleanup** | `~/claude-ao-session cleanup` |
-| **Open all tabs** | `~/claude-open-all ao` |
-| **PR review fixes** | `~/claude-review-check ao` |
-| **Peek at screen** | `tmux capture-pane -t "ao-1" -p -S -30` |
-| **Send message** | `~/send-to-session ao-1 "your message"` |
+| Task                   | Command                                                      |
+| ---------------------- | ------------------------------------------------------------ |
+| **See all sessions**   | `~/claude-status`                                            |
+| **Batch spawn**        | `~/claude-batch-spawn ao AO-1 AO-2 AO-3`                     |
+| **Single spawn**       | `~/claude-spawn ao AO-1`                                     |
+| **List sessions**      | `~/claude-ao-session ls`                                     |
+| **Attach**             | `~/claude-ao-session attach ao-1`                            |
+| **Kill**               | `~/claude-ao-session kill ao-1`                              |
+| **Cleanup**            | `~/claude-ao-session cleanup`                                |
+| **Open all tabs**      | `~/claude-open-all ao`                                       |
+| **PR review fixes**    | `~/claude-review-check ao`                                   |
+| **Peek at screen**     | `tmux capture-pane -t "ao-1" -p -S -30`                      |
+| **Send message**       | `~/send-to-session ao-1 "your message"`                      |
 | **Spawn with context** | `~/claude-spawn-with-context ao AO-1 /tmp/prompt.txt --open` |
 
 ## Typical Workflows
 
 ### Spawn Work for Linear Tickets
+
 ```bash
 # 1. Check what's already running
 ~/claude-status
@@ -79,6 +80,7 @@ You are the **orchestrator agent** for the agent-orchestrator project. You manag
 ```
 
 ### Check Progress
+
 ```bash
 ~/claude-status                                     # Quick overview
 ~/claude-ao-session ls                              # AO sessions only
@@ -86,6 +88,7 @@ tmux capture-pane -t "ao-1" -p -S -30              # Peek at session
 ```
 
 ### Ask a Session to Do Something
+
 ```bash
 # Short message
 ~/send-to-session ao-1 "address the unresolved comments on your PR"
@@ -98,6 +101,7 @@ PROMPT
 ```
 
 ### Cleanup
+
 ```bash
 ~/claude-ao-session cleanup       # Kills sessions with merged PRs / completed tickets
 ~/claude-ao-session kill ao-3     # Kill specific session
@@ -106,7 +110,9 @@ PROMPT
 ## Session Data
 
 ### Metadata Files
+
 Each session has a flat file at `~/.ao-sessions/ao-N`:
+
 ```
 worktree=/Users/equinox/.worktrees/ao/ao-1
 branch=feat/AO-1
@@ -116,6 +122,7 @@ pr=https://github.com/ComposioHQ/agent-orchestrator/pull/5
 ```
 
 ### Environment Variables (inside sessions)
+
 - `AO_SESSION` — e.g., `ao-1`
 - `LINEAR_API_KEY` — required for cleanup to check ticket status
 
@@ -151,6 +158,7 @@ agent-orchestrator/
 ## Architecture
 
 ### Session Lifecycle
+
 ```
 spawn → tmux session created → Claude started → working on ticket
   ↓
@@ -164,12 +172,15 @@ PR merged → cleanup kills session, archives metadata
 ```
 
 ### Activity Detection
+
 The dashboard detects if agents are working/idle/exited by:
+
 1. Checking Claude's JSONL session file modification time and last message type
 2. Walking the process tree from tmux pane PID to find `claude` processes
 3. Polling every 5 seconds via `/api/sessions` endpoint
 
 ### Key Design Principles
+
 1. **tmux-based** — persistence, detach/attach, scriptability
 2. **Flat metadata files** — `key=value` format, easy to parse and update
 3. **Worktree isolation** — each session gets its own git worktree
@@ -195,6 +206,7 @@ The dashboard detects if agents are working/idle/exited by:
 ## Linear Integration
 
 Create tickets via Rube MCP:
+
 ```
 RUBE_SEARCH_TOOLS: queries=[{use_case: "create an issue in Linear"}]
 

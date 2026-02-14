@@ -41,11 +41,11 @@ export type SessionStatus =
 
 /** Activity state as detected by the agent plugin */
 export type ActivityState =
-  | "active"        // agent is processing (thinking, writing code)
-  | "idle"          // agent is at prompt, waiting for input
+  | "active" // agent is processing (thinking, writing code)
+  | "idle" // agent is at prompt, waiting for input
   | "waiting_input" // agent is asking a question / permission prompt
-  | "blocked"       // agent hit an error or is stuck
-  | "exited";       // agent process is no longer running
+  | "blocked" // agent hit an error or is stuck
+  | "exited"; // agent process is no longer running
 
 /** A running agent session */
 export interface Session {
@@ -800,27 +800,6 @@ export interface LifecycleManager {
 
   /** Force-check a specific session now */
   check(sessionId: SessionId): Promise<void>;
-
-  /** Subscribe to lifecycle events */
-  on(event: EventType | "*", handler: (event: OrchestratorEvent) => void): void;
-  off(event: EventType | "*", handler: (event: OrchestratorEvent) => void): void;
-}
-
-/** Event bus — pub/sub + persistence */
-export interface EventBus {
-  emit(event: OrchestratorEvent): void;
-  on(event: EventType | "*", handler: (event: OrchestratorEvent) => void): void;
-  off(event: EventType | "*", handler: (event: OrchestratorEvent) => void): void;
-  getHistory(filter?: EventFilter): OrchestratorEvent[];
-}
-
-export interface EventFilter {
-  sessionId?: SessionId;
-  projectId?: string;
-  type?: EventType;
-  priority?: EventPriority;
-  since?: Date;
-  limit?: number;
 }
 
 /** Plugin registry — discovery + loading */

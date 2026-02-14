@@ -22,16 +22,16 @@ An open-source, agent-agnostic system for orchestrating parallel AI coding agent
 
 8 plugin slots — every abstraction is swappable:
 
-| Slot | Interface | Default Plugin |
-|------|-----------|---------------|
-| Runtime | `Runtime` | tmux |
-| Agent | `Agent` | claude-code |
-| Workspace | `Workspace` | worktree |
-| Tracker | `Tracker` | github |
-| SCM | `SCM` | github |
-| Notifier | `Notifier` | desktop |
-| Terminal | `Terminal` | iterm2 |
-| Lifecycle | (core, not pluggable) | — |
+| Slot      | Interface             | Default Plugin |
+| --------- | --------------------- | -------------- |
+| Runtime   | `Runtime`             | tmux           |
+| Agent     | `Agent`               | claude-code    |
+| Workspace | `Workspace`           | worktree       |
+| Tracker   | `Tracker`             | github         |
+| SCM       | `SCM`                 | github         |
+| Notifier  | `Notifier`            | desktop        |
+| Terminal  | `Terminal`            | iterm2         |
+| Lifecycle | (core, not pluggable) | —              |
 
 All interfaces are defined in `packages/core/src/types.ts`. **Read this file first** — it is the source of truth for all abstractions.
 
@@ -120,7 +120,7 @@ const { stdout } = await execFileAsync("git", ["branch", "--show-current"], { ti
 
 // BAD — shell injection risk
 import { exec } from "node:child_process";
-exec(`git checkout ${branchName}`);  // branchName could contain ; rm -rf /
+exec(`git checkout ${branchName}`); // branchName could contain ; rm -rf /
 ```
 
 ### Error Handling
@@ -170,6 +170,7 @@ pnpm test              # run all tests
 ### Before Committing
 
 Always run lint and typecheck:
+
 ```bash
 pnpm lint && pnpm typecheck
 ```
@@ -187,17 +188,17 @@ Fix any issues before pushing. CI will reject PRs that fail lint or typecheck.
 
 The `scripts/` directory contains the original bash scripts that this TypeScript codebase replaces. Use them as behavioral specifications:
 
-| Script | What It Specifies |
-|--------|------------------|
-| `claude-ao-session` | Session lifecycle (spawn, list, kill, cleanup) |
-| `claude-dashboard` | Web dashboard, API, activity detection |
-| `claude-batch-spawn` | Batch spawning with duplicate detection |
-| `send-to-session` | Smart message delivery (busy detection, wait-for-idle) |
-| `claude-status` | JSONL introspection, live branch detection |
-| `claude-review-check` | PR review scanning, fix prompt generation |
-| `claude-bugbot-fix` | Automated comment detection + fixes |
-| `claude-session-status` | Activity classification (working/idle/blocked) |
-| `get-claude-session-info` | Agent introspection (session ID, summary extraction) |
+| Script                    | What It Specifies                                      |
+| ------------------------- | ------------------------------------------------------ |
+| `claude-ao-session`       | Session lifecycle (spawn, list, kill, cleanup)         |
+| `claude-dashboard`        | Web dashboard, API, activity detection                 |
+| `claude-batch-spawn`      | Batch spawning with duplicate detection                |
+| `send-to-session`         | Smart message delivery (busy detection, wait-for-idle) |
+| `claude-status`           | JSONL introspection, live branch detection             |
+| `claude-review-check`     | PR review scanning, fix prompt generation              |
+| `claude-bugbot-fix`       | Automated comment detection + fixes                    |
+| `claude-session-status`   | Activity classification (working/idle/blocked)         |
+| `get-claude-session-info` | Agent introspection (session ID, summary extraction)   |
 
 ## Key Design Decisions
 
