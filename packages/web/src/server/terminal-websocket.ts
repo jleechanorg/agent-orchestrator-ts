@@ -154,17 +154,24 @@ function getOrSpawnTtyd(sessionId: string): TtydInstance {
   // Use once() for cleanup handlers to prevent race condition when both exit and error fire
   proc.once("exit", (code) => {
     console.log(`[Terminal] ttyd ${sessionId} exited with code ${code}`);
-    instances.delete(sessionId);
-    // Recycle port for reuse
-    availablePorts.add(port);
+    // Only delete if this is still the current instance (prevents race with error handler)
+    const current = instances.get(sessionId);
+    if (current?.process === proc) {
+      instances.delete(sessionId);
+      // Recycle port for reuse
+      availablePorts.add(port);
+    }
   });
 
   proc.once("error", (err) => {
     console.error(`[Terminal] ttyd ${sessionId} error:`, err.message);
-    // Clean up instance on spawn error to prevent leak
-    instances.delete(sessionId);
-    // Recycle port for reuse
-    availablePorts.add(port);
+    // Only delete if this is still the current instance (prevents race with exit handler)
+    const current = instances.get(sessionId);
+    if (current?.process === proc) {
+      instances.delete(sessionId);
+      // Recycle port for reuse
+      availablePorts.add(port);
+    }
     // Kill any running process
     try {
       proc.kill();
@@ -216,6 +223,13 @@ const server = createServer(async (req, res) => {
       return;
     }
 
+    // Validate session ID to prevent path traversal and injection
+    if (!/^[a-zA-Z0-9_-]+$/.test(sessionId)) {
+      res.writeHead(400, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: "Invalid session ID" }));
+      return;
+    }
+
     // Validate session exists before spawning ttyd using configured dataDir
     const sessionPath = join(config.dataDir, sessionId);
     if (!existsSync(sessionPath)) {
@@ -224,10 +238,9 @@ const server = createServer(async (req, res) => {
       return;
     }
 
-    const instance = getOrSpawnTtyd(sessionId);
-
-    // Wait for ttyd to be ready before returning the URL
+    // Spawn ttyd and wait for it to be ready (catch port exhaustion and startup failures)
     try {
+      const instance = getOrSpawnTtyd(sessionId);
       await waitForTtyd(instance.port, sessionId);
 
       // Use the request host to construct the terminal URL (supports remote access)
@@ -241,9 +254,10 @@ const server = createServer(async (req, res) => {
         sessionId,
       }));
     } catch (err) {
-      console.error(`[Terminal] ttyd ${sessionId} failed to become ready:`, err);
+      const errorMsg = err instanceof Error ? err.message : String(err);
+      console.error(`[Terminal] Failed to start terminal for ${sessionId}:`, errorMsg);
       res.writeHead(503, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ error: "Terminal server not ready" }));
+      res.end(JSON.stringify({ error: "Failed to start terminal" }));
     }
     return;
   }

@@ -57,7 +57,7 @@ function humanizeLevel(level: string): string {
     case "respond":
       return "Needs Response";
     case "review":
-      return "Pending Review";
+      return "Needs Investigation";
     case "pending":
       return "Pending";
     case "working":
@@ -80,17 +80,25 @@ function relativeTime(iso: string): string {
   return `${days}d ago`;
 }
 
-/** Clean up Bugbot comment body - extract title and description, remove HTML junk */
+/** Clean up review comment body - extract title and description, remove HTML junk */
 function cleanBugbotComment(body: string): { title: string; description: string } {
-  // Extract title (first ### heading)
-  const titleMatch = body.match(/###\s+(.+?)(?:\n|$)/);
-  const title = titleMatch ? titleMatch[1].replace(/\*\*/g, "").trim() : "Comment";
+  // Check if this is a Bugbot comment (has structured markers)
+  const isBugbot = body.includes("<!-- DESCRIPTION START -->") || body.includes("### ");
 
-  // Extract description between DESCRIPTION START/END comments
-  const descMatch = body.match(/<!-- DESCRIPTION START -->\s*([\s\S]*?)\s*<!-- DESCRIPTION END -->/);
-  const description = descMatch ? descMatch[1].trim() : body.split("\n")[0] || "No description";
+  if (isBugbot) {
+    // Extract title (first ### heading)
+    const titleMatch = body.match(/###\s+(.+?)(?:\n|$)/);
+    const title = titleMatch ? titleMatch[1].replace(/\*\*/g, "").trim() : "Comment";
 
-  return { title, description };
+    // Extract description between DESCRIPTION START/END comments
+    const descMatch = body.match(/<!-- DESCRIPTION START -->\s*([\s\S]*?)\s*<!-- DESCRIPTION END -->/);
+    const description = descMatch ? descMatch[1].trim() : body.split("\n")[0] || "No description";
+
+    return { title, description };
+  } else {
+    // For non-Bugbot comments, use full body as description
+    return { title: "Comment", description: body.trim() };
+  }
 }
 
 /** Builds a GitHub branch URL from PR owner/repo/branch. */
@@ -217,7 +225,9 @@ export function SessionDetail({ session }: SessionDetailProps) {
                 >
                   #{pr.number}
                 </a>
-                <span className="text-[var(--color-text-muted)]">&middot;</span>
+                {(session.branch || session.issueUrl) && (
+                  <span className="text-[var(--color-text-muted)]">&middot;</span>
+                )}
               </>
             )}
 
@@ -237,7 +247,9 @@ export function SessionDetail({ session }: SessionDetailProps) {
                     {session.branch}
                   </span>
                 )}
-                <span className="text-[var(--color-text-muted)]">&middot;</span>
+                {session.issueUrl && (
+                  <span className="text-[var(--color-text-muted)]">&middot;</span>
+                )}
               </>
             )}
 
