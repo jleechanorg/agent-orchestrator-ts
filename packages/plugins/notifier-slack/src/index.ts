@@ -6,7 +6,7 @@ import {
   type NotifyAction,
   type NotifyContext,
   type EventPriority,
-} from "@agent-orchestrator/core";
+} from "@composio/ao-core";
 
 export const manifest = {
   name: "slack",

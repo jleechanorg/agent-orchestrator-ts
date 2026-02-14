@@ -1,7 +1,8 @@
 {
-  "name": "@agent-orchestrator/core",
+  "name": "@composio/ao-core",
   "version": "0.1.0",
   "description": "Core library — types, config, session manager, lifecycle manager, event bus",
+  "license": "MIT",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -14,6 +15,21 @@
       "types": "./dist/types.d.ts",
       "import": "./dist/types.js"
     }
+  },
+  "files": [
+    "dist"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ComposioHQ/agent-orchestrator.git",
+    "directory": "packages/core"
+  },
+  "homepage": "https://github.com/ComposioHQ/agent-orchestrator",
+  "bugs": {
+    "url": "https://github.com/ComposioHQ/agent-orchestrator/issues"
+  },
+  "engines": {
+    "node": ">=20.0.0"
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",

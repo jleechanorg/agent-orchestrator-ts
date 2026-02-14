@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { EventEmitter } from "node:events";
-import type { RuntimeHandle } from "@agent-orchestrator/core";
+import type { RuntimeHandle } from "@composio/ao-core";
 
 // ---------------------------------------------------------------------------
 // Hoisted mock — must be set up before import

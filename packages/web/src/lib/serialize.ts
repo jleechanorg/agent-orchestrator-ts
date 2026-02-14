@@ -5,7 +5,7 @@
  * (string dates, flattened DashboardPR) suitable for JSON serialization.
  */
 
-import type { Session, SCM, PRInfo, Tracker, ProjectConfig } from "@agent-orchestrator/core";
+import type { Session, SCM, PRInfo, Tracker, ProjectConfig } from "@composio/ao-core";
 import type { DashboardSession, DashboardPR, DashboardStats } from "./types.js";
 import { prCache, prCacheKey, type PREnrichmentData } from "./cache";
 

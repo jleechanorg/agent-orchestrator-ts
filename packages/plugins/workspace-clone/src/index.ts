@@ -9,7 +9,7 @@ import type {
   WorkspaceCreateConfig,
   WorkspaceInfo,
   ProjectConfig,
-} from "@agent-orchestrator/core";
+} from "@composio/ao-core";
 
 const execFileAsync = promisify(execFile);
 

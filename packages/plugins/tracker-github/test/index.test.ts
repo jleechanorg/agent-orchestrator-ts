@@ -13,7 +13,7 @@ vi.mock("node:child_process", () => {
 });
 
 import { create, manifest } from "../src/index.js";
-import type { ProjectConfig } from "@agent-orchestrator/core";
+import type { ProjectConfig } from "@composio/ao-core";
 
 // ---------------------------------------------------------------------------
 // Fixtures

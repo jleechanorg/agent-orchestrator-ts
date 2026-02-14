@@ -19,9 +19,9 @@
  */
 
 import { request } from "node:https";
-import type { ProjectConfig } from "@agent-orchestrator/core";
+import type { ProjectConfig } from "@composio/ao-core";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import trackerLinear from "@agent-orchestrator/plugin-tracker-linear";
+import trackerLinear from "@composio/ao-plugin-tracker-linear";
 
 // ---------------------------------------------------------------------------
 // Prerequisites

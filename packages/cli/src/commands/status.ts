@@ -12,7 +12,7 @@ import {
   type ReviewDecision,
   type ActivityState,
   loadConfig,
-} from "@agent-orchestrator/core";
+} from "@composio/ao-core";
 import { git, getTmuxSessions, getTmuxActivity } from "../lib/shell.js";
 import { getSessionDir, readMetadata } from "../lib/metadata.js";
 import {

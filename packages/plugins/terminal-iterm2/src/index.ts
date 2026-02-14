@@ -5,7 +5,7 @@ import {
   type PluginModule,
   type Terminal,
   type Session,
-} from "@agent-orchestrator/core";
+} from "@composio/ao-core";
 
 export const manifest = {
   name: "iterm2",
@@ -15,7 +15,7 @@ export const manifest = {
 };
 
 // Re-export for backwards compatibility
-export { escapeAppleScript } from "@agent-orchestrator/core";
+export { escapeAppleScript } from "@composio/ao-core";
 
 /**
  * Run an AppleScript snippet and return stdout.

@@ -1,7 +1,7 @@
 import chalk from "chalk";
 import ora from "ora";
 import type { Command } from "commander";
-import { loadConfig } from "@agent-orchestrator/core";
+import { loadConfig } from "@composio/ao-core";
 import { exec, gh, getTmuxSessions } from "../lib/shell.js";
 import { getSessionDir, readMetadata } from "../lib/metadata.js";
 import { matchesPrefix } from "../lib/session-utils.js";

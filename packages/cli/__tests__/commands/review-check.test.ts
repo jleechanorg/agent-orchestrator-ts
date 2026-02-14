@@ -34,7 +34,7 @@ vi.mock("ora", () => ({
   }),
 }));
 
-vi.mock("@agent-orchestrator/core", () => ({
+vi.mock("@composio/ao-core", () => ({
   loadConfig: () => mockConfigRef.current,
 }));
 

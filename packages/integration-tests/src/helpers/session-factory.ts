@@ -2,7 +2,7 @@
  * Factory helpers to build Session and RuntimeHandle objects for tests.
  */
 
-import type { RuntimeHandle, Session } from "@agent-orchestrator/core";
+import type { RuntimeHandle, Session } from "@composio/ao-core";
 
 /** Build a tmux RuntimeHandle for a given session name. */
 export function makeTmuxHandle(sessionName: string): RuntimeHandle {

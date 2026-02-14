@@ -10,11 +10,11 @@ export default defineConfig({
       // Integration tests import real plugins. These aliases resolve
       // package names to source files so we don't need circular devDeps
       // (plugins depend on core, core can't depend on plugins).
-      "@agent-orchestrator/plugin-tracker-github": resolve(
+      "@composio/ao-plugin-tracker-github": resolve(
         __dirname,
         "../plugins/tracker-github/src/index.ts",
       ),
-      "@agent-orchestrator/plugin-scm-github": resolve(
+      "@composio/ao-plugin-scm-github": resolve(
         __dirname,
         "../plugins/scm-github/src/index.ts",
       ),

@@ -36,8 +36,8 @@ import { createPluginRegistry } from "../plugin-registry.js";
 import { createSessionManager } from "../session-manager.js";
 import { createLifecycleManager } from "../lifecycle-manager.js";
 import { writeMetadata } from "../metadata.js";
-import trackerGithub from "@agent-orchestrator/plugin-tracker-github";
-import scmGithub from "@agent-orchestrator/plugin-scm-github";
+import trackerGithub from "@composio/ao-plugin-tracker-github";
+import scmGithub from "@composio/ao-plugin-scm-github";
 import type {
   OrchestratorConfig,
   PluginRegistry,

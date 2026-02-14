@@ -7,7 +7,7 @@ import {
   type PluginModule,
   type RuntimeHandle,
   type Session,
-} from "@agent-orchestrator/core";
+} from "@composio/ao-core";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 

@@ -11,17 +11,21 @@
   "type": "module",
   "scripts": {
     "build": "pnpm -r build",
-    "dev": "pnpm --filter @agent-orchestrator/web dev",
+    "dev": "pnpm --filter @composio/ao-web dev",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "typecheck": "pnpm -r typecheck",
-    "test": "pnpm -r --filter '!@agent-orchestrator/web' test",
-    "test:integration": "pnpm --filter @agent-orchestrator/integration-tests test:integration",
-    "clean": "pnpm -r clean"
+    "test": "pnpm -r --filter '!@composio/ao-web' test",
+    "test:integration": "pnpm --filter @composio/ao-integration-tests test:integration",
+    "clean": "pnpm -r clean",
+    "changeset": "changeset",
+    "version-packages": "changeset version",
+    "release": "pnpm -r --filter '!@composio/ao-web' build && changeset publish"
   },
   "devDependencies": {
+    "@changesets/cli": "^2.29.8",
     "@eslint/js": "^10.0.1",
     "@types/node": "^25.2.3",
     "eslint": "^10.0.0",

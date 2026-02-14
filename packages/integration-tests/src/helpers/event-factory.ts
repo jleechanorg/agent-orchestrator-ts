@@ -5,7 +5,7 @@ import type {
   EventType,
   SessionStatus,
   ActivityState,
-} from "@agent-orchestrator/core";
+} from "@composio/ao-core";
 
 /**
  * Create a test OrchestratorEvent with sensible defaults.

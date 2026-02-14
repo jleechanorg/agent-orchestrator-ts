@@ -31,7 +31,7 @@ vi.mock("../../src/lib/session-utils.js", () => ({
   findProjectForSession: () => null,
 }));
 
-vi.mock("@agent-orchestrator/core", () => ({
+vi.mock("@composio/ao-core", () => ({
   loadConfig: () => {
     throw new Error("no config");
   },

@@ -40,7 +40,7 @@ vi.mock("ora", () => ({
   }),
 }));
 
-vi.mock("@agent-orchestrator/core", async (importOriginal) => {
+vi.mock("@composio/ao-core", async (importOriginal) => {
   const actual: Record<string, unknown> = await importOriginal();
   return {
     loadConfig: () => mockConfigRef.current,
@@ -238,7 +238,7 @@ describe("spawn command", () => {
     await program.parseAsync(["node", "test", "spawn", "my-app", "INT-100"]);
 
     // Prompt is sent via core tmuxSendKeys (handles multi-line via load-buffer)
-    const { tmuxSendKeys } = await import("@agent-orchestrator/core");
+    const { tmuxSendKeys } = await import("@composio/ao-core");
     expect(tmuxSendKeys).toHaveBeenCalledWith(
       "app-1",
       expect.stringContaining("INT-100"),

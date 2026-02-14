@@ -6,7 +6,7 @@ import type {
   RuntimeHandle,
   RuntimeMetrics,
   AttachInfo,
-} from "@agent-orchestrator/core";
+} from "@composio/ao-core";
 
 export const manifest = {
   name: "process",

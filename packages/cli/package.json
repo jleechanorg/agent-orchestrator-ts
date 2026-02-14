@@ -1,12 +1,28 @@
 {
-  "name": "@agent-orchestrator/cli",
+  "name": "@composio/ao-cli",
   "version": "0.1.0",
   "description": "CLI for agent-orchestrator — the `ao` command",
+  "license": "MIT",
   "type": "module",
   "bin": {
     "ao": "dist/index.js"
   },
   "main": "dist/index.js",
+  "files": [
+    "dist"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ComposioHQ/agent-orchestrator.git",
+    "directory": "packages/cli"
+  },
+  "homepage": "https://github.com/ComposioHQ/agent-orchestrator",
+  "bugs": {
+    "url": "https://github.com/ComposioHQ/agent-orchestrator/issues"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
   "scripts": {
     "build": "tsc",
     "dev": "tsx src/index.ts",
@@ -16,11 +32,11 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@agent-orchestrator/core": "workspace:*",
-    "@agent-orchestrator/plugin-agent-claude-code": "workspace:*",
-    "@agent-orchestrator/plugin-agent-codex": "workspace:*",
-    "@agent-orchestrator/plugin-agent-aider": "workspace:*",
-    "@agent-orchestrator/plugin-scm-github": "workspace:*",
+    "@composio/ao-core": "workspace:*",
+    "@composio/ao-plugin-agent-claude-code": "workspace:*",
+    "@composio/ao-plugin-agent-codex": "workspace:*",
+    "@composio/ao-plugin-agent-aider": "workspace:*",
+    "@composio/ao-plugin-scm-github": "workspace:*",
     "chalk": "^5.4.0",
     "commander": "^13.0.0",
     "ora": "^8.1.0",

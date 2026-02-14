@@ -1,6 +1,6 @@
 import chalk from "chalk";
 import type { Command } from "commander";
-import { loadConfig } from "@agent-orchestrator/core";
+import { loadConfig } from "@composio/ao-core";
 import { exec, getTmuxSessions } from "../lib/shell.js";
 import { matchesPrefix } from "../lib/session-utils.js";
 

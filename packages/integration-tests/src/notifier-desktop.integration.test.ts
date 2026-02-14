@@ -5,7 +5,7 @@
  * Everything else runs for real: config parsing, escaping chains, formatting.
  */
 import { describe, it, expect, vi, beforeEach, type Mock } from "vitest";
-import type { NotifyAction } from "@agent-orchestrator/core";
+import type { NotifyAction } from "@composio/ao-core";
 import { makeEvent } from "./helpers/event-factory.js";
 
 vi.mock("node:child_process", () => ({
@@ -23,7 +23,7 @@ const mockExecFile = execFile as unknown as Mock;
 const mockPlatform = platform as unknown as Mock;
 
 // Import the full plugin module — config parsing, escaping, formatting all run for real
-import desktopPlugin from "@agent-orchestrator/plugin-notifier-desktop";
+import desktopPlugin from "@composio/ao-plugin-notifier-desktop";
 
 describe("notifier-desktop integration", () => {
   beforeEach(() => {

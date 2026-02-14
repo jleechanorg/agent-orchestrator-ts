@@ -1,7 +1,8 @@
 {
-  "name": "@agent-orchestrator/plugin-runtime-tmux",
+  "name": "@composio/ao-plugin-runtime-tmux",
   "version": "0.1.0",
   "description": "Runtime plugin: tmux sessions",
+  "license": "MIT",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -11,6 +12,21 @@
       "import": "./dist/index.js"
     }
   },
+  "files": [
+    "dist"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ComposioHQ/agent-orchestrator.git",
+    "directory": "packages/plugins/runtime-tmux"
+  },
+  "homepage": "https://github.com/ComposioHQ/agent-orchestrator",
+  "bugs": {
+    "url": "https://github.com/ComposioHQ/agent-orchestrator/issues"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit",
@@ -19,7 +35,7 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@agent-orchestrator/core": "workspace:*"
+    "@composio/ao-core": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^25.2.3",

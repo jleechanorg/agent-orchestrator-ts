@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { getAgent, getAgentByName } from "../../src/lib/plugins.js";
-import type { OrchestratorConfig } from "@agent-orchestrator/core";
+import type { OrchestratorConfig } from "@composio/ao-core";
 
 function makeConfig(
   defaultAgent: string,

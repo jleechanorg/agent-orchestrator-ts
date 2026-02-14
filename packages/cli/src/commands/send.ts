@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import chalk from "chalk";
 import type { Command } from "commander";
-import { type Agent, loadConfig } from "@agent-orchestrator/core";
+import { type Agent, loadConfig } from "@composio/ao-core";
 import { exec, tmux } from "../lib/shell.js";
 import { getAgent, getAgentByName } from "../lib/plugins.js";
 import { findProjectForSession } from "../lib/session-utils.js";

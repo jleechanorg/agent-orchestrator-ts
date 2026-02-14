@@ -5,21 +5,21 @@ import { resolve, dirname } from "node:path";
 import { existsSync } from "node:fs";
 import chalk from "chalk";
 import type { Command } from "commander";
-import { loadConfig } from "@agent-orchestrator/core";
+import { loadConfig } from "@composio/ao-core";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const require = createRequire(import.meta.url);
 
 /**
- * Locate the @agent-orchestrator/web package directory.
+ * Locate the @composio/ao-web package directory.
  * Uses createRequire for ESM-compatible require.resolve, with fallback
  * to sibling package paths that work from both src/ and dist/.
  */
 function findWebDir(): string {
   // Try to resolve from node_modules first (installed as workspace dep)
   try {
-    const pkgJson = require.resolve("@agent-orchestrator/web/package.json");
+    const pkgJson = require.resolve("@composio/ao-web/package.json");
     return resolve(pkgJson, "..");
   } catch {
     // Fallback: sibling package in monorepo (works both from src/ and dist/)
@@ -60,7 +60,7 @@ export function registerDashboard(program: Command): void {
       if (!existsSync(resolve(webDir, "package.json"))) {
         console.error(
           chalk.red(
-            "Could not find @agent-orchestrator/web package.\n" +
+            "Could not find @composio/ao-web package.\n" +
               "Ensure it is installed: pnpm install",
           ),
         );

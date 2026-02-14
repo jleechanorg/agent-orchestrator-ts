@@ -1,6 +1,6 @@
 import chalk from "chalk";
 import type { Command } from "commander";
-import { loadConfig, type OrchestratorConfig } from "@agent-orchestrator/core";
+import { loadConfig, type OrchestratorConfig } from "@composio/ao-core";
 import { tmux, git, gh, getTmuxSessions, getTmuxActivity } from "../lib/shell.js";
 import { getSessionDir, readMetadata, archiveMetadata } from "../lib/metadata.js";
 import { formatAge } from "../lib/format.js";

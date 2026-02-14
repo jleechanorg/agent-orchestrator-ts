@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import type { Session } from "@agent-orchestrator/core";
+import type { Session } from "@composio/ao-core";
 import { manifest, create } from "./index.js";
 
 function makeSession(overrides: Partial<Session> = {}): Session {

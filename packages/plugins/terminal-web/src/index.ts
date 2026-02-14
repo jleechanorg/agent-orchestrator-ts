@@ -1,4 +1,4 @@
-import type { PluginModule, Terminal, Session } from "@agent-orchestrator/core";
+import type { PluginModule, Terminal, Session } from "@composio/ao-core";
 
 export const manifest = {
   name: "web",

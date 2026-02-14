@@ -1,7 +1,7 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync } from "node:fs";
 import { readdir } from "node:fs/promises";
 import { join, basename } from "node:path";
-import type { SessionMetadata } from "@agent-orchestrator/core";
+import type { SessionMetadata } from "@composio/ao-core";
 
 export function getSessionDir(dataDir: string, projectId: string): string {
   return join(dataDir, `${projectId}-sessions`);

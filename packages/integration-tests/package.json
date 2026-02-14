@@ -1,5 +1,5 @@
 {
-  "name": "@agent-orchestrator/integration-tests",
+  "name": "@composio/ao-integration-tests",
   "version": "0.1.0",
   "private": true,
   "description": "Integration tests — requires real binaries and tmux",
@@ -10,24 +10,24 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@agent-orchestrator/core": "workspace:*",
-    "@agent-orchestrator/plugin-agent-claude-code": "workspace:*",
-    "@agent-orchestrator/plugin-agent-codex": "workspace:*",
-    "@agent-orchestrator/plugin-agent-aider": "workspace:*",
-    "@agent-orchestrator/plugin-agent-opencode": "workspace:*",
-    "@agent-orchestrator/plugin-runtime-tmux": "workspace:*",
-    "@agent-orchestrator/plugin-runtime-process": "workspace:*",
-    "@agent-orchestrator/plugin-workspace-worktree": "workspace:*",
-    "@agent-orchestrator/plugin-workspace-clone": "workspace:*",
-    "@agent-orchestrator/plugin-tracker-linear": "workspace:*"
+    "@composio/ao-core": "workspace:*",
+    "@composio/ao-plugin-agent-claude-code": "workspace:*",
+    "@composio/ao-plugin-agent-codex": "workspace:*",
+    "@composio/ao-plugin-agent-aider": "workspace:*",
+    "@composio/ao-plugin-agent-opencode": "workspace:*",
+    "@composio/ao-plugin-runtime-tmux": "workspace:*",
+    "@composio/ao-plugin-runtime-process": "workspace:*",
+    "@composio/ao-plugin-workspace-worktree": "workspace:*",
+    "@composio/ao-plugin-workspace-clone": "workspace:*",
+    "@composio/ao-plugin-tracker-linear": "workspace:*"
   },
   "devDependencies": {
-    "@agent-orchestrator/plugin-notifier-desktop": "workspace:*",
-    "@agent-orchestrator/plugin-notifier-slack": "workspace:*",
-    "@agent-orchestrator/plugin-notifier-webhook": "workspace:*",
-    "@agent-orchestrator/plugin-notifier-composio": "workspace:*",
-    "@agent-orchestrator/plugin-terminal-iterm2": "workspace:*",
-    "@agent-orchestrator/plugin-terminal-web": "workspace:*",
+    "@composio/ao-plugin-notifier-desktop": "workspace:*",
+    "@composio/ao-plugin-notifier-slack": "workspace:*",
+    "@composio/ao-plugin-notifier-webhook": "workspace:*",
+    "@composio/ao-plugin-notifier-composio": "workspace:*",
+    "@composio/ao-plugin-terminal-iterm2": "workspace:*",
+    "@composio/ao-plugin-terminal-web": "workspace:*",
     "@types/node": "^25.2.3",
     "typescript": "^5.7.0",
     "vitest": "^3.0.0"

@@ -5,7 +5,7 @@ import {
   type OrchestratorEvent,
   type NotifyAction,
   type NotifyContext,
-} from "@agent-orchestrator/core";
+} from "@composio/ao-core";
 
 export const manifest = {
   name: "webhook",

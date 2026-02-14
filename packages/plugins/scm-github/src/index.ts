@@ -21,7 +21,7 @@ import type {
   ReviewComment,
   AutomatedComment,
   MergeReadiness,
-} from "@agent-orchestrator/core";
+} from "@composio/ao-core";
 
 const execFileAsync = promisify(execFile);
 

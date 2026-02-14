@@ -3,7 +3,7 @@
  *
  * Plugins can be:
  * 1. Built-in (packages/plugins/*)
- * 2. npm packages (@agent-orchestrator/plugin-*)
+ * 2. npm packages (@composio/ao-plugin-*)
  * 3. Local file paths specified in config
  */
 
@@ -25,28 +25,28 @@ function makeKey(slot: PluginSlot, name: string): string {
 /** Built-in plugin package names, mapped to their npm package */
 const BUILTIN_PLUGINS: Array<{ slot: PluginSlot; name: string; pkg: string }> = [
   // Runtimes
-  { slot: "runtime", name: "tmux", pkg: "@agent-orchestrator/plugin-runtime-tmux" },
-  { slot: "runtime", name: "process", pkg: "@agent-orchestrator/plugin-runtime-process" },
+  { slot: "runtime", name: "tmux", pkg: "@composio/ao-plugin-runtime-tmux" },
+  { slot: "runtime", name: "process", pkg: "@composio/ao-plugin-runtime-process" },
   // Agents
-  { slot: "agent", name: "claude-code", pkg: "@agent-orchestrator/plugin-agent-claude-code" },
-  { slot: "agent", name: "codex", pkg: "@agent-orchestrator/plugin-agent-codex" },
-  { slot: "agent", name: "aider", pkg: "@agent-orchestrator/plugin-agent-aider" },
+  { slot: "agent", name: "claude-code", pkg: "@composio/ao-plugin-agent-claude-code" },
+  { slot: "agent", name: "codex", pkg: "@composio/ao-plugin-agent-codex" },
+  { slot: "agent", name: "aider", pkg: "@composio/ao-plugin-agent-aider" },
   // Workspaces
-  { slot: "workspace", name: "worktree", pkg: "@agent-orchestrator/plugin-workspace-worktree" },
-  { slot: "workspace", name: "clone", pkg: "@agent-orchestrator/plugin-workspace-clone" },
+  { slot: "workspace", name: "worktree", pkg: "@composio/ao-plugin-workspace-worktree" },
+  { slot: "workspace", name: "clone", pkg: "@composio/ao-plugin-workspace-clone" },
   // Trackers
-  { slot: "tracker", name: "github", pkg: "@agent-orchestrator/plugin-tracker-github" },
-  { slot: "tracker", name: "linear", pkg: "@agent-orchestrator/plugin-tracker-linear" },
+  { slot: "tracker", name: "github", pkg: "@composio/ao-plugin-tracker-github" },
+  { slot: "tracker", name: "linear", pkg: "@composio/ao-plugin-tracker-linear" },
   // SCM
-  { slot: "scm", name: "github", pkg: "@agent-orchestrator/plugin-scm-github" },
+  { slot: "scm", name: "github", pkg: "@composio/ao-plugin-scm-github" },
   // Notifiers
-  { slot: "notifier", name: "composio", pkg: "@agent-orchestrator/plugin-notifier-composio" },
-  { slot: "notifier", name: "desktop", pkg: "@agent-orchestrator/plugin-notifier-desktop" },
-  { slot: "notifier", name: "slack", pkg: "@agent-orchestrator/plugin-notifier-slack" },
-  { slot: "notifier", name: "webhook", pkg: "@agent-orchestrator/plugin-notifier-webhook" },
+  { slot: "notifier", name: "composio", pkg: "@composio/ao-plugin-notifier-composio" },
+  { slot: "notifier", name: "desktop", pkg: "@composio/ao-plugin-notifier-desktop" },
+  { slot: "notifier", name: "slack", pkg: "@composio/ao-plugin-notifier-slack" },
+  { slot: "notifier", name: "webhook", pkg: "@composio/ao-plugin-notifier-webhook" },
   // Terminals
-  { slot: "terminal", name: "iterm2", pkg: "@agent-orchestrator/plugin-terminal-iterm2" },
-  { slot: "terminal", name: "web", pkg: "@agent-orchestrator/plugin-terminal-web" },
+  { slot: "terminal", name: "iterm2", pkg: "@composio/ao-plugin-terminal-iterm2" },
+  { slot: "terminal", name: "web", pkg: "@composio/ao-plugin-terminal-web" },
 ];
 
 /** Extract plugin-specific config from orchestrator config */

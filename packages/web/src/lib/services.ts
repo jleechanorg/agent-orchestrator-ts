@@ -20,15 +20,15 @@ import {
   type SCM,
   type Tracker,
   type ProjectConfig,
-} from "@agent-orchestrator/core";
+} from "@composio/ao-core";
 
 // Static plugin imports — webpack needs these to be string literals
-import pluginRuntimeTmux from "@agent-orchestrator/plugin-runtime-tmux";
-import pluginAgentClaudeCode from "@agent-orchestrator/plugin-agent-claude-code";
-import pluginWorkspaceWorktree from "@agent-orchestrator/plugin-workspace-worktree";
-import pluginScmGithub from "@agent-orchestrator/plugin-scm-github";
-import pluginTrackerGithub from "@agent-orchestrator/plugin-tracker-github";
-import pluginTrackerLinear from "@agent-orchestrator/plugin-tracker-linear";
+import pluginRuntimeTmux from "@composio/ao-plugin-runtime-tmux";
+import pluginAgentClaudeCode from "@composio/ao-plugin-agent-claude-code";
+import pluginWorkspaceWorktree from "@composio/ao-plugin-workspace-worktree";
+import pluginScmGithub from "@composio/ao-plugin-scm-github";
+import pluginTrackerGithub from "@composio/ao-plugin-tracker-github";
+import pluginTrackerLinear from "@composio/ao-plugin-tracker-linear";
 
 export interface Services {
   config: OrchestratorConfig;

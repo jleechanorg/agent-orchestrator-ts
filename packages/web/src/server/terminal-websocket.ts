@@ -17,7 +17,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { createServer, request } from "node:http";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { loadConfig } from "@agent-orchestrator/core";
+import { loadConfig } from "@composio/ao-core";
 
 interface TtydInstance {
   sessionId: string;

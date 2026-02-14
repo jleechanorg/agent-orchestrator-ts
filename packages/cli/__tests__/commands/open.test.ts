@@ -20,7 +20,7 @@ vi.mock("../../src/lib/shell.js", () => ({
   getTmuxActivity: vi.fn().mockResolvedValue(null),
 }));
 
-vi.mock("@agent-orchestrator/core", () => ({
+vi.mock("@composio/ao-core", () => ({
   loadConfig: () => mockConfigRef.current,
 }));
 

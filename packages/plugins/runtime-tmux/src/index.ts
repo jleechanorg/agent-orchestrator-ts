@@ -12,7 +12,7 @@ import type {
   RuntimeHandle,
   RuntimeMetrics,
   AttachInfo,
-} from "@agent-orchestrator/core";
+} from "@composio/ao-core";
 
 const execFileAsync = promisify(execFile);
 

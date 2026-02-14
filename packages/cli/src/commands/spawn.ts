@@ -3,7 +3,7 @@ import { join } from "node:path";
 import chalk from "chalk";
 import ora from "ora";
 import type { Command } from "commander";
-import { loadConfig, buildPrompt, tmuxSendKeys, type OrchestratorConfig, type ProjectConfig } from "@agent-orchestrator/core";
+import { loadConfig, buildPrompt, tmuxSendKeys, type OrchestratorConfig, type ProjectConfig } from "@composio/ao-core";
 import { exec, git, getTmuxSessions } from "../lib/shell.js";
 import { getSessionDir, writeMetadata, findSessionForIssue } from "../lib/metadata.js";
 import { banner } from "../lib/format.js";

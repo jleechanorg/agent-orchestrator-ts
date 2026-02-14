@@ -36,11 +36,11 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       # Build all non-web packages
-      - run: pnpm -r --filter '!@agent-orchestrator/web' build
+      - run: pnpm -r --filter '!@composio/ao-web' build
       # Typecheck all non-web packages
-      - run: pnpm -r --filter '!@agent-orchestrator/web' typecheck
+      - run: pnpm -r --filter '!@composio/ao-web' typecheck
       # Build web (Next.js build includes its own typecheck)
-      - run: pnpm --filter @agent-orchestrator/web build
+      - run: pnpm --filter @composio/ao-web build
 
   test:
     name: Test
@@ -53,5 +53,5 @@ jobs:
           node-version: 20
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm -r --filter '!@agent-orchestrator/web' build
+      - run: pnpm -r --filter '!@composio/ao-web' build
       - run: pnpm test

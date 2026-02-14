@@ -2,7 +2,7 @@
  * Dashboard-specific types for the web UI.
  *
  * Core types (SessionStatus, ActivityState, CIStatus, ReviewDecision, etc.)
- * are re-exported from @agent-orchestrator/core. Dashboard-specific types
+ * are re-exported from @composio/ao-core. Dashboard-specific types
  * extend/flatten the core types for client-side rendering (e.g. DashboardPR
  * flattens core PRInfo + MergeReadiness + CICheck[] + ReviewComment[]).
  */
@@ -15,7 +15,7 @@ export type {
   ReviewDecision,
   MergeReadiness,
   PRState,
-} from "@agent-orchestrator/core";
+} from "@composio/ao-core";
 
 import type {
   CICheck as CoreCICheck,
@@ -24,7 +24,7 @@ import type {
   SessionStatus,
   ActivityState,
   ReviewDecision,
-} from "@agent-orchestrator/core";
+} from "@composio/ao-core";
 
 /**
  * Attention zone priority level, ordered by human action urgency:

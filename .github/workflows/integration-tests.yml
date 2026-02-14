@@ -48,7 +48,7 @@ jobs:
 
       # --- Build project ---
       - run: pnpm install --frozen-lockfile
-      - run: pnpm -r --filter '!@agent-orchestrator/web' build
+      - run: pnpm -r --filter '!@composio/ao-web' build
 
       # --- Run integration tests ---
       - name: Run integration tests
