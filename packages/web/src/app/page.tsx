@@ -12,9 +12,15 @@ export default async function Home() {
   try {
     const { config, registry, sessionManager } = await getServices();
     const allSessions = await sessionManager.list();
-    // Find and filter out orchestrator sessions — they get their own button, not a card
+
+    // Find the orchestrator session (any session ending with -orchestrator)
+    // Only set orchestratorId if an actual session exists (no fallback)
     const orchSession = allSessions.find((s) => s.id.endsWith("-orchestrator"));
-    if (orchSession) orchestratorId = orchSession.id;
+    if (orchSession) {
+      orchestratorId = orchSession.id;
+    }
+
+    // Filter out orchestrator from worker sessions
     const coreSessions = allSessions.filter((s) => !s.id.endsWith("-orchestrator"));
     sessions = coreSessions.map(sessionToDashboard);
 

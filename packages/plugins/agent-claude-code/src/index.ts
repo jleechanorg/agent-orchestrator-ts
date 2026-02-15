@@ -8,6 +8,7 @@ import {
   type PluginModule,
   type RuntimeHandle,
   type Session,
+  type WorkspaceHooksConfig,
 } from "@composio/ao-core";
 import { execFile } from "node:child_process";
 import { open, readdir, readFile, stat, writeFile, mkdir, chmod } from "node:fs/promises";
@@ -71,7 +72,14 @@ if [[ -z "\${AO_SESSION:-}" ]]; then
   exit 0
 fi
 
-metadata_file="$AO_DATA_DIR/$AO_SESSION"
+# Construct metadata file path (supports both flat and project-specific directories)
+if [[ -n "\${AO_PROJECT_ID:-}" ]]; then
+  # Project-specific directory (used by spawn command)
+  metadata_file="$AO_DATA_DIR/\${AO_PROJECT_ID}-sessions/$AO_SESSION"
+else
+  # Flat directory (used by orchestrator)
+  metadata_file="$AO_DATA_DIR/$AO_SESSION"
+fi
 
 # Ensure metadata file exists
 if [[ ! -f "$metadata_file" ]]; then
@@ -494,6 +502,97 @@ function classifyTerminalOutput(terminalOutput: string): ActivityState {
 }
 
 // =============================================================================
+// Hook Setup Helper
+// =============================================================================
+
+/**
+ * Shared helper to setup PostToolUse hooks in a workspace.
+ * Writes metadata-updater.sh script and updates settings.json.
+ *
+ * @param workspacePath - Path to the workspace directory
+ * @param hookCommand - Command string for the hook (can use variables like $CLAUDE_PROJECT_DIR)
+ */
+async function setupHookInWorkspace(workspacePath: string, hookCommand: string): Promise<void> {
+  const claudeDir = join(workspacePath, ".claude");
+  const settingsPath = join(claudeDir, "settings.json");
+  const hookScriptPath = join(claudeDir, "metadata-updater.sh");
+
+  // Create .claude directory if it doesn't exist
+  try {
+    await mkdir(claudeDir, { recursive: true });
+  } catch {
+    // Directory might already exist
+  }
+
+  // Write the metadata updater script
+  await writeFile(hookScriptPath, METADATA_UPDATER_SCRIPT, "utf-8");
+  await chmod(hookScriptPath, 0o755); // Make executable
+
+  // Read existing settings if present
+  let existingSettings: Record<string, unknown> = {};
+  if (existsSync(settingsPath)) {
+    try {
+      const content = await readFile(settingsPath, "utf-8");
+      existingSettings = JSON.parse(content) as Record<string, unknown>;
+    } catch {
+      // Invalid JSON or read error — start fresh
+    }
+  }
+
+  // Merge hooks configuration
+  const hooks = (existingSettings["hooks"] as Record<string, unknown>) ?? {};
+  const postToolUse = (hooks["PostToolUse"] as Array<unknown>) ?? [];
+
+  // Check if our hook is already configured
+  let hookIndex = -1;
+  let hookDefIndex = -1;
+  for (let i = 0; i < postToolUse.length; i++) {
+    const hook = postToolUse[i];
+    if (typeof hook !== "object" || hook === null || Array.isArray(hook)) continue;
+    const h = hook as Record<string, unknown>;
+    const hooksList = h["hooks"];
+    if (!Array.isArray(hooksList)) continue;
+    for (let j = 0; j < hooksList.length; j++) {
+      const hDef = hooksList[j];
+      if (typeof hDef !== "object" || hDef === null || Array.isArray(hDef)) continue;
+      const def = hDef as Record<string, unknown>;
+      if (typeof def["command"] === "string" && def["command"].includes("metadata-updater.sh")) {
+        hookIndex = i;
+        hookDefIndex = j;
+        break;
+      }
+    }
+    if (hookIndex >= 0) break;
+  }
+
+  // Add or update our hook
+  if (hookIndex === -1) {
+    // No metadata hook exists, add it
+    postToolUse.push({
+      matcher: "Bash",
+      hooks: [
+        {
+          type: "command",
+          command: hookCommand,
+          timeout: 5000,
+        },
+      ],
+    });
+  } else {
+    // Hook exists, update the command
+    const hook = postToolUse[hookIndex] as Record<string, unknown>;
+    const hooksList = hook["hooks"] as Array<Record<string, unknown>>;
+    hooksList[hookDefIndex]["command"] = hookCommand;
+  }
+
+  hooks["PostToolUse"] = postToolUse;
+  existingSettings["hooks"] = hooks;
+
+  // Write updated settings
+  await writeFile(settingsPath, JSON.stringify(existingSettings, null, 2) + "\n", "utf-8");
+}
+
+// =============================================================================
 // Agent Implementation
 // =============================================================================
 
@@ -530,7 +629,12 @@ function createClaudeCodeAgent(): Agent {
 
       // Set session info for introspection
       env["AO_SESSION_ID"] = config.sessionId;
-      env["AO_PROJECT_ID"] = config.projectConfig.name;
+
+      // NOTE: AO_PROJECT_ID is NOT set here - it's the caller's responsibility
+      // to set it based on their metadata path scheme:
+      // - spawn.ts sets it to projectId for project-specific directories
+      // - start.ts omits it for orchestrator (flat directories)
+      // - session manager omits it (flat directories)
 
       if (config.issueId) {
         env["AO_ISSUE_ID"] = config.issueId;
@@ -605,87 +709,18 @@ function createClaudeCodeAgent(): Agent {
       };
     },
 
+    async setupWorkspaceHooks(workspacePath: string, _config: WorkspaceHooksConfig): Promise<void> {
+      // Use absolute path for hook command (specific to this workspace)
+      const hookScriptPath = join(workspacePath, ".claude", "metadata-updater.sh");
+      await setupHookInWorkspace(workspacePath, hookScriptPath);
+    },
+
     async postLaunchSetup(session: Session): Promise<void> {
       if (!session.workspacePath) return;
 
-      // Path to Claude settings directory in workspace
-      const claudeDir = join(session.workspacePath, ".claude");
-      const settingsPath = join(claudeDir, "settings.json");
-      const hookScriptPath = join(claudeDir, "metadata-updater.sh");
-
-      // Create .claude directory if it doesn't exist
-      try {
-        await mkdir(claudeDir, { recursive: true });
-      } catch {
-        // Directory might already exist
-      }
-
-      // Write the metadata updater script to the workspace
-      await writeFile(hookScriptPath, METADATA_UPDATER_SCRIPT, "utf-8");
-      await chmod(hookScriptPath, 0o755); // Make executable
-
-      // Read existing settings if present
-      let existingSettings: Record<string, unknown> = {};
-      if (existsSync(settingsPath)) {
-        try {
-          const content = await readFile(settingsPath, "utf-8");
-          existingSettings = JSON.parse(content) as Record<string, unknown>;
-        } catch {
-          // Invalid JSON or read error — start fresh
-        }
-      }
-
-      // Merge hooks configuration
-      const hooks = (existingSettings["hooks"] as Record<string, unknown>) ?? {};
-      const postToolUse = (hooks["PostToolUse"] as Array<unknown>) ?? [];
-
-      // Check if our hook is already configured with the correct path
-      let hookIndex = -1;
-      let hookDefIndex = -1;
-      for (let i = 0; i < postToolUse.length; i++) {
-        const hook = postToolUse[i];
-        if (typeof hook !== "object" || hook === null || Array.isArray(hook)) continue;
-        const h = hook as Record<string, unknown>;
-        const hooksList = h["hooks"];
-        if (!Array.isArray(hooksList)) continue;
-        for (let j = 0; j < hooksList.length; j++) {
-          const hDef = hooksList[j];
-          if (typeof hDef !== "object" || hDef === null || Array.isArray(hDef)) continue;
-          const def = hDef as Record<string, unknown>;
-          if (typeof def["command"] === "string" && def["command"].includes("metadata-updater.sh")) {
-            hookIndex = i;
-            hookDefIndex = j;
-            break;
-          }
-        }
-        if (hookIndex >= 0) break;
-      }
-
-      // Add or update our hook to ensure it points to the current workspace
-      if (hookIndex === -1) {
-        // No metadata hook exists, add it
-        postToolUse.push({
-          matcher: "Bash",
-          hooks: [
-            {
-              type: "command",
-              command: hookScriptPath,
-              timeout: 5000,
-            },
-          ],
-        });
-      } else {
-        // Hook exists, update the path to current workspace
-        const hook = postToolUse[hookIndex] as Record<string, unknown>;
-        const hooksList = hook["hooks"] as Array<Record<string, unknown>>;
-        hooksList[hookDefIndex]["command"] = hookScriptPath;
-      }
-
-      hooks["PostToolUse"] = postToolUse;
-      existingSettings["hooks"] = hooks;
-
-      // Write updated settings
-      await writeFile(settingsPath, JSON.stringify(existingSettings, null, 2) + "\n", "utf-8");
+      // Use absolute path for hook command (specific to this workspace)
+      const hookScriptPath = join(session.workspacePath, ".claude", "metadata-updater.sh");
+      await setupHookInWorkspace(session.workspacePath, hookScriptPath);
     },
   };
 }

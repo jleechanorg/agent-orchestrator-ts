@@ -115,6 +115,22 @@ async function spawnSession(
       }
     }
 
+    // Get agent plugin (used for hooks and launch)
+    const agent = getAgent(config, projectId);
+
+    // Setup agent hooks for automatic metadata updates (before agent launch)
+    spinner.text = "Configuring agent hooks";
+    if (agent.setupWorkspaceHooks) {
+      try {
+        await agent.setupWorkspaceHooks(worktreePath, {
+          dataDir: config.dataDir,
+          sessionId: sessionName,
+        });
+      } catch {
+        // Non-fatal — continue even if hook setup fails
+      }
+    }
+
     spinner.text = "Creating tmux session";
 
     // Create tmux session
@@ -128,6 +144,12 @@ async function spawnSession(
       worktreePath,
       "-e",
       `${envVar}=${sessionName}`,
+      "-e",
+      `AO_SESSION=${sessionName}`,
+      "-e",
+      `AO_PROJECT_ID=${projectId}`,
+      "-e",
+      `AO_DATA_DIR=${config.dataDir}`,
       "-e",
       "DIRENV_LOG_FORMAT=",
     ]);
@@ -143,7 +165,6 @@ async function spawnSession(
     }
 
     // Start agent via plugin
-    const agent = getAgent(config, projectId);
     const launchCmd = agent.getLaunchCommand({
       sessionId: sessionName,
       projectConfig: project,

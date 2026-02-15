@@ -207,6 +207,21 @@ export interface Agent {
 
   /** Optional: run setup after agent is launched (e.g. configure MCP servers) */
   postLaunchSetup?(session: Session): Promise<void>;
+
+  /**
+   * Optional: Set up agent-specific hooks/config in the workspace for automatic metadata updates.
+   * Called once per workspace during ao init/start and when creating new worktrees.
+   *
+   * Each agent plugin implements this for their own config format:
+   * - Claude Code: writes .claude/settings.json with PostToolUse hook
+   * - Codex: whatever config mechanism Codex uses
+   * - Aider: .aider.conf.yml or similar
+   * - OpenCode: its own config
+   *
+   * CRITICAL: The dashboard depends on metadata being auto-updated when agents
+   * run git/gh commands. Without this, PRs created by agents never show up.
+   */
+  setupWorkspaceHooks?(workspacePath: string, config: WorkspaceHooksConfig): Promise<void>;
 }
 
 export interface AgentLaunchConfig {
@@ -216,6 +231,13 @@ export interface AgentLaunchConfig {
   prompt?: string;
   permissions?: "skip" | "default";
   model?: string;
+}
+
+export interface WorkspaceHooksConfig {
+  /** Data directory where session metadata files are stored */
+  dataDir: string;
+  /** Optional session ID (may not be known at ao init time) */
+  sessionId?: string;
 }
 
 export interface AgentSessionInfo {

@@ -48,5 +48,9 @@ export type { LifecycleManagerDeps } from "./lifecycle-manager.js";
 export { buildPrompt, BASE_AGENT_PROMPT } from "./prompt-builder.js";
 export type { PromptBuildConfig } from "./prompt-builder.js";
 
+// Orchestrator prompt — generates CLAUDE.orchestrator.md
+export { generateOrchestratorPrompt } from "./orchestrator-prompt.js";
+export type { OrchestratorPromptConfig } from "./orchestrator-prompt.js";
+
 // Shared utilities
 export { shellEscape, escapeAppleScript, validateUrl } from "./utils.js";
