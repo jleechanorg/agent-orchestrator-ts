@@ -4,7 +4,6 @@ import { useState, useEffect } from "react";
 import {
   type DashboardSession,
   type DashboardPR,
-  getAttentionLevel,
 } from "@/lib/types";
 import { CICheckList } from "./CIBadge";
 import { Terminal } from "./Terminal";
@@ -23,23 +22,6 @@ const activityLabel: Record<string, { label: string; color: string }> = {
   exited: { label: "Exited", color: "var(--color-accent-red)" },
 };
 
-function levelColor(level: string): string {
-  switch (level) {
-    case "merge":
-      return "var(--color-accent-green)";
-    case "respond":
-      return "var(--color-accent-red)";
-    case "review":
-      return "var(--color-accent-orange)";
-    case "pending":
-      return "var(--color-accent-yellow)";
-    case "working":
-      return "var(--color-accent-blue)";
-    default:
-      return "var(--color-text-muted)";
-  }
-}
-
 /** Converts snake_case status enum to Title Case display string. */
 function humanizeStatus(status: string): string {
   return status
@@ -47,24 +29,6 @@ function humanizeStatus(status: string): string {
     .replace(/\bci\b/gi, "CI")
     .replace(/\bpr\b/gi, "PR")
     .replace(/\b\w/g, (c) => c.toUpperCase());
-}
-
-/** Converts attention level to human-readable label. */
-function humanizeLevel(level: string): string {
-  switch (level) {
-    case "merge":
-      return "Ready to Merge";
-    case "respond":
-      return "Needs Response";
-    case "review":
-      return "Needs Investigation";
-    case "pending":
-      return "Pending";
-    case "working":
-      return "Working";
-    default:
-      return level;
-  }
 }
 
 /** Converts ISO date string to relative time like "3h ago", "2m ago". Client-side only. */
@@ -142,7 +106,6 @@ async function askAgentToFix(
 
 export function SessionDetail({ session }: SessionDetailProps) {
   const pr = session.pr;
-  const level = getAttentionLevel(session);
   const activity = activityLabel[session.activity] ?? {
     label: session.activity,
     color: "var(--color-text-muted)",
@@ -176,15 +139,6 @@ export function SessionDetail({ session }: SessionDetailProps) {
               }}
             >
               {activity.label}
-            </span>
-            <span
-              className="rounded-full px-2 py-0.5 text-xs font-semibold"
-              style={{
-                color: levelColor(level),
-                background: `color-mix(in srgb, ${levelColor(level)} 10%, transparent)`,
-              }}
-            >
-              {humanizeLevel(level)}
             </span>
           </div>
 
