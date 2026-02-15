@@ -13,22 +13,24 @@
 
 import { statSync } from "node:fs";
 import { join } from "node:path";
-import type {
-  SessionManager,
-  Session,
-  SessionId,
-  SessionSpawnConfig,
-  SessionStatus,
-  CleanupResult,
-  OrchestratorConfig,
-  ProjectConfig,
-  Runtime,
-  Agent,
-  Workspace,
-  Tracker,
-  SCM,
-  PluginRegistry,
-  RuntimeHandle,
+import {
+  isIssueNotFoundError,
+  type SessionManager,
+  type Session,
+  type SessionId,
+  type SessionSpawnConfig,
+  type SessionStatus,
+  type CleanupResult,
+  type OrchestratorConfig,
+  type ProjectConfig,
+  type Runtime,
+  type Agent,
+  type Workspace,
+  type Tracker,
+  type SCM,
+  type PluginRegistry,
+  type RuntimeHandle,
+  type Issue,
 } from "./types.js";
 import {
   readMetadataRaw,
@@ -177,6 +179,28 @@ export function createSessionManager(deps: SessionManagerDeps): SessionManager {
       throw new Error(`Agent plugin '${project.agent ?? config.defaults.agent}' not found`);
     }
 
+    // Validate issue exists BEFORE creating any resources
+    let resolvedIssue: Issue | undefined;
+    if (spawnConfig.issueId && plugins.tracker) {
+      try {
+        // Fetch and validate the issue exists
+        resolvedIssue = await plugins.tracker.getIssue(spawnConfig.issueId, project);
+      } catch (err) {
+        // Issue fetch failed - determine why
+        if (isIssueNotFoundError(err)) {
+          // Issue doesn't exist - fail fast with clear message
+          throw new Error(
+            `Issue ${spawnConfig.issueId} does not exist in tracker. ` +
+            `Create the issue first, then spawn with the created issue ID.`,
+            { cause: err }
+          );
+        } else {
+          // Other error (auth, network, etc) - fail fast
+          throw new Error(`Failed to fetch issue ${spawnConfig.issueId}: ${err}`, { cause: err });
+        }
+      }
+    }
+
     // Determine session ID — atomically reserve to prevent concurrent collisions
     const existingSessions = listMetadata(config.dataDir);
     let num = getNextSessionNumber(existingSessions, project.sessionPrefix);
@@ -189,6 +213,7 @@ export function createSessionManager(deps: SessionManagerDeps): SessionManager {
         throw new Error(`Failed to reserve session ID after 10 attempts (prefix: ${project.sessionPrefix})`);
       }
     }
+    // Reassign to satisfy TypeScript's flow analysis (not redundant from compiler's perspective)
     sessionId = `${project.sessionPrefix}-${num}`;
 
     // Determine branch name — explicit branch always takes priority
@@ -241,13 +266,14 @@ export function createSessionManager(deps: SessionManagerDeps): SessionManager {
       }
     }
 
-    // Build composed prompt — fetch issue context from tracker (best-effort)
+    // Generate prompt with validated issue
     let issueContext: string | undefined;
-    if (spawnConfig.issueId && plugins.tracker) {
+    if (spawnConfig.issueId && plugins.tracker && resolvedIssue) {
       try {
         issueContext = await plugins.tracker.generatePrompt(spawnConfig.issueId, project);
       } catch {
-        // Tracker unavailable — continue without issue context
+        // Non-fatal: continue without detailed issue context
+        // Silently ignore errors - caller can check if issueContext is undefined
       }
     }
 

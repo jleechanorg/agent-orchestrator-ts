@@ -212,7 +212,7 @@ export function registerSpawn(program: Command): void {
     .command("spawn")
     .description("Spawn a single agent session")
     .argument("<project>", "Project ID from config")
-    .argument("[issue]", "Issue identifier (e.g. INT-1234, #42)")
+    .argument("[issue]", "Issue identifier (e.g. INT-1234, #42) - must exist in tracker")
     .option("--open", "Open session in terminal tab")
     .action(async (projectId: string, issueId: string | undefined, opts: { open?: boolean }) => {
       const config = loadConfig();
@@ -225,7 +225,14 @@ export function registerSpawn(program: Command): void {
         );
         process.exit(1);
       }
-      await spawnSession(config, projectId, project, issueId, opts.open);
+
+      try {
+        await spawnSession(config, projectId, project, issueId, opts.open);
+      } catch (err) {
+        // spawnSession may have printed spinner.fail, but we need error details
+        console.error(chalk.red(`✗ ${err}`));
+        process.exit(1);
+      }
     });
 }
 
@@ -258,7 +265,7 @@ export function registerBatchSpawn(program: Command): void {
       const sessionDir = getSessionDir(config.dataDir, projectId);
       const created: Array<{ session: string; issue: string }> = [];
       const skipped: Array<{ issue: string; existing: string }> = [];
-      const failed: string[] = [];
+      const failed: Array<{ issue: string; error: string }> = [];
       const spawnedIssues = new Set<string>();
 
       for (const issue of issues) {
@@ -282,8 +289,10 @@ export function registerBatchSpawn(program: Command): void {
           // Refresh tmux session list so next iteration sees the new session
           allTmux = await getTmuxSessions();
         } catch (err) {
-          console.error(chalk.red(`  Failed to spawn for ${issue}: ${err}`));
-          failed.push(issue);
+          const message = String(err);
+          // Don't try to categorize errors - CLI doesn't do tracker validation
+          console.error(chalk.red(`  ✗ ${issue} — ${err}`));
+          failed.push({ issue, error: message });
         }
 
         // Small delay between spawns
@@ -306,6 +315,12 @@ export function registerBatchSpawn(program: Command): void {
         for (const { issue, existing } of skipped) {
           console.log(`  ${issue} -> existing: ${existing}`);
         }
+      }
+      if (failed.length > 0) {
+        console.log(chalk.yellow(`\n${failed.length} failed:`));
+        failed.forEach((f) => {
+          console.log(chalk.dim(`  - ${f.issue}: ${f.error}`));
+        });
       }
       console.log();
     });
