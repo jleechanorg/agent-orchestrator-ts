@@ -1,4 +1,4 @@
-import type { Session, ProjectConfig } from "@composio/ao-core";
+import { ACTIVITY_STATE, type Session, type ProjectConfig } from "@composio/ao-core";
 import { NextResponse } from "next/server";
 import { getServices, getSCM, getTracker } from "@/lib/services";
 import { sessionToDashboard, enrichSessionPR, enrichSessionIssue, computeStats } from "@/lib/serialize";
@@ -23,15 +23,32 @@ function resolveProject(
   return firstKey ? projects[firstKey] : undefined;
 }
 
-/** GET /api/sessions — List all sessions with full state */
-export async function GET() {
+/** GET /api/sessions — List all sessions with full state
+ * Query params:
+ * - active=true: Only return non-exited sessions
+ */
+export async function GET(request: Request) {
   try {
+    const { searchParams } = new URL(request.url);
+    const activeOnly = searchParams.get("active") === "true";
+
     const { config, registry, sessionManager } = await getServices();
     const coreSessions = await sessionManager.list();
 
     // Filter out orchestrator sessions — they get their own button, not a card
-    const workerSessions = coreSessions.filter((s) => !s.id.endsWith("-orchestrator"));
-    const dashboardSessions = workerSessions.map(sessionToDashboard);
+    let workerSessions = coreSessions.filter((s) => !s.id.endsWith("-orchestrator"));
+
+    // Convert to dashboard format
+    let dashboardSessions = workerSessions.map(sessionToDashboard);
+
+    // Filter to active sessions only if requested (keep workerSessions in sync)
+    if (activeOnly) {
+      const activeIndices = dashboardSessions
+        .map((s, i) => (s.activity !== ACTIVITY_STATE.EXITED ? i : -1))
+        .filter((i) => i !== -1);
+      workerSessions = activeIndices.map((i) => workerSessions[i]);
+      dashboardSessions = activeIndices.map((i) => dashboardSessions[i]);
+    }
 
     // Enrich issue labels using tracker plugin (synchronous)
     workerSessions.forEach((core, i) => {

@@ -15,16 +15,17 @@ export type {
   ReviewDecision,
   MergeReadiness,
   PRState,
-} from "@composio/ao-core";
+} from "@composio/ao-core/types";
 
-import type {
-  CICheck as CoreCICheck,
-  MergeReadiness,
-  CIStatus,
-  SessionStatus,
-  ActivityState,
-  ReviewDecision,
-} from "@composio/ao-core";
+import {
+  ACTIVITY_STATE,
+  type CICheck as CoreCICheck,
+  type MergeReadiness,
+  type CIStatus,
+  type SessionStatus,
+  type ActivityState,
+  type ReviewDecision,
+} from "@composio/ao-core/types";
 
 /**
  * Attention zone priority level, ordered by human action urgency:
@@ -166,7 +167,7 @@ export function getAttentionLevel(session: DashboardSession): AttentionLevel {
   }
 
   // ── Respond: agent is waiting for human input ─────────────────────
-  if (session.activity === "waiting_input" || session.activity === "blocked") {
+  if (session.activity === ACTIVITY_STATE.WAITING_INPUT || session.activity === ACTIVITY_STATE.BLOCKED) {
     return "respond";
   }
   if (
@@ -177,7 +178,7 @@ export function getAttentionLevel(session: DashboardSession): AttentionLevel {
     return "respond";
   }
   // Exited agent with non-terminal status = crashed, needs human attention
-  if (session.activity === "exited") {
+  if (session.activity === ACTIVITY_STATE.EXITED) {
     return "respond";
   }
 
