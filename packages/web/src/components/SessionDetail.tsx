@@ -450,7 +450,8 @@ function IssuesList({ pr }: { pr: DashboardPR }) {
     });
   }
 
-  if (!pr.mergeability.noConflicts) {
+  // Only show merge conflicts for open/closed PRs (merged PRs don't have meaningful mergeable status)
+  if (pr.state !== "merged" && !pr.mergeability.noConflicts) {
     issues.push({
       icon: "\u2717",
       color: "var(--color-accent-red)",
