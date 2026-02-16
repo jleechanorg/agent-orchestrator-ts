@@ -221,7 +221,9 @@ async function spawnSession(
     });
 
     if (composedPrompt) {
-      await new Promise((resolve) => setTimeout(resolve, 1000));
+      // Wait for agent to be fully ready (permission prompts, initialization, etc.)
+      // Longer delay ensures Claude is ready to receive input before sending prompt
+      await new Promise((resolve) => setTimeout(resolve, 2000));
       await tmuxSendKeys(sessionName, composedPrompt);
     }
 

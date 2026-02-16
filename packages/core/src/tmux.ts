@@ -129,6 +129,8 @@ export async function sendKeys(
 ): Promise<void> {
   // Clear any partial input first (matches bash reference scripts)
   await tmux("send-keys", "-t", sessionName, "Escape");
+  // Small delay to ensure Escape is processed before pasting
+  await new Promise((resolve) => setTimeout(resolve, 100));
 
   if (text.includes("\n") || text.length > 200) {
     // Use a named buffer to avoid global paste buffer race conditions
@@ -158,9 +160,11 @@ export async function sendKeys(
   }
 
   if (pressEnter) {
-    // Small delay for paste to complete before sending Enter
+    // Delay for paste to complete before sending Enter
+    // Higher delay needed when using paste-buffer to ensure tmux processes the paste
+    // before receiving the Enter keystroke (especially with Claude permission prompts)
     if (text.includes("\n") || text.length > 200) {
-      await new Promise((resolve) => setTimeout(resolve, 300));
+      await new Promise((resolve) => setTimeout(resolve, 1000));
     }
     await tmux("send-keys", "-t", sessionName, "Enter");
   }
