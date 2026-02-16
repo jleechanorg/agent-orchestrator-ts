@@ -11,23 +11,26 @@
  */
 
 import { randomUUID } from "node:crypto";
-import type {
-  LifecycleManager,
-  SessionManager,
-  SessionId,
-  SessionStatus,
-  EventType,
-  OrchestratorEvent,
-  OrchestratorConfig,
-  ReactionConfig,
-  ReactionResult,
-  PluginRegistry,
-  Runtime,
-  Agent,
-  SCM,
-  Notifier,
-  Session,
-  EventPriority,
+import {
+  SESSION_STATUS,
+  PR_STATE,
+  CI_STATUS,
+  type LifecycleManager,
+  type SessionManager,
+  type SessionId,
+  type SessionStatus,
+  type EventType,
+  type OrchestratorEvent,
+  type OrchestratorConfig,
+  type ReactionConfig,
+  type ReactionResult,
+  type PluginRegistry,
+  type Runtime,
+  type Agent,
+  type SCM,
+  type Notifier,
+  type Session,
+  type EventPriority,
 } from "./types.js";
 import { updateMetadata } from "./metadata.js";
 
@@ -214,7 +217,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       } catch {
         // On probe failure, preserve current stuck/needs_input state rather
         // than letting the fallback at the bottom coerce them to "working"
-        if (session.status === "stuck" || session.status === "needs_input") {
+        if (session.status === SESSION_STATUS.STUCK || session.status === SESSION_STATUS.NEEDS_INPUT) {
           return session.status;
         }
       }
@@ -224,12 +227,12 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     if (session.pr && scm) {
       try {
         const prState = await scm.getPRState(session.pr);
-        if (prState === "merged") return "merged";
-        if (prState === "closed") return "killed";
+        if (prState === PR_STATE.MERGED) return "merged";
+        if (prState === PR_STATE.CLOSED) return "killed";
 
         // Check CI
         const ciStatus = await scm.getCISummary(session.pr);
-        if (ciStatus === "failing") return "ci_failed";
+        if (ciStatus === CI_STATUS.FAILING) return "ci_failed";
 
         // Check reviews
         const reviewDecision = await scm.getReviewDecision(session.pr);
@@ -251,8 +254,8 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     // 4. Default: if agent is active, it's working
     if (
       session.status === "spawning" ||
-      session.status === "stuck" ||
-      session.status === "needs_input"
+      session.status === SESSION_STATUS.STUCK ||
+      session.status === SESSION_STATUS.NEEDS_INPUT
     ) {
       return "working";
     }

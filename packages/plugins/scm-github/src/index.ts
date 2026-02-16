@@ -6,21 +6,22 @@
 
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import type {
-  PluginModule,
-  SCM,
-  Session,
-  ProjectConfig,
-  PRInfo,
-  PRState,
-  MergeMethod,
-  CICheck,
-  CIStatus,
-  Review,
-  ReviewDecision,
-  ReviewComment,
-  AutomatedComment,
-  MergeReadiness,
+import {
+  CI_STATUS,
+  type PluginModule,
+  type SCM,
+  type Session,
+  type ProjectConfig,
+  type PRInfo,
+  type PRState,
+  type MergeMethod,
+  type CICheck,
+  type CIStatus,
+  type Review,
+  type ReviewDecision,
+  type ReviewComment,
+  type AutomatedComment,
+  type MergeReadiness,
 } from "@composio/ao-core";
 
 const execFileAsync = promisify(execFile);
@@ -525,7 +526,7 @@ function createGitHubSCM(): SCM {
 
       // CI
       const ciStatus = await this.getCISummary(pr);
-      const ciPassing = ciStatus === "passing" || ciStatus === "none";
+      const ciPassing = ciStatus === CI_STATUS.PASSING || ciStatus === CI_STATUS.NONE;
       if (!ciPassing) {
         blockers.push(`CI is ${ciStatus}`);
       }

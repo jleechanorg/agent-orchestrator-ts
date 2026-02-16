@@ -8,6 +8,7 @@ import {
   type AttentionLevel,
   getAttentionLevel,
 } from "@/lib/types";
+import { CI_STATUS } from "@composio/ao-core/types";
 import { AttentionZone } from "./AttentionZone";
 import { PRTableRow } from "./PRStatus";
 
@@ -193,8 +194,8 @@ function mergeScore(
 ): number {
   let score = 0;
   if (!pr.mergeability.noConflicts) score += 40;
-  if (pr.ciStatus === "failing") score += 30;
-  else if (pr.ciStatus === "pending") score += 5;
+  if (pr.ciStatus === CI_STATUS.FAILING) score += 30;
+  else if (pr.ciStatus === CI_STATUS.PENDING) score += 5;
   if (pr.reviewDecision === "changes_requested") score += 20;
   else if (pr.reviewDecision !== "approved") score += 10;
   score += pr.unresolvedThreads * 5;

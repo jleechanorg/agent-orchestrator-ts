@@ -31,6 +31,7 @@ import {
   type PluginRegistry,
   type RuntimeHandle,
   type Issue,
+  PR_STATE,
 } from "./types.js";
 import {
   readMetadataRaw,
@@ -548,7 +549,7 @@ export function createSessionManager(deps: SessionManagerDeps): SessionManager {
         if (session.pr && plugins.scm) {
           try {
             const prState = await plugins.scm.getPRState(session.pr);
-            if (prState === "merged" || prState === "closed") {
+            if (prState === PR_STATE.MERGED || prState === PR_STATE.CLOSED) {
               shouldKill = true;
             }
           } catch {

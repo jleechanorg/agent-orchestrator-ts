@@ -58,6 +58,26 @@ export const ACTIVITY_STATE = {
   EXITED: "exited" as const,
 } satisfies Record<string, ActivityState>;
 
+/** Session status constants */
+export const SESSION_STATUS = {
+  SPAWNING: "spawning" as const,
+  WORKING: "working" as const,
+  PR_OPEN: "pr_open" as const,
+  CI_FAILED: "ci_failed" as const,
+  REVIEW_PENDING: "review_pending" as const,
+  CHANGES_REQUESTED: "changes_requested" as const,
+  APPROVED: "approved" as const,
+  MERGEABLE: "mergeable" as const,
+  MERGED: "merged" as const,
+  CLEANUP: "cleanup" as const,
+  NEEDS_INPUT: "needs_input" as const,
+  STUCK: "stuck" as const,
+  ERRORED: "errored" as const,
+  KILLED: "killed" as const,
+  DONE: "done" as const,
+  TERMINATED: "terminated" as const,
+} satisfies Record<string, SessionStatus>;
+
 /** A running agent session */
 export interface Session {
   /** Unique session ID, e.g. "my-app-3" */
@@ -452,6 +472,13 @@ export interface PRInfo {
 
 export type PRState = "open" | "merged" | "closed";
 
+/** PR state constants */
+export const PR_STATE = {
+  OPEN: "open" as const,
+  MERGED: "merged" as const,
+  CLOSED: "closed" as const,
+} satisfies Record<string, PRState>;
+
 export type MergeMethod = "merge" | "squash" | "rebase";
 
 // --- CI Types ---
@@ -466,6 +493,14 @@ export interface CICheck {
 }
 
 export type CIStatus = "pending" | "passing" | "failing" | "none";
+
+/** CI status constants */
+export const CI_STATUS = {
+  PENDING: "pending" as const,
+  PASSING: "passing" as const,
+  FAILING: "failing" as const,
+  NONE: "none" as const,
+} satisfies Record<string, CIStatus>;
 
 // --- Review Types ---
 

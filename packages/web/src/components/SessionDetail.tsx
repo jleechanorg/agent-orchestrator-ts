@@ -6,6 +6,7 @@ import {
   type DashboardSession,
   type DashboardPR,
 } from "@/lib/types";
+import { CI_STATUS } from "@composio/ao-core/types";
 import { CICheckList } from "./CIBadge";
 import { DirectTerminal } from "./DirectTerminal";
 
@@ -417,7 +418,7 @@ function PRCard({ pr, sessionId }: { pr: DashboardPR; sessionId: string }) {
 function IssuesList({ pr }: { pr: DashboardPR }) {
   const issues: Array<{ icon: string; color: string; text: string }> = [];
 
-  if (pr.ciStatus === "failing") {
+  if (pr.ciStatus === CI_STATUS.FAILING) {
     const failCount = pr.ciChecks.filter((c) => c.status === "failed").length;
     const text = failCount > 0
       ? `CI failing \u2014 ${failCount} check${failCount !== 1 ? "s" : ""} failed`
@@ -427,7 +428,7 @@ function IssuesList({ pr }: { pr: DashboardPR }) {
       color: "var(--color-accent-red)",
       text,
     });
-  } else if (pr.ciStatus === "pending") {
+  } else if (pr.ciStatus === CI_STATUS.PENDING) {
     issues.push({
       icon: "\u25CF",
       color: "var(--color-accent-yellow)",

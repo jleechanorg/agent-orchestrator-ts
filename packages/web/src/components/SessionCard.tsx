@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { type DashboardSession, type AttentionLevel, getAttentionLevel } from "@/lib/types";
+import { CI_STATUS } from "@composio/ao-core/types";
 import { cn } from "@/lib/cn";
 import { PRStatus } from "./PRStatus";
 import { CICheckList } from "./CIBadge";
@@ -311,7 +312,7 @@ function getAlerts(session: DashboardSession): Alert[] {
   const alerts: Alert[] = [];
 
   // CI failing
-  if (pr.ciStatus === "failing") {
+  if (pr.ciStatus === CI_STATUS.FAILING) {
     const failedCheck = pr.ciChecks.find((c) => c.status === "failed");
     const failCount = pr.ciChecks.filter((c) => c.status === "failed").length;
 

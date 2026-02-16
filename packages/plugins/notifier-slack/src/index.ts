@@ -6,6 +6,7 @@ import {
   type NotifyAction,
   type NotifyContext,
   type EventPriority,
+  CI_STATUS,
 } from "@composio/ao-core";
 
 export const manifest = {
@@ -65,7 +66,7 @@ function buildBlocks(event: OrchestratorEvent, actions?: NotifyAction[]): unknow
   // Add CI status if available (type-guarded)
   const ciStatus = typeof event.data.ciStatus === "string" ? event.data.ciStatus : undefined;
   if (ciStatus) {
-    const ciEmoji = ciStatus === "passing" ? ":white_check_mark:" : ":x:";
+    const ciEmoji = ciStatus === CI_STATUS.PASSING ? ":white_check_mark:" : ":x:";
     blocks.push({
       type: "context",
       elements: [

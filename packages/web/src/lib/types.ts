@@ -19,6 +19,8 @@ export type {
 
 import {
   ACTIVITY_STATE,
+  SESSION_STATUS,
+  CI_STATUS,
   type CICheck as CoreCICheck,
   type MergeReadiness,
   type CIStatus,
@@ -171,9 +173,9 @@ export function getAttentionLevel(session: DashboardSession): AttentionLevel {
     return "respond";
   }
   if (
-    session.status === "needs_input" ||
-    session.status === "stuck" ||
-    session.status === "errored"
+    session.status === SESSION_STATUS.NEEDS_INPUT ||
+    session.status === SESSION_STATUS.STUCK ||
+    session.status === SESSION_STATUS.ERRORED
   ) {
     return "respond";
   }
@@ -188,7 +190,7 @@ export function getAttentionLevel(session: DashboardSession): AttentionLevel {
   }
   if (session.pr) {
     const pr = session.pr;
-    if (pr.ciStatus === "failing") return "review";
+    if (pr.ciStatus === CI_STATUS.FAILING) return "review";
     if (pr.reviewDecision === "changes_requested") return "review";
     if (!pr.mergeability.noConflicts) return "review";
   }
