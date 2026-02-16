@@ -149,7 +149,8 @@ export function DirectTerminal({ sessionId, startFullscreen = false }: DirectTer
         };
 
         websocket.onmessage = (event) => {
-          const data = typeof event.data === "string" ? event.data : new TextDecoder().decode(event.data);
+          const data =
+            typeof event.data === "string" ? event.data : new TextDecoder().decode(event.data);
           terminal.write(data);
         };
 
@@ -232,7 +233,9 @@ export function DirectTerminal({ sessionId, startFullscreen = false }: DirectTer
       const expectedHeight = rect.height;
 
       // Check if container has reached target dimensions (within 10px tolerance)
-      const isFullscreenTarget = fullscreen ? expectedHeight > window.innerHeight - 100 : expectedHeight < 700;
+      const isFullscreenTarget = fullscreen
+        ? expectedHeight > window.innerHeight - 100
+        : expectedHeight < 700;
 
       if (!isFullscreenTarget && resizeAttempts < maxAttempts) {
         // Container hasn't reached target size yet, try again
@@ -270,8 +273,14 @@ export function DirectTerminal({ sessionId, startFullscreen = false }: DirectTer
     parent?.addEventListener("transitionend", handleTransitionEnd);
 
     // Backup timers in case RAF polling doesn't work
-    const timer1 = setTimeout(() => { resizeAttempts = 0; resizeTerminal(); }, 300);
-    const timer2 = setTimeout(() => { resizeAttempts = 0; resizeTerminal(); }, 600);
+    const timer1 = setTimeout(() => {
+      resizeAttempts = 0;
+      resizeTerminal();
+    }, 300);
+    const timer2 = setTimeout(() => {
+      resizeAttempts = 0;
+      resizeTerminal();
+    }, 600);
 
     return () => {
       parent?.removeEventListener("transitionend", handleTransitionEnd);
@@ -281,10 +290,18 @@ export function DirectTerminal({ sessionId, startFullscreen = false }: DirectTer
   }, [fullscreen]);
 
   const statusColor =
-    status === "connected" ? "bg-[#3fb950]" : status === "error" ? "bg-[#f85149]" : "bg-[#d29922] animate-pulse";
+    status === "connected"
+      ? "bg-[#3fb950]"
+      : status === "error"
+        ? "bg-[#f85149]"
+        : "bg-[#d29922] animate-pulse";
 
   const statusText =
-    status === "connected" ? "Connected" : status === "error" ? error ?? "Error" : "Connecting...";
+    status === "connected"
+      ? "Connected"
+      : status === "error"
+        ? (error ?? "Error")
+        : "Connecting...";
 
   const statusTextColor =
     status === "connected"
@@ -302,8 +319,12 @@ export function DirectTerminal({ sessionId, startFullscreen = false }: DirectTer
     >
       <div className="flex items-center gap-2 border-b border-[var(--color-border-default)] bg-[var(--color-bg-tertiary)] px-3 py-2">
         <div className={cn("h-2 w-2 rounded-full", statusColor)} />
-        <span className="font-[var(--font-mono)] text-xs text-[var(--color-text-muted)]">{sessionId}</span>
-        <span className={cn("text-[10px] font-medium uppercase tracking-wide", statusTextColor)}>{statusText}</span>
+        <span className="font-[var(--font-mono)] text-xs text-[var(--color-text-muted)]">
+          {sessionId}
+        </span>
+        <span className={cn("text-[10px] font-medium uppercase tracking-wide", statusTextColor)}>
+          {statusText}
+        </span>
         <span className="ml-2 rounded bg-[var(--color-bg-secondary)] px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wide text-[var(--color-accent-green)]">
           XDA
         </span>

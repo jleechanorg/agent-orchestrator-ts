@@ -30,8 +30,5 @@
   "access": "public",
   "baseBranch": "main",
   "updateInternalDependencies": "patch",
-  "ignore": [
-    "@composio/ao-web",
-    "@composio/ao-integration-tests"
-  ]
+  "ignore": ["@composio/ao-web", "@composio/ao-integration-tests"]
 }

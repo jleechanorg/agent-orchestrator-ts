@@ -347,10 +347,7 @@ function getAlerts(session: DashboardSession): Alert[] {
         "border-[rgba(248,81,73,0.3)] bg-[rgba(248,81,73,0.15)] text-[var(--color-accent-red)]",
       url: pr.url,
     });
-  } else if (
-    !pr.isDraft &&
-    (pr.reviewDecision === "pending" || pr.reviewDecision === "none")
-  ) {
+  } else if (!pr.isDraft && (pr.reviewDecision === "pending" || pr.reviewDecision === "none")) {
     alerts.push({
       key: "review",
       label: "needs review",

@@ -26,12 +26,18 @@ async function checkPRReviews(
   const query =
     "query($owner:String!,$name:String!,$pr:Int!){repository(owner:$owner,name:$name){pullRequest(number:$pr){reviewDecision reviewThreads(first:100){nodes{isResolved}}}}}";
   const result = await gh([
-    "api", "graphql",
-    "-f", `query=${query}`,
-    "-f", `owner=${owner}`,
-    "-f", `name=${name}`,
-    "-F", `pr=${prNumber}`,
-    "--jq", ".data.repository.pullRequest",
+    "api",
+    "graphql",
+    "-f",
+    `query=${query}`,
+    "-f",
+    `owner=${owner}`,
+    "-f",
+    `name=${name}`,
+    "-F",
+    `pr=${prNumber}`,
+    "--jq",
+    ".data.repository.pullRequest",
   ]);
 
   if (!result) {

@@ -113,17 +113,19 @@ export function Dashboard({ sessions, stats, orchestratorId }: DashboardProps) {
         <h2 className="mb-3 px-1 text-[13px] font-semibold uppercase tracking-widest text-[var(--color-text-muted)]">
           Sessions
         </h2>
-        {(["merge", "respond", "review", "pending", "working", "done"] as AttentionLevel[]).map((level) => (
-          <AttentionZone
-            key={level}
-            level={level}
-            sessions={grouped[level]}
-            onSend={handleSend}
-            onKill={handleKill}
-            onMerge={handleMerge}
-            onRestore={handleRestore}
-          />
-        ))}
+        {(["merge", "respond", "review", "pending", "working", "done"] as AttentionLevel[]).map(
+          (level) => (
+            <AttentionZone
+              key={level}
+              level={level}
+              sessions={grouped[level]}
+              onSend={handleSend}
+              onKill={handleKill}
+              onMerge={handleMerge}
+              onRestore={handleRestore}
+            />
+          ),
+        )}
       </div>
 
       {/* PR Table */}

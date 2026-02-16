@@ -39,11 +39,14 @@ function TestDirectPageContent() {
             <h2 className="mb-2 text-sm font-semibold text-[var(--color-text-primary)]">
               Testing: <span className="text-[var(--color-accent-green)]">{sessionId}</span>
             </h2>
-            <h2 className="mb-2 text-sm font-semibold text-[var(--color-text-primary)]">Test Steps:</h2>
+            <h2 className="mb-2 text-sm font-semibold text-[var(--color-text-primary)]">
+              Test Steps:
+            </h2>
             <ol className="list-inside list-decimal space-y-1 text-sm text-[var(--color-text-muted)]">
               <li>Connected to tmux session: {sessionId}</li>
               <li>
-                Verify XDA badge shows <span className="text-[var(--color-accent-green)]">✓ XDA</span>
+                Verify XDA badge shows{" "}
+                <span className="text-[var(--color-accent-green)]">✓ XDA</span>
               </li>
               <li>Drag-select text in the terminal</li>
               <li>Press Cmd+C (macOS) or Ctrl+C (Linux/Windows)</li>
@@ -54,7 +57,9 @@ function TestDirectPageContent() {
             </ol>
           </div>
           <div className="mt-4 rounded-lg border border-[var(--color-border-default)] bg-[var(--color-bg-secondary)] p-4">
-            <h2 className="mb-2 text-sm font-semibold text-[var(--color-text-primary)]">Technical Details:</h2>
+            <h2 className="mb-2 text-sm font-semibold text-[var(--color-text-primary)]">
+              Technical Details:
+            </h2>
             <ul className="list-inside list-disc space-y-1 text-sm text-[var(--color-text-muted)]">
               <li>Registers CSI &gt; q (XDA) handler in xterm.js parser</li>
               <li>Responds with DCS &gt; | XTerm(370) ST sequence</li>
@@ -77,7 +82,9 @@ function TestDirectPageContent() {
 
 export default function TestDirectPage() {
   return (
-    <Suspense fallback={<div className="flex min-h-screen items-center justify-center">Loading...</div>}>
+    <Suspense
+      fallback={<div className="flex min-h-screen items-center justify-center">Loading...</div>}
+    >
       <TestDirectPageContent />
     </Suspense>
   );

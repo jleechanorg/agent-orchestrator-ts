@@ -64,7 +64,7 @@ export function Terminal({ sessionId }: TerminalProps) {
                 : "text-[var(--color-text-muted)]",
           )}
         >
-          {terminalUrl ? "Connected" : error ?? "Connecting..."}
+          {terminalUrl ? "Connected" : (error ?? "Connecting...")}
         </span>
         <button
           onClick={() => setFullscreen(!fullscreen)}

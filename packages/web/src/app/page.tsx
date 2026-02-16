@@ -1,7 +1,12 @@
 import { Dashboard } from "@/components/Dashboard";
 import type { DashboardSession } from "@/lib/types";
 import { getServices, getSCM, getTracker } from "@/lib/services";
-import { sessionToDashboard, enrichSessionPR, enrichSessionIssue, computeStats } from "@/lib/serialize";
+import {
+  sessionToDashboard,
+  enrichSessionPR,
+  enrichSessionIssue,
+  computeStats,
+} from "@/lib/serialize";
 import { prCache, prCacheKey } from "@/lib/cache";
 
 export const dynamic = "force-dynamic";
@@ -108,5 +113,7 @@ export default async function Home() {
     // Config not found or services unavailable — show empty dashboard
   }
 
-  return <Dashboard sessions={sessions} stats={computeStats(sessions)} orchestratorId={orchestratorId} />;
+  return (
+    <Dashboard sessions={sessions} stats={computeStats(sessions)} orchestratorId={orchestratorId} />
+  );
 }

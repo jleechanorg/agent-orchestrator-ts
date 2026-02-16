@@ -61,7 +61,10 @@ function mockLinearAPI(responseData: unknown, statusCode = 200) {
   const body = JSON.stringify({ data: responseData });
 
   requestMock.mockImplementationOnce(
-    (_opts: Record<string, unknown>, callback: (res: EventEmitter & { statusCode: number }) => void) => {
+    (
+      _opts: Record<string, unknown>,
+      callback: (res: EventEmitter & { statusCode: number }) => void,
+    ) => {
       const req = Object.assign(new EventEmitter(), {
         write: vi.fn(),
         end: vi.fn(() => {
@@ -85,7 +88,10 @@ function mockLinearError(message: string) {
   const body = JSON.stringify({ errors: [{ message }] });
 
   requestMock.mockImplementationOnce(
-    (_opts: Record<string, unknown>, callback: (res: EventEmitter & { statusCode: number }) => void) => {
+    (
+      _opts: Record<string, unknown>,
+      callback: (res: EventEmitter & { statusCode: number }) => void,
+    ) => {
       const req = Object.assign(new EventEmitter(), {
         write: vi.fn(),
         end: vi.fn(() => {
@@ -107,7 +113,10 @@ function mockLinearError(message: string) {
 /** Queue an HTTP-level error (non-200 status). */
 function mockHTTPError(statusCode: number, body: string) {
   requestMock.mockImplementationOnce(
-    (_opts: Record<string, unknown>, callback: (res: EventEmitter & { statusCode: number }) => void) => {
+    (
+      _opts: Record<string, unknown>,
+      callback: (res: EventEmitter & { statusCode: number }) => void,
+    ) => {
       const req = Object.assign(new EventEmitter(), {
         write: vi.fn(),
         end: vi.fn(() => {
@@ -295,22 +304,16 @@ describe("tracker-linear plugin", () => {
 
   describe("issueUrl", () => {
     it("generates correct URL with workspace slug", () => {
-      expect(tracker.issueUrl("INT-123", project)).toBe(
-        "https://linear.app/acme/issue/INT-123",
-      );
+      expect(tracker.issueUrl("INT-123", project)).toBe("https://linear.app/acme/issue/INT-123");
     });
 
     it("generates fallback URL without workspace slug", () => {
-      expect(tracker.issueUrl("INT-123", projectNoSlug)).toBe(
-        "https://linear.app/issue/INT-123",
-      );
+      expect(tracker.issueUrl("INT-123", projectNoSlug)).toBe("https://linear.app/issue/INT-123");
     });
 
     it("generates fallback URL when no tracker config", () => {
       const noTracker: ProjectConfig = { ...project, tracker: undefined };
-      expect(tracker.issueUrl("INT-123", noTracker)).toBe(
-        "https://linear.app/issue/INT-123",
-      );
+      expect(tracker.issueUrl("INT-123", noTracker)).toBe("https://linear.app/issue/INT-123");
     });
   });
 
@@ -386,10 +389,7 @@ describe("tracker-linear plugin", () => {
     it("returns mapped issues", async () => {
       mockLinearAPI({
         issues: {
-          nodes: [
-            sampleIssueNode,
-            { ...sampleIssueNode, identifier: "INT-456", title: "Another" },
-          ],
+          nodes: [sampleIssueNode, { ...sampleIssueNode, identifier: "INT-456", title: "Another" }],
         },
       });
       const issues = await tracker.listIssues!({}, project);
@@ -543,20 +543,16 @@ describe("tracker-linear plugin", () => {
         },
       });
 
-      await expect(
-        tracker.updateIssue!("INT-123", { state: "closed" }, project),
-      ).rejects.toThrow('No workflow state of type "completed"');
+      await expect(tracker.updateIssue!("INT-123", { state: "closed" }, project)).rejects.toThrow(
+        'No workflow state of type "completed"',
+      );
     });
 
     it("adds a comment", async () => {
       mockLinearAPI({ issue: { id: "uuid-123", team: { id: "team-1" } } });
       mockLinearAPI({ commentCreate: { success: true } });
 
-      await tracker.updateIssue!(
-        "INT-123",
-        { comment: "Working on this" },
-        project,
-      );
+      await tracker.updateIssue!("INT-123", { comment: "Working on this" }, project);
       expect(requestMock).toHaveBeenCalledTimes(2);
 
       // Verify comment body
@@ -575,11 +571,7 @@ describe("tracker-linear plugin", () => {
       // 4: commentCreate
       mockLinearAPI({ commentCreate: { success: true } });
 
-      await tracker.updateIssue!(
-        "INT-123",
-        { state: "closed", comment: "Done!" },
-        project,
-      );
+      await tracker.updateIssue!("INT-123", { state: "closed", comment: "Done!" }, project);
       expect(requestMock).toHaveBeenCalledTimes(4);
     });
 
@@ -655,10 +647,7 @@ describe("tracker-linear plugin", () => {
         issueCreate: { success: true, issue: sampleIssueNode },
       });
 
-      await tracker.createIssue!(
-        { title: "Bug", description: "", priority: 1 },
-        project,
-      );
+      await tracker.createIssue!({ title: "Bug", description: "", priority: 1 }, project);
 
       const writeCall = requestMock.mock.results[0].value.write.mock.calls[0][0];
       const body = JSON.parse(writeCall);
@@ -749,9 +738,7 @@ describe("tracker-linear plugin", () => {
       // Only "bug" exists in Linear; "nonexistent" does not
       mockLinearAPI({
         issueLabels: {
-          nodes: [
-            { id: "label-1", name: "bug" },
-          ],
+          nodes: [{ id: "label-1", name: "bug" }],
         },
       });
       mockLinearAPI({ issueUpdate: { success: true } });
@@ -769,9 +756,9 @@ describe("tracker-linear plugin", () => {
         ...project,
         tracker: { plugin: "linear" },
       };
-      await expect(
-        tracker.createIssue!({ title: "Bug", description: "" }, noTeam),
-      ).rejects.toThrow("teamId");
+      await expect(tracker.createIssue!({ title: "Bug", description: "" }, noTeam)).rejects.toThrow(
+        "teamId",
+      );
     });
 
     it("handles assignee error gracefully (best-effort)", async () => {
@@ -818,9 +805,7 @@ describe("tracker-linear plugin", () => {
   describe("linearQuery error handling", () => {
     it("throws on missing LINEAR_API_KEY", async () => {
       delete process.env["LINEAR_API_KEY"];
-      await expect(tracker.getIssue("INT-123", project)).rejects.toThrow(
-        "LINEAR_API_KEY",
-      );
+      await expect(tracker.getIssue("INT-123", project)).rejects.toThrow("LINEAR_API_KEY");
     });
 
     it("throws on GraphQL errors", async () => {
@@ -840,7 +825,10 @@ describe("tracker-linear plugin", () => {
     it("throws on empty data response", async () => {
       const body = JSON.stringify({ data: null });
       requestMock.mockImplementationOnce(
-        (_opts: Record<string, unknown>, callback: (res: EventEmitter & { statusCode: number }) => void) => {
+        (
+          _opts: Record<string, unknown>,
+          callback: (res: EventEmitter & { statusCode: number }) => void,
+        ) => {
           const req = Object.assign(new EventEmitter(), {
             write: vi.fn(),
             end: vi.fn(() => {

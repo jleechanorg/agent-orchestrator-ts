@@ -14,10 +14,7 @@ export default defineConfig({
         __dirname,
         "../plugins/tracker-github/src/index.ts",
       ),
-      "@composio/ao-plugin-scm-github": resolve(
-        __dirname,
-        "../plugins/scm-github/src/index.ts",
-      ),
+      "@composio/ao-plugin-scm-github": resolve(__dirname, "../plugins/scm-github/src/index.ts"),
     },
   },
 });

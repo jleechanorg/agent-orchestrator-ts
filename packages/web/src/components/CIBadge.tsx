@@ -60,13 +60,14 @@ interface CICheckListProps {
   layout?: "vertical" | "inline" | "expanded";
 }
 
-export const checkStatusIcon: Record<DashboardCICheck["status"], { icon: string; color: string }> = {
-  passed: { icon: "\u2713", color: "var(--color-accent-green)" },
-  failed: { icon: "\u2717", color: "var(--color-accent-red)" },
-  running: { icon: "\u25CF", color: "var(--color-accent-yellow)" },
-  pending: { icon: "\u25CB", color: "var(--color-text-muted)" },
-  skipped: { icon: "\u25CB", color: "var(--color-text-muted)" },
-};
+export const checkStatusIcon: Record<DashboardCICheck["status"], { icon: string; color: string }> =
+  {
+    passed: { icon: "\u2713", color: "var(--color-accent-green)" },
+    failed: { icon: "\u2717", color: "var(--color-accent-red)" },
+    running: { icon: "\u25CF", color: "var(--color-accent-yellow)" },
+    pending: { icon: "\u25CB", color: "var(--color-text-muted)" },
+    skipped: { icon: "\u25CB", color: "var(--color-text-muted)" },
+  };
 
 /** Sort order for CI checks: failures first, then running, pending, passed, skipped. */
 export const ciCheckSortOrder: Record<DashboardCICheck["status"], number> = {
@@ -78,7 +79,9 @@ export const ciCheckSortOrder: Record<DashboardCICheck["status"], number> = {
 };
 
 export function CICheckList({ checks, layout = "vertical" }: CICheckListProps) {
-  const sorted = [...checks].sort((a, b) => ciCheckSortOrder[a.status] - ciCheckSortOrder[b.status]);
+  const sorted = [...checks].sort(
+    (a, b) => ciCheckSortOrder[a.status] - ciCheckSortOrder[b.status],
+  );
 
   if (layout === "inline") {
     return (
@@ -123,7 +126,12 @@ export function CICheckList({ checks, layout = "vertical" }: CICheckListProps) {
           return (
             <div key={check.name} className="flex items-center gap-2">
               {check.url ? (
-                <a href={check.url} target="_blank" rel="noopener noreferrer" className="hover:no-underline">
+                <a
+                  href={check.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="hover:no-underline"
+                >
                   {inner}
                 </a>
               ) : (

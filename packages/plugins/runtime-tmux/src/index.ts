@@ -161,5 +161,4 @@ export function create(): Runtime {
   };
 }
 
-
 export default { manifest, create } satisfies PluginModule<Runtime>;

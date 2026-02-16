@@ -172,11 +172,7 @@ describe("runtime.create()", () => {
     ).rejects.toThrow('Failed to send launch command to session "fail-session"');
 
     // Verify kill-session was called for cleanup
-    expect(mockExecFileCustom).toHaveBeenCalledWith("tmux", [
-      "kill-session",
-      "-t",
-      "fail-session",
-    ]);
+    expect(mockExecFileCustom).toHaveBeenCalledWith("tmux", ["kill-session", "-t", "fail-session"]);
   });
 
   it("rejects invalid session IDs with special characters", async () => {
@@ -235,14 +231,7 @@ describe("runtime.create()", () => {
 
     // First call should not contain -e flags
     const firstCallArgs = mockExecFileCustom.mock.calls[0][1] as string[];
-    expect(firstCallArgs).toEqual([
-      "new-session",
-      "-d",
-      "-s",
-      "no-env",
-      "-c",
-      "/tmp/ws",
-    ]);
+    expect(firstCallArgs).toEqual(["new-session", "-d", "-s", "no-env", "-c", "/tmp/ws"]);
   });
 });
 
@@ -255,11 +244,7 @@ describe("runtime.destroy()", () => {
 
     await runtime.destroy(handle);
 
-    expect(mockExecFileCustom).toHaveBeenCalledWith("tmux", [
-      "kill-session",
-      "-t",
-      "destroy-test",
-    ]);
+    expect(mockExecFileCustom).toHaveBeenCalledWith("tmux", ["kill-session", "-t", "destroy-test"]);
   });
 
   it("does not throw if session is already gone", async () => {
@@ -484,11 +469,7 @@ describe("runtime.isAlive()", () => {
     const alive = await runtime.isAlive(handle);
 
     expect(alive).toBe(true);
-    expect(mockExecFileCustom).toHaveBeenCalledWith("tmux", [
-      "has-session",
-      "-t",
-      "alive-test",
-    ]);
+    expect(mockExecFileCustom).toHaveBeenCalledWith("tmux", ["has-session", "-t", "alive-test"]);
   });
 
   it("returns false when has-session fails", async () => {

@@ -1,7 +1,12 @@
 import { ACTIVITY_STATE, type Session, type ProjectConfig } from "@composio/ao-core";
 import { NextResponse } from "next/server";
 import { getServices, getSCM, getTracker } from "@/lib/services";
-import { sessionToDashboard, enrichSessionPR, enrichSessionIssue, computeStats } from "@/lib/serialize";
+import {
+  sessionToDashboard,
+  enrichSessionPR,
+  enrichSessionIssue,
+  computeStats,
+} from "@/lib/serialize";
 
 /** Resolve which project a session belongs to. */
 function resolveProject(
@@ -13,9 +18,7 @@ function resolveProject(
   if (direct) return direct;
 
   // Match by session prefix
-  const entry = Object.entries(projects).find(([, p]) =>
-    core.id.startsWith(p.sessionPrefix),
-  );
+  const entry = Object.entries(projects).find(([, p]) => core.id.startsWith(p.sessionPrefix));
   if (entry) return entry[1];
 
   // Fall back to first project

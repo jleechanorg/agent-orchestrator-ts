@@ -125,9 +125,7 @@ describe("getLaunchCommand", () => {
   });
 
   it("combines prompt and model", () => {
-    const cmd = agent.getLaunchCommand(
-      makeLaunchConfig({ prompt: "Go", model: "gpt-4o" }),
-    );
+    const cmd = agent.getLaunchCommand(makeLaunchConfig({ prompt: "Go", model: "gpt-4o" }));
     expect(cmd).toBe("opencode run 'Go' --model 'gpt-4o'");
   });
 

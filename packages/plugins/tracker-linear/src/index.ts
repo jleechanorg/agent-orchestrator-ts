@@ -28,10 +28,7 @@ import type { Composio } from "@composio/core";
  * A function that sends a GraphQL query/mutation and returns the parsed data.
  * Both the direct Linear API and Composio SDK transports implement this.
  */
-type GraphQLTransport = <T>(
-  query: string,
-  variables?: Record<string, unknown>,
-) => Promise<T>;
+type GraphQLTransport = <T>(query: string, variables?: Record<string, unknown>) => Promise<T>;
 
 // ---------------------------------------------------------------------------
 // Direct Linear API transport
@@ -131,10 +128,7 @@ function createDirectTransport(): GraphQLTransport {
 
 type ComposioTools = Composio["tools"];
 
-function createComposioTransport(
-  apiKey: string,
-  entityId: string,
-): GraphQLTransport {
+function createComposioTransport(apiKey: string, entityId: string): GraphQLTransport {
   // Lazy-load the Composio client — cached as a promise so the constructor
   // is called only once, even under concurrent requests.
   let clientPromise: Promise<ComposioTools> | undefined;
@@ -148,10 +142,14 @@ function createComposioTransport(
           return client.tools;
         } catch (err: unknown) {
           const msg = err instanceof Error ? err.message : String(err);
-          if (msg.includes("Cannot find module") || msg.includes("Cannot find package") || msg.includes("ERR_MODULE_NOT_FOUND")) {
+          if (
+            msg.includes("Cannot find module") ||
+            msg.includes("Cannot find package") ||
+            msg.includes("ERR_MODULE_NOT_FOUND")
+          ) {
             throw new Error(
               "Composio SDK (@composio/core) is not installed. " +
-              "Install it with: pnpm add @composio/core",
+                "Install it with: pnpm add @composio/core",
               { cause: err },
             );
           }
@@ -276,10 +274,7 @@ function createLinearTracker(query: GraphQLTransport): Tracker {
   return {
     name: "linear",
 
-    async getIssue(
-      identifier: string,
-      _project: ProjectConfig,
-    ): Promise<Issue> {
+    async getIssue(identifier: string, _project: ProjectConfig): Promise<Issue> {
       const data = await query<{ issue: LinearIssueNode }>(
         `query($id: String!) {
           issue(id: $id) {
@@ -302,10 +297,7 @@ function createLinearTracker(query: GraphQLTransport): Tracker {
       };
     },
 
-    async isCompleted(
-      identifier: string,
-      _project: ProjectConfig,
-    ): Promise<boolean> {
+    async isCompleted(identifier: string, _project: ProjectConfig): Promise<boolean> {
       const data = await query<{ issue: { state: { type: string } } }>(
         `query($id: String!) {
           issue(id: $id) {
@@ -348,10 +340,7 @@ function createLinearTracker(query: GraphQLTransport): Tracker {
       return `feat/${identifier}`;
     },
 
-    async generatePrompt(
-      identifier: string,
-      project: ProjectConfig,
-    ): Promise<string> {
+    async generatePrompt(identifier: string, project: ProjectConfig): Promise<string> {
       const issue = await this.getIssue(identifier, project);
       const lines = [
         `You are working on Linear ticket ${issue.id}: ${issue.title}`,
@@ -386,10 +375,7 @@ function createLinearTracker(query: GraphQLTransport): Tracker {
       return lines.join("\n");
     },
 
-    async listIssues(
-      filters: IssueFilters,
-      project: ProjectConfig,
-    ): Promise<Issue[]> {
+    async listIssues(filters: IssueFilters, project: ProjectConfig): Promise<Issue[]> {
       // Build filter object using GraphQL variables to prevent injection
       const filter: Record<string, unknown> = {};
       const variables: Record<string, unknown> = {};
@@ -486,14 +472,10 @@ function createLinearTracker(query: GraphQLTransport): Tracker {
               ? "unstarted"
               : "started";
 
-        const targetState = statesData.workflowStates.nodes.find(
-          (s) => s.type === targetType,
-        );
+        const targetState = statesData.workflowStates.nodes.find((s) => s.type === targetType);
 
         if (!targetState) {
-          throw new Error(
-            `No workflow state of type "${targetType}" found for team ${teamId}`,
-          );
+          throw new Error(`No workflow state of type "${targetType}" found for team ${teamId}`);
         }
 
         await query(
@@ -588,15 +570,10 @@ function createLinearTracker(query: GraphQLTransport): Tracker {
       }
     },
 
-    async createIssue(
-      input: CreateIssueInput,
-      project: ProjectConfig,
-    ): Promise<Issue> {
+    async createIssue(input: CreateIssueInput, project: ProjectConfig): Promise<Issue> {
       const teamId = project.tracker?.["teamId"];
       if (!teamId) {
-        throw new Error(
-          "Linear tracker requires 'teamId' in project tracker config",
-        );
+        throw new Error("Linear tracker requires 'teamId' in project tracker config");
       }
 
       const variables: Record<string, unknown> = {

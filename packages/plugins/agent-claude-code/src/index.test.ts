@@ -4,16 +4,15 @@ import type { Session, RuntimeHandle, AgentLaunchConfig } from "@composio/ao-cor
 // ---------------------------------------------------------------------------
 // Hoisted mocks — available inside vi.mock factories
 // ---------------------------------------------------------------------------
-const { mockExecFileAsync, mockReaddir, mockReadFile, mockStat, mockOpen, mockHomedir } = vi.hoisted(
-  () => ({
+const { mockExecFileAsync, mockReaddir, mockReadFile, mockStat, mockOpen, mockHomedir } =
+  vi.hoisted(() => ({
     mockExecFileAsync: vi.fn(),
     mockReaddir: vi.fn(),
     mockReadFile: vi.fn(),
     mockStat: vi.fn(),
     mockOpen: vi.fn(),
     mockHomedir: vi.fn(() => "/mock/home"),
-  }),
-);
+  }));
 
 vi.mock("node:child_process", () => {
   const fn = Object.assign((..._args: unknown[]) => {}, {
@@ -360,7 +359,9 @@ describe("detectActivity", () => {
   });
 
   it("returns waiting_input for bypass permissions prompt", () => {
-    expect(agent.detectActivity("bypass all future permissions for this session\n")).toBe("waiting_input");
+    expect(agent.detectActivity("bypass all future permissions for this session\n")).toBe(
+      "waiting_input",
+    );
   });
 
   it("returns active when queued message indicator is visible", () => {
@@ -382,9 +383,13 @@ describe("detectActivity", () => {
   it("returns waiting_input when permission prompt follows historical activity", () => {
     // Permission prompt at the bottom should NOT be overridden by historical
     // "Reading"/"Thinking" output higher in the buffer.
-    expect(agent.detectActivity("Reading file src/index.ts\nThinking...\nDo you want to proceed?\n")).toBe("waiting_input");
+    expect(
+      agent.detectActivity("Reading file src/index.ts\nThinking...\nDo you want to proceed?\n"),
+    ).toBe("waiting_input");
     expect(agent.detectActivity("Searching codebase...\n(Y)es / (N)o\n")).toBe("waiting_input");
-    expect(agent.detectActivity("Writing to out.ts\nbypass all future permissions for this session\n")).toBe("waiting_input");
+    expect(
+      agent.detectActivity("Writing to out.ts\nbypass all future permissions for this session\n"),
+    ).toBe("waiting_input");
   });
 
   it("returns active for non-empty output with no special patterns", () => {
@@ -668,19 +673,16 @@ describe("isProcessing", () => {
   const agent = create();
 
   /** Helper to create a mock file handle from `open()` */
-  function mockOpenWithContent(
-    content: string,
-    mtime: Date = new Date(),
-  ) {
+  function mockOpenWithContent(content: string, mtime: Date = new Date()) {
     const buf = Buffer.from(content, "utf-8");
     const fh = {
       stat: vi.fn().mockResolvedValue({ size: buf.length, mtime }),
-      read: vi.fn().mockImplementation(
-        (buffer: Buffer, offset: number, length: number, position: number) => {
+      read: vi
+        .fn()
+        .mockImplementation((buffer: Buffer, offset: number, length: number, position: number) => {
           buf.copy(buffer, offset, position, position + length);
           return Promise.resolve({ bytesRead: length, buffer });
-        },
-      ),
+        }),
       close: vi.fn().mockResolvedValue(undefined),
     };
     mockOpen.mockResolvedValue(fh);
@@ -726,20 +728,22 @@ describe("isProcessing", () => {
 
   it("returns false when last type is assistant", async () => {
     const now = new Date();
-    const content = [
-      '{"type":"user","message":{"content":"fix bug"}}',
-      '{"type":"assistant","message":{"content":"I fixed it"}}',
-    ].join("\n") + "\n";
+    const content =
+      [
+        '{"type":"user","message":{"content":"fix bug"}}',
+        '{"type":"assistant","message":{"content":"I fixed it"}}',
+      ].join("\n") + "\n";
     mockOpenWithContent(content, now);
     expect(await agent.isProcessing(makeSession())).toBe(false);
   });
 
   it("returns false when last type is system", async () => {
     const now = new Date();
-    const content = [
-      '{"type":"user","message":{"content":"hello"}}',
-      '{"type":"system","summary":"session started"}',
-    ].join("\n") + "\n";
+    const content =
+      [
+        '{"type":"user","message":{"content":"hello"}}',
+        '{"type":"system","summary":"session started"}',
+      ].join("\n") + "\n";
     mockOpenWithContent(content, now);
     expect(await agent.isProcessing(makeSession())).toBe(false);
   });
@@ -753,10 +757,11 @@ describe("isProcessing", () => {
 
   it("returns true when last type is progress and file is recent", async () => {
     const now = new Date();
-    const content = [
-      '{"type":"user","message":{"content":"do it"}}',
-      '{"type":"progress","status":"running tool"}',
-    ].join("\n") + "\n";
+    const content =
+      [
+        '{"type":"user","message":{"content":"do it"}}',
+        '{"type":"progress","status":"running tool"}',
+      ].join("\n") + "\n";
     mockOpenWithContent(content, now);
     expect(await agent.isProcessing(makeSession())).toBe(true);
   });

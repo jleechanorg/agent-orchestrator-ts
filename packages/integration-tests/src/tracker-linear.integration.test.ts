@@ -41,10 +41,7 @@ const canRun = hasCredentials && Boolean(LINEAR_TEAM_ID);
  * Direct GraphQL call for test setup/cleanup.
  * Only available when LINEAR_API_KEY is set.
  */
-function linearGraphQL<T>(
-  query: string,
-  variables: Record<string, unknown>,
-): Promise<T> {
+function linearGraphQL<T>(query: string, variables: Record<string, unknown>): Promise<T> {
   if (!LINEAR_API_KEY) {
     throw new Error("linearGraphQL requires LINEAR_API_KEY");
   }
@@ -127,8 +124,7 @@ describe.skipIf(!canRun)("tracker-linear (integration)", () => {
     const result = await tracker.createIssue!(
       {
         title: `[AO Integration Test] ${new Date().toISOString()}`,
-        description:
-          "Automated integration test issue. Safe to delete if found lingering.",
+        description: "Automated integration test issue. Safe to delete if found lingering.",
         priority: 4, // Low
       },
       project,
@@ -167,11 +163,7 @@ describe.skipIf(!canRun)("tracker-linear (integration)", () => {
         );
       } else {
         // Composio-only: best-effort close via plugin
-        await tracker.updateIssue!(
-          issueIdentifier,
-          { state: "closed" },
-          project,
-        );
+        await tracker.updateIssue!(issueIdentifier, { state: "closed" }, project);
       }
     } catch {
       // Best-effort cleanup
@@ -226,10 +218,7 @@ describe.skipIf(!canRun)("tracker-linear (integration)", () => {
   });
 
   it("listIssues includes the created issue", async () => {
-    const issues = await tracker.listIssues!(
-      { state: "open", limit: 50 },
-      project,
-    );
+    const issues = await tracker.listIssues!({ state: "open", limit: 50 }, project);
 
     const found = issues.find((i: { id: string }) => i.id === issueIdentifier);
     expect(found).toBeDefined();
@@ -237,11 +226,7 @@ describe.skipIf(!canRun)("tracker-linear (integration)", () => {
   });
 
   it("updateIssue adds a comment", async () => {
-    await tracker.updateIssue!(
-      issueIdentifier,
-      { comment: "Integration test comment" },
-      project,
-    );
+    await tracker.updateIssue!(issueIdentifier, { comment: "Integration test comment" }, project);
 
     // Verify the comment was added — use direct API if available,
     // otherwise trust the plugin didn't throw
@@ -263,11 +248,7 @@ describe.skipIf(!canRun)("tracker-linear (integration)", () => {
   });
 
   it("updateIssue closes the issue and isCompleted reflects it", async () => {
-    await tracker.updateIssue!(
-      issueIdentifier,
-      { state: "closed" },
-      project,
-    );
+    await tracker.updateIssue!(issueIdentifier, { state: "closed" }, project);
 
     const completed = await tracker.isCompleted(issueIdentifier, project);
     expect(completed).toBe(true);
@@ -277,11 +258,7 @@ describe.skipIf(!canRun)("tracker-linear (integration)", () => {
   });
 
   it("updateIssue reopens the issue", async () => {
-    await tracker.updateIssue!(
-      issueIdentifier,
-      { state: "open" },
-      project,
-    );
+    await tracker.updateIssue!(issueIdentifier, { state: "open" }, project);
 
     const completed = await tracker.isCompleted(issueIdentifier, project);
     expect(completed).toBe(false);

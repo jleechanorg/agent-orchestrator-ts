@@ -211,7 +211,8 @@ function printTableHeader(): void {
     padCol("Activity", COL.activity) +
     "Age";
   console.log(chalk.dim(`  ${hdr}`));
-  const totalWidth = COL.session + COL.branch + COL.pr + COL.ci + COL.review + COL.threads + COL.activity + 3;
+  const totalWidth =
+    COL.session + COL.branch + COL.pr + COL.ci + COL.review + COL.threads + COL.activity + 3;
   console.log(chalk.dim(`  ${"─".repeat(totalWidth)}`));
 }
 
@@ -307,9 +308,7 @@ export function registerStatus(program: Command): void {
         // Gather all session info in parallel
         const infoPromises = projectSessions
           .sort()
-          .map((session) =>
-            gatherSessionInfo(session, sessionDir, agent, scm, projectConfig),
-          );
+          .map((session) => gatherSessionInfo(session, sessionDir, agent, scm, projectConfig));
         const sessionInfos = await Promise.all(infoPromises);
 
         for (const info of sessionInfos) {

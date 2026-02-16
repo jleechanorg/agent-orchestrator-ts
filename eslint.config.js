@@ -85,4 +85,20 @@ export default tseslint.config(
       "no-console": "off", // Next.js uses console for server logs
     },
   },
+
+  // Scripts directory - Node.js environment
+  {
+    files: ["scripts/**/*.js", "scripts/**/*.mjs"],
+    languageOptions: {
+      globals: {
+        console: "readonly",
+        process: "readonly",
+        __dirname: "readonly",
+        __filename: "readonly",
+      },
+    },
+    rules: {
+      "no-console": "off", // Scripts use console for output
+    },
+  },
 );

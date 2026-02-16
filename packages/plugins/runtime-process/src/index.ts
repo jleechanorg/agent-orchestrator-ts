@@ -260,7 +260,12 @@ export function create(): Runtime {
 
     async getAttachInfo(handle: RuntimeHandle): Promise<AttachInfo> {
       const entry = processes.get(handle.id);
-      if (!entry || !entry.process || entry.process.exitCode !== null || entry.process.signalCode !== null) {
+      if (
+        !entry ||
+        !entry.process ||
+        entry.process.exitCode !== null ||
+        entry.process.signalCode !== null
+      ) {
         return {
           type: "process",
           target: "",

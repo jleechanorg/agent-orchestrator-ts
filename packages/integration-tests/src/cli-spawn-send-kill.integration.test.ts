@@ -52,11 +52,9 @@ describe.skipIf(!tmuxOk)("CLI spawn-send-kill workflow (integration)", () => {
     await createSession(sessionName, "bash", tmpDir);
 
     // Verify tmux has-session succeeds
-    const { stdout } = await execFileAsync(
-      "tmux",
-      ["has-session", "-t", sessionName],
-      { timeout: 5_000 },
-    ).catch(() => ({ stdout: "FAIL" }));
+    const { stdout } = await execFileAsync("tmux", ["has-session", "-t", sessionName], {
+      timeout: 5_000,
+    }).catch(() => ({ stdout: "FAIL" }));
 
     // has-session produces no stdout on success, throws on failure
     expect(stdout).not.toBe("FAIL");
@@ -85,11 +83,9 @@ describe.skipIf(!tmuxOk)("CLI spawn-send-kill workflow (integration)", () => {
     await killSession(sessionName);
 
     // has-session should now fail
-    const result = await execFileAsync(
-      "tmux",
-      ["has-session", "-t", sessionName],
-      { timeout: 5_000 },
-    ).catch(() => "GONE");
+    const result = await execFileAsync("tmux", ["has-session", "-t", sessionName], {
+      timeout: 5_000,
+    }).catch(() => "GONE");
 
     expect(result).toBe("GONE");
   });

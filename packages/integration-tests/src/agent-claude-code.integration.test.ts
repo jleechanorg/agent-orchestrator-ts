@@ -17,7 +17,12 @@ import { promisify } from "node:util";
 import type { ActivityState, AgentSessionInfo } from "@composio/ao-core";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import claudeCodePlugin from "@composio/ao-plugin-agent-claude-code";
-import { isTmuxAvailable, killSessionsByPrefix, createSession, killSession } from "./helpers/tmux.js";
+import {
+  isTmuxAvailable,
+  killSessionsByPrefix,
+  createSession,
+  killSession,
+} from "./helpers/tmux.js";
 import { pollUntilEqual, sleep } from "./helpers/polling.js";
 import { makeTmuxHandle, makeSession } from "./helpers/session-factory.js";
 
@@ -102,11 +107,10 @@ describe.skipIf(!canRun)("agent-claude-code (integration)", () => {
     }
 
     // Wait for agent to exit (simple task should complete within 90s)
-    exitedRunning = await pollUntilEqual(
-      () => agent.isProcessRunning(handle),
-      false,
-      { timeoutMs: 90_000, intervalMs: 2_000 },
-    );
+    exitedRunning = await pollUntilEqual(() => agent.isProcessRunning(handle), false, {
+      timeoutMs: 90_000,
+      intervalMs: 2_000,
+    });
 
     // Capture post-exit observations
     exitedActivityState = await agent.getActivityState(session);

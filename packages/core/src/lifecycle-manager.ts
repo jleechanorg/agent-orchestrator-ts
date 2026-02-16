@@ -196,10 +196,11 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     // 2. Check agent activity via terminal output + process liveness
     if (agent && session.runtimeHandle) {
       try {
-        const runtime = registry.get<Runtime>("runtime", project.runtime ?? config.defaults.runtime);
-        const terminalOutput = runtime
-          ? await runtime.getOutput(session.runtimeHandle, 10)
-          : "";
+        const runtime = registry.get<Runtime>(
+          "runtime",
+          project.runtime ?? config.defaults.runtime,
+        );
+        const terminalOutput = runtime ? await runtime.getOutput(session.runtimeHandle, 10) : "";
         // Only trust detectActivity when we actually have terminal output;
         // empty output means the runtime probe failed, not that the agent exited.
         if (terminalOutput) {

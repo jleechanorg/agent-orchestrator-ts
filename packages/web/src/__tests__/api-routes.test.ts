@@ -1,6 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { NextRequest } from "next/server";
-import type { Session, SessionManager, OrchestratorConfig, PluginRegistry, SCM } from "@composio/ao-core";
+import type {
+  Session,
+  SessionManager,
+  OrchestratorConfig,
+  PluginRegistry,
+  SCM,
+} from "@composio/ao-core";
 
 // ── Mock Data ─────────────────────────────────────────────────────────
 // Provides test sessions covering the key states the dashboard needs.

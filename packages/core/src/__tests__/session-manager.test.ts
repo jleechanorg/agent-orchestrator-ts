@@ -273,8 +273,9 @@ describe("spawn", () => {
       registry: registryWithTracker,
     });
 
-    await expect(sm.spawn({ projectId: "my-app", issueId: "INT-9999" }))
-      .rejects.toThrow("does not exist in tracker");
+    await expect(sm.spawn({ projectId: "my-app", issueId: "INT-9999" })).rejects.toThrow(
+      "does not exist in tracker",
+    );
 
     // Should not create workspace or runtime when validation fails
     expect(mockWorkspace.create).not.toHaveBeenCalled();
@@ -307,8 +308,9 @@ describe("spawn", () => {
       registry: registryWithTracker,
     });
 
-    await expect(sm.spawn({ projectId: "my-app", issueId: "INT-100" }))
-      .rejects.toThrow("Failed to fetch issue");
+    await expect(sm.spawn({ projectId: "my-app", issueId: "INT-100" })).rejects.toThrow(
+      "Failed to fetch issue",
+    );
 
     // Should not create workspace or runtime when auth fails
     expect(mockWorkspace.create).not.toHaveBeenCalled();

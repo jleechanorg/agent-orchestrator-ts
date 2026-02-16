@@ -8,7 +8,15 @@ vi.mock("node:child_process", () => ({
   execFile: mockExecFile,
 }));
 
-import { exec, execSilent, tmux, git, gh, getTmuxSessions, getTmuxActivity } from "../../src/lib/shell.js";
+import {
+  exec,
+  execSilent,
+  tmux,
+  git,
+  gh,
+  getTmuxSessions,
+  getTmuxActivity,
+} from "../../src/lib/shell.js";
 
 beforeEach(() => {
   mockExecFile.mockReset();
@@ -16,7 +24,12 @@ beforeEach(() => {
 
 function mockSuccess(stdout: string, stderr = ""): void {
   mockExecFile.mockImplementation(
-    (_cmd: string, _args: string[], _opts: unknown, cb: (err: null, result: { stdout: string; stderr: string }) => void) => {
+    (
+      _cmd: string,
+      _args: string[],
+      _opts: unknown,
+      cb: (err: null, result: { stdout: string; stderr: string }) => void,
+    ) => {
       cb(null, { stdout, stderr });
     },
   );

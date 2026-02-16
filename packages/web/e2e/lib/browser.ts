@@ -32,9 +32,10 @@ export async function captureScreenshots(
   const screenshotDir = join(new URL("../../", import.meta.url).pathname, "screenshots");
   await mkdir(screenshotDir, { recursive: true });
 
-  const pages: PageSpec[] = extraPaths.length > 0
-    ? extraPaths.map((p) => ({ path: p, name: pathToName(p) }))
-    : DEFAULT_PAGES;
+  const pages: PageSpec[] =
+    extraPaths.length > 0
+      ? extraPaths.map((p) => ({ path: p, name: pathToName(p) }))
+      : DEFAULT_PAGES;
 
   const browser = await chromium.launch({ headless: true });
   const savedPaths: string[] = [];

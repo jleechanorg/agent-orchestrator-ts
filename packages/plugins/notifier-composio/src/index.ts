@@ -49,9 +49,7 @@ interface ComposioToolkit {
  * optional peer dependency — it may or may not be installed, and its
  * TypeScript types may not match our internal interface exactly.
  */
-async function loadComposioSDK(
-  apiKey: string,
-): Promise<ComposioToolkit | null> {
+async function loadComposioSDK(apiKey: string): Promise<ComposioToolkit | null> {
   try {
     // String literal import so vitest can intercept it for mocking.
     // The `as unknown as …` cast is safe because we validate the shape below.
@@ -81,10 +79,7 @@ async function loadComposioSDK(
 
 function formatNotifyText(event: OrchestratorEvent): string {
   const emoji = PRIORITY_EMOJI[event.priority];
-  const parts = [
-    `${emoji} *${event.type}* — ${event.sessionId}`,
-    event.message,
-  ];
+  const parts = [`${emoji} *${event.type}* — ${event.sessionId}`, event.message];
 
   const prUrl = typeof event.data.prUrl === "string" ? event.data.prUrl : undefined;
   if (prUrl) {
@@ -161,9 +156,7 @@ export function create(config?: Record<string, unknown>): Notifier {
   }
 
   if (defaultApp === "gmail" && !emailTo) {
-    throw new Error(
-      "[notifier-composio] emailTo is required when defaultApp is \"gmail\"",
-    );
+    throw new Error('[notifier-composio] emailTo is required when defaultApp is "gmail"');
   }
 
   let client: ComposioToolkit | null | undefined = clientOverride;
@@ -216,9 +209,17 @@ export function create(config?: Record<string, unknown>): Notifier {
     const result = await Promise.race([
       actionPromise,
       new Promise<never>((_, reject) => {
-        timeoutSignal.addEventListener("abort", () => {
-          reject(new Error(`[notifier-composio] Composio API call timed out after ${timeoutMs / 1000}s`));
-        }, { once: true });
+        timeoutSignal.addEventListener(
+          "abort",
+          () => {
+            reject(
+              new Error(
+                `[notifier-composio] Composio API call timed out after ${timeoutMs / 1000}s`,
+              ),
+            );
+          },
+          { once: true },
+        );
       }),
     ]);
 
@@ -261,11 +262,12 @@ export function create(config?: Record<string, unknown>): Notifier {
       const channel = context?.channel ?? channelId ?? channelName;
       const toolSlug = APP_TOOL_SLUG[defaultApp];
 
-      const args: Record<string, unknown> = defaultApp === "gmail"
-        ? { to: emailTo ?? "", subject: GMAIL_SUBJECT, body: message }
-        : defaultApp === "discord"
-          ? { content: message, ...(channel ? { channel_id: channel } : {}) }
-          : { text: message, ...(channel ? { channel } : {}) };
+      const args: Record<string, unknown> =
+        defaultApp === "gmail"
+          ? { to: emailTo ?? "", subject: GMAIL_SUBJECT, body: message }
+          : defaultApp === "discord"
+            ? { content: message, ...(channel ? { channel_id: channel } : {}) }
+            : { text: message, ...(channel ? { channel } : {}) };
 
       await executeWithTimeout(composio, toolSlug, args);
       return null;

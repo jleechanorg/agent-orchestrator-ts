@@ -169,7 +169,10 @@ export function getAttentionLevel(session: DashboardSession): AttentionLevel {
   }
 
   // ── Respond: agent is waiting for human input ─────────────────────
-  if (session.activity === ACTIVITY_STATE.WAITING_INPUT || session.activity === ACTIVITY_STATE.BLOCKED) {
+  if (
+    session.activity === ACTIVITY_STATE.WAITING_INPUT ||
+    session.activity === ACTIVITY_STATE.BLOCKED
+  ) {
     return "respond";
   }
   if (

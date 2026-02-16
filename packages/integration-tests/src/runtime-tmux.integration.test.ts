@@ -19,7 +19,9 @@ describe.skipIf(!tmuxOk)("runtime-tmux (integration)", () => {
   afterAll(async () => {
     try {
       await runtime.destroy(handle);
-    } catch { /* best-effort cleanup */ }
+    } catch {
+      /* best-effort cleanup */
+    }
     await killSessionsByPrefix(SESSION_PREFIX);
   }, 30_000);
 

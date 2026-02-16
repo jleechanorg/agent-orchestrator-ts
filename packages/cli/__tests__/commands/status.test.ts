@@ -3,7 +3,16 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
-const { mockTmux, mockGit, mockConfigRef, mockIntrospect, mockDetectPR, mockGetCISummary, mockGetReviewDecision, mockGetPendingComments } = vi.hoisted(() => ({
+const {
+  mockTmux,
+  mockGit,
+  mockConfigRef,
+  mockIntrospect,
+  mockDetectPR,
+  mockGetCISummary,
+  mockGetReviewDecision,
+  mockGetPendingComments,
+} = vi.hoisted(() => ({
   mockTmux: vi.fn(),
   mockGit: vi.fn(),
   mockConfigRef: { current: null as Record<string, unknown> | null },
@@ -59,7 +68,13 @@ vi.mock("../../src/lib/plugins.js", () => ({
     getAutomatedComments: vi.fn().mockResolvedValue([]),
     getCIChecks: vi.fn().mockResolvedValue([]),
     getReviews: vi.fn().mockResolvedValue([]),
-    getMergeability: vi.fn().mockResolvedValue({ mergeable: true, ciPassing: true, approved: false, noConflicts: true, blockers: [] }),
+    getMergeability: vi.fn().mockResolvedValue({
+      mergeable: true,
+      ciPassing: true,
+      approved: false,
+      noConflicts: true,
+      blockers: [],
+    }),
     getPRState: vi.fn().mockResolvedValue("open"),
     mergePR: vi.fn(),
     closePR: vi.fn(),
@@ -291,8 +306,22 @@ describe("status command", () => {
     mockGetCISummary.mockResolvedValue("passing");
     mockGetReviewDecision.mockResolvedValue("approved");
     mockGetPendingComments.mockResolvedValue([
-      { id: "1", author: "reviewer", body: "fix this", isResolved: false, createdAt: new Date(), url: "" },
-      { id: "2", author: "reviewer2", body: "fix that", isResolved: false, createdAt: new Date(), url: "" },
+      {
+        id: "1",
+        author: "reviewer",
+        body: "fix this",
+        isResolved: false,
+        createdAt: new Date(),
+        url: "",
+      },
+      {
+        id: "2",
+        author: "reviewer2",
+        body: "fix that",
+        isResolved: false,
+        createdAt: new Date(),
+        url: "",
+      },
     ]);
 
     await program.parseAsync(["node", "test", "status"]);
@@ -344,10 +373,7 @@ describe("status command", () => {
   it("handles SCM errors gracefully", async () => {
     const sessionDir = join(tmpDir, "my-app-sessions");
     mkdirSync(sessionDir, { recursive: true });
-    writeFileSync(
-      join(sessionDir, "app-1"),
-      "worktree=/tmp/wt\nbranch=feat/err\nstatus=working\n",
-    );
+    writeFileSync(join(sessionDir, "app-1"), "worktree=/tmp/wt\nbranch=feat/err\nstatus=working\n");
 
     mockTmux.mockImplementation(async (...args: string[]) => {
       if (args[0] === "list-sessions") return "app-1";

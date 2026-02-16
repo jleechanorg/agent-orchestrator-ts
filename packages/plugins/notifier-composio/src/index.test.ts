@@ -80,7 +80,9 @@ describe("notifier-composio", () => {
     });
 
     it("accepts gmail as defaultApp with emailTo", () => {
-      expect(() => create({ composioApiKey: "k", defaultApp: "gmail", emailTo: "a@b.com" })).not.toThrow();
+      expect(() =>
+        create({ composioApiKey: "k", defaultApp: "gmail", emailTo: "a@b.com" }),
+      ).not.toThrow();
     });
 
     it("throws when gmail is defaultApp without emailTo", () => {
@@ -125,7 +127,11 @@ describe("notifier-composio", () => {
     });
 
     it("calls GMAIL_SEND_EMAIL for gmail app", async () => {
-      const notifier = create({ composioApiKey: "k", defaultApp: "gmail", emailTo: "test@test.com" });
+      const notifier = create({
+        composioApiKey: "k",
+        defaultApp: "gmail",
+        emailTo: "test@test.com",
+      });
       await notifier.notify(makeEvent());
 
       expect(mockExecuteAction).toHaveBeenCalledWith(
@@ -192,9 +198,7 @@ describe("notifier-composio", () => {
 
     it("includes URL actions as links", async () => {
       const notifier = create({ composioApiKey: "k" });
-      const actions: NotifyAction[] = [
-        { label: "View PR", url: "https://github.com/pull/42" },
-      ];
+      const actions: NotifyAction[] = [{ label: "View PR", url: "https://github.com/pull/42" }];
       await notifier.notifyWithActions!(makeEvent(), actions);
 
       const callArgs = mockExecuteAction.mock.calls[0][0];
@@ -203,9 +207,7 @@ describe("notifier-composio", () => {
 
     it("renders callback-only actions without URL", async () => {
       const notifier = create({ composioApiKey: "k" });
-      const actions: NotifyAction[] = [
-        { label: "Restart", callbackEndpoint: "/api/restart" },
-      ];
+      const actions: NotifyAction[] = [{ label: "Restart", callbackEndpoint: "/api/restart" }];
       await notifier.notifyWithActions!(makeEvent(), actions);
 
       const callArgs = mockExecuteAction.mock.calls[0][0];
@@ -267,9 +269,7 @@ describe("notifier-composio", () => {
       });
 
       const notifier = create({ composioApiKey: "k" });
-      await expect(notifier.notify(makeEvent())).rejects.toThrow(
-        "unknown error",
-      );
+      await expect(notifier.notify(makeEvent())).rejects.toThrow("unknown error");
     });
   });
 
@@ -279,9 +279,7 @@ describe("notifier-composio", () => {
       const notifier = create();
       await notifier.notify(makeEvent());
       expect(mockExecuteAction).not.toHaveBeenCalled();
-      expect(warnSpy).toHaveBeenCalledWith(
-        expect.stringContaining("No composioApiKey"),
-      );
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("No composioApiKey"));
       warnSpy.mockRestore();
     });
   });

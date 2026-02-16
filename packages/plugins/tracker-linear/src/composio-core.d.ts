@@ -10,10 +10,7 @@ declare module "@composio/core" {
   }
 
   interface ComposioTools {
-    execute(
-      action: string,
-      params: Record<string, unknown>,
-    ): Promise<ComposioExecuteResult>;
+    execute(action: string, params: Record<string, unknown>): Promise<ComposioExecuteResult>;
   }
 
   export class Composio {

@@ -77,9 +77,7 @@ describe("notifier-desktop integration", () => {
       const nastySession = `test"with\\back'slash`;
       const nastyMessage = `msg "has" all\\the'chars`;
 
-      await notifier.notify(
-        makeEvent({ sessionId: nastySession, message: nastyMessage }),
-      );
+      await notifier.notify(makeEvent({ sessionId: nastySession, message: nastyMessage }));
 
       const script = mockExecFile.mock.calls[0][1][1] as string;
 
@@ -172,9 +170,7 @@ describe("notifier-desktop integration", () => {
 
     it("action labels with special chars are escaped in AppleScript", async () => {
       const notifier = desktopPlugin.create();
-      const actions: NotifyAction[] = [
-        { label: 'Fix "bug"', url: "https://example.com" },
-      ];
+      const actions: NotifyAction[] = [{ label: 'Fix "bug"', url: "https://example.com" }];
 
       await notifier.notifyWithActions!(makeEvent(), actions);
 

@@ -239,10 +239,7 @@ describe("spawn command", () => {
 
     // Prompt is sent via core tmuxSendKeys (handles multi-line via load-buffer)
     const { tmuxSendKeys } = await import("@composio/ao-core");
-    expect(tmuxSendKeys).toHaveBeenCalledWith(
-      "app-1",
-      expect.stringContaining("INT-100"),
-    );
+    expect(tmuxSendKeys).toHaveBeenCalledWith("app-1", expect.stringContaining("INT-100"));
   });
 
   it("outputs SESSION= for scripting", async () => {

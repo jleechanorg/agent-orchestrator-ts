@@ -43,7 +43,11 @@ export async function POST(_request: NextRequest, { params }: { params: Promise<
       branch: session.branch ?? undefined,
     });
 
-    return NextResponse.json({ ok: true, sessionId: id, newSession: sessionToDashboard(newSession) });
+    return NextResponse.json({
+      ok: true,
+      sessionId: id,
+      newSession: sessionToDashboard(newSession),
+    });
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Failed to restore session";
     const status = msg.includes("not found") ? 404 : 500;

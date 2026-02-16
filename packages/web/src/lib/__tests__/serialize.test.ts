@@ -55,9 +55,9 @@ function createMockSCM(): SCM {
       additions: 100,
       deletions: 50,
     }),
-    getCIChecks: vi.fn().mockResolvedValue([
-      { name: "test", status: "passed", url: "https://example.com" },
-    ]),
+    getCIChecks: vi
+      .fn()
+      .mockResolvedValue([{ name: "test", status: "passed", url: "https://example.com" }]),
     getCISummary: vi.fn().mockResolvedValue("passing"),
     getReviewDecision: vi.fn().mockResolvedValue("approved"),
     getMergeability: vi.fn().mockResolvedValue({

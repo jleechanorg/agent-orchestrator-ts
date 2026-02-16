@@ -219,12 +219,8 @@ describe("plugin integration", () => {
       const trackers = registry.list("tracker");
       const scms = registry.list("scm");
 
-      expect(trackers).toContainEqual(
-        expect.objectContaining({ name: "github", slot: "tracker" }),
-      );
-      expect(scms).toContainEqual(
-        expect.objectContaining({ name: "github", slot: "scm" }),
-      );
+      expect(trackers).toContainEqual(expect.objectContaining({ name: "github", slot: "tracker" }));
+      expect(scms).toContainEqual(expect.objectContaining({ name: "github", slot: "scm" }));
     });
 
     it("registry.get returns correct plugin instances by slot+name", () => {
@@ -449,9 +445,7 @@ describe("plugin integration", () => {
       // 1. getPRState → open
       mockGh({ state: "OPEN" });
       // 2. getCISummary → failing (pr checks returns array of checks with correct field names)
-      mockGh([
-        { name: "lint", state: "FAILURE", link: "", startedAt: "", completedAt: "" },
-      ]);
+      mockGh([{ name: "lint", state: "FAILURE", link: "", startedAt: "", completedAt: "" }]);
 
       await lm.check("app-1");
 
@@ -505,9 +499,7 @@ describe("plugin integration", () => {
       // 1. getPRState → open
       mockGh({ state: "OPEN" });
       // 2. getCISummary → passing (using correct field names: state and link)
-      mockGh([
-        { name: "lint", state: "SUCCESS", link: "", startedAt: "", completedAt: "" },
-      ]);
+      mockGh([{ name: "lint", state: "SUCCESS", link: "", startedAt: "", completedAt: "" }]);
       // 3. getReviewDecision (gh pr view with reviewDecision)
       mockGh({ reviewDecision: "CHANGES_REQUESTED" });
 

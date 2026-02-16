@@ -1,7 +1,12 @@
 import { ensureServer } from "./lib/server.js";
 import { captureScreenshots } from "./lib/browser.js";
 
-function parseArgs(argv: string[]): { port: number; width: number; height: number; paths: string[] } {
+function parseArgs(argv: string[]): {
+  port: number;
+  width: number;
+  height: number;
+  paths: string[];
+} {
   const args = argv.slice(2);
   let port = 3333;
   let width = 1280;

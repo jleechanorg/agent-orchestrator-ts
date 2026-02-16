@@ -129,30 +129,28 @@ describe("create()", () => {
 
     expect(handle.id).toBe("my-session");
     expect(handle.runtimeName).toBe("process");
-    expect(handle.data).toEqual(
-      expect.objectContaining({ pid: 99999 }),
-    );
+    expect(handle.data).toEqual(expect.objectContaining({ pid: 99999 }));
   });
 
   it("rejects invalid session IDs with special characters", async () => {
     const runtime = create();
-    await expect(
-      runtime.create(defaultConfig({ sessionId: "bad session!!" })),
-    ).rejects.toThrow(/Invalid session ID/);
+    await expect(runtime.create(defaultConfig({ sessionId: "bad session!!" }))).rejects.toThrow(
+      /Invalid session ID/,
+    );
   });
 
   it("rejects session ID with dots", async () => {
     const runtime = create();
-    await expect(
-      runtime.create(defaultConfig({ sessionId: "bad.session" })),
-    ).rejects.toThrow(/Invalid session ID/);
+    await expect(runtime.create(defaultConfig({ sessionId: "bad.session" }))).rejects.toThrow(
+      /Invalid session ID/,
+    );
   });
 
   it("rejects session ID with spaces", async () => {
     const runtime = create();
-    await expect(
-      runtime.create(defaultConfig({ sessionId: "bad session" })),
-    ).rejects.toThrow(/Invalid session ID/);
+    await expect(runtime.create(defaultConfig({ sessionId: "bad session" }))).rejects.toThrow(
+      /Invalid session ID/,
+    );
   });
 
   it("accepts valid session IDs with alphanumeric, hyphens, underscores", async () => {
@@ -174,9 +172,9 @@ describe("create()", () => {
     // Second call with same ID should throw
     const child2 = createMockChild();
     mockSpawn.mockReturnValue(child2);
-    await expect(
-      runtime.create(defaultConfig({ sessionId: "dup-session" })),
-    ).rejects.toThrow(/already exists/);
+    await expect(runtime.create(defaultConfig({ sessionId: "dup-session" }))).rejects.toThrow(
+      /already exists/,
+    );
   });
 
   it("cleans up on spawn error", async () => {
@@ -205,9 +203,9 @@ describe("create()", () => {
     });
 
     const runtime = create();
-    await expect(
-      runtime.create(defaultConfig({ sessionId: "sync-fail" })),
-    ).rejects.toThrow(/Failed to spawn/);
+    await expect(runtime.create(defaultConfig({ sessionId: "sync-fail" }))).rejects.toThrow(
+      /Failed to spawn/,
+    );
 
     // Slot should be freed — re-create should work
     const child = createMockChild();
@@ -254,9 +252,7 @@ describe("destroy()", () => {
 
   it("does not throw for unknown handle (no-op)", async () => {
     const runtime = create();
-    await expect(
-      runtime.destroy(makeHandle("nonexistent")),
-    ).resolves.toBeUndefined();
+    await expect(runtime.destroy(makeHandle("nonexistent"))).resolves.toBeUndefined();
   });
 
   it("does not attempt kill if process already exited", async () => {
@@ -350,17 +346,14 @@ describe("sendMessage()", () => {
 
     await runtime.sendMessage(handle, "hello world");
 
-    expect(child.stdin.write).toHaveBeenCalledWith(
-      "hello world\n",
-      expect.any(Function),
-    );
+    expect(child.stdin.write).toHaveBeenCalledWith("hello world\n", expect.any(Function));
   });
 
   it("throws for unknown session", async () => {
     const runtime = create();
-    await expect(
-      runtime.sendMessage(makeHandle("nonexistent"), "hello"),
-    ).rejects.toThrow(/No process found/);
+    await expect(runtime.sendMessage(makeHandle("nonexistent"), "hello")).rejects.toThrow(
+      /No process found/,
+    );
   });
 
   it("throws when stdin is not writable", async () => {
@@ -371,9 +364,7 @@ describe("sendMessage()", () => {
     const runtime = create();
     const handle = await runtime.create(defaultConfig());
 
-    await expect(
-      runtime.sendMessage(handle, "hello"),
-    ).rejects.toThrow(/stdin not writable/);
+    await expect(runtime.sendMessage(handle, "hello")).rejects.toThrow(/stdin not writable/);
   });
 
   it("rejects when stdin.write returns an error", async () => {
@@ -386,9 +377,7 @@ describe("sendMessage()", () => {
     const runtime = create();
     const handle = await runtime.create(defaultConfig());
 
-    await expect(
-      runtime.sendMessage(handle, "hello"),
-    ).rejects.toThrow(/write EPIPE/);
+    await expect(runtime.sendMessage(handle, "hello")).rejects.toThrow(/write EPIPE/);
   });
 });
 

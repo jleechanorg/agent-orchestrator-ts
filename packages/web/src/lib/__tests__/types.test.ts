@@ -333,9 +333,7 @@ describe("getAttentionLevel", () => {
             blockers: [],
           },
           unresolvedThreads: 3,
-          unresolvedComments: [
-            { url: "", path: "", author: "reviewer", body: "comment" },
-          ],
+          unresolvedComments: [{ url: "", path: "", author: "reviewer", body: "comment" }],
         },
       });
       expect(getAttentionLevel(session)).toBe("pending");

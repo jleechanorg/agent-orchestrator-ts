@@ -53,8 +53,8 @@ function TerminalTestPageContent() {
   const defaultNewSession = availableSessions[1] || availableSessions[0] || "ao-orchestrator";
 
   // Allow overriding individual sessions
-  const oldSessionId = oldSessionParam || (sessionParam || defaultOldSession);
-  const newSessionId = newSessionParam || (sessionParam || defaultNewSession);
+  const oldSessionId = oldSessionParam || sessionParam || defaultOldSession;
+  const newSessionId = newSessionParam || sessionParam || defaultNewSession;
 
   return (
     <div className="min-h-screen bg-[var(--color-bg-primary)] p-8">
@@ -66,33 +66,41 @@ function TerminalTestPageContent() {
           </h1>
           <p className="text-sm text-[var(--color-text-muted)]">
             Comparing sessions:
-            <span className="ml-2 font-mono text-[var(--color-accent-red)]">OLD: {oldSessionId}</span>
-            <span className="ml-2 font-mono text-[var(--color-accent-green)]">NEW: {newSessionId}</span>
+            <span className="ml-2 font-mono text-[var(--color-accent-red)]">
+              OLD: {oldSessionId}
+            </span>
+            <span className="ml-2 font-mono text-[var(--color-accent-green)]">
+              NEW: {newSessionId}
+            </span>
           </p>
         </div>
 
         {/* The Problem */}
         <section className="mb-8 rounded-lg border border-[var(--color-border-default)] bg-[var(--color-bg-secondary)] p-6">
-          <h2 className="mb-4 text-xl font-bold text-[var(--color-text-primary)]">🐛 The Problem</h2>
+          <h2 className="mb-4 text-xl font-bold text-[var(--color-text-primary)]">
+            🐛 The Problem
+          </h2>
           <div className="space-y-3 text-sm text-[var(--color-text-secondary)]">
             <p>
-              <strong className="text-[var(--color-text-primary)]">Issue:</strong> Browser clipboard (Cmd+C/Ctrl+C)
-              only worked when an iTerm2 client was attached to the tmux session.
+              <strong className="text-[var(--color-text-primary)]">Issue:</strong> Browser clipboard
+              (Cmd+C/Ctrl+C) only worked when an iTerm2 client was attached to the tmux session.
             </p>
             <p>
-              <strong className="text-[var(--color-text-primary)]">Impact:</strong> Users had to keep iTerm2 tabs open
-              in the background for clipboard to work in the web dashboard.
+              <strong className="text-[var(--color-text-primary)]">Impact:</strong> Users had to
+              keep iTerm2 tabs open in the background for clipboard to work in the web dashboard.
             </p>
             <p>
-              <strong className="text-[var(--color-text-primary)]">Investigation time:</strong> 12+ hours of debugging
-              across tmux, ttyd, xterm.js, and macOS clipboard systems.
+              <strong className="text-[var(--color-text-primary)]">Investigation time:</strong> 12+
+              hours of debugging across tmux, ttyd, xterm.js, and macOS clipboard systems.
             </p>
           </div>
         </section>
 
         {/* Root Cause */}
         <section className="mb-8 rounded-lg border border-[var(--color-border-default)] bg-[var(--color-bg-secondary)] p-6">
-          <h2 className="mb-4 text-xl font-bold text-[var(--color-text-primary)]">🔍 Root Cause Analysis</h2>
+          <h2 className="mb-4 text-xl font-bold text-[var(--color-text-primary)]">
+            🔍 Root Cause Analysis
+          </h2>
           <div className="space-y-4 text-sm">
             <div>
               <h3 className="mb-2 font-semibold text-[var(--color-text-primary)]">
@@ -100,7 +108,10 @@ function TerminalTestPageContent() {
               </h3>
               <ul className="ml-6 list-disc space-y-1 text-[var(--color-text-secondary)]">
                 <li>tmux uses OSC 52 escape sequences to synchronize clipboard with terminals</li>
-                <li>Format: <code className="rounded bg-black px-1 py-0.5">\x1b]52;c;&lt;base64&gt;\x07</code></li>
+                <li>
+                  Format:{" "}
+                  <code className="rounded bg-black px-1 py-0.5">\x1b]52;c;&lt;base64&gt;\x07</code>
+                </li>
                 <li>Terminal must support OSC 52 and have proper capabilities declared</li>
               </ul>
             </div>
@@ -112,17 +123,21 @@ function TerminalTestPageContent() {
               <ul className="ml-6 list-disc space-y-1 text-[var(--color-text-secondary)]">
                 <li>tmux queries terminal capabilities using Device Attributes (DA/XDA)</li>
                 <li>
-                  XDA query: <code className="rounded bg-black px-1 py-0.5">CSI &gt; q</code> (also called XTVERSION)
+                  XDA query: <code className="rounded bg-black px-1 py-0.5">CSI &gt; q</code> (also
+                  called XTVERSION)
                 </li>
                 <li>
-                  Terminal responds with identification string containing terminal type (e.g., "XTerm(370)", "iTerm2 ")
+                  Terminal responds with identification string containing terminal type (e.g.,
+                  "XTerm(370)", "iTerm2 ")
                 </li>
                 <li>Based on response, tmux enables features like TTYC_MS (clipboard support)</li>
               </ul>
             </div>
 
             <div>
-              <h3 className="mb-2 font-semibold text-[var(--color-text-primary)]">3. The Missing Piece</h3>
+              <h3 className="mb-2 font-semibold text-[var(--color-text-primary)]">
+                3. The Missing Piece
+              </h3>
               <div className="rounded-lg border border-[var(--color-accent-red)] bg-[var(--color-bg-tertiary)] p-4">
                 <p className="font-semibold text-[var(--color-accent-red)]">
                   xterm.js does NOT implement XDA (Extended Device Attributes)
@@ -134,7 +149,9 @@ function TerminalTestPageContent() {
                       test.skip('CSI &gt; Ps q - Report xterm name and version (XTVERSION)')
                     </code>
                   </li>
-                  <li>Without XDA response, tmux doesn't recognize the terminal as clipboard-capable</li>
+                  <li>
+                    Without XDA response, tmux doesn't recognize the terminal as clipboard-capable
+                  </li>
                   <li>tmux never emits OSC 52 sequences → clipboard doesn't work</li>
                 </ul>
               </div>
@@ -150,7 +167,9 @@ function TerminalTestPageContent() {
                   <code className="rounded bg-black px-1 py-0.5">"iTerm2 "</code>
                 </li>
                 <li>tmux detects this and enables clipboard for the entire session</li>
-                <li>OSC 52 sequences are then sent to ALL clients, including browser (ttyd/xterm.js)</li>
+                <li>
+                  OSC 52 sequences are then sent to ALL clients, including browser (ttyd/xterm.js)
+                </li>
                 <li>This is why clipboard "magically worked" when iTerm2 was attached</li>
               </ul>
             </div>
@@ -159,12 +178,17 @@ function TerminalTestPageContent() {
 
         {/* The Solution */}
         <section className="mb-8 rounded-lg border border-[var(--color-border-default)] bg-[var(--color-bg-secondary)] p-6">
-          <h2 className="mb-4 text-xl font-bold text-[var(--color-text-primary)]">✅ The Solution</h2>
+          <h2 className="mb-4 text-xl font-bold text-[var(--color-text-primary)]">
+            ✅ The Solution
+          </h2>
           <div className="space-y-4 text-sm">
             <div>
-              <h3 className="mb-2 font-semibold text-[var(--color-text-primary)]">DirectTerminal Implementation</h3>
+              <h3 className="mb-2 font-semibold text-[var(--color-text-primary)]">
+                DirectTerminal Implementation
+              </h3>
               <p className="mb-2 text-[var(--color-text-secondary)]">
-                Created custom terminal component that registers an XDA handler using xterm.js parser API:
+                Created custom terminal component that registers an XDA handler using xterm.js
+                parser API:
               </p>
               <pre className="overflow-x-auto rounded-lg bg-black p-4 text-xs">
                 <code className="text-[var(--color-accent-green)]">
@@ -181,22 +205,31 @@ function TerminalTestPageContent() {
             </div>
 
             <div>
-              <h3 className="mb-2 font-semibold text-[var(--color-text-primary)]">What This Does</h3>
+              <h3 className="mb-2 font-semibold text-[var(--color-text-primary)]">
+                What This Does
+              </h3>
               <ol className="ml-6 list-decimal space-y-1 text-[var(--color-text-secondary)]">
                 <li>Intercepts XDA queries from tmux</li>
                 <li>
-                  Responds with <code className="rounded bg-black px-1 py-0.5">XTerm(370)</code> identification
+                  Responds with <code className="rounded bg-black px-1 py-0.5">XTerm(370)</code>{" "}
+                  identification
                 </li>
                 <li>tmux detects "XTerm(" in response and enables TTYC_MS capability</li>
-                <li>OSC 52 sequences now flow: tmux → WebSocket → xterm.js → navigator.clipboard</li>
                 <li>
-                  <strong className="text-[var(--color-accent-green)]">Clipboard works without iTerm2!</strong>
+                  OSC 52 sequences now flow: tmux → WebSocket → xterm.js → navigator.clipboard
+                </li>
+                <li>
+                  <strong className="text-[var(--color-accent-green)]">
+                    Clipboard works without iTerm2!
+                  </strong>
                 </li>
               </ol>
             </div>
 
             <div>
-              <h3 className="mb-2 font-semibold text-[var(--color-text-primary)]">Architecture Changes</h3>
+              <h3 className="mb-2 font-semibold text-[var(--color-text-primary)]">
+                Architecture Changes
+              </h3>
               <ul className="ml-6 list-disc space-y-1 text-[var(--color-text-secondary)]">
                 <li>
                   <strong>Old:</strong> Browser → ttyd (iframe) → tmux
@@ -213,7 +246,9 @@ function TerminalTestPageContent() {
 
         {/* Node Version Requirement */}
         <section className="mb-8 rounded-lg border border-[var(--color-accent-orange)] bg-[var(--color-bg-secondary)] p-6">
-          <h2 className="mb-4 text-xl font-bold text-[var(--color-text-primary)]">⚠️ Node Version Requirement</h2>
+          <h2 className="mb-4 text-xl font-bold text-[var(--color-text-primary)]">
+            ⚠️ Node Version Requirement
+          </h2>
           <div className="space-y-3 text-sm">
             <div className="rounded-lg border border-[var(--color-accent-orange)] bg-[var(--color-bg-tertiary)] p-4">
               <p className="font-semibold text-[var(--color-accent-orange)]">
@@ -232,7 +267,8 @@ function TerminalTestPageContent() {
                   <code className="rounded bg-black px-1 py-0.5">posix_spawnp failed</code>
                 </li>
                 <li>
-                  Root cause: node-pty's native module (darwin-arm64 prebuild) fails to spawn processes on Node 25
+                  Root cause: node-pty's native module (darwin-arm64 prebuild) fails to spawn
+                  processes on Node 25
                 </li>
                 <li>No darwin-arm64 prebuilds available that work with Node 25</li>
                 <li>Building from source also fails with the same error</li>
@@ -240,16 +276,20 @@ function TerminalTestPageContent() {
             </div>
 
             <div>
-              <h3 className="mb-2 font-semibold text-[var(--color-text-primary)]">When Can We Upgrade?</h3>
+              <h3 className="mb-2 font-semibold text-[var(--color-text-primary)]">
+                When Can We Upgrade?
+              </h3>
               <ul className="ml-6 list-disc space-y-1 text-[var(--color-text-secondary)]">
                 <li>
-                  <strong>Option 1:</strong> Wait for node-pty 1.2.0 stable release with Node 25+ support
+                  <strong>Option 1:</strong> Wait for node-pty 1.2.0 stable release with Node 25+
+                  support
                 </li>
                 <li>
                   <strong>Option 2:</strong> Test node-pty beta versions (currently 1.2.0-beta.11)
                 </li>
                 <li>
-                  <strong>Option 3:</strong> Switch to alternative PTY library (e.g., xterm-pty, node-child-pty)
+                  <strong>Option 3:</strong> Switch to alternative PTY library (e.g., xterm-pty,
+                  node-child-pty)
                 </li>
               </ul>
             </div>
@@ -258,16 +298,20 @@ function TerminalTestPageContent() {
               <h3 className="mb-2 font-semibold text-[var(--color-text-primary)]">
                 ⚡ Testing Instructions for Upgrades
               </h3>
-              <p className="mb-2 text-[var(--color-text-secondary)]">Before upgrading Node or node-pty:</p>
+              <p className="mb-2 text-[var(--color-text-secondary)]">
+                Before upgrading Node or node-pty:
+              </p>
               <ol className="ml-6 list-decimal space-y-1 text-xs text-[var(--color-text-secondary)]">
                 <li>
                   Test node-pty directly:{" "}
                   <code className="rounded bg-black px-1 py-0.5">
-                    node -e "const pty = require('node-pty'); pty.spawn('/bin/bash', [], &#123;&#125;)"
+                    node -e "const pty = require('node-pty'); pty.spawn('/bin/bash', [],
+                    &#123;&#125;)"
                   </code>
                 </li>
                 <li>
-                  If no <code className="rounded bg-black px-1 py-0.5">posix_spawnp failed</code> error, proceed
+                  If no <code className="rounded bg-black px-1 py-0.5">posix_spawnp failed</code>{" "}
+                  error, proceed
                 </li>
                 <li>Start dev servers and open this page</li>
                 <li>Test DirectTerminal: verify connection, clipboard, resize</li>
@@ -293,8 +337,11 @@ function TerminalTestPageContent() {
           </div>
           {oldSessionId === newSessionId && (
             <div className="mt-2 rounded border border-[var(--color-accent-orange)] bg-[var(--color-bg-tertiary)] p-2 text-xs text-[var(--color-text-secondary)]">
-              ⚠️ Using same session for both terminals. To avoid port conflicts, use different sessions:
-              <code className="ml-1 rounded bg-black px-1">?old_session=ao-orchestrator&new_session=ao-20</code>
+              ⚠️ Using same session for both terminals. To avoid port conflicts, use different
+              sessions:
+              <code className="ml-1 rounded bg-black px-1">
+                ?old_session=ao-orchestrator&new_session=ao-20
+              </code>
             </div>
           )}
         </div>
@@ -317,8 +364,7 @@ function TerminalTestPageContent() {
                   ❌ Clipboard requires iTerm2 attached
                   <br />
                   ✅ Battle-tested (ttyd)
-                  <br />
-                  ❌ No control over capabilities
+                  <br />❌ No control over capabilities
                 </div>
                 <Terminal sessionId={oldSessionId} />
               </div>
@@ -364,7 +410,9 @@ function TerminalTestPageContent() {
 
         {/* Debugging Journey */}
         <section className="rounded-lg border border-[var(--color-accent-purple)] bg-[var(--color-bg-secondary)] p-6">
-          <h2 className="mb-4 text-xl font-bold text-[var(--color-text-primary)]">🔬 The Debugging Journey</h2>
+          <h2 className="mb-4 text-xl font-bold text-[var(--color-text-primary)]">
+            🔬 The Debugging Journey
+          </h2>
 
           <div className="space-y-4 text-sm text-[var(--color-text-secondary)]">
             <div className="rounded-lg bg-[var(--color-bg-tertiary)] p-4">
@@ -374,41 +422,53 @@ function TerminalTestPageContent() {
             </div>
 
             <div>
-              <h3 className="mb-2 font-semibold text-[var(--color-text-primary)]">❌ What We Tried (That Didn't Work)</h3>
+              <h3 className="mb-2 font-semibold text-[var(--color-text-primary)]">
+                ❌ What We Tried (That Didn't Work)
+              </h3>
               <ol className="ml-6 list-decimal space-y-2">
                 <li>
-                  <strong>Suspected ttyd clipboard handling</strong> - Spent hours analyzing ttyd source code, checking OSC 52
-                  passthrough. ttyd was innocent - it passes escape sequences correctly.
+                  <strong>Suspected ttyd clipboard handling</strong> - Spent hours analyzing ttyd
+                  source code, checking OSC 52 passthrough. ttyd was innocent - it passes escape
+                  sequences correctly.
                 </li>
                 <li>
-                  <strong>Blamed xterm.js configuration</strong> - Tried every possible xterm.js option, clipboard addon
-                  configurations, terminal type settings. None made a difference.
+                  <strong>Blamed xterm.js configuration</strong> - Tried every possible xterm.js
+                  option, clipboard addon configurations, terminal type settings. None made a
+                  difference.
                 </li>
                 <li>
-                  <strong>Investigated macOS clipboard permissions</strong> - Checked browser permissions, sandbox attributes,
-                  navigator.clipboard API. All were correct.
+                  <strong>Investigated macOS clipboard permissions</strong> - Checked browser
+                  permissions, sandbox attributes, navigator.clipboard API. All were correct.
                 </li>
                 <li>
-                  <strong>Suspected WebSocket encoding issues</strong> - Checked binary vs text mode, UTF-8 encoding,
-                  base64 handling. All correct.
+                  <strong>Suspected WebSocket encoding issues</strong> - Checked binary vs text
+                  mode, UTF-8 encoding, base64 handling. All correct.
                 </li>
                 <li>
-                  <strong>Tried force-enabling tmux clipboard</strong> - Used <code className="rounded bg-black px-1 py-0.5">
-                  set-option -s set-clipboard on</code> in tmux.conf. Didn't help - tmux needs the terminal to declare support.
+                  <strong>Tried force-enabling tmux clipboard</strong> - Used{" "}
+                  <code className="rounded bg-black px-1 py-0.5">
+                    set-option -s set-clipboard on
+                  </code>{" "}
+                  in tmux.conf. Didn't help - tmux needs the terminal to declare support.
                 </li>
               </ol>
             </div>
 
             <div>
-              <h3 className="mb-2 font-semibold text-[var(--color-text-primary)]">💡 The Breakthrough</h3>
+              <h3 className="mb-2 font-semibold text-[var(--color-text-primary)]">
+                💡 The Breakthrough
+              </h3>
               <div className="space-y-2">
                 <p>
-                  <strong>What finally worked:</strong> Registering an XDA (Extended Device Attributes) handler in xterm.js
-                  using <code className="rounded bg-black px-1 py-0.5">terminal.parser.registerCsiHandler()</code>
+                  <strong>What finally worked:</strong> Registering an XDA (Extended Device
+                  Attributes) handler in xterm.js using{" "}
+                  <code className="rounded bg-black px-1 py-0.5">
+                    terminal.parser.registerCsiHandler()
+                  </code>
                 </p>
                 <pre className="mt-2 overflow-x-auto rounded-lg bg-black p-3 text-xs">
                   <code className="text-[var(--color-accent-green)]">
-{`terminal.parser.registerCsiHandler(
+                    {`terminal.parser.registerCsiHandler(
   { prefix: ">", final: "q" },
   () => {
     terminal.write("\\x1bP>|XTerm(370)\\x1b\\\\");
@@ -418,35 +478,43 @@ function TerminalTestPageContent() {
                   </code>
                 </pre>
                 <p className="mt-2">
-                  This single handler made tmux recognize our terminal as clipboard-capable. Clipboard immediately started working.
+                  This single handler made tmux recognize our terminal as clipboard-capable.
+                  Clipboard immediately started working.
                 </p>
               </div>
             </div>
 
             <div>
-              <h3 className="mb-2 font-semibold text-[var(--color-text-primary)]">🎯 How We Finally Figured It Out</h3>
+              <h3 className="mb-2 font-semibold text-[var(--color-text-primary)]">
+                🎯 How We Finally Figured It Out
+              </h3>
               <ol className="ml-6 list-decimal space-y-2">
                 <li>
-                  <strong>Deep-dive into tmux source code</strong> - Used DeepWiki.com to analyze tmux's terminal capability
-                  detection logic in <code className="rounded bg-black px-1 py-0.5">tty-keys.c</code> and{" "}
+                  <strong>Deep-dive into tmux source code</strong> - Used DeepWiki.com to analyze
+                  tmux's terminal capability detection logic in{" "}
+                  <code className="rounded bg-black px-1 py-0.5">tty-keys.c</code> and{" "}
                   <code className="rounded bg-black px-1 py-0.5">tty.c</code>
                 </li>
                 <li>
                   <strong>Discovered XDA queries</strong> - Found that tmux sends{" "}
-                  <code className="rounded bg-black px-1 py-0.5">CSI &gt; q</code> (XTVERSION) to detect terminal type
+                  <code className="rounded bg-black px-1 py-0.5">CSI &gt; q</code> (XTVERSION) to
+                  detect terminal type
                 </li>
                 <li>
-                  <strong>Traced the "iTerm2 magic"</strong> - Realized why clipboard worked when iTerm2 was attached:
-                  iTerm2 responds to XDA queries, enabling clipboard for the entire tmux session
+                  <strong>Traced the "iTerm2 magic"</strong> - Realized why clipboard worked when
+                  iTerm2 was attached: iTerm2 responds to XDA queries, enabling clipboard for the
+                  entire tmux session
                 </li>
                 <li>
-                  <strong>Checked xterm.js implementation</strong> - Found that XDA is marked as TODO in xterm.js tests:{" "}
+                  <strong>Checked xterm.js implementation</strong> - Found that XDA is marked as
+                  TODO in xterm.js tests:{" "}
                   <code className="rounded bg-black px-1 py-0.5">
                     test.skip('CSI &gt; Ps q - Report xterm name and version (XTVERSION)')
                   </code>
                 </li>
                 <li>
-                  <strong>Implemented custom handler</strong> - Used xterm.js parser API to register our own XDA handler
+                  <strong>Implemented custom handler</strong> - Used xterm.js parser API to register
+                  our own XDA handler
                 </li>
               </ol>
             </div>
@@ -457,36 +525,44 @@ function TerminalTestPageContent() {
               </h3>
               <ol className="ml-6 list-decimal space-y-2 text-[var(--color-text-secondary)]">
                 <li>
-                  <strong>Start with tmux source code first</strong> - Instead of debugging xterm.js and ttyd, we should have
-                  immediately checked how tmux detects terminal capabilities
+                  <strong>Start with tmux source code first</strong> - Instead of debugging xterm.js
+                  and ttyd, we should have immediately checked how tmux detects terminal
+                  capabilities
                 </li>
                 <li>
                   <strong>Monitor escape sequences</strong> - Running{" "}
-                  <code className="rounded bg-black px-1 py-0.5">tmux -vvv</code> or using a terminal protocol analyzer
-                  would have revealed the XDA queries being sent
+                  <code className="rounded bg-black px-1 py-0.5">tmux -vvv</code> or using a
+                  terminal protocol analyzer would have revealed the XDA queries being sent
                 </li>
                 <li>
-                  <strong>Compare working vs broken scenarios</strong> - Should have captured and diffed the escape sequences
-                  when iTerm2 was attached vs not attached earlier
+                  <strong>Compare working vs broken scenarios</strong> - Should have captured and
+                  diffed the escape sequences when iTerm2 was attached vs not attached earlier
                 </li>
                 <li>
-                  <strong>Check xterm.js issues/limitations first</strong> - A GitHub search for "xterm.js XDA" or
-                  "xterm.js device attributes" would have revealed it's unimplemented
+                  <strong>Check xterm.js issues/limitations first</strong> - A GitHub search for
+                  "xterm.js XDA" or "xterm.js device attributes" would have revealed it's
+                  unimplemented
                 </li>
                 <li>
-                  <strong>Read tmux documentation on terminal types</strong> - tmux man page mentions terminal capability
-                  detection, but we focused on clipboard settings instead
+                  <strong>Read tmux documentation on terminal types</strong> - tmux man page
+                  mentions terminal capability detection, but we focused on clipboard settings
+                  instead
                 </li>
               </ol>
             </div>
 
             <div>
-              <h3 className="mb-2 font-semibold text-[var(--color-text-primary)]">📚 Key Resources</h3>
+              <h3 className="mb-2 font-semibold text-[var(--color-text-primary)]">
+                📚 Key Resources
+              </h3>
               <ul className="ml-6 list-disc space-y-1">
                 <li>tmux source analysis: DeepWiki.com (Feb 15, 2026)</li>
                 <li>xterm.js parser API documentation</li>
                 <li>XTerm Control Sequences: XTVERSION / Device Attributes</li>
-                <li>tmux <code className="rounded bg-black px-1 py-0.5">tty-keys.c</code>: Terminal type detection logic</li>
+                <li>
+                  tmux <code className="rounded bg-black px-1 py-0.5">tty-keys.c</code>: Terminal
+                  type detection logic
+                </li>
               </ul>
             </div>
           </div>
@@ -494,22 +570,27 @@ function TerminalTestPageContent() {
 
         {/* Implementation Files */}
         <section className="mt-6 rounded-lg border border-[var(--color-border-default)] bg-[var(--color-bg-secondary)] p-6">
-          <h2 className="mb-4 text-xl font-bold text-[var(--color-text-primary)]">📁 Implementation Files</h2>
+          <h2 className="mb-4 text-xl font-bold text-[var(--color-text-primary)]">
+            📁 Implementation Files
+          </h2>
           <ul className="ml-6 list-disc space-y-1 text-sm text-[var(--color-text-secondary)]">
             <li>
               <code className="rounded bg-black px-1 py-0.5">
                 packages/web/src/components/DirectTerminal.tsx
-              </code> - Main component with XDA handler
+              </code>{" "}
+              - Main component with XDA handler
             </li>
             <li>
               <code className="rounded bg-black px-1 py-0.5">
                 packages/web/server/direct-terminal-ws.ts
-              </code> - WebSocket server using node-pty
+              </code>{" "}
+              - WebSocket server using node-pty
             </li>
             <li>
               <code className="rounded bg-black px-1 py-0.5">
                 packages/web/src/app/dev/terminal-test/page.tsx
-              </code> - This test page
+              </code>{" "}
+              - This test page
             </li>
           </ul>
         </section>
@@ -526,7 +607,9 @@ function TerminalTestPageContent() {
 
 export default function TerminalTestPage() {
   return (
-    <Suspense fallback={<div className="flex min-h-screen items-center justify-center">Loading...</div>}>
+    <Suspense
+      fallback={<div className="flex min-h-screen items-center justify-center">Loading...</div>}
+    >
       <TerminalTestPageContent />
     </Suspense>
   );

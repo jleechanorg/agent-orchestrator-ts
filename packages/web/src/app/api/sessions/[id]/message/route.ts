@@ -5,10 +5,7 @@ import type { Runtime } from "@composio/ao-core";
 
 const MAX_MESSAGE_LENGTH = 10_000;
 
-export async function POST(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> },
-) {
+export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await params;
 
@@ -21,12 +18,9 @@ export async function POST(
     // Parse JSON with explicit error handling
     let body: Record<string, unknown> | null;
     try {
-      body = await request.json() as Record<string, unknown>;
+      body = (await request.json()) as Record<string, unknown>;
     } catch {
-      return NextResponse.json(
-        { error: "Invalid JSON in request body" },
-        { status: 400 },
-      );
+      return NextResponse.json({ error: "Invalid JSON in request body" }, { status: 400 });
     }
 
     // Validate message is a non-empty string within length limit
@@ -38,10 +32,7 @@ export async function POST(
     // Type guard: ensure message is actually a string
     const rawMessage = body?.message;
     if (typeof rawMessage !== "string") {
-      return NextResponse.json(
-        { error: "message must be a string" },
-        { status: 400 },
-      );
+      return NextResponse.json({ error: "message must be a string" }, { status: 400 });
     }
 
     // Strip control characters to prevent injection when passed to shell-based runtimes
@@ -71,7 +62,10 @@ export async function POST(
     const runtimeName = session.runtimeHandle.runtimeName;
     const runtime = registry.get<Runtime>("runtime", runtimeName);
     if (!runtime) {
-      return NextResponse.json({ error: `Runtime plugin '${runtimeName}' not found` }, { status: 500 });
+      return NextResponse.json(
+        { error: `Runtime plugin '${runtimeName}' not found` },
+        { status: 500 },
+      );
     }
 
     try {
@@ -82,16 +76,10 @@ export async function POST(
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : String(err);
       console.error("Failed to send message:", errorMsg);
-      return NextResponse.json(
-        { error: `Failed to send message: ${errorMsg}` },
-        { status: 500 },
-      );
+      return NextResponse.json({ error: `Failed to send message: ${errorMsg}` }, { status: 500 });
     }
   } catch (error) {
     console.error("Failed to send message:", error);
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 },
-    );
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }

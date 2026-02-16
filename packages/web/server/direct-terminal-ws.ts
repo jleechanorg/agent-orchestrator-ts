@@ -21,7 +21,10 @@ let config: ReturnType<typeof loadConfig>;
 try {
   config = loadConfig();
 } catch (err) {
-  console.warn("[DirectTerminal] Could not load config, using defaults:", err instanceof Error ? err.message : String(err));
+  console.warn(
+    "[DirectTerminal] Could not load config, using defaults:",
+    err instanceof Error ? err.message : String(err),
+  );
   // Fallback to default config
   config = {
     dataDir: join(homedir(), ".ao/sessions"),
@@ -43,10 +46,12 @@ const server = createServer((req, res) => {
   // Health check endpoint
   if (req.url === "/health") {
     res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({
-      active: activeSessions.size,
-      sessions: Array.from(activeSessions.keys()),
-    }));
+    res.end(
+      JSON.stringify({
+        active: activeSessions.size,
+        sessions: Array.from(activeSessions.keys()),
+      }),
+    );
     return;
   }
 

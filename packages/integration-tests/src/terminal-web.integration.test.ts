@@ -79,17 +79,10 @@ describe("terminal-web integration", () => {
     it("openAll logs total count and dashboard URL", async () => {
       const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
       const terminal = webPlugin.create({ dashboardUrl: "https://dashboard.io" });
-      await terminal.openAll([
-        makeSession({ id: "x" }),
-        makeSession({ id: "y" }),
-      ]);
+      await terminal.openAll([makeSession({ id: "x" }), makeSession({ id: "y" })]);
 
-      expect(logSpy).toHaveBeenCalledWith(
-        expect.stringContaining("2 sessions"),
-      );
-      expect(logSpy).toHaveBeenCalledWith(
-        expect.stringContaining("https://dashboard.io/sessions"),
-      );
+      expect(logSpy).toHaveBeenCalledWith(expect.stringContaining("2 sessions"));
+      expect(logSpy).toHaveBeenCalledWith(expect.stringContaining("https://dashboard.io/sessions"));
     });
   });
 

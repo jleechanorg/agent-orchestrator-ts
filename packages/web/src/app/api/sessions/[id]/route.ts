@@ -2,10 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { getServices, getSCM, getTracker } from "@/lib/services";
 import { sessionToDashboard, enrichSessionPR, enrichSessionIssue } from "@/lib/serialize";
 
-export async function GET(
-  _request: NextRequest,
-  { params }: { params: Promise<{ id: string }> },
-) {
+export async function GET(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await params;
     const { config, registry, sessionManager } = await getServices();
@@ -45,9 +42,6 @@ export async function GET(
     return NextResponse.json(dashboardSession);
   } catch (error) {
     console.error("Failed to fetch session:", error);
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 },
-    );
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }

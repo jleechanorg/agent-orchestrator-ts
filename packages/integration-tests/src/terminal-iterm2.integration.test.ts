@@ -183,10 +183,7 @@ describe("terminal-iterm2 integration", () => {
     it("opens tabs for each session with delay between operations", async () => {
       simulateOsascript("NOT_FOUND\n");
       const terminal = iterm2Plugin.create();
-      const sessions = [
-        makeSession({ id: "s1" }),
-        makeSession({ id: "s2" }),
-      ];
+      const sessions = [makeSession({ id: "s1" }), makeSession({ id: "s2" })];
 
       const promise = terminal.openAll(sessions);
 
@@ -203,10 +200,7 @@ describe("terminal-iterm2 integration", () => {
     it("skips existing sessions and opens only new ones", async () => {
       simulateOsascriptSequence(["FOUND\n", "NOT_FOUND\n", ""]);
       const terminal = iterm2Plugin.create();
-      const sessions = [
-        makeSession({ id: "existing" }),
-        makeSession({ id: "new-one" }),
-      ];
+      const sessions = [makeSession({ id: "existing" }), makeSession({ id: "new-one" })];
 
       const promise = terminal.openAll(sessions);
       await vi.advanceTimersByTimeAsync(300);

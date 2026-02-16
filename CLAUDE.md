@@ -82,8 +82,12 @@ export const manifest = {
 export function create(): Runtime {
   return {
     name: "tmux",
-    async create(config) { /* ... */ },
-    async destroy(handle) { /* ... */ },
+    async create(config) {
+      /* ... */
+    },
+    async destroy(handle) {
+      /* ... */
+    },
     // ... implement interface methods
   };
 }

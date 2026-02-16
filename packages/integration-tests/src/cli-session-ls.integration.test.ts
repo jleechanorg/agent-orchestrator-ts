@@ -53,11 +53,9 @@ describe.skipIf(!tmuxOk)("CLI session listing (integration)", () => {
   }, 30_000);
 
   it("lists both sessions from tmux", async () => {
-    const { stdout } = await execFileAsync(
-      "tmux",
-      ["list-sessions", "-F", "#{session_name}"],
-      { timeout: 5_000 },
-    );
+    const { stdout } = await execFileAsync("tmux", ["list-sessions", "-F", "#{session_name}"], {
+      timeout: 5_000,
+    });
 
     const sessions = stdout.trim().split("\n");
     expect(sessions).toContain(session1);

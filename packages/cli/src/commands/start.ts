@@ -189,9 +189,7 @@ export function registerStart(program: Command): void {
             const webDir = findWebDir();
             if (!existsSync(resolve(webDir, "package.json"))) {
               spinner.fail("Dashboard not found");
-              throw new Error(
-                "Could not find @composio/ao-web package. Run: pnpm install",
-              );
+              throw new Error("Could not find @composio/ao-web package. Run: pnpm install");
             }
 
             dashboardProcess = startDashboard(port, webDir);
@@ -205,7 +203,11 @@ export function registerStart(program: Command): void {
             exists = await hasTmuxSession(sessionId);
 
             if (exists) {
-              console.log(chalk.yellow(`Orchestrator session "${sessionId}" is already running (skipping creation)`));
+              console.log(
+                chalk.yellow(
+                  `Orchestrator session "${sessionId}" is already running (skipping creation)`,
+                ),
+              );
             } else {
               try {
                 // Ensure CLAUDE.orchestrator.md exists

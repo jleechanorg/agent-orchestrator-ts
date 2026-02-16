@@ -57,9 +57,12 @@ describe("workspace-worktree (integration)", () => {
     // Clean up worktrees first (must be done before removing repo)
     try {
       await git(repoDir, "worktree", "prune");
-    } catch { /* best-effort cleanup */ }
+    } catch {
+      /* best-effort cleanup */
+    }
     if (repoDir) await rm(repoDir, { recursive: true, force: true }).catch(() => {});
-    if (worktreeBaseDir) await rm(worktreeBaseDir, { recursive: true, force: true }).catch(() => {});
+    if (worktreeBaseDir)
+      await rm(worktreeBaseDir, { recursive: true, force: true }).catch(() => {});
   }, 30_000);
 
   it("creates a worktree workspace", async () => {

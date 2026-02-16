@@ -8,10 +8,13 @@ interface ServerHandle {
 
 function probePort(port: number): Promise<boolean> {
   return new Promise((resolve) => {
-    const req = request({ hostname: "127.0.0.1", port, path: "/", method: "HEAD", timeout: 2000 }, (res) => {
-      res.resume();
-      resolve(true);
-    });
+    const req = request(
+      { hostname: "127.0.0.1", port, path: "/", method: "HEAD", timeout: 2000 },
+      (res) => {
+        res.resume();
+        resolve(true);
+      },
+    );
     req.on("error", () => resolve(false));
     req.on("timeout", () => {
       req.destroy();

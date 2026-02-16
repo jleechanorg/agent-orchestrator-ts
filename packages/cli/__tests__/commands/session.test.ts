@@ -310,7 +310,10 @@ describe("session cleanup", () => {
     await program.parseAsync(["node", "test", "session", "cleanup"]);
 
     const output = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
-    const errOutput = vi.mocked(console.error).mock.calls.map((c) => String(c[0])).join("\n");
+    const errOutput = vi
+      .mocked(console.error)
+      .mock.calls.map((c) => String(c[0]))
+      .join("\n");
     // First session fails but loop continues to second
     expect(errOutput).toContain("Failed to kill app-1");
     expect(output).toContain("Killing app-2");

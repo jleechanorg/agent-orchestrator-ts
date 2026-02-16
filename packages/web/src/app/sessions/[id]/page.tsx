@@ -25,7 +25,7 @@ export default function SessionPage() {
       if (!res.ok) {
         throw new Error(`HTTP ${res.status}`);
       }
-      const data = await res.json() as DashboardSession;
+      const data = (await res.json()) as DashboardSession;
       setSession(data);
       setError(null);
     } catch (err) {
@@ -58,9 +58,7 @@ export default function SessionPage() {
   if (error || !session) {
     return (
       <div className="flex min-h-screen items-center justify-center">
-        <div className="text-sm text-[var(--color-accent-red)]">
-          {error || "Session not found"}
-        </div>
+        <div className="text-sm text-[var(--color-accent-red)]">{error || "Session not found"}</div>
       </div>
     );
   }

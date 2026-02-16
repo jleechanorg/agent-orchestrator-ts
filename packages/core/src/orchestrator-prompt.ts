@@ -133,9 +133,13 @@ Features:
     const reactionLines: string[] = [];
     for (const [event, reaction] of Object.entries(project.reactions)) {
       if (reaction.auto && reaction.action === "send-to-agent") {
-        reactionLines.push(`- **${event}**: Auto-sends instruction to agent (retries: ${reaction.retries ?? "none"}, escalates after: ${reaction.escalateAfter ?? "never"})`);
+        reactionLines.push(
+          `- **${event}**: Auto-sends instruction to agent (retries: ${reaction.retries ?? "none"}, escalates after: ${reaction.escalateAfter ?? "never"})`,
+        );
       } else if (reaction.auto && reaction.action === "notify") {
-        reactionLines.push(`- **${event}**: Notifies human (priority: ${reaction.priority ?? "info"})`);
+        reactionLines.push(
+          `- **${event}**: Notifies human (priority: ${reaction.priority ?? "info"})`,
+        );
       }
     }
 

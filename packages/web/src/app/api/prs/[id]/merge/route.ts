@@ -21,7 +21,10 @@ export async function POST(_request: NextRequest, { params }: { params: Promise<
     const project = config.projects[session.projectId];
     const scm = getSCM(registry, project);
     if (!scm) {
-      return NextResponse.json({ error: "No SCM plugin configured for this project" }, { status: 500 });
+      return NextResponse.json(
+        { error: "No SCM plugin configured for this project" },
+        { status: 500 },
+      );
     }
 
     // Validate PR is in a mergeable state

@@ -66,17 +66,20 @@ function waitForTtyd(port: number, sessionId: string, timeoutMs = 3000): Promise
         return;
       }
 
-      const req = request({
-        hostname: "localhost",
-        port,
-        path: `/${sessionId}/`,
-        method: "GET",
-        timeout: 500,
-      }, (_res) => {
-        // Any response (even 404) means ttyd is listening
-        cleanup();
-        resolve();
-      });
+      const req = request(
+        {
+          hostname: "localhost",
+          port,
+          path: `/${sessionId}/`,
+          method: "GET",
+          timeout: 500,
+        },
+        (_res) => {
+          // Any response (even 404) means ttyd is listening
+          cleanup();
+          resolve();
+        },
+      );
 
       pendingReq = req;
 
@@ -134,14 +137,23 @@ function getOrSpawnTtyd(sessionId: string): TtydInstance {
     console.error(`[Terminal] Failed to hide status bar for ${sessionId}:`, err.message);
   });
 
-  const proc = spawn("ttyd", [
-    "--writable",
-    "--port", String(port),
-    "--base-path", `/${sessionId}`,
-    "tmux", "attach-session", "-t", sessionId,
-  ], {
-    stdio: ["ignore", "pipe", "pipe"],
-  });
+  const proc = spawn(
+    "ttyd",
+    [
+      "--writable",
+      "--port",
+      String(port),
+      "--base-path",
+      `/${sessionId}`,
+      "tmux",
+      "attach-session",
+      "-t",
+      sessionId,
+    ],
+    {
+      stdio: ["ignore", "pipe", "pipe"],
+    },
+  );
 
   proc.stdout?.on("data", (data: Buffer) => {
     console.log(`[Terminal] ttyd ${sessionId}: ${data.toString().trim()}`);
@@ -253,11 +265,13 @@ const server = createServer(async (req, res) => {
       const protocol = req.headers["x-forwarded-proto"] ?? "http";
 
       res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({
-        url: `${protocol}://${host.split(":")[0]}:${instance.port}/${sessionId}/`,
-        port: instance.port,
-        sessionId,
-      }));
+      res.end(
+        JSON.stringify({
+          url: `${protocol}://${host.split(":")[0]}:${instance.port}/${sessionId}/`,
+          port: instance.port,
+          sessionId,
+        }),
+      );
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : String(err);
       console.error(`[Terminal] Failed to start terminal for ${sessionId}:`, errorMsg);
@@ -270,11 +284,13 @@ const server = createServer(async (req, res) => {
   // GET /health
   if (url.pathname === "/health") {
     res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({
-      instances: Object.fromEntries(
-        [...instances.entries()].map(([id, inst]) => [id, { port: inst.port }])
-      ),
-    }));
+    res.end(
+      JSON.stringify({
+        instances: Object.fromEntries(
+          [...instances.entries()].map(([id, inst]) => [id, { port: inst.port }]),
+        ),
+      }),
+    );
     return;
   }
 

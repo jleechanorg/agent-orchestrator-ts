@@ -58,7 +58,9 @@ function cleanBugbotComment(body: string): { title: string; description: string 
     const title = titleMatch ? titleMatch[1].replace(/\*\*/g, "").trim() : "Comment";
 
     // Extract description between DESCRIPTION START/END comments
-    const descMatch = body.match(/<!-- DESCRIPTION START -->\s*([\s\S]*?)\s*<!-- DESCRIPTION END -->/);
+    const descMatch = body.match(
+      /<!-- DESCRIPTION START -->\s*([\s\S]*?)\s*<!-- DESCRIPTION END -->/,
+    );
     const description = descMatch ? descMatch[1].trim() : body.split("\n")[0] || "No description";
 
     return { title, description };
@@ -409,7 +411,6 @@ function PRCard({ pr, sessionId }: { pr: DashboardPR; sessionId: string }) {
               <span className="font-semibold text-[var(--color-accent-violet)]">Merged</span>
             </>
           )}
-
         </div>
       </div>
 
@@ -513,9 +514,10 @@ function IssuesList({ pr }: { pr: DashboardPR }) {
 
   if (pr.ciStatus === CI_STATUS.FAILING) {
     const failCount = pr.ciChecks.filter((c) => c.status === "failed").length;
-    const text = failCount > 0
-      ? `CI failing \u2014 ${failCount} check${failCount !== 1 ? "s" : ""} failed`
-      : "CI failing";
+    const text =
+      failCount > 0
+        ? `CI failing \u2014 ${failCount} check${failCount !== 1 ? "s" : ""} failed`
+        : "CI failing";
     issues.push({
       icon: "\u2717",
       color: "var(--color-accent-red)",
@@ -592,4 +594,3 @@ function IssuesList({ pr }: { pr: DashboardPR }) {
     </div>
   );
 }
-

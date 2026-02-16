@@ -74,7 +74,7 @@ describe("writeMetadata + readMetadata", () => {
       issue: "https://linear.app/team/issue/INT-123",
     });
 
-    const content = readFileSync(join(dataDir,"app-3"), "utf-8");
+    const content = readFileSync(join(dataDir, "app-3"), "utf-8");
     expect(content).toContain("worktree=/tmp/w\n");
     expect(content).toContain("branch=feat/INT-123\n");
     expect(content).toContain("status=working\n");
@@ -88,7 +88,7 @@ describe("writeMetadata + readMetadata", () => {
       status: "spawning",
     });
 
-    const content = readFileSync(join(dataDir,"app-4"), "utf-8");
+    const content = readFileSync(join(dataDir, "app-4"), "utf-8");
     expect(content).not.toContain("issue=");
     expect(content).not.toContain("pr=");
     expect(content).not.toContain("summary=");
@@ -98,7 +98,7 @@ describe("writeMetadata + readMetadata", () => {
 describe("readMetadataRaw", () => {
   it("reads arbitrary key=value pairs", () => {
     writeFileSync(
-      join(dataDir,"raw-1"),
+      join(dataDir, "raw-1"),
       "worktree=/tmp/w\nbranch=main\ncustom_key=custom_value\n",
       "utf-8",
     );
@@ -115,7 +115,7 @@ describe("readMetadataRaw", () => {
 
   it("handles comments and empty lines", () => {
     writeFileSync(
-      join(dataDir,"raw-2"),
+      join(dataDir, "raw-2"),
       "# This is a comment\n\nkey1=value1\n\n# Another comment\nkey2=value2\n",
       "utf-8",
     );
@@ -126,7 +126,7 @@ describe("readMetadataRaw", () => {
 
   it("handles values containing equals signs", () => {
     writeFileSync(
-      join(dataDir,"raw-3"),
+      join(dataDir, "raw-3"),
       'runtimeHandle={"id":"foo","data":{"key":"val"}}\n',
       "utf-8",
     );
@@ -203,8 +203,8 @@ describe("deleteMetadata", () => {
 
     deleteMetadata(dataDir, "del-1", true);
 
-    expect(existsSync(join(dataDir,"del-1"))).toBe(false);
-    const archiveDir = join(dataDir,"archive");
+    expect(existsSync(join(dataDir, "del-1"))).toBe(false);
+    const archiveDir = join(dataDir, "archive");
     expect(existsSync(archiveDir)).toBe(true);
     const files = readdirSync(archiveDir);
     expect(files.length).toBe(1);
@@ -220,8 +220,8 @@ describe("deleteMetadata", () => {
 
     deleteMetadata(dataDir, "del-2", false);
 
-    expect(existsSync(join(dataDir,"del-2"))).toBe(false);
-    expect(existsSync(join(dataDir,"archive"))).toBe(false);
+    expect(existsSync(join(dataDir, "del-2"))).toBe(false);
+    expect(existsSync(join(dataDir, "archive"))).toBe(false);
   });
 
   it("is a no-op for nonexistent session", () => {
@@ -242,8 +242,8 @@ describe("listMetadata", () => {
 
   it("excludes archive directory and dotfiles", () => {
     writeMetadata(dataDir, "app-1", { worktree: "/tmp", branch: "a", status: "s" });
-    mkdirSync(join(dataDir,"archive"), { recursive: true });
-    writeFileSync(join(dataDir,".hidden"), "x", "utf-8");
+    mkdirSync(join(dataDir, "archive"), { recursive: true });
+    writeFileSync(join(dataDir, ".hidden"), "x", "utf-8");
 
     const list = listMetadata(dataDir);
     expect(list).toEqual(["app-1"]);

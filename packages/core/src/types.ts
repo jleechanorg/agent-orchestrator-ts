@@ -937,7 +937,8 @@ export function isIssueNotFoundError(err: unknown): boolean {
 
   // Match issue-specific not-found patterns
   return (
-    message.includes("issue") && (message.includes("not found") || message.includes("does not exist")) ||
+    (message.includes("issue") &&
+      (message.includes("not found") || message.includes("does not exist"))) ||
     message.includes("no issue found") ||
     message.includes("could not find issue") ||
     // GitHub: "no issue found" or "could not resolve to an Issue"

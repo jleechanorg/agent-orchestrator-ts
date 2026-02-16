@@ -11,7 +11,9 @@ describe("runtime-process (integration)", () => {
   afterAll(async () => {
     try {
       await runtime.destroy(handle);
-    } catch { /* best-effort cleanup */ }
+    } catch {
+      /* best-effort cleanup */
+    }
   }, 30_000);
 
   it("creates a child process", async () => {
@@ -61,9 +63,9 @@ describe("runtime-process (integration)", () => {
   });
 
   it("sendMessage throws for unknown session", async () => {
-    await expect(runtime.sendMessage({ id: "nonexistent", runtimeName: "process", data: {} }, "hi")).rejects.toThrow(
-      "No process found",
-    );
+    await expect(
+      runtime.sendMessage({ id: "nonexistent", runtimeName: "process", data: {} }, "hi"),
+    ).rejects.toThrow("No process found");
   });
 
   it("destroy kills the process", async () => {
@@ -78,7 +80,9 @@ describe("runtime-process (integration)", () => {
   });
 
   it("isAlive returns false for unknown session", async () => {
-    expect(await runtime.isAlive({ id: "nonexistent", runtimeName: "process", data: {} })).toBe(false);
+    expect(await runtime.isAlive({ id: "nonexistent", runtimeName: "process", data: {} })).toBe(
+      false,
+    );
   });
 
   it("destroy is idempotent", async () => {

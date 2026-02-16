@@ -94,10 +94,9 @@ export function create(config?: Record<string, unknown>): Workspace {
           }
           const checkoutMsg =
             checkoutErr instanceof Error ? checkoutErr.message : String(checkoutErr);
-          throw new Error(
-            `Failed to checkout branch "${cfg.branch}" in worktree: ${checkoutMsg}`,
-            { cause: checkoutErr },
-          );
+          throw new Error(`Failed to checkout branch "${cfg.branch}" in worktree: ${checkoutMsg}`, {
+            cause: checkoutErr,
+          });
         }
       }
 

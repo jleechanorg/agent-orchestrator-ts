@@ -78,10 +78,7 @@ async function initServices(): Promise<Services> {
 }
 
 /** Resolve the SCM plugin for a project. Returns null if not configured. */
-export function getSCM(
-  registry: PluginRegistry,
-  project: ProjectConfig | undefined,
-): SCM | null {
+export function getSCM(registry: PluginRegistry, project: ProjectConfig | undefined): SCM | null {
   if (!project?.scm) return null;
   return registry.get<SCM>("scm", project.scm.plugin);
 }

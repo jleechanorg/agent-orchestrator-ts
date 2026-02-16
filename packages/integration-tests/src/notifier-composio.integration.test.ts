@@ -109,9 +109,7 @@ describe("notifier-composio integration", () => {
         composioApiKey: "key",
         _clientOverride: mockClient,
       });
-      await notifier.notify(
-        makeEvent({ data: { prUrl: "https://github.com/org/repo/pull/99" } }),
-      );
+      await notifier.notify(makeEvent({ data: { prUrl: "https://github.com/org/repo/pull/99" } }));
 
       const text = mockExecuteAction.mock.calls[0][0].params.text as string;
       expect(text).toContain("https://github.com/org/repo/pull/99");

@@ -6,10 +6,7 @@ import type { PluginModule, PluginManifest, OrchestratorConfig } from "../types.
 // Helpers
 // ---------------------------------------------------------------------------
 
-function makePlugin(
-  slot: PluginManifest["slot"],
-  name: string,
-): PluginModule {
+function makePlugin(slot: PluginManifest["slot"], name: string): PluginModule {
   return {
     manifest: {
       name,
@@ -24,9 +21,7 @@ function makePlugin(
   };
 }
 
-function makeOrchestratorConfig(
-  overrides?: Partial<OrchestratorConfig>,
-): OrchestratorConfig {
+function makeOrchestratorConfig(overrides?: Partial<OrchestratorConfig>): OrchestratorConfig {
   return {
     projects: {},
     ...overrides,
@@ -76,10 +71,7 @@ describe("register + get", () => {
     registry.register(plugin, { worktreeDir: "/custom/path" });
 
     expect(plugin.create).toHaveBeenCalledWith({ worktreeDir: "/custom/path" });
-    const instance = registry.get<{ _config: Record<string, unknown> }>(
-      "workspace",
-      "worktree",
-    );
+    const instance = registry.get<{ _config: Record<string, unknown> }>("workspace", "worktree");
     expect(instance!._config).toEqual({ worktreeDir: "/custom/path" });
   });
 

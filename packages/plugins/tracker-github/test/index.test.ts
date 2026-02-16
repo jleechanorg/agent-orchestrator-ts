@@ -336,7 +336,11 @@ describe("tracker-github plugin", () => {
 
     it("handles multiple updates in one call", async () => {
       ghMock.mockResolvedValue({ stdout: "" });
-      await tracker.updateIssue!("123", { state: "closed", labels: ["done"], comment: "Done!" }, project);
+      await tracker.updateIssue!(
+        "123",
+        { state: "closed", labels: ["done"], comment: "Done!" },
+        project,
+      );
       // Should have called gh 3 times: close + edit labels + comment
       expect(ghMock).toHaveBeenCalledTimes(3);
     });
@@ -360,7 +364,10 @@ describe("tracker-github plugin", () => {
         assignees: [],
       });
 
-      const issue = await tracker.createIssue!({ title: "New issue", description: "Description" }, project);
+      const issue = await tracker.createIssue!(
+        { title: "New issue", description: "Description" },
+        project,
+      );
       expect(issue).toMatchObject({ id: "999", title: "New issue", state: "open" });
     });
 
@@ -377,7 +384,10 @@ describe("tracker-github plugin", () => {
         assignees: [{ login: "alice" }],
       });
 
-      await tracker.createIssue!({ title: "Bug", description: "Crash", labels: ["bug"], assignee: "alice" }, project);
+      await tracker.createIssue!(
+        { title: "Bug", description: "Crash", labels: ["bug"], assignee: "alice" },
+        project,
+      );
       expect(ghMock).toHaveBeenCalledWith(
         "gh",
         expect.arrayContaining(["issue", "create", "--label", "bug", "--assignee", "alice"]),

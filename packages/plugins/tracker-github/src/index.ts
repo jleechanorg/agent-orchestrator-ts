@@ -36,10 +36,7 @@ async function gh(args: string[]): Promise<string> {
   }
 }
 
-function mapState(
-  ghState: string,
-  stateReason?: string | null,
-): Issue["state"] {
+function mapState(ghState: string, stateReason?: string | null): Issue["state"] {
   const s = ghState.toUpperCase();
   if (s === "CLOSED") {
     if (stateReason?.toUpperCase() === "NOT_PLANNED") return "cancelled";
@@ -56,10 +53,7 @@ function createGitHubTracker(): Tracker {
   return {
     name: "github",
 
-    async getIssue(
-      identifier: string,
-      project: ProjectConfig,
-    ): Promise<Issue> {
+    async getIssue(identifier: string, project: ProjectConfig): Promise<Issue> {
       const raw = await gh([
         "issue",
         "view",
@@ -92,10 +86,7 @@ function createGitHubTracker(): Tracker {
       };
     },
 
-    async isCompleted(
-      identifier: string,
-      project: ProjectConfig,
-    ): Promise<boolean> {
+    async isCompleted(identifier: string, project: ProjectConfig): Promise<boolean> {
       const raw = await gh([
         "issue",
         "view",
@@ -132,10 +123,7 @@ function createGitHubTracker(): Tracker {
       return `feat/issue-${num}`;
     },
 
-    async generatePrompt(
-      identifier: string,
-      project: ProjectConfig,
-    ): Promise<string> {
+    async generatePrompt(identifier: string, project: ProjectConfig): Promise<string> {
       const issue = await this.getIssue(identifier, project);
       const lines = [
         `You are working on GitHub issue #${issue.id}: ${issue.title}`,
@@ -159,10 +147,7 @@ function createGitHubTracker(): Tracker {
       return lines.join("\n");
     },
 
-    async listIssues(
-      filters: IssueFilters,
-      project: ProjectConfig,
-    ): Promise<Issue[]> {
+    async listIssues(filters: IssueFilters, project: ProjectConfig): Promise<Issue[]> {
       const args = [
         "issue",
         "list",
@@ -221,21 +206,9 @@ function createGitHubTracker(): Tracker {
       // Handle state change — GitHub Issues only supports open/closed.
       // "in_progress" is not a GitHub state, so it is intentionally a no-op.
       if (update.state === "closed") {
-        await gh([
-          "issue",
-          "close",
-          identifier,
-          "--repo",
-          project.repo,
-        ]);
+        await gh(["issue", "close", identifier, "--repo", project.repo]);
       } else if (update.state === "open") {
-        await gh([
-          "issue",
-          "reopen",
-          identifier,
-          "--repo",
-          project.repo,
-        ]);
+        await gh(["issue", "reopen", identifier, "--repo", project.repo]);
       }
 
       // Handle label changes
@@ -278,10 +251,7 @@ function createGitHubTracker(): Tracker {
       }
     },
 
-    async createIssue(
-      input: CreateIssueInput,
-      project: ProjectConfig,
-    ): Promise<Issue> {
+    async createIssue(input: CreateIssueInput, project: ProjectConfig): Promise<Issue> {
       const args = [
         "issue",
         "create",

@@ -173,7 +173,10 @@ export async function enrichSessionPR(
 
   // Add rate-limit warning blocker if most requests failed
   // (but we still applied any successful results above)
-  if (mostFailed && !dashboard.pr.mergeability.blockers.includes("API rate limited or unavailable")) {
+  if (
+    mostFailed &&
+    !dashboard.pr.mergeability.blockers.includes("API rate limited or unavailable")
+  ) {
     dashboard.pr.mergeability.blockers.push("API rate limited or unavailable");
   }
 
@@ -224,8 +227,7 @@ export function computeStats(sessions: DashboardSession[]): DashboardStats {
     totalSessions: sessions.length,
     workingSessions: sessions.filter((s) => s.activity === "active").length,
     openPRs: sessions.filter((s) => s.pr?.state === "open").length,
-    needsReview: sessions.filter(
-      (s) => s.pr && !s.pr.isDraft && s.pr.reviewDecision === "pending",
-    ).length,
+    needsReview: sessions.filter((s) => s.pr && !s.pr.isDraft && s.pr.reviewDecision === "pending")
+      .length,
   };
 }

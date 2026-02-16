@@ -101,7 +101,6 @@ function serializeEvent(event: OrchestratorEvent): WebhookPayload["event"] {
   };
 }
 
-
 export function create(config?: Record<string, unknown>): Notifier {
   const url = config?.url as string | undefined;
   const rawHeaders = config?.headers;

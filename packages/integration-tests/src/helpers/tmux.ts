@@ -23,11 +23,9 @@ export async function isTmuxAvailable(): Promise<boolean> {
 /** Kill all tmux sessions whose names match a prefix (cleanup helper). */
 export async function killSessionsByPrefix(prefix: string): Promise<void> {
   try {
-    const { stdout } = await execFileAsync(
-      "tmux",
-      ["list-sessions", "-F", "#{session_name}"],
-      { timeout: TIMEOUT },
-    );
+    const { stdout } = await execFileAsync("tmux", ["list-sessions", "-F", "#{session_name}"], {
+      timeout: TIMEOUT,
+    });
     const sessions = stdout
       .trim()
       .split("\n")
@@ -53,16 +51,7 @@ export async function createSession(
   cwd: string,
   env?: Record<string, string>,
 ): Promise<void> {
-  const args = [
-    "new-session",
-    "-d",
-    "-s",
-    name,
-    "-x",
-    "200",
-    "-y",
-    "50",
-  ];
+  const args = ["new-session", "-d", "-s", name, "-x", "200", "-y", "50"];
 
   // Set environment variables inside the session
   if (env) {
@@ -100,4 +89,3 @@ export async function killSession(name: string): Promise<void> {
     // already gone
   }
 }
-

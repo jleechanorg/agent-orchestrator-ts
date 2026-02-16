@@ -76,10 +76,7 @@ function createGitHubSCM(): SCM {
   return {
     name: "github",
 
-    async detectPR(
-      session: Session,
-      project: ProjectConfig,
-    ): Promise<PRInfo | null> {
+    async detectPR(session: Session, project: ProjectConfig): Promise<PRInfo | null> {
       if (!session.branch) return null;
 
       const parts = project.repo.split("/");
@@ -172,32 +169,13 @@ function createGitHubSCM(): SCM {
     },
 
     async mergePR(pr: PRInfo, method: MergeMethod = "squash"): Promise<void> {
-      const flag =
-        method === "rebase"
-          ? "--rebase"
-          : method === "merge"
-            ? "--merge"
-            : "--squash";
+      const flag = method === "rebase" ? "--rebase" : method === "merge" ? "--merge" : "--squash";
 
-      await gh([
-        "pr",
-        "merge",
-        String(pr.number),
-        "--repo",
-        repoFlag(pr),
-        flag,
-        "--delete-branch",
-      ]);
+      await gh(["pr", "merge", String(pr.number), "--repo", repoFlag(pr), flag, "--delete-branch"]);
     },
 
     async closePR(pr: PRInfo): Promise<void> {
-      await gh([
-        "pr",
-        "close",
-        String(pr.number),
-        "--repo",
-        repoFlag(pr),
-      ]);
+      await gh(["pr", "close", String(pr.number), "--repo", repoFlag(pr)]);
     },
 
     async getCIChecks(pr: PRInfo): Promise<CICheck[]> {
@@ -285,9 +263,7 @@ function createGitHubSCM(): SCM {
       const hasFailing = checks.some((c) => c.status === "failed");
       if (hasFailing) return "failing";
 
-      const hasPending = checks.some(
-        (c) => c.status === "pending" || c.status === "running",
-      );
+      const hasPending = checks.some((c) => c.status === "pending" || c.status === "running");
       if (hasPending) return "pending";
 
       // Only report passing if at least one check actually passed
@@ -416,8 +392,7 @@ function createGitHubSCM(): SCM {
           };
         } = JSON.parse(raw);
 
-        const threads =
-          data.data.repository.pullRequest.reviewThreads.nodes;
+        const threads = data.data.repository.pullRequest.reviewThreads.nodes;
 
         return threads
           .filter((t) => {

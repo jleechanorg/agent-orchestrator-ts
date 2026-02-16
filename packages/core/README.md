@@ -16,6 +16,7 @@ Core services, types, and configuration for the Agent Orchestrator system.
 Every interface the system uses is defined here. If you're working on any part of the orchestrator, start by reading this file.
 
 **Main interfaces:**
+
 - `Runtime` — where sessions execute (tmux, docker, k8s)
 - `Agent` — AI coding tool adapter (claude-code, codex, aider)
 - `Workspace` — code isolation (worktree, clone)
@@ -30,6 +31,7 @@ Every interface the system uses is defined here. If you're working on any part o
 ### `src/services/session-manager.ts` — Session CRUD
 
 Handles session lifecycle:
+
 - `spawn(config)` — create new session (workspace + runtime + agent)
 - `list(projectId?)` — list all sessions
 - `get(sessionId)` — get session details
@@ -38,6 +40,7 @@ Handles session lifecycle:
 - `send(sessionId, message)` — send message to agent
 
 **Data flow in `spawn()`:**
+
 1. Load project config
 2. **Validate issue exists** via `Tracker.getIssue()` (if issueId provided, fails-fast if not found)
 3. Reserve session ID
@@ -57,17 +60,20 @@ Handles session lifecycle:
 Polls sessions, detects state changes, triggers reactions:
 
 **State machine:**
+
 ```
 spawning → working → pr_open → ci_failed/review_pending/approved → mergeable → merged
 ```
 
 **Reactions:**
+
 - `ci-failed` → send fix prompt to agent
 - `changes-requested` → send review comments to agent
 - `approved-and-green` → notify human (or auto-merge)
 - `agent-stuck` → notify human
 
 **Polling loop:**
+
 1. For each session: check if agent is processing (`Agent.isProcessing()`)
 2. If PR exists: check CI status (`SCM.getCISummary()`), review state (`SCM.getReviewDecision()`)
 3. Update session status based on state
@@ -77,6 +83,7 @@ spawning → working → pr_open → ci_failed/review_pending/approved → merge
 ### `src/services/plugin-registry.ts` — Plugin Discovery + Loading
 
 Loads plugins and provides access to them:
+
 - `register(plugin, config?)` — register a plugin instance
 - `get<T>(slot, name)` — get plugin by slot + name
 - `list(slot)` — list all plugins for a slot
@@ -84,6 +91,7 @@ Loads plugins and provides access to them:
 - `loadFromConfig(config)` — load plugins from config (npm packages, local paths)
 
 **Built-in plugins** (loaded by default):
+
 - runtime-tmux, runtime-process
 - agent-claude-code, agent-codex, agent-aider, agent-opencode
 - workspace-worktree, workspace-clone
@@ -97,6 +105,7 @@ Loads plugins and provides access to them:
 Loads and validates `agent-orchestrator.yaml`:
 
 **Main config sections:**
+
 - `dataDir` — where session metadata lives (~/.agent-orchestrator)
 - `worktreeDir` — where workspaces are created (~/.worktrees)
 - `port` — web dashboard port (default 3000)
@@ -142,6 +151,7 @@ pnpm --filter @agent-orchestrator/core test -- session-manager.test.ts
 ```
 
 Tests are in `src/__tests__/`:
+
 - `session-manager.test.ts` — session CRUD, spawn, cleanup
 - `lifecycle-manager.test.ts` — state machine, reactions
 - `plugin-registry.test.ts` — plugin loading, resolution
@@ -163,16 +173,19 @@ This package is a dependency of all other packages. Build it first if working on
 ## Architecture Notes
 
 **Why flat metadata files?**
+
 - Debuggability: `cat ~/.agent-orchestrator/my-app-3` shows full state
 - No database dependency (survives crashes, easy to inspect)
 - Backwards-compatible with bash script orchestrator
 
 **Why polling instead of webhooks?**
+
 - Simpler (no webhook setup, no ngrok for local dev)
 - Works offline (CI/review state is fetched, not pushed)
 - Survives orchestrator restarts (no missed events)
 
 **Why plugin slots?**
+
 - Swappability: use tmux locally, docker in CI, k8s in prod
 - Testability: mock plugins for tests
 - Extensibility: users can add custom plugins (e.g., company-specific notifier)

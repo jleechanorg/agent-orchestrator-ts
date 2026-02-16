@@ -148,11 +148,9 @@ describe("workspace.create()", () => {
     await ws.create(makeCreateConfig());
 
     // First call: git fetch origin --quiet
-    expect(mockExecFileAsync).toHaveBeenCalledWith(
-      "git",
-      ["fetch", "origin", "--quiet"],
-      { cwd: "/repo/path" },
-    );
+    expect(mockExecFileAsync).toHaveBeenCalledWith("git", ["fetch", "origin", "--quiet"], {
+      cwd: "/repo/path",
+    });
 
     // Second call: git worktree add -b <branch> <path> <baseRef>
     expect(mockExecFileAsync).toHaveBeenCalledWith(
@@ -177,10 +175,9 @@ describe("workspace.create()", () => {
 
     await ws.create(makeCreateConfig());
 
-    expect(mockMkdirSync).toHaveBeenCalledWith(
-      "/mock-home/.worktrees/myproject",
-      { recursive: true },
-    );
+    expect(mockMkdirSync).toHaveBeenCalledWith("/mock-home/.worktrees/myproject", {
+      recursive: true,
+    });
   });
 
   it("continues when fetch fails (offline)", async () => {
@@ -207,21 +204,14 @@ describe("workspace.create()", () => {
     // Third call: worktree add without -b
     expect(mockExecFileAsync).toHaveBeenCalledWith(
       "git",
-      [
-        "worktree",
-        "add",
-        "/mock-home/.worktrees/myproject/session-1",
-        "origin/main",
-      ],
+      ["worktree", "add", "/mock-home/.worktrees/myproject/session-1", "origin/main"],
       { cwd: "/repo/path" },
     );
 
     // Fourth call: checkout
-    expect(mockExecFileAsync).toHaveBeenCalledWith(
-      "git",
-      ["checkout", "feat/TEST-1"],
-      { cwd: "/mock-home/.worktrees/myproject/session-1" },
-    );
+    expect(mockExecFileAsync).toHaveBeenCalledWith("git", ["checkout", "feat/TEST-1"], {
+      cwd: "/mock-home/.worktrees/myproject/session-1",
+    });
 
     expect(info.branch).toBe("feat/TEST-1");
   });
@@ -242,12 +232,7 @@ describe("workspace.create()", () => {
     // Verify cleanup was attempted
     expect(mockExecFileAsync).toHaveBeenCalledWith(
       "git",
-      [
-        "worktree",
-        "remove",
-        "--force",
-        "/mock-home/.worktrees/myproject/session-1",
-      ],
+      ["worktree", "remove", "--force", "/mock-home/.worktrees/myproject/session-1"],
       { cwd: "/repo/path" },
     );
   });
@@ -280,33 +265,33 @@ describe("workspace.create()", () => {
   it("rejects invalid projectId", async () => {
     const ws = create();
 
-    await expect(
-      ws.create(makeCreateConfig({ projectId: "bad/project" })),
-    ).rejects.toThrow('Invalid projectId "bad/project"');
+    await expect(ws.create(makeCreateConfig({ projectId: "bad/project" }))).rejects.toThrow(
+      'Invalid projectId "bad/project"',
+    );
   });
 
   it("rejects projectId with dots", async () => {
     const ws = create();
 
-    await expect(
-      ws.create(makeCreateConfig({ projectId: "my.project" })),
-    ).rejects.toThrow('Invalid projectId "my.project"');
+    await expect(ws.create(makeCreateConfig({ projectId: "my.project" }))).rejects.toThrow(
+      'Invalid projectId "my.project"',
+    );
   });
 
   it("rejects invalid sessionId", async () => {
     const ws = create();
 
-    await expect(
-      ws.create(makeCreateConfig({ sessionId: "../escape" })),
-    ).rejects.toThrow('Invalid sessionId "../escape"');
+    await expect(ws.create(makeCreateConfig({ sessionId: "../escape" }))).rejects.toThrow(
+      'Invalid sessionId "../escape"',
+    );
   });
 
   it("rejects sessionId with spaces", async () => {
     const ws = create();
 
-    await expect(
-      ws.create(makeCreateConfig({ sessionId: "bad session" })),
-    ).rejects.toThrow('Invalid sessionId "bad session"');
+    await expect(ws.create(makeCreateConfig({ sessionId: "bad session" }))).rejects.toThrow(
+      'Invalid sessionId "bad session"',
+    );
   });
 
   it("returns correct WorkspaceInfo", async () => {
@@ -338,11 +323,9 @@ describe("workspace.create()", () => {
     );
 
     // fetch should use expanded path
-    expect(mockExecFileAsync).toHaveBeenCalledWith(
-      "git",
-      ["fetch", "origin", "--quiet"],
-      { cwd: "/mock-home/my-repo" },
-    );
+    expect(mockExecFileAsync).toHaveBeenCalledWith("git", ["fetch", "origin", "--quiet"], {
+      cwd: "/mock-home/my-repo",
+    });
   });
 });
 
@@ -380,10 +363,10 @@ describe("workspace.destroy()", () => {
 
     await ws.destroy("/mock-home/.worktrees/myproject/session-1");
 
-    expect(mockRmSync).toHaveBeenCalledWith(
-      "/mock-home/.worktrees/myproject/session-1",
-      { recursive: true, force: true },
-    );
+    expect(mockRmSync).toHaveBeenCalledWith("/mock-home/.worktrees/myproject/session-1", {
+      recursive: true,
+      force: true,
+    });
   });
 
   it("does nothing if git fails and directory does not exist", async () => {
@@ -466,9 +449,7 @@ describe("workspace.list()", () => {
     const ws = create();
 
     mockExistsSync.mockReturnValueOnce(true);
-    mockReaddirSync.mockReturnValueOnce([
-      { name: "session-1", isDirectory: () => true },
-    ]);
+    mockReaddirSync.mockReturnValueOnce([{ name: "session-1", isDirectory: () => true }]);
 
     const porcelainOutput = [
       "worktree /mock-home/.worktrees/myproject/session-1",
@@ -488,9 +469,7 @@ describe("workspace.list()", () => {
     const ws = create();
 
     mockExistsSync.mockReturnValueOnce(true);
-    mockReaddirSync.mockReturnValueOnce([
-      { name: "session-1", isDirectory: () => true },
-    ]);
+    mockReaddirSync.mockReturnValueOnce([{ name: "session-1", isDirectory: () => true }]);
 
     const porcelainOutput = [
       "worktree /other/path/session-1",
@@ -514,9 +493,7 @@ describe("workspace.list()", () => {
     const ws = create();
 
     mockExistsSync.mockReturnValueOnce(true);
-    mockReaddirSync.mockReturnValueOnce([
-      { name: "session-1", isDirectory: () => true },
-    ]);
+    mockReaddirSync.mockReturnValueOnce([{ name: "session-1", isDirectory: () => true }]);
 
     mockGitError("fatal: not a git repository");
 
@@ -686,10 +663,9 @@ describe("workspace.postCreate()", () => {
 
     await ws.postCreate!(workspaceInfo, project);
 
-    expect(mockMkdirSync).toHaveBeenCalledWith(
-      "/mock-home/.worktrees/myproject/session-1/config",
-      { recursive: true },
-    );
+    expect(mockMkdirSync).toHaveBeenCalledWith("/mock-home/.worktrees/myproject/session-1/config", {
+      recursive: true,
+    });
   });
 
   it("runs postCreate commands", async () => {
@@ -704,16 +680,12 @@ describe("workspace.postCreate()", () => {
 
     await ws.postCreate!(workspaceInfo, project);
 
-    expect(mockExecFileAsync).toHaveBeenCalledWith(
-      "sh",
-      ["-c", "pnpm install"],
-      { cwd: "/mock-home/.worktrees/myproject/session-1" },
-    );
-    expect(mockExecFileAsync).toHaveBeenCalledWith(
-      "sh",
-      ["-c", "pnpm build"],
-      { cwd: "/mock-home/.worktrees/myproject/session-1" },
-    );
+    expect(mockExecFileAsync).toHaveBeenCalledWith("sh", ["-c", "pnpm install"], {
+      cwd: "/mock-home/.worktrees/myproject/session-1",
+    });
+    expect(mockExecFileAsync).toHaveBeenCalledWith("sh", ["-c", "pnpm build"], {
+      cwd: "/mock-home/.worktrees/myproject/session-1",
+    });
   });
 
   it("does nothing when no symlinks or postCreate configured", async () => {
@@ -745,11 +717,9 @@ describe("workspace.postCreate()", () => {
     await ws.postCreate!(workspaceInfo, project);
 
     expect(mockSymlinkSync).toHaveBeenCalledTimes(1);
-    expect(mockExecFileAsync).toHaveBeenCalledWith(
-      "sh",
-      ["-c", "pnpm install"],
-      { cwd: "/mock-home/.worktrees/myproject/session-1" },
-    );
+    expect(mockExecFileAsync).toHaveBeenCalledWith("sh", ["-c", "pnpm install"], {
+      cwd: "/mock-home/.worktrees/myproject/session-1",
+    });
   });
 
   it("expands tilde in project path for symlink sources", async () => {

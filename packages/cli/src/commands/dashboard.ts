@@ -28,8 +28,7 @@ export function registerDashboard(program: Command): void {
       if (!existsSync(resolve(webDir, "package.json"))) {
         console.error(
           chalk.red(
-            "Could not find @composio/ao-web package.\n" +
-              "Ensure it is installed: pnpm install",
+            "Could not find @composio/ao-web package.\n" + "Ensure it is installed: pnpm install",
           ),
         );
         process.exit(1);

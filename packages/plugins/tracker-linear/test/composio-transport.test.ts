@@ -279,9 +279,7 @@ describe("tracker-linear Composio transport", () => {
       mockExecute.mockRejectedValueOnce(new Error("Network error"));
       const tracker = create();
 
-      await expect(tracker.getIssue("INT-123", project)).rejects.toThrow(
-        "Network error",
-      );
+      await expect(tracker.getIssue("INT-123", project)).rejects.toThrow("Network error");
     });
   });
 
@@ -324,7 +322,9 @@ describe("tracker-linear Composio transport", () => {
       // process the .catch() handler on timeoutPromise. Suppress the
       // transient unhandled rejection that vitest detects in that window.
       const suppressed: unknown[] = [];
-      const handler = (reason: unknown) => { suppressed.push(reason); };
+      const handler = (reason: unknown) => {
+        suppressed.push(reason);
+      };
       process.on("unhandledRejection", handler);
 
       try {
@@ -338,9 +338,7 @@ describe("tracker-linear Composio transport", () => {
         // Advance timers past the 30s timeout
         await vi.advanceTimersByTimeAsync(30_001);
 
-        await expect(promise).rejects.toThrow(
-          "Composio Linear API request timed out after 30s",
-        );
+        await expect(promise).rejects.toThrow("Composio Linear API request timed out after 30s");
       } finally {
         process.removeListener("unhandledRejection", handler);
         vi.useRealTimers();

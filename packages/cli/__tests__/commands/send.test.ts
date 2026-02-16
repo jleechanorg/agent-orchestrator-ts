@@ -155,7 +155,13 @@ describe("send command", () => {
       await program.parseAsync(["node", "test", "send", "--no-wait", "my-session", "urgent"]);
 
       // Should have sent the message without waiting
-      expect(mockExec).toHaveBeenCalledWith("tmux", ["send-keys", "-t", "my-session", "-l", "urgent"]);
+      expect(mockExec).toHaveBeenCalledWith("tmux", [
+        "send-keys",
+        "-t",
+        "my-session",
+        "-l",
+        "urgent",
+      ]);
     });
 
     it("detects queued message state", async () => {
@@ -213,7 +219,13 @@ describe("send command", () => {
 
       await program.parseAsync(["node", "test", "send", "my-session", "short", "msg"]);
 
-      expect(mockExec).toHaveBeenCalledWith("tmux", ["send-keys", "-t", "my-session", "-l", "short msg"]);
+      expect(mockExec).toHaveBeenCalledWith("tmux", [
+        "send-keys",
+        "-t",
+        "my-session",
+        "-l",
+        "short msg",
+      ]);
     });
 
     it("clears partial input before sending", async () => {

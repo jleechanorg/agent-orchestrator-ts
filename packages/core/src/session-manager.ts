@@ -118,7 +118,9 @@ function metadataToSession(
           const prUrl = meta["pr"];
           const ghMatch = prUrl.match(/github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)/);
           return {
-            number: ghMatch ? parseInt(ghMatch[3], 10) : parseInt(prUrl.match(/\/(\d+)$/)?.[1] ?? "0", 10),
+            number: ghMatch
+              ? parseInt(ghMatch[3], 10)
+              : parseInt(prUrl.match(/\/(\d+)$/)?.[1] ?? "0", 10),
             url: prUrl,
             title: "",
             owner: ghMatch?.[1] ?? "",
@@ -223,8 +225,8 @@ export function createSessionManager(deps: SessionManagerDeps): SessionManager {
           // Issue doesn't exist - fail fast with clear message
           throw new Error(
             `Issue ${spawnConfig.issueId} does not exist in tracker. ` +
-            `Create the issue first, then spawn with the created issue ID.`,
-            { cause: err }
+              `Create the issue first, then spawn with the created issue ID.`,
+            { cause: err },
           );
         } else {
           // Other error (auth, network, etc) - fail fast
@@ -242,7 +244,9 @@ export function createSessionManager(deps: SessionManagerDeps): SessionManager {
       if (reserveSessionId(config.dataDir, sessionId)) break;
       num++;
       if (attempts === 9) {
-        throw new Error(`Failed to reserve session ID after 10 attempts (prefix: ${project.sessionPrefix})`);
+        throw new Error(
+          `Failed to reserve session ID after 10 attempts (prefix: ${project.sessionPrefix})`,
+        );
       }
     }
     // Reassign to satisfy TypeScript's flow analysis (not redundant from compiler's perspective)
@@ -498,7 +502,8 @@ export function createSessionManager(deps: SessionManagerDeps): SessionManager {
       if (handle) {
         const runtimePlugin = registry.get<Runtime>(
           "runtime",
-          handle.runtimeName ?? (project ? project.runtime ?? config.defaults.runtime : config.defaults.runtime),
+          handle.runtimeName ??
+            (project ? (project.runtime ?? config.defaults.runtime) : config.defaults.runtime),
         );
         if (runtimePlugin) {
           try {
@@ -615,7 +620,8 @@ export function createSessionManager(deps: SessionManagerDeps): SessionManager {
     const project = config.projects[raw["project"] ?? ""];
     const runtimePlugin = registry.get<Runtime>(
       "runtime",
-      handle.runtimeName ?? (project ? project.runtime ?? config.defaults.runtime : config.defaults.runtime),
+      handle.runtimeName ??
+        (project ? (project.runtime ?? config.defaults.runtime) : config.defaults.runtime),
     );
     if (!runtimePlugin) {
       throw new Error(`No runtime plugin for session ${sessionId}`);

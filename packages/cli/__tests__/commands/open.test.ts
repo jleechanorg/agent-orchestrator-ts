@@ -141,9 +141,9 @@ describe("open command", () => {
       return null;
     });
 
-    await expect(
-      program.parseAsync(["node", "test", "open", "nonexistent"]),
-    ).rejects.toThrow("process.exit(1)");
+    await expect(program.parseAsync(["node", "test", "open", "nonexistent"])).rejects.toThrow(
+      "process.exit(1)",
+    );
   });
 
   it("passes --new-window flag to open-iterm-tab", async () => {

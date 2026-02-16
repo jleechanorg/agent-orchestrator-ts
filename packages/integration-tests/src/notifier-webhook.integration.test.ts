@@ -118,8 +118,16 @@ describe("notifier-webhook integration", () => {
       vi.useFakeTimers();
       const fetchMock = vi
         .fn()
-        .mockResolvedValueOnce({ ok: false, status: 503, text: () => Promise.resolve("unavailable") })
-        .mockResolvedValueOnce({ ok: false, status: 503, text: () => Promise.resolve("unavailable") })
+        .mockResolvedValueOnce({
+          ok: false,
+          status: 503,
+          text: () => Promise.resolve("unavailable"),
+        })
+        .mockResolvedValueOnce({
+          ok: false,
+          status: 503,
+          text: () => Promise.resolve("unavailable"),
+        })
         .mockResolvedValueOnce({ ok: true });
       vi.stubGlobal("fetch", fetchMock);
 
@@ -206,7 +214,11 @@ describe("notifier-webhook integration", () => {
     it("429 is retried", async () => {
       const fetchMock = vi
         .fn()
-        .mockResolvedValueOnce({ ok: false, status: 429, text: () => Promise.resolve("rate limited") })
+        .mockResolvedValueOnce({
+          ok: false,
+          status: 429,
+          text: () => Promise.resolve("rate limited"),
+        })
         .mockResolvedValueOnce({ ok: true });
       vi.stubGlobal("fetch", fetchMock);
 

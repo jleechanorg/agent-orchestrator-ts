@@ -4,9 +4,7 @@ import { toClaudeProjectPath } from "../index.js";
 describe("Claude Code Activity Detection", () => {
   describe("toClaudeProjectPath", () => {
     it("encodes paths correctly", () => {
-      expect(toClaudeProjectPath("/Users/dev/.worktrees/ao")).toBe(
-        "Users-dev--worktrees-ao",
-      );
+      expect(toClaudeProjectPath("/Users/dev/.worktrees/ao")).toBe("Users-dev--worktrees-ao");
     });
 
     it("strips leading slash", () => {
@@ -18,9 +16,7 @@ describe("Claude Code Activity Detection", () => {
     });
 
     it("handles Windows paths", () => {
-      expect(toClaudeProjectPath("C:\\Users\\dev\\project")).toBe(
-        "C-Users-dev-project",
-      );
+      expect(toClaudeProjectPath("C:\\Users\\dev\\project")).toBe("C-Users-dev-project");
     });
   });
 

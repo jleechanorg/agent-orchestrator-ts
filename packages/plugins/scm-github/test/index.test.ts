@@ -241,7 +241,13 @@ describe("scm-github plugin", () => {
   describe("getCIChecks", () => {
     it("maps various check states correctly", async () => {
       mockGh([
-        { name: "build", state: "SUCCESS", link: "https://ci/1", startedAt: "2025-01-01T00:00:00Z", completedAt: "2025-01-01T00:05:00Z" },
+        {
+          name: "build",
+          state: "SUCCESS",
+          link: "https://ci/1",
+          startedAt: "2025-01-01T00:00:00Z",
+          completedAt: "2025-01-01T00:05:00Z",
+        },
         { name: "lint", state: "FAILURE", link: "", startedAt: "", completedAt: "" },
         { name: "deploy", state: "PENDING", link: "", startedAt: "", completedAt: "" },
         { name: "e2e", state: "IN_PROGRESS", link: "", startedAt: "", completedAt: "" },
@@ -264,8 +270,8 @@ describe("scm-github plugin", () => {
       expect(checks[5].status).toBe("skipped");
       expect(checks[6].status).toBe("failed");
       expect(checks[7].status).toBe("pending");
-      expect(checks[8].status).toBe("failed");   // CANCELLED
-      expect(checks[9].status).toBe("failed");   // ACTION_REQUIRED
+      expect(checks[8].status).toBe("failed"); // CANCELLED
+      expect(checks[9].status).toBe("failed"); // ACTION_REQUIRED
     });
 
     it("throws on error (fail-closed)", async () => {
@@ -339,10 +345,30 @@ describe("scm-github plugin", () => {
     it("maps review states correctly", async () => {
       mockGh({
         reviews: [
-          { author: { login: "alice" }, state: "APPROVED", body: "LGTM", submittedAt: "2025-01-01T00:00:00Z" },
-          { author: { login: "bob" }, state: "CHANGES_REQUESTED", body: "Fix this", submittedAt: "2025-01-02T00:00:00Z" },
-          { author: { login: "charlie" }, state: "COMMENTED", body: "", submittedAt: "2025-01-03T00:00:00Z" },
-          { author: { login: "eve" }, state: "DISMISSED", body: "", submittedAt: "2025-01-04T00:00:00Z" },
+          {
+            author: { login: "alice" },
+            state: "APPROVED",
+            body: "LGTM",
+            submittedAt: "2025-01-01T00:00:00Z",
+          },
+          {
+            author: { login: "bob" },
+            state: "CHANGES_REQUESTED",
+            body: "Fix this",
+            submittedAt: "2025-01-02T00:00:00Z",
+          },
+          {
+            author: { login: "charlie" },
+            state: "COMMENTED",
+            body: "",
+            submittedAt: "2025-01-03T00:00:00Z",
+          },
+          {
+            author: { login: "eve" },
+            state: "DISMISSED",
+            body: "",
+            submittedAt: "2025-01-04T00:00:00Z",
+          },
           { author: { login: "frank" }, state: "PENDING", body: "", submittedAt: null },
         ],
       });
@@ -363,7 +389,9 @@ describe("scm-github plugin", () => {
 
     it('defaults to "unknown" author when missing', async () => {
       mockGh({
-        reviews: [{ author: null, state: "APPROVED", body: "", submittedAt: "2025-01-01T00:00:00Z" }],
+        reviews: [
+          { author: null, state: "APPROVED", body: "", submittedAt: "2025-01-01T00:00:00Z" },
+        ],
       });
       const reviews = await scm.getReviews(pr);
       expect(reviews[0].author).toBe("unknown");
@@ -439,8 +467,26 @@ describe("scm-github plugin", () => {
     it("returns only unresolved non-bot comments from GraphQL", async () => {
       mockGh(
         makeGraphQLThreads([
-          { isResolved: false, id: "C1", author: "alice", body: "Fix line 10", path: "src/foo.ts", line: 10, url: "https://github.com/c/1", createdAt: "2025-01-01T00:00:00Z" },
-          { isResolved: true, id: "C2", author: "bob", body: "Resolved one", path: "src/bar.ts", line: 20, url: "https://github.com/c/2", createdAt: "2025-01-02T00:00:00Z" },
+          {
+            isResolved: false,
+            id: "C1",
+            author: "alice",
+            body: "Fix line 10",
+            path: "src/foo.ts",
+            line: 10,
+            url: "https://github.com/c/1",
+            createdAt: "2025-01-01T00:00:00Z",
+          },
+          {
+            isResolved: true,
+            id: "C2",
+            author: "bob",
+            body: "Resolved one",
+            path: "src/bar.ts",
+            line: 20,
+            url: "https://github.com/c/2",
+            createdAt: "2025-01-02T00:00:00Z",
+          },
         ]),
       );
 
@@ -452,9 +498,36 @@ describe("scm-github plugin", () => {
     it("filters out bot comments", async () => {
       mockGh(
         makeGraphQLThreads([
-          { isResolved: false, id: "C1", author: "alice", body: "Fix this", path: "a.ts", line: 1, url: "u", createdAt: "2025-01-01T00:00:00Z" },
-          { isResolved: false, id: "C2", author: "cursor[bot]", body: "Bot says", path: "a.ts", line: 2, url: "u", createdAt: "2025-01-01T00:00:00Z" },
-          { isResolved: false, id: "C3", author: "codecov[bot]", body: "Coverage", path: "a.ts", line: 3, url: "u", createdAt: "2025-01-01T00:00:00Z" },
+          {
+            isResolved: false,
+            id: "C1",
+            author: "alice",
+            body: "Fix this",
+            path: "a.ts",
+            line: 1,
+            url: "u",
+            createdAt: "2025-01-01T00:00:00Z",
+          },
+          {
+            isResolved: false,
+            id: "C2",
+            author: "cursor[bot]",
+            body: "Bot says",
+            path: "a.ts",
+            line: 2,
+            url: "u",
+            createdAt: "2025-01-01T00:00:00Z",
+          },
+          {
+            isResolved: false,
+            id: "C3",
+            author: "codecov[bot]",
+            body: "Coverage",
+            path: "a.ts",
+            line: 3,
+            url: "u",
+            createdAt: "2025-01-01T00:00:00Z",
+          },
         ]),
       );
 
@@ -471,7 +544,16 @@ describe("scm-github plugin", () => {
     it("handles null path and line", async () => {
       mockGh(
         makeGraphQLThreads([
-          { isResolved: false, id: "C1", author: "alice", body: "General comment", path: null, line: null, url: "u", createdAt: "2025-01-01T00:00:00Z" },
+          {
+            isResolved: false,
+            id: "C1",
+            author: "alice",
+            body: "General comment",
+            path: null,
+            line: null,
+            url: "u",
+            createdAt: "2025-01-01T00:00:00Z",
+          },
         ]),
       );
       const comments = await scm.getPendingComments(pr);
@@ -485,8 +567,26 @@ describe("scm-github plugin", () => {
   describe("getAutomatedComments", () => {
     it("returns bot comments filtered from all PR comments", async () => {
       mockGh([
-        { id: 1, user: { login: "cursor[bot]" }, body: "Found a potential issue", path: "a.ts", line: 5, original_line: null, created_at: "2025-01-01T00:00:00Z", html_url: "u1" },
-        { id: 2, user: { login: "alice" }, body: "Human comment", path: "a.ts", line: 1, original_line: null, created_at: "2025-01-01T00:00:00Z", html_url: "u2" },
+        {
+          id: 1,
+          user: { login: "cursor[bot]" },
+          body: "Found a potential issue",
+          path: "a.ts",
+          line: 5,
+          original_line: null,
+          created_at: "2025-01-01T00:00:00Z",
+          html_url: "u1",
+        },
+        {
+          id: 2,
+          user: { login: "alice" },
+          body: "Human comment",
+          path: "a.ts",
+          line: 1,
+          original_line: null,
+          created_at: "2025-01-01T00:00:00Z",
+          html_url: "u2",
+        },
       ]);
 
       const comments = await scm.getAutomatedComments(pr);
@@ -497,9 +597,36 @@ describe("scm-github plugin", () => {
 
     it("classifies severity from body content", async () => {
       mockGh([
-        { id: 1, user: { login: "github-actions[bot]" }, body: "Error: build failed", path: "a.ts", line: 1, original_line: null, created_at: "2025-01-01T00:00:00Z", html_url: "u" },
-        { id: 2, user: { login: "github-actions[bot]" }, body: "Warning: deprecated API", path: "a.ts", line: 2, original_line: null, created_at: "2025-01-01T00:00:00Z", html_url: "u" },
-        { id: 3, user: { login: "github-actions[bot]" }, body: "Deployed to staging", path: "a.ts", line: 3, original_line: null, created_at: "2025-01-01T00:00:00Z", html_url: "u" },
+        {
+          id: 1,
+          user: { login: "github-actions[bot]" },
+          body: "Error: build failed",
+          path: "a.ts",
+          line: 1,
+          original_line: null,
+          created_at: "2025-01-01T00:00:00Z",
+          html_url: "u",
+        },
+        {
+          id: 2,
+          user: { login: "github-actions[bot]" },
+          body: "Warning: deprecated API",
+          path: "a.ts",
+          line: 2,
+          original_line: null,
+          created_at: "2025-01-01T00:00:00Z",
+          html_url: "u",
+        },
+        {
+          id: 3,
+          user: { login: "github-actions[bot]" },
+          body: "Deployed to staging",
+          path: "a.ts",
+          line: 3,
+          original_line: null,
+          created_at: "2025-01-01T00:00:00Z",
+          html_url: "u",
+        },
       ]);
 
       const comments = await scm.getAutomatedComments(pr);
@@ -511,7 +638,16 @@ describe("scm-github plugin", () => {
 
     it("returns empty when no bot comments", async () => {
       mockGh([
-        { id: 1, user: { login: "alice" }, body: "Human comment", path: "a.ts", line: 1, original_line: null, created_at: "2025-01-01T00:00:00Z", html_url: "u" },
+        {
+          id: 1,
+          user: { login: "alice" },
+          body: "Human comment",
+          path: "a.ts",
+          line: 1,
+          original_line: null,
+          created_at: "2025-01-01T00:00:00Z",
+          html_url: "u",
+        },
       ]);
 
       const comments = await scm.getAutomatedComments(pr);
@@ -525,7 +661,16 @@ describe("scm-github plugin", () => {
 
     it("uses original_line as fallback", async () => {
       mockGh([
-        { id: 1, user: { login: "dependabot[bot]" }, body: "Suggest update", path: "a.ts", line: null, original_line: 15, created_at: "2025-01-01T00:00:00Z", html_url: "u" },
+        {
+          id: 1,
+          user: { login: "dependabot[bot]" },
+          body: "Suggest update",
+          path: "a.ts",
+          line: null,
+          original_line: 15,
+          created_at: "2025-01-01T00:00:00Z",
+          html_url: "u",
+        },
       ]);
 
       const comments = await scm.getAutomatedComments(pr);
@@ -570,7 +715,12 @@ describe("scm-github plugin", () => {
       // getPRState call (for open PR)
       mockGh({ state: "OPEN" });
       // PR view
-      mockGh({ mergeable: "MERGEABLE", reviewDecision: "APPROVED", mergeStateStatus: "CLEAN", isDraft: false });
+      mockGh({
+        mergeable: "MERGEABLE",
+        reviewDecision: "APPROVED",
+        mergeStateStatus: "CLEAN",
+        isDraft: false,
+      });
       // CI checks (called by getCISummary)
       mockGh([{ name: "build", state: "SUCCESS" }]);
 
@@ -586,7 +736,12 @@ describe("scm-github plugin", () => {
 
     it("reports CI failures as blockers", async () => {
       mockGh({ state: "OPEN" }); // getPRState
-      mockGh({ mergeable: "MERGEABLE", reviewDecision: "APPROVED", mergeStateStatus: "UNSTABLE", isDraft: false });
+      mockGh({
+        mergeable: "MERGEABLE",
+        reviewDecision: "APPROVED",
+        mergeStateStatus: "UNSTABLE",
+        isDraft: false,
+      });
       mockGh([{ name: "build", state: "FAILURE" }]);
 
       const result = await scm.getMergeability(pr);
@@ -598,7 +753,12 @@ describe("scm-github plugin", () => {
 
     it("reports UNSTABLE merge state even when CI fetch fails", async () => {
       mockGh({ state: "OPEN" }); // getPRState
-      mockGh({ mergeable: "MERGEABLE", reviewDecision: "APPROVED", mergeStateStatus: "UNSTABLE", isDraft: false });
+      mockGh({
+        mergeable: "MERGEABLE",
+        reviewDecision: "APPROVED",
+        mergeStateStatus: "UNSTABLE",
+        isDraft: false,
+      });
       mockGhError("rate limited");
 
       const result = await scm.getMergeability(pr);
@@ -610,7 +770,12 @@ describe("scm-github plugin", () => {
 
     it("reports changes requested as blockers", async () => {
       mockGh({ state: "OPEN" }); // getPRState
-      mockGh({ mergeable: "MERGEABLE", reviewDecision: "CHANGES_REQUESTED", mergeStateStatus: "CLEAN", isDraft: false });
+      mockGh({
+        mergeable: "MERGEABLE",
+        reviewDecision: "CHANGES_REQUESTED",
+        mergeStateStatus: "CLEAN",
+        isDraft: false,
+      });
       mockGh([]); // no CI checks
 
       const result = await scm.getMergeability(pr);
@@ -620,7 +785,12 @@ describe("scm-github plugin", () => {
 
     it("reports review required as blocker", async () => {
       mockGh({ state: "OPEN" }); // getPRState
-      mockGh({ mergeable: "MERGEABLE", reviewDecision: "REVIEW_REQUIRED", mergeStateStatus: "BLOCKED", isDraft: false });
+      mockGh({
+        mergeable: "MERGEABLE",
+        reviewDecision: "REVIEW_REQUIRED",
+        mergeStateStatus: "BLOCKED",
+        isDraft: false,
+      });
       mockGh([]);
 
       const result = await scm.getMergeability(pr);
@@ -629,7 +799,12 @@ describe("scm-github plugin", () => {
 
     it("reports merge conflicts as blockers", async () => {
       mockGh({ state: "OPEN" }); // getPRState
-      mockGh({ mergeable: "CONFLICTING", reviewDecision: "APPROVED", mergeStateStatus: "DIRTY", isDraft: false });
+      mockGh({
+        mergeable: "CONFLICTING",
+        reviewDecision: "APPROVED",
+        mergeStateStatus: "DIRTY",
+        isDraft: false,
+      });
       mockGh([]);
 
       const result = await scm.getMergeability(pr);
@@ -639,7 +814,12 @@ describe("scm-github plugin", () => {
 
     it("reports UNKNOWN mergeable as noConflicts false", async () => {
       mockGh({ state: "OPEN" }); // getPRState
-      mockGh({ mergeable: "UNKNOWN", reviewDecision: "APPROVED", mergeStateStatus: "CLEAN", isDraft: false });
+      mockGh({
+        mergeable: "UNKNOWN",
+        reviewDecision: "APPROVED",
+        mergeStateStatus: "CLEAN",
+        isDraft: false,
+      });
       mockGh([{ name: "build", state: "SUCCESS" }]);
 
       const result = await scm.getMergeability(pr);
@@ -650,7 +830,12 @@ describe("scm-github plugin", () => {
 
     it("reports draft status as blocker", async () => {
       mockGh({ state: "OPEN" }); // getPRState
-      mockGh({ mergeable: "MERGEABLE", reviewDecision: "APPROVED", mergeStateStatus: "DRAFT", isDraft: true });
+      mockGh({
+        mergeable: "MERGEABLE",
+        reviewDecision: "APPROVED",
+        mergeStateStatus: "DRAFT",
+        isDraft: true,
+      });
       mockGh([{ name: "build", state: "SUCCESS" }]);
 
       const result = await scm.getMergeability(pr);
@@ -660,7 +845,12 @@ describe("scm-github plugin", () => {
 
     it("reports multiple blockers simultaneously", async () => {
       mockGh({ state: "OPEN" }); // getPRState
-      mockGh({ mergeable: "CONFLICTING", reviewDecision: "CHANGES_REQUESTED", mergeStateStatus: "DIRTY", isDraft: true });
+      mockGh({
+        mergeable: "CONFLICTING",
+        reviewDecision: "CHANGES_REQUESTED",
+        mergeStateStatus: "DIRTY",
+        isDraft: true,
+      });
       mockGh([{ name: "build", state: "FAILURE" }]);
 
       const result = await scm.getMergeability(pr);

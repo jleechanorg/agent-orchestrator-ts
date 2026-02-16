@@ -147,12 +147,9 @@ describe("workspace.create()", () => {
     });
 
     // First call should be git remote get-url origin
-    expect(mockExecFileAsync).toHaveBeenNthCalledWith(
-      1,
-      "git",
-      ["remote", "get-url", "origin"],
-      { cwd: "/repo/path" },
-    );
+    expect(mockExecFileAsync).toHaveBeenNthCalledWith(1, "git", ["remote", "get-url", "origin"], {
+      cwd: "/repo/path",
+    });
   });
 
   it("falls back to local path when remote URL lookup fails", async () => {
@@ -252,12 +249,9 @@ describe("workspace.create()", () => {
     });
 
     // Fourth call: plain checkout
-    expect(mockExecFileAsync).toHaveBeenNthCalledWith(
-      4,
-      "git",
-      ["checkout", "feat/existing"],
-      { cwd: "/mock-home/.ao-clones/proj/sess" },
-    );
+    expect(mockExecFileAsync).toHaveBeenNthCalledWith(4, "git", ["checkout", "feat/existing"], {
+      cwd: "/mock-home/.ao-clones/proj/sess",
+    });
 
     expect(info.branch).toBe("feat/existing");
   });
@@ -446,12 +440,9 @@ describe("workspace.create()", () => {
     });
 
     // git remote get-url should use expanded path
-    expect(mockExecFileAsync).toHaveBeenNthCalledWith(
-      1,
-      "git",
-      ["remote", "get-url", "origin"],
-      { cwd: "/mock-home/my-repos/project" },
-    );
+    expect(mockExecFileAsync).toHaveBeenNthCalledWith(1, "git", ["remote", "get-url", "origin"], {
+      cwd: "/mock-home/my-repos/project",
+    });
   });
 });
 
@@ -527,18 +518,12 @@ describe("workspace.list()", () => {
     ]);
 
     // Verify git branch --show-current was called for each entry
-    expect(mockExecFileAsync).toHaveBeenNthCalledWith(
-      1,
-      "git",
-      ["branch", "--show-current"],
-      { cwd: "/mock-home/.ao-clones/myproject/session-1" },
-    );
-    expect(mockExecFileAsync).toHaveBeenNthCalledWith(
-      2,
-      "git",
-      ["branch", "--show-current"],
-      { cwd: "/mock-home/.ao-clones/myproject/session-2" },
-    );
+    expect(mockExecFileAsync).toHaveBeenNthCalledWith(1, "git", ["branch", "--show-current"], {
+      cwd: "/mock-home/.ao-clones/myproject/session-1",
+    });
+    expect(mockExecFileAsync).toHaveBeenNthCalledWith(2, "git", ["branch", "--show-current"], {
+      cwd: "/mock-home/.ao-clones/myproject/session-2",
+    });
   });
 
   it("skips non-directory entries", async () => {
@@ -592,17 +577,13 @@ describe("workspace.list()", () => {
   it("rejects invalid projectId with special characters", async () => {
     const workspace = create();
 
-    await expect(workspace.list("bad/project")).rejects.toThrow(
-      'Invalid projectId "bad/project"',
-    );
+    await expect(workspace.list("bad/project")).rejects.toThrow('Invalid projectId "bad/project"');
   });
 
   it("rejects projectId with spaces", async () => {
     const workspace = create();
 
-    await expect(workspace.list("bad project")).rejects.toThrow(
-      'Invalid projectId "bad project"',
-    );
+    await expect(workspace.list("bad project")).rejects.toThrow('Invalid projectId "bad project"');
   });
 });
 

@@ -17,7 +17,12 @@ import { promisify } from "node:util";
 import type { ActivityState, AgentSessionInfo } from "@composio/ao-core";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import codexPlugin from "@composio/ao-plugin-agent-codex";
-import { isTmuxAvailable, killSessionsByPrefix, createSession, killSession } from "./helpers/tmux.js";
+import {
+  isTmuxAvailable,
+  killSessionsByPrefix,
+  createSession,
+  killSession,
+} from "./helpers/tmux.js";
 import { pollUntilEqual, sleep } from "./helpers/polling.js";
 import { makeTmuxHandle, makeSession } from "./helpers/session-factory.js";
 
@@ -90,11 +95,10 @@ describe.skipIf(!canRun)("agent-codex (integration)", () => {
     }
 
     // Wait for agent to exit
-    exitedRunning = await pollUntilEqual(
-      () => agent.isProcessRunning(handle),
-      false,
-      { timeoutMs: 90_000, intervalMs: 2_000 },
-    );
+    exitedRunning = await pollUntilEqual(() => agent.isProcessRunning(handle), false, {
+      timeoutMs: 90_000,
+      intervalMs: 2_000,
+    });
 
     exitedActivityState = await agent.getActivityState(session);
     sessionInfo = await agent.getSessionInfo(session);
