@@ -22,7 +22,8 @@
     "clean": "pnpm -r clean",
     "changeset": "changeset",
     "version-packages": "changeset version",
-    "release": "pnpm -r --filter '!@composio/ao-web' build && changeset publish"
+    "release": "pnpm -r --filter '!@composio/ao-web' build && changeset publish",
+    "prepare": "husky"
   },
   "devDependencies": {
     "@changesets/cli": "^2.29.8",
@@ -30,6 +31,7 @@
     "@types/node": "^25.2.3",
     "eslint": "^10.0.0",
     "eslint-config-prettier": "^10.1.8",
+    "husky": "^9.1.7",
     "prettier": "^3.8.1",
     "typescript-eslint": "^8.55.0"
   }
