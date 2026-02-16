@@ -77,6 +77,7 @@ beforeEach(() => {
     getLaunchCommand: vi.fn(),
     getEnvironment: vi.fn(),
     detectActivity: vi.fn().mockReturnValue("active" as ActivityState),
+    getActivityState: vi.fn().mockResolvedValue("active" as ActivityState),
     isProcessRunning: vi.fn().mockResolvedValue(true),
     isProcessing: vi.fn().mockResolvedValue(false),
     getSessionInfo: vi.fn().mockResolvedValue(null),

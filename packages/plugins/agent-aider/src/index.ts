@@ -10,8 +10,45 @@ import {
 } from "@composio/ao-core";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { stat, access } from "node:fs/promises";
+import { join } from "node:path";
+import { constants } from "node:fs";
 
 const execFileAsync = promisify(execFile);
+
+// =============================================================================
+// Aider Activity Detection Helpers
+// =============================================================================
+
+/**
+ * Check if Aider has made recent commits (within last 60 seconds).
+ */
+async function hasRecentCommits(workspacePath: string): Promise<boolean> {
+  try {
+    const { stdout } = await execFileAsync(
+      "git",
+      ["log", "--since=60 seconds ago", "--format=%H"],
+      { cwd: workspacePath, timeout: 5_000 },
+    );
+    return stdout.trim().length > 0;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Get modification time of Aider chat history file.
+ */
+async function getChatHistoryMtime(workspacePath: string): Promise<Date | null> {
+  try {
+    const chatFile = join(workspacePath, ".aider.chat.history.md");
+    await access(chatFile, constants.R_OK);
+    const stats = await stat(chatFile);
+    return stats.mtime;
+  } catch {
+    return null;
+  }
+}
 
 // =============================================================================
 // Plugin Manifest
@@ -65,6 +102,34 @@ function createAiderAgent(): Agent {
       if (!terminalOutput.trim()) return "idle";
       // Aider doesn't have rich terminal output patterns yet
       return "active";
+    },
+
+    async getActivityState(session: Session): Promise<ActivityState> {
+      // Check if process is running first
+      if (!session.runtimeHandle) return "exited";
+      const running = await this.isProcessRunning(session.runtimeHandle);
+      if (!running) return "exited";
+
+      // Process is running - check for activity signals
+      if (!session.workspacePath) return "active";
+
+      // Check for recent git commits (Aider auto-commits changes)
+      const hasCommits = await hasRecentCommits(session.workspacePath);
+      if (hasCommits) return "active";
+
+      // Check chat history file modification time
+      const chatMtime = await getChatHistoryMtime(session.workspacePath);
+      if (!chatMtime) {
+        // No chat history yet, but process is running - assume active
+        return "active";
+      }
+
+      // If chat file was modified within last 30 seconds, consider active
+      const ageMs = Date.now() - chatMtime.getTime();
+      if (ageMs < 30_000) return "active";
+
+      // No recent activity - idle at prompt
+      return "idle";
     },
 
     async isProcessRunning(handle: RuntimeHandle): Promise<boolean> {

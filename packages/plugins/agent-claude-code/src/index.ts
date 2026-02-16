@@ -1,5 +1,6 @@
 import {
   shellEscape,
+  readLastJsonlEntry,
   type Agent,
   type AgentSessionInfo,
   type AgentLaunchConfig,
@@ -11,7 +12,7 @@ import {
   type WorkspaceHooksConfig,
 } from "@composio/ao-core";
 import { execFile } from "node:child_process";
-import { open, readdir, readFile, stat, writeFile, mkdir, chmod } from "node:fs/promises";
+import { readdir, readFile, stat, writeFile, mkdir, chmod } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
@@ -193,8 +194,10 @@ export const manifest = {
  * If Claude Code changes its encoding scheme this will silently break
  * introspection. The path can be validated at runtime by checking whether
  * the resulting directory exists.
+ *
+ * Exported for testing purposes.
  */
-function toClaudeProjectPath(workspacePath: string): string {
+export function toClaudeProjectPath(workspacePath: string): string {
   // Handle Windows drive letters (C:\Users\... → C-Users-...)
   const normalized = workspacePath.replace(/\\/g, "/");
   return normalized.replace(/^\//, "").replace(/:/g, "").replace(/[/.]/g, "-");
@@ -249,51 +252,8 @@ interface JsonlLine {
  * Read only the last chunk of a JSONL file to extract the last entry's type
  * and the file's modification time. This is optimized for polling — it avoids
  * reading the entire file (which `getSessionInfo()` does for full cost/summary).
+ * Now uses the shared readLastJsonlEntry utility from @composio/ao-core.
  */
-const TAIL_READ_BYTES = 4096;
-
-async function readLastJsonlEntry(
-  filePath: string,
-): Promise<{ lastType: string | null; modifiedAt: Date } | null> {
-  let fh;
-  try {
-    fh = await open(filePath, "r");
-    const fileStat = await fh.stat();
-    const size = fileStat.size;
-    if (size === 0) return null;
-
-    const readSize = Math.min(TAIL_READ_BYTES, size);
-    const buffer = Buffer.alloc(readSize);
-    const { bytesRead } = await fh.read(buffer, 0, readSize, size - readSize);
-
-    const chunk = buffer.toString("utf-8", 0, bytesRead);
-    // Walk backwards through lines to find the last valid JSON object with a type
-    const lines = chunk.split("\n");
-    for (let i = lines.length - 1; i >= 0; i--) {
-      const line = lines[i];
-      if (!line) continue;
-      const trimmed = line.trim();
-      if (!trimmed) continue;
-      try {
-        const parsed: unknown = JSON.parse(trimmed);
-        if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
-          const obj = parsed as Record<string, unknown>;
-          if (typeof obj.type === "string") {
-            return { lastType: obj.type, modifiedAt: fileStat.mtime };
-          }
-        }
-      } catch {
-        // Skip malformed lines (possibly truncated first line in our chunk)
-      }
-    }
-
-    return { lastType: null, modifiedAt: fileStat.mtime };
-  } catch {
-    return null;
-  } finally {
-    await fh?.close();
-  }
-}
 
 /** Parse JSONL file into lines (skipping invalid JSON) */
 async function parseJsonlFile(filePath: string): Promise<JsonlLine[]> {
@@ -671,6 +631,63 @@ function createClaudeCodeAgent(): Agent {
       if (entry.lastType === "assistant" || entry.lastType === "system") return false;
 
       return true;
+    },
+
+    async getActivityState(session: Session): Promise<ActivityState> {
+      // Check if process is running first
+      if (!session.runtimeHandle) return "exited";
+      const running = await this.isProcessRunning(session.runtimeHandle);
+      if (!running) return "exited";
+
+      // Process is running - check JSONL session file for activity
+      if (!session.workspacePath) {
+        // No workspace path but process is running - assume active
+        return "active";
+      }
+
+      const projectPath = toClaudeProjectPath(session.workspacePath);
+      const projectDir = join(homedir(), ".claude", "projects", projectPath);
+
+      const sessionFile = await findLatestSessionFile(projectDir);
+      if (!sessionFile) {
+        // No session file found yet, but process is running - assume active
+        return "active";
+      }
+
+      const entry = await readLastJsonlEntry(sessionFile);
+      if (!entry) {
+        // Empty file or read error, but process is running - assume active
+        return "active";
+      }
+
+      // Check staleness - no activity in 30 seconds means idle
+      const ageMs = Date.now() - entry.modifiedAt.getTime();
+      if (ageMs > 30_000) return "idle";
+
+      // Classify based on last JSONL entry type
+      switch (entry.lastType) {
+        case "user":
+        case "tool_use":
+          // Agent is processing user request or running tools
+          return "active";
+
+        case "assistant":
+        case "system":
+          // Agent finished its turn, waiting for user input
+          return "idle";
+
+        case "permission_request":
+          // Agent needs user approval for an action
+          return "waiting_input";
+
+        case "error":
+          // Agent encountered an error
+          return "blocked";
+
+        default:
+          // Unknown type, assume active
+          return "active";
+      }
     },
 
     async getSessionInfo(session: Session): Promise<AgentSessionInfo | null> {

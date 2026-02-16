@@ -17,7 +17,7 @@ import { promisify } from "node:util";
 import type { ActivityState, AgentSessionInfo } from "@composio/ao-core";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import claudeCodePlugin from "@composio/ao-plugin-agent-claude-code";
-import { isTmuxAvailable, killSessionsByPrefix, createSession, killSession, capturePane } from "./helpers/tmux.js";
+import { isTmuxAvailable, killSessionsByPrefix, createSession, killSession } from "./helpers/tmux.js";
 import { pollUntilEqual, sleep } from "./helpers/polling.js";
 import { makeTmuxHandle, makeSession } from "./helpers/session-factory.js";
 
@@ -55,14 +55,15 @@ describe.skipIf(!canRun)("agent-claude-code (integration)", () => {
   const sessionName = `${SESSION_PREFIX}${Date.now()}`;
   let tmpDir: string;
 
-  // Observations captured while the agent is alive (atomically)
+  // Observations captured while the agent is alive
   let aliveRunning = false;
-  let aliveActivity: ActivityState | undefined;
+  let aliveActivityState: ActivityState | undefined;
+  let aliveSessionInfo: AgentSessionInfo | null = null;
 
   // Observations captured after the agent exits
   let exitedRunning: boolean;
-  let exitedActivity: ActivityState;
-  let sessionInfo: AgentSessionInfo | null;
+  let exitedActivityState: ActivityState;
+  let exitedSessionInfo: AgentSessionInfo | null;
 
   beforeAll(async () => {
     await killSessionsByPrefix(SESSION_PREFIX);
@@ -71,40 +72,46 @@ describe.skipIf(!canRun)("agent-claude-code (integration)", () => {
     const raw = await mkdtemp(join(tmpdir(), "ao-inttest-claude-"));
     tmpDir = await realpath(raw);
 
-    // Spawn Claude with a trivial prompt
-    const cmd = `CLAUDECODE= ${claudeBin} -p 'Say hello and nothing else'`;
+    // Spawn Claude with a task that generates observable activity (file creation)
+    const cmd = `CLAUDECODE= ${claudeBin} -p 'Create a file called test.txt with the content "integration test"'`;
     await createSession(sessionName, cmd, tmpDir);
 
     const handle = makeTmuxHandle(sessionName);
     const session = makeSession("inttest-claude", handle, tmpDir);
 
-    // Atomically capture "alive" observations
-    const deadline = Date.now() + 15_000;
+    // Poll until we capture "alive" observations
+    // Claude needs time to start, create JSONL, and begin processing
+    const deadline = Date.now() + 30_000;
     while (Date.now() < deadline) {
       const running = await agent.isProcessRunning(handle);
       if (running) {
         aliveRunning = true;
-        const output = await capturePane(sessionName);
-        const activity = agent.detectActivity(output);
-        if (activity !== "exited") {
-          aliveActivity = activity;
-          break;
+        try {
+          const activityState = await agent.getActivityState(session);
+          if (activityState !== "exited") {
+            aliveActivityState = activityState;
+            // Also capture session info while alive
+            aliveSessionInfo = await agent.getSessionInfo(session);
+            break;
+          }
+        } catch {
+          // JSONL might not exist yet, keep polling
         }
       }
-      await sleep(500);
+      await sleep(1_000);
     }
 
-    // Wait for agent to exit (trivial prompt should complete quickly)
+    // Wait for agent to exit (simple task should complete within 90s)
     exitedRunning = await pollUntilEqual(
       () => agent.isProcessRunning(handle),
       false,
       { timeoutMs: 90_000, intervalMs: 2_000 },
     );
 
-    const exitedOutput = await capturePane(sessionName);
-    exitedActivity = agent.detectActivity(exitedOutput);
-    sessionInfo = await agent.getSessionInfo(session);
-  }, 120_000);
+    // Capture post-exit observations
+    exitedActivityState = await agent.getActivityState(session);
+    exitedSessionInfo = await agent.getSessionInfo(session);
+  }, 150_000);
 
   afterAll(async () => {
     await killSession(sessionName);
@@ -117,10 +124,20 @@ describe.skipIf(!canRun)("agent-claude-code (integration)", () => {
     expect(aliveRunning).toBe(true);
   });
 
-  it("detectActivity → not exited while agent is alive", () => {
-    if (aliveActivity !== undefined) {
-      expect(aliveActivity).not.toBe("exited");
-      expect(["active", "idle", "waiting_input", "blocked"]).toContain(aliveActivity);
+  it("getActivityState → returns valid non-exited state while agent is alive", () => {
+    expect(aliveActivityState).toBeDefined();
+    expect(aliveActivityState).not.toBe("exited");
+    expect(["active", "idle", "waiting_input", "blocked"]).toContain(aliveActivityState);
+  });
+
+  it("getSessionInfo → returns session data while agent is alive (or null if path mismatch)", () => {
+    // The JSONL path depends on Claude's internal encoding of workspacePath.
+    // If the temp dir resolves differently (symlinks, etc.), may return null.
+    // Both outcomes are acceptable — the key is it doesn't throw.
+    if (aliveSessionInfo !== null) {
+      expect(aliveSessionInfo).toHaveProperty("summary");
+      expect(aliveSessionInfo).toHaveProperty("agentSessionId");
+      expect(typeof aliveSessionInfo.agentSessionId).toBe("string");
     }
   });
 
@@ -128,20 +145,17 @@ describe.skipIf(!canRun)("agent-claude-code (integration)", () => {
     expect(exitedRunning).toBe(false);
   });
 
-  it("detectActivity → idle after agent exits", () => {
-    // detectActivity is a pure terminal-text classifier; it returns "idle"
-    // for empty/shell-prompt output. Process exit is detected by isProcessRunning.
-    expect(exitedActivity).toBe("idle");
+  it("getActivityState → returns exited after agent process terminates", () => {
+    expect(exitedActivityState).toBe("exited");
   });
 
-  it("getSessionInfo → returns session data (or null if JSONL path mismatch)", () => {
-    // The JSONL path depends on Claude's internal encoding of workspacePath.
-    // If the temp dir path resolves differently, getSessionInfo may return null.
+  it("getSessionInfo → returns session data after agent exits (or null if path mismatch)", () => {
+    // JSONL should still be readable after exit, but path encoding may cause null.
     // Both outcomes are acceptable — the key is it doesn't throw.
-    if (sessionInfo !== null) {
-      expect(sessionInfo).toHaveProperty("summary");
-      expect(sessionInfo).toHaveProperty("agentSessionId");
-      expect(typeof sessionInfo.agentSessionId).toBe("string");
+    if (exitedSessionInfo !== null) {
+      expect(exitedSessionInfo).toHaveProperty("summary");
+      expect(exitedSessionInfo).toHaveProperty("agentSessionId");
+      expect(typeof exitedSessionInfo.agentSessionId).toBe("string");
     }
   });
 });

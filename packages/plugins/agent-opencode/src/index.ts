@@ -63,6 +63,23 @@ function createOpenCodeAgent(): Agent {
       return "active";
     },
 
+    async getActivityState(session: Session): Promise<ActivityState> {
+      // Check if process is running first
+      if (!session.runtimeHandle) return "exited";
+      const running = await this.isProcessRunning(session.runtimeHandle);
+      if (!running) return "exited";
+
+      // NOTE: OpenCode stores all session data in a single global SQLite database
+      // at ~/.local/share/opencode/opencode.db without per-workspace scoping. When
+      // multiple OpenCode sessions run in parallel, database modifications from any
+      // session will cause all sessions to appear active. Until OpenCode provides
+      // per-workspace session tracking, we fall back to process-running check only.
+      //
+      // TODO: Implement proper per-session activity detection when OpenCode supports it.
+      // For now, return "active" if process is running (conservative approach).
+      return "active";
+    },
+
     async isProcessRunning(handle: RuntimeHandle): Promise<boolean> {
       try {
         if (handle.runtimeName === "tmux" && handle.id) {

@@ -69,6 +69,23 @@ function createCodexAgent(): Agent {
       return "active";
     },
 
+    async getActivityState(session: Session): Promise<ActivityState> {
+      // Check if process is running first
+      if (!session.runtimeHandle) return "exited";
+      const running = await this.isProcessRunning(session.runtimeHandle);
+      if (!running) return "exited";
+
+      // NOTE: Codex stores rollout files in a global ~/.codex/sessions/ directory
+      // without workspace-specific scoping. When multiple Codex sessions run in
+      // parallel, we cannot reliably determine which rollout file belongs to which
+      // session. Until Codex provides per-workspace session tracking, we fall back
+      // to process-running check only. See issue #13 for details.
+      //
+      // TODO: Implement proper per-session activity detection when Codex supports it.
+      // For now, return "active" if process is running (conservative approach).
+      return "active";
+    },
+
     async isProcessRunning(handle: RuntimeHandle): Promise<boolean> {
       try {
         if (handle.runtimeName === "tmux" && handle.id) {

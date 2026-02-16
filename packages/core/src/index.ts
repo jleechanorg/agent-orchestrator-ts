@@ -53,4 +53,9 @@ export { generateOrchestratorPrompt } from "./orchestrator-prompt.js";
 export type { OrchestratorPromptConfig } from "./orchestrator-prompt.js";
 
 // Shared utilities
-export { shellEscape, escapeAppleScript, validateUrl } from "./utils.js";
+export {
+  shellEscape,
+  escapeAppleScript,
+  validateUrl,
+  readLastJsonlEntry,
+} from "./utils.js";

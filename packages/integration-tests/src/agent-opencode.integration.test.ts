@@ -17,7 +17,7 @@ import { promisify } from "node:util";
 import type { ActivityState, AgentSessionInfo } from "@composio/ao-core";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import opencodePlugin from "@composio/ao-plugin-agent-opencode";
-import { isTmuxAvailable, killSessionsByPrefix, createSession, killSession, capturePane } from "./helpers/tmux.js";
+import { isTmuxAvailable, killSessionsByPrefix, createSession, killSession } from "./helpers/tmux.js";
 import { pollUntilEqual, sleep } from "./helpers/polling.js";
 import { makeTmuxHandle, makeSession } from "./helpers/session-factory.js";
 
@@ -79,13 +79,13 @@ describe.skipIf(!canRun)("agent-opencode (integration)", () => {
   const sessionName = `${SESSION_PREFIX}${Date.now()}`;
   let tmpDir: string;
 
-  // Observations captured while the agent is alive (atomically)
+  // Observations captured while the agent is alive
   let aliveRunning = false;
-  let aliveActivity: ActivityState | undefined;
+  let aliveActivityState: ActivityState | undefined;
 
   // Observations captured after the agent exits
   let exitedRunning: boolean;
-  let exitedActivity: ActivityState;
+  let exitedActivityState: ActivityState;
   let sessionInfo: AgentSessionInfo | null;
 
   beforeAll(async () => {
@@ -98,20 +98,19 @@ describe.skipIf(!canRun)("agent-opencode (integration)", () => {
     const handle = makeTmuxHandle(sessionName);
     const session = makeSession("inttest-opencode", handle, tmpDir);
 
-    // Atomically capture "alive" observations
+    // Poll until we observe the agent is running and capture activity state
     const deadline = Date.now() + 15_000;
     while (Date.now() < deadline) {
       const running = await agent.isProcessRunning(handle);
       if (running) {
         aliveRunning = true;
-        const output = await capturePane(sessionName);
-        const activity = agent.detectActivity(output);
-        if (activity !== "exited") {
-          aliveActivity = activity;
+        const activityState = await agent.getActivityState(session);
+        if (activityState !== "exited") {
+          aliveActivityState = activityState;
           break;
         }
       }
-      await sleep(200);
+      await sleep(500);
     }
 
     // Wait for agent to exit
@@ -121,8 +120,7 @@ describe.skipIf(!canRun)("agent-opencode (integration)", () => {
       { timeoutMs: 90_000, intervalMs: 2_000 },
     );
 
-    const exitedOutput = await capturePane(sessionName);
-    exitedActivity = agent.detectActivity(exitedOutput);
+    exitedActivityState = await agent.getActivityState(session);
     sessionInfo = await agent.getSessionInfo(session);
   }, 120_000);
 
@@ -137,10 +135,11 @@ describe.skipIf(!canRun)("agent-opencode (integration)", () => {
     expect(aliveRunning).toBe(true);
   });
 
-  it("detectActivity → not exited while agent is alive", () => {
-    if (aliveActivity !== undefined) {
-      expect(aliveActivity).not.toBe("exited");
-      expect(["active", "idle", "waiting_input", "blocked"]).toContain(aliveActivity);
+  it("getActivityState → returns active while agent is running", () => {
+    // OpenCode uses conservative fallback: returns "active" when process is running
+    // (due to global SQLite database shared by all sessions)
+    if (aliveActivityState !== undefined) {
+      expect(aliveActivityState).toBe("active");
     }
   });
 
@@ -148,12 +147,8 @@ describe.skipIf(!canRun)("agent-opencode (integration)", () => {
     expect(exitedRunning).toBe(false);
   });
 
-  it("detectActivity → idle or active after agent exits", () => {
-    // OpenCode's stub classifier returns "active" for any non-empty output and
-    // "idle" for empty output. After exit the terminal usually shows a shell
-    // prompt (non-empty → "active"), but may be empty depending on timing.
-    // Process exit is detected by isProcessRunning, not detectActivity.
-    expect(["idle", "active"]).toContain(exitedActivity);
+  it("getActivityState → returns exited after agent process terminates", () => {
+    expect(exitedActivityState).toBe("exited");
   });
 
   it("getSessionInfo → null (not implemented for opencode)", () => {

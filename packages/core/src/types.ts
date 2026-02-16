@@ -193,8 +193,17 @@ export interface Agent {
   /** Get environment variables for the agent process */
   getEnvironment(config: AgentLaunchConfig): Record<string, string>;
 
-  /** Detect what the agent is currently doing from terminal output */
+  /**
+   * Detect what the agent is currently doing from terminal output.
+   * @deprecated Use getActivityState() instead - this uses hacky terminal parsing.
+   */
   detectActivity(terminalOutput: string): ActivityState;
+
+  /**
+   * Get current activity state using agent-native mechanism (JSONL, SQLite, etc.).
+   * This is the preferred method for activity detection.
+   */
+  getActivityState(session: Session): Promise<ActivityState>;
 
   /** Check if agent process is running (given runtime handle) */
   isProcessRunning(handle: RuntimeHandle): Promise<boolean>;
