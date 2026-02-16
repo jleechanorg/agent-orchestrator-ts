@@ -1,12 +1,13 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useSearchParams } from "next/navigation";
 import {
   type DashboardSession,
   type DashboardPR,
 } from "@/lib/types";
 import { CI_STATUS } from "@composio/ao-core/types";
+import { cn } from "@/lib/cn";
 import { CICheckList } from "./CIBadge";
 import { DirectTerminal } from "./DirectTerminal";
 
@@ -83,12 +84,13 @@ function buildGitHubRepoUrl(pr: DashboardPR): string {
 async function askAgentToFix(
   sessionId: string,
   comment: { url: string; path: string; body: string },
+  onSuccess: () => void,
+  onError: () => void,
 ) {
   try {
     const { title, description } = cleanBugbotComment(comment.body);
     const message = `Please address this review comment:\n\nFile: ${comment.path}\nComment: ${title}\nDescription: ${description}\n\nComment URL: ${comment.url}\n\nAfter fixing, mark the comment as resolved at ${comment.url}`;
 
-    // TODO: Implement API endpoint to send message to agent session
     const res = await fetch(`/api/sessions/${sessionId}/message`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -99,10 +101,10 @@ async function askAgentToFix(
       throw new Error(`HTTP ${res.status}`);
     }
 
-    alert("Message sent to agent");
+    onSuccess();
   } catch (err) {
     console.error("Failed to send message to agent:", err);
-    alert("Failed to send message to agent");
+    onError();
   }
 }
 
@@ -288,6 +290,83 @@ function ClientTimestamps({
 // ── PR Card ──────────────────────────────────────────────────────────
 
 function PRCard({ pr, sessionId }: { pr: DashboardPR; sessionId: string }) {
+  const [sendingComments, setSendingComments] = useState<Set<string>>(new Set());
+  const [sentComments, setSentComments] = useState<Set<string>>(new Set());
+  const [errorComments, setErrorComments] = useState<Set<string>>(new Set());
+  const timersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+
+  useEffect(() => {
+    return () => {
+      timersRef.current.forEach((timer) => clearTimeout(timer));
+    };
+  }, []);
+
+  const handleAskAgentToFix = async (comment: { url: string; path: string; body: string }) => {
+    // Clear any existing feedback state for this comment
+    setSentComments((prev) => {
+      const next = new Set(prev);
+      next.delete(comment.url);
+      return next;
+    });
+    setErrorComments((prev) => {
+      const next = new Set(prev);
+      next.delete(comment.url);
+      return next;
+    });
+
+    // Mark as sending
+    setSendingComments((prev) => new Set(prev).add(comment.url));
+
+    await askAgentToFix(
+      sessionId,
+      comment,
+      () => {
+        // Success: remove from sending, add to sent
+        setSendingComments((prev) => {
+          const next = new Set(prev);
+          next.delete(comment.url);
+          return next;
+        });
+        setSentComments((prev) => new Set(prev).add(comment.url));
+
+        // Clear sent state after 3 seconds
+        const existingTimer = timersRef.current.get(comment.url);
+        if (existingTimer) clearTimeout(existingTimer);
+        const timer = setTimeout(() => {
+          setSentComments((prev) => {
+            const next = new Set(prev);
+            next.delete(comment.url);
+            return next;
+          });
+          timersRef.current.delete(comment.url);
+        }, 3000);
+        timersRef.current.set(comment.url, timer);
+      },
+      () => {
+        // Error: remove from sending, add to error
+        setSendingComments((prev) => {
+          const next = new Set(prev);
+          next.delete(comment.url);
+          return next;
+        });
+        setErrorComments((prev) => new Set(prev).add(comment.url));
+
+        // Clear error state after 3 seconds
+        const existingTimer = timersRef.current.get(comment.url);
+        if (existingTimer) clearTimeout(existingTimer);
+        const timer = setTimeout(() => {
+          setErrorComments((prev) => {
+            const next = new Set(prev);
+            next.delete(comment.url);
+            return next;
+          });
+          timersRef.current.delete(comment.url);
+        }, 3000);
+        timersRef.current.set(comment.url, timer);
+      },
+    );
+  };
+
   const allGreen =
     pr.mergeability.mergeable &&
     pr.mergeability.ciPassing &&
@@ -396,10 +475,24 @@ function PRCard({ pr, sessionId }: { pr: DashboardPR; sessionId: string }) {
                         {description}
                       </p>
                       <button
-                        onClick={() => askAgentToFix(sessionId, c)}
-                        className="mt-2 rounded-md bg-[var(--color-accent-blue)] px-3 py-1 text-[10px] font-medium text-white hover:opacity-90"
+                        onClick={() => handleAskAgentToFix(c)}
+                        disabled={sendingComments.has(c.url)}
+                        className={cn(
+                          "mt-2 rounded-md px-3 py-1 text-[10px] font-medium transition-colors",
+                          sentComments.has(c.url)
+                            ? "bg-[var(--color-accent-green)] text-white"
+                            : errorComments.has(c.url)
+                              ? "bg-[var(--color-accent-red)] text-white"
+                              : "bg-[var(--color-accent-blue)] text-white hover:opacity-90 disabled:opacity-50",
+                        )}
                       >
-                        Ask Agent to Fix
+                        {sendingComments.has(c.url)
+                          ? "Sending..."
+                          : sentComments.has(c.url)
+                            ? "Sent!"
+                            : errorComments.has(c.url)
+                              ? "Failed"
+                              : "Ask Agent to Fix"}
                       </button>
                     </div>
                   </details>
