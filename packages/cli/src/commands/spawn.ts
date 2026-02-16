@@ -133,9 +133,17 @@ async function spawnSession(
 
     spinner.text = "Creating tmux session";
 
+    // Get agent-specific environment variables (e.g., unset CLAUDECODE)
+    const agentEnv = agent.getEnvironment({
+      sessionId: sessionName,
+      projectConfig: project,
+      issueId,
+      permissions: project.agentConfig?.permissions,
+    });
+
     // Create tmux session
     const envVar = `${prefix.toUpperCase().replace(/[^A-Z0-9_]/g, "_")}_SESSION`;
-    await exec("tmux", [
+    const tmuxArgs = [
       "new-session",
       "-d",
       "-s",
@@ -152,7 +160,14 @@ async function spawnSession(
       `AO_DATA_DIR=${config.dataDir}`,
       "-e",
       "DIRENV_LOG_FORMAT=",
-    ]);
+    ];
+
+    // Add agent environment variables
+    for (const [key, value] of Object.entries(agentEnv)) {
+      tmuxArgs.push("-e", `${key}=${value}`);
+    }
+
+    await exec("tmux", tmuxArgs);
 
     // Run post-create hooks before agent launch (so environment is ready)
     if (project.postCreate) {
