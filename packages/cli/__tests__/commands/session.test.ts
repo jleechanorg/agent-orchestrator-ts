@@ -40,11 +40,12 @@ vi.mock("@composio/ao-core", async (importOriginal) => {
 });
 
 let tmpDir: string;
+let configPath: string;
 let sessionsDir: string;
 
 import { Command } from "commander";
 import { registerSession } from "../../src/commands/session.js";
-import { getSessionsDir } from "@composio/ao-core";
+import { getSessionsDir, getProjectBaseDir } from "@composio/ao-core";
 
 let program: Command;
 let consoleSpy: ReturnType<typeof vi.spyOn>;
@@ -52,7 +53,7 @@ let consoleSpy: ReturnType<typeof vi.spyOn>;
 beforeEach(() => {
   tmpDir = mkdtempSync(join(tmpdir(), "ao-session-test-"));
 
-  const configPath = join(tmpDir, "agent-orchestrator.yaml");
+  configPath = join(tmpDir, "agent-orchestrator.yaml");
   writeFileSync(configPath, "projects: {}");
 
   mockConfigRef.current = {
@@ -100,7 +101,15 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  // Clean up hash-based directories in ~/.agent-orchestrator
+  const projectBaseDir = getProjectBaseDir(configPath, join(tmpDir, "main-repo"));
+  if (existsSync(projectBaseDir)) {
+    rmSync(projectBaseDir, { recursive: true, force: true });
+  }
+
+  // Clean up tmpDir
   rmSync(tmpDir, { recursive: true, force: true });
+
   vi.restoreAllMocks();
 });
 

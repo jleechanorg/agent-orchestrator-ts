@@ -1,11 +1,11 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
 import { createLifecycleManager } from "../lifecycle-manager.js";
 import { writeMetadata, readMetadataRaw } from "../metadata.js";
-import { getSessionsDir } from "../paths.js";
+import { getSessionsDir, getProjectBaseDir } from "../paths.js";
 import type {
   OrchestratorConfig,
   PluginRegistry,
@@ -146,6 +146,13 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  // Clean up hash-based directories in ~/.agent-orchestrator
+  const projectBaseDir = getProjectBaseDir(configPath, join(tmpDir, "my-app"));
+  if (existsSync(projectBaseDir)) {
+    rmSync(projectBaseDir, { recursive: true, force: true });
+  }
+
+  // Clean up tmpDir
   rmSync(tmpDir, { recursive: true, force: true });
 });
 
