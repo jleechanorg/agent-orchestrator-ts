@@ -60,6 +60,7 @@ This repository uses [Gitleaks](https://github.com/gitleaks/gitleaks) to prevent
 ### Never Commit Secrets
 
 ❌ **Bad** — Hardcoded secret:
+
 ```yaml
 notifiers:
   slack:
@@ -67,6 +68,7 @@ notifiers:
 ```
 
 ✅ **Good** — Environment variable:
+
 ```yaml
 notifiers:
   slack:
@@ -85,6 +87,7 @@ SLACK_WEBHOOK_URL=https://hooks.slack.com/services/...
 ```
 
 Then reference in config:
+
 ```yaml
 notifiers:
   slack:
@@ -168,16 +171,17 @@ When setting up Agent Orchestrator:
 
 Agent Orchestrator may require these secrets:
 
-| Service | Environment Variable | Where to Get |
-|---------|---------------------|--------------|
-| GitHub | `GITHUB_TOKEN` | https://github.com/settings/tokens |
-| Linear | `LINEAR_API_KEY` | https://linear.app/settings/api |
-| Slack | `SLACK_WEBHOOK_URL` | https://api.slack.com/messaging/webhooks |
-| Anthropic | `ANTHROPIC_API_KEY` | https://console.anthropic.com/ |
+| Service   | Environment Variable | Where to Get                             |
+| --------- | -------------------- | ---------------------------------------- |
+| GitHub    | `GITHUB_TOKEN`       | https://github.com/settings/tokens       |
+| Linear    | `LINEAR_API_KEY`     | https://linear.app/settings/api          |
+| Slack     | `SLACK_WEBHOOK_URL`  | https://api.slack.com/messaging/webhooks |
+| Anthropic | `ANTHROPIC_API_KEY`  | https://console.anthropic.com/           |
 
 ### Setting Environment Variables
 
 **macOS/Linux**:
+
 ```bash
 # In ~/.zshrc or ~/.bashrc
 export GITHUB_TOKEN="ghp_xxxxx"
@@ -185,6 +189,7 @@ export LINEAR_API_KEY="lin_api_xxxxx"
 ```
 
 **Or use `.env.local`**:
+
 ```bash
 # In your project directory
 echo 'GITHUB_TOKEN=ghp_xxxxx' >> .env.local

@@ -9,7 +9,13 @@
 export * from "./types.js";
 
 // Config — YAML loader + validation
-export { loadConfig, validateConfig, getDefaultConfig } from "./config.js";
+export {
+  loadConfig,
+  loadConfigWithPath,
+  validateConfig,
+  getDefaultConfig,
+  findConfig,
+} from "./config.js";
 
 // Plugin registry
 export { createPluginRegistry } from "./plugin-registry.js";
@@ -54,3 +60,21 @@ export type { OrchestratorPromptConfig } from "./orchestrator-prompt.js";
 
 // Shared utilities
 export { shellEscape, escapeAppleScript, validateUrl, readLastJsonlEntry } from "./utils.js";
+
+// Path utilities — hash-based directory structure
+export {
+  generateConfigHash,
+  generateProjectId,
+  generateInstanceId,
+  generateSessionPrefix,
+  getProjectBaseDir,
+  getSessionsDir,
+  getWorktreesDir,
+  getArchiveDir,
+  getOriginFilePath,
+  generateSessionName,
+  generateTmuxName,
+  parseTmuxName,
+  expandHome,
+  validateAndStoreOrigin,
+} from "./paths.js";

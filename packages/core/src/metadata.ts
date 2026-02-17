@@ -1,15 +1,22 @@
 /**
  * Flat-file metadata read/write.
  *
- * Each session has a metadata file in the data directory, stored as
- * key=value pairs (one per line), matching the existing bash script format.
+ * Architecture:
+ * - Session metadata stored in project-specific directories
+ * - Path: ~/.agent-orchestrator/{hash}-{projectId}/sessions/{sessionName}
+ * - Session files use user-facing names (int-1) not tmux names (a3b4c5d6e7f8-int-1)
+ * - Metadata includes tmuxName field to map user-facing → tmux name
+ *
+ * Format: key=value pairs (one per line), compatible with bash scripts
  *
  * Example file contents:
- *   worktree=/Users/foo/.worktrees/ao/ao-3
+ *   project=integrator
+ *   worktree=/Users/foo/.agent-orchestrator/a3b4c5d6e7f8-integrator/worktrees/int-1
  *   branch=feat/INT-1234
  *   status=working
+ *   tmuxName=a3b4c5d6e7f8-int-1
  *   pr=https://github.com/org/repo/pull/42
- *   issue=https://linear.app/team/issue/INT-1234
+ *   issue=INT-1234
  */
 
 import {
@@ -85,6 +92,7 @@ export function readMetadata(dataDir: string, sessionId: SessionId): SessionMeta
     worktree: raw["worktree"] ?? "",
     branch: raw["branch"] ?? "",
     status: raw["status"] ?? "unknown",
+    tmuxName: raw["tmuxName"],
     issue: raw["issue"],
     pr: raw["pr"],
     summary: raw["summary"],
@@ -123,6 +131,7 @@ export function writeMetadata(
     status: metadata.status,
   };
 
+  if (metadata.tmuxName) data["tmuxName"] = metadata.tmuxName;
   if (metadata.issue) data["issue"] = metadata.issue;
   if (metadata.pr) data["pr"] = metadata.pr;
   if (metadata.summary) data["summary"] = metadata.summary;

@@ -170,7 +170,7 @@ describe("extractPluginConfig (via register with config)", () => {
 describe("loadFromConfig", () => {
   it("does not throw when no plugins are importable", async () => {
     const registry = createPluginRegistry();
-    const config = makeOrchestratorConfig({ worktreeDir: "/test" });
+    const config = makeOrchestratorConfig({});
 
     // loadFromConfig calls loadBuiltins internally, which may fail to
     // import packages in the test env — should still succeed gracefully

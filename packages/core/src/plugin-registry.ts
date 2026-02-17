@@ -51,17 +51,11 @@ const BUILTIN_PLUGINS: Array<{ slot: PluginSlot; name: string; pkg: string }> = 
 
 /** Extract plugin-specific config from orchestrator config */
 function extractPluginConfig(
-  slot: PluginSlot,
-  name: string,
-  config: OrchestratorConfig,
+  _slot: PluginSlot,
+  _name: string,
+  _config: OrchestratorConfig,
 ): Record<string, unknown> | undefined {
-  // Map well-known orchestrator config fields to plugin config
-  if (slot === "workspace" && name === "worktree" && config.worktreeDir) {
-    return { worktreeDir: config.worktreeDir };
-  }
-  if (slot === "workspace" && name === "clone" && config.worktreeDir) {
-    return { cloneDir: config.worktreeDir };
-  }
+  // Reserved for future plugin-specific config mapping
   return undefined;
 }
 

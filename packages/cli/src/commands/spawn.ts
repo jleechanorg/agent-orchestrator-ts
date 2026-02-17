@@ -7,11 +7,14 @@ import {
   loadConfig,
   buildPrompt,
   tmuxSendKeys,
+  getWorktreesDir,
+  getSessionsDir,
+  validateAndStoreOrigin,
   type OrchestratorConfig,
   type ProjectConfig,
 } from "@composio/ao-core";
 import { exec, git, getTmuxSessions } from "../lib/shell.js";
-import { getSessionDir, writeMetadata, findSessionForIssue } from "../lib/metadata.js";
+import { writeMetadata, findSessionForIssue } from "../lib/metadata.js";
 import { banner } from "../lib/format.js";
 import { getAgent } from "../lib/plugins.js";
 import { escapeRegex } from "../lib/session-utils.js";
@@ -48,7 +51,8 @@ async function spawnSession(
   const prefix = project.sessionPrefix || projectId;
   const num = await getNextSessionNumber(prefix);
   const sessionName = `${prefix}-${num}`;
-  const worktreePath = join(config.worktreeDir, projectId, sessionName);
+  const worktreesDir = getWorktreesDir(config.configPath, project.path);
+  const worktreePath = join(worktreesDir, sessionName);
 
   const spinner = ora(`Creating session ${sessionName}`).start();
 
@@ -124,12 +128,15 @@ async function spawnSession(
     // Get agent plugin (used for hooks and launch)
     const agent = getAgent(config, projectId);
 
+    // Calculate sessions directory once (used for hooks and metadata)
+    const sessionsDir = getSessionsDir(config.configPath, project.path);
+
     // Setup agent hooks for automatic metadata updates (before agent launch)
     spinner.text = "Configuring agent hooks";
     if (agent.setupWorkspaceHooks) {
       try {
         await agent.setupWorkspaceHooks(worktreePath, {
-          dataDir: config.dataDir,
+          dataDir: sessionsDir,
           sessionId: sessionName,
         });
       } catch {
@@ -146,8 +153,6 @@ async function spawnSession(
       issueId,
       permissions: project.agentConfig?.permissions,
     });
-
-    // Create tmux session
     const envVar = `${prefix.toUpperCase().replace(/[^A-Z0-9_]/g, "_")}_SESSION`;
     const tmuxArgs = [
       "new-session",
@@ -163,7 +168,7 @@ async function spawnSession(
       "-e",
       `AO_PROJECT_ID=${projectId}`,
       "-e",
-      `AO_DATA_DIR=${config.dataDir}`,
+      `AO_DATA_DIR=${sessionsDir}`,
       "-e",
       "DIRENV_LOG_FORMAT=",
     ];
@@ -198,12 +203,13 @@ async function spawnSession(
 
     spinner.text = "Writing metadata";
 
-    // Write metadata
-    const sessionDir = getSessionDir(config.dataDir, projectId);
-    mkdirSync(sessionDir, { recursive: true });
+    // Write metadata to project-specific directory
+    // Note: sessionsDir already calculated above for AO_DATA_DIR
+    mkdirSync(sessionsDir, { recursive: true });
+    validateAndStoreOrigin(config.configPath, project.path);
     const liveBranch = await git(["branch", "--show-current"], worktreePath);
 
-    writeMetadata(join(sessionDir, sessionName), {
+    writeMetadata(join(sessionsDir, sessionName), {
       worktree: worktreePath,
       branch: liveBranch || branch || "detached",
       status: "spawning",
@@ -306,11 +312,12 @@ export function registerBatchSpawn(program: Command): void {
       console.log();
 
       let allTmux = await getTmuxSessions();
-      const sessionDir = getSessionDir(config.dataDir, projectId);
       const created: Array<{ session: string; issue: string }> = [];
       const skipped: Array<{ issue: string; existing: string }> = [];
       const failed: Array<{ issue: string; error: string }> = [];
       const spawnedIssues = new Set<string>();
+
+      const sessionsDir = getSessionsDir(config.configPath, project.path);
 
       for (const issue of issues) {
         // Duplicate detection — check both existing sessions and same-run duplicates
@@ -319,7 +326,7 @@ export function registerBatchSpawn(program: Command): void {
           skipped.push({ issue, existing: "(this batch)" });
           continue;
         }
-        const existing = await findSessionForIssue(sessionDir, issue, allTmux);
+        const existing = await findSessionForIssue(sessionsDir, issue, allTmux, projectId);
         if (existing) {
           console.log(chalk.yellow(`  Skip ${issue} — already has session: ${existing}`));
           skipped.push({ issue, existing });

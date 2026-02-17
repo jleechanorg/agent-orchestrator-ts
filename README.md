@@ -1,6 +1,6 @@
 # Agent Orchestrator
 
-Orchestrate parallel AI coding agents across any runtime, any repo, any issue tracker.
+Orchestrate parallel AI coding agents across any runtime, any repository, any issue tracker.
 
 ## Quick Start
 
@@ -10,43 +10,44 @@ cd agent-orchestrator && bash scripts/setup.sh
 cd ~/your-project && ao init --auto && ao start
 ```
 
-**That's it!** Dashboard opens at http://localhost:3000
+Dashboard opens at http://localhost:3000
 
-## What Is This?
+## Overview
 
-Agent Orchestrator spawns and manages multiple AI coding agents working in parallel on your repository. Each agent works in isolation (separate worktrees), handles its own PR lifecycle, and auto-responds to CI failures and review comments.
+Agent Orchestrator manages multiple AI coding agents working in parallel on your repository. Each agent operates in isolation using separate git worktrees, handles its own pull request lifecycle, and automatically responds to CI failures and review comments.
 
-**Key benefits:**
-- 🚀 **10-30x productivity** - Work on 10+ issues simultaneously
-- 🤖 **Human-in-the-loop** - Agents notify you when judgment needed, not for routine work
-- 🔌 **Fully pluggable** - Swap any component (runtime, agent, tracker, SCM)
-- 📊 **Real-time dashboard** - Monitor all agents from one place
+**Key features:**
 
-**Built itself:** This project was built using itself (399 commits, 34 PRs, 63 hours of dog-fooding).
+- **Parallel execution** - Work on multiple issues simultaneously
+- **Human-in-the-loop** - Agents escalate to you only when judgment is needed
+- **Fully pluggable** - Swap any component (runtime, agent, tracker, SCM)
+- **Real-time dashboard** - Monitor all agents from a unified interface
 
 ## Features
 
 - **Agent-agnostic**: Claude Code, Codex, Aider, or bring your own
 - **Runtime-agnostic**: tmux, Docker, Kubernetes, or custom
 - **Tracker-agnostic**: GitHub Issues, Linear, Jira, or custom
-- **Auto-reactions**: CI failures, review comments, merge conflicts → handled automatically
-- **Notifications**: Desktop, Slack, Composio, or webhook - only when you're needed
-- **Live terminal**: See agents working in real-time through browser
+- **Auto-reactions**: CI failures, review comments, merge conflicts handled automatically
+- **Notifications**: Desktop, Slack, Composio, or webhook - only when needed
+- **Live terminal**: Watch agents work in real-time through the browser
 
 ## Architecture
 
-8 plugin slots - every abstraction is swappable:
+Eight plugin slots - every abstraction is swappable:
 
-| Slot      | Interface   | Default   | Alternatives          |
-|-----------|-------------|-----------|-----------------------|
-| Runtime   | `Runtime`   | tmux      | docker, k8s, process  |
-| Agent     | `Agent`     | claude-code | codex, aider, opencode |
-| Workspace | `Workspace` | worktree  | clone                 |
-| Tracker   | `Tracker`   | github    | linear, jira          |
-| SCM       | `SCM`       | github    | (gitlab, bitbucket)   |
-| Notifier  | `Notifier`  | desktop   | slack, composio, webhook |
-| Terminal  | `Terminal`  | iterm2    | web                   |
-| Lifecycle | core        | —         | —                     |
+| Slot      | Interface   | Default     | Alternatives             |
+| --------- | ----------- | ----------- | ------------------------ |
+| Runtime   | `Runtime`   | tmux        | docker, k8s, process     |
+| Agent     | `Agent`     | claude-code | codex, aider, opencode   |
+| Workspace | `Workspace` | worktree    | clone                    |
+| Tracker   | `Tracker`   | github      | linear, jira             |
+| SCM       | `SCM`       | github      | (gitlab, bitbucket)      |
+| Notifier  | `Notifier`  | desktop     | slack, composio, webhook |
+| Terminal  | `Terminal`  | iterm2      | web                      |
+| Lifecycle | core        | —           | —                        |
+
+All interfaces are defined in `packages/core/src/types.ts`.
 
 ## Installation
 
@@ -60,30 +61,22 @@ Agent Orchestrator spawns and manages multiple AI coding agents working in paral
 ### Setup
 
 ```bash
-# Clone and run setup
 git clone https://github.com/ComposioHQ/agent-orchestrator.git
 cd agent-orchestrator
 bash scripts/setup.sh
 ```
 
-The setup script:
-- Installs dependencies with pnpm
-- Builds all packages
-- Rebuilds node-pty from source (fixes terminal issues)
-- Links `ao` CLI globally
+The setup script installs dependencies with pnpm, builds all packages, rebuilds node-pty from source, and links the `ao` CLI globally.
 
 ### Initialize Your Project
 
 ```bash
 cd ~/your-project
 ao init --auto  # Auto-detects project type, generates config
-ao start        # Launches orchestrator + dashboard
+ao start        # Launches orchestrator and dashboard
 ```
 
-**Auto-detection:**
-- Git repo and remote
-- Project type (languages, frameworks, test runners)
-- Generates custom agent rules based on your stack
+Auto-detection recognizes your git repository, remote, project type (languages, frameworks, test runners), and generates custom agent rules based on your stack.
 
 ## Usage
 
@@ -125,7 +118,7 @@ ao session kill <session-id>
 
 ### Auto-Reactions
 
-Configure reactions for common scenarios:
+Configure automatic responses to common scenarios:
 
 ```yaml
 reactions:
@@ -146,11 +139,9 @@ reactions:
 
 ## Configuration
 
-Basic config (`agent-orchestrator.yaml`):
+Basic configuration in `agent-orchestrator.yaml`:
 
 ```yaml
-dataDir: ~/.agent-orchestrator
-worktreeDir: ~/.worktrees
 port: 3000
 
 defaults:
@@ -164,20 +155,22 @@ projects:
     repo: owner/my-app
     path: ~/my-app
     defaultBranch: main
+    sessionPrefix: app
     agentRules: |
       Always run tests before pushing.
       Use conventional commits.
       Write clear commit messages.
 ```
 
-See `agent-orchestrator.yaml.example` for full reference.
+See `agent-orchestrator.yaml.example` for complete reference documentation.
 
 ## Examples
 
-See `examples/` directory for:
+The `examples/` directory contains configuration templates:
+
 - `simple-github.yaml` - Minimal GitHub Issues setup
 - `linear-team.yaml` - Linear integration
-- `multi-project.yaml` - Multiple repos
+- `multi-project.yaml` - Multiple repositories
 - `auto-merge.yaml` - Aggressive automation
 
 ## Development
@@ -205,33 +198,34 @@ packages/
     terminal-*/  - Terminal plugins
 ```
 
+## Design Philosophy
+
+**Push, not pull:** Spawn agents, step away, get notified only when your judgment is needed.
+
+- Stateless orchestrator (filesystem over database)
+- Plugin everything (no vendor lock-in)
+- Amplify human judgment, don't bypass it
+- Auto-handle routine work, escalate complex decisions
+
 ## Troubleshooting
 
 See [TROUBLESHOOTING.md](TROUBLESHOOTING.md) for common issues and solutions.
 
-**Most common:**
+**Common issues:**
+
 - Terminal not working → node-pty rebuild (automatic via postinstall hook)
 - Port in use → Kill existing server or change port in config
 - Config not found → Run `ao init` from your project directory
 
-## Philosophy
-
-**Push, not pull:** Spawn agents, walk away, get notified only when your judgment is needed.
-
-- Stateless orchestrator (filesystem > database)
-- Plugin everything (no vendor lock-in)
-- Amplify judgment, don't bypass it
-- Auto-handle routine, escalate complex decisions
-
 ## Contributing
 
-Contributions welcome! See `CLAUDE.md` for code conventions and architecture details.
+Contributions welcome. See `CLAUDE.md` for code conventions and architecture details.
 
 ## License
 
 MIT
 
-## Links
+## Documentation
 
 - [Setup Guide](SETUP.md) - Detailed setup and configuration
 - [Examples](examples/) - Config templates for common use cases

@@ -3,10 +3,6 @@ import { readdir } from "node:fs/promises";
 import { join, basename } from "node:path";
 import type { SessionMetadata } from "@composio/ao-core";
 
-export function getSessionDir(dataDir: string, projectId: string): string {
-  return join(dataDir, `${projectId}-sessions`);
-}
-
 export function readMetadata(filePath: string): Partial<SessionMetadata> | null {
   if (!existsSync(filePath)) return null;
   const content = readFileSync(filePath, "utf-8");
@@ -47,6 +43,7 @@ export async function findSessionForIssue(
   sessionDir: string,
   issueId: string,
   tmuxSessions: string[],
+  projectId?: string,
 ): Promise<string | null> {
   const lower = issueId.toLowerCase();
   const files = await listSessionFiles(sessionDir);
@@ -54,6 +51,9 @@ export async function findSessionForIssue(
     const name = basename(file);
     if (!tmuxSessions.includes(name)) continue;
     const meta = readMetadata(join(sessionDir, file));
+    // Skip sessions from other projects if projectId is specified
+    // Stricter check: sessions without a project field are also excluded
+    if (projectId && meta?.project !== projectId) continue;
     if (meta?.issue && meta.issue.toLowerCase() === lower) {
       return name;
     }

@@ -73,14 +73,9 @@ if [[ -z "\${AO_SESSION:-}" ]]; then
   exit 0
 fi
 
-# Construct metadata file path (supports both flat and project-specific directories)
-if [[ -n "\${AO_PROJECT_ID:-}" ]]; then
-  # Project-specific directory (used by spawn command)
-  metadata_file="$AO_DATA_DIR/\${AO_PROJECT_ID}-sessions/$AO_SESSION"
-else
-  # Flat directory (used by orchestrator)
-  metadata_file="$AO_DATA_DIR/$AO_SESSION"
-fi
+# Construct metadata file path
+# AO_DATA_DIR is already set to the project-specific sessions directory
+metadata_file="$AO_DATA_DIR/$AO_SESSION"
 
 # Ensure metadata file exists
 if [[ ! -f "$metadata_file" ]]; then

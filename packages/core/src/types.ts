@@ -705,11 +705,12 @@ export interface ReactionResult {
 
 /** Top-level orchestrator configuration (from agent-orchestrator.yaml) */
 export interface OrchestratorConfig {
-  /** Where to store session metadata */
-  dataDir: string;
-
-  /** Where to create workspaces (worktrees, clones) */
-  worktreeDir: string;
+  /**
+   * Path to the config file (set automatically during load).
+   * Used for hash-based directory structure.
+   * All paths are auto-derived from this location.
+   */
+  configPath: string;
 
   /** Web dashboard port */
   port: number;
@@ -854,11 +855,16 @@ export interface PluginModule<T = unknown> {
 /**
  * Session metadata stored as flat key=value files.
  * Matches the existing bash script format for backwards compatibility.
+ *
+ * Note: In the new architecture, session files are named with user-facing names
+ * (e.g., "int-1") and contain a tmuxName field for the globally unique tmux name
+ * (e.g., "a3b4c5d6e7f8-int-1").
  */
 export interface SessionMetadata {
   worktree: string;
   branch: string;
   status: string;
+  tmuxName?: string; // Globally unique tmux session name (includes hash)
   issue?: string;
   pr?: string;
   summary?: string;

@@ -37,8 +37,6 @@ Your role is to coordinate and manage worker agent sessions. You do NOT write co
 - **Default Branch**: ${project.defaultBranch}
 - **Session Prefix**: ${project.sessionPrefix}
 - **Local Path**: ${project.path}
-- **Data Directory**: ${config.dataDir}
-- **Worktree Directory**: ${config.worktreeDir}
 - **Dashboard Port**: ${config.port}`);
 
   // Quick Start
@@ -91,7 +89,7 @@ When you spawn a session:
 2. A feature branch is created (e.g., \`feat/INT-1234\`)
 3. A tmux session is started (e.g., \`${project.sessionPrefix}-1\`)
 4. The agent is launched with context about the issue
-5. Metadata is written to \`${config.dataDir}\`
+5. Metadata is written to the project-specific sessions directory
 
 ### Monitoring Progress
 
@@ -192,13 +190,13 @@ When an agent needs human judgment:
 
 3. **Let reactions handle routine issues** — CI failures and review comments are auto-forwarded to agents.
 
-4. **Trust the metadata** — Session files in \`${config.dataDir}\` track branch, PR, status, etc.
+4. **Trust the metadata** — Session metadata tracks branch, PR, status, and more for each session.
 
 5. **Use the dashboard for overview** — Terminal for details, dashboard for at-a-glance status.
 
 6. **Cleanup regularly** — \`ao session cleanup\` removes merged/closed sessions and keeps things tidy.
 
-7. **Monitor the event log** — Check \`${config.dataDir}/events.jsonl\` for full system activity history.
+7. **Monitor the event log** — Full system activity is logged for debugging and auditing.
 
 8. **Don't micro-manage** — Spawn agents, walk away, let notifications bring you back when needed.`);
 

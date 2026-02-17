@@ -11,7 +11,7 @@
  * Reference: scripts/claude-ao-session, scripts/send-to-session
  */
 
-import { statSync } from "node:fs";
+import { statSync, existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import {
   isIssueNotFoundError,
@@ -41,6 +41,7 @@ import {
   reserveSessionId,
 } from "./metadata.js";
 import { buildPrompt } from "./prompt-builder.js";
+import { getSessionsDir, generateTmuxName, validateAndStoreOrigin } from "./paths.js";
 
 /** Escape regex metacharacters in a string. */
 function escapeRegex(str: string): string {
@@ -151,6 +152,50 @@ export interface SessionManagerDeps {
 export function createSessionManager(deps: SessionManagerDeps): SessionManager {
   const { config, registry } = deps;
 
+  /**
+   * Get the sessions directory for a project.
+   */
+  function getProjectSessionsDir(project: ProjectConfig): string {
+    return getSessionsDir(config.configPath, project.path);
+  }
+
+  /**
+   * List all session files across all projects (or filtered by projectId).
+   * Scans project-specific directories under ~/.agent-orchestrator/{hash}-{projectId}/sessions/
+   *
+   * Note: projectId is the config key (e.g., "test-project"), not the path basename.
+   */
+  function listAllSessions(projectIdFilter?: string): { sessionName: string; projectId: string }[] {
+    const results: { sessionName: string; projectId: string }[] = [];
+
+    // Scan each project's sessions directory
+    for (const [projectKey, project] of Object.entries(config.projects)) {
+      // Use config key as projectId for consistency with metadata
+      const projectId = projectKey;
+
+      // Filter by project if specified
+      if (projectIdFilter && projectId !== projectIdFilter) continue;
+
+      const sessionsDir = getSessionsDir(config.configPath, project.path);
+      if (!existsSync(sessionsDir)) continue;
+
+      const files = readdirSync(sessionsDir);
+      for (const file of files) {
+        if (file === "archive" || file.startsWith(".")) continue;
+        const fullPath = join(sessionsDir, file);
+        try {
+          if (statSync(fullPath).isFile()) {
+            results.push({ sessionName: file, projectId });
+          }
+        } catch {
+          // Skip files that can't be stat'd
+        }
+      }
+    }
+
+    return results;
+  }
+
   /** Resolve which plugins to use for a project. */
   function resolvePlugins(project: ProjectConfig) {
     const runtime = registry.get<Runtime>("runtime", project.runtime ?? config.defaults.runtime);
@@ -235,13 +280,26 @@ export function createSessionManager(deps: SessionManagerDeps): SessionManager {
       }
     }
 
+    // Get the sessions directory for this project
+    const sessionsDir = getProjectSessionsDir(project);
+
+    // Validate and store .origin file (new architecture only)
+    if (config.configPath) {
+      validateAndStoreOrigin(config.configPath, project.path);
+    }
+
     // Determine session ID — atomically reserve to prevent concurrent collisions
-    const existingSessions = listMetadata(config.dataDir);
+    const existingSessions = listMetadata(sessionsDir);
     let num = getNextSessionNumber(existingSessions, project.sessionPrefix);
     let sessionId: string;
+    let tmuxName: string | undefined;
     for (let attempts = 0; attempts < 10; attempts++) {
       sessionId = `${project.sessionPrefix}-${num}`;
-      if (reserveSessionId(config.dataDir, sessionId)) break;
+      // Generate tmux name if using new architecture
+      if (config.configPath) {
+        tmuxName = generateTmuxName(config.configPath, project.sessionPrefix, num);
+      }
+      if (reserveSessionId(sessionsDir, sessionId)) break;
       num++;
       if (attempts === 9) {
         throw new Error(
@@ -251,6 +309,9 @@ export function createSessionManager(deps: SessionManagerDeps): SessionManager {
     }
     // Reassign to satisfy TypeScript's flow analysis (not redundant from compiler's perspective)
     sessionId = `${project.sessionPrefix}-${num}`;
+    if (config.configPath) {
+      tmuxName = generateTmuxName(config.configPath, project.sessionPrefix, num);
+    }
 
     // Determine branch name — explicit branch always takes priority
     let branch: string;
@@ -294,7 +355,7 @@ export function createSessionManager(deps: SessionManagerDeps): SessionManager {
       } catch (err) {
         // Clean up reserved session ID on workspace failure
         try {
-          deleteMetadata(config.dataDir, sessionId, false);
+          deleteMetadata(sessionsDir, sessionId, false);
         } catch {
           /* best effort */
         }
@@ -337,13 +398,15 @@ export function createSessionManager(deps: SessionManagerDeps): SessionManager {
       const environment = plugins.agent.getEnvironment(agentLaunchConfig);
 
       handle = await plugins.runtime.create({
-        sessionId,
+        sessionId: tmuxName ?? sessionId, // Use tmux name for runtime if available
         workspacePath,
         launchCommand,
         environment: {
           ...environment,
           AO_SESSION: sessionId,
-          AO_DATA_DIR: config.dataDir,
+          AO_DATA_DIR: sessionsDir, // Pass sessions directory (not root dataDir)
+          AO_SESSION_NAME: sessionId, // User-facing session name
+          ...(tmuxName && { AO_TMUX_NAME: tmuxName }), // Tmux session name if using new arch
         },
       });
     } catch (err) {
@@ -356,7 +419,7 @@ export function createSessionManager(deps: SessionManagerDeps): SessionManager {
         }
       }
       try {
-        deleteMetadata(config.dataDir, sessionId, false);
+        deleteMetadata(sessionsDir, sessionId, false);
       } catch {
         /* best effort */
       }
@@ -381,10 +444,11 @@ export function createSessionManager(deps: SessionManagerDeps): SessionManager {
     };
 
     try {
-      writeMetadata(config.dataDir, sessionId, {
+      writeMetadata(sessionsDir, sessionId, {
         worktree: workspacePath,
         branch,
         status: "spawning",
+        tmuxName, // Store tmux name for mapping
         issue: spawnConfig.issueId,
         project: spawnConfig.projectId,
         createdAt: new Date().toISOString(),
@@ -409,7 +473,7 @@ export function createSessionManager(deps: SessionManagerDeps): SessionManager {
         }
       }
       try {
-        deleteMetadata(config.dataDir, sessionId, false);
+        deleteMetadata(sessionsDir, sessionId, false);
       } catch {
         /* best effort */
       }
@@ -420,21 +484,23 @@ export function createSessionManager(deps: SessionManagerDeps): SessionManager {
   }
 
   async function list(projectId?: string): Promise<Session[]> {
-    const sessionIds = listMetadata(config.dataDir);
+    const allSessions = listAllSessions(projectId);
     const sessions: Session[] = [];
 
-    for (const sid of sessionIds) {
-      const raw = readMetadataRaw(config.dataDir, sid);
-      if (!raw) continue;
+    for (const { sessionName, projectId: sessionProjectId } of allSessions) {
+      // Use config key to find project
+      const project = config.projects[sessionProjectId];
+      if (!project) continue;
 
-      // Filter by project if specified
-      if (projectId && raw["project"] !== projectId) continue;
+      const sessionsDir = getProjectSessionsDir(project);
+      const raw = readMetadataRaw(sessionsDir, sessionName);
+      if (!raw) continue;
 
       // Get file timestamps for createdAt/lastActivityAt
       let createdAt: Date | undefined;
       let modifiedAt: Date | undefined;
       try {
-        const metaPath = join(config.dataDir, sid);
+        const metaPath = join(sessionsDir, sessionName);
         const stats = statSync(metaPath);
         createdAt = stats.birthtime;
         modifiedAt = stats.mtime;
@@ -442,15 +508,12 @@ export function createSessionManager(deps: SessionManagerDeps): SessionManager {
         // If stat fails, timestamps will fall back to current time
       }
 
-      const session = metadataToSession(sid, raw, createdAt, modifiedAt);
+      const session = metadataToSession(sessionName, raw, createdAt, modifiedAt);
 
       // Enrich with live runtime state and activity detection
       if (session.runtimeHandle) {
-        const project = config.projects[session.projectId];
-        if (project) {
-          const plugins = resolvePlugins(project);
-          await enrichSessionWithRuntimeState(session, plugins);
-        }
+        const plugins = resolvePlugins(project);
+        await enrichSessionWithRuntimeState(session, plugins);
       }
 
       sessions.push(session);
@@ -460,41 +523,58 @@ export function createSessionManager(deps: SessionManagerDeps): SessionManager {
   }
 
   async function get(sessionId: SessionId): Promise<Session | null> {
-    const raw = readMetadataRaw(config.dataDir, sessionId);
-    if (!raw) return null;
+    // Try to find the session in any project's sessions directory
+    for (const project of Object.values(config.projects)) {
+      const sessionsDir = getProjectSessionsDir(project);
+      const raw = readMetadataRaw(sessionsDir, sessionId);
+      if (!raw) continue;
 
-    // Get file timestamps for createdAt/lastActivityAt
-    let createdAt: Date | undefined;
-    let modifiedAt: Date | undefined;
-    try {
-      const metaPath = join(config.dataDir, sessionId);
-      const stats = statSync(metaPath);
-      createdAt = stats.birthtime;
-      modifiedAt = stats.mtime;
-    } catch {
-      // If stat fails, timestamps will fall back to current time
-    }
+      // Get file timestamps for createdAt/lastActivityAt
+      let createdAt: Date | undefined;
+      let modifiedAt: Date | undefined;
+      try {
+        const metaPath = join(sessionsDir, sessionId);
+        const stats = statSync(metaPath);
+        createdAt = stats.birthtime;
+        modifiedAt = stats.mtime;
+      } catch {
+        // If stat fails, timestamps will fall back to current time
+      }
 
-    const session = metadataToSession(sessionId, raw, createdAt, modifiedAt);
+      const session = metadataToSession(sessionId, raw, createdAt, modifiedAt);
 
-    // Enrich with live runtime state and activity detection
-    if (session.runtimeHandle) {
-      const project = config.projects[session.projectId];
-      if (project) {
+      // Enrich with live runtime state and activity detection
+      if (session.runtimeHandle) {
         const plugins = resolvePlugins(project);
         await enrichSessionWithRuntimeState(session, plugins);
       }
+
+      return session;
     }
 
-    return session;
+    return null;
   }
 
   async function kill(sessionId: SessionId): Promise<void> {
-    const raw = readMetadataRaw(config.dataDir, sessionId);
-    if (!raw) throw new Error(`Session ${sessionId} not found`);
+    // Find the session in any project's sessions directory
+    let raw: Record<string, string> | null = null;
+    let sessionsDir: string | null = null;
+    let project: ProjectConfig | undefined;
 
-    const projectId = raw["project"] ?? "";
-    const project = config.projects[projectId];
+    for (const proj of Object.values(config.projects)) {
+      const dir = getProjectSessionsDir(proj);
+      const metadata = readMetadataRaw(dir, sessionId);
+      if (metadata) {
+        raw = metadata;
+        sessionsDir = dir;
+        project = proj;
+        break;
+      }
+    }
+
+    if (!raw || !sessionsDir) {
+      throw new Error(`Session ${sessionId} not found`);
+    }
 
     // Destroy runtime — prefer handle.runtimeName to find the correct plugin
     if (raw["runtimeHandle"]) {
@@ -532,7 +612,7 @@ export function createSessionManager(deps: SessionManagerDeps): SessionManager {
     }
 
     // Archive metadata
-    deleteMetadata(config.dataDir, sessionId, true);
+    deleteMetadata(sessionsDir, sessionId, true);
   }
 
   async function cleanup(projectId?: string): Promise<CleanupResult> {
@@ -600,7 +680,17 @@ export function createSessionManager(deps: SessionManagerDeps): SessionManager {
   }
 
   async function send(sessionId: SessionId, message: string): Promise<void> {
-    const raw = readMetadataRaw(config.dataDir, sessionId);
+    // Find the session in any project's sessions directory
+    let raw: Record<string, string> | null = null;
+    for (const project of Object.values(config.projects)) {
+      const sessionsDir = getProjectSessionsDir(project);
+      const metadata = readMetadataRaw(sessionsDir, sessionId);
+      if (metadata) {
+        raw = metadata;
+        break;
+      }
+    }
+
     if (!raw) throw new Error(`Session ${sessionId} not found`);
 
     // Build handle: use stored runtimeHandle, or fall back to session ID as tmux session name

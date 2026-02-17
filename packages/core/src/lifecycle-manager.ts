@@ -31,8 +31,10 @@ import {
   type Notifier,
   type Session,
   type EventPriority,
+  type ProjectConfig as _ProjectConfig,
 } from "./types.js";
 import { updateMetadata } from "./metadata.js";
+import { getSessionsDir } from "./paths.js";
 
 /** Parse a duration string like "10m", "30s", "1h" to milliseconds. */
 function parseDuration(str: string): number {
@@ -218,7 +220,10 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       } catch {
         // On probe failure, preserve current stuck/needs_input state rather
         // than letting the fallback at the bottom coerce them to "working"
-        if (session.status === SESSION_STATUS.STUCK || session.status === SESSION_STATUS.NEEDS_INPUT) {
+        if (
+          session.status === SESSION_STATUS.STUCK ||
+          session.status === SESSION_STATUS.NEEDS_INPUT
+        ) {
           return session.status;
         }
       }
@@ -421,8 +426,12 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       // State transition detected
       states.set(session.id, newStatus);
 
-      // Update metadata
-      updateMetadata(config.dataDir, session.id, { status: newStatus });
+      // Update metadata — session.projectId is the config key (e.g., "my-app")
+      const project = config.projects[session.projectId];
+      if (project) {
+        const sessionsDir = getSessionsDir(config.configPath, project.path);
+        updateMetadata(sessionsDir, session.id, { status: newStatus });
+      }
 
       // Reset allCompleteEmitted when any session becomes active again
       if (newStatus !== "merged" && newStatus !== "killed") {

@@ -71,6 +71,7 @@ agent-orchestrator/
 ### Making Changes
 
 1. **Create a feature branch**
+
    ```bash
    git checkout -b feat/your-feature
    ```
@@ -81,6 +82,7 @@ agent-orchestrator/
    - Update documentation
 
 3. **Build and test**
+
    ```bash
    pnpm build
    pnpm test
@@ -89,10 +91,12 @@ agent-orchestrator/
    ```
 
 4. **Commit**
+
    ```bash
    git add .
    git commit -m "feat: add your feature"
    ```
+
    - Pre-commit hook will scan for secrets
    - Use [Conventional Commits](https://www.conventionalcommits.org/)
 
@@ -104,6 +108,7 @@ agent-orchestrator/
 ### Code Conventions
 
 **TypeScript:**
+
 - ESM modules (`.js` extensions in imports)
 - `node:` prefix for builtins
 - Strict mode
@@ -112,12 +117,14 @@ agent-orchestrator/
 - Semicolons, double quotes, 2-space indent
 
 **Shell Commands:**
+
 - Always use `execFile` (never `exec`)
 - Always add timeouts
 - Never interpolate user input
 - Never use `JSON.stringify` for shell escaping
 
 **Plugin Pattern:**
+
 ```typescript
 import type { PluginModule, Runtime } from "@composio/ao-core";
 
@@ -131,7 +138,9 @@ export const manifest = {
 export function create(): Runtime {
   return {
     name: "my-plugin",
-    async create(config) { /* ... */ },
+    async create(config) {
+      /* ... */
+    },
     // ... implement interface
   };
 }
@@ -183,12 +192,14 @@ pnpm dev
 ### Secret Scanning
 
 **Pre-commit hook** runs automatically on every commit:
+
 ```bash
 🔒 Scanning staged files for secrets...
 ✅ No secrets detected
 ```
 
 If secrets are detected:
+
 1. Remove the secret from the file
 2. Use environment variables: `${SECRET_NAME}`
 3. Add to `.env.local` (in `.gitignore`)
@@ -236,12 +247,14 @@ gitleaks detect
 ### Adding a New Plugin
 
 1. **Create plugin package**
+
    ```bash
    mkdir -p packages/plugins/runtime-myplugin
    cd packages/plugins/runtime-myplugin
    ```
 
 2. **Set up package.json**
+
    ```json
    {
      "name": "@composio/ao-runtime-myplugin",
@@ -285,22 +298,26 @@ If you change an interface in `packages/core/src/types.ts`:
 ### Debugging
 
 **Enable verbose logging:**
+
 ```bash
 DEBUG=* pnpm dev
 ```
 
 **Attach to tmux session:**
+
 ```bash
 tmux attach -t session-name
 # Detach: Ctrl-b d
 ```
 
 **Inspect session metadata:**
+
 ```bash
 cat ~/.agent-orchestrator/my-app-3
 ```
 
 **Check session status:**
+
 ```bash
 curl http://localhost:3000/api/sessions/my-app-3
 ```
@@ -338,6 +355,7 @@ ANTHROPIC_API_KEY=sk-ant-api03-...
 **NEVER commit these to git!**
 
 Use `.env.local` (in `.gitignore`):
+
 ```bash
 echo 'GITHUB_TOKEN=ghp_...' >> .env.local
 echo 'LINEAR_API_KEY=lin_api_...' >> .env.local
@@ -357,6 +375,7 @@ pnpm build
 ### Web Dashboard 404s
 
 The web app expects `agent-orchestrator.yaml` in working directory:
+
 ```bash
 cp agent-orchestrator.yaml.example agent-orchestrator.yaml
 ```
@@ -364,6 +383,7 @@ cp agent-orchestrator.yaml.example agent-orchestrator.yaml
 ### Permission Errors in Tests
 
 Some tests require `tmux` or other system tools. Install them:
+
 ```bash
 # macOS
 brew install tmux gitleaks
@@ -377,6 +397,7 @@ apt-get install tmux
 Make sure all packages have `"type": "module"` in `package.json`.
 
 All imports from local files must include `.js` extension:
+
 ```typescript
 // ✅ Good
 import { foo } from "./bar.js";

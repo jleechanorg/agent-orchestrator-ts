@@ -19,6 +19,7 @@ import {
   tmuxSendKeys,
   writeMetadata,
   deleteMetadata,
+  getSessionsDir,
   type OrchestratorConfig,
   type ProjectConfig,
 } from "@composio/ao-core";
@@ -228,11 +229,12 @@ export function registerStart(program: Command): void {
 
                 // Get agent instance (used for hooks and launch)
                 const agent = getAgent(config, projectId);
+                const sessionsDir = getSessionsDir(config.configPath, project.path);
 
                 // Setup agent hooks for automatic metadata updates
                 spinner.start("Configuring agent hooks");
                 if (agent.setupWorkspaceHooks) {
-                  await agent.setupWorkspaceHooks(project.path, { dataDir: config.dataDir });
+                  await agent.setupWorkspaceHooks(project.path, { dataDir: sessionsDir });
                 }
                 spinner.succeed("Agent hooks configured");
 
@@ -251,7 +253,7 @@ export function registerStart(program: Command): void {
                 const environment: Record<string, string> = {
                   [envVarName]: sessionId,
                   AO_SESSION: sessionId,
-                  AO_DATA_DIR: config.dataDir,
+                  AO_DATA_DIR: sessionsDir,
                   DIRENV_LOG_FORMAT: "",
                 };
 
@@ -286,7 +288,7 @@ export function registerStart(program: Command): void {
                     data: {},
                   });
 
-                  writeMetadata(config.dataDir, sessionId, {
+                  writeMetadata(sessionsDir, sessionId, {
                     worktree: project.path,
                     branch: project.defaultBranch,
                     status: "working",
@@ -330,7 +332,7 @@ export function registerStart(program: Command): void {
             console.log(chalk.cyan("Orchestrator:"), `already running (${sessionId})`);
           }
 
-          console.log(chalk.dim(`Config: ${config.dataDir}\n`));
+          console.log(chalk.dim(`Config: ${config.configPath}\n`));
 
           // Keep dashboard process alive if it was started
           if (dashboardProcess) {
@@ -368,6 +370,7 @@ export function registerStop(program: Command): void {
         const { projectId: _projectId, project } = resolveProject(config, projectArg);
         const sessionId = `${project.sessionPrefix}-orchestrator`;
         const port = config.port;
+        const sessionsDir = getSessionsDir(config.configPath, project.path);
 
         console.log(chalk.bold(`\nStopping orchestrator for ${chalk.cyan(project.name)}\n`));
 
@@ -379,7 +382,7 @@ export function registerStop(program: Command): void {
           spinner.succeed("Orchestrator session stopped");
 
           // Archive metadata
-          deleteMetadata(config.dataDir, sessionId, true);
+          deleteMetadata(sessionsDir, sessionId, true);
         } else {
           console.log(chalk.yellow(`Orchestrator session "${sessionId}" is not running`));
         }

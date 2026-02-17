@@ -1,9 +1,9 @@
 import chalk from "chalk";
 import ora from "ora";
 import type { Command } from "commander";
-import { loadConfig } from "@composio/ao-core";
+import { loadConfig, getSessionsDir } from "@composio/ao-core";
 import { exec, gh, getTmuxSessions } from "../lib/shell.js";
-import { getSessionDir, readMetadata } from "../lib/metadata.js";
+import { readMetadata } from "../lib/metadata.js";
 import { matchesPrefix } from "../lib/session-utils.js";
 
 interface ReviewInfo {
@@ -80,11 +80,11 @@ export function registerReviewCheck(program: Command): void {
 
       for (const [pid, project] of Object.entries(projects)) {
         const prefix = project.sessionPrefix || pid;
-        const sessionDir = getSessionDir(config.dataDir, pid);
         const projectSessions = allTmux.filter((s) => matchesPrefix(s, prefix));
+        const sessionsDir = getSessionsDir(config.configPath, project.path);
 
         for (const session of projectSessions) {
-          const meta = readMetadata(`${sessionDir}/${session}`);
+          const meta = readMetadata(`${sessionsDir}/${session}`);
           if (!meta?.pr) continue;
 
           const prNum = meta.pr.match(/(\d+)\s*$/)?.[1];

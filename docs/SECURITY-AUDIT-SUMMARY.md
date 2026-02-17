@@ -32,6 +32,7 @@
 **Likelihood**: Low (local development token, not production)
 
 **Action Required**:
+
 - ⚠️ If this token is still in use, **rotate it immediately**
 - Token is documented in [SECURITY.md](../SECURITY.md)
 
@@ -40,6 +41,7 @@
 **Status**: ✅ **CLEAN**
 
 Scanned 1.46 MB of code:
+
 - No hardcoded API keys
 - No authentication tokens
 - No passwords or private keys
@@ -55,6 +57,7 @@ Scanned 1.46 MB of code:
 **Purpose**: Prevent accidental commits of secrets
 
 **Features**:
+
 - Uses all default gitleaks rules (covers 100+ secret patterns)
 - Custom allowlist for false positives
 - Ignores build artifacts (`node_modules/`, `dist/`, `.next/`)
@@ -62,6 +65,7 @@ Scanned 1.46 MB of code:
 - Allowlists environment variable references (`${VAR_NAME}`)
 
 **Patterns Detected**:
+
 - GitHub tokens (`ghp_*`, `gho_*`, `ghs_*`, `ghu_*`)
 - Linear API keys (`lin_api_*`)
 - Slack webhooks & tokens (`xoxb-*`, `xoxa-*`, etc.)
@@ -74,6 +78,7 @@ Scanned 1.46 MB of code:
 - Generic API keys (`api_key=...`, `token=...`, `password=...`)
 
 **Test**:
+
 ```bash
 # Scan current files
 gitleaks detect --no-git
@@ -90,18 +95,21 @@ gitleaks detect
 **Purpose**: Block commits containing secrets
 
 **Behavior**:
+
 - Runs automatically before every `git commit`
 - Scans only staged files (fast)
 - Provides helpful error messages if secrets detected
 - Gracefully skips if gitleaks not installed (with warning)
 
 **Example Output**:
+
 ```bash
 🔒 Scanning staged files for secrets...
 ✅ No secrets detected
 ```
 
 Or if secret detected:
+
 ```bash
 ❌ Secret(s) detected in staged files!
 
@@ -115,6 +123,7 @@ If this is a false positive, update .gitleaks.toml allowlist
 ```
 
 **Setup**:
+
 - Husky installed as dev dependency
 - Hook is executable and version-controlled
 - `prepare` script ensures hook is installed on `pnpm install`
@@ -130,11 +139,13 @@ If this is a false positive, update .gitleaks.toml allowlist
 3. **NPM Audit** — Detects known vulnerabilities in dependencies
 
 **Triggers**:
+
 - Every push to `main`
 - Every pull request to `main`
 - Weekly scheduled scan (Monday 8am UTC)
 
 **Benefits**:
+
 - Catches secrets missed by pre-commit hook
 - Prevents secrets from reaching main branch
 - Alerts on dependency vulnerabilities
@@ -222,6 +233,7 @@ agent-orchestrator.yaml
    - Testing locally
 
 **Key Messages**:
+
 - ⚠️ **NEVER commit real secrets to git**
 - ✅ **Always use environment variables**
 - ✅ **Pre-commit hook will block secrets**
@@ -270,6 +282,7 @@ Finding: OpenClaw token in commit 0393ab70 (documented)
    - Revoke old token
 
 2. **Set Up Required Environment Variables**
+
    ```bash
    # Add to ~/.zshrc or ~/.bashrc
    export GITHUB_TOKEN="ghp_..."
@@ -310,11 +323,11 @@ Finding: OpenClaw token in commit 0393ab70 (documented)
 
 ## Tools Used
 
-| Tool | Purpose | Version |
-|------|---------|---------|
-| [Gitleaks](https://github.com/gitleaks/gitleaks) | Secret scanning | 8.x |
-| [Husky](https://typicode.github.io/husky/) | Git hooks | 9.1.7 |
-| [GitHub Actions](https://github.com/features/actions) | CI/CD security | — |
+| Tool                                                  | Purpose         | Version |
+| ----------------------------------------------------- | --------------- | ------- |
+| [Gitleaks](https://github.com/gitleaks/gitleaks)      | Secret scanning | 8.x     |
+| [Husky](https://typicode.github.io/husky/)            | Git hooks       | 9.1.7   |
+| [GitHub Actions](https://github.com/features/actions) | CI/CD security  | —       |
 
 ---
 
@@ -336,6 +349,7 @@ Finding: OpenClaw token in commit 0393ab70 (documented)
 The codebase is currently clean, with one historical secret that needs rotation. Comprehensive automated scanning prevents future accidents. All developers are protected by pre-commit hooks, and CI/CD ensures nothing reaches the main branch.
 
 **Next Steps**:
+
 1. Rotate the OpenClaw token if still in use
 2. Test the pre-commit hook locally
 3. Monitor CI for security workflow runs

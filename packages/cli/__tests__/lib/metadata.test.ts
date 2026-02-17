@@ -11,7 +11,6 @@ import {
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
-  getSessionDir,
   readMetadata,
   writeMetadata,
   archiveMetadata,
@@ -27,16 +26,6 @@ beforeEach(() => {
 
 afterEach(() => {
   rmSync(tmpDir, { recursive: true, force: true });
-});
-
-describe("getSessionDir", () => {
-  it("returns correct path for project", () => {
-    expect(getSessionDir("/data", "my-app")).toBe("/data/my-app-sessions");
-  });
-
-  it("handles nested data dirs", () => {
-    expect(getSessionDir("/home/user/.ao", "backend")).toBe("/home/user/.ao/backend-sessions");
-  });
 });
 
 describe("readMetadata", () => {
@@ -197,5 +186,58 @@ describe("findSessionForIssue", () => {
     // app-2 is NOT in tmux sessions list
     const result = await findSessionForIssue(sessionDir, "INT-200", ["app-1"]);
     expect(result).toBeNull();
+  });
+
+  it("filters by project when projectId is specified", async () => {
+    const sessionDir = join(tmpDir, "sessions");
+    mkdirSync(sessionDir);
+    // Project A has INT-100
+    writeFileSync(join(sessionDir, "app-1"), "issue=INT-100\nproject=project-a\n");
+    // Project B also has INT-100 (different session)
+    writeFileSync(join(sessionDir, "backend-1"), "issue=INT-100\nproject=project-b\n");
+
+    // Should only find project-a's session
+    const resultA = await findSessionForIssue(
+      sessionDir,
+      "INT-100",
+      ["app-1", "backend-1"],
+      "project-a",
+    );
+    expect(resultA).toBe("app-1");
+
+    // Should only find project-b's session
+    const resultB = await findSessionForIssue(
+      sessionDir,
+      "INT-100",
+      ["app-1", "backend-1"],
+      "project-b",
+    );
+    expect(resultB).toBe("backend-1");
+
+    // Without projectId filter, should find first match
+    const resultAny = await findSessionForIssue(sessionDir, "INT-100", ["app-1", "backend-1"]);
+    expect(resultAny).toBe("app-1");
+  });
+
+  it("excludes sessions without project field when projectId filter is specified", async () => {
+    const sessionDir = join(tmpDir, "sessions");
+    mkdirSync(sessionDir);
+    // Legacy session without project field
+    writeFileSync(join(sessionDir, "legacy-1"), "issue=INT-100\n");
+    // Current session with project field
+    writeFileSync(join(sessionDir, "app-1"), "issue=INT-100\nproject=project-a\n");
+
+    // Should NOT find legacy session when filtering by project
+    const result = await findSessionForIssue(
+      sessionDir,
+      "INT-100",
+      ["legacy-1", "app-1"],
+      "project-a",
+    );
+    expect(result).toBe("app-1");
+
+    // Without projectId filter, should find one of the sessions (order not guaranteed)
+    const resultAny = await findSessionForIssue(sessionDir, "INT-100", ["legacy-1", "app-1"]);
+    expect(["legacy-1", "app-1"]).toContain(resultAny);
   });
 });

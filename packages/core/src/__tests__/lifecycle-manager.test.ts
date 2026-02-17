@@ -1,10 +1,11 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { mkdirSync, rmSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
 import { createLifecycleManager } from "../lifecycle-manager.js";
 import { writeMetadata, readMetadataRaw } from "../metadata.js";
+import { getSessionsDir } from "../paths.js";
 import type {
   OrchestratorConfig,
   PluginRegistry,
@@ -18,7 +19,9 @@ import type {
   PRInfo,
 } from "../types.js";
 
-let dataDir: string;
+let tmpDir: string;
+let configPath: string;
+let sessionsDir: string;
 let mockSessionManager: SessionManager;
 let mockRuntime: Runtime;
 let mockAgent: Agent;
@@ -59,8 +62,12 @@ function makePR(overrides: Partial<PRInfo> = {}): PRInfo {
 }
 
 beforeEach(() => {
-  dataDir = join(tmpdir(), `ao-test-lifecycle-${randomUUID()}`);
-  mkdirSync(dataDir, { recursive: true });
+  tmpDir = join(tmpdir(), `ao-test-lifecycle-${randomUUID()}`);
+  mkdirSync(tmpDir, { recursive: true });
+
+  // Create a temporary config file
+  configPath = join(tmpDir, "agent-orchestrator.yaml");
+  writeFileSync(configPath, "projects: {}\n");
 
   mockRuntime = {
     name: "mock",
@@ -105,8 +112,7 @@ beforeEach(() => {
   };
 
   config = {
-    dataDir,
-    worktreeDir: "/tmp/worktrees",
+    configPath,
     port: 3000,
     defaults: {
       runtime: "mock",
@@ -118,7 +124,7 @@ beforeEach(() => {
       "my-app": {
         name: "My App",
         repo: "org/my-app",
-        path: "/tmp/my-app",
+        path: join(tmpDir, "my-app"),
         defaultBranch: "main",
         sessionPrefix: "app",
         scm: { plugin: "github" },
@@ -133,10 +139,14 @@ beforeEach(() => {
     },
     reactions: {},
   };
+
+  // Calculate sessions directory
+  sessionsDir = getSessionsDir(configPath, join(tmpDir, "my-app"));
+  mkdirSync(sessionsDir, { recursive: true });
 });
 
 afterEach(() => {
-  rmSync(dataDir, { recursive: true, force: true });
+  rmSync(tmpDir, { recursive: true, force: true });
 });
 
 describe("start / stop", () => {
@@ -162,7 +172,7 @@ describe("check (single session)", () => {
     vi.mocked(mockSessionManager.get).mockResolvedValue(session);
 
     // Write metadata so updateMetadata works
-    writeMetadata(dataDir, "app-1", {
+    writeMetadata(sessionsDir, "app-1", {
       worktree: "/tmp",
       branch: "main",
       status: "spawning",
@@ -180,7 +190,7 @@ describe("check (single session)", () => {
     expect(lm.getStates().get("app-1")).toBe("working");
 
     // Metadata should be updated
-    const meta = readMetadataRaw(dataDir, "app-1");
+    const meta = readMetadataRaw(sessionsDir, "app-1");
     expect(meta!["status"]).toBe("working");
   });
 
@@ -190,7 +200,7 @@ describe("check (single session)", () => {
     const session = makeSession({ status: "working" });
     vi.mocked(mockSessionManager.get).mockResolvedValue(session);
 
-    writeMetadata(dataDir, "app-1", {
+    writeMetadata(sessionsDir, "app-1", {
       worktree: "/tmp",
       branch: "main",
       status: "working",
@@ -215,7 +225,7 @@ describe("check (single session)", () => {
     const session = makeSession({ status: "working" });
     vi.mocked(mockSessionManager.get).mockResolvedValue(session);
 
-    writeMetadata(dataDir, "app-1", {
+    writeMetadata(sessionsDir, "app-1", {
       worktree: "/tmp",
       branch: "main",
       status: "working",
@@ -242,7 +252,7 @@ describe("check (single session)", () => {
     const session = makeSession({ status: "working" });
     vi.mocked(mockSessionManager.get).mockResolvedValue(session);
 
-    writeMetadata(dataDir, "app-1", {
+    writeMetadata(sessionsDir, "app-1", {
       worktree: "/tmp",
       branch: "main",
       status: "working",
@@ -267,7 +277,7 @@ describe("check (single session)", () => {
     const session = makeSession({ status: "working" });
     vi.mocked(mockSessionManager.get).mockResolvedValue(session);
 
-    writeMetadata(dataDir, "app-1", {
+    writeMetadata(sessionsDir, "app-1", {
       worktree: "/tmp",
       branch: "main",
       status: "working",
@@ -291,7 +301,7 @@ describe("check (single session)", () => {
     const session = makeSession({ status: "working" });
     vi.mocked(mockSessionManager.get).mockResolvedValue(session);
 
-    writeMetadata(dataDir, "app-1", {
+    writeMetadata(sessionsDir, "app-1", {
       worktree: "/tmp",
       branch: "main",
       status: "working",
@@ -317,7 +327,7 @@ describe("check (single session)", () => {
     const session = makeSession({ status: "stuck" });
     vi.mocked(mockSessionManager.get).mockResolvedValue(session);
 
-    writeMetadata(dataDir, "app-1", {
+    writeMetadata(sessionsDir, "app-1", {
       worktree: "/tmp",
       branch: "main",
       status: "stuck",
@@ -344,7 +354,7 @@ describe("check (single session)", () => {
     const session = makeSession({ status: "needs_input" });
     vi.mocked(mockSessionManager.get).mockResolvedValue(session);
 
-    writeMetadata(dataDir, "app-1", {
+    writeMetadata(sessionsDir, "app-1", {
       worktree: "/tmp",
       branch: "main",
       status: "needs_input",
@@ -369,7 +379,7 @@ describe("check (single session)", () => {
     const session = makeSession({ status: "stuck" });
     vi.mocked(mockSessionManager.get).mockResolvedValue(session);
 
-    writeMetadata(dataDir, "app-1", {
+    writeMetadata(sessionsDir, "app-1", {
       worktree: "/tmp",
       branch: "main",
       status: "stuck",
@@ -417,7 +427,7 @@ describe("check (single session)", () => {
     const session = makeSession({ status: "pr_open", pr: makePR() });
     vi.mocked(mockSessionManager.get).mockResolvedValue(session);
 
-    writeMetadata(dataDir, "app-1", {
+    writeMetadata(sessionsDir, "app-1", {
       worktree: "/tmp",
       branch: "main",
       status: "pr_open",
@@ -464,7 +474,7 @@ describe("check (single session)", () => {
     const session = makeSession({ status: "approved", pr: makePR() });
     vi.mocked(mockSessionManager.get).mockResolvedValue(session);
 
-    writeMetadata(dataDir, "app-1", {
+    writeMetadata(sessionsDir, "app-1", {
       worktree: "/tmp",
       branch: "main",
       status: "approved",
@@ -517,7 +527,7 @@ describe("check (single session)", () => {
     const session = makeSession({ status: "pr_open", pr: makePR() });
     vi.mocked(mockSessionManager.get).mockResolvedValue(session);
 
-    writeMetadata(dataDir, "app-1", {
+    writeMetadata(sessionsDir, "app-1", {
       worktree: "/tmp",
       branch: "main",
       status: "pr_open",
@@ -551,7 +561,7 @@ describe("check (single session)", () => {
     const session = makeSession({ status: "working" });
     vi.mocked(mockSessionManager.get).mockResolvedValue(session);
 
-    writeMetadata(dataDir, "app-1", {
+    writeMetadata(sessionsDir, "app-1", {
       worktree: "/tmp",
       branch: "main",
       status: "working",
@@ -613,7 +623,7 @@ describe("reactions", () => {
     const session = makeSession({ status: "pr_open", pr: makePR() });
     vi.mocked(mockSessionManager.get).mockResolvedValue(session);
 
-    writeMetadata(dataDir, "app-1", {
+    writeMetadata(sessionsDir, "app-1", {
       worktree: "/tmp",
       branch: "main",
       status: "pr_open",
@@ -668,7 +678,7 @@ describe("reactions", () => {
     const session = makeSession({ status: "pr_open", pr: makePR() });
     vi.mocked(mockSessionManager.get).mockResolvedValue(session);
 
-    writeMetadata(dataDir, "app-1", {
+    writeMetadata(sessionsDir, "app-1", {
       worktree: "/tmp",
       branch: "main",
       status: "pr_open",
@@ -722,7 +732,7 @@ describe("reactions", () => {
     vi.mocked(mockSessionManager.get).mockResolvedValue(session);
     vi.mocked(mockSessionManager.send).mockResolvedValue(undefined);
 
-    writeMetadata(dataDir, "app-1", {
+    writeMetadata(sessionsDir, "app-1", {
       worktree: "/tmp",
       branch: "main",
       status: "pr_open",
@@ -795,7 +805,7 @@ describe("reactions", () => {
     const session = makeSession({ status: "approved", pr: makePR() });
     vi.mocked(mockSessionManager.get).mockResolvedValue(session);
 
-    writeMetadata(dataDir, "app-1", {
+    writeMetadata(sessionsDir, "app-1", {
       worktree: "/tmp",
       branch: "main",
       status: "approved",
@@ -823,7 +833,7 @@ describe("getStates", () => {
     const session = makeSession({ status: "spawning" });
     vi.mocked(mockSessionManager.get).mockResolvedValue(session);
 
-    writeMetadata(dataDir, "app-1", {
+    writeMetadata(sessionsDir, "app-1", {
       worktree: "/tmp",
       branch: "main",
       status: "spawning",

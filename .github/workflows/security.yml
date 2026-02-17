@@ -8,7 +8,7 @@ on:
   schedule:
     # Run weekly to catch new vulnerabilities
     - cron: "0 8 * * 1"
-  workflow_dispatch:  # Allow manual triggering
+  workflow_dispatch: # Allow manual triggering
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -22,7 +22,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # Full history for comprehensive scan
+          fetch-depth: 0 # Full history for comprehensive scan
 
       - name: Run Gitleaks
         uses: gitleaks/gitleaks-action@v2
@@ -64,7 +64,7 @@ jobs:
 
       - name: Run npm audit
         run: pnpm audit --audit-level=moderate
-        continue-on-error: true  # Don't fail build on vulnerabilities in deps
+        continue-on-error: true # Don't fail build on vulnerabilities in deps
 
       - name: Run pnpm audit (strict)
         run: pnpm audit --prod --audit-level=high

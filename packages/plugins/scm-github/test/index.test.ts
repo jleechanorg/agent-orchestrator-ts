@@ -701,7 +701,12 @@ describe("scm-github plugin", () => {
       // getPRState call
       mockGh({ state: "CLOSED" });
       // PR view (closed PRs still get checked)
-      mockGh({ mergeable: "CONFLICTING", reviewDecision: "APPROVED", mergeStateStatus: "DIRTY", isDraft: false });
+      mockGh({
+        mergeable: "CONFLICTING",
+        reviewDecision: "APPROVED",
+        mergeStateStatus: "DIRTY",
+        isDraft: false,
+      });
       // CI checks
       mockGh([]);
 

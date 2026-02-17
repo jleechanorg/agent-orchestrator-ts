@@ -34,14 +34,21 @@ vi.mock("ora", () => ({
   }),
 }));
 
-vi.mock("@composio/ao-core", () => ({
-  loadConfig: () => mockConfigRef.current,
-}));
+vi.mock("@composio/ao-core", async (importOriginal) => {
+  // eslint-disable-next-line @typescript-eslint/consistent-type-imports
+  const actual = await importOriginal<typeof import("@composio/ao-core")>();
+  return {
+    ...actual,
+    loadConfig: () => mockConfigRef.current,
+  };
+});
 
 let tmpDir: string;
+let sessionsDir: string;
 
 import { Command } from "commander";
 import { registerReviewCheck } from "../../src/commands/review-check.js";
+import { getSessionsDir } from "@composio/ao-core";
 
 let program: Command;
 let consoleSpy: ReturnType<typeof vi.spyOn>;
@@ -49,9 +56,11 @@ let consoleSpy: ReturnType<typeof vi.spyOn>;
 beforeEach(() => {
   tmpDir = mkdtempSync(join(tmpdir(), "ao-review-test-"));
 
+  const configPath = join(tmpDir, "agent-orchestrator.yaml");
+  writeFileSync(configPath, "projects: {}");
+
   mockConfigRef.current = {
-    dataDir: tmpDir,
-    worktreeDir: join(tmpDir, "worktrees"),
+    configPath,
     port: 3000,
     defaults: {
       runtime: "tmux",
@@ -72,6 +81,10 @@ beforeEach(() => {
     notificationRouting: {},
     reactions: {},
   } as Record<string, unknown>;
+
+  // Calculate and create sessions directory for hash-based architecture
+  sessionsDir = getSessionsDir(configPath, join(tmpDir, "main-repo"));
+  mkdirSync(sessionsDir, { recursive: true });
 
   program = new Command();
   program.exitOverride();
@@ -95,10 +108,8 @@ afterEach(() => {
 
 describe("review-check command", () => {
   it("reports no pending reviews when none exist", async () => {
-    const sessionDir = join(tmpDir, "my-app-sessions");
-    mkdirSync(sessionDir, { recursive: true });
     writeFileSync(
-      join(sessionDir, "app-1"),
+      join(sessionsDir, "app-1"),
       "branch=feat/fix\npr=https://github.com/org/my-app/pull/10\n",
     );
 
@@ -122,10 +133,8 @@ describe("review-check command", () => {
   });
 
   it("finds sessions with pending review comments", async () => {
-    const sessionDir = join(tmpDir, "my-app-sessions");
-    mkdirSync(sessionDir, { recursive: true });
     writeFileSync(
-      join(sessionDir, "app-1"),
+      join(sessionsDir, "app-1"),
       "branch=feat/fix\npr=https://github.com/org/my-app/pull/10\n",
     );
 
@@ -151,9 +160,7 @@ describe("review-check command", () => {
   });
 
   it("skips sessions without PR metadata", async () => {
-    const sessionDir = join(tmpDir, "my-app-sessions");
-    mkdirSync(sessionDir, { recursive: true });
-    writeFileSync(join(sessionDir, "app-1"), "branch=feat/fix\nstatus=working\n");
+    writeFileSync(join(sessionsDir, "app-1"), "branch=feat/fix\nstatus=working\n");
 
     mockTmux.mockImplementation(async (...args: string[]) => {
       if (args[0] === "list-sessions") return "app-1";
@@ -169,10 +176,8 @@ describe("review-check command", () => {
   });
 
   it("skips sessions with non-matching prefix", async () => {
-    const sessionDir = join(tmpDir, "my-app-sessions");
-    mkdirSync(sessionDir, { recursive: true });
     writeFileSync(
-      join(sessionDir, "other-1"),
+      join(sessionsDir, "other-1"),
       "branch=feat/fix\npr=https://github.com/org/my-app/pull/10\n",
     );
 
@@ -188,10 +193,8 @@ describe("review-check command", () => {
   });
 
   it("sends fix prompt when not in dry-run mode", async () => {
-    const sessionDir = join(tmpDir, "my-app-sessions");
-    mkdirSync(sessionDir, { recursive: true });
     writeFileSync(
-      join(sessionDir, "app-1"),
+      join(sessionsDir, "app-1"),
       "branch=feat/fix\npr=https://github.com/org/my-app/pull/10\n",
     );
 
@@ -226,10 +229,8 @@ describe("review-check command", () => {
   });
 
   it("handles gh returning null (API failure)", async () => {
-    const sessionDir = join(tmpDir, "my-app-sessions");
-    mkdirSync(sessionDir, { recursive: true });
     writeFileSync(
-      join(sessionDir, "app-1"),
+      join(sessionsDir, "app-1"),
       "branch=feat/fix\npr=https://github.com/org/my-app/pull/10\n",
     );
 
@@ -247,10 +248,8 @@ describe("review-check command", () => {
   });
 
   it("handles malformed GraphQL response gracefully", async () => {
-    const sessionDir = join(tmpDir, "my-app-sessions");
-    mkdirSync(sessionDir, { recursive: true });
     writeFileSync(
-      join(sessionDir, "app-1"),
+      join(sessionsDir, "app-1"),
       "branch=feat/fix\npr=https://github.com/org/my-app/pull/10\n",
     );
 

@@ -11,11 +11,12 @@
  */
 
 import { readFileSync, existsSync } from "node:fs";
-import { resolve, join } from "node:path";
+import { resolve, join, basename } from "node:path";
 import { homedir } from "node:os";
 import { parse as parseYaml } from "yaml";
 import { z } from "zod";
 import type { OrchestratorConfig } from "./types.js";
+import { generateSessionPrefix } from "./paths.js";
 
 // =============================================================================
 // ZOD SCHEMAS
@@ -88,8 +89,6 @@ const DefaultPluginsSchema = z.object({
 });
 
 const OrchestratorConfigSchema = z.object({
-  dataDir: z.string().default("~/.agent-orchestrator"),
-  worktreeDir: z.string().default("~/.worktrees"),
   port: z.number().default(3000),
   defaults: DefaultPluginsSchema.default({}),
   projects: z.record(ProjectConfigSchema),
@@ -117,9 +116,6 @@ function expandHome(filepath: string): string {
 
 /** Expand all path fields in the config */
 function expandPaths(config: OrchestratorConfig): OrchestratorConfig {
-  config.dataDir = expandHome(config.dataDir);
-  config.worktreeDir = expandHome(config.worktreeDir);
-
   for (const project of Object.values(config.projects)) {
     project.path = expandHome(project.path);
   }
@@ -135,10 +131,10 @@ function applyProjectDefaults(config: OrchestratorConfig): OrchestratorConfig {
       project.name = id;
     }
 
-    // Derive session prefix from project ID if not set
-    // Sanitize to match metadata ID rules: [a-zA-Z0-9_-]+
+    // Derive session prefix from project path basename if not set
     if (!project.sessionPrefix) {
-      project.sessionPrefix = id.replace(/[^a-zA-Z0-9_-]/g, "-");
+      const projectId = basename(project.path);
+      project.sessionPrefix = generateSessionPrefix(projectId);
     }
 
     // Infer SCM from repo if not set
@@ -153,6 +149,63 @@ function applyProjectDefaults(config: OrchestratorConfig): OrchestratorConfig {
   }
 
   return config;
+}
+
+/** Validate project uniqueness and session prefix collisions */
+function validateProjectUniqueness(config: OrchestratorConfig): void {
+  // Check for duplicate project IDs (basenames)
+  const projectIds = new Set<string>();
+  const projectIdToPaths: Record<string, string[]> = {};
+
+  for (const [_configKey, project] of Object.entries(config.projects)) {
+    const projectId = basename(project.path);
+
+    if (!projectIdToPaths[projectId]) {
+      projectIdToPaths[projectId] = [];
+    }
+    projectIdToPaths[projectId].push(project.path);
+
+    if (projectIds.has(projectId)) {
+      const paths = projectIdToPaths[projectId].join(", ");
+      throw new Error(
+        `Duplicate project ID detected: "${projectId}"\n` +
+          `Multiple projects have the same directory basename:\n` +
+          `  ${paths}\n\n` +
+          `To fix this, ensure each project path has a unique directory name.\n` +
+          `Alternatively, you can use the config key as a unique identifier.`,
+      );
+    }
+    projectIds.add(projectId);
+  }
+
+  // Check for duplicate session prefixes
+  const prefixes = new Set<string>();
+  const prefixToProject: Record<string, string> = {};
+
+  for (const [configKey, project] of Object.entries(config.projects)) {
+    const projectId = basename(project.path);
+    const prefix = project.sessionPrefix || generateSessionPrefix(projectId);
+
+    if (prefixes.has(prefix)) {
+      const firstProjectKey = prefixToProject[prefix];
+      const firstProject = config.projects[firstProjectKey];
+      throw new Error(
+        `Duplicate session prefix detected: "${prefix}"\n` +
+          `Projects "${firstProjectKey}" and "${configKey}" would generate the same prefix.\n\n` +
+          `To fix this, add an explicit sessionPrefix to one of these projects:\n\n` +
+          `projects:\n` +
+          `  ${firstProjectKey}:\n` +
+          `    path: ${firstProject?.path}\n` +
+          `    sessionPrefix: ${prefix}1  # Add explicit prefix\n` +
+          `  ${configKey}:\n` +
+          `    path: ${project.path}\n` +
+          `    sessionPrefix: ${prefix}2  # Add explicit prefix\n`,
+      );
+    }
+
+    prefixes.add(prefix);
+    prefixToProject[prefix] = configKey;
+  }
 }
 
 /** Apply default reactions */
@@ -221,19 +274,69 @@ function applyDefaultReactions(config: OrchestratorConfig): OrchestratorConfig {
   return config;
 }
 
-/** Search for config file in standard locations */
+/**
+ * Search for config file in standard locations.
+ *
+ * Search order:
+ * 1. AO_CONFIG environment variable (if set)
+ * 2. Search up directory tree from CWD (like git)
+ * 3. Explicit startDir (if provided)
+ * 4. Home directory locations
+ */
 function findConfigFile(startDir?: string): string | null {
-  const searchPaths = [
-    startDir ? resolve(startDir, "agent-orchestrator.yaml") : null,
-    startDir ? resolve(startDir, "agent-orchestrator.yml") : null,
-    resolve(process.cwd(), "agent-orchestrator.yaml"),
-    resolve(process.cwd(), "agent-orchestrator.yml"),
+  // 1. Check environment variable override
+  if (process.env.AO_CONFIG) {
+    const envPath = resolve(process.env.AO_CONFIG);
+    if (existsSync(envPath)) {
+      return envPath;
+    }
+  }
+
+  // 2. Search up directory tree from CWD (like git)
+  const searchUpTree = (dir: string): string | null => {
+    const configFiles = ["agent-orchestrator.yaml", "agent-orchestrator.yml"];
+
+    for (const filename of configFiles) {
+      const configPath = resolve(dir, filename);
+      if (existsSync(configPath)) {
+        return configPath;
+      }
+    }
+
+    const parent = resolve(dir, "..");
+    if (parent === dir) {
+      // Reached root
+      return null;
+    }
+
+    return searchUpTree(parent);
+  };
+
+  const cwd = process.cwd();
+  const foundInTree = searchUpTree(cwd);
+  if (foundInTree) {
+    return foundInTree;
+  }
+
+  // 3. Check explicit startDir if provided
+  if (startDir) {
+    const files = ["agent-orchestrator.yaml", "agent-orchestrator.yml"];
+    for (const filename of files) {
+      const path = resolve(startDir, filename);
+      if (existsSync(path)) {
+        return path;
+      }
+    }
+  }
+
+  // 4. Check home directory locations
+  const homePaths = [
     resolve(homedir(), ".agent-orchestrator.yaml"),
     resolve(homedir(), ".agent-orchestrator.yml"),
     resolve(homedir(), ".config", "agent-orchestrator", "config.yaml"),
-  ].filter((p): p is string => p !== null);
+  ];
 
-  for (const path of searchPaths) {
+  for (const path of homePaths) {
     if (existsSync(path)) {
       return path;
     }
@@ -246,6 +349,11 @@ function findConfigFile(startDir?: string): string | null {
 // PUBLIC API
 // =============================================================================
 
+/** Find config file path (exported for use in hash generation) */
+export function findConfig(startDir?: string): string | null {
+  return findConfigFile(startDir);
+}
+
 /** Load and validate config from a YAML file */
 export function loadConfig(configPath?: string): OrchestratorConfig {
   const path = configPath ?? findConfigFile();
@@ -256,8 +364,33 @@ export function loadConfig(configPath?: string): OrchestratorConfig {
 
   const raw = readFileSync(path, "utf-8");
   const parsed = parseYaml(raw);
+  const config = validateConfig(parsed);
 
-  return validateConfig(parsed);
+  // Set the config path in the config object for hash generation
+  config.configPath = path;
+
+  return config;
+}
+
+/** Load config and return both config and resolved path */
+export function loadConfigWithPath(configPath?: string): {
+  config: OrchestratorConfig;
+  path: string;
+} {
+  const path = configPath ?? findConfigFile();
+
+  if (!path) {
+    throw new Error("No agent-orchestrator.yaml found. Run `ao init` to create one.");
+  }
+
+  const raw = readFileSync(path, "utf-8");
+  const parsed = parseYaml(raw);
+  const config = validateConfig(parsed);
+
+  // Set the config path in the config object for hash generation
+  config.configPath = path;
+
+  return { config, path };
 }
 
 /** Validate a raw config object */
@@ -268,6 +401,9 @@ export function validateConfig(raw: unknown): OrchestratorConfig {
   config = expandPaths(config);
   config = applyProjectDefaults(config);
   config = applyDefaultReactions(config);
+
+  // Validate project uniqueness and prefix collisions
+  validateProjectUniqueness(config);
 
   return config;
 }

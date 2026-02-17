@@ -1,10 +1,11 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { mkdirSync, rmSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
 import { createSessionManager } from "../session-manager.js";
 import { writeMetadata, readMetadata } from "../metadata.js";
+import { getSessionsDir } from "../paths.js";
 import type {
   OrchestratorConfig,
   PluginRegistry,
@@ -16,7 +17,9 @@ import type {
   RuntimeHandle,
 } from "../types.js";
 
-let dataDir: string;
+let tmpDir: string;
+let configPath: string;
+let sessionsDir: string;
 let mockRuntime: Runtime;
 let mockAgent: Agent;
 let mockWorkspace: Workspace;
@@ -28,8 +31,12 @@ function makeHandle(id: string): RuntimeHandle {
 }
 
 beforeEach(() => {
-  dataDir = join(tmpdir(), `ao-test-session-mgr-${randomUUID()}`);
-  mkdirSync(dataDir, { recursive: true });
+  tmpDir = join(tmpdir(), `ao-test-session-mgr-${randomUUID()}`);
+  mkdirSync(tmpDir, { recursive: true });
+
+  // Create a temporary config file
+  configPath = join(tmpDir, "agent-orchestrator.yaml");
+  writeFileSync(configPath, "projects: {}\n");
 
   mockRuntime = {
     name: "mock",
@@ -78,8 +85,7 @@ beforeEach(() => {
   };
 
   config = {
-    dataDir,
-    worktreeDir: "/tmp/worktrees",
+    configPath,
     port: 3000,
     defaults: {
       runtime: "mock",
@@ -91,7 +97,7 @@ beforeEach(() => {
       "my-app": {
         name: "My App",
         repo: "org/my-app",
-        path: "/tmp/my-app",
+        path: join(tmpDir, "my-app"),
         defaultBranch: "main",
         sessionPrefix: "app",
         scm: { plugin: "github" },
@@ -107,10 +113,14 @@ beforeEach(() => {
     },
     reactions: {},
   };
+
+  // Calculate sessions directory
+  sessionsDir = getSessionsDir(configPath, join(tmpDir, "my-app"));
+  mkdirSync(sessionsDir, { recursive: true });
 });
 
 afterEach(() => {
-  rmSync(dataDir, { recursive: true, force: true });
+  rmSync(tmpDir, { recursive: true, force: true });
 });
 
 describe("spawn", () => {
@@ -175,8 +185,8 @@ describe("spawn", () => {
     const sm = createSessionManager({ config, registry: mockRegistry });
 
     // Pre-create some metadata to simulate existing sessions
-    writeMetadata(dataDir, "app-3", { worktree: "/tmp", branch: "b", status: "working" });
-    writeMetadata(dataDir, "app-7", { worktree: "/tmp", branch: "b", status: "working" });
+    writeMetadata(sessionsDir, "app-3", { worktree: "/tmp", branch: "b", status: "working" });
+    writeMetadata(sessionsDir, "app-7", { worktree: "/tmp", branch: "b", status: "working" });
 
     const session = await sm.spawn({ projectId: "my-app" });
     expect(session.id).toBe("app-8");
@@ -186,7 +196,7 @@ describe("spawn", () => {
     const sm = createSessionManager({ config, registry: mockRegistry });
     await sm.spawn({ projectId: "my-app", issueId: "INT-42" });
 
-    const meta = readMetadata(dataDir, "app-1");
+    const meta = readMetadata(sessionsDir, "app-1");
     expect(meta).not.toBeNull();
     expect(meta!.status).toBe("spawning");
     expect(meta!.project).toBe("my-app");
@@ -329,13 +339,13 @@ describe("spawn", () => {
 
 describe("list", () => {
   it("lists sessions from metadata", async () => {
-    writeMetadata(dataDir, "app-1", {
+    writeMetadata(sessionsDir, "app-1", {
       worktree: "/tmp/w1",
       branch: "feat/a",
       status: "working",
       project: "my-app",
     });
-    writeMetadata(dataDir, "app-2", {
+    writeMetadata(sessionsDir, "app-2", {
       worktree: "/tmp/w2",
       branch: "feat/b",
       status: "pr_open",
@@ -350,17 +360,14 @@ describe("list", () => {
   });
 
   it("filters by project ID", async () => {
-    writeMetadata(dataDir, "app-1", {
+    // In hash-based architecture, each project has its own directory
+    // so filtering is implicit. This test verifies list(projectId) only
+    // returns sessions from that project's directory.
+    writeMetadata(sessionsDir, "app-1", {
       worktree: "/tmp",
       branch: "a",
       status: "working",
       project: "my-app",
-    });
-    writeMetadata(dataDir, "other-1", {
-      worktree: "/tmp",
-      branch: "b",
-      status: "working",
-      project: "other",
     });
 
     const sm = createSessionManager({ config, registry: mockRegistry });
@@ -384,7 +391,7 @@ describe("list", () => {
       }),
     };
 
-    writeMetadata(dataDir, "app-1", {
+    writeMetadata(sessionsDir, "app-1", {
       worktree: "/tmp",
       branch: "a",
       status: "working",
@@ -413,7 +420,7 @@ describe("list", () => {
       }),
     };
 
-    writeMetadata(dataDir, "app-1", {
+    writeMetadata(sessionsDir, "app-1", {
       worktree: "/tmp",
       branch: "a",
       status: "working",
@@ -447,7 +454,7 @@ describe("list", () => {
       }),
     };
 
-    writeMetadata(dataDir, "app-1", {
+    writeMetadata(sessionsDir, "app-1", {
       worktree: "/tmp",
       branch: "a",
       status: "working",
@@ -465,7 +472,7 @@ describe("list", () => {
 
 describe("get", () => {
   it("returns session by ID", async () => {
-    writeMetadata(dataDir, "app-1", {
+    writeMetadata(sessionsDir, "app-1", {
       worktree: "/tmp",
       branch: "main",
       status: "working",
@@ -497,7 +504,7 @@ describe("get", () => {
       }),
     };
 
-    writeMetadata(dataDir, "app-1", {
+    writeMetadata(sessionsDir, "app-1", {
       worktree: "/tmp",
       branch: "main",
       status: "working",
@@ -525,7 +532,7 @@ describe("get", () => {
 
 describe("kill", () => {
   it("destroys runtime, workspace, and archives metadata", async () => {
-    writeMetadata(dataDir, "app-1", {
+    writeMetadata(sessionsDir, "app-1", {
       worktree: "/tmp/ws",
       branch: "main",
       status: "working",
@@ -538,7 +545,7 @@ describe("kill", () => {
 
     expect(mockRuntime.destroy).toHaveBeenCalledWith(makeHandle("rt-1"));
     expect(mockWorkspace.destroy).toHaveBeenCalledWith("/tmp/ws");
-    expect(readMetadata(dataDir, "app-1")).toBeNull(); // archived + deleted
+    expect(readMetadata(sessionsDir, "app-1")).toBeNull(); // archived + deleted
   });
 
   it("throws for nonexistent session", async () => {
@@ -560,7 +567,7 @@ describe("kill", () => {
       }),
     };
 
-    writeMetadata(dataDir, "app-1", {
+    writeMetadata(sessionsDir, "app-1", {
       worktree: "/tmp",
       branch: "main",
       status: "working",
@@ -602,7 +609,7 @@ describe("cleanup", () => {
       }),
     };
 
-    writeMetadata(dataDir, "app-1", {
+    writeMetadata(sessionsDir, "app-1", {
       worktree: "/tmp",
       branch: "main",
       status: "pr_open",
@@ -619,7 +626,7 @@ describe("cleanup", () => {
   });
 
   it("skips sessions without merged PRs or completed issues", async () => {
-    writeMetadata(dataDir, "app-1", {
+    writeMetadata(sessionsDir, "app-1", {
       worktree: "/tmp",
       branch: "main",
       status: "working",
@@ -648,7 +655,7 @@ describe("cleanup", () => {
       }),
     };
 
-    writeMetadata(dataDir, "app-1", {
+    writeMetadata(sessionsDir, "app-1", {
       worktree: "/tmp",
       branch: "main",
       status: "working",
@@ -665,7 +672,7 @@ describe("cleanup", () => {
 
 describe("send", () => {
   it("sends message via runtime.sendMessage", async () => {
-    writeMetadata(dataDir, "app-1", {
+    writeMetadata(sessionsDir, "app-1", {
       worktree: "/tmp",
       branch: "main",
       status: "working",
@@ -685,7 +692,7 @@ describe("send", () => {
   });
 
   it("falls back to session ID as runtime handle when no runtimeHandle stored", async () => {
-    writeMetadata(dataDir, "app-1", {
+    writeMetadata(sessionsDir, "app-1", {
       worktree: "/tmp",
       branch: "main",
       status: "working",
