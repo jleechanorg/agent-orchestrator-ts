@@ -44,7 +44,8 @@ export type SessionStatus =
 /** Activity state as detected by the agent plugin */
 export type ActivityState =
   | "active" // agent is processing (thinking, writing code)
-  | "idle" // agent is at prompt, waiting for input
+  | "ready" // agent finished its turn, alive and waiting for input
+  | "idle" // agent has been inactive for a while (stale)
   | "waiting_input" // agent is asking a question / permission prompt
   | "blocked" // agent hit an error or is stuck
   | "exited"; // agent process is no longer running
@@ -52,11 +53,15 @@ export type ActivityState =
 /** Activity state constants */
 export const ACTIVITY_STATE = {
   ACTIVE: "active" as const,
+  READY: "ready" as const,
   IDLE: "idle" as const,
   WAITING_INPUT: "waiting_input" as const,
   BLOCKED: "blocked" as const,
   EXITED: "exited" as const,
 } satisfies Record<string, ActivityState>;
+
+/** Default threshold (ms) before a "ready" session becomes "idle". */
+export const DEFAULT_READY_THRESHOLD_MS = 300_000; // 5 minutes
 
 /** Session status constants */
 export const SESSION_STATUS = {
@@ -89,8 +94,8 @@ export interface Session {
   /** Current lifecycle status */
   status: SessionStatus;
 
-  /** Activity state from agent plugin */
-  activity: ActivityState;
+  /** Activity state from agent plugin (null = not yet determined) */
+  activity: ActivityState | null;
 
   /** Git branch name */
   branch: string | null;
@@ -222,14 +227,12 @@ export interface Agent {
   /**
    * Get current activity state using agent-native mechanism (JSONL, SQLite, etc.).
    * This is the preferred method for activity detection.
+   * @param readyThresholdMs - ms before "ready" becomes "idle" (default: DEFAULT_READY_THRESHOLD_MS)
    */
-  getActivityState(session: Session): Promise<ActivityState>;
+  getActivityState(session: Session, readyThresholdMs?: number): Promise<ActivityState | null>;
 
   /** Check if agent process is running (given runtime handle) */
   isProcessRunning(handle: RuntimeHandle): Promise<boolean>;
-
-  /** Fast check: is the agent actively processing? Uses agent-native mechanism (not runtime). */
-  isProcessing(session: Session): Promise<boolean>;
 
   /** Extract information from agent's internal data (summary, cost, session ID) */
   getSessionInfo(session: Session): Promise<AgentSessionInfo | null>;
@@ -714,6 +717,9 @@ export interface OrchestratorConfig {
 
   /** Web dashboard port */
   port: number;
+
+  /** Milliseconds before a "ready" session becomes "idle" (default: 300000 = 5 min) */
+  readyThresholdMs: number;
 
   /** Default plugin selections */
   defaults: DefaultPlugins;

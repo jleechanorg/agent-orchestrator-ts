@@ -17,6 +17,7 @@ interface SessionCardProps {
 
 const activityIcon: Record<string, string> = {
   active: "\u26A1",
+  ready: "\uD83D\uDFE2",
   idle: "\uD83D\uDCA4",
   waiting_input: "\u2753",
   blocked: "\uD83D\uDEA7",
@@ -86,7 +87,7 @@ export function SessionCard({ session, onSend, onKill, onMerge, onRestore }: Ses
             session.activity === "active" && "animate-[pulse_2s_ease-in-out_infinite]",
           )}
         >
-          {activityIcon[session.activity] ?? "\u2753"}
+          {(session.activity && activityIcon[session.activity]) ?? "\u2753"}
         </span>
         <span className="shrink-0 text-[13px] font-semibold text-[var(--color-text-secondary)]">
           {session.id}

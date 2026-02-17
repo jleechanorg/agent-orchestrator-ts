@@ -63,7 +63,7 @@ function buildSessionForIntrospect(
     id: sessionName,
     projectId: "",
     status: "working",
-    activity: "idle",
+    activity: null,
     branch: branch ?? null,
     issueId: null,
     pr: null,
@@ -82,6 +82,7 @@ async function gatherSessionInfo(
   agent: Agent,
   scm: SCM,
   projectConfig: ProjectConfig,
+  readyThresholdMs?: number,
 ): Promise<SessionInfo> {
   const metaFile = `${sessionDir}/${sessionName}`;
   const meta = readMetadata(metaFile);
@@ -107,31 +108,19 @@ async function gatherSessionInfo(
   // Get agent's auto-generated summary and activity via introspection
   let claudeSummary: string | null = null;
   let activity: ActivityState | null = null;
+  const session = buildSessionForIntrospect(sessionName, worktree, branch);
   try {
-    const session = buildSessionForIntrospect(sessionName, worktree, branch);
     const introspection = await agent.getSessionInfo(session);
     claudeSummary = introspection?.summary ?? null;
-
-    // Detect activity from agent's last message type
-    const msgType = introspection?.lastMessageType;
-    if (msgType === "summary" || msgType === "assistant" || msgType === "result") {
-      activity = "idle";
-    } else if (msgType === "tool_use" || msgType === "user") {
-      activity = "active";
-    }
   } catch {
-    // Introspection failed — not critical
+    // Summary extraction failed — not critical
   }
 
-  // Fall back to metadata status for activity when introspection is unavailable
-  if (activity === null && status) {
-    const statusToActivity: Record<string, ActivityState> = {
-      working: "active",
-      idle: "idle",
-      stuck: "blocked",
-      errored: "blocked",
-    };
-    activity = statusToActivity[status] ?? null;
+  // Detect activity via the agent plugin (single source of truth)
+  try {
+    activity = await agent.getActivityState(session, readyThresholdMs);
+  } catch {
+    // Activity detection failed — stays null (displayed as "unknown")
   }
 
   // Fetch PR, CI, and review data from SCM
@@ -309,7 +298,16 @@ export function registerStatus(program: Command): void {
         // Gather all session info in parallel
         const infoPromises = projectSessions
           .sort()
-          .map((session) => gatherSessionInfo(session, sessionsDir, agent, scm, projectConfig));
+          .map((session) =>
+            gatherSessionInfo(
+              session,
+              sessionsDir,
+              agent,
+              scm,
+              projectConfig,
+              config.readyThresholdMs,
+            ),
+          );
         const sessionInfos = await Promise.all(infoPromises);
 
         for (const info of sessionInfos) {

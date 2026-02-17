@@ -55,7 +55,6 @@ beforeEach(() => {
     detectActivity: vi.fn().mockReturnValue("active"),
     getActivityState: vi.fn().mockResolvedValue("active"),
     isProcessRunning: vi.fn().mockResolvedValue(true),
-    isProcessing: vi.fn().mockResolvedValue(false),
     getSessionInfo: vi.fn().mockResolvedValue(null),
   };
 
@@ -112,6 +111,7 @@ beforeEach(() => {
       info: [],
     },
     reactions: {},
+    readyThresholdMs: 300_000,
   };
 
   // Calculate sessions directory
@@ -447,7 +447,7 @@ describe("list", () => {
     expect(sessions[0].activity).toBe("active");
   });
 
-  it("falls back to idle on getActivityState error", async () => {
+  it("keeps existing activity when getActivityState throws", async () => {
     const agentWithError: Agent = {
       ...mockAgent,
       getActivityState: vi.fn().mockRejectedValue(new Error("detection failed")),
@@ -472,8 +472,38 @@ describe("list", () => {
     const sm = createSessionManager({ config, registry: registryWithError });
     const sessions = await sm.list();
 
-    // Should fall back to idle when getActivityState fails
-    expect(sessions[0].activity).toBe("idle");
+    // Should keep null (absent) when getActivityState fails
+    expect(sessions[0].activity).toBeNull();
+  });
+
+  it("keeps existing activity when getActivityState returns null", async () => {
+    const agentWithNull: Agent = {
+      ...mockAgent,
+      getActivityState: vi.fn().mockResolvedValue(null),
+    };
+    const registryWithNull: PluginRegistry = {
+      ...mockRegistry,
+      get: vi.fn().mockImplementation((slot: string) => {
+        if (slot === "runtime") return mockRuntime;
+        if (slot === "agent") return agentWithNull;
+        return null;
+      }),
+    };
+
+    writeMetadata(sessionsDir, "app-1", {
+      worktree: "/tmp",
+      branch: "a",
+      status: "working",
+      project: "my-app",
+      runtimeHandle: JSON.stringify(makeHandle("rt-1")),
+    });
+
+    const sm = createSessionManager({ config, registry: registryWithNull });
+    const sessions = await sm.list();
+
+    // null = "I don't know" — activity stays null (absent)
+    expect(agentWithNull.getActivityState).toHaveBeenCalled();
+    expect(sessions[0].activity).toBeNull();
   });
 });
 

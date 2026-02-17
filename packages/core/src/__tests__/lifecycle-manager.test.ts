@@ -86,7 +86,6 @@ beforeEach(() => {
     detectActivity: vi.fn().mockReturnValue("active" as ActivityState),
     getActivityState: vi.fn().mockResolvedValue("active" as ActivityState),
     isProcessRunning: vi.fn().mockResolvedValue(true),
-    isProcessing: vi.fn().mockResolvedValue(false),
     getSessionInfo: vi.fn().mockResolvedValue(null),
   };
 
@@ -138,6 +137,7 @@ beforeEach(() => {
       info: [],
     },
     reactions: {},
+    readyThresholdMs: 300_000,
   };
 
   // Calculate sessions directory

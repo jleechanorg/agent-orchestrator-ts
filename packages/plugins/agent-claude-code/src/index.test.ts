@@ -4,13 +4,12 @@ import type { Session, RuntimeHandle, AgentLaunchConfig } from "@composio/ao-cor
 // ---------------------------------------------------------------------------
 // Hoisted mocks — available inside vi.mock factories
 // ---------------------------------------------------------------------------
-const { mockExecFileAsync, mockReaddir, mockReadFile, mockStat, mockOpen, mockHomedir } =
+const { mockExecFileAsync, mockReaddir, mockReadFile, mockStat, mockHomedir } =
   vi.hoisted(() => ({
     mockExecFileAsync: vi.fn(),
     mockReaddir: vi.fn(),
     mockReadFile: vi.fn(),
     mockStat: vi.fn(),
-    mockOpen: vi.fn(),
     mockHomedir: vi.fn(() => "/mock/home"),
   }));
 
@@ -22,7 +21,6 @@ vi.mock("node:child_process", () => {
 });
 
 vi.mock("node:fs/promises", () => ({
-  open: mockOpen,
   readdir: mockReaddir,
   readFile: mockReadFile,
   stat: mockStat,
@@ -437,7 +435,7 @@ describe("getSessionInfo", () => {
       mockJsonlFiles('{"type":"user","message":{"content":"hello"}}');
       await agent.getSessionInfo(makeSession({ workspacePath: "/Users/dev/.worktrees/ao/ao-3" }));
       expect(mockReaddir).toHaveBeenCalledWith(
-        "/mock/home/.claude/projects/Users-dev--worktrees-ao-ao-3",
+        "/mock/home/.claude/projects/-Users-dev--worktrees-ao-ao-3",
       );
     });
   });
@@ -496,24 +494,6 @@ describe("getSessionInfo", () => {
       mockJsonlFiles('{"type":"user","message":{"content":"hi"}}', ["abc-def-123.jsonl"]);
       const result = await agent.getSessionInfo(makeSession());
       expect(result?.agentSessionId).toBe("abc-def-123");
-    });
-  });
-
-  describe("last message type", () => {
-    it("returns the type of the last JSONL line", async () => {
-      const jsonl = [
-        '{"type":"user","message":{"content":"test"}}',
-        '{"type":"assistant","message":{"content":"response"}}',
-      ].join("\n");
-      mockJsonlFiles(jsonl);
-      const result = await agent.getSessionInfo(makeSession());
-      expect(result?.lastMessageType).toBe("assistant");
-    });
-
-    it("returns undefined when no lines have type", async () => {
-      mockJsonlFiles('{"content":"no type field"}');
-      const result = await agent.getSessionInfo(makeSession());
-      expect(result?.lastMessageType).toBeUndefined();
     });
   });
 
@@ -666,145 +646,3 @@ describe("getSessionInfo", () => {
   });
 });
 
-// =========================================================================
-// isProcessing — JSONL tail-read
-// =========================================================================
-describe("isProcessing", () => {
-  const agent = create();
-
-  /** Helper to create a mock file handle from `open()` */
-  function mockOpenWithContent(content: string, mtime: Date = new Date()) {
-    const buf = Buffer.from(content, "utf-8");
-    const fh = {
-      stat: vi.fn().mockResolvedValue({ size: buf.length, mtime }),
-      read: vi
-        .fn()
-        .mockImplementation((buffer: Buffer, offset: number, length: number, position: number) => {
-          buf.copy(buffer, offset, position, position + length);
-          return Promise.resolve({ bytesRead: length, buffer });
-        }),
-      close: vi.fn().mockResolvedValue(undefined),
-    };
-    mockOpen.mockResolvedValue(fh);
-    // findLatestSessionFile uses readdir + stat
-    mockReaddir.mockResolvedValue(["session-abc.jsonl"]);
-    mockStat.mockResolvedValue({ mtimeMs: mtime.getTime(), mtime });
-  }
-
-  it("returns false when workspacePath is null", async () => {
-    expect(await agent.isProcessing(makeSession({ workspacePath: null }))).toBe(false);
-  });
-
-  it("returns false when no JSONL files exist", async () => {
-    mockReaddir.mockResolvedValue([]);
-    expect(await agent.isProcessing(makeSession())).toBe(false);
-  });
-
-  it("returns false when project dir does not exist", async () => {
-    mockReaddir.mockRejectedValue(new Error("ENOENT"));
-    expect(await agent.isProcessing(makeSession())).toBe(false);
-  });
-
-  it("returns false when JSONL file is empty", async () => {
-    mockOpenWithContent("");
-    // Override stat to return size 0
-    const fh = {
-      stat: vi.fn().mockResolvedValue({ size: 0, mtime: new Date() }),
-      read: vi.fn(),
-      close: vi.fn().mockResolvedValue(undefined),
-    };
-    mockOpen.mockResolvedValue(fh);
-    mockReaddir.mockResolvedValue(["session-abc.jsonl"]);
-    mockStat.mockResolvedValue({ mtimeMs: Date.now(), mtime: new Date() });
-    expect(await agent.isProcessing(makeSession())).toBe(false);
-  });
-
-  it("returns false when file is older than 30 seconds", async () => {
-    const oldTime = new Date(Date.now() - 60_000);
-    const content = '{"type":"user","message":{"content":"hello"}}\n';
-    mockOpenWithContent(content, oldTime);
-    expect(await agent.isProcessing(makeSession())).toBe(false);
-  });
-
-  it("returns false when last type is assistant", async () => {
-    const now = new Date();
-    const content =
-      [
-        '{"type":"user","message":{"content":"fix bug"}}',
-        '{"type":"assistant","message":{"content":"I fixed it"}}',
-      ].join("\n") + "\n";
-    mockOpenWithContent(content, now);
-    expect(await agent.isProcessing(makeSession())).toBe(false);
-  });
-
-  it("returns false when last type is system", async () => {
-    const now = new Date();
-    const content =
-      [
-        '{"type":"user","message":{"content":"hello"}}',
-        '{"type":"system","summary":"session started"}',
-      ].join("\n") + "\n";
-    mockOpenWithContent(content, now);
-    expect(await agent.isProcessing(makeSession())).toBe(false);
-  });
-
-  it("returns true when last type is user and file is recent", async () => {
-    const now = new Date();
-    const content = '{"type":"user","message":{"content":"fix this"}}\n';
-    mockOpenWithContent(content, now);
-    expect(await agent.isProcessing(makeSession())).toBe(true);
-  });
-
-  it("returns true when last type is progress and file is recent", async () => {
-    const now = new Date();
-    const content =
-      [
-        '{"type":"user","message":{"content":"do it"}}',
-        '{"type":"progress","status":"running tool"}',
-      ].join("\n") + "\n";
-    mockOpenWithContent(content, now);
-    expect(await agent.isProcessing(makeSession())).toBe(true);
-  });
-
-  it("returns false when open() throws", async () => {
-    mockOpen.mockRejectedValue(new Error("EACCES"));
-    mockReaddir.mockResolvedValue(["session-abc.jsonl"]);
-    mockStat.mockResolvedValue({ mtimeMs: Date.now(), mtime: new Date() });
-    expect(await agent.isProcessing(makeSession())).toBe(false);
-  });
-
-  it("returns false when JSONL has no lines with type field", async () => {
-    const now = new Date();
-    const content = '{"content":"no type here"}\n';
-    mockOpenWithContent(content, now);
-    // lastType is null, and null is neither "assistant" nor "system",
-    // but we still return true because the file is recent and the agent
-    // appears active. Actually, let's verify what happens:
-    // entry = { lastType: null, modifiedAt: now }
-    // ageMs < 30_000 → true
-    // lastType !== "assistant" && lastType !== "system" → true
-    // So it returns true. That's the conservative (safe) behavior.
-    expect(await agent.isProcessing(makeSession())).toBe(true);
-  });
-
-  it("handles file with only malformed JSON gracefully", async () => {
-    const now = new Date();
-    const content = "not valid json at all\n";
-    mockOpenWithContent(content, now);
-    // All parse attempts fail → lastType: null → returns true (conservative)
-    expect(await agent.isProcessing(makeSession())).toBe(true);
-  });
-
-  it("always closes file handle even on error", async () => {
-    const fh = {
-      stat: vi.fn().mockRejectedValue(new Error("stat failed")),
-      read: vi.fn(),
-      close: vi.fn().mockResolvedValue(undefined),
-    };
-    mockOpen.mockResolvedValue(fh);
-    mockReaddir.mockResolvedValue(["session-abc.jsonl"]);
-    mockStat.mockResolvedValue({ mtimeMs: Date.now(), mtime: new Date() });
-    await agent.isProcessing(makeSession());
-    expect(fh.close).toHaveBeenCalled();
-  });
-});

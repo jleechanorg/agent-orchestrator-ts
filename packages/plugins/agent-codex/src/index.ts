@@ -69,7 +69,7 @@ function createCodexAgent(): Agent {
       return "active";
     },
 
-    async getActivityState(session: Session): Promise<ActivityState> {
+    async getActivityState(session: Session, _readyThresholdMs?: number): Promise<ActivityState | null> {
       // Check if process is running first
       if (!session.runtimeHandle) return "exited";
       const running = await this.isProcessRunning(session.runtimeHandle);
@@ -78,12 +78,11 @@ function createCodexAgent(): Agent {
       // NOTE: Codex stores rollout files in a global ~/.codex/sessions/ directory
       // without workspace-specific scoping. When multiple Codex sessions run in
       // parallel, we cannot reliably determine which rollout file belongs to which
-      // session. Until Codex provides per-workspace session tracking, we fall back
-      // to process-running check only. See issue #13 for details.
+      // session. Until Codex provides per-workspace session tracking, we return
+      // null (unknown) rather than guessing. See issue #13 for details.
       //
       // TODO: Implement proper per-session activity detection when Codex supports it.
-      // For now, return "active" if process is running (conservative approach).
-      return "active";
+      return null;
     },
 
     async isProcessRunning(handle: RuntimeHandle): Promise<boolean> {
@@ -135,13 +134,6 @@ function createCodexAgent(): Agent {
       } catch {
         return false;
       }
-    },
-
-    // NOTE: Codex lacks introspection to distinguish "processing" from "idle at prompt".
-    // Falling back to process liveness until richer detection is implemented (see #17).
-    async isProcessing(session: Session): Promise<boolean> {
-      if (!session.runtimeHandle) return false;
-      return this.isProcessRunning(session.runtimeHandle);
     },
 
     async getSessionInfo(_session: Session): Promise<AgentSessionInfo | null> {

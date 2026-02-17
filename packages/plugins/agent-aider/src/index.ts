@@ -1,5 +1,6 @@
 import {
   shellEscape,
+  DEFAULT_READY_THRESHOLD_MS,
   type Agent,
   type AgentSessionInfo,
   type AgentLaunchConfig,
@@ -104,14 +105,19 @@ function createAiderAgent(): Agent {
       return "active";
     },
 
-    async getActivityState(session: Session): Promise<ActivityState> {
+    async getActivityState(
+      session: Session,
+      readyThresholdMs?: number,
+    ): Promise<ActivityState | null> {
+      const threshold = readyThresholdMs ?? DEFAULT_READY_THRESHOLD_MS;
+
       // Check if process is running first
       if (!session.runtimeHandle) return "exited";
       const running = await this.isProcessRunning(session.runtimeHandle);
       if (!running) return "exited";
 
       // Process is running - check for activity signals
-      if (!session.workspacePath) return "active";
+      if (!session.workspacePath) return null;
 
       // Check for recent git commits (Aider auto-commits changes)
       const hasCommits = await hasRecentCommits(session.workspacePath);
@@ -120,15 +126,15 @@ function createAiderAgent(): Agent {
       // Check chat history file modification time
       const chatMtime = await getChatHistoryMtime(session.workspacePath);
       if (!chatMtime) {
-        // No chat history yet, but process is running - assume active
-        return "active";
+        // No chat history — cannot determine activity
+        return null;
       }
 
-      // If chat file was modified within last 30 seconds, consider active
+      // Classify by age: <30s active, <threshold ready, >threshold idle
       const ageMs = Date.now() - chatMtime.getTime();
-      if (ageMs < 30_000) return "active";
-
-      // No recent activity - idle at prompt
+      const activeWindowMs = Math.min(30_000, threshold);
+      if (ageMs < activeWindowMs) return "active";
+      if (ageMs < threshold) return "ready";
       return "idle";
     },
 
@@ -181,13 +187,6 @@ function createAiderAgent(): Agent {
       } catch {
         return false;
       }
-    },
-
-    // NOTE: Aider lacks introspection to distinguish "processing" from "idle at prompt".
-    // Falling back to process liveness until richer detection is implemented (see #18).
-    async isProcessing(session: Session): Promise<boolean> {
-      if (!session.runtimeHandle) return false;
-      return this.isProcessRunning(session.runtimeHandle);
     },
 
     async getSessionInfo(_session: Session): Promise<AgentSessionInfo | null> {

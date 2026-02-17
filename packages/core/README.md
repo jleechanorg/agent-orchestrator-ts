@@ -74,7 +74,7 @@ spawning → working → pr_open → ci_failed/review_pending/approved → merge
 
 **Polling loop:**
 
-1. For each session: check if agent is processing (`Agent.isProcessing()`)
+1. For each session: check agent activity state (`Agent.getActivityState()`)
 2. If PR exists: check CI status (`SCM.getCISummary()`), review state (`SCM.getReviewDecision()`)
 3. Update session status based on state
 4. Trigger reactions if state changed

@@ -1,6 +1,7 @@
 import {
   shellEscape,
   readLastJsonlEntry,
+  DEFAULT_READY_THRESHOLD_MS,
   type Agent,
   type AgentSessionInfo,
   type AgentLaunchConfig,
@@ -195,7 +196,8 @@ export const manifest = {
 export function toClaudeProjectPath(workspacePath: string): string {
   // Handle Windows drive letters (C:\Users\... → C-Users-...)
   const normalized = workspacePath.replace(/\\/g, "/");
-  return normalized.replace(/^\//, "").replace(/:/g, "").replace(/[/.]/g, "-");
+  // Claude Code replaces / and . with - (keeping the leading slash as a leading -)
+  return normalized.replace(/:/g, "").replace(/[/.]/g, "-");
 }
 
 /** Find the most recently modified .jsonl session file in a directory */
@@ -297,15 +299,6 @@ function extractSummary(lines: JsonlLine[]): string | null {
     }
   }
   return null;
-}
-
-/** Extract the last message type from JSONL */
-function extractLastMessageType(lines: JsonlLine[]): string | undefined {
-  for (let i = lines.length - 1; i >= 0; i--) {
-    const line = lines[i];
-    if (line?.type) return line.type;
-  }
-  return undefined;
 }
 
 /** Aggregate cost estimate from JSONL usage events */
@@ -607,28 +600,12 @@ function createClaudeCodeAgent(): Agent {
       return pid !== null;
     },
 
-    async isProcessing(session: Session): Promise<boolean> {
-      if (!session.workspacePath) return false;
+    async getActivityState(
+      session: Session,
+      readyThresholdMs?: number,
+    ): Promise<ActivityState | null> {
+      const threshold = readyThresholdMs ?? DEFAULT_READY_THRESHOLD_MS;
 
-      const projectPath = toClaudeProjectPath(session.workspacePath);
-      const projectDir = join(homedir(), ".claude", "projects", projectPath);
-
-      const sessionFile = await findLatestSessionFile(projectDir);
-      if (!sessionFile) return false;
-
-      const entry = await readLastJsonlEntry(sessionFile);
-      if (!entry) return false;
-
-      const ageMs = Date.now() - entry.modifiedAt.getTime();
-      if (ageMs > 30_000) return false;
-
-      // If the last entry is "assistant" or "system", Claude has finished its turn
-      if (entry.lastType === "assistant" || entry.lastType === "system") return false;
-
-      return true;
-    },
-
-    async getActivityState(session: Session): Promise<ActivityState> {
       // Check if process is running first
       if (!session.runtimeHandle) return "exited";
       const running = await this.isProcessRunning(session.runtimeHandle);
@@ -636,8 +613,8 @@ function createClaudeCodeAgent(): Agent {
 
       // Process is running - check JSONL session file for activity
       if (!session.workspacePath) {
-        // No workspace path but process is running - assume active
-        return "active";
+        // No workspace path — cannot determine activity without it
+        return null;
       }
 
       const projectPath = toClaudeProjectPath(session.workspacePath);
@@ -645,31 +622,46 @@ function createClaudeCodeAgent(): Agent {
 
       const sessionFile = await findLatestSessionFile(projectDir);
       if (!sessionFile) {
-        // No session file found yet, but process is running - assume active
-        return "active";
+        // No session file found — cannot determine activity
+        return null;
       }
 
       const entry = await readLastJsonlEntry(sessionFile);
       if (!entry) {
-        // Empty file or read error, but process is running - assume active
-        return "active";
+        // Empty file or read error — cannot determine activity
+        return null;
       }
 
-      // Check staleness - no activity in 30 seconds means idle
       const ageMs = Date.now() - entry.modifiedAt.getTime();
-      if (ageMs > 30_000) return "idle";
 
-      // Classify based on last JSONL entry type
+      // Classify based on last JSONL entry type.
+      //
+      // Real Claude Code JSONL types (observed in production):
+      //   progress           — streaming tokens (most frequent)
+      //   assistant          — completed assistant response
+      //   user               — user message submitted
+      //   system             — system messages
+      //   file-history-snapshot — file change tracking
+      //   queue-operation    — internal queue ops
+      //   pr-link            — PR URL logged
+      //
+      // Types from the Agent interface spec (may appear in future versions):
+      //   tool_use, permission_request, error, summary, result
       switch (entry.lastType) {
         case "user":
         case "tool_use":
-          // Agent is processing user request or running tools
-          return "active";
+        case "progress":
+          // Agent is processing: user just sent input, tools running, or
+          // actively streaming. Stale past threshold.
+          return ageMs > threshold ? "idle" : "active";
 
         case "assistant":
         case "system":
-          // Agent finished its turn, waiting for user input
-          return "idle";
+        case "summary":
+        case "result":
+          // Agent finished its turn. If recent, the session is alive and
+          // ready for the next instruction. Past threshold it's stale.
+          return ageMs > threshold ? "idle" : "ready";
 
         case "permission_request":
           // Agent needs user approval for an action
@@ -680,8 +672,9 @@ function createClaudeCodeAgent(): Agent {
           return "blocked";
 
         default:
-          // Unknown type, assume active
-          return "active";
+          // Unknown/bookkeeping types (file-history-snapshot, queue-operation,
+          // pr-link, etc.) — if recent, assume active; otherwise idle.
+          return ageMs > threshold ? "idle" : "active";
       }
     },
 
@@ -716,7 +709,6 @@ function createClaudeCodeAgent(): Agent {
         summary: extractSummary(lines),
         agentSessionId,
         cost: extractCost(lines),
-        lastMessageType: extractLastMessageType(lines),
         lastLogModified,
       };
     },

@@ -110,7 +110,7 @@ function metadataToSession(
     id: sessionId,
     projectId: meta["project"] ?? "",
     status: validateStatus(meta["status"]),
-    activity: "idle",
+    activity: null,
     branch: meta["branch"] || null,
     issueId: meta["issue"] || null,
     pr: meta["pr"]
@@ -231,10 +231,17 @@ export function createSessionManager(deps: SessionManagerDeps): SessionManager {
         } else if (plugins.agent) {
           // Runtime is alive — detect activity using agent-native mechanism
           try {
-            session.activity = await plugins.agent.getActivityState(session);
+            const detected = await plugins.agent.getActivityState(
+              session,
+              config.readyThresholdMs,
+            );
+            // Only overwrite if plugin returned a concrete state.
+            // null means "I don't have enough data" — keep existing value.
+            if (detected !== null) {
+              session.activity = detected;
+            }
           } catch {
-            // Can't detect activity — explicitly set to idle
-            session.activity = "idle";
+            // Can't detect activity — keep existing value
           }
         }
       } catch {

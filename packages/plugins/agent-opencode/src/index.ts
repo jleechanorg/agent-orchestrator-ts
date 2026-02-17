@@ -63,7 +63,7 @@ function createOpenCodeAgent(): Agent {
       return "active";
     },
 
-    async getActivityState(session: Session): Promise<ActivityState> {
+    async getActivityState(session: Session, _readyThresholdMs?: number): Promise<ActivityState | null> {
       // Check if process is running first
       if (!session.runtimeHandle) return "exited";
       const running = await this.isProcessRunning(session.runtimeHandle);
@@ -73,11 +73,10 @@ function createOpenCodeAgent(): Agent {
       // at ~/.local/share/opencode/opencode.db without per-workspace scoping. When
       // multiple OpenCode sessions run in parallel, database modifications from any
       // session will cause all sessions to appear active. Until OpenCode provides
-      // per-workspace session tracking, we fall back to process-running check only.
+      // per-workspace session tracking, we return null (unknown) rather than guessing.
       //
       // TODO: Implement proper per-session activity detection when OpenCode supports it.
-      // For now, return "active" if process is running (conservative approach).
-      return "active";
+      return null;
     },
 
     async isProcessRunning(handle: RuntimeHandle): Promise<boolean> {
@@ -129,13 +128,6 @@ function createOpenCodeAgent(): Agent {
       } catch {
         return false;
       }
-    },
-
-    // NOTE: OpenCode lacks introspection to distinguish "processing" from "idle at prompt".
-    // Falling back to process liveness until richer detection is implemented (see #19).
-    async isProcessing(session: Session): Promise<boolean> {
-      if (!session.runtimeHandle) return false;
-      return this.isProcessRunning(session.runtimeHandle);
     },
 
     async getSessionInfo(_session: Session): Promise<AgentSessionInfo | null> {
