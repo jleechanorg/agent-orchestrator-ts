@@ -730,7 +730,6 @@ function createClaudeCodeAgent(): Agent {
       const hookScriptPath = join(session.workspacePath, ".claude", "metadata-updater.sh");
       await setupHookInWorkspace(session.workspacePath, hookScriptPath);
     },
-
   };
 }
 

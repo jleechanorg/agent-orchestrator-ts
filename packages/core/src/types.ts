@@ -254,7 +254,6 @@ export interface Agent {
    * run git/gh commands. Without this, PRs created by agents never show up.
    */
   setupWorkspaceHooks?(workspacePath: string, config: WorkspaceHooksConfig): Promise<void>;
-
 }
 
 export interface AgentLaunchConfig {
@@ -264,15 +263,11 @@ export interface AgentLaunchConfig {
   prompt?: string;
   permissions?: "skip" | "default";
   model?: string;
-
   /**
-   * System-level instructions to inject into the agent's context.
-   * Used by `ao start` to give the orchestrator agent its instructions.
-   *
-   * Each agent plugin handles this in getLaunchCommand():
+   * System prompt to pass to the agent for orchestrator context.
    * - Claude Code: --append-system-prompt
    * - Codex: --system-prompt or AGENTS.md
-   * - Aider: --read flag or conventions
+   * - Aider: --system-prompt flag
    * - OpenCode: equivalent mechanism
    */
   systemPrompt?: string;
@@ -728,8 +723,8 @@ export interface OrchestratorConfig {
    */
   configPath: string;
 
-  /** Web dashboard port */
-  port: number;
+  /** Web dashboard port (defaults to 3000) */
+  port?: number;
 
   /** Milliseconds before a "ready" session becomes "idle" (default: 300000 = 5 min) */
   readyThresholdMs: number;
@@ -890,6 +885,9 @@ export interface SessionMetadata {
   project?: string;
   createdAt?: string;
   runtimeHandle?: string;
+  dashboardPort?: number;
+  terminalWsPort?: number;
+  directTerminalWsPort?: number;
 }
 
 // =============================================================================

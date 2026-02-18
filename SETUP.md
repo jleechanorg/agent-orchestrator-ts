@@ -102,7 +102,7 @@ The wizard will prompt you for:
 
 1. **Data directory** - Where to store session metadata (default: `~/.agent-orchestrator`)
 2. **Worktree directory** - Where to create isolated workspaces (default: `~/.worktrees`)
-3. **Dashboard port** - Web interface port (default: `3000`)
+3. **Dashboard port** - Web interface port (default: `9847`)
 4. **Runtime plugin** - Session runtime (default: `tmux`)
 5. **Agent plugin** - AI coding assistant (default: `claude-code`)
 6. **Workspace plugin** - Workspace isolation method (default: `worktree`)
@@ -148,7 +148,7 @@ The absolute minimum needed:
 ```yaml
 dataDir: ~/.agent-orchestrator
 worktreeDir: ~/.worktrees
-port: 3000
+port: 9847
 
 projects:
   my-app:
@@ -439,7 +439,7 @@ echo $LINEAR_API_KEY
 
 ### "Port 3000 already in use"
 
-**Problem:** Another service is using port 3000.
+**Problem:** Another service is using port 9847.
 
 **Solution:**
 
@@ -447,7 +447,7 @@ echo $LINEAR_API_KEY
 # Change port in agent-orchestrator.yaml
 port: 3001
 
-# Or find and kill the process using port 3000
+# Or find and kill the process using port 9847
 lsof -ti:3000 | xargs kill
 ```
 
@@ -730,7 +730,7 @@ projects:
 
 Three ways:
 
-1. **Dashboard** - `ao start` then visit http://localhost:3000
+1. **Dashboard** - `ao start` then visit http://localhost:9847
 2. **CLI status** - `ao status` (text-based dashboard)
 3. **Attach to session** - `ao open <session-name>` (live terminal)
 

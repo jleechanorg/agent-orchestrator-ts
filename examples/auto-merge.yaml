@@ -3,7 +3,6 @@
 
 dataDir: ~/.agent-orchestrator
 worktreeDir: ~/.worktrees
-port: 3000
 
 projects:
   my-app:

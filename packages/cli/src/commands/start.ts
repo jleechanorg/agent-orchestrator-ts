@@ -26,7 +26,7 @@ import {
 } from "@composio/ao-core";
 import { exec, getTmuxSessions } from "../lib/shell.js";
 import { getAgent } from "../lib/plugins.js";
-import { findWebDir } from "../lib/web-dir.js";
+import { findWebDir, buildDashboardEnv } from "../lib/web-dir.js";
 import { cleanNextCache } from "../lib/dashboard-rebuild.js";
 
 /**
@@ -71,15 +71,20 @@ function resolveProject(
  * Start dashboard server in the background.
  * Returns the child process handle for cleanup.
  */
-function startDashboard(port: number, webDir: string): ChildProcess {
-  const child = spawn("npx", ["next", "dev", "-p", String(port)], {
+function startDashboard(port: number, webDir: string, configPath: string | null): ChildProcess {
+  const env = buildDashboardEnv(port, configPath);
+
+  const child = spawn("pnpm", ["run", "dev"], {
     cwd: webDir,
     stdio: "inherit",
     detached: false,
+    env,
   });
 
   child.on("error", (err) => {
-    console.error(chalk.red("Dashboard failed to start:"), err);
+    console.error(chalk.red("Dashboard failed to start:"), err.message);
+    // Emit synthetic exit so callers listening on "exit" can clean up
+    child.emit("exit", 1, null);
   });
 
   return child;
@@ -131,7 +136,7 @@ export function registerStart(program: Command): void {
           const config = loadConfig();
           const { projectId, project } = resolveProject(config, projectArg);
           const sessionId = `${project.sessionPrefix}-orchestrator`;
-          const port = config.port;
+          const port = config.port ?? 3000;
 
           console.log(chalk.bold(`\nStarting orchestrator for ${chalk.cyan(project.name)}\n`));
 
@@ -151,7 +156,7 @@ export function registerStart(program: Command): void {
             }
 
             spinner.start("Starting dashboard");
-            dashboardProcess = startDashboard(port, webDir);
+            dashboardProcess = startDashboard(port, webDir, config.configPath);
             spinner.succeed(`Dashboard starting on http://localhost:${port}`);
             console.log(chalk.dim("  (Dashboard will be ready in a few seconds)\n"));
           }
@@ -317,7 +322,7 @@ export function registerStop(program: Command): void {
         const config = loadConfig();
         const { projectId: _projectId, project } = resolveProject(config, projectArg);
         const sessionId = `${project.sessionPrefix}-orchestrator`;
-        const port = config.port;
+        const port = config.port ?? 3000;
         const sessionsDir = getSessionsDir(config.configPath, project.path);
 
         console.log(chalk.bold(`\nStopping orchestrator for ${chalk.cyan(project.name)}\n`));

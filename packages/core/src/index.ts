@@ -15,6 +15,7 @@ export {
   validateConfig,
   getDefaultConfig,
   findConfig,
+  findConfigFile,
 } from "./config.js";
 
 // Plugin registry

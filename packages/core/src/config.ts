@@ -279,15 +279,15 @@ function applyDefaultReactions(config: OrchestratorConfig): OrchestratorConfig {
  * Search for config file in standard locations.
  *
  * Search order:
- * 1. AO_CONFIG environment variable (if set)
+ * 1. AO_CONFIG_PATH environment variable (if set)
  * 2. Search up directory tree from CWD (like git)
  * 3. Explicit startDir (if provided)
  * 4. Home directory locations
  */
-function findConfigFile(startDir?: string): string | null {
+export function findConfigFile(startDir?: string): string | null {
   // 1. Check environment variable override
-  if (process.env.AO_CONFIG) {
-    const envPath = resolve(process.env.AO_CONFIG);
+  if (process.env["AO_CONFIG_PATH"]) {
+    const envPath = resolve(process.env["AO_CONFIG_PATH"]);
     if (existsSync(envPath)) {
       return envPath;
     }
@@ -357,6 +357,8 @@ export function findConfig(startDir?: string): string | null {
 
 /** Load and validate config from a YAML file */
 export function loadConfig(configPath?: string): OrchestratorConfig {
+  // Priority: 1. Explicit param, 2. Search (including AO_CONFIG_PATH env var)
+  // findConfigFile handles AO_CONFIG_PATH validation, so delegate to it
   const path = configPath ?? findConfigFile();
 
   if (!path) {
