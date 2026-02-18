@@ -11,7 +11,7 @@
  * Reference: scripts/claude-ao-session, scripts/send-to-session
  */
 
-import { statSync, existsSync, readdirSync } from "node:fs";
+import { statSync, existsSync, readdirSync, writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import {
   isIssueNotFoundError,
@@ -19,6 +19,7 @@ import {
   type Session,
   type SessionId,
   type SessionSpawnConfig,
+  type OrchestratorSpawnConfig,
   type SessionStatus,
   type CleanupResult,
   type OrchestratorConfig,
@@ -41,7 +42,7 @@ import {
   reserveSessionId,
 } from "./metadata.js";
 import { buildPrompt } from "./prompt-builder.js";
-import { getSessionsDir, generateTmuxName, validateAndStoreOrigin } from "./paths.js";
+import { getSessionsDir, getProjectBaseDir, generateTmuxName, generateConfigHash, validateAndStoreOrigin } from "./paths.js";
 
 /** Escape regex metacharacters in a string. */
 function escapeRegex(str: string): string {
@@ -514,6 +515,127 @@ export function createSessionManager(deps: SessionManagerDeps): SessionManager {
     return session;
   }
 
+  async function spawnOrchestrator(orchestratorConfig: OrchestratorSpawnConfig): Promise<Session> {
+    const project = config.projects[orchestratorConfig.projectId];
+    if (!project) {
+      throw new Error(`Unknown project: ${orchestratorConfig.projectId}`);
+    }
+
+    const plugins = resolvePlugins(project);
+    if (!plugins.runtime) {
+      throw new Error(`Runtime plugin '${project.runtime ?? config.defaults.runtime}' not found`);
+    }
+    if (!plugins.agent) {
+      throw new Error(`Agent plugin '${project.agent ?? config.defaults.agent}' not found`);
+    }
+
+    const sessionId = `${project.sessionPrefix}-orchestrator`;
+
+    // Generate tmux name if using new architecture
+    let tmuxName: string | undefined;
+    if (config.configPath) {
+      const hash = generateConfigHash(config.configPath);
+      tmuxName = `${hash}-${sessionId}`;
+    }
+
+    // Get the sessions directory for this project
+    const sessionsDir = getProjectSessionsDir(project);
+
+    // Validate and store .origin file
+    if (config.configPath) {
+      validateAndStoreOrigin(config.configPath, project.path);
+    }
+
+    // Setup agent hooks for automatic metadata updates
+    if (plugins.agent.setupWorkspaceHooks) {
+      await plugins.agent.setupWorkspaceHooks(project.path, { dataDir: sessionsDir });
+    }
+
+    // Write system prompt to a file to avoid shell/tmux truncation.
+    // Long prompts (2000+ chars) get mangled when inlined in shell commands
+    // via tmux send-keys or paste-buffer. File-based approach is reliable.
+    let systemPromptFile: string | undefined;
+    if (orchestratorConfig.systemPrompt) {
+      const baseDir = getProjectBaseDir(config.configPath, project.path);
+      mkdirSync(baseDir, { recursive: true });
+      systemPromptFile = join(baseDir, "orchestrator-prompt.md");
+      writeFileSync(systemPromptFile, orchestratorConfig.systemPrompt, "utf-8");
+    }
+
+    // Get agent launch config — uses systemPromptFile, no issue/tracker interaction
+    const agentLaunchConfig = {
+      sessionId,
+      projectConfig: project,
+      permissions: project.agentConfig?.permissions,
+      model: project.agentConfig?.model,
+      systemPromptFile,
+    };
+
+    const launchCommand = plugins.agent.getLaunchCommand(agentLaunchConfig);
+    const environment = plugins.agent.getEnvironment(agentLaunchConfig);
+
+    const handle = await plugins.runtime.create({
+      sessionId: tmuxName ?? sessionId,
+      workspacePath: project.path,
+      launchCommand,
+      environment: {
+        ...environment,
+        AO_SESSION: sessionId,
+        AO_DATA_DIR: sessionsDir,
+        AO_SESSION_NAME: sessionId,
+        ...(tmuxName && { AO_TMUX_NAME: tmuxName }),
+      },
+    });
+
+    // Write metadata and run post-launch setup
+    const session: Session = {
+      id: sessionId,
+      projectId: orchestratorConfig.projectId,
+      status: "working",
+      activity: "active",
+      branch: project.defaultBranch,
+      issueId: null,
+      pr: null,
+      workspacePath: project.path,
+      runtimeHandle: handle,
+      agentInfo: null,
+      createdAt: new Date(),
+      lastActivityAt: new Date(),
+      metadata: {},
+    };
+
+    try {
+      writeMetadata(sessionsDir, sessionId, {
+        worktree: project.path,
+        branch: project.defaultBranch,
+        status: "working",
+        tmuxName,
+        project: orchestratorConfig.projectId,
+        createdAt: new Date().toISOString(),
+        runtimeHandle: JSON.stringify(handle),
+      });
+
+      if (plugins.agent.postLaunchSetup) {
+        await plugins.agent.postLaunchSetup(session);
+      }
+    } catch (err) {
+      // Clean up runtime on post-launch failure
+      try {
+        await plugins.runtime.destroy(handle);
+      } catch {
+        /* best effort */
+      }
+      try {
+        deleteMetadata(sessionsDir, sessionId, false);
+      } catch {
+        /* best effort */
+      }
+      throw err;
+    }
+
+    return session;
+  }
+
   async function list(projectId?: string): Promise<Session[]> {
     const allSessions = listAllSessions(projectId);
     const sessions: Session[] = [];
@@ -747,5 +869,5 @@ export function createSessionManager(deps: SessionManagerDeps): SessionManager {
     await runtimePlugin.sendMessage(handle, message);
   }
 
-  return { spawn, list, get, kill, cleanup, send };
+  return { spawn, spawnOrchestrator, list, get, kill, cleanup, send };
 }

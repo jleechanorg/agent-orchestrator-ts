@@ -55,9 +55,29 @@ export function create(): Runtime {
       // Create tmux session in detached mode
       await tmux("new-session", "-d", "-s", sessionName, "-c", config.workspacePath, ...envArgs);
 
-      // Send the launch command — clean up the session if this fails
+      // Send the launch command — clean up the session if this fails.
+      // Use load-buffer + paste-buffer for long commands to avoid tmux/zsh
+      // truncation issues (commands >200 chars get mangled by send-keys).
       try {
-        await tmux("send-keys", "-t", sessionName, config.launchCommand, "Enter");
+        if (config.launchCommand.length > 200) {
+          const bufferName = `ao-launch-${randomUUID().slice(0, 8)}`;
+          const tmpPath = join(tmpdir(), `ao-launch-${randomUUID()}.txt`);
+          writeFileSync(tmpPath, config.launchCommand, { encoding: "utf-8", mode: 0o600 });
+          try {
+            await tmux("load-buffer", "-b", bufferName, tmpPath);
+            await tmux("paste-buffer", "-b", bufferName, "-t", sessionName, "-d");
+          } finally {
+            try {
+              unlinkSync(tmpPath);
+            } catch {
+              /* ignore cleanup errors */
+            }
+          }
+          await sleep(300);
+          await tmux("send-keys", "-t", sessionName, "Enter");
+        } else {
+          await tmux("send-keys", "-t", sessionName, config.launchCommand, "Enter");
+        }
       } catch (err: unknown) {
         try {
           await tmux("kill-session", "-t", sessionName);

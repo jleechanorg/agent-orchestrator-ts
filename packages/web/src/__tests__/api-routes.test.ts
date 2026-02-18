@@ -81,6 +81,7 @@ const mockSessionManager: SessionManager = {
     }
   }),
   cleanup: vi.fn(async () => ({ killed: [], skipped: [], errors: [] })),
+  spawnOrchestrator: vi.fn(),
 };
 
 const mockSCM: SCM = {

@@ -15,17 +15,11 @@ import type { Command } from "commander";
 import {
   loadConfig,
   generateOrchestratorPrompt,
-  hasTmuxSession,
-  newTmuxSession,
-  tmuxSendKeys,
-  writeMetadata,
-  deleteMetadata,
-  getSessionsDir,
   type OrchestratorConfig,
   type ProjectConfig,
 } from "@composio/ao-core";
-import { exec, getTmuxSessions } from "../lib/shell.js";
-import { getAgent } from "../lib/plugins.js";
+import { exec } from "../lib/shell.js";
+import { getSessionManager } from "../lib/create-session-manager.js";
 import { findWebDir, buildDashboardEnv } from "../lib/web-dir.js";
 import { cleanNextCache } from "../lib/dashboard-rebuild.js";
 
@@ -161,12 +155,19 @@ export function registerStart(program: Command): void {
             console.log(chalk.dim("  (Dashboard will be ready in a few seconds)\n"));
           }
 
-          // Create orchestrator tmux session (unless --no-orchestrator or already exists)
+          // Create orchestrator session (unless --no-orchestrator or already exists)
+          let tmuxTarget = sessionId; // For the attach hint — updated to hash-based name after spawn
           if (opts?.orchestrator !== false) {
+            const sm = await getSessionManager(config);
+
             // Check if orchestrator session already exists
-            exists = await hasTmuxSession(sessionId);
+            const existing = await sm.get(sessionId);
+            exists = existing !== null && existing.status !== "killed";
 
             if (exists) {
+              if (existing?.runtimeHandle?.id) {
+                tmuxTarget = existing.runtimeHandle.id;
+              }
               console.log(
                 chalk.yellow(
                   `Orchestrator session "${sessionId}" is already running (skipping creation)`,
@@ -174,90 +175,14 @@ export function registerStart(program: Command): void {
               );
             } else {
               try {
-                // Get agent instance (used for hooks and launch)
-                const agent = getAgent(config, projectId);
-                const sessionsDir = getSessionsDir(config.configPath, project.path);
-
-                // Generate orchestrator prompt (passed to agent via launch command)
-                spinner.start("Generating orchestrator prompt");
-                const systemPrompt = generateOrchestratorPrompt({ config, projectId, project });
-                spinner.succeed("Orchestrator prompt ready");
-
-                // Setup agent hooks for automatic metadata updates
-                spinner.start("Configuring agent hooks");
-                if (agent.setupWorkspaceHooks) {
-                  await agent.setupWorkspaceHooks(project.path, { dataDir: sessionsDir });
-                }
-                spinner.succeed("Agent hooks configured");
-
                 spinner.start("Creating orchestrator session");
+                const systemPrompt = generateOrchestratorPrompt({ config, projectId, project });
 
-                // Get agent launch command (includes system prompt)
-                const launchCmd = agent.getLaunchCommand({
-                  sessionId,
-                  projectConfig: project,
-                  permissions: project.agentConfig?.permissions ?? "default",
-                  model: project.agentConfig?.model,
-                  systemPrompt,
-                });
-
-                // Determine environment variables
-                const envVarName = `${project.sessionPrefix.toUpperCase().replace(/[^A-Z0-9_]/g, "_")}_SESSION`;
-                const environment: Record<string, string> = {
-                  [envVarName]: sessionId,
-                  AO_SESSION: sessionId,
-                  AO_DATA_DIR: sessionsDir,
-                  DIRENV_LOG_FORMAT: "",
-                };
-
-                // Merge agent-specific environment
-                const agentEnv = agent.getEnvironment({
-                  sessionId,
-                  projectConfig: project,
-                  permissions: project.agentConfig?.permissions ?? "default",
-                  model: project.agentConfig?.model,
-                });
-                Object.assign(environment, agentEnv);
-
-                // NOTE: AO_PROJECT_ID is intentionally not set for orchestrator (uses flat metadata path)
-
-                // Create tmux session
-                await newTmuxSession({
-                  name: sessionId,
-                  cwd: project.path,
-                  environment,
-                });
-
-                try {
-                  // Launch agent
-                  await tmuxSendKeys(sessionId, launchCmd, true);
-
-                  spinner.succeed("Orchestrator session created");
-
-                  // Write metadata
-                  const runtimeHandle = JSON.stringify({
-                    id: sessionId,
-                    runtimeName: "tmux",
-                    data: {},
-                  });
-
-                  writeMetadata(sessionsDir, sessionId, {
-                    worktree: project.path,
-                    branch: project.defaultBranch,
-                    status: "working",
-                    project: projectId,
-                    createdAt: new Date().toISOString(),
-                    runtimeHandle,
-                  });
-                } catch (err) {
-                  // Cleanup tmux session if metadata write or agent launch fails
-                  try {
-                    await exec("tmux", ["kill-session", "-t", sessionId]);
-                  } catch {
-                    // Best effort cleanup - session may not exist
-                  }
-                  throw err;
+                const session = await sm.spawnOrchestrator({ projectId, systemPrompt });
+                if (session.runtimeHandle?.id) {
+                  tmuxTarget = session.runtimeHandle.id;
                 }
+                spinner.succeed("Orchestrator session created");
               } catch (err) {
                 spinner.fail("Orchestrator setup failed");
                 // Cleanup dashboard if orchestrator setup fails
@@ -280,7 +205,7 @@ export function registerStart(program: Command): void {
           }
 
           if (opts?.orchestrator !== false && !exists) {
-            console.log(chalk.cyan("Orchestrator:"), `tmux attach -t ${sessionId}`);
+            console.log(chalk.cyan("Orchestrator:"), `tmux attach -t ${tmuxTarget}`);
           } else if (exists) {
             console.log(chalk.cyan("Orchestrator:"), `already running (${sessionId})`);
           }
@@ -323,19 +248,17 @@ export function registerStop(program: Command): void {
         const { projectId: _projectId, project } = resolveProject(config, projectArg);
         const sessionId = `${project.sessionPrefix}-orchestrator`;
         const port = config.port ?? 3000;
-        const sessionsDir = getSessionsDir(config.configPath, project.path);
 
         console.log(chalk.bold(`\nStopping orchestrator for ${chalk.cyan(project.name)}\n`));
 
-        // Kill orchestrator session
-        const sessions = await getTmuxSessions();
-        if (sessions.includes(sessionId)) {
-          const spinner = ora("Stopping orchestrator session").start();
-          await exec("tmux", ["kill-session", "-t", sessionId]);
-          spinner.succeed("Orchestrator session stopped");
+        // Kill orchestrator session via SessionManager
+        const sm = await getSessionManager(config);
+        const existing = await sm.get(sessionId);
 
-          // Archive metadata
-          deleteMetadata(sessionsDir, sessionId, true);
+        if (existing) {
+          const spinner = ora("Stopping orchestrator session").start();
+          await sm.kill(sessionId);
+          spinner.succeed("Orchestrator session stopped");
         } else {
           console.log(chalk.yellow(`Orchestrator session "${sessionId}" is not running`));
         }

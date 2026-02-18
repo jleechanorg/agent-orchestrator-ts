@@ -133,6 +133,12 @@ export interface SessionSpawnConfig {
   prompt?: string;
 }
 
+/** Config for creating an orchestrator session */
+export interface OrchestratorSpawnConfig {
+  projectId: string;
+  systemPrompt?: string;
+}
+
 // =============================================================================
 // RUNTIME — Plugin Slot 1
 // =============================================================================
@@ -269,8 +275,21 @@ export interface AgentLaunchConfig {
    * - Codex: --system-prompt or AGENTS.md
    * - Aider: --system-prompt flag
    * - OpenCode: equivalent mechanism
+   *
+   * For short prompts only. For long prompts, use systemPromptFile instead
+   * to avoid shell/tmux truncation issues.
    */
   systemPrompt?: string;
+  /**
+   * Path to a file containing the system prompt.
+   * Preferred over systemPrompt for long prompts (e.g. orchestrator prompts)
+   * because inlining 2000+ char prompts in shell commands causes truncation.
+   *
+   * When set, takes precedence over systemPrompt.
+   * - Claude Code: --append-system-prompt "$(cat /path/to/file)"
+   * - Codex/Aider: similar shell substitution
+   */
+  systemPromptFile?: string;
 }
 
 export interface WorkspaceHooksConfig {
@@ -897,6 +916,7 @@ export interface SessionMetadata {
 /** Session manager — CRUD for sessions */
 export interface SessionManager {
   spawn(config: SessionSpawnConfig): Promise<Session>;
+  spawnOrchestrator(config: OrchestratorSpawnConfig): Promise<Session>;
   list(projectId?: string): Promise<Session[]>;
   get(sessionId: SessionId): Promise<Session | null>;
   kill(sessionId: SessionId): Promise<void>;

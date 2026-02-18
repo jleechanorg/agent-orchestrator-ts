@@ -346,21 +346,19 @@ export function registerInit(program: Command): void {
         // Success message and next steps
         console.log(chalk.green(`\n✓ Config written to ${outputPath}\n`));
         console.log(chalk.bold("Next steps:\n"));
-        console.log("  1. Review and edit the config:");
+        console.log("  1. Review the config (optional):");
         console.log(chalk.cyan(`     nano ${outputPath}\n`));
+        console.log("  2. Start orchestrator + dashboard:");
+        console.log(chalk.cyan("     ao start\n"));
 
         if (projectId) {
-          console.log("  2. Spawn your first agent:");
+          console.log("  3. Spawn agent sessions:");
           console.log(chalk.cyan(`     ao spawn ${projectId} ISSUE-123\n`));
         } else {
-          console.log("  2. Add a project to the config:");
+          console.log("  3. Add a project to the config:");
           console.log(chalk.cyan(`     nano ${outputPath}\n`));
         }
 
-        console.log("  3. Monitor progress:");
-        console.log(chalk.cyan("     ao status\n"));
-        console.log("  4. Open dashboard:");
-        console.log(chalk.cyan("     ao start\n"));
         console.log(chalk.dim("See SETUP.md for detailed configuration options.\n"));
 
         if (!env.hasTmux) {
@@ -481,17 +479,17 @@ async function handleAutoMode(outputPath: string, smart: boolean): Promise<void>
   if (hasPlaceholderRepo) {
     console.log("  1. Edit config and update 'repo' field:");
     console.log(chalk.cyan(`     nano ${outputPath}\n`));
-    console.log("  2. Spawn your first agent:");
+    console.log("  2. Start orchestrator + dashboard:");
+    console.log(chalk.cyan("     ao start\n"));
+    console.log("  3. Spawn agent sessions:");
     console.log(chalk.cyan(`     ao spawn ${projectId} ISSUE-123\n`));
-    console.log("  3. Monitor progress:");
-    console.log(chalk.cyan("     ao status\n"));
   } else {
-    console.log("  1. Review and customize (optional):");
+    console.log("  1. Review the config (optional):");
     console.log(chalk.cyan(`     nano ${outputPath}\n`));
-    console.log("  2. Spawn your first agent:");
+    console.log("  2. Start orchestrator + dashboard:");
+    console.log(chalk.cyan("     ao start\n"));
+    console.log("  3. Spawn agent sessions:");
     console.log(chalk.cyan(`     ao spawn ${projectId} ISSUE-123\n`));
-    console.log("  3. Monitor progress:");
-    console.log(chalk.cyan("     ao status\n"));
   }
 
   // Show warnings

@@ -562,7 +562,12 @@ function createClaudeCodeAgent(): Agent {
         parts.push("--model", shellEscape(config.model));
       }
 
-      if (config.systemPrompt) {
+      if (config.systemPromptFile) {
+        // Use shell command substitution to read from file at launch time.
+        // This avoids tmux truncation when inlining 2000+ char prompts.
+        // The double quotes allow $() expansion; inner path is single-quoted for safety.
+        parts.push("--append-system-prompt", `"$(cat ${shellEscape(config.systemPromptFile)})"`);
+      } else if (config.systemPrompt) {
         parts.push("--append-system-prompt", shellEscape(config.systemPrompt));
       }
 

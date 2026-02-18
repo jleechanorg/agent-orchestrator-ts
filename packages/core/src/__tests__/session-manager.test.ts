@@ -749,6 +749,132 @@ describe("send", () => {
   });
 });
 
+describe("spawnOrchestrator", () => {
+  it("creates orchestrator session with correct ID", async () => {
+    const sm = createSessionManager({ config, registry: mockRegistry });
+
+    const session = await sm.spawnOrchestrator({ projectId: "my-app" });
+
+    expect(session.id).toBe("app-orchestrator");
+    expect(session.status).toBe("working");
+    expect(session.projectId).toBe("my-app");
+    expect(session.branch).toBe("main");
+    expect(session.issueId).toBeNull();
+    expect(session.workspacePath).toBe(join(tmpDir, "my-app"));
+  });
+
+  it("writes metadata with proper fields", async () => {
+    const sm = createSessionManager({ config, registry: mockRegistry });
+
+    await sm.spawnOrchestrator({ projectId: "my-app" });
+
+    const meta = readMetadata(sessionsDir, "app-orchestrator");
+    expect(meta).not.toBeNull();
+    expect(meta!.status).toBe("working");
+    expect(meta!.project).toBe("my-app");
+    expect(meta!.worktree).toBe(join(tmpDir, "my-app"));
+    expect(meta!.branch).toBe("main");
+    expect(meta!.tmuxName).toBeDefined();
+    expect(meta!.runtimeHandle).toBeDefined();
+  });
+
+  it("skips workspace creation", async () => {
+    const sm = createSessionManager({ config, registry: mockRegistry });
+
+    await sm.spawnOrchestrator({ projectId: "my-app" });
+
+    expect(mockWorkspace.create).not.toHaveBeenCalled();
+  });
+
+  it("calls agent.setupWorkspaceHooks on project path", async () => {
+    const agentWithHooks: Agent = {
+      ...mockAgent,
+      setupWorkspaceHooks: vi.fn().mockResolvedValue(undefined),
+    };
+    const registryWithHooks: PluginRegistry = {
+      ...mockRegistry,
+      get: vi.fn().mockImplementation((slot: string) => {
+        if (slot === "runtime") return mockRuntime;
+        if (slot === "agent") return agentWithHooks;
+        if (slot === "workspace") return mockWorkspace;
+        return null;
+      }),
+    };
+
+    const sm = createSessionManager({ config, registry: registryWithHooks });
+    await sm.spawnOrchestrator({ projectId: "my-app" });
+
+    expect(agentWithHooks.setupWorkspaceHooks).toHaveBeenCalledWith(
+      join(tmpDir, "my-app"),
+      expect.objectContaining({ dataDir: sessionsDir }),
+    );
+  });
+
+  it("calls runtime.create with proper config", async () => {
+    const sm = createSessionManager({ config, registry: mockRegistry });
+
+    await sm.spawnOrchestrator({ projectId: "my-app" });
+
+    expect(mockRuntime.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workspacePath: join(tmpDir, "my-app"),
+        launchCommand: "mock-agent --start",
+      }),
+    );
+  });
+
+  it("writes system prompt to file and passes systemPromptFile to agent", async () => {
+    const sm = createSessionManager({ config, registry: mockRegistry });
+
+    await sm.spawnOrchestrator({
+      projectId: "my-app",
+      systemPrompt: "You are the orchestrator.",
+    });
+
+    // Should pass systemPromptFile (not inline systemPrompt) to avoid tmux truncation
+    expect(mockAgent.getLaunchCommand).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: "app-orchestrator",
+        systemPromptFile: expect.stringContaining("orchestrator-prompt.md"),
+      }),
+    );
+
+    // Verify the file was actually written
+    const callArgs = vi.mocked(mockAgent.getLaunchCommand).mock.calls[0][0];
+    const promptFile = callArgs.systemPromptFile!;
+    expect(existsSync(promptFile)).toBe(true);
+    const { readFileSync } = await import("node:fs");
+    expect(readFileSync(promptFile, "utf-8")).toBe("You are the orchestrator.");
+  });
+
+  it("throws for unknown project", async () => {
+    const sm = createSessionManager({ config, registry: mockRegistry });
+
+    await expect(sm.spawnOrchestrator({ projectId: "nonexistent" })).rejects.toThrow(
+      "Unknown project",
+    );
+  });
+
+  it("throws when runtime plugin is missing", async () => {
+    const emptyRegistry: PluginRegistry = {
+      ...mockRegistry,
+      get: vi.fn().mockReturnValue(null),
+    };
+
+    const sm = createSessionManager({ config, registry: emptyRegistry });
+
+    await expect(sm.spawnOrchestrator({ projectId: "my-app" })).rejects.toThrow("not found");
+  });
+
+  it("returns session with runtimeHandle", async () => {
+    const sm = createSessionManager({ config, registry: mockRegistry });
+
+    const session = await sm.spawnOrchestrator({ projectId: "my-app" });
+
+    expect(session.runtimeHandle).toEqual(makeHandle("rt-1"));
+  });
+});
+
 describe("PluginRegistry.loadBuiltins importFn", () => {
   it("should use provided importFn instead of built-in import", async () => {
     const { createPluginRegistry: createReg } = await import("../plugin-registry.js");

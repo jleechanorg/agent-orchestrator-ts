@@ -44,7 +44,9 @@ function createCodexAgent(): Agent {
         parts.push("--model", shellEscape(config.model));
       }
 
-      if (config.systemPrompt) {
+      if (config.systemPromptFile) {
+        parts.push("--system-prompt", `"$(cat ${shellEscape(config.systemPromptFile)})"`);
+      } else if (config.systemPrompt) {
         parts.push("--system-prompt", shellEscape(config.systemPrompt));
       }
 

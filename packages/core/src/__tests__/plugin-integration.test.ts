@@ -444,6 +444,7 @@ describe("plugin integration", () => {
         get: vi.fn().mockResolvedValue(makeSession({ status: "pr_open", pr })),
         kill: vi.fn().mockResolvedValue(undefined),
         send: vi.fn().mockResolvedValue(undefined),
+        spawnOrchestrator: vi.fn(),
       };
 
       const lm = createLifecycleManager({
@@ -473,6 +474,7 @@ describe("plugin integration", () => {
         get: vi.fn().mockResolvedValue(makeSession({ status: "pr_open", pr })),
         kill: vi.fn().mockResolvedValue(undefined),
         send: vi.fn().mockResolvedValue(undefined),
+        spawnOrchestrator: vi.fn(),
       };
 
       const lm = createLifecycleManager({
@@ -499,6 +501,7 @@ describe("plugin integration", () => {
         get: vi.fn().mockResolvedValue(makeSession({ status: "pr_open", pr })),
         kill: vi.fn().mockResolvedValue(undefined),
         send: vi.fn().mockResolvedValue(undefined),
+        spawnOrchestrator: vi.fn(),
       };
 
       const lm = createLifecycleManager({
