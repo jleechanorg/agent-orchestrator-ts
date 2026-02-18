@@ -254,6 +254,7 @@ export interface Agent {
    * run git/gh commands. Without this, PRs created by agents never show up.
    */
   setupWorkspaceHooks?(workspacePath: string, config: WorkspaceHooksConfig): Promise<void>;
+
 }
 
 export interface AgentLaunchConfig {
@@ -263,6 +264,18 @@ export interface AgentLaunchConfig {
   prompt?: string;
   permissions?: "skip" | "default";
   model?: string;
+
+  /**
+   * System-level instructions to inject into the agent's context.
+   * Used by `ao start` to give the orchestrator agent its instructions.
+   *
+   * Each agent plugin handles this in getLaunchCommand():
+   * - Claude Code: --append-system-prompt
+   * - Codex: --system-prompt or AGENTS.md
+   * - Aider: --read flag or conventions
+   * - OpenCode: equivalent mechanism
+   */
+  systemPrompt?: string;
 }
 
 export interface WorkspaceHooksConfig {

@@ -1,13 +1,14 @@
 /**
  * `ao start` and `ao stop` commands — unified orchestrator startup.
  *
- * Starts both the dashboard and the orchestrator agent session, generating
- * CLAUDE.orchestrator.md and injecting it via CLAUDE.local.md import.
+ * Starts the dashboard and orchestrator agent session. The orchestrator prompt
+ * is passed to the agent via --append-system-prompt (or equivalent flag) at
+ * launch time — no file writing required.
  */
 
 import { spawn, type ChildProcess } from "node:child_process";
-import { readFileSync, writeFileSync, existsSync } from "node:fs";
-import { resolve, join } from "node:path";
+import { existsSync } from "node:fs";
+import { resolve } from "node:path";
 import chalk from "chalk";
 import ora from "ora";
 import type { Command } from "commander";
@@ -26,57 +27,6 @@ import {
 import { exec, getTmuxSessions } from "../lib/shell.js";
 import { getAgent } from "../lib/plugins.js";
 import { findWebDir } from "../lib/web-dir.js";
-
-/**
- * Ensure CLAUDE.orchestrator.md exists in the project directory.
- * Generate it if missing or if --regenerate flag is set.
- */
-function ensureOrchestratorPrompt(
-  projectPath: string,
-  config: OrchestratorConfig,
-  projectId: string,
-  project: ProjectConfig,
-  regenerate = false,
-): void {
-  const promptPath = join(projectPath, "CLAUDE.orchestrator.md");
-
-  if (existsSync(promptPath) && !regenerate) {
-    return; // Already exists and not regenerating
-  }
-
-  const content = generateOrchestratorPrompt({ config, projectId, project });
-  writeFileSync(promptPath, content, "utf-8");
-}
-
-/**
- * Ensure CLAUDE.local.md imports CLAUDE.orchestrator.md.
- * This function is idempotent — multiple calls have no additional effect.
- */
-function ensureOrchestratorImport(projectPath: string): void {
-  const localMdPath = join(projectPath, "CLAUDE.local.md");
-  const importLine = "@CLAUDE.orchestrator.md";
-
-  let content = "";
-  if (existsSync(localMdPath)) {
-    content = readFileSync(localMdPath, "utf-8");
-  }
-
-  // Check if import already exists
-  if (content.includes(importLine)) {
-    return; // Already imported
-  }
-
-  // Append import
-  if (content && !content.endsWith("\n")) {
-    content += "\n";
-  }
-  if (content) {
-    content += "\n"; // Blank line separator
-  }
-  content += `${importLine}\n`;
-
-  writeFileSync(localMdPath, content, "utf-8");
-}
 
 /**
  * Resolve project from config.
@@ -166,11 +116,10 @@ export function registerStart(program: Command): void {
     .description("Start orchestrator agent and dashboard for a project")
     .option("--no-dashboard", "Skip starting the dashboard server")
     .option("--no-orchestrator", "Skip starting the orchestrator agent")
-    .option("--regenerate", "Regenerate CLAUDE.orchestrator.md")
     .action(
       async (
         projectArg?: string,
-        opts?: { dashboard?: boolean; orchestrator?: boolean; regenerate?: boolean },
+        opts?: { dashboard?: boolean; orchestrator?: boolean },
       ) => {
         try {
           const config = loadConfig();
@@ -211,25 +160,14 @@ export function registerStart(program: Command): void {
               );
             } else {
               try {
-                // Ensure CLAUDE.orchestrator.md exists
-                spinner.start("Generating orchestrator prompt");
-                ensureOrchestratorPrompt(
-                  project.path,
-                  config,
-                  projectId,
-                  project,
-                  opts?.regenerate ?? false,
-                );
-                spinner.succeed("Orchestrator prompt ready");
-
-                // Ensure CLAUDE.local.md imports CLAUDE.orchestrator.md
-                spinner.start("Configuring CLAUDE.local.md");
-                ensureOrchestratorImport(project.path);
-                spinner.succeed("CLAUDE.local.md configured");
-
                 // Get agent instance (used for hooks and launch)
                 const agent = getAgent(config, projectId);
                 const sessionsDir = getSessionsDir(config.configPath, project.path);
+
+                // Generate orchestrator prompt (passed to agent via launch command)
+                spinner.start("Generating orchestrator prompt");
+                const systemPrompt = generateOrchestratorPrompt({ config, projectId, project });
+                spinner.succeed("Orchestrator prompt ready");
 
                 // Setup agent hooks for automatic metadata updates
                 spinner.start("Configuring agent hooks");
@@ -240,12 +178,13 @@ export function registerStart(program: Command): void {
 
                 spinner.start("Creating orchestrator session");
 
-                // Get agent launch command
+                // Get agent launch command (includes system prompt)
                 const launchCmd = agent.getLaunchCommand({
                   sessionId,
                   projectConfig: project,
                   permissions: project.agentConfig?.permissions ?? "default",
                   model: project.agentConfig?.model,
+                  systemPrompt,
                 });
 
                 // Determine environment variables

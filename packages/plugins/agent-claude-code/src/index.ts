@@ -562,6 +562,10 @@ function createClaudeCodeAgent(): Agent {
         parts.push("--model", shellEscape(config.model));
       }
 
+      if (config.systemPrompt) {
+        parts.push("--append-system-prompt", shellEscape(config.systemPrompt));
+      }
+
       if (config.prompt) {
         parts.push("-p", shellEscape(config.prompt));
       }
@@ -726,6 +730,7 @@ function createClaudeCodeAgent(): Agent {
       const hookScriptPath = join(session.workspacePath, ".claude", "metadata-updater.sh");
       await setupHookInWorkspace(session.workspacePath, hookScriptPath);
     },
+
   };
 }
 

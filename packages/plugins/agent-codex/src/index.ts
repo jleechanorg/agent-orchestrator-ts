@@ -44,6 +44,10 @@ function createCodexAgent(): Agent {
         parts.push("--model", shellEscape(config.model));
       }
 
+      if (config.systemPrompt) {
+        parts.push("--system-prompt", shellEscape(config.systemPrompt));
+      }
+
       if (config.prompt) {
         // Use `--` to end option parsing so prompts starting with `-` aren't
         // misinterpreted as flags.
