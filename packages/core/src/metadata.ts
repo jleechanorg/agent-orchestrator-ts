@@ -202,6 +202,42 @@ export function deleteMetadata(dataDir: string, sessionId: SessionId, archive = 
 }
 
 /**
+ * Read the latest archived metadata for a session.
+ * Archive files are named `<sessionId>_<ISO-timestamp>` inside `<dataDir>/archive/`.
+ * Returns null if no archived metadata exists.
+ */
+export function readArchivedMetadataRaw(
+  dataDir: string,
+  sessionId: SessionId,
+): Record<string, string> | null {
+  validateSessionId(sessionId);
+  const archiveDir = join(dataDir, "archive");
+  if (!existsSync(archiveDir)) return null;
+
+  const prefix = `${sessionId}_`;
+  let latest: string | null = null;
+
+  for (const file of readdirSync(archiveDir)) {
+    if (!file.startsWith(prefix)) continue;
+    // Verify the separator is followed by a digit (start of ISO timestamp)
+    // to avoid prefix collisions (e.g., "app" matching "app_v2_...")
+    const charAfterPrefix = file[prefix.length];
+    if (!charAfterPrefix || charAfterPrefix < "0" || charAfterPrefix > "9") continue;
+    // Pick lexicographically last (ISO timestamps sort correctly)
+    if (!latest || file > latest) {
+      latest = file;
+    }
+  }
+
+  if (!latest) return null;
+  try {
+    return parseMetadataFile(readFileSync(join(archiveDir, latest), "utf-8"));
+  } catch {
+    return null;
+  }
+}
+
+/**
  * List all session IDs that have metadata files.
  */
 export function listMetadata(dataDir: string): SessionId[] {

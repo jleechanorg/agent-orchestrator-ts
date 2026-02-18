@@ -6,6 +6,7 @@ import { randomUUID } from "node:crypto";
 import {
   readMetadata,
   readMetadataRaw,
+  readArchivedMetadataRaw,
   writeMetadata,
   updateMetadata,
   deleteMetadata,
@@ -226,6 +227,99 @@ describe("deleteMetadata", () => {
 
   it("is a no-op for nonexistent session", () => {
     expect(() => deleteMetadata(dataDir, "nope")).not.toThrow();
+  });
+});
+
+describe("readArchivedMetadataRaw", () => {
+  it("reads the latest archived metadata for a session", () => {
+    const archiveDir = join(dataDir, "archive");
+    mkdirSync(archiveDir, { recursive: true });
+
+    writeFileSync(
+      join(archiveDir, "app-1_2025-01-01T00-00-00-000Z"),
+      "branch=old-branch\nstatus=killed\n",
+    );
+    writeFileSync(
+      join(archiveDir, "app-1_2025-06-15T12-00-00-000Z"),
+      "branch=new-branch\nstatus=killed\n",
+    );
+
+    const raw = readArchivedMetadataRaw(dataDir, "app-1");
+    expect(raw).not.toBeNull();
+    expect(raw!["branch"]).toBe("new-branch");
+  });
+
+  it("does not match archives of session IDs sharing a prefix", () => {
+    const archiveDir = join(dataDir, "archive");
+    mkdirSync(archiveDir, { recursive: true });
+
+    // "app" should NOT match "app_v2_..." (belongs to session "app_v2")
+    writeFileSync(
+      join(archiveDir, "app_v2_2025-01-01T00-00-00-000Z"),
+      "branch=wrong\nstatus=killed\n",
+    );
+
+    expect(readArchivedMetadataRaw(dataDir, "app")).toBeNull();
+  });
+
+  it("correctly matches when similar-prefix sessions coexist in archive", () => {
+    const archiveDir = join(dataDir, "archive");
+    mkdirSync(archiveDir, { recursive: true });
+
+    // Archive for "app" — timestamp starts with digit
+    writeFileSync(
+      join(archiveDir, "app_2025-06-15T12-00-00-000Z"),
+      "branch=correct\nstatus=killed\n",
+    );
+    // Archive for "app_v2" — should not be matched by "app"
+    writeFileSync(
+      join(archiveDir, "app_v2_2025-01-01T00-00-00-000Z"),
+      "branch=wrong\nstatus=killed\n",
+    );
+
+    const raw = readArchivedMetadataRaw(dataDir, "app");
+    expect(raw).not.toBeNull();
+    expect(raw!["branch"]).toBe("correct");
+
+    const rawV2 = readArchivedMetadataRaw(dataDir, "app_v2");
+    expect(rawV2).not.toBeNull();
+    expect(rawV2!["branch"]).toBe("wrong");
+  });
+
+  it("returns null when no archive exists for session", () => {
+    const archiveDir = join(dataDir, "archive");
+    mkdirSync(archiveDir, { recursive: true });
+
+    writeFileSync(
+      join(archiveDir, "other-session_2025-01-01T00-00-00-000Z"),
+      "branch=main\nstatus=killed\n",
+    );
+
+    expect(readArchivedMetadataRaw(dataDir, "app-1")).toBeNull();
+  });
+
+  it("returns null when archive directory does not exist", () => {
+    expect(readArchivedMetadataRaw(dataDir, "app-1")).toBeNull();
+  });
+
+  it("integrates with deleteMetadata archive", () => {
+    writeMetadata(dataDir, "app-1", {
+      worktree: "/tmp/w",
+      branch: "feat/test",
+      status: "killed",
+      issue: "TEST-1",
+    });
+
+    deleteMetadata(dataDir, "app-1", true);
+
+    // Active metadata should be gone
+    expect(readMetadataRaw(dataDir, "app-1")).toBeNull();
+
+    // Archived metadata should be readable
+    const archived = readArchivedMetadataRaw(dataDir, "app-1");
+    expect(archived).not.toBeNull();
+    expect(archived!["branch"]).toBe("feat/test");
+    expect(archived!["issue"]).toBe("TEST-1");
   });
 });
 
