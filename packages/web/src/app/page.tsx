@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { Dashboard } from "@/components/Dashboard";
 import type { DashboardSession } from "@/lib/types";
 import { getServices, getSCM, getTracker } from "@/lib/services";
@@ -8,12 +9,20 @@ import {
   computeStats,
 } from "@/lib/serialize";
 import { prCache, prCacheKey } from "@/lib/cache";
+import { getProjectName } from "@/lib/project-name";
 
 export const dynamic = "force-dynamic";
+
+export async function generateMetadata(): Promise<Metadata> {
+  const projectName = getProjectName();
+  // Use absolute to opt out of the layout's "%s | project" template
+  return { title: { absolute: `ao | ${projectName}` } };
+}
 
 export default async function Home() {
   let sessions: DashboardSession[] = [];
   let orchestratorId: string | null = null;
+  const projectName = getProjectName();
   try {
     const { config, registry, sessionManager } = await getServices();
     const allSessions = await sessionManager.list();
@@ -114,6 +123,6 @@ export default async function Home() {
   }
 
   return (
-    <Dashboard sessions={sessions} stats={computeStats(sessions)} orchestratorId={orchestratorId} />
+    <Dashboard sessions={sessions} stats={computeStats(sessions)} orchestratorId={orchestratorId} projectName={projectName} />
   );
 }

@@ -1,10 +1,17 @@
 import type { Metadata } from "next";
+import { getProjectName } from "@/lib/project-name";
 import "./globals.css";
 
-export const metadata: Metadata = {
-  title: "Agent Orchestrator",
-  description: "Dashboard for managing parallel AI coding agents",
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const projectName = getProjectName();
+  return {
+    title: {
+      template: `%s | ${projectName}`,
+      default: `ao | ${projectName}`,
+    },
+    description: "Dashboard for managing parallel AI coding agents",
+  };
+}
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
