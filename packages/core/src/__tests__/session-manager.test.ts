@@ -905,7 +905,8 @@ describe("restore", () => {
     expect(restored.runtimeHandle).toEqual(makeHandle("rt-1"));
     expect(restored.restoredAt).toBeInstanceOf(Date);
 
-    // Verify runtime was created
+    // Verify old runtime was destroyed before creating new one
+    expect(mockRuntime.destroy).toHaveBeenCalledWith(makeHandle("rt-old"));
     expect(mockRuntime.create).toHaveBeenCalled();
     // Verify metadata was updated (not rewritten)
     const meta = readMetadataRaw(sessionsDir, "app-1");
@@ -915,6 +916,43 @@ describe("restore", () => {
     expect(meta!["issue"]).toBe("TEST-1");
     expect(meta!["pr"]).toBe("https://github.com/org/my-app/pull/10");
     expect(meta!["createdAt"]).toBe("2025-01-01T00:00:00.000Z");
+  });
+
+  it("continues restore even if old runtime destroy fails", async () => {
+    const wsPath = join(tmpDir, "ws-app-1");
+    mkdirSync(wsPath, { recursive: true });
+
+    // Make destroy throw — should not block restore
+    const failingRuntime = {
+      ...mockRuntime,
+      destroy: vi.fn().mockRejectedValue(new Error("session not found")),
+      create: vi.fn().mockResolvedValue(makeHandle("rt-new")),
+    };
+
+    const registryWithFailingDestroy: PluginRegistry = {
+      ...mockRegistry,
+      get: vi.fn().mockImplementation((slot: string) => {
+        if (slot === "runtime") return failingRuntime;
+        if (slot === "agent") return mockAgent;
+        if (slot === "workspace") return mockWorkspace;
+        return null;
+      }),
+    };
+
+    writeMetadata(sessionsDir, "app-1", {
+      worktree: wsPath,
+      branch: "feat/TEST-1",
+      status: "killed",
+      project: "my-app",
+      runtimeHandle: JSON.stringify(makeHandle("rt-old")),
+    });
+
+    const sm = createSessionManager({ config, registry: registryWithFailingDestroy });
+    const restored = await sm.restore("app-1");
+
+    expect(restored.status).toBe("spawning");
+    expect(failingRuntime.destroy).toHaveBeenCalled();
+    expect(failingRuntime.create).toHaveBeenCalled();
   });
 
   it("recreates workspace when missing and plugin supports restore", async () => {

@@ -190,16 +190,22 @@ export function create(config?: Record<string, unknown>): Workspace {
         remoteUrl = repoPath;
       }
 
-      // Clone fresh
-      await execFileAsync("git", [
-        "clone",
-        "--reference",
-        repoPath,
-        "--branch",
-        cfg.project.defaultBranch,
-        remoteUrl,
-        workspacePath,
-      ]);
+      // Clone fresh — clean up partial directory on failure
+      try {
+        await execFileAsync("git", [
+          "clone",
+          "--reference",
+          repoPath,
+          "--branch",
+          cfg.project.defaultBranch,
+          remoteUrl,
+          workspacePath,
+        ]);
+      } catch (cloneErr: unknown) {
+        rmSync(workspacePath, { recursive: true, force: true });
+        const msg = cloneErr instanceof Error ? cloneErr.message : String(cloneErr);
+        throw new Error(`Clone failed during restore: ${msg}`, { cause: cloneErr });
+      }
 
       // Try to checkout the branch
       try {

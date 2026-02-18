@@ -964,7 +964,16 @@ export function createSessionManager(deps: SessionManagerDeps): SessionManager {
       }
     }
 
-    // 6. Get launch command — try restore command first, fall back to fresh launch
+    // 6. Destroy old runtime if still alive (e.g. tmux session survives agent crash)
+    if (session.runtimeHandle) {
+      try {
+        await plugins.runtime.destroy(session.runtimeHandle);
+      } catch {
+        // Best effort — may already be gone
+      }
+    }
+
+    // 7. Get launch command — try restore command first, fall back to fresh launch
     let launchCommand: string;
     const agentLaunchConfig = {
       sessionId,
@@ -983,7 +992,7 @@ export function createSessionManager(deps: SessionManagerDeps): SessionManager {
 
     const environment = plugins.agent.getEnvironment(agentLaunchConfig);
 
-    // 7. Create runtime (reuse tmuxName from metadata)
+    // 8. Create runtime (reuse tmuxName from metadata)
     const tmuxName = raw["tmuxName"];
     const handle = await plugins.runtime.create({
       sessionId: tmuxName ?? sessionId,
@@ -998,7 +1007,7 @@ export function createSessionManager(deps: SessionManagerDeps): SessionManager {
       },
     });
 
-    // 8. Update metadata — merge updates, preserving existing fields
+    // 9. Update metadata — merge updates, preserving existing fields
     const now = new Date().toISOString();
     updateMetadata(sessionsDir, sessionId, {
       status: "spawning",
@@ -1006,7 +1015,7 @@ export function createSessionManager(deps: SessionManagerDeps): SessionManager {
       restoredAt: now,
     });
 
-    // 9. Run postLaunchSetup (non-fatal)
+    // 10. Run postLaunchSetup (non-fatal)
     const restoredSession: Session = {
       ...session,
       status: "spawning",
