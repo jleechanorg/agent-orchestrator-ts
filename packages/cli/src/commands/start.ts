@@ -27,6 +27,7 @@ import {
 import { exec, getTmuxSessions } from "../lib/shell.js";
 import { getAgent } from "../lib/plugins.js";
 import { findWebDir } from "../lib/web-dir.js";
+import { cleanNextCache } from "../lib/dashboard-rebuild.js";
 
 /**
  * Resolve project from config.
@@ -116,10 +117,15 @@ export function registerStart(program: Command): void {
     .description("Start orchestrator agent and dashboard for a project")
     .option("--no-dashboard", "Skip starting the dashboard server")
     .option("--no-orchestrator", "Skip starting the orchestrator agent")
+    .option("--rebuild", "Clean and rebuild dashboard before starting")
     .action(
       async (
         projectArg?: string,
-        opts?: { dashboard?: boolean; orchestrator?: boolean },
+        opts?: {
+          dashboard?: boolean;
+          orchestrator?: boolean;
+          rebuild?: boolean;
+        },
       ) => {
         try {
           const config = loadConfig();
@@ -135,13 +141,16 @@ export function registerStart(program: Command): void {
           let exists = false; // Track whether orchestrator session already exists
 
           if (opts?.dashboard !== false) {
-            spinner.start("Starting dashboard");
             const webDir = findWebDir();
             if (!existsSync(resolve(webDir, "package.json"))) {
-              spinner.fail("Dashboard not found");
               throw new Error("Could not find @composio/ao-web package. Run: pnpm install");
             }
 
+            if (opts?.rebuild) {
+              await cleanNextCache(webDir);
+            }
+
+            spinner.start("Starting dashboard");
             dashboardProcess = startDashboard(port, webDir);
             spinner.succeed(`Dashboard starting on http://localhost:${port}`);
             console.log(chalk.dim("  (Dashboard will be ready in a few seconds)\n"));

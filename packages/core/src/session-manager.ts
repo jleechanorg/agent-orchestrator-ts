@@ -644,7 +644,7 @@ export function createSessionManager(deps: SessionManagerDeps): SessionManager {
     deleteMetadata(sessionsDir, sessionId, true);
   }
 
-  async function cleanup(projectId?: string): Promise<CleanupResult> {
+  async function cleanup(projectId?: string, options?: { dryRun?: boolean }): Promise<CleanupResult> {
     const result: CleanupResult = { killed: [], skipped: [], errors: [] };
     const sessions = await list(projectId);
 
@@ -692,7 +692,9 @@ export function createSessionManager(deps: SessionManagerDeps): SessionManager {
         }
 
         if (shouldKill) {
-          await kill(session.id);
+          if (!options?.dryRun) {
+            await kill(session.id);
+          }
           result.killed.push(session.id);
         } else {
           result.skipped.push(session.id);
