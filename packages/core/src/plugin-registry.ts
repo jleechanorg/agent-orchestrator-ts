@@ -85,10 +85,14 @@ export function createPluginRegistry(): PluginRegistry {
       return result;
     },
 
-    async loadBuiltins(orchestratorConfig?: OrchestratorConfig): Promise<void> {
+    async loadBuiltins(
+      orchestratorConfig?: OrchestratorConfig,
+      importFn?: (pkg: string) => Promise<unknown>,
+    ): Promise<void> {
+      const doImport = importFn ?? ((pkg: string) => import(pkg));
       for (const builtin of BUILTIN_PLUGINS) {
         try {
-          const mod = (await import(builtin.pkg)) as PluginModule;
+          const mod = (await doImport(builtin.pkg)) as PluginModule;
           if (mod.manifest && typeof mod.create === "function") {
             const pluginConfig = orchestratorConfig
               ? extractPluginConfig(builtin.slot, builtin.name, orchestratorConfig)
@@ -101,9 +105,12 @@ export function createPluginRegistry(): PluginRegistry {
       }
     },
 
-    async loadFromConfig(config: OrchestratorConfig): Promise<void> {
+    async loadFromConfig(
+      config: OrchestratorConfig,
+      importFn?: (pkg: string) => Promise<unknown>,
+    ): Promise<void> {
       // Load built-ins with orchestrator config so plugins receive their settings
-      await this.loadBuiltins(config);
+      await this.loadBuiltins(config, importFn);
 
       // Then, load any additional plugins specified in project configs
       // (future: support npm package names and local file paths)

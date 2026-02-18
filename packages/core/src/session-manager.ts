@@ -302,12 +302,8 @@ export function createSessionManager(deps: SessionManagerDeps): SessionManager {
       } catch (err) {
         // Issue fetch failed - determine why
         if (isIssueNotFoundError(err)) {
-          // Issue doesn't exist - fail fast with clear message
-          throw new Error(
-            `Issue ${spawnConfig.issueId} does not exist in tracker. ` +
-              `Create the issue first, then spawn with the created issue ID.`,
-            { cause: err },
-          );
+          // Ad-hoc issue string — proceed without tracker context.
+          // Branch will be generated as feat/{issueId} (line 329-331)
         } else {
           // Other error (auth, network, etc) - fail fast
           throw new Error(`Failed to fetch issue ${spawnConfig.issueId}: ${err}`, { cause: err });
@@ -357,7 +353,7 @@ export function createSessionManager(deps: SessionManagerDeps): SessionManager {
     } else if (spawnConfig.issueId) {
       branch = `feat/${spawnConfig.issueId}`;
     } else {
-      branch = project.defaultBranch;
+      branch = `session/${sessionId}`;
     }
 
     // Create workspace (if workspace plugin is available)

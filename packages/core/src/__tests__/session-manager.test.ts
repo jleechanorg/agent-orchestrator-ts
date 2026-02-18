@@ -264,10 +264,10 @@ describe("spawn", () => {
     expect(session.issueId).toBe("INT-100");
   });
 
-  it("fails when issue not found in tracker", async () => {
+  it("succeeds with ad-hoc issue string when tracker returns IssueNotFoundError", async () => {
     const mockTracker: Tracker = {
       name: "mock-tracker",
-      getIssue: vi.fn().mockRejectedValue(new Error("Issue not found")),
+      getIssue: vi.fn().mockRejectedValue(new Error("Issue INT-9999 not found")),
       isCompleted: vi.fn().mockResolvedValue(false),
       issueUrl: vi.fn().mockReturnValue(""),
       branchName: vi.fn().mockReturnValue("feat/INT-9999"),
@@ -290,13 +290,14 @@ describe("spawn", () => {
       registry: registryWithTracker,
     });
 
-    await expect(sm.spawn({ projectId: "my-app", issueId: "INT-9999" })).rejects.toThrow(
-      "does not exist in tracker",
-    );
+    // Ad-hoc issue string should succeed — IssueNotFoundError is gracefully ignored
+    const session = await sm.spawn({ projectId: "my-app", issueId: "INT-9999" });
 
-    // Should not create workspace or runtime when validation fails
-    expect(mockWorkspace.create).not.toHaveBeenCalled();
-    expect(mockRuntime.create).not.toHaveBeenCalled();
+    expect(session.issueId).toBe("INT-9999");
+    expect(session.branch).toBe("feat/INT-9999");
+    // Workspace and runtime should still be created
+    expect(mockWorkspace.create).toHaveBeenCalled();
+    expect(mockRuntime.create).toHaveBeenCalled();
   });
 
   it("fails on tracker auth errors", async () => {
@@ -340,7 +341,9 @@ describe("spawn", () => {
     const session = await sm.spawn({ projectId: "my-app" });
 
     expect(session.issueId).toBeNull();
-    expect(session.branch).toBe("main"); // Uses defaultBranch
+    // Uses session/{sessionId} to avoid conflicts with default branch
+    expect(session.branch).toMatch(/^session\/app-\d+$/);
+    expect(session.branch).not.toBe("main");
   });
 });
 
@@ -743,5 +746,53 @@ describe("send", () => {
       { id: "app-1", runtimeName: "mock", data: {} },
       "hello",
     );
+  });
+});
+
+describe("PluginRegistry.loadBuiltins importFn", () => {
+  it("should use provided importFn instead of built-in import", async () => {
+    const { createPluginRegistry: createReg } = await import("../plugin-registry.js");
+    const registry = createReg();
+    const importedPackages: string[] = [];
+
+    const fakeImportFn = async (pkg: string): Promise<unknown> => {
+      importedPackages.push(pkg);
+      // Return a valid plugin module for runtime-tmux
+      if (pkg === "@composio/ao-plugin-runtime-tmux") {
+        return {
+          manifest: { name: "tmux", slot: "runtime", description: "test", version: "0.0.0" },
+          create: () => ({ name: "tmux" }),
+        };
+      }
+      // Throw for everything else to simulate not-installed
+      throw new Error(`Module not found: ${pkg}`);
+    };
+
+    await registry.loadBuiltins(undefined, fakeImportFn);
+
+    // importFn should have been called for all builtin plugins
+    expect(importedPackages.length).toBeGreaterThan(0);
+    expect(importedPackages).toContain("@composio/ao-plugin-runtime-tmux");
+
+    // The tmux plugin should be registered
+    const tmux = registry.get("runtime", "tmux");
+    expect(tmux).not.toBeNull();
+  });
+
+  it("should pass importFn through loadFromConfig to loadBuiltins", async () => {
+    const { createPluginRegistry: createReg } = await import("../plugin-registry.js");
+    const registry = createReg();
+    const importedPackages: string[] = [];
+
+    const fakeImportFn = async (pkg: string): Promise<unknown> => {
+      importedPackages.push(pkg);
+      throw new Error(`Not found: ${pkg}`);
+    };
+
+    await registry.loadFromConfig(config, fakeImportFn);
+
+    // Should have attempted to import builtin plugins via the provided importFn
+    expect(importedPackages.length).toBeGreaterThan(0);
+    expect(importedPackages).toContain("@composio/ao-plugin-runtime-tmux");
   });
 });

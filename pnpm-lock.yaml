@@ -53,9 +53,45 @@ importers:
       '@composio/ao-plugin-agent-codex':
         specifier: workspace:*
         version: link:../plugins/agent-codex
+      '@composio/ao-plugin-notifier-composio':
+        specifier: workspace:*
+        version: link:../plugins/notifier-composio
+      '@composio/ao-plugin-notifier-desktop':
+        specifier: workspace:*
+        version: link:../plugins/notifier-desktop
+      '@composio/ao-plugin-notifier-slack':
+        specifier: workspace:*
+        version: link:../plugins/notifier-slack
+      '@composio/ao-plugin-notifier-webhook':
+        specifier: workspace:*
+        version: link:../plugins/notifier-webhook
+      '@composio/ao-plugin-runtime-process':
+        specifier: workspace:*
+        version: link:../plugins/runtime-process
+      '@composio/ao-plugin-runtime-tmux':
+        specifier: workspace:*
+        version: link:../plugins/runtime-tmux
       '@composio/ao-plugin-scm-github':
         specifier: workspace:*
         version: link:../plugins/scm-github
+      '@composio/ao-plugin-terminal-iterm2':
+        specifier: workspace:*
+        version: link:../plugins/terminal-iterm2
+      '@composio/ao-plugin-terminal-web':
+        specifier: workspace:*
+        version: link:../plugins/terminal-web
+      '@composio/ao-plugin-tracker-github':
+        specifier: workspace:*
+        version: link:../plugins/tracker-github
+      '@composio/ao-plugin-tracker-linear':
+        specifier: workspace:*
+        version: link:../plugins/tracker-linear
+      '@composio/ao-plugin-workspace-clone':
+        specifier: workspace:*
+        version: link:../plugins/workspace-clone
+      '@composio/ao-plugin-workspace-worktree':
+        specifier: workspace:*
+        version: link:../plugins/workspace-worktree
       chalk:
         specifier: ^5.4.0
         version: 5.6.2

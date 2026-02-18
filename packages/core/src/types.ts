@@ -937,10 +937,16 @@ export interface PluginRegistry {
   list(slot: PluginSlot): PluginManifest[];
 
   /** Load built-in plugins, optionally with orchestrator config for plugin settings */
-  loadBuiltins(config?: OrchestratorConfig): Promise<void>;
+  loadBuiltins(
+    config?: OrchestratorConfig,
+    importFn?: (pkg: string) => Promise<unknown>,
+  ): Promise<void>;
 
   /** Load plugins from config (npm packages, local paths) */
-  loadFromConfig(config: OrchestratorConfig): Promise<void>;
+  loadFromConfig(
+    config: OrchestratorConfig,
+    importFn?: (pkg: string) => Promise<unknown>,
+  ): Promise<void>;
 }
 
 // =============================================================================
