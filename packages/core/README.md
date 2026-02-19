@@ -108,7 +108,9 @@ Loads and validates `agent-orchestrator.yaml`:
 
 - `dataDir` — where session metadata lives (~/.agent-orchestrator)
 - `worktreeDir` — where workspaces are created (~/.worktrees)
-- `port` — web dashboard port (default 3000)
+- `port` — web dashboard port (default 3000, set different values for multiple projects)
+- `terminalPort` — terminal WebSocket port (auto-detected if not set)
+- `directTerminalPort` — direct terminal WebSocket port (auto-detected if not set)
 - `defaults` — default plugins (runtime, agent, workspace, notifiers)
 - `projects` — per-project config (repo, path, branch, symlinks, reactions, agentRules)
 - `notifiers` — notification channel config (Slack webhooks, etc.)

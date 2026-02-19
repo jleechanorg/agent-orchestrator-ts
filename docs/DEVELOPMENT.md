@@ -40,7 +40,7 @@ pnpm build
 cd packages/web
 pnpm dev
 
-# Open http://localhost:3000
+# Open http://localhost:3000 (or your configured port)
 ```
 
 ### Project Structure

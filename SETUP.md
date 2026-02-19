@@ -102,7 +102,7 @@ The wizard will prompt you for:
 
 1. **Data directory** - Where to store session metadata (default: `~/.agent-orchestrator`)
 2. **Worktree directory** - Where to create isolated workspaces (default: `~/.worktrees`)
-3. **Dashboard port** - Web interface port (default: `9847`)
+3. **Dashboard port** - Web interface port (default: `3000`)
 4. **Runtime plugin** - Session runtime (default: `tmux`)
 5. **Agent plugin** - AI coding assistant (default: `claude-code`)
 6. **Workspace plugin** - Workspace isolation method (default: `worktree`)
@@ -148,7 +148,7 @@ The absolute minimum needed:
 ```yaml
 dataDir: ~/.agent-orchestrator
 worktreeDir: ~/.worktrees
-port: 9847
+port: 3000
 
 projects:
   my-app:
@@ -437,19 +437,21 @@ source ~/.zshrc
 echo $LINEAR_API_KEY
 ```
 
-### "Port 3000 already in use"
+### "Port already in use"
 
-**Problem:** Another service is using port 9847.
+**Problem:** Another service is using the dashboard port (default 3000).
 
 **Solution:**
 
 ```bash
-# Change port in agent-orchestrator.yaml
+# Option 1: Change port in agent-orchestrator.yaml
 port: 3001
 
-# Or find and kill the process using port 9847
+# Option 2: Find and kill the process using the port
 lsof -ti:3000 | xargs kill
 ```
+
+**Note:** When running multiple projects, each needs a different `port:` value in its config.
 
 ### "Workspace creation failed"
 
@@ -730,7 +732,7 @@ projects:
 
 Three ways:
 
-1. **Dashboard** - `ao start` then visit http://localhost:9847
+1. **Dashboard** - `ao start` then visit http://localhost:3000 (or your configured `port:`)
 2. **CLI status** - `ao status` (text-based dashboard)
 3. **Attach to session** - `ao open <session-name>` (live terminal)
 
@@ -771,8 +773,10 @@ ao session ls --json | jq -r '.[] | select(.status == "merged") | .id' | xargs -
 Yes! Each orchestrator instance should have:
 
 - Different data directory (`dataDir`)
-- Different port (`port`)
+- Different dashboard port (`port`) — e.g., 3000 for project A, 3001 for project B
 - Different config file
+
+Terminal WebSocket ports are auto-detected by default, so you typically only need to set `port:` differently. If you need explicit control, you can also set `terminalPort:` and `directTerminalPort:` per config.
 
 Useful for:
 
