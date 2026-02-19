@@ -441,7 +441,7 @@ describe("getSessionInfo", () => {
   });
 
   describe("summary extraction", () => {
-    it("extracts summary from last summary event", async () => {
+    it("extracts summary from last summary event and marks as not fallback", async () => {
       const jsonl = [
         '{"type":"summary","summary":"First summary"}',
         '{"type":"user","message":{"content":"do something"}}',
@@ -450,9 +450,10 @@ describe("getSessionInfo", () => {
       mockJsonlFiles(jsonl);
       const result = await agent.getSessionInfo(makeSession());
       expect(result?.summary).toBe("Latest summary");
+      expect(result?.summaryIsFallback).toBe(false);
     });
 
-    it("falls back to first user message when no summary", async () => {
+    it("falls back to first user message and marks as fallback", async () => {
       const jsonl = [
         '{"type":"user","message":{"content":"Implement the login feature"}}',
         '{"type":"assistant","message":{"content":"I will implement..."}}',
@@ -460,6 +461,7 @@ describe("getSessionInfo", () => {
       mockJsonlFiles(jsonl);
       const result = await agent.getSessionInfo(makeSession());
       expect(result?.summary).toBe("Implement the login feature");
+      expect(result?.summaryIsFallback).toBe(true);
     });
 
     it("truncates long user message to 120 chars", async () => {
@@ -469,6 +471,7 @@ describe("getSessionInfo", () => {
       const result = await agent.getSessionInfo(makeSession());
       expect(result?.summary).toBe("A".repeat(120) + "...");
       expect(result!.summary!.length).toBe(123);
+      expect(result?.summaryIsFallback).toBe(true);
     });
 
     it("returns null summary when no summary and no user messages", async () => {
@@ -476,6 +479,7 @@ describe("getSessionInfo", () => {
       mockJsonlFiles(jsonl);
       const result = await agent.getSessionInfo(makeSession());
       expect(result?.summary).toBeNull();
+      expect(result?.summaryIsFallback).toBeUndefined();
     });
 
     it("skips user messages with empty content", async () => {
@@ -486,6 +490,7 @@ describe("getSessionInfo", () => {
       mockJsonlFiles(jsonl);
       const result = await agent.getSessionInfo(makeSession());
       expect(result?.summary).toBe("Real content");
+      expect(result?.summaryIsFallback).toBe(true);
     });
   });
 

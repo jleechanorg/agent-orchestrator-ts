@@ -5,12 +5,45 @@
  * (string dates, flattened DashboardPR) suitable for JSON serialization.
  */
 
-import type { Session, SCM, PRInfo, Tracker, ProjectConfig } from "@composio/ao-core";
+import type {
+  Session,
+  Agent,
+  SCM,
+  PRInfo,
+  Tracker,
+  ProjectConfig,
+  OrchestratorConfig,
+  PluginRegistry,
+} from "@composio/ao-core";
 import type { DashboardSession, DashboardPR, DashboardStats } from "./types.js";
-import { prCache, prCacheKey, type PREnrichmentData } from "./cache";
+import { TTLCache, prCache, prCacheKey, type PREnrichmentData } from "./cache";
+
+/** Cache for issue titles (5 min TTL — issue titles rarely change) */
+const issueTitleCache = new TTLCache<string>(300_000);
+
+/** Resolve which project a session belongs to. */
+export function resolveProject(
+  core: Session,
+  projects: Record<string, ProjectConfig>,
+): ProjectConfig | undefined {
+  // Try explicit projectId first
+  const direct = projects[core.projectId];
+  if (direct) return direct;
+
+  // Match by session prefix
+  const entry = Object.entries(projects).find(([, p]) => core.id.startsWith(p.sessionPrefix));
+  if (entry) return entry[1];
+
+  // Fall back to first project
+  const firstKey = Object.keys(projects)[0];
+  return firstKey ? projects[firstKey] : undefined;
+}
 
 /** Convert a core Session to a DashboardSession (without PR/issue enrichment). */
 export function sessionToDashboard(session: Session): DashboardSession {
+  const agentSummary = session.agentInfo?.summary;
+  const summary = agentSummary ?? session.metadata["summary"] ?? null;
+
   return {
     id: session.id,
     projectId: session.projectId,
@@ -20,7 +53,11 @@ export function sessionToDashboard(session: Session): DashboardSession {
     issueId: session.issueId, // Deprecated: kept for backwards compatibility
     issueUrl: session.issueId, // issueId is actually the full URL
     issueLabel: null, // Will be enriched by enrichSessionIssue()
-    summary: session.agentInfo?.summary ?? session.metadata["summary"] ?? null,
+    issueTitle: null, // Will be enriched by enrichSessionIssueTitle()
+    summary,
+    summaryIsFallback: agentSummary
+      ? (session.agentInfo?.summaryIsFallback ?? false)
+      : false,
     createdAt: session.createdAt.toISOString(),
     lastActivityAt: session.lastActivityAt.toISOString(),
     pr: session.pr ? basicPRToDashboard(session.pr) : null,
@@ -219,6 +256,106 @@ export function enrichSessionIssue(
     const parts = dashboard.issueUrl.split("/");
     dashboard.issueLabel = parts[parts.length - 1] || dashboard.issueUrl;
   }
+}
+
+/**
+ * Enrich a DashboardSession's summary by calling agent.getSessionInfo().
+ * Only fetches when the session doesn't already have a summary.
+ * Reads the agent's JSONL file on disk — fast local I/O, not an API call.
+ */
+export async function enrichSessionAgentSummary(
+  dashboard: DashboardSession,
+  coreSession: Session,
+  agent: Agent,
+): Promise<void> {
+  if (dashboard.summary) return;
+  try {
+    const info = await agent.getSessionInfo(coreSession);
+    if (info?.summary) {
+      dashboard.summary = info.summary;
+      dashboard.summaryIsFallback = info.summaryIsFallback ?? false;
+    }
+  } catch {
+    // Can't read agent session info — keep summary null
+  }
+}
+
+/**
+ * Enrich a DashboardSession's issue title by calling tracker.getIssue().
+ * Extracts the identifier from the issue URL using issueLabel(),
+ * then fetches full issue details for the title.
+ */
+export async function enrichSessionIssueTitle(
+  dashboard: DashboardSession,
+  tracker: Tracker,
+  project: ProjectConfig,
+): Promise<void> {
+  if (!dashboard.issueUrl || !dashboard.issueLabel) return;
+
+  // Check cache first
+  const cached = issueTitleCache.get(dashboard.issueUrl);
+  if (cached) {
+    dashboard.issueTitle = cached;
+    return;
+  }
+
+  try {
+    // Strip "#" prefix from GitHub-style labels to get the identifier
+    const identifier = dashboard.issueLabel.replace(/^#/, "");
+    const issue = await tracker.getIssue(identifier, project);
+    if (issue.title) {
+      dashboard.issueTitle = issue.title;
+      issueTitleCache.set(dashboard.issueUrl, issue.title);
+    }
+  } catch {
+    // Can't fetch issue — keep issueTitle null
+  }
+}
+
+/**
+ * Enrich dashboard sessions with metadata (issue labels, agent summaries, issue titles).
+ * Orchestrates sync + async enrichment in parallel. Does NOT enrich PR data — callers
+ * handle that separately since strategies differ (e.g. terminal-session cache optimization).
+ */
+export async function enrichSessionsMetadata(
+  coreSessions: Session[],
+  dashboardSessions: DashboardSession[],
+  config: OrchestratorConfig,
+  registry: PluginRegistry,
+): Promise<void> {
+  // Resolve projects once per session (avoids repeated Object.entries lookups)
+  const projects = coreSessions.map((core) => resolveProject(core, config.projects));
+
+  // Enrich issue labels (synchronous — must run before async title enrichment)
+  projects.forEach((project, i) => {
+    if (!dashboardSessions[i].issueUrl || !project?.tracker) return;
+    const tracker = registry.get<Tracker>("tracker", project.tracker.plugin);
+    if (!tracker) return;
+    enrichSessionIssue(dashboardSessions[i], tracker, project);
+  });
+
+  // Enrich agent summaries (reads agent's JSONL — local I/O, not an API call)
+  const summaryPromises = coreSessions.map((core, i) => {
+    if (dashboardSessions[i].summary) return Promise.resolve();
+    const agentName = projects[i]?.agent ?? config.defaults.agent;
+    if (!agentName) return Promise.resolve();
+    const agent = registry.get<Agent>("agent", agentName);
+    if (!agent) return Promise.resolve();
+    return enrichSessionAgentSummary(dashboardSessions[i], core, agent);
+  });
+
+  // Enrich issue titles (fetches from tracker API, cached with TTL)
+  const issueTitlePromises = projects.map((project, i) => {
+    if (!dashboardSessions[i].issueUrl || !dashboardSessions[i].issueLabel) {
+      return Promise.resolve();
+    }
+    if (!project?.tracker) return Promise.resolve();
+    const tracker = registry.get<Tracker>("tracker", project.tracker.plugin);
+    if (!tracker) return Promise.resolve();
+    return enrichSessionIssueTitle(dashboardSessions[i], tracker, project);
+  });
+
+  await Promise.allSettled([...summaryPromises, ...issueTitlePromises]);
 }
 
 /** Compute dashboard stats from a list of sessions. */

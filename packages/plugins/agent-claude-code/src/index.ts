@@ -279,11 +279,13 @@ async function parseJsonlFile(filePath: string): Promise<JsonlLine[]> {
 }
 
 /** Extract auto-generated summary from JSONL (last "summary" type entry) */
-function extractSummary(lines: JsonlLine[]): string | null {
+function extractSummary(
+  lines: JsonlLine[],
+): { summary: string; isFallback: boolean } | null {
   for (let i = lines.length - 1; i >= 0; i--) {
     const line = lines[i];
     if (line?.type === "summary" && line.summary) {
-      return line.summary;
+      return { summary: line.summary, isFallback: false };
     }
   }
   // Fallback: first user message truncated to 120 chars
@@ -295,7 +297,10 @@ function extractSummary(lines: JsonlLine[]): string | null {
     ) {
       const msg = line.message.content.trim();
       if (msg.length > 0) {
-        return msg.length > 120 ? msg.substring(0, 120) + "..." : msg;
+        return {
+          summary: msg.length > 120 ? msg.substring(0, 120) + "..." : msg,
+          isFallback: true,
+        };
       }
     }
   }
@@ -715,8 +720,10 @@ function createClaudeCodeAgent(): Agent {
       // Extract session ID from filename
       const agentSessionId = basename(sessionFile, ".jsonl");
 
+      const summaryResult = extractSummary(lines);
       return {
-        summary: extractSummary(lines),
+        summary: summaryResult?.summary ?? null,
+        summaryIsFallback: summaryResult?.isFallback,
         agentSessionId,
         cost: extractCost(lines),
         lastLogModified,

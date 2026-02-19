@@ -12,6 +12,7 @@ export function makeSession(overrides: Partial<DashboardSession> = {}): Dashboar
     issueUrl: "https://linear.app/test/issue/INT-100",
     issueLabel: "INT-100",
     summary: "Test session",
+    summaryIsFallback: false,
     createdAt: new Date().toISOString(),
     lastActivityAt: new Date().toISOString(),
     pr: null,

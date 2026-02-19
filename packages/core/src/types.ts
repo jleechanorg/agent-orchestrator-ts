@@ -346,6 +346,8 @@ export interface WorkspaceHooksConfig {
 export interface AgentSessionInfo {
   /** Agent's auto-generated summary of what it's working on */
   summary: string | null;
+  /** True when summary is a fallback (e.g. truncated first user message), not a real agent summary */
+  summaryIsFallback?: boolean;
   /** Agent's internal session ID (for resume) */
   agentSessionId: string | null;
   /** Estimated cost so far */

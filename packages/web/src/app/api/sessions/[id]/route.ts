@@ -1,6 +1,11 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { getServices, getSCM, getTracker } from "@/lib/services";
-import { sessionToDashboard, enrichSessionPR, enrichSessionIssue } from "@/lib/serialize";
+import { getServices, getSCM } from "@/lib/services";
+import {
+  sessionToDashboard,
+  resolveProject,
+  enrichSessionPR,
+  enrichSessionsMetadata,
+} from "@/lib/serialize";
 
 export async function GET(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -14,25 +19,12 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
 
     const dashboardSession = sessionToDashboard(coreSession);
 
-    // Get project config for enrichments
-    let project = config.projects[coreSession.projectId];
-    if (!project) {
-      const entry = Object.entries(config.projects).find(([, p]) =>
-        coreSession.id.startsWith(p.sessionPrefix),
-      );
-      if (entry) project = entry[1];
-    }
-
-    // Enrich issue label using tracker plugin
-    if (dashboardSession.issueUrl && project) {
-      const tracker = getTracker(registry, project);
-      if (tracker) {
-        enrichSessionIssue(dashboardSession, tracker, project);
-      }
-    }
+    // Enrich metadata (issue labels, agent summaries, issue titles)
+    await enrichSessionsMetadata([coreSession], [dashboardSession], config, registry);
 
     // Enrich PR with live data from SCM
-    if (coreSession.pr && project) {
+    if (coreSession.pr) {
+      const project = resolveProject(coreSession, config.projects);
       const scm = getSCM(registry, project);
       if (scm) {
         await enrichSessionPR(dashboardSession, scm, coreSession.pr);

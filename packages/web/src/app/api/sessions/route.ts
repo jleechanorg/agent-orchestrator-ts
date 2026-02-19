@@ -1,30 +1,13 @@
-import { ACTIVITY_STATE, type Session, type ProjectConfig } from "@composio/ao-core";
+import { ACTIVITY_STATE } from "@composio/ao-core";
 import { NextResponse } from "next/server";
-import { getServices, getSCM, getTracker } from "@/lib/services";
+import { getServices, getSCM } from "@/lib/services";
 import {
   sessionToDashboard,
+  resolveProject,
   enrichSessionPR,
-  enrichSessionIssue,
+  enrichSessionsMetadata,
   computeStats,
 } from "@/lib/serialize";
-
-/** Resolve which project a session belongs to. */
-function resolveProject(
-  core: Session,
-  projects: Record<string, ProjectConfig>,
-): ProjectConfig | undefined {
-  // Try explicit projectId first
-  const direct = projects[core.projectId];
-  if (direct) return direct;
-
-  // Match by session prefix
-  const entry = Object.entries(projects).find(([, p]) => core.id.startsWith(p.sessionPrefix));
-  if (entry) return entry[1];
-
-  // Fall back to first project
-  const firstKey = Object.keys(projects)[0];
-  return firstKey ? projects[firstKey] : undefined;
-}
 
 /** GET /api/sessions — List all sessions with full state
  * Query params:
@@ -53,14 +36,8 @@ export async function GET(request: Request) {
       dashboardSessions = activeIndices.map((i) => dashboardSessions[i]);
     }
 
-    // Enrich issue labels using tracker plugin (synchronous)
-    workerSessions.forEach((core, i) => {
-      if (!dashboardSessions[i].issueUrl) return;
-      const project = resolveProject(core, config.projects);
-      const tracker = getTracker(registry, project);
-      if (!tracker || !project) return;
-      enrichSessionIssue(dashboardSessions[i], tracker, project);
-    });
+    // Enrich metadata (issue labels, agent summaries, issue titles)
+    await enrichSessionsMetadata(workerSessions, dashboardSessions, config, registry);
 
     // Enrich sessions that have PRs with live SCM data (CI, reviews, mergeability)
     const enrichPromises = workerSessions.map((core, i) => {
