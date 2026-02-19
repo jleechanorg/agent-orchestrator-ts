@@ -15,7 +15,7 @@ function stringToHue(s: string): number {
 
 export default function Icon() {
   const name = getProjectName();
-  const initial = name.charAt(0).toUpperCase();
+  const initial = (name.charAt(0) || "A").toUpperCase();
   const hue = stringToHue(name);
 
   return new ImageResponse(

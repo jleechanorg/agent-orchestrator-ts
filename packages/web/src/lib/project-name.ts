@@ -14,7 +14,8 @@ export const getProjectName = cache((): string => {
     const config = loadConfig();
     const firstKey = Object.keys(config.projects)[0];
     if (firstKey) {
-      return config.projects[firstKey].name ?? firstKey;
+      const name = config.projects[firstKey].name ?? firstKey;
+      return name || firstKey || "ao";
     }
   } catch {
     // Config not available

@@ -6,6 +6,10 @@ import { SessionDetail } from "@/components/SessionDetail";
 import type { DashboardSession } from "@/lib/types";
 import { activityIcon } from "@/lib/activity-icons";
 
+function truncate(s: string, max: number): string {
+  return s.length > max ? s.slice(0, max) + "..." : s;
+}
+
 /** Build a descriptive tab title from session data. */
 function buildSessionTitle(session: DashboardSession): string {
   const id = session.id;
@@ -17,18 +21,9 @@ function buildSessionTitle(session: DashboardSession): string {
   if (isOrchestrator) {
     detail = "Orchestrator Terminal";
   } else if (session.pr) {
-    const prNum = `#${session.pr.number}`;
-    const branch = session.pr.branch;
-    const maxBranch = 30;
-    const truncated = branch.length > maxBranch ? branch.slice(0, maxBranch) + "..." : branch;
-    detail = `${prNum} ${truncated}`;
+    detail = `#${session.pr.number} ${truncate(session.pr.branch, 30)}`;
   } else if (session.branch) {
-    const maxBranch = 30;
-    const truncated =
-      session.branch.length > maxBranch
-        ? session.branch.slice(0, maxBranch) + "..."
-        : session.branch;
-    detail = truncated;
+    detail = truncate(session.branch, 30);
   } else {
     detail = "Session Detail";
   }
