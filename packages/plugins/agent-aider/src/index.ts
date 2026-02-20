@@ -4,6 +4,7 @@ import {
   type Agent,
   type AgentSessionInfo,
   type AgentLaunchConfig,
+  type ActivityDetection,
   type ActivityState,
   type PluginModule,
   type RuntimeHandle,
@@ -114,20 +115,21 @@ function createAiderAgent(): Agent {
     async getActivityState(
       session: Session,
       readyThresholdMs?: number,
-    ): Promise<ActivityState | null> {
+    ): Promise<ActivityDetection | null> {
       const threshold = readyThresholdMs ?? DEFAULT_READY_THRESHOLD_MS;
 
       // Check if process is running first
-      if (!session.runtimeHandle) return "exited";
+      const exitedAt = new Date();
+      if (!session.runtimeHandle) return { state: "exited", timestamp: exitedAt };
       const running = await this.isProcessRunning(session.runtimeHandle);
-      if (!running) return "exited";
+      if (!running) return { state: "exited", timestamp: exitedAt };
 
       // Process is running - check for activity signals
       if (!session.workspacePath) return null;
 
       // Check for recent git commits (Aider auto-commits changes)
       const hasCommits = await hasRecentCommits(session.workspacePath);
-      if (hasCommits) return "active";
+      if (hasCommits) return { state: "active" };
 
       // Check chat history file modification time
       const chatMtime = await getChatHistoryMtime(session.workspacePath);
@@ -139,9 +141,9 @@ function createAiderAgent(): Agent {
       // Classify by age: <30s active, <threshold ready, >threshold idle
       const ageMs = Date.now() - chatMtime.getTime();
       const activeWindowMs = Math.min(30_000, threshold);
-      if (ageMs < activeWindowMs) return "active";
-      if (ageMs < threshold) return "ready";
-      return "idle";
+      if (ageMs < activeWindowMs) return { state: "active", timestamp: chatMtime };
+      if (ageMs < threshold) return { state: "ready", timestamp: chatMtime };
+      return { state: "idle", timestamp: chatMtime };
     },
 
     async isProcessRunning(handle: RuntimeHandle): Promise<boolean> {

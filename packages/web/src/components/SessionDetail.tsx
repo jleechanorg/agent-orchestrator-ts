@@ -7,23 +7,34 @@ import { CI_STATUS } from "@composio/ao-core/types";
 import { cn } from "@/lib/cn";
 import { CICheckList } from "./CIBadge";
 import { DirectTerminal } from "./DirectTerminal";
+import { ActivityDot } from "./ActivityDot";
+
+interface OrchestratorZones {
+  merge: number;
+  respond: number;
+  review: number;
+  pending: number;
+  working: number;
+  done: number;
+}
 
 interface SessionDetailProps {
   session: DashboardSession;
+  isOrchestrator?: boolean;
+  orchestratorZones?: OrchestratorZones;
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
-const activityLabel: Record<string, { label: string; color: string }> = {
-  active: { label: "Active", color: "var(--color-accent-green)" },
-  ready: { label: "Ready", color: "var(--color-accent-blue)" },
-  idle: { label: "Idle", color: "var(--color-text-muted)" },
-  waiting_input: { label: "Waiting for input", color: "var(--color-accent-yellow)" },
-  blocked: { label: "Blocked", color: "var(--color-accent-red)" },
-  exited: { label: "Exited", color: "var(--color-accent-red)" },
+const activityMeta: Record<string, { label: string; color: string }> = {
+  active:        { label: "Active",            color: "var(--color-status-working)" },
+  ready:         { label: "Ready",             color: "var(--color-status-ready)" },
+  idle:          { label: "Idle",              color: "var(--color-status-idle)" },
+  waiting_input: { label: "Waiting for input", color: "var(--color-status-attention)" },
+  blocked:       { label: "Blocked",           color: "var(--color-status-error)" },
+  exited:        { label: "Exited",            color: "var(--color-status-error)" },
 };
 
-/** Converts snake_case status enum to Title Case display string. */
 function humanizeStatus(status: string): string {
   return status
     .replace(/_/g, " ")
@@ -32,9 +43,10 @@ function humanizeStatus(status: string): string {
     .replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
-/** Converts ISO date string to relative time like "3h ago", "2m ago". Client-side only. */
 function relativeTime(iso: string): string {
-  const diff = Date.now() - new Date(iso).getTime();
+  const ms = new Date(iso).getTime();
+  if (!iso || isNaN(ms)) return "unknown";
+  const diff = Date.now() - ms;
   const seconds = Math.floor(diff / 1000);
   if (seconds < 60) return "just now";
   const minutes = Math.floor(seconds / 60);
@@ -45,42 +57,28 @@ function relativeTime(iso: string): string {
   return `${days}d ago`;
 }
 
-/** Clean up review comment body - extract title and description, remove HTML junk */
 function cleanBugbotComment(body: string): { title: string; description: string } {
-  // Check if this is a Bugbot comment (has structured markers)
   const isBugbot = body.includes("<!-- DESCRIPTION START -->") || body.includes("### ");
-
   if (isBugbot) {
-    // Extract title (first ### heading)
     const titleMatch = body.match(/###\s+(.+?)(?:\n|$)/);
     const title = titleMatch ? titleMatch[1].replace(/\*\*/g, "").trim() : "Comment";
-
-    // Extract description between DESCRIPTION START/END comments
     const descMatch = body.match(
       /<!-- DESCRIPTION START -->\s*([\s\S]*?)\s*<!-- DESCRIPTION END -->/,
     );
     const description = descMatch ? descMatch[1].trim() : body.split("\n")[0] || "No description";
-
     return { title, description };
-  } else {
-    // For non-Bugbot comments, use full body as description
-    return { title: "Comment", description: body.trim() };
   }
+  return { title: "Comment", description: body.trim() };
 }
 
-/** Builds a GitHub branch URL from PR owner/repo/branch. */
 function buildGitHubBranchUrl(pr: DashboardPR): string {
   return `https://github.com/${pr.owner}/${pr.repo}/tree/${pr.branch}`;
 }
 
-/** Builds a GitHub repo URL from PR owner/repo. */
 function buildGitHubRepoUrl(pr: DashboardPR): string {
   return `https://github.com/${pr.owner}/${pr.repo}`;
 }
 
-// ── Main Component ───────────────────────────────────────────────────
-
-/** Ask the agent to fix a specific review comment */
 async function askAgentToFix(
   sessionId: string,
   comment: { url: string; path: string; body: string },
@@ -90,17 +88,12 @@ async function askAgentToFix(
   try {
     const { title, description } = cleanBugbotComment(comment.body);
     const message = `Please address this review comment:\n\nFile: ${comment.path}\nComment: ${title}\nDescription: ${description}\n\nComment URL: ${comment.url}\n\nAfter fixing, mark the comment as resolved at ${comment.url}`;
-
-    const res = await fetch(`/api/sessions/${sessionId}/message`, {
+    const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/message`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ message }),
     });
-
-    if (!res.ok) {
-      throw new Error(`HTTP ${res.status}`);
-    }
-
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
     onSuccess();
   } catch (err) {
     console.error("Failed to send message to agent:", err);
@@ -108,148 +101,285 @@ async function askAgentToFix(
   }
 }
 
-export function SessionDetail({ session }: SessionDetailProps) {
+// ── Orchestrator status strip ─────────────────────────────────────────
+
+function OrchestratorStatusStrip({
+  zones,
+  createdAt,
+}: {
+  zones: OrchestratorZones;
+  createdAt: string;
+}) {
+  const [uptime, setUptime] = useState<string>("");
+
+  useEffect(() => {
+    const compute = () => {
+      const diff = Date.now() - new Date(createdAt).getTime();
+      const h = Math.floor(diff / 3_600_000);
+      const m = Math.floor((diff % 3_600_000) / 60_000);
+      setUptime(h > 0 ? `${h}h ${m}m` : `${m}m`);
+    };
+    compute();
+    const id = setInterval(compute, 30_000);
+    return () => clearInterval(id);
+  }, [createdAt]);
+
+  const stats: Array<{ value: number; label: string; color: string; bg: string }> = [
+    { value: zones.merge,   label: "merge-ready",  color: "#3fb950", bg: "rgba(63,185,80,0.1)" },
+    { value: zones.respond, label: "responding",   color: "#f85149", bg: "rgba(248,81,73,0.1)" },
+    { value: zones.review,  label: "review",       color: "#d18616", bg: "rgba(209,134,22,0.1)" },
+    { value: zones.working, label: "working",      color: "#58a6ff", bg: "rgba(88,166,255,0.1)" },
+    { value: zones.pending, label: "pending",      color: "#d29922", bg: "rgba(210,153,34,0.1)" },
+    { value: zones.done,    label: "done",         color: "#484f58", bg: "rgba(72,79,88,0.15)" },
+  ].filter((s) => s.value > 0);
+
+  const total = zones.merge + zones.respond + zones.review + zones.working + zones.pending + zones.done;
+
+  return (
+    <div
+      className="border-b border-[var(--color-border-subtle)] px-8 py-4"
+      style={{ background: "linear-gradient(to bottom, rgba(88,166,255,0.04) 0%, transparent 100%)" }}
+    >
+      <div className="mx-auto flex max-w-[900px] items-center gap-3 flex-wrap">
+        {/* Total count */}
+        <div className="flex items-baseline gap-1.5 mr-2">
+          <span className="text-[22px] font-bold leading-none tabular-nums text-[var(--color-text-primary)]">
+            {total}
+          </span>
+          <span className="text-[11px] text-[var(--color-text-tertiary)]">agents</span>
+        </div>
+
+        <div className="h-5 w-px bg-[var(--color-border-subtle)] mr-1" />
+
+        {/* Per-zone pills */}
+        {stats.length > 0 ? stats.map((s) => (
+          <div
+            key={s.label}
+            className="flex items-center gap-1.5 rounded-full px-2.5 py-1"
+            style={{ background: s.bg }}
+          >
+            <span className="text-[15px] font-bold leading-none tabular-nums" style={{ color: s.color }}>
+              {s.value}
+            </span>
+            <span className="text-[10px] font-medium" style={{ color: s.color, opacity: 0.8 }}>
+              {s.label}
+            </span>
+          </div>
+        )) : (
+          <span className="text-[12px] text-[var(--color-text-tertiary)]">no active agents</span>
+        )}
+
+        {uptime && (
+          <span className="ml-auto font-[var(--font-mono)] text-[11px] text-[var(--color-text-tertiary)]">
+            up {uptime}
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Main component ────────────────────────────────────────────────────
+
+export function SessionDetail({ session, isOrchestrator = false, orchestratorZones }: SessionDetailProps) {
   const searchParams = useSearchParams();
   const startFullscreen = searchParams.get("fullscreen") === "true";
   const pr = session.pr;
-  const activity = (session.activity && activityLabel[session.activity]) ?? {
+  const activity = (session.activity && activityMeta[session.activity]) ?? {
     label: session.activity ?? "unknown",
     color: "var(--color-text-muted)",
   };
 
+  const accentColor = "var(--color-accent)";
+  const terminalVariant = isOrchestrator ? "orchestrator" : "agent";
+
+  const terminalHeight = isOrchestrator
+    ? "calc(100vh - 240px)"
+    : "max(440px, calc(100vh - 440px))";
+
   return (
-    <div className="min-h-screen">
-      {/* Nav bar */}
-      <nav className="border-b border-[var(--color-border-muted)] bg-[var(--color-bg-secondary)]">
-        <div className="mx-auto flex max-w-[900px] items-center px-8 py-2">
+    <div className="min-h-screen bg-[var(--color-bg-base)]">
+      {/* Nav bar — glass effect */}
+      <nav className="nav-glass sticky top-0 z-10 border-b border-[var(--color-border-subtle)]">
+        <div className="mx-auto flex max-w-[900px] items-center gap-2 px-8 py-2.5">
           <a
             href="/"
-            className="text-xs font-medium tracking-wide text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:no-underline"
+            className="flex items-center gap-1 text-[11px] font-medium text-[var(--color-text-secondary)] transition-colors hover:text-[var(--color-text-primary)] hover:no-underline"
           >
-            &larr; Agent Orchestrator
+            <svg className="h-3 w-3 opacity-60" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+              <path d="M15 18l-6-6 6-6" />
+            </svg>
+            Orchestrator
           </a>
+          <span className="text-[var(--color-border-strong)]">/</span>
+          <span className="font-[var(--font-mono)] text-[11px] text-[var(--color-text-tertiary)]">
+            {session.id}
+          </span>
+          {isOrchestrator && (
+            <span
+              className="ml-1 rounded px-2 py-0.5 text-[10px] font-semibold tracking-[0.05em]"
+              style={{
+                color: accentColor,
+                background: `color-mix(in srgb, ${accentColor} 10%, transparent)`,
+                border: `1px solid color-mix(in srgb, ${accentColor} 20%, transparent)`,
+              }}
+            >
+              orchestrator
+            </span>
+          )}
         </div>
       </nav>
 
+      {/* Orchestrator status strip */}
+      {isOrchestrator && orchestratorZones && (
+        <OrchestratorStatusStrip zones={orchestratorZones} createdAt={session.createdAt} />
+      )}
+
       <div className="mx-auto max-w-[900px] px-8 py-6">
-        {/* ── Header ─────────────────────────────────────────────── */}
-        <div className="mb-6">
-          {/* Session ID + badges */}
-          <div className="flex items-center gap-3">
-            <h1 className="text-xl font-semibold">{session.id}</h1>
-            <span
-              className="rounded-full px-2 py-0.5 text-xs font-semibold"
-              style={{
-                color: activity.color,
-                background: `color-mix(in srgb, ${activity.color} 15%, transparent)`,
-              }}
-            >
-              {activity.label}
-            </span>
-          </div>
-
-          {/* Summary */}
-          {session.summary && (
-            <p className="mt-2 text-sm text-[var(--color-text-secondary)]">{session.summary}</p>
-          )}
-
-          {/* Meta chips: PR · branch · issue */}
-          <div className="mt-3 flex flex-wrap items-center gap-1.5 text-xs">
-            {session.projectId && (
-              <>
-                {pr ? (
-                  <a
-                    href={buildGitHubRepoUrl(pr)}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="rounded-md bg-[var(--color-bg-tertiary)] px-2 py-0.5 text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:no-underline"
-                  >
-                    {session.projectId}
-                  </a>
-                ) : (
-                  <span className="rounded-md bg-[var(--color-bg-tertiary)] px-2 py-0.5 text-[var(--color-text-secondary)]">
-                    {session.projectId}
-                  </span>
-                )}
-                <span className="text-[var(--color-text-muted)]">&middot;</span>
-              </>
-            )}
-
-            {pr && (
-              <>
-                <a
-                  href={pr.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="rounded-md bg-[var(--color-bg-tertiary)] px-2 py-0.5 text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:no-underline"
+        {/* ── Header card ─────────────────────────────────────────── */}
+        <div
+          className="detail-card mb-6 rounded-[8px] border border-[var(--color-border-default)] p-5"
+          style={{
+            borderLeft: isOrchestrator
+              ? `3px solid ${accentColor}`
+              : `3px solid ${activity.color}`,
+          }}
+        >
+          <div className="flex items-start gap-3">
+            <div className="flex-1 min-w-0">
+              <div className="flex flex-wrap items-center gap-2.5">
+                <h1 className="font-[var(--font-mono)] text-[17px] font-semibold tracking-[-0.01em] text-[var(--color-text-primary)]">
+                  {session.id}
+                </h1>
+                {/* Activity badge */}
+                <div
+                  className="flex items-center gap-1.5 rounded-full px-2.5 py-0.5"
+                  style={{
+                    background: `color-mix(in srgb, ${activity.color} 12%, transparent)`,
+                    border: `1px solid color-mix(in srgb, ${activity.color} 20%, transparent)`,
+                  }}
                 >
-                  #{pr.number}
-                </a>
-                {(session.branch || session.issueUrl) && (
-                  <span className="text-[var(--color-text-muted)]">&middot;</span>
-                )}
-              </>
-            )}
+                  <ActivityDot activity={session.activity} dotOnly size={6} />
+                  <span className="text-[11px] font-semibold" style={{ color: activity.color }}>
+                    {activity.label}
+                  </span>
+                </div>
+              </div>
 
-            {session.branch && (
-              <>
-                {pr ? (
+              {session.summary && (
+                <p className="mt-2 text-[13px] leading-relaxed text-[var(--color-text-secondary)]">
+                  {session.summary}
+                </p>
+              )}
+
+              {/* Meta chips */}
+              <div className="mt-3 flex flex-wrap items-center gap-1.5">
+                {session.projectId && (
+                  <>
+                    {pr ? (
+                      <a
+                        href={buildGitHubRepoUrl(pr)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="rounded-[4px] border border-[var(--color-border-subtle)] bg-[rgba(255,255,255,0.04)] px-2 py-0.5 text-[11px] text-[var(--color-text-secondary)] transition-colors hover:border-[var(--color-border-strong)] hover:text-[var(--color-text-primary)] hover:no-underline"
+                      >
+                        {session.projectId}
+                      </a>
+                    ) : (
+                      <span className="rounded-[4px] border border-[var(--color-border-subtle)] bg-[rgba(255,255,255,0.04)] px-2 py-0.5 text-[11px] text-[var(--color-text-secondary)]">
+                        {session.projectId}
+                      </span>
+                    )}
+                    <span className="text-[var(--color-text-tertiary)]">&middot;</span>
+                  </>
+                )}
+
+                {pr && (
+                  <>
+                    <a
+                      href={pr.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="rounded-[4px] border border-[var(--color-border-subtle)] bg-[rgba(255,255,255,0.04)] px-2 py-0.5 text-[11px] text-[var(--color-accent)] transition-colors hover:border-[var(--color-accent)] hover:no-underline"
+                    >
+                      PR #{pr.number}
+                    </a>
+                    {(session.branch || session.issueUrl) && (
+                      <span className="text-[var(--color-text-tertiary)]">&middot;</span>
+                    )}
+                  </>
+                )}
+
+                {session.branch && (
+                  <>
+                    {pr ? (
+                      <a
+                        href={buildGitHubBranchUrl(pr)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="rounded-[4px] border border-[var(--color-border-subtle)] bg-[rgba(255,255,255,0.04)] px-2 py-0.5 font-[var(--font-mono)] text-[10px] text-[var(--color-text-secondary)] transition-colors hover:border-[var(--color-border-strong)] hover:text-[var(--color-text-primary)] hover:no-underline"
+                      >
+                        {session.branch}
+                      </a>
+                    ) : (
+                      <span className="rounded-[4px] border border-[var(--color-border-subtle)] bg-[rgba(255,255,255,0.04)] px-2 py-0.5 font-[var(--font-mono)] text-[10px] text-[var(--color-text-secondary)]">
+                        {session.branch}
+                      </span>
+                    )}
+                    {session.issueUrl && (
+                      <span className="text-[var(--color-text-tertiary)]">&middot;</span>
+                    )}
+                  </>
+                )}
+
+                {session.issueUrl && (
                   <a
-                    href={buildGitHubBranchUrl(pr)}
+                    href={session.issueUrl}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="rounded-md bg-[var(--color-bg-tertiary)] px-2 py-0.5 font-[var(--font-mono)] text-[11px] text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:no-underline"
+                    className="rounded-[4px] border border-[var(--color-border-subtle)] bg-[rgba(255,255,255,0.04)] px-2 py-0.5 text-[11px] text-[var(--color-text-secondary)] transition-colors hover:border-[var(--color-border-strong)] hover:text-[var(--color-text-primary)] hover:no-underline"
                   >
-                    {session.branch}
+                    {session.issueLabel || session.issueUrl}
                   </a>
-                ) : (
-                  <span className="rounded-md bg-[var(--color-bg-tertiary)] px-2 py-0.5 font-[var(--font-mono)] text-[11px] text-[var(--color-text-secondary)]">
-                    {session.branch}
-                  </span>
                 )}
-                {session.issueUrl && (
-                  <span className="text-[var(--color-text-muted)]">&middot;</span>
-                )}
-              </>
-            )}
+              </div>
 
-            {session.issueUrl && (
-              <a
-                href={session.issueUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="rounded-md bg-[var(--color-bg-tertiary)] px-2 py-0.5 text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:no-underline"
-              >
-                {session.issueLabel || session.issueUrl}
-              </a>
-            )}
+              <ClientTimestamps
+                status={session.status}
+                createdAt={session.createdAt}
+                lastActivityAt={session.lastActivityAt}
+              />
+            </div>
           </div>
-
-          {/* Status · timestamps */}
-          <ClientTimestamps
-            status={session.status}
-            createdAt={session.createdAt}
-            lastActivityAt={session.lastActivityAt}
-          />
         </div>
 
-        {/* ── PR Card ────────────────────────────────────────────── */}
+        {/* ── PR Card ─────────────────────────────────────────────── */}
         {pr && <PRCard pr={pr} sessionId={session.id} />}
 
-        {/* ── Terminal ───────────────────────────────────────────── */}
-        <div className="mt-6">
-          <h3 className="mb-3 text-[13px] font-semibold uppercase tracking-widest text-[var(--color-text-muted)]">
-            Terminal
-          </h3>
-
-          <DirectTerminal sessionId={session.id} startFullscreen={startFullscreen} />
+        {/* ── Terminal ─────────────────────────────────────────────── */}
+        <div className={pr ? "mt-6" : ""}>
+          <div className="mb-3 flex items-center gap-2">
+            <div
+              className="h-3 w-0.5 rounded-full"
+              style={{ background: isOrchestrator ? accentColor : activity.color, opacity: 0.7 }}
+            />
+            <span className="text-[10px] font-bold uppercase tracking-[0.10em] text-[var(--color-text-tertiary)]">
+              Terminal
+            </span>
+          </div>
+          <DirectTerminal
+            sessionId={session.id}
+            startFullscreen={startFullscreen}
+            variant={terminalVariant}
+            height={terminalHeight}
+          />
         </div>
       </div>
     </div>
   );
 }
 
-// ── Client-side timestamps (avoids hydration mismatch) ───────────────
+// ── Client-side timestamps ────────────────────────────────────────────
 
 function ClientTimestamps({
   status,
@@ -269,25 +399,27 @@ function ClientTimestamps({
   }, [createdAt, lastActivityAt]);
 
   return (
-    <div className="mt-2 flex flex-wrap items-center gap-x-2 text-xs text-[var(--color-text-muted)]">
-      <span>{humanizeStatus(status)}</span>
+    <div className="mt-2.5 flex flex-wrap items-center gap-x-1.5 text-[11px] text-[var(--color-text-tertiary)]">
+      <span className="rounded-[3px] bg-[rgba(255,255,255,0.05)] px-1.5 py-0.5 text-[10px] font-medium">
+        {humanizeStatus(status)}
+      </span>
       {created && (
         <>
-          <span>&middot;</span>
-          <span>Created {created}</span>
+          <span className="opacity-40">&middot;</span>
+          <span>created {created}</span>
         </>
       )}
       {lastActive && (
         <>
-          <span>&middot;</span>
-          <span>Active {lastActive}</span>
+          <span className="opacity-40">&middot;</span>
+          <span>active {lastActive}</span>
         </>
       )}
     </div>
   );
 }
 
-// ── PR Card ──────────────────────────────────────────────────────────
+// ── PR Card ───────────────────────────────────────────────────────────
 
 function PRCard({ pr, sessionId }: { pr: DashboardPR; sessionId: string }) {
   const [sendingComments, setSendingComments] = useState<Set<string>>(new Set());
@@ -298,68 +430,36 @@ function PRCard({ pr, sessionId }: { pr: DashboardPR; sessionId: string }) {
   useEffect(() => {
     return () => {
       timersRef.current.forEach((timer) => clearTimeout(timer));
+      timersRef.current.clear();
     };
   }, []);
 
   const handleAskAgentToFix = async (comment: { url: string; path: string; body: string }) => {
-    // Clear any existing feedback state for this comment
-    setSentComments((prev) => {
-      const next = new Set(prev);
-      next.delete(comment.url);
-      return next;
-    });
-    setErrorComments((prev) => {
-      const next = new Set(prev);
-      next.delete(comment.url);
-      return next;
-    });
-
-    // Mark as sending
+    setSentComments((prev) => { const next = new Set(prev); next.delete(comment.url); return next; });
+    setErrorComments((prev) => { const next = new Set(prev); next.delete(comment.url); return next; });
     setSendingComments((prev) => new Set(prev).add(comment.url));
 
     await askAgentToFix(
       sessionId,
       comment,
       () => {
-        // Success: remove from sending, add to sent
-        setSendingComments((prev) => {
-          const next = new Set(prev);
-          next.delete(comment.url);
-          return next;
-        });
+        setSendingComments((prev) => { const next = new Set(prev); next.delete(comment.url); return next; });
         setSentComments((prev) => new Set(prev).add(comment.url));
-
-        // Clear sent state after 3 seconds
-        const existingTimer = timersRef.current.get(comment.url);
-        if (existingTimer) clearTimeout(existingTimer);
+        const existing = timersRef.current.get(comment.url);
+        if (existing) clearTimeout(existing);
         const timer = setTimeout(() => {
-          setSentComments((prev) => {
-            const next = new Set(prev);
-            next.delete(comment.url);
-            return next;
-          });
+          setSentComments((prev) => { const next = new Set(prev); next.delete(comment.url); return next; });
           timersRef.current.delete(comment.url);
         }, 3000);
         timersRef.current.set(comment.url, timer);
       },
       () => {
-        // Error: remove from sending, add to error
-        setSendingComments((prev) => {
-          const next = new Set(prev);
-          next.delete(comment.url);
-          return next;
-        });
+        setSendingComments((prev) => { const next = new Set(prev); next.delete(comment.url); return next; });
         setErrorComments((prev) => new Set(prev).add(comment.url));
-
-        // Clear error state after 3 seconds
-        const existingTimer = timersRef.current.get(comment.url);
-        if (existingTimer) clearTimeout(existingTimer);
+        const existing = timersRef.current.get(comment.url);
+        if (existing) clearTimeout(existing);
         const timer = setTimeout(() => {
-          setErrorComments((prev) => {
-            const next = new Set(prev);
-            next.delete(comment.url);
-            return next;
-          });
+          setErrorComments((prev) => { const next = new Set(prev); next.delete(comment.url); return next; });
           timersRef.current.delete(comment.url);
         }, 3000);
         timersRef.current.set(comment.url, timer);
@@ -374,77 +474,96 @@ function PRCard({ pr, sessionId }: { pr: DashboardPR; sessionId: string }) {
     pr.mergeability.noConflicts;
 
   const failedChecks = pr.ciChecks.filter((c) => c.status === "failed");
-  const hasFailures = failedChecks.length > 0;
+
+  const borderColor = allGreen
+    ? "rgba(63,185,80,0.4)"
+    : pr.state === "merged"
+      ? "rgba(163,113,247,0.3)"
+      : "var(--color-border-default)";
 
   return (
-    <div className="rounded-lg border border-[var(--color-border-default)] bg-[var(--color-bg-secondary)]">
+    <div
+      className="detail-card mb-6 overflow-hidden rounded-[8px] border"
+      style={{ borderColor }}
+    >
       {/* Title row */}
-      <div className="border-b border-[var(--color-border-muted)] px-4 py-3">
+      <div className="border-b border-[var(--color-border-subtle)] px-5 py-3.5">
         <a
           href={pr.url}
           target="_blank"
           rel="noopener noreferrer"
-          className="text-sm font-medium text-[var(--color-text-primary)] hover:text-[var(--color-accent-blue)]"
+          className="text-[13px] font-semibold text-[var(--color-text-primary)] transition-colors hover:text-[var(--color-accent)] hover:no-underline"
         >
           PR #{pr.number}: {pr.title}
         </a>
-
-        {/* Stats row */}
         <div className="mt-1.5 flex flex-wrap items-center gap-2 text-[11px]">
-          <span className="text-[var(--color-text-muted)]">
-            <span className="text-[var(--color-accent-green)]">+{pr.additions}</span>{" "}
-            <span className="text-[var(--color-accent-red)]">-{pr.deletions}</span>
+          <span>
+            <span className="text-[var(--color-status-ready)]">+{pr.additions}</span>{" "}
+            <span className="text-[var(--color-status-error)]">-{pr.deletions}</span>
           </span>
-
           {pr.isDraft && (
             <>
-              <span className="text-[var(--color-text-muted)]">&middot;</span>
-              <span className="font-semibold text-[var(--color-text-muted)]">Draft</span>
+              <span className="text-[var(--color-text-tertiary)]">&middot;</span>
+              <span className="font-medium text-[var(--color-text-tertiary)]">Draft</span>
             </>
           )}
-
           {pr.state === "merged" && (
             <>
-              <span className="text-[var(--color-text-muted)]">&middot;</span>
-              <span className="font-semibold text-[var(--color-accent-violet)]">Merged</span>
+              <span className="text-[var(--color-text-tertiary)]">&middot;</span>
+              <span
+                className="rounded-full px-2 py-0.5 text-[10px] font-semibold"
+                style={{ color: "#a371f7", background: "rgba(163,113,247,0.12)" }}
+              >
+                Merged
+              </span>
             </>
           )}
         </div>
       </div>
 
       {/* Body */}
-      <div className="px-4 py-3">
-        {/* Ready to merge or issues list */}
+      <div className="px-5 py-4">
+        {/* Ready-to-merge banner */}
         {allGreen ? (
-          <div className="flex items-center gap-2 text-xs">
-            <span className="text-[var(--color-accent-green)]">{"\u2713"}</span>
-            <span className="font-semibold text-[var(--color-accent-green)]">Ready to merge</span>
+          <div className="flex items-center gap-2 rounded-[5px] border border-[rgba(63,185,80,0.25)] bg-[rgba(63,185,80,0.07)] px-3.5 py-2.5">
+            <svg className="h-4 w-4 shrink-0 text-[var(--color-status-ready)]" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+              <path d="M20 6L9 17l-5-5" />
+            </svg>
+            <span className="text-[13px] font-semibold text-[var(--color-status-ready)]">
+              Ready to merge
+            </span>
           </div>
         ) : (
           <IssuesList pr={pr} />
         )}
 
-        {/* CI Checks — inline row */}
+        {/* CI Checks */}
         {pr.ciChecks.length > 0 && (
-          <div className="mt-3 border-t border-[var(--color-border-muted)] pt-3">
-            <CICheckList checks={pr.ciChecks} layout={hasFailures ? "expanded" : "inline"} />
+          <div className="mt-4 border-t border-[var(--color-border-subtle)] pt-4">
+            <CICheckList checks={pr.ciChecks} layout={failedChecks.length > 0 ? "expanded" : "inline"} />
           </div>
         )}
 
-        {/* Unresolved Comments */}
+        {/* Unresolved comments */}
         {pr.unresolvedComments.length > 0 && (
-          <div className="mt-3 border-t border-[var(--color-border-muted)] pt-3">
-            <h4 className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)]">
-              Unresolved Comments ({pr.unresolvedThreads})
+          <div className="mt-4 border-t border-[var(--color-border-subtle)] pt-4">
+            <h4 className="mb-2.5 flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.08em] text-[var(--color-text-tertiary)]">
+              Unresolved Comments
+              <span
+                className="rounded-full px-1.5 py-0.5 text-[10px] font-bold normal-case tracking-normal"
+                style={{ color: "#f85149", background: "rgba(248,81,73,0.12)" }}
+              >
+                {pr.unresolvedThreads}
+              </span>
             </h4>
-            <div className="space-y-1.5">
+            <div className="space-y-1">
               {pr.unresolvedComments.map((c) => {
                 const { title, description } = cleanBugbotComment(c.body);
                 return (
                   <details key={c.url} className="group">
-                    <summary className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-xs transition-colors hover:bg-[var(--color-bg-tertiary)] [&::-webkit-details-marker]:hidden">
+                    <summary className="flex cursor-pointer list-none items-center gap-2 rounded-[5px] px-2 py-1.5 text-[12px] transition-colors hover:bg-[rgba(255,255,255,0.04)]">
                       <svg
-                        className="h-3 w-3 shrink-0 text-[var(--color-text-muted)] transition-transform group-open:rotate-90"
+                        className="h-3 w-3 shrink-0 text-[var(--color-text-tertiary)] transition-transform group-open:rotate-90"
                         fill="none"
                         stroke="currentColor"
                         strokeWidth="2"
@@ -452,43 +571,41 @@ function PRCard({ pr, sessionId }: { pr: DashboardPR; sessionId: string }) {
                       >
                         <path d="M9 5l7 7-7 7" />
                       </svg>
-                      <span className="font-medium text-[var(--color-text-secondary)]">
-                        {title}
-                      </span>
-                      <span className="text-[var(--color-text-muted)]">· {c.author}</span>
+                      <span className="font-medium text-[var(--color-text-secondary)]">{title}</span>
+                      <span className="text-[var(--color-text-tertiary)]">· {c.author}</span>
                       <a
                         href={c.url}
                         target="_blank"
                         rel="noopener noreferrer"
                         onClick={(e) => e.stopPropagation()}
-                        className="ml-auto text-[10px] text-[var(--color-accent-blue)] hover:underline"
+                        className="ml-auto text-[10px] text-[var(--color-accent)] hover:underline"
                       >
                         view →
                       </a>
                     </summary>
                     <div className="ml-5 mt-1 space-y-1.5 px-2 pb-2">
-                      <div className="text-[10px] font-[var(--font-mono)] text-[var(--color-text-muted)]">
+                      <div className="font-[var(--font-mono)] text-[10px] text-[var(--color-text-tertiary)]">
                         {c.path}
                       </div>
-                      <p className="border-l-2 border-[var(--color-border-default)] pl-3 text-xs leading-relaxed text-[var(--color-text-secondary)]">
+                      <p className="border-l-2 border-[var(--color-border-default)] pl-3 text-[12px] leading-relaxed text-[var(--color-text-secondary)]">
                         {description}
                       </p>
                       <button
                         onClick={() => handleAskAgentToFix(c)}
                         disabled={sendingComments.has(c.url)}
                         className={cn(
-                          "mt-2 rounded-md px-3 py-1 text-[10px] font-medium transition-colors",
+                          "mt-1.5 rounded-[4px] px-3 py-1 text-[11px] font-semibold transition-all",
                           sentComments.has(c.url)
-                            ? "bg-[var(--color-accent-green)] text-white"
+                            ? "bg-[var(--color-status-ready)] text-white"
                             : errorComments.has(c.url)
-                              ? "bg-[var(--color-accent-red)] text-white"
-                              : "bg-[var(--color-accent-blue)] text-white hover:opacity-90 disabled:opacity-50",
+                              ? "bg-[var(--color-status-error)] text-white"
+                              : "bg-[var(--color-accent)] text-white hover:opacity-90 disabled:opacity-50",
                         )}
                       >
                         {sendingComments.has(c.url)
-                          ? "Sending..."
+                          ? "Sending…"
                           : sentComments.has(c.url)
-                            ? "Sent!"
+                            ? "Sent ✓"
                             : errorComments.has(c.url)
                               ? "Failed"
                               : "Ask Agent to Fix"}
@@ -505,87 +622,62 @@ function PRCard({ pr, sessionId }: { pr: DashboardPR; sessionId: string }) {
   );
 }
 
-// ── Issues List (replaces merge readiness grid + blockers) ───────────
+// ── Issues list (pre-merge blockers) ─────────────────────────────────
 
 function IssuesList({ pr }: { pr: DashboardPR }) {
   const issues: Array<{ icon: string; color: string; text: string }> = [];
 
   if (pr.ciStatus === CI_STATUS.FAILING) {
     const failCount = pr.ciChecks.filter((c) => c.status === "failed").length;
-    const text =
-      failCount > 0
-        ? `CI failing \u2014 ${failCount} check${failCount !== 1 ? "s" : ""} failed`
-        : "CI failing";
     issues.push({
-      icon: "\u2717",
-      color: "var(--color-accent-red)",
-      text,
+      icon: "✗",
+      color: "var(--color-status-error)",
+      text: failCount > 0
+        ? `CI failing — ${failCount} check${failCount !== 1 ? "s" : ""} failed`
+        : "CI failing",
     });
   } else if (pr.ciStatus === CI_STATUS.PENDING) {
-    issues.push({
-      icon: "\u25CF",
-      color: "var(--color-accent-yellow)",
-      text: "CI pending",
-    });
+    issues.push({ icon: "●", color: "var(--color-status-attention)", text: "CI pending" });
   }
 
   if (pr.reviewDecision === "changes_requested") {
-    issues.push({
-      icon: "\u2717",
-      color: "var(--color-accent-red)",
-      text: "Changes requested",
-    });
+    issues.push({ icon: "✗", color: "var(--color-status-error)", text: "Changes requested" });
   } else if (!pr.mergeability.approved) {
-    issues.push({
-      icon: "\u25CB",
-      color: "var(--color-text-muted)",
-      text: "Not approved \u2014 awaiting reviewer",
-    });
+    issues.push({ icon: "○", color: "var(--color-text-tertiary)", text: "Not approved — awaiting reviewer" });
   }
 
-  // Only show merge conflicts for open/closed PRs (merged PRs don't have meaningful mergeable status)
   if (pr.state !== "merged" && !pr.mergeability.noConflicts) {
-    issues.push({
-      icon: "\u2717",
-      color: "var(--color-accent-red)",
-      text: "Merge conflicts",
-    });
+    issues.push({ icon: "✗", color: "var(--color-status-error)", text: "Merge conflicts" });
   }
 
   if (!pr.mergeability.mergeable && issues.length === 0) {
-    issues.push({
-      icon: "\u25CB",
-      color: "var(--color-text-muted)",
-      text: "Not mergeable",
-    });
+    issues.push({ icon: "○", color: "var(--color-text-tertiary)", text: "Not mergeable" });
   }
 
   if (pr.unresolvedThreads > 0) {
     issues.push({
-      icon: "\u25CF",
-      color: "var(--color-accent-yellow)",
+      icon: "●",
+      color: "var(--color-status-attention)",
       text: `${pr.unresolvedThreads} unresolved comment${pr.unresolvedThreads !== 1 ? "s" : ""}`,
     });
   }
 
   if (pr.isDraft) {
-    issues.push({
-      icon: "\u25CB",
-      color: "var(--color-text-muted)",
-      text: "Draft PR",
-    });
+    issues.push({ icon: "○", color: "var(--color-text-tertiary)", text: "Draft PR" });
   }
 
   if (issues.length === 0) return null;
 
   return (
     <div className="space-y-1.5">
-      <h4 className="text-[10px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)]">
-        Issues
+      <h4 className="mb-2 text-[10px] font-bold uppercase tracking-[0.08em] text-[var(--color-text-tertiary)]">
+        Blockers
       </h4>
       {issues.map((issue) => (
-        <div key={issue.text} className="flex items-center gap-2 text-xs">
-          <span style={{ color: issue.color }}>{issue.icon}</span>
+        <div key={issue.text} className="flex items-center gap-2.5 text-[12px]">
+          <span className="w-3 shrink-0 text-center text-[11px]" style={{ color: issue.color }}>
+            {issue.icon}
+          </span>
           <span className="text-[var(--color-text-secondary)]">{issue.text}</span>
         </div>
       ))}

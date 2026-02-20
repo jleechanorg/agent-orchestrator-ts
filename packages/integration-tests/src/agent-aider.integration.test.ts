@@ -14,7 +14,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import type { ActivityState, AgentSessionInfo } from "@composio/ao-core";
+import type { ActivityDetection, AgentSessionInfo } from "@composio/ao-core";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import aiderPlugin from "@composio/ao-plugin-agent-aider";
 import {
@@ -93,11 +93,11 @@ describe.skipIf(!canRun)("agent-aider (integration)", () => {
 
   // Observations captured while the agent is alive
   let aliveRunning = false;
-  let aliveActivityState: ActivityState | null | undefined;
+  let aliveActivityState: ActivityDetection | null | undefined;
 
   // Observations captured after the agent exits
   let exitedRunning: boolean;
-  let exitedActivityState: ActivityState | null;
+  let exitedActivityState: ActivityDetection | null;
   let sessionInfo: AgentSessionInfo | null;
 
   beforeAll(async () => {
@@ -119,7 +119,7 @@ describe.skipIf(!canRun)("agent-aider (integration)", () => {
       if (running) {
         aliveRunning = true;
         const activityState = await agent.getActivityState(session);
-        if (activityState !== "exited") {
+        if (activityState?.state !== "exited") {
           aliveActivityState = activityState;
           break;
         }
@@ -152,9 +152,9 @@ describe.skipIf(!canRun)("agent-aider (integration)", () => {
     // Aider checks git commits and chat history mtime for activity detection.
     // May return null if no chat history exists yet.
     if (aliveActivityState !== undefined) {
-      expect(aliveActivityState).not.toBe("exited");
+      expect(aliveActivityState?.state).not.toBe("exited");
       expect([null, "active", "ready", "idle", "waiting_input", "blocked"]).toContain(
-        aliveActivityState,
+        aliveActivityState?.state ?? null,
       );
     }
   });
@@ -164,7 +164,7 @@ describe.skipIf(!canRun)("agent-aider (integration)", () => {
   });
 
   it("getActivityState → returns exited after agent process terminates", () => {
-    expect(exitedActivityState).toBe("exited");
+    expect(exitedActivityState?.state).toBe("exited");
   });
 
   it("getSessionInfo → null (not implemented for aider)", () => {

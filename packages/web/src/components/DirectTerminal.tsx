@@ -14,6 +14,11 @@ import type { FitAddon as FitAddonType } from "@xterm/addon-fit";
 interface DirectTerminalProps {
   sessionId: string;
   startFullscreen?: boolean;
+  /** Visual variant. "orchestrator" uses violet accent; "agent" (default) uses blue. */
+  variant?: "agent" | "orchestrator";
+  /** CSS height for the terminal container in normal (non-fullscreen) mode.
+   *  Defaults to "max(440px, calc(100vh - 440px))". */
+  height?: string;
 }
 
 /**
@@ -26,7 +31,12 @@ interface DirectTerminalProps {
  * - When tmux sees "XTerm(" in response, it enables TTYC_MS (clipboard)
  * - xterm.js doesn't implement XDA by default, so we register custom handler
  */
-export function DirectTerminal({ sessionId, startFullscreen = false }: DirectTerminalProps) {
+export function DirectTerminal({
+  sessionId,
+  startFullscreen = false,
+  variant = "agent",
+  height = "max(440px, calc(100vh - 440px))",
+}: DirectTerminalProps) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -70,21 +80,45 @@ export function DirectTerminal({ sessionId, startFullscreen = false }: DirectTer
       .then(([Terminal, FitAddon, WebLinksAddon]) => {
         if (!mounted || !terminalRef.current) return;
 
+        // Cursor and selection color differ by variant:
+        // agent = blue (#5b7ef8), orchestrator = violet (#a371f7)
+        const cursorColor = variant === "orchestrator" ? "#a371f7" : "#5b7ef8";
+        const selectionColor =
+          variant === "orchestrator"
+            ? "rgba(163, 113, 247, 0.25)"
+            : "rgba(91, 126, 248, 0.3)";
+
         // Initialize xterm.js Terminal
         const terminal = new Terminal({
           cursorBlink: true,
-          fontSize: 14,
-          fontFamily: 'Menlo, Monaco, "Courier New", monospace',
+          fontSize: 13,
+          fontFamily: '"IBM Plex Mono", "SF Mono", Menlo, Monaco, "Courier New", monospace',
           theme: {
-            background: "#000000",
-            foreground: "#ffffff",
-            cursor: "#ffffff",
-            cursorAccent: "#000000",
-            selectionBackground: "rgba(255, 255, 255, 0.3)",
+            background: "#0a0a0f",
+            foreground: "#d4d4d8",
+            cursor: cursorColor,
+            cursorAccent: "#0a0a0f",
+            selectionBackground: selectionColor,
+            // ANSI colors — slightly warmer than pure defaults
+            black:         "#1a1a24",
+            red:           "#ef4444",
+            green:         "#22c55e",
+            yellow:        "#f59e0b",
+            blue:          "#5b7ef8",
+            magenta:       "#a371f7",
+            cyan:          "#22d3ee",
+            white:         "#d4d4d8",
+            brightBlack:   "#50506a",
+            brightRed:     "#f87171",
+            brightGreen:   "#4ade80",
+            brightYellow:  "#fbbf24",
+            brightBlue:    "#7b9cfb",
+            brightMagenta: "#c084fc",
+            brightCyan:    "#67e8f9",
+            brightWhite:   "#eeeef5",
           },
           scrollback: 10000,
-          allowProposedApi: true, // Required for some advanced features
-          // Smooth scrolling configuration
+          allowProposedApi: true,
           fastScrollModifier: "alt",
           fastScrollSensitivity: 3,
           scrollSensitivity: 1,
@@ -209,7 +243,7 @@ export function DirectTerminal({ sessionId, startFullscreen = false }: DirectTer
       mounted = false;
       cleanup?.();
     };
-  }, [sessionId]);
+  }, [sessionId, variant]);
 
   // Re-fit terminal when fullscreen changes
   useEffect(() => {
@@ -289,56 +323,90 @@ export function DirectTerminal({ sessionId, startFullscreen = false }: DirectTer
     };
   }, [fullscreen]);
 
-  const statusColor =
+  const accentColor = variant === "orchestrator" ? "var(--color-accent-violet)" : "var(--color-accent)";
+
+  const statusDotClass =
     status === "connected"
-      ? "bg-[#3fb950]"
+      ? "bg-[var(--color-status-ready)]"
       : status === "error"
-        ? "bg-[#f85149]"
-        : "bg-[#d29922] animate-pulse";
+        ? "bg-[var(--color-status-error)]"
+        : "bg-[var(--color-status-attention)] animate-[pulse_1.5s_ease-in-out_infinite]";
 
   const statusText =
     status === "connected"
       ? "Connected"
       : status === "error"
         ? (error ?? "Error")
-        : "Connecting...";
+        : "Connecting…";
 
   const statusTextColor =
     status === "connected"
-      ? "text-[var(--color-accent-green)]"
+      ? "text-[var(--color-status-ready)]"
       : status === "error"
-        ? "text-[var(--color-accent-red)]"
-        : "text-[var(--color-text-muted)]";
+        ? "text-[var(--color-status-error)]"
+        : "text-[var(--color-text-tertiary)]";
 
   return (
     <div
       className={cn(
-        "overflow-hidden rounded-lg border border-[var(--color-border-default)] bg-black",
+        "overflow-hidden rounded-[6px] border border-[var(--color-border-default)]",
+        "bg-[#0a0a0f]",
         fullscreen && "fixed inset-0 z-50 rounded-none border-0",
       )}
     >
-      <div className="flex items-center gap-2 border-b border-[var(--color-border-default)] bg-[var(--color-bg-tertiary)] px-3 py-2">
-        <div className={cn("h-2 w-2 rounded-full", statusColor)} />
-        <span className="font-[var(--font-mono)] text-xs text-[var(--color-text-muted)]">
+      {/* Terminal chrome bar */}
+      <div className="flex items-center gap-2 border-b border-[var(--color-border-subtle)] bg-[var(--color-bg-elevated)] px-3 py-2">
+        <div className={cn("h-2 w-2 shrink-0 rounded-full", statusDotClass)} />
+        <span
+          className="font-[var(--font-mono)] text-[11px]"
+          style={{ color: accentColor }}
+        >
           {sessionId}
         </span>
-        <span className={cn("text-[10px] font-medium uppercase tracking-wide", statusTextColor)}>
+        <span className={cn("text-[10px] font-medium uppercase tracking-[0.06em]", statusTextColor)}>
           {statusText}
         </span>
-        <span className="ml-2 rounded bg-[var(--color-bg-secondary)] px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wide text-[var(--color-accent-green)]">
+        {/* XDA clipboard badge */}
+        <span
+          className="rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.06em]"
+          style={{
+            color: accentColor,
+            background: `color-mix(in srgb, ${accentColor} 12%, transparent)`,
+          }}
+        >
           XDA
         </span>
         <button
           onClick={() => setFullscreen(!fullscreen)}
-          className="ml-auto rounded px-2 py-0.5 text-[11px] text-[var(--color-text-muted)] transition-colors hover:bg-[var(--color-bg-secondary)] hover:text-[var(--color-text-primary)]"
+          className="ml-auto flex items-center gap-1 rounded px-2 py-0.5 text-[11px] text-[var(--color-text-tertiary)] transition-colors hover:bg-[var(--color-bg-subtle)] hover:text-[var(--color-text-primary)]"
         >
-          {fullscreen ? "exit fullscreen" : "fullscreen"}
+          {fullscreen ? (
+            <>
+              <svg className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                <path d="M8 3v3a2 2 0 01-2 2H3m18 0h-3a2 2 0 01-2-2V3m0 18v-3a2 2 0 012-2h3M3 16h3a2 2 0 012 2v3" />
+              </svg>
+              exit fullscreen
+            </>
+          ) : (
+            <>
+              <svg className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                <path d="M8 3H5a2 2 0 00-2 2v3m18 0V5a2 2 0 00-2-2h-3m0 18h3a2 2 0 002-2v-3M3 16v3a2 2 0 002 2h3" />
+              </svg>
+              fullscreen
+            </>
+          )}
         </button>
       </div>
+      {/* Terminal area */}
       <div
         ref={terminalRef}
-        className={cn("w-full p-2", fullscreen ? "h-[calc(100vh-40px)]" : "h-[600px]")}
-        style={{ overflow: "hidden", display: "flex", flexDirection: "column" }}
+        className={cn("w-full p-1.5")}
+        style={{
+          overflow: "hidden",
+          display: "flex",
+          flexDirection: "column",
+          height: fullscreen ? "calc(100vh - 37px)" : height,
+        }}
       />
     </div>
   );

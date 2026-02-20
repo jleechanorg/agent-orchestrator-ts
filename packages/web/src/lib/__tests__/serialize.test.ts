@@ -329,8 +329,8 @@ describe("enrichSessionPR", () => {
     const dashboard = sessionToDashboard(coreSession);
     const scm = createFailingSCM();
 
-    // Spy on console.error
-    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    // Spy on console.warn (enrichSessionPR uses warn for rate-limit, not error)
+    const consoleWarnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
 
     await enrichSessionPR(dashboard, scm, pr);
 
@@ -339,10 +339,10 @@ describe("enrichSessionPR", () => {
     expect(dashboard.pr?.deletions).toBe(0);
     expect(dashboard.pr?.mergeability.blockers).toContain("API rate limited or unavailable");
 
-    // Should log error
-    expect(consoleErrorSpy).toHaveBeenCalled();
+    // Should log warning
+    expect(consoleWarnSpy).toHaveBeenCalled();
 
-    consoleErrorSpy.mockRestore();
+    consoleWarnSpy.mockRestore();
   });
 
   it("should cache even when most requests fail (to reduce API pressure)", async () => {

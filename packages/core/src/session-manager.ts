@@ -250,11 +250,21 @@ export function createSessionManager(deps: SessionManagerDeps): SessionManager {
    * Enrich session with live runtime state (alive/exited) and activity detection.
    * Mutates the session object in place.
    */
+  const TERMINAL_SESSION_STATUSES = new Set([
+    "killed", "done", "merged", "terminated", "cleanup",
+  ]);
+
   async function enrichSessionWithRuntimeState(
     session: Session,
     plugins: ReturnType<typeof resolvePlugins>,
     handleFromMetadata: boolean,
   ): Promise<void> {
+    // Skip all subprocess/IO work for sessions already known to be terminal.
+    if (TERMINAL_SESSION_STATUSES.has(session.status)) {
+      session.activity = "exited";
+      return;
+    }
+
     // Check runtime liveness — but only if the handle came from metadata.
     // Fabricated handles (constructed as fallback for external sessions) should
     // NOT override status to "killed" — we don't know if the session ever had
@@ -280,10 +290,23 @@ export function createSessionManager(deps: SessionManagerDeps): SessionManager {
       try {
         const detected = await plugins.agent.getActivityState(session, config.readyThresholdMs);
         if (detected !== null) {
-          session.activity = detected;
+          session.activity = detected.state;
+          if (detected.timestamp && detected.timestamp > session.lastActivityAt) {
+            session.lastActivityAt = detected.timestamp;
+          }
         }
       } catch {
         // Can't detect activity — keep existing value
+      }
+
+      // Enrich with live agent session info (summary, cost).
+      try {
+        const info = await plugins.agent.getSessionInfo(session);
+        if (info) {
+          session.agentInfo = info;
+        }
+      } catch {
+        // Can't get session info — keep existing values
       }
     }
   }
@@ -647,16 +670,14 @@ export function createSessionManager(deps: SessionManagerDeps): SessionManager {
 
   async function list(projectId?: string): Promise<Session[]> {
     const allSessions = listAllSessions(projectId);
-    const sessions: Session[] = [];
 
-    for (const { sessionName, projectId: sessionProjectId } of allSessions) {
-      // Use config key to find project
+    const sessionPromises = allSessions.map(async ({ sessionName, projectId: sessionProjectId }) => {
       const project = config.projects[sessionProjectId];
-      if (!project) continue;
+      if (!project) return null;
 
       const sessionsDir = getProjectSessionsDir(project);
       const raw = readMetadataRaw(sessionsDir, sessionName);
-      if (!raw) continue;
+      if (!raw) return null;
 
       // Get file timestamps for createdAt/lastActivityAt
       let createdAt: Date | undefined;
@@ -673,12 +694,16 @@ export function createSessionManager(deps: SessionManagerDeps): SessionManager {
       const session = metadataToSession(sessionName, raw, createdAt, modifiedAt);
 
       const plugins = resolvePlugins(project);
-      await ensureHandleAndEnrich(session, sessionName, project, plugins);
+      // Cap per-session enrichment at 2s — subprocess calls (tmux/ps) can be
+      // slow under load. If we time out, session keeps its metadata values.
+      const enrichTimeout = new Promise<void>((resolve) => setTimeout(resolve, 2_000));
+      await Promise.race([ensureHandleAndEnrich(session, sessionName, project, plugins), enrichTimeout]);
 
-      sessions.push(session);
-    }
+      return session;
+    });
 
-    return sessions;
+    const results = await Promise.all(sessionPromises);
+    return results.filter((s): s is Session => s !== null);
   }
 
   async function get(sessionId: SessionId): Promise<Session | null> {

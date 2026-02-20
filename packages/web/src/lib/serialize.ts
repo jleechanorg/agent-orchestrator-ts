@@ -106,8 +106,9 @@ export async function enrichSessionPR(
   dashboard: DashboardSession,
   scm: SCM,
   pr: PRInfo,
-): Promise<void> {
-  if (!dashboard.pr) return;
+  opts?: { cacheOnly?: boolean },
+): Promise<boolean> {
+  if (!dashboard.pr) return false;
 
   const cacheKey = prCacheKey(pr.owner, pr.repo, pr.number);
 
@@ -118,18 +119,17 @@ export async function enrichSessionPR(
     dashboard.pr.title = cached.title;
     dashboard.pr.additions = cached.additions;
     dashboard.pr.deletions = cached.deletions;
-    dashboard.pr.ciStatus = cached.ciStatus as "none" | "pending" | "passing" | "failing";
-    dashboard.pr.ciChecks = cached.ciChecks as DashboardPR["ciChecks"];
-    dashboard.pr.reviewDecision = cached.reviewDecision as
-      | "none"
-      | "pending"
-      | "approved"
-      | "changes_requested";
+    dashboard.pr.ciStatus = cached.ciStatus;
+    dashboard.pr.ciChecks = cached.ciChecks;
+    dashboard.pr.reviewDecision = cached.reviewDecision;
     dashboard.pr.mergeability = cached.mergeability;
     dashboard.pr.unresolvedThreads = cached.unresolvedThreads;
     dashboard.pr.unresolvedComments = cached.unresolvedComments;
-    return;
+    return true;
   }
+
+  // Cache miss — if cacheOnly, signal caller to refresh in background
+  if (opts?.cacheOnly) return false;
 
   // Fetch from SCM
   const results = await Promise.allSettled([
@@ -152,16 +152,15 @@ export async function enrichSessionPR(
   const mostFailed = failedCount >= results.length / 2;
 
   if (mostFailed) {
-    // Log warning but continue to apply partial data
     const rejectedResults = results.filter(
       (r) => r.status === "rejected",
     ) as PromiseRejectedResult[];
     const firstError = rejectedResults[0]?.reason;
-    console.error(
-      `[enrichSessionPR] ${failedCount}/${results.length} API calls failed for PR #${pr.number}:`,
-      firstError,
+    console.warn(
+      `[enrichSessionPR] ${failedCount}/${results.length} API calls failed for PR #${pr.number} (rate limited or unavailable):`,
+      String(firstError),
     );
-    // Add blocker message but don't return early — apply any successful results below
+    // Don't return early — apply any successful results below
   }
 
   // Apply successful results
@@ -217,8 +216,26 @@ export async function enrichSessionPR(
     dashboard.pr.mergeability.blockers.push("API rate limited or unavailable");
   }
 
-  // Always cache the result (including partial data from rate-limited requests)
-  // This reduces API pressure during rate-limit periods - subsequent refreshes use cached partial data
+  // If rate limited, cache the partial data with a long TTL (5 min) so we stop
+  // hammering the API on every page load. The rate-limit blocker flag tells the
+  // UI to show stale-data warnings instead of making decisions on bad data.
+  if (mostFailed) {
+    const rateLimitedData: PREnrichmentData = {
+      state: dashboard.pr.state,
+      title: dashboard.pr.title,
+      additions: dashboard.pr.additions,
+      deletions: dashboard.pr.deletions,
+      ciStatus: dashboard.pr.ciStatus,
+      ciChecks: dashboard.pr.ciChecks,
+      reviewDecision: dashboard.pr.reviewDecision,
+      mergeability: dashboard.pr.mergeability,
+      unresolvedThreads: dashboard.pr.unresolvedThreads,
+      unresolvedComments: dashboard.pr.unresolvedComments,
+    };
+    prCache.set(cacheKey, rateLimitedData, 60 * 60_000); // 60 min — GitHub rate limit resets hourly
+    return true;
+  }
+
   const cacheData: PREnrichmentData = {
     state: dashboard.pr.state,
     title: dashboard.pr.title,
@@ -232,6 +249,7 @@ export async function enrichSessionPR(
     unresolvedComments: dashboard.pr.unresolvedComments,
   };
   prCache.set(cacheKey, cacheData);
+  return true;
 }
 
 /** Enrich a DashboardSession's issue label using the tracker plugin. */

@@ -22,12 +22,16 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
     // Enrich metadata (issue labels, agent summaries, issue titles)
     await enrichSessionsMetadata([coreSession], [dashboardSession], config, registry);
 
-    // Enrich PR with live data from SCM
+    // Enrich PR — serve cache immediately, refresh in background if stale
     if (coreSession.pr) {
       const project = resolveProject(coreSession, config.projects);
       const scm = getSCM(registry, project);
       if (scm) {
-        await enrichSessionPR(dashboardSession, scm, coreSession.pr);
+        const cached = await enrichSessionPR(dashboardSession, scm, coreSession.pr, { cacheOnly: true });
+        if (!cached) {
+          // Nothing cached yet — block once to populate, then future calls use cache
+          await enrichSessionPR(dashboardSession, scm, coreSession.pr);
+        }
       }
     }
 

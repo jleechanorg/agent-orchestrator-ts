@@ -10,7 +10,7 @@ interface CacheEntry<T> {
   expiresAt: number;
 }
 
-const DEFAULT_TTL_MS = 60_000; // 60 seconds
+const DEFAULT_TTL_MS = 5 * 60_000; // 5 minutes
 
 /**
  * Simple TTL cache backed by a Map.
@@ -44,11 +44,11 @@ export class TTLCache<T> {
     return entry.value;
   }
 
-  /** Set a cache entry with TTL */
-  set(key: string, value: T): void {
+  /** Set a cache entry with TTL (optional override) */
+  set(key: string, value: T, ttlMs?: number): void {
     this.cache.set(key, {
       value,
-      expiresAt: Date.now() + this.ttlMs,
+      expiresAt: Date.now() + (ttlMs ?? this.ttlMs),
     });
   }
 
@@ -86,9 +86,9 @@ export interface PREnrichmentData {
   title: string;
   additions: number;
   deletions: number;
-  ciStatus: string;
-  ciChecks: Array<{ name: string; status: string; url?: string }>;
-  reviewDecision: string;
+  ciStatus: "none" | "pending" | "passing" | "failing";
+  ciChecks: Array<{ name: string; status: "pending" | "running" | "passed" | "failed" | "skipped"; url?: string }>;
+  reviewDecision: "none" | "pending" | "approved" | "changes_requested";
   mergeability: {
     mergeable: boolean;
     ciPassing: boolean;

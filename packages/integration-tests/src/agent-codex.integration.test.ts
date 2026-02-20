@@ -14,7 +14,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import type { ActivityState, AgentSessionInfo } from "@composio/ao-core";
+import type { ActivityDetection, AgentSessionInfo } from "@composio/ao-core";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import codexPlugin from "@composio/ao-plugin-agent-codex";
 import {
@@ -62,11 +62,11 @@ describe.skipIf(!canRun)("agent-codex (integration)", () => {
 
   // Observations captured while the agent is alive
   let aliveRunning = false;
-  let aliveActivityState: ActivityState | null | undefined;
+  let aliveActivityState: ActivityDetection | null | undefined;
 
   // Observations captured after the agent exits
   let exitedRunning: boolean;
-  let exitedActivityState: ActivityState | null;
+  let exitedActivityState: ActivityDetection | null;
   let sessionInfo: AgentSessionInfo | null;
 
   beforeAll(async () => {
@@ -86,7 +86,7 @@ describe.skipIf(!canRun)("agent-codex (integration)", () => {
       if (running) {
         aliveRunning = true;
         const activityState = await agent.getActivityState(session);
-        if (activityState !== "exited") {
+        if (activityState?.state !== "exited") {
           aliveActivityState = activityState;
           break;
         }
@@ -128,7 +128,7 @@ describe.skipIf(!canRun)("agent-codex (integration)", () => {
   });
 
   it("getActivityState → returns exited after agent process terminates", () => {
-    expect(exitedActivityState).toBe("exited");
+    expect(exitedActivityState?.state).toBe("exited");
   });
 
   it("getSessionInfo → null (not implemented for codex)", () => {

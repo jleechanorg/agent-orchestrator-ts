@@ -147,7 +147,11 @@ export function createDirectTerminalServer(tmuxPath?: string): DirectTerminalSer
     // PTY exit
     pty.onExit(({ exitCode }) => {
       console.log(`[DirectTerminal] PTY exited for ${sessionId} with code ${exitCode}`);
-      activeSessions.delete(sessionId);
+      // Guard against stale exits: only delete if this pty is still the active one.
+      // A new connection may have already replaced this session entry.
+      if (activeSessions.get(sessionId)?.pty === pty) {
+        activeSessions.delete(sessionId);
+      }
       if (ws.readyState === WebSocket.OPEN) {
         ws.close(1000, "Terminal session ended");
       }
@@ -177,14 +181,20 @@ export function createDirectTerminalServer(tmuxPath?: string): DirectTerminalSer
     // WebSocket close
     ws.on("close", () => {
       console.log(`[DirectTerminal] WebSocket closed for ${sessionId}`);
-      activeSessions.delete(sessionId);
+      // Guard against stale closes replacing a newer session's entry
+      if (activeSessions.get(sessionId)?.pty === pty) {
+        activeSessions.delete(sessionId);
+      }
       pty.kill();
     });
 
     // WebSocket error
     ws.on("error", (err) => {
       console.error(`[DirectTerminal] WebSocket error for ${sessionId}:`, err.message);
-      activeSessions.delete(sessionId);
+      // Guard against stale error handlers replacing a newer session's entry
+      if (activeSessions.get(sessionId)?.pty === pty) {
+        activeSessions.delete(sessionId);
+      }
       pty.kill();
     });
   });

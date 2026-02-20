@@ -149,6 +149,15 @@ export interface SSEActivityEvent {
   timestamp: string;
 }
 
+/**
+ * Returns true when this PR's enrichment data couldn't be fetched due to
+ * API rate limiting. When true, CI status / review decision / mergeability
+ * may be stale defaults — don't make decisions based on them.
+ */
+export function isPRRateLimited(pr: DashboardPR): boolean {
+  return pr.mergeability.blockers.includes("API rate limited or unavailable");
+}
+
 /** Determines which attention zone a session belongs to */
 export function getAttentionLevel(session: DashboardSession): AttentionLevel {
   // ── Done: terminal states ─────────────────────────────────────────
@@ -200,7 +209,7 @@ export function getAttentionLevel(session: DashboardSession): AttentionLevel {
   if (session.status === "ci_failed" || session.status === "changes_requested") {
     return "review";
   }
-  if (session.pr) {
+  if (session.pr && !isPRRateLimited(session.pr)) {
     const pr = session.pr;
     if (pr.ciStatus === CI_STATUS.FAILING) return "review";
     if (pr.reviewDecision === "changes_requested") return "review";
@@ -211,7 +220,7 @@ export function getAttentionLevel(session: DashboardSession): AttentionLevel {
   if (session.status === "review_pending") {
     return "pending";
   }
-  if (session.pr) {
+  if (session.pr && !isPRRateLimited(session.pr)) {
     const pr = session.pr;
     if (!pr.isDraft && pr.unresolvedThreads > 0) return "pending";
     if (!pr.isDraft && (pr.reviewDecision === "pending" || pr.reviewDecision === "none")) {

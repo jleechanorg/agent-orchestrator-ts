@@ -5,6 +5,7 @@ import {
   type Agent,
   type AgentSessionInfo,
   type AgentLaunchConfig,
+  type ActivityDetection,
   type ActivityState,
   type CostEstimate,
   type PluginModule,
@@ -14,7 +15,7 @@ import {
   type WorkspaceHooksConfig,
 } from "@composio/ao-core";
 import { execFile } from "node:child_process";
-import { readdir, readFile, stat, writeFile, mkdir, chmod } from "node:fs/promises";
+import { readdir, readFile, stat, open, writeFile, mkdir, chmod } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
@@ -253,21 +254,48 @@ interface JsonlLine {
  * Now uses the shared readLastJsonlEntry utility from @composio/ao-core.
  */
 
-/** Parse JSONL file into lines (skipping invalid JSON) */
-async function parseJsonlFile(filePath: string): Promise<JsonlLine[]> {
+/**
+ * Parse only the last `maxBytes` of a JSONL file.
+ * Summaries and recent activity are always near the end, so reading the whole
+ * file (which can be 100MB+) is wasteful. For files smaller than maxBytes,
+ * readFile is used directly. For large files, only the tail is read via a
+ * file handle to avoid loading the entire file into memory.
+ */
+async function parseJsonlFileTail(filePath: string, maxBytes = 131_072): Promise<JsonlLine[]> {
   let content: string;
+  let offset: number;
   try {
-    content = await readFile(filePath, "utf-8");
+    const { size = 0 } = await stat(filePath);
+    offset = Math.max(0, size - maxBytes);
+    if (offset === 0) {
+      // Small file (or unknown size) — read it whole
+      content = await readFile(filePath, "utf-8");
+    } else {
+      // Large file — read only the tail via a file handle
+      const handle = await open(filePath, "r");
+      try {
+        const length = size - offset;
+        const buffer = Buffer.allocUnsafe(length);
+        await handle.read(buffer, 0, length, offset);
+        content = buffer.toString("utf-8");
+      } finally {
+        await handle.close();
+      }
+    }
   } catch {
     return [];
   }
+  // Skip potentially truncated first line only when we started mid-file.
+  // If offset === 0 we read from the start so the first line is complete.
+  const firstNewline = content.indexOf("\n");
+  const safeContent =
+    offset > 0 && firstNewline >= 0 ? content.slice(firstNewline + 1) : content;
   const lines: JsonlLine[] = [];
-  for (const line of content.split("\n")) {
+  for (const line of safeContent.split("\n")) {
     const trimmed = line.trim();
     if (!trimmed) continue;
     try {
       const parsed: unknown = JSON.parse(trimmed);
-      // Skip non-object values (null, numbers, strings, arrays)
       if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
         lines.push(parsed as JsonlLine);
       }
@@ -618,13 +646,14 @@ function createClaudeCodeAgent(): Agent {
     async getActivityState(
       session: Session,
       readyThresholdMs?: number,
-    ): Promise<ActivityState | null> {
+    ): Promise<ActivityDetection | null> {
       const threshold = readyThresholdMs ?? DEFAULT_READY_THRESHOLD_MS;
 
       // Check if process is running first
-      if (!session.runtimeHandle) return "exited";
+      const exitedAt = new Date();
+      if (!session.runtimeHandle) return { state: "exited", timestamp: exitedAt };
       const running = await this.isProcessRunning(session.runtimeHandle);
-      if (!running) return "exited";
+      if (!running) return { state: "exited", timestamp: exitedAt };
 
       // Process is running - check JSONL session file for activity
       if (!session.workspacePath) {
@@ -648,48 +677,28 @@ function createClaudeCodeAgent(): Agent {
       }
 
       const ageMs = Date.now() - entry.modifiedAt.getTime();
+      const timestamp = entry.modifiedAt;
 
-      // Classify based on last JSONL entry type.
-      //
-      // Real Claude Code JSONL types (observed in production):
-      //   progress           — streaming tokens (most frequent)
-      //   assistant          — completed assistant response
-      //   user               — user message submitted
-      //   system             — system messages
-      //   file-history-snapshot — file change tracking
-      //   queue-operation    — internal queue ops
-      //   pr-link            — PR URL logged
-      //
-      // Types from the Agent interface spec (may appear in future versions):
-      //   tool_use, permission_request, error, summary, result
       switch (entry.lastType) {
         case "user":
         case "tool_use":
         case "progress":
-          // Agent is processing: user just sent input, tools running, or
-          // actively streaming. Stale past threshold.
-          return ageMs > threshold ? "idle" : "active";
+          return { state: ageMs > threshold ? "idle" : "active", timestamp };
 
         case "assistant":
         case "system":
         case "summary":
         case "result":
-          // Agent finished its turn. If recent, the session is alive and
-          // ready for the next instruction. Past threshold it's stale.
-          return ageMs > threshold ? "idle" : "ready";
+          return { state: ageMs > threshold ? "idle" : "ready", timestamp };
 
         case "permission_request":
-          // Agent needs user approval for an action
-          return "waiting_input";
+          return { state: "waiting_input", timestamp };
 
         case "error":
-          // Agent encountered an error
-          return "blocked";
+          return { state: "blocked", timestamp };
 
         default:
-          // Unknown/bookkeeping types (file-history-snapshot, queue-operation,
-          // pr-link, etc.) — if recent, assume active; otherwise idle.
-          return ageMs > threshold ? "idle" : "active";
+          return { state: ageMs > threshold ? "idle" : "active", timestamp };
       }
     },
 
@@ -704,17 +713,8 @@ function createClaudeCodeAgent(): Agent {
       const sessionFile = await findLatestSessionFile(projectDir);
       if (!sessionFile) return null;
 
-      // Get file modification time
-      let lastLogModified: Date | undefined;
-      try {
-        const fileStat = await stat(sessionFile);
-        lastLogModified = fileStat.mtime;
-      } catch {
-        // Ignore stat errors
-      }
-
-      // Parse the JSONL
-      const lines = await parseJsonlFile(sessionFile);
+      // Parse only the tail — summaries are always near the end, files can be 100MB+
+      const lines = await parseJsonlFileTail(sessionFile);
       if (lines.length === 0) return null;
 
       // Extract session ID from filename
@@ -726,7 +726,6 @@ function createClaudeCodeAgent(): Agent {
         summaryIsFallback: summaryResult?.isFallback,
         agentSessionId,
         cost: extractCost(lines),
-        lastLogModified,
       };
     },
 

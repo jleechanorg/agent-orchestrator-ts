@@ -186,6 +186,16 @@ cp /path/to/main/agent-orchestrator.yaml .  # Copy config
 cd packages/web && pnpm dev  # Start server
 ```
 
+## Using Playwright (MCP browser tool)
+
+Before navigating with Playwright, kill any stale Chrome for Testing instance first — otherwise it fails silently with "Opening in existing browser session":
+
+```bash
+pkill -f "Google Chrome for Testing"
+```
+
+Then use `browser_navigate` as normal. If Playwright was previously used in the session it may have left an orphaned Chrome process.
+
 ## Common Mistakes to Avoid
 
 - Using `exec` instead of `execFile` — security vulnerability

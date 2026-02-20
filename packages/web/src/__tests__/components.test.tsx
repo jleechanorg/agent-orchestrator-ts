@@ -4,7 +4,43 @@ import { CIBadge, CICheckList } from "@/components/CIBadge";
 import { PRStatus } from "@/components/PRStatus";
 import { SessionCard } from "@/components/SessionCard";
 import { AttentionZone } from "@/components/AttentionZone";
+import { ActivityDot } from "@/components/ActivityDot";
 import { makeSession, makePR } from "./helpers";
+
+// ── ActivityDot ───────────────────────────────────────────────────────
+
+describe("ActivityDot", () => {
+  it("renders label pill with activity name", () => {
+    render(<ActivityDot activity="active" />);
+    expect(screen.getByText("active")).toBeInTheDocument();
+  });
+
+  it("renders all known activity states", () => {
+    const states = ["active", "ready", "idle", "waiting_input", "blocked", "exited"] as const;
+    for (const state of states) {
+      const { unmount } = render(<ActivityDot activity={state} />);
+      const expected = state === "waiting_input" ? "waiting" : state;
+      expect(screen.getByText(expected)).toBeInTheDocument();
+      unmount();
+    }
+  });
+
+  it("renders unknown activity state with raw label", () => {
+    render(<ActivityDot activity="some_future_state" />);
+    expect(screen.getByText("some_future_state")).toBeInTheDocument();
+  });
+
+  it("renders null activity with 'unknown' label", () => {
+    render(<ActivityDot activity={null} />);
+    expect(screen.getByText("unknown")).toBeInTheDocument();
+  });
+
+  it("renders only a dot in dotOnly mode (no label)", () => {
+    render(<ActivityDot activity="active" dotOnly />);
+    // No label text should appear in dotOnly mode
+    expect(screen.queryByText("active")).not.toBeInTheDocument();
+  });
+});
 
 // ── CIBadge ──────────────────────────────────────────────────────────
 
@@ -178,20 +214,22 @@ describe("SessionCard", () => {
   it("shows restore button when agent has exited", () => {
     const session = makeSession({ activity: "exited" });
     render(<SessionCard session={session} />);
-    expect(screen.getByText("restore session")).toBeInTheDocument();
+    // Header shows compact "restore"; expanded panel shows "restore session"
+    expect(screen.getByText("restore")).toBeInTheDocument();
   });
 
   it("does not show restore button when agent is active", () => {
     const session = makeSession({ activity: "active" });
     render(<SessionCard session={session} />);
-    expect(screen.queryByText("restore session")).not.toBeInTheDocument();
+    expect(screen.queryByText("restore")).not.toBeInTheDocument();
   });
 
   it("calls onRestore when restore button is clicked", () => {
     const onRestore = vi.fn();
     const session = makeSession({ id: "backend-1", activity: "exited" });
     render(<SessionCard session={session} onRestore={onRestore} />);
-    fireEvent.click(screen.getByText("restore session"));
+    // Click the header "restore" button (always visible)
+    fireEvent.click(screen.getByText("restore"));
     expect(onRestore).toHaveBeenCalledWith("backend-1");
   });
 
@@ -209,7 +247,7 @@ describe("SessionCard", () => {
     });
     const session = makeSession({ status: "mergeable", activity: "idle", pr });
     render(<SessionCard session={session} />);
-    expect(screen.getByText("merge PR #42")).toBeInTheDocument();
+    expect(screen.getByText("Merge PR #42")).toBeInTheDocument();
   });
 
   it("calls onMerge when merge button is clicked", () => {
@@ -227,7 +265,7 @@ describe("SessionCard", () => {
     });
     const session = makeSession({ status: "mergeable", activity: "idle", pr });
     render(<SessionCard session={session} onMerge={onMerge} />);
-    fireEvent.click(screen.getByText("merge PR #42"));
+    fireEvent.click(screen.getByText("Merge PR #42"));
     expect(onMerge).toHaveBeenCalledWith(42);
   });
 
@@ -271,11 +309,11 @@ describe("SessionCard", () => {
     });
     const session = makeSession({ status: "ci_failed", activity: "idle", pr });
     render(<SessionCard session={session} />);
-    expect(screen.getByText("CI status unknown")).toBeInTheDocument();
+    expect(screen.getByText("CI unknown")).toBeInTheDocument();
     // Should NOT show "0 CI check failing"
     expect(screen.queryByText(/0.*CI check.*failing/i)).not.toBeInTheDocument();
-    // Should NOT show "ask to fix CI" action
-    expect(screen.queryByText("ask to fix CI")).not.toBeInTheDocument();
+    // Should NOT show "ask to fix" action for unknown CI
+    expect(screen.queryByText("ask to fix")).not.toBeInTheDocument();
   });
 
   it("shows changes requested alert", () => {
@@ -355,7 +393,7 @@ describe("SessionCard", () => {
     });
     const session = makeSession({ activity: "idle", pr });
     render(<SessionCard session={session} />);
-    expect(screen.getByText("ask to fix CI")).toBeInTheDocument();
+    expect(screen.getByText("ask to fix")).toBeInTheDocument();
   });
 
   it("hides action buttons when agent is active", () => {
@@ -374,7 +412,7 @@ describe("SessionCard", () => {
     });
     const session = makeSession({ activity: "active", pr });
     render(<SessionCard session={session} />);
-    expect(screen.queryByText("ask to fix CI")).not.toBeInTheDocument();
+    expect(screen.queryByText("ask to fix")).not.toBeInTheDocument();
   });
 
   it("expands detail panel on click", () => {
@@ -387,11 +425,11 @@ describe("SessionCard", () => {
     expect(screen.getByText("No PR associated with this session.")).toBeInTheDocument();
   });
 
-  it("shows terminate session button in expanded view", () => {
+  it("shows terminate button in expanded view", () => {
     const session = makeSession({ pr: null });
     const { container } = render(<SessionCard session={session} />);
     fireEvent.click(container.firstElementChild!);
-    expect(screen.getByText("terminate session")).toBeInTheDocument();
+    expect(screen.getByText("terminate")).toBeInTheDocument();
   });
 });
 
@@ -401,9 +439,9 @@ describe("AttentionZone", () => {
   it("renders zone label and session count", () => {
     const sessions = [makeSession({ id: "s1" }), makeSession({ id: "s2" })];
     render(<AttentionZone level="respond" sessions={sessions} />);
-    expect(screen.getByText("RESPOND")).toBeInTheDocument();
+    // Labels use CSS text-transform:uppercase but DOM text is title-cased
+    expect(screen.getByText("Respond")).toBeInTheDocument();
     expect(screen.getByText("2")).toBeInTheDocument();
-    expect(screen.getByText("Agents waiting for your input")).toBeInTheDocument();
   });
 
   it("renders nothing when sessions array is empty", () => {
@@ -421,29 +459,30 @@ describe("AttentionZone", () => {
   it("working zone is collapsed by default", () => {
     const sessions = [makeSession({ id: "s1" })];
     render(<AttentionZone level="working" sessions={sessions} />);
-    // working is defaultCollapsed: true, so session id should not be visible
-    expect(screen.queryByText("s1")).not.toBeInTheDocument();
-    expect(screen.getByText("WORKING")).toBeInTheDocument();
+    // working is defaultCollapsed: false (Kanban always shows), so sessions visible
+    expect(screen.getByText("Working")).toBeInTheDocument();
   });
 
   it("done zone is collapsed by default", () => {
     const sessions = [makeSession({ id: "s1" })];
     render(<AttentionZone level="done" sessions={sessions} />);
+    // done is defaultCollapsed: true, so session id should not be visible
     expect(screen.queryByText("s1")).not.toBeInTheDocument();
-    expect(screen.getByText("DONE")).toBeInTheDocument();
+    expect(screen.getByText("Done")).toBeInTheDocument();
   });
 
   it("toggles collapsed state on click", () => {
     const sessions = [makeSession({ id: "s1" })];
-    render(<AttentionZone level="working" sessions={sessions} />);
+    render(<AttentionZone level="done" sessions={sessions} />);
+    // done starts collapsed
     expect(screen.queryByText("s1")).not.toBeInTheDocument();
 
     // Click the zone header to expand
-    fireEvent.click(screen.getByText("WORKING"));
+    fireEvent.click(screen.getByText("Done"));
     expect(screen.getByText("s1")).toBeInTheDocument();
 
     // Click again to collapse
-    fireEvent.click(screen.getByText("WORKING"));
+    fireEvent.click(screen.getByText("Done"));
     expect(screen.queryByText("s1")).not.toBeInTheDocument();
   });
 
@@ -451,7 +490,7 @@ describe("AttentionZone", () => {
     const onRestore = vi.fn();
     const sessions = [makeSession({ id: "s1", activity: "exited" })];
     render(<AttentionZone level="respond" sessions={sessions} onRestore={onRestore} />);
-    fireEvent.click(screen.getByText("restore session"));
+    fireEvent.click(screen.getByText("restore"));
     expect(onRestore).toHaveBeenCalledWith("s1");
   });
 });

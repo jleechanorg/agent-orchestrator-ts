@@ -36,8 +36,9 @@ export async function GET(request: Request) {
       dashboardSessions = activeIndices.map((i) => dashboardSessions[i]);
     }
 
-    // Enrich metadata (issue labels, agent summaries, issue titles)
-    await enrichSessionsMetadata(workerSessions, dashboardSessions, config, registry);
+    // Enrich metadata (issue labels, agent summaries, issue titles) — cap at 3s
+    const metaTimeout = new Promise<void>((resolve) => setTimeout(resolve, 3_000));
+    await Promise.race([enrichSessionsMetadata(workerSessions, dashboardSessions, config, registry), metaTimeout]);
 
     // Enrich sessions that have PRs with live SCM data (CI, reviews, mergeability)
     const enrichPromises = workerSessions.map((core, i) => {
@@ -47,7 +48,8 @@ export async function GET(request: Request) {
       if (!scm) return Promise.resolve();
       return enrichSessionPR(dashboardSessions[i], scm, core.pr);
     });
-    await Promise.allSettled(enrichPromises);
+    const enrichTimeout = new Promise<void>((resolve) => setTimeout(resolve, 4_000));
+    await Promise.race([Promise.allSettled(enrichPromises), enrichTimeout]);
 
     return NextResponse.json({
       sessions: dashboardSessions,

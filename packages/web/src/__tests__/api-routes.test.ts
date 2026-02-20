@@ -185,7 +185,7 @@ describe("API Routes", () => {
 
   describe("GET /api/sessions", () => {
     it("returns sessions array and stats", async () => {
-      const res = await sessionsGET();
+      const res = await sessionsGET(makeRequest("http://localhost:3000/api/sessions"));
       expect(res.status).toBe(200);
       const data = await res.json();
       expect(data.sessions).toBeDefined();
@@ -196,7 +196,7 @@ describe("API Routes", () => {
     });
 
     it("stats include expected fields", async () => {
-      const res = await sessionsGET();
+      const res = await sessionsGET(makeRequest("http://localhost:3000/api/sessions"));
       const data = await res.json();
       expect(data.stats).toHaveProperty("totalSessions");
       expect(data.stats).toHaveProperty("workingSessions");
@@ -205,7 +205,7 @@ describe("API Routes", () => {
     });
 
     it("sessions have expected shape", async () => {
-      const res = await sessionsGET();
+      const res = await sessionsGET(makeRequest("http://localhost:3000/api/sessions"));
       const data = await res.json();
       const session = data.sessions[0];
       expect(session).toHaveProperty("id");
