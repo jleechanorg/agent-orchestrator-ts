@@ -139,6 +139,7 @@ export function writeMetadata(
   if (metadata.pr) data["pr"] = metadata.pr;
   if (metadata.summary) data["summary"] = metadata.summary;
   if (metadata.project) data["project"] = metadata.project;
+  if (metadata.agent) data["agent"] = metadata.agent;
   if (metadata.createdAt) data["createdAt"] = metadata.createdAt;
   if (metadata.runtimeHandle) data["runtimeHandle"] = metadata.runtimeHandle;
   if (metadata.dashboardPort !== undefined)

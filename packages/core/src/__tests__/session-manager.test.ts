@@ -283,6 +283,26 @@ describe("spawn", () => {
       expect(mockAgent.getLaunchCommand).toHaveBeenCalled();
       expect(mockCodexAgent.getLaunchCommand).not.toHaveBeenCalled();
     });
+
+    it("persists agent name in metadata when override is used", async () => {
+      const sm = createSessionManager({ config, registry: registryWithMultipleAgents });
+
+      await sm.spawn({ projectId: "my-app", agent: "codex" });
+
+      const meta = readMetadataRaw(sessionsDir, "app-1");
+      expect(meta).not.toBeNull();
+      expect(meta!["agent"]).toBe("codex");
+    });
+
+    it("persists default agent name in metadata when no override", async () => {
+      const sm = createSessionManager({ config, registry: registryWithMultipleAgents });
+
+      await sm.spawn({ projectId: "my-app" });
+
+      const meta = readMetadataRaw(sessionsDir, "app-1");
+      expect(meta).not.toBeNull();
+      expect(meta!["agent"]).toBe("mock-agent");
+    });
   });
 
   it("validates issue exists when issueId provided", async () => {

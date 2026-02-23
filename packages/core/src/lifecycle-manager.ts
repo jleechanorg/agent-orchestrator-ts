@@ -183,7 +183,8 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     const project = config.projects[session.projectId];
     if (!project) return session.status;
 
-    const agent = registry.get<Agent>("agent", project.agent ?? config.defaults.agent);
+    const agentName = session.metadata["agent"] ?? project.agent ?? config.defaults.agent;
+    const agent = registry.get<Agent>("agent", agentName);
     const scm = project.scm ? registry.get<SCM>("scm", project.scm.plugin) : null;
 
     // 1. Check if runtime is alive
