@@ -227,6 +227,64 @@ describe("spawn", () => {
     await expect(sm.spawn({ projectId: "my-app" })).rejects.toThrow("not found");
   });
 
+  describe("agent override", () => {
+    let mockCodexAgent: Agent;
+    let registryWithMultipleAgents: PluginRegistry;
+
+    beforeEach(() => {
+      mockCodexAgent = {
+        name: "codex",
+        processName: "codex",
+        getLaunchCommand: vi.fn().mockReturnValue("codex --start"),
+        getEnvironment: vi.fn().mockReturnValue({ CODEX_VAR: "1" }),
+        detectActivity: vi.fn().mockReturnValue("active"),
+        getActivityState: vi.fn().mockResolvedValue(null),
+        isProcessRunning: vi.fn().mockResolvedValue(true),
+        getSessionInfo: vi.fn().mockResolvedValue(null),
+      };
+
+      registryWithMultipleAgents = {
+        ...mockRegistry,
+        get: vi.fn().mockImplementation((slot: string, name: string) => {
+          if (slot === "runtime") return mockRuntime;
+          if (slot === "agent") {
+            if (name === "mock-agent") return mockAgent;
+            if (name === "codex") return mockCodexAgent;
+            return null;
+          }
+          if (slot === "workspace") return mockWorkspace;
+          return null;
+        }),
+      };
+    });
+
+    it("uses overridden agent when spawnConfig.agent is provided", async () => {
+      const sm = createSessionManager({ config, registry: registryWithMultipleAgents });
+
+      await sm.spawn({ projectId: "my-app", agent: "codex" });
+
+      expect(mockCodexAgent.getLaunchCommand).toHaveBeenCalled();
+      expect(mockAgent.getLaunchCommand).not.toHaveBeenCalled();
+    });
+
+    it("throws when agent override plugin is not found", async () => {
+      const sm = createSessionManager({ config, registry: registryWithMultipleAgents });
+
+      await expect(
+        sm.spawn({ projectId: "my-app", agent: "nonexistent" }),
+      ).rejects.toThrow("Agent plugin 'nonexistent' not found");
+    });
+
+    it("uses default agent when no override specified", async () => {
+      const sm = createSessionManager({ config, registry: registryWithMultipleAgents });
+
+      await sm.spawn({ projectId: "my-app" });
+
+      expect(mockAgent.getLaunchCommand).toHaveBeenCalled();
+      expect(mockCodexAgent.getLaunchCommand).not.toHaveBeenCalled();
+    });
+  });
+
   it("validates issue exists when issueId provided", async () => {
     const mockTracker: Tracker = {
       name: "mock-tracker",
