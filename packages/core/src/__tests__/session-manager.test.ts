@@ -303,6 +303,16 @@ describe("spawn", () => {
       expect(meta).not.toBeNull();
       expect(meta!["agent"]).toBe("mock-agent");
     });
+
+    it("readMetadata returns agent field (typed SessionMetadata)", async () => {
+      const sm = createSessionManager({ config, registry: registryWithMultipleAgents });
+
+      await sm.spawn({ projectId: "my-app", agent: "codex" });
+
+      const meta = readMetadata(sessionsDir, "app-1");
+      expect(meta).not.toBeNull();
+      expect(meta!.agent).toBe("codex");
+    });
   });
 
   it("validates issue exists when issueId provided", async () => {

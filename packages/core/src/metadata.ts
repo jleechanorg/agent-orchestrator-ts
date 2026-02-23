@@ -97,6 +97,7 @@ export function readMetadata(dataDir: string, sessionId: SessionId): SessionMeta
     pr: raw["pr"],
     summary: raw["summary"],
     project: raw["project"],
+    agent: raw["agent"],
     createdAt: raw["createdAt"],
     runtimeHandle: raw["runtimeHandle"],
     dashboardPort: raw["dashboardPort"] ? Number(raw["dashboardPort"]) : undefined,
