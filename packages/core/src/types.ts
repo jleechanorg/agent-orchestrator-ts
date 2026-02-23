@@ -176,6 +176,8 @@ export interface SessionSpawnConfig {
   issueId?: string;
   branch?: string;
   prompt?: string;
+  /** Override the agent plugin for this session (e.g. "codex", "claude-code") */
+  agent?: string;
 }
 
 /** Config for creating an orchestrator session */

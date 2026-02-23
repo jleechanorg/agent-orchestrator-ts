@@ -322,6 +322,16 @@ export function createSessionManager(deps: SessionManagerDeps): SessionManager {
     if (!plugins.runtime) {
       throw new Error(`Runtime plugin '${project.runtime ?? config.defaults.runtime}' not found`);
     }
+
+    // Allow --agent override to swap the agent plugin for this session
+    if (spawnConfig.agent) {
+      const overrideAgent = registry.get<Agent>("agent", spawnConfig.agent);
+      if (!overrideAgent) {
+        throw new Error(`Agent plugin '${spawnConfig.agent}' not found`);
+      }
+      plugins.agent = overrideAgent;
+    }
+
     if (!plugins.agent) {
       throw new Error(`Agent plugin '${project.agent ?? config.defaults.agent}' not found`);
     }
