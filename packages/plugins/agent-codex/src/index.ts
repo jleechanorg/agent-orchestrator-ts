@@ -41,6 +41,7 @@ export const manifest = {
  * Helper script sourced by both gh and git wrappers.
  * Provides update_ao_metadata() for writing key=value to the session file.
  */
+/* eslint-disable no-useless-escape -- \$ escapes are intentional: bash scripts in JS template literals */
 const AO_METADATA_HELPER = `#!/usr/bin/env bash
 # ao-metadata-helper — shared by gh/git wrappers
 # Provides: update_ao_metadata <key> <value>
@@ -208,6 +209,7 @@ If automatic updates fail, you can manually update metadata:
 # Then call: update_ao_metadata <key> <value>
 \`\`\`
 `;
+/* eslint-enable no-useless-escape */
 
 /**
  * Atomically write a file by writing to a temp file in the same directory,
