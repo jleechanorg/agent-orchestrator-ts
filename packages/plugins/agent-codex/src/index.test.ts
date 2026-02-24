@@ -148,9 +148,9 @@ describe("getLaunchCommand", () => {
     expect(agent.getLaunchCommand(makeLaunchConfig())).toBe("codex");
   });
 
-  it("includes --dangerously-bypass-approvals-and-sandbox when permissions=skip", () => {
+  it("includes --full-auto when permissions=skip", () => {
     const cmd = agent.getLaunchCommand(makeLaunchConfig({ permissions: "skip" }));
-    expect(cmd).toContain("--dangerously-bypass-approvals-and-sandbox");
+    expect(cmd).toContain("--full-auto");
   });
 
   it("includes --model with shell-escaped value", () => {
@@ -167,7 +167,7 @@ describe("getLaunchCommand", () => {
     const cmd = agent.getLaunchCommand(
       makeLaunchConfig({ permissions: "skip", model: "o3", prompt: "Go" }),
     );
-    expect(cmd).toBe("codex --dangerously-bypass-approvals-and-sandbox --model 'o3' -- 'Go'");
+    expect(cmd).toBe("codex --full-auto --model 'o3' -- 'Go'");
   });
 
   it("escapes single quotes in prompt (POSIX shell escaping)", () => {
@@ -183,30 +183,29 @@ describe("getLaunchCommand", () => {
     expect(cmd).toContain("-- '$(rm -rf /); `evil`; $HOME'");
   });
 
-  it("includes --system-prompt with file cat when systemPromptFile is set", () => {
+  it("includes -c model_instructions_file when systemPromptFile is set", () => {
     const cmd = agent.getLaunchCommand(makeLaunchConfig({ systemPromptFile: "/tmp/prompt.md" }));
-    expect(cmd).toContain("--system-prompt");
-    expect(cmd).toContain("$(cat '/tmp/prompt.md')");
+    expect(cmd).toContain("-c model_instructions_file='/tmp/prompt.md'");
   });
 
   it("prefers systemPromptFile over systemPrompt", () => {
     const cmd = agent.getLaunchCommand(
       makeLaunchConfig({ systemPromptFile: "/tmp/prompt.md", systemPrompt: "Ignored" }),
     );
-    expect(cmd).toContain("$(cat '/tmp/prompt.md')");
+    expect(cmd).toContain("model_instructions_file='/tmp/prompt.md'");
     expect(cmd).not.toContain("'Ignored'");
   });
 
-  it("includes --system-prompt with inline text when systemPrompt is set", () => {
+  it("includes -c developer_instructions when systemPrompt is set", () => {
     const cmd = agent.getLaunchCommand(makeLaunchConfig({ systemPrompt: "Be helpful" }));
-    expect(cmd).toContain("--system-prompt 'Be helpful'");
+    expect(cmd).toContain("-c developer_instructions='Be helpful'");
   });
 
   it("omits optional flags when not provided", () => {
     const cmd = agent.getLaunchCommand(makeLaunchConfig());
-    expect(cmd).not.toContain("--dangerously-bypass-approvals-and-sandbox");
+    expect(cmd).not.toContain("--full-auto");
     expect(cmd).not.toContain("--model");
-    expect(cmd).not.toContain("--system-prompt");
+    expect(cmd).not.toContain("-c");
   });
 });
 
