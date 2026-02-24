@@ -283,7 +283,7 @@ function createCodexAgent(): Agent {
       const parts: string[] = ["codex"];
 
       if (config.permissions === "skip") {
-        parts.push("--dangerously-bypass-approvals-and-sandbox");
+        parts.push("--full-auto");
       }
 
       if (config.model) {
@@ -291,9 +291,11 @@ function createCodexAgent(): Agent {
       }
 
       if (config.systemPromptFile) {
-        parts.push("--system-prompt", `"$(cat ${shellEscape(config.systemPromptFile)})"`);
+        // Codex reads developer instructions from a file via config override
+        parts.push("-c", `model_instructions_file=${shellEscape(config.systemPromptFile)}`);
       } else if (config.systemPrompt) {
-        parts.push("--system-prompt", shellEscape(config.systemPrompt));
+        // Codex accepts inline developer instructions via config override
+        parts.push("-c", `developer_instructions=${shellEscape(config.systemPrompt)}`);
       }
 
       if (config.prompt) {
@@ -335,12 +337,8 @@ function createCodexAgent(): Agent {
       if (/approval required/i.test(tail)) return "waiting_input";
       if (/\(y\)es.*\(n\)o/i.test(tail)) return "waiting_input";
 
-      // "(esc to interrupt)" appears while Codex is actively running a task
-      if (/\(esc to interrupt\)/i.test(terminalOutput)) return "active";
-
-      // Progress spinner symbols + words ending in "ing" = actively working
-      if (/[✶⏺✽⏳]/.test(terminalOutput) && /\w+ing\b/.test(terminalOutput)) return "active";
-
+      // Default to active — specific patterns (esc to interrupt, spinner
+      // symbols) all map to "active" so no need to check them individually.
       return "active";
     },
 
