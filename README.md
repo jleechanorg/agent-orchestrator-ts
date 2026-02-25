@@ -17,7 +17,27 @@ Agent Orchestrator manages fleets of AI coding agents working in parallel on you
 
 **Agent-agnostic** (Claude Code, Codex, Aider) · **Runtime-agnostic** (tmux, Docker) · **Tracker-agnostic** (GitHub, Linear)
 
-<!-- TODO: Add dashboard screenshot or terminal GIF showing 10+ sessions with attention zones -->
+<div align="center">
+
+### See it in action
+
+<a href="https://x.com/agent_wrapper/status/2026329204405723180">
+  <img src="docs/assets/demo-video-tweet.png" alt="Agent Orchestrator demo — AI agents building their own orchestrator" width="560">
+</a>
+
+<sub>512 likes · 48 replies · <a href="https://x.com/agent_wrapper/status/2026329204405723180">Watch the demo on X</a></sub>
+
+</div>
+
+<div align="center">
+
+<a href="https://x.com/agent_wrapper/status/2025986105485733945">
+  <img src="docs/assets/article-tweet.png" alt="The Self-Improving AI System That Built Itself" width="560">
+</a>
+
+<sub>1.3K likes · 41 replies · <a href="https://x.com/agent_wrapper/status/2025986105485733945">Read the full article on X</a></sub>
+
+</div>
 
 ## Quick Start
 
