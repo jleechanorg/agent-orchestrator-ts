@@ -188,6 +188,7 @@ export default function SettingsScreen({ navigation }: Props) {
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Backend URL</Text>
           <Text style={styles.hint}>
+            Tailscale (recommended): use your Mac's Tailscale IP (100.x.x.x).{"\n"}
             Local network: enter your Mac's LAN IP.{"\n"}
             ngrok: paste the https:// tunnel URL for port 3000.
           </Text>
@@ -196,7 +197,7 @@ export default function SettingsScreen({ navigation }: Props) {
             style={styles.input}
             value={input}
             onChangeText={setInput}
-            placeholder="http://192.168.x.x:3000  or  https://abc.ngrok-free.app"
+            placeholder="http://100.x.x.x:3000  or  http://192.168.x.x:3000"
             placeholderTextColor="#8b949e"
             autoCapitalize="none"
             autoCorrect={false}
@@ -237,33 +238,37 @@ export default function SettingsScreen({ navigation }: Props) {
           />
         </View>
 
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Test Notifications</Text>
-          <Text style={styles.hint}>Fire a test notification to verify permissions are working. Tap the notification to navigate to the session.</Text>
-          <TouchableOpacity style={[styles.testButton, { borderColor: "#f85149" }]} onPress={handleTestRespondNotification}>
-            <Text style={[styles.testButtonText, { color: "#f85149" }]}>Test "Agent needs input" (respond)</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={[styles.testButton, { borderColor: "#3fb950", marginTop: 8 }]} onPress={handleTestMergeNotification}>
-            <Text style={[styles.testButtonText, { color: "#3fb950" }]}>Test "PR ready to merge" (merge)</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={[styles.testButton, { borderColor: "#d29922", marginTop: 8 }]} onPress={handleTestReviewNotification}>
-            <Text style={[styles.testButtonText, { color: "#d29922" }]}>Test "Session needs review" (review)</Text>
-          </TouchableOpacity>
-        </View>
+        {__DEV__ && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Test Notifications</Text>
+            <Text style={styles.hint}>Fire a test notification to verify permissions are working. Tap the notification to navigate to the session.</Text>
+            <TouchableOpacity style={[styles.testButton, { borderColor: "#f85149" }]} onPress={handleTestRespondNotification}>
+              <Text style={[styles.testButtonText, { color: "#f85149" }]}>Test "Agent needs input" (respond)</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={[styles.testButton, { borderColor: "#3fb950", marginTop: 8 }]} onPress={handleTestMergeNotification}>
+              <Text style={[styles.testButtonText, { color: "#3fb950" }]}>Test "PR ready to merge" (merge)</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={[styles.testButton, { borderColor: "#d29922", marginTop: 8 }]} onPress={handleTestReviewNotification}>
+              <Text style={[styles.testButtonText, { color: "#d29922" }]}>Test "Session needs review" (review)</Text>
+            </TouchableOpacity>
+          </View>
+        )}
 
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Setup Guide</Text>
-          <Step
-            n="1"
-            text="Find your Mac's LAN IP: System Settings > Wi-Fi > Details > IP Address"
-          />
-          <Step n="2" text="Make sure the orchestrator is running: pnpm build && pnpm dev" />
-          <Step
-            n="3"
-            text="Enter http://<YOUR_IP>:3000 above (the terminal server is auto-derived on port 14801)"
-          />
-          <Step n="4" text="Tap Save and go back to see your sessions" />
-          <Step n="5" text="Your phone must be on the same Wi-Fi network as your Mac" />
+          <Text style={styles.sectionTitle}>Setup Guide — Tailscale (Recommended)</Text>
+          <Step n="1" text="Install Tailscale on your Mac and phone (tailscale.com)" />
+          <Step n="2" text="Sign in to the same Tailscale account on both devices" />
+          <Step n="3" text="Find your Mac's Tailscale IP: run 'tailscale ip -4' in terminal (starts with 100.x)" />
+          <Step n="4" text="Make sure the orchestrator is running: pnpm build && pnpm dev" />
+          <Step n="5" text="Enter http://<TAILSCALE_IP>:3000 above and tap Save" />
+          <Text style={styles.sectionDivider}>Alternative: Local Wi-Fi</Text>
+          <Step n="1" text="Your phone must be on the same Wi-Fi as your Mac" />
+          <Step n="2" text="Find your Mac's LAN IP: System Settings > Wi-Fi > Details > IP Address" />
+          <Step n="3" text="Enter http://<LAN_IP>:3000 above and tap Save" />
+          <Text style={styles.sectionDivider}>Alternative: ngrok</Text>
+          <Step n="1" text="Run: ngrok http 3000" />
+          <Step n="2" text="Paste the https:// URL above as Dashboard API URL" />
+          <Step n="3" text="For terminal, run: ngrok http 14801 and paste the wss:// URL in Terminal WebSocket URL" />
         </View>
       </ScrollView>
     </KeyboardAvoidingView>
@@ -320,6 +325,18 @@ const styles = StyleSheet.create({
     letterSpacing: 0.8,
     textTransform: "uppercase",
     marginBottom: 12,
+  },
+  sectionDivider: {
+    color: "#8b949e",
+    fontSize: 11,
+    fontWeight: "700",
+    letterSpacing: 0.8,
+    textTransform: "uppercase",
+    marginTop: 12,
+    marginBottom: 12,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: "#30363d",
   },
   hint: {
     color: "#8b949e",
