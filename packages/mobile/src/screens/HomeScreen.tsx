@@ -38,13 +38,16 @@ export default function HomeScreen({ navigation }: Props) {
   React.useLayoutEffect(() => {
     navigation.setOptions({
       headerRight: () => (
-        <View style={{ flexDirection: "row", alignItems: "center", gap: 14 }}>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
           <TouchableOpacity
             onPress={() => navigation.navigate("SpawnSession")}
             style={{ flexDirection: "row", alignItems: "center", gap: 2 }}
           >
             <Text style={{ color: "#3fb950", fontSize: 18, fontWeight: "700" }}>+</Text>
             <Text style={{ color: "#3fb950", fontSize: 13, fontWeight: "600" }}>Session</Text>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={() => navigation.navigate("Commands")}>
+            <Text style={{ fontSize: 20 }}>{"\uD83D\uDCCB"}</Text>
           </TouchableOpacity>
           <TouchableOpacity
             onPress={() => {
