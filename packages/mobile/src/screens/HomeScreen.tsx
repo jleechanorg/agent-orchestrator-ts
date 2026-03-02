@@ -32,13 +32,13 @@ function sortSessions(sessions: DashboardSession[]): DashboardSession[] {
 }
 
 export default function HomeScreen({ navigation }: Props) {
-  const { sessions, stats, orchestratorId, loading, error, refresh } = useSessions();
+  const { sessions, stats, loading, error, refresh } = useSessions();
   useSessionNotifications(sessions);
 
   React.useLayoutEffect(() => {
     navigation.setOptions({
       headerRight: () => (
-        <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 14 }}>
           <TouchableOpacity
             onPress={() => navigation.navigate("SpawnSession")}
             style={{ flexDirection: "row", alignItems: "center", gap: 2 }}
@@ -46,18 +46,7 @@ export default function HomeScreen({ navigation }: Props) {
             <Text style={{ color: "#3fb950", fontSize: 18, fontWeight: "700" }}>+</Text>
             <Text style={{ color: "#3fb950", fontSize: 13, fontWeight: "600" }}>Session</Text>
           </TouchableOpacity>
-          <TouchableOpacity onPress={() => navigation.navigate("Commands")}>
-            <Text style={{ fontSize: 20 }}>{"\uD83D\uDCCB"}</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            onPress={() => {
-              if (orchestratorId) {
-                navigation.navigate("SessionDetail", { sessionId: orchestratorId });
-              } else {
-                navigation.navigate("Orchestrator");
-              }
-            }}
-          >
+          <TouchableOpacity onPress={() => navigation.navigate("Orchestrator")}>
             <Text style={{ fontSize: 20 }}>{"\uD83E\uDD16"}</Text>
           </TouchableOpacity>
           <TouchableOpacity
@@ -69,7 +58,7 @@ export default function HomeScreen({ navigation }: Props) {
         </View>
       ),
     });
-  }, [navigation, orchestratorId]);
+  }, [navigation]);
 
   const sorted = sortSessions(sessions);
 
