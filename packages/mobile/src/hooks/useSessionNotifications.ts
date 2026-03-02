@@ -38,12 +38,12 @@ export function useSessionNotifications(sessions: DashboardSession[]): void {
 
         if (level === "respond" && (prev !== "respond" || cooldownExpired)) {
           if (isBackground || prev !== "respond") {
-            scheduleNotification(session, "respond");
+            void scheduleNotification(session, "respond").catch(() => {});
             lastNotifiedAt.current[session.id] = now;
           }
         } else if (level === "merge" && (prev !== "merge" || cooldownExpired)) {
           if (isBackground || prev !== "merge") {
-            scheduleNotification(session, "merge");
+            void scheduleNotification(session, "merge").catch(() => {});
             lastNotifiedAt.current[session.id] = now;
           }
         }

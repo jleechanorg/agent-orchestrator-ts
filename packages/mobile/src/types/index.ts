@@ -5,32 +5,28 @@
 
 export type SessionStatus =
   | "spawning"
-  | "running"
   | "working"
   | "pr_open"
+  | "ci_failed"
+  | "review_pending"
+  | "changes_requested"
+  | "approved"
+  | "mergeable"
+  | "merged"
+  | "cleanup"
   | "needs_input"
   | "stuck"
   | "errored"
-  | "ci_failed"
-  | "changes_requested"
-  | "review_pending"
-  | "mergeable"
-  | "approved"
-  | "merged"
   | "killed"
-  | "cleanup"
   | "done"
   | "terminated";
 
 export type ActivityState =
   | "active"
   | "ready"
-  | "starting"
-  | "thinking"
-  | "working"
+  | "idle"
   | "waiting_input"
   | "blocked"
-  | "idle"
   | "exited";
 
 export type CIStatus = "none" | "pending" | "passing" | "failing";

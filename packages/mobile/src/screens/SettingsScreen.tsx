@@ -30,27 +30,31 @@ export default function SettingsScreen({ navigation }: Props) {
       Alert.alert("Permission denied", "Notification permission is not granted. Enable it in your phone's Settings app.");
       return;
     }
-    scheduleNotification(
-      {
-        id: "ao-test-session",
-        projectId: "test",
-        status: "needs_input",
-        activity: "waiting_input",
-        branch: "feat/test",
-        issueId: null,
-        issueUrl: null,
-        issueLabel: "TEST-1",
-        issueTitle: "Fix the flaky integration test",
-        summary: "Waiting for your decision on the approach",
-        summaryIsFallback: false,
-        createdAt: new Date().toISOString(),
-        lastActivityAt: new Date().toISOString(),
-        pr: null,
-        metadata: {},
-      },
-      "respond",
-    );
-    Alert.alert("Sent", "A test 'respond' notification was fired. Check your notification shade.");
+    try {
+      await scheduleNotification(
+        {
+          id: "ao-test-session",
+          projectId: "test",
+          status: "needs_input",
+          activity: "waiting_input",
+          branch: "feat/test",
+          issueId: null,
+          issueUrl: null,
+          issueLabel: "TEST-1",
+          issueTitle: "Fix the flaky integration test",
+          summary: "Waiting for your decision on the approach",
+          summaryIsFallback: false,
+          createdAt: new Date().toISOString(),
+          lastActivityAt: new Date().toISOString(),
+          pr: null,
+          metadata: {},
+        },
+        "respond",
+      );
+      Alert.alert("Sent", "A test 'respond' notification was fired. Check your notification shade.");
+    } catch (err) {
+      Alert.alert("Failed", err instanceof Error ? err.message : "Could not schedule notification.");
+    }
   };
 
   const handleTestMergeNotification = async () => {
@@ -59,44 +63,48 @@ export default function SettingsScreen({ navigation }: Props) {
       Alert.alert("Permission denied", "Notification permission is not granted. Enable it in your phone's Settings app.");
       return;
     }
-    scheduleNotification(
-      {
-        id: "ao-test-session",
-        projectId: "test",
-        status: "mergeable",
-        activity: "idle",
-        branch: "feat/test",
-        issueId: null,
-        issueUrl: null,
-        issueLabel: "TEST-1",
-        issueTitle: "Add user authentication flow",
-        summary: null,
-        summaryIsFallback: false,
-        createdAt: new Date().toISOString(),
-        lastActivityAt: new Date().toISOString(),
-        pr: {
-          number: 42,
-          url: "",
-          title: "Add auth flow",
-          owner: "",
-          repo: "",
+    try {
+      await scheduleNotification(
+        {
+          id: "ao-test-session",
+          projectId: "test",
+          status: "mergeable",
+          activity: "idle",
           branch: "feat/test",
-          baseBranch: "main",
-          isDraft: false,
-          state: "open",
-          additions: 120,
-          deletions: 8,
-          ciStatus: "passing",
-          ciChecks: [],
-          reviewDecision: "approved",
-          mergeability: { mergeable: true, ciPassing: true, approved: true, noConflicts: true, blockers: [] },
-          unresolvedThreads: 0,
+          issueId: null,
+          issueUrl: null,
+          issueLabel: "TEST-1",
+          issueTitle: "Add user authentication flow",
+          summary: null,
+          summaryIsFallback: false,
+          createdAt: new Date().toISOString(),
+          lastActivityAt: new Date().toISOString(),
+          pr: {
+            number: 42,
+            url: "",
+            title: "Add auth flow",
+            owner: "",
+            repo: "",
+            branch: "feat/test",
+            baseBranch: "main",
+            isDraft: false,
+            state: "open",
+            additions: 120,
+            deletions: 8,
+            ciStatus: "passing",
+            ciChecks: [],
+            reviewDecision: "approved",
+            mergeability: { mergeable: true, ciPassing: true, approved: true, noConflicts: true, blockers: [] },
+            unresolvedThreads: 0,
+          },
+          metadata: {},
         },
-        metadata: {},
-      },
-      "merge",
-    );
-    Alert.alert("Sent", "A test 'merge' notification was fired. Check your notification shade.");
+        "merge",
+      );
+      Alert.alert("Sent", "A test 'merge' notification was fired. Check your notification shade.");
+    } catch (err) {
+      Alert.alert("Failed", err instanceof Error ? err.message : "Could not schedule notification.");
+    }
   };
 
   const handleSave = async () => {

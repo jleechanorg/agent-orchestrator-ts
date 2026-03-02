@@ -70,9 +70,14 @@ export async function scheduleNotification(
           ...(Platform.OS === "android" && { channelId: ANDROID_CHANNEL_ID }),
         };
 
-  // Use { seconds: 1 } instead of null — trigger: null fails silently on Android in background tasks
+  // Use timeInterval trigger instead of null — trigger: null fails silently on Android in background tasks.
+  // SDK 53 requires explicit `type` field on trigger objects.
   await Notifications.scheduleNotificationAsync({
     content,
-    trigger: { seconds: 1, channelId: Platform.OS === "android" ? ANDROID_CHANNEL_ID : undefined },
+    trigger: {
+      type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,
+      seconds: 1,
+      channelId: Platform.OS === "android" ? ANDROID_CHANNEL_ID : undefined,
+    },
   });
 }
