@@ -41,13 +41,15 @@ export default function HomeScreen({ navigation }: Props) {
         <View style={{ flexDirection: "row", alignItems: "center", gap: 14 }}>
           <TouchableOpacity
             onPress={() => navigation.navigate("SpawnSession")}
+            style={{ flexDirection: "row", alignItems: "center", gap: 2 }}
           >
-            <Text style={{ color: "#3fb950", fontSize: 22, fontWeight: "700" }}>+</Text>
+            <Text style={{ color: "#3fb950", fontSize: 18, fontWeight: "700" }}>+</Text>
+            <Text style={{ color: "#3fb950", fontSize: 13, fontWeight: "600" }}>Session</Text>
           </TouchableOpacity>
           <TouchableOpacity
             onPress={() => navigation.navigate("Orchestrator")}
           >
-            <Text style={{ color: "#58a6ff", fontSize: 13, fontWeight: "600" }}>AO</Text>
+            <Text style={{ fontSize: 20 }}>{"\uD83E\uDD16"}</Text>
           </TouchableOpacity>
           <TouchableOpacity
             onPress={() => navigation.navigate("Settings")}
