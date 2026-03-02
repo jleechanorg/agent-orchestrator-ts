@@ -79,7 +79,7 @@ export default function TerminalScreen({ route }: Props) {
         allowFileAccess={false}
         javaScriptEnabled={true}
         domStorageEnabled={false}
-        scrollEnabled={false}
+        scrollEnabled={true}
         bounces={false}
         overScrollMode="never"
         showsVerticalScrollIndicator={false}
