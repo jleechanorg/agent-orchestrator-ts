@@ -19,6 +19,8 @@ interface BackendContextValue {
   sendMessage: (id: string, message: string) => Promise<void>;
   killSession: (id: string) => Promise<void>;
   restoreSession: (id: string) => Promise<void>;
+  mergePR: (prNumber: number) => Promise<void>;
+  spawnSession: (projectId: string, issueId?: string) => Promise<DashboardSession>;
 }
 
 const BackendContext = createContext<BackendContextValue | null>(null);
@@ -109,6 +111,19 @@ export function BackendProvider({ children }: { children: React.ReactNode }) {
     await apiFetch(`/api/sessions/${encodeURIComponent(id)}/restore`, { method: "POST" });
   }, [apiFetch]);
 
+  const mergePR = useCallback(async (prNumber: number): Promise<void> => {
+    await apiFetch(`/api/prs/${prNumber}/merge`, { method: "POST" });
+  }, [apiFetch]);
+
+  const spawnSession = useCallback(async (projectId: string, issueId?: string): Promise<DashboardSession> => {
+    const res = await apiFetch("/api/spawn", {
+      method: "POST",
+      body: JSON.stringify({ projectId, ...(issueId ? { issueId } : {}) }),
+    });
+    const data = (await res.json()) as { session: DashboardSession };
+    return data.session;
+  }, [apiFetch]);
+
   return (
     <BackendContext.Provider
       value={{
@@ -122,6 +137,8 @@ export function BackendProvider({ children }: { children: React.ReactNode }) {
         sendMessage,
         killSession,
         restoreSession,
+        mergePR,
+        spawnSession,
       }}
     >
       {children}

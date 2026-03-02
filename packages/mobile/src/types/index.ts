@@ -52,6 +52,13 @@ export interface DashboardMergeability {
   blockers: string[];
 }
 
+export interface DashboardUnresolvedComment {
+  url: string;
+  path: string;
+  author: string;
+  body: string;
+}
+
 export interface DashboardPR {
   number: number;
   url: string;
@@ -69,6 +76,7 @@ export interface DashboardPR {
   reviewDecision: ReviewDecision;
   mergeability: DashboardMergeability;
   unresolvedThreads: number;
+  unresolvedComments?: DashboardUnresolvedComment[];
 }
 
 export interface DashboardSession {

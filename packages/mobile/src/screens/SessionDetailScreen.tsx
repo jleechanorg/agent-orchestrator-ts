@@ -10,6 +10,7 @@ import {
   ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
+  Linking,
 } from "react-native";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../navigation/RootNavigator";
@@ -22,16 +23,24 @@ import {
   isRestorable,
   isTerminal,
   ATTENTION_COLORS,
+  type DashboardCICheck,
+  type DashboardUnresolvedComment,
+  type DashboardPR,
 } from "../types";
 
 type Props = NativeStackScreenProps<RootStackParamList, "SessionDetail">;
 
+type ActionButtonState = "idle" | "sending" | "sent" | "error";
+
 export default function SessionDetailScreen({ route, navigation }: Props) {
   const { sessionId } = route.params;
   const { session, loading, error, refresh } = useSession(sessionId);
-  const { sendMessage, killSession, restoreSession, terminalWsUrl } = useBackend();
+  const { sendMessage, killSession, restoreSession, mergePR, terminalWsUrl } = useBackend();
   const [message, setMessage] = useState("");
   const [sending, setSending] = useState(false);
+  const [merging, setMerging] = useState(false);
+  const [ciFixState, setCiFixState] = useState<ActionButtonState>("idle");
+  const [commentFixStates, setCommentFixStates] = useState<Record<string, ActionButtonState>>({});
 
   const handleSend = useCallback(async () => {
     if (!message.trim()) return;
@@ -81,6 +90,45 @@ export default function SessionDetailScreen({ route, navigation }: Props) {
     navigation.navigate("Terminal", { sessionId, terminalWsUrl });
   }, [navigation, sessionId, terminalWsUrl]);
 
+  const handleMergePR = useCallback(async (prNumber: number) => {
+    setMerging(true);
+    try {
+      await mergePR(prNumber);
+      Alert.alert("Merged", `PR #${prNumber} merged successfully.`);
+      refresh();
+    } catch (err) {
+      Alert.alert("Merge failed", err instanceof Error ? err.message : "Failed to merge PR");
+    } finally {
+      setMerging(false);
+    }
+  }, [mergePR, refresh]);
+
+  const handleAskFixCI = useCallback(async (pr: DashboardPR) => {
+    setCiFixState("sending");
+    try {
+      await sendMessage(sessionId, `Please fix the failing CI checks on ${pr.url}`);
+      setCiFixState("sent");
+      setTimeout(() => setCiFixState("idle"), 3000);
+    } catch {
+      setCiFixState("error");
+      setTimeout(() => setCiFixState("idle"), 3000);
+    }
+  }, [sendMessage, sessionId]);
+
+  const handleAskFixComment = useCallback(async (comment: DashboardUnresolvedComment) => {
+    const key = comment.url;
+    setCommentFixStates((prev) => ({ ...prev, [key]: "sending" }));
+    try {
+      const msg = `Please address this review comment:\n\nFile: ${comment.path}\nComment: ${comment.body}\n\nComment URL: ${comment.url}\n\nAfter fixing, mark the comment as resolved at ${comment.url}`;
+      await sendMessage(sessionId, msg);
+      setCommentFixStates((prev) => ({ ...prev, [key]: "sent" }));
+      setTimeout(() => setCommentFixStates((prev) => ({ ...prev, [key]: "idle" })), 3000);
+    } catch {
+      setCommentFixStates((prev) => ({ ...prev, [key]: "error" }));
+      setTimeout(() => setCommentFixStates((prev) => ({ ...prev, [key]: "idle" })), 3000);
+    }
+  }, [sendMessage, sessionId]);
+
   if (loading && !session) {
     return (
       <View style={styles.center}>
@@ -106,6 +154,10 @@ export default function SessionDetailScreen({ route, navigation }: Props) {
   const color = ATTENTION_COLORS[level];
   const canRestore = isRestorable(session);
   const isDone = isTerminal(session);
+  const pr = session.pr;
+  const isReadyToMerge = pr?.mergeability.mergeable && pr.state === "open";
+  const failedChecks = pr?.ciChecks.filter((c) => c.status === "failed") ?? [];
+  const unresolvedComments = pr?.unresolvedComments ?? [];
 
   return (
     <KeyboardAvoidingView
@@ -127,6 +179,34 @@ export default function SessionDetailScreen({ route, navigation }: Props) {
             {session.activity ? ` · ${session.activity}` : ""}
           </Text>
         </View>
+
+        {/* Alerts */}
+        {pr && pr.ciStatus === "failing" && failedChecks.length > 0 && (
+          <View style={styles.alertCard}>
+            <View style={styles.alertRow}>
+              <Text style={styles.alertText}>
+                {failedChecks.length} CI check{failedChecks.length > 1 ? "s" : ""} failing
+              </Text>
+              <ActionButton
+                state={ciFixState}
+                label="Ask to fix"
+                onPress={() => handleAskFixCI(pr)}
+              />
+            </View>
+          </View>
+        )}
+
+        {pr && !pr.mergeability.noConflicts && (
+          <View style={[styles.alertCard, { borderLeftColor: "#d29922" }]}>
+            <Text style={[styles.alertText, { color: "#d29922" }]}>Merge conflict</Text>
+          </View>
+        )}
+
+        {pr && pr.reviewDecision === "changes_requested" && (
+          <View style={[styles.alertCard, { borderLeftColor: "#d29922" }]}>
+            <Text style={[styles.alertText, { color: "#d29922" }]}>Changes requested</Text>
+          </View>
+        )}
 
         {/* Issue */}
         {(session.issueLabel || session.issueTitle) && (
@@ -153,18 +233,60 @@ export default function SessionDetailScreen({ route, navigation }: Props) {
         )}
 
         {/* PR */}
-        {session.pr && (
-          <Section title={`PR #${session.pr.number}`}>
-            <InfoRow label="Title" value={session.pr.title} />
-            <InfoRow label="CI" value={session.pr.ciStatus} />
-            <InfoRow label="Review" value={session.pr.reviewDecision} />
-            <InfoRow label="Mergeable" value={session.pr.mergeability.mergeable ? "Yes" : "No"} />
-            {session.pr.additions > 0 && (
-              <InfoRow
-                label="Changes"
-                value={`+${session.pr.additions} / -${session.pr.deletions}`}
-              />
+        {pr && (
+          <Section title={`PR #${pr.number}`}>
+            <TouchableOpacity onPress={() => Linking.openURL(pr.url)}>
+              <Text style={[styles.issueText, { color: "#58a6ff", marginBottom: 8 }]} numberOfLines={2}>
+                {pr.title}
+              </Text>
+            </TouchableOpacity>
+            <InfoRow label="CI" value={pr.ciStatus} valueColor={pr.ciStatus === "passing" ? "#3fb950" : pr.ciStatus === "failing" ? "#f85149" : undefined} />
+            <InfoRow label="Review" value={pr.reviewDecision} valueColor={pr.reviewDecision === "approved" ? "#3fb950" : pr.reviewDecision === "changes_requested" ? "#f85149" : undefined} />
+            <InfoRow label="Mergeable" value={pr.mergeability.mergeable ? "Yes" : "No"} valueColor={pr.mergeability.mergeable ? "#3fb950" : "#f85149"} />
+            <InfoRow label="Changes" value={`+${pr.additions} / -${pr.deletions}`} />
+            {pr.isDraft && <InfoRow label="Draft" value="Yes" />}
+            {pr.mergeability.blockers.length > 0 && (
+              <View style={{ marginTop: 6 }}>
+                <Text style={styles.blockersLabel}>Blockers:</Text>
+                {pr.mergeability.blockers.map((b, i) => (
+                  <Text key={i} style={styles.blockerText}>- {b}</Text>
+                ))}
+              </View>
             )}
+          </Section>
+        )}
+
+        {/* CI Checks */}
+        {pr && pr.ciChecks.length > 0 && (
+          <Section title="CI Checks">
+            {pr.ciChecks.map((check, i) => (
+              <CICheckRow key={i} check={check} />
+            ))}
+          </Section>
+        )}
+
+        {/* Unresolved Comments */}
+        {unresolvedComments.length > 0 && (
+          <Section title={`Unresolved Comments (${unresolvedComments.length})`}>
+            {unresolvedComments.map((comment, i) => (
+              <View key={i} style={styles.commentCard}>
+                <View style={styles.commentHeader}>
+                  <Text style={styles.commentAuthor}>{comment.author}</Text>
+                  <Text style={styles.commentPath} numberOfLines={1}>{comment.path}</Text>
+                </View>
+                <Text style={styles.commentBody} numberOfLines={4}>{comment.body}</Text>
+                <View style={styles.commentActions}>
+                  <ActionButton
+                    state={commentFixStates[comment.url] ?? "idle"}
+                    label="Ask Agent to Fix"
+                    onPress={() => handleAskFixComment(comment)}
+                  />
+                  <TouchableOpacity onPress={() => Linking.openURL(comment.url)}>
+                    <Text style={styles.viewLink}>View</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            ))}
           </Section>
         )}
 
@@ -176,6 +298,22 @@ export default function SessionDetailScreen({ route, navigation }: Props) {
 
         {/* Actions */}
         <View style={styles.actionsSection}>
+          {isReadyToMerge && (
+            <TouchableOpacity
+              style={[styles.actionButton, styles.mergeButton]}
+              onPress={() => handleMergePR(pr.number)}
+              disabled={merging}
+            >
+              {merging ? (
+                <ActivityIndicator color="#fff" size="small" />
+              ) : (
+                <Text style={[styles.actionButtonText, { color: "#fff" }]}>
+                  Merge PR #{pr.number}
+                </Text>
+              )}
+            </TouchableOpacity>
+          )}
+
           <TouchableOpacity style={[styles.actionButton, styles.terminalButton]} onPress={handleOpenTerminal}>
             <Text style={styles.actionButtonText}>Open Terminal</Text>
           </TouchableOpacity>
@@ -234,12 +372,57 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   );
 }
 
-function InfoRow({ label, value }: { label: string; value: string }) {
+function InfoRow({ label, value, valueColor }: { label: string; value: string; valueColor?: string }) {
   return (
     <View style={styles.infoRow}>
       <Text style={styles.infoLabel}>{label}</Text>
-      <Text style={styles.infoValue}>{value}</Text>
+      <Text style={[styles.infoValue, valueColor ? { color: valueColor } : undefined]}>{value}</Text>
     </View>
+  );
+}
+
+const CI_STATUS_ICONS: Record<string, { icon: string; color: string }> = {
+  passed: { icon: "\u2713", color: "#3fb950" },
+  failed: { icon: "\u2717", color: "#f85149" },
+  running: { icon: "\u25CF", color: "#e3b341" },
+  pending: { icon: "\u25CF", color: "#8b949e" },
+  skipped: { icon: "\u2014", color: "#6e7681" },
+};
+
+function CICheckRow({ check }: { check: DashboardCICheck }) {
+  const info = CI_STATUS_ICONS[check.status] ?? CI_STATUS_ICONS.pending;
+  return (
+    <TouchableOpacity
+      style={styles.ciCheckRow}
+      onPress={check.url ? () => Linking.openURL(check.url!) : undefined}
+      disabled={!check.url}
+    >
+      <Text style={[styles.ciCheckIcon, { color: info.color }]}>{info.icon}</Text>
+      <Text style={styles.ciCheckName} numberOfLines={1}>{check.name}</Text>
+      <Text style={[styles.ciCheckStatus, { color: info.color }]}>{check.status}</Text>
+    </TouchableOpacity>
+  );
+}
+
+function ActionButton({ state, label, onPress }: { state: ActionButtonState; label: string; onPress: () => void }) {
+  const isDisabled = state === "sending" || state === "sent";
+  const bgColor = state === "sent" ? "#1f3a2a" : state === "error" ? "#3d1f20" : "#21262d";
+  const borderColor = state === "sent" ? "#3fb950" : state === "error" ? "#f85149" : "#30363d";
+  const textColor = state === "sent" ? "#3fb950" : state === "error" ? "#f85149" : "#58a6ff";
+  const text = state === "sending" ? "Sending..." : state === "sent" ? "Sent" : state === "error" ? "Failed" : label;
+
+  return (
+    <TouchableOpacity
+      style={[styles.inlineActionButton, { backgroundColor: bgColor, borderColor }]}
+      onPress={onPress}
+      disabled={isDisabled}
+    >
+      {state === "sending" ? (
+        <ActivityIndicator color="#58a6ff" size="small" />
+      ) : (
+        <Text style={[styles.inlineActionText, { color: textColor }]}>{text}</Text>
+      )}
+    </TouchableOpacity>
   );
 }
 
@@ -286,6 +469,27 @@ const styles = StyleSheet.create({
     color: "#8b949e",
     fontSize: 13,
   },
+  // Alerts
+  alertCard: {
+    backgroundColor: "#3d1f20",
+    borderLeftWidth: 3,
+    borderLeftColor: "#f85149",
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 10,
+  },
+  alertRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  alertText: {
+    color: "#f85149",
+    fontSize: 13,
+    fontWeight: "600",
+    flex: 1,
+  },
+  // Sections
   section: {
     backgroundColor: "#161b22",
     borderRadius: 8,
@@ -329,6 +533,97 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "500",
   },
+  blockersLabel: {
+    color: "#f85149",
+    fontSize: 12,
+    fontWeight: "600",
+    marginBottom: 4,
+  },
+  blockerText: {
+    color: "#f85149",
+    fontSize: 12,
+    marginLeft: 4,
+    marginBottom: 2,
+  },
+  // CI Checks
+  ciCheckRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 6,
+    gap: 8,
+  },
+  ciCheckIcon: {
+    fontSize: 14,
+    fontWeight: "700",
+    width: 18,
+    textAlign: "center",
+  },
+  ciCheckName: {
+    color: "#e6edf3",
+    fontSize: 13,
+    flex: 1,
+  },
+  ciCheckStatus: {
+    fontSize: 11,
+    fontWeight: "600",
+  },
+  // Unresolved Comments
+  commentCard: {
+    backgroundColor: "#0d1117",
+    borderRadius: 6,
+    padding: 10,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: "#30363d",
+  },
+  commentHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: 6,
+  },
+  commentAuthor: {
+    color: "#e6edf3",
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  commentPath: {
+    color: "#8b949e",
+    fontSize: 11,
+    fontFamily: "monospace",
+    flex: 1,
+    textAlign: "right",
+    marginLeft: 8,
+  },
+  commentBody: {
+    color: "#8b949e",
+    fontSize: 13,
+    lineHeight: 18,
+    marginBottom: 8,
+  },
+  commentActions: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  viewLink: {
+    color: "#58a6ff",
+    fontSize: 13,
+    fontWeight: "600",
+  },
+  // Inline action button (for "Ask to fix", etc.)
+  inlineActionButton: {
+    borderWidth: 1,
+    borderRadius: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    minWidth: 80,
+    alignItems: "center",
+  },
+  inlineActionText: {
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  // Main actions
   actionsSection: {
     gap: 8,
     marginTop: 4,
@@ -338,6 +633,10 @@ const styles = StyleSheet.create({
     padding: 14,
     alignItems: "center",
     borderWidth: 1,
+  },
+  mergeButton: {
+    backgroundColor: "#238636",
+    borderColor: "#2ea043",
   },
   terminalButton: {
     backgroundColor: "#21262d",
