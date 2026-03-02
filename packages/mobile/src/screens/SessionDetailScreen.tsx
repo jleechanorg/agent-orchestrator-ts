@@ -350,7 +350,7 @@ export default function SessionDetailScreen({ route, navigation }: Props) {
 
       {/* Message input — only show for active sessions */}
       {!isDone && (
-        <View style={[styles.messageBar, { paddingBottom: keyboardHeight > 0 ? keyboardHeight - (Platform.OS === "ios" ? 34 : 0) : 10 }]}>
+        <View style={[styles.messageBar, { paddingBottom: keyboardHeight > 0 ? keyboardHeight + 10 : 10 }]}>
           <TextInput
             style={styles.messageInput}
             placeholder="Send message to agent..."
