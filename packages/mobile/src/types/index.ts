@@ -103,6 +103,7 @@ export interface DashboardStats {
 export interface SessionsResponse {
   sessions: DashboardSession[];
   stats: DashboardStats;
+  orchestratorId: string | null;
 }
 
 /** Attention level colors matching the web dashboard */

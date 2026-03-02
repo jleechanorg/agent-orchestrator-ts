@@ -41,12 +41,10 @@ function getZoneCounts(sessions: DashboardSession[]) {
 }
 
 export default function OrchestratorScreen({ navigation }: Props) {
-  const { sessions, stats, loading, error, refresh } = useSessions();
+  const { sessions, stats, orchestratorId, loading, error, refresh } = useSessions();
 
-  const orchestratorSession = sessions.find((s) => s.id.endsWith("-orchestrator"));
-  const workerSessions = sessions.filter((s) => !s.id.endsWith("-orchestrator"));
-  const zones = getZoneCounts(workerSessions);
-  const activeSessions = workerSessions.filter((s) => !isTerminal(s));
+  const zones = getZoneCounts(sessions);
+  const activeSessions = sessions.filter((s) => !isTerminal(s));
 
   if (loading && sessions.length === 0) {
     return (
@@ -72,16 +70,16 @@ export default function OrchestratorScreen({ navigation }: Props) {
       {/* Orchestrator Status */}
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Orchestrator</Text>
-        {orchestratorSession ? (
+        {orchestratorId ? (
           <TouchableOpacity
             style={styles.orchestratorCard}
-            onPress={() => navigation.navigate("SessionDetail", { sessionId: orchestratorSession.id })}
+            onPress={() => navigation.navigate("SessionDetail", { sessionId: orchestratorId })}
           >
             <View style={styles.orchestratorRow}>
               <View style={[styles.dot, { backgroundColor: "#3fb950" }]} />
               <Text style={styles.orchestratorText}>Running</Text>
             </View>
-            <Text style={styles.orchestratorId}>{orchestratorSession.id}</Text>
+            <Text style={styles.orchestratorId}>{orchestratorId}</Text>
             <Text style={styles.orchestratorHint}>Tap to view terminal</Text>
           </TouchableOpacity>
         ) : (

@@ -8,6 +8,7 @@ const POLL_INTERVAL = 5_000;
 interface UseSessionsResult {
   sessions: DashboardSession[];
   stats: DashboardStats | null;
+  orchestratorId: string | null;
   loading: boolean;
   error: string | null;
   refresh: () => void;
@@ -17,6 +18,7 @@ export function useSessions(): UseSessionsResult {
   const { fetchSessions } = useBackend();
   const [sessions, setSessions] = useState<DashboardSession[]>([]);
   const [stats, setStats] = useState<DashboardStats | null>(null);
+  const [orchestratorId, setOrchestratorId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -29,6 +31,7 @@ export function useSessions(): UseSessionsResult {
       if (!isMountedRef.current) return;
       setSessions(data.sessions ?? []);
       setStats(data.stats ?? null);
+      setOrchestratorId(data.orchestratorId ?? null);
       setError(null);
     } catch (err) {
       if (!isMountedRef.current) return;
@@ -79,5 +82,5 @@ export function useSessions(): UseSessionsResult {
     doFetch();
   }, [doFetch]);
 
-  return { sessions, stats, loading, error, refresh };
+  return { sessions, stats, orchestratorId, loading, error, refresh };
 }
