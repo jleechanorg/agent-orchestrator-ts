@@ -7,6 +7,7 @@ import TerminalScreen from "../screens/TerminalScreen";
 import SettingsScreen from "../screens/SettingsScreen";
 import SpawnSessionScreen from "../screens/SpawnSessionScreen";
 import OrchestratorScreen from "../screens/OrchestratorScreen";
+import CommandsScreen from "../screens/CommandsScreen";
 
 export type RootStackParamList = {
   Home: undefined;
@@ -15,6 +16,7 @@ export type RootStackParamList = {
   Settings: undefined;
   SpawnSession: undefined;
   Orchestrator: undefined;
+  Commands: undefined;
 };
 
 export const navigationRef = createNavigationContainerRef<RootStackParamList>();
@@ -76,6 +78,11 @@ export default function RootNavigator() {
           name="Orchestrator"
           component={OrchestratorScreen}
           options={{ title: "Orchestrator" }}
+        />
+        <Stack.Screen
+          name="Commands"
+          component={CommandsScreen}
+          options={{ title: "CLI Commands" }}
         />
       </Stack.Navigator>
     </NavigationContainer>

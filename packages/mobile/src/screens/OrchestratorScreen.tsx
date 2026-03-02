@@ -14,23 +14,6 @@ import { getAttentionLevel, isTerminal, type DashboardSession } from "../types";
 
 type Props = NativeStackScreenProps<RootStackParamList, "Orchestrator">;
 
-const CLI_COMMANDS = [
-  { cmd: "ao start [project]", desc: "Start orchestrator + dashboard" },
-  { cmd: "ao stop [project]", desc: "Stop orchestrator + dashboard" },
-  { cmd: "ao spawn <project> [issue]", desc: "Spawn a session for an issue" },
-  { cmd: "ao batch-spawn <project> <issues...>", desc: "Spawn multiple sessions" },
-  { cmd: "ao session ls [-p <project>]", desc: "List all active sessions" },
-  { cmd: "ao session kill <session>", desc: "Kill a session" },
-  { cmd: "ao session restore <session>", desc: "Restore a crashed session" },
-  { cmd: "ao session cleanup [-p <project>]", desc: "Clean up merged/closed sessions" },
-  { cmd: "ao send <session> [message]", desc: "Send message to a session" },
-  { cmd: "ao status [-p <project>]", desc: "Show sessions with PR/CI status" },
-  { cmd: "ao review-check [project]", desc: "Check PRs and trigger agents" },
-  { cmd: "ao dashboard [-p <port>]", desc: "Start the web dashboard" },
-  { cmd: "ao open [target]", desc: "Open session(s) in terminal" },
-  { cmd: "ao init [project]", desc: "Initialize config file" },
-];
-
 function getZoneCounts(sessions: DashboardSession[]) {
   const counts = { merge: 0, respond: 0, review: 0, pending: 0, working: 0, done: 0 };
   for (const s of sessions) {
@@ -42,6 +25,16 @@ function getZoneCounts(sessions: DashboardSession[]) {
 
 export default function OrchestratorScreen({ navigation }: Props) {
   const { sessions, stats, orchestratorId, loading, error, refresh } = useSessions();
+
+  React.useLayoutEffect(() => {
+    navigation.setOptions({
+      headerRight: () => (
+        <TouchableOpacity onPress={() => navigation.navigate("Commands")}>
+          <Text style={{ color: "#58a6ff", fontSize: 14, fontWeight: "600" }}>Commands</Text>
+        </TouchableOpacity>
+      ),
+    });
+  }, [navigation]);
 
   const zones = getZoneCounts(sessions);
   const activeSessions = sessions.filter((s) => !isTerminal(s));
@@ -115,17 +108,6 @@ export default function OrchestratorScreen({ navigation }: Props) {
         <StatRow label="Needs review" value={String(stats?.needsReview ?? 0)} />
       </View>
 
-      {/* CLI Reference */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>CLI Commands</Text>
-        <Text style={styles.hint}>Quick reference for managing sessions from terminal.</Text>
-        {CLI_COMMANDS.map((c, i) => (
-          <View key={i} style={styles.cmdRow}>
-            <Text style={styles.cmdText}>{c.cmd}</Text>
-            <Text style={styles.cmdDesc}>{c.desc}</Text>
-          </View>
-        ))}
-      </View>
     </ScrollView>
   );
 }
@@ -176,12 +158,6 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     letterSpacing: 0.8,
     textTransform: "uppercase",
-    marginBottom: 12,
-  },
-  hint: {
-    color: "#8b949e",
-    fontSize: 13,
-    lineHeight: 18,
     marginBottom: 12,
   },
   // Orchestrator card
@@ -259,25 +235,6 @@ const styles = StyleSheet.create({
     color: "#e6edf3",
     fontSize: 13,
     fontWeight: "600",
-  },
-  // CLI commands
-  cmdRow: {
-    backgroundColor: "#0d1117",
-    borderRadius: 6,
-    padding: 10,
-    marginBottom: 6,
-    borderWidth: 1,
-    borderColor: "#30363d",
-  },
-  cmdText: {
-    color: "#58a6ff",
-    fontSize: 12,
-    fontFamily: "monospace",
-    marginBottom: 4,
-  },
-  cmdDesc: {
-    color: "#8b949e",
-    fontSize: 12,
   },
   // Error
   errorText: {
