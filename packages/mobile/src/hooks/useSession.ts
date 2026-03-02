@@ -5,6 +5,11 @@ import type { DashboardSession } from "../types";
 
 const POLL_INTERVAL = 5_000;
 
+interface UseSessionOptions {
+  /** Set to false to disable polling. Defaults to true. */
+  enabled?: boolean;
+}
+
 interface UseSessionResult {
   session: DashboardSession | null;
   loading: boolean;
@@ -12,7 +17,8 @@ interface UseSessionResult {
   refresh: () => void;
 }
 
-export function useSession(id: string): UseSessionResult {
+export function useSession(id: string, options?: UseSessionOptions): UseSessionResult {
+  const enabled = options?.enabled ?? true;
   const { fetchSession } = useBackend();
   const [session, setSession] = useState<DashboardSession | null>(null);
   const [loading, setLoading] = useState(true);
@@ -51,6 +57,12 @@ export function useSession(id: string): UseSessionResult {
   }, []);
 
   useEffect(() => {
+    if (!enabled) {
+      setSession(null);
+      setLoading(false);
+      return;
+    }
+
     startPolling();
 
     const handleAppState = (nextState: AppStateStatus) => {
@@ -69,12 +81,13 @@ export function useSession(id: string): UseSessionResult {
       stopPolling();
       sub.remove();
     };
-  }, [startPolling, stopPolling]);
+  }, [enabled, startPolling, stopPolling]);
 
   const refresh = useCallback(() => {
+    if (!enabled) return;
     setLoading(true);
     doFetch();
-  }, [doFetch]);
+  }, [enabled, doFetch]);
 
   return { session, loading, error, refresh };
 }

@@ -36,7 +36,7 @@ function getZoneCounts(sessions: DashboardSession[]) {
 export default function OrchestratorScreen({ navigation }: Props) {
   const { sessions, orchestratorId, loading, error, refresh } = useSessions();
   const { sendMessage, terminalWsUrl } = useBackend();
-  const { session: orchSession } = useSession(orchestratorId ?? "");
+  const { session: orchSession } = useSession(orchestratorId ?? "", { enabled: !!orchestratorId });
   const [message, setMessage] = useState("");
   const [sending, setSending] = useState(false);
 

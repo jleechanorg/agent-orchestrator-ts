@@ -148,10 +148,11 @@ export const TERMINAL_HTML = `<!DOCTYPE html>
   });
 
   // XDA handler: respond to CSI > q with XTerm identity (enables tmux clipboard)
-  term.onData(function (data) {
-    if (data === '\\x1b[>q') {
-      term.write('\\x1bP>|XTerm(370)\\x1b\\\\');
-    }
+  // Must use parser.registerCsiHandler — onData only captures outgoing user input,
+  // not incoming data from the WebSocket. The XDA query arrives via ws → term.write().
+  term.parser.registerCsiHandler({ prefix: '>', final: 'q' }, function () {
+    term.write('\\x1bP>|XTerm(370)\\x1b\\\\');
+    return true;
   });
 
   document.addEventListener('message', function (evt) { handleRNMessage(evt.data); });
