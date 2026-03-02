@@ -39,10 +39,10 @@ export async function setupNotifications(): Promise<boolean> {
 }
 
 /** Fire an immediate local notification for a session attention transition. */
-export function scheduleNotification(
+export async function scheduleNotification(
   session: DashboardSession,
   level: "respond" | "merge",
-): void {
+): Promise<void> {
   const sessionLabel =
     session.issueLabel ??
     session.id;
@@ -70,6 +70,9 @@ export function scheduleNotification(
           ...(Platform.OS === "android" && { channelId: ANDROID_CHANNEL_ID }),
         };
 
-  // Fire immediately (trigger: null = instant)
-  void Notifications.scheduleNotificationAsync({ content, trigger: null });
+  // Use { seconds: 1 } instead of null — trigger: null fails silently on Android in background tasks
+  await Notifications.scheduleNotificationAsync({
+    content,
+    trigger: { seconds: 1, channelId: Platform.OS === "android" ? ANDROID_CHANNEL_ID : undefined },
+  });
 }

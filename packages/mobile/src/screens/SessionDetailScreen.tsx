@@ -22,6 +22,7 @@ import {
   relativeTime,
   isRestorable,
   isTerminal,
+  isPRRateLimited,
   ATTENTION_COLORS,
   type DashboardCICheck,
   type DashboardUnresolvedComment,
@@ -155,7 +156,7 @@ export default function SessionDetailScreen({ route, navigation }: Props) {
   const canRestore = isRestorable(session);
   const isDone = isTerminal(session);
   const pr = session.pr;
-  const isReadyToMerge = pr?.mergeability.mergeable && pr.state === "open";
+  const isReadyToMerge = pr?.mergeability.mergeable && pr.state === "open" && !isPRRateLimited(pr);
   const failedChecks = pr?.ciChecks.filter((c) => c.status === "failed") ?? [];
   const unresolvedComments = pr?.unresolvedComments ?? [];
 

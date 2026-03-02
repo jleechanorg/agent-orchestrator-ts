@@ -47,10 +47,10 @@ TaskManager.defineTask(TASK_ID, async () => {
       const cooldownExpired = now - lastNotified > COOLDOWN_MS;
 
       if (level === "respond" && (prev !== "respond" || cooldownExpired)) {
-        scheduleNotification(session, "respond");
+        await scheduleNotification(session, "respond");
         timestamps[session.id] = now;
       } else if (level === "merge" && (prev !== "merge" || cooldownExpired)) {
-        scheduleNotification(session, "merge");
+        await scheduleNotification(session, "merge");
         timestamps[session.id] = now;
       }
     }

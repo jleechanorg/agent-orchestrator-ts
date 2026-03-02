@@ -119,26 +119,27 @@ export const ATTENTION_COLORS: Record<AttentionLevel, string> = {
   done: "#8b949e",
 };
 
-/** Terminal states that cannot be restored */
-const TERMINAL_STATUSES: SessionStatus[] = ["merged", "killed", "cleanup", "done", "terminated"];
+/** Statuses that indicate the session is in a terminal (dead) state.
+ * Must stay in sync with packages/core/src/types.ts TERMINAL_STATUSES. */
+const TERMINAL_STATUSES: SessionStatus[] = ["killed", "terminated", "done", "cleanup", "errored", "merged"];
 const TERMINAL_ACTIVITIES: ActivityState[] = ["exited"];
-const NON_RESTORABLE_STATUSES: SessionStatus[] = ["merged", "done", "terminated"];
+
+/** Statuses that must never be restored (e.g. already merged).
+ * Must stay in sync with packages/core/src/types.ts NON_RESTORABLE_STATUSES. */
+const NON_RESTORABLE_STATUSES: SessionStatus[] = ["merged"];
 
 export function isTerminal(session: DashboardSession): boolean {
   return (
     TERMINAL_STATUSES.includes(session.status) ||
-    TERMINAL_ACTIVITIES.includes(session.activity as ActivityState)
+    (session.activity !== null && TERMINAL_ACTIVITIES.includes(session.activity))
   );
 }
 
 export function isRestorable(session: DashboardSession): boolean {
-  return (
-    session.activity === "exited" &&
-    !NON_RESTORABLE_STATUSES.includes(session.status)
-  );
+  return isTerminal(session) && !NON_RESTORABLE_STATUSES.includes(session.status);
 }
 
-function isPRRateLimited(pr: DashboardPR): boolean {
+export function isPRRateLimited(pr: DashboardPR): boolean {
   return pr.mergeability.blockers.includes("API rate limited or unavailable");
 }
 
