@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState, useCallback } from "react";
 import {
   View,
   Text,
@@ -6,11 +6,21 @@ import {
   ScrollView,
   TouchableOpacity,
   ActivityIndicator,
+  TextInput,
+  Alert,
 } from "react-native";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../navigation/RootNavigator";
 import { useSessions } from "../hooks/useSessions";
-import { getAttentionLevel, isTerminal, type DashboardSession } from "../types";
+import { useSession } from "../hooks/useSession";
+import { useBackend } from "../context/BackendContext";
+import AttentionBadge from "../components/AttentionBadge";
+import {
+  getAttentionLevel,
+  relativeTime,
+  ATTENTION_COLORS,
+  type DashboardSession,
+} from "../types";
 
 type Props = NativeStackScreenProps<RootStackParamList, "Orchestrator">;
 
@@ -24,7 +34,11 @@ function getZoneCounts(sessions: DashboardSession[]) {
 }
 
 export default function OrchestratorScreen({ navigation }: Props) {
-  const { sessions, stats, orchestratorId, loading, error, refresh } = useSessions();
+  const { sessions, orchestratorId, loading, error, refresh } = useSessions();
+  const { sendMessage, terminalWsUrl } = useBackend();
+  const { session: orchSession } = useSession(orchestratorId ?? "");
+  const [message, setMessage] = useState("");
+  const [sending, setSending] = useState(false);
 
   React.useLayoutEffect(() => {
     navigation.setOptions({
@@ -37,7 +51,19 @@ export default function OrchestratorScreen({ navigation }: Props) {
   }, [navigation]);
 
   const zones = getZoneCounts(sessions);
-  const activeSessions = sessions.filter((s) => !isTerminal(s));
+
+  const handleSend = useCallback(async () => {
+    if (!message.trim() || !orchestratorId) return;
+    setSending(true);
+    try {
+      await sendMessage(orchestratorId, message.trim());
+      setMessage("");
+    } catch (err) {
+      Alert.alert("Error", err instanceof Error ? err.message : "Failed to send message");
+    } finally {
+      setSending(false);
+    }
+  }, [message, sendMessage, orchestratorId]);
 
   if (loading && sessions.length === 0) {
     return (
@@ -58,30 +84,76 @@ export default function OrchestratorScreen({ navigation }: Props) {
     );
   }
 
+  const orchLevel = orchSession ? getAttentionLevel(orchSession) : null;
+  const orchColor = orchLevel ? ATTENTION_COLORS[orchLevel] : "#8b949e";
+
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      {/* Orchestrator Status */}
+      {/* Orchestrator Session Details */}
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Orchestrator</Text>
-        {orchestratorId ? (
-          <TouchableOpacity
-            style={styles.orchestratorCard}
-            onPress={() => navigation.navigate("SessionDetail", { sessionId: orchestratorId })}
-          >
-            <View style={styles.orchestratorRow}>
-              <View style={[styles.dot, { backgroundColor: "#3fb950" }]} />
-              <Text style={styles.orchestratorText}>Running</Text>
+        {orchestratorId && orchSession ? (
+          <View style={[styles.orchDetailCard, { borderLeftColor: orchColor }]}>
+            <View style={styles.orchHeaderRow}>
+              <View style={styles.orchStatusRow}>
+                <View style={[styles.dot, { backgroundColor: "#3fb950" }]} />
+                <Text style={styles.orchRunning}>Running</Text>
+              </View>
+              <AttentionBadge level={orchLevel!} />
             </View>
-            <Text style={styles.orchestratorId}>{orchestratorId}</Text>
-            <Text style={styles.orchestratorHint}>Tap to view terminal</Text>
-          </TouchableOpacity>
+            <Text style={styles.orchId}>{orchestratorId}</Text>
+            <Text style={styles.orchStatus}>
+              {orchSession.status}
+              {orchSession.activity ? ` · ${orchSession.activity}` : ""}
+            </Text>
+            {orchSession.summary && !orchSession.summaryIsFallback && (
+              <Text style={styles.orchSummary} numberOfLines={3}>{orchSession.summary}</Text>
+            )}
+            <View style={styles.orchTimingRow}>
+              <Text style={styles.orchTiming}>Last activity: {relativeTime(orchSession.lastActivityAt)}</Text>
+            </View>
+
+            {/* Actions */}
+            <View style={styles.orchActions}>
+              <TouchableOpacity
+                style={styles.terminalButton}
+                onPress={() => navigation.navigate("Terminal", { sessionId: orchestratorId, terminalWsUrl })}
+              >
+                <Text style={styles.terminalButtonText}>Open Terminal</Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* Send message */}
+            <View style={styles.orchMessageRow}>
+              <TextInput
+                style={styles.orchMessageInput}
+                placeholder="Send message to orchestrator..."
+                placeholderTextColor="#8b949e"
+                value={message}
+                onChangeText={setMessage}
+                returnKeyType="send"
+                onSubmitEditing={handleSend}
+              />
+              <TouchableOpacity
+                style={[styles.sendButton, (!message.trim() || sending) && styles.sendButtonDisabled]}
+                onPress={handleSend}
+                disabled={!message.trim() || sending}
+              >
+                {sending ? (
+                  <ActivityIndicator color="#fff" size="small" />
+                ) : (
+                  <Text style={styles.sendButtonText}>Send</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
         ) : (
-          <View style={styles.orchestratorCard}>
-            <View style={styles.orchestratorRow}>
+          <View style={styles.orchDetailCard}>
+            <View style={styles.orchStatusRow}>
               <View style={[styles.dot, { backgroundColor: "#8b949e" }]} />
-              <Text style={[styles.orchestratorText, { color: "#8b949e" }]}>Not running</Text>
+              <Text style={[styles.orchRunning, { color: "#8b949e" }]}>Not running</Text>
             </View>
-            <Text style={styles.orchestratorHint}>Start with: ao start &lt;project&gt;</Text>
+            <Text style={styles.orchHint}>Start with: ao start &lt;project&gt;</Text>
           </View>
         )}
       </View>
@@ -99,15 +171,6 @@ export default function OrchestratorScreen({ navigation }: Props) {
         </View>
       </View>
 
-      {/* Stats */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Overview</Text>
-        <StatRow label="Total sessions" value={String(stats?.totalSessions ?? sessions.length)} />
-        <StatRow label="Active sessions" value={String(activeSessions.length)} />
-        <StatRow label="Open PRs" value={String(stats?.openPRs ?? 0)} />
-        <StatRow label="Needs review" value={String(stats?.needsReview ?? 0)} />
-      </View>
-
     </ScrollView>
   );
 }
@@ -117,15 +180,6 @@ function ZoneBadge({ label, count, color }: { label: string; count: number; colo
     <View style={styles.zoneBadge}>
       <Text style={[styles.zoneCount, { color }]}>{count}</Text>
       <Text style={styles.zoneLabel}>{label}</Text>
-    </View>
-  );
-}
-
-function StatRow({ label, value }: { label: string; value: string }) {
-  return (
-    <View style={styles.statRow}>
-      <Text style={styles.statLabel}>{label}</Text>
-      <Text style={styles.statValue}>{value}</Text>
     </View>
   );
 }
@@ -160,39 +214,112 @@ const styles = StyleSheet.create({
     textTransform: "uppercase",
     marginBottom: 12,
   },
-  // Orchestrator card
-  orchestratorCard: {
+  // Orchestrator detail card
+  orchDetailCard: {
     backgroundColor: "#0d1117",
     borderWidth: 1,
     borderColor: "#30363d",
+    borderLeftWidth: 3,
     borderRadius: 8,
     padding: 14,
   },
-  orchestratorRow: {
+  orchHeaderRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 6,
+  },
+  orchStatusRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
-    marginBottom: 6,
   },
   dot: {
     width: 10,
     height: 10,
     borderRadius: 5,
   },
-  orchestratorText: {
+  orchRunning: {
     color: "#3fb950",
     fontSize: 15,
     fontWeight: "600",
   },
-  orchestratorId: {
+  orchId: {
     color: "#8b949e",
     fontSize: 12,
     fontFamily: "monospace",
     marginBottom: 4,
   },
-  orchestratorHint: {
+  orchStatus: {
+    color: "#8b949e",
+    fontSize: 13,
+    marginBottom: 4,
+  },
+  orchSummary: {
+    color: "#e6edf3",
+    fontSize: 13,
+    lineHeight: 18,
+    marginBottom: 4,
+  },
+  orchTimingRow: {
+    marginBottom: 10,
+  },
+  orchTiming: {
     color: "#6e7681",
     fontSize: 12,
+  },
+  orchHint: {
+    color: "#6e7681",
+    fontSize: 12,
+    marginTop: 4,
+  },
+  orchActions: {
+    marginBottom: 10,
+  },
+  terminalButton: {
+    backgroundColor: "#21262d",
+    borderWidth: 1,
+    borderColor: "#30363d",
+    borderRadius: 8,
+    padding: 12,
+    alignItems: "center",
+  },
+  terminalButtonText: {
+    color: "#e6edf3",
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  orchMessageRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  orchMessageInput: {
+    flex: 1,
+    backgroundColor: "#161b22",
+    borderWidth: 1,
+    borderColor: "#30363d",
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    color: "#e6edf3",
+    fontSize: 14,
+  },
+  sendButton: {
+    backgroundColor: "#238636",
+    borderRadius: 8,
+    paddingHorizontal: 14,
+    height: 38,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  sendButtonDisabled: {
+    backgroundColor: "#21262d",
+  },
+  sendButtonText: {
+    color: "#fff",
+    fontSize: 14,
+    fontWeight: "700",
   },
   // Zones grid
   zonesGrid: {
@@ -220,21 +347,6 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: "600",
     marginTop: 2,
-  },
-  // Stats
-  statRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    paddingVertical: 6,
-  },
-  statLabel: {
-    color: "#8b949e",
-    fontSize: 13,
-  },
-  statValue: {
-    color: "#e6edf3",
-    fontSize: 13,
-    fontWeight: "600",
   },
   // Error
   errorText: {
