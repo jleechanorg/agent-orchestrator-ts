@@ -38,17 +38,22 @@ export default function HomeScreen({ navigation }: Props) {
   React.useLayoutEffect(() => {
     navigation.setOptions({
       headerRight: () => (
-        <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 14 }}>
           <TouchableOpacity
             onPress={() => navigation.navigate("SpawnSession")}
           >
             <Text style={{ color: "#3fb950", fontSize: 22, fontWeight: "700" }}>+</Text>
           </TouchableOpacity>
           <TouchableOpacity
+            onPress={() => navigation.navigate("Orchestrator")}
+          >
+            <Text style={{ color: "#58a6ff", fontSize: 13, fontWeight: "600" }}>AO</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
             onPress={() => navigation.navigate("Settings")}
             style={{ paddingRight: 4 }}
           >
-            <Text style={{ color: "#58a6ff", fontSize: 16 }}>Settings</Text>
+            <Text style={{ fontSize: 20 }}>{"\u2699\uFE0F"}</Text>
           </TouchableOpacity>
         </View>
       ),

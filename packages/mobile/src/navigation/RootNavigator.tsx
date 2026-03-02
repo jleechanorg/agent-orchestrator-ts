@@ -6,6 +6,7 @@ import SessionDetailScreen from "../screens/SessionDetailScreen";
 import TerminalScreen from "../screens/TerminalScreen";
 import SettingsScreen from "../screens/SettingsScreen";
 import SpawnSessionScreen from "../screens/SpawnSessionScreen";
+import OrchestratorScreen from "../screens/OrchestratorScreen";
 
 export type RootStackParamList = {
   Home: undefined;
@@ -13,6 +14,7 @@ export type RootStackParamList = {
   Terminal: { sessionId: string; terminalWsUrl: string };
   Settings: undefined;
   SpawnSession: undefined;
+  Orchestrator: undefined;
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -67,6 +69,11 @@ export default function RootNavigator() {
           name="SpawnSession"
           component={SpawnSessionScreen}
           options={{ title: "New Session" }}
+        />
+        <Stack.Screen
+          name="Orchestrator"
+          component={OrchestratorScreen}
+          options={{ title: "Orchestrator" }}
         />
       </Stack.Navigator>
     </NavigationContainer>
