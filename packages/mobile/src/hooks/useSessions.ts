@@ -23,21 +23,24 @@ export function useSessions(): UseSessionsResult {
   const [error, setError] = useState<string | null>(null);
 
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const isMountedRef = useRef(true);
+  // Generation counter — incremented on cleanup to invalidate in-flight fetches
+  // from a previous effect run (e.g. when backend URL changes).
+  const fetchGenRef = useRef(0);
 
   const doFetch = useCallback(async () => {
+    const gen = fetchGenRef.current;
     try {
       const data = await fetchSessions();
-      if (!isMountedRef.current) return;
+      if (gen !== fetchGenRef.current) return;
       setSessions(data.sessions ?? []);
       setStats(data.stats ?? null);
       setOrchestratorId(data.orchestratorId ?? null);
       setError(null);
     } catch (err) {
-      if (!isMountedRef.current) return;
+      if (gen !== fetchGenRef.current) return;
       setError(err instanceof Error ? err.message : "Failed to load sessions");
     } finally {
-      if (isMountedRef.current) setLoading(false);
+      if (gen === fetchGenRef.current) setLoading(false);
     }
   }, [fetchSessions]);
 
@@ -54,7 +57,6 @@ export function useSessions(): UseSessionsResult {
   }, []);
 
   useEffect(() => {
-    isMountedRef.current = true;
     startPolling();
 
     const handleAppState = (nextState: AppStateStatus) => {
@@ -71,7 +73,7 @@ export function useSessions(): UseSessionsResult {
     const sub = AppState.addEventListener("change", handleAppState);
 
     return () => {
-      isMountedRef.current = false;
+      fetchGenRef.current++; // Invalidate in-flight fetches from this effect run
       stopPolling();
       sub.remove();
     };

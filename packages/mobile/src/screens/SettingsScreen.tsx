@@ -118,7 +118,7 @@ export default function SettingsScreen({ navigation }: Props) {
         {
           id: "ao-test-session",
           projectId: "test",
-          status: "needs_review",
+          status: "review_pending",
           activity: "idle",
           branch: "feat/test",
           issueId: null,
