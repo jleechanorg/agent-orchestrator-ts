@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useRef } from "react";
+import React, { useState, useCallback, useRef, useEffect } from "react";
 import {
   View,
   Text,
@@ -8,7 +8,7 @@ import {
   TouchableOpacity,
   Alert,
   ActivityIndicator,
-  KeyboardAvoidingView,
+  Keyboard,
   Platform,
   Linking,
 } from "react-native";
@@ -43,6 +43,24 @@ export default function SessionDetailScreen({ route, navigation }: Props) {
   const [ciFixState, setCiFixState] = useState<ActionButtonState>("idle");
   const [commentFixStates, setCommentFixStates] = useState<Record<string, ActionButtonState>>({});
   const scrollRef = useRef<ScrollView>(null);
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
+
+  useEffect(() => {
+    const showEvent = Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
+    const hideEvent = Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
+
+    const showSub = Keyboard.addListener(showEvent, (e) => {
+      setKeyboardHeight(e.endCoordinates.height);
+    });
+    const hideSub = Keyboard.addListener(hideEvent, () => {
+      setKeyboardHeight(0);
+    });
+
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
 
   const handleSend = useCallback(async () => {
     if (!message.trim()) return;
@@ -162,11 +180,7 @@ export default function SessionDetailScreen({ route, navigation }: Props) {
   const unresolvedComments = pr?.unresolvedComments ?? [];
 
   return (
-    <KeyboardAvoidingView
-      style={styles.root}
-      behavior="padding"
-      keyboardVerticalOffset={Platform.OS === "ios" ? 88 : 140}
-    >
+    <View style={styles.root}>
       <ScrollView ref={scrollRef} style={styles.container} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
         {/* Header row */}
         <View style={[styles.headerCard, { borderLeftColor: color }]}>
@@ -336,7 +350,7 @@ export default function SessionDetailScreen({ route, navigation }: Props) {
 
       {/* Message input — only show for active sessions */}
       {!isDone && (
-        <View style={styles.messageBar}>
+        <View style={[styles.messageBar, { paddingBottom: keyboardHeight > 0 ? keyboardHeight - (Platform.OS === "ios" ? 34 : 0) : 10 }]}>
           <TextInput
             style={styles.messageInput}
             placeholder="Send message to agent..."
@@ -347,9 +361,6 @@ export default function SessionDetailScreen({ route, navigation }: Props) {
             returnKeyType="send"
             onSubmitEditing={handleSend}
             blurOnSubmit={false}
-            onFocus={() => {
-              setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 300);
-            }}
           />
           <TouchableOpacity
             style={[styles.sendButton, (!message.trim() || sending) && styles.sendButtonDisabled]}
@@ -364,7 +375,7 @@ export default function SessionDetailScreen({ route, navigation }: Props) {
           </TouchableOpacity>
         </View>
       )}
-    </KeyboardAvoidingView>
+    </View>
   );
 }
 
