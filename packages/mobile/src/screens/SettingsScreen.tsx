@@ -188,16 +188,14 @@ export default function SettingsScreen({ navigation }: Props) {
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Backend URL</Text>
           <Text style={styles.hint}>
-            Tailscale (recommended): use your Mac's Tailscale IP (100.x.x.x).{"\n"}
-            Local network: enter your Mac's LAN IP.{"\n"}
-            ngrok: paste the https:// tunnel URL for port 3000.
+            Enter the URL where your AO dashboard is running.
           </Text>
           <Text style={styles.fieldLabel}>Dashboard API URL</Text>
           <TextInput
             style={styles.input}
             value={input}
             onChangeText={setInput}
-            placeholder="http://100.x.x.x:3000  or  http://192.168.x.x:3000"
+            placeholder="http://100.x.x.x:3000  or  https://abc.ngrok-free.app"
             placeholderTextColor="#8b949e"
             autoCapitalize="none"
             autoCorrect={false}
