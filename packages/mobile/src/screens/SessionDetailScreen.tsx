@@ -164,8 +164,8 @@ export default function SessionDetailScreen({ route, navigation }: Props) {
   return (
     <KeyboardAvoidingView
       style={styles.root}
-      behavior={Platform.OS === "ios" ? "padding" : "height"}
-      keyboardVerticalOffset={Platform.OS === "ios" ? 88 : 0}
+      behavior="padding"
+      keyboardVerticalOffset={Platform.OS === "ios" ? 88 : 80}
     >
       <ScrollView ref={scrollRef} style={styles.container} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
         {/* Header row */}

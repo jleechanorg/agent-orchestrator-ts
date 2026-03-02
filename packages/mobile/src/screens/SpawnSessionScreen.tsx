@@ -52,7 +52,8 @@ export default function SpawnSessionScreen({ navigation }: Props) {
   return (
     <KeyboardAvoidingView
       style={styles.root}
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
+      behavior="padding"
+      keyboardVerticalOffset={Platform.OS === "ios" ? 88 : 80}
     >
       <ScrollView style={styles.container} contentContainerStyle={styles.content}>
         <View style={styles.section}>
