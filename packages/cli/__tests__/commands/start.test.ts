@@ -15,9 +15,10 @@ import type { SessionManager } from "@composio/ao-core";
 // Hoisted mocks
 // ---------------------------------------------------------------------------
 
-const { mockExec, mockConfigRef, mockSessionManager, mockWaitForPortAndOpen, mockSpawn } =
+const { mockExec, mockExecSilent, mockConfigRef, mockSessionManager, mockWaitForPortAndOpen, mockSpawn } =
   vi.hoisted(() => ({
     mockExec: vi.fn(),
+    mockExecSilent: vi.fn(),
     mockConfigRef: { current: null as Record<string, unknown> | null },
     mockSessionManager: {
       list: vi.fn(),
@@ -36,7 +37,7 @@ const { mockExec, mockConfigRef, mockSessionManager, mockWaitForPortAndOpen, moc
 vi.mock("../../src/lib/shell.js", () => ({
   tmux: vi.fn(),
   exec: mockExec,
-  execSilent: vi.fn(),
+  execSilent: mockExecSilent,
   git: vi.fn(),
   gh: vi.fn(),
   getTmuxSessions: vi.fn().mockResolvedValue([]),
@@ -132,6 +133,9 @@ beforeEach(() => {
   mockSessionManager.spawnOrchestrator.mockReset();
   mockSessionManager.kill.mockReset();
   mockExec.mockReset();
+  mockExecSilent.mockReset();
+  // Default: execSilent returns null (gh not available), so clone falls through to git SSH/HTTPS
+  mockExecSilent.mockResolvedValue(null);
   mockWaitForPortAndOpen.mockReset();
   mockWaitForPortAndOpen.mockResolvedValue(undefined);
   mockSpawn.mockClear();
@@ -304,11 +308,55 @@ describe("start command — URL argument", () => {
     expect(output).toContain("Startup complete");
   });
 
-  it("clones repo when not already present", async () => {
+  it("clones repo via gh when gh auth is available", async () => {
     const repoDir = join(tmpDir, "my-app");
     mockCwd(tmpDir);
 
+    // gh auth status succeeds
+    mockExecSilent.mockResolvedValue("Logged in");
+
     mockExec.mockImplementation(async (cmd: string, args: string[]) => {
+      if (cmd === "gh" && args[0] === "repo" && args[1] === "clone") {
+        createFakeRepo(repoDir, "https://github.com/owner/my-app.git", {
+          "Cargo.toml": "",
+        });
+        return { stdout: "", stderr: "" };
+      }
+      return { stdout: "", stderr: "" };
+    });
+
+    await program.parseAsync([
+      "node",
+      "test",
+      "start",
+      "https://github.com/owner/my-app",
+      "--no-dashboard",
+      "--no-orchestrator",
+    ]);
+
+    expect(mockExec).toHaveBeenCalledWith(
+      "gh",
+      ["repo", "clone", "owner/my-app", repoDir, "--", "--depth", "1"],
+      expect.anything(),
+    );
+
+    const output = vi.mocked(console.log).mock.calls.map((c) => c.join(" ")).join("\n");
+    expect(output).toContain("Startup complete");
+  });
+
+  it("falls back to git clone when gh is unavailable", async () => {
+    const repoDir = join(tmpDir, "my-app");
+    mockCwd(tmpDir);
+
+    // gh auth status fails (not installed or not logged in)
+    mockExecSilent.mockResolvedValue(null);
+
+    mockExec.mockImplementation(async (cmd: string, args: string[]) => {
+      // SSH attempt fails
+      if (cmd === "git" && args[0] === "clone" && args[3]?.startsWith("git@")) {
+        throw new Error("Permission denied (publickey)");
+      }
+      // HTTPS fallback succeeds
       if (cmd === "git" && args[0] === "clone") {
         createFakeRepo(repoDir, "https://github.com/owner/my-app.git", {
           "Cargo.toml": "",
@@ -327,6 +375,12 @@ describe("start command — URL argument", () => {
       "--no-orchestrator",
     ]);
 
+    // Should have tried SSH first, then HTTPS
+    expect(mockExec).toHaveBeenCalledWith(
+      "git",
+      ["clone", "--depth", "1", "git@github.com:owner/my-app.git", repoDir],
+      expect.anything(),
+    );
     expect(mockExec).toHaveBeenCalledWith(
       "git",
       ["clone", "--depth", "1", "https://github.com/owner/my-app.git", repoDir],

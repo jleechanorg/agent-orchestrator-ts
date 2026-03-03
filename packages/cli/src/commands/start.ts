@@ -28,7 +28,7 @@ import {
   type ProjectConfig,
   type ParsedRepoUrl,
 } from "@composio/ao-core";
-import { exec } from "../lib/shell.js";
+import { exec, execSilent } from "../lib/shell.js";
 import { getSessionManager } from "../lib/create-session-manager.js";
 import { findWebDir, buildDashboardEnv, waitForPortAndOpen } from "../lib/web-dir.js";
 import { cleanNextCache } from "../lib/dashboard-rebuild.js";
@@ -103,6 +103,46 @@ function resolveProjectByRepo(
 }
 
 /**
+ * Clone a repo with authentication support.
+ *
+ * Strategy:
+ *   1. Try `gh repo clone owner/repo target -- --depth 1` — handles GitHub auth
+ *      for private repos via the user's `gh auth` token.
+ *   2. Fall back to `git clone --depth 1` with SSH URL — works for users with
+ *      SSH keys configured (common for private repos without gh).
+ *   3. Final fallback to `git clone --depth 1` with HTTPS URL — works for
+ *      public repos without any auth setup.
+ */
+async function cloneRepo(parsed: ParsedRepoUrl, targetDir: string, cwd: string): Promise<void> {
+  // 1. Try gh repo clone (handles GitHub auth automatically)
+  if (parsed.host === "github.com") {
+    const ghAvailable = (await execSilent("gh", ["auth", "status"])) !== null;
+    if (ghAvailable) {
+      try {
+        await exec("gh", ["repo", "clone", parsed.ownerRepo, targetDir, "--", "--depth", "1"], {
+          cwd,
+        });
+        return;
+      } catch {
+        // gh clone failed — fall through to git clone with SSH
+      }
+    }
+  }
+
+  // 2. Try git clone with SSH URL (works with SSH keys for private repos)
+  const sshUrl = `git@${parsed.host}:${parsed.ownerRepo}.git`;
+  try {
+    await exec("git", ["clone", "--depth", "1", sshUrl, targetDir], { cwd });
+    return;
+  } catch {
+    // SSH failed — fall through to HTTPS
+  }
+
+  // 3. Final fallback: HTTPS (works for public repos)
+  await exec("git", ["clone", "--depth", "1", parsed.cloneUrl, targetDir], { cwd });
+}
+
+/**
  * Handle `ao start <url>` — clone repo, generate config, return loaded config.
  * Also returns the parsed URL so the caller can match by repo when the config
  * contains multiple projects.
@@ -126,12 +166,12 @@ async function handleUrlStart(url: string): Promise<{ config: OrchestratorConfig
   } else {
     spinner.start(`Cloning ${parsed.ownerRepo}`);
     try {
-      await exec("git", ["clone", "--depth", "1", parsed.cloneUrl, targetDir], { cwd });
+      await cloneRepo(parsed, targetDir, cwd);
       spinner.succeed(`Cloned to ${targetDir}`);
     } catch (err) {
       spinner.fail("Clone failed");
       throw new Error(
-        `Failed to clone ${parsed.cloneUrl}: ${err instanceof Error ? err.message : String(err)}`,
+        `Failed to clone ${parsed.ownerRepo}: ${err instanceof Error ? err.message : String(err)}`,
         { cause: err },
       );
     }
