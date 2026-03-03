@@ -37,6 +37,21 @@ export function isPortAvailable(port: number): Promise<boolean> {
   });
 }
 
+/** How many consecutive ports to scan before giving up. */
+export const MAX_PORT_SCAN = 100;
+
+/**
+ * Find the first available port starting from `start`, scanning upward.
+ * Returns `null` if no free port is found within `maxScan` attempts.
+ * Shared between `ao init` and `ao start <url>`.
+ */
+export async function findFreePort(start: number, maxScan = MAX_PORT_SCAN): Promise<number | null> {
+  for (let port = start; port < start + maxScan; port++) {
+    if (await isPortAvailable(port)) return port;
+  }
+  return null;
+}
+
 /**
  * Poll until a port is accepting connections, then open a URL in the browser.
  * Respects an AbortSignal so the caller can cancel if the dashboard process

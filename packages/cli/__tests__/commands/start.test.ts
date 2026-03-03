@@ -74,6 +74,8 @@ vi.mock("../../src/lib/web-dir.js", () => ({
   findWebDir: vi.fn().mockReturnValue("/fake/web"),
   buildDashboardEnv: vi.fn().mockResolvedValue({}),
   waitForPortAndOpen: (...args: unknown[]) => mockWaitForPortAndOpen(...args),
+  isPortAvailable: vi.fn().mockResolvedValue(true),
+  findFreePort: vi.fn().mockResolvedValue(3000),
 }));
 
 vi.mock("../../src/lib/dashboard-rebuild.js", () => ({
