@@ -26,6 +26,7 @@ import {
   configToYaml,
   type OrchestratorConfig,
   type ProjectConfig,
+  type ParsedRepoUrl,
 } from "@composio/ao-core";
 import { exec } from "../lib/shell.js";
 import { getSessionManager } from "../lib/create-session-manager.js";
@@ -76,9 +77,37 @@ function resolveProject(
 }
 
 /**
- * Handle `ao start <url>` — clone repo, generate config, return loaded config.
+ * Resolve project from config by matching against a repo URL's ownerRepo.
+ * Used when `ao start <url>` loads an existing multi-project config — the user
+ * can't pass both a URL and a project name since they share the same arg slot.
+ *
+ * Falls back to `resolveProject` (which handles single-project configs or
+ * errors with a helpful message for ambiguous multi-project cases).
  */
-async function handleUrlStart(url: string): Promise<OrchestratorConfig> {
+function resolveProjectByRepo(
+  config: OrchestratorConfig,
+  parsed: ParsedRepoUrl,
+): { projectId: string; project: ProjectConfig } {
+  const projectIds = Object.keys(config.projects);
+
+  // Try to match by repo field (e.g. "owner/repo")
+  for (const id of projectIds) {
+    const project = config.projects[id];
+    if (project.repo === parsed.ownerRepo) {
+      return { projectId: id, project };
+    }
+  }
+
+  // No repo match — fall back to standard resolution (works for single-project)
+  return resolveProject(config);
+}
+
+/**
+ * Handle `ao start <url>` — clone repo, generate config, return loaded config.
+ * Also returns the parsed URL so the caller can match by repo when the config
+ * contains multiple projects.
+ */
+async function handleUrlStart(url: string): Promise<{ config: OrchestratorConfig; parsed: ParsedRepoUrl }> {
   const spinner = ora();
 
   // 1. Parse URL
@@ -97,7 +126,7 @@ async function handleUrlStart(url: string): Promise<OrchestratorConfig> {
   } else {
     spinner.start(`Cloning ${parsed.ownerRepo}`);
     try {
-      await exec("git", ["clone", parsed.cloneUrl, targetDir], { cwd });
+      await exec("git", ["clone", "--depth", "1", parsed.cloneUrl, targetDir], { cwd });
       spinner.succeed(`Cloned to ${targetDir}`);
     } catch (err) {
       spinner.fail("Clone failed");
@@ -114,12 +143,12 @@ async function handleUrlStart(url: string): Promise<OrchestratorConfig> {
 
   if (existsSync(configPath)) {
     console.log(chalk.green(`  Using existing config: ${configPath}`));
-    return loadConfig(configPath);
+    return { config: loadConfig(configPath), parsed };
   }
 
   if (existsSync(configPathAlt)) {
     console.log(chalk.green(`  Using existing config: ${configPathAlt}`));
-    return loadConfig(configPathAlt);
+    return { config: loadConfig(configPathAlt), parsed };
   }
 
   // 5. Auto-generate config
@@ -133,7 +162,7 @@ async function handleUrlStart(url: string): Promise<OrchestratorConfig> {
   writeFileSync(configPath, yamlContent);
   spinner.succeed(`Config generated: ${configPath}`);
 
-  return loadConfig(configPath);
+  return { config: loadConfig(configPath), parsed };
 }
 
 /**
@@ -340,8 +369,9 @@ export function registerStart(program: Command): void {
           // Detect URL argument — run onboarding flow
           if (projectArg && isRepoUrl(projectArg)) {
             console.log(chalk.bold.cyan("\n  Agent Orchestrator — Quick Start\n"));
-            config = await handleUrlStart(projectArg);
-            ({ projectId, project } = resolveProject(config));
+            const result = await handleUrlStart(projectArg);
+            config = result.config;
+            ({ projectId, project } = resolveProjectByRepo(config, result.parsed));
           } else {
             // Normal flow — load existing config
             config = loadConfig();

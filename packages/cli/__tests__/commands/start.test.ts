@@ -329,7 +329,7 @@ describe("start command — URL argument", () => {
 
     expect(mockExec).toHaveBeenCalledWith(
       "git",
-      ["clone", "https://github.com/owner/my-app.git", repoDir],
+      ["clone", "--depth", "1", "https://github.com/owner/my-app.git", repoDir],
       expect.anything(),
     );
 
@@ -373,6 +373,51 @@ describe("start command — URL argument", () => {
     const output = vi.mocked(console.log).mock.calls.map((c) => c.join(" ")).join("\n");
     expect(output).toContain("Using existing config");
     expect(output).toContain("Configured App");
+  });
+
+  it("resolves correct project when existing config has multiple projects", async () => {
+    const repoDir = join(tmpDir, "multi-proj");
+    createFakeRepo(repoDir, "https://github.com/org/multi-proj.git");
+    mockCwd(tmpDir);
+
+    writeFileSync(
+      join(repoDir, "agent-orchestrator.yaml"),
+      [
+        "port: 4000",
+        "defaults:",
+        "  runtime: tmux",
+        "  agent: claude-code",
+        "  workspace: worktree",
+        "  notifiers: [desktop]",
+        "projects:",
+        "  frontend:",
+        "    name: Frontend",
+        "    repo: org/other-repo",
+        `    path: ${repoDir}/frontend`,
+        "    defaultBranch: main",
+        "    sessionPrefix: fe",
+        "  multi-proj:",
+        "    name: Multi Proj",
+        "    repo: org/multi-proj",
+        `    path: ${repoDir}`,
+        "    defaultBranch: main",
+        "    sessionPrefix: mp",
+      ].join("\n"),
+    );
+
+    await program.parseAsync([
+      "node",
+      "test",
+      "start",
+      "https://github.com/org/multi-proj",
+      "--no-dashboard",
+      "--no-orchestrator",
+    ]);
+
+    const output = vi.mocked(console.log).mock.calls.map((c) => c.join(" ")).join("\n");
+    // Should pick "Multi Proj" by matching repo field, not error with "Multiple projects"
+    expect(output).toContain("Multi Proj");
+    expect(output).toContain("Startup complete");
   });
 
   it("fails on clone error with descriptive message", async () => {
