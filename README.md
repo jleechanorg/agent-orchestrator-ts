@@ -1,6 +1,12 @@
-<div align="center">
+<h1 align="center">Agent Orchestrator — The Orchestration Layer for Parallel AI Agents</h1>
 
-# Agent Orchestrator — The Orchestration Layer for Parallel AI Agents
+<p align="center">
+<a href="https://platform.composio.dev/?utm_source=Github&utm_medium=Banner&utm_content=AgentOrchestrator">
+  <img width="800" alt="Agent Orchestrator banner" src="docs/assets/agent_orchestrator_banner.png">
+</a>
+</p>
+
+<div align="center">
 
 Spawn parallel AI coding agents, each in its own git worktree. Agents autonomously fix CI failures, address review comments, and open PRs — you supervise from one dashboard.
 
