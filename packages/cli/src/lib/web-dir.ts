@@ -3,6 +3,7 @@
  * Shared utility to avoid duplication between dashboard.ts and start.ts.
  */
 
+import { spawn } from "node:child_process";
 import { Socket } from "node:net";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
@@ -34,6 +35,29 @@ export function isPortAvailable(port: number): Promise<boolean> {
     s.once("timeout", () => { s.destroy(); resolve(true); });  // no response → free
     s.connect(port, "127.0.0.1");
   });
+}
+
+/**
+ * Poll until a port is accepting connections, then open a URL in the browser.
+ * Respects an AbortSignal so the caller can cancel if the dashboard process
+ * exits early. Gives up silently after timeoutMs (default 30s).
+ */
+export async function waitForPortAndOpen(
+  port: number,
+  url: string,
+  signal: AbortSignal,
+  timeoutMs = 30_000,
+): Promise<void> {
+  const start = Date.now();
+  while (!signal.aborted && Date.now() - start < timeoutMs) {
+    const free = await isPortAvailable(port);
+    if (!free) {
+      const browser = spawn("open", [url], { stdio: "ignore" });
+      browser.on("error", () => {});
+      return;
+    }
+    await new Promise((r) => setTimeout(r, 300));
+  }
 }
 
 /**
