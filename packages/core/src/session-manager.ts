@@ -11,8 +11,8 @@
  * Reference: scripts/claude-ao-session, scripts/send-to-session
  */
 
-import { statSync, existsSync, readdirSync, writeFileSync, mkdirSync, realpathSync } from "node:fs";
-import { basename, dirname, join, normalize, resolve } from "node:path";
+import { statSync, existsSync, readdirSync, writeFileSync, mkdirSync } from "node:fs";
+import { join } from "node:path";
 import {
   isIssueNotFoundError,
   isRestorable,
@@ -50,7 +50,6 @@ import {
 import { buildPrompt } from "./prompt-builder.js";
 import {
   getSessionsDir,
-  getWorktreesDir,
   getProjectBaseDir,
   generateTmuxName,
   generateConfigHash,
@@ -174,60 +173,6 @@ export function createSessionManager(deps: SessionManagerDeps): SessionManager {
     return getSessionsDir(config.configPath, project.path);
   }
 
-  function getProjectWorktreesDir(project: ProjectConfig): string {
-    return getWorktreesDir(config.configPath, project.path);
-  }
-
-  function canonicalPath(path: string): string {
-    const absolutePath = resolve(path);
-    try {
-      return realpathSync(absolutePath);
-    } catch {
-      const missingSegments: string[] = [];
-      let currentPath = absolutePath;
-
-      while (!existsSync(currentPath)) {
-        const parentPath = dirname(currentPath);
-        if (parentPath === currentPath) {
-          return absolutePath;
-        }
-        missingSegments.push(basename(currentPath));
-        currentPath = parentPath;
-      }
-
-      const canonicalExistingPath = realpathSync(currentPath);
-      if (missingSegments.length === 0) {
-        return canonicalExistingPath;
-      }
-
-      return normalize(join(canonicalExistingPath, ...missingSegments.reverse()));
-    }
-  }
-
-  function normalizePath(path: string): string {
-    return canonicalPath(path).replace(/\/$/, "");
-  }
-
-  function isPathInside(path: string, parentPath: string): boolean {
-    const normalizedPath = normalizePath(path);
-    const normalizedParent = normalizePath(parentPath);
-    return normalizedPath === normalizedParent || normalizedPath.startsWith(`${normalizedParent}/`);
-  }
-
-  function shouldDestroyWorkspacePath(
-    project: ProjectConfig | undefined,
-    workspacePath: string,
-  ): boolean {
-    if (!project) return false;
-    const isProjectPath = normalizePath(workspacePath) === normalizePath(project.path);
-    if (isProjectPath) return false;
-    return isPathInside(workspacePath, getProjectWorktreesDir(project));
-  }
-
-  function shouldDestroySpawnWorkspacePath(project: ProjectConfig, workspacePath: string): boolean {
-    return normalizePath(workspacePath) !== normalizePath(project.path);
-  }
-
   /**
    * List all session files across all projects (or filtered by projectId).
    * Scans project-specific directories under ~/.agent-orchestrator/{hash}-{projectId}/sessions/
@@ -268,10 +213,7 @@ export function createSessionManager(deps: SessionManagerDeps): SessionManager {
   /** Resolve which plugins to use for a project. */
   function resolvePlugins(project: ProjectConfig, agentOverride?: string) {
     const runtime = registry.get<Runtime>("runtime", project.runtime ?? config.defaults.runtime);
-    const agent = registry.get<Agent>(
-      "agent",
-      agentOverride ?? project.agent ?? config.defaults.agent,
-    );
+    const agent = registry.get<Agent>("agent", agentOverride ?? project.agent ?? config.defaults.agent);
     const workspace = registry.get<Workspace>(
       "workspace",
       project.workspace ?? config.defaults.workspace,
@@ -309,7 +251,9 @@ export function createSessionManager(deps: SessionManagerDeps): SessionManager {
    * Enrich session with live runtime state (alive/exited) and activity detection.
    * Mutates the session object in place.
    */
-  const TERMINAL_SESSION_STATUSES = new Set(["killed", "done", "merged", "terminated", "cleanup"]);
+  const TERMINAL_SESSION_STATUSES = new Set([
+    "killed", "done", "merged", "terminated", "cleanup",
+  ]);
 
   async function enrichSessionWithRuntimeState(
     session: Session,
@@ -454,7 +398,8 @@ export function createSessionManager(deps: SessionManagerDeps): SessionManager {
       // If the issueId is already branch-safe (e.g. "INT-9999"), use as-is.
       // Otherwise sanitize free-text (e.g. "fix login bug") into a valid slug.
       const id = spawnConfig.issueId;
-      const isBranchSafe = /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(id) && !id.includes("..");
+      const isBranchSafe =
+        /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(id) && !id.includes("..");
       const slug = isBranchSafe
         ? id
         : id
@@ -484,7 +429,7 @@ export function createSessionManager(deps: SessionManagerDeps): SessionManager {
           try {
             await plugins.workspace.postCreate(wsInfo, project);
           } catch (err) {
-            if (shouldDestroySpawnWorkspacePath(project, workspacePath)) {
+            if (workspacePath !== project.path) {
               try {
                 await plugins.workspace.destroy(workspacePath);
               } catch {
@@ -553,7 +498,7 @@ export function createSessionManager(deps: SessionManagerDeps): SessionManager {
       });
     } catch (err) {
       // Clean up workspace and reserved ID if agent config or runtime creation failed
-      if (plugins.workspace && shouldDestroySpawnWorkspacePath(project, workspacePath)) {
+      if (plugins.workspace && workspacePath !== project.path) {
         try {
           await plugins.workspace.destroy(workspacePath);
         } catch {
@@ -608,7 +553,7 @@ export function createSessionManager(deps: SessionManagerDeps): SessionManager {
       } catch {
         /* best effort */
       }
-      if (plugins.workspace && shouldDestroySpawnWorkspacePath(project, workspacePath)) {
+      if (plugins.workspace && workspacePath !== project.path) {
         try {
           await plugins.workspace.destroy(workspacePath);
         } catch {
@@ -767,41 +712,36 @@ export function createSessionManager(deps: SessionManagerDeps): SessionManager {
   async function list(projectId?: string): Promise<Session[]> {
     const allSessions = listAllSessions(projectId);
 
-    const sessionPromises = allSessions.map(
-      async ({ sessionName, projectId: sessionProjectId }) => {
-        const project = config.projects[sessionProjectId];
-        if (!project) return null;
+    const sessionPromises = allSessions.map(async ({ sessionName, projectId: sessionProjectId }) => {
+      const project = config.projects[sessionProjectId];
+      if (!project) return null;
 
-        const sessionsDir = getProjectSessionsDir(project);
-        const raw = readMetadataRaw(sessionsDir, sessionName);
-        if (!raw) return null;
+      const sessionsDir = getProjectSessionsDir(project);
+      const raw = readMetadataRaw(sessionsDir, sessionName);
+      if (!raw) return null;
 
-        // Get file timestamps for createdAt/lastActivityAt
-        let createdAt: Date | undefined;
-        let modifiedAt: Date | undefined;
-        try {
-          const metaPath = join(sessionsDir, sessionName);
-          const stats = statSync(metaPath);
-          createdAt = stats.birthtime;
-          modifiedAt = stats.mtime;
-        } catch {
-          // If stat fails, timestamps will fall back to current time
-        }
+      // Get file timestamps for createdAt/lastActivityAt
+      let createdAt: Date | undefined;
+      let modifiedAt: Date | undefined;
+      try {
+        const metaPath = join(sessionsDir, sessionName);
+        const stats = statSync(metaPath);
+        createdAt = stats.birthtime;
+        modifiedAt = stats.mtime;
+      } catch {
+        // If stat fails, timestamps will fall back to current time
+      }
 
-        const session = metadataToSession(sessionName, raw, createdAt, modifiedAt);
+      const session = metadataToSession(sessionName, raw, createdAt, modifiedAt);
 
-        const plugins = resolvePlugins(project, raw["agent"]);
-        // Cap per-session enrichment at 2s — subprocess calls (tmux/ps) can be
-        // slow under load. If we time out, session keeps its metadata values.
-        const enrichTimeout = new Promise<void>((resolve) => setTimeout(resolve, 2_000));
-        await Promise.race([
-          ensureHandleAndEnrich(session, sessionName, project, plugins),
-          enrichTimeout,
-        ]);
+      const plugins = resolvePlugins(project, raw["agent"]);
+      // Cap per-session enrichment at 2s — subprocess calls (tmux/ps) can be
+      // slow under load. If we time out, session keeps its metadata values.
+      const enrichTimeout = new Promise<void>((resolve) => setTimeout(resolve, 2_000));
+      await Promise.race([ensureHandleAndEnrich(session, sessionName, project, plugins), enrichTimeout]);
 
-        return session;
-      },
-    );
+      return session;
+    });
 
     const results = await Promise.all(sessionPromises);
     return results.filter((s): s is Session => s !== null);
@@ -877,8 +817,10 @@ export function createSessionManager(deps: SessionManagerDeps): SessionManager {
       }
     }
 
+    // Destroy workspace — skip if worktree is the project path (no isolation was used)
     const worktree = raw["worktree"];
-    if (worktree && shouldDestroyWorkspacePath(project, worktree)) {
+    const isProjectPath = project && worktree === project.path;
+    if (worktree && !isProjectPath) {
       const workspacePlugin = project
         ? resolvePlugins(project).workspace
         : registry.get<Workspace>("workspace", config.defaults.workspace);
@@ -907,7 +849,10 @@ export function createSessionManager(deps: SessionManagerDeps): SessionManager {
         // Never clean up orchestrator sessions — they manage the lifecycle.
         // Check explicit role metadata first, fall back to naming convention
         // for pre-existing sessions spawned before the role field was added.
-        if (session.metadata["role"] === "orchestrator" || session.id.endsWith("-orchestrator")) {
+        if (
+          session.metadata["role"] === "orchestrator" ||
+          session.id.endsWith("-orchestrator")
+        ) {
           result.skipped.push(session.id);
           continue;
         }
