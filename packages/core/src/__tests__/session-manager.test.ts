@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
 import { createSessionManager } from "../session-manager.js";
 import { writeMetadata, readMetadata, readMetadataRaw, deleteMetadata } from "../metadata.js";
-import { getSessionsDir, getProjectBaseDir } from "../paths.js";
+import { getSessionsDir, getProjectBaseDir, getWorktreesDir } from "../paths.js";
 import {
   SessionNotRestorableError,
   WorkspaceMissingError,
@@ -193,7 +193,8 @@ describe("spawn", () => {
 
     const session = await sm.spawn({
       projectId: "my-app",
-      issueId: "this is a very long issue description that should be truncated to sixty characters maximum",
+      issueId:
+        "this is a very long issue description that should be truncated to sixty characters maximum",
     });
 
     expect(session.branch!.replace("feat/", "").length).toBeLessThanOrEqual(60);
@@ -341,9 +342,9 @@ describe("spawn", () => {
     it("throws when agent override plugin is not found", async () => {
       const sm = createSessionManager({ config, registry: registryWithMultipleAgents });
 
-      await expect(
-        sm.spawn({ projectId: "my-app", agent: "nonexistent" }),
-      ).rejects.toThrow("Agent plugin 'nonexistent' not found");
+      await expect(sm.spawn({ projectId: "my-app", agent: "nonexistent" })).rejects.toThrow(
+        "Agent plugin 'nonexistent' not found",
+      );
     });
 
     it("uses default agent when no override specified", async () => {
@@ -957,6 +958,27 @@ describe("get", () => {
 
 describe("kill", () => {
   it("destroys runtime, workspace, and archives metadata", async () => {
+    const managedWorktree = join(
+      getWorktreesDir(config.configPath, config.projects["my-app"]!.path),
+      "ws-1",
+    );
+    writeMetadata(sessionsDir, "app-1", {
+      worktree: managedWorktree,
+      branch: "main",
+      status: "working",
+      project: "my-app",
+      runtimeHandle: JSON.stringify(makeHandle("rt-1")),
+    });
+
+    const sm = createSessionManager({ config, registry: mockRegistry });
+    await sm.kill("app-1");
+
+    expect(mockRuntime.destroy).toHaveBeenCalledWith(makeHandle("rt-1"));
+    expect(mockWorkspace.destroy).toHaveBeenCalledWith(managedWorktree);
+    expect(readMetadata(sessionsDir, "app-1")).toBeNull(); // archived + deleted
+  });
+
+  it("does not destroy workspace outside AO-managed worktree root", async () => {
     writeMetadata(sessionsDir, "app-1", {
       worktree: "/tmp/ws",
       branch: "main",
@@ -968,9 +990,7 @@ describe("kill", () => {
     const sm = createSessionManager({ config, registry: mockRegistry });
     await sm.kill("app-1");
 
-    expect(mockRuntime.destroy).toHaveBeenCalledWith(makeHandle("rt-1"));
-    expect(mockWorkspace.destroy).toHaveBeenCalledWith("/tmp/ws");
-    expect(readMetadata(sessionsDir, "app-1")).toBeNull(); // archived + deleted
+    expect(mockWorkspace.destroy).not.toHaveBeenCalled();
   });
 
   it("throws for nonexistent session", async () => {
