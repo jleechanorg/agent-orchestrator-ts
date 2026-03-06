@@ -12,7 +12,7 @@
  */
 
 import { statSync, existsSync, readdirSync, writeFileSync, mkdirSync, realpathSync } from "node:fs";
-import { basename, dirname, join, normalize, resolve } from "node:path";
+import { join, resolve } from "node:path";
 import {
   isIssueNotFoundError,
   isRestorable,
@@ -179,28 +179,10 @@ export function createSessionManager(deps: SessionManagerDeps): SessionManager {
   }
 
   function canonicalPath(path: string): string {
-    const absolutePath = resolve(path);
     try {
-      return realpathSync(absolutePath);
+      return realpathSync(path);
     } catch {
-      const missingSegments: string[] = [];
-      let currentPath = absolutePath;
-
-      while (!existsSync(currentPath)) {
-        const parentPath = dirname(currentPath);
-        if (parentPath === currentPath) {
-          return absolutePath;
-        }
-        missingSegments.push(basename(currentPath));
-        currentPath = parentPath;
-      }
-
-      const canonicalExistingPath = realpathSync(currentPath);
-      if (missingSegments.length === 0) {
-        return canonicalExistingPath;
-      }
-
-      return normalize(join(canonicalExistingPath, ...missingSegments.reverse()));
+      return resolve(path);
     }
   }
 
