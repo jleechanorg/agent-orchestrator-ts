@@ -200,14 +200,10 @@ export function createSessionManager(deps: SessionManagerDeps): SessionManager {
     project: ProjectConfig | undefined,
     workspacePath: string,
   ): boolean {
-    if (!project) return false;
+    if (!project) return true;
     const isProjectPath = normalizePath(workspacePath) === normalizePath(project.path);
     if (isProjectPath) return false;
     return isPathInside(workspacePath, getProjectWorktreesDir(project));
-  }
-
-  function shouldDestroySpawnWorkspacePath(project: ProjectConfig, workspacePath: string): boolean {
-    return normalizePath(workspacePath) !== normalizePath(project.path);
   }
 
   /**
@@ -466,7 +462,7 @@ export function createSessionManager(deps: SessionManagerDeps): SessionManager {
           try {
             await plugins.workspace.postCreate(wsInfo, project);
           } catch (err) {
-            if (shouldDestroySpawnWorkspacePath(project, workspacePath)) {
+            if (shouldDestroyWorkspacePath(project, workspacePath)) {
               try {
                 await plugins.workspace.destroy(workspacePath);
               } catch {
@@ -535,7 +531,7 @@ export function createSessionManager(deps: SessionManagerDeps): SessionManager {
       });
     } catch (err) {
       // Clean up workspace and reserved ID if agent config or runtime creation failed
-      if (plugins.workspace && shouldDestroySpawnWorkspacePath(project, workspacePath)) {
+      if (plugins.workspace && shouldDestroyWorkspacePath(project, workspacePath)) {
         try {
           await plugins.workspace.destroy(workspacePath);
         } catch {
@@ -590,7 +586,7 @@ export function createSessionManager(deps: SessionManagerDeps): SessionManager {
       } catch {
         /* best effort */
       }
-      if (plugins.workspace && shouldDestroySpawnWorkspacePath(project, workspacePath)) {
+      if (plugins.workspace && shouldDestroyWorkspacePath(project, workspacePath)) {
         try {
           await plugins.workspace.destroy(workspacePath);
         } catch {
