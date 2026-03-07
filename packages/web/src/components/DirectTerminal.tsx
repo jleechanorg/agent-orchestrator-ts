@@ -184,10 +184,23 @@ export function DirectTerminal({
         fit.fit();
 
         // WebSocket URL (stable across reconnects)
+        // When accessed via reverse proxy (HTTPS on standard port), use path-based
+        // WebSocket endpoint instead of direct port access.
         const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
         const hostname = window.location.hostname;
-        const port = process.env.NEXT_PUBLIC_DIRECT_TERMINAL_PORT ?? "14801";
-        const wsUrl = `${protocol}//${hostname}:${port}/ws?session=${encodeURIComponent(sessionId)}`;
+        const proxyWsPath = process.env.NEXT_PUBLIC_TERMINAL_WS_PATH;
+        let wsUrl: string;
+        if (proxyWsPath) {
+          // Path-based proxy (e.g. /ao-terminal-ws)
+          wsUrl = `${protocol}//${hostname}${proxyWsPath}?session=${encodeURIComponent(sessionId)}`;
+        } else if (window.location.port === "" || window.location.port === "443" || window.location.port === "80") {
+          // Behind reverse proxy on standard port — use path-based endpoint
+          wsUrl = `${protocol}//${hostname}/ao-terminal-ws?session=${encodeURIComponent(sessionId)}`;
+        } else {
+          // Direct access (dev mode) — use direct port
+          const port = process.env.NEXT_PUBLIC_DIRECT_TERMINAL_PORT ?? "14801";
+          wsUrl = `${protocol}//${hostname}:${port}/ws?session=${encodeURIComponent(sessionId)}`;
+        }
 
         // ── Preserve selection while terminal receives output ────────
         // xterm.js clears the selection on every terminal.write(). We
