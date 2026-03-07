@@ -24,6 +24,15 @@ import { randomBytes } from "node:crypto";
 
 const execFileAsync = promisify(execFile);
 
+function normalizePermissionMode(mode: string | undefined): "permissionless" | "default" | "auto-edit" | "suggest" | undefined {
+  if (!mode) return undefined;
+  if (mode === "skip") return "permissionless";
+  if (mode === "permissionless" || mode === "default" || mode === "auto-edit" || mode === "suggest") {
+    return mode;
+  }
+  return undefined;
+}
+
 /** Shared bin directory for ao shell wrappers (prepended to PATH) */
 const AO_BIN_DIR = join(homedir(), ".ao", "bin");
 
@@ -516,11 +525,12 @@ export async function resolveCodexBinary(): Promise<string> {
 
 /** Append approval-policy flags to a command parts array */
 function appendApprovalFlags(parts: string[], permissions: string | undefined): void {
-  if (permissions === "skip") {
+  const mode = normalizePermissionMode(permissions);
+  if (mode === "permissionless") {
     parts.push("--dangerously-bypass-approvals-and-sandbox");
-  } else if (permissions === "auto-edit") {
+  } else if (mode === "auto-edit") {
     parts.push("--ask-for-approval", "never");
-  } else if (permissions === "suggest") {
+  } else if (mode === "suggest") {
     parts.push("--ask-for-approval", "untrusted");
   }
 }
@@ -571,7 +581,7 @@ function createCodexAgent(): Agent {
       const binary = resolvedBinary ?? "codex";
       const parts: string[] = [shellEscape(binary)];
 
-      appendApprovalFlags(parts, config.permissions as string | undefined);
+      appendApprovalFlags(parts, config.permissions);
       appendModelFlags(parts, config.model);
 
       if (config.systemPromptFile) {
@@ -760,7 +770,7 @@ function createCodexAgent(): Agent {
       const binary = resolvedBinary ?? "codex";
       const parts: string[] = [shellEscape(binary), "resume"];
 
-      appendApprovalFlags(parts, project.agentConfig?.permissions as string | undefined);
+      appendApprovalFlags(parts, project.agentConfig?.permissions);
       const effectiveModel = (project.agentConfig?.model ?? data.model) as string | undefined;
       appendModelFlags(parts, effectiveModel ?? undefined);
 
