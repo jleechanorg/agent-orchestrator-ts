@@ -718,11 +718,11 @@ export function createSessionManager(deps: SessionManagerDeps): SessionManager {
     }
 
     // Get agent launch config — uses systemPromptFile, no issue/tracker interaction.
-    // Orchestrator ALWAYS gets skip permissions — it must run ao CLI commands autonomously.
+    // Orchestrator ALWAYS gets permissionless mode — it must run ao CLI commands autonomously.
     const agentLaunchConfig = {
       sessionId,
       projectConfig: project,
-      permissions: "skip" as const,
+      permissions: "permissionless" as const,
       model: project.agentConfig?.model,
       systemPromptFile,
     };

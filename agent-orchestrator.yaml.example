@@ -45,7 +45,11 @@ projects:
 
     # Agent-specific config
     # agentConfig:
-    #   permissions: skip    # --dangerously-skip-permissions
+    #   permissions: permissionless    # modes: permissionless | default | auto-edit | suggest
+    #                                  # - permissionless: no interactive permission prompts
+    #                                  # - default: agent defaults
+    #                                  # - auto-edit: auto-approve edits where supported
+    #                                  # - suggest: conservative/untrusted-approval mode where supported
     #   model: opus
 
     # Inline rules included in every agent prompt for this project

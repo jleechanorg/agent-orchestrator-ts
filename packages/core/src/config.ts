@@ -51,9 +51,14 @@ const NotifierConfigSchema = z
   })
   .passthrough();
 
+const AgentPermissionSchema = z
+  .enum(["permissionless", "default", "auto-edit", "suggest", "skip"])
+  .default("permissionless")
+  .transform((value) => (value === "skip" ? "permissionless" : value));
+
 const AgentSpecificConfigSchema = z
   .object({
-    permissions: z.enum(["skip", "default"]).default("skip"),
+    permissions: AgentPermissionSchema,
     model: z.string().optional(),
   })
   .passthrough();

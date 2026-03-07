@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import type { Session, RuntimeHandle, AgentLaunchConfig } from "@composio/ao-core";
+import type { Session, RuntimeHandle, AgentLaunchConfig, AgentSpecificConfig } from "@composio/ao-core";
 
 // ---------------------------------------------------------------------------
 // Hoisted mocks — available inside vi.mock factories
@@ -187,7 +187,7 @@ describe("plugin manifest & exports", () => {
       name: "codex",
       slot: "agent",
       description: "Agent plugin: OpenAI Codex CLI",
-      version: "0.1.0",
+      version: "0.1.1",
     });
   });
 
@@ -210,27 +210,30 @@ describe("getLaunchCommand", () => {
   const agent = create();
 
   it("generates base command", () => {
-    expect(agent.getLaunchCommand(makeLaunchConfig())).toBe("'codex'");
+    expect(agent.getLaunchCommand(makeLaunchConfig())).toBe("'codex' -c check_for_update_on_startup=false");
   });
 
-  it("includes --dangerously-bypass-approvals-and-sandbox when permissions=skip", () => {
-    const cmd = agent.getLaunchCommand(makeLaunchConfig({ permissions: "skip" }));
+  it("includes bypass flag when permissions=permissionless", () => {
+    const cmd = agent.getLaunchCommand(makeLaunchConfig({ permissions: "permissionless" }));
     expect(cmd).toContain("--dangerously-bypass-approvals-and-sandbox");
+    expect(cmd).not.toContain("--ask-for-approval");
     expect(cmd).not.toContain("--full-auto");
   });
 
-  it("includes --ask-for-approval never when permissions=auto-edit", () => {
-    // Cast needed: "auto-edit" not yet in AgentLaunchConfig type union
+  it("treats legacy permissions=skip as permissionless", () => {
     const cmd = agent.getLaunchCommand(
-      makeLaunchConfig({ permissions: "auto-edit" as AgentLaunchConfig["permissions"] }),
+      makeLaunchConfig({ permissions: "skip" as unknown as AgentLaunchConfig["permissions"] }),
     );
+    expect(cmd).toContain("--dangerously-bypass-approvals-and-sandbox");
+  });
+
+  it("includes --ask-for-approval never when permissions=auto-edit", () => {
+    const cmd = agent.getLaunchCommand(makeLaunchConfig({ permissions: "auto-edit" }));
     expect(cmd).toContain("--ask-for-approval never");
   });
 
   it("includes --ask-for-approval untrusted when permissions=suggest", () => {
-    const cmd = agent.getLaunchCommand(
-      makeLaunchConfig({ permissions: "suggest" as AgentLaunchConfig["permissions"] }),
-    );
+    const cmd = agent.getLaunchCommand(makeLaunchConfig({ permissions: "suggest" }));
     expect(cmd).toContain("--ask-for-approval untrusted");
   });
 
@@ -253,9 +256,9 @@ describe("getLaunchCommand", () => {
 
   it("combines all options", () => {
     const cmd = agent.getLaunchCommand(
-      makeLaunchConfig({ permissions: "skip", model: "o3", prompt: "Go" }),
+      makeLaunchConfig({ permissions: "permissionless", model: "o3", prompt: "Go" }),
     );
-    expect(cmd).toBe("'codex' --dangerously-bypass-approvals-and-sandbox --model 'o3' -c model_reasoning_effort=high -- 'Go'");
+    expect(cmd).toBe("'codex' -c check_for_update_on_startup=false --dangerously-bypass-approvals-and-sandbox --model 'o3' -c model_reasoning_effort=high -- 'Go'");
   });
 
   it("escapes single quotes in prompt (POSIX shell escaping)", () => {
@@ -294,8 +297,13 @@ describe("getLaunchCommand", () => {
     expect(cmd).not.toContain("--dangerously-bypass-approvals-and-sandbox");
     expect(cmd).not.toContain("--ask-for-approval");
     expect(cmd).not.toContain("--model");
-    expect(cmd).not.toContain("-c");
+    expect(cmd).toContain("-c check_for_update_on_startup=false");
     expect(cmd).not.toContain("model_reasoning_effort");
+  });
+
+  it("always includes -c check_for_update_on_startup=false", () => {
+    const cmd = agent.getLaunchCommand(makeLaunchConfig({ model: "gpt-4o", prompt: "Fix it" }));
+    expect(cmd).toContain("-c check_for_update_on_startup=false");
   });
 
   // -- Reasoning effort tests --
@@ -385,6 +393,11 @@ describe("getEnvironment", () => {
     } finally {
       process.env["PATH"] = originalPath;
     }
+  });
+ 
+  it("sets CODEX_DISABLE_UPDATE_CHECK=1 to suppress interactive update prompts", () => {
+    const env = agent.getEnvironment(makeLaunchConfig());
+    expect(env["CODEX_DISABLE_UPDATE_CHECK"]).toBe("1");
   });
 
   it("deduplicates ao and /usr/local/bin entries", () => {
@@ -986,10 +999,11 @@ describe("getRestoreCommand", () => {
 
     expect(cmd).not.toBeNull();
     expect(cmd).toContain("'codex' resume");
+    expect(cmd).toContain("-c check_for_update_on_startup=false");
     expect(cmd).toContain("thread-abc-123");
   });
 
-  it("includes --dangerously-bypass-approvals-and-sandbox from project config", async () => {
+  it("includes bypass flag when project config permissions=permissionless", async () => {
     const content = jsonl(
       { type: "session_meta", cwd: "/workspace/test", model: "gpt-4o" },
       { threadId: "thread-1" },
@@ -1002,7 +1016,27 @@ describe("getRestoreCommand", () => {
 
     const session = makeSession({ workspacePath: "/workspace/test" });
     const cmd = await agent.getRestoreCommand!(session, makeProjectConfig({
-      agentConfig: { permissions: "skip" },
+      agentConfig: { permissions: "permissionless" },
+    }));
+
+    expect(cmd).toContain("--dangerously-bypass-approvals-and-sandbox");
+    expect(cmd).not.toContain("--ask-for-approval");
+  });
+
+  it("treats legacy project config permissions=skip as permissionless", async () => {
+    const content = jsonl(
+      { type: "session_meta", cwd: "/workspace/test", model: "gpt-4o" },
+      { threadId: "thread-1" },
+    );
+    mockReaddir.mockResolvedValue(["sess.jsonl"]);
+    setupMockOpen(content);
+    setupMockStream(content);
+    mockReadFile.mockResolvedValue(content);
+    mockStat.mockResolvedValue({ mtimeMs: 1000 });
+
+    const session = makeSession({ workspacePath: "/workspace/test" });
+    const cmd = await agent.getRestoreCommand!(session, makeProjectConfig({
+      agentConfig: { permissions: "skip" as unknown as AgentSpecificConfig["permissions"] },
     }));
 
     expect(cmd).toContain("--dangerously-bypass-approvals-and-sandbox");
@@ -1237,13 +1271,13 @@ describe("postLaunchSetup", () => {
     mockReadFile.mockRejectedValue(new Error("ENOENT"));
 
     // Before postLaunchSetup, binary is "codex"
-    expect(agent.getLaunchCommand(makeLaunchConfig())).toBe("'codex'");
+    expect(agent.getLaunchCommand(makeLaunchConfig())).toBe("'codex' -c check_for_update_on_startup=false");
 
     // After postLaunchSetup resolves the binary
     await agent.postLaunchSetup!(makeSession({ workspacePath: "/workspace/test" }));
 
     // Now getLaunchCommand should use the resolved binary
-    expect(agent.getLaunchCommand(makeLaunchConfig())).toBe("'/opt/bin/codex'");
+    expect(agent.getLaunchCommand(makeLaunchConfig())).toBe("'/opt/bin/codex' -c check_for_update_on_startup=false");
   });
 });
 
@@ -1354,7 +1388,7 @@ describe("setupWorkspaceHooks", () => {
     // Second call for AGENTS.md — file doesn't exist
     mockReadFile.mockImplementation((path: string) => {
       if (typeof path === "string" && path.endsWith(".ao-version")) {
-        return Promise.resolve("0.1.0");
+        return Promise.resolve("0.1.1");
       }
       // AGENTS.md read attempt
       return Promise.reject(new Error("ENOENT"));
@@ -1394,7 +1428,7 @@ describe("setupWorkspaceHooks", () => {
         typeof call[0] === "string" && call[0].includes(".ao-version.tmp."),
     );
     expect(versionWriteCall).toBeDefined();
-    expect(versionWriteCall![1]).toBe("0.1.0");
+    expect(versionWriteCall![1]).toBe("0.1.1");
 
     const versionRenameCall = mockRename.mock.calls.find(
       (call: string[]) => typeof call[1] === "string" && call[1].endsWith(".ao-version"),
@@ -1407,7 +1441,7 @@ describe("setupWorkspaceHooks", () => {
     // AGENTS.md exists without ao section
     mockReadFile.mockImplementation((path: string) => {
       if (typeof path === "string" && path.endsWith(".ao-version")) {
-        return Promise.resolve("0.1.0");
+        return Promise.resolve("0.1.1");
       }
       if (typeof path === "string" && path.endsWith("AGENTS.md")) {
         return Promise.resolve("# Existing Content\n\nSome stuff here.\n");
@@ -1432,7 +1466,7 @@ describe("setupWorkspaceHooks", () => {
     // Version marker matches, AGENTS.md doesn't exist
     mockReadFile.mockImplementation((path: string) => {
       if (typeof path === "string" && path.endsWith(".ao-version")) {
-        return Promise.resolve("0.1.0");
+        return Promise.resolve("0.1.1");
       }
       return Promise.reject(new Error("ENOENT"));
     });
@@ -1479,7 +1513,7 @@ describe("setupWorkspaceHooks", () => {
   it("does not duplicate ao section in AGENTS.md if already present", async () => {
     mockReadFile.mockImplementation((path: string) => {
       if (typeof path === "string" && path.endsWith(".ao-version")) {
-        return Promise.resolve("0.1.0");
+        return Promise.resolve("0.1.1");
       }
       if (typeof path === "string" && path.endsWith("AGENTS.md")) {
         return Promise.resolve("# Existing\n\n## Agent Orchestrator (ao) Session\n\nAlready here.\n");
