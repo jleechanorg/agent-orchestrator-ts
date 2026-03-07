@@ -27,13 +27,13 @@ describe("agent-codex launch/env wiring (integration)", () => {
   it("preserves update-check override alongside other flags", () => {
     const cmd = agent.getLaunchCommand(
       makeLaunchConfig({
-        permissions: "skip",
+        permissions: "default",
         model: "o3-mini",
         prompt: "Do the thing",
       }),
     );
     expect(cmd).toContain("-c check_for_update_on_startup=false");
-    expect(cmd).toContain("--dangerously-bypass-approvals-and-sandbox");
+    expect(cmd).not.toContain("--ask-for-approval");
     expect(cmd).toContain("--model 'o3-mini'");
     expect(cmd).toContain("-c model_reasoning_effort=high");
   });
