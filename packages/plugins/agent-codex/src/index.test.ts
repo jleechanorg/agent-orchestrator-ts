@@ -374,6 +374,11 @@ describe("getEnvironment", () => {
     expect(env["PATH"]?.startsWith("/mock/home/.ao/bin:")).toBe(true);
   });
 
+  it("sets CODEX_DISABLE_UPDATE_CHECK=1 to suppress interactive update prompts", () => {
+    const env = agent.getEnvironment(makeLaunchConfig());
+    expect(env["CODEX_DISABLE_UPDATE_CHECK"]).toBe("1");
+  });
+
   it("falls back to /usr/bin:/bin when process.env.PATH is undefined", () => {
     const originalPath = process.env["PATH"];
     delete process.env["PATH"];
