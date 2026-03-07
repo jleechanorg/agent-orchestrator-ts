@@ -21,6 +21,40 @@ interface DirectTerminalProps {
   height?: string;
 }
 
+interface DirectTerminalLocation {
+  protocol: string;
+  hostname: string;
+  host: string;
+  port: string;
+}
+
+interface DirectTerminalWsUrlOptions {
+  location: DirectTerminalLocation;
+  sessionId: string;
+  proxyWsPath?: string;
+  directTerminalPort?: string;
+}
+
+export function buildDirectTerminalWsUrl({
+  location,
+  sessionId,
+  proxyWsPath,
+  directTerminalPort,
+}: DirectTerminalWsUrlOptions): string {
+  const protocol = location.protocol === "https:" ? "wss:" : "ws:";
+  if (proxyWsPath) {
+    // Path-based proxy uses host so non-standard ports are preserved.
+    return `${protocol}//${location.host}${proxyWsPath}?session=${encodeURIComponent(sessionId)}`;
+  }
+
+  if (location.port === "" || location.port === "443" || location.port === "80") {
+    return `${protocol}//${location.hostname}/ao-terminal-ws?session=${encodeURIComponent(sessionId)}`;
+  }
+
+  const port = directTerminalPort ?? "14801";
+  return `${protocol}//${location.hostname}:${port}/ws?session=${encodeURIComponent(sessionId)}`;
+}
+
 /**
  * Direct xterm.js terminal with native WebSocket connection.
  * Implements Extended Device Attributes (XDA) handler to enable
@@ -184,10 +218,14 @@ export function DirectTerminal({
         fit.fit();
 
         // WebSocket URL (stable across reconnects)
-        const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-        const hostname = window.location.hostname;
-        const port = process.env.NEXT_PUBLIC_DIRECT_TERMINAL_PORT ?? "14801";
-        const wsUrl = `${protocol}//${hostname}:${port}/ws?session=${encodeURIComponent(sessionId)}`;
+        // When accessed via reverse proxy (HTTPS on standard port), use path-based
+        // WebSocket endpoint instead of direct port access.
+        const wsUrl = buildDirectTerminalWsUrl({
+          location: window.location,
+          sessionId,
+          proxyWsPath: process.env.NEXT_PUBLIC_TERMINAL_WS_PATH,
+          directTerminalPort: process.env.NEXT_PUBLIC_DIRECT_TERMINAL_PORT,
+        });
 
         // ── Preserve selection while terminal receives output ────────
         // xterm.js clears the selection on every terminal.write(). We
