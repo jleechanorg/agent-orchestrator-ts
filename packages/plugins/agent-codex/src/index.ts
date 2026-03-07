@@ -35,6 +35,30 @@ function normalizePermissionMode(mode: string | undefined): "permissionless" | "
 
 /** Shared bin directory for ao shell wrappers (prepended to PATH) */
 const AO_BIN_DIR = join(homedir(), ".ao", "bin");
+const DEFAULT_PATH = "/usr/bin:/bin";
+const PREFERRED_GH_BIN_DIR = "/usr/local/bin";
+const PREFERRED_GH_PATH = `${PREFERRED_GH_BIN_DIR}/gh`;
+
+function buildAgentPath(basePath: string | undefined): string {
+  const inherited = (basePath ?? DEFAULT_PATH).split(":").filter(Boolean);
+  const ordered: string[] = [];
+  const seen = new Set<string>();
+
+  const add = (entry: string): void => {
+    if (!entry || seen.has(entry)) return;
+    ordered.push(entry);
+    seen.add(entry);
+  };
+
+  // Ensure wrappers are always first, then prioritize /usr/local/bin so
+  // wrapper-discovered `gh` resolves there before linuxbrew paths.
+  add(AO_BIN_DIR);
+  add(PREFERRED_GH_BIN_DIR);
+
+  for (const entry of inherited) add(entry);
+
+  return ordered.join(":");
+}
 
 // =============================================================================
 // Plugin Manifest
@@ -118,7 +142,20 @@ const GH_WRAPPER = `#!/usr/bin/env bash
 ao_bin_dir="\$(cd "\$(dirname "\$0")" && pwd)"
 clean_path="\$(echo "\$PATH" | tr ':' '\\n' | grep -Fxv "\$ao_bin_dir" | grep . | tr '\\n' ':')"
 clean_path="\${clean_path%:}"
-real_gh="\$(PATH="\$clean_path" command -v gh 2>/dev/null)"
+real_gh=""
+
+# Prefer explicit gh path when provided by AO environment.
+# Guard against recursive self-reference to the wrapper in ~/.ao/bin.
+if [[ -n "\${GH_PATH:-}" && -x "\$GH_PATH" ]]; then
+  gh_dir="\$(cd "\$(dirname "\$GH_PATH")" 2>/dev/null && pwd)"
+  if [[ "\$gh_dir" != "\$ao_bin_dir" ]]; then
+    real_gh="\$GH_PATH"
+  fi
+fi
+
+if [[ -z "\$real_gh" ]]; then
+  real_gh="\$(PATH="\$clean_path" command -v gh 2>/dev/null)"
+fi
 
 if [[ -z "\$real_gh" ]]; then
   echo "ao-wrapper: gh not found in PATH" >&2
@@ -618,7 +655,8 @@ function createCodexAgent(): Agent {
       // Prepend ~/.ao/bin to PATH so our gh/git wrappers intercept commands.
       // The wrappers strip this directory from PATH before calling the real
       // binary, so there's no infinite recursion.
-      env["PATH"] = `${AO_BIN_DIR}:${process.env["PATH"] ?? "/usr/bin:/bin"}`;
+      env["PATH"] = buildAgentPath(process.env["PATH"]);
+      env["GH_PATH"] = PREFERRED_GH_PATH;
       // Disable Codex's version check/update prompt for non-interactive AO sessions.
       env["CODEX_DISABLE_UPDATE_CHECK"] = "1";
 

@@ -382,9 +382,38 @@ describe("getEnvironment", () => {
     expect(env["PATH"]?.startsWith("/mock/home/.ao/bin:")).toBe(true);
   });
 
+  it("puts /usr/local/bin before linuxbrew paths", () => {
+    const originalPath = process.env["PATH"];
+    process.env["PATH"] = "/home/linuxbrew/.linuxbrew/bin:/usr/local/bin:/usr/bin:/bin";
+    try {
+      const env = agent.getEnvironment(makeLaunchConfig());
+      expect(env["PATH"]).toBe(
+        "/mock/home/.ao/bin:/usr/local/bin:/home/linuxbrew/.linuxbrew/bin:/usr/bin:/bin",
+      );
+    } finally {
+      process.env["PATH"] = originalPath;
+    }
+  });
+ 
   it("sets CODEX_DISABLE_UPDATE_CHECK=1 to suppress interactive update prompts", () => {
     const env = agent.getEnvironment(makeLaunchConfig());
     expect(env["CODEX_DISABLE_UPDATE_CHECK"]).toBe("1");
+  });
+
+  it("sets GH_PATH to preferred wrapper target", () => {
+    const env = agent.getEnvironment(makeLaunchConfig());
+    expect(env["GH_PATH"]).toBe("/usr/local/bin/gh");
+  });
+
+  it("deduplicates ao and /usr/local/bin entries", () => {
+    const originalPath = process.env["PATH"];
+    process.env["PATH"] = "/mock/home/.ao/bin:/usr/local/bin:/usr/bin:/usr/local/bin";
+    try {
+      const env = agent.getEnvironment(makeLaunchConfig());
+      expect(env["PATH"]).toBe("/mock/home/.ao/bin:/usr/local/bin:/usr/bin");
+    } finally {
+      process.env["PATH"] = originalPath;
+    }
   });
 
   it("falls back to /usr/bin:/bin when process.env.PATH is undefined", () => {
@@ -392,7 +421,7 @@ describe("getEnvironment", () => {
     delete process.env["PATH"];
     try {
       const env = agent.getEnvironment(makeLaunchConfig());
-      expect(env["PATH"]).toContain("/usr/bin:/bin");
+      expect(env["PATH"]).toBe("/mock/home/.ao/bin:/usr/local/bin:/usr/bin:/bin");
     } finally {
       process.env["PATH"] = originalPath;
     }
@@ -1598,6 +1627,18 @@ describe("shell wrapper content", () => {
     it("uses exec for non-PR commands (transparent passthrough)", async () => {
       const content = await getWrapperContent("gh");
       expect(content).toContain('exec "$real_gh"');
+    });
+
+    it("prefers GH_PATH when provided and executable", async () => {
+      const content = await getWrapperContent("gh");
+      expect(content).toContain("GH_PATH");
+      expect(content).toContain('-x "$GH_PATH"');
+      expect(content).toContain('real_gh="$GH_PATH"');
+    });
+
+    it("guards against recursive GH_PATH pointing to ao wrapper dir", async () => {
+      const content = await getWrapperContent("gh");
+      expect(content).toContain('if [[ "$gh_dir" != "$ao_bin_dir" ]]');
     });
 
     it("extracts PR URL from gh pr create output", async () => {

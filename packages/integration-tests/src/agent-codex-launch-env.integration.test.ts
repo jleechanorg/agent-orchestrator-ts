@@ -42,4 +42,9 @@ describe("agent-codex launch/env wiring (integration)", () => {
     const env = agent.getEnvironment(makeLaunchConfig());
     expect(env["CODEX_DISABLE_UPDATE_CHECK"]).toBe("1");
   });
+
+  it("sets GH_PATH to preferred system gh wrapper location", () => {
+    const env = agent.getEnvironment(makeLaunchConfig());
+    expect(env["GH_PATH"]).toBe("/usr/local/bin/gh");
+  });
 });
