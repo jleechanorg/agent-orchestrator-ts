@@ -188,11 +188,12 @@ export function DirectTerminal({
         // WebSocket endpoint instead of direct port access.
         const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
         const hostname = window.location.hostname;
+        const host = window.location.host;
         const proxyWsPath = process.env.NEXT_PUBLIC_TERMINAL_WS_PATH;
         let wsUrl: string;
         if (proxyWsPath) {
           // Path-based proxy (e.g. /ao-terminal-ws)
-          wsUrl = `${protocol}//${hostname}${proxyWsPath}?session=${encodeURIComponent(sessionId)}`;
+          wsUrl = `${protocol}//${host}${proxyWsPath}?session=${encodeURIComponent(sessionId)}`;
         } else if (window.location.port === "" || window.location.port === "443" || window.location.port === "80") {
           // Behind reverse proxy on standard port — use path-based endpoint
           wsUrl = `${protocol}//${hostname}/ao-terminal-ws?session=${encodeURIComponent(sessionId)}`;
