@@ -26,6 +26,29 @@ const execFileAsync = promisify(execFile);
 
 /** Shared bin directory for ao shell wrappers (prepended to PATH) */
 const AO_BIN_DIR = join(homedir(), ".ao", "bin");
+const DEFAULT_PATH = "/usr/bin:/bin";
+const PREFERRED_GH_BIN_DIR = "/usr/local/bin";
+
+function buildAgentPath(basePath: string | undefined): string {
+  const inherited = (basePath ?? DEFAULT_PATH).split(":").filter(Boolean);
+  const ordered: string[] = [];
+  const seen = new Set<string>();
+
+  const add = (entry: string): void => {
+    if (!entry || seen.has(entry)) return;
+    ordered.push(entry);
+    seen.add(entry);
+  };
+
+  // Ensure wrappers are always first, then prioritize /usr/local/bin so
+  // wrapper-discovered `gh` resolves there before linuxbrew paths.
+  add(AO_BIN_DIR);
+  add(PREFERRED_GH_BIN_DIR);
+
+  for (const entry of inherited) add(entry);
+
+  return ordered.join(":");
+}
 
 // =============================================================================
 // Plugin Manifest
@@ -602,7 +625,7 @@ function createCodexAgent(): Agent {
       // Prepend ~/.ao/bin to PATH so our gh/git wrappers intercept commands.
       // The wrappers strip this directory from PATH before calling the real
       // binary, so there's no infinite recursion.
-      env["PATH"] = `${AO_BIN_DIR}:${process.env["PATH"] ?? "/usr/bin:/bin"}`;
+      env["PATH"] = buildAgentPath(process.env["PATH"]);
 
       return env;
     },
