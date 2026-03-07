@@ -210,7 +210,7 @@ describe("getLaunchCommand", () => {
   const agent = create();
 
   it("generates base command", () => {
-    expect(agent.getLaunchCommand(makeLaunchConfig())).toBe("'codex'");
+    expect(agent.getLaunchCommand(makeLaunchConfig())).toBe("'codex' -c check_for_update_on_startup=false");
   });
 
   it("includes --dangerously-bypass-approvals-and-sandbox when permissions=skip", () => {
@@ -255,7 +255,7 @@ describe("getLaunchCommand", () => {
     const cmd = agent.getLaunchCommand(
       makeLaunchConfig({ permissions: "skip", model: "o3", prompt: "Go" }),
     );
-    expect(cmd).toBe("'codex' --dangerously-bypass-approvals-and-sandbox --model 'o3' -c model_reasoning_effort=high -- 'Go'");
+    expect(cmd).toBe("'codex' -c check_for_update_on_startup=false --dangerously-bypass-approvals-and-sandbox --model 'o3' -c model_reasoning_effort=high -- 'Go'");
   });
 
   it("escapes single quotes in prompt (POSIX shell escaping)", () => {
@@ -294,8 +294,13 @@ describe("getLaunchCommand", () => {
     expect(cmd).not.toContain("--dangerously-bypass-approvals-and-sandbox");
     expect(cmd).not.toContain("--ask-for-approval");
     expect(cmd).not.toContain("--model");
-    expect(cmd).not.toContain("-c");
+    expect(cmd).toContain("-c check_for_update_on_startup=false");
     expect(cmd).not.toContain("model_reasoning_effort");
+  });
+
+  it("always includes -c check_for_update_on_startup=false", () => {
+    const cmd = agent.getLaunchCommand(makeLaunchConfig({ model: "gpt-4o", prompt: "Fix it" }));
+    expect(cmd).toContain("-c check_for_update_on_startup=false");
   });
 
   // -- Reasoning effort tests --
@@ -967,6 +972,7 @@ describe("getRestoreCommand", () => {
 
     expect(cmd).not.toBeNull();
     expect(cmd).toContain("'codex' resume");
+    expect(cmd).toContain("-c check_for_update_on_startup=false");
     expect(cmd).toContain("thread-abc-123");
   });
 
@@ -1218,13 +1224,13 @@ describe("postLaunchSetup", () => {
     mockReadFile.mockRejectedValue(new Error("ENOENT"));
 
     // Before postLaunchSetup, binary is "codex"
-    expect(agent.getLaunchCommand(makeLaunchConfig())).toBe("'codex'");
+    expect(agent.getLaunchCommand(makeLaunchConfig())).toBe("'codex' -c check_for_update_on_startup=false");
 
     // After postLaunchSetup resolves the binary
     await agent.postLaunchSetup!(makeSession({ workspacePath: "/workspace/test" }));
 
     // Now getLaunchCommand should use the resolved binary
-    expect(agent.getLaunchCommand(makeLaunchConfig())).toBe("'/opt/bin/codex'");
+    expect(agent.getLaunchCommand(makeLaunchConfig())).toBe("'/opt/bin/codex' -c check_for_update_on_startup=false");
   });
 });
 
