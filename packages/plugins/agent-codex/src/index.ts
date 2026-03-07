@@ -548,6 +548,11 @@ function appendModelFlags(parts: string[], model: string | undefined): void {
   }
 }
 
+/** Disable Codex startup update checks/prompts in non-interactive sessions */
+function appendNoUpdateCheckFlag(parts: string[]): void {
+  parts.push("-c", "check_for_update_on_startup=false");
+}
+
 /** TTL for session file path cache (ms). Prevents redundant filesystem scans
  *  when getActivityState and getSessionInfo are called in the same refresh cycle. */
 const SESSION_FILE_CACHE_TTL_MS = 30_000;
@@ -580,6 +585,7 @@ function createCodexAgent(): Agent {
     getLaunchCommand(config: AgentLaunchConfig): string {
       const binary = resolvedBinary ?? "codex";
       const parts: string[] = [shellEscape(binary)];
+      appendNoUpdateCheckFlag(parts);
 
       appendApprovalFlags(parts, config.permissions);
       appendModelFlags(parts, config.model);
@@ -613,6 +619,8 @@ function createCodexAgent(): Agent {
       // The wrappers strip this directory from PATH before calling the real
       // binary, so there's no infinite recursion.
       env["PATH"] = `${AO_BIN_DIR}:${process.env["PATH"] ?? "/usr/bin:/bin"}`;
+      // Disable Codex's version check/update prompt for non-interactive AO sessions.
+      env["CODEX_DISABLE_UPDATE_CHECK"] = "1";
 
       return env;
     },
@@ -769,6 +777,7 @@ function createCodexAgent(): Agent {
       // Flags are placed before the positional threadId for CLI parser compatibility.
       const binary = resolvedBinary ?? "codex";
       const parts: string[] = [shellEscape(binary), "resume"];
+      appendNoUpdateCheckFlag(parts);
 
       appendApprovalFlags(parts, project.agentConfig?.permissions);
       const effectiveModel = (project.agentConfig?.model ?? data.model) as string | undefined;
