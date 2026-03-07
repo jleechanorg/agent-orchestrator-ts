@@ -187,7 +187,7 @@ describe("plugin manifest & exports", () => {
       name: "codex",
       slot: "agent",
       description: "Agent plugin: OpenAI Codex CLI",
-      version: "0.1.0",
+      version: "0.1.1",
     });
   });
 
@@ -1330,7 +1330,7 @@ describe("setupWorkspaceHooks", () => {
     // Second call for AGENTS.md — file doesn't exist
     mockReadFile.mockImplementation((path: string) => {
       if (typeof path === "string" && path.endsWith(".ao-version")) {
-        return Promise.resolve("0.1.0");
+        return Promise.resolve("0.1.1");
       }
       // AGENTS.md read attempt
       return Promise.reject(new Error("ENOENT"));
@@ -1370,7 +1370,7 @@ describe("setupWorkspaceHooks", () => {
         typeof call[0] === "string" && call[0].includes(".ao-version.tmp."),
     );
     expect(versionWriteCall).toBeDefined();
-    expect(versionWriteCall![1]).toBe("0.1.0");
+    expect(versionWriteCall![1]).toBe("0.1.1");
 
     const versionRenameCall = mockRename.mock.calls.find(
       (call: string[]) => typeof call[1] === "string" && call[1].endsWith(".ao-version"),
@@ -1383,7 +1383,7 @@ describe("setupWorkspaceHooks", () => {
     // AGENTS.md exists without ao section
     mockReadFile.mockImplementation((path: string) => {
       if (typeof path === "string" && path.endsWith(".ao-version")) {
-        return Promise.resolve("0.1.0");
+        return Promise.resolve("0.1.1");
       }
       if (typeof path === "string" && path.endsWith("AGENTS.md")) {
         return Promise.resolve("# Existing Content\n\nSome stuff here.\n");
@@ -1408,7 +1408,7 @@ describe("setupWorkspaceHooks", () => {
     // Version marker matches, AGENTS.md doesn't exist
     mockReadFile.mockImplementation((path: string) => {
       if (typeof path === "string" && path.endsWith(".ao-version")) {
-        return Promise.resolve("0.1.0");
+        return Promise.resolve("0.1.1");
       }
       return Promise.reject(new Error("ENOENT"));
     });
@@ -1455,7 +1455,7 @@ describe("setupWorkspaceHooks", () => {
   it("does not duplicate ao section in AGENTS.md if already present", async () => {
     mockReadFile.mockImplementation((path: string) => {
       if (typeof path === "string" && path.endsWith(".ao-version")) {
-        return Promise.resolve("0.1.0");
+        return Promise.resolve("0.1.1");
       }
       if (typeof path === "string" && path.endsWith("AGENTS.md")) {
         return Promise.resolve("# Existing\n\n## Agent Orchestrator (ao) Session\n\nAlready here.\n");
