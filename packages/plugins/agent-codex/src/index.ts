@@ -44,7 +44,7 @@ export const manifest = {
   name: "codex",
   slot: "agent" as const,
   description: "Agent plugin: OpenAI Codex CLI",
-  version: "0.1.0",
+  version: "0.1.1",
 };
 
 // =============================================================================
@@ -249,7 +249,7 @@ async function setupCodexWorkspace(workspacePath: string): Promise<void> {
 
   // Only write wrappers if they don't exist or are outdated (check marker)
   const markerPath = join(AO_BIN_DIR, ".ao-version");
-  const currentVersion = "0.1.0";
+  const currentVersion = "0.1.1";
   let needsUpdate = true;
   try {
     const existing = await readFile(markerPath, "utf-8");
