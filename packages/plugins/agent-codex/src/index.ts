@@ -603,6 +603,8 @@ function createCodexAgent(): Agent {
       // The wrappers strip this directory from PATH before calling the real
       // binary, so there's no infinite recursion.
       env["PATH"] = `${AO_BIN_DIR}:${process.env["PATH"] ?? "/usr/bin:/bin"}`;
+      // Disable Codex's version check/update prompt for non-interactive AO sessions.
+      env["CODEX_DISABLE_UPDATE_CHECK"] = "1";
 
       return env;
     },
