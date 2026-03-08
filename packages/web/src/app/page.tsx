@@ -48,9 +48,11 @@ export default async function Home(props: { searchParams: Promise<{ project?: st
     orchestrators: [],
   };
 
+
   try {
     const { config, registry, sessionManager } = await getServices();
     const allSessions = await sessionManager.list();
+    globalPause = resolveGlobalPause(allSessions);
 
     pageData.globalPause = resolveGlobalPause(allSessions);
 

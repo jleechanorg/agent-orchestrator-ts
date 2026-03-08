@@ -65,6 +65,43 @@ export function parseDuration(str: string): number {
   }
 }
 
+const GLOBAL_PAUSE_UNTIL_KEY = "globalPauseUntil";
+const GLOBAL_PAUSE_REASON_KEY = "globalPauseReason";
+const GLOBAL_PAUSE_SOURCE_KEY = "globalPauseSource";
+
+function parsePauseUntil(raw: string | undefined): Date | null {
+  if (!raw) return null;
+  const parsed = new Date(raw);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return parsed;
+}
+
+function parseRateLimitReset(output: string): Date | null {
+  if (!/usage\s+limit\s+reached/i.test(output)) return null;
+
+  const resetMatch = output.match(
+    /limit\s+will\s+reset\s+at\s+(\d{4}-\d{2}-\d{2})\s+(\d{1,2}):(\d{1,2})/i,
+  );
+  if (resetMatch) {
+    const hh = resetMatch[2].padStart(2, "0");
+    const mm = resetMatch[3].padStart(2, "0");
+    const parsed = new Date(`${resetMatch[1]}T${hh}:${mm}:00`);
+    if (!Number.isNaN(parsed.getTime())) {
+      return parsed;
+    }
+  }
+
+  const durationMatch = output.match(
+    /usage\s+limit\s+reached\s+for\s+(\d+)\s*(hour|hours|hr|h|minute|minutes|min|m)/i,
+  );
+  if (!durationMatch) return null;
+  const value = Number.parseInt(durationMatch[1], 10);
+  if (!Number.isFinite(value) || value <= 0) return null;
+  const unit = durationMatch[2].toLowerCase();
+  const millis = unit.startsWith("h") ? value * 3_600_000 : value * 60_000;
+  return new Date(Date.now() + millis);
+}
+
 /** Infer a reasonable priority from event type. */
 function inferPriority(type: EventType): EventPriority {
   if (type.includes("stuck") || type.includes("needs_input") || type.includes("errored")) {
@@ -223,6 +260,47 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     return idleMs > stuckThresholdMs;
   }
 
+  function isOrchestratorSession(session: Session): boolean {
+    return session.metadata["role"] === "orchestrator" || session.id.endsWith("-orchestrator");
+  }
+
+  function setProjectPause(project: _ProjectConfig, sourceSessionId: string, until: Date): void {
+    const sessionsDir = getSessionsDir(config.configPath, project.path);
+    const orchestratorId = `${project.sessionPrefix}-orchestrator`;
+    const message = `Model rate limit detected from ${sourceSessionId}`;
+    updateMetadata(sessionsDir, orchestratorId, {
+      [GLOBAL_PAUSE_UNTIL_KEY]: until.toISOString(),
+      [GLOBAL_PAUSE_REASON_KEY]: message,
+      [GLOBAL_PAUSE_SOURCE_KEY]: sourceSessionId,
+    });
+  }
+
+  function clearProjectPause(project: _ProjectConfig): void {
+    const sessionsDir = getSessionsDir(config.configPath, project.path);
+    const orchestratorId = `${project.sessionPrefix}-orchestrator`;
+    updateMetadata(sessionsDir, orchestratorId, {
+      [GLOBAL_PAUSE_UNTIL_KEY]: "",
+      [GLOBAL_PAUSE_REASON_KEY]: "",
+      [GLOBAL_PAUSE_SOURCE_KEY]: "",
+    });
+  }
+
+  async function detectAndApplyRateLimitPause(
+    session: Session,
+    project: _ProjectConfig,
+    runtime: Runtime,
+  ): Promise<void> {
+    if (!session.runtimeHandle) return;
+    try {
+      const output = await runtime.getOutput(session.runtimeHandle, 60);
+      if (!output) return;
+      const resetAt = parseRateLimitReset(output);
+      if (!resetAt) return;
+      if (resetAt.getTime() <= Date.now()) return;
+      setProjectPause(project, session.id, resetAt);
+    } catch {}
+  }
+
   /** Determine current status for a session by polling plugins. */
   async function determineStatus(session: Session): Promise<SessionStatus> {
     // If workspace was deleted (e.g., worktree cleaned up), session is dead
@@ -242,16 +320,19 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     const agent = registry.get<Agent>("agent", agentName);
     const scm = project.scm ? registry.get<SCM>("scm", project.scm.plugin) : null;
 
+    const runtime = session.runtimeHandle
+      ? registry.get<Runtime>("runtime", project.runtime ?? config.defaults.runtime)
+      : null;
+
     // Track activity state across steps so stuck detection can run after PR checks
     let detectedIdleTimestamp: Date | null = null;
 
     // 1. Check if runtime is alive
-    if (session.runtimeHandle) {
-      const runtime = registry.get<Runtime>("runtime", project.runtime ?? config.defaults.runtime);
-      if (runtime) {
-        const alive = await runtime.isAlive(session.runtimeHandle).catch(() => true);
-        if (!alive) return "killed";
-      }
+    if (session.runtimeHandle && runtime) {
+      const alive = await runtime.isAlive(session.runtimeHandle).catch(() => true);
+      if (!alive) return "killed";
+
+      await detectAndApplyRateLimitPause(session, project, runtime);
     }
 
     // 2. Check agent activity — prefer JSONL-based detection (runtime-agnostic)
@@ -647,6 +728,171 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     updateSessionMetadataHelper(session, updates, config);
   }
 
+  function makeFingerprint(ids: string[]): string {
+    return [...ids].sort().join(",");
+  }
+
+  async function maybeDispatchReviewBacklog(
+    session: Session,
+    oldStatus: SessionStatus,
+    newStatus: SessionStatus,
+    transitionReaction?: { key: string; result: ReactionResult | null },
+  ): Promise<void> {
+    const project = config.projects[session.projectId];
+    if (!project || !session.pr) return;
+
+    const scm = project.scm ? registry.get<SCM>("scm", project.scm.plugin) : null;
+    if (!scm) return;
+
+    const humanReactionKey = "changes-requested";
+    const automatedReactionKey = "bugbot-comments";
+
+    if (newStatus === "merged" || newStatus === "killed") {
+      clearReactionTracker(session.id, humanReactionKey);
+      clearReactionTracker(session.id, automatedReactionKey);
+      updateSessionMetadata(session, {
+        lastPendingReviewFingerprint: "",
+        lastPendingReviewDispatchHash: "",
+        lastPendingReviewDispatchAt: "",
+        lastAutomatedReviewFingerprint: "",
+        lastAutomatedReviewDispatchHash: "",
+        lastAutomatedReviewDispatchAt: "",
+      });
+      return;
+    }
+
+    const [pendingResult, automatedResult] = await Promise.allSettled([
+      scm.getPendingComments(session.pr),
+      scm.getAutomatedComments(session.pr),
+    ]);
+
+    // null means "failed to fetch" — preserve existing metadata.
+    // [] means "confirmed no comments" — safe to clear.
+    const pendingComments =
+      pendingResult.status === "fulfilled" && Array.isArray(pendingResult.value)
+        ? pendingResult.value
+        : null;
+    const automatedComments =
+      automatedResult.status === "fulfilled" && Array.isArray(automatedResult.value)
+        ? automatedResult.value
+        : null;
+
+    // --- Pending (human) review comments ---
+    // null = SCM fetch failed; skip processing to preserve existing metadata.
+    if (pendingComments === null) {
+      console.debug(
+        `[ao lifecycle] Pending comments fetch failed for ${session.id}, preserving existing metadata`,
+      );
+    }
+    if (pendingComments !== null) {
+      const pendingFingerprint = makeFingerprint(pendingComments.map((comment) => comment.id));
+      const lastPendingFingerprint = session.metadata["lastPendingReviewFingerprint"] ?? "";
+      const lastPendingDispatchHash = session.metadata["lastPendingReviewDispatchHash"] ?? "";
+
+      if (
+        pendingFingerprint !== lastPendingFingerprint &&
+        transitionReaction?.key !== humanReactionKey
+      ) {
+        clearReactionTracker(session.id, humanReactionKey);
+      }
+      if (pendingFingerprint !== lastPendingFingerprint) {
+        updateSessionMetadata(session, {
+          lastPendingReviewFingerprint: pendingFingerprint,
+        });
+      }
+
+      if (!pendingFingerprint) {
+        clearReactionTracker(session.id, humanReactionKey);
+        updateSessionMetadata(session, {
+          lastPendingReviewFingerprint: "",
+          lastPendingReviewDispatchHash: "",
+          lastPendingReviewDispatchAt: "",
+        });
+      } else if (
+        transitionReaction?.key === humanReactionKey &&
+        transitionReaction.result?.success
+      ) {
+        if (lastPendingDispatchHash !== pendingFingerprint) {
+          updateSessionMetadata(session, {
+            lastPendingReviewDispatchHash: pendingFingerprint,
+            lastPendingReviewDispatchAt: new Date().toISOString(),
+          });
+        }
+      } else if (
+        !(oldStatus !== newStatus && newStatus === "changes_requested") &&
+        pendingFingerprint !== lastPendingDispatchHash
+      ) {
+        const reactionConfig = getReactionConfigForSession(session, humanReactionKey);
+        if (
+          reactionConfig &&
+          reactionConfig.action &&
+          (reactionConfig.auto !== false || reactionConfig.action === "notify")
+        ) {
+          const result = await executeReaction(
+            session.id,
+            session.projectId,
+            humanReactionKey,
+            reactionConfig,
+          );
+          if (result.success) {
+            updateSessionMetadata(session, {
+              lastPendingReviewDispatchHash: pendingFingerprint,
+              lastPendingReviewDispatchAt: new Date().toISOString(),
+            });
+          }
+        }
+      }
+    }
+
+    // --- Automated (bot) review comments ---
+    if (automatedComments === null) {
+      console.debug(
+        `[ao lifecycle] Automated comments fetch failed for ${session.id}, preserving existing metadata`,
+      );
+    }
+    if (automatedComments !== null) {
+      const automatedFingerprint = makeFingerprint(automatedComments.map((comment) => comment.id));
+      const lastAutomatedFingerprint = session.metadata["lastAutomatedReviewFingerprint"] ?? "";
+      const lastAutomatedDispatchHash = session.metadata["lastAutomatedReviewDispatchHash"] ?? "";
+
+      if (automatedFingerprint !== lastAutomatedFingerprint) {
+        clearReactionTracker(session.id, automatedReactionKey);
+        updateSessionMetadata(session, {
+          lastAutomatedReviewFingerprint: automatedFingerprint,
+        });
+      }
+
+      if (!automatedFingerprint) {
+        clearReactionTracker(session.id, automatedReactionKey);
+        updateSessionMetadata(session, {
+          lastAutomatedReviewFingerprint: "",
+          lastAutomatedReviewDispatchHash: "",
+          lastAutomatedReviewDispatchAt: "",
+        });
+      } else if (automatedFingerprint !== lastAutomatedDispatchHash) {
+        const reactionConfig = getReactionConfigForSession(session, automatedReactionKey);
+        if (
+          reactionConfig &&
+          reactionConfig.action &&
+          (reactionConfig.auto !== false || reactionConfig.action === "notify")
+        ) {
+          const result = await executeReaction(
+            session.id,
+            session.projectId,
+            automatedReactionKey,
+            reactionConfig,
+          );
+          if (result.success) {
+            updateSessionMetadata(session, {
+              lastAutomatedReviewDispatchHash: automatedFingerprint,
+              lastAutomatedReviewDispatchAt: new Date().toISOString(),
+            });
+          }
+        }
+      }
+    }
+  }
+
   /** Send a notification to all configured notifiers. */
   async function notifyHuman(event: OrchestratorEvent, priority: EventPriority): Promise<void> {
     const eventWithPriority = { ...event, priority };
@@ -818,10 +1064,28 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     try {
       const sessions = await sessionManager.list(scopedProjectId);
 
+      const pausedProjects = new Map<string, Date>();
+      for (const session of sessions) {
+        if (!isOrchestratorSession(session)) continue;
+        const until = parsePauseUntil(session.metadata[GLOBAL_PAUSE_UNTIL_KEY]);
+        if (!until) continue;
+        if (until.getTime() <= Date.now()) {
+          const project = config.projects[session.projectId];
+          if (project) {
+            clearProjectPause(project);
+          }
+          continue;
+        }
+        pausedProjects.set(session.projectId, until);
+      }
+
       // Include sessions that are active OR whose status changed from what we last saw
       // (e.g., list() detected a dead runtime and marked it "killed" — we need to
       // process that transition even though the new status is terminal)
       const sessionsToCheck = sessions.filter((s) => {
+        if (pausedProjects.has(s.projectId) && !isOrchestratorSession(s)) {
+          return false;
+        }
         // Skip terminal statuses only if we've already seen and processed this session.
         // If tracked is undefined (e.g., after lifecycle manager restart), allow it
         // through once so exit proof and outcome can be emitted.
