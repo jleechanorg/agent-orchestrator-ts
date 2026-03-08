@@ -173,11 +173,6 @@ export function registerSend(program: Command): void {
           }
         }
 
-        if (existingSession && !sessionManager) {
-          console.error(chalk.red("AO-managed session found, but session manager is unavailable"));
-          process.exit(1);
-        }
-
         if (!canUseTmux && !delegatesToSessionManager) {
           console.error(
             chalk.red(

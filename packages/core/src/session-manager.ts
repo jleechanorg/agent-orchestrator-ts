@@ -104,6 +104,7 @@ async function deleteOpenCodeSession(sessionId: string): Promise<void> {
 interface OpenCodeSessionListEntry {
   id: string;
   title: string;
+  updatedAt?: number;
 }
 
 async function fetchOpenCodeSessionList(
@@ -120,7 +121,18 @@ async function fetchOpenCodeSessionList(
       if (!entry || typeof entry !== "object") return [];
       const title = typeof entry["title"] === "string" ? entry["title"] : "";
       const id = asValidOpenCodeSessionId(entry["id"]);
-      return id ? [{ id, title }] : [];
+      if (!id) return [];
+      const rawUpdated = entry["updated"];
+      let updatedAt: number | undefined;
+      if (typeof rawUpdated === "number" && Number.isFinite(rawUpdated)) {
+        updatedAt = rawUpdated;
+      } else if (typeof rawUpdated === "string") {
+        const parsedUpdated = Date.parse(rawUpdated);
+        if (!Number.isNaN(parsedUpdated)) {
+          updatedAt = parsedUpdated;
+        }
+      }
+      return [{ id, title, ...(updatedAt !== undefined ? { updatedAt } : {}) }];
     });
   } catch {
     return [];
@@ -134,7 +146,15 @@ async function discoverOpenCodeSessionIdsByTitle(
 ): Promise<string[]> {
   const sessions = await (sessionListPromise ?? fetchOpenCodeSessionList(timeoutMs));
   const title = `AO:${sessionId}`;
-  return sessions.filter((entry) => entry.title === title).map((entry) => entry.id);
+  return sessions
+    .filter((entry) => entry.title === title)
+    .sort((a, b) => {
+      const ta = a.updatedAt ?? -Infinity;
+      const tb = b.updatedAt ?? -Infinity;
+      if (ta === tb) return 0;
+      return tb - ta;
+    })
+    .map((entry) => entry.id);
 }
 
 async function discoverOpenCodeSessionIdByTitle(

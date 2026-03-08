@@ -336,7 +336,8 @@ describe("getLaunchCommand (integration)", () => {
     });
     expect(cmd).toContain("--title 'AO:test-1'");
     expect(cmd).not.toContain("--prompt 'start work'");
-    expect(cmd).toContain("'start work' && exec opencode --session");
+    expect(cmd).toContain("opencode run --title 'AO:test-1' 'start work'");
+    expect(cmd).toContain("&& exec opencode --session");
   });
 
   it("uses --session when existing OpenCode session id is provided", () => {

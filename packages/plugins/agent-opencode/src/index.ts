@@ -45,7 +45,23 @@ process.stdin.on('data', c => input += c).on('end', () => {
   let rows;
   try { rows = JSON.parse(input); } catch { process.exit(1); }
   if (!Array.isArray(rows)) process.exit(1);
-  const matches = rows.filter(r => r && r.title === title && typeof r.id === 'string');
+  const isValidId = id => /^ses_[A-Za-z0-9_-]+$/.test(id);
+  const timestamp = value => {
+    if (typeof value === 'number' && Number.isFinite(value)) return value;
+    if (typeof value === 'string') {
+      const parsed = Date.parse(value);
+      return Number.isNaN(parsed) ? Number.NEGATIVE_INFINITY : parsed;
+    }
+    return Number.NEGATIVE_INFINITY;
+  };
+  const matches = rows
+    .filter(r => r && r.title === title && typeof r.id === 'string' && isValidId(r.id))
+    .sort((a, b) => {
+      const ta = timestamp(a.updated);
+      const tb = timestamp(b.updated);
+      if (ta === tb) return 0;
+      return tb - ta;
+    });
   if (matches.length === 0) process.exit(1);
   process.stdout.write(matches[0].id);
 });
@@ -53,9 +69,14 @@ process.stdin.on('data', c => input += c).on('end', () => {
   return script.replace(/\n/g, " ").replace(/\s+/g, " ");
 }
 
-function buildContinueSessionCommand(sessionTitle: string): string {
+function buildContinueSessionCommand(sessionTitle: string, sharedOptions: string[]): string {
   const script = buildSessionLookupScript();
-  return `"$(opencode session list --format json | node -e ${shellEscape(script)} ${shellEscape(sessionTitle)})"`;
+  const options = sharedOptions.length > 0 ? ` ${sharedOptions.join(" ")}` : "";
+  return [
+    `SES_ID=$(opencode session list --format json | node -e ${shellEscape(script)} ${shellEscape(sessionTitle)})`,
+    '[ -n "$SES_ID" ]',
+    `exec opencode --session "$SES_ID"${options}`,
+  ].join(" && ");
 }
 
 // =============================================================================
@@ -119,11 +140,11 @@ function createOpenCodeAgent(): Agent {
         const runCommand = promptValue
           ? ["opencode", "run", ...runOptions, promptValue].join(" ")
           : ["opencode", "run", ...runOptions, "--command", "true"].join(" ");
-        const continueSession = buildContinueSessionCommand(`AO:${config.sessionId}`);
-        const continueCommand = ["opencode", "--session", continueSession, ...sharedOptions].join(
-          " ",
+        const continueCommand = buildContinueSessionCommand(
+          `AO:${config.sessionId}`,
+          sharedOptions,
         );
-        return `${runCommand} && exec ${continueCommand}`;
+        return `${runCommand} && ${continueCommand}`;
       }
 
       if (promptValue) {
