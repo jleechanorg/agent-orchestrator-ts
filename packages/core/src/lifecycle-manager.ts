@@ -298,7 +298,9 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       if (!resetAt) return;
       if (resetAt.getTime() <= Date.now()) return;
       setProjectPause(project, session.id, resetAt);
-    } catch {}
+    } catch {
+      return;
+    }
   }
 
   /** Determine current status for a session by polling plugins. */
