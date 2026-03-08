@@ -65,17 +65,6 @@ export function parseDuration(str: string): number {
   }
 }
 
-const GLOBAL_PAUSE_UNTIL_KEY = "globalPauseUntil";
-const GLOBAL_PAUSE_REASON_KEY = "globalPauseReason";
-const GLOBAL_PAUSE_SOURCE_KEY = "globalPauseSource";
-
-function parsePauseUntil(raw: string | undefined): Date | null {
-  if (!raw) return null;
-  const parsed = new Date(raw);
-  if (Number.isNaN(parsed.getTime())) return null;
-  return parsed;
-}
-
 function parseRateLimitReset(output: string): Date | null {
   if (!/usage\s+limit\s+reached/i.test(output)) return null;
 
@@ -83,11 +72,20 @@ function parseRateLimitReset(output: string): Date | null {
     /limit\s+will\s+reset\s+at\s+(\d{4}-\d{2}-\d{2})\s+(\d{1,2}):(\d{1,2})/i,
   );
   if (resetMatch) {
-    const hh = resetMatch[2].padStart(2, "0");
-    const mm = resetMatch[3].padStart(2, "0");
-    const parsed = new Date(`${resetMatch[1]}T${hh}:${mm}:00`);
-    if (!Number.isNaN(parsed.getTime())) {
-      return parsed;
+    const [year, month, day] = resetMatch[1].split("-").map((part) => Number.parseInt(part, 10));
+    const hour = Number.parseInt(resetMatch[2], 10);
+    const minute = Number.parseInt(resetMatch[3], 10);
+    if (
+      Number.isFinite(year) &&
+      Number.isFinite(month) &&
+      Number.isFinite(day) &&
+      Number.isFinite(hour) &&
+      Number.isFinite(minute)
+    ) {
+      const parsed = new Date(Date.UTC(year, month - 1, day, hour, minute, 0));
+      if (!Number.isNaN(parsed.getTime())) {
+        return parsed;
+      }
     }
   }
 
