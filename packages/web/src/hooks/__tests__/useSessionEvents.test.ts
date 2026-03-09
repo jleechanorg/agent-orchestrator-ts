@@ -29,11 +29,6 @@ describe("useSessionEvents", () => {
       OPEN: 1,
       CLOSED: 2,
     }) as unknown as typeof EventSource;
-    global.fetch = vi.fn();
-  });
-
-  afterEach(() => {
-    vi.useRealTimers();
     vi.restoreAllMocks();
   });
 
