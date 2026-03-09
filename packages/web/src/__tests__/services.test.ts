@@ -54,7 +54,7 @@ vi.mock("@composio/ao-core", () => ({
   getSiblings: vi.fn(),
   formatPlanTree: vi.fn(),
   DEFAULT_DECOMPOSER_CONFIG: {},
-  TERMINAL_STATUSES: ["merged", "killed"],
+  TERMINAL_STATUSES: new Set(["merged", "killed"]) as ReadonlySet<string>,
 }));
 
 vi.mock("@composio/ao-plugin-runtime-tmux", () => ({ default: tmuxPlugin }));
