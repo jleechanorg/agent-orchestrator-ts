@@ -197,8 +197,7 @@ function createOpenCodeAgent(): Agent {
           `if [ -z "$SES_ID" ]; then`,
           `  SES_ID=$(opencode session list --format json | node -e ${shellEscape(fallbackScript)} ${shellEscape(`AO:${config.sessionId}`)})`,
           "fi",
-          '[ -n "$SES_ID" ]',
-          `exec opencode --session "$SES_ID"${options}`,
+          `[ -n "$SES_ID" ] && exec opencode --session "$SES_ID"${options}`,
         ].join("; ");
       }
 
