@@ -293,11 +293,6 @@ describe("getLaunchCommand", () => {
     expect(cmd).toContain("'it'\\''s important'");
   });
 
-  it("escapes single quotes in systemPrompt", () => {
-    const cmd = agent.getLaunchCommand(makeLaunchConfig({ systemPrompt: "it's important" }));
-    expect(cmd).toContain("'it'\\''s important'");
-  });
-
   it("handles very long systemPrompt", () => {
     const longPrompt = "A".repeat(500);
     const cmd = agent.getLaunchCommand(makeLaunchConfig({ systemPrompt: longPrompt }));
