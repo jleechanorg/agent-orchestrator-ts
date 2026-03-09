@@ -206,7 +206,7 @@ async function relabelReopenedIssues(
   }
 }
 
-async function pollBacklog(): Promise<void> {
+export async function pollBacklog(): Promise<void> {
   try {
     const { config, registry, sessionManager } = await getServices();
 
@@ -321,6 +321,7 @@ async function pollBacklog(): Promise<void> {
               issue.id,
               {
                 labels: ["agent:in-progress"],
+                removeLabels: ["agent:backlog"],
                 comment: "Claimed by agent orchestrator — session spawned.",
               },
               project,
