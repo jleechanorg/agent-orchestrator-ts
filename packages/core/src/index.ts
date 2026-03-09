@@ -60,7 +60,14 @@ export { generateOrchestratorPrompt } from "./orchestrator-prompt.js";
 export type { OrchestratorPromptConfig } from "./orchestrator-prompt.js";
 
 // Shared utilities
-export { shellEscape, escapeAppleScript, validateUrl, readLastJsonlEntry } from "./utils.js";
+export {
+  shellEscape,
+  escapeAppleScript,
+  validateUrl,
+  isRetryableHttpStatus,
+  normalizeRetryConfig,
+  readLastJsonlEntry,
+} from "./utils.js";
 export { asValidOpenCodeSessionId } from "./opencode-session-id.js";
 export { normalizeOrchestratorSessionStrategy } from "./orchestrator-session-strategy.js";
 export type { NormalizedOrchestratorSessionStrategy } from "./orchestrator-session-strategy.js";

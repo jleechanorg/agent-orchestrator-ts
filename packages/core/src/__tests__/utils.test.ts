@@ -2,7 +2,7 @@ import { describe, it, expect, afterEach } from "vitest";
 import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { readLastJsonlEntry } from "../utils.js";
+import { isRetryableHttpStatus, normalizeRetryConfig, readLastJsonlEntry } from "../utils.js";
 
 describe("readLastJsonlEntry", () => {
   let tmpDir: string;
@@ -83,5 +83,34 @@ describe("readLastJsonlEntry", () => {
     const path = setup('{"type":"test"}\n');
     const result = await readLastJsonlEntry(path);
     expect(result!.modifiedAt).toBeInstanceOf(Date);
+  });
+});
+
+describe("retry utilities", () => {
+  it("marks 429 and 5xx statuses as retryable", () => {
+    expect(isRetryableHttpStatus(429)).toBe(true);
+    expect(isRetryableHttpStatus(500)).toBe(true);
+    expect(isRetryableHttpStatus(503)).toBe(true);
+  });
+
+  it("marks 4xx statuses (except 429) as non-retryable", () => {
+    expect(isRetryableHttpStatus(400)).toBe(false);
+    expect(isRetryableHttpStatus(401)).toBe(false);
+    expect(isRetryableHttpStatus(404)).toBe(false);
+  });
+
+  it("normalizes retry config with defaults", () => {
+    expect(normalizeRetryConfig(undefined)).toEqual({ retries: 2, retryDelayMs: 1000 });
+  });
+
+  it("normalizes retry config values and clamps invalid input", () => {
+    expect(normalizeRetryConfig({ retries: 4, retryDelayMs: 250 })).toEqual({
+      retries: 4,
+      retryDelayMs: 250,
+    });
+    expect(normalizeRetryConfig({ retries: -1, retryDelayMs: -50 })).toEqual({
+      retries: 0,
+      retryDelayMs: 1000,
+    });
   });
 });
