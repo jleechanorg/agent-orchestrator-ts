@@ -941,6 +941,7 @@ export function registerStop(program: Command): void {
           const sm = await getSessionManager(config);
           const existing = await sm.get(sessionId);
 
+
           if (existing) {
             const spinner = ora("Stopping orchestrator session").start();
             const purgeOpenCode = opts.purgeSession === true ? true : opts.keepSession !== true;
