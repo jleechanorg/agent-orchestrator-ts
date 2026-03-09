@@ -295,6 +295,35 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       const resetAt = parseRateLimitReset(output);
       if (!resetAt) return;
       if (resetAt.getTime() <= Date.now()) return;
+
+      // Check if there's already an active pause from this session
+      // to prevent infinite re-pause loops with duration-based rate limits
+      const orchestratorId = `${project.sessionPrefix}-orchestrator`;
+      const orchestratorSession = await sessionManager.get(orchestratorId);
+      if (orchestratorSession) {
+        const existingUntil = parsePauseUntil(orchestratorSession.metadata[GLOBAL_PAUSE_UNTIL_KEY]);
+        const existingSource = orchestratorSession.metadata[GLOBAL_PAUSE_SOURCE_KEY];
+
+        // If there's an active pause from the same session, don't override
+        // This prevents extending duration-based pauses on every poll cycle
+        if (
+          existingUntil &&
+          existingUntil.getTime() > Date.now() &&
+          existingSource === session.id
+        ) {
+          return;
+        }
+
+        // If there's a longer pause already active from another session, keep it
+        if (
+          existingUntil &&
+          existingUntil.getTime() > Date.now() &&
+          existingUntil.getTime() >= resetAt.getTime()
+        ) {
+          return;
+        }
+      }
+
       setProjectPause(project, session.id, resetAt);
     } catch {
       return;
