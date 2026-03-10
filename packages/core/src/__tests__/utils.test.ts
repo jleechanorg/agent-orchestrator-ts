@@ -3,6 +3,7 @@ import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { isRetryableHttpStatus, normalizeRetryConfig, readLastJsonlEntry } from "../utils.js";
+import { parsePrFromUrl } from "../utils/pr.js";
 
 describe("readLastJsonlEntry", () => {
   let tmpDir: string;
@@ -112,5 +113,29 @@ describe("retry utilities", () => {
       retries: 0,
       retryDelayMs: 1000,
     });
+  });
+});
+
+describe("parsePrFromUrl", () => {
+  it("parses GitHub PR URLs", () => {
+    expect(parsePrFromUrl("https://github.com/foo/bar/pull/123")).toEqual({
+      owner: "foo",
+      repo: "bar",
+      number: 123,
+      url: "https://github.com/foo/bar/pull/123",
+    });
+  });
+
+  it("falls back to trailing number for non-GitHub URLs", () => {
+    expect(parsePrFromUrl("https://gitlab.com/foo/bar/-/merge_requests/456")).toEqual({
+      owner: "",
+      repo: "",
+      number: 456,
+      url: "https://gitlab.com/foo/bar/-/merge_requests/456",
+    });
+  });
+
+  it("returns null when the URL has no PR number", () => {
+    expect(parsePrFromUrl("https://example.com/foo/bar/pull/not-a-number")).toBeNull();
   });
 });
