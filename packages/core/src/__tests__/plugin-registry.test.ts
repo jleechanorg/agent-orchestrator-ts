@@ -165,6 +165,26 @@ describe("loadBuiltins", () => {
     expect(registry.get("agent", "opencode")).not.toBeNull();
   });
 
+  it("registers gitlab tracker and scm plugins from importFn", async () => {
+    const registry = createPluginRegistry();
+
+    const fakeTracker = makePlugin("tracker", "gitlab");
+    const fakeScm = makePlugin("scm", "gitlab");
+
+    await registry.loadBuiltins(undefined, async (pkg: string) => {
+      if (pkg === "@composio/ao-plugin-tracker-gitlab") return fakeTracker;
+      if (pkg === "@composio/ao-plugin-scm-gitlab") return fakeScm;
+      throw new Error(`Not found: ${pkg}`);
+    });
+
+    expect(registry.list("tracker")).toContainEqual(
+      expect.objectContaining({ name: "gitlab", slot: "tracker" }),
+    );
+    expect(registry.list("scm")).toContainEqual(
+      expect.objectContaining({ name: "gitlab", slot: "scm" }),
+    );
+  });
+
   it("passes configured notifier plugin config to create()", async () => {
     const registry = createPluginRegistry();
     const fakeWebhookNotifier = makePlugin("notifier", "webhook");

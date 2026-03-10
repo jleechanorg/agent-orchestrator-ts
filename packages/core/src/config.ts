@@ -18,6 +18,34 @@ import { z } from "zod";
 import type { OrchestratorConfig } from "./types.js";
 import { generateSessionPrefix } from "./paths.js";
 
+function inferScmPlugin(project: {
+  repo: string;
+  scm?: Record<string, unknown>;
+  tracker?: Record<string, unknown>;
+}): "github" | "gitlab" {
+  const scmPlugin = project.scm?.["plugin"];
+  if (scmPlugin === "gitlab") {
+    return "gitlab";
+  }
+
+  const scmHost = project.scm?.["host"];
+  if (typeof scmHost === "string" && scmHost.toLowerCase().includes("gitlab")) {
+    return "gitlab";
+  }
+
+  const trackerPlugin = project.tracker?.["plugin"];
+  if (trackerPlugin === "gitlab") {
+    return "gitlab";
+  }
+
+  const trackerHost = project.tracker?.["host"];
+  if (typeof trackerHost === "string" && trackerHost.toLowerCase().includes("gitlab")) {
+    return "gitlab";
+  }
+
+  return "github";
+}
+
 // =============================================================================
 // ZOD SCHEMAS
 // =============================================================================
@@ -166,14 +194,16 @@ function applyProjectDefaults(config: OrchestratorConfig): OrchestratorConfig {
       project.sessionPrefix = generateSessionPrefix(projectId);
     }
 
+    const inferredPlugin = inferScmPlugin(project);
+
     // Infer SCM from repo if not set
     if (!project.scm && project.repo.includes("/")) {
-      project.scm = { plugin: "github" };
+      project.scm = { plugin: inferredPlugin };
     }
 
     // Infer tracker from repo if not set (default to github issues)
     if (!project.tracker) {
-      project.tracker = { plugin: "github" };
+      project.tracker = { plugin: inferredPlugin };
     }
   }
 

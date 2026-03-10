@@ -418,4 +418,44 @@ describe("Config Defaults", () => {
     const validated = validateConfig(config);
     expect(validated.projects.proj1.tracker).toEqual({ plugin: "github" });
   });
+
+  it("infers GitLab tracker default from scm plugin", () => {
+    const config = {
+      projects: {
+        proj1: {
+          path: "/repos/test",
+          repo: "org/test",
+          defaultBranch: "main",
+          scm: {
+            plugin: "gitlab",
+            host: "gitlab.company.com",
+          },
+        },
+      },
+    };
+
+    const validated = validateConfig(config);
+    expect(validated.projects.proj1.scm).toEqual({ plugin: "gitlab", host: "gitlab.company.com" });
+    expect(validated.projects.proj1.tracker).toEqual({ plugin: "gitlab" });
+  });
+
+  it("infers GitLab scm default from tracker plugin", () => {
+    const config = {
+      projects: {
+        proj1: {
+          path: "/repos/test",
+          repo: "org/test",
+          defaultBranch: "main",
+          tracker: {
+            plugin: "gitlab",
+            host: "gitlab.com",
+          },
+        },
+      },
+    };
+
+    const validated = validateConfig(config);
+    expect(validated.projects.proj1.tracker).toEqual({ plugin: "gitlab", host: "gitlab.com" });
+    expect(validated.projects.proj1.scm).toEqual({ plugin: "gitlab" });
+  });
 });
