@@ -265,6 +265,19 @@ function createGitHubTracker(): Tracker {
         await gh(["issue", "reopen", identifier, "--repo", project.repo]);
       }
 
+      // Handle label removal
+      if (update.removeLabels && update.removeLabels.length > 0) {
+        await gh([
+          "issue",
+          "edit",
+          identifier,
+          "--repo",
+          project.repo,
+          "--remove-label",
+          update.removeLabels.join(","),
+        ]);
+      }
+
       // Handle label changes
       if (update.labels && update.labels.length > 0) {
         await gh([

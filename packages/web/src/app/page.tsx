@@ -25,9 +25,11 @@ export default async function Home() {
   let sessions: DashboardSession[] = [];
   let orchestratorId: string | null = null;
   let globalPause: GlobalPauseState | null = null;
+  let projectIds: string[] = [];
   const projectName = getProjectName();
   try {
     const { config, registry, sessionManager } = await getServices();
+    projectIds = Object.keys(config.projects);
     const allSessions = await sessionManager.list();
     globalPause = resolveGlobalPause(allSessions);
 
@@ -113,6 +115,7 @@ export default async function Home() {
       orchestratorId={orchestratorId}
       projectName={projectName}
       initialGlobalPause={globalPause}
+      projectIds={projectIds}
     />
   );
 }

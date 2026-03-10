@@ -6,11 +6,7 @@ import {
   type OrchestratorEvent,
   type PluginModule,
 } from "@composio/ao-core";
-import {
-  isRetryableHttpStatus,
-  normalizeRetryConfig,
-  validateUrl,
-} from "@composio/ao-core/utils";
+import { isRetryableHttpStatus, normalizeRetryConfig, validateUrl } from "@composio/ao-core/utils";
 
 export const manifest = {
   name: "openclaw",
@@ -113,7 +109,8 @@ function formatActionsLine(actions: NotifyAction[]): string {
 }
 
 export function create(config?: Record<string, unknown>): Notifier {
-  const url = (typeof config?.url === "string" ? config.url : undefined) ??
+  const url =
+    (typeof config?.url === "string" ? config.url : undefined) ??
     "http://127.0.0.1:18789/hooks/agent";
   const token =
     (typeof config?.token === "string" ? config.token : undefined) ??
