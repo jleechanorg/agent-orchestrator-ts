@@ -65,6 +65,12 @@ import {
 } from "./paths.js";
 import { asValidOpenCodeSessionId } from "./opencode-session-id.js";
 import { normalizeOrchestratorSessionStrategy } from "./orchestrator-session-strategy.js";
+import {
+  GLOBAL_PAUSE_UNTIL_KEY,
+  GLOBAL_PAUSE_REASON_KEY,
+  GLOBAL_PAUSE_SOURCE_KEY,
+  parsePauseUntil,
+} from "./global-pause.js";
 
 const execFileAsync = promisify(execFile);
 const OPENCODE_DISCOVERY_TIMEOUT_MS = 2_000;
@@ -307,6 +313,27 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
    */
   function getProjectSessionsDir(project: ProjectConfig): string {
     return getSessionsDir(config.configPath, project.path);
+  }
+
+  function getProjectPause(project: ProjectConfig): {
+    until: Date;
+    reason: string;
+    sourceSessionId: string;
+  } | null {
+    const sessionsDir = getProjectSessionsDir(project);
+    const orchestratorId = `${project.sessionPrefix}-orchestrator`;
+    const orchestratorRaw = readMetadataRaw(sessionsDir, orchestratorId);
+    if (!orchestratorRaw) return null;
+
+    const until = parsePauseUntil(orchestratorRaw[GLOBAL_PAUSE_UNTIL_KEY]);
+    if (!until) return null;
+    if (until.getTime() <= Date.now()) return null;
+
+    return {
+      until,
+      reason: orchestratorRaw[GLOBAL_PAUSE_REASON_KEY] ?? "Model rate limit reached",
+      sourceSessionId: orchestratorRaw[GLOBAL_PAUSE_SOURCE_KEY] ?? "unknown",
+    };
   }
 
   function normalizePath(path: string): string {
@@ -642,6 +669,13 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
     const project = config.projects[spawnConfig.projectId];
     if (!project) {
       throw new Error(`Unknown project: ${spawnConfig.projectId}`);
+    }
+
+    const pause = getProjectPause(project);
+    if (pause) {
+      throw new Error(
+        `Project is paused due to model rate limit until ${pause.until.toISOString()} (${pause.reason}; source: ${pause.sourceSessionId})`,
+      );
     }
 
     const plugins = resolvePlugins(project);
@@ -1307,7 +1341,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
     }
 
     let didPurgeOpenCodeSession = false;
-    if (options?.purgeOpenCode === true && cleanupAgent === "opencode") {
+    if (options?.purgeOpenCode !== false && cleanupAgent === "opencode") {
       const mappedOpenCodeSessionId =
         asValidOpenCodeSessionId(raw["opencodeSessionId"]) ??
         (await discoverOpenCodeSessionIdByTitle(
@@ -1499,6 +1533,14 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
 
   async function send(sessionId: SessionId, message: string): Promise<void> {
     const { raw, sessionsDir, project } = requireSessionRecord(sessionId);
+    const pause = getProjectPause(project);
+    const orchestratorId = `${project.sessionPrefix}-orchestrator`;
+    if (pause && sessionId !== orchestratorId) {
+      throw new Error(
+        `Project is paused due to model rate limit until ${pause.until.toISOString()} (${pause.reason}; source: ${pause.sourceSessionId})`,
+      );
+    }
+
     const selectedAgent = raw["agent"] ?? project.agent ?? config.defaults.agent;
     if (selectedAgent === "opencode" && !asValidOpenCodeSessionId(raw["opencodeSessionId"])) {
       const discovered = await discoverOpenCodeSessionIdByTitle(

@@ -8,6 +8,7 @@ import {
   enrichSessionsMetadata,
   computeStats,
 } from "@/lib/serialize";
+import { resolveGlobalPause } from "@/lib/global-pause";
 
 const METADATA_ENRICH_TIMEOUT_MS = 3_000;
 const PR_ENRICH_TIMEOUT_MS = 4_000;
@@ -43,6 +44,7 @@ export async function GET(request: Request) {
     // Find orchestrator session ID (if running) and expose to clients
     const orchSession = coreSessions.find((s) => s.id.endsWith("-orchestrator"));
     const orchestratorId = orchSession ? orchSession.id : null;
+    const globalPause = resolveGlobalPause(coreSessions);
 
     // Filter out orchestrator sessions — they get their own button, not a card
     let workerSessions = coreSessions.filter((s) => !s.id.endsWith("-orchestrator"));
@@ -88,6 +90,7 @@ export async function GET(request: Request) {
       sessions: dashboardSessions,
       stats: computeStats(dashboardSessions),
       orchestratorId,
+      globalPause,
     });
   } catch (err) {
     return NextResponse.json(
