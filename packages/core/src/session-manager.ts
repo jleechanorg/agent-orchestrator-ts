@@ -1735,6 +1735,25 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
     }
   }
 
+  /**
+   * Claim an existing PR for a session.
+   *
+   * ## Ownership Model (Asymmetric)
+   *
+   * - **RULE A (Exclusive PR→Agent)**: One PR can be actively owned by only one
+   *   session at a time. If another session claims a PR already owned, the
+   *   previous owner is automatically displaced (consolidation).
+   *
+   * - **RULE B (Agent→Many PRs)**: One session may claim different PRs sequentially.
+   *   Switching to a new PR releases ownership of the previous PR.
+   *
+   * ## Behavior
+   *
+   * - Idempotent: re-claiming the same PR by the same owner succeeds without
+   *   triggering consolidation.
+   * - Consolidation happens regardless of the previous owner's status (includes
+   *   stale/dead sessions).
+   */
   async function claimPR(
     sessionId: SessionId,
     prRef: string,
@@ -1779,11 +1798,6 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
     }
 
     const takenOverFrom = [...conflictingSessions];
-    if (takenOverFrom.length > 0 && !options?.takeover) {
-      throw new Error(
-        `PR #${pr.number} is already tracked by ${takenOverFrom.join(", ")}. Re-run with takeover enabled to transfer ownership.`,
-      );
-    }
 
     const workspacePath = raw["worktree"];
     if (!workspacePath) {

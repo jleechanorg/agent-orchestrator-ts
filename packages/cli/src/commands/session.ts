@@ -197,12 +197,11 @@ export function registerSession(program: Command): void {
     .argument("<pr>", "Pull request number or URL")
     .argument("[session]", "Session name (defaults to AO_SESSION_NAME/AO_SESSION)")
     .option("--assign-on-github", "Assign the PR to the authenticated GitHub user")
-    .option("--takeover", "Transfer PR ownership from another AO session if needed")
     .action(
       async (
         prRef: string,
         sessionName: string | undefined,
-        opts: { assignOnGithub?: boolean; takeover?: boolean },
+        opts: { assignOnGithub?: boolean },
       ) => {
         const config = loadConfig();
         const resolvedSession =
@@ -222,7 +221,6 @@ export function registerSession(program: Command): void {
         try {
           const result = await sm.claimPR(resolvedSession, prRef, {
             assignOnGithub: opts.assignOnGithub,
-            takeover: opts.takeover,
           });
 
           console.log(chalk.green(`\nSession ${resolvedSession} claimed PR #${result.pr.number}.`));
