@@ -1008,18 +1008,38 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       writeFileSync(systemPromptFile, orchestratorConfig.systemPrompt, "utf-8");
     }
 
-    const existingOrchestrator = await get(sessionId);
-    if (existingOrchestrator?.runtimeHandle) {
-      const existingAlive = await plugins.runtime
-        .isAlive(existingOrchestrator.runtimeHandle)
-        .catch(() => false);
+    const existingOrchestratorMetadata = readMetadataRaw(sessionsDir, sessionId);
+    const existingRuntimeHandle = existingOrchestratorMetadata?.["runtimeHandle"]
+      ? safeJsonParse<RuntimeHandle>(existingOrchestratorMetadata["runtimeHandle"])
+      : null;
+    if (existingRuntimeHandle) {
+      const existingAlive = await plugins.runtime.isAlive(existingRuntimeHandle).catch(() => false);
       if (existingAlive && orchestratorSessionStrategy === "reuse") {
-        existingOrchestrator.metadata["orchestratorSessionReused"] = "true";
-        return existingOrchestrator;
+        const existingOrchestrator = await get(sessionId);
+        if (existingOrchestrator) {
+          existingOrchestrator.metadata["orchestratorSessionReused"] = "true";
+          return existingOrchestrator;
+        }
+        await plugins.runtime.destroy(existingRuntimeHandle).catch(() => undefined);
+      } else if (existingAlive) {
+        await plugins.runtime.destroy(existingRuntimeHandle).catch(() => undefined);
       }
-      if (existingAlive && orchestratorSessionStrategy !== "reuse") {
-        await plugins.runtime.destroy(existingOrchestrator.runtimeHandle).catch(() => undefined);
+    }
+
+    if (!existingOrchestratorMetadata && !reserveSessionId(sessionsDir, sessionId)) {
+      const raceSession = await get(sessionId);
+      if (raceSession?.runtimeHandle) {
+        const raceAlive = await plugins.runtime
+          .isAlive(raceSession.runtimeHandle)
+          .catch(() => false);
+        if (raceAlive && orchestratorSessionStrategy === "reuse") {
+          raceSession.metadata["orchestratorSessionReused"] = "true";
+          return raceSession;
+        }
       }
+      throw new Error(
+        `Failed to reserve orchestrator session ID ${sessionId} (concurrent spawn detected)`,
+      );
     }
 
     const reusableOpenCodeSessionId =

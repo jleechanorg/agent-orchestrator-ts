@@ -202,10 +202,10 @@ describe("getLaunchCommand (integration)", () => {
       prompt: "fix the bug",
     });
     expect(cmd).toContain("--agent 'sisyphus'");
-    expect(cmd).toContain("opencode run --title 'AO:test-1'");
+    expect(cmd).toContain("opencode run --format json --title 'AO:test-1'");
     expect(cmd).toContain("'fix the bug'");
     expect(cmd).not.toContain("--prompt");
-    expect(cmd).toContain("&& exec opencode --session");
+    expect(cmd).toContain("exec opencode --session");
     expect(cmd).toContain("--agent 'sisyphus'");
   });
 
@@ -215,7 +215,7 @@ describe("getLaunchCommand (integration)", () => {
       systemPrompt: "You are an orchestrator",
       prompt: "do the task",
     });
-    expect(cmd).toContain("opencode run --title 'AO:test-1'");
+    expect(cmd).toContain("opencode run --format json --title 'AO:test-1'");
     expect(cmd).not.toContain("--prompt");
     expect(cmd).toContain("You are an orchestrator");
     expect(cmd).toContain("do the task");
@@ -227,7 +227,7 @@ describe("getLaunchCommand (integration)", () => {
       systemPromptFile: "/tmp/orchestrator-prompt.md",
       prompt: "do the task",
     });
-    expect(cmd).toContain("opencode run --title 'AO:test-1'");
+    expect(cmd).toContain("opencode run --format json --title 'AO:test-1'");
     expect(cmd).not.toContain("--prompt");
     expect(cmd).toContain(
       "$(cat '/tmp/orchestrator-prompt.md'; printf '\\n\\n'; printf %s 'do the task')",
@@ -252,7 +252,7 @@ describe("getLaunchCommand (integration)", () => {
       prompt: "review this code",
     });
     expect(cmd).toContain("--agent 'oracle'");
-    expect(cmd).toContain("opencode run --title 'AO:test-1'");
+    expect(cmd).toContain("opencode run --format json --title 'AO:test-1'");
     expect(cmd).not.toContain("--prompt");
     expect(cmd).toContain("You are an expert");
     expect(cmd).toContain("review this code");
@@ -277,9 +277,9 @@ describe("getLaunchCommand (integration)", () => {
       systemPromptFile: "/tmp/orchestrator-prompt.md",
     });
     expect(cmd).toContain(
-      "opencode run --title 'AO:test-orchestrator' \"$(cat '/tmp/orchestrator-prompt.md')\"",
+      "opencode run --format json --title 'AO:test-orchestrator' \"$(cat '/tmp/orchestrator-prompt.md')\"",
     );
-    expect(cmd).toContain("&& exec opencode --session");
+    expect(cmd).toContain("exec opencode --session");
   });
 
   it("escapes single quotes in systemPrompt", () => {
@@ -303,7 +303,7 @@ describe("getLaunchCommand (integration)", () => {
       ...baseConfig,
       prompt: "fix  and `backtick` and 'quote'",
     });
-    expect(cmd).toContain("opencode run --title 'AO:test-1'");
+    expect(cmd).toContain("opencode run --format json --title 'AO:test-1'");
     expect(cmd).toContain("fix  and `backtick`");
     expect(cmd).not.toContain("--prompt");
   });
@@ -313,8 +313,8 @@ describe("getLaunchCommand (integration)", () => {
       ...baseConfig,
       prompt: "",
     });
-    expect(cmd).toContain("opencode run --title 'AO:test-1' --command true");
-    expect(cmd).toContain("&& exec opencode --session");
+    expect(cmd).toContain("opencode run --format json --title 'AO:test-1' --command true");
+    expect(cmd).toContain("exec opencode --session");
     expect(cmd).toContain("opencode session list --format json");
     expect(cmd).toContain("AO:test-1");
   });
@@ -324,7 +324,7 @@ describe("getLaunchCommand (integration)", () => {
       ...baseConfig,
       prompt: "line1\nline2",
     });
-    expect(cmd).toContain("opencode run --title 'AO:test-1'");
+    expect(cmd).toContain("opencode run --format json --title 'AO:test-1'");
     expect(cmd).toContain("'line1");
     expect(cmd).not.toContain("--prompt");
   });
@@ -336,8 +336,8 @@ describe("getLaunchCommand (integration)", () => {
     });
     expect(cmd).toContain("--title 'AO:test-1'");
     expect(cmd).not.toContain("--prompt 'start work'");
-    expect(cmd).toContain("opencode run --title 'AO:test-1' 'start work'");
-    expect(cmd).toContain("&& exec opencode --session");
+    expect(cmd).toContain("opencode run --format json --title 'AO:test-1' 'start work'");
+    expect(cmd).toContain("exec opencode --session");
   });
 
   it("uses --session when existing OpenCode session id is provided", () => {

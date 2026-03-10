@@ -37,48 +37,6 @@ function parseSessionList(raw: string): OpenCodeSessionListEntry[] {
   });
 }
 
-function buildSessionLookupScript(): string {
-  const script = `
-let input = '';
-process.stdin.on('data', c => input += c).on('end', () => {
-  const title = process.argv[1];
-  let rows;
-  try { rows = JSON.parse(input); } catch { process.exit(1); }
-  if (!Array.isArray(rows)) process.exit(1);
-  const isValidId = id => /^ses_[A-Za-z0-9_-]+$/.test(id);
-  const timestamp = value => {
-    if (typeof value === 'number' && Number.isFinite(value)) return value;
-    if (typeof value === 'string') {
-      const parsed = Date.parse(value);
-      return Number.isNaN(parsed) ? Number.NEGATIVE_INFINITY : parsed;
-    }
-    return Number.NEGATIVE_INFINITY;
-  };
-  const matches = rows
-    .filter(r => r && r.title === title && typeof r.id === 'string' && isValidId(r.id))
-    .sort((a, b) => {
-      const ta = timestamp(a.updated);
-      const tb = timestamp(b.updated);
-      if (ta === tb) return 0;
-      return tb - ta;
-    });
-  if (matches.length === 0) process.exit(1);
-  process.stdout.write(matches[0].id);
-});
-  `.trim();
-  return script.replace(/\n/g, " ").replace(/\s+/g, " ");
-}
-
-function buildContinueSessionCommand(sessionTitle: string, sharedOptions: string[]): string {
-  const script = buildSessionLookupScript();
-  const options = sharedOptions.length > 0 ? ` ${sharedOptions.join(" ")}` : "";
-  return [
-    `SES_ID=$(opencode session list --format json | node -e ${shellEscape(script)} ${shellEscape(sessionTitle)})`,
-    '[ -n "$SES_ID" ]',
-    `exec opencode --session "$SES_ID"${options}`,
-  ].join(" && ");
-}
-
 // =============================================================================
 // Plugin Manifest
 // =============================================================================
@@ -138,13 +96,25 @@ function createOpenCodeAgent(): Agent {
       if (!existingSessionId) {
         const runOptions = ["--title", shellEscape(`AO:${config.sessionId}`), ...sharedOptions];
         const runCommand = promptValue
-          ? ["opencode", "run", ...runOptions, promptValue].join(" ")
-          : ["opencode", "run", ...runOptions, "--command", "true"].join(" ");
-        const continueCommand = buildContinueSessionCommand(
-          `AO:${config.sessionId}`,
-          sharedOptions,
+          ? ["opencode", "run", "--format", "json", ...runOptions, promptValue].join(" ")
+          : ["opencode", "run", "--format", "json", ...runOptions, "--command", "true"].join(" ");
+
+        const captureSessionId = [
+          "node",
+          "-e",
+          shellEscape(
+            "let buf='';process.stdin.on('data',c=>buf+=c).on('end',()=>{const lines=buf.toString().split('\\n');const isValidId=id=>typeof id==='string'&&/^ses_[A-Za-z0-9_-]+$/.test(id);for(const line of lines){if(!line.trim())continue;try{const evt=JSON.parse(line);if(evt.type==='step_start'&&isValidId(evt.session_id)){process.stdout.write(evt.session_id);process.exit(0);}}catch{}}process.exit(1);})",
+          ),
+        ].join(" ");
+
+        const fallbackSessionId = `opencode session list --format json | node -e ${shellEscape("let input='';process.stdin.on('data',c=>input+=c).on('end',()=>{const title=process.argv[1];let rows;try{rows=JSON.parse(input)}catch{process.exit(1)};if(!Array.isArray(rows))process.exit(1);const isValidId=id=>/^ses_[A-Za-z0-9_-]+$/.test(id);const timestamp=v=>{if(typeof v==='number'&&Number.isFinite(v))return v;if(typeof v==='string'){const p=Date.parse(v);return Number.isNaN(p)?Number.NEGATIVE_INFINITY:p;}return Number.NEGATIVE_INFINITY;};const matches=rows.filter(r=>r&&r.title===title&&typeof r.id==='string'&&isValidId(r.id)).sort((a,b)=>timestamp(b.updated)-timestamp(a.updated));if(matches.length===0)process.exit(1);process.stdout.write(matches[0].id);});")} ${shellEscape(`AO:${config.sessionId}`)}`;
+
+        const sessionIdCapture = `"$( { ${runCommand} | ${captureSessionId}; } || ${fallbackSessionId} )"`;
+
+        const continueCommand = ["opencode", "--session", sessionIdCapture, ...sharedOptions].join(
+          " ",
         );
-        return `${runCommand} && ${continueCommand}`;
+        return `exec ${continueCommand}`;
       }
 
       if (promptValue) {
