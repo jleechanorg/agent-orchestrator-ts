@@ -108,7 +108,7 @@ describe("notifier-openclaw integration", () => {
     await vi.advanceTimersByTimeAsync(0);
     expect(fetchMock).toHaveBeenCalledTimes(1);
 
-    await vi.advanceTimersByTimeAsync(100);
+    await vi.advanceTimersByTimeAsync(200);
     expect(fetchMock).toHaveBeenCalledTimes(2);
 
     await promise;

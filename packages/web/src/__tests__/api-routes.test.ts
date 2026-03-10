@@ -130,6 +130,10 @@ const mockRegistry: PluginRegistry = {
   loadFromConfig: vi.fn(async () => {}),
 };
 
+const mockLifecycleManager = {
+  getStates: vi.fn(() => new Map()),
+};
+
 const mockConfig: OrchestratorConfig = {
   configPath: "/tmp/ao-test/agent-orchestrator.yaml",
   port: 3000,
@@ -155,8 +159,10 @@ vi.mock("@/lib/services", () => ({
     config: mockConfig,
     registry: mockRegistry,
     sessionManager: mockSessionManager,
+    lifecycleManager: mockLifecycleManager,
   })),
   getSCM: vi.fn(() => mockSCM),
+  startBacklogPoller: vi.fn(() => {}),
 }));
 
 // ── Import routes after mocking ───────────────────────────────────────

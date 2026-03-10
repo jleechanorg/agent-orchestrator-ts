@@ -38,6 +38,7 @@ export type SessionStatus =
   | "stuck"
   | "errored"
   | "killed"
+  | "idle"
   | "done"
   | "terminated";
 
@@ -85,6 +86,7 @@ export const SESSION_STATUS = {
   NEEDS_INPUT: "needs_input" as const,
   STUCK: "stuck" as const,
   ERRORED: "errored" as const,
+  IDLE: "idle" as const,
   KILLED: "killed" as const,
   DONE: "done" as const,
   TERMINATED: "terminated" as const,
@@ -180,6 +182,10 @@ export interface SessionSpawnConfig {
   agent?: string;
   /** Override the OpenCode subagent for this session (e.g. "sisyphus", "oracle") */
   subagent?: string;
+  /** Decomposition context — ancestor task chain (passed to prompt builder) */
+  lineage?: string[];
+  /** Decomposition context — sibling task descriptions (passed to prompt builder) */
+  siblings?: string[];
 }
 
 /** Config for creating an orchestrator session */
@@ -488,6 +494,7 @@ export interface IssueFilters {
 export interface IssueUpdate {
   state?: "open" | "in_progress" | "closed";
   labels?: string[];
+  removeLabels?: string[];
   assignee?: string;
   comment?: string;
 }
@@ -729,6 +736,7 @@ export type EventType =
   | "session.working"
   | "session.exited"
   | "session.killed"
+  | "session.idle"
   | "session.stuck"
   | "session.needs_input"
   | "session.errored"
@@ -921,6 +929,18 @@ export interface ProjectConfig {
     | "kill-previous";
 
   opencodeIssueSessionStrategy?: "reuse" | "delete" | "ignore";
+
+  /** Task decomposition configuration */
+  decomposer?: {
+    /** Enable auto-decomposition for backlog issues (default: false) */
+    enabled: boolean;
+    /** Max recursion depth (default: 3) */
+    maxDepth: number;
+    /** Model to use for decomposition (default: claude-sonnet-4-20250514) */
+    model: string;
+    /** Require human approval before executing decomposed plans (default: true) */
+    requireApproval: boolean;
+  };
 }
 
 export interface TrackerConfig {
