@@ -65,9 +65,9 @@ import {
 import { asValidOpenCodeSessionId } from "./opencode-session-id.js";
 import { normalizeOrchestratorSessionStrategy } from "./orchestrator-session-strategy.js";
 import {
-  GLOBAL_PAUSE_UNTIL_KEY,
   GLOBAL_PAUSE_REASON_KEY,
   GLOBAL_PAUSE_SOURCE_KEY,
+  GLOBAL_PAUSE_UNTIL_KEY,
   parsePauseUntil,
 } from "./global-pause.js";
 import { sessionFromMetadata } from "./utils/session-from-metadata.js";
@@ -932,6 +932,13 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       throw new Error(`Unknown project: ${orchestratorConfig.projectId}`);
     }
 
+    const pause = getProjectPause(project);
+    if (pause) {
+      throw new Error(
+        `Project is paused due to model rate limit until ${pause.until.toISOString()} (${pause.reason}; source: ${pause.sourceSessionId})`,
+      );
+    }
+
     const plugins = resolvePlugins(project);
     if (!plugins.runtime) {
       throw new Error(`Runtime plugin '${project.runtime ?? config.defaults.runtime}' not found`);
@@ -976,38 +983,66 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       writeFileSync(systemPromptFile, orchestratorConfig.systemPrompt, "utf-8");
     }
 
-    const existingOrchestratorMetadata = readMetadataRaw(sessionsDir, sessionId);
-    const existingRuntimeHandle = existingOrchestratorMetadata?.["runtimeHandle"]
-      ? safeJsonParse<RuntimeHandle>(existingOrchestratorMetadata["runtimeHandle"])
+    const existingRaw = readMetadataRaw(sessionsDir, sessionId);
+    const existingOrchestrator = existingRaw?.["runtimeHandle"]
+      ? metadataToSession(sessionId, existingRaw)
       : null;
-    if (existingRuntimeHandle) {
-      const existingAlive = await plugins.runtime.isAlive(existingRuntimeHandle).catch(() => false);
+    if (existingOrchestrator?.runtimeHandle) {
+      const existingAlive = await plugins.runtime
+        .isAlive(existingOrchestrator.runtimeHandle)
+        .catch(() => false);
       if (existingAlive && orchestratorSessionStrategy === "reuse") {
-        const existingOrchestrator = await get(sessionId);
-        if (existingOrchestrator) {
-          existingOrchestrator.metadata["orchestratorSessionReused"] = "true";
-          return existingOrchestrator;
+        const persistedRaw = readMetadataRaw(sessionsDir, sessionId);
+        if (persistedRaw?.["runtimeHandle"]) {
+          const persisted = metadataToSession(sessionId, persistedRaw);
+          persisted.metadata["orchestratorSessionReused"] = "true";
+          return persisted;
         }
-        await plugins.runtime.destroy(existingRuntimeHandle).catch(() => undefined);
-      } else if (existingAlive) {
-        await plugins.runtime.destroy(existingRuntimeHandle).catch(() => undefined);
+        await plugins.runtime.destroy(existingOrchestrator.runtimeHandle).catch(() => undefined);
+        deleteMetadata(sessionsDir, sessionId, false);
+      }
+      if (existingAlive && orchestratorSessionStrategy !== "reuse") {
+        await plugins.runtime.destroy(existingOrchestrator.runtimeHandle).catch(() => undefined);
+        // Destroy runtime and delete metadata without archive for ignore strategy
+        deleteMetadata(sessionsDir, sessionId, false);
+      }
+      // For dead runtime, delete metadata so reserveSessionId can succeed:
+      // - With reuse strategy + opencode: archive to preserve opencodeSessionId for reuse lookup
+      // - With non-reuse strategy: delete without archive to respawn fresh
+      if (!existingAlive) {
+        deleteMetadata(sessionsDir, sessionId, orchestratorSessionStrategy === "reuse");
       }
     }
 
-    if (!existingOrchestratorMetadata && !reserveSessionId(sessionsDir, sessionId)) {
-      const raceSession = await get(sessionId);
-      if (raceSession?.runtimeHandle) {
-        const raceAlive = await plugins.runtime
-          .isAlive(raceSession.runtimeHandle)
+    // Atomically reserve the session ID before creating any resources.
+    // This prevents race conditions where concurrent spawnOrchestrator calls
+    // both see no existing session and proceed to create duplicate runtimes.
+    let reserved = reserveSessionId(sessionsDir, sessionId);
+    if (!reserved) {
+      // Reservation failed - another process reserved it first.
+      // Check if the session now exists and is alive.
+      const concurrentRaw = readMetadataRaw(sessionsDir, sessionId);
+      const concurrentSession = concurrentRaw?.["runtimeHandle"]
+        ? metadataToSession(sessionId, concurrentRaw)
+        : null;
+      if (concurrentSession?.runtimeHandle) {
+        const concurrentAlive = await plugins.runtime
+          .isAlive(concurrentSession.runtimeHandle)
           .catch(() => false);
-        if (raceAlive && orchestratorSessionStrategy === "reuse") {
-          raceSession.metadata["orchestratorSessionReused"] = "true";
-          return raceSession;
+        if (concurrentAlive && orchestratorSessionStrategy === "reuse") {
+          concurrentSession.metadata["orchestratorSessionReused"] = "true";
+          return concurrentSession;
         }
+        if (!concurrentAlive) {
+          deleteMetadata(sessionsDir, sessionId, orchestratorSessionStrategy === "reuse");
+          reserved = reserveSessionId(sessionsDir, sessionId);
+        }
+      } else {
+        reserved = reserveSessionId(sessionsDir, sessionId);
       }
-      throw new Error(
-        `Failed to reserve orchestrator session ID ${sessionId} (concurrent spawn detected)`,
-      );
+      if (!reserved) {
+        throw new Error(`Session ${sessionId} already exists but is not in a reusable state`);
+      }
     }
 
     const reusableOpenCodeSessionId =
@@ -1275,7 +1310,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
     }
 
     let didPurgeOpenCodeSession = false;
-    if (options?.purgeOpenCode !== false && cleanupAgent === "opencode") {
+    if (options?.purgeOpenCode === true && cleanupAgent === "opencode") {
       const mappedOpenCodeSessionId =
         asValidOpenCodeSessionId(raw["opencodeSessionId"]) ??
         (await discoverOpenCodeSessionIdByTitle(
@@ -1669,25 +1704,6 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
     }
   }
 
-  /**
-   * Claim an existing PR for a session.
-   *
-   * ## Ownership Model (Asymmetric)
-   *
-   * - **RULE A (Exclusive PR→Agent)**: One PR can be actively owned by only one
-   *   session at a time. If another session claims a PR already owned, the
-   *   previous owner is automatically displaced (consolidation).
-   *
-   * - **RULE B (Agent→Many PRs)**: One session may claim different PRs sequentially.
-   *   Switching to a new PR releases ownership of the previous PR.
-   *
-   * ## Behavior
-   *
-   * - Idempotent: re-claiming the same PR by the same owner succeeds without
-   *   triggering consolidation.
-   * - Consolidation happens regardless of the previous owner's status (includes
-   *   stale/dead sessions).
-   */
   async function claimPR(
     sessionId: SessionId,
     prRef: string,

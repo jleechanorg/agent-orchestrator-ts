@@ -4,7 +4,14 @@ import { join } from "node:path";
 import { homedir, tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
 import { createSessionManager } from "../session-manager.js";
-import { writeMetadata, readMetadata, readMetadataRaw, deleteMetadata } from "../metadata.js";
+import {
+  writeMetadata,
+  readMetadata,
+  readMetadataRaw,
+  deleteMetadata,
+  reserveSessionId,
+  updateMetadata,
+} from "../metadata.js";
 import { getSessionsDir, getProjectBaseDir, getWorktreesDir } from "../paths.js";
 import {
   SessionNotRestorableError,
@@ -212,6 +219,29 @@ describe("spawn", () => {
     expect(mockAgent.getLaunchCommand).toHaveBeenCalled();
     // Verify runtime was created
     expect(mockRuntime.create).toHaveBeenCalled();
+  });
+
+  it("blocks spawn while the project is globally paused", async () => {
+    writeMetadata(sessionsDir, "app-orchestrator", {
+      worktree: join(tmpDir, "my-app"),
+      branch: "main",
+      status: "working",
+      role: "orchestrator",
+      project: "my-app",
+      runtimeHandle: JSON.stringify(makeHandle("rt-orchestrator")),
+    });
+    updateMetadata(sessionsDir, "app-orchestrator", {
+      globalPauseUntil: new Date(Date.now() + 60_000).toISOString(),
+      globalPauseReason: "Rate limit reached",
+      globalPauseSource: "app-9",
+    });
+
+    const sm = createSessionManager({ config, registry: mockRegistry });
+
+    await expect(sm.spawn({ projectId: "my-app" })).rejects.toThrow(
+      "Project is paused due to model rate limit until",
+    );
+    expect(mockRuntime.create).not.toHaveBeenCalled();
   });
 
   it("uses issue ID to derive branch name", async () => {
@@ -1547,7 +1577,7 @@ describe("kill", () => {
     await expect(sm.kill("app-1")).resolves.toBeUndefined();
   });
 
-  it("purges mapped OpenCode session on default kill", async () => {
+  it("does not purge mapped OpenCode session on default kill", async () => {
     const deleteLogPath = join(tmpDir, "opencode-delete-kill-default.log");
     const mockBin = installMockOpencode("[]", deleteLogPath);
     process.env.PATH = `${mockBin}:${originalPath ?? ""}`;
@@ -1565,8 +1595,7 @@ describe("kill", () => {
     const sm = createSessionManager({ config, registry: mockRegistry });
     await sm.kill("app-1");
 
-    const deleteLog = readFileSync(deleteLogPath, "utf-8");
-    expect(deleteLog).toContain("session delete ses_keep");
+    expect(existsSync(deleteLogPath)).toBe(false);
   });
 
   it("purges mapped OpenCode session when requested", async () => {
@@ -2005,6 +2034,37 @@ describe("send", () => {
     expect(mockRuntime.sendMessage).toHaveBeenCalledWith(makeHandle("rt-1"), "Fix the CI failures");
   });
 
+  it("blocks send to worker sessions while the project is globally paused", async () => {
+    writeMetadata(sessionsDir, "app-orchestrator", {
+      worktree: join(tmpDir, "my-app"),
+      branch: "main",
+      status: "working",
+      role: "orchestrator",
+      project: "my-app",
+      runtimeHandle: JSON.stringify(makeHandle("rt-orchestrator")),
+    });
+    updateMetadata(sessionsDir, "app-orchestrator", {
+      globalPauseUntil: new Date(Date.now() + 60_000).toISOString(),
+      globalPauseReason: "Rate limit reached",
+      globalPauseSource: "app-9",
+    });
+
+    writeMetadata(sessionsDir, "app-1", {
+      worktree: "/tmp",
+      branch: "main",
+      status: "working",
+      project: "my-app",
+      runtimeHandle: JSON.stringify(makeHandle("rt-1")),
+    });
+
+    const sm = createSessionManager({ config, registry: mockRegistry });
+
+    await expect(sm.send("app-1", "Fix the CI failures")).rejects.toThrow(
+      "Project is paused due to model rate limit until",
+    );
+    expect(mockRuntime.sendMessage).not.toHaveBeenCalled();
+  });
+
   it("restores a dead session before sending the message", async () => {
     const wsPath = join(tmpDir, "ws-app-1");
     mkdirSync(wsPath, { recursive: true });
@@ -2339,6 +2399,29 @@ describe("remap", () => {
 });
 
 describe("spawnOrchestrator", () => {
+  it("blocks orchestrator spawn while the project is globally paused", async () => {
+    writeMetadata(sessionsDir, "app-orchestrator", {
+      worktree: join(tmpDir, "my-app"),
+      branch: "main",
+      status: "working",
+      role: "orchestrator",
+      project: "my-app",
+      runtimeHandle: JSON.stringify(makeHandle("rt-orchestrator")),
+    });
+    updateMetadata(sessionsDir, "app-orchestrator", {
+      globalPauseUntil: new Date(Date.now() + 60_000).toISOString(),
+      globalPauseReason: "Rate limit reached",
+      globalPauseSource: "app-9",
+    });
+
+    const sm = createSessionManager({ config, registry: mockRegistry });
+
+    await expect(sm.spawnOrchestrator({ projectId: "my-app" })).rejects.toThrow(
+      "Project is paused due to model rate limit until",
+    );
+    expect(mockRuntime.create).not.toHaveBeenCalled();
+  });
+
   it("creates orchestrator session with correct ID", async () => {
     const sm = createSessionManager({ config, registry: mockRegistry });
 
@@ -2547,6 +2630,10 @@ describe("spawnOrchestrator", () => {
   });
 
   it("destroys orphaned runtime when reuse strategy finds alive runtime but get returns null", async () => {
+    const deleteLogPath = join(tmpDir, "opencode-delete-orphaned-runtime.log");
+    const mockBin = installMockOpencode("[]", deleteLogPath);
+    process.env.PATH = `${mockBin}:${originalPath ?? ""}`;
+
     const opencodeAgent: Agent = {
       ...mockAgent,
       name: "opencode",
@@ -2659,6 +2746,16 @@ describe("spawnOrchestrator", () => {
   });
 
   it("reuses archived OpenCode mapping for orchestrator when active metadata has no mapping", async () => {
+    const deleteLogPath = join(tmpDir, "opencode-delete-orchestrator-reuse-archived.log");
+    const mockBin = installMockOpencode(
+      JSON.stringify([
+        null,
+        { id: "ses_existing", title: "AO:app-orchestrator", updated: 1_772_777_000_000 },
+      ]),
+      deleteLogPath,
+    );
+    process.env.PATH = `${mockBin}:${originalPath ?? ""}`;
+
     const opencodeAgent: Agent = {
       ...mockAgent,
       name: "opencode",
@@ -2914,7 +3011,7 @@ describe("spawnOrchestrator", () => {
       createdAt: new Date().toISOString(),
     });
 
-    vi.mocked(mockRuntime.isAlive).mockResolvedValueOnce(false);
+    vi.mocked(mockRuntime.isAlive).mockResolvedValue(false);
 
     const sm = createSessionManager({ config, registry: mockRegistry });
     await sm.spawnOrchestrator({ projectId: "my-app" });
@@ -3024,6 +3121,103 @@ describe("spawnOrchestrator", () => {
     const session = await sm.spawnOrchestrator({ projectId: "my-app" });
 
     expect(session.runtimeHandle).toEqual(makeHandle("rt-1"));
+  });
+
+  it("reuses existing orchestrator on reservation conflict when strategy is reuse", async () => {
+    const opencodeAgent: Agent = {
+      ...mockAgent,
+      name: "opencode",
+    };
+    const registryWithOpenCode: PluginRegistry = {
+      ...mockRegistry,
+      get: vi.fn().mockImplementation((slot: string) => {
+        if (slot === "runtime") return mockRuntime;
+        if (slot === "agent") return opencodeAgent;
+        if (slot === "workspace") return mockWorkspace;
+        return null;
+      }),
+    };
+
+    const configWithReuse: OrchestratorConfig = {
+      ...config,
+      defaults: { ...config.defaults, agent: "opencode" },
+      projects: {
+        ...config.projects,
+        "my-app": {
+          ...config.projects["my-app"],
+          agent: "opencode",
+          orchestratorSessionStrategy: "reuse",
+        },
+      },
+    };
+
+    writeMetadata(sessionsDir, "app-orchestrator", {
+      worktree: join(tmpDir, "my-app"),
+      branch: "main",
+      status: "working",
+      role: "orchestrator",
+      project: "my-app",
+      agent: "opencode",
+      runtimeHandle: JSON.stringify(makeHandle("rt-concurrent")),
+      opencodeSessionId: "ses_concurrent",
+      createdAt: new Date().toISOString(),
+    });
+
+    vi.mocked(mockRuntime.isAlive).mockResolvedValue(true);
+
+    const sm = createSessionManager({ config: configWithReuse, registry: registryWithOpenCode });
+    const session = await sm.spawnOrchestrator({ projectId: "my-app" });
+
+    expect(session.metadata["orchestratorSessionReused"]).toBe("true");
+    expect(mockRuntime.create).not.toHaveBeenCalled();
+  });
+
+  it("recovers reservation conflict when existing session is not usable", async () => {
+    writeMetadata(sessionsDir, "app-orchestrator", {
+      worktree: join(tmpDir, "my-app"),
+      branch: "main",
+      status: "killed",
+      role: "orchestrator",
+      project: "my-app",
+      runtimeHandle: JSON.stringify(makeHandle("rt-dead")),
+      createdAt: new Date().toISOString(),
+    });
+
+    vi.mocked(mockRuntime.isAlive).mockResolvedValue(false);
+
+    const sm = createSessionManager({ config, registry: mockRegistry });
+    await expect(sm.spawnOrchestrator({ projectId: "my-app" })).resolves.toBeDefined();
+    expect(mockRuntime.create).toHaveBeenCalledTimes(1);
+  });
+
+  it("creates only one runtime on reservation conflict", async () => {
+    writeMetadata(sessionsDir, "app-orchestrator", {
+      worktree: join(tmpDir, "my-app"),
+      branch: "main",
+      status: "working",
+      role: "orchestrator",
+      project: "my-app",
+      runtimeHandle: JSON.stringify(makeHandle("rt-existing")),
+      createdAt: new Date().toISOString(),
+    });
+
+    vi.mocked(mockRuntime.isAlive).mockResolvedValue(false);
+
+    const sm = createSessionManager({ config, registry: mockRegistry });
+    await expect(sm.spawnOrchestrator({ projectId: "my-app" })).resolves.toBeDefined();
+    expect(mockRuntime.create).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not delete an in-progress reservation file without runtime metadata", async () => {
+    expect(reserveSessionId(sessionsDir, "app-orchestrator")).toBe(true);
+
+    const sm = createSessionManager({ config, registry: mockRegistry });
+
+    await expect(sm.spawnOrchestrator({ projectId: "my-app" })).rejects.toThrow(
+      "already exists but is not in a reusable state",
+    );
+    expect(mockRuntime.create).not.toHaveBeenCalled();
+    expect(readMetadataRaw(sessionsDir, "app-orchestrator")).toEqual({});
   });
 });
 
