@@ -495,46 +495,50 @@ export function registerStop(program: Command): void {
   program
     .command("stop [project]")
     .description("Stop orchestrator agent and dashboard for a project")
-    .option("--purge-session", "Also purge the mapped OpenCode session when stopping")
-    .action(async (projectArg?: string, opts: { purgeSession?: boolean } = {}) => {
-      try {
-        const config = loadConfig();
-        const { projectId: _projectId, project } = resolveProject(config, projectArg);
-        const sessionId = `${project.sessionPrefix}-orchestrator`;
-        const port = config.port ?? 3000;
+    .option("--keep-session", "Keep mapped OpenCode session after stopping")
+    .option("--purge-session", "Delete mapped OpenCode session when stopping")
+    .action(
+      async (projectArg?: string, opts: { keepSession?: boolean; purgeSession?: boolean } = {}) => {
+        try {
+          const config = loadConfig();
+          const { projectId: _projectId, project } = resolveProject(config, projectArg);
+          const sessionId = `${project.sessionPrefix}-orchestrator`;
+          const port = config.port ?? 3000;
 
-        console.log(chalk.bold(`\nStopping orchestrator for ${chalk.cyan(project.name)}\n`));
+          console.log(chalk.bold(`\nStopping orchestrator for ${chalk.cyan(project.name)}\n`));
 
-        // Kill orchestrator session via SessionManager
-        const sm = await getSessionManager(config);
-        const existing = await sm.get(sessionId);
+          // Kill orchestrator session via SessionManager
+          const sm = await getSessionManager(config);
+          const existing = await sm.get(sessionId);
 
-        if (existing) {
-          const spinner = ora("Stopping orchestrator session").start();
-          await sm.kill(sessionId, { purgeOpenCode: opts?.purgeSession === true });
-          spinner.succeed("Orchestrator session stopped");
-        } else {
-          console.log(chalk.yellow(`Orchestrator session "${sessionId}" is not running`));
+          if (existing) {
+            const spinner = ora("Stopping orchestrator session").start();
+            const purgeOpenCode = opts.purgeSession === true ? true : opts.keepSession !== true;
+            await sm.kill(sessionId, { purgeOpenCode });
+            spinner.succeed("Orchestrator session stopped");
+          } else {
+            console.log(chalk.yellow(`Orchestrator session "${sessionId}" is not running`));
+          }
+
+          const lifecycleStopped = await stopLifecycleWorker(config, _projectId);
+          if (lifecycleStopped) {
+            console.log(chalk.green("Lifecycle worker stopped"));
+          } else {
+            console.log(chalk.yellow("Lifecycle worker not running"));
+          }
+
+          // Stop dashboard
+          await stopDashboard(port);
+
+          console.log(chalk.bold.green("\n✓ Orchestrator stopped\n"));
+        } catch (err) {
+          if (err instanceof Error) {
+            console.error(chalk.red("\nError:"), err.message);
+          } else {
+            console.error(chalk.red("\nError:"), String(err));
+          }
+          process.exit(1);
         }
-
-        const lifecycleStopped = await stopLifecycleWorker(config, _projectId);
-        if (lifecycleStopped) {
-          console.log(chalk.green("Lifecycle worker stopped"));
-        } else {
-          console.log(chalk.yellow("Lifecycle worker not running"));
-        }
-
-        // Stop dashboard
-        await stopDashboard(port);
-
-        console.log(chalk.bold.green("\n✓ Orchestrator stopped\n"));
-      } catch (err) {
-        if (err instanceof Error) {
-          console.error(chalk.red("\nError:"), err.message);
-        } else {
-          console.error(chalk.red("\nError:"), String(err));
-        }
-        process.exit(1);
-      }
-    });
+      },
+    );
 }
