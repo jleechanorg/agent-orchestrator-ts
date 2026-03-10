@@ -37,6 +37,81 @@ function parseSessionList(raw: string): OpenCodeSessionListEntry[] {
   });
 }
 
+/**
+ * Parse JSON stream lines from `opencode run --format json` output.
+ * Each line is a JSON object. We look for objects containing a session_id field.
+ * The step_start event typically contains the session_id.
+ */
+function buildSessionIdCaptureScript(): string {
+  const script = `
+let buffer = '';
+let captured = null;
+process.stdin.on('data', chunk => {
+  buffer += chunk;
+  const lines = buffer.split('\\n');
+  buffer = lines.pop() || '';
+  for (const line of lines) {
+    if (captured) continue;
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    try {
+      const obj = JSON.parse(trimmed);
+      if (obj && typeof obj.session_id === 'string' && /^ses_[A-Za-z0-9_-]+$/.test(obj.session_id)) {
+        captured = obj.session_id;
+      }
+    } catch {}
+  }
+}).on('end', () => {
+  if (buffer.trim()) {
+    try {
+      const obj = JSON.parse(buffer.trim());
+      if (obj && typeof obj.session_id === 'string' && /^ses_[A-Za-z0-9_-]+$/.test(obj.session_id)) {
+        captured = obj.session_id;
+      }
+    } catch {}
+  }
+  if (captured) {
+    process.stdout.write(captured);
+    process.exit(0);
+  }
+  process.exit(1);
+});
+  `.trim();
+  return script.replace(/\n/g, " ").replace(/\s+/g, " ");
+}
+
+function buildSessionLookupScript(): string {
+  const script = `
+let input = '';
+process.stdin.on('data', c => input += c).on('end', () => {
+  const title = process.argv[1];
+  let rows;
+  try { rows = JSON.parse(input); } catch { process.exit(1); }
+  if (!Array.isArray(rows)) process.exit(1);
+  const isValidId = id => /^ses_[A-Za-z0-9_-]+$/.test(id);
+  const timestamp = value => {
+    if (typeof value === 'number' && Number.isFinite(value)) return value;
+    if (typeof value === 'string') {
+      const parsed = Date.parse(value);
+      return Number.isNaN(parsed) ? Number.NEGATIVE_INFINITY : parsed;
+    }
+    return Number.NEGATIVE_INFINITY;
+  };
+  const matches = rows
+    .filter(r => r && r.title === title && typeof r.id === 'string' && isValidId(r.id))
+    .sort((a, b) => {
+      const ta = timestamp(a.updated);
+      const tb = timestamp(b.updated);
+      if (ta === tb) return 0;
+      return tb - ta;
+    });
+  if (matches.length === 0) process.exit(1);
+  process.stdout.write(matches[0].id);
+});
+  `.trim();
+  return script.replace(/\n/g, " ").replace(/\s+/g, " ");
+}
+
 // =============================================================================
 // Plugin Manifest
 // =============================================================================
@@ -94,27 +169,27 @@ function createOpenCodeAgent(): Agent {
       }
 
       if (!existingSessionId) {
-        const runOptions = ["--title", shellEscape(`AO:${config.sessionId}`), ...sharedOptions];
+        const runOptions = [
+          "--format",
+          "json",
+          "--title",
+          shellEscape(`AO:${config.sessionId}`),
+          ...sharedOptions,
+        ];
+        const captureScript = buildSessionIdCaptureScript();
+        const fallbackScript = buildSessionLookupScript();
         const runCommand = promptValue
-          ? ["opencode", "run", "--format", "json", ...runOptions, promptValue].join(" ")
-          : ["opencode", "run", "--format", "json", ...runOptions, "--command", "true"].join(" ");
-
-        const captureSessionId = [
-          "node",
-          "-e",
-          shellEscape(
-            "let buf='';process.stdin.on('data',c=>buf+=c).on('end',()=>{const lines=buf.toString().split('\\n');const isValidId=id=>typeof id==='string'&&/^ses_[A-Za-z0-9_-]+$/.test(id);for(const line of lines){if(!line.trim())continue;try{const evt=JSON.parse(line);if(evt.type==='step_start'&&isValidId(evt.session_id)){process.stdout.write(evt.session_id);process.exit(0);}}catch{}}process.exit(1);})",
-          ),
-        ].join(" ");
-
-        const fallbackSessionId = `opencode session list --format json | node -e ${shellEscape("let input='';process.stdin.on('data',c=>input+=c).on('end',()=>{const title=process.argv[1];let rows;try{rows=JSON.parse(input)}catch{process.exit(1)};if(!Array.isArray(rows))process.exit(1);const isValidId=id=>/^ses_[A-Za-z0-9_-]+$/.test(id);const timestamp=v=>{if(typeof v==='number'&&Number.isFinite(v))return v;if(typeof v==='string'){const p=Date.parse(v);return Number.isNaN(p)?Number.NEGATIVE_INFINITY:p;}return Number.NEGATIVE_INFINITY;};const matches=rows.filter(r=>r&&r.title===title&&typeof r.id==='string'&&isValidId(r.id)).sort((a,b)=>timestamp(b.updated)-timestamp(a.updated));if(matches.length===0)process.exit(1);process.stdout.write(matches[0].id);});")} ${shellEscape(`AO:${config.sessionId}`)}`;
-
-        const sessionIdCapture = `"$( { ${runCommand} | ${captureSessionId}; } || ${fallbackSessionId} )"`;
-
-        const continueCommand = ["opencode", "--session", sessionIdCapture, ...sharedOptions].join(
-          " ",
+          ? ["opencode", "run", ...runOptions, promptValue].join(" ")
+          : ["opencode", "run", ...runOptions, "--command", "true"].join(" ");
+        const sharedOptionsSuffix = sharedOptions.length > 0 ? ` ${sharedOptions.join(" ")}` : "";
+        const missingSessionError = shellEscape(
+          `failed to discover OpenCode session ID for AO:${config.sessionId}`,
         );
-        return `exec ${continueCommand}`;
+        return [
+          `SES_ID=$(${runCommand} | node -e ${shellEscape(captureScript)})`,
+          `if [ -z "$SES_ID" ]; then SES_ID=$(opencode session list --format json | node -e ${shellEscape(fallbackScript)} ${shellEscape(`AO:${config.sessionId}`)}); fi`,
+          `[ -n "$SES_ID" ] && exec opencode --session "$SES_ID"${sharedOptionsSuffix}; echo ${missingSessionError} >&2; exit 1`,
+        ].join("; ");
       }
 
       if (promptValue) {
