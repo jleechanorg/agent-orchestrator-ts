@@ -11,7 +11,6 @@ import { preflight } from "../lib/preflight.js";
 interface SpawnClaimOptions {
   claimPr?: string;
   assignOnGithub?: boolean;
-  takeover?: boolean;
 }
 
 /**
@@ -65,7 +64,6 @@ async function spawnSession(
       try {
         const claimResult = await sm.claimPR(session.id, claimOptions.claimPr, {
           assignOnGithub: claimOptions.assignOnGithub,
-          takeover: claimOptions.takeover,
         });
         branchStr = claimResult.pr.branch;
         claimedPrUrl = claimResult.pr.url;
@@ -120,7 +118,6 @@ export function registerSpawn(program: Command): void {
     .option("--agent <name>", "Override the agent plugin (e.g. codex, claude-code)")
     .option("--claim-pr <pr>", "Immediately claim an existing PR for the spawned session")
     .option("--assign-on-github", "Assign the claimed PR to the authenticated GitHub user")
-    .option("--takeover", "Transfer PR ownership from another AO session if needed")
     .action(
       async (
         projectId: string,
@@ -130,7 +127,6 @@ export function registerSpawn(program: Command): void {
           agent?: string;
           claimPr?: string;
           assignOnGithub?: boolean;
-          takeover?: boolean;
         },
       ) => {
         const config = loadConfig();
@@ -143,10 +139,8 @@ export function registerSpawn(program: Command): void {
           process.exit(1);
         }
 
-        if (!opts.claimPr && (opts.assignOnGithub || opts.takeover)) {
-          console.error(
-            chalk.red("--assign-on-github and --takeover require --claim-pr on `ao spawn`."),
-          );
+        if (!opts.claimPr && opts.assignOnGithub) {
+          console.error(chalk.red("--assign-on-github requires --claim-pr on `ao spawn`."));
           process.exit(1);
         }
 
@@ -156,7 +150,6 @@ export function registerSpawn(program: Command): void {
           await spawnSession(config, projectId, issueId, opts.open, opts.agent, {
             claimPr: opts.claimPr,
             assignOnGithub: opts.assignOnGithub,
-            takeover: opts.takeover,
           });
         } catch (err) {
           console.error(chalk.red(`✗ ${err instanceof Error ? err.message : String(err)}`));
@@ -251,9 +244,7 @@ export function registerBatchSpawn(program: Command): void {
             error: err instanceof Error ? err.message : String(err),
           });
           console.log(
-            chalk.red(
-              `  Failed ${issue} — ${err instanceof Error ? err.message : String(err)}`,
-            ),
+            chalk.red(`  Failed ${issue} — ${err instanceof Error ? err.message : String(err)}`),
           );
         }
       }

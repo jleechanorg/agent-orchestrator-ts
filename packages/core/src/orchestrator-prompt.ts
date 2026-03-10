@@ -48,7 +48,7 @@ ao status
 
 # Spawn sessions for issues (GitHub: #123, Linear: INT-1234, etc.)
 ao spawn ${projectId} INT-1234
-ao spawn ${projectId} --claim-pr 123 --takeover
+ao spawn ${projectId} --claim-pr 123
 ao batch-spawn ${projectId} INT-1 INT-2 INT-3
 
 # List sessions
@@ -118,7 +118,7 @@ If a session needs to continue work on an existing PR:
 \`\`\`bash
 ao session claim-pr 123 ${project.sessionPrefix}-1
 # or do it at spawn time
-ao spawn ${projectId} --claim-pr 123 --takeover
+ao spawn ${projectId} --claim-pr 123
 \`\`\`
 
 This updates AO metadata, switches the worktree onto the PR branch, and lets lifecycle reactions keep routing CI and review feedback to that session.

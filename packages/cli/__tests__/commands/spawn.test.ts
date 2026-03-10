@@ -4,21 +4,23 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { type Session, type SessionManager, getProjectBaseDir } from "@composio/ao-core";
 
-const { mockExec, mockConfigRef, mockSessionManager, mockEnsureLifecycleWorker } = vi.hoisted(() => ({
-  mockExec: vi.fn(),
-  mockConfigRef: { current: null as Record<string, unknown> | null },
-  mockSessionManager: {
-    list: vi.fn(),
-    kill: vi.fn(),
-    cleanup: vi.fn(),
-    get: vi.fn(),
-    spawn: vi.fn(),
-    spawnOrchestrator: vi.fn(),
-    send: vi.fn(),
-    claimPR: vi.fn(),
-  },
-  mockEnsureLifecycleWorker: vi.fn(),
-}));
+const { mockExec, mockConfigRef, mockSessionManager, mockEnsureLifecycleWorker } = vi.hoisted(
+  () => ({
+    mockExec: vi.fn(),
+    mockConfigRef: { current: null as Record<string, unknown> | null },
+    mockSessionManager: {
+      list: vi.fn(),
+      kill: vi.fn(),
+      cleanup: vi.fn(),
+      get: vi.fn(),
+      spawn: vi.fn(),
+      spawnOrchestrator: vi.fn(),
+      send: vi.fn(),
+      claimPR: vi.fn(),
+    },
+    mockEnsureLifecycleWorker: vi.fn(),
+  }),
+);
 
 vi.mock("../../src/lib/shell.js", () => ({
   tmux: vi.fn(),
@@ -118,8 +120,8 @@ beforeEach(() => {
     running: true,
     started: true,
     pid: 12345,
-    pidFile: '/tmp/lifecycle-worker.pid',
-    logFile: '/tmp/lifecycle-worker.log',
+    pidFile: "/tmp/lifecycle-worker.pid",
+    logFile: "/tmp/lifecycle-worker.log",
   });
 });
 
@@ -324,7 +326,6 @@ describe("spawn command", () => {
     );
   });
 
-
   it("claims a PR for the spawned session when --claim-pr is provided", async () => {
     const fakeSession: Session = {
       id: "app-1",
@@ -370,7 +371,6 @@ describe("spawn command", () => {
     });
     expect(mockSessionManager.claimPR).toHaveBeenCalledWith("app-1", "123", {
       assignOnGithub: undefined,
-      takeover: undefined,
     });
 
     const output = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
@@ -378,7 +378,7 @@ describe("spawn command", () => {
     expect(output).toContain("feat/claimed-pr");
   });
 
-  it("passes takeover and GitHub assignment flags through to claimPR", async () => {
+  it("passes GitHub assignment flag through to claimPR", async () => {
     const fakeSession: Session = {
       id: "app-1",
       projectId: "my-app",
@@ -421,26 +421,24 @@ describe("spawn command", () => {
       "my-app",
       "--claim-pr",
       "123",
-      "--takeover",
       "--assign-on-github",
     ]);
 
     expect(mockSessionManager.claimPR).toHaveBeenCalledWith("app-1", "123", {
       assignOnGithub: true,
-      takeover: true,
     });
   });
 
-  it("rejects claim-only flags without --claim-pr", async () => {
+  it("rejects --assign-on-github without --claim-pr", async () => {
     await expect(
-      program.parseAsync(["node", "test", "spawn", "my-app", "--takeover"]),
+      program.parseAsync(["node", "test", "spawn", "my-app", "--assign-on-github"]),
     ).rejects.toThrow("process.exit(1)");
 
     const errors = vi
       .mocked(console.error)
       .mock.calls.map((c) => String(c[0]))
       .join("\n");
-    expect(errors).toContain("require --claim-pr");
+    expect(errors).toContain("--assign-on-github requires --claim-pr");
     expect(mockSessionManager.spawn).not.toHaveBeenCalled();
     expect(mockSessionManager.claimPR).not.toHaveBeenCalled();
   });
@@ -580,7 +578,6 @@ describe("spawn pre-flight checks", () => {
     expect(mockSessionManager.spawn).not.toHaveBeenCalled();
   });
 
-
   it("handles tracker+scm github preflight when claiming during spawn", async () => {
     const fakeSession: Session = {
       id: "app-1",
@@ -637,7 +634,6 @@ describe("spawn pre-flight checks", () => {
     expect(mockSessionManager.spawn).toHaveBeenCalled();
     expect(mockSessionManager.claimPR).toHaveBeenCalledWith("app-1", "123", {
       assignOnGithub: undefined,
-      takeover: undefined,
     });
   });
 

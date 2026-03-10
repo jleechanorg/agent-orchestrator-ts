@@ -445,12 +445,10 @@ describe("session claim-pr", () => {
       "42",
       "app-2",
       "--assign-on-github",
-      "--takeover",
     ]);
 
     expect(mockSessionManager.claimPR).toHaveBeenCalledWith("app-2", "42", {
       assignOnGithub: true,
-      takeover: true,
     });
 
     const output = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
@@ -465,7 +463,6 @@ describe("session claim-pr", () => {
 
     expect(mockSessionManager.claimPR).toHaveBeenCalledWith("app-7", "42", {
       assignOnGithub: undefined,
-      takeover: undefined,
     });
   });
 
