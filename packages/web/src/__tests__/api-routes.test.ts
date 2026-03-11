@@ -359,6 +359,49 @@ describe("API Routes", () => {
       expect(data.sessions.map((session: { id: string }) => session.id)).toEqual(["docs-2"]);
       expect(mockSessionManager.list).toHaveBeenCalledWith("docs-app");
     });
+
+    it("keeps global pause sourced from all projects even for project-scoped requests", async () => {
+      const pausedUntil = new Date(Date.now() + 60_000).toISOString();
+      const pausedSessions = [
+        makeSession({
+          id: "docs-orchestrator",
+          projectId: "docs-app",
+          metadata: {
+            role: "orchestrator",
+            globalPauseUntil: pausedUntil,
+            globalPauseReason: "Rate limit hit",
+            globalPauseSource: "docs-orchestrator",
+          },
+        }),
+        makeSession({ id: "docs-1", projectId: "docs-app", status: "working", activity: "active" }),
+        makeSession({
+          id: "backend-3",
+          projectId: "my-app",
+          status: "working",
+          activity: "active",
+        }),
+      ];
+      (mockSessionManager.list as ReturnType<typeof vi.fn>).mockImplementation(
+        async (projectId?: string) =>
+          projectId
+            ? pausedSessions.filter((session) => session.projectId === projectId)
+            : pausedSessions,
+      );
+
+      const res = await sessionsGET(
+        makeRequest("http://localhost:3000/api/sessions?project=my-app"),
+      );
+      expect(res.status).toBe(200);
+      const data = await res.json();
+
+      expect(data.globalPause).toMatchObject({
+        pausedUntil,
+        reason: "Rate limit hit",
+        sourceSessionId: "docs-orchestrator",
+      });
+      expect(mockSessionManager.list).toHaveBeenNthCalledWith(1, "my-app");
+      expect(mockSessionManager.list).toHaveBeenNthCalledWith(2);
+    });
   });
 
   // ── POST /api/spawn ────────────────────────────────────────────────

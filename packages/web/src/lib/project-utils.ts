@@ -19,7 +19,7 @@ function matchesProject(
   if (session.projectId === projectId) return true;
   const project = projects[projectId];
   if (project?.sessionPrefix && session.id.startsWith(project.sessionPrefix)) return true;
-  return false;
+  return projects[session.projectId]?.sessionPrefix === projectId;
 }
 
 export function filterProjectSessions<T extends SessionLike>(

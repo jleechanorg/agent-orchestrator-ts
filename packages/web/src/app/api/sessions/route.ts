@@ -10,6 +10,7 @@ import {
   listDashboardOrchestrators,
 } from "@/lib/serialize";
 import { resolveGlobalPause } from "@/lib/global-pause";
+import { filterProjectSessions } from "@/lib/project-utils";
 
 const METADATA_ENRICH_TIMEOUT_MS = 3_000;
 const PR_ENRICH_TIMEOUT_MS = 4_000;
@@ -47,17 +48,8 @@ export async function GET(request: Request) {
         ? projectFilter
         : undefined;
     const coreSessions = await sessionManager.list(requestedProjectId);
-
-    const matchesRequestedProject = (session: { id: string; projectId: string }): boolean => {
-      if (!projectFilter || projectFilter === "all") return true;
-      if (session.projectId === projectFilter) return true;
-      if (config.projects[projectFilter]?.sessionPrefix) {
-        return session.id.startsWith(config.projects[projectFilter].sessionPrefix);
-      }
-      return config.projects[session.projectId]?.sessionPrefix === projectFilter;
-    };
-
-    const visibleSessions = coreSessions.filter(matchesRequestedProject);
+    const allSessions = requestedProjectId ? await sessionManager.list() : coreSessions;
+    const visibleSessions = filterProjectSessions(coreSessions, projectFilter, config.projects);
     const orchestrators = listDashboardOrchestrators(visibleSessions, config.projects);
     const orchestratorId = orchestrators.length === 1 ? (orchestrators[0]?.id ?? null) : null;
 
@@ -103,7 +95,7 @@ export async function GET(request: Request) {
       stats: computeStats(dashboardSessions),
       orchestratorId,
       orchestrators,
-      globalPause: resolveGlobalPause(coreSessions),
+      globalPause: resolveGlobalPause(allSessions),
     });
   } catch (err) {
     return NextResponse.json(
