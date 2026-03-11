@@ -3,7 +3,6 @@ import type { Metadata } from "next";
 export const dynamic = "force-dynamic";
 import { Dashboard } from "@/components/Dashboard";
 import type { DashboardSession } from "@/lib/types";
-import { isOrchestratorSession } from "@composio/ao-core";
 import { getServices, getSCM } from "@/lib/services";
 import {
   sessionToDashboard,
@@ -60,9 +59,7 @@ export default async function Home(props: { searchParams: Promise<{ project?: st
 
     orchestrators = listDashboardOrchestrators(visibleSessions, config.projects);
 
-    const coreSessions = filterWorkerSessions(allSessions, projectFilter, config.projects).filter(
-      (session) => !isOrchestratorSession(session),
-    );
+    const coreSessions = filterWorkerSessions(allSessions, projectFilter, config.projects);
     sessions = coreSessions.map(sessionToDashboard);
 
     const metaTimeout = new Promise<void>((resolve) => setTimeout(resolve, 3_000));

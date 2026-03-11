@@ -22,22 +22,6 @@ function matchesProject(
   return false;
 }
 
-export function findOrchestratorSessionId<T extends SessionLike>(
-  sessions: T[],
-  projectFilter: string | null | undefined,
-  projects: Record<string, ProjectWithPrefix>,
-): string | null {
-  if (projectFilter && projectFilter !== "all") {
-    const session = sessions.find(
-      (s) => isOrchestratorSession(s) && matchesProject(s, projectFilter, projects),
-    );
-    return session?.id ?? null;
-  }
-
-  const session = sessions.find((s) => isOrchestratorSession(s));
-  return session?.id ?? null;
-}
-
 export function filterWorkerSessions<T extends SessionLike>(
   sessions: T[],
   projectFilter: string | null | undefined,
