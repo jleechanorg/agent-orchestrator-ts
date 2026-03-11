@@ -32,6 +32,7 @@ import {
   type Session,
   type EventPriority,
   type ProjectConfig as _ProjectConfig,
+  isOrchestratorSession,
 } from "./types.js";
 import { updateMetadata } from "./metadata.js";
 import { getSessionsDir } from "./paths.js";
@@ -224,10 +225,6 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
   let pollTimer: ReturnType<typeof setInterval> | null = null;
   let polling = false; // re-entrancy guard
   let allCompleteEmitted = false; // guard against repeated all_complete
-
-  function isOrchestratorSession(session: Session): boolean {
-    return session.metadata["role"] === "orchestrator" || session.id.endsWith("-orchestrator");
-  }
 
   function setProjectPause(project: _ProjectConfig, sourceSessionId: string, until: Date): void {
     const sessionsDir = getSessionsDir(config.configPath, project.path);
