@@ -13,7 +13,7 @@ import {
 } from "@/lib/serialize";
 import { prCache, prCacheKey } from "@/lib/cache";
 import { getPrimaryProjectId, getProjectName, getAllProjects } from "@/lib/project-name";
-import { filterWorkerSessions } from "@/lib/project-utils";
+import { filterProjectSessions, filterWorkerSessions } from "@/lib/project-utils";
 import { resolveGlobalPause, type GlobalPauseState } from "@/lib/global-pause";
 
 function getSelectedProjectName(projectFilter: string | undefined): string {
@@ -48,14 +48,7 @@ export default async function Home(props: { searchParams: Promise<{ project?: st
 
     globalPause = resolveGlobalPause(allSessions);
 
-    const visibleSessions =
-      projectFilter && projectFilter !== "all"
-        ? allSessions.filter(
-            (session) =>
-              session.projectId === projectFilter ||
-              config.projects[session.projectId]?.sessionPrefix === projectFilter,
-          )
-        : allSessions;
+    const visibleSessions = filterProjectSessions(allSessions, projectFilter, config.projects);
 
     orchestrators = listDashboardOrchestrators(visibleSessions, config.projects);
 

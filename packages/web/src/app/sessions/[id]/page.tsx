@@ -2,13 +2,10 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { useParams } from "next/navigation";
+import { isOrchestratorSession } from "@composio/ao-core/types";
 import { SessionDetail } from "@/components/SessionDetail";
 import { type DashboardSession, getAttentionLevel, type AttentionLevel } from "@/lib/types";
 import { activityIcon } from "@/lib/activity-icons";
-
-function isOrchestratorSession(session: Pick<DashboardSession, "id" | "metadata">): boolean {
-  return session.metadata["role"] === "orchestrator" || session.id.endsWith("-orchestrator");
-}
 
 function truncate(s: string, max: number): string {
   return s.length > max ? s.slice(0, max) + "..." : s;

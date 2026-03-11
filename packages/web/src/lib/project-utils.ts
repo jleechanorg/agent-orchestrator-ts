@@ -22,12 +22,20 @@ function matchesProject(
   return false;
 }
 
+export function filterProjectSessions<T extends SessionLike>(
+  sessions: T[],
+  projectFilter: string | null | undefined,
+  projects: Record<string, ProjectWithPrefix>,
+): T[] {
+  if (!projectFilter || projectFilter === "all") return sessions;
+  return sessions.filter((session) => matchesProject(session, projectFilter, projects));
+}
+
 export function filterWorkerSessions<T extends SessionLike>(
   sessions: T[],
   projectFilter: string | null | undefined,
   projects: Record<string, ProjectWithPrefix>,
 ): T[] {
   const workers = sessions.filter((s) => !isOrchestratorSession(s));
-  if (!projectFilter || projectFilter === "all") return workers;
-  return workers.filter((s) => matchesProject(s, projectFilter, projects));
+  return filterProjectSessions(workers, projectFilter, projects);
 }
