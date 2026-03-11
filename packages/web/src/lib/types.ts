@@ -130,6 +130,12 @@ export interface DashboardStats {
   needsReview: number;
 }
 
+export interface DashboardOrchestratorLink {
+  id: string;
+  projectId: string;
+  projectName: string;
+}
+
 /** SSE snapshot event from /api/events */
 export interface SSESnapshotEvent {
   type: "snapshot";

@@ -1,4 +1,4 @@
-import { ACTIVITY_STATE } from "@composio/ao-core";
+import { ACTIVITY_STATE, isOrchestratorSession } from "@composio/ao-core";
 import { NextResponse } from "next/server";
 import { getServices, getSCM } from "@/lib/services";
 import {
@@ -7,9 +7,9 @@ import {
   enrichSessionPR,
   enrichSessionsMetadata,
   computeStats,
+  listDashboardOrchestrators,
 } from "@/lib/serialize";
 import { resolveGlobalPause } from "@/lib/global-pause";
-import { filterWorkerSessions, findOrchestratorSessionId } from "@/lib/project-utils";
 
 const METADATA_ENRICH_TIMEOUT_MS = 3_000;
 const PR_ENRICH_TIMEOUT_MS = 4_000;
@@ -42,22 +42,34 @@ export async function GET(request: Request) {
     const activeOnly = searchParams.get("active") === "true";
 
     const { config, registry, sessionManager } = await getServices();
-    const coreSessions = await sessionManager.list();
+    const requestedProjectId =
+      projectFilter && projectFilter !== "all" && config.projects[projectFilter]
+        ? projectFilter
+        : undefined;
+    const coreSessions = await sessionManager.list(requestedProjectId);
 
-    const orchestratorId = findOrchestratorSessionId(coreSessions, projectFilter, config.projects);
+    const matchesRequestedProject = (session: { id: string; projectId: string }): boolean => {
+      if (!projectFilter || projectFilter === "all") return true;
+      if (session.projectId === projectFilter) return true;
+      return config.projects[session.projectId]?.sessionPrefix === projectFilter;
+    };
 
-    let workerSessions = filterWorkerSessions(coreSessions, projectFilter, config.projects);
+    const visibleSessions = requestedProjectId
+      ? coreSessions
+      : coreSessions.filter(matchesRequestedProject);
+    const orchestrators = listDashboardOrchestrators(visibleSessions, config.projects);
+    const orchestratorId = orchestrators.length === 1 ? (orchestrators[0]?.id ?? null) : null;
 
-    // Convert to dashboard format
+    let workerSessions = visibleSessions.filter((session) => !isOrchestratorSession(session));
+
     let dashboardSessions = workerSessions.map(sessionToDashboard);
 
-    // Filter to active sessions only if requested (keep workerSessions in sync)
     if (activeOnly) {
       const activeIndices = dashboardSessions
-        .map((s, i) => (s.activity !== ACTIVITY_STATE.EXITED ? i : -1))
-        .filter((i) => i !== -1);
-      workerSessions = activeIndices.map((i) => workerSessions[i]);
-      dashboardSessions = activeIndices.map((i) => dashboardSessions[i]);
+        .map((session, index) => (session.activity !== ACTIVITY_STATE.EXITED ? index : -1))
+        .filter((index) => index !== -1);
+      workerSessions = activeIndices.map((index) => workerSessions[index]);
+      dashboardSessions = activeIndices.map((index) => dashboardSessions[index]);
     }
 
     const metadataSettled = await settlesWithin(
@@ -89,6 +101,7 @@ export async function GET(request: Request) {
       sessions: dashboardSessions,
       stats: computeStats(dashboardSessions),
       orchestratorId,
+      orchestrators,
       globalPause: resolveGlobalPause(coreSessions),
     });
   } catch (err) {
