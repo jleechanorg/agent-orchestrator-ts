@@ -3,16 +3,18 @@ import type { Metadata } from "next";
 export const dynamic = "force-dynamic";
 import { Dashboard } from "@/components/Dashboard";
 import type { DashboardSession } from "@/lib/types";
+import { isOrchestratorSession } from "@composio/ao-core";
 import { getServices, getSCM } from "@/lib/services";
 import {
   sessionToDashboard,
   resolveProject,
   enrichSessionPR,
   enrichSessionsMetadata,
+  listDashboardOrchestrators,
 } from "@/lib/serialize";
 import { prCache, prCacheKey } from "@/lib/cache";
 import { getPrimaryProjectId, getProjectName, getAllProjects } from "@/lib/project-name";
-import { filterWorkerSessions, findOrchestratorSessionId } from "@/lib/project-utils";
+import { filterWorkerSessions } from "@/lib/project-utils";
 import { resolveGlobalPause, type GlobalPauseState } from "@/lib/global-pause";
 
 function getSelectedProjectName(projectFilter: string | undefined): string {
@@ -37,21 +39,30 @@ export async function generateMetadata(props: {
 export default async function Home(props: { searchParams: Promise<{ project?: string }> }) {
   const searchParams = await props.searchParams;
   let sessions: DashboardSession[] = [];
-  let orchestratorId: string | null;
-  let globalPause: GlobalPauseState | null;
-  // Allow ?project=all to show all sessions (for multi-project setups)
+  let globalPause: GlobalPauseState | null = null;
+  let orchestrators: Array<{ id: string; projectId: string; projectName: string }> = [];
   const projectFilter = searchParams.project ?? getPrimaryProjectId();
 
   try {
     const { config, registry, sessionManager } = await getServices();
     const allSessions = await sessionManager.list();
 
-    orchestratorId = findOrchestratorSessionId(allSessions, projectFilter, config.projects);
-
     globalPause = resolveGlobalPause(allSessions);
 
-    const coreSessions = filterWorkerSessions(allSessions, projectFilter, config.projects);
+    const visibleSessions =
+      projectFilter && projectFilter !== "all"
+        ? allSessions.filter(
+            (session) =>
+              session.projectId === projectFilter ||
+              config.projects[session.projectId]?.sessionPrefix === projectFilter,
+          )
+        : allSessions;
 
+    orchestrators = listDashboardOrchestrators(visibleSessions, config.projects);
+
+    const coreSessions = filterWorkerSessions(allSessions, projectFilter, config.projects).filter(
+      (session) => !isOrchestratorSession(session),
+    );
     sessions = coreSessions.map(sessionToDashboard);
 
     const metaTimeout = new Promise<void>((resolve) => setTimeout(resolve, 3_000));
@@ -107,8 +118,8 @@ export default async function Home(props: { searchParams: Promise<{ project?: st
     await Promise.race([Promise.allSettled(enrichPromises), enrichTimeout]);
   } catch {
     sessions = [];
-    orchestratorId = null;
     globalPause = null;
+    orchestrators = [];
   }
 
   const projectName = getSelectedProjectName(projectFilter);
@@ -118,11 +129,11 @@ export default async function Home(props: { searchParams: Promise<{ project?: st
   return (
     <Dashboard
       initialSessions={sessions}
-      orchestratorId={orchestratorId}
       projectId={selectedProjectId}
       projectName={projectName}
       projects={projects}
       initialGlobalPause={globalPause}
+      orchestrators={orchestrators}
     />
   );
 }

@@ -6,6 +6,10 @@ import { SessionDetail } from "@/components/SessionDetail";
 import { type DashboardSession, getAttentionLevel, type AttentionLevel } from "@/lib/types";
 import { activityIcon } from "@/lib/activity-icons";
 
+function isOrchestratorSession(session: Pick<DashboardSession, "id" | "metadata">): boolean {
+  return session.metadata["role"] === "orchestrator" || session.id.endsWith("-orchestrator");
+}
+
 function truncate(s: string, max: number): string {
   return s.length > max ? s.slice(0, max) + "..." : s;
 }
@@ -14,7 +18,7 @@ function truncate(s: string, max: number): string {
 function buildSessionTitle(session: DashboardSession): string {
   const id = session.id;
   const emoji = session.activity ? (activityIcon[session.activity] ?? "") : "";
-  const isOrchestrator = id.endsWith("-orchestrator");
+  const isOrchestrator = isOrchestratorSession(session);
 
   let detail: string;
 
@@ -43,7 +47,6 @@ interface ZoneCounts {
 export default function SessionPage() {
   const params = useParams();
   const id = params.id as string;
-  const isOrchestrator = id.endsWith("-orchestrator");
 
   const [session, setSession] = useState<DashboardSession | null>(null);
   const [zoneCounts, setZoneCounts] = useState<ZoneCounts | null>(null);
@@ -81,15 +84,22 @@ export default function SessionPage() {
   }, [id]);
 
   const fetchZoneCounts = useCallback(async () => {
-    if (!isOrchestrator) return;
+    if (!session || !isOrchestratorSession(session) || !session.projectId) return;
     try {
-      const res = await fetch("/api/sessions");
+      const res = await fetch(`/api/sessions?project=${encodeURIComponent(session.projectId)}`);
       if (!res.ok) return;
       const body = (await res.json()) as { sessions: DashboardSession[] };
       const sessions = body.sessions ?? [];
-      const counts: ZoneCounts = { merge: 0, respond: 0, review: 0, pending: 0, working: 0, done: 0 };
+      const counts: ZoneCounts = {
+        merge: 0,
+        respond: 0,
+        review: 0,
+        pending: 0,
+        working: 0,
+        done: 0,
+      };
       for (const s of sessions) {
-        if (!s.id.endsWith("-orchestrator")) {
+        if (!isOrchestratorSession(s)) {
           counts[getAttentionLevel(s) as AttentionLevel]++;
         }
       }
@@ -97,7 +107,7 @@ export default function SessionPage() {
     } catch {
       // non-critical — status strip just won't show
     }
-  }, [isOrchestrator]);
+  }, [session]);
 
   // Initial fetch — session first, zone counts after (avoids blocking on slow /api/sessions)
   useEffect(() => {
@@ -127,7 +137,9 @@ export default function SessionPage() {
   if (error || !session) {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-[var(--color-bg-base)]">
-        <div className="text-[13px] text-[var(--color-status-error)]">{error ?? "Session not found"}</div>
+        <div className="text-[13px] text-[var(--color-status-error)]">
+          {error ?? "Session not found"}
+        </div>
         <a href="/" className="text-[12px] text-[var(--color-accent)] hover:underline">
           ← Back to dashboard
         </a>
@@ -138,7 +150,7 @@ export default function SessionPage() {
   return (
     <SessionDetail
       session={session}
-      isOrchestrator={isOrchestrator}
+      isOrchestrator={isOrchestratorSession(session)}
       orchestratorZones={zoneCounts ?? undefined}
     />
   );
