@@ -1,5 +1,13 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { chmodSync, mkdirSync, readFileSync, rmSync, writeFileSync, existsSync } from "node:fs";
+import {
+  chmodSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+  existsSync,
+  utimesSync,
+} from "node:fs";
 import { join } from "node:path";
 import { homedir, tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
@@ -90,6 +98,32 @@ function installMockOpencodeWithNotFoundDelete(sessionListJson: string): string 
       'if [[ "$1" == "session" && "$2" == "delete" ]]; then',
       '  printf "Error: Session not found: %s\\n" "$3" >&2',
       "  exit 1",
+      "fi",
+      "exit 1",
+      "",
+    ].join("\n"),
+    "utf-8",
+  );
+  chmodSync(scriptPath, 0o755);
+  return binDir;
+}
+
+function installMockGit(remoteBranches: string[]): string {
+  const binDir = join(tmpDir, "mock-git-bin");
+  mkdirSync(binDir, { recursive: true });
+  const scriptPath = join(binDir, "git");
+  const refs = remoteBranches
+    .map((branch) => `deadbeef\trefs/heads/${branch}`)
+    .join("\\n")
+    .replace(/'/g, "'\\''");
+  writeFileSync(
+    scriptPath,
+    [
+      "#!/usr/bin/env bash",
+      "set -euo pipefail",
+      'if [[ "$1" == "ls-remote" && "$2" == "--heads" && "$3" == "origin" ]]; then',
+      `  printf '%b\\n' '${refs}'`,
+      "  exit 0",
       "fi",
       "exit 1",
       "",
@@ -363,6 +397,32 @@ describe("spawn", () => {
 
     const session = await sm.spawn({ projectId: "my-app" });
     expect(session.id).toBe("app-8");
+  });
+
+  it("does not reuse a killed session branch on recreate", async () => {
+    const sm = createSessionManager({ config, registry: mockRegistry });
+
+    const first = await sm.spawn({ projectId: "my-app" });
+    expect(first.id).toBe("app-1");
+    expect(first.branch).toBe("session/app-1");
+
+    await sm.kill(first.id);
+
+    const second = await sm.spawn({ projectId: "my-app" });
+    expect(second.id).toBe("app-2");
+    expect(second.branch).toBe("session/app-2");
+  });
+
+  it("skips remote session branches when allocating a fresh session id", async () => {
+    const mockGitBin = installMockGit(["session/app-22"]);
+    process.env.PATH = `${mockGitBin}:${originalPath ?? ""}`;
+    mkdirSync(config.projects["my-app"]!.path, { recursive: true });
+
+    const sm = createSessionManager({ config, registry: mockRegistry });
+    const session = await sm.spawn({ projectId: "my-app" });
+
+    expect(session.id).toBe("app-23");
+    expect(session.branch).toBe("session/app-23");
   });
 
   it("writes metadata file", async () => {
@@ -1078,6 +1138,32 @@ describe("list", () => {
 
     expect(sessions).toHaveLength(2);
     expect(sessions.map((s) => s.id).sort()).toEqual(["app-1", "app-2"]);
+  });
+
+  it("preserves lastActivityAt when read-time repair rewrites metadata", async () => {
+    writeMetadata(sessionsDir, "app-orchestrator", {
+      worktree: config.projects["my-app"]!.path,
+      branch: "main",
+      status: "merged",
+      project: "my-app",
+      pr: "https://github.com/org/my-app/pull/42",
+      runtimeHandle: JSON.stringify(makeHandle("rt-orch")),
+    });
+
+    const oldTime = new Date("2026-01-01T00:00:00.000Z");
+    utimesSync(join(sessionsDir, "app-orchestrator"), oldTime, oldTime);
+
+    const sm = createSessionManager({ config, registry: mockRegistry });
+    const sessions = await sm.list("my-app");
+    const orchestrator = sessions.find((session) => session.id === "app-orchestrator");
+
+    expect(orchestrator).toBeDefined();
+    expect(orchestrator!.lastActivityAt.getTime()).toBe(oldTime.getTime());
+
+    const repaired = readMetadataRaw(sessionsDir, "app-orchestrator");
+    expect(repaired!["pr"]).toBeUndefined();
+    expect(repaired!["prAutoDetect"]).toBe("off");
+    expect(repaired!["status"]).toBe("working");
   });
 
   it("filters by project ID", async () => {
@@ -3867,6 +3953,169 @@ describe("claimPR", () => {
       pr: "https://github.com/org/my-app/pull/42",
     });
     expect(raw!["prAutoDetect"]).toBeUndefined();
+  });
+
+  it("consolidates ownership by disabling PR auto-detect on the previous session", async () => {
+    const mockSCM = makeSCM();
+
+    writeMetadata(sessionsDir, "app-1", {
+      worktree: "/tmp/ws-app-1",
+      branch: "feat/existing-pr",
+      status: "review_pending",
+      project: "my-app",
+      pr: "https://github.com/org/my-app/pull/42",
+      runtimeHandle: JSON.stringify(makeHandle("rt-1")),
+    });
+
+    writeMetadata(sessionsDir, "app-2", {
+      worktree: "/tmp/ws-app-2",
+      branch: "feat/other-work",
+      status: "working",
+      project: "my-app",
+      runtimeHandle: JSON.stringify(makeHandle("rt-2")),
+    });
+
+    const sm = createSessionManager({ config, registry: registryWithSCM(mockSCM) });
+    const result = await sm.claimPR("app-2", "42");
+
+    expect(result.takenOverFrom).toEqual(["app-1"]);
+
+    const previous = readMetadataRaw(sessionsDir, "app-1");
+    expect(previous!["pr"]).toBeUndefined();
+    expect(previous!["prAutoDetect"]).toBe("off");
+    expect(previous!["status"]).toBe("working");
+  });
+
+  it("ignores legacy orchestrator metadata when claiming a PR", async () => {
+    const mockSCM = makeSCM();
+
+    writeMetadata(sessionsDir, "app-orchestrator", {
+      worktree: config.projects["my-app"]!.path,
+      branch: "feat/existing-pr",
+      status: "pr_open",
+      project: "my-app",
+      pr: "https://github.com/org/my-app/pull/42",
+      runtimeHandle: JSON.stringify(makeHandle("rt-orch")),
+    });
+
+    writeMetadata(sessionsDir, "app-2", {
+      worktree: "/tmp/ws-app-2",
+      branch: "feat/other-work",
+      status: "working",
+      project: "my-app",
+      runtimeHandle: JSON.stringify(makeHandle("rt-2")),
+    });
+
+    const sm = createSessionManager({ config, registry: registryWithSCM(mockSCM) });
+    const result = await sm.claimPR("app-2", "42");
+
+    expect(result.takenOverFrom).toEqual([]);
+    expect(readMetadataRaw(sessionsDir, "app-2")!["pr"]).toBe(
+      "https://github.com/org/my-app/pull/42",
+    );
+  });
+
+  it("repairs legacy orchestrator PR metadata and stale duplicate PR attachments on read", async () => {
+    writeMetadata(sessionsDir, "app-orchestrator", {
+      worktree: config.projects["my-app"]!.path,
+      branch: "main",
+      status: "merged",
+      project: "my-app",
+      pr: "https://github.com/org/my-app/pull/42",
+      runtimeHandle: JSON.stringify(makeHandle("rt-orch")),
+    });
+
+    writeMetadata(sessionsDir, "app-1", {
+      worktree: "/tmp/ws-app-1",
+      branch: "feat/existing-pr",
+      status: "review_pending",
+      project: "my-app",
+      pr: "https://github.com/org/my-app/pull/42",
+      runtimeHandle: JSON.stringify(makeHandle("rt-1")),
+    });
+
+    writeMetadata(sessionsDir, "app-2", {
+      worktree: "/tmp/ws-app-2",
+      branch: "feat/existing-pr",
+      status: "pr_open",
+      project: "my-app",
+      pr: "https://github.com/org/my-app/pull/42",
+      runtimeHandle: JSON.stringify(makeHandle("rt-2")),
+    });
+
+    const staleTime = new Date("2026-01-01T00:00:00.000Z");
+    const freshTime = new Date("2026-01-02T00:00:00.000Z");
+    utimesSync(join(sessionsDir, "app-1"), staleTime, staleTime);
+    utimesSync(join(sessionsDir, "app-2"), freshTime, freshTime);
+
+    const sm = createSessionManager({ config, registry: mockRegistry });
+    const sessions = await sm.list();
+
+    expect(sessions).toHaveLength(3);
+
+    const orchestrator = readMetadataRaw(sessionsDir, "app-orchestrator");
+    expect(orchestrator!["role"]).toBe("orchestrator");
+    expect(orchestrator!["pr"]).toBeUndefined();
+    expect(orchestrator!["prAutoDetect"]).toBe("off");
+    expect(orchestrator!["status"]).toBe("working");
+
+    const staleWorker = readMetadataRaw(sessionsDir, "app-1");
+    expect(staleWorker!["pr"]).toBeUndefined();
+    expect(staleWorker!["prAutoDetect"]).toBe("off");
+    expect(staleWorker!["status"]).toBe("working");
+
+    const activeWorker = readMetadataRaw(sessionsDir, "app-2");
+    expect(activeWorker!["pr"]).toBe("https://github.com/org/my-app/pull/42");
+    expect(activeWorker!["status"]).toBe("pr_open");
+  });
+
+  it("repairs stale duplicate PR attachments before claim conflict checks", async () => {
+    const mockSCM = makeSCM();
+
+    writeMetadata(sessionsDir, "app-1", {
+      worktree: "/tmp/ws-app-1",
+      branch: "feat/existing-pr",
+      status: "review_pending",
+      project: "my-app",
+      pr: "https://github.com/org/my-app/pull/42",
+      runtimeHandle: JSON.stringify(makeHandle("rt-1")),
+    });
+    writeMetadata(sessionsDir, "app-2", {
+      worktree: "/tmp/ws-app-2",
+      branch: "feat/existing-pr",
+      status: "pr_open",
+      project: "my-app",
+      pr: "https://github.com/org/my-app/pull/42",
+      runtimeHandle: JSON.stringify(makeHandle("rt-2")),
+    });
+    writeMetadata(sessionsDir, "app-3", {
+      worktree: "/tmp/ws-app-3",
+      branch: "feat/other-work",
+      status: "working",
+      project: "my-app",
+      runtimeHandle: JSON.stringify(makeHandle("rt-3")),
+    });
+
+    const staleTime = new Date("2026-01-01T00:00:00.000Z");
+    const freshTime = new Date("2026-01-02T00:00:00.000Z");
+    utimesSync(join(sessionsDir, "app-1"), staleTime, staleTime);
+    utimesSync(join(sessionsDir, "app-2"), freshTime, freshTime);
+
+    const sm = createSessionManager({ config, registry: registryWithSCM(mockSCM) });
+    const result = await sm.claimPR("app-3", "42");
+
+    expect(result.takenOverFrom).toEqual(["app-2"]);
+
+    const staleWorker = readMetadataRaw(sessionsDir, "app-1");
+    expect(staleWorker!["pr"]).toBeUndefined();
+    expect(staleWorker!["prAutoDetect"]).toBe("off");
+
+    const activeWorker = readMetadataRaw(sessionsDir, "app-2");
+    expect(activeWorker!["pr"]).toBeUndefined();
+    expect(activeWorker!["prAutoDetect"]).toBe("off");
+
+    const claimant = readMetadataRaw(sessionsDir, "app-3");
+    expect(claimant!["pr"]).toBe("https://github.com/org/my-app/pull/42");
   });
 
   it("automatically consolidates ownership when another session tracks the PR", async () => {

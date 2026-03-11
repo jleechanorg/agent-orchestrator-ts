@@ -692,4 +692,42 @@ describe("status command", () => {
     const parsed = JSON.parse(jsonCalls);
     expect(parsed[0].activity).toBe("exited");
   });
+
+  it("suppresses orchestrator PR ownership in status output", async () => {
+    writeFileSync(
+      join(sessionsDir, "app-orchestrator"),
+      [
+        "worktree=/tmp/wt",
+        "branch=main",
+        "status=working",
+        "role=orchestrator",
+        "pr=https://github.com/org/repo/pull/77",
+      ].join("\n"),
+    );
+
+    mockTmux.mockImplementation(async (...args: string[]) => {
+      if (args[0] === "list-sessions") return "app-orchestrator";
+      if (args[0] === "display-message") return String(Math.floor(Date.now() / 1000));
+      return null;
+    });
+    mockGit.mockResolvedValue("main");
+    mockDetectPR.mockResolvedValue({
+      number: 77,
+      url: "https://github.com/org/repo/pull/77",
+      title: "Orchestrator should not own this",
+      owner: "org",
+      repo: "repo",
+      branch: "main",
+      baseBranch: "main",
+      isDraft: false,
+    });
+
+    await program.parseAsync(["node", "test", "status", "--json"]);
+
+    const parsed = JSON.parse(consoleSpy.mock.calls.map((c) => c[0]).join(""));
+    expect(parsed[0].name).toBe("app-orchestrator");
+    expect(parsed[0].pr).toBeNull();
+    expect(parsed[0].prNumber).toBeNull();
+    expect(mockDetectPR).not.toHaveBeenCalled();
+  });
 });

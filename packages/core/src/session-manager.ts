@@ -11,7 +11,7 @@
  * Reference: scripts/claude-ao-session, scripts/send-to-session
  */
 
-import { statSync, existsSync, readdirSync, writeFileSync, mkdirSync } from "node:fs";
+import { statSync, existsSync, readdirSync, writeFileSync, mkdirSync, utimesSync } from "node:fs";
 import { execFile } from "node:child_process";
 import { basename, join, resolve } from "node:path";
 import { homedir } from "node:os";
@@ -192,6 +192,14 @@ function getNextSessionNumber(existingSessions: string[], prefix: string): numbe
   return max + 1;
 }
 
+function getSessionNumber(sessionId: string, prefix: string): number | undefined {
+  const match = sessionId.match(new RegExp(`^${escapeRegex(prefix)}-(\\d+)$`));
+  if (!match) return undefined;
+
+  const parsed = Number.parseInt(match[1], 10);
+  return Number.isNaN(parsed) ? undefined : parsed;
+}
+
 const PR_TRACKING_STATUSES: ReadonlySet<string> = new Set([
   "pr_open",
   "ci_failed",
@@ -199,6 +207,11 @@ const PR_TRACKING_STATUSES: ReadonlySet<string> = new Set([
   "changes_requested",
   "approved",
   "mergeable",
+]);
+
+const STALE_PR_OWNERSHIP_STATUSES: ReadonlySet<string> = new Set([
+  ...PR_TRACKING_STATUSES,
+  "merged",
 ]);
 
 const SEND_RESTORE_READY_TIMEOUT_MS = 5_000;
@@ -238,6 +251,12 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
     sessionsDir: string;
     project: ProjectConfig;
     projectId: string;
+  }
+
+  interface ActiveSessionRecord {
+    sessionName: string;
+    raw: Record<string, string>;
+    modifiedAt?: Date;
   }
 
   /**
@@ -305,43 +324,6 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
     return roots.some((root) => isPathInside(workspacePath, root));
   }
 
-  /**
-   * List all session files across all projects (or filtered by projectId).
-   * Scans project-specific directories under ~/.agent-orchestrator/{hash}-{projectId}/sessions/
-   *
-   * Note: projectId is the config key (e.g., "test-project"), not the path basename.
-   */
-  function listAllSessions(projectIdFilter?: string): { sessionName: string; projectId: string }[] {
-    const results: { sessionName: string; projectId: string }[] = [];
-
-    // Scan each project's sessions directory
-    for (const [projectKey, project] of Object.entries(config.projects)) {
-      // Use config key as projectId for consistency with metadata
-      const projectId = projectKey;
-
-      // Filter by project if specified
-      if (projectIdFilter && projectId !== projectIdFilter) continue;
-
-      const sessionsDir = getSessionsDir(config.configPath, project.path);
-      if (!existsSync(sessionsDir)) continue;
-
-      const files = readdirSync(sessionsDir);
-      for (const file of files) {
-        if (file === "archive" || file.startsWith(".")) continue;
-        const fullPath = join(sessionsDir, file);
-        try {
-          if (statSync(fullPath).isFile()) {
-            results.push({ sessionName: file, projectId });
-          }
-        } catch {
-          // Skip files that can't be stat'd
-        }
-      }
-    }
-
-    return results;
-  }
-
   function listArchivedSessionIds(sessionsDir: string): string[] {
     const archiveDir = join(sessionsDir, "archive");
     if (!existsSync(archiveDir)) return [];
@@ -351,6 +333,173 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       if (match?.[1]) ids.add(match[1]);
     }
     return [...ids];
+  }
+
+  function isOrchestratorSessionRecord(
+    sessionId: string,
+    raw: Record<string, string> | null | undefined,
+  ): boolean {
+    if (!raw) return false;
+    return raw["role"] === "orchestrator" || sessionId.endsWith("-orchestrator");
+  }
+
+  function applyMetadataUpdatesToRaw(
+    raw: Record<string, string>,
+    updates: Partial<Record<string, string>>,
+  ): Record<string, string> {
+    let next = { ...raw };
+    for (const [key, value] of Object.entries(updates)) {
+      if (value === undefined) continue;
+      if (value === "") {
+        const { [key]: _removed, ...rest } = next;
+        void _removed;
+        next = rest;
+        continue;
+      }
+      next[key] = value;
+    }
+    return next;
+  }
+
+  function updateMetadataPreservingMtime(
+    sessionsDir: string,
+    sessionName: string,
+    updates: Partial<Record<string, string>>,
+    modifiedAt?: Date,
+  ): void {
+    const metaPath = join(sessionsDir, sessionName);
+    let preservedMtime = modifiedAt;
+    if (!preservedMtime) {
+      try {
+        preservedMtime = statSync(metaPath).mtime;
+      } catch {
+        preservedMtime = undefined;
+      }
+    }
+
+    updateMetadata(sessionsDir, sessionName, updates);
+
+    if (!preservedMtime) return;
+    try {
+      utimesSync(metaPath, preservedMtime, preservedMtime);
+    } catch {
+      void 0;
+    }
+  }
+
+  function repairSingleSessionMetadataOnRead(
+    sessionsDir: string,
+    record: ActiveSessionRecord,
+  ): ActiveSessionRecord {
+    const repaired = { ...record, raw: { ...record.raw } };
+    if (!isOrchestratorSessionRecord(repaired.sessionName, repaired.raw)) {
+      return repaired;
+    }
+
+    const updates: Partial<Record<string, string>> = {};
+    if (repaired.raw["role"] !== "orchestrator") {
+      updates["role"] = "orchestrator";
+    }
+    if (repaired.raw["pr"]) {
+      updates["pr"] = "";
+    }
+    if (repaired.raw["prAutoDetect"] !== "off") {
+      updates["prAutoDetect"] = "off";
+    }
+    if (STALE_PR_OWNERSHIP_STATUSES.has(repaired.raw["status"] ?? "")) {
+      updates["status"] = "working";
+    }
+
+    if (Object.keys(updates).length > 0) {
+      updateMetadataPreservingMtime(
+        sessionsDir,
+        repaired.sessionName,
+        updates,
+        repaired.modifiedAt,
+      );
+      repaired.raw = applyMetadataUpdatesToRaw(repaired.raw, updates);
+    }
+
+    return repaired;
+  }
+
+  function sessionMetadataTimestamp(record: ActiveSessionRecord): number {
+    const metadataTimestamp = Date.parse(record.raw["restoredAt"] ?? record.raw["createdAt"] ?? "");
+    if (record.modifiedAt) return record.modifiedAt.getTime();
+    return Number.isNaN(metadataTimestamp) ? 0 : metadataTimestamp;
+  }
+
+  function repairSessionMetadataOnRead(
+    sessionsDir: string,
+    records: ActiveSessionRecord[],
+  ): ActiveSessionRecord[] {
+    const repaired = records.map((record) => ({ ...record, raw: { ...record.raw } }));
+    const duplicatePRAttachments = new Map<string, ActiveSessionRecord[]>();
+
+    for (const record of repaired) {
+      if (isOrchestratorSessionRecord(record.sessionName, record.raw)) {
+        record.raw = repairSingleSessionMetadataOnRead(sessionsDir, record).raw;
+        continue;
+      }
+
+      const prUrl = record.raw["pr"];
+      if (!prUrl) continue;
+
+      const attached = duplicatePRAttachments.get(prUrl) ?? [];
+      attached.push(record);
+      duplicatePRAttachments.set(prUrl, attached);
+    }
+
+    for (const attachedRecords of duplicatePRAttachments.values()) {
+      if (attachedRecords.length < 2) continue;
+
+      const [owner, ...staleRecords] = [...attachedRecords].sort((a, b) => {
+        const trackingDiff =
+          Number(PR_TRACKING_STATUSES.has(b.raw["status"] ?? "")) -
+          Number(PR_TRACKING_STATUSES.has(a.raw["status"] ?? ""));
+        if (trackingDiff !== 0) return trackingDiff;
+
+        const timestampDiff = sessionMetadataTimestamp(b) - sessionMetadataTimestamp(a);
+        if (timestampDiff !== 0) return timestampDiff;
+
+        return b.sessionName.localeCompare(a.sessionName);
+      });
+
+      void owner;
+
+      for (const record of staleRecords) {
+        const updates: Partial<Record<string, string>> = {
+          pr: "",
+          prAutoDetect: "off",
+          ...(PR_TRACKING_STATUSES.has(record.raw["status"] ?? "") ? { status: "working" } : {}),
+        };
+        updateMetadataPreservingMtime(sessionsDir, record.sessionName, updates, record.modifiedAt);
+        record.raw = applyMetadataUpdatesToRaw(record.raw, updates);
+      }
+    }
+
+    return repaired;
+  }
+
+  function loadActiveSessionRecords(project: ProjectConfig): ActiveSessionRecord[] {
+    const sessionsDir = getProjectSessionsDir(project);
+    if (!existsSync(sessionsDir)) return [];
+
+    const records = listMetadata(sessionsDir).flatMap((sessionName) => {
+      const raw = readMetadataRaw(sessionsDir, sessionName);
+      if (!raw) return [];
+
+      let modifiedAt: Date | undefined;
+      try {
+        modifiedAt = statSync(join(sessionsDir, sessionName)).mtime;
+      } catch {
+        void 0;
+      }
+
+      return [{ sessionName, raw, modifiedAt } satisfies ActiveSessionRecord];
+    });
+
+    return repairSessionMetadataOnRead(sessionsDir, records);
   }
 
   function markArchivedOpenCodeCleanup(sessionsDir: string, sessionId: SessionId): void {
@@ -442,6 +591,81 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
     return candidateIds[0];
   }
 
+  async function listRemoteSessionNumbers(project: ProjectConfig): Promise<number[]> {
+    try {
+      const { stdout } = await execFileAsync(
+        "git",
+        ["ls-remote", "--heads", "origin", `session/${project.sessionPrefix}-*`],
+        {
+          cwd: project.path,
+          timeout: 5_000,
+        },
+      );
+
+      return stdout
+        .split("\n")
+        .flatMap((line: string) => {
+          const trimmed = line.trim();
+          if (!trimmed) return [];
+
+          const ref = trimmed.split(/\s+/)[1] ?? "";
+          const match = ref.match(
+            new RegExp(`refs/heads/session/${escapeRegex(project.sessionPrefix)}-(\\d+)$`),
+          );
+          if (!match) return [];
+
+          const parsed = Number.parseInt(match[1], 10);
+          return Number.isNaN(parsed) ? [] : [parsed];
+        })
+        .filter((num: number, index: number, values: number[]) => values.indexOf(num) === index);
+    } catch {
+      return [];
+    }
+  }
+
+  async function reserveNextSessionIdentity(
+    project: ProjectConfig,
+    sessionsDir: string,
+  ): Promise<{
+    num: number;
+    sessionId: string;
+    tmuxName: string | undefined;
+  }> {
+    const usedNumbers = new Set<number>();
+    for (const sessionName of [
+      ...listMetadata(sessionsDir),
+      ...listArchivedSessionIds(sessionsDir),
+    ]) {
+      const num = getSessionNumber(sessionName, project.sessionPrefix);
+      if (num !== undefined) usedNumbers.add(num);
+    }
+    for (const num of await listRemoteSessionNumbers(project)) {
+      usedNumbers.add(num);
+    }
+
+    let num = getNextSessionNumber(
+      [...usedNumbers].map((value) => `${project.sessionPrefix}-${value}`),
+      project.sessionPrefix,
+    );
+    for (let attempts = 0; attempts < 10_000; attempts++) {
+      const sessionId = `${project.sessionPrefix}-${num}`;
+      const tmuxName = config.configPath
+        ? generateTmuxName(config.configPath, project.sessionPrefix, num)
+        : undefined;
+
+      if (!usedNumbers.has(num) && reserveSessionId(sessionsDir, sessionId)) {
+        return { num, sessionId, tmuxName };
+      }
+
+      usedNumbers.add(num);
+      num += 1;
+    }
+
+    throw new Error(
+      `Failed to reserve session ID after 10000 attempts (prefix: ${project.sessionPrefix})`,
+    );
+  }
+
   /** Resolve which plugins to use for a project. */
   function resolvePlugins(project: ProjectConfig, agentOverride?: string) {
     const runtime = registry.get<Runtime>("runtime", project.runtime ?? config.defaults.runtime);
@@ -487,7 +711,21 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       const sessionsDir = getProjectSessionsDir(project);
       const raw = readMetadataRaw(sessionsDir, sessionId);
       if (!raw) continue;
-      return { raw, sessionsDir, project, projectId };
+
+      let modifiedAt: Date | undefined;
+      try {
+        modifiedAt = statSync(join(sessionsDir, sessionId)).mtime;
+      } catch {
+        modifiedAt = undefined;
+      }
+
+      const repaired = repairSingleSessionMetadataOnRead(sessionsDir, {
+        sessionName: sessionId,
+        raw,
+        modifiedAt,
+      });
+
+      return { raw: repaired.raw, sessionsDir, project, projectId };
     }
 
     return null;
@@ -655,29 +893,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
     }
 
     // Determine session ID — atomically reserve to prevent concurrent collisions
-    const existingSessions = listMetadata(sessionsDir);
-    let num = getNextSessionNumber(existingSessions, project.sessionPrefix);
-    let sessionId: string;
-    let tmuxName: string | undefined;
-    for (let attempts = 0; attempts < 10; attempts++) {
-      sessionId = `${project.sessionPrefix}-${num}`;
-      // Generate tmux name if using new architecture
-      if (config.configPath) {
-        tmuxName = generateTmuxName(config.configPath, project.sessionPrefix, num);
-      }
-      if (reserveSessionId(sessionsDir, sessionId)) break;
-      num++;
-      if (attempts === 9) {
-        throw new Error(
-          `Failed to reserve session ID after 10 attempts (prefix: ${project.sessionPrefix})`,
-        );
-      }
-    }
-    // Reassign to satisfy TypeScript's flow analysis (not redundant from compiler's perspective)
-    sessionId = `${project.sessionPrefix}-${num}`;
-    if (config.configPath) {
-      tmuxName = generateTmuxName(config.configPath, project.sessionPrefix, num);
-    }
+    const { sessionId, tmuxName } = await reserveNextSessionIdentity(project, sessionsDir);
 
     // Determine branch name — explicit branch always takes priority
     let branch: string;
@@ -1173,16 +1389,21 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
   }
 
   async function list(projectId?: string): Promise<Session[]> {
-    const allSessions = listAllSessions(projectId);
+    const allSessions = Object.entries(config.projects).flatMap(([entryProjectId, project]) => {
+      if (projectId && entryProjectId !== projectId) return [];
+      return loadActiveSessionRecords(project).map((record) => ({
+        sessionName: record.sessionName,
+        projectId: entryProjectId,
+        raw: record.raw,
+      }));
+    });
     let openCodeSessionListPromise: Promise<OpenCodeSessionListEntry[]> | undefined;
 
-    const tasks = allSessions.map(async ({ sessionName, projectId: sessionProjectId }) => {
+    const tasks = allSessions.map(async ({ sessionName, projectId: sessionProjectId, raw }) => {
       const project = config.projects[sessionProjectId];
       if (!project) return null;
 
       const sessionsDir = getProjectSessionsDir(project);
-      const raw = readMetadataRaw(sessionsDir, sessionName);
-      if (!raw) return null;
 
       let createdAt: Date | undefined;
       let modifiedAt: Date | undefined;
@@ -1251,9 +1472,15 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
         // If stat fails, timestamps will fall back to current time
       }
 
-      const session = metadataToSession(sessionId, raw, createdAt, modifiedAt);
+      const repaired = repairSingleSessionMetadataOnRead(sessionsDir, {
+        sessionName: sessionId,
+        raw,
+        modifiedAt,
+      });
 
-      const selectedAgentName = raw["agent"];
+      const session = metadataToSession(sessionId, repaired.raw, createdAt, modifiedAt);
+
+      const selectedAgentName = repaired.raw["agent"];
       const effectiveAgentName = selectedAgentName ?? project.agent ?? config.defaults.agent;
       const plugins = resolvePlugins(project, effectiveAgentName);
       await ensureHandleAndEnrich(
@@ -1713,7 +1940,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
     if (!reference) throw new Error("PR reference is required");
 
     const { raw, sessionsDir, project, projectId } = requireSessionRecord(sessionId);
-    if (raw["role"] === "orchestrator") {
+    if (isOrchestratorSessionRecord(sessionId, raw)) {
       throw new Error(`Session ${sessionId} is an orchestrator session and cannot claim PRs`);
     }
 
@@ -1732,11 +1959,12 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
     }
 
     const conflictingSessions = new Set<SessionId>();
-    for (const { sessionName } of listAllSessions(projectId)) {
-      if (sessionName === sessionId) continue;
+    const activeRecords = loadActiveSessionRecords(project).filter(
+      (record) => record.sessionName !== sessionId,
+    );
 
-      const otherRaw = readMetadataRaw(sessionsDir, sessionName);
-      if (!otherRaw || otherRaw["role"] === "orchestrator") continue;
+    for (const { sessionName, raw: otherRaw } of activeRecords) {
+      if (!otherRaw || isOrchestratorSessionRecord(sessionName, otherRaw)) continue;
 
       const samePr = otherRaw["pr"] === pr.url;
       const sameBranch =
