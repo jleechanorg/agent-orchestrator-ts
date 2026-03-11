@@ -70,6 +70,17 @@ const TrackerConfigSchema = z
 const SCMConfigSchema = z
   .object({
     plugin: z.string(),
+    webhook: z
+      .object({
+        enabled: z.boolean().default(true),
+        path: z.string().optional(),
+        secretEnvVar: z.string().optional(),
+        signatureHeader: z.string().optional(),
+        eventHeader: z.string().optional(),
+        deliveryHeader: z.string().optional(),
+        maxBodyBytes: z.number().int().positive().optional(),
+      })
+      .optional(),
   })
   .passthrough();
 

@@ -36,6 +36,17 @@ projects:
     #   plugin: linear
     #   teamId: "your-team-id"
 
+    # SCM webhook acceleration (optional)
+    # scm:
+    #   plugin: github
+    #   webhook:
+    #     path: /api/webhooks/github
+    #     secretEnvVar: GITHUB_WEBHOOK_SECRET
+    #     signatureHeader: x-hub-signature-256
+    #     eventHeader: x-github-event
+    #     deliveryHeader: x-github-delivery
+    #     maxBodyBytes: 1048576
+
     # Files to symlink into workspaces
     # symlinks: [.env, .claude]
 
@@ -45,11 +56,7 @@ projects:
 
     # Agent-specific config
     # agentConfig:
-    #   permissions: permissionless    # modes: permissionless | default | auto-edit | suggest
-    #                                  # - permissionless: no interactive permission prompts
-    #                                  # - default: agent defaults
-    #                                  # - auto-edit: auto-approve edits where supported
-    #                                  # - suggest: conservative/untrusted-approval mode where supported
+    #   permissions: skip    # --dangerously-skip-permissions
     #   model: opus
 
     # Inline rules included in every agent prompt for this project
@@ -66,10 +73,6 @@ projects:
 
     # OpenCode issue session strategy (only for agent: opencode)
     # opencodeIssueSessionStrategy: reuse   # reuse | delete | ignore
-
-    # OpenCode orchestrator session strategy (only for agent: opencode)
-    # Controls how the orchestrator's OpenCode session is managed
-    # orchestratorSessionStrategy: reuse    # reuse | delete | ignore
 
     # Per-project reaction overrides
     # reactions:
