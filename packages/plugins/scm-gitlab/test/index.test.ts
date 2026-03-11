@@ -13,7 +13,7 @@ vi.mock("node:child_process", () => {
 });
 
 import { create, manifest } from "../src/index.js";
-import type { PRInfo, Session, ProjectConfig } from "@composio/ao-core";
+import type { PRInfo, Session, ProjectConfig, SCMWebhookRequest } from "@composio/ao-core";
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -65,6 +65,30 @@ function mockGlabError(msg = "Command failed") {
   glabMock.mockRejectedValueOnce(new Error(msg));
 }
 
+function makeWebhookRequest(overrides: Partial<SCMWebhookRequest> = {}): SCMWebhookRequest {
+  return {
+    method: "POST",
+    headers: {
+      "x-gitlab-event": "Merge Request Hook",
+      "x-gitlab-event-uuid": "delivery-1",
+    },
+    body: JSON.stringify({
+      object_kind: "merge_request",
+      object_attributes: {
+        action: "open",
+        iid: 42,
+        source_branch: "feat/my-feature",
+        updated_at: "2026-03-11T00:00:00Z",
+        last_commit: { id: "abc123" },
+      },
+      project: {
+        path_with_namespace: "acme/repo",
+      },
+    }),
+    ...overrides,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -77,6 +101,7 @@ describe("scm-gitlab plugin", () => {
     vi.clearAllMocks();
     warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     scm = create();
+    delete process.env["GITLAB_WEBHOOK_SECRET"];
   });
 
   afterEach(() => {
@@ -103,6 +128,186 @@ describe("scm-gitlab plugin", () => {
     it("accepts host config for self-hosted GitLab", () => {
       const selfHosted = create({ host: "gitlab.internal.corp" });
       expect(selfHosted.name).toBe("gitlab");
+    });
+  });
+
+  describe("verifyWebhook", () => {
+    it("accepts unsigned webhooks when no secret is configured", async () => {
+      await expect(scm.verifyWebhook?.(makeWebhookRequest(), project)).resolves.toEqual({
+        ok: true,
+        deliveryId: "delivery-1",
+        eventType: "Merge Request Hook",
+      });
+    });
+
+    it("verifies token when secret env var is configured", async () => {
+      process.env["GITLAB_WEBHOOK_SECRET"] = "topsecret";
+      const result = await scm.verifyWebhook?.(
+        makeWebhookRequest({
+          headers: {
+            "x-gitlab-event": "Merge Request Hook",
+            "x-gitlab-event-uuid": "delivery-1",
+            "x-gitlab-token": "topsecret",
+          },
+        }),
+        {
+          ...project,
+          scm: { plugin: "gitlab", webhook: { secretEnvVar: "GITLAB_WEBHOOK_SECRET" } },
+        },
+      );
+      expect(result?.ok).toBe(true);
+    });
+
+    it("rejects invalid token when secret env var is configured", async () => {
+      process.env["GITLAB_WEBHOOK_SECRET"] = "topsecret";
+      const result = await scm.verifyWebhook?.(
+        makeWebhookRequest({
+          headers: {
+            "x-gitlab-event": "Merge Request Hook",
+            "x-gitlab-event-uuid": "delivery-1",
+            "x-gitlab-token": "wrong",
+          },
+        }),
+        {
+          ...project,
+          scm: { plugin: "gitlab", webhook: { secretEnvVar: "GITLAB_WEBHOOK_SECRET" } },
+        },
+      );
+      expect(result).toEqual(
+        expect.objectContaining({ ok: false, reason: "Webhook token verification failed" }),
+      );
+    });
+  });
+
+  describe("parseWebhook", () => {
+    it("parses merge request hook events", async () => {
+      const event = await scm.parseWebhook?.(makeWebhookRequest(), project);
+      expect(event).toEqual(
+        expect.objectContaining({
+          provider: "gitlab",
+          kind: "pull_request",
+          action: "open",
+          rawEventType: "Merge Request Hook",
+          prNumber: 42,
+          branch: "feat/my-feature",
+          sha: "abc123",
+          repository: { owner: "acme", name: "repo" },
+        }),
+      );
+    });
+
+    it("parses push hook events with branch and sha", async () => {
+      const event = await scm.parseWebhook?.(
+        makeWebhookRequest({
+          headers: {
+            "x-gitlab-event": "Push Hook",
+            "x-gitlab-event-uuid": "delivery-2",
+          },
+          body: JSON.stringify({
+            object_kind: "push",
+            ref: "refs/heads/feat/my-feature",
+            after: "def456",
+            event_created_at: "2026-03-11T01:00:00Z",
+            project: { path_with_namespace: "acme/repo" },
+          }),
+        }),
+        project,
+      );
+      expect(event).toEqual(
+        expect.objectContaining({
+          provider: "gitlab",
+          kind: "push",
+          branch: "feat/my-feature",
+          sha: "def456",
+        }),
+      );
+    });
+
+    it("does not set branch for tag push refs", async () => {
+      const event = await scm.parseWebhook?.(
+        makeWebhookRequest({
+          headers: {
+            "x-gitlab-event": "Tag Push Hook",
+            "x-gitlab-event-uuid": "delivery-3",
+          },
+          body: JSON.stringify({
+            object_kind: "tag_push",
+            ref: "refs/tags/v1.0.0",
+            after: "def456",
+            event_created_at: "2026-03-11T01:00:00Z",
+            project: { path_with_namespace: "acme/repo" },
+          }),
+        }),
+        project,
+      );
+      expect(event).toEqual(
+        expect.objectContaining({
+          provider: "gitlab",
+          kind: "push",
+          branch: undefined,
+          sha: "def456",
+        }),
+      );
+    });
+
+    it("does not set branch for plain tag push refs", async () => {
+      const event = await scm.parseWebhook?.(
+        makeWebhookRequest({
+          headers: {
+            "x-gitlab-event": "Tag Push Hook",
+            "x-gitlab-event-uuid": "delivery-5",
+          },
+          body: JSON.stringify({
+            object_kind: "tag_push",
+            ref: "v1.0.0",
+            ref_type: "tag",
+            after: "def456",
+            event_created_at: "2026-03-11T01:00:00Z",
+            project: { path_with_namespace: "acme/repo" },
+          }),
+        }),
+        project,
+      );
+      expect(event).toEqual(
+        expect.objectContaining({
+          provider: "gitlab",
+          kind: "push",
+          branch: undefined,
+          sha: "def456",
+        }),
+      );
+    });
+
+    it("does not set branch for tag pipeline refs", async () => {
+      const event = await scm.parseWebhook?.(
+        makeWebhookRequest({
+          headers: {
+            "x-gitlab-event": "Pipeline Hook",
+            "x-gitlab-event-uuid": "delivery-4",
+          },
+          body: JSON.stringify({
+            object_kind: "pipeline",
+            ref: "v1.0.0",
+            ref_type: "tag",
+            checkout_sha: "def456",
+            project: { path_with_namespace: "acme/repo" },
+            object_attributes: {
+              ref: "v1.0.0",
+              tag: true,
+              updated_at: "2026-03-11T01:00:00Z",
+            },
+          }),
+        }),
+        project,
+      );
+      expect(event).toEqual(
+        expect.objectContaining({
+          provider: "gitlab",
+          kind: "ci",
+          branch: undefined,
+          sha: "def456",
+        }),
+      );
     });
   });
 
@@ -157,9 +362,7 @@ describe("scm-gitlab plugin", () => {
 
     it("throws on invalid repo format", async () => {
       const badProject = { ...project, repo: "no-slash" };
-      await expect(scm.detectPR(makeSession(), badProject)).rejects.toThrow(
-        "Invalid repo format",
-      );
+      await expect(scm.detectPR(makeSession(), badProject)).rejects.toThrow("Invalid repo format");
     });
 
     it("correctly splits owner for subgroup repos", async () => {

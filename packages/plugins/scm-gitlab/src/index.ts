@@ -4,10 +4,14 @@
  * Uses the `glab` CLI for GitLab API interactions.
  */
 
+import { createHash, timingSafeEqual } from "node:crypto";
 import {
   CI_STATUS,
   type PluginModule,
   type SCM,
+  type SCMWebhookEvent,
+  type SCMWebhookRequest,
+  type SCMWebhookVerificationResult,
   type Session,
   type ProjectConfig,
   type PRInfo,
@@ -21,6 +25,12 @@ import {
   type AutomatedComment,
   type MergeReadiness,
 } from "@composio/ao-core";
+import {
+  getWebhookHeader,
+  parseWebhookBranchRef,
+  parseWebhookJsonObject,
+  parseWebhookTimestamp,
+} from "@composio/ao-core/scm-webhook-utils";
 
 import { glab, parseJSON, stripHost } from "./glab-utils.js";
 
@@ -36,7 +46,9 @@ const BOT_AUTHORS = new Set([
 ]);
 
 function isBot(username: string): boolean {
-  return BOT_AUTHORS.has(username) || /^project_\d+_bot/.test(username) || username.endsWith("[bot]");
+  return (
+    BOT_AUTHORS.has(username) || /^project_\d+_bot/.test(username) || username.endsWith("[bot]")
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -103,14 +115,233 @@ function inferSeverity(body: string): AutomatedComment["severity"] {
   ) {
     return "error";
   }
-  if (
-    lower.includes("warning") ||
-    lower.includes("suggest") ||
-    lower.includes("consider")
-  ) {
+  if (lower.includes("warning") || lower.includes("suggest") || lower.includes("consider")) {
     return "warning";
   }
   return "info";
+}
+
+function getGitLabWebhookConfig(project: ProjectConfig) {
+  const webhook = project.scm?.webhook;
+  return {
+    enabled: webhook?.enabled !== false,
+    path: webhook?.path ?? "/api/webhooks/gitlab",
+    secretEnvVar: webhook?.secretEnvVar,
+    signatureHeader: webhook?.signatureHeader ?? "x-gitlab-token",
+    eventHeader: webhook?.eventHeader ?? "x-gitlab-event",
+    deliveryHeader: webhook?.deliveryHeader ?? "x-gitlab-event-uuid",
+    maxBodyBytes: webhook?.maxBodyBytes,
+  };
+}
+
+function verifyGitLabToken(secret: string, providedToken: string): boolean {
+  const toDigest = (value: string): Buffer => createHash("sha256").update(value).digest();
+  return timingSafeEqual(toDigest(secret), toDigest(providedToken));
+}
+
+function parseGitLabRepository(payload: Record<string, unknown>) {
+  const project = payload["project"];
+  if (!project || typeof project !== "object") return undefined;
+  const projectRecord = project as Record<string, unknown>;
+  const pathWithNamespace = projectRecord["path_with_namespace"];
+  if (typeof pathWithNamespace === "string" && pathWithNamespace.length > 0) {
+    const parts = pathWithNamespace.split("/");
+    if (parts.length >= 2) {
+      const name = parts[parts.length - 1];
+      const owner = parts.slice(0, -1).join("/");
+      if (owner && name) return { owner, name };
+    }
+  }
+  const namespace =
+    typeof projectRecord["namespace"] === "string" ? projectRecord["namespace"] : undefined;
+  const name = typeof projectRecord["path"] === "string" ? projectRecord["path"] : undefined;
+  if (!namespace || !name) return undefined;
+  return { owner: namespace, name };
+}
+
+function isGitLabTagRef(
+  payload: Record<string, unknown>,
+  objectAttributes: Record<string, unknown> | undefined,
+): boolean {
+  return (
+    objectAttributes?.["tag"] === true ||
+    payload["ref_type"] === "tag" ||
+    payload["object_kind"] === "tag_push"
+  );
+}
+
+function parseGitLabCiBranch(
+  payload: Record<string, unknown>,
+  objectAttributes: Record<string, unknown> | undefined,
+): string | undefined {
+  const isTag = isGitLabTagRef(payload, objectAttributes);
+  if (isTag) return undefined;
+  return parseWebhookBranchRef(payload["ref"] ?? objectAttributes?.["ref"]);
+}
+
+function parseGitLabPushBranch(
+  payload: Record<string, unknown>,
+  objectAttributes: Record<string, unknown> | undefined,
+): string | undefined {
+  const isTag = isGitLabTagRef(payload, objectAttributes);
+  if (isTag) return undefined;
+  const refValue = payload["ref"];
+  return parseWebhookBranchRef(refValue);
+}
+
+function parseGitLabWebhookEvent(
+  request: SCMWebhookRequest,
+  payload: Record<string, unknown>,
+  config: ReturnType<typeof getGitLabWebhookConfig>,
+): SCMWebhookEvent | null {
+  const rawEventType = getWebhookHeader(request.headers, config.eventHeader);
+  if (!rawEventType) return null;
+
+  const normalizedEventType = rawEventType.toLowerCase();
+  const deliveryId = getWebhookHeader(request.headers, config.deliveryHeader);
+  const repository = parseGitLabRepository(payload);
+  const objectAttributes =
+    payload["object_attributes"] && typeof payload["object_attributes"] === "object"
+      ? (payload["object_attributes"] as Record<string, unknown>)
+      : undefined;
+  const action =
+    typeof objectAttributes?.["action"] === "string"
+      ? (objectAttributes["action"] as string)
+      : typeof payload["action"] === "string"
+        ? (payload["action"] as string)
+        : rawEventType;
+
+  if (normalizedEventType === "merge request hook" || payload["object_kind"] === "merge_request") {
+    const mergeRequest =
+      payload["object_attributes"] && typeof payload["object_attributes"] === "object"
+        ? (payload["object_attributes"] as Record<string, unknown>)
+        : undefined;
+    if (!mergeRequest) return null;
+    return {
+      provider: "gitlab",
+      kind: "pull_request",
+      action,
+      rawEventType,
+      deliveryId,
+      repository,
+      prNumber:
+        typeof mergeRequest["iid"] === "number"
+          ? (mergeRequest["iid"] as number)
+          : typeof mergeRequest["id"] === "number"
+            ? (mergeRequest["id"] as number)
+            : undefined,
+      branch: parseWebhookBranchRef(mergeRequest["source_branch"]),
+      sha:
+        typeof mergeRequest["last_commit"] === "object" && mergeRequest["last_commit"]
+          ? ((mergeRequest["last_commit"] as Record<string, unknown>)["id"] as string | undefined)
+          : undefined,
+      timestamp: parseWebhookTimestamp(mergeRequest["updated_at"]),
+      data: payload,
+    };
+  }
+
+  if (normalizedEventType === "note hook" || payload["object_kind"] === "note") {
+    const mergeRequest =
+      payload["merge_request"] && typeof payload["merge_request"] === "object"
+        ? (payload["merge_request"] as Record<string, unknown>)
+        : undefined;
+    const noteableType = objectAttributes?.["noteable_type"];
+    if (!mergeRequest || noteableType !== "MergeRequest") return null;
+    return {
+      provider: "gitlab",
+      kind: "comment",
+      action,
+      rawEventType,
+      deliveryId,
+      repository,
+      prNumber:
+        typeof mergeRequest["iid"] === "number" ? (mergeRequest["iid"] as number) : undefined,
+      branch: parseWebhookBranchRef(mergeRequest["source_branch"]),
+      sha:
+        typeof mergeRequest["last_commit"] === "object" && mergeRequest["last_commit"]
+          ? ((mergeRequest["last_commit"] as Record<string, unknown>)["id"] as string | undefined)
+          : undefined,
+      timestamp: parseWebhookTimestamp(
+        objectAttributes?.["updated_at"] ?? objectAttributes?.["created_at"],
+      ),
+      data: payload,
+    };
+  }
+
+  if (
+    normalizedEventType === "pipeline hook" ||
+    normalizedEventType === "job hook" ||
+    payload["object_kind"] === "pipeline" ||
+    payload["object_kind"] === "build"
+  ) {
+    return {
+      provider: "gitlab",
+      kind: "ci",
+      action,
+      rawEventType,
+      deliveryId,
+      repository,
+      prNumber:
+        typeof payload["merge_request"] === "object" && payload["merge_request"]
+          ? (((payload["merge_request"] as Record<string, unknown>)["iid"] as number | undefined) ??
+            ((payload["merge_request"] as Record<string, unknown>)["id"] as number | undefined))
+          : undefined,
+      branch: parseGitLabCiBranch(payload, objectAttributes),
+      sha:
+        typeof payload["checkout_sha"] === "string"
+          ? (payload["checkout_sha"] as string)
+          : typeof payload["sha"] === "string"
+            ? (payload["sha"] as string)
+            : typeof objectAttributes?.["sha"] === "string"
+              ? (objectAttributes["sha"] as string)
+              : undefined,
+      timestamp: parseWebhookTimestamp(
+        objectAttributes?.["finished_at"] ??
+          objectAttributes?.["updated_at"] ??
+          payload["commit_timestamp"] ??
+          payload["updated_at"],
+      ),
+      data: payload,
+    };
+  }
+
+  if (
+    normalizedEventType === "push hook" ||
+    normalizedEventType === "tag push hook" ||
+    payload["object_kind"] === "push" ||
+    payload["object_kind"] === "tag_push"
+  ) {
+    return {
+      provider: "gitlab",
+      kind: "push",
+      action,
+      rawEventType,
+      deliveryId,
+      repository,
+      branch: parseGitLabPushBranch(payload, objectAttributes),
+      sha:
+        typeof payload["after"] === "string"
+          ? (payload["after"] as string)
+          : typeof payload["checkout_sha"] === "string"
+            ? (payload["checkout_sha"] as string)
+            : undefined,
+      timestamp: parseWebhookTimestamp(payload["event_created_at"] ?? payload["commit_timestamp"]),
+      data: payload,
+    };
+  }
+
+  return {
+    provider: "gitlab",
+    kind: "unknown",
+    action,
+    rawEventType,
+    deliveryId,
+    repository,
+    timestamp: parseWebhookTimestamp(
+      objectAttributes?.["updated_at"] ?? payload["event_created_at"],
+    ),
+    data: payload,
+  };
 }
 
 interface GitLabNote {
@@ -137,10 +368,7 @@ async function fetchDiscussions(
   hostname: string | undefined,
   context: string,
 ): Promise<GitLabDiscussion[]> {
-  const raw = await glab(
-    ["api", `${mrApiPath(pr)}/discussions?per_page=100`],
-    hostname,
-  );
+  const raw = await glab(["api", `${mrApiPath(pr)}/discussions?per_page=100`], hostname);
   return parseJSON<GitLabDiscussion[]>(raw, context);
 }
 
@@ -157,6 +385,66 @@ function createGitLabSCM(config?: Record<string, unknown>): SCM {
 
   return {
     name: "gitlab",
+
+    async verifyWebhook(
+      request: SCMWebhookRequest,
+      project: ProjectConfig,
+    ): Promise<SCMWebhookVerificationResult> {
+      const webhookConfig = getGitLabWebhookConfig(project);
+      if (!webhookConfig.enabled) {
+        return { ok: false, reason: "Webhook is disabled for this project" };
+      }
+      if (request.method.toUpperCase() !== "POST") {
+        return { ok: false, reason: "Webhook requests must use POST" };
+      }
+      if (
+        webhookConfig.maxBodyBytes !== undefined &&
+        Buffer.byteLength(request.body, "utf8") > webhookConfig.maxBodyBytes
+      ) {
+        return { ok: false, reason: "Webhook payload exceeds configured maxBodyBytes" };
+      }
+
+      const eventType = getWebhookHeader(request.headers, webhookConfig.eventHeader);
+      if (!eventType) {
+        return { ok: false, reason: `Missing ${webhookConfig.eventHeader} header` };
+      }
+
+      const deliveryId = getWebhookHeader(request.headers, webhookConfig.deliveryHeader);
+      const secretName = webhookConfig.secretEnvVar;
+      if (!secretName) {
+        return { ok: true, deliveryId, eventType };
+      }
+
+      const secret = process.env[secretName];
+      if (!secret) {
+        return { ok: false, reason: `Webhook secret env var ${secretName} is not configured` };
+      }
+
+      const providedToken = getWebhookHeader(request.headers, webhookConfig.signatureHeader);
+      if (!providedToken) {
+        return { ok: false, reason: `Missing ${webhookConfig.signatureHeader} header` };
+      }
+
+      if (!verifyGitLabToken(secret, providedToken)) {
+        return {
+          ok: false,
+          reason: "Webhook token verification failed",
+          deliveryId,
+          eventType,
+        };
+      }
+
+      return { ok: true, deliveryId, eventType };
+    },
+
+    async parseWebhook(
+      request: SCMWebhookRequest,
+      project: ProjectConfig,
+    ): Promise<SCMWebhookEvent | null> {
+      const webhookConfig = getGitLabWebhookConfig(project);
+      const payload = parseWebhookJsonObject(request.body);
+      return parseGitLabWebhookEvent(request, payload, webhookConfig);
+    },
 
     async detectPR(session: Session, project: ProjectConfig): Promise<PRInfo | null> {
       if (!session.branch) return null;
@@ -258,10 +546,7 @@ function createGitLabSCM(config?: Record<string, unknown>): SCM {
         const apiBase = mrApiPath(pr);
         const hostname = resolveHostname(pr);
 
-        const pipelinesRaw = await glab(
-          ["api", `${apiBase}/pipelines`],
-          hostname,
-        );
+        const pipelinesRaw = await glab(["api", `${apiBase}/pipelines`], hostname);
         const pipelines = parseJSON<Array<{ id: number }>>(
           pipelinesRaw,
           `getCIChecks pipelines for MR !${pr.number}`,
@@ -303,12 +588,16 @@ function createGitLabSCM(config?: Record<string, unknown>): SCM {
       try {
         checks = await this.getCIChecks(pr);
       } catch (err) {
-        console.warn(`getCISummary: CI check fetch failed for MR !${pr.number}: ${(err as Error).message}`);
+        console.warn(
+          `getCISummary: CI check fetch failed for MR !${pr.number}: ${(err as Error).message}`,
+        );
         try {
           const state = await this.getPRState(pr);
           if (state === "merged" || state === "closed") return "none";
         } catch (innerErr) {
-          console.warn(`getCISummary: PR state fallback also failed for MR !${pr.number}: ${(innerErr as Error).message}`);
+          console.warn(
+            `getCISummary: PR state fallback also failed for MR !${pr.number}: ${(innerErr as Error).message}`,
+          );
         }
         return "failing";
       }
@@ -330,10 +619,7 @@ function createGitLabSCM(config?: Record<string, unknown>): SCM {
       const hostname = resolveHostname(pr);
       const reviews: Review[] = [];
 
-      const approvalsRaw = await glab(
-        ["api", `${mrApiPath(pr)}/approvals`],
-        hostname,
-      );
+      const approvalsRaw = await glab(["api", `${mrApiPath(pr)}/approvals`], hostname);
       const approvals = parseJSON<{
         approved_by: Array<{ user: { username: string } }>;
       }>(approvalsRaw, `getReviews approvals for MR !${pr.number}`);
@@ -367,17 +653,16 @@ function createGitLabSCM(config?: Record<string, unknown>): SCM {
           });
         }
       } catch (err) {
-        console.warn(`getReviews: discussions fetch failed for MR !${pr.number}: ${(err as Error).message}`);
+        console.warn(
+          `getReviews: discussions fetch failed for MR !${pr.number}: ${(err as Error).message}`,
+        );
       }
 
       return reviews;
     },
 
     async getReviewDecision(pr: PRInfo): Promise<ReviewDecision> {
-      const raw = await glab(
-        ["api", `${mrApiPath(pr)}/approvals`],
-        resolveHostname(pr),
-      );
+      const raw = await glab(["api", `${mrApiPath(pr)}/approvals`], resolveHostname(pr));
       const data = parseJSON<{ approved: boolean; approvals_left: number }>(
         raw,
         `getReviewDecision for MR !${pr.number}`,
@@ -476,10 +761,7 @@ function createGitLabSCM(config?: Record<string, unknown>): SCM {
         };
       }
 
-      const apiRaw = await glab(
-        ["api", mrApiPath(pr)],
-        hostname,
-      );
+      const apiRaw = await glab(["api", mrApiPath(pr)], hostname);
       const apiData = parseJSON<{
         merge_status: string;
         has_conflicts: boolean;

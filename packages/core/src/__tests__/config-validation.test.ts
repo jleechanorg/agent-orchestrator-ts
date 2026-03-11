@@ -274,6 +274,64 @@ describe("Config Validation - Session Prefix Regex", () => {
   });
 });
 
+describe("Config Validation - SCM webhook contract", () => {
+  it("accepts a project scm webhook block and defaults enabled=true", () => {
+    const config = validateConfig({
+      projects: {
+        proj1: {
+          path: "/repos/test",
+          repo: "org/test",
+          defaultBranch: "main",
+          scm: {
+            plugin: "github",
+            webhook: {
+              path: "/api/webhooks/github",
+              secretEnvVar: "GITHUB_WEBHOOK_SECRET",
+              eventHeader: "x-github-event",
+              deliveryHeader: "x-github-delivery",
+              signatureHeader: "x-hub-signature-256",
+              maxBodyBytes: 1048576,
+            },
+          },
+        },
+      },
+    });
+
+    expect(config.projects["proj1"]?.scm).toEqual({
+      plugin: "github",
+      webhook: {
+        enabled: true,
+        path: "/api/webhooks/github",
+        secretEnvVar: "GITHUB_WEBHOOK_SECRET",
+        eventHeader: "x-github-event",
+        deliveryHeader: "x-github-delivery",
+        signatureHeader: "x-hub-signature-256",
+        maxBodyBytes: 1048576,
+      },
+    });
+  });
+
+  it("rejects non-positive scm webhook maxBodyBytes", () => {
+    expect(() =>
+      validateConfig({
+        projects: {
+          proj1: {
+            path: "/repos/test",
+            repo: "org/test",
+            defaultBranch: "main",
+            scm: {
+              plugin: "github",
+              webhook: {
+                maxBodyBytes: 0,
+              },
+            },
+          },
+        },
+      }),
+    ).toThrow();
+  });
+});
+
 describe("Config Schema Validation", () => {
   it("requires projects field", () => {
     const config = {

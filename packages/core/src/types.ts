@@ -518,6 +518,16 @@ export interface CreateIssueInput {
 export interface SCM {
   readonly name: string;
 
+  verifyWebhook?(
+    request: SCMWebhookRequest,
+    project: ProjectConfig,
+  ): Promise<SCMWebhookVerificationResult>;
+
+  parseWebhook?(
+    request: SCMWebhookRequest,
+    project: ProjectConfig,
+  ): Promise<SCMWebhookEvent | null>;
+
   // --- PR Lifecycle ---
 
   /** Detect if a session has an open PR (by branch name) */
@@ -600,6 +610,42 @@ export const PR_STATE = {
 } satisfies Record<string, PRState>;
 
 export type MergeMethod = "merge" | "squash" | "rebase";
+
+export interface SCMWebhookRequest {
+  method: string;
+  headers: Record<string, string | string[] | undefined>;
+  body: string;
+  rawBody?: Uint8Array;
+  path?: string;
+  query?: Record<string, string | string[] | undefined>;
+}
+
+export interface SCMWebhookVerificationResult {
+  ok: boolean;
+  reason?: string;
+  deliveryId?: string;
+  eventType?: string;
+}
+
+export type SCMWebhookEventKind = "pull_request" | "ci" | "review" | "comment" | "push" | "unknown";
+
+export interface SCMWebhookEvent {
+  provider: string;
+  kind: SCMWebhookEventKind;
+  action: string;
+  rawEventType: string;
+  deliveryId?: string;
+  projectId?: string;
+  repository?: {
+    owner: string;
+    name: string;
+  };
+  prNumber?: number;
+  branch?: string;
+  sha?: string;
+  timestamp?: Date;
+  data: Record<string, unknown>;
+}
 
 // --- CI Types ---
 
@@ -951,7 +997,18 @@ export interface TrackerConfig {
 
 export interface SCMConfig {
   plugin: string;
+  webhook?: SCMWebhookConfig;
   [key: string]: unknown;
+}
+
+export interface SCMWebhookConfig {
+  enabled?: boolean;
+  path?: string;
+  secretEnvVar?: string;
+  signatureHeader?: string;
+  eventHeader?: string;
+  deliveryHeader?: string;
+  maxBodyBytes?: number;
 }
 
 export interface NotifierConfig {
