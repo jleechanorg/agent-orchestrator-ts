@@ -46,6 +46,7 @@ export function Dashboard({
   const [rateLimitDismissed, setRateLimitDismissed] = useState(false);
   const [globalPauseDismissed, setGlobalPauseDismissed] = useState(false);
   const showSidebar = projects.length > 1;
+  const allProjectsView = showSidebar && projectId === undefined;
 
   const grouped = useMemo(() => {
     const zones: Record<AttentionLevel, DashboardSession[]> = {
@@ -71,6 +72,35 @@ export function Dashboard({
       .map((session) => session.pr)
       .sort((a, b) => mergeScore(a) - mergeScore(b));
   }, [sessions]);
+
+  const projectOverviews = useMemo(() => {
+    if (!allProjectsView) return [];
+
+    return projects.map((project) => {
+      const projectSessions = sessions.filter((session) => session.projectId === project.id);
+      const counts: Record<AttentionLevel, number> = {
+        merge: 0,
+        respond: 0,
+        review: 0,
+        pending: 0,
+        working: 0,
+        done: 0,
+      };
+
+      for (const session of projectSessions) {
+        counts[getAttentionLevel(session)]++;
+      }
+
+      return {
+        project,
+        orchestrator:
+          orchestrators.find((orchestrator) => orchestrator.projectId === project.id) ?? null,
+        sessionCount: projectSessions.length,
+        openPRCount: projectSessions.filter((session) => session.pr?.state === "open").length,
+        counts,
+      };
+    });
+  }, [allProjectsView, orchestrators, projects, sessions]);
 
   const handleSend = async (sessionId: string, message: string) => {
     const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/send`, {
@@ -152,31 +182,7 @@ export function Dashboard({
             </h1>
             <StatusLine stats={liveStats} />
           </div>
-          {orchestrators.length > 0 && (
-            <div className="flex flex-wrap items-center justify-end gap-2">
-              {orchestrators.map((orchestrator) => (
-                <a
-                  key={orchestrator.id}
-                  href={`/sessions/${encodeURIComponent(orchestrator.id)}`}
-                  className="orchestrator-btn flex items-center gap-2 rounded-[7px] px-4 py-2 text-[12px] font-semibold hover:no-underline"
-                >
-                  <span className="h-1.5 w-1.5 rounded-full bg-[var(--color-accent)] opacity-80" />
-                  {orchestrators.length > 1
-                    ? `${orchestrator.projectName} orchestrator`
-                    : "orchestrator"}
-                  <svg
-                    className="h-3 w-3 opacity-70"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    viewBox="0 0 24 24"
-                  >
-                    <path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6M15 3h6v6M10 14L21 3" />
-                  </svg>
-                </a>
-              ))}
-            </div>
-          )}
+          {!allProjectsView && <OrchestratorControl orchestrators={orchestrators} />}
         </div>
 
         {globalPause && !globalPauseDismissed && (
@@ -252,7 +258,9 @@ export function Dashboard({
           </div>
         )}
 
-        {hasKanbanSessions && (
+        {allProjectsView && <ProjectOverviewGrid overviews={projectOverviews} />}
+
+        {!allProjectsView && hasKanbanSessions && (
           <div className="mb-8 flex gap-4 overflow-x-auto pb-2">
             {KANBAN_LEVELS.map((level) =>
               grouped[level].length > 0 ? (
@@ -272,7 +280,7 @@ export function Dashboard({
           </div>
         )}
 
-        {grouped.done.length > 0 && (
+        {!allProjectsView && grouped.done.length > 0 && (
           <div className="mb-8">
             <AttentionZone
               level="done"
@@ -324,6 +332,164 @@ export function Dashboard({
             </div>
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+function OrchestratorControl({ orchestrators }: { orchestrators: DashboardOrchestratorLink[] }) {
+  if (orchestrators.length === 0) return null;
+
+  if (orchestrators.length === 1) {
+    const orchestrator = orchestrators[0];
+    return (
+      <a
+        href={`/sessions/${encodeURIComponent(orchestrator.id)}`}
+        className="orchestrator-btn flex items-center gap-2 rounded-[7px] px-4 py-2 text-[12px] font-semibold hover:no-underline"
+      >
+        <span className="h-1.5 w-1.5 rounded-full bg-[var(--color-accent)] opacity-80" />
+        orchestrator
+        <svg
+          className="h-3 w-3 opacity-70"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          viewBox="0 0 24 24"
+        >
+          <path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6M15 3h6v6M10 14L21 3" />
+        </svg>
+      </a>
+    );
+  }
+
+  return (
+    <details className="group relative">
+      <summary className="orchestrator-btn flex cursor-pointer list-none items-center gap-2 rounded-[7px] px-4 py-2 text-[12px] font-semibold hover:no-underline">
+        <span className="h-1.5 w-1.5 rounded-full bg-[var(--color-accent)] opacity-80" />
+        {orchestrators.length} orchestrators
+        <svg
+          className="h-3 w-3 opacity-70 transition-transform group-open:rotate-90"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          viewBox="0 0 24 24"
+        >
+          <path d="m9 18 6-6-6-6" />
+        </svg>
+      </summary>
+      <div className="absolute right-0 top-[calc(100%+0.5rem)] z-10 min-w-[220px] overflow-hidden rounded-[10px] border border-[var(--color-border-default)] bg-[var(--color-bg-elevated)] shadow-[0_18px_40px_rgba(0,0,0,0.18)]">
+        {orchestrators.map((orchestrator, index) => (
+          <a
+            key={orchestrator.id}
+            href={`/sessions/${encodeURIComponent(orchestrator.id)}`}
+            className={`flex items-center justify-between gap-3 px-4 py-3 text-[12px] hover:bg-[var(--color-bg-hover)] hover:no-underline ${
+              index > 0 ? "border-t border-[var(--color-border-subtle)]" : ""
+            }`}
+          >
+            <span className="flex min-w-0 items-center gap-2 text-[var(--color-text-primary)]">
+              <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--color-accent)] opacity-80" />
+              <span className="truncate">{orchestrator.projectName}</span>
+            </span>
+            <svg
+              className="h-3 w-3 shrink-0 opacity-60"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              viewBox="0 0 24 24"
+            >
+              <path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6M15 3h6v6M10 14L21 3" />
+            </svg>
+          </a>
+        ))}
+      </div>
+    </details>
+  );
+}
+
+function ProjectOverviewGrid({
+  overviews,
+}: {
+  overviews: Array<{
+    project: ProjectInfo;
+    orchestrator: DashboardOrchestratorLink | null;
+    sessionCount: number;
+    openPRCount: number;
+    counts: Record<AttentionLevel, number>;
+  }>;
+}) {
+  return (
+    <div className="mb-8 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+      {overviews.map(({ project, orchestrator, sessionCount, openPRCount, counts }) => (
+        <section
+          key={project.id}
+          className="rounded-[10px] border border-[var(--color-border-default)] bg-[var(--color-bg-surface)] p-4"
+        >
+          <div className="mb-4 flex items-start justify-between gap-3">
+            <div>
+              <h2 className="text-[14px] font-semibold text-[var(--color-text-primary)]">
+                {project.name}
+              </h2>
+              <div className="mt-1 text-[11px] text-[var(--color-text-muted)]">
+                {sessionCount} active session{sessionCount !== 1 ? "s" : ""}
+                {openPRCount > 0 ? ` · ${openPRCount} open PR${openPRCount !== 1 ? "s" : ""}` : ""}
+              </div>
+            </div>
+            <a
+              href={`/?project=${encodeURIComponent(project.id)}`}
+              className="rounded-[7px] border border-[var(--color-border-default)] px-3 py-1.5 text-[11px] font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:no-underline"
+            >
+              Open project
+            </a>
+          </div>
+
+          <div className="mb-4 flex flex-wrap gap-2">
+            <ProjectMetric label="Merge" value={counts.merge} tone="var(--color-status-ready)" />
+            <ProjectMetric
+              label="Respond"
+              value={counts.respond}
+              tone="var(--color-status-error)"
+            />
+            <ProjectMetric label="Review" value={counts.review} tone="var(--color-accent-orange)" />
+            <ProjectMetric
+              label="Pending"
+              value={counts.pending}
+              tone="var(--color-status-attention)"
+            />
+            <ProjectMetric
+              label="Working"
+              value={counts.working}
+              tone="var(--color-status-working)"
+            />
+          </div>
+
+          <div className="flex items-center justify-between border-t border-[var(--color-border-subtle)] pt-3">
+            <div className="text-[11px] text-[var(--color-text-muted)]">
+              {orchestrator ? "Per-project orchestrator available" : "No running orchestrator"}
+            </div>
+            {orchestrator ? (
+              <a
+                href={`/sessions/${encodeURIComponent(orchestrator.id)}`}
+                className="orchestrator-btn flex items-center gap-2 rounded-[7px] px-3 py-1.5 text-[11px] font-semibold hover:no-underline"
+              >
+                <span className="h-1.5 w-1.5 rounded-full bg-[var(--color-accent)] opacity-80" />
+                orchestrator
+              </a>
+            ) : null}
+          </div>
+        </section>
+      ))}
+    </div>
+  );
+}
+
+function ProjectMetric({ label, value, tone }: { label: string; value: number; tone: string }) {
+  return (
+    <div className="min-w-[78px] rounded-[8px] border border-[var(--color-border-subtle)] px-2.5 py-2">
+      <div className="text-[10px] uppercase tracking-[0.08em] text-[var(--color-text-tertiary)]">
+        {label}
+      </div>
+      <div className="mt-1 text-[18px] font-semibold tabular-nums" style={{ color: tone }}>
+        {value}
       </div>
     </div>
   );
