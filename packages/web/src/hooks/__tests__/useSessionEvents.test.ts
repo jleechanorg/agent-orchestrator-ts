@@ -343,5 +343,45 @@ describe("useSessionEvents", () => {
       expect(result.current.sessions[0].activity).toBe("idle");
       expect(result.current.sessions[1].status).toBe("working");
     });
+
+    it("swallows refresh fetch JSON failures without resetting sessions", async () => {
+      const sessions = makeSessions(1);
+
+      vi.mocked(fetch).mockResolvedValueOnce({
+        ok: true,
+        json: async () => {
+          throw new Error("bad json");
+        },
+      } as Response);
+
+      const { result } = renderHook(() => useSessionEvents(sessions, null));
+
+      await act(async () => {
+        eventSourceMock!.onmessage!.call(eventSourceMock, {
+          data: JSON.stringify({
+            type: "snapshot",
+            sessions: [
+              {
+                id: "session-0",
+                status: "working",
+                activity: "active",
+                lastActivityAt: new Date().toISOString(),
+              },
+              {
+                id: "session-new",
+                status: "working",
+                activity: "active",
+                lastActivityAt: new Date().toISOString(),
+              },
+            ],
+          }),
+        } as MessageEvent);
+
+        await Promise.resolve();
+      });
+
+      expect(result.current.sessions).toHaveLength(1);
+      expect(result.current.sessions[0].id).toBe("session-0");
+    });
   });
 });

@@ -1,4 +1,6 @@
 import type { Metadata } from "next";
+
+export const dynamic = "force-dynamic";
 import { Dashboard } from "@/components/Dashboard";
 import type { DashboardSession } from "@/lib/types";
 import { getServices, getSCM } from "@/lib/services";
@@ -7,64 +9,66 @@ import {
   resolveProject,
   enrichSessionPR,
   enrichSessionsMetadata,
-  computeStats,
 } from "@/lib/serialize";
 import { prCache, prCacheKey } from "@/lib/cache";
-import { getProjectName } from "@/lib/project-name";
+import { getPrimaryProjectId, getProjectName, getAllProjects } from "@/lib/project-name";
+import { filterWorkerSessions, findOrchestratorSessionId } from "@/lib/project-utils";
 import { resolveGlobalPause, type GlobalPauseState } from "@/lib/global-pause";
 
-export const dynamic = "force-dynamic";
+function getSelectedProjectName(projectFilter: string | undefined): string {
+  if (projectFilter === "all") return "All Projects";
+  const projects = getAllProjects();
+  if (projectFilter) {
+    const selectedProject = projects.find((project) => project.id === projectFilter);
+    if (selectedProject) return selectedProject.name;
+  }
+  return getProjectName();
+}
 
-export async function generateMetadata(): Promise<Metadata> {
-  const projectName = getProjectName();
-  // Use absolute to opt out of the layout's "%s | project" template
+export async function generateMetadata(props: {
+  searchParams: Promise<{ project?: string }>;
+}): Promise<Metadata> {
+  const searchParams = await props.searchParams;
+  const projectFilter = searchParams.project ?? getPrimaryProjectId();
+  const projectName = getSelectedProjectName(projectFilter);
   return { title: { absolute: `ao | ${projectName}` } };
 }
 
-export default async function Home() {
+export default async function Home(props: { searchParams: Promise<{ project?: string }> }) {
+  const searchParams = await props.searchParams;
   let sessions: DashboardSession[] = [];
-  let orchestratorId: string | null = null;
-  let globalPause: GlobalPauseState | null = null;
-  let projectIds: string[] = [];
-  const projectName = getProjectName();
+  let orchestratorId: string | null;
+  let globalPause: GlobalPauseState | null;
+  // Allow ?project=all to show all sessions (for multi-project setups)
+  const projectFilter = searchParams.project ?? getPrimaryProjectId();
+
   try {
     const { config, registry, sessionManager } = await getServices();
-    projectIds = Object.keys(config.projects);
     const allSessions = await sessionManager.list();
+
+    orchestratorId = findOrchestratorSessionId(allSessions, projectFilter, config.projects);
+
     globalPause = resolveGlobalPause(allSessions);
 
-    // Find the orchestrator session (any session ending with -orchestrator)
-    // Only set orchestratorId if an actual session exists (no fallback)
-    const orchSession = allSessions.find((s) => s.id.endsWith("-orchestrator"));
-    if (orchSession) {
-      orchestratorId = orchSession.id;
-    }
+    const coreSessions = filterWorkerSessions(allSessions, projectFilter, config.projects);
 
-    // Filter out orchestrator from worker sessions
-    const coreSessions = allSessions.filter((s) => !s.id.endsWith("-orchestrator"));
     sessions = coreSessions.map(sessionToDashboard);
 
-    // Enrich metadata (issue labels, agent summaries, issue titles) — cap at 3s
     const metaTimeout = new Promise<void>((resolve) => setTimeout(resolve, 3_000));
     await Promise.race([
       enrichSessionsMetadata(coreSessions, sessions, config, registry),
       metaTimeout,
     ]);
 
-    // Enrich sessions that have PRs with live SCM data
-    // Skip enrichment for terminal sessions (merged, closed, done, terminated)
     const terminalStatuses = new Set(["merged", "killed", "cleanup", "done", "terminated"]);
     const enrichPromises = coreSessions.map((core, i) => {
       if (!core.pr) return Promise.resolve();
 
-      // Check cache first (before terminal status check)
       const cacheKey = prCacheKey(core.pr.owner, core.pr.repo, core.pr.number);
       const cached = prCache.get(cacheKey);
 
-      // Apply cached data if available (for both terminal and non-terminal sessions)
       if (cached) {
         if (sessions[i].pr) {
-          // Apply ALL cached fields (not just some)
           sessions[i].pr.state = cached.state;
           sessions[i].pr.title = cached.title;
           sessions[i].pr.additions = cached.additions;
@@ -85,8 +89,6 @@ export default async function Home() {
           sessions[i].pr.unresolvedComments = cached.unresolvedComments;
         }
 
-        // Skip enrichment if cache is fresh AND (terminal OR merged/closed)
-        // This allows terminal sessions to be enriched once when cache is missing/expired
         if (
           terminalStatuses.has(core.status) ||
           cached.state === "merged" ||
@@ -101,21 +103,26 @@ export default async function Home() {
       if (!scm) return Promise.resolve();
       return enrichSessionPR(sessions[i], scm, core.pr);
     });
-    // Cap enrichment at 4s — if GitHub is slow/rate-limited, serve stale data fast
     const enrichTimeout = new Promise<void>((resolve) => setTimeout(resolve, 4_000));
     await Promise.race([Promise.allSettled(enrichPromises), enrichTimeout]);
   } catch {
-    // Config not found or services unavailable — show empty dashboard
+    sessions = [];
+    orchestratorId = null;
+    globalPause = null;
   }
+
+  const projectName = getSelectedProjectName(projectFilter);
+  const projects = getAllProjects();
+  const selectedProjectId = projectFilter === "all" ? undefined : projectFilter;
 
   return (
     <Dashboard
       initialSessions={sessions}
-      stats={computeStats(sessions)}
       orchestratorId={orchestratorId}
+      projectId={selectedProjectId}
       projectName={projectName}
+      projects={projects}
       initialGlobalPause={globalPause}
-      projectIds={projectIds}
     />
   );
 }
