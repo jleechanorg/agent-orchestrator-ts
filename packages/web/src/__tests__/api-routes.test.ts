@@ -402,6 +402,38 @@ describe("API Routes", () => {
       expect(mockSessionManager.list).toHaveBeenNthCalledWith(1, "my-app");
       expect(mockSessionManager.list).toHaveBeenNthCalledWith(2);
     });
+
+    it("finds active global pause even when a metadata-role orchestrator appears first", async () => {
+      const pausedUntil = new Date(Date.now() + 60_000).toISOString();
+      const sessions = [
+        makeSession({
+          id: "control-session",
+          projectId: "docs-app",
+          metadata: { role: "orchestrator" },
+        }),
+        makeSession({
+          id: "docs-orchestrator",
+          projectId: "docs-app",
+          metadata: {
+            role: "orchestrator",
+            globalPauseUntil: pausedUntil,
+            globalPauseReason: "Rate limit hit",
+            globalPauseSource: "docs-orchestrator",
+          },
+        }),
+      ];
+      (mockSessionManager.list as ReturnType<typeof vi.fn>).mockResolvedValueOnce(sessions);
+
+      const res = await sessionsGET(makeRequest("http://localhost:3000/api/sessions"));
+      expect(res.status).toBe(200);
+      const data = await res.json();
+
+      expect(data.globalPause).toMatchObject({
+        pausedUntil,
+        reason: "Rate limit hit",
+        sourceSessionId: "docs-orchestrator",
+      });
+    });
   });
 
   // ── POST /api/spawn ────────────────────────────────────────────────
