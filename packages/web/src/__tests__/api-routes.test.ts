@@ -165,9 +165,16 @@ vi.mock("@/lib/services", () => ({
   startBacklogPoller: vi.fn(() => {}),
 }));
 
+vi.mock("@/lib/project-name", () => ({
+  getProjectName: () => "My App",
+  getPrimaryProjectId: () => "my-app",
+  getAllProjects: () => [{ id: "my-app", name: "My App" }],
+}));
+
 // ── Import routes after mocking ───────────────────────────────────────
 
 import { GET as sessionsGET } from "@/app/api/sessions/route";
+import { GET as projectsGET } from "@/app/api/projects/route";
 import { POST as spawnPOST } from "@/app/api/spawn/route";
 import { POST as sendPOST } from "@/app/api/sessions/[id]/send/route";
 import { POST as messagePOST } from "@/app/api/sessions/[id]/message/route";
@@ -563,13 +570,13 @@ describe("API Routes", () => {
 
   describe("GET /api/events", () => {
     it("returns SSE content type", async () => {
-      const res = await eventsGET();
+      const res = await eventsGET(makeRequest("http://localhost:3000/api/events"));
       expect(res.headers.get("Content-Type")).toBe("text/event-stream");
       expect(res.headers.get("Cache-Control")).toBe("no-cache");
     });
 
     it("streams initial snapshot event", async () => {
-      const res = await eventsGET();
+      const res = await eventsGET(makeRequest("http://localhost:3000/api/events"));
       const reader = res.body!.getReader();
       const { value } = await reader.read();
       reader.cancel();
@@ -582,6 +589,266 @@ describe("API Routes", () => {
       expect(event.sessions.length).toBeGreaterThan(0);
       expect(event.sessions[0]).toHaveProperty("id");
       expect(event.sessions[0]).toHaveProperty("attentionLevel");
+    });
+
+    it("excludes orchestrator sessions from snapshot", async () => {
+      const sessionsWithOrchestrator = [
+        ...testSessions,
+        makeSession({
+          id: "my-app-orchestrator",
+          projectId: "my-app",
+          status: "working",
+          activity: "active",
+        }),
+      ];
+      (mockSessionManager.list as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
+        sessionsWithOrchestrator,
+      );
+
+      const res = await eventsGET(makeRequest("http://localhost:3000/api/events"));
+      const reader = res.body!.getReader();
+      const { value } = await reader.read();
+      reader.cancel();
+      const text = new TextDecoder().decode(value);
+      const jsonStr = text.replace("data: ", "").trim();
+      const event = JSON.parse(jsonStr);
+
+      const sessionIds = event.sessions.map((s: { id: string }) => s.id);
+      expect(sessionIds).not.toContain("my-app-orchestrator");
+      expect(sessionIds.every((id: string) => !id.endsWith("-orchestrator"))).toBe(true);
+    });
+
+    it("filters sessions by project query param", async () => {
+      const multiProjectSessions = [
+        ...testSessions,
+        makeSession({
+          id: "other-app-1",
+          projectId: "other-app",
+          status: "working",
+          activity: "active",
+        }),
+      ];
+      (mockSessionManager.list as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
+        multiProjectSessions,
+      );
+
+      const res = await eventsGET(makeRequest("http://localhost:3000/api/events?project=my-app"));
+      const reader = res.body!.getReader();
+      const { value } = await reader.read();
+      reader.cancel();
+      const text = new TextDecoder().decode(value);
+      const event = JSON.parse(text.replace("data: ", "").trim());
+
+      expect(event.sessions.every((s: { id: string }) => s.id !== "other-app-1")).toBe(true);
+    });
+
+    it("returns all non-orchestrator sessions when project=all", async () => {
+      const multiProjectSessions = [
+        ...testSessions,
+        makeSession({
+          id: "other-app-1",
+          projectId: "other-app",
+          status: "working",
+          activity: "active",
+        }),
+        makeSession({
+          id: "my-app-orchestrator",
+          projectId: "my-app",
+          status: "working",
+          activity: "active",
+        }),
+      ];
+      (mockSessionManager.list as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
+        multiProjectSessions,
+      );
+
+      const res = await eventsGET(makeRequest("http://localhost:3000/api/events?project=all"));
+      const reader = res.body!.getReader();
+      const { value } = await reader.read();
+      reader.cancel();
+      const text = new TextDecoder().decode(value);
+      const event = JSON.parse(text.replace("data: ", "").trim());
+
+      // Should include both projects' worker sessions
+      const sessionIds = event.sessions.map((s: { id: string }) => s.id);
+      expect(sessionIds).toContain("other-app-1");
+      // But exclude orchestrator
+      expect(sessionIds).not.toContain("my-app-orchestrator");
+    });
+  });
+
+  // ── GET /api/sessions?project=X (project filtering) ───────────────────────
+
+  describe("GET /api/sessions?project=X", () => {
+    it("filters sessions by projectId", async () => {
+      const multiProjectSessions = [
+        ...testSessions,
+        makeSession({
+          id: "other-app-1",
+          projectId: "other-app",
+          status: "working",
+          activity: "active",
+        }),
+      ];
+      (mockSessionManager.list as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
+        multiProjectSessions,
+      );
+
+      const res = await sessionsGET(
+        makeRequest("http://localhost:3000/api/sessions?project=my-app"),
+      );
+      expect(res.status).toBe(200);
+      const data = await res.json();
+      expect(data.sessions.every((s: { projectId: string }) => s.projectId === "my-app")).toBe(
+        true,
+      );
+    });
+
+    it("filters sessions by sessionPrefix when projectId does not match", async () => {
+      const prefixMatchSessions = [
+        makeSession({ id: "my-app-1", projectId: "", status: "working", activity: "active" }),
+        makeSession({
+          id: "backend-1",
+          projectId: "backend",
+          status: "working",
+          activity: "active",
+        }),
+      ];
+      (mockSessionManager.list as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
+        prefixMatchSessions,
+      );
+
+      const res = await sessionsGET(
+        makeRequest("http://localhost:3000/api/sessions?project=my-app"),
+      );
+      expect(res.status).toBe(200);
+      const data = await res.json();
+      expect(data.sessions.length).toBe(1);
+      expect(data.sessions[0].id).toBe("my-app-1");
+    });
+
+    it("returns all sessions when project=all", async () => {
+      const multiProjectSessions = [
+        ...testSessions,
+        makeSession({
+          id: "other-app-1",
+          projectId: "other-app",
+          status: "working",
+          activity: "active",
+        }),
+      ];
+      (mockSessionManager.list as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
+        multiProjectSessions,
+      );
+
+      const res = await sessionsGET(makeRequest("http://localhost:3000/api/sessions?project=all"));
+      expect(res.status).toBe(200);
+      const data = await res.json();
+      expect(data.sessions.length).toBe(multiProjectSessions.length);
+    });
+
+    it("returns empty array for non-existent project", async () => {
+      const res = await sessionsGET(
+        makeRequest("http://localhost:3000/api/sessions?project=nonexistent"),
+      );
+      expect(res.status).toBe(200);
+      const data = await res.json();
+      expect(data.sessions).toEqual([]);
+      expect(data.stats.totalSessions).toBe(0);
+    });
+
+    it("finds orchestrator for the filtered project only", async () => {
+      const multiProjectSessions = [
+        ...testSessions.filter((s) => !s.id.endsWith("-orchestrator")),
+        makeSession({
+          id: "my-app-orchestrator",
+          projectId: "my-app",
+          status: "working",
+          activity: "active",
+        }),
+        makeSession({
+          id: "other-app-orchestrator",
+          projectId: "other-app",
+          status: "working",
+          activity: "active",
+        }),
+      ];
+      (mockSessionManager.list as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
+        multiProjectSessions,
+      );
+
+      const res = await sessionsGET(
+        makeRequest("http://localhost:3000/api/sessions?project=my-app"),
+      );
+      expect(res.status).toBe(200);
+      const data = await res.json();
+      expect(data.orchestratorId).toBe("my-app-orchestrator");
+    });
+
+    it("stats reflect only filtered sessions", async () => {
+      const multiProjectSessions = [
+        makeSession({
+          id: "my-app-1",
+          projectId: "my-app",
+          status: "needs_input",
+          activity: "waiting_input",
+        }),
+        makeSession({
+          id: "my-app-2",
+          projectId: "my-app",
+          status: "mergeable",
+          activity: "idle",
+          pr: {
+            number: 1,
+            url: "",
+            title: "",
+            owner: "",
+            repo: "",
+            branch: "",
+            baseBranch: "",
+            isDraft: false,
+          },
+        }),
+        makeSession({
+          id: "other-app-1",
+          projectId: "other-app",
+          status: "needs_input",
+          activity: "waiting_input",
+        }),
+      ];
+      (mockSessionManager.list as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
+        multiProjectSessions,
+      );
+
+      const res = await sessionsGET(
+        makeRequest("http://localhost:3000/api/sessions?project=my-app"),
+      );
+      expect(res.status).toBe(200);
+      const data = await res.json();
+      expect(data.stats.totalSessions).toBe(2);
+      expect(data.stats.workingSessions).toBe(2);
+    });
+  });
+
+  // ── GET /api/projects ────────────────────────────────────────────────
+
+  describe("GET /api/projects", () => {
+    it("returns list of configured projects", async () => {
+      const res = await projectsGET(makeRequest("http://localhost:3000/api/projects"));
+      expect(res.status).toBe(200);
+      const data = await res.json();
+      expect(data.projects).toBeDefined();
+      expect(Array.isArray(data.projects)).toBe(true);
+      expect(data.projects.length).toBe(1);
+      expect(data.projects[0]).toHaveProperty("id");
+      expect(data.projects[0]).toHaveProperty("name");
+    });
+
+    it("project includes id and name", async () => {
+      const res = await projectsGET(makeRequest("http://localhost:3000/api/projects"));
+      const data = await res.json();
+      expect(data.projects[0].id).toBe("my-app");
+      expect(data.projects[0].name).toBe("My App");
     });
   });
 });

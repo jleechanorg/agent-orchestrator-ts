@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useReducer, useRef } from "react";
-import type { DashboardSession, SSESnapshotEvent, GlobalPauseState } from "@/lib/types";
+import type { DashboardSession, GlobalPauseState, SSESnapshotEvent } from "@/lib/types";
 
 interface State {
   sessions: DashboardSession[];
@@ -42,18 +42,14 @@ function reducer(state: State, action: Action): State {
   }
 }
 
-interface UseSessionEventsReturn {
-  sessions: DashboardSession[];
-  globalPause: GlobalPauseState | null;
-}
-
 export function useSessionEvents(
   initialSessions: DashboardSession[],
-  initialGlobalPause: GlobalPauseState | null,
-): UseSessionEventsReturn {
+  initialGlobalPause?: GlobalPauseState | null,
+  project?: string,
+): State {
   const [state, dispatch] = useReducer(reducer, {
     sessions: initialSessions,
-    globalPause: initialGlobalPause,
+    globalPause: initialGlobalPause ?? null,
   });
   const sessionsRef = useRef(state.sessions);
   const refreshingRef = useRef(false);
@@ -63,61 +59,63 @@ export function useSessionEvents(
   }, [state.sessions]);
 
   useEffect(() => {
-    dispatch({ type: "reset", sessions: initialSessions, globalPause: initialGlobalPause });
+    dispatch({ type: "reset", sessions: initialSessions, globalPause: initialGlobalPause ?? null });
   }, [initialSessions, initialGlobalPause]);
 
   useEffect(() => {
-    const es = new EventSource("/api/events");
+    const url = project ? `/api/events?project=${encodeURIComponent(project)}` : "/api/events";
+    const es = new EventSource(url);
 
     es.onmessage = (event: MessageEvent) => {
       try {
         const data = JSON.parse(event.data as string) as { type: string };
         if (data.type === "snapshot") {
           const snapshot = data as SSESnapshotEvent;
-          const workerPatches = snapshot.sessions.filter((s) => !s.id.endsWith("-orchestrator"));
-          dispatch({ type: "snapshot", patches: workerPatches });
+          dispatch({ type: "snapshot", patches: snapshot.sessions });
 
           const currentIds = new Set(sessionsRef.current.map((s) => s.id));
-          const snapshotIds = new Set(workerPatches.map((s) => s.id));
+          const snapshotIds = new Set(snapshot.sessions.map((s) => s.id));
           const sameMembership =
             currentIds.size === snapshotIds.size &&
             [...snapshotIds].every((id) => currentIds.has(id));
 
           if (!sameMembership && !refreshingRef.current) {
             refreshingRef.current = true;
-            void fetch("/api/sessions")
+            const sessionsUrl = project
+              ? `/api/sessions?project=${encodeURIComponent(project)}`
+              : "/api/sessions";
+            void fetch(sessionsUrl)
               .then((res) => (res.ok ? res.json() : null))
               .then(
                 (
-                  payload: { sessions?: DashboardSession[]; globalPause?: GlobalPauseState } | null,
+                  updated: { sessions?: DashboardSession[]; globalPause?: GlobalPauseState } | null,
                 ) => {
-                  if (payload?.sessions) {
+                  if (updated?.sessions) {
                     dispatch({
                       type: "reset",
-                      sessions: payload.sessions,
-                      globalPause: payload.globalPause ?? null,
+                      sessions: updated.sessions,
+                      globalPause: updated.globalPause ?? null,
                     });
                   }
                 },
               )
+              .catch(() => undefined)
               .finally(() => {
                 refreshingRef.current = false;
               });
           }
         }
       } catch {
-        // Ignore malformed messages
+        return;
       }
     };
 
-    es.onerror = () => {
-      // EventSource auto-reconnects; nothing to do here
-    };
+    es.onerror = () => undefined;
 
     return () => {
       es.close();
     };
-  }, []);
+  }, [project]);
 
-  return { sessions: state.sessions, globalPause: state.globalPause };
+  return state;
 }

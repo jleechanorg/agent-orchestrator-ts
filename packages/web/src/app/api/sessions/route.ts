@@ -9,6 +9,7 @@ import {
   computeStats,
 } from "@/lib/serialize";
 import { resolveGlobalPause } from "@/lib/global-pause";
+import { filterWorkerSessions, findOrchestratorSessionId } from "@/lib/project-utils";
 
 const METADATA_ENRICH_TIMEOUT_MS = 3_000;
 const PR_ENRICH_TIMEOUT_MS = 4_000;
@@ -29,25 +30,23 @@ async function settlesWithin(promise: Promise<unknown>, timeoutMs: number): Prom
   }
 }
 
-/** GET /api/sessions — List all sessions with full state
+/** GET /api/sessions — List sessions with full state
  * Query params:
+ * - project: Filter to a specific project (by projectId or sessionPrefix). "all" = no filter.
  * - active=true: Only return non-exited sessions
  */
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
+    const projectFilter = searchParams.get("project");
     const activeOnly = searchParams.get("active") === "true";
 
     const { config, registry, sessionManager } = await getServices();
     const coreSessions = await sessionManager.list();
 
-    // Find orchestrator session ID (if running) and expose to clients
-    const orchSession = coreSessions.find((s) => s.id.endsWith("-orchestrator"));
-    const orchestratorId = orchSession ? orchSession.id : null;
-    const globalPause = resolveGlobalPause(coreSessions);
+    const orchestratorId = findOrchestratorSessionId(coreSessions, projectFilter, config.projects);
 
-    // Filter out orchestrator sessions — they get their own button, not a card
-    let workerSessions = coreSessions.filter((s) => !s.id.endsWith("-orchestrator"));
+    let workerSessions = filterWorkerSessions(coreSessions, projectFilter, config.projects);
 
     // Convert to dashboard format
     let dashboardSessions = workerSessions.map(sessionToDashboard);
@@ -90,7 +89,7 @@ export async function GET(request: Request) {
       sessions: dashboardSessions,
       stats: computeStats(dashboardSessions),
       orchestratorId,
-      globalPause,
+      globalPause: resolveGlobalPause(coreSessions),
     });
   } catch (err) {
     return NextResponse.json(
