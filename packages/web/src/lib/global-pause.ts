@@ -2,6 +2,7 @@ import {
   GLOBAL_PAUSE_REASON_KEY,
   GLOBAL_PAUSE_SOURCE_KEY,
   GLOBAL_PAUSE_UNTIL_KEY,
+  isOrchestratorSession,
   parsePauseUntil,
 } from "@composio/ao-core";
 
@@ -14,7 +15,7 @@ export interface GlobalPauseState {
 export function resolveGlobalPause(
   sessions: Array<{ id: string; metadata: Record<string, string> }>,
 ): GlobalPauseState | null {
-  const orchestrator = sessions.find((session) => session.id.endsWith("-orchestrator"));
+  const orchestrator = sessions.find((session) => isOrchestratorSession(session));
   const pausedUntilRaw = orchestrator?.metadata[GLOBAL_PAUSE_UNTIL_KEY];
   const parsed = parsePauseUntil(pausedUntilRaw);
   if (!parsed || parsed.getTime() <= Date.now()) return null;

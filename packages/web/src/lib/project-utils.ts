@@ -1,5 +1,7 @@
+import { isOrchestratorSession } from "@composio/ao-core";
+
 type ProjectWithPrefix = { sessionPrefix?: string };
-type SessionLike = { id: string; projectId: string };
+type SessionLike = { id: string; projectId: string; metadata?: Record<string, string> };
 
 /**
  * Check if a session belongs to a specific project.
@@ -18,10 +20,6 @@ function matchesProject(
   const project = projects[projectId];
   if (project?.sessionPrefix && session.id.startsWith(project.sessionPrefix)) return true;
   return false;
-}
-
-function isOrchestratorSession(session: { id: string }): boolean {
-  return session.id.endsWith("-orchestrator");
 }
 
 export function findOrchestratorSessionId<T extends SessionLike>(

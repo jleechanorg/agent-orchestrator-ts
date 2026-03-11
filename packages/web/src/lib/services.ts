@@ -30,6 +30,7 @@ import {
   type Session,
   type DecomposerConfig,
   DEFAULT_DECOMPOSER_CONFIG,
+  isOrchestratorSession,
   TERMINAL_STATUSES,
 } from "@composio/ao-core";
 
@@ -219,7 +220,7 @@ export async function pollBacklog(): Promise<void> {
     await relabelReopenedIssues(config, registry);
 
     const workerSessions = allSessions.filter(
-      (s) => !s.id.endsWith("-orchestrator") && !TERMINAL_STATUSES.has(s.status),
+      (session) => !isOrchestratorSession(session) && !TERMINAL_STATUSES.has(session.status),
     );
     const activeIssueIds = new Set(
       workerSessions.filter((s) => s.issueId).map((s) => s.issueId!.toLowerCase()),

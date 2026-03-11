@@ -725,6 +725,32 @@ describe("API Routes", () => {
       expect(sessionIds.every((id: string) => !id.endsWith("-orchestrator"))).toBe(true);
     });
 
+    it("excludes metadata-role orchestrators from snapshots", async () => {
+      const sessionsWithMetadataRoleOrchestrator = [
+        ...testSessions,
+        makeSession({
+          id: "control-session",
+          projectId: "my-app",
+          status: "working",
+          activity: "active",
+          metadata: { role: "orchestrator" },
+        }),
+      ];
+      (mockSessionManager.list as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
+        sessionsWithMetadataRoleOrchestrator,
+      );
+
+      const res = await eventsGET(makeRequest("http://localhost:3000/api/events"));
+      const reader = res.body!.getReader();
+      const { value } = await reader.read();
+      reader.cancel();
+      const text = new TextDecoder().decode(value);
+      const event = JSON.parse(text.replace("data: ", "").trim());
+
+      const sessionIds = event.sessions.map((s: { id: string }) => s.id);
+      expect(sessionIds).not.toContain("control-session");
+    });
+
     it("filters sessions by project query param", async () => {
       const multiProjectSessions = [
         ...testSessions,
