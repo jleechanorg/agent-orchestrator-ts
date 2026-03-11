@@ -118,8 +118,6 @@ export default async function Home(props: { searchParams: Promise<{ project?: st
     await Promise.race([Promise.allSettled(enrichPromises), enrichTimeout]);
   } catch {
     sessions = [];
-    globalPause = null;
-    orchestrators = [];
   }
 
   const projectName = getSelectedProjectName(projectFilter);

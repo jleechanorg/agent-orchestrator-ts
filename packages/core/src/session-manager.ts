@@ -1208,7 +1208,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
 
     const existingRaw = readMetadataRaw(sessionsDir, sessionId);
     const existingOrchestrator = existingRaw?.["runtimeHandle"]
-      ? metadataToSession(sessionId, existingRaw)
+      ? metadataToSession(sessionId, existingRaw, orchestratorConfig.projectId)
       : null;
     if (existingOrchestrator?.runtimeHandle) {
       const existingAlive = await plugins.runtime
@@ -1217,7 +1217,11 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       if (existingAlive && orchestratorSessionStrategy === "reuse") {
         const persistedRaw = readMetadataRaw(sessionsDir, sessionId);
         if (persistedRaw?.["runtimeHandle"]) {
-          const persisted = metadataToSession(sessionId, persistedRaw);
+          const persisted = metadataToSession(
+            sessionId,
+            persistedRaw,
+            orchestratorConfig.projectId,
+          );
           persisted.metadata["orchestratorSessionReused"] = "true";
           return persisted;
         }
@@ -1246,7 +1250,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       // Check if the session now exists and is alive.
       const concurrentRaw = readMetadataRaw(sessionsDir, sessionId);
       const concurrentSession = concurrentRaw?.["runtimeHandle"]
-        ? metadataToSession(sessionId, concurrentRaw)
+        ? metadataToSession(sessionId, concurrentRaw, orchestratorConfig.projectId)
         : null;
       if (concurrentSession?.runtimeHandle) {
         const concurrentAlive = await plugins.runtime
@@ -1479,17 +1483,13 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
         // If stat fails, timestamps will fall back to current time
       }
 
-<<<<<<< HEAD
       const repaired = repairSingleSessionMetadataOnRead(sessionsDir, {
         sessionName: sessionId,
         raw,
         modifiedAt,
       });
-=======
-      const session = metadataToSession(sessionId, raw, projectId, createdAt, modifiedAt);
->>>>>>> d502cd1 (fix: preserve project ownership for legacy sessions)
 
-      const session = metadataToSession(sessionId, repaired.raw, createdAt, modifiedAt);
+      const session = metadataToSession(sessionId, repaired.raw, projectId, createdAt, modifiedAt);
 
       const selectedAgentName = repaired.raw["agent"];
       const effectiveAgentName = selectedAgentName ?? project.agent ?? config.defaults.agent;

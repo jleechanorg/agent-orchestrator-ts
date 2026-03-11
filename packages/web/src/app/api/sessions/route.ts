@@ -51,12 +51,13 @@ export async function GET(request: Request) {
     const matchesRequestedProject = (session: { id: string; projectId: string }): boolean => {
       if (!projectFilter || projectFilter === "all") return true;
       if (session.projectId === projectFilter) return true;
+      if (config.projects[projectFilter]?.sessionPrefix) {
+        return session.id.startsWith(config.projects[projectFilter].sessionPrefix);
+      }
       return config.projects[session.projectId]?.sessionPrefix === projectFilter;
     };
 
-    const visibleSessions = requestedProjectId
-      ? coreSessions
-      : coreSessions.filter(matchesRequestedProject);
+    const visibleSessions = coreSessions.filter(matchesRequestedProject);
     const orchestrators = listDashboardOrchestrators(visibleSessions, config.projects);
     const orchestratorId = orchestrators.length === 1 ? (orchestrators[0]?.id ?? null) : null;
 
