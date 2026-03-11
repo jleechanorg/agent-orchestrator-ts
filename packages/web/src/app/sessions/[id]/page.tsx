@@ -52,6 +52,8 @@ export default function SessionPage() {
   const [zoneCounts, setZoneCounts] = useState<ZoneCounts | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const sessionProjectId = session?.projectId ?? null;
+  const sessionIsOrchestrator = session ? isOrchestratorSession(session) : false;
 
   // Update document title based on session data
   useEffect(() => {
@@ -84,9 +86,9 @@ export default function SessionPage() {
   }, [id]);
 
   const fetchZoneCounts = useCallback(async () => {
-    if (!session || !isOrchestratorSession(session) || !session.projectId) return;
+    if (!sessionIsOrchestrator || !sessionProjectId) return;
     try {
-      const res = await fetch(`/api/sessions?project=${encodeURIComponent(session.projectId)}`);
+      const res = await fetch(`/api/sessions?project=${encodeURIComponent(sessionProjectId)}`);
       if (!res.ok) return;
       const body = (await res.json()) as { sessions: DashboardSession[] };
       const sessions = body.sessions ?? [];
@@ -105,9 +107,9 @@ export default function SessionPage() {
       }
       setZoneCounts(counts);
     } catch {
-      // non-critical — status strip just won't show
+      // non-critical - status strip just won't show
     }
-  }, [session]);
+  }, [sessionIsOrchestrator, sessionProjectId]);
 
   // Initial fetch — session first, zone counts after (avoids blocking on slow /api/sessions)
   useEffect(() => {
@@ -150,7 +152,7 @@ export default function SessionPage() {
   return (
     <SessionDetail
       session={session}
-      isOrchestrator={isOrchestratorSession(session)}
+      isOrchestrator={sessionIsOrchestrator}
       orchestratorZones={zoneCounts ?? undefined}
     />
   );
