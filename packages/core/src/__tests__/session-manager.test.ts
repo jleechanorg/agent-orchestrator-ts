@@ -1184,6 +1184,20 @@ describe("list", () => {
     expect(sessions[0].id).toBe("app-1");
   });
 
+  it("preserves owning project ID for legacy metadata missing the project field", async () => {
+    writeMetadata(sessionsDir, "app-1", {
+      worktree: "/tmp",
+      branch: "a",
+      status: "working",
+    });
+
+    const sm = createSessionManager({ config, registry: mockRegistry });
+    const sessions = await sm.list("my-app");
+
+    expect(sessions).toHaveLength(1);
+    expect(sessions[0].projectId).toBe("my-app");
+  });
+
   it("clears enrichment timeout when enrichment completes quickly", async () => {
     vi.useFakeTimers();
     const clearTimeoutSpy = vi.spyOn(globalThis, "clearTimeout");
@@ -1448,6 +1462,20 @@ describe("get", () => {
   it("returns null for nonexistent session", async () => {
     const sm = createSessionManager({ config, registry: mockRegistry });
     expect(await sm.get("nonexistent")).toBeNull();
+  });
+
+  it("assigns owning project ID when loading legacy metadata without project", async () => {
+    writeMetadata(sessionsDir, "app-1", {
+      worktree: "/tmp",
+      branch: "main",
+      status: "working",
+    });
+
+    const sm = createSessionManager({ config, registry: mockRegistry });
+    const session = await sm.get("app-1");
+
+    expect(session).not.toBeNull();
+    expect(session?.projectId).toBe("my-app");
   });
 
   it("auto-discovers and persists OpenCode session mapping when missing", async () => {

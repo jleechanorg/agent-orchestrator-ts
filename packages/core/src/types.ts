@@ -172,6 +172,13 @@ export interface Session {
   metadata: Record<string, string>;
 }
 
+export function isOrchestratorSession(session: {
+  id: SessionId;
+  metadata?: Record<string, string>;
+}): boolean {
+  return session.metadata?.["role"] === "orchestrator" || session.id.endsWith("-orchestrator");
+}
+
 /** Config for creating a new session */
 export interface SessionSpawnConfig {
   projectId: string;

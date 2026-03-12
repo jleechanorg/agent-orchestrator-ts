@@ -3,6 +3,7 @@ import { parsePrFromUrl } from "./pr.js";
 import { safeJsonParse, validateStatus } from "./validation.js";
 
 interface SessionFromMetadataOptions {
+  projectId?: string;
   status?: SessionStatus;
   activity?: Session["activity"];
   runtimeHandle?: RuntimeHandle | null;
@@ -18,7 +19,7 @@ export function sessionFromMetadata(
 ): Session {
   return {
     id: sessionId,
-    projectId: meta["project"] ?? "",
+    projectId: meta["project"] ?? options.projectId ?? "",
     status: options.status ?? validateStatus(meta["status"]),
     activity: options.activity ?? null,
     branch: meta["branch"] || null,

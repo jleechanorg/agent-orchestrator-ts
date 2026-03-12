@@ -1,5 +1,7 @@
+import { isOrchestratorSession } from "@composio/ao-core";
+
 type ProjectWithPrefix = { sessionPrefix?: string };
-type SessionLike = { id: string; projectId: string };
+type SessionLike = { id: string; projectId: string; metadata?: Record<string, string> };
 
 /**
  * Check if a session belongs to a specific project.
@@ -17,27 +19,16 @@ function matchesProject(
   if (session.projectId === projectId) return true;
   const project = projects[projectId];
   if (project?.sessionPrefix && session.id.startsWith(project.sessionPrefix)) return true;
-  return false;
+  return projects[session.projectId]?.sessionPrefix === projectId;
 }
 
-function isOrchestratorSession(session: { id: string }): boolean {
-  return session.id.endsWith("-orchestrator");
-}
-
-export function findOrchestratorSessionId<T extends SessionLike>(
+export function filterProjectSessions<T extends SessionLike>(
   sessions: T[],
   projectFilter: string | null | undefined,
   projects: Record<string, ProjectWithPrefix>,
-): string | null {
-  if (projectFilter && projectFilter !== "all") {
-    const session = sessions.find(
-      (s) => isOrchestratorSession(s) && matchesProject(s, projectFilter, projects),
-    );
-    return session?.id ?? null;
-  }
-
-  const session = sessions.find((s) => isOrchestratorSession(s));
-  return session?.id ?? null;
+): T[] {
+  if (!projectFilter || projectFilter === "all") return sessions;
+  return sessions.filter((session) => matchesProject(session, projectFilter, projects));
 }
 
 export function filterWorkerSessions<T extends SessionLike>(
@@ -46,6 +37,5 @@ export function filterWorkerSessions<T extends SessionLike>(
   projects: Record<string, ProjectWithPrefix>,
 ): T[] {
   const workers = sessions.filter((s) => !isOrchestratorSession(s));
-  if (!projectFilter || projectFilter === "all") return workers;
-  return workers.filter((s) => matchesProject(s, projectFilter, projects));
+  return filterProjectSessions(workers, projectFilter, projects);
 }

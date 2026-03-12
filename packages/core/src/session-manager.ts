@@ -41,6 +41,7 @@ import {
   type PluginRegistry,
   type RuntimeHandle,
   type Issue,
+  isOrchestratorSession,
   PR_STATE,
 } from "./types.js";
 import {
@@ -228,10 +229,12 @@ function sleep(ms: number): Promise<void> {
 function metadataToSession(
   sessionId: SessionId,
   meta: Record<string, string>,
+  projectId: string,
   createdAt?: Date,
   modifiedAt?: Date,
 ): Session {
   return sessionFromMetadata(sessionId, meta, {
+    projectId,
     createdAt,
     lastActivityAt: modifiedAt ?? new Date(),
   });
@@ -554,6 +557,10 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
     }
     for (const id of sortSessionIdsForReuse(listArchivedSessionIds(sessionsDir))) {
       maybeAdd(id, readArchivedMetadataRaw(sessionsDir, id));
+    }
+
+    if (criteria.sessionId) {
+      maybeAdd(criteria.sessionId, readArchivedMetadataRaw(sessionsDir, criteria.sessionId));
     }
 
     return [...new Set(ids)];
@@ -1201,7 +1208,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
 
     const existingRaw = readMetadataRaw(sessionsDir, sessionId);
     const existingOrchestrator = existingRaw?.["runtimeHandle"]
-      ? metadataToSession(sessionId, existingRaw)
+      ? metadataToSession(sessionId, existingRaw, orchestratorConfig.projectId)
       : null;
     if (existingOrchestrator?.runtimeHandle) {
       const existingAlive = await plugins.runtime
@@ -1210,7 +1217,11 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       if (existingAlive && orchestratorSessionStrategy === "reuse") {
         const persistedRaw = readMetadataRaw(sessionsDir, sessionId);
         if (persistedRaw?.["runtimeHandle"]) {
-          const persisted = metadataToSession(sessionId, persistedRaw);
+          const persisted = metadataToSession(
+            sessionId,
+            persistedRaw,
+            orchestratorConfig.projectId,
+          );
           persisted.metadata["orchestratorSessionReused"] = "true";
           return persisted;
         }
@@ -1239,7 +1250,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       // Check if the session now exists and is alive.
       const concurrentRaw = readMetadataRaw(sessionsDir, sessionId);
       const concurrentSession = concurrentRaw?.["runtimeHandle"]
-        ? metadataToSession(sessionId, concurrentRaw)
+        ? metadataToSession(sessionId, concurrentRaw, orchestratorConfig.projectId)
         : null;
       if (concurrentSession?.runtimeHandle) {
         const concurrentAlive = await plugins.runtime
@@ -1416,7 +1427,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
         // If stat fails, timestamps will fall back to current time
       }
 
-      const session = metadataToSession(sessionName, raw, createdAt, modifiedAt);
+      const session = metadataToSession(sessionName, raw, sessionProjectId, createdAt, modifiedAt);
       const selectedAgentName = raw["agent"];
       const effectiveAgentName = selectedAgentName ?? project.agent ?? config.defaults.agent;
       const plugins = resolvePlugins(project, effectiveAgentName);
@@ -1455,7 +1466,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
 
   async function get(sessionId: SessionId): Promise<Session | null> {
     // Try to find the session in any project's sessions directory
-    for (const project of Object.values(config.projects)) {
+    for (const [projectId, project] of Object.entries(config.projects)) {
       const sessionsDir = getProjectSessionsDir(project);
       const raw = readMetadataRaw(sessionsDir, sessionId);
       if (!raw) continue;
@@ -1478,7 +1489,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
         modifiedAt,
       });
 
-      const session = metadataToSession(sessionId, repaired.raw, createdAt, modifiedAt);
+      const session = metadataToSession(sessionId, repaired.raw, projectId, createdAt, modifiedAt);
 
       const selectedAgentName = repaired.raw["agent"];
       const effectiveAgentName = selectedAgentName ?? project.agent ?? config.defaults.agent;
@@ -1606,7 +1617,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
         // Never clean up orchestrator sessions — they manage the lifecycle.
         // Check explicit role metadata first, fall back to naming convention
         // for pre-existing sessions spawned before the role field was added.
-        if (session.metadata["role"] === "orchestrator" || session.id.endsWith("-orchestrator")) {
+        if (isOrchestratorSession(session)) {
           pushSkipped(session.projectId, session.id);
           continue;
         }
@@ -1678,7 +1689,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
         const archived = readArchivedMetadataRaw(sessionsDir, archivedId);
         if (!archived) continue;
 
-        if (archived["role"] === "orchestrator" || archivedId.endsWith("-orchestrator")) {
+        if (isOrchestratorSession({ id: archivedId, metadata: archived })) {
           pushSkipped(projectKey, archivedId);
           continue;
         }
@@ -2107,7 +2118,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
     //    metadataToSession sets activity: null, so without enrichment a crashed
     //    session (status "working", agent exited) would not be detected as terminal
     //    and isRestorable would reject it.
-    const session = metadataToSession(sessionId, raw);
+    const session = metadataToSession(sessionId, raw, projectId);
     const plugins = resolvePlugins(project, raw["agent"]);
     await enrichSessionWithRuntimeState(session, plugins, true);
 

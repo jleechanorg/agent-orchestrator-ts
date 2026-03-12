@@ -126,6 +126,29 @@ describe("recoverSession", () => {
     expect(metadata?.["recoveredAt"]).toBeUndefined();
   });
 
+  it("preserves project ownership when legacy metadata omits the project field", async () => {
+    rootDir = join(tmpdir(), `ao-recovery-${randomUUID()}`);
+    mkdirSync(rootDir, { recursive: true });
+    mkdirSync(join(rootDir, "project"), { recursive: true });
+    writeFileSync(join(rootDir, "agent-orchestrator.yaml"), "projects: {}\n", "utf-8");
+
+    const config = makeConfig(rootDir);
+    const registry = makeRegistry();
+    const assessment = makeAssessment({
+      rawMetadata: {
+        branch: "feature/recover",
+        worktree: join(rootDir, "project"),
+        status: "needs_input",
+      },
+    });
+    const context = makeContext(rootDir);
+
+    const result = await recoverSession(assessment, config, registry, context);
+
+    expect(result.success).toBe(true);
+    expect(result.session?.projectId).toBe("app");
+  });
+
   it("returns the max-attempt reason when recovery escalates", async () => {
     rootDir = join(tmpdir(), `ao-recovery-${randomUUID()}`);
     mkdirSync(rootDir, { recursive: true });

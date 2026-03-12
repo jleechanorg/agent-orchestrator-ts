@@ -72,6 +72,7 @@ export async function recoverSession(
     };
 
     const session = sessionFromMetadata(sessionId, updatedMetadata, {
+      projectId: assessment.projectId,
       status: preservedStatus,
       runtimeHandle: assessment.runtimeHandle,
       lastActivityAt: new Date(),

@@ -9,10 +9,11 @@ import {
   resolveProject,
   enrichSessionPR,
   enrichSessionsMetadata,
+  listDashboardOrchestrators,
 } from "@/lib/serialize";
 import { prCache, prCacheKey } from "@/lib/cache";
 import { getPrimaryProjectId, getProjectName, getAllProjects } from "@/lib/project-name";
-import { filterWorkerSessions, findOrchestratorSessionId } from "@/lib/project-utils";
+import { filterProjectSessions, filterWorkerSessions } from "@/lib/project-utils";
 import { resolveGlobalPause, type GlobalPauseState } from "@/lib/global-pause";
 
 function getSelectedProjectName(projectFilter: string | undefined): string {
@@ -36,27 +37,33 @@ export async function generateMetadata(props: {
 
 export default async function Home(props: { searchParams: Promise<{ project?: string }> }) {
   const searchParams = await props.searchParams;
-  let sessions: DashboardSession[] = [];
-  let orchestratorId: string | null;
-  let globalPause: GlobalPauseState | null;
-  // Allow ?project=all to show all sessions (for multi-project setups)
   const projectFilter = searchParams.project ?? getPrimaryProjectId();
+  const pageData: {
+    sessions: DashboardSession[];
+    globalPause: GlobalPauseState | null;
+    orchestrators: Array<{ id: string; projectId: string; projectName: string }>;
+  } = {
+    sessions: [],
+    globalPause: null,
+    orchestrators: [],
+  };
 
   try {
     const { config, registry, sessionManager } = await getServices();
     const allSessions = await sessionManager.list();
 
-    orchestratorId = findOrchestratorSessionId(allSessions, projectFilter, config.projects);
+    pageData.globalPause = resolveGlobalPause(allSessions);
 
-    globalPause = resolveGlobalPause(allSessions);
+    const visibleSessions = filterProjectSessions(allSessions, projectFilter, config.projects);
+
+    pageData.orchestrators = listDashboardOrchestrators(visibleSessions, config.projects);
 
     const coreSessions = filterWorkerSessions(allSessions, projectFilter, config.projects);
-
-    sessions = coreSessions.map(sessionToDashboard);
+    pageData.sessions = coreSessions.map(sessionToDashboard);
 
     const metaTimeout = new Promise<void>((resolve) => setTimeout(resolve, 3_000));
     await Promise.race([
-      enrichSessionsMetadata(coreSessions, sessions, config, registry),
+      enrichSessionsMetadata(coreSessions, pageData.sessions, config, registry),
       metaTimeout,
     ]);
 
@@ -68,25 +75,29 @@ export default async function Home(props: { searchParams: Promise<{ project?: st
       const cached = prCache.get(cacheKey);
 
       if (cached) {
-        if (sessions[i].pr) {
-          sessions[i].pr.state = cached.state;
-          sessions[i].pr.title = cached.title;
-          sessions[i].pr.additions = cached.additions;
-          sessions[i].pr.deletions = cached.deletions;
-          sessions[i].pr.ciStatus = cached.ciStatus as "none" | "pending" | "passing" | "failing";
-          sessions[i].pr.reviewDecision = cached.reviewDecision as
+        if (pageData.sessions[i].pr) {
+          pageData.sessions[i].pr.state = cached.state;
+          pageData.sessions[i].pr.title = cached.title;
+          pageData.sessions[i].pr.additions = cached.additions;
+          pageData.sessions[i].pr.deletions = cached.deletions;
+          pageData.sessions[i].pr.ciStatus = cached.ciStatus as
+            | "none"
+            | "pending"
+            | "passing"
+            | "failing";
+          pageData.sessions[i].pr.reviewDecision = cached.reviewDecision as
             | "none"
             | "pending"
             | "approved"
             | "changes_requested";
-          sessions[i].pr.ciChecks = cached.ciChecks.map((c) => ({
+          pageData.sessions[i].pr.ciChecks = cached.ciChecks.map((c) => ({
             name: c.name,
             status: c.status as "pending" | "running" | "passed" | "failed" | "skipped",
             url: c.url,
           }));
-          sessions[i].pr.mergeability = cached.mergeability;
-          sessions[i].pr.unresolvedThreads = cached.unresolvedThreads;
-          sessions[i].pr.unresolvedComments = cached.unresolvedComments;
+          pageData.sessions[i].pr.mergeability = cached.mergeability;
+          pageData.sessions[i].pr.unresolvedThreads = cached.unresolvedThreads;
+          pageData.sessions[i].pr.unresolvedComments = cached.unresolvedComments;
         }
 
         if (
@@ -101,14 +112,14 @@ export default async function Home(props: { searchParams: Promise<{ project?: st
       const project = resolveProject(core, config.projects);
       const scm = getSCM(registry, project);
       if (!scm) return Promise.resolve();
-      return enrichSessionPR(sessions[i], scm, core.pr);
+      return enrichSessionPR(pageData.sessions[i], scm, core.pr);
     });
     const enrichTimeout = new Promise<void>((resolve) => setTimeout(resolve, 4_000));
     await Promise.race([Promise.allSettled(enrichPromises), enrichTimeout]);
   } catch {
-    sessions = [];
-    orchestratorId = null;
-    globalPause = null;
+    pageData.sessions = [];
+    pageData.globalPause = null;
+    pageData.orchestrators = [];
   }
 
   const projectName = getSelectedProjectName(projectFilter);
@@ -117,12 +128,12 @@ export default async function Home(props: { searchParams: Promise<{ project?: st
 
   return (
     <Dashboard
-      initialSessions={sessions}
-      orchestratorId={orchestratorId}
+      initialSessions={pageData.sessions}
       projectId={selectedProjectId}
       projectName={projectName}
       projects={projects}
-      initialGlobalPause={globalPause}
+      initialGlobalPause={pageData.globalPause}
+      orchestrators={pageData.orchestrators}
     />
   );
 }

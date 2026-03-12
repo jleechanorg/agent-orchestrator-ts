@@ -61,6 +61,31 @@ const testSessions: Session[] = [
   }),
 ];
 
+const multiProjectSessions: Session[] = [
+  makeSession({
+    id: "app-orchestrator",
+    projectId: "my-app",
+    metadata: { role: "orchestrator" },
+  }),
+  makeSession({
+    id: "backend-3",
+    projectId: "my-app",
+    status: "working",
+    activity: "active",
+  }),
+  makeSession({
+    id: "docs-orchestrator",
+    projectId: "docs-app",
+    metadata: { role: "orchestrator" },
+  }),
+  makeSession({
+    id: "docs-2",
+    projectId: "docs-app",
+    status: "review_pending",
+    activity: "idle",
+  }),
+];
+
 // ── Mock Services ─────────────────────────────────────────────────────
 
 const mockSessionManager: SessionManager = {
@@ -163,6 +188,14 @@ const mockConfig: OrchestratorConfig = {
       defaultBranch: "main",
       sessionPrefix: "my-app",
       scm: { plugin: "github", webhook: {} },
+    },
+    "docs-app": {
+      name: "Docs App",
+      repo: "acme/docs-app",
+      path: "/tmp/docs-app",
+      defaultBranch: "main",
+      sessionPrefix: "docs",
+      scm: { plugin: "github" },
     },
   },
   notifiers: {},
@@ -284,6 +317,122 @@ describe("API Routes", () => {
 
       metadataSpy.mockRestore();
       vi.useRealTimers();
+    });
+
+    it("returns per-project orchestrators and excludes them from worker sessions", async () => {
+      (mockSessionManager.list as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
+        multiProjectSessions,
+      );
+
+      const res = await sessionsGET(makeRequest("http://localhost:3000/api/sessions"));
+      expect(res.status).toBe(200);
+      const data = await res.json();
+
+      expect(data.orchestratorId).toBeNull();
+      expect(data.orchestrators).toEqual([
+        { id: "docs-orchestrator", projectId: "docs-app", projectName: "Docs App" },
+        { id: "app-orchestrator", projectId: "my-app", projectName: "My App" },
+      ]);
+      expect(data.sessions.map((session: { id: string }) => session.id)).toEqual([
+        "backend-3",
+        "docs-2",
+      ]);
+      expect(data.stats.totalSessions).toBe(2);
+    });
+
+    it("supports project-scoped session queries for orchestrator detail views", async () => {
+      (mockSessionManager.list as ReturnType<typeof vi.fn>).mockImplementationOnce(
+        async (projectId?: string) =>
+          multiProjectSessions.filter((session) => !projectId || session.projectId === projectId),
+      );
+
+      const res = await sessionsGET(
+        makeRequest("http://localhost:3000/api/sessions?project=docs-app"),
+      );
+      expect(res.status).toBe(200);
+      const data = await res.json();
+
+      expect(data.orchestratorId).toBe("docs-orchestrator");
+      expect(data.orchestrators).toEqual([
+        { id: "docs-orchestrator", projectId: "docs-app", projectName: "Docs App" },
+      ]);
+      expect(data.sessions.map((session: { id: string }) => session.id)).toEqual(["docs-2"]);
+      expect(mockSessionManager.list).toHaveBeenCalledWith("docs-app");
+    });
+
+    it("keeps global pause sourced from all projects even for project-scoped requests", async () => {
+      const pausedUntil = new Date(Date.now() + 60_000).toISOString();
+      const pausedSessions = [
+        makeSession({
+          id: "docs-orchestrator",
+          projectId: "docs-app",
+          metadata: {
+            role: "orchestrator",
+            globalPauseUntil: pausedUntil,
+            globalPauseReason: "Rate limit hit",
+            globalPauseSource: "docs-orchestrator",
+          },
+        }),
+        makeSession({ id: "docs-1", projectId: "docs-app", status: "working", activity: "active" }),
+        makeSession({
+          id: "backend-3",
+          projectId: "my-app",
+          status: "working",
+          activity: "active",
+        }),
+      ];
+      (mockSessionManager.list as ReturnType<typeof vi.fn>).mockImplementation(
+        async (projectId?: string) =>
+          projectId
+            ? pausedSessions.filter((session) => session.projectId === projectId)
+            : pausedSessions,
+      );
+
+      const res = await sessionsGET(
+        makeRequest("http://localhost:3000/api/sessions?project=my-app"),
+      );
+      expect(res.status).toBe(200);
+      const data = await res.json();
+
+      expect(data.globalPause).toMatchObject({
+        pausedUntil,
+        reason: "Rate limit hit",
+        sourceSessionId: "docs-orchestrator",
+      });
+      expect(mockSessionManager.list).toHaveBeenNthCalledWith(1, "my-app");
+      expect(mockSessionManager.list).toHaveBeenNthCalledWith(2);
+    });
+
+    it("finds active global pause even when a metadata-role orchestrator appears first", async () => {
+      const pausedUntil = new Date(Date.now() + 60_000).toISOString();
+      const sessions = [
+        makeSession({
+          id: "control-session",
+          projectId: "docs-app",
+          metadata: { role: "orchestrator" },
+        }),
+        makeSession({
+          id: "docs-orchestrator",
+          projectId: "docs-app",
+          metadata: {
+            role: "orchestrator",
+            globalPauseUntil: pausedUntil,
+            globalPauseReason: "Rate limit hit",
+            globalPauseSource: "docs-orchestrator",
+          },
+        }),
+      ];
+      (mockSessionManager.list as ReturnType<typeof vi.fn>).mockResolvedValueOnce(sessions);
+
+      const res = await sessionsGET(makeRequest("http://localhost:3000/api/sessions"));
+      expect(res.status).toBe(200);
+      const data = await res.json();
+
+      expect(data.globalPause).toMatchObject({
+        pausedUntil,
+        reason: "Rate limit hit",
+        sourceSessionId: "docs-orchestrator",
+      });
     });
   });
 
@@ -649,6 +798,32 @@ describe("API Routes", () => {
       const sessionIds = event.sessions.map((s: { id: string }) => s.id);
       expect(sessionIds).not.toContain("my-app-orchestrator");
       expect(sessionIds.every((id: string) => !id.endsWith("-orchestrator"))).toBe(true);
+    });
+
+    it("excludes metadata-role orchestrators from snapshots", async () => {
+      const sessionsWithMetadataRoleOrchestrator = [
+        ...testSessions,
+        makeSession({
+          id: "control-session",
+          projectId: "my-app",
+          status: "working",
+          activity: "active",
+          metadata: { role: "orchestrator" },
+        }),
+      ];
+      (mockSessionManager.list as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
+        sessionsWithMetadataRoleOrchestrator,
+      );
+
+      const res = await eventsGET(makeRequest("http://localhost:3000/api/events"));
+      const reader = res.body!.getReader();
+      const { value } = await reader.read();
+      reader.cancel();
+      const text = new TextDecoder().decode(value);
+      const event = JSON.parse(text.replace("data: ", "").trim());
+
+      const sessionIds = event.sessions.map((s: { id: string }) => s.id);
+      expect(sessionIds).not.toContain("control-session");
     });
 
     it("filters sessions by project query param", async () => {
