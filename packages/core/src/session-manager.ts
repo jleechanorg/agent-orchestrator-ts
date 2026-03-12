@@ -794,10 +794,19 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       sessionListPromise,
     );
 
-    const handleFromMetadata = session.runtimeHandle !== null;
+    const tmuxNameFromMetadata = session.metadata["tmuxName"]?.trim();
+    const hasTmuxNameFromMetadata =
+      typeof tmuxNameFromMetadata === "string" && tmuxNameFromMetadata.length > 0;
+    const handleFromMetadata = session.runtimeHandle !== null || hasTmuxNameFromMetadata;
     if (!handleFromMetadata) {
       session.runtimeHandle = {
         id: sessionName,
+        runtimeName: project.runtime ?? config.defaults.runtime,
+        data: {},
+      };
+    } else if (!session.runtimeHandle && hasTmuxNameFromMetadata) {
+      session.runtimeHandle = {
+        id: tmuxNameFromMetadata,
         runtimeName: project.runtime ?? config.defaults.runtime,
         data: {},
       };

@@ -34,6 +34,7 @@ import {
   type Tracker,
   type SCM,
   type RuntimeHandle,
+  type Session,
 } from "../types.js";
 
 let tmpDir: string;
@@ -1385,6 +1386,89 @@ describe("list", () => {
     expect(agentWithState.getActivityState).toHaveBeenCalled();
     // Verify activity state was set
     expect(sessions[0].activity).toBe("active");
+  });
+
+  it.each(["claude-code", "codex", "aider", "opencode"])(
+    "uses tmuxName fallback handle for %s activity detection when runtimeHandle is missing",
+    async (agentName: string) => {
+      const expectedTmuxName = "hash-app-1";
+      const selectedAgent: Agent = {
+        ...mockAgent,
+        name: agentName,
+        getActivityState: vi.fn().mockImplementation(async (session: Session) => {
+          return {
+            state: session.runtimeHandle?.id === expectedTmuxName ? "active" : "exited",
+          };
+        }),
+      };
+      const registryWithNamedAgents: PluginRegistry = {
+        ...mockRegistry,
+        get: vi.fn().mockImplementation((slot: string, name: string) => {
+          if (slot === "runtime") return mockRuntime;
+          if (slot === "agent" && name === agentName) return selectedAgent;
+          if (slot === "workspace") return mockWorkspace;
+          return null;
+        }),
+      };
+
+      writeMetadata(sessionsDir, "app-1", {
+        worktree: "/tmp",
+        branch: "a",
+        status: "working",
+        project: "my-app",
+        agent: agentName,
+        tmuxName: expectedTmuxName,
+        ...(agentName === "opencode" ? { opencodeSessionId: "ses_existing_mapping" } : {}),
+      });
+
+      const sm = createSessionManager({ config, registry: registryWithNamedAgents });
+      const sessions = await sm.list("my-app");
+
+      expect(sessions).toHaveLength(1);
+      expect(sessions[0].runtimeHandle?.id).toBe(expectedTmuxName);
+      expect(sessions[0].activity).toBe("active");
+      expect(selectedAgent.getActivityState).toHaveBeenCalled();
+    },
+  );
+
+  it("uses tmuxName fallback handle for runtime liveness checks when runtimeHandle is missing", async () => {
+    const expectedTmuxName = "hash-app-1";
+    const deadRuntime: Runtime = {
+      ...mockRuntime,
+      isAlive: vi
+        .fn()
+        .mockImplementation(async (handle: RuntimeHandle) => handle.id !== expectedTmuxName),
+    };
+    const agentWithSpy: Agent = {
+      ...mockAgent,
+      getActivityState: vi.fn().mockResolvedValue({ state: "active" }),
+    };
+    const registryWithDeadRuntime: PluginRegistry = {
+      ...mockRegistry,
+      get: vi.fn().mockImplementation((slot: string) => {
+        if (slot === "runtime") return deadRuntime;
+        if (slot === "agent") return agentWithSpy;
+        if (slot === "workspace") return mockWorkspace;
+        return null;
+      }),
+    };
+
+    writeMetadata(sessionsDir, "app-1", {
+      worktree: "/tmp",
+      branch: "a",
+      status: "working",
+      project: "my-app",
+      tmuxName: expectedTmuxName,
+    });
+
+    const sm = createSessionManager({ config, registry: registryWithDeadRuntime });
+    const sessions = await sm.list("my-app");
+
+    expect(sessions).toHaveLength(1);
+    expect(sessions[0].runtimeHandle?.id).toBe(expectedTmuxName);
+    expect(sessions[0].status).toBe("killed");
+    expect(sessions[0].activity).toBe("exited");
+    expect(agentWithSpy.getActivityState).not.toHaveBeenCalled();
   });
 
   it("keeps existing activity when getActivityState throws", async () => {
