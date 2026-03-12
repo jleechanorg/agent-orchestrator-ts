@@ -507,6 +507,116 @@ describe("check (single session)", () => {
     expect(lm.getStates().get("app-1")).toBe("working");
   });
 
+  it("skips PR auto-detection for orchestrator sessions", async () => {
+    const mockSCM: SCM = {
+      name: "mock-scm",
+      detectPR: vi.fn().mockResolvedValue(makePR()),
+      getPRState: vi.fn().mockResolvedValue("open"),
+      mergePR: vi.fn(),
+      closePR: vi.fn(),
+      getCIChecks: vi.fn(),
+      getCISummary: vi.fn().mockResolvedValue("passing"),
+      getReviews: vi.fn(),
+      getReviewDecision: vi.fn().mockResolvedValue("none"),
+      getPendingComments: vi.fn(),
+      getAutomatedComments: vi.fn(),
+      getMergeability: vi.fn(),
+    };
+
+    const registryWithSCM: PluginRegistry = {
+      ...mockRegistry,
+      get: vi.fn().mockImplementation((slot: string) => {
+        if (slot === "runtime") return mockRuntime;
+        if (slot === "agent") return mockAgent;
+        if (slot === "scm") return mockSCM;
+        return null;
+      }),
+    };
+
+    writeMetadata(sessionsDir, "app-1", {
+      worktree: "/tmp",
+      branch: "master",
+      status: "working",
+      project: "my-app",
+      role: "orchestrator",
+    });
+
+    const realSessionManager = createSessionManager({
+      config,
+      registry: registryWithSCM,
+    });
+    const session = await realSessionManager.get("app-1");
+
+    expect(session).not.toBeNull();
+    vi.mocked(mockSessionManager.get).mockResolvedValue(session);
+
+    const lm = createLifecycleManager({
+      config,
+      registry: registryWithSCM,
+      sessionManager: mockSessionManager,
+    });
+
+    await lm.check("app-1");
+
+    expect(mockSCM.detectPR).not.toHaveBeenCalled();
+    expect(lm.getStates().get("app-1")).toBe("working");
+  });
+
+  it("skips PR auto-detection for orchestrator sessions identified by ID suffix (fallback)", async () => {
+    const mockSCM: SCM = {
+      name: "mock-scm",
+      detectPR: vi.fn().mockResolvedValue(makePR()),
+      getPRState: vi.fn().mockResolvedValue("open"),
+      mergePR: vi.fn(),
+      closePR: vi.fn(),
+      getCIChecks: vi.fn(),
+      getCISummary: vi.fn().mockResolvedValue("passing"),
+      getReviews: vi.fn(),
+      getReviewDecision: vi.fn().mockResolvedValue("none"),
+      getPendingComments: vi.fn(),
+      getAutomatedComments: vi.fn(),
+      getMergeability: vi.fn(),
+    };
+
+    const registryWithSCM: PluginRegistry = {
+      ...mockRegistry,
+      get: vi.fn().mockImplementation((slot: string) => {
+        if (slot === "runtime") return mockRuntime;
+        if (slot === "agent") return mockAgent;
+        if (slot === "scm") return mockSCM;
+        return null;
+      }),
+    };
+
+    // Session has no role metadata but ID ends with "-orchestrator"
+    writeMetadata(sessionsDir, "app-orchestrator", {
+      worktree: "/tmp",
+      branch: "master",
+      status: "working",
+      project: "my-app",
+    });
+
+    const realSessionManager = createSessionManager({
+      config,
+      registry: registryWithSCM,
+    });
+    const session = await realSessionManager.get("app-orchestrator");
+
+    expect(session).not.toBeNull();
+    vi.mocked(mockSessionManager.get).mockResolvedValue(session);
+
+    const lm = createLifecycleManager({
+      config,
+      registry: registryWithSCM,
+      sessionManager: mockSessionManager,
+    });
+
+    await lm.check("app-orchestrator");
+
+    expect(mockSCM.detectPR).not.toHaveBeenCalled();
+    expect(lm.getStates().get("app-orchestrator")).toBe("working");
+  });
+
   it("detects merged PR", async () => {
     const mockSCM: SCM = {
       name: "mock-scm",

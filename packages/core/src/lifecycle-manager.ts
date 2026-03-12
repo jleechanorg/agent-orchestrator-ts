@@ -355,7 +355,16 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     // 3. Auto-detect PR by branch if metadata.pr is missing.
     //    This is critical for agents without auto-hook systems (Codex, Aider,
     //    OpenCode) that can't reliably write pr=<url> to metadata on their own.
-    if (!session.pr && scm && session.branch && session.metadata["prAutoDetect"] !== "off") {
+    //    Skip orchestrator sessions — they sit on the base branch (e.g. master)
+    //    and should never own a PR.
+    if (
+      !session.pr &&
+      scm &&
+      session.branch &&
+      session.metadata["prAutoDetect"] !== "off" &&
+      session.metadata["role"] !== "orchestrator" &&
+      !session.id.endsWith("-orchestrator")
+    ) {
       try {
         const detectedPR = await scm.detectPR(session, project);
         if (detectedPR) {
