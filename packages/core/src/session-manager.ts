@@ -217,12 +217,28 @@ const STALE_PR_OWNERSHIP_STATUSES: ReadonlySet<string> = new Set([
 
 const SEND_RESTORE_READY_TIMEOUT_MS = 5_000;
 const SEND_RESTORE_READY_POLL_MS = 500;
-const SEND_CONFIRMATION_ATTEMPTS = 3;
+const SEND_CONFIRMATION_ATTEMPTS = 6;
 const SEND_CONFIRMATION_POLL_MS = 500;
 const SEND_CONFIRMATION_OUTPUT_LINES = 20;
+const SEND_BOOTSTRAP_READY_TIMEOUT_MS = 20_000;
+const SEND_BOOTSTRAP_STABLE_POLLS = 2;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function getTmuxForegroundCommand(sessionName: string): Promise<string | null> {
+  try {
+    const { stdout } = await execFileAsync(
+      "tmux",
+      ["display-message", "-p", "-t", sessionName, "#{pane_current_command}"],
+      { timeout: 5_000 },
+    );
+    const command = stdout.trim();
+    return command.length > 0 ? command : null;
+  } catch {
+    return null;
+  }
 }
 
 /** Reconstruct a Session object from raw metadata key=value pairs. */
@@ -1796,6 +1812,69 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       return output.includes("Press up to edit queued messages");
     };
 
+    const getOpenCodeSessionUpdatedAt = async (): Promise<number | undefined> => {
+      const mappedSessionId = asValidOpenCodeSessionId(raw["opencodeSessionId"]);
+      if (agentName !== "opencode" || !mappedSessionId) {
+        return undefined;
+      }
+
+      const sessions = await fetchOpenCodeSessionList(OPENCODE_DISCOVERY_TIMEOUT_MS);
+      return sessions.find((entry) => entry.id === mappedSessionId)?.updatedAt;
+    };
+
+    const waitForInteractiveReadiness = async (
+      session: Session,
+      timeoutMs: number,
+    ): Promise<void> => {
+      const handle = session.runtimeHandle;
+      if (!handle) {
+        return;
+      }
+
+      const deadline = Date.now() + timeoutMs;
+      let lastSettledOutput: string | null = null;
+      let stablePolls = 0;
+
+      while (true) {
+        const [runtimeAlive, processRunning, output, foregroundCommand] = await Promise.all([
+          runtimePlugin.isAlive(handle).catch(() => true),
+          agentPlugin.isProcessRunning(handle).catch(() => true),
+          captureOutput(handle),
+          handle.runtimeName === "tmux"
+            ? getTmuxForegroundCommand(handle.id)
+            : Promise.resolve(agentPlugin.processName),
+        ]);
+
+        const outputReady = output.trim().length > 0;
+        const foregroundReady =
+          foregroundCommand === null || foregroundCommand === agentPlugin.processName;
+        const settledOutput = outputReady ? output.trimEnd() : null;
+        const isStable = settledOutput !== null && settledOutput === lastSettledOutput;
+
+        if (
+          runtimeAlive &&
+          processRunning &&
+          foregroundReady &&
+          (hasQueuedMessage(output) || isStable)
+        ) {
+          stablePolls += 1;
+          if (stablePolls >= SEND_BOOTSTRAP_STABLE_POLLS) {
+            return;
+          }
+        } else {
+          stablePolls = 0;
+        }
+
+        lastSettledOutput = settledOutput;
+
+        if (Date.now() >= deadline) {
+          return;
+        }
+
+        await sleep(SEND_RESTORE_READY_POLL_MS);
+      }
+    };
+
     const waitForRestoredSession = async (restoredSession: Session): Promise<void> => {
       const handle = restoredSession.runtimeHandle;
       if (!handle) {
@@ -1804,13 +1883,19 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
 
       const deadline = Date.now() + SEND_RESTORE_READY_TIMEOUT_MS;
       while (true) {
-        const [runtimeAlive, processRunning, output] = await Promise.all([
+        const [runtimeAlive, processRunning, output, foregroundCommand] = await Promise.all([
           runtimePlugin.isAlive(handle).catch(() => true),
           agentPlugin.isProcessRunning(handle).catch(() => true),
           captureOutput(handle),
+          handle.runtimeName === "tmux"
+            ? getTmuxForegroundCommand(handle.id)
+            : Promise.resolve(agentPlugin.processName),
         ]);
 
-        if (runtimeAlive && (processRunning || output.trim().length > 0)) {
+        const foregroundReady =
+          foregroundCommand === null || foregroundCommand === agentPlugin.processName;
+
+        if (runtimeAlive && foregroundReady && (processRunning || output.trim().length > 0)) {
           return;
         }
 
@@ -1863,10 +1948,18 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
         );
       }
 
-      const [runtimeAlive, processRunning] = await Promise.all([
+      let [runtimeAlive, processRunning] = await Promise.all([
         runtimePlugin.isAlive(handle).catch(() => true),
         agentPlugin.isProcessRunning(handle).catch(() => true),
       ]);
+
+      if (normalized.status === "spawning" && runtimeAlive) {
+        await waitForInteractiveReadiness(normalized, SEND_BOOTSTRAP_READY_TIMEOUT_MS);
+        [runtimeAlive, processRunning] = await Promise.all([
+          runtimePlugin.isAlive(handle).catch(() => true),
+          agentPlugin.isProcessRunning(handle).catch(() => true),
+        ]);
+      }
 
       if (!runtimeAlive || !processRunning) {
         return restoreForDelivery(
@@ -1886,6 +1979,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
 
       const baselineOutput = await captureOutput(handle);
       const baselineActivity = detectActivityFromOutput(baselineOutput) ?? session.activity;
+      const baselineUpdatedAt = await getOpenCodeSessionUpdatedAt();
 
       await runtimePlugin.sendMessage(handle, message);
 
@@ -1896,7 +1990,11 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
 
         const output = await captureOutput(handle);
         const activity = detectActivityFromOutput(output) ?? session.activity;
+        const updatedAt = await getOpenCodeSessionUpdatedAt();
         const delivered =
+          (baselineUpdatedAt !== undefined &&
+            updatedAt !== undefined &&
+            updatedAt > baselineUpdatedAt) ||
           hasQueuedMessage(output) ||
           (output.length > 0 && output !== baselineOutput) ||
           (baselineActivity !== "active" && activity === "active") ||
