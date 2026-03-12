@@ -89,16 +89,16 @@ ao spawn my-project 123
 
 Eight slots. Every abstraction is swappable.
 
-| Slot | Default | Alternatives |
-|------|---------|-------------|
-| Runtime | tmux | docker, k8s, process |
-| Agent | claude-code | codex, aider, opencode |
-| Workspace | worktree | clone |
-| Tracker | github | linear |
-| SCM | github | — |
-| Notifier | desktop | slack, composio, webhook |
-| Terminal | iterm2 | web |
-| Lifecycle | core | — |
+| Slot      | Default     | Alternatives             |
+| --------- | ----------- | ------------------------ |
+| Runtime   | tmux        | docker, k8s, process     |
+| Agent     | claude-code | codex, aider, opencode   |
+| Workspace | worktree    | clone                    |
+| Tracker   | github      | linear                   |
+| SCM       | github      | —                        |
+| Notifier  | desktop     | slack, composio, webhook |
+| Terminal  | iterm2      | web                      |
+| Lifecycle | core        | —                        |
 
 All interfaces defined in [`packages/core/src/types.ts`](packages/core/src/types.ts). A plugin implements one interface and exports a `PluginModule`. That's it.
 
@@ -131,7 +131,7 @@ reactions:
     action: send-to-agent
     escalateAfter: 30m
   approved-and-green:
-    auto: false       # flip to true for auto-merge
+    auto: false # flip to true for auto-merge
     action: notify
 ```
 
@@ -149,7 +149,24 @@ ao session ls                          # List sessions
 ao session kill <session>              # Kill a session
 ao session restore <session>           # Revive a crashed agent
 ao dashboard                           # Open web dashboard
+ao doctor [--fix]                      # Check install, runtime, and stale temp issues
+ao update                              # Update local AO install and run smoke tests
 ```
+
+## Maintenance
+
+```bash
+# Run deterministic install and runtime checks
+ao doctor
+
+# Apply safe cleanup and launcher fixes
+ao doctor --fix
+
+# Update this local AO checkout, rebuild critical packages, and verify the launcher
+ao update
+```
+
+`ao doctor` checks PATH and launcher resolution, required binaries, tmux and GitHub CLI health, config support directories, stale AO temp files, and core build/runtime sanity. `ao update` fast-forwards the local install repo on `main`, runs `pnpm install`, clean-rebuilds `@composio/ao-core`, `@composio/ao-cli`, and `@composio/ao-web`, refreshes the global `ao` launcher with `npm link`, and finishes with CLI smoke tests.
 
 ## Why Agent Orchestrator?
 
@@ -178,12 +195,12 @@ See [CLAUDE.md](CLAUDE.md) for code conventions and architecture details.
 
 ## Documentation
 
-| Doc | What it covers |
-|-----|---------------|
-| [Setup Guide](SETUP.md) | Detailed installation and configuration |
-| [Examples](examples/) | Config templates (GitHub, Linear, multi-project, auto-merge) |
-| [CLAUDE.md](CLAUDE.md) | Architecture, conventions, plugin pattern |
-| [Troubleshooting](TROUBLESHOOTING.md) | Common issues and fixes |
+| Doc                                   | What it covers                                               |
+| ------------------------------------- | ------------------------------------------------------------ |
+| [Setup Guide](SETUP.md)               | Detailed installation and configuration                      |
+| [Examples](examples/)                 | Config templates (GitHub, Linear, multi-project, auto-merge) |
+| [CLAUDE.md](CLAUDE.md)                | Architecture, conventions, plugin pattern                    |
+| [Troubleshooting](TROUBLESHOOTING.md) | Common issues and fixes                                      |
 
 ## Contributing
 

@@ -392,6 +392,28 @@ See [CLAUDE.md](./CLAUDE.md) for plugin development guidelines.
 
 ## Troubleshooting
 
+### Run `ao doctor`
+
+Use the built-in doctor before debugging a broken install by hand:
+
+```bash
+ao doctor
+ao doctor --fix
+```
+
+`ao doctor` reports deterministic PASS/WARN/FAIL checks for PATH and launcher resolution, required binaries, tmux and GitHub CLI health, stale AO temp files, config support directories, and core build/runtime sanity. `--fix` only applies safe fixes such as creating missing AO support directories, refreshing the local launcher link, and removing stale AO temp files.
+
+### Run `ao update`
+
+When you installed AO from this repository and want to refresh that local install:
+
+```bash
+git switch main
+ao update
+```
+
+`ao update` is intentionally conservative: it requires a clean working tree on `main`, fast-forwards from `origin/main`, reinstalls dependencies, clean-rebuilds the critical core/CLI/web packages, refreshes the launcher with `npm link`, and runs CLI smoke tests. Use `ao update --skip-smoke` to stop after rebuild, or `ao update --smoke-only` to rerun just the smoke checks.
+
 ### "No agent-orchestrator.yaml found"
 
 **Problem:** The orchestrator can't find your config file.
