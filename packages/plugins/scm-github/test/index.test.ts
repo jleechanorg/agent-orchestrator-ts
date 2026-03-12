@@ -908,6 +908,51 @@ describe("scm-github plugin", () => {
   // ---- getAutomatedComments ----------------------------------------------
 
   describe("getAutomatedComments", () => {
+    it("uses explicit GET query for pulls comments and paginates", async () => {
+      const page1 = Array.from({ length: 100 }, (_, i) => ({
+        id: i + 1,
+        user: { login: "cursor[bot]" },
+        body: "Potential issue detected",
+        path: "a.ts",
+        line: i + 1,
+        original_line: null,
+        created_at: "2025-01-01T00:00:00Z",
+        html_url: `u${i + 1}`,
+      }));
+
+      const page2 = [
+        {
+          id: 101,
+          user: { login: "cursor[bot]" },
+          body: "Warning: check this",
+          path: "b.ts",
+          line: 7,
+          original_line: null,
+          created_at: "2025-01-01T00:00:00Z",
+          html_url: "u101",
+        },
+      ];
+
+      mockGh(page1);
+      mockGh(page2);
+
+      const comments = await scm.getAutomatedComments(pr);
+
+      expect(comments).toHaveLength(101);
+      expect(ghMock).toHaveBeenNthCalledWith(
+        1,
+        "gh",
+        ["api", "--method", "GET", "repos/acme/repo/pulls/42/comments?per_page=100&page=1"],
+        expect.any(Object),
+      );
+      expect(ghMock).toHaveBeenNthCalledWith(
+        2,
+        "gh",
+        ["api", "--method", "GET", "repos/acme/repo/pulls/42/comments?per_page=100&page=2"],
+        expect.any(Object),
+      );
+    });
+
     it("returns bot comments filtered from all PR comments", async () => {
       mockGh([
         {

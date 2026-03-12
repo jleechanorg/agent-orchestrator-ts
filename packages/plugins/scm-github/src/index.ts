@@ -860,14 +860,7 @@ function createGitHubSCM(): SCM {
 
     async getAutomatedComments(pr: PRInfo): Promise<AutomatedComment[]> {
       try {
-        // Fetch all review comments with max page size (100 is GitHub's limit)
-        const raw = await gh([
-          "api",
-          "-F",
-          "per_page=100",
-          `repos/${repoFlag(pr)}/pulls/${pr.number}/comments`,
-        ]);
-
+        const perPage = 100;
         const comments: Array<{
           id: number;
           user: { login: string };
@@ -877,7 +870,35 @@ function createGitHubSCM(): SCM {
           original_line: number | null;
           created_at: string;
           html_url: string;
-        }> = JSON.parse(raw);
+        }> = [];
+
+        for (let page = 1; ; page++) {
+          const raw = await gh([
+            "api",
+            "--method",
+            "GET",
+            `repos/${repoFlag(pr)}/pulls/${pr.number}/comments?per_page=${perPage}&page=${page}`,
+          ]);
+          const pageComments: Array<{
+            id: number;
+            user: { login: string };
+            body: string;
+            path: string;
+            line: number | null;
+            original_line: number | null;
+            created_at: string;
+            html_url: string;
+          }> = JSON.parse(raw);
+
+          if (pageComments.length === 0) {
+            break;
+          }
+
+          comments.push(...pageComments);
+          if (pageComments.length < perPage) {
+            break;
+          }
+        }
 
         return comments
           .filter((c) => BOT_AUTHORS.has(c.user?.login ?? ""))
