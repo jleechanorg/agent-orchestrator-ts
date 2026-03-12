@@ -191,20 +191,21 @@ pnpm test                      # Run tests (3,288 test cases)
 pnpm dev                       # Start web dashboard dev server
 ```
 
-See [CLAUDE.md](CLAUDE.md) for code conventions and architecture details.
+See [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) for code conventions and architecture details.
 
 ## Documentation
 
-| Doc                                   | What it covers                                               |
-| ------------------------------------- | ------------------------------------------------------------ |
-| [Setup Guide](SETUP.md)               | Detailed installation and configuration                      |
-| [Examples](examples/)                 | Config templates (GitHub, Linear, multi-project, auto-merge) |
-| [CLAUDE.md](CLAUDE.md)                | Architecture, conventions, plugin pattern                    |
-| [Troubleshooting](TROUBLESHOOTING.md) | Common issues and fixes                                      |
+| Doc                                      | What it covers                                               |
+| ---------------------------------------- | ------------------------------------------------------------ |
+| [Setup Guide](SETUP.md)                  | Detailed installation and configuration                      |
+| [Examples](examples/)                    | Config templates (GitHub, Linear, multi-project, auto-merge) |
+| [Development Guide](docs/DEVELOPMENT.md) | Architecture, conventions, plugin pattern                    |
+| [Contributing](CONTRIBUTING.md)          | How to contribute, build plugins, PR process                 |
+| [Troubleshooting](TROUBLESHOOTING.md)    | Common issues and fixes                                      |
 
 ## Contributing
 
-Contributions welcome. The plugin system makes it straightforward to add support for new agents, runtimes, trackers, and notification channels. Every plugin is an implementation of a TypeScript interface — see [CLAUDE.md](CLAUDE.md) for the pattern.
+Contributions welcome. The plugin system makes it straightforward to add support for new agents, runtimes, trackers, and notification channels. Every plugin is an implementation of a TypeScript interface — see [CONTRIBUTING.md](CONTRIBUTING.md) and the [Development Guide](docs/DEVELOPMENT.md) for the pattern.
 
 ## License
 

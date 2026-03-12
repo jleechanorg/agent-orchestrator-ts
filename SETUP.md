@@ -388,7 +388,7 @@ To add a custom tracker (Jira, Asana, etc.), create a plugin:
 2. Implement the `Tracker` interface from `@composio/ao-core`
 3. Register your plugin in the config
 
-See [CLAUDE.md](./CLAUDE.md) for plugin development guidelines.
+See [Development Guide](./docs/DEVELOPMENT.md) for plugin development guidelines.
 
 ## Troubleshooting
 
@@ -637,7 +637,7 @@ Create custom plugins for:
 - Different trackers (Jira, Asana, custom systems)
 - Different notifiers (email, webhooks, custom integrations)
 
-See [CLAUDE.md](./CLAUDE.md) for plugin development guidelines.
+See [Development Guide](./docs/DEVELOPMENT.md) for plugin development guidelines.
 
 ### Docker Runtime
 
@@ -836,7 +836,7 @@ Useful for:
 1. **Run `ao init`** - Create your first config
 2. **Spawn an agent** - `ao spawn my-app ISSUE-123`
 3. **Monitor progress** - `ao status` or dashboard
-4. **Read [CLAUDE.md](./CLAUDE.md)** - Code conventions and architecture
+4. **Read [Development Guide](./docs/DEVELOPMENT.md)** - Code conventions and architecture
 5. **Explore examples** - See [examples/](./examples/) for more configs
 6. **Join the community** - Report issues, share configs, contribute plugins
 
