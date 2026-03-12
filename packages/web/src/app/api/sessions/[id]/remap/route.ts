@@ -1,27 +1,95 @@
-import { type NextRequest, NextResponse } from "next/server";
+import { type NextRequest } from "next/server";
 import { validateIdentifier } from "@/lib/validation";
 import { getServices } from "@/lib/services";
 import { SessionNotFoundError } from "@composio/ao-core";
+import {
+  getCorrelationId,
+  jsonWithCorrelation,
+  recordApiObservation,
+  resolveProjectIdForSessionId,
+} from "@/lib/observability";
 
-export async function POST(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const correlationId = getCorrelationId(request);
+  const startedAt = Date.now();
   const { id } = await params;
   const idErr = validateIdentifier(id, "id");
   if (idErr) {
-    return NextResponse.json({ error: idErr }, { status: 400 });
+    return jsonWithCorrelation({ error: idErr }, { status: 400 }, correlationId);
   }
 
   try {
-    const { sessionManager } = await getServices();
+    const { config, sessionManager } = await getServices();
+    const projectId = resolveProjectIdForSessionId(config, id);
     const opencodeSessionId = await sessionManager.remap(id, true);
-    return NextResponse.json({ ok: true, sessionId: id, opencodeSessionId });
+    recordApiObservation({
+      config,
+      method: "POST",
+      path: "/api/sessions/[id]/remap",
+      correlationId,
+      startedAt,
+      outcome: "success",
+      statusCode: 200,
+      projectId,
+      sessionId: id,
+    });
+    return jsonWithCorrelation(
+      { ok: true, sessionId: id, opencodeSessionId },
+      { status: 200 },
+      correlationId,
+    );
   } catch (err) {
+    const { config } = await getServices().catch(() => ({ config: undefined }));
+    const projectId = config ? resolveProjectIdForSessionId(config, id) : undefined;
     if (err instanceof SessionNotFoundError) {
-      return NextResponse.json({ error: err.message }, { status: 404 });
+      if (config) {
+        recordApiObservation({
+          config,
+          method: "POST",
+          path: "/api/sessions/[id]/remap",
+          correlationId,
+          startedAt,
+          outcome: "failure",
+          statusCode: 404,
+          projectId,
+          sessionId: id,
+          reason: err.message,
+        });
+      }
+      return jsonWithCorrelation({ error: err.message }, { status: 404 }, correlationId);
     }
     const msg = err instanceof Error ? err.message : "Failed to remap session";
     if (msg.includes("not using the opencode agent") || msg.includes("mapping is missing")) {
-      return NextResponse.json({ error: msg }, { status: 422 });
+      if (config) {
+        recordApiObservation({
+          config,
+          method: "POST",
+          path: "/api/sessions/[id]/remap",
+          correlationId,
+          startedAt,
+          outcome: "failure",
+          statusCode: 422,
+          projectId,
+          sessionId: id,
+          reason: msg,
+        });
+      }
+      return jsonWithCorrelation({ error: msg }, { status: 422 }, correlationId);
     }
-    return NextResponse.json({ error: msg }, { status: 500 });
+    if (config) {
+      recordApiObservation({
+        config,
+        method: "POST",
+        path: "/api/sessions/[id]/remap",
+        correlationId,
+        startedAt,
+        outcome: "failure",
+        statusCode: 500,
+        projectId,
+        sessionId: id,
+        reason: msg,
+      });
+    }
+    return jsonWithCorrelation({ error: msg }, { status: 500 }, correlationId);
   }
 }

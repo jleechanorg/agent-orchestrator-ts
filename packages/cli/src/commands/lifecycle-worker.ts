@@ -1,6 +1,6 @@
 import type { Command } from "commander";
 import chalk from "chalk";
-import { loadConfig } from "@composio/ao-core";
+import { createCorrelationId, createProjectObserver, loadConfig } from "@composio/ao-core";
 import { getLifecycleManager } from "../lib/create-session-manager.js";
 import {
   clearLifecycleWorkerPid,
@@ -21,7 +21,16 @@ export function registerLifecycleWorker(program: Command): void {
     .option("--interval-ms <ms>", "Polling interval in milliseconds", "30000")
     .action(async (projectId: string, opts: { intervalMs?: string }) => {
       const config = loadConfig();
+      const observer = createProjectObserver(config, "lifecycle-worker");
       if (!config.projects[projectId]) {
+        observer.setHealth({
+          surface: "lifecycle.worker",
+          status: "error",
+          projectId,
+          correlationId: createCorrelationId("lifecycle-worker"),
+          reason: `Unknown project: ${projectId}`,
+          details: { projectId },
+        });
         console.error(chalk.red(`Unknown project: ${projectId}`));
         process.exit(1);
       }
@@ -30,9 +39,14 @@ export function registerLifecycleWorker(program: Command): void {
       if (existing.running && existing.pid !== process.pid) {
         // Another lifecycle worker is already running for this project — exit
         // silently to avoid duplicate polling loops.
-        console.log(
-          `[ao lifecycle] Worker already running for ${projectId} (pid=${existing.pid}), exiting.`,
-        );
+        observer.setHealth({
+          surface: "lifecycle.worker",
+          status: "warn",
+          projectId,
+          correlationId: createCorrelationId("lifecycle-worker"),
+          reason: `Worker already running with pid ${existing.pid}`,
+          details: { projectId, pid: existing.pid },
+        });
         return;
       }
 
@@ -47,6 +61,14 @@ export function registerLifecycleWorker(program: Command): void {
         if (heartbeat) clearInterval(heartbeat);
         lifecycle.stop();
         clearLifecycleWorkerPid(config, projectId, process.pid);
+        observer.setHealth({
+          surface: "lifecycle.worker",
+          status: code === 0 ? "warn" : "error",
+          projectId,
+          correlationId: createCorrelationId("lifecycle-worker"),
+          reason: code === 0 ? "Worker stopped" : "Worker exited unexpectedly",
+          details: { projectId, pid: process.pid, exitCode: code },
+        });
         // Flush stdout/stderr before exiting so crash messages reach the log file
         const done = (): void => process.exit(code);
         if (process.stdout.writableFinished && process.stderr.writableFinished) {
@@ -67,22 +89,48 @@ export function registerLifecycleWorker(program: Command): void {
       process.on("SIGINT", () => shutdown(0));
       process.on("SIGTERM", () => shutdown(0));
       process.on("uncaughtException", (err) => {
-        console.error(`[ao lifecycle] Worker crashed for ${projectId}:`, err);
+        observer.recordOperation({
+          metric: "lifecycle_poll",
+          operation: "lifecycle.worker_crash",
+          outcome: "failure",
+          correlationId: createCorrelationId("lifecycle-worker"),
+          projectId,
+          reason: err instanceof Error ? err.message : String(err),
+          level: "error",
+        });
         shutdown(1);
       });
       process.on("unhandledRejection", (reason) => {
-        console.error(`[ao lifecycle] Worker crashed for ${projectId}:`, reason);
+        observer.recordOperation({
+          metric: "lifecycle_poll",
+          operation: "lifecycle.worker_rejection",
+          outcome: "failure",
+          correlationId: createCorrelationId("lifecycle-worker"),
+          projectId,
+          reason: reason instanceof Error ? reason.message : String(reason),
+          level: "error",
+        });
         shutdown(1);
       });
 
       writeLifecycleWorkerPid(config, projectId, process.pid);
-      console.log(
-        `[ao lifecycle] Started for ${projectId} (pid=${process.pid}, interval=${intervalMs}ms)`,
-      );
+      observer.setHealth({
+        surface: "lifecycle.worker",
+        status: "ok",
+        projectId,
+        correlationId: createCorrelationId("lifecycle-worker"),
+        details: { projectId, pid: process.pid, intervalMs },
+      });
 
       // Periodic heartbeat so we can verify the worker is alive from the log
       heartbeat = setInterval(() => {
-        console.log(`[ao lifecycle] Heartbeat for ${projectId} (pid=${process.pid})`);
+        observer.setHealth({
+          surface: "lifecycle.worker",
+          status: "ok",
+          projectId,
+          correlationId: createCorrelationId("lifecycle-worker"),
+          details: { projectId, pid: process.pid, intervalMs, heartbeat: true },
+        });
       }, 5 * 60_000); // every 5 minutes
       heartbeat.unref();
 

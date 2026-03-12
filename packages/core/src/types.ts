@@ -1167,6 +1167,7 @@ export interface OpenCodeSessionManager extends SessionManager {
 
 export interface ClaimPROptions {
   assignOnGithub?: boolean;
+  takeover?: boolean;
 }
 
 export interface ClaimPRResult {

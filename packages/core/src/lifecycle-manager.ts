@@ -32,16 +32,10 @@ import {
   type Session,
   type EventPriority,
   type ProjectConfig as _ProjectConfig,
-  isOrchestratorSession,
 } from "./types.js";
 import { updateMetadata } from "./metadata.js";
 import { getSessionsDir } from "./paths.js";
-import {
-  GLOBAL_PAUSE_UNTIL_KEY,
-  GLOBAL_PAUSE_REASON_KEY,
-  GLOBAL_PAUSE_SOURCE_KEY,
-  parsePauseUntil,
-} from "./global-pause.js";
+import { createCorrelationId, createProjectObserver } from "./observability.js";
 
 /** Parse a duration string like "10m", "30s", "1h" to milliseconds. */
 function parseDuration(str: string): number {
@@ -58,41 +52,6 @@ function parseDuration(str: string): number {
     default:
       return 0;
   }
-}
-
-function parseRateLimitReset(output: string): Date | null {
-  if (!/usage\s+limit\s+reached/i.test(output)) return null;
-
-  const resetMatch = output.match(
-    /limit\s+will\s+reset\s+at\s+(\d{4}-\d{2}-\d{2})\s+(\d{1,2}):(\d{1,2})/i,
-  );
-  if (resetMatch) {
-    const [year, month, day] = resetMatch[1].split("-").map((part) => Number.parseInt(part, 10));
-    const hour = Number.parseInt(resetMatch[2], 10);
-    const minute = Number.parseInt(resetMatch[3], 10);
-    if (
-      Number.isFinite(year) &&
-      Number.isFinite(month) &&
-      Number.isFinite(day) &&
-      Number.isFinite(hour) &&
-      Number.isFinite(minute)
-    ) {
-      const parsed = new Date(Date.UTC(year, month - 1, day, hour, minute, 0));
-      if (!Number.isNaN(parsed.getTime())) {
-        return parsed;
-      }
-    }
-  }
-
-  const durationMatch = output.match(
-    /usage\s+limit\s+reached\s+for\s+(\d+)\s*(hour|hours|hr|h|minute|minutes|min|m)/i,
-  );
-  if (!durationMatch) return null;
-  const value = Number.parseInt(durationMatch[1], 10);
-  if (!Number.isFinite(value) || value <= 0) return null;
-  const unit = durationMatch[2].toLowerCase();
-  const millis = unit.startsWith("h") ? value * 3_600_000 : value * 60_000;
-  return new Date(Date.now() + millis);
 }
 
 /** Infer a reasonable priority from event type. */
@@ -161,8 +120,6 @@ function statusToEventType(_from: SessionStatus | undefined, to: SessionStatus):
       return "merge.completed";
     case "needs_input":
       return "session.needs_input";
-    case "idle":
-      return "session.idle";
     case "stuck":
       return "session.stuck";
     case "errored":
@@ -187,8 +144,6 @@ function eventToReactionKey(eventType: EventType): string | null {
       return "merge-conflicts";
     case "merge.ready":
       return "approved-and-green";
-    case "session.idle":
-      return "agent-idle";
     case "session.stuck":
       return "agent-stuck";
     case "session.needs_input":
@@ -200,6 +155,21 @@ function eventToReactionKey(eventType: EventType): string | null {
     default:
       return null;
   }
+}
+
+function transitionLogLevel(status: SessionStatus): "info" | "warn" | "error" {
+  const eventType = statusToEventType(undefined, status);
+  if (!eventType) {
+    return "info";
+  }
+  const priority = inferPriority(eventType);
+  if (priority === "urgent") {
+    return "error";
+  }
+  if (priority === "warning") {
+    return "warn";
+  }
+  return "info";
 }
 
 export interface LifecycleManagerDeps {
@@ -219,80 +189,13 @@ interface ReactionTracker {
 /** Create a LifecycleManager instance. */
 export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleManager {
   const { config, registry, sessionManager, projectId: scopedProjectId } = deps;
+  const observer = createProjectObserver(config, "lifecycle-manager");
 
   const states = new Map<SessionId, SessionStatus>();
   const reactionTrackers = new Map<string, ReactionTracker>(); // "sessionId:reactionKey"
   let pollTimer: ReturnType<typeof setInterval> | null = null;
   let polling = false; // re-entrancy guard
   let allCompleteEmitted = false; // guard against repeated all_complete
-
-  function setProjectPause(project: _ProjectConfig, sourceSessionId: string, until: Date): void {
-    const sessionsDir = getSessionsDir(config.configPath, project.path);
-    const orchestratorId = `${project.sessionPrefix}-orchestrator`;
-    const message = `Model rate limit detected from ${sourceSessionId}`;
-    updateMetadata(sessionsDir, orchestratorId, {
-      [GLOBAL_PAUSE_UNTIL_KEY]: until.toISOString(),
-      [GLOBAL_PAUSE_REASON_KEY]: message,
-      [GLOBAL_PAUSE_SOURCE_KEY]: sourceSessionId,
-    });
-  }
-
-  function clearProjectPause(project: _ProjectConfig): void {
-    const sessionsDir = getSessionsDir(config.configPath, project.path);
-    const orchestratorId = `${project.sessionPrefix}-orchestrator`;
-    updateMetadata(sessionsDir, orchestratorId, {
-      [GLOBAL_PAUSE_UNTIL_KEY]: "",
-      [GLOBAL_PAUSE_REASON_KEY]: "",
-      [GLOBAL_PAUSE_SOURCE_KEY]: "",
-    });
-  }
-
-  async function detectAndApplyRateLimitPause(
-    session: Session,
-    project: _ProjectConfig,
-    runtime: Runtime,
-  ): Promise<void> {
-    if (!session.runtimeHandle) return;
-    try {
-      const output = await runtime.getOutput(session.runtimeHandle, 60);
-      if (!output) return;
-      const resetAt = parseRateLimitReset(output);
-      if (!resetAt) return;
-      if (resetAt.getTime() <= Date.now()) return;
-
-      // Check if there's already an active pause from this session
-      // to prevent infinite re-pause loops with duration-based rate limits
-      const orchestratorId = `${project.sessionPrefix}-orchestrator`;
-      const orchestratorSession = await sessionManager.get(orchestratorId);
-      if (orchestratorSession) {
-        const existingUntil = parsePauseUntil(orchestratorSession.metadata[GLOBAL_PAUSE_UNTIL_KEY]);
-        const existingSource = orchestratorSession.metadata[GLOBAL_PAUSE_SOURCE_KEY];
-
-        // If there's an active pause from the same session, don't override
-        // This prevents extending duration-based pauses on every poll cycle
-        if (
-          existingUntil &&
-          existingUntil.getTime() > Date.now() &&
-          existingSource === session.id
-        ) {
-          return;
-        }
-
-        // If there's a longer pause already active from another session, keep it
-        if (
-          existingUntil &&
-          existingUntil.getTime() > Date.now() &&
-          existingUntil.getTime() >= resetAt.getTime()
-        ) {
-          return;
-        }
-      }
-
-      setProjectPause(project, session.id, resetAt);
-    } catch {
-      return;
-    }
-  }
 
   /** Determine current status for a session by polling plugins. */
   async function determineStatus(session: Session): Promise<SessionStatus> {
@@ -303,16 +206,13 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     const agent = registry.get<Agent>("agent", agentName);
     const scm = project.scm ? registry.get<SCM>("scm", project.scm.plugin) : null;
 
-    const runtime = session.runtimeHandle
-      ? registry.get<Runtime>("runtime", project.runtime ?? config.defaults.runtime)
-      : null;
-
     // 1. Check if runtime is alive
-    if (session.runtimeHandle && runtime) {
-      const alive = await runtime.isAlive(session.runtimeHandle).catch(() => true);
-      if (!alive) return "killed";
-
-      await detectAndApplyRateLimitPause(session, project, runtime);
+    if (session.runtimeHandle) {
+      const runtime = registry.get<Runtime>("runtime", project.runtime ?? config.defaults.runtime);
+      if (runtime) {
+        const alive = await runtime.isAlive(session.runtimeHandle).catch(() => true);
+        if (!alive) return "killed";
+      }
     }
 
     // 2. Check agent activity — prefer JSONL-based detection (runtime-agnostic)
@@ -323,8 +223,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         if (activityState) {
           if (activityState.state === "waiting_input") return "needs_input";
           if (activityState.state === "exited") return "killed";
-          if (activityState.state === "idle") return "idle";
-          // active/ready/blocked — proceed to PR checks below
+          // active/ready/idle/blocked — proceed to PR checks below
         } else {
           // getActivityState returned null — fall back to terminal output parsing
           const runtime = registry.get<Runtime>(
@@ -411,7 +310,6 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     // 5. Default: if agent is active, it's working
     if (
       session.status === "spawning" ||
-      session.status === "idle" ||
       session.status === SESSION_STATUS.STUCK ||
       session.status === SESSION_STATUS.NEEDS_INPUT
     ) {
@@ -635,11 +533,6 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
 
     // --- Pending (human) review comments ---
     // null = SCM fetch failed; skip processing to preserve existing metadata.
-    if (pendingComments === null) {
-      console.debug(
-        `[ao lifecycle] Pending comments fetch failed for ${session.id}, preserving existing metadata`,
-      );
-    }
     if (pendingComments !== null) {
       const pendingFingerprint = makeFingerprint(pendingComments.map((comment) => comment.id));
       const lastPendingFingerprint = session.metadata["lastPendingReviewFingerprint"] ?? "";
@@ -701,11 +594,6 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     }
 
     // --- Automated (bot) review comments ---
-    if (automatedComments === null) {
-      console.debug(
-        `[ao lifecycle] Automated comments fetch failed for ${session.id}, preserving existing metadata`,
-      );
-    }
     if (automatedComments !== null) {
       const automatedFingerprint = makeFingerprint(automatedComments.map((comment) => comment.id));
       const lastAutomatedFingerprint = session.metadata["lastAutomatedReviewFingerprint"] ?? "";
@@ -778,9 +666,20 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     let transitionReaction: { key: string; result: ReactionResult | null } | undefined;
 
     if (newStatus !== oldStatus) {
+      const correlationId = createCorrelationId("lifecycle-transition");
       // State transition detected
       states.set(session.id, newStatus);
       updateSessionMetadata(session, { status: newStatus });
+      observer.recordOperation({
+        metric: "lifecycle_poll",
+        operation: "lifecycle.transition",
+        outcome: "success",
+        correlationId,
+        projectId: session.projectId,
+        sessionId: session.id,
+        data: { oldStatus, newStatus },
+        level: transitionLogLevel(newStatus),
+      });
 
       // Reset allCompleteEmitted when any session becomes active again
       if (newStatus !== "merged" && newStatus !== "killed") {
@@ -848,6 +747,8 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
 
   /** Run one polling cycle across all sessions. */
   async function pollAll(): Promise<void> {
+    const correlationId = createCorrelationId("lifecycle-poll");
+    const startedAt = Date.now();
     // Re-entrancy guard: skip if previous poll is still running
     if (polling) return;
     polling = true;
@@ -855,28 +756,10 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     try {
       const sessions = await sessionManager.list(scopedProjectId);
 
-      const pausedProjects = new Map<string, Date>();
-      for (const session of sessions) {
-        if (!isOrchestratorSession(session)) continue;
-        const until = parsePauseUntil(session.metadata[GLOBAL_PAUSE_UNTIL_KEY]);
-        if (!until) continue;
-        if (until.getTime() <= Date.now()) {
-          const project = config.projects[session.projectId];
-          if (project) {
-            clearProjectPause(project);
-          }
-          continue;
-        }
-        pausedProjects.set(session.projectId, until);
-      }
-
       // Include sessions that are active OR whose status changed from what we last saw
       // (e.g., list() detected a dead runtime and marked it "killed" — we need to
       // process that transition even though the new status is terminal)
       const sessionsToCheck = sessions.filter((s) => {
-        if (pausedProjects.has(s.projectId) && !isOrchestratorSession(s)) {
-          return false;
-        }
         if (s.status !== "merged" && s.status !== "killed") return true;
         const tracked = states.get(s.id);
         return tracked !== undefined && tracked !== s.status;
@@ -916,8 +799,49 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
           }
         }
       }
+      if (scopedProjectId) {
+        observer.recordOperation({
+          metric: "lifecycle_poll",
+          operation: "lifecycle.poll",
+          outcome: "success",
+          correlationId,
+          projectId: scopedProjectId,
+          durationMs: Date.now() - startedAt,
+          data: { sessionCount: sessions.length, activeSessionCount: activeSessions.length },
+          level: "info",
+        });
+        observer.setHealth({
+          surface: "lifecycle.worker",
+          status: "ok",
+          projectId: scopedProjectId,
+          correlationId,
+          details: {
+            projectId: scopedProjectId,
+            sessionCount: sessions.length,
+            activeSessionCount: activeSessions.length,
+          },
+        });
+      }
     } catch (err) {
-      console.error("[ao lifecycle] Poll cycle failed:", err);
+      const errorReason = err instanceof Error ? err.message : String(err);
+      observer.recordOperation({
+        metric: "lifecycle_poll",
+        operation: "lifecycle.poll",
+        outcome: "failure",
+        correlationId,
+        projectId: scopedProjectId,
+        durationMs: Date.now() - startedAt,
+        reason: errorReason,
+        level: "error",
+      });
+      observer.setHealth({
+        surface: "lifecycle.worker",
+        status: "error",
+        projectId: scopedProjectId,
+        correlationId,
+        reason: errorReason,
+        details: scopedProjectId ? { projectId: scopedProjectId } : { projectScope: "all" },
+      });
     } finally {
       polling = false;
     }

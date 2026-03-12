@@ -105,6 +105,18 @@ export { asValidOpenCodeSessionId } from "./opencode-session-id.js";
 export { normalizeOrchestratorSessionStrategy } from "./orchestrator-session-strategy.js";
 export type { NormalizedOrchestratorSessionStrategy } from "./orchestrator-session-strategy.js";
 
+export {
+  createCorrelationId,
+  createProjectObserver,
+  readObservabilitySummary,
+} from "./observability.js";
+export type {
+  ObservabilityMetricName,
+  ObservabilityHealthStatus,
+  ObservabilitySummary,
+  ProjectObserver,
+} from "./observability.js";
+
 // Feedback tools — contracts, validation, and report storage
 export {
   FEEDBACK_TOOL_NAMES,
@@ -134,6 +146,7 @@ export {
   getSessionsDir,
   getWorktreesDir,
   getFeedbackReportsDir,
+  getObservabilityBaseDir,
   getArchiveDir,
   getOriginFilePath,
   generateSessionName,

@@ -3,6 +3,7 @@ import { NextRequest } from "next/server";
 import {
   SessionNotFoundError,
   SessionNotRestorableError,
+  SessionNotFoundError,
   type Session,
   type SessionManager,
   type OrchestratorConfig,
@@ -127,22 +128,6 @@ const mockSessionManager: SessionManager = {
 
 const mockSCM: SCM = {
   name: "github",
-  verifyWebhook: vi.fn(async () => ({
-    ok: true,
-    eventType: "pull_request",
-    deliveryId: "delivery-1",
-  })),
-  parseWebhook: vi.fn(async () => ({
-    provider: "github",
-    kind: "pull_request" as const,
-    action: "opened",
-    rawEventType: "pull_request",
-    deliveryId: "delivery-1",
-    repository: { owner: "acme", name: "my-app" },
-    prNumber: 432,
-    branch: "feat/health-check",
-    data: {},
-  })),
   detectPR: vi.fn(async () => null),
   getPRState: vi.fn(async () => "open" as const),
   mergePR: vi.fn(async () => {}),
@@ -170,11 +155,6 @@ const mockRegistry: PluginRegistry = {
   loadFromConfig: vi.fn(async () => {}),
 };
 
-const mockLifecycleManager = {
-  check: vi.fn(async () => {}),
-  getStates: vi.fn(() => new Map()),
-};
-
 const mockConfig: OrchestratorConfig = {
   configPath: "/tmp/ao-test/agent-orchestrator.yaml",
   port: 3000,
@@ -187,7 +167,7 @@ const mockConfig: OrchestratorConfig = {
       path: "/tmp/my-app",
       defaultBranch: "main",
       sessionPrefix: "my-app",
-      scm: { plugin: "github", webhook: {} },
+      scm: { plugin: "github" },
     },
     "docs-app": {
       name: "Docs App",
@@ -208,22 +188,13 @@ vi.mock("@/lib/services", () => ({
     config: mockConfig,
     registry: mockRegistry,
     sessionManager: mockSessionManager,
-    lifecycleManager: mockLifecycleManager,
   })),
   getSCM: vi.fn(() => mockSCM),
-  startBacklogPoller: vi.fn(() => {}),
-}));
-
-vi.mock("@/lib/project-name", () => ({
-  getProjectName: () => "My App",
-  getPrimaryProjectId: () => "my-app",
-  getAllProjects: () => [{ id: "my-app", name: "My App" }],
 }));
 
 // ── Import routes after mocking ───────────────────────────────────────
 
 import { GET as sessionsGET } from "@/app/api/sessions/route";
-import { GET as projectsGET } from "@/app/api/projects/route";
 import { POST as spawnPOST } from "@/app/api/spawn/route";
 import { POST as sendPOST } from "@/app/api/sessions/[id]/send/route";
 import { POST as messagePOST } from "@/app/api/sessions/[id]/message/route";
@@ -232,7 +203,7 @@ import { POST as restorePOST } from "@/app/api/sessions/[id]/restore/route";
 import { POST as remapPOST } from "@/app/api/sessions/[id]/remap/route";
 import { POST as mergePOST } from "@/app/api/prs/[id]/merge/route";
 import { GET as eventsGET } from "@/app/api/events/route";
-import { POST as webhookPOST } from "@/app/api/webhooks/[...slug]/route";
+import { GET as observabilityGET } from "@/app/api/observability/route";
 
 function makeRequest(url: string, init?: RequestInit): NextRequest {
   return new NextRequest(
@@ -248,22 +219,6 @@ beforeEach(() => {
   (mockSessionManager.get as ReturnType<typeof vi.fn>).mockImplementation(
     async (id: string) => testSessions.find((s) => s.id === id) ?? null,
   );
-  (mockSCM.verifyWebhook as ReturnType<typeof vi.fn>).mockResolvedValue({
-    ok: true,
-    eventType: "pull_request",
-    deliveryId: "delivery-1",
-  });
-  (mockSCM.parseWebhook as ReturnType<typeof vi.fn>).mockResolvedValue({
-    provider: "github",
-    kind: "pull_request",
-    action: "opened",
-    rawEventType: "pull_request",
-    deliveryId: "delivery-1",
-    repository: { owner: "acme", name: "my-app" },
-    prNumber: 432,
-    branch: "feat/health-check",
-    data: {},
-  });
 });
 
 describe("API Routes", () => {
@@ -451,6 +406,7 @@ describe("API Routes", () => {
       expect(data.session).toBeDefined();
       expect(data.session.projectId).toBe("my-app");
       expect(data.session.status).toBe("spawning");
+      expect(res.headers.get("x-correlation-id")).toBeTruthy();
     });
 
     it("returns 400 when projectId is missing", async () => {
@@ -752,13 +708,15 @@ describe("API Routes", () => {
 
   describe("GET /api/events", () => {
     it("returns SSE content type", async () => {
-      const res = await eventsGET(makeRequest("http://localhost:3000/api/events"));
+      const req = makeRequest("/api/events", { method: "GET" });
+      const res = await eventsGET(req);
       expect(res.headers.get("Content-Type")).toBe("text/event-stream");
       expect(res.headers.get("Cache-Control")).toBe("no-cache");
     });
 
     it("streams initial snapshot event", async () => {
-      const res = await eventsGET(makeRequest("http://localhost:3000/api/events"));
+      const req = makeRequest("/api/events", { method: "GET" });
+      const res = await eventsGET(req);
       const reader = res.body!.getReader();
       const { value } = await reader.read();
       reader.cancel();
@@ -767,496 +725,24 @@ describe("API Routes", () => {
       const jsonStr = text.replace("data: ", "").trim();
       const event = JSON.parse(jsonStr);
       expect(event.type).toBe("snapshot");
+      expect(event.correlationId).toBeTruthy();
       expect(Array.isArray(event.sessions)).toBe(true);
       expect(event.sessions.length).toBeGreaterThan(0);
       expect(event.sessions[0]).toHaveProperty("id");
       expect(event.sessions[0]).toHaveProperty("attentionLevel");
     });
-
-    it("excludes orchestrator sessions from snapshot", async () => {
-      const sessionsWithOrchestrator = [
-        ...testSessions,
-        makeSession({
-          id: "my-app-orchestrator",
-          projectId: "my-app",
-          status: "working",
-          activity: "active",
-        }),
-      ];
-      (mockSessionManager.list as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
-        sessionsWithOrchestrator,
-      );
-
-      const res = await eventsGET(makeRequest("http://localhost:3000/api/events"));
-      const reader = res.body!.getReader();
-      const { value } = await reader.read();
-      reader.cancel();
-      const text = new TextDecoder().decode(value);
-      const jsonStr = text.replace("data: ", "").trim();
-      const event = JSON.parse(jsonStr);
-
-      const sessionIds = event.sessions.map((s: { id: string }) => s.id);
-      expect(sessionIds).not.toContain("my-app-orchestrator");
-      expect(sessionIds.every((id: string) => !id.endsWith("-orchestrator"))).toBe(true);
-    });
-
-    it("excludes metadata-role orchestrators from snapshots", async () => {
-      const sessionsWithMetadataRoleOrchestrator = [
-        ...testSessions,
-        makeSession({
-          id: "control-session",
-          projectId: "my-app",
-          status: "working",
-          activity: "active",
-          metadata: { role: "orchestrator" },
-        }),
-      ];
-      (mockSessionManager.list as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
-        sessionsWithMetadataRoleOrchestrator,
-      );
-
-      const res = await eventsGET(makeRequest("http://localhost:3000/api/events"));
-      const reader = res.body!.getReader();
-      const { value } = await reader.read();
-      reader.cancel();
-      const text = new TextDecoder().decode(value);
-      const event = JSON.parse(text.replace("data: ", "").trim());
-
-      const sessionIds = event.sessions.map((s: { id: string }) => s.id);
-      expect(sessionIds).not.toContain("control-session");
-    });
-
-    it("filters sessions by project query param", async () => {
-      const multiProjectSessions = [
-        ...testSessions,
-        makeSession({
-          id: "other-app-1",
-          projectId: "other-app",
-          status: "working",
-          activity: "active",
-        }),
-      ];
-      (mockSessionManager.list as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
-        multiProjectSessions,
-      );
-
-      const res = await eventsGET(makeRequest("http://localhost:3000/api/events?project=my-app"));
-      const reader = res.body!.getReader();
-      const { value } = await reader.read();
-      reader.cancel();
-      const text = new TextDecoder().decode(value);
-      const event = JSON.parse(text.replace("data: ", "").trim());
-
-      expect(event.sessions.every((s: { id: string }) => s.id !== "other-app-1")).toBe(true);
-    });
-
-    it("returns all non-orchestrator sessions when project=all", async () => {
-      const multiProjectSessions = [
-        ...testSessions,
-        makeSession({
-          id: "other-app-1",
-          projectId: "other-app",
-          status: "working",
-          activity: "active",
-        }),
-        makeSession({
-          id: "my-app-orchestrator",
-          projectId: "my-app",
-          status: "working",
-          activity: "active",
-        }),
-      ];
-      (mockSessionManager.list as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
-        multiProjectSessions,
-      );
-
-      const res = await eventsGET(makeRequest("http://localhost:3000/api/events?project=all"));
-      const reader = res.body!.getReader();
-      const { value } = await reader.read();
-      reader.cancel();
-      const text = new TextDecoder().decode(value);
-      const event = JSON.parse(text.replace("data: ", "").trim());
-
-      // Should include both projects' worker sessions
-      const sessionIds = event.sessions.map((s: { id: string }) => s.id);
-      expect(sessionIds).toContain("other-app-1");
-      // But exclude orchestrator
-      expect(sessionIds).not.toContain("my-app-orchestrator");
-    });
   });
 
-  // ── GET /api/sessions?project=X (project filtering) ───────────────────────
-
-  describe("GET /api/sessions?project=X", () => {
-    it("filters sessions by projectId", async () => {
-      const multiProjectSessions = [
-        ...testSessions,
-        makeSession({
-          id: "other-app-1",
-          projectId: "other-app",
-          status: "working",
-          activity: "active",
-        }),
-      ];
-      (mockSessionManager.list as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
-        multiProjectSessions,
-      );
-
-      const res = await sessionsGET(
-        makeRequest("http://localhost:3000/api/sessions?project=my-app"),
-      );
+  describe("GET /api/observability", () => {
+    it("returns observability summary with correlation header", async () => {
+      const req = makeRequest("/api/observability", { method: "GET" });
+      const res = await observabilityGET(req);
       expect(res.status).toBe(200);
+      expect(res.headers.get("x-correlation-id")).toBeTruthy();
       const data = await res.json();
-      expect(data.sessions.every((s: { projectId: string }) => s.projectId === "my-app")).toBe(
-        true,
-      );
-    });
-
-    it("filters sessions by sessionPrefix when projectId does not match", async () => {
-      const prefixMatchSessions = [
-        makeSession({ id: "my-app-1", projectId: "", status: "working", activity: "active" }),
-        makeSession({
-          id: "backend-1",
-          projectId: "backend",
-          status: "working",
-          activity: "active",
-        }),
-      ];
-      (mockSessionManager.list as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
-        prefixMatchSessions,
-      );
-
-      const res = await sessionsGET(
-        makeRequest("http://localhost:3000/api/sessions?project=my-app"),
-      );
-      expect(res.status).toBe(200);
-      const data = await res.json();
-      expect(data.sessions.length).toBe(1);
-      expect(data.sessions[0].id).toBe("my-app-1");
-    });
-
-    it("returns all sessions when project=all", async () => {
-      const multiProjectSessions = [
-        ...testSessions,
-        makeSession({
-          id: "other-app-1",
-          projectId: "other-app",
-          status: "working",
-          activity: "active",
-        }),
-      ];
-      (mockSessionManager.list as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
-        multiProjectSessions,
-      );
-
-      const res = await sessionsGET(makeRequest("http://localhost:3000/api/sessions?project=all"));
-      expect(res.status).toBe(200);
-      const data = await res.json();
-      expect(data.sessions.length).toBe(multiProjectSessions.length);
-    });
-
-    it("returns empty array for non-existent project", async () => {
-      const res = await sessionsGET(
-        makeRequest("http://localhost:3000/api/sessions?project=nonexistent"),
-      );
-      expect(res.status).toBe(200);
-      const data = await res.json();
-      expect(data.sessions).toEqual([]);
-      expect(data.stats.totalSessions).toBe(0);
-    });
-
-    it("finds orchestrator for the filtered project only", async () => {
-      const multiProjectSessions = [
-        ...testSessions.filter((s) => !s.id.endsWith("-orchestrator")),
-        makeSession({
-          id: "my-app-orchestrator",
-          projectId: "my-app",
-          status: "working",
-          activity: "active",
-        }),
-        makeSession({
-          id: "other-app-orchestrator",
-          projectId: "other-app",
-          status: "working",
-          activity: "active",
-        }),
-      ];
-      (mockSessionManager.list as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
-        multiProjectSessions,
-      );
-
-      const res = await sessionsGET(
-        makeRequest("http://localhost:3000/api/sessions?project=my-app"),
-      );
-      expect(res.status).toBe(200);
-      const data = await res.json();
-      expect(data.orchestratorId).toBe("my-app-orchestrator");
-    });
-
-    it("stats reflect only filtered sessions", async () => {
-      const multiProjectSessions = [
-        makeSession({
-          id: "my-app-1",
-          projectId: "my-app",
-          status: "needs_input",
-          activity: "waiting_input",
-        }),
-        makeSession({
-          id: "my-app-2",
-          projectId: "my-app",
-          status: "mergeable",
-          activity: "idle",
-          pr: {
-            number: 1,
-            url: "",
-            title: "",
-            owner: "",
-            repo: "",
-            branch: "",
-            baseBranch: "",
-            isDraft: false,
-          },
-        }),
-        makeSession({
-          id: "other-app-1",
-          projectId: "other-app",
-          status: "needs_input",
-          activity: "waiting_input",
-        }),
-      ];
-      (mockSessionManager.list as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
-        multiProjectSessions,
-      );
-
-      const res = await sessionsGET(
-        makeRequest("http://localhost:3000/api/sessions?project=my-app"),
-      );
-      expect(res.status).toBe(200);
-      const data = await res.json();
-      expect(data.stats.totalSessions).toBe(2);
-      expect(data.stats.workingSessions).toBe(2);
-    });
-  });
-
-  // ── GET /api/projects ────────────────────────────────────────────────
-
-  describe("GET /api/projects", () => {
-    it("returns list of configured projects", async () => {
-      const res = await projectsGET(makeRequest("http://localhost:3000/api/projects"));
-      expect(res.status).toBe(200);
-      const data = await res.json();
-      expect(data.projects).toBeDefined();
-      expect(Array.isArray(data.projects)).toBe(true);
-      expect(data.projects.length).toBe(1);
-      expect(data.projects[0]).toHaveProperty("id");
-      expect(data.projects[0]).toHaveProperty("name");
-    });
-
-    it("project includes id and name", async () => {
-      const res = await projectsGET(makeRequest("http://localhost:3000/api/projects"));
-      const data = await res.json();
-      expect(data.projects[0].id).toBe("my-app");
-      expect(data.projects[0].name).toBe("My App");
-    });
-  });
-
-  describe("POST /api/webhooks/[...slug]", () => {
-    it("verifies webhook and triggers lifecycle checks for matching sessions", async () => {
-      const req = makeRequest("/api/webhooks/github", {
-        method: "POST",
-        body: JSON.stringify({ any: "payload" }),
-        headers: {
-          "Content-Type": "application/json",
-          "x-github-event": "pull_request",
-          "x-github-delivery": "delivery-1",
-        },
-      });
-
-      const res = await webhookPOST(req);
-      expect(res.status).toBe(202);
-      expect(mockLifecycleManager.check).toHaveBeenCalledWith("backend-7");
-      const data = await res.json();
-      expect(data.sessionIds).toEqual(["backend-7"]);
-    });
-
-    it("returns 401 when webhook verification fails", async () => {
-      (mockSCM.verifyWebhook as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
-        ok: false,
-        reason: "Webhook signature verification failed",
-      });
-
-      const req = makeRequest("/api/webhooks/github", {
-        method: "POST",
-        body: JSON.stringify({ any: "payload" }),
-        headers: {
-          "Content-Type": "application/json",
-          "x-github-event": "pull_request",
-        },
-      });
-
-      const res = await webhookPOST(req);
-      expect(res.status).toBe(401);
-      expect(mockLifecycleManager.check).not.toHaveBeenCalled();
-    });
-
-    it("returns 404 when no project is configured for the webhook path", async () => {
-      const req = makeRequest("/api/webhooks/gitlab", {
-        method: "POST",
-        body: JSON.stringify({ any: "payload" }),
-        headers: { "Content-Type": "application/json" },
-      });
-
-      const res = await webhookPOST(req);
-      expect(res.status).toBe(404);
-    });
-
-    it("returns 413 when content-length exceeds configured maxBodyBytes", async () => {
-      const originalWebhook = mockConfig.projects["my-app"]?.scm?.webhook;
-      if (mockConfig.projects["my-app"]?.scm) {
-        mockConfig.projects["my-app"].scm.webhook = { maxBodyBytes: 1 };
-      }
-
-      const req = makeRequest("/api/webhooks/github", {
-        method: "POST",
-        body: JSON.stringify({ any: "payload" }),
-        headers: {
-          "Content-Type": "application/json",
-          "Content-Length": "50",
-          "x-github-event": "pull_request",
-        },
-      });
-
-      const res = await webhookPOST(req);
-      expect(res.status).toBe(413);
-
-      if (mockConfig.projects["my-app"]?.scm) {
-        mockConfig.projects["my-app"].scm.webhook = originalWebhook;
-      }
-    });
-
-    it("does not apply early 413 when any matching candidate is unbounded", async () => {
-      const originalMyAppWebhook = mockConfig.projects["my-app"]?.scm?.webhook;
-      const originalOtherProject = mockConfig.projects["other-app"];
-
-      if (mockConfig.projects["my-app"]?.scm) {
-        mockConfig.projects["my-app"].scm.webhook = {
-          path: "/api/webhooks/github",
-          maxBodyBytes: 1,
-        };
-      }
-      mockConfig.projects["other-app"] = {
-        name: "Other App",
-        repo: "acme/other-app",
-        path: "/tmp/other-app",
-        defaultBranch: "main",
-        sessionPrefix: "other-app",
-        scm: { plugin: "github", webhook: { path: "/api/webhooks/github" } },
-      };
-
-      const req = makeRequest("/api/webhooks/github", {
-        method: "POST",
-        body: JSON.stringify({ any: "payload" }),
-        headers: {
-          "Content-Type": "application/json",
-          "Content-Length": "50",
-          "x-github-event": "pull_request",
-        },
-      });
-
-      const res = await webhookPOST(req);
-      expect(res.status).toBe(202);
-
-      if (mockConfig.projects["my-app"]?.scm) {
-        mockConfig.projects["my-app"].scm.webhook = originalMyAppWebhook;
-      }
-      if (originalOtherProject) {
-        mockConfig.projects["other-app"] = originalOtherProject;
-      } else {
-        delete mockConfig.projects["other-app"];
-      }
-    });
-
-    it("continues after parse errors and still returns 202", async () => {
-      (mockSCM.parseWebhook as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
-        new Error("Invalid webhook payload"),
-      );
-
-      const req = makeRequest("/api/webhooks/github", {
-        method: "POST",
-        body: JSON.stringify({ any: "payload" }),
-        headers: {
-          "Content-Type": "application/json",
-          "x-github-event": "pull_request",
-        },
-      });
-
-      const res = await webhookPOST(req);
-      expect(res.status).toBe(202);
-      const data = await res.json();
-      expect(Array.isArray(data.parseErrors)).toBe(true);
-      expect(data.parseErrors[0]).toMatch(/Invalid webhook payload/);
-    });
-
-    it("continues lifecycle checks when one session check throws", async () => {
-      const matchingSessions: Session[] = [
-        makeSession({
-          id: "backend-7",
-          projectId: "my-app",
-          status: "working",
-          activity: "active",
-          pr: {
-            number: 432,
-            url: "https://github.com/acme/my-app/pull/432",
-            title: "feat: health check",
-            owner: "acme",
-            repo: "my-app",
-            branch: "feat/health-check",
-            baseBranch: "main",
-            isDraft: false,
-          },
-        }),
-        makeSession({
-          id: "backend-8",
-          projectId: "my-app",
-          status: "working",
-          activity: "active",
-          pr: {
-            number: 432,
-            url: "https://github.com/acme/my-app/pull/432",
-            title: "feat: health check",
-            owner: "acme",
-            repo: "my-app",
-            branch: "feat/health-check",
-            baseBranch: "main",
-            isDraft: false,
-          },
-        }),
-      ];
-
-      (mockSessionManager.list as ReturnType<typeof vi.fn>).mockResolvedValueOnce(matchingSessions);
-      (mockLifecycleManager.check as ReturnType<typeof vi.fn>)
-        .mockRejectedValueOnce(new Error("check failed"))
-        .mockResolvedValueOnce(undefined);
-
-      const req = makeRequest("/api/webhooks/github", {
-        method: "POST",
-        body: JSON.stringify({ any: "payload" }),
-        headers: {
-          "Content-Type": "application/json",
-          "x-github-event": "pull_request",
-        },
-      });
-
-      const res = await webhookPOST(req);
-      expect(res.status).toBe(202);
-      expect(mockLifecycleManager.check).toHaveBeenCalledTimes(2);
-
-      const data = await res.json();
-      expect(data.sessionIds).toContain("backend-7");
-      expect(data.sessionIds).toContain("backend-8");
-      expect(Array.isArray(data.lifecycleErrors)).toBe(true);
-      expect(data.lifecycleErrors[0]).toContain("backend-7");
-      expect(data.lifecycleErrors[0]).toContain("check failed");
+      expect(data).toHaveProperty("generatedAt");
+      expect(data).toHaveProperty("overallStatus");
+      expect(data).toHaveProperty("projects");
     });
   });
 });

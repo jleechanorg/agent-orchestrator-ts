@@ -1,5 +1,4 @@
 import { ACTIVITY_STATE, isOrchestratorSession } from "@composio/ao-core";
-import { NextResponse } from "next/server";
 import { getServices, getSCM } from "@/lib/services";
 import {
   sessionToDashboard,
@@ -9,6 +8,7 @@ import {
   computeStats,
   listDashboardOrchestrators,
 } from "@/lib/serialize";
+import { getCorrelationId, jsonWithCorrelation, recordApiObservation } from "@/lib/observability";
 import { resolveGlobalPause } from "@/lib/global-pause";
 import { filterProjectSessions } from "@/lib/project-utils";
 
@@ -31,12 +31,9 @@ async function settlesWithin(promise: Promise<unknown>, timeoutMs: number): Prom
   }
 }
 
-/** GET /api/sessions — List sessions with full state
- * Query params:
- * - project: Filter to a specific project (by projectId or sessionPrefix). "all" = no filter.
- * - active=true: Only return non-exited sessions
- */
 export async function GET(request: Request) {
+  const correlationId = getCorrelationId(request);
+  const startedAt = Date.now();
   try {
     const { searchParams } = new URL(request.url);
     const projectFilter = searchParams.get("project");
@@ -55,6 +52,7 @@ export async function GET(request: Request) {
 
     let workerSessions = visibleSessions.filter((session) => !isOrchestratorSession(session));
 
+    // Convert to dashboard format
     let dashboardSessions = workerSessions.map(sessionToDashboard);
 
     if (activeOnly) {
@@ -90,17 +88,46 @@ export async function GET(request: Request) {
       }
     }
 
-    return NextResponse.json({
-      sessions: dashboardSessions,
-      stats: computeStats(dashboardSessions),
-      orchestratorId,
-      orchestrators,
-      globalPause: resolveGlobalPause(allSessions),
+    recordApiObservation({
+      config,
+      method: "GET",
+      path: "/api/sessions",
+      correlationId,
+      startedAt,
+      outcome: "success",
+      statusCode: 200,
+      data: { sessionCount: dashboardSessions.length, activeOnly },
     });
+
+    return jsonWithCorrelation(
+      {
+        sessions: dashboardSessions,
+        stats: computeStats(dashboardSessions),
+        orchestratorId,
+        orchestrators,
+        globalPause: resolveGlobalPause(allSessions),
+      },
+      { status: 200 },
+      correlationId,
+    );
   } catch (err) {
-    return NextResponse.json(
+    const { config } = await getServices().catch(() => ({ config: undefined }));
+    if (config) {
+      recordApiObservation({
+        config,
+        method: "GET",
+        path: "/api/sessions",
+        correlationId,
+        startedAt,
+        outcome: "failure",
+        statusCode: 500,
+        reason: err instanceof Error ? err.message : "Failed to list sessions",
+      });
+    }
+    return jsonWithCorrelation(
       { error: err instanceof Error ? err.message : "Failed to list sessions" },
       { status: 500 },
+      correlationId,
     );
   }
 }

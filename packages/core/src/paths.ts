@@ -87,6 +87,15 @@ export function getProjectBaseDir(configPath: string, projectPath: string): stri
 }
 
 /**
+ * Get the shared observability base directory for a config.
+ * Format: ~/.agent-orchestrator/{hash}-observability
+ */
+export function getObservabilityBaseDir(configPath: string): string {
+  const hash = generateConfigHash(configPath);
+  return join(expandHome("~/.agent-orchestrator"), `${hash}-observability`);
+}
+
+/**
  * Get the sessions directory for a project.
  * Format: ~/.agent-orchestrator/{hash}-{projectId}/sessions
  */
