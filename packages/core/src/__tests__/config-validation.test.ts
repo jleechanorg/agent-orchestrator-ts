@@ -414,6 +414,71 @@ describe("Config Schema Validation", () => {
     expect(validated.projects.proj1.agentConfig?.model).toBe("worker-model");
     expect(validated.projects.proj1.agentConfig?.orchestratorModel).toBe("orchestrator-model");
   });
+
+  it("accepts role-specific agent overrides at defaults and project scope", () => {
+    const config = {
+      defaults: {
+        agent: "claude-code",
+        orchestrator: {
+          agent: "opencode",
+        },
+        worker: {
+          agent: "codex",
+        },
+      },
+      projects: {
+        proj1: {
+          path: "/repos/test",
+          repo: "org/test",
+          defaultBranch: "main",
+          orchestrator: {
+            agent: "claude-code",
+            agentConfig: {
+              model: "orchestrator-model",
+            },
+          },
+          worker: {
+            agent: "codex",
+            agentConfig: {
+              model: "worker-model",
+            },
+          },
+        },
+      },
+    };
+
+    const validated = validateConfig(config);
+    expect(validated.defaults.orchestrator?.agent).toBe("opencode");
+    expect(validated.defaults.worker?.agent).toBe("codex");
+    expect(validated.projects.proj1.orchestrator?.agent).toBe("claude-code");
+    expect(validated.projects.proj1.orchestrator?.agentConfig?.model).toBe("orchestrator-model");
+    expect(validated.projects.proj1.worker?.agent).toBe("codex");
+    expect(validated.projects.proj1.worker?.agentConfig?.model).toBe("worker-model");
+  });
+
+  it("does not inject default permissions into role-specific agent config", () => {
+    const config = validateConfig({
+      projects: {
+        proj1: {
+          path: "/repos/test",
+          repo: "org/test",
+          defaultBranch: "main",
+          agentConfig: {
+            permissions: "suggest",
+          },
+          worker: {
+            agent: "codex",
+            agentConfig: {
+              model: "worker-model",
+            },
+          },
+        },
+      },
+    });
+
+    expect(config.projects.proj1.agentConfig?.permissions).toBe("suggest");
+    expect(config.projects.proj1.worker?.agentConfig?.permissions).toBeUndefined();
+  });
 });
 
 describe("Config Defaults", () => {

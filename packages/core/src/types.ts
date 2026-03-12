@@ -919,6 +919,17 @@ export interface DefaultPlugins {
   agent: string;
   workspace: string;
   notifiers: string[];
+  orchestrator?: {
+    agent?: string;
+  };
+  worker?: {
+    agent?: string;
+  };
+}
+
+export interface RoleAgentConfig {
+  agent?: string;
+  agentConfig?: AgentSpecificConfig;
 }
 
 export interface ProjectConfig {
@@ -960,6 +971,10 @@ export interface ProjectConfig {
 
   /** Agent-specific configuration */
   agentConfig?: AgentSpecificConfig;
+
+  orchestrator?: RoleAgentConfig;
+
+  worker?: RoleAgentConfig;
 
   /** Per-project reaction overrides */
   reactions?: Record<string, Partial<ReactionConfig>>;

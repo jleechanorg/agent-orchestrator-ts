@@ -36,6 +36,7 @@ import {
 import { updateMetadata } from "./metadata.js";
 import { getSessionsDir } from "./paths.js";
 import { createCorrelationId, createProjectObserver } from "./observability.js";
+import { resolveAgentSelection, resolveSessionRole } from "./agent-selection.js";
 
 /** Parse a duration string like "10m", "30s", "1h" to milliseconds. */
 function parseDuration(str: string): number {
@@ -202,7 +203,12 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     const project = config.projects[session.projectId];
     if (!project) return session.status;
 
-    const agentName = session.metadata["agent"] ?? project.agent ?? config.defaults.agent;
+    const agentName = resolveAgentSelection({
+      role: resolveSessionRole(session.id, session.metadata),
+      project,
+      defaults: config.defaults,
+      persistedAgent: session.metadata["agent"],
+    }).agentName;
     const agent = registry.get<Agent>("agent", agentName);
     const scm = project.scm ? registry.get<SCM>("scm", project.scm.plugin) : null;
 

@@ -104,6 +104,30 @@ const AgentSpecificConfigSchema = z
   })
   .passthrough();
 
+const RoleAgentSpecificConfigSchema = z
+  .object({
+    permissions: z
+      .union([z.enum(["permissionless", "default", "auto-edit", "suggest"]), z.literal("skip")])
+      .optional(),
+    model: z.string().optional(),
+    orchestratorModel: z.string().optional(),
+    opencodeSessionId: z.string().optional(),
+  })
+  .passthrough();
+
+const RoleAgentDefaultsSchema = z
+  .object({
+    agent: z.string().optional(),
+  })
+  .optional();
+
+const RoleAgentConfigSchema = z
+  .object({
+    agent: z.string().optional(),
+    agentConfig: RoleAgentSpecificConfigSchema.optional(),
+  })
+  .optional();
+
 const DecomposerConfigSchema = z
   .object({
     enabled: z.boolean().default(false),
@@ -135,6 +159,8 @@ const ProjectConfigSchema = z.object({
   symlinks: z.array(z.string()).optional(),
   postCreate: z.array(z.string()).optional(),
   agentConfig: AgentSpecificConfigSchema.default({}),
+  orchestrator: RoleAgentConfigSchema,
+  worker: RoleAgentConfigSchema,
   reactions: z.record(ReactionConfigSchema.partial()).optional(),
   agentRules: z.string().optional(),
   agentRulesFile: z.string().optional(),
@@ -151,6 +177,8 @@ const DefaultPluginsSchema = z.object({
   agent: z.string().default("claude-code"),
   workspace: z.string().default("worktree"),
   notifiers: z.array(z.string()).default(["composio", "desktop"]),
+  orchestrator: RoleAgentDefaultsSchema,
+  worker: RoleAgentDefaultsSchema,
 });
 
 const OrchestratorConfigSchema = z.object({

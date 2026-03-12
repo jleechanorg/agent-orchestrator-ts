@@ -205,6 +205,59 @@ describe("check (single session)", () => {
     expect(meta!["status"]).toBe("working");
   });
 
+  it("uses worker-specific agent fallback when metadata does not persist an agent", async () => {
+    const codexAgent: Agent = {
+      ...mockAgent,
+      name: "codex",
+      processName: "codex",
+      getActivityState: vi.fn().mockResolvedValue({ state: "active" as ActivityState }),
+    };
+    const registryWithMultipleAgents: PluginRegistry = {
+      ...mockRegistry,
+      get: vi.fn().mockImplementation((slot: string, name: string) => {
+        if (slot === "runtime") return mockRuntime;
+        if (slot === "agent") {
+          if (name === "codex") return codexAgent;
+          if (name === "mock-agent") return mockAgent;
+        }
+        return null;
+      }),
+    };
+    const configWithWorkerAgent: OrchestratorConfig = {
+      ...config,
+      projects: {
+        ...config.projects,
+        "my-app": {
+          ...config.projects["my-app"],
+          agent: "mock-agent",
+          worker: {
+            agent: "codex",
+          },
+        },
+      },
+    };
+    const session = makeSession({ status: "working", metadata: {} });
+    vi.mocked(mockSessionManager.get).mockResolvedValue(session);
+
+    writeMetadata(sessionsDir, "app-1", {
+      worktree: "/tmp",
+      branch: "main",
+      status: "working",
+      project: "my-app",
+    });
+
+    const lm = createLifecycleManager({
+      config: configWithWorkerAgent,
+      registry: registryWithMultipleAgents,
+      sessionManager: mockSessionManager,
+    });
+
+    await lm.check("app-1");
+
+    expect(codexAgent.getActivityState).toHaveBeenCalled();
+    expect(mockAgent.getActivityState).not.toHaveBeenCalled();
+  });
+
   it("detects killed state when runtime is dead", async () => {
     vi.mocked(mockRuntime.isAlive).mockResolvedValue(false);
 

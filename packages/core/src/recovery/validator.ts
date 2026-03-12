@@ -19,6 +19,7 @@ import {
   type RecoveryAction,
   type RecoveryConfig,
 } from "./types.js";
+import { resolveAgentSelection, resolveSessionRole } from "../agent-selection.js";
 
 export async function validateSession(
   scanned: ScannedSession,
@@ -29,7 +30,12 @@ export async function validateSession(
   const { sessionId, projectId, project, rawMetadata } = scanned;
 
   const runtimeName = project.runtime ?? config.defaults.runtime;
-  const agentName = rawMetadata["agent"] ?? project.agent ?? config.defaults.agent;
+  const agentName = resolveAgentSelection({
+    role: resolveSessionRole(sessionId, rawMetadata),
+    project,
+    defaults: config.defaults,
+    persistedAgent: rawMetadata["agent"],
+  }).agentName;
   const workspaceName = project.workspace ?? config.defaults.workspace;
 
   const runtime = registry.get<Runtime>("runtime", runtimeName);
