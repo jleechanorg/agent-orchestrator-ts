@@ -137,7 +137,14 @@ pnpm build
 echo ""
 echo "Linking CLI globally..."
 cd packages/cli
-npm link
+if npm link 2>/dev/null; then
+  :
+elif [ "$INTERACTIVE" = true ]; then
+  echo "  Permission denied. Retrying with sudo..."
+  sudo npm link
+else
+  echo "  Permission denied. Run manually: cd packages/cli && sudo npm link"
+fi
 cd "$REPO_ROOT"
 
 # ─── Verify ao is in PATH ────────────────────────────────────────────────────
