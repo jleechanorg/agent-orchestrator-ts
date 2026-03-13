@@ -60,8 +60,14 @@ Auto-detects language, package manager, SCM platform, and default branch. Genera
 **Option B — From an existing local repo:**
 
 ```bash
-cd ~/your-project && ao init --auto
+cd ~/your-project && ao init
 ao start
+```
+
+**Option C — Add more projects to an existing setup:**
+
+```bash
+ao add-project ~/path/to/another-repo
 ```
 
 Then spawn agents:
@@ -142,6 +148,10 @@ See [`agent-orchestrator.yaml.example`](agent-orchestrator.yaml.example) for the
 ## CLI
 
 ```bash
+ao init                                # Auto-detect project and generate config
+ao init --interactive                  # Full setup wizard with manual prompts
+ao add-project <path>                  # Add another project to existing config
+ao start [project]                     # Start dashboard + orchestrator
 ao status                              # Overview of all sessions
 ao spawn <project> [issue]             # Spawn an agent
 ao send <session> "Fix the tests"      # Send instructions
