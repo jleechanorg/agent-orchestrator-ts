@@ -144,11 +144,10 @@ async function detectEnvironment(workingDir: string): Promise<EnvironmentInfo> {
 export function registerInit(program: Command): void {
   program
     .command("init")
-    .description("Interactive setup wizard — creates agent-orchestrator.yaml")
+    .description("Auto-detect project and create agent-orchestrator.yaml")
     .option("-o, --output <path>", "Output file path", "agent-orchestrator.yaml")
-    .option("--auto", "Auto-generate config with sensible defaults (no prompts)")
-    .option("--smart", "Analyze project and generate custom rules (coming soon — requires --auto)")
-    .action(async (opts: { output: string; auto?: boolean; smart?: boolean }) => {
+    .option("-i, --interactive", "Run the full interactive setup wizard instead of auto-detection")
+    .action(async (opts: { output: string; interactive?: boolean }) => {
       const outputPath = resolve(opts.output);
 
       if (existsSync(outputPath)) {
@@ -157,16 +156,9 @@ export function registerInit(program: Command): void {
         process.exit(1);
       }
 
-      // Validate --smart requires --auto
-      if (opts.smart && !opts.auto) {
-        console.error(chalk.red("Error: --smart requires --auto"));
-        console.log(chalk.dim("Use: ao init --auto --smart"));
-        process.exit(1);
-      }
-
-      // Handle --auto mode
-      if (opts.auto) {
-        await handleAutoMode(outputPath, opts.smart || false);
+      // Default: auto mode. Use --interactive for the wizard.
+      if (!opts.interactive) {
+        await handleAutoMode(outputPath, false);
         return;
       }
 
@@ -397,16 +389,11 @@ export function registerInit(program: Command): void {
     });
 }
 
-async function handleAutoMode(outputPath: string, smart: boolean): Promise<void> {
+async function handleAutoMode(outputPath: string, _smart: boolean): Promise<void> {
   const workingDir = cwd();
 
   console.log(chalk.bold.cyan("\n  Agent Orchestrator — Auto Setup\n"));
-
-  if (smart) {
-    console.log(chalk.dim("  🤖 Analyzing your project...\n"));
-  } else {
-    console.log(chalk.dim("  🚀 Auto-generating config with smart defaults...\n"));
-  }
+  console.log(chalk.dim("  Detecting project and generating config...\n"));
 
   // Detect environment
   const env = await detectEnvironment(workingDir);
@@ -434,13 +421,6 @@ async function handleAutoMode(outputPath: string, smart: boolean): Promise<void>
   }
 
   console.log();
-
-  // Generate agent rules
-  if (smart) {
-    // TODO: Implement AI-powered rule generation in future PR
-    console.log(chalk.yellow("  ⚠ AI-powered rule generation not yet implemented"));
-    console.log(chalk.dim("  Using template-based rules for now...\n"));
-  }
 
   const agentRules = generateRulesFromTemplates(projectType);
 
