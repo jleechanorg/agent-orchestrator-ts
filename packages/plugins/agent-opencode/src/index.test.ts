@@ -520,6 +520,105 @@ describe("detectActivity — terminal output classification", () => {
 describe("getActivityState", () => {
   const agent = create();
 
+  function mockOpencodeSessionRows(rows: Array<Record<string, unknown>>) {
+    mockExecFileAsync.mockImplementation((cmd: string) => {
+      if (cmd === "tmux") return Promise.resolve({ stdout: "/dev/ttys003\n", stderr: "" });
+      if (cmd === "ps") {
+        return Promise.resolve({
+          stdout: "  PID TT       ARGS\n  789 ttys003  opencode\n",
+          stderr: "",
+        });
+      }
+      if (cmd === "opencode") {
+        return Promise.resolve({
+          stdout: JSON.stringify(rows),
+          stderr: "",
+        });
+      }
+      return Promise.reject(new Error("unexpected"));
+    });
+  }
+
+  function mockOpencodeSessionList(updated: string | number) {
+    mockOpencodeSessionRows([{ id: "ses_abc123", updated }]);
+  }
+
+  it("returns idle when last activity is older than ready threshold", async () => {
+    mockOpencodeSessionList(new Date(Date.now() - 120_000).toISOString());
+
+    const state = await agent.getActivityState(
+      makeSession({
+        runtimeHandle: makeTmuxHandle(),
+        metadata: { opencodeSessionId: "ses_abc123" },
+      }),
+      60_000,
+    );
+
+    expect(state?.state).toBe("idle");
+  });
+
+  it("returns ready when last activity is between active window and ready threshold", async () => {
+    mockOpencodeSessionList(new Date(Date.now() - 45_000).toISOString());
+
+    const state = await agent.getActivityState(
+      makeSession({
+        runtimeHandle: makeTmuxHandle(),
+        metadata: { opencodeSessionId: "ses_abc123" },
+      }),
+      60_000,
+    );
+
+    expect(state?.state).toBe("ready");
+  });
+
+  it("returns active when last activity is recent", async () => {
+    mockOpencodeSessionList(new Date(Date.now() - 10_000).toISOString());
+
+    const state = await agent.getActivityState(
+      makeSession({
+        runtimeHandle: makeTmuxHandle(),
+        metadata: { opencodeSessionId: "ses_abc123" },
+      }),
+      60_000,
+    );
+
+    expect(state?.state).toBe("active");
+  });
+
+  it("returns null when matching session has invalid updated timestamp", async () => {
+    mockOpencodeSessionRows([{ id: "ses_abc123", updated: "not-a-date" }]);
+
+    const state = await agent.getActivityState(
+      makeSession({
+        runtimeHandle: makeTmuxHandle(),
+        metadata: { opencodeSessionId: "ses_abc123" },
+      }),
+      60_000,
+    );
+
+    expect(state).toBeNull();
+  });
+
+  it("falls back to AO session title when opencodeSessionId metadata is missing", async () => {
+    mockOpencodeSessionRows([
+      {
+        id: "ses_different",
+        title: "AO:test-1",
+        updated: new Date(Date.now() - 5_000).toISOString(),
+      },
+    ]);
+
+    const state = await agent.getActivityState(
+      makeSession({
+        runtimeHandle: makeTmuxHandle(),
+        metadata: {},
+      }),
+      60_000,
+    );
+
+    expect(state?.state).toBe("active");
+  });
+
   it("returns null when opencode session list output is malformed JSON", async () => {
     mockExecFileAsync.mockImplementation((cmd: string) => {
       if (cmd === "tmux") return Promise.resolve({ stdout: "/dev/ttys003\n", stderr: "" });

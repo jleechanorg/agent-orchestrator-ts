@@ -198,6 +198,17 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
   let polling = false; // re-entrancy guard
   let allCompleteEmitted = false; // guard against repeated all_complete
 
+  /** Check if idle time exceeds the agent-stuck threshold. */
+  function isIdleBeyondThreshold(session: Session, idleTimestamp: Date): boolean {
+    const stuckReaction = getReactionConfigForSession(session, "agent-stuck");
+    const thresholdStr = stuckReaction?.threshold;
+    if (typeof thresholdStr !== "string") return false;
+    const stuckThresholdMs = parseDuration(thresholdStr);
+    if (stuckThresholdMs <= 0) return false;
+    const idleMs = Date.now() - idleTimestamp.getTime();
+    return idleMs > stuckThresholdMs;
+  }
+
   /** Determine current status for a session by polling plugins. */
   async function determineStatus(session: Session): Promise<SessionStatus> {
     const project = config.projects[session.projectId];
@@ -211,6 +222,9 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     }).agentName;
     const agent = registry.get<Agent>("agent", agentName);
     const scm = project.scm ? registry.get<SCM>("scm", project.scm.plugin) : null;
+
+    // Track activity state across steps so stuck detection can run after PR checks
+    let detectedIdleTimestamp: Date | null = null;
 
     // 1. Check if runtime is alive
     if (session.runtimeHandle) {
@@ -229,7 +243,16 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         if (activityState) {
           if (activityState.state === "waiting_input") return "needs_input";
           if (activityState.state === "exited") return "killed";
-          // active/ready/idle/blocked — proceed to PR checks below
+
+          if (
+            (activityState.state === "idle" || activityState.state === "blocked") &&
+            activityState.timestamp
+          ) {
+            detectedIdleTimestamp = activityState.timestamp;
+          }
+
+          // active/ready/idle (below threshold)/blocked (below threshold) —
+          // proceed to PR checks below
         } else {
           // getActivityState returned null — fall back to terminal output parsing
           const runtime = registry.get<Runtime>(
@@ -299,13 +322,24 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         // Check reviews
         const reviewDecision = await scm.getReviewDecision(session.pr);
         if (reviewDecision === "changes_requested") return "changes_requested";
-        if (reviewDecision === "approved") {
-          // Check merge readiness
+        if (reviewDecision === "approved" || reviewDecision === "none") {
+          // Check merge readiness — treat "none" (no reviewers required)
+          // the same as "approved" so CI-green PRs reach "mergeable" status
+          // and fire the merge.ready event / approved-and-green reaction.
           const mergeReady = await scm.getMergeability(session.pr);
           if (mergeReady.mergeable) return "mergeable";
-          return "approved";
+          if (reviewDecision === "approved") return "approved";
         }
         if (reviewDecision === "pending") return "review_pending";
+
+        // 4b. Post-PR stuck detection: agent has a PR open but is idle beyond
+        // threshold. This catches the case where step 2's stuck check was
+        // bypassed (getActivityState returned null) or the idle timestamp
+        // wasn't available during step 2 but the session has been at pr_open
+        // for a long time. Without this, sessions get stuck at "pr_open" forever.
+        if (detectedIdleTimestamp && isIdleBeyondThreshold(session, detectedIdleTimestamp)) {
+          return "stuck";
+        }
 
         return "pr_open";
       } catch {
@@ -313,7 +347,13 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       }
     }
 
-    // 5. Default: if agent is active, it's working
+    // 5. Post-all stuck detection: if we detected idle in step 2 but had no PR,
+    // still check stuck threshold. This handles agents that finish without creating a PR.
+    if (detectedIdleTimestamp && isIdleBeyondThreshold(session, detectedIdleTimestamp)) {
+      return "stuck";
+    }
+
+    // 6. Default: if agent is active, it's working
     if (
       session.status === "spawning" ||
       session.status === SESSION_STATUS.STUCK ||
@@ -729,18 +769,18 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
           }
         }
 
-        // For significant transitions not already notified by a reaction, notify humans
+        // For transitions not already notified by a reaction, notify humans.
+        // All priorities (including "info") are routed through notificationRouting
+        // so the config controls which notifiers receive each priority level.
         if (!reactionHandledNotify) {
           const priority = inferPriority(eventType);
-          if (priority !== "info") {
-            const event = createEvent(eventType, {
-              sessionId: session.id,
-              projectId: session.projectId,
-              message: `${session.id}: ${oldStatus} → ${newStatus}`,
-              data: { oldStatus, newStatus },
-            });
-            await notifyHuman(event, priority);
-          }
+          const event = createEvent(eventType, {
+            sessionId: session.id,
+            projectId: session.projectId,
+            message: `${session.id}: ${oldStatus} → ${newStatus}`,
+            data: { oldStatus, newStatus },
+          });
+          await notifyHuman(event, priority);
         }
       }
     } else {

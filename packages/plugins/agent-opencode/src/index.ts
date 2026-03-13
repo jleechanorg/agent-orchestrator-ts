@@ -1,4 +1,5 @@
 import {
+  DEFAULT_READY_THRESHOLD_MS,
   shellEscape,
   asValidOpenCodeSessionId,
   type Agent,
@@ -19,7 +20,31 @@ const execFileAsync = promisify(execFile);
 interface OpenCodeSessionListEntry {
   id: string;
   title?: string;
-  updated?: string;
+  updated?: string | number;
+}
+
+function parseUpdatedTimestamp(updated: string | number | undefined): Date | null {
+  if (typeof updated === "number") {
+    if (!Number.isFinite(updated)) return null;
+    const date = new Date(updated);
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+
+  if (typeof updated !== "string") return null;
+
+  const trimmed = updated.trim();
+  if (trimmed.length === 0) return null;
+
+  if (/^\d+$/.test(trimmed)) {
+    const epochMs = Number(trimmed);
+    if (!Number.isFinite(epochMs)) return null;
+    const date = new Date(epochMs);
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+
+  const parsedMs = Date.parse(trimmed);
+  if (!Number.isFinite(parsedMs)) return null;
+  return new Date(parsedMs);
 }
 
 function parseSessionList(raw: string): OpenCodeSessionListEntry[] {
@@ -218,38 +243,50 @@ function createOpenCodeAgent(): Agent {
 
     async getActivityState(
       session: Session,
-      _readyThresholdMs?: number,
+      readyThresholdMs?: number,
     ): Promise<ActivityDetection | null> {
+      const threshold = readyThresholdMs ?? DEFAULT_READY_THRESHOLD_MS;
+      const activeWindowMs = Math.min(30_000, threshold);
+
       // Check if process is running first
       const exitedAt = new Date();
       if (!session.runtimeHandle) return { state: "exited", timestamp: exitedAt };
       const running = await this.isProcessRunning(session.runtimeHandle);
       if (!running) return { state: "exited", timestamp: exitedAt };
 
-      if (session.metadata?.opencodeSessionId) {
-        try {
-          const { stdout } = await execFileAsync(
-            "opencode",
-            ["session", "list", "--format", "json"],
-            { timeout: 30_000 },
-          );
+      try {
+        const { stdout } = await execFileAsync(
+          "opencode",
+          ["session", "list", "--format", "json"],
+          {
+            timeout: 30_000,
+          },
+        );
 
-          const sessions = parseSessionList(stdout);
-          const targetSession = sessions.find((s) => s.id === session.metadata.opencodeSessionId);
+        const sessions = parseSessionList(stdout);
+        const targetSession =
+          (session.metadata?.opencodeSessionId
+            ? sessions.find((s) => s.id === session.metadata.opencodeSessionId)
+            : undefined) ?? sessions.find((s) => s.title === `AO:${session.id}`);
 
-          if (targetSession) {
-            const lastActivity = targetSession.updated
-              ? new Date(targetSession.updated)
-              : undefined;
-            return {
-              state: "active",
-              ...(lastActivity &&
-                !Number.isNaN(lastActivity.getTime()) && { timestamp: lastActivity }),
-            };
+        if (targetSession) {
+          const lastActivity = parseUpdatedTimestamp(targetSession.updated);
+
+          if (lastActivity) {
+            const ageMs = Math.max(0, Date.now() - lastActivity.getTime());
+            if (ageMs <= activeWindowMs) {
+              return { state: "active", timestamp: lastActivity };
+            }
+            if (ageMs <= threshold) {
+              return { state: "ready", timestamp: lastActivity };
+            }
+            return { state: "idle", timestamp: lastActivity };
           }
-        } catch {
+
           return null;
         }
+      } catch {
+        return null;
       }
 
       return null;
