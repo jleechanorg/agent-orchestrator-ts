@@ -302,9 +302,242 @@
       font-size: 0.9rem;
     }
 
+    /* Flowchart styles */
+    .flowchart {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      margin: 20px 0 28px;
+      padding: 24px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+    }
+
+    .flowchart-title {
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--text-muted);
+      margin-bottom: 16px;
+    }
+
+    .fc-node {
+      padding: 10px 20px;
+      border-radius: 8px;
+      font-size: 0.85rem;
+      text-align: center;
+      max-width: 320px;
+      width: 100%;
+    }
+
+    .fc-start {
+      background: rgba(88, 166, 255, 0.15);
+      border: 1px solid var(--accent);
+      color: var(--accent);
+      border-radius: 24px;
+    }
+
+    .fc-process {
+      background: var(--code-bg);
+      border: 1px solid var(--border);
+      color: var(--text);
+    }
+
+    .fc-decision {
+      background: rgba(210, 153, 34, 0.12);
+      border: 1px solid var(--yellow);
+      color: var(--yellow);
+      transform: rotate(0deg);
+      border-radius: 4px;
+      position: relative;
+    }
+
+    .fc-decision::before {
+      content: "";
+      position: absolute;
+      top: -1px; left: -1px; right: -1px; bottom: -1px;
+      border: 1px solid var(--yellow);
+      border-radius: 4px;
+      clip-path: polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%);
+      pointer-events: none;
+    }
+
+    .fc-success {
+      background: rgba(63, 185, 80, 0.15);
+      border: 1px solid var(--green);
+      color: var(--green);
+      border-radius: 24px;
+    }
+
+    .fc-error {
+      background: rgba(248, 81, 73, 0.12);
+      border: 1px solid var(--red);
+      color: var(--red);
+      border-radius: 24px;
+    }
+
+    .fc-arrow {
+      color: var(--text-muted);
+      font-size: 1.2rem;
+      margin: 6px 0;
+      line-height: 1;
+    }
+
+    .fc-label {
+      font-size: 0.7rem;
+      color: var(--text-muted);
+      margin: 2px 0;
+    }
+
+    .fc-branch {
+      display: flex;
+      gap: 24px;
+      align-items: flex-start;
+      justify-content: center;
+      width: 100%;
+    }
+
+    .fc-branch-arm {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      flex: 1;
+      max-width: 240px;
+    }
+
+    /* Pipeline styles */
+    .pipeline {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 4px;
+      margin: 20px 0 28px;
+      padding: 24px 16px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+    }
+
+    .pipeline-title {
+      width: 100%;
+      text-align: center;
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--text-muted);
+      margin-bottom: 12px;
+    }
+
+    .pipe-step {
+      background: var(--code-bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 8px 14px;
+      font-size: 0.78rem;
+      text-align: center;
+      color: var(--text);
+      min-width: 100px;
+    }
+
+    .pipe-arrow {
+      color: var(--accent);
+      font-size: 1rem;
+      flex-shrink: 0;
+    }
+
+    /* Bar chart styles */
+    .bar-chart {
+      margin: 20px 0 28px;
+      padding: 24px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+    }
+
+    .bar-chart-title {
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--text-muted);
+      margin-bottom: 16px;
+      text-align: center;
+    }
+
+    .bar-row {
+      display: grid;
+      grid-template-columns: 160px 1fr 40px;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+
+    .bar-label {
+      font-size: 0.82rem;
+      text-align: right;
+      color: var(--text-muted);
+    }
+
+    .bar-track {
+      height: 28px;
+      background: var(--code-bg);
+      border-radius: 4px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .bar-fill {
+      height: 100%;
+      border-radius: 4px;
+      display: flex;
+      align-items: center;
+      padding-left: 8px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      transition: width 0.3s ease;
+    }
+
+    .bar-fill.before {
+      background: rgba(248, 81, 73, 0.3);
+      border: 1px solid var(--red);
+      color: var(--red);
+    }
+
+    .bar-fill.after {
+      background: rgba(63, 185, 80, 0.3);
+      border: 1px solid var(--green);
+      color: var(--green);
+    }
+
+    .bar-value {
+      font-size: 0.82rem;
+      font-weight: 600;
+    }
+
+    .bar-value.before { color: var(--red); }
+    .bar-value.after { color: var(--green); }
+
+    .bar-pair {
+      margin-bottom: 20px;
+    }
+
     @media (max-width: 640px) {
       .before-after, .flow-comparison, .impact-grid {
         grid-template-columns: 1fr;
+      }
+      .fc-branch {
+        flex-direction: column;
+        align-items: center;
+      }
+      .pipeline {
+        flex-direction: column;
+      }
+      .pipe-arrow {
+        transform: rotate(90deg);
+      }
+      .bar-row {
+        grid-template-columns: 100px 1fr 30px;
       }
     }
   </style>
@@ -379,6 +612,40 @@
         <p>Tries <code>npm link</code> first. If it fails and terminal is interactive, auto-retries with <code>sudo</code>. If non-interactive (CI), prints the manual command.</p>
       </div>
     </div>
+    <div class="flowchart">
+      <div class="flowchart-title">npm link retry logic</div>
+      <div class="fc-node fc-start">Run <code>npm link</code></div>
+      <div class="fc-arrow">&#x2193;</div>
+      <div class="fc-node fc-decision">Success?</div>
+      <div class="fc-arrow">&#x2193;</div>
+      <div class="fc-branch">
+        <div class="fc-branch-arm">
+          <div class="fc-label">YES</div>
+          <div class="fc-arrow">&#x2193;</div>
+          <div class="fc-node fc-success">Done &#10003;</div>
+        </div>
+        <div class="fc-branch-arm">
+          <div class="fc-label">NO (EACCES)</div>
+          <div class="fc-arrow">&#x2193;</div>
+          <div class="fc-node fc-decision">Interactive terminal?</div>
+          <div class="fc-arrow">&#x2193;</div>
+          <div class="fc-branch">
+            <div class="fc-branch-arm">
+              <div class="fc-label">YES</div>
+              <div class="fc-arrow">&#x2193;</div>
+              <div class="fc-node fc-process">Retry with <code>sudo npm link</code></div>
+              <div class="fc-arrow">&#x2193;</div>
+              <div class="fc-node fc-success">Done &#10003;</div>
+            </div>
+            <div class="fc-branch-arm">
+              <div class="fc-label">NO (CI)</div>
+              <div class="fc-arrow">&#x2193;</div>
+              <div class="fc-node fc-error">Print manual fix command</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
     <ul class="files-changed">
       <li>scripts/setup.sh</li>
       <li>scripts/ao-update.sh</li>
@@ -395,6 +662,33 @@
       <div class="after">
         <h4>After</h4>
         <p><code>ao init</code> → auto-detects everything, zero prompts<br><code>ao init --interactive</code> → full wizard for manual control</p>
+      </div>
+    </div>
+    <div class="flowchart">
+      <div class="flowchart-title">ao init decision flow</div>
+      <div class="fc-node fc-start">User runs <code>ao init</code></div>
+      <div class="fc-arrow">&#x2193;</div>
+      <div class="fc-node fc-decision"><code>--interactive</code> flag?</div>
+      <div class="fc-arrow">&#x2193;</div>
+      <div class="fc-branch">
+        <div class="fc-branch-arm">
+          <div class="fc-label">NO (default)</div>
+          <div class="fc-arrow">&#x2193;</div>
+          <div class="fc-node fc-process">Auto-detect git remote, branch, language, framework</div>
+          <div class="fc-arrow">&#x2193;</div>
+          <div class="fc-node fc-process">Generate config + agent rules from templates</div>
+          <div class="fc-arrow">&#x2193;</div>
+          <div class="fc-node fc-success">Write <code>agent-orchestrator.yaml</code></div>
+        </div>
+        <div class="fc-branch-arm">
+          <div class="fc-label">YES</div>
+          <div class="fc-arrow">&#x2193;</div>
+          <div class="fc-node fc-process">13-prompt interactive wizard</div>
+          <div class="fc-arrow">&#x2193;</div>
+          <div class="fc-node fc-process">User manually configures each setting</div>
+          <div class="fc-arrow">&#x2193;</div>
+          <div class="fc-node fc-success">Write <code>agent-orchestrator.yaml</code></div>
+        </div>
       </div>
     </div>
     <ul class="files-changed">
@@ -422,6 +716,24 @@
       <li>Generates agent rules from templates</li>
       <li>Appends the project to the config</li>
     </ol>
+    <div class="pipeline">
+      <div class="pipeline-title">ao add-project pipeline</div>
+      <div class="pipe-step">Resolve<br>path</div>
+      <div class="pipe-arrow">&#x2192;</div>
+      <div class="pipe-step">Find existing<br>config</div>
+      <div class="pipe-arrow">&#x2192;</div>
+      <div class="pipe-step">Detect git<br>remote</div>
+      <div class="pipe-arrow">&#x2192;</div>
+      <div class="pipe-step">Detect default<br>branch</div>
+      <div class="pipe-arrow">&#x2192;</div>
+      <div class="pipe-step">Generate unique<br>session prefix</div>
+      <div class="pipe-arrow">&#x2192;</div>
+      <div class="pipe-step">Detect project<br>type</div>
+      <div class="pipe-arrow">&#x2192;</div>
+      <div class="pipe-step">Generate<br>agent rules</div>
+      <div class="pipe-arrow">&#x2192;</div>
+      <div class="pipe-step">Append to<br>config</div>
+    </div>
     <ul class="files-changed">
       <li class="new">packages/cli/src/commands/add-project.ts</li>
       <li>packages/cli/src/index.ts</li>
@@ -437,6 +749,40 @@ Free it or change 'port' in agent-orchestrator.yaml.</code></pre>
       <div class="after">
         <h4>After</h4>
         <pre><code>Port 3000 is busy — using 3001 instead.</code></pre>
+      </div>
+    </div>
+    <div class="flowchart">
+      <div class="flowchart-title">ao start — port resolution</div>
+      <div class="fc-node fc-start">Read port from config (default: 3000)</div>
+      <div class="fc-arrow">&#x2193;</div>
+      <div class="fc-node fc-decision">Port available?</div>
+      <div class="fc-arrow">&#x2193;</div>
+      <div class="fc-branch">
+        <div class="fc-branch-arm">
+          <div class="fc-label">YES</div>
+          <div class="fc-arrow">&#x2193;</div>
+          <div class="fc-node fc-success">Start on configured port</div>
+        </div>
+        <div class="fc-branch-arm">
+          <div class="fc-label">NO</div>
+          <div class="fc-arrow">&#x2193;</div>
+          <div class="fc-node fc-process">Scan port+1 &#x2026; port+20</div>
+          <div class="fc-arrow">&#x2193;</div>
+          <div class="fc-node fc-decision">Free port found?</div>
+          <div class="fc-arrow">&#x2193;</div>
+          <div class="fc-branch">
+            <div class="fc-branch-arm">
+              <div class="fc-label">YES</div>
+              <div class="fc-arrow">&#x2193;</div>
+              <div class="fc-node fc-success">Start on free port<br><span style="font-size:0.75rem">Log: "Port X busy — using Y"</span></div>
+            </div>
+            <div class="fc-branch-arm">
+              <div class="fc-label">NO</div>
+              <div class="fc-arrow">&#x2193;</div>
+              <div class="fc-node fc-error">Error: no free port in range</div>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
     <ul class="files-changed">
@@ -513,22 +859,92 @@ Free it or change 'port' in agent-orchestrator.yaml.</code></pre>
     </div>
 
     <h2>UX Impact</h2>
+
+    <div class="bar-chart">
+      <div class="bar-chart-title">Before vs After — Quantitative Metrics</div>
+
+      <div class="bar-pair">
+        <div class="bar-row">
+          <div class="bar-label">Prompts in <code>ao init</code></div>
+          <div class="bar-track"><div class="bar-fill before" style="width: 100%;">Before</div></div>
+          <div class="bar-value before">13</div>
+        </div>
+        <div class="bar-row">
+          <div class="bar-label"></div>
+          <div class="bar-track"><div class="bar-fill after" style="width: 0%; min-width: 44px;">After</div></div>
+          <div class="bar-value after">0</div>
+        </div>
+      </div>
+
+      <div class="bar-pair">
+        <div class="bar-row">
+          <div class="bar-label">Steps to <code>ao spawn</code></div>
+          <div class="bar-track"><div class="bar-fill before" style="width: 100%;">Before</div></div>
+          <div class="bar-value before">6+</div>
+        </div>
+        <div class="bar-row">
+          <div class="bar-label"></div>
+          <div class="bar-track"><div class="bar-fill after" style="width: 57%;">After</div></div>
+          <div class="bar-value after">4</div>
+        </div>
+      </div>
+
+      <div class="bar-pair">
+        <div class="bar-row">
+          <div class="bar-label">Fatal crash points</div>
+          <div class="bar-track"><div class="bar-fill before" style="width: 100%;">Before</div></div>
+          <div class="bar-value before">3</div>
+        </div>
+        <div class="bar-row">
+          <div class="bar-label"></div>
+          <div class="bar-track"><div class="bar-fill after" style="width: 0%; min-width: 44px;">After</div></div>
+          <div class="bar-value after">0</div>
+        </div>
+      </div>
+
+      <div class="bar-pair">
+        <div class="bar-row">
+          <div class="bar-label">Manual config edits</div>
+          <div class="bar-track"><div class="bar-fill before" style="width: 100%;">Before</div></div>
+          <div class="bar-value before">Yes</div>
+        </div>
+        <div class="bar-row">
+          <div class="bar-label"></div>
+          <div class="bar-track"><div class="bar-fill after" style="width: 0%; min-width: 44px;">After</div></div>
+          <div class="bar-value after">No</div>
+        </div>
+      </div>
+
+      <div class="bar-pair">
+        <div class="bar-row">
+          <div class="bar-label">Dead CLI flags</div>
+          <div class="bar-track"><div class="bar-fill before" style="width: 100%;">Before</div></div>
+          <div class="bar-value before">1</div>
+        </div>
+        <div class="bar-row">
+          <div class="bar-label"></div>
+          <div class="bar-track"><div class="bar-fill after" style="width: 0%; min-width: 44px;">After</div></div>
+          <div class="bar-value after">0</div>
+        </div>
+      </div>
+    </div>
+
     <div class="impact-grid">
       <div class="impact-item">
         <div class="number before">13</div>
-        <div class="arrow">↓</div>
+        <div class="arrow">&darr;</div>
         <div class="number after">0</div>
         <div class="label">Prompts in <code>ao init</code></div>
       </div>
       <div class="impact-item">
         <div class="number before">6+</div>
-        <div class="arrow">↓</div>
+        <div class="arrow">&darr;</div>
         <div class="number after">4</div>
         <div class="label">Steps to first <code>ao spawn</code></div>
       </div>
       <div class="impact-item">
         <div class="number before">3</div>
-        <div class="arrow">↓</div>
+        <div class="arrow">&darr;</div>
         <div class="number after">0</div>
         <div class="label">Fatal crash points</div>
       </div>
