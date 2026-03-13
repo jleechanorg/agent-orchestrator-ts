@@ -359,17 +359,18 @@ export function registerInit(program: Command): void {
         // Success message and next steps
         console.log(chalk.green(`\n✓ Config written to ${outputPath}\n`));
         console.log(chalk.bold("Next steps:\n"));
-        console.log("  1. Review the config (optional):");
-        console.log(chalk.cyan(`     nano ${outputPath}\n`));
-        console.log("  2. Start orchestrator + dashboard:");
+        console.log(chalk.dim(`  Run the following commands from this directory (${workingDir}):\n`));
+        console.log("  1. Start orchestrator + dashboard:");
         console.log(chalk.cyan("     ao start\n"));
 
         if (projectId) {
-          console.log("  3. Spawn agent sessions:");
+          console.log("  2. Spawn agent sessions:");
           console.log(chalk.cyan(`     ao spawn ${projectId} ISSUE-123\n`));
+          console.log("  Want to add more projects?");
+          console.log(chalk.cyan("     ao add-project ~/path/to/another-repo\n"));
         } else {
-          console.log("  3. Add a project to the config:");
-          console.log(chalk.cyan(`     nano ${outputPath}\n`));
+          console.log("  2. Add a project to the config:");
+          console.log(chalk.cyan(`     ao add-project ~/path/to/your-repo\n`));
         }
 
         console.log(chalk.dim("See SETUP.md for detailed configuration options.\n"));
@@ -490,6 +491,8 @@ async function handleAutoMode(outputPath: string, _smart: boolean): Promise<void
   // Show next steps
   console.log(chalk.bold("Next steps:\n"));
 
+  console.log(chalk.dim(`  Run the following commands from this directory (${workingDir}):\n`));
+
   if (hasPlaceholderRepo) {
     console.log("  1. Edit config and update 'repo' field:");
     console.log(chalk.cyan(`     nano ${outputPath}\n`));
@@ -498,12 +501,12 @@ async function handleAutoMode(outputPath: string, _smart: boolean): Promise<void
     console.log("  3. Spawn agent sessions:");
     console.log(chalk.cyan(`     ao spawn ${projectId} ISSUE-123\n`));
   } else {
-    console.log("  1. Review the config (optional):");
-    console.log(chalk.cyan(`     nano ${outputPath}\n`));
-    console.log("  2. Start orchestrator + dashboard:");
+    console.log("  1. Start orchestrator + dashboard:");
     console.log(chalk.cyan("     ao start\n"));
-    console.log("  3. Spawn agent sessions:");
+    console.log("  2. Spawn agent sessions:");
     console.log(chalk.cyan(`     ao spawn ${projectId} ISSUE-123\n`));
+    console.log("  Want to add more projects?");
+    console.log(chalk.cyan("     ao add-project ~/path/to/another-repo\n"));
   }
 
   // Show warnings

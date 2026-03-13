@@ -168,9 +168,12 @@ export function registerAddProject(program: Command): void {
       }
 
       console.log(chalk.bold("Next steps:\n"));
+      console.log(chalk.dim(`  Run these from the directory where ${configPath} lives:\n`));
       console.log(`  1. Start (or restart) the orchestrator:`);
       console.log(chalk.cyan(`     ao start\n`));
       console.log(`  2. Spawn an agent for this project:`);
       console.log(chalk.cyan(`     ao spawn ${projectId} <issue-number>\n`));
+      console.log(`  Want to add another project?`);
+      console.log(chalk.cyan(`     ao add-project ~/path/to/repo\n`));
     });
 }

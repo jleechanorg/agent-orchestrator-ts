@@ -596,6 +596,12 @@
           <td><span class="badge badge-blocking">Blocking</span></td>
           <td>Users updating or diagnosing</td>
         </tr>
+        <tr>
+          <td>7</td>
+          <td>No "what's next" guidance — user doesn't know what to run or <em>where</em></td>
+          <td><span class="badge badge-medium">Medium friction</span></td>
+          <td>Every new user</td>
+        </tr>
       </tbody>
     </table>
 
@@ -804,17 +810,82 @@ Free it or change 'port' in agent-orchestrator.yaml.</code></pre>
       <li>packages/cli/src/commands/init.ts</li>
     </ul>
 
+    <h3>6. Contextual "next step" hints with directory guidance</h3>
+    <div class="before-after">
+      <div class="before">
+        <h4>Before</h4>
+        <p>After each command completes, user gets either no guidance or a generic message like "Next: ao start". No indication of <em>where</em> to run the next command — users frequently ran <code>ao init</code> inside the agent-orchestrator repo instead of their project.</p>
+      </div>
+      <div class="after">
+        <h4>After</h4>
+        <p>Every command prints a clear "what's next" block that tells the user exactly what to run and from which directory. Each step chains into the next, creating a guided path through the entire flow.</p>
+      </div>
+    </div>
+
+    <div class="flowchart">
+      <div class="flowchart-title">Guided handoff chain — each command tells you the next</div>
+      <div class="fc-node fc-start"><code>setup.sh</code> completes</div>
+      <div class="fc-arrow">&#x2193;</div>
+      <div class="fc-node fc-process" style="text-align: left; font-size: 0.8rem; max-width: 420px;">
+        <strong>Prints:</strong><br>
+        <code>cd ~/your-project</code><br>
+        <code>ao init</code>
+      </div>
+      <div class="fc-arrow">&#x2193;</div>
+      <div class="fc-node fc-start"><code>ao init</code> completes</div>
+      <div class="fc-arrow">&#x2193;</div>
+      <div class="fc-node fc-process" style="text-align: left; font-size: 0.8rem; max-width: 420px;">
+        <strong>Prints:</strong> <span style="color: var(--text-muted);">(from this directory: ~/your-project)</span><br>
+        <code>ao start</code><br>
+        <code>ao add-project ~/other-repo</code>
+      </div>
+      <div class="fc-arrow">&#x2193;</div>
+      <div class="fc-node fc-start"><code>ao start</code> completes</div>
+      <div class="fc-arrow">&#x2193;</div>
+      <div class="fc-node fc-process" style="text-align: left; font-size: 0.8rem; max-width: 420px;">
+        <strong>Prints:</strong><br>
+        <code>ao spawn my-project &lt;issue-number&gt;</code>
+      </div>
+      <div class="fc-arrow">&#x2193;</div>
+      <div class="fc-node fc-success">User is productive &#10003;</div>
+    </div>
+
+    <p>Example output after <code>setup.sh</code>:</p>
+    <pre><code>Setup complete!
+
+What's next:
+
+  Navigate to your project directory and initialize:
+
+    cd ~/your-project
+    ao init            # auto-detects everything, zero prompts
+
+  Then start the orchestrator + dashboard:
+
+    ao start            # run this from your project directory
+
+  Want to add more projects later?
+
+    ao add-project ~/path/to/another-repo</code></pre>
+
+    <ul class="files-changed">
+      <li>scripts/setup.sh</li>
+      <li>packages/cli/src/commands/init.ts</li>
+      <li>packages/cli/src/commands/start.ts</li>
+      <li class="new">packages/cli/src/commands/add-project.ts</li>
+    </ul>
+
     <h2>New Onboarding Flow</h2>
     <div class="flow-comparison">
       <div>
         <h4 style="color: var(--red);">Before (5+ min, multiple failure points)</h4>
         <div class="flow-step problem">
           <div class="num">1</div>
-          <div><code>bash scripts/setup.sh</code><br><span class="comment">Could crash on npm link</span></div>
+          <div><code>bash scripts/setup.sh</code><br><span class="comment">Could crash on npm link. No next-step guidance.</span></div>
         </div>
-        <div class="flow-step">
+        <div class="flow-step problem">
           <div class="num">2</div>
-          <div><code>cd ~/my-project</code></div>
+          <div><code>cd ~/my-project</code><br><span class="comment">User has to figure out "where do I go?" on their own</span></div>
         </div>
         <div class="flow-step problem">
           <div class="num">3</div>
@@ -830,26 +901,26 @@ Free it or change 'port' in agent-orchestrator.yaml.</code></pre>
         </div>
         <div class="flow-step">
           <div class="num">6</div>
-          <div><code>ao spawn my-project 123</code></div>
+          <div><code>ao spawn my-project 123</code><br><span class="comment">User has to remember this themselves</span></div>
         </div>
       </div>
       <div>
-        <h4 style="color: var(--green);">After (2 min, zero interruptions)</h4>
+        <h4 style="color: var(--green);">After (2 min, zero interruptions, guided)</h4>
         <div class="flow-step">
           <div class="num">1</div>
-          <div><code>bash scripts/setup.sh</code><br><span class="comment" style="color: var(--green);">Handles permissions automatically</span></div>
+          <div><code>bash scripts/setup.sh</code><br><span class="comment" style="color: var(--green);">Handles permissions + prints "cd ~/your-project && ao init"</span></div>
         </div>
         <div class="flow-step">
           <div class="num">2</div>
-          <div><code>cd ~/my-project && ao init</code><br><span class="comment" style="color: var(--green);">Zero prompts, auto-detects</span></div>
+          <div><code>cd ~/my-project && ao init</code><br><span class="comment" style="color: var(--green);">Zero prompts + prints "ao start" with directory context</span></div>
         </div>
         <div class="flow-step">
           <div class="num">3</div>
-          <div><code>ao add-project ~/other-project</code><br><span class="comment" style="color: var(--green);">One command, auto-detects</span></div>
+          <div><code>ao add-project ~/other-project</code><br><span class="comment" style="color: var(--green);">Auto-detects + prints "ao start" and "ao spawn"</span></div>
         </div>
         <div class="flow-step">
           <div class="num">4</div>
-          <div><code>ao start</code><br><span class="comment" style="color: var(--green);">Auto-finds free port</span></div>
+          <div><code>ao start</code><br><span class="comment" style="color: var(--green);">Auto-finds free port + prints "ao spawn &lt;project&gt; &lt;issue&gt;"</span></div>
         </div>
         <div class="flow-step">
           <div class="num">5</div>
@@ -961,6 +1032,7 @@ Free it or change 'port' in agent-orchestrator.yaml.</code></pre>
         <tr><td>Port conflicts on <code>ao start</code></td><td>Fatal crash</td><td>Auto-resolved</td></tr>
         <tr><td>Adding a second project</td><td>Manual YAML editing</td><td><code>ao add-project &lt;path&gt;</code></td></tr>
         <tr><td>Dead CLI flags</td><td><code>--smart</code> shows "coming soon"</td><td>Removed</td></tr>
+        <tr><td>"What's next" guidance</td><td>None — user guesses</td><td>Every command prints the next step + directory</td></tr>
       </tbody>
     </table>
 
@@ -991,6 +1063,10 @@ Free it or change 'port' in agent-orchestrator.yaml.</code></pre>
       <li><code>ao start</code> with port 3000 busy → auto-finds 3001 and starts</li>
       <li><code>ao update</code> with permission issue → auto-retries with sudo</li>
       <li><code>ao doctor --fix</code> with permission issue → auto-retries with sudo</li>
+      <li><code>setup.sh</code> completion → prints <code>cd ~/your-project && ao init</code></li>
+      <li><code>ao init</code> completion → prints <code>ao start</code> with directory context</li>
+      <li><code>ao start</code> completion → prints <code>ao spawn &lt;project&gt; &lt;issue&gt;</code></li>
+      <li><code>ao add-project</code> completion → prints <code>ao start</code> and <code>ao spawn</code></li>
     </ul>
   </div>
 </body>

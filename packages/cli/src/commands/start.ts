@@ -377,7 +377,15 @@ async function runStartup(
     console.log(chalk.cyan("Orchestrator:"), `reused existing session (${sessionId})`);
   }
 
-  console.log(chalk.dim(`Config: ${config.configPath}\n`));
+  console.log(chalk.dim(`Config: ${config.configPath}`));
+
+  // Show next step hint
+  const projectIds = Object.keys(config.projects);
+  if (projectIds.length > 0) {
+    console.log(chalk.bold("\nNext step:\n"));
+    console.log(`  Spawn an agent session:`);
+    console.log(chalk.cyan(`     ao spawn ${projectId} <issue-number>\n`));
+  }
 
   // Auto-open browser to orchestrator session page once the server is accepting connections.
   // Polls the port instead of using a fixed delay — deterministic and works regardless of
