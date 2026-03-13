@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   type DashboardSession,
   type DashboardStats,
@@ -86,6 +86,19 @@ export function Dashboard({
     return zones;
   }, [sessions]);
 
+  const sessionsByProject = useMemo(() => {
+    const groupedSessions = new Map<string, DashboardSession[]>();
+    for (const session of sessions) {
+      const projectSessions = groupedSessions.get(session.projectId);
+      if (projectSessions) {
+        projectSessions.push(session);
+        continue;
+      }
+      groupedSessions.set(session.projectId, [session]);
+    }
+    return groupedSessions;
+  }, [sessions]);
+
   const openPRs = useMemo(() => {
     return sessions
       .filter(
@@ -100,7 +113,7 @@ export function Dashboard({
     if (!allProjectsView) return [];
 
     return projects.map((project) => {
-      const projectSessions = sessions.filter((session) => session.projectId === project.id);
+      const projectSessions = sessionsByProject.get(project.id) ?? [];
       const counts: Record<AttentionLevel, number> = {
         merge: 0,
         respond: 0,
@@ -123,9 +136,9 @@ export function Dashboard({
         counts,
       };
     });
-  }, [activeOrchestrators, allProjectsView, projects, sessions]);
+  }, [activeOrchestrators, allProjectsView, projects, sessionsByProject]);
 
-  const handleSend = async (sessionId: string, message: string) => {
+  const handleSend = useCallback(async (sessionId: string, message: string) => {
     const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/send`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -134,9 +147,9 @@ export function Dashboard({
     if (!res.ok) {
       console.error(`Failed to send message to ${sessionId}:`, await res.text());
     }
-  };
+  }, []);
 
-  const handleKill = async (sessionId: string) => {
+  const handleKill = useCallback(async (sessionId: string) => {
     if (!confirm(`Kill session ${sessionId}?`)) return;
     const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/kill`, {
       method: "POST",
@@ -144,16 +157,16 @@ export function Dashboard({
     if (!res.ok) {
       console.error(`Failed to kill ${sessionId}:`, await res.text());
     }
-  };
+  }, []);
 
-  const handleMerge = async (prNumber: number) => {
+  const handleMerge = useCallback(async (prNumber: number) => {
     const res = await fetch(`/api/prs/${prNumber}/merge`, { method: "POST" });
     if (!res.ok) {
       console.error(`Failed to merge PR #${prNumber}:`, await res.text());
     }
-  };
+  }, []);
 
-  const handleRestore = async (sessionId: string) => {
+  const handleRestore = useCallback(async (sessionId: string) => {
     if (!confirm(`Restore session ${sessionId}?`)) return;
     const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/restore`, {
       method: "POST",
@@ -161,7 +174,7 @@ export function Dashboard({
     if (!res.ok) {
       console.error(`Failed to restore ${sessionId}:`, await res.text());
     }
-  };
+  }, []);
 
   const handleSpawnOrchestrator = async (project: ProjectInfo) => {
     setSpawningProjectIds((current) =>

@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { renderHook, act } from "@testing-library/react";
+import { renderHook, act, waitFor } from "@testing-library/react";
 import { useSessionEvents } from "../useSessionEvents";
-import type { DashboardSession, GlobalPauseState } from "@/lib/types";
-import { makeSession } from "@/__tests__/helpers";
+import type { DashboardSession, GlobalPauseState } from "../../lib/types";
+import { makeSession } from "../../__tests__/helpers";
 
 describe("useSessionEvents", () => {
   let eventSourceMock: {
@@ -14,7 +14,7 @@ describe("useSessionEvents", () => {
 
   beforeEach(() => {
     eventSourceInstances = [];
-    global.EventSource = vi.fn(() => {
+    const eventSourceConstructor = vi.fn(() => {
       const instance = {
         onmessage: null as ((event: MessageEvent) => void) | null,
         onerror: null as (() => void) | null,
@@ -24,10 +24,16 @@ describe("useSessionEvents", () => {
       eventSourceMock = instance;
       return instance as unknown as EventSource;
     });
+    global.EventSource = Object.assign(eventSourceConstructor, {
+      CONNECTING: 0,
+      OPEN: 1,
+      CLOSED: 2,
+    }) as unknown as typeof EventSource;
     global.fetch = vi.fn();
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     vi.restoreAllMocks();
   });
 
@@ -73,7 +79,7 @@ describe("useSessionEvents", () => {
           sessions: [...initialSessions, makeSession({ id: "session-new" })],
           globalPause: makeGlobalPause({ reason: "Updated pause from different provider" }),
         }),
-      } as Response);
+      } as unknown as Response);
 
       const { result } = renderHook(() => useSessionEvents(initialSessions, initialPause));
 
@@ -107,7 +113,9 @@ describe("useSessionEvents", () => {
         } as MessageEvent);
       });
 
-      expect(result.current.globalPause?.reason).toBe("Updated pause from different provider");
+      await waitFor(() => {
+        expect(result.current.globalPause?.reason).toBe("Updated pause from different provider");
+      });
     });
 
     it("clears globalPause when /api/sessions returns null pause", async () => {
@@ -120,7 +128,7 @@ describe("useSessionEvents", () => {
           sessions: [...initialSessions, makeSession({ id: "session-new" })],
           globalPause: null,
         }),
-      } as Response);
+      } as unknown as Response);
 
       const { result } = renderHook(() => useSessionEvents(initialSessions, initialPause));
 
@@ -154,7 +162,9 @@ describe("useSessionEvents", () => {
         } as MessageEvent);
       });
 
-      expect(result.current.globalPause).toBeNull();
+      await waitFor(() => {
+        expect(result.current.globalPause).toBeNull();
+      });
     });
 
     it("sets globalPause when initially null and /api/sessions returns pause", async () => {
@@ -200,7 +210,44 @@ describe("useSessionEvents", () => {
         } as MessageEvent);
       });
 
-      expect(result.current.globalPause?.reason).toBe("New rate limit detected");
+      await waitFor(() => {
+        expect(result.current.globalPause?.reason).toBe("New rate limit detected");
+      });
+    });
+
+    it("refreshes globalPause on stale same-membership snapshots without waiting for membership churn", async () => {
+      vi.useFakeTimers();
+      const initialSessions = makeSessions(2);
+
+      vi.mocked(fetch).mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          sessions: initialSessions,
+          globalPause: makeGlobalPause({ reason: "Pause updated during steady-state SSE" }),
+        }),
+      } as Response);
+
+      const { result } = renderHook(() => useSessionEvents(initialSessions, null));
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(15000);
+        eventSourceMock!.onmessage!.call(eventSourceMock, {
+          data: JSON.stringify({
+            type: "snapshot",
+            sessions: initialSessions.map((session) => ({
+              id: session.id,
+              status: session.status,
+              activity: session.activity,
+              lastActivityAt: session.lastActivityAt,
+            })),
+          }),
+        } as MessageEvent);
+        await vi.advanceTimersByTimeAsync(120);
+      });
+
+      expect(fetch).toHaveBeenCalledTimes(1);
+      expect(fetch).toHaveBeenCalledWith("/api/sessions", { signal: expect.any(AbortSignal) });
+      expect(result.current.globalPause?.reason).toBe("Pause updated during steady-state SSE");
     });
   });
 
@@ -238,8 +285,10 @@ describe("useSessionEvents", () => {
         } as MessageEvent);
       });
 
-      expect(result.current.globalPause?.reason).toBe("usage limit reached for 2 hours");
-      expect(result.current.globalPause?.sourceSessionId).toBe("claude-session-1");
+      await waitFor(() => {
+        expect(result.current.globalPause?.reason).toBe("usage limit reached for 2 hours");
+        expect(result.current.globalPause?.sourceSessionId).toBe("claude-session-1");
+      });
     });
 
     it("handles globalPause from OpenCode agent without provider-specific logic", async () => {
@@ -275,8 +324,10 @@ describe("useSessionEvents", () => {
         } as MessageEvent);
       });
 
-      expect(result.current.globalPause?.reason).toBe("Model capacity exceeded");
-      expect(result.current.globalPause?.sourceSessionId).toBe("opencode-session-42");
+      await waitFor(() => {
+        expect(result.current.globalPause?.reason).toBe("Model capacity exceeded");
+        expect(result.current.globalPause?.sourceSessionId).toBe("opencode-session-42");
+      });
     });
 
     it("handles globalPause from Codex agent without provider-specific logic", async () => {
@@ -312,8 +363,10 @@ describe("useSessionEvents", () => {
         } as MessageEvent);
       });
 
-      expect(result.current.globalPause?.reason).toBe("API quota exhausted");
-      expect(result.current.globalPause?.sourceSessionId).toBe("codex-worker-99");
+      await waitFor(() => {
+        expect(result.current.globalPause?.reason).toBe("API quota exhausted");
+        expect(result.current.globalPause?.sourceSessionId).toBe("codex-worker-99");
+      });
     });
   });
 
@@ -344,6 +397,184 @@ describe("useSessionEvents", () => {
       expect(result.current.sessions[1].status).toBe("working");
     });
 
+    it("preserves untouched session references across snapshot patches", async () => {
+      const sessions = makeSessions(2);
+
+      const { result } = renderHook(() => useSessionEvents(sessions, null));
+      const untouchedSession = result.current.sessions[1];
+
+      await act(async () => {
+        eventSourceMock!.onmessage!.call(eventSourceMock, {
+          data: JSON.stringify({
+            type: "snapshot",
+            sessions: [
+              {
+                id: "session-0",
+                status: "pr_open",
+                activity: "idle",
+                lastActivityAt: new Date().toISOString(),
+              },
+            ],
+          }),
+        } as MessageEvent);
+      });
+
+      expect(result.current.sessions[0]).not.toBe(sessions[0]);
+      expect(result.current.sessions[1]).toBe(untouchedSession);
+    });
+
+    it("coalesces bursty membership changes into a single refresh fetch", async () => {
+      vi.useFakeTimers();
+      const initialSessions = makeSessions(1);
+
+      vi.mocked(fetch).mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          sessions: [
+            ...initialSessions,
+            makeSession({ id: "session-1" }),
+            makeSession({ id: "session-2" }),
+            makeSession({ id: "session-3" }),
+          ],
+          globalPause: null,
+        }),
+      } as Response);
+
+      renderHook(() => useSessionEvents(initialSessions, null));
+
+      await act(async () => {
+        for (const sessionId of ["session-1", "session-2", "session-3"]) {
+          eventSourceMock!.onmessage!.call(eventSourceMock, {
+            data: JSON.stringify({
+              type: "snapshot",
+              sessions: [
+                {
+                  id: "session-0",
+                  status: "working",
+                  activity: "active",
+                  lastActivityAt: new Date().toISOString(),
+                },
+                {
+                  id: sessionId,
+                  status: "working",
+                  activity: "active",
+                  lastActivityAt: new Date().toISOString(),
+                },
+              ],
+            }),
+          } as MessageEvent);
+        }
+
+        await vi.advanceTimersByTimeAsync(120);
+        await Promise.resolve();
+      });
+
+      expect(fetch).toHaveBeenCalledTimes(1);
+      expect(fetch).toHaveBeenCalledWith("/api/sessions", { signal: expect.any(AbortSignal) });
+    });
+
+    it("ignores stale refresh completions after project changes", async () => {
+      vi.useFakeTimers();
+      const alphaSessions = [makeSession({ id: "alpha-0", projectId: "alpha" })];
+      const betaSessions = [makeSession({ id: "beta-0", projectId: "beta" })];
+      let resolveAlphaFetch: ((value: Response) => void) | null = null;
+
+      vi.mocked(fetch).mockImplementation((input) => {
+        const url = typeof input === "string" ? input : input.toString();
+        if (url.includes("project=alpha")) {
+          return new Promise<Response>((resolve) => {
+            resolveAlphaFetch = resolve;
+          });
+        }
+
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            sessions: [...betaSessions, makeSession({ id: "beta-1", projectId: "beta" })],
+            globalPause: null,
+          }),
+        } as unknown as Response);
+      });
+
+      const { result, rerender } = renderHook(
+        ({ sessions, project }) => useSessionEvents(sessions, null, project),
+        {
+          initialProps: { sessions: alphaSessions, project: "alpha" },
+        },
+      );
+
+      await act(async () => {
+        eventSourceInstances[0].onmessage?.({
+          data: JSON.stringify({
+            type: "snapshot",
+            sessions: [
+              {
+                id: "alpha-0",
+                status: "working",
+                activity: "active",
+                lastActivityAt: alphaSessions[0].lastActivityAt,
+              },
+              {
+                id: "alpha-1",
+                status: "working",
+                activity: "active",
+                lastActivityAt: new Date().toISOString(),
+              },
+            ],
+          }),
+        } as MessageEvent);
+        await vi.advanceTimersByTimeAsync(120);
+      });
+
+      expect(fetch).toHaveBeenCalledTimes(1);
+      expect(fetch).toHaveBeenNthCalledWith(1, "/api/sessions?project=alpha", {
+        signal: expect.any(AbortSignal),
+      });
+
+      rerender({ sessions: betaSessions, project: "beta" });
+
+      await act(async () => {
+        resolveAlphaFetch?.({
+          ok: true,
+          json: async () => ({
+            sessions: [...alphaSessions, makeSession({ id: "alpha-1", projectId: "alpha" })],
+            globalPause: null,
+          }),
+        } as unknown as Response);
+        await Promise.resolve();
+      });
+
+      expect(result.current.sessions).toEqual(betaSessions);
+
+      await act(async () => {
+        eventSourceInstances[1].onmessage?.({
+          data: JSON.stringify({
+            type: "snapshot",
+            sessions: [
+              {
+                id: "beta-0",
+                status: "working",
+                activity: "active",
+                lastActivityAt: betaSessions[0].lastActivityAt,
+              },
+              {
+                id: "beta-1",
+                status: "working",
+                activity: "active",
+                lastActivityAt: new Date().toISOString(),
+              },
+            ],
+          }),
+        } as MessageEvent);
+        await vi.advanceTimersByTimeAsync(120);
+      });
+
+      expect(fetch).toHaveBeenCalledTimes(2);
+      expect(fetch).toHaveBeenNthCalledWith(2, "/api/sessions?project=beta", {
+        signal: expect.any(AbortSignal),
+      });
+    });
+
     it("swallows refresh fetch JSON failures without resetting sessions", async () => {
       const sessions = makeSessions(1);
 
@@ -352,7 +583,7 @@ describe("useSessionEvents", () => {
         json: async () => {
           throw new Error("bad json");
         },
-      } as Response);
+      } as unknown as Response);
 
       const { result } = renderHook(() => useSessionEvents(sessions, null));
 
@@ -376,8 +607,12 @@ describe("useSessionEvents", () => {
             ],
           }),
         } as MessageEvent);
+      });
 
-        await Promise.resolve();
+      await waitFor(() => {
+        expect(fetch).toHaveBeenCalledWith("/api/sessions", {
+          signal: expect.any(AbortSignal),
+        });
       });
 
       expect(result.current.sessions).toHaveLength(1);
