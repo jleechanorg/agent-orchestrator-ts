@@ -57,8 +57,8 @@ fixed() {
 
 expand_home() {
   case "$1" in
-    ~/*)
-      printf '%s/%s' "$DEFAULT_CONFIG_HOME" "${1#~/}"
+    "~/"*)
+      printf '%s/%s' "$DEFAULT_CONFIG_HOME" "${1#\~/}"
       ;;
     *)
       printf '%s' "$1"
