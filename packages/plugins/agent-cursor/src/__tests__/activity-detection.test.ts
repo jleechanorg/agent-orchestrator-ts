@@ -87,7 +87,7 @@ describe("Claude Code Activity Detection", () => {
   });
 
   // =============================================================================
-  // getActivityState — integration tests with real JSONL files on disk
+  // getActivityState
   // =============================================================================
 
   describe("getActivityState", () => {
@@ -98,7 +98,7 @@ describe("Claude Code Activity Detection", () => {
       workspacePath = join(fakeHome, "workspace");
       mkdirSync(workspacePath, { recursive: true });
 
-      // Create the Claude project directory matching the workspace path
+      // Create the project directory (though it won't be used anymore)
       const encoded = toCursorProjectPath(workspacePath);
       projectDir = join(fakeHome, ".cursor", "projects", encoded);
       mkdirSync(projectDir, { recursive: true });
@@ -112,13 +112,11 @@ describe("Claude Code Activity Detection", () => {
       vi.restoreAllMocks();
     });
 
-    // -----------------------------------------------------------------------
-    // Process / handle edge cases
-    // -----------------------------------------------------------------------
+    // Cursor stores sessions in SQLite at ~/.cursor/chats/, not JSONL files.
+    // Session introspection is not yet implemented for Cursor.
 
     it("returns 'exited' when process is not running", async () => {
       vi.spyOn(agent, "isProcessRunning").mockResolvedValue(false);
-      writeJsonl([{ type: "assistant" }]);
       expect((await agent.getActivityState(makeSession()))?.state).toBe("exited");
     });
 
@@ -134,245 +132,10 @@ describe("Claude Code Activity Detection", () => {
       );
     });
 
-    // -----------------------------------------------------------------------
-    // Fallback cases (no JSONL data available)
-    // -----------------------------------------------------------------------
-
-    it("returns null when no session file exists yet", async () => {
-      // projectDir exists but is empty — no .jsonl files
+    it("returns null when process is running (SQLite introspection not implemented)", async () => {
       expect(await agent.getActivityState(makeSession())).toBeNull();
-    });
-
-    it("returns null when no workspacePath", async () => {
       expect(await agent.getActivityState(makeSession({ workspacePath: null }))).toBeNull();
-    });
-
-    it("returns null when project directory does not exist", async () => {
-      // Point to a workspace whose project dir doesn't exist
-      const badPath = join(fakeHome, "nonexistent-workspace");
-      expect(await agent.getActivityState(makeSession({ workspacePath: badPath }))).toBeNull();
-    });
-
-    // -----------------------------------------------------------------------
-    // Real Claude Code entry types (observed in production)
-    // -----------------------------------------------------------------------
-
-    describe("real Claude Code entry types", () => {
-      it("returns 'active' for recent 'progress' entry (streaming)", async () => {
-        writeJsonl([{ type: "progress", status: "running tool" }]);
-        expect((await agent.getActivityState(makeSession()))?.state).toBe("active");
-      });
-
-      it("returns 'active' for recent 'user' entry", async () => {
-        writeJsonl([{ type: "user", message: { content: "fix the bug" } }]);
-        expect((await agent.getActivityState(makeSession()))?.state).toBe("active");
-      });
-
-      it("returns 'ready' for recent 'assistant' entry", async () => {
-        writeJsonl([{ type: "assistant", message: { content: "Done!" } }]);
-        expect((await agent.getActivityState(makeSession()))?.state).toBe("ready");
-      });
-
-      it("returns 'ready' for recent 'system' entry", async () => {
-        writeJsonl([{ type: "system", summary: "session started" }]);
-        expect((await agent.getActivityState(makeSession()))?.state).toBe("ready");
-      });
-
-      it("returns 'active' for recent 'file-history-snapshot' (bookkeeping)", async () => {
-        writeJsonl([{ type: "file-history-snapshot" }]);
-        expect((await agent.getActivityState(makeSession()))?.state).toBe("active");
-      });
-
-      it("returns 'active' for recent 'queue-operation' (bookkeeping)", async () => {
-        writeJsonl([{ type: "queue-operation" }]);
-        expect((await agent.getActivityState(makeSession()))?.state).toBe("active");
-      });
-
-      it("returns 'active' for recent 'pr-link' (bookkeeping)", async () => {
-        writeJsonl([{ type: "pr-link" }]);
-        expect((await agent.getActivityState(makeSession()))?.state).toBe("active");
-      });
-    });
-
-    // -----------------------------------------------------------------------
-    // Agent interface spec types (may appear in future versions)
-    // -----------------------------------------------------------------------
-
-    describe("agent interface spec types", () => {
-      it("returns 'active' for recent 'tool_use' entry", async () => {
-        writeJsonl([{ type: "tool_use" }]);
-        expect((await agent.getActivityState(makeSession()))?.state).toBe("active");
-      });
-
-      it("returns 'waiting_input' for 'permission_request'", async () => {
-        writeJsonl([{ type: "permission_request" }]);
-        expect((await agent.getActivityState(makeSession()))?.state).toBe("waiting_input");
-      });
-
-      it("returns 'blocked' for 'error'", async () => {
-        writeJsonl([{ type: "error" }]);
-        expect((await agent.getActivityState(makeSession()))?.state).toBe("blocked");
-      });
-
-      it("returns 'ready' for recent 'summary' entry", async () => {
-        writeJsonl([{ type: "summary", summary: "Implemented login feature" }]);
-        expect((await agent.getActivityState(makeSession()))?.state).toBe("ready");
-      });
-
-      it("returns 'ready' for recent 'result' entry", async () => {
-        writeJsonl([{ type: "result" }]);
-        expect((await agent.getActivityState(makeSession()))?.state).toBe("ready");
-      });
-    });
-
-    // -----------------------------------------------------------------------
-    // Staleness / threshold behavior
-    // -----------------------------------------------------------------------
-
-    describe("staleness threshold", () => {
-      it("returns 'idle' for stale 'assistant' entry (> threshold)", async () => {
-        writeJsonl([{ type: "assistant" }], 400_000); // 6+ min old
-        expect((await agent.getActivityState(makeSession()))?.state).toBe("idle");
-      });
-
-      it("returns 'idle' for stale 'user' entry (> threshold)", async () => {
-        writeJsonl([{ type: "user" }], 400_000);
-        expect((await agent.getActivityState(makeSession()))?.state).toBe("idle");
-      });
-
-      it("returns 'idle' for stale 'progress' entry (> threshold)", async () => {
-        writeJsonl([{ type: "progress" }], 400_000);
-        expect((await agent.getActivityState(makeSession()))?.state).toBe("idle");
-      });
-
-      it("returns 'idle' for stale bookkeeping entry (> threshold)", async () => {
-        writeJsonl([{ type: "file-history-snapshot" }], 400_000);
-        expect((await agent.getActivityState(makeSession()))?.state).toBe("idle");
-      });
-
-      it("'permission_request' ignores staleness (always waiting_input)", async () => {
-        writeJsonl([{ type: "permission_request" }], 400_000);
-        expect((await agent.getActivityState(makeSession()))?.state).toBe("waiting_input");
-      });
-
-      it("'error' ignores staleness (always blocked)", async () => {
-        writeJsonl([{ type: "error" }], 400_000);
-        expect((await agent.getActivityState(makeSession()))?.state).toBe("blocked");
-      });
-
-      it("respects custom readyThresholdMs", async () => {
-        // 2 minutes old — stale with 60s threshold, ready with default 5min
-        writeJsonl([{ type: "assistant" }], 120_000);
-
-        expect((await agent.getActivityState(makeSession(), 60_000))?.state).toBe("idle");
-        expect((await agent.getActivityState(makeSession(), 300_000))?.state).toBe("ready");
-      });
-
-      it("custom threshold applies to active types too", async () => {
-        // 2 minutes old
-        writeJsonl([{ type: "user" }], 120_000);
-
-        expect((await agent.getActivityState(makeSession(), 60_000))?.state).toBe("idle");
-        expect((await agent.getActivityState(makeSession(), 300_000))?.state).toBe("active");
-      });
-    });
-
-    // -----------------------------------------------------------------------
-    // JSONL file selection
-    // -----------------------------------------------------------------------
-
-    describe("JSONL file selection", () => {
-      it("picks the most recently modified JSONL file", async () => {
-        // Write an older file with "assistant" and a newer file with "user"
-        writeJsonl([{ type: "assistant" }], 10_000, "old-session.jsonl");
-        writeJsonl([{ type: "user" }], 0, "new-session.jsonl");
-
-        expect((await agent.getActivityState(makeSession()))?.state).toBe("active");
-      });
-
-      it("ignores agent- prefixed JSONL files", async () => {
-        writeJsonl([{ type: "user" }], 0, "agent-toolkit.jsonl");
-        // No real session file → returns null (cannot determine activity)
-        expect(await agent.getActivityState(makeSession())).toBeNull();
-      });
-
-      it("reads last entry from multi-entry JSONL (not first)", async () => {
-        // First entry is user (active), last entry is assistant (ready)
-        writeJsonl([
-          { type: "user", message: { content: "fix bug" } },
-          { type: "progress", status: "thinking" },
-          { type: "assistant", message: { content: "Done!" } },
-        ]);
-        expect((await agent.getActivityState(makeSession()))?.state).toBe("ready");
-      });
-
-      it("returns null for empty JSONL file", async () => {
-        writeFileSync(join(projectDir, "empty-session.jsonl"), "");
-        expect(await agent.getActivityState(makeSession())).toBeNull();
-      });
-
-      it("returns null for JSONL with only whitespace", async () => {
-        writeFileSync(join(projectDir, "whitespace-session.jsonl"), "\n\n  \n");
-        // All lines are whitespace — readLastJsonlEntry returns null
-        expect(await agent.getActivityState(makeSession())).toBeNull();
-      });
-
-      it("ignores non-JSONL files in project directory", async () => {
-        // Write a non-JSONL file
-        writeFileSync(join(projectDir, "config.json"), '{"type": "user"}');
-        writeFileSync(join(projectDir, "notes.txt"), "some notes");
-        // Write actual JSONL
-        writeJsonl([{ type: "assistant" }]);
-        expect((await agent.getActivityState(makeSession()))?.state).toBe("ready");
-      });
-    });
-
-    // -----------------------------------------------------------------------
-    // Realistic session sequences
-    // -----------------------------------------------------------------------
-
-    describe("realistic session sequences", () => {
-      it("detects agent mid-work (progress is last entry)", async () => {
-        writeJsonl([
-          { type: "user", message: { content: "implement auth" } },
-          { type: "assistant", message: { content: "I'll implement..." } },
-          { type: "progress", status: "Reading file" },
-          { type: "progress", status: "Writing file" },
-          { type: "progress", status: "Running tool" },
-        ]);
-        expect((await agent.getActivityState(makeSession()))?.state).toBe("active");
-      });
-
-      it("detects agent done and waiting (assistant is last entry)", async () => {
-        writeJsonl([
-          { type: "user", message: { content: "implement auth" } },
-          { type: "progress", status: "thinking" },
-          { type: "progress", status: "writing" },
-          { type: "assistant", message: { content: "I've implemented the auth feature." } },
-        ]);
-        expect((await agent.getActivityState(makeSession()))?.state).toBe("ready");
-      });
-
-      it("detects agent done with system summary", async () => {
-        writeJsonl([
-          { type: "user", message: { content: "fix tests" } },
-          { type: "progress", status: "thinking" },
-          { type: "assistant", message: { content: "Fixed!" } },
-          { type: "system", summary: "Fixed failing tests" },
-        ]);
-        expect((await agent.getActivityState(makeSession()))?.state).toBe("ready");
-      });
-
-      it("detects stale finished session", async () => {
-        writeJsonl(
-          [
-            { type: "user", message: { content: "implement auth" } },
-            { type: "assistant", message: { content: "Done" } },
-          ],
-          600_000, // 10 min old
-        );
-        expect((await agent.getActivityState(makeSession()))?.state).toBe("idle");
-      });
+      expect(await agent.getActivityState(makeSession({ workspacePath: "/some/path" }))).toBeNull();
     });
   });
 });

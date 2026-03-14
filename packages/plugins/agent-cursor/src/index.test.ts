@@ -148,21 +148,21 @@ describe("getLaunchCommand", () => {
     expect(cmd).not.toContain("unset");
   });
 
-  it("includes --dangerously-skip-permissions when permissions=permissionless", () => {
+  it("includes --force when permissions=permissionless", () => {
     const cmd = agent.getLaunchCommand(makeLaunchConfig({ permissions: "permissionless" }));
-    expect(cmd).toContain("--dangerously-skip-permissions");
+    expect(cmd).toContain("--force");
   });
 
   it("treats legacy permissions=skip as permissionless", () => {
     const cmd = agent.getLaunchCommand(
       makeLaunchConfig({ permissions: "skip" as unknown as AgentLaunchConfig["permissions"] }),
     );
-    expect(cmd).toContain("--dangerously-skip-permissions");
+    expect(cmd).toContain("--force");
   });
 
-  it("maps permissions=auto-edit to no-prompt mode on Claude", () => {
+  it("maps permissions=auto-edit to no-prompt mode on Cursor", () => {
     const cmd = agent.getLaunchCommand(makeLaunchConfig({ permissions: "auto-edit" }));
-    expect(cmd).toContain("--dangerously-skip-permissions");
+    expect(cmd).toContain("--force");
   });
 
   it("shell-escapes model argument", () => {
@@ -180,12 +180,12 @@ describe("getLaunchCommand", () => {
     const cmd = agent.getLaunchCommand(
       makeLaunchConfig({ permissions: "permissionless", model: "opus", prompt: "Hello" }),
     );
-    expect(cmd).toBe("cursor-agent --dangerously-skip-permissions --model 'opus'");
+    expect(cmd).toBe("cursor-agent --force --model 'opus'");
   });
 
-  it("omits --dangerously-skip-permissions when permissions=default", () => {
+  it("omits --force when permissions=default", () => {
     const cmd = agent.getLaunchCommand(makeLaunchConfig({ permissions: "default" }));
-    expect(cmd).not.toContain("--dangerously-skip-permissions");
+    expect(cmd).not.toContain("--force");
   });
 
   it("omits optional flags when not provided", () => {
@@ -194,23 +194,25 @@ describe("getLaunchCommand", () => {
     expect(cmd).not.toContain("-p");
   });
 
-  it("includes --append-system-prompt alongside omitted -p", () => {
+  it("omits system prompt (no --append-system-prompt equivalent in Cursor)", () => {
     const cmd = agent.getLaunchCommand(
       makeLaunchConfig({ systemPrompt: "You are a helper", prompt: "Do the task" }),
     );
-    expect(cmd).toContain("--append-system-prompt");
-    expect(cmd).toContain("You are a helper");
-    // -p as a standalone flag (not substring of --append-system-prompt)
+    // Cursor doesn't have --append-system-prompt, so system prompts are not included
+    expect(cmd).not.toContain("--append-system-prompt");
+    expect(cmd).not.toContain("You are a helper");
+    // -p as a standalone flag is also not used (prompt delivered post-launch)
     expect(cmd).not.toMatch(/\s-p\s/);
     expect(cmd).not.toContain("Do the task");
   });
 
-  it("uses systemPromptFile via shell substitution alongside omitted -p", () => {
+  it("omits systemPromptFile (no --append-system-prompt equivalent in Cursor)", () => {
     const cmd = agent.getLaunchCommand(
       makeLaunchConfig({ systemPromptFile: "/tmp/prompt.md", prompt: "Do the task" }),
     );
-    expect(cmd).toContain('--append-system-prompt "$(cat');
-    expect(cmd).toContain("/tmp/prompt.md");
+    // Cursor doesn't have --append-system-prompt, so system prompt files are not included
+    expect(cmd).not.toContain("--append-system-prompt");
+    expect(cmd).not.toContain("/tmp/prompt.md");
     expect(cmd).not.toMatch(/\s-p\s/);
     expect(cmd).not.toContain("Do the task");
   });
@@ -429,243 +431,11 @@ describe("detectActivity", () => {
 describe("getSessionInfo", () => {
   const agent = create();
 
-  it("returns null when workspacePath is null", async () => {
+  // Cursor stores sessions in SQLite at ~/.cursor/chats/, not JSONL files
+  // like Claude Code. Session introspection is not yet implemented for Cursor.
+  it("returns null (not yet implemented for Cursor's SQLite storage)", async () => {
+    expect(await agent.getSessionInfo(makeSession())).toBeNull();
     expect(await agent.getSessionInfo(makeSession({ workspacePath: null }))).toBeNull();
-  });
-
-  it("returns null when project directory does not exist", async () => {
-    mockReaddir.mockRejectedValue(new Error("ENOENT"));
-    expect(await agent.getSessionInfo(makeSession())).toBeNull();
-  });
-
-  it("returns null when no JSONL files in project dir", async () => {
-    mockReaddir.mockResolvedValue(["readme.txt", "config.yaml"]);
-    expect(await agent.getSessionInfo(makeSession())).toBeNull();
-  });
-
-  it("filters out agent- prefixed JSONL files", async () => {
-    mockReaddir.mockResolvedValue(["agent-toolkit.jsonl"]);
-    expect(await agent.getSessionInfo(makeSession())).toBeNull();
-  });
-
-  it("returns null when JSONL file is empty", async () => {
-    mockJsonlFiles("");
-    expect(await agent.getSessionInfo(makeSession())).toBeNull();
-  });
-
-  it("returns null when JSONL has only malformed lines", async () => {
-    mockJsonlFiles("not json\nalso not json\n");
-    expect(await agent.getSessionInfo(makeSession())).toBeNull();
-  });
-
-  describe("path conversion", () => {
-    it("converts workspace path to Claude project dir path", async () => {
-      mockJsonlFiles('{"type":"user","message":{"content":"hello"}}');
-      await agent.getSessionInfo(makeSession({ workspacePath: "/Users/dev/.worktrees/ao/ao-3" }));
-      expect(mockReaddir).toHaveBeenCalledWith(
-        "/mock/home/.cursor/projects/-Users-dev--worktrees-ao-ao-3",
-      );
-    });
-  });
-
-  describe("summary extraction", () => {
-    it("extracts summary from last summary event and marks as not fallback", async () => {
-      const jsonl = [
-        '{"type":"summary","summary":"First summary"}',
-        '{"type":"user","message":{"content":"do something"}}',
-        '{"type":"summary","summary":"Latest summary"}',
-      ].join("\n");
-      mockJsonlFiles(jsonl);
-      const result = await agent.getSessionInfo(makeSession());
-      expect(result?.summary).toBe("Latest summary");
-      expect(result?.summaryIsFallback).toBe(false);
-    });
-
-    it("falls back to first user message and marks as fallback", async () => {
-      const jsonl = [
-        '{"type":"user","message":{"content":"Implement the login feature"}}',
-        '{"type":"assistant","message":{"content":"I will implement..."}}',
-      ].join("\n");
-      mockJsonlFiles(jsonl);
-      const result = await agent.getSessionInfo(makeSession());
-      expect(result?.summary).toBe("Implement the login feature");
-      expect(result?.summaryIsFallback).toBe(true);
-    });
-
-    it("truncates long user message to 120 chars", async () => {
-      const longMsg = "A".repeat(200);
-      const jsonl = `{"type":"user","message":{"content":"${longMsg}"}}`;
-      mockJsonlFiles(jsonl);
-      const result = await agent.getSessionInfo(makeSession());
-      expect(result?.summary).toBe("A".repeat(120) + "...");
-      expect(result!.summary!.length).toBe(123);
-      expect(result?.summaryIsFallback).toBe(true);
-    });
-
-    it("returns null summary when no summary and no user messages", async () => {
-      const jsonl = '{"type":"assistant","message":{"content":"Hello"}}';
-      mockJsonlFiles(jsonl);
-      const result = await agent.getSessionInfo(makeSession());
-      expect(result?.summary).toBeNull();
-      expect(result?.summaryIsFallback).toBeUndefined();
-    });
-
-    it("skips user messages with empty content", async () => {
-      const jsonl = [
-        '{"type":"user","message":{"content":"   "}}',
-        '{"type":"user","message":{"content":"Real content"}}',
-      ].join("\n");
-      mockJsonlFiles(jsonl);
-      const result = await agent.getSessionInfo(makeSession());
-      expect(result?.summary).toBe("Real content");
-      expect(result?.summaryIsFallback).toBe(true);
-    });
-  });
-
-  describe("session ID extraction", () => {
-    it("extracts session ID from filename", async () => {
-      mockJsonlFiles('{"type":"user","message":{"content":"hi"}}', ["abc-def-123.jsonl"]);
-      const result = await agent.getSessionInfo(makeSession());
-      expect(result?.agentSessionId).toBe("abc-def-123");
-    });
-  });
-
-  describe("cost estimation", () => {
-    it("aggregates usage.input_tokens and usage.output_tokens", async () => {
-      const jsonl = [
-        '{"type":"user","message":{"content":"hi"}}',
-        '{"type":"assistant","usage":{"input_tokens":1000,"output_tokens":500}}',
-        '{"type":"assistant","usage":{"input_tokens":2000,"output_tokens":300}}',
-      ].join("\n");
-      mockJsonlFiles(jsonl);
-      const result = await agent.getSessionInfo(makeSession());
-      expect(result?.cost?.inputTokens).toBe(3000);
-      expect(result?.cost?.outputTokens).toBe(800);
-      expect(result?.cost?.estimatedCostUsd).toBeCloseTo(0.009 + 0.012, 6);
-    });
-
-    it("includes cache tokens in input count", async () => {
-      const jsonl = [
-        '{"type":"user","message":{"content":"hi"}}',
-        '{"type":"assistant","usage":{"input_tokens":100,"output_tokens":50,"cache_read_input_tokens":500,"cache_creation_input_tokens":200}}',
-      ].join("\n");
-      mockJsonlFiles(jsonl);
-      const result = await agent.getSessionInfo(makeSession());
-      expect(result?.cost?.inputTokens).toBe(800);
-      expect(result?.cost?.outputTokens).toBe(50);
-    });
-
-    it("uses costUSD field when present", async () => {
-      const jsonl = [
-        '{"type":"user","message":{"content":"hi"}}',
-        '{"costUSD":0.05}',
-        '{"costUSD":0.03}',
-      ].join("\n");
-      mockJsonlFiles(jsonl);
-      const result = await agent.getSessionInfo(makeSession());
-      expect(result?.cost?.estimatedCostUsd).toBeCloseTo(0.08);
-    });
-
-    it("prefers costUSD over estimatedCostUsd to avoid double-counting", async () => {
-      const jsonl = [
-        '{"type":"user","message":{"content":"hi"}}',
-        '{"costUSD":0.10,"estimatedCostUsd":0.10}',
-      ].join("\n");
-      mockJsonlFiles(jsonl);
-      const result = await agent.getSessionInfo(makeSession());
-      // Should use costUSD only, not sum both
-      expect(result?.cost?.estimatedCostUsd).toBeCloseTo(0.1);
-    });
-
-    it("falls back to estimatedCostUsd when costUSD is absent", async () => {
-      const jsonl = [
-        '{"type":"user","message":{"content":"hi"}}',
-        '{"estimatedCostUsd":0.12}',
-      ].join("\n");
-      mockJsonlFiles(jsonl);
-      const result = await agent.getSessionInfo(makeSession());
-      expect(result?.cost?.estimatedCostUsd).toBeCloseTo(0.12);
-    });
-
-    it("uses direct inputTokens/outputTokens fields", async () => {
-      const jsonl = [
-        '{"type":"user","message":{"content":"hi"}}',
-        '{"inputTokens":5000,"outputTokens":1000}',
-      ].join("\n");
-      mockJsonlFiles(jsonl);
-      const result = await agent.getSessionInfo(makeSession());
-      expect(result?.cost?.inputTokens).toBe(5000);
-      expect(result?.cost?.outputTokens).toBe(1000);
-    });
-
-    it("returns undefined cost when no usage data", async () => {
-      const jsonl = '{"type":"user","message":{"content":"hi"}}';
-      mockJsonlFiles(jsonl);
-      const result = await agent.getSessionInfo(makeSession());
-      expect(result?.cost).toBeUndefined();
-    });
-  });
-
-  describe("file selection", () => {
-    it("picks the most recently modified JSONL file", async () => {
-      mockReaddir.mockResolvedValue(["old.jsonl", "new.jsonl"]);
-      mockStat.mockImplementation((path: string) => {
-        if (path.endsWith("old.jsonl")) {
-          return Promise.resolve({ mtimeMs: 1000, mtime: new Date(1000) });
-        }
-        return Promise.resolve({ mtimeMs: 2000, mtime: new Date(2000) });
-      });
-      mockReadFile.mockResolvedValue('{"type":"user","message":{"content":"hi"}}');
-      const result = await agent.getSessionInfo(makeSession());
-      expect(result?.agentSessionId).toBe("new");
-    });
-
-    it("skips JSONL files that fail stat", async () => {
-      mockReaddir.mockResolvedValue(["broken.jsonl", "good.jsonl"]);
-      mockStat.mockImplementation((path: string) => {
-        if (path.endsWith("broken.jsonl")) {
-          return Promise.reject(new Error("ENOENT"));
-        }
-        return Promise.resolve({ mtimeMs: 1000, mtime: new Date(1000) });
-      });
-      mockReadFile.mockResolvedValue('{"type":"user","message":{"content":"hi"}}');
-      const result = await agent.getSessionInfo(makeSession());
-      expect(result?.agentSessionId).toBe("good");
-    });
-  });
-
-  describe("malformed JSONL handling", () => {
-    it("skips malformed lines and parses valid ones", async () => {
-      const jsonl = [
-        "not valid json",
-        '{"type":"summary","summary":"Good summary"}',
-        "{truncated",
-        "",
-      ].join("\n");
-      mockJsonlFiles(jsonl);
-      const result = await agent.getSessionInfo(makeSession());
-      expect(result?.summary).toBe("Good summary");
-    });
-
-    it("skips JSON null, array, and primitive values", async () => {
-      const jsonl = [
-        "null",
-        "42",
-        '"just a string"',
-        "[1,2,3]",
-        '{"type":"summary","summary":"Valid object"}',
-      ].join("\n");
-      mockJsonlFiles(jsonl);
-      const result = await agent.getSessionInfo(makeSession());
-      expect(result?.summary).toBe("Valid object");
-    });
-
-    it("handles readFile failure gracefully", async () => {
-      mockReaddir.mockResolvedValue(["session.jsonl"]);
-      mockStat.mockResolvedValue({ mtimeMs: 1000, mtime: new Date(1000) });
-      mockReadFile.mockRejectedValue(new Error("EACCES"));
-      const result = await agent.getSessionInfo(makeSession());
-      expect(result).toBeNull();
-    });
+    expect(await agent.getSessionInfo(makeSession({ workspacePath: "/some/path" }))).toBeNull();
   });
 });

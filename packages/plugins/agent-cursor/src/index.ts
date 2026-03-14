@@ -191,23 +191,20 @@ export const manifest = {
 // =============================================================================
 
 /**
- * Convert a workspace path to Claude's project directory path.
- * Claude stores sessions at ~/.cursor/projects/{encoded-path}/
+ * DEPRECATED: This function encodes paths using Claude Code's format, not Cursor's.
+ * Cursor stores sessions in SQLite at ~/.cursor/chats/, not as JSONL files.
+ * 
+ * This function is kept for backwards compatibility with existing tests but
+ * should not be used for actual Cursor session introspection.
  *
- * Verified against Claude Code's actual encoding (as of v1.x):
- * the path has its leading / stripped, then all / and . are replaced with -.
- * e.g. /Users/dev/.worktrees/ao → Users-dev--worktrees-ao
+ * TODO: Implement proper Cursor session introspection using SQLite.
  *
- * If Claude Code changes its encoding scheme this will silently break
- * introspection. The path can be validated at runtime by checking whether
- * the resulting directory exists.
- *
- * Exported for testing purposes.
+ * Exported for testing purposes only.
  */
 export function toCursorProjectPath(workspacePath: string): string {
   // Handle Windows drive letters (C:\Users\... → C-Users-...)
   const normalized = workspacePath.replace(/\\/g, "/");
-  // Claude Code replaces / and . with - (keeping the leading slash as a leading -)
+  // Path encoding (deprecated - not actually used by Cursor)
   return normalized.replace(/:/g, "").replace(/[/.]/g, "-");
 }
 
@@ -645,25 +642,23 @@ function createCursorAgent(): Agent {
 
       const permissionMode = normalizePermissionMode(config.permissions);
       if (permissionMode === "permissionless" || permissionMode === "auto-edit") {
-        parts.push("--dangerously-skip-permissions");
+        // Cursor uses --force (or --yolo / -f) instead of --dangerously-skip-permissions
+        parts.push("--force");
       }
 
       if (config.model) {
         parts.push("--model", shellEscape(config.model));
       }
 
-      if (config.systemPromptFile) {
-        // Use shell command substitution to read from file at launch time.
-        // This avoids tmux truncation when inlining 2000+ char prompts.
-        // The double quotes allow $() expansion; inner path is single-quoted for safety.
-        parts.push("--append-system-prompt", `"$(cat ${shellEscape(config.systemPromptFile)})"`);
-      } else if (config.systemPrompt) {
-        parts.push("--append-system-prompt", shellEscape(config.systemPrompt));
-      }
+      // TODO: Cursor Agent CLI does not have an --append-system-prompt equivalent.
+      // System prompts need to be delivered via a different mechanism.
+      // For now, we skip system prompt configuration at launch.
+      // if (config.systemPromptFile) { ... }
+      // if (config.systemPrompt) { ... }
 
       // NOTE: prompt is NOT included here — it's delivered post-launch via
-      // runtime.sendMessage() to keep Claude in interactive mode.
-      // Using -p causes one-shot mode (Claude exits after responding).
+      // runtime.sendMessage() to keep the agent in interactive mode.
+      // Using -p causes one-shot mode (agent exits after responding).
 
       return parts.join(" ");
     },
@@ -703,116 +698,33 @@ function createCursorAgent(): Agent {
       session: Session,
       readyThresholdMs?: number,
     ): Promise<ActivityDetection | null> {
-      const threshold = readyThresholdMs ?? DEFAULT_READY_THRESHOLD_MS;
-
       // Check if process is running first
       const exitedAt = new Date();
       if (!session.runtimeHandle) return { state: "exited", timestamp: exitedAt };
       const running = await this.isProcessRunning(session.runtimeHandle);
       if (!running) return { state: "exited", timestamp: exitedAt };
 
-      // Process is running - check JSONL session file for activity
-      if (!session.workspacePath) {
-        // No workspace path — cannot determine activity without it
-        return null;
-      }
-
-      const projectPath = toCursorProjectPath(session.workspacePath);
-      const projectDir = join(homedir(), ".cursor", "projects", projectPath);
-
-      const sessionFile = await findLatestSessionFile(projectDir);
-      if (!sessionFile) {
-        // No session file found — cannot determine activity
-        return null;
-      }
-
-      const entry = await readLastJsonlEntry(sessionFile);
-      if (!entry) {
-        // Empty file or read error — cannot determine activity
-        return null;
-      }
-
-      const ageMs = Date.now() - entry.modifiedAt.getTime();
-      const timestamp = entry.modifiedAt;
-
-      switch (entry.lastType) {
-        case "user":
-        case "tool_use":
-        case "progress":
-          return { state: ageMs > threshold ? "idle" : "active", timestamp };
-
-        case "assistant":
-        case "system":
-        case "summary":
-        case "result":
-          return { state: ageMs > threshold ? "idle" : "ready", timestamp };
-
-        case "permission_request":
-          return { state: "waiting_input", timestamp };
-
-        case "error":
-          return { state: "blocked", timestamp };
-
-        default:
-          return { state: ageMs > threshold ? "idle" : "active", timestamp };
-      }
+      // TODO: Implement Cursor session introspection using SQLite from ~/.cursor/chats/
+      // Cursor stores sessions in SQLite, not JSONL files like Claude Code.
+      // Until SQLite introspection is implemented, we cannot determine activity state
+      // from session files and must return null.
+      return null;
     },
 
     async getSessionInfo(session: Session): Promise<AgentSessionInfo | null> {
-      if (!session.workspacePath) return null;
-
-      // Build the Claude project directory path
-      const projectPath = toCursorProjectPath(session.workspacePath);
-      const projectDir = join(homedir(), ".cursor", "projects", projectPath);
-
-      // Find the latest session JSONL file
-      const sessionFile = await findLatestSessionFile(projectDir);
-      if (!sessionFile) return null;
-
-      // Parse only the tail — summaries are always near the end, files can be 100MB+
-      const lines = await parseJsonlFileTail(sessionFile);
-      if (lines.length === 0) return null;
-
-      // Extract session ID from filename
-      const agentSessionId = basename(sessionFile, ".jsonl");
-
-      const summaryResult = extractSummary(lines);
-      return {
-        summary: summaryResult?.summary ?? null,
-        summaryIsFallback: summaryResult?.isFallback,
-        agentSessionId,
-        cost: extractCost(lines),
-      };
+      // TODO: Implement Cursor session introspection using SQLite from ~/.cursor/chats/
+      // Cursor stores sessions in SQLite, not JSONL files like Claude Code.
+      // Until SQLite introspection is implemented, we cannot extract session info
+      // and must return null.
+      return null;
     },
 
     async getRestoreCommand(session: Session, project: ProjectConfig): Promise<string | null> {
-      if (!session.workspacePath) return null;
-
-      // Find Claude's project directory for this workspace
-      const projectPath = toCursorProjectPath(session.workspacePath);
-      const projectDir = join(homedir(), ".cursor", "projects", projectPath);
-
-      // Find the latest session JSONL file
-      const sessionFile = await findLatestSessionFile(projectDir);
-      if (!sessionFile) return null;
-
-      // Extract session UUID from filename (e.g. "abc123-def456.jsonl" → "abc123-def456")
-      const sessionUuid = basename(sessionFile, ".jsonl");
-      if (!sessionUuid) return null;
-
-      // Build resume command
-      const parts: string[] = ["cursor-agent", "--resume", shellEscape(sessionUuid)];
-
-      const permissionMode = normalizePermissionMode(project.agentConfig?.permissions);
-      if (permissionMode === "permissionless" || permissionMode === "auto-edit") {
-        parts.push("--dangerously-skip-permissions");
-      }
-
-      if (project.agentConfig?.model) {
-        parts.push("--model", shellEscape(project.agentConfig.model as string));
-      }
-
-      return parts.join(" ");
+      // TODO: Implement Cursor session introspection using SQLite from ~/.cursor/chats/
+      // Cursor stores sessions in SQLite, not JSONL files like Claude Code.
+      // Until SQLite introspection is implemented, we cannot extract session IDs
+      // for restore commands and must return null.
+      return null;
     },
 
     async setupWorkspaceHooks(workspacePath: string, _config: WorkspaceHooksConfig): Promise<void> {
