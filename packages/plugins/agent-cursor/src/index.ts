@@ -23,10 +23,17 @@ import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
 
-function normalizePermissionMode(mode: string | undefined): "permissionless" | "default" | "auto-edit" | "suggest" | undefined {
+function normalizePermissionMode(
+  mode: string | undefined,
+): "permissionless" | "default" | "auto-edit" | "suggest" | undefined {
   if (!mode) return undefined;
   if (mode === "skip") return "permissionless";
-  if (mode === "permissionless" || mode === "default" || mode === "auto-edit" || mode === "suggest") {
+  if (
+    mode === "permissionless" ||
+    mode === "default" ||
+    mode === "auto-edit" ||
+    mode === "suggest"
+  ) {
     return mode;
   }
   return undefined;
@@ -193,7 +200,7 @@ export const manifest = {
 /**
  * DEPRECATED: This function encodes paths using Claude Code's format, not Cursor's.
  * Cursor stores sessions in SQLite at ~/.cursor/chats/, not as JSONL files.
- * 
+ *
  * This function is kept for backwards compatibility with existing tests but
  * should not be used for actual Cursor session introspection.
  *
@@ -294,8 +301,7 @@ async function parseJsonlFileTail(filePath: string, maxBytes = 131_072): Promise
   // Skip potentially truncated first line only when we started mid-file.
   // If offset === 0 we read from the start so the first line is complete.
   const firstNewline = content.indexOf("\n");
-  const safeContent =
-    offset > 0 && firstNewline >= 0 ? content.slice(firstNewline + 1) : content;
+  const safeContent = offset > 0 && firstNewline >= 0 ? content.slice(firstNewline + 1) : content;
   const lines: JsonlLine[] = [];
   for (const line of safeContent.split("\n")) {
     const trimmed = line.trim();
@@ -313,9 +319,7 @@ async function parseJsonlFileTail(filePath: string, maxBytes = 131_072): Promise
 }
 
 /** Extract auto-generated summary from JSONL (last "summary" type entry) */
-function extractSummary(
-  lines: JsonlLine[],
-): { summary: string; isFallback: boolean } | null {
+function extractSummary(lines: JsonlLine[]): { summary: string; isFallback: boolean } | null {
   for (let i = lines.length - 1; i >= 0; i--) {
     const line = lines[i];
     if (line?.type === "summary" && line.summary) {
@@ -539,90 +543,15 @@ function classifyTerminalOutput(terminalOutput: string): ActivityState {
 // =============================================================================
 
 /**
- * Shared helper to setup PostToolUse hooks in a workspace.
- * Writes metadata-updater.sh script and updates settings.json.
+ * NOTE: Cursor Agent CLI does not support PostToolUse hooks.
+ * This function is a no-op to avoid writing Claude Code-specific
+ * hook configuration to .cursor/settings.json, which could interfere
+ * with Cursor IDE settings.
  *
- * @param workspacePath - Path to the workspace directory
- * @param hookCommand - Command string for the hook (can use variables like $CLAUDE_PROJECT_DIR)
+ * TODO: Implement Cursor-specific metadata update mechanism if available.
  */
-async function setupHookInWorkspace(workspacePath: string, hookCommand: string): Promise<void> {
-  const cursorDir = join(workspacePath, ".cursor");
-  const settingsPath = join(cursorDir, "settings.json");
-  const hookScriptPath = join(cursorDir, "metadata-updater.sh");
-
-  // Create .cursor directory if it doesn't exist
-  try {
-    await mkdir(cursorDir, { recursive: true });
-  } catch {
-    // Directory might already exist
-  }
-
-  // Write the metadata updater script
-  await writeFile(hookScriptPath, METADATA_UPDATER_SCRIPT, "utf-8");
-  await chmod(hookScriptPath, 0o755); // Make executable
-
-  // Read existing settings if present
-  let existingSettings: Record<string, unknown> = {};
-  if (existsSync(settingsPath)) {
-    try {
-      const content = await readFile(settingsPath, "utf-8");
-      existingSettings = JSON.parse(content) as Record<string, unknown>;
-    } catch {
-      // Invalid JSON or read error — start fresh
-    }
-  }
-
-  // Merge hooks configuration
-  const hooks = (existingSettings["hooks"] as Record<string, unknown>) ?? {};
-  const postToolUse = (hooks["PostToolUse"] as Array<unknown>) ?? [];
-
-  // Check if our hook is already configured
-  let hookIndex = -1;
-  let hookDefIndex = -1;
-  for (let i = 0; i < postToolUse.length; i++) {
-    const hook = postToolUse[i];
-    if (typeof hook !== "object" || hook === null || Array.isArray(hook)) continue;
-    const h = hook as Record<string, unknown>;
-    const hooksList = h["hooks"];
-    if (!Array.isArray(hooksList)) continue;
-    for (let j = 0; j < hooksList.length; j++) {
-      const hDef = hooksList[j];
-      if (typeof hDef !== "object" || hDef === null || Array.isArray(hDef)) continue;
-      const def = hDef as Record<string, unknown>;
-      if (typeof def["command"] === "string" && def["command"].includes("metadata-updater.sh")) {
-        hookIndex = i;
-        hookDefIndex = j;
-        break;
-      }
-    }
-    if (hookIndex >= 0) break;
-  }
-
-  // Add or update our hook
-  if (hookIndex === -1) {
-    // No metadata hook exists, add it
-    postToolUse.push({
-      matcher: "Bash",
-      hooks: [
-        {
-          type: "command",
-          command: hookCommand,
-          timeout: 5000,
-        },
-      ],
-    });
-  } else {
-    // Hook exists, update the command
-    const hook = postToolUse[hookIndex] as Record<string, unknown>;
-    const hooksList = hook["hooks"] as Array<Record<string, unknown>>;
-    hooksList[hookDefIndex]["command"] = hookCommand;
-  }
-
-  hooks["PostToolUse"] = postToolUse;
-  existingSettings["hooks"] = hooks;
-
-  // Write updated settings
-  await writeFile(settingsPath, JSON.stringify(existingSettings, null, 2) + "\n", "utf-8");
+async function setupHookInWorkspace(_workspacePath: string, _hookCommand: string): Promise<void> {
+  // No-op: Cursor Agent CLI does not support PostToolUse hooks
 }
 
 // =============================================================================
