@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, utimesSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { toClaudeProjectPath, create } from "../index.js";
+import { toCursorProjectPath, create } from "../index.js";
 import type { Session, RuntimeHandle } from "@composio/ao-core";
 
 // Mock homedir() so getActivityState looks in our temp dir
@@ -53,34 +53,34 @@ function writeJsonl(
 }
 
 // =============================================================================
-// toClaudeProjectPath
+// toCursorProjectPath
 // =============================================================================
 
 describe("Claude Code Activity Detection", () => {
-  describe("toClaudeProjectPath", () => {
+  describe("toCursorProjectPath", () => {
     it("encodes paths with leading dash", () => {
-      expect(toClaudeProjectPath("/Users/dev/.worktrees/ao")).toBe("-Users-dev--worktrees-ao");
+      expect(toCursorProjectPath("/Users/dev/.worktrees/ao")).toBe("-Users-dev--worktrees-ao");
     });
 
     it("preserves leading slash as leading dash", () => {
-      expect(toClaudeProjectPath("/tmp/test")).toBe("-tmp-test");
+      expect(toCursorProjectPath("/tmp/test")).toBe("-tmp-test");
     });
 
     it("replaces dots with dashes", () => {
-      expect(toClaudeProjectPath("/path/to/.hidden")).toBe("-path-to--hidden");
+      expect(toCursorProjectPath("/path/to/.hidden")).toBe("-path-to--hidden");
     });
 
     it("handles Windows paths (no leading slash)", () => {
-      expect(toClaudeProjectPath("C:\\Users\\dev\\project")).toBe("C-Users-dev-project");
+      expect(toCursorProjectPath("C:\\Users\\dev\\project")).toBe("C-Users-dev-project");
     });
 
     it("handles consecutive dots and slashes", () => {
       // /a/../b/./c → -a-  -- -b- - -c → -a----b---c
-      expect(toClaudeProjectPath("/a/../b/./c")).toBe("-a----b---c");
+      expect(toCursorProjectPath("/a/../b/./c")).toBe("-a----b---c");
     });
 
     it("handles paths with multiple dot-directories", () => {
-      expect(toClaudeProjectPath("/Users/dev/.config/.local/share")).toBe(
+      expect(toCursorProjectPath("/Users/dev/.config/.local/share")).toBe(
         "-Users-dev--config--local-share",
       );
     });
@@ -99,8 +99,8 @@ describe("Claude Code Activity Detection", () => {
       mkdirSync(workspacePath, { recursive: true });
 
       // Create the Claude project directory matching the workspace path
-      const encoded = toClaudeProjectPath(workspacePath);
-      projectDir = join(fakeHome, ".claude", "projects", encoded);
+      const encoded = toCursorProjectPath(workspacePath);
+      projectDir = join(fakeHome, ".cursor", "projects", encoded);
       mkdirSync(projectDir, { recursive: true });
 
       // Mock isProcessRunning to always return true (we test exited separately)
@@ -129,7 +129,9 @@ describe("Claude Code Activity Detection", () => {
     });
 
     it("returns 'exited' when runtimeHandle is null", async () => {
-      expect((await agent.getActivityState(makeSession({ runtimeHandle: null })))?.state).toBe("exited");
+      expect((await agent.getActivityState(makeSession({ runtimeHandle: null })))?.state).toBe(
+        "exited",
+      );
     });
 
     // -----------------------------------------------------------------------

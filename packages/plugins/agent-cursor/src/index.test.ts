@@ -4,14 +4,13 @@ import type { Session, RuntimeHandle, AgentLaunchConfig } from "@composio/ao-cor
 // ---------------------------------------------------------------------------
 // Hoisted mocks — available inside vi.mock factories
 // ---------------------------------------------------------------------------
-const { mockExecFileAsync, mockReaddir, mockReadFile, mockStat, mockHomedir } =
-  vi.hoisted(() => ({
-    mockExecFileAsync: vi.fn(),
-    mockReaddir: vi.fn(),
-    mockReadFile: vi.fn(),
-    mockStat: vi.fn(),
-    mockHomedir: vi.fn(() => "/mock/home"),
-  }));
+const { mockExecFileAsync, mockReaddir, mockReadFile, mockStat, mockHomedir } = vi.hoisted(() => ({
+  mockExecFileAsync: vi.fn(),
+  mockReaddir: vi.fn(),
+  mockReadFile: vi.fn(),
+  mockStat: vi.fn(),
+  mockHomedir: vi.fn(() => "/mock/home"),
+}));
 
 vi.mock("node:child_process", () => {
   const fn = Object.assign((..._args: unknown[]) => {}, {
@@ -76,7 +75,7 @@ function makeLaunchConfig(overrides: Partial<AgentLaunchConfig> = {}): AgentLaun
   };
 }
 
-function mockTmuxWithProcess(processName = "claude", tty = "/dev/ttys001", pid = 12345) {
+function mockTmuxWithProcess(processName = "cursor-agent", tty = "/dev/ttys001", pid = 12345) {
   mockExecFileAsync.mockImplementation((cmd: string, args: string[]) => {
     if (cmd === "tmux" && args[0] === "list-panes") {
       return Promise.resolve({ stdout: `${tty}\n`, stderr: "" });
@@ -115,17 +114,17 @@ beforeEach(() => {
 describe("plugin manifest & exports", () => {
   it("has correct manifest", () => {
     expect(manifest).toEqual({
-      name: "claude-code",
+      name: "cursor",
       slot: "agent",
-      description: "Agent plugin: Claude Code CLI",
+      description: "Agent plugin: Cursor Agent CLI",
       version: "0.1.0",
     });
   });
 
   it("create() returns an agent with correct name and processName", () => {
     const agent = create();
-    expect(agent.name).toBe("claude-code");
-    expect(agent.processName).toBe("claude");
+    expect(agent.name).toBe("cursor");
+    expect(agent.processName).toBe("cursor-agent");
     expect(agent.promptDelivery).toBe("post-launch");
   });
 
@@ -143,7 +142,7 @@ describe("getLaunchCommand", () => {
 
   it("generates base command without shell syntax", () => {
     const cmd = agent.getLaunchCommand(makeLaunchConfig({ permissions: "default" }));
-    expect(cmd).toBe("claude");
+    expect(cmd).toBe("cursor-agent");
     // Must not contain shell operators (execFile-safe)
     expect(cmd).not.toContain("&&");
     expect(cmd).not.toContain("unset");
@@ -181,7 +180,7 @@ describe("getLaunchCommand", () => {
     const cmd = agent.getLaunchCommand(
       makeLaunchConfig({ permissions: "permissionless", model: "opus", prompt: "Hello" }),
     );
-    expect(cmd).toBe("claude --dangerously-skip-permissions --model 'opus'");
+    expect(cmd).toBe("cursor-agent --dangerously-skip-permissions --model 'opus'");
   });
 
   it("omits --dangerously-skip-permissions when permissions=default", () => {
@@ -251,12 +250,12 @@ describe("getEnvironment", () => {
 describe("isProcessRunning", () => {
   const agent = create();
 
-  it("returns true when claude is found on tmux pane TTY", async () => {
-    mockTmuxWithProcess("claude");
+  it("returns true when cursor-agent is found on tmux pane TTY", async () => {
+    mockTmuxWithProcess("cursor-agent");
     expect(await agent.isProcessRunning(makeTmuxHandle())).toBe(true);
   });
 
-  it("returns false when no claude on tmux pane TTY", async () => {
+  it("returns false when no cursor-agent on tmux pane TTY", async () => {
     mockExecFileAsync.mockImplementation((cmd: string) => {
       if (cmd === "tmux") return Promise.resolve({ stdout: "/dev/ttys002\n", stderr: "" });
       if (cmd === "ps")
@@ -310,14 +309,14 @@ describe("isProcessRunning", () => {
     killSpy.mockRestore();
   });
 
-  it("finds claude on any pane in multi-pane session", async () => {
+  it("finds cursor-agent on any pane in multi-pane session", async () => {
     mockExecFileAsync.mockImplementation((cmd: string, args: string[]) => {
       if (cmd === "tmux" && args[0] === "list-panes") {
         return Promise.resolve({ stdout: "/dev/ttys001\n/dev/ttys002\n", stderr: "" });
       }
       if (cmd === "ps") {
         return Promise.resolve({
-          stdout: "  PID TT ARGS\n  100 ttys001  bash\n  200 ttys002  claude -p test\n",
+          stdout: "  PID TT ARGS\n  100 ttys001  bash\n  200 ttys002  cursor-agent -p test\n",
           stderr: "",
         });
       }
@@ -326,14 +325,14 @@ describe("isProcessRunning", () => {
     expect(await agent.isProcessRunning(makeTmuxHandle())).toBe(true);
   });
 
-  it("does not match similar process names like claude-code", async () => {
+  it("does not match similar process names like cursor-agent-wrapper", async () => {
     mockExecFileAsync.mockImplementation((cmd: string, args: string[]) => {
       if (cmd === "tmux" && args[0] === "list-panes") {
         return Promise.resolve({ stdout: "/dev/ttys001\n", stderr: "" });
       }
       if (cmd === "ps") {
         return Promise.resolve({
-          stdout: "  PID TT ARGS\n  100 ttys001  /usr/bin/claude-code\n",
+          stdout: "  PID TT ARGS\n  100 ttys001  /usr/bin/cursor-agent-wrapper\n",
           stderr: "",
         });
       }
@@ -464,7 +463,7 @@ describe("getSessionInfo", () => {
       mockJsonlFiles('{"type":"user","message":{"content":"hello"}}');
       await agent.getSessionInfo(makeSession({ workspacePath: "/Users/dev/.worktrees/ao/ao-3" }));
       expect(mockReaddir).toHaveBeenCalledWith(
-        "/mock/home/.claude/projects/-Users-dev--worktrees-ao-ao-3",
+        "/mock/home/.cursor/projects/-Users-dev--worktrees-ao-ao-3",
       );
     });
   });
