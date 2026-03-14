@@ -912,21 +912,132 @@ What's next:
     </ul>
 
     <h3>7. Publish <code>@composio/ao-web</code> dashboard on npm</h3>
+
+    <p>This was the <strong>single biggest blocker</strong> for npm users. Every other AO package was published on npm, but the dashboard — the package that <code>ao start</code> needs to launch the web UI — was never published. npm users hit an immediate fatal crash.</p>
+
+    <h4 style="margin-top: 20px;">Root cause: 5 blockers preventing publishing</h4>
+
+    <table>
+      <thead>
+        <tr><th>#</th><th>Blocker</th><th>Why it existed</th><th>Fix</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>1</td>
+          <td><code>"private": true</code> in package.json</td>
+          <td>Dashboard was never intended as a standalone npm package</td>
+          <td>Removed the flag</td>
+        </tr>
+        <tr>
+          <td>2</td>
+          <td>In changeset <code>ignore</code> list</td>
+          <td>Excluded from versioning/publishing pipeline</td>
+          <td>Moved to <code>linked</code> array so it versions with other packages</td>
+        </tr>
+        <tr>
+          <td>3</td>
+          <td>Dev-only server (<code>pnpm run dev</code> via <code>concurrently</code>)</td>
+          <td>Used <code>tsx watch</code> for TypeScript — doesn't work outside monorepo</td>
+          <td>Created production entry point (<code>start-all.ts</code> → compiled to <code>dist-server/</code>)</td>
+        </tr>
+        <tr>
+          <td>4</td>
+          <td><code>node-pty</code> as hard dependency</td>
+          <td>Native C++ addon — fails to compile without build tools (Python, make, gcc)</td>
+          <td>Moved to <code>optionalDependencies</code> with dynamic import + graceful fallback</td>
+        </tr>
+        <tr>
+          <td>5</td>
+          <td>Cross-boundary imports</td>
+          <td><code>server/terminal-observability.ts</code> imported from <code>../src/lib/</code> — breaks when compiled</td>
+          <td>Moved <code>resolveProjectIdForSessionId</code> to <code>@composio/ao-core</code></td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h4 style="margin-top: 20px;">What the user experienced</h4>
     <div class="before-after">
       <div class="before">
         <h4>Before</h4>
-        <p>The dashboard package (<code>@composio/ao-web</code>) had <code>"private": true</code>, was in the changeset <code>ignore</code> list, and used dev-only tooling (<code>pnpm run dev</code> via <code>concurrently</code>). npm users who ran <code>ao start</code> got: <em>"Could not find @composio/ao-web"</em> — a fatal crash with no workaround.</p>
+        <pre><code>$ npm install -g @composio/agent-orchestrator
+$ ao start
+Error: Could not find @composio/ao-web package.
+Run: pnpm install</code></pre>
+        <p style="margin-top: 8px;">Fatal crash. The suggested fix (<code>pnpm install</code>) doesn't work for npm users. Complete dead end — dashboard was simply not available outside the monorepo.</p>
       </div>
       <div class="after">
         <h4>After</h4>
-        <p>Dashboard is a proper npm package: production entry point (<code>start-all.js</code>), pre-compiled server files, optimized <code>files</code> field (1 MB vs 67 MB), <code>node-pty</code> made optional. CLI auto-detects dev vs production mode.</p>
+        <pre><code>$ npm install -g @composio/agent-orchestrator
+$ ao start
+✓ Dashboard starting on http://localhost:3000
+✓ Lifecycle worker started
+✓ Orchestrator session created
+
+Next step:
+  ao spawn my-project &lt;issue-number&gt;</code></pre>
       </div>
     </div>
+
+    <h4 style="margin-top: 20px;">Package size optimization</h4>
+    <p>The initial <code>npm pack</code> of <code>@composio/ao-web</code> was <strong>67 MB</strong> — Next.js dumps build cache, trace files, and source maps into <code>.next/</code>. We optimized the <code>files</code> field to include only what's needed at runtime:</p>
+
+    <div class="bar-chart">
+      <div class="bar-chart-title">npm package size — @composio/ao-web</div>
+      <div class="bar-pair">
+        <div class="bar-row">
+          <div class="bar-label">Naive <code>"files": [".next"]</code></div>
+          <div class="bar-track"><div class="bar-fill before" style="width: 100%;">67 MB</div></div>
+          <div class="bar-value before">67 MB</div>
+        </div>
+        <div class="bar-row">
+          <div class="bar-label">Optimized <code>files</code> field</div>
+          <div class="bar-track"><div class="bar-fill after" style="width: 1.5%; min-width: 44px;">1 MB</div></div>
+          <div class="bar-value after">1 MB</div>
+        </div>
+      </div>
+    </div>
+
+    <p>The optimized <code>files</code> field includes only:</p>
+    <pre><code>"files": [
+  ".next/server",          // compiled server pages + API routes
+  ".next/static",          // client-side JS/CSS bundles
+  ".next/*.json",          // build manifest, routes manifest
+  ".next/BUILD_ID",        // build identifier
+  "dist-server",           // compiled terminal WebSocket servers
+  "next.config.js"         // Next.js configuration
+]</code></pre>
+    <p>Excluded: <code>.next/cache/</code> (build cache, 60+ MB), <code>.next/trace</code> (webpack trace files), source TypeScript files.</p>
+
+    <h4 style="margin-top: 20px;">Production architecture</h4>
+    <p>In the monorepo, the dashboard runs via <code>concurrently</code> with <code>tsx watch</code> (hot reloading). On npm, we need pre-compiled servers. <code>start-all.ts</code> is the production entry point that spawns 3 processes:</p>
+
+    <div class="flowchart">
+      <div class="flowchart-title">start-all.js — production process tree</div>
+      <div class="fc-node fc-start"><code>node dist-server/start-all.js</code></div>
+      <div class="fc-arrow">&#x2193;</div>
+      <div class="fc-node fc-process">Parent process (manages lifecycle + graceful shutdown)</div>
+      <div class="fc-arrow">&#x2193;</div>
+      <div class="fc-branch">
+        <div class="fc-branch-arm">
+          <div class="fc-node fc-process" style="font-size: 0.78rem;"><strong>Next.js</strong><br><code>node_modules/.bin/next start</code><br><span style="color: var(--text-muted);">Dashboard UI on PORT</span></div>
+        </div>
+        <div class="fc-branch-arm">
+          <div class="fc-node fc-process" style="font-size: 0.78rem;"><strong>Terminal WS</strong><br><code>terminal-websocket.js</code><br><span style="color: var(--text-muted);">ttyd proxy on TERMINAL_PORT</span></div>
+        </div>
+        <div class="fc-branch-arm">
+          <div class="fc-node fc-process" style="font-size: 0.78rem;"><strong>Direct Terminal</strong><br><code>direct-terminal-ws.js</code><br><span style="color: var(--text-muted);">node-pty on DIRECT_TERMINAL_PORT</span></div>
+        </div>
+      </div>
+    </div>
+
+    <h4 style="margin-top: 20px;">How the CLI decides: dev vs production</h4>
+    <p>The CLI needs to work in both the monorepo (for contributors) and as an npm package (for users). It detects the mode by checking whether the <code>server/</code> source directory exists — present in the monorepo, absent in the published npm package (only <code>dist-server/</code> ships).</p>
+
     <div class="flowchart">
       <div class="flowchart-title">ao start — dev vs production detection</div>
       <div class="fc-node fc-start"><code>ao start</code></div>
       <div class="fc-arrow">&#x2193;</div>
-      <div class="fc-node fc-process">Locate <code>@composio/ao-web</code> package directory</div>
+      <div class="fc-node fc-process">Locate <code>@composio/ao-web</code> via <code>require.resolve</code> or monorepo fallback</div>
       <div class="fc-arrow">&#x2193;</div>
       <div class="fc-node fc-decision"><code>server/</code> source dir exists?</div>
       <div class="fc-arrow">&#x2193;</div>
@@ -934,29 +1045,77 @@ What's next:
         <div class="fc-branch-arm">
           <div class="fc-label">YES (monorepo/source)</div>
           <div class="fc-arrow">&#x2193;</div>
-          <div class="fc-node fc-process">Launch via <code>pnpm run dev</code></div>
+          <div class="fc-node fc-process"><code>pnpm run dev</code><br><span style="font-size: 0.75rem; color: var(--text-muted);">tsx watch + HMR + concurrently</span></div>
           <div class="fc-arrow">&#x2193;</div>
           <div class="fc-node fc-success">Dev mode &#10003;</div>
         </div>
         <div class="fc-branch-arm">
           <div class="fc-label">NO (npm package)</div>
           <div class="fc-arrow">&#x2193;</div>
-          <div class="fc-node fc-process">Launch via <code>node dist-server/start-all.js</code></div>
+          <div class="fc-node fc-process"><code>node dist-server/start-all.js</code><br><span style="font-size: 0.75rem; color: var(--text-muted);">pre-compiled, no dev deps needed</span></div>
           <div class="fc-arrow">&#x2193;</div>
           <div class="fc-node fc-success">Production mode &#10003;</div>
         </div>
       </div>
     </div>
+
+    <h4 style="margin-top: 20px;">End-to-end npm user journey</h4>
+    <div class="flowchart">
+      <div class="flowchart-title">What happens when an npm user runs ao start</div>
+      <div class="fc-node fc-start"><code>npm install -g @composio/agent-orchestrator</code></div>
+      <div class="fc-arrow">&#x2193;</div>
+      <div class="fc-node fc-process">npm installs <code>@composio/ao-cli</code> + all plugin deps + <code>@composio/ao-web</code><br><span style="font-size: 0.75rem; color: var(--text-muted);"><code>workspace:*</code> auto-converted to real versions by pnpm publish</span></div>
+      <div class="fc-arrow">&#x2193;</div>
+      <div class="fc-node fc-start"><code>ao start https://github.com/org/repo</code></div>
+      <div class="fc-arrow">&#x2193;</div>
+      <div class="fc-node fc-process">Clone repo → auto-generate config → find free port</div>
+      <div class="fc-arrow">&#x2193;</div>
+      <div class="fc-node fc-process"><code>findWebDir()</code> resolves <code>@composio/ao-web</code> from <code>node_modules</code></div>
+      <div class="fc-arrow">&#x2193;</div>
+      <div class="fc-node fc-decision"><code>server/</code> exists?</div>
+      <div class="fc-arrow">&#x2193;</div>
+      <div class="fc-node fc-process">NO → production mode → <code>node dist-server/start-all.js</code></div>
+      <div class="fc-arrow">&#x2193;</div>
+      <div class="fc-node fc-process">Spawns Next.js + terminal servers + orchestrator tmux session</div>
+      <div class="fc-arrow">&#x2193;</div>
+      <div class="fc-node fc-success">Dashboard live on http://localhost:3000 &#10003;</div>
+    </div>
+
+    <h4 style="margin-top: 20px;">Impact</h4>
+    <div class="impact-grid">
+      <div class="impact-item">
+        <div class="number before">Fatal crash</div>
+        <div class="arrow">&darr;</div>
+        <div class="number after">Works</div>
+        <div class="label"><code>ao start</code> for npm users</div>
+      </div>
+      <div class="impact-item">
+        <div class="number before" style="font-size: 1.5rem;">67 MB</div>
+        <div class="arrow">&darr;</div>
+        <div class="number after" style="font-size: 1.5rem;">1 MB</div>
+        <div class="label">npm package size</div>
+      </div>
+      <div class="impact-item">
+        <div class="number before">0</div>
+        <div class="arrow">&darr;</div>
+        <div class="number after">2</div>
+        <div class="label">Startup modes (dev + production)</div>
+      </div>
+    </div>
+
     <ul class="files-changed">
       <li>packages/web/package.json — removed <code>private: true</code>, added <code>files</code> field, made <code>node-pty</code> optional</li>
-      <li class="new">packages/web/server/start-all.ts — production entry point</li>
+      <li class="new">packages/web/server/start-all.ts — production entry point (spawns 3 processes)</li>
       <li class="new">packages/web/tsconfig.server.json — server compilation config</li>
-      <li>packages/web/next.config.js — added all workspace deps to <code>transpilePackages</code></li>
+      <li>packages/web/next.config.js — added all 8 workspace deps to <code>transpilePackages</code></li>
       <li>packages/web/server/direct-terminal-ws.ts — dynamic <code>node-pty</code> import with graceful fallback</li>
       <li>packages/cli/src/commands/start.ts — dev vs production mode detection</li>
+      <li>packages/cli/src/lib/web-dir.ts — <code>findWebDir()</code> throws with install-specific guidance</li>
       <li>packages/cli/package.json — added <code>@composio/ao-web</code> dependency</li>
       <li>.changeset/config.json — removed from ignore, added to linked</li>
       <li>packages/core/src/utils.ts — moved <code>resolveProjectIdForSessionId</code> here</li>
+      <li>packages/web/server/terminal-observability.ts — updated import to use <code>@composio/ao-core</code></li>
+      <li>packages/web/src/lib/observability.ts — updated import to use <code>@composio/ao-core</code></li>
     </ul>
 
     <h3>8. Add EACCES permission guidance for npm users</h3>
