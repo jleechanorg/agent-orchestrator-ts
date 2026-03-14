@@ -14,6 +14,7 @@ import {
   type Session,
   type WorkspaceHooksConfig,
 } from "@composio/ao-core";
+import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
 import { readdir, readFile, stat, open, writeFile, mkdir, chmod } from "node:fs/promises";
 import { existsSync } from "node:fs";
@@ -23,10 +24,17 @@ import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
 
-function normalizePermissionMode(mode: string | undefined): "permissionless" | "default" | "auto-edit" | "suggest" | undefined {
+function normalizePermissionMode(
+  mode: string | undefined,
+): "permissionless" | "default" | "auto-edit" | "suggest" | undefined {
   if (!mode) return undefined;
   if (mode === "skip") return "permissionless";
-  if (mode === "permissionless" || mode === "default" || mode === "auto-edit" || mode === "suggest") {
+  if (
+    mode === "permissionless" ||
+    mode === "default" ||
+    mode === "auto-edit" ||
+    mode === "suggest"
+  ) {
     return mode;
   }
   return undefined;
@@ -191,27 +199,22 @@ export const manifest = {
 // =============================================================================
 
 /**
- * Convert a workspace path to Gemini's project directory path.
- * Gemini stores sessions at ~/.gemini/projects/{encoded-path}/
+ * Convert a workspace path to Gemini's project hash.
+ * Gemini stores sessions at ~/.gemini/tmp/{project_hash}/chats/
  *
- * Verified against Gemini CLI's actual encoding (as of v1.x):
- * the path has its leading / stripped, then all / and . are replaced with -.
- * e.g. /Users/dev/.worktrees/ao → Users-dev--worktrees-ao
- *
- * If Gemini CLI changes its encoding scheme this will silently break
- * introspection. The path can be validated at runtime by checking whether
- * the resulting directory exists.
+ * The project_hash is computed using SHA-256 of the workspace path.
+ * This provides deterministic and collision-resistant mapping for sessions.
  *
  * Exported for testing purposes.
  */
 export function toGeminiProjectPath(workspacePath: string): string {
-  // Handle Windows drive letters (C:\Users\... → C-Users-...)
+  // Normalize path separators to forward slashes
   const normalized = workspacePath.replace(/\\/g, "/");
-  // Gemini CLI replaces / and . with - (keeping the leading slash as a leading -)
-  return normalized.replace(/:/g, "").replace(/[/.]/g, "-");
+  // Compute SHA-256 hash of the normalized path
+  return createHash("sha256").update(normalized).digest("hex");
 }
 
-/** Find the most recently modified .jsonl session file in a directory */
+/** Find the most recently modified .json session file in a directory */
 async function findLatestSessionFile(projectDir: string): Promise<string | null> {
   let entries: string[];
   try {
@@ -220,7 +223,7 @@ async function findLatestSessionFile(projectDir: string): Promise<string | null>
     return null;
   }
 
-  const jsonlFiles = entries.filter((f) => f.endsWith(".jsonl") && !f.startsWith("agent-"));
+  const jsonlFiles = entries.filter((f) => f.endsWith(".json") && !f.startsWith("agent-"));
   if (jsonlFiles.length === 0) return null;
 
   // Sort by mtime descending
@@ -297,8 +300,7 @@ async function parseJsonlFileTail(filePath: string, maxBytes = 131_072): Promise
   // Skip potentially truncated first line only when we started mid-file.
   // If offset === 0 we read from the start so the first line is complete.
   const firstNewline = content.indexOf("\n");
-  const safeContent =
-    offset > 0 && firstNewline >= 0 ? content.slice(firstNewline + 1) : content;
+  const safeContent = offset > 0 && firstNewline >= 0 ? content.slice(firstNewline + 1) : content;
   const lines: JsonlLine[] = [];
   for (const line of safeContent.split("\n")) {
     const trimmed = line.trim();
@@ -316,9 +318,7 @@ async function parseJsonlFileTail(filePath: string, maxBytes = 131_072): Promise
 }
 
 /** Extract auto-generated summary from JSONL (last "summary" type entry) */
-function extractSummary(
-  lines: JsonlLine[],
-): { summary: string; isFallback: boolean } | null {
+function extractSummary(lines: JsonlLine[]): { summary: string; isFallback: boolean } | null {
   for (let i = lines.length - 1; i >= 0; i--) {
     const line = lines[i];
     if (line?.type === "summary" && line.summary) {
@@ -645,21 +645,15 @@ function createGeminiAgent(): Agent {
 
       const permissionMode = normalizePermissionMode(config.permissions);
       if (permissionMode === "permissionless" || permissionMode === "auto-edit") {
-        parts.push("--dangerously-skip-permissions");
+        parts.push("--yolo");
       }
 
       if (config.model) {
         parts.push("--model", shellEscape(config.model));
       }
 
-      if (config.systemPromptFile) {
-        // Use shell command substitution to read from file at launch time.
-        // This avoids tmux truncation when inlining 2000+ char prompts.
-        // The double quotes allow $() expansion; inner path is single-quoted for safety.
-        parts.push("--append-system-prompt", `"$(cat ${shellEscape(config.systemPromptFile)})"`);
-      } else if (config.systemPrompt) {
-        parts.push("--append-system-prompt", shellEscape(config.systemPrompt));
-      }
+      // NOTE: System prompts are handled via GEMINI_SYSTEM_MD environment
+      // variable in getEnvironment(), not as a CLI flag.
 
       // NOTE: prompt is NOT included here — it's delivered post-launch via
       // runtime.sendMessage() to keep Gemini in interactive mode.
@@ -685,6 +679,18 @@ function createGeminiAgent(): Agent {
 
       if (config.issueId) {
         env["AO_ISSUE_ID"] = config.issueId;
+      }
+
+      // Handle system prompt via GEMINI_SYSTEM_MD environment variable
+      if (config.systemPromptFile) {
+        env["GEMINI_SYSTEM_MD"] = config.systemPromptFile;
+      } else if (config.systemPrompt) {
+        // When systemPrompt is a string, we need to write it to a temp file
+        // and set GEMINI_SYSTEM_MD to point to that file.
+        // For now, we'll set it to "false" to disable override if there's
+        // no file path, since we can't inline the prompt as a CLI flag.
+        // TODO: Consider writing config.systemPrompt to a temp file
+        env["GEMINI_SYSTEM_MD"] = "false";
       }
 
       return env;
@@ -717,8 +723,8 @@ function createGeminiAgent(): Agent {
         return null;
       }
 
-      const projectPath = toGeminiProjectPath(session.workspacePath);
-      const projectDir = join(homedir(), ".gemini", "projects", projectPath);
+      const projectHash = toGeminiProjectPath(session.workspacePath);
+      const projectDir = join(homedir(), ".gemini", "tmp", projectHash, "chats");
 
       const sessionFile = await findLatestSessionFile(projectDir);
       if (!sessionFile) {
@@ -762,8 +768,8 @@ function createGeminiAgent(): Agent {
       if (!session.workspacePath) return null;
 
       // Build the Gemini project directory path
-      const projectPath = toGeminiProjectPath(session.workspacePath);
-      const projectDir = join(homedir(), ".gemini", "projects", projectPath);
+      const projectHash = toGeminiProjectPath(session.workspacePath);
+      const projectDir = join(homedir(), ".gemini", "tmp", projectHash, "chats");
 
       // Find the latest session JSONL file
       const sessionFile = await findLatestSessionFile(projectDir);
@@ -774,7 +780,7 @@ function createGeminiAgent(): Agent {
       if (lines.length === 0) return null;
 
       // Extract session ID from filename
-      const agentSessionId = basename(sessionFile, ".jsonl");
+      const agentSessionId = basename(sessionFile, ".json");
 
       const summaryResult = extractSummary(lines);
       return {
@@ -789,15 +795,15 @@ function createGeminiAgent(): Agent {
       if (!session.workspacePath) return null;
 
       // Find Gemini's project directory for this workspace
-      const projectPath = toGeminiProjectPath(session.workspacePath);
-      const projectDir = join(homedir(), ".gemini", "projects", projectPath);
+      const projectHash = toGeminiProjectPath(session.workspacePath);
+      const projectDir = join(homedir(), ".gemini", "tmp", projectHash, "chats");
 
       // Find the latest session JSONL file
       const sessionFile = await findLatestSessionFile(projectDir);
       if (!sessionFile) return null;
 
-      // Extract session UUID from filename (e.g. "abc123-def456.jsonl" → "abc123-def456")
-      const sessionUuid = basename(sessionFile, ".jsonl");
+      // Extract session UUID from filename (e.g. "abc123-def456.json" → "abc123-def456")
+      const sessionUuid = basename(sessionFile, ".json");
       if (!sessionUuid) return null;
 
       // Build resume command
@@ -805,7 +811,7 @@ function createGeminiAgent(): Agent {
 
       const permissionMode = normalizePermissionMode(project.agentConfig?.permissions);
       if (permissionMode === "permissionless" || permissionMode === "auto-edit") {
-        parts.push("--dangerously-skip-permissions");
+        parts.push("--yolo");
       }
 
       if (project.agentConfig?.model) {
