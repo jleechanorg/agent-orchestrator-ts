@@ -59,7 +59,7 @@ const ReactionConfigSchema = z.object({
   escalateAfter: z.union([z.number(), z.string()]).optional(),
   threshold: z.string().optional(),
   includeSummary: z.boolean().optional(),
-  mergeMethod: z.enum(["merge", "squash", "rebase"]).default("squash"),
+  mergeMethod: z.enum(["merge", "squash", "rebase"]).optional(),
 });
 
 const TrackerConfigSchema = z
