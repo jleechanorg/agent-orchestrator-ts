@@ -56,6 +56,17 @@ const cursorOverrides: Partial<Agent> = {
     // TODO: Implement via SQLite from ~/.cursor/chats/
     return null;
   },
+
+  // Cursor Agent CLI does not support PostToolUse hooks. These functions are
+  // no-ops to avoid writing Claude Code-specific hook configuration to
+  // .cursor/settings.json, which could interfere with Cursor IDE settings.
+  async setupWorkspaceHooks(): Promise<void> {
+    // no-op
+  },
+
+  async postLaunchSetup(): Promise<void> {
+    // no-op
+  },
 };
 
 // =============================================================================
