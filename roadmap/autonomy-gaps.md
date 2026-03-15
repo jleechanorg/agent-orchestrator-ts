@@ -71,7 +71,7 @@ The honest current state:
 - Added `{{context}}` placeholder in message templates
 - For `ci-failed`: appends failing check names and status URLs from `scm.getCISummary()`
 - For `changes-requested`: appends unresolved review thread summaries from `scm.getPendingComments()`
-- For `merge-conflicts`: appends conflicting file list from PR mergeability detail
+- For `merge-conflicts`: appends merge blockers from PR mergeability detail (`blockers: string[]`)
 
 **Acceptance:** Agent receives a message like: _"Fix CI. Failing checks: typecheck (https://...), lint (https://...). Affected files: packages/core/src/lifecycle-manager.ts"_
 

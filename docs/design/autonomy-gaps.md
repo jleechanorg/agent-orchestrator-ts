@@ -31,24 +31,30 @@ case "auto-merge": {
 }
 ```
 
-`scm.mergePR()` was implemented in `packages/plugins/scm-github/src/index.ts:631` but never called from lifecycle.
+`scm.mergePR()` was implemented in `packages/plugins/scm-github/src/index.ts` but not called from the lifecycle-manager's `auto-merge` reaction.
 
 ### After
 
 ```typescript
-case "auto-merge":
+// request-merge: check mergeability, notify human — merge happens externally after approval
 case "request-merge": {
-  const mergeMethod = reactionConfig.mergeMethod ?? "squash";
-  if (reactionKey === "request-merge") {
-    await notifyHuman(approvalEvent, "action");
-  }
+  const mergeReadiness = await scm.getMergeability(session.pr);
+  if (!mergeReadiness.mergeable) { await notifyHuman(blockerEvent, "action"); return { success: false }; }
+  await notifyHuman(approvalEvent, "action");
+  return { action, success: true };
+}
+
+// auto-merge: check mergeability, then merge immediately
+case "auto-merge": {
+  const mergeReadiness = await scm.getMergeability(session.pr);
+  if (!mergeReadiness.mergeable) { await notifyHuman(blockerEvent, "action"); return { success: false }; }
   await scm.mergePR(session.pr, mergeMethod);
   return { action, mergeMethod, success: true };
 }
 ```
 
 - **`auto-merge`** — merges directly when session reaches `mergeable`
-- **`request-merge`** — notifies human first, then merges on approval
+- **`request-merge`** — notifies human that PR is ready; human approves and merges externally
 - **`mergeMethod`** config: `merge | squash | rebase` (default: `squash`)
 
 ---
@@ -93,7 +99,7 @@ New `buildReactionContext()` in `lifecycle-manager.ts` fetches real context befo
 |----------|-----------------|
 | `ci-failed` | Failing check names + status URLs via `scm.getCIChecks()` |
 | `changes-requested` | Unresolved review thread bodies via `scm.getPendingComments()` |
-| `merge-conflicts` | Conflicting file list from mergeability detail |
+| `merge-conflicts` | Merge blockers from mergeability detail (`blockers: string[]`) |
 
 **Before:** `Fix CI`
 

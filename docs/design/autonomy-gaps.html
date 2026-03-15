@@ -192,18 +192,23 @@
   return { action: "auto-merge", success: true };
 }</code></pre>
           <p class="muted" style="font-size:0.88rem;margin-top:0.5rem">
-            <code>scm.mergePR()</code> existed in <code>scm-github/src/index.ts:631</code>
-            but was never called from lifecycle.
+            <code>scm.mergePR()</code> existed in <code>scm-github/src/index.ts</code>
+            but was not called from the lifecycle-manager's <code>auto-merge</code> reaction.
           </p>
         </article>
         <article class="card">
           <h2>After</h2>
-          <pre><code>case "auto-merge":
-case "request-merge": {
-  const mergeMethod = reactionConfig.mergeMethod ?? "squash";
-  if (reactionKey === "request-merge") {
-    await notifyHuman(approvalEvent, "action");
-  }
+          <pre><code>case "request-merge": {
+  // Check mergeability, then notify human — merge happens externally after approval
+  const mergeReadiness = await scm.getMergeability(session.pr);
+  if (!mergeReadiness.mergeable) { await notifyHuman(blockerEvent, "action"); return { success: false }; }
+  await notifyHuman(approvalEvent, "action");  // human approves and merges
+  return { action, success: true };
+}
+case "auto-merge": {
+  // Check mergeability, then merge immediately
+  const mergeReadiness = await scm.getMergeability(session.pr);
+  if (!mergeReadiness.mergeable) { await notifyHuman(blockerEvent, "action"); return { success: false }; }
   await scm.mergePR(session.pr, mergeMethod);
   return { action, mergeMethod, success: true };
 }</code></pre>
@@ -237,7 +242,7 @@ case "merge_conflicts": return "merge.conflicts";</code></pre>
   merge-conflicts:
     auto: true
     action: send-to-agent
-    message: >
+    message: &gt;
       Your PR has merge conflicts.
       Run: git fetch origin &amp;&amp; git rebase origin/main
       Resolve conflicts, then push.
@@ -266,7 +271,7 @@ case "merge_conflicts": return "merge.conflicts";</code></pre>
             </tr>
             <tr>
               <td><code>merge-conflicts</code></td>
-              <td>Conflicting file list from mergeability detail</td>
+              <td>Merge blockers from mergeability detail (<code>blockers: string[]</code>)</td>
             </tr>
           </table>
         </article>

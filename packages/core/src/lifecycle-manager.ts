@@ -493,7 +493,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
             let finalMessage = reactionConfig.message;
             if (session && reactionConfig.message.includes("{{context}}")) {
               const context = await buildReactionContext(reactionKey, session, projectId);
-              finalMessage = reactionConfig.message.replace(/\{\{context\}\}/g, context);
+              finalMessage = reactionConfig.message.replace(/\{\{context\}\}/g, () => context);
             }
             await sessionManager.send(sessionId, finalMessage);
 
