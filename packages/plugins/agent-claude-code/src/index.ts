@@ -128,9 +128,11 @@ update_metadata_key() {
 # Strip leading directory-change prefixes so that commands like
 #   cd ~/.worktrees/project && gh pr create ...
 # are correctly detected. Agents frequently cd into a worktree first.
+# Store the regex pattern in a variable for clarity (avoids shell quoting confusion)
+cd_prefix_pattern='^[[:space:]]*cd[[:space:]]+[^&;]*[[:space:]]*(&&|;)[[:space:]]*(.*)'
 clean_command="$command"
 while [[ "$clean_command" =~ ^[[:space:]]*cd[[:space:]] ]]; do
-  if [[ "$clean_command" =~ ^[[:space:]]*cd[[:space:]]+[^'&;']*(&&|;)[[:space:]]*(.*) ]]; then
+  if [[ "$clean_command" =~ $cd_prefix_pattern ]]; then
     clean_command="\${BASH_REMATCH[2]}"
   else
     break
