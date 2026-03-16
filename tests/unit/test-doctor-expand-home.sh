@@ -30,7 +30,7 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 # shellcheck source=../../scripts/ao-doctor.sh
 source "$REPO_ROOT/scripts/ao-doctor.sh"
 
-HOME_DIR="${HOME:-}"
+HOME_DIR="${HOME:-$REPO_ROOT}"
 
 # ── RED: broken version (unquoted ~/*) — demonstrates the bug
 expand_home_broken() {
