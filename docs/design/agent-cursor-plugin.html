@@ -265,9 +265,9 @@
         <article class="card">
           <h2>Testing</h2>
           <ul>
-            <li><code>src/index.test.ts</code> — manifest, launch command, process detection, session parsing (68 tests)</li>
-            <li><code>src/__tests__/activity-detection.test.ts</code> — JSONL mtime-based activity states with real temp directories (42 tests)</li>
-            <li>All 110 tests pass; no mocks of the filesystem in activity tests (real <code>fs</code> operations)</li>
+            <li><code>packages/integration-tests/src/agent-cursor.integration.test.ts</code> — spawns real <code>cursor-agent</code> via tmux, verifies fibonacci.py is written and executes correctly (4 tests)</li>
+            <li>Unit tests live in <code>agent-base</code> — process detection, JSONL parsing, activity detection (shared with all base-backed plugins)</li>
+            <li>Integration test skipped automatically when <code>cursor-agent</code> binary is absent or not authenticated</li>
           </ul>
         </article>
 
