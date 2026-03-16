@@ -32,6 +32,7 @@ export type SessionStatus =
   | "changes_requested"
   | "approved"
   | "mergeable"
+  | "merge_conflicts"
   | "merged"
   | "cleanup"
   | "needs_input"
@@ -81,6 +82,7 @@ export const SESSION_STATUS = {
   CHANGES_REQUESTED: "changes_requested" as const,
   APPROVED: "approved" as const,
   MERGEABLE: "mergeable" as const,
+  MERGE_CONFLICTS: "merge_conflicts" as const,
   MERGED: "merged" as const,
   CLEANUP: "cleanup" as const,
   NEEDS_INPUT: "needs_input" as const,
@@ -816,6 +818,7 @@ export type EventType =
   | "merge.ready"
   | "merge.conflicts"
   | "merge.completed"
+  | "merge.approval_requested"
   // Reactions
   | "reaction.triggered"
   | "reaction.escalated"
@@ -843,8 +846,8 @@ export interface ReactionConfig {
   /** Whether this reaction is enabled */
   auto: boolean;
 
-  /** What to do: send message to agent, notify human, auto-merge */
-  action: "send-to-agent" | "notify" | "auto-merge";
+  /** What to do: send message to agent, notify human, auto-merge, request-merge */
+  action: "send-to-agent" | "notify" | "auto-merge" | "request-merge";
 
   /** Message to send (for send-to-agent) */
   message?: string;
@@ -863,6 +866,9 @@ export interface ReactionConfig {
 
   /** Whether to include a summary in the notification */
   includeSummary?: boolean;
+
+  /** Merge method for auto-merge/reaction-merge reaction (merge, squash, or rebase) */
+  mergeMethod?: "merge" | "squash" | "rebase";
 }
 
 export interface ReactionResult {
@@ -912,6 +918,9 @@ export interface OrchestratorConfig {
 
   /** Default reaction configs */
   reactions: Record<string, ReactionConfig>;
+
+  /** Plugin-specific configs (e.g., scm-github.extraBotAuthors) */
+  plugins?: Record<string, Record<string, unknown>>;
 }
 
 export interface DefaultPlugins {
@@ -1183,6 +1192,8 @@ export interface OpenCodeSessionManager extends SessionManager {
 export interface ClaimPROptions {
   assignOnGithub?: boolean;
   takeover?: boolean;
+  /** When true, send an initial task message to the agent after claiming the PR. */
+  sendInitialMessage?: boolean;
 }
 
 export interface ClaimPRResult {
