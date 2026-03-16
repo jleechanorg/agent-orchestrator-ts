@@ -697,7 +697,7 @@ async function setupMcpMailInWorkspace(
   const settingsPath = join(agentDir, "settings.json");
 
   // Get MCP mail config from environment or use defaults
-  const mcpMailUrl = process.env.MCP_AGENT_MAIL_URL || "http://127.0.0.1:8765/mcp/";
+  const mcpMailUrl = process.env.MCP_AGENT_MAIL_URL ?? "http://127.0.0.1:8765/mcp/";
   const mcpMailToken = process.env.MCP_AGENT_MAIL_TOKEN || "";
 
   // Skip if MCP mail URL is explicitly disabled
