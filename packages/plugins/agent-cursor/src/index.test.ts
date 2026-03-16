@@ -76,7 +76,7 @@ function makeLaunchConfig(overrides: Partial<AgentLaunchConfig> = {}): AgentLaun
   };
 }
 
-function mockTmuxWithProcess(processName = "claude", tty = "/dev/ttys001", pid = 12345) {
+function mockTmuxWithProcess(processName = "cursor-agent", tty = "/dev/ttys001", pid = 12345) {
   mockExecFileAsync.mockImplementation((cmd: string, args: string[]) => {
     if (cmd === "tmux" && args[0] === "list-panes") {
       return Promise.resolve({ stdout: `${tty}\n`, stderr: "" });
@@ -115,17 +115,17 @@ beforeEach(() => {
 describe("plugin manifest & exports", () => {
   it("has correct manifest", () => {
     expect(manifest).toEqual({
-      name: "claude-code",
+      name: "cursor",
       slot: "agent",
-      description: "Agent plugin: Claude Code CLI",
+      description: "Agent plugin: Cursor Agent CLI",
       version: "0.1.0",
     });
   });
 
   it("create() returns an agent with correct name and processName", () => {
     const agent = create();
-    expect(agent.name).toBe("claude-code");
-    expect(agent.processName).toBe("claude");
+    expect(agent.name).toBe("cursor");
+    expect(agent.processName).toBe("cursor-agent");
     expect(agent.promptDelivery).toBe("post-launch");
   });
 
@@ -143,27 +143,27 @@ describe("getLaunchCommand", () => {
 
   it("generates base command without shell syntax", () => {
     const cmd = agent.getLaunchCommand(makeLaunchConfig({ permissions: "default" }));
-    expect(cmd).toBe("claude");
+    expect(cmd).toBe("cursor-agent");
     // Must not contain shell operators (execFile-safe)
     expect(cmd).not.toContain("&&");
     expect(cmd).not.toContain("unset");
   });
 
-  it("includes --dangerously-skip-permissions when permissions=permissionless", () => {
+  it("includes --force when permissions=permissionless", () => {
     const cmd = agent.getLaunchCommand(makeLaunchConfig({ permissions: "permissionless" }));
-    expect(cmd).toContain("--dangerously-skip-permissions");
+    expect(cmd).toContain("--force");
   });
 
   it("treats legacy permissions=skip as permissionless", () => {
     const cmd = agent.getLaunchCommand(
       makeLaunchConfig({ permissions: "skip" as unknown as AgentLaunchConfig["permissions"] }),
     );
-    expect(cmd).toContain("--dangerously-skip-permissions");
+    expect(cmd).toContain("--force");
   });
 
-  it("maps permissions=auto-edit to no-prompt mode on Claude", () => {
+  it("maps permissions=auto-edit to --force on Cursor", () => {
     const cmd = agent.getLaunchCommand(makeLaunchConfig({ permissions: "auto-edit" }));
-    expect(cmd).toContain("--dangerously-skip-permissions");
+    expect(cmd).toContain("--force");
   });
 
   it("shell-escapes model argument", () => {
@@ -181,12 +181,12 @@ describe("getLaunchCommand", () => {
     const cmd = agent.getLaunchCommand(
       makeLaunchConfig({ permissions: "permissionless", model: "opus", prompt: "Hello" }),
     );
-    expect(cmd).toBe("claude --dangerously-skip-permissions --model 'opus'");
+    expect(cmd).toBe("cursor-agent --force --model 'opus'");
   });
 
-  it("omits --dangerously-skip-permissions when permissions=default", () => {
+  it("omits --force when permissions=default", () => {
     const cmd = agent.getLaunchCommand(makeLaunchConfig({ permissions: "default" }));
-    expect(cmd).not.toContain("--dangerously-skip-permissions");
+    expect(cmd).not.toContain("--force");
   });
 
   it("omits optional flags when not provided", () => {
@@ -195,24 +195,23 @@ describe("getLaunchCommand", () => {
     expect(cmd).not.toContain("-p");
   });
 
-  it("includes --append-system-prompt alongside omitted -p", () => {
+  it("ignores systemPrompt (no --append-system-prompt flag on Cursor)", () => {
+    // Cursor CLI does not support --append-system-prompt; system prompts are
+    // delivered post-launch via sendMessage().
     const cmd = agent.getLaunchCommand(
       makeLaunchConfig({ systemPrompt: "You are a helper", prompt: "Do the task" }),
     );
-    expect(cmd).toContain("--append-system-prompt");
-    expect(cmd).toContain("You are a helper");
-    // -p as a standalone flag (not substring of --append-system-prompt)
-    expect(cmd).not.toMatch(/\s-p\s/);
+    expect(cmd).not.toContain("--append-system-prompt");
+    expect(cmd).not.toContain("You are a helper");
     expect(cmd).not.toContain("Do the task");
   });
 
-  it("uses systemPromptFile via shell substitution alongside omitted -p", () => {
+  it("ignores systemPromptFile (no --append-system-prompt flag on Cursor)", () => {
     const cmd = agent.getLaunchCommand(
       makeLaunchConfig({ systemPromptFile: "/tmp/prompt.md", prompt: "Do the task" }),
     );
-    expect(cmd).toContain('--append-system-prompt "$(cat');
-    expect(cmd).toContain("/tmp/prompt.md");
-    expect(cmd).not.toMatch(/\s-p\s/);
+    expect(cmd).not.toContain("--append-system-prompt");
+    expect(cmd).not.toContain("/tmp/prompt.md");
     expect(cmd).not.toContain("Do the task");
   });
 });
@@ -252,7 +251,7 @@ describe("isProcessRunning", () => {
   const agent = create();
 
   it("returns true when claude is found on tmux pane TTY", async () => {
-    mockTmuxWithProcess("claude");
+    mockTmuxWithProcess("cursor-agent");
     expect(await agent.isProcessRunning(makeTmuxHandle())).toBe(true);
   });
 
@@ -310,14 +309,14 @@ describe("isProcessRunning", () => {
     killSpy.mockRestore();
   });
 
-  it("finds claude on any pane in multi-pane session", async () => {
+  it("finds cursor-agent on any pane in multi-pane session", async () => {
     mockExecFileAsync.mockImplementation((cmd: string, args: string[]) => {
       if (cmd === "tmux" && args[0] === "list-panes") {
         return Promise.resolve({ stdout: "/dev/ttys001\n/dev/ttys002\n", stderr: "" });
       }
       if (cmd === "ps") {
         return Promise.resolve({
-          stdout: "  PID TT ARGS\n  100 ttys001  bash\n  200 ttys002  claude -p test\n",
+          stdout: "  PID TT ARGS\n  100 ttys001  bash\n  200 ttys002  cursor-agent --print test\n",
           stderr: "",
         });
       }
@@ -464,7 +463,7 @@ describe("getSessionInfo", () => {
       mockJsonlFiles('{"type":"user","message":{"content":"hello"}}');
       await agent.getSessionInfo(makeSession({ workspacePath: "/Users/dev/.worktrees/ao/ao-3" }));
       expect(mockReaddir).toHaveBeenCalledWith(
-        "/mock/home/.claude/projects/-Users-dev--worktrees-ao-ao-3",
+        "/mock/home/.cursor/projects/-Users-dev--worktrees-ao-ao-3",
       );
     });
   });
@@ -668,34 +667,5 @@ describe("getSessionInfo", () => {
       const result = await agent.getSessionInfo(makeSession());
       expect(result).toBeNull();
     });
-  });
-});
-
-// =========================================================================
-// PostToolUse Observer Pattern — Metadata Sync
-// =========================================================================
-/**
- * These tests verify the PostToolUse observer pattern behavior:
- * - Hooks run AFTER command completion (not before)
- * - Cannot modify command behavior or inject flags
- * - Use case: sync AO metadata post-command
- */
-describe("PostToolUse observer pattern", () => {
-  it("uses PostToolUse hook configuration (observer, not interceptor)", async () => {
-    // This test documents that the hook is PostToolUse, which means:
-    // 1. The Bash tool runs first (gh/git executes)
-    // 2. Only AFTER completion does the metadata script run
-    // 3. Cannot modify command behavior or inject flags
-    //
-    // If interception were needed (pre-command), we would use PreToolUse instead.
-    const agent = create();
-
-    // Verify setupWorkspaceHooks exists — it configures PostToolUse observer
-    expect(typeof agent.setupWorkspaceHooks).toBe("function");
-
-    // The hook setup should add to PostToolUse (not PreToolUse)
-    // This is verified by the setupHookInWorkspace function adding to hooks["PostToolUse"]
-    const hookConfig = "PostToolUse";
-    expect(hookConfig).toBe("PostToolUse"); // Not "PreToolUse"
   });
 });
