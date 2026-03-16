@@ -550,7 +550,7 @@ function createGitHubSCM(): SCM {
 
       const data: {
         number: number;
-        url: string;
+        html_url: string;
         title: string;
         head: { ref: string };
         base: { ref: string };
@@ -560,7 +560,7 @@ function createGitHubSCM(): SCM {
       return prInfoFromView(
         {
           number: data.number,
-          url: data.url,
+          url: data.html_url,
           title: data.title,
           headRefName: data.head.ref,
           baseRefName: data.base.ref,

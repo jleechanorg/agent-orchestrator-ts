@@ -458,7 +458,7 @@ describe("scm-github plugin", () => {
       // REST API format
       mockGh({
         number: 42,
-        url: "https://github.com/acme/repo/pull/42",
+        html_url: "https://github.com/acme/repo/pull/42",
         title: "feat: add feature",
         head: { ref: "feat/my-feature" },
         base: { ref: "main" },
