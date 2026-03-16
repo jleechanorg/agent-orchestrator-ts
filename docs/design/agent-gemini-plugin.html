@@ -265,17 +265,15 @@ export const builtinPlugins = [
           <ul>
             <li>
               <strong>One-shot vs interactive</strong>: <code>gemini -p</code> (headless)
-              exits after one response. Interactive mode (<code>gemini</code> alone, prompt
-              delivered via stdin) is required for multi-turn AO sessions.
+              is only used in integration tests. Production runs <code>gemini</code> interactively
+              via tmux stdin for multi-turn AO sessions.
             </li>
             <li>
-              <strong>Cost estimation accuracy</strong>: Gemini Flash pricing is used as a
-              rough baseline. Multi-modal inputs and premium models will be mis-estimated
-              until Gemini CLI exposes per-call cost in JSONL.
+              <strong>Cost not tracked</strong>: <code>defaultCostRate</code> was removed from config.
+              Cost estimation returns 0 until Gemini CLI exposes per-call costs in JSONL.
             </li>
             <li>
-              <strong>Code duplication</strong>: ~700 lines shared verbatim with
-              <code>agent-claude-code</code>. Tracked for extraction to a shared utility module.
+              <strong>Code sharing</strong>: Shared logic extracted to <code>agent-base</code> plugin.
             </li>
           </ul>
         </article>
