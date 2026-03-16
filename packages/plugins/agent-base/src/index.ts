@@ -712,8 +712,6 @@ async function setupMcpMailInWorkspace(
     return;
   }
 
-  const mcpMailToken = process.env.MCP_AGENT_MAIL_TOKEN || "";
-
   // Create config directory if it doesn't exist
   try {
     await mkdir(agentDir, { recursive: true });
