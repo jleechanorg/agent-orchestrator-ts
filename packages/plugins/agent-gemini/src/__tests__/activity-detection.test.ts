@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, utimesSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { toClaudeProjectPath, create } from "../index.js";
+import { toGeminiProjectPath, create } from "../index.js";
 import type { Session, RuntimeHandle } from "@composio/ao-core";
 
 // Mock homedir() so getActivityState looks in our temp dir
@@ -41,7 +41,7 @@ function makeSession(overrides: Partial<Session> = {}): Session {
 function writeJsonl(
   entries: Array<{ type: string; [key: string]: unknown }>,
   ageMs = 0,
-  filename = "session-abc.jsonl",
+  filename = "session-abc.json",
 ): void {
   const content = entries.map((e) => JSON.stringify(e)).join("\n") + "\n";
   const filePath = join(projectDir, filename);
@@ -53,35 +53,34 @@ function writeJsonl(
 }
 
 // =============================================================================
-// toClaudeProjectPath
+// toGeminiProjectPath
 // =============================================================================
 
-describe("Claude Code Activity Detection", () => {
-  describe("toClaudeProjectPath", () => {
-    it("encodes paths with leading dash", () => {
-      expect(toClaudeProjectPath("/Users/dev/.worktrees/ao")).toBe("-Users-dev--worktrees-ao");
+describe("Gemini CLI Activity Detection", () => {
+  describe("toGeminiProjectPath", () => {
+    it("returns a 64-character hex string (SHA-256)", () => {
+      expect(toGeminiProjectPath("/Users/dev/.worktrees/ao")).toMatch(/^[0-9a-f]{64}$/);
     });
 
-    it("preserves leading slash as leading dash", () => {
-      expect(toClaudeProjectPath("/tmp/test")).toBe("-tmp-test");
+    it("is deterministic for the same path", () => {
+      const p = "/Users/dev/.worktrees/ao";
+      expect(toGeminiProjectPath(p)).toBe(toGeminiProjectPath(p));
     });
 
-    it("replaces dots with dashes", () => {
-      expect(toClaudeProjectPath("/path/to/.hidden")).toBe("-path-to--hidden");
+    it("produces different hashes for different paths", () => {
+      expect(toGeminiProjectPath("/tmp/test")).not.toBe(toGeminiProjectPath("/tmp/test2"));
     });
 
-    it("handles Windows paths (no leading slash)", () => {
-      expect(toClaudeProjectPath("C:\\Users\\dev\\project")).toBe("C-Users-dev-project");
+    it("normalizes Windows separators before hashing", () => {
+      // Same logical path should hash the same regardless of separator
+      expect(toGeminiProjectPath("C:\\Users\\dev\\project")).toBe(
+        toGeminiProjectPath("C:/Users/dev/project"),
+      );
     });
 
-    it("handles consecutive dots and slashes", () => {
-      // /a/../b/./c → -a-  -- -b- - -c → -a----b---c
-      expect(toClaudeProjectPath("/a/../b/./c")).toBe("-a----b---c");
-    });
-
-    it("handles paths with multiple dot-directories", () => {
-      expect(toClaudeProjectPath("/Users/dev/.config/.local/share")).toBe(
-        "-Users-dev--config--local-share",
+    it("matches expected SHA-256 hash for a known path", () => {
+      expect(toGeminiProjectPath("/Users/dev/.worktrees/ao")).toBe(
+        "6cc9537c6d28413f8817054571a90426f7891206aed9c6a8fd30371d5e37572f",
       );
     });
   });
@@ -98,9 +97,10 @@ describe("Claude Code Activity Detection", () => {
       workspacePath = join(fakeHome, "workspace");
       mkdirSync(workspacePath, { recursive: true });
 
-      // Create the Claude project directory matching the workspace path
-      const encoded = toClaudeProjectPath(workspacePath);
-      projectDir = join(fakeHome, ".claude", "projects", encoded);
+      // Create the Gemini project directory matching the workspace path
+      // Gemini stores sessions at ~/.gemini/tmp/<sha256>/chats/
+      const projectHash = toGeminiProjectPath(workspacePath);
+      projectDir = join(fakeHome, ".gemini", "tmp", projectHash, "chats");
       mkdirSync(projectDir, { recursive: true });
 
       // Mock isProcessRunning to always return true (we test exited separately)
@@ -137,7 +137,7 @@ describe("Claude Code Activity Detection", () => {
     // -----------------------------------------------------------------------
 
     it("returns null when no session file exists yet", async () => {
-      // projectDir exists but is empty — no .jsonl files
+      // projectDir exists but is empty — no .json files
       expect(await agent.getActivityState(makeSession())).toBeNull();
     });
 
@@ -152,10 +152,10 @@ describe("Claude Code Activity Detection", () => {
     });
 
     // -----------------------------------------------------------------------
-    // Real Claude Code entry types (observed in production)
+    // Real Gemini CLI entry types (observed in production)
     // -----------------------------------------------------------------------
 
-    describe("real Claude Code entry types", () => {
+    describe("real Gemini CLI entry types", () => {
       it("returns 'active' for recent 'progress' entry (streaming)", async () => {
         writeJsonl([{ type: "progress", status: "running tool" }]);
         expect((await agent.getActivityState(makeSession()))?.state).toBe("active");
@@ -282,14 +282,14 @@ describe("Claude Code Activity Detection", () => {
     describe("JSONL file selection", () => {
       it("picks the most recently modified JSONL file", async () => {
         // Write an older file with "assistant" and a newer file with "user"
-        writeJsonl([{ type: "assistant" }], 10_000, "old-session.jsonl");
-        writeJsonl([{ type: "user" }], 0, "new-session.jsonl");
+        writeJsonl([{ type: "assistant" }], 10_000, "old-session.json");
+        writeJsonl([{ type: "user" }], 0, "new-session.json");
 
         expect((await agent.getActivityState(makeSession()))?.state).toBe("active");
       });
 
       it("ignores agent- prefixed JSONL files", async () => {
-        writeJsonl([{ type: "user" }], 0, "agent-toolkit.jsonl");
+        writeJsonl([{ type: "user" }], 0, "agent-toolkit.json");
         // No real session file → returns null (cannot determine activity)
         expect(await agent.getActivityState(makeSession())).toBeNull();
       });
@@ -305,12 +305,12 @@ describe("Claude Code Activity Detection", () => {
       });
 
       it("returns null for empty JSONL file", async () => {
-        writeFileSync(join(projectDir, "empty-session.jsonl"), "");
+        writeFileSync(join(projectDir, "empty-session.json"), "");
         expect(await agent.getActivityState(makeSession())).toBeNull();
       });
 
       it("returns null for JSONL with only whitespace", async () => {
-        writeFileSync(join(projectDir, "whitespace-session.jsonl"), "\n\n  \n");
+        writeFileSync(join(projectDir, "whitespace-session.json"), "\n\n  \n");
         // All lines are whitespace — readLastJsonlEntry returns null
         expect(await agent.getActivityState(makeSession())).toBeNull();
       });

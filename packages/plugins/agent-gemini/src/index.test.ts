@@ -76,7 +76,7 @@ function makeLaunchConfig(overrides: Partial<AgentLaunchConfig> = {}): AgentLaun
   };
 }
 
-function mockTmuxWithProcess(processName = "claude", tty = "/dev/ttys001", pid = 12345) {
+function mockTmuxWithProcess(processName = "gemini", tty = "/dev/ttys001", pid = 12345) {
   mockExecFileAsync.mockImplementation((cmd: string, args: string[]) => {
     if (cmd === "tmux" && args[0] === "list-panes") {
       return Promise.resolve({ stdout: `${tty}\n`, stderr: "" });
@@ -95,7 +95,7 @@ function mockTmuxWithProcess(processName = "claude", tty = "/dev/ttys001", pid =
 
 function mockJsonlFiles(
   jsonlContent: string,
-  files = ["session-abc123.jsonl"],
+  files = ["session-abc123.json"],
   mtime = new Date(1700000000000),
 ) {
   mockReaddir.mockResolvedValue(files);
@@ -115,17 +115,17 @@ beforeEach(() => {
 describe("plugin manifest & exports", () => {
   it("has correct manifest", () => {
     expect(manifest).toEqual({
-      name: "claude-code",
+      name: "gemini",
       slot: "agent",
-      description: "Agent plugin: Claude Code CLI",
+      description: "Agent plugin: Gemini CLI",
       version: "0.1.0",
     });
   });
 
   it("create() returns an agent with correct name and processName", () => {
     const agent = create();
-    expect(agent.name).toBe("claude-code");
-    expect(agent.processName).toBe("claude");
+    expect(agent.name).toBe("gemini");
+    expect(agent.processName).toBe("gemini");
     expect(agent.promptDelivery).toBe("post-launch");
   });
 
@@ -143,27 +143,27 @@ describe("getLaunchCommand", () => {
 
   it("generates base command without shell syntax", () => {
     const cmd = agent.getLaunchCommand(makeLaunchConfig({ permissions: "default" }));
-    expect(cmd).toBe("claude");
+    expect(cmd).toBe("gemini");
     // Must not contain shell operators (execFile-safe)
     expect(cmd).not.toContain("&&");
     expect(cmd).not.toContain("unset");
   });
 
-  it("includes --dangerously-skip-permissions when permissions=permissionless", () => {
+  it("includes --yolo when permissions=permissionless", () => {
     const cmd = agent.getLaunchCommand(makeLaunchConfig({ permissions: "permissionless" }));
-    expect(cmd).toContain("--dangerously-skip-permissions");
+    expect(cmd).toContain("--yolo");
   });
 
   it("treats legacy permissions=skip as permissionless", () => {
     const cmd = agent.getLaunchCommand(
       makeLaunchConfig({ permissions: "skip" as unknown as AgentLaunchConfig["permissions"] }),
     );
-    expect(cmd).toContain("--dangerously-skip-permissions");
+    expect(cmd).toContain("--yolo");
   });
 
-  it("maps permissions=auto-edit to no-prompt mode on Claude", () => {
+  it("maps permissions=auto-edit to --yolo on Gemini", () => {
     const cmd = agent.getLaunchCommand(makeLaunchConfig({ permissions: "auto-edit" }));
-    expect(cmd).toContain("--dangerously-skip-permissions");
+    expect(cmd).toContain("--yolo");
   });
 
   it("shell-escapes model argument", () => {
@@ -181,12 +181,12 @@ describe("getLaunchCommand", () => {
     const cmd = agent.getLaunchCommand(
       makeLaunchConfig({ permissions: "permissionless", model: "opus", prompt: "Hello" }),
     );
-    expect(cmd).toBe("claude --dangerously-skip-permissions --model 'opus'");
+    expect(cmd).toBe("gemini --yolo --model 'opus'");
   });
 
-  it("omits --dangerously-skip-permissions when permissions=default", () => {
+  it("omits --yolo when permissions=default", () => {
     const cmd = agent.getLaunchCommand(makeLaunchConfig({ permissions: "default" }));
-    expect(cmd).not.toContain("--dangerously-skip-permissions");
+    expect(cmd).not.toContain("--yolo");
   });
 
   it("omits optional flags when not provided", () => {
@@ -195,24 +195,19 @@ describe("getLaunchCommand", () => {
     expect(cmd).not.toContain("-p");
   });
 
-  it("includes --append-system-prompt alongside omitted -p", () => {
+  it("does not include --append-system-prompt (unsupported by Gemini CLI)", () => {
     const cmd = agent.getLaunchCommand(
       makeLaunchConfig({ systemPrompt: "You are a helper", prompt: "Do the task" }),
     );
-    expect(cmd).toContain("--append-system-prompt");
-    expect(cmd).toContain("You are a helper");
-    // -p as a standalone flag (not substring of --append-system-prompt)
-    expect(cmd).not.toMatch(/\s-p\s/);
+    expect(cmd).not.toContain("--append-system-prompt");
     expect(cmd).not.toContain("Do the task");
   });
 
-  it("uses systemPromptFile via shell substitution alongside omitted -p", () => {
+  it("does not include systemPromptFile flag (unsupported by Gemini CLI)", () => {
     const cmd = agent.getLaunchCommand(
       makeLaunchConfig({ systemPromptFile: "/tmp/prompt.md", prompt: "Do the task" }),
     );
-    expect(cmd).toContain('--append-system-prompt "$(cat');
-    expect(cmd).toContain("/tmp/prompt.md");
-    expect(cmd).not.toMatch(/\s-p\s/);
+    expect(cmd).not.toContain("--append-system-prompt");
     expect(cmd).not.toContain("Do the task");
   });
 });
@@ -251,12 +246,12 @@ describe("getEnvironment", () => {
 describe("isProcessRunning", () => {
   const agent = create();
 
-  it("returns true when claude is found on tmux pane TTY", async () => {
-    mockTmuxWithProcess("claude");
+  it("returns true when gemini is found on tmux pane TTY", async () => {
+    mockTmuxWithProcess("gemini");
     expect(await agent.isProcessRunning(makeTmuxHandle())).toBe(true);
   });
 
-  it("returns false when no claude on tmux pane TTY", async () => {
+  it("returns false when no gemini on tmux pane TTY", async () => {
     mockExecFileAsync.mockImplementation((cmd: string) => {
       if (cmd === "tmux") return Promise.resolve({ stdout: "/dev/ttys002\n", stderr: "" });
       if (cmd === "ps")
@@ -310,14 +305,14 @@ describe("isProcessRunning", () => {
     killSpy.mockRestore();
   });
 
-  it("finds claude on any pane in multi-pane session", async () => {
+  it("finds gemini on any pane in multi-pane session", async () => {
     mockExecFileAsync.mockImplementation((cmd: string, args: string[]) => {
       if (cmd === "tmux" && args[0] === "list-panes") {
         return Promise.resolve({ stdout: "/dev/ttys001\n/dev/ttys002\n", stderr: "" });
       }
       if (cmd === "ps") {
         return Promise.resolve({
-          stdout: "  PID TT ARGS\n  100 ttys001  bash\n  200 ttys002  claude -p test\n",
+          stdout: "  PID TT ARGS\n  100 ttys001  bash\n  200 ttys002  gemini\n",
           stderr: "",
         });
       }
@@ -445,7 +440,7 @@ describe("getSessionInfo", () => {
   });
 
   it("filters out agent- prefixed JSONL files", async () => {
-    mockReaddir.mockResolvedValue(["agent-toolkit.jsonl"]);
+    mockReaddir.mockResolvedValue(["agent-toolkit.json"]);
     expect(await agent.getSessionInfo(makeSession())).toBeNull();
   });
 
@@ -460,11 +455,11 @@ describe("getSessionInfo", () => {
   });
 
   describe("path conversion", () => {
-    it("converts workspace path to Claude project dir path", async () => {
+    it("converts workspace path to Gemini project dir path using SHA-256 hash", async () => {
       mockJsonlFiles('{"type":"user","message":{"content":"hello"}}');
       await agent.getSessionInfo(makeSession({ workspacePath: "/Users/dev/.worktrees/ao/ao-3" }));
       expect(mockReaddir).toHaveBeenCalledWith(
-        "/mock/home/.claude/projects/-Users-dev--worktrees-ao-ao-3",
+        "/mock/home/.gemini/tmp/c088fd3faeef17bc8a2727f7bba54bf1fbb7b74da1cf00e57d15ad3a9913c54e/chats",
       );
     });
   });
@@ -525,7 +520,7 @@ describe("getSessionInfo", () => {
 
   describe("session ID extraction", () => {
     it("extracts session ID from filename", async () => {
-      mockJsonlFiles('{"type":"user","message":{"content":"hi"}}', ["abc-def-123.jsonl"]);
+      mockJsonlFiles('{"type":"user","message":{"content":"hi"}}', ["abc-def-123.json"]);
       const result = await agent.getSessionInfo(makeSession());
       expect(result?.agentSessionId).toBe("abc-def-123");
     });
@@ -542,7 +537,8 @@ describe("getSessionInfo", () => {
       const result = await agent.getSessionInfo(makeSession());
       expect(result?.cost?.inputTokens).toBe(3000);
       expect(result?.cost?.outputTokens).toBe(800);
-      expect(result?.cost?.estimatedCostUsd).toBeCloseTo(0.009 + 0.012, 6);
+      // Gemini 2.0 Flash pricing: $0.10/M input, $0.40/M output
+      expect(result?.cost?.estimatedCostUsd).toBeCloseTo(3000 * 0.1 / 1e6 + 800 * 0.4 / 1e6, 6);
     });
 
     it("includes cache tokens in input count", async () => {
@@ -609,9 +605,9 @@ describe("getSessionInfo", () => {
 
   describe("file selection", () => {
     it("picks the most recently modified JSONL file", async () => {
-      mockReaddir.mockResolvedValue(["old.jsonl", "new.jsonl"]);
+      mockReaddir.mockResolvedValue(["old.json", "new.json"]);
       mockStat.mockImplementation((path: string) => {
-        if (path.endsWith("old.jsonl")) {
+        if (path.endsWith("old.json")) {
           return Promise.resolve({ mtimeMs: 1000, mtime: new Date(1000) });
         }
         return Promise.resolve({ mtimeMs: 2000, mtime: new Date(2000) });
@@ -622,9 +618,9 @@ describe("getSessionInfo", () => {
     });
 
     it("skips JSONL files that fail stat", async () => {
-      mockReaddir.mockResolvedValue(["broken.jsonl", "good.jsonl"]);
+      mockReaddir.mockResolvedValue(["broken.json", "good.json"]);
       mockStat.mockImplementation((path: string) => {
-        if (path.endsWith("broken.jsonl")) {
+        if (path.endsWith("broken.json")) {
           return Promise.reject(new Error("ENOENT"));
         }
         return Promise.resolve({ mtimeMs: 1000, mtime: new Date(1000) });
@@ -662,7 +658,7 @@ describe("getSessionInfo", () => {
     });
 
     it("handles readFile failure gracefully", async () => {
-      mockReaddir.mockResolvedValue(["session.jsonl"]);
+      mockReaddir.mockResolvedValue(["session.json"]);
       mockStat.mockResolvedValue({ mtimeMs: 1000, mtime: new Date(1000) });
       mockReadFile.mockRejectedValue(new Error("EACCES"));
       const result = await agent.getSessionInfo(makeSession());
