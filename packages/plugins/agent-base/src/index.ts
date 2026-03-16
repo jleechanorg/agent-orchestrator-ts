@@ -15,7 +15,7 @@ import {
 } from "@composio/ao-core";
 import { execFile } from "node:child_process";
 import { readdir, readFile, stat, open, writeFile, mkdir, chmod } from "node:fs/promises";
-import { existsSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
 import { promisify } from "node:util";
@@ -56,10 +56,29 @@ export interface AgentPluginConfig {
    * Fallback cost rates used when JSONL contains token counts but no direct
    * cost field. Units are USD per million tokens.
    */
-  defaultCostRate: {
+  defaultCostRate?: {
     inputPerMillion: number;
     outputPerMillion: number;
   };
+  /**
+   * Environment variable used to pass a system prompt file path to the agent.
+   * Set when the CLI uses an env var instead of a flag (e.g. "GEMINI_SYSTEM_MD").
+   * Mutually exclusive with systemPromptFlag — set only one.
+   */
+  systemPromptEnvVar?: string;
+  /**
+   * Override the session directory path for a given workspace.
+   * Defaults to `~/<configDir>/projects/<toAgentProjectPath(workspacePath)>`.
+   * Override when the agent uses a different directory structure
+   * (e.g. Gemini CLI uses `~/.gemini/tmp/<sha256>/chats/`).
+   */
+  getSessionDir?: (workspacePath: string) => string;
+  /**
+   * File extension for session files in the session directory.
+   * Defaults to ".jsonl". Override for agents that use a different extension
+   * (e.g. Gemini CLI uses ".json").
+   */
+  sessionFileExtension?: string;
 }
 
 // =============================================================================
@@ -102,8 +121,8 @@ if [[ "$exit_code" -ne 0 ]]; then
   exit 0
 fi
 
-# Only process Bash tool calls
-if [[ "$tool_name" != "Bash" ]]; then
+# Only process shell tool calls (Claude uses "Bash"; Gemini CLI uses "run_shell_command")
+if [[ "$tool_name" != "Bash" && "$tool_name" != "run_shell_command" ]]; then
   echo '{}' # Empty JSON output
   exit 0
 fi
@@ -232,8 +251,11 @@ export function toAgentProjectPath(workspacePath: string): string {
 // JSONL Helpers
 // =============================================================================
 
-/** Find the most recently modified .jsonl session file in a directory */
-async function findLatestSessionFile(projectDir: string): Promise<string | null> {
+/** Find the most recently modified session file in a directory */
+async function findLatestSessionFile(
+  projectDir: string,
+  ext = ".jsonl",
+): Promise<string | null> {
   let entries: string[];
   try {
     entries = await readdir(projectDir);
@@ -241,7 +263,7 @@ async function findLatestSessionFile(projectDir: string): Promise<string | null>
     return null;
   }
 
-  const jsonlFiles = entries.filter((f) => f.endsWith(".jsonl") && !f.startsWith("agent-"));
+  const jsonlFiles = entries.filter((f) => f.endsWith(ext) && !f.startsWith("agent-"));
   if (jsonlFiles.length === 0) return null;
 
   // Sort by mtime descending
@@ -299,8 +321,8 @@ async function parseJsonlFileTail(filePath: string, maxBytes = 131_072): Promise
       try {
         const length = size - offset;
         const buffer = Buffer.allocUnsafe(length);
-        await handle.read(buffer, 0, length, offset);
-        content = buffer.toString("utf-8");
+        const { bytesRead } = await handle.read(buffer, 0, length, offset);
+        content = buffer.slice(0, bytesRead).toString("utf-8");
       } finally {
         await handle.close();
       }
@@ -398,7 +420,7 @@ function extractCost(
   }
 
   // Rough estimate when no direct cost data — use the configured rate.
-  if (totalCost === 0 && (inputTokens > 0 || outputTokens > 0)) {
+  if (totalCost === 0 && defaultCostRate && (inputTokens > 0 || outputTokens > 0)) {
     totalCost =
       (inputTokens / 1_000_000) * defaultCostRate.inputPerMillion +
       (outputTokens / 1_000_000) * defaultCostRate.outputPerMillion;
@@ -437,7 +459,7 @@ async function getCachedProcessList(): Promise<string> {
   // Guard both callbacks so they only update psCache if it still belongs to
   // this request — a newer request may have replaced it while we were waiting.
   const promise = execFileAsync("ps", ["-eo", "pid,tty,args"], {
-    timeout: 5_000,
+    timeout: 30_000,
   }).then(({ stdout }) => {
     if (psCache?.promise === promise) {
       psCache = { output: stdout, timestamp: Date.now() };
@@ -590,9 +612,15 @@ async function setupHookInWorkspace(
     }
   }
 
-  // Merge hooks configuration
-  const hooks = (existingSettings["hooks"] as Record<string, unknown>) ?? {};
-  const postToolUse = (hooks["PostToolUse"] as Array<unknown>) ?? [];
+  // Merge hooks configuration — type-guard before casting to avoid runtime
+  // errors on malformed or older settings.json files
+  const rawHooks = existingSettings["hooks"];
+  const hooks: Record<string, unknown> =
+    typeof rawHooks === "object" && rawHooks !== null && !Array.isArray(rawHooks)
+      ? (rawHooks as Record<string, unknown>)
+      : {};
+  const rawPostToolUse = hooks["PostToolUse"];
+  const postToolUse: Array<unknown> = Array.isArray(rawPostToolUse) ? rawPostToolUse : [];
 
   // Check if our hook is already configured
   let hookIndex = -1;
@@ -630,10 +658,19 @@ async function setupHookInWorkspace(
       ],
     });
   } else {
-    // Hook exists, update the command
+    // Hook exists, update the command — but preserve an existing AO_DATA_DIR
+    // prefix if the new command doesn't include one (e.g. postLaunchSetup
+    // doesn't have access to hookConfig.dataDir and would silently drop it).
     const hook = postToolUse[hookIndex] as Record<string, unknown>;
     const hooksList = hook["hooks"] as Array<Record<string, unknown>>;
-    hooksList[hookDefIndex]["command"] = hookCommand;
+    const existingCommand = hooksList[hookDefIndex]["command"] as string | undefined;
+    const newCommandDropsDataDir =
+      !hookCommand.includes("AO_DATA_DIR=") &&
+      typeof existingCommand === "string" &&
+      existingCommand.includes("AO_DATA_DIR=");
+    if (!newCommandDropsDataDir) {
+      hooksList[hookDefIndex]["command"] = hookCommand;
+    }
   }
 
   hooks["PostToolUse"] = postToolUse;
@@ -713,6 +750,26 @@ export function createAgentPlugin(config: AgentPluginConfig, overrides?: Partial
         env["AO_ISSUE_ID"] = launchConfig.issueId;
       }
 
+      // Handle system prompt via environment variable (e.g. GEMINI_SYSTEM_MD).
+      // Used for agents that don't support a system prompt CLI flag.
+      if (config.systemPromptEnvVar) {
+        if (launchConfig.systemPromptFile) {
+          env[config.systemPromptEnvVar] = launchConfig.systemPromptFile;
+        } else if (launchConfig.systemPrompt) {
+          // Write the inline prompt to a temp file — env vars can't inline multi-KB prompts.
+          const tmpDir = join(homedir(), ".ao-sessions", "tmp");
+          const tmpFile = join(tmpDir, `system-${launchConfig.sessionId}.md`);
+          try {
+            mkdirSync(tmpDir, { recursive: true, mode: 0o700 });
+            writeFileSync(tmpFile, launchConfig.systemPrompt, { encoding: "utf-8", mode: 0o600 });
+            env[config.systemPromptEnvVar] = tmpFile;
+          } catch {
+            // Could not write temp file — leave env var unset so the agent
+            // falls back to its built-in defaults.
+          }
+        }
+      }
+
       return env;
     },
 
@@ -743,10 +800,11 @@ export function createAgentPlugin(config: AgentPluginConfig, overrides?: Partial
         return null;
       }
 
-      const projectPath = toAgentProjectPath(session.workspacePath);
-      const projectDir = join(homedir(), config.configDir, "projects", projectPath);
+      const projectDir = config.getSessionDir
+        ? config.getSessionDir(session.workspacePath)
+        : join(homedir(), config.configDir, "projects", toAgentProjectPath(session.workspacePath));
 
-      const sessionFile = await findLatestSessionFile(projectDir);
+      const sessionFile = await findLatestSessionFile(projectDir, config.sessionFileExtension);
       if (!sessionFile) {
         // No session file found — cannot determine activity
         return null;
@@ -787,11 +845,12 @@ export function createAgentPlugin(config: AgentPluginConfig, overrides?: Partial
     async getSessionInfo(session: Session): Promise<AgentSessionInfo | null> {
       if (!session.workspacePath) return null;
 
-      const projectPath = toAgentProjectPath(session.workspacePath);
-      const projectDir = join(homedir(), config.configDir, "projects", projectPath);
+      const projectDir = config.getSessionDir
+        ? config.getSessionDir(session.workspacePath)
+        : join(homedir(), config.configDir, "projects", toAgentProjectPath(session.workspacePath));
 
       // Find the latest session JSONL file
-      const sessionFile = await findLatestSessionFile(projectDir);
+      const sessionFile = await findLatestSessionFile(projectDir, config.sessionFileExtension);
       if (!sessionFile) return null;
 
       // Parse only the tail — summaries are always near the end, files can be 100MB+
@@ -799,7 +858,7 @@ export function createAgentPlugin(config: AgentPluginConfig, overrides?: Partial
       if (lines.length === 0) return null;
 
       // Extract session ID from filename
-      const agentSessionId = basename(sessionFile, ".jsonl");
+      const agentSessionId = basename(sessionFile, config.sessionFileExtension ?? ".jsonl");
 
       const summaryResult = extractSummary(lines);
       return {
@@ -813,15 +872,16 @@ export function createAgentPlugin(config: AgentPluginConfig, overrides?: Partial
     async getRestoreCommand(session: Session, project: ProjectConfig): Promise<string | null> {
       if (!session.workspacePath) return null;
 
-      const projectPath = toAgentProjectPath(session.workspacePath);
-      const projectDir = join(homedir(), config.configDir, "projects", projectPath);
+      const projectDir = config.getSessionDir
+        ? config.getSessionDir(session.workspacePath)
+        : join(homedir(), config.configDir, "projects", toAgentProjectPath(session.workspacePath));
 
       // Find the latest session JSONL file
-      const sessionFile = await findLatestSessionFile(projectDir);
+      const sessionFile = await findLatestSessionFile(projectDir, config.sessionFileExtension);
       if (!sessionFile) return null;
 
       // Extract session UUID from filename (e.g. "abc123-def456.jsonl" → "abc123-def456")
-      const sessionUuid = basename(sessionFile, ".jsonl");
+      const sessionUuid = basename(sessionFile, config.sessionFileExtension ?? ".jsonl");
       if (!sessionUuid) return null;
 
       // Build resume command
@@ -841,10 +901,13 @@ export function createAgentPlugin(config: AgentPluginConfig, overrides?: Partial
 
     async setupWorkspaceHooks(
       workspacePath: string,
-      _hookConfig: WorkspaceHooksConfig,
+      hookConfig: WorkspaceHooksConfig,
     ): Promise<void> {
       const hookScriptPath = join(workspacePath, config.configDir, "metadata-updater.sh");
-      await setupHookInWorkspace(workspacePath, config.configDir, hookScriptPath);
+      // Prefix AO_DATA_DIR so the hook writes to the configured data directory
+      // rather than the default $HOME/.ao-sessions.
+      const hookCommand = `AO_DATA_DIR=${shellEscape(hookConfig.dataDir)} ${shellEscape(hookScriptPath)}`;
+      await setupHookInWorkspace(workspacePath, config.configDir, hookCommand);
     },
 
     async postLaunchSetup(session: Session): Promise<void> {
@@ -854,7 +917,8 @@ export function createAgentPlugin(config: AgentPluginConfig, overrides?: Partial
         config.configDir,
         "metadata-updater.sh",
       );
-      await setupHookInWorkspace(session.workspacePath, config.configDir, hookScriptPath);
+      // postLaunchSetup does not receive hookConfig — use the env-var default
+      await setupHookInWorkspace(session.workspacePath, config.configDir, shellEscape(hookScriptPath));
     },
 
     ...overrides,
@@ -865,6 +929,11 @@ export function createAgentPlugin(config: AgentPluginConfig, overrides?: Partial
 // Internal helpers
 // =============================================================================
 
+/**
+ * Normalize an agent permission mode string to a canonical value.
+ * Maps the legacy "skip" alias to "permissionless"; returns undefined for
+ * unrecognised or missing values.
+ */
 function normalizePermissionMode(
   mode: string | undefined,
 ): "permissionless" | "default" | "auto-edit" | "suggest" | undefined {
