@@ -63,12 +63,6 @@ describe.skipIf(!canRun)("agent-cursor (integration)", () => {
     tmpDir = await mkdtemp(join(tmpdir(), "ao-inttest-cursor-"));
     outputFile = join(tmpDir, "fibonacci.py");
 
-    // cursor-agent requires a git workspace to write files.
-    // Initialize a git repo so cursor-agent can write to this tmpDir.
-    await execFileAsync("git", ["init", tmpDir], { timeout: 5_000 });
-    await execFileAsync("git", ["-C", tmpDir, "config", "user.email", "test@example.com"], { timeout: 5_000 });
-    await execFileAsync("git", ["-C", tmpDir, "config", "user.name", "Test"], { timeout: 5_000 });
-
     const task = `Write a Python fibonacci program to the file fibonacci.py. The program should print the first 10 fibonacci numbers when run. Write only the file, no explanation.`;
     const cmd = `${cursorBin} --print '${task}'`;
     await createSession(sessionName, cmd, tmpDir);

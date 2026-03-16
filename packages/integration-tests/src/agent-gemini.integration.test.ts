@@ -64,15 +64,12 @@ describe.skipIf(!canRun)("agent-gemini (integration)", () => {
     tmpDir = await mkdtemp(join(tmpdir(), "ao-inttest-gemini-"));
     outputFile = join(tmpDir, "fibonacci.py");
 
-    // Gemini CLI restricts writes to git workspace directories.
-    // Initialize a git repo so gemini can write files to this tmpDir.
-    await execFileAsync("git", ["init", tmpDir], { timeout: 5_000 });
-    await execFileAsync("git", ["-C", tmpDir, "config", "user.email", "test@example.com"], { timeout: 5_000 });
-    await execFileAsync("git", ["-C", tmpDir, "config", "user.name", "Test"], { timeout: 5_000 });
-
     const task = `Write a Python fibonacci program to the file fibonacci.py. The program should print the first 10 fibonacci numbers when run. Write only the file, no explanation.`;
     const cmd = `${geminiBin} --yolo -p '${task}'`;
-    await createSession(sessionName, cmd, tmpDir);
+    // Pass GEMINI_API_KEY explicitly — tmux sessions don't inherit parent env.
+    const env: Record<string, string> = {};
+    if (process.env.GEMINI_API_KEY) env["GEMINI_API_KEY"] = process.env.GEMINI_API_KEY;
+    await createSession(sessionName, cmd, tmpDir, env);
 
     const handle = makeTmuxHandle(sessionName);
     const session = makeSession("inttest-gemini", handle, tmpDir);
