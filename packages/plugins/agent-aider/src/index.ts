@@ -70,6 +70,7 @@ export const manifest = {
   slot: "agent" as const,
   description: "Agent plugin: Aider",
   version: "0.1.0",
+  displayName: "Aider",
 };
 
 // =============================================================================
@@ -222,4 +223,13 @@ export function create(): Agent {
   return createAiderAgent();
 }
 
-export default { manifest, create } satisfies PluginModule<Agent>;
+export function detect(): boolean {
+  try {
+    require("node:child_process").execSync("which aider", { stdio: "ignore" });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export default { manifest, create, detect } satisfies PluginModule<Agent>;

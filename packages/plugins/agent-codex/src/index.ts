@@ -69,6 +69,7 @@ export const manifest = {
   slot: "agent" as const,
   description: "Agent plugin: OpenAI Codex CLI",
   version: "0.1.1",
+  displayName: "OpenAI Codex",
 };
 
 // =============================================================================
@@ -873,4 +874,13 @@ export type {
   ApprovalDecision,
 } from "./app-server-client.js";
 
-export default { manifest, create } satisfies PluginModule<Agent>;
+export function detect(): boolean {
+  try {
+    require("node:child_process").execSync("which codex", { stdio: "ignore" });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export default { manifest, create, detect } satisfies PluginModule<Agent>;

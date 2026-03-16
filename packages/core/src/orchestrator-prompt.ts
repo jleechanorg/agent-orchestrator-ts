@@ -54,9 +54,9 @@ Your role is to coordinate and manage worker agent sessions. You do NOT write co
 ao status
 
 # Spawn sessions for issues (GitHub: #123, Linear: INT-1234, etc.)
-ao spawn ${projectId} INT-1234
-ao spawn ${projectId} --claim-pr 123
-ao batch-spawn ${projectId} INT-1 INT-2 INT-3
+ao spawn INT-1234
+ao spawn --claim-pr 123
+ao batch-spawn INT-1 INT-2 INT-3
 
 # List sessions
 ao session ls -p ${projectId}
@@ -80,8 +80,8 @@ ao open ${projectId}
 | Command | Description |
 |---------|-------------|
 | \`ao status\` | Show all sessions with PR/CI/review status |
-| \`ao spawn <project> [issue] [--claim-pr <pr>]\` | Spawn a worker session, optionally attached to an existing PR |
-| \`ao batch-spawn <project> <issues...>\` | Spawn multiple sessions in parallel |
+| \`ao spawn [issue] [--claim-pr <pr>] [-p project]\` | Spawn a worker session, optionally attached to an existing PR |
+| \`ao batch-spawn <issues...> [-p project]\` | Spawn multiple sessions in parallel |
 | \`ao session ls [-p project]\` | List all sessions (optionally filter by project) |
 | \`ao session claim-pr <pr> [session]\` | Attach an existing PR to a worker session |
 | \`ao session attach <session>\` | Attach to a session's tmux window |
