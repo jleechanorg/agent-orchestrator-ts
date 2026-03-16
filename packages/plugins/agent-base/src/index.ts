@@ -768,9 +768,11 @@ async function setupMcpMailInWorkspace(
  * a different session format (e.g. Cursor's SQLite storage instead of JSONL).
  */
 export function createAgentPlugin(config: AgentPluginConfig, overrides?: Partial<Agent>): Agent {
+  // Escape regex metacharacters in processName to prevent injection (e.g., "gemini+" would match "gemini" and "+").
+  const escapedProcessName = config.processName.replace(/[.+*?^${}()|[\]\\]/g, "\\$&");
   // Build process regex once — matches the process name as a word boundary
   // to prevent false positives (e.g. "gemini-pro" matching "gemini").
-  const processRe = new RegExp(`(?:^|/)${config.processName}(?:\\s|$)`);
+  const processRe = new RegExp(`(?:^|/)${escapedProcessName}(?:\\s|$)`);
 
   return {
     name: config.name,
