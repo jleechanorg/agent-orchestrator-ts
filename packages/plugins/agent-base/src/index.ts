@@ -818,6 +818,7 @@ export function createAgentPlugin(config: AgentPluginConfig, overrides?: Partial
       env["CLAUDECODE"] = "";
 
       // Set session info for introspection
+      env["AO_SESSION"] = launchConfig.sessionId;
       env["AO_SESSION_ID"] = launchConfig.sessionId;
 
       // NOTE: AO_PROJECT_ID is NOT set here - it's the caller's responsibility
