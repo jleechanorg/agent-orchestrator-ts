@@ -29,8 +29,10 @@ export async function detectAvailableAgents(): Promise<DetectedAgent[]> {
 
   for (const { name, pkg } of AGENT_PLUGINS) {
     try {
-      const mod = (await import(pkg)) as PluginModule;
-      if (typeof mod.detect === "function" && mod.detect()) {
+      const raw = await import(pkg);
+      // Handle both named export and default export shapes
+      const mod = (raw.detect ? raw : raw.default) as PluginModule;
+      if (typeof mod?.detect === "function" && mod.detect()) {
         available.push({
           name,
           displayName: mod.manifest?.displayName ?? name,

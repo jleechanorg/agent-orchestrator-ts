@@ -431,21 +431,6 @@ export async function createConfigOnly(): Promise<void> {
 }
 
 /**
- * Add a project without starting dashboard/orchestrator.
- * Used by deprecated `ao add-project` wrapper.
- */
-export async function addProjectOnly(projectPath: string): Promise<void> {
-  const configPath = findConfigFile();
-  if (!configPath) {
-    console.error(chalk.red("No agent-orchestrator.yaml found."));
-    console.log(chalk.dim("Run `ao start` first to create a config.\n"));
-    process.exit(1);
-  }
-  const config = loadConfig(configPath);
-  await addProjectToConfig(config, projectPath);
-}
-
-/**
  * Start dashboard server in the background.
  * Returns the child process handle for cleanup.
  */
@@ -622,7 +607,7 @@ async function runStartup(
   if (projectIds.length > 0) {
     console.log(chalk.bold("\nNext step:\n"));
     console.log(`  Spawn an agent session:`);
-    console.log(chalk.cyan(`     ao spawn ${projectId} <issue-number>\n`));
+    console.log(chalk.cyan(`     ao spawn <issue-number>\n`));
   }
 
   // Auto-open browser to orchestrator session page once the server is accepting connections.
