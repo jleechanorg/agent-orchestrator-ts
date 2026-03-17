@@ -214,15 +214,6 @@ export function registerSpawn(program: Command): void {
           }
         }
 
-        if (!config.projects[projectId]) {
-          console.error(
-            chalk.red(
-              `Unknown project: ${projectId}\nAvailable: ${Object.keys(config.projects).join(", ")}`,
-            ),
-          );
-          process.exit(1);
-        }
-
         if (!opts.claimPr && opts.assignOnGithub) {
           console.error(chalk.red("--assign-on-github requires --claim-pr on `ao spawn`."));
           process.exit(1);

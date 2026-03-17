@@ -802,7 +802,7 @@ export function registerStart(program: Command): void {
                 project = config.projects[newId];
                 // Continue to startup below
               } else if (choice.trim() === "3") {
-                process.kill(running.pid, "SIGTERM");
+                try { process.kill(running.pid, "SIGTERM"); } catch { /* already dead */ }
                 const { waitForExit } = await import("../lib/running-state.js");
                 if (!waitForExit(running.pid, 5000)) {
                   console.log(chalk.yellow("  Process didn't exit cleanly, sending SIGKILL..."));

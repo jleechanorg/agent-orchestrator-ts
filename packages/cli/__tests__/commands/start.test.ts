@@ -127,7 +127,6 @@ vi.mock("../../src/lib/running-state.js", () => ({
 vi.mock("../../src/lib/caller-context.js", () => ({
   isHumanCaller: vi.fn().mockReturnValue(true),
   getCallerType: vi.fn().mockReturnValue("human"),
-  setCallerContext: vi.fn(),
 }));
 
 vi.mock("../../src/lib/detect-env.js", () => ({
