@@ -541,8 +541,7 @@ describe("getSessionInfo", () => {
       const result = await agent.getSessionInfo(makeSession());
       expect(result?.cost?.inputTokens).toBe(3000);
       expect(result?.cost?.outputTokens).toBe(800);
-      // No defaultCostRate configured, so estimatedCostUsd is 0
-      expect(result?.cost?.estimatedCostUsd).toBe(0);
+      expect(result?.cost?.estimatedCostUsd).toBeCloseTo(0.009 + 0.012, 6);
     });
 
     it("includes cache tokens in input count", async () => {

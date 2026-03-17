@@ -14,8 +14,8 @@ import {
   type WorkspaceHooksConfig,
 } from "@composio/ao-core";
 import { execFile } from "node:child_process";
-import { readdir, readFile, stat, open, writeFile, mkdir, chmod, lstat } from "node:fs/promises";
-import { existsSync, lstatSync, mkdirSync, writeFileSync } from "node:fs";
+import { readdir, readFile, stat, open, writeFile, mkdir, chmod } from "node:fs/promises";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
 import { promisify } from "node:util";
@@ -597,18 +597,6 @@ async function setupHookInWorkspace(
   const settingsPath = join(agentDir, "settings.json");
   const hookScriptPath = join(agentDir, "metadata-updater.sh");
 
-  // Reject symlinks — Node.js fs/promises follows symlinks, so an attacker-controlled
-  // symlink (.claude → /etc/) would allow arbitrary file writes outside the workspace.
-  try {
-    const s = await lstat(agentDir);
-    if (s.isSymbolicLink()) {
-      throw new Error(`symlink detected at config dir ${agentDir} — aborting to prevent symlink traversal`);
-    }
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
-    // Directory doesn't exist yet — that's fine, mkdir will create it below
-  }
-
   // Create config directory if it doesn't exist
   try {
     await mkdir(agentDir, { recursive: true });
@@ -616,28 +604,9 @@ async function setupHookInWorkspace(
     // Directory might already exist
   }
 
-  // Write the metadata updater script only if content has changed
-  let existingScript: string | null = null;
-  try {
-    existingScript = await readFile(hookScriptPath, "utf-8");
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
-    // File doesn't exist yet — will be created below
-  }
-  if (existingScript !== METADATA_UPDATER_SCRIPT) {
-    await writeFile(hookScriptPath, METADATA_UPDATER_SCRIPT, "utf-8");
-  }
-  // Always ensure executable permissions are set — content may match but permissions
-  // could have been lost (e.g., after manual chmod, copy/restore, or filesystem quirks)
-  // Skip chmod for symlinks to avoid modifying target file permissions unexpectedly
-  try {
-    const statResult = await lstat(hookScriptPath);
-    if (!statResult.isSymbolicLink()) {
-      await chmod(hookScriptPath, 0o755);
-    }
-  } catch {
-    // File might not exist yet — skip chmod
-  }
+  // Write the metadata updater script
+  await writeFile(hookScriptPath, METADATA_UPDATER_SCRIPT, "utf-8");
+  await chmod(hookScriptPath, 0o755); // Make executable
 
   // Read existing settings if present
   let existingSettings: Record<string, unknown> = {};
@@ -645,9 +614,8 @@ async function setupHookInWorkspace(
     try {
       const content = await readFile(settingsPath, "utf-8");
       existingSettings = JSON.parse(content) as Record<string, unknown>;
-    } catch (err) {
-      if (!(err instanceof SyntaxError)) throw err;
-      // Invalid JSON — start fresh
+    } catch {
+      // Invalid JSON or read error — start fresh
     }
   }
 
@@ -715,106 +683,8 @@ async function setupHookInWorkspace(
   hooks["PostToolUse"] = postToolUse;
   existingSettings["hooks"] = hooks;
 
-  // Write updated settings only if content has changed
-  const newContent = JSON.stringify(existingSettings, null, 2) + "\n";
-  let currentContent: string | null = null;
-  try {
-    currentContent = await readFile(settingsPath, "utf-8");
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
-    // File doesn't exist yet — will be created below
-  }
-  if (currentContent !== newContent) {
-    await writeFile(settingsPath, newContent, "utf-8");
-  }
-}
-
-/**
- * Configure MCP mail server in workspace settings.
- * This enables agents to send coordination messages via MCP mail.
- * 
- * MCP mail server config:
- * - name: mcp-agent-mail
- * - url: http://127.0.0.1:8765/mcp/ (configurable via MCP_AGENT_MAIL_URL env var)
- * - headers: auth token (configurable via MCP_AGENT_MAIL_TOKEN env var)
- */
-async function setupMcpMailInWorkspace(
-  workspacePath: string,
-  configDir: string,
-): Promise<void> {
-  const agentDir = join(workspacePath, configDir);
-  const settingsPath = join(agentDir, "settings.json");
-
-  // Reject symlinks — same guard as setupHookInWorkspace
-  try {
-    const s = await lstat(agentDir);
-    if (s.isSymbolicLink()) {
-      throw new Error(`symlink detected at config dir ${agentDir} — aborting to prevent symlink traversal`);
-    }
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
-  }
-
-  // Get MCP mail config - only configure if explicitly enabled via env var
-  // This makes MCP mail opt-in rather than opt-out
-  const mcpMailUrl = process.env.MCP_AGENT_MAIL_URL;
-
-  // Skip if MCP mail URL is not set, disabled, or empty string
-  if (mcpMailUrl === undefined || mcpMailUrl === "disabled" || mcpMailUrl === "") {
-    return;
-  }
-
-  // Create config directory if it doesn't exist
-  try {
-    await mkdir(agentDir, { recursive: true });
-  } catch {
-    // Directory might already exist
-  }
-
-  // Read existing settings if present
-  let existingSettings: Record<string, unknown> = {};
-  if (existsSync(settingsPath)) {
-    try {
-      const content = await readFile(settingsPath, "utf-8");
-      existingSettings = JSON.parse(content) as Record<string, unknown>;
-    } catch (err) {
-      if (!(err instanceof SyntaxError)) throw err;
-      // Invalid JSON — start fresh
-    }
-  }
-
-  // Initialize mcpServers if not present
-  const rawMcpServers = existingSettings["mcpServers"];
-  const mcpServers: Record<string, unknown> =
-    typeof rawMcpServers === "object" && rawMcpServers !== null && !Array.isArray(rawMcpServers)
-      ? (rawMcpServers as Record<string, unknown>)
-      : {};
-
-  // Always configure/update mcp-agent-mail to support token rotation and URL changes
-  // NOTE: Auth token is NOT stored in worktree settings.json to avoid
-  // accidentally committing secrets. Users should set MCP_AGENT_MAIL_TOKEN
-  // in their shell environment when launching the agent instead.
-
-  // Add mcp-agent-mail server configuration
-  const serverConfig: Record<string, unknown> = {
-    url: mcpMailUrl,
-  };
-
-  mcpServers["mcp-agent-mail"] = serverConfig;
-  existingSettings["mcpServers"] = mcpServers;
-
-  // Write updated settings only if content has changed
-  const newContent = JSON.stringify(existingSettings, null, 2) + "\n";
-  let currentContent: string | null = null;
-  try {
-    currentContent = await readFile(settingsPath, "utf-8");
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
-    // File doesn't exist yet — will be created below
-  }
-  if (currentContent !== newContent) {
-    await writeFile(settingsPath, newContent, "utf-8");
-  }
+  // Write updated settings
+  await writeFile(settingsPath, JSON.stringify(existingSettings, null, 2) + "\n", "utf-8");
 }
 
 // =============================================================================
@@ -888,15 +758,6 @@ export function createAgentPlugin(config: AgentPluginConfig, overrides?: Partial
 
       if (launchConfig.issueId) {
         env["AO_ISSUE_ID"] = launchConfig.issueId;
-      }
-
-      // Pass MCP mail configuration to the agent if available
-      // These enable the agent to send coordination messages via MCP mail
-      if (process.env.MCP_AGENT_MAIL_URL) {
-        env["MCP_AGENT_MAIL_URL"] = process.env.MCP_AGENT_MAIL_URL;
-      }
-      if (process.env.MCP_AGENT_MAIL_TOKEN) {
-        env["MCP_AGENT_MAIL_TOKEN"] = process.env.MCP_AGENT_MAIL_TOKEN;
       }
 
       // Handle system prompt via environment variable (e.g. GEMINI_SYSTEM_MD).
@@ -1057,8 +918,6 @@ export function createAgentPlugin(config: AgentPluginConfig, overrides?: Partial
       // rather than the default $HOME/.ao-sessions.
       const hookCommand = `AO_DATA_DIR=${shellEscape(hookConfig.dataDir)} ${shellEscape(hookScriptPath)}`;
       await setupHookInWorkspace(workspacePath, config.configDir, hookCommand, config.hookToolMatcher ?? "Bash");
-      // Also configure MCP mail server for agent coordination
-      await setupMcpMailInWorkspace(workspacePath, config.configDir);
     },
 
     async postLaunchSetup(session: Session): Promise<void> {
@@ -1070,8 +929,6 @@ export function createAgentPlugin(config: AgentPluginConfig, overrides?: Partial
       );
       // postLaunchSetup does not receive hookConfig — use the env-var default
       await setupHookInWorkspace(session.workspacePath, config.configDir, shellEscape(hookScriptPath), config.hookToolMatcher ?? "Bash");
-      // Also configure MCP mail server for agent coordination
-      await setupMcpMailInWorkspace(session.workspacePath, config.configDir);
     },
 
     ...overrides,
