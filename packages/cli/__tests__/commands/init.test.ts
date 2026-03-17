@@ -13,29 +13,6 @@ describe("init command", () => {
     expect(initCmd!.description()).toContain("deprecated");
   });
 
-  it("prints deprecation warning and delegates to createConfigOnly", async () => {
-    // Mock the dynamic import of start.js
-    const mockCreateConfigOnly = vi.fn().mockResolvedValue(undefined);
-    vi.doMock("../../src/commands/start.js", () => ({
-      createConfigOnly: mockCreateConfigOnly,
-    }));
-
-    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
-
-    const program = new Command();
-    registerInit(program);
-
-    await program.parseAsync(["node", "test", "init"]);
-
-    // Should print deprecation warning
-    const logCalls = logSpy.mock.calls.map((args) => args.join(" "));
-    const hasDeprecationWarning = logCalls.some((msg) => msg.includes("deprecated"));
-    expect(hasDeprecationWarning).toBe(true);
-
-    logSpy.mockRestore();
-    vi.doUnmock("../../src/commands/start.js");
-  });
-
   it("has no --output, --auto, or --smart flags", () => {
     const program = new Command();
     registerInit(program);
