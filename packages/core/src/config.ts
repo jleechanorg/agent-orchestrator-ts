@@ -143,6 +143,21 @@ const DecomposerConfigSchema = z
     requireApproval: true,
   });
 
+// bd-uxs.8: Merge gate config schema
+const MergeGateConfigSchema = z
+  .object({
+    enabled: z.boolean().default(false),
+    requiredLabels: z.array(z.string()).optional(),
+    blockedLabels: z.array(z.string()).optional(),
+    requiredChecks: z.array(z.string()).optional(),
+    minApprovals: z.number().min(0).optional(),
+    unchangedFiles: z.array(z.string()).optional(),
+    requiredFiles: z.array(z.string()).optional(),
+    preMergeWebhook: z.string().url().optional(),
+    webhookTimeout: z.number().positive().max(120).default(30),
+  })
+  .default({});
+
 const ProjectConfigSchema = z.object({
   name: z.string().optional(),
   repo: z.string(),
@@ -171,6 +186,8 @@ const ProjectConfigSchema = z.object({
     .optional(),
   opencodeIssueSessionStrategy: z.enum(["reuse", "delete", "ignore"]).optional(),
   decomposer: DecomposerConfigSchema.optional(),
+  // bd-uxs.8: Merge gate configuration
+  mergeGate: MergeGateConfigSchema.optional(),
 });
 
 const DefaultPluginsSchema = z.object({

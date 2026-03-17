@@ -27,8 +27,8 @@ const AO_MANAGED_EXCLUDE_PATTERNS = `# AO-managed files - do not track in worktr
 .claude.json
 # MCP configuration
 mcp.json
-# Hook scripts
-ao-hook-*.sh
+# Hook scripts (specific patterns, not broad *.sh)
+.metadata-updater.sh
 # Agent runtime state
 .agent-*.running
 .agent-*.lock
@@ -37,12 +37,27 @@ ao-hook-*.sh
 /**
  * Set up .git/info/exclude to ignore AO-managed files in a worktree.
  * This prevents the worktree from appearing dirty due to runtime files AO writes.
+ *
+ * Note: In a git worktree, .git is a file pointing to the common git directory,
+ * so we use git rev-parse to resolve the correct path.
  */
 async function setupAoManagedExclude(worktreePath: string): Promise<void> {
-  // In a worktree, .git is a file (gitfile), not a directory.
-  // Use git rev-parse to get the actual git directory path.
-  const gitDir = await git(worktreePath, "rev-parse", "--git-dir");
-  const excludeDir = join(gitDir, "info");
+  // Use git rev-parse to get the correct .git path for worktree
+  // In worktrees, .git is a file, not a directory
+  let gitCommonDir: string;
+  try {
+    gitCommonDir = await git(
+      worktreePath,
+      "rev-parse",
+      "--path-format=absolute",
+      "--git-common-dir",
+    );
+  } catch {
+    // Fallback: assume .git is a directory (regular repo)
+    gitCommonDir = join(worktreePath, ".git");
+  }
+
+  const excludeDir = join(gitCommonDir, "info");
   const excludeFile = join(excludeDir, "exclude");
 
   // Ensure .git/info directory exists
@@ -296,6 +311,9 @@ export function create(config?: Record<string, unknown>): Workspace {
           await git(repoPath, "worktree", "add", "-b", cfg.branch, workspacePath, baseRef);
         }
       }
+
+      // bd-uxs.7: Set up .git/info/exclude to ignore AO-managed files
+      await setupAoManagedExclude(workspacePath);
 
       return {
         path: workspacePath,
