@@ -13,7 +13,7 @@ import {
   type Session,
   type WorkspaceHooksConfig,
 } from "@composio/ao-core";
-import { execFile } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
 import { createReadStream } from "node:fs";
 import { writeFile, mkdir, readFile, readdir, rename, stat, lstat, open } from "node:fs/promises";
 import { homedir } from "node:os";
@@ -876,7 +876,7 @@ export type {
 
 export function detect(): boolean {
   try {
-    require("node:child_process").execSync("which codex", { stdio: "ignore" });
+    execFileSync("which", ["codex"], { stdio: "ignore" });
     return true;
   } catch {
     return false;

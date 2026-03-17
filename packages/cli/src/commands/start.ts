@@ -494,7 +494,7 @@ async function runStartup(
   projectId: string,
   project: ProjectConfig,
   opts?: { dashboard?: boolean; orchestrator?: boolean; rebuild?: boolean },
-): Promise<void> {
+): Promise<number> {
   const sessionId = `${project.sessionPrefix}-orchestrator`;
   const shouldStartLifecycle = opts?.dashboard !== false || opts?.orchestrator !== false;
   let lifecycleStatus: Awaited<ReturnType<typeof ensureLifecycleWorker>> | null = null;
@@ -640,6 +640,8 @@ async function runStartup(
       process.exit(code ?? 0);
     });
   }
+
+  return port;
 }
 
 /**
@@ -828,13 +830,13 @@ export function registerStart(program: Command): void {
             }
           }
 
-          await runStartup(config, projectId, project, opts);
+          const actualPort = await runStartup(config, projectId, project, opts);
 
           // ── Register in running.json (Step 10) ──
           register({
             pid: process.pid,
             configPath: config.configPath,
-            port: config.port ?? DEFAULT_PORT,
+            port: actualPort,
             startedAt: new Date().toISOString(),
             projects: Object.keys(config.projects),
           });

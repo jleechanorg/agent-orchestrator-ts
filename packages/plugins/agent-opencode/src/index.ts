@@ -12,7 +12,7 @@ import {
   type Session,
   type OpenCodeAgentConfig,
 } from "@composio/ao-core";
-import { execFile } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
 import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
@@ -361,7 +361,7 @@ export function create(): Agent {
 
 export function detect(): boolean {
   try {
-    require("node:child_process").execSync("which opencode", { stdio: "ignore" });
+    execFileSync("which", ["opencode"], { stdio: "ignore" });
     return true;
   } catch {
     return false;

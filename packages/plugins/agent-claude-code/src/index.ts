@@ -14,7 +14,7 @@ import {
   type Session,
   type WorkspaceHooksConfig,
 } from "@composio/ao-core";
-import { execFile } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
 import { readdir, readFile, stat, open, writeFile, mkdir, chmod } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
@@ -843,7 +843,7 @@ export function create(): Agent {
 
 export function detect(): boolean {
   try {
-    require("node:child_process").execSync("which claude", { stdio: "ignore" });
+    execFileSync("which", ["claude"], { stdio: "ignore" });
     return true;
   } catch {
     return false;

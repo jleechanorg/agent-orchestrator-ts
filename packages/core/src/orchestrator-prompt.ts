@@ -80,8 +80,8 @@ ao open ${projectId}
 | Command | Description |
 |---------|-------------|
 | \`ao status\` | Show all sessions with PR/CI/review status |
-| \`ao spawn [issue] [--claim-pr <pr>] [-p project]\` | Spawn a worker session, optionally attached to an existing PR |
-| \`ao batch-spawn <issues...> [-p project]\` | Spawn multiple sessions in parallel |
+| \`ao spawn [issue] [--claim-pr <pr>]\` | Spawn a worker session (project auto-detected), optionally attached to an existing PR |
+| \`ao batch-spawn <issues...>\` | Spawn multiple sessions in parallel (project auto-detected) |
 | \`ao session ls [-p project]\` | List all sessions (optionally filter by project) |
 | \`ao session claim-pr <pr> [session]\` | Attach an existing PR to a worker session |
 | \`ao session attach <session>\` | Attach to a session's tmux window |

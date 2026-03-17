@@ -10,7 +10,7 @@ import {
   type RuntimeHandle,
   type Session,
 } from "@composio/ao-core";
-import { execFile } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
 import { promisify } from "node:util";
 import { stat, access } from "node:fs/promises";
 import { join } from "node:path";
@@ -225,7 +225,7 @@ export function create(): Agent {
 
 export function detect(): boolean {
   try {
-    require("node:child_process").execSync("which aider", { stdio: "ignore" });
+    execFileSync("which", ["aider"], { stdio: "ignore" });
     return true;
   } catch {
     return false;
