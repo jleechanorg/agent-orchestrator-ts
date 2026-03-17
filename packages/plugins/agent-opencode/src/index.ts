@@ -361,7 +361,7 @@ export function create(): Agent {
 
 export function detect(): boolean {
   try {
-    execFileSync("which", ["opencode"], { stdio: "ignore" });
+    execFileSync("opencode", ["version"], { stdio: "ignore" });
     return true;
   } catch {
     return false;

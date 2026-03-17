@@ -225,7 +225,7 @@ export function create(): Agent {
 
 export function detect(): boolean {
   try {
-    execFileSync("which", ["aider"], { stdio: "ignore" });
+    execFileSync("aider", ["--version"], { stdio: "ignore" });
     return true;
   } catch {
     return false;

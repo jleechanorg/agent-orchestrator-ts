@@ -876,7 +876,7 @@ export type {
 
 export function detect(): boolean {
   try {
-    execFileSync("which", ["codex"], { stdio: "ignore" });
+    execFileSync("codex", ["--version"], { stdio: "ignore" });
     return true;
   } catch {
     return false;

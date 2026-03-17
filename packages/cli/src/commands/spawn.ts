@@ -9,6 +9,7 @@ import {
   getSiblings,
   formatPlanTree,
   TERMINAL_STATUSES,
+  expandHome,
   type OrchestratorConfig,
   type DecomposerConfig,
   DEFAULT_DECOMPOSER_CONFIG,
@@ -43,7 +44,7 @@ function autoDetectProject(config: OrchestratorConfig): string {
   // Try matching cwd to a project path
   const cwd = resolve(process.cwd());
   for (const [id, project] of Object.entries(config.projects)) {
-    if (project.path && resolve(project.path) === cwd) {
+    if (project.path && resolve(expandHome(project.path)) === cwd) {
       return id;
     }
   }

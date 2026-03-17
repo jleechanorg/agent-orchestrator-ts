@@ -341,7 +341,16 @@ async function addProjectToConfig(
   projectPath: string,
 ): Promise<string> {
   const resolvedPath = resolve(projectPath.replace(/^~/, process.env["HOME"] || ""));
-  const projectId = basename(resolvedPath);
+  let projectId = basename(resolvedPath);
+
+  // Avoid overwriting an existing project with the same directory name
+  if (config.projects[projectId]) {
+    let i = 2;
+    while (config.projects[`${projectId}-${i}`]) i++;
+    const newId = `${projectId}-${i}`;
+    console.log(chalk.yellow(`  ⚠ Project "${projectId}" already exists — using "${newId}" instead.`));
+    projectId = newId;
+  }
 
   console.log(chalk.dim(`\n  Adding project "${projectId}"...\n`));
 

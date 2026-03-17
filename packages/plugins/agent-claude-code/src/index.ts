@@ -843,7 +843,8 @@ export function create(): Agent {
 
 export function detect(): boolean {
   try {
-    execFileSync("which", ["claude"], { stdio: "ignore" });
+    // Use --version instead of `which` for cross-platform compatibility (Windows has no `which`)
+    execFileSync("claude", ["--version"], { stdio: "ignore" });
     return true;
   } catch {
     return false;
