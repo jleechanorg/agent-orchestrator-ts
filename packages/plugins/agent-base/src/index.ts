@@ -240,7 +240,7 @@ const HOOK_TOOL_MATCHER_PLACEHOLDER = "__AO_HOOK_TOOL_MATCHER__";
  * Convert a workspace path to an agent's project directory path.
  *
  * Most JSONL-based agents (Claude Code and Cursor) use the same encoding:
- * the path has its leading / stripped, then all / and . are replaced with -.
+ * the path replaces / and . with -, including the leading slash.
  * e.g. /Users/dev/.worktrees/ao → Users-dev--worktrees-ao.
  * Agents with custom layouts (for example Gemini) override getSessionDir.
  *
@@ -253,7 +253,7 @@ const HOOK_TOOL_MATCHER_PLACEHOLDER = "__AO_HOOK_TOOL_MATCHER__";
 export function toAgentProjectPath(workspacePath: string): string {
   // Handle Windows drive letters (C:\Users\... → C-Users-...)
   const normalized = workspacePath.replace(/\\/g, "/");
-  // Replace / and . with - (keeping the leading slash as a leading -)
+  // Replace / and . with - (including leading slash as a leading -)
   return normalized.replace(/:/g, "").replace(/[/.]/g, "-");
 }
 

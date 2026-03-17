@@ -19,6 +19,7 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import geminiPlugin from "@composio/ao-plugin-agent-gemini";
+import { shellEscape } from "@composio/ao-core";
 import {
   isTmuxAvailable,
   killSessionsByPrefix,
@@ -48,6 +49,9 @@ const geminiBin = await findBinary(["gemini"]);
 const python3Bin = await findBinary(["python3"]);
 const geminiAuthed = geminiBin !== null && (await isGeminiAuthenticated());
 const canRun = tmuxOk && geminiBin !== null && geminiAuthed && python3Bin !== null;
+const GEMINI_EXIT_TIMEOUT_MS = 120_000;
+const GEMINI_POLL_START_MS = 30_000;
+const GEMINI_TEST_TIMEOUT_MS = GEMINI_EXIT_TIMEOUT_MS + GEMINI_POLL_START_MS + 10_000;
 
 describe.skipIf(!canRun)("agent-gemini (integration)", () => {
   const agent = geminiPlugin.create();
@@ -67,7 +71,7 @@ describe.skipIf(!canRun)("agent-gemini (integration)", () => {
     const task = `Write a Python fibonacci program to the file fibonacci.py. The program should print the first 10 fibonacci numbers when run. Write only the file, no explanation.`;
     // --yolo skips all permission prompts; -p runs in one-shot (non-interactive) mode.
     // Auth via OAuth (oauth-personal) — no env var needed.
-    const cmd = `${geminiBin} --yolo -p '${task}'`;
+    const cmd = `${shellEscape(geminiBin)} --yolo -p ${shellEscape(task)}`;
     await createSession(sessionName, cmd, tmpDir);
 
     const handle = makeTmuxHandle(sessionName);
@@ -75,13 +79,13 @@ describe.skipIf(!canRun)("agent-gemini (integration)", () => {
 
     // Poll until running using pollUntilEqual for more reliable detection
     aliveRunning = await pollUntilEqual(() => agent.isProcessRunning(handle), true, {
-      timeoutMs: 30_000,
+      timeoutMs: GEMINI_POLL_START_MS,
       intervalMs: 1_000,
     }).catch(() => false);
 
     // Wait for agent to exit (up to 2 min)
     exitedRunning = await pollUntilEqual(() => agent.isProcessRunning(handle), false, {
-      timeoutMs: 120_000,
+      timeoutMs: GEMINI_EXIT_TIMEOUT_MS,
       intervalMs: 2_000,
     });
 
@@ -92,7 +96,7 @@ describe.skipIf(!canRun)("agent-gemini (integration)", () => {
     } catch {
       fileCreated = false;
     }
-  }, 150_000);
+  }, GEMINI_TEST_TIMEOUT_MS);
 
   afterAll(async () => {
     await killSession(sessionName);

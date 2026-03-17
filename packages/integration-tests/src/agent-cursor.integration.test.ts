@@ -19,6 +19,7 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import cursorPlugin from "@composio/ao-plugin-agent-cursor";
+import { shellEscape } from "@composio/ao-core";
 import {
   isTmuxAvailable,
   killSessionsByPrefix,
@@ -46,6 +47,9 @@ const cursorBin = await findBinary(["cursor-agent"]);
 const python3Bin = await findBinary(["python3"]);
 const cursorAuthed = cursorBin !== null && (await isCursorAuthenticated(cursorBin));
 const canRun = tmuxOk && cursorBin !== null && cursorAuthed && python3Bin !== null;
+const CURSOR_POLL_START_MS = 30_000;
+const CURSOR_EXIT_TIMEOUT_MS = 180_000;
+const CURSOR_TEST_TIMEOUT_MS = CURSOR_POLL_START_MS + CURSOR_EXIT_TIMEOUT_MS + 10_000;
 
 describe.skipIf(!canRun)("agent-cursor (integration)", () => {
   const agent = cursorPlugin.create();
@@ -65,7 +69,7 @@ describe.skipIf(!canRun)("agent-cursor (integration)", () => {
     const task = `Write a Python fibonacci program to the file fibonacci.py. The program should print the first 10 fibonacci numbers when run. Write only the file, no explanation.`;
     // --force allows file writes without interactive confirmation (cursor plugin's permissionlessFlag).
     // --print runs non-interactively, exits when done.
-    const cmd = `${cursorBin} --print --force '${task}'`;
+    const cmd = `${shellEscape(cursorBin)} --print --force ${shellEscape(task)}`;
     await createSession(sessionName, cmd, tmpDir);
 
     const handle = makeTmuxHandle(sessionName);
@@ -73,13 +77,13 @@ describe.skipIf(!canRun)("agent-cursor (integration)", () => {
 
     // Poll until running using pollUntilEqual for more reliable detection
     aliveRunning = await pollUntilEqual(() => agent.isProcessRunning(handle), true, {
-      timeoutMs: 30_000,
+      timeoutMs: CURSOR_POLL_START_MS,
       intervalMs: 1_000,
     }).catch(() => false);
 
     // Wait for agent to exit (up to 3 min — cursor can be slow on first cold start)
     exitedRunning = await pollUntilEqual(() => agent.isProcessRunning(handle), false, {
-      timeoutMs: 180_000,
+      timeoutMs: CURSOR_EXIT_TIMEOUT_MS,
       intervalMs: 2_000,
     });
 
@@ -90,7 +94,7 @@ describe.skipIf(!canRun)("agent-cursor (integration)", () => {
     } catch {
       fileCreated = false;
     }
-  }, 210_000);
+  }, CURSOR_TEST_TIMEOUT_MS);
 
   afterAll(async () => {
     await killSession(sessionName);
