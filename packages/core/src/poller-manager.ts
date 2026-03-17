@@ -142,16 +142,6 @@ export function createPollerManager(deps: PollerManagerDeps): PollerManagerImpl 
     const startedAt = Date.now();
 
     try {
-      observer.recordOperation({
-        metric: "api_request",
-        operation: "poller.poll",
-        outcome: "success",
-        correlationId,
-        projectId,
-        durationMs: Date.now() - startedAt,
-        level: "info",
-      });
-
       const workItems = await poller.poll(projectId);
 
       observer.recordOperation({
@@ -248,6 +238,19 @@ export function createPollerManager(deps: PollerManagerDeps): PollerManagerImpl 
     );
   }
 
+  /** Run one polling cycle for pollers matching a specific interval */
+  async function pollByInterval(interval: string): Promise<void> {
+    const enabledPollers = getEnabledPollers().filter(
+      ({ config: pollerConfig }) => pollerConfig.interval === interval,
+    );
+
+    await Promise.allSettled(
+      enabledPollers.map(({ projectId, config: pollerConfig, poller }) =>
+        pollOne(projectId, pollerConfig, poller),
+      ),
+    );
+  }
+
   /** Start all pollers */
   function start(): void {
     // Collect all unique poll intervals
@@ -266,7 +269,7 @@ export function createPollerManager(deps: PollerManagerDeps): PollerManagerImpl 
       // Avoid duplicate timers
       if (pollTimers.has(interval)) continue;
 
-      const timer = setInterval(() => void pollAll(), intervalMs);
+      const timer = setInterval(() => void pollByInterval(interval), intervalMs);
       pollTimers.set(interval, timer);
     }
 
