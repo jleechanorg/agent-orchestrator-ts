@@ -70,11 +70,10 @@ Then set up your project:
 ao start https://github.com/your-org/your-repo
 
 # Or from an existing local repo
-cd ~/your-project && ao init    # auto-detects everything, zero prompts
-ao start
+cd ~/your-project && ao start   # auto-detects everything, zero prompts
 
 # Add more projects to an existing setup
-ao add-project ~/path/to/another-repo
+ao start ~/path/to/another-repo
 ```
 
 Spawn agents:
@@ -155,12 +154,11 @@ See [`agent-orchestrator.yaml.example`](agent-orchestrator.yaml.example) for the
 ## CLI
 
 ```bash
-ao init                                # Auto-detect project and generate config
-ao init --interactive                  # Full setup wizard with manual prompts
-ao add-project <path>                  # Add another project to existing config
-ao start [project]                     # Start dashboard + orchestrator
+ao start                               # Auto-detect project, generate config, and start
+ao start ~/other-repo                  # Add a new project and start
+ao config-help                         # Show full config schema reference
 ao status                              # Overview of all sessions
-ao spawn <project> [issue]             # Spawn an agent
+ao spawn [issue]                       # Spawn an agent (project auto-detected)
 ao send <session> "Fix the tests"      # Send instructions
 ao session ls                          # List sessions
 ao session kill <session>              # Kill a session

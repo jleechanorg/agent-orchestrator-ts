@@ -47,7 +47,7 @@ import {
 import { cleanNextCache } from "../lib/dashboard-rebuild.js";
 import { preflight } from "../lib/preflight.js";
 import { register, unregister, isAlreadyRunning, getRunning } from "../lib/running-state.js";
-import { getCallerType, isHumanCaller } from "../lib/caller-context.js";
+import { isHumanCaller } from "../lib/caller-context.js";
 import { detectEnvironment } from "../lib/detect-env.js";
 import { detectAgentRuntime } from "../lib/detect-agent.js";
 import {
@@ -932,7 +932,8 @@ export function registerStop(program: Command): void {
             console.log(chalk.yellow("Lifecycle worker not running"));
           }
 
-          // Stop dashboard — use running.json PID if available, fallback to lsof
+          // Stop dashboard — kill parent PID from running.json, then also stop
+          // any dashboard child process via lsof (parent SIGTERM may not propagate)
           if (running) {
             try {
               process.kill(running.pid, "SIGTERM");
@@ -940,10 +941,8 @@ export function registerStop(program: Command): void {
               // Already dead
             }
             unregister();
-            console.log(chalk.green("Dashboard stopped (via running.json)"));
-          } else {
-            await stopDashboard(port);
           }
+          await stopDashboard(running?.port ?? port);
 
           console.log(chalk.bold.green("\n✓ Orchestrator stopped\n"));
           console.log(

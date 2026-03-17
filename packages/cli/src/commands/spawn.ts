@@ -187,8 +187,9 @@ export function registerSpawn(program: Command): void {
           // Two args: ao spawn <project> <issue> (backward compat)
           projectId = first;
           issueId = second;
-        } else if (first && config.projects[first] && Object.keys(config.projects).length > 1) {
-          // Single arg that matches a project ID (multi-project config): treat as project, no issue
+        } else if (first && config.projects[first]) {
+          // Single arg matches a project ID: treat as project, no issue.
+          // This preserves backward compat for `ao spawn <project>`.
           projectId = first;
           issueId = undefined;
         } else if (first) {
