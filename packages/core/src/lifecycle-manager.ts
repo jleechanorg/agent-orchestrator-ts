@@ -1024,7 +1024,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     await maybeDispatchReviewBacklog(session, oldStatus, newStatus, transitionReaction);
 
     // Session exit reconciliation (bd-uxs.6): validate commits and emit proof on terminal states
-    const terminalStatuses: SessionStatus[] = ["merged", "killed", "errored", "cleanup"];
+    const terminalStatuses: SessionStatus[] = ["merged", "killed", "errored", "cleanup", "terminated", "done"];
     if (terminalStatuses.includes(newStatus) && oldStatus !== newStatus) {
       await validateAndEmitExitProof(session, newStatus);
     }
