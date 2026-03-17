@@ -75,20 +75,23 @@ export async function detectAgentRuntime(): Promise<string> {
   const { createInterface } = await import("node:readline/promises");
   const rl = createInterface({ input: process.stdin, output: process.stdout });
 
-  console.log("\n  Multiple agent runtimes detected:\n");
-  available.forEach((a, i) => {
-    console.log(`  ${i + 1}. ${a.displayName} (${a.name})`);
-  });
-  console.log();
+  try {
+    console.log("\n  Multiple agent runtimes detected:\n");
+    available.forEach((a, i) => {
+      console.log(`  ${i + 1}. ${a.displayName} (${a.name})`);
+    });
+    console.log();
 
-  const answer = await rl.question(`  Choose default agent [1-${available.length}]: `);
-  rl.close();
+    const answer = await rl.question(`  Choose default agent [1-${available.length}]: `);
 
-  const idx = parseInt(answer.trim(), 10) - 1;
-  if (idx >= 0 && idx < available.length) {
-    return available[idx].name;
+    const idx = parseInt(answer.trim(), 10) - 1;
+    if (idx >= 0 && idx < available.length) {
+      return available[idx].name;
+    }
+
+    // Invalid input — default to first
+    return available[0].name;
+  } finally {
+    rl.close();
   }
-
-  // Invalid input — default to first
-  return available[0].name;
 }

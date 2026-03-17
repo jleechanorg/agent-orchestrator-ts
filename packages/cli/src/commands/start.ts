@@ -10,7 +10,7 @@
  */
 
 import { spawn, type ChildProcess } from "node:child_process";
-import { existsSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve, basename } from "node:path";
 import { cwd } from "node:process";
 import chalk from "chalk";
@@ -28,12 +28,13 @@ import {
   generateConfigFromUrl,
   configToYaml,
   normalizeOrchestratorSessionStrategy,
+  ConfigNotFoundError,
   type OrchestratorConfig,
   type ProjectConfig,
   type ParsedRepoUrl,
 } from "@composio/ao-core";
-import { stringify as yamlStringify } from "yaml";
-import { exec, execSilent } from "../lib/shell.js";
+import { parse as yamlParse, stringify as yamlStringify } from "yaml";
+import { exec, execSilent, git } from "../lib/shell.js";
 import { getSessionManager } from "../lib/create-session-manager.js";
 import { ensureLifecycleWorker, stopLifecycleWorker } from "../lib/lifecycle-service.js";
 import {
@@ -46,10 +47,11 @@ import {
 } from "../lib/web-dir.js";
 import { cleanNextCache } from "../lib/dashboard-rebuild.js";
 import { preflight } from "../lib/preflight.js";
-import { register, unregister, isAlreadyRunning, getRunning } from "../lib/running-state.js";
+import { register, unregister, isAlreadyRunning, getRunning, waitForExit } from "../lib/running-state.js";
 import { isHumanCaller } from "../lib/caller-context.js";
 import { detectEnvironment } from "../lib/detect-env.js";
 import { detectAgentRuntime } from "../lib/detect-agent.js";
+import { detectDefaultBranch } from "../lib/git-utils.js";
 import {
   detectProjectType,
   generateRulesFromTemplates,
@@ -338,11 +340,6 @@ async function addProjectToConfig(
   config: OrchestratorConfig,
   projectPath: string,
 ): Promise<string> {
-  const { readFileSync } = await import("node:fs");
-  const { parse: yamlParse } = await import("yaml");
-  const { git } = await import("../lib/shell.js");
-  const { detectDefaultBranch } = await import("../lib/git-utils.js");
-
   const resolvedPath = resolve(projectPath.replace(/^~/, process.env["HOME"] || ""));
   const projectId = basename(resolvedPath);
 
@@ -743,7 +740,7 @@ export function registerStart(program: Command): void {
             try {
               loadedConfig = loadConfig();
             } catch (err) {
-              if (err instanceof Error && err.message.includes("No agent-orchestrator.yaml found")) {
+              if (err instanceof ConfigNotFoundError) {
                 // First run — auto-create config
                 loadedConfig = await autoCreateConfig(cwd());
               } else {
@@ -755,7 +752,7 @@ export function registerStart(program: Command): void {
           }
 
           // ── Already-running detection (Step 9) ──
-          const running = isAlreadyRunning();
+          const running = await isAlreadyRunning();
           if (running) {
             if (isHumanCaller()) {
               console.log(chalk.cyan(`\nℹ AO is already running.`));
@@ -783,14 +780,24 @@ export function registerStart(program: Command): void {
                 process.exit(0);
               } else if (choice.trim() === "2") {
                 // Generate unique orchestrator: same project, new session
-                const suffix = Math.random().toString(36).slice(2, 6);
-                const newId = `${projectId}-${suffix}`;
-                const newPrefix = generateSessionPrefix(newId);
-
-                const { readFileSync } = await import("node:fs");
-                const { parse: yamlParse } = await import("yaml");
                 const rawYaml = readFileSync(config.configPath, "utf-8");
                 const rawConfig = yamlParse(rawYaml);
+
+                // Collect existing prefixes to avoid collisions
+                const existingPrefixes = new Set(
+                  Object.values(rawConfig.projects as Record<string, Record<string, unknown>>).map(
+                    (p) => p.sessionPrefix as string,
+                  ).filter(Boolean),
+                );
+
+                let newId: string;
+                let newPrefix: string;
+                do {
+                  const suffix = Math.random().toString(36).slice(2, 6);
+                  newId = `${projectId}-${suffix}`;
+                  newPrefix = generateSessionPrefix(newId);
+                } while (rawConfig.projects[newId] || existingPrefixes.has(newPrefix));
+
                 rawConfig.projects[newId] = {
                   ...rawConfig.projects[projectId],
                   sessionPrefix: newPrefix,
@@ -803,12 +810,11 @@ export function registerStart(program: Command): void {
                 // Continue to startup below
               } else if (choice.trim() === "3") {
                 try { process.kill(running.pid, "SIGTERM"); } catch { /* already dead */ }
-                const { waitForExit } = await import("../lib/running-state.js");
-                if (!waitForExit(running.pid, 5000)) {
+                if (!(await waitForExit(running.pid, 5000))) {
                   console.log(chalk.yellow("  Process didn't exit cleanly, sending SIGKILL..."));
                   try { process.kill(running.pid, "SIGKILL"); } catch { /* already dead */ }
                 }
-                unregister();
+                await unregister();
                 console.log(chalk.yellow("\n  Stopped existing instance. Restarting...\n"));
                 // Continue to startup below
               } else {
@@ -828,7 +834,7 @@ export function registerStart(program: Command): void {
           const actualPort = await runStartup(config, projectId, project, opts);
 
           // ── Register in running.json (Step 10) ──
-          register({
+          await register({
             pid: process.pid,
             configPath: config.configPath,
             port: actualPort,
@@ -869,7 +875,7 @@ export function registerStop(program: Command): void {
       ) => {
         try {
           // Check running.json first
-          const running = getRunning();
+          const running = await getRunning();
 
           if (opts.all) {
             // --all: kill via running.json if available, then fallback to config
@@ -879,7 +885,7 @@ export function registerStop(program: Command): void {
               } catch {
                 // Already dead
               }
-              unregister();
+              await unregister();
               console.log(
                 chalk.green(`\n✓ Stopped AO on port ${running.port}`),
               );
@@ -925,7 +931,7 @@ export function registerStop(program: Command): void {
             } catch {
               // Already dead
             }
-            unregister();
+            await unregister();
           }
           await stopDashboard(running?.port ?? port);
 

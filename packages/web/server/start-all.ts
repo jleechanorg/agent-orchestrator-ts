@@ -6,7 +6,9 @@
 
 import { spawn, type ChildProcess } from "node:child_process";
 import { resolve, dirname } from "node:path";
+import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import { createRequire } from "node:module";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -47,10 +49,28 @@ function spawnProcess(label: string, command: string, args: string[]): ChildProc
   return child;
 }
 
-// Start Next.js production server (use local binary, not npx, to avoid slow global lookup)
+/**
+ * Resolve the `next` CLI binary path.
+ * Tries the local .bin shim first (fast), then falls back to require.resolve (hoisted deps).
+ */
+function resolveNextBin(): string {
+  const localBin = resolve(pkgRoot, "node_modules", ".bin", "next");
+  if (existsSync(localBin)) return localBin;
+
+  // Hoisted node_modules — resolve the actual next CLI entry
+  const require = createRequire(resolve(pkgRoot, "package.json"));
+  try {
+    const nextPkg = require.resolve("next/package.json");
+    return resolve(dirname(nextPkg), "dist", "bin", "next");
+  } catch {
+    // Last resort — rely on PATH
+    return "next";
+  }
+}
+
+// Start Next.js production server
 const port = process.env["PORT"] || "3000";
-const nextBin = resolve(pkgRoot, "node_modules", ".bin", "next");
-spawnProcess("next", nextBin, ["start", "-p", port]);
+spawnProcess("next", resolveNextBin(), ["start", "-p", port]);
 
 // Start terminal WebSocket server
 spawnProcess("terminal", "node", [resolve(__dirname, "terminal-websocket.js")]);
@@ -58,12 +78,36 @@ spawnProcess("terminal", "node", [resolve(__dirname, "terminal-websocket.js")]);
 // Start direct terminal WebSocket server
 spawnProcess("direct-terminal", "node", [resolve(__dirname, "direct-terminal-ws.js")]);
 
-// Graceful shutdown
+// Graceful shutdown — send SIGTERM to children and wait for them to exit
+let shuttingDown = false;
+
 function cleanup(): void {
-  for (const child of children) {
-    child.kill();
+  if (shuttingDown) return;
+  shuttingDown = true;
+
+  let alive = children.length;
+  if (alive === 0) {
+    process.exit(0);
+    return;
   }
-  process.exit(0);
+
+  // Force exit after 5s if children don't exit cleanly
+  const forceTimer = setTimeout(() => {
+    log("start-all", "Children did not exit in time, forcing shutdown");
+    process.exit(1);
+  }, 5000);
+  forceTimer.unref();
+
+  for (const child of children) {
+    child.on("exit", () => {
+      alive--;
+      if (alive <= 0) {
+        clearTimeout(forceTimer);
+        process.exit(0);
+      }
+    });
+    child.kill("SIGTERM");
+  }
 }
 
 process.on("SIGINT", cleanup);

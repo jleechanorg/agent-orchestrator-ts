@@ -1,6 +1,7 @@
 import { readFileSync, writeFileSync, mkdirSync, unlinkSync, openSync, closeSync, constants } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
+import { setTimeout as sleep } from "node:timers/promises";
 
 export interface RunningState {
   pid: number;
@@ -27,38 +28,47 @@ function isProcessAlive(pid: number): boolean {
   }
 }
 
+/** Try to create the lockfile atomically. Returns a release function on success, null on failure. */
+function tryAcquire(): (() => void) | null {
+  try {
+    const fd = openSync(LOCK_FILE, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY);
+    closeSync(fd);
+    return () => {
+      try { unlinkSync(LOCK_FILE); } catch { /* best effort */ }
+    };
+  } catch {
+    return null;
+  }
+}
+
 /**
- * Simple advisory lockfile. Uses O_EXCL to atomically create the lock.
- * Returns a release function. If lock cannot be acquired within timeout, throws.
+ * Advisory lockfile using O_EXCL for atomic creation.
+ * Retries with jittered backoff. After timeout, assumes the lock is stale
+ * (holder crashed) and force-removes it before one final atomic attempt.
  */
-function acquireLock(timeoutMs = 5000): () => void {
+async function acquireLock(timeoutMs = 5000): Promise<() => void> {
   ensureDir();
+
   const start = Date.now();
+  let attempt = 0;
+
   while (true) {
-    try {
-      const fd = openSync(LOCK_FILE, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY);
-      closeSync(fd);
-      return () => {
-        try { unlinkSync(LOCK_FILE); } catch { /* best effort */ }
-      };
-    } catch {
-      if (Date.now() - start > timeoutMs) {
-        // Stale lock — force remove and retry once
-        try { unlinkSync(LOCK_FILE); } catch { /* ignore */ }
-        try {
-          const fd = openSync(LOCK_FILE, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY);
-          closeSync(fd);
-          return () => {
-            try { unlinkSync(LOCK_FILE); } catch { /* best effort */ }
-          };
-        } catch {
-          throw new Error("Could not acquire running.json lock");
-        }
-      }
-      // Spin wait 50ms
-      const end = Date.now() + 50;
-      while (Date.now() < end) { /* busy wait */ }
+    const release = tryAcquire();
+    if (release) return release;
+
+    if (Date.now() - start > timeoutMs) {
+      // Likely stale — remove and make one final atomic attempt.
+      try { unlinkSync(LOCK_FILE); } catch { /* ignore */ }
+      const finalRelease = tryAcquire();
+      if (finalRelease) return finalRelease;
+      throw new Error("Could not acquire running.json lock");
     }
+
+    // Jittered backoff: 30-70ms base, growing with attempts (capped at 200ms)
+    const baseMs = Math.min(50 + attempt * 20, 200);
+    const jitter = Math.floor(Math.random() * 40) - 20;
+    await sleep(baseMs + jitter);
+    attempt++;
   }
 }
 
@@ -86,8 +96,8 @@ function writeState(state: RunningState | null): void {
  * Register the current AO instance as running.
  * Uses a lockfile to prevent concurrent registration.
  */
-export function register(entry: RunningState): void {
-  const release = acquireLock();
+export async function register(entry: RunningState): Promise<void> {
+  const release = await acquireLock();
   try {
     writeState(entry);
   } finally {
@@ -98,8 +108,8 @@ export function register(entry: RunningState): void {
 /**
  * Unregister the running AO instance.
  */
-export function unregister(): void {
-  const release = acquireLock();
+export async function unregister(): Promise<void> {
+  const release = await acquireLock();
   try {
     writeState(null);
   } finally {
@@ -111,8 +121,8 @@ export function unregister(): void {
  * Get the currently running AO instance, if any.
  * Auto-prunes stale entries (dead PIDs).
  */
-export function getRunning(): RunningState | null {
-  const release = acquireLock();
+export async function getRunning(): Promise<RunningState | null> {
+  const release = await acquireLock();
   try {
     const state = readState();
     if (!state) return null;
@@ -133,7 +143,7 @@ export function getRunning(): RunningState | null {
  * Check if AO is already running.
  * Returns the running state if alive, null otherwise.
  */
-export function isAlreadyRunning(): RunningState | null {
+export async function isAlreadyRunning(): Promise<RunningState | null> {
   return getRunning();
 }
 
@@ -141,13 +151,11 @@ export function isAlreadyRunning(): RunningState | null {
  * Wait for a process to exit, polling isProcessAlive.
  * Returns true if the process exited, false if timeout reached.
  */
-export function waitForExit(pid: number, timeoutMs = 5000): boolean {
+export async function waitForExit(pid: number, timeoutMs = 5000): Promise<boolean> {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
     if (!isProcessAlive(pid)) return true;
-    // Spin wait 100ms
-    const end = Date.now() + 100;
-    while (Date.now() < end) { /* busy wait */ }
+    await sleep(100);
   }
   return !isProcessAlive(pid);
 }
