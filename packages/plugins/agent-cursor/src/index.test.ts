@@ -250,12 +250,12 @@ describe("getEnvironment", () => {
 describe("isProcessRunning", () => {
   const agent = create();
 
-  it("returns true when claude is found on tmux pane TTY", async () => {
+  it("returns true when cursor-agent is found on tmux pane TTY", async () => {
     mockTmuxWithProcess("cursor-agent");
     expect(await agent.isProcessRunning(makeTmuxHandle())).toBe(true);
   });
 
-  it("returns false when no claude on tmux pane TTY", async () => {
+  it("returns false when cursor-agent is not on tmux pane TTY", async () => {
     mockExecFileAsync.mockImplementation((cmd: string) => {
       if (cmd === "tmux") return Promise.resolve({ stdout: "/dev/ttys002\n", stderr: "" });
       if (cmd === "ps")
@@ -325,7 +325,7 @@ describe("isProcessRunning", () => {
     expect(await agent.isProcessRunning(makeTmuxHandle())).toBe(true);
   });
 
-  it("does not match similar process names like claude-code", async () => {
+  it("does not match similar process names like codex", async () => {
     mockExecFileAsync.mockImplementation((cmd: string, args: string[]) => {
       if (cmd === "tmux" && args[0] === "list-panes") {
         return Promise.resolve({ stdout: "/dev/ttys001\n", stderr: "" });
@@ -459,7 +459,7 @@ describe("getSessionInfo", () => {
   });
 
   describe("path conversion", () => {
-    it("converts workspace path to Claude project dir path", async () => {
+    it("converts workspace path to Cursor project dir path", async () => {
       mockJsonlFiles('{"type":"user","message":{"content":"hello"}}');
       await agent.getSessionInfo(makeSession({ workspacePath: "/Users/dev/.worktrees/ao/ao-3" }));
       expect(mockReaddir).toHaveBeenCalledWith(
@@ -531,7 +531,7 @@ describe("getSessionInfo", () => {
   });
 
   describe("cost estimation", () => {
-    it("aggregates usage.input_tokens and usage.output_tokens", async () => {
+    it("aggregates usage.input_tokens and usage.output_tokens with no cost estimate", async () => {
       const jsonl = [
         '{"type":"user","message":{"content":"hi"}}',
         '{"type":"assistant","usage":{"input_tokens":1000,"output_tokens":500}}',
@@ -541,7 +541,8 @@ describe("getSessionInfo", () => {
       const result = await agent.getSessionInfo(makeSession());
       expect(result?.cost?.inputTokens).toBe(3000);
       expect(result?.cost?.outputTokens).toBe(800);
-      expect(result?.cost?.estimatedCostUsd).toBeCloseTo(0.009 + 0.012, 6);
+      // Cursor does not define a default rate; with usage data only, cost remains zero.
+      expect(result?.cost?.estimatedCostUsd).toBe(0);
     });
 
     it("includes cache tokens in input count", async () => {

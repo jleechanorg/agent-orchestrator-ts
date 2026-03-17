@@ -21,7 +21,10 @@ export const manifest = {
 // Project Path Encoder (alias for tests)
 // =============================================================================
 
-/** Convert a workspace path to Cursor's project directory path. */
+/**
+ * Convert a workspace path to Cursor's project directory path.
+ * Cursor follows the same path-mangling behavior as Claude Code.
+ */
 export const toCursorProjectPath = toAgentProjectPath;
 
 // =============================================================================
@@ -39,13 +42,15 @@ const cursorConfig: AgentPluginConfig = {
   // Cursor Agent CLI does not support a system prompt flag;
   // system prompts are delivered post-launch via sendMessage().
   systemPromptFlag: undefined,
-  // Cursor Agent CLI does not expose cost or token data in JSONL — cost not tracked.
+  // Cursor Agent CLI does not expose a direct cost field in JSONL.
+  // Usage fields may still be present and are parsed when available; no
+  // built-in price model is configured for monetary estimates.
 };
 
 // =============================================================================
 // Cursor-specific overrides
-// Cursor stores sessions in SQLite at ~/.cursor/chats/, but also writes JSONL
-// to ~/.cursor/projects/ so the base getSessionInfo implementation works.
+// Cursor stores sessions in SQLite at ~/.cursor/chats/ and can also write
+// JSONL snapshots under ~/.cursor/projects/.
 // getRestoreCommand returns null until SQLite introspection is implemented.
 // =============================================================================
 

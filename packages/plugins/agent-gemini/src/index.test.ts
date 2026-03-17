@@ -4,12 +4,26 @@ import type { Session, RuntimeHandle, AgentLaunchConfig } from "@composio/ao-cor
 // ---------------------------------------------------------------------------
 // Hoisted mocks — available inside vi.mock factories
 // ---------------------------------------------------------------------------
-const { mockExecFileAsync, mockReaddir, mockReadFile, mockStat, mockHomedir } =
+const {
+  mockExecFileAsync,
+  mockWriteFile,
+  mockMkdir,
+  mockReadFile,
+  mockReaddir,
+  mockStat,
+  mockChmod,
+  mockExistsSync,
+  mockHomedir,
+} =
   vi.hoisted(() => ({
     mockExecFileAsync: vi.fn(),
-    mockReaddir: vi.fn(),
+    mockWriteFile: vi.fn().mockResolvedValue(undefined),
+    mockMkdir: vi.fn().mockResolvedValue(undefined),
     mockReadFile: vi.fn(),
+    mockReaddir: vi.fn(),
     mockStat: vi.fn(),
+    mockChmod: vi.fn().mockResolvedValue(undefined),
+    mockExistsSync: vi.fn(() => false),
     mockHomedir: vi.fn(() => "/mock/home"),
   }));
 
@@ -21,9 +35,16 @@ vi.mock("node:child_process", () => {
 });
 
 vi.mock("node:fs/promises", () => ({
+  writeFile: mockWriteFile,
+  mkdir: mockMkdir,
   readdir: mockReaddir,
   readFile: mockReadFile,
   stat: mockStat,
+  chmod: mockChmod,
+}));
+
+vi.mock("node:fs", () => ({
+  existsSync: mockExistsSync,
 }));
 
 vi.mock("node:os", () => ({
@@ -110,6 +131,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   resetPsCache();
   mockHomedir.mockReturnValue("/mock/home");
+  mockExistsSync.mockReturnValue(false);
 });
 
 describe("plugin manifest & exports", () => {
@@ -659,5 +681,83 @@ describe("getSessionInfo", () => {
       const result = await agent.getSessionInfo(makeSession());
       expect(result).toBeNull();
     });
+  });
+});
+
+// =========================================================================
+// setupWorkspaceHooks
+// =========================================================================
+describe("setupWorkspaceHooks", () => {
+  const agent = create();
+
+  function readMetadataUpdaterScript(): string {
+    const call = mockWriteFile.mock.calls.find((entry) =>
+      String(entry[0]).includes("metadata-updater.sh"),
+    );
+    expect(call).toBeDefined();
+    return call![1] as string;
+  }
+
+  it("bootstraps settings.json path when it does not exist", async () => {
+    mockReadFile.mockRejectedValue(new Error("ENOENT"));
+
+    await agent.setupWorkspaceHooks!("/workspace/test", {
+      dataDir: "/data",
+      sessionId: "sess-1",
+    });
+
+    const metadataScript = readMetadataUpdaterScript();
+    expect(metadataScript).not.toContain("__AO_HOOK_TOOL_MATCHER__");
+    expect(metadataScript).toContain('if [[ "$tool_name" != "run_shell_command" ]]; then');
+
+    const settingsWriteCall = mockWriteFile.mock.calls.at(-1);
+    expect(settingsWriteCall).toBeDefined();
+    const writtenContent = settingsWriteCall![1] as string;
+    const updated = JSON.parse(writtenContent) as {
+      hooks?: { PostToolUse?: Array<{ matcher: string; hooks: Array<{ command: string }> }>; };
+    };
+    expect(updated.hooks?.PostToolUse?.[0]?.matcher).toBe("run_shell_command");
+    expect(mockExistsSync).toHaveBeenCalled();
+  });
+
+  it("migrates existing metadata hook matcher from Bash to run_shell_command", async () => {
+    mockExistsSync.mockReturnValue(true);
+    const existingSettings = {
+      hooks: {
+        PostToolUse: [
+          {
+            matcher: "Bash",
+            hooks: [
+              {
+                type: "command",
+                command: "AO_DATA_DIR=/data /workspace/test/.gemini/metadata-updater.sh",
+              },
+            ],
+          },
+        ],
+      },
+    };
+
+    mockReadFile.mockResolvedValue(JSON.stringify(existingSettings));
+
+    await agent.setupWorkspaceHooks!("/workspace/test", {
+      dataDir: "/data",
+      sessionId: "sess-1",
+    });
+
+    const metadataScript = readMetadataUpdaterScript();
+    expect(metadataScript).not.toContain("__AO_HOOK_TOOL_MATCHER__");
+    expect(metadataScript).toContain('if [[ "$tool_name" != "run_shell_command" ]]; then');
+
+    const settingsWriteCall = mockWriteFile.mock.calls.at(-1);
+    expect(settingsWriteCall).toBeDefined();
+
+    const writtenContent = settingsWriteCall![1] as string;
+    const updated = JSON.parse(writtenContent) as {
+      hooks?: { PostToolUse?: Array<{ matcher: string; hooks: Array<{ command: string }> }> };
+    };
+
+    expect(updated.hooks?.PostToolUse?.[0]?.matcher).toBe("run_shell_command");
+    expect(updated.hooks?.PostToolUse?.[0]?.hooks?.[0]?.command).toContain("metadata-updater.sh");
   });
 });

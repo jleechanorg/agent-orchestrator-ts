@@ -1,6 +1,5 @@
 import {
   createAgentPlugin,
-  toAgentProjectPath,
   resetPsCache as _resetPsCache,
   type AgentPluginConfig,
 } from "@composio/ao-plugin-agent-base";
@@ -36,9 +35,6 @@ export function toGeminiProjectPath(workspacePath: string): string {
   return createHash("sha256").update(normalized).digest("hex");
 }
 
-/** @deprecated Use toGeminiProjectPath instead */
-export { toAgentProjectPath };
-
 // =============================================================================
 // Plugin Config
 // =============================================================================
@@ -55,7 +51,9 @@ const geminiConfig: AgentPluginConfig = {
   // post-launch via sendMessage(), or inline via the GEMINI_SYSTEM_MD env var.
   systemPromptFlag: undefined,
   systemPromptEnvVar: "GEMINI_SYSTEM_MD",
-  // Gemini CLI does not expose cost data in its JSON session files — cost not tracked.
+  // Gemini CLI does not expose a direct cost field in JSON session files.
+  // Usage fields may still be present and are parsed when available; no
+  // built-in price model is configured for monetary estimates.
   // Gemini CLI stores sessions at ~/.gemini/tmp/<sha256(workspacePath)>/chats/
   // (SHA-256 encoding), not the path-mangling scheme used by Claude Code.
   getSessionDir: (workspacePath: string) =>

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, utimesSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { toCursorProjectPath, create } from "../index.js";
@@ -38,25 +38,11 @@ function makeSession(overrides: Partial<Session> = {}): Session {
   };
 }
 
-function writeJsonl(
-  entries: Array<{ type: string; [key: string]: unknown }>,
-  ageMs = 0,
-  filename = "session-abc.jsonl",
-): void {
-  const content = entries.map((e) => JSON.stringify(e)).join("\n") + "\n";
-  const filePath = join(projectDir, filename);
-  writeFileSync(filePath, content);
-  if (ageMs > 0) {
-    const past = new Date(Date.now() - ageMs);
-    utimesSync(filePath, past, past);
-  }
-}
-
 // =============================================================================
 // toCursorProjectPath
 // =============================================================================
 
-describe("Claude Code Activity Detection", () => {
+describe("Cursor Activity Detection", () => {
   describe("toCursorProjectPath", () => {
     it("encodes paths with leading dash", () => {
       expect(toCursorProjectPath("/Users/dev/.worktrees/ao")).toBe("-Users-dev--worktrees-ao");

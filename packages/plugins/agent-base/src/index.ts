@@ -80,7 +80,7 @@ export interface AgentPluginConfig {
    */
   sessionFileExtension?: string;
   /**
-   * Hook tool matcher - regex pattern for PostToolUse hook to match against.
+   * Exact PostToolUse tool name to match against.
    * Defaults to "Bash". Override for agents that use different shell tools
    * (e.g. Gemini uses "run_shell_command").
    */
@@ -127,8 +127,9 @@ if [[ "$exit_code" -ne 0 ]]; then
   exit 0
 fi
 
-# Only process shell tool calls (Claude uses "Bash"; Gemini CLI uses "run_shell_command")
-if [[ "$tool_name" != "Bash" && "$tool_name" != "run_shell_command" ]]; then
+# Only process shell tool calls from the configured matcher
+# (Claude uses "Bash"; Gemini CLI uses "run_shell_command")
+if [[ "$tool_name" != "__AO_HOOK_TOOL_MATCHER__" ]]; then
   echo '{}' # Empty JSON output
   exit 0
 fi
@@ -229,6 +230,8 @@ echo '{}'
 exit 0
 `;
 
+const HOOK_TOOL_MATCHER_PLACEHOLDER = "__AO_HOOK_TOOL_MATCHER__";
+
 // =============================================================================
 // Project Path Encoding
 // =============================================================================
@@ -236,9 +239,10 @@ exit 0
 /**
  * Convert a workspace path to an agent's project directory path.
  *
- * All JSONL-based agents (Claude Code, Cursor, Gemini) use the same encoding:
+ * Most JSONL-based agents (Claude Code and Cursor) use the same encoding:
  * the path has its leading / stripped, then all / and . are replaced with -.
- * e.g. /Users/dev/.worktrees/ao → Users-dev--worktrees-ao
+ * e.g. /Users/dev/.worktrees/ao → Users-dev--worktrees-ao.
+ * Agents with custom layouts (for example Gemini) override getSessionDir.
  *
  * If an agent changes its encoding scheme this will silently break
  * introspection. The path can be validated at runtime by checking whether
@@ -355,6 +359,10 @@ async function parseJsonlFileTail(filePath: string, maxBytes = 131_072): Promise
     }
   }
   return lines;
+}
+
+function escapeHookMatcherForBash(matcher: string): string {
+  return matcher.replace(/\\/g, "\\\\").replace(/["$]/g, "\\$&");
 }
 
 /** Extract auto-generated summary from JSONL (last "summary" type entry) */
@@ -605,7 +613,14 @@ async function setupHookInWorkspace(
   }
 
   // Write the metadata updater script
-  await writeFile(hookScriptPath, METADATA_UPDATER_SCRIPT, "utf-8");
+  await writeFile(
+    hookScriptPath,
+    METADATA_UPDATER_SCRIPT.replace(
+      HOOK_TOOL_MATCHER_PLACEHOLDER,
+      escapeHookMatcherForBash(hookMatcher),
+    ),
+    "utf-8",
+  );
   await chmod(hookScriptPath, 0o755); // Make executable
 
   // Read existing settings if present
@@ -665,10 +680,12 @@ async function setupHookInWorkspace(
       ],
     });
   } else {
+    const hook = postToolUse[hookIndex] as Record<string, unknown>;
+    hook["matcher"] = hookMatcher;
+
     // Hook exists, update the command — but preserve an existing AO_DATA_DIR
     // prefix if the new command doesn't include one (e.g. postLaunchSetup
     // doesn't have access to hookConfig.dataDir and would silently drop it).
-    const hook = postToolUse[hookIndex] as Record<string, unknown>;
     const hooksList = hook["hooks"] as Array<Record<string, unknown>>;
     const existingCommand = hooksList[hookDefIndex]["command"] as string | undefined;
     const newCommandDropsDataDir =
