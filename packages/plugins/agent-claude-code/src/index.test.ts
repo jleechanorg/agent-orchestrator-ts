@@ -119,6 +119,7 @@ describe("plugin manifest & exports", () => {
       slot: "agent",
       description: "Agent plugin: Claude Code CLI",
       version: "0.1.0",
+      displayName: "Claude Code",
     });
   });
 

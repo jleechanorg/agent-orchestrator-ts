@@ -41,5 +41,5 @@ export function setCallerContext(
   if (opts.sessionId) env["AO_SESSION_ID"] = opts.sessionId;
   if (opts.projectId) env["AO_PROJECT_ID"] = opts.projectId;
   if (opts.configPath) env["AO_CONFIG_PATH"] = opts.configPath;
-  if (opts.port != null) env["AO_PORT"] = String(opts.port);
+  if (opts.port !== undefined && opts.port !== null) env["AO_PORT"] = String(opts.port);
 }

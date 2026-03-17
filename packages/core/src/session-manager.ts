@@ -1073,7 +1073,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
           AO_CALLER_TYPE: "agent",
           AO_PROJECT_ID: spawnConfig.projectId,
           AO_CONFIG_PATH: config.configPath,
-          ...(config.port != null && { AO_PORT: String(config.port) }),
+          ...(config.port !== undefined && config.port !== null && { AO_PORT: String(config.port) }),
         },
       });
     } catch (err) {
@@ -1372,7 +1372,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
         AO_CALLER_TYPE: "orchestrator",
         AO_PROJECT_ID: orchestratorConfig.projectId,
         AO_CONFIG_PATH: config.configPath,
-        ...(config.port != null && { AO_PORT: String(config.port) }),
+        ...(config.port !== undefined && config.port !== null && { AO_PORT: String(config.port) }),
       },
     });
 
@@ -2382,7 +2382,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
         AO_CALLER_TYPE: "agent",
         ...(projectId && { AO_PROJECT_ID: projectId }),
         AO_CONFIG_PATH: config.configPath,
-        ...(config.port != null && { AO_PORT: String(config.port) }),
+        ...(config.port !== undefined && config.port !== null && { AO_PORT: String(config.port) }),
       },
     });
 
