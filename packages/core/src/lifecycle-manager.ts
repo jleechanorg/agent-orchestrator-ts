@@ -32,6 +32,7 @@ import {
   type Session,
   type EventPriority,
   type ProjectConfig as _ProjectConfig,
+  type SessionExitProof,
 } from "./types.js";
 import { updateMetadata } from "./metadata.js";
 import { getSessionsDir } from "./paths.js";
@@ -39,7 +40,7 @@ import { createCorrelationId, createProjectObserver } from "./observability.js";
 import { resolveAgentSelection, resolveSessionRole } from "./agent-selection.js";
 
 /** Parse a duration string like "10m", "30s", "1h" to milliseconds. */
-function parseDuration(str: string): number {
+export function parseDuration(str: string): number {
   const match = str.match(/^(\d+)(s|m|h)$/);
   if (!match) return 0;
   const value = parseInt(match[1], 10);
@@ -1021,6 +1022,115 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     }
 
     await maybeDispatchReviewBacklog(session, oldStatus, newStatus, transitionReaction);
+
+    // Session exit reconciliation (bd-uxs.6): validate commits and emit proof on terminal states
+    const terminalStatuses: SessionStatus[] = ["merged", "killed", "errored"];
+    if (terminalStatuses.includes(newStatus) && oldStatus !== newStatus) {
+      await validateAndEmitExitProof(session, newStatus);
+    }
+  }
+
+  /**
+   * Session exit reconciliation (bd-uxs.6):
+   * Validate that commits were pushed and emit a proof payload.
+   */
+  async function validateAndEmitExitProof(session: Session, exitStatus: SessionStatus): Promise<void> {
+    const project = config.projects[session.projectId];
+    if (!project) return;
+
+    const scm = project.scm ? registry.get<SCM>("scm", project.scm.plugin) : null;
+    if (!scm) {
+      // No SCM configured - emit proof with unknown push status
+      const proof: SessionExitProof = {
+        sessionId: session.id,
+        projectId: session.projectId,
+        exitStatus,
+        commitsPushed: false,
+        localCommits: [],
+        remoteCommits: [],
+        prUrl: session.pr?.url,
+        prMerged: exitStatus === "merged",
+        validatedAt: new Date().toISOString(),
+      };
+      emitExitProofEvent(proof, false);
+      return;
+    }
+
+    try {
+      // Try to validate commits using SCM plugin
+      if (typeof scm.validateCommits === "function") {
+        const validation = await scm.validateCommits(session, project);
+        const proof: SessionExitProof = {
+          sessionId: session.id,
+          projectId: session.projectId,
+          exitStatus,
+          commitsPushed: validation.pushed,
+          localCommits: validation.localCommits,
+          remoteCommits: validation.remoteCommits,
+          prUrl: session.pr?.url,
+          prMerged: exitStatus === "merged",
+          validatedAt: new Date().toISOString(),
+        };
+        emitExitProofEvent(proof, !validation.pushed);
+      } else {
+        // SCM doesn't support validateCommits - emit proof with unknown status
+        const proof: SessionExitProof = {
+          sessionId: session.id,
+          projectId: session.projectId,
+          exitStatus,
+          commitsPushed: false,
+          localCommits: [],
+          remoteCommits: [],
+          prUrl: session.pr?.url,
+          prMerged: exitStatus === "merged",
+          validatedAt: new Date().toISOString(),
+        };
+        emitExitProofEvent(proof, false);
+      }
+    } catch {
+      // Validation failed - emit proof with failed status
+      const proof: SessionExitProof = {
+        sessionId: session.id,
+        projectId: session.projectId,
+        exitStatus,
+        commitsPushed: false,
+        localCommits: [],
+        remoteCommits: [],
+        prUrl: session.pr?.url,
+        prMerged: exitStatus === "merged",
+        validatedAt: new Date().toISOString(),
+      };
+      emitExitProofEvent(proof, true);
+    }
+  }
+
+  /** Emit the session exit proof event */
+  function emitExitProofEvent(proof: SessionExitProof, validationFailed: boolean): void {
+    const eventType: EventType = validationFailed ? "session.exit_failed" : "session.exit_validated";
+    const priority: EventPriority = validationFailed ? "warning" : "info";
+
+    const event = createEvent(eventType, {
+      sessionId: proof.sessionId,
+      projectId: proof.projectId,
+      message: `Session ${proof.sessionId} exit validated: commits_pushed=${proof.commitsPushed}, status=${proof.exitStatus}`,
+      priority,
+      data: { proof },
+    });
+
+    // Notify humans about the exit proof (configurable via notificationRouting)
+    void notifyHuman(event, priority);
+
+    const correlationId = createCorrelationId("lifecycle-exit-proof");
+    observer.recordOperation({
+      metric: "lifecycle_exit_proof",
+      operation: "lifecycle.exit_proof",
+      outcome: validationFailed ? "failure" : "success",
+      correlationId,
+      projectId: proof.projectId,
+      sessionId: proof.sessionId,
+      data: { proof },
+      level: validationFailed ? "warn" : "info",
+    });
   }
 
   /** Run one polling cycle across all sessions. */

@@ -20,6 +20,7 @@ export type ObservabilityMetricName =
   | "cleanup"
   | "kill"
   | "lifecycle_poll"
+  | "lifecycle_exit_proof"
   | "restore"
   | "send"
   | "spawn"
