@@ -304,6 +304,11 @@ async function autoCreateConfig(workingDir: string): Promise<OrchestratorConfig>
   };
 
   const outputPath = resolve(workingDir, "agent-orchestrator.yaml");
+  if (existsSync(outputPath)) {
+    console.log(chalk.yellow(`⚠ Config already exists: ${outputPath}`));
+    console.log(chalk.dim("  Use 'ao start' to start with the existing config.\n"));
+    return loadConfig(outputPath);
+  }
   const yamlContent = yamlStringify(config, { indent: 2 });
   writeFileSync(outputPath, yamlContent);
 
@@ -813,6 +818,11 @@ export function registerStart(program: Command): void {
                 // Continue to startup below
               } else if (choice.trim() === "3") {
                 process.kill(running.pid, "SIGTERM");
+                const { waitForExit } = await import("../lib/running-state.js");
+                if (!waitForExit(running.pid, 5000)) {
+                  console.log(chalk.yellow("  Process didn't exit cleanly, sending SIGKILL..."));
+                  try { process.kill(running.pid, "SIGKILL"); } catch { /* already dead */ }
+                }
                 unregister();
                 console.log(chalk.yellow("\n  Stopped existing instance. Restarting...\n"));
                 // Continue to startup below
