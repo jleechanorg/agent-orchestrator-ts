@@ -7,12 +7,17 @@ import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
 
+/** Sleep for the given number of milliseconds. */
+export function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 /**
- * Resolve the first binary from a list that exists on PATH.
+ * Find a binary on PATH. Tries each binary name in order and returns the first found.
  * Returns null if none are found.
  */
-export async function findBinary(candidates: string[]): Promise<string | null> {
-  for (const bin of candidates) {
+export async function findBinary(binaries: string[]): Promise<string | null> {
+  for (const bin of binaries) {
     try {
       await execFileAsync("which", [bin], { timeout: 5_000 });
       return bin;
@@ -21,11 +26,6 @@ export async function findBinary(candidates: string[]): Promise<string | null> {
     }
   }
   return null;
-}
-
-/** Sleep for the given number of milliseconds. */
-export function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 /**
