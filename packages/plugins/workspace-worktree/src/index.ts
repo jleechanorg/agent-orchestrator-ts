@@ -28,7 +28,7 @@ const AO_MANAGED_EXCLUDE_PATTERNS = `# AO-managed files - do not track in worktr
 # MCP configuration
 mcp.json
 # Hook scripts
-*.sh
+ao-hook-*.sh
 # Agent runtime state
 .agent-*.running
 .agent-*.lock
@@ -39,7 +39,10 @@ mcp.json
  * This prevents the worktree from appearing dirty due to runtime files AO writes.
  */
 async function setupAoManagedExclude(worktreePath: string): Promise<void> {
-  const excludeDir = join(worktreePath, ".git", "info");
+  // In a worktree, .git is a file (gitfile), not a directory.
+  // Use git rev-parse to get the actual git directory path.
+  const gitDir = await git(worktreePath, "rev-parse", "--git-dir");
+  const excludeDir = join(gitDir, "info");
   const excludeFile = join(excludeDir, "exclude");
 
   // Ensure .git/info directory exists
