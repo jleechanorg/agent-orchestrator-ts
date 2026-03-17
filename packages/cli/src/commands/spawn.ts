@@ -158,8 +158,7 @@ export function registerSpawn(program: Command): void {
   program
     .command("spawn")
     .description("Spawn a single agent session")
-    .argument("[first]", "Issue identifier, or project ID when two args given")
-    .argument("[second]", "Issue identifier when first arg is project ID")
+    .argument("[issue]", "Issue identifier (project is auto-detected)")
     .option("--open", "Open session in terminal tab")
     .option("--agent <name>", "Override the agent plugin (e.g. codex, claude-code)")
     .option("--claim-pr <pr>", "Immediately claim an existing PR for the spawned session")
@@ -168,8 +167,7 @@ export function registerSpawn(program: Command): void {
     .option("--max-depth <n>", "Max decomposition depth (default: 3)")
     .action(
       async (
-        first: string | undefined,
-        second: string | undefined,
+        issue: string | undefined,
         opts: {
           open?: boolean;
           agent?: string;
@@ -183,18 +181,8 @@ export function registerSpawn(program: Command): void {
         let projectId: string;
         let issueId: string | undefined;
 
-        if (first && second) {
-          // Two args: ao spawn <project> <issue> (backward compat)
-          projectId = first;
-          issueId = second;
-        } else if (first && config.projects[first]) {
-          // Single arg matches a project ID: treat as project, no issue.
-          // This preserves backward compat for `ao spawn <project>`.
-          projectId = first;
-          issueId = undefined;
-        } else if (first) {
-          // Single arg that's not a project ID: treat as issue, auto-detect project
-          issueId = first;
+        if (issue) {
+          issueId = issue;
           try {
             projectId = autoDetectProject(config);
           } catch (err) {
@@ -299,26 +287,17 @@ export function registerBatchSpawn(program: Command): void {
   program
     .command("batch-spawn")
     .description("Spawn sessions for multiple issues with duplicate detection")
-    .argument("<args...>", "Issue identifiers (optionally prefixed with project ID)")
+    .argument("<issues...>", "Issue identifiers (project is auto-detected)")
     .option("--open", "Open sessions in terminal tabs")
-    .action(async (args: string[], opts: { open?: boolean }) => {
+    .action(async (issues: string[], opts: { open?: boolean }) => {
       const config = loadConfig();
       let projectId: string;
-      let issues: string[];
 
-      // If first arg matches a project ID, treat it as project + remaining as issues
-      // Otherwise all args are issues and project is auto-detected
-      if (args.length >= 2 && config.projects[args[0]]) {
-        projectId = args[0];
-        issues = args.slice(1);
-      } else {
-        issues = args;
-        try {
-          projectId = autoDetectProject(config);
-        } catch (err) {
-          console.error(chalk.red(err instanceof Error ? err.message : String(err)));
-          process.exit(1);
-        }
+      try {
+        projectId = autoDetectProject(config);
+      } catch (err) {
+        console.error(chalk.red(err instanceof Error ? err.message : String(err)));
+        process.exit(1);
       }
 
       if (!config.projects[projectId]) {

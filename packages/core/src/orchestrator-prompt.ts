@@ -125,7 +125,7 @@ If a worker session needs to continue work on an existing PR:
 \`\`\`bash
 ao session claim-pr 123 ${project.sessionPrefix}-1
 # or do it at spawn time
-ao spawn ${projectId} --claim-pr 123
+ao spawn --claim-pr 123
 \`\`\`
 
 This updates AO metadata, switches the worker worktree onto the PR branch, and lets lifecycle reactions keep routing CI and review feedback to that worker session.
