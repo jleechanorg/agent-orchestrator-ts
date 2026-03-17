@@ -307,10 +307,17 @@ describe("spawn command", () => {
     });
   });
 
-  it("rejects two positional args with helpful usage message", async () => {
+  it("warns and exits when two positional args given (old syntax)", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
     await expect(
       program.parseAsync(["node", "test", "spawn", "my-app", "INT-100"]),
-    ).rejects.toThrow();
+    ).rejects.toThrow("process.exit(1)");
+
+    const warnings = warnSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(warnings).toContain("no longer supported");
+    expect(warnings).toContain("ao spawn INT-100");
+    warnSpy.mockRestore();
   });
 
   it("reports error when spawn fails", async () => {

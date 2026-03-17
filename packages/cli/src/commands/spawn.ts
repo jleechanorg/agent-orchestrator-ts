@@ -158,7 +158,8 @@ export function registerSpawn(program: Command): void {
   program
     .command("spawn")
     .description("Spawn a single agent session")
-    .argument("[issue]", "Issue identifier (project is auto-detected)")
+    .argument("[first]", "Issue identifier (project is auto-detected)")
+    .argument("[second]", "", /* hidden second arg to catch old two-arg usage */)
     .option("--open", "Open session in terminal tab")
     .option("--agent <name>", "Override the agent plugin (e.g. codex, claude-code)")
     .option("--claim-pr <pr>", "Immediately claim an existing PR for the spawned session")
@@ -167,7 +168,8 @@ export function registerSpawn(program: Command): void {
     .option("--max-depth <n>", "Max decomposition depth (default: 3)")
     .action(
       async (
-        issue: string | undefined,
+        first: string | undefined,
+        second: string | undefined,
         opts: {
           open?: boolean;
           agent?: string;
@@ -177,12 +179,25 @@ export function registerSpawn(program: Command): void {
           maxDepth?: string;
         },
       ) => {
+        // Catch old two-arg usage: ao spawn <project> <issue>
+        if (first && second) {
+          console.warn(
+            chalk.yellow(
+              `⚠ 'ao spawn <project> <issue>' is no longer supported.\n` +
+                `  The project is now auto-detected. Use:\n\n` +
+                `    ao spawn ${second}    # spawn with issue ${second}\n` +
+                `    ao spawn              # spawn without an issue\n`,
+            ),
+          );
+          process.exit(1);
+        }
+
         const config = loadConfig();
         let projectId: string;
         let issueId: string | undefined;
 
-        if (issue) {
-          issueId = issue;
+        if (first) {
+          issueId = first;
           try {
             projectId = autoDetectProject(config);
           } catch (err) {
