@@ -16,8 +16,10 @@ import { createCorrelationId } from "@composio/ao-core";
 // node-pty is an optionalDependency — it requires native compilation and may
 // not be available on all platforms. Load it dynamically so the rest of the
 // server can still start even if node-pty is missing.
+/* eslint-disable @typescript-eslint/consistent-type-imports -- node-pty is optional; static import would crash if missing */
 type IPty = import("node-pty").IPty;
 let ptySpawn: typeof import("node-pty").spawn | undefined;
+/* eslint-enable @typescript-eslint/consistent-type-imports */
 try {
   const nodePty = await import("node-pty");
   ptySpawn = nodePty.spawn;
