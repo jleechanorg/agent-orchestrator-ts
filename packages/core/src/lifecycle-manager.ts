@@ -712,6 +712,35 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
           };
         }
       }
+
+      case "parallel-retry": {
+        // parallel-retry is declared in ReactionConfig but not yet implemented
+        const event = createEvent("reaction.triggered", {
+          sessionId,
+          projectId,
+          message: `Reaction '${reactionKey}' configured with 'parallel-retry' action which is not yet implemented`,
+          data: { reactionKey, action, warning: "parallel-retry not implemented" },
+        });
+        await notifyHuman(event, "warning");
+        return {
+          reactionType: reactionKey,
+          success: false,
+          action: "parallel-retry",
+          message: "parallel-retry action not implemented",
+          escalated: false,
+        };
+      }
+
+      default: {
+        // Log warning for unknown reaction action types
+        console.warn(`Unknown reaction action type: ${action}`);
+        return {
+          reactionType: reactionKey,
+          success: false,
+          action,
+          escalated: false,
+        };
+      }
     }
 
     return {
@@ -1052,6 +1081,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         prMerged: exitStatus === "merged",
         validatedAt: new Date().toISOString(),
       };
+      // No SCM configured - validation not performed, emit as failed
       emitExitProofEvent(proof, true);
       return;
     }
@@ -1085,6 +1115,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
           prMerged: exitStatus === "merged",
           validatedAt: new Date().toISOString(),
         };
+        // SCM doesn't support validateCommits - validation not performed, emit as failed
         emitExitProofEvent(proof, true);
       }
     } catch {

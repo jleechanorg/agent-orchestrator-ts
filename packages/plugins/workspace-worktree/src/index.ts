@@ -38,6 +38,21 @@ const AO_MANAGED_EXCLUDE_PATTERNS = `# AO-managed files - do not track in worktr
  *
  * Note: In a git worktree, .git is a file pointing to the common git directory,
  * so we use git rev-parse to resolve the correct path.
+ *
+ * Why --git-common-dir?
+ * ====================
+ * --git-common-dir returns the path to the main repo's .git directory, which is
+ * shared across all worktrees. This is the correct choice because:
+ * 1. The exclude file (.git/info/exclude) is shared across all worktrees - patterns
+ *    defined there apply to the entire repository, not just one worktree.
+ * 2. AO-managed exclude patterns (runtime files, temp files, etc.) should apply to
+ *    ALL worktrees, not just the one being set up.
+ * 3. Using --git-common-dir ensures consistency: all worktrees read from the same
+ *    exclude file, so AO-managed patterns are applied uniformly everywhere.
+ *
+ * Alternative considered: --git-dir would return the worktree's specific .git path
+ * (which is actually a file in worktrees, not a directory), making it unsuitable
+ * for accessing the shared exclude file.
  */
 async function setupAoManagedExclude(worktreePath: string): Promise<void> {
   // Use git rev-parse to get the correct .git path for worktree

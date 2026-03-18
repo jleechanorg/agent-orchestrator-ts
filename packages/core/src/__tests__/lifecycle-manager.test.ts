@@ -2013,3 +2013,275 @@ describe("getStates", () => {
     expect(mockSCM.mergePR).not.toHaveBeenCalled();
   });
 });
+
+describe("session exit proof reconciliation (bd-uxs.6)", () => {
+  let mockNotifier: Notifier;
+
+  beforeEach(() => {
+    mockNotifier = {
+      notify: vi.fn().mockResolvedValue(undefined),
+      notifyBatch: vi.fn().mockResolvedValue(undefined),
+    };
+
+    // Add notifier to config
+    config.notifiers = { desktop: mockNotifier };
+    config.notificationRouting = {
+      urgent: ["desktop"],
+      action: ["desktop"],
+      warning: ["desktop"],
+      info: ["desktop"],
+    };
+  });
+
+  it("emits session.exit_failed when no SCM is configured", async () => {
+    // Create a custom registry with notifier - this is critical
+    const testRegistry: PluginRegistry = {
+      register: vi.fn(),
+      get: vi.fn().mockImplementation((slot: string, name?: string) => {
+        if (slot === "runtime") return mockRuntime;
+        if (slot === "agent") return mockAgent;
+        if (slot === "notifier" && name === "desktop") return mockNotifier;
+        return null;
+      }),
+      list: vi.fn().mockReturnValue([]),
+      loadBuiltins: vi.fn(),
+      loadFromConfig: vi.fn(),
+    };
+
+    // Mock runtime as dead to trigger killed (terminal) status
+    vi.mocked(mockRuntime.isAlive).mockResolvedValue(false);
+
+    // Session starts as "working" so transition to "killed" triggers terminal event
+    const session = makeSession({ status: "working", pr: null });
+    vi.mocked(mockSessionManager.get).mockResolvedValue(session);
+
+    // Write metadata with previous status (working) - check will transition to killed (terminal)
+    writeMetadata(sessionsDir, "app-1", {
+      worktree: "/tmp",
+      branch: "main",
+      status: "working",
+      project: "my-app",
+    });
+
+    const lm = createLifecycleManager({
+      config,
+      registry: testRegistry,
+      sessionManager: mockSessionManager,
+    });
+
+    await lm.check("app-1");
+
+    // Verify session transitioned to killed
+    expect(lm.getStates().get("app-1")).toBe("killed");
+
+    // Verify notifier was called with exit_failed event
+    expect(mockNotifier.notify).toHaveBeenCalled();
+    const call = mockNotifier.notify.mock.calls.find(
+      (c: unknown) => (c[0] as { type: string })?.type === "session.exit_failed",
+    );
+    expect(call).toBeDefined();
+    expect((call[0] as { type: string }).type).toBe("session.exit_failed");
+  });
+
+  it("emits session.exit_failed when SCM does not support validateCommits", async () => {
+    // SCM mock without validateCommits function
+    const mockSCM: SCM = {
+      name: "mock-scm",
+      detectPR: vi.fn(),
+      getPRState: vi.fn(),
+      mergePR: vi.fn(),
+      closePR: vi.fn(),
+      getCIChecks: vi.fn(),
+      getCISummary: vi.fn(),
+      getReviews: vi.fn(),
+      getReviewDecision: vi.fn(),
+      getPendingComments: vi.fn(),
+      getAutomatedComments: vi.fn(),
+      getMergeability: vi.fn(),
+      // validateCommits is NOT defined - testing unsupported path
+    };
+
+    const testRegistry: PluginRegistry = {
+      register: vi.fn(),
+      get: vi.fn().mockImplementation((slot: string, name?: string) => {
+        if (slot === "runtime") return mockRuntime;
+        if (slot === "agent") return mockAgent;
+        if (slot === "scm") return mockSCM;
+        if (slot === "notifier" && name === "desktop") return mockNotifier;
+        return null;
+      }),
+      list: vi.fn().mockReturnValue([]),
+      loadBuiltins: vi.fn(),
+      loadFromConfig: vi.fn(),
+    };
+
+    // Mock runtime as dead to trigger killed (terminal) status
+    vi.mocked(mockRuntime.isAlive).mockResolvedValue(false);
+
+    // Session starts as "working" so transition to "killed" triggers terminal event
+    const session = makeSession({ status: "working", pr: null });
+    vi.mocked(mockSessionManager.get).mockResolvedValue(session);
+
+    writeMetadata(sessionsDir, "app-1", {
+      worktree: "/tmp",
+      branch: "main",
+      status: "working",
+      project: "my-app",
+    });
+
+    const lm = createLifecycleManager({
+      config,
+      registry: testRegistry,
+      sessionManager: mockSessionManager,
+    });
+
+    await lm.check("app-1");
+
+    // Verify session transitioned to killed
+    expect(lm.getStates().get("app-1")).toBe("killed");
+
+    // Verify notifier was called with exit_failed event (not validated)
+    expect(mockNotifier.notify).toHaveBeenCalled();
+    const call = mockNotifier.notify.mock.calls.find(
+      (c: unknown) => (c[0] as { type: string })?.type === "session.exit_failed",
+    );
+    expect(call).toBeDefined();
+    expect((call[0] as { type: string }).type).toBe("session.exit_failed");
+  });
+
+  it("emits session.exit_validated when validateCommits returns pushed=true", async () => {
+    // SCM mock with validateCommits that returns pushed=true
+    const mockSCM: SCM = {
+      name: "mock-scm",
+      detectPR: vi.fn(),
+      getPRState: vi.fn(),
+      mergePR: vi.fn(),
+      closePR: vi.fn(),
+      getCIChecks: vi.fn(),
+      getCISummary: vi.fn(),
+      getReviews: vi.fn(),
+      getReviewDecision: vi.fn(),
+      getPendingComments: vi.fn(),
+      getAutomatedComments: vi.fn(),
+      getMergeability: vi.fn(),
+      validateCommits: vi.fn().mockResolvedValue({
+        pushed: true,
+        localCommits: [],
+        remoteCommits: ["abc123"],
+      }),
+    };
+
+    const testRegistry: PluginRegistry = {
+      register: vi.fn(),
+      get: vi.fn().mockImplementation((slot: string, name?: string) => {
+        if (slot === "runtime") return mockRuntime;
+        if (slot === "agent") return mockAgent;
+        if (slot === "scm") return mockSCM;
+        if (slot === "notifier" && name === "desktop") return mockNotifier;
+        return null;
+      }),
+      list: vi.fn().mockReturnValue([]),
+      loadBuiltins: vi.fn(),
+      loadFromConfig: vi.fn(),
+    };
+
+    // Mock runtime as dead to trigger killed (terminal) status
+    vi.mocked(mockRuntime.isAlive).mockResolvedValue(false);
+
+    // Session starts as "working" so transition to "killed" triggers terminal event
+    const session = makeSession({ status: "working", pr: null });
+    vi.mocked(mockSessionManager.get).mockResolvedValue(session);
+
+    writeMetadata(sessionsDir, "app-1", {
+      worktree: "/tmp",
+      branch: "main",
+      status: "working",
+      project: "my-app",
+    });
+
+    const lm = createLifecycleManager({
+      config,
+      registry: testRegistry,
+      sessionManager: mockSessionManager,
+    });
+
+    await lm.check("app-1");
+
+    // Verify session transitioned to killed
+    expect(lm.getStates().get("app-1")).toBe("killed");
+
+    // Verify notifier was called with exit_validated event
+    expect(mockNotifier.notify).toHaveBeenCalled();
+    const call = mockNotifier.notify.mock.calls.find(
+      (c: unknown) => (c[0] as { type: string })?.type === "session.exit_validated",
+    );
+    expect(call).toBeDefined();
+    expect((call[0] as { type: string }).type).toBe("session.exit_validated");
+  });
+
+  it("emits session.exit_failed when validateCommits throws an error", async () => {
+    // SCM mock with validateCommits that throws
+    const mockSCM: SCM = {
+      name: "mock-scm",
+      detectPR: vi.fn(),
+      getPRState: vi.fn(),
+      mergePR: vi.fn(),
+      closePR: vi.fn(),
+      getCIChecks: vi.fn(),
+      getCISummary: vi.fn(),
+      getReviews: vi.fn(),
+      getReviewDecision: vi.fn(),
+      getPendingComments: vi.fn(),
+      getAutomatedComments: vi.fn(),
+      getMergeability: vi.fn(),
+      validateCommits: vi.fn().mockRejectedValue(new Error("Validation failed")),
+    };
+
+    const testRegistry: PluginRegistry = {
+      register: vi.fn(),
+      get: vi.fn().mockImplementation((slot: string, name?: string) => {
+        if (slot === "runtime") return mockRuntime;
+        if (slot === "agent") return mockAgent;
+        if (slot === "scm") return mockSCM;
+        if (slot === "notifier" && name === "desktop") return mockNotifier;
+        return null;
+      }),
+      list: vi.fn().mockReturnValue([]),
+      loadBuiltins: vi.fn(),
+      loadFromConfig: vi.fn(),
+    };
+
+    // Mock runtime as dead to trigger killed (terminal) status
+    vi.mocked(mockRuntime.isAlive).mockResolvedValue(false);
+
+    // Session starts as "working" so transition to "killed" triggers terminal event
+    const session = makeSession({ status: "working", pr: null });
+    vi.mocked(mockSessionManager.get).mockResolvedValue(session);
+
+    writeMetadata(sessionsDir, "app-1", {
+      worktree: "/tmp",
+      branch: "main",
+      status: "working",
+      project: "my-app",
+    });
+
+    const lm = createLifecycleManager({
+      config,
+      registry: testRegistry,
+      sessionManager: mockSessionManager,
+    });
+
+    await lm.check("app-1");
+
+    // Verify session transitioned to killed
+    expect(lm.getStates().get("app-1")).toBe("killed");
+
+    // Verify notifier was called with exit_failed event
+    expect(mockNotifier.notify).toHaveBeenCalled();
+    const call = mockNotifier.notify.mock.calls.find(
+      (c: unknown) => (c[0] as { type: string })?.type === "session.exit_failed",
+    );
+    expect(call).toBeDefined();
+    expect((call[0] as { type: string }).type).toBe("session.exit_failed");
+  });
+});
