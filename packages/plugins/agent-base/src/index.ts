@@ -91,6 +91,12 @@ export interface AgentPluginConfig {
    * (e.g. Gemini uses "AfterTool").
    */
   hookEvent?: "PostToolUse" | "AfterTool";
+  /**
+   * Default data directory for session metadata.
+   * Used by postLaunchSetup when hookConfig.dataDir is not available.
+   * Defaults to "$HOME/.ao-sessions" if not provided.
+   */
+  defaultDataDir?: string;
 }
 
 // =============================================================================
@@ -186,8 +192,8 @@ update_metadata_key() {
   # Atomic replace
   mv "$temp_file" "$metadata_file"
 
-  # Clean up any stale temp files from this script
-  rm -f "\${metadata_file}.tmp."* 2>/dev/null || true
+  # Clean up only our own temp file (PID-specific to avoid race with concurrent hooks)
+  rm -f "\${metadata_file}.tmp.\$$" 2>/dev/null || true
 }
 
 # ============================================================================
@@ -961,8 +967,10 @@ export function createAgentPlugin(config: AgentPluginConfig, overrides?: Partial
         config.configDir,
         "metadata-updater.sh",
       );
-      // postLaunchSetup does not receive hookConfig — use the env-var default
-      await setupHookInWorkspace(session.workspacePath, config.configDir, shellEscape(hookScriptPath), config.hookToolMatcher ?? "Bash", config.hookEvent ?? "PostToolUse");
+      // postLaunchSetup does not receive hookConfig — use config.defaultDataDir or environment default
+      const dataDir = config.defaultDataDir ?? join(homedir(), ".ao-sessions");
+      const hookCommand = `AO_DATA_DIR=${shellEscape(dataDir)} ${shellEscape(hookScriptPath)}`;
+      await setupHookInWorkspace(session.workspacePath, config.configDir, hookCommand, config.hookToolMatcher ?? "Bash", config.hookEvent ?? "PostToolUse");
     },
 
     ...overrides,
