@@ -25,12 +25,18 @@ vi.mock("node:os", () => ({
   homedir: () => "/mock-home",
 }));
 
+vi.mock("node:fs/promises", () => ({
+  readFile: vi.fn(),
+  writeFile: vi.fn(),
+}));
+
 // ---------------------------------------------------------------------------
 // Imports (after mocks)
 // ---------------------------------------------------------------------------
 
 import * as childProcess from "node:child_process";
 import { existsSync, lstatSync, symlinkSync, rmSync, mkdirSync, readdirSync } from "node:fs";
+import * as fsPromises from "node:fs/promises";
 import { create, manifest } from "../index.js";
 
 // ---------------------------------------------------------------------------
@@ -47,6 +53,8 @@ const mockSymlinkSync = symlinkSync as ReturnType<typeof vi.fn>;
 const mockRmSync = rmSync as ReturnType<typeof vi.fn>;
 const mockMkdirSync = mkdirSync as ReturnType<typeof vi.fn>;
 const mockReaddirSync = readdirSync as ReturnType<typeof vi.fn>;
+const mockReadFile = fsPromises.readFile as ReturnType<typeof vi.fn>;
+const mockWriteFile = fsPromises.writeFile as ReturnType<typeof vi.fn>;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -87,6 +95,10 @@ function makeCreateConfig(overrides?: Partial<WorkspaceCreateConfig>): Workspace
 
 beforeEach(() => {
   vi.clearAllMocks();
+
+  // Default: no existing exclude file, writes succeed
+  mockReadFile.mockRejectedValue(Object.assign(new Error("ENOENT"), { code: "ENOENT" }));
+  mockWriteFile.mockResolvedValue(undefined);
 });
 
 // ===========================================================================
@@ -737,5 +749,82 @@ describe("workspace.postCreate()", () => {
       "/mock-home/my-repo/data",
       "/mock-home/.worktrees/myproject/session-1/data",
     );
+  });
+});
+
+// ===========================================================================
+// TDD: setupAoManagedExclude — bd-uxs.7
+//
+// setupAoManagedExclude is called by both create() and restore(). It writes
+// AO-managed patterns into .git/info/exclude so runtime files written by
+// agent-base don't cause the worktree to show as dirty.
+// ===========================================================================
+
+describe("setupAoManagedExclude (via workspace.create())", () => {
+  it("writes AO-managed patterns to .git/info/exclude on first create", async () => {
+    const ws = create();
+    mockGitSuccess(""); // fetch
+    mockGitSuccess(""); // worktree add
+    // git rev-parse --git-common-dir falls back to "<worktreePath>/.git" via catch
+
+    await ws.create(makeCreateConfig());
+
+    expect(mockWriteFile).toHaveBeenCalledOnce();
+    const [writtenPath, writtenContent] = mockWriteFile.mock.calls[0] as [string, string, string];
+    expect(writtenPath).toContain(".git/info/exclude");
+    expect(writtenContent).toContain("# AO-managed files");
+  });
+
+  it("does NOT re-write exclude file when AO section already present (idempotency)", async () => {
+    const ws = create();
+    // Simulate exclude file already containing AO patterns
+    mockReadFile.mockResolvedValueOnce("# AO-managed files - do not track in worktree\n.metadata-updater.sh\n");
+
+    mockGitSuccess(""); // fetch
+    mockGitSuccess(""); // worktree add
+
+    await ws.create(makeCreateConfig());
+
+    expect(mockWriteFile).not.toHaveBeenCalled();
+  });
+
+  it("preserves existing exclude content when bootstrapping", async () => {
+    const ws = create();
+    const existingExclude = "# Custom rules\n*.log\n";
+    mockReadFile.mockResolvedValueOnce(existingExclude);
+
+    mockGitSuccess(""); // fetch
+    mockGitSuccess(""); // worktree add
+
+    await ws.create(makeCreateConfig());
+
+    expect(mockWriteFile).toHaveBeenCalledOnce();
+    const [, writtenContent] = mockWriteFile.mock.calls[0] as [string, string, string];
+    expect(writtenContent).toContain("*.log");
+    expect(writtenContent).toContain("# AO-managed files");
+  });
+});
+
+describe("setupAoManagedExclude (via workspace.restore())", () => {
+  it("writes AO-managed patterns to .git/info/exclude on restore", async () => {
+    const ws = create();
+    const worktreePath = "/mock-home/.worktrees/myproject/session-1";
+
+    // restore() git call sequence:
+    // 1. git worktree prune (caught if fails — ok to leave unmocked)
+    // 2. git fetch origin --quiet (caught if fails — ok to leave unmocked)
+    // 3. git worktree add <worktreePath> <branch> (first attempt)
+    // setupAoManagedExclude: git rev-parse --git-common-dir (caught, falls back)
+    mockGitSuccess(""); // prune
+    mockGitSuccess(""); // fetch
+    mockGitSuccess(""); // worktree add
+
+    const cfg = makeCreateConfig();
+    await ws.restore!(cfg, worktreePath);
+
+    expect(mockWriteFile).toHaveBeenCalledOnce();
+    const [writtenPath, writtenContent] = mockWriteFile.mock.calls[0] as [string, string, string];
+    expect(writtenPath).toContain(".git/info/exclude");
+    expect(writtenContent).toContain("# AO-managed files");
   });
 });
