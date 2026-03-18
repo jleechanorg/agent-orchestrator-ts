@@ -620,8 +620,10 @@ async function setupHookInWorkspace(
   let existingScript: string | null = null;
   try {
     existingScript = await readFile(hookScriptPath, "utf-8");
-  } catch {
-    // File doesn't exist yet
+  } catch (err) {
+    // Only ignore file-not-found; rethrow other errors
+    const code = (err as { code?: string }).code;
+    if (code !== 'ENOENT') throw err;
   }
   if (existingScript !== METADATA_UPDATER_SCRIPT) {
     await writeFile(hookScriptPath, METADATA_UPDATER_SCRIPT, "utf-8");
@@ -710,8 +712,10 @@ async function setupHookInWorkspace(
   let currentContent: string | null = null;
   try {
     currentContent = await readFile(settingsPath, "utf-8");
-  } catch {
-    // File doesn't exist yet
+  } catch (err) {
+    // Only ignore file-not-found; rethrow other errors
+    const code = (err as { code?: string }).code;
+    if (code !== 'ENOENT') throw err;
   }
   if (currentContent !== newContent) {
     await writeFile(settingsPath, newContent, "utf-8");
@@ -796,8 +800,10 @@ async function setupMcpMailInWorkspace(
   let currentContent: string | null = null;
   try {
     currentContent = await readFile(settingsPath, "utf-8");
-  } catch {
-    // File doesn't exist yet
+  } catch (err) {
+    // Only ignore file-not-found; rethrow other errors
+    const code = (err as { code?: string }).code;
+    if (code !== 'ENOENT') throw err;
   }
   if (currentContent !== newContent) {
     await writeFile(settingsPath, newContent, "utf-8");
