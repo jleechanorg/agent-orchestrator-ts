@@ -657,14 +657,15 @@ async function setupHookInWorkspace(
     typeof rawHooks === "object" && rawHooks !== null && !Array.isArray(rawHooks)
       ? (rawHooks as Record<string, unknown>)
       : {};
-  const rawPostToolUse = hooks["PostToolUse"];
-  const postToolUse: Array<unknown> = Array.isArray(rawPostToolUse) ? rawPostToolUse : [];
+  // Read from the correct hook event key (PostToolUse or AfterTool)
+  const rawHookArray = hooks[hookEvent];
+  const hookArray: Array<unknown> = Array.isArray(rawHookArray) ? rawHookArray : [];
 
   // Check if our hook is already configured
   let hookIndex = -1;
   let hookDefIndex = -1;
-  for (let i = 0; i < postToolUse.length; i++) {
-    const hook = postToolUse[i];
+  for (let i = 0; i < hookArray.length; i++) {
+    const hook = hookArray[i];
     if (typeof hook !== "object" || hook === null || Array.isArray(hook)) continue;
     const h = hook as Record<string, unknown>;
     const hooksList = h["hooks"];
@@ -685,7 +686,7 @@ async function setupHookInWorkspace(
   // Add or update our hook
   if (hookIndex === -1) {
     // No metadata hook exists, add it
-    postToolUse.push({
+    hookArray.push({
       matcher: hookMatcher,
       hooks: [
         {
@@ -696,7 +697,7 @@ async function setupHookInWorkspace(
       ],
     });
   } else {
-    const hook = postToolUse[hookIndex] as Record<string, unknown>;
+    const hook = hookArray[hookIndex] as Record<string, unknown>;
     hook["matcher"] = hookMatcher;
 
     // Hook exists, update the command — but preserve an existing AO_DATA_DIR
@@ -713,7 +714,7 @@ async function setupHookInWorkspace(
     }
   }
 
-  hooks[hookEvent] = postToolUse;
+  hooks[hookEvent] = hookArray;
   existingSettings["hooks"] = hooks;
 
   // Write updated settings
