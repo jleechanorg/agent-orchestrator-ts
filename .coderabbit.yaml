@@ -1,5 +1,6 @@
 # CodeRabbit configuration
 reviews:
   review_status: true
+  request_changes_workflow: true
   auto_review:
     enabled: true
