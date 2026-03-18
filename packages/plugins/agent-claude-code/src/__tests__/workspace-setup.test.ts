@@ -16,8 +16,10 @@ import type { WorkspaceHooksConfig } from "@composio/ao-core";
 let tmpDir: string;
 let workspacePath: string;
 let claudeDir: string;
+let savedMcpAgentMailUrl: string | undefined;
 
 beforeEach(() => {
+  savedMcpAgentMailUrl = process.env.MCP_AGENT_MAIL_URL;
   tmpDir = mkdtempSync(join(tmpdir(), "ao-test-ws-"));
   workspacePath = join(tmpDir, "workspace");
   mkdirSync(workspacePath, { recursive: true });
@@ -27,6 +29,11 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  if (savedMcpAgentMailUrl === undefined) {
+    delete process.env.MCP_AGENT_MAIL_URL;
+  } else {
+    process.env.MCP_AGENT_MAIL_URL = savedMcpAgentMailUrl;
+  }
   rmSync(tmpDir, { recursive: true, force: true });
 });
 
