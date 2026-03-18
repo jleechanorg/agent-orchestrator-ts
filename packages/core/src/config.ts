@@ -52,7 +52,9 @@ function inferScmPlugin(project: {
 
 const ReactionConfigSchema = z.object({
   auto: z.boolean().default(true),
-  action: z.enum(["send-to-agent", "notify", "auto-merge", "request-merge"]).default("notify"),
+  action: z
+    .enum(["send-to-agent", "notify", "auto-merge", "request-merge", "parallel-retry"])
+    .default("notify"),
   message: z.string().optional(),
   priority: z.enum(["urgent", "action", "warning", "info"]).optional(),
   retries: z.number().optional(),
@@ -60,6 +62,23 @@ const ReactionConfigSchema = z.object({
   threshold: z.string().optional(),
   includeSummary: z.boolean().optional(),
   mergeMethod: z.enum(["merge", "squash", "rebase"]).optional(),
+  // bd-uxs.3: Failure budget fields
+  failureBudget: z
+    .object({
+      max: z.number().int().positive(),
+      window: z.string().optional(),
+    })
+    .optional(),
+  onBudgetExhausted: z.enum(["escalate", "disable", "route-to", "notify"]).optional(),
+  routeToAgent: z.string().optional(),
+  // bd-uxs.4: Parallel retry fields
+  parallelRetry: z
+    .object({
+      maxParallel: z.number().int().positive(),
+      strategies: z.array(z.string()),
+      killOnSuccess: z.boolean().optional(),
+    })
+    .optional(),
 });
 
 const TrackerConfigSchema = z
