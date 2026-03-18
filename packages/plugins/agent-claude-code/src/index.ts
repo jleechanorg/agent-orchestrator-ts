@@ -14,7 +14,7 @@ import {
   type Session,
   type WorkspaceHooksConfig,
 } from "@composio/ao-core";
-import { execFile } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
 import { readdir, readFile, stat, open, writeFile, mkdir, chmod } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
@@ -200,6 +200,7 @@ export const manifest = {
   slot: "agent" as const,
   description: "Agent plugin: Claude Code CLI",
   version: "0.1.0",
+  displayName: "Claude Code",
 };
 
 // =============================================================================
@@ -854,4 +855,14 @@ export function create(): Agent {
   return createClaudeCodeAgent();
 }
 
-export default { manifest, create } satisfies PluginModule<Agent>;
+export function detect(): boolean {
+  try {
+    // Use --version instead of `which` for cross-platform compatibility (Windows has no `which`)
+    execFileSync("claude", ["--version"], { stdio: "ignore" });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export default { manifest, create, detect } satisfies PluginModule<Agent>;
