@@ -150,12 +150,13 @@ const MergeGateConfigSchema = z
     requiredLabels: z.array(z.string()).optional(),
     blockedLabels: z.array(z.string()).optional(),
     requiredChecks: z.array(z.string()).optional(),
-    minApprovals: z.number().min(0).optional(),
+    minApprovals: z.number().int().min(0).optional(),
     unchangedFiles: z.array(z.string()).optional(),
     requiredFiles: z.array(z.string()).optional(),
     preMergeWebhook: z.string().url().optional(),
     webhookTimeout: z.number().positive().max(120).default(30),
   })
+  .optional()
   .default({});
 
 const ProjectConfigSchema = z.object({
