@@ -158,9 +158,7 @@ export function createPollerManager(deps: PollerManagerDeps): PollerManagerImpl 
       // Check for existing sessions to avoid duplicates
       const existingSessions = await sessionManager.list(projectId);
       const existingWorkItemIds = new Set(
-        existingSessions
-          .filter((s) => s.metadata?.["workItemId"])
-          .map((s) => s.metadata?.["workItemId"]),
+        existingSessions.filter((s) => s.issueId).map((s) => s.issueId as string),
       );
 
       // Spawn sessions for new work items
