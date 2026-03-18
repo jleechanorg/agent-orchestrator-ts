@@ -3,7 +3,7 @@ import {
   resetPsCache as _resetPsCache,
   type AgentPluginConfig,
 } from "@composio/ao-plugin-agent-base";
-import type { Agent, PluginModule } from "@composio/ao-core";
+import type { Agent, PluginModule, Session } from "@composio/ao-core";
 import { createHash } from "node:crypto";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -65,11 +65,24 @@ const geminiConfig: AgentPluginConfig = {
 };
 
 // =============================================================================
+// Gemini-specific overrides
+// Gemini CLI does not support session restore via CLI flag (no --resume equivalent).
+// getRestoreCommand returns null - sessions must be restored manually or via UI.
+// =============================================================================
+
+const geminiOverrides: Partial<Agent> = {
+  async getRestoreCommand(_session: Session): Promise<string | null> {
+    // Gemini CLI does not have a --resume flag; sessions are restored via UI
+    return null;
+  },
+};
+
+// =============================================================================
 // Plugin Export
 // =============================================================================
 
 export function create(): Agent {
-  return createAgentPlugin(geminiConfig);
+  return createAgentPlugin(geminiConfig, geminiOverrides);
 }
 
 /** Reset the ps process cache. Exported for testing only. */

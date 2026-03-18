@@ -140,6 +140,12 @@ if [[ -z "\${AO_SESSION:-}" ]]; then
   exit 0
 fi
 
+# Validate AO_SESSION to prevent path traversal attacks
+if [[ "$AO_SESSION" == *"/"* ]] || [[ "$AO_SESSION" == *".."* ]]; then
+  echo '{"systemMessage": "AO_SESSION contains invalid characters, skipping metadata update"}'
+  exit 0
+fi
+
 # Construct metadata file path
 # AO_DATA_DIR is already set to the project-specific sessions directory
 metadata_file="$AO_DATA_DIR/$AO_SESSION"
@@ -155,8 +161,8 @@ update_metadata_key() {
   local key="$1"
   local value="$2"
 
-  # Create temp file
-  local temp_file="\${metadata_file}.tmp"
+  # Create temp file with PID for atomic updates under concurrency
+  local temp_file="\${metadata_file}.tmp.\$$"
 
   # Escape special sed characters in value (& | / \\)
   local escaped_value=$(echo "$value" | sed 's/[&|\\/]/\\\\&/g')
@@ -173,6 +179,9 @@ update_metadata_key() {
 
   # Atomic replace
   mv "$temp_file" "$metadata_file"
+
+  # Clean up any stale temp files from this script
+  rm -f "\${metadata_file}.tmp."* 2>/dev/null || true
 }
 
 # ============================================================================
@@ -241,7 +250,7 @@ const HOOK_TOOL_MATCHER_PLACEHOLDER = "__AO_HOOK_TOOL_MATCHER__";
  *
  * Most JSONL-based agents (Claude Code and Cursor) use the same encoding:
  * the path replaces / and . with -, including the leading slash.
- * e.g. /Users/dev/.worktrees/ao → Users-dev--worktrees-ao.
+ * e.g. /Users/dev/.worktrees/ao → -Users-dev--worktrees-ao.
  * Agents with custom layouts (for example Gemini) override getSessionDir.
  *
  * If an agent changes its encoding scheme this will silently break
