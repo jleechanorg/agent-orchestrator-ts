@@ -59,12 +59,21 @@ interface GQLResponse {
 }
 
 const BOT_AUTHORS = new Set([
+  "coderabbitai",
   "coderabbitai[bot]",
-  "github-actions[bot]",
-  "copilot-pull-request-reviewer",
   "github-actions",
+  "github-actions[bot]",
   "copilot",
+  "copilot-pull-request-reviewer",
+  "copilot-pull-request-reviewer[bot]",
+  "chatgpt-codex-connector[bot]",
 ]);
+
+function isBotAuthor(login: string): boolean {
+  if (BOT_AUTHORS.has(login)) return true;
+  if (login.endsWith("[bot]")) return true;
+  return false;
+}
 
 const FETCH_THREADS_QUERY = `
 query GetUnresolvedThreads($owner: String!, $repo: String!, $prNumber: Int!) {
@@ -120,7 +129,7 @@ function isBotThread(thread: GQLThread): boolean {
   if (thread.comments.nodes.length === 0) return false;
   return thread.comments.nodes.every((comment) => {
     if (!comment.author) return false;
-    return BOT_AUTHORS.has(comment.author.login);
+    return isBotAuthor(comment.author.login);
   });
 }
 
@@ -146,6 +155,10 @@ export async function autoResolveThreads(
   });
 
   if (!isGQLResponse(data)) {
+    errors.push({
+      threadId: "N/A",
+      error: "Unexpected GraphQL response shape — cannot process review threads",
+    });
     return { resolved, skipped, errors };
   }
 

@@ -66,6 +66,16 @@ describe("autoResolveThreads", () => {
     expect(result).toEqual({ resolved: [], skipped: [], errors: [] });
   });
 
+  it("reports error when GraphQL response has unexpected shape", async () => {
+    const executor = makeExecutor({ data: null });
+    const result = await autoResolveThreads(baseConfig, executor);
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0]!.threadId).toBe("N/A");
+    expect(result.errors[0]!.error).toContain("Unexpected GraphQL response");
+    expect(result.resolved).toHaveLength(0);
+    expect(result.skipped).toHaveLength(0);
+  });
+
   it("resolves thread on changed file from bot", async () => {
     const executor = makeExecutor(
       makeGQLResponse([
@@ -225,7 +235,13 @@ describe("autoResolveThreads", () => {
   it("recognizes all known bot authors", async () => {
     const config: AutoResolveConfig = {
       ...baseConfig,
-      changedFiles: ["src/a.ts", "src/b.ts", "src/c.ts"],
+      changedFiles: [
+        "src/a.ts",
+        "src/b.ts",
+        "src/c.ts",
+        "src/d.ts",
+        "src/e.ts",
+      ],
       dryRun: true,
     };
     const executor = makeExecutor(
@@ -240,20 +256,54 @@ describe("autoResolveThreads", () => {
           id: "t2",
           isResolved: false,
           path: "src/b.ts",
-          authors: ["github-actions[bot]"],
+          authors: ["coderabbitai[bot]"],
         },
         {
           id: "t3",
           isResolved: false,
           path: "src/c.ts",
+          authors: ["github-actions[bot]"],
+        },
+        {
+          id: "t4",
+          isResolved: false,
+          path: "src/d.ts",
           authors: ["copilot-pull-request-reviewer"],
+        },
+        {
+          id: "t5",
+          isResolved: false,
+          path: "src/e.ts",
+          authors: ["chatgpt-codex-connector[bot]"],
         },
       ]),
     );
 
     const result = await autoResolveThreads(config, executor);
 
-    expect(result.resolved).toHaveLength(3);
+    expect(result.resolved).toHaveLength(5);
+  });
+
+  it("treats any [bot] suffixed author as bot via pattern match", async () => {
+    const config: AutoResolveConfig = {
+      ...baseConfig,
+      changedFiles: ["src/foo.ts"],
+      dryRun: true,
+    };
+    const executor = makeExecutor(
+      makeGQLResponse([
+        {
+          id: "t1",
+          isResolved: false,
+          path: "src/foo.ts",
+          authors: ["some-unknown-app[bot]"],
+        },
+      ]),
+    );
+
+    const result = await autoResolveThreads(config, executor);
+
+    expect(result.resolved).toHaveLength(1);
   });
 
   it("skips thread with empty comment list (not treated as bot-only)", async () => {
