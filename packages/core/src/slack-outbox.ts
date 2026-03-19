@@ -100,8 +100,9 @@ export class SlackOutbox {
       }
     }
 
-    // Rewrite outbox: remove this entry; re-add only if still pending (failed but under maxRetries)
-    const remaining = entries.filter((e) => e.id !== entry.id);
+    // Re-read entries to capture any concurrent enqueues during sender execution
+    const currentEntries = readEntries(this.config.outboxPath);
+    const remaining = currentEntries.filter((e) => e.id !== entry.id);
     if (entry.status === "pending") {
       remaining.push(entry);
     }
