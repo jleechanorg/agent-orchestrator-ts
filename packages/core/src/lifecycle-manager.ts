@@ -714,20 +714,43 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       }
 
       case "parallel-retry": {
-        // parallel-retry not yet implemented - emit event and return failure
+        const freshSession = await sessionManager.get(sessionId);
+        if (!freshSession) {
+          return { reactionType: reactionKey, success: false, action, escalated: false };
+        }
+
+        const parallelCfg = reactionConfig.parallelRetry;
+        const strategies = parallelCfg?.strategies ?? [];
+        const maxParallel = parallelCfg?.maxParallel ?? 1;
+        const count = Math.min(strategies.length || 1, maxParallel);
+
+        const spawnedIds: string[] = [];
+        const errors: string[] = [];
+
+        for (let i = 0; i < count; i++) {
+          const agent = strategies[i] ?? undefined;
+          try {
+            const spawned = await sessionManager.spawn({
+              projectId: freshSession.projectId,
+              issueId: freshSession.issueId ?? undefined,
+              branch: freshSession.branch,
+              agent,
+            });
+            spawnedIds.push(spawned.id);
+          } catch (err) {
+            errors.push(err instanceof Error ? err.message : String(err));
+          }
+        }
+
+        const success = spawnedIds.length > 0;
         const event = createEvent("reaction.triggered", {
           sessionId,
           projectId,
-          message: `Reaction '${reactionKey}' requested parallel-retry, but this action is not implemented yet`,
-          data: { reactionKey, action },
+          message: `Reaction '${reactionKey}' spawned ${spawnedIds.length} parallel retry session(s)${errors.length > 0 ? ` (${errors.length} failed to spawn)` : ""}`,
+          data: { reactionKey, action, spawnedIds, errors },
         });
-        await notifyHuman(event, "warning");
-        return {
-          reactionType: reactionKey,
-          success: false,
-          action,
-          escalated: false,
-        };
+        await notifyHuman(event, success ? "action" : "warning");
+        return { reactionType: reactionKey, success, action, escalated: false };
       }
 
       default: {

@@ -2358,3 +2358,239 @@ describe("session exit proof reconciliation (bd-uxs.6)", () => {
     expect((call[0] as { type: string }).type).toBe("session.exit_failed");
   });
 });
+
+describe("parallel-retry reaction (bd-uxs.4)", () => {
+  let mockNotifier: Notifier;
+  let mockSCM: SCM;
+
+  beforeEach(() => {
+    mockNotifier = {
+      name: "mock-notifier",
+      notify: vi.fn().mockResolvedValue(undefined),
+    };
+
+    mockSCM = {
+      name: "mock-scm",
+      detectPR: vi.fn(),
+      getPRState: vi.fn().mockResolvedValue("open"),
+      mergePR: vi.fn(),
+      closePR: vi.fn(),
+      getCIChecks: vi.fn(),
+      getCISummary: vi.fn().mockResolvedValue("failing"),
+      getReviews: vi.fn(),
+      getReviewDecision: vi.fn().mockResolvedValue("none"),
+      getPendingComments: vi.fn(),
+      getAutomatedComments: vi.fn(),
+      getMergeability: vi.fn(),
+    };
+
+    config.notifiers = { desktop: mockNotifier };
+    config.notificationRouting = {
+      urgent: ["desktop"],
+      action: ["desktop"],
+      warning: ["desktop"],
+      info: ["desktop"],
+    };
+  });
+
+  function makeRegistryWithScm(): PluginRegistry {
+    return {
+      ...mockRegistry,
+      get: vi.fn().mockImplementation((slot: string, name?: string) => {
+        if (slot === "runtime") return mockRuntime;
+        if (slot === "agent") return mockAgent;
+        if (slot === "scm") return mockSCM;
+        if (slot === "notifier" && name === "desktop") return mockNotifier;
+        return null;
+      }),
+    };
+  }
+
+  it("spawns one session per strategy up to maxParallel", async () => {
+    config.reactions = {
+      "ci-failed": {
+        auto: true,
+        action: "parallel-retry",
+        parallelRetry: {
+          maxParallel: 2,
+          strategies: ["codex", "claude-code"],
+        },
+      },
+    };
+
+    const session = makeSession({ status: "pr_open", pr: makePR(), issueId: "42" });
+    vi.mocked(mockSessionManager.get).mockResolvedValue(session);
+    vi.mocked(mockSessionManager.spawn).mockResolvedValue(makeSession({ id: "app-retry-1" }));
+
+    writeMetadata(sessionsDir, "app-1", {
+      worktree: "/tmp",
+      branch: "main",
+      status: "pr_open",
+      project: "my-app",
+    });
+
+    const lm = createLifecycleManager({
+      config,
+      registry: makeRegistryWithScm(),
+      sessionManager: mockSessionManager,
+    });
+
+    await lm.check("app-1");
+
+    expect(mockSessionManager.spawn).toHaveBeenCalledTimes(2);
+    expect(mockSessionManager.spawn).toHaveBeenCalledWith(
+      expect.objectContaining({ projectId: "my-app", agent: "codex" }),
+    );
+    expect(mockSessionManager.spawn).toHaveBeenCalledWith(
+      expect.objectContaining({ projectId: "my-app", agent: "claude-code" }),
+    );
+  });
+
+  it("respects maxParallel cap when more strategies are provided", async () => {
+    config.reactions = {
+      "ci-failed": {
+        auto: true,
+        action: "parallel-retry",
+        parallelRetry: {
+          maxParallel: 1,
+          strategies: ["codex", "claude-code", "aider"],
+        },
+      },
+    };
+
+    const session = makeSession({ status: "pr_open", pr: makePR(), issueId: "42" });
+    vi.mocked(mockSessionManager.get).mockResolvedValue(session);
+    vi.mocked(mockSessionManager.spawn).mockResolvedValue(makeSession({ id: "app-retry-1" }));
+
+    writeMetadata(sessionsDir, "app-1", {
+      worktree: "/tmp",
+      branch: "main",
+      status: "pr_open",
+      project: "my-app",
+    });
+
+    const lm = createLifecycleManager({
+      config,
+      registry: makeRegistryWithScm(),
+      sessionManager: mockSessionManager,
+    });
+
+    await lm.check("app-1");
+
+    expect(mockSessionManager.spawn).toHaveBeenCalledTimes(1);
+    expect(mockSessionManager.spawn).toHaveBeenCalledWith(
+      expect.objectContaining({ agent: "codex" }),
+    );
+  });
+
+  it("spawns one session with default agent when no parallelRetry config", async () => {
+    config.reactions = {
+      "ci-failed": {
+        auto: true,
+        action: "parallel-retry",
+      },
+    };
+
+    const session = makeSession({ status: "pr_open", pr: makePR(), issueId: "42" });
+    vi.mocked(mockSessionManager.get).mockResolvedValue(session);
+    vi.mocked(mockSessionManager.spawn).mockResolvedValue(makeSession({ id: "app-retry-1" }));
+
+    writeMetadata(sessionsDir, "app-1", {
+      worktree: "/tmp",
+      branch: "main",
+      status: "pr_open",
+      project: "my-app",
+    });
+
+    const lm = createLifecycleManager({
+      config,
+      registry: makeRegistryWithScm(),
+      sessionManager: mockSessionManager,
+    });
+
+    await lm.check("app-1");
+
+    expect(mockSessionManager.spawn).toHaveBeenCalledTimes(1);
+    expect(mockSessionManager.spawn).toHaveBeenCalledWith(
+      expect.objectContaining({ projectId: "my-app" }),
+    );
+  });
+
+  it("notifies human with reaction.triggered event after spawning", async () => {
+    config.reactions = {
+      "ci-failed": {
+        auto: true,
+        action: "parallel-retry",
+        parallelRetry: {
+          maxParallel: 1,
+          strategies: ["codex"],
+        },
+      },
+    };
+
+    const session = makeSession({ status: "pr_open", pr: makePR(), issueId: "42" });
+    vi.mocked(mockSessionManager.get).mockResolvedValue(session);
+    vi.mocked(mockSessionManager.spawn).mockResolvedValue(makeSession({ id: "app-retry-1" }));
+
+    writeMetadata(sessionsDir, "app-1", {
+      worktree: "/tmp",
+      branch: "main",
+      status: "pr_open",
+      project: "my-app",
+    });
+
+    const lm = createLifecycleManager({
+      config,
+      registry: makeRegistryWithScm(),
+      sessionManager: mockSessionManager,
+    });
+
+    await lm.check("app-1");
+
+    const notifyCalls = vi.mocked(mockNotifier.notify).mock.calls;
+    const reactionCall = notifyCalls.find(
+      (c) => (c[0] as { type?: string } | undefined)?.type === "reaction.triggered",
+    );
+    expect(reactionCall).toBeDefined();
+  });
+
+  it("returns success=false when all spawns fail", async () => {
+    config.reactions = {
+      "ci-failed": {
+        auto: true,
+        action: "parallel-retry",
+        parallelRetry: {
+          maxParallel: 2,
+          strategies: ["codex", "claude-code"],
+        },
+      },
+    };
+
+    const session = makeSession({ status: "pr_open", pr: makePR(), issueId: "42" });
+    vi.mocked(mockSessionManager.get).mockResolvedValue(session);
+    vi.mocked(mockSessionManager.spawn).mockRejectedValue(new Error("spawn failed"));
+
+    writeMetadata(sessionsDir, "app-1", {
+      worktree: "/tmp",
+      branch: "main",
+      status: "pr_open",
+      project: "my-app",
+    });
+
+    const lm = createLifecycleManager({
+      config,
+      registry: makeRegistryWithScm(),
+      sessionManager: mockSessionManager,
+    });
+
+    // Should not throw even when all spawns fail
+    await expect(lm.check("app-1")).resolves.toBeUndefined();
+
+    // Notifier should be called with a warning
+    const notifyCalls = vi.mocked(mockNotifier.notify).mock.calls;
+    const reactionCall = notifyCalls.find(
+      (c) => (c[0] as { type?: string } | undefined)?.type === "reaction.triggered",
+    );
+    expect(reactionCall).toBeDefined();
+  });
+});
