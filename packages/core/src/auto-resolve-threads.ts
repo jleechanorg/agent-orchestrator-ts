@@ -59,7 +59,7 @@ interface GQLResponse {
 }
 
 const BOT_AUTHORS = new Set([
-  "coderabbitai",
+  "coderabbitai[bot]",
   "github-actions[bot]",
   "copilot-pull-request-reviewer",
   "github-actions",
