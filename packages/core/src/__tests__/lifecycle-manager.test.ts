@@ -2268,7 +2268,6 @@ describe("session exit proof reconciliation (bd-uxs.6)", () => {
       branch: "main",
       status: "working",
       project: "my-app",
-      sessionId: "app-1",
     });
 
     const lm = createLifecycleManager({
