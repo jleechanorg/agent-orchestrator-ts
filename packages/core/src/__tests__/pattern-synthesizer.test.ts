@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdirSync, rmSync, writeFileSync, existsSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync, readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
@@ -10,10 +10,11 @@ function makeOutcome(
   action: string,
   success: boolean,
   durationMs?: number,
+  projectId = "proj-1",
 ): string {
   return JSON.stringify({
     sessionId: `sess-${randomUUID().slice(0, 8)}`,
-    projectId: "proj-1",
+    projectId,
     trigger,
     action,
     success,
@@ -215,5 +216,73 @@ describe("PatternSynthesizer", () => {
     expect(all).toHaveLength(2);
     const triggers = all.map((p) => p.trigger).sort();
     expect(triggers).toEqual(["ci-failed", "lint-fail"]);
+  });
+
+  it("synthesize groups by projectId so same trigger in different projects yields separate patterns", async () => {
+    const lines: string[] = [];
+    // proj-a: ci-failed → retry with 100% win rate
+    for (let i = 0; i < 5; i++) lines.push(makeOutcome("ci-failed", "retry", true, 100, "proj-a"));
+    // proj-b: ci-failed → escalate with 100% win rate
+    for (let i = 0; i < 5; i++) lines.push(makeOutcome("ci-failed", "escalate", true, 200, "proj-b"));
+    writeFileSync(outcomesPath, lines.join("\n"), "utf-8");
+
+    await synth.synthesize();
+    const all = await synth.getAllPatterns();
+    // Both share trigger "ci-failed" but come from different projects → 2 patterns
+    expect(all).toHaveLength(2);
+    const actions = all.map((p) => p.bestAction).sort();
+    expect(actions).toEqual(["escalate", "retry"]);
+  });
+
+  it("writeStore creates parent directories when they do not exist", async () => {
+    const deepPath = join(tmpDir, "nested", "deep", "patterns.json");
+    const deepSynth = new PatternSynthesizer({
+      outcomesPath,
+      patternsPath: deepPath,
+    });
+    writeFileSync(outcomesPath, "", "utf-8");
+    await deepSynth.synthesize();
+    expect(existsSync(deepPath)).toBe(true);
+    const content = JSON.parse(readFileSync(deepPath, "utf-8"));
+    expect(content).toHaveProperty("patterns");
+  });
+
+  it("readStore returns null when pattern elements lack required fields", async () => {
+    // Write a store with invalid pattern elements (missing required fields)
+    writeFileSync(
+      patternsPath,
+      JSON.stringify({
+        patterns: [{ trigger: "ci-failed" }], // missing bestAction, winRate
+        synthesizedAt: new Date().toISOString(),
+        outcomeCount: 1,
+      }),
+      "utf-8",
+    );
+    const result = await synth.getAllPatterns();
+    expect(result).toEqual([]);
+  });
+
+  it("readStore accepts valid pattern elements", async () => {
+    writeFileSync(
+      patternsPath,
+      JSON.stringify({
+        patterns: [
+          {
+            trigger: "ci-failed",
+            bestAction: "retry",
+            winRate: 0.9,
+            sampleCount: 10,
+            avgDurationMs: 100,
+            confidence: "high",
+          },
+        ],
+        synthesizedAt: new Date().toISOString(),
+        outcomeCount: 10,
+      }),
+      "utf-8",
+    );
+    const result = await synth.getAllPatterns();
+    expect(result).toHaveLength(1);
+    expect(result[0].trigger).toBe("ci-failed");
   });
 });

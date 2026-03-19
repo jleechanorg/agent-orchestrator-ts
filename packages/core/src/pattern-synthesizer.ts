@@ -1,4 +1,5 @@
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync, existsSync, mkdirSync } from "node:fs";
+import { dirname } from "node:path";
 import { atomicWriteFileSync } from "./atomic-write.js";
 
 export interface SynthesizedPattern {
@@ -21,6 +22,7 @@ interface OutcomeRecord {
   action: string;
   success: boolean;
   durationMs?: number;
+  projectId?: string;
 }
 
 interface PatternSynthesizerOptions {
@@ -36,7 +38,8 @@ function isOutcomeRecord(value: unknown): value is OutcomeRecord {
   return (
     typeof obj.trigger === "string" &&
     typeof obj.action === "string" &&
-    typeof obj.success === "boolean"
+    typeof obj.success === "boolean" &&
+    (obj.projectId === undefined || typeof obj.projectId === "string")
   );
 }
 
@@ -70,13 +73,14 @@ export class PatternSynthesizer {
       return;
     }
 
-    // Group by trigger → action
+    // Group by projectId::trigger → action
     const groups = new Map<string, Map<string, OutcomeRecord[]>>();
     for (const o of outcomes) {
-      let actionMap = groups.get(o.trigger);
+      const groupKey = `${o.projectId ?? "default"}::${o.trigger}`;
+      let actionMap = groups.get(groupKey);
       if (!actionMap) {
         actionMap = new Map();
-        groups.set(o.trigger, actionMap);
+        groups.set(groupKey, actionMap);
       }
       let list = actionMap.get(o.action);
       if (!list) {
@@ -88,7 +92,8 @@ export class PatternSynthesizer {
 
     const patterns: SynthesizedPattern[] = [];
 
-    for (const [trigger, actionMap] of groups) {
+    for (const [groupKey, actionMap] of groups) {
+      const trigger = groupKey.includes("::") ? groupKey.split("::").slice(1).join("::") : groupKey;
       let bestAction: string | null = null;
       let bestWinRate = -1;
       let bestSampleCount = 0;
@@ -184,6 +189,17 @@ export class PatternSynthesizer {
         "patterns" in parsed &&
         Array.isArray((parsed as Record<string, unknown>).patterns)
       ) {
+        const obj = parsed as Record<string, unknown>;
+        const patterns = obj.patterns as unknown[];
+        const valid = patterns.every(
+          (p) =>
+            typeof p === "object" &&
+            p !== null &&
+            typeof (p as Record<string, unknown>).trigger === "string" &&
+            typeof (p as Record<string, unknown>).bestAction === "string" &&
+            typeof (p as Record<string, unknown>).winRate === "number",
+        );
+        if (!valid) return null;
         return parsed as PatternStore;
       }
       return null;
@@ -193,6 +209,7 @@ export class PatternSynthesizer {
   }
 
   private writeStore(store: PatternStore): void {
+    mkdirSync(dirname(this.patternsPath), { recursive: true });
     atomicWriteFileSync(this.patternsPath, JSON.stringify(store, null, 2));
   }
 }
