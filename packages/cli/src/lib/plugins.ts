@@ -3,6 +3,8 @@ import claudeCodePlugin from "@composio/ao-plugin-agent-claude-code";
 import codexPlugin from "@composio/ao-plugin-agent-codex";
 import cursorPlugin from "@composio/ao-plugin-agent-cursor";
 import aiderPlugin from "@composio/ao-plugin-agent-aider";
+import cursorPlugin from "@composio/ao-plugin-agent-cursor";
+import geminiPlugin from "@composio/ao-plugin-agent-gemini";
 import opencodePlugin from "@composio/ao-plugin-agent-opencode";
 import githubSCMPlugin from "@composio/ao-plugin-scm-github";
 
@@ -11,6 +13,8 @@ const agentPlugins: Record<string, { create(): Agent }> = {
   codex: codexPlugin,
   cursor: cursorPlugin,
   aider: aiderPlugin,
+  cursor: cursorPlugin,
+  gemini: geminiPlugin,
   opencode: opencodePlugin,
 };
 
