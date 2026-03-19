@@ -50,6 +50,7 @@ function readEntries(filePath: string): OutboxEntry[] {
 
 export class SlackOutbox {
   private readonly config: OutboxConfig;
+  private readonly inFlightSends = new Set<string>();
 
   constructor({ config }: SlackOutboxDeps) {
     this.config = config;
@@ -77,30 +78,33 @@ export class SlackOutbox {
     appendFileSync(this.config.outboxPath, JSON.stringify(entry) + "\n", "utf-8");
   }
 
-  async processNext(
-    sender: (entry: OutboxEntry) => Promise<void>,
-  ): Promise<OutboxEntry | null> {
+  async processNext(sender: (entry: OutboxEntry) => Promise<void>): Promise<OutboxEntry | null> {
     const entries = readEntries(this.config.outboxPath);
     const pending = entries
       .filter((e) => e.status === "pending")
-      .sort(
-        (a, b) =>
-          (PRIORITY_ORDER[a.priority] ?? 1) - (PRIORITY_ORDER[b.priority] ?? 1),
-      );
+      .sort((a, b) => (PRIORITY_ORDER[a.priority] ?? 1) - (PRIORITY_ORDER[b.priority] ?? 1));
 
     if (pending.length === 0) return null;
 
     const entry: OutboxEntry = { ...pending[0] };
 
+    if (this.inFlightSends.has(entry.id)) {
+      return null;
+    }
+
+    this.inFlightSends.add(entry.id);
+    let sendPromise: Promise<void> | null = null;
+
     try {
       const timeout = this.config.timeoutMs;
-      const sendPromise = sender(entry);
-      const result = timeout > 0
-        ? await Promise.race([
-            sendPromise.then(() => "ok" as const),
-            new Promise<"timeout">((resolve) => setTimeout(() => resolve("timeout"), timeout)),
-          ])
-        : await sendPromise.then(() => "ok" as const);
+      sendPromise = sender(entry);
+      const result =
+        timeout > 0
+          ? await Promise.race([
+              sendPromise.then(() => "ok" as const),
+              new Promise<"timeout">((resolve) => setTimeout(() => resolve("timeout"), timeout)),
+            ])
+          : await sendPromise.then(() => "ok" as const);
       if (result === "timeout") throw new Error(`Send timed out after ${timeout}ms`);
       entry.status = "sent";
     } catch (err) {
@@ -112,6 +116,11 @@ export class SlackOutbox {
         entry.status = "dead";
         await this.moveToDeadLetter(entry, entry.lastError);
       }
+    } finally {
+      if (sendPromise) {
+        await sendPromise.catch(() => {});
+      }
+      this.inFlightSends.delete(entry.id);
     }
 
     // Re-read entries to avoid dropping concurrent enqueues during send
@@ -122,21 +131,14 @@ export class SlackOutbox {
     }
 
     const newContent = remaining.map((e) => JSON.stringify(e)).join("\n");
-    atomicWriteFileSync(
-      this.config.outboxPath,
-      newContent ? newContent + "\n" : "",
-    );
+    atomicWriteFileSync(this.config.outboxPath, newContent ? newContent + "\n" : "");
 
     return entry;
   }
 
   async moveToDeadLetter(entry: OutboxEntry, error: string): Promise<void> {
     const deadEntry: OutboxEntry = { ...entry, status: "dead", lastError: error };
-    appendFileSync(
-      this.config.deadLetterPath,
-      JSON.stringify(deadEntry) + "\n",
-      "utf-8",
-    );
+    appendFileSync(this.config.deadLetterPath, JSON.stringify(deadEntry) + "\n", "utf-8");
   }
 
   async getOutboxLength(): Promise<number> {
@@ -148,9 +150,7 @@ export class SlackOutbox {
     return readEntries(this.config.deadLetterPath).length;
   }
 
-  async drainOutbox(
-    sender: (entry: OutboxEntry) => Promise<void>,
-  ): Promise<void> {
+  async drainOutbox(sender: (entry: OutboxEntry) => Promise<void>): Promise<void> {
     let result = await this.processNext(sender);
     while (result !== null) {
       result = await this.processNext(sender);
