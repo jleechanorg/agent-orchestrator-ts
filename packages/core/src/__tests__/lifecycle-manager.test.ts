@@ -18,6 +18,7 @@ import type {
   Notifier,
   ActivityState,
   PRInfo,
+  SessionExitProof,
 } from "../types.js";
 
 let tmpDir: string;
@@ -2077,7 +2078,7 @@ describe("session exit proof reconciliation (bd-uxs.6)", () => {
     // Verify notifier was called with exit_failed event
     expect(mockNotifier.notify).toHaveBeenCalled();
     const call = mockNotifier.notify.mock.calls.find(
-      (c: unknown) => (c[0] as { type: string })?.type === "session.exit_failed",
+      (c) => (c[0] as { type?: string } | undefined)?.type === "session.exit_failed",
     );
     expect(call).toBeDefined();
     expect((call[0] as { type: string }).type).toBe("session.exit_failed");
@@ -2143,7 +2144,7 @@ describe("session exit proof reconciliation (bd-uxs.6)", () => {
     // Verify notifier was called with exit_failed event (not validated)
     expect(mockNotifier.notify).toHaveBeenCalled();
     const call = mockNotifier.notify.mock.calls.find(
-      (c: unknown) => (c[0] as { type: string })?.type === "session.exit_failed",
+      (c) => (c[0] as { type?: string } | undefined)?.type === "session.exit_failed",
     );
     expect(call).toBeDefined();
     expect((call[0] as { type: string }).type).toBe("session.exit_failed");
@@ -2213,7 +2214,7 @@ describe("session exit proof reconciliation (bd-uxs.6)", () => {
     // Verify notifier was called with exit_validated event
     expect(mockNotifier.notify).toHaveBeenCalled();
     const call = mockNotifier.notify.mock.calls.find(
-      (c: unknown) => (c[0] as { type: string })?.type === "session.exit_validated",
+      (c) => (c[0] as { type?: string } | undefined)?.type === "session.exit_validated",
     );
     expect(call).toBeDefined();
     expect((call[0] as { type: string }).type).toBe("session.exit_validated");
@@ -2280,7 +2281,7 @@ describe("session exit proof reconciliation (bd-uxs.6)", () => {
 
     // Verify notifier was called with exit_failed event (not exit_validated)
     const call = mockNotifier.notify.mock.calls.find(
-      (c: unknown) => (c[0] as { type: string })?.type === "session.exit_failed",
+      (c) => (c[0] as { type?: string } | undefined)?.type === "session.exit_failed",
     );
     expect(call).toBeDefined();
     expect((call[0] as { type: string }).type).toBe("session.exit_failed");
@@ -2352,7 +2353,7 @@ describe("session exit proof reconciliation (bd-uxs.6)", () => {
     // Verify notifier was called with exit_failed event
     expect(mockNotifier.notify).toHaveBeenCalled();
     const call = mockNotifier.notify.mock.calls.find(
-      (c: unknown) => (c[0] as { type: string })?.type === "session.exit_failed",
+      (c) => (c[0] as { type?: string } | undefined)?.type === "session.exit_failed",
     );
     expect(call).toBeDefined();
     expect((call[0] as { type: string }).type).toBe("session.exit_failed");
