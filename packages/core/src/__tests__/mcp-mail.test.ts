@@ -18,27 +18,27 @@ describe("AgentMailBridge", () => {
 
   it("sendGuidance creates message with correct fields", () => {
     const msg = bridge.sendGuidance("session-1", "retry with backoff");
-    expect(msg.from).toBe("orch-1");
-    expect(msg.to).toBe("session-1");
-    expect(msg.subject).toBe("Fix Strategy Guidance");
-    expect(msg.priority).toBe("high");
-    expect(msg.read).toBe(false);
+    expect(msg?.from).toBe("orch-1");
+    expect(msg?.to).toBe("session-1");
+    expect(msg?.subject).toBe("Fix Strategy Guidance");
+    expect(msg?.priority).toBe("high");
+    expect(msg?.read).toBe(false);
   });
 
   it("sendGuidance assigns unique IDs", () => {
     const a = bridge.sendGuidance("session-1", "strategy A");
     const b = bridge.sendGuidance("session-1", "strategy B");
-    expect(a.id).not.toBe(b.id);
+    expect(a?.id).not.toBe(b?.id);
   });
 
   it("sendStatusUpdate creates status message", () => {
     const msg = bridge.sendStatusUpdate("session-1", "running", "all good");
-    expect(msg.from).toBe("session-1");
-    expect(msg.to).toBe("orch-1");
-    expect(msg.subject).toBe("Status: running");
-    expect(msg.priority).toBe("normal");
-    expect(msg.body).toBe("all good");
-    expect(msg.read).toBe(false);
+    expect(msg?.from).toBe("session-1");
+    expect(msg?.to).toBe("orch-1");
+    expect(msg?.subject).toBe("Status: running");
+    expect(msg?.priority).toBe("normal");
+    expect(msg?.body).toBe("all good");
+    expect(msg?.read).toBe(false);
   });
 
   it("getInbox returns messages for agent", () => {
@@ -55,7 +55,7 @@ describe("AgentMailBridge", () => {
   it("markRead removes message from unread count", () => {
     const msg = bridge.sendGuidance("session-1", "fix it");
     expect(bridge.getUnreadCount("session-1")).toBe(1);
-    bridge.markRead(msg.id);
+    bridge.markRead(msg!.id);
     expect(bridge.getUnreadCount("session-1")).toBe(0);
   });
 
@@ -90,7 +90,71 @@ describe("AgentMailBridge", () => {
     const before = new Date().toISOString();
     const msg = bridge.sendGuidance("session-1", "test");
     const after = new Date().toISOString();
-    expect(msg.timestamp >= before).toBe(true);
-    expect(msg.timestamp <= after).toBe(true);
+    expect(msg!.timestamp >= before).toBe(true);
+    expect(msg!.timestamp <= after).toBe(true);
+  });
+
+  describe("enabled flag", () => {
+    let disabledBridge: AgentMailBridge;
+
+    beforeEach(() => {
+      disabledBridge = new AgentMailBridge({
+        orchestratorId: "orch-1",
+        enabled: false,
+      });
+    });
+
+    it("sendGuidance returns undefined when disabled", () => {
+      const msg = disabledBridge.sendGuidance("session-1", "retry");
+      expect(msg).toBeUndefined();
+    });
+
+    it("sendGuidance does not store messages when disabled", () => {
+      disabledBridge.sendGuidance("session-1", "retry");
+      expect(disabledBridge.getInbox("session-1")).toHaveLength(0);
+    });
+
+    it("sendStatusUpdate returns undefined when disabled", () => {
+      const msg = disabledBridge.sendStatusUpdate("session-1", "running");
+      expect(msg).toBeUndefined();
+    });
+
+    it("sendStatusUpdate does not store messages when disabled", () => {
+      disabledBridge.sendStatusUpdate("session-1", "running");
+      expect(disabledBridge.getInbox("orch-1")).toHaveLength(0);
+    });
+  });
+
+  describe("getInbox defensive copy", () => {
+    it("returns a copy — mutating returned array does not affect internal state", () => {
+      bridge.sendGuidance("session-1", "do X");
+      const inbox = bridge.getInbox("session-1");
+      expect(inbox).toHaveLength(1);
+
+      // Mutate the returned array
+      inbox.push({
+        id: "fake",
+        from: "attacker",
+        to: "session-1",
+        subject: "injected",
+        body: "bad",
+        priority: "low",
+        timestamp: new Date().toISOString(),
+        read: false,
+      });
+
+      // Internal state should be unaffected
+      expect(bridge.getInbox("session-1")).toHaveLength(1);
+    });
+
+    it("returns copied message objects — mutating them does not affect internal state", () => {
+      bridge.sendGuidance("session-1", "do X");
+      const inbox = bridge.getInbox("session-1");
+      inbox[0].subject = "TAMPERED";
+
+      // Internal state should be unaffected
+      const freshInbox = bridge.getInbox("session-1");
+      expect(freshInbox[0].subject).toBe("Fix Strategy Guidance");
+    });
   });
 });

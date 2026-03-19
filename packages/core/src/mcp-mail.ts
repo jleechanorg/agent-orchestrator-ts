@@ -25,7 +25,8 @@ export class AgentMailBridge {
     this.config = config;
   }
 
-  sendGuidance(sessionId: string, strategy: string, context?: string): AgentMailMessage {
+  sendGuidance(sessionId: string, strategy: string, context?: string): AgentMailMessage | undefined {
+    if (!this.config.enabled) return undefined;
     const msg: AgentMailMessage = {
       id: randomUUID(),
       from: this.config.orchestratorId,
@@ -36,15 +37,14 @@ export class AgentMailBridge {
       timestamp: new Date().toISOString(),
       read: false,
     };
-    if (this.config.enabled) {
-      const inbox = this.messages.get(sessionId) ?? [];
-      inbox.push(msg);
-      this.messages.set(sessionId, inbox);
-    }
+    const inbox = this.messages.get(sessionId) ?? [];
+    inbox.push(msg);
+    this.messages.set(sessionId, inbox);
     return msg;
   }
 
-  sendStatusUpdate(sessionId: string, status: string, details?: string): AgentMailMessage {
+  sendStatusUpdate(sessionId: string, status: string, details?: string): AgentMailMessage | undefined {
+    if (!this.config.enabled) return undefined;
     const msg: AgentMailMessage = {
       id: randomUUID(),
       from: sessionId,
@@ -55,38 +55,26 @@ export class AgentMailBridge {
       timestamp: new Date().toISOString(),
       read: false,
     };
-    if (this.config.enabled) {
-      const inbox = this.messages.get(this.config.orchestratorId) ?? [];
-      inbox.push(msg);
-      this.messages.set(this.config.orchestratorId, inbox);
-    }
+    const inbox = this.messages.get(this.config.orchestratorId) ?? [];
+    inbox.push(msg);
+    this.messages.set(this.config.orchestratorId, inbox);
     return msg;
   }
 
   getInbox(agentId: string): AgentMailMessage[] {
-    if (!this.config.enabled) {
-      return [];
-    }
-    return this.messages.get(agentId) ?? [];
+    const inbox = this.messages.get(agentId);
+    if (!inbox) return [];
+    return inbox.map((m) => ({ ...m }));
   }
 
   markRead(messageId: string): void {
-    if (!this.config.enabled) {
-      return;
-    }
     for (const inbox of this.messages.values()) {
       const msg = inbox.find((m) => m.id === messageId);
-      if (msg) {
-        msg.read = true;
-        return;
-      }
+      if (msg) { msg.read = true; return; }
     }
   }
 
   getUnreadCount(agentId: string): number {
-    if (!this.config.enabled) {
-      return 0;
-    }
     return (this.messages.get(agentId) ?? []).filter((m) => !m.read).length;
   }
 }
