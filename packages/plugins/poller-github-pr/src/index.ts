@@ -209,15 +209,20 @@ export function create(config?: Record<string, unknown>): Poller & { setSessionM
       const reasons = (workItem.metadata?.reasons as string[]) ?? [];
       const prNumber = workItem.metadata?.prNumber as number | undefined;
 
-      const prompt =
-        config.prompt ??
-        [
-          `Fix PR #${prNumber ?? workItem.id}: ${workItem.title}`,
-          `URL: ${workItem.url}`,
-          reasons.length > 0 ? `Issues: ${reasons.join(", ")}` : "",
-        ]
-          .filter(Boolean)
-          .join("\n");
+      // Build PR-specific context that enriches any upstream prompt
+      const prContext = [
+        `Fix PR #${prNumber ?? workItem.id}: ${workItem.title}`,
+        `URL: ${workItem.url}`,
+        reasons.length > 0 ? `Issues: ${reasons.join(", ")}` : "",
+      ]
+        .filter(Boolean)
+        .join("\n");
+
+      // If an upstream prompt was provided (e.g., from poller-manager template),
+      // append PR-specific reasons so they are not lost.
+      const prompt = config.prompt
+        ? `${config.prompt}\n\n${prContext}`
+        : prContext;
 
       return sessionManager.spawn({
         ...config,

@@ -121,6 +121,11 @@ describe("poller-github-pr plugin module", () => {
     expect(typeof poller.poll).toBe("function");
     expect(typeof poller.spawnSession).toBe("function");
   });
+
+  it("exposes setSessionManager for late injection", () => {
+    const poller = create();
+    expect(typeof poller.setSessionManager).toBe("function");
+  });
 });
 
 describe("poll()", () => {
@@ -272,6 +277,36 @@ describe("spawnSession()", () => {
     );
   });
 
+  it("works with setSessionManager (late injection from poller-manager)", async () => {
+    const fakeSession = { id: "test-late" } as unknown as Session;
+    const mockSessionManager: Partial<SessionManager> = {
+      spawn: vi.fn().mockResolvedValue(fakeSession),
+    };
+
+    // Create without sessionManager, then inject late
+    const poller = create();
+    poller.setSessionManager(mockSessionManager as SessionManager);
+
+    const workItem: PollerWorkItem = {
+      id: "pr-10",
+      type: "open-pr",
+      title: "Late Inject PR",
+      url: "https://github.com/owner/repo/pull/10",
+      metadata: { prNumber: 10, reasons: ["ci-failing"] },
+    };
+
+    const spawnConfig: SessionSpawnConfig = { projectId: "test-project" };
+    const result = await poller.spawnSession(workItem, "test-project", spawnConfig);
+
+    expect(result).toBe(fakeSession);
+    expect(mockSessionManager.spawn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        projectId: "test-project",
+        prompt: expect.stringContaining("Late Inject PR"),
+      }),
+    );
+  });
+
   it("uses custom prompt from config when provided", async () => {
     const fakeSession = { id: "test-1" } as unknown as Session;
     const mockSessionManager: Partial<SessionManager> = {
@@ -292,8 +327,10 @@ describe("spawnSession()", () => {
     const spawnConfig: SessionSpawnConfig = { projectId: "test-project", prompt: customPrompt };
     await poller.spawnSession(workItem, "test-project", spawnConfig);
 
-    expect(mockSessionManager.spawn).toHaveBeenCalledWith(
-      expect.objectContaining({ prompt: customPrompt }),
-    );
+    // Custom prompt is enriched with PR-specific context (reasons, URL)
+    const spawnCall = (mockSessionManager.spawn as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(spawnCall.prompt).toContain(customPrompt);
+    expect(spawnCall.prompt).toContain("Failing CI PR");
+    expect(spawnCall.prompt).toContain("ci-failing");
   });
 });
