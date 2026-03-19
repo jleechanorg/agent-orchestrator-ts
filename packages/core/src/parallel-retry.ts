@@ -114,8 +114,11 @@ export class ParallelRetryMonitor {
     const race = this.races.get(raceId);
     if (!race) throw new Error(`Race not found: ${raceId}`);
 
-    const scmName =
-      this.config.projects[race.projectId]?.scm?.plugin ?? "github";
+    if (race.status === "won" || race.status === "failed" || race.status === "cancelled") {
+      return race;
+    }
+
+    const scmName = this.config.projects[race.projectId]?.scm?.plugin ?? "github";
     const scm = this.registry.get<SCM>("scm", scmName);
 
     let allFailedOrTerminal = true;
@@ -158,9 +161,7 @@ export class ParallelRetryMonitor {
   /**
    * Resolve a won race: kill losers (unless killOnSuccess is false), return winner.
    */
-  async resolveRace(
-    raceId: string,
-  ): Promise<{ winner: RaceEntry; losers: RaceEntry[] }> {
+  async resolveRace(raceId: string): Promise<{ winner: RaceEntry; losers: RaceEntry[] }> {
     const race = this.races.get(raceId);
     if (!race) throw new Error(`Race not found: ${raceId}`);
     if (race.status !== "won") {
