@@ -185,6 +185,25 @@ describe("PatternSynthesizer", () => {
     expect(result).toBeNull();
   });
 
+  it("confidenceThreshold option adjusts confidence levels", async () => {
+    // With threshold 0.9: high≥0.9, medium≥0.5625
+    const customSynth = new PatternSynthesizer({
+      outcomesPath,
+      patternsPath,
+      confidenceThreshold: 0.9,
+    });
+    const lines: string[] = [];
+    // winRate 0.83 → would be "high" at default 0.8, but "medium" at 0.9
+    for (let i = 0; i < 5; i++) lines.push(makeOutcome("build-fail", "rebuild", true, 200));
+    lines.push(makeOutcome("build-fail", "rebuild", false));
+    writeFileSync(outcomesPath, lines.join("\n"), "utf-8");
+
+    await customSynth.synthesize();
+    const pattern = await customSynth.getPattern("build-fail");
+    expect(pattern).not.toBeNull();
+    expect(pattern!.confidence).toBe("medium");
+  });
+
   it("getAllPatterns returns all synthesized patterns", async () => {
     const lines: string[] = [];
     for (let i = 0; i < 5; i++) lines.push(makeOutcome("ci-failed", "retry", true, 100));

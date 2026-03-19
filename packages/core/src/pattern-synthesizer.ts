@@ -40,9 +40,12 @@ function isOutcomeRecord(value: unknown): value is OutcomeRecord {
   );
 }
 
-function assignConfidence(winRate: number): "high" | "medium" | "low" {
-  if (winRate >= 0.8) return "high";
-  if (winRate >= 0.5) return "medium";
+function assignConfidence(
+  winRate: number,
+  thresholds: { high: number; medium: number },
+): "high" | "medium" | "low" {
+  if (winRate >= thresholds.high) return "high";
+  if (winRate >= thresholds.medium) return "medium";
   return "low";
 }
 
@@ -50,11 +53,14 @@ export class PatternSynthesizer {
   private readonly outcomesPath: string;
   private readonly patternsPath: string;
   private readonly minSamples: number;
+  private readonly confidenceThreshold: { high: number; medium: number };
 
   constructor(options: PatternSynthesizerOptions) {
     this.outcomesPath = options.outcomesPath;
     this.patternsPath = options.patternsPath;
     this.minSamples = options.minSamples ?? 5;
+    const ct = options.confidenceThreshold ?? 0.8;
+    this.confidenceThreshold = { high: ct, medium: ct * 0.625 };
   }
 
   async synthesize(): Promise<void> {
@@ -116,7 +122,7 @@ export class PatternSynthesizer {
           winRate: bestWinRate,
           sampleCount: bestSampleCount,
           avgDurationMs: bestAvgDuration,
-          confidence: assignConfidence(bestWinRate),
+          confidence: assignConfidence(bestWinRate, this.confidenceThreshold),
         });
       }
     }
