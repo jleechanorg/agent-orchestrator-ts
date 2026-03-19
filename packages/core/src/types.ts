@@ -1120,6 +1120,8 @@ export interface RecordedOutcome {
   trigger: string;
   /** What action was taken */
   action: string;
+  /** Strategy used (e.g., "retry-with-fix", "escalate-to-human") */
+  strategy?: string;
   /** Whether the action succeeded */
   success: boolean;
   /** Duration in ms */

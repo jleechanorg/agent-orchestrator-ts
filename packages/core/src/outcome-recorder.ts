@@ -41,9 +41,9 @@ export class OutcomeRecorder {
     });
   }
 
-  getWinRate(trigger: string, action: string): number {
+  getWinRate(strategy: string, action: string): number {
     const matching = this.readAll().filter(
-      (o) => o.trigger === trigger && o.action === action,
+      (o) => o.strategy === strategy && o.action === action,
     );
     if (matching.length === 0) return 0;
     const wins = matching.filter((o) => o.success).length;
@@ -51,10 +51,10 @@ export class OutcomeRecorder {
   }
 
   getTopStrategies(
-    trigger: string,
+    strategy: string,
     limit?: number,
   ): Array<{ action: string; winRate: number; count: number }> {
-    const outcomes = this.readAll().filter((o) => o.trigger === trigger);
+    const outcomes = this.readAll().filter((o) => o.strategy === strategy);
     const byAction = new Map<string, { wins: number; total: number }>();
 
     for (const o of outcomes) {
@@ -86,9 +86,15 @@ export class OutcomeRecorder {
   private readAll(): RecordedOutcome[] {
     if (!existsSync(this.storagePath)) return [];
     const content = readFileSync(this.storagePath, "utf-8");
-    return content
-      .split("\n")
-      .filter((line) => line.trim().length > 0)
-      .map((line) => JSON.parse(line) as RecordedOutcome);
+    const outcomes: RecordedOutcome[] = [];
+    for (const line of content.split("\n")) {
+      if (line.trim().length === 0) continue;
+      try {
+        outcomes.push(JSON.parse(line) as RecordedOutcome);
+      } catch {
+        // Skip malformed JSONL lines
+      }
+    }
+    return outcomes;
   }
 }

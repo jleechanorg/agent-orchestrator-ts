@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach, afterEach } from "vitest";
-import { mkdirSync, rmSync, readFileSync, existsSync } from "node:fs";
+import { mkdirSync, rmSync, readFileSync, existsSync, appendFileSync } from "node:fs";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { tmpdir } from "node:os";
@@ -12,6 +12,7 @@ function makeOutcome(overrides: Partial<RecordedOutcome> = {}): RecordedOutcome 
     projectId: "proj-1",
     trigger: "ci-failed",
     action: "fix-lint",
+    strategy: "retry-with-fix",
     success: true,
     recordedAt: new Date().toISOString(),
     ...overrides,
@@ -101,32 +102,32 @@ describe("OutcomeRecorder", () => {
     results.forEach((r) => expect(r.projectId).toBe("proj-1"));
   });
 
-  it("getWinRate returns correct percentage", () => {
-    recorder.record(makeOutcome({ trigger: "ci-failed", action: "fix-lint", success: true }));
-    recorder.record(makeOutcome({ trigger: "ci-failed", action: "fix-lint", success: true }));
-    recorder.record(makeOutcome({ trigger: "ci-failed", action: "fix-lint", success: false }));
+  it("getWinRate groups by strategy, not trigger", () => {
+    recorder.record(makeOutcome({ strategy: "retry-with-fix", action: "fix-lint", success: true }));
+    recorder.record(makeOutcome({ strategy: "retry-with-fix", action: "fix-lint", success: true }));
+    recorder.record(makeOutcome({ strategy: "retry-with-fix", action: "fix-lint", success: false }));
 
-    const rate = recorder.getWinRate("ci-failed", "fix-lint");
+    const rate = recorder.getWinRate("retry-with-fix", "fix-lint");
     expect(rate).toBeCloseTo(2 / 3);
   });
 
   it("getWinRate returns 0 for unknown combo", () => {
-    const rate = recorder.getWinRate("unknown-trigger", "unknown-action");
+    const rate = recorder.getWinRate("unknown-strategy", "unknown-action");
     expect(rate).toBe(0);
   });
 
-  it("getTopStrategies ranks by win rate descending", () => {
+  it("getTopStrategies ranks by win rate descending, grouped by strategy", () => {
     // fix-lint: 2/3 wins = 0.667
-    recorder.record(makeOutcome({ trigger: "ci-failed", action: "fix-lint", success: true }));
-    recorder.record(makeOutcome({ trigger: "ci-failed", action: "fix-lint", success: true }));
-    recorder.record(makeOutcome({ trigger: "ci-failed", action: "fix-lint", success: false }));
+    recorder.record(makeOutcome({ strategy: "retry-with-fix", action: "fix-lint", success: true }));
+    recorder.record(makeOutcome({ strategy: "retry-with-fix", action: "fix-lint", success: true }));
+    recorder.record(makeOutcome({ strategy: "retry-with-fix", action: "fix-lint", success: false }));
 
     // fix-test: 3/3 wins = 1.0
-    recorder.record(makeOutcome({ trigger: "ci-failed", action: "fix-test", success: true }));
-    recorder.record(makeOutcome({ trigger: "ci-failed", action: "fix-test", success: true }));
-    recorder.record(makeOutcome({ trigger: "ci-failed", action: "fix-test", success: true }));
+    recorder.record(makeOutcome({ strategy: "retry-with-fix", action: "fix-test", success: true }));
+    recorder.record(makeOutcome({ strategy: "retry-with-fix", action: "fix-test", success: true }));
+    recorder.record(makeOutcome({ strategy: "retry-with-fix", action: "fix-test", success: true }));
 
-    const strategies = recorder.getTopStrategies("ci-failed");
+    const strategies = recorder.getTopStrategies("retry-with-fix");
     expect(strategies[0].action).toBe("fix-test");
     expect(strategies[0].winRate).toBe(1.0);
     expect(strategies[1].action).toBe("fix-lint");
@@ -134,11 +135,11 @@ describe("OutcomeRecorder", () => {
   });
 
   it("getTopStrategies respects limit parameter", () => {
-    recorder.record(makeOutcome({ trigger: "ci-failed", action: "a1", success: true }));
-    recorder.record(makeOutcome({ trigger: "ci-failed", action: "a2", success: true }));
-    recorder.record(makeOutcome({ trigger: "ci-failed", action: "a3", success: true }));
+    recorder.record(makeOutcome({ strategy: "retry-with-fix", action: "a1", success: true }));
+    recorder.record(makeOutcome({ strategy: "retry-with-fix", action: "a2", success: true }));
+    recorder.record(makeOutcome({ strategy: "retry-with-fix", action: "a3", success: true }));
 
-    const strategies = recorder.getTopStrategies("ci-failed", 2);
+    const strategies = recorder.getTopStrategies("retry-with-fix", 2);
     expect(strategies).toHaveLength(2);
   });
 
@@ -154,5 +155,61 @@ describe("OutcomeRecorder", () => {
     const filePath = join(testDir, "outcomes.jsonl");
     expect(existsSync(filePath)).toBe(true);
     expect(readFileSync(filePath, "utf-8")).toBe("");
+  });
+
+  it("getWinRate isolates different strategies for the same trigger", () => {
+    recorder.record(makeOutcome({ trigger: "ci-failed", strategy: "retry-with-fix", action: "fix-lint", success: true }));
+    recorder.record(makeOutcome({ trigger: "ci-failed", strategy: "retry-with-fix", action: "fix-lint", success: false }));
+    recorder.record(makeOutcome({ trigger: "ci-failed", strategy: "escalate-to-human", action: "fix-lint", success: false }));
+    recorder.record(makeOutcome({ trigger: "ci-failed", strategy: "escalate-to-human", action: "fix-lint", success: false }));
+
+    expect(recorder.getWinRate("retry-with-fix", "fix-lint")).toBeCloseTo(0.5);
+    expect(recorder.getWinRate("escalate-to-human", "fix-lint")).toBe(0);
+  });
+
+  it("getTopStrategies only returns actions for the requested strategy", () => {
+    recorder.record(makeOutcome({ strategy: "retry-with-fix", action: "fix-lint", success: true }));
+    recorder.record(makeOutcome({ strategy: "escalate-to-human", action: "notify-team", success: true }));
+
+    const retryStrategies = recorder.getTopStrategies("retry-with-fix");
+    expect(retryStrategies).toHaveLength(1);
+    expect(retryStrategies[0].action).toBe("fix-lint");
+
+    const escalateStrategies = recorder.getTopStrategies("escalate-to-human");
+    expect(escalateStrategies).toHaveLength(1);
+    expect(escalateStrategies[0].action).toBe("notify-team");
+  });
+
+  it("readAll skips malformed JSONL lines without crashing", () => {
+    const filePath = join(testDir, "outcomes.jsonl");
+    recorder.record(makeOutcome({ action: "valid-1" }));
+    appendFileSync(filePath, "THIS IS NOT JSON\n", "utf-8");
+    appendFileSync(filePath, "{broken json\n", "utf-8");
+    recorder.record(makeOutcome({ action: "valid-2" }));
+
+    const results = recorder.query({});
+    expect(results).toHaveLength(2);
+    expect(results[0].action).toBe("valid-1");
+    expect(results[1].action).toBe("valid-2");
+  });
+
+  it("getWinRate handles malformed JSONL lines gracefully", () => {
+    const filePath = join(testDir, "outcomes.jsonl");
+    recorder.record(makeOutcome({ strategy: "retry-with-fix", action: "fix-lint", success: true }));
+    appendFileSync(filePath, "CORRUPT LINE\n", "utf-8");
+    recorder.record(makeOutcome({ strategy: "retry-with-fix", action: "fix-lint", success: false }));
+
+    const rate = recorder.getWinRate("retry-with-fix", "fix-lint");
+    expect(rate).toBeCloseTo(0.5);
+  });
+
+  it("getTopStrategies handles malformed JSONL lines gracefully", () => {
+    const filePath = join(testDir, "outcomes.jsonl");
+    recorder.record(makeOutcome({ strategy: "retry-with-fix", action: "fix-lint", success: true }));
+    appendFileSync(filePath, "NOT VALID JSON\n", "utf-8");
+
+    const strategies = recorder.getTopStrategies("retry-with-fix");
+    expect(strategies).toHaveLength(1);
+    expect(strategies[0].action).toBe("fix-lint");
   });
 });
