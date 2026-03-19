@@ -85,7 +85,8 @@ export async function generateEvidenceBundle(
 ): Promise<EvidenceBundle> {
   const ciChecks = await scm.getCIChecks(pr);
 
-  const nameOnlyOutput = execSync("git diff --name-only HEAD~1 HEAD", {
+  const baseBranch = `origin/${pr.baseBranch}`;
+  const nameOnlyOutput = execSync(`git diff --name-only ${baseBranch} HEAD`, {
     cwd: workspacePath,
     encoding: "utf8",
   });
@@ -93,7 +94,7 @@ export async function generateEvidenceBundle(
     .split("\n")
     .filter((f) => f.trim().length > 0);
 
-  const statOutput = execSync("git diff --stat HEAD~1 HEAD", {
+  const statOutput = execSync(`git diff --stat ${baseBranch} HEAD`, {
     cwd: workspacePath,
     encoding: "utf8",
   });
