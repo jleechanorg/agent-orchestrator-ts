@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach, afterEach } from "vitest";
-import { mkdirSync, rmSync, readFileSync } from "node:fs";
+import { mkdirSync, rmSync, readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
@@ -155,6 +155,75 @@ describe("SlackOutbox", () => {
 
       expect(processed).toHaveLength(3);
       expect(await outbox.getOutboxLength()).toBe(0);
+    });
+  });
+
+  describe("parent directory creation", () => {
+    it("creates parent dirs for outbox on enqueue", async () => {
+      const nestedDir = join(tmpDir, "nested", "deep");
+      const nestedConfig: OutboxConfig = {
+        ...config,
+        outboxPath: join(nestedDir, "outbox.jsonl"),
+        deadLetterPath: join(nestedDir, "dead-letter.jsonl"),
+      };
+      const nestedOutbox = new SlackOutbox({ config: nestedConfig });
+
+      expect(existsSync(nestedDir)).toBe(false);
+      await nestedOutbox.enqueue("hello");
+      expect(existsSync(nestedDir)).toBe(true);
+      expect(await nestedOutbox.getOutboxLength()).toBe(1);
+    });
+
+    it("creates parent dirs for dead-letter on move", async () => {
+      const dlDir = join(tmpDir, "other", "path");
+      const dlConfig: OutboxConfig = {
+        ...config,
+        deadLetterPath: join(dlDir, "dead-letter.jsonl"),
+        maxRetries: 1,
+      };
+      const dlOutbox = new SlackOutbox({ config: dlConfig });
+      await dlOutbox.enqueue("doomed");
+      await dlOutbox.processNext(async () => {
+        throw new Error("fail");
+      });
+      expect(existsSync(dlDir)).toBe(true);
+      expect(await dlOutbox.getDeadLetterLength()).toBe(1);
+    });
+  });
+
+  describe("in-flight deduplication", () => {
+    it("marks entry as in-flight in JSONL before sending", async () => {
+      await outbox.enqueue("test message");
+      let statusDuringSend: string | undefined;
+
+      await outbox.processNext(async (_entry) => {
+        // While the sender is running, read the JSONL to verify in-flight status
+        const raw = readFileSync(config.outboxPath, "utf-8").trim();
+        const entries = raw.split("\n").map((l) => JSON.parse(l) as OutboxEntry);
+        statusDuringSend = entries[0].status;
+      });
+
+      expect(statusDuringSend).toBe("in-flight");
+    });
+
+    it("in-flight entries are not picked up by concurrent processNext", async () => {
+      await outbox.enqueue("msg1");
+      await outbox.enqueue("msg2");
+
+      // First processNext picks msg1 (higher priority by insertion order, same priority)
+      // Inside the sender, a second processNext should skip in-flight msg1
+      const processed: string[] = [];
+      await outbox.processNext(async (entry) => {
+        processed.push(entry.message);
+        // Simulate a concurrent worker calling processNext while msg1 is in-flight
+        const result = await outbox.processNext(async (e) => {
+          processed.push(e.message);
+        });
+        expect(result).not.toBeNull();
+      });
+
+      // Both messages should be processed, msg1 first then msg2
+      expect(processed).toEqual(["msg1", "msg2"]);
     });
   });
 
