@@ -16,6 +16,12 @@ export interface MergeGateResult {
   blockers: string[];
 }
 
+function getLatestReviewByAuthor(reviews: Array<{ author: string; submittedAt: Date }>, author: string) {
+  return reviews
+    .filter((r) => r.author === author)
+    .sort((a, b) => b.submittedAt.getTime() - a.submittedAt.getTime())[0];
+}
+
 export async function checkMergeGate(
   pr: PRInfo,
   config: MergeGateConfig,
@@ -49,13 +55,12 @@ export async function checkMergeGate(
   });
 
   // 3. CodeRabbit approved
-  const coderabbitReview = reviews.find(
-    (r) => r.author === "coderabbitai" && r.state === "approved",
-  );
+  const coderabbitReview = getLatestReviewByAuthor(reviews, "coderabbitai");
+  const coderabbitApproved = coderabbitReview?.state === "approved";
   checks.push({
     name: "CodeRabbit approved",
-    passed: !!coderabbitReview,
-    detail: coderabbitReview
+    passed: coderabbitApproved,
+    detail: coderabbitApproved
       ? "CodeRabbit approved"
       : "No CodeRabbit approval found",
   });
@@ -96,10 +101,8 @@ export async function checkMergeGate(
   const evidenceRequired = config.requiredChecks?.includes("evidence-review");
   let evidencePassed = true;
   if (evidenceRequired) {
-    const evidenceReview = reviews.find(
-      (r) => r.author === "evidence-review-bot" && r.state === "approved",
-    );
-    evidencePassed = !!evidenceReview;
+    const evidenceReview = getLatestReviewByAuthor(reviews, "evidence-review-bot");
+    evidencePassed = evidenceReview?.state === "approved";
   }
   checks.push({
     name: "Evidence review pass",
