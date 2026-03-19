@@ -1373,4 +1373,51 @@ describe("scm-github plugin", () => {
       expect(result.mergeable).toBe(false);
     });
   });
+
+  describe("rate limit handling", () => {
+    beforeEach(() => {
+      // Mock setTimeout to resolve immediately for rate limit tests
+      vi.spyOn(global, "setTimeout").mockImplementation((cb: () => void) => {
+        cb();
+        return 0 as unknown as NodeJS.Timeout;
+      });
+    });
+
+    it("retries on rate limit error and succeeds", async () => {
+      // First two calls fail with rate limit, third succeeds
+      ghMock
+        .mockRejectedValueOnce(new Error("GraphQL rate limit exceeded"))
+        .mockRejectedValueOnce(new Error("API rate limit"))
+        .mockResolvedValueOnce({ stdout: JSON.stringify({ state: "open" }) });
+
+      const scm = await create({});
+      const result = await scm.getPRState(pr);
+
+      expect(result).toBe("open");
+      expect(ghMock).toHaveBeenCalledTimes(3);
+    });
+
+    it("throws after max retries exhausted", async () => {
+      // All calls fail with rate limit
+      ghMock
+        .mockRejectedValueOnce(new Error("rate limit"))
+        .mockRejectedValueOnce(new Error("rate limit"))
+        .mockRejectedValueOnce(new Error("rate limit"));
+
+      const scm = await create({});
+
+      await expect(scm.getPRState(pr)).rejects.toThrow();
+      expect(ghMock).toHaveBeenCalledTimes(3);
+    });
+
+    it("does not retry non-rate-limit errors", async () => {
+      // Non-rate-limit error should not retry
+      ghMock.mockRejectedValueOnce(new Error("Not found"));
+
+      const scm = await create({});
+
+      await expect(scm.getPRState(pr)).rejects.toThrow("Not found");
+      expect(ghMock).toHaveBeenCalledTimes(1);
+    });
+  });
 });

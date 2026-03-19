@@ -62,6 +62,116 @@ function buildBotAuthors(config?: Record<string, unknown>): Set<string> {
 }
 
 // ---------------------------------------------------------------------------
+// Rate Limit Handling
+// ---------------------------------------------------------------------------
+
+const RATE_LIMIT_ERROR_PATTERNS = [
+  "rate limit",
+  "rate Limit",
+  "API rate limit",
+  "GraphQL rate limit",
+  "rate limit exceeded",
+  "Too Many Requests",
+  "429",
+];
+
+function isRateLimitError(error: unknown): boolean {
+  const msg = error instanceof Error ? error.message : String(error);
+  return RATE_LIMIT_ERROR_PATTERNS.some((pattern) => msg.toLowerCase().includes(pattern.toLowerCase()));
+}
+
+async function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Execute gh CLI with rate limit retry and fallback to REST API.
+ * Uses exponential backoff for rate limit errors, then falls back to curl-based REST calls.
+ */
+async function ghWithRetry(args: string[], maxRetries = 3): Promise<string> {
+  let lastError: unknown;
+
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      return await execCli("gh", args);
+    } catch (err) {
+      lastError = err;
+
+      // Check if it's a rate limit error
+      if (isRateLimitError(err)) {
+        const backoffMs = Math.min(1000 * Math.pow(2, attempt), 30000); // Max 30s backoff
+        console.warn(`GitHub rate limit detected, retrying in ${backoffMs}ms (attempt ${attempt + 1}/${maxRetries})`);
+        await sleep(backoffMs);
+      } else {
+        // Non-rate-limit error, don't retry
+        throw err;
+      }
+    }
+  }
+
+  // All retries exhausted, try fallback REST API
+  console.warn("Gh CLI rate limit retries exhausted, trying REST API fallback");
+  return await ghRestFallback(args);
+}
+
+/**
+ * Fallback to direct REST API calls using curl when gh CLI is rate limited.
+ * Extracts the API endpoint from gh args and calls it directly.
+ */
+async function ghRestFallback(args: string[]): Promise<string> {
+  // Parse gh args to construct REST API URL
+  // gh api repos/owner/repo/pulls -> GET /repos/owner/repo/pulls
+  const apiIndex = args.indexOf("api");
+  if (apiIndex === -1) {
+    throw new Error("Cannot construct REST fallback URL from gh args");
+  }
+
+  // Build the REST path from remaining args
+  const restPath = args.slice(apiIndex + 1).join("/").replace("repos/", "");
+
+  // Use curl with auth from gh config
+  const curlArgs = [
+    "-s",
+    "-H", "Accept: application/vnd.github+json",
+    "-H", "X-GitHub-Api-Version: 2022-11-28",
+    `https://api.github.com/${restPath}`,
+  ];
+
+  try {
+    const { stdout } = await execFileAsync("curl", curlArgs);
+    return stdout.trim();
+  } catch (err) {
+    throw new Error(`REST fallback failed: ${(err as Error).message}`, { cause: err });
+  }
+}
+
+/**
+ * ghWithRetry variant that works with a specific working directory.
+ */
+async function ghWithRetryDir(args: string[], cwd: string, maxRetries = 3): Promise<string> {
+  let lastError: unknown;
+
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      return await execCli("gh", args, cwd);
+    } catch (err) {
+      lastError = err;
+
+      if (isRateLimitError(err)) {
+        const backoffMs = Math.min(1000 * Math.pow(2, attempt), 30000);
+        console.warn(`GitHub rate limit detected, retrying in ${backoffMs}ms (attempt ${attempt + 1}/${maxRetries})`);
+        await sleep(backoffMs);
+      } else {
+        throw err;
+      }
+    }
+  }
+
+  console.warn("Gh CLI rate limit retries exhausted, trying REST API fallback");
+  return await ghRestFallback(args);
+}
+
+// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
@@ -83,11 +193,11 @@ async function execCli(bin: ExecCommand, args: string[], cwd?: string): Promise<
 }
 
 async function gh(args: string[]): Promise<string> {
-  return execCli("gh", args);
+  return ghWithRetry(args);
 }
 
 async function ghInDir(args: string[], cwd: string): Promise<string> {
-  return execCli("gh", args, cwd);
+  return ghWithRetryDir(args, cwd);
 }
 
 async function git(args: string[], cwd: string): Promise<string> {
