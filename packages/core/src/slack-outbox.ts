@@ -121,8 +121,12 @@ export class SlackOutbox {
         await this.moveToDeadLetter(entry, entry.lastError);
       }
     } finally {
-      if (sendPromise && !timedOut) {
-        await sendPromise.catch(() => {});
+      if (sendPromise) {
+        if (!timedOut) {
+          await sendPromise.catch(() => {});
+        } else {
+          sendPromise.catch(() => {});
+        }
       }
       this.inFlightSends.delete(entry.id);
     }
