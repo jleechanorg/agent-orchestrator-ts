@@ -36,9 +36,11 @@ export class AgentMailBridge {
       timestamp: new Date().toISOString(),
       read: false,
     };
-    const inbox = this.messages.get(sessionId) ?? [];
-    inbox.push(msg);
-    this.messages.set(sessionId, inbox);
+    if (this.config.enabled) {
+      const inbox = this.messages.get(sessionId) ?? [];
+      inbox.push(msg);
+      this.messages.set(sessionId, inbox);
+    }
     return msg;
   }
 
@@ -53,24 +55,38 @@ export class AgentMailBridge {
       timestamp: new Date().toISOString(),
       read: false,
     };
-    const inbox = this.messages.get(this.config.orchestratorId) ?? [];
-    inbox.push(msg);
-    this.messages.set(this.config.orchestratorId, inbox);
+    if (this.config.enabled) {
+      const inbox = this.messages.get(this.config.orchestratorId) ?? [];
+      inbox.push(msg);
+      this.messages.set(this.config.orchestratorId, inbox);
+    }
     return msg;
   }
 
   getInbox(agentId: string): AgentMailMessage[] {
+    if (!this.config.enabled) {
+      return [];
+    }
     return this.messages.get(agentId) ?? [];
   }
 
   markRead(messageId: string): void {
+    if (!this.config.enabled) {
+      return;
+    }
     for (const inbox of this.messages.values()) {
       const msg = inbox.find((m) => m.id === messageId);
-      if (msg) { msg.read = true; return; }
+      if (msg) {
+        msg.read = true;
+        return;
+      }
     }
   }
 
   getUnreadCount(agentId: string): number {
+    if (!this.config.enabled) {
+      return 0;
+    }
     return (this.messages.get(agentId) ?? []).filter((m) => !m.read).length;
   }
 }
