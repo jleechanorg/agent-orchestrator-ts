@@ -594,6 +594,24 @@ export interface SCM {
 
   /** Check if PR is ready to merge */
   getMergeability(pr: PRInfo): Promise<MergeReadiness>;
+
+  // --- Session Exit Reconciliation (bd-uxs.6) ---
+
+  /**
+   * Validate commits for session exit reconciliation.
+   * Returns proof of work: local commits, remote commits, and push status.
+   */
+  validateCommits?(
+    session: Session,
+    project: ProjectConfig,
+  ): Promise<{
+    /** Commits that exist locally but may not be on remote */
+    localCommits: string[];
+    /** Commits that are on remote beyond the base branch */
+    remoteCommits: string[];
+    /** Whether all local work is on remote */
+    pushed: boolean;
+  }>;
 }
 
 // --- PR Types ---
@@ -757,6 +775,60 @@ export interface NotifyContext {
 }
 
 // =============================================================================
+// POLLER — Plugin Slot 8 (bd-uxs.2)
+// =============================================================================
+
+/**
+ * Poller scans for work to do and spawns sessions.
+ * This is the "outer initiation loop" - the AO is missing this capability.
+ *
+ * Use cases:
+ * - Scan open PRs without agents and spawn fix sessions
+ * - Monitor issue trackers for new tasks
+ * - Poll external queues for work
+ */
+export interface Poller {
+  readonly name: string;
+
+  /**
+   * Poll for work items.
+   * Returns a list of work items that need attention.
+   */
+  poll(projectId: string): Promise<PollerWorkItem[]>;
+
+  /**
+   * Spawn a session for a work item.
+   * Returns the session ID or null if spawning failed.
+   */
+  spawnSession(
+    workItem: PollerWorkItem,
+    projectId: string,
+    config: SessionSpawnConfig,
+  ): Promise<Session | null>;
+}
+
+/** A work item discovered by a poller */
+export interface PollerWorkItem {
+  /** Unique identifier for this work item */
+  id: string;
+
+  /** Type of work (e.g., "open-pr", "new-issue") */
+  type: string;
+
+  /** Human-readable title */
+  title: string;
+
+  /** URL to the work item */
+  url: string;
+
+  /** Priority (lower = higher priority) */
+  priority?: number;
+
+  /** Additional metadata */
+  metadata?: Record<string, unknown>;
+}
+
+// =============================================================================
 // TERMINAL — Plugin Slot 7
 // =============================================================================
 
@@ -822,6 +894,9 @@ export type EventType =
   // Reactions
   | "reaction.triggered"
   | "reaction.escalated"
+  // Session exit reconciliation (bd-uxs.6)
+  | "session.exit_validated"
+  | "session.exit_failed"
   // Summary
   | "summary.all_complete";
 
@@ -846,8 +921,8 @@ export interface ReactionConfig {
   /** Whether this reaction is enabled */
   auto: boolean;
 
-  /** What to do: send message to agent, notify human, auto-merge, request-merge */
-  action: "send-to-agent" | "notify" | "auto-merge" | "request-merge";
+  /** What to do: send message to agent, notify human, auto-merge, request-merge, parallel-retry */
+  action: "send-to-agent" | "notify" | "auto-merge" | "request-merge" | "parallel-retry";
 
   /** Message to send (for send-to-agent) */
   message?: string;
@@ -869,6 +944,33 @@ export interface ReactionConfig {
 
   /** Merge method for auto-merge/reaction-merge reaction (merge, squash, or rebase) */
   mergeMethod?: "merge" | "squash" | "rebase";
+
+  // bd-uxs.3: Escalation router - failure budgets
+
+  /** Failure budget: max failures before routing changes */
+  failureBudget?: {
+    /** Max failures before budget is exhausted */
+    max: number;
+    /** Window for budget reset (e.g., "1h", "24h") */
+    window?: string;
+  };
+
+  /** What to do when failure budget is exhausted */
+  onBudgetExhausted?: "escalate" | "disable" | "route-to" | "notify";
+  /** Agent/route to send to when budget exhausted (for route-to action) */
+  routeToAgent?: string;
+
+  // bd-uxs.4: Parallel retry action
+
+  /** Parallel retry: spawn multiple sessions, first-green-wins */
+  parallelRetry?: {
+    /** Max parallel sessions to spawn */
+    maxParallel: number;
+    /** Strategies to try in parallel (each gets its own session) */
+    strategies: string[];
+    /** Kill losing sessions when one succeeds */
+    killOnSuccess?: boolean;
+  };
 }
 
 export interface ReactionResult {
@@ -877,6 +979,25 @@ export interface ReactionResult {
   action: string;
   message?: string;
   escalated: boolean;
+}
+
+/** Proof payload for session exit reconciliation (bd-uxs.6) */
+export interface SessionExitProof {
+  sessionId: SessionId;
+  projectId: string;
+  exitStatus: SessionStatus;
+  /** Whether commits were successfully pushed to remote */
+  commitsPushed: boolean;
+  /** Local commits that exist but may not be pushed */
+  localCommits: string[];
+  /** Remote commits that are ahead of base branch */
+  remoteCommits: string[];
+  /** PR URL if a PR was created */
+  prUrl?: string;
+  /** Whether the PR is merged (if applicable) */
+  prMerged?: boolean;
+  /** Timestamp of exit validation */
+  validatedAt: string;
 }
 
 // =============================================================================
@@ -919,6 +1040,12 @@ export interface OrchestratorConfig {
   /** Default reaction configs */
   reactions: Record<string, ReactionConfig>;
 
+  /** Poller configs (bd-uxs.2) */
+  pollers?: Record<string, PollerConfig>;
+
+  /** Outcome recording config (bd-uxs.5) */
+  outcomes?: OutcomeConfig;
+
   /** Plugin-specific configs (e.g., scm-github.extraBotAuthors) */
   plugins?: Record<string, Record<string, unknown>>;
 }
@@ -939,6 +1066,70 @@ export interface DefaultPlugins {
 export interface RoleAgentConfig {
   agent?: string;
   agentConfig?: AgentSpecificConfig;
+}
+
+/** Configuration for a poller (bd-uxs.2) */
+export interface PollerConfig {
+  /** Poller type (e.g., "github-pr", "linear-issue") */
+  type: string;
+
+  /** Whether this poller is enabled */
+  enabled?: boolean;
+
+  /** Poll interval (e.g., "1m", "5m", "1h") */
+  interval?: string;
+
+  /** Respawn cap: max sessions per work item per time window */
+  respawnCap?: {
+    max: number;
+    window: string; // e.g., "12h"
+  };
+
+  /** Agent to use for spawned sessions */
+  agent?: string;
+
+  /** Prompt template for spawned sessions */
+  promptTemplate?: string;
+
+  /** Additional poller-specific config */
+  [key: string]: unknown;
+}
+
+/** Configuration for outcome recording (bd-uxs.5) */
+export interface OutcomeConfig {
+  /** Whether outcome recording is enabled */
+  enabled?: boolean;
+
+  /** Storage location for outcomes (file path or external DB) */
+  storage?: string;
+
+  /** Patterns to synthesize from outcomes */
+  patternSynthesis?: {
+    /** Minimum outcomes before synthesizing patterns */
+    minSamples: number;
+    /** Confidence threshold for patterns */
+    confidenceThreshold: number;
+  };
+}
+
+/** An recorded outcome from a session */
+export interface RecordedOutcome {
+  sessionId: SessionId;
+  projectId: string;
+  /** What triggered the session (e.g., "ci-failed", "pr-created") */
+  trigger: string;
+  /** What action was taken */
+  action: string;
+  /** Whether the action succeeded */
+  success: boolean;
+  /** Duration in ms */
+  durationMs?: number;
+  /** Error message if failed */
+  error?: string;
+  /** PR number if applicable */
+  prNumber?: number;
+  /** Timestamp */
+  recordedAt: string;
 }
 
 export interface ProjectConfig {
@@ -987,6 +1178,12 @@ export interface ProjectConfig {
 
   /** Per-project reaction overrides */
   reactions?: Record<string, Partial<ReactionConfig>>;
+
+  /** Per-project poller overrides (bd-uxs.2) */
+  pollers?: Record<string, PollerConfig>;
+
+  /** Per-project outcome recording (bd-uxs.5) */
+  outcomes?: OutcomeConfig;
 
   /** Inline rules/instructions passed to every agent prompt */
   agentRules?: string;
@@ -1107,7 +1304,8 @@ export type PluginSlot =
   | "tracker"
   | "scm"
   | "notifier"
-  | "terminal";
+  | "terminal"
+  | "poller";
 
 /** Plugin manifest — what every plugin exports */
 export interface PluginManifest {
