@@ -332,7 +332,14 @@ export function create(config?: Record<string, unknown>): Workspace {
       }
 
       // bd-uxs.7: Set up .git/info/exclude to ignore AO-managed files
-      await setupAoManagedExclude(workspacePath);
+      // This prevents worktree from showing as dirty due to runtime files.
+      // Wrap in try/catch so a failure here doesn't fail the restore —
+      // the worktree is usable even without the exclude setup.
+      try {
+        await setupAoManagedExclude(workspacePath);
+      } catch {
+        // Non-fatal: exclude setup failure doesn't prevent workspace use
+      }
 
       return {
         path: workspacePath,

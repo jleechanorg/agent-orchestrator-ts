@@ -123,10 +123,21 @@ export function createPollerManager(deps: PollerManagerDeps): PollerManagerImpl 
     prompt = prompt.replace(/\{\{title\}\}/g, workItem.title);
     prompt = prompt.replace(/\{\{id\}\}/g, workItem.id);
 
+    // Sanitize workItem.id to prevent invalid git branch characters
+    // Matches session-manager.ts sanitization logic
+    const isBranchSafe = /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(workItem.id) && !workItem.id.includes("..");
+    const slug = isBranchSafe
+      ? workItem.id
+      : workItem.id
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, "-")
+          .slice(0, 60)
+          .replace(/^-+|-+$/g, "");
+
     return {
       projectId,
       issueId: workItem.id,
-      branch: `fix/${workItem.id}`,
+      branch: `fix/${slug || workItem.id.slice(0, 20)}`,
       prompt,
       agent: agentName,
     };
