@@ -123,6 +123,18 @@ describe("AgentMailBridge", () => {
       disabledBridge.sendStatusUpdate("session-1", "running");
       expect(disabledBridge.getInbox("orch-1")).toHaveLength(0);
     });
+
+    it("getUnreadCount returns zero when disabled", () => {
+      disabledBridge.sendGuidance("session-1", "retry");
+      disabledBridge.sendStatusUpdate("session-1", "running");
+      expect(disabledBridge.getUnreadCount("session-1")).toBe(0);
+      expect(disabledBridge.getUnreadCount("orch-1")).toBe(0);
+    });
+
+    it("markRead is a no-op when disabled", () => {
+      disabledBridge.markRead("nonexistent-id");
+      expect(disabledBridge.getUnreadCount("session-1")).toBe(0);
+    });
   });
 
   describe("getInbox defensive copy", () => {
@@ -145,6 +157,20 @@ describe("AgentMailBridge", () => {
 
       // Internal state should be unaffected
       expect(bridge.getInbox("session-1")).toHaveLength(1);
+    });
+
+    it("sendGuidance returns a copy — mutating it does not affect internal state", () => {
+      const msg = bridge.sendGuidance("session-1", "do X");
+      msg!.subject = "TAMPERED";
+      const inbox = bridge.getInbox("session-1");
+      expect(inbox[0].subject).toBe("Fix Strategy Guidance");
+    });
+
+    it("sendStatusUpdate returns a copy — mutating it does not affect internal state", () => {
+      const msg = bridge.sendStatusUpdate("session-1", "running", "details");
+      msg!.body = "TAMPERED";
+      const inbox = bridge.getInbox("orch-1");
+      expect(inbox[0].body).toBe("details");
     });
 
     it("returns copied message objects — mutating them does not affect internal state", () => {

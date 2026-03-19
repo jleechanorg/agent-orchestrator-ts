@@ -21,6 +21,13 @@ export class AgentMailBridge {
   private readonly config: AgentMailConfig;
   private readonly messages: Map<string, AgentMailMessage[]> = new Map();
 
+  private static cloneMessage(msg: AgentMailMessage): AgentMailMessage {
+    return {
+      ...msg,
+      metadata: msg.metadata ? { ...msg.metadata } : undefined,
+    };
+  }
+
   constructor(config: AgentMailConfig) {
     this.config = config;
   }
@@ -38,9 +45,9 @@ export class AgentMailBridge {
       read: false,
     };
     const inbox = this.messages.get(sessionId) ?? [];
-    inbox.push(msg);
+    inbox.push(AgentMailBridge.cloneMessage(msg));
     this.messages.set(sessionId, inbox);
-    return msg;
+    return AgentMailBridge.cloneMessage(msg);
   }
 
   sendStatusUpdate(sessionId: string, status: string, details?: string): AgentMailMessage | undefined {
@@ -56,15 +63,15 @@ export class AgentMailBridge {
       read: false,
     };
     const inbox = this.messages.get(this.config.orchestratorId) ?? [];
-    inbox.push(msg);
+    inbox.push(AgentMailBridge.cloneMessage(msg));
     this.messages.set(this.config.orchestratorId, inbox);
-    return msg;
+    return AgentMailBridge.cloneMessage(msg);
   }
 
   getInbox(agentId: string): AgentMailMessage[] {
     const inbox = this.messages.get(agentId);
     if (!inbox) return [];
-    return inbox.map((m) => ({ ...m }));
+    return inbox.map((m) => AgentMailBridge.cloneMessage(m));
   }
 
   markRead(messageId: string): void {
