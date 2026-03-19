@@ -36,10 +36,16 @@ function readEntries(filePath: string): OutboxEntry[] {
   if (!existsSync(filePath)) return [];
   const content = readFileSync(filePath, "utf-8").trim();
   if (!content) return [];
-  return content
-    .split("\n")
-    .filter(Boolean)
-    .map((line) => JSON.parse(line) as OutboxEntry);
+  const entries: OutboxEntry[] = [];
+  for (const line of content.split("\n")) {
+    if (!line.trim()) continue;
+    try {
+      entries.push(JSON.parse(line) as OutboxEntry);
+    } catch {
+      // skip malformed JSONL lines (e.g. from interrupted writes)
+    }
+  }
+  return entries;
 }
 
 export class SlackOutbox {
@@ -87,7 +93,15 @@ export class SlackOutbox {
     const entry: OutboxEntry = { ...pending[0] };
 
     try {
-      await sender(entry);
+      const timeout = this.config.timeoutMs;
+      const sendPromise = sender(entry);
+      const result = timeout > 0
+        ? await Promise.race([
+            sendPromise.then(() => "ok" as const),
+            new Promise<"timeout">((resolve) => setTimeout(() => resolve("timeout"), timeout)),
+          ])
+        : await sendPromise.then(() => "ok" as const);
+      if (result === "timeout") throw new Error(`Send timed out after ${timeout}ms`);
       entry.status = "sent";
     } catch (err) {
       entry.attempts += 1;
@@ -100,9 +114,9 @@ export class SlackOutbox {
       }
     }
 
-    // Re-read entries to capture any concurrent enqueues during sender execution
-    const currentEntries = readEntries(this.config.outboxPath);
-    const remaining = currentEntries.filter((e) => e.id !== entry.id);
+    // Re-read entries to avoid dropping concurrent enqueues during send
+    const freshEntries = readEntries(this.config.outboxPath);
+    const remaining = freshEntries.filter((e) => e.id !== entry.id);
     if (entry.status === "pending") {
       remaining.push(entry);
     }
