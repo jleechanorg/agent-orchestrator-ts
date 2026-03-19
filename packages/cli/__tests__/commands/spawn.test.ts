@@ -373,6 +373,7 @@ describe("spawn command", () => {
     });
     expect(mockSessionManager.claimPR).toHaveBeenCalledWith("app-1", "123", {
       assignOnGithub: undefined,
+      sendInitialMessage: true,
     });
 
     const output = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
@@ -427,6 +428,7 @@ describe("spawn command", () => {
 
     expect(mockSessionManager.claimPR).toHaveBeenCalledWith("app-1", "123", {
       assignOnGithub: true,
+      sendInitialMessage: true,
     });
   });
 
@@ -476,6 +478,44 @@ describe("spawn command", () => {
       "Session app-1 was created, but failed to claim PR 123: already tracked by app-9",
     );
   });
+
+  it("succeeds with warning when --claim-pr hits GitHub rate limit", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const fakeSession: Session = {
+      id: "app-1",
+      projectId: "my-app",
+      status: "spawning",
+      activity: null,
+      branch: "feat/new-session",
+      issueId: null,
+      pr: null,
+      workspacePath: "/tmp/wt",
+      runtimeHandle: { id: "hash-app-1", runtimeName: "tmux", data: {} },
+      agentInfo: null,
+      createdAt: new Date(),
+      lastActivityAt: new Date(),
+      metadata: {},
+    };
+
+    mockSessionManager.spawn.mockResolvedValue(fakeSession);
+    // Simulate rate limit error from GitHub API
+    mockSessionManager.claimPR.mockRejectedValue(
+      new Error("gh pr view failed: HTTP 403: API rate limit exceeded"),
+    );
+
+    await program.parseAsync(["node", "test", "spawn", "--claim-pr", "123"]);
+
+    // Session should still be created despite rate limit
+    expect(mockSessionManager.spawn).toHaveBeenCalled();
+
+    const output = warnSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    // Should show warning about rate limiting
+    expect(output).toContain("rate limited");
+    expect(output).toContain("session app-1 created");
+    // Should NOT throw - session creation should succeed
+  });
+
 });
 
 describe("spawn pre-flight checks", () => {
@@ -634,6 +674,7 @@ describe("spawn pre-flight checks", () => {
     expect(mockSessionManager.spawn).toHaveBeenCalled();
     expect(mockSessionManager.claimPR).toHaveBeenCalledWith("app-1", "123", {
       assignOnGithub: undefined,
+      sendInitialMessage: true,
     });
   });
 

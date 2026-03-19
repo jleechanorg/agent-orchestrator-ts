@@ -21,6 +21,21 @@ import { ensureLifecycleWorker } from "../lib/lifecycle-service.js";
 import { preflight } from "../lib/preflight.js";
 
 /**
+ * Check if an error is a GitHub API rate limit error (403/RATE_LIMITED).
+ * Rate limit errors should be non-blocking - session is created but PR claim fails gracefully.
+ */
+function isRateLimitError(err: unknown): boolean {
+  const message = err instanceof Error ? err.message : String(err);
+  const lowerMessage = message.toLowerCase();
+  return (
+    lowerMessage.includes("rate limit") ||
+    lowerMessage.includes("rate limited") ||
+    lowerMessage.includes("api rate") ||
+    lowerMessage.includes("403")
+  );
+}
+
+/**
  * Auto-detect the project ID from the config.
  * - If only one project exists, use it.
  * - If multiple projects exist, match cwd against project paths.
@@ -116,10 +131,21 @@ async function spawnSession(
         branchStr = claimResult.pr.branch;
         claimedPrUrl = claimResult.pr.url;
       } catch (err) {
-        throw new Error(
-          `Session ${session.id} was created, but failed to claim PR ${claimOptions.claimPr}: ${err instanceof Error ? err.message : String(err)}`,
-          { cause: err },
-        );
+        // Non-blocking rate limit: log warning and continue without claiming
+        if (isRateLimitError(err)) {
+          console.warn(
+            chalk.yellow(
+              `⚠ GitHub API rate limited — session ${session.id} created but PR ${claimOptions.claimPr} not claimed. ` +
+                `The session will run without PR context. Retry later or wait for rate limit to reset.`,
+            ),
+          );
+        } else {
+          // Other errors: fail the spawn
+          throw new Error(
+            `Session ${session.id} was created, but failed to claim PR ${claimOptions.claimPr}: ${err instanceof Error ? err.message : String(err)}`,
+            { cause: err },
+          );
+        }
       }
     }
 
