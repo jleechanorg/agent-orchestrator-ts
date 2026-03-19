@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { existsSync, lstatSync, symlinkSync, rmSync, mkdirSync, readdirSync } from "node:fs";
+import { existsSync, lstatSync, symlinkSync, rmSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
 import { join, resolve, basename, dirname } from "node:path";
 import { homedir } from "node:os";
@@ -66,8 +66,24 @@ async function setupAoManagedExclude(worktreePath: string): Promise<void> {
       "--git-common-dir",
     );
   } catch {
-    // Fallback: assume .git is a directory (regular repo)
-    gitCommonDir = join(worktreePath, ".git");
+    // Fallback when git rev-parse is unavailable (e.g. older git).
+    // In a linked worktree, .git is a FILE containing "gitdir: /main/.git/worktrees/<name>".
+    // Parse it to derive the common dir (/main/.git). For regular checkouts, .git is a
+    // directory and we use it directly.
+    const dotGit = join(worktreePath, ".git");
+    try {
+      const s = lstatSync(dotGit);
+      if (s.isFile()) {
+        const content = readFileSync(dotGit, "utf-8");
+        const match = content.match(/^gitdir:\s+(.+)$/m);
+        // gitdir points to /main/.git/worktrees/<name> — common dir is two levels up
+        gitCommonDir = match ? resolve(match[1].trim(), "..", "..") : dotGit;
+      } else {
+        gitCommonDir = dotGit;
+      }
+    } catch {
+      gitCommonDir = dotGit;
+    }
   }
 
   const excludeDir = join(gitCommonDir, "info");

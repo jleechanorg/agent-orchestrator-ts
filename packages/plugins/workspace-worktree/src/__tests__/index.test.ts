@@ -19,6 +19,7 @@ vi.mock("node:fs", () => ({
   rmSync: vi.fn(),
   mkdirSync: vi.fn(),
   readdirSync: vi.fn(),
+  readFileSync: vi.fn(),
 }));
 
 vi.mock("node:os", () => ({
@@ -35,7 +36,7 @@ vi.mock("node:fs/promises", () => ({
 // ---------------------------------------------------------------------------
 
 import * as childProcess from "node:child_process";
-import { existsSync, lstatSync, symlinkSync, rmSync, mkdirSync, readdirSync } from "node:fs";
+import { existsSync, lstatSync, symlinkSync, rmSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
 import * as fsPromises from "node:fs/promises";
 import { create, manifest } from "../index.js";
 
@@ -49,6 +50,7 @@ const mockExecFileAsync = (childProcess.execFile as any)[
 
 const mockExistsSync = existsSync as ReturnType<typeof vi.fn>;
 const mockLstatSync = lstatSync as ReturnType<typeof vi.fn>;
+const mockReadFileSync = readFileSync as ReturnType<typeof vi.fn>;
 const mockSymlinkSync = symlinkSync as ReturnType<typeof vi.fn>;
 const mockRmSync = rmSync as ReturnType<typeof vi.fn>;
 const mockMkdirSync = mkdirSync as ReturnType<typeof vi.fn>;
@@ -802,6 +804,32 @@ describe("setupAoManagedExclude (via workspace.create())", () => {
     const [, writtenContent] = mockWriteFile.mock.calls[0] as [string, string, string];
     expect(writtenContent).toContain("*.log");
     expect(writtenContent).toContain("# AO-managed files");
+  });
+
+  it("fallback: reads .git FILE to resolve common-dir when git rev-parse fails (linked worktree)", async () => {
+    // Regression test for bd-uxs.1:
+    // In a linked worktree, .git is a FILE (not a dir) containing
+    // "gitdir: /main/.git/worktrees/session". When git rev-parse --git-common-dir
+    // fails (e.g. older git), the fallback must parse this file instead of
+    // blindly using join(worktreePath, ".git") which produces an ENOTDIR error.
+    const ws = create();
+    const worktreePath = "/mock-home/.worktrees/myproject/ao-1";
+    const mainGitDir = "/main-repo/.git";
+
+    mockGitSuccess(""); // fetch
+    mockGitSuccess(""); // worktree add
+    // No third mock → git rev-parse --git-common-dir throws → fallback fires
+
+    // Simulate .git being a FILE (linked worktree)
+    mockLstatSync.mockReturnValue({ isFile: () => true, isDirectory: () => false, isSymbolicLink: () => false });
+    mockReadFileSync.mockReturnValue(`gitdir: ${mainGitDir}/worktrees/ao-1\n`);
+
+    await ws.create(makeCreateConfig({ sessionId: "ao-1" }));
+
+    expect(mockWriteFile).toHaveBeenCalledOnce();
+    const [writtenPath] = mockWriteFile.mock.calls[0] as [string, string, string];
+    // Must write to the MAIN repo's .git/info/exclude, not the worktree's .git/info/exclude
+    expect(writtenPath).toBe(`${mainGitDir}/info/exclude`);
   });
 });
 
