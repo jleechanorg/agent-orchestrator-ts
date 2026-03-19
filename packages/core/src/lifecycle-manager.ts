@@ -714,24 +714,6 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       }
 
       case "parallel-retry": {
-        // parallel-retry is declared in ReactionConfig but not yet implemented
-        const event = createEvent("reaction.triggered", {
-          sessionId,
-          projectId,
-          message: `Reaction '${reactionKey}' configured with 'parallel-retry' action which is not yet implemented`,
-          data: { reactionKey, action, warning: "parallel-retry not implemented" },
-        });
-        await notifyHuman(event, "warning");
-        return {
-          reactionType: reactionKey,
-          success: false,
-          action: "parallel-retry",
-          message: "parallel-retry action not implemented",
-          escalated: false,
-        };
-      }
-
-      case "parallel-retry": {
         // parallel-retry not yet implemented - emit event and return failure
         const event = createEvent("reaction.triggered", {
           sessionId,
