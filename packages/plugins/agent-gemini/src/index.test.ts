@@ -714,9 +714,9 @@ describe("setupWorkspaceHooks", () => {
     expect(settingsWriteCall).toBeDefined();
     const writtenContent = settingsWriteCall![1] as string;
     const updated = JSON.parse(writtenContent) as {
-      hooks?: { PostToolUse?: Array<{ matcher: string; hooks: Array<{ command: string }> }>; };
+      hooks?: { AfterTool?: Array<{ matcher: string; hooks: Array<{ command: string }> }>; };
     };
-    expect(updated.hooks?.PostToolUse?.[0]?.matcher).toBe("run_shell_command");
+    expect(updated.hooks?.AfterTool?.[0]?.matcher).toBe("run_shell_command");
     expect(mockExistsSync).toHaveBeenCalled();
   });
 
@@ -724,7 +724,7 @@ describe("setupWorkspaceHooks", () => {
     mockExistsSync.mockReturnValue(true);
     const existingSettings = {
       hooks: {
-        PostToolUse: [
+        AfterTool: [
           {
             matcher: "Bash",
             hooks: [
@@ -754,10 +754,10 @@ describe("setupWorkspaceHooks", () => {
 
     const writtenContent = settingsWriteCall![1] as string;
     const updated = JSON.parse(writtenContent) as {
-      hooks?: { PostToolUse?: Array<{ matcher: string; hooks: Array<{ command: string }> }> };
+      hooks?: { AfterTool?: Array<{ matcher: string; hooks: Array<{ command: string }> }> };
     };
 
-    expect(updated.hooks?.PostToolUse?.[0]?.matcher).toBe("run_shell_command");
-    expect(updated.hooks?.PostToolUse?.[0]?.hooks?.[0]?.command).toContain("metadata-updater.sh");
+    expect(updated.hooks?.AfterTool?.[0]?.matcher).toBe("run_shell_command");
+    expect(updated.hooks?.AfterTool?.[0]?.hooks?.[0]?.command).toContain("metadata-updater.sh");
   });
 });
