@@ -38,14 +38,34 @@ export async function checkMergeGate(
   config: MergeGateConfig,
   scm: SCM,
 ): Promise<MergeGateResult> {
-  const [ciStatus, mergeability, reviews, automatedComments, pendingComments] =
-    await Promise.all([
-      scm.getCISummary(pr),
-      scm.getMergeability(pr),
-      scm.getReviews(pr),
-      scm.getAutomatedComments(pr),
-      scm.getPendingComments(pr),
-    ]);
+  // Short-circuit when merge gate is disabled
+  if (!config.enabled) {
+    return { passed: true, checks: [], blockers: [] };
+  }
+
+  let ciStatus: string;
+  let mergeability: { noConflicts: boolean; mergeable?: boolean };
+  let reviews: Array<{ author: string; state: string; submittedAt?: Date }>;
+  let automatedComments: Array<{ botName: string; severity: string; body: string }>;
+  let pendingComments: Array<{ isResolved: boolean; body: string }>;
+
+  try {
+    [ciStatus, mergeability, reviews, automatedComments, pendingComments] =
+      await Promise.all([
+        scm.getCISummary(pr),
+        scm.getMergeability(pr),
+        scm.getReviews(pr),
+        scm.getAutomatedComments(pr),
+        scm.getPendingComments(pr),
+      ]);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return {
+      passed: false,
+      checks: [{ name: "SCM query", passed: false, detail: `SCM query failed: ${message}` }],
+      blockers: ["SCM query"],
+    };
+  }
 
   const checks: MergeGateCheck[] = [];
 
@@ -95,7 +115,7 @@ export async function checkMergeGate(
   // 5. Inline comments resolved — ignore nit/nitpick comments
   const nitPattern = /^(nit:|nitpick)/i;
   const unresolvedBlockingComments = pendingComments.filter(
-    (c) => !c.isResolved && !nitPattern.test(c.body),
+    (c) => !c.isResolved && !nitPattern.test(c.body.trimStart()),
   );
   checks.push({
     name: "Inline comments resolved",

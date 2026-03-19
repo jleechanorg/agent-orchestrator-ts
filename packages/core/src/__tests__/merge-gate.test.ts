@@ -1,16 +1,26 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, type Mock } from "vitest";
 import { checkMergeGate } from "../merge-gate.js";
 import type { PRInfo, MergeGateConfig, SCM } from "../types.js";
 
-function makePassingScm(): { [key: string]: ReturnType<typeof vi.fn> } {
+interface MockSCM {
+  name: string;
+  getCISummary: Mock;
+  getMergeability: Mock;
+  getReviews: Mock;
+  getAutomatedComments: Mock;
+  getPendingComments: Mock;
+  getReviewDecision: Mock;
+}
+
+function makePassingScm(): MockSCM {
   return {
+    name: "mock",
     getCISummary: vi.fn().mockResolvedValue("passing"),
     getMergeability: vi.fn().mockResolvedValue({ noConflicts: true, mergeable: true, ciPassing: true, approved: true, blockers: [] }),
     getReviews: vi.fn().mockResolvedValue([{ author: "coderabbitai[bot]", state: "approved", submittedAt: new Date() }]),
     getAutomatedComments: vi.fn().mockResolvedValue([]),
     getPendingComments: vi.fn().mockResolvedValue([]),
     getReviewDecision: vi.fn().mockResolvedValue("approved"),
-    name: "mock",
   };
 }
 
@@ -156,6 +166,35 @@ describe("checkMergeGate", () => {
     const scm = makePassingScm();
     scm.getPendingComments.mockResolvedValue([
       { id: "1", author: "reviewer", body: "This needs fixing", isResolved: true, createdAt: new Date(), url: "https://example.com" },
+    ]);
+    const result = await checkMergeGate(pr, config, scm as unknown as SCM);
+    const commentsCheck = result.checks.find((c) => c.name === "Inline comments resolved");
+    expect(commentsCheck?.passed).toBe(true);
+  });
+
+  it("returns passed with no checks when config.enabled is false", async () => {
+    const scm = makePassingScm();
+    const disabledConfig: MergeGateConfig = { enabled: false };
+    const result = await checkMergeGate(pr, disabledConfig, scm as unknown as SCM);
+    expect(result.passed).toBe(true);
+    expect(result.checks).toEqual([]);
+    expect(result.blockers).toEqual([]);
+    expect(scm.getCISummary).not.toHaveBeenCalled();
+  });
+
+  it("returns structured failure when SCM query throws", async () => {
+    const scm = makePassingScm();
+    scm.getCISummary.mockRejectedValue(new Error("network timeout"));
+    const result = await checkMergeGate(pr, config, scm as unknown as SCM);
+    expect(result.passed).toBe(false);
+    expect(result.blockers).toContain("SCM query");
+    expect(result.checks[0].detail).toContain("network timeout");
+  });
+
+  it("ignores nit comments with leading whitespace", async () => {
+    const scm = makePassingScm();
+    scm.getPendingComments.mockResolvedValue([
+      { id: "1", author: "reviewer", body: "  nit: minor style", isResolved: false, createdAt: new Date(), url: "https://example.com" },
     ]);
     const result = await checkMergeGate(pr, config, scm as unknown as SCM);
     const commentsCheck = result.checks.find((c) => c.name === "Inline comments resolved");
