@@ -1,8 +1,12 @@
 /**
  * WebhookIngress — HMAC verification, dedup, and event queue
  *
- * Uses Map-based in-memory dedup (future: swap to better-sqlite3 via dbPath).
+ * Uses Map-based in-memory dedup with bounded FIFO eviction.
  * HTTP server is intentionally excluded — this module handles ingress logic only.
+ *
+ * TODO: If durable dedup is needed, add a persistence layer behind the
+ *       deliveries Map (e.g. better-sqlite3).  The current implementation is
+ *       in-memory only, which is sufficient for single-process deployments.
  */
 import { createHmac, timingSafeEqual } from "node:crypto";
 import type { SCMWebhookEvent } from "./types.js";
@@ -12,8 +16,6 @@ export interface WebhookIngressConfig {
   port: number;
   /** HMAC secret for X-Hub-Signature-256 verification */
   secret: string;
-  /** SQLite path for dedup (":memory:" supported for in-process use) */
-  dbPath: string;
   /** Maximum request body size in bytes (default: 10 MB) */
   maxBodyBytes?: number;
 }
@@ -21,46 +23,33 @@ export interface WebhookIngressConfig {
 const DEFAULT_MAX_BODY_BYTES = 10 * 1024 * 1024; // 10 MB
 
 export class WebhookIngress {
-  private readonly secret: string;
+  private readonly config: WebhookIngressConfig;
   private readonly maxBodyBytes: number;
   private readonly maxDeliveryEntries: number;
   private deliveries: Map<string, string>;
   private queue: SCMWebhookEvent[];
-  private dbInitialized: boolean;
 
   constructor(config: WebhookIngressConfig) {
-    this.secret = config.secret;
+    this.config = config;
     this.maxBodyBytes = config.maxBodyBytes ?? DEFAULT_MAX_BODY_BYTES;
     this.maxDeliveryEntries = 10_000;
     this.deliveries = new Map();
     this.queue = [];
-    this.dbInitialized = false;
-  }
-
-  /**
-   * Initialize the dedup store. Idempotent — safe to call multiple times.
-   *
-   * In the current Map-based implementation this is a no-op after first call.
-   * A future SQLite implementation would run CREATE TABLE IF NOT EXISTS here.
-   */
-  initDb(): void {
-    if (this.dbInitialized) return;
-    // Map is initialized in constructor; mark as ready.
-    this.dbInitialized = true;
   }
 
   /**
    * Verify an X-Hub-Signature-256 HMAC signature using constant-time comparison.
    *
-   * @param payload  - Raw request body (string or Buffer)
+   * @param payload   - Raw request body (string or Buffer)
    * @param signature - Value of the X-Hub-Signature-256 header
-   * @param secret   - HMAC shared secret
+   * @param secret    - HMAC shared secret (defaults to config.secret)
    * @returns true if the signature is valid, false otherwise
    */
-  verifySignature(payload: string | Buffer, signature: string, secret: string): boolean {
+  verifySignature(payload: string | Buffer, signature: string, secret?: string): boolean {
+    const effectiveSecret = secret ?? this.config.secret;
     if (!signature || !signature.startsWith("sha256=")) return false;
 
-    const expected = createHmac("sha256", secret)
+    const expected = createHmac("sha256", effectiveSecret)
       .update(payload)
       .digest("hex");
     const expectedSig = `sha256=${expected}`;
@@ -75,29 +64,27 @@ export class WebhookIngress {
   }
 
   /**
-   * Check if a delivery ID has already been processed.
+   * Atomically check whether a delivery ID has been seen and, if not, record it.
    *
-   * @param deliveryId - Value of the X-GitHub-Delivery header
-   */
-  isDuplicate(deliveryId: string): boolean {
-    return this.deliveries.has(deliveryId);
-  }
-
-  /**
-   * Record a delivery ID as processed. Idempotent — won't throw on duplicates.
+   * Combines the former isDuplicate() + recordDelivery() into a single method
+   * to eliminate the race window between check and record.
    *
    * @param deliveryId - Value of the X-GitHub-Delivery header
    * @param eventType  - GitHub event type (e.g. "pull_request", "push")
+   * @returns true if the delivery was already recorded (duplicate), false if newly recorded
    */
-  recordDelivery(deliveryId: string, eventType: string): void {
-    if (!this.deliveries.has(deliveryId)) {
-      // Evict oldest entries when at capacity (FIFO by insertion order)
-      if (this.deliveries.size >= this.maxDeliveryEntries) {
-        const firstKey = this.deliveries.keys().next().value;
-        if (firstKey !== undefined) this.deliveries.delete(firstKey);
-      }
-      this.deliveries.set(deliveryId, eventType);
+  checkAndRecordDelivery(deliveryId: string, eventType: string): boolean {
+    if (this.deliveries.has(deliveryId)) {
+      return true;
     }
+
+    // Evict oldest entries when at capacity (FIFO by insertion order)
+    if (this.deliveries.size >= this.maxDeliveryEntries) {
+      const firstKey = this.deliveries.keys().next().value;
+      if (firstKey !== undefined) this.deliveries.delete(firstKey);
+    }
+    this.deliveries.set(deliveryId, eventType);
+    return false;
   }
 
   /**

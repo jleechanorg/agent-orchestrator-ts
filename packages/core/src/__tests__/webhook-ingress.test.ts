@@ -13,15 +13,20 @@ describe("WebhookIngress", () => {
   const secret = "test-secret-key";
 
   beforeEach(() => {
-    ingress = new WebhookIngress({ port: 3000, secret, dbPath: ":memory:" });
-    ingress.initDb();
+    ingress = new WebhookIngress({ port: 3000, secret });
   });
 
   describe("verifySignature", () => {
-    it("returns true for valid HMAC signature", () => {
+    it("returns true for valid HMAC signature (explicit secret)", () => {
       const payload = JSON.stringify({ action: "opened" });
       const sig = makeSignature(secret, payload);
       expect(ingress.verifySignature(payload, sig, secret)).toBe(true);
+    });
+
+    it("returns true for valid HMAC signature (config secret fallback)", () => {
+      const payload = JSON.stringify({ action: "opened" });
+      const sig = makeSignature(secret, payload);
+      expect(ingress.verifySignature(payload, sig)).toBe(true);
     });
 
     it("returns false for invalid HMAC signature", () => {
@@ -34,23 +39,46 @@ describe("WebhookIngress", () => {
       const payload = JSON.stringify({ action: "opened" });
       expect(ingress.verifySignature(payload, "", secret)).toBe(false);
     });
+
+    it("explicit secret overrides config secret", () => {
+      const otherSecret = "other-secret";
+      const payload = JSON.stringify({ action: "closed" });
+      const sig = makeSignature(otherSecret, payload);
+      // Should fail with config secret
+      expect(ingress.verifySignature(payload, sig)).toBe(false);
+      // Should pass with explicit override
+      expect(ingress.verifySignature(payload, sig, otherSecret)).toBe(true);
+    });
   });
 
-  describe("isDuplicate / recordDelivery", () => {
-    it("returns false for new delivery ID", () => {
-      expect(ingress.isDuplicate("delivery-abc-123")).toBe(false);
+  describe("checkAndRecordDelivery", () => {
+    it("returns false for a new delivery (records it)", () => {
+      expect(ingress.checkAndRecordDelivery("delivery-abc-123", "push")).toBe(false);
     });
 
-    it("returns true after recording a delivery ID", () => {
-      ingress.recordDelivery("delivery-xyz-456", "pull_request");
-      expect(ingress.isDuplicate("delivery-xyz-456")).toBe(true);
+    it("returns true for an already-recorded delivery", () => {
+      ingress.checkAndRecordDelivery("delivery-xyz-456", "pull_request");
+      expect(ingress.checkAndRecordDelivery("delivery-xyz-456", "pull_request")).toBe(true);
     });
 
-    it("rejects duplicate delivery IDs", () => {
-      ingress.recordDelivery("dup-delivery-789", "push");
-      expect(ingress.isDuplicate("dup-delivery-789")).toBe(true);
-      // Calling recordDelivery again for same ID should be idempotent (no error)
-      expect(() => ingress.recordDelivery("dup-delivery-789", "push")).not.toThrow();
+    it("is idempotent — repeated calls for same ID always return true", () => {
+      ingress.checkAndRecordDelivery("dup-789", "push");
+      expect(ingress.checkAndRecordDelivery("dup-789", "push")).toBe(true);
+      expect(ingress.checkAndRecordDelivery("dup-789", "push")).toBe(true);
+    });
+
+    it("evicts oldest entry when at capacity", () => {
+      // Access private field to set a small cap for testing
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (ingress as any).maxDeliveryEntries = 3;
+
+      ingress.checkAndRecordDelivery("d-1", "push");
+      ingress.checkAndRecordDelivery("d-2", "push");
+      ingress.checkAndRecordDelivery("d-3", "push");
+      // At capacity — adding d-4 should evict d-1
+      ingress.checkAndRecordDelivery("d-4", "push");
+      expect(ingress.checkAndRecordDelivery("d-1", "push")).toBe(false); // evicted, re-recorded
+      expect(ingress.checkAndRecordDelivery("d-4", "push")).toBe(true);  // still present
     });
   });
 
@@ -89,13 +117,6 @@ describe("WebhookIngress", () => {
       expect(ingress.getQueueLength()).toBe(1);
       ingress.dequeue();
       expect(ingress.getQueueLength()).toBe(0);
-    });
-  });
-
-  describe("initDb", () => {
-    it("creates table without error (idempotent)", () => {
-      // initDb was called in beforeEach; calling again should be fine
-      expect(() => ingress.initDb()).not.toThrow();
     });
   });
 });
