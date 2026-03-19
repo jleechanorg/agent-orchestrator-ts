@@ -9,6 +9,9 @@ sync-state.json
 last-touched
 .exclusive-lock
 
+# Credential key (must never be committed)
+.beads-credential-key
+
 # Daemon runtime (lock, log, pid)
 daemon.*
 
