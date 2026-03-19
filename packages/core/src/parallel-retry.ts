@@ -54,6 +54,8 @@ export class ParallelRetryMonitor {
   private readonly sessionManager: SessionManager;
   private readonly registry: PluginRegistry;
   private readonly config: OrchestratorConfig;
+  /** Tracks raceIds currently being checked to serialize concurrent calls. */
+  private readonly checking = new Set<string>();
 
   constructor(deps: ParallelRetryDeps) {
     this.sessionManager = deps.sessionManager;
@@ -63,12 +65,14 @@ export class ParallelRetryMonitor {
 
   /**
    * Start a race: spawn parallel sessions with different strategies.
+   *
+   * Strategies are sourced exclusively from `parallelRetryConfig.strategies`.
+   * If a spawn() call fails, already-spawned sessions are killed (rollback).
    */
   async startRace(
     parentSessionId: SessionId,
     projectId: string,
     issueId: string | undefined,
-    strategies: string[],
     parallelRetryConfig: {
       maxParallel: number;
       strategies: string[];
@@ -76,21 +80,35 @@ export class ParallelRetryMonitor {
     },
   ): Promise<RaceGroup> {
     const raceId = randomUUID();
-    const toSpawn = strategies.slice(0, parallelRetryConfig.maxParallel);
+    const toSpawn = parallelRetryConfig.strategies.slice(
+      0,
+      parallelRetryConfig.maxParallel,
+    );
 
     const entries: RaceEntry[] = [];
-    for (const strategy of toSpawn) {
-      const spawnConfig: SessionSpawnConfig = {
-        projectId,
-        issueId,
-        agent: strategy,
-      };
-      const session = await this.sessionManager.spawn(spawnConfig);
-      entries.push({
-        sessionId: session.id,
-        strategy,
-        ciStatus: "none",
-      });
+    const spawnedSessionIds: SessionId[] = [];
+
+    try {
+      for (const strategy of toSpawn) {
+        const spawnConfig: SessionSpawnConfig = {
+          projectId,
+          issueId,
+          agent: strategy,
+        };
+        const session = await this.sessionManager.spawn(spawnConfig);
+        spawnedSessionIds.push(session.id);
+        entries.push({
+          sessionId: session.id,
+          strategy,
+          ciStatus: "none",
+        });
+      }
+    } catch (err: unknown) {
+      // Rollback: kill any sessions that were already spawned
+      await Promise.allSettled(
+        spawnedSessionIds.map((id) => this.sessionManager.kill(id)),
+      );
+      throw err;
     }
 
     const race: RaceGroup = {
@@ -109,57 +127,84 @@ export class ParallelRetryMonitor {
 
   /**
    * Check race progress: poll CI status for each session.
+   *
+   * Serialized per raceId — concurrent calls for the same race return the
+   * current snapshot without re-polling. Throws if SCM plugin is missing.
    */
   async checkRace(raceId: string): Promise<RaceGroup> {
     const race = this.races.get(raceId);
     if (!race) throw new Error(`Race not found: ${raceId}`);
 
+    // Guard: already resolved — nothing to poll.
     if (race.status === "won" || race.status === "failed" || race.status === "cancelled") {
       return race;
     }
 
-    const scmName = this.config.projects[race.projectId]?.scm?.plugin ?? "github";
-    const scm = this.registry.get<SCM>("scm", scmName);
+    // Serialize: if another tick is already checking this race, return current state.
+    if (this.checking.has(raceId)) {
+      return race;
+    }
 
-    let allFailedOrTerminal = true;
+    this.checking.add(raceId);
+    try {
+      const scmName =
+        this.config.projects[race.projectId]?.scm?.plugin ?? "github";
+      const scm = this.registry.get<SCM>("scm", scmName);
 
-    for (const entry of race.sessions) {
-      const session = await this.sessionManager.get(entry.sessionId);
-      if (!session) {
-        entry.ciStatus = "failing";
-        entry.lastChecked = new Date();
-        continue;
+      if (!scm) {
+        throw new Error(
+          `SCM plugin "${scmName}" not found for project "${race.projectId}"`,
+        );
       }
 
-      if (session.pr && scm) {
-        const ci = await scm.getCISummary(session.pr);
-        entry.ciStatus = ci;
-        entry.lastChecked = new Date();
+      let allFailedOrTerminal = true;
 
-        if (ci === "passing") {
-          race.status = "won";
-          race.winner = entry.sessionId;
-          return race;
+      for (const entry of race.sessions) {
+        const session = await this.sessionManager.get(entry.sessionId);
+        if (!session) {
+          entry.ciStatus = "failing";
+          entry.lastChecked = new Date();
+          continue;
+        }
+
+        if (session.pr) {
+          const ci = await scm.getCISummary(session.pr);
+          entry.ciStatus = ci;
+          entry.lastChecked = new Date();
+
+          if (ci === "passing") {
+            race.status = "won";
+            race.winner = entry.sessionId;
+            return race;
+          }
+        }
+
+        const isTerminal = TERMINAL_STATUSES.has(session.status);
+        const isFailing = entry.ciStatus === "failing";
+
+        if (
+          !(isTerminal && isFailing) &&
+          !(isTerminal && entry.ciStatus === "none")
+        ) {
+          allFailedOrTerminal = false;
         }
       }
 
-      const isTerminal = TERMINAL_STATUSES.has(session.status);
-      const isFailing = entry.ciStatus === "failing";
-
-      if (!(isTerminal && isFailing) && !(isTerminal && entry.ciStatus === "none")) {
-        allFailedOrTerminal = false;
+      if (allFailedOrTerminal) {
+        race.status = "failed";
       }
-    }
 
-    if (allFailedOrTerminal) {
-      race.status = "failed";
+      return race;
+    } finally {
+      this.checking.delete(raceId);
     }
-
-    return race;
   }
 
   /**
    * Resolve a won race: kill losers (unless killOnSuccess is false), return winner.
+   *
+   * Uses Promise.allSettled for best-effort loser cleanup so one rejection
+   * does not prevent killing the remaining losers.
    */
   async resolveRace(raceId: string): Promise<{ winner: RaceEntry; losers: RaceEntry[] }> {
     const race = this.races.get(raceId);
@@ -174,9 +219,9 @@ export class ParallelRetryMonitor {
     const losers = race.sessions.filter((e) => e.sessionId !== race.winner);
 
     if (race.config.killOnSuccess) {
-      for (const loser of losers) {
-        await this.sessionManager.kill(loser.sessionId);
-      }
+      await Promise.allSettled(
+        losers.map((loser) => this.sessionManager.kill(loser.sessionId)),
+      );
     }
 
     return { winner, losers };
