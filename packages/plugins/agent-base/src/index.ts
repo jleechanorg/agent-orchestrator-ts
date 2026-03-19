@@ -14,7 +14,7 @@ import {
   type WorkspaceHooksConfig,
 } from "@composio/ao-core";
 import { execFile } from "node:child_process";
-import { readdir, readFile, stat, open, writeFile, mkdir, chmod } from "node:fs/promises";
+import { readdir, readFile, stat, lstat, open, writeFile, mkdir, chmod } from "node:fs/promises";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
@@ -597,6 +597,18 @@ async function setupHookInWorkspace(
   const settingsPath = join(agentDir, "settings.json");
   const hookScriptPath = join(agentDir, "metadata-updater.sh");
 
+  // Reject symlinks — Node.js fs/promises follows symlinks, so an attacker-controlled
+  // symlink (.claude → /etc/) would allow arbitrary file writes outside the workspace.
+  try {
+    const s = await lstat(agentDir);
+    if (s.isSymbolicLink()) {
+      throw new Error(`symlink detected at config dir ${agentDir} — aborting to prevent symlink traversal`);
+    }
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+    // Directory doesn't exist yet — that's fine, mkdir will create it below
+  }
+
   // Create config directory if it doesn't exist
   try {
     await mkdir(agentDir, { recursive: true });
@@ -604,9 +616,20 @@ async function setupHookInWorkspace(
     // Directory might already exist
   }
 
-  // Write the metadata updater script
-  await writeFile(hookScriptPath, METADATA_UPDATER_SCRIPT, "utf-8");
-  await chmod(hookScriptPath, 0o755); // Make executable
+  // Write the metadata updater script only if content has changed
+  let existingScript: string | null = null;
+  try {
+    existingScript = await readFile(hookScriptPath, "utf-8");
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+    // File doesn't exist yet — will be created below
+  }
+  if (existingScript !== METADATA_UPDATER_SCRIPT) {
+    await writeFile(hookScriptPath, METADATA_UPDATER_SCRIPT, "utf-8");
+  }
+  // Always ensure executable permissions are set — content may match but permissions
+  // could have been lost (e.g., after manual chmod, copy/restore, or filesystem quirks)
+  await chmod(hookScriptPath, 0o755);
 
   // Read existing settings if present
   let existingSettings: Record<string, unknown> = {};
@@ -614,8 +637,9 @@ async function setupHookInWorkspace(
     try {
       const content = await readFile(settingsPath, "utf-8");
       existingSettings = JSON.parse(content) as Record<string, unknown>;
-    } catch {
-      // Invalid JSON or read error — start fresh
+    } catch (err) {
+      if (!(err instanceof SyntaxError)) throw err;
+      // Invalid JSON — start fresh
     }
   }
 
@@ -683,8 +707,18 @@ async function setupHookInWorkspace(
   hooks["PostToolUse"] = postToolUse;
   existingSettings["hooks"] = hooks;
 
-  // Write updated settings
-  await writeFile(settingsPath, JSON.stringify(existingSettings, null, 2) + "\n", "utf-8");
+  // Write updated settings only if content has changed
+  const newContent = JSON.stringify(existingSettings, null, 2) + "\n";
+  let currentContent: string | null = null;
+  try {
+    currentContent = await readFile(settingsPath, "utf-8");
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+    // File doesn't exist yet — will be created below
+  }
+  if (currentContent !== newContent) {
+    await writeFile(settingsPath, newContent, "utf-8");
+  }
 }
 
 /**
@@ -702,6 +736,16 @@ async function setupMcpMailInWorkspace(
 ): Promise<void> {
   const agentDir = join(workspacePath, configDir);
   const settingsPath = join(agentDir, "settings.json");
+
+  // Reject symlinks — same guard as setupHookInWorkspace
+  try {
+    const s = await lstat(agentDir);
+    if (s.isSymbolicLink()) {
+      throw new Error(`symlink detected at config dir ${agentDir} — aborting to prevent symlink traversal`);
+    }
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+  }
 
   // Get MCP mail config - only configure if explicitly enabled via env var
   // This makes MCP mail opt-in rather than opt-out
@@ -725,8 +769,9 @@ async function setupMcpMailInWorkspace(
     try {
       const content = await readFile(settingsPath, "utf-8");
       existingSettings = JSON.parse(content) as Record<string, unknown>;
-    } catch {
-      // Invalid JSON or read error — start fresh
+    } catch (err) {
+      if (!(err instanceof SyntaxError)) throw err;
+      // Invalid JSON — start fresh
     }
   }
 
@@ -750,8 +795,18 @@ async function setupMcpMailInWorkspace(
   mcpServers["mcp-agent-mail"] = serverConfig;
   existingSettings["mcpServers"] = mcpServers;
 
-  // Write updated settings
-  await writeFile(settingsPath, JSON.stringify(existingSettings, null, 2) + "\n", "utf-8");
+  // Write updated settings only if content has changed
+  const newContent = JSON.stringify(existingSettings, null, 2) + "\n";
+  let currentContent: string | null = null;
+  try {
+    currentContent = await readFile(settingsPath, "utf-8");
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+    // File doesn't exist yet — will be created below
+  }
+  if (currentContent !== newContent) {
+    await writeFile(settingsPath, newContent, "utf-8");
+  }
 }
 
 // =============================================================================
