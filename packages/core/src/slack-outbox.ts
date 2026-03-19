@@ -94,6 +94,7 @@ export class SlackOutbox {
 
     this.inFlightSends.add(entry.id);
     let sendPromise: Promise<void> | null = null;
+    let timedOut = false;
 
     try {
       const timeout = this.config.timeoutMs;
@@ -105,7 +106,10 @@ export class SlackOutbox {
               new Promise<"timeout">((resolve) => setTimeout(() => resolve("timeout"), timeout)),
             ])
           : await sendPromise.then(() => "ok" as const);
-      if (result === "timeout") throw new Error(`Send timed out after ${timeout}ms`);
+      if (result === "timeout") {
+        timedOut = true;
+        throw new Error(`Send timed out after ${timeout}ms`);
+      }
       entry.status = "sent";
     } catch (err) {
       entry.attempts += 1;
@@ -117,7 +121,7 @@ export class SlackOutbox {
         await this.moveToDeadLetter(entry, entry.lastError);
       }
     } finally {
-      if (sendPromise) {
+      if (sendPromise && !timedOut) {
         await sendPromise.catch(() => {});
       }
       this.inFlightSends.delete(entry.id);
