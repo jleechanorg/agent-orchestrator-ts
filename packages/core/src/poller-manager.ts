@@ -206,7 +206,7 @@ export function createPollerManager(deps: PollerManagerDeps): PollerManagerImpl 
         existingWorkItemIds.add(workItem.id);
         try {
           const spawnConfig = await buildSpawnConfig(projectId, workItem, pollerConfig);
-          const session = await poller.spawnSession(workItem, projectId, spawnConfig);
+          const session = await sessionManager.spawn(spawnConfig);
 
           if (session) {
             incrementSpawnCount(projectId, workItem.id);
