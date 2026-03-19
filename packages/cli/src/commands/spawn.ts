@@ -30,8 +30,7 @@ function isRateLimitError(err: unknown): boolean {
   return (
     lowerMessage.includes("rate limit") ||
     lowerMessage.includes("rate limited") ||
-    lowerMessage.includes("api rate") ||
-    lowerMessage.includes("403")
+    lowerMessage.includes("api rate")
   );
 }
 
