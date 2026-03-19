@@ -11,6 +11,7 @@ function makeGQLResponse(
     isResolved: boolean;
     path: string;
     authors: string[];
+    hasNextPage?: boolean;
   }>,
 ): unknown {
   return {
@@ -22,6 +23,7 @@ function makeGQLResponse(
             isResolved: t.isResolved,
             path: t.path,
             comments: {
+              pageInfo: { hasNextPage: t.hasNextPage ?? false },
               nodes: t.authors.map((login) => ({
                 author: { login },
                 body: "comment",
@@ -252,6 +254,45 @@ describe("autoResolveThreads", () => {
     const result = await autoResolveThreads(config, executor);
 
     expect(result.resolved).toHaveLength(3);
+  });
+
+  it("skips thread with empty comment list (not treated as bot-only)", async () => {
+    const executor = makeExecutor(
+      makeGQLResponse([
+        {
+          id: "t1",
+          isResolved: false,
+          path: "src/foo.ts",
+          authors: [],
+        },
+      ]),
+    );
+
+    const result = await autoResolveThreads(baseConfig, executor);
+
+    expect(result.skipped).toHaveLength(1);
+    expect(result.skipped[0]!.reason).toBe("human reviewer");
+    expect(result.resolved).toHaveLength(0);
+  });
+
+  it("skips thread with truncated comment list (hasNextPage=true)", async () => {
+    const executor = makeExecutor(
+      makeGQLResponse([
+        {
+          id: "t1",
+          isResolved: false,
+          path: "src/foo.ts",
+          authors: ["coderabbitai"],
+          hasNextPage: true,
+        },
+      ]),
+    );
+
+    const result = await autoResolveThreads(baseConfig, executor);
+
+    expect(result.skipped).toHaveLength(1);
+    expect(result.skipped[0]!.reason).toContain("truncated");
+    expect(result.resolved).toHaveLength(0);
   });
 
   it("skips already resolved threads", async () => {

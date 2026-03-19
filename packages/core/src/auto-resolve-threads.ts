@@ -45,7 +45,7 @@ interface GQLThread {
   id: string;
   isResolved: boolean;
   path: string;
-  comments: { nodes: GQLComment[] };
+  comments: { nodes: GQLComment[]; pageInfo: { hasNextPage: boolean } };
 }
 
 interface GQLResponse {
@@ -75,7 +75,10 @@ query GetUnresolvedThreads($owner: String!, $repo: String!, $prNumber: Int!) {
           id
           isResolved
           path
-          comments(first: 10) {
+          comments(first: 100) {
+            pageInfo {
+              hasNextPage
+            }
             nodes {
               author {
                 login
@@ -114,6 +117,7 @@ function isGQLResponse(data: unknown): data is GQLResponse {
 }
 
 function isBotThread(thread: GQLThread): boolean {
+  if (thread.comments.nodes.length === 0) return false;
   return thread.comments.nodes.every((comment) => {
     if (!comment.author) return false;
     return BOT_AUTHORS.has(comment.author.login);
@@ -162,6 +166,15 @@ export async function autoResolveThreads(
         threadId: thread.id,
         path: thread.path,
         reason: "file not in changeset",
+      });
+      continue;
+    }
+
+    if (thread.comments.pageInfo.hasNextPage) {
+      skipped.push({
+        threadId: thread.id,
+        path: thread.path,
+        reason: "truncated comment list — cannot verify bot-only",
       });
       continue;
     }
