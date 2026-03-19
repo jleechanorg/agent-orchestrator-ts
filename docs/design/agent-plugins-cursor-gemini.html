@@ -12,8 +12,6 @@
         --muted: #6f6357;
         --brand: #165a72;
         --line: #dfd3c2;
-        --accent: #a371f7;
-        --green: #3fb950;
       }
 
       * {
@@ -100,35 +98,6 @@
         overflow-x: auto;
       }
 
-      .badge {
-        display: inline-block;
-        padding: 0.1rem 0.4rem;
-        border-radius: 6px;
-        font-size: 0.75rem;
-        font-weight: 600;
-        margin-right: 0.3rem;
-      }
-
-      .badge-new {
-        background: var(--green);
-        color: #000;
-      }
-
-      .badge-shared {
-        background: var(--brand);
-        color: #fff;
-      }
-
-      .badge-cursor {
-        background: var(--accent);
-        color: #fff;
-      }
-
-      .badge-gemini {
-        background: #db6d28;
-        color: #fff;
-      }
-
       table {
         width: 100%;
         border-collapse: collapse;
@@ -150,37 +119,41 @@
         vertical-align: top;
       }
 
+      .badge {
+        display: inline-block;
+        padding: 0.1rem 0.4rem;
+        border-radius: 6px;
+        font-size: 0.75rem;
+        font-weight: 600;
+        margin-right: 0.3rem;
+      }
+
+      .badge-new {
+        background: #3fb950;
+        color: #000;
+      }
+
+      .badge-shared {
+        background: var(--brand);
+        color: #fff;
+      }
+
+      .badge-cursor {
+        background: #a371f7;
+        color: #fff;
+      }
+
+      .badge-gemini {
+        background: #db6d28;
+        color: #fff;
+      }
+
       .diagram {
         background: #faf4ec;
         border: 1px solid var(--line);
         border-radius: 10px;
         padding: 1rem;
         margin: 1rem 0;
-        text-align: center;
-      }
-
-      .summary {
-        background: linear-gradient(135deg, #e8f5e9 0%, #c8e6c9 100%);
-        border-left: 4px solid var(--green);
-        padding: 1rem;
-        margin: 1rem 0;
-        border-radius: 0 8px 8px 0;
-      }
-
-      .test-result {
-        background: #f0fdf4;
-        border: 1px solid #bbf7d0;
-        border-radius: 8px;
-        padding: 0.5rem 0.8rem;
-        margin: 0.3rem 0;
-        font-family: "IBM Plex Mono", monospace;
-        font-size: 0.85rem;
-      }
-
-      .test-result.pass::before {
-        content: "✓ ";
-        color: var(--green);
-        font-weight: bold;
       }
     </style>
   </head>
@@ -193,7 +166,7 @@
           <code>agent-base</code> factory. This eliminates code duplication and provides unified
           JSONL/session introspection for all JSONL-based agents.
         </p>
-        <p class="muted" style="margin-top: 0.5rem;">
+        <p class="muted">
           PR: <a href="https://github.com/ComposioHQ/agent-orchestrator/pull/511">#511</a>
           &nbsp;·&nbsp; Status: MERGEABLE &nbsp;·&nbsp; March 2026
         </p>
@@ -203,7 +176,7 @@
         <article class="card">
           <h2>Architecture</h2>
           <div class="diagram">
-<pre style="text-align: left; display: inline-block;">
+<pre>
 ┌─────────────────────────────────────────┐
 │         agent-orchestrator               │
 └─────────────────────────────────────────┘
@@ -304,8 +277,10 @@
         <article class="card">
           <h2>Integration Tests</h2>
           <p>Live integration tests verify both agents can spawn autonomously via CLI and execute tasks.</p>
-          <div class="test-result pass">agent-gemini (integration) &gt; fibonacci.py runs and outputs correct fibonacci numbers</div>
-          <div class="test-result pass">agent-cursor (integration) &gt; fibonacci.py runs and outputs correct fibonacci numbers</div>
+          <ul>
+            <li>✓ agent-gemini (integration) > fibonacci.py runs and outputs correct fibonacci numbers</li>
+            <li>✓ agent-cursor (integration) > fibonacci.py runs and outputs correct fibonacci numbers</li>
+          </ul>
           <p class="muted" style="margin-top: 0.5rem;">8 total tests (4 Cursor + 4 Gemini)</p>
         </article>
       </section>
