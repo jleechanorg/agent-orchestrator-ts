@@ -26,7 +26,7 @@ export interface RaceGroup {
   parentSessionId: SessionId;
   projectId: string;
   sessions: RaceEntry[];
-  status: "running" | "won" | "failed" | "cancelled";
+  status: "running" | "won" | "failed" | "cancelled" | "resolved";
   winner?: SessionId;
   startedAt: Date;
   config: { killOnSuccess: boolean };
@@ -136,7 +136,7 @@ export class ParallelRetryMonitor {
     if (!race) throw new Error(`Race not found: ${raceId}`);
 
     // Guard: already resolved — nothing to poll.
-    if (race.status === "won" || race.status === "failed" || race.status === "cancelled") {
+    if (race.status === "won" || race.status === "failed" || race.status === "cancelled" || race.status === "resolved") {
       return race;
     }
 
@@ -181,11 +181,13 @@ export class ParallelRetryMonitor {
 
         const isTerminal = TERMINAL_STATUSES.has(session.status);
         const isFailing = entry.ciStatus === "failing";
+        const isNonPassingTerminal =
+          isTerminal &&
+          (isFailing ||
+            entry.ciStatus === "none" ||
+            entry.ciStatus === "pending");
 
-        if (
-          !(isTerminal && isFailing) &&
-          !(isTerminal && entry.ciStatus === "none")
-        ) {
+        if (!isNonPassingTerminal) {
           allFailedOrTerminal = false;
         }
       }
@@ -223,6 +225,8 @@ export class ParallelRetryMonitor {
         losers.map((loser) => this.sessionManager.kill(loser.sessionId)),
       );
     }
+
+    race.status = "resolved";
 
     return { winner, losers };
   }

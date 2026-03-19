@@ -423,7 +423,45 @@ describe("ParallelRetryMonitor", () => {
     expect(getCallCount).toBe(3);
   });
 
-  // 17. resolveRace uses allSettled — one kill failure doesn't block others
+  // 17. resolveRace transitions status to "resolved" preventing double-kill
+  it("resolveRace marks race as resolved, preventing repeated calls", async () => {
+    const race = await monitor.startRace("parent-1", "test-project", undefined, parallelRetryConfig);
+
+    vi.mocked(sessionManager.get).mockImplementation(async (id: SessionId) => {
+      if (id === "race-session-1") {
+        return makeSession(id, { pr: makePR(id) });
+      }
+      return makeSession(id);
+    });
+    vi.mocked(mockSCM.getCISummary).mockResolvedValue("passing" as CIStatus);
+
+    await monitor.checkRace(race.id);
+    await monitor.resolveRace(race.id);
+
+    expect(race.status).toBe("resolved");
+
+    // Second resolveRace should throw because status is no longer "won"
+    await expect(monitor.resolveRace(race.id)).rejects.toThrow(
+      /not won/,
+    );
+  });
+
+  // 18. Terminal sessions with pending CI are treated as failed
+  it("checkRace treats terminal sessions with pending CI as failed", async () => {
+    const race = await monitor.startRace("parent-1", "test-project", undefined, parallelRetryConfig);
+
+    vi.mocked(sessionManager.get).mockImplementation(async (id: SessionId) =>
+      makeSession(id, { pr: makePR(id), status: "errored", activity: "exited" }),
+    );
+    // CI is still "pending" but sessions are terminal — race should still fail
+    vi.mocked(mockSCM.getCISummary).mockResolvedValue("pending" as CIStatus);
+
+    const updated = await monitor.checkRace(race.id);
+
+    expect(updated.status).toBe("failed");
+  });
+
+  // 19. resolveRace uses allSettled — one kill failure doesn't block others
   it("resolveRace continues killing losers even if one kill fails", async () => {
     const race = await monitor.startRace("parent-1", "test-project", undefined, parallelRetryConfig);
 
