@@ -13,8 +13,8 @@ import {
 
 vi.mock("node:child_process");
 
-import { execSync } from "node:child_process";
-const mockExecSync = vi.mocked(execSync);
+import { execFileSync } from "node:child_process";
+const mockExecFileSync = vi.mocked(execFileSync);
 
 const mockPr: PRInfo = {
   number: 42,
@@ -48,11 +48,12 @@ describe("evidence-bundle", () => {
   beforeEach(() => {
     vi.clearAllMocks();
 
-    mockExecSync.mockImplementation((cmd: string) => {
-      if (String(cmd).includes("--name-only")) {
+    mockExecFileSync.mockImplementation((_cmd: string, args?: readonly string[]) => {
+      const argsStr = args ? args.join(" ") : "";
+      if (argsStr.includes("--name-only")) {
         return "src/foo.ts\nsrc/bar.ts\n";
       }
-      if (String(cmd).includes("--stat")) {
+      if (argsStr.includes("--stat")) {
         return "2 files changed, 10 insertions(+), 5 deletions(-)";
       }
       return "";
@@ -79,6 +80,31 @@ describe("evidence-bundle", () => {
       expect(bundle.diffStats.additions).toBe(10);
       expect(bundle.diffStats.deletions).toBe(5);
       expect(bundle.generatedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    });
+
+    it("calls execFileSync instead of execSync", async () => {
+      await generateEvidenceBundle(mockPr, mockScm, "/workspace");
+      expect(mockExecFileSync).toHaveBeenCalledTimes(2);
+      expect(mockExecFileSync).toHaveBeenCalledWith(
+        "git",
+        expect.arrayContaining(["diff"]),
+        expect.objectContaining({ cwd: "/workspace", encoding: "utf8" }),
+      );
+    });
+
+    it("uses baseBranch from PR for git diff ref", async () => {
+      const customPr = { ...mockPr, baseBranch: "develop" };
+      await generateEvidenceBundle(customPr, mockScm, "/workspace");
+      expect(mockExecFileSync).toHaveBeenCalledWith(
+        "git",
+        ["diff", "--name-only", "develop...HEAD"],
+        expect.objectContaining({ cwd: "/workspace" }),
+      );
+      expect(mockExecFileSync).toHaveBeenCalledWith(
+        "git",
+        ["diff", "--stat", "develop...HEAD"],
+        expect.objectContaining({ cwd: "/workspace" }),
+      );
     });
   });
 
@@ -126,6 +152,19 @@ describe("evidence-bundle", () => {
       const verdict = reviewEvidenceBundle(failingBundle);
       expect(verdict.reasons.length).toBeGreaterThan(0);
       expect(verdict.reasons[0]).toContain("build");
+    });
+
+    it("treats skipped CI checks as non-failures", () => {
+      const skippedBundle: EvidenceBundle = {
+        ...baseBundle,
+        ciChecks: [
+          { name: "build", status: "passed", conclusion: "success", url: null },
+          { name: "optional-lint", status: "skipped", conclusion: null, url: null },
+        ],
+      };
+      const verdict = reviewEvidenceBundle(skippedBundle);
+      expect(verdict.passed).toBe(true);
+      expect(verdict.reasons).toHaveLength(0);
     });
   });
 

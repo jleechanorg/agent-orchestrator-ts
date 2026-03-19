@@ -6,7 +6,7 @@
  * 2. Review bundles and return PASS/FAIL for merge gate condition 6
  */
 
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { SCM, PRInfo, CICheck } from "./types.js";
@@ -85,19 +85,22 @@ export async function generateEvidenceBundle(
 ): Promise<EvidenceBundle> {
   const ciChecks = await scm.getCIChecks(pr);
 
-  const baseBranch = `origin/${pr.baseBranch}`;
-  const nameOnlyOutput = execSync(`git diff --name-only ${baseBranch} HEAD`, {
-    cwd: workspacePath,
-    encoding: "utf8",
-  });
+  const diffRef = `${pr.baseBranch}...HEAD`;
+
+  const nameOnlyOutput = execFileSync(
+    "git",
+    ["diff", "--name-only", diffRef],
+    { cwd: workspacePath, encoding: "utf8" },
+  );
   const changedFiles = String(nameOnlyOutput)
     .split("\n")
     .filter((f) => f.trim().length > 0);
 
-  const statOutput = execSync(`git diff --stat ${baseBranch} HEAD`, {
-    cwd: workspacePath,
-    encoding: "utf8",
-  });
+  const statOutput = execFileSync(
+    "git",
+    ["diff", "--stat", diffRef],
+    { cwd: workspacePath, encoding: "utf8" },
+  );
   const diffStats = parseDiffStats(String(statOutput));
 
   const partialBundle = {
@@ -128,7 +131,7 @@ export function reviewEvidenceBundle(bundle: EvidenceBundle): EvidenceVerdict {
   const reasons: string[] = [];
 
   for (const check of bundle.ciChecks) {
-    if (check.status !== "passed") {
+    if (check.status !== "passed" && check.status !== "skipped") {
       reasons.push(`CI check '${check.name}' is not passing (status: ${check.status})`);
     }
   }
