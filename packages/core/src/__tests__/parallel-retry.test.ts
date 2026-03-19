@@ -135,7 +135,7 @@ describe("ParallelRetryMonitor", () => {
 
   // 1. startRace creates race group with correct session entries
   it("startRace creates race group with correct session entries", async () => {
-    const race = await monitor.startRace("parent-1", "test-project", strategies, parallelRetryConfig);
+    const race = await monitor.startRace("parent-1", "test-project", undefined, strategies, parallelRetryConfig);
 
     expect(race.id).toBeDefined();
     expect(race.parentSessionId).toBe("parent-1");
@@ -149,7 +149,7 @@ describe("ParallelRetryMonitor", () => {
   // 2. startRace respects maxParallel limit
   it("startRace respects maxParallel limit", async () => {
     const limitedConfig = { maxParallel: 2, strategies, killOnSuccess: true };
-    const race = await monitor.startRace("parent-1", "test-project", strategies, limitedConfig);
+    const race = await monitor.startRace("parent-1", "test-project", undefined, strategies, limitedConfig);
 
     expect(race.sessions).toHaveLength(2);
     expect(sessionManager.spawn).toHaveBeenCalledTimes(2);
@@ -157,7 +157,7 @@ describe("ParallelRetryMonitor", () => {
 
   // 3. checkRace detects winner when one session has CI passing
   it("checkRace detects winner when CI is passing", async () => {
-    const race = await monitor.startRace("parent-1", "test-project", strategies, parallelRetryConfig);
+    const race = await monitor.startRace("parent-1", "test-project", undefined, strategies, parallelRetryConfig);
 
     // Session 2 has a PR with passing CI
     vi.mocked(sessionManager.get).mockImplementation(async (id: SessionId) => {
@@ -177,7 +177,7 @@ describe("ParallelRetryMonitor", () => {
 
   // 4. checkRace returns "running" when all CIs are still pending
   it("checkRace returns running when all CIs are pending", async () => {
-    const race = await monitor.startRace("parent-1", "test-project", strategies, parallelRetryConfig);
+    const race = await monitor.startRace("parent-1", "test-project", undefined, strategies, parallelRetryConfig);
 
     vi.mocked(sessionManager.get).mockImplementation(async (id: SessionId) =>
       makeSession(id, { pr: makePR(id) }),
@@ -192,7 +192,7 @@ describe("ParallelRetryMonitor", () => {
 
   // 5. checkRace returns "failed" when all CIs fail and all sessions are terminal
   it("checkRace returns failed when all sessions fail", async () => {
-    const race = await monitor.startRace("parent-1", "test-project", strategies, parallelRetryConfig);
+    const race = await monitor.startRace("parent-1", "test-project", undefined, strategies, parallelRetryConfig);
 
     vi.mocked(sessionManager.get).mockImplementation(async (id: SessionId) =>
       makeSession(id, { pr: makePR(id), status: "errored", activity: "exited" }),
@@ -206,7 +206,7 @@ describe("ParallelRetryMonitor", () => {
 
   // 6. resolveRace kills loser sessions when winner found
   it("resolveRace kills loser sessions", async () => {
-    const race = await monitor.startRace("parent-1", "test-project", strategies, parallelRetryConfig);
+    const race = await monitor.startRace("parent-1", "test-project", undefined, strategies, parallelRetryConfig);
 
     // Set up winner
     vi.mocked(sessionManager.get).mockImplementation(async (id: SessionId) => {
@@ -227,7 +227,7 @@ describe("ParallelRetryMonitor", () => {
 
   // 7. resolveRace returns winner session info
   it("resolveRace returns winner and losers", async () => {
-    const race = await monitor.startRace("parent-1", "test-project", strategies, parallelRetryConfig);
+    const race = await monitor.startRace("parent-1", "test-project", undefined, strategies, parallelRetryConfig);
 
     vi.mocked(sessionManager.get).mockImplementation(async (id: SessionId) => {
       if (id === "race-session-3") {
@@ -248,7 +248,7 @@ describe("ParallelRetryMonitor", () => {
   it("getRaceStatus returns race group or undefined", async () => {
     expect(monitor.getRaceStatus("nonexistent")).toBeUndefined();
 
-    const race = await monitor.startRace("parent-1", "test-project", strategies, parallelRetryConfig);
+    const race = await monitor.startRace("parent-1", "test-project", undefined, strategies, parallelRetryConfig);
     const status = monitor.getRaceStatus(race.id);
 
     expect(status).toBeDefined();
@@ -258,8 +258,8 @@ describe("ParallelRetryMonitor", () => {
 
   // 9. listActiveRaces returns only "running" races
   it("listActiveRaces returns only running races", async () => {
-    const race1 = await monitor.startRace("parent-1", "test-project", strategies, parallelRetryConfig);
-    await monitor.startRace("parent-2", "test-project", strategies, parallelRetryConfig);
+    const race1 = await monitor.startRace("parent-1", "test-project", undefined, strategies, parallelRetryConfig);
+    await monitor.startRace("parent-2", "test-project", undefined, strategies, parallelRetryConfig);
 
     // Make race1 won
     vi.mocked(sessionManager.get).mockImplementation(async (id: SessionId) => {
@@ -280,7 +280,7 @@ describe("ParallelRetryMonitor", () => {
   // 10. killOnSuccess: false keeps losers alive
   it("resolveRace with killOnSuccess false keeps losers alive", async () => {
     const noKillConfig = { maxParallel: 3, strategies, killOnSuccess: false };
-    const race = await monitor.startRace("parent-1", "test-project", strategies, noKillConfig);
+    const race = await monitor.startRace("parent-1", "test-project", undefined, strategies, noKillConfig);
 
     vi.mocked(sessionManager.get).mockImplementation(async (id: SessionId) => {
       if (id === "race-session-1") {
@@ -300,7 +300,7 @@ describe("ParallelRetryMonitor", () => {
 
   // resolveRace throws if race is not won
   it("resolveRace throws if race is not won", async () => {
-    const race = await monitor.startRace("parent-1", "test-project", strategies, parallelRetryConfig);
+    const race = await monitor.startRace("parent-1", "test-project", undefined, strategies, parallelRetryConfig);
 
     await expect(monitor.resolveRace(race.id)).rejects.toThrow();
   });

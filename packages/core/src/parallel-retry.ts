@@ -67,6 +67,7 @@ export class ParallelRetryMonitor {
   async startRace(
     parentSessionId: SessionId,
     projectId: string,
+    issueId: string | undefined,
     strategies: string[],
     parallelRetryConfig: {
       maxParallel: number;
@@ -81,7 +82,8 @@ export class ParallelRetryMonitor {
     for (const strategy of toSpawn) {
       const spawnConfig: SessionSpawnConfig = {
         projectId,
-        prompt: strategy,
+        issueId,
+        agent: strategy,
       };
       const session = await this.sessionManager.spawn(spawnConfig);
       entries.push({
