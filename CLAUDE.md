@@ -60,6 +60,7 @@ This repo is `jleechanorg/agent-orchestrator`, forked from `ComposioHQ/agent-orc
 - PRs go against `jleechanorg/agent-orchestrator`, not `ComposioHQ/agent-orchestrator`
 - Upstream improvements can be proposed to ComposioHQ after landing here first
 - Remote `jleechanorg` points to the fork; `origin` points to upstream (read-only)
+- **Upstream-strip rule**: When preparing a PR to `ComposioHQ/agent-orchestrator`, exclude fork-only artifacts (`CLAUDE.md`, `AGENTS.md`, `roadmap/`, `.beads/`, `docs/design/*.md`) and any commits referencing fork-specific infrastructure (openclaw, jleechanorg-specific tooling)
 
 ## PR Target — CRITICAL SAFETY RULE
 
@@ -68,7 +69,7 @@ This repo is `jleechanorg/agent-orchestrator`, forked from `ComposioHQ/agent-orc
 Before creating any PR, confirm the target repo. If the target is `ComposioHQ/agent-orchestrator`, stop and ask:
 > "This would open a PR against the ComposioHQ upstream. Do you approve?"
 
-Only proceed after explicit in-thread approval. Default target is always `jleechanorg/agent-orchestrator`.
+Only proceed after explicit in-thread approval. Default target is always `jleechanorg/agent-orchestrator`. When approved, strip fork-only artifacts: `CLAUDE.md`, `AGENTS.md`, `roadmap/`, `.beads/`, `docs/design/*.md`, and commits referencing fork infrastructure.
 
 ## Upstreaming to ComposioHQ — What to Strip
 
