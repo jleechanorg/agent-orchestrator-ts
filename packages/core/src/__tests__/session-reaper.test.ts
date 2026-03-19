@@ -239,7 +239,34 @@ describe("reapStaleSessions", () => {
     expect(sm.kill).not.toHaveBeenCalled();
   });
 
-  it("11. kill failure → captured in errors, continues to next", async () => {
+  it("11. failed kills count toward cap (maxKillsPerRun=1, first fails → second skipped)", async () => {
+    const sessions = [
+      makeSession("s1", {
+        pr: null,
+        status: "working",
+        activity: "active",
+        createdAt: new Date(BASE_NOW.getTime() - FOUR_HOURS_MS - 1000),
+      }),
+      makeSession("s2", {
+        pr: null,
+        status: "working",
+        activity: "active",
+        createdAt: new Date(BASE_NOW.getTime() - FOUR_HOURS_MS - 1000),
+      }),
+    ];
+    const sm = makeSessionManager(sessions);
+    (sm.kill as ReturnType<typeof vi.fn>)
+      .mockRejectedValueOnce(new Error("kill failed"));
+
+    const result = await reapStaleSessions(makeConfig({ maxKillsPerRun: 1 }), makeDeps(sm));
+
+    expect(result.errors).toHaveLength(1);
+    expect(result.killed).toHaveLength(0);
+    expect(result.skipped.some(s => s.reason.includes("cap"))).toBe(true);
+    expect(sm.kill).toHaveBeenCalledTimes(1);
+  });
+
+  it("12. kill failure → captured in errors, continues to next", async () => {
     const sessions = [
       makeSession("s1", {
         pr: null,

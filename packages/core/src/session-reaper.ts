@@ -86,8 +86,8 @@ export async function reapStaleSessions(
   const sessions = await deps.sessionManager.list();
 
   for (const session of sessions) {
-    // Stop if we hit the kill cap (regardless of dryRun, still cap the list)
-    if (killed.length >= config.maxKillsPerRun) {
+    // Stop if we hit the kill cap — count attempts (killed + errors), not just successes
+    if (killed.length + errors.length >= config.maxKillsPerRun) {
       skipped.push({ sessionId: session.id, reason: "kill cap reached" });
       continue;
     }
