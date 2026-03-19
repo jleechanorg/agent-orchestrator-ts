@@ -16,10 +16,21 @@ export interface MergeGateResult {
   blockers: string[];
 }
 
-function getLatestReviewByAuthor(reviews: Array<{ author: string; submittedAt: Date }>, author: string) {
+function getLatestDecisiveReview(
+  reviews: Array<{ author: string; state: string; submittedAt?: Date }>,
+  author: string,
+) {
   return reviews
-    .filter((r) => r.author === author)
-    .sort((a, b) => b.submittedAt.getTime() - a.submittedAt.getTime())[0];
+    .filter(
+      (r) =>
+        r.author === author &&
+        (r.state === "approved" || r.state === "changes_requested"),
+    )
+    .sort(
+      (a, b) =>
+        new Date(b.submittedAt ?? 0).getTime() -
+        new Date(a.submittedAt ?? 0).getTime(),
+    )[0] ?? null;
 }
 
 export async function checkMergeGate(
@@ -54,15 +65,17 @@ export async function checkMergeGate(
     detail: noConflicts ? "No merge conflicts" : "Merge conflicts detected",
   });
 
-  // 3. CodeRabbit approved
-  const coderabbitReview = getLatestReviewByAuthor(reviews, "coderabbitai");
-  const coderabbitApproved = coderabbitReview?.state === "approved";
+  // 3. CodeRabbit approved — check the latest decisive review (not just any approval)
+  const latestCR = getLatestDecisiveReview(reviews, "coderabbitai");
+  const crApproved = latestCR?.state === "approved";
   checks.push({
     name: "CodeRabbit approved",
-    passed: coderabbitApproved,
-    detail: coderabbitApproved
+    passed: crApproved,
+    detail: crApproved
       ? "CodeRabbit approved"
-      : "No CodeRabbit approval found",
+      : latestCR?.state === "changes_requested"
+        ? "CodeRabbit requested changes"
+        : "No CodeRabbit approval found",
   });
 
   // 4. Bugbot clean — no error-severity comments from cursor bugbot
@@ -101,7 +114,7 @@ export async function checkMergeGate(
   const evidenceRequired = config.requiredChecks?.includes("evidence-review");
   let evidencePassed = true;
   if (evidenceRequired) {
-    const evidenceReview = getLatestReviewByAuthor(reviews, "evidence-review-bot");
+    const evidenceReview = getLatestDecisiveReview(reviews, "evidence-review-bot");
     evidencePassed = evidenceReview?.state === "approved";
   }
   checks.push({

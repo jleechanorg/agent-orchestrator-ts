@@ -71,6 +71,41 @@ describe("checkMergeGate", () => {
     expect(result.blockers).toContain("CodeRabbit approved");
   });
 
+  it("fails when newer CodeRabbit rejection overrides older approval", async () => {
+    const scm = makePassingScm();
+    scm.getReviews.mockResolvedValue([
+      { author: "coderabbitai", state: "approved", submittedAt: new Date("2024-01-01T00:00:00Z") },
+      { author: "coderabbitai", state: "changes_requested", submittedAt: new Date("2024-01-02T00:00:00Z") },
+    ]);
+    const result = await checkMergeGate(pr, config, scm as unknown as SCM);
+    expect(result.passed).toBe(false);
+    expect(result.blockers).toContain("CodeRabbit approved");
+    const crCheck = result.checks.find((c) => c.name === "CodeRabbit approved");
+    expect(crCheck?.detail).toContain("requested changes");
+  });
+
+  it("passes when newer CodeRabbit approval overrides older rejection", async () => {
+    const scm = makePassingScm();
+    scm.getReviews.mockResolvedValue([
+      { author: "coderabbitai", state: "changes_requested", submittedAt: new Date("2024-01-01T00:00:00Z") },
+      { author: "coderabbitai", state: "approved", submittedAt: new Date("2024-01-02T00:00:00Z") },
+    ]);
+    const result = await checkMergeGate(pr, config, scm as unknown as SCM);
+    const crCheck = result.checks.find((c) => c.name === "CodeRabbit approved");
+    expect(crCheck?.passed).toBe(true);
+  });
+
+  it("ignores commented review state from CodeRabbit", async () => {
+    const scm = makePassingScm();
+    scm.getReviews.mockResolvedValue([
+      { author: "coderabbitai", state: "approved", submittedAt: new Date("2024-01-01T00:00:00Z") },
+      { author: "coderabbitai", state: "commented", submittedAt: new Date("2024-01-02T00:00:00Z") },
+    ]);
+    const result = await checkMergeGate(pr, config, scm as unknown as SCM);
+    const crCheck = result.checks.find((c) => c.name === "CodeRabbit approved");
+    expect(crCheck?.passed).toBe(true);
+  });
+
   it("fails when Cursor Bugbot has error-severity comment", async () => {
     const scm = makePassingScm();
     scm.getAutomatedComments.mockResolvedValue([
