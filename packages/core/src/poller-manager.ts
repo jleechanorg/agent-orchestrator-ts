@@ -134,10 +134,17 @@ export function createPollerManager(deps: PollerManagerDeps): PollerManagerImpl 
           .slice(0, 60)
           .replace(/^-+|-+$/g, "");
 
+    // Apply same sanitization to fallback
+    const fallbackSlug = workItem.id
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .slice(0, 20)
+      .replace(/^-+|-+$/g, "");
+
     return {
       projectId,
       issueId: workItem.id,
-      branch: `fix/${slug || workItem.id.slice(0, 20)}`,
+      branch: `fix/${slug || fallbackSlug || "work-item"}`,
       prompt,
       agent: agentName,
     };
