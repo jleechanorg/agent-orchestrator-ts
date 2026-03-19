@@ -153,7 +153,7 @@ AO fails to spawn sessions on repos where the working directory is also the live
 
 ---
 
-## Implementation Order
+## Implementation Order (initial proposal)
 
 ```
 bd-uxs.1  Fix workspace dirty bug           ← unblocks AO on jleechanclaw
