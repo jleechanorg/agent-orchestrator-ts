@@ -70,3 +70,7 @@ agent-orchestrator.yaml
 
 # Shared contributor guidelines (tracked in this fork)
 # CLAUDE.md and AGENTS.md
+
+# Dolt database files (added by bd init)
+.dolt/
+*.db
