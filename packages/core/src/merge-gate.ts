@@ -66,7 +66,7 @@ export async function checkMergeGate(
   });
 
   // 3. CodeRabbit approved — check the latest decisive review (not just any approval)
-  const latestCR = getLatestDecisiveReview(reviews, "coderabbitai");
+  const latestCR = getLatestDecisiveReview(reviews, "coderabbitai[bot]");
   const crApproved = latestCR?.state === "approved";
   checks.push({
     name: "CodeRabbit approved",
@@ -79,13 +79,9 @@ export async function checkMergeGate(
   });
 
   // 4. Bugbot clean — no error-severity comments from cursor bugbot
-  const cursorBugbotPattern = /cursor/i;
-  const bugbotPattern = /bugbot/i;
+  const cursorBotPattern = /cursor\[bot\]/i;
   const bugbotErrors = automatedComments.filter(
-    (c) =>
-      c.severity === "error" &&
-      cursorBugbotPattern.test(c.botName) &&
-      bugbotPattern.test(c.botName),
+    (c) => c.severity === "error" && cursorBotPattern.test(c.botName),
   );
   checks.push({
     name: "Bugbot clean",

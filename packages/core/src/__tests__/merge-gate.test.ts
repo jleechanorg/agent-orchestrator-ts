@@ -6,7 +6,7 @@ function makePassingScm(): { [key: string]: ReturnType<typeof vi.fn> } {
   return {
     getCISummary: vi.fn().mockResolvedValue("passing"),
     getMergeability: vi.fn().mockResolvedValue({ noConflicts: true, mergeable: true, ciPassing: true, approved: true, blockers: [] }),
-    getReviews: vi.fn().mockResolvedValue([{ author: "coderabbitai", state: "approved", submittedAt: new Date() }]),
+    getReviews: vi.fn().mockResolvedValue([{ author: "coderabbitai[bot]", state: "approved", submittedAt: new Date() }]),
     getAutomatedComments: vi.fn().mockResolvedValue([]),
     getPendingComments: vi.fn().mockResolvedValue([]),
     getReviewDecision: vi.fn().mockResolvedValue("approved"),
@@ -65,7 +65,7 @@ describe("checkMergeGate", () => {
 
   it("fails when CodeRabbit review is changes_requested", async () => {
     const scm = makePassingScm();
-    scm.getReviews.mockResolvedValue([{ author: "coderabbitai", state: "changes_requested", submittedAt: new Date() }]);
+    scm.getReviews.mockResolvedValue([{ author: "coderabbitai[bot]", state: "changes_requested", submittedAt: new Date() }]);
     const result = await checkMergeGate(pr, config, scm as unknown as SCM);
     expect(result.passed).toBe(false);
     expect(result.blockers).toContain("CodeRabbit approved");
@@ -74,8 +74,8 @@ describe("checkMergeGate", () => {
   it("fails when newer CodeRabbit rejection overrides older approval", async () => {
     const scm = makePassingScm();
     scm.getReviews.mockResolvedValue([
-      { author: "coderabbitai", state: "approved", submittedAt: new Date("2024-01-01T00:00:00Z") },
-      { author: "coderabbitai", state: "changes_requested", submittedAt: new Date("2024-01-02T00:00:00Z") },
+      { author: "coderabbitai[bot]", state: "approved", submittedAt: new Date("2024-01-01T00:00:00Z") },
+      { author: "coderabbitai[bot]", state: "changes_requested", submittedAt: new Date("2024-01-02T00:00:00Z") },
     ]);
     const result = await checkMergeGate(pr, config, scm as unknown as SCM);
     expect(result.passed).toBe(false);
@@ -87,8 +87,8 @@ describe("checkMergeGate", () => {
   it("passes when newer CodeRabbit approval overrides older rejection", async () => {
     const scm = makePassingScm();
     scm.getReviews.mockResolvedValue([
-      { author: "coderabbitai", state: "changes_requested", submittedAt: new Date("2024-01-01T00:00:00Z") },
-      { author: "coderabbitai", state: "approved", submittedAt: new Date("2024-01-02T00:00:00Z") },
+      { author: "coderabbitai[bot]", state: "changes_requested", submittedAt: new Date("2024-01-01T00:00:00Z") },
+      { author: "coderabbitai[bot]", state: "approved", submittedAt: new Date("2024-01-02T00:00:00Z") },
     ]);
     const result = await checkMergeGate(pr, config, scm as unknown as SCM);
     const crCheck = result.checks.find((c) => c.name === "CodeRabbit approved");
@@ -98,8 +98,8 @@ describe("checkMergeGate", () => {
   it("ignores commented review state from CodeRabbit", async () => {
     const scm = makePassingScm();
     scm.getReviews.mockResolvedValue([
-      { author: "coderabbitai", state: "approved", submittedAt: new Date("2024-01-01T00:00:00Z") },
-      { author: "coderabbitai", state: "commented", submittedAt: new Date("2024-01-02T00:00:00Z") },
+      { author: "coderabbitai[bot]", state: "approved", submittedAt: new Date("2024-01-01T00:00:00Z") },
+      { author: "coderabbitai[bot]", state: "commented", submittedAt: new Date("2024-01-02T00:00:00Z") },
     ]);
     const result = await checkMergeGate(pr, config, scm as unknown as SCM);
     const crCheck = result.checks.find((c) => c.name === "CodeRabbit approved");
@@ -109,7 +109,7 @@ describe("checkMergeGate", () => {
   it("fails when Cursor Bugbot has error-severity comment", async () => {
     const scm = makePassingScm();
     scm.getAutomatedComments.mockResolvedValue([
-      { id: "1", botName: "Cursor Bugbot", body: "error found", severity: "error", createdAt: new Date(), url: "https://example.com" },
+      { id: "1", botName: "cursor[bot]", body: "error found", severity: "error", createdAt: new Date(), url: "https://example.com" },
     ]);
     const result = await checkMergeGate(pr, config, scm as unknown as SCM);
     expect(result.passed).toBe(false);
