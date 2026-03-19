@@ -25,10 +25,15 @@ export class FailureBudgetTracker {
     return `${sessionId}:${reactionType}`;
   }
 
+  private isExpired(entry: BudgetEntry): boolean {
+    if (this.windowMs <= 0) return false;
+    return Date.now() - entry.windowStart.getTime() > this.windowMs;
+  }
+
   recordFailure(sessionId: string, reactionType: string): void {
     const k = this.key(sessionId, reactionType);
     const entry = this.entries.get(k);
-    if (entry) {
+    if (entry && !this.isExpired(entry)) {
       entry.count++;
     } else {
       this.entries.set(k, { count: 1, windowStart: new Date() });
@@ -36,7 +41,13 @@ export class FailureBudgetTracker {
   }
 
   getCount(sessionId: string, reactionType: string): number {
-    return this.entries.get(this.key(sessionId, reactionType))?.count ?? 0;
+    const entry = this.entries.get(this.key(sessionId, reactionType));
+    if (!entry) return 0;
+    if (this.isExpired(entry)) {
+      this.entries.delete(this.key(sessionId, reactionType));
+      return 0;
+    }
+    return entry.count;
   }
 
   isExhausted(sessionId: string, reactionType: string): boolean {
