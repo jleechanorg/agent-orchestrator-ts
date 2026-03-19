@@ -55,13 +55,16 @@ async function ghExec(args: string[], cwd?: string): Promise<string> {
 function isCIPassing(pr: GitHubPR): boolean {
   const checks = pr.statusCheckRollup;
   if (!checks || checks.length === 0) return true; // No CI configured — treat as passing
-  return checks.every(
-    (c) =>
-      c.state === "SUCCESS" ||
-      c.conclusion === "success" ||
-      c.conclusion === "skipped" ||
-      c.conclusion === "neutral",
-  );
+  return checks.every((c) => {
+    const state = c.state?.toUpperCase();
+    const conclusion = c.conclusion?.toLowerCase();
+    return (
+      state === "SUCCESS" ||
+      conclusion === "success" ||
+      conclusion === "skipped" ||
+      conclusion === "neutral"
+    );
+  });
 }
 
 // -----------------------------------------------------------------------
@@ -116,12 +119,16 @@ export const manifest = {
 // Plugin factory
 // -----------------------------------------------------------------------
 
-export function create(config?: Record<string, unknown>): Poller {
+export function create(config?: Record<string, unknown>): Poller & { setSessionManager(sm: SessionManager): void } {
   const repo = config?.repo as string | undefined;
-  const sessionManager = config?.sessionManager as SessionManager | undefined;
+  let sessionManager = config?.sessionManager as SessionManager | undefined;
 
   return {
     name: "github-pr",
+
+    setSessionManager(sm: SessionManager): void {
+      sessionManager = sm;
+    },
 
     async poll(projectId: string): Promise<PollerWorkItem[]> {
       const args = [

@@ -85,6 +85,14 @@ function extractPluginConfig(
     }
   }
 
+  // Poller plugins: config.plugins["poller-<name>"] (e.g., plugins["poller-github-pr"])
+  if (slot === "poller") {
+    const pluginConfig = config.plugins?.[`poller-${name}`];
+    if (pluginConfig && typeof pluginConfig === "object") {
+      return pluginConfig as Record<string, unknown>;
+    }
+  }
+
   return undefined;
 }
 
