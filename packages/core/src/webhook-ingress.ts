@@ -21,16 +21,17 @@ export interface WebhookIngressConfig {
 const DEFAULT_MAX_BODY_BYTES = 10 * 1024 * 1024; // 10 MB
 
 export class WebhookIngress {
-  private readonly config: Required<WebhookIngressConfig>;
+  private readonly secret: string;
+  private readonly maxBodyBytes: number;
+  private readonly maxDeliveryEntries: number;
   private deliveries: Map<string, string>;
   private queue: SCMWebhookEvent[];
   private dbInitialized: boolean;
 
   constructor(config: WebhookIngressConfig) {
-    this.config = {
-      maxBodyBytes: DEFAULT_MAX_BODY_BYTES,
-      ...config,
-    };
+    this.secret = config.secret;
+    this.maxBodyBytes = config.maxBodyBytes ?? DEFAULT_MAX_BODY_BYTES;
+    this.maxDeliveryEntries = 10_000;
     this.deliveries = new Map();
     this.queue = [];
     this.dbInitialized = false;
@@ -90,6 +91,11 @@ export class WebhookIngress {
    */
   recordDelivery(deliveryId: string, eventType: string): void {
     if (!this.deliveries.has(deliveryId)) {
+      // Evict oldest entries when at capacity (FIFO by insertion order)
+      if (this.deliveries.size >= this.maxDeliveryEntries) {
+        const firstKey = this.deliveries.keys().next().value;
+        if (firstKey !== undefined) this.deliveries.delete(firstKey);
+      }
       this.deliveries.set(deliveryId, eventType);
     }
   }
