@@ -733,7 +733,9 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
             const spawned = await sessionManager.spawn({
               projectId: freshSession.projectId,
               issueId: freshSession.issueId ?? undefined,
-              branch: freshSession.branch,
+              // Do NOT pass branch — let session-manager generate a unique branch name
+              // per spawned session. Reusing the original branch causes git checkout to
+              // fail in worktree workspaces where the branch is already checked out.
               agent,
             });
             spawnedIds.push(spawned.id);

@@ -2406,6 +2406,33 @@ describe("parallel-retry reaction (bd-uxs.4)", () => {
     };
   }
 
+  it("does not pass the original branch to spawned retries (unique branch per session)", async () => {
+    // Regression test: passing branch: freshSession.branch causes git checkout to fail
+    // in worktree workspaces because the branch is already checked out by the original session.
+    config.reactions = {
+      "ci-failed": {
+        auto: true,
+        action: "parallel-retry",
+        parallelRetry: { maxParallel: 2, strategies: ["codex", "claude-code"] },
+      },
+    };
+
+    const session = makeSession({ status: "pr_open", pr: makePR(), branch: "feat/orig", issueId: "42" });
+    vi.mocked(mockSessionManager.get).mockResolvedValue(session);
+    vi.mocked(mockSessionManager.spawn).mockResolvedValue(makeSession({ id: "app-retry-1" }));
+
+    writeMetadata(sessionsDir, "app-1", { worktree: "/tmp", branch: "main", status: "pr_open", project: "my-app" });
+
+    const lm = createLifecycleManager({ config, registry: makeRegistryWithScm(), sessionManager: mockSessionManager });
+    await lm.check("app-1");
+
+    expect(mockSessionManager.spawn).toHaveBeenCalledTimes(2);
+    // branch must NOT be the original branch — let session-manager generate unique names
+    for (const call of vi.mocked(mockSessionManager.spawn).mock.calls) {
+      expect(call[0]).not.toHaveProperty("branch", "feat/orig");
+    }
+  });
+
   it("spawns one session per strategy up to maxParallel", async () => {
     config.reactions = {
       "ci-failed": {
