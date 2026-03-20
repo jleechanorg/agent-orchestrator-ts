@@ -209,7 +209,7 @@ update_metadata_key() {
 clean_command="$command"
 cd_prefix_pattern='^[[:space:]]*cd[[:space:]]+.*[[:space:]]+(&&|;)[[:space:]]+(.*)'
 while [[ "$clean_command" =~ $cd_prefix_pattern ]]; do
-  clean_command="${BASH_REMATCH[2]}"
+  clean_command="\${BASH_REMATCH[2]}"
 done
 
 # Detect: gh pr create
