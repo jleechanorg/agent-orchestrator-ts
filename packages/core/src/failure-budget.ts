@@ -4,7 +4,7 @@
  */
 
 import { parseDuration } from "./lifecycle-manager.js";
-import type { ReactionConfig, ReactionResult } from "./types.js";
+import type { EventPriority, ReactionConfig, ReactionResult } from "./types.js";
 
 interface BudgetEntry {
   count: number;
@@ -71,7 +71,7 @@ export class FailureBudgetTracker {
 
 export interface BudgetExhaustedDeps {
   notify: (event: {
-    priority: string;
+    priority: EventPriority;
     message: string;
     sessionId: string;
     projectId: string;
