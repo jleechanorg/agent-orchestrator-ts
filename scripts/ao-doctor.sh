@@ -233,12 +233,19 @@ check_install_layout() {
 }
 
 check_runtime_sanity() {
-  if [ ! -f "$REPO_ROOT/packages/agent-orchestrator/bin/ao.js" ]; then
+  # Check both legacy and current launcher paths
+  local launcher=""
+  if [ -f "$REPO_ROOT/packages/ao/bin/ao.js" ]; then
+    launcher="$REPO_ROOT/packages/ao/bin/ao.js"
+  elif [ -f "$REPO_ROOT/packages/agent-orchestrator/bin/ao.js" ]; then
+    launcher="$REPO_ROOT/packages/agent-orchestrator/bin/ao.js"
+  fi
+  if [ -z "$launcher" ]; then
     fail "launcher entrypoint is missing. Fix: reinstall from a clean checkout"
     return
   fi
 
-  if node "$REPO_ROOT/packages/agent-orchestrator/bin/ao.js" --version >/dev/null 2>&1; then
+  if node "$launcher" --version >/dev/null 2>&1; then
     pass "launcher runtime sanity check passed (ao --version)"
   else
     fail "launcher runtime sanity check failed. Fix: run pnpm build and refresh the launcher"
