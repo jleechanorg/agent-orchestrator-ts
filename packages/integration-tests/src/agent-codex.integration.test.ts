@@ -55,7 +55,7 @@ async function hasCodexCredentials(): Promise<boolean> {
     const raw = await readFile(join(homedir(), ".codex", "auth.json"), "utf8");
     const auth = JSON.parse(raw) as Record<string, unknown>;
     const tokens = auth["tokens"] as Record<string, unknown> | undefined;
-    return Boolean(tokens?.["access_token"] ?? tokens?.["id_token"]);
+    return Boolean(tokens?.["access_token"] || tokens?.["id_token"]);
   } catch {
     return false;
   }
