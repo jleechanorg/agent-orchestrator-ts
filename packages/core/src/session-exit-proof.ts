@@ -5,6 +5,7 @@
 
 import type {
   Session,
+  SessionId,
   SessionStatus,
   SCM,
   PluginRegistry,
@@ -14,16 +15,18 @@ import type {
   EventPriority,
   OrchestratorEvent,
 } from "./types.js";
-import { createCorrelationId, createProjectObserver } from "./observability.js";
+import { createCorrelationId } from "./observability.js";
+import type { ProjectObserver } from "./observability.js";
 
 export interface ExitProofDeps {
   config: OrchestratorConfig;
   registry: PluginRegistry;
+  observer: ProjectObserver;
   notifyHuman: (event: OrchestratorEvent, priority: EventPriority) => Promise<void>;
   createEvent: (
     type: EventType,
     opts: {
-      sessionId: string;
+      sessionId: SessionId;
       projectId: string;
       message: string;
       priority?: EventPriority;
@@ -50,9 +53,8 @@ export function emitExitProofEvent(
 
   void deps.notifyHuman(event, priority);
 
-  const observer = createProjectObserver(deps.config, "lifecycle-manager");
   const correlationId = createCorrelationId("lifecycle-exit-proof");
-  observer.recordOperation({
+  deps.observer.recordOperation({
     metric: "lifecycle_exit_proof",
     operation: "lifecycle.exit_proof",
     outcome: validationFailed ? "failure" : "success",

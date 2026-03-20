@@ -16,8 +16,7 @@ import type {
   ReactionConfig,
   ReactionResult,
 } from "./types.js";
-import { updateMetadata } from "./metadata.js";
-import { getSessionsDir } from "./paths.js";
+import { updateSessionMetadataHelper } from "./fork-utils.js";
 
 export interface ReviewBacklogDeps {
   config: OrchestratorConfig;
@@ -35,30 +34,6 @@ export interface ReviewBacklogDeps {
 
 function makeFingerprint(ids: string[]): string {
   return [...ids].sort().join(",");
-}
-
-function updateSessionMetadata(
-  session: Session,
-  updates: Partial<Record<string, string>>,
-  config: OrchestratorConfig,
-): void {
-  const project = config.projects[session.projectId];
-  if (!project) return;
-
-  const sessionsDir = getSessionsDir(config.configPath, project.path);
-  updateMetadata(sessionsDir, session.id, updates);
-
-  const cleaned = Object.fromEntries(
-    Object.entries(session.metadata).filter(([key]) => {
-      const update = updates[key];
-      return update === undefined || update !== "";
-    }),
-  );
-  for (const [key, value] of Object.entries(updates)) {
-    if (value === undefined || value === "") continue;
-    cleaned[key] = value;
-  }
-  session.metadata = cleaned;
 }
 
 /**
@@ -87,7 +62,7 @@ export async function maybeDispatchReviewBacklog(
   if (newStatus === "merged" || newStatus === "killed") {
     clearReactionTracker(session.id, humanReactionKey);
     clearReactionTracker(session.id, automatedReactionKey);
-    updateSessionMetadata(
+    updateSessionMetadataHelper(
       session,
       {
         lastPendingReviewFingerprint: "",
@@ -131,7 +106,7 @@ export async function maybeDispatchReviewBacklog(
       clearReactionTracker(session.id, humanReactionKey);
     }
     if (pendingFingerprint !== lastPendingFingerprint) {
-      updateSessionMetadata(
+      updateSessionMetadataHelper(
         session,
         { lastPendingReviewFingerprint: pendingFingerprint },
         config,
@@ -140,7 +115,7 @@ export async function maybeDispatchReviewBacklog(
 
     if (!pendingFingerprint) {
       clearReactionTracker(session.id, humanReactionKey);
-      updateSessionMetadata(
+      updateSessionMetadataHelper(
         session,
         {
           lastPendingReviewFingerprint: "",
@@ -154,7 +129,7 @@ export async function maybeDispatchReviewBacklog(
       transitionReaction.result?.success
     ) {
       if (lastPendingDispatchHash !== pendingFingerprint) {
-        updateSessionMetadata(
+        updateSessionMetadataHelper(
           session,
           {
             lastPendingReviewDispatchHash: pendingFingerprint,
@@ -181,7 +156,7 @@ export async function maybeDispatchReviewBacklog(
           session,
         );
         if (result.success) {
-          updateSessionMetadata(
+          updateSessionMetadataHelper(
             session,
             {
               lastPendingReviewDispatchHash: pendingFingerprint,
@@ -202,7 +177,7 @@ export async function maybeDispatchReviewBacklog(
 
     if (automatedFingerprint !== lastAutomatedFingerprint) {
       clearReactionTracker(session.id, automatedReactionKey);
-      updateSessionMetadata(
+      updateSessionMetadataHelper(
         session,
         { lastAutomatedReviewFingerprint: automatedFingerprint },
         config,
@@ -211,7 +186,7 @@ export async function maybeDispatchReviewBacklog(
 
     if (!automatedFingerprint) {
       clearReactionTracker(session.id, automatedReactionKey);
-      updateSessionMetadata(
+      updateSessionMetadataHelper(
         session,
         {
           lastAutomatedReviewFingerprint: "",
@@ -235,7 +210,7 @@ export async function maybeDispatchReviewBacklog(
           session,
         );
         if (result.success) {
-          updateSessionMetadata(
+          updateSessionMetadataHelper(
             session,
             {
               lastAutomatedReviewDispatchHash: automatedFingerprint,

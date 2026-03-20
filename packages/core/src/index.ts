@@ -51,13 +51,6 @@ export type { SessionManagerDeps } from "./session-manager.js";
 export { createLifecycleManager } from "./lifecycle-manager.js";
 export type { LifecycleManagerDeps } from "./lifecycle-manager.js";
 
-// Reaction context builder — fork isolation (extracted from lifecycle-manager)
-export { buildReactionContext } from "./reaction-context.js";
-
-// Session exit proof — fork isolation (extracted from lifecycle-manager)
-export { validateAndEmitExitProof, emitExitProofEvent } from "./session-exit-proof.js";
-export type { ExitProofDeps } from "./session-exit-proof.js";
-
 // Failure budget tracker — tracks retry attempts and routes on exhaustion
 export { FailureBudgetTracker, routeExhaustedBudget } from "./failure-budget.js";
 export type { BudgetExhaustedDeps } from "./failure-budget.js";
@@ -249,10 +242,24 @@ export type {
   PatternStore,
 } from "./pattern-synthesizer.js";
 
-// Fork-isolated reaction handlers (extracted from lifecycle-manager)
+// =============================================================================
+// FORK-SPECIFIC EXPORTS (extracted from upstream files for isolation)
+// =============================================================================
+
+// Reaction context builder (extracted from lifecycle-manager)
+export { buildReactionContext } from "./reaction-context.js";
+
+// Session exit proof (extracted from lifecycle-manager)
+export { validateAndEmitExitProof, emitExitProofEvent } from "./session-exit-proof.js";
+export type { ExitProofDeps } from "./session-exit-proof.js";
+
+// Reaction handlers: request-merge, parallel-retry (extracted from lifecycle-manager)
 export { handleRequestMerge, handleParallelRetry } from "./fork-reaction-handlers.js";
 export type { ReactionHandlerDeps } from "./fork-reaction-handlers.js";
 
-// Fork-isolated review backlog dispatch (extracted from lifecycle-manager)
+// Review backlog dispatch (extracted from lifecycle-manager)
 export { maybeDispatchReviewBacklog } from "./review-backlog.js";
 export type { ReviewBacklogDeps } from "./review-backlog.js";
+
+// Shared fork utility: session metadata update helper
+export { updateSessionMetadataHelper } from "./fork-utils.js";

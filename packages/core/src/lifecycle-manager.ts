@@ -43,6 +43,7 @@ import { buildReactionContext } from "./reaction-context.js";
 import { validateAndEmitExitProof } from "./session-exit-proof.js";
 import { handleRequestMerge, handleParallelRetry } from "./fork-reaction-handlers.js";
 import { maybeDispatchReviewBacklog } from "./review-backlog.js";
+import { updateSessionMetadataHelper } from "./fork-utils.js";
 
 /** Parse a duration string like "10m", "30s", "1h" to milliseconds. */
 export function parseDuration(str: string): number {
@@ -628,23 +629,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
   }
 
   function updateSessionMetadata(session: Session, updates: Partial<Record<string, string>>): void {
-    const project = config.projects[session.projectId];
-    if (!project) return;
-
-    const sessionsDir = getSessionsDir(config.configPath, project.path);
-    updateMetadata(sessionsDir, session.id, updates);
-
-    const cleaned = Object.fromEntries(
-      Object.entries(session.metadata).filter(([key]) => {
-        const update = updates[key];
-        return update === undefined || update !== "";
-      }),
-    );
-    for (const [key, value] of Object.entries(updates)) {
-      if (value === undefined || value === "") continue;
-      cleaned[key] = value;
-    }
-    session.metadata = cleaned;
+    updateSessionMetadataHelper(session, updates, config);
   }
 
   /** Send a notification to all configured notifiers. */
@@ -766,6 +751,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       await validateAndEmitExitProof(session, newStatus, {
         config,
         registry,
+        observer,
         notifyHuman,
         createEvent,
       });

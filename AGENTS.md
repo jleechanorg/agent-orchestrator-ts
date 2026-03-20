@@ -75,6 +75,7 @@ This is a fork of `ComposioHQ/agent-orchestrator`. Every code change must priori
 2. **If the file has a large diff already** — extract your logic into a new companion module instead of adding more inline changes
 3. **If the file is clean (no fork diff)** — strongly prefer creating a new file over modifying the upstream file
 4. **Additive-only exceptions** — adding a new union member, interface field, or export line is acceptable if the change is a single line
+5. **Extraction refactors welcome** — removing existing fork logic from upstream files into companion modules is encouraged, even though it restructures the file — it reduces the upstream diff surface
 
 ### Pattern: Companion Module
 

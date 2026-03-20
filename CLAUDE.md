@@ -46,7 +46,7 @@ This fork diverges from `ComposioHQ/agent-orchestrator`. To minimize merge confl
 ### Rules
 
 1. **New features go in new files** — never add fork logic inline to upstream files. Create a separate module and import it.
-2. **Extend, don't modify** — if you must touch an upstream file (types.ts, config.ts, lifecycle-manager.ts), prefer additive-only changes (new union members, new interface fields, new exports). Never restructure or reorder existing code.
+2. **Extend, don't modify** — if you must touch an upstream file (types.ts, config.ts, lifecycle-manager.ts), prefer additive-only changes (new union members, new interface fields, new exports). Exception: extracting existing fork logic *out* of upstream files into companion modules is encouraged — it reduces the upstream diff even though it restructures the file.
 3. **Plugin-first** — use the plugin system (agent, runtime, scm, notifier, poller, workspace) for new capabilities. Plugins are entirely isolated by design.
 4. **Keep core diff minimal** — `packages/core/src/` files should have the smallest possible diff against upstream. Extract fork logic into `*-extensions.ts` or `fork-*.ts` companion files.
 5. **Re-exports over inline** — when adding exports to `index.ts`, group fork-specific exports together at the bottom with a comment marker.
