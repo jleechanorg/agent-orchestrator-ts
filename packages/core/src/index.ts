@@ -51,6 +51,10 @@ export type { SessionManagerDeps } from "./session-manager.js";
 export { createLifecycleManager } from "./lifecycle-manager.js";
 export type { LifecycleManagerDeps } from "./lifecycle-manager.js";
 
+// Failure budget tracker — tracks retry attempts and routes on exhaustion
+export { FailureBudgetTracker, routeExhaustedBudget } from "./failure-budget.js";
+export type { BudgetExhaustedDeps } from "./failure-budget.js";
+
 // Poller manager — outer initiation loop (bd-uxs.2)
 export { createPollerManager } from "./poller-manager.js";
 export type { PollerManagerDeps } from "./poller-manager.js";
@@ -205,3 +209,7 @@ export type {
   CICheckEvidence,
   EvidenceVerdict,
 } from "./evidence-bundle.js";
+
+// Parallel retry monitor (bd-tzt)
+export { ParallelRetryMonitor } from "./parallel-retry.js";
+export type { RaceGroup, RaceEntry } from "./parallel-retry.js";
