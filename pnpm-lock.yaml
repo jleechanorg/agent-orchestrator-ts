@@ -77,6 +77,9 @@ importers:
       '@composio/ao-plugin-notifier-webhook':
         specifier: workspace:*
         version: link:../plugins/notifier-webhook
+      '@composio/ao-plugin-poller-github-pr':
+        specifier: workspace:*
+        version: link:../plugins/poller-github-pr
       '@composio/ao-plugin-runtime-process':
         specifier: workspace:*
         version: link:../plugins/runtime-process
