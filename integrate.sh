@@ -138,23 +138,6 @@ check_dependencies() {
 # Check dependencies early
 check_dependencies
 
-# Utility function for safe command execution with fallback
-safe_gh_command() {
-    local cmd="$*"
-    if command -v gh >/dev/null 2>&1; then
-        # Suppress auth credential errors that don't affect functionality
-        if eval "$cmd" 2>/dev/null; then
-            return 0
-        else
-            # Command failed, but this might be expected (e.g., no PRs found)
-            return 1
-        fi
-    else
-        # gh not available
-        return 1
-    fi
-}
-
 # Show help if requested
 show_help() {
     cat << 'EOF'
