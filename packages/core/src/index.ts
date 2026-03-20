@@ -189,3 +189,7 @@ export type { WebhookIngressConfig } from "./webhook-ingress.js";
 // MCP agent mail — inter-agent guidance messaging (bd-qm6)
 export { AgentMailBridge, formatGuidancePrompt } from "./mcp-mail.js";
 export type { AgentMailMessage, AgentMailConfig } from "./mcp-mail.js";
+
+// Merge gate — 6-condition enforcement (bd-nrp)
+export { checkMergeGate } from "./merge-gate.js";
+export type { MergeGateCheck, MergeGateResult } from "./merge-gate.js";
