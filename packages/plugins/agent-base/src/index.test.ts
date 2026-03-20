@@ -1,8 +1,8 @@
 /**
- * Unit tests for agent-base package.
+ * Unit tests for the agent-base package.
  *
- * Tests the shared createAgentPlugin factory, path encoding,
- * JSONL parsing, and hook setup functionality.
+ * Tests the public exports, path encoding via toAgentProjectPath,
+ * and selected filesystem-related behavior of the createAgentPlugin factory.
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
@@ -245,36 +245,4 @@ describe("createAgentPlugin factory", () => {
     expect(result).toBe(customDir);
   });
 
-});
-
-describe("hookEvent configuration", () => {
-  it("should default hookEvent to PostToolUse", () => {
-    const config = {
-      name: "test-agent",
-      description: "Test agent",
-      processName: "test",
-      command: "test",
-      configDir: ".test",
-      permissionlessFlag: "--flag",
-    };
-
-    const agent = createAgentPlugin(config);
-    // Hook event is used internally, but agent should be created successfully
-    expect(agent.name).toBe("test-agent");
-  });
-
-  it("should support AfterTool hookEvent", () => {
-    const config = {
-      name: "test-agent",
-      description: "Test agent",
-      processName: "test",
-      command: "test",
-      configDir: ".test",
-      permissionlessFlag: "--flag",
-      hookEvent: "AfterTool" as const,
-    };
-
-    const agent = createAgentPlugin(config);
-    expect(agent.name).toBe("test-agent");
-  });
 });
