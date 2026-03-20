@@ -206,6 +206,16 @@ export function createPollerManager(deps: PollerManagerDeps): PollerManagerImpl 
         existingWorkItemIds.add(workItem.id);
         try {
           const spawnConfig = await buildSpawnConfig(projectId, workItem, pollerConfig);
+
+          // Inject sessionManager into pollers that support it (e.g., github-pr)
+          // so poller.spawnSession() can delegate to the real session manager.
+          if ("setSessionManager" in poller && typeof (poller as Record<string, unknown>).setSessionManager === "function") {
+            (poller as unknown as { setSessionManager(sm: SessionManager): void }).setSessionManager(sessionManager);
+          }
+
+          // Delegate to the poller's spawnSession(), which can enrich the prompt
+          // with poller-specific context (e.g., PR reasons, metadata).
+          // Falls back to direct sessionManager.spawn() if the poller returns null.
           const session = await poller.spawnSession(workItem, projectId, spawnConfig);
 
           if (session) {

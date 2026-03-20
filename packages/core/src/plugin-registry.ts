@@ -52,6 +52,8 @@ const BUILTIN_PLUGINS: Array<{ slot: PluginSlot; name: string; pkg: string }> = 
   // Terminals
   { slot: "terminal", name: "iterm2", pkg: "@composio/ao-plugin-terminal-iterm2" },
   { slot: "terminal", name: "web", pkg: "@composio/ao-plugin-terminal-web" },
+  // Pollers
+  { slot: "poller", name: "github-pr", pkg: "@composio/ao-plugin-poller-github-pr" },
 ];
 
 /** Extract plugin-specific config from orchestrator config */
@@ -78,6 +80,14 @@ function extractPluginConfig(
   // SCM plugins are configured under config.plugins.<plugin-name> (e.g., plugins["scm-github"])
   if (slot === "scm") {
     const pluginConfig = config.plugins?.[`scm-${name}`];
+    if (pluginConfig && typeof pluginConfig === "object") {
+      return pluginConfig as Record<string, unknown>;
+    }
+  }
+
+  // Poller plugins: config.plugins["poller-<name>"] (e.g., plugins["poller-github-pr"])
+  if (slot === "poller") {
+    const pluginConfig = config.plugins?.[`poller-${name}`];
     if (pluginConfig && typeof pluginConfig === "object") {
       return pluginConfig as Record<string, unknown>;
     }
