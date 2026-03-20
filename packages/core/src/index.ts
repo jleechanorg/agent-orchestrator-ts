@@ -248,3 +248,11 @@ export type {
   SynthesizedPattern,
   PatternStore,
 } from "./pattern-synthesizer.js";
+
+// Fork-isolated reaction handlers (extracted from lifecycle-manager)
+export { handleRequestMerge, handleParallelRetry } from "./fork-reaction-handlers.js";
+export type { ReactionHandlerDeps } from "./fork-reaction-handlers.js";
+
+// Fork-isolated review backlog dispatch (extracted from lifecycle-manager)
+export { maybeDispatchReviewBacklog } from "./review-backlog.js";
+export type { ReviewBacklogDeps } from "./review-backlog.js";

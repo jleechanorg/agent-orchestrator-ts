@@ -41,6 +41,8 @@ import { resolveAgentSelection, resolveSessionRole } from "./agent-selection.js"
 import type { OutcomeRecorder } from "./outcome-recorder.js";
 import { buildReactionContext } from "./reaction-context.js";
 import { validateAndEmitExitProof } from "./session-exit-proof.js";
+import { handleRequestMerge, handleParallelRetry } from "./fork-reaction-handlers.js";
+import { maybeDispatchReviewBacklog } from "./review-backlog.js";
 
 /** Parse a duration string like "10m", "30s", "1h" to milliseconds. */
 export function parseDuration(str: string): number {
@@ -483,87 +485,9 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       }
 
       case "request-merge": {
-        // Get fresh session state for SCM operations
-        const freshSession = await sessionManager.get(sessionId);
-        if (!freshSession) {
-          return {
-            reactionType: reactionKey,
-            success: false,
-            action,
-            escalated: false,
-          };
-        }
-
-        const project = config.projects[freshSession.projectId];
-        if (!project) {
-          return {
-            reactionType: reactionKey,
-            success: false,
-            action,
-            escalated: false,
-          };
-        }
-
-        // Get SCM plugin
-        const scm = project.scm ? registry.get<SCM>("scm", project.scm.plugin) : null;
-        if (!scm || !freshSession.pr) {
-          // No SCM or no PR - just notify
-          const event = createEvent("reaction.triggered", {
-            sessionId,
-            projectId,
-            message: `Reaction '${reactionKey}' triggered ${action} (no SCM/PR available)`,
-            data: { reactionKey, action },
-          });
-          await notifyHuman(event, "action");
-          return {
-            reactionType: reactionKey,
-            success: true,
-            action,
-            escalated: false,
-          };
-        }
-
-        // Check mergeability before notifying
-        const mergeReadiness = await scm.getMergeability(freshSession.pr);
-        if (!mergeReadiness.mergeable) {
-          const event = createEvent("reaction.triggered", {
-            sessionId,
-            projectId,
-            message: `Reaction '${reactionKey}' triggered ${action} but PR is not mergeable: ${mergeReadiness.blockers.join(", ")}`,
-            data: { reactionKey, action, blockers: mergeReadiness.blockers },
-          });
-          await notifyHuman(event, "action");
-          return {
-            reactionType: reactionKey,
-            success: false,
-            action,
-            escalated: false,
-          };
-        }
-
-        // Notify human requesting approval - do NOT merge automatically
-        // Human must manually approve and merge through external mechanism
-        const mergeMethod = reactionConfig.mergeMethod ?? "squash";
-        const approvalEvent = createEvent("merge.approval_requested", {
-          sessionId,
-          projectId,
-          message: `PR #${freshSession.pr.number} is ready to merge (${mergeMethod}). Approve to proceed?`,
-          data: {
-            reactionKey,
-            action,
-            prNumber: freshSession.pr.number,
-            prUrl: freshSession.pr.url,
-            mergeMethod,
-          },
+        return handleRequestMerge(sessionId, projectId, reactionKey, reactionConfig, {
+          sessionManager, config, registry, notifyHuman, createEvent,
         });
-        await notifyHuman(approvalEvent, "action");
-
-        return {
-          reactionType: reactionKey,
-          success: true,
-          action,
-          escalated: false,
-        };
       }
 
       case "auto-merge": {
@@ -661,45 +585,9 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       }
 
       case "parallel-retry": {
-        const freshSession = await sessionManager.get(sessionId);
-        if (!freshSession) {
-          return { reactionType: reactionKey, success: false, action, escalated: false };
-        }
-
-        const parallelCfg = reactionConfig.parallelRetry;
-        const strategies = parallelCfg?.strategies ?? [];
-        const maxParallel = parallelCfg?.maxParallel ?? 1;
-        const count = Math.min(strategies.length || 1, maxParallel);
-
-        const spawnedIds: string[] = [];
-        const errors: string[] = [];
-
-        for (let i = 0; i < count; i++) {
-          const agent = strategies[i] ?? undefined;
-          try {
-            const spawned = await sessionManager.spawn({
-              projectId: freshSession.projectId,
-              issueId: freshSession.issueId ?? undefined,
-              // Do NOT pass branch — let session-manager generate a unique branch name
-              // per spawned session. Reusing the original branch causes git checkout to
-              // fail in worktree workspaces where the branch is already checked out.
-              agent,
-            });
-            spawnedIds.push(spawned.id);
-          } catch (err) {
-            errors.push(err instanceof Error ? err.message : String(err));
-          }
-        }
-
-        const success = spawnedIds.length > 0;
-        const event = createEvent("reaction.triggered", {
-          sessionId,
-          projectId,
-          message: `Reaction '${reactionKey}' spawned ${spawnedIds.length} parallel retry session(s)${errors.length > 0 ? ` (${errors.length} failed to spawn)` : ""}`,
-          data: { reactionKey, action, spawnedIds, errors },
+        return handleParallelRetry(sessionId, projectId, reactionKey, reactionConfig, {
+          sessionManager, config, registry, notifyHuman, createEvent,
         });
-        await notifyHuman(event, success ? "action" : "warning");
-        return { reactionType: reactionKey, success, action, escalated: false };
       }
 
       default: {
@@ -757,163 +645,6 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       cleaned[key] = value;
     }
     session.metadata = cleaned;
-  }
-
-  function makeFingerprint(ids: string[]): string {
-    return [...ids].sort().join(",");
-  }
-
-  async function maybeDispatchReviewBacklog(
-    session: Session,
-    oldStatus: SessionStatus,
-    newStatus: SessionStatus,
-    transitionReaction?: { key: string; result: ReactionResult | null },
-  ): Promise<void> {
-    const project = config.projects[session.projectId];
-    if (!project || !session.pr) return;
-
-    const scm = project.scm ? registry.get<SCM>("scm", project.scm.plugin) : null;
-    if (!scm) return;
-
-    const humanReactionKey = "changes-requested";
-    const automatedReactionKey = "bugbot-comments";
-
-    if (newStatus === "merged" || newStatus === "killed") {
-      clearReactionTracker(session.id, humanReactionKey);
-      clearReactionTracker(session.id, automatedReactionKey);
-      updateSessionMetadata(session, {
-        lastPendingReviewFingerprint: "",
-        lastPendingReviewDispatchHash: "",
-        lastPendingReviewDispatchAt: "",
-        lastAutomatedReviewFingerprint: "",
-        lastAutomatedReviewDispatchHash: "",
-        lastAutomatedReviewDispatchAt: "",
-      });
-      return;
-    }
-
-    const [pendingResult, automatedResult] = await Promise.allSettled([
-      scm.getPendingComments(session.pr),
-      scm.getAutomatedComments(session.pr),
-    ]);
-
-    // null means "failed to fetch" — preserve existing metadata.
-    // [] means "confirmed no comments" — safe to clear.
-    const pendingComments =
-      pendingResult.status === "fulfilled" && Array.isArray(pendingResult.value)
-        ? pendingResult.value
-        : null;
-    const automatedComments =
-      automatedResult.status === "fulfilled" && Array.isArray(automatedResult.value)
-        ? automatedResult.value
-        : null;
-
-    // --- Pending (human) review comments ---
-    // null = SCM fetch failed; skip processing to preserve existing metadata.
-    if (pendingComments !== null) {
-      const pendingFingerprint = makeFingerprint(pendingComments.map((comment) => comment.id));
-      const lastPendingFingerprint = session.metadata["lastPendingReviewFingerprint"] ?? "";
-      const lastPendingDispatchHash = session.metadata["lastPendingReviewDispatchHash"] ?? "";
-
-      if (
-        pendingFingerprint !== lastPendingFingerprint &&
-        transitionReaction?.key !== humanReactionKey
-      ) {
-        clearReactionTracker(session.id, humanReactionKey);
-      }
-      if (pendingFingerprint !== lastPendingFingerprint) {
-        updateSessionMetadata(session, {
-          lastPendingReviewFingerprint: pendingFingerprint,
-        });
-      }
-
-      if (!pendingFingerprint) {
-        clearReactionTracker(session.id, humanReactionKey);
-        updateSessionMetadata(session, {
-          lastPendingReviewFingerprint: "",
-          lastPendingReviewDispatchHash: "",
-          lastPendingReviewDispatchAt: "",
-        });
-      } else if (
-        transitionReaction?.key === humanReactionKey &&
-        transitionReaction.result?.success
-      ) {
-        if (lastPendingDispatchHash !== pendingFingerprint) {
-          updateSessionMetadata(session, {
-            lastPendingReviewDispatchHash: pendingFingerprint,
-            lastPendingReviewDispatchAt: new Date().toISOString(),
-          });
-        }
-      } else if (
-        !(oldStatus !== newStatus && newStatus === "changes_requested") &&
-        pendingFingerprint !== lastPendingDispatchHash
-      ) {
-        const reactionConfig = getReactionConfigForSession(session, humanReactionKey);
-        if (
-          reactionConfig &&
-          reactionConfig.action &&
-          (reactionConfig.auto !== false || reactionConfig.action === "notify")
-        ) {
-          const result = await executeReaction(
-            session.id,
-            session.projectId,
-            humanReactionKey,
-            reactionConfig,
-            session,
-          );
-          if (result.success) {
-            updateSessionMetadata(session, {
-              lastPendingReviewDispatchHash: pendingFingerprint,
-              lastPendingReviewDispatchAt: new Date().toISOString(),
-            });
-          }
-        }
-      }
-    }
-
-    // --- Automated (bot) review comments ---
-    if (automatedComments !== null) {
-      const automatedFingerprint = makeFingerprint(automatedComments.map((comment) => comment.id));
-      const lastAutomatedFingerprint = session.metadata["lastAutomatedReviewFingerprint"] ?? "";
-      const lastAutomatedDispatchHash = session.metadata["lastAutomatedReviewDispatchHash"] ?? "";
-
-      if (automatedFingerprint !== lastAutomatedFingerprint) {
-        clearReactionTracker(session.id, automatedReactionKey);
-        updateSessionMetadata(session, {
-          lastAutomatedReviewFingerprint: automatedFingerprint,
-        });
-      }
-
-      if (!automatedFingerprint) {
-        clearReactionTracker(session.id, automatedReactionKey);
-        updateSessionMetadata(session, {
-          lastAutomatedReviewFingerprint: "",
-          lastAutomatedReviewDispatchHash: "",
-          lastAutomatedReviewDispatchAt: "",
-        });
-      } else if (automatedFingerprint !== lastAutomatedDispatchHash) {
-        const reactionConfig = getReactionConfigForSession(session, automatedReactionKey);
-        if (
-          reactionConfig &&
-          reactionConfig.action &&
-          (reactionConfig.auto !== false || reactionConfig.action === "notify")
-        ) {
-          const result = await executeReaction(
-            session.id,
-            session.projectId,
-            automatedReactionKey,
-            reactionConfig,
-            session,
-          );
-          if (result.success) {
-            updateSessionMetadata(session, {
-              lastAutomatedReviewDispatchHash: automatedFingerprint,
-              lastAutomatedReviewDispatchAt: new Date().toISOString(),
-            });
-          }
-        }
-      }
-    }
   }
 
   /** Send a notification to all configured notifiers. */
@@ -1022,7 +753,13 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       states.set(session.id, newStatus);
     }
 
-    await maybeDispatchReviewBacklog(session, oldStatus, newStatus, transitionReaction);
+    await maybeDispatchReviewBacklog(session, oldStatus, newStatus, {
+      config,
+      registry,
+      clearReactionTracker,
+      getReactionConfigForSession,
+      executeReaction,
+    }, transitionReaction);
 
     // Session exit reconciliation (bd-uxs.6): validate commits and emit proof on terminal states
     if (TERMINAL_STATUSES.has(newStatus) && !TERMINAL_STATUSES.has(oldStatus)) {
