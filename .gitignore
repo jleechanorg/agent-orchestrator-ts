@@ -66,8 +66,12 @@ agent-orchestrator.yaml
 # Agent configuration and tracking (personal, not for repo)
 .claude/
 .opencode/
+<<<<<<< HEAD
 .claude/scheduled_tasks.lock
 
 # Shared contributor guidelines (tracked in this fork)
 # CLAUDE.md and AGENTS.md
+=======
+.beads/
+>>>>>>> cb0859a (fix: remove .beads/ tracked files and add to .gitignore)
 
