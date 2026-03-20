@@ -72,9 +72,7 @@ const RATE_LIMIT_ERROR_PATTERNS = [
   "GraphQL rate limit",
   "rate limit exceeded",
   "Too Many Requests",
-  "HTTP 429",
-  "status: 429",
-  "status 429",
+  "API error:reth",
 ];
 
 function isRateLimitError(error: unknown): boolean {
@@ -90,20 +88,27 @@ async function sleep(ms: number): Promise<void> {
  * Execute gh CLI with rate limit retry and fallback to REST API.
  * Uses exponential backoff for rate limit errors, then falls back to curl-based REST calls.
  */
-async function ghWithRetry(args: string[], maxRetries = 3): Promise<string> {
+/**
+ * Execute gh CLI with rate limit retry and optional working directory.
+ * Uses exponential backoff for rate limit errors, then falls back to curl-based REST calls.
+ */
+async function ghWithRetry(args: string[], cwd?: string, maxRetries = 3): Promise<string> {
   let lastError: unknown;
 
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     try {
-      return await execCli("gh", args);
+      return await execCli("gh", args, cwd);
     } catch (err) {
       lastError = err;
 
       // Check if it's a rate limit error
       if (isRateLimitError(err)) {
-        const backoffMs = Math.min(1000 * Math.pow(2, attempt), 30000); // Max 30s backoff
-        console.warn(`GitHub rate limit detected, retrying in ${backoffMs}ms (attempt ${attempt + 1}/${maxRetries})`);
-        await sleep(backoffMs);
+        // Skip sleep on final attempt - no more retries anyway
+        if (attempt < maxRetries - 1) {
+          const backoffMs = Math.min(1000 * Math.pow(2, attempt), 30000); // Max 30s backoff
+          console.warn(`GitHub rate limit detected, retrying in ${backoffMs}ms (attempt ${attempt + 1}/${maxRetries})`);
+          await sleep(backoffMs);
+        }
       } else {
         // Non-rate-limit error, don't retry
         throw err;
@@ -253,53 +258,6 @@ export async function ghRestFallback(args: string[]): Promise<string> {
   }
 }
 
-/**
- * ghWithRetry variant that works with a specific working directory.
- */
-async function ghWithRetryDir(args: string[], cwd: string, maxRetries = 3): Promise<string> {
-  let lastError: unknown;
-
-  for (let attempt = 0; attempt < maxRetries; attempt++) {
-    try {
-      return await execCli("gh", args, cwd);
-    } catch (err) {
-      lastError = err;
-
-      if (isRateLimitError(err)) {
-        const backoffMs = Math.min(1000 * Math.pow(2, attempt), 30000);
-        console.warn(`GitHub rate limit detected, retrying in ${backoffMs}ms (attempt ${attempt + 1}/${maxRetries})`);
-        await sleep(backoffMs);
-      } else {
-        throw err;
-      }
-    }
-  }
-
-  // All retries exhausted
-  // Only attempt REST fallback for explicit `gh api ...` calls that the fallback supports.
-  if (args[0] === "api") {
-    console.warn("Gh CLI rate limit retries exhausted, trying REST API fallback for `gh api` call");
-    try {
-      return await ghRestFallback(args);
-    } catch {
-      // If the REST fallback cannot safely handle these args (for example,
-      // unsupported `gh api` forms like GraphQL), rethrow the original error
-      // from the final failed `gh` invocation instead of a new one.
-      if (lastError instanceof Error) {
-        throw lastError;
-      }
-      throw new Error(String(lastError));
-    }
-  }
-
-  // For non-`gh api` commands (e.g. `gh pr view`), rethrow the last error instead of
-  // attempting a REST fallback that cannot construct a valid URL.
-  console.warn("Gh CLI rate limit retries exhausted for non-API command, throwing original error");
-  if (lastError instanceof Error) {
-    throw lastError;
-  }
-  throw new Error(String(lastError));
-}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -327,7 +285,7 @@ async function gh(args: string[]): Promise<string> {
 }
 
 async function ghInDir(args: string[], cwd: string): Promise<string> {
-  return ghWithRetryDir(args, cwd);
+  return ghWithRetry(args, cwd);
 }
 
 async function git(args: string[], cwd: string): Promise<string> {

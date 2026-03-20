@@ -14,7 +14,7 @@ vi.mock("node:child_process", () => {
   return { execFile };
 });
 
-import { create, manifest } from "../src/index.js";
+import { create, manifest, ghRestFallback } from "../src/index.js";
 import type { PRInfo, SCMWebhookRequest, Session, ProjectConfig } from "@jleechanorg/ao-core";
 
 // ---------------------------------------------------------------------------
@@ -1424,6 +1424,92 @@ describe("scm-github plugin", () => {
 
       await expect(scm.getPRState(pr)).rejects.toThrow("Not found");
       expect(ghMock).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe("REST fallback URL construction", () => {
+    it("throws for non-gh api commands", async () => {
+      await expect(ghRestFallback(["pr", "view", "123"])).rejects.toThrow(
+        "ghRestFallback only supports `gh api` commands",
+      );
+    });
+
+    it("throws for GraphQL queries", async () => {
+      await expect(ghRestFallback(["api", "graphql"])).rejects.toThrow(
+        "ghRestFallback does not support GraphQL queries",
+      );
+    });
+
+    it("throws for GraphQL with variables", async () => {
+      await expect(ghRestFallback(["api", "graphql", "-f", "query=foo"])).rejects.toThrow(
+        "ghRestFallback does not support GraphQL queries",
+      );
+    });
+
+    it("constructs URL correctly for simple endpoint", async () => {
+      // gh auth token call fails (no token), but curl call should still work
+      ghMock
+        .mockRejectedValueOnce(new Error("not authenticated"))
+        .mockResolvedValueOnce({ stdout: '{"test": true}' });
+
+      await ghRestFallback(["api", "repos/owner/repo/pulls"]);
+
+      // Find the curl call in the mock calls
+      const curlCalls = ghMock.mock.calls.filter((call) => call[0] === "curl");
+      expect(curlCalls).toHaveLength(1);
+      expect(curlCalls[0][1]).toContain("https://api.github.com/repos/owner/repo/pulls");
+    });
+
+    it("constructs URL correctly for endpoint with leading slash", async () => {
+      ghMock
+        .mockRejectedValueOnce(new Error("not authenticated"))
+        .mockResolvedValueOnce({ stdout: '{"test": true}' });
+
+      await ghRestFallback(["api", "/repos/owner/repo/pulls"]);
+
+      const curlCalls = ghMock.mock.calls.filter((call) => call[0] === "curl");
+      expect(curlCalls).toHaveLength(1);
+      expect(curlCalls[0][1]).toContain("https://api.github.com/repos/owner/repo/pulls");
+    });
+
+    it("handles query string parameters", async () => {
+      ghMock
+        .mockRejectedValueOnce(new Error("not authenticated"))
+        .mockResolvedValueOnce({ stdout: '{"test": true}' });
+
+      await ghRestFallback(["api", "repos/owner/repo/pulls?per_page=100"]);
+
+      const curlCalls = ghMock.mock.calls.filter((call) => call[0] === "curl");
+      expect(curlCalls).toHaveLength(1);
+      expect(curlCalls[0][1]).toContain("https://api.github.com/repos/owner/repo/pulls?per_page=100");
+    });
+
+    it("passes through --method GET flag", async () => {
+      ghMock
+        .mockRejectedValueOnce(new Error("not authenticated"))
+        .mockResolvedValueOnce({ stdout: '{"test": true}' });
+
+      await ghRestFallback(["api", "repos/owner/repo/pulls", "--method", "GET"]);
+
+      const curlCalls = ghMock.mock.calls.filter((call) => call[0] === "curl");
+      expect(curlCalls).toHaveLength(1);
+      expect(curlCalls[0][1]).toContain("-X");
+      expect(curlCalls[0][1]).toContain("GET");
+    });
+
+    it("includes auth token when available", async () => {
+      // First call is gh auth token, second is curl
+      ghMock
+        .mockResolvedValueOnce({ stdout: "test-token\n" })
+        .mockResolvedValueOnce({ stdout: '{"test": true}' });
+
+      await ghRestFallback(["api", "repos/owner/repo/pulls"]);
+
+      const curlCalls = ghMock.mock.calls.filter((call) => call[0] === "curl");
+      expect(curlCalls).toHaveLength(1);
+      const curlArgs = curlCalls[0][1] as string[];
+      expect(curlArgs).toContain("-H");
+      expect(curlArgs).toContain("Authorization: Bearer test-token");
     });
   });
 });
