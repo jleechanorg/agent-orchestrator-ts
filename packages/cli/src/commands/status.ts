@@ -12,7 +12,7 @@ import {
   type ProjectConfig,
   isOrchestratorSession,
   loadConfig,
-} from "@composio/ao-core";
+} from "@jleechanorg/ao-core";
 import { git, getTmuxSessions, getTmuxActivity } from "../lib/shell.js";
 import {
   banner,
@@ -327,7 +327,7 @@ export function registerStatus(program: Command): void {
 
         // Check for issues awaiting verification across all projects
         try {
-          const { createPluginRegistry } = await import("@composio/ao-core");
+          const { createPluginRegistry } = await import("@jleechanorg/ao-core");
           const registry = createPluginRegistry();
           await registry.loadFromConfig(config, (pkg: string) => import(pkg));
 

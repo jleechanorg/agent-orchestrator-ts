@@ -32,7 +32,7 @@ import {
   type OrchestratorConfig,
   type ProjectConfig,
   type ParsedRepoUrl,
-} from "@composio/ao-core";
+} from "@jleechanorg/ao-core";
 import { parse as yamlParse, stringify as yamlStringify } from "yaml";
 import { exec, execSilent, git } from "../lib/shell.js";
 import { getSessionManager } from "../lib/create-session-manager.js";

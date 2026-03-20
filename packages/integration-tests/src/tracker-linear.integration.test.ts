@@ -19,9 +19,9 @@
  */
 
 import { request } from "node:https";
-import type { ProjectConfig } from "@composio/ao-core";
+import type { ProjectConfig } from "@jleechanorg/ao-core";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import trackerLinear from "@composio/ao-plugin-tracker-linear";
+import trackerLinear from "@jleechanorg/ao-plugin-tracker-linear";
 import { pollUntil, pollUntilEqual } from "./helpers/polling.js";
 
 // ---------------------------------------------------------------------------

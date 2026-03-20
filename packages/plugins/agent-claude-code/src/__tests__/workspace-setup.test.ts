@@ -11,7 +11,7 @@ import { mkdtempSync, mkdirSync, statSync, utimesSync, rmSync, symlinkSync } fro
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { create } from "../index.js";
-import type { WorkspaceHooksConfig } from "@composio/ao-core";
+import type { WorkspaceHooksConfig } from "@jleechanorg/ao-core";
 
 let tmpDir: string;
 let workspacePath: string;

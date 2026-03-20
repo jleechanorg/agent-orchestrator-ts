@@ -32,17 +32,17 @@ import {
   DEFAULT_DECOMPOSER_CONFIG,
   isOrchestratorSession,
   TERMINAL_STATUSES,
-} from "@composio/ao-core";
+} from "@jleechanorg/ao-core";
 
 // Static plugin imports — webpack needs these to be string literals
-import pluginRuntimeTmux from "@composio/ao-plugin-runtime-tmux";
-import pluginAgentClaudeCode from "@composio/ao-plugin-agent-claude-code";
-import pluginAgentCursor from "@composio/ao-plugin-agent-cursor";
-import pluginAgentOpencode from "@composio/ao-plugin-agent-opencode";
-import pluginWorkspaceWorktree from "@composio/ao-plugin-workspace-worktree";
-import pluginScmGithub from "@composio/ao-plugin-scm-github";
-import pluginTrackerGithub from "@composio/ao-plugin-tracker-github";
-import pluginTrackerLinear from "@composio/ao-plugin-tracker-linear";
+import pluginRuntimeTmux from "@jleechanorg/ao-plugin-runtime-tmux";
+import pluginAgentClaudeCode from "@jleechanorg/ao-plugin-agent-claude-code";
+import pluginAgentCursor from "@jleechanorg/ao-plugin-agent-cursor";
+import pluginAgentOpencode from "@jleechanorg/ao-plugin-agent-opencode";
+import pluginWorkspaceWorktree from "@jleechanorg/ao-plugin-workspace-worktree";
+import pluginScmGithub from "@jleechanorg/ao-plugin-scm-github";
+import pluginTrackerGithub from "@jleechanorg/ao-plugin-tracker-github";
+import pluginTrackerLinear from "@jleechanorg/ao-plugin-tracker-linear";
 
 export interface Services {
   config: OrchestratorConfig;

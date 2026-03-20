@@ -12,9 +12,9 @@ import type {
   IssueUpdate,
   CreateIssueInput,
   ProjectConfig,
-} from "@composio/ao-core";
+} from "@jleechanorg/ao-core";
 
-import { glab, parseJSON, extractHost, stripHost } from "@composio/ao-plugin-scm-gitlab/glab-utils";
+import { glab, parseJSON, extractHost, stripHost } from "@jleechanorg/ao-plugin-scm-gitlab/glab-utils";
 
 // ---------------------------------------------------------------------------
 // Helpers

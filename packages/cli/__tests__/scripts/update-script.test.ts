@@ -70,8 +70,8 @@ esac\nexit 0`,
     expect(commands).toContain("git fetch origin main");
     expect(commands).toContain("git pull --ff-only origin main");
     expect(commands).toContain("pnpm install");
-    expect(commands).toContain("pnpm --filter @composio/ao-core clean");
-    expect(commands).toContain("pnpm --filter @composio/ao-cli build");
+    expect(commands).toContain("pnpm --filter @jleechanorg/ao-core clean");
+    expect(commands).toContain("pnpm --filter @jleechanorg/ao-cli build");
     expect(commands).toContain("npm link");
   });
 

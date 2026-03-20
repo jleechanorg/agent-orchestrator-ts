@@ -15,7 +15,7 @@ vi.mock("node:child_process", () => {
 });
 
 import { create, manifest } from "../src/index.js";
-import type { PRInfo, SCMWebhookRequest, Session, ProjectConfig } from "@composio/ao-core";
+import type { PRInfo, SCMWebhookRequest, Session, ProjectConfig } from "@jleechanorg/ao-core";
 
 // ---------------------------------------------------------------------------
 // Fixtures

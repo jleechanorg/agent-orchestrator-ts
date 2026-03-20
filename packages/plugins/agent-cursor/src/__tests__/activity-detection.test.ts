@@ -3,7 +3,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync, utimesSync } from "node:
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { toCursorProjectPath, create } from "../index.js";
-import type { Session, RuntimeHandle } from "@composio/ao-core";
+import type { Session, RuntimeHandle } from "@jleechanorg/ao-core";
 
 // Mock homedir() so getActivityState looks in our temp dir
 vi.mock("node:os", async (importOriginal) => {

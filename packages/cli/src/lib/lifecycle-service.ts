@@ -9,7 +9,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
-import { getProjectBaseDir, type OrchestratorConfig } from "@composio/ao-core";
+import { getProjectBaseDir, type OrchestratorConfig } from "@jleechanorg/ao-core";
 
 const LIFECYCLE_PID_FILE = "lifecycle-worker.pid";
 const LIFECYCLE_LOG_FILE = "lifecycle-worker.log";

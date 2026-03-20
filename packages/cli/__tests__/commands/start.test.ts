@@ -9,7 +9,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import type { SessionManager } from "@composio/ao-core";
+import type { SessionManager } from "@jleechanorg/ao-core";
 
 // ---------------------------------------------------------------------------
 // Hoisted mocks
@@ -64,9 +64,9 @@ vi.mock("ora", () => ({
   }),
 }));
 
-vi.mock("@composio/ao-core", async (importOriginal) => {
+vi.mock("@jleechanorg/ao-core", async (importOriginal) => {
   // eslint-disable-next-line @typescript-eslint/consistent-type-imports
-  const actual = await importOriginal<typeof import("@composio/ao-core")>();
+  const actual = await importOriginal<typeof import("@jleechanorg/ao-core")>();
   const normalizeOrchestratorSessionStrategy =
     actual.normalizeOrchestratorSessionStrategy ??
     ((strategy: string | undefined) => {

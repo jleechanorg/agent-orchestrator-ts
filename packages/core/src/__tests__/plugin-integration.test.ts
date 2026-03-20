@@ -37,8 +37,8 @@ import { createSessionManager } from "../session-manager.js";
 import { createLifecycleManager } from "../lifecycle-manager.js";
 import { writeMetadata } from "../metadata.js";
 import { getSessionsDir } from "../paths.js";
-import trackerGithub from "@composio/ao-plugin-tracker-github";
-import scmGithub from "@composio/ao-plugin-scm-github";
+import trackerGithub from "@jleechanorg/ao-plugin-tracker-github";
+import scmGithub from "@jleechanorg/ao-plugin-scm-github";
 import type {
   OrchestratorConfig,
   PluginRegistry,

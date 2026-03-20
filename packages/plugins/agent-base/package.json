@@ -1,5 +1,5 @@
 {
-  "name": "@composio/ao-plugin-agent-base",
+  "name": "@jleechanorg/ao-plugin-agent-base",
   "version": "0.1.0",
   "description": "Shared JSONL-based agent plugin factory for AO",
   "license": "MIT",
@@ -33,10 +33,13 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@composio/ao-core": "workspace:*"
+    "@jleechanorg/ao-core": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^25.2.3",
     "typescript": "^5.7.0"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }

@@ -1,5 +1,5 @@
 {
-  "name": "@composio/ao-web",
+  "name": "@jleechanorg/ao-web",
   "version": "0.1.0",
   "description": "Web dashboard for agent-orchestrator",
   "type": "module",
@@ -27,15 +27,15 @@
     "screenshot:install": "npx playwright install chromium"
   },
   "dependencies": {
-    "@composio/ao-core": "workspace:*",
-    "@composio/ao-plugin-agent-claude-code": "workspace:*",
-    "@composio/ao-plugin-agent-cursor": "workspace:*",
-    "@composio/ao-plugin-agent-opencode": "workspace:*",
-    "@composio/ao-plugin-runtime-tmux": "workspace:*",
-    "@composio/ao-plugin-scm-github": "workspace:*",
-    "@composio/ao-plugin-tracker-github": "workspace:*",
-    "@composio/ao-plugin-tracker-linear": "workspace:*",
-    "@composio/ao-plugin-workspace-worktree": "workspace:*",
+    "@jleechanorg/ao-core": "workspace:*",
+    "@jleechanorg/ao-plugin-agent-claude-code": "workspace:*",
+    "@jleechanorg/ao-plugin-agent-cursor": "workspace:*",
+    "@jleechanorg/ao-plugin-agent-opencode": "workspace:*",
+    "@jleechanorg/ao-plugin-runtime-tmux": "workspace:*",
+    "@jleechanorg/ao-plugin-scm-github": "workspace:*",
+    "@jleechanorg/ao-plugin-tracker-github": "workspace:*",
+    "@jleechanorg/ao-plugin-tracker-linear": "workspace:*",
+    "@jleechanorg/ao-plugin-workspace-worktree": "workspace:*",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/addon-web-links": "^0.12.0",
     "next": "^15.1.0",
@@ -63,5 +63,8 @@
     "tsx": "^4.19.0",
     "typescript": "^5.7.0",
     "vitest": "^2.1.0"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }

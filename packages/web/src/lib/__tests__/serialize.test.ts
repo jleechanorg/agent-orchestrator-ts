@@ -12,7 +12,7 @@ import type {
   ProjectConfig,
   OrchestratorConfig,
   PluginRegistry,
-} from "@composio/ao-core";
+} from "@jleechanorg/ao-core";
 import {
   sessionToDashboard,
   resolveProject,

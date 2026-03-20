@@ -15,7 +15,7 @@ import type {
   SessionSpawnConfig,
   SessionManager,
   PluginModule,
-} from "@composio/ao-core";
+} from "@jleechanorg/ao-core";
 
 const execFileAsync = promisify(execFile);
 

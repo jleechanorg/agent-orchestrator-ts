@@ -21,7 +21,7 @@ import {
   deleteMetadata,
   listMetadata,
   validateAndStoreOrigin,
-} from "@composio/ao-core";
+} from "@jleechanorg/ao-core";
 
 describe("config → metadata service integration (real filesystem)", () => {
   let tmpDir: string;

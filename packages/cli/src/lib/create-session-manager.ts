@@ -15,7 +15,7 @@ import {
   type OpenCodeSessionManager,
   type PluginRegistry,
   type LifecycleManager,
-} from "@composio/ao-core";
+} from "@jleechanorg/ao-core";
 
 let registryPromise: Promise<PluginRegistry> | null = null;
 
@@ -29,7 +29,7 @@ async function getRegistry(config: OrchestratorConfig): Promise<PluginRegistry> 
     registryPromise = (async () => {
       const registry = createPluginRegistry();
       // Pass CLI's import context so pnpm strict resolution can find plugin packages.
-      // Core can't resolve @composio/ao-plugin-* from its own module context because
+      // Core can't resolve @jleechanorg/ao-plugin-* from its own module context because
       // they aren't in core's dependencies. The CLI has them as workspace deps.
       await registry.loadFromConfig(config, (pkg: string) => import(pkg));
       return registry;

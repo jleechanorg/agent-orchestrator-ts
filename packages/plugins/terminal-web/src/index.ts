@@ -1,4 +1,4 @@
-import type { PluginModule, Terminal, Session } from "@composio/ao-core";
+import type { PluginModule, Terminal, Session } from "@jleechanorg/ao-core";
 
 export const manifest = {
   name: "web",

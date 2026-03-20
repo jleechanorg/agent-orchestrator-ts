@@ -18,7 +18,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import cursorPlugin from "@composio/ao-plugin-agent-cursor";
+import cursorPlugin from "@jleechanorg/ao-plugin-agent-cursor";
 import {
   isTmuxAvailable,
   killSessionsByPrefix,

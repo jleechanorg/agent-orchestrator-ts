@@ -9,7 +9,7 @@ import {
   type OrchestratorConfig,
   type PluginRegistry,
   type SCM,
-} from "@composio/ao-core";
+} from "@jleechanorg/ao-core";
 import * as serialize from "@/lib/serialize";
 import { getSCM } from "@/lib/services";
 
