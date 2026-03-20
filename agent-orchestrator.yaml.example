@@ -24,7 +24,7 @@ defaults:
   # worker:
   #   agent: codex
   workspace: worktree     # worktree | clone | copy
-  notifiers: [desktop]    # desktop | slack | discord | webhook | email
+  notifiers: [desktop, openclaw]    # desktop | slack | discord | webhook | email | openclaw
 
 # Projects — at minimum, specify repo and path
 projects:
@@ -99,13 +99,27 @@ projects:
 #     plugin: slack
 #     webhook: ${SLACK_WEBHOOK_URL}
 #     channel: "#agent-updates"
+#
+#   openclaw:
+#     plugin: openclaw
+#     url: http://127.0.0.1:18789/hooks/agent   # default — omit to use this value
+#     token: ${OPENCLAW_HOOKS_TOKEN}              # or set OPENCLAW_HOOKS_TOKEN env var
+#     sessionKeyPrefix: "hook:ao:"
+#     wakeMode: now                               # now | next-heartbeat
+#
+# OpenClaw server requirements (set in your openclaw.yaml or env):
+#   hooks:
+#     enabled: true
+#     allowRequestSessionKey: true
+#     allowedSessionKeyPrefixes: ["hook:"]
+#   Environment: OPENCLAW_HOOKS_TOKEN=<your-token>
 
 # Notification routing by priority
 # notificationRouting:
-#   urgent: [desktop, slack]   # agent stuck, needs input, errored
-#   action: [desktop, slack]   # PR ready to merge
-#   warning: [slack]           # auto-fix failed
-#   info: [slack]              # summary, all done
+#   urgent: [desktop, openclaw]   # agent stuck, needs input, errored
+#   action: [desktop, openclaw]   # PR ready to merge
+#   warning: [openclaw]           # auto-fix failed
+#   info: []                      # summary, all done
 
 # Reactions — auto-responses to events (these are the defaults)
 # reactions:
