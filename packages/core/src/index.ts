@@ -51,6 +51,13 @@ export type { SessionManagerDeps } from "./session-manager.js";
 export { createLifecycleManager } from "./lifecycle-manager.js";
 export type { LifecycleManagerDeps } from "./lifecycle-manager.js";
 
+// Reaction context builder — fork isolation (extracted from lifecycle-manager)
+export { buildReactionContext } from "./reaction-context.js";
+
+// Session exit proof — fork isolation (extracted from lifecycle-manager)
+export { validateAndEmitExitProof, emitExitProofEvent } from "./session-exit-proof.js";
+export type { ExitProofDeps } from "./session-exit-proof.js";
+
 // Failure budget tracker — tracks retry attempts and routes on exhaustion
 export { FailureBudgetTracker, routeExhaustedBudget } from "./failure-budget.js";
 export type { BudgetExhaustedDeps } from "./failure-budget.js";
