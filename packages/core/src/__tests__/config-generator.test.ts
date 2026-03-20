@@ -507,3 +507,4 @@ describe("resolveCloneTarget", () => {
     expect(result).toBe(join(tmpDir, "my-app"));
   });
 });
+

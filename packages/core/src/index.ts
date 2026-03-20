@@ -185,3 +185,7 @@ export type {
 // Webhook ingress — HMAC verification, dedup, and event queue (bd-c9h)
 export { WebhookIngress } from "./webhook-ingress.js";
 export type { WebhookIngressConfig } from "./webhook-ingress.js";
+
+// MCP agent mail — inter-agent guidance messaging (bd-qm6)
+export { AgentMailBridge, formatGuidancePrompt } from "./mcp-mail.js";
+export type { AgentMailMessage, AgentMailConfig } from "./mcp-mail.js";
