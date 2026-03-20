@@ -16,6 +16,7 @@ import {
 } from "@composio/ao-core";
 import {
   resetPsCache as _resetPsCache,
+  getCachedProcessList,
 } from "@composio/ao-plugin-agent-base";
 import { execFile, execFileSync } from "node:child_process";
 import { readdir, readFile, stat, open, writeFile, mkdir, chmod } from "node:fs/promises";
@@ -423,55 +424,11 @@ function extractCost(lines: JsonlLine[]): CostEstimate | undefined {
 // Process Detection
 // =============================================================================
 
-/**
- * TTL cache for `ps -eo pid,tty,args` output. Without this, listing N sessions
- * would spawn N concurrent `ps` processes, each taking 30+ seconds on machines
- * with many processes. The cache ensures `ps` is called at most once per TTL
- * window regardless of how many sessions are being enriched.
- */
-let psCache: { output: string; timestamp: number; promise?: Promise<string> } | null = null;
-const PS_CACHE_TTL_MS = 5_000;
-
-/** Reset both agent-base and local ps caches. Exported for testing only. */
+/** Reset the shared agent-base ps cache. Exported for testing only. */
 export function resetPsCache(): void {
   _resetPsCache();
-  psCache = null;
 }
-
-async function getCachedProcessList(): Promise<string> {
-  const now = Date.now();
-  if (psCache && now - psCache.timestamp < PS_CACHE_TTL_MS) {
-    // Cache hit — return resolved output or wait for in-flight request
-    if (psCache.promise) return psCache.promise;
-    return psCache.output;
-  }
-
-  // Cache miss or expired — start a single `ps` call and share the promise.
-  // Guard both callbacks so they only update psCache if it still belongs to
-  // this request — a newer request may have replaced it while we were waiting.
-  const promise = execFileAsync("ps", ["-eo", "pid,tty,args"], {
-    timeout: 5_000,
-  }).then(({ stdout }) => {
-    if (psCache?.promise === promise) {
-      psCache = { output: stdout, timestamp: Date.now() };
-    }
-    return stdout;
-  });
-
-  // Store the in-flight promise so concurrent callers share it
-  psCache = { output: "", timestamp: now, promise };
-
-  try {
-    return await promise;
-  } catch {
-    // On failure, clear cache so the next caller retries — but only if
-    // psCache still points to this request (avoid clobbering a newer entry)
-    if (psCache?.promise === promise) {
-      psCache = null;
-    }
-    return "";
-  }
-}
+// getCachedProcessList is imported from agent-base so all plugins share one ps cache.
 
 /**
  * Check if a process named "claude" is running in the given runtime handle's context.

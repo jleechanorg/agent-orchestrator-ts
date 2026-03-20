@@ -485,7 +485,7 @@ export function resetPsCache(): void {
   psCache = null;
 }
 
-async function getCachedProcessList(): Promise<string> {
+export async function getCachedProcessList(): Promise<string> {
   const now = Date.now();
   if (psCache && now - psCache.timestamp < PS_CACHE_TTL_MS) {
     // Cache hit — return resolved output or wait for in-flight request
