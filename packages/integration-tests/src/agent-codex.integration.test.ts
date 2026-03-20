@@ -2,16 +2,16 @@
  * Integration tests for the Codex agent plugin.
  *
  * Requires:
- *   - `codex` binary on PATH (or at /opt/homebrew/bin/codex)
+ *   - `codex` binary on PATH
  *   - tmux installed and running
- *   - OPENAI_API_KEY set
+ *   - Codex authenticated (OAuth tokens in ~/.codex/auth.json, or OPENAI_API_KEY set)
  *
  * Skipped automatically when prerequisites are missing.
  */
 
 import { execFile } from "node:child_process";
-import { mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import type { ActivityDetection, AgentSessionInfo } from "@composio/ao-core";
@@ -46,10 +46,25 @@ async function findCodexBinary(): Promise<string | null> {
   return null;
 }
 
+/** Returns true if codex has usable credentials (OAuth tokens or API key). */
+async function hasCodexCredentials(): Promise<boolean> {
+  // API key in environment
+  if (process.env.OPENAI_API_KEY) return true;
+  // OAuth tokens in ~/.codex/auth.json
+  try {
+    const raw = await readFile(join(homedir(), ".codex", "auth.json"), "utf8");
+    const auth = JSON.parse(raw) as Record<string, unknown>;
+    const tokens = auth["tokens"] as Record<string, unknown> | undefined;
+    return Boolean(tokens?.["access_token"] || tokens?.["id_token"]);
+  } catch {
+    return false;
+  }
+}
+
 const tmuxOk = await isTmuxAvailable();
 const codexBin = await findCodexBinary();
-const hasApiKey = Boolean(process.env.OPENAI_API_KEY);
-const canRun = tmuxOk && codexBin !== null && hasApiKey;
+const hasAuth = await hasCodexCredentials();
+const canRun = tmuxOk && codexBin !== null && hasAuth;
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -73,7 +88,11 @@ describe.skipIf(!canRun)("agent-codex (integration)", () => {
     await killSessionsByPrefix(SESSION_PREFIX);
     tmpDir = await mkdtemp(join(tmpdir(), "ao-inttest-codex-"));
 
-    const cmd = `${codexBin} exec 'Say hello and nothing else'`;
+    // Use a file-creation task so codex invokes tools and stays running long
+    // enough for isProcessRunning to catch it (pure text tasks can exit <300ms).
+    // --skip-git-repo-check: tmpDir is not a trusted git repo; without this
+    // flag codex exits immediately with "Not inside a trusted directory" error.
+    const cmd = `${codexBin} exec --skip-git-repo-check 'Create a file called primes.py that generates and prints all prime numbers up to 1000 using the sieve of Eratosthenes'`;
     await createSession(sessionName, cmd, tmpDir);
 
     const handle = makeTmuxHandle(sessionName);
