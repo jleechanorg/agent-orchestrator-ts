@@ -29,8 +29,11 @@
   },
   "scripts": {
     "build": "tsc",
+    "pretest": "tsc",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
+    "typecheck:test": "tsc --noEmit --project tsconfig.test.json",
+    "test:types": "tsc --noEmit --project tsconfig.test.json",
     "clean": "rm -rf dist"
   },
   "dependencies": {
