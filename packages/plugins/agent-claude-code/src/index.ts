@@ -705,6 +705,7 @@ function createClaudeCodeAgent(): Agent {
       env["CLAUDECODE"] = "";
 
       // Set session info for introspection
+      env["AO_SESSION"] = config.sessionId;
       env["AO_SESSION_ID"] = config.sessionId;
 
       // NOTE: AO_PROJECT_ID is NOT set here - it's the caller's responsibility
