@@ -166,17 +166,6 @@ export {
   validateAndStoreOrigin,
 } from "./paths.js";
 
-// Session reaper — nightly cleanup of orphaned/stale sessions (bd-ls5)
-export { reapStaleSessions, DEFAULT_REAPER_CONFIG } from "./session-reaper.js";
-export type {
-  ReaperConfig,
-  ReaperDeps,
-  ReaperResult,
-  ReapedSession,
-  SkippedSession,
-  ReaperError,
-} from "./session-reaper.js";
-
 // Config generator — auto-generate config from repo URL
 export {
   isRepoUrl,
