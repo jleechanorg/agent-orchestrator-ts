@@ -8,18 +8,30 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { AgentLaunchConfig } from "@jleechanorg/ao-core";
 
-// Mock dependencies
-const mockReaddir = vi.fn();
-const mockReadFile = vi.fn();
-const mockStat = vi.fn();
-const mockHomedir = vi.fn(() => "/mock/home");
-const mockMkdir = vi.fn();
-const mockWriteFile = vi.fn();
-const mockChmod = vi.fn();
-const mockAccess = vi.fn();
-const mockOpen = vi.fn();
-const _mockClose = vi.fn();
-const mockExistsSync = vi.fn(() => false);
+// Hoisted mocks — available inside vi.mock factories
+const {
+  mockReaddir,
+  mockReadFile,
+  mockStat,
+  mockHomedir,
+  mockMkdir,
+  mockWriteFile,
+  mockChmod,
+  mockAccess,
+  mockOpen,
+  mockExistsSync,
+} = vi.hoisted(() => ({
+  mockReaddir: vi.fn(),
+  mockReadFile: vi.fn(),
+  mockStat: vi.fn(),
+  mockHomedir: vi.fn(() => "/mock/home"),
+  mockMkdir: vi.fn(),
+  mockWriteFile: vi.fn(),
+  mockChmod: vi.fn(),
+  mockAccess: vi.fn(),
+  mockOpen: vi.fn(),
+  mockExistsSync: vi.fn(() => false),
+}));
 
 vi.mock("node:fs/promises", () => ({
   readdir: mockReaddir,
@@ -40,15 +52,15 @@ vi.mock("node:fs", () => ({
   existsSync: mockExistsSync,
 }));
 
+import { createAgentPlugin, toAgentProjectPath } from "./index.js";
+
 describe("agent-base exports", () => {
-  it("should export createAgentPlugin", async () => {
-    const { createAgentPlugin } = await import("@jleechanorg/ao-plugin-agent-base");
+  it("should export createAgentPlugin", () => {
     expect(createAgentPlugin).toBeDefined();
     expect(typeof createAgentPlugin).toBe("function");
   });
 
-  it("should export toAgentProjectPath", async () => {
-    const { toAgentProjectPath } = await import("@jleechanorg/ao-plugin-agent-base");
+  it("should export toAgentProjectPath", () => {
     expect(toAgentProjectPath).toBeDefined();
     expect(typeof toAgentProjectPath).toBe("function");
   });
@@ -59,33 +71,28 @@ describe("toAgentProjectPath", () => {
     vi.clearAllMocks();
   });
 
-  it("should encode simple Unix paths", async () => {
-    const { toAgentProjectPath } = await import("@jleechanorg/ao-plugin-agent-base");
+  it("should encode simple Unix paths", () => {
     // /Users/test/project → -Users-test-project (slashes become dashes)
     expect(toAgentProjectPath("/Users/test/project")).toBe("-Users-test-project");
   });
 
-  it("should encode paths with hyphens", async () => {
-    const { toAgentProjectPath } = await import("@jleechanorg/ao-plugin-agent-base");
+  it("should encode paths with hyphens", () => {
     // /workspace/my-repo → -workspace-my-repo
     expect(toAgentProjectPath("/workspace/my-repo")).toBe("-workspace-my-repo");
   });
 
-  it("should encode worktree paths", async () => {
-    const { toAgentProjectPath } = await import("@jleechanorg/ao-plugin-agent-base");
+  it("should encode worktree paths", () => {
     // /home/user/.worktrees/ao → -home-user--worktrees-ao (dot becomes dash)
     expect(toAgentProjectPath("/home/user/.worktrees/ao")).toBe("-home-user--worktrees-ao");
   });
 
-  it("should handle empty string input", async () => {
-    const { toAgentProjectPath } = await import("@jleechanorg/ao-plugin-agent-base");
+  it("should handle empty string input", () => {
     // Empty path returns empty string (no leading dash for empty input)
     const result = toAgentProjectPath("");
     expect(result).toBe("");
   });
 
-  it("should handle paths with multiple consecutive slashes", async () => {
-    const { toAgentProjectPath } = await import("@jleechanorg/ao-plugin-agent-base");
+  it("should handle paths with multiple consecutive slashes", () => {
     // Multiple slashes become multiple dashes
     const result = toAgentProjectPath("/path//with///slashes");
     expect(result).toBeDefined();
@@ -98,9 +105,7 @@ describe("createAgentPlugin factory", () => {
     vi.clearAllMocks();
   });
 
-  it("should create agent with correct name and processName", async () => {
-    const { createAgentPlugin } = await import("@jleechanorg/ao-plugin-agent-base");
-
+  it("should create agent with correct name and processName", () => {
     const config = {
       name: "test-agent",
       description: "Test agent plugin",
@@ -115,9 +120,7 @@ describe("createAgentPlugin factory", () => {
     expect(agent.processName).toBe("test-process");
   });
 
-  it("should include required agent methods", async () => {
-    const { createAgentPlugin } = await import("@jleechanorg/ao-plugin-agent-base");
-
+  it("should include required agent methods", () => {
     const config = {
       name: "test-agent",
       description: "Test agent plugin",
@@ -137,9 +140,7 @@ describe("createAgentPlugin factory", () => {
     expect(typeof agent.detectActivity).toBe("function");
   });
 
-  it("should handle permissionless mode in launch command", async () => {
-    const { createAgentPlugin } = await import("@jleechanorg/ao-plugin-agent-base");
-
+  it("should handle permissionless mode in launch command", () => {
     const config = {
       name: "test-agent",
       description: "Test agent plugin",
@@ -168,9 +169,7 @@ describe("createAgentPlugin factory", () => {
     expect(cmd).toContain("--skip-permissions");
   });
 
-  it("should set AO_SESSION in environment", async () => {
-    const { createAgentPlugin } = await import("@jleechanorg/ao-plugin-agent-base");
-
+  it("should set AO_SESSION in environment", () => {
     const config = {
       name: "test-agent",
       description: "Test agent plugin",
@@ -198,9 +197,7 @@ describe("createAgentPlugin factory", () => {
     expect(env.AO_SESSION_ID).toBe("my-session-id");
   });
 
-  it("should handle system prompt via flag", async () => {
-    const { createAgentPlugin } = await import("@jleechanorg/ao-plugin-agent-base");
-
+  it("should handle system prompt via flag", () => {
     const config = {
       name: "test-agent",
       description: "Test agent plugin",
@@ -229,9 +226,7 @@ describe("createAgentPlugin factory", () => {
     expect(cmd).toContain("--system-prompt");
   });
 
-  it("should use custom session directory", async () => {
-    const { createAgentPlugin } = await import("@jleechanorg/ao-plugin-agent-base");
-
+  it("should use custom session directory", () => {
     const customDir = "/custom/sessions/path";
     const config = {
       name: "test-agent",
@@ -253,9 +248,7 @@ describe("createAgentPlugin factory", () => {
 });
 
 describe("hookEvent configuration", () => {
-  it("should default hookEvent to PostToolUse", async () => {
-    const { createAgentPlugin } = await import("@jleechanorg/ao-plugin-agent-base");
-
+  it("should default hookEvent to PostToolUse", () => {
     const config = {
       name: "test-agent",
       description: "Test agent",
@@ -270,9 +263,7 @@ describe("hookEvent configuration", () => {
     expect(agent.name).toBe("test-agent");
   });
 
-  it("should support AfterTool hookEvent", async () => {
-    const { createAgentPlugin } = await import("@jleechanorg/ao-plugin-agent-base");
-
+  it("should support AfterTool hookEvent", () => {
     const config = {
       name: "test-agent",
       description: "Test agent",
