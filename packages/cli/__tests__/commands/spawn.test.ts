@@ -279,6 +279,64 @@ describe("spawn command", () => {
     });
   });
 
+  it("uses -p / --project when multiple projects would otherwise require cwd detection", async () => {
+    (mockConfigRef.current as Record<string, unknown>).projects = {
+      "my-app": {
+        name: "My App",
+        repo: "org/my-app",
+        path: join(tmpDir, "main-repo"),
+        defaultBranch: "main",
+        sessionPrefix: "app",
+      },
+      other: {
+        name: "Other",
+        repo: "org/other",
+        path: join(tmpDir, "other-repo"),
+        defaultBranch: "main",
+        sessionPrefix: "oth",
+      },
+    };
+    mkdirSync(join(tmpDir, "other-repo"), { recursive: true });
+
+    const fakeSession: Session = {
+      id: "oth-1",
+      projectId: "other",
+      status: "spawning",
+      activity: null,
+      branch: "feat/INT-99",
+      issueId: "INT-99",
+      pr: null,
+      workspacePath: "/tmp/wt",
+      runtimeHandle: { id: "hash-oth-1", runtimeName: "tmux", data: {} },
+      agentInfo: null,
+      createdAt: new Date(),
+      lastActivityAt: new Date(),
+      metadata: {},
+    };
+
+    mockSessionManager.spawn.mockResolvedValue(fakeSession);
+
+    await program.parseAsync(["node", "test", "spawn", "-p", "other", "INT-99"]);
+
+    expect(mockSessionManager.spawn).toHaveBeenCalledWith({
+      projectId: "other",
+      issueId: "INT-99",
+    });
+  });
+
+  it("rejects unknown --project id", async () => {
+    await expect(
+      program.parseAsync(["node", "test", "spawn", "-p", "nope", "INT-1"]),
+    ).rejects.toThrow("process.exit(1)");
+
+    const errors = vi
+      .mocked(console.error)
+      .mock.calls.map((c) => String(c[0]))
+      .join("\n");
+    expect(errors).toContain("Unknown project: nope");
+    expect(mockSessionManager.spawn).not.toHaveBeenCalled();
+  });
+
   it("passes --agent flag with issue ID", async () => {
     const fakeSession: Session = {
       id: "app-1",
@@ -316,6 +374,7 @@ describe("spawn command", () => {
 
     const warnings = warnSpy.mock.calls.map((c) => String(c[0])).join("\n");
     expect(warnings).toContain("no longer supported");
+    expect(warnings).toContain("ao spawn -p my-app INT-100");
     expect(warnings).toContain("ao spawn INT-100");
     warnSpy.mockRestore();
   });
@@ -373,6 +432,7 @@ describe("spawn command", () => {
     });
     expect(mockSessionManager.claimPR).toHaveBeenCalledWith("app-1", "123", {
       assignOnGithub: undefined,
+      sendInitialMessage: true,
     });
 
     const output = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
@@ -427,6 +487,7 @@ describe("spawn command", () => {
 
     expect(mockSessionManager.claimPR).toHaveBeenCalledWith("app-1", "123", {
       assignOnGithub: true,
+      sendInitialMessage: true,
     });
   });
 
@@ -634,6 +695,7 @@ describe("spawn pre-flight checks", () => {
     expect(mockSessionManager.spawn).toHaveBeenCalled();
     expect(mockSessionManager.claimPR).toHaveBeenCalledWith("app-1", "123", {
       assignOnGithub: undefined,
+      sendInitialMessage: true,
     });
   });
 
