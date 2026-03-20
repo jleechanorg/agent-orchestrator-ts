@@ -225,17 +225,15 @@ export type {
   GraphQLExecutor,
 } from "./auto-resolve-threads.js";
 
-// Session reaper — nightly cleanup of orphaned/stale sessions (bd-ls5)
-export { reapStaleSessions, DEFAULT_REAPER_CONFIG } from "./session-reaper.js";
-export type {
-  ReaperConfig,
-  ReaperDeps,
-  ReaperResult,
-  ReapedSession,
-  SkippedSession,
-  ReaperError,
-} from "./session-reaper.js";
-
 // Slack outbox — outbox queue + dead letter handling (bd-sw3)
 export { SlackOutbox } from "./slack-outbox.js";
 export type { OutboxEntry, OutboxConfig } from "./slack-outbox.js";
+
+// Pattern synthesizer — learn from outcomes (bd-89q)
+export {
+  PatternSynthesizer,
+} from "./pattern-synthesizer.js";
+export type {
+  SynthesizedPattern,
+  PatternStore,
+} from "./pattern-synthesizer.js";
