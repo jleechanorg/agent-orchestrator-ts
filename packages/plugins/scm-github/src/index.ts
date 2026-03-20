@@ -72,7 +72,9 @@ const RATE_LIMIT_ERROR_PATTERNS = [
   "GraphQL rate limit",
   "rate limit exceeded",
   "Too Many Requests",
-  "429",
+  "HTTP 429",
+  "status: 429",
+  "status 429",
 ];
 
 function isRateLimitError(error: unknown): boolean {
@@ -109,19 +111,30 @@ async function ghWithRetry(args: string[], maxRetries = 3): Promise<string> {
     }
   }
 
-  // All retries exhausted, try fallback REST API
-  console.warn("Gh CLI rate limit retries exhausted, trying REST API fallback");
-  try {
-    return await ghRestFallback(args);
-  } catch {
-    // If the REST fallback cannot safely handle these args (for example,
-    // unsupported `gh api` forms like GraphQL), rethrow the original error
-    // from the final failed `gh` invocation instead of a new one.
-    if (lastError instanceof Error) {
-      throw lastError;
+  // All retries exhausted
+  // Only attempt REST fallback for explicit `gh api ...` calls that the fallback supports.
+  if (args[0] === "api") {
+    console.warn("Gh CLI rate limit retries exhausted, trying REST API fallback for `gh api` call");
+    try {
+      return await ghRestFallback(args);
+    } catch {
+      // If the REST fallback cannot safely handle these args (for example,
+      // unsupported `gh api` forms like GraphQL), rethrow the original error
+      // from the final failed `gh` invocation instead of a new one.
+      if (lastError instanceof Error) {
+        throw lastError;
+      }
+      throw new Error(String(lastError));
     }
-    throw new Error(String(lastError));
   }
+
+  // For non-`gh api` commands (e.g. `gh pr view`), rethrow the last error instead of
+  // attempting a REST fallback that cannot construct a valid URL.
+  console.warn("Gh CLI rate limit retries exhausted for non-API command, throwing original error");
+  if (lastError instanceof Error) {
+    throw lastError;
+  }
+  throw new Error(String(lastError));
 }
 
 /**
@@ -166,9 +179,19 @@ export async function ghRestFallback(args: string[]): Promise<string> {
     endpoint = endpoint.slice(1);
   }
 
-  // Remove 'repos/' prefix if present (gh uses repos/owner/repo but REST is /owner/repo)
-  if (endpoint.startsWith("repos/")) {
-    endpoint = endpoint.slice(6);
+  // NOTE: We keep the 'repos/' prefix because GitHub REST API requires it.
+  // gh uses repos/owner/repo/path and REST API is https://api.github.com/repos/owner/repo/path
+
+  // Get authentication token for the REST API call
+  let token = "";
+  try {
+    const { stdout: tokenOutput } = await execFileAsync("gh", ["auth", "token"], {
+      maxBuffer: 10 * 1024 * 1024,
+      timeout: 30_000,
+    });
+    token = tokenOutput.trim();
+  } catch {
+    // No auth available - continue without token (will hit lower rate limits)
   }
 
   // Build query string from remaining args (e.g., --method GET, -F, etc.)
@@ -181,7 +204,7 @@ export async function ghRestFallback(args: string[]): Promise<string> {
     if (arg.startsWith("?")) {
       // Query string parameter
       queryParts.push(arg.slice(1));
-    } else if (arg.startsWith("--method")) {
+    } else if (arg.startsWith("--method") || arg === "-X") {
       // Pass HTTP method through to curl
       curlFlags.push("-X", apiArgs[i + 1] || "GET");
       i++; // Skip the next arg since we consumed it
@@ -204,17 +227,26 @@ export async function ghRestFallback(args: string[]): Promise<string> {
     url += "?" + queryParts.join("&");
   }
 
-  // Build curl command
+  // Build curl command with authentication and error handling
   const curlArgs = [
-    "-s",
+    "-f", // Fail on HTTP 4xx/5xx
+    "-sS", // Silent but show errors
     "-H", "Accept: application/vnd.github+json",
     "-H", "X-GitHub-Api-Version: 2022-11-28",
-    ...curlFlags,
-    url,
   ];
 
+  // Add Authorization header if we have a token
+  if (token) {
+    curlArgs.push("-H", `Authorization: Bearer ${token}`);
+  }
+
+  curlArgs.push(...curlFlags, url);
+
   try {
-    const { stdout } = await execFileAsync("curl", curlArgs);
+    const { stdout } = await execFileAsync("curl", curlArgs, {
+      maxBuffer: 10 * 1024 * 1024,
+      timeout: 30_000,
+    });
     return stdout.trim();
   } catch (err) {
     throw new Error(`REST fallback failed: ${(err as Error).message}`, { cause: err });
@@ -243,18 +275,30 @@ async function ghWithRetryDir(args: string[], cwd: string, maxRetries = 3): Prom
     }
   }
 
-  console.warn("Gh CLI rate limit retries exhausted, trying REST API fallback");
-  try {
-    return await ghRestFallback(args);
-  } catch {
-    // If the REST fallback cannot safely handle these args (for example,
-    // unsupported `gh api` forms like GraphQL), rethrow the original error
-    // from the final failed `gh` invocation instead of a new one.
-    if (lastError instanceof Error) {
-      throw lastError;
+  // All retries exhausted
+  // Only attempt REST fallback for explicit `gh api ...` calls that the fallback supports.
+  if (args[0] === "api") {
+    console.warn("Gh CLI rate limit retries exhausted, trying REST API fallback for `gh api` call");
+    try {
+      return await ghRestFallback(args);
+    } catch {
+      // If the REST fallback cannot safely handle these args (for example,
+      // unsupported `gh api` forms like GraphQL), rethrow the original error
+      // from the final failed `gh` invocation instead of a new one.
+      if (lastError instanceof Error) {
+        throw lastError;
+      }
+      throw new Error(String(lastError));
     }
-    throw new Error(String(lastError));
   }
+
+  // For non-`gh api` commands (e.g. `gh pr view`), rethrow the last error instead of
+  // attempting a REST fallback that cannot construct a valid URL.
+  console.warn("Gh CLI rate limit retries exhausted for non-API command, throwing original error");
+  if (lastError instanceof Error) {
+    throw lastError;
+  }
+  throw new Error(String(lastError));
 }
 
 // ---------------------------------------------------------------------------
