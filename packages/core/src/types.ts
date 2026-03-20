@@ -1122,6 +1122,8 @@ export interface RecordedOutcome {
   action: string;
   /** Strategy used (e.g., "retry-with-fix", "escalate-to-human") */
   strategy?: string;
+  /** Error class for granular grouping (e.g., "lint-error", "test-failure", "build-error") */
+  errorClass?: string;
   /** Whether the action succeeded */
   success: boolean;
   /** Duration in ms */

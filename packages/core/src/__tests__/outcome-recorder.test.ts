@@ -212,4 +212,40 @@ describe("OutcomeRecorder", () => {
     expect(strategies).toHaveLength(1);
     expect(strategies[0].action).toBe("fix-lint");
   });
+
+  it("query filters by errorClass", () => {
+    recorder.record(makeOutcome({ trigger: "ci-failed", errorClass: "lint-error" }));
+    recorder.record(makeOutcome({ trigger: "ci-failed", errorClass: "test-failure" }));
+    recorder.record(makeOutcome({ trigger: "ci-failed", errorClass: "lint-error" }));
+
+    const results = recorder.query({ errorClass: "lint-error" });
+    expect(results).toHaveLength(2);
+    results.forEach((r) => expect(r.errorClass).toBe("lint-error"));
+  });
+
+  it("getWinRate filters by errorClass to avoid cross-contamination", () => {
+    // lint-error: 1/1 = 100%
+    recorder.record(makeOutcome({ strategy: "retry-with-fix", action: "fix-lint", errorClass: "lint-error", success: true }));
+    // test-failure: 0/1 = 0%
+    recorder.record(makeOutcome({ strategy: "retry-with-fix", action: "fix-lint", errorClass: "test-failure", success: false }));
+
+    expect(recorder.getWinRate("retry-with-fix", "fix-lint", "lint-error")).toBe(1.0);
+    expect(recorder.getWinRate("retry-with-fix", "fix-lint", "test-failure")).toBe(0);
+    // Without errorClass filter, blended rate
+    expect(recorder.getWinRate("retry-with-fix", "fix-lint")).toBeCloseTo(0.5);
+  });
+
+  it("getTopStrategies filters by errorClass", () => {
+    recorder.record(makeOutcome({ strategy: "retry-with-fix", action: "fix-lint", errorClass: "lint-error", success: true }));
+    recorder.record(makeOutcome({ strategy: "retry-with-fix", action: "fix-test", errorClass: "test-failure", success: true }));
+    recorder.record(makeOutcome({ strategy: "retry-with-fix", action: "fix-build", errorClass: "lint-error", success: false }));
+
+    const lintStrategies = recorder.getTopStrategies("retry-with-fix", undefined, "lint-error");
+    expect(lintStrategies).toHaveLength(2);
+    expect(lintStrategies[0].action).toBe("fix-lint");
+
+    const testStrategies = recorder.getTopStrategies("retry-with-fix", undefined, "test-failure");
+    expect(testStrategies).toHaveLength(1);
+    expect(testStrategies[0].action).toBe("fix-test");
+  });
 });

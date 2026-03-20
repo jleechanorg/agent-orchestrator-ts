@@ -31,19 +31,24 @@ export class OutcomeRecorder {
     trigger?: string;
     action?: string;
     projectId?: string;
+    errorClass?: string;
   }): RecordedOutcome[] {
     const outcomes = this.readAll();
     return outcomes.filter((o) => {
       if (filters.trigger !== undefined && o.trigger !== filters.trigger) return false;
       if (filters.action !== undefined && o.action !== filters.action) return false;
       if (filters.projectId !== undefined && o.projectId !== filters.projectId) return false;
+      if (filters.errorClass !== undefined && o.errorClass !== filters.errorClass) return false;
       return true;
     });
   }
 
-  getWinRate(strategy: string, action: string): number {
+  getWinRate(strategy: string, action: string, errorClass?: string): number {
     const matching = this.readAll().filter(
-      (o) => o.strategy === strategy && o.action === action,
+      (o) =>
+        o.strategy === strategy &&
+        o.action === action &&
+        (errorClass === undefined || o.errorClass === errorClass),
     );
     if (matching.length === 0) return 0;
     const wins = matching.filter((o) => o.success).length;
@@ -53,8 +58,13 @@ export class OutcomeRecorder {
   getTopStrategies(
     strategy: string,
     limit?: number,
+    errorClass?: string,
   ): Array<{ action: string; winRate: number; count: number }> {
-    const outcomes = this.readAll().filter((o) => o.strategy === strategy);
+    const outcomes = this.readAll().filter(
+      (o) =>
+        o.strategy === strategy &&
+        (errorClass === undefined || o.errorClass === errorClass),
+    );
     const byAction = new Map<string, { wins: number; total: number }>();
 
     for (const o of outcomes) {
