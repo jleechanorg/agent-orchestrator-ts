@@ -111,30 +111,106 @@ async function ghWithRetry(args: string[], maxRetries = 3): Promise<string> {
 
   // All retries exhausted, try fallback REST API
   console.warn("Gh CLI rate limit retries exhausted, trying REST API fallback");
-  return await ghRestFallback(args);
+  try {
+    return await ghRestFallback(args);
+  } catch {
+    // If the REST fallback cannot safely handle these args (for example,
+    // unsupported `gh api` forms like GraphQL), rethrow the original error
+    // from the final failed `gh` invocation instead of a new one.
+    if (lastError instanceof Error) {
+      throw lastError;
+    }
+    throw new Error(String(lastError));
+  }
 }
 
 /**
  * Fallback to direct REST API calls using curl when gh CLI is rate limited.
  * Extracts the API endpoint from gh args and calls it directly.
+ *
+ * Supported forms (examples):
+ *   gh api repos/owner/repo/pulls
+ *   gh api /repos/owner/repo/pulls
+ *   gh api repos/owner/repo/pulls?per_page=100
+ *   gh api repos/owner/repo/pulls --method GET
+ *
+ * Unsupported forms (examples):
+ *   gh api graphql
+ *   gh pr list
+ *
+ * For unsupported forms, this function will throw so that the caller
+ * (ghWithRetry) can rethrow the original gh error instead of attempting
+ * a malformed curl call.
  */
-async function ghRestFallback(args: string[]): Promise<string> {
-  // Parse gh args to construct REST API URL
-  // gh api repos/owner/repo/pulls -> GET /repos/owner/repo/pulls
-  const apiIndex = args.indexOf("api");
-  if (apiIndex === -1) {
-    throw new Error("Cannot construct REST fallback URL from gh args");
+export async function ghRestFallback(args: string[]): Promise<string> {
+  // We only support `gh api ...` invocations here.
+  if (!Array.isArray(args) || args.length === 0 || args[0] !== "api") {
+    throw new Error("ghRestFallback only supports `gh api` commands");
   }
 
-  // Build the REST path from remaining args
-  const restPath = args.slice(apiIndex + 1).join("/").replace("repos/", "");
+  const apiArgs = args.slice(1);
+  if (apiArgs.length === 0) {
+    throw new Error("ghRestFallback: missing endpoint for `gh api` command");
+  }
 
-  // Use curl with auth from gh config
+  let endpoint = apiArgs[0];
+
+  // Explicitly reject GraphQL usages like `gh api graphql` so we don't
+  // attempt to construct a bogus REST URL.
+  if (endpoint === "graphql" || endpoint.startsWith("graphql/")) {
+    throw new Error("ghRestFallback does not support GraphQL queries");
+  }
+
+  // Remove leading slash if present
+  if (endpoint.startsWith("/")) {
+    endpoint = endpoint.slice(1);
+  }
+
+  // Remove 'repos/' prefix if present (gh uses repos/owner/repo but REST is /owner/repo)
+  if (endpoint.startsWith("repos/")) {
+    endpoint = endpoint.slice(6);
+  }
+
+  // Build query string from remaining args (e.g., --method GET, -F, etc.)
+  // We'll capture anything that looks like a query param (?key=value)
+  const queryParts: string[] = [];
+  const curlFlags: string[] = [];
+
+  for (let i = 1; i < apiArgs.length; i++) {
+    const arg = apiArgs[i];
+    if (arg.startsWith("?")) {
+      // Query string parameter
+      queryParts.push(arg.slice(1));
+    } else if (arg.startsWith("--method")) {
+      // Pass HTTP method through to curl
+      curlFlags.push("-X", apiArgs[i + 1] || "GET");
+      i++; // Skip the next arg since we consumed it
+    } else if (arg.startsWith("-") || arg.startsWith("--")) {
+      // Pass other flags through (e.g., --header, -H)
+      curlFlags.push(arg);
+      if (apiArgs[i + 1] && !apiArgs[i + 1].startsWith("-")) {
+        curlFlags.push(apiArgs[i + 1]);
+        i++;
+      }
+    } else if (!arg.includes("=") && !arg.includes("/")) {
+      // This might be additional path segments or other values
+      // For now, just pass them through
+    }
+  }
+
+  // Construct the final URL
+  let url = `https://api.github.com/${endpoint}`;
+  if (queryParts.length > 0) {
+    url += "?" + queryParts.join("&");
+  }
+
+  // Build curl command
   const curlArgs = [
     "-s",
     "-H", "Accept: application/vnd.github+json",
     "-H", "X-GitHub-Api-Version: 2022-11-28",
-    `https://api.github.com/${restPath}`,
+    ...curlFlags,
+    url,
   ];
 
   try {
@@ -168,7 +244,17 @@ async function ghWithRetryDir(args: string[], cwd: string, maxRetries = 3): Prom
   }
 
   console.warn("Gh CLI rate limit retries exhausted, trying REST API fallback");
-  return await ghRestFallback(args);
+  try {
+    return await ghRestFallback(args);
+  } catch {
+    // If the REST fallback cannot safely handle these args (for example,
+    // unsupported `gh api` forms like GraphQL), rethrow the original error
+    // from the final failed `gh` invocation instead of a new one.
+    if (lastError instanceof Error) {
+      throw lastError;
+    }
+    throw new Error(String(lastError));
+  }
 }
 
 // ---------------------------------------------------------------------------

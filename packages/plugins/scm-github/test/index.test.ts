@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
 // ---------------------------------------------------------------------------
 // Mock node:child_process — gh CLI calls go through execFileAsync = promisify(execFile)
@@ -1375,12 +1375,18 @@ describe("scm-github plugin", () => {
   });
 
   describe("rate limit handling", () => {
+    let setTimeoutSpy: ReturnType<typeof vi.spyOn>;
+
     beforeEach(() => {
       // Mock setTimeout to resolve immediately for rate limit tests
-      vi.spyOn(global, "setTimeout").mockImplementation((cb: () => void) => {
+      setTimeoutSpy = vi.spyOn(global, "setTimeout").mockImplementation((cb: () => void) => {
         cb();
         return 0 as unknown as NodeJS.Timeout;
       });
+    });
+
+    afterEach(() => {
+      setTimeoutSpy.mockRestore();
     });
 
     it("retries on rate limit error and succeeds", async () => {
