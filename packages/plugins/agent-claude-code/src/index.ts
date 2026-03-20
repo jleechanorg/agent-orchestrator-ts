@@ -19,7 +19,7 @@ import {
   getCachedProcessList,
 } from "@composio/ao-plugin-agent-base";
 import { execFile, execFileSync } from "node:child_process";
-import { readdir, readFile, stat, open, writeFile, mkdir, chmod } from "node:fs/promises";
+import { readdir, readFile, stat, open, writeFile, mkdir, chmod, lstat } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
@@ -529,6 +529,27 @@ function classifyTerminalOutput(terminalOutput: string): ActivityState {
 // =============================================================================
 
 /**
+ * Validates that a path is not a symlink to prevent symlink attacks.
+ * An attacker could pre-create symlinks to redirect writes to arbitrary paths.
+ */
+async function validateNoSymlink(path: string, description: string): Promise<void> {
+  try {
+    const stats = await lstat(path);
+    if (stats.isSymbolicLink()) {
+      throw new Error(
+        `Refusing to write to ${description} — path is a symlink: ${path}`,
+      );
+    }
+  } catch (err) {
+    // lstat throws if path doesn't exist — that's fine, we check before write
+    if (err instanceof Error && err.message.includes("symlink")) {
+      throw err;
+    }
+    // Path doesn't exist, which is OK — we'll create it
+  }
+}
+
+/**
  * Shared helper to setup PostToolUse hooks in a workspace.
  * Writes metadata-updater.sh script and updates settings.json.
  *
@@ -539,6 +560,12 @@ async function setupHookInWorkspace(workspacePath: string, hookCommand: string):
   const claudeDir = join(workspacePath, ".claude");
   const settingsPath = join(claudeDir, "settings.json");
   const hookScriptPath = join(claudeDir, "metadata-updater.sh");
+
+  // Security: validate no symlinks before writing files
+  // An attacker could pre-create symlinks to redirect writes to arbitrary paths
+  await validateNoSymlink(claudeDir, "agent config directory");
+  await validateNoSymlink(settingsPath, "settings file");
+  await validateNoSymlink(hookScriptPath, "hook script");
 
   // Create .claude directory if it doesn't exist
   try {
