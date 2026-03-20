@@ -33,7 +33,6 @@ const BUILTIN_PLUGINS: Array<{ slot: PluginSlot; name: string; pkg: string }> = 
   { slot: "agent", name: "cursor", pkg: "@composio/ao-plugin-agent-cursor" },
   { slot: "agent", name: "aider", pkg: "@composio/ao-plugin-agent-aider" },
   { slot: "agent", name: "opencode", pkg: "@composio/ao-plugin-agent-opencode" },
-  { slot: "agent", name: "cursor", pkg: "@composio/ao-plugin-agent-cursor" },
   { slot: "agent", name: "gemini", pkg: "@composio/ao-plugin-agent-gemini" },
   // Workspaces
   { slot: "workspace", name: "worktree", pkg: "@composio/ao-plugin-workspace-worktree" },
