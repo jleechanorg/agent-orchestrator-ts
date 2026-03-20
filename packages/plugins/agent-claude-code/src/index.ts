@@ -89,6 +89,12 @@ if [[ -z "\${AO_SESSION:-}" ]]; then
   exit 0
 fi
 
+# Validate AO_SESSION to prevent path traversal attacks
+if [[ "$AO_SESSION" == *"/"* ]] || [[ "$AO_SESSION" == *".."* ]]; then
+  echo '{"systemMessage": "AO_SESSION contains invalid characters, skipping metadata update"}'
+  exit 0
+fi
+
 # Construct metadata file path
 # AO_DATA_DIR is already set to the project-specific sessions directory
 metadata_file="$AO_DATA_DIR/$AO_SESSION"
