@@ -1085,21 +1085,29 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       await validateAndEmitExitProof(session, newStatus);
 
       // Record outcome for strategy learning (bd-nig)
+      // Guarded: disk errors must not break session lifecycle checks
       if (outcomeRecorder) {
-        const success = newStatus === "merged";
-        outcomeRecorder.record({
-          sessionId: session.id,
-          projectId: session.projectId,
-          trigger: session.metadata["trigger"] ?? "unknown",
-          action: session.metadata["agent"] ?? "default",
-          strategy: session.metadata["strategy"],
-          errorClass: session.metadata["errorClass"],
-          success,
-          durationMs: Date.now() - new Date(session.createdAt).getTime(),
-          error: !success ? `Session ended with status: ${newStatus}` : undefined,
-          prNumber: session.pr?.number,
-          recordedAt: new Date().toISOString(),
-        });
+        try {
+          const success = newStatus === "merged";
+          outcomeRecorder.record({
+            sessionId: session.id,
+            projectId: session.projectId,
+            trigger: session.metadata["trigger"] ?? "unknown",
+            action: session.metadata["agent"] ?? "default",
+            strategy: session.metadata["strategy"],
+            errorClass: session.metadata["errorClass"],
+            success,
+            durationMs: Date.now() - new Date(session.createdAt).getTime(),
+            error: !success ? `Session ended with status: ${newStatus}` : undefined,
+            prNumber: session.pr?.number,
+            recordedAt: new Date().toISOString(),
+          });
+        } catch (recordErr) {
+          console.warn(
+            `Failed to record outcome for session ${session.id}:`,
+            recordErr instanceof Error ? recordErr.message : String(recordErr),
+          );
+        }
       }
     }
   }
