@@ -14,6 +14,7 @@ import {
   type WorkspaceHooksConfig,
 } from "@composio/ao-core";
 import { execFile } from "node:child_process";
+import { createHash } from "node:crypto";
 import { readdir, readFile, stat, open, writeFile, mkdir, chmod, lstat } from "node:fs/promises";
 import { existsSync, lstatSync, mkdirSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -94,7 +95,8 @@ export interface AgentPluginConfig {
 export const METADATA_UPDATER_SCRIPT = `#!/usr/bin/env bash
 # Metadata Updater Hook for Agent Orchestrator
 #
-# This PostToolUse hook automatically updates session metadata when:
+# This hook automatically updates session metadata when triggered via
+# PostToolUse (Claude Code) or AfterTool (Gemini CLI) events:
 # - gh pr create: extracts PR URL and writes to metadata
 # - git checkout -b / git switch -c: extracts branch name and writes to metadata
 # - gh pr merge: updates status to "merged"
@@ -906,8 +908,10 @@ export function createAgentPlugin(config: AgentPluginConfig, overrides?: Partial
           env[config.systemPromptEnvVar] = launchConfig.systemPromptFile;
         } else if (launchConfig.systemPrompt) {
           // Write the inline prompt to a temp file — env vars can't inline multi-KB prompts.
+          // Hash the sessionId to prevent path traversal attacks.
+          const safeId = createHash("sha256").update(launchConfig.sessionId).digest("hex").slice(0, 32);
           const tmpDir = join(homedir(), ".ao-sessions", "tmp");
-          const tmpFile = join(tmpDir, `system-${launchConfig.sessionId}.md`);
+          const tmpFile = join(tmpDir, `system-${safeId}.md`);
           try {
             mkdirSync(tmpDir, { recursive: true, mode: 0o700 });
             writeFileSync(tmpFile, launchConfig.systemPrompt, { encoding: "utf-8", mode: 0o600 });

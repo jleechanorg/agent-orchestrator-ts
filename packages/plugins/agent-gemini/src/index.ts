@@ -6,6 +6,7 @@ import {
 } from "@composio/ao-plugin-agent-base";
 import type { Agent, PluginModule } from "@composio/ao-core";
 import { createHash } from "node:crypto";
+import { execFileSync } from "node:child_process";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -74,7 +75,17 @@ export function create(): Agent {
   return createAgentPlugin(geminiConfig);
 }
 
+/** Detect if Gemini CLI is installed. */
+export function detect(): boolean {
+  try {
+    execFileSync("gemini", ["--version"], { stdio: "ignore" });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** Reset the ps process cache. Exported for testing only. */
 export const resetPsCache = _resetPsCache;
 
-export default { manifest, create } satisfies PluginModule<Agent>;
+export default { manifest, create, detect } satisfies PluginModule<Agent>;
