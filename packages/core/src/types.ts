@@ -1401,6 +1401,7 @@ export interface SessionMetadata {
   summary?: string;
   project?: string;
   agent?: string; // Agent plugin name (e.g. "codex", "claude-code") — persisted for lifecycle
+  action?: string; // What action is being taken (e.g. "fix-lint", "fix-test", "fix-build")
   createdAt?: string;
   runtimeHandle?: string;
   restoredAt?: string;

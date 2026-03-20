@@ -1093,7 +1093,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
             sessionId: session.id,
             projectId: session.projectId,
             trigger: session.metadata["trigger"] ?? "unknown",
-            action: session.metadata["agent"] ?? "default",
+            action: session.metadata["action"] ?? "unknown",
             strategy: session.metadata["strategy"],
             errorClass: session.metadata["errorClass"],
             success,
