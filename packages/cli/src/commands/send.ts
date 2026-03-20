@@ -8,7 +8,7 @@ import {
   type OpenCodeSessionManager,
   type Session,
   loadConfig,
-} from "@composio/ao-core";
+} from "@jleechanorg/ao-core";
 import { exec, tmux } from "../lib/shell.js";
 import { getAgentByName } from "../lib/plugins.js";
 import { getSessionManager } from "../lib/create-session-manager.js";

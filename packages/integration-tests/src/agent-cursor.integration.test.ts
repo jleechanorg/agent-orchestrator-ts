@@ -18,8 +18,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import cursorPlugin from "@composio/ao-plugin-agent-cursor";
-import { shellEscape } from "@composio/ao-core";
+import cursorPlugin from "@jleechanorg/ao-plugin-agent-cursor";
 import {
   isTmuxAvailable,
   killSessionsByPrefix,
@@ -47,9 +46,6 @@ const cursorBin = await findBinary(["cursor-agent"]);
 const python3Bin = await findBinary(["python3"]);
 const cursorAuthed = cursorBin !== null && (await isCursorAuthenticated(cursorBin));
 const canRun = tmuxOk && cursorBin !== null && cursorAuthed && python3Bin !== null;
-const CURSOR_POLL_START_MS = 30_000;
-const CURSOR_EXIT_TIMEOUT_MS = 180_000;
-const CURSOR_TEST_TIMEOUT_MS = CURSOR_POLL_START_MS + CURSOR_EXIT_TIMEOUT_MS + 10_000;
 
 describe.skipIf(!canRun)("agent-cursor (integration)", () => {
   const agent = cursorPlugin.create();
@@ -58,7 +54,11 @@ describe.skipIf(!canRun)("agent-cursor (integration)", () => {
   let outputFile: string;
 
   let aliveRunning = false;
+  let aliveActivityState: Awaited<ReturnType<typeof agent.getActivityState>>;
+  let aliveSessionInfo: Awaited<ReturnType<typeof agent.getSessionInfo>>;
   let exitedRunning: boolean;
+  let exitedActivityState: Awaited<ReturnType<typeof agent.getActivityState>>;
+  let exitedSessionInfo: Awaited<ReturnType<typeof agent.getSessionInfo>>;
   let fileCreated = false;
 
   beforeAll(async () => {
@@ -69,23 +69,34 @@ describe.skipIf(!canRun)("agent-cursor (integration)", () => {
     const task = `Write a Python fibonacci program to the file fibonacci.py. The program should print the first 10 fibonacci numbers when run. Write only the file, no explanation.`;
     // --force allows file writes without interactive confirmation (cursor plugin's permissionlessFlag).
     // --print runs non-interactively, exits when done.
-    const cmd = `${shellEscape(cursorBin)} --print --force ${shellEscape(task)}`;
+    // Pass task as direct argument (not via printf %q which double-escapes).
+    const cmd = `${cursorBin} --print --force "${task}"`;
     await createSession(sessionName, cmd, tmpDir);
 
     const handle = makeTmuxHandle(sessionName);
-    const _session = makeSession("inttest-cursor", handle, tmpDir);
+    const session = makeSession("inttest-cursor", handle, tmpDir);
 
     // Poll until running using pollUntilEqual for more reliable detection
     aliveRunning = await pollUntilEqual(() => agent.isProcessRunning(handle), true, {
-      timeoutMs: CURSOR_POLL_START_MS,
+      timeoutMs: 30_000,
       intervalMs: 1_000,
     }).catch(() => false);
 
+    // Capture activity state while alive (Cursor uses SQLite, not JSONL - returns null)
+    if (aliveRunning) {
+      aliveActivityState = await agent.getActivityState(session);
+      aliveSessionInfo = await agent.getSessionInfo(session);
+    }
+
     // Wait for agent to exit (up to 3 min — cursor can be slow on first cold start)
     exitedRunning = await pollUntilEqual(() => agent.isProcessRunning(handle), false, {
-      timeoutMs: CURSOR_EXIT_TIMEOUT_MS,
+      timeoutMs: 180_000,
       intervalMs: 2_000,
     });
+
+    // Capture activity state after exit
+    exitedActivityState = await agent.getActivityState(session);
+    exitedSessionInfo = await agent.getSessionInfo(session);
 
     // Check file was created
     try {
@@ -94,7 +105,7 @@ describe.skipIf(!canRun)("agent-cursor (integration)", () => {
     } catch {
       fileCreated = false;
     }
-  }, CURSOR_TEST_TIMEOUT_MS);
+  }, 210_000);
 
   afterAll(async () => {
     await killSession(sessionName);
@@ -105,8 +116,26 @@ describe.skipIf(!canRun)("agent-cursor (integration)", () => {
     expect(aliveRunning).toBe(true);
   });
 
+  it("getActivityState → returns null while running (Cursor uses SQLite, not JSONL)", () => {
+    // Cursor stores sessions in SQLite, not JSONL. Activity detection via JSONL returns null.
+    expect(aliveActivityState).toBeNull();
+  });
+
+  it("getSessionInfo → returns null (no JSONL session files)", () => {
+    // Cursor doesn't write JSONL session files - it uses SQLite internally
+    expect(aliveSessionInfo).toBeNull();
+  });
+
   it("isProcessRunning → false after agent exits", () => {
     expect(exitedRunning).toBe(false);
+  });
+
+  it("getActivityState → returns exited after agent terminates", () => {
+    expect(exitedActivityState?.state).toBe("exited");
+  });
+
+  it("getSessionInfo → returns null after exit (no JSONL session files)", () => {
+    expect(exitedSessionInfo).toBeNull();
   });
 
   it("fibonacci.py created in output dir", () => {

@@ -15,7 +15,7 @@
 
 import { spawn, type ChildProcess } from "node:child_process";
 import { createServer, request } from "node:http";
-import { createCorrelationId } from "@composio/ao-core";
+import { createCorrelationId } from "@jleechanorg/ao-core";
 import { findTmux, resolveTmuxSession, validateSessionId } from "./tmux-utils.js";
 import { createObserverContext, inferProjectId } from "./terminal-observability.js";
 

@@ -27,7 +27,7 @@ async function checkPort(port: number): Promise<void> {
 
 /**
  * Check that workspace packages have been compiled (TypeScript → JavaScript).
- * Verifies @composio/ao-core dist output exists from the web package's
+ * Verifies @jleechanorg/ao-core dist output exists from the web package's
  * node_modules, since a missing dist/ causes module resolution errors when
  * starting the dashboard. Works with both `next dev` and `next build`.
  */

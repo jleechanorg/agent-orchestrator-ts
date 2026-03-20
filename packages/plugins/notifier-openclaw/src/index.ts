@@ -5,8 +5,8 @@ import {
   type NotifyContext,
   type OrchestratorEvent,
   type PluginModule,
-} from "@composio/ao-core";
-import { isRetryableHttpStatus, normalizeRetryConfig, validateUrl } from "@composio/ao-core/utils";
+} from "@jleechanorg/ao-core";
+import { isRetryableHttpStatus, normalizeRetryConfig, validateUrl } from "@jleechanorg/ao-core/utils";
 
 export const manifest = {
   name: "openclaw",

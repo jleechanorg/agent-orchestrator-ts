@@ -1,7 +1,7 @@
 {
   "name": "@composio/ao",
   "version": "0.1.0",
-  "description": "Orchestrate parallel AI coding agents — global CLI wrapper",
+  "description": "Orchestrate parallel AI coding agents \u2014 global CLI wrapper",
   "license": "MIT",
   "type": "module",
   "bin": {
@@ -23,6 +23,9 @@
     "node": ">=20.0.0"
   },
   "dependencies": {
-    "@composio/ao-cli": "workspace:*"
+    "@jleechanorg/ao-cli": "workspace:*"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }

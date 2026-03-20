@@ -3,8 +3,8 @@ import {
   resetPsCache as _resetPsCache,
   type AgentPluginConfig,
 } from "@composio/ao-plugin-agent-base";
-import type { Agent, PluginModule, Session } from "@composio/ao-core";
 import { execFileSync } from "node:child_process";
+import type { Agent, PluginModule, ProjectConfig, Session } from "@composio/ao-core";
 import { createHash } from "node:crypto";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -74,7 +74,7 @@ const geminiConfig: AgentPluginConfig = {
 // =============================================================================
 
 const geminiOverrides: Partial<Agent> = {
-  async getRestoreCommand(_session: Session): Promise<string | null> {
+  async getRestoreCommand(_session: Session, _project: ProjectConfig): Promise<string | null> {
     // Gemini CLI does not have a --resume flag; sessions are restored via UI
     return null;
   },

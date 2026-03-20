@@ -5,7 +5,7 @@ import {
   resolveProjectIdForSessionId,
   type OrchestratorConfig,
   type ObservabilitySummary,
-} from "@composio/ao-core";
+} from "@jleechanorg/ao-core";
 import { NextResponse } from "next/server";
 
 let webApiObserver: ReturnType<typeof createProjectObserver> | null | undefined;

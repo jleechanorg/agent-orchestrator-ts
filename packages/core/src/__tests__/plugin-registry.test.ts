@@ -149,9 +149,9 @@ describe("loadBuiltins", () => {
     const fakeOpenCode = makePlugin("agent", "opencode");
 
     await registry.loadBuiltins(undefined, async (pkg: string) => {
-      if (pkg === "@composio/ao-plugin-agent-claude-code") return fakeClaudeCode;
-      if (pkg === "@composio/ao-plugin-agent-codex") return fakeCodex;
-      if (pkg === "@composio/ao-plugin-agent-opencode") return fakeOpenCode;
+      if (pkg === "@jleechanorg/ao-plugin-agent-claude-code") return fakeClaudeCode;
+      if (pkg === "@jleechanorg/ao-plugin-agent-codex") return fakeCodex;
+      if (pkg === "@jleechanorg/ao-plugin-agent-opencode") return fakeOpenCode;
       throw new Error(`Not found: ${pkg}`);
     });
 
@@ -172,8 +172,8 @@ describe("loadBuiltins", () => {
     const fakeScm = makePlugin("scm", "gitlab");
 
     await registry.loadBuiltins(undefined, async (pkg: string) => {
-      if (pkg === "@composio/ao-plugin-tracker-gitlab") return fakeTracker;
-      if (pkg === "@composio/ao-plugin-scm-gitlab") return fakeScm;
+      if (pkg === "@jleechanorg/ao-plugin-tracker-gitlab") return fakeTracker;
+      if (pkg === "@jleechanorg/ao-plugin-scm-gitlab") return fakeScm;
       throw new Error(`Not found: ${pkg}`);
     });
 
@@ -200,7 +200,7 @@ describe("loadBuiltins", () => {
     });
 
     await registry.loadBuiltins(config, async (pkg: string) => {
-      if (pkg === "@composio/ao-plugin-notifier-webhook") return fakeWebhookNotifier;
+      if (pkg === "@jleechanorg/ao-plugin-notifier-webhook") return fakeWebhookNotifier;
       throw new Error(`Not found: ${pkg}`);
     });
 
@@ -225,7 +225,7 @@ describe("loadBuiltins", () => {
     });
 
     await registry.loadBuiltins(config, async (pkg: string) => {
-      if (pkg === "@composio/ao-plugin-notifier-webhook") return fakeWebhookNotifier;
+      if (pkg === "@jleechanorg/ao-plugin-notifier-webhook") return fakeWebhookNotifier;
       throw new Error(`Not found: ${pkg}`);
     });
 
@@ -249,7 +249,7 @@ describe("loadBuiltins", () => {
     });
 
     await registry.loadBuiltins(cfg, async (pkg: string) => {
-      if (pkg === "@composio/ao-plugin-notifier-openclaw") return fakeOpenClaw;
+      if (pkg === "@jleechanorg/ao-plugin-notifier-openclaw") return fakeOpenClaw;
       throw new Error(`Not found: ${pkg}`);
     });
 
@@ -274,8 +274,8 @@ describe("loadBuiltins", () => {
     });
 
     await registry.loadBuiltins(cfg, async (pkg: string) => {
-      if (pkg === "@composio/ao-plugin-notifier-openclaw") return fakeOpenClaw;
-      if (pkg === "@composio/ao-plugin-notifier-webhook") return fakeWebhook;
+      if (pkg === "@jleechanorg/ao-plugin-notifier-openclaw") return fakeOpenClaw;
+      if (pkg === "@jleechanorg/ao-plugin-notifier-webhook") return fakeWebhook;
       throw new Error(`Not found: ${pkg}`);
     });
 

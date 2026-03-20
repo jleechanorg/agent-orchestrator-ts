@@ -1,15 +1,15 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   transpilePackages: [
-    "@composio/ao-core",
-    "@composio/ao-plugin-agent-claude-code",
-    "@composio/ao-plugin-agent-cursor",
-    "@composio/ao-plugin-agent-opencode",
-    "@composio/ao-plugin-runtime-tmux",
-    "@composio/ao-plugin-scm-github",
-    "@composio/ao-plugin-tracker-github",
-    "@composio/ao-plugin-tracker-linear",
-    "@composio/ao-plugin-workspace-worktree",
+    "@jleechanorg/ao-core",
+    "@jleechanorg/ao-plugin-agent-claude-code",
+    "@jleechanorg/ao-plugin-agent-cursor",
+    "@jleechanorg/ao-plugin-agent-opencode",
+    "@jleechanorg/ao-plugin-runtime-tmux",
+    "@jleechanorg/ao-plugin-scm-github",
+    "@jleechanorg/ao-plugin-tracker-github",
+    "@jleechanorg/ao-plugin-tracker-linear",
+    "@jleechanorg/ao-plugin-workspace-worktree",
   ],
 };
 

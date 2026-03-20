@@ -11,12 +11,12 @@ importers:
       '@changesets/cli':
         specifier: ^2.29.8
         version: 2.29.8(@types/node@25.2.3)
-      '@composio/ao-plugin-agent-cursor':
-        specifier: workspace:^
-        version: link:packages/plugins/agent-cursor
       '@eslint/js':
         specifier: ^10.0.1
         version: 10.0.1(eslint@10.0.0(jiti@2.6.1))
+      '@jleechanorg/ao-plugin-agent-cursor':
+        specifier: workspace:^
+        version: link:packages/plugins/agent-cursor
       '@types/node':
         specifier: ^25.2.3
         version: 25.2.3
@@ -38,79 +38,76 @@ importers:
 
   packages/ao:
     dependencies:
-      '@composio/ao-cli':
+      '@jleechanorg/ao-cli':
         specifier: workspace:*
         version: link:../cli
 
   packages/cli:
     dependencies:
-      '@composio/ao-core':
+      '@jleechanorg/ao-core':
         specifier: workspace:*
         version: link:../core
-      '@composio/ao-plugin-agent-aider':
+      '@jleechanorg/ao-plugin-agent-aider':
         specifier: workspace:*
         version: link:../plugins/agent-aider
-      '@composio/ao-plugin-agent-claude-code':
+      '@jleechanorg/ao-plugin-agent-claude-code':
         specifier: workspace:*
         version: link:../plugins/agent-claude-code
-      '@composio/ao-plugin-agent-codex':
+      '@jleechanorg/ao-plugin-agent-codex':
         specifier: workspace:*
         version: link:../plugins/agent-codex
-      '@composio/ao-plugin-agent-cursor':
+      '@jleechanorg/ao-plugin-agent-cursor':
         specifier: workspace:*
         version: link:../plugins/agent-cursor
-      '@composio/ao-plugin-agent-gemini':
-        specifier: workspace:*
-        version: link:../plugins/agent-gemini
-      '@composio/ao-plugin-agent-opencode':
+      '@jleechanorg/ao-plugin-agent-opencode':
         specifier: workspace:*
         version: link:../plugins/agent-opencode
-      '@composio/ao-plugin-notifier-composio':
+      '@jleechanorg/ao-plugin-notifier-composio':
         specifier: workspace:*
         version: link:../plugins/notifier-composio
-      '@composio/ao-plugin-notifier-desktop':
+      '@jleechanorg/ao-plugin-notifier-desktop':
         specifier: workspace:*
         version: link:../plugins/notifier-desktop
-      '@composio/ao-plugin-notifier-openclaw':
+      '@jleechanorg/ao-plugin-notifier-openclaw':
         specifier: workspace:*
         version: link:../plugins/notifier-openclaw
-      '@composio/ao-plugin-notifier-slack':
+      '@jleechanorg/ao-plugin-notifier-slack':
         specifier: workspace:*
         version: link:../plugins/notifier-slack
-      '@composio/ao-plugin-notifier-webhook':
+      '@jleechanorg/ao-plugin-notifier-webhook':
         specifier: workspace:*
         version: link:../plugins/notifier-webhook
-      '@composio/ao-plugin-poller-github-pr':
+      '@jleechanorg/ao-plugin-poller-github-pr':
         specifier: workspace:*
         version: link:../plugins/poller-github-pr
-      '@composio/ao-plugin-runtime-process':
+      '@jleechanorg/ao-plugin-runtime-process':
         specifier: workspace:*
         version: link:../plugins/runtime-process
-      '@composio/ao-plugin-runtime-tmux':
+      '@jleechanorg/ao-plugin-runtime-tmux':
         specifier: workspace:*
         version: link:../plugins/runtime-tmux
-      '@composio/ao-plugin-scm-github':
+      '@jleechanorg/ao-plugin-scm-github':
         specifier: workspace:*
         version: link:../plugins/scm-github
-      '@composio/ao-plugin-terminal-iterm2':
+      '@jleechanorg/ao-plugin-terminal-iterm2':
         specifier: workspace:*
         version: link:../plugins/terminal-iterm2
-      '@composio/ao-plugin-terminal-web':
+      '@jleechanorg/ao-plugin-terminal-web':
         specifier: workspace:*
         version: link:../plugins/terminal-web
-      '@composio/ao-plugin-tracker-github':
+      '@jleechanorg/ao-plugin-tracker-github':
         specifier: workspace:*
         version: link:../plugins/tracker-github
-      '@composio/ao-plugin-tracker-linear':
+      '@jleechanorg/ao-plugin-tracker-linear':
         specifier: workspace:*
         version: link:../plugins/tracker-linear
-      '@composio/ao-plugin-workspace-clone':
+      '@jleechanorg/ao-plugin-workspace-clone':
         specifier: workspace:*
         version: link:../plugins/workspace-clone
-      '@composio/ao-plugin-workspace-worktree':
+      '@jleechanorg/ao-plugin-workspace-worktree':
         specifier: workspace:*
         version: link:../plugins/workspace-worktree
-      '@composio/ao-web':
+      '@jleechanorg/ao-web':
         specifier: workspace:*
         version: link:../web
       chalk:
@@ -169,62 +166,62 @@ importers:
 
   packages/integration-tests:
     dependencies:
-      '@composio/ao-core':
+      '@jleechanorg/ao-core':
         specifier: workspace:*
         version: link:../core
-      '@composio/ao-plugin-agent-aider':
+      '@jleechanorg/ao-plugin-agent-aider':
         specifier: workspace:*
         version: link:../plugins/agent-aider
-      '@composio/ao-plugin-agent-claude-code':
+      '@jleechanorg/ao-plugin-agent-claude-code':
         specifier: workspace:*
         version: link:../plugins/agent-claude-code
-      '@composio/ao-plugin-agent-codex':
+      '@jleechanorg/ao-plugin-agent-codex':
         specifier: workspace:*
         version: link:../plugins/agent-codex
-      '@composio/ao-plugin-agent-cursor':
+      '@jleechanorg/ao-plugin-agent-cursor':
         specifier: workspace:*
         version: link:../plugins/agent-cursor
-      '@composio/ao-plugin-agent-gemini':
+      '@jleechanorg/ao-plugin-agent-gemini':
         specifier: workspace:*
         version: link:../plugins/agent-gemini
-      '@composio/ao-plugin-agent-opencode':
+      '@jleechanorg/ao-plugin-agent-opencode':
         specifier: workspace:*
         version: link:../plugins/agent-opencode
-      '@composio/ao-plugin-runtime-process':
+      '@jleechanorg/ao-plugin-runtime-process':
         specifier: workspace:*
         version: link:../plugins/runtime-process
-      '@composio/ao-plugin-runtime-tmux':
+      '@jleechanorg/ao-plugin-runtime-tmux':
         specifier: workspace:*
         version: link:../plugins/runtime-tmux
-      '@composio/ao-plugin-tracker-linear':
+      '@jleechanorg/ao-plugin-tracker-linear':
         specifier: workspace:*
         version: link:../plugins/tracker-linear
-      '@composio/ao-plugin-workspace-clone':
+      '@jleechanorg/ao-plugin-workspace-clone':
         specifier: workspace:*
         version: link:../plugins/workspace-clone
-      '@composio/ao-plugin-workspace-worktree':
+      '@jleechanorg/ao-plugin-workspace-worktree':
         specifier: workspace:*
         version: link:../plugins/workspace-worktree
     devDependencies:
-      '@composio/ao-plugin-notifier-composio':
+      '@jleechanorg/ao-plugin-notifier-composio':
         specifier: workspace:*
         version: link:../plugins/notifier-composio
-      '@composio/ao-plugin-notifier-desktop':
+      '@jleechanorg/ao-plugin-notifier-desktop':
         specifier: workspace:*
         version: link:../plugins/notifier-desktop
-      '@composio/ao-plugin-notifier-openclaw':
+      '@jleechanorg/ao-plugin-notifier-openclaw':
         specifier: workspace:*
         version: link:../plugins/notifier-openclaw
-      '@composio/ao-plugin-notifier-slack':
+      '@jleechanorg/ao-plugin-notifier-slack':
         specifier: workspace:*
         version: link:../plugins/notifier-slack
-      '@composio/ao-plugin-notifier-webhook':
+      '@jleechanorg/ao-plugin-notifier-webhook':
         specifier: workspace:*
         version: link:../plugins/notifier-webhook
-      '@composio/ao-plugin-terminal-iterm2':
+      '@jleechanorg/ao-plugin-terminal-iterm2':
         specifier: workspace:*
         version: link:../plugins/terminal-iterm2
-      '@composio/ao-plugin-terminal-web':
+      '@jleechanorg/ao-plugin-terminal-web':
         specifier: workspace:*
         version: link:../plugins/terminal-web
       '@types/node':
@@ -242,7 +239,7 @@ importers:
 
   packages/plugins/agent-aider:
     dependencies:
-      '@composio/ao-core':
+      '@jleechanorg/ao-core':
         specifier: workspace:*
         version: link:../../core
     devDependencies:
@@ -258,7 +255,7 @@ importers:
 
   packages/plugins/agent-base:
     dependencies:
-      '@composio/ao-core':
+      '@jleechanorg/ao-core':
         specifier: workspace:*
         version: link:../../core
     devDependencies:
@@ -268,16 +265,13 @@ importers:
       typescript:
         specifier: ^5.7.0
         version: 5.9.3
-      vitest:
-        specifier: ^3.0.0
-        version: 3.2.4(@types/node@25.2.3)(jiti@2.6.1)(jsdom@25.0.1)(lightningcss@1.30.2)(tsx@4.21.0)(yaml@2.8.2)
 
   packages/plugins/agent-claude-code:
     dependencies:
-      '@composio/ao-core':
+      '@jleechanorg/ao-core':
         specifier: workspace:*
         version: link:../../core
-      '@composio/ao-plugin-agent-base':
+      '@jleechanorg/ao-plugin-agent-base':
         specifier: workspace:*
         version: link:../agent-base
     devDependencies:
@@ -293,7 +287,7 @@ importers:
 
   packages/plugins/agent-codex:
     dependencies:
-      '@composio/ao-core':
+      '@jleechanorg/ao-core':
         specifier: workspace:*
         version: link:../../core
     devDependencies:
@@ -309,10 +303,10 @@ importers:
 
   packages/plugins/agent-cursor:
     dependencies:
-      '@composio/ao-core':
+      '@jleechanorg/ao-core':
         specifier: workspace:*
         version: link:../../core
-      '@composio/ao-plugin-agent-base':
+      '@jleechanorg/ao-plugin-agent-base':
         specifier: workspace:*
         version: link:../agent-base
     devDependencies:
@@ -328,10 +322,10 @@ importers:
 
   packages/plugins/agent-gemini:
     dependencies:
-      '@composio/ao-core':
+      '@jleechanorg/ao-core':
         specifier: workspace:*
         version: link:../../core
-      '@composio/ao-plugin-agent-base':
+      '@jleechanorg/ao-plugin-agent-base':
         specifier: workspace:*
         version: link:../agent-base
     devDependencies:
@@ -347,7 +341,7 @@ importers:
 
   packages/plugins/agent-opencode:
     dependencies:
-      '@composio/ao-core':
+      '@jleechanorg/ao-core':
         specifier: workspace:*
         version: link:../../core
     devDependencies:
@@ -363,7 +357,7 @@ importers:
 
   packages/plugins/notifier-composio:
     dependencies:
-      '@composio/ao-core':
+      '@jleechanorg/ao-core':
         specifier: workspace:*
         version: link:../../core
       composio-core:
@@ -382,7 +376,7 @@ importers:
 
   packages/plugins/notifier-desktop:
     dependencies:
-      '@composio/ao-core':
+      '@jleechanorg/ao-core':
         specifier: workspace:*
         version: link:../../core
     devDependencies:
@@ -398,7 +392,7 @@ importers:
 
   packages/plugins/notifier-openclaw:
     dependencies:
-      '@composio/ao-core':
+      '@jleechanorg/ao-core':
         specifier: workspace:*
         version: link:../../core
     devDependencies:
@@ -414,7 +408,7 @@ importers:
 
   packages/plugins/notifier-slack:
     dependencies:
-      '@composio/ao-core':
+      '@jleechanorg/ao-core':
         specifier: workspace:*
         version: link:../../core
     devDependencies:
@@ -430,7 +424,7 @@ importers:
 
   packages/plugins/notifier-webhook:
     dependencies:
-      '@composio/ao-core':
+      '@jleechanorg/ao-core':
         specifier: workspace:*
         version: link:../../core
     devDependencies:
@@ -446,7 +440,7 @@ importers:
 
   packages/plugins/poller-github-pr:
     dependencies:
-      '@composio/ao-core':
+      '@jleechanorg/ao-core':
         specifier: workspace:*
         version: link:../../core
     devDependencies:
@@ -462,7 +456,7 @@ importers:
 
   packages/plugins/runtime-process:
     dependencies:
-      '@composio/ao-core':
+      '@jleechanorg/ao-core':
         specifier: workspace:*
         version: link:../../core
     devDependencies:
@@ -478,7 +472,7 @@ importers:
 
   packages/plugins/runtime-tmux:
     dependencies:
-      '@composio/ao-core':
+      '@jleechanorg/ao-core':
         specifier: workspace:*
         version: link:../../core
     devDependencies:
@@ -494,7 +488,7 @@ importers:
 
   packages/plugins/scm-github:
     dependencies:
-      '@composio/ao-core':
+      '@jleechanorg/ao-core':
         specifier: workspace:*
         version: link:../../core
     devDependencies:
@@ -510,7 +504,7 @@ importers:
 
   packages/plugins/scm-gitlab:
     dependencies:
-      '@composio/ao-core':
+      '@jleechanorg/ao-core':
         specifier: workspace:*
         version: link:../../core
     devDependencies:
@@ -526,7 +520,7 @@ importers:
 
   packages/plugins/terminal-iterm2:
     dependencies:
-      '@composio/ao-core':
+      '@jleechanorg/ao-core':
         specifier: workspace:*
         version: link:../../core
     devDependencies:
@@ -542,7 +536,7 @@ importers:
 
   packages/plugins/terminal-web:
     dependencies:
-      '@composio/ao-core':
+      '@jleechanorg/ao-core':
         specifier: workspace:*
         version: link:../../core
     devDependencies:
@@ -558,7 +552,7 @@ importers:
 
   packages/plugins/tracker-github:
     dependencies:
-      '@composio/ao-core':
+      '@jleechanorg/ao-core':
         specifier: workspace:*
         version: link:../../core
     devDependencies:
@@ -574,10 +568,10 @@ importers:
 
   packages/plugins/tracker-gitlab:
     dependencies:
-      '@composio/ao-core':
+      '@jleechanorg/ao-core':
         specifier: workspace:*
         version: link:../../core
-      '@composio/ao-plugin-scm-gitlab':
+      '@jleechanorg/ao-plugin-scm-gitlab':
         specifier: workspace:*
         version: link:../scm-gitlab
     devDependencies:
@@ -593,7 +587,7 @@ importers:
 
   packages/plugins/tracker-linear:
     dependencies:
-      '@composio/ao-core':
+      '@jleechanorg/ao-core':
         specifier: workspace:*
         version: link:../../core
     devDependencies:
@@ -609,7 +603,7 @@ importers:
 
   packages/plugins/workspace-clone:
     dependencies:
-      '@composio/ao-core':
+      '@jleechanorg/ao-core':
         specifier: workspace:*
         version: link:../../core
     devDependencies:
@@ -625,7 +619,7 @@ importers:
 
   packages/plugins/workspace-worktree:
     dependencies:
-      '@composio/ao-core':
+      '@jleechanorg/ao-core':
         specifier: workspace:*
         version: link:../../core
     devDependencies:
@@ -641,31 +635,31 @@ importers:
 
   packages/web:
     dependencies:
-      '@composio/ao-core':
+      '@jleechanorg/ao-core':
         specifier: workspace:*
         version: link:../core
-      '@composio/ao-plugin-agent-claude-code':
+      '@jleechanorg/ao-plugin-agent-claude-code':
         specifier: workspace:*
         version: link:../plugins/agent-claude-code
-      '@composio/ao-plugin-agent-cursor':
+      '@jleechanorg/ao-plugin-agent-cursor':
         specifier: workspace:*
         version: link:../plugins/agent-cursor
-      '@composio/ao-plugin-agent-opencode':
+      '@jleechanorg/ao-plugin-agent-opencode':
         specifier: workspace:*
         version: link:../plugins/agent-opencode
-      '@composio/ao-plugin-runtime-tmux':
+      '@jleechanorg/ao-plugin-runtime-tmux':
         specifier: workspace:*
         version: link:../plugins/runtime-tmux
-      '@composio/ao-plugin-scm-github':
+      '@jleechanorg/ao-plugin-scm-github':
         specifier: workspace:*
         version: link:../plugins/scm-github
-      '@composio/ao-plugin-tracker-github':
+      '@jleechanorg/ao-plugin-tracker-github':
         specifier: workspace:*
         version: link:../plugins/tracker-github
-      '@composio/ao-plugin-tracker-linear':
+      '@jleechanorg/ao-plugin-tracker-linear':
         specifier: workspace:*
         version: link:../plugins/tracker-linear
-      '@composio/ao-plugin-workspace-worktree':
+      '@jleechanorg/ao-plugin-workspace-worktree':
         specifier: workspace:*
         version: link:../plugins/workspace-worktree
       '@xterm/addon-fit':

@@ -11,7 +11,7 @@ import {
   type RuntimeHandle,
   type Session,
   type OpenCodeAgentConfig,
-} from "@composio/ao-core";
+} from "@jleechanorg/ao-core";
 import { execFile, execFileSync } from "node:child_process";
 import { promisify } from "node:util";
 

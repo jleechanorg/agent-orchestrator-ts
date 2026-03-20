@@ -54,7 +54,7 @@ describe("preflight.checkBuilt", () => {
   });
 
   it("throws 'pnpm install' when node_modules is missing", async () => {
-    // First call checks node_modules/@composio/ao-core — missing
+    // First call checks node_modules/@jleechanorg/ao-core — missing
     mockExistsSync.mockReturnValue(false);
     await expect(preflight.checkBuilt("/web")).rejects.toThrow(
       "pnpm install",
@@ -62,7 +62,7 @@ describe("preflight.checkBuilt", () => {
   });
 
   it("throws 'pnpm build' when node_modules exists but dist is missing", async () => {
-    // First call: node_modules/@composio/ao-core exists
+    // First call: node_modules/@jleechanorg/ao-core exists
     // Second call: dist/index.js does not exist
     mockExistsSync
       .mockReturnValueOnce(true)

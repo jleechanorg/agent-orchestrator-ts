@@ -18,8 +18,7 @@ import { tmpdir, homedir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import geminiPlugin from "@composio/ao-plugin-agent-gemini";
-import { shellEscape } from "@composio/ao-core";
+import geminiPlugin from "@jleechanorg/ao-plugin-agent-gemini";
 import {
   isTmuxAvailable,
   killSessionsByPrefix,
@@ -49,9 +48,6 @@ const geminiBin = await findBinary(["gemini"]);
 const python3Bin = await findBinary(["python3"]);
 const geminiAuthed = geminiBin !== null && (await isGeminiAuthenticated());
 const canRun = tmuxOk && geminiBin !== null && geminiAuthed && python3Bin !== null;
-const GEMINI_EXIT_TIMEOUT_MS = 120_000;
-const GEMINI_POLL_START_MS = 30_000;
-const GEMINI_TEST_TIMEOUT_MS = GEMINI_EXIT_TIMEOUT_MS + GEMINI_POLL_START_MS + 10_000;
 
 describe.skipIf(!canRun)("agent-gemini (integration)", () => {
   const agent = geminiPlugin.create();
@@ -60,7 +56,11 @@ describe.skipIf(!canRun)("agent-gemini (integration)", () => {
   let outputFile: string;
 
   let aliveRunning = false;
+  let aliveActivityState: Awaited<ReturnType<typeof agent.getActivityState>>;
+  let aliveSessionInfo: Awaited<ReturnType<typeof agent.getSessionInfo>>;
   let exitedRunning: boolean;
+  let exitedActivityState: Awaited<ReturnType<typeof agent.getActivityState>>;
+  let exitedSessionInfo: Awaited<ReturnType<typeof agent.getSessionInfo>>;
   let fileCreated = false;
 
   beforeAll(async () => {
@@ -71,23 +71,34 @@ describe.skipIf(!canRun)("agent-gemini (integration)", () => {
     const task = `Write a Python fibonacci program to the file fibonacci.py. The program should print the first 10 fibonacci numbers when run. Write only the file, no explanation.`;
     // --yolo skips all permission prompts; -p runs in one-shot (non-interactive) mode.
     // Auth via OAuth (oauth-personal) — no env var needed.
-    const cmd = `${shellEscape(geminiBin)} --yolo -p ${shellEscape(task)}`;
+    // Pass task as direct argument (not via printf %q which double-escapes).
+    const cmd = `${geminiBin} --yolo -p "${task}"`;
     await createSession(sessionName, cmd, tmpDir);
 
     const handle = makeTmuxHandle(sessionName);
-    const _session = makeSession("inttest-gemini", handle, tmpDir);
+    const session = makeSession("inttest-gemini", handle, tmpDir);
 
     // Poll until running using pollUntilEqual for more reliable detection
     aliveRunning = await pollUntilEqual(() => agent.isProcessRunning(handle), true, {
-      timeoutMs: GEMINI_POLL_START_MS,
+      timeoutMs: 30_000,
       intervalMs: 1_000,
     }).catch(() => false);
 
+    // Capture activity state while alive (Gemini uses .json session files)
+    if (aliveRunning) {
+      aliveActivityState = await agent.getActivityState(session);
+      aliveSessionInfo = await agent.getSessionInfo(session);
+    }
+
     // Wait for agent to exit (up to 2 min)
     exitedRunning = await pollUntilEqual(() => agent.isProcessRunning(handle), false, {
-      timeoutMs: GEMINI_EXIT_TIMEOUT_MS,
+      timeoutMs: 120_000,
       intervalMs: 2_000,
     });
+
+    // Capture activity state after exit
+    exitedActivityState = await agent.getActivityState(session);
+    exitedSessionInfo = await agent.getSessionInfo(session);
 
     // Check file was created
     try {
@@ -96,7 +107,7 @@ describe.skipIf(!canRun)("agent-gemini (integration)", () => {
     } catch {
       fileCreated = false;
     }
-  }, GEMINI_TEST_TIMEOUT_MS);
+  }, 150_000);
 
   afterAll(async () => {
     await killSession(sessionName);
@@ -107,8 +118,34 @@ describe.skipIf(!canRun)("agent-gemini (integration)", () => {
     expect(aliveRunning).toBe(true);
   });
 
+  it("getActivityState → returns valid state while running (Gemini uses .json session files)", () => {
+    // Gemini writes .json session files - activity detection should work
+    expect(aliveActivityState).toBeDefined();
+    expect(aliveActivityState?.state).not.toBe("exited");
+    expect([null, "active", "ready", "idle", "waiting_input", "blocked"]).toContain(
+      aliveActivityState?.state ?? null,
+    );
+  });
+
+  it("getSessionInfo → returns session data while running (or null if path mismatch)", () => {
+    // Session info may be null if session dir path encoding doesn't match
+    if (aliveSessionInfo !== null) {
+      expect(aliveSessionInfo).toHaveProperty("summary");
+    }
+  });
+
   it("isProcessRunning → false after agent exits", () => {
     expect(exitedRunning).toBe(false);
+  });
+
+  it("getActivityState → returns exited after agent terminates", () => {
+    expect(exitedActivityState?.state).toBe("exited");
+  });
+
+  it("getSessionInfo → returns session data after exit (or null if path mismatch)", () => {
+    if (exitedSessionInfo !== null) {
+      expect(exitedSessionInfo).toHaveProperty("summary");
+    }
   });
 
   it("fibonacci.py created in output dir", () => {
