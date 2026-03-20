@@ -51,6 +51,9 @@ id_ecdsa
 id_ed25519
 *.ppk
 
+# Generated launcher package (pnpm workspace artifact, no package.json)
+packages/agent-orchestrator/
+
 # Development symlinks (created per-worktree, not committed)
 .claude
 .sisyphus
