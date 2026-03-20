@@ -9,7 +9,7 @@ import {
   type PluginModule,
   type RuntimeHandle,
   type Session,
-} from "@composio/ao-core";
+} from "@jleechanorg/ao-core";
 import { execFile, execFileSync } from "node:child_process";
 import { promisify } from "node:util";
 import { stat, access } from "node:fs/promises";

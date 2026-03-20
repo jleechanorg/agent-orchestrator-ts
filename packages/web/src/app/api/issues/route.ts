@@ -1,7 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { getServices } from "@/lib/services";
 import { validateString } from "@/lib/validation";
-import type { Tracker } from "@composio/ao-core";
+import type { Tracker } from "@jleechanorg/ao-core";
 
 export const dynamic = "force-dynamic";
 

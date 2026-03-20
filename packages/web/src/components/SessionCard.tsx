@@ -9,7 +9,7 @@ import {
   TERMINAL_STATUSES,
   TERMINAL_ACTIVITIES,
 } from "@/lib/types";
-import { CI_STATUS } from "@composio/ao-core/types";
+import { CI_STATUS } from "@jleechanorg/ao-core/types";
 import { cn } from "@/lib/cn";
 import { getSessionTitle } from "@/lib/format";
 import { PRStatus } from "./PRStatus";

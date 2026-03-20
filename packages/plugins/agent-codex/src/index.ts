@@ -12,7 +12,7 @@ import {
   type RuntimeHandle,
   type Session,
   type WorkspaceHooksConfig,
-} from "@composio/ao-core";
+} from "@jleechanorg/ao-core";
 import { execFile, execFileSync } from "node:child_process";
 import { createReadStream } from "node:fs";
 import { writeFile, mkdir, readFile, readdir, rename, stat, lstat, open } from "node:fs/promises";

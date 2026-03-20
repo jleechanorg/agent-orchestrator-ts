@@ -12,7 +12,7 @@ vi.mock("node:child_process", () => ({
 }));
 
 import { execFile } from "node:child_process";
-import type { SessionManager, Session, SessionSpawnConfig, PollerWorkItem } from "@composio/ao-core";
+import type { SessionManager, Session, SessionSpawnConfig, PollerWorkItem } from "@jleechanorg/ao-core";
 import pluginModule, { manifest, create } from "./index.js";
 
 type MockExecFile = ReturnType<typeof vi.fn>;

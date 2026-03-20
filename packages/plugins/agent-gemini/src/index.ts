@@ -3,8 +3,8 @@ import {
   toAgentProjectPath,
   resetPsCache as _resetPsCache,
   type AgentPluginConfig,
-} from "@composio/ao-plugin-agent-base";
-import type { Agent, PluginModule } from "@composio/ao-core";
+} from "@jleechanorg/ao-plugin-agent-base";
+import type { Agent, PluginModule } from "@jleechanorg/ao-core";
 import { createHash } from "node:crypto";
 import { homedir } from "node:os";
 import { join } from "node:path";

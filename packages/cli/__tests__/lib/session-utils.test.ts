@@ -5,7 +5,7 @@ import {
   findProjectForSession,
   isOrchestratorSessionName,
 } from "../../src/lib/session-utils.js";
-import type { OrchestratorConfig } from "@composio/ao-core";
+import type { OrchestratorConfig } from "@jleechanorg/ao-core";
 
 describe("escapeRegex", () => {
   it("escapes dots, asterisks, plus, question marks", () => {

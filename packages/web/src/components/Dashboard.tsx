@@ -11,7 +11,7 @@ import {
   getAttentionLevel,
   isPRRateLimited,
 } from "@/lib/types";
-import { CI_STATUS } from "@composio/ao-core/types";
+import { CI_STATUS } from "@jleechanorg/ao-core/types";
 import { AttentionZone } from "./AttentionZone";
 import { PRTableRow } from "./PRStatus";
 import { DynamicFavicon } from "./DynamicFavicon";

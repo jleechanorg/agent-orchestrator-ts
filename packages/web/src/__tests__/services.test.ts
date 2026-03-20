@@ -41,7 +41,7 @@ const {
   };
 });
 
-vi.mock("@composio/ao-core", () => ({
+vi.mock("@jleechanorg/ao-core", () => ({
   loadConfig: mockLoadConfig,
   createPluginRegistry: () => mockRegistry,
   createSessionManager: mockCreateSessionManager,
@@ -59,14 +59,14 @@ vi.mock("@composio/ao-core", () => ({
   TERMINAL_STATUSES: new Set(["merged", "killed"]) as ReadonlySet<string>,
 }));
 
-vi.mock("@composio/ao-plugin-runtime-tmux", () => ({ default: tmuxPlugin }));
-vi.mock("@composio/ao-plugin-agent-claude-code", () => ({ default: claudePlugin }));
-vi.mock("@composio/ao-plugin-agent-cursor", () => ({ default: cursorPlugin }));
-vi.mock("@composio/ao-plugin-agent-opencode", () => ({ default: opencodePlugin }));
-vi.mock("@composio/ao-plugin-workspace-worktree", () => ({ default: worktreePlugin }));
-vi.mock("@composio/ao-plugin-scm-github", () => ({ default: scmPlugin }));
-vi.mock("@composio/ao-plugin-tracker-github", () => ({ default: trackerGithubPlugin }));
-vi.mock("@composio/ao-plugin-tracker-linear", () => ({ default: trackerLinearPlugin }));
+vi.mock("@jleechanorg/ao-plugin-runtime-tmux", () => ({ default: tmuxPlugin }));
+vi.mock("@jleechanorg/ao-plugin-agent-claude-code", () => ({ default: claudePlugin }));
+vi.mock("@jleechanorg/ao-plugin-agent-cursor", () => ({ default: cursorPlugin }));
+vi.mock("@jleechanorg/ao-plugin-agent-opencode", () => ({ default: opencodePlugin }));
+vi.mock("@jleechanorg/ao-plugin-workspace-worktree", () => ({ default: worktreePlugin }));
+vi.mock("@jleechanorg/ao-plugin-scm-github", () => ({ default: scmPlugin }));
+vi.mock("@jleechanorg/ao-plugin-tracker-github", () => ({ default: trackerGithubPlugin }));
+vi.mock("@jleechanorg/ao-plugin-tracker-linear", () => ({ default: trackerLinearPlugin }));
 
 describe("services", () => {
   beforeEach(() => {

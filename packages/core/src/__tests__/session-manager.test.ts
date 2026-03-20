@@ -5092,7 +5092,7 @@ describe("PluginRegistry.loadBuiltins importFn", () => {
     const fakeImportFn = async (pkg: string): Promise<unknown> => {
       importedPackages.push(pkg);
       // Return a valid plugin module for runtime-tmux
-      if (pkg === "@composio/ao-plugin-runtime-tmux") {
+      if (pkg === "@jleechanorg/ao-plugin-runtime-tmux") {
         return {
           manifest: { name: "tmux", slot: "runtime", description: "test", version: "0.0.0" },
           create: () => ({ name: "tmux" }),
@@ -5106,7 +5106,7 @@ describe("PluginRegistry.loadBuiltins importFn", () => {
 
     // importFn should have been called for all builtin plugins
     expect(importedPackages.length).toBeGreaterThan(0);
-    expect(importedPackages).toContain("@composio/ao-plugin-runtime-tmux");
+    expect(importedPackages).toContain("@jleechanorg/ao-plugin-runtime-tmux");
 
     // The tmux plugin should be registered
     const tmux = registry.get("runtime", "tmux");
@@ -5127,7 +5127,7 @@ describe("PluginRegistry.loadBuiltins importFn", () => {
 
     // Should have attempted to import builtin plugins via the provided importFn
     expect(importedPackages.length).toBeGreaterThan(0);
-    expect(importedPackages).toContain("@composio/ao-plugin-runtime-tmux");
+    expect(importedPackages).toContain("@jleechanorg/ao-plugin-runtime-tmux");
   });
 });
 

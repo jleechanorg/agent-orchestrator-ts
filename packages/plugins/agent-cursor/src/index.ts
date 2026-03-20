@@ -3,9 +3,9 @@ import {
   toAgentProjectPath,
   resetPsCache as _resetPsCache,
   type AgentPluginConfig,
-} from "@composio/ao-plugin-agent-base";
+} from "@jleechanorg/ao-plugin-agent-base";
 import { execFileSync } from "node:child_process";
-import type { Agent, PluginModule, ProjectConfig, Session } from "@composio/ao-core";
+import type { Agent, PluginModule, ProjectConfig, Session } from "@jleechanorg/ao-core";
 
 // =============================================================================
 // Plugin Manifest

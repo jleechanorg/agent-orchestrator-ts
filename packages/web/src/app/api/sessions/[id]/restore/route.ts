@@ -6,7 +6,7 @@ import {
   SessionNotRestorableError,
   WorkspaceMissingError,
   SessionNotFoundError,
-} from "@composio/ao-core";
+} from "@jleechanorg/ao-core";
 import {
   getCorrelationId,
   jsonWithCorrelation,
