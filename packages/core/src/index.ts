@@ -241,3 +241,25 @@ export type {
   SynthesizedPattern,
   PatternStore,
 } from "./pattern-synthesizer.js";
+
+// =============================================================================
+// FORK-SPECIFIC EXPORTS (extracted from upstream files for isolation)
+// =============================================================================
+
+// Reaction context builder (extracted from lifecycle-manager)
+export { buildReactionContext } from "./reaction-context.js";
+
+// Session exit proof (extracted from lifecycle-manager)
+export { validateAndEmitExitProof, emitExitProofEvent } from "./session-exit-proof.js";
+export type { ExitProofDeps } from "./session-exit-proof.js";
+
+// Reaction handlers: request-merge, parallel-retry (extracted from lifecycle-manager)
+export { handleRequestMerge, handleParallelRetry } from "./fork-reaction-handlers.js";
+export type { ReactionHandlerDeps } from "./fork-reaction-handlers.js";
+
+// Review backlog dispatch (extracted from lifecycle-manager)
+export { maybeDispatchReviewBacklog } from "./review-backlog.js";
+export type { ReviewBacklogDeps } from "./review-backlog.js";
+
+// Shared fork utility: session metadata update helper
+export { updateSessionMetadataHelper } from "./fork-utils.js";

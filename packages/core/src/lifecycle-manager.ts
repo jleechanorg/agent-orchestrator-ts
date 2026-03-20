@@ -33,13 +33,17 @@ import {
   type Session,
   type EventPriority,
   type ProjectConfig as _ProjectConfig,
-  type SessionExitProof,
 } from "./types.js";
 import { updateMetadata } from "./metadata.js";
 import { getSessionsDir } from "./paths.js";
 import { createCorrelationId, createProjectObserver } from "./observability.js";
 import { resolveAgentSelection, resolveSessionRole } from "./agent-selection.js";
 import type { OutcomeRecorder } from "./outcome-recorder.js";
+import { buildReactionContext } from "./reaction-context.js";
+import { validateAndEmitExitProof } from "./session-exit-proof.js";
+import { handleRequestMerge, handleParallelRetry } from "./fork-reaction-handlers.js";
+import { maybeDispatchReviewBacklog } from "./review-backlog.js";
+import { updateSessionMetadataHelper } from "./fork-utils.js";
 
 /** Parse a duration string like "10m", "30s", "1h" to milliseconds. */
 export function parseDuration(str: string): number {
@@ -374,63 +378,6 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     return session.status;
   }
 
-  /** Build context string for a reaction based on session/PR details. */
-  async function buildReactionContext(
-    reactionKey: string,
-    session: Session,
-    projectId: string,
-  ): Promise<string> {
-    const project = config.projects[projectId];
-    if (!project || !session.pr) return "";
-
-    const scm = project.scm ? registry.get<SCM>("scm", project.scm.plugin) : null;
-    if (!scm) return "";
-
-    try {
-      switch (reactionKey) {
-        case "ci-failed": {
-          // Fetch failing CI checks with details
-          const checks = await scm.getCIChecks(session.pr);
-          const failing = checks.filter((c) => c.status === "failed");
-          if (failing.length === 0) return "";
-
-          const lines = failing.map((c) => {
-            const urlPart = c.url ? ` (${c.url})` : "";
-            return `- ${c.name}${urlPart}`;
-          });
-          return `Failing checks:\n${lines.join("\n")}`;
-        }
-
-        case "changes-requested": {
-          // Fetch pending review comments
-          const comments = await scm.getPendingComments(session.pr);
-          if (comments.length === 0) return "";
-
-          // Show unresolved review threads
-          const lines = comments.slice(0, 5).map((c) => {
-            const pathPart = c.path ? ` ${c.path}:${c.line ?? ""}` : "";
-            return `-${pathPart} ${c.body.slice(0, 100)}${c.body.length > 100 ? "..." : ""}`;
-          });
-          const more = comments.length > 5 ? `\n... and ${comments.length - 5} more` : "";
-          return `Unresolved review comments:\n${lines.join("\n")}${more}`;
-        }
-
-        case "merge-conflicts": {
-          // Fetch mergeability details
-          const merge = await scm.getMergeability(session.pr);
-          if (merge.noConflicts) return "";
-          return `Merge blockers:\n${merge.blockers.map((b) => `- ${b}`).join("\n")}`;
-        }
-
-        default:
-          return "";
-      }
-    } catch {
-      // If context fetch fails, return empty string - reaction still proceeds
-      return "";
-    }
-  }
-
   /** Execute a reaction for a session. */
   async function executeReaction(
     sessionId: SessionId,
@@ -497,7 +444,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
             // Inject context if message contains {{context}} placeholder
             let finalMessage = reactionConfig.message;
             if (session && reactionConfig.message.includes("{{context}}")) {
-              const context = await buildReactionContext(reactionKey, session, projectId);
+              const context = await buildReactionContext(reactionKey, session, projectId, config, registry);
               finalMessage = reactionConfig.message.replace(/\{\{context\}\}/g, () => context);
             }
             await sessionManager.send(sessionId, finalMessage);
@@ -539,87 +486,9 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       }
 
       case "request-merge": {
-        // Get fresh session state for SCM operations
-        const freshSession = await sessionManager.get(sessionId);
-        if (!freshSession) {
-          return {
-            reactionType: reactionKey,
-            success: false,
-            action,
-            escalated: false,
-          };
-        }
-
-        const project = config.projects[freshSession.projectId];
-        if (!project) {
-          return {
-            reactionType: reactionKey,
-            success: false,
-            action,
-            escalated: false,
-          };
-        }
-
-        // Get SCM plugin
-        const scm = project.scm ? registry.get<SCM>("scm", project.scm.plugin) : null;
-        if (!scm || !freshSession.pr) {
-          // No SCM or no PR - just notify
-          const event = createEvent("reaction.triggered", {
-            sessionId,
-            projectId,
-            message: `Reaction '${reactionKey}' triggered ${action} (no SCM/PR available)`,
-            data: { reactionKey, action },
-          });
-          await notifyHuman(event, "action");
-          return {
-            reactionType: reactionKey,
-            success: true,
-            action,
-            escalated: false,
-          };
-        }
-
-        // Check mergeability before notifying
-        const mergeReadiness = await scm.getMergeability(freshSession.pr);
-        if (!mergeReadiness.mergeable) {
-          const event = createEvent("reaction.triggered", {
-            sessionId,
-            projectId,
-            message: `Reaction '${reactionKey}' triggered ${action} but PR is not mergeable: ${mergeReadiness.blockers.join(", ")}`,
-            data: { reactionKey, action, blockers: mergeReadiness.blockers },
-          });
-          await notifyHuman(event, "action");
-          return {
-            reactionType: reactionKey,
-            success: false,
-            action,
-            escalated: false,
-          };
-        }
-
-        // Notify human requesting approval - do NOT merge automatically
-        // Human must manually approve and merge through external mechanism
-        const mergeMethod = reactionConfig.mergeMethod ?? "squash";
-        const approvalEvent = createEvent("merge.approval_requested", {
-          sessionId,
-          projectId,
-          message: `PR #${freshSession.pr.number} is ready to merge (${mergeMethod}). Approve to proceed?`,
-          data: {
-            reactionKey,
-            action,
-            prNumber: freshSession.pr.number,
-            prUrl: freshSession.pr.url,
-            mergeMethod,
-          },
+        return handleRequestMerge(sessionId, projectId, reactionKey, reactionConfig, {
+          sessionManager, config, registry, notifyHuman, createEvent,
         });
-        await notifyHuman(approvalEvent, "action");
-
-        return {
-          reactionType: reactionKey,
-          success: true,
-          action,
-          escalated: false,
-        };
       }
 
       case "auto-merge": {
@@ -717,45 +586,9 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       }
 
       case "parallel-retry": {
-        const freshSession = await sessionManager.get(sessionId);
-        if (!freshSession) {
-          return { reactionType: reactionKey, success: false, action, escalated: false };
-        }
-
-        const parallelCfg = reactionConfig.parallelRetry;
-        const strategies = parallelCfg?.strategies ?? [];
-        const maxParallel = parallelCfg?.maxParallel ?? 1;
-        const count = Math.min(strategies.length || 1, maxParallel);
-
-        const spawnedIds: string[] = [];
-        const errors: string[] = [];
-
-        for (let i = 0; i < count; i++) {
-          const agent = strategies[i] ?? undefined;
-          try {
-            const spawned = await sessionManager.spawn({
-              projectId: freshSession.projectId,
-              issueId: freshSession.issueId ?? undefined,
-              // Do NOT pass branch — let session-manager generate a unique branch name
-              // per spawned session. Reusing the original branch causes git checkout to
-              // fail in worktree workspaces where the branch is already checked out.
-              agent,
-            });
-            spawnedIds.push(spawned.id);
-          } catch (err) {
-            errors.push(err instanceof Error ? err.message : String(err));
-          }
-        }
-
-        const success = spawnedIds.length > 0;
-        const event = createEvent("reaction.triggered", {
-          sessionId,
-          projectId,
-          message: `Reaction '${reactionKey}' spawned ${spawnedIds.length} parallel retry session(s)${errors.length > 0 ? ` (${errors.length} failed to spawn)` : ""}`,
-          data: { reactionKey, action, spawnedIds, errors },
+        return handleParallelRetry(sessionId, projectId, reactionKey, reactionConfig, {
+          sessionManager, config, registry, notifyHuman, createEvent,
         });
-        await notifyHuman(event, success ? "action" : "warning");
-        return { reactionType: reactionKey, success, action, escalated: false };
       }
 
       default: {
@@ -796,180 +629,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
   }
 
   function updateSessionMetadata(session: Session, updates: Partial<Record<string, string>>): void {
-    const project = config.projects[session.projectId];
-    if (!project) return;
-
-    const sessionsDir = getSessionsDir(config.configPath, project.path);
-    updateMetadata(sessionsDir, session.id, updates);
-
-    const cleaned = Object.fromEntries(
-      Object.entries(session.metadata).filter(([key]) => {
-        const update = updates[key];
-        return update === undefined || update !== "";
-      }),
-    );
-    for (const [key, value] of Object.entries(updates)) {
-      if (value === undefined || value === "") continue;
-      cleaned[key] = value;
-    }
-    session.metadata = cleaned;
-  }
-
-  function makeFingerprint(ids: string[]): string {
-    return [...ids].sort().join(",");
-  }
-
-  async function maybeDispatchReviewBacklog(
-    session: Session,
-    oldStatus: SessionStatus,
-    newStatus: SessionStatus,
-    transitionReaction?: { key: string; result: ReactionResult | null },
-  ): Promise<void> {
-    const project = config.projects[session.projectId];
-    if (!project || !session.pr) return;
-
-    const scm = project.scm ? registry.get<SCM>("scm", project.scm.plugin) : null;
-    if (!scm) return;
-
-    const humanReactionKey = "changes-requested";
-    const automatedReactionKey = "bugbot-comments";
-
-    if (newStatus === "merged" || newStatus === "killed") {
-      clearReactionTracker(session.id, humanReactionKey);
-      clearReactionTracker(session.id, automatedReactionKey);
-      updateSessionMetadata(session, {
-        lastPendingReviewFingerprint: "",
-        lastPendingReviewDispatchHash: "",
-        lastPendingReviewDispatchAt: "",
-        lastAutomatedReviewFingerprint: "",
-        lastAutomatedReviewDispatchHash: "",
-        lastAutomatedReviewDispatchAt: "",
-      });
-      return;
-    }
-
-    const [pendingResult, automatedResult] = await Promise.allSettled([
-      scm.getPendingComments(session.pr),
-      scm.getAutomatedComments(session.pr),
-    ]);
-
-    // null means "failed to fetch" — preserve existing metadata.
-    // [] means "confirmed no comments" — safe to clear.
-    const pendingComments =
-      pendingResult.status === "fulfilled" && Array.isArray(pendingResult.value)
-        ? pendingResult.value
-        : null;
-    const automatedComments =
-      automatedResult.status === "fulfilled" && Array.isArray(automatedResult.value)
-        ? automatedResult.value
-        : null;
-
-    // --- Pending (human) review comments ---
-    // null = SCM fetch failed; skip processing to preserve existing metadata.
-    if (pendingComments !== null) {
-      const pendingFingerprint = makeFingerprint(pendingComments.map((comment) => comment.id));
-      const lastPendingFingerprint = session.metadata["lastPendingReviewFingerprint"] ?? "";
-      const lastPendingDispatchHash = session.metadata["lastPendingReviewDispatchHash"] ?? "";
-
-      if (
-        pendingFingerprint !== lastPendingFingerprint &&
-        transitionReaction?.key !== humanReactionKey
-      ) {
-        clearReactionTracker(session.id, humanReactionKey);
-      }
-      if (pendingFingerprint !== lastPendingFingerprint) {
-        updateSessionMetadata(session, {
-          lastPendingReviewFingerprint: pendingFingerprint,
-        });
-      }
-
-      if (!pendingFingerprint) {
-        clearReactionTracker(session.id, humanReactionKey);
-        updateSessionMetadata(session, {
-          lastPendingReviewFingerprint: "",
-          lastPendingReviewDispatchHash: "",
-          lastPendingReviewDispatchAt: "",
-        });
-      } else if (
-        transitionReaction?.key === humanReactionKey &&
-        transitionReaction.result?.success
-      ) {
-        if (lastPendingDispatchHash !== pendingFingerprint) {
-          updateSessionMetadata(session, {
-            lastPendingReviewDispatchHash: pendingFingerprint,
-            lastPendingReviewDispatchAt: new Date().toISOString(),
-          });
-        }
-      } else if (
-        !(oldStatus !== newStatus && newStatus === "changes_requested") &&
-        pendingFingerprint !== lastPendingDispatchHash
-      ) {
-        const reactionConfig = getReactionConfigForSession(session, humanReactionKey);
-        if (
-          reactionConfig &&
-          reactionConfig.action &&
-          (reactionConfig.auto !== false || reactionConfig.action === "notify")
-        ) {
-          const result = await executeReaction(
-            session.id,
-            session.projectId,
-            humanReactionKey,
-            reactionConfig,
-            session,
-          );
-          if (result.success) {
-            updateSessionMetadata(session, {
-              lastPendingReviewDispatchHash: pendingFingerprint,
-              lastPendingReviewDispatchAt: new Date().toISOString(),
-            });
-          }
-        }
-      }
-    }
-
-    // --- Automated (bot) review comments ---
-    if (automatedComments !== null) {
-      const automatedFingerprint = makeFingerprint(automatedComments.map((comment) => comment.id));
-      const lastAutomatedFingerprint = session.metadata["lastAutomatedReviewFingerprint"] ?? "";
-      const lastAutomatedDispatchHash = session.metadata["lastAutomatedReviewDispatchHash"] ?? "";
-
-      if (automatedFingerprint !== lastAutomatedFingerprint) {
-        clearReactionTracker(session.id, automatedReactionKey);
-        updateSessionMetadata(session, {
-          lastAutomatedReviewFingerprint: automatedFingerprint,
-        });
-      }
-
-      if (!automatedFingerprint) {
-        clearReactionTracker(session.id, automatedReactionKey);
-        updateSessionMetadata(session, {
-          lastAutomatedReviewFingerprint: "",
-          lastAutomatedReviewDispatchHash: "",
-          lastAutomatedReviewDispatchAt: "",
-        });
-      } else if (automatedFingerprint !== lastAutomatedDispatchHash) {
-        const reactionConfig = getReactionConfigForSession(session, automatedReactionKey);
-        if (
-          reactionConfig &&
-          reactionConfig.action &&
-          (reactionConfig.auto !== false || reactionConfig.action === "notify")
-        ) {
-          const result = await executeReaction(
-            session.id,
-            session.projectId,
-            automatedReactionKey,
-            reactionConfig,
-            session,
-          );
-          if (result.success) {
-            updateSessionMetadata(session, {
-              lastAutomatedReviewDispatchHash: automatedFingerprint,
-              lastAutomatedReviewDispatchAt: new Date().toISOString(),
-            });
-          }
-        }
-      }
-    }
+    updateSessionMetadataHelper(session, updates, config);
   }
 
   /** Send a notification to all configured notifiers. */
@@ -1078,11 +738,23 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       states.set(session.id, newStatus);
     }
 
-    await maybeDispatchReviewBacklog(session, oldStatus, newStatus, transitionReaction);
+    await maybeDispatchReviewBacklog(session, oldStatus, newStatus, {
+      config,
+      registry,
+      clearReactionTracker,
+      getReactionConfigForSession,
+      executeReaction,
+    }, transitionReaction);
 
     // Session exit reconciliation (bd-uxs.6): validate commits and emit proof on terminal states
     if (TERMINAL_STATUSES.has(newStatus) && !TERMINAL_STATUSES.has(oldStatus)) {
-      await validateAndEmitExitProof(session, newStatus);
+      await validateAndEmitExitProof(session, newStatus, {
+        config,
+        registry,
+        observer,
+        notifyHuman,
+        createEvent,
+      });
 
       // Record outcome for strategy learning (bd-nig)
       // Guarded: disk errors must not break session lifecycle checks
@@ -1110,111 +782,6 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         }
       }
     }
-  }
-
-  /**
-   * Session exit reconciliation (bd-uxs.6):
-   * Validate that commits were pushed and emit a proof payload.
-   */
-  async function validateAndEmitExitProof(session: Session, exitStatus: SessionStatus): Promise<void> {
-    const project = config.projects[session.projectId];
-    if (!project) return;
-
-    const scm = project.scm ? registry.get<SCM>("scm", project.scm.plugin) : null;
-    if (!scm) {
-      // No SCM configured - validation not performed, emit as failed
-      const proof: SessionExitProof = {
-        sessionId: session.id,
-        projectId: session.projectId,
-        exitStatus,
-        commitsPushed: false,
-        localCommits: [],
-        remoteCommits: [],
-        prUrl: session.pr?.url,
-        prMerged: exitStatus === "merged",
-        validatedAt: new Date().toISOString(),
-      };
-      // No SCM configured - validation not performed, emit as failed
-      emitExitProofEvent(proof, true);
-      return;
-    }
-
-    try {
-      // Try to validate commits using SCM plugin
-      if (typeof scm.validateCommits === "function") {
-        const validation = await scm.validateCommits(session, project);
-        const proof: SessionExitProof = {
-          sessionId: session.id,
-          projectId: session.projectId,
-          exitStatus,
-          commitsPushed: validation.pushed,
-          localCommits: validation.localCommits,
-          remoteCommits: validation.remoteCommits,
-          prUrl: session.pr?.url,
-          prMerged: exitStatus === "merged",
-          validatedAt: new Date().toISOString(),
-        };
-        emitExitProofEvent(proof, !validation.pushed);
-      } else {
-        // SCM doesn't support validateCommits - validation not performed, emit as failed
-        const proof: SessionExitProof = {
-          sessionId: session.id,
-          projectId: session.projectId,
-          exitStatus,
-          commitsPushed: false,
-          localCommits: [],
-          remoteCommits: [],
-          prUrl: session.pr?.url,
-          prMerged: exitStatus === "merged",
-          validatedAt: new Date().toISOString(),
-        };
-        // SCM doesn't support validateCommits - validation not performed, emit as failed
-        emitExitProofEvent(proof, true);
-      }
-    } catch {
-      // Validation failed - emit proof with failed status
-      const proof: SessionExitProof = {
-        sessionId: session.id,
-        projectId: session.projectId,
-        exitStatus,
-        commitsPushed: false,
-        localCommits: [],
-        remoteCommits: [],
-        prUrl: session.pr?.url,
-        prMerged: exitStatus === "merged",
-        validatedAt: new Date().toISOString(),
-      };
-      emitExitProofEvent(proof, true);
-    }
-  }
-
-  /** Emit the session exit proof event */
-  function emitExitProofEvent(proof: SessionExitProof, validationFailed: boolean): void {
-    const eventType: EventType = validationFailed ? "session.exit_failed" : "session.exit_validated";
-    const priority: EventPriority = validationFailed ? "warning" : "info";
-
-    const event = createEvent(eventType, {
-      sessionId: proof.sessionId,
-      projectId: proof.projectId,
-      message: `Session ${proof.sessionId} exit ${validationFailed ? "failed" : "validated"}: commits_pushed=${proof.commitsPushed}, status=${proof.exitStatus}`,
-      priority,
-      data: { proof },
-    });
-
-    // Notify humans about the exit proof (configurable via notificationRouting)
-    void notifyHuman(event, priority);
-
-    const correlationId = createCorrelationId("lifecycle-exit-proof");
-    observer.recordOperation({
-      metric: "lifecycle_exit_proof",
-      operation: "lifecycle.exit_proof",
-      outcome: validationFailed ? "failure" : "success",
-      correlationId,
-      projectId: proof.projectId,
-      sessionId: proof.sessionId,
-      data: { proof },
-      level: validationFailed ? "warn" : "info",
-    });
   }
 
   /** Run one polling cycle across all sessions. */

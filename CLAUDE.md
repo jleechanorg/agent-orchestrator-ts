@@ -39,6 +39,33 @@ A PR is green when **ALL FOUR** are true:
 
 **Never declare a PR green or ask for merge unless all 4 are true.**
 
+## Fork Isolation — Code Separation from Upstream
+
+This fork diverges from `ComposioHQ/agent-orchestrator`. To minimize merge conflicts and preserve cherry-pick ability:
+
+### Rules
+
+1. **New features go in new files** — never add fork logic inline to upstream files. Create a separate module and import it.
+2. **Extend, don't modify** — if you must touch an upstream file (types.ts, config.ts, lifecycle-manager.ts), prefer additive-only changes (new union members, new interface fields, new exports). Exception: extracting existing fork logic *out* of upstream files into companion modules is encouraged — it reduces the upstream diff even though it restructures the file.
+3. **Plugin-first** — use the plugin system (agent, runtime, scm, notifier, poller, workspace) for new capabilities. Plugins are entirely isolated by design.
+4. **Keep core diff minimal** — `packages/core/src/` files should have the smallest possible diff against upstream. Extract fork logic into `*-extensions.ts` or `fork-*.ts` companion files.
+5. **Re-exports over inline** — when adding exports to `index.ts`, group fork-specific exports together at the bottom with a comment marker.
+
+### High-Conflict Files (minimize changes)
+
+| File | Why it's risky |
+|------|---------------|
+| `lifecycle-manager.ts` | Core polling loop; upstream actively develops this |
+| `types.ts` | Shared type definitions; union extensions add lines near upstream changes |
+| `config.ts` | Zod schemas; upstream adds fields here too |
+| `spawn.ts` | CLI entry point; upstream refactors argument parsing |
+
+### Safe Files (no conflict risk)
+
+- Everything in `packages/plugins/` — entirely new packages
+- `roadmap/`, `.beads/`, `docs/design/` — fork-only documentation
+- New `packages/core/src/*.ts` files — net new, no upstream equivalent
+
 ## Coding Standards
 
 - TDD: write the failing test first, then implement

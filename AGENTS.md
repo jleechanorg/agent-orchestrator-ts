@@ -65,6 +65,51 @@ roadmap/               # Design docs and decision records — first-class, commi
 - **Never push to main directly** — always open a PR.
 - **Never use `git add -A`** — stage only files you changed.
 
+## Fork Isolation — Mandatory for All Changes
+
+This is a fork of `ComposioHQ/agent-orchestrator`. Every code change must prioritize isolation from upstream to avoid merge conflicts.
+
+### Before modifying any `packages/core/src/` file:
+
+1. **Check if it exists upstream** — run `git diff upstream/main -- <file>` to see existing fork divergence
+2. **If the file has a large diff already** — extract your logic into a new companion module instead of adding more inline changes
+3. **If the file is clean (no fork diff)** — strongly prefer creating a new file over modifying the upstream file
+4. **Additive-only exceptions** — adding a new union member, interface field, or export line is acceptable if the change is a single line
+5. **Extraction refactors welcome** — removing existing fork logic from upstream files into companion modules is encouraged, even though it restructures the file — it reduces the upstream diff surface
+
+### Pattern: Companion Module
+
+Instead of:
+```typescript
+// lifecycle-manager.ts (upstream file)
+// ❌ Adding 50 lines of fork logic inline
+async function checkSession(session: Session) {
+  // ... upstream code ...
+  // Fork: exit proof validation
+  await validateAndEmitExitProof(session, newStatus); // 100 lines added here
+}
+```
+
+Do:
+```typescript
+// session-exit-proof.ts (new fork file)
+// ✅ Fork logic in its own module
+export async function validateAndEmitExitProof(...) { ... }
+
+// lifecycle-manager.ts (upstream file)
+// Minimal change: just the import and one-line call
+import { validateAndEmitExitProof } from "./session-exit-proof.js";
+await validateAndEmitExitProof(session, newStatus, deps);
+```
+
+### What's already isolated (safe zones)
+
+- `packages/plugins/agent-base/` — new plugin
+- `packages/plugins/agent-cursor/` — new plugin
+- `packages/plugins/agent-gemini/` — new plugin
+- `packages/plugins/poller-github-pr/` — new plugin
+- All `packages/core/src/` files that are net new (evidence-bundle, failure-budget, merge-gate, mcp-mail, etc.)
+
 ## Testing
 
 ```bash
