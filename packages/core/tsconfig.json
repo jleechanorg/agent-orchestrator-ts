@@ -5,8 +5,5 @@
     "rootDir": "src"
   },
   "include": ["src"],
-  "exclude": [
-    "src/__tests__/plugin-integration.test.ts",
-    "src/__tests__/notifier-openclaw-config.test.ts"
-  ]
+  "exclude": ["src/__tests__/plugin-integration.test.ts"]
 }

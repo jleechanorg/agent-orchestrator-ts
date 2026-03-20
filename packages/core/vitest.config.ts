@@ -15,10 +15,6 @@ export default defineConfig({
         "../plugins/tracker-github/src/index.ts",
       ),
       "@jleechanorg/ao-plugin-scm-github": resolve(__dirname, "../plugins/scm-github/src/index.ts"),
-      "@jleechanorg/ao-plugin-notifier-openclaw": resolve(
-        __dirname,
-        "../plugins/notifier-openclaw/src/index.ts",
-      ),
     },
   },
 });
