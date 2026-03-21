@@ -98,6 +98,7 @@ describe("scm-github plugin", () => {
   beforeEach(() => {
     _resetGhCache();
     vi.clearAllMocks();
+    ghMock.mockReset(); // Clear any lingering mockImplementation from previous tests
     scm = create();
     delete process.env["GITHUB_WEBHOOK_SECRET"];
   });
@@ -507,15 +508,16 @@ describe("scm-github plugin", () => {
   // ---- detectPR ----------------------------------------------------------
 
   describe("detectPR", () => {
-    it("returns PRInfo when a PR exists", async () => {
+    it("returns PRInfo when a PR exists (GraphQL primary path)", async () => {
+      // gh pr list --head (GraphQL) returns headRefName/baseRefName/isDraft
       mockGh([
         {
           number: 42,
-          html_url: "https://github.com/acme/repo/pull/42",
+          url: "https://github.com/acme/repo/pull/42",
           title: "feat: add feature",
-          head: { ref: "feat/my-feature" },
-          base: { ref: "main" },
-          draft: false,
+          headRefName: "feat/my-feature",
+          baseRefName: "main",
+          isDraft: false,
         },
       ]);
 
@@ -533,30 +535,82 @@ describe("scm-github plugin", () => {
     });
 
     it("returns null when no PR found", async () => {
-      mockGh([]);
+      // GraphQL succeeds with empty array — no REST call needed
       mockGh([]);
       const result = await scm.detectPR(makeSession(), project);
       expect(result).toBeNull();
     });
 
-    it("discovers fork PR when head=owner:branch filter is empty", async () => {
-      mockGh([]);
+    it("GraphQL-primary: returns PR from gh pr list when found", async () => {
+      // gh pr list --head (GraphQL) finds the PR directly
       mockGh([
         {
-          number: 7,
-          html_url: "https://github.com/acme/repo/pull/7",
-          title: "from fork",
-          head: { ref: "feat/my-feature" },
-          base: { ref: "main" },
-          draft: false,
+          number: 42,
+          url: "https://github.com/acme/repo/pull/42",
+          title: "feat: add feature",
+          headRefName: "feat/my-feature",
+          baseRefName: "main",
+          isDraft: false,
         },
       ]);
+
       const result = await scm.detectPR(makeSession(), project);
-      expect(result).toMatchObject({
-        number: 7,
-        url: "https://github.com/acme/repo/pull/7",
-        branch: "feat/my-feature",
+      expect(result).toEqual(pr);
+      expect(ghMock).toHaveBeenNthCalledWith(
+        1,
+        "gh",
+        [
+          "pr",
+          "list",
+          "--repo",
+          "acme/repo",
+          "--head",
+          "feat/my-feature",
+          "--json",
+          "number,url,title,headRefName,baseRefName,isDraft",
+          "--limit",
+          "1",
+        ],
+        expect.any(Object),
+      );
+    });
+
+    it("REST fallback when GraphQL fails (rate-limit / network error)", async () => {
+      // mockImplementation gives precise control over each gh call:
+      // Call 1 (gh pr list --head, attempt 1): throw rate-limit → retry
+      // Call 2 (retry attempt 2): throw rate-limit → retry
+      // Call 3 (retry attempt 3): throw rate-limit → retries exhausted → throws
+      // Call 4 (REST fallback, gh api ...): return PR data → success
+      let callCount = 0;
+      ghMock.mockImplementation(() => {
+        callCount++;
+        if (callCount <= 3) {
+          return Promise.reject(new Error("API rate limit exceeded"));
+        }
+        return Promise.resolve({
+          stdout: JSON.stringify([
+            {
+              number: 42,
+              html_url: "https://github.com/acme/repo/pull/42",
+              title: "feat: add feature",
+              head: { ref: "feat/my-feature" },
+              base: { ref: "main" },
+              draft: false,
+            },
+          ]),
+        });
       });
+
+      const result = await scm.detectPR(makeSession(), project);
+      expect(result).toEqual(pr);
+      expect(callCount).toBe(4);
+    });
+
+    it("returns null when both GraphQL and REST fail", async () => {
+      mockGhError("gh: not found");
+      mockGhError("network error");
+      const result = await scm.detectPR(makeSession(), project);
+      expect(result).toBeNull();
     });
 
     it("returns null when session has no branch", async () => {
@@ -582,14 +636,15 @@ describe("scm-github plugin", () => {
     });
 
     it("detects draft PRs", async () => {
+      // GraphQL primary path: gh pr list --head returns isDraft
       mockGh([
         {
           number: 99,
-          html_url: "https://github.com/acme/repo/pull/99",
+          url: "https://github.com/acme/repo/pull/99",
           title: "WIP: draft feature",
-          head: { ref: "feat/my-feature" },
-          base: { ref: "main" },
-          draft: true,
+          headRefName: "feat/my-feature",
+          baseRefName: "main",
+          isDraft: true,
         },
       ]);
       const result = await scm.detectPR(makeSession(), project);
