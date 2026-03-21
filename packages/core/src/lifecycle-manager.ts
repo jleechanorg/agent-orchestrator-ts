@@ -11,6 +11,7 @@
  */
 
 import { randomUUID } from "node:crypto";
+import { existsSync } from "node:fs";
 import {
   SESSION_STATUS,
   PR_STATE,
@@ -225,6 +226,11 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
 
   /** Determine current status for a session by polling plugins. */
   async function determineStatus(session: Session): Promise<SessionStatus> {
+    // If workspace was deleted (e.g., worktree cleaned up), session is dead
+    if (session.workspacePath && !existsSync(session.workspacePath)) {
+      return "killed";
+    }
+
     const project = config.projects[session.projectId];
     if (!project) return session.status;
 
