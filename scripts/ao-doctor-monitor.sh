@@ -5,8 +5,37 @@
 #
 # Bead: bd-92j
 # Modeled after: ~/.openclaw/monitor-agent.sh, ~/.openclaw/health-check.sh
+# Requires: Bash 4+ (for associative arrays), Node 20+, gh CLI, tmux
 
 set -uo pipefail
+
+# Bash 4+ check (associative arrays used throughout)
+if [[ -z "${BASH_VERSION:-}" ]]; then
+  echo "ERROR: ao-doctor-monitor requires Bash 4+. detected: $BASH_VERSION" >&2
+  exit 1
+fi
+_bash_major="${BASH_VERSION%%.*}"
+if [[ "$_bash_major" -lt 4 ]]; then
+  echo "ERROR: ao-doctor-monitor requires Bash 4+. detected: $BASH_VERSION" >&2
+  exit 1
+fi
+
+# ---------------------------------------------------------------------------
+# Cross-platform timeout helper (timeout/gtimeout may not be available on macOS)
+# ---------------------------------------------------------------------------
+
+_run_with_timeout() {
+  local timeout_sec="$1"; shift
+  if command -v timeout >/dev/null 2>&1; then
+    timeout "$timeout_sec" "$@"
+  elif command -v gtimeout >/dev/null 2>&1; then
+    gtimeout "$timeout_sec" "$@"
+  else
+    # Last resort: perl timeout (widely available)
+    perl -e 'use Alarm::Timeout; Alarm::Timeout->new($ARGV[0])->run(sub { exec @ARGV[1..$#ARGV] })' \
+      "$timeout_sec" "$@"
+  fi
+}
 
 # ---------------------------------------------------------------------------
 # Configuration (all overridable via env vars)
@@ -18,7 +47,6 @@ AO_DOCTOR_PHASE2_ENABLE="${AO_DOCTOR_PHASE2_ENABLE:-1}"
 AO_DOCTOR_PHASE2_TIMEOUT="${AO_DOCTOR_PHASE2_TIMEOUT:-60}"
 AO_DOCTOR_RATE_LIMIT_WARN="${AO_DOCTOR_RATE_LIMIT_WARN:-500}"
 AO_DOCTOR_MAX_SESSIONS_PER_PR="${AO_DOCTOR_MAX_SESSIONS_PER_PR:-2}"
-AO_DOCTOR_GREEN_UNMERGED_MINUTES="${AO_DOCTOR_GREEN_UNMERGED_MINUTES:-30}"
 AO_DOCTOR_LOG="${AO_DOCTOR_LOG:-/tmp/ao-doctor-monitor.log}"
 AO_DOCTOR_QUIET="${AO_DOCTOR_QUIET:-0}"
 # Repo to check PRs for — override if multi-project
@@ -80,11 +108,17 @@ resolve_config() {
     fi
     d="$(dirname "$d")"
   done
-  # Home dir locations
-  for p in "$HOME/agent-orchestrator.yaml" "$HOME/.agent-orchestrator.yaml"; do
+  # Home dir locations (canonical paths used by this repo)
+  for p in "$HOME/.openclaw/agent-orchestrator.yaml" \
+           "$HOME/agent-orchestrator.yaml" \
+           "$HOME/.agent-orchestrator.yaml"; do
     if [ -f "$p" ]; then
-      # Resolve symlinks
-      echo "$(python3 -c "import os; print(os.path.realpath('$p'))" 2>/dev/null || readlink -f "$p" 2>/dev/null || echo "$p")"
+      # Resolve symlinks safely (no shell injection)
+      local resolved
+      resolved="$(python3 -c "import os, sys; print(os.path.realpath(sys.argv[1]))" "$p" 2>/dev/null \
+        || readlink -f "$p" 2>/dev/null \
+        || echo "$p")"
+      echo "$resolved"
       return 0
     fi
   done
@@ -109,13 +143,17 @@ detect_repos() {
 check_ao_doctor() {
   log "--- Running ao doctor (baseline) ---"
   local out rc
-  out="$(ao doctor 2>&1)" || true
-  rc=$?
+  # Temporarily disable errexit so we can capture the output regardless of exit code
+  set +e
+  out="$(ao doctor 2>&1)"; rc=$?
+  set -e
   local fails
   fails=$(echo "$out" | grep -c "^FAIL" || true)
   local warns
   warns=$(echo "$out" | grep -c "^WARN" || true)
-  if [ "$fails" -gt 0 ]; then
+  if [ "$rc" -ne 0 ] && [ "$fails" -gt 0 ]; then
+    fail "ao doctor: ${fails} failures, command exited with code $rc (run 'ao doctor' for details)"
+  elif [ "$fails" -gt 0 ]; then
     fail "ao doctor: ${fails} failures (run 'ao doctor' for details)"
   elif [ "$warns" -gt 0 ]; then
     warn "ao doctor: ${warns} warnings"
@@ -128,7 +166,7 @@ check_namespace_alignment() {
   log "--- Namespace alignment ---"
   local config_path="$1"
   local config_dir
-  config_dir="$(dirname "$(python3 -c "import os; print(os.path.realpath('$config_path'))" 2>/dev/null || echo "$config_path")")"
+  config_dir="$(dirname "$(python3 -c "import os, sys; print(os.path.realpath(sys.argv[1]))" "$config_path" 2>/dev/null || echo "$config_path")")"
 
   # Find lifecycle-worker PIDs with their project names
   local mismatched=0
@@ -160,7 +198,7 @@ check_rogue_configs() {
   log "--- Rogue config scan ---"
   local config_path="$1"
   local canonical
-  canonical="$(python3 -c "import os; print(os.path.realpath('$config_path'))" 2>/dev/null || echo "$config_path")"
+  canonical="$(python3 -c "import os, sys; print(os.path.realpath(sys.argv[1]))" "$config_path" 2>/dev/null || echo "$config_path")"
 
   # Check known dangerous locations
   local rogue_found=0
@@ -168,7 +206,7 @@ check_rogue_configs() {
                  "$HOME/.agent-orchestrator/agent-orchestrator.yml"; do
     if [ -f "$suspect" ]; then
       local resolved
-      resolved="$(python3 -c "import os; print(os.path.realpath('$suspect'))" 2>/dev/null || echo "$suspect")"
+      resolved="$(python3 -c "import os, sys; print(os.path.realpath(sys.argv[1]))" "$suspect" 2>/dev/null || echo "$suspect")"
       if [ "$resolved" != "$canonical" ]; then
         fail "Rogue config at $suspect (resolves to $resolved, canonical is $canonical)"
         rogue_found=1
@@ -228,9 +266,11 @@ check_rate_limits() {
 
   if [ "$core" -lt "$AO_DOCTOR_RATE_LIMIT_WARN" ]; then
     warn "GitHub core rate limit low: $core remaining (threshold: $AO_DOCTOR_RATE_LIMIT_WARN)"
-  elif [ "$graphql" -lt 200 ]; then
+  fi
+  if [ "$graphql" -lt 200 ]; then
     warn "GitHub GraphQL rate limit low: $graphql remaining"
-  else
+  fi
+  if [ "$core" -ge "$AO_DOCTOR_RATE_LIMIT_WARN" ] && [ "$graphql" -ge 200 ]; then
     pass "Rate limits OK (core=$core, graphql=$graphql)"
   fi
 }
@@ -358,10 +398,16 @@ check_stray_worktrees() {
 check_config_valid() {
   log "--- Config validation ---"
   local config_path="$1"
-  # Try to start ao with the config — if Zod validation fails, it'll error
-  local out
-  out=$(AO_CONFIG_PATH="$config_path" ao --version 2>&1)
-  if [ $? -eq 0 ]; then
+  # Run ao doctor with the config — if Zod validation fails, it'll exit non-zero
+  local out rc
+  set +e
+  out=$(AO_CONFIG_PATH="$config_path" ao doctor 2>&1; echo "EXIT:$?"); rc=$?
+  set -e
+  # Extract actual exit code (last line contains EXIT:N)
+  local ao_rc
+  ao_rc=$(echo "$out" | grep "EXIT:" | tail -1 | cut -d: -f2)
+  out=$(echo "$out" | grep -v "EXIT:")
+  if [ "${ao_rc:-0}" -eq 0 ]; then
     pass "Config validates OK ($config_path)"
   else
     fail "Config validation failed: $(echo "$out" | tail -3)"
@@ -428,9 +474,9 @@ Rules:
 
   # Try claude -p first, fall back to codex
   if command -v claude >/dev/null 2>&1; then
-    timeout "$AO_DOCTOR_PHASE2_TIMEOUT" claude -p "$prompt" > "$tmpfile" 2>/dev/null
+    _run_with_timeout "$AO_DOCTOR_PHASE2_TIMEOUT" claude -p "$prompt" > "$tmpfile" 2>/dev/null
   elif command -v codex >/dev/null 2>&1; then
-    timeout "$AO_DOCTOR_PHASE2_TIMEOUT" codex exec "$prompt" > "$tmpfile" 2>/dev/null
+    _run_with_timeout "$AO_DOCTOR_PHASE2_TIMEOUT" codex exec "$prompt" > "$tmpfile" 2>/dev/null
   else
     log "Phase 2: no LLM CLI available (need claude or codex)"
     rm -f "$tmpfile"
@@ -507,9 +553,11 @@ print(json.dumps({'text': sys.argv[1], 'channel': sys.argv[2]}))
   if [ -n "${SLACK_USER_TOKEN:-}" ]; then
     local channel_id
     # Resolve channel name to ID if needed
-    case "$AO_DOCTOR_SLACK_CHANNEL" in
-      C*) channel_id="$AO_DOCTOR_SLACK_CHANNEL" ;;
-      \#*) channel_id=$(curl -s -H "Authorization: Bearer $SLACK_USER_TOKEN" \
+    # Slack channel IDs are exactly 11 chars: C + 10 uppercase alphanum (e.g. C01234ABCDE)
+    if [[ "${#AO_DOCTOR_SLACK_CHANNEL}" -eq 11 ]] && [[ "${AO_DOCTOR_SLACK_CHANNEL:0:1}" == "C" ]]; then
+      channel_id="$AO_DOCTOR_SLACK_CHANNEL"
+    else
+      channel_id=$(curl -s -H "Authorization: Bearer $SLACK_USER_TOKEN" \
              "https://slack.com/api/conversations.list?types=public_channel&limit=200" 2>/dev/null | \
              python3 -c "
 import sys, json
@@ -519,8 +567,8 @@ for c in data.get('channels', []):
     if c['name'] == name:
         print(c['id'])
         break
-" "$AO_DOCTOR_SLACK_CHANNEL" 2>/dev/null) ;;
-    esac
+" "$AO_DOCTOR_SLACK_CHANNEL" 2>/dev/null)
+    fi
 
     if [ -n "$channel_id" ]; then
       curl -s -X POST -H "Authorization: Bearer $SLACK_USER_TOKEN" \
