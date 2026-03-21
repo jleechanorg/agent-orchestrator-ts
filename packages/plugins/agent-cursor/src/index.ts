@@ -5,7 +5,7 @@ import {
   type AgentPluginConfig,
 } from "@jleechanorg/ao-plugin-agent-base";
 import { execFileSync } from "node:child_process";
-import type { Agent, ProjectConfig, Session } from "@jleechanorg/ao-core";
+import type { Agent, AgentLaunchConfig, ProjectConfig, Session } from "@jleechanorg/ao-core";
 
 // =============================================================================
 // Plugin Manifest
@@ -55,6 +55,28 @@ const cursorOverrides: Partial<Agent> = {
     // TODO: Implement via SQLite from ~/.cursor/chats/
     return null;
   },
+
+  getLaunchCommand(launchConfig: AgentLaunchConfig): string {
+    // Pre-create the workspace trust file so cursor-agent skips the interactive
+    // "Workspace Trust Required" prompt in unattended sessions.
+    // The --trust flag only works in headless (--print) mode; pre-creating the
+    // JSON trust file is the correct fix for interactive sessions.
+    const preTrust = [
+      `_WP=$(pwd)`,
+      `_EP=$(echo "$_WP" | sed 's|^/||; s|\\.||g; s|/|-|g')`,
+      `mkdir -p "$HOME/.cursor/projects/$_EP"`,
+      `printf '{"trustedAt":"%s","workspacePath":"%s"}' "$(date -u +%Y-%m-%dT%H:%M:%S.000Z)" "$_WP" > "$HOME/.cursor/projects/$_EP/.workspace-trusted" 2>/dev/null`,
+    ].join(" && ");
+    // Strip the model from launchConfig: cursor-agent uses its own model naming
+    // convention (e.g. "claude-4.6-sonnet-medium") that is incompatible with
+    // Anthropic API model IDs (e.g. "claude-sonnet-4-6"). Passing an unknown
+    // model name causes cursor-agent to print the available model list and exit
+    // immediately. Users who need a specific cursor model should configure it in
+    // Cursor's own settings; AO should not override the model for cursor sessions.
+    const { model: _ignored, ...launchConfigWithoutModel } = launchConfig;
+    const agentCmd = createAgentPlugin(cursorConfig).getLaunchCommand(launchConfigWithoutModel);
+    return `( ${preTrust} ); ${agentCmd}`;
+  },
 };
 
 // =============================================================================
@@ -78,4 +100,8 @@ export function detect(): boolean {
 /** Reset the ps process cache. Exported for testing only. */
 export const resetPsCache = _resetPsCache;
 
-export default { manifest, create, detect } as { manifest: typeof manifest; create: typeof create; detect: typeof detect };
+export default { manifest, create, detect } as {
+  manifest: typeof manifest;
+  create: typeof create;
+  detect: typeof detect;
+};

@@ -104,6 +104,19 @@ function mockJsonlFiles(
 }
 
 // ---------------------------------------------------------------------------
+// Test helpers
+// ---------------------------------------------------------------------------
+
+/** Extract only the cursor-agent invocation from a getLaunchCommand result.
+ * The command may be prefixed with a shell preamble (e.g. trust-file setup)
+ * separated by "; ". Returns the part after the last "; " separator, or the
+ * full string if no separator is present. */
+function agentPart(cmd: string): string {
+  const idx = cmd.lastIndexOf("; ");
+  return idx >= 0 ? cmd.slice(idx + 2) : cmd;
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 beforeEach(() => {
@@ -143,10 +156,11 @@ describe("getLaunchCommand", () => {
 
   it("generates base command without shell syntax", () => {
     const cmd = agent.getLaunchCommand(makeLaunchConfig({ permissions: "default" }));
-    expect(cmd).toBe("cursor-agent");
-    // Must not contain shell operators (execFile-safe)
-    expect(cmd).not.toContain("&&");
-    expect(cmd).not.toContain("unset");
+    // The agent invocation part must be execFile-safe (no shell operators)
+    const agentCmd = agentPart(cmd);
+    expect(agentCmd).toBe("cursor-agent");
+    expect(agentCmd).not.toContain("&&");
+    expect(agentCmd).not.toContain("unset");
   });
 
   it("includes --force when permissions=permissionless", () => {
@@ -166,22 +180,27 @@ describe("getLaunchCommand", () => {
     expect(cmd).toContain("--force");
   });
 
-  it("shell-escapes model argument", () => {
+  it("ignores model argument (cursor-agent uses its own model names)", () => {
+    // cursor-agent rejects Anthropic model IDs (e.g. "claude-sonnet-4-6") and
+    // exits immediately with "Cannot use this model: <name>. Available models: ..."
+    // The plugin strips the model flag so cursor-agent starts with its default model.
     const cmd = agent.getLaunchCommand(makeLaunchConfig({ model: "claude-opus-4-6" }));
-    expect(cmd).toContain("--model 'claude-opus-4-6'");
+    expect(cmd).not.toContain("--model");
   });
 
   it("does not include -p flag (prompt delivered post-launch)", () => {
     const cmd = agent.getLaunchCommand(makeLaunchConfig({ prompt: "Fix the bug" }));
-    expect(cmd).not.toContain("-p");
-    expect(cmd).not.toContain("Fix the bug");
+    const agentCmd = agentPart(cmd);
+    expect(agentCmd).not.toContain("-p");
+    expect(agentCmd).not.toContain("Fix the bug");
   });
 
   it("combines all options without prompt", () => {
     const cmd = agent.getLaunchCommand(
       makeLaunchConfig({ permissions: "permissionless", model: "opus", prompt: "Hello" }),
     );
-    expect(cmd).toBe("cursor-agent --force --model 'opus'");
+    // model is stripped because cursor-agent uses its own model naming convention
+    expect(agentPart(cmd)).toBe("cursor-agent --force");
   });
 
   it("omits --force when permissions=default", () => {
@@ -191,8 +210,17 @@ describe("getLaunchCommand", () => {
 
   it("omits optional flags when not provided", () => {
     const cmd = agent.getLaunchCommand(makeLaunchConfig());
-    expect(cmd).not.toContain("--model");
-    expect(cmd).not.toContain("-p");
+    const agentCmd = agentPart(cmd);
+    expect(agentCmd).not.toContain("--model");
+    expect(agentCmd).not.toContain("-p");
+  });
+
+  it("prepends trust-file preamble to create .workspace-trusted before launch", () => {
+    const cmd = agent.getLaunchCommand(makeLaunchConfig());
+    // The preamble must be present and separated from the agent invocation by "; "
+    expect(cmd).toContain(".workspace-trusted");
+    expect(cmd).toContain("mkdir -p");
+    expect(cmd).toMatch(/^\( .+ \); cursor-agent/);
   });
 
   it("ignores systemPrompt (no --append-system-prompt flag on Cursor)", () => {
