@@ -562,11 +562,12 @@ function classifyTerminalOutput(terminalOutput: string): ActivityState {
 /**
  * Shared helper to setup PostToolUse hooks in a workspace.
  * Writes metadata-updater.sh script and updates settings.json.
+ * The hook command is always workspace-relative so settings.json content is
+ * identical across worktrees sharing the same .claude dir.
  *
  * @param workspacePath - Path to the workspace directory
- * @param config - Hook configuration (dataDir used to set AO_DATA_DIR env var in hook)
  */
-async function setupHookInWorkspace(workspacePath: string, config: { dataDir?: string }): Promise<void> {
+async function setupHookInWorkspace(workspacePath: string): Promise<void> {
   const hookCommand = ".claude/metadata-updater.sh";
   const claudeDir = join(workspacePath, ".claude");
   const settingsPath = join(claudeDir, "settings.json");
@@ -634,15 +635,12 @@ async function setupHookInWorkspace(workspacePath: string, config: { dataDir?: s
     if (hookIndex >= 0) break;
   }
 
-  // Build hook definition — use relative command; embed dataDir as env var when provided
+  // Build hook definition — always workspace-relative command, no dataDir dependency
   const hookDef: Record<string, unknown> = {
     type: "command",
     command: hookCommand,
     timeout: 5000,
   };
-  if (config.dataDir) {
-    hookDef["env"] = { AO_DATA_DIR: config.dataDir };
-  }
 
   // Add or update our hook
   if (hookIndex === -1) {
@@ -855,17 +853,16 @@ function createClaudeCodeAgent(): Agent {
       return parts.join(" ");
     },
 
-    async setupWorkspaceHooks(workspacePath: string, config: WorkspaceHooksConfig): Promise<void> {
+    async setupWorkspaceHooks(workspacePath: string, _config: WorkspaceHooksConfig): Promise<void> {
       // Relative command so that symlinked .claude/ dirs across worktrees
       // all produce the same settings.json (last writer doesn't clobber).
-      // dataDir is stored as AO_DATA_DIR env var in the hook so changes are detected.
-      await setupHookInWorkspace(workspacePath, { dataDir: config.dataDir });
+      await setupHookInWorkspace(workspacePath);
     },
 
     async postLaunchSetup(session: Session): Promise<void> {
       if (!session.workspacePath) return;
 
-      await setupHookInWorkspace(session.workspacePath, {});
+      await setupHookInWorkspace(session.workspacePath);
     },
   };
 }
