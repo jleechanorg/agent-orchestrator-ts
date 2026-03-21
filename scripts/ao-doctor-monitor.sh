@@ -31,9 +31,27 @@ _run_with_timeout() {
   elif command -v gtimeout >/dev/null 2>&1; then
     gtimeout "$timeout_sec" "$@"
   else
-    # Last resort: perl timeout (widely available)
-    perl -e 'use Alarm::Timeout; Alarm::Timeout->new($ARGV[0])->run(sub { exec @ARGV[1..$#ARGV] })' \
-      "$timeout_sec" "$@"
+    # Last resort: bash wait loop — runs cmd in background, kills it after timeout
+    local cmd=("$@")
+    "${cmd[@]}" &
+    local pid=$!
+    (
+      local elapsed=0
+      while kill -0 "$pid" 2>/dev/null && [ "$elapsed" -lt "$timeout_sec" ]; do
+        sleep 1
+        elapsed=$((elapsed + 1))
+      done
+      if kill -0 "$pid" 2>/dev/null; then
+        kill "$pid" 2>/dev/null
+        wait "$pid" 2>/dev/null
+        exit 124
+      fi
+    ) &
+    local watcher=$!
+    wait "$pid" 2>/dev/null
+    local rc=$?
+    kill "$watcher" 2>/dev/null; wait "$watcher" 2>/dev/null
+    return $rc
   fi
 }
 
@@ -43,7 +61,7 @@ _run_with_timeout() {
 
 AO_CONFIG_PATH="${AO_CONFIG_PATH:-}"
 AO_DOCTOR_SLACK_CHANNEL="${AO_DOCTOR_SLACK_CHANNEL:-#openclaw-health}"
-AO_DOCTOR_PHASE2_ENABLE="${AO_DOCTOR_PHASE2_ENABLE:-1}"
+AO_DOCTOR_PHASE2_ENABLE="${AO_DOCTOR_PHASE2_ENABLE:-0}"
 AO_DOCTOR_PHASE2_TIMEOUT="${AO_DOCTOR_PHASE2_TIMEOUT:-60}"
 AO_DOCTOR_RATE_LIMIT_WARN="${AO_DOCTOR_RATE_LIMIT_WARN:-500}"
 AO_DOCTOR_MAX_SESSIONS_PER_PR="${AO_DOCTOR_MAX_SESSIONS_PER_PR:-2}"
@@ -142,17 +160,19 @@ detect_repos() {
 
 check_ao_doctor() {
   log "--- Running ao doctor (baseline) ---"
+  # Run in subshell so set +e does not leak into caller
   local out rc
-  # Temporarily disable errexit so we can capture the output regardless of exit code
+  rc=0
+  out=$(set +e; ao doctor 2>&1) || rc=$?
+  local fails warns
   set +e
-  out="$(ao doctor 2>&1)"; rc=$?
+  fails=$(echo "$out" | grep -c "^FAIL"); [ $? -eq 0 ] || fails=0
+  warns=$(echo "$out" | grep -c "^WARN"); [ $? -eq 0 ] || warns=0
   set -e
-  local fails
-  fails=$(echo "$out" | grep -c "^FAIL" || true)
-  local warns
-  warns=$(echo "$out" | grep -c "^WARN" || true)
   if [ "$rc" -ne 0 ] && [ "$fails" -gt 0 ]; then
     fail "ao doctor: ${fails} failures, command exited with code $rc (run 'ao doctor' for details)"
+  elif [ "$rc" -ne 0 ] && [ "$fails" -eq 0 ] && [ "$warns" -eq 0 ]; then
+    fail "ao doctor: non-zero exit ($rc) with no FAIL/WARN output (ao may be missing or crashed)"
   elif [ "$fails" -gt 0 ]; then
     fail "ao doctor: ${fails} failures (run 'ao doctor' for details)"
   elif [ "$warns" -gt 0 ]; then
@@ -234,7 +254,7 @@ check_lifecycle_workers() {
   config_path_for_count=$(resolve_config) || true
   local project_count=8  # default
   if [ -n "$config_path_for_count" ]; then
-    project_count=$(grep -cE '^\s+[a-zA-Z0-9_-]+:$' "$config_path_for_count" 2>/dev/null || echo 8)
+    project_count=$(set +e; grep -cE '^\s+[a-zA-Z0-9_-]+:$' "$config_path_for_count" 2>/dev/null); [ $? -eq 0 ] || project_count=8
     # Minimum reasonable threshold
     [ "$project_count" -lt 3 ] && project_count=3
   fi
@@ -285,22 +305,24 @@ check_session_sprawl() {
     return
   fi
 
-  # Map sessions to PRs
+  # Map sessions to repo#PR keys to avoid cross-repo collisions
   local -A pr_sessions
   for s in $sessions; do
-    local pr
-    pr=$(tmux capture-pane -t "$s" -p -S -15 2>/dev/null | grep -oE "PR: #[0-9]+" | head -1 | grep -oE "[0-9]+" || echo "unknown")
-    if [ "$pr" != "unknown" ]; then
-      pr_sessions[$pr]="${pr_sessions[$pr]:-} $s"
+    local pr repo_hint key
+    pr=$(tmux capture-pane -t "$s" -p -S -15 2>/dev/null | grep -oE "PR: #[0-9]+" | head -1 | grep -oE "[0-9]+" || echo "")
+    repo_hint=$(tmux capture-pane -t "$s" -p -S -15 2>/dev/null | grep -oE "github.com/[^/]+/[^/]+" | head -1 | sed 's|github.com/||' || echo "")
+    if [ -n "$pr" ] && [ -n "$repo_hint" ]; then
+      key="${repo_hint}#${pr}"
+      pr_sessions[$key]="${pr_sessions[$key]:-} $s"
     fi
   done
 
   local sprawl_found=0
-  for pr in "${!pr_sessions[@]}"; do
+  for key in "${!pr_sessions[@]}"; do
     local count
-    count=$(echo "${pr_sessions[$pr]}" | wc -w | tr -d ' ')
+    count=$(echo "${pr_sessions[$key]}" | wc -w | tr -d ' ')
     if [ "$count" -gt "$AO_DOCTOR_MAX_SESSIONS_PER_PR" ]; then
-      warn "Session sprawl: PR #$pr has $count sessions (max $AO_DOCTOR_MAX_SESSIONS_PER_PR):${pr_sessions[$pr]}"
+      warn "Session sprawl: $key has $count sessions (max $AO_DOCTOR_MAX_SESSIONS_PER_PR):${pr_sessions[$key]}"
       sprawl_found=1
     fi
   done
@@ -350,15 +372,22 @@ check_cr_gaps() {
   local repos
   repos=$(detect_repos "$config_path")
 
-  # Get active session→PR mapping
+  if [ -z "$repos" ]; then
+    warn "No repos detected in config and AO_DOCTOR_REPO not set — cannot check CR gaps"
+    return
+  fi
+
+  # Get active session→PR mapping (keyed by repo#pr to avoid cross-repo collisions)
   local -A session_prs
   local sessions
   sessions=$(tmux list-sessions 2>/dev/null | grep -E "ao-[0-9]|jc-[0-9]" | cut -d: -f1) || true
   for s in $sessions; do
-    local pr
+    local pr repo_hint key
     pr=$(tmux capture-pane -t "$s" -p -S -15 2>/dev/null | grep -oE "PR: #[0-9]+" | head -1 | grep -oE "[0-9]+" || echo "")
-    if [ -n "$pr" ]; then
-      session_prs[$pr]="$s"
+    repo_hint=$(tmux capture-pane -t "$s" -p -S -15 2>/dev/null | grep -oE "github.com/[^/]+/[^/]+" | head -1 | sed 's|github.com/||' || echo "")
+    if [ -n "$pr" ] && [ -n "$repo_hint" ]; then
+      key="${repo_hint}#${pr}"
+      session_prs[$key]="$s"
     fi
   done
 
@@ -368,7 +397,8 @@ check_cr_gaps() {
     cr_prs=$(gh pr list --repo "$repo" --state open --json number,reviewDecision --jq '.[] | select(.reviewDecision == "CHANGES_REQUESTED") | .number' 2>/dev/null) || continue
 
     for pr_num in $cr_prs; do
-      if [ -z "${session_prs[$pr_num]:-}" ]; then
+      local key="${repo}#${pr_num}"
+      if [ -z "${session_prs[$key]:-}" ]; then
         warn "CR gap: PR #$pr_num ($repo) has CHANGES_REQUESTED but no active session"
         gap_count=$((gap_count + 1))
       fi
@@ -398,19 +428,14 @@ check_stray_worktrees() {
 check_config_valid() {
   log "--- Config validation ---"
   local config_path="$1"
-  # Run ao doctor with the config — if Zod validation fails, it'll exit non-zero
+  # Run in subshell so set +e is isolated and does not leak to parent shell
   local out rc
-  set +e
-  out=$(AO_CONFIG_PATH="$config_path" ao doctor 2>&1; echo "EXIT:$?"); rc=$?
-  set -e
-  # Extract actual exit code (last line contains EXIT:N)
-  local ao_rc
-  ao_rc=$(echo "$out" | grep "EXIT:" | tail -1 | cut -d: -f2)
-  out=$(echo "$out" | grep -v "EXIT:")
-  if [ "${ao_rc:-0}" -eq 0 ]; then
+  rc=0
+  out=$(set +e; AO_CONFIG_PATH="$config_path" ao doctor 2>&1) || rc=$?
+  if [ "$rc" -eq 0 ]; then
     pass "Config validates OK ($config_path)"
   else
-    fail "Config validation failed: $(echo "$out" | tail -3)"
+    fail "Config validation failed (exit $rc): $config_path"
   fi
 }
 
@@ -557,7 +582,10 @@ print(json.dumps({'text': sys.argv[1], 'channel': sys.argv[2]}))
     if [[ "${#AO_DOCTOR_SLACK_CHANNEL}" -eq 11 ]] && [[ "${AO_DOCTOR_SLACK_CHANNEL:0:1}" == "C" ]]; then
       channel_id="$AO_DOCTOR_SLACK_CHANNEL"
     else
-      channel_id=$(curl -s -H "Authorization: Bearer $SLACK_USER_TOKEN" \
+      local list_auth_file
+      list_auth_file=$(mktemp /tmp/slack-auth.XXXXXX)
+      printf 'Authorization: Bearer %s\n' "$SLACK_USER_TOKEN" > "$list_auth_file"
+      channel_id=$(curl -s --config "$list_auth_file" \
              "https://slack.com/api/conversations.list?types=public_channel&limit=200" 2>/dev/null | \
              python3 -c "
 import sys, json
@@ -568,16 +596,26 @@ for c in data.get('channels', []):
         print(c['id'])
         break
 " "$AO_DOCTOR_SLACK_CHANNEL" 2>/dev/null)
+      rm -f "$list_auth_file"
     fi
 
     if [ -n "$channel_id" ]; then
-      curl -s -X POST -H "Authorization: Bearer $SLACK_USER_TOKEN" \
+      local post_auth_file payload_file
+      post_auth_file=$(mktemp /tmp/slack-auth.XXXXXX)
+      printf 'Authorization: Bearer %s\n' "$SLACK_USER_TOKEN" > "$post_auth_file"
+      payload_file=$(mktemp /tmp/slack-payload.XXXXXX)
+      python3 -c "import json,sys; print(json.dumps({'channel': sys.argv[1], 'text': sys.argv[2]}))" \
+        "$channel_id" "$message" > "$payload_file" 2>/dev/null
+      curl -s -X POST --config "$post_auth_file" \
         -H "Content-type: application/json" \
-        -d "$(python3 -c "import json,sys; print(json.dumps({'channel': sys.argv[1], 'text': sys.argv[2]}))" "$channel_id" "$message" 2>/dev/null)" \
-        "https://slack.com/api/chat.postMessage" > /dev/null 2>&1 && {
+        -d "@$payload_file" \
+        "https://slack.com/api/chat.postMessage" > /dev/null 2>&1
+      local post_rc=$?
+      rm -f "$post_auth_file" "$payload_file"
+      if [ "$post_rc" -eq 0 ]; then
         log "Slack report sent to $AO_DOCTOR_SLACK_CHANNEL via user token"
         return
-      }
+      fi
     fi
   fi
 
