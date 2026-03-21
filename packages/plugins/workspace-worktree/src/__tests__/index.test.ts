@@ -813,7 +813,7 @@ describe("setupAoManagedExclude (via workspace.create())", () => {
     // fails (e.g. older git), the fallback must parse this file instead of
     // blindly using join(worktreePath, ".git") which produces an ENOTDIR error.
     const ws = create();
-    const worktreePath = "/mock-home/.worktrees/myproject/ao-1";
+    const _worktreePath = "/mock-home/.worktrees/myproject/ao-1";
     const mainGitDir = "/main-repo/.git";
 
     mockGitSuccess(""); // fetch

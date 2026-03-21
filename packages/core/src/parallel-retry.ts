@@ -6,16 +6,16 @@
  */
 
 import { randomUUID } from "node:crypto";
-import type {
-  SessionId,
-  CIStatus,
-  SessionManager,
-  PluginRegistry,
-  OrchestratorConfig,
-  SCM,
-  SessionSpawnConfig,
+import {
+  TERMINAL_STATUSES,
+  type SessionId,
+  type CIStatus,
+  type SessionManager,
+  type PluginRegistry,
+  type OrchestratorConfig,
+  type SCM,
+  type SessionSpawnConfig,
 } from "./types.js";
-import { TERMINAL_STATUSES } from "./types.js";
 
 // ---------------------------------------------------------------------------
 // Types

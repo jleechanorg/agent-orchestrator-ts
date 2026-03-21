@@ -101,20 +101,17 @@ describe("setupWorkspaceHooks idempotency", () => {
     expect(mtimeAfter).toBe(oldDate.getTime());
   });
 
-  it("DOES re-write settings.json when hook command changes (different dataDir)", async () => {
+  it("does NOT re-write settings when dataDir changes (hook command is workspace-relative)", async () => {
     const agent = create();
 
-    // First call
     await agent.setupWorkspaceHooks!(workspacePath, makeHookConfig({ dataDir: join(tmpDir, "data-v1") }));
 
     const settingsPath = join(claudeDir, "settings.json");
     const oldDate = setOldMtime(settingsPath);
 
-    // Second call with different dataDir → command changes → must write
     await agent.setupWorkspaceHooks!(workspacePath, makeHookConfig({ dataDir: join(tmpDir, "data-v2") }));
 
-    const mtimeAfter = getMtime(settingsPath);
-    expect(mtimeAfter).not.toBe(oldDate.getTime());
+    expect(getMtime(settingsPath)).toBe(oldDate.getTime());
   });
 });
 

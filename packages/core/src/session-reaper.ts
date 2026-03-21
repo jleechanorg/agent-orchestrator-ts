@@ -9,8 +9,7 @@
  * Respects maxKillsPerRun cap per execution.
  */
 
-import { TERMINAL_STATUSES } from "./types.js";
-import type { SessionManager } from "./types.js";
+import { TERMINAL_STATUSES, type SessionManager } from "./types.js";
 
 // =============================================================================
 // Types

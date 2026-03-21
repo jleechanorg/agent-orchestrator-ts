@@ -15,7 +15,7 @@ import {
   type WorkspaceHooksConfig,
 } from "@jleechanorg/ao-core";
 import { execFile, execFileSync } from "node:child_process";
-import { readdir, readFile, stat, open, writeFile, mkdir, chmod } from "node:fs/promises";
+import { readdir, readFile, stat, open, writeFile, mkdir, chmod, lstat } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
@@ -562,25 +562,41 @@ function classifyTerminalOutput(terminalOutput: string): ActivityState {
 /**
  * Shared helper to setup PostToolUse hooks in a workspace.
  * Writes metadata-updater.sh script and updates settings.json.
+ * The hook command is always workspace-relative so settings.json content is
+ * identical across worktrees sharing the same .claude dir.
  *
  * @param workspacePath - Path to the workspace directory
- * @param hookCommand - Command string for the hook (can use variables like $CLAUDE_PROJECT_DIR)
  */
-async function setupHookInWorkspace(workspacePath: string, hookCommand: string): Promise<void> {
+async function setupHookInWorkspace(workspacePath: string): Promise<void> {
+  const hookCommand = ".claude/metadata-updater.sh";
   const claudeDir = join(workspacePath, ".claude");
   const settingsPath = join(claudeDir, "settings.json");
   const hookScriptPath = join(claudeDir, "metadata-updater.sh");
 
-  // Create .claude directory if it doesn't exist
-  try {
+  if (existsSync(claudeDir)) {
+    const st = await lstat(claudeDir);
+    if (st.isSymbolicLink()) {
+      throw new Error("Refusing to set up hooks: .claude is a symlink");
+    }
+  } else {
     await mkdir(claudeDir, { recursive: true });
-  } catch {
-    // Directory might already exist
   }
 
-  // Write the metadata updater script
-  await writeFile(hookScriptPath, METADATA_UPDATER_SCRIPT, "utf-8");
-  await chmod(hookScriptPath, 0o755); // Make executable
+  // Reject symlinks — writing into a symlinked .claude is a potential security issue
+  try {
+    const claudeStat = await lstat(claudeDir);
+    if (claudeStat.isSymbolicLink()) {
+      throw new Error(`[agent-claude-code] .claude dir is a symlink at ${claudeDir} — refusing to write hooks`);
+    }
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+  }
+
+  // Write the metadata updater script only if content changed (idempotent)
+  if (!existsSync(hookScriptPath) || (await readFile(hookScriptPath, "utf-8")) !== METADATA_UPDATER_SCRIPT) {
+    await writeFile(hookScriptPath, METADATA_UPDATER_SCRIPT, "utf-8");
+    await chmod(hookScriptPath, 0o755);
+  }
 
   // Read existing settings if present
   let existingSettings: Record<string, unknown> = {};
@@ -619,31 +635,35 @@ async function setupHookInWorkspace(workspacePath: string, hookCommand: string):
     if (hookIndex >= 0) break;
   }
 
+  // Build hook definition — always workspace-relative command, no dataDir dependency
+  const hookDef: Record<string, unknown> = {
+    type: "command",
+    command: hookCommand,
+    timeout: 5000,
+  };
+
   // Add or update our hook
   if (hookIndex === -1) {
     // No metadata hook exists, add it
     postToolUse.push({
       matcher: "Bash",
-      hooks: [
-        {
-          type: "command",
-          command: hookCommand,
-          timeout: 5000,
-        },
-      ],
+      hooks: [hookDef],
     });
   } else {
-    // Hook exists, update the command
+    // Hook exists, update the command and env
     const hook = postToolUse[hookIndex] as Record<string, unknown>;
     const hooksList = hook["hooks"] as Array<Record<string, unknown>>;
-    hooksList[hookDefIndex]["command"] = hookCommand;
+    hooksList[hookDefIndex] = hookDef;
   }
 
   hooks["PostToolUse"] = postToolUse;
   existingSettings["hooks"] = hooks;
 
-  // Write updated settings
-  await writeFile(settingsPath, JSON.stringify(existingSettings, null, 2) + "\n", "utf-8");
+  // Write settings only if content changed (idempotent)
+  const settingsBody = JSON.stringify(existingSettings, null, 2) + "\n";
+  if (!existsSync(settingsPath) || (await readFile(settingsPath, "utf-8")) !== settingsBody) {
+    await writeFile(settingsPath, settingsBody, "utf-8");
+  }
 }
 
 // =============================================================================
@@ -834,15 +854,15 @@ function createClaudeCodeAgent(): Agent {
     },
 
     async setupWorkspaceHooks(workspacePath: string, _config: WorkspaceHooksConfig): Promise<void> {
-      // Relative path so that symlinked .claude/ dirs across worktrees
+      // Relative command so that symlinked .claude/ dirs across worktrees
       // all produce the same settings.json (last writer doesn't clobber).
-      await setupHookInWorkspace(workspacePath, ".claude/metadata-updater.sh");
+      await setupHookInWorkspace(workspacePath);
     },
 
     async postLaunchSetup(session: Session): Promise<void> {
       if (!session.workspacePath) return;
 
-      await setupHookInWorkspace(session.workspacePath, ".claude/metadata-updater.sh");
+      await setupHookInWorkspace(session.workspacePath);
     },
   };
 }
