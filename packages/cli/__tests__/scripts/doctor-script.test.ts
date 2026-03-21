@@ -98,7 +98,8 @@ describe("scripts/ao-doctor.sh", () => {
     const result = spawnSync("bash", [scriptPath], {
       env: {
         ...process.env,
-        PATH: `${binDir}:${process.env.PATH || ""}`,
+        // Isolate from a global `ao` on the developer PATH (would skip npm link in --fix tests)
+        PATH: `${binDir}:/usr/bin:/bin`,
         AO_REPO_ROOT: fakeRepo,
         AO_CONFIG_PATH: configPath,
       },
@@ -121,6 +122,7 @@ describe("scripts/ao-doctor.sh", () => {
     rmSync(join(binDir, "ao"), { force: true });
 
     const npmLog = join(tempRoot, "npm.log");
+    writeFileSync(npmLog, "");
     createFakeBinary(
       binDir,
       "npm",
@@ -149,7 +151,7 @@ describe("scripts/ao-doctor.sh", () => {
     const result = spawnSync("bash", [scriptPath, "--fix"], {
       env: {
         ...process.env,
-        PATH: `${binDir}:${process.env.PATH || ""}`,
+        PATH: `${binDir}:/usr/bin:/bin`,
         AO_REPO_ROOT: fakeRepo,
         AO_CONFIG_PATH: configPath,
         AO_DOCTOR_TMP_ROOT: tmpRoot,

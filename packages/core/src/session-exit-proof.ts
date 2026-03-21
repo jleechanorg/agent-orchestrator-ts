@@ -15,8 +15,7 @@ import type {
   EventPriority,
   OrchestratorEvent,
 } from "./types.js";
-import { createCorrelationId } from "./observability.js";
-import type { ProjectObserver } from "./observability.js";
+import { createCorrelationId, type ProjectObserver } from "./observability.js";
 
 export interface ExitProofDeps {
   config: OrchestratorConfig;

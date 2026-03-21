@@ -17,6 +17,9 @@ paths = [
   ".next/",
   "coverage/",
   "pnpm-lock.yaml",
+  # Doc examples (LINEAR_API_KEY=lin_api_xxx…) and legacy sample root config in history
+  "^SECURITY\\.md$",
+  "^agent-orchestrator\\.yaml$",
 ]
 
 regexes = [

@@ -69,7 +69,6 @@ describe("WebhookIngress", () => {
 
     it("evicts oldest entry when at capacity", () => {
       // Access private field to set a small cap for testing
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (ingress as any).maxDeliveryEntries = 3;
 
       ingress.checkAndRecordDelivery("d-1", "push");

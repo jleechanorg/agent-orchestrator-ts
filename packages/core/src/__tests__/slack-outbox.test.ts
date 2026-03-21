@@ -3,8 +3,7 @@ import { mkdirSync, rmSync, readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
-import { SlackOutbox } from "../slack-outbox.js";
-import type { OutboxEntry, OutboxConfig } from "../slack-outbox.js";
+import { SlackOutbox, type OutboxEntry, type OutboxConfig } from "../slack-outbox.js";
 
 function makeTmpDir(): string {
   const dir = join(tmpdir(), `slack-outbox-test-${randomUUID()}`);
@@ -77,7 +76,7 @@ describe("SlackOutbox", () => {
         called = entry;
       });
       expect(called).not.toBeNull();
-      expect((called as OutboxEntry).message).toBe("test message");
+      expect((called as unknown as OutboxEntry).message).toBe("test message");
     });
 
     it("marks entry as sent on success", async () => {

@@ -9,6 +9,7 @@ import { writeMetadata, readMetadataRaw } from "../metadata.js";
 import { getSessionsDir, getProjectBaseDir } from "../paths.js";
 import type {
   OrchestratorConfig,
+  NotifierConfig,
   PluginRegistry,
   SessionManager,
   Session,
@@ -1147,7 +1148,7 @@ describe("reactions", () => {
 
     // Verify that context was injected with failing check names and URLs
     expect(mockSessionManager.send).toHaveBeenCalled();
-    const sentMessage = mockSessionManager.send.mock.calls[0][1];
+    const sentMessage = vi.mocked(mockSessionManager.send).mock.calls[0][1];
     expect(sentMessage).toContain("CI failed. Fix it. Details:");
     expect(sentMessage).toContain("build");
     expect(sentMessage).toContain("test");
@@ -1233,7 +1234,7 @@ describe("reactions", () => {
 
     // Verify that context was injected with pending comment details
     expect(mockSessionManager.send).toHaveBeenCalled();
-    const sentMessage = mockSessionManager.send.mock.calls[0][1];
+    const sentMessage = vi.mocked(mockSessionManager.send).mock.calls[0][1];
     expect(sentMessage).toContain("Review changes requested. Address feedback:");
     expect(sentMessage).toContain("src/utils.ts");
     expect(sentMessage).toContain("Please fix this function");
@@ -1930,7 +1931,7 @@ describe("getStates", () => {
     expect(mockNotifier.notify).toHaveBeenCalledTimes(1);
 
     // Call should be the success notification
-    const call = mockNotifier.notify.mock.calls[0][0];
+    const call = vi.mocked(mockNotifier.notify).mock.calls[0][0];
     expect(call.type).toBe("reaction.triggered");
     expect(call.message).toContain("completed auto-merge");
 
@@ -2007,7 +2008,7 @@ describe("getStates", () => {
     expect(mockNotifier.notify).toHaveBeenCalledTimes(1);
 
     // Call should be the approval request
-    const call = mockNotifier.notify.mock.calls[0][0];
+    const call = vi.mocked(mockNotifier.notify).mock.calls[0][0];
     expect(call.type).toBe("merge.approval_requested");
 
     // Verify merge was NOT called (human must approve manually)
@@ -2024,8 +2025,8 @@ describe("session exit proof reconciliation (bd-uxs.6)", () => {
       notify: vi.fn().mockResolvedValue(undefined),
     };
 
-    // Add notifier to config
-    config.notifiers = { desktop: mockNotifier };
+    // Add notifier to config (cast: test injects runtime Notifier into config slot)
+    config.notifiers = { desktop: mockNotifier as unknown as NotifierConfig };
     config.notificationRouting = {
       urgent: ["desktop"],
       action: ["desktop"],
@@ -2077,11 +2078,11 @@ describe("session exit proof reconciliation (bd-uxs.6)", () => {
 
     // Verify notifier was called with exit_failed event
     expect(mockNotifier.notify).toHaveBeenCalled();
-    const call = mockNotifier.notify.mock.calls.find(
+    const call = vi.mocked(mockNotifier.notify).mock.calls.find(
       (c) => (c[0] as { type?: string } | undefined)?.type === "session.exit_failed",
     );
     expect(call).toBeDefined();
-    expect((call[0] as { type: string }).type).toBe("session.exit_failed");
+    expect((call![0] as { type: string }).type).toBe("session.exit_failed");
   });
 
   it("emits session.exit_failed when SCM does not support validateCommits", async () => {
@@ -2143,11 +2144,11 @@ describe("session exit proof reconciliation (bd-uxs.6)", () => {
 
     // Verify notifier was called with exit_failed event (not validated)
     expect(mockNotifier.notify).toHaveBeenCalled();
-    const call = mockNotifier.notify.mock.calls.find(
+    const call = vi.mocked(mockNotifier.notify).mock.calls.find(
       (c) => (c[0] as { type?: string } | undefined)?.type === "session.exit_failed",
     );
     expect(call).toBeDefined();
-    expect((call[0] as { type: string }).type).toBe("session.exit_failed");
+    expect((call![0] as { type: string }).type).toBe("session.exit_failed");
   });
 
   it("emits session.exit_validated when validateCommits returns pushed=true", async () => {
@@ -2213,11 +2214,11 @@ describe("session exit proof reconciliation (bd-uxs.6)", () => {
 
     // Verify notifier was called with exit_validated event
     expect(mockNotifier.notify).toHaveBeenCalled();
-    const call = mockNotifier.notify.mock.calls.find(
+    const call = vi.mocked(mockNotifier.notify).mock.calls.find(
       (c) => (c[0] as { type?: string } | undefined)?.type === "session.exit_validated",
     );
     expect(call).toBeDefined();
-    expect((call[0] as { type: string }).type).toBe("session.exit_validated");
+    expect((call![0] as { type: string }).type).toBe("session.exit_validated");
   });
 
   it("emits session.exit_failed when validateCommits returns pushed=false", async () => {
@@ -2279,14 +2280,14 @@ describe("session exit proof reconciliation (bd-uxs.6)", () => {
     await lm.check("app-1");
 
     // Verify notifier was called with exit_failed event (not exit_validated)
-    const call = mockNotifier.notify.mock.calls.find(
+    const call = vi.mocked(mockNotifier.notify).mock.calls.find(
       (c) => (c[0] as { type?: string } | undefined)?.type === "session.exit_failed",
     );
     expect(call).toBeDefined();
-    expect((call[0] as { type: string }).type).toBe("session.exit_failed");
+    expect((call![0] as { type: string }).type).toBe("session.exit_failed");
 
     // Verify the proof contains pushed=false
-    const eventData = (call[0] as { data?: { proof?: SessionExitProof } }).data;
+    const eventData = (call![0] as { data?: { proof?: SessionExitProof } }).data;
     expect(eventData?.proof?.commitsPushed).toBe(false);
     expect(eventData?.proof?.localCommits).toEqual(["abc123", "def456"]);
     expect(eventData?.proof?.remoteCommits).toEqual([]);
@@ -2351,11 +2352,11 @@ describe("session exit proof reconciliation (bd-uxs.6)", () => {
 
     // Verify notifier was called with exit_failed event
     expect(mockNotifier.notify).toHaveBeenCalled();
-    const call = mockNotifier.notify.mock.calls.find(
+    const call = vi.mocked(mockNotifier.notify).mock.calls.find(
       (c) => (c[0] as { type?: string } | undefined)?.type === "session.exit_failed",
     );
     expect(call).toBeDefined();
-    expect((call[0] as { type: string }).type).toBe("session.exit_failed");
+    expect((call![0] as { type: string }).type).toBe("session.exit_failed");
   });
 });
 
@@ -2384,7 +2385,7 @@ describe("parallel-retry reaction (bd-uxs.4)", () => {
       getMergeability: vi.fn(),
     };
 
-    config.notifiers = { desktop: mockNotifier };
+    config.notifiers = { desktop: mockNotifier as unknown as NotifierConfig };
     config.notificationRouting = {
       urgent: ["desktop"],
       action: ["desktop"],
