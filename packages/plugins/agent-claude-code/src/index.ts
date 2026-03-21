@@ -23,10 +23,17 @@ import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
 
-function normalizePermissionMode(mode: string | undefined): "permissionless" | "default" | "auto-edit" | "suggest" | undefined {
+function normalizePermissionMode(
+  mode: string | undefined,
+): "permissionless" | "default" | "auto-edit" | "suggest" | undefined {
   if (!mode) return undefined;
   if (mode === "skip") return "permissionless";
-  if (mode === "permissionless" || mode === "default" || mode === "auto-edit" || mode === "suggest") {
+  if (
+    mode === "permissionless" ||
+    mode === "default" ||
+    mode === "auto-edit" ||
+    mode === "suggest"
+  ) {
     return mode;
   }
   return undefined;
@@ -324,8 +331,7 @@ async function parseJsonlFileTail(filePath: string, maxBytes = 131_072): Promise
   // Skip potentially truncated first line only when we started mid-file.
   // If offset === 0 we read from the start so the first line is complete.
   const firstNewline = content.indexOf("\n");
-  const safeContent =
-    offset > 0 && firstNewline >= 0 ? content.slice(firstNewline + 1) : content;
+  const safeContent = offset > 0 && firstNewline >= 0 ? content.slice(firstNewline + 1) : content;
   const lines: JsonlLine[] = [];
   for (const line of safeContent.split("\n")) {
     const trimmed = line.trim();
@@ -343,9 +349,7 @@ async function parseJsonlFileTail(filePath: string, maxBytes = 131_072): Promise
 }
 
 /** Extract auto-generated summary from JSONL (last "summary" type entry) */
-function extractSummary(
-  lines: JsonlLine[],
-): { summary: string; isFallback: boolean } | null {
+function extractSummary(lines: JsonlLine[]): { summary: string; isFallback: boolean } | null {
   for (let i = lines.length - 1; i >= 0; i--) {
     const line = lines[i];
     if (line?.type === "summary" && line.summary) {
@@ -599,10 +603,14 @@ async function setupHookInWorkspace(workspacePath: string): Promise<void> {
           throw err;
         }
         // Can't resolve symlink (broken or test env) — skip to be safe
-        console.warn(`[agent-claude-code] .claude is a symlink at ${claudeDir} — cannot verify target, skipping hook setup`);
+        console.warn(
+          `[agent-claude-code] .claude is a symlink at ${claudeDir} — cannot verify target, skipping hook setup`,
+        );
         return;
       }
-      console.warn(`[agent-claude-code] .claude is a symlink at ${claudeDir} — target within workspace, continuing`);
+      console.warn(
+        `[agent-claude-code] .claude is a symlink at ${claudeDir} — target within workspace, continuing`,
+      );
     }
     // Exists (real dir or symlink within workspace) — nothing to create
   } catch (err) {
@@ -612,12 +620,20 @@ async function setupHookInWorkspace(workspacePath: string): Promise<void> {
   }
 
   // Write the metadata updater script only if content changed (idempotent)
-  if (!existsSync(hookScriptPath) || (await readFile(hookScriptPath, "utf-8")) !== METADATA_UPDATER_SCRIPT) {
+  // Guard: refuse to write through an existing symlink to avoid overwriting an arbitrary target file
+  const hookStat = await lstat(hookScriptPath).catch(() => null);
+  if (hookStat?.isSymbolicLink()) {
+    console.warn(
+      `[agent-claude-code] ${hookScriptPath} is a symlink — refusing to write through it`,
+    );
+  } else if (
+    !existsSync(hookScriptPath) ||
+    (await readFile(hookScriptPath, "utf-8")) !== METADATA_UPDATER_SCRIPT
+  ) {
     await writeFile(hookScriptPath, METADATA_UPDATER_SCRIPT, "utf-8");
   }
   // Always ensure execute bit is set, but skip if the hook script is itself a symlink
   // (chmod follows symlinks and could alter permissions on an unrelated target file).
-  const hookStat = await lstat(hookScriptPath).catch(() => null);
   if (hookStat && !hookStat.isSymbolicLink()) {
     await chmod(hookScriptPath, 0o755);
   }
@@ -635,8 +651,12 @@ async function setupHookInWorkspace(workspacePath: string): Promise<void> {
 
   // Merge hooks configuration
   const hooks = (existingSettings["hooks"] as Record<string, unknown>) ?? {};
-  const postToolUse = Array.isArray(hooks["PostToolUse"]) ? (hooks["PostToolUse"] as Array<unknown>) : [];
-  const preToolUse = Array.isArray(hooks["PreToolUse"]) ? (hooks["PreToolUse"] as Array<unknown>) : [];
+  const postToolUse = Array.isArray(hooks["PostToolUse"])
+    ? (hooks["PostToolUse"] as Array<unknown>)
+    : [];
+  const preToolUse = Array.isArray(hooks["PreToolUse"])
+    ? (hooks["PreToolUse"] as Array<unknown>)
+    : [];
 
   const ensureMetadataHook = (eventHooks: Array<unknown>): void => {
     let hookIndex = -1;
@@ -690,9 +710,15 @@ async function setupHookInWorkspace(workspacePath: string): Promise<void> {
   existingSettings["hooks"] = hooks;
 
   // Write settings only if content changed (idempotent)
-  const settingsBody = JSON.stringify(existingSettings, null, 2) + "\n";
-  if (!existsSync(settingsPath) || (await readFile(settingsPath, "utf-8")) !== settingsBody) {
-    await writeFile(settingsPath, settingsBody, "utf-8");
+  // Guard: refuse to write through an existing symlink to avoid overwriting an arbitrary target file
+  const settingsStat = await lstat(settingsPath).catch(() => null);
+  if (settingsStat?.isSymbolicLink()) {
+    console.warn(`[agent-claude-code] ${settingsPath} is a symlink — refusing to write through it`);
+  } else {
+    const settingsBody = JSON.stringify(existingSettings, null, 2) + "\n";
+    if (!existsSync(settingsPath) || (await readFile(settingsPath, "utf-8")) !== settingsBody) {
+      await writeFile(settingsPath, settingsBody, "utf-8");
+    }
   }
 }
 
