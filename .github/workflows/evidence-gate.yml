@@ -29,8 +29,10 @@ jobs:
         run: |
           BODY=$(cat "$RUNNER_TEMP/pr_body.txt")
 
-          # Check if body contains Evidence section (## Evidence — not just the word "Evidence")
-          if printf '%s' "$BODY" | grep -qi '[##] Evidence'; then
+          # Check if body contains Evidence section — must be a markdown header (## Evidence)
+          # '^[[:space:]]*## Evidence' allows leading whitespace; '^' anchors to line-start
+          # so "No evidence of issues" and other false positives don't match
+          if printf '%s' "$BODY" | grep -qi '^[[:space:]]*## Evidence'; then
             echo "found=true" >> "$GITHUB_OUTPUT"
           else
             echo "found=false" >> "$GITHUB_OUTPUT"
