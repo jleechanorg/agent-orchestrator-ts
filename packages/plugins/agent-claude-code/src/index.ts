@@ -611,8 +611,9 @@ async function setupHookInWorkspace(workspacePath: string): Promise<void> {
   // Write the metadata updater script only if content changed (idempotent)
   if (!existsSync(hookScriptPath) || (await readFile(hookScriptPath, "utf-8")) !== METADATA_UPDATER_SCRIPT) {
     await writeFile(hookScriptPath, METADATA_UPDATER_SCRIPT, "utf-8");
-    await chmod(hookScriptPath, 0o755);
   }
+  // Always ensure execute bit is set, even if content was already correct
+  await chmod(hookScriptPath, 0o755);
 
   // Read existing settings if present
   let existingSettings: Record<string, unknown> = {};

@@ -23,10 +23,10 @@ paths = [
   "coverage/",
   "pnpm-lock.yaml",
   # Documentation files with intentional placeholder tokens
-  "SECURITY.md",
-  "examples/README.md",
-  "docs/SECURITY-AUDIT-SUMMARY.md",
-  "docs/DEVELOPMENT.md",
+  "SECURITY\\.md",
+  "examples/README\\.md",
+  "docs/SECURITY-AUDIT-SUMMARY\\.md",
+  "docs/DEVELOPMENT\\.md",
 ]
 
 regexes = [
@@ -37,4 +37,9 @@ regexes = [
   "your-api-key-here",
   "your-token-here",
   "example\\.com",
+
+  # Known placeholder tokens in doc examples (SECURITY.md, agent-orchestrator.yaml)
+  "lin_api_[a-zA-Z0-9]{20,}",
+  "ghp_[a-zA-Z0-9]{36}",
+  "sk-[a-zA-Z0-9]{32,}",
 ]
