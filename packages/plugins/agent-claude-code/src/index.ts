@@ -573,23 +573,17 @@ async function setupHookInWorkspace(workspacePath: string): Promise<void> {
   const settingsPath = join(claudeDir, "settings.json");
   const hookScriptPath = join(claudeDir, "metadata-updater.sh");
 
-  if (existsSync(claudeDir)) {
-    const st = await lstat(claudeDir);
-    if (st.isSymbolicLink()) {
-      throw new Error("Refusing to set up hooks: .claude is a symlink");
-    }
-  } else {
-    await mkdir(claudeDir, { recursive: true });
-  }
-
-  // Reject symlinks — writing into a symlinked .claude is a potential security issue
+  // Reject symlinks BEFORE creating — writing into a symlinked .claude is a security risk
   try {
     const claudeStat = await lstat(claudeDir);
     if (claudeStat.isSymbolicLink()) {
       throw new Error(`[agent-claude-code] .claude dir is a symlink at ${claudeDir} — refusing to write hooks`);
     }
+    // Exists as a real directory — nothing to create
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+    // Directory doesn't exist — create it
+    await mkdir(claudeDir, { recursive: true });
   }
 
   // Write the metadata updater script only if content changed (idempotent)
