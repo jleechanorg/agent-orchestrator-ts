@@ -23,10 +23,10 @@ paths = [
   "coverage/",
   "pnpm-lock.yaml",
   # Documentation files with intentional placeholder tokens
-  "SECURITY.md",
-  "examples/README.md",
-  "docs/SECURITY-AUDIT-SUMMARY.md",
-  "docs/DEVELOPMENT.md",
+  "SECURITY\\.md",
+  "examples/README\\.md",
+  "docs/SECURITY-AUDIT-SUMMARY\\.md",
+  "docs/DEVELOPMENT\\.md",
 ]
 
 regexes = [

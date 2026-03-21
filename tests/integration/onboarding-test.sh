@@ -42,23 +42,35 @@ start_step "Step 1: Navigate to repository"
 cd /workspace/agent-orchestrator || fail_step "Repository not found"
 end_step "Step 1: Repository accessible"
 
-# Step 2: Run setup script
-start_step "Step 2: Running ./scripts/setup.sh"
+# Step 2: Create minimal test config (required by setup-extended.sh → start-all.sh)
+start_step "Step 2: Creating test config for setup"
+mkdir -p "$HOME/.openclaw"
+cat > "$HOME/.openclaw/agent-orchestrator.yaml" << 'EOF'
+projects:
+  onboarding-test:
+    repo: test/onboarding-test
+    path: /workspace/agent-orchestrator
+    defaultBranch: main
+EOF
+end_step "Step 2: Test config created"
+
+# Step 3: Run setup script
+start_step "Step 3: Running ./scripts/setup.sh"
 if ! ./scripts/setup.sh; then
-    fail_step "Step 2: Setup script failed"
+    fail_step "Step 3: Setup script failed"
 fi
-end_step "Step 2: Setup completed"
+end_step "Step 3: Setup completed"
 
-# Step 3: Verify ao command is available
-start_step "Step 3: Verify ao command"
+# Step 4: Verify ao command is available
+start_step "Step 4: Verify ao command"
 if ! command -v ao &> /dev/null; then
-    fail_step "Step 3: ao command not found (npm link failed?)"
+    fail_step "Step 4: ao command not found (npm link failed?)"
 fi
-ao --version || fail_step "Step 3: ao --version failed"
-end_step "Step 3: ao command available"
+ao --version || fail_step "Step 4: ao --version failed"
+end_step "Step 4: ao command available"
 
-# Step 4: Create minimal test config
-start_step "Step 4: Create test configuration"
+# Step 5: Create minimal test config
+start_step "Step 5: Create test configuration"
 mkdir -p /tmp/ao-test-project
 cd /tmp/ao-test-project
 git init
@@ -77,18 +89,18 @@ projects:
     defaultBranch: main
 EOF
 
-end_step "Step 4: Configuration created"
+end_step "Step 5: Configuration created"
 
-# Step 5: Verify config is valid
-start_step "Step 5: Validate configuration"
+# Step 6: Verify config is valid
+start_step "Step 6: Validate configuration"
 # ao init would fail if run again, so we just verify the file is readable
 if [ ! -f agent-orchestrator.yaml ]; then
-    fail_step "Step 5: Config file not found"
+    fail_step "Step 6: Config file not found"
 fi
-end_step "Step 5: Configuration validated"
+end_step "Step 6: Configuration validated"
 
-# Step 6: Start orchestrator (in background)
-start_step "Step 6: Start orchestrator"
+# Step 7: Start orchestrator (in background)
+start_step "Step 7: Start orchestrator"
 # Start in background and capture PID
 ao start --no-orchestrator &  # Only start dashboard, not the orchestrator session
 DASHBOARD_PID=$!
@@ -100,23 +112,23 @@ for i in {1..30}; do
         break
     fi
     if ! kill -0 $DASHBOARD_PID 2>/dev/null; then
-        fail_step "Step 6: Dashboard process died"
+        fail_step "Step 7: Dashboard process died"
     fi
     sleep 1
 done
 
 if ! curl -s http://localhost:9000 > /dev/null 2>&1; then
-    fail_step "Step 6: Dashboard not responding after 30s"
+    fail_step "Step 7: Dashboard not responding after 30s"
 fi
 
-end_step "Step 6: Dashboard started successfully"
+end_step "Step 7: Dashboard started successfully"
 
-# Step 7: Verify dashboard endpoints
-start_step "Step 7: Verify dashboard API"
+# Step 8: Verify dashboard endpoints
+start_step "Step 8: Verify dashboard API"
 
 # Test /api/sessions endpoint
 if ! curl -sf http://localhost:9000/api/sessions > /dev/null; then
-    fail_step "Step 7: /api/sessions endpoint failed"
+    fail_step "Step 8: /api/sessions endpoint failed"
 fi
 
 # Test SSE events endpoint (just verify it responds, don't wait for events)
@@ -125,10 +137,10 @@ if ! timeout 2 curl -sf http://localhost:9000/api/events > /dev/null 2>&1; then
     :
 fi
 
-end_step "Step 7: Dashboard API responding"
+end_step "Step 8: Dashboard API responding"
 
-# Step 8: Verify WebSocket terminal servers
-start_step "Step 8: Verify WebSocket servers"
+# Step 9: Verify WebSocket terminal servers
+start_step "Step 9: Verify WebSocket servers"
 
 # Check if direct terminal WebSocket server is running (required for terminal feature)
 # Default port is 14801 (14800 range chosen to avoid conflicts with dev tools)
@@ -141,15 +153,15 @@ for i in $(seq 1 $max_retries); do
         break
     fi
     if [ $i -eq $max_retries ]; then
-        fail_step "Step 8: WebSocket terminal server not responding (bug: ao start didn't launch all services)"
+        fail_step "Step 9: WebSocket terminal server not responding (bug: ao start didn't launch all services)"
     fi
     sleep 1
 done
 
-end_step "Step 8: WebSocket servers verified"
+end_step "Step 9: WebSocket servers verified"
 
-# Step 9: Verify orchestrator terminal page (end-to-end test)
-start_step "Step 9: Verify orchestrator terminal feature"
+# Step 10: Verify orchestrator terminal page (end-to-end test)
+start_step "Step 10: Verify orchestrator terminal feature"
 
 # Create orchestrator session first (so we have something to test)
 echo "  Creating test orchestrator session..."
@@ -166,16 +178,16 @@ EOF
 
 # Test that the session detail page loads (where terminal would be)
 if ! curl -sf http://localhost:9000/sessions/test-project-orchestrator > /dev/null; then
-    fail_step "Step 9: Orchestrator session page failed to load"
+    fail_step "Step 10: Orchestrator session page failed to load"
 fi
 
 # Cleanup test session
 tmux kill-session -t test-project-orchestrator 2>/dev/null || true
 
-end_step "Step 9: Orchestrator terminal page accessible"
+end_step "Step 10: Orchestrator terminal page accessible"
 
-# Step 10: Cleanup
-start_step "Step 10: Cleanup"
+# Step 11: Cleanup
+start_step "Step 11: Cleanup"
 kill $DASHBOARD_PID 2>/dev/null || true
 # Wait for process to exit
 sleep 2
@@ -186,7 +198,7 @@ kill -9 $DASHBOARD_PID 2>/dev/null || true
 pkill -f "node.*next.*dev" || true
 pkill -f "tsx.*terminal" || true
 
-end_step "Step 10: Cleanup completed"
+end_step "Step 11: Cleanup completed"
 
 # Calculate total time
 end_time=$(date +%s)

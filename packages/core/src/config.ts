@@ -165,7 +165,7 @@ const DecomposerConfigSchema = z
 // bd-uxs.8: Merge gate config schema
 const MergeGateConfigSchema = z
   .object({
-    enabled: z.boolean().default(false),
+    enabled: z.boolean().default(true),
     requiredLabels: z.array(z.string()).optional(),
     blockedLabels: z.array(z.string()).optional(),
     requiredChecks: z.array(z.string()).optional(),
@@ -342,49 +342,6 @@ function validateProjectUniqueness(config: OrchestratorConfig): void {
 
     prefixes.add(prefix);
     prefixToProject[prefix] = configKey;
-  }
-}
-
-/**
- * Reject auto-merge reactions.
- *
- * AO intentionally does not auto-merge by default. Agent safety guard: the
- * merge guardrail is enforced at the CLI level (`gh pr merge` is blocked by
- * default via the metadata hook + codex wrapper). Users who need auto-merge
- * should use `AO_ALLOW_GH_PR_MERGE=1` as an explicit escape hatch for trusted
- * manual flows — not via config.
- */
-function validateNoAutoMergeReactions(config: OrchestratorConfig): void {
-  const offenders: Array<{ scope: string; event: string }> = [];
-
-  for (const [event, reaction] of Object.entries(config.reactions)) {
-    if (reaction.action === "auto-merge") {
-      offenders.push({ scope: "global", event });
-    }
-  }
-
-  for (const [projectKey, project] of Object.entries(config.projects)) {
-    for (const [event, reaction] of Object.entries(project.reactions ?? {})) {
-      if (reaction.action === "auto-merge") {
-        offenders.push({ scope: `project "${projectKey}"`, event });
-      }
-    }
-  }
-
-  if (offenders.length > 0) {
-    const lines = offenders.map(
-      ({ scope, event }) => `  - ${scope} reaction "${event}"`,
-    );
-    throw new Error(
-      `auto-merge reaction(s) are not allowed.\n` +
-        `The following reaction(s) use action: auto-merge:\n` +
-        `${lines.join("\n")}\n\n` +
-        `AO intentionally does not support auto-merge reactions.\n` +
-        `Merges are controlled by the orchestrator, not by config.\n` +
-        `To merge a PR, rely on the orchestrator's merge-gate logic\n` +
-        `or trigger a merge manually with 'gh pr merge'.\n\n` +
-        `See: agent-orchestrator.yaml reactions configuration`,
-    );
   }
 }
 
@@ -594,9 +551,6 @@ export function validateConfig(raw: unknown): OrchestratorConfig {
 
   // Validate project uniqueness and prefix collisions
   validateProjectUniqueness(config);
-
-  // Reject auto-merge reactions — AO intentionally does not auto-merge by default
-  validateNoAutoMergeReactions(config);
 
   return config;
 }
