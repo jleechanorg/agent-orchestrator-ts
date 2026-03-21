@@ -296,46 +296,6 @@ describe("setupWorkspaceHooks — hook event names", () => {
     expect(hooks).not.toHaveProperty("BeforeTool");
   });
 
-  it("pre-event command does not include AO_DATA_DIR (guardrail exits before session needed)", async () => {
-    const agent = createAgentPlugin({
-      name: "claude-code",
-      description: "Claude Code",
-      processName: "claude",
-      command: "claude",
-      configDir: ".claude",
-      permissionlessFlag: "--dangerously-skip-permissions",
-    });
-
-    await agent.setupWorkspaceHooks!("/workspace/test", { dataDir: "/data/sessions" });
-
-    const settingsJson = getSettingsJsonArg();
-    expect(settingsJson).not.toBeNull();
-    const settings = JSON.parse(settingsJson!) as Record<string, unknown>;
-    const hooks = settings["hooks"] as Record<string, unknown>;
-    const preToolUse = hooks["PreToolUse"] as Array<Record<string, unknown>>;
-    expect(preToolUse).toBeDefined();
-    const hookDef = preToolUse[0] as Record<string, unknown>;
-    const hooksList = hookDef["hooks"] as Array<Record<string, unknown>>;
-    const preCommand = hooksList[0]["command"] as string;
-
-    expect(preCommand).not.toContain("AO_DATA_DIR=");
-    expect(preCommand).toContain("AO_HOOK_EVENT_NAME=");
-  });
-
-  it("post-event command includes AO_DATA_DIR (metadata tracking needs session directory)", async () => {
-    const agent = createAgentPlugin({
-      name: "claude-code",
-      description: "Claude Code",
-      processName: "claude",
-      command: "claude",
-      configDir: ".claude",
-      permissionlessFlag: "--dangerously-skip-permissions",
-    });
-
-    await agent.setupWorkspaceHooks!("/workspace/test", { dataDir: "/data/sessions" });
-
-    const settingsJson = getSettingsJsonArg();
-    expect(settingsJson).not.toBeNull();
     const settings = JSON.parse(settingsJson!) as Record<string, unknown>;
     const hooks = settings["hooks"] as Record<string, unknown>;
     const postToolUse = hooks["PostToolUse"] as Array<Record<string, unknown>>;
@@ -349,7 +309,7 @@ describe("setupWorkspaceHooks — hook event names", () => {
     expect(postCommand).toContain("AO_HOOK_EVENT_NAME=");
   });
 
-  it("uses AfterTool when hookEventNames configured for Gemini", async () => {
+  it("uses AfterTool/BeforeTool when hookEventNames configured for Gemini", async () => {
     const agent = createAgentPlugin({
       name: "gemini",
       description: "Gemini CLI",
@@ -357,7 +317,7 @@ describe("setupWorkspaceHooks — hook event names", () => {
       command: "gemini",
       configDir: ".gemini",
       permissionlessFlag: "--yolo",
-      hookEventNames: { postToolUse: "AfterTool" },
+      hookEventNames: { postToolUse: "AfterTool", preToolUse: "BeforeTool" },
     });
 
     await agent.setupWorkspaceHooks!("/workspace/test", { dataDir: "/data/sessions" });
@@ -367,8 +327,8 @@ describe("setupWorkspaceHooks — hook event names", () => {
     const settings = JSON.parse(settingsJson!) as Record<string, unknown>;
     const hooks = settings["hooks"] as Record<string, unknown>;
     expect(hooks).toHaveProperty("AfterTool");
-    expect(hooks).toHaveProperty("PreToolUse"); // guardrail still uses PreToolUse
+    expect(hooks).toHaveProperty("BeforeTool");
     expect(hooks).not.toHaveProperty("PostToolUse");
-    expect(hooks).not.toHaveProperty("BeforeTool");
+    expect(hooks).not.toHaveProperty("PreToolUse");
   });
 });
