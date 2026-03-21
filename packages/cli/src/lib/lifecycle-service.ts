@@ -1,3 +1,4 @@
+import { execSync } from "node:child_process";
 import { spawn } from "node:child_process";
 import {
   closeSync,
@@ -60,6 +61,35 @@ function isProcessRunning(pid: number): boolean {
   }
 }
 
+/**
+ * Verify the PID belongs to a lifecycle-worker process for the given projectId.
+ *
+ * Uses `ps` to read the full command line of the PID and checks for the
+ * `lifecycle-worker <projectId>` marker. This prevents false positives when
+ * the PID has been recycled and now belongs to an unrelated process.
+ *
+ * Falls back to `isProcessRunning` (kill -0) when `ps` fails.
+ */
+function isLifecycleWorkerProcess(pid: number, projectId: string): boolean {
+  try {
+    // macOS and Linux both support -o args= for the full command line
+    const cmdline = execSync(`ps -p ${pid} -o args=`, {
+      timeout: 3_000,
+      stdio: ["ignore", "pipe", "ignore"],
+    })
+      .toString("utf-8")
+      .trim();
+
+    const marker = `lifecycle-worker ${projectId}`;
+    return cmdline.includes(marker);
+  } catch {
+    // If `ps` fails (process already gone or permission denied), fall back to
+    // kill -0. This is safe because the PID will either be unreachable or
+    // owned by the same user — either way `kill -0` is accurate.
+    return isProcessRunning(pid);
+  }
+}
+
 function readPid(pidFile: string): number | null {
   if (!existsSync(pidFile)) return null;
 
@@ -112,7 +142,7 @@ export function getLifecycleWorkerStatus(
   const logFile = getLifecycleLogFile(config, projectId);
   const pid = readPid(pidFile);
 
-  if (pid !== null && isProcessRunning(pid)) {
+  if (pid !== null && isLifecycleWorkerProcess(pid, projectId)) {
     return { running: true, pid, pidFile, logFile };
   }
 
@@ -236,7 +266,7 @@ export async function stopLifecycleWorker(
 
   const deadline = Date.now() + STOP_TIMEOUT_MS;
   while (Date.now() < deadline) {
-    if (!isProcessRunning(status.pid)) {
+    if (!isLifecycleWorkerProcess(status.pid, projectId)) {
       clearLifecycleWorkerPid(config, projectId, status.pid);
       return true;
     }

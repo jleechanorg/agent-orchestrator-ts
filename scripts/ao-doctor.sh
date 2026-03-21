@@ -312,6 +312,61 @@ check_stale_temp_files() {
   warn "$stale_count stale temp files older than 60 minutes found under $temp_root. Fix: rerun ao doctor --fix"
 }
 
+check_lifecycle_workers() {
+  # Count lifecycle-worker processes per project via launchd and ps
+  local config_file="$HOME/.openclaw/agent-orchestrator.yaml"
+
+  if [ ! -f "$config_file" ]; then
+    warn "No canonical config at $config_file — cannot check lifecycle-worker counts"
+    return
+  fi
+
+  local projects
+  projects="$(python3 -c "
+import yaml, sys
+try:
+    with open('$config_file') as f:
+        cfg = yaml.safe_load(f)
+    for pid in cfg.get('projects', {}):
+        print(pid)
+except Exception:
+    pass
+" 2>/dev/null || true)"
+
+  if [ -z "$projects" ]; then
+    pass "no projects in config — lifecycle-worker check skipped"
+    return
+  fi
+
+  local duplicates_found=0
+  for proj in $projects; do
+    local plist_name="com.agentorchestrator.lifecycle-${proj}"
+    local running_via_launchd=0
+
+    if launchctl list "$plist_name" 2>/dev/null | grep -q "PID"; then
+      running_via_launchd=1
+    fi
+
+    # Count how many processes appear to be lifecycle-workers for this project
+    # via ps (covers both launchd-managed and manual/process-spawned workers)
+    local count
+    count="$(ps aux 2>/dev/null | grep -E "[l]ifecycle-worker.*${proj}" | wc -l | tr -d ' ')"
+
+    if [ "$count" -eq 0 ]; then
+      warn "no lifecycle-worker process found for project '$proj'"
+    elif [ "$count" -ge 2 ]; then
+      warn "duplicate lifecycle-worker processes detected for project '$proj': count=$count"
+      duplicates_found=$((duplicates_found + 1))
+    else
+      pass "lifecycle-worker for project '$proj' is running normally (count=$count)"
+    fi
+  done
+
+  if [ "$duplicates_found" -gt 0 ]; then
+    warn "$duplicates_found project(s) have duplicate lifecycle-worker processes. Fix: run 'launchctl unload' for the affected plists or kill duplicate PIDs manually"
+  fi
+}
+
 FIX_MODE=false
 
 # Guard: return early when sourced (e.g., for unit tests) - after functions are defined
@@ -357,6 +412,7 @@ check_config_dirs
 check_stale_temp_files
 check_install_layout
 check_runtime_sanity
+check_lifecycle_workers
 
 printf '\nResults: %s PASS, %s WARN, %s FAIL, %s FIXED\n' "$PASS_COUNT" "$WARN_COUNT" "$FAIL_COUNT" "$FIX_COUNT"
 

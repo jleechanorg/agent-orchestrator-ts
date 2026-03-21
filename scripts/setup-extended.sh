@@ -103,9 +103,36 @@ if false; then
       LOG_DIR="$HOME/.openclaw/logs"
       mkdir -p "$LOG_DIR"
 
+      # Kill existing worker for this project before starting a new one
+      # This prevents duplicate workers when running setup-extended.sh repeatedly
       if launchctl list "$PLIST_NAME" 2>/dev/null | grep -q "PID"; then
-        echo "  [ok] $PROJECT lifecycle-worker already running"
-        continue
+        echo "  [kill] $PROJECT existing lifecycle-worker — unloading and restarting"
+        launchctl unload "$PLIST_PATH" 2>/dev/null || true
+      fi
+      # Also kill any non-launchd worker for this project (by PID file)
+      PROJ_NS_DIR="$(find "$HOME/.agent-orchestrator" -maxdepth 1 -type d -name "*" 2>/dev/null | head -1)"
+      if [ -n "$PROJ_NS_DIR" ]; then
+        # Try to find the PID file for this project via config namespace
+        PID_FILE_NS="$(python3 -c "
+import hashlib, sys, os, yaml
+try:
+    with open('$CONFIG_FILE') as f:
+        cfg = yaml.safe_load(f)
+    ns = hashlib.sha256(os.path.dirname('$CONFIG_FILE').encode()).hexdigest()[:12]
+    print(ns)
+except:
+    pass
+" 2>/dev/null || echo "")"
+        if [ -n "$PID_FILE_NS" ]; then
+          LW_PID_FILE="$HOME/.agent-orchestrator/${PID_FILE_NS}/${PROJECT}/lifecycle-worker.pid"
+          if [ -f "$LW_PID_FILE" ]; then
+            LW_PID="$(cat "$LW_PID_FILE" 2>/dev/null)"
+            if [ -n "$LW_PID" ] && kill -0 "$LW_PID" 2>/dev/null; then
+              echo "  [kill] $PROJECT lifecycle-worker PID $LW_PID"
+              kill "$LW_PID" 2>/dev/null || true
+            fi
+          fi
+        fi
       fi
 
       cat > "$PLIST_PATH" << PLIST_EOF

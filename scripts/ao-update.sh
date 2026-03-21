@@ -87,6 +87,94 @@ printf 'Agent Orchestrator Update\n\n'
 
 require_command node "install Node.js 20+"
 
+# ─── Kill existing lifecycle-workers for all projects ───────────────────────
+# Read project IDs from the canonical config so we can stop workers before
+# reinstalling. We do this before rebuilding so the new binary is never
+# left in a state where an old worker is holding stale state.
+kill_existing_workers() {
+  local config_file="$HOME/.openclaw/agent-orchestrator.yaml"
+  if [ ! -f "$config_file" ]; then
+    printf 'No canonical config at %s — skipping worker teardown.\n' "$config_file"
+    return 0
+  fi
+
+  local projects
+  projects="$(python3 -c "
+import yaml, sys
+try:
+    with open('$config_file') as f:
+        cfg = yaml.safe_load(f)
+    for pid in cfg.get('projects', {}):
+        print(pid)
+except Exception:
+    pass
+" 2>/dev/null || true)"
+
+  if [ -z "$projects" ]; then
+    printf 'No projects found in config — skipping worker teardown.\n'
+    return 0
+  fi
+
+  printf '\nTearing down lifecycle-workers before update...\n'
+  for proj in $projects; do
+    local pid_file="$HOME/.agent-orchestrator/$(echo -n "$HOME/.openclaw" | sha256sum | cut -d' ' -f1)/$proj/lifecycle-worker.pid"
+    # Also check launchd
+    local plist_name="com.agentorchestrator.lifecycle-${proj}"
+    if launchctl list "$plist_name" 2>/dev/null | grep -q "PID"; then
+      printf '  -> Unloading launchd agent %s\n' "$plist_name"
+      launchctl unload "$HOME/Library/LaunchAgents/${plist_name}.plist" 2>/dev/null || true
+    fi
+    # Also kill by PID file
+    if [ -f "$pid_file" ]; then
+      local lw_pid
+      lw_pid="$(cat "$pid_file" 2>/dev/null)"
+      if [ -n "$lw_pid" ] && kill -0 "$lw_pid" 2>/dev/null; then
+        printf '  -> Killing lifecycle-worker for project %s (PID %s)\n' "$proj" "$lw_pid"
+        kill "$lw_pid" 2>/dev/null || true
+      fi
+    fi
+  done
+  printf 'Worker teardown complete.\n'
+}
+
+restart_workers() {
+  local config_file="$HOME/.openclaw/agent-orchestrator.yaml"
+  if [ ! -f "$config_file" ]; then
+    printf 'No canonical config — skipping worker restart.\n'
+    return 0
+  fi
+
+  local projects
+  projects="$(python3 -c "
+import yaml, sys
+try:
+    with open('$config_file') as f:
+        cfg = yaml.safe_load(f)
+    for pid in cfg.get('projects', {}):
+        print(pid)
+except Exception:
+    pass
+" 2>/dev/null || true)"
+
+  if [ -z "$projects" ]; then
+    return 0
+  fi
+
+  local ao_bin
+  ao_bin="$(command -v ao 2>/dev/null || true)"
+  if [ -z "$ao_bin" ]; then
+    printf 'ao binary not found in PATH — skipping worker restart.\n'
+    return 0
+  fi
+
+  printf '\nRestarting lifecycle-workers after update...\n'
+  for proj in $projects; do
+    printf '  -> Starting lifecycle-worker for project %s\n' "$proj"
+    "$ao_bin" lifecycle-worker "$proj" &
+  done
+  printf 'Worker restart complete.\n'
+}
+
 cd "$REPO_ROOT"
 
 if [ "$SMOKE_ONLY" = false ]; then
@@ -101,6 +189,8 @@ if [ "$SMOKE_ONLY" = false ]; then
 
   ensure_repo_clean "Working tree is dirty. Fix: commit or stash local changes before running ao update."
   ensure_on_target_branch
+
+  kill_existing_workers
 
   run_cmd git fetch origin "$TARGET_BRANCH"
   run_cmd git pull --ff-only origin "$TARGET_BRANCH"
@@ -129,6 +219,8 @@ if [ "$SMOKE_ONLY" = false ]; then
   )
 
   ensure_repo_clean "Update modified tracked files. Inspect git status, review the changes, and rerun after restoring a clean checkout if needed."
+
+  restart_workers
 fi
 
 if [ "$SKIP_SMOKE" = false ]; then
