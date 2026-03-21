@@ -672,7 +672,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     const tracked = states.get(session.id);
     const oldStatus =
       tracked ?? ((session.metadata?.["status"] as SessionStatus | undefined) || session.status);
-    const newStatus = await determineStatus(session);
+    let newStatus = await determineStatus(session);
     let transitionReaction: { key: string; result: ReactionResult | null } | undefined;
 
     // bd-kki: check if PR is merged before recording "killed" status.
@@ -685,7 +685,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         if (scm) {
           const prState = await scm.getPRState(session.pr);
           if (prState === PR_STATE.MERGED) {
-            await sessionManager.kill(session.id);
+            newStatus = "merged";
           }
         }
       }
