@@ -1,9 +1,8 @@
 /**
- * poller-github-pr plugin — scans open GitHub PRs and spawns fix sessions for non-green PRs.
+ * poller-github-pr plugin — scans open GitHub PRs and spawns fix sessions.
  *
- * Uses the `gh` CLI to query GitHub for open PRs and check CI/review state.
- * Non-green PRs (failing CI, changes requested, pending reviews) are returned
- * as PollerWorkItems for the poller-manager to spawn sessions for.
+ * This poller focuses on PRs where CodeRabbit has CHANGES_REQUESTED.
+ * Poller-manager handles duplicate prevention (active sessions) and respawn caps.
  */
 
 import { execFile } from "node:child_process";
@@ -19,9 +18,11 @@ import type {
 
 const execFileAsync = promisify(execFile);
 
-// -----------------------------------------------------------------------
-// GitHub PR shape returned by `gh pr list --json`
-// -----------------------------------------------------------------------
+interface GitHubReview {
+  author?: { login?: string | null } | null;
+  state?: string | null;
+  submittedAt?: string | null;
+}
 
 interface GitHubPR {
   number: number;
@@ -31,13 +32,9 @@ interface GitHubPR {
   headRefName: string;
   baseRefName: string;
   statusCheckRollup: Array<{ state: string; conclusion: string | null }> | null;
-  reviewDecision: string | null;
   mergeable: string;
+  latestReviews?: GitHubReview[] | null;
 }
-
-// -----------------------------------------------------------------------
-// Helper: run gh CLI
-// -----------------------------------------------------------------------
 
 async function ghExec(args: string[], cwd?: string): Promise<string> {
   const { stdout } = await execFileAsync("gh", args, {
@@ -48,13 +45,9 @@ async function ghExec(args: string[], cwd?: string): Promise<string> {
   return stdout.trim();
 }
 
-// -----------------------------------------------------------------------
-// Helper: determine if CI is passing for a PR
-// -----------------------------------------------------------------------
-
 function isCIPassing(pr: GitHubPR): boolean {
   const checks = pr.statusCheckRollup;
-  if (!checks || checks.length === 0) return true; // No CI configured — treat as passing
+  if (!checks || checks.length === 0) return true;
   return checks.every((c) => {
     const state = c.state?.toUpperCase();
     const conclusion = c.conclusion?.toLowerCase();
@@ -67,57 +60,33 @@ function isCIPassing(pr: GitHubPR): boolean {
   });
 }
 
-// -----------------------------------------------------------------------
-// Helper: determine if a PR has been approved
-// -----------------------------------------------------------------------
+function getLatestCodeRabbitState(pr: GitHubPR): "CHANGES_REQUESTED" | "APPROVED" | null {
+  const decisive = (pr.latestReviews ?? [])
+    .filter((r) => (r.author?.login ?? "").toLowerCase() === "coderabbitai[bot]")
+    .filter((r) => {
+      const state = (r.state ?? "").toUpperCase();
+      return state === "APPROVED" || state === "CHANGES_REQUESTED";
+    })
+    .sort(
+      (a, b) =>
+        new Date(b.submittedAt ?? 0).getTime() -
+        new Date(a.submittedAt ?? 0).getTime(),
+    );
 
-function isApproved(pr: GitHubPR): boolean {
-  return pr.reviewDecision === "APPROVED" || pr.reviewDecision === null || pr.reviewDecision === "";
+  const latest = decisive[0];
+  if (!latest?.state) return null;
+  const state = latest.state.toUpperCase();
+  if (state === "APPROVED" || state === "CHANGES_REQUESTED") return state;
+  return null;
 }
-
-// -----------------------------------------------------------------------
-// Helper: determine if a PR is "green" (no action needed)
-// A PR is green when:
-//   1. CI is passing (or no CI configured)
-//   2. Review decision is APPROVED (or no review required)
-//   3. No merge conflicts
-// Draft PRs are skipped (not our responsibility to fix).
-// -----------------------------------------------------------------------
-
-function isPRGreen(pr: GitHubPR): boolean {
-  if (pr.isDraft) return true; // Skip drafts — treat as green to avoid spawning sessions
-  if (pr.mergeable === "CONFLICTING") return false;
-  return isCIPassing(pr) && isApproved(pr);
-}
-
-// -----------------------------------------------------------------------
-// Helper: collect reasons why a PR is not green
-// -----------------------------------------------------------------------
-
-function getNonGreenReasons(pr: GitHubPR): string[] {
-  const reasons: string[] = [];
-  if (!isCIPassing(pr)) reasons.push("ci-failing");
-  if (pr.reviewDecision === "CHANGES_REQUESTED") reasons.push("changes-requested");
-  if (pr.reviewDecision === "REVIEW_REQUIRED") reasons.push("review-required");
-  if (pr.mergeable === "CONFLICTING") reasons.push("merge-conflicts");
-  return reasons;
-}
-
-// -----------------------------------------------------------------------
-// Plugin manifest
-// -----------------------------------------------------------------------
 
 export const manifest = {
   name: "github-pr",
   slot: "poller" as const,
-  description: "Poller plugin: GitHub PR scanner — spawns fix sessions for non-green PRs",
+  description: "Poller plugin: scans GitHub PRs and routes CodeRabbit CHANGES_REQUESTED to agents",
   version: "0.1.0",
   displayName: "GitHub PR Poller",
 };
-
-// -----------------------------------------------------------------------
-// Plugin factory
-// -----------------------------------------------------------------------
 
 export function create(config?: Record<string, unknown>): Poller & { setSessionManager(sm: SessionManager): void } {
   const repo = config?.repo as string | undefined;
@@ -137,7 +106,7 @@ export function create(config?: Record<string, unknown>): Poller & { setSessionM
         "--state",
         "open",
         "--json",
-        "number,title,url,isDraft,headRefName,baseRefName,statusCheckRollup,reviewDecision,mergeable",
+        "number,title,url,isDraft,headRefName,baseRefName,statusCheckRollup,mergeable,latestReviews",
         "--limit",
         "50",
       ];
@@ -164,28 +133,33 @@ export function create(config?: Record<string, unknown>): Poller & { setSessionM
       const workItems: PollerWorkItem[] = [];
 
       for (const pr of prs) {
-        // Skip draft PRs
         if (pr.isDraft) continue;
 
-        // Skip green PRs
-        if (isPRGreen(pr)) continue;
+        const codeRabbitState = getLatestCodeRabbitState(pr);
+        if (codeRabbitState !== "CHANGES_REQUESTED") {
+          continue;
+        }
 
-        const reasons = getNonGreenReasons(pr);
+        const ciPassing = isCIPassing(pr);
+        const reasons = ["changes-requested"];
+        if (!ciPassing) {
+          reasons.push("ci-failing");
+        }
 
         workItems.push({
           id: `pr-${pr.number}`,
           type: "open-pr",
           title: pr.title,
           url: pr.url,
-          priority: reasons.includes("ci-failing") ? 1 : 2,
+          priority: !ciPassing ? 1 : 2,
           metadata: {
             prNumber: pr.number,
             branch: pr.headRefName,
             baseBranch: pr.baseRefName,
             reasons,
-            ciPassing: isCIPassing(pr),
-            approved: isApproved(pr),
+            ciPassing,
             mergeable: pr.mergeable,
+            codeRabbitState,
           },
         });
       }
@@ -208,7 +182,6 @@ export function create(config?: Record<string, unknown>): Poller & { setSessionM
       const reasons = (workItem.metadata?.reasons as string[]) ?? [];
       const prNumber = workItem.metadata?.prNumber as number | undefined;
 
-      // Build PR-specific context that enriches any upstream prompt
       const prContext = [
         `Fix PR #${prNumber ?? workItem.id}: ${workItem.title}`,
         `URL: ${workItem.url}`,
@@ -217,11 +190,7 @@ export function create(config?: Record<string, unknown>): Poller & { setSessionM
         .filter(Boolean)
         .join("\n");
 
-      // If an upstream prompt was provided (e.g., from poller-manager template),
-      // append PR-specific reasons so they are not lost.
-      const prompt = config.prompt
-        ? `${config.prompt}\n\n${prContext}`
-        : prContext;
+      const prompt = config.prompt ? `${config.prompt}\n\n${prContext}` : prContext;
 
       return sessionManager.spawn({
         ...config,
