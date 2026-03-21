@@ -96,7 +96,16 @@ function resolveProject(
     return { projectId, project: config.projects[projectId] };
   }
 
-  // Multiple projects, no argument — error
+  // Multiple projects — try matching cwd to a project path
+  const currentDir = resolve(cwd());
+  for (const [id, proj] of Object.entries(config.projects)) {
+    const projPath = resolve(proj.path.replace(/^~/, process.env["HOME"] || ""));
+    if (projPath === currentDir) {
+      return { projectId: id, project: proj };
+    }
+  }
+
+  // No match — error with helpful message
   throw new Error(
     `Multiple projects configured. Specify which one to start:\n  ${projectIds.map((id) => `ao start ${id}`).join("\n  ")}`,
   );
