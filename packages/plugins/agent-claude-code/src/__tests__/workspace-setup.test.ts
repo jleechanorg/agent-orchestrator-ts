@@ -7,7 +7,7 @@
  * identical to what was already on disk.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { mkdtempSync, mkdirSync, statSync, utimesSync, rmSync, symlinkSync } from "node:fs";
+import { mkdtempSync, mkdirSync, statSync, utimesSync, rmSync, symlinkSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { create } from "../index.js";
