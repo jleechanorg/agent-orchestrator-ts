@@ -11,29 +11,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Fetch PR body and write to temp file
+      - name: Write PR body to temp file
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_BODY: ${{ github.event.pull_request.body }}
         run: |
-          set -o pipefail
-          # Fetch PR body using GitHub REST API — more reliable than gh CLI
-          # Fail-closed: exits with error if the API call fails
-          HTTP_CODE=$(curl -s -o "$RUNNER_TEMP/pr_body.txt" -w "%{http_code}" \
-            -H "Authorization: Bearer $GH_TOKEN" \
-            -H "Accept: application/vnd.github+json" \
-            "https://api.github.com/repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" \
-            2>/dev/null)
-          BODY=$(cat "$RUNNER_TEMP/pr_body.txt")
-          if [ "$HTTP_CODE" != "200" ]; then
-            echo "ERROR: API returned HTTP $HTTP_CODE" >&2
-            echo "Body: $BODY" >&2
+          # Use the PR body from the workflow context — available without auth scope
+          # Fail-closed: body must not be empty (would indicate context unavailable)
+          printf '%s' "$PR_BODY" > "$RUNNER_TEMP/pr_body.txt"
+          echo "Body fetched: ${#PR_BODY} chars"
+          if [ ${#PR_BODY} -eq 0 ]; then
+            echo "ERROR: PR body is empty — context may be unavailable" >&2
             exit 1
           fi
-          # Extract body field from JSON response
-          BODY=$(python3 -c "import json,sys; print(json.load(sys.stdin).get('body',''))" < "$RUNNER_TEMP/pr_body.txt")
-          printf '%s' "$BODY" > "$RUNNER_TEMP/pr_body.txt"
-          echo "Body fetched: ${#BODY} chars (HTTP $HTTP_CODE)"
 
       - name: Check for evidence bundle in PR body
         id: check
