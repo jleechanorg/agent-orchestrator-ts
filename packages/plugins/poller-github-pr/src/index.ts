@@ -3,6 +3,11 @@
  *
  * This poller focuses on PRs where CodeRabbit has CHANGES_REQUESTED.
  * Poller-manager handles duplicate prevention (active sessions) and respawn caps.
+ *
+ * Rate limiting: after retries, `gh pr list` may fall back to REST `/pulls`.
+ * That payload has no `latestReviews` or `statusCheckRollup`, so review-driven
+ * work items are not emitted until `gh pr list` succeeds again — by design, to
+ * avoid false positives when CI/review state is unknown.
  */
 
 import { execFile } from "node:child_process";
