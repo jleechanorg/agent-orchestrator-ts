@@ -583,11 +583,15 @@ async function setupHookInWorkspace(workspacePath: string): Promise<void> {
   const settingsPath = join(claudeDir, "settings.json");
   const hookScriptPath = join(claudeDir, "metadata-updater.sh");
 
-  // Reject symlinks BEFORE creating — writing into a symlinked .claude is a security risk
+  // Skip hook setup when .claude is a symlink — avoid following an untrusted link; worktrees
+  // may symlink a shared .claude, in which case hooks are managed elsewhere.
   try {
     const claudeStat = await lstat(claudeDir);
     if (claudeStat.isSymbolicLink()) {
-      throw new Error(`[agent-claude-code] .claude dir is a symlink at ${claudeDir} — refusing to write hooks`);
+      console.warn(
+        `[agent-claude-code] .claude at ${claudeDir} is a symlink — skipping workspace hook setup`,
+      );
+      return;
     }
     // Exists as a real directory — nothing to create
   } catch (err) {
