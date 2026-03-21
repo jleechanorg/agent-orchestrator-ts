@@ -61,8 +61,9 @@ function isLifecycleWorkerProcess(
 ): boolean | null {
   try {
     // macOS and Linux both support -o args= for the full command line.
+    // Use -ww to disable column truncation (macOS/BSD default to ~16 chars).
     // Use execFileSync so no shell is involved — avoids quoting issues.
-    const cmdline = execFileSync("ps", ["-p", String(pid), "-o", "args="], {
+    const cmdline = execFileSync("ps", ["-ww", "-p", String(pid), "-o", "args="], {
       timeout: 3_000,
       stdio: ["ignore", "pipe", "ignore"],
     })
