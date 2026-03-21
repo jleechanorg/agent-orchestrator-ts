@@ -22,7 +22,9 @@ const {
   mockStat: vi.fn(),
 
 
-  mockLstat: vi.fn().mockResolvedValue({ isSymbolicLink: () => false }),
+  mockLstat: vi
+    .fn()
+    .mockResolvedValue({ isSymbolicLink: () => false, isDirectory: () => true }),
   mockHomedir: vi.fn(() => "/mock/home"),
   mockWriteFile: vi.fn().mockResolvedValue(undefined),
   mockMkdir: vi.fn().mockResolvedValue(undefined),
@@ -880,18 +882,21 @@ describe("hook setup — relative path (symlink-safe)", () => {
     );
   });
 
-  it("warns (does not throw) for symlinked .claude directory", async () => {
-    mockLstat.mockResolvedValueOnce({ isSymbolicLink: () => true });
+  it("writes hooks when .claude is a symlink (lstat); does not skip setup", async () => {
+    mockLstat.mockResolvedValueOnce({ isSymbolicLink: () => true, isDirectory: () => false });
+    mockWriteFile.mockClear();
 
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     await expect(
       agent.setupWorkspaceHooks!(
         "/Users/equinox/.worktrees/integrator/integrator-5",
         {} as WorkspaceHooksConfig,
       ),
     ).resolves.not.toThrow();
-    expect(warnSpy).toHaveBeenCalledWith(expect.stringMatching(/symlink/i));
-    warnSpy.mockRestore();
+
+    const scriptWrite = mockWriteFile.mock.calls.find(
+      ([path]: unknown[]) => typeof path === "string" && path.endsWith("metadata-updater.sh"),
+    );
+    expect(scriptWrite).toBeDefined();
   });
 
   it("skips postLaunchSetup when workspacePath is null", async () => {

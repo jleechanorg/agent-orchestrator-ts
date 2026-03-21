@@ -18,7 +18,7 @@ import { execFile, execFileSync } from "node:child_process";
 import { readdir, readFile, stat, open, writeFile, mkdir, chmod, lstat } from "node:fs/promises";
 import { existsSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
-import { basename, join } from "node:path";
+import { basename, join, sep } from "node:path";
 import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
@@ -583,25 +583,29 @@ async function setupHookInWorkspace(workspacePath: string): Promise<void> {
   const settingsPath = join(claudeDir, "settings.json");
   const hookScriptPath = join(claudeDir, "metadata-updater.sh");
 
-  // Check for symlinks — validate target is within workspace before writing
+  // Symlinked `.claude` (e.g. git worktrees sharing config): writes use workspace-relative paths and
+  // the OS follows the symlink, so hooks land on the real target. We only warn when the resolved
+  // target sits outside the workspace (visibility); we do not skip — skipping broke real setups.
   try {
     const claudeStat = await lstat(claudeDir);
     if (claudeStat.isSymbolicLink()) {
       try {
         const resolved = realpathSync(claudeDir);
         const wsReal = realpathSync(workspacePath);
-        if (!resolved.startsWith(wsReal + "/") && resolved !== wsReal) {
-          console.warn(`[agent-claude-code] .claude is a symlink pointing outside workspace (${resolved}) — skipping hook setup`);
-          return;
+        const inside = resolved === wsReal || resolved.startsWith(wsReal + sep);
+        if (!inside) {
+          console.warn(
+            `[agent-claude-code] .claude symlink resolves outside workspace (${resolved}); writing hooks to that target`,
+          );
         }
       } catch {
-        // Can't resolve symlink (broken or test env) — skip to be safe
-        console.warn(`[agent-claude-code] .claude is a symlink at ${claudeDir} — cannot verify target, skipping hook setup`);
-        return;
+        // Broken symlink, or paths not on disk (unit tests with mocked lstat only) — still try writes.
       }
-      console.warn(`[agent-claude-code] .claude is a symlink at ${claudeDir} — target within workspace, continuing`);
+    } else if (!claudeStat.isDirectory()) {
+      throw new Error(
+        `[agent-claude-code] .claude exists but is not a directory or symlink: ${claudeDir}`,
+      );
     }
-    // Exists (real dir or symlink within workspace) — nothing to create
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
     // Directory doesn't exist — create it
