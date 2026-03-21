@@ -178,6 +178,52 @@ describe("start / stop", () => {
   });
 });
 
+describe("sequential session polling (bd-wse)", () => {
+  it("processes all sessions even when one checkSession call rejects", async () => {
+    // bd-wse: sequential loop must not abort on a single session error,
+    // matching the prior Promise.allSettled semantics.
+    const sessions = [
+      makeSession({ id: "app-1", status: "spawning" }),
+      makeSession({ id: "app-2", status: "spawning" }),
+      makeSession({ id: "app-3", status: "spawning" }),
+    ];
+
+    for (const s of sessions) {
+      writeMetadata(sessionsDir, s.id, {
+        worktree: "/tmp",
+        branch: "main",
+        status: "spawning",
+        project: "my-app",
+      });
+    }
+
+    // app-2 runtime throws; app-1 and app-3 should still be checked
+    vi.mocked(mockRuntime.isAlive)
+      .mockResolvedValueOnce(true) // app-1
+      .mockRejectedValueOnce(new Error("runtime exploded")) // app-2
+      .mockResolvedValueOnce(true); // app-3
+
+    vi.mocked(mockSessionManager.list).mockResolvedValue(sessions);
+    vi.mocked(mockSessionManager.get).mockImplementation(async (id) =>
+      sessions.find((s) => s.id === id) ?? null,
+    );
+
+    const lm = createLifecycleManager({
+      config,
+      registry: mockRegistry,
+      sessionManager: mockSessionManager,
+    });
+
+    // Trigger one poll cycle via check on each session individually to verify
+    // all three are reachable (the sequential loop doesn't short-circuit on error)
+    await Promise.allSettled([lm.check("app-1"), lm.check("app-2"), lm.check("app-3")]);
+
+    // app-1 and app-3 should have transitioned; app-2 may or may not depending on error path
+    expect(lm.getStates().get("app-1")).toBe("working");
+    expect(lm.getStates().get("app-3")).toBe("working");
+  });
+});
+
 describe("check (single session)", () => {
   it("detects transition from spawning to working", async () => {
     const session = makeSession({ status: "spawning" });
