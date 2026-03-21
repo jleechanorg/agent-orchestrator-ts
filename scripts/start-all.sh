@@ -69,8 +69,17 @@ echo "Logs:    ls $LOG_DIR/ao-start-*.log"
 echo ""
 echo "Monitoring ${#PIDS[@]} workers. If any exit, this wrapper will exit too (triggering launchd restart)."
 
-# Wait for any worker to exit, then exit with failure so launchd restarts all workers
-wait -n "${PIDS[@]}"
-EXIT_CODE=$?
-echo "Worker exited with code $EXIT_CODE. Exiting wrapper to trigger launchd restart."
-exit $EXIT_CODE
+# Trap to kill all workers on exit (prevents orphaned processes on restart)
+trap 'kill "${PIDS[@]}" 2>/dev/null || true' EXIT
+
+# Wait for any worker to exit (bash 3.2 compatible - no wait -n)
+while true; do
+  for pid in "${PIDS[@]}"; do
+    if ! kill -0 "$pid" 2>/dev/null; then
+      wait "$pid" 2>/dev/null || EXIT_CODE=$?
+      echo "Worker PID $pid exited with code ${EXIT_CODE:-0}. Exiting wrapper to trigger launchd restart."
+      exit "${EXIT_CODE:-1}"
+    fi
+  done
+  sleep 2
+done
