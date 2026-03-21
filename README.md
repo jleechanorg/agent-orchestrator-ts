@@ -88,6 +88,33 @@ ao start ~/path/to/another-repo
 
 The orchestrator agent uses the [AO CLI](docs/CLI.md) internally to manage sessions. You don't need to learn or use the CLI — the dashboard and orchestrator handle everything.
 
+## jleechanorg Fork: OpenClaw Integration
+
+This fork is used as the execution layer for `jleechanorg/jleechanclaw`.
+
+Typical split of responsibilities:
+- **jleechanclaw (OpenClaw harness):** user intent parsing, context expansion, policy, and status updates.
+- **agent-orchestrator:** worker session lifecycle, isolated worktrees, PR execution loops, CI/review remediation.
+
+Key integration points in this repo:
+- Plugin contracts: `packages/core/src/types.ts`
+- OpenClaw notifier plugin: `packages/plugins/notifier-openclaw/src/index.ts`
+- GitHub SCM plugin: `packages/plugins/scm-github/src/index.ts`
+- tmux runtime plugin: `packages/plugins/runtime-tmux/src/index.ts`
+
+Example notifier wiring (`agent-orchestrator.yaml`):
+
+```yaml
+defaults:
+  notifiers: [desktop, openclaw]
+
+notifiers:
+  openclaw:
+    plugin: openclaw
+    url: http://127.0.0.1:18789/hooks/agent
+    token: ${OPENCLAW_HOOKS_TOKEN}
+```
+
 ## Configuration
 
 `ao start` auto-generates `agent-orchestrator.yaml` with sensible defaults. You can edit it afterwards to customize behavior:
