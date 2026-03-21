@@ -5,7 +5,7 @@ import {
   type AgentPluginConfig,
 } from "@jleechanorg/ao-plugin-agent-base";
 import { execFileSync } from "node:child_process";
-import type { Agent, ProjectConfig, Session } from "@jleechanorg/ao-core";
+import type { Agent, AgentLaunchConfig, ProjectConfig, Session } from "@jleechanorg/ao-core";
 
 // =============================================================================
 // Plugin Manifest
@@ -56,7 +56,7 @@ const cursorOverrides: Partial<Agent> = {
     return null;
   },
 
-  getLaunchCommand(launchConfig: Parameters<Agent["getLaunchCommand"]>[0]): string {
+  getLaunchCommand(launchConfig: AgentLaunchConfig): string {
     // Pre-create the workspace trust file so cursor-agent skips the interactive
     // "Workspace Trust Required" prompt in unattended sessions.
     // The --trust flag only works in headless (--print) mode; pre-creating the
@@ -74,9 +74,7 @@ const cursorOverrides: Partial<Agent> = {
     // immediately. Users who need a specific cursor model should configure it in
     // Cursor's own settings; AO should not override the model for cursor sessions.
     const { model: _ignored, ...launchConfigWithoutModel } = launchConfig;
-    const agentCmd = createAgentPlugin(cursorConfig).getLaunchCommand(
-      launchConfigWithoutModel as typeof launchConfig,
-    );
+    const agentCmd = createAgentPlugin(cursorConfig).getLaunchCommand(launchConfigWithoutModel);
     return `( ${preTrust} ); ${agentCmd}`;
   },
 };
