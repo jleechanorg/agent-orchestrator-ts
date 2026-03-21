@@ -85,6 +85,9 @@ export function evaluateCoderabbitApproval(
   const hasDismissed = hasUnresolvedDismissedReview(reviews, "coderabbitai[bot]");
   const passed = latestCR?.state === "approved" && !hasDismissed;
 
+  // Detail priority: changes_requested takes precedence over dismissal so the most
+  // recent blocker is surfaced. Dismissal detail is shown only when the latest
+  // decisive review would not otherwise block (e.g., approved or absent).
   const detail = passed
     ? "CodeRabbit approved"
     : latestCR?.state === "changes_requested"
