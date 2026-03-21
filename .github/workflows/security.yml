@@ -47,7 +47,7 @@ jobs:
       # Requires dependency graph + GHAS; org repos without it always error — keep signal without blocking PRs.
       - name: Dependency Review
         uses: actions/dependency-review-action@v4
-        continue-on-error: true
+        continue-on-error: true # Requires GHAS — informational without it
         with:
           fail-on-severity: moderate
 
