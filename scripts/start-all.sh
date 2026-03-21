@@ -34,9 +34,10 @@ mkdir -p "$LOG_DIR"
 # Track worker PIDs for monitoring and cleanup.
 PIDS=()
 # Trap to kill all workers on exit (prevents orphaned processes on restart).
-# _kill_workers checks whether each PID is still alive before sending SIGTERM,
-# so it is safe to call multiple times or when some workers have already exited.
+# _kill_workers guards against empty PIDS to avoid bash 3.2 "unbound variable"
+# errors with "${PIDS[@]}" under set -u.
 _kill_workers() {
+  if [ ${#PIDS[@]} -eq 0 ]; then return; fi
   for pid in "${PIDS[@]}"; do
     kill -0 "$pid" 2>/dev/null && kill "$pid" 2>/dev/null || true
   done
