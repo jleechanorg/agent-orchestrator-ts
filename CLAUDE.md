@@ -181,3 +181,23 @@ There is a separate mirror fork at `jleechan2015/agent-orchestrator-mirror` that
 **Current mirror PR**: https://github.com/jleechan2015/agent-orchestrator-mirror/pull/1
 
 This fork's work will be proposed to ComposioHQ separately from this repo's custom development.
+
+## AO Infrastructure Operations
+
+### Config path and data namespace
+
+AO uses `SHA256(dirname(configPath))` to create isolated data directories under `~/.agent-orchestrator/{hash}-{projectId}/`. The hash is derived from the **directory containing `agent-orchestrator.yaml`**, not the file itself.
+
+**Canonical config**: `~/.openclaw/agent-orchestrator.yaml` (hash: `bb5e6b7f8db3`)
+
+**NEVER create a second `agent-orchestrator.yaml`** in another directory. Running `ao` from a directory that contains its own `agent-orchestrator.yaml` creates a shadow namespace — sessions, PID files, and logs go to a different data dir, invisible to the lifecycle-worker.
+
+### Decommissioning an AO config path or project directory
+
+Before deleting any directory that contains (or contained) `agent-orchestrator.yaml`:
+
+1. **Kill all tmux sessions** using that namespace: `tmux list-sessions | grep <prefix>` then `tmux kill-session -t <name>`
+2. **Kill the lifecycle-worker** for that namespace: check PID files in `~/.agent-orchestrator/*-agent-orchestrator/lifecycle-worker.pid`
+3. **Kill the orchestrator session** if running: `tmux kill-session -t *-ao-orchestrator`
+4. **Then delete** the directory
+5. **Verify** no processes remain: `ps aux | grep lifecycle-worker.*agent-orchestrator`
