@@ -200,10 +200,38 @@ function mapRestReviewsToPrViewReviewsShape(reviewsUnknown: unknown): Array<{
   }));
 }
 
+/**
+ * Map REST check-runs response to the same shape as GraphQL statusCheckRollup.
+ * REST: GET /repos/{owner}/{repo}/commits/{sha}/check-runs
+ * Each check run has: name, status (queued/in_progress/completed), conclusion (success/failure/...).
+ */
+function mapRestCheckRunsToStatusCheckRollup(
+  checkRunsPayload: unknown,
+): Array<Record<string, unknown>> {
+  if (!checkRunsPayload || typeof checkRunsPayload !== "object") return [];
+  const data = checkRunsPayload as Record<string, unknown>;
+  const runs = Array.isArray(data.check_runs) ? data.check_runs : [];
+  return (runs as Array<Record<string, unknown>>).map((run) => ({
+    __typename: "CheckRun",
+    name: run.name ?? "",
+    status: typeof run.status === "string" ? run.status.toUpperCase() : "QUEUED",
+    conclusion: typeof run.conclusion === "string" ? run.conclusion.toUpperCase() : null,
+    state:
+      typeof run.conclusion === "string"
+        ? run.conclusion.toUpperCase()
+        : typeof run.status === "string"
+          ? run.status.toUpperCase()
+          : "QUEUED",
+    startedAt: run.started_at ?? undefined,
+    completedAt: run.completed_at ?? undefined,
+    detailsUrl: run.html_url ?? undefined,
+  }));
+}
+
 function synthesizePrViewJsonFromRest(
   rest: Record<string, unknown>,
   jsonFields: string[],
-  opts: { reviewDecision?: string; reviewsPayload?: unknown },
+  opts: { reviewDecision?: string; reviewsPayload?: unknown; checkRunsPayload?: unknown },
 ): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   const want = new Set(jsonFields);
@@ -240,6 +268,10 @@ function synthesizePrViewJsonFromRest(
 
   if (want.has("reviews") && opts.reviewsPayload !== undefined) {
     out.reviews = mapRestReviewsToPrViewReviewsShape(opts.reviewsPayload);
+  }
+
+  if (want.has("statusCheckRollup") && opts.checkRunsPayload !== undefined) {
+    out.statusCheckRollup = mapRestCheckRunsToStatusCheckRollup(opts.checkRunsPayload);
   }
 
   for (const f of jsonFields) {
@@ -281,10 +313,32 @@ async function fetchPrViewFallbackAsJson(
     }
   }
 
+  // Fetch check-runs from REST when statusCheckRollup is requested.
+  // REST endpoint: GET /repos/{owner}/{repo}/commits/{sha}/check-runs
+  let checkRunsPayload: unknown;
+  if (conv.jsonFields.includes("statusCheckRollup")) {
+    const head = restObj.head as Record<string, unknown> | undefined;
+    const sha = typeof head?.sha === "string" ? head.sha : null;
+    if (sha) {
+      try {
+        const checkRaw = await execCli(
+          "gh",
+          ["api", `repos/${conv.repo}/commits/${sha}/check-runs?per_page=100`],
+          cwd,
+        );
+        checkRunsPayload = JSON.parse(checkRaw);
+      } catch {
+        // Non-critical — downstream will treat missing rollup as empty checks
+        checkRunsPayload = undefined;
+      }
+    }
+  }
+
   return JSON.stringify(
     synthesizePrViewJsonFromRest(restObj, conv.jsonFields, {
       reviewDecision,
       reviewsPayload,
+      checkRunsPayload,
     }),
   );
 }
@@ -1037,6 +1091,20 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
       }
 
       await ghInDir(["pr", "checkout", String(pr.number), "--repo", repoFlag(pr)], workspacePath);
+
+      // Verify the checkout actually succeeded by confirming the worktree is now on
+      // the PR branch.  This catches the case where `gh pr checkout` silently fails
+      // (e.g. exit 128 because another worktree already has the branch checked out)
+      // and prevents claimPR from reporting success when the session is still on a
+      // different branch.
+      const afterBranch = await git(["branch", "--show-current"], workspacePath);
+      if (afterBranch !== pr.branch) {
+        throw new Error(
+          `gh pr checkout succeeded but worktree is still on branch "${afterBranch}" ` +
+            `instead of "${pr.branch}". Another worktree may have the branch checked out.`,
+        );
+      }
+
       return true;
     },
 

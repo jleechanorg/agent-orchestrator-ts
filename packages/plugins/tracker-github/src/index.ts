@@ -22,7 +22,7 @@ const execFileAsync = promisify(execFile);
 // Helpers
 // ---------------------------------------------------------------------------
 
-async function gh(args: string[]): Promise<string> {
+async function ghExec(args: string[]): Promise<string> {
   try {
     const { stdout } = await execFileAsync("gh", args, {
       maxBuffer: 10 * 1024 * 1024,
@@ -34,6 +34,140 @@ async function gh(args: string[]): Promise<string> {
       cause: err,
     });
   }
+}
+
+// ---------------------------------------------------------------------------
+// Rate Limit Handling — mirrors scm-github pattern
+// ---------------------------------------------------------------------------
+
+const RATE_LIMIT_ERROR_PATTERNS = [
+  "rate limit",
+  "API rate limit",
+  "GraphQL rate limit",
+  "Too Many Requests",
+];
+
+function isRateLimitError(error: unknown): boolean {
+  const msg = error instanceof Error ? error.message : String(error);
+  return RATE_LIMIT_ERROR_PATTERNS.some((p) => msg.toLowerCase().includes(p.toLowerCase()));
+}
+
+async function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Map REST issue JSON to the same shape as `gh issue view --json` / `gh issue list --json`.
+ */
+function mapRestIssueToGhShape(rest: Record<string, unknown>): Record<string, unknown> {
+  const labels = Array.isArray(rest.labels)
+    ? (rest.labels as Array<Record<string, unknown>>).map((l) => ({ name: l.name }))
+    : [];
+  const assignees = Array.isArray(rest.assignees)
+    ? (rest.assignees as Array<Record<string, unknown>>).map((a) => ({ login: a.login }))
+    : [];
+  return {
+    number: rest.number,
+    title: rest.title,
+    body: rest.body ?? "",
+    url: rest.html_url,
+    state: typeof rest.state === "string" ? rest.state.toUpperCase() : "OPEN",
+    stateReason: rest.state_reason ?? null,
+    labels,
+    assignees,
+  };
+}
+
+/**
+ * REST fallback for `gh issue view` — calls GET /repos/{owner}/{repo}/issues/{number}.
+ */
+async function issueViewRestFallback(repo: string, issueNumber: string): Promise<string> {
+  const raw = await ghExec(["api", `repos/${repo}/issues/${issueNumber}`]);
+  const restObj = JSON.parse(raw) as Record<string, unknown>;
+  return JSON.stringify(mapRestIssueToGhShape(restObj));
+}
+
+/**
+ * REST fallback for `gh issue list` — calls GET /repos/{owner}/{repo}/issues.
+ */
+async function issueListRestFallback(repo: string, state: string, limit: number, labels?: string, assignee?: string): Promise<string> {
+  const params = new URLSearchParams();
+  params.set("state", state === "ALL" ? "all" : state.toLowerCase());
+  params.set("per_page", String(Math.min(limit, 100)));
+  if (labels) params.set("labels", labels);
+  if (assignee) params.set("assignee", assignee);
+  const raw = await ghExec(["api", `repos/${repo}/issues?${params.toString()}`]);
+  const restIssues = JSON.parse(raw) as Array<Record<string, unknown>>;
+  // REST /issues also returns PRs — filter them out (PRs have pull_request key)
+  const issuesOnly = restIssues.filter((i) => !i.pull_request);
+  return JSON.stringify(issuesOnly.map(mapRestIssueToGhShape));
+}
+
+/**
+ * Execute gh CLI with rate limit retry and REST fallback.
+ */
+async function gh(args: string[], maxRetries = 3): Promise<string> {
+  let lastError: unknown;
+
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      return await ghExec(args);
+    } catch (err) {
+      lastError = err;
+      if (isRateLimitError(err)) {
+        if (attempt < maxRetries - 1) {
+          const backoffMs = Math.min(1000 * Math.pow(2, attempt), 30000);
+          console.warn(`[tracker-github] Rate limit detected, retrying in ${backoffMs}ms (attempt ${attempt + 1}/${maxRetries})`);
+          await sleep(backoffMs);
+        }
+      } else {
+        throw err;
+      }
+    }
+  }
+
+  // All retries exhausted — try REST fallback for read operations
+  if (args[0] === "issue" && args[1] === "view") {
+    const repoIdx = args.indexOf("--repo");
+    const repo = repoIdx !== -1 ? args[repoIdx + 1] : null;
+    const identifier = args[2];
+    if (repo && identifier) {
+      console.warn("[tracker-github] Rate limit retries exhausted, falling back to REST API for issue view");
+      try {
+        return await issueViewRestFallback(repo, identifier);
+      } catch {
+        // REST fallback failed — rethrow original
+      }
+    }
+  }
+
+  if (args[0] === "issue" && args[1] === "list") {
+    const repoIdx = args.indexOf("--repo");
+    const repo = repoIdx !== -1 ? args[repoIdx + 1] : null;
+    const stateIdx = args.indexOf("--state");
+    const state = stateIdx !== -1 ? (args[stateIdx + 1] ?? "open") : "open";
+    const limitIdx = args.indexOf("--limit");
+    const limit = limitIdx !== -1 ? parseInt(args[limitIdx + 1] ?? "30", 10) : 30;
+    const labelIdx = args.indexOf("--label");
+    const labels = labelIdx !== -1 ? args[labelIdx + 1] : undefined;
+    const assigneeIdx = args.indexOf("--assignee");
+    const assignee = assigneeIdx !== -1 ? args[assigneeIdx + 1] : undefined;
+    if (repo) {
+      console.warn("[tracker-github] Rate limit retries exhausted, falling back to REST API for issue list");
+      try {
+        return await issueListRestFallback(repo, state, limit, labels, assignee);
+      } catch {
+        // REST fallback failed — rethrow original
+      }
+    }
+  }
+
+  // Write operations (close, reopen, edit, comment, create) cannot easily be mapped
+  // to REST without the gh auth token dance, and they are low-frequency. For these,
+  // just rethrow the original error so the caller can retry later.
+
+  if (lastError instanceof Error) throw lastError;
+  throw new Error(String(lastError));
 }
 
 function getErrorText(err: unknown): string {
