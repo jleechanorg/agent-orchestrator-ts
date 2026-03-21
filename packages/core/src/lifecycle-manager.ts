@@ -804,6 +804,25 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       if (newStatus === "merged") {
         await sessionManager.kill(session.id);
       }
+
+      // bd-kki: if we transition to killed but the PR is actually merged,
+      // still force-kill the runtime to prevent zombie tmux sessions.
+      // This covers ordering races where runtime/activity checks mark "killed"
+      // before PR status checks can return "merged" on the same poll.
+      if (newStatus === "killed" && session.pr) {
+        const project = config.projects[session.projectId];
+        const scm = project?.scm ? registry.get<SCM>("scm", project.scm.plugin) : null;
+        if (scm) {
+          try {
+            const prState = await scm.getPRState(session.pr);
+            if (prState === PR_STATE.MERGED) {
+              await sessionManager.kill(session.id);
+            }
+          } catch {
+            // Ignore SCM lookup errors; retry on next lifecycle poll.
+          }
+        }
+      }
     }
   }
 

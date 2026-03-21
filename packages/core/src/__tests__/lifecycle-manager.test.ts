@@ -335,6 +335,71 @@ describe("check (single session)", () => {
     expect(lm.getStates().get("app-1")).toBe("killed");
   });
 
+  it("force-kills runtime when status becomes killed but PR is merged", async () => {
+    vi.mocked(mockRuntime.isAlive).mockResolvedValue(false);
+
+    const mockScm: SCM = {
+      name: "github",
+      getIssueState: vi.fn(),
+      getPRState: vi.fn().mockResolvedValue("merged"),
+      getCISummary: vi.fn().mockResolvedValue("passing"),
+      getReviewDecision: vi.fn().mockResolvedValue("none"),
+      getMergeability: vi.fn().mockResolvedValue({ mergeable: true, noConflicts: true }),
+      createPR: vi.fn(),
+      mergePR: vi.fn(),
+      detectPR: vi.fn(),
+      listOpenPRs: vi.fn(),
+      claimPR: vi.fn(),
+      listPRComments: vi.fn(),
+      listPRReviewThreads: vi.fn(),
+      listPRReviewComments: vi.fn(),
+      listIssues: vi.fn(),
+      assignIssue: vi.fn(),
+      addIssueComment: vi.fn(),
+      updateIssue: vi.fn(),
+      addPRComment: vi.fn(),
+      updatePRBody: vi.fn(),
+      getPRDetails: vi.fn(),
+      listPRFiles: vi.fn(),
+      getPRDiff: vi.fn(),
+      listReviews: vi.fn(),
+      listChecks: vi.fn(),
+      getMergeQueueState: vi.fn(),
+    } as unknown as SCM;
+
+    const registryWithScm: PluginRegistry = {
+      ...mockRegistry,
+      get: vi.fn().mockImplementation((slot: string) => {
+        if (slot === "runtime") return mockRuntime;
+        if (slot === "agent") return mockAgent;
+        if (slot === "scm") return mockScm;
+        return null;
+      }),
+    };
+
+    const session = makeSession({ status: "working", pr: makePR() });
+    vi.mocked(mockSessionManager.get).mockResolvedValue(session);
+
+    writeMetadata(sessionsDir, "app-1", {
+      worktree: "/tmp",
+      branch: "main",
+      status: "working",
+      project: "my-app",
+      pr: "https://github.com/org/repo/pull/42",
+    });
+
+    const lm = createLifecycleManager({
+      config,
+      registry: registryWithScm,
+      sessionManager: mockSessionManager,
+    });
+
+    await lm.check("app-1");
+
+    expect(lm.getStates().get("app-1")).toBe("killed");
+    expect(mockSessionManager.kill).toHaveBeenCalledWith("app-1");
+  });
+
   it("detects killed state when getActivityState returns exited", async () => {
     vi.mocked(mockAgent.getActivityState).mockResolvedValue({ state: "exited" });
 
