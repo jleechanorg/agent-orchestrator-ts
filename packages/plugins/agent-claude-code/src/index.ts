@@ -18,7 +18,7 @@ import { execFile, execFileSync } from "node:child_process";
 import { readdir, readFile, stat, open, writeFile, mkdir, chmod, lstat } from "node:fs/promises";
 import { existsSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
-import { basename, join } from "node:path";
+import { basename, join, resolve, isAbsolute, dirname, sep } from "node:path";
 import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
@@ -583,7 +583,6 @@ async function setupHookInWorkspace(workspacePath: string): Promise<void> {
   const settingsPath = join(claudeDir, "settings.json");
   const hookScriptPath = join(claudeDir, "metadata-updater.sh");
 
-<<<<<<< HEAD
   // Check for symlinks — validate target is within workspace before writing
   try {
     const claudeStat = await lstat(claudeDir);
