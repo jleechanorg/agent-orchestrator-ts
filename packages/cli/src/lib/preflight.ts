@@ -32,7 +32,7 @@ async function checkPort(port: number): Promise<void> {
  * starting the dashboard. Works with both `next dev` and `next build`.
  */
 async function checkBuilt(webDir: string): Promise<void> {
-  const nodeModules = resolve(webDir, "node_modules", "@composio", "ao-core");
+  const nodeModules = resolve(webDir, "node_modules", "@jleechanorg", "ao-core");
   if (!existsSync(nodeModules)) {
     throw new Error("Dependencies not installed. Run: pnpm install && pnpm build");
   }
