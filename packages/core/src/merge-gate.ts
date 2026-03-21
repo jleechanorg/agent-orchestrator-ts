@@ -33,6 +33,48 @@ function getLatestDecisiveReview(
     )[0] ?? null;
 }
 
+/**
+ * Detect if a CodeRabbit review was dismissed without a subsequent real APPROVED
+ * review replacing it. When GitHub dismisses a CHANGES_REQUESTED review, the review's
+ * state transitions to "dismissed" (it is NOT deleted). The getLatestDecisiveReview
+ * filter skips "dismissed" entries, so a dismissed CHANGES_REQUESTED would be
+ * invisible — potentially letting the gate pass on nothing.
+ *
+ * Scan chronologically (newest → oldest):
+ *   - If we hit "dismissed" before any "approved": the dismissal was not followed
+ *     by a real re-review → return true (blocked).
+ *   - If we hit "approved" before any "dismissed": dismissal was superseded → return false.
+ *   - If the latest real review (newest non-dismissed) is "changes_requested":
+ *     also blocked (the most-recent non-dismissed state is not approved).
+ *
+ * Combined rule used by the gate: pass only when
+ *   (a) hasUnresolvedDismissedReview == false  AND
+ *   (b) latestDecisiveReview?.state == "approved"
+ */
+function hasUnresolvedDismissedReview(
+  reviews: Array<{ author: string; state: string; submittedAt?: Date }>,
+  author: string,
+): boolean {
+  const crReviews = reviews.filter((r) => r.author === author);
+  if (!crReviews) return false;
+
+  // Sort newest-first
+  const sorted = [...crReviews].sort(
+    (a, b) =>
+      new Date(b.submittedAt ?? 0).getTime() -
+      new Date(a.submittedAt ?? 0).getTime(),
+  );
+
+  for (const review of sorted) {
+    if (review.state === "dismissed") return true;
+    // A non-dismissed, non-approved state (e.g. "changes_requested") is not approved
+    // but also not a dismissal — keep scanning to see if there's a dismissed entry above.
+    // Once we hit "approved" we know no dismissal is unresolved.
+    if (review.state === "approved") return false;
+  }
+  return false;
+}
+
 export async function checkMergeGate(
   pr: PRInfo,
   config: MergeGateConfig,
@@ -91,17 +133,22 @@ export async function checkMergeGate(
     detail: noConflicts ? "No merge conflicts" : "Merge conflicts detected",
   });
 
-  // 3. CodeRabbit approved — check the latest decisive review (not just any approval)
+  // 3. CodeRabbit approved — requires:
+  //   (a) latest decisive review is "approved"
+  //   (b) no dismissed CHANGES_REQUESTED without a subsequent real APPROVED
   const latestCR = getLatestDecisiveReview(reviews, "coderabbitai[bot]");
-  const crApproved = latestCR?.state === "approved";
+  const hasDismissed = hasUnresolvedDismissedReview(reviews, "coderabbitai[bot]");
+  const crApproved = latestCR?.state === "approved" && !hasDismissed;
   checks.push({
     name: "CodeRabbit approved",
     passed: crApproved,
     detail: crApproved
       ? "CodeRabbit approved"
-      : latestCR?.state === "changes_requested"
-        ? "CodeRabbit requested changes"
-        : "No CodeRabbit approval found",
+      : hasDismissed
+        ? "CodeRabbit review was dismissed without a subsequent approval"
+        : latestCR?.state === "changes_requested"
+          ? "CodeRabbit requested changes"
+          : "No CodeRabbit approval found",
   });
 
   // 4. Bugbot clean — no error-severity comments from cursor bugbot
