@@ -6,14 +6,16 @@
 
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import type {
-  PluginModule,
-  Tracker,
-  Issue,
-  IssueFilters,
-  IssueUpdate,
-  CreateIssueInput,
-  ProjectConfig,
+import {
+  isGhRateLimitError,
+  ghSleep,
+  type PluginModule,
+  type Tracker,
+  type Issue,
+  type IssueFilters,
+  type IssueUpdate,
+  type CreateIssueInput,
+  type ProjectConfig,
 } from "@jleechanorg/ao-core";
 
 const execFileAsync = promisify(execFile);
@@ -37,24 +39,8 @@ async function ghExec(args: string[]): Promise<string> {
 }
 
 // ---------------------------------------------------------------------------
-// Rate Limit Handling — mirrors scm-github pattern
+// Rate Limit Handling — uses shared utilities from ao-core
 // ---------------------------------------------------------------------------
-
-const RATE_LIMIT_ERROR_PATTERNS = [
-  "rate limit",
-  "API rate limit",
-  "GraphQL rate limit",
-  "Too Many Requests",
-];
-
-function isRateLimitError(error: unknown): boolean {
-  const msg = error instanceof Error ? error.message : String(error);
-  return RATE_LIMIT_ERROR_PATTERNS.some((p) => msg.toLowerCase().includes(p.toLowerCase()));
-}
-
-async function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
 
 /**
  * Map REST issue JSON to the same shape as `gh issue view --json` / `gh issue list --json`.
@@ -89,18 +75,42 @@ async function issueViewRestFallback(repo: string, issueNumber: string): Promise
 
 /**
  * REST fallback for `gh issue list` — calls GET /repos/{owner}/{repo}/issues.
+ * Paginates up to 5 pages to satisfy limits > 100.
  */
-async function issueListRestFallback(repo: string, state: string, limit: number, labels?: string, assignee?: string): Promise<string> {
-  const params = new URLSearchParams();
-  params.set("state", state === "ALL" ? "all" : state.toLowerCase());
-  params.set("per_page", String(Math.min(limit, 100)));
-  if (labels) params.set("labels", labels);
-  if (assignee) params.set("assignee", assignee);
-  const raw = await ghExec(["api", `repos/${repo}/issues?${params.toString()}`]);
-  const restIssues = JSON.parse(raw) as Array<Record<string, unknown>>;
-  // REST /issues also returns PRs — filter them out (PRs have pull_request key)
-  const issuesOnly = restIssues.filter((i) => !i.pull_request);
-  return JSON.stringify(issuesOnly.map(mapRestIssueToGhShape));
+async function issueListRestFallback(
+  repo: string,
+  state: string,
+  limit: number,
+  labels?: string,
+  assignee?: string,
+): Promise<string> {
+  const perPage = Math.min(limit, 100);
+  const issuesOnly: Array<Record<string, unknown>> = [];
+  const maxPages = 5; // Cap to avoid runaway API calls during rate limiting
+  let page = 1;
+
+  while (issuesOnly.length < limit && page <= maxPages) {
+    const params = new URLSearchParams();
+    params.set("state", state === "ALL" ? "all" : state.toLowerCase());
+    params.set("per_page", String(perPage));
+    params.set("page", String(page));
+    if (labels) params.set("labels", labels);
+    if (assignee) params.set("assignee", assignee);
+
+    const raw = await ghExec(["api", `repos/${repo}/issues?${params.toString()}`]);
+    const restIssues = JSON.parse(raw) as Array<Record<string, unknown>>;
+
+    if (!Array.isArray(restIssues) || restIssues.length === 0) break;
+
+    // REST /issues also returns PRs — filter them out (PRs have pull_request key)
+    const pageIssuesOnly = restIssues.filter((i) => !i.pull_request);
+    issuesOnly.push(...pageIssuesOnly);
+
+    if (restIssues.length < perPage) break; // Final page reached
+    page += 1;
+  }
+
+  return JSON.stringify(issuesOnly.slice(0, limit).map(mapRestIssueToGhShape));
 }
 
 /**
@@ -114,11 +124,11 @@ async function gh(args: string[], maxRetries = 3): Promise<string> {
       return await ghExec(args);
     } catch (err) {
       lastError = err;
-      if (isRateLimitError(err)) {
+      if (isGhRateLimitError(err)) {
         if (attempt < maxRetries - 1) {
           const backoffMs = Math.min(1000 * Math.pow(2, attempt), 30000);
           console.warn(`[tracker-github] Rate limit detected, retrying in ${backoffMs}ms (attempt ${attempt + 1}/${maxRetries})`);
-          await sleep(backoffMs);
+          await ghSleep(backoffMs);
         }
       } else {
         throw err;

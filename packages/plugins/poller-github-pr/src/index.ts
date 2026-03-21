@@ -6,6 +6,7 @@
  */
 
 import { execFile } from "node:child_process";
+import { isGhRateLimitError, ghSleep } from "@jleechanorg/ao-core";
 import { promisify } from "node:util";
 import type {
   Poller,
@@ -46,24 +47,8 @@ async function ghExec(args: string[], cwd?: string): Promise<string> {
 }
 
 // ---------------------------------------------------------------------------
-// Rate Limit Handling — mirrors scm-github pattern
+// Rate Limit Handling — uses shared utilities from ao-core
 // ---------------------------------------------------------------------------
-
-const RATE_LIMIT_ERROR_PATTERNS = [
-  "rate limit",
-  "API rate limit",
-  "GraphQL rate limit",
-  "Too Many Requests",
-];
-
-function isRateLimitError(error: unknown): boolean {
-  const msg = error instanceof Error ? error.message : String(error);
-  return RATE_LIMIT_ERROR_PATTERNS.some((p) => msg.toLowerCase().includes(p.toLowerCase()));
-}
-
-async function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
 
 /**
  * Parse `--repo owner/repo` from args.
@@ -96,11 +81,22 @@ function mapRestPrToGhPrListShape(rest: Record<string, unknown>): Record<string,
 
 /**
  * REST fallback for `gh pr list --json ...` — calls GET /repos/{owner}/{repo}/pulls.
+ * Passes through state and per_page from original args to maintain consistent behavior.
  */
-async function prListRestFallback(repo: string): Promise<string> {
-  const raw = await ghExec(["api", `repos/${repo}/pulls?state=open&per_page=100`]);
+async function prListRestFallback(
+  repo: string,
+  state = "open",
+  limit = 100,
+  cwd?: string,
+): Promise<string> {
+  const restState = state.toLowerCase();
+  const perPage = Math.min(limit, 100);
+  const raw = await ghExec(
+    ["api", `repos/${repo}/pulls?state=${restState}&per_page=${perPage}`],
+    cwd,
+  );
   const restPrs = JSON.parse(raw) as Array<Record<string, unknown>>;
-  return JSON.stringify(restPrs.map(mapRestPrToGhPrListShape));
+  return JSON.stringify(restPrs.slice(0, limit).map(mapRestPrToGhPrListShape));
 }
 
 /**
@@ -114,11 +110,11 @@ async function ghPrListWithRetry(args: string[], cwd?: string, maxRetries = 3): 
       return await ghExec(args, cwd);
     } catch (err) {
       lastError = err;
-      if (isRateLimitError(err)) {
+      if (isGhRateLimitError(err)) {
         if (attempt < maxRetries - 1) {
           const backoffMs = Math.min(1000 * Math.pow(2, attempt), 30000);
           console.warn(`[poller-github-pr] Rate limit detected, retrying in ${backoffMs}ms (attempt ${attempt + 1}/${maxRetries})`);
-          await sleep(backoffMs);
+          await ghSleep(backoffMs);
         }
       } else {
         throw err;
@@ -130,9 +126,14 @@ async function ghPrListWithRetry(args: string[], cwd?: string, maxRetries = 3): 
   if (args[0] === "pr" && args[1] === "list") {
     const repo = extractRepo(args);
     if (repo) {
+      // Parse --state and --limit from original args for consistent behavior
+      const stateIdx = args.indexOf("--state");
+      const state = stateIdx !== -1 ? (args[stateIdx + 1] ?? "open") : "open";
+      const limitIdx = args.indexOf("--limit");
+      const limit = limitIdx !== -1 ? parseInt(args[limitIdx + 1] ?? "100", 10) : 100;
       console.warn("[poller-github-pr] Rate limit retries exhausted, falling back to REST API for pr list");
       try {
-        return await prListRestFallback(repo);
+        return await prListRestFallback(repo, state, limit, cwd);
       } catch {
         // REST fallback failed too — rethrow original
       }

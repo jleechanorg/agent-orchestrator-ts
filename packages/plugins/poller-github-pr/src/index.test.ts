@@ -172,6 +172,7 @@ describe("poll()", () => {
   });
 
   it("retries on rate limit error and succeeds on second attempt", async () => {
+    vi.useFakeTimers();
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     const mockExecFile = execFile as unknown as MockExecFile;
     let callCount = 0;
@@ -186,13 +187,18 @@ describe("poll()", () => {
       },
     );
     const poller = create({ repo: "owner/repo" });
-    const items = await poller.poll("test-project");
+    const pollPromise = poller.poll("test-project");
+    // Advance past the 1s backoff
+    await vi.advanceTimersByTimeAsync(2000);
+    const items = await pollPromise;
     expect(items).toHaveLength(1);
     expect(callCount).toBe(2);
     warnSpy.mockRestore();
+    vi.useRealTimers();
   });
 
   it("falls back to REST API when all rate limit retries exhausted", async () => {
+    vi.useFakeTimers();
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     const mockExecFile = execFile as unknown as MockExecFile;
     let _callCount = 0;
@@ -220,12 +226,16 @@ describe("poll()", () => {
       },
     );
     const poller = create({ repo: "owner/repo" });
-    const items = await poller.poll("test-project");
+    const pollPromise = poller.poll("test-project");
+    // Advance past all backoff delays (1s + 2s)
+    await vi.advanceTimersByTimeAsync(5000);
+    const items = await pollPromise;
     // REST fallback returns PRs but without latestReviews, so no CHANGES_REQUESTED
     // items will be detected — the important thing is it doesn't throw
     expect(items).toEqual([]);
     expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("falling back to REST API"));
     warnSpy.mockRestore();
+    vi.useRealTimers();
   });
 });
 

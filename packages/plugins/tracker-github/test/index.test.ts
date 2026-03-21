@@ -464,4 +464,119 @@ describe("tracker-github plugin", () => {
       ).rejects.toThrow("Failed to parse issue URL");
     });
   });
+
+  // ---- rate limit handling ------------------------------------------------
+
+  describe("rate limit handling", () => {
+    it("retries on rate limit error and succeeds on second attempt", async () => {
+      vi.useFakeTimers();
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      // First call: rate limit error → retry
+      mockGhError("API rate limit exceeded");
+      // Second call: success
+      mockGh(sampleIssue);
+
+      const issuePromise = tracker.getIssue("123", project);
+      // Advance past the 1s backoff
+      await vi.advanceTimersByTimeAsync(2000);
+      const issue = await issuePromise;
+
+      expect(issue.id).toBe("123");
+      expect(issue.title).toBe("Fix login bug");
+      expect(ghMock).toHaveBeenCalledTimes(2);
+      warnSpy.mockRestore();
+      vi.useRealTimers();
+    });
+
+    it("throws immediately on non-rate-limit errors without retrying", async () => {
+      mockGhError("authentication required");
+      await expect(tracker.getIssue("123", project)).rejects.toThrow("authentication required");
+      // Should only have attempted once — no retry
+      expect(ghMock).toHaveBeenCalledTimes(1);
+    });
+
+    it("falls back to REST API for issue view when rate limit retries exhausted", async () => {
+      vi.useFakeTimers();
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      // 3 retries exhaust rate limit
+      mockGhError("API rate limit exceeded");
+      mockGhError("API rate limit exceeded");
+      mockGhError("API rate limit exceeded");
+      // REST fallback: gh api repos/acme/repo/issues/123
+      mockGh({
+        number: 123,
+        title: "Fix login bug",
+        body: "Users can't log in with SSO",
+        html_url: "https://github.com/acme/repo/issues/123",
+        state: "open",
+        state_reason: null,
+        labels: [{ name: "bug" }],
+        assignees: [{ login: "alice" }],
+      });
+
+      const issuePromise = tracker.getIssue("123", project);
+      // Advance past all backoff delays (1s + 2s)
+      await vi.advanceTimersByTimeAsync(5000);
+      const issue = await issuePromise;
+
+      expect(issue.id).toBe("123");
+      expect(issue.title).toBe("Fix login bug");
+      expect(issue.state).toBe("open");
+      expect(issue.labels).toEqual(["bug"]);
+      expect(issue.assignee).toBe("alice");
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining("falling back to REST API for issue view"),
+      );
+      warnSpy.mockRestore();
+      vi.useRealTimers();
+    });
+
+    it("falls back to REST API for issue list and filters out PRs", async () => {
+      vi.useFakeTimers();
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      // First call: gh issue list with stateReason → rate limit (3 retries)
+      mockGhError("API rate limit exceeded");
+      mockGhError("API rate limit exceeded");
+      mockGhError("API rate limit exceeded");
+      // REST fallback: gh api repos/acme/repo/issues — includes a PR and an issue
+      mockGh([
+        {
+          number: 10,
+          title: "Real issue",
+          body: "Bug report",
+          html_url: "https://github.com/acme/repo/issues/10",
+          state: "open",
+          state_reason: null,
+          labels: [{ name: "bug" }],
+          assignees: [],
+        },
+        {
+          number: 11,
+          title: "This is a PR",
+          body: "PR body",
+          html_url: "https://github.com/acme/repo/pull/11",
+          state: "open",
+          state_reason: null,
+          labels: [],
+          assignees: [],
+          pull_request: { url: "https://api.github.com/..." },
+        },
+      ]);
+
+      const listPromise = tracker.listIssues!({}, project);
+      // Advance past all backoff delays
+      await vi.advanceTimersByTimeAsync(5000);
+      const issues = await listPromise;
+
+      // PR should be filtered out
+      expect(issues).toHaveLength(1);
+      expect(issues[0].id).toBe("10");
+      expect(issues[0].title).toBe("Real issue");
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining("falling back to REST API for issue list"),
+      );
+      warnSpy.mockRestore();
+      vi.useRealTimers();
+    });
+  });
 });

@@ -9,6 +9,8 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import { promisify } from "node:util";
 import {
   CI_STATUS,
+  isGhRateLimitError,
+  ghSleep,
   type PluginModule,
   type SCM,
   type SCMWebhookEvent,
@@ -65,35 +67,10 @@ function buildBotAuthors(config?: Record<string, unknown>): Set<string> {
 }
 
 // ---------------------------------------------------------------------------
-// Rate Limit Handling
+// Rate Limit Handling — uses shared utilities from ao-core
 // ---------------------------------------------------------------------------
 
-const RATE_LIMIT_ERROR_PATTERNS = [
-  "rate limit",
-  "rate Limit",
-  "API rate limit",
-  "GraphQL rate limit",
-  "rate limit exceeded",
-  "Too Many Requests",
-  "API error:reth",
-];
 
-function isRateLimitError(error: unknown): boolean {
-  const msg = error instanceof Error ? error.message : String(error);
-  if (
-    RATE_LIMIT_ERROR_PATTERNS.some((pattern) => msg.toLowerCase().includes(pattern.toLowerCase()))
-  ) {
-    return true;
-  }
-  if (error instanceof Error && error.cause) {
-    return isRateLimitError(error.cause);
-  }
-  return false;
-}
-
-async function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
 
 /** Parsed `gh pr view ... --json a,b,c` for REST fallback synthesis. */
 type PrViewRestConversion = {
@@ -270,8 +247,11 @@ function synthesizePrViewJsonFromRest(
     out.reviews = mapRestReviewsToPrViewReviewsShape(opts.reviewsPayload);
   }
 
-  if (want.has("statusCheckRollup") && opts.checkRunsPayload !== undefined) {
-    out.statusCheckRollup = mapRestCheckRunsToStatusCheckRollup(opts.checkRunsPayload);
+  if (want.has("statusCheckRollup")) {
+    out.statusCheckRollup =
+      opts.checkRunsPayload !== undefined
+        ? mapRestCheckRunsToStatusCheckRollup(opts.checkRunsPayload)
+        : [];
   }
 
   for (const f of jsonFields) {
@@ -357,14 +337,14 @@ async function ghWithRetry(args: string[], cwd?: string, maxRetries = 3): Promis
       lastError = err;
 
       // Check if it's a rate limit error
-      if (isRateLimitError(err)) {
+      if (isGhRateLimitError(err)) {
         // Skip sleep on final attempt - no more retries anyway
         if (attempt < maxRetries - 1) {
           const backoffMs = Math.min(1000 * Math.pow(2, attempt), 30000); // Max 30s backoff
           console.warn(
             `GitHub rate limit detected, retrying in ${backoffMs}ms (attempt ${attempt + 1}/${maxRetries})`,
           );
-          await sleep(backoffMs);
+          await ghSleep(backoffMs);
         }
       } else {
         // Non-rate-limit error, don't retry
