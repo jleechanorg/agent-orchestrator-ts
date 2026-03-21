@@ -1281,7 +1281,81 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
             };
           });
       } catch (err) {
-        throw new Error("Failed to fetch pending comments", { cause: err });
+        // REST fallback when GraphQL is rate-limited (bd-b02)
+        const errMsg = err instanceof Error ? err.message : String(err);
+        if (!errMsg.includes("rate limit") && !errMsg.includes("RATE_LIMIT")) {
+          throw new Error("Failed to fetch pending comments", { cause: err });
+        }
+
+        // Fallback: fetch inline review comments via REST (no isResolved field)
+        const restComments: ReviewComment[] = [];
+        try {
+          const raw = await gh([
+            "api",
+            "--method", "GET",
+            `repos/${repoFlag(pr)}/pulls/${pr.number}/comments?per_page=100`,
+          ]);
+          const parsed: Array<{
+            id: number;
+            user: { login: string };
+            body: string;
+            path: string;
+            line: number | null;
+            created_at: string;
+            html_url: string;
+          }> = JSON.parse(raw);
+
+          for (const c of parsed) {
+            if (BOT_AUTHORS.has(c.user.login)) continue;
+            restComments.push({
+              id: String(c.id),
+              author: c.user.login,
+              body: c.body,
+              path: c.path || undefined,
+              line: c.line ?? undefined,
+              isResolved: false, // REST has no resolution state — treat as unresolved
+              createdAt: parseDate(c.created_at),
+              url: c.html_url,
+            });
+          }
+        } catch {
+          // REST also failed — return empty rather than blocking merge gate
+        }
+
+        // Also fetch issue/conversation comments (bd-b02)
+        try {
+          const raw = await gh([
+            "api",
+            "--method", "GET",
+            `repos/${repoFlag(pr)}/issues/${pr.number}/comments?per_page=100`,
+          ]);
+          const parsed: Array<{
+            id: number;
+            user: { login: string };
+            body: string;
+            created_at: string;
+            html_url: string;
+          }> = JSON.parse(raw);
+
+          for (const c of parsed) {
+            if (BOT_AUTHORS.has(c.user.login)) continue;
+            // Only include actionable issue comments (not status updates)
+            const actionable = /\b(fix|bug|issue|change|update|please|should|must|need)\b/i.test(c.body);
+            if (!actionable) continue;
+            restComments.push({
+              id: String(c.id),
+              author: c.user.login,
+              body: c.body,
+              isResolved: false,
+              createdAt: parseDate(c.created_at),
+              url: c.html_url,
+            });
+          }
+        } catch {
+          // Issue comments fetch failed — non-fatal
+        }
+
+        return restComments;
       }
     },
 
