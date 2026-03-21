@@ -88,7 +88,7 @@ const geminiOverrides: Partial<Agent> = {
     // Pre-add the workspace to ~/.gemini/trustedFolders.json so Gemini CLI
     // skips the interactive trust dialog in unattended sessions.
     const preTrust = [
-      `python3 -c "import json,os; tf=os.path.expanduser('~/.gemini/trustedFolders.json'); d=json.load(open(tf)) if os.path.exists(tf) else {}; d[os.getcwd()]='TRUST_FOLDER'; open(tf,'w').write(json.dumps(d,indent=2))"`,
+      `python3 -c "import json,os; tf=os.path.expanduser('~/.gemini/trustedFolders.json'); os.makedirs(os.path.dirname(tf),exist_ok=True); d=json.load(open(tf)) if os.path.exists(tf) else {}; d[os.getcwd()]='TRUST_FOLDER'; open(tf,'w').write(json.dumps(d,indent=2))"`,
     ].join(" && ");
     // Strip model: Gemini CLI uses its own model naming convention
     // incompatible with Anthropic API model IDs (causes "model not found" error).

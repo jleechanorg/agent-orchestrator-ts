@@ -214,6 +214,8 @@ describe("getLaunchCommand", () => {
     const cmd = agent.getLaunchCommand(makeLaunchConfig({ permissions: "default" }));
     // The full command must start with a trust preamble
     expect(cmd).toMatch(/^\( python3 -c "import json,os;/);
+    // The preamble must create the ~/.gemini/ dir if missing (fresh-machine safety)
+    expect(cmd).toContain("makedirs");
     // The agent command follows after "; "
     expect(agentPart(cmd)).toBe("gemini");
   });
