@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
 import { FailureBudgetTracker, routeExhaustedBudget } from "../failure-budget.js";
-import type { ReactionConfig, ReactionResult } from "../types.js";
+import type { ReactionConfig } from "../types.js";
 
 describe("FailureBudgetTracker", () => {
   let tracker: FailureBudgetTracker;

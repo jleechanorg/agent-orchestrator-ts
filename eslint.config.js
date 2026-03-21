@@ -7,6 +7,7 @@ export default tseslint.config(
   {
     ignores: [
       "**/dist/**",
+      "**/dist-server/**",
       "**/node_modules/**",
       "**/.next/**",
       "**/coverage/**",
@@ -55,7 +56,7 @@ export default tseslint.config(
         { argsIgnorePattern: "^_", varsIgnorePattern: "^_" },
       ],
       "@typescript-eslint/no-explicit-any": "error",
-      "@typescript-eslint/consistent-type-imports": ["error", { prefer: "type-imports" }],
+      "@typescript-eslint/consistent-type-imports": ["error", { prefer: "type-imports", fixStyle: "inline-type-imports" }],
       "@typescript-eslint/no-non-null-assertion": "warn",
       "@typescript-eslint/no-require-imports": "error",
     },
@@ -89,17 +90,44 @@ export default tseslint.config(
 
   // Scripts directory - Node.js environment
   {
-    files: ["scripts/**/*.js", "scripts/**/*.mjs"],
+    files: ["scripts/**/*.js", "scripts/**/*.mjs", "packages/*/scripts/**/*.js", "packages/*/scripts/**/*.mjs"],
     languageOptions: {
       globals: {
         console: "readonly",
         process: "readonly",
         __dirname: "readonly",
         __filename: "readonly",
+        setTimeout: "readonly",
+        clearTimeout: "readonly",
+        setInterval: "readonly",
+        clearInterval: "readonly",
+        Buffer: "readonly",
+        URL: "readonly",
+        URLSearchParams: "readonly",
       },
     },
     rules: {
       "no-console": "off", // Scripts use console for output
+    },
+  },
+
+  // Node.js plugins and core modules — these run in Node.js, not browser
+  {
+    files: ["packages/plugins/**/*.ts", "packages/core/**/*.ts", "packages/cli/**/*.ts"],
+    languageOptions: {
+      globals: {
+        process: "readonly",
+        console: "readonly",
+        setTimeout: "readonly",
+        clearTimeout: "readonly",
+        setInterval: "readonly",
+        clearInterval: "readonly",
+        Buffer: "readonly",
+        URL: "readonly",
+        URLSearchParams: "readonly",
+        __dirname: "readonly",
+        __filename: "readonly",
+      },
     },
   },
 );

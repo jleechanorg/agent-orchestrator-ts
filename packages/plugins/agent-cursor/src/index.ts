@@ -5,7 +5,7 @@ import {
   type AgentPluginConfig,
 } from "@jleechanorg/ao-plugin-agent-base";
 import { execFileSync } from "node:child_process";
-import type { Agent, PluginModule, ProjectConfig, Session } from "@jleechanorg/ao-core";
+import type { Agent, ProjectConfig, Session } from "@jleechanorg/ao-core";
 
 // =============================================================================
 // Plugin Manifest

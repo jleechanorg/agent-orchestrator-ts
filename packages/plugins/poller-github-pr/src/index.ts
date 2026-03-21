@@ -152,6 +152,7 @@ export function create(config?: Record<string, unknown>): Poller & { setSessionM
       } catch (err) {
         throw new Error(
           `[poller-github-pr] Failed to list PRs for project ${projectId}: ${(err as Error).message}`,
+          { cause: err },
         );
       }
 
