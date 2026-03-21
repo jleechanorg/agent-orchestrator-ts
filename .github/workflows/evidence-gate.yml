@@ -42,10 +42,11 @@ jobs:
           BODY=$(cat "$RUNNER_TEMP/pr_body.txt")
 
           # Extract claim class — normalize to lowercase
-          # Handles "**Claim class:** pr-lifecycle-e2e" and "Claim class: pr-lifecycle-e2e"
+          # Extract claim class from bold-markdown lines (skips list bullets like "- Claim class ...")
+          # grep -i '\*\*Claim class' matches bold-markdown lines; grep -v '^- ' filters list bullets
           # tr -d '*' removes markdown bold markers; tr -d '[:space:]' removes leading/trailing whitespace
           # Note: hyphens are intentionally preserved (pr-lifecycle-e2e must keep '-')
-          CLAIM=$(printf '%s' "$BODY" | grep -i 'Claim class' | grep -iv 'mustbestatedbeforeverdict' | head -1 | sed 's/.*:\s*//' | tr -d '*' | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')
+          CLAIM=$(printf '%s' "$BODY" | grep -i '\*\*Claim class' | grep -v '^- ' | head -1 | sed 's/.*:\s*//' | tr -d '*' | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')
           echo "Claim class detected: $CLAIM"
 
           # Validate claim class is recognized
@@ -67,7 +68,7 @@ jobs:
         run: |
           BODY=$(cat "$RUNNER_TEMP/pr_body.txt")
 
-          CLAIM=$(printf '%s' "$BODY" | grep -i 'Claim class' | grep -iv 'mustbestatedbeforeverdict' | head -1 | sed 's/.*:\s*//' | tr -d '*' | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')
+          CLAIM=$(printf '%s' "$BODY" | grep -i '\*\*Claim class' | grep -v '^- ' | head -1 | sed 's/.*:\s*//' | tr -d '*' | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')
 
           if [ "$CLAIM" = "pr-lifecycle-e2e" ] || [ "$CLAIM" = "merge-gate" ]; then
             echo "Checking required proofs for: $CLAIM"
