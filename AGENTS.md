@@ -138,6 +138,15 @@ When merging multiple PRs, use the `/bulk-merge` workflow (`.claude/commands/bul
 4. Resolve `index.ts` / `.beads/issues.jsonl` conflicts between merges (keep all lines from both sides)
 5. Post-merge: `pnpm build && pnpm test && pnpm typecheck`
 
+## Reference Repos
+
+| Repo | Location | Purpose |
+|------|----------|---------|
+| **ComposioHQ upstream** | `~/projects_reference/agent-orchestrator-mirror` | Clean mirror of `ComposioHQ/agent-orchestrator`. Sync with `git fetch upstream && git reset --hard upstream/main`. Use for checking upstream behavior before writing fork code. |
+| **This fork** | `~/projects_reference/agent-orchestrator` | `jleechanorg/agent-orchestrator` — independent fork with openclaw, MCP mail, custom plugins |
+
+Before writing code that changes core behavior, **check the mirror first** to see if upstream already supports it. Many features (notifier plugins, reactions, config wiring) already work via config — no code change needed.
+
 ## PR Checklist
 
 Before opening a PR, verify:
