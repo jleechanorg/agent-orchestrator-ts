@@ -3,13 +3,7 @@
  */
 
 import type { PRInfo, MergeGateConfig, SCM } from "./types.js";
-import {
-  evaluateCoderabbitApproval,
-  getLatestDecisiveReview,
-  hasUnresolvedDismissedReview,
-  sortReviewsNewestFirst,
-} from "./merge-gate-coderabbit.js";
-import type { Review } from "./merge-gate-coderabbit.js";
+import { type Review, evaluateCoderabbitApproval, getLatestDecisiveReview, hasUnresolvedDismissedReview, sortReviewsNewestFirst } from "./merge-gate-coderabbit.js";
 
 export type { Review } from "./merge-gate-coderabbit.js";
 export { getLatestDecisiveReview, hasUnresolvedDismissedReview, sortReviewsNewestFirst };
