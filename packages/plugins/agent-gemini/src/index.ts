@@ -66,9 +66,8 @@ const geminiConfig: AgentPluginConfig = {
   hookToolMatcher: "run_shell_command",
   // Gemini CLI settings.json uses AfterTool/BeforeTool; Claude Code uses PostToolUse/PreToolUse.
   // - postToolUse: "AfterTool" — metadata tracking (exit_code needed, only available post-execution)
-  // - preToolUse: not overridden — guardrail runs on PreToolUse (no exit_code dependency;
-  //   hardcoded "PreToolUse" in deny response matches the running hook).
-  hookEventNames: { postToolUse: "AfterTool" },
+  // - preToolUse: "BeforeTool" — guardrails (e.g. gh pr merge block) run before execution
+  hookEventNames: { postToolUse: "AfterTool", preToolUse: "BeforeTool" },
 };
 
 // =============================================================================

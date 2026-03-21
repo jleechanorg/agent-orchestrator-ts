@@ -171,7 +171,7 @@ done
 # This check runs BEFORE AO_SESSION/metadata checks since blocking a merge doesn't require session metadata.
 merge_pattern='^[[:space:]]*([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]+[[:space:]]+)*gh[[:space:]]+pr[[:space:]]+merge([[:space:]]|$)'
 if [[ "$clean_command" =~ $merge_pattern && "\${AO_ALLOW_GH_PR_MERGE:-}" != "1" ]]; then
-  echo "{\"hookSpecificOutput\":{\"hookEventName\":\"$HOOK_EVENT_NAME\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"Blocked by AO policy: agents must not run gh pr merge. Leave merge to orchestrator/human.\"}}"
+  echo "{\\"hookSpecificOutput\\":{\\"hookEventName\\":\\"$HOOK_EVENT_NAME\\",\\"permissionDecision\\":\\"deny\\",\\"permissionDecisionReason\\":\\"Blocked by AO policy: agents must not run gh pr merge. Leave merge to orchestrator/human.\\"}}"
   exit 0
 fi
 
