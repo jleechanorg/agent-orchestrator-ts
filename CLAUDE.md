@@ -118,6 +118,8 @@ When reviewing or producing evidence, identify the **claim class** before issuin
 - TypeScript strict: no `any`, no `// @ts-ignore`
 - Conventional commits: `feat:`, `fix:`, `chore:`, `docs:`, `test:`
 - Never push to main — always open a PR
+- Never close a PR — rebase conflicts, don't abandon. Leave close decisions to humans.
+- Force-push your own PR branches with `--force-with-lease` when rebasing. Never force-push main.
 - Never `git add -A` — stage only files you changed
 - Files under ~300 LOC; split for clarity
 
