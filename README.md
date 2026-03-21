@@ -1,5 +1,21 @@
 <h1 align="center">Agent Orchestrator — The Orchestration Layer for Parallel AI Agents (forked from https://github.com/ComposioHQ/agent-orchestrator)</h1>
 
+<p align="center">
+<a href="https://platform.composio.dev/?utm_source=Github&utm_medium=Banner&utm_content=AgentOrchestrator">
+  <img width="800" alt="Agent Orchestrator banner" src="docs/assets/agent_orchestrator_banner.png">
+</a>
+</p>
+
+### Fork Improvements over Upstream
+
+This fork includes the following enhancements:
+- **OpenClaw Integration**: Wired OpenClaw notifier plugin for improved notifications
+- **GitHub Rate Limit Handling**: Added exponential backoff with REST API fallback for robust SCM operations
+- **New Agent Plugins**: Added Cursor and Gemini CLI agent plugins for more agent options
+- **Testing Infrastructure**: Added Vitest support with proper package scope handling
+- **CLI Enhancements**: Improved doctor command and script runner for npm-install layouts
+- **Fork Isolation**: Extracted fork logic for cleaner upstream/main distinction
+
 <div align="center">
 
 Spawn parallel AI coding agents, each in its own git worktree. Agents autonomously fix CI failures, address review comments, and open PRs — you supervise from one dashboard.
