@@ -171,21 +171,21 @@ done
 # Hard guardrail: block agent-triggered gh pr merge by default.
 # Escape hatch for trusted/manual flows: AO_ALLOW_GH_PR_MERGE=1
 # This check runs BEFORE AO_SESSION/metadata checks since blocking a merge doesn't require session metadata.
-# Guard fires for PreToolUse always (deny), and for PostToolUse only when NOT allowed.
+# Guard fires when NOT PostToolUse and NOT allowed. PostToolUse falls through for metadata update.
 # Known limitation: this pattern intentionally does NOT match wrapped/absolute forms
-# (e.g., `command gh pr merge`, `/usr/bin/gh pr merge`, `env gh pr merge`, `sudo gh pr merge`).
-# Agents in this codebase generate simple `gh pr merge` invocations; wrapped forms would be
+# (e.g., \`command gh pr merge\`, \`/usr/bin/gh pr merge\`, \`env gh pr merge\`, \`sudo gh pr merge\`).
+# Agents in this codebase generate simple \`gh pr merge\` invocations; wrapped forms would be
 # unusual and deliberate. Layered defenses apply regardless: PreToolUse blocks ALL tool calls
 # containing "gh pr merge" in the raw input before this script runs, and agent-codex's gh
 # wrapper also gates on AO_ALLOW_GH_PR_MERGE. The risk of a bypassed merge is therefore
 # negligible while the pattern remains readable and maintainable.
 merge_pattern='^[[:space:]]*([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]+[[:space:]]+)*gh[[:space:]]+pr[[:space:]]+merge([[:space:]]|$)'
 if [[ "$clean_command" =~ $merge_pattern ]]; then
-  if [[ "$hook_event" != "PostToolUse" || "\${AO_ALLOW_GH_PR_MERGE:-}" != "1" ]]; then
+  if [[ "$hook_event" != "PostToolUse" && "\${AO_ALLOW_GH_PR_MERGE:-}" != "1" ]]; then
     echo '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"Blocked by AO policy: agents must not run gh pr merge. Leave merge to orchestrator/human."}}'
     exit 0
   fi
-  # AO_ALLOW_GH_PR_MERGE=1 AND PostToolUse: fall through to metadata update below
+  # AO_ALLOW_GH_PR_MERGE=1 during PreToolUse OR PostToolUse: fall through to metadata update below
 fi
 
 # Validate AO_SESSION is set

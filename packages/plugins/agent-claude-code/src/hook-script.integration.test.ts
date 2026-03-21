@@ -50,7 +50,7 @@ function runHook(opts: {
     exit_code: opts.exitCode ?? 0,
   };
   if (opts.hookEvent !== undefined) {
-    inputJson.hookEventName = opts.hookEvent;
+    inputJson.hook_event_name = opts.hookEvent;
   }
   const input = JSON.stringify(inputJson);
 
@@ -207,17 +207,16 @@ describe("hook script: gh pr merge", () => {
     expect(metadata).toContain("status=merged");
   });
 
-  it("PreToolUse: denies gh pr merge even when AO_ALLOW_GH_PR_MERGE=1", () => {
-    // PreToolUse fires before the tool runs — the merge hasn't succeeded yet.
-    // Deny regardless of AO_ALLOW_GH_PR_MERGE; metadata update happens in PostToolUse.
+  it("PreToolUse: allows gh pr merge when AO_ALLOW_GH_PR_MERGE=1", () => {
+    // PreToolUse fires before the tool runs — when AO_ALLOW_GH_PR_MERGE=1, allow it to proceed.
+    // Metadata update happens in PostToolUse after the merge succeeds.
     const { stdout, metadata } = runHook({
       command: "gh pr merge 123 --squash",
       allowMerge: true,
       hookEvent: "PreToolUse",
       metadataContent: "status=pr_open\n",
     });
-    expect(stdout).toContain("permissionDecision");
-    expect(stdout).toContain("deny");
+    expect(stdout).not.toContain("deny");
     expect(metadata).toContain("status=pr_open");
     expect(metadata).not.toContain("status=merged");
   });
