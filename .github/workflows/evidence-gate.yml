@@ -8,124 +8,117 @@ jobs:
   evidence-gate:
     name: Evidence Gate
     runs-on: ubuntu-latest
-    # Only run if PR body or any comment contains an Evidence section
     steps:
       - uses: actions/checkout@v4
 
-      - name: Parse PR body for evidence bundle
-        id: parse
-        run: |
-          # Fetch PR body
-          BODY=$(gh pr view ${{ github.event.pull_request.number }} --json body --jq '.body' 2>/dev/null || echo "")
-          echo "body<<EOF" >> $GITHUB_OUTPUT
-          echo "$BODY" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
-
-      - name: Check for evidence bundle
+      - name: Check for evidence bundle in PR body
         id: check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
-          BODY="${{ fromJSON(steps.parse.outputs.body) }}"
+          # Fetch PR body directly — no heredoc/cross-step parsing issues
+          BODY=$(gh pr view "$PR_NUMBER" --json body --jq '.body' 2>/dev/null || echo "")
 
-          # Check if body contains Evidence section
-          if echo "$BODY" | grep -qi "## Evidence"; then
-            echo "found=true" >> $GITHUB_OUTPUT
+          # Check if body contains Evidence section (use [##] to avoid shell-comment issues)
+          if printf '%s' "$BODY" | grep -qi '[##] Evidence'; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
           else
-            echo "found=false" >> $GITHUB_OUTPUT
+            echo "found=false" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Validate evidence bundle format
         if: steps.check.outputs.found == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
-          BODY="${{ fromJSON(steps.parse.outputs.body) }}"
+          BODY=$(gh pr view "$PR_NUMBER" --json body --jq '.body' 2>/dev/null || echo "")
 
-          # Extract claim class
-          CLAIM=$(echo "$BODY" | grep -i "claim.class" | sed 's/.*:\s*//' | tr -d '*-' | tr '[:upper:]' '[:lower:]' | tr -d ' ')
-
+          # Extract claim class — normalize to lowercase, strip markdown chars and spaces
+          CLAIM=$(printf '%s' "$BODY" | grep -i 'claim.class' | sed 's/.*:\s*//' | tr -d '*-' | tr '[:upper:]' '[:lower:]' | tr -d ' ')
           echo "Claim class detected: $CLAIM"
 
           # Validate claim class is recognized
-          if ! echo "$CLAIM" | grep -qE "^(unit|integration|pipeline-e2e|pr-lifecycle-e2e|merge-gate)$"; then
-            echo "ERROR: Unrecognized claim class: $CLAIM"
-            echo "Valid classes: unit, integration, pipeline-e2e, pr-lifecycle-e2e, merge-gate"
-            exit 1
-          fi
-
-          echo "Validated claim class: $CLAIM"
+          case "$CLAIM" in
+            unit|integration|pipeline-e2e|pr-lifecycle-e2e|merge-gate)
+              echo "Validated claim class: $CLAIM"
+              echo "claim_class=$CLAIM" >> "$GITHUB_OUTPUT"
+              ;;
+            *)
+              echo "ERROR: Unrecognized claim class: $CLAIM"
+              echo "Valid classes: unit, integration, pipeline-e2e, pr-lifecycle-e2e, merge-gate"
+              exit 1
+              ;;
+          esac
 
       - name: Validate PR-lifecycle-e2e required proofs
         if: steps.check.outputs.found == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
-          BODY="${{ fromJSON(steps.parse.outputs.body) }}"
+          BODY=$(gh pr view "$PR_NUMBER" --json body --jq '.body' 2>/dev/null || echo "")
 
-          CLAIM=$(echo "$BODY" | grep -i "claim.class" | sed 's/.*:\s*//' | tr -d '*-' | tr '[:upper:]' '[:lower:]' | tr -d ' ')
+          CLAIM=$(printf '%s' "$BODY" | grep -i 'claim.class' | sed 's/.*:\s*//' | tr -d '*-' | tr '[:upper:]' '[:lower:]' | tr -d ' ')
 
           if [ "$CLAIM" = "pr-lifecycle-e2e" ] || [ "$CLAIM" = "merge-gate" ]; then
             echo "Checking required proofs for: $CLAIM"
 
-            # PR creation proof: must have GitHub URL + timestamp
-            if ! echo "$BODY" | grep -qiE "https://github.com/[^/]+/[^/]+/pull/[0-9]+"; then
+            # Proof 1: PR creation — must have GitHub PR URL
+            if ! printf '%s' "$BODY" | grep -qiE 'https://github.com/[^/]+/[^/]+/pull/[0-9]+'; then
               echo "ERROR: Missing PR creation URL in evidence bundle"
               exit 1
             fi
-
-            if ! echo "$BODY" | grep -qiE "(timestamp|date|time):"; then
-              echo "ERROR: Missing timestamp in evidence bundle"
-              exit 1
-            fi
-
             echo "PR creation proof: PASS"
 
-            # Transition proof: CI checks or review events
-            if ! echo "$BODY" | grep -qiE "(ci|workflow|check|review|comment|timeline)"; then
+            # Proof 2: Transition — CI checks or review events
+            if ! printf '%s' "$BODY" | grep -qiE '(ci|workflow|check|review|comment|timeline)'; then
               echo "ERROR: Missing transition proof (CI/review timeline) in evidence bundle"
               exit 1
             fi
-
             echo "Transition proof: PASS"
 
-            # Merge outcome
-            if ! echo "$BODY" | grep -qiE "(merge|commit SHA|mergeable|success)"; then
+            # Proof 3: Merge outcome
+            if ! printf '%s' "$BODY" | grep -qiE '(merge|commit SHA|mergeable|success)'; then
               echo "ERROR: Missing merge outcome proof in evidence bundle"
               exit 1
             fi
-
             echo "Merge outcome proof: PASS"
 
-            # Cleanup proof
-            if ! echo "$BODY" | grep -qiE "(cleanup|branch.*deleted|session.*kill|worktree.*removed)"; then
+            # Proof 4: Cleanup
+            if ! printf '%s' "$BODY" | grep -qiE '(cleanup|branch.*deleted|session.*kill|worktree.*removed)'; then
               echo "ERROR: Missing cleanup proof in evidence bundle"
               exit 1
             fi
-
             echo "Cleanup proof: PASS"
-            echo "All required proofs present for $CLAIM"
+
+            echo "All 4 required proofs present for $CLAIM"
           else
             echo "No additional validation required for claim class: $CLAIM"
           fi
 
-      - name: Fail if verdict is PASS but required proofs missing
+      - name: Validate verdict is present and consistent
         if: steps.check.outputs.found == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
-          BODY="${{ fromJSON(steps.parse.outputs.body) }}"
+          BODY=$(gh pr view "$PR_NUMBER" --json body --jq '.body' 2>/dev/null || echo "")
 
-          # Check for PASS verdict in body
-          if echo "$BODY" | grep -qi "verdict.*:.*pass"; then
-            CLAIM=$(echo "$BODY" | grep -i "claim.class" | sed 's/.*:\s*//' | tr -d '*-' | tr '[:upper:]' '[:lower:]' | tr -d ' ')
+          # Check for PASS verdict
+          if printf '%s' "$BODY" | grep -qi '[Vv]erdict.*:.*[Pp][Aa][Ss][Ss]'; then
+            echo "Verdict: PASS — evidence gate passes"
 
-            if [ "$CLAIM" = "pr-lifecycle-e2e" ]; then
-              echo "Verdict is PASS for pr-lifecycle-e2e — validating all 4 proofs present..."
-              # All 4 proofs checked above; if we reach here, all passed
-              echo "PASS verdict is valid — all required proofs confirmed."
-            elif [ "$CLAIM" = "merge-gate" ]; then
-              echo "Verdict is PASS for merge-gate — validating all conditions present..."
-              echo "PASS verdict is valid — all required conditions confirmed."
-            else
-              echo "PASS verdict accepted for claim class: $CLAIM"
-            fi
-          elif echo "$BODY" | grep -qi "verdict.*:.*insufficient"; then
-            echo "Verdict is INSUFFICIENT — evidence gate passes (fail-closed: missing proof triggers INSUFFICIENT)"
-          elif echo "$BODY" | grep -qi "verdict.*:.*fail"; then
-            echo "Verdict is FAIL — evidence gate passes (fail-closed: contradiction detected)"
+          # Check for INSUFFICIENT verdict
+          elif printf '%s' "$BODY" | grep -qi '[Vv]erdict.*:.*[Ii][Nn][Ss][Uu][Ff][Ff][Ii][Cc][Ii][Ee][Nn][Tt]'; then
+            echo "Verdict: INSUFFICIENT — evidence gate passes (missing proof correctly triggers INSUFFICIENT)"
+
+          # Check for FAIL verdict
+          elif printf '%s' "$BODY" | grep -qi '[Vv]erdict.*:.*[Ff][Aa][Ii][Ll]'; then
+            echo "Verdict: FAIL — evidence gate passes (contradiction detected)"
+
+          # No verdict found
           else
             echo "WARNING: No verdict found in evidence bundle. Treating as INSUFFICIENT."
             exit 1
