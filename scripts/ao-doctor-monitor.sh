@@ -151,7 +151,7 @@ detect_repos() {
   fi
   local cfg="$1"
   # Parse repo fields from yaml (simple grep, no yq dependency)
-  grep -E '^\s+repo:' "$cfg" 2>/dev/null | sed 's/.*repo:[[:space:]]*//' | tr -d '"' | tr -d "'"
+  grep -E '^[[:space:]]+repo:' "$cfg" 2>/dev/null | sed 's/.*repo:[[:space:]]*//' | tr -d '"' | tr -d "'"
 }
 
 # ---------------------------------------------------------------------------
@@ -254,7 +254,7 @@ check_lifecycle_workers() {
   config_path_for_count=$(resolve_config) || true
   local project_count=8  # default
   if [ -n "$config_path_for_count" ]; then
-    project_count=$(set +e; grep -cE '^\s+[a-zA-Z0-9_-]+:$' "$config_path_for_count" 2>/dev/null); [ $? -eq 0 ] || project_count=8
+    project_count=$(set +e; grep -cE '^[[:space:]]+[a-zA-Z0-9_-]+:$' "$config_path_for_count" 2>/dev/null); [ $? -eq 0 ] || project_count=8
     # Minimum reasonable threshold
     [ "$project_count" -lt 3 ] && project_count=3
   fi
@@ -584,7 +584,8 @@ print(json.dumps({'text': sys.argv[1], 'channel': sys.argv[2]}))
     else
       local list_auth_file
       list_auth_file=$(mktemp /tmp/slack-auth.XXXXXX)
-      printf 'Authorization: Bearer %s\n' "$SLACK_USER_TOKEN" > "$list_auth_file"
+      # curl config file format: option on its own line (value on next line)
+      printf -- '-H\nAuthorization: Bearer %s\n' "$SLACK_USER_TOKEN" > "$list_auth_file"
       channel_id=$(curl -s --config "$list_auth_file" \
              "https://slack.com/api/conversations.list?types=public_channel&limit=200" 2>/dev/null | \
              python3 -c "
@@ -602,12 +603,11 @@ for c in data.get('channels', []):
     if [ -n "$channel_id" ]; then
       local post_auth_file payload_file
       post_auth_file=$(mktemp /tmp/slack-auth.XXXXXX)
-      printf 'Authorization: Bearer %s\n' "$SLACK_USER_TOKEN" > "$post_auth_file"
+      printf -- '-H\nAuthorization: Bearer %s\n-H\nContent-type: application/json\n' > "$post_auth_file"
       payload_file=$(mktemp /tmp/slack-payload.XXXXXX)
       python3 -c "import json,sys; print(json.dumps({'channel': sys.argv[1], 'text': sys.argv[2]}))" \
         "$channel_id" "$message" > "$payload_file" 2>/dev/null
       curl -s -X POST --config "$post_auth_file" \
-        -H "Content-type: application/json" \
         -d "@$payload_file" \
         "https://slack.com/api/chat.postMessage" > /dev/null 2>&1
       local post_rc=$?
