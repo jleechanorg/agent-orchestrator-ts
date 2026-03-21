@@ -1190,11 +1190,11 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
       try {
         checks = await this.getCIChecks(pr);
       } catch (err) {
-        // Rate limit errors are transient — do not fail-close to "failing",
-        // which would spam the agent with spurious "CI is failing" reactions.
-        // Return "none" so the lifecycle poller retries next cycle.
+        // Rate limit errors are transient — re-throw so the lifecycle manager's
+        // catch block preserves current status and retries next cycle, rather than
+        // returning "none" which falsely signals "no CI checks" and allows mergeability.
         if (isGhRateLimitError(err)) {
-          return "none";
+          throw err;
         }
         // Before fail-closing, check if the PR is merged/closed —
         // GitHub may not return check data for those, and reporting
@@ -1278,11 +1278,11 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
           "reviewDecision",
         ]);
       } catch (err) {
-        // Rate limit errors are transient — return "none" so the lifecycle
-        // poller retries next cycle rather than triggering a "changes-requested"
-        // reaction on every poll.
+        // Rate limit errors are transient — re-throw so the lifecycle manager's
+        // catch block preserves current status and retries next cycle, rather than
+        // returning "none" which falsely signals "no reviewers required" and allows mergeability.
         if (isGhRateLimitError(err)) {
-          return "none";
+          throw err;
         }
         throw err;
       }
