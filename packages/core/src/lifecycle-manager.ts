@@ -675,6 +675,21 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     const newStatus = await determineStatus(session);
     let transitionReaction: { key: string; result: ReactionResult | null } | undefined;
 
+    // bd-kki: check if PR is merged before recording "killed" status.
+      // If the SCM call fails (transient error), the session stays in its previous
+      // state and will be retried on the next poll — avoiding zombie tmux sessions
+      // caused by a failed SCM check locking in a terminal "killed" state.
+      if (newStatus === "killed" && session.pr) {
+        const project = config.projects[session.projectId];
+        const scm = project?.scm ? registry.get<SCM>("scm", project.scm.plugin) : null;
+        if (scm) {
+          const prState = await scm.getPRState(session.pr);
+          if (prState === PR_STATE.MERGED) {
+            await sessionManager.kill(session.id);
+          }
+        }
+      }
+
     if (newStatus !== oldStatus) {
       const correlationId = createCorrelationId("lifecycle-transition");
       // State transition detected
@@ -805,24 +820,6 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         await sessionManager.kill(session.id);
       }
 
-      // bd-kki: if we transition to killed but the PR is actually merged,
-      // still force-kill the runtime to prevent zombie tmux sessions.
-      // This covers ordering races where runtime/activity checks mark "killed"
-      // before PR status checks can return "merged" on the same poll.
-      if (newStatus === "killed" && session.pr) {
-        const project = config.projects[session.projectId];
-        const scm = project?.scm ? registry.get<SCM>("scm", project.scm.plugin) : null;
-        if (scm) {
-          try {
-            const prState = await scm.getPRState(session.pr);
-            if (prState === PR_STATE.MERGED) {
-              await sessionManager.kill(session.id);
-            }
-          } catch {
-            // Ignore SCM lookup errors; retry on next lifecycle poll.
-          }
-        }
-      }
     }
   }
 
