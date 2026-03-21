@@ -505,15 +505,16 @@ describe("scm-github plugin", () => {
   // ---- detectPR ----------------------------------------------------------
 
   describe("detectPR", () => {
-    it("returns PRInfo when a PR exists", async () => {
+    it("returns PRInfo when a PR exists (GraphQL primary path)", async () => {
+      // gh pr list --head (GraphQL) returns headRefName/baseRefName/isDraft
       mockGh([
         {
           number: 42,
-          html_url: "https://github.com/acme/repo/pull/42",
+          url: "https://github.com/acme/repo/pull/42",
           title: "feat: add feature",
-          head: { ref: "feat/my-feature" },
-          base: { ref: "main" },
-          draft: false,
+          headRefName: "feat/my-feature",
+          baseRefName: "main",
+          isDraft: false,
         },
       ]);
 
@@ -531,9 +532,11 @@ describe("scm-github plugin", () => {
     });
 
     it("returns null when no PR found", async () => {
+      // GraphQL returns empty; no REST fallback on successful empty result
       mockGh([]);
       const result = await scm.detectPR(makeSession(), project);
       expect(result).toBeNull();
+      expect(ghMock).toHaveBeenCalledTimes(1);
     });
 
     it("returns null when session has no branch", async () => {
@@ -543,9 +546,12 @@ describe("scm-github plugin", () => {
     });
 
     it("returns null on gh CLI error", async () => {
+      // GraphQL fails → REST fallback also fails → null
       mockGhError("gh: not found");
+      mockGhError("network error");
       const result = await scm.detectPR(makeSession(), project);
       expect(result).toBeNull();
+      expect(ghMock).toHaveBeenCalledTimes(2);
     });
 
     it("throws on invalid repo format", async () => {
@@ -559,14 +565,15 @@ describe("scm-github plugin", () => {
     });
 
     it("detects draft PRs", async () => {
+      // GraphQL primary path: gh pr list --head returns isDraft
       mockGh([
         {
           number: 99,
-          html_url: "https://github.com/acme/repo/pull/99",
+          url: "https://github.com/acme/repo/pull/99",
           title: "WIP: draft feature",
-          head: { ref: "feat/my-feature" },
-          base: { ref: "main" },
-          draft: true,
+          headRefName: "feat/my-feature",
+          baseRefName: "main",
+          isDraft: true,
         },
       ]);
       const result = await scm.detectPR(makeSession(), project);

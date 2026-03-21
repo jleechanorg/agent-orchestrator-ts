@@ -993,8 +993,48 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
     async detectPR(session: Session, project: ProjectConfig): Promise<PRInfo | null> {
       if (!session.branch) return null;
       const [owner, repo] = parseProjectRepo(project.repo);
+
+      // Primary: gh pr list --head (GraphQL-backed) — finds PRs regardless of
+      // which fork owner the head branch lives on, unlike the owner-scoped REST
+      // `head=owner:branch` filter which can miss fork-PRs.
+      // REST is only a fallback when GraphQL fails (rate-limit, network error).
       try {
-        // Use REST API directly to avoid GraphQL rate limits (gh pr list --json uses GraphQL)
+        const listRaw = await gh([
+          "pr",
+          "list",
+          "--repo",
+          project.repo,
+          "--head",
+          session.branch,
+          "--json",
+          "number,url,title,headRefName,baseRefName,isDraft",
+          "--limit",
+          "1",
+        ]);
+
+        const listPrs: Array<{
+          number: number;
+          url: string;
+          title: string;
+          headRefName: string;
+          baseRefName: string;
+          isDraft: boolean;
+        }> = JSON.parse(listRaw);
+
+        if (listPrs.length > 0) {
+          return prInfoFromView(listPrs[0], project.repo);
+        }
+        // GraphQL succeeded and found no PR; do not call REST.
+        return null;
+      } catch {
+        // Fall through to REST fallback
+      }
+
+      // REST fallback: only used when GraphQL path fails (e.g. rate-limited, network
+      // error). The owner-scoped `head=owner:branch` filter is a best-effort scan
+      // that may miss fork-owner PRs — but it is the only safe fallback that avoids
+      // adding GraphQL cost in steady-state.
+      try {
         const raw = await gh([
           "api",
           `repos/${owner}/${repo}/pulls?head=${owner}:${encodeURIComponent(session.branch)}&state=open&per_page=1`,
@@ -1009,23 +1049,25 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
           draft: boolean;
         }> = JSON.parse(raw);
 
-        if (prs.length === 0) return null;
-
-        const pr = prs[0];
-        return prInfoFromView(
-          {
-            number: pr.number,
-            url: pr.html_url,
-            title: pr.title,
-            headRefName: pr.head.ref,
-            baseRefName: pr.base.ref,
-            isDraft: pr.draft,
-          },
-          project.repo,
-        );
+        if (prs.length > 0) {
+          const pr = prs[0];
+          return prInfoFromView(
+            {
+              number: pr.number,
+              url: pr.html_url,
+              title: pr.title,
+              headRefName: pr.head.ref,
+              baseRefName: pr.base.ref,
+              isDraft: pr.draft,
+            },
+            project.repo,
+          );
+        }
       } catch {
-        return null;
+        // Both GraphQL and REST failed — no PR found
       }
+
+      return null;
     },
 
     async resolvePR(reference: string, project: ProjectConfig): Promise<PRInfo> {
