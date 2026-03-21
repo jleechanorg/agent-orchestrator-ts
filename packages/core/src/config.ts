@@ -345,6 +345,46 @@ function validateProjectUniqueness(config: OrchestratorConfig): void {
   }
 }
 
+/**
+ * Reject auto-merge reactions.
+ *
+ * AO intentionally does not auto-merge by default. Agent safety guard: the
+ * merge guardrail is enforced at the CLI level (`gh pr merge` is blocked by
+ * default via the metadata hook + codex wrapper). Users who need auto-merge
+ * should use `AO_ALLOW_GH_PR_MERGE=1` as an explicit escape hatch for trusted
+ * manual flows — not via config.
+ */
+function validateNoAutoMergeReactions(config: OrchestratorConfig): void {
+  const autoMergeEntries: string[] = [];
+
+  for (const [reactionKey, reaction] of Object.entries(config.reactions)) {
+    if (reaction.action === "auto-merge") {
+      autoMergeEntries.push(`reactions.${reactionKey}`);
+    }
+  }
+
+  for (const [projectKey, project] of Object.entries(config.projects)) {
+    if (!project.reactions) {
+      continue;
+    }
+
+    for (const [reactionKey, reaction] of Object.entries(project.reactions)) {
+      if (reaction.action === "auto-merge") {
+        autoMergeEntries.push(`projects.${projectKey}.reactions.${reactionKey}`);
+      }
+    }
+  }
+
+  if (autoMergeEntries.length > 0) {
+    // Hard-fail (not warn) because auto-merge bypasses the full merge gate — a
+    // misconfigured auto-merge could merge arbitrary code without human approval.
+    throw new Error(
+      `Invalid reaction config: action: auto-merge is disabled because it bypasses the full merge gate.\n` +
+        `Use action: request-merge or action: notify instead.\n` +
+        `Found at:\n  - ${autoMergeEntries.join("\n  - ")}`,
+    );
+  }
+}
 /** Apply default reactions */
 function applyDefaultReactions(config: OrchestratorConfig): OrchestratorConfig {
   const defaults: Record<string, (typeof config.reactions)[string]> = {
@@ -376,6 +416,7 @@ function applyDefaultReactions(config: OrchestratorConfig): OrchestratorConfig {
       escalateAfter: "15m",
     },
     "approved-and-green": {
+      // Intentional: AO never auto-merges by default; human merge gate stays in control.
       auto: false,
       action: "notify",
       priority: "action",
@@ -548,6 +589,9 @@ export function validateConfig(raw: unknown): OrchestratorConfig {
   config = expandPaths(config);
   config = applyProjectDefaults(config);
   config = applyDefaultReactions(config);
+
+  // Enforce no auto-merge reactions to preserve full merge gate checks.
+  validateNoAutoMergeReactions(config);
 
   // Validate project uniqueness and prefix collisions
   validateProjectUniqueness(config);

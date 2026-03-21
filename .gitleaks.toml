@@ -11,7 +11,7 @@ useDefault = true
 [allowlist]
 description = "Allowlisted patterns"
 
-# Historical commits containing placeholder tokens committed by upstream contributors
+# Historical commit that included a now-revoked OpenClaw token (rotated; no active risk)
 commits = [
   "0393ab70a83e090883895d2168aa39a76f997ec8",
 ]
@@ -22,11 +22,11 @@ paths = [
   ".next/",
   "coverage/",
   "pnpm-lock.yaml",
-  # Documentation files with intentional placeholder tokens
-  "SECURITY\\.md",
-  "examples/README\\.md",
-  "docs/SECURITY-AUDIT-SUMMARY\\.md",
-  "docs/DEVELOPMENT\\.md",
+  # Documentation files with intentional placeholder tokens (anchored: gitleaks paths are regexes)
+  "^SECURITY\\.md$",
+  "^examples/README\\.md$",
+  "^docs/SECURITY-AUDIT-SUMMARY\\.md$",
+  "^docs/DEVELOPMENT\\.md$",
 ]
 
 regexes = [

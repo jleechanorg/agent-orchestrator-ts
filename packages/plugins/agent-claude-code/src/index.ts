@@ -583,6 +583,7 @@ async function setupHookInWorkspace(workspacePath: string): Promise<void> {
   const settingsPath = join(claudeDir, "settings.json");
   const hookScriptPath = join(claudeDir, "metadata-updater.sh");
 
+<<<<<<< HEAD
   // Check for symlinks — validate target is within workspace before writing
   try {
     const claudeStat = await lstat(claudeDir);

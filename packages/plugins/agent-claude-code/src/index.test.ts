@@ -881,6 +881,8 @@ describe("hook setup — relative path (symlink-safe)", () => {
   });
 
   it("warns (does not throw) for symlinked .claude directory", async () => {
+    mockExistsSync.mockReturnValue(true);
+
     mockLstat.mockResolvedValueOnce({ isSymbolicLink: () => true });
 
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
