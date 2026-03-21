@@ -582,3 +582,122 @@ describe("Config Defaults", () => {
     expect(validated.projects.proj1.scm).toEqual({ plugin: "gitlab" });
   });
 });
+
+describe("Config Validation - Auto-merge Reaction Block", () => {
+  it("rejects a global reaction with action: auto-merge", () => {
+    const config = {
+      projects: {
+        proj1: {
+          path: "/repos/test",
+          repo: "org/test",
+          defaultBranch: "main",
+        },
+      },
+      reactions: {
+        "approved-and-green": {
+          auto: true,
+          action: "auto-merge",
+          mergeMethod: "squash",
+        },
+      },
+    };
+
+    expect(() => validateConfig(config)).toThrow(/auto-merge reaction\(s\) are not allowed/);
+    expect(() => validateConfig(config)).toThrow(/global reaction "approved-and-green"/);
+    expect(() => validateConfig(config)).toThrow(/AO_ALLOW_GH_PR_MERGE=1/);
+  });
+
+  it("rejects a per-project reaction override with action: auto-merge", () => {
+    const config = {
+      projects: {
+        proj1: {
+          path: "/repos/test",
+          repo: "org/test",
+          defaultBranch: "main",
+          reactions: {
+            "approved-and-green": {
+              action: "auto-merge",
+            },
+          },
+        },
+      },
+    };
+
+    expect(() => validateConfig(config)).toThrow(/auto-merge reaction\(s\) are not allowed/);
+    expect(() => validateConfig(config)).toThrow(/project "proj1"/);
+  });
+
+  it("reports all offenders when multiple reactions use auto-merge", () => {
+    const config = {
+      projects: {
+        proj1: {
+          path: "/repos/test",
+          repo: "org/test",
+          defaultBranch: "main",
+          reactions: {
+            "merge-ready": {
+              action: "auto-merge",
+            },
+          },
+        },
+      },
+      reactions: {
+        "approved-and-green": {
+          auto: true,
+          action: "auto-merge",
+        },
+      },
+    };
+
+    try {
+      validateConfig(config);
+      expect.fail("Should have thrown");
+    } catch (err) {
+      const message = (err as Error).message;
+      expect(message).toContain('global reaction "approved-and-green"');
+      expect(message).toContain('project "proj1"');
+      expect(message).toContain('reaction "merge-ready"');
+    }
+  });
+
+  it("allows notify action (the AO default for merge-ready)", () => {
+    const config = {
+      projects: {
+        proj1: {
+          path: "/repos/test",
+          repo: "org/test",
+          defaultBranch: "main",
+        },
+      },
+      reactions: {
+        "approved-and-green": {
+          auto: true,
+          action: "notify",
+          priority: "action",
+        },
+      },
+    };
+
+    expect(() => validateConfig(config)).not.toThrow();
+  });
+
+  it("allows send-to-agent action for merge-conflict events", () => {
+    const config = {
+      projects: {
+        proj1: {
+          path: "/repos/test",
+          repo: "org/test",
+          defaultBranch: "main",
+        },
+      },
+      reactions: {
+        "merge-conflicts": {
+          auto: true,
+          action: "send-to-agent",
+        },
+      },
+    };
+
+    expect(() => validateConfig(config)).not.toThrow();
+  });
+});
