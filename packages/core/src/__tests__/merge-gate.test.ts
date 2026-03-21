@@ -116,6 +116,51 @@ describe("checkMergeGate", () => {
     expect(crCheck?.passed).toBe(true);
   });
 
+  // --- Dismissed CHANGES_REQUESTED tests ---
+
+  it("fails CR check when dismissed CHANGES_REQUESTED has no subsequent real approval", async () => {
+    // CodeRabbit requested changes, someone dismissed the review (GitHub changes state to "dismissed").
+    // No new approval followed — dismissed CR without replacement must block the gate.
+    const scm = makePassingScm();
+    scm.getReviews.mockResolvedValue([
+      { author: "coderabbitai[bot]", state: "dismissed", submittedAt: new Date("2024-01-02T00:00:00Z") },
+    ]);
+    const result = await checkMergeGate(pr, config, scm as unknown as SCM);
+    expect(result.passed).toBe(false);
+    expect(result.blockers).toContain("CodeRabbit approved");
+    const crCheck = result.checks.find((c) => c.name === "CodeRabbit approved");
+    expect(crCheck?.detail).toContain("dismissed");
+  });
+
+  it("fails CR check when dismissed review is newest with older approved review below", async () => {
+    // Sequence: older APPROVED → newer DISMISSED (no real review after dismissal)
+    // The gate must NOT count the older approval — the dismissal voids it.
+    const scm = makePassingScm();
+    scm.getReviews.mockResolvedValue([
+      { author: "coderabbitai[bot]", state: "approved", submittedAt: new Date("2024-01-01T00:00:00Z") },
+      { author: "coderabbitai[bot]", state: "dismissed", submittedAt: new Date("2024-01-02T00:00:00Z") },
+    ]);
+    const result = await checkMergeGate(pr, config, scm as unknown as SCM);
+    expect(result.passed).toBe(false);
+    expect(result.blockers).toContain("CodeRabbit approved");
+    const crCheck = result.checks.find((c) => c.name === "CodeRabbit approved");
+    expect(crCheck?.detail).toContain("dismissed");
+  });
+
+  it("passes CR check when dismissed CHANGES_REQUESTED is followed by real APPROVED", async () => {
+    // Sequence: CHANGES_REQUESTED → dismissed → APPROVED (real re-review after dismissal)
+    // This is the correct flow — dismissal was legitimate because a new approval was issued.
+    const scm = makePassingScm();
+    scm.getReviews.mockResolvedValue([
+      { author: "coderabbitai[bot]", state: "changes_requested", submittedAt: new Date("2024-01-01T00:00:00Z") },
+      { author: "coderabbitai[bot]", state: "dismissed", submittedAt: new Date("2024-01-02T00:00:00Z") },
+      { author: "coderabbitai[bot]", state: "approved", submittedAt: new Date("2024-01-03T00:00:00Z") },
+    ]);
+    const result = await checkMergeGate(pr, config, scm as unknown as SCM);
+    const crCheck = result.checks.find((c) => c.name === "CodeRabbit approved");
+    expect(crCheck?.passed).toBe(true);
+  });
+
   it("fails when Cursor Bugbot has error-severity comment", async () => {
     const scm = makePassingScm();
     scm.getAutomatedComments.mockResolvedValue([

@@ -3,6 +3,14 @@
  */
 
 import type { PRInfo, MergeGateConfig, SCM } from "./types.js";
+import {
+  evaluateCoderabbitApproval,
+  getLatestDecisiveReview,
+  hasUnresolvedDismissedReview,
+} from "./merge-gate-coderabbit.js";
+
+export type { Review } from "./merge-gate-coderabbit.js";
+export { getLatestDecisiveReview, hasUnresolvedDismissedReview };
 
 export interface MergeGateCheck {
   name: string;
@@ -14,23 +22,6 @@ export interface MergeGateResult {
   passed: boolean;
   checks: MergeGateCheck[];
   blockers: string[];
-}
-
-function getLatestDecisiveReview(
-  reviews: Array<{ author: string; state: string; submittedAt?: Date }>,
-  author: string,
-) {
-  return reviews
-    .filter(
-      (r) =>
-        r.author === author &&
-        (r.state === "approved" || r.state === "changes_requested"),
-    )
-    .sort(
-      (a, b) =>
-        new Date(b.submittedAt ?? 0).getTime() -
-        new Date(a.submittedAt ?? 0).getTime(),
-    )[0] ?? null;
 }
 
 export async function checkMergeGate(
@@ -91,21 +82,16 @@ export async function checkMergeGate(
     detail: noConflicts ? "No merge conflicts" : "Merge conflicts detected",
   });
 
-  // 3. CodeRabbit approved — check the latest decisive review (not just any approval)
-  const latestCR = getLatestDecisiveReview(reviews, "coderabbitai[bot]");
-  const crApproved = latestCR?.state === "approved";
+  // 3. CodeRabbit approved — uses companion module for dismissed-review detection
+  const crResult = evaluateCoderabbitApproval(reviews);
   checks.push({
     name: "CodeRabbit approved",
-    passed: crApproved,
-    detail: crApproved
-      ? "CodeRabbit approved"
-      : latestCR?.state === "changes_requested"
-        ? "CodeRabbit requested changes"
-        : "No CodeRabbit approval found",
+    passed: crResult.passed,
+    detail: crResult.detail,
   });
 
   // 4. Bugbot clean — no error-severity comments from cursor bugbot
-  const cursorBotPattern = /cursor\[bot\]/i;
+  const cursorBotPattern = /cursor\[bot]/i;
   const bugbotErrors = automatedComments.filter(
     (c) => c.severity === "error" && cursorBotPattern.test(c.botName),
   );
