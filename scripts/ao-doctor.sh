@@ -341,16 +341,14 @@ except Exception:
   local duplicates_found=0
   for proj in $projects; do
     local plist_name="com.agentorchestrator.lifecycle-${proj}"
-    local running_via_launchd=0
-
-    if launchctl list "$plist_name" 2>/dev/null | grep -q "PID"; then
-      running_via_launchd=1
-    fi
 
     # Count how many processes appear to be lifecycle-workers for this project
-    # via ps (covers both launchd-managed and manual/process-spawned workers)
+    # via ps (covers both launchd-managed and manual/process-spawned workers).
+    # Use -F (fixed string) so project IDs with regex metacharacters (., +, [)
+    # are matched literally and don't cause grep errors or miscounts.
+    # -v grep filters out the grep processes themselves.
     local count
-    count="$(ps aux 2>/dev/null | grep -E "[l]ifecycle-worker.*${proj}" | wc -l | tr -d ' ')"
+    count="$(ps aux 2>/dev/null | grep "[l]ifecycle-worker" | grep -v grep | grep -F -- "$proj" | wc -l | tr -d ' ')"
 
     if [ "$count" -eq 0 ]; then
       warn "no lifecycle-worker process found for project '$proj'"

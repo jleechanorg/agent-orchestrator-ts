@@ -1,5 +1,4 @@
-import { execSync } from "node:child_process";
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import {
   closeSync,
   existsSync,
@@ -44,23 +43,6 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function isProcessRunning(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (err) {
-    if (
-      err &&
-      typeof err === "object" &&
-      "code" in err &&
-      (err as NodeJS.ErrnoException).code === "EPERM"
-    ) {
-      return true;
-    }
-    return false;
-  }
-}
-
 /**
  * Verify the PID belongs to a lifecycle-worker process for the given projectId.
  *
@@ -68,25 +50,32 @@ function isProcessRunning(pid: number): boolean {
  * `lifecycle-worker <projectId>` marker. This prevents false positives when
  * the PID has been recycled and now belongs to an unrelated process.
  *
- * Falls back to `isProcessRunning` (kill -0) when `ps` fails.
+ * Returns false if `ps` fails (process gone or inaccessible) — in that case
+ * we cannot confirm identity and must not act as if the worker is ours.
  */
 function isLifecycleWorkerProcess(pid: number, projectId: string): boolean {
   try {
-    // macOS and Linux both support -o args= for the full command line
-    const cmdline = execSync(`ps -p ${pid} -o args=`, {
+    // macOS and Linux both support -o args= for the full command line.
+    // Use execFileSync so no shell is involved — avoids quoting issues.
+    const cmdline = execFileSync("ps", ["-p", String(pid), "-o", "args="], {
       timeout: 3_000,
       stdio: ["ignore", "pipe", "ignore"],
     })
       .toString("utf-8")
       .trim();
 
+    // Require the marker to appear as a distinct token pair: the ao binary
+    // argument list ends with "... lifecycle-worker <projectId>", so the
+    // marker must either be at the start of the line or follow whitespace.
+    // Using a word-boundary check prevents "api" from matching "api-v2".
     const marker = `lifecycle-worker ${projectId}`;
-    return cmdline.includes(marker);
+    const markerEscaped = marker.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const pattern = new RegExp(`(?:^|\\s)${markerEscaped}(?:\\s|$)`);
+    return pattern.test(cmdline);
   } catch {
-    // If `ps` fails (process already gone or permission denied), fall back to
-    // kill -0. This is safe because the PID will either be unreachable or
-    // owned by the same user — either way `kill -0` is accurate.
-    return isProcessRunning(pid);
+    // If `ps` fails the process is either gone or inaccessible — either way
+    // we cannot verify it is a lifecycle-worker, so treat it as not ours.
+    return false;
   }
 }
 

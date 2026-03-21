@@ -117,20 +117,26 @@ except Exception:
 
   printf '\nTearing down lifecycle-workers before update...\n'
   for proj in $projects; do
-    local pid_file="$HOME/.agent-orchestrator/$(echo -n "$HOME/.openclaw" | sha256sum | cut -d' ' -f1)/$proj/lifecycle-worker.pid"
+    # PID file path: ~/.agent-orchestrator/{hash}-{projectId}/lifecycle-worker.pid
+    # hash = sha256(dirname(configPath))[:12]
+    local pid_file="$HOME/.agent-orchestrator/$(echo -n "$HOME/.openclaw" | sha256sum | cut -d' ' -f1 | cut -c1-12)-${proj}/lifecycle-worker.pid"
     # Also check launchd
     local plist_name="com.agentorchestrator.lifecycle-${proj}"
     if launchctl list "$plist_name" 2>/dev/null | grep -q "PID"; then
       printf '  -> Unloading launchd agent %s\n' "$plist_name"
       launchctl unload "$HOME/Library/LaunchAgents/${plist_name}.plist" 2>/dev/null || true
     fi
-    # Also kill by PID file
+    # Also kill by PID file (verify PID identity before killing)
     if [ -f "$pid_file" ]; then
       local lw_pid
       lw_pid="$(cat "$pid_file" 2>/dev/null)"
       if [ -n "$lw_pid" ] && kill -0 "$lw_pid" 2>/dev/null; then
-        printf '  -> Killing lifecycle-worker for project %s (PID %s)\n' "$proj" "$lw_pid"
-        kill "$lw_pid" 2>/dev/null || true
+        # Verify this PID is a lifecycle-worker for this project to avoid
+        # killing an unrelated process that has taken the recycled PID.
+        if ps -p "$lw_pid" -o args= 2>/dev/null | grep -qF -- "lifecycle-worker $proj"; then
+          printf '  -> Killing lifecycle-worker for project %s (PID %s)\n' "$proj" "$lw_pid"
+          kill "$lw_pid" 2>/dev/null || true
+        fi
       fi
     fi
   done
