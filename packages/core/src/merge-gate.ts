@@ -44,10 +44,10 @@ function getLatestDecisiveReview(
  *   - If we hit "dismissed" before any "approved": the dismissal was not followed
  *     by a real re-review → return true (blocked).
  *   - If we hit "approved" before any "dismissed": dismissal was superseded → return false.
- *   - If the latest real review (newest non-dismissed) is "changes_requested":
- *     also blocked (the most-recent non-dismissed state is not approved).
  *
- * Combined rule used by the gate: pass only when
+ * NOTE: non-dismissed, non-approved states (e.g. "changes_requested") are handled
+ * separately by getLatestDecisiveReview; this helper only detects unresolved dismissals.
+ * The combined gate rule requires both:
  *   (a) hasUnresolvedDismissedReview == false  AND
  *   (b) latestDecisiveReview?.state == "approved"
  */
@@ -56,7 +56,7 @@ function hasUnresolvedDismissedReview(
   author: string,
 ): boolean {
   const crReviews = reviews.filter((r) => r.author === author);
-  if (!crReviews) return false;
+  if (crReviews.length === 0) return false;
 
   // Sort newest-first
   const sorted = [...crReviews].sort(
