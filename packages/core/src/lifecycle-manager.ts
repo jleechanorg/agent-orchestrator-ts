@@ -912,8 +912,19 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       if (TERMINAL_STATUSES.has(newStatus) && !isOrchestratorSession(session)) {
         try {
           await sessionManager.kill(session.id);
-        } catch {
-          // kill() may fail if session is already partially cleaned up — that's OK
+        } catch (killErr) {
+          // kill() may fail if session is already partially cleaned up.
+          // Log so operators can see cleanup failures rather than silently losing them.
+          observer.recordOperation({
+            metric: "lifecycle_poll",
+            operation: "lifecycle.terminal_cleanup",
+            outcome: "failure",
+            correlationId: createCorrelationId("lifecycle-cleanup"),
+            projectId: session.projectId,
+            sessionId: session.id,
+            data: { error: killErr instanceof Error ? killErr.message : String(killErr) },
+            level: "warn",
+          });
         }
       }
     }
