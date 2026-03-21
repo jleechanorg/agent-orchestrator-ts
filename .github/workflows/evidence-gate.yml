@@ -17,6 +17,8 @@ jobs:
           PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
           set -o pipefail
+          # Configure gh to use GITHUB_TOKEN explicitly
+          echo "$GH_TOKEN" | gh auth login --hostname github.com --token-stdin
           # Fetch PR body once and persist to a file for reuse across steps
           # Fail-closed: step exits with error if gh pr view fails
           BODY=$(gh pr view "$PR_NUMBER" --json body --jq '.body')
