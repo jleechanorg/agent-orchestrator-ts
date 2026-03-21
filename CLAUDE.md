@@ -30,14 +30,16 @@ plugins:            # Plugin credentials and settings
 
 ## Definition of a "Green" PR
 
-A PR is green when **ALL FOUR** are true:
+A PR is green when **ALL SIX** are true:
 
 1. **CI green** — all required GitHub Actions checks pass (no failures, no pending required)
 2. **No merge conflicts** — `mergeable: MERGEABLE` (not CONFLICTING)
-3. **No serious unresolved comments** — no actionable items from CodeRabbit, Cursor Bugbot, Copilot, or human reviewers (nitpicks are OK)
-4. **CodeRabbit approved** — latest verdict is APPROVE or LGTM (REQUEST_CHANGES is a blocker)
+3. **CodeRabbit approved** — latest verdict is APPROVE or LGTM (REQUEST_CHANGES is a blocker)
+4. **Cursor Bugbot finished** — conclusion neutral/success, no blocking findings
+5. **All inline comments resolved** — EVEN after CR APPROVED, check ALL reviewers (CR, Copilot, Bugbot, humans). Use: `gh api repos/OWNER/REPO/pulls/NUM/comments --jq '[.[] | select(.body | test("Major|Critical|bug|fix|issue"; "i"))] | length'` — Major/Critical/actionable are blockers, nitpicks are OK. If GraphQL rate-limited, use REST: `gh api repos/OWNER/REPO/pulls/NUM/comments` and check each comment.
+6. **Evidence review passed** — run `/er` if PR has evidence bundle (skip if none)
 
-**Never declare a PR green or ask for merge unless all 4 are true.**
+**Never declare a PR green or ask for merge unless all 6 are true.**
 
 ## Fork Isolation — Code Separation from Upstream
 
