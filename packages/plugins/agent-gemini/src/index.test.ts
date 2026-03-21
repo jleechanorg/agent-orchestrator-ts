@@ -4,14 +4,29 @@ import type { Session, RuntimeHandle, AgentLaunchConfig } from "@jleechanorg/ao-
 // ---------------------------------------------------------------------------
 // Hoisted mocks — available inside vi.mock factories
 // ---------------------------------------------------------------------------
-const { mockExecFileAsync, mockReaddir, mockReadFile, mockStat, mockHomedir } =
-  vi.hoisted(() => ({
-    mockExecFileAsync: vi.fn(),
-    mockReaddir: vi.fn(),
-    mockReadFile: vi.fn(),
-    mockStat: vi.fn(),
-    mockHomedir: vi.fn(() => "/mock/home"),
-  }));
+const {
+  mockExecFileAsync,
+  mockReaddir,
+  mockReadFile,
+  mockStat,
+  mockHomedir,
+  mockLstat,
+  mockMkdir,
+  mockWriteFile,
+  mockChmod,
+  mockExistsSync,
+} = vi.hoisted(() => ({
+  mockExecFileAsync: vi.fn(),
+  mockReaddir: vi.fn(),
+  mockReadFile: vi.fn(),
+  mockStat: vi.fn(),
+  mockHomedir: vi.fn(() => "/mock/home"),
+  mockLstat: vi.fn().mockRejectedValue(Object.assign(new Error("ENOENT"), { code: "ENOENT" })),
+  mockMkdir: vi.fn(),
+  mockWriteFile: vi.fn(),
+  mockChmod: vi.fn(),
+  mockExistsSync: vi.fn(() => false),
+}));
 
 vi.mock("node:child_process", () => {
   const fn = Object.assign((..._args: unknown[]) => {}, {
@@ -24,6 +39,14 @@ vi.mock("node:fs/promises", () => ({
   readdir: mockReaddir,
   readFile: mockReadFile,
   stat: mockStat,
+  lstat: mockLstat,
+  mkdir: mockMkdir,
+  writeFile: mockWriteFile,
+  chmod: mockChmod,
+}));
+
+vi.mock("node:fs", () => ({
+  existsSync: mockExistsSync,
 }));
 
 vi.mock("node:os", () => ({
@@ -684,5 +707,46 @@ describe("getSessionInfo", () => {
       const result = await agent.getSessionInfo(makeSession());
       expect(result).toBeNull();
     });
+  });
+});
+
+// =========================================================================
+// setupWorkspaceHooks — Gemini-specific hook event names
+// =========================================================================
+describe("setupWorkspaceHooks — Gemini uses AfterTool/BeforeTool event names", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockHomedir.mockReturnValue("/mock/home");
+    // Simulate configDir does not yet exist
+    mockLstat.mockRejectedValue(Object.assign(new Error("ENOENT"), { code: "ENOENT" }));
+    mockMkdir.mockResolvedValue(undefined);
+    mockWriteFile.mockResolvedValue(undefined);
+    mockChmod.mockResolvedValue(undefined);
+    // No existing settings.json
+    mockExistsSync.mockReturnValue(false);
+    // Simulate metadata-updater.sh does not exist yet (ENOENT → will be created)
+    mockReadFile.mockRejectedValue(Object.assign(new Error("ENOENT"), { code: "ENOENT" }));
+  });
+
+  it("writes AfterTool and BeforeTool event names (not PostToolUse/PreToolUse) to .gemini/settings.json", async () => {
+    const agent = create();
+
+    await agent.setupWorkspaceHooks!("/workspace/test", { dataDir: "/data/sessions" });
+
+    // Find the settings.json write call
+    const settingsCall = mockWriteFile.mock.calls.find(
+      ([path]: [string]) => typeof path === "string" && path.endsWith("settings.json"),
+    );
+    expect(settingsCall).toBeDefined();
+
+    const settingsJson = settingsCall![1] as string;
+    const settings = JSON.parse(settingsJson) as Record<string, unknown>;
+    const hooks = settings["hooks"] as Record<string, unknown>;
+
+    // Gemini uses AfterTool/BeforeTool (not Claude Code's PostToolUse/PreToolUse)
+    expect(hooks).toHaveProperty("AfterTool");
+    expect(hooks).toHaveProperty("BeforeTool");
+    expect(hooks).not.toHaveProperty("PostToolUse");
+    expect(hooks).not.toHaveProperty("PreToolUse");
   });
 });

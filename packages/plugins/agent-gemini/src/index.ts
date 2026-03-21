@@ -64,6 +64,8 @@ const geminiConfig: AgentPluginConfig = {
   sessionFileExtension: ".json",
   // Gemini CLI uses "run_shell_command" for shell execution, not "Bash"
   hookToolMatcher: "run_shell_command",
+  // Gemini CLI settings.json uses AfterTool/BeforeTool; Claude Code uses PostToolUse/PreToolUse
+  hookEventNames: { postToolUse: "AfterTool", preToolUse: "BeforeTool" },
 };
 
 // =============================================================================

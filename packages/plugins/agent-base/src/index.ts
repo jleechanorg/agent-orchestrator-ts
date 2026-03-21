@@ -85,6 +85,16 @@ export interface AgentPluginConfig {
    * (e.g. Gemini uses "run_shell_command").
    */
   hookToolMatcher?: string;
+  /**
+   * Hook event names used in settings.json.
+   * Defaults to Claude Code names ("PostToolUse" / "PreToolUse").
+   * Override for agents that use different event names
+   * (e.g. Gemini CLI uses "AfterTool" / "BeforeTool").
+   */
+  hookEventNames?: {
+    postToolUse?: string;
+    preToolUse?: string;
+  };
 }
 
 // =============================================================================
@@ -606,7 +616,7 @@ function classifyTerminalOutput(terminalOutput: string): ActivityState {
 // =============================================================================
 
 /**
- * Shared helper to setup PostToolUse hooks in a workspace.
+ * Shared helper to setup tool hooks in a workspace.
  * Writes metadata-updater.sh script and updates settings.json.
  */
 async function setupHookInWorkspace(
@@ -614,6 +624,8 @@ async function setupHookInWorkspace(
   configDir: string,
   hookCommand: string,
   hookMatcher = "Bash",
+  postToolUseEvent = "PostToolUse",
+  preToolUseEvent = "PreToolUse",
 ): Promise<void> {
   const agentDir = join(workspacePath, configDir);
   const settingsPath = join(agentDir, "settings.json");
@@ -680,9 +692,9 @@ async function setupHookInWorkspace(
     typeof rawHooks === "object" && rawHooks !== null && !Array.isArray(rawHooks)
       ? (rawHooks as Record<string, unknown>)
       : {};
-  const rawPostToolUse = hooks["PostToolUse"];
+  const rawPostToolUse = hooks[postToolUseEvent];
   const postToolUse: Array<unknown> = Array.isArray(rawPostToolUse) ? rawPostToolUse : [];
-  const rawPreToolUse = hooks["PreToolUse"];
+  const rawPreToolUse = hooks[preToolUseEvent];
   const preToolUse: Array<unknown> = Array.isArray(rawPreToolUse) ? rawPreToolUse : [];
 
   const ensureMetadataHook = (eventHooks: Array<unknown>): void => {
@@ -737,8 +749,8 @@ async function setupHookInWorkspace(
   ensureMetadataHook(postToolUse);
   ensureMetadataHook(preToolUse);
 
-  hooks["PostToolUse"] = postToolUse;
-  hooks["PreToolUse"] = preToolUse;
+  hooks[postToolUseEvent] = postToolUse;
+  hooks[preToolUseEvent] = preToolUse;
   existingSettings["hooks"] = hooks;
 
   // Write updated settings only if content has changed
@@ -1082,7 +1094,14 @@ export function createAgentPlugin(config: AgentPluginConfig, overrides?: Partial
       // Prefix AO_DATA_DIR so the hook writes to the configured data directory
       // rather than the default $HOME/.ao-sessions.
       const hookCommand = `AO_DATA_DIR=${shellEscape(hookConfig.dataDir)} ${shellEscape(hookScriptPath)}`;
-      await setupHookInWorkspace(workspacePath, config.configDir, hookCommand, config.hookToolMatcher ?? "Bash");
+      await setupHookInWorkspace(
+        workspacePath,
+        config.configDir,
+        hookCommand,
+        config.hookToolMatcher ?? "Bash",
+        config.hookEventNames?.postToolUse ?? "PostToolUse",
+        config.hookEventNames?.preToolUse ?? "PreToolUse",
+      );
       // Also configure MCP mail server for agent coordination
       await setupMcpMailInWorkspace(workspacePath, config.configDir);
     },
@@ -1095,7 +1114,14 @@ export function createAgentPlugin(config: AgentPluginConfig, overrides?: Partial
         "metadata-updater.sh",
       );
       // postLaunchSetup does not receive hookConfig — use the env-var default
-      await setupHookInWorkspace(session.workspacePath, config.configDir, shellEscape(hookScriptPath), config.hookToolMatcher ?? "Bash");
+      await setupHookInWorkspace(
+        session.workspacePath,
+        config.configDir,
+        shellEscape(hookScriptPath),
+        config.hookToolMatcher ?? "Bash",
+        config.hookEventNames?.postToolUse ?? "PostToolUse",
+        config.hookEventNames?.preToolUse ?? "PreToolUse",
+      );
       // Also configure MCP mail server for agent coordination
       await setupMcpMailInWorkspace(session.workspacePath, config.configDir);
     },

@@ -20,6 +20,7 @@ const {
   mockAccess,
   mockOpen,
   mockExistsSync,
+  mockLstat,
 } = vi.hoisted(() => ({
   mockReaddir: vi.fn(),
   mockReadFile: vi.fn(),
@@ -31,6 +32,7 @@ const {
   mockAccess: vi.fn(),
   mockOpen: vi.fn(),
   mockExistsSync: vi.fn(() => false),
+  mockLstat: vi.fn().mockRejectedValue(Object.assign(new Error("ENOENT"), { code: "ENOENT" })),
 }));
 
 vi.mock("node:fs/promises", () => ({
@@ -42,6 +44,7 @@ vi.mock("node:fs/promises", () => ({
   chmod: mockChmod,
   access: mockAccess,
   open: mockOpen,
+  lstat: mockLstat,
 }));
 
 vi.mock("node:os", () => ({
@@ -243,4 +246,76 @@ describe("createAgentPlugin factory", () => {
     expect(result).toBe(customDir);
   });
 
+});
+
+// ---------------------------------------------------------------------------
+// setupWorkspaceHooks — hook event names
+// ---------------------------------------------------------------------------
+describe("setupWorkspaceHooks — hook event names", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    // lstat throws ENOENT (configDir does not exist) — setupHookInWorkspace handles this
+    mockLstat.mockRejectedValue(Object.assign(new Error("ENOENT"), { code: "ENOENT" }));
+    // mkdir, writeFile, chmod are no-ops
+    mockMkdir.mockResolvedValue(undefined);
+    mockWriteFile.mockResolvedValue(undefined);
+    mockChmod.mockResolvedValue(undefined);
+    // existsSync returns false — no existing settings.json to read
+    mockExistsSync.mockReturnValue(false);
+  });
+
+  function getSettingsJsonArg(): string | null {
+    for (const call of mockWriteFile.mock.calls) {
+      const [path, content] = call as [string, string, unknown];
+      if (typeof path === "string" && path.endsWith("settings.json")) {
+        return content;
+      }
+    }
+    return null;
+  }
+
+  it("uses PostToolUse/PreToolUse by default (Claude Code agents)", async () => {
+    const agent = createAgentPlugin({
+      name: "claude-code",
+      description: "Claude Code",
+      processName: "claude",
+      command: "claude",
+      configDir: ".claude",
+      permissionlessFlag: "--dangerously-skip-permissions",
+    });
+
+    await agent.setupWorkspaceHooks!("/workspace/test", { dataDir: "/data/sessions" });
+
+    const settingsJson = getSettingsJsonArg();
+    expect(settingsJson).not.toBeNull();
+    const settings = JSON.parse(settingsJson!) as Record<string, unknown>;
+    const hooks = settings["hooks"] as Record<string, unknown>;
+    expect(hooks).toHaveProperty("PostToolUse");
+    expect(hooks).toHaveProperty("PreToolUse");
+    expect(hooks).not.toHaveProperty("AfterTool");
+    expect(hooks).not.toHaveProperty("BeforeTool");
+  });
+
+  it("uses AfterTool/BeforeTool when hookEventNames configured for Gemini", async () => {
+    const agent = createAgentPlugin({
+      name: "gemini",
+      description: "Gemini CLI",
+      processName: "gemini",
+      command: "gemini",
+      configDir: ".gemini",
+      permissionlessFlag: "--yolo",
+      hookEventNames: { postToolUse: "AfterTool", preToolUse: "BeforeTool" },
+    });
+
+    await agent.setupWorkspaceHooks!("/workspace/test", { dataDir: "/data/sessions" });
+
+    const settingsJson = getSettingsJsonArg();
+    expect(settingsJson).not.toBeNull();
+    const settings = JSON.parse(settingsJson!) as Record<string, unknown>;
+    const hooks = settings["hooks"] as Record<string, unknown>;
+    expect(hooks).toHaveProperty("AfterTool");
+    expect(hooks).toHaveProperty("BeforeTool");
+    expect(hooks).not.toHaveProperty("PostToolUse");
+    expect(hooks).not.toHaveProperty("PreToolUse");
+  });
 });
