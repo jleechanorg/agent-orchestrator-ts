@@ -708,6 +708,8 @@ describe("scm-github plugin", () => {
           { name: "action_req", status: "completed", conclusion: "action_required", html_url: "", started_at: null, completed_at: null },
         ],
       });
+      // Third call: get classic commit statuses (empty)
+      mockGh({ statuses: [] });
 
       const checks = await scm.getCIChecks(pr);
       expect(checks).toHaveLength(10);
@@ -734,6 +736,8 @@ describe("scm-github plugin", () => {
       mockGh({ head: { sha: "abc123" } });
       // Second call: get check runs (empty)
       mockGh({ check_runs: [] });
+      // Third call: get classic commit statuses (empty)
+      mockGh({ statuses: [] });
       expect(await scm.getCIChecks(pr)).toEqual([]);
     });
 
@@ -744,6 +748,8 @@ describe("scm-github plugin", () => {
       mockGh({
         check_runs: [{ name: "test", status: "completed", conclusion: "success", html_url: "", started_at: null, completed_at: null }],
       });
+      // Third call: get classic commit statuses (empty)
+      mockGh({ statuses: [] });
       const checks = await scm.getCIChecks(pr);
       expect(checks[0].url).toBeUndefined();
       expect(checks[0].startedAt).toBeUndefined();
@@ -781,6 +787,7 @@ describe("scm-github plugin", () => {
           { name: "b", status: "completed", conclusion: "failure", html_url: "", started_at: null, completed_at: null },
         ],
       });
+      mockGh({ statuses: [] });
       expect(await scm.getCISummary(pr)).toBe("failing");
     });
 
@@ -792,6 +799,7 @@ describe("scm-github plugin", () => {
           { name: "b", status: "in_progress", conclusion: null, html_url: "", started_at: null, completed_at: null },
         ],
       });
+      mockGh({ statuses: [] });
       expect(await scm.getCISummary(pr)).toBe("pending");
     });
 
@@ -803,12 +811,14 @@ describe("scm-github plugin", () => {
           { name: "b", status: "completed", conclusion: "success", html_url: "", started_at: null, completed_at: null },
         ],
       });
+      mockGh({ statuses: [] });
       expect(await scm.getCISummary(pr)).toBe("passing");
     });
 
     it('returns "none" when no checks', async () => {
       mockGh({ head: { sha: "abc123" } });
       mockGh({ check_runs: [] });
+      mockGh({ statuses: [] });
       expect(await scm.getCISummary(pr)).toBe("none");
     });
 
@@ -825,6 +835,7 @@ describe("scm-github plugin", () => {
           { name: "b", status: "completed", conclusion: "neutral", html_url: "", started_at: null, completed_at: null },
         ],
       });
+      mockGh({ statuses: [] });
       expect(await scm.getCISummary(pr)).toBe("none");
     });
   });
@@ -1247,6 +1258,7 @@ describe("scm-github plugin", () => {
       // CI checks: getCISummary → getCIChecks (two calls)
       mockGh({ head: { sha: "abc123" } });
       mockGh({ check_runs: [] });
+      mockGh({ statuses: [] });
       // getReviewDecision → getReviews (REST)
       mockGh([{ user: { login: "r" }, state: "APPROVED", body: "", submitted_at: "2024-01-01T00:00:00Z" }]);
 
@@ -1268,6 +1280,7 @@ describe("scm-github plugin", () => {
           { name: "build", status: "completed", conclusion: "success", html_url: "", started_at: null, completed_at: null },
         ],
       });
+      mockGh({ statuses: [] });
       // getReviewDecision → getReviews (REST)
       mockGh([{ user: { login: "r" }, state: "APPROVED", body: "", submitted_at: "2024-01-01T00:00:00Z" }]);
 
@@ -1292,6 +1305,7 @@ describe("scm-github plugin", () => {
           { name: "build", status: "completed", conclusion: "failure", html_url: "", started_at: null, completed_at: null },
         ],
       });
+      mockGh({ statuses: [] });
       // getReviewDecision → getReviews (REST)
       mockGh([{ user: { login: "r" }, state: "APPROVED", body: "", submitted_at: "2024-01-01T00:00:00Z" }]);
 
@@ -1327,6 +1341,7 @@ describe("scm-github plugin", () => {
       // CI checks: getCISummary → getCIChecks (two calls)
       mockGh({ head: { sha: "abc123" } });
       mockGh({ check_runs: [] });
+      mockGh({ statuses: [] });
       // getReviewDecision → getReviews (REST) — CHANGES_REQUESTED
       mockGh([{ user: { login: "r" }, state: "CHANGES_REQUESTED", body: "", submitted_at: "2024-01-01T00:00:00Z" }]);
 
@@ -1342,6 +1357,7 @@ describe("scm-github plugin", () => {
       // CI checks: getCISummary → getCIChecks (two calls)
       mockGh({ head: { sha: "abc123" } });
       mockGh({ check_runs: [] });
+      mockGh({ statuses: [] });
       // getReviewDecision → getReviews (REST) — no reviews
       mockGh([]);
 
@@ -1356,6 +1372,7 @@ describe("scm-github plugin", () => {
       // CI checks: getCISummary → getCIChecks (two calls)
       mockGh({ head: { sha: "abc123" } });
       mockGh({ check_runs: [] });
+      mockGh({ statuses: [] });
       // getReviewDecision → getReviews (REST)
       mockGh([{ user: { login: "r" }, state: "APPROVED", body: "", submitted_at: "2024-01-01T00:00:00Z" }]);
 
@@ -1375,6 +1392,7 @@ describe("scm-github plugin", () => {
           { name: "build", status: "completed", conclusion: "success", html_url: "", started_at: null, completed_at: null },
         ],
       });
+      mockGh({ statuses: [] });
       // getReviewDecision → getReviews (REST)
       mockGh([{ user: { login: "r" }, state: "APPROVED", body: "", submitted_at: "2024-01-01T00:00:00Z" }]);
 
@@ -1395,6 +1413,7 @@ describe("scm-github plugin", () => {
           { name: "build", status: "completed", conclusion: "success", html_url: "", started_at: null, completed_at: null },
         ],
       });
+      mockGh({ statuses: [] });
       // getReviewDecision → getReviews (REST)
       mockGh([{ user: { login: "r" }, state: "APPROVED", body: "", submitted_at: "2024-01-01T00:00:00Z" }]);
 
@@ -1414,6 +1433,7 @@ describe("scm-github plugin", () => {
           { name: "build", status: "completed", conclusion: "failure", html_url: "", started_at: null, completed_at: null },
         ],
       });
+      mockGh({ statuses: [] });
       // getReviewDecision → getReviews (REST) — CHANGES_REQUESTED
       mockGh([{ user: { login: "r" }, state: "CHANGES_REQUESTED", body: "", submitted_at: "2024-01-01T00:00:00Z" }]);
 

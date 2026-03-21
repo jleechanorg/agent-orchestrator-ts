@@ -844,22 +844,86 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
         const prData: { head: { sha: string } } = JSON.parse(prRaw);
         const sha = prData.head.sha;
 
-        const checksRaw = await gh([
-          "api",
-          `repos/${pr.owner}/${pr.repo}/commits/${sha}/check-runs`,
-        ]);
-        const checksData: {
-          check_runs: Array<{
-            name: string;
-            status: string;
-            conclusion: string | null;
-            html_url: string;
-            started_at: string | null;
-            completed_at: string | null;
-          }>;
-        } = JSON.parse(checksRaw);
+        // Fetch check-runs with pagination (max 100 per page)
+        const perPage = 100;
+        let page = 1;
+        const allCheckRuns: Array<{
+          name: string;
+          status: string;
+          conclusion: string | null;
+          html_url: string;
+          started_at: string | null;
+          completed_at: string | null;
+        }> = [];
 
-        return checksData.check_runs.map((c) => {
+        // eslint-disable-next-line no-constant-condition
+        while (true) {
+          const checksRaw = await gh([
+            "api",
+            `repos/${pr.owner}/${pr.repo}/commits/${sha}/check-runs?per_page=${perPage}&page=${page}`,
+          ]);
+          const pageData: {
+            check_runs: Array<{
+              name: string;
+              status: string;
+              conclusion: string | null;
+              html_url: string;
+              started_at: string | null;
+              completed_at: string | null;
+            }>;
+          } = JSON.parse(checksRaw);
+
+          allCheckRuns.push(...pageData.check_runs);
+
+          // If we got fewer than perPage results, we've reached the end
+          if (pageData.check_runs.length < perPage) {
+            break;
+          }
+          page++;
+        }
+
+        // Also fetch classic commit statuses (Status API) - these are separate from check-runs
+        // and some repos still use the Status API for required checks
+        const statusRaw = await gh([
+          "api",
+          `repos/${pr.owner}/${pr.repo}/commits/${sha}/status`,
+        ]);
+        const statusData: {
+          statuses: Array<{
+            context: string;
+            state: string;
+            target_url: string | null;
+            created_at: string;
+            updated_at: string;
+          }>;
+        } = JSON.parse(statusRaw);
+
+        // Map classic statuses to CICheck format
+        const classicStatusChecks: CICheck[] = statusData.statuses.map((s) => {
+          let mappedStatus: CICheck["status"];
+          const state = s.state?.toUpperCase() ?? "";
+          if (state === "SUCCESS") {
+            mappedStatus = "passed";
+          } else if (state === "PENDING") {
+            mappedStatus = "pending";
+          } else if (state === "ERROR" || state === "FAILURE") {
+            mappedStatus = "failed";
+          } else {
+            mappedStatus = "pending";
+          }
+
+          return {
+            name: s.context,
+            status: mappedStatus,
+            url: s.target_url || undefined,
+            conclusion: state === "SUCCESS" ? "success" : state === "FAILURE" ? "failure" : state === "ERROR" ? "error" : undefined,
+            startedAt: s.created_at ? new Date(s.created_at) : undefined,
+            completedAt: s.updated_at ? new Date(s.updated_at) : undefined,
+          };
+        });
+
+        // Merge check-runs and classic statuses, dedupe by name
+        const checkRunResults: CICheck[] = allCheckRuns.map((c) => {
           const conclusion = c.conclusion?.toUpperCase() ?? "";
           const status = c.status?.toUpperCase() ?? "";
 
@@ -882,6 +946,16 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
             completedAt: c.completed_at ? new Date(c.completed_at) : undefined,
           };
         });
+
+        // Dedupe: prefer check-runs over classic status if same name
+        const merged = [...checkRunResults];
+        for (const classic of classicStatusChecks) {
+          if (!merged.some((c) => c.name === classic.name)) {
+            merged.push(classic);
+          }
+        }
+
+        return merged;
       } catch (err) {
         if (isUnsupportedPrChecksJsonError(err)) {
           return getCIChecksFromStatusRollup(pr);
