@@ -963,7 +963,7 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
         // Use REST API directly to avoid GraphQL rate limits (gh pr list --json uses GraphQL)
         const raw = await gh([
           "api",
-          `repos/${owner}/${repo}/pulls?head=${owner}:${session.branch}&state=open&per_page=1`,
+          `repos/${owner}/${repo}/pulls?head=${owner}:${encodeURIComponent(session.branch)}&state=open&per_page=1`,
         ]);
 
         const prs: Array<{
@@ -1234,8 +1234,7 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
         // Rate limit errors are transient — return "none" so the lifecycle
         // poller retries next cycle rather than triggering a "changes-requested"
         // reaction on every poll.
-        const msg = err instanceof Error ? err.message : String(err);
-        if (msg.includes("rate limit") || msg.includes("API rate limit")) {
+        if (isRateLimitError(err)) {
           return "none";
         }
         throw err;
