@@ -754,9 +754,8 @@ describe("METADATA_UPDATER_SCRIPT content", () => {
   });
 
   it("detects gh pr merge on clean_command", () => {
-    expect(METADATA_UPDATER_SCRIPT).toMatch(
-      /"\$clean_command"\s*=~\s*\^gh\[.*merge/,
-    );
+    expect(METADATA_UPDATER_SCRIPT).toContain("merge_pattern");
+    expect(METADATA_UPDATER_SCRIPT).toMatch(/"\$clean_command"\s*=~\s*\$merge_pattern/);
   });
 });
 
@@ -785,6 +784,20 @@ describe("hook setup — relative path (symlink-safe)", () => {
     const hookCommand = getWrittenHookCommand();
     expect(hookCommand).toBe(".claude/metadata-updater.sh");
     expect(hookCommand).not.toMatch(/^\//);
+  });
+
+  it("registers metadata hook for both PostToolUse and PreToolUse", async () => {
+    await agent.setupWorkspaceHooks!(
+      "/Users/equinox/.worktrees/integrator/integrator-5",
+      {} as WorkspaceHooksConfig,
+    );
+
+    const settingsWrite = mockWriteFile.mock.calls.find(
+      ([path]: unknown[]) => typeof path === "string" && path.endsWith("settings.json"),
+    );
+    const parsed = JSON.parse(settingsWrite![1] as string);
+    expect(parsed.hooks.PostToolUse[0].hooks[0].command).toBe(".claude/metadata-updater.sh");
+    expect(parsed.hooks.PreToolUse[0].hooks[0].command).toBe(".claude/metadata-updater.sh");
   });
 
   it("postLaunchSetup writes a relative hook command (not absolute)", async () => {

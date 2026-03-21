@@ -184,7 +184,25 @@ source "\$ao_bin_dir/ao-metadata-helper.sh" 2>/dev/null || true
 # Only capture output for commands we need to parse (pr/create, pr/merge).
 # All other commands pass through transparently without stream merging.
 case "\$1/\$2" in
-  pr/create|pr/merge)
+  pr/merge)
+    if [[ "\${AO_ALLOW_GH_PR_MERGE:-}" != "1" ]]; then
+      echo "ao policy: agents must not run \`gh pr merge\`. leave merge to orchestrator/human." >&2
+      exit 2
+    fi
+
+    tmpout="\$(mktemp)"
+    trap 'rm -f "\$tmpout"' EXIT
+
+    "\$real_gh" "\$@" 2>&1 | tee "\$tmpout"
+    exit_code=\${PIPESTATUS[0]}
+
+    if [[ \$exit_code -eq 0 ]]; then
+      update_ao_metadata status merged
+    fi
+
+    exit \$exit_code
+    ;;
+  pr/create)
     tmpout="\$(mktemp)"
     trap 'rm -f "\$tmpout"' EXIT
 
@@ -193,18 +211,11 @@ case "\$1/\$2" in
 
     if [[ \$exit_code -eq 0 ]]; then
       output="\$(cat "\$tmpout")"
-      case "\$1/\$2" in
-        pr/create)
-          pr_url="\$(echo "\$output" | grep -Eo 'https://github\\.com/[^/]+/[^/]+/pull/[0-9]+' | head -1)"
-          if [[ -n "\$pr_url" ]]; then
-            update_ao_metadata pr "\$pr_url"
-            update_ao_metadata status pr_open
-          fi
-          ;;
-        pr/merge)
-          update_ao_metadata status merged
-          ;;
-      esac
+      pr_url="\$(echo "\$output" | grep -Eo 'https://github\\.com/[^/]+/[^/]+/pull/[0-9]+' | head -1)"
+      if [[ -n "\$pr_url" ]]; then
+        update_ao_metadata pr "\$pr_url"
+        update_ao_metadata status pr_open
+      fi
     fi
 
     exit \$exit_code

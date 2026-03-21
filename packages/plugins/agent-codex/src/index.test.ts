@@ -1622,7 +1622,8 @@ describe("shell wrapper content", () => {
 
     it("only captures output for pr/create and pr/merge", async () => {
       const content = await getWrapperContent("gh");
-      expect(content).toContain("pr/create|pr/merge");
+      expect(content).toContain("pr/create)");
+      expect(content).toContain("pr/merge)");
     });
 
     it("uses exec for non-PR commands (transparent passthrough)", async () => {
@@ -1648,9 +1649,17 @@ describe("shell wrapper content", () => {
       expect(content).toContain("update_ao_metadata pr");
     });
 
-    it("updates status to merged on gh pr merge", async () => {
+    it("blocks gh pr merge at wrapper level", async () => {
+      const content = await getWrapperContent("gh");
+      expect(content).toContain('pr/merge)');
+      expect(content).toContain('ao policy: agents must not run `gh pr merge`');
+      expect(content).toContain("exit 2");
+    });
+
+    it("still updates status to merged when merge is allowed by policy override", async () => {
       const content = await getWrapperContent("gh");
       expect(content).toContain("update_ao_metadata status merged");
+      expect(content).toContain('AO_ALLOW_GH_PR_MERGE');
     });
 
     it("cleans up temp file on exit", async () => {

@@ -178,8 +178,29 @@ update_metadata_key() {
 # Command Detection and Parsing
 # ============================================================================
 
+# Strip leading directory-change prefixes so commands like
+#   cd ~/.worktrees/project && gh pr create ...
+# are still detected.
+cd_prefix_pattern='^[[:space:]]*cd[[:space:]]+.*[[:space:]]+(&&|;)[[:space:]]+(.*)'
+clean_command="$command"
+while [[ "$clean_command" =~ ^[[:space:]]*cd[[:space:]] ]]; do
+  if [[ "$clean_command" =~ $cd_prefix_pattern ]]; then
+    clean_command="\${BASH_REMATCH[2]}"
+  else
+    break
+  fi
+done
+
+# Hard guardrail: block agent-triggered gh pr merge by default.
+# Escape hatch for trusted/manual flows: AO_ALLOW_GH_PR_MERGE=1
+merge_pattern='^[[:space:]]*([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]+[[:space:]]+)*gh[[:space:]]+pr[[:space:]]+merge([[:space:]]|$)'
+if [[ "$clean_command" =~ $merge_pattern && "\${AO_ALLOW_GH_PR_MERGE:-}" != "1" ]]; then
+  echo '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"Blocked by AO policy: agents must not run gh pr merge. Leave merge to orchestrator/human."}}'
+  exit 0
+fi
+
 # Detect: gh pr create
-if [[ "$command" =~ ^gh[[:space:]]+pr[[:space:]]+create ]]; then
+if [[ "$clean_command" =~ ^gh[[:space:]]+pr[[:space:]]+create ]]; then
   # Extract PR URL from output
   pr_url=$(echo "$output" | grep -Eo 'https://github[.]com/[^/]+/[^/]+/pull/[0-9]+' | head -1)
 
@@ -192,8 +213,8 @@ if [[ "$command" =~ ^gh[[:space:]]+pr[[:space:]]+create ]]; then
 fi
 
 # Detect: git checkout -b <branch> or git switch -c <branch>
-if [[ "$command" =~ ^git[[:space:]]+checkout[[:space:]]+-b[[:space:]]+([^[:space:]]+) ]] || \\
-   [[ "$command" =~ ^git[[:space:]]+switch[[:space:]]+-c[[:space:]]+([^[:space:]]+) ]]; then
+if [[ "$clean_command" =~ ^git[[:space:]]+checkout[[:space:]]+-b[[:space:]]+([^[:space:]]+) ]] || \\
+   [[ "$clean_command" =~ ^git[[:space:]]+switch[[:space:]]+-c[[:space:]]+([^[:space:]]+) ]]; then
   branch="\${BASH_REMATCH[1]}"
 
   if [[ -n "$branch" ]]; then
@@ -205,8 +226,8 @@ fi
 
 # Detect: git checkout <branch> (without -b) or git switch <branch> (without -c)
 # Only update if the branch name looks like a feature branch (contains / or -)
-if [[ "$command" =~ ^git[[:space:]]+checkout[[:space:]]+([^[:space:]-]+[/-][^[:space:]]+) ]] || \\
-   [[ "$command" =~ ^git[[:space:]]+switch[[:space:]]+([^[:space:]-]+[/-][^[:space:]]+) ]]; then
+if [[ "$clean_command" =~ ^git[[:space:]]+checkout[[:space:]]+([^[:space:]-]+[/-][^[:space:]]+) ]] || \\
+   [[ "$clean_command" =~ ^git[[:space:]]+switch[[:space:]]+([^[:space:]-]+[/-][^[:space:]]+) ]]; then
   branch="\${BASH_REMATCH[1]}"
 
   # Avoid updating for checkout of commits/tags
@@ -217,8 +238,8 @@ if [[ "$command" =~ ^git[[:space:]]+checkout[[:space:]]+([^[:space:]-]+[/-][^[:s
   fi
 fi
 
-# Detect: gh pr merge
-if [[ "$command" =~ ^gh[[:space:]]+pr[[:space:]]+merge ]]; then
+# Detect: gh pr merge (only when explicitly allowed)
+if [[ "$clean_command" =~ $merge_pattern && "\${AO_ALLOW_GH_PR_MERGE:-}" == "1" ]]; then
   update_metadata_key "status" "merged"
   echo '{"systemMessage": "Updated metadata: status = merged"}'
   exit 0
@@ -660,47 +681,47 @@ async function setupHookInWorkspace(
       : {};
   const rawPostToolUse = hooks["PostToolUse"];
   const postToolUse: Array<unknown> = Array.isArray(rawPostToolUse) ? rawPostToolUse : [];
+  const rawPreToolUse = hooks["PreToolUse"];
+  const preToolUse: Array<unknown> = Array.isArray(rawPreToolUse) ? rawPreToolUse : [];
 
-  // Check if our hook is already configured
-  let hookIndex = -1;
-  let hookDefIndex = -1;
-  for (let i = 0; i < postToolUse.length; i++) {
-    const hook = postToolUse[i];
-    if (typeof hook !== "object" || hook === null || Array.isArray(hook)) continue;
-    const h = hook as Record<string, unknown>;
-    const hooksList = h["hooks"];
-    if (!Array.isArray(hooksList)) continue;
-    for (let j = 0; j < hooksList.length; j++) {
-      const hDef = hooksList[j];
-      if (typeof hDef !== "object" || hDef === null || Array.isArray(hDef)) continue;
-      const def = hDef as Record<string, unknown>;
-      if (typeof def["command"] === "string" && def["command"].includes("metadata-updater.sh")) {
-        hookIndex = i;
-        hookDefIndex = j;
-        break;
+  const ensureMetadataHook = (eventHooks: Array<unknown>): void => {
+    let hookIndex = -1;
+    let hookDefIndex = -1;
+
+    for (let i = 0; i < eventHooks.length; i++) {
+      const hook = eventHooks[i];
+      if (typeof hook !== "object" || hook === null || Array.isArray(hook)) continue;
+      const h = hook as Record<string, unknown>;
+      const hooksList = h["hooks"];
+      if (!Array.isArray(hooksList)) continue;
+      for (let j = 0; j < hooksList.length; j++) {
+        const hDef = hooksList[j];
+        if (typeof hDef !== "object" || hDef === null || Array.isArray(hDef)) continue;
+        const def = hDef as Record<string, unknown>;
+        if (typeof def["command"] === "string" && def["command"].includes("metadata-updater.sh")) {
+          hookIndex = i;
+          hookDefIndex = j;
+          break;
+        }
       }
+      if (hookIndex >= 0) break;
     }
-    if (hookIndex >= 0) break;
-  }
 
-  // Add or update our hook
-  if (hookIndex === -1) {
-    // No metadata hook exists, add it
-    postToolUse.push({
-      matcher: hookMatcher,
-      hooks: [
-        {
-          type: "command",
-          command: hookCommand,
-          timeout: 5000,
-        },
-      ],
-    });
-  } else {
-    // Hook exists, update the command — but preserve an existing AO_DATA_DIR
-    // prefix if the new command doesn't include one (e.g. postLaunchSetup
-    // doesn't have access to hookConfig.dataDir and would silently drop it).
-    const hook = postToolUse[hookIndex] as Record<string, unknown>;
+    if (hookIndex === -1) {
+      eventHooks.push({
+        matcher: hookMatcher,
+        hooks: [
+          {
+            type: "command",
+            command: hookCommand,
+            timeout: 5000,
+          },
+        ],
+      });
+      return;
+    }
+
+    const hook = eventHooks[hookIndex] as Record<string, unknown>;
     const hooksList = hook["hooks"] as Array<Record<string, unknown>>;
     const existingCommand = hooksList[hookDefIndex]["command"] as string | undefined;
     const newCommandDropsDataDir =
@@ -710,9 +731,13 @@ async function setupHookInWorkspace(
     if (!newCommandDropsDataDir) {
       hooksList[hookDefIndex]["command"] = hookCommand;
     }
-  }
+  };
+
+  ensureMetadataHook(postToolUse);
+  ensureMetadataHook(preToolUse);
 
   hooks["PostToolUse"] = postToolUse;
+  hooks["PreToolUse"] = preToolUse;
   existingSettings["hooks"] = hooks;
 
   // Write updated settings only if content has changed

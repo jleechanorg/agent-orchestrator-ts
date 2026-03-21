@@ -140,6 +140,15 @@ while [[ "$clean_command" =~ ^[[:space:]]*cd[[:space:]] ]]; do
   fi
 done
 
+# Hard guardrail: block agent-triggered gh pr merge by default.
+# Rationale: prompt rules (e.g., "NEVER MERGE") are advisory; this enforces policy in code.
+# Escape hatch for trusted/manual flows: AO_ALLOW_GH_PR_MERGE=1
+merge_pattern='^[[:space:]]*([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]+[[:space:]]+)*gh[[:space:]]+pr[[:space:]]+merge([[:space:]]|$)'
+if [[ "$clean_command" =~ $merge_pattern && "\${AO_ALLOW_GH_PR_MERGE:-}" != "1" ]]; then
+  echo '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"Blocked by AO policy: agents must not run gh pr merge. Leave merge to orchestrator/human."}}'
+  exit 0
+fi
+
 # Detect: gh pr create
 if [[ "$clean_command" =~ ^gh[[:space:]]+pr[[:space:]]+create ]]; then
   # Extract PR URL from output
@@ -179,8 +188,8 @@ if [[ "$clean_command" =~ ^git[[:space:]]+checkout[[:space:]]+([^[:space:]-]+[/-
   fi
 fi
 
-# Detect: gh pr merge
-if [[ "$clean_command" =~ ^gh[[:space:]]+pr[[:space:]]+merge ]]; then
+# Detect: gh pr merge (only when explicitly allowed)
+if [[ "$clean_command" =~ $merge_pattern && "\${AO_ALLOW_GH_PR_MERGE:-}" == "1" ]]; then
   update_metadata_key "status" "merged"
   echo '{"systemMessage": "Updated metadata: status = merged"}'
   exit 0
@@ -573,24 +582,22 @@ async function setupHookInWorkspace(workspacePath: string): Promise<void> {
   const settingsPath = join(claudeDir, "settings.json");
   const hookScriptPath = join(claudeDir, "metadata-updater.sh");
 
-  if (existsSync(claudeDir)) {
-    const st = await lstat(claudeDir);
-    if (st.isSymbolicLink()) {
-      // Warn but continue — shared .claude symlinks are valid in worktree setups
-      console.warn(`[agent-claude-code] .claude is a symlink at ${claudeDir} — writing hooks through symlink`);
+  // Reject symlinks BEFORE creating — writing into a symlinked .claude is a security risk
+  try {
+    const claudeStat = await lstat(claudeDir);
+    if (claudeStat.isSymbolicLink()) {
+      throw new Error(`[agent-claude-code] .claude dir is a symlink at ${claudeDir} — refusing to write hooks`);
     }
-  } else {
+    // Exists as a real directory — nothing to create
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+    // Directory doesn't exist — create it
     await mkdir(claudeDir, { recursive: true });
   }
 
   // Write the metadata updater script only if content changed (idempotent)
   if (!existsSync(hookScriptPath) || (await readFile(hookScriptPath, "utf-8")) !== METADATA_UPDATER_SCRIPT) {
     await writeFile(hookScriptPath, METADATA_UPDATER_SCRIPT, "utf-8");
-  }
-  // Always ensure execute bit is set, but skip if the hook script is itself a symlink
-  // (chmod follows symlinks and could alter permissions on an unrelated target file).
-  const hookStat = await lstat(hookScriptPath).catch(() => null);
-  if (hookStat && !hookStat.isSymbolicLink()) {
     await chmod(hookScriptPath, 0o755);
   }
 
@@ -607,52 +614,58 @@ async function setupHookInWorkspace(workspacePath: string): Promise<void> {
 
   // Merge hooks configuration
   const hooks = (existingSettings["hooks"] as Record<string, unknown>) ?? {};
-  const postToolUse = (hooks["PostToolUse"] as Array<unknown>) ?? [];
+  const postToolUse = Array.isArray(hooks["PostToolUse"]) ? (hooks["PostToolUse"] as Array<unknown>) : [];
+  const preToolUse = Array.isArray(hooks["PreToolUse"]) ? (hooks["PreToolUse"] as Array<unknown>) : [];
 
-  // Check if our hook is already configured
-  let hookIndex = -1;
-  let hookDefIndex = -1;
-  for (let i = 0; i < postToolUse.length; i++) {
-    const hook = postToolUse[i];
-    if (typeof hook !== "object" || hook === null || Array.isArray(hook)) continue;
-    const h = hook as Record<string, unknown>;
-    const hooksList = h["hooks"];
-    if (!Array.isArray(hooksList)) continue;
-    for (let j = 0; j < hooksList.length; j++) {
-      const hDef = hooksList[j];
-      if (typeof hDef !== "object" || hDef === null || Array.isArray(hDef)) continue;
-      const def = hDef as Record<string, unknown>;
-      if (typeof def["command"] === "string" && def["command"].includes("metadata-updater.sh")) {
-        hookIndex = i;
-        hookDefIndex = j;
-        break;
+  const ensureMetadataHook = (eventHooks: Array<unknown>): void => {
+    let hookIndex = -1;
+    let hookDefIndex = -1;
+    for (let i = 0; i < eventHooks.length; i++) {
+      const hook = eventHooks[i];
+      if (typeof hook !== "object" || hook === null || Array.isArray(hook)) continue;
+      const h = hook as Record<string, unknown>;
+      const hooksList = h["hooks"];
+      if (!Array.isArray(hooksList)) continue;
+      for (let j = 0; j < hooksList.length; j++) {
+        const hDef = hooksList[j];
+        if (typeof hDef !== "object" || hDef === null || Array.isArray(hDef)) continue;
+        const def = hDef as Record<string, unknown>;
+        if (typeof def["command"] === "string" && def["command"].includes("metadata-updater.sh")) {
+          hookIndex = i;
+          hookDefIndex = j;
+          break;
+        }
       }
+      if (hookIndex >= 0) break;
     }
-    if (hookIndex >= 0) break;
-  }
 
-  // Build hook definition — always workspace-relative command, no dataDir dependency
-  const hookDef: Record<string, unknown> = {
-    type: "command",
-    command: hookCommand,
-    timeout: 5000,
+    const hookDef: Record<string, unknown> = {
+      type: "command",
+      command: hookCommand,
+      timeout: 5000,
+    };
+
+    if (hookIndex === -1) {
+      eventHooks.push({ matcher: "Bash", hooks: [hookDef] });
+      return;
+    }
+
+    const hook = eventHooks[hookIndex] as Record<string, unknown>;
+    const hooksList = hook["hooks"] as Array<Record<string, unknown>>;
+    const existingHookDef = hooksList[hookDefIndex];
+    const existingEnv = existingHookDef?.["env"] as Record<string, unknown> | undefined;
+    const existingDataDir = existingEnv?.["AO_DATA_DIR"];
+    const newCommandDropsDataDir = !hookDef["env"] && typeof existingDataDir === "string";
+    if (!newCommandDropsDataDir) {
+      hooksList[hookDefIndex] = hookDef;
+    }
   };
 
-  // Add or update our hook
-  if (hookIndex === -1) {
-    // No metadata hook exists, add it
-    postToolUse.push({
-      matcher: "Bash",
-      hooks: [hookDef],
-    });
-  } else {
-    // Hook exists, update the command and env
-    const hook = postToolUse[hookIndex] as Record<string, unknown>;
-    const hooksList = hook["hooks"] as Array<Record<string, unknown>>;
-    hooksList[hookDefIndex] = hookDef;
-  }
+  ensureMetadataHook(postToolUse);
+  ensureMetadataHook(preToolUse);
 
   hooks["PostToolUse"] = postToolUse;
+  hooks["PreToolUse"] = preToolUse;
   existingSettings["hooks"] = hooks;
 
   // Write settings only if content changed (idempotent)

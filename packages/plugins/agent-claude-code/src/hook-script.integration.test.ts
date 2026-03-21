@@ -34,6 +34,7 @@ function runHook(opts: {
   output?: string;
   exitCode?: number;
   metadataContent?: string;
+  allowMerge?: boolean;
 }): { stdout: string; metadata: string } {
   const sessionId = `test-session-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const sessionsDir = join(testDir, "sessions");
@@ -56,6 +57,7 @@ function runHook(opts: {
         ...process.env,
         AO_SESSION: sessionId,
         AO_DATA_DIR: sessionsDir,
+        AO_ALLOW_GH_PR_MERGE: opts.allowMerge ? "1" : undefined,
         HOME: testDir,
       },
       encoding: "utf-8",
@@ -179,23 +181,38 @@ describe("hook script: git checkout -b / git switch -c", () => {
 // gh pr merge detection
 // =========================================================================
 describe("hook script: gh pr merge", () => {
+  it("blocks plain gh pr merge via PreToolUse policy output", () => {
+    const { stdout, metadata } = runHook({
+      command: "gh pr merge 123 --squash",
+      metadataContent: "status=pr_open\n",
+    });
+    expect(stdout).toContain("permissionDecision");
+    expect(stdout).toContain("deny");
+    expect(stdout).toContain("gh pr merge");
+    expect(metadata).toContain("status=pr_open");
+    expect(metadata).not.toContain("status=merged");
+  });
+
   it("detects plain gh pr merge", () => {
     const { metadata } = runHook({
       command: "gh pr merge 123 --squash",
+      allowMerge: true,
     });
     expect(metadata).toContain("status=merged");
   });
 
-  it("detects gh pr merge with cd && prefix", () => {
+  it("detects gh pr merge with cd && prefix when explicitly allowed", () => {
     const { metadata } = runHook({
       command: "cd ~/.worktrees/project && gh pr merge 42 --squash",
+      allowMerge: true,
     });
     expect(metadata).toContain("status=merged");
   });
 
-  it("detects gh pr merge with cd ; prefix", () => {
+  it("detects gh pr merge with cd ; prefix when explicitly allowed", () => {
     const { metadata } = runHook({
       command: "cd /project ; gh pr merge --rebase",
+      allowMerge: true,
     });
     expect(metadata).toContain("status=merged");
   });
@@ -272,6 +289,7 @@ describe("hook script: metadata file updates", () => {
     const { metadata } = runHook({
       command: "gh pr merge 10 --squash",
       metadataContent: "status=pr_open\nbranch=feat/test\n",
+      allowMerge: true,
     });
     expect(metadata).toContain("status=merged");
     expect(metadata).toContain("branch=feat/test");
@@ -292,6 +310,7 @@ describe("hook script: metadata file updates", () => {
   it("returns systemMessage JSON on successful detection", () => {
     const { stdout } = runHook({
       command: "gh pr merge 1 --squash",
+      allowMerge: true,
     });
     expect(stdout).toContain("systemMessage");
     expect(stdout).toContain("merged");
