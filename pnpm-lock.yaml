@@ -17,6 +17,9 @@ importers:
       '@jleechanorg/ao-plugin-agent-cursor':
         specifier: workspace:^
         version: link:packages/plugins/agent-cursor
+      '@jleechanorg/ao-plugin-agent-gemini':
+        specifier: workspace:^
+        version: link:packages/plugins/agent-gemini
       '@types/node':
         specifier: ^25.2.3
         version: 25.2.3
@@ -59,6 +62,9 @@ importers:
       '@jleechanorg/ao-plugin-agent-cursor':
         specifier: workspace:*
         version: link:../plugins/agent-cursor
+      '@jleechanorg/ao-plugin-agent-gemini':
+        specifier: workspace:*
+        version: link:../plugins/agent-gemini
       '@jleechanorg/ao-plugin-agent-opencode':
         specifier: workspace:*
         version: link:../plugins/agent-opencode
