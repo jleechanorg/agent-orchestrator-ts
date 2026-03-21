@@ -2,6 +2,8 @@
 
 set -euo pipefail
 
+export AO_CONFIG_PATH="/Users/jleechan/.openclaw/agent-orchestrator.yaml"
+
 SKIP_SMOKE=false
 SMOKE_ONLY=false
 TARGET_BRANCH="${AO_UPDATE_BRANCH:-main}"

@@ -4,7 +4,8 @@
 # Remaining projects: lifecycle-worker + orchestrator only (no duplicate dashboard)
 set -euo pipefail
 
-CONFIG_FILE="${AO_CONFIG_PATH:-$HOME/.openclaw/agent-orchestrator.yaml}"
+export AO_CONFIG_PATH="${AO_CONFIG_PATH:-/Users/jleechan/.openclaw/agent-orchestrator.yaml}"
+CONFIG_FILE="$AO_CONFIG_PATH"
 
 if [ ! -f "$CONFIG_FILE" ]; then
   echo "ERROR: Config not found at $CONFIG_FILE"
