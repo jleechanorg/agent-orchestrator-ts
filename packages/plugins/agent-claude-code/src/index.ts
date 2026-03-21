@@ -585,6 +585,17 @@ async function setupHookInWorkspace(workspacePath: string): Promise<void> {
     // Directory doesn't exist — create it
     await mkdir(claudeDir, { recursive: true });
   }
+  try {
+    const claudeStat = await lstat(claudeDir);
+    if (claudeStat.isSymbolicLink()) {
+      throw new Error(`[agent-claude-code] .claude dir is a symlink at ${claudeDir} — refusing to write hooks`);
+    }
+    // Exists as a real directory — nothing to create
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+    // Directory doesn't exist — create it
+    await mkdir(claudeDir, { recursive: true });
+  }
 
   // Write the metadata updater script only if content changed (idempotent)
   if (!existsSync(hookScriptPath) || (await readFile(hookScriptPath, "utf-8")) !== METADATA_UPDATER_SCRIPT) {
