@@ -6,7 +6,7 @@
  * metadata-updater.sh on every session setup, even when the content was
  * identical to what was already on disk.
  */
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { mkdtempSync, mkdirSync, statSync, utimesSync, rmSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -149,18 +149,19 @@ describe("setupWorkspaceHooks with MCP mail idempotency", () => {
   });
 });
 
-describe("setupWorkspaceHooks symlink rejection", () => {
-  it("throws when .claude dir is a symlink", async () => {
-    // Create a target directory outside the workspace that an attacker controls
-    const attackerDir = join(tmpDir, "attacker");
-    mkdirSync(attackerDir, { recursive: true });
+describe("setupWorkspaceHooks symlink handling", () => {
+  it("warns (does not throw) when .claude dir is a symlink", async () => {
+    // Create a target directory outside the workspace (worktree shared .claude)
+    const sharedDir = join(tmpDir, "shared-claude");
+    mkdirSync(sharedDir, { recursive: true });
 
-    // Replace .claude with a symlink pointing to the attacker directory
-    symlinkSync(attackerDir, claudeDir);
+    // Replace .claude with a symlink (valid in worktree setups)
+    symlinkSync(sharedDir, claudeDir);
 
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     const agent = create();
-    await expect(agent.setupWorkspaceHooks!(workspacePath, makeHookConfig())).rejects.toThrow(
-      /symlink/i,
-    );
+    await expect(agent.setupWorkspaceHooks!(workspacePath, makeHookConfig())).resolves.not.toThrow();
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringMatching(/symlink/i));
+    warnSpy.mockRestore();
   });
 });
