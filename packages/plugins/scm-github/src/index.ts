@@ -1159,22 +1159,12 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
         };
       }
 
-      // Fetch PR details with merge state
-      const raw = await gh([
-        "pr",
-        "view",
-        String(pr.number),
-        "--repo",
-        repoFlag(pr),
-        "--json",
-        "mergeable,reviewDecision,mergeStateStatus,isDraft",
-      ]);
-
+      // Use REST API to avoid GraphQL rate limits
+      const raw = await gh(["api", `repos/${pr.owner}/${pr.repo}/pulls/${pr.number}`]);
       const data: {
-        mergeable: string;
-        reviewDecision: string;
-        mergeStateStatus: string;
-        isDraft: boolean;
+        mergeable: boolean | null;
+        mergeable_state: string;
+        draft: boolean;
       } = JSON.parse(raw);
 
       // CI
@@ -1184,34 +1174,33 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
         blockers.push(`CI is ${ciStatus}`);
       }
 
-      // Reviews
-      const reviewDecision = (data.reviewDecision ?? "").toUpperCase();
-      const approved = reviewDecision === "APPROVED";
-      if (reviewDecision === "CHANGES_REQUESTED") {
+      // Reviews — use getReviewDecision (already REST-based)
+      const reviewDec = await this.getReviewDecision(pr);
+      const approved = reviewDec === "approved";
+      if (reviewDec === "changes_requested") {
         blockers.push("Changes requested in review");
-      } else if (reviewDecision === "REVIEW_REQUIRED") {
+      } else if (reviewDec === "pending") {
         blockers.push("Review required");
       }
 
-      // Conflicts / merge state
-      const mergeable = (data.mergeable ?? "").toUpperCase();
-      const mergeState = (data.mergeStateStatus ?? "").toUpperCase();
-      const noConflicts = mergeable === "MERGEABLE";
-      if (mergeable === "CONFLICTING") {
+      // Conflicts / merge state — REST uses mergeable (bool) + mergeable_state (string)
+      const mergeState = (data.mergeable_state ?? "").toLowerCase();
+      const noConflicts = data.mergeable === true;
+      if (data.mergeable === false) {
         blockers.push("Merge conflicts");
-      } else if (mergeable === "UNKNOWN" || mergeable === "") {
+      } else if (data.mergeable === null) {
         blockers.push("Merge status unknown (GitHub is computing)");
       }
-      if (mergeState === "BEHIND") {
+      if (mergeState === "behind") {
         blockers.push("Branch is behind base branch");
-      } else if (mergeState === "BLOCKED") {
+      } else if (mergeState === "blocked") {
         blockers.push("Merge is blocked by branch protection");
-      } else if (mergeState === "UNSTABLE") {
+      } else if (mergeState === "unstable") {
         blockers.push("Required checks are failing");
       }
 
       // Draft
-      if (data.isDraft) {
+      if (data.draft) {
         blockers.push("PR is still a draft");
       }
 
