@@ -8,10 +8,15 @@
 /**
  * Error message substrings that indicate a GitHub rate-limit error.
  * Unified superset from all plugin implementations.
+ *
+ * Matching is case-insensitive; list distinct phrases only (no duplicate casing).
+ *
+ * The `"API error:reth"` entry is intentional: it matches a short fragment that
+ * has appeared in `gh`/HTTP wrapper stderr when longer messages are truncated or
+ * mangled. Do not drop without checking production logs across plugins.
  */
 export const GH_RATE_LIMIT_ERROR_PATTERNS: readonly string[] = [
   "rate limit",
-  "rate Limit",
   "API rate limit",
   "GraphQL rate limit",
   "rate limit exceeded",
