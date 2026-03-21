@@ -599,12 +599,51 @@ describe("scm-github plugin", () => {
     });
 
     it("checks out PR when workspace is clean and branch differs", async () => {
-      ghMock.mockResolvedValueOnce({ stdout: "main\n" });
-      ghMock.mockResolvedValueOnce({ stdout: "" });
-      ghMock.mockResolvedValueOnce({ stdout: "" });
+      ghMock.mockResolvedValueOnce({ stdout: "main\n" }); // git branch --show-current (before)
+      ghMock.mockResolvedValueOnce({ stdout: "" }); // git status --porcelain
+      ghMock.mockResolvedValueOnce({ stdout: "" }); // gh pr checkout
+      ghMock.mockResolvedValueOnce({ stdout: "feat/my-feature\n" }); // git branch --show-current (after)
 
       const changed = await scm.checkoutPR?.(pr, "/tmp/repo");
       expect(changed).toBe(true);
+    });
+
+    it("throws when gh pr checkout silently fails (e.g. branch locked by another worktree)", async () => {
+      ghMock.mockResolvedValueOnce({ stdout: "main\n" }); // git branch --show-current (before)
+      ghMock.mockResolvedValueOnce({ stdout: "" }); // git status --porcelain
+      ghMock.mockRejectedValueOnce(new Error("Command failed: exit 128")); // gh pr checkout fails
+      // No post-checkout branch verification call expected since gh threw
+
+      await expect(scm.checkoutPR?.(pr, "/tmp/repo")).rejects.toThrow("Command failed: exit 128");
+    });
+
+    it("throws when gh pr checkout appears to succeed but worktree is on wrong branch", async () => {
+      ghMock.mockResolvedValueOnce({ stdout: "main\n" }); // git branch --show-current (before)
+      ghMock.mockResolvedValueOnce({ stdout: "" }); // git status --porcelain
+      ghMock.mockResolvedValueOnce({ stdout: "" }); // gh pr checkout (exit 0 but wrong branch)
+      ghMock.mockResolvedValueOnce({ stdout: "other-branch\n" }); // git branch --show-current (after) — still wrong
+
+      await expect(scm.checkoutPR?.(pr, "/tmp/repo")).rejects.toThrow(
+        /gh pr checkout succeeded but worktree is still on branch "other-branch" instead of "feat\/my-feature"/,
+      );
+    });
+
+    it("returns false without error when workspace is already on the PR branch", async () => {
+      ghMock.mockResolvedValueOnce({ stdout: "feat/my-feature\n" }); // git branch --show-current (already on PR branch)
+      // No dirty check, no checkout, no post-checkout verification
+
+      const changed = await scm.checkoutPR?.(pr, "/tmp/repo");
+      expect(changed).toBe(false);
+    });
+
+    it("throws when workspace has uncommitted changes", async () => {
+      ghMock.mockResolvedValueOnce({ stdout: "main\n" }); // git branch --show-current
+      ghMock.mockResolvedValueOnce({ stdout: "M  src/foo.ts\n" }); // git status --porcelain (dirty)
+      // No checkout attempt
+
+      await expect(scm.checkoutPR?.(pr, "/tmp/repo")).rejects.toThrow(
+        "Workspace has uncommitted changes",
+      );
     });
   });
 
@@ -832,6 +871,33 @@ describe("scm-github plugin", () => {
       expect(checks[0].url).toBeUndefined();
       expect(checks[0].startedAt).toBeUndefined();
       expect(checks[0].completedAt).toBeUndefined();
+    });
+
+    it("falls back to REST check-runs when rate-limited on statusCheckRollup", async () => {
+      // First call: gh pr checks fails (unsupported)
+      mockGhError("gh pr checks failed: unknown json field 'state'");
+      // Second call: gh pr view --json statusCheckRollup => rate limit (3 retries)
+      mockGhError("API rate limit exceeded");
+      mockGhError("API rate limit exceeded");
+      mockGhError("API rate limit exceeded");
+      // REST fallback: gh api repos/acme/repo/pulls/42
+      mockGh({
+        state: "open",
+        head: { sha: "abc123", ref: "feat/test" },
+        base: { ref: "main" },
+      });
+      // REST fallback: gh api repos/acme/repo/commits/abc123/check-runs
+      mockGh({
+        check_runs: [
+          { name: "build", status: "completed", conclusion: "success", html_url: "https://ci/1" },
+          { name: "lint", status: "completed", conclusion: "failure", html_url: "https://ci/2" },
+        ],
+      });
+
+      const checks = await scm.getCIChecks(pr);
+      expect(checks).toHaveLength(2);
+      expect(checks[0]).toMatchObject({ name: "build", status: "passed" });
+      expect(checks[1]).toMatchObject({ name: "lint", status: "failed" });
     });
 
     it("falls back to statusCheckRollup when pr checks json is unsupported", async () => {

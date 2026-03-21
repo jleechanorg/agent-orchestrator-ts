@@ -112,6 +112,13 @@ export {
   parseWebhookBranchRef,
 } from "./scm-webhook-utils.js";
 export { asValidOpenCodeSessionId } from "./opencode-session-id.js";
+
+// GitHub rate-limit detection & backoff (shared across gh-based plugins)
+export {
+  GH_RATE_LIMIT_ERROR_PATTERNS,
+  isGhRateLimitError,
+  ghSleep,
+} from "./gh-rate-limit.js";
 export { normalizeOrchestratorSessionStrategy } from "./orchestrator-session-strategy.js";
 export type { NormalizedOrchestratorSessionStrategy } from "./orchestrator-session-strategy.js";
 

@@ -9,6 +9,8 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import { promisify } from "node:util";
 import {
   CI_STATUS,
+  isGhRateLimitError,
+  ghSleep,
   type PluginModule,
   type SCM,
   type SCMWebhookEvent,
@@ -65,35 +67,10 @@ function buildBotAuthors(config?: Record<string, unknown>): Set<string> {
 }
 
 // ---------------------------------------------------------------------------
-// Rate Limit Handling
+// Rate Limit Handling — uses shared utilities from ao-core
 // ---------------------------------------------------------------------------
 
-const RATE_LIMIT_ERROR_PATTERNS = [
-  "rate limit",
-  "rate Limit",
-  "API rate limit",
-  "GraphQL rate limit",
-  "rate limit exceeded",
-  "Too Many Requests",
-  "API error:reth",
-];
 
-function isRateLimitError(error: unknown): boolean {
-  const msg = error instanceof Error ? error.message : String(error);
-  if (
-    RATE_LIMIT_ERROR_PATTERNS.some((pattern) => msg.toLowerCase().includes(pattern.toLowerCase()))
-  ) {
-    return true;
-  }
-  if (error instanceof Error && error.cause) {
-    return isRateLimitError(error.cause);
-  }
-  return false;
-}
-
-async function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
 
 /** Parsed `gh pr view ... --json a,b,c` for REST fallback synthesis. */
 type PrViewRestConversion = {
@@ -200,10 +177,38 @@ function mapRestReviewsToPrViewReviewsShape(reviewsUnknown: unknown): Array<{
   }));
 }
 
+/**
+ * Map REST check-runs response to the same shape as GraphQL statusCheckRollup.
+ * REST: GET /repos/{owner}/{repo}/commits/{sha}/check-runs
+ * Each check run has: name, status (queued/in_progress/completed), conclusion (success/failure/...).
+ */
+function mapRestCheckRunsToStatusCheckRollup(
+  checkRunsPayload: unknown,
+): Array<Record<string, unknown>> {
+  if (!checkRunsPayload || typeof checkRunsPayload !== "object") return [];
+  const data = checkRunsPayload as Record<string, unknown>;
+  const runs = Array.isArray(data.check_runs) ? data.check_runs : [];
+  return (runs as Array<Record<string, unknown>>).map((run) => ({
+    __typename: "CheckRun",
+    name: run.name ?? "",
+    status: typeof run.status === "string" ? run.status.toUpperCase() : "QUEUED",
+    conclusion: typeof run.conclusion === "string" ? run.conclusion.toUpperCase() : null,
+    state:
+      typeof run.conclusion === "string"
+        ? run.conclusion.toUpperCase()
+        : typeof run.status === "string"
+          ? run.status.toUpperCase()
+          : "QUEUED",
+    startedAt: run.started_at ?? undefined,
+    completedAt: run.completed_at ?? undefined,
+    detailsUrl: run.html_url ?? undefined,
+  }));
+}
+
 function synthesizePrViewJsonFromRest(
   rest: Record<string, unknown>,
   jsonFields: string[],
-  opts: { reviewDecision?: string; reviewsPayload?: unknown },
+  opts: { reviewDecision?: string; reviewsPayload?: unknown; checkRunsPayload?: unknown },
 ): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   const want = new Set(jsonFields);
@@ -240,6 +245,13 @@ function synthesizePrViewJsonFromRest(
 
   if (want.has("reviews") && opts.reviewsPayload !== undefined) {
     out.reviews = mapRestReviewsToPrViewReviewsShape(opts.reviewsPayload);
+  }
+
+  if (want.has("statusCheckRollup")) {
+    out.statusCheckRollup =
+      opts.checkRunsPayload !== undefined
+        ? mapRestCheckRunsToStatusCheckRollup(opts.checkRunsPayload)
+        : [];
   }
 
   for (const f of jsonFields) {
@@ -281,10 +293,32 @@ async function fetchPrViewFallbackAsJson(
     }
   }
 
+  // Fetch check-runs from REST when statusCheckRollup is requested.
+  // REST endpoint: GET /repos/{owner}/{repo}/commits/{sha}/check-runs
+  let checkRunsPayload: unknown;
+  if (conv.jsonFields.includes("statusCheckRollup")) {
+    const head = restObj.head as Record<string, unknown> | undefined;
+    const sha = typeof head?.sha === "string" ? head.sha : null;
+    if (sha) {
+      try {
+        const checkRaw = await execCli(
+          "gh",
+          ["api", `repos/${conv.repo}/commits/${sha}/check-runs?per_page=100`],
+          cwd,
+        );
+        checkRunsPayload = JSON.parse(checkRaw);
+      } catch {
+        // Non-critical — downstream will treat missing rollup as empty checks
+        checkRunsPayload = undefined;
+      }
+    }
+  }
+
   return JSON.stringify(
     synthesizePrViewJsonFromRest(restObj, conv.jsonFields, {
       reviewDecision,
       reviewsPayload,
+      checkRunsPayload,
     }),
   );
 }
@@ -303,14 +337,14 @@ async function ghWithRetry(args: string[], cwd?: string, maxRetries = 3): Promis
       lastError = err;
 
       // Check if it's a rate limit error
-      if (isRateLimitError(err)) {
+      if (isGhRateLimitError(err)) {
         // Skip sleep on final attempt - no more retries anyway
         if (attempt < maxRetries - 1) {
           const backoffMs = Math.min(1000 * Math.pow(2, attempt), 30000); // Max 30s backoff
           console.warn(
             `GitHub rate limit detected, retrying in ${backoffMs}ms (attempt ${attempt + 1}/${maxRetries})`,
           );
-          await sleep(backoffMs);
+          await ghSleep(backoffMs);
         }
       } else {
         // Non-rate-limit error, don't retry
@@ -1037,6 +1071,20 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
       }
 
       await ghInDir(["pr", "checkout", String(pr.number), "--repo", repoFlag(pr)], workspacePath);
+
+      // Verify the checkout actually succeeded by confirming the worktree is now on
+      // the PR branch.  This catches the case where `gh pr checkout` silently fails
+      // (e.g. exit 128 because another worktree already has the branch checked out)
+      // and prevents claimPR from reporting success when the session is still on a
+      // different branch.
+      const afterBranch = await git(["branch", "--show-current"], workspacePath);
+      if (afterBranch !== pr.branch) {
+        throw new Error(
+          `gh pr checkout succeeded but worktree is still on branch "${afterBranch}" ` +
+            `instead of "${pr.branch}". Another worktree may have the branch checked out.`,
+        );
+      }
+
       return true;
     },
 
@@ -1146,7 +1194,7 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
         // Rate limit errors are transient — do not fail-close to "failing",
         // which would spam the agent with spurious "CI is failing" reactions.
         // Return "none" so the lifecycle poller retries next cycle.
-        if (isRateLimitError(err)) {
+        if (isGhRateLimitError(err)) {
           return "none";
         }
         // Before fail-closing, check if the PR is merged/closed —
@@ -1234,7 +1282,7 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
         // Rate limit errors are transient — return "none" so the lifecycle
         // poller retries next cycle rather than triggering a "changes-requested"
         // reaction on every poll.
-        if (isRateLimitError(err)) {
+        if (isGhRateLimitError(err)) {
           return "none";
         }
         throw err;
