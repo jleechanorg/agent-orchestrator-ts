@@ -60,14 +60,14 @@ if command -v jq &>/dev/null; then
   command=$(echo "$input" | jq -r '.tool_input.command // empty')
   output=$(echo "$input" | jq -r '.tool_response // empty')
   exit_code=$(echo "$input" | jq -r '.exit_code // 0')
-  hook_event=$(echo "$input" | jq -r '.hookEventName // empty')
+  hook_event=$(echo "$input" | jq -r '.hook_event_name // empty')
 else
   # Fallback: basic JSON parsing without jq
   tool_name=$(echo "$input" | grep -o '"tool_name"[[:space:]]*:[[:space:]]*"[^"]*"' | cut -d'"' -f4 || echo "")
   command=$(echo "$input" | grep -o '"command"[[:space:]]*:[[:space:]]*"[^"]*"' | cut -d'"' -f4 || echo "")
   output=$(echo "$input" | grep -o '"tool_response"[[:space:]]*:[[:space:]]*"[^"]*"' | cut -d'"' -f4 || echo "")
   exit_code=$(echo "$input" | grep -o '"exit_code"[[:space:]]*:[[:space:]]*[0-9]*' | grep -o '[0-9]*$' || echo "0")
-  hook_event=$(echo "$input" | grep -o '"hookEventName"[[:space:]]*:[[:space:]]*"[^"]*"' | cut -d'"' -f4 || echo "")
+  hook_event=$(echo "$input" | grep -o '"hook_event_name"[[:space:]]*:[[:space:]]*"[^"]*"' | cut -d'"' -f4 || echo "")
 fi
 
 # Only process successful commands (exit code 0)
