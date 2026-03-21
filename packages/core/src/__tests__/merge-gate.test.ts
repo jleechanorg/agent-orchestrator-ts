@@ -62,7 +62,7 @@ describe("checkMergeGate", () => {
     scm.getMergeability.mockResolvedValue({ noConflicts: false, mergeable: false, ciPassing: true, approved: true, blockers: ["conflicts"] });
     const result = await checkMergeGate(pr, config, scm as unknown as SCM);
     expect(result.passed).toBe(false);
-    expect(result.blockers).toContain("Mergeable");
+    expect(result.blockers).toContain("No conflicts");
   });
 
   it("fails when no CodeRabbit review exists", async () => {
@@ -151,7 +151,7 @@ describe("checkMergeGate", () => {
     const result = await checkMergeGate(pr, config, scm as unknown as SCM);
     expect(result.passed).toBe(false);
     expect(result.blockers).toContain("CI green");
-    expect(result.blockers).toContain("Mergeable");
+    expect(result.blockers).toContain("No conflicts");
   });
 
   it("passes Bugbot check when no automated comments exist", async () => {

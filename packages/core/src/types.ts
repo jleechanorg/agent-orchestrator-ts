@@ -730,11 +730,32 @@ export interface AutomatedComment {
 
 // --- Merge Readiness ---
 
+/**
+ * Merge readiness response from SCM.
+ *
+ * ## mergeable vs noConflicts
+ *
+ * - `mergeable`: GitHub's overall assessment of whether the PR can be merged. This considers
+ *   conflicts, draft state, required reviews, CI status, and other factors. This is a broader
+ *   check that may change based on external state (pending reviews, CI runs).
+ *
+ * - `noConflicts`: Specifically whether the PR branch has merge conflicts with the base branch.
+ *   This is a more stable check that only looks at the git history. A PR with no conflicts
+ *   can still be blocked from merging if other conditions (like pending reviews) aren't met.
+ *
+ * The merge gate checks `noConflicts` because it indicates whether the PR's code is ready
+ * to merge, independent of process-related blockers that may be temporary.
+ */
 export interface MergeReadiness {
+  /** Overall mergeability (includes conflicts, draft state, reviews, CI) */
   mergeable: boolean;
+  /** CI status is passing */
   ciPassing: boolean;
+  /** PR has been approved */
   approved: boolean;
+  /** No merge conflicts with base branch */
   noConflicts: boolean;
+  /** List of blocking issues (if any) */
   blockers: string[];
 }
 
@@ -1231,7 +1252,23 @@ export interface ProjectConfig {
   mergeGate?: MergeGateConfig;
 }
 
-/** Merge gate configuration (bd-uxs.8) */
+/**
+ * Merge gate configuration (bd-uxs.8)
+ *
+ * ## Full Gate Semantics
+ *
+ * When enabled, the merge gate runs up to 6 checks:
+ *   1. CI green
+ *   2. No conflicts (no merge conflicts with base)
+ *   3. CodeRabbit approved
+ *   4. Bugbot clean
+ *   5. Inline comments resolved
+ *   6. Evidence review pass (if in requiredChecks)
+ *
+ * If `requiredChecks` is empty/undefined, ALL 6 checks must pass (the "full gate").
+ * If `requiredChecks` includes specific checks (e.g., ["evidence-review"]), only those
+ * additional checks are enforced beyond the base 4 (CI, no conflicts, CodeRabbit, Bugbot).
+ */
 export interface MergeGateConfig {
   /** Enable merge gate checks */
   enabled: boolean;
@@ -1242,7 +1279,11 @@ export interface MergeGateConfig {
   /** Labels that must NOT be present on the PR */
   blockedLabels?: string[];
 
-  /** Required checks that must pass (beyond CI green) */
+  /**
+   * Additional checks beyond the base 4 (CI, no conflicts, CodeRabbit, Bugbot).
+   * Common values: ["evidence-review"]
+   * If empty/undefined, ALL 6 conditions must pass (full gate).
+   */
   requiredChecks?: string[];
 
   /** Minimum number of approved reviews */

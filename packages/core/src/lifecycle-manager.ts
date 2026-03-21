@@ -534,7 +534,13 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
           };
         }
 
-        // Build MergeGateConfig with sensible defaults: enabled: true, all conditions required
+        // Build MergeGateConfig with sensible defaults:
+        // - enabled: true (gate is enforced)
+        // - requiredChecks: ["evidence-review"] (evidence review required in addition to base checks)
+        //
+        // The "full gate" runs 6 checks: CI green, no conflicts, CodeRabbit approved, Bugbot clean,
+        // inline comments resolved, and evidence review (when required). Projects can override via
+        // their agent-orchestrator.yaml mergeGate config to disable the gate or customize required checks.
         const mergeGateConfig: MergeGateConfig = {
           enabled: true,
           requiredChecks: ["evidence-review"],

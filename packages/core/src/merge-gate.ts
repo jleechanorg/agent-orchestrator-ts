@@ -1,5 +1,29 @@
 /**
  * Merge Gate — 6-condition enforcement for PR merge readiness (bd-nrp)
+ *
+ * ## Full Gate vs requiredChecks
+ *
+ * The merge gate runs 6 checks:
+ *   1. CI green
+ *   2. No conflicts (mergeable)
+ *   3. CodeRabbit approved
+ *   4. Bugbot clean
+ *   5. Inline comments resolved
+ *   6. Evidence review pass (if required)
+ *
+ * When `requiredChecks` is empty/undefined, ALL 6 conditions must pass (the "full gate").
+ * When `requiredChecks` includes specific checks (e.g., ["evidence-review"]), only those
+ * additional checks are enforced beyond the base 4 (CI, no conflicts, CodeRabbit, Bugbot).
+ *
+ * ## mergeable vs noConflicts
+ *
+ * GitHub's `mergeable` field indicates whether a PR can be merged (considering conflicts,
+ * draft state, required reviews, etc.). The `noConflicts` field specifically indicates
+ * whether the PR branch has merge conflicts with the base branch.
+ *
+ * This gate checks `noConflicts` (no merge conflicts) because a PR with conflicts cannot
+ * be merged even if all other conditions are met. The broader `mergeable` state is affected
+ * by factors outside the PR's code (like pending reviews) that may be in flux.
  */
 
 import type { PRInfo, MergeGateConfig, SCM } from "./types.js";
@@ -83,10 +107,11 @@ export async function checkMergeGate(
     detail: ciPassing ? "CI is passing" : `CI status: ${ciStatus}`,
   });
 
-  // 2. Mergeable (no conflicts)
+  // 2. No conflicts — checks that the PR branch has no merge conflicts with base
+  // (distinct from GitHub's broader "mergeable" which includes review/ci state)
   const noConflicts = mergeability.noConflicts;
   checks.push({
-    name: "Mergeable",
+    name: "No conflicts",
     passed: noConflicts,
     detail: noConflicts ? "No merge conflicts" : "Merge conflicts detected",
   });
