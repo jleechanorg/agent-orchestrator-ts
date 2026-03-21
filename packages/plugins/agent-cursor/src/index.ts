@@ -63,7 +63,7 @@ const cursorOverrides: Partial<Agent> = {
     // JSON trust file is the correct fix for interactive sessions.
     const preTrust = [
       `_WP=$(pwd)`,
-      `_EP=$(echo "$_WP" | sed 's|[/.]|-|g')`,
+      `_EP=$(echo "$_WP" | sed 's|^/||; s|\\.||g; s|/|-|g')`,
       `mkdir -p "$HOME/.cursor/projects/$_EP"`,
       `printf '{"trustedAt":"%s","workspacePath":"%s"}' "$(date -u +%Y-%m-%dT%H:%M:%S.000Z)" "$_WP" > "$HOME/.cursor/projects/$_EP/.workspace-trusted" 2>/dev/null`,
     ].join(" && ");
