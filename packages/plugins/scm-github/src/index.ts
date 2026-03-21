@@ -138,26 +138,35 @@ type RestReviewRow = {
 /**
  * Approximate `gh pr view --json reviewDecision` from REST /pulls/{n}/reviews.
  * Empty list is treated as REVIEW_REQUIRED (conservative vs GraphQL "no decision").
+ *
+ * bd-77b fix: COMMENTED reviews are non-decisive — they don't override or reset an
+ * existing APPROVED or CHANGES_REQUESTED decision. Only the latest *decisive* review
+ * per reviewer (APPROVED / CHANGES_REQUESTED) counts. PENDING is still REVIEW_REQUIRED.
+ * This prevents incremental COMMENTED reviews from CodeRabbit (e.g., after it has
+ * already APPROVED) from being treated as a new review decision that blocks the merge
+ * gate.
  */
 function deriveReviewDecisionGraphqlFromReviews(reviewsUnknown: unknown): string {
   if (!Array.isArray(reviewsUnknown)) return "REVIEW_REQUIRED";
   const rows = reviewsUnknown as RestReviewRow[];
   if (rows.length === 0) return "REVIEW_REQUIRED";
 
+  // Collect latest *decisive* review per user (ignore COMMENTED and PENDING for
+  // decision purposes; they don't override an existing decision).
+  const decisiveStates = new Set(["APPROVED", "CHANGES_REQUESTED"]);
   const byUser = new Map<string, RestReviewRow>();
   for (const r of rows) {
     const login = r.user?.login ?? "";
+    if (!decisiveStates.has((r.state ?? "").toUpperCase())) continue;
     const prev = byUser.get(login);
     const t = r.submitted_at ? Date.parse(r.submitted_at) : 0;
     const pt = prev?.submitted_at ? Date.parse(prev.submitted_at) : 0;
     if (!prev || t >= pt) byUser.set(login, r);
   }
   const latest = [...byUser.values()];
+
   if (latest.some((r) => (r.state ?? "").toUpperCase() === "CHANGES_REQUESTED")) {
     return "CHANGES_REQUESTED";
-  }
-  if (latest.some((r) => (r.state ?? "").toUpperCase() === "PENDING")) {
-    return "REVIEW_REQUIRED";
   }
   if (latest.length > 0 && latest.every((r) => (r.state ?? "").toUpperCase() === "APPROVED")) {
     return "APPROVED";
