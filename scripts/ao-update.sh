@@ -119,7 +119,9 @@ except Exception:
   for proj in $projects; do
     # PID file path: ~/.agent-orchestrator/{hash}-{projectId}/lifecycle-worker.pid
     # hash = sha256(dirname(configPath))[:12]
-    local pid_file="$HOME/.agent-orchestrator/$(echo -n "$HOME/.openclaw" | sha256sum | cut -d' ' -f1 | cut -c1-12)-${proj}/lifecycle-worker.pid"
+    local hash
+    hash="$(python3 -c "import hashlib; print(hashlib.sha256('$HOME/.openclaw'.encode()).hexdigest()[:12])" 2>/dev/null || echo "")"
+    local pid_file="$HOME/.agent-orchestrator/${hash}-${proj}/lifecycle-worker.pid"
     # Also check launchd
     local plist_name="com.agentorchestrator.lifecycle-${proj}"
     if launchctl list "$plist_name" 2>/dev/null | grep -q "PID"; then
