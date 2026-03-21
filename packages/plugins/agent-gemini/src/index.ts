@@ -4,7 +4,7 @@ import {
   resetPsCache as _resetPsCache,
   type AgentPluginConfig,
 } from "@jleechanorg/ao-plugin-agent-base";
-import type { Agent, AgentLaunchConfig, PluginModule } from "@jleechanorg/ao-core";
+import type { Agent, AgentLaunchConfig, PluginModule, ProjectConfig, Session } from "@jleechanorg/ao-core";
 import { createHash } from "node:crypto";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -77,6 +77,13 @@ const geminiConfig: AgentPluginConfig = {
 // =============================================================================
 
 const geminiOverrides: Partial<Agent> = {
+  async getRestoreCommand(_session: Session, _project: ProjectConfig): Promise<string | null> {
+    // TODO: Implement restore via ~/.gemini/tmp/<sha256>/chats/ session files.
+    // Returning null prevents the base plugin from building a restore command that
+    // would pass --model with an Anthropic model ID (rejected by gemini CLI).
+    return null;
+  },
+
   getLaunchCommand(launchConfig: AgentLaunchConfig): string {
     // Pre-add the workspace to ~/.gemini/trustedFolders.json so Gemini CLI
     // skips the interactive trust dialog in unattended sessions.
