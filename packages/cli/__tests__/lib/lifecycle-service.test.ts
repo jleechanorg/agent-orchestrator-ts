@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { OrchestratorConfig } from "@jleechanorg/ao-core";
 
-// Stable mock references used inside vi.mock factories
+// Stable mock references used inside vi.mock factories.
 // Default implementation: return an empty buffer so bare calls don't throw.
 // Tests override specific calls with mockReturnValueOnce / mockImplementationOnce.
 const mockExecFileSync = vi.hoisted(() =>
@@ -12,6 +12,8 @@ const mockExecFileSync = vi.hoisted(() =>
   }),
 );
 
+const mockSpawn = vi.fn();
+
 const MOCK_FS = vi.hoisted(() => {
   let store: Record<string, unknown> = {};
   return {
@@ -20,6 +22,7 @@ const MOCK_FS = vi.hoisted(() => {
     },
     reset() {
       mockExecFileSync.mockReset();
+      mockSpawn.mockReset();
       store = {};
     },
   };
@@ -27,6 +30,7 @@ const MOCK_FS = vi.hoisted(() => {
 
 vi.mock("node:child_process", () => ({
   execFileSync: mockExecFileSync,
+  spawn: mockSpawn,
 }));
 
 vi.mock("node:fs", () => ({
@@ -55,6 +59,7 @@ vi.mock("@jleechanorg/ao-core", () => ({
 const {
   getLifecycleWorkerStatus,
   stopLifecycleWorker,
+  ensureLifecycleWorker,
   writeLifecycleWorkerPid,
   clearLifecycleWorkerPid,
 } = await import("../../src/lib/lifecycle-service.js");
@@ -95,7 +100,7 @@ beforeEach(() => {
 });
 
 describe("getLifecycleWorkerStatus", () => {
-  it("returns running=true when pid file exists and ps matches the project", () => {
+  it("returns running=true and verified=true when pid file exists and ps matches the project", () => {
     const cfg = mockConfig({ "test-proj": "/repos/test-proj" });
     const pf = pidFile("test-proj");
 
@@ -107,9 +112,10 @@ describe("getLifecycleWorkerStatus", () => {
 
     expect(status.running).toBe(true);
     expect(status.pid).toBe(12345);
+    expect(status.verified).toBe(true);
   });
 
-  it("returns running=false and preserves PID file when ps fails (indeterminate)", () => {
+  it("returns verified=null and does NOT call unlinkSync when ps fails (indeterminate)", () => {
     const cfg = mockConfig({ "test-proj": "/repos/test-proj" });
     const pf = pidFile("test-proj");
 
@@ -119,13 +125,15 @@ describe("getLifecycleWorkerStatus", () => {
 
     const status = getLifecycleWorkerStatus(cfg, "test-proj");
 
-    // indeterminate → PID file is NOT cleared; status.pid is null so
-    // stopLifecycleWorker knows not to attempt killing an unverified PID
+    // indeterminate → PID file is NOT cleared; verified=null signals to
+    // callers that they should not act on this state.
     expect(status.running).toBe(false);
     expect(status.pid).toBeNull();
+    expect(status.verified).toBeNull();
+    expect(MOCK_FS.store[`unlinkSync:${pf}`]).toBeUndefined();
   });
 
-  it("returns running=false when ps succeeds but project ID is different", () => {
+  it("returns verified=false when ps succeeds but project ID is different", () => {
     const cfg = mockConfig({ "test-proj": "/repos/test-proj" });
     const pf = pidFile("test-proj");
 
@@ -138,6 +146,7 @@ describe("getLifecycleWorkerStatus", () => {
 
     expect(status.running).toBe(false);
     expect(status.pid).toBeNull();
+    expect(status.verified).toBe(false);
   });
 
   it("prevents prefix false positive: api does not match api-v2", () => {
@@ -157,6 +166,7 @@ describe("getLifecycleWorkerStatus", () => {
 
     expect(status.running).toBe(false);
     expect(status.pid).toBeNull();
+    expect(status.verified).toBe(false);
   });
 
   it("api correctly matches lifecycle-worker api", () => {
@@ -171,6 +181,7 @@ describe("getLifecycleWorkerStatus", () => {
 
     expect(status.running).toBe(true);
     expect(status.pid).toBe(22222);
+    expect(status.verified).toBe(true);
   });
 });
 
@@ -206,20 +217,55 @@ describe("stopLifecycleWorker", () => {
     }
   });
 
-  it("returns false when getLifecycleWorkerStatus is indeterminate (ps failed)", async () => {
-    // When isLifecycleWorkerProcess returns null (ps failed), status.pid is null,
-    // so stopLifecycleWorker cannot safely attempt to kill the process.
+  it("returns false and does NOT call process.kill when verified=null (ps failed)", async () => {
+    // When verified=null, stopLifecycleWorker must not send SIGTERM because the
+    // PID file still exists and the worker may be running (ps was just flaky).
     const cfg = mockConfig({ "test-proj": "/repos/test-proj" });
     const pf = pidFile("test-proj");
 
     setExists(pf, true);
     setReadFile(pf, "44444\n");
-    mockPsFailure(); // isLifecycleWorkerProcess returns null
+    mockPsFailure(); // isLifecycleWorkerProcess returns null → verified=null
 
-    const result = await stopLifecycleWorker(cfg, "test-proj");
+    const killSpy = vi.spyOn(process, "kill").mockReturnValue(true);
+    try {
+      const result = await stopLifecycleWorker(cfg, "test-proj");
 
-    // Cannot kill a PID we cannot verify — conservative: do not attempt
-    expect(result).toBe(false);
+      // Cannot kill a PID we cannot verify — conservative: do not attempt
+      expect(result).toBe(false);
+      expect(killSpy).not.toHaveBeenCalled();
+      // PID file is also not cleared (verified=null means indeterminate)
+      expect(MOCK_FS.store[`unlinkSync:${pf}`]).toBeUndefined();
+    } finally {
+      killSpy.mockRestore();
+    }
+  });
+});
+
+describe("ensureLifecycleWorker", () => {
+  it("does NOT spawn a new worker when verified=null (ps failed) — preserves PID file", async () => {
+    // When ps fails (verified=null), ensureLifecycleWorker must not spawn a new
+    // worker because a genuine lifecycle-worker may already be running. The PID
+    // file is left intact so the next call can retry verification.
+    const cfg = mockConfig({ "test-proj": "/repos/test-proj" });
+    const pf = pidFile("test-proj");
+
+    setExists(pf, true);
+    setReadFile(pf, "55555\n");
+    mockPsFailure(); // getLifecycleWorkerStatus: verified=null
+
+    // Mock spawn so we can assert it was NOT called
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    mockSpawn.mockReturnValueOnce({ pid: 99999, unref: () => {} } as any);
+
+    const result = await ensureLifecycleWorker(cfg, "test-proj");
+
+    // verified=null → must not start a new worker
+    expect(result.started).toBe(false);
+    // spawn must not have been called — no duplicate worker created
+    expect(mockSpawn).not.toHaveBeenCalled();
+    // PID file is preserved
+    expect(MOCK_FS.store[`unlinkSync:${pf}`]).toBeUndefined();
   });
 });
 

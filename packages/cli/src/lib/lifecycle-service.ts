@@ -19,6 +19,8 @@ const STOP_TIMEOUT_MS = 5_000;
 export interface LifecycleWorkerStatus {
   running: boolean;
   pid: number | null;
+  /** Whether the PID was verified as a genuine lifecycle-worker via ps. */
+  verified: boolean | null;
   pidFile: string;
   logFile: string;
 }
@@ -142,17 +144,21 @@ export function getLifecycleWorkerStatus(
   if (pid !== null) {
     const confirmed = isLifecycleWorkerProcess(pid, projectId);
     if (confirmed === true) {
-      return { running: true, pid, pidFile, logFile };
+      return { running: true, pid, verified: true, pidFile, logFile };
     }
     // false = confirmed not ours → clear the stale PID file.
     // null  = indeterminate (ps failed) → leave PID file; next startup
     //           will retry verification or clear when the PID is gone.
     if (confirmed === false) {
       clearLifecycleWorkerPid(config, projectId, pid);
+      return { running: false, pid: null, verified: false, pidFile, logFile };
     }
+    // confirmed === null: indeterminate; preserve PID file and surface
+    // verified=null so callers know not to act on this state.
+    return { running: false, pid: null, verified: null, pidFile, logFile };
   }
 
-  return { running: false, pid: null, pidFile, logFile };
+  return { running: false, pid: null, verified: null, pidFile, logFile };
 }
 
 function resolveLifecycleWorkerLaunch(projectId: string): { command: string; args: string[] } {
@@ -205,6 +211,12 @@ export async function ensureLifecycleWorker(
   if (current.running) {
     return { ...current, started: false };
   }
+  // verified === null means ps failed and we cannot confirm the process state.
+  // Do not spawn a new worker — a genuine worker may already exist and we risk
+  // creating a duplicate. The PID file is preserved so the next call retries.
+  if (current.verified === null) {
+    return { ...current, started: false };
+  }
 
   const baseDir = getProjectBase(config, projectId);
   const logFile = getLifecycleLogFile(config, projectId);
@@ -255,6 +267,11 @@ export async function stopLifecycleWorker(
 ): Promise<boolean> {
   const status = getLifecycleWorkerStatus(config, projectId);
   if (!status.running || status.pid === null) {
+    // verified=null means ps failed; do not clear the PID file — a genuine
+    // worker may be running and the next call can retry verification.
+    if (status.verified === null) {
+      return false;
+    }
     clearLifecycleWorkerPid(config, projectId);
     return false;
   }
