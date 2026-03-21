@@ -34,6 +34,7 @@ import {
   type EventPriority,
   type ProjectConfig as _ProjectConfig,
   type MergeGateConfig,
+  type Poller,
 } from "./types.js";
 import { updateMetadata } from "./metadata.js";
 import { getSessionsDir } from "./paths.js";
@@ -844,8 +845,44 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         }
       }
 
-      // Check if all sessions are complete (trigger reaction only once)
+      // bd-awq: invoke PR pollers to discover unattended PRs and spawn sessions.
+      // Runs after session polling so active sessions are already known.
       const activeSessions = sessions.filter((s) => s.status !== "merged" && s.status !== "killed");
+      if (scopedProjectId) {
+        const project = config.projects[scopedProjectId];
+        if (project) {
+          const pollerPlugin = registry.get<Poller & { setSessionManager?(sm: SessionManager): void }>("poller", "github-pr");
+          if (pollerPlugin) {
+            try {
+              if (pollerPlugin.setSessionManager) {
+                pollerPlugin.setSessionManager(sessionManager);
+              }
+              const workItems = await pollerPlugin.poll(scopedProjectId);
+              // Only spawn for work items that don't already have an active session
+              const activeSessionPRs = new Set(
+                activeSessions
+                  .filter((s) => s.pr)
+                  .map((s) => s.pr!.number)
+              );
+              for (const item of workItems) {
+                const prNum = item.metadata?.prNumber as number | undefined;
+                if (prNum && activeSessionPRs.has(prNum)) continue;
+                try {
+                  await pollerPlugin.spawnSession(item, scopedProjectId, {
+                    projectId: scopedProjectId,
+                  });
+                } catch {
+                  // Spawn failed — non-fatal, will retry next cycle
+                }
+              }
+            } catch {
+              // Poller failed — non-fatal
+            }
+          }
+        }
+      }
+
+      // Check if all sessions are complete (trigger reaction only once)
       if (sessions.length > 0 && activeSessions.length === 0 && !allCompleteEmitted) {
         allCompleteEmitted = true;
 
