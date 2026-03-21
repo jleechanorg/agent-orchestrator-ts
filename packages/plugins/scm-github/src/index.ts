@@ -926,33 +926,37 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
 
     async detectPR(session: Session, project: ProjectConfig): Promise<PRInfo | null> {
       if (!session.branch) return null;
-      parseProjectRepo(project.repo);
+      const [owner, repo] = parseProjectRepo(project.repo);
       try {
+        // Use REST API directly to avoid GraphQL rate limits (gh pr list --json uses GraphQL)
         const raw = await gh([
-          "pr",
-          "list",
-          "--repo",
-          project.repo,
-          "--head",
-          session.branch,
-          "--json",
-          "number,url,title,headRefName,baseRefName,isDraft",
-          "--limit",
-          "1",
+          "api",
+          `repos/${owner}/${repo}/pulls?head=${owner}:${session.branch}&state=open&per_page=1`,
         ]);
 
         const prs: Array<{
           number: number;
-          url: string;
+          html_url: string;
           title: string;
-          headRefName: string;
-          baseRefName: string;
-          isDraft: boolean;
+          head: { ref: string };
+          base: { ref: string };
+          draft: boolean;
         }> = JSON.parse(raw);
 
         if (prs.length === 0) return null;
 
-        return prInfoFromView(prs[0], project.repo);
+        const pr = prs[0];
+        return prInfoFromView(
+          {
+            number: pr.number,
+            url: pr.html_url,
+            title: pr.title,
+            headRefName: pr.head.ref,
+            baseRefName: pr.base.ref,
+            isDraft: pr.draft,
+          },
+          project.repo,
+        );
       } catch {
         return null;
       }
@@ -1106,7 +1110,14 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
       let checks: CICheck[];
       try {
         checks = await this.getCIChecks(pr);
-      } catch {
+      } catch (err) {
+        // Rate limit errors are transient — do not fail-close to "failing",
+        // which would spam the agent with spurious "CI is failing" reactions.
+        // Return "none" so the lifecycle poller retries next cycle.
+        const msg = err instanceof Error ? err.message : String(err);
+        if (msg.includes("rate limit") || msg.includes("API rate limit")) {
+          return "none";
+        }
         // Before fail-closing, check if the PR is merged/closed —
         // GitHub may not return check data for those, and reporting
         // "failing" for a merged PR is wrong.
@@ -1177,15 +1188,27 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
     },
 
     async getReviewDecision(pr: PRInfo): Promise<ReviewDecision> {
-      const raw = await gh([
-        "pr",
-        "view",
-        String(pr.number),
-        "--repo",
-        repoFlag(pr),
-        "--json",
-        "reviewDecision",
-      ]);
+      let raw: string;
+      try {
+        raw = await gh([
+          "pr",
+          "view",
+          String(pr.number),
+          "--repo",
+          repoFlag(pr),
+          "--json",
+          "reviewDecision",
+        ]);
+      } catch (err) {
+        // Rate limit errors are transient — return "none" so the lifecycle
+        // poller retries next cycle rather than triggering a "changes-requested"
+        // reaction on every poll.
+        const msg = err instanceof Error ? err.message : String(err);
+        if (msg.includes("rate limit") || msg.includes("API rate limit")) {
+          return "none";
+        }
+        throw err;
+      }
       const data: { reviewDecision: string } = JSON.parse(raw);
 
       const d = (data.reviewDecision ?? "").toUpperCase();
