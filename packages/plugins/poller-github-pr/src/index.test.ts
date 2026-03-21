@@ -195,7 +195,7 @@ describe("poll()", () => {
   it("falls back to REST API when all rate limit retries exhausted", async () => {
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     const mockExecFile = execFile as unknown as MockExecFile;
-    let callCount = 0;
+    let _callCount = 0;
     const restPrs = [
       {
         number: 5,
@@ -209,7 +209,7 @@ describe("poll()", () => {
     ];
     mockExecFile.mockImplementation(
       (_bin: string, args: string[], _opts: unknown, callback: (err: Error | null, result?: { stdout: string }) => void) => {
-        callCount++;
+        _callCount++;
         if ((args as string[])[0] === "pr") {
           // All gh pr list calls fail with rate limit
           callback(new Error("API rate limit exceeded"));
