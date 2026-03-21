@@ -761,8 +761,8 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         level: transitionLogLevel(newStatus),
       });
 
-      // Reset allCompleteEmitted when any session becomes active again
-      if (newStatus !== "merged" && newStatus !== "killed") {
+      // Reset allCompleteEmitted when any session becomes active again (bd-e4t)
+      if (!TERMINAL_STATUSES.has(newStatus)) {
         allCompleteEmitted = false;
       }
 
@@ -900,14 +900,21 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         }
       }
 
-      // auto-kill runtime for terminal (merged/killed) non-orchestrator sessions
-      // to prevent zombie tmux session accumulation (jleechan-v7oa).
+      // bd-s4t.1 + bd-e4t: when a session reaches ANY terminal state (merged,
+      // killed, etc.), proactively clean up runtime and worktree. Without this,
+      // dead sessions leave orphaned worktrees that lock branches and block
+      // future `ao spawn --claim-pr` calls (git refuses to checkout a branch
+      // already checked out in another worktree). Placed after exit proof
+      // validation and outcome recording so the worktree is still available
+      // for commit validation in validateAndEmitExitProof.
       // Orchestrator sessions are excluded: killing the orchestrator would clear
       // its rate-limit pause metadata, breaking the pause mechanism.
-      // Placed after exit proof validation and outcome recording so the worktree
-      // remains available for validateAndEmitExitProof.
-      if ((newStatus === "merged" || newStatus === "killed") && !isOrchestratorSession(session)) {
-        await sessionManager.kill(session.id);
+      if (TERMINAL_STATUSES.has(newStatus) && !isOrchestratorSession(session)) {
+        try {
+          await sessionManager.kill(session.id);
+        } catch {
+          // kill() may fail if session is already partially cleaned up — that's OK
+        }
       }
     }
   }
@@ -956,9 +963,8 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       const sessionsToCheck = sessions.filter((s) => {
         // Skip terminal statuses only if we've already seen and processed this session.
         // If tracked is undefined (e.g., after lifecycle manager restart), allow it
-        // through once so exit proof and outcome can be emitted.
-        const isTerminal = s.status === "merged" || s.status === "killed";
-        if (isTerminal) {
+        // through once so exit proof and outcome can be emitted (bd-e4t).
+        if (TERMINAL_STATUSES.has(s.status)) {
           const tracked = states.get(s.id);
           return tracked === undefined || tracked !== s.status;
         }
@@ -990,9 +996,8 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         }
         // Skip non-orchestrator sessions if project is currently paused.
         // Terminal sessions bypass so exit proof, outcome recording, and cleanup
-        // are not delayed.
-        const isTerminal = s.status === "merged" || s.status === "killed";
-        if (pausedProjects.has(s.projectId) && !isOrchestratorSession(s) && !isTerminal) {
+        // are not delayed (bd-e4t).
+        if (pausedProjects.has(s.projectId) && !isOrchestratorSession(s) && !TERMINAL_STATUSES.has(s.status)) {
           continue;
         }
         await checkSession(s).catch((err) => {
@@ -1037,7 +1042,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       // and worker spawning via `ao spawn --claim-pr`. The poller was spawning
       // generic sessions without PR claims, causing duplicates and sessions on
       // wrong branches. See bd-b02 for the full analysis.
-      const activeSessions = sessions.filter((s) => s.status !== "merged" && s.status !== "killed");
+      const activeSessions = sessions.filter((s) => !TERMINAL_STATUSES.has(s.status));
 
       // Check if all sessions are complete (trigger reaction only once).
       // Use everHadSessions to avoid spurious all_complete on startup when no
