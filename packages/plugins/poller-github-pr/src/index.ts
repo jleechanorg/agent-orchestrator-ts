@@ -150,10 +150,8 @@ export function create(config?: Record<string, unknown>): Poller & { setSessionM
       try {
         raw = await ghExec(args);
       } catch (err) {
-        throw new Error(
-          `[poller-github-pr] Failed to list PRs for project ${projectId}: ${(err as Error).message}`,
-          { cause: err },
-        );
+        const message = `[poller-github-pr] Failed to list PRs for project ${projectId}: ${(err as Error).message}`;
+        throw err instanceof Error ? new Error(message, { cause: err }) : new Error(message);
       }
 
       let prs: GitHubPR[];
