@@ -573,24 +573,22 @@ async function setupHookInWorkspace(workspacePath: string): Promise<void> {
   const settingsPath = join(claudeDir, "settings.json");
   const hookScriptPath = join(claudeDir, "metadata-updater.sh");
 
-  // Reject symlinks BEFORE creating — writing into a symlinked .claude is a security risk
-  try {
-    const claudeStat = await lstat(claudeDir);
-    if (claudeStat.isSymbolicLink()) {
-      throw new Error(`[agent-claude-code] .claude dir is a symlink at ${claudeDir} — refusing to write hooks`);
+  if (existsSync(claudeDir)) {
+    const st = await lstat(claudeDir);
+    if (st.isSymbolicLink()) {
+      // Warn but continue — shared .claude symlinks are valid in worktree setups
+      console.warn(`[agent-claude-code] .claude is a symlink at ${claudeDir} — writing hooks through symlink`);
     }
-    // Exists as a real directory — nothing to create
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
-    // Directory doesn't exist — create it
+  } else {
     await mkdir(claudeDir, { recursive: true });
   }
 
   // Write the metadata updater script only if content changed (idempotent)
   if (!existsSync(hookScriptPath) || (await readFile(hookScriptPath, "utf-8")) !== METADATA_UPDATER_SCRIPT) {
     await writeFile(hookScriptPath, METADATA_UPDATER_SCRIPT, "utf-8");
-    await chmod(hookScriptPath, 0o755);
   }
+  // Always ensure execute bit is set, even if content was already correct
+  await chmod(hookScriptPath, 0o755);
 
   // Read existing settings if present
   let existingSettings: Record<string, unknown> = {};
@@ -644,21 +642,10 @@ async function setupHookInWorkspace(workspacePath: string): Promise<void> {
       hooks: [hookDef],
     });
   } else {
-    // Hook exists, update the command and env — but preserve an existing
-    // AO_DATA_DIR in env if the new hookDef doesn't include one (e.g.
-    // postLaunchSetup doesn't have access to hookConfig.dataDir and would
-    // silently drop it).
+    // Hook exists, update the command and env
     const hook = postToolUse[hookIndex] as Record<string, unknown>;
     const hooksList = hook["hooks"] as Array<Record<string, unknown>>;
-    const existingHookDef = hooksList[hookDefIndex];
-    const existingEnv = existingHookDef?.["env"] as Record<string, unknown> | undefined;
-    const existingDataDir = existingEnv?.["AO_DATA_DIR"];
-    const newCommandDropsDataDir =
-      !hookDef["env"] &&
-      typeof existingDataDir === "string";
-    if (!newCommandDropsDataDir) {
-      hooksList[hookDefIndex] = hookDef;
-    }
+    hooksList[hookDefIndex] = hookDef;
   }
 
   hooks["PostToolUse"] = postToolUse;
