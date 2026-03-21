@@ -57,42 +57,45 @@ cd "$REPO_ROOT"
 AO_VERSION=$(ao --version 2>/dev/null || echo "unknown")
 echo "[ok] ao $AO_VERSION installed"
 
-# ─── Install launchd lifecycle-workers ──────────────────────────────────────
+# ─── Start all projects via ao start ────────────────────────────────────────
 
 echo ""
-echo "Installing launchd lifecycle-workers..."
+echo "Starting all projects..."
+
+START_ALL="$REPO_ROOT/scripts/start-all.sh"
+if [ -f "$START_ALL" ]; then
+  bash "$START_ALL"
+else
+  echo "  WARNING: scripts/start-all.sh not found. Run manually:"
+  echo "    ao start <project-name>"
+fi
+
+# ─── Legacy launchd cleanup ─────────────────────────────────────────────────
+# Remove old per-project lifecycle-worker plists (replaced by ao start)
 
 PLIST_DIR="$HOME/Library/LaunchAgents"
-mkdir -p "$PLIST_DIR"
+for plist in "$PLIST_DIR"/com.agentorchestrator.lifecycle-*.plist; do
+  [ -f "$plist" ] || continue
+  label=$(basename "$plist" .plist)
+  launchctl unload "$plist" 2>/dev/null
+  rm -f "$plist"
+  echo "  Removed legacy plist: $label"
+done
 
-# Read project IDs from config
-if [ -f "$CONFIG_FILE" ] && command -v python3 &>/dev/null; then
-  PROJECTS=$(python3 -c "
-import yaml, sys
-try:
-    with open('$CONFIG_FILE') as f:
-        cfg = yaml.safe_load(f)
-    projects = cfg.get('projects', {})
-    for pid in projects:
-        print(pid)
-except Exception as e:
-    print(f'ERROR: {e}', file=sys.stderr)
-" 2>/dev/null)
+# Skip the old per-project plist generation
+if false; then
+  # ── OLD CODE (disabled) ── individual lifecycle-worker plists per project
+  PLIST_DIR_OLD="$HOME/Library/LaunchAgents"
+  mkdir -p "$PLIST_DIR_OLD"
+  NODE_BIN=$(which node)
+  AO_BIN=$(which ao)
 
-  if [ -z "$PROJECTS" ]; then
-    echo "  Could not parse projects from config. Skipping launchd setup."
-  else
-    NODE_BIN=$(which node)
-    AO_BIN=$(which ao)
-    GH_TOKEN="${GITHUB_TOKEN:-${GH_TOKEN:-}}"
-
-    for PROJECT in $PROJECTS; do
+  for PROJECT in placeholder; do
       PLIST_NAME="com.agentorchestrator.lifecycle-${PROJECT}"
-      PLIST_PATH="$PLIST_DIR/${PLIST_NAME}.plist"
+      PLIST_PATH="$PLIST_DIR_OLD/${PLIST_NAME}.plist"
       LOG_DIR="$HOME/.openclaw/logs"
       mkdir -p "$LOG_DIR"
 
-      # Skip if already loaded and running
       if launchctl list "$PLIST_NAME" 2>/dev/null | grep -q "PID"; then
         echo "  [ok] $PROJECT lifecycle-worker already running"
         continue
