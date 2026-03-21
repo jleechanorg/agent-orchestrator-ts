@@ -37,7 +37,9 @@ vi.mock("node:fs", () => ({
   openSync: () => 99,
   readFileSync: (path: string) =>
     (MOCK_FS.store[`readFileSync:${path}`] as string) ?? "",
-  unlinkSync: () => undefined,
+  unlinkSync: (path: string) => {
+    MOCK_FS.store[`unlinkSync:${path}`] = true;
+  },
   writeFileSync: (path: string, data: string) => {
     MOCK_FS.store[`writeFileSync:${path}`] = data;
   },
@@ -238,9 +240,9 @@ describe("writeLifecycleWorkerPid / clearLifecycleWorkerPid", () => {
     setExists(pf, true);
     setReadFile(pf, "88888\n");
 
-    // PID in file is 88888, passed PID is 88888 — should clear
-    // The mock unlinkSync is a no-op, so we just verify no error is thrown
-    expect(() => clearLifecycleWorkerPid(cfg, "test-proj", 88888)).not.toThrow();
+    // PID in file is 88888, passed PID is 88888 — should clear via unlinkSync
+    clearLifecycleWorkerPid(cfg, "test-proj", 88888);
+    expect(MOCK_FS.store[`unlinkSync:${pf}`]).toBe(true);
   });
 
   it("clearLifecycleWorkerPid skips when PID does not match", () => {
@@ -250,7 +252,8 @@ describe("writeLifecycleWorkerPid / clearLifecycleWorkerPid", () => {
     setExists(pf, true);
     setReadFile(pf, "99999\n");
 
-    // PID in file is 99999, passed PID is 88888 — should NOT clear
-    expect(() => clearLifecycleWorkerPid(cfg, "test-proj", 88888)).not.toThrow();
+    // PID in file is 99999, passed PID is 88888 — should NOT call unlinkSync
+    clearLifecycleWorkerPid(cfg, "test-proj", 88888);
+    expect(MOCK_FS.store[`unlinkSync:${pf}`]).toBeUndefined();
   });
 });
