@@ -16,8 +16,9 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
+          set -o pipefail
           # Fetch PR body once and persist to a file for reuse across steps
-          # Fail-closed: exit if gh pr view fails so the gate does not silently skip
+          # Fail-closed: step exits with error if gh pr view fails
           BODY=$(gh pr view "$PR_NUMBER" --json body --jq '.body')
           printf '%s' "$BODY" > "$RUNNER_TEMP/pr_body.txt"
           echo "Body fetched: ${#BODY} chars"
