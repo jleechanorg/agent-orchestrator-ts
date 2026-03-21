@@ -17,13 +17,23 @@ jobs:
           PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
           set -o pipefail
-          # Configure gh to use GITHUB_TOKEN explicitly
-          echo "$GH_TOKEN" | gh auth login --hostname github.com --token-stdin
-          # Fetch PR body once and persist to a file for reuse across steps
-          # Fail-closed: step exits with error if gh pr view fails
-          BODY=$(gh pr view "$PR_NUMBER" --json body --jq '.body')
+          # Fetch PR body using GitHub REST API — more reliable than gh CLI
+          # Fail-closed: exits with error if the API call fails
+          HTTP_CODE=$(curl -s -o "$RUNNER_TEMP/pr_body.txt" -w "%{http_code}" \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" \
+            2>/dev/null)
+          BODY=$(cat "$RUNNER_TEMP/pr_body.txt")
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "ERROR: API returned HTTP $HTTP_CODE" >&2
+            echo "Body: $BODY" >&2
+            exit 1
+          fi
+          # Extract body field from JSON response
+          BODY=$(python3 -c "import json,sys; print(json.load(sys.stdin).get('body',''))" < "$RUNNER_TEMP/pr_body.txt")
           printf '%s' "$BODY" > "$RUNNER_TEMP/pr_body.txt"
-          echo "Body fetched: ${#BODY} chars"
+          echo "Body fetched: ${#BODY} chars (HTTP $HTTP_CODE)"
 
       - name: Check for evidence bundle in PR body
         id: check
