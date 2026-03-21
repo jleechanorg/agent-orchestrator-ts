@@ -29,6 +29,7 @@
   "devDependencies": {
     "@changesets/cli": "^2.29.8",
     "@jleechanorg/ao-plugin-agent-cursor": "workspace:^",
+    "@jleechanorg/ao-plugin-agent-gemini": "workspace:^",
     "@eslint/js": "^10.0.1",
     "@types/node": "^25.2.3",
     "eslint": "^10.0.0",
