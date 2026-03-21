@@ -150,18 +150,40 @@ describe("setupWorkspaceHooks with MCP mail idempotency", () => {
 });
 
 describe("setupWorkspaceHooks symlink handling", () => {
-  it("warns (does not throw) when .claude dir is a symlink", async () => {
-    // Create a target directory outside the workspace (worktree shared .claude)
-    const sharedDir = join(tmpDir, "shared-claude");
-    mkdirSync(sharedDir, { recursive: true });
+  it("warns (does not throw) when .claude is an in-workspace symlink", async () => {
+    // Create a target directory inside the workspace (in-workspace .claude alias)
+    const inWorkspaceTarget = join(workspacePath, ".claude-target");
+    mkdirSync(inWorkspaceTarget, { recursive: true });
 
-    // Replace .claude with a symlink (valid in worktree setups)
-    symlinkSync(sharedDir, claudeDir);
+    // Replace .claude with a symlink that stays within the workspace
+    symlinkSync(inWorkspaceTarget, claudeDir);
 
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     const agent = create();
+    // In-workspace symlinks are allowed (warn but continue)
     await expect(agent.setupWorkspaceHooks!(workspacePath, makeHookConfig())).resolves.not.toThrow();
     expect(warnSpy).toHaveBeenCalledWith(expect.stringMatching(/symlink/i));
     warnSpy.mockRestore();
+  });
+
+  it("throws when .claude is a symlink pointing outside the workspace", async () => {
+    // Use /var/folders (macOS) or /tmp as the outside root.
+    // /var/folders is guaranteed to be in a different filesystem subtree from
+    // /Users/... workspaces and is not affected by the /tmp -> /private/tmp
+    // symlink that causes false negatives on macOS CI runners where both
+    // the workspace and tmpdir() resolve to paths under /private/tmp.
+    const outsideRoot = existsSync("/var/folders") ? "/var/folders" : tmpdir();
+    const outsideDir = mkdtempSync(join(outsideRoot, "ao-test-outside-"));
+    mkdirSync(outsideDir, { recursive: true });
+    symlinkSync(outsideDir, claudeDir);
+
+    try {
+      const agent = create();
+      await expect(agent.setupWorkspaceHooks!(workspacePath, makeHookConfig())).rejects.toThrow(
+        /symlink.*outside the workspace/i,
+      );
+    } finally {
+      rmSync(outsideDir, { recursive: true, force: true });
+    }
   });
 });

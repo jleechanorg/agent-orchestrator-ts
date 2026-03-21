@@ -18,7 +18,7 @@ import { execFile, execFileSync } from "node:child_process";
 import { readdir, readFile, stat, open, writeFile, mkdir, chmod, lstat } from "node:fs/promises";
 import { existsSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
-import { basename, join } from "node:path";
+import { basename, join, resolve, isAbsolute, dirname, sep } from "node:path";
 import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
@@ -591,10 +591,13 @@ async function setupHookInWorkspace(workspacePath: string): Promise<void> {
         const resolved = realpathSync(claudeDir);
         const wsReal = realpathSync(workspacePath);
         if (!resolved.startsWith(wsReal + "/") && resolved !== wsReal) {
-          console.warn(`[agent-claude-code] .claude is a symlink pointing outside workspace (${resolved}) — skipping hook setup`);
-          return;
+          throw new Error(`.claude is a symlink pointing outside the workspace (${resolved})`);
         }
-      } catch {
+      } catch (err) {
+        // If it's our intentional security error, rethrow it
+        if (err instanceof Error && /symlink.*outside the workspace/i.test(err.message)) {
+          throw err;
+        }
         // Can't resolve symlink (broken or test env) — skip to be safe
         console.warn(`[agent-claude-code] .claude is a symlink at ${claudeDir} — cannot verify target, skipping hook setup`);
         return;
@@ -608,20 +611,8 @@ async function setupHookInWorkspace(workspacePath: string): Promise<void> {
     await mkdir(claudeDir, { recursive: true });
   }
 
-  // Guard: refuse to write through an existing symlink to avoid overwriting an arbitrary target file
-  let hookScriptIsSymlink = false;
-  try {
-    const scriptSt = await lstat(hookScriptPath);
-    hookScriptIsSymlink = scriptSt.isSymbolicLink();
-    if (hookScriptIsSymlink) {
-      console.warn(`[agent-claude-code] ${hookScriptPath} is a symlink — skipping hook script write to avoid clobbering target`);
-    }
-  } catch {
-    // File does not exist — safe to write
-  }
-
-  // Write the metadata updater script only if content changed (idempotent) and not a symlink
-  if (!hookScriptIsSymlink && (!existsSync(hookScriptPath) || (await readFile(hookScriptPath, "utf-8")) !== METADATA_UPDATER_SCRIPT)) {
+  // Write the metadata updater script only if content changed (idempotent)
+  if (!existsSync(hookScriptPath) || (await readFile(hookScriptPath, "utf-8")) !== METADATA_UPDATER_SCRIPT) {
     await writeFile(hookScriptPath, METADATA_UPDATER_SCRIPT, "utf-8");
   }
   // Always ensure execute bit is set, but skip if the hook script is itself a symlink
@@ -698,21 +689,9 @@ async function setupHookInWorkspace(workspacePath: string): Promise<void> {
   hooks["PreToolUse"] = preToolUse;
   existingSettings["hooks"] = hooks;
 
-  // Guard: refuse to write through an existing symlink to avoid clobbering an arbitrary target file
-  let settingsPathIsSymlink = false;
-  try {
-    const settingsStat = await lstat(settingsPath);
-    settingsPathIsSymlink = settingsStat.isSymbolicLink();
-    if (settingsPathIsSymlink) {
-      console.warn(`[agent-claude-code] ${settingsPath} is a symlink — skipping settings write to avoid clobbering target`);
-    }
-  } catch {
-    // File does not exist — safe to write
-  }
-
-  // Write settings only if content changed (idempotent) and not a symlink
+  // Write settings only if content changed (idempotent)
   const settingsBody = JSON.stringify(existingSettings, null, 2) + "\n";
-  if (!settingsPathIsSymlink && (!existsSync(settingsPath) || (await readFile(settingsPath, "utf-8")) !== settingsBody)) {
+  if (!existsSync(settingsPath) || (await readFile(settingsPath, "utf-8")) !== settingsBody) {
     await writeFile(settingsPath, settingsBody, "utf-8");
   }
 }

@@ -333,9 +333,8 @@ describe("Config Validation - SCM webhook contract", () => {
 });
 
 describe("Config Validation - Auto-merge reactions", () => {
-  it("accepts auto-merge action — enforcement is via checkMergeGate() in lifecycle-manager", () => {
-    // auto-merge is a valid action; the full merge gate (evidence-review, CI, approvals)
-    // is enforced at runtime in lifecycle-manager.ts via checkMergeGate(), not at config level.
+  it("rejects auto-merge reactions in global or project config", () => {
+    // Global scope: assert both generic error and the specific config path
     expect(() =>
       validateConfig({
         reactions: {
@@ -351,8 +350,9 @@ describe("Config Validation - Auto-merge reactions", () => {
           },
         },
       }),
-    ).not.toThrow();
+    ).toThrow(/auto-merge is disabled.*reactions\.approved-and-green/s);
 
+    // Project scope: assert the project-level config path
     expect(() =>
       validateConfig({
         projects: {
@@ -368,7 +368,7 @@ describe("Config Validation - Auto-merge reactions", () => {
           },
         },
       }),
-    ).not.toThrow();
+    ).toThrow(/projects\.proj1\.reactions\.approved-and-green/);
   });
 });
 

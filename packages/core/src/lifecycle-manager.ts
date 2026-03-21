@@ -824,10 +824,16 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       const sessionsToCheck = sessions.filter((s) => {
         // Skip terminal statuses only if we've already seen and processed this session.
         // If tracked is undefined (e.g., after lifecycle manager restart), allow it
-        // through once so exit proof and outcome can be emitted.
+        // through once so exit proof and outcome can be emitted — but only for sessions
+        // that remain in a terminal state.  A merged session that regresses to "killed"
+        // (e.g., because the state file was cleaned up) should NOT be re-processed; the
+        // merged outcome was already emitted and must not be overwritten.
         if (s.status === "merged" || s.status === "killed") {
           const tracked = states.get(s.id);
-          return tracked === undefined || tracked !== s.status;
+          if (tracked !== undefined) return tracked !== s.status;
+          // On restart: merged sessions are safe to re-check; killed sessions are not
+          // (killed means the runtime died unexpectedly — no valid outcome to re-emit).
+          return s.status === "merged";
         }
         return true;
       });
