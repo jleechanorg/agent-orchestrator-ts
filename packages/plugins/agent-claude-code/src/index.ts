@@ -18,7 +18,7 @@ import { execFile, execFileSync } from "node:child_process";
 import { readdir, readFile, stat, open, writeFile, mkdir, chmod, lstat } from "node:fs/promises";
 import { existsSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
-import { basename, join, resolve, isAbsolute, dirname, sep } from "node:path";
+import { basename, join } from "node:path";
 import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
