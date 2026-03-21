@@ -28,7 +28,7 @@
     <key>HOME</key>
     <string>@HOME@</string>
     <key>PATH</key>
-    <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    <string>@PATH@</string>
   </dict>
 
   <key>StandardOutPath</key>

@@ -23,6 +23,19 @@ START_ALL_SCRIPT_ESCAPED="$(escape_sed "$START_ALL_SCRIPT")"
 LOG_FILE_ESCAPED="$(escape_sed "$LOG_FILE")"
 HOME_ESCAPED="$(escape_sed "$HOME")"
 
+# Dynamically build PATH for the plist: include wherever ao is installed plus a
+# fallback base. This covers homebrew, nvm, volta, npm-global, and system paths.
+AO_BIN="$(command -v ao 2>/dev/null || true)"
+AO_DIR="$(dirname "$AO_BIN" 2>/dev/null || true)"
+if [ -n "$AO_DIR" ] && [ -d "$AO_DIR" ]; then
+  # Prepend ao's directory so launchd finds it regardless of install method
+  BASE_PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+  FULL_PATH="${AO_DIR}:${BASE_PATH}"
+else
+  FULL_PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+fi
+PATH_ESCAPED="$(escape_sed "$FULL_PATH")"
+
 if [ ! -f "$TEMPLATE" ]; then
   echo "ERROR: Missing template at $TEMPLATE"
   exit 1
@@ -40,6 +53,7 @@ sed \
   -e "s|@REPO_ROOT@|$(escape_sed "$REPO_ROOT")|g" \
   -e "s|@START_ALL_SCRIPT@|${START_ALL_SCRIPT_ESCAPED}|g" \
   -e "s|@LOG_FILE@|${LOG_FILE_ESCAPED}|g" \
+  -e "s|@PATH@|${PATH_ESCAPED}|g" \
   "$TEMPLATE" > "$TMP_PLIST"
 
 plutil -lint "$TMP_PLIST" >/dev/null
