@@ -698,6 +698,36 @@ describe("scm-github plugin", () => {
         expect.any(Object),
       );
     });
+
+    // bd-77b: COMMENTED reviews after APPROVED should NOT block merge gate.
+    // CodeRabbit posts incremental COMMENTED reviews that supersede its earlier
+    // APPROVED in chronological order. The REST fallback must treat COMMENTED as
+    // non-decisive so an earlier APPROVED still counts as the decision.
+    it("returns approved when CR COMMENTED review is newer than APPROVED review (bd-77b)", async () => {
+      // GraphQL rate-limit → triggers REST fallback
+      mockGhError("API rate limit exceeded");
+      mockGhError("API rate limit exceeded");
+      mockGhError("API rate limit exceeded");
+      // REST: gh api repos/{owner}/{repo}/pulls/{pr}
+      mockGh({ state: "open", merged: false });
+      // REST: gh api repos/{owner}/{repo}/pulls/{pr}/reviews
+      // CodeRabbit APPROVED first, then posted a COMMENTED review later.
+      mockGh([
+        {
+          state: "APPROVED",
+          user: { login: "coderabbitai[bot]" },
+          body: "Looks good!",
+          submitted_at: "2026-03-20T10:00:00Z",
+        },
+        {
+          state: "COMMENTED",
+          user: { login: "coderabbitai[bot]" },
+          body: "Minor suggestion (non-blocking)",
+          submitted_at: "2026-03-20T11:00:00Z",
+        },
+      ]);
+      expect(await scm.getReviewDecision(pr)).toBe("approved");
+    });
   });
 
   // ---- mergePR -----------------------------------------------------------

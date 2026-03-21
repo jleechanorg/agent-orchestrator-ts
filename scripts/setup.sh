@@ -171,8 +171,11 @@ echo "Base setup complete!"
 # ─── Fork-specific extended setup ───────────────────────────────────────────
 
 EXTENDED_SCRIPT="$REPO_ROOT/scripts/setup-extended.sh"
-if [ -f "$EXTENDED_SCRIPT" ]; then
+CONFIG_FILE="${AO_CONFIG_PATH:-$HOME/.openclaw/agent-orchestrator.yaml}"
+if [ -f "$EXTENDED_SCRIPT" ] && [ -f "$CONFIG_FILE" ]; then
   bash "$EXTENDED_SCRIPT"
+elif [ -f "$EXTENDED_SCRIPT" ]; then
+  echo "  Skipping extended setup (no config at $CONFIG_FILE — run 'ao start' to create one)"
 fi
 
 echo ""
