@@ -1,4 +1,4 @@
-<h1 align="center">Agent Orchestrator — The Orchestration Layer for Parallel AI Agents (forked)</h1>
+<h1 align="center">Agent Orchestrator — The Orchestration Layer for Parallel AI Agents (forked from https://github.com/ComposioHQ/agent-orchestrator)</h1>
 
 <div align="center">
 
