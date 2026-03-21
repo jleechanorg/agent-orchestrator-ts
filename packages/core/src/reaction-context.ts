@@ -50,10 +50,53 @@ export async function buildReactionContext(
         if (merge.noConflicts) return "";
         return `Merge blockers:\n${merge.blockers.map((b) => `- ${b}`).join("\n")}`;
       }
+      case "agent-needs-input":
+      case "agent-stuck": {
+        return buildPRStatusSummary(scm, session);
+      }
       default:
         return "";
     }
   } catch {
     return "";
   }
+}
+
+/**
+ * Build a comprehensive PR status summary for idle/stuck agents.
+ * Includes CI status, pending comments, and commands to investigate.
+ */
+async function buildPRStatusSummary(scm: SCM, session: Session): Promise<string> {
+  const pr = session.pr!;
+  const parts: string[] = [`PR #${pr.number} (${pr.owner}/${pr.repo}) status:`];
+
+  // CI status
+  const checks = await scm.getCIChecks(pr);
+  const failing = checks.filter((c) => c.status === "failed");
+  if (failing.length > 0) {
+    const failNames = failing.map((c) => c.name).join(", ");
+    parts.push(`CI: ${failing.length} failing (${failNames})`);
+  } else {
+    parts.push(`CI: all passing`);
+  }
+
+  // Pending review comments
+  const comments = await scm.getPendingComments(pr);
+  if (comments.length > 0) {
+    parts.push(`Reviews: ${comments.length} unresolved comment${comments.length > 1 ? "s" : ""}`);
+    // Show first few comment summaries
+    const previews = comments.slice(0, 3).map((c) => {
+      const loc = c.path ? `${c.path}:${c.line ?? ""}` : "";
+      const body = c.body.slice(0, 80) + (c.body.length > 80 ? "..." : "");
+      return loc ? `  - ${loc}: ${body}` : `  - ${body}`;
+    });
+    parts.push(...previews);
+  } else {
+    parts.push(`Reviews: no unresolved comments`);
+  }
+
+  // Actionable command
+  parts.push(`\nTo read feedback: gh api repos/${pr.owner}/${pr.repo}/pulls/${pr.number}/comments`);
+
+  return parts.join("\n");
 }
