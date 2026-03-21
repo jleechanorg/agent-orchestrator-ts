@@ -165,10 +165,77 @@ describe("poll()", () => {
     expect(callArgs.join(",")).toContain("latestReviews");
   });
 
-  it("throws a descriptive error when gh CLI fails", async () => {
+  it("throws a descriptive error when gh CLI fails with non-rate-limit error", async () => {
     mockGhError("authentication required");
     const poller = create();
     await expect(poller.poll("test-project")).rejects.toThrow("Failed to list PRs");
+  });
+
+  it("retries on rate limit error and succeeds on second attempt", async () => {
+    vi.useFakeTimers();
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const mockExecFile = execFile as unknown as MockExecFile;
+    let callCount = 0;
+    mockExecFile.mockImplementation(
+      (_bin: string, _args: string[], _opts: unknown, callback: (err: Error | null, result?: { stdout: string }) => void) => {
+        callCount++;
+        if (callCount === 1) {
+          callback(new Error("API rate limit exceeded"));
+        } else {
+          callback(null, { stdout: JSON.stringify([{ ...BASE_PR, latestReviews: [CODERABBIT_CHANGES_REQUESTED] }]) });
+        }
+      },
+    );
+    const poller = create({ repo: "owner/repo" });
+    const pollPromise = poller.poll("test-project");
+    // Advance past the 1s backoff
+    await vi.advanceTimersByTimeAsync(2000);
+    const items = await pollPromise;
+    expect(items).toHaveLength(1);
+    expect(callCount).toBe(2);
+    warnSpy.mockRestore();
+    vi.useRealTimers();
+  });
+
+  it("falls back to REST API when all rate limit retries exhausted", async () => {
+    vi.useFakeTimers();
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const mockExecFile = execFile as unknown as MockExecFile;
+    let _callCount = 0;
+    const restPrs = [
+      {
+        number: 5,
+        title: "REST PR",
+        html_url: "https://github.com/owner/repo/pull/5",
+        draft: false,
+        head: { ref: "feat/rest" },
+        base: { ref: "main" },
+        mergeable: true,
+      },
+    ];
+    mockExecFile.mockImplementation(
+      (_bin: string, args: string[], _opts: unknown, callback: (err: Error | null, result?: { stdout: string }) => void) => {
+        _callCount++;
+        if ((args as string[])[0] === "pr") {
+          // All gh pr list calls fail with rate limit
+          callback(new Error("API rate limit exceeded"));
+        } else if ((args as string[])[0] === "api") {
+          // REST fallback succeeds
+          callback(null, { stdout: JSON.stringify(restPrs) });
+        }
+      },
+    );
+    const poller = create({ repo: "owner/repo" });
+    const pollPromise = poller.poll("test-project");
+    // Advance past all backoff delays (1s + 2s)
+    await vi.advanceTimersByTimeAsync(5000);
+    const items = await pollPromise;
+    // REST fallback returns PRs but without latestReviews, so no CHANGES_REQUESTED
+    // items will be detected — the important thing is it doesn't throw
+    expect(items).toEqual([]);
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("falling back to REST API"));
+    warnSpy.mockRestore();
+    vi.useRealTimers();
   });
 });
 

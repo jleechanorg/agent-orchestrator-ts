@@ -7,13 +7,15 @@
 
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import type {
-  Poller,
-  PollerWorkItem,
-  Session,
-  SessionSpawnConfig,
-  SessionManager,
-  PluginModule,
+import {
+  isGhRateLimitError,
+  ghSleep,
+  type Poller,
+  type PollerWorkItem,
+  type Session,
+  type SessionSpawnConfig,
+  type SessionManager,
+  type PluginModule,
 } from "@jleechanorg/ao-core";
 
 const execFileAsync = promisify(execFile);
@@ -43,6 +45,104 @@ async function ghExec(args: string[], cwd?: string): Promise<string> {
     timeout: 30_000,
   });
   return stdout.trim();
+}
+
+// ---------------------------------------------------------------------------
+// Rate Limit Handling — uses shared utilities from ao-core
+// ---------------------------------------------------------------------------
+
+/**
+ * Parse `--repo owner/repo` from args.
+ */
+function extractRepo(args: string[]): string | null {
+  const idx = args.indexOf("--repo");
+  return idx !== -1 && args[idx + 1] ? args[idx + 1] : null;
+}
+
+/**
+ * Convert REST PR response to the same shape as `gh pr list --json` output.
+ */
+function mapRestPrToGhPrListShape(rest: Record<string, unknown>): Record<string, unknown> {
+  const head = rest.head as Record<string, unknown> | undefined;
+  const base = rest.base as Record<string, unknown> | undefined;
+  return {
+    number: rest.number,
+    title: rest.title,
+    url: rest.html_url,
+    isDraft: Boolean(rest.draft),
+    headRefName: head?.ref ?? "",
+    baseRefName: base?.ref ?? "",
+    mergeable: rest.mergeable === true ? "MERGEABLE" : rest.mergeable === false ? "CONFLICTING" : "UNKNOWN",
+    // REST /pulls does not include statusCheckRollup or latestReviews — leave null
+    // so downstream logic treats them conservatively.
+    statusCheckRollup: null,
+    latestReviews: null,
+  };
+}
+
+/**
+ * REST fallback for `gh pr list --json ...` — calls GET /repos/{owner}/{repo}/pulls.
+ * Passes through state and per_page from original args to maintain consistent behavior.
+ */
+async function prListRestFallback(
+  repo: string,
+  state = "open",
+  limit = 100,
+  cwd?: string,
+): Promise<string> {
+  const restState = state.toLowerCase();
+  const perPage = Math.min(limit, 100);
+  const raw = await ghExec(
+    ["api", `repos/${repo}/pulls?state=${restState}&per_page=${perPage}`],
+    cwd,
+  );
+  const restPrs = JSON.parse(raw) as Array<Record<string, unknown>>;
+  return JSON.stringify(restPrs.slice(0, limit).map(mapRestPrToGhPrListShape));
+}
+
+/**
+ * Execute `gh pr list` with rate-limit retry and REST fallback.
+ */
+async function ghPrListWithRetry(args: string[], cwd?: string, maxRetries = 3): Promise<string> {
+  let lastError: unknown;
+
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      return await ghExec(args, cwd);
+    } catch (err) {
+      lastError = err;
+      if (isGhRateLimitError(err)) {
+        if (attempt < maxRetries - 1) {
+          const backoffMs = Math.min(1000 * Math.pow(2, attempt), 30000);
+          console.warn(`[poller-github-pr] Rate limit detected, retrying in ${backoffMs}ms (attempt ${attempt + 1}/${maxRetries})`);
+          await ghSleep(backoffMs);
+        }
+      } else {
+        throw err;
+      }
+    }
+  }
+
+  // All retries exhausted — try REST fallback for `gh pr list`
+  if (args[0] === "pr" && args[1] === "list") {
+    const repo = extractRepo(args);
+    if (repo) {
+      // Parse --state and --limit from original args for consistent behavior
+      const stateIdx = args.indexOf("--state");
+      const state = stateIdx !== -1 ? (args[stateIdx + 1] ?? "open") : "open";
+      const limitIdx = args.indexOf("--limit");
+      const limit = limitIdx !== -1 ? parseInt(args[limitIdx + 1] ?? "100", 10) : 100;
+      console.warn("[poller-github-pr] Rate limit retries exhausted, falling back to REST API for pr list");
+      try {
+        return await prListRestFallback(repo, state, limit, cwd);
+      } catch {
+        // REST fallback failed too — rethrow original
+      }
+    }
+  }
+
+  if (lastError instanceof Error) throw lastError;
+  throw new Error(String(lastError));
 }
 
 function isCIPassing(pr: GitHubPR): boolean {
@@ -117,7 +217,7 @@ export function create(config?: Record<string, unknown>): Poller & { setSessionM
 
       let raw: string;
       try {
-        raw = await ghExec(args);
+        raw = await ghPrListWithRetry(args);
       } catch (err) {
         const message = `[poller-github-pr] Failed to list PRs for project ${projectId}: ${(err as Error).message}`;
         throw err instanceof Error ? new Error(message, { cause: err }) : new Error(message);
