@@ -158,7 +158,7 @@ export function getLifecycleWorkerStatus(
     return { running: false, pid: null, verified: null, pidFile, logFile };
   }
 
-  return { running: false, pid: null, verified: null, pidFile, logFile };
+  return { running: false, pid: null, verified: false, pidFile, logFile };
 }
 
 function resolveLifecycleWorkerLaunch(projectId: string): { command: string; args: string[] } {
