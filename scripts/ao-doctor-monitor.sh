@@ -603,7 +603,7 @@ for c in data.get('channels', []):
     if [ -n "$channel_id" ]; then
       local post_auth_file payload_file
       post_auth_file=$(mktemp /tmp/slack-auth.XXXXXX)
-      printf -- '-H\nAuthorization: Bearer %s\n-H\nContent-type: application/json\n' > "$post_auth_file"
+      printf -- '-H\nAuthorization: Bearer %s\n-H\nContent-type: application/json\n' "$SLACK_USER_TOKEN" > "$post_auth_file"
       payload_file=$(mktemp /tmp/slack-payload.XXXXXX)
       python3 -c "import json,sys; print(json.dumps({'channel': sys.argv[1], 'text': sys.argv[2]}))" \
         "$channel_id" "$message" > "$payload_file" 2>/dev/null
