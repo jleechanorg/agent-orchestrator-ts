@@ -604,7 +604,7 @@ describe("Config Validation - Auto-merge Reaction Block", () => {
 
     expect(() => validateConfig(config)).toThrow(/auto-merge reaction\(s\) are not allowed/);
     expect(() => validateConfig(config)).toThrow(/global reaction "approved-and-green"/);
-    expect(() => validateConfig(config)).toThrow(/AO_ALLOW_GH_PR_MERGE=1/);
+    expect(() => validateConfig(config)).toThrow(/AO intentionally does not support auto-merge reactions/);
   });
 
   it("rejects a per-project reaction override with action: auto-merge", () => {
@@ -681,7 +681,7 @@ describe("Config Validation - Auto-merge Reaction Block", () => {
     expect(() => validateConfig(config)).not.toThrow();
   });
 
-  it("allows send-to-agent action for merge-conflict events", () => {
+  it("allows send-to-agent action for merge-conflicts events", () => {
     const config = {
       projects: {
         proj1: {

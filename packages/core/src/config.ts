@@ -363,10 +363,10 @@ function validateNoAutoMergeReactions(config: OrchestratorConfig): void {
     }
   }
 
-  for (const [projectId, project] of Object.entries(config.projects)) {
+  for (const [projectKey, project] of Object.entries(config.projects)) {
     for (const [event, reaction] of Object.entries(project.reactions ?? {})) {
       if (reaction.action === "auto-merge") {
-        offenders.push({ scope: `project "${projectId}"`, event });
+        offenders.push({ scope: `project "${projectKey}"`, event });
       }
     }
   }
@@ -379,11 +379,10 @@ function validateNoAutoMergeReactions(config: OrchestratorConfig): void {
       `auto-merge reaction(s) are not allowed.\n` +
         `The following reaction(s) use action: auto-merge:\n` +
         `${lines.join("\n")}\n\n` +
-        `AO intentionally does not auto-merge by default.\n` +
-        `Agent safety: 'gh pr merge' is blocked by default in agent hooks and\n` +
-        `wrappers. To enable it for trusted manual flows, set:\n` +
-        `  AO_ALLOW_GH_PR_MERGE=1\n` +
-        `instead of configuring an auto-merge reaction.\n\n` +
+        `AO intentionally does not support auto-merge reactions.\n` +
+        `Merges are controlled by the orchestrator, not by config.\n` +
+        `To merge a PR, rely on the orchestrator's merge-gate logic\n` +
+        `or trigger a merge manually with 'gh pr merge'.\n\n` +
         `See: agent-orchestrator.yaml reactions configuration`,
     );
   }
