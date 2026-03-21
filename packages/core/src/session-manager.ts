@@ -555,7 +555,15 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       return [{ sessionName, raw, modifiedAt } satisfies ActiveSessionRecord];
     });
 
-    return repairSessionMetadataOnRead(sessionsDir, records);
+    // Repair all sessions first so stale status values (e.g. "merged" → "working") are
+    // corrected before we filter on terminal statuses.
+    const repaired = repairSessionMetadataOnRead(sessionsDir, records);
+
+    // Filter out terminal sessions to prevent stale data dir accumulation.
+    return repaired.filter((record) => {
+      const status = record.raw["status"] ?? "";
+      return status !== "killed" && status !== "merged";
+    });
   }
 
   function markArchivedOpenCodeCleanup(sessionsDir: string, sessionId: SessionId): void {
