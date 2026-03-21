@@ -39,6 +39,7 @@
     "@jleechanorg/ao-plugin-agent-claude-code": "workspace:*",
     "@jleechanorg/ao-plugin-agent-codex": "workspace:*",
     "@jleechanorg/ao-plugin-agent-cursor": "workspace:*",
+    "@jleechanorg/ao-plugin-agent-gemini": "workspace:*",
     "@jleechanorg/ao-plugin-agent-opencode": "workspace:*",
     "@jleechanorg/ao-plugin-poller-github-pr": "workspace:*",
     "@jleechanorg/ao-plugin-notifier-composio": "workspace:*",

@@ -138,15 +138,26 @@ describe("plugin manifest & exports", () => {
 // =========================================================================
 // getLaunchCommand
 // =========================================================================
+
+/**
+ * Extract just the gemini-agent invocation from a full preamble+command string.
+ * The preamble pre-trusts the folder; the agent command follows "; ".
+ */
+function agentPart(cmd: string): string {
+  const idx = cmd.lastIndexOf("; ");
+  return idx >= 0 ? cmd.slice(idx + 2) : cmd;
+}
+
 describe("getLaunchCommand", () => {
   const agent = create();
 
   it("generates base command without shell syntax", () => {
     const cmd = agent.getLaunchCommand(makeLaunchConfig({ permissions: "default" }));
-    expect(cmd).toBe("gemini");
-    // Must not contain shell operators (execFile-safe)
-    expect(cmd).not.toContain("&&");
-    expect(cmd).not.toContain("unset");
+    // The full command has a pre-trust preamble; the agent part must be shell-syntax-free
+    const agentCmd = agentPart(cmd);
+    expect(agentCmd).toBe("gemini");
+    expect(agentCmd).not.toContain("&&");
+    expect(agentCmd).not.toContain("unset");
   });
 
   it("includes --yolo when permissions=permissionless", () => {
@@ -166,9 +177,12 @@ describe("getLaunchCommand", () => {
     expect(cmd).toContain("--yolo");
   });
 
-  it("shell-escapes model argument", () => {
+  it("ignores model argument (gemini CLI uses its own model names)", () => {
+    // gemini rejects Anthropic model IDs (e.g. "claude-sonnet-4-6") with
+    // "Model not found or invalid". The plugin strips the model flag so gemini
+    // starts with its default model. Users configure gemini's model in /model.
     const cmd = agent.getLaunchCommand(makeLaunchConfig({ model: "gemini-2.0-flash" }));
-    expect(cmd).toContain("--model 'gemini-2.0-flash'");
+    expect(agentPart(cmd)).not.toContain("--model");
   });
 
   it("does not include -p flag (prompt delivered post-launch)", () => {
@@ -181,7 +195,8 @@ describe("getLaunchCommand", () => {
     const cmd = agent.getLaunchCommand(
       makeLaunchConfig({ permissions: "permissionless", model: "flash", prompt: "Hello" }),
     );
-    expect(cmd).toBe("gemini --yolo --model 'flash'");
+    // model is stripped because gemini CLI uses its own model naming convention
+    expect(agentPart(cmd)).toBe("gemini --yolo");
   });
 
   it("omits --yolo when permissions=default", () => {
@@ -193,6 +208,16 @@ describe("getLaunchCommand", () => {
     const cmd = agent.getLaunchCommand(makeLaunchConfig());
     expect(cmd).not.toContain("--model");
     expect(cmd).not.toContain("-p");
+  });
+
+  it("prepends trust-folder preamble to add workspace to trustedFolders.json before launch", () => {
+    const cmd = agent.getLaunchCommand(makeLaunchConfig({ permissions: "default" }));
+    // The full command must start with a trust preamble
+    expect(cmd).toMatch(/^\( python3 -c "import json,os;/);
+    // The preamble must create the ~/.gemini/ dir if missing (fresh-machine safety)
+    expect(cmd).toContain("makedirs");
+    // The agent command follows after "; "
+    expect(agentPart(cmd)).toBe("gemini");
   });
 
   it("does not include system prompt in launch command (delivered via env var)", () => {
