@@ -1216,6 +1216,7 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
         reviewDecision: string;
         mergeStateStatus: string;
         isDraft: boolean;
+        draft?: boolean; // REST API uses "draft" instead of "isDraft"
       } = JSON.parse(raw);
 
       // CI
@@ -1261,8 +1262,8 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
         blockers.push("Required checks are failing");
       }
 
-      // Draft
-      if (data.isDraft) {
+      // Draft — GraphQL uses "isDraft", REST uses "draft"
+      if (data.isDraft || data.draft) {
         blockers.push("PR is still a draft");
       }
 

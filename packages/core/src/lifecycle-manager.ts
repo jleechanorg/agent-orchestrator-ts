@@ -806,10 +806,8 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         }
         // Skip sessions where agent process has exited — polling these
         // burns API quota for sessions that can't act on reactions.
-        // determineStatus() will mark them "killed" on the transition check.
         if (s.activity === "exited") {
-          const tracked = states.get(s.id);
-          return tracked !== undefined && tracked !== s.status;
+          return false;
         }
         return true;
       });
