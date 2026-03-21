@@ -45,12 +45,12 @@ export async function checkMergeGate(
 
   let ciStatus: string;
   let mergeability: { noConflicts: boolean; mergeable?: boolean };
-  let reviews: Array<{ author: string; state: string; submittedAt?: Date }>;
-  let automatedComments: Array<{ botName: string; severity: string; body: string }>;
-  let pendingComments: Array<{ isResolved: boolean; body: string }>;
+  let reviews: Array<{ author: string; state: string; submittedAt?: Date }> = [];
+  let automatedComments: Array<{ botName: string; severity: string; body: string }> = [];
+  let pendingComments: Array<{ isResolved: boolean; body: string }> = [];
 
   try {
-    [ciStatus, mergeability, reviews, automatedComments, pendingComments] =
+    const [ci, mergeabilityResult, reviewsResult, automatedCommentsResult, pendingCommentsResult] =
       await Promise.all([
         scm.getCISummary(pr),
         scm.getMergeability(pr),
@@ -58,6 +58,12 @@ export async function checkMergeGate(
         scm.getAutomatedComments(pr),
         scm.getPendingComments(pr),
       ]);
+
+    ciStatus = ci;
+    mergeability = mergeabilityResult;
+    reviews = reviewsResult ?? [];
+    automatedComments = automatedCommentsResult ?? [];
+    pendingComments = pendingCommentsResult ?? [];
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     return {
