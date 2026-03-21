@@ -66,9 +66,11 @@ jobs:
           # tr ' ' '-' converts remaining spaces to hyphens so "Pipeline E2E" → "pipeline-e2e"
           # tr -d '[:space:]' removes ALL whitespace (not just leading/trailing) — collapses
           #   multi-word names cleanly; sed then strips leading/trailing characters
+          # sed 'I' flag makes the pattern case-insensitive so "**Claim Class**:" (title case)
+          # is also correctly stripped even though the pattern uses lowercase 'c'
           CLAIM=$(printf '%s' "$BODY" \
             | grep -i '\*\*Claim class' | grep -v '^- ' | head -1 \
-            | sed 's/.*\*\*Claim class\*\*:\s*//' \
+            | sed -I 's/.*\*\*Claim class\*\*:\s*//' \
             | sed 's/(.*//' \
             | tr -d '*' | tr '[:upper:]' '[:lower:]' \
             | tr ' ' '-' | tr -d '\t' \
@@ -78,7 +80,7 @@ jobs:
           if [ -z "$CLAIM" ]; then
             CLAIM=$(printf '%s' "$BODY" \
               | grep -i '^-.*\*\*Claim class' | head -1 \
-              | sed 's/.*\*\*Claim class\*\*:\s*//' \
+              | sed -I 's/.*\*\*Claim class\*\*:\s*//' \
               | sed 's/(.*//' \
               | tr -d '*' | tr '[:upper:]' '[:lower:]' \
               | tr ' ' '-' | tr -d '\t' \
@@ -108,7 +110,7 @@ jobs:
 
           CLAIM=$(printf '%s' "$BODY" \
             | grep -i '\*\*Claim class' | grep -v '^- ' | head -1 \
-            | sed 's/.*\*\*Claim class\*\*:\s*//' \
+            | sed -I 's/.*\*\*Claim class\*\*:\s*//' \
             | sed 's/(.*//' \
             | tr -d '*' | tr '[:upper:]' '[:lower:]' \
             | tr ' ' '-' | tr -d '\t' \
