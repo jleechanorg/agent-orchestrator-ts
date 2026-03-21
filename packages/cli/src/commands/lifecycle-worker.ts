@@ -53,7 +53,7 @@ export function registerLifecycleWorker(program: Command): void {
       }
 
       const lifecycle = await getLifecycleManager(config, projectId);
-      const intervalMs = parseInterval(opts.intervalMs ?? "30000");
+      const intervalMs = parseInterval(opts.intervalMs ?? "300000");
       let shuttingDown = false;
       let heartbeat: ReturnType<typeof setInterval> | null = null;
 
