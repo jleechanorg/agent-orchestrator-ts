@@ -612,8 +612,12 @@ async function setupHookInWorkspace(workspacePath: string): Promise<void> {
   if (!existsSync(hookScriptPath) || (await readFile(hookScriptPath, "utf-8")) !== METADATA_UPDATER_SCRIPT) {
     await writeFile(hookScriptPath, METADATA_UPDATER_SCRIPT, "utf-8");
   }
-  // Always ensure execute bit is set, even if content was already correct
-  await chmod(hookScriptPath, 0o755);
+  // Always ensure execute bit is set, but skip if the hook script is itself a symlink
+  // (chmod follows symlinks and could alter permissions on an unrelated target file).
+  const hookStat = await lstat(hookScriptPath).catch(() => null);
+  if (hookStat && !hookStat.isSymbolicLink()) {
+    await chmod(hookScriptPath, 0o755);
+  }
 
   // Read existing settings if present
   let existingSettings: Record<string, unknown> = {};
