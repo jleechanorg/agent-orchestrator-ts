@@ -64,10 +64,9 @@ const geminiConfig: AgentPluginConfig = {
   sessionFileExtension: ".json",
   // Gemini CLI uses "run_shell_command" for shell execution, not "Bash"
   hookToolMatcher: "run_shell_command",
-  // Gemini CLI settings.json uses AfterTool/BeforeTool; Claude Code uses PostToolUse/PreToolUse.
-  // - postToolUse: "AfterTool" — metadata tracking (exit_code needed, only available post-execution)
-  // - preToolUse: "BeforeTool" — guardrails (e.g. gh pr merge block) run before execution
-  hookEventNames: { postToolUse: "AfterTool", preToolUse: "BeforeTool" },
+  // Gemini CLI settings.json uses AfterTool for metadata tracking (exit_code needed, only available post-execution).
+  // preToolUse defaults to "PreToolUse" (guardrails; exit_code unavailable pre-execution).
+  hookEventNames: { postToolUse: "AfterTool" },
 };
 
 // =============================================================================
