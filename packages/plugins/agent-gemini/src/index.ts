@@ -4,7 +4,7 @@ import {
   resetPsCache as _resetPsCache,
   type AgentPluginConfig,
 } from "@jleechanorg/ao-plugin-agent-base";
-import type { Agent, PluginModule } from "@jleechanorg/ao-core";
+import type { Agent, AgentLaunchConfig, PluginModule } from "@jleechanorg/ao-core";
 import { createHash } from "node:crypto";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -67,11 +67,36 @@ const geminiConfig: AgentPluginConfig = {
 };
 
 // =============================================================================
+// Gemini-specific overrides
+// Pre-trust the workspace folder so Gemini CLI skips the interactive
+// "Do you trust the files in this folder?" prompt in unattended sessions.
+// Gemini stores trusted folders in ~/.gemini/trustedFolders.json as
+// { "/path/to/workspace": "TRUST_FOLDER" }.
+// Also strips the model flag: Gemini CLI uses its own model naming
+// (e.g. "gemini-2.5-pro") incompatible with Anthropic API model IDs.
+// =============================================================================
+
+const geminiOverrides: Partial<Agent> = {
+  getLaunchCommand(launchConfig: AgentLaunchConfig): string {
+    // Pre-add the workspace to ~/.gemini/trustedFolders.json so Gemini CLI
+    // skips the interactive trust dialog in unattended sessions.
+    const preTrust = [
+      `python3 -c "import json,os; tf=os.path.expanduser('~/.gemini/trustedFolders.json'); d=json.load(open(tf)) if os.path.exists(tf) else {}; d[os.getcwd()]='TRUST_FOLDER'; open(tf,'w').write(json.dumps(d,indent=2))"`,
+    ].join(" && ");
+    // Strip model: Gemini CLI uses its own model naming convention
+    // incompatible with Anthropic API model IDs (causes "model not found" error).
+    const { model: _ignored, ...launchConfigWithoutModel } = launchConfig;
+    const agentCmd = createAgentPlugin(geminiConfig).getLaunchCommand(launchConfigWithoutModel);
+    return `( ${preTrust} ); ${agentCmd}`;
+  },
+};
+
+// =============================================================================
 // Plugin Export
 // =============================================================================
 
 export function create(): Agent {
-  return createAgentPlugin(geminiConfig);
+  return createAgentPlugin(geminiConfig, geminiOverrides);
 }
 
 /** Reset the ps process cache. Exported for testing only. */
