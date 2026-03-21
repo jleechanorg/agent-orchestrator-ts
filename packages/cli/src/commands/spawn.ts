@@ -363,7 +363,7 @@ export function registerBatchSpawn(program: Command): void {
       const existingIssueMap = new Map(
         existingSessions
           .filter((s) => s.issueId && !TERMINAL_STATUSES.has(s.status))
-          .map((s) => [s.issueId!.toLowerCase(), s.id]),
+          .map((s) => [(s.issueId as string).toLowerCase(), s.id]),
       );
 
       for (const issue of issues) {

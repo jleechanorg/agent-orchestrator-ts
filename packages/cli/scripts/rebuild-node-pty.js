@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+/* eslint-disable no-console */
 // Automatically rebuild node-pty from source after pnpm install
 // This fixes DirectTerminal "posix_spawnp failed" errors from incompatible prebuilt binaries
 

@@ -129,5 +129,8 @@ export default tseslint.config(
         __filename: "readonly",
       },
     },
+    rules: {
+      "no-console": "off", // Node.js modules use console for logging
+    },
   },
 );
