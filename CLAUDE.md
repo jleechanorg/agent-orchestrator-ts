@@ -112,6 +112,19 @@ When reviewing or producing evidence, identify the **claim class** before issuin
 
 **Fail-closed rules:** PASS only if ALL required proofs are present. INSUFFICIENT if any missing. Never downgrade the claim class to avoid INSUFFICIENT. A pipeline E2E does NOT satisfy a PR-lifecycle E2E claim.
 
+
+## Pre-spawn capacity check
+
+Before dispatching AO workers:
+
+1. Run `gh api rate_limit` and inspect budgets.
+2. Count active tmux sessions: `tmux list-sessions | wc -l`.
+3. Spawn gate:
+   - If `graphql.remaining < 200`, do **not** spawn new AO workers; warn the user instead.
+   - If active tmux sessions > 15, do **not** spawn new AO workers; warn the user instead.
+
+When blocked by this gate, include current counts and the exact blocker in your status update.
+
 ## Coding Standards
 
 - TDD: write the failing test first, then implement
