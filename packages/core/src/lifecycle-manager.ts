@@ -690,12 +690,6 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         allCompleteEmitted = false;
       }
 
-      // bd-s4t.1: when a session reaches merged, proactively kill the runtime
-      // to prevent zombie tmux sessions lingering after merge.
-      if (newStatus === "merged") {
-        await sessionManager.kill(session.id);
-      }
-
       // Clear reaction trackers for the old status so retries reset on state changes
       const oldEventType = statusToEventType(undefined, oldStatus);
       if (oldEventType) {
@@ -795,6 +789,14 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
             recordErr instanceof Error ? recordErr.message : String(recordErr),
           );
         }
+      }
+
+      // bd-s4t.1: when a session reaches merged, proactively kill the runtime
+      // to prevent zombie tmux sessions lingering after merge.
+      // Placed here (after exit proof validation and outcome recording) to ensure
+      // worktree is available for commit validation in validateAndEmitExitProof.
+      if (newStatus === "merged") {
+        await sessionManager.kill(session.id);
       }
     }
   }
