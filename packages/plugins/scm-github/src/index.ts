@@ -84,13 +84,14 @@ async function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-/**
- * Convert `gh pr view <number> --repo owner/repo --json fields` args to
- * equivalent `gh api repos/owner/repo/pulls/<number>` REST API args.
- * Returns null if the args can't be converted.
- */
-function ghPrViewToRestArgs(args: string[]): string[] | null {
-  // Expected: ["pr", "view", "<number>", "--repo", "owner/repo", "--json", "fields"]
+/** Parsed `gh pr view ... --json a,b,c` for REST fallback synthesis. */
+type PrViewRestConversion = {
+  repo: string;
+  prNumber: string;
+  jsonFields: string[];
+};
+
+function parsePrViewRestConversion(args: string[]): PrViewRestConversion | null {
   if (args[0] !== "pr" || args[1] !== "view") return null;
 
   const prNumber = args[2];
@@ -100,7 +101,161 @@ function ghPrViewToRestArgs(args: string[]): string[] | null {
   if (repoIdx === -1 || !args[repoIdx + 1]) return null;
 
   const repo = args[repoIdx + 1];
-  return ["api", `repos/${repo}/pulls/${prNumber}`];
+  const jIdx = args.indexOf("--json");
+  const jsonFields =
+    jIdx !== -1 && args[jIdx + 1]
+      ? args[jIdx + 1]
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean)
+      : [];
+
+  return { repo, prNumber, jsonFields };
+}
+
+/** Map GitHub REST `mergeable_state` to GraphQL-style `mergeStateStatus` tokens. */
+function restMergeableStateToGraphqlMergeStateStatus(raw: string): string {
+  const up = raw.toUpperCase();
+  const map: Record<string, string> = {
+    CLEAN: "CLEAN",
+    DIRTY: "DIRTY",
+    BLOCKED: "BLOCKED",
+    UNSTABLE: "UNSTABLE",
+    UNKNOWN: "UNKNOWN",
+    BEHIND: "BEHIND",
+    DRAFT: "DRAFT",
+  };
+  return map[up] ?? (up || "UNKNOWN");
+}
+
+type RestReviewRow = {
+  state?: string;
+  user?: { login?: string };
+  submitted_at?: string;
+};
+
+/**
+ * Approximate `gh pr view --json reviewDecision` from REST /pulls/{n}/reviews.
+ * Empty list is treated as REVIEW_REQUIRED (conservative vs GraphQL "no decision").
+ */
+function deriveReviewDecisionGraphqlFromReviews(reviewsUnknown: unknown): string {
+  if (!Array.isArray(reviewsUnknown)) return "REVIEW_REQUIRED";
+  const rows = reviewsUnknown as RestReviewRow[];
+  if (rows.length === 0) return "REVIEW_REQUIRED";
+
+  const byUser = new Map<string, RestReviewRow>();
+  for (const r of rows) {
+    const login = r.user?.login ?? "";
+    const prev = byUser.get(login);
+    const t = r.submitted_at ? Date.parse(r.submitted_at) : 0;
+    const pt = prev?.submitted_at ? Date.parse(prev.submitted_at) : 0;
+    if (!prev || t >= pt) byUser.set(login, r);
+  }
+  const latest = [...byUser.values()];
+  if (latest.some((r) => (r.state ?? "").toUpperCase() === "CHANGES_REQUESTED")) {
+    return "CHANGES_REQUESTED";
+  }
+  if (latest.some((r) => (r.state ?? "").toUpperCase() === "PENDING")) {
+    return "REVIEW_REQUIRED";
+  }
+  if (latest.length > 0 && latest.every((r) => (r.state ?? "").toUpperCase() === "APPROVED")) {
+    return "APPROVED";
+  }
+  return "REVIEW_REQUIRED";
+}
+
+function mapRestReviewsToPrViewReviewsShape(reviewsUnknown: unknown): Array<{
+  author: { login: string };
+  state: string;
+  body: string;
+  submittedAt: string;
+}> {
+  if (!Array.isArray(reviewsUnknown)) return [];
+  return (reviewsUnknown as RestReviewRow[]).map((r) => ({
+    author: { login: r.user?.login ?? "unknown" },
+    state: r.state ?? "",
+    body: "",
+    submittedAt: r.submitted_at ?? "",
+  }));
+}
+
+function synthesizePrViewJsonFromRest(
+  rest: Record<string, unknown>,
+  jsonFields: string[],
+  opts: { reviewDecision?: string; reviewsPayload?: unknown },
+): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  const want = new Set(jsonFields);
+
+  if (want.has("state")) {
+    out.state = rest.state;
+    if (rest.merged !== undefined) out.merged = rest.merged;
+  }
+  if (want.has("title") && rest.title !== undefined) out.title = rest.title;
+  if (want.has("additions") && rest.additions !== undefined) out.additions = rest.additions;
+  if (want.has("deletions") && rest.deletions !== undefined) out.deletions = rest.deletions;
+
+  if (want.has("mergeable")) {
+    const m = rest.mergeable;
+    if (m === true) out.mergeable = "MERGEABLE";
+    else if (m === false) out.mergeable = "CONFLICTING";
+    else if (m === null) out.mergeable = "UNKNOWN";
+    else if (typeof m === "string") out.mergeable = m;
+    else out.mergeable = "UNKNOWN";
+  }
+
+  if (want.has("isDraft")) {
+    out.isDraft = Boolean(rest.draft);
+  }
+
+  if (want.has("mergeStateStatus")) {
+    const rawMs = typeof rest.mergeable_state === "string" ? rest.mergeable_state : "";
+    out.mergeStateStatus = restMergeableStateToGraphqlMergeStateStatus(rawMs);
+  }
+
+  if (want.has("reviewDecision")) {
+    out.reviewDecision = opts.reviewDecision ?? "REVIEW_REQUIRED";
+  }
+
+  if (want.has("reviews") && opts.reviewsPayload !== undefined) {
+    out.reviews = mapRestReviewsToPrViewReviewsShape(opts.reviewsPayload);
+  }
+
+  for (const f of jsonFields) {
+    if (f in out || !(f in rest)) continue;
+    out[f] = rest[f];
+  }
+
+  return out;
+}
+
+async function fetchPrViewFallbackAsJson(conv: PrViewRestConversion, cwd?: string): Promise<string> {
+  const pullRaw = await execCli("gh", ["api", `repos/${conv.repo}/pulls/${conv.prNumber}`], cwd);
+  const restObj = JSON.parse(pullRaw) as Record<string, unknown>;
+
+  let reviewDecision: string | undefined;
+  let reviewsPayload: unknown;
+  const needReviews =
+    conv.jsonFields.includes("reviewDecision") || conv.jsonFields.includes("reviews");
+
+  if (needReviews) {
+    try {
+      const revRaw = await execCli("gh", ["api", `repos/${conv.repo}/pulls/${conv.prNumber}/reviews`], cwd);
+      reviewsPayload = JSON.parse(revRaw);
+      if (conv.jsonFields.includes("reviewDecision")) {
+        reviewDecision = deriveReviewDecisionGraphqlFromReviews(reviewsPayload);
+      }
+    } catch {
+      reviewDecision = "REVIEW_REQUIRED";
+    }
+  }
+
+  return JSON.stringify(
+    synthesizePrViewJsonFromRest(restObj, conv.jsonFields, {
+      reviewDecision,
+      reviewsPayload,
+    }),
+  );
 }
 
 /**
@@ -148,12 +303,13 @@ async function ghWithRetry(args: string[], cwd?: string, maxRetries = 3): Promis
     }
   }
 
-  // Attempt REST fallback for `gh pr view` commands by converting to `gh api` equivalent.
+  // Attempt REST fallback for `gh pr view` commands: fetch pull (+ reviews when needed) and
+  // synthesize the same JSON shape as `gh pr view --json …`.
   if (args[0] === "pr" && args[1] === "view") {
-    const restArgs = ghPrViewToRestArgs(args);
-    if (restArgs) {
+    const conv = parsePrViewRestConversion(args);
+    if (conv) {
       console.warn("Gh CLI rate limit retries exhausted, trying REST API fallback for `gh pr view` call");
-      return await execCli("gh", restArgs, cwd);
+      return await fetchPrViewFallbackAsJson(conv, cwd);
     }
   }
 
@@ -671,6 +827,28 @@ function parseDate(val: string | undefined | null): Date {
   if (!val) return new Date(0);
   const d = new Date(val);
   return isNaN(d.getTime()) ? new Date(0) : d;
+}
+
+/**
+ * When tests or callers pass a REST-shaped pull payload (boolean/null mergeable,
+ * mergeable_state, draft) into merge readiness logic, map into GraphQL-style
+ * fields and avoid treating missing reviewDecision as implicit approval.
+ */
+function normalizeMergePayloadFromRestShape(data: Record<string, unknown>): void {
+  const m = data["mergeable"];
+  const hasRestMergeable = typeof m === "boolean" || m === null;
+  const hasRestMergeState = typeof data["mergeable_state"] === "string";
+  if (!hasRestMergeable && !hasRestMergeState) return;
+
+  if (typeof data["mergeable_state"] === "string" && data["mergeStateStatus"] === undefined) {
+    data["mergeStateStatus"] = restMergeableStateToGraphqlMergeStateStatus(data["mergeable_state"]);
+  }
+  if (typeof data["draft"] === "boolean" && data["isDraft"] === undefined) {
+    data["isDraft"] = data["draft"];
+  }
+  if (data["reviewDecision"] === undefined) {
+    data["reviewDecision"] = "REVIEW_REQUIRED";
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1211,13 +1389,16 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
         "mergeable,reviewDecision,mergeStateStatus,isDraft",
       ]);
 
-      const data: {
-        mergeable: string | boolean;
-        reviewDecision: string;
-        mergeStateStatus: string;
-        isDraft: boolean;
-        draft?: boolean; // REST API uses "draft" instead of "isDraft"
-      } = JSON.parse(raw);
+      const data = JSON.parse(raw) as {
+        mergeable: string | boolean | null;
+        reviewDecision?: string;
+        mergeStateStatus?: string;
+        isDraft?: boolean;
+        draft?: boolean;
+        mergeable_state?: string;
+      };
+
+      normalizeMergePayloadFromRestShape(data as Record<string, unknown>);
 
       // CI
       const ciStatus = await this.getCISummary(pr);
@@ -1239,18 +1420,27 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
       // GraphQL returns mergeable as string ("MERGEABLE"/"CONFLICTING"/"UNKNOWN")
       // REST API returns mergeable as boolean (true/false/null)
       let noConflicts: boolean;
-      if (typeof data.mergeable === "boolean") {
-        noConflicts = data.mergeable;
-        if (!data.mergeable) {
+      const mergeableVal = data.mergeable;
+      if (mergeableVal === null || mergeableVal === undefined) {
+        noConflicts = false;
+        blockers.push("Merge status unknown (GitHub is computing)");
+      } else if (typeof mergeableVal === "boolean") {
+        noConflicts = mergeableVal;
+        if (!mergeableVal) {
           blockers.push("Merge conflicts");
         }
       } else {
-        const mergeable = (String(data.mergeable ?? "")).toUpperCase();
-        noConflicts = mergeable === "MERGEABLE";
-        if (mergeable === "CONFLICTING") {
-          blockers.push("Merge conflicts");
-        } else if (mergeable === "UNKNOWN" || mergeable === "") {
+        const mergeable = String(mergeableVal ?? "").toUpperCase();
+        if (mergeable === "NULL") {
+          noConflicts = false;
           blockers.push("Merge status unknown (GitHub is computing)");
+        } else {
+          noConflicts = mergeable === "MERGEABLE";
+          if (mergeable === "CONFLICTING") {
+            blockers.push("Merge conflicts");
+          } else if (mergeable === "UNKNOWN" || mergeable === "") {
+            blockers.push("Merge status unknown (GitHub is computing)");
+          }
         }
       }
       const mergeState = (data.mergeStateStatus ?? "").toUpperCase();

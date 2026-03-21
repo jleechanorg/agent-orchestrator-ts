@@ -678,13 +678,25 @@ describe("scm-github plugin", () => {
   // ---- getReviewDecision REST fallback ------------------------------------
 
   describe("getReviewDecision REST fallback", () => {
-    it("returns none when REST fallback has no reviewDecision field", async () => {
+    it("returns pending when REST synthesizes from pull + reviews (empty reviews = conservative)", async () => {
       mockGhError("API rate limit exceeded");
       mockGhError("API rate limit exceeded");
       mockGhError("API rate limit exceeded");
-      // REST API doesn't return reviewDecision — it's GraphQL-only
       mockGh({ state: "open", merged: false });
-      expect(await scm.getReviewDecision(pr)).toBe("none");
+      mockGh([]);
+      expect(await scm.getReviewDecision(pr)).toBe("pending");
+      expect(ghMock).toHaveBeenNthCalledWith(
+        4,
+        "gh",
+        ["api", "repos/acme/repo/pulls/42"],
+        expect.any(Object),
+      );
+      expect(ghMock).toHaveBeenNthCalledWith(
+        5,
+        "gh",
+        ["api", "repos/acme/repo/pulls/42/reviews"],
+        expect.any(Object),
+      );
     });
   });
 
@@ -1441,18 +1453,15 @@ describe("scm-github plugin", () => {
     });
   });
 
-  describe("getMergeability REST fallback", () => {
-    it("handles boolean mergeable field from REST API", async () => {
-      // getPRState: GraphQL works fine
+  describe("getMergeability REST-shaped payload", () => {
+    it("handles boolean mergeable + mergeable_state + draft like REST GET /pulls/{n}", async () => {
       mockGh({ state: "OPEN" });
-      // PR view for mergeable: REST boolean format
       mockGh({
         mergeable: true,
+        mergeable_state: "clean",
+        draft: false,
         reviewDecision: "APPROVED",
-        mergeStateStatus: "",
-        isDraft: false,
       });
-      // CI checks
       mockGh([{ name: "build", state: "SUCCESS" }]);
 
       const result = await scm.getMergeability(pr);
@@ -1460,13 +1469,13 @@ describe("scm-github plugin", () => {
       expect(result.blockers).not.toContain("Merge status unknown (GitHub is computing)");
     });
 
-    it("handles mergeable=false from REST API as conflicts", async () => {
+    it("handles mergeable=false from REST as conflicts", async () => {
       mockGh({ state: "OPEN" });
       mockGh({
         mergeable: false,
+        mergeable_state: "dirty",
+        draft: false,
         reviewDecision: "APPROVED",
-        mergeStateStatus: "",
-        isDraft: false,
       });
       mockGh([{ name: "build", state: "SUCCESS" }]);
 
