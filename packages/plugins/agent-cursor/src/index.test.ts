@@ -180,9 +180,12 @@ describe("getLaunchCommand", () => {
     expect(cmd).toContain("--force");
   });
 
-  it("shell-escapes model argument", () => {
+  it("ignores model argument (cursor-agent uses its own model names)", () => {
+    // cursor-agent rejects Anthropic model IDs (e.g. "claude-sonnet-4-6") and
+    // exits immediately with "Cannot use this model: <name>. Available models: ..."
+    // The plugin strips the model flag so cursor-agent starts with its default model.
     const cmd = agent.getLaunchCommand(makeLaunchConfig({ model: "claude-opus-4-6" }));
-    expect(cmd).toContain("--model 'claude-opus-4-6'");
+    expect(cmd).not.toContain("--model");
   });
 
   it("does not include -p flag (prompt delivered post-launch)", () => {
@@ -196,7 +199,8 @@ describe("getLaunchCommand", () => {
     const cmd = agent.getLaunchCommand(
       makeLaunchConfig({ permissions: "permissionless", model: "opus", prompt: "Hello" }),
     );
-    expect(agentPart(cmd)).toBe("cursor-agent --force --model 'opus'");
+    // model is stripped because cursor-agent uses its own model naming convention
+    expect(agentPart(cmd)).toBe("cursor-agent --force");
   });
 
   it("omits --force when permissions=default", () => {

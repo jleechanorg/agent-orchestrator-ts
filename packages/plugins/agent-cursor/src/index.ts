@@ -67,7 +67,16 @@ const cursorOverrides: Partial<Agent> = {
       `mkdir -p "$HOME/.cursor/projects/$_EP"`,
       `printf '{"trustedAt":"%s","workspacePath":"%s"}' "$(date -u +%Y-%m-%dT%H:%M:%S.000Z)" "$_WP" > "$HOME/.cursor/projects/$_EP/.workspace-trusted" 2>/dev/null`,
     ].join(" && ");
-    const agentCmd = createAgentPlugin(cursorConfig).getLaunchCommand(launchConfig);
+    // Strip the model from launchConfig: cursor-agent uses its own model naming
+    // convention (e.g. "claude-4.6-sonnet-medium") that is incompatible with
+    // Anthropic API model IDs (e.g. "claude-sonnet-4-6"). Passing an unknown
+    // model name causes cursor-agent to print the available model list and exit
+    // immediately. Users who need a specific cursor model should configure it in
+    // Cursor's own settings; AO should not override the model for cursor sessions.
+    const { model: _ignored, ...launchConfigWithoutModel } = launchConfig;
+    const agentCmd = createAgentPlugin(cursorConfig).getLaunchCommand(
+      launchConfigWithoutModel as typeof launchConfig,
+    );
     return `( ${preTrust} ); ${agentCmd}`;
   },
 };
