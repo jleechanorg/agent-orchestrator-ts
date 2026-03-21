@@ -650,10 +650,21 @@ async function setupHookInWorkspace(workspacePath: string): Promise<void> {
       hooks: [hookDef],
     });
   } else {
-    // Hook exists, update the command and env
+    // Hook exists, update the command and env — but preserve an existing
+    // AO_DATA_DIR in env if the new hookDef doesn't include one (e.g.
+    // postLaunchSetup doesn't have access to hookConfig.dataDir and would
+    // silently drop it).
     const hook = postToolUse[hookIndex] as Record<string, unknown>;
     const hooksList = hook["hooks"] as Array<Record<string, unknown>>;
-    hooksList[hookDefIndex] = hookDef;
+    const existingHookDef = hooksList[hookDefIndex];
+    const existingEnv = existingHookDef?.["env"] as Record<string, unknown> | undefined;
+    const existingDataDir = existingEnv?.["AO_DATA_DIR"];
+    const newCommandDropsDataDir =
+      !hookDef["env"] &&
+      typeof existingDataDir === "string";
+    if (!newCommandDropsDataDir) {
+      hooksList[hookDefIndex] = hookDef;
+    }
   }
 
   hooks["PostToolUse"] = postToolUse;
