@@ -728,7 +728,7 @@ describe("setupWorkspaceHooks — Gemini uses AfterTool/BeforeTool event names",
     mockReadFile.mockRejectedValue(Object.assign(new Error("ENOENT"), { code: "ENOENT" }));
   });
 
-  it("writes AfterTool and BeforeTool event names (not PostToolUse/PreToolUse) to .gemini/settings.json", async () => {
+  it("writes AfterTool (metadata) and PreToolUse (guardrail) to .gemini/settings.json", async () => {
     const agent = create();
 
     await agent.setupWorkspaceHooks!("/workspace/test", { dataDir: "/data/sessions" });
@@ -743,10 +743,64 @@ describe("setupWorkspaceHooks — Gemini uses AfterTool/BeforeTool event names",
     const settings = JSON.parse(settingsJson) as Record<string, unknown>;
     const hooks = settings["hooks"] as Record<string, unknown>;
 
-    // Gemini uses AfterTool/BeforeTool (not Claude Code's PostToolUse/PreToolUse)
+    // Gemini:
+    // - AfterTool: metadata tracking (exit_code needed — only available post-execution)
+    // - PreToolUse: guardrail (no exit_code needed; deny response hardcodes running hook name)
+    // BeforeTool is NOT used — exit_code unavailable pre-execution would track failed
+    // commands as successful metadata updates.
     expect(hooks).toHaveProperty("AfterTool");
-    expect(hooks).toHaveProperty("BeforeTool");
+    expect(hooks).toHaveProperty("PreToolUse");
     expect(hooks).not.toHaveProperty("PostToolUse");
-    expect(hooks).not.toHaveProperty("PreToolUse");
+    expect(hooks).not.toHaveProperty("BeforeTool");
+  });
+
+  it("pre-event hook command does not include AO_DATA_DIR (guardrail exits before session needed)", async () => {
+    const agent = create();
+
+    await agent.setupWorkspaceHooks!("/workspace/test", { dataDir: "/data/sessions" });
+
+    const settingsCall = mockWriteFile.mock.calls.find(
+      ([path]: [string]) => typeof path === "string" && path.endsWith("settings.json"),
+    );
+    expect(settingsCall).toBeDefined();
+
+    const settingsJson = settingsCall![1] as string;
+    const settings = JSON.parse(settingsJson) as Record<string, unknown>;
+    const hooks = settings["hooks"] as Record<string, unknown>;
+    const preToolUse = hooks["PreToolUse"] as Array<Record<string, unknown>>;
+
+    expect(preToolUse).toBeDefined();
+    const hookDef = preToolUse[0] as Record<string, unknown>;
+    const hooksList = hookDef["hooks"] as Array<Record<string, unknown>>;
+    const preCommand = hooksList[0]["command"] as string;
+
+    // Guardrail script must NOT include AO_DATA_DIR — it exits before needing session
+    expect(preCommand).not.toContain("AO_DATA_DIR=");
+    // Guardrail must include AO_HOOK_EVENT_NAME so deny responses match the running hook
+    expect(preCommand).toContain("AO_HOOK_EVENT_NAME=");
+  });
+
+  it("post-event hook command includes AO_DATA_DIR (metadata needs session directory)", async () => {
+    const agent = create();
+
+    await agent.setupWorkspaceHooks!("/workspace/test", { dataDir: "/data/sessions" });
+
+    const settingsCall = mockWriteFile.mock.calls.find(
+      ([path]: [string]) => typeof path === "string" && path.endsWith("settings.json"),
+    );
+    expect(settingsCall).toBeDefined();
+
+    const settingsJson = settingsCall![1] as string;
+    const settings = JSON.parse(settingsJson) as Record<string, unknown>;
+    const hooks = settings["hooks"] as Record<string, unknown>;
+    const afterTool = hooks["AfterTool"] as Array<Record<string, unknown>>;
+
+    expect(afterTool).toBeDefined();
+    const hookDef = afterTool[0] as Record<string, unknown>;
+    const hooksList = hookDef["hooks"] as Array<Record<string, unknown>>;
+    const postCommand = hooksList[0]["command"] as string;
+
+    // Metadata script must include AO_DATA_DIR so it writes to the right session directory
+    expect(postCommand).toContain("AO_DATA_DIR=");
   });
 });
