@@ -67,7 +67,7 @@ If `npm install -g` fails with EACCES, prefix with `sudo` or [fix your npm permi
 To install from source (for contributors):
 
 ```bash
-git clone https://github.com/ComposioHQ/agent-orchestrator.git
+git clone https://github.com/jleechanorg/agent-orchestrator.git
 cd agent-orchestrator && bash scripts/setup.sh
 ```
 </details>
@@ -108,10 +108,9 @@ The orchestrator agent uses the [AO CLI](docs/CLI.md) internally to manage sessi
 
 This fork is used as the execution layer for `jleechanorg/jleechanclaw`.
 
-> Note: The installation examples above reference the upstream
-> [`ComposioHQ/agent-orchestrator`](https://github.com/ComposioHQ/agent-orchestrator)
-> repository. When working with this fork, use
-> `https://github.com/jleechanorg/agent-orchestrator.git` as the clone URL instead.
+> Note: This README defaults to the `jleechanorg/agent-orchestrator` fork clone URL.
+> If you specifically want upstream, use
+> [`ComposioHQ/agent-orchestrator`](https://github.com/ComposioHQ/agent-orchestrator).
 
 Typical split of responsibilities:
 - `jleechanorg/jleechanclaw` (OpenClaw harness): user intent parsing, context expansion, policy, and status updates.
@@ -123,7 +122,7 @@ Key integration points in this repo:
 - GitHub SCM plugin: `packages/plugins/scm-github/src/index.ts`
 - tmux runtime plugin: `packages/plugins/runtime-tmux/src/index.ts`
 
-Example notifier wiring (`agent-orchestrator.yaml`):
+Example notifier wiring (`agent-orchestrator.yaml`) — `openclaw` is also listed in the supported notifier options table below:
 
 ```yaml
 defaults:
