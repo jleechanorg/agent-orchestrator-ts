@@ -166,7 +166,15 @@ fi
 # ─── Done ─────────────────────────────────────────────────────────────────────
 
 echo ""
-echo "Setup complete!"
+echo "Base setup complete!"
+
+# ─── Fork-specific extended setup ───────────────────────────────────────────
+
+EXTENDED_SCRIPT="$REPO_ROOT/scripts/setup-extended.sh"
+if [ -f "$EXTENDED_SCRIPT" ]; then
+  bash "$EXTENDED_SCRIPT"
+fi
+
 echo ""
 echo "What's next:"
 echo ""
