@@ -13,7 +13,7 @@ Spawn parallel AI coding agents, each in its own git worktree. Agents autonomous
 
 Agent Orchestrator manages fleets of AI coding agents working in parallel on your codebase. Each agent gets its own git worktree, its own branch, and its own PR. When CI fails, the agent fixes it. When reviewers leave comments, the agent addresses them. You only get pulled in when human judgment is needed.
 
-**Agent-agnostic** (Claude Code, Codex, Aider) · **Runtime-agnostic** (tmux, Docker) · **Tracker-agnostic** (GitHub, Linear)
+**Agent-agnostic** (Claude Code, Codex, Cursor, Gemini, Aider, OpenCode) · **Runtime-agnostic** (tmux, process) · **Tracker-agnostic** (GitHub, GitLab, Linear)
 
 <div align="center">
 
@@ -131,16 +131,16 @@ See [`agent-orchestrator.yaml.example`](agent-orchestrator.yaml.example) for the
 
 Eight slots. Every abstraction is swappable.
 
-| Slot      | Default     | Alternatives             |
-| --------- | ----------- | ------------------------ |
-| Runtime   | tmux        | docker, k8s, process     |
-| Agent     | claude-code | codex, aider, opencode   |
-| Workspace | worktree    | clone                    |
-| Tracker   | github      | linear                   |
-| SCM       | github      | —                        |
-| Notifier  | desktop     | slack, composio, webhook |
-| Terminal  | iterm2      | web                      |
-| Lifecycle | core        | —                        |
+| Slot      | Default     | Alternatives                 |
+| --------- | ----------- | ---------------------------- |
+| Runtime   | tmux        | process                      |
+| Agent     | claude-code | codex, cursor, gemini, aider, opencode |
+| Workspace | worktree    | clone                        |
+| Tracker   | github      | gitlab, linear               |
+| SCM       | github      | gitlab                       |
+| Notifier  | desktop     | slack, composio, webhook, openclaw |
+| Terminal  | iterm2      | web                          |
+| Lifecycle | core        | —                            |
 
 All interfaces defined in [`packages/core/src/types.ts`](packages/core/src/types.ts). A plugin implements one interface and exports a `PluginModule`. That's it.
 
@@ -157,16 +157,32 @@ Running one AI agent in a terminal is easy. Running 30 across different issues, 
 | Doc                                      | What it covers                                               |
 | ---------------------------------------- | ------------------------------------------------------------ |
 | [Setup Guide](SETUP.md)                  | Detailed installation, configuration, and troubleshooting    |
-| [CLI Reference](docs/CLI.md)             | All `ao` commands (mostly used by the orchestrator agent)    |
+| [CLI Reference](docs/CLI.md)             | All `ao` commands (start, stop, spawn, status, etc.)          |
 | [Examples](examples/)                    | Config templates (GitHub, Linear, multi-project, auto-merge) |
 | [Development Guide](docs/DEVELOPMENT.md) | Architecture, conventions, plugin pattern                    |
 | [Contributing](CONTRIBUTING.md)          | How to contribute, build plugins, PR process                 |
+
+## CLI Commands
+
+The `ao` CLI provides these commands:
+
+```bash
+ao start [project|url]    # Start orchestrator with project config or clone repo
+ao stop                   # Stop running orchestrator
+ao spawn <prompt>        # Spawn new agent session
+ao status                 # Show session status
+ao dashboard             # Open web dashboard
+ao config-help           # Show config schema reference
+ao doctor                # Run diagnostics
+```
+
+Run `ao --help` for full command list.
 
 ## Development
 
 ```bash
 pnpm install && pnpm build    # Install and build all packages
-pnpm test                      # Run tests (3,288 test cases)
+pnpm test                      # Run tests
 pnpm dev                       # Start web dashboard dev server
 ```
 
