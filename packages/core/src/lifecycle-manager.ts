@@ -33,6 +33,7 @@ import {
   type Session,
   type EventPriority,
   type ProjectConfig as _ProjectConfig,
+  type MergeGateConfig,
 } from "./types.js";
 import { updateMetadata } from "./metadata.js";
 import { getSessionsDir } from "./paths.js";
@@ -44,6 +45,7 @@ import { validateAndEmitExitProof } from "./session-exit-proof.js";
 import { handleRequestMerge, handleParallelRetry } from "./fork-reaction-handlers.js";
 import { maybeDispatchReviewBacklog } from "./review-backlog.js";
 import { updateSessionMetadataHelper } from "./fork-utils.js";
+import { checkMergeGate } from "./merge-gate.js";
 
 /** Parse a duration string like "10m", "30s", "1h" to milliseconds. */
 export function parseDuration(str: string): number {
@@ -532,14 +534,21 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
           };
         }
 
-        // Check mergeability before attempting
-        const mergeReadiness = await scm.getMergeability(freshSession.pr);
-        if (!mergeReadiness.mergeable) {
+        // Build MergeGateConfig with sensible defaults: enabled: true, all conditions required
+        const mergeGateConfig: MergeGateConfig = {
+          enabled: true,
+          requiredChecks: ["evidence-review"],
+          ...project.mergeGate,
+        };
+
+        // Check all merge gate conditions before attempting auto-merge
+        const gateResult = await checkMergeGate(freshSession.pr, mergeGateConfig, scm);
+        if (!gateResult.passed) {
           const event = createEvent("reaction.triggered", {
             sessionId,
             projectId,
-            message: `Reaction '${reactionKey}' triggered ${action} but PR is not mergeable: ${mergeReadiness.blockers.join(", ")}`,
-            data: { reactionKey, action, blockers: mergeReadiness.blockers },
+            message: `Reaction '${reactionKey}' triggered ${action} but merge gate failed: ${gateResult.blockers.join(", ")}`,
+            data: { reactionKey, action, blockers: gateResult.blockers, checks: gateResult.checks },
           });
           await notifyHuman(event, "action");
           return {
