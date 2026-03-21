@@ -9,7 +9,10 @@
     ".next/*.json",
     ".next/BUILD_ID",
     "dist-server",
-    "next.config.js"
+    "next.config.js",
+    "src",
+    "postcss.config.mjs",
+    "tsconfig.json"
   ],
   "scripts": {
     "dev": "concurrently \"npm:dev:next\" \"npm:dev:terminal\" \"npm:dev:direct-terminal\"",
