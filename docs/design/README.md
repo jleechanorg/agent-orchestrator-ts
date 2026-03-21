@@ -15,7 +15,7 @@
 | [`token-reference.css`](./token-reference.css) | **Ready-to-use CSS** — drop-in replacement for `globals.css` `@theme` block |
 | [`competitive-analysis-raw.md`](./competitive-analysis-raw.md) | Raw research notes from all 14 competitor sites (Linear, Vercel, Railway, Fly.io, Inngest, Temporal, Grafana, WandB, LangSmith, Retool, Render, PlanetScale, Supabase, GitHub Copilot) |
 | [`design-brief-v1.md`](./design-brief-v1.md) | Original v1 brief (text-only research, pre-Playwright CSS extraction) — kept for reference |
-| [`rate-limit-unknown-semantics.md`](./rate-limit-unknown-semantics.md) | Follow-up design note: distinguish rate-limit unknown states from semantic `none` in SCM mergeability logic |
+| [`rate-limit-unknown-semantics.md`](./rate-limit-unknown-semantics.md) | Follow-up design note: distinguish rate-limit unknown states from semantic `"none"` in SCM mergeability logic |
 
 ## Screenshots
 
