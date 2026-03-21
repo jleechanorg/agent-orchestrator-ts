@@ -271,13 +271,7 @@ export async function stopLifecycleWorker(
       await sleep(100);
       continue;
     }
-    if (confirmed === null) {
-      // ps failed — indeterminate. Keep polling rather than prematurely
-      // clearing a PID file for a process that may still be running.
-      await sleep(100);
-      continue;
-    }
-    // false = confirmed not ours (process died) → success
+    // null (ps failed, process likely gone) or false (PID recycled) → success
     clearLifecycleWorkerPid(config, projectId, status.pid);
     return true;
   }
