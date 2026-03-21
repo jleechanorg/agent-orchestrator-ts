@@ -108,9 +108,14 @@ The orchestrator agent uses the [AO CLI](docs/CLI.md) internally to manage sessi
 
 This fork is used as the execution layer for `jleechanorg/jleechanclaw`.
 
+> Note: The installation examples above reference the upstream
+> [`ComposioHQ/agent-orchestrator`](https://github.com/ComposioHQ/agent-orchestrator)
+> repository. When working with this fork, use
+> `https://github.com/jleechanorg/agent-orchestrator.git` as the clone URL instead.
+
 Typical split of responsibilities:
-- **jleechanclaw (OpenClaw harness):** user intent parsing, context expansion, policy, and status updates.
-- **agent-orchestrator:** worker session lifecycle, isolated worktrees, PR execution loops, CI/review remediation.
+- `jleechanorg/jleechanclaw` (OpenClaw harness): user intent parsing, context expansion, policy, and status updates.
+- `jleechanorg/agent-orchestrator`: worker session lifecycle, isolated worktrees, PR execution loops, CI/review remediation.
 
 Key integration points in this repo:
 - Plugin contracts: `packages/core/src/types.ts`
@@ -181,7 +186,7 @@ Eight slots. Every abstraction is swappable.
 | Workspace | worktree    | clone                        |
 | Tracker   | github      | gitlab, linear               |
 | SCM       | github      | gitlab                       |
-| Notifier  | desktop     | slack, composio, webhook     |
+| Notifier  | desktop     | slack, composio, webhook, openclaw |
 | Terminal  | iterm2      | web                          |
 | Lifecycle | core        | —                            |
 
