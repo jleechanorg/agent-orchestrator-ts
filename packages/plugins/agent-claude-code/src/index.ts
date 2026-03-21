@@ -572,11 +572,13 @@ async function setupHookInWorkspace(workspacePath: string, config: { dataDir?: s
   const settingsPath = join(claudeDir, "settings.json");
   const hookScriptPath = join(claudeDir, "metadata-updater.sh");
 
-  // Create .claude directory if it doesn't exist
-  try {
+  if (existsSync(claudeDir)) {
+    const st = await lstat(claudeDir);
+    if (st.isSymbolicLink()) {
+      throw new Error("Refusing to set up hooks: .claude is a symlink");
+    }
+  } else {
     await mkdir(claudeDir, { recursive: true });
-  } catch {
-    // Directory might already exist
   }
 
   // Reject symlinks — writing into a symlinked .claude is a potential security issue
@@ -590,15 +592,9 @@ async function setupHookInWorkspace(workspacePath: string, config: { dataDir?: s
   }
 
   // Write the metadata updater script only if content changed (idempotent)
-  let existingScript = "";
-  try {
-    existingScript = await readFile(hookScriptPath, "utf-8");
-  } catch {
-    // File doesn't exist yet
-  }
-  if (existingScript !== METADATA_UPDATER_SCRIPT) {
+  if (!existsSync(hookScriptPath) || (await readFile(hookScriptPath, "utf-8")) !== METADATA_UPDATER_SCRIPT) {
     await writeFile(hookScriptPath, METADATA_UPDATER_SCRIPT, "utf-8");
-    await chmod(hookScriptPath, 0o755); // Make executable
+    await chmod(hookScriptPath, 0o755);
   }
 
   // Read existing settings if present
@@ -666,15 +662,9 @@ async function setupHookInWorkspace(workspacePath: string, config: { dataDir?: s
   existingSettings["hooks"] = hooks;
 
   // Write settings only if content changed (idempotent)
-  const newSettingsContent = JSON.stringify(existingSettings, null, 2) + "\n";
-  let existingSettingsContent = "";
-  try {
-    existingSettingsContent = await readFile(settingsPath, "utf-8");
-  } catch {
-    // File doesn't exist yet
-  }
-  if (existingSettingsContent !== newSettingsContent) {
-    await writeFile(settingsPath, newSettingsContent, "utf-8");
+  const settingsBody = JSON.stringify(existingSettings, null, 2) + "\n";
+  if (!existsSync(settingsPath) || (await readFile(settingsPath, "utf-8")) !== settingsBody) {
+    await writeFile(settingsPath, settingsBody, "utf-8");
   }
 }
 

@@ -20,8 +20,9 @@ const {
   mockReaddir: vi.fn(),
   mockReadFile: vi.fn(),
   mockStat: vi.fn(),
-  // Default: .claude dir doesn't exist (ENOENT) → symlink check passes
-  mockLstat: vi.fn().mockRejectedValue(Object.assign(new Error("ENOENT"), { code: "ENOENT" })),
+
+
+  mockLstat: vi.fn().mockResolvedValue({ isSymbolicLink: () => false }),
   mockHomedir: vi.fn(() => "/mock/home"),
   mockWriteFile: vi.fn().mockResolvedValue(undefined),
   mockMkdir: vi.fn().mockResolvedValue(undefined),
@@ -160,9 +161,9 @@ describe("plugin manifest & exports", () => {
   });
 });
 
-// =========================================================================
+// ==================================================================
 // getLaunchCommand
-// =========================================================================
+// ==================================================================
 describe("getLaunchCommand", () => {
   const agent = create();
 
@@ -242,9 +243,9 @@ describe("getLaunchCommand", () => {
   });
 });
 
-// =========================================================================
+// ==================================================================
 // getEnvironment
-// =========================================================================
+// ==================================================================
 describe("getEnvironment", () => {
   const agent = create();
 
@@ -270,9 +271,9 @@ describe("getEnvironment", () => {
   });
 });
 
-// =========================================================================
+// ==================================================================
 // isProcessRunning
-// =========================================================================
+// ==================================================================
 describe("isProcessRunning", () => {
   const agent = create();
 
@@ -368,9 +369,9 @@ describe("isProcessRunning", () => {
   });
 });
 
-// =========================================================================
+// ==================================================================
 // detectActivity — terminal output classification
-// =========================================================================
+// ==================================================================
 describe("detectActivity", () => {
   const agent = create();
 
@@ -449,9 +450,9 @@ describe("detectActivity", () => {
   });
 });
 
-// =========================================================================
+// ==================================================================
 // getSessionInfo — JSONL parsing
-// =========================================================================
+// ==================================================================
 describe("getSessionInfo", () => {
   const agent = create();
 
@@ -696,9 +697,9 @@ describe("getSessionInfo", () => {
   });
 });
 
-// =========================================================================
+// ==================================================================
 // METADATA_UPDATER_SCRIPT — content verification (unit tests)
-// =========================================================================
+// ==================================================================
 describe("METADATA_UPDATER_SCRIPT content", () => {
   it("contains clean_command stripping logic for cd prefixes", () => {
     expect(METADATA_UPDATER_SCRIPT).toContain('clean_command="$command"');
@@ -759,9 +760,9 @@ describe("METADATA_UPDATER_SCRIPT content", () => {
   });
 });
 
-// =========================================================================
+// ==================================================================
 // setupWorkspaceHooks / postLaunchSetup — hook path (symlink safety)
-// =========================================================================
+// ==================================================================
 describe("hook setup — relative path (symlink-safe)", () => {
   const agent = create();
 
