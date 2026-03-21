@@ -587,7 +587,8 @@ async function setupHookInWorkspace(workspacePath: string): Promise<void> {
   try {
     const claudeStat = await lstat(claudeDir);
     if (claudeStat.isSymbolicLink()) {
-      throw new Error(`[agent-claude-code] .claude dir is a symlink at ${claudeDir} — refusing to write hooks`);
+      console.warn(`[agent-claude-code] .claude dir is a symlink at ${claudeDir} — skipping hook setup`);
+      return;
     }
     // Exists as a real directory — nothing to create
   } catch (err) {
