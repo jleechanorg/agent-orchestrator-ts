@@ -1,5 +1,21 @@
 <h1 align="center">Agent Orchestrator — The Orchestration Layer for Parallel AI Agents (forked from https://github.com/ComposioHQ/agent-orchestrator)</h1>
 
+<p align="center">
+<a href="https://platform.composio.dev/?utm_source=Github&utm_medium=Banner&utm_content=AgentOrchestrator">
+  <img width="800" alt="Agent Orchestrator banner" src="docs/assets/agent_orchestrator_banner.png">
+</a>
+</p>
+
+### Fork Improvements over Upstream
+
+This fork includes the following enhancements:
+- **OpenClaw Integration**: Wired OpenClaw notifier plugin for improved notifications
+- **GitHub Rate Limit Handling**: Added exponential backoff with REST API fallback for robust SCM operations
+- **New Agent Plugins**: Added Cursor and Gemini CLI agent plugins for more agent options
+- **Testing Infrastructure**: Added Vitest support with proper package scope handling
+- **CLI Enhancements**: Improved doctor command and script runner for npm-install layouts
+- **Fork Isolation**: Extracted fork logic for cleaner upstream/main distinction
+
 <div align="center">
 
 Spawn parallel AI coding agents, each in its own git worktree. Agents autonomously fix CI failures, address review comments, and open PRs — you supervise from one dashboard.
@@ -51,7 +67,7 @@ If `npm install -g` fails with EACCES, prefix with `sudo` or [fix your npm permi
 To install from source (for contributors):
 
 ```bash
-git clone https://github.com/ComposioHQ/agent-orchestrator.git
+git clone https://github.com/jleechanorg/agent-orchestrator.git
 cd agent-orchestrator && bash scripts/setup.sh
 ```
 </details>
@@ -87,6 +103,37 @@ ao start ~/path/to/another-repo
 5. **You review and merge** — you only get pulled in when human judgment is needed
 
 The orchestrator agent uses the [AO CLI](docs/CLI.md) internally to manage sessions. You don't need to learn or use the CLI — the dashboard and orchestrator handle everything.
+
+## jleechanorg Fork: OpenClaw Integration
+
+This fork is used as the execution layer for `jleechanorg/jleechanclaw`.
+
+> Note: This README defaults to the `jleechanorg/agent-orchestrator` fork clone URL.
+> If you specifically want upstream, use
+> [`ComposioHQ/agent-orchestrator`](https://github.com/ComposioHQ/agent-orchestrator).
+
+Typical split of responsibilities:
+- `jleechanorg/jleechanclaw` (OpenClaw harness): user intent parsing, context expansion, policy, and status updates.
+- `jleechanorg/agent-orchestrator`: worker session lifecycle, isolated worktrees, PR execution loops, CI/review remediation.
+
+Key integration points in this repo:
+- Plugin contracts: `packages/core/src/types.ts`
+- OpenClaw notifier plugin: `packages/plugins/notifier-openclaw/src/index.ts`
+- GitHub SCM plugin: `packages/plugins/scm-github/src/index.ts`
+- tmux runtime plugin: `packages/plugins/runtime-tmux/src/index.ts`
+
+Example notifier wiring (`agent-orchestrator.yaml`) — `openclaw` is also listed in the supported notifier options table below:
+
+```yaml
+defaults:
+  notifiers: [desktop, openclaw]
+
+notifiers:
+  openclaw:
+    plugin: openclaw
+    url: http://127.0.0.1:18789/hooks/agent
+    token: ${OPENCLAW_HOOKS_TOKEN}
+```
 
 ## Configuration
 
@@ -138,7 +185,7 @@ Eight slots. Every abstraction is swappable.
 | Workspace | worktree    | clone                        |
 | Tracker   | github      | gitlab, linear               |
 | SCM       | github      | gitlab                       |
-| Notifier  | desktop     | slack, composio, webhook     |
+| Notifier  | desktop     | slack, composio, webhook, openclaw |
 | Terminal  | iterm2      | web                          |
 | Lifecycle | core        | —                            |
 
