@@ -120,16 +120,33 @@ function validateEvidence(bundle: EvidenceBundle): ValidationResult {
     }
 
     case 'merge-gate': {
-      if (!proofs.prCreation || !proofs.prCreation.url) {
-        missingProofs.push('PR creation URL');
+      // merge-gate requires the same pr-lifecycle-e2e proofs plus merge-gate-specific checks
+      if (
+        !proofs.prCreation ||
+        !proofs.prCreation.url ||
+        !proofs.prCreation.timestamp ||
+        !proofs.prCreation.actor
+      ) {
+        missingProofs.push('PR creation (requires full URL + timestamp + actor)');
       }
-      if (!proofs.transition) {
+      if (
+        !proofs.transition ||
+        (!proofs.transition.ciTimeline && !proofs.transition.reviewEvents)
+      ) {
         missingProofs.push('Transition proof');
       }
-      if (!proofs.mergeOutcome) {
+      if (
+        !proofs.mergeOutcome ||
+        (!proofs.mergeOutcome.commitSha && !proofs.mergeOutcome.mergeableState)
+      ) {
         missingProofs.push('Merge outcome');
       }
-      if (!proofs.cleanup) {
+      if (
+        !proofs.cleanup ||
+        (!proofs.cleanup.branchDeleted &&
+          !proofs.cleanup.sessionKilled &&
+          !proofs.cleanup.worktreeRemoved)
+      ) {
         missingProofs.push('Cleanup proof');
       }
       if (missingProofs.length > 0) {
@@ -418,7 +435,7 @@ describe('Evidence Gate — claim-class validation (bd-7ay)', () => {
       const result = validateEvidence(bundle);
 
       expect(result.verdict).toBe('INSUFFICIENT');
-      expect(result.missingProofs).toContain('PR creation URL');
+      expect(result.missingProofs).toContain('PR creation (requires full URL + timestamp + actor)');
       expect(result.missingProofs).toContain('Transition proof');
       expect(result.missingProofs).toContain('Merge outcome');
       expect(result.missingProofs).toContain('Cleanup proof');
@@ -428,7 +445,11 @@ describe('Evidence Gate — claim-class validation (bd-7ay)', () => {
       const bundle: EvidenceBundle = {
         claimClass: 'merge-gate',
         proofs: {
-          prCreation: { url: 'https://github.com/jleechanorg/agent-orchestrator/pull/42' },
+          prCreation: {
+            url: 'https://github.com/jleechanorg/agent-orchestrator/pull/42',
+            timestamp: '2026-03-20T10:00:00Z',
+            actor: 'claude-sonnet-4-6',
+          },
           transition: { ciTimeline: true },
           mergeOutcome: { commitSha: 'abc123def456' },
           cleanup: { branchDeleted: true },
@@ -438,6 +459,53 @@ describe('Evidence Gate — claim-class validation (bd-7ay)', () => {
       const result = validateEvidence(bundle);
 
       expect(result.verdict).toBe('PASS');
+      expect(result.missingProofs).toHaveLength(0);
+    });
+
+    it('returns INSUFFICIENT for merge-gate when timestamp is missing', () => {
+      const bundle: EvidenceBundle = {
+        claimClass: 'merge-gate',
+        proofs: {
+          prCreation: {
+            url: 'https://github.com/jleechanorg/agent-orchestrator/pull/42',
+            // timestamp missing
+            actor: 'claude-sonnet-4-6',
+          },
+          transition: { ciTimeline: true },
+          mergeOutcome: { commitSha: 'abc123def456' },
+          cleanup: { branchDeleted: true },
+        },
+      };
+
+      const result = validateEvidence(bundle);
+
+      expect(result.verdict).toBe('INSUFFICIENT');
+      expect(result.missingProofs).toContain(
+        'PR creation (requires full URL + timestamp + actor)',
+      );
+    });
+
+    it('returns INSUFFICIENT for merge-gate when actor is missing', () => {
+      const bundle: EvidenceBundle = {
+        claimClass: 'merge-gate',
+        proofs: {
+          prCreation: {
+            url: 'https://github.com/jleechanorg/agent-orchestrator/pull/42',
+            timestamp: '2026-03-20T10:00:00Z',
+            // actor missing
+          },
+          transition: { ciTimeline: true },
+          mergeOutcome: { commitSha: 'abc123def456' },
+          cleanup: { branchDeleted: true },
+        },
+      };
+
+      const result = validateEvidence(bundle);
+
+      expect(result.verdict).toBe('INSUFFICIENT');
+      expect(result.missingProofs).toContain(
+        'PR creation (requires full URL + timestamp + actor)',
+      );
     });
   });
 
