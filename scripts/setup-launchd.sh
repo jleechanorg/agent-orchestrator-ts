@@ -25,14 +25,14 @@ HOME_ESCAPED="$(escape_sed "$HOME")"
 
 # Dynamically build PATH for the plist: include wherever ao is installed plus a
 # fallback base. This covers homebrew, nvm, volta, npm-global, and system paths.
+BASE_PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 AO_BIN="$(command -v ao 2>/dev/null || true)"
-AO_DIR="$(dirname "$AO_BIN" 2>/dev/null || true)"
-if [ -n "$AO_DIR" ] && [ -d "$AO_DIR" ]; then
-  # Prepend ao's directory so launchd finds it regardless of install method
-  BASE_PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+if [ -n "$AO_BIN" ]; then
+  # dirname "" returns "." which would pollute PATH — guard on AO_BIN instead.
+  AO_DIR="$(dirname "$AO_BIN")"
   FULL_PATH="${AO_DIR}:${BASE_PATH}"
 else
-  FULL_PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+  FULL_PATH="$BASE_PATH"
 fi
 PATH_ESCAPED="$(escape_sed "$FULL_PATH")"
 
