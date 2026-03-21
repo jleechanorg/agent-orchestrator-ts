@@ -457,8 +457,8 @@ describe("detectActivity — classifyTerminalOutput", () => {
     expect(agent.detectActivity(output)).toBe("active");
   });
 
-  it("returns 'active' when spinner appears but is OLDER than 20 lines ago — still returns active (spinner visible in window)", () => {
-    // 15 lines of content + spinner nearby — within 20-line window
+  it("returns 'active' when spinner is within the last 20 lines despite prompt on last line", () => {
+    // 1 spinner + 5 step lines = 7 total, all within 20-line window, prompt on last line
     const lines = ["✻ Working...", ...Array(5).fill("  step"), "❯"];
     expect(agent.detectActivity(lines.join("\n"))).toBe("active");
   });
