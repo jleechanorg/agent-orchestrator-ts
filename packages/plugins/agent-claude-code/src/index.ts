@@ -150,6 +150,33 @@ update_metadata_key() {
   mv "$temp_file" "$metadata_file"
 }
 
+# ============================================================================
+# Command Detection and Parsing
+# ============================================================================
+
+# Strip leading directory-change prefixes so that commands like
+#   cd ~/.worktrees/project && gh pr create ...
+# are correctly detected. Agents frequently cd into a worktree first.
+# Store the regex pattern in a variable for clarity (avoids shell quoting confusion).
+# Uses space-padded (&&|;) to avoid breaking on paths containing & or ; chars.
+cd_prefix_pattern='^[[:space:]]*cd[[:space:]]+.*[[:space:]]+(&&|;)[[:space:]]+(.*)'
+clean_command="$command"
+while [[ "$clean_command" =~ ^[[:space:]]*cd[[:space:]] ]]; do
+  if [[ "$clean_command" =~ $cd_prefix_pattern ]]; then
+    clean_command="\${BASH_REMATCH[2]}"
+  else
+    break
+  fi
+done
+
+# Hard guardrail: block agent-triggered gh pr merge by default.
+# Rationale: prompt rules (e.g., "NEVER MERGE") are advisory; this enforces policy in code.
+# Escape hatch for trusted/manual flows: AO_ALLOW_GH_PR_MERGE=1
+merge_pattern='^[[:space:]]*([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]+[[:space:]]+)*gh[[:space:]]+pr[[:space:]]+merge([[:space:]]|$)'
+if [[ "$clean_command" =~ $merge_pattern && "\${AO_ALLOW_GH_PR_MERGE:-}" != "1" ]]; then
+  echo '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"Blocked by AO policy: agents must not run gh pr merge. Leave merge to orchestrator/human."}}'
+  exit 0
+fi
 # Detect: gh pr create
 if [[ "$clean_command" =~ ^gh[[:space:]]+pr[[:space:]]+create ]]; then
   # Extract PR URL from output
