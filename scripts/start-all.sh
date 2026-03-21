@@ -32,6 +32,7 @@ LOG_DIR="${AO_LOG_DIR:-$HOME/.openclaw/logs}"
 mkdir -p "$LOG_DIR"
 
 FIRST=true
+PIDS=()
 for PROJECT in $SELECTED; do
   # Verify project exists in config
   if ! echo "$PROJECTS" | grep -q "^${PROJECT}$"; then
@@ -43,21 +44,16 @@ for PROJECT in $SELECTED; do
 
   if [ "$FIRST" = true ]; then
     echo "=== Starting $PROJECT (with dashboard) ==="
-    # Run ao start in background so the dashboard process persists after this
-    # script exits. The lifecycle-worker is already detached (detached:true +
-    # unref) but ao start itself blocks to keep the dashboard alive — running
-    # it via nohup+disown ensures both the dashboard AND the lifecycle-worker
-    # survive parent exit.
-    nohup ao start "$PROJECT" > "$AO_LOG" 2>&1 &
-    disown
+    ao start "$PROJECT" > "$AO_LOG" 2>&1 &
+    PIDS+=($!)
     FIRST=false
     # Wait briefly for startup output, then display summary lines
     sleep 3
     grep -E "✔|✓|Dashboard:|Lifecycle:|Orchestrator:|error" "$AO_LOG" | head -5 || true
   else
     echo "=== Starting $PROJECT ==="
-    nohup ao start --no-dashboard "$PROJECT" > "$AO_LOG" 2>&1 &
-    disown
+    ao start --no-dashboard "$PROJECT" > "$AO_LOG" 2>&1 &
+    PIDS+=($!)
     sleep 3
     grep -E "✔|✓|Lifecycle:|Orchestrator:|error" "$AO_LOG" | head -5 || true
   fi
@@ -70,3 +66,11 @@ echo "Status:  ao status"
 echo "Workers: ps aux | grep lifecycle-worker | grep -v grep"
 echo "Sessions: ao session ls"
 echo "Logs:    ls $LOG_DIR/ao-start-*.log"
+echo ""
+echo "Monitoring ${#PIDS[@]} workers. If any exit, this wrapper will exit too (triggering launchd restart)."
+
+# Wait for any worker to exit, then exit with failure so launchd restarts all workers
+wait -n "${PIDS[@]}"
+EXIT_CODE=$?
+echo "Worker exited with code $EXIT_CODE. Exiting wrapper to trigger launchd restart."
+exit $EXIT_CODE
