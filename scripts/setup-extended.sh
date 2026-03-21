@@ -89,34 +89,24 @@ for plist in "$PLIST_DIR"/com.agentorchestrator.lifecycle-*.plist; do
   echo "  Removed legacy plist: $label"
 done
 
-# Skip the old per-project plist generation
-if false; then
-  # ── OLD CODE (disabled) ── individual lifecycle-worker plists per project
-  PLIST_DIR_OLD="$HOME/Library/LaunchAgents"
-  mkdir -p "$PLIST_DIR_OLD"
-  NODE_BIN=$(which node)
-  AO_BIN=$(which ao)
-
-  for PROJECT in placeholder; do
-      PLIST_NAME="com.agentorchestrator.lifecycle-${PROJECT}"
-      PLIST_PATH="$PLIST_DIR_OLD/${PLIST_NAME}.plist"
-      LOG_DIR="$HOME/.openclaw/logs"
-      mkdir -p "$LOG_DIR"
-
-      # Kill existing worker for this project before starting a new one
-      # This prevents duplicate workers when running setup-extended.sh repeatedly
-      if launchctl list "$PLIST_NAME" 2>/dev/null | grep -q "PID"; then
-        echo "  [kill] $PROJECT existing lifecycle-worker — unloading and restarting"
-        launchctl unload "$PLIST_PATH" 2>/dev/null || true
-      fi
-      # Also kill any non-launchd worker for this project (by PID file)
-      # PID file path: ~/.agent-orchestrator/{hash}-{projectId}/lifecycle-worker.pid
-      # hash = sha256(realpath(dirname(configPath)))[:12], projectId = basename(project.path)
-      # Uses realpath to resolve symlinks — matches TypeScript generateConfigHash().
-      if [ -d "$HOME/.agent-orchestrator" ]; then
-        # Compute namespace hash from resolved config directory path (symlink-aware).
-        PID_FILE_NS="$(python3 -c "
-import hashlib, sys, os, yaml
+# ─── Kill stale non-launchd lifecycle-workers per project ───────────────────
+# Reads project IDs from config and verifies PID before sending signals.
+# Uses word-boundary grep to prevent "api" from matching "api-v2".
+if [ -f "$CONFIG_FILE" ] && [ -d "$HOME/.agent-orchestrator" ]; then
+  PROJECTS="$(python3 -c "
+import yaml, sys, os
+try:
+    with open('$CONFIG_FILE') as f:
+        cfg = yaml.safe_load(f)
+    for pid in cfg.get('projects', {}):
+        print(pid)
+except:
+    pass
+" 2>/dev/null || true)"
+  if [ -n "$PROJECTS" ]; then
+    # Compute namespace hash: sha256(realpath(dirname(configPath)))[:12]
+    PID_FILE_NS="$(python3 -c "
+import hashlib, os
 try:
     cfg_path = os.path.realpath('$CONFIG_FILE')
     ns = hashlib.sha256(os.path.dirname(cfg_path).encode()).hexdigest()[:12]
@@ -124,9 +114,11 @@ try:
 except:
     pass
 " 2>/dev/null || echo "")"
-        # projectId must be basename(project.path) — matches TypeScript generateProjectId().
+    if [ -n "$PID_FILE_NS" ]; then
+      for PROJECT in $PROJECTS; do
+        # projectId = basename(project.path) — matches TypeScript generateProjectId()
         PROJ_ID_FOR_PID="$(python3 -c "
-import yaml, sys, os
+import yaml, os
 try:
     with open('$CONFIG_FILE') as f:
         cfg = yaml.safe_load(f)
@@ -142,69 +134,25 @@ except:
     pass
 " 2>/dev/null || echo "")"
         PROJ_ID_FOR_PID="${PROJ_ID_FOR_PID:-$PROJECT}"
-        if [ -n "$PID_FILE_NS" ]; then
-          LW_PID_FILE="$HOME/.agent-orchestrator/${PID_FILE_NS}-${PROJ_ID_FOR_PID}/lifecycle-worker.pid"
-          if [ -f "$LW_PID_FILE" ]; then
-            LW_PID="$(cat "$LW_PID_FILE" 2>/dev/null)"
-            if [ -n "$LW_PID" ]; then
-              # Verify this PID is actually a lifecycle-worker before killing it
-              # to avoid killing an unrelated process that has reused this PID.
-              if ps -p "$LW_PID" -o args= 2>/dev/null | grep -qF -- "lifecycle-worker $PROJ_ID_FOR_PID"; then
-                echo "  [kill] $PROJ_ID_FOR_PID lifecycle-worker PID $LW_PID"
-                kill "$LW_PID" 2>/dev/null || true
-              fi
+        LW_PID_FILE="$HOME/.agent-orchestrator/${PID_FILE_NS}-${PROJ_ID_FOR_PID}/lifecycle-worker.pid"
+        if [ -f "$LW_PID_FILE" ]; then
+          LW_PID="$(cat "$LW_PID_FILE" 2>/dev/null)"
+          if [ -n "$LW_PID" ] && kill -0 "$LW_PID" 2>/dev/null; then
+            # Verify: use word-boundary grep so "api" does not match "api-v2"
+            if ps -p "$LW_PID" -o args= 2>/dev/null | grep -qE "\blifecycle-worker[[:space:]]+${PROJ_ID_FOR_PID}($|[[:space:]])"; then
+              echo "  [kill] $PROJ_ID_FOR_PID lifecycle-worker PID $LW_PID"
+              kill "$LW_PID" 2>/dev/null || true
             fi
           fi
         fi
-      fi
-
-      cat > "$PLIST_PATH" << PLIST_EOF
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>Label</key>
-    <string>${PLIST_NAME}</string>
-    <key>ProgramArguments</key>
-    <array>
-        <string>${NODE_BIN}</string>
-        <string>${AO_BIN}</string>
-        <string>lifecycle-worker</string>
-        <string>${PROJECT}</string>
-    </array>
-    <key>EnvironmentVariables</key>
-    <dict>
-        <key>PATH</key>
-        <string>$(dirname "$NODE_BIN"):/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
-        <key>HOME</key>
-        <string>${HOME}</string>
-    </dict>
-    <key>RunAtLoad</key>
-    <true/>
-    <key>KeepAlive</key>
-    <true/>
-    <key>StandardOutPath</key>
-    <string>${LOG_DIR}/ao-lifecycle-${PROJECT}.log</string>
-    <key>StandardErrorPath</key>
-    <string>${LOG_DIR}/ao-lifecycle-${PROJECT}.err.log</string>
-    <key>WorkingDirectory</key>
-    <string>${HOME}</string>
-    <key>ThrottleInterval</key>
-    <integer>30</integer>
-</dict>
-</plist>
-PLIST_EOF
-
-      # Load the plist
-      launchctl unload "$PLIST_PATH" 2>/dev/null || true
-      launchctl load "$PLIST_PATH" 2>/dev/null
-      echo "  [ok] $PROJECT lifecycle-worker installed and started"
-    done
-  else
-    echo "  Skipping launchd setup (no config or python3 missing)"
+      done
+    fi
   fi
+fi
 
 # ─── Clean stale PID files ─────────────────────────────────────────────────
+# Removes PID files whose PIDs are no longer running. Uses word-boundary
+# grep so a project named "api" does not match processes for "api-v2".
 
 echo ""
 echo "Cleaning stale lifecycle-worker PID files..."

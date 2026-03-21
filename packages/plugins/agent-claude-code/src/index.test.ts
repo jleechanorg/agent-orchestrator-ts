@@ -919,6 +919,8 @@ describe("hook setup — relative path (symlink-safe)", () => {
         {} as WorkspaceHooksConfig,
       ),
     ).rejects.toThrow(/symlink/i);
+    // Rejection must occur before any filesystem writes (settings.json, hook script)
+    expect(mockWriteFile).not.toHaveBeenCalled();
   });
 
   it("skips postLaunchSetup when workspacePath is null", async () => {

@@ -2,7 +2,15 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { OrchestratorConfig } from "@jleechanorg/ao-core";
 
 // Stable mock references used inside vi.mock factories
-const mockExecFileSync = vi.hoisted(() => vi.fn());
+// Default implementation: return an empty buffer so bare calls don't throw.
+// Tests override specific calls with mockReturnValueOnce / mockImplementationOnce.
+const mockExecFileSync = vi.hoisted(() =>
+  vi.fn(() => {
+    // Default: return an empty buffer (trims to "", no match → false/null).
+    // Tests override with mockReturnValueOnce for the specific calls they care about.
+    return Buffer.from("");
+  }),
+);
 
 const MOCK_FS = vi.hoisted(() => {
   let store: Record<string, unknown> = {};
@@ -99,16 +107,18 @@ describe("getLifecycleWorkerStatus", () => {
     expect(status.pid).toBe(12345);
   });
 
-  it("returns running=false when ps throws (process gone)", () => {
+  it("returns running=false and preserves PID file when ps fails (indeterminate)", () => {
     const cfg = mockConfig({ "test-proj": "/repos/test-proj" });
     const pf = pidFile("test-proj");
 
     setExists(pf, true);
     setReadFile(pf, "99999\n");
-    mockPsFailure();
+    mockPsFailure(); // isLifecycleWorkerProcess returns null
 
     const status = getLifecycleWorkerStatus(cfg, "test-proj");
 
+    // indeterminate → PID file is NOT cleared; status.pid is null so
+    // stopLifecycleWorker knows not to attempt killing an unverified PID
     expect(status.running).toBe(false);
     expect(status.pid).toBeNull();
   });
@@ -178,24 +188,36 @@ describe("stopLifecycleWorker", () => {
 
     setExists(pf, true);
     setReadFile(pf, "33333\n");
-    // First isLifecycleWorkerProcess call (from getLifecycleWorkerStatus): match
+    // isLifecycleWorkerProcess call 1 (from getLifecycleWorkerStatus): match → running
     mockPsResult("/path/to/node ao lifecycle-worker test-proj");
-    // Second isLifecycleWorkerProcess call (wait loop): process gone
+    // isLifecycleWorkerProcess call 2 (wait loop): process is gone
     mockPsFailure();
 
-    const mockKill = vi.fn();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const origKill = (process as any).kill;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (process as any).kill = mockKill;
+    const killSpy = vi.spyOn(process, "kill").mockReturnValue(true);
+    try {
+      const result = await stopLifecycleWorker(cfg, "test-proj");
+
+      expect(result).toBe(true);
+      expect(killSpy).toHaveBeenCalledWith(33333, "SIGTERM");
+    } finally {
+      killSpy.mockRestore();
+    }
+  });
+
+  it("returns false when getLifecycleWorkerStatus is indeterminate (ps failed)", async () => {
+    // When isLifecycleWorkerProcess returns null (ps failed), status.pid is null,
+    // so stopLifecycleWorker cannot safely attempt to kill the process.
+    const cfg = mockConfig({ "test-proj": "/repos/test-proj" });
+    const pf = pidFile("test-proj");
+
+    setExists(pf, true);
+    setReadFile(pf, "44444\n");
+    mockPsFailure(); // isLifecycleWorkerProcess returns null
 
     const result = await stopLifecycleWorker(cfg, "test-proj");
 
-    expect(result).toBe(true);
-    expect(mockKill).toHaveBeenCalledWith(33333, "SIGTERM");
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (process as any).kill = origKill;
+    // Cannot kill a PID we cannot verify — conservative: do not attempt
+    expect(result).toBe(false);
   });
 });
 

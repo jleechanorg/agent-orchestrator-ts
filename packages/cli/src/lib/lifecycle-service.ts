@@ -50,10 +50,15 @@ function sleep(ms: number): Promise<void> {
  * `lifecycle-worker <projectId>` marker. This prevents false positives when
  * the PID has been recycled and now belongs to an unrelated process.
  *
- * Returns false if `ps` fails (process gone or inaccessible) — in that case
- * we cannot confirm identity and must not act as if the worker is ours.
+ * Returns:
+ *   true  — process is a lifecycle-worker for this projectId
+ *   false — process is confirmed not a lifecycle-worker for this projectId
+ *   null  — cannot determine (ps failed); callers must handle conservatively
  */
-function isLifecycleWorkerProcess(pid: number, projectId: string): boolean {
+function isLifecycleWorkerProcess(
+  pid: number,
+  projectId: string,
+): boolean | null {
   try {
     // macOS and Linux both support -o args= for the full command line.
     // Use execFileSync so no shell is involved — avoids quoting issues.
@@ -73,9 +78,10 @@ function isLifecycleWorkerProcess(pid: number, projectId: string): boolean {
     const pattern = new RegExp(`(?:^|\\s)${markerEscaped}(?:\\s|$)`);
     return pattern.test(cmdline);
   } catch {
-    // If `ps` fails the process is either gone or inaccessible — either way
-    // we cannot verify it is a lifecycle-worker, so treat it as not ours.
-    return false;
+    // ps failed (process gone, permission denied, or timeout) — we cannot
+    // confirm identity. Return null so callers treat this as indeterminate
+    // rather than definitively clearing a potentially valid PID file.
+    return null;
   }
 }
 
@@ -131,12 +137,17 @@ export function getLifecycleWorkerStatus(
   const logFile = getLifecycleLogFile(config, projectId);
   const pid = readPid(pidFile);
 
-  if (pid !== null && isLifecycleWorkerProcess(pid, projectId)) {
-    return { running: true, pid, pidFile, logFile };
-  }
-
   if (pid !== null) {
-    clearLifecycleWorkerPid(config, projectId, pid);
+    const confirmed = isLifecycleWorkerProcess(pid, projectId);
+    if (confirmed === true) {
+      return { running: true, pid, pidFile, logFile };
+    }
+    // false = confirmed not ours → clear the stale PID file.
+    // null  = indeterminate (ps failed) → leave PID file; next startup
+    //           will retry verification or clear when the PID is gone.
+    if (confirmed === false) {
+      clearLifecycleWorkerPid(config, projectId, pid);
+    }
   }
 
   return { running: false, pid: null, pidFile, logFile };
@@ -255,11 +266,16 @@ export async function stopLifecycleWorker(
 
   const deadline = Date.now() + STOP_TIMEOUT_MS;
   while (Date.now() < deadline) {
-    if (!isLifecycleWorkerProcess(status.pid, projectId)) {
-      clearLifecycleWorkerPid(config, projectId, status.pid);
-      return true;
+    const confirmed = isLifecycleWorkerProcess(status.pid, projectId);
+    if (confirmed === true) {
+      await sleep(100);
+      continue;
     }
-    await sleep(100);
+    // false = confirmed not ours (process died) → success
+    // null  = indeterminate (ps failed) → treat as stopped to avoid
+    //           waiting indefinitely for a process we can't inspect
+    clearLifecycleWorkerPid(config, projectId, status.pid);
+    return true;
   }
 
   try {
