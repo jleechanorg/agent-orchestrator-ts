@@ -832,8 +832,29 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         return true;
       });
 
-      // Poll all sessions concurrently
-      await Promise.allSettled(sessionsToCheck.map((s) => checkSession(s)));
+      // bd-wse: Poll sessions sequentially instead of concurrently.
+      // Concurrent polling (Promise.allSettled) fires N×4 GitHub API calls in parallel,
+      // exhausting the 5000/hr GraphQL rate limit when many sessions exist.
+      // Sequential checks run back-to-back within one poll cycle (no pacing between
+      // sessions). With many sessions, the cycle can exceed the configured interval;
+      // the re-entrancy guard above then skips overlapping ticks until the cycle finishes.
+      for (const s of sessionsToCheck) {
+        await checkSession(s).catch((err) => {
+          const errorReason = err instanceof Error ? err.message : String(err);
+          observer.recordOperation({
+            metric: "lifecycle_poll",
+            operation: "lifecycle.session.check",
+            outcome: "failure",
+            correlationId,
+            projectId: s.projectId,
+            sessionId: s.id,
+            durationMs: 0,
+            reason: errorReason,
+            level: "error",
+            data: { sessionId: s.id },
+          });
+        });
+      }
 
       // Prune stale entries from states and reactionTrackers for sessions
       // that no longer appear in the session list (e.g., after kill/cleanup)
