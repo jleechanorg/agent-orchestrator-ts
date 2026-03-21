@@ -17,8 +17,7 @@
  * and is retried on the next poll cycle rather than being locked into "killed".
  */
 
-import type { Session, OrchestratorConfig, PluginRegistry, SCM } from "./types.js";
-import { PR_STATE } from "./types.js";
+import { PR_STATE, type Session, type OrchestratorConfig, type PluginRegistry, type SCM } from "./types.js";
 
 /**
  * Returns true if the session's PR is merged according to the SCM plugin.
