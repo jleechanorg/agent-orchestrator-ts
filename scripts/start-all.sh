@@ -1,6 +1,7 @@
 #!/bin/bash
-# Start AO for all projects defined in agent-orchestrator.yaml
-# First project gets the dashboard, rest get --no-dashboard
+# Start AO for all projects defined in agent-orchestrator.yaml.
+# For persistent restarts/login startup, install the launchd wrapper via scripts/setup-launchd.sh.
+# First project gets the dashboard, rest get --no-dashboard.
 set -e
 
 CONFIG_FILE="${AO_CONFIG_PATH:-$HOME/.openclaw/agent-orchestrator.yaml}"
