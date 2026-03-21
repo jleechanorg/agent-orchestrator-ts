@@ -55,6 +55,21 @@ const cursorOverrides: Partial<Agent> = {
     // TODO: Implement via SQLite from ~/.cursor/chats/
     return null;
   },
+
+  getLaunchCommand(launchConfig: Parameters<Agent["getLaunchCommand"]>[0]): string {
+    // Pre-create the workspace trust file so cursor-agent skips the interactive
+    // "Workspace Trust Required" prompt in unattended sessions.
+    // The --trust flag only works in headless (--print) mode; pre-creating the
+    // JSON trust file is the correct fix for interactive sessions.
+    const preTrust = [
+      `_WP=$(pwd)`,
+      `_EP=$(echo "$_WP" | sed 's|^/||; s|\\.||g; s|/|-|g')`,
+      `mkdir -p "$HOME/.cursor/projects/$_EP"`,
+      `printf '{"trustedAt":"%s","workspacePath":"%s"}' "$(date -u +%Y-%m-%dT%H:%M:%S.000Z)" "$_WP" > "$HOME/.cursor/projects/$_EP/.workspace-trusted" 2>/dev/null`,
+    ].join(" && ");
+    const agentCmd = createAgentPlugin(cursorConfig).getLaunchCommand(launchConfig);
+    return `( ${preTrust} ); ${agentCmd}`;
+  },
 };
 
 // =============================================================================
