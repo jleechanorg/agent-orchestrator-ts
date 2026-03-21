@@ -573,23 +573,17 @@ async function setupHookInWorkspace(workspacePath: string): Promise<void> {
   const settingsPath = join(claudeDir, "settings.json");
   const hookScriptPath = join(claudeDir, "metadata-updater.sh");
 
-  if (existsSync(claudeDir)) {
-    const st = await lstat(claudeDir);
-    if (st.isSymbolicLink()) {
-      throw new Error("Refusing to set up hooks: .claude is a symlink");
-    }
-  } else {
-    await mkdir(claudeDir, { recursive: true });
-  }
-
-  // Reject symlinks — writing into a symlinked .claude is a potential security issue
+  // Reject symlinks BEFORE creating — writing into a symlinked .claude is a security risk
   try {
     const claudeStat = await lstat(claudeDir);
     if (claudeStat.isSymbolicLink()) {
       throw new Error(`[agent-claude-code] .claude dir is a symlink at ${claudeDir} — refusing to write hooks`);
     }
+    // Exists as a real directory — nothing to create
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+    // Directory doesn't exist — create it
+    await mkdir(claudeDir, { recursive: true });
   }
 
   // Write the metadata updater script only if content changed (idempotent)
@@ -650,10 +644,21 @@ async function setupHookInWorkspace(workspacePath: string): Promise<void> {
       hooks: [hookDef],
     });
   } else {
-    // Hook exists, update the command and env
+    // Hook exists, update the command and env — but preserve an existing
+    // AO_DATA_DIR in env if the new hookDef doesn't include one (e.g.
+    // postLaunchSetup doesn't have access to hookConfig.dataDir and would
+    // silently drop it).
     const hook = postToolUse[hookIndex] as Record<string, unknown>;
     const hooksList = hook["hooks"] as Array<Record<string, unknown>>;
-    hooksList[hookDefIndex] = hookDef;
+    const existingHookDef = hooksList[hookDefIndex];
+    const existingEnv = existingHookDef?.["env"] as Record<string, unknown> | undefined;
+    const existingDataDir = existingEnv?.["AO_DATA_DIR"];
+    const newCommandDropsDataDir =
+      !hookDef["env"] &&
+      typeof existingDataDir === "string";
+    if (!newCommandDropsDataDir) {
+      hooksList[hookDefIndex] = hookDef;
+    }
   }
 
   hooks["PostToolUse"] = postToolUse;

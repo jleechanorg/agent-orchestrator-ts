@@ -867,6 +867,17 @@ describe("hook setup — relative path (symlink-safe)", () => {
     );
   });
 
+  it("rejects symlinked .claude directory", async () => {
+    mockLstat.mockResolvedValueOnce({ isSymbolicLink: () => true });
+
+    await expect(
+      agent.setupWorkspaceHooks!(
+        "/Users/equinox/.worktrees/integrator/integrator-5",
+        {} as WorkspaceHooksConfig,
+      ),
+    ).rejects.toThrow(/symlink/i);
+  });
+
   it("skips postLaunchSetup when workspacePath is null", async () => {
     await agent.postLaunchSetup!(makeSession({ workspacePath: null }));
     expect(mockWriteFile).not.toHaveBeenCalled();
