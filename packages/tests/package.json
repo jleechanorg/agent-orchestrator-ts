@@ -2,6 +2,7 @@
   "name": "@jleechanorg/ao-tests",
   "version": "0.1.0",
   "description": "Integration and E2E tests for agent-orchestrator",
+  "private": true,
   "license": "MIT",
   "type": "module",
   "scripts": {
@@ -9,6 +10,6 @@
     "test:watch": "vitest"
   },
   "devDependencies": {
-    "vitest": "^1.6.0"
+    "vitest": "^3.0.0"
   }
 }
