@@ -576,27 +576,19 @@ async function setupHookInWorkspace(workspacePath: string): Promise<void> {
   if (existsSync(claudeDir)) {
     const st = await lstat(claudeDir);
     if (st.isSymbolicLink()) {
-      throw new Error("Refusing to set up hooks: .claude is a symlink");
+      // Warn but continue — shared .claude symlinks are valid in worktree setups
+      console.warn(`[agent-claude-code] .claude is a symlink at ${claudeDir} — writing hooks through symlink`);
     }
   } else {
     await mkdir(claudeDir, { recursive: true });
   }
 
-  // Reject symlinks — writing into a symlinked .claude is a potential security issue
-  try {
-    const claudeStat = await lstat(claudeDir);
-    if (claudeStat.isSymbolicLink()) {
-      throw new Error(`[agent-claude-code] .claude dir is a symlink at ${claudeDir} — refusing to write hooks`);
-    }
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
-  }
-
   // Write the metadata updater script only if content changed (idempotent)
   if (!existsSync(hookScriptPath) || (await readFile(hookScriptPath, "utf-8")) !== METADATA_UPDATER_SCRIPT) {
     await writeFile(hookScriptPath, METADATA_UPDATER_SCRIPT, "utf-8");
-    await chmod(hookScriptPath, 0o755);
   }
+  // Always ensure execute bit is set, even if content was already correct
+  await chmod(hookScriptPath, 0o755);
 
   // Read existing settings if present
   let existingSettings: Record<string, unknown> = {};
