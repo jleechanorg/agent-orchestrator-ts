@@ -1,12 +1,33 @@
-# SECURITY.md uses illustrative env examples; legacy root agent-orchestrator.yaml
-# contained sample tokens in history. Scan current tree strictly; allowlist doc-only paths.
-title = "agent-orchestrator"
+# Gitleaks configuration for Agent Orchestrator
+# Prevents accidental commits of secrets, API keys, tokens, etc.
 
+title = "Agent Orchestrator Secret Scanning"
+
+# Use all default gitleaks rules
 [extend]
 useDefault = true
 
+# Allowlist to ignore false positives
 [allowlist]
+description = "Allowlisted patterns"
+
 paths = [
-  '''^SECURITY\.md$''',
-  '''^agent-orchestrator\.yaml$''',
+  "node_modules/",
+  "dist/",
+  ".next/",
+  "coverage/",
+  "pnpm-lock.yaml",
+  # Doc examples (LINEAR_API_KEY=lin_api_xxx…) and legacy sample root config in history
+  "^SECURITY\\.md$",
+  "^agent-orchestrator\\.yaml$",
+]
+
+regexes = [
+  # Environment variable references
+  "\\$\\{[A-Z_]+\\}",
+
+  # Placeholder values
+  "your-api-key-here",
+  "your-token-here",
+  "example\\.com",
 ]
