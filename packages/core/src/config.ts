@@ -359,7 +359,7 @@ function validateNoAutoMergeReactions(config: OrchestratorConfig): void {
 
   for (const [reactionKey, reaction] of Object.entries(config.reactions)) {
     if (reaction.action === "auto-merge") {
-      autoMergeEntries.push(`reactions.${reactionKey}`);
+      autoMergeEntries.push(`reactions[${JSON.stringify(reactionKey)}]`);
     }
   }
 
@@ -370,7 +370,9 @@ function validateNoAutoMergeReactions(config: OrchestratorConfig): void {
 
     for (const [reactionKey, reaction] of Object.entries(project.reactions)) {
       if (reaction.action === "auto-merge") {
-        autoMergeEntries.push(`projects.${projectKey}.reactions.${reactionKey}`);
+        autoMergeEntries.push(
+          `projects[${JSON.stringify(projectKey)}].reactions[${JSON.stringify(reactionKey)}]`,
+        );
       }
     }
   }

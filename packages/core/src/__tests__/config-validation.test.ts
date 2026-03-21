@@ -350,7 +350,7 @@ describe("Config Validation - Auto-merge reactions", () => {
           },
         },
       }),
-    ).toThrow(/auto-merge is disabled.*reactions\.approved-and-green/s);
+    ).toThrow(/auto-merge is disabled.*reactions\["approved-and-green"\]/s);
 
     // Project scope: assert the project-level config path
     expect(() =>
@@ -368,7 +368,7 @@ describe("Config Validation - Auto-merge reactions", () => {
           },
         },
       }),
-    ).toThrow(/projects\.proj1\.reactions\.approved-and-green/);
+    ).toThrow(/projects\["proj1"\]\.reactions\["approved-and-green"\]/);
   });
 });
 
@@ -623,7 +623,82 @@ describe("Config Defaults", () => {
   });
 });
 
-describe("Config Validation - Other reaction actions", () => {
+describe("Config Validation - Auto-merge Reaction Block", () => {
+  it("rejects a global reaction with action: auto-merge", () => {
+    const config = {
+      projects: {
+        proj1: {
+          path: "/repos/test",
+          repo: "org/test",
+          defaultBranch: "main",
+        },
+      },
+      reactions: {
+        "approved-and-green": {
+          auto: true,
+          action: "auto-merge",
+          mergeMethod: "squash",
+        },
+      },
+    };
+
+    expect(() => validateConfig(config)).toThrow(/auto-merge is disabled.*bypasses the full merge gate/s);
+    expect(() => validateConfig(config)).toThrow(/reactions\["approved-and-green"\]/);
+  });
+
+  it("rejects a per-project reaction override with action: auto-merge", () => {
+    const config = {
+      projects: {
+        proj1: {
+          path: "/repos/test",
+          repo: "org/test",
+          defaultBranch: "main",
+          reactions: {
+            "approved-and-green": {
+              action: "auto-merge",
+            },
+          },
+        },
+      },
+    };
+
+    expect(() => validateConfig(config)).toThrow(/auto-merge is disabled.*bypasses the full merge gate/s);
+    expect(() => validateConfig(config)).toThrow(/projects\["proj1"\]\.reactions\["approved-and-green"\]/);
+  });
+
+  it("reports all offenders when multiple reactions use auto-merge", () => {
+    const config = {
+      projects: {
+        proj1: {
+          path: "/repos/test",
+          repo: "org/test",
+          defaultBranch: "main",
+          reactions: {
+            "merge-ready": {
+              action: "auto-merge",
+            },
+          },
+        },
+      },
+      reactions: {
+        "approved-and-green": {
+          auto: true,
+          action: "auto-merge",
+        },
+      },
+    };
+
+    try {
+      validateConfig(config);
+      expect.fail("Should have thrown");
+    } catch (err) {
+      const message = (err as Error).message;
+      expect(message).toContain('reactions["approved-and-green"]');
+      expect(message).toContain('projects["proj1"].reactions["merge-ready"]');
+    }
+  });
+
+
   it("allows notify action (the AO default for merge-ready)", () => {
     const config = {
       projects: {
