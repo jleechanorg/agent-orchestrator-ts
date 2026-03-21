@@ -9,7 +9,6 @@ import { writeMetadata, readMetadataRaw } from "../metadata.js";
 import { getSessionsDir, getProjectBaseDir } from "../paths.js";
 import type {
   OrchestratorConfig,
-  NotifierConfig,
   PluginRegistry,
   SessionManager,
   Session,
@@ -2025,8 +2024,8 @@ describe("session exit proof reconciliation (bd-uxs.6)", () => {
       notify: vi.fn().mockResolvedValue(undefined),
     };
 
-    // Add notifier to config (cast: test injects runtime Notifier into config slot)
-    config.notifiers = { desktop: mockNotifier as unknown as NotifierConfig };
+    // Configure notifier by plugin name; registry mock supplies runtime instance
+    config.notifiers = { desktop: { plugin: "desktop" } };
     config.notificationRouting = {
       urgent: ["desktop"],
       action: ["desktop"],
@@ -2385,7 +2384,7 @@ describe("parallel-retry reaction (bd-uxs.4)", () => {
       getMergeability: vi.fn(),
     };
 
-    config.notifiers = { desktop: mockNotifier as unknown as NotifierConfig };
+    config.notifiers = { desktop: { plugin: "desktop" } };
     config.notificationRouting = {
       urgent: ["desktop"],
       action: ["desktop"],
