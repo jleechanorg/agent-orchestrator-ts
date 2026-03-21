@@ -800,40 +800,25 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
     },
 
     async getPRState(pr: PRInfo): Promise<PRState> {
-      const raw = await gh([
-        "pr",
-        "view",
-        String(pr.number),
-        "--repo",
-        repoFlag(pr),
-        "--json",
-        "state",
-      ]);
-      const data: { state: string } = JSON.parse(raw);
-      const s = data.state.toUpperCase();
-      if (s === "MERGED") return "merged";
-      if (s === "CLOSED") return "closed";
+      // Use REST API to avoid GraphQL rate limits
+      const raw = await gh(["api", `repos/${pr.owner}/${pr.repo}/pulls/${pr.number}`]);
+      const data: { state: string; merged: boolean } = JSON.parse(raw);
+      if (data.merged) return "merged";
+      if (data.state === "closed") return "closed";
       return "open";
     },
 
     async getPRSummary(pr: PRInfo) {
-      const raw = await gh([
-        "pr",
-        "view",
-        String(pr.number),
-        "--repo",
-        repoFlag(pr),
-        "--json",
-        "state,title,additions,deletions",
-      ]);
+      // Use REST API to avoid GraphQL rate limits
+      const raw = await gh(["api", `repos/${pr.owner}/${pr.repo}/pulls/${pr.number}`]);
       const data: {
         state: string;
+        merged: boolean;
         title: string;
         additions: number;
         deletions: number;
       } = JSON.parse(raw);
-      const s = data.state.toUpperCase();
-      const state: PRState = s === "MERGED" ? "merged" : s === "CLOSED" ? "closed" : "open";
+      const state: PRState = data.merged ? "merged" : data.state === "closed" ? "closed" : "open";
       return {
         state,
         title: data.title ?? "",
@@ -854,34 +839,47 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
 
     async getCIChecks(pr: PRInfo): Promise<CICheck[]> {
       try {
-        const raw = await gh([
-          "pr",
-          "checks",
-          String(pr.number),
-          "--repo",
-          repoFlag(pr),
-          "--json",
-          "name,state,link,startedAt,completedAt",
+        // Use REST API: get check runs for the PR's head SHA via commit status + check runs
+        const prRaw = await gh(["api", `repos/${pr.owner}/${pr.repo}/pulls/${pr.number}`]);
+        const prData: { head: { sha: string } } = JSON.parse(prRaw);
+        const sha = prData.head.sha;
+
+        const checksRaw = await gh([
+          "api",
+          `repos/${pr.owner}/${pr.repo}/commits/${sha}/check-runs`,
         ]);
+        const checksData: {
+          check_runs: Array<{
+            name: string;
+            status: string;
+            conclusion: string | null;
+            html_url: string;
+            started_at: string | null;
+            completed_at: string | null;
+          }>;
+        } = JSON.parse(checksRaw);
 
-        const checks: Array<{
-          name: string;
-          state: string;
-          link: string;
-          startedAt: string;
-          completedAt: string;
-        }> = JSON.parse(raw);
+        return checksData.check_runs.map((c) => {
+          const conclusion = c.conclusion?.toUpperCase() ?? "";
+          const status = c.status?.toUpperCase() ?? "";
 
-        return checks.map((c) => {
-          const state = c.state?.toUpperCase();
+          // Map REST status/conclusion to our CICheck status
+          let mappedStatus: CICheck["status"];
+          if (status === "COMPLETED") {
+            mappedStatus = mapRawCheckStateToStatus(conclusion || "SUCCESS");
+          } else if (status === "IN_PROGRESS" || status === "QUEUED") {
+            mappedStatus = "running";
+          } else {
+            mappedStatus = "pending";
+          }
 
           return {
             name: c.name,
-            status: mapRawCheckStateToStatus(state),
-            url: c.link || undefined,
-            conclusion: state || undefined,
-            startedAt: c.startedAt ? new Date(c.startedAt) : undefined,
-            completedAt: c.completedAt ? new Date(c.completedAt) : undefined,
+            status: mappedStatus,
+            url: c.html_url || undefined,
+            conclusion: conclusion || undefined,
+            startedAt: c.started_at ? new Date(c.started_at) : undefined,
+            completedAt: c.completed_at ? new Date(c.completed_at) : undefined,
           };
         });
       } catch (err) {
@@ -927,25 +925,16 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
     },
 
     async getReviews(pr: PRInfo): Promise<Review[]> {
-      const raw = await gh([
-        "pr",
-        "view",
-        String(pr.number),
-        "--repo",
-        repoFlag(pr),
-        "--json",
-        "reviews",
-      ]);
-      const data: {
-        reviews: Array<{
-          author: { login: string };
-          state: string;
-          body: string;
-          submittedAt: string;
-        }>;
-      } = JSON.parse(raw);
+      // Use REST API to avoid GraphQL rate limits
+      const raw = await gh(["api", `repos/${pr.owner}/${pr.repo}/pulls/${pr.number}/reviews`]);
+      const reviews: Array<{
+        user: { login: string } | null;
+        state: string;
+        body: string;
+        submitted_at: string;
+      }> = JSON.parse(raw);
 
-      return data.reviews.map((r) => {
+      return reviews.map((r) => {
         let state: Review["state"];
         const s = r.state?.toUpperCase();
         if (s === "APPROVED") state = "approved";
@@ -955,30 +944,31 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
         else state = "commented";
 
         return {
-          author: r.author?.login ?? "unknown",
+          author: r.user?.login ?? "unknown",
           state,
           body: r.body || undefined,
-          submittedAt: parseDate(r.submittedAt),
+          submittedAt: parseDate(r.submitted_at),
         };
       });
     },
 
     async getReviewDecision(pr: PRInfo): Promise<ReviewDecision> {
-      const raw = await gh([
-        "pr",
-        "view",
-        String(pr.number),
-        "--repo",
-        repoFlag(pr),
-        "--json",
-        "reviewDecision",
-      ]);
-      const data: { reviewDecision: string } = JSON.parse(raw);
-
-      const d = (data.reviewDecision ?? "").toUpperCase();
-      if (d === "APPROVED") return "approved";
-      if (d === "CHANGES_REQUESTED") return "changes_requested";
-      if (d === "REVIEW_REQUIRED") return "pending";
+      // Derive from REST reviews list — reviewDecision is GraphQL-only.
+      // GitHub's logic: last non-dismissed review per author wins;
+      // any CHANGES_REQUESTED → changes_requested; all APPROVED → approved.
+      const reviews = await this.getReviews(pr);
+      const lastByAuthor = new Map<string, Review["state"]>();
+      for (const r of reviews) {
+        if (r.state === "commented" || r.state === "pending" || r.state === "dismissed") continue;
+        lastByAuthor.set(r.author, r.state);
+      }
+      if (lastByAuthor.size === 0) return "none";
+      for (const state of lastByAuthor.values()) {
+        if (state === "changes_requested") return "changes_requested";
+      }
+      for (const state of lastByAuthor.values()) {
+        if (state === "approved") return "approved";
+      }
       return "none";
     },
 
