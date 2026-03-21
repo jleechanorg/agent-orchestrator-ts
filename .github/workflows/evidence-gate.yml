@@ -49,7 +49,8 @@ jobs:
           case "$CLAIM" in
             unit|integration|pipeline-e2e|pr-lifecycle-e2e|merge-gate)
               echo "Validated claim class: $CLAIM"
-              echo "claim_class=$CLAIM" >> "$GITHUB_OUTPUT"
+              # Subsequent steps re-extract CLAIM from the PR body file directly
+              # for simplicity (file-based approach — no cross-step output needed)
               ;;
             *)
               echo "ERROR: Unrecognized claim class: $CLAIM"
