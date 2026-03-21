@@ -559,7 +559,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
     // corrected before we filter on terminal statuses.
     const repaired = repairSessionMetadataOnRead(sessionsDir, records);
 
-    // Filter out terminal sessions to prevent stale data dir accumulation.
+    // Filter out killed/merged sessions to prevent stale data dir accumulation.
     return repaired.filter((record) => {
       const status = record.raw["status"] ?? "";
       return status !== "killed" && status !== "merged";

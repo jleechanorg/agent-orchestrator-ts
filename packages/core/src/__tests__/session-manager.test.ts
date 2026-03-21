@@ -1303,6 +1303,46 @@ describe("list", () => {
     expect(sessions[0].projectId).toBe("my-app");
   });
 
+  it("filters out sessions with 'killed' status", async () => {
+    writeMetadata(sessionsDir, "app-1", {
+      worktree: "/tmp",
+      branch: "a",
+      status: "working",
+      project: "my-app",
+    });
+    writeMetadata(sessionsDir, "app-2", {
+      worktree: "/tmp",
+      branch: "b",
+      status: "killed",
+      project: "my-app",
+    });
+
+    const sm = createSessionManager({ config, registry: mockRegistry });
+    const sessions = await sm.list("my-app");
+
+    expect(sessions.map((s) => s.id).sort()).toEqual(["app-1"]);
+  });
+
+  it("filters out sessions with 'merged' status", async () => {
+    writeMetadata(sessionsDir, "app-1", {
+      worktree: "/tmp",
+      branch: "a",
+      status: "working",
+      project: "my-app",
+    });
+    writeMetadata(sessionsDir, "app-2", {
+      worktree: "/tmp",
+      branch: "b",
+      status: "merged",
+      project: "my-app",
+    });
+
+    const sm = createSessionManager({ config, registry: mockRegistry });
+    const sessions = await sm.list("my-app");
+
+    expect(sessions.map((s) => s.id).sort()).toEqual(["app-1"]);
+  });
+
   it("clears enrichment timeout when enrichment completes quickly", async () => {
     vi.useFakeTimers();
     const clearTimeoutSpy = vi.spyOn(globalThis, "clearTimeout");
