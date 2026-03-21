@@ -17,8 +17,7 @@
  * and is retried on the next poll cycle rather than being locked into "killed".
  */
 
-import type { Session, OrchestratorConfig, PluginRegistry } from "./types.js";
-import type { SCM } from "./plugins/index.js";
+import type { Session, OrchestratorConfig, PluginRegistry, SCM } from "./types.js";
 import { PR_STATE } from "./types.js";
 
 /**
