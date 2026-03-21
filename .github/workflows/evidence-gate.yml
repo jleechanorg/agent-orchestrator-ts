@@ -29,8 +29,8 @@ jobs:
         run: |
           BODY=$(cat "$RUNNER_TEMP/pr_body.txt")
 
-          # Check if body contains Evidence section
-          if printf '%s' "$BODY" | grep -qi 'Evidence'; then
+          # Check if body contains Evidence section (## Evidence — not just the word "Evidence")
+          if printf '%s' "$BODY" | grep -qi '[##] Evidence'; then
             echo "found=true" >> "$GITHUB_OUTPUT"
           else
             echo "found=false" >> "$GITHUB_OUTPUT"
@@ -42,11 +42,6 @@ jobs:
           BODY=$(cat "$RUNNER_TEMP/pr_body.txt")
 
           # Extract claim class — normalize to lowercase
-          # Extract claim class from bold-markdown lines (skips list bullets like "- Claim class ...")
-          # grep -i '\*\*Claim class' matches bold-markdown lines; grep -v '^- ' filters list bullets
-          # sed extracts text after "**Claim class**:" up to the first '(' or end-of-line
-          # tr -d '*' removes markdown bold markers; tr -d '[:space:]' removes trailing whitespace
-          # Note: hyphens are intentionally preserved (pr-lifecycle-e2e must keep '-')
           # Extract claim class from bold-markdown lines (skips list bullets like "- Claim class ...")
           # grep -i '\*\*Claim class' matches bold-markdown lines; grep -v '^- ' filters list bullets
           # First sed: strip markdown and extract text after "**Claim class**:" up to first '('
@@ -145,8 +140,8 @@ jobs:
           elif printf '%s' "$BODY" | grep -qi '[Vv]erdict.*:.*[Ff][Aa][Ii][Ll]'; then
             echo "Verdict: FAIL — evidence gate passes (contradiction detected)"
 
-          # No verdict found
+          # No verdict found — hard requirement, gate fails
           else
-            echo "WARNING: No verdict found in evidence bundle. Treating as INSUFFICIENT."
+            echo "ERROR: No verdict found in evidence bundle. Verdict is a mandatory field — missing verdict fails the evidence gate."
             exit 1
           fi
