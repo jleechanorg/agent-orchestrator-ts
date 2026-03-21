@@ -39,7 +39,7 @@ function makeSession(overrides: Partial<Session> = {}): Session {
     branch: "feat/test",
     issueId: null,
     pr: null,
-    workspacePath: "/tmp/ws",
+    workspacePath: tmpDir,
     runtimeHandle: { id: "rt-1", runtimeName: "mock", data: {} },
     agentInfo: null,
     createdAt: new Date(),
@@ -2791,5 +2791,73 @@ describe("parallel-retry reaction (bd-uxs.4)", () => {
       (c) => (c[0] as { type?: string } | undefined)?.type === "reaction.triggered",
     );
     expect(reactionCall).toBeDefined();
+  });
+});
+
+describe("workspace-deleted detection", () => {
+  it("returns killed when session workspacePath does not exist", async () => {
+    const nonExistentPath = join(tmpDir, "deleted-worktree-" + randomUUID());
+    const session = makeSession({
+      status: "working",
+      workspacePath: nonExistentPath,
+    });
+
+    vi.mocked(mockSessionManager.list).mockResolvedValue([session]);
+    vi.mocked(mockSessionManager.get).mockResolvedValue(session);
+
+    const lm = createLifecycleManager({
+      config,
+      registry: mockRegistry,
+      sessionManager: mockSessionManager,
+    });
+
+    await lm.check("app-1");
+
+    expect(lm.getStates().get("app-1")).toBe("killed");
+  });
+
+  it("does not kill session when workspacePath exists", async () => {
+    // Create the workspace directory so it exists
+    const existingPath = join(tmpDir, "existing-worktree-" + randomUUID());
+    mkdirSync(existingPath, { recursive: true });
+
+    const session = makeSession({
+      status: "working",
+      workspacePath: existingPath,
+    });
+
+    vi.mocked(mockSessionManager.list).mockResolvedValue([session]);
+    vi.mocked(mockSessionManager.get).mockResolvedValue(session);
+
+    const lm = createLifecycleManager({
+      config,
+      registry: mockRegistry,
+      sessionManager: mockSessionManager,
+    });
+
+    await lm.check("app-1");
+
+    // Should remain working, not killed
+    expect(lm.getStates().get("app-1")).not.toBe("killed");
+  });
+
+  it("does not kill session when workspacePath is not set", async () => {
+    const session = makeSession({
+      status: "working",
+      workspacePath: undefined,
+    });
+
+    vi.mocked(mockSessionManager.list).mockResolvedValue([session]);
+    vi.mocked(mockSessionManager.get).mockResolvedValue(session);
+
+    const lm = createLifecycleManager({
+      config,
+      registry: mockRegistry,
+      sessionManager: mockSessionManager,
+    });
+
+    await lm.check("app-1");
+
+    expect(lm.getStates().get("app-1")).not.toBe("killed");
   });
 });

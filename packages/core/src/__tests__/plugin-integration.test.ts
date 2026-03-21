@@ -92,7 +92,7 @@ function makeSession(overrides: Partial<Session> = {}): Session {
     branch: "feat/issue-99",
     issueId: null,
     pr: null,
-    workspacePath: "/tmp/test-app",
+    workspacePath: tmpDir,
     runtimeHandle: makeHandle("rt-1"),
     agentInfo: null,
     createdAt: new Date(),
