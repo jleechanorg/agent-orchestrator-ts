@@ -1644,6 +1644,177 @@ describe("reactions", () => {
       expect.objectContaining({ type: "merge.completed" }),
     );
   });
+
+  it("auto-merge is blocked when merge gate fails (CodeRabbit not approved)", async () => {
+    // This test verifies that even when the session status transitions to "mergeable"
+    // (meaning CI is passing and human review is approved), the auto-merge reaction
+    // will still check the full merge gate and block if CodeRabbit hasn't approved.
+    config.reactions = {
+      "approved-and-green": {
+        auto: true,
+        action: "auto-merge",
+        mergeMethod: "squash",
+      },
+    };
+
+    const mockNotifier: Notifier = {
+      name: "mock-notifier",
+      notify: vi.fn().mockResolvedValue(undefined),
+    };
+
+    // Mock SCM returns values that allow status transition to "mergeable":
+    // - CI is passing
+    // - Review decision is "approved"
+    // But the getReviews will return no CodeRabbit review, which will fail merge gate
+    const mockSCM: SCM = {
+      name: "mock-scm",
+      detectPR: vi.fn(),
+      getPRState: vi.fn().mockResolvedValue("open"),
+      mergePR: vi.fn().mockResolvedValue(undefined),
+      closePR: vi.fn(),
+      getCIChecks: vi.fn(),
+      getCISummary: vi.fn().mockResolvedValue("passing"),
+      // getReviewDecision returns "approved" to allow status transition to "mergeable"
+      // but getReviews returns empty to cause merge gate failure
+      getReviews: vi.fn().mockResolvedValue([]),
+      getReviewDecision: vi.fn().mockResolvedValue("approved"),
+      getPendingComments: vi.fn().mockResolvedValue([]),
+      getAutomatedComments: vi.fn().mockResolvedValue([]),
+      getMergeability: vi.fn().mockResolvedValue({
+        mergeable: true,
+        ciPassing: true,
+        approved: true,
+        noConflicts: true,
+        blockers: [],
+      }),
+    };
+
+    const registryWithSCM: PluginRegistry = {
+      ...mockRegistry,
+      get: vi.fn().mockImplementation((slot: string, name?: string) => {
+        if (slot === "runtime") return mockRuntime;
+        if (slot === "agent") return mockAgent;
+        if (slot === "scm") return mockSCM;
+        if (slot === "notifier" && name === "desktop") return mockNotifier;
+        return null;
+      }),
+    };
+
+    // Use pr_open status so transition to mergeable triggers the reaction
+    const session = makeSession({ status: "pr_open", pr: makePR() });
+    vi.mocked(mockSessionManager.get).mockResolvedValue(session);
+
+    writeMetadata(sessionsDir, "app-1", {
+      worktree: "/tmp",
+      branch: "main",
+      status: "pr_open",
+      project: "my-app",
+    });
+
+    const lm = createLifecycleManager({
+      config,
+      registry: registryWithSCM,
+      sessionManager: mockSessionManager,
+    });
+
+    await lm.check("app-1");
+
+    // Verify that notifier was called to report merge gate failure
+    expect(mockNotifier.notify).toHaveBeenCalledTimes(1);
+    const call = vi.mocked(mockNotifier.notify).mock.calls[0][0];
+    expect(call.message).toContain("merge gate failed");
+    expect(call.message).toContain("CodeRabbit approved");
+
+    // Verify merge was NOT called
+    expect(mockSCM.mergePR).not.toHaveBeenCalled();
+  });
+
+  it("auto-merge uses project.mergeGate config when provided", async () => {
+    // Configure project with mergeGate disabled
+    // This test verifies that when mergeGate is disabled in project config,
+    // the auto-merge proceeds even when merge gate conditions would fail.
+    config.projects = {
+      "my-app": {
+        name: "My App",
+        repo: "org/my-app",
+        path: join(tmpDir, "my-app"),
+        defaultBranch: "main",
+        sessionPrefix: "app",
+        scm: { plugin: "github" },
+        mergeGate: { enabled: false },
+      },
+    };
+
+    config.reactions = {
+      "approved-and-green": {
+        auto: true,
+        action: "auto-merge",
+        mergeMethod: "squash",
+      },
+    };
+
+    const mockNotifier: Notifier = {
+      name: "mock-notifier",
+      notify: vi.fn().mockResolvedValue(undefined),
+    };
+
+    // Mock SCM returns passing CI and approved review so status transitions to "mergeable"
+    // But mergeGate is disabled in project config, so merge proceeds
+    const mockSCM: SCM = {
+      name: "mock-scm",
+      detectPR: vi.fn(),
+      getPRState: vi.fn().mockResolvedValue("open"),
+      mergePR: vi.fn().mockResolvedValue(undefined),
+      closePR: vi.fn(),
+      getCIChecks: vi.fn(),
+      getCISummary: vi.fn().mockResolvedValue("passing"),
+      getReviews: vi.fn().mockResolvedValue([{ author: "coderabbitai[bot]", state: "approved" }, { author: "evidence-review-bot", state: "approved" }]),
+      getReviewDecision: vi.fn().mockResolvedValue("approved"),
+      getPendingComments: vi.fn().mockResolvedValue([]),
+      getAutomatedComments: vi.fn().mockResolvedValue([]),
+      getMergeability: vi.fn().mockResolvedValue({
+        mergeable: true,
+        ciPassing: true,
+        approved: true,
+        noConflicts: true,
+        blockers: [],
+      }),
+    };
+
+    const registryWithSCM: PluginRegistry = {
+      ...mockRegistry,
+      get: vi.fn().mockImplementation((slot: string, name?: string) => {
+        if (slot === "runtime") return mockRuntime;
+        if (slot === "agent") return mockAgent;
+        if (slot === "scm") return mockSCM;
+        if (slot === "notifier" && name === "desktop") return mockNotifier;
+        return null;
+      }),
+    };
+
+    // Use pr_open status so transition to mergeable triggers the reaction
+    const session = makeSession({ status: "pr_open", pr: makePR() });
+    vi.mocked(mockSessionManager.get).mockResolvedValue(session);
+
+    writeMetadata(sessionsDir, "app-1", {
+      worktree: "/tmp",
+      branch: "main",
+      status: "pr_open",
+      project: "my-app",
+    });
+
+    const lm = createLifecycleManager({
+      config,
+      registry: registryWithSCM,
+      sessionManager: mockSessionManager,
+    });
+
+    await lm.check("app-1");
+
+    // With mergeGate disabled, merge should proceed even though conditions would fail
+    // (because checkMergeGate returns early with passed: true when enabled: false)
+    expect(mockSCM.mergePR).toHaveBeenCalledWith(session.pr, "squash");
+  });
 });
 
 describe("getStates", () => {
