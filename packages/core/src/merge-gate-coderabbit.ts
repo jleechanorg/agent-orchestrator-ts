@@ -4,9 +4,20 @@
  * These helpers evaluate CodeRabbit review state for the merge gate.
  * Splitting them into a companion module keeps merge-gate.ts orchestration-only
  * and allows focused testing of the CR-specific logic.
+ *
+ * Uses the canonical `Review` interface from types.ts so that the local type
+ * declaration does not shadow the upstream definition with a weaker shape.
  */
 
-export type Review = { author: string; state: string; submittedAt?: Date };
+import type { Review } from "./types.js";
+
+// Re-export so callers can use the canonical type through this module's surface
+export type { Review };
+
+/** Sort comparator: newest-first by submittedAt. Exported for reuse by both helpers. */
+export function sortReviewsNewestFirst(a: Review, b: Review): number {
+  return b.submittedAt.getTime() - a.submittedAt.getTime();
+}
 
 /**
  * Return the most recent non-dismissed, non-pending review from the given author.
@@ -20,11 +31,7 @@ export function getLatestDecisiveReview(reviews: Review[], author: string): Revi
           r.author === author &&
           (r.state === "approved" || r.state === "changes_requested"),
       )
-      .sort(
-        (a, b) =>
-          new Date(b.submittedAt ?? 0).getTime() -
-          new Date(a.submittedAt ?? 0).getTime(),
-      )[0] ?? null
+      .sort(sortReviewsNewestFirst)[0] ?? null
   );
 }
 
@@ -53,12 +60,8 @@ export function hasUnresolvedDismissedReview(
   const crReviews = reviews.filter((r) => r.author === author);
   if (crReviews.length === 0) return false;
 
-  // Sort newest-first
-  const sorted = [...crReviews].sort(
-    (a, b) =>
-      new Date(b.submittedAt ?? 0).getTime() -
-      new Date(a.submittedAt ?? 0).getTime(),
-  );
+  // Sort newest-first (reuses sortReviewsNewestFirst)
+  const sorted = [...crReviews].sort(sortReviewsNewestFirst);
 
   for (const review of sorted) {
     if (review.state === "dismissed") return true;
