@@ -43,6 +43,7 @@ import { resolveAgentSelection, resolveSessionRole } from "./agent-selection.js"
 import type { OutcomeRecorder } from "./outcome-recorder.js";
 import { buildReactionContext } from "./reaction-context.js";
 import { validateAndEmitExitProof } from "./session-exit-proof.js";
+import { isPRMerged } from "./fork-lifecycle-kki-override.js";
 import { handleRequestMerge, handleParallelRetry } from "./fork-reaction-handlers.js";
 import { maybeDispatchReviewBacklog } from "./review-backlog.js";
 import { updateSessionMetadataHelper } from "./fork-utils.js";
@@ -676,19 +677,13 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     let transitionReaction: { key: string; result: ReactionResult | null } | undefined;
 
     // bd-kki: check if PR is merged before recording "killed" status.
-      // If the SCM call fails (transient error), the session stays in its previous
-      // state and will be retried on the next poll — avoiding zombie tmux sessions
-      // caused by a failed SCM check locking in a terminal "killed" state.
-      if (newStatus === "killed" && session.pr) {
-        const project = config.projects[session.projectId];
-        const scm = project?.scm ? registry.get<SCM>("scm", project.scm.plugin) : null;
-        if (scm) {
-          const prState = await scm.getPRState(session.pr);
-          if (prState === PR_STATE.MERGED) {
-            newStatus = "merged";
-          }
-        }
-      }
+    // If the SCM call fails (transient error), the session stays in its previous
+    // state and will be retried on the next poll — avoiding zombie tmux sessions
+    // caused by a failed SCM check locking in a terminal "killed" state.
+    if (newStatus === "killed" && session.pr) {
+      const merged = await isPRMerged(session, config, registry);
+      if (merged) newStatus = "merged";
+    }
 
     if (newStatus !== oldStatus) {
       const correlationId = createCorrelationId("lifecycle-transition");
