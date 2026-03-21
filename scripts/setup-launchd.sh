@@ -48,6 +48,17 @@ fi
 
 mkdir -p "$LAUNCH_AGENTS_DIR" "$(dirname "$LOG_FILE")"
 
+# Remove legacy per-project lifecycle-worker plists (replaced by ai.agento.lifecycle-all).
+# These used KeepAlive: true which caused unbounded process accumulation — launchd respawned
+# every 30s even when a worker was already running, producing 10+ concurrent processes.
+for legacy_plist in "$LAUNCH_AGENTS_DIR"/com.agentorchestrator.lifecycle-*.plist; do
+  [ -f "$legacy_plist" ] || continue
+  legacy_label=$(basename "$legacy_plist" .plist)
+  launchctl bootout "gui/$(id -u)/$legacy_label" >/dev/null 2>&1 || true
+  rm -f "$legacy_plist"
+  echo "Removed legacy plist: $legacy_label"
+done
+
 sed \
   -e "s|@HOME@|${HOME_ESCAPED}|g" \
   -e "s|@REPO_ROOT@|$(escape_sed "$REPO_ROOT")|g" \
