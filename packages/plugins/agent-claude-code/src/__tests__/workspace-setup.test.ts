@@ -150,18 +150,32 @@ describe("setupWorkspaceHooks with MCP mail idempotency", () => {
 });
 
 describe("setupWorkspaceHooks symlink handling", () => {
-  it("warns (does not throw) when .claude dir is a symlink", async () => {
-    // Create a target directory outside the workspace (worktree shared .claude)
-    const sharedDir = join(tmpDir, "shared-claude");
-    mkdirSync(sharedDir, { recursive: true });
+  it("warns (does not throw) when .claude is an in-workspace symlink", async () => {
+    // Create a target directory inside the workspace (in-workspace .claude alias)
+    const inWorkspaceTarget = join(workspacePath, ".claude-target");
+    mkdirSync(inWorkspaceTarget, { recursive: true });
 
-    // Replace .claude with a symlink (valid in worktree setups)
-    symlinkSync(sharedDir, claudeDir);
+    // Replace .claude with a symlink that stays within the workspace
+    symlinkSync(inWorkspaceTarget, claudeDir);
 
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     const agent = create();
+    // In-workspace symlinks are allowed (warn but continue)
     await expect(agent.setupWorkspaceHooks!(workspacePath, makeHookConfig())).resolves.not.toThrow();
     expect(warnSpy).toHaveBeenCalledWith(expect.stringMatching(/symlink/i));
     warnSpy.mockRestore();
+  });
+
+  it("throws when .claude is a symlink pointing outside the workspace", async () => {
+    // Create a target directory outside the workspace
+    const outsideDir = mkdtempSync(join(tmpdir(), "ao-test-outside-"));
+    symlinkSync(outsideDir, claudeDir);
+
+    const agent = create();
+    await expect(agent.setupWorkspaceHooks!(workspacePath, makeHookConfig())).rejects.toThrow(
+      /symlink.*outside the workspace/i,
+    );
+
+    rmSync(outsideDir, { recursive: true, force: true });
   });
 });
