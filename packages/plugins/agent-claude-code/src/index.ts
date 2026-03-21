@@ -591,10 +591,13 @@ async function setupHookInWorkspace(workspacePath: string): Promise<void> {
         const resolved = realpathSync(claudeDir);
         const wsReal = realpathSync(workspacePath);
         if (!resolved.startsWith(wsReal + "/") && resolved !== wsReal) {
-          console.warn(`[agent-claude-code] .claude is a symlink pointing outside workspace (${resolved}) — skipping hook setup`);
-          return;
+          throw new Error(`.claude is a symlink pointing outside the workspace (${resolved})`);
         }
-      } catch {
+      } catch (err) {
+        // If it's our intentional security error, rethrow it
+        if (err instanceof Error && /symlink.*outside the workspace/i.test(err.message)) {
+          throw err;
+        }
         // Can't resolve symlink (broken or test env) — skip to be safe
         console.warn(`[agent-claude-code] .claude is a symlink at ${claudeDir} — cannot verify target, skipping hook setup`);
         return;

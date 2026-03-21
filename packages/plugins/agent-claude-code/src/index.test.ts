@@ -16,6 +16,7 @@ const {
   mockMkdir,
   mockChmod,
   mockExistsSync,
+  mockRealpathSync,
 } = vi.hoisted(() => ({
   mockExecFileAsync: vi.fn(),
   mockReaddir: vi.fn(),
@@ -30,6 +31,7 @@ const {
   mockMkdir: vi.fn().mockResolvedValue(undefined),
   mockChmod: vi.fn().mockResolvedValue(undefined),
   mockExistsSync: vi.fn().mockReturnValue(false),
+  mockRealpathSync: vi.fn(),
 }));
 
 vi.mock("node:child_process", () => {
@@ -52,6 +54,7 @@ vi.mock("node:fs/promises", () => ({
 
 vi.mock("node:fs", () => ({
   existsSync: mockExistsSync,
+  realpathSync: mockRealpathSync,
 }));
 
 vi.mock("node:os", () => ({
@@ -888,7 +891,9 @@ describe("hook setup — relative path (symlink-safe)", () => {
 
     mockLstat.mockResolvedValueOnce({ isSymbolicLink: () => true });
     // Return an in-workspace target so the fail-closed check passes
-    mockReadlink.mockResolvedValueOnce(".claude-target");
+    mockRealpathSync
+      .mockReturnValueOnce("/Users/equinox/.worktrees/integrator/integrator-5/.claude-target") // resolved .claude path (within workspace)
+      .mockReturnValueOnce("/Users/equinox/.worktrees/integrator/integrator-5"); // workspace path
 
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     await expect(
@@ -905,7 +910,9 @@ describe("hook setup — relative path (symlink-safe)", () => {
     mockExistsSync.mockReturnValue(true);
     mockLstat.mockResolvedValueOnce({ isSymbolicLink: () => true });
     // Target is outside the workspace
-    mockReadlink.mockResolvedValueOnce("/tmp/outside-claude");
+    mockRealpathSync
+      .mockReturnValueOnce("/tmp/outside-claude") // resolved .claude path
+      .mockReturnValueOnce("/Users/equinox/.worktrees/integrator/integrator-5"); // workspace path
 
     await expect(
       agent.setupWorkspaceHooks!(
