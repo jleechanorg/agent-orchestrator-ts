@@ -295,8 +295,8 @@ export function toAgentProjectPath(workspacePath: string): string {
 // JSONL Helpers
 // =============================================================================
 
-/** Find the most recently modified session file in a directory */
-async function findLatestSessionFile(
+/** Find the most recently modified session file in a directory. Exported for use by agent plugins that need to locate session files. */
+export async function findLatestSessionFile(
   projectDir: string,
   ext = ".jsonl",
 ): Promise<string | null> {

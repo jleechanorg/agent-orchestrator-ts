@@ -2,9 +2,20 @@ import {
   createAgentPlugin,
   toAgentProjectPath,
   resetPsCache as _resetPsCache,
+  findLatestSessionFile,
   type AgentPluginConfig,
 } from "@jleechanorg/ao-plugin-agent-base";
-import type { Agent, AgentLaunchConfig, PluginModule, ProjectConfig, Session } from "@jleechanorg/ao-core";
+import {
+  DEFAULT_READY_THRESHOLD_MS,
+  readLastJsonlEntry,
+  type Agent,
+  type AgentLaunchConfig,
+  type ActivityDetection,
+  type PluginModule,
+  type ProjectConfig,
+  type Session,
+} from "@jleechanorg/ao-core";
+import { readFile, stat } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -78,12 +89,117 @@ const geminiConfig: AgentPluginConfig = {
 // (e.g. "gemini-2.5-pro") incompatible with Anthropic API model IDs.
 // =============================================================================
 
+// =============================================================================
+// Gemini native JSON session reader (orch-cb3e: done-signal)
+// =============================================================================
+
+/**
+ * Read the last message type from a Gemini native session file.
+ *
+ * Gemini CLI stores sessions as a top-level JSON object:
+ *   { sessionId, messages: [{ type, content, id, timestamp }, ...] }
+ * The last entry in messages[] is the current agent state.
+ *
+ * Gemini message types (observed in production):
+ *   "user"   → user prompt pending response → active
+ *   "gemini" → agent completed its turn     → ready (done-signal)
+ *   "error"  → error occurred               → blocked
+ *   "info"   → informational                → active
+ */
+async function readLastGeminiNativeEntry(
+  filePath: string,
+): Promise<{ lastType: string | null; modifiedAt: Date } | null> {
+  try {
+    const [content, fileStat] = await Promise.all([readFile(filePath, "utf-8"), stat(filePath)]);
+    const parsed: unknown = JSON.parse(content);
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return null;
+
+    const obj = parsed as Record<string, unknown>;
+    if (!Array.isArray(obj.messages) || obj.messages.length === 0) return null;
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const lastMsg = obj.messages[obj.messages.length - 1] as any;
+    const lastType = typeof lastMsg?.type === "string" ? lastMsg.type : null;
+    return { lastType, modifiedAt: fileStat.mtime };
+  } catch {
+    return null;
+  }
+}
+
 const geminiOverrides: Partial<Agent> = {
   async getRestoreCommand(_session: Session, _project: ProjectConfig): Promise<string | null> {
     // TODO: Implement restore via ~/.gemini/tmp/<sha256>/chats/ session files.
     // Returning null prevents the base plugin from building a restore command that
     // would pass --model with an Anthropic model ID (rejected by gemini CLI).
     return null;
+  },
+
+  async getActivityState(
+    session: Session,
+    readyThresholdMs?: number,
+  ): Promise<ActivityDetection | null> {
+    const threshold = readyThresholdMs ?? DEFAULT_READY_THRESHOLD_MS;
+
+    // Check if process is running first
+    const exitedAt = new Date();
+    if (!session.runtimeHandle) return { state: "exited", timestamp: exitedAt };
+    const running = await this.isProcessRunning!(session.runtimeHandle);
+    if (!running) return { state: "exited", timestamp: exitedAt };
+
+    if (!session.workspacePath) return null;
+
+    const projectDir = join(
+      homedir(),
+      ".gemini",
+      "tmp",
+      toGeminiProjectPath(session.workspacePath),
+      "chats",
+    );
+
+    const sessionFile = await findLatestSessionFile(projectDir, ".json");
+    if (!sessionFile) return null;
+
+    // Try native Gemini JSON format first: { sessionId, messages: [...] }
+    const nativeEntry = await readLastGeminiNativeEntry(sessionFile);
+    if (nativeEntry) {
+      const ageMs = Date.now() - nativeEntry.modifiedAt.getTime();
+      const timestamp = nativeEntry.modifiedAt;
+      switch (nativeEntry.lastType) {
+        case "gemini": // agent completed its turn — done signal
+          return { state: ageMs > threshold ? "idle" : "ready", timestamp };
+        case "error":
+          return { state: "blocked", timestamp };
+        case "user":
+        case "info":
+        default:
+          return { state: ageMs > threshold ? "idle" : "active", timestamp };
+      }
+    }
+
+    // Fall back to JSONL-style format (one JSON object per line)
+    // This handles test fixtures and any future format changes.
+    const entry = await readLastJsonlEntry(sessionFile);
+    if (!entry) return null;
+
+    const ageMs = Date.now() - entry.modifiedAt.getTime();
+    const timestamp = entry.modifiedAt;
+    switch (entry.lastType) {
+      case "user":
+      case "tool_use":
+      case "progress":
+        return { state: ageMs > threshold ? "idle" : "active", timestamp };
+      case "assistant":
+      case "system":
+      case "summary":
+      case "result":
+        return { state: ageMs > threshold ? "idle" : "ready", timestamp };
+      case "permission_request":
+        return { state: "waiting_input", timestamp };
+      case "error":
+        return { state: "blocked", timestamp };
+      default:
+        return { state: ageMs > threshold ? "idle" : "active", timestamp };
+    }
   },
 
   getLaunchCommand(launchConfig: AgentLaunchConfig): string {
