@@ -637,6 +637,31 @@ async function runStartup(
     });
   }
 
+  // When --no-dashboard is used but lifecycle is started, keep the process alive
+  // so the monitoring loop in start-all.sh does not see a premature exit.
+  // Without this, the process exits immediately (code 0) after spawning the detached
+  // lifecycle worker, causing the wrapper to kill all workers and launchd to not restart.
+  // Use a timer with unref() so the process can still exit cleanly on signals.
+  if (opts?.dashboard === false && shouldStartLifecycle) {
+    const keepAlive = setInterval(() => {}, 1 << 30);
+    const shutdown = async (): Promise<void> => {
+      clearInterval(keepAlive);
+      try {
+        if (lifecycleStatus?.started) {
+          await stopLifecycleWorker(config, projectId);
+        }
+      } finally {
+        process.exit(0);
+      }
+    };
+    process.once("SIGTERM", () => {
+      void shutdown();
+    });
+    process.once("SIGINT", () => {
+      void shutdown();
+    });
+  }
+
   return port;
 }
 

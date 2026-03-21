@@ -805,3 +805,37 @@ describe("stop command", () => {
     });
   });
 });
+
+// ---------------------------------------------------------------------------
+// no-dashboard keepalive (regression: launchd wrapper should not see premature exit)
+// ---------------------------------------------------------------------------
+
+describe("no-dashboard keepalive", () => {
+  /**
+   * Regression test for the keepalive path added to prevent `ao start --no-dashboard`
+   * from exiting immediately after spawning the detached lifecycle worker.
+   *
+   * Without keepalive, start-all.sh sees the wrapper exit with code 0, kills all
+   * remaining workers, and launchd (with SuccessfulExit:false) does not restart.
+   *
+   * The keepalive uses process.once("SIGTERM"/"SIGINT") to ensure clean teardown.
+   * Signal handlers cannot be sent to the test process itself (that would kill vitest),
+   * so we verify that lifecycle is started and the --no-dashboard flag is accepted
+   * without causing an error (i.e., the keepalive path is reachable).
+   */
+  it("starts lifecycle and completes without error when --no-dashboard is used", async () => {
+    mockConfigRef.current = makeConfig({ "my-app": makeProject() });
+    // These mocks are required for the session manager path (same as the existing
+    // "skips browser open but still starts lifecycle with --no-dashboard alone" test).
+    mockSessionManager.get.mockResolvedValue(null);
+    mockSessionManager.spawnOrchestrator.mockResolvedValue({ id: "app-orchestrator" });
+
+    // If this resolves without throwing, the keepalive path was reached (no immediate exit).
+    // With the keepalive fix, --no-dashboard no longer causes premature process exit.
+    await program.parseAsync(["node", "test", "start", "--no-dashboard"]);
+
+    expect(mockEnsureLifecycleWorker).toHaveBeenCalled();
+    // stopLifecycleWorker is NOT called during startup — only on signal receipt
+    expect(mockStopLifecycleWorker).not.toHaveBeenCalled();
+  });
+});

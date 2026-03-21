@@ -1,7 +1,8 @@
 #!/bin/bash
-# Start AO for all projects defined in agent-orchestrator.yaml
-# First project gets the dashboard, rest get --no-dashboard
-set -e
+# Start AO for all projects defined in agent-orchestrator.yaml.
+# For persistent restarts/login startup, install the launchd wrapper via scripts/setup-launchd.sh.
+# First project gets the dashboard, rest get --no-dashboard.
+set -euo pipefail
 
 CONFIG_FILE="${AO_CONFIG_PATH:-$HOME/.openclaw/agent-orchestrator.yaml}"
 
@@ -30,6 +31,19 @@ SELECTED="${@:-$PROJECTS}"
 LOG_DIR="${AO_LOG_DIR:-$HOME/.openclaw/logs}"
 mkdir -p "$LOG_DIR"
 
+# Track worker PIDs for monitoring and cleanup.
+PIDS=()
+# Trap to kill all workers on exit (prevents orphaned processes on restart).
+# _kill_workers guards against empty PIDS to avoid bash 3.2 "unbound variable"
+# errors with "${PIDS[@]}" under set -u.
+_kill_workers() {
+  if [ ${#PIDS[@]} -eq 0 ]; then return; fi
+  for pid in "${PIDS[@]}"; do
+    kill -0 "$pid" 2>/dev/null && kill "$pid" 2>/dev/null || true
+  done
+}
+trap '_kill_workers' EXIT
+
 FIRST=true
 for PROJECT in $SELECTED; do
   # Verify project exists in config
@@ -48,7 +62,7 @@ for PROJECT in $SELECTED; do
     # it via nohup+disown ensures both the dashboard AND the lifecycle-worker
     # survive parent exit.
     nohup ao start "$PROJECT" > "$AO_LOG" 2>&1 &
-    disown
+    PIDS+=($!)
     FIRST=false
     # Wait briefly for startup output, then display summary lines
     sleep 3
@@ -56,16 +70,31 @@ for PROJECT in $SELECTED; do
   else
     echo "=== Starting $PROJECT ==="
     nohup ao start --no-dashboard "$PROJECT" > "$AO_LOG" 2>&1 &
-    disown
+    PIDS+=($!)
     sleep 3
     grep -E "✔|✓|Lifecycle:|Orchestrator:|error" "$AO_LOG" | head -5 || true
   fi
   echo ""
 done
 
-echo "All projects started."
-echo ""
-echo "Status:  ao status"
-echo "Workers: ps aux | grep lifecycle-worker | grep -v grep"
-echo "Sessions: ao session ls"
-echo "Logs:    ls $LOG_DIR/ao-start-*.log"
+if [ ${#PIDS[@]} -eq 0 ]; then
+  echo "ERROR: No workers started"
+  exit 1
+fi
+
+echo "Monitoring ${#PIDS[@]} workers. If any exit, this wrapper will exit too (triggering launchd restart)."
+
+# Wait for any worker to exit (bash 3.2 compatible — no wait -n).
+# Uses kill -0 to check liveness without sending a signal.
+while true; do
+  for pid in "${PIDS[@]}"; do
+    if ! kill -0 "$pid" 2>/dev/null; then
+      EXIT_CODE=0
+      wait "$pid" 2>/dev/null || EXIT_CODE=$?
+      echo "Worker PID $pid exited with code ${EXIT_CODE}. Exiting wrapper to trigger launchd restart."
+      _kill_workers
+      exit "$EXIT_CODE"
+    fi
+  done
+  sleep 2
+done
