@@ -70,7 +70,7 @@ jobs:
           # is also correctly stripped even though the pattern uses lowercase 'c'
           CLAIM=$(printf '%s' "$BODY" \
             | grep -i '\*\*Claim class' | grep -v '^- ' | head -1 \
-            | sed -I 's/.*\*\*Claim class\*\*:\s*//' \
+            | sed 's/.*\*\*Claim class\*\*:\s*//I' \
             | sed 's/(.*//' \
             | tr -d '*' | tr '[:upper:]' '[:lower:]' \
             | tr ' ' '-' | tr -d '\t' \
@@ -80,7 +80,7 @@ jobs:
           if [ -z "$CLAIM" ]; then
             CLAIM=$(printf '%s' "$BODY" \
               | grep -i '^-.*\*\*Claim class' | head -1 \
-              | sed -I 's/.*\*\*Claim class\*\*:\s*//' \
+              | sed 's/.*\*\*Claim class\*\*:\s*//I' \
               | sed 's/(.*//' \
               | tr -d '*' | tr '[:upper:]' '[:lower:]' \
               | tr ' ' '-' | tr -d '\t' \
@@ -110,7 +110,7 @@ jobs:
 
           CLAIM=$(printf '%s' "$BODY" \
             | grep -i '\*\*Claim class' | grep -v '^- ' | head -1 \
-            | sed -I 's/.*\*\*Claim class\*\*:\s*//' \
+            | sed 's/.*\*\*Claim class\*\*:\s*//I' \
             | sed 's/(.*//' \
             | tr -d '*' | tr '[:upper:]' '[:lower:]' \
             | tr ' ' '-' | tr -d '\t' \
