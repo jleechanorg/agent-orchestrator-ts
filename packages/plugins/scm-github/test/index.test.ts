@@ -630,6 +630,62 @@ describe("scm-github plugin", () => {
       mockGh({ state: "merged" });
       expect(await scm.getPRState(pr)).toBe("merged");
     });
+
+    it("falls back to REST API when GraphQL is rate-limited", async () => {
+      // Exhaust all 3 retries with rate limit errors
+      mockGhError("API rate limit exceeded");
+      mockGhError("API rate limit exceeded");
+      mockGhError("API rate limit exceeded");
+      // REST fallback: gh api repos/acme/repo/pulls/42
+      mockGh({ state: "open", merged: false });
+      expect(await scm.getPRState(pr)).toBe("open");
+    });
+
+    it("REST fallback returns merged when merged=true", async () => {
+      // Exhaust all 3 retries with rate limit errors
+      mockGhError("API rate limit exceeded");
+      mockGhError("API rate limit exceeded");
+      mockGhError("API rate limit exceeded");
+      // REST API returns {state: "closed", merged: true} for merged PRs
+      mockGh({ state: "closed", merged: true });
+      expect(await scm.getPRState(pr)).toBe("merged");
+    });
+  });
+
+  // ---- getPRSummary REST fallback -----------------------------------------
+
+  describe("getPRSummary REST fallback", () => {
+    it("falls back to REST API when GraphQL is rate-limited", async () => {
+      mockGhError("API rate limit exceeded");
+      mockGhError("API rate limit exceeded");
+      mockGhError("API rate limit exceeded");
+      // REST fallback returns full PR object
+      mockGh({ state: "open", merged: false, title: "Fix bug", additions: 10, deletions: 5 });
+      const summary = await scm.getPRSummary(pr);
+      expect(summary).toMatchObject({ state: "open", title: "Fix bug", additions: 10, deletions: 5 });
+    });
+
+    it("REST fallback correctly identifies merged PRs", async () => {
+      mockGhError("API rate limit exceeded");
+      mockGhError("API rate limit exceeded");
+      mockGhError("API rate limit exceeded");
+      mockGh({ state: "closed", merged: true, title: "Feature", additions: 100, deletions: 20 });
+      const summary = await scm.getPRSummary(pr);
+      expect(summary.state).toBe("merged");
+    });
+  });
+
+  // ---- getReviewDecision REST fallback ------------------------------------
+
+  describe("getReviewDecision REST fallback", () => {
+    it("returns none when REST fallback has no reviewDecision field", async () => {
+      mockGhError("API rate limit exceeded");
+      mockGhError("API rate limit exceeded");
+      mockGhError("API rate limit exceeded");
+      // REST API doesn't return reviewDecision — it's GraphQL-only
+      mockGh({ state: "open", merged: false });
+      expect(await scm.getReviewDecision(pr)).toBe("none");
+    });
   });
 
   // ---- mergePR -----------------------------------------------------------
@@ -858,6 +914,17 @@ describe("scm-github plugin", () => {
       });
       const reviews = await scm.getReviews(pr);
       expect(reviews[0].author).toBe("unknown");
+    });
+  });
+
+  describe("getReviews REST fallback", () => {
+    it("returns empty array when REST fallback has no reviews field", async () => {
+      mockGhError("API rate limit exceeded");
+      mockGhError("API rate limit exceeded");
+      mockGhError("API rate limit exceeded");
+      // REST API /pulls/{number} doesn't include reviews
+      mockGh({ state: "open", merged: false });
+      expect(await scm.getReviews(pr)).toEqual([]);
     });
   });
 
@@ -1374,6 +1441,41 @@ describe("scm-github plugin", () => {
     });
   });
 
+  describe("getMergeability REST fallback", () => {
+    it("handles boolean mergeable field from REST API", async () => {
+      // getPRState: GraphQL works fine
+      mockGh({ state: "OPEN" });
+      // PR view for mergeable: REST boolean format
+      mockGh({
+        mergeable: true,
+        reviewDecision: "APPROVED",
+        mergeStateStatus: "",
+        isDraft: false,
+      });
+      // CI checks
+      mockGh([{ name: "build", state: "SUCCESS" }]);
+
+      const result = await scm.getMergeability(pr);
+      expect(result.noConflicts).toBe(true);
+      expect(result.blockers).not.toContain("Merge status unknown (GitHub is computing)");
+    });
+
+    it("handles mergeable=false from REST API as conflicts", async () => {
+      mockGh({ state: "OPEN" });
+      mockGh({
+        mergeable: false,
+        reviewDecision: "APPROVED",
+        mergeStateStatus: "",
+        isDraft: false,
+      });
+      mockGh([{ name: "build", state: "SUCCESS" }]);
+
+      const result = await scm.getMergeability(pr);
+      expect(result.noConflicts).toBe(false);
+      expect(result.blockers).toContain("Merge conflicts");
+    });
+  });
+
   describe("rate limit handling", () => {
     let setTimeoutSpy: ReturnType<typeof vi.spyOn>;
 
@@ -1403,17 +1505,20 @@ describe("scm-github plugin", () => {
       expect(ghMock).toHaveBeenCalledTimes(3);
     });
 
-    it("throws after max retries exhausted", async () => {
-      // All calls fail with rate limit
+    it("throws after max retries exhausted and REST fallback fails", async () => {
+      // All 3 GraphQL retries fail with rate limit
       ghMock
         .mockRejectedValueOnce(new Error("rate limit"))
         .mockRejectedValueOnce(new Error("rate limit"))
+        .mockRejectedValueOnce(new Error("rate limit"))
+        // 4th call: REST fallback also fails
         .mockRejectedValueOnce(new Error("rate limit"));
 
       const scm = await create({});
 
       await expect(scm.getPRState(pr)).rejects.toThrow();
-      expect(ghMock).toHaveBeenCalledTimes(3);
+      // 3 retries + 1 REST fallback attempt = 4 calls
+      expect(ghMock).toHaveBeenCalledTimes(4);
     });
 
     it("does not retry non-rate-limit errors", async () => {

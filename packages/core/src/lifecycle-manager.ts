@@ -799,9 +799,19 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       // (e.g., list() detected a dead runtime and marked it "killed" — we need to
       // process that transition even though the new status is terminal)
       const sessionsToCheck = sessions.filter((s) => {
-        if (s.status !== "merged" && s.status !== "killed") return true;
-        const tracked = states.get(s.id);
-        return tracked !== undefined && tracked !== s.status;
+        // Skip terminal statuses
+        if (s.status === "merged" || s.status === "killed") {
+          const tracked = states.get(s.id);
+          return tracked !== undefined && tracked !== s.status;
+        }
+        // Skip sessions where agent process has exited — polling these
+        // burns API quota for sessions that can't act on reactions.
+        // determineStatus() will mark them "killed" on the transition check.
+        if (s.activity === "exited") {
+          const tracked = states.get(s.id);
+          return tracked !== undefined && tracked !== s.status;
+        }
+        return true;
       });
 
       // Poll all sessions concurrently

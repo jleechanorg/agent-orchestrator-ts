@@ -85,11 +85,26 @@ async function sleep(ms: number): Promise<void> {
 }
 
 /**
- * Execute gh CLI with rate limit retry and fallback to REST API.
- * Uses exponential backoff for rate limit errors, then falls back to curl-based REST calls.
+ * Convert `gh pr view <number> --repo owner/repo --json fields` args to
+ * equivalent `gh api repos/owner/repo/pulls/<number>` REST API args.
+ * Returns null if the args can't be converted.
  */
+function ghPrViewToRestArgs(args: string[]): string[] | null {
+  // Expected: ["pr", "view", "<number>", "--repo", "owner/repo", "--json", "fields"]
+  if (args[0] !== "pr" || args[1] !== "view") return null;
+
+  const prNumber = args[2];
+  if (!prNumber || !/^\d+$/.test(prNumber)) return null;
+
+  const repoIdx = args.indexOf("--repo");
+  if (repoIdx === -1 || !args[repoIdx + 1]) return null;
+
+  const repo = args[repoIdx + 1];
+  return ["api", `repos/${repo}/pulls/${prNumber}`];
+}
+
 /**
- * Execute gh CLI with rate limit retry and optional working directory.
+ * Execute gh CLI with rate limit retry and fallback to REST API.
  * Uses exponential backoff for rate limit errors, then falls back to curl-based REST calls.
  */
 async function ghWithRetry(args: string[], cwd?: string, maxRetries = 3): Promise<string> {
@@ -133,9 +148,17 @@ async function ghWithRetry(args: string[], cwd?: string, maxRetries = 3): Promis
     }
   }
 
-  // For non-`gh api` commands (e.g. `gh pr view`), rethrow the last error instead of
-  // attempting a REST fallback that cannot construct a valid URL.
-  console.warn("Gh CLI rate limit retries exhausted for non-API command, throwing original error");
+  // Attempt REST fallback for `gh pr view` commands by converting to `gh api` equivalent.
+  if (args[0] === "pr" && args[1] === "view") {
+    const restArgs = ghPrViewToRestArgs(args);
+    if (restArgs) {
+      console.warn("Gh CLI rate limit retries exhausted, trying REST API fallback for `gh pr view` call");
+      return await execCli("gh", restArgs, cwd);
+    }
+  }
+
+  // No fallback available — rethrow the last error.
+  console.warn("Gh CLI rate limit retries exhausted, no REST fallback available");
   if (lastError instanceof Error) {
     throw lastError;
   }
@@ -809,9 +832,11 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
         "--json",
         "state",
       ]);
-      const data: { state: string } = JSON.parse(raw);
+      const data: { state: string; merged?: boolean } = JSON.parse(raw);
       const s = data.state.toUpperCase();
       if (s === "MERGED") return "merged";
+      // REST API returns {state: "closed", merged: true} for merged PRs
+      if (data.merged === true) return "merged";
       if (s === "CLOSED") return "closed";
       return "open";
     },
@@ -828,12 +853,15 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
       ]);
       const data: {
         state: string;
+        merged?: boolean;
         title: string;
         additions: number;
         deletions: number;
       } = JSON.parse(raw);
       const s = data.state.toUpperCase();
-      const state: PRState = s === "MERGED" ? "merged" : s === "CLOSED" ? "closed" : "open";
+      // REST API returns {state: "closed", merged: true} for merged PRs
+      const state: PRState =
+        s === "MERGED" || data.merged === true ? "merged" : s === "CLOSED" ? "closed" : "open";
       return {
         state,
         title: data.title ?? "",
@@ -944,6 +972,9 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
           submittedAt: string;
         }>;
       } = JSON.parse(raw);
+
+      // REST API fallback doesn't include reviews — return empty
+      if (!data.reviews) return [];
 
       return data.reviews.map((r) => {
         let state: Review["state"];
@@ -1181,7 +1212,7 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
       ]);
 
       const data: {
-        mergeable: string;
+        mergeable: string | boolean;
         reviewDecision: string;
         mergeStateStatus: string;
         isDraft: boolean;
@@ -1204,14 +1235,24 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
       }
 
       // Conflicts / merge state
-      const mergeable = (data.mergeable ?? "").toUpperCase();
-      const mergeState = (data.mergeStateStatus ?? "").toUpperCase();
-      const noConflicts = mergeable === "MERGEABLE";
-      if (mergeable === "CONFLICTING") {
-        blockers.push("Merge conflicts");
-      } else if (mergeable === "UNKNOWN" || mergeable === "") {
-        blockers.push("Merge status unknown (GitHub is computing)");
+      // GraphQL returns mergeable as string ("MERGEABLE"/"CONFLICTING"/"UNKNOWN")
+      // REST API returns mergeable as boolean (true/false/null)
+      let noConflicts: boolean;
+      if (typeof data.mergeable === "boolean") {
+        noConflicts = data.mergeable;
+        if (!data.mergeable) {
+          blockers.push("Merge conflicts");
+        }
+      } else {
+        const mergeable = (String(data.mergeable ?? "")).toUpperCase();
+        noConflicts = mergeable === "MERGEABLE";
+        if (mergeable === "CONFLICTING") {
+          blockers.push("Merge conflicts");
+        } else if (mergeable === "UNKNOWN" || mergeable === "") {
+          blockers.push("Merge status unknown (GitHub is computing)");
+        }
       }
+      const mergeState = (data.mergeStateStatus ?? "").toUpperCase();
       if (mergeState === "BEHIND") {
         blockers.push("Branch is behind base branch");
       } else if (mergeState === "BLOCKED") {
