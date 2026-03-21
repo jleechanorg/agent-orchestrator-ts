@@ -3434,3 +3434,136 @@ describe("worktree cleanup on terminal transitions", () => {
     expect(mockSessionManager.kill).not.toHaveBeenCalled();
   });
 });
+
+describe("bd-kki: killed transition + merged PR race", () => {
+  let mockSCM: SCM;
+
+  beforeEach(() => {
+    mockSCM = {
+      name: "mock-scm",
+      detectPR: vi.fn(),
+      getPRState: vi.fn().mockResolvedValue("merged"),
+      mergePR: vi.fn(),
+      closePR: vi.fn(),
+      getCIChecks: vi.fn(),
+      getCISummary: vi.fn(),
+      getReviews: vi.fn(),
+      getReviewDecision: vi.fn(),
+      getPendingComments: vi.fn(),
+      getAutomatedComments: vi.fn(),
+      getMergeability: vi.fn(),
+    };
+  });
+
+  function makeRegistryWithSCM(): PluginRegistry {
+    return {
+      ...mockRegistry,
+      get: vi.fn().mockImplementation((slot: string) => {
+        if (slot === "runtime") return mockRuntime;
+        if (slot === "agent") return mockAgent;
+        if (slot === "scm") return mockSCM;
+        return null;
+      }),
+    };
+  }
+
+  it("calls sessionManager.kill() when killed transition and SCM reports merged", async () => {
+    const nonExistentPath = join(tmpDir, "non-existent-workspace-" + randomUUID());
+    const session = makeSession({ status: "pr_open", pr: makePR(), workspacePath: nonExistentPath });
+    vi.mocked(mockSessionManager.get).mockResolvedValue(session);
+
+    writeMetadata(sessionsDir, "app-1", {
+      worktree: "/tmp",
+      branch: "feat/test",
+      status: "pr_open",
+      project: "my-app",
+    });
+
+    const lm = createLifecycleManager({
+      config,
+      registry: makeRegistryWithSCM(),
+      sessionManager: mockSessionManager,
+    });
+
+    await lm.check("app-1");
+
+    expect(lm.getStates().get("app-1")).toBe("killed");
+    expect(mockSessionManager.kill).toHaveBeenCalledWith("app-1");
+  });
+
+  it("skips persisting killed when SCM is unreachable (retry next poll)", async () => {
+    vi.mocked(mockSCM.getPRState).mockRejectedValue(new Error("network error"));
+    const nonExistentPath = join(tmpDir, "non-existent-workspace-" + randomUUID());
+    const session = makeSession({ status: "pr_open", pr: makePR(), workspacePath: nonExistentPath });
+    vi.mocked(mockSessionManager.get).mockResolvedValue(session);
+
+    writeMetadata(sessionsDir, "app-1", {
+      worktree: "/tmp",
+      branch: "feat/test",
+      status: "pr_open",
+      project: "my-app",
+    });
+
+    const lm = createLifecycleManager({
+      config,
+      registry: makeRegistryWithSCM(),
+      sessionManager: mockSessionManager,
+    });
+
+    await lm.check("app-1");
+
+    expect(mockSessionManager.kill).not.toHaveBeenCalled();
+    expect(lm.getStates().get("app-1")).toBe("killed");
+  });
+
+  it("skips killed persistence when PR is not merged (retry next poll)", async () => {
+    vi.mocked(mockSCM.getPRState).mockResolvedValue("closed");
+    const nonExistentPath = join(tmpDir, "non-existent-workspace-" + randomUUID());
+    const session = makeSession({ status: "pr_open", pr: makePR(), workspacePath: nonExistentPath });
+    vi.mocked(mockSessionManager.get).mockResolvedValue(session);
+
+    writeMetadata(sessionsDir, "app-1", {
+      worktree: "/tmp",
+      branch: "feat/test",
+      status: "pr_open",
+      project: "my-app",
+    });
+
+    const lm = createLifecycleManager({
+      config,
+      registry: makeRegistryWithSCM(),
+      sessionManager: mockSessionManager,
+    });
+
+    await lm.check("app-1");
+
+    expect(mockSCM.getPRState).toHaveBeenCalled();
+    expect(mockSessionManager.kill).not.toHaveBeenCalled();
+    expect(lm.getStates().get("app-1")).toBe("killed");
+  });
+
+  it("skips SCM check when oldStatus is already terminal (bd-kki guard)", async () => {
+    vi.mocked(mockSCM.getPRState).mockResolvedValue("merged");
+    const nonExistentPath = join(tmpDir, "non-existent-workspace-" + randomUUID());
+    const session = makeSession({ status: "errored", pr: makePR(), workspacePath: nonExistentPath });
+    vi.mocked(mockSessionManager.get).mockResolvedValue(session);
+
+    writeMetadata(sessionsDir, "app-1", {
+      worktree: "/tmp",
+      branch: "feat/test",
+      status: "errored",
+      project: "my-app",
+    });
+
+    const lm = createLifecycleManager({
+      config,
+      registry: makeRegistryWithSCM(),
+      sessionManager: mockSessionManager,
+    });
+
+    await lm.check("app-1");
+
+    expect(mockSCM.getPRState).not.toHaveBeenCalled();
+    expect(lm.getStates().get("app-1")).toBe("killed");
+  });
+});
