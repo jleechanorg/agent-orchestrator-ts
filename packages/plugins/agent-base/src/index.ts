@@ -133,6 +133,32 @@ if [[ "$tool_name" != "Bash" && "$tool_name" != "run_shell_command" ]]; then
   exit 0
 fi
 
+# ============================================================================
+# Command Detection and Parsing
+# ============================================================================
+
+# Strip leading directory-change prefixes so commands like
+#   cd ~/.worktrees/project && gh pr create ...
+# are still detected.
+cd_prefix_pattern='^[[:space:]]*cd[[:space:]]+.*[[:space:]]+(&&|;)[[:space:]]+(.*)'
+clean_command="$command"
+while [[ "$clean_command" =~ ^[[:space:]]*cd[[:space:]] ]]; do
+  if [[ "$clean_command" =~ $cd_prefix_pattern ]]; then
+    clean_command="\${BASH_REMATCH[2]}"
+  else
+    break
+  fi
+done
+
+# Hard guardrail: block agent-triggered gh pr merge by default.
+# Escape hatch for trusted/manual flows: AO_ALLOW_GH_PR_MERGE=1
+# This check runs BEFORE AO_SESSION/metadata checks since blocking a merge doesn't require session metadata.
+merge_pattern='^[[:space:]]*([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]+[[:space:]]+)*gh[[:space:]]+pr[[:space:]]+merge([[:space:]]|$)'
+if [[ "$clean_command" =~ $merge_pattern && "\${AO_ALLOW_GH_PR_MERGE:-}" != "1" ]]; then
+  echo '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"Blocked by AO policy: agents must not run gh pr merge. Leave merge to orchestrator/human."}}'
+  exit 0
+fi
+
 # Validate AO_SESSION is set
 if [[ -z "\${AO_SESSION:-}" ]]; then
   echo '{"systemMessage": "AO_SESSION environment variable not set, skipping metadata update"}'
@@ -173,31 +199,6 @@ update_metadata_key() {
   # Atomic replace
   mv "$temp_file" "$metadata_file"
 }
-
-# ============================================================================
-# Command Detection and Parsing
-# ============================================================================
-
-# Strip leading directory-change prefixes so commands like
-#   cd ~/.worktrees/project && gh pr create ...
-# are still detected.
-cd_prefix_pattern='^[[:space:]]*cd[[:space:]]+.*[[:space:]]+(&&|;)[[:space:]]+(.*)'
-clean_command="$command"
-while [[ "$clean_command" =~ ^[[:space:]]*cd[[:space:]] ]]; do
-  if [[ "$clean_command" =~ $cd_prefix_pattern ]]; then
-    clean_command="\${BASH_REMATCH[2]}"
-  else
-    break
-  fi
-done
-
-# Hard guardrail: block agent-triggered gh pr merge by default.
-# Escape hatch for trusted/manual flows: AO_ALLOW_GH_PR_MERGE=1
-merge_pattern='^[[:space:]]*([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]+[[:space:]]+)*gh[[:space:]]+pr[[:space:]]+merge([[:space:]]|$)'
-if [[ "$clean_command" =~ $merge_pattern && "\${AO_ALLOW_GH_PR_MERGE:-}" != "1" ]]; then
-  echo '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"Blocked by AO policy: agents must not run gh pr merge. Leave merge to orchestrator/human."}}'
-  exit 0
-fi
 
 # Detect: gh pr create
 if [[ "$clean_command" =~ ^gh[[:space:]]+pr[[:space:]]+create ]]; then
