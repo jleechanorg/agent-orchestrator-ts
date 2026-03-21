@@ -131,6 +131,7 @@ function restMergeableStateToGraphqlMergeStateStatus(raw: string): string {
 type RestReviewRow = {
   state?: string;
   user?: { login?: string };
+  body?: string;
   submitted_at?: string;
 };
 
@@ -174,7 +175,7 @@ function mapRestReviewsToPrViewReviewsShape(reviewsUnknown: unknown): Array<{
   return (reviewsUnknown as RestReviewRow[]).map((r) => ({
     author: { login: r.user?.login ?? "unknown" },
     state: r.state ?? "",
-    body: "",
+    body: r.body ?? "",
     submittedAt: r.submitted_at ?? "",
   }));
 }
@@ -245,7 +246,10 @@ async function fetchPrViewFallbackAsJson(conv: PrViewRestConversion, cwd?: strin
       if (conv.jsonFields.includes("reviewDecision")) {
         reviewDecision = deriveReviewDecisionGraphqlFromReviews(reviewsPayload);
       }
-    } catch {
+    } catch (err) {
+      // If the caller explicitly requested the reviews list, propagate the error
+      // rather than silently returning an empty reviews field (data loss).
+      if (conv.jsonFields.includes("reviews")) throw err;
       reviewDecision = "REVIEW_REQUIRED";
     }
   }
