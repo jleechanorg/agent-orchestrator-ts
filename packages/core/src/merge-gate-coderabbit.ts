@@ -87,10 +87,10 @@ export function evaluateCoderabbitApproval(
 
   const detail = passed
     ? "CodeRabbit approved"
-    : hasDismissed
-      ? "CodeRabbit review was dismissed without a subsequent approval"
-      : latestCR?.state === "changes_requested"
-        ? "CodeRabbit requested changes"
+    : latestCR?.state === "changes_requested"
+      ? "CodeRabbit requested changes"
+      : hasDismissed
+        ? "CodeRabbit review was dismissed without a subsequent approval"
         : "No CodeRabbit approval found";
 
   return { passed, detail };
