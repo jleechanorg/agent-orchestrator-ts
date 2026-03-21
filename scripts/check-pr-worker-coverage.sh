@@ -19,7 +19,7 @@ session_output=$(ao session ls --project "$PROJECT" 2>/dev/null) || {
 declare -A session_map  # key=branch name, value=session id
 while IFS= read -r line; do
   # Match lines like: ao-406  (19s ago)  feat/pr-worker-coverage-harness  [working]
-  if [[ $line =~ ^([a-z]+-[0-9]+)[[:space:]]+.*[[:space:]]+([a-zA-Z0-9/_-]+)[[:space:]]+\[ ]]; then
+  if [[ $line =~ ^[[:space:]]+([a-z]+-[0-9]+)[[:space:]]+.*[[:space:]]+([a-zA-Z0-9/_-]+)[[:space:]]+\[.*\] ]]; then
     sid="${BASH_REMATCH[1]}"
     branch="${BASH_REMATCH[2]}"
     session_map["$branch"]="$sid"
