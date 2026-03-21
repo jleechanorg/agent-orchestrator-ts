@@ -111,27 +111,46 @@ if false; then
       fi
       # Also kill any non-launchd worker for this project (by PID file)
       # PID file path: ~/.agent-orchestrator/{hash}-{projectId}/lifecycle-worker.pid
-      # hash = sha256(dirname(configPath))[:12], projectId = basename(project.path)
+      # hash = sha256(realpath(dirname(configPath)))[:12], projectId = basename(project.path)
+      # Uses realpath to resolve symlinks — matches TypeScript generateConfigHash().
       if [ -d "$HOME/.agent-orchestrator" ]; then
+        # Compute namespace hash from resolved config directory path (symlink-aware).
         PID_FILE_NS="$(python3 -c "
 import hashlib, sys, os, yaml
 try:
-    with open('$CONFIG_FILE') as f:
-        cfg = yaml.safe_load(f)
-    ns = hashlib.sha256(os.path.dirname('$CONFIG_FILE').encode()).hexdigest()[:12]
+    cfg_path = os.path.realpath('$CONFIG_FILE')
+    ns = hashlib.sha256(os.path.dirname(cfg_path).encode()).hexdigest()[:12]
     print(ns)
 except:
     pass
 " 2>/dev/null || echo "")"
+        # projectId must be basename(project.path) — matches TypeScript generateProjectId().
+        PROJ_ID_FOR_PID="$(python3 -c "
+import yaml, sys, os
+try:
+    with open('$CONFIG_FILE') as f:
+        cfg = yaml.safe_load(f)
+    proj_cfg = cfg.get('projects', {}).get('$PROJECT', {})
+    path = proj_cfg.get('path', '')
+    if path:
+        if path.startswith('~'):
+            path = os.path.expanduser(path)
+        elif not os.path.isabs(path):
+            path = os.path.normpath(os.path.join(os.path.dirname('$CONFIG_FILE'), path))
+        print(os.path.basename(path))
+except:
+    pass
+" 2>/dev/null || echo "")"
+        PROJ_ID_FOR_PID="${PROJ_ID_FOR_PID:-$PROJECT}"
         if [ -n "$PID_FILE_NS" ]; then
-          LW_PID_FILE="$HOME/.agent-orchestrator/${PID_FILE_NS}-${PROJECT}/lifecycle-worker.pid"
+          LW_PID_FILE="$HOME/.agent-orchestrator/${PID_FILE_NS}-${PROJ_ID_FOR_PID}/lifecycle-worker.pid"
           if [ -f "$LW_PID_FILE" ]; then
             LW_PID="$(cat "$LW_PID_FILE" 2>/dev/null)"
             if [ -n "$LW_PID" ]; then
               # Verify this PID is actually a lifecycle-worker before killing it
               # to avoid killing an unrelated process that has reused this PID.
-              if ps -p "$LW_PID" -o args= 2>/dev/null | grep -qF -- "lifecycle-worker $PROJECT"; then
-                echo "  [kill] $PROJECT lifecycle-worker PID $LW_PID"
+              if ps -p "$LW_PID" -o args= 2>/dev/null | grep -qF -- "lifecycle-worker $PROJ_ID_FOR_PID"; then
+                echo "  [kill] $PROJ_ID_FOR_PID lifecycle-worker PID $LW_PID"
                 kill "$LW_PID" 2>/dev/null || true
               fi
             fi

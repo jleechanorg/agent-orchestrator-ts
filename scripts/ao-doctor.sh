@@ -344,11 +344,12 @@ except Exception:
 
     # Count how many processes appear to be lifecycle-workers for this project
     # via ps (covers both launchd-managed and manual/process-spawned workers).
-    # Use -F (fixed string) so project IDs with regex metacharacters (., +, [)
-    # are matched literally and don't cause grep errors or miscounts.
+    # -E + -w: require project ID to match as a whole word (prevents "api"
+    # from matching "lifecycle-worker api-v2"). The pattern starts with
+    # lifecycle-worker so we don't match unrelated lines containing the proj ID.
     # -v grep filters out the grep processes themselves.
     local count
-    count="$(ps aux 2>/dev/null | grep "[l]ifecycle-worker" | grep -v grep | grep -F -- "$proj" | wc -l | tr -d ' ')"
+    count="$(ps aux 2>/dev/null | grep -v grep | grep -E -w "lifecycle-worker[[:space:]].*$proj($|[[:space:]])" | wc -l | tr -d ' ')"
 
     if [ "$count" -eq 0 ]; then
       warn "no lifecycle-worker process found for project '$proj'"
