@@ -71,7 +71,6 @@ function buildBotAuthors(config?: Record<string, unknown>): Set<string> {
 // ---------------------------------------------------------------------------
 
 
-
 /** Parsed `gh pr view ... --json a,b,c` for REST fallback synthesis. */
 type PrViewRestConversion = {
   repo: string;
