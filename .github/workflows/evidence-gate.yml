@@ -1,0 +1,131 @@
+name: Evidence Gate
+
+on:
+  pull_request:
+    types: [opened, synchronize, edited, reopened]
+
+jobs:
+  evidence-gate:
+    name: Evidence Gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Write PR body to temp file
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          # Use the PR body from the workflow context — available without auth scope
+          # Fail-closed: body must not be empty (would indicate context unavailable)
+          printf '%s' "$PR_BODY" > "$RUNNER_TEMP/pr_body.txt"
+          echo "Body fetched: ${#PR_BODY} chars"
+          if [ ${#PR_BODY} -eq 0 ]; then
+            echo "ERROR: PR body is empty — context may be unavailable" >&2
+            exit 1
+          fi
+
+      - name: Check for evidence bundle in PR body
+        id: check
+        run: |
+          BODY=$(cat "$RUNNER_TEMP/pr_body.txt")
+
+          # Check if body contains Evidence section
+          if printf '%s' "$BODY" | grep -qi 'Evidence'; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "found=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Validate evidence bundle format
+        if: steps.check.outputs.found == 'true'
+        run: |
+          BODY=$(cat "$RUNNER_TEMP/pr_body.txt")
+
+          # Extract claim class — normalize to lowercase
+          # Extract claim class from bold-markdown lines (skips list bullets like "- Claim class ...")
+          # grep -i '\*\*Claim class' matches bold-markdown lines; grep -v '^- ' filters list bullets
+          # tr -d '*' removes markdown bold markers; tr -d '[:space:]' removes leading/trailing whitespace
+          # Note: hyphens are intentionally preserved (pr-lifecycle-e2e must keep '-')
+          CLAIM=$(printf '%s' "$BODY" | grep -i '\*\*Claim class' | grep -v '^- ' | head -1 | sed 's/.*:\s*//' | tr -d '*' | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')
+          echo "Claim class detected: $CLAIM"
+
+          # Validate claim class is recognized
+          case "$CLAIM" in
+            unit|integration|pipeline-e2e|pr-lifecycle-e2e|merge-gate)
+              echo "Validated claim class: $CLAIM"
+              # Subsequent steps re-extract CLAIM from the PR body file directly
+              # for simplicity (file-based approach — no cross-step output needed)
+              ;;
+            *)
+              echo "ERROR: Unrecognized claim class: $CLAIM"
+              echo "Valid classes: unit, integration, pipeline-e2e, pr-lifecycle-e2e, merge-gate"
+              exit 1
+              ;;
+          esac
+
+      - name: Validate PR-lifecycle-e2e required proofs
+        if: steps.check.outputs.found == 'true'
+        run: |
+          BODY=$(cat "$RUNNER_TEMP/pr_body.txt")
+
+          CLAIM=$(printf '%s' "$BODY" | grep -i '\*\*Claim class' | grep -v '^- ' | head -1 | sed 's/.*:\s*//' | tr -d '*' | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')
+
+          if [ "$CLAIM" = "pr-lifecycle-e2e" ] || [ "$CLAIM" = "merge-gate" ]; then
+            echo "Checking required proofs for: $CLAIM"
+
+            # Proof 1: PR creation — must have GitHub PR URL
+            if ! printf '%s' "$BODY" | grep -qiE 'https://github\.com/[^/]+/[^/]+/pull/[0-9]+'; then
+              echo "ERROR: Missing PR creation URL in evidence bundle"
+              exit 1
+            fi
+            echo "PR creation proof: PASS"
+
+            # Proof 2: Transition — require structured evidence of CI/review activity
+            # Require a specific marker phrase, not just a generic word
+            if ! printf '%s' "$BODY" | grep -qiE '(transition proof|CI timeline|review timeline|check run|workflow run|codecov|status check)'; then
+              echo "ERROR: Missing transition proof (CI/review timeline) in evidence bundle"
+              exit 1
+            fi
+            echo "Transition proof: PASS"
+
+            # Proof 3: Merge outcome — structured phrase required
+            if ! printf '%s' "$BODY" | grep -qiE '(commit SHA|mergeable|merged|merge commit)'; then
+              echo "ERROR: Missing merge outcome proof in evidence bundle"
+              exit 1
+            fi
+            echo "Merge outcome proof: PASS"
+
+            # Proof 4: Cleanup — structured phrase required
+            if ! printf '%s' "$BODY" | grep -qiE '(cleanup proof|branch.*deleted|session.*kill|worktree.*remov)'; then
+              echo "ERROR: Missing cleanup proof in evidence bundle"
+              exit 1
+            fi
+            echo "Cleanup proof: PASS"
+
+            echo "All 4 required proofs present for $CLAIM"
+          else
+            echo "No additional validation required for claim class: $CLAIM"
+          fi
+
+      - name: Validate verdict is present and consistent
+        if: steps.check.outputs.found == 'true'
+        run: |
+          BODY=$(cat "$RUNNER_TEMP/pr_body.txt")
+
+          # Check for PASS verdict
+          if printf '%s' "$BODY" | grep -qi '[Vv]erdict.*:.*[Pp][Aa][Ss][Ss]'; then
+            echo "Verdict: PASS — evidence gate passes"
+
+          # Check for INSUFFICIENT verdict
+          elif printf '%s' "$BODY" | grep -qi '[Vv]erdict.*:.*[Ii][Nn][Ss][Uu][Ff][Ff][Ii][Cc][Ii][Ee][Nn][Tt]'; then
+            echo "Verdict: INSUFFICIENT — evidence gate passes (missing proof correctly triggers INSUFFICIENT)"
+
+          # Check for FAIL verdict
+          elif printf '%s' "$BODY" | grep -qi '[Vv]erdict.*:.*[Ff][Aa][Ii][Ll]'; then
+            echo "Verdict: FAIL — evidence gate passes (contradiction detected)"
+
+          # No verdict found
+          else
+            echo "WARNING: No verdict found in evidence bundle. Treating as INSUFFICIENT."
+            exit 1
+          fi
