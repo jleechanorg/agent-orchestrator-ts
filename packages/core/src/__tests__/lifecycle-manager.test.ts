@@ -335,7 +335,7 @@ describe("check (single session)", () => {
     expect(lm.getStates().get("app-1")).toBe("killed");
   });
 
-  it("force-kills runtime when status becomes killed but PR is merged", async () => {
+  it("bd-kki: overrides killed status to merged when SCM confirms PR is merged (kills via bd-s4t.1)", async () => {
     vi.mocked(mockRuntime.isAlive).mockResolvedValue(false);
 
     const mockScm: SCM = {
@@ -396,7 +396,8 @@ describe("check (single session)", () => {
 
     await lm.check("app-1");
 
-    expect(lm.getStates().get("app-1")).toBe("killed");
+    // bd-kki: status overridden to "merged" so bd-s4t.1 handles kill after validation
+    expect(lm.getStates().get("app-1")).toBe("merged");
     expect(mockSessionManager.kill).toHaveBeenCalledWith("app-1");
   });
 
