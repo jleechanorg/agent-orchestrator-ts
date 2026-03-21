@@ -93,10 +93,8 @@ describe("toAgentProjectPath", () => {
   });
 
   it("should handle paths with multiple consecutive slashes", () => {
-    // Multiple slashes become multiple dashes
-    const result = toAgentProjectPath("/path//with///slashes");
-    expect(result).toBeDefined();
-    expect(result).toContain("-");
+    // Multiple slashes become multiple dashes: /path//with///slashes → -path--with---slashes
+    expect(toAgentProjectPath("/path//with///slashes")).toBe("-path--with---slashes");
   });
 });
 
