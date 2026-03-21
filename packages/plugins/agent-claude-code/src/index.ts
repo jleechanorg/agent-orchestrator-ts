@@ -634,7 +634,9 @@ async function setupHookInWorkspace(workspacePath: string): Promise<void> {
   }
   // Always ensure execute bit is set, but skip if the hook script is itself a symlink
   // (chmod follows symlinks and could alter permissions on an unrelated target file).
-  if (hookStat && !hookStat.isSymbolicLink()) {
+  // Re-stat after write to ensure we have current file info for newly created files.
+  const currentHookStat = await lstat(hookScriptPath).catch(() => null);
+  if (currentHookStat && !currentHookStat.isSymbolicLink()) {
     await chmod(hookScriptPath, 0o755);
   }
 
