@@ -11,14 +11,20 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Check for evidence bundle in PR body
-        id: check
+      - name: Fetch PR body and write to temp file
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
-          # Fetch PR body directly — no heredoc/cross-step parsing issues
+          # Fetch PR body once and persist to a file for reuse across steps
           BODY=$(gh pr view "$PR_NUMBER" --json body --jq '.body' 2>/dev/null || echo "")
+          printf '%s' "$BODY" > "$RUNNER_TEMP/pr_body.txt"
+          echo "Body fetched: ${#BODY} chars"
+
+      - name: Check for evidence bundle in PR body
+        id: check
+        run: |
+          BODY=$(cat "$RUNNER_TEMP/pr_body.txt")
 
           # Check if body contains Evidence section
           if printf '%s' "$BODY" | grep -qi 'Evidence'; then
@@ -29,15 +35,14 @@ jobs:
 
       - name: Validate evidence bundle format
         if: steps.check.outputs.found == 'true'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
-          BODY=$(gh pr view "$PR_NUMBER" --json body --jq '.body' 2>/dev/null || echo "")
+          BODY=$(cat "$RUNNER_TEMP/pr_body.txt")
 
-          # Extract claim class — normalize to lowercase, strip markdown chars and spaces
+          # Extract claim class — normalize to lowercase
           # Handles "**Claim class:** pr-lifecycle-e2e" and "Claim class: pr-lifecycle-e2e"
-          CLAIM=$(printf '%s' "$BODY" | grep -i 'Claim class' | sed 's/.*:\s*//' | tr -d '*-' | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')
+          # tr -d '*' removes markdown bold markers; tr -d '[:space:]' removes leading/trailing whitespace
+          # Note: hyphens are intentionally preserved (pr-lifecycle-e2e must keep '-')
+          CLAIM=$(printf '%s' "$BODY" | grep -i 'Claim class' | sed 's/.*:\s*//' | tr -d '*' | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')
           echo "Claim class detected: $CLAIM"
 
           # Validate claim class is recognized
@@ -55,40 +60,38 @@ jobs:
 
       - name: Validate PR-lifecycle-e2e required proofs
         if: steps.check.outputs.found == 'true'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
-          BODY=$(gh pr view "$PR_NUMBER" --json body --jq '.body' 2>/dev/null || echo "")
+          BODY=$(cat "$RUNNER_TEMP/pr_body.txt")
 
-          CLAIM=$(printf '%s' "$BODY" | grep -i 'Claim class' | sed 's/.*:\s*//' | tr -d '*-' | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')
+          CLAIM=$(printf '%s' "$BODY" | grep -i 'Claim class' | sed 's/.*:\s*//' | tr -d '*' | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')
 
           if [ "$CLAIM" = "pr-lifecycle-e2e" ] || [ "$CLAIM" = "merge-gate" ]; then
             echo "Checking required proofs for: $CLAIM"
 
             # Proof 1: PR creation — must have GitHub PR URL
-            if ! printf '%s' "$BODY" | grep -qiE 'https://github.com/[^/]+/[^/]+/pull/[0-9]+'; then
+            if ! printf '%s' "$BODY" | grep -qiE 'https://github\.com/[^/]+/[^/]+/pull/[0-9]+'; then
               echo "ERROR: Missing PR creation URL in evidence bundle"
               exit 1
             fi
             echo "PR creation proof: PASS"
 
-            # Proof 2: Transition — CI checks or review events
-            if ! printf '%s' "$BODY" | grep -qiE '(ci|workflow|check|review|comment|timeline)'; then
+            # Proof 2: Transition — require structured evidence of CI/review activity
+            # Require a specific marker phrase, not just a generic word
+            if ! printf '%s' "$BODY" | grep -qiE '(transition proof|CI timeline|review timeline|check run|workflow run|codecov|status check)'; then
               echo "ERROR: Missing transition proof (CI/review timeline) in evidence bundle"
               exit 1
             fi
             echo "Transition proof: PASS"
 
-            # Proof 3: Merge outcome
-            if ! printf '%s' "$BODY" | grep -qiE '(merge|commit SHA|mergeable|success)'; then
+            # Proof 3: Merge outcome — structured phrase required
+            if ! printf '%s' "$BODY" | grep -qiE '(commit SHA|mergeable|merged|merge commit)'; then
               echo "ERROR: Missing merge outcome proof in evidence bundle"
               exit 1
             fi
             echo "Merge outcome proof: PASS"
 
-            # Proof 4: Cleanup
-            if ! printf '%s' "$BODY" | grep -qiE '(cleanup|branch.*deleted|session.*kill|worktree.*removed)'; then
+            # Proof 4: Cleanup — structured phrase required
+            if ! printf '%s' "$BODY" | grep -qiE '(cleanup proof|branch.*deleted|session.*kill|worktree.*remov)'; then
               echo "ERROR: Missing cleanup proof in evidence bundle"
               exit 1
             fi
@@ -101,11 +104,8 @@ jobs:
 
       - name: Validate verdict is present and consistent
         if: steps.check.outputs.found == 'true'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
-          BODY=$(gh pr view "$PR_NUMBER" --json body --jq '.body' 2>/dev/null || echo "")
+          BODY=$(cat "$RUNNER_TEMP/pr_body.txt")
 
           # Check for PASS verdict
           if printf '%s' "$BODY" | grep -qi '[Vv]erdict.*:.*[Pp][Aa][Ss][Ss]'; then
