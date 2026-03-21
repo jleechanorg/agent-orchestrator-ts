@@ -203,3 +203,9 @@ Before deleting any directory that contains (or contained) `agent-orchestrator.y
 3. **Kill the orchestrator session** if running: `tmux kill-session -t *-ao-orchestrator`
 4. **Then delete** the directory
 5. **Verify** no processes remain: `ps aux | grep lifecycle-worker.*agent-orchestrator`
+
+### Monitoring worker sessions
+
+Use the `ao-session-monitor` skill (`~/.claude/skills/ao-session-monitor.md`) when checking if AO worker tmux sessions are active.
+
+**Critical**: Claude Code renders `❯` at the bottom while thinking above it. Checking only 5-6 lines gives **false idle reports**. Always capture 20+ lines and look for Unicode activity indicators (`✻✶✳✽✾`).
