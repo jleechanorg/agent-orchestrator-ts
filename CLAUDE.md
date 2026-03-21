@@ -210,4 +210,58 @@ Before deleting any directory that contains (or contained) `agent-orchestrator.y
 
 Use the `ao-session-monitor` skill (`~/.claude/skills/ao-session-monitor.md`) when checking if AO worker tmux sessions are active.
 
-**Critical**: Claude Code renders `❯` at the bottom while thinking above it. Checking only 5-6 lines gives **false idle reports**. Always capture 20+ lines and look for Unicode activity indicators (`✻✶✳✽✾`).
+**Critical**: Claude Code renders `❯` at the bottom while thinking above it. Checking only 5–6 lines gives **false idle reports**. Always capture 20+ lines and look for Unicode activity indicators (`✻✶✳✽✾`).
+
+## PR Worker Coverage — Harness Safeguards (bd-7ay)
+
+PR worker coverage repair must be **deterministic and fail-closed**. The following rules apply whenever a session is dispatched to repair uncovered or inactive PR workers.
+
+### Mandatory recovery command
+
+When a user asks about uncovered or inactive PR workers, recovery **MUST** use explicit `ao spawn` per uncovered PR:
+
+```bash
+# One session per uncovered PR — never batch or use bead/issue spawn
+ao spawn --project agent-orchestrator --claim-pr <PR_NUMBER>
+```
+
+**Do NOT use `bd open` or bead/issue spawn in this flow.** Bead/issue spawn does not guarantee 1:1 PR→session mapping and can create orphaned or duplicate sessions.
+
+### PR Coverage Reconciliation Procedure
+
+To reconcile PR coverage (compute uncovered PRs, map active sessions, dispatch repair sessions, verify):
+
+1. **List open PRs** in the repo:
+   ```bash
+   gh pr list --repo jleechanorg/agent-orchestrator --state open --limit 100 --json number,title,headRefName
+   ```
+2. **List active AO sessions** (with EPIPE guard):
+   ```bash
+   ao session ls --project agent-orchestrator 2>/dev/null || echo "EPIPE: session list unavailable"
+   ```
+3. **Cross-reference**: for each open PR, check if there is a session actively working on it (check branch name or linked PR in session status).
+4. **Dispatch repair sessions** for any uncovered PRs using the mandatory command above.
+5. **Validate coverage** using `scripts/check-pr-worker-coverage.sh`.
+
+### Validation script
+
+`scripts/check-pr-worker-coverage.sh` reports PR→session mapping and **exits non-zero** if uncovered PRs remain after coverage-repair mode. Run it after any coverage repair operation to confirm deterministic mapping:
+
+```bash
+./scripts/check-pr-worker-coverage.sh
+echo $?  # 0 = all PRs covered, non-zero = uncovered PRs remain
+```
+
+### EPIPE handling in reporting paths
+
+When `ao session ls` is used in automated reporting (cron, hooks, scripts), wrap it with EPIPE guards:
+
+```bash
+# Bad: EPIPE from closed pipe kills the script
+ao session ls --project agent-orchestrator | grep working
+
+# Good: EPIPE guard prevents script failure
+ao session ls --project agent-orchestrator 2>/dev/null | grep working || true
+```
+
+Common EPIPE sources in the AO reporting path: `ao session ls` piped to `head`, `grep`, or `wc` when the consumer exits before the pipe buffer is consumed. The `--project` flag also avoids namespace shadowing when `ao` is run from a directory containing a shadowing `agent-orchestrator.yaml`.
