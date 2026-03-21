@@ -10,6 +10,7 @@ const {
   mockReadFile,
   mockStat,
   mockLstat,
+  mockReadlink,
   mockHomedir,
   mockWriteFile,
   mockMkdir,
@@ -23,6 +24,7 @@ const {
 
 
   mockLstat: vi.fn().mockResolvedValue({ isSymbolicLink: () => false }),
+  mockReadlink: vi.fn(),
   mockHomedir: vi.fn(() => "/mock/home"),
   mockWriteFile: vi.fn().mockResolvedValue(undefined),
   mockMkdir: vi.fn().mockResolvedValue(undefined),
@@ -42,6 +44,7 @@ vi.mock("node:fs/promises", () => ({
   readFile: mockReadFile,
   stat: mockStat,
   lstat: mockLstat,
+  readlink: mockReadlink,
   writeFile: mockWriteFile,
   mkdir: mockMkdir,
   chmod: mockChmod,
@@ -884,6 +887,8 @@ describe("hook setup — relative path (symlink-safe)", () => {
     mockExistsSync.mockReturnValue(true);
 
     mockLstat.mockResolvedValueOnce({ isSymbolicLink: () => true });
+    // Return an in-workspace target so the fail-closed check passes
+    mockReadlink.mockResolvedValueOnce(".claude-target");
 
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     await expect(
@@ -894,6 +899,20 @@ describe("hook setup — relative path (symlink-safe)", () => {
     ).resolves.not.toThrow();
     expect(warnSpy).toHaveBeenCalledWith(expect.stringMatching(/symlink/i));
     warnSpy.mockRestore();
+  });
+
+  it("throws when .claude symlink points outside the workspace", async () => {
+    mockExistsSync.mockReturnValue(true);
+    mockLstat.mockResolvedValueOnce({ isSymbolicLink: () => true });
+    // Target is outside the workspace
+    mockReadlink.mockResolvedValueOnce("/tmp/outside-claude");
+
+    await expect(
+      agent.setupWorkspaceHooks!(
+        "/Users/equinox/.worktrees/integrator/integrator-5",
+        {} as WorkspaceHooksConfig,
+      ),
+    ).rejects.toThrow(/symlink.*outside the workspace/i);
   });
 
   it("skips postLaunchSetup when workspacePath is null", async () => {
