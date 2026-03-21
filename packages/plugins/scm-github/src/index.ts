@@ -1000,15 +1000,39 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
 
     async getReviews(pr: PRInfo): Promise<Review[]> {
       // Use REST API to avoid GraphQL rate limits
-      const raw = await gh(["api", `repos/${pr.owner}/${pr.repo}/pulls/${pr.number}/reviews`]);
-      const reviews: Array<{
+      // Fetch all pages (max 100 per page) to ensure we get all reviews
+      const perPage = 100;
+      let page = 1;
+      const allReviews: Array<{
         user: { login: string } | null;
         state: string;
         body: string;
-        submitted_at: string;
-      }> = JSON.parse(raw);
+        submitted_at: string | null;
+      }> = [];
 
-      return reviews.map((r) => {
+      // eslint-disable-next-line no-constant-condition
+      while (true) {
+        const raw = await gh([
+          "api",
+          `repos/${pr.owner}/${pr.repo}/pulls/${pr.number}/reviews?per_page=${perPage}&page=${page}`,
+        ]);
+        const pageData: Array<{
+          user: { login: string } | null;
+          state: string;
+          body: string;
+          submitted_at: string | null;
+        }> = JSON.parse(raw);
+
+        allReviews.push(...pageData);
+
+        // If we got fewer than perPage results, we've reached the end
+        if (pageData.length < perPage) {
+          break;
+        }
+        page++;
+      }
+
+      return allReviews.map((r) => {
         let state: Review["state"];
         const s = r.state?.toUpperCase();
         if (s === "APPROVED") state = "approved";
