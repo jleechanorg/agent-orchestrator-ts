@@ -1194,7 +1194,7 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
         // Rate limit errors are transient — do not fail-close to "failing",
         // which would spam the agent with spurious "CI is failing" reactions.
         // Return "none" so the lifecycle poller retries next cycle.
-        if (isRateLimitError(err)) {
+        if (isGhRateLimitError(err)) {
           return "none";
         }
         // Before fail-closing, check if the PR is merged/closed —
@@ -1282,7 +1282,7 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
         // Rate limit errors are transient — return "none" so the lifecycle
         // poller retries next cycle rather than triggering a "changes-requested"
         // reaction on every poll.
-        if (isRateLimitError(err)) {
+        if (isGhRateLimitError(err)) {
           return "none";
         }
         throw err;
