@@ -2,8 +2,8 @@ import { describe, expect, it, beforeEach } from "vitest";
 import {
   AgentMailBridge,
   formatGuidancePrompt,
+  type AgentMailConfig,
 } from "../mcp-mail.js";
-import type { AgentMailConfig } from "../mcp-mail.js";
 
 describe("AgentMailBridge", () => {
   let bridge: AgentMailBridge;

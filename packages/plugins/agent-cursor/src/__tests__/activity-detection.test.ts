@@ -38,7 +38,7 @@ function makeSession(overrides: Partial<Session> = {}): Session {
   };
 }
 
-function writeJsonl(
+function _writeJsonl(
   entries: Array<{ type: string; [key: string]: unknown }>,
   ageMs = 0,
   filename = "session-abc.jsonl",

@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { reapStaleSessions } from "../session-reaper.js";
-import type { ReaperConfig, ReaperDeps } from "../session-reaper.js";
+import { reapStaleSessions, type ReaperConfig, type ReaperDeps } from "../session-reaper.js";
 import type { Session, SessionManager, SessionId } from "../types.js";
 
 // ---------------------------------------------------------------------------

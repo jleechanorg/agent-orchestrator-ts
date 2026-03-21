@@ -76,7 +76,7 @@ function createMocks() {
 
   const registry: PluginRegistry = {
     register: vi.fn(),
-    get: vi.fn((_slot: string, _name: string) => mockSCM),
+    get: vi.fn((_slot: string, _name: string) => mockSCM) as PluginRegistry["get"],
     list: vi.fn(),
     loadBuiltins: vi.fn(),
     loadFromConfig: vi.fn(),

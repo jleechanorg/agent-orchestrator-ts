@@ -1,9 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { autoResolveThreads } from "../auto-resolve-threads.js";
-import type {
-  AutoResolveConfig,
-  GraphQLExecutor,
-} from "../auto-resolve-threads.js";
+import { autoResolveThreads, type AutoResolveConfig, type GraphQLExecutor } from "../auto-resolve-threads.js";
 
 function makeGQLResponse(
   threads: Array<{
