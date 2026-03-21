@@ -332,6 +332,46 @@ describe("Config Validation - SCM webhook contract", () => {
   });
 });
 
+describe("Config Validation - Auto-merge reactions", () => {
+  it("accepts auto-merge action — enforcement is via checkMergeGate() in lifecycle-manager", () => {
+    // auto-merge is a valid action; the full merge gate (evidence-review, CI, approvals)
+    // is enforced at runtime in lifecycle-manager.ts via checkMergeGate(), not at config level.
+    expect(() =>
+      validateConfig({
+        reactions: {
+          "approved-and-green": {
+            action: "auto-merge",
+          },
+        },
+        projects: {
+          proj1: {
+            path: "/repos/test",
+            repo: "org/test",
+            defaultBranch: "main",
+          },
+        },
+      }),
+    ).not.toThrow();
+
+    expect(() =>
+      validateConfig({
+        projects: {
+          proj1: {
+            path: "/repos/test",
+            repo: "org/test",
+            defaultBranch: "main",
+            reactions: {
+              "approved-and-green": {
+                action: "auto-merge",
+              },
+            },
+          },
+        },
+      }),
+    ).not.toThrow();
+  });
+});
+
 describe("Config Schema Validation", () => {
   it("requires projects field", () => {
     const config = {
@@ -583,83 +623,7 @@ describe("Config Defaults", () => {
   });
 });
 
-describe("Config Validation - Auto-merge Reaction Block", () => {
-  it("rejects a global reaction with action: auto-merge", () => {
-    const config = {
-      projects: {
-        proj1: {
-          path: "/repos/test",
-          repo: "org/test",
-          defaultBranch: "main",
-        },
-      },
-      reactions: {
-        "approved-and-green": {
-          auto: true,
-          action: "auto-merge",
-          mergeMethod: "squash",
-        },
-      },
-    };
-
-    expect(() => validateConfig(config)).toThrow(/auto-merge reaction\(s\) are not allowed/);
-    expect(() => validateConfig(config)).toThrow(/global reaction "approved-and-green"/);
-    expect(() => validateConfig(config)).toThrow(/AO intentionally does not support auto-merge reactions/);
-  });
-
-  it("rejects a per-project reaction override with action: auto-merge", () => {
-    const config = {
-      projects: {
-        proj1: {
-          path: "/repos/test",
-          repo: "org/test",
-          defaultBranch: "main",
-          reactions: {
-            "approved-and-green": {
-              action: "auto-merge",
-            },
-          },
-        },
-      },
-    };
-
-    expect(() => validateConfig(config)).toThrow(/auto-merge reaction\(s\) are not allowed/);
-    expect(() => validateConfig(config)).toThrow(/project "proj1"/);
-  });
-
-  it("reports all offenders when multiple reactions use auto-merge", () => {
-    const config = {
-      projects: {
-        proj1: {
-          path: "/repos/test",
-          repo: "org/test",
-          defaultBranch: "main",
-          reactions: {
-            "merge-ready": {
-              action: "auto-merge",
-            },
-          },
-        },
-      },
-      reactions: {
-        "approved-and-green": {
-          auto: true,
-          action: "auto-merge",
-        },
-      },
-    };
-
-    try {
-      validateConfig(config);
-      expect.fail("Should have thrown");
-    } catch (err) {
-      const message = (err as Error).message;
-      expect(message).toContain('global reaction "approved-and-green"');
-      expect(message).toContain('project "proj1"');
-      expect(message).toContain('reaction "merge-ready"');
-    }
-  });
-
+describe("Config Validation - Other reaction actions", () => {
   it("allows notify action (the AO default for merge-ready)", () => {
     const config = {
       projects: {
