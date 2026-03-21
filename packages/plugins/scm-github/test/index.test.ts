@@ -509,11 +509,11 @@ describe("scm-github plugin", () => {
       mockGh([
         {
           number: 42,
-          url: "https://github.com/acme/repo/pull/42",
+          html_url: "https://github.com/acme/repo/pull/42",
           title: "feat: add feature",
-          headRefName: "feat/my-feature",
-          baseRefName: "main",
-          isDraft: false,
+          head: { ref: "feat/my-feature" },
+          base: { ref: "main" },
+          draft: false,
         },
       ]);
 
@@ -562,11 +562,11 @@ describe("scm-github plugin", () => {
       mockGh([
         {
           number: 99,
-          url: "https://github.com/acme/repo/pull/99",
+          html_url: "https://github.com/acme/repo/pull/99",
           title: "WIP: draft feature",
-          headRefName: "feat/my-feature",
-          baseRefName: "main",
-          isDraft: true,
+          head: { ref: "feat/my-feature" },
+          base: { ref: "main" },
+          draft: true,
         },
       ]);
       const result = await scm.detectPR(makeSession(), project);

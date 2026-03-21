@@ -58,7 +58,10 @@ const DEFAULT_BOT_AUTHORS = new Set([
 function buildBotAuthors(config?: Record<string, unknown>): Set<string> {
   const extra = config?.extraBotAuthors;
   if (!Array.isArray(extra) || extra.length === 0) return DEFAULT_BOT_AUTHORS;
-  return new Set([...DEFAULT_BOT_AUTHORS, ...(extra as string[]).filter((x) => typeof x === "string")]);
+  return new Set([
+    ...DEFAULT_BOT_AUTHORS,
+    ...(extra as string[]).filter((x) => typeof x === "string"),
+  ]);
 }
 
 // ---------------------------------------------------------------------------
@@ -77,7 +80,15 @@ const RATE_LIMIT_ERROR_PATTERNS = [
 
 function isRateLimitError(error: unknown): boolean {
   const msg = error instanceof Error ? error.message : String(error);
-  return RATE_LIMIT_ERROR_PATTERNS.some((pattern) => msg.toLowerCase().includes(pattern.toLowerCase()));
+  if (
+    RATE_LIMIT_ERROR_PATTERNS.some((pattern) => msg.toLowerCase().includes(pattern.toLowerCase()))
+  ) {
+    return true;
+  }
+  if (error instanceof Error && error.cause) {
+    return isRateLimitError(error.cause);
+  }
+  return false;
 }
 
 async function sleep(ms: number): Promise<void> {
@@ -239,7 +250,10 @@ function synthesizePrViewJsonFromRest(
   return out;
 }
 
-async function fetchPrViewFallbackAsJson(conv: PrViewRestConversion, cwd?: string): Promise<string> {
+async function fetchPrViewFallbackAsJson(
+  conv: PrViewRestConversion,
+  cwd?: string,
+): Promise<string> {
   const pullRaw = await execCli("gh", ["api", `repos/${conv.repo}/pulls/${conv.prNumber}`], cwd);
   const restObj = JSON.parse(pullRaw) as Record<string, unknown>;
 
@@ -250,7 +264,11 @@ async function fetchPrViewFallbackAsJson(conv: PrViewRestConversion, cwd?: strin
 
   if (needReviews) {
     try {
-      const revRaw = await execCli("gh", ["api", `repos/${conv.repo}/pulls/${conv.prNumber}/reviews`], cwd);
+      const revRaw = await execCli(
+        "gh",
+        ["api", `repos/${conv.repo}/pulls/${conv.prNumber}/reviews`],
+        cwd,
+      );
       reviewsPayload = JSON.parse(revRaw);
       if (conv.jsonFields.includes("reviewDecision")) {
         reviewDecision = deriveReviewDecisionGraphqlFromReviews(reviewsPayload);
@@ -289,7 +307,9 @@ async function ghWithRetry(args: string[], cwd?: string, maxRetries = 3): Promis
         // Skip sleep on final attempt - no more retries anyway
         if (attempt < maxRetries - 1) {
           const backoffMs = Math.min(1000 * Math.pow(2, attempt), 30000); // Max 30s backoff
-          console.warn(`GitHub rate limit detected, retrying in ${backoffMs}ms (attempt ${attempt + 1}/${maxRetries})`);
+          console.warn(
+            `GitHub rate limit detected, retrying in ${backoffMs}ms (attempt ${attempt + 1}/${maxRetries})`,
+          );
           await sleep(backoffMs);
         }
       } else {
@@ -321,7 +341,9 @@ async function ghWithRetry(args: string[], cwd?: string, maxRetries = 3): Promis
   if (args[0] === "pr" && args[1] === "view") {
     const conv = parsePrViewRestConversion(args);
     if (conv) {
-      console.warn("Gh CLI rate limit retries exhausted, trying REST API fallback for `gh pr view` call");
+      console.warn(
+        "Gh CLI rate limit retries exhausted, trying REST API fallback for `gh pr view` call",
+      );
       return await fetchPrViewFallbackAsJson(conv, cwd);
     }
   }
@@ -428,8 +450,10 @@ export async function ghRestFallback(args: string[]): Promise<string> {
   const curlArgs = [
     "-f", // Fail on HTTP 4xx/5xx
     "-sS", // Silent but show errors
-    "-H", "Accept: application/vnd.github+json",
-    "-H", "X-GitHub-Api-Version: 2022-11-28",
+    "-H",
+    "Accept: application/vnd.github+json",
+    "-H",
+    "X-GitHub-Api-Version: 2022-11-28",
   ];
 
   // Add Authorization header if we have a token
@@ -449,7 +473,6 @@ export async function ghRestFallback(args: string[]): Promise<string> {
     throw new Error(`REST fallback failed: ${(err as Error).message}`, { cause: err });
   }
 }
-
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -935,33 +958,37 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
 
     async detectPR(session: Session, project: ProjectConfig): Promise<PRInfo | null> {
       if (!session.branch) return null;
-      parseProjectRepo(project.repo);
+      const [owner, repo] = parseProjectRepo(project.repo);
       try {
+        // Use REST API directly to avoid GraphQL rate limits (gh pr list --json uses GraphQL)
         const raw = await gh([
-          "pr",
-          "list",
-          "--repo",
-          project.repo,
-          "--head",
-          session.branch,
-          "--json",
-          "number,url,title,headRefName,baseRefName,isDraft",
-          "--limit",
-          "1",
+          "api",
+          `repos/${owner}/${repo}/pulls?head=${owner}:${encodeURIComponent(session.branch)}&state=open&per_page=1`,
         ]);
 
         const prs: Array<{
           number: number;
-          url: string;
+          html_url: string;
           title: string;
-          headRefName: string;
-          baseRefName: string;
-          isDraft: boolean;
+          head: { ref: string };
+          base: { ref: string };
+          draft: boolean;
         }> = JSON.parse(raw);
 
         if (prs.length === 0) return null;
 
-        return prInfoFromView(prs[0], project.repo);
+        const pr = prs[0];
+        return prInfoFromView(
+          {
+            number: pr.number,
+            url: pr.html_url,
+            title: pr.title,
+            headRefName: pr.head.ref,
+            baseRefName: pr.base.ref,
+            isDraft: pr.draft,
+          },
+          project.repo,
+        );
       } catch {
         return null;
       }
@@ -1115,7 +1142,13 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
       let checks: CICheck[];
       try {
         checks = await this.getCIChecks(pr);
-      } catch {
+      } catch (err) {
+        // Rate limit errors are transient — do not fail-close to "failing",
+        // which would spam the agent with spurious "CI is failing" reactions.
+        // Return "none" so the lifecycle poller retries next cycle.
+        if (isRateLimitError(err)) {
+          return "none";
+        }
         // Before fail-closing, check if the PR is merged/closed —
         // GitHub may not return check data for those, and reporting
         // "failing" for a merged PR is wrong.
@@ -1186,15 +1219,26 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
     },
 
     async getReviewDecision(pr: PRInfo): Promise<ReviewDecision> {
-      const raw = await gh([
-        "pr",
-        "view",
-        String(pr.number),
-        "--repo",
-        repoFlag(pr),
-        "--json",
-        "reviewDecision",
-      ]);
+      let raw: string;
+      try {
+        raw = await gh([
+          "pr",
+          "view",
+          String(pr.number),
+          "--repo",
+          repoFlag(pr),
+          "--json",
+          "reviewDecision",
+        ]);
+      } catch (err) {
+        // Rate limit errors are transient — return "none" so the lifecycle
+        // poller retries next cycle rather than triggering a "changes-requested"
+        // reaction on every poll.
+        if (isRateLimitError(err)) {
+          return "none";
+        }
+        throw err;
+      }
       const data: { reviewDecision: string } = JSON.parse(raw);
 
       const d = (data.reviewDecision ?? "").toUpperCase();
@@ -1301,7 +1345,8 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
         try {
           const raw = await gh([
             "api",
-            "--method", "GET",
+            "--method",
+            "GET",
             `repos/${repoFlag(pr)}/pulls/${pr.number}/comments?per_page=100`,
           ]);
           const parsed: Array<{
@@ -1335,7 +1380,8 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
         try {
           const raw = await gh([
             "api",
-            "--method", "GET",
+            "--method",
+            "GET",
             `repos/${repoFlag(pr)}/issues/${pr.number}/comments?per_page=100`,
           ]);
           const parsed: Array<{
@@ -1349,7 +1395,9 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
           for (const c of parsed) {
             if (BOT_AUTHORS.has(c.user.login)) continue;
             // Only include actionable issue comments (not status updates)
-            const actionable = /\b(fix|bug|issue|change|update|please|should|must|need)\b/i.test(c.body);
+            const actionable = /\b(fix|bug|issue|change|update|please|should|must|need)\b/i.test(
+              c.body,
+            );
             if (!actionable) continue;
             restComments.push({
               id: String(c.id),
