@@ -36,7 +36,7 @@ A PR is green when **ALL SIX** are true:
 2. **No merge conflicts** — `mergeable: MERGEABLE` (not CONFLICTING)
 3. **CodeRabbit approved** — latest verdict is APPROVE or LGTM (REQUEST_CHANGES is a blocker)
 4. **Cursor Bugbot finished** — conclusion neutral/success, no blocking findings
-5. **All inline comments resolved** — EVEN after CR APPROVED, check ALL reviewers (CR, Copilot, Bugbot, humans). Use: `gh api repos/OWNER/REPO/pulls/NUM/comments --jq '[.[] | select(.body | test("Major|Critical|bug|fix|issue"; "i"))] | length'` — Major/Critical/actionable are blockers, nitpicks are OK. If GraphQL rate-limited, use REST: `gh api repos/OWNER/REPO/pulls/NUM/comments` and check each comment.
+5. **All inline comments resolved** — EVEN after CR APPROVED, check ALL reviewers (CR, Copilot, Bugbot, humans). Major/Critical/actionable are blockers, nitpicks are OK. PRIMARY (GraphQL): `gh api graphql -f query='...'` to get unresolved thread count. FALLBACK (REST — use when GraphQL rate-limited): `gh api repos/OWNER/REPO/pulls/NUM/comments --jq '[.[] | {user: .user.login, body: .body[0:200], path: .path}]'` — review each comment, fix actionable ones.
 6. **Evidence review passed** — run `/er` if PR has evidence bundle (skip if none)
 
 **Never declare a PR green or ask for merge unless all 6 are true.**
