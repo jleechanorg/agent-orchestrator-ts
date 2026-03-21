@@ -22,7 +22,8 @@ paths = [
   ".next/",
   "coverage/",
   "pnpm-lock.yaml",
-  # Documentation files with intentional placeholder tokens (anchored: gitleaks paths are regexes)
+  # Documentation files with intentional placeholder tokens / env-var references
+  # (anchored: gitleaks paths are regexes, so anchors are required for exact matches)
   "^SECURITY\\.md$",
   "^examples/README\\.md$",
   "^docs/SECURITY-AUDIT-SUMMARY\\.md$",
