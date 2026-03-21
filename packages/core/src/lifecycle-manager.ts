@@ -35,7 +35,6 @@ import {
   type EventPriority,
   type ProjectConfig as _ProjectConfig,
   type MergeGateConfig,
-  type Poller,
 } from "./types.js";
 import { updateMetadata } from "./metadata.js";
 import { getSessionsDir } from "./paths.js";

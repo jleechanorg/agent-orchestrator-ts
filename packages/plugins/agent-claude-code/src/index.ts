@@ -16,7 +16,7 @@ import {
 } from "@jleechanorg/ao-core";
 import { execFile, execFileSync } from "node:child_process";
 import { readdir, readFile, stat, open, writeFile, mkdir, chmod, lstat } from "node:fs/promises";
-import { existsSync } from "node:fs";
+import { existsSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
 import { promisify } from "node:util";
@@ -583,13 +583,25 @@ async function setupHookInWorkspace(workspacePath: string): Promise<void> {
   const settingsPath = join(claudeDir, "settings.json");
   const hookScriptPath = join(claudeDir, "metadata-updater.sh");
 
-  // Reject symlinks BEFORE creating — writing into a symlinked .claude is a security risk
+  // Check for symlinks — validate target is within workspace before writing
   try {
     const claudeStat = await lstat(claudeDir);
     if (claudeStat.isSymbolicLink()) {
-      throw new Error(`[agent-claude-code] .claude dir is a symlink at ${claudeDir} — refusing to write hooks`);
+      try {
+        const resolved = realpathSync(claudeDir);
+        const wsReal = realpathSync(workspacePath);
+        if (!resolved.startsWith(wsReal + "/") && resolved !== wsReal) {
+          console.warn(`[agent-claude-code] .claude is a symlink pointing outside workspace (${resolved}) — skipping hook setup`);
+          return;
+        }
+      } catch {
+        // Can't resolve symlink (broken or test env) — skip to be safe
+        console.warn(`[agent-claude-code] .claude is a symlink at ${claudeDir} — cannot verify target, skipping hook setup`);
+        return;
+      }
+      console.warn(`[agent-claude-code] .claude is a symlink at ${claudeDir} — target within workspace, continuing`);
     }
-    // Exists as a real directory — nothing to create
+    // Exists (real dir or symlink within workspace) — nothing to create
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
     // Directory doesn't exist — create it
