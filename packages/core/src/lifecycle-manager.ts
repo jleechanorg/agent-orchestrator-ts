@@ -816,10 +816,12 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       // (e.g., list() detected a dead runtime and marked it "killed" — we need to
       // process that transition even though the new status is terminal)
       const sessionsToCheck = sessions.filter((s) => {
-        // Skip terminal statuses
+        // Skip terminal statuses only if we've already seen and processed this session.
+        // If tracked is undefined (e.g., after lifecycle manager restart), allow it
+        // through once so exit proof and outcome can be emitted.
         if (s.status === "merged" || s.status === "killed") {
           const tracked = states.get(s.id);
-          return tracked !== undefined && tracked !== s.status;
+          return tracked === undefined || tracked !== s.status;
         }
         return true;
       });

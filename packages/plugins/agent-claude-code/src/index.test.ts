@@ -867,15 +867,18 @@ describe("hook setup — relative path (symlink-safe)", () => {
     );
   });
 
-  it("rejects symlinked .claude directory", async () => {
+  it("warns (does not throw) for symlinked .claude directory", async () => {
     mockLstat.mockResolvedValueOnce({ isSymbolicLink: () => true });
 
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     await expect(
       agent.setupWorkspaceHooks!(
         "/Users/equinox/.worktrees/integrator/integrator-5",
         {} as WorkspaceHooksConfig,
       ),
-    ).rejects.toThrow(/symlink/i);
+    ).resolves.not.toThrow();
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringMatching(/symlink/i));
+    warnSpy.mockRestore();
   });
 
   it("skips postLaunchSetup when workspacePath is null", async () => {

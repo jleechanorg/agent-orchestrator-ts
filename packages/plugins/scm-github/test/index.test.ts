@@ -936,6 +936,8 @@ describe("scm-github plugin", () => {
       mockGhError("API rate limit exceeded");
       // REST API /pulls/{number} doesn't include reviews
       mockGh({ state: "open", merged: false });
+      // REST /reviews endpoint returns empty array
+      mockGh([]);
       expect(await scm.getReviews(pr)).toEqual([]);
     });
   });
