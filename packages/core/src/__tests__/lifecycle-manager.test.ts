@@ -872,6 +872,7 @@ describe("check (single session)", () => {
     await lm.check("app-1");
 
     expect(lm.getStates().get("app-1")).toBe("merged");
+    expect(mockSessionManager.kill).toHaveBeenCalledWith("app-1");
   });
 
   it("detects mergeable when approved + CI green", async () => {
