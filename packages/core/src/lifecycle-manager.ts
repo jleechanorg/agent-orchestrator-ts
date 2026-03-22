@@ -792,7 +792,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         // CR (bd-xxx): still dispatch review backlog on absorbed polls so steady-state
         // PR sessions continue receiving comment notifications even when the killed
         // transition is absorbed and no status change is persisted.
-        await maybeDispatchReviewBacklog(session, oldStatus, newStatus, {
+        await maybeDispatchReviewBacklog(session, oldStatus, effectiveStatus, {
           config,
           registry,
           clearReactionTracker,
