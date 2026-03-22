@@ -23,6 +23,11 @@ vi.mock("node:fs", () => ({
   unlinkSync: vi.fn(),
 }));
 
+// Mock node:timers/promises so sleep() calls resolve immediately in tests
+vi.mock("node:timers/promises", () => ({
+  setTimeout: vi.fn().mockResolvedValue(undefined),
+}));
+
 // Get reference to the promisify-custom mock — this is what the plugin actually calls
 const mockExecFileCustom = (childProcess.execFile as any)[
   Symbol.for("nodejs.util.promisify.custom")
@@ -39,20 +44,22 @@ function mockTmuxError(message: string) {
   mockExecFileCustom.mockRejectedValueOnce(new Error(message));
 }
 
-/** Create a RuntimeHandle for testing. */
-function makeHandle(id: string, createdAt?: number): RuntimeHandle {
+/** Create a RuntimeHandle for testing (bd-tln: includes launchCommand). */
+function makeHandle(id: string, createdAt?: number, launchCommand?: string): RuntimeHandle {
   return {
     id,
     runtimeName: "tmux",
     data: {
       createdAt: createdAt ?? 1000,
       workspacePath: "/tmp/workspace",
+      // launchCommand stored for restartAgentCli (bd-tln)
+      launchCommand: launchCommand ?? "claude --session test",
     },
   };
 }
 
 // Import after mocks are set up
-import tmuxPlugin, { manifest, create } from "../index.js";
+import tmuxPlugin, { manifest, create, isAgentAliveInPane, restartAgentCli } from "../index.js";
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -104,6 +111,22 @@ describe("runtime.create()", () => {
       ["new-session", "-d", "-s", "test-session", "-c", "/tmp/workspace"],
       expectedTmuxOptions,
     );
+  });
+
+  it("stores launchCommand in handle.data for restart capability (bd-tln)", async () => {
+    const runtime = create();
+
+    mockTmuxSuccess();
+    mockTmuxSuccess();
+
+    const handle = await runtime.create({
+      sessionId: "launch-store-test",
+      workspacePath: "/tmp/workspace",
+      launchCommand: "claude --session abc",
+      environment: {},
+    });
+
+    expect(handle.data.launchCommand).toBe("claude --session abc");
   });
 
   it("includes -e KEY=VALUE flags for environment variables", async () => {
@@ -263,40 +286,71 @@ describe("runtime.destroy()", () => {
 });
 
 describe("runtime.sendMessage()", () => {
+  // Helper to build the full mock sequence for sendMessage.
+  //
+  // sendMessage call sequence:
+  //   Pre-flight:  capture-pane (isAgentAliveInPane pre-check)
+  //   Step 1:      send-keys C-u
+  //   Step 2a/b:   send-keys -l <text>  OR  load-buffer + paste-buffer + delete-buffer
+  //   Step 3:      send-keys Enter
+  //   For long:    capture-pane×N (Enter retry loop, 1 per attempt until agent responds)
+  //   Post-send:   capture-pane (isAgentAliveInPane post-check, +2s sleep)
+
   it("sends short text with send-keys -l (literal) + Enter", async () => {
     const runtime = create();
     const handle = makeHandle("msg-short");
 
-    // 1: send-keys C-u (clear), 2: send-keys -l text, 3: send-keys Enter
+    // Pre-flight isAgentAliveInPane → returns non-prompt output (agent alive)
+    mockTmuxSuccess("✻ Claude is thinking");
+    // C-u, send-keys -l, Enter
     mockTmuxSuccess();
     mockTmuxSuccess();
     mockTmuxSuccess();
+    // Post-send isAgentAliveInPane (short message: no Enter-retry loop)
+    mockTmuxSuccess("✻ still working");
 
     await runtime.sendMessage(handle, "hello world");
 
-    expect(mockExecFileCustom).toHaveBeenCalledTimes(3);
+    // 5 calls total: capture-pane, C-u, send-keys -l, Enter, capture-pane
+    expect(mockExecFileCustom).toHaveBeenCalledTimes(5);
 
-    // Call 0: Clear partial input
+    // Call 1: pre-flight capture-pane
     expect(mockExecFileCustom).toHaveBeenNthCalledWith(
       1,
+      "tmux",
+      ["capture-pane", "-t", "msg-short", "-p", "-S", "-30"],
+      expectedTmuxOptions,
+    );
+
+    // Call 2: Clear partial input
+    expect(mockExecFileCustom).toHaveBeenNthCalledWith(
+      2,
       "tmux",
       ["send-keys", "-t", "msg-short", "C-u"],
       expectedTmuxOptions,
     );
 
-    // Call 1: Literal text
+    // Call 3: Literal text
     expect(mockExecFileCustom).toHaveBeenNthCalledWith(
-      2,
+      3,
       "tmux",
       ["send-keys", "-t", "msg-short", "-l", "hello world"],
       expectedTmuxOptions,
     );
 
-    // Call 2: Enter
+    // Call 4: Enter
     expect(mockExecFileCustom).toHaveBeenNthCalledWith(
-      3,
+      4,
       "tmux",
       ["send-keys", "-t", "msg-short", "Enter"],
+      expectedTmuxOptions,
+    );
+
+    // Call 5: post-send capture-pane
+    expect(mockExecFileCustom).toHaveBeenNthCalledWith(
+      5,
+      "tmux",
+      ["capture-pane", "-t", "msg-short", "-p", "-S", "-30"],
       expectedTmuxOptions,
     );
   });
@@ -306,28 +360,37 @@ describe("runtime.sendMessage()", () => {
     const handle = makeHandle("msg-long");
     const longText = "x".repeat(250);
 
-    // 1: C-u, 2: load-buffer, 3: paste-buffer, 4: unlinkSync (sync), 5: delete-buffer, 6: Enter
-    mockTmuxSuccess(); // C-u
-    mockTmuxSuccess(); // load-buffer
-    mockTmuxSuccess(); // paste-buffer
-    mockTmuxSuccess(); // delete-buffer (finally block)
-    mockTmuxSuccess(); // Enter
+    // Pre-flight: agent alive
+    mockTmuxSuccess("✻ working");
+    // C-u, load-buffer, paste-buffer, delete-buffer (finally)
+    mockTmuxSuccess();
+    mockTmuxSuccess();
+    mockTmuxSuccess();
+    mockTmuxSuccess();
+    // Enter
+    mockTmuxSuccess();
+    // Enter-retry capture-pane: agent started (output doesn't end with message tail)
+    mockTmuxSuccess("agent is responding now");
+    // Post-send isAgentAliveInPane
+    mockTmuxSuccess("✻ working");
 
     await runtime.sendMessage(handle, longText);
 
-    expect(mockExecFileCustom).toHaveBeenCalledTimes(5);
+    // 8 calls: pre-capture, C-u, load-buffer, paste-buffer, delete-buffer, Enter,
+    //          retry-capture, post-capture
+    expect(mockExecFileCustom).toHaveBeenCalledTimes(8);
 
-    // Call 0: clear
+    // Call 2: C-u
     expect(mockExecFileCustom).toHaveBeenNthCalledWith(
-      1,
+      2,
       "tmux",
       ["send-keys", "-t", "msg-long", "C-u"],
       expectedTmuxOptions,
     );
 
-    // Call 1: load-buffer with named buffer
+    // Call 3: load-buffer with named buffer
     expect(mockExecFileCustom).toHaveBeenNthCalledWith(
-      2,
+      3,
       "tmux",
       [
         "load-buffer",
@@ -338,42 +401,157 @@ describe("runtime.sendMessage()", () => {
       expectedTmuxOptions,
     );
 
-    // Call 2: paste-buffer
+    // Call 4: paste-buffer
     expect(mockExecFileCustom).toHaveBeenNthCalledWith(
-      3,
+      4,
       "tmux",
       ["paste-buffer", "-b", "ao-test-uuid-1234", "-t", "msg-long", "-d"],
       expectedTmuxOptions,
     );
 
-    // Verify writeFileSync was called with the message
+    // Call 6: Enter
+    expect(mockExecFileCustom).toHaveBeenNthCalledWith(
+      6,
+      "tmux",
+      ["send-keys", "-t", "msg-long", "Enter"],
+      expectedTmuxOptions,
+    );
+
+    // Call 7: capture-pane for Enter retry check (20 lines)
+    expect(mockExecFileCustom).toHaveBeenNthCalledWith(
+      7,
+      "tmux",
+      ["capture-pane", "-t", "msg-long", "-p", "-S", "-20"],
+      expectedTmuxOptions,
+    );
+
+    // Verify writeFileSync and unlinkSync were called
     expect(fs.writeFileSync).toHaveBeenCalledWith(
       expect.stringContaining("ao-send-test-uuid-1234.txt"),
       longText,
       { encoding: "utf-8", mode: 0o600 },
     );
-
-    // Verify unlinkSync was called for cleanup
     expect(fs.unlinkSync).toHaveBeenCalledWith(
       expect.stringContaining("ao-send-test-uuid-1234.txt"),
     );
+  });
+
+  it("retries Enter when pane still ends with message tail (swallowed Enter)", async () => {
+
+    const runtime = create();
+    const handle = makeHandle("msg-retry");
+    const longText = "x".repeat(250);
+    const messageTail = longText.slice(-80).trim();
+
+    // Pre-flight: alive
+    mockTmuxSuccess("✻ working");
+    // C-u, load-buffer, paste-buffer, delete-buffer
+    mockTmuxSuccess();
+    mockTmuxSuccess();
+    mockTmuxSuccess();
+    mockTmuxSuccess();
+    // Enter (first attempt)
+    mockTmuxSuccess();
+    // retry capture attempt 1: pane still ends with message tail → retry
+    mockTmuxSuccess(messageTail);
+    // Enter retry 1
+    mockTmuxSuccess();
+    // retry capture attempt 2: agent started responding
+    mockTmuxSuccess("agent response ✻ working");
+    // Post-send isAgentAliveInPane
+    mockTmuxSuccess("✻ still working");
+
+
+    await runtime.sendMessage(handle, longText);
+
+
+
+
+
+    const allCalls = mockExecFileCustom.mock.calls.map((c: unknown[]) => (c[1] as string[]));
+    const enterCalls = allCalls.filter(
+      (args: string[]) => args[0] === "send-keys" && args[args.length - 1] === "Enter",
+    );
+    // capture-pane with -S -20 = Enter-retry checks; -S -30 = isAgentAliveInPane checks
+    const retryCaptureCalls = allCalls.filter(
+      (args: string[]) => args[0] === "capture-pane" && args.includes("-20"),
+    );
+
+    // 1 initial Enter + 1 retry = 2 total Enter sends
+    expect(enterCalls).toHaveLength(2);
+    // 2 retry capture-pane checks
+    expect(retryCaptureCalls).toHaveLength(2);
+  });
+
+  it("retries Enter up to 3 times if pane never changes", async () => {
+
+    const runtime = create();
+    const handle = makeHandle("msg-max-retry");
+    const longText = "z".repeat(250);
+    const messageTail = longText.slice(-80).trim();
+
+    // Pre-flight: alive
+    mockTmuxSuccess("✻ working");
+    // C-u, load-buffer, paste-buffer, delete-buffer
+    mockTmuxSuccess();
+    mockTmuxSuccess();
+    mockTmuxSuccess();
+    mockTmuxSuccess();
+    // Enter (first attempt)
+    mockTmuxSuccess();
+    // All 3 retry capture-pane checks show stuck pane
+    mockTmuxSuccess(messageTail); // retry capture 1
+    mockTmuxSuccess(); // Enter retry 1
+    mockTmuxSuccess(messageTail); // retry capture 2
+    mockTmuxSuccess(); // Enter retry 2
+    mockTmuxSuccess(messageTail); // retry capture 3
+    mockTmuxSuccess(); // Enter retry 3
+    // Post-send isAgentAliveInPane
+    mockTmuxSuccess("✻ working now");
+
+    await runtime.sendMessage(handle, longText);
+
+
+
+
+
+    const allCalls = mockExecFileCustom.mock.calls.map((c: unknown[]) => (c[1] as string[]));
+    const enterCalls = allCalls.filter(
+      (args: string[]) => args[0] === "send-keys" && args[args.length - 1] === "Enter",
+    );
+    const retryCaptureCalls = allCalls.filter(
+      (args: string[]) => args[0] === "capture-pane" && args.includes("-20"),
+    );
+
+    // 1 initial Enter + 3 retries = 4 total
+    expect(enterCalls).toHaveLength(4);
+    // 3 retry capture-pane checks
+    expect(retryCaptureCalls).toHaveLength(3);
   });
 
   it("uses load-buffer for multiline text", async () => {
     const runtime = create();
     const handle = makeHandle("msg-multi");
 
-    mockTmuxSuccess(); // C-u
-    mockTmuxSuccess(); // load-buffer
-    mockTmuxSuccess(); // paste-buffer
-    mockTmuxSuccess(); // delete-buffer (finally)
-    mockTmuxSuccess(); // Enter
+    // Pre-flight: alive
+    mockTmuxSuccess("✻ working");
+    // C-u, load-buffer, paste-buffer, delete-buffer
+    mockTmuxSuccess();
+    mockTmuxSuccess();
+    mockTmuxSuccess();
+    mockTmuxSuccess();
+    // Enter
+    mockTmuxSuccess();
+    // Enter-retry capture-pane: agent started (output doesn't end with message tail)
+    mockTmuxSuccess("agent started responding");
+    // Post-send isAgentAliveInPane
+    mockTmuxSuccess("✻ working");
 
     await runtime.sendMessage(handle, "line1\nline2\nline3");
 
     // Should use buffer path, not send-keys -l
     expect(mockExecFileCustom).toHaveBeenNthCalledWith(
-      2,
+      3,
       "tmux",
       [
         "load-buffer",
@@ -396,13 +574,17 @@ describe("runtime.sendMessage()", () => {
     const handle = makeHandle("msg-fail");
     const longText = "y".repeat(250);
 
-    mockTmuxSuccess(); // C-u
-    mockTmuxSuccess(); // load-buffer succeeds
-    mockTmuxError("paste-buffer failed"); // paste-buffer fails
-    // finally block:
-    // unlinkSync is sync (mocked)
-    mockTmuxSuccess(); // delete-buffer in finally
-    // After finally, the error propagates — no Enter call
+    // Pre-flight: alive
+    mockTmuxSuccess("✻ working");
+    // C-u
+    mockTmuxSuccess();
+    // load-buffer succeeds
+    mockTmuxSuccess();
+    // paste-buffer fails
+    mockTmuxError("paste-buffer failed");
+    // finally block: delete-buffer
+    mockTmuxSuccess();
+    // Error propagates — no Enter call, no retry loop, no post-send check
 
     await expect(runtime.sendMessage(handle, longText)).rejects.toThrow("paste-buffer failed");
 
@@ -534,5 +716,261 @@ describe("runtime.getAttachInfo()", () => {
       target: "attach-test",
       command: "tmux attach -t attach-test",
     });
+  });
+});
+
+// =============================================================================
+// isAgentAliveInPane — dead-agent detection (bd-tln)
+// =============================================================================
+
+describe("isAgentAliveInPane() — dead-agent detection (bd-tln)", () => {
+  it("returns false when pane ends with bash $ prompt", async () => {
+    mockTmuxSuccess("some output\n/workspace $");
+    const alive = await isAgentAliveInPane("test-session");
+    expect(alive).toBe(false);
+  });
+
+  it("returns false when pane ends with zsh % prompt", async () => {
+    mockTmuxSuccess("some output\nuser@host %");
+    const alive = await isAgentAliveInPane("test-session");
+    expect(alive).toBe(false);
+  });
+
+  it("returns false when pane ends with starship ❯ prompt", async () => {
+    mockTmuxSuccess("some output\n❯");
+    const alive = await isAgentAliveInPane("test-session");
+    expect(alive).toBe(false);
+  });
+
+  it("returns false when pane ends with root # prompt", async () => {
+    mockTmuxSuccess("root output\nroot@container #");
+    const alive = await isAgentAliveInPane("test-session");
+    expect(alive).toBe(false);
+  });
+
+  it("returns true when pane contains Claude ✻ thinking indicator", async () => {
+    mockTmuxSuccess("✻ Thinking...\nSome reasoning");
+    const alive = await isAgentAliveInPane("test-session");
+    expect(alive).toBe(true);
+  });
+
+  it("returns true when pane contains ● progress indicator", async () => {
+    mockTmuxSuccess("● Running tool: read_file\npath: /tmp/foo");
+    const alive = await isAgentAliveInPane("test-session");
+    expect(alive).toBe(true);
+  });
+
+  it("returns true when pane contains ◆ tool indicator", async () => {
+    mockTmuxSuccess("◆ Tool result\nsome output here");
+    const alive = await isAgentAliveInPane("test-session");
+    expect(alive).toBe(true);
+  });
+
+  it("returns true when pane contains braille spinner (codex)", async () => {
+    mockTmuxSuccess("⠋ Processing...");
+    const alive = await isAgentAliveInPane("test-session");
+    expect(alive).toBe(true);
+  });
+
+  it("returns true when pane contains Thinking... text", async () => {
+    mockTmuxSuccess("Thinking...\nsome content");
+    const alive = await isAgentAliveInPane("test-session");
+    expect(alive).toBe(true);
+  });
+
+  it("returns true when pane has no conclusive indicator (conservative default)", async () => {
+    mockTmuxSuccess("some random output line\nwithout a clear indicator");
+    const alive = await isAgentAliveInPane("test-session");
+    expect(alive).toBe(true);
+  });
+
+  it("returns false when capture-pane fails (session dead)", async () => {
+    mockTmuxError("no session found");
+    const alive = await isAgentAliveInPane("test-session");
+    expect(alive).toBe(false);
+  });
+
+  it("returns true when pane is empty (conservative default)", async () => {
+    mockTmuxSuccess("");
+    const alive = await isAgentAliveInPane("test-session");
+    expect(alive).toBe(true);
+  });
+
+  it("calls capture-pane with -30 line window", async () => {
+    mockTmuxSuccess("output");
+    await isAgentAliveInPane("my-session");
+    expect(mockExecFileCustom).toHaveBeenCalledWith(
+      "tmux",
+      ["capture-pane", "-t", "my-session", "-p", "-S", "-30"],
+      expectedTmuxOptions,
+    );
+  });
+});
+
+// =============================================================================
+// restartAgentCli — dead-agent restart (bd-tln)
+// =============================================================================
+
+describe("restartAgentCli() — dead-agent restart (bd-tln)", () => {
+  it("throws if launchCommand is not stored in handle.data", async () => {
+    const handle: RuntimeHandle = {
+      id: "no-launch-cmd",
+      runtimeName: "tmux",
+      data: { createdAt: 1000 },
+    };
+
+    await expect(restartAgentCli(handle)).rejects.toThrow(
+      'Cannot restart agent CLI in session "no-launch-cmd": launchCommand not stored in handle.data',
+    );
+  });
+
+  it("sends C-c twice, then re-launches the agent CLI (short command)", async () => {
+    const handle = makeHandle("restart-test", 1000, "claude --session abc");
+
+    mockTmuxSuccess(); // C-c #1
+    mockTmuxSuccess(); // C-c #2
+    mockTmuxSuccess(); // send-keys with launch command
+    mockTmuxSuccess("✻ Thinking..."); // poll: alive indicator
+
+    await restartAgentCli(handle);
+
+    expect(mockExecFileCustom).toHaveBeenNthCalledWith(
+      1,
+      "tmux",
+      ["send-keys", "-t", "restart-test", "C-c"],
+      expectedTmuxOptions,
+    );
+    expect(mockExecFileCustom).toHaveBeenNthCalledWith(
+      2,
+      "tmux",
+      ["send-keys", "-t", "restart-test", "C-c"],
+      expectedTmuxOptions,
+    );
+    expect(mockExecFileCustom).toHaveBeenNthCalledWith(
+      3,
+      "tmux",
+      ["send-keys", "-t", "restart-test", "claude --session abc", "Enter"],
+      expectedTmuxOptions,
+    );
+    expect(mockExecFileCustom).toHaveBeenNthCalledWith(
+      4,
+      "tmux",
+      ["capture-pane", "-t", "restart-test", "-p", "-S", "-30"],
+      expectedTmuxOptions,
+    );
+  });
+
+  it("resolves on first poll if agent shows alive indicator immediately", async () => {
+    const handle = makeHandle("restart-fast", 1000, "codex");
+
+    mockTmuxSuccess(); // C-c #1
+    mockTmuxSuccess(); // C-c #2
+    mockTmuxSuccess(); // send-keys launch
+    mockTmuxSuccess("● Running tool"); // first poll → alive
+
+    await expect(restartAgentCli(handle)).resolves.toBeUndefined();
+
+    const captureCalls = mockExecFileCustom.mock.calls.filter(
+      (c: unknown[]) => (c[1] as string[])[0] === "capture-pane",
+    );
+    expect(captureCalls).toHaveLength(1);
+  });
+
+  it("throws after 6 polls if agent does not restart", async () => {
+    const handle = makeHandle("restart-timeout", 1000, "claude");
+
+    mockTmuxSuccess(); // C-c #1
+    mockTmuxSuccess(); // C-c #2
+    mockTmuxSuccess(); // send-keys launch
+
+    for (let i = 0; i < 6; i++) {
+      mockTmuxSuccess("/workspace $"); // all 6 polls return shell prompt
+    }
+
+    await expect(restartAgentCli(handle)).rejects.toThrow(
+      'Agent CLI did not restart within 30s in session "restart-timeout"',
+    );
+
+    const captureCalls = mockExecFileCustom.mock.calls.filter(
+      (c: unknown[]) => (c[1] as string[])[0] === "capture-pane",
+    );
+    expect(captureCalls).toHaveLength(6);
+  });
+});
+
+// =============================================================================
+// sendMessage — dead-agent restart integration (bd-tln)
+// =============================================================================
+
+describe("runtime.sendMessage() — dead-agent restart integration (bd-tln)", () => {
+  it("restarts agent before sending when pre-send check detects dead agent", async () => {
+    const runtime = create();
+    const handle = makeHandle("msg-dead-pre", 1000, "claude --session test");
+
+    // Pre-send alive check → dead (shell prompt)
+    mockTmuxSuccess("/workspace $");
+
+    // restartAgentCli: C-c, C-c, launch, poll → alive
+    mockTmuxSuccess();
+    mockTmuxSuccess();
+    mockTmuxSuccess();
+    mockTmuxSuccess("✻ Thinking");
+
+    // sendMessage proceeds: C-u, send, Enter
+    mockTmuxSuccess();
+    mockTmuxSuccess();
+    mockTmuxSuccess();
+    // Post-send check → alive
+    mockTmuxSuccess("✻ Thinking");
+
+    await runtime.sendMessage(handle, "do the task");
+
+    const allCalls = mockExecFileCustom.mock.calls.map((c: unknown[]) => c[1] as string[]);
+    const cCalls = allCalls.filter(
+      (args) => args[0] === "send-keys" && args[args.length - 1] === "C-c",
+    );
+    expect(cCalls.length).toBe(2);
+
+    expect(mockExecFileCustom).toHaveBeenCalledWith(
+      "tmux",
+      ["send-keys", "-t", "msg-dead-pre", "-l", "do the task"],
+      expectedTmuxOptions,
+    );
+  });
+
+  it("restarts agent and resends when post-send check detects dead agent", async () => {
+    const runtime = create();
+    const handle = makeHandle("msg-dead-post", 1000, "claude --session test");
+
+    // Pre-send alive check → alive
+    mockTmuxSuccess("✻ Thinking");
+    // C-u, send-keys -l, Enter
+    mockTmuxSuccess();
+    mockTmuxSuccess();
+    mockTmuxSuccess();
+    // Post-send check → dead (pasted into bash)
+    mockTmuxSuccess("/workspace $");
+
+    // restartAgentCli: C-c, C-c, launch, poll → alive
+    mockTmuxSuccess();
+    mockTmuxSuccess();
+    mockTmuxSuccess();
+    mockTmuxSuccess("✻ Thinking");
+
+    // Retry: C-u, send-keys -l, Enter
+    mockTmuxSuccess();
+    mockTmuxSuccess();
+    mockTmuxSuccess();
+
+    await runtime.sendMessage(handle, "important task");
+
+    // Message sent twice (original + retry)
+    const sendKeysCalls = mockExecFileCustom.mock.calls.filter(
+      (c: unknown[]) =>
+        (c[1] as string[])[0] === "send-keys" &&
+        (c[1] as string[]).includes("-l") &&
+        (c[1] as string[]).includes("important task"),
+    );
+    expect(sendKeysCalls.length).toBe(2);
   });
 });
