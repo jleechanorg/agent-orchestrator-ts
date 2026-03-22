@@ -466,6 +466,13 @@ describe("detectActivity", () => {
     expect(agent.detectActivity(lines.join("\n"))).toBe("active");
   });
 
+  it("returns 'active' when spinner is exactly 20 lines before ❯ (boundary)", () => {
+    // spinner at index 0, 19 filler lines, prompt at index 20 = 21 total lines
+    // windowStart = max(0, 21-21) = 0; window = lines[0..19] includes spinner → active
+    const lines = ["✻ Boundary activity...", ...Array(19).fill("done"), "❯"];
+    expect(agent.detectActivity(lines.join("\n"))).toBe("active");
+  });
+
   it("returns 'idle' when spinner is more than 20 lines before ❯ (outside window)", () => {
     // spinner far above, then 21 blank/done lines, then prompt
     const lines = ["✻ Old activity...", ...Array(21).fill("done"), "❯"];
