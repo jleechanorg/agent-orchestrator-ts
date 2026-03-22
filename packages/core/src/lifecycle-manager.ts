@@ -40,8 +40,6 @@ import {
 import { readMetadataRaw, updateMetadata } from "./metadata.js";
 import { getSessionsDir } from "./paths.js";
 import {
-  parseRateLimitReset,
-  setProjectPause,
   clearProjectPause,
   detectAndApplyRateLimitPause,
 } from "./fork-lifecycle-manager.js";
