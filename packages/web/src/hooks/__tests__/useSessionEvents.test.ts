@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { renderHook, act, waitFor } from "@testing-library/react";
 import { useSessionEvents } from "../useSessionEvents";
 import type { DashboardSession, GlobalPauseState } from "../../lib/types";
@@ -29,7 +29,12 @@ describe("useSessionEvents", () => {
       OPEN: 1,
       CLOSED: 2,
     }) as unknown as typeof EventSource;
+    global.fetch = vi.fn();
     vi.restoreAllMocks();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   const makeSessions = (count: number): DashboardSession[] =>

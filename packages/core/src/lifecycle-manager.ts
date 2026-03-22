@@ -17,6 +17,7 @@ import {
   PR_STATE,
   CI_STATUS,
   TERMINAL_STATUSES,
+  isOrchestratorSession,
   type LifecycleManager,
   type SessionManager,
   type SessionId,
@@ -263,10 +264,6 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     if (stuckThresholdMs <= 0) return false;
     const idleMs = Date.now() - idleTimestamp.getTime();
     return idleMs > stuckThresholdMs;
-  }
-
-  function isOrchestratorSession(session: Session): boolean {
-    return session.metadata["role"] === "orchestrator" || session.id.endsWith("-orchestrator");
   }
 
   function setProjectPause(project: _ProjectConfig, sourceSessionId: string, until: Date): void {
