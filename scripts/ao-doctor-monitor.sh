@@ -42,7 +42,9 @@ _run_with_timeout() {
         elapsed=$((elapsed + 1))
       done
       if kill -0 "$pid" 2>/dev/null; then
-        kill "$pid" 2>/dev/null
+        kill -TERM "$pid" 2>/dev/null
+        sleep 2
+        kill -0 "$pid" 2>/dev/null && kill -KILL "$pid" 2>/dev/null
         wait "$pid" 2>/dev/null
         exit 124
       fi
@@ -582,28 +584,39 @@ print(json.dumps({'text': sys.argv[1], 'channel': sys.argv[2]}))
     if [[ "${#AO_DOCTOR_SLACK_CHANNEL}" -eq 11 ]] && [[ "${AO_DOCTOR_SLACK_CHANNEL:0:1}" == "C" ]]; then
       channel_id="$AO_DOCTOR_SLACK_CHANNEL"
     else
-      local list_auth_file
+      local list_auth_file _list_out _lookup_script
       list_auth_file=$(mktemp /tmp/slack-auth.XXXXXX)
-      # curl config file format: option on its own line (value on next line)
-      printf -- '-H\nAuthorization: Bearer %s\n' "$SLACK_USER_TOKEN" > "$list_auth_file"
-      channel_id=$(curl -s --config "$list_auth_file" \
-             "https://slack.com/api/conversations.list?types=public_channel&limit=200" 2>/dev/null | \
-             python3 -c "
+      # curl config: each line is an option; value on the following line
+      printf '%s\n' "-H" "Authorization: Bearer $SLACK_USER_TOKEN" > "$list_auth_file"
+      _list_out=$(curl -s --config "$list_auth_file" \
+             "https://slack.com/api/conversations.list?types=public_channel&limit=200")
+      rm -f "$list_auth_file"
+      if [ -n "$_list_out" ]; then
+        _lookup_script=$(mktemp /tmp/slack-lookup.XXXXXX.py)
+        cat > "$_lookup_script" <<'PYEOF2'
 import sys, json
 name = sys.argv[1].lstrip('#')
-data = json.load(sys.stdin)
+try:
+    data = json.load(sys.stdin)
+except json.JSONDecodeError:
+    sys.exit(1)
+if not data.get('ok', False):
+    sys.exit(1)
 for c in data.get('channels', []):
-    if c['name'] == name:
+    if c.get('name') == name:
         print(c['id'])
         break
-" "$AO_DOCTOR_SLACK_CHANNEL" 2>/dev/null)
-      rm -f "$list_auth_file"
+PYEOF2
+        channel_id=$(printf '%s' "$_list_out" | python3 "$_lookup_script" "$AO_DOCTOR_SLACK_CHANNEL") || channel_id=""
+        rm -f "$_lookup_script"
+      fi
     fi
 
     if [ -n "$channel_id" ]; then
       local post_auth_file payload_file
       post_auth_file=$(mktemp /tmp/slack-auth.XXXXXX)
-      printf -- '-H\nAuthorization: Bearer %s\n-H\nContent-type: application/json\n' "$SLACK_USER_TOKEN" > "$post_auth_file"
+      printf '%s\n' "-H" "Authorization: Bearer $SLACK_USER_TOKEN" \
+                    "-H" "Content-type: application/json" > "$post_auth_file"
       payload_file=$(mktemp /tmp/slack-payload.XXXXXX)
       python3 -c "import json,sys; print(json.dumps({'channel': sys.argv[1], 'text': sys.argv[2]}))" \
         "$channel_id" "$message" > "$payload_file" 2>/dev/null
