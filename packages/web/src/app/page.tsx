@@ -52,8 +52,6 @@ export default async function Home(props: { searchParams: Promise<{ project?: st
   try {
     const { config, registry, sessionManager } = await getServices();
     const allSessions = await sessionManager.list();
-    globalPause = resolveGlobalPause(allSessions);
-
     pageData.globalPause = resolveGlobalPause(allSessions);
 
     const visibleSessions = filterProjectSessions(allSessions, projectFilter, config.projects);

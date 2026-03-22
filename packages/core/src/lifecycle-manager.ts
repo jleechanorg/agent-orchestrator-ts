@@ -47,6 +47,13 @@ import { handleRequestMerge, handleParallelRetry } from "./fork-reaction-handler
 import { maybeDispatchReviewBacklog } from "./review-backlog.js";
 import { updateSessionMetadataHelper } from "./fork-utils.js";
 import { checkMergeGate } from "./merge-gate.js";
+import {
+  GLOBAL_PAUSE_UNTIL_KEY,
+  GLOBAL_PAUSE_REASON_KEY,
+  GLOBAL_PAUSE_SOURCE_KEY,
+  GLOBAL_PAUSE_CREATED_AT_KEY,
+  parsePauseUntil,
+} from "./global-pause.js";
 
 /** Parse a duration string like "10m", "30s", "1h" to milliseconds. */
 export function parseDuration(str: string): number {
@@ -780,170 +787,6 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     updateSessionMetadataHelper(session, updates, config);
   }
 
-  function makeFingerprint(ids: string[]): string {
-    return [...ids].sort().join(",");
-  }
-
-  async function maybeDispatchReviewBacklog(
-    session: Session,
-    oldStatus: SessionStatus,
-    newStatus: SessionStatus,
-    transitionReaction?: { key: string; result: ReactionResult | null },
-  ): Promise<void> {
-    const project = config.projects[session.projectId];
-    if (!project || !session.pr) return;
-
-    const scm = project.scm ? registry.get<SCM>("scm", project.scm.plugin) : null;
-    if (!scm) return;
-
-    const humanReactionKey = "changes-requested";
-    const automatedReactionKey = "bugbot-comments";
-
-    if (newStatus === "merged" || newStatus === "killed") {
-      clearReactionTracker(session.id, humanReactionKey);
-      clearReactionTracker(session.id, automatedReactionKey);
-      updateSessionMetadata(session, {
-        lastPendingReviewFingerprint: "",
-        lastPendingReviewDispatchHash: "",
-        lastPendingReviewDispatchAt: "",
-        lastAutomatedReviewFingerprint: "",
-        lastAutomatedReviewDispatchHash: "",
-        lastAutomatedReviewDispatchAt: "",
-      });
-      return;
-    }
-
-    const [pendingResult, automatedResult] = await Promise.allSettled([
-      scm.getPendingComments(session.pr),
-      scm.getAutomatedComments(session.pr),
-    ]);
-
-    // null means "failed to fetch" — preserve existing metadata.
-    // [] means "confirmed no comments" — safe to clear.
-    const pendingComments =
-      pendingResult.status === "fulfilled" && Array.isArray(pendingResult.value)
-        ? pendingResult.value
-        : null;
-    const automatedComments =
-      automatedResult.status === "fulfilled" && Array.isArray(automatedResult.value)
-        ? automatedResult.value
-        : null;
-
-    // --- Pending (human) review comments ---
-    // null = SCM fetch failed; skip processing to preserve existing metadata.
-    if (pendingComments === null) {
-      console.debug(
-        `[ao lifecycle] Pending comments fetch failed for ${session.id}, preserving existing metadata`,
-      );
-    }
-    if (pendingComments !== null) {
-      const pendingFingerprint = makeFingerprint(pendingComments.map((comment) => comment.id));
-      const lastPendingFingerprint = session.metadata["lastPendingReviewFingerprint"] ?? "";
-      const lastPendingDispatchHash = session.metadata["lastPendingReviewDispatchHash"] ?? "";
-
-      if (
-        pendingFingerprint !== lastPendingFingerprint &&
-        transitionReaction?.key !== humanReactionKey
-      ) {
-        clearReactionTracker(session.id, humanReactionKey);
-      }
-      if (pendingFingerprint !== lastPendingFingerprint) {
-        updateSessionMetadata(session, {
-          lastPendingReviewFingerprint: pendingFingerprint,
-        });
-      }
-
-      if (!pendingFingerprint) {
-        clearReactionTracker(session.id, humanReactionKey);
-        updateSessionMetadata(session, {
-          lastPendingReviewFingerprint: "",
-          lastPendingReviewDispatchHash: "",
-          lastPendingReviewDispatchAt: "",
-        });
-      } else if (
-        transitionReaction?.key === humanReactionKey &&
-        transitionReaction.result?.success
-      ) {
-        if (lastPendingDispatchHash !== pendingFingerprint) {
-          updateSessionMetadata(session, {
-            lastPendingReviewDispatchHash: pendingFingerprint,
-            lastPendingReviewDispatchAt: new Date().toISOString(),
-          });
-        }
-      } else if (
-        !(oldStatus !== newStatus && newStatus === "changes_requested") &&
-        pendingFingerprint !== lastPendingDispatchHash
-      ) {
-        const reactionConfig = getReactionConfigForSession(session, humanReactionKey);
-        if (
-          reactionConfig &&
-          reactionConfig.action &&
-          (reactionConfig.auto !== false || reactionConfig.action === "notify")
-        ) {
-          const result = await executeReaction(
-            session.id,
-            session.projectId,
-            humanReactionKey,
-            reactionConfig,
-          );
-          if (result.success) {
-            updateSessionMetadata(session, {
-              lastPendingReviewDispatchHash: pendingFingerprint,
-              lastPendingReviewDispatchAt: new Date().toISOString(),
-            });
-          }
-        }
-      }
-    }
-
-    // --- Automated (bot) review comments ---
-    if (automatedComments === null) {
-      console.debug(
-        `[ao lifecycle] Automated comments fetch failed for ${session.id}, preserving existing metadata`,
-      );
-    }
-    if (automatedComments !== null) {
-      const automatedFingerprint = makeFingerprint(automatedComments.map((comment) => comment.id));
-      const lastAutomatedFingerprint = session.metadata["lastAutomatedReviewFingerprint"] ?? "";
-      const lastAutomatedDispatchHash = session.metadata["lastAutomatedReviewDispatchHash"] ?? "";
-
-      if (automatedFingerprint !== lastAutomatedFingerprint) {
-        clearReactionTracker(session.id, automatedReactionKey);
-        updateSessionMetadata(session, {
-          lastAutomatedReviewFingerprint: automatedFingerprint,
-        });
-      }
-
-      if (!automatedFingerprint) {
-        clearReactionTracker(session.id, automatedReactionKey);
-        updateSessionMetadata(session, {
-          lastAutomatedReviewFingerprint: "",
-          lastAutomatedReviewDispatchHash: "",
-          lastAutomatedReviewDispatchAt: "",
-        });
-      } else if (automatedFingerprint !== lastAutomatedDispatchHash) {
-        const reactionConfig = getReactionConfigForSession(session, automatedReactionKey);
-        if (
-          reactionConfig &&
-          reactionConfig.action &&
-          (reactionConfig.auto !== false || reactionConfig.action === "notify")
-        ) {
-          const result = await executeReaction(
-            session.id,
-            session.projectId,
-            automatedReactionKey,
-            reactionConfig,
-          );
-          if (result.success) {
-            updateSessionMetadata(session, {
-              lastAutomatedReviewDispatchHash: automatedFingerprint,
-              lastAutomatedReviewDispatchAt: new Date().toISOString(),
-            });
-          }
-        }
-      }
-    }
-  }
 
   /** Send a notification to all configured notifiers. */
   async function notifyHuman(event: OrchestratorEvent, priority: EventPriority): Promise<void> {

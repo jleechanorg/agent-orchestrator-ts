@@ -20,9 +20,6 @@ export type {
 // Re-export global pause state from shared lib (provider-agnostic state contract)
 export type { GlobalPauseState } from "./global-pause";
 
-// Re-export global pause state from shared lib (provider-agnostic state contract)
-export type { GlobalPauseState } from "./global-pause";
-
 import {
   ACTIVITY_STATE,
   SESSION_STATUS,

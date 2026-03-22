@@ -8,6 +8,24 @@ import {
   type AttentionLevel,
   type GlobalPauseState,
   type DashboardOrchestratorLink,
+  getAttentionLevel,
+  isPRRateLimited,
+} from "@/lib/types";
+import { CI_STATUS } from "@jleechanorg/ao-core/types";
+import { AttentionZone } from "./AttentionZone";
+import { PRTableRow } from "./PRStatus";
+import { DynamicFavicon } from "./DynamicFavicon";
+import { useSessionEvents } from "@/hooks/useSessionEvents";
+import { ProjectSidebar } from "./ProjectSidebar";
+import type { ProjectInfo } from "@/lib/project-name";
+
+interface DashboardProps {
+  initialSessions: DashboardSession[];
+  projectId?: string;
+  projectName?: string;
+  projects?: ProjectInfo[];
+  initialGlobalPause?: GlobalPauseState | null;
+  orchestrators?: DashboardOrchestratorLink[];
 }
 
 const KANBAN_LEVELS = ["working", "pending", "review", "respond", "merge"] as const;

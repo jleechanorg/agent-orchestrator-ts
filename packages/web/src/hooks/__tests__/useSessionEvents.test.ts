@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import { renderHook, act, waitFor } from "@testing-library/react";
 import { useSessionEvents } from "../useSessionEvents";
 import type { DashboardSession, GlobalPauseState } from "../../lib/types";
