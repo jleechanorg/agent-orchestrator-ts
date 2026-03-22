@@ -85,9 +85,14 @@ async function checkPRReviews(
     pr: Number(prNumber),
   });
 
-  if (wasDeferred || data === null) {
+  if (wasDeferred) {
     // Exhausted retries — caller logs the deferred state
     return { pendingComments: 0, reviewDecision: null, wasDeferred: true };
+  }
+
+  if (data === null) {
+    // Non-deferred execution that still produced no data indicates a hard failure.
+    throw new Error(`Failed to fetch review data for ${repo}#${prNumber}`);
   }
 
   // With --jq ".data.repository.pullRequest", gh returns just the pullRequest object
@@ -131,7 +136,6 @@ export function registerReviewCheck(program: Command): void {
       const spinner = ora("Checking PRs for review comments...").start();
       const results: ReviewInfo[] = [];
       const executor = makeReviewExecutor();
-      const deferredCount = { value: 0 };
 
       for (const session of sessions) {
         const prUrl = session.metadata["pr"];
@@ -150,7 +154,6 @@ export function registerReviewCheck(program: Command): void {
             executor,
           );
           if (wasDeferred) {
-            deferredCount.value++;
             continue; // skip processing this session until GraphQL recovers
           }
           if (pendingComments > 0 || reviewDecision === "CHANGES_REQUESTED") {

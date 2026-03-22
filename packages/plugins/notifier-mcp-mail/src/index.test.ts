@@ -24,14 +24,6 @@ function mockFetchOk(responseBody: unknown = { ok: true }) {
   });
 }
 
-function mockFetchFail(status = 500, body = "server error") {
-  return vi.fn().mockResolvedValue({
-    ok: false,
-    status,
-    text: () => Promise.resolve(body),
-    json: () => Promise.resolve({ error: body }),
-  });
-}
 
 describe("notifier-mcp-mail", () => {
   beforeEach(() => {

@@ -88,7 +88,6 @@ export function create(config?: Record<string, unknown>): Notifier {
 
   async function ensureRegistered(): Promise<void> {
     if (registered || !endpoint) return;
-    registered = true;
 
     const payload: RegisterAgentPayload = {
       agentId,
@@ -97,6 +96,7 @@ export function create(config?: Record<string, unknown>): Notifier {
     if (projectId) payload.projectId = projectId;
 
     await apiPost(endpoint, "register_agent", payload);
+    registered = true;
   }
 
   return {

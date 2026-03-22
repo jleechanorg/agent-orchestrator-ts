@@ -137,8 +137,11 @@ export class DeferredGraphQLExecutor implements GraphQLExecutor {
 
     // totalAttempts: cumulative across ALL invocations (for DEFER_MAX_ATTEMPTS enforcement).
     // retryAttempt: starts at 0 for each fresh retry batch (for backoff calculation).
+    // inheritedDeferredAt: preserved from existing item, cleared on stale reset so a fresh
+    //   timestamp is used for the new deferred item instead of the stale original.
     let totalAttempts = existing?.attempts ?? 0;
     let retryAttempt  = 0;
+    let inheritedDeferredAt: string | undefined = existing?.deferredAt;
 
     // Stale check: permanently deferred after DEFER_MAX_ATTEMPTS total attempts.
     if (existing && totalAttempts >= DEFER_MAX_ATTEMPTS) {
@@ -149,6 +152,7 @@ export class DeferredGraphQLExecutor implements GraphQLExecutor {
       // Stale window expired — reset and allow one final retry.
       this._deferred.delete(label);
       totalAttempts = 0;
+      inheritedDeferredAt = undefined; // force fresh timestamp on the new deferred item
     }
 
     // Not enough backoff elapsed since last attempt — skip without burning one.
@@ -189,7 +193,7 @@ export class DeferredGraphQLExecutor implements GraphQLExecutor {
     // All retries exhausted — record in deferred state with cumulative totalAttempts.
     const item: DeferredItem = {
       label,
-      deferredAt: existing?.deferredAt ?? new Date().toISOString(),
+      deferredAt: inheritedDeferredAt ?? new Date().toISOString(),
       attempts: totalAttempts,
       lastError: lastError instanceof Error ? lastError.message : String(lastError),
     };
