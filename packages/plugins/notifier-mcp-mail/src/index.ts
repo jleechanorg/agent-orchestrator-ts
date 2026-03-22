@@ -28,17 +28,24 @@ interface RegisterAgentPayload {
   description?: string;
 }
 
-async function apiPost(endpoint: string, path: string, payload: unknown): Promise<void> {
-  const url = `${endpoint.replace(/\/$/, "")}/${path}`;
+async function apiPost(endpoint: string, method: string, params: unknown): Promise<void> {
+  const url = `${endpoint.replace(/\/$/, "")}/mcp`;
   const response = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
+    body: JSON.stringify({ jsonrpc: "2.0", method, params, id: Date.now() }),
   });
 
   if (!response.ok) {
     const body = await response.text();
-    throw new Error(`MCP mail ${path} failed (${response.status}): ${body}`);
+    throw new Error(`MCP mail ${method} failed (${response.status}): ${body}`);
+  }
+
+  const result = (await response.json()) as { error?: { message?: string } };
+  if (result.error) {
+    throw new Error(
+      `MCP mail ${method} JSON-RPC error: ${result.error.message ?? JSON.stringify(result.error)}`,
+    );
   }
 }
 
