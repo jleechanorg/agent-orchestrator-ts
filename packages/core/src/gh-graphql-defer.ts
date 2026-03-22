@@ -134,23 +134,29 @@ export class DeferredGraphQLExecutor implements GraphQLExecutor {
     const maxBackoffMs = options.maxBackoffMs ?? MAX_BACKOFF_MS;
 
     const existing = this._deferred.get(label);
-    let attempts   = existing?.attempts ?? 0;
+
+    // totalAttempts: cumulative across ALL invocations (for DEFER_MAX_ATTEMPTS enforcement).
+    // retryAttempt: starts at 0 for each fresh retry batch (for backoff calculation).
+    let totalAttempts = existing?.attempts ?? 0;
+    let retryAttempt  = 0;
 
     // Stale check: permanently deferred after DEFER_MAX_ATTEMPTS total attempts.
-    if (existing && existing.attempts >= DEFER_MAX_ATTEMPTS) {
+    if (existing && totalAttempts >= DEFER_MAX_ATTEMPTS) {
       const elapsed = Date.now() - new Date(existing.deferredAt).getTime();
       if (elapsed < DEFER_STALE_MS) {
         return { data: null, deferred: [existing], wasDeferred: true };
       }
       // Stale window expired — reset and allow one final retry.
       this._deferred.delete(label);
-      attempts = 0;
+      totalAttempts = 0;
     }
 
     // Not enough backoff elapsed since last attempt — skip without burning one.
-    if (existing && attempts > 0) {
+    if (existing && totalAttempts > 0) {
       const elapsed = Date.now() - new Date(existing.deferredAt).getTime();
-      const requiredBackoff = getBackoffForAttempt(existing.attempts, maxBackoffMs);
+      // totalAttempts is how many have fired so far; the NEXT one in sequence
+      // needs (totalAttempts+1) steps of backoff to have elapsed.
+      const requiredBackoff = getBackoffForAttempt(totalAttempts + 1, maxBackoffMs);
       if (elapsed < requiredBackoff) {
         return { data: null, deferred: Array.from(this._deferred.values()), wasDeferred: true };
       }
@@ -158,8 +164,9 @@ export class DeferredGraphQLExecutor implements GraphQLExecutor {
 
     let lastError: unknown;
 
-    while (attempts < maxAttempts) {
-      attempts++;
+    while (retryAttempt < maxAttempts) {
+      retryAttempt++;
+      totalAttempts++;
       try {
         const data = await this.base.execute(query, variables);
         this._deferred.delete(label);
@@ -172,19 +179,18 @@ export class DeferredGraphQLExecutor implements GraphQLExecutor {
           return { data: null, deferred: [], wasDeferred: false };
         }
 
-        if (attempts < maxAttempts) {
-          const backoff = getBackoffForAttempt(attempts, maxBackoffMs);
+        if (retryAttempt < maxAttempts) {
+          const backoff = getBackoffForAttempt(retryAttempt, maxBackoffMs);
           await ghSleep(backoff);
         }
       }
     }
 
-    // All retries exhausted — record in deferred state.
-    // attempts is cumulative: prior invocations (existing.attempts) + this batch.
+    // All retries exhausted — record in deferred state with cumulative totalAttempts.
     const item: DeferredItem = {
       label,
       deferredAt: existing?.deferredAt ?? new Date().toISOString(),
-      attempts: (existing?.attempts ?? 0) + attempts,
+      attempts: totalAttempts,
       lastError: lastError instanceof Error ? lastError.message : String(lastError),
     };
     this._deferred.set(label, item);
