@@ -38,7 +38,7 @@ import { createLifecycleManager } from "../lifecycle-manager.js";
 import { writeMetadata } from "../metadata.js";
 import { getSessionsDir } from "../paths.js";
 import trackerGithub from "@jleechanorg/ao-plugin-tracker-github";
-import scmGithub from "@jleechanorg/ao-plugin-scm-github";
+import scmGithub, { _resetGhCache } from "@jleechanorg/ao-plugin-scm-github";
 import type {
   OrchestratorConfig,
   PluginRegistry,
@@ -107,6 +107,7 @@ function makeSession(overrides: Partial<Session> = {}): Session {
 // ---------------------------------------------------------------------------
 
 beforeEach(() => {
+  _resetGhCache();
   vi.clearAllMocks();
 
   tmpDir = join(tmpdir(), `ao-test-plugin-int-${randomUUID()}`);

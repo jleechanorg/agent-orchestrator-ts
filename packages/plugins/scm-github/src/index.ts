@@ -7,6 +7,7 @@
 import { execFile } from "node:child_process";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { promisify } from "node:util";
+import { getGhCache, _resetGhCache } from "./gh-cache.js";
 import {
   CI_STATUS,
   isGhRateLimitError,
@@ -323,10 +324,61 @@ async function fetchPrViewFallbackAsJson(
 }
 
 /**
+ * Returns true when the given gh args represent a read-only operation that is safe to cache.
+ * Write operations (merge, close, create, edit, POST/PUT/PATCH, etc.) must never be cached.
+ */
+function isCacheableArgs(args: string[]): boolean {
+  if (args.length === 0) return false;
+  const [cmd, sub] = args;
+  if (cmd === "api") {
+    // Skip write methods — gh api ... --method POST, -X POST, -X PUT, etc.
+    // Also skip implicit POST: gh api switches to POST automatically when -f, -F,
+    // --field, --raw-field, or --input flags are present (gh docs).
+    for (let i = 0; i < args.length; i++) {
+      const a = args[i];
+      if (a === "--method" || a === "-X") {
+        const method = (args[i + 1] ?? "").toUpperCase();
+        if (["POST", "PUT", "PATCH", "DELETE"].includes(method)) return false;
+      }
+      if (a === "-f" || a === "-F" || a === "--field" || a === "--raw-field" || a === "--input") {
+        return false;
+      }
+    }
+    return true;
+  }
+  if (cmd === "pr") {
+    if (sub === "view") return true;
+    if (sub === "checks") return true;
+  }
+  return false;
+}
+
+/**
  * Execute gh CLI with rate limit retry and fallback to REST API.
- * Uses exponential backoff for rate limit errors, then falls back to curl-based REST calls.
+ * Read operations (gh api, gh pr view, gh pr checks) are cached for 15 s
+ * with in-flight request deduplication to reduce redundant network calls.
  */
 async function ghWithRetry(args: string[], cwd?: string, maxRetries = 3): Promise<string> {
+  if (!isCacheableArgs(args)) {
+    // Write operations: bypass cache and in-flight dedupe entirely
+    return ghWithRetryNoCache(args, cwd, maxRetries);
+  }
+
+  const cache = getGhCache();
+
+  const hit = cache.tryGet(args, cwd);
+  if (hit.cached) return hit.value;
+
+  const result = await cache.withDedupe(args, cwd, async (): Promise<string> => {
+    return ghWithRetryNoCache(args, cwd, maxRetries);
+  });
+
+  cache.set(args, cwd, result);
+  return result;
+}
+
+/** Core retry + fallback logic; wrapped by ghWithRetry which adds caching. */
+async function ghWithRetryNoCache(args: string[], cwd: string | undefined, maxRetries: number): Promise<string> {
   let lastError: unknown;
 
   for (let attempt = 0; attempt < maxRetries; attempt++) {
@@ -335,42 +387,30 @@ async function ghWithRetry(args: string[], cwd?: string, maxRetries = 3): Promis
     } catch (err) {
       lastError = err;
 
-      // Check if it's a rate limit error
       if (isGhRateLimitError(err)) {
-        // Skip sleep on final attempt - no more retries anyway
         if (attempt < maxRetries - 1) {
-          const backoffMs = Math.min(1000 * Math.pow(2, attempt), 30000); // Max 30s backoff
+          const backoffMs = Math.min(1000 * Math.pow(2, attempt), 30000);
           console.warn(
             `GitHub rate limit detected, retrying in ${backoffMs}ms (attempt ${attempt + 1}/${maxRetries})`,
           );
           await ghSleep(backoffMs);
         }
       } else {
-        // Non-rate-limit error, don't retry
         throw err;
       }
     }
   }
 
-  // All retries exhausted
-  // Only attempt REST fallback for explicit `gh api ...` calls that the fallback supports.
   if (args[0] === "api") {
     console.warn("Gh CLI rate limit retries exhausted, trying REST API fallback for `gh api` call");
     try {
       return await ghRestFallback(args);
     } catch {
-      // If the REST fallback cannot safely handle these args (for example,
-      // unsupported `gh api` forms like GraphQL), rethrow the original error
-      // from the final failed `gh` invocation instead of a new one.
-      if (lastError instanceof Error) {
-        throw lastError;
-      }
+      if (lastError instanceof Error) throw lastError;
       throw new Error(String(lastError));
     }
   }
 
-  // Attempt REST fallback for `gh pr view` commands: fetch pull (+ reviews when needed) and
-  // synthesize the same JSON shape as `gh pr view --json …`.
   if (args[0] === "pr" && args[1] === "view") {
     const conv = parsePrViewRestConversion(args);
     if (conv) {
@@ -381,11 +421,8 @@ async function ghWithRetry(args: string[], cwd?: string, maxRetries = 3): Promis
     }
   }
 
-  // No fallback available — rethrow the last error.
   console.warn("Gh CLI rate limit retries exhausted, no REST fallback available");
-  if (lastError instanceof Error) {
-    throw lastError;
-  }
+  if (lastError instanceof Error) throw lastError;
   throw new Error(String(lastError));
 }
 
@@ -1717,5 +1754,11 @@ export const manifest = {
 export function create(config?: Record<string, unknown>): SCM {
   return createGitHubSCM(config);
 }
+
+/** Exposed for test isolation — resets the shared GhCache singleton between test cases. */
+export { _resetGhCache } from "./gh-cache.js";
+
+/** Exposed for observability — returns the shared cache with hit/miss metrics. */
+export { getGhCache } from "./gh-cache.js";
 
 export default { manifest, create } satisfies PluginModule<SCM>;
