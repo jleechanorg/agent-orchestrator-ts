@@ -180,10 +180,11 @@ export class DeferredGraphQLExecutor implements GraphQLExecutor {
     }
 
     // All retries exhausted — record in deferred state.
+    // attempts is cumulative: prior invocations (existing.attempts) + this batch.
     const item: DeferredItem = {
       label,
       deferredAt: existing?.deferredAt ?? new Date().toISOString(),
-      attempts,
+      attempts: (existing?.attempts ?? 0) + attempts,
       lastError: lastError instanceof Error ? lastError.message : String(lastError),
     };
     this._deferred.set(label, item);
