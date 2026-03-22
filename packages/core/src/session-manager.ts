@@ -555,14 +555,13 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       return [{ sessionName, raw, modifiedAt } satisfies ActiveSessionRecord];
     });
 
-    // Repair all sessions first so stale status values (e.g. "merged" → "working") are
-    // corrected before we filter on terminal statuses.
     const repaired = repairSessionMetadataOnRead(sessionsDir, records);
-
-    // Filter out killed/merged sessions to prevent stale data dir accumulation.
+    // Filter out killed/merged sessions to keep the active session list clean.
+    // Stale metadata (e.g. merged→working) is corrected by repair first,
+    // so we must check the original status before repair to catch them.
     return repaired.filter((record) => {
-      const status = record.raw["status"] ?? "";
-      return status !== "killed" && status !== "merged";
+      const originalStatus = records.find((r) => r.sessionName === record.sessionName)?.raw["status"] ?? "";
+      return originalStatus !== "killed" && originalStatus !== "merged";
     });
   }
 

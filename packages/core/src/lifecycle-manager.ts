@@ -856,8 +856,10 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       // wrong branches. See bd-b02 for the full analysis.
       const activeSessions = sessions.filter((s) => s.status !== "merged" && s.status !== "killed");
 
-      // Check if all sessions are complete (trigger reaction only once)
-      if (sessions.length > 0 && activeSessions.length === 0 && !allCompleteEmitted) {
+      // Check if all sessions are complete (trigger reaction only once).
+      // Uses activeSessions not sessions because list() now excludes killed/merged
+      // sessions, so sessions.length can be 0 even when sessions did exist.
+      if (activeSessions.length === 0 && !allCompleteEmitted) {
         allCompleteEmitted = true;
 
         // Execute all-complete reaction if configured
