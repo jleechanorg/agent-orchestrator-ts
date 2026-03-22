@@ -22,7 +22,7 @@ import type {
 interface BeadRecord {
   id: string;
   title: string;
-  description: string;
+  description?: string;
   status: string;
   priority?: number;
   issue_type?: string;
@@ -48,7 +48,7 @@ function loadBeads(projectPath: string): BeadRecord[] {
     if (!trimmed) continue;
     try {
       const parsed = JSON.parse(trimmed) as BeadRecord;
-      if (parsed.id) records.push(parsed);
+      if (parsed.id && parsed.status !== "tombstone") records.push(parsed);
     } catch {
       // Skip malformed lines
     }
@@ -76,59 +76,68 @@ function mapStatus(status: string): Issue["state"] {
       return "in_progress";
     case "cancelled":
     case "wontfix":
+    case "tombstone":
       return "cancelled";
     default:
       return "open";
   }
 }
 
+function beadToIssue(bead: BeadRecord): Issue {
+  return {
+    id: bead.id,
+    title: bead.title,
+    description: bead.description ?? "",
+    url: `beads://${bead.id}`,
+    state: mapStatus(bead.status),
+    labels: bead.issue_type ? [bead.issue_type] : [],
+    priority: bead.priority,
+  };
+}
+
 function createBeadsTracker(): Tracker {
   return {
     name: "beads",
 
-    async getIssue(identifier: string, project: ProjectConfig): Promise<Issue> {
-      const bead = findBead(identifier, project);
+    async getIssue(identifier: string, _project: ProjectConfig): Promise<Issue> {
+      const bead = findBead(identifier, _project);
       if (!bead) {
         throw new Error(`Bead ${identifier} not found in .beads/issues.jsonl`);
       }
-      return {
-        id: bead.id,
-        title: bead.title,
-        description: bead.description,
-        url: `beads://${bead.id}`,
-        state: mapStatus(bead.status),
-        labels: bead.issue_type ? [bead.issue_type] : [],
-        priority: bead.priority,
-      };
+      return beadToIssue(bead);
     },
 
-    async isCompleted(identifier: string, project: ProjectConfig): Promise<boolean> {
-      const bead = findBead(identifier, project);
+    async isCompleted(identifier: string, _project: ProjectConfig): Promise<boolean> {
+      const bead = findBead(identifier, _project);
       if (!bead) return false;
       return bead.status === "closed" || bead.status === "done";
     },
 
-    issueUrl(identifier: string): string {
+    issueUrl(identifier: string, _project: ProjectConfig): string {
       return `beads://${identifier}`;
     },
 
-    branchName(identifier: string): string {
+    branchName(identifier: string, _project: ProjectConfig): string {
       return `feat/${identifier}`;
     },
 
-    async generatePrompt(identifier: string, project: ProjectConfig): Promise<string> {
-      const bead = findBead(identifier, project);
+    async generatePrompt(identifier: string, _project: ProjectConfig): Promise<string> {
+      const projectPath = _project.path ?? ".";
+      const allBeads = loadBeads(projectPath);
+      const bead = allBeads.find((b) => b.id === identifier);
+
       if (!bead) {
         return `Work on bead: ${identifier}\n\nNote: Could not find bead details in .beads/issues.jsonl. Check if the bead ID is correct.`;
       }
 
+      const desc = bead.description ?? "(no description)";
       const lines: string[] = [];
       lines.push(`## Bead: ${bead.id} — ${bead.title}`);
       lines.push("");
       lines.push(`**Priority:** P${bead.priority ?? "?"} | **Type:** ${bead.issue_type ?? "task"} | **Status:** ${bead.status}`);
       lines.push("");
       lines.push("### Description");
-      lines.push(bead.description);
+      lines.push(desc);
 
       if (bead.dependencies && bead.dependencies.length > 0) {
         lines.push("");
@@ -136,19 +145,15 @@ function createBeadsTracker(): Tracker {
         for (const dep of bead.dependencies) {
           lines.push(`- ${dep.type}: ${dep.depends_on_id}`);
         }
-      }
 
-      // Load parent/epic context if available
-      if (bead.dependencies) {
+        // Include parent/epic context (reuse already-loaded beads)
         const parentDep = bead.dependencies.find((d) => d.type === "blocks" || d.type === "parent-child");
         if (parentDep) {
-          const projectPath = project.path ?? ".";
-          const allBeads = loadBeads(projectPath);
           const parent = allBeads.find((b) => b.id === parentDep.depends_on_id);
           if (parent) {
             lines.push("");
             lines.push(`### Parent Epic: ${parent.id} — ${parent.title}`);
-            lines.push(parent.description);
+            lines.push(parent.description ?? "(no description)");
           }
         }
       }
@@ -156,8 +161,8 @@ function createBeadsTracker(): Tracker {
       return lines.join("\n");
     },
 
-    async listIssues(filters: IssueFilters, project: ProjectConfig): Promise<Issue[]> {
-      const projectPath = project.path ?? ".";
+    async listIssues(filters: IssueFilters, _project: ProjectConfig): Promise<Issue[]> {
+      const projectPath = _project.path ?? ".";
       const beads = loadBeads(projectPath);
 
       return beads
@@ -173,15 +178,7 @@ function createBeadsTracker(): Tracker {
           return true;
         })
         .slice(0, filters.limit ?? 50)
-        .map((b) => ({
-          id: b.id,
-          title: b.title,
-          description: b.description,
-          url: `beads://${b.id}`,
-          state: mapStatus(b.status),
-          labels: b.issue_type ? [b.issue_type] : [],
-          priority: b.priority,
-        }));
+        .map(beadToIssue);
     },
   };
 }

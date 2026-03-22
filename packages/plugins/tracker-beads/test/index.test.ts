@@ -127,4 +127,37 @@ describe("tracker-beads", () => {
     const prompt = await tracker.generatePrompt("bd-abc", makeProject(tmpDir));
     expect(prompt).toContain("Could not find");
   });
+
+  it("filters out tombstone records", async () => {
+    const beadsWithTombstone = [
+      ...sampleBeads,
+      {
+        id: "bd-dead",
+        title: "Deleted bead",
+        description: "This was removed.",
+        status: "tombstone",
+        priority: 3,
+        issue_type: "task",
+      },
+    ];
+    writeBeads(tmpDir, beadsWithTombstone);
+    // Tombstone should not appear in listings
+    const all = await tracker.listIssues!({}, makeProject(tmpDir));
+    expect(all.find((i) => i.id === "bd-dead")).toBeUndefined();
+    // Tombstone should not be resolvable
+    await expect(tracker.getIssue("bd-dead", makeProject(tmpDir))).rejects.toThrow("not found");
+  });
+
+  it("handles beads with no description", async () => {
+    const beadsNoDesc = [
+      { id: "bd-bare", title: "Bare bead", status: "open", priority: 2 },
+    ];
+    writeBeads(tmpDir, beadsNoDesc);
+    const issue = await tracker.getIssue("bd-bare", makeProject(tmpDir));
+    expect(issue.description).toBe("");
+    const prompt = await tracker.generatePrompt("bd-bare", makeProject(tmpDir));
+    expect(prompt).toContain("bd-bare");
+    expect(prompt).toContain("Bare bead");
+    expect(prompt).toContain("(no description)");
+  });
 });
