@@ -236,6 +236,10 @@ export type {
   GraphQLExecutor,
 } from "./auto-resolve-threads.js";
 
+// Resilient GraphQL executor — retry + backoff + deferred state (bd-fy7)
+export { DeferredGraphQLExecutor, withRetryAndDefer } from "./gh-graphql-defer.js";
+export type { DeferredItem, ResilientResult } from "./gh-graphql-defer.js";
+
 // Slack outbox — outbox queue + dead letter handling (bd-sw3)
 export { SlackOutbox } from "./slack-outbox.js";
 export type { OutboxEntry, OutboxConfig } from "./slack-outbox.js";
