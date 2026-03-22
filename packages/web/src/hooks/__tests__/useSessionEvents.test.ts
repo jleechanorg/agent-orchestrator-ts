@@ -13,6 +13,7 @@ describe("useSessionEvents", () => {
   let eventSourceInstances: (typeof eventSourceMock)[];
 
   beforeEach(() => {
+    vi.restoreAllMocks();
     eventSourceInstances = [];
     const eventSourceConstructor = vi.fn(() => {
       const instance = {
@@ -29,7 +30,6 @@ describe("useSessionEvents", () => {
       OPEN: 1,
       CLOSED: 2,
     }) as unknown as typeof EventSource;
-    vi.restoreAllMocks();
     global.fetch = vi.fn();
   });
 

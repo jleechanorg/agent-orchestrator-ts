@@ -134,6 +134,8 @@ export async function detectAndApplyRateLimitPause(
 ): Promise<void> {
   if (!session.runtimeHandle) return;
   try {
+    // Capture the last 60 lines — typically sufficient to include any rate-limit
+    // banner without pulling excessive terminal history.
     const output = await runtime.getOutput(session.runtimeHandle, 60);
     if (!output) return;
     const resetAt = parseRateLimitReset(output);
