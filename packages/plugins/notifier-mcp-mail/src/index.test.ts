@@ -70,14 +70,19 @@ describe("notifier-mcp-mail", () => {
       });
       const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
       const notifier = create({ agentId: "ao-1" });
-      // Should not warn — env var filled in endpoint
       expect(warnSpy).not.toHaveBeenCalled();
       expect(notifier.name).toBe("mcp-mail");
     });
 
-    it("throws on invalid endpoint URL", () => {
+    it("throws on invalid endpoint URL (non-http scheme)", () => {
+      expect(() => create({ endpoint: "ftp://badscheme" })).toThrow(
+        "Invalid url",
+      );
+    });
+
+    it("throws on invalid endpoint URL (no scheme)", () => {
       expect(() => create({ endpoint: "not-a-url" })).toThrow(
-        "Invalid endpoint URL: not-a-url",
+        "Invalid url",
       );
     });
 
@@ -110,7 +115,7 @@ describe("notifier-mcp-mail", () => {
       expect(sendCall![1].method).toBe("POST");
     });
 
-    it("sends JSON-RPC envelope with Content-Type header", async () => {
+    it("sends JSON-RPC 2.0 envelope with Content-Type header", async () => {
       const fetchMock = mockFetchOk();
       vi.stubGlobal("fetch", fetchMock);
 
@@ -123,7 +128,7 @@ describe("notifier-mcp-mail", () => {
       expect(body.jsonrpc).toBe("2.0");
     });
 
-    it("includes agentId as sender in params", async () => {
+    it("includes agentId as sender_name in params", async () => {
       const fetchMock = mockFetchOk();
       vi.stubGlobal("fetch", fetchMock);
 
@@ -131,7 +136,49 @@ describe("notifier-mcp-mail", () => {
       await notifier.notify(makeEvent());
 
       const body = JSON.parse(findRpcCall(fetchMock, "send_message")![1].body);
-      expect(body.params.from).toBe("ao-1");
+      expect(body.params.sender_name).toBe("ao-1");
+    });
+
+    it("uses projectId as project_key in params", async () => {
+      const fetchMock = mockFetchOk();
+      vi.stubGlobal("fetch", fetchMock);
+
+      const notifier = create({
+        endpoint: "http://localhost:3000",
+        agentId: "ao-1",
+        projectId: "proj-abc",
+      });
+      await notifier.notify(makeEvent());
+
+      const body = JSON.parse(findRpcCall(fetchMock, "send_message")![1].body);
+      expect(body.params.project_key).toBe("proj-abc");
+    });
+
+    it("sends body_md not body in params", async () => {
+      const fetchMock = mockFetchOk();
+      vi.stubGlobal("fetch", fetchMock);
+
+      const notifier = create({ endpoint: "http://localhost:3000", agentId: "ao-1" });
+      await notifier.notify(makeEvent({ message: "CI failed on PR #42" }));
+
+      const body = JSON.parse(findRpcCall(fetchMock, "send_message")![1].body);
+      expect(body.params.body_md).toContain("CI failed on PR #42");
+    });
+
+    it("sends to as a string array", async () => {
+      const fetchMock = mockFetchOk();
+      vi.stubGlobal("fetch", fetchMock);
+
+      const notifier = create({
+        endpoint: "http://localhost:3000",
+        agentId: "ao-1",
+        to: ["orchestrator"],
+      });
+      await notifier.notify(makeEvent());
+
+      const body = JSON.parse(findRpcCall(fetchMock, "send_message")![1].body);
+      expect(Array.isArray(body.params.to)).toBe(true);
+      expect(body.params.to).toContain("orchestrator");
     });
 
     it("includes event type in subject", async () => {
@@ -145,18 +192,7 @@ describe("notifier-mcp-mail", () => {
       expect(body.params.subject).toContain("ci.failing");
     });
 
-    it("includes event message in body", async () => {
-      const fetchMock = mockFetchOk();
-      vi.stubGlobal("fetch", fetchMock);
-
-      const notifier = create({ endpoint: "http://localhost:3000", agentId: "ao-1" });
-      await notifier.notify(makeEvent({ message: "CI failed on PR #42" }));
-
-      const body = JSON.parse(findRpcCall(fetchMock, "send_message")![1].body);
-      expect(body.params.body).toContain("CI failed on PR #42");
-    });
-
-    it("includes sessionId and projectId in body metadata", async () => {
+    it("includes sessionId and projectId in body_md metadata", async () => {
       const fetchMock = mockFetchOk();
       vi.stubGlobal("fetch", fetchMock);
 
@@ -164,11 +200,11 @@ describe("notifier-mcp-mail", () => {
       await notifier.notify(makeEvent({ sessionId: "backend-3", projectId: "myproj" }));
 
       const body = JSON.parse(findRpcCall(fetchMock, "send_message")![1].body);
-      expect(body.params.body).toContain("backend-3");
-      expect(body.params.body).toContain("myproj");
+      expect(body.params.body_md).toContain("backend-3");
+      expect(body.params.body_md).toContain("myproj");
     });
 
-    it("includes prUrl in body when present in event data", async () => {
+    it("includes prUrl in body_md when present in event data", async () => {
       const fetchMock = mockFetchOk();
       vi.stubGlobal("fetch", fetchMock);
 
@@ -178,11 +214,10 @@ describe("notifier-mcp-mail", () => {
       );
 
       const body = JSON.parse(findRpcCall(fetchMock, "send_message")![1].body);
-      expect(body.params.body).toContain("https://github.com/org/repo/pull/42");
+      expect(body.params.body_md).toContain("https://github.com/org/repo/pull/42");
     });
 
     it("throws on non-ok response from send_message", async () => {
-      // First call (register_agent) succeeds, second (send_message) fails
       const fetchMock = vi
         .fn()
         .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({}), text: () => Promise.resolve("") })
@@ -214,7 +249,7 @@ describe("notifier-mcp-mail", () => {
   });
 
   describe("notifyWithActions", () => {
-    it("appends action links to message body", async () => {
+    it("appends action links to body_md", async () => {
       const fetchMock = mockFetchOk();
       vi.stubGlobal("fetch", fetchMock);
 
@@ -227,9 +262,9 @@ describe("notifier-mcp-mail", () => {
 
       const sendCall = findRpcCall(fetchMock, "send_message");
       const body = JSON.parse(sendCall![1].body);
-      expect(body.params.body).toContain("View PR");
-      expect(body.params.body).toContain("https://github.com/org/repo/pull/42");
-      expect(body.params.body).toContain("Kill Session");
+      expect(body.params.body_md).toContain("View PR");
+      expect(body.params.body_md).toContain("https://github.com/org/repo/pull/42");
+      expect(body.params.body_md).toContain("Kill Session");
     });
 
     it("does nothing when no endpoint configured", async () => {
@@ -243,7 +278,7 @@ describe("notifier-mcp-mail", () => {
   });
 
   describe("post", () => {
-    it("sends a free-form text message", async () => {
+    it("sends a free-form text message via body_md", async () => {
       const fetchMock = mockFetchOk({ messageId: "msg-abc" });
       vi.stubGlobal("fetch", fetchMock);
 
@@ -251,10 +286,10 @@ describe("notifier-mcp-mail", () => {
       await notifier.post!("Hello from AO");
 
       const body = JSON.parse(findRpcCall(fetchMock, "send_message")![1].body);
-      expect(body.params.body).toBe("Hello from AO");
+      expect(body.params.body_md).toBe("Hello from AO");
     });
 
-    it("uses context channel as recipient when provided", async () => {
+    it("uses context channel as to array when provided", async () => {
       const fetchMock = mockFetchOk();
       vi.stubGlobal("fetch", fetchMock);
 
@@ -262,7 +297,7 @@ describe("notifier-mcp-mail", () => {
       await notifier.post!("ping", { channel: "orchestrator" });
 
       const body = JSON.parse(findRpcCall(fetchMock, "send_message")![1].body);
-      expect(body.params.to).toBe("orchestrator");
+      expect(body.params.to).toEqual(["orchestrator"]);
     });
 
     it("returns null when no endpoint configured", async () => {
@@ -292,6 +327,25 @@ describe("notifier-mcp-mail", () => {
       expect(registerCall).toBeDefined();
     });
 
+    it("uses official register_agent params: project_key, program, model, name", async () => {
+      const fetchMock = mockFetchOk();
+      vi.stubGlobal("fetch", fetchMock);
+
+      const notifier = create({
+        endpoint: "http://localhost:3000",
+        agentId: "ao-session-abc",
+        projectId: "proj-xyz",
+      });
+      await notifier.notify(makeEvent());
+
+      const registerCall = findRpcCall(fetchMock, "register_agent");
+      const body = JSON.parse(registerCall![1].body);
+      expect(body.params.project_key).toBe("proj-xyz");
+      expect(body.params.program).toBe("agent-orchestrator");
+      expect(body.params.model).toBe("claude");
+      expect(body.params.name).toBe("ao-session-abc");
+    });
+
     it("does not re-register on subsequent notify calls", async () => {
       const fetchMock = mockFetchOk();
       vi.stubGlobal("fetch", fetchMock);
@@ -312,7 +366,6 @@ describe("notifier-mcp-mail", () => {
       vi.stubGlobal("fetch", fetchMock);
 
       const notifier = create({ endpoint: "http://localhost:3000", agentId: "ao-1" });
-      // Fire 3 concurrent notifies — only one register_agent call should happen
       await Promise.all([
         notifier.notify(makeEvent()),
         notifier.notify(makeEvent()),
@@ -324,23 +377,6 @@ describe("notifier-mcp-mail", () => {
         return body.method === "register_agent";
       });
       expect(registerCalls).toHaveLength(1);
-    });
-
-    it("includes agentId and projectId in registration params", async () => {
-      const fetchMock = mockFetchOk();
-      vi.stubGlobal("fetch", fetchMock);
-
-      const notifier = create({
-        endpoint: "http://localhost:3000",
-        agentId: "ao-session-abc",
-        projectId: "proj-xyz",
-      });
-      await notifier.notify(makeEvent());
-
-      const registerCall = findRpcCall(fetchMock, "register_agent");
-      const body = JSON.parse(registerCall![1].body);
-      expect(body.params.agentId).toBe("ao-session-abc");
-      expect(body.params.projectId).toBe("proj-xyz");
     });
   });
 });

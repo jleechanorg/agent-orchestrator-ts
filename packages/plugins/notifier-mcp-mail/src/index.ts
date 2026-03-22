@@ -4,6 +4,7 @@ import {
   type OrchestratorEvent,
   type NotifyAction,
   type NotifyContext,
+  validateUrl,
 } from "@jleechanorg/ao-core";
 
 export const manifest = {
@@ -13,19 +14,22 @@ export const manifest = {
   version: "0.1.0",
 };
 
-interface SendMessagePayload {
-  from: string;
-  to?: string;
+/** Timeout for outbound MCP calls (ms). */
+const MCP_TIMEOUT_MS = 30_000;
+
+interface SendMessageParams {
+  project_key: string;
+  sender_name: string;
+  to: string[];
   subject: string;
-  body: string;
-  projectId?: string;
-  metadata?: Record<string, unknown>;
+  body_md: string;
 }
 
-interface RegisterAgentPayload {
-  agentId: string;
-  projectId?: string;
-  description?: string;
+interface RegisterAgentParams {
+  project_key: string;
+  program: string;
+  model: string;
+  name: string;
 }
 
 async function apiPost(endpoint: string, method: string, params: unknown): Promise<void> {
@@ -34,6 +38,7 @@ async function apiPost(endpoint: string, method: string, params: unknown): Promi
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ jsonrpc: "2.0", method, params, id: Date.now() }),
+    signal: AbortSignal.timeout(MCP_TIMEOUT_MS),
   });
 
   if (!response.ok) {
@@ -84,17 +89,20 @@ function buildBodyWithActions(event: OrchestratorEvent, actions: NotifyAction[])
 export function create(config?: Record<string, unknown>): Notifier {
   const endpoint =
     (config?.endpoint as string | undefined) ?? process.env["MCP_AGENT_MAIL_URL"];
-  const agentId = (config?.agentId as string | undefined) ?? "ao-session";
-  const projectId = config?.projectId as string | undefined;
+
+  const agentId =
+    typeof config?.agentId === "string" ? config.agentId : "ao-session";
+  const projectKey =
+    typeof config?.projectId === "string" ? config.projectId : "";
+  const defaultTo: string[] =
+    Array.isArray(config?.to)
+      ? (config.to as unknown[]).filter((v): v is string => typeof v === "string")
+      : [];
 
   if (!endpoint) {
     console.warn("[notifier-mcp-mail] No endpoint configured — notifications will be no-ops");
   } else {
-    try {
-      new URL(endpoint);
-    } catch {
-      throw new Error(`[notifier-mcp-mail] Invalid endpoint URL: ${endpoint}`);
-    }
+    validateUrl(endpoint, "notifier-mcp-mail");
   }
 
   let registrationPromise: Promise<void> | null = null;
@@ -103,12 +111,13 @@ export function create(config?: Record<string, unknown>): Notifier {
     if (!endpoint) return;
     if (!registrationPromise) {
       const p = (async () => {
-        const payload: RegisterAgentPayload = {
-          agentId,
-          description: "Agent Orchestrator session notifier",
+        const params: RegisterAgentParams = {
+          project_key: projectKey,
+          program: "agent-orchestrator",
+          model: "claude",
+          name: agentId,
         };
-        if (projectId) payload.projectId = projectId;
-        await apiPost(endpoint, "register_agent", payload);
+        await apiPost(endpoint, "register_agent", params);
       })();
       registrationPromise = p;
       p.catch(() => {
@@ -125,43 +134,46 @@ export function create(config?: Record<string, unknown>): Notifier {
       if (!endpoint) return;
       await ensureRegistered();
 
-      const payload: SendMessagePayload = {
-        from: agentId,
+      const params: SendMessageParams = {
+        project_key: projectKey,
+        sender_name: agentId,
+        to: defaultTo,
         subject: `[AO] ${event.type} — ${event.sessionId}`,
-        body: buildMessageBody(event),
+        body_md: buildMessageBody(event),
       };
-      if (projectId) payload.projectId = projectId;
 
-      await apiPost(endpoint, "send_message", payload);
+      await apiPost(endpoint, "send_message", params);
     },
 
     async notifyWithActions(event: OrchestratorEvent, actions: NotifyAction[]): Promise<void> {
       if (!endpoint) return;
       await ensureRegistered();
 
-      const payload: SendMessagePayload = {
-        from: agentId,
+      const params: SendMessageParams = {
+        project_key: projectKey,
+        sender_name: agentId,
+        to: defaultTo,
         subject: `[AO] ${event.type} — ${event.sessionId}`,
-        body: buildBodyWithActions(event, actions),
+        body_md: buildBodyWithActions(event, actions),
       };
-      if (projectId) payload.projectId = projectId;
 
-      await apiPost(endpoint, "send_message", payload);
+      await apiPost(endpoint, "send_message", params);
     },
 
     async post(message: string, context?: NotifyContext): Promise<string | null> {
       if (!endpoint) return null;
       await ensureRegistered();
 
-      const payload: SendMessagePayload = {
-        from: agentId,
+      const to = context?.channel ? [context.channel] : defaultTo;
+      const params: SendMessageParams = {
+        project_key: projectKey,
+        sender_name: agentId,
+        to,
         subject: "[AO] message",
-        body: message,
+        body_md: message,
       };
-      if (context?.channel) payload.to = context.channel;
-      if (projectId) payload.projectId = projectId;
 
-      await apiPost(endpoint, "send_message", payload);
+      await apiPost(endpoint, "send_message", params);
       return null;
     },
   };
