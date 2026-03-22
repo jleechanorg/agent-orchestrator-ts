@@ -11,7 +11,6 @@ interface ReviewInfo {
   prNumber: string;
   pendingComments: number;
   reviewDecision: string | null;
-  wasDeferred?: boolean;
 }
 
 const DEFAULT_REVIEW_FIX_PROMPT =

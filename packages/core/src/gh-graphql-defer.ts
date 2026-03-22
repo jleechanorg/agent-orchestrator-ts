@@ -148,7 +148,7 @@ export class DeferredGraphQLExecutor implements GraphQLExecutor {
       if (elapsed < DEFER_STALE_MS) {
         return { data: null, deferred: [existing], wasDeferred: true };
       }
-      // Stale window expired — reset and allow one final retry.
+      // Stale window expired — reset totalAttempts and allow a fresh batch of retries.
       this._deferred.delete(label);
       totalAttempts = 0;
       // Clear existing so the deferred item is built fresh (not with a stale timestamp).

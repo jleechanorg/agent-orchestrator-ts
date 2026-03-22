@@ -244,7 +244,7 @@ describe("DeferredGraphQLExecutor", () => {
         await p1;
         expect(exec.hasDeferred).toBe(true);
 
-        // Advance only 500ms — less than the 1s backoff required for next attempt
+        // Advance only 500ms — less than the 8s backoff required for attempt 4 (getBackoffForAttempt(4) = 8000ms)
         await vi.advanceTimersByTimeAsync(500);
 
         // Second invocation — should skip retry (insufficient backoff elapsed)
