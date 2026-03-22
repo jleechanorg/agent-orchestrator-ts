@@ -38,6 +38,10 @@ interface RegisterAgentParams {
   name: string;
 }
 
+/**
+ * Post a JSON-RPC 2.0 call to the MCP Agent Mail transport at {endpoint}/mcp.
+ * Handles HTTP errors and JSON-RPC error payloads, and enforces a 30-second timeout.
+ */
 async function apiPost(endpoint: string, method: string, params: unknown): Promise<void> {
   // Strip trailing slashes and any existing /mcp suffix to avoid doubling
   // when MCP_AGENT_MAIL_URL already includes /mcp/ (e.g. http://host:8765/mcp/)
