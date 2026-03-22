@@ -3544,7 +3544,9 @@ describe("bd-kki: killed transition + merged PR race", () => {
     expect(lm.getStates().get("app-1")).toBe("pr_open");
   });
 
-  it("skips SCM check when oldStatus is already terminal (bd-kki guard)", async () => {
+  it("re-checks SCM in belt-and-suspenders for terminal oldStatus and kills if merged", async () => {
+    // When oldStatus is already terminal (e.g. errored→killed), the absorb check is skipped.
+    // The belt-and-suspenders section re-checks SCM and calls kill() if PR is merged.
     vi.mocked(mockSCM.getPRState).mockResolvedValue("merged");
     const nonExistentPath = join(tmpDir, "non-existent-workspace-" + randomUUID());
     const session = makeSession({ status: "errored", pr: makePR(), workspacePath: nonExistentPath });
@@ -3565,7 +3567,9 @@ describe("bd-kki: killed transition + merged PR race", () => {
 
     await lm.check("app-1");
 
-    expect(mockSCM.getPRState).not.toHaveBeenCalled();
+    // Belt-and-suspenders re-checks SCM for terminal oldStatus and calls kill() if merged
+    expect(mockSCM.getPRState).toHaveBeenCalledTimes(1);
+    expect(mockSessionManager.kill).toHaveBeenCalledWith("app-1");
     expect(lm.getStates().get("app-1")).toBe("killed");
   });
 });
