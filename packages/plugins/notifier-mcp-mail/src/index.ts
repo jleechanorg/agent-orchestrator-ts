@@ -111,6 +111,13 @@ export function create(config?: Record<string, unknown>): Notifier {
     validateUrl(endpoint, "notifier-mcp-mail");
   }
 
+  if (endpoint && !projectKey) {
+    console.warn("[notifier-mcp-mail] No projectId configured — project_key will be empty; server may reject messages");
+  }
+  if (endpoint && defaultTo.length === 0) {
+    console.warn("[notifier-mcp-mail] No to recipients configured — send_message calls will have empty to[]");
+  }
+
   let registrationPromise: Promise<void> | null = null;
 
   async function ensureRegistered(): Promise<void> {

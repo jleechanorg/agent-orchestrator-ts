@@ -70,7 +70,8 @@ describe("notifier-mcp-mail", () => {
       });
       const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
       const notifier = create({ agentId: "ao-1" });
-      expect(warnSpy).not.toHaveBeenCalled();
+      // No "No endpoint configured" warning — env var filled in endpoint
+      expect(warnSpy).not.toHaveBeenCalledWith(expect.stringContaining("No endpoint configured"));
       expect(notifier.name).toBe("mcp-mail");
     });
 
