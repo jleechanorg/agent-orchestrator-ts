@@ -354,21 +354,21 @@ function isCacheableArgs(args: string[]): boolean {
  * with in-flight request deduplication to reduce redundant network calls.
  */
 async function ghWithRetry(args: string[], cwd?: string, maxRetries = 3): Promise<string> {
+  if (!isCacheableArgs(args)) {
+    // Write operations: bypass cache and in-flight dedupe entirely
+    return ghWithRetryNoCache(args, cwd, maxRetries);
+  }
+
   const cache = getGhCache();
 
-  if (isCacheableArgs(args)) {
-    const hit = cache.tryGet(args, cwd);
-    if (hit.cached) return hit.value;
-  }
+  const hit = cache.tryGet(args, cwd);
+  if (hit.cached) return hit.value;
 
   const result = await cache.withDedupe(args, cwd, async (): Promise<string> => {
     return ghWithRetryNoCache(args, cwd, maxRetries);
   });
 
-  if (isCacheableArgs(args)) {
-    cache.set(args, cwd, result);
-  }
-
+  cache.set(args, cwd, result);
   return result;
 }
 

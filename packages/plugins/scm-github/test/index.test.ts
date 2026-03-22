@@ -1796,4 +1796,25 @@ describe("scm-github plugin", () => {
       expect(curlArgs).toContain("Authorization: Bearer test-token");
     });
   });
+
+  // ---- GhCache write-dedupe exclusion ------------------------------------
+
+  describe("GhCache write-operation dedupe exclusion", () => {
+    it("concurrent identical write operations each invoke gh CLI independently (not deduplicated)", async () => {
+      // Provide two separate responses. If in-flight dedupe incorrectly applied to writes,
+      // ghMock would only be called once and the second response would go unconsumed.
+      ghMock
+        .mockResolvedValueOnce({ stdout: "" })
+        .mockResolvedValueOnce({ stdout: "" });
+
+      // Fire two concurrent identical merges for the same PR
+      await Promise.all([scm.mergePR(pr, "squash"), scm.mergePR(pr, "squash")]);
+
+      // Both calls must reach gh CLI — no in-flight sharing for write operations
+      const mergeCalls = ghMock.mock.calls.filter(
+        (c) => c[0] === "gh" && Array.isArray(c[1]) && (c[1] as string[]).includes("merge"),
+      );
+      expect(mergeCalls).toHaveLength(2);
+    });
+  });
 });

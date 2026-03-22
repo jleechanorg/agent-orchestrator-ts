@@ -20,7 +20,6 @@ export interface CacheEntry<T> {
 
 export interface InFlightEntry {
   promise: Promise<string>;
-  startMs: number;
 }
 
 /**gh-cache instance keyed by full gh arg array + optional cwd. */
@@ -110,11 +109,13 @@ export class GhCache {
     }
 
     const promise = fetchFn();
-    this.inFlight.set(key, { promise, startMs: Date.now() });
+    this.inFlight.set(key, { promise });
     this._misses++;
 
-    // Always clean up in-flight map when the request settles, regardless of outcome
-    promise.finally(() => this.inFlight.delete(key)).catch(() => {});
+    // Clean up in-flight map when the request settles. Use .then(f, f) instead of
+    // .finally().catch() to avoid creating a derived promise with an unhandled rejection.
+    const cleanup = () => { this.inFlight.delete(key); };
+    promise.then(cleanup, cleanup);
 
     return promise;
   }
