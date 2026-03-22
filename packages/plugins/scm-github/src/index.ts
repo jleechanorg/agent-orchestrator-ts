@@ -332,11 +332,16 @@ function isCacheableArgs(args: string[]): boolean {
   const [cmd, sub] = args;
   if (cmd === "api") {
     // Skip write methods — gh api ... --method POST, -X POST, -X PUT, etc.
+    // Also skip implicit POST: gh api switches to POST automatically when -f, -F,
+    // --field, --raw-field, or --input flags are present (gh docs).
     for (let i = 0; i < args.length; i++) {
       const a = args[i];
       if (a === "--method" || a === "-X") {
         const method = (args[i + 1] ?? "").toUpperCase();
         if (["POST", "PUT", "PATCH", "DELETE"].includes(method)) return false;
+      }
+      if (a === "-f" || a === "-F" || a === "--field" || a === "--raw-field" || a === "--input") {
+        return false;
       }
     }
     return true;
