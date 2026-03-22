@@ -106,13 +106,12 @@ describe("DeferredGraphQLExecutor", () => {
       expect(base.execute).toHaveBeenCalledTimes(1);
     });
 
-    it("clears prior deferred record on success", async () => {
+    it("successive calls with resolving executor don't accumulate deferred state", async () => {
       const base = resolvingExecutor({ ok: true });
       const exec = new DeferredGraphQLExecutor(base);
 
-      // Simulate a prior deferred item set by a failed prior call
+      // Both calls succeed — no deferred record is ever created.
       await exec.executeWithLabel("op", "mutation {}", {});
-      // Second call succeeds — should clear the deferred flag
       const result = await exec.executeWithLabel("op", "mutation {}", {});
 
       expect(result.data).toEqual({ ok: true });
