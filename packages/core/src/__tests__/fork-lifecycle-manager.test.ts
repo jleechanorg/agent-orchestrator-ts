@@ -101,11 +101,12 @@ describe("parseRateLimitReset", () => {
     const output = "usage limit reached\nlimit will reset at 2026-06-01 10:00";
     const result = parseRateLimitReset(output);
     expect(result).not.toBeNull();
-    expect(result?.getFullYear()).toBe(2026);
-    expect(result?.getMonth()).toBe(5); // June = month index 5
-    expect(result?.getDate()).toBe(1);
-    expect(result?.getHours()).toBe(10);
-    expect(result?.getMinutes()).toBe(0);
+    expect(result?.isDurationBased).toBe(false);
+    expect(result?.resetAt.getFullYear()).toBe(2026);
+    expect(result?.resetAt.getMonth()).toBe(5); // June = month index 5
+    expect(result?.resetAt.getDate()).toBe(1);
+    expect(result?.resetAt.getHours()).toBe(10);
+    expect(result?.resetAt.getMinutes()).toBe(0);
   });
 
   it("ignores explicit reset timestamps already in the past", () => {
@@ -120,9 +121,10 @@ describe("parseRateLimitReset", () => {
       "usage limit reached\nlimit will reset at 2026-06-01 10:00\nusage limit reached for 2 hours";
     const result = parseRateLimitReset(output);
     expect(result).not.toBeNull();
+    expect(result?.isDurationBased).toBe(true);
     // Duration-based: now + 2h
     const expected = new Date("2026-06-01T14:00:00").getTime();
-    expect(result?.getTime()).toBeCloseTo(expected, -3); // within ~1 second
+    expect(result?.resetAt.getTime()).toBeCloseTo(expected, -3); // within ~1 second
   });
 
   it("returns the latest future explicit reset when multiple lines exist (mixed stale + fresh)", () => {
@@ -135,8 +137,9 @@ describe("parseRateLimitReset", () => {
     ].join("\n");
     const result = parseRateLimitReset(output);
     expect(result).not.toBeNull();
-    expect(result?.getHours()).toBe(13); // latest future one
-    expect(result?.getMinutes()).toBe(0);
+    expect(result?.isDurationBased).toBe(false);
+    expect(result?.resetAt.getHours()).toBe(13); // latest future one
+    expect(result?.resetAt.getMinutes()).toBe(0);
   });
 
   it("falls back to duration when all explicit resets are stale and duration is present", () => {
@@ -148,24 +151,27 @@ describe("parseRateLimitReset", () => {
     ].join("\n");
     const result = parseRateLimitReset(output);
     expect(result).not.toBeNull();
+    expect(result?.isDurationBased).toBe(true);
     const expected = Date.now() + 30 * 60_000;
-    expect(result?.getTime()).toBeCloseTo(expected, -3);
+    expect(result?.resetAt.getTime()).toBeCloseTo(expected, -3);
   });
 
   it("parses duration in hours", () => {
     vi.setSystemTime(new Date("2026-06-01T08:00:00"));
     const result = parseRateLimitReset("usage limit reached for 3 hours");
     expect(result).not.toBeNull();
+    expect(result?.isDurationBased).toBe(true);
     const expected = Date.now() + 3 * 3_600_000;
-    expect(result?.getTime()).toBeCloseTo(expected, -3);
+    expect(result?.resetAt.getTime()).toBeCloseTo(expected, -3);
   });
 
   it("parses duration in minutes", () => {
     vi.setSystemTime(new Date("2026-06-01T08:00:00"));
     const result = parseRateLimitReset("usage limit reached for 45 min");
     expect(result).not.toBeNull();
+    expect(result?.isDurationBased).toBe(true);
     const expected = Date.now() + 45 * 60_000;
-    expect(result?.getTime()).toBeCloseTo(expected, -3);
+    expect(result?.resetAt.getTime()).toBeCloseTo(expected, -3);
   });
 
   it("rejects malformed explicit reset timestamps with overflowed fields", () => {
@@ -186,8 +192,9 @@ describe("parseRateLimitReset", () => {
     ].join("\n");
     const result = parseRateLimitReset(output);
     expect(result).not.toBeNull();
+    expect(result?.isDurationBased).toBe(true);
     const expected = Date.now() + 3_600_000;
-    expect(result?.getTime()).toBeCloseTo(expected, -3);
+    expect(result?.resetAt.getTime()).toBeCloseTo(expected, -3);
   });
 });
 
@@ -207,7 +214,7 @@ describe("setProjectPause and clearProjectPause", () => {
     rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  it("writes provenance keys (UNTIL, REASON, SOURCE, CREATED_AT) when setting a pause", () => {
+  it("writes provenance keys (UNTIL, REASON, SOURCE) for explicit-timestamp pauses; no CREATED_AT", () => {
     const configPath = makeConfigPath();
     const project = makeProject();
     const sessionsDir = getSessionsDir(configPath, project.path);
@@ -215,12 +222,31 @@ describe("setProjectPause and clearProjectPause", () => {
     writeOrchestratorSeed(sessionsDir, orchId);
 
     const until = new Date(Date.now() + 3_600_000);
-    setProjectPause(configPath, project, "app-1", until);
+    setProjectPause(configPath, project, "app-1", until); // isDurationBased defaults to false
 
     const raw = readMetadataRaw(sessionsDir, orchId);
     expect(raw).not.toBeNull();
     expect(raw![GLOBAL_PAUSE_UNTIL_KEY]).toBe(until.toISOString());
     expect(raw![GLOBAL_PAUSE_REASON_KEY]).toContain("app-1");
+    expect(raw![GLOBAL_PAUSE_SOURCE_KEY]).toBe("app-1");
+    // CREATED_AT is NOT written for explicit-timestamp pauses — they don't need a grace window
+    // because their timestamp becomes stale naturally once it passes.
+    expect(raw![GLOBAL_PAUSE_CREATED_AT_KEY]).toBeUndefined();
+  });
+
+  it("writes CREATED_AT when isDurationBased is true (enables grace-window guard)", () => {
+    const configPath = makeConfigPath();
+    const project = makeProject();
+    const sessionsDir = getSessionsDir(configPath, project.path);
+    const orchId = "app-orchestrator";
+    writeOrchestratorSeed(sessionsDir, orchId);
+
+    const until = new Date(Date.now() + 3_600_000);
+    setProjectPause(configPath, project, "app-1", until, true);
+
+    const raw = readMetadataRaw(sessionsDir, orchId);
+    expect(raw).not.toBeNull();
+    expect(raw![GLOBAL_PAUSE_UNTIL_KEY]).toBe(until.toISOString());
     expect(raw![GLOBAL_PAUSE_SOURCE_KEY]).toBe("app-1");
     expect(raw![GLOBAL_PAUSE_CREATED_AT_KEY]).toBeDefined();
   });
@@ -233,7 +259,8 @@ describe("setProjectPause and clearProjectPause", () => {
     writeOrchestratorSeed(sessionsDir, orchId);
 
     const until = new Date(Date.now() + 3_600_000);
-    setProjectPause(configPath, project, "app-1", until);
+    // Use isDurationBased = true so CREATED_AT is written (needed for grace-window test)
+    setProjectPause(configPath, project, "app-1", until, true);
     clearProjectPause(configPath, project);
 
     const raw = readMetadataRaw(sessionsDir, orchId);

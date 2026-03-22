@@ -21,11 +21,25 @@ function getOrchestratorId(project: _ProjectConfig): string {
   return `${project.sessionPrefix}-orchestrator`;
 }
 
+/** Result returned by parseRateLimitReset. */
+export interface RateLimitResetResult {
+  /** When the rate limit will reset. */
+  resetAt: Date;
+  /**
+   * True when the reset time was derived from a relative duration (e.g. "usage limit reached
+   * for 2 hours") rather than an explicit timestamp.  Duration-based results always produce a
+   * future timestamp (Date.now() + duration) even when the banner is stale, so they require
+   * a grace window to prevent infinite re-pause loops.  Explicit-timestamp results do not need
+   * a grace window — once their timestamp passes, parseRateLimitReset returns null.
+   */
+  isDurationBased: boolean;
+}
+
 /**
  * Parse a terminal output string looking for Claude Code / OpenCode rate-limit messages.
- * Returns the Date when the limit will reset, or null if no rate limit is detected.
+ * Returns the reset time and source type, or null if no rate limit is detected.
  */
-export function parseRateLimitReset(output: string): Date | null {
+export function parseRateLimitReset(output: string): RateLimitResetResult | null {
   if (!/usage\s+limit\s+reached/i.test(output)) return null;
 
   // Scan ALL "limit will reset at YYYY-MM-DD HH:MM" occurrences and pick the
@@ -68,7 +82,7 @@ export function parseRateLimitReset(output: string): Date | null {
       }
     }
   }
-  if (latestReset) return latestReset;
+  if (latestReset) return { resetAt: latestReset, isDurationBased: false };
 
   // Fall back to relative duration only when no future explicit reset timestamp was found.
   const durationMatch = output.match(
@@ -79,30 +93,42 @@ export function parseRateLimitReset(output: string): Date | null {
   if (!Number.isFinite(value) || value <= 0) return null;
   const unit = durationMatch[2].toLowerCase();
   const millis = unit.startsWith("h") ? value * 3_600_000 : value * 60_000;
-  return new Date(Date.now() + millis);
+  return { resetAt: new Date(Date.now() + millis), isDurationBased: true };
 }
 
 /**
  * Persist a project-level rate-limit pause onto the orchestrator session metadata.
  * Only updates if the orchestrator session already exists (avoids phantom sessions).
+ *
+ * @param isDurationBased - Set true when the reset time was derived from a relative duration
+ *   (e.g. "usage limit reached for 2 hours").  Duration-based pauses write CREATED_AT so the
+ *   grace-window guard in detectAndApplyRateLimitPause can prevent re-pause loops from stale
+ *   banners.  Explicit-timestamp pauses do not need CREATED_AT — their timestamp becomes stale
+ *   on its own once it passes, so parseRateLimitReset will return null for them.
  */
 export function setProjectPause(
   configPath: string,
   project: _ProjectConfig,
   sourceSessionId: string,
   until: Date,
+  isDurationBased = false,
 ): void {
   const sessionsDir = getSessionsDir(configPath, project.path);
   const orchestratorId = getOrchestratorId(project);
   // Guard: only update if orchestrator session already exists to avoid creating phantom sessions
   if (!readMetadataRaw(sessionsDir, orchestratorId)) return;
   const message = `Model rate limit detected from ${sourceSessionId}`;
-  updateMetadata(sessionsDir, orchestratorId, {
+  const metadata: Record<string, string> = {
     [GLOBAL_PAUSE_UNTIL_KEY]: until.toISOString(),
     [GLOBAL_PAUSE_REASON_KEY]: message,
     [GLOBAL_PAUSE_SOURCE_KEY]: sourceSessionId,
-    [GLOBAL_PAUSE_CREATED_AT_KEY]: new Date().toISOString(),
-  });
+  };
+  if (isDurationBased) {
+    // Write creation timestamp only for duration-based pauses so the grace-window guard
+    // can compute the original pause duration and prevent re-pause loops from stale banners.
+    metadata[GLOBAL_PAUSE_CREATED_AT_KEY] = new Date().toISOString();
+  }
+  updateMetadata(sessionsDir, orchestratorId, metadata);
 }
 
 /**
@@ -143,8 +169,9 @@ export async function detectAndApplyRateLimitPause(
     // banner without pulling excessive terminal history.
     const output = await runtime.getOutput(session.runtimeHandle, 60);
     if (!output) return;
-    const resetAt = parseRateLimitReset(output);
-    if (!resetAt) return;
+    const result = parseRateLimitReset(output);
+    if (!result) return;
+    const { resetAt, isDurationBased } = result;
     if (resetAt.getTime() <= Date.now()) return;
 
     // Check if there's already an active pause from this session
@@ -172,7 +199,9 @@ export async function detectAndApplyRateLimitPause(
       // re-pause from a stale banner; making the grace window project-wide (not scoped to
       // existingSource === session.id) prevents any worker from re-applying before the
       // grace period ends.
-      // The presence of existingCreatedAt identifies a duration-based (relative) pause.
+      // existingCreatedAt is only written for duration-based pauses (see setProjectPause),
+      // so its presence here reliably identifies a prior duration-based pause that needs
+      // a grace window.
       if (existingUntil && existingUntil.getTime() <= Date.now() && existingCreatedAt) {
         const createdAt = new Date(existingCreatedAt);
         // Guard against invalid date strings — treat as "in grace period" to prevent re-pause loops
@@ -195,7 +224,7 @@ export async function detectAndApplyRateLimitPause(
       }
     }
 
-    setProjectPause(configPath, project, session.id, resetAt);
+    setProjectPause(configPath, project, session.id, resetAt, isDurationBased);
   } catch {
     return;
   }
