@@ -1258,17 +1258,56 @@ describe("list", () => {
     const oldTime = new Date("2026-01-01T00:00:00.000Z");
     utimesSync(join(sessionsDir, "app-orchestrator"), oldTime, oldTime);
 
+    // Add a working session so the list is non-empty after merged orchestrator is filtered.
+    writeMetadata(sessionsDir, "app-active", {
+      worktree: "/tmp/ws-active",
+      branch: "feat/active",
+      status: "working",
+      project: "my-app",
+    });
+    utimesSync(join(sessionsDir, "app-active"), oldTime, oldTime);
+
     const sm = createSessionManager({ config, registry: mockRegistry });
     const sessions = await sm.list("my-app");
-    const orchestrator = sessions.find((session) => session.id === "app-orchestrator");
 
-    expect(orchestrator).toBeDefined();
-    expect(orchestrator!.lastActivityAt.getTime()).toBe(oldTime.getTime());
+    // Orchestrator's merged status is repaired to working, then filtered out.
+    expect(sessions.find((s) => s.id === "app-orchestrator")).toBeUndefined();
+    const active = sessions.find((s) => s.id === "app-active");
+    expect(active).toBeDefined();
+    expect(active!.lastActivityAt.getTime()).toBe(oldTime.getTime());
 
+    // Verify orchestrator metadata was still repaired (file on disk, not in list).
     const repaired = readMetadataRaw(sessionsDir, "app-orchestrator");
     expect(repaired!["pr"]).toBeUndefined();
     expect(repaired!["prAutoDetect"]).toBe("off");
     expect(repaired!["status"]).toBe("working");
+  });
+
+  it("excludes killed and merged sessions from list", async () => {
+    writeMetadata(sessionsDir, "app-killed", {
+      worktree: "/tmp/ws-killed",
+      branch: "feat/killed",
+      status: "killed",
+      project: "my-app",
+    });
+    writeMetadata(sessionsDir, "app-merged", {
+      worktree: "/tmp/ws-merged",
+      branch: "feat/merged",
+      status: "merged",
+      project: "my-app",
+    });
+    writeMetadata(sessionsDir, "app-working", {
+      worktree: "/tmp/ws-working",
+      branch: "feat/working",
+      status: "working",
+      project: "my-app",
+    });
+
+    const sm = createSessionManager({ config, registry: mockRegistry });
+    const sessions = await sm.list("my-app");
+
+    expect(sessions).toHaveLength(1);
+    expect(sessions[0].id).toBe("app-working");
   });
 
   it("filters by project ID", async () => {
@@ -4675,7 +4714,11 @@ describe("claimPR", () => {
     const sm = createSessionManager({ config, registry: mockRegistry });
     const sessions = await sm.list();
 
-    expect(sessions).toHaveLength(3);
+    // app-orchestrator (original status merged) is filtered out after repair.
+    // app-1 (review_pending→working) is kept since review_pending is not merged/killed.
+    // app-2 stays (pr_open, freshest duplicate).
+    expect(sessions).toHaveLength(2);
+    expect(sessions.map((s) => s.id).sort()).toEqual(["app-1", "app-2"]);
 
     const orchestrator = readMetadataRaw(sessionsDir, "app-orchestrator");
     expect(orchestrator!["role"]).toBe("orchestrator");

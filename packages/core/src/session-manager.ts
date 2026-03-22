@@ -555,7 +555,14 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       return [{ sessionName, raw, modifiedAt } satisfies ActiveSessionRecord];
     });
 
-    return repairSessionMetadataOnRead(sessionsDir, records);
+    const repaired = repairSessionMetadataOnRead(sessionsDir, records);
+    // Filter out killed/merged sessions to keep the active session list clean.
+    // Stale metadata (e.g. merged→working) is corrected by repair first,
+    // so we must check the original status before repair to catch them.
+    return repaired.filter((record) => {
+      const originalStatus = records.find((r) => r.sessionName === record.sessionName)?.raw["status"] ?? "";
+      return originalStatus !== "killed" && originalStatus !== "merged";
+    });
   }
 
   function markArchivedOpenCodeCleanup(sessionsDir: string, sessionId: SessionId): void {
