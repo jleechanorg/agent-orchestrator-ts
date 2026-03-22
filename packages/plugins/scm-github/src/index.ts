@@ -7,7 +7,7 @@
 import { execFile } from "node:child_process";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { promisify } from "node:util";
-import { getGhCache } from "./gh-cache.js";
+import { getGhCache, _resetGhCache } from "./gh-cache.js";
 import {
   CI_STATUS,
   isGhRateLimitError,
@@ -1739,5 +1739,8 @@ export const manifest = {
 export function create(config?: Record<string, unknown>): SCM {
   return createGitHubSCM(config);
 }
+
+/** Exposed for test isolation — resets the shared GhCache singleton between test cases. */
+export { _resetGhCache };
 
 export default { manifest, create } satisfies PluginModule<SCM>;
