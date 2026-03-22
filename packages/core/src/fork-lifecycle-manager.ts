@@ -16,6 +16,11 @@ import {
 } from "./global-pause.js";
 import type { Session, SessionManager, Runtime, ProjectConfig as _ProjectConfig } from "./types.js";
 
+/** Returns the canonical orchestrator session ID for a project. */
+function getOrchestratorId(project: _ProjectConfig): string {
+  return `${project.sessionPrefix}-orchestrator`;
+}
+
 /**
  * Parse a terminal output string looking for Claude Code / OpenCode rate-limit messages.
  * Returns the Date when the limit will reset, or null if no rate limit is detected.
@@ -88,7 +93,7 @@ export function setProjectPause(
   until: Date,
 ): void {
   const sessionsDir = getSessionsDir(configPath, project.path);
-  const orchestratorId = `${project.sessionPrefix}-orchestrator`;
+  const orchestratorId = getOrchestratorId(project);
   // Guard: only update if orchestrator session already exists to avoid creating phantom sessions
   if (!readMetadataRaw(sessionsDir, orchestratorId)) return;
   const message = `Model rate limit detected from ${sourceSessionId}`;
@@ -109,7 +114,7 @@ export function setProjectPause(
  */
 export function clearProjectPause(configPath: string, project: _ProjectConfig): void {
   const sessionsDir = getSessionsDir(configPath, project.path);
-  const orchestratorId = `${project.sessionPrefix}-orchestrator`;
+  const orchestratorId = getOrchestratorId(project);
   // Guard: only update if orchestrator session already exists to avoid creating phantom sessions
   if (!readMetadataRaw(sessionsDir, orchestratorId)) return;
   updateMetadata(sessionsDir, orchestratorId, {
@@ -144,7 +149,7 @@ export async function detectAndApplyRateLimitPause(
 
     // Check if there's already an active pause from this session
     // to prevent infinite re-pause loops with duration-based rate limits
-    const orchestratorId = `${project.sessionPrefix}-orchestrator`;
+    const orchestratorId = getOrchestratorId(project);
     const orchestratorSession = await sessionManager.get(orchestratorId);
     if (orchestratorSession) {
       const existingUntil = parsePauseUntil(orchestratorSession.metadata[GLOBAL_PAUSE_UNTIL_KEY]);
