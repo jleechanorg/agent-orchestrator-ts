@@ -23,13 +23,18 @@ import type { Session, SessionManager, Runtime, ProjectConfig as _ProjectConfig 
 export function parseRateLimitReset(output: string): Date | null {
   if (!/usage\s+limit\s+reached/i.test(output)) return null;
 
-  const resetMatch = output.match(
-    /limit\s+will\s+reset\s+at\s+(\d{4}-\d{2}-\d{2})\s+(\d{1,2}):(\d{1,2})/i,
-  );
-  if (resetMatch) {
-    const [year, month, day] = resetMatch[1].split("-").map((part) => Number.parseInt(part, 10));
-    const hour = Number.parseInt(resetMatch[2], 10);
-    const minute = Number.parseInt(resetMatch[3], 10);
+  // Scan ALL "limit will reset at YYYY-MM-DD HH:MM" occurrences and pick the
+  // latest future one. A single output may contain multiple banners (e.g. one
+  // stale line from a previous scroll-back and one fresh line); returning the
+  // first match could return a timestamp already in the past.
+  const resetRegex =
+    /limit\s+will\s+reset\s+at\s+(\d{4}-\d{2}-\d{2})\s+(\d{1,2}):(\d{1,2})/gi;
+  let latestReset: Date | null = null;
+  let match: RegExpExecArray | null;
+  while ((match = resetRegex.exec(output)) !== null) {
+    const [year, month, day] = match[1].split("-").map((part) => Number.parseInt(part, 10));
+    const hour = Number.parseInt(match[2], 10);
+    const minute = Number.parseInt(match[3], 10);
     if (
       Number.isFinite(year) &&
       Number.isFinite(month) &&
@@ -40,12 +45,16 @@ export function parseRateLimitReset(output: string): Date | null {
       // Use local Date (not UTC) so the reset timestamp matches the user's system timezone,
       // which is the timezone used in agent terminal output.
       const parsed = new Date(year, month - 1, day, hour, minute, 0);
-      if (!Number.isNaN(parsed.getTime())) {
-        return parsed;
+      if (!Number.isNaN(parsed.getTime()) && parsed.getTime() > Date.now()) {
+        if (!latestReset || parsed.getTime() > latestReset.getTime()) {
+          latestReset = parsed;
+        }
       }
     }
   }
+  if (latestReset) return latestReset;
 
+  // Fall back to relative duration only when no future explicit reset timestamp was found.
   const durationMatch = output.match(
     /usage\s+limit\s+reached\s+for\s+(\d+)\s*(hour|hours|hr|h|minute|minutes|min|m)/i,
   );
@@ -139,17 +148,14 @@ export async function detectAndApplyRateLimitPause(
         return;
       }
 
-      // If there's a recently-expired pause from the same session, don't re-apply.
-      // This prevents infinite re-pause loops with stale duration-based rate limit messages.
+      // If there's a recently-expired duration-based pause, enforce a project-wide grace window.
       // Duration-based messages compute resetAt as Date.now() + duration, so they always
-      // produce a future timestamp even if the message is stale. By checking if a pause
-      // from this session just expired, we avoid re-pausing from the same stale message.
-      if (
-        existingUntil &&
-        existingUntil.getTime() <= Date.now() &&
-        existingSource === session.id &&
-        existingCreatedAt
-      ) {
+      // produce a future timestamp even if the message is stale. Any session can trigger a
+      // re-pause from a stale banner; making the grace window project-wide (not scoped to
+      // existingSource === session.id) prevents any worker from re-applying before the
+      // grace period ends.
+      // The presence of existingCreatedAt identifies a duration-based (relative) pause.
+      if (existingUntil && existingUntil.getTime() <= Date.now() && existingCreatedAt) {
         const createdAt = new Date(existingCreatedAt);
         // Guard against invalid date strings — treat as "in grace period" to prevent re-pause loops
         if (Number.isNaN(createdAt.getTime())) return;
