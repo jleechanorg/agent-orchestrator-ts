@@ -1879,7 +1879,7 @@ describe("kill", () => {
     await expect(sm.kill("app-1")).resolves.toBeUndefined();
   });
 
-  it("does not purge mapped OpenCode session on default kill", async () => {
+  it("does NOT purge mapped OpenCode session on default kill (purgeOpenCode opt-in)", async () => {
     const deleteLogPath = join(tmpDir, "opencode-delete-kill-default.log");
     const mockBin = installMockOpencode("[]", deleteLogPath);
     process.env.PATH = `${mockBin}:${originalPath ?? ""}`;
@@ -1897,7 +1897,9 @@ describe("kill", () => {
     const sm = createSessionManager({ config, registry: mockRegistry });
     await sm.kill("app-1");
 
-    expect(existsSync(deleteLogPath)).toBe(false);
+    // Default kill should NOT purge OpenCode session — purgeOpenCode must be explicit
+    const deleteLogExists = existsSync(deleteLogPath);
+    expect(deleteLogExists).toBe(false);
   });
 
   it("purges mapped OpenCode session when requested", async () => {
