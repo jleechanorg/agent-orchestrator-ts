@@ -532,8 +532,29 @@ describe("scm-github plugin", () => {
 
     it("returns null when no PR found", async () => {
       mockGh([]);
+      mockGh([]);
       const result = await scm.detectPR(makeSession(), project);
       expect(result).toBeNull();
+    });
+
+    it("discovers fork PR when head=owner:branch filter is empty", async () => {
+      mockGh([]);
+      mockGh([
+        {
+          number: 7,
+          html_url: "https://github.com/acme/repo/pull/7",
+          title: "from fork",
+          head: { ref: "feat/my-feature" },
+          base: { ref: "main" },
+          draft: false,
+        },
+      ]);
+      const result = await scm.detectPR(makeSession(), project);
+      expect(result).toMatchObject({
+        number: 7,
+        url: "https://github.com/acme/repo/pull/7",
+        branch: "feat/my-feature",
+      });
     });
 
     it("returns null when session has no branch", async () => {
@@ -964,6 +985,13 @@ describe("scm-github plugin", () => {
       ]);
       expect(await scm.getCISummary(pr)).toBe("none");
     });
+
+    it("rethrows rate limit errors (wrapped by getCIChecks)", async () => {
+      for (let i = 0; i < 4; i++) {
+        mockGhError("API rate limit exceeded");
+      }
+      await expect(scm.getCISummary(pr)).rejects.toThrow(/Failed to fetch CI checks/i);
+    });
   });
 
   // ---- getReviews --------------------------------------------------------
@@ -1058,6 +1086,11 @@ describe("scm-github plugin", () => {
     it('returns "none" when reviewDecision is null', async () => {
       mockGh({ reviewDecision: null });
       expect(await scm.getReviewDecision(pr)).toBe("none");
+    });
+
+    it('returns "pending" on non-rate-limit gh failure (fail-closed)', async () => {
+      mockGhError("gh crashed");
+      expect(await scm.getReviewDecision(pr)).toBe("pending");
     });
   });
 
@@ -1451,13 +1484,31 @@ describe("scm-github plugin", () => {
         mergeStateStatus: "UNSTABLE",
         isDraft: false,
       });
-      mockGhError("rate limited");
+      mockGhError("ENOTFOUND github.com");
 
       const result = await scm.getMergeability(pr);
       expect(result.ciPassing).toBe(false);
       expect(result.mergeable).toBe(false);
       expect(result.blockers).toContain("CI is failing");
       expect(result.blockers).toContain("Required checks are failing");
+    });
+
+    it("reports a dedicated blocker when CI summary hits rate limits", async () => {
+      mockGh({ state: "OPEN" });
+      mockGh({
+        mergeable: "MERGEABLE",
+        reviewDecision: "APPROVED",
+        mergeStateStatus: "CLEAN",
+        isDraft: false,
+      });
+      for (let i = 0; i < 4; i++) {
+        mockGhError("API rate limit exceeded");
+      }
+
+      const result = await scm.getMergeability(pr);
+      expect(result.ciPassing).toBe(false);
+      expect(result.mergeable).toBe(false);
+      expect(result.blockers.some((b) => b.includes("rate limited"))).toBe(true);
     });
 
     it("reports changes requested as blockers", async () => {
@@ -1707,6 +1758,25 @@ describe("scm-github plugin", () => {
       expect(curlCalls).toHaveLength(1);
       expect(curlCalls[0][1]).toContain("-X");
       expect(curlCalls[0][1]).toContain("GET");
+    });
+
+    it("finds endpoint when --method GET precedes the path", async () => {
+      ghMock
+        .mockRejectedValueOnce(new Error("not authenticated"))
+        .mockResolvedValueOnce({ stdout: '{"test": true}' });
+
+      await ghRestFallback([
+        "api",
+        "--method",
+        "GET",
+        "repos/owner/repo/pulls/1/comments?per_page=100",
+      ]);
+
+      const curlCalls = ghMock.mock.calls.filter((call) => call[0] === "curl");
+      expect(curlCalls).toHaveLength(1);
+      expect(curlCalls[0][1].join(" ")).toContain(
+        "https://api.github.com/repos/owner/repo/pulls/1/comments?per_page=100",
+      );
     });
 
     it("includes auth token when available", async () => {
