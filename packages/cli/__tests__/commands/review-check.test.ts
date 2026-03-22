@@ -51,7 +51,6 @@ vi.mock("ora", () => ({
     stop: vi.fn().mockReturnThis(),
     succeed: vi.fn().mockReturnThis(),
     fail: vi.fn().mockReturnThis(),
-    warn: vi.fn().mockReturnThis(),
     text: "",
   }),
 }));
@@ -188,13 +187,12 @@ describe("review-check command", () => {
     );
 
     // All threads resolved, no changes requested
-    mockExec.mockResolvedValue({
-      stdout: JSON.stringify({
+    mockGh.mockResolvedValue(
+      JSON.stringify({
         reviewDecision: "APPROVED",
         reviewThreads: { nodes: [{ isResolved: true }] },
       }),
-      stderr: "",
-    });
+    );
 
     await program.parseAsync(["node", "test", "review-check"]);
 
@@ -208,13 +206,12 @@ describe("review-check command", () => {
       "branch=feat/fix\npr=https://github.com/org/my-app/pull/10\n",
     );
 
-    mockExec.mockResolvedValue({
-      stdout: JSON.stringify({
+    mockGh.mockResolvedValue(
+      JSON.stringify({
         reviewDecision: "CHANGES_REQUESTED",
         reviewThreads: { nodes: [{ isResolved: false }, { isResolved: true }] },
       }),
-      stderr: "",
-    });
+    );
 
     await program.parseAsync(["node", "test", "review-check", "--dry-run"]);
 
@@ -232,8 +229,8 @@ describe("review-check command", () => {
 
     const output = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
     expect(output).toContain("No pending review comments");
-    // exec should never be called since there's no PR
-    expect(mockExec).not.toHaveBeenCalled();
+    // gh should never be called since there's no PR
+    expect(mockGh).not.toHaveBeenCalled();
   });
 
   it("skips sessions with non-matching prefix", async () => {
@@ -261,13 +258,12 @@ describe("review-check command", () => {
       "branch=feat/fix\npr=https://github.com/org/my-app/pull/10\n",
     );
 
-    mockExec.mockResolvedValue({
-      stdout: JSON.stringify({
+    mockGh.mockResolvedValue(
+      JSON.stringify({
         reviewDecision: null,
         reviewThreads: { nodes: [{ isResolved: false }] },
       }),
-      stderr: "",
-    });
+    );
 
     await program.parseAsync(["node", "test", "review-check"]);
 
@@ -277,6 +273,7 @@ describe("review-check command", () => {
       "app-1",
       expect.stringContaining("review comments"),
     );
+    expect(mockExec).not.toHaveBeenCalled();
   });
 
   it("handles gh returning null (API failure)", async () => {
@@ -285,10 +282,7 @@ describe("review-check command", () => {
       "branch=feat/fix\npr=https://github.com/org/my-app/pull/10\n",
     );
 
-    // exec rejects to simulate gh CLI failure (stderr preserved for rate-limit detection)
-    mockExec.mockRejectedValue(
-      Object.assign(new Error("Command failed: gh api graphql"), { stderr: "Server Error" }),
-    );
+    mockGh.mockResolvedValue(null);
 
     await program.parseAsync(["node", "test", "review-check"]);
 
@@ -302,7 +296,7 @@ describe("review-check command", () => {
       "branch=feat/fix\npr=https://github.com/org/my-app/pull/10\n",
     );
 
-    mockExec.mockResolvedValue({ stdout: "not valid json {{{", stderr: "" });
+    mockGh.mockResolvedValue("not valid json {{{");
 
     await program.parseAsync(["node", "test", "review-check"]);
 

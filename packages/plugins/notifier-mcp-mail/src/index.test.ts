@@ -62,6 +62,16 @@ describe("notifier-mcp-mail", () => {
       expect(warnSpy).not.toHaveBeenCalled();
       expect(notifier.name).toBe("mcp-mail");
     });
+
+    it("throws on invalid endpoint URL", () => {
+      expect(() => create({ endpoint: "not-a-url" })).toThrow(
+        "Invalid endpoint URL: not-a-url",
+      );
+    });
+
+    it("accepts valid http endpoint without throwing", () => {
+      expect(() => create({ endpoint: "http://localhost:3000" })).not.toThrow();
+    });
   });
 
   describe("notify — no endpoint", () => {
@@ -276,6 +286,24 @@ describe("notifier-mcp-mail", () => {
       const notifier = create({ endpoint: "http://localhost:3000", agentId: "ao-1" });
       await notifier.notify(makeEvent());
       await notifier.notify(makeEvent());
+
+      const registerCalls = fetchMock.mock.calls.filter((call) =>
+        (call[0] as string).includes("register_agent"),
+      );
+      expect(registerCalls).toHaveLength(1);
+    });
+
+    it("only registers once when concurrent notify calls race", async () => {
+      const fetchMock = mockFetchOk();
+      vi.stubGlobal("fetch", fetchMock);
+
+      const notifier = create({ endpoint: "http://localhost:3000", agentId: "ao-1" });
+      // Fire 3 concurrent notifies — only one register_agent call should happen
+      await Promise.all([
+        notifier.notify(makeEvent()),
+        notifier.notify(makeEvent()),
+        notifier.notify(makeEvent()),
+      ]);
 
       const registerCalls = fetchMock.mock.calls.filter((call) =>
         (call[0] as string).includes("register_agent"),

@@ -82,21 +82,33 @@ export function create(config?: Record<string, unknown>): Notifier {
 
   if (!endpoint) {
     console.warn("[notifier-mcp-mail] No endpoint configured — notifications will be no-ops");
+  } else {
+    try {
+      new URL(endpoint);
+    } catch {
+      throw new Error(`[notifier-mcp-mail] Invalid endpoint URL: ${endpoint}`);
+    }
   }
 
-  let registered = false;
+  let registrationPromise: Promise<void> | null = null;
 
   async function ensureRegistered(): Promise<void> {
-    if (registered || !endpoint) return;
-
-    const payload: RegisterAgentPayload = {
-      agentId,
-      description: "Agent Orchestrator session notifier",
-    };
-    if (projectId) payload.projectId = projectId;
-
-    await apiPost(endpoint, "register_agent", payload);
-    registered = true;
+    if (!endpoint) return;
+    if (!registrationPromise) {
+      const p = (async () => {
+        const payload: RegisterAgentPayload = {
+          agentId,
+          description: "Agent Orchestrator session notifier",
+        };
+        if (projectId) payload.projectId = projectId;
+        await apiPost(endpoint, "register_agent", payload);
+      })();
+      registrationPromise = p;
+      p.catch(() => {
+        registrationPromise = null;
+      });
+    }
+    await registrationPromise;
   }
 
   return {
