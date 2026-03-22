@@ -899,13 +899,12 @@ export function registerStop(program: Command): void {
   program
     .command("stop [project]")
     .description("Stop orchestrator agent and dashboard")
-    .option("--keep-session", "Keep mapped OpenCode session after stopping")
     .option("--purge-session", "Delete mapped OpenCode session when stopping")
     .option("--all", "Stop all running AO instances")
     .action(
       async (
         projectArg?: string,
-        opts: { keepSession?: boolean; purgeSession?: boolean; all?: boolean } = {},
+        opts: { purgeSession?: boolean; all?: boolean } = {},
       ) => {
         try {
           // Check running.json first

@@ -337,6 +337,8 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
           existingCreatedAt
         ) {
           const createdAt = new Date(existingCreatedAt);
+          // Guard against invalid date strings — treat as "in grace period" to prevent re-pause loops
+          if (Number.isNaN(createdAt.getTime())) return;
           const pauseDuration = existingUntil.getTime() - createdAt.getTime();
           // Only re-apply if we're well past the original pause window (2x duration as grace period)
           const gracePeriod = Math.max(pauseDuration * 2, 60_000); // At least 1 minute
@@ -979,13 +981,16 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       // (e.g., list() detected a dead runtime and marked it "killed" — we need to
       // process that transition even though the new status is terminal)
       const sessionsToCheck = sessions.filter((s) => {
-        if (pausedProjects.has(s.projectId) && !isOrchestratorSession(s)) {
+        const isTerminal = s.status === "merged" || s.status === "killed";
+        // Skip non-orchestrator sessions for paused projects, but allow terminal sessions
+        // through so exit proof, outcome recording, and cleanup are not delayed.
+        if (pausedProjects.has(s.projectId) && !isOrchestratorSession(s) && !isTerminal) {
           return false;
         }
         // Skip terminal statuses only if we've already seen and processed this session.
         // If tracked is undefined (e.g., after lifecycle manager restart), allow it
         // through once so exit proof and outcome can be emitted.
-        if (s.status === "merged" || s.status === "killed") {
+        if (isTerminal) {
           const tracked = states.get(s.id);
           return tracked === undefined || tracked !== s.status;
         }
@@ -1001,7 +1006,9 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       for (const s of sessionsToCheck) {
         // Re-check mid-cycle: an earlier checkSession() may have paused this project
         // via setProjectPause(), which writes to disk but not to the in-memory map.
-        if (pausedProjects.has(s.projectId) && !isOrchestratorSession(s)) {
+        // Terminal sessions (killed/merged) bypass the pause so cleanup isn't delayed.
+        const isMidCycleTerminal = s.status === "merged" || s.status === "killed";
+        if (pausedProjects.has(s.projectId) && !isOrchestratorSession(s) && !isMidCycleTerminal) {
           continue;
         }
         await checkSession(s).catch((err) => {

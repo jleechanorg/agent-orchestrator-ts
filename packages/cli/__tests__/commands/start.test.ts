@@ -781,12 +781,12 @@ describe("stop command", () => {
     });
   });
 
-  it("keeps OpenCode session when stopping with --keep-session", async () => {
+  it("does not purge OpenCode session by default (purge is opt-in via --purge-session)", async () => {
     mockConfigRef.current = makeConfig({ "my-app": makeProject() });
     mockSessionManager.get.mockResolvedValue({ id: "app-orchestrator", status: "running" });
     mockSessionManager.kill.mockResolvedValue(undefined);
 
-    await program.parseAsync(["node", "test", "stop", "--keep-session"]);
+    await program.parseAsync(["node", "test", "stop"]);
 
     expect(mockSessionManager.kill).toHaveBeenCalledWith("app-orchestrator", {
       purgeOpenCode: false,
