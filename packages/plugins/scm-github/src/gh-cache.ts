@@ -112,7 +112,7 @@ export class GhCache {
     this._misses++;
 
     // Always clean up in-flight map when the request settles, regardless of outcome
-    promise.finally(() => this.inFlight.delete(key));
+    promise.finally(() => this.inFlight.delete(key)).catch(() => {});
 
     return promise;
   }
