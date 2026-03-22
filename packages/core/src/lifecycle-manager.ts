@@ -270,6 +270,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       [GLOBAL_PAUSE_UNTIL_KEY]: until.toISOString(),
       [GLOBAL_PAUSE_REASON_KEY]: message,
       [GLOBAL_PAUSE_SOURCE_KEY]: sourceSessionId,
+      [GLOBAL_PAUSE_CREATED_AT_KEY]: new Date().toISOString(),
     });
   }
 
@@ -280,6 +281,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       [GLOBAL_PAUSE_UNTIL_KEY]: "",
       [GLOBAL_PAUSE_REASON_KEY]: "",
       [GLOBAL_PAUSE_SOURCE_KEY]: "",
+      [GLOBAL_PAUSE_CREATED_AT_KEY]: "",
     });
   }
 
@@ -303,6 +305,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       if (orchestratorSession) {
         const existingUntil = parsePauseUntil(orchestratorSession.metadata[GLOBAL_PAUSE_UNTIL_KEY]);
         const existingSource = orchestratorSession.metadata[GLOBAL_PAUSE_SOURCE_KEY];
+        const existingCreatedAt = orchestratorSession.metadata[GLOBAL_PAUSE_CREATED_AT_KEY];
 
         // If there's an active pause from the same session, don't override
         // This prevents extending duration-based pauses on every poll cycle
@@ -312,6 +315,26 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
           existingSource === session.id
         ) {
           return;
+        }
+
+        // If there's a recently-expired pause from the same session, don't re-apply.
+        // This prevents infinite re-pause loops with stale duration-based rate limit messages.
+        // Duration-based messages compute resetAt as Date.now() + duration, so they always
+        // produce a future timestamp even if the message is stale. By checking if a pause
+        // from this session just expired, we avoid re-pausing from the same stale message.
+        if (
+          existingUntil &&
+          existingUntil.getTime() <= Date.now() &&
+          existingSource === session.id &&
+          existingCreatedAt
+        ) {
+          const createdAt = new Date(existingCreatedAt);
+          const pauseDuration = existingUntil.getTime() - createdAt.getTime();
+          // Only re-apply if we're well past the original pause window (2x duration as grace period)
+          const gracePeriod = Math.max(pauseDuration * 2, 60_000); // At least 1 minute
+          if (Date.now() - existingUntil.getTime() < gracePeriod) {
+            return;
+          }
         }
 
         // If there's a longer pause already active from another session, keep it
