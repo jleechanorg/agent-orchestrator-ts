@@ -999,6 +999,11 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       // sessions). With many sessions, the cycle can exceed the configured interval;
       // the re-entrancy guard above then skips overlapping ticks until the cycle finishes.
       for (const s of sessionsToCheck) {
+        // Re-check mid-cycle: an earlier checkSession() may have paused this project
+        // via setProjectPause(), which writes to disk but not to the in-memory map.
+        if (pausedProjects.has(s.projectId) && !isOrchestratorSession(s)) {
+          continue;
+        }
         await checkSession(s).catch((err) => {
           const errorReason = err instanceof Error ? err.message : String(err);
           observer.recordOperation({
@@ -1014,6 +1019,22 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
             data: { sessionId: s.id },
           });
         });
+        // Refresh pausedProjects from orchestrator metadata so later sessions in
+        // this cycle are skipped if setProjectPause() was invoked by checkSession().
+        if (!isOrchestratorSession(s)) {
+          const project = config.projects[s.projectId];
+          if (project) {
+            const sessionsDir = getSessionsDir(config.configPath, project.path);
+            const orchId = `${project.sessionPrefix}-orchestrator`;
+            const raw = readMetadataRaw(sessionsDir, orchId);
+            if (raw) {
+              const until = parsePauseUntil(raw[GLOBAL_PAUSE_UNTIL_KEY]);
+              if (until && until.getTime() > Date.now()) {
+                pausedProjects.set(s.projectId, until);
+              }
+            }
+          }
+        }
       }
 
       // Prune stale entries from states and reactionTrackers for sessions

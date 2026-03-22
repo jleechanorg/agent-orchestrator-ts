@@ -737,7 +737,7 @@ describe("stop command", () => {
     await program.parseAsync(["node", "test", "stop"]);
 
     expect(mockSessionManager.kill).toHaveBeenCalledWith("app-orchestrator", {
-      purgeOpenCode: true,
+      purgeOpenCode: false,
     });
     expect(mockStopLifecycleWorker).toHaveBeenCalledWith(
       expect.objectContaining({ configPath: expect.any(String) }),
@@ -769,7 +769,7 @@ describe("stop command", () => {
     expect(output).toContain("is not running");
   });
 
-  it("defaults to purge OpenCode session when stopping orchestrator", async () => {
+  it("defaults to NOT purge OpenCode session when stopping orchestrator", async () => {
     mockConfigRef.current = makeConfig({ "my-app": makeProject() });
     mockSessionManager.get.mockResolvedValue({ id: "app-orchestrator", status: "running" });
     mockSessionManager.kill.mockResolvedValue(undefined);
@@ -777,7 +777,7 @@ describe("stop command", () => {
     await program.parseAsync(["node", "test", "stop"]);
 
     expect(mockSessionManager.kill).toHaveBeenCalledWith("app-orchestrator", {
-      purgeOpenCode: true,
+      purgeOpenCode: false,
     });
   });
 
