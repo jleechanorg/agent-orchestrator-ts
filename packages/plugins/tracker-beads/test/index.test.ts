@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { writeFileSync, mkdirSync, rmSync } from "node:fs";
+import { writeFileSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { create } from "../src/index.js";
@@ -25,7 +25,7 @@ describe("tracker-beads", () => {
   let tracker: ReturnType<typeof create>;
 
   beforeEach(() => {
-    tmpDir = join(tmpdir(), `tracker-beads-test-${Date.now()}`);
+    tmpDir = mkdtempSync(join(tmpdir(), "tracker-beads-test-"));
     mkdirSync(tmpDir, { recursive: true });
     tracker = create();
   });
