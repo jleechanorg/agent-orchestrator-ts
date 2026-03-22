@@ -65,7 +65,7 @@ function makeReviewExecutor(): DeferredGraphQLExecutor {
         // Preserve stderr so isGhRateLimitError() can detect rate-limit messages.
         const execErr = err as { stderr?: string };
         const msg = execErr.stderr?.trim() || (err instanceof Error ? err.message : String(err));
-        throw new Error(msg);
+        throw new Error(msg, { cause: err });
       }
 
       if (!stdout) throw new Error("gh graphql returned no output");
