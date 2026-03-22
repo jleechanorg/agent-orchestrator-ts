@@ -82,8 +82,10 @@ export function setProjectPause(
 
 /**
  * Clear an active rate-limit pause from the orchestrator session metadata.
- * Preserves SOURCE and CREATED_AT provenance keys so the re-pause loop guard
- * remains effective through the grace window after the pause expires.
+ * Preserves UNTIL, SOURCE, and CREATED_AT provenance keys so the re-pause loop
+ * guard in detectAndApplyRateLimitPause can still enforce the grace window after
+ * the pause expires (it reads the expired UNTIL to compute the grace period).
+ * Only the human-readable REASON is cleared to signal the pause is no longer active.
  */
 export function clearProjectPause(configPath: string, project: _ProjectConfig): void {
   const sessionsDir = getSessionsDir(configPath, project.path);
@@ -91,10 +93,11 @@ export function clearProjectPause(configPath: string, project: _ProjectConfig): 
   // Guard: only update if orchestrator session already exists to avoid creating phantom sessions
   if (!readMetadataRaw(sessionsDir, orchestratorId)) return;
   updateMetadata(sessionsDir, orchestratorId, {
-    [GLOBAL_PAUSE_UNTIL_KEY]: "",
     [GLOBAL_PAUSE_REASON_KEY]: "",
+    // Intentionally preserve GLOBAL_PAUSE_UNTIL_KEY so detectAndApplyRateLimitPause
+    // can read the expired timestamp as existingUntil for its grace-window check.
     // Intentionally preserve GLOBAL_PAUSE_SOURCE_KEY and GLOBAL_PAUSE_CREATED_AT_KEY
-    // so detectAndApplyRateLimitPause can still enforce the grace window after expiry.
+    // for the same reason.
   });
 }
 

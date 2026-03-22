@@ -836,8 +836,10 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         const until = parsePauseUntil(session.metadata[GLOBAL_PAUSE_UNTIL_KEY]);
         if (!until) continue;
         if (until.getTime() <= Date.now()) {
+          // Only clear REASON if still set; UNTIL is intentionally preserved for the
+          // grace-window check in detectAndApplyRateLimitPause (avoids repeated disk writes).
           const project = config.projects[session.projectId];
-          if (project) {
+          if (project && session.metadata[GLOBAL_PAUSE_REASON_KEY]) {
             clearProjectPause(config.configPath, project);
           }
           continue;
@@ -847,17 +849,14 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
 
       // Include sessions that are active OR whose status changed from what we last saw
       // (e.g., list() detected a dead runtime and marked it "killed" — we need to
-      // process that transition even though the new status is terminal)
+      // process that transition even though the new status is terminal).
+      // Do NOT pre-filter paused projects here: pause state may clear mid-cycle, and
+      // excluded sessions can never be restored within the same poll tick.
       const sessionsToCheck = sessions.filter((s) => {
-        const isTerminal = s.status === "merged" || s.status === "killed";
-        // Skip non-orchestrator sessions for paused projects, but allow terminal sessions
-        // through so exit proof, outcome recording, and cleanup are not delayed.
-        if (pausedProjects.has(s.projectId) && !isOrchestratorSession(s) && !isTerminal) {
-          return false;
-        }
         // Skip terminal statuses only if we've already seen and processed this session.
         // If tracked is undefined (e.g., after lifecycle manager restart), allow it
         // through once so exit proof and outcome can be emitted.
+        const isTerminal = s.status === "merged" || s.status === "killed";
         if (isTerminal) {
           const tracked = states.get(s.id);
           return tracked === undefined || tracked !== s.status;
@@ -872,11 +871,27 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       // sessions). With many sessions, the cycle can exceed the configured interval;
       // the re-entrancy guard above then skips overlapping ticks until the cycle finishes.
       for (const s of sessionsToCheck) {
-        // Re-check mid-cycle: an earlier checkSession() may have paused this project
-        // via setProjectPause(), which writes to disk but not to the in-memory map.
-        // Terminal sessions (killed/merged) bypass the pause so cleanup isn't delayed.
-        const isMidCycleTerminal = s.status === "merged" || s.status === "killed";
-        if (pausedProjects.has(s.projectId) && !isOrchestratorSession(s) && !isMidCycleTerminal) {
+        // Pre-refresh: reload pause state from disk at the top of each iteration so
+        // this session sees pauses set OR cleared by orchestrators or earlier sessions
+        // in the same cycle. This ensures a mid-cycle pause clear immediately unblocks
+        // subsequent workers without waiting for the next poll tick.
+        const project = config.projects[s.projectId];
+        if (project) {
+          const sessionsDir = getSessionsDir(config.configPath, project.path);
+          const orchId = `${project.sessionPrefix}-orchestrator`;
+          const raw = readMetadataRaw(sessionsDir, orchId);
+          const until = raw ? parsePauseUntil(raw[GLOBAL_PAUSE_UNTIL_KEY]) : null;
+          if (until && until.getTime() > Date.now()) {
+            pausedProjects.set(s.projectId, until);
+          } else {
+            pausedProjects.delete(s.projectId);
+          }
+        }
+        // Skip non-orchestrator sessions if project is currently paused.
+        // Terminal sessions bypass so exit proof, outcome recording, and cleanup
+        // are not delayed.
+        const isTerminal = s.status === "merged" || s.status === "killed";
+        if (pausedProjects.has(s.projectId) && !isOrchestratorSession(s) && !isTerminal) {
           continue;
         }
         await checkSession(s).catch((err) => {
@@ -894,21 +909,6 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
             data: { sessionId: s.id },
           });
         });
-        // Refresh pausedProjects from orchestrator metadata so later sessions in
-        // this cycle see new pauses set OR cleared by setProjectPause()/clearProjectPause().
-        const project = config.projects[s.projectId];
-        if (project) {
-          const sessionsDir = getSessionsDir(config.configPath, project.path);
-          const orchId = `${project.sessionPrefix}-orchestrator`;
-          const raw = readMetadataRaw(sessionsDir, orchId);
-          const until = raw ? parsePauseUntil(raw[GLOBAL_PAUSE_UNTIL_KEY]) : null;
-          if (until && until.getTime() > Date.now()) {
-            pausedProjects.set(s.projectId, until);
-          } else {
-            // Pause was cleared or expired — remove from in-memory map
-            pausedProjects.delete(s.projectId);
-          }
-        }
       }
 
       // Prune stale entries from states and reactionTrackers for sessions
