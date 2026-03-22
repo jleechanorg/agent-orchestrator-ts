@@ -3512,8 +3512,9 @@ describe("bd-kki: killed transition + merged PR race", () => {
 
     await lm.check("app-1");
 
+    // SCM threw — transition absorbed; tracked state stays oldStatus so next poll retries
     expect(mockSessionManager.kill).not.toHaveBeenCalled();
-    expect(lm.getStates().get("app-1")).toBe("killed");
+    expect(lm.getStates().get("app-1")).toBe("pr_open");
   });
 
   it("skips killed persistence when PR is not merged (retry next poll)", async () => {
@@ -3537,9 +3538,10 @@ describe("bd-kki: killed transition + merged PR race", () => {
 
     await lm.check("app-1");
 
+    // PR is not merged — transition absorbed; tracked state stays oldStatus so next poll retries
     expect(mockSCM.getPRState).toHaveBeenCalled();
     expect(mockSessionManager.kill).not.toHaveBeenCalled();
-    expect(lm.getStates().get("app-1")).toBe("killed");
+    expect(lm.getStates().get("app-1")).toBe("pr_open");
   });
 
   it("skips SCM check when oldStatus is already terminal (bd-kki guard)", async () => {

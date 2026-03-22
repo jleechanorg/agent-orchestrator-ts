@@ -747,9 +747,49 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
 
     if (newStatus !== oldStatus) {
       const correlationId = createCorrelationId("lifecycle-transition");
-      // State transition detected
-      states.set(session.id, newStatus);
-      updateSessionMetadata(session, { status: newStatus });
+
+      // bd-kki: when transitioning to killed and session has a PR, verify the PR is
+      // actually merged before persisting the killed state — the runtime/activity check
+      // in determineStatus may have fired before the SCM PR-state check.  If SCM is
+      // unreachable, skip persisting so the next poll can retry.
+      let effectiveStatus = newStatus;
+      if (
+        newStatus === "killed" &&
+        TERMINAL_STATUSES.has(oldStatus) === false &&
+        session.pr
+      ) {
+        const project = config.projects[session.projectId];
+        const scm = project?.scm ? registry.get<SCM>("scm", project.scm.plugin) : null;
+        if (scm) {
+          try {
+            const prState = await scm.getPRState(session.pr);
+            if (prState === PR_STATE.MERGED) {
+              effectiveStatus = newStatus; // confirmed merged — keep killed
+            } else {
+              effectiveStatus = oldStatus; // not merged — skip transition, retry next poll
+            }
+          } catch {
+            // SCM unreachable — skip persisting this transition so next poll retries
+            effectiveStatus = oldStatus;
+          }
+        }
+      }
+
+      // Skip persisting if bd-kki check absorbed the killed transition — the session
+      // stays in oldStatus so the next poll can retry the SCM check.
+      if (effectiveStatus !== oldStatus) {
+        // State transition detected
+        states.set(session.id, effectiveStatus);
+        updateSessionMetadata(session, { status: effectiveStatus });
+      } else {
+        // Preserve oldStatus so the next poll can re-evaluate the SCM check.
+        // Bugbot bd-25aa4f11: storing newStatus ("killed") here caused the next poll
+        // to see oldStatus="killed" matching newStatus="killed", so no transition
+        // was ever re-detected even if SCM recovered.
+        states.set(session.id, oldStatus);
+        return;
+      }
+
       observer.recordOperation({
         metric: "lifecycle_poll",
         operation: "lifecycle.transition",
