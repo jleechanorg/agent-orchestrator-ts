@@ -71,7 +71,6 @@ function buildBotAuthors(config?: Record<string, unknown>): Set<string> {
 // ---------------------------------------------------------------------------
 
 
-
 /** Parsed `gh pr view ... --json a,b,c` for REST fallback synthesis. */
 type PrViewRestConversion = {
   repo: string;
@@ -408,6 +407,29 @@ async function ghWithRetry(args: string[], cwd?: string, maxRetries = 3): Promis
  * (ghWithRetry) can rethrow the original gh error instead of attempting
  * a malformed curl call.
  */
+/** First non-flag token after `gh api` (endpoint path), skipping `--method GET` etc. */
+function findGhApiEndpointIndex(apiArgs: string[]): number {
+  let i = 0;
+  while (i < apiArgs.length) {
+    const a = apiArgs[i];
+    if (a === "--method" || a === "-X") {
+      i += 2;
+      continue;
+    }
+    if (a.startsWith("-")) {
+      const next = apiArgs[i + 1];
+      if (next && !next.startsWith("-")) {
+        i += 2;
+      } else {
+        i += 1;
+      }
+      continue;
+    }
+    return i;
+  }
+  throw new Error("ghRestFallback: missing endpoint for `gh api` command");
+}
+
 export async function ghRestFallback(args: string[]): Promise<string> {
   // We only support `gh api ...` invocations here.
   if (!Array.isArray(args) || args.length === 0 || args[0] !== "api") {
@@ -419,7 +441,8 @@ export async function ghRestFallback(args: string[]): Promise<string> {
     throw new Error("ghRestFallback: missing endpoint for `gh api` command");
   }
 
-  let endpoint = apiArgs[0];
+  const endpointIdx = findGhApiEndpointIndex(apiArgs);
+  let endpoint = apiArgs[endpointIdx];
 
   // Explicitly reject GraphQL usages like `gh api graphql` so we don't
   // attempt to construct a bogus REST URL.
@@ -452,7 +475,8 @@ export async function ghRestFallback(args: string[]): Promise<string> {
   const queryParts: string[] = [];
   const curlFlags: string[] = [];
 
-  for (let i = 1; i < apiArgs.length; i++) {
+  for (let i = 0; i < apiArgs.length; i++) {
+    if (i === endpointIdx) continue;
     const arg = apiArgs[i];
     if (arg.startsWith("?")) {
       // Query string parameter
@@ -993,26 +1017,17 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
     async detectPR(session: Session, project: ProjectConfig): Promise<PRInfo | null> {
       if (!session.branch) return null;
       const [owner, repo] = parseProjectRepo(project.repo);
-      try {
-        // Use REST API directly to avoid GraphQL rate limits (gh pr list --json uses GraphQL)
-        const raw = await gh([
-          "api",
-          `repos/${owner}/${repo}/pulls?head=${owner}:${encodeURIComponent(session.branch)}&state=open&per_page=1`,
-        ]);
+      type RestPull = {
+        number: number;
+        html_url: string;
+        title: string;
+        head: { ref: string };
+        base: { ref: string };
+        draft: boolean;
+      };
 
-        const prs: Array<{
-          number: number;
-          html_url: string;
-          title: string;
-          head: { ref: string };
-          base: { ref: string };
-          draft: boolean;
-        }> = JSON.parse(raw);
-
-        if (prs.length === 0) return null;
-
-        const pr = prs[0];
-        return prInfoFromView(
+      const pullFromRest = (pr: RestPull) =>
+        prInfoFromView(
           {
             number: pr.number,
             url: pr.html_url,
@@ -1023,6 +1038,28 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
           },
           project.repo,
         );
+
+      try {
+        // Use REST API directly to avoid GraphQL rate limits (gh pr list --json uses GraphQL).
+        // 1) Same-repo / push-origin PRs: `head=owner:branch` matches GitHub's filter.
+        // 2) Fork PRs use `head=forkOwner:branch`; `session.branch` is only the ref name, so
+        //    if (1) is empty, list open PRs and match `head.ref` (see gh pr list --head limits).
+        const headScoped = `repos/${owner}/${repo}/pulls?head=${owner}:${encodeURIComponent(session.branch)}&state=open&per_page=1`;
+        const rawHead = await gh(["api", headScoped]);
+        let prs: RestPull[] = JSON.parse(rawHead);
+
+        if (prs.length === 0) {
+          const rawList = await gh([
+            "api",
+            `repos/${owner}/${repo}/pulls?state=open&per_page=100&sort=updated&direction=desc`,
+          ]);
+          const openPrs: RestPull[] = JSON.parse(rawList);
+          prs = openPrs.filter((p) => p.head?.ref === session.branch);
+        }
+
+        if (prs.length === 0) return null;
+
+        return pullFromRest(prs[0]);
       } catch {
         return null;
       }
@@ -1191,11 +1228,11 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
       try {
         checks = await this.getCIChecks(pr);
       } catch (err) {
-        // Rate limit errors are transient — do not fail-close to "failing",
-        // which would spam the agent with spurious "CI is failing" reactions.
-        // Return "none" so the lifecycle poller retries next cycle.
+        // Rate limit errors are transient — re-throw so the lifecycle manager's
+        // catch block preserves current status and retries next cycle, rather than
+        // returning "none" which falsely signals "no CI checks" and allows mergeability.
         if (isGhRateLimitError(err)) {
-          return "none";
+          throw err;
         }
         // Before fail-closing, check if the PR is merged/closed —
         // GitHub may not return check data for those, and reporting
@@ -1279,13 +1316,13 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
           "reviewDecision",
         ]);
       } catch (err) {
-        // Rate limit errors are transient — return "none" so the lifecycle
-        // poller retries next cycle rather than triggering a "changes-requested"
-        // reaction on every poll.
+        // Rate limits: rethrow so determineStatus keeps the current session status for retry.
+        // Other errors: fail closed as "pending" so we do not leave a stale "mergeable" status
+        // (throwing would hit the outer catch and preserve status unchanged).
         if (isGhRateLimitError(err)) {
-          return "none";
+          throw err;
         }
-        throw err;
+        return "pending";
       }
       const data: { reviewDecision: string } = JSON.parse(raw);
 
@@ -1583,10 +1620,25 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
 
       normalizeMergePayloadFromRestShape(data as Record<string, unknown>);
 
-      // CI
-      const ciStatus = await this.getCISummary(pr);
-      const ciPassing = ciStatus === CI_STATUS.PASSING || ciStatus === CI_STATUS.NONE;
-      if (!ciPassing) {
+      // CI — on rate limit, fail closed with a clear blocker so request-merge still notifies
+      // the human instead of rejecting the reaction with an uncaught error (bd-uxs).
+      let ciStatus: CIStatus;
+      let ciRateLimited = false;
+      try {
+        ciStatus = await this.getCISummary(pr);
+      } catch (err) {
+        if (isGhRateLimitError(err)) {
+          ciRateLimited = true;
+          ciStatus = CI_STATUS.FAILING;
+        } else {
+          throw err;
+        }
+      }
+      const ciPassing =
+        !ciRateLimited && (ciStatus === CI_STATUS.PASSING || ciStatus === CI_STATUS.NONE);
+      if (ciRateLimited) {
+        blockers.push("GitHub API rate limited; CI status temporarily unavailable — try again shortly");
+      } else if (!ciPassing) {
         blockers.push(`CI is ${ciStatus}`);
       }
 
