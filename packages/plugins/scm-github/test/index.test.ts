@@ -15,6 +15,7 @@ vi.mock("node:child_process", () => {
 });
 
 import { create, manifest, ghRestFallback } from "../src/index.js";
+import { _resetGhCache } from "../src/gh-cache.js";
 import type { PRInfo, SCMWebhookRequest, Session, ProjectConfig } from "@jleechanorg/ao-core";
 
 // ---------------------------------------------------------------------------
@@ -95,6 +96,7 @@ describe("scm-github plugin", () => {
   let scm: ReturnType<typeof create>;
 
   beforeEach(() => {
+    _resetGhCache();
     vi.clearAllMocks();
     scm = create();
     delete process.env["GITHUB_WEBHOOK_SECRET"];

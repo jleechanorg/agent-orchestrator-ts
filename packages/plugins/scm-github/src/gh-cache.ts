@@ -39,8 +39,6 @@ export interface CacheMetrics {
   totalCalls: number;
 }
 
-/** Controls which gh commands are eligible for caching. */
-export type CacheMode = "enabled" | "disabled" | "pr-view" | "pr-checks";
 
 const DEFAULT_TTL_MS = 15_000; // 15 seconds — short enough for PR status freshness
 
@@ -95,7 +93,7 @@ export class GhCache {
    * The caller MUST call `set()` after the returned promise resolves to populate
    * the cache for future callers.
    */
-  async withDedupe<T>(
+  async withDedupe(
     args: string[],
     cwd: string | undefined,
     fetchFn: () => Promise<string>,
@@ -173,7 +171,7 @@ export function getGhCache(): GhCache {
   return _shared;
 }
 
-/** Replace the singleton. Exists for testing. */
+/** Replace the singleton. Exists for testing — call in beforeEach to ensure test isolation. */
 export function _resetGhCache(): void {
   _shared = undefined;
 }
