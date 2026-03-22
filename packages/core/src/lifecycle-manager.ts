@@ -54,7 +54,7 @@ import { handleRequestMerge, handleParallelRetry } from "./fork-reaction-handler
 import { maybeDispatchReviewBacklog } from "./review-backlog.js";
 import { updateSessionMetadataHelper } from "./fork-utils.js";
 import { checkMergeGate } from "./merge-gate.js";
-import { GLOBAL_PAUSE_UNTIL_KEY, parsePauseUntil } from "./global-pause.js";
+import { GLOBAL_PAUSE_UNTIL_KEY, GLOBAL_PAUSE_REASON_KEY, parsePauseUntil } from "./global-pause.js";
 
 /** Parse a duration string like "10m", "30s", "1h" to milliseconds. */
 export function parseDuration(str: string): number {
