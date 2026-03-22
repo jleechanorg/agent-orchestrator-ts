@@ -10,6 +10,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./gh-cache": {
+      "types": "./dist/gh-cache.d.ts",
+      "import": "./dist/gh-cache.js"
     }
   },
   "files": [
