@@ -170,7 +170,7 @@ function createBeadsTracker(): Tracker {
           if (filters.state && filters.state !== "all") {
             const mapped = mapStatus(b.status);
             if (filters.state === "open" && mapped !== "open" && mapped !== "in_progress") return false;
-            if (filters.state === "closed" && mapped !== "closed") return false;
+            if (filters.state === "closed" && mapped !== "closed" && mapped !== "cancelled") return false;
           }
           if (filters.labels && filters.labels.length > 0) {
             if (!b.issue_type || !filters.labels.includes(b.issue_type)) return false;

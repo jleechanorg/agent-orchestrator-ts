@@ -113,12 +113,25 @@ describe("tracker-beads", () => {
   });
 
   it("listIssues filters by state", async () => {
-    writeBeads(tmpDir, sampleBeads);
+    const beadsWithCancelled = [
+      ...sampleBeads,
+      {
+        id: "bd-cancelled",
+        title: "Cancelled task",
+        status: "wontfix",
+        priority: 3,
+        issue_type: "task",
+      },
+    ];
+    writeBeads(tmpDir, beadsWithCancelled);
     const open = await tracker.listIssues!({ state: "open" }, makeProject(tmpDir));
     expect(open.length).toBe(2); // bd-abc and bd-epic
     const closed = await tracker.listIssues!({ state: "closed" }, makeProject(tmpDir));
-    expect(closed.length).toBe(1);
-    expect(closed[0].id).toBe("bd-xyz");
+    // closed state includes both "closed" (bd-xyz) and "cancelled" (bd-cancelled) terminal states
+    expect(closed.length).toBe(2);
+    const closedIds = closed.map((i) => i.id);
+    expect(closedIds).toContain("bd-xyz");
+    expect(closedIds).toContain("bd-cancelled");
   });
 
   it("handles missing .beads directory", async () => {
