@@ -74,7 +74,11 @@ export class GhCache {
   tryGet(args: string[], cwd?: string): { cached: true; value: string } | { cached: false } {
     const key = makeKey(args, cwd);
     const entry = this.cache.get(key);
-    if (entry === undefined) return { cached: false };
+    if (entry === undefined) {
+      // Opportunistic pruning: 2% chance on cache miss to trim stale entries
+      if (this.cache.size > 10 && Math.random() < 0.02) this.prune();
+      return { cached: false };
+    }
     if (Date.now() > entry.expiresAt) {
       this.cache.delete(key);
       return { cached: false };
@@ -119,6 +123,8 @@ export class GhCache {
    * Store a gh result in the cache. Safe to call multiple times.
    */
   set(args: string[], cwd: string | undefined, value: string): void {
+    // Opportunistic pruning: 2% chance to trim stale entries on every write
+    if (this.cache.size > 10 && Math.random() < 0.02) this.prune();
     const key = makeKey(args, cwd);
     this.cache.set(key, {
       value,

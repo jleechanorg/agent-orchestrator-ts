@@ -325,12 +325,22 @@ async function fetchPrViewFallbackAsJson(
 
 /**
  * Returns true when the given gh args represent a read-only operation that is safe to cache.
- * Write operations (merge, close, create, edit, etc.) must never be cached.
+ * Write operations (merge, close, create, edit, POST/PUT/PATCH, etc.) must never be cached.
  */
 function isCacheableArgs(args: string[]): boolean {
   if (args.length === 0) return false;
   const [cmd, sub] = args;
-  if (cmd === "api") return true;
+  if (cmd === "api") {
+    // Skip write methods — gh api ... --method POST, -X POST, -X PUT, etc.
+    for (let i = 0; i < args.length; i++) {
+      const a = args[i];
+      if (a === "--method" || a === "-X") {
+        const method = (args[i + 1] ?? "").toUpperCase();
+        if (["POST", "PUT", "PATCH", "DELETE"].includes(method)) return false;
+      }
+    }
+    return true;
+  }
   if (cmd === "pr") {
     if (sub === "view") return true;
     if (sub === "checks") return true;
@@ -1741,6 +1751,9 @@ export function create(config?: Record<string, unknown>): SCM {
 }
 
 /** Exposed for test isolation — resets the shared GhCache singleton between test cases. */
-export { _resetGhCache };
+export { _resetGhCache } from "./gh-cache.js";
+
+/** Exposed for observability — returns the shared cache with hit/miss metrics. */
+export { getGhCache } from "./gh-cache.js";
 
 export default { manifest, create } satisfies PluginModule<SCM>;
