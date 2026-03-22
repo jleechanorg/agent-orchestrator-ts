@@ -17,6 +17,12 @@ export const manifest = {
 /** Timeout for outbound MCP calls (ms). */
 const MCP_TIMEOUT_MS = 30_000;
 
+/** Monotonic counter for JSON-RPC request IDs — avoids Date.now() collisions. */
+let rpcIdCounter = 0;
+function nextRpcId(): number {
+  return ++rpcIdCounter;
+}
+
 interface SendMessageParams {
   project_key: string;
   sender_name: string;
@@ -37,7 +43,7 @@ async function apiPost(endpoint: string, method: string, params: unknown): Promi
   const response = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ jsonrpc: "2.0", method, params, id: Date.now() }),
+    body: JSON.stringify({ jsonrpc: "2.0", method, params, id: nextRpcId() }),
     signal: AbortSignal.timeout(MCP_TIMEOUT_MS),
   });
 
@@ -88,7 +94,7 @@ function buildBodyWithActions(event: OrchestratorEvent, actions: NotifyAction[])
 
 export function create(config?: Record<string, unknown>): Notifier {
   const endpoint =
-    (config?.endpoint as string | undefined) ?? process.env["MCP_AGENT_MAIL_URL"];
+    typeof config?.endpoint === "string" ? config.endpoint : process.env["MCP_AGENT_MAIL_URL"];
 
   const agentId =
     typeof config?.agentId === "string" ? config.agentId : "ao-session";
