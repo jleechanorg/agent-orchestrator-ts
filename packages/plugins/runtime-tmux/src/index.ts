@@ -54,7 +54,7 @@ const SHELL_PROMPT_PATTERNS = [
   /%\s*$/, // zsh: ends with "% "
   /❯\s*$/, // starship / oh-my-zsh: ends with "❯ "
   />\s*$/, // Windows-style or fish: ends with "> "
-  /\#\s*$/, // root bash: ends with "# "
+  /#\s*$/, // root bash: ends with "# "
 ];
 
 /**
