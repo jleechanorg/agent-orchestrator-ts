@@ -686,12 +686,15 @@ async function setupHookInWorkspace(workspacePath: string): Promise<void> {
     const hook = eventHooks[hookIndex] as Record<string, unknown>;
     const hooksList = hook["hooks"] as Array<Record<string, unknown>>;
     const existingHookDef = hooksList[hookDefIndex];
-    const existingEnv = existingHookDef?.["env"] as Record<string, unknown> | undefined;
-    const existingDataDir = existingEnv?.["AO_DATA_DIR"];
-    const newCommandDropsDataDir = !hookDef["env"] && typeof existingDataDir === "string";
-    if (!newCommandDropsDataDir) {
-      hooksList[hookDefIndex] = hookDef;
-    }
+    const existingEnv =
+      typeof existingHookDef?.["env"] === "object" &&
+      existingHookDef["env"] !== null &&
+      !Array.isArray(existingHookDef["env"])
+        ? (existingHookDef["env"] as Record<string, unknown>)
+        : undefined;
+
+    // Merge: apply new command/timeout while preserving existing AO_DATA_DIR env var
+    hooksList[hookDefIndex] = existingEnv ? { ...hookDef, env: existingEnv } : hookDef;
   };
 
   ensureMetadataHook(postToolUse);
