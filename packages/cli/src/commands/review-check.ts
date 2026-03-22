@@ -2,7 +2,7 @@ import chalk from "chalk";
 import ora from "ora";
 import type { Command } from "commander";
 import { loadConfig, DeferredGraphQLExecutor, isGhRateLimitError } from "@jleechanorg/ao-core";
-import { gh } from "../lib/shell.js";
+import { exec } from "../lib/shell.js";
 import { getSessionManager } from "../lib/create-session-manager.js";
 
 interface ReviewInfo {
@@ -43,27 +43,33 @@ function makeReviewExecutor(): DeferredGraphQLExecutor {
     async execute(query: string, variables: Record<string, unknown>): Promise<unknown> {
       const [owner, name] = [String(variables["owner"]), String(variables["name"])];
       const prNum = Number(variables["pr"]);
-      const raw = await gh([
-        "api",
-        "graphql",
-        "-f",
-        `query=${query}`,
-        "-f",
-        `owner=${owner}`,
-        "-f",
-        `name=${name}`,
-        "-F",
-        `pr=${prNum}`,
-        "--jq",
-        ".data.repository.pullRequest",
-      ]);
-      if (!raw) throw new Error("gh graphql returned no output");
-      const parsed = JSON.parse(raw);
-      // Surface GraphQL-level errors as thrown errors
-      if (parsed.errors?.length) {
-        throw new Error(parsed.errors.map((e: { message: string }) => e.message).join("; "));
+
+      let stdout: string;
+      try {
+        const result = await exec("gh", [
+          "api",
+          "graphql",
+          "-f",
+          `query=${query}`,
+          "-f",
+          `owner=${owner}`,
+          "-f",
+          `name=${name}`,
+          "-F",
+          `pr=${prNum}`,
+          "--jq",
+          ".data.repository.pullRequest",
+        ]);
+        stdout = result.stdout;
+      } catch (err: unknown) {
+        // Preserve stderr so isGhRateLimitError() can detect rate-limit messages.
+        const execErr = err as { stderr?: string };
+        const msg = execErr.stderr?.trim() || (err instanceof Error ? err.message : String(err));
+        throw new Error(msg);
       }
-      return parsed;
+
+      if (!stdout) throw new Error("gh graphql returned no output");
+      return JSON.parse(stdout);
     },
   });
 }
