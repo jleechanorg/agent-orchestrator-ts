@@ -448,6 +448,29 @@ describe("detectActivity", () => {
   it("returns active for non-empty output with no special patterns", () => {
     expect(agent.detectActivity("some random terminal output\n")).toBe("active");
   });
+
+  // Spinner-aware idle detection (orch-jtc7)
+  it("returns 'active' when spinner ✻ is in last 20 lines with ❯ on last line", () => {
+    const output = ["✻ Working...", "❯"].join("\n");
+    expect(agent.detectActivity(output)).toBe("active");
+  });
+
+  it("returns 'active' when spinner ✶ is in last 20 lines with > on last line", () => {
+    const output = ["✶ Processing...", "> "].join("\n");
+    expect(agent.detectActivity(output)).toBe("active");
+  });
+
+  it("returns 'active' when spinner is within the last 20 lines despite prompt on last line", () => {
+    // 1 spinner + 5 step lines = 7 total, all within 20-line window, prompt on last line
+    const lines = ["✻ Working...", ...Array(5).fill("  step"), "❯"];
+    expect(agent.detectActivity(lines.join("\n"))).toBe("active");
+  });
+
+  it("returns 'idle' when spinner is more than 20 lines before ❯ (outside window)", () => {
+    // spinner far above, then 21 blank/done lines, then prompt
+    const lines = ["✻ Old activity...", ...Array(21).fill("done"), "❯"];
+    expect(agent.detectActivity(lines.join("\n"))).toBe("idle");
+  });
 });
 
 // ==================================================================
