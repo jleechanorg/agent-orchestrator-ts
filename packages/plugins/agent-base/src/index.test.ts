@@ -401,8 +401,6 @@ describe("detectActivity — classifyTerminalOutput", () => {
     expect(agent.detectActivity(output)).toBe("waiting_input");
   });
 });
-
-// ---------------------------------------------------------------------------
 // detectActivity — classifyTerminalOutput (orch-jtc7: false-idle fix)
 // ---------------------------------------------------------------------------
 describe("detectActivity — classifyTerminalOutput", () => {
@@ -463,11 +461,11 @@ describe("detectActivity — classifyTerminalOutput", () => {
     expect(agent.detectActivity(lines.join("\n"))).toBe("active");
   });
 
-  it("returns 'active' when spinner is exactly 20 lines before ❯ (boundary)", () => {
+  it("returns 'idle' when spinner is exactly 20 lines before ❯ (outside window)", () => {
     // spinner at index 0, 19 filler lines, prompt at index 20 = 21 total lines
-    // windowStart = max(0, 21-21) = 0; window = lines[0..19] includes spinner → active
+    // windowStart = max(0, 21-20) = 1; window = lines[1..20] (excludes spinner at 0) → idle
     const lines = ["✻ Boundary activity...", ...Array(19).fill("done"), "❯"];
-    expect(agent.detectActivity(lines.join("\n"))).toBe("active");
+    expect(agent.detectActivity(lines.join("\n"))).toBe("idle");
   });
 
   it("returns 'idle' when spinner is more than 20 lines before ❯ (outside window)", () => {

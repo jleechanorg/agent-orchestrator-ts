@@ -564,8 +564,8 @@ function classifyTerminalOutput(terminalOutput: string): ActivityState {
   // renders ❯ at the bottom while still thinking/using tools above
   // (orch-jtc7: false-idle between tool calls).
   if (/^[❯>$#]\s*$/.test(lastLine)) {
-    const windowStart = Math.max(0, lines.length - 21);
-    const window = lines.slice(windowStart, lines.length - 1); // exclude the last prompt line
+    const windowStart = Math.max(0, lines.length - 20);
+    const window = lines.slice(windowStart, lines.length);
     if (window.some((l) => ACTIVE_SPINNER_RE.test(l))) return "active";
     return "idle";
   }
