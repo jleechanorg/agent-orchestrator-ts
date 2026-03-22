@@ -805,6 +805,20 @@ describe("isAgentAliveInPane() — dead-agent detection (bd-tln)", () => {
       expectedTmuxOptions,
     );
   });
+
+  it("returns false when last line is shell prompt even if stale ✻ Thinking appears in history (detection order)", async () => {
+    // Critical: stale spinner in history must NOT mask a dead agent at the prompt.
+    // Shell prompt check must happen BEFORE alive-token check.
+    const paneWithStaleSpinner = [
+      "✻ Thinking...",
+      "Some earlier reasoning output",
+      "Process exited with code 1",
+      "user@host /workspace $",
+    ].join("\n");
+    mockTmuxSuccess(paneWithStaleSpinner);
+    const alive = await isAgentAliveInPane("test-session");
+    expect(alive).toBe(false);
+  });
 });
 
 // =============================================================================
@@ -829,7 +843,8 @@ describe("restartAgentCli() — dead-agent restart (bd-tln)", () => {
 
     mockTmuxSuccess(); // C-c #1
     mockTmuxSuccess(); // C-c #2
-    mockTmuxSuccess(); // send-keys with launch command
+    mockTmuxSuccess(); // send-keys -l with launch command (literal)
+    mockTmuxSuccess(); // send-keys Enter
     mockTmuxSuccess("✻ Thinking..."); // poll: alive indicator
 
     await restartAgentCli(handle);
@@ -846,14 +861,22 @@ describe("restartAgentCli() — dead-agent restart (bd-tln)", () => {
       ["send-keys", "-t", "restart-test", "C-c"],
       expectedTmuxOptions,
     );
+    // Short command now uses -l (literal) flag to avoid interpreting "Enter" as keypress
     expect(mockExecFileCustom).toHaveBeenNthCalledWith(
       3,
       "tmux",
-      ["send-keys", "-t", "restart-test", "claude --session abc", "Enter"],
+      ["send-keys", "-t", "restart-test", "-l", "claude --session abc"],
+      expectedTmuxOptions,
+    );
+    // Separate Enter keypress
+    expect(mockExecFileCustom).toHaveBeenNthCalledWith(
+      4,
+      "tmux",
+      ["send-keys", "-t", "restart-test", "Enter"],
       expectedTmuxOptions,
     );
     expect(mockExecFileCustom).toHaveBeenNthCalledWith(
-      4,
+      5,
       "tmux",
       ["capture-pane", "-t", "restart-test", "-p", "-S", "-30"],
       expectedTmuxOptions,
@@ -865,7 +888,8 @@ describe("restartAgentCli() — dead-agent restart (bd-tln)", () => {
 
     mockTmuxSuccess(); // C-c #1
     mockTmuxSuccess(); // C-c #2
-    mockTmuxSuccess(); // send-keys launch
+    mockTmuxSuccess(); // send-keys -l launch (literal)
+    mockTmuxSuccess(); // send-keys Enter
     mockTmuxSuccess("● Running tool"); // first poll → alive
 
     await expect(restartAgentCli(handle)).resolves.toBeUndefined();
@@ -881,7 +905,8 @@ describe("restartAgentCli() — dead-agent restart (bd-tln)", () => {
 
     mockTmuxSuccess(); // C-c #1
     mockTmuxSuccess(); // C-c #2
-    mockTmuxSuccess(); // send-keys launch
+    mockTmuxSuccess(); // send-keys -l launch (literal)
+    mockTmuxSuccess(); // send-keys Enter
 
     for (let i = 0; i < 6; i++) {
       mockTmuxSuccess("/workspace $"); // all 6 polls return shell prompt
@@ -910,13 +935,14 @@ describe("runtime.sendMessage() — dead-agent restart integration (bd-tln)", ()
     // Pre-send alive check → dead (shell prompt)
     mockTmuxSuccess("/workspace $");
 
-    // restartAgentCli: C-c, C-c, launch, poll → alive
+    // restartAgentCli: C-c, C-c, send-keys -l launch, send-keys Enter, poll → alive
     mockTmuxSuccess();
     mockTmuxSuccess();
     mockTmuxSuccess();
+    mockTmuxSuccess(); // Enter for restart
     mockTmuxSuccess("✻ Thinking");
 
-    // sendMessage proceeds: C-u, send, Enter
+    // sendMessage proceeds: C-u, send-keys -l, Enter
     mockTmuxSuccess();
     mockTmuxSuccess();
     mockTmuxSuccess();
@@ -951,13 +977,14 @@ describe("runtime.sendMessage() — dead-agent restart integration (bd-tln)", ()
     // Post-send check → dead (pasted into bash)
     mockTmuxSuccess("/workspace $");
 
-    // restartAgentCli: C-c, C-c, launch, poll → alive
+    // restartAgentCli: C-c, C-c, send-keys -l launch, send-keys Enter, poll → alive
     mockTmuxSuccess();
     mockTmuxSuccess();
     mockTmuxSuccess();
+    mockTmuxSuccess(); // Enter for restart
     mockTmuxSuccess("✻ Thinking");
 
-    // Retry: C-u, send-keys -l, Enter
+    // Retry via doSend: C-u, send-keys -l, Enter
     mockTmuxSuccess();
     mockTmuxSuccess();
     mockTmuxSuccess();

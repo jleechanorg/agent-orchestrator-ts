@@ -47,13 +47,16 @@ async function tmux(...args: string[]): Promise<string> {
  * (incorrectly concluding agent is alive) are less harmful than false-positives
  * (incorrectly killing a live agent).
  *
+ * Patterns are anchored to avoid matching mid-line text like "$100" or "Click here >".
+ * They are checked only against the LAST non-empty line of pane output.
+ *
  * Fork-only logic (bd-tln): not upstreamed to ComposioHQ.
  */
 const SHELL_PROMPT_PATTERNS = [
-  /\$\s*$/, // bash: ends with "$ "
+  /(?:^|[\s\w@~\/.-])\$\s*$/, // bash: word/path then "$ " (avoids "$100")
   /%\s*$/, // zsh: ends with "% "
   /❯\s*$/, // starship / oh-my-zsh: ends with "❯ "
-  />\s*$/, // Windows-style or fish: ends with "> "
+  /(?:^|\s)>\s*$/, // fish: space before ">" (avoids "Click here >")
   /#\s*$/, // root bash: ends with "# "
 ];
 
@@ -77,10 +80,11 @@ const AGENT_ALIVE_PATTERNS = [
 /**
  * Detect whether the agent CLI is still alive in the given tmux pane.
  *
- * Strategy:
+ * Strategy (order matters — shell prompt check FIRST to avoid stale spinner masking):
  *  1. Capture the last 30 lines of pane output.
- *  2. If any agent-alive token is present → alive.
- *  3. If the last non-empty line matches a shell prompt pattern → dead (shell prompt).
+ *  2. Check the LAST non-empty line for a shell prompt pattern → dead immediately.
+ *     This prevents stale "✻ Thinking" history from masking a crashed agent.
+ *  3. Only if no shell prompt, check buffer for agent-alive tokens → alive.
  *  4. Otherwise → assume alive (conservative).
  *
  * Fork-only logic (bd-tln).
@@ -94,23 +98,25 @@ export async function isAgentAliveInPane(sessionName: string): Promise<boolean> 
     return false;
   }
 
-  // If any agent-alive indicator is present, agent is running
-  for (const pattern of AGENT_ALIVE_PATTERNS) {
-    if (pattern.test(paneOutput)) {
-      return true;
-    }
-  }
-
-  // Check the last non-empty line for shell prompt patterns
+  // Check the last non-empty line for shell prompt patterns FIRST.
+  // A shell prompt on the last line means the agent exited — even if stale
+  // agent tokens appear earlier in the buffer history.
   const lines = paneOutput.split("\n").filter((l) => l.trim().length > 0);
   if (lines.length === 0) {
     // Empty pane — conservative: assume alive
     return true;
   }
-  const lastLine = lines[lines.length - 1];
+  const lastLine = lines[lines.length - 1] ?? "";
   for (const pattern of SHELL_PROMPT_PATTERNS) {
     if (pattern.test(lastLine)) {
       return false;
+    }
+  }
+
+  // No shell prompt on last line — check buffer for alive tokens
+  for (const pattern of AGENT_ALIVE_PATTERNS) {
+    if (pattern.test(paneOutput)) {
+      return true;
     }
   }
 
@@ -161,7 +167,10 @@ export async function restartAgentCli(handle: RuntimeHandle): Promise<void> {
     await sleep(300);
     await tmux("send-keys", "-t", handle.id, "Enter");
   } else {
-    await tmux("send-keys", "-t", handle.id, launchCommand, "Enter");
+    // Use -l (literal) so tokens like "Enter" in the command aren't interpreted as keypresses
+    await tmux("send-keys", "-t", handle.id, "-l", launchCommand);
+    await sleep(300);
+    await tmux("send-keys", "-t", handle.id, "Enter");
   }
 
   // Poll up to 30s (6 × 5s intervals) for the agent to show an alive indicator
@@ -175,10 +184,59 @@ export async function restartAgentCli(handle: RuntimeHandle): Promise<void> {
     }
   }
 
-  // If still not alive after 30s, throw so the caller can decide what to do
+  // If still not alive after 30s, throw — redact full command to avoid leaking secrets
+  const executable = launchCommand.split(" ")[0] ?? "agent";
   throw new Error(
-    `Agent CLI did not restart within 30s in session "${handle.id}" (launch command: ${launchCommand})`,
+    `Agent CLI did not restart within 30s in session "${handle.id}" (command: ${executable})`,
   );
+}
+
+/**
+ * Send content + Enter into a tmux pane, including the Enter-retry loop for
+ * long messages. Extracted as a shared helper so both the initial send and the
+ * post-restart resend path use identical logic.
+ *
+ * Fork-only logic (bd-tln).
+ */
+async function doSend(sessionId: string, message: string): Promise<void> {
+  const isLong = message.includes("\n") || message.length > 200;
+  await sendContent(sessionId, message);
+
+  // Adaptive delay: long messages need more time for tmux to render the paste
+  // before Enter arrives. Short messages keep 300ms.
+  const delayMs = isLong
+    ? Math.min(1000 + Math.ceil(message.length / 1000) * 200, 2000)
+    : 300;
+  await sleep(delayMs);
+  await tmux("send-keys", "-t", sessionId, "Enter");
+
+  // Enter retry (bd-orch2v3, bd-qhf): for long messages, check if the agent
+  // started responding. If the pane still ends with the pasted message tail
+  // and shows no agent activity tokens, Enter was swallowed — retry up to 3 times.
+  if (isLong) {
+    const messageTail = message.slice(-80).trim();
+    for (let attempt = 0; attempt < 3; attempt++) {
+      await sleep(1000);
+      let paneOutput: string;
+      try {
+        paneOutput = await tmux("capture-pane", "-t", sessionId, "-p", "-S", "-20");
+      } catch {
+        // Session may have died; stop retrying
+        break;
+      }
+      const trimmedOutput = paneOutput.trimEnd();
+      // Agent has started if: any activity token is present, OR the pane no
+      // longer ends with our message tail (agent overwrote or responded).
+      const agentStarted =
+        AGENT_ALIVE_PATTERNS.some((p) => p.test(trimmedOutput)) ||
+        !trimmedOutput.endsWith(messageTail);
+      if (agentStarted) {
+        break;
+      }
+      // Enter was swallowed — send it again
+      await tmux("send-keys", "-t", sessionId, "Enter");
+    }
+  }
 }
 
 /** Send content into a tmux pane using the load-buffer/paste-buffer or send-keys method. */
@@ -293,66 +351,21 @@ export function create(): Runtime {
       // Clear any partial input
       await tmux("send-keys", "-t", handle.id, "C-u");
 
-      // For long or multiline messages, use load-buffer + paste-buffer
-      // Use randomUUID to avoid temp file collisions on concurrent sends
-      const isLong = message.includes("\n") || message.length > 200;
-      await sendContent(handle.id, message);
-
-      // Adaptive delay (bd-orch2v3, bd-qhf): long messages need more time for
-      // tmux to render the paste before Enter arrives. Flat 300ms was insufficient
-      // for messages >~8KB — Enter arrived before paste completed, causing 8 sessions
-      // (ao-411 through ao-420) to require manual Enter.
-      // Formula: base 1000ms + 200ms per KB, capped at 2000ms. Short messages keep 300ms.
-      const delayMs = isLong
-        ? Math.min(1000 + Math.ceil(message.length / 1000) * 200, 2000)
-        : 300;
-      await sleep(delayMs);
-      await tmux("send-keys", "-t", handle.id, "Enter");
-
-      // Enter retry (bd-orch2v3, bd-qhf): for long messages, check if the agent
-      // started responding. If the pane still ends with the pasted message tail
-      // and shows no agent activity tokens, Enter was swallowed — retry up to 3 times.
-      if (isLong) {
-        const messageTail = message.slice(-80).trim();
-        for (let attempt = 0; attempt < 3; attempt++) {
-          await sleep(1000);
-          let paneOutput: string;
-          try {
-            paneOutput = await tmux("capture-pane", "-t", handle.id, "-p", "-S", "-20");
-          } catch {
-            // Session may have died; stop retrying
-            break;
-          }
-          const trimmedOutput = paneOutput.trimEnd();
-          // Agent has started if: any activity token is present, OR the pane no
-          // longer ends with our message tail (agent overwrote or responded).
-          const agentStarted =
-            AGENT_ALIVE_PATTERNS.some((p) => p.test(trimmedOutput)) ||
-            !trimmedOutput.endsWith(messageTail);
-          if (agentStarted) {
-            break;
-          }
-          // Enter was swallowed — send it again
-          await tmux("send-keys", "-t", handle.id, "Enter");
-        }
-      }
+      // Send message + Enter (with Enter-retry loop for long messages)
+      await doSend(handle.id, message);
 
       // Post-send dead-agent check (bd-tln): after sending, verify the agent
-      // picked up the message. Wait 2s then check; if still in bash, attempt
-      // one restart-and-resend cycle.
-      await sleep(2_000);
+      // picked up the message. Short messages: 500ms wait (reduces throughput
+      // penalty for healthy agents). Long messages: 2000ms (paste needs time).
+      const isLong = message.includes("\n") || message.length > 200;
+      await sleep(isLong ? 2_000 : 500);
       const agentAliveAfter = await isAgentAliveInPane(handle.id);
       if (!agentAliveAfter) {
         // The message was pasted into bash — clear it and retry after restart
         await restartAgentCli(handle);
-        // Retry: clear, send message, press Enter
+        // Retry: clear, send message, press Enter (same logic as initial send via doSend)
         await tmux("send-keys", "-t", handle.id, "C-u");
-        await sendContent(handle.id, message);
-        const retryDelayMs = isLong
-          ? Math.min(1000 + Math.ceil(message.length / 1000) * 200, 2000)
-          : 300;
-        await sleep(retryDelayMs);
-        await tmux("send-keys", "-t", handle.id, "Enter");
+        await doSend(handle.id, message);
       }
     },
 
