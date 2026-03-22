@@ -116,6 +116,19 @@ describe("notifier-mcp-mail", () => {
       expect(sendCall![1].method).toBe("POST");
     });
 
+    it("does not double /mcp when endpoint already ends with /mcp/", async () => {
+      const fetchMock = mockFetchOk();
+      vi.stubGlobal("fetch", fetchMock);
+
+      // Simulate MCP_AGENT_MAIL_URL set to http://host:8765/mcp/
+      const notifier = create({ endpoint: "http://localhost:8765/mcp/", agentId: "ao-1" });
+      await notifier.notify(makeEvent());
+
+      const sendCall = findRpcCall(fetchMock, "send_message");
+      expect(sendCall![0]).toBe("http://localhost:8765/mcp");
+      expect(sendCall![0]).not.toContain("/mcp/mcp");
+    });
+
     it("sends JSON-RPC 2.0 envelope with Content-Type header", async () => {
       const fetchMock = mockFetchOk();
       vi.stubGlobal("fetch", fetchMock);

@@ -39,7 +39,10 @@ interface RegisterAgentParams {
 }
 
 async function apiPost(endpoint: string, method: string, params: unknown): Promise<void> {
-  const url = `${endpoint.replace(/\/$/, "")}/mcp`;
+  // Strip trailing slashes and any existing /mcp suffix to avoid doubling
+  // when MCP_AGENT_MAIL_URL already includes /mcp/ (e.g. http://host:8765/mcp/)
+  const base = endpoint.replace(/\/+$/, "").replace(/\/mcp$/, "");
+  const url = `${base}/mcp`;
   const response = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
