@@ -51,6 +51,7 @@ vi.mock("ora", () => ({
     stop: vi.fn().mockReturnThis(),
     succeed: vi.fn().mockReturnThis(),
     fail: vi.fn().mockReturnThis(),
+    warn: vi.fn().mockReturnThis(),
     text: "",
   }),
 }));
@@ -187,12 +188,15 @@ describe("review-check command", () => {
     );
 
     // All threads resolved, no changes requested
-    mockGh.mockResolvedValue(
-      JSON.stringify({
-        reviewDecision: "APPROVED",
-        reviewThreads: { nodes: [{ isResolved: true }] },
+    mockExec.mockResolvedValue({
+      stdout: JSON.stringify({
+        data: { repository: { pullRequest: {
+          reviewDecision: "APPROVED",
+          reviewThreads: { nodes: [{ isResolved: true }] },
+        } } },
       }),
-    );
+      stderr: "",
+    });
 
     await program.parseAsync(["node", "test", "review-check"]);
 
@@ -206,12 +210,15 @@ describe("review-check command", () => {
       "branch=feat/fix\npr=https://github.com/org/my-app/pull/10\n",
     );
 
-    mockGh.mockResolvedValue(
-      JSON.stringify({
-        reviewDecision: "CHANGES_REQUESTED",
-        reviewThreads: { nodes: [{ isResolved: false }, { isResolved: true }] },
+    mockExec.mockResolvedValue({
+      stdout: JSON.stringify({
+        data: { repository: { pullRequest: {
+          reviewDecision: "CHANGES_REQUESTED",
+          reviewThreads: { nodes: [{ isResolved: false }, { isResolved: true }] },
+        } } },
       }),
-    );
+      stderr: "",
+    });
 
     await program.parseAsync(["node", "test", "review-check", "--dry-run"]);
 
@@ -258,12 +265,15 @@ describe("review-check command", () => {
       "branch=feat/fix\npr=https://github.com/org/my-app/pull/10\n",
     );
 
-    mockGh.mockResolvedValue(
-      JSON.stringify({
-        reviewDecision: null,
-        reviewThreads: { nodes: [{ isResolved: false }] },
+    mockExec.mockResolvedValue({
+      stdout: JSON.stringify({
+        data: { repository: { pullRequest: {
+          reviewDecision: null,
+          reviewThreads: { nodes: [{ isResolved: false }] },
+        } } },
       }),
-    );
+      stderr: "",
+    });
 
     await program.parseAsync(["node", "test", "review-check"]);
 
@@ -273,7 +283,6 @@ describe("review-check command", () => {
       "app-1",
       expect.stringContaining("review comments"),
     );
-    expect(mockExec).not.toHaveBeenCalled();
   });
 
   it("handles gh returning null (API failure)", async () => {
@@ -282,7 +291,8 @@ describe("review-check command", () => {
       "branch=feat/fix\npr=https://github.com/org/my-app/pull/10\n",
     );
 
-    mockGh.mockResolvedValue(null);
+    // exec returns empty stdout — simulates gh returning no output
+    mockExec.mockResolvedValue({ stdout: "", stderr: "" });
 
     await program.parseAsync(["node", "test", "review-check"]);
 
@@ -296,7 +306,7 @@ describe("review-check command", () => {
       "branch=feat/fix\npr=https://github.com/org/my-app/pull/10\n",
     );
 
-    mockGh.mockResolvedValue("not valid json {{{");
+    mockExec.mockResolvedValue({ stdout: "not valid json {{{", stderr: "" });
 
     await program.parseAsync(["node", "test", "review-check"]);
 
