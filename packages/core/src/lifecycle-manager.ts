@@ -895,19 +895,18 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
           });
         });
         // Refresh pausedProjects from orchestrator metadata so later sessions in
-        // this cycle are skipped if setProjectPause() was invoked by checkSession().
-        if (!isOrchestratorSession(s)) {
-          const project = config.projects[s.projectId];
-          if (project) {
-            const sessionsDir = getSessionsDir(config.configPath, project.path);
-            const orchId = `${project.sessionPrefix}-orchestrator`;
-            const raw = readMetadataRaw(sessionsDir, orchId);
-            if (raw) {
-              const until = parsePauseUntil(raw[GLOBAL_PAUSE_UNTIL_KEY]);
-              if (until && until.getTime() > Date.now()) {
-                pausedProjects.set(s.projectId, until);
-              }
-            }
+        // this cycle see new pauses set OR cleared by setProjectPause()/clearProjectPause().
+        const project = config.projects[s.projectId];
+        if (project) {
+          const sessionsDir = getSessionsDir(config.configPath, project.path);
+          const orchId = `${project.sessionPrefix}-orchestrator`;
+          const raw = readMetadataRaw(sessionsDir, orchId);
+          const until = raw ? parsePauseUntil(raw[GLOBAL_PAUSE_UNTIL_KEY]) : null;
+          if (until && until.getTime() > Date.now()) {
+            pausedProjects.set(s.projectId, until);
+          } else {
+            // Pause was cleared or expired — remove from in-memory map
+            pausedProjects.delete(s.projectId);
           }
         }
       }

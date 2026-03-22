@@ -37,7 +37,9 @@ export function parseRateLimitReset(output: string): Date | null {
       Number.isFinite(hour) &&
       Number.isFinite(minute)
     ) {
-      const parsed = new Date(Date.UTC(year, month - 1, day, hour, minute, 0));
+      // Use local Date (not UTC) so the reset timestamp matches the user's system timezone,
+      // which is the timezone used in agent terminal output.
+      const parsed = new Date(year, month - 1, day, hour, minute, 0);
       if (!Number.isNaN(parsed.getTime())) {
         return parsed;
       }
