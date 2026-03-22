@@ -127,6 +127,12 @@ export function setProjectPause(
     // Write creation timestamp only for duration-based pauses so the grace-window guard
     // can compute the original pause duration and prevent re-pause loops from stale banners.
     metadata[GLOBAL_PAUSE_CREATED_AT_KEY] = new Date().toISOString();
+  } else {
+    // Explicitly clear any stale CREATED_AT left by a prior duration-based pause.
+    // updateMetadata only sets keys present in the object, so without this explicit
+    // clear, a previous CREATED_AT would persist and incorrectly trigger the grace window
+    // for an explicit-timestamp pause.
+    metadata[GLOBAL_PAUSE_CREATED_AT_KEY] = "";
   }
   updateMetadata(sessionsDir, orchestratorId, metadata);
 }
