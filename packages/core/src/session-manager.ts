@@ -1621,7 +1621,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
     }
 
     let didPurgeOpenCodeSession = false;
-    if (options?.purgeOpenCode !== false && cleanupAgent === "opencode") {
+    if (options?.purgeOpenCode === true && cleanupAgent === "opencode") {
       const mappedOpenCodeSessionId =
         asValidOpenCodeSessionId(raw["opencodeSessionId"]) ??
         (await discoverOpenCodeSessionIdByTitle(

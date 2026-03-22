@@ -36,7 +36,7 @@ import {
   type ProjectConfig as _ProjectConfig,
   type MergeGateConfig,
 } from "./types.js";
-import { updateMetadata } from "./metadata.js";
+import { updateMetadata, readMetadataRaw } from "./metadata.js";
 import { getSessionsDir } from "./paths.js";
 import { createCorrelationId, createProjectObserver } from "./observability.js";
 import { resolveAgentSelection, resolveSessionRole } from "./agent-selection.js";
@@ -272,6 +272,8 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
   function setProjectPause(project: _ProjectConfig, sourceSessionId: string, until: Date): void {
     const sessionsDir = getSessionsDir(config.configPath, project.path);
     const orchestratorId = `${project.sessionPrefix}-orchestrator`;
+    // Guard: only update if orchestrator session already exists to avoid creating phantom sessions
+    if (!readMetadataRaw(sessionsDir, orchestratorId)) return;
     const message = `Model rate limit detected from ${sourceSessionId}`;
     updateMetadata(sessionsDir, orchestratorId, {
       [GLOBAL_PAUSE_UNTIL_KEY]: until.toISOString(),
@@ -284,6 +286,8 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
   function clearProjectPause(project: _ProjectConfig): void {
     const sessionsDir = getSessionsDir(config.configPath, project.path);
     const orchestratorId = `${project.sessionPrefix}-orchestrator`;
+    // Guard: only update if orchestrator session already exists to avoid creating phantom sessions
+    if (!readMetadataRaw(sessionsDir, orchestratorId)) return;
     updateMetadata(sessionsDir, orchestratorId, {
       [GLOBAL_PAUSE_UNTIL_KEY]: "",
       [GLOBAL_PAUSE_REASON_KEY]: "",
