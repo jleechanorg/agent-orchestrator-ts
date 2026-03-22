@@ -64,7 +64,7 @@ function makeReviewExecutor(): DeferredGraphQLExecutor {
       } catch (err) {
         const stderr = (err as { stderr?: string }).stderr ?? "";
         const base = err instanceof Error ? err.message : String(err);
-        throw new Error(stderr ? `${base}: ${stderr}` : base);
+        throw new Error(stderr ? `${base}: ${stderr}` : base, { cause: err });
       }
       if (!stdout) throw new Error("gh graphql returned no output");
       const parsed = JSON.parse(stdout) as {
