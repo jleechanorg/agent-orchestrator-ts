@@ -25,6 +25,8 @@ export interface DeferredItem {
   label: string;
   /** When the item was first deferred (ISO timestamp). */
   deferredAt: string;
+  /** When the most recent attempt was made (ISO timestamp). Used for backoff timing. */
+  lastAttemptAt: string;
   /** Total number of attempts made across all invocations. */
   attempts: number;
   /** Last error message seen. */
@@ -133,7 +135,7 @@ export class DeferredGraphQLExecutor implements GraphQLExecutor {
     const maxAttempts  = options.maxAttempts  ?? MAX_ATTEMPTS;
     const maxBackoffMs = options.maxBackoffMs ?? MAX_BACKOFF_MS;
 
-    const existing = this._deferred.get(label);
+    let existing = this._deferred.get(label);
 
     // totalAttempts: cumulative across ALL invocations (for DEFER_MAX_ATTEMPTS enforcement).
     // retryAttempt: starts at 0 for each fresh retry batch (for backoff calculation).
@@ -149,11 +151,16 @@ export class DeferredGraphQLExecutor implements GraphQLExecutor {
       // Stale window expired — reset and allow one final retry.
       this._deferred.delete(label);
       totalAttempts = 0;
+      // Clear existing so the deferred item is built fresh (not with a stale timestamp).
+      existing = undefined;
     }
 
     // Not enough backoff elapsed since last attempt — skip without burning one.
     if (existing && totalAttempts > 0) {
-      const elapsed = Date.now() - new Date(existing.deferredAt).getTime();
+      // Use lastAttemptAt for backoff: measures time since the most recent attempt,
+      // not since the first deferral.
+      const lastAttemptRef = existing.lastAttemptAt ?? existing.deferredAt;
+      const elapsed = Date.now() - new Date(lastAttemptRef).getTime();
       // totalAttempts is how many have fired so far; the NEXT one in sequence
       // needs (totalAttempts+1) steps of backoff to have elapsed.
       const requiredBackoff = getBackoffForAttempt(totalAttempts + 1, maxBackoffMs);
@@ -175,8 +182,9 @@ export class DeferredGraphQLExecutor implements GraphQLExecutor {
         lastError = err;
 
         if (!isGhRateLimitError(err)) {
-          // Non-rate-limit error — fail immediately, do not defer.
-          return { data: null, deferred: [], wasDeferred: false };
+          // Non-rate-limit error — fail immediately, re-throw so callers
+          // can distinguish this from a benign deferred (data: null) result.
+          throw err;
         }
 
         if (retryAttempt < maxAttempts) {
@@ -187,9 +195,11 @@ export class DeferredGraphQLExecutor implements GraphQLExecutor {
     }
 
     // All retries exhausted — record in deferred state with cumulative totalAttempts.
+    const now = new Date().toISOString();
     const item: DeferredItem = {
       label,
-      deferredAt: existing?.deferredAt ?? new Date().toISOString(),
+      deferredAt: existing?.deferredAt ?? now,
+      lastAttemptAt: now,
       attempts: totalAttempts,
       lastError: lastError instanceof Error ? lastError.message : String(lastError),
     };

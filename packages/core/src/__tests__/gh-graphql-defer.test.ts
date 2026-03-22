@@ -174,16 +174,17 @@ describe("DeferredGraphQLExecutor", () => {
       }
     });
 
-    it("does not retry non-rate-limit errors", async () => {
+    it("re-throws non-rate-limit errors immediately without retry", async () => {
       const base = errorExecutor("validation error");
       const exec = new DeferredGraphQLExecutor(base);
 
-      const result = await exec.executeWithLabel("test-op", "query {}", {});
-
-      expect(result.wasDeferred).toBe(false);
-      expect(result.data).toBeNull();
-      expect(result.deferred).toHaveLength(0);
+      await expect(exec.executeWithLabel("test-op", "query {}", {})).rejects.toThrow(
+        "validation error",
+      );
+      // Called exactly once — no retry
       expect(base.execute).toHaveBeenCalledTimes(1);
+      // Nothing deferred — non-rate-limit errors don't defer
+      expect(exec.hasDeferred).toBe(false);
     });
   });
 
@@ -253,6 +254,35 @@ describe("DeferredGraphQLExecutor", () => {
         expect(result.wasDeferred).toBe(true);
         // Base executor should NOT have been called again (still at 3 calls)
         expect(base.execute).toHaveBeenCalledTimes(3);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("clears the deferred record on subsequent success after sufficient backoff", async () => {
+      vi.useFakeTimers();
+      try {
+        // First 3 calls rate-limit, then succeeds.
+        const base = failThenResolve(3, { cleared: true });
+        const exec = new DeferredGraphQLExecutor(base);
+
+        // First invocation — all 3 attempts rate-limit, item is deferred.
+        const p1 = exec.executeWithLabel("op", "mutation {}", {});
+        await vi.advanceTimersByTimeAsync(1_000 + 2_000 + 4_000);
+        const r1 = await p1;
+        expect(r1.wasDeferred).toBe(true);
+        expect(exec.hasDeferred).toBe(true);
+
+        // Advance past the required backoff for the next attempt (attempt 4 → 8s).
+        await vi.advanceTimersByTimeAsync(9_000);
+
+        // Second invocation — backoff elapsed, base executor now succeeds → clears deferred.
+        const p2 = exec.executeWithLabel("op", "mutation {}", {});
+        const r2 = await p2;
+
+        expect(r2.wasDeferred).toBe(false);
+        expect(r2.data).toEqual({ cleared: true });
+        expect(exec.hasDeferred).toBe(false);
       } finally {
         vi.useRealTimers();
       }

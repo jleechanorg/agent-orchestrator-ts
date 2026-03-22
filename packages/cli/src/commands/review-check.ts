@@ -2,7 +2,7 @@ import chalk from "chalk";
 import ora from "ora";
 import type { Command } from "commander";
 import { loadConfig, DeferredGraphQLExecutor, isGhRateLimitError } from "@jleechanorg/ao-core";
-import { gh } from "../lib/shell.js";
+import { exec } from "../lib/shell.js";
 import { getSessionManager } from "../lib/create-session-manager.js";
 
 interface ReviewInfo {
@@ -31,6 +31,7 @@ const REVIEW_QUERY = `
       pullRequest(number:$pr) {
         reviewDecision
         reviewThreads(first:100) {
+          pageInfo { hasNextPage }
           nodes { isResolved }
         }
       }
@@ -43,27 +44,39 @@ function makeReviewExecutor(): DeferredGraphQLExecutor {
     async execute(query: string, variables: Record<string, unknown>): Promise<unknown> {
       const [owner, name] = [String(variables["owner"]), String(variables["name"])];
       const prNum = Number(variables["pr"]);
-      const raw = await gh([
-        "api",
-        "graphql",
-        "-f",
-        `query=${query}`,
-        "-f",
-        `owner=${owner}`,
-        "-f",
-        `name=${name}`,
-        "-F",
-        `pr=${prNum}`,
-        "--jq",
-        ".data.repository.pullRequest",
-      ]);
-      if (!raw) throw new Error("gh graphql returned no output");
-      const parsed = JSON.parse(raw);
+      // Use the throwing exec() so that non-zero gh exits (including rate-limit
+      // responses) propagate as real errors with stderr — isGhRateLimitError can
+      // then match the rate-limit message instead of receiving a null return.
+      let stdout: string;
+      try {
+        const result = await exec("gh", [
+          "api",
+          "graphql",
+          "-f",
+          `query=${query}`,
+          "-f",
+          `owner=${owner}`,
+          "-f",
+          `name=${name}`,
+          "-F",
+          `pr=${prNum}`,
+        ]);
+        stdout = result.stdout;
+      } catch (err) {
+        const stderr = (err as { stderr?: string }).stderr ?? "";
+        const base = err instanceof Error ? err.message : String(err);
+        throw new Error(stderr ? `${base}: ${stderr}` : base);
+      }
+      if (!stdout) throw new Error("gh graphql returned no output");
+      const parsed = JSON.parse(stdout) as {
+        data?: { repository?: { pullRequest?: unknown } };
+        errors?: Array<{ message: string }>;
+      };
       // Surface GraphQL-level errors as thrown errors
       if (parsed.errors?.length) {
-        throw new Error(parsed.errors.map((e: { message: string }) => e.message).join("; "));
+        throw new Error(parsed.errors.map((e) => e.message).join("; "));
       }
-      return parsed;
+      return parsed.data?.repository?.pullRequest ?? null;
     },
   });
 }
@@ -85,19 +98,31 @@ async function checkPRReviews(
     pr: Number(prNumber),
   });
 
-  if (wasDeferred || data === null) {
+  if (wasDeferred) {
     // Exhausted retries — caller logs the deferred state
     return { pendingComments: 0, reviewDecision: null, wasDeferred: true };
   }
 
-  // With --jq ".data.repository.pullRequest", gh returns just the pullRequest object
   const pr = data as {
     reviewDecision?: string | null;
-    reviewThreads?: { nodes?: Array<{ isResolved: boolean }> };
+    reviewThreads?: {
+      pageInfo?: { hasNextPage: boolean };
+      nodes?: Array<{ isResolved: boolean }>;
+    };
   } | null;
 
   if (!pr) {
     return { pendingComments: 0, reviewDecision: null, wasDeferred: false };
+  }
+
+  // Fail-closed: if more threads exist beyond the first 100, report at least 1
+  // pending so the agent is prompted to investigate rather than silently skip.
+  if (pr.reviewThreads?.pageInfo?.hasNextPage) {
+    return {
+      pendingComments: 1,
+      reviewDecision: pr.reviewDecision || null,
+      wasDeferred: false,
+    };
   }
 
   const unresolvedCount = Array.isArray(pr.reviewThreads?.nodes)
@@ -131,7 +156,6 @@ export function registerReviewCheck(program: Command): void {
       const spinner = ora("Checking PRs for review comments...").start();
       const results: ReviewInfo[] = [];
       const executor = makeReviewExecutor();
-      const deferredCount = { value: 0 };
 
       for (const session of sessions) {
         const prUrl = session.metadata["pr"];
@@ -150,7 +174,6 @@ export function registerReviewCheck(program: Command): void {
             executor,
           );
           if (wasDeferred) {
-            deferredCount.value++;
             continue; // skip processing this session until GraphQL recovers
           }
           if (pendingComments > 0 || reviewDecision === "CHANGES_REQUESTED") {
