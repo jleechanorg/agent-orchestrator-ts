@@ -56,17 +56,16 @@ id_ed25519
 packages/agent-orchestrator/
 
 # Development symlinks (created per-worktree, not committed)
-.claude
 .sisyphus
 packages/web/agent-orchestrator.yaml
 
 # Local agent orchestrator config (may contain secrets)
 agent-orchestrator.yaml
 
-# Agent configuration and tracking (personal, not for repo)
-.claude/
-.opencode/
+# Agent configuration (keep .claude/ tracked for skills/commands)
 .claude/scheduled_tasks.lock
+.claude/worktrees/
+.opencode/
 
 # Shared contributor guidelines (tracked in this fork)
 # CLAUDE.md and AGENTS.md
