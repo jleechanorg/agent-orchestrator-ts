@@ -77,9 +77,11 @@ export async function maybeDispatchReviewBacklog(
     return;
   }
 
+  // bd-4nz: Skip automated comment polling when configured (saves 1+ REST calls/session)
+  const skipAutomated = project.scm?.skipAutomatedCommentPolling === true;
   const [pendingResult, automatedResult] = await Promise.allSettled([
     scm.getPendingComments(session.pr),
-    scm.getAutomatedComments(session.pr),
+    skipAutomated ? Promise.resolve([]) : scm.getAutomatedComments(session.pr),
   ]);
 
   // null means "failed to fetch" — preserve existing metadata.

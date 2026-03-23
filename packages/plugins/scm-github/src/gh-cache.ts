@@ -39,7 +39,7 @@ export interface CacheMetrics {
 }
 
 
-const DEFAULT_TTL_MS = 15_000; // 15 seconds — short enough for PR status freshness
+const DEFAULT_TTL_MS = 60_000; // 60 seconds — bd-91z: increased from 15s; with 300s poll interval, 60s is fresh enough and improves cross-session cache hits within a poll cycle
 
 // ---------------------------------------------------------------------------
 // Serialization helpers
