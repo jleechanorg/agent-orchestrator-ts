@@ -457,8 +457,9 @@ describe("check (single session)", () => {
     expect(lm.getStates().get("app-1")).toBe("mergeable");
   });
 
-  it("returns killed when agent exited and PR is not green (bd-ara)", async () => {
-    // Companion: agent exited + PR not approved → should still kill
+  it("absorbs killed when agent exited but PR is still open (bd-ara + bd-kki)", async () => {
+    // bd-kki: agent exited + PR still open → absorb killed, retry next poll
+    // so auto-merge can fire if the PR becomes mergeable.
     vi.mocked(mockAgent.getActivityState).mockResolvedValue({ state: "exited" });
 
     const mockSCM: SCM = {
@@ -510,7 +511,8 @@ describe("check (single session)", () => {
 
     await lm.check("app-1");
 
-    expect(lm.getStates().get("app-1")).toBe("killed");
+    // bd-kki absorbs the killed transition — PR is open, not merged/closed
+    expect(lm.getStates().get("app-1")).toBe("working");
   });
 
   it("returns killed when agent exited and session has no PR (bd-ara)", async () => {
@@ -3432,5 +3434,144 @@ describe("worktree cleanup on terminal transitions", () => {
 
     expect(lm.getStates().get("app-1")).toBe("working");
     expect(mockSessionManager.kill).not.toHaveBeenCalled();
+  });
+});
+
+describe("bd-kki: killed transition + merged PR race", () => {
+  let mockSCM: SCM;
+
+  beforeEach(() => {
+    mockSCM = {
+      name: "mock-scm",
+      detectPR: vi.fn(),
+      getPRState: vi.fn().mockResolvedValue("merged"),
+      mergePR: vi.fn(),
+      closePR: vi.fn(),
+      getCIChecks: vi.fn(),
+      getCISummary: vi.fn(),
+      getReviews: vi.fn(),
+      getReviewDecision: vi.fn(),
+      getPendingComments: vi.fn(),
+      getAutomatedComments: vi.fn(),
+      getMergeability: vi.fn(),
+    };
+  });
+
+  function makeRegistryWithSCM(): PluginRegistry {
+    return {
+      ...mockRegistry,
+      get: vi.fn().mockImplementation((slot: string) => {
+        if (slot === "runtime") return mockRuntime;
+        if (slot === "agent") return mockAgent;
+        if (slot === "scm") return mockSCM;
+        return null;
+      }),
+    };
+  }
+
+  it("calls sessionManager.kill() when killed transition and SCM reports merged", async () => {
+    const nonExistentPath = join(tmpDir, "non-existent-workspace-" + randomUUID());
+    const session = makeSession({ status: "pr_open", pr: makePR(), workspacePath: nonExistentPath });
+    vi.mocked(mockSessionManager.get).mockResolvedValue(session);
+
+    writeMetadata(sessionsDir, "app-1", {
+      worktree: "/tmp",
+      branch: "feat/test",
+      status: "pr_open",
+      project: "my-app",
+    });
+
+    const lm = createLifecycleManager({
+      config,
+      registry: makeRegistryWithSCM(),
+      sessionManager: mockSessionManager,
+    });
+
+    await lm.check("app-1");
+
+    expect(lm.getStates().get("app-1")).toBe("killed");
+    expect(mockSessionManager.kill).toHaveBeenCalledWith("app-1");
+  });
+
+  it("skips persisting killed when SCM is unreachable (retry next poll)", async () => {
+    vi.mocked(mockSCM.getPRState).mockRejectedValue(new Error("network error"));
+    const nonExistentPath = join(tmpDir, "non-existent-workspace-" + randomUUID());
+    const session = makeSession({ status: "pr_open", pr: makePR(), workspacePath: nonExistentPath });
+    vi.mocked(mockSessionManager.get).mockResolvedValue(session);
+
+    writeMetadata(sessionsDir, "app-1", {
+      worktree: "/tmp",
+      branch: "feat/test",
+      status: "pr_open",
+      project: "my-app",
+    });
+
+    const lm = createLifecycleManager({
+      config,
+      registry: makeRegistryWithSCM(),
+      sessionManager: mockSessionManager,
+    });
+
+    await lm.check("app-1");
+
+    // SCM threw — transition absorbed; tracked state stays oldStatus so next poll retries
+    expect(mockSessionManager.kill).not.toHaveBeenCalled();
+    expect(lm.getStates().get("app-1")).toBe("pr_open");
+  });
+
+  it("skips killed persistence when PR is still open (retry next poll)", async () => {
+    vi.mocked(mockSCM.getPRState).mockResolvedValue("open");
+    const nonExistentPath = join(tmpDir, "non-existent-workspace-" + randomUUID());
+    const session = makeSession({ status: "pr_open", pr: makePR(), workspacePath: nonExistentPath });
+    vi.mocked(mockSessionManager.get).mockResolvedValue(session);
+
+    writeMetadata(sessionsDir, "app-1", {
+      worktree: "/tmp",
+      branch: "feat/test",
+      status: "pr_open",
+      project: "my-app",
+    });
+
+    const lm = createLifecycleManager({
+      config,
+      registry: makeRegistryWithSCM(),
+      sessionManager: mockSessionManager,
+    });
+
+    await lm.check("app-1");
+
+    // PR still open — transition absorbed; tracked state stays oldStatus so next poll retries
+    expect(mockSCM.getPRState).toHaveBeenCalled();
+    expect(mockSessionManager.kill).not.toHaveBeenCalled();
+    expect(lm.getStates().get("app-1")).toBe("pr_open");
+  });
+
+  it("re-checks SCM in belt-and-suspenders for terminal oldStatus and kills if merged", async () => {
+    // When oldStatus is already terminal (e.g. errored→killed), the absorb check is skipped.
+    // The belt-and-suspenders section re-checks SCM and calls kill() if PR is merged.
+    vi.mocked(mockSCM.getPRState).mockResolvedValue("merged");
+    const nonExistentPath = join(tmpDir, "non-existent-workspace-" + randomUUID());
+    const session = makeSession({ status: "errored", pr: makePR(), workspacePath: nonExistentPath });
+    vi.mocked(mockSessionManager.get).mockResolvedValue(session);
+
+    writeMetadata(sessionsDir, "app-1", {
+      worktree: "/tmp",
+      branch: "feat/test",
+      status: "errored",
+      project: "my-app",
+    });
+
+    const lm = createLifecycleManager({
+      config,
+      registry: makeRegistryWithSCM(),
+      sessionManager: mockSessionManager,
+    });
+
+    await lm.check("app-1");
+
+    // Belt-and-suspenders re-checks SCM for terminal oldStatus and calls kill() if merged
+    expect(mockSCM.getPRState).toHaveBeenCalledTimes(1);
+    expect(mockSessionManager.kill).toHaveBeenCalledWith("app-1");
+    expect(lm.getStates().get("app-1")).toBe("killed");
   });
 });
