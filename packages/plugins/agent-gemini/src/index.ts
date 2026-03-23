@@ -148,7 +148,8 @@ const geminiOverrides: Partial<Agent> = {
 
     if (!session.workspacePath) return null;
 
-    const projectDir = geminiConfig.getSessionDir(session.workspacePath);
+    const projectDir = geminiConfig.getSessionDir?.(session.workspacePath);
+    if (!projectDir) return null;
 
     const sessionFile = await findLatestSessionFile(projectDir, ".json");
     if (!sessionFile) return null;
