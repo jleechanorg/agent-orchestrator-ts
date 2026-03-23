@@ -59,15 +59,6 @@ while [[ "$clean_command" =~ ^[[:space:]]*cd[[:space:]] ]]; do
   fi
 done
 
-# Hard guardrail: block agent-triggered gh pr merge by default.
-# Rationale: prompt rules (e.g., "NEVER MERGE") are advisory; this enforces policy in code.
-# Escape hatch for trusted/manual flows: AO_ALLOW_GH_PR_MERGE=1
-# This check runs BEFORE AO_SESSION/metadata checks since blocking a merge doesn't require session metadata.
-merge_pattern='^[[:space:]]*([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]+[[:space:]]+)*gh[[:space:]]+pr[[:space:]]+merge([[:space:]]|$)'
-if [[ "$clean_command" =~ $merge_pattern && "${AO_ALLOW_GH_PR_MERGE:-}" != "1" ]]; then
-  echo '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"Blocked by AO policy: agents must not run gh pr merge. Leave merge to orchestrator/human."}}'
-  exit 0
-fi
 
 # Validate AO_SESSION is set — exit silently when unset (non-AO sessions)
 if [[ -z "${AO_SESSION:-}" ]]; then
@@ -148,8 +139,9 @@ if [[ "$clean_command" =~ ^git[[:space:]]+checkout[[:space:]]+([^[:space:]-]+[/-
   fi
 fi
 
-# Detect: gh pr merge (only when explicitly allowed)
-if [[ "$clean_command" =~ $merge_pattern && "${AO_ALLOW_GH_PR_MERGE:-}" == "1" ]]; then
+# Detect: gh pr merge
+merge_pattern='^[[:space:]]*([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]+[[:space:]]+)*gh[[:space:]]+pr[[:space:]]+merge([[:space:]]|$)'
+if [[ "$clean_command" =~ $merge_pattern ]]; then
   update_metadata_key "status" "merged"
   echo '{"systemMessage": "Updated metadata: status = merged"}'
   exit 0
