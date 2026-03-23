@@ -462,12 +462,13 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     reactionKey: string,
     reactionConfig: ReactionConfig,
     session?: Session,
+    correlationId?: string,
   ): Promise<ReactionResult> {
-    const reactionCorrelationId = createCorrelationId("reaction");
+    const reactionCorrelationId = correlationId ?? createCorrelationId("reaction");
     observer.recordOperation({
       metric: "lifecycle_poll",
       operation: "lifecycle.reaction.start",
-      outcome: "success",
+      outcome: "info",
       correlationId: reactionCorrelationId,
       projectId,
       sessionId,
@@ -547,14 +548,16 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
             };
           } catch (sendErr) {
             // Send failed — allow retry on next poll cycle (don't escalate immediately)
+            const sendErrMsg = sendErr instanceof Error ? sendErr.message : String(sendErr);
             observer.recordOperation({
               metric: "lifecycle_poll",
               operation: "lifecycle.reaction.send_failed",
               outcome: "failure",
+              reason: sendErrMsg,
               correlationId: reactionCorrelationId,
               projectId,
               sessionId,
-              data: { reactionKey, error: sendErr instanceof Error ? sendErr.message : String(sendErr) },
+              data: { reactionKey, error: sendErrMsg },
               level: "warn",
             });
             return {
@@ -816,6 +819,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
                 reactionKey,
                 reactionConfig,
                 session,
+                correlationId,
               );
               transitionReaction = { key: reactionKey, result: reactionResult };
               observer.recordOperation({
