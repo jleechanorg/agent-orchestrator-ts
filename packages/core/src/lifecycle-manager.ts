@@ -358,21 +358,30 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     // 4. Check PR state if PR exists
     if (session.pr && scm) {
       try {
-        // bd-att: Use batch query when available (~1 gh call instead of ~6)
+        // bd-att: Use batch query when available (~1 gh call instead of ~6).
+        // If batch fails, fall back to individual calls rather than silently
+        // preserving stale status.
+        let usedBatch = false;
         if (scm.getBatchPRStatus) {
-          const batch = await scm.getBatchPRStatus(session.pr);
-          if (batch.state === PR_STATE.MERGED) return "merged";
-          if (batch.state === PR_STATE.CLOSED) return "killed";
-          if (batch.ciStatus === CI_STATUS.FAILING) return "ci_failed";
-          if (batch.reviewDecision === "changes_requested") return "changes_requested";
-          if (batch.reviewDecision === "approved" || batch.reviewDecision === "none") {
-            if (batch.mergeReadiness.mergeable) return "mergeable";
-            if (!batch.mergeReadiness.noConflicts) return "merge_conflicts";
-            if (batch.reviewDecision === "approved") return "approved";
+          try {
+            const batch = await scm.getBatchPRStatus(session.pr);
+            usedBatch = true;
+            if (batch.state === PR_STATE.MERGED) return "merged";
+            if (batch.state === PR_STATE.CLOSED) return "killed";
+            if (batch.ciStatus === CI_STATUS.FAILING) return "ci_failed";
+            if (batch.reviewDecision === "changes_requested") return "changes_requested";
+            if (batch.reviewDecision === "approved" || batch.reviewDecision === "none") {
+              if (batch.mergeReadiness.mergeable) return "mergeable";
+              if (!batch.mergeReadiness.noConflicts) return "merge_conflicts";
+              if (batch.reviewDecision === "approved") return "approved";
+            }
+            if (batch.reviewDecision === "pending") return "review_pending";
+          } catch {
+            // Batch failed — fall through to individual calls
           }
-          if (batch.reviewDecision === "pending") return "review_pending";
-        } else {
-          // Fallback: individual calls for SCM plugins without batch support
+        }
+        if (!usedBatch) {
+          // Fallback: individual calls (no batch support or batch failed)
           const prState = await scm.getPRState(session.pr);
           if (prState === PR_STATE.MERGED) return "merged";
           if (prState === PR_STATE.CLOSED) return "killed";

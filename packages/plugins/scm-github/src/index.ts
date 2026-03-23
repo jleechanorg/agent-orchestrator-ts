@@ -1851,7 +1851,7 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
         ciStatus = "none";
       } else {
         const checks = rollup.map((entry) => {
-          if (!entry || typeof entry !== "object") return "unknown";
+          if (!entry || typeof entry !== "object") return "pending" as const;
           const row = entry as Record<string, unknown>;
           const rawState =
             typeof row["conclusion"] === "string"
