@@ -7,4 +7,4 @@ reviews:
     enabled: true
   path_filters: []
   high_level_summary: true
-  auto_title_placeholder: "<title>"
+  auto_title_placeholder: "@coderabbitai"
