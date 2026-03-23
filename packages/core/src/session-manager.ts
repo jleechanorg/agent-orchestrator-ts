@@ -561,8 +561,10 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
     // Check the pre-repair (original) status because repair can promote a
     // merged orchestrator session to "working" — we must still exclude it.
     // The original status is the authoritative source for terminal-state filtering.
+    // Build a lookup map once (O(n)) instead of scanning inside filter (O(n²)).
+    const originalStatusByName = new Map(records.map((r) => [r.sessionName, r.raw["status"] ?? ""]));
     return repaired.filter((record) => {
-      const originalStatus = records.find((r) => r.sessionName === record.sessionName)?.raw["status"] ?? "";
+      const originalStatus = originalStatusByName.get(record.sessionName) ?? "";
       return originalStatus !== "killed" && originalStatus !== "merged";
     });
   }
