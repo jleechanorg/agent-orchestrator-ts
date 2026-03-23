@@ -3,9 +3,5 @@
 approve: true
 reviews:
   review_status: true
-  request_changes_workflow: true
-  auto_review:
-    enabled: true
   high_level_summary: true
   auto_title_placeholder: ""
-#
