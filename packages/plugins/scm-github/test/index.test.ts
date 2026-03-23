@@ -1381,6 +1381,41 @@ describe("scm-github plugin", () => {
       );
     });
 
+    it("does not classify non-critical: as error (only line-start critical:)", async () => {
+      mockGh([
+        {
+          id: 1,
+          user: { login: "github-actions[bot]" },
+          // "non-critical" is NOT a direct error report; the `critical:` pattern must be
+          // at line-start to avoid false-positives on negations like "non-critical:"
+          body: "The build succeeded but non-critical: lint warnings were emitted",
+          path: "a.ts",
+          line: 1,
+          original_line: null,
+          created_at: "2025-01-01T00:00:00Z",
+          html_url: "u",
+        },
+        {
+          id: 2,
+          user: { login: "github-actions[bot]" },
+          // Line-start "critical:" IS a direct error report
+          body: "critical: unable to resolve dependencies",
+          path: "b.ts",
+          line: 2,
+          original_line: null,
+          created_at: "2025-01-01T00:00:00Z",
+          html_url: "u",
+        },
+      ]);
+
+      const comments = await scm.getAutomatedComments(pr);
+      expect(comments).toHaveLength(2);
+      // "non-critical:" is a negation, not an error report → warning
+      expect(comments[0].severity).toBe("warning");
+      // "critical:" at line-start IS a direct error report → error
+      expect(comments[1].severity).toBe("error");
+    });
+
     it("does not false-positive on incidental severity keywords in long comments", async () => {
       mockGh([
         {

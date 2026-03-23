@@ -1592,16 +1592,20 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
             const hasCriticalHeader = /\*\*(critical|high)\s+severity\*\*/i.test(c.body);
             const hasMediumHeader = /\*\*(medium|low)\s+severity\*\*/i.test(c.body);
             if (hasCriticalHeader && !hasMediumHeader) {
-              // Explicit "Critical/High Severity" header → warning (not error),
-              // because these are review suggestions, not build failures.
-              // Only the Bugbot check-run conclusion determines blocking.
+              // Explicit "Critical/High Severity" header from cursor[bot] or Copilot →
+              // "warning" (not "error"). These are review-level severity flags, not build
+              // errors. The Bugbot check-run conclusion (merge gate check #4) is the
+              // authoritative signal for whether Bugbot considers the PR blocked; body
+              // severity is a secondary filter that would otherwise create false
+              // positives (e.g. "High Severity" in a description of an old bug).
               severity = "warning";
             } else if (hasMediumHeader) {
               severity = "warning";
             } else if (
-              // Direct error reports (CI bots, build failures) — match at line start
+              // Direct error reports (CI bots, build failures) — anchored to line-start
+              // to avoid matching incidental text like "non-critical" or "critical bug"
               /^error[:\s]/m.test(bodyLower) ||
-              /\bcritical[:\s]/m.test(bodyLower) ||
+              /^\s*critical[:\s]/m.test(bodyLower) ||
               bodyLower.includes("potential issue")
             ) {
               severity = "error";
