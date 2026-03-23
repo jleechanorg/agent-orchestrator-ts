@@ -68,7 +68,7 @@ These PRs fix specific autonomy blockers. Priority order for merging:
 | **#129** | backfillAllPRs implementation | bd-awq | **Core feature** — without this, dead sessions are never respawned |
 | #114 | Dead-agent CLI detection + restart | bd-tln | `send-to-agent` fails on dead sessions; this restarts them |
 | #109 | Adaptive delay + Enter retry for tmux send | bd-orch2v3, bd-qhf | Messages pasted to tmux but agent never sees Enter key |
-| #99 | Kill zombie tmux sessions on merge | bd-kki | Merged PRs leave zombie sessions consuming resources |
+| #99 | Kill zombie tmux sessions on merge | bd-s4t | Merged PRs leave zombie sessions consuming resources |
 | #112 | Lock worktrees to prevent accidental prune | bd-diq | Workers lose workspace when worktree is cleaned |
 
 ### Not Yet Started

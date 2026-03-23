@@ -245,12 +245,12 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     project: _ProjectConfig,
     activeSessions: Session[],
     correlationId: string,
-  ): Promise<void> {
+  ): Promise<boolean> {
     const now = Date.now();
-    if (now - lastBackfillTime < BACKFILL_INTERVAL_MS) return;
+    if (now - lastBackfillTime < BACKFILL_INTERVAL_MS) return false;
 
     const scm = project.scm ? registry.get<SCM>("scm", project.scm.plugin) : null;
-    if (!scm?.listOpenPRs) return;
+    if (!scm?.listOpenPRs) return false;
 
     // Set throttle AFTER confirming SCM supports listOpenPRs — so missing
     // support doesn't block retries when a different SCM plugin is loaded.
@@ -258,7 +258,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
 
     try {
       const openPRs = await scm.listOpenPRs(project);
-      if (openPRs.length === 0) return;
+      if (openPRs.length === 0) return false;
 
       // Build set of PR numbers AND branches covered by active sessions.
       // Sessions may not have pr.number set yet if detectPR hasn't run,
@@ -275,7 +275,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         (pr) => !pr.isDraft && !coveredPRs.has(pr.number) && !coveredBranches.has(pr.branch),
       );
 
-      if (uncovered.length === 0) return;
+      if (uncovered.length === 0) return false;
 
       observer.recordOperation({
         metric: "lifecycle_poll",
@@ -323,7 +323,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
             level: "warn",
           });
           await sessionManager.kill(session.id).catch(() => {});
-          return;
+          return false;
         }
 
         observer.recordOperation({
@@ -336,6 +336,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
           data: { prNumber: pr.number, prTitle: pr.title, branch: pr.branch },
           level: "info",
         });
+        return true;
       } catch (spawnErr) {
         observer.recordOperation({
           metric: "lifecycle_poll",
@@ -363,6 +364,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         level: "warn",
       });
     }
+    return false;
   }
 
   /** Determine current status for a session by polling plugins. */
@@ -1190,12 +1192,16 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       if (scopedProjectId) {
         const project = config.projects[scopedProjectId];
         if (project?.backfillAllPRs) {
-          await backfillUncoveredPRs(
+          const spawned = await backfillUncoveredPRs(
             scopedProjectId,
             project,
             activeSessions,
             correlationId,
           );
+          // If we just spawned a session, skip all_complete — more work exists.
+          if (spawned) {
+            allCompleteEmitted = false;
+          }
         }
       }
 
