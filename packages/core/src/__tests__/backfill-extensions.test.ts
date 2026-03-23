@@ -196,7 +196,7 @@ describe("backfillUncoveredPRs", () => {
     expect(mockSessionManager.claimPR).toHaveBeenCalledWith("new-1", "7");
   });
 
-  it("kills the session and returns false when claimPR fails", async () => {
+  it("kills the session and returns false when claimPR fails (single PR)", async () => {
     const pr = makePR({ number: 5, branch: "feat/claim-fail" });
     vi.mocked(mockSCM.listOpenPRs!).mockResolvedValue([pr]);
     vi.mocked(mockSessionManager.claimPR).mockRejectedValue(new Error("claim boom"));
@@ -213,6 +213,39 @@ describe("backfillUncoveredPRs", () => {
         outcome: "failure",
       }),
     );
+  });
+
+  it("skips failed PR and spawns next uncovered PR when claimPR fails", async () => {
+    const prs = [
+      makePR({ number: 123, branch: "feat/conflicting" }),
+      makePR({ number: 113, branch: "feat/good" }),
+    ];
+    vi.mocked(mockSCM.listOpenPRs!).mockResolvedValue(prs);
+
+    // First claimPR fails (e.g. CONFLICTING), second succeeds
+    let spawnCount = 0;
+    vi.mocked(mockSessionManager.spawn).mockImplementation(async () => {
+      spawnCount++;
+      return makeSession({ id: `new-${spawnCount}` });
+    });
+    vi.mocked(mockSessionManager.claimPR)
+      .mockRejectedValueOnce(new Error("Workspace has uncommitted changes"))
+      .mockResolvedValueOnce({
+        sessionId: "new-2",
+        projectId: "proj",
+        pr: prs[1],
+        branchChanged: true,
+        githubAssigned: false,
+        takenOverFrom: [],
+      });
+
+    const result = await backfillUncoveredPRs(deps, makeParams());
+
+    expect(result).toBe(true);
+    // First session spawned and killed, second spawned and claimed
+    expect(mockSessionManager.spawn).toHaveBeenCalledTimes(2);
+    expect(mockSessionManager.kill).toHaveBeenCalledWith("new-1");
+    expect(mockSessionManager.claimPR).toHaveBeenCalledWith("new-2", "113");
   });
 
   it("returns false and records error when listOpenPRs throws", async () => {

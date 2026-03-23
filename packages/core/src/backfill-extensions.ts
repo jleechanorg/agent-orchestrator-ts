@@ -99,62 +99,65 @@ export async function backfillUncoveredPRs(
     });
 
     // Spawn one session at a time to avoid thundering herd.
+    // If spawn/claim fails for a PR, skip it and try the next uncovered PR.
     // The next backfill cycle (5 min later) will pick up the rest.
-    const pr = uncovered[0];
-    try {
-      // Don't pass branch to spawn — let claimPR handle checkout so
-      // the workspace starts on the correct PR branch via SCM checkout.
-      const session = await sessionManager.spawn({
-        projectId,
-        prompt: `Continue working on PR #${pr.number}: ${pr.title}. Check PR status, fix any blockers (CI failures, review comments, merge conflicts), and drive it to 6-green.`,
-      });
-
-      // Claim the PR for this session — this checks out the branch
+    for (const pr of uncovered) {
       try {
-        await sessionManager.claimPR(session.id, String(pr.number));
-      } catch (claimErr) {
-        // claimPR failed — kill the orphan session to avoid waste
+        // Don't pass branch to spawn — let claimPR handle checkout so
+        // the workspace starts on the correct PR branch via SCM checkout.
+        const session = await sessionManager.spawn({
+          projectId,
+          prompt: `Continue working on PR #${pr.number}: ${pr.title}. Check PR status, fix any blockers (CI failures, review comments, merge conflicts), and drive it to 6-green.`,
+        });
+
+        // Claim the PR for this session — this checks out the branch
+        try {
+          await sessionManager.claimPR(session.id, String(pr.number));
+        } catch (claimErr) {
+          // claimPR failed — kill the orphan session and try next PR
+          observer.recordOperation({
+            metric: "lifecycle_poll",
+            operation: "lifecycle.backfill.claim_failed",
+            outcome: "failure",
+            correlationId,
+            projectId,
+            sessionId: session.id,
+            data: {
+              prNumber: pr.number,
+              error: claimErr instanceof Error ? claimErr.message : String(claimErr),
+            },
+            level: "warn",
+          });
+          await sessionManager.kill(session.id).catch(() => {});
+          continue; // try next uncovered PR
+        }
+
         observer.recordOperation({
           metric: "lifecycle_poll",
-          operation: "lifecycle.backfill.claim_failed",
-          outcome: "failure",
+          operation: "lifecycle.backfill.spawned",
+          outcome: "success",
           correlationId,
           projectId,
           sessionId: session.id,
+          data: { prNumber: pr.number, prTitle: pr.title, branch: pr.branch },
+          level: "info",
+        });
+        return true;
+      } catch (spawnErr) {
+        observer.recordOperation({
+          metric: "lifecycle_poll",
+          operation: "lifecycle.backfill.spawn_failed",
+          outcome: "failure",
+          correlationId,
+          projectId,
           data: {
             prNumber: pr.number,
-            error: claimErr instanceof Error ? claimErr.message : String(claimErr),
+            error: spawnErr instanceof Error ? spawnErr.message : String(spawnErr),
           },
           level: "warn",
         });
-        await sessionManager.kill(session.id).catch(() => {});
-        return false;
+        continue; // try next uncovered PR
       }
-
-      observer.recordOperation({
-        metric: "lifecycle_poll",
-        operation: "lifecycle.backfill.spawned",
-        outcome: "success",
-        correlationId,
-        projectId,
-        sessionId: session.id,
-        data: { prNumber: pr.number, prTitle: pr.title, branch: pr.branch },
-        level: "info",
-      });
-      return true;
-    } catch (spawnErr) {
-      observer.recordOperation({
-        metric: "lifecycle_poll",
-        operation: "lifecycle.backfill.spawn_failed",
-        outcome: "failure",
-        correlationId,
-        projectId,
-        data: {
-          prNumber: pr.number,
-          error: spawnErr instanceof Error ? spawnErr.message : String(spawnErr),
-        },
-        level: "warn",
-      });
     }
   } catch (listErr) {
     observer.recordOperation({
