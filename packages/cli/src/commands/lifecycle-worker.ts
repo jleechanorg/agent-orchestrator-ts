@@ -10,7 +10,7 @@ import {
 
 function parseInterval(value: string): number {
   const parsed = Number.parseInt(value, 10);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : 300_000;
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 30_000;
 }
 
 export function registerLifecycleWorker(program: Command): void {
@@ -18,7 +18,7 @@ export function registerLifecycleWorker(program: Command): void {
     .command("lifecycle-worker")
     .description("Internal lifecycle polling worker")
     .argument("<project>", "Project ID from config")
-    .option("--interval-ms <ms>", "Polling interval in milliseconds", "300000")
+    .option("--interval-ms <ms>", "Polling interval in milliseconds", "30000")
     .action(async (projectId: string, opts: { intervalMs?: string }) => {
       const config = loadConfig();
       const observer = createProjectObserver(config, "lifecycle-worker");
@@ -53,7 +53,7 @@ export function registerLifecycleWorker(program: Command): void {
       }
 
       const lifecycle = await getLifecycleManager(config, projectId);
-      const intervalMs = parseInterval(opts.intervalMs ?? "300000");
+      const intervalMs = parseInterval(opts.intervalMs ?? "30000");
       let shuttingDown = false;
       let heartbeat: ReturnType<typeof setInterval> | null = null;
 
