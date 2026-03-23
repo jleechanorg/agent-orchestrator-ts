@@ -1291,35 +1291,37 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
         // Pass token via GH_TOKEN env var so it never appears in process arguments.
         // Remove -f so we capture the full error body on failure (GitHub returns
         // structured JSON with the reason, e.g. "Pull Request is not mergeable").
-        try {
-          const raw = await execFileAsync(
-            "curl",
-            [
-              "-sS",
-              "-X", "PUT",
-              "-H", "Accept: application/vnd.github+json",
-              "-H", `Authorization: Bearer ${token}`,
-              "-H", "X-GitHub-Api-Version: 2022-11-28",
-              "-H", "Content-Type: application/json",
-              "-d", body,
-              "-w", "\n%{http_code}",
-              url,
-            ],
-            { maxBuffer: 10 * 1024 * 1024, timeout: 30_000 },
-          );
-          const lines = raw.stdout.trim().split("\n");
+        const rawResult = await execFileAsync(
+          "curl",
+          [
+            "-sS",
+            "-X", "PUT",
+            "-H", "Accept: application/vnd.github+json",
+            "-H", `Authorization: Bearer ${token}`,
+            "-H", "X-GitHub-Api-Version: 2022-11-28",
+            "-H", "Content-Type: application/json",
+            "-d", body,
+            "-w", "\n%{http_code}",
+            url,
+          ],
+          { maxBuffer: 10 * 1024 * 1024, timeout: 30_000 },
+        ).catch((curlErr) => {
+          throw new Error(`mergePR REST fallback via curl failed: ${(curlErr as Error).message}`, {
+            cause: curlErr,
+          });
+        });
+        // validateHttpStatus is extracted to its own function so it is not
+        // inside any catch scope — prevents false-positive preserve-caught-error.
+        const validateHttpStatus = (raw: string): void => {
+          const lines = raw.trim().split("\n");
           const httpStatus = parseInt(lines[lines.length - 1] ?? "", 10);
           if (httpStatus < 200 || httpStatus >= 300) {
             throw new Error(
               `mergePR REST fallback received HTTP ${httpStatus}: ${lines.slice(0, -1).join("\n")}`,
-              { cause: raw.stdout },
             );
           }
-        } catch (curlErr) {
-          throw new Error(`mergePR REST fallback via curl failed: ${(curlErr as Error).message}`, {
-            cause: curlErr,
-          });
-        }
+        };
+        validateHttpStatus(rawResult.stdout);
 
         // Branch deletion via REST (best-effort; only possible when the head
         // repo matches the base repo to have write access).  Encode the branch
