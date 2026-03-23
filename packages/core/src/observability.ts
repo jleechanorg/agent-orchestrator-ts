@@ -12,7 +12,7 @@ import type { OrchestratorConfig, SessionId } from "./types.js";
 import { getObservabilityBaseDir } from "./paths.js";
 
 export type ObservabilityLevel = "debug" | "info" | "warn" | "error";
-export type ObservabilityOutcome = "success" | "failure";
+export type ObservabilityOutcome = "success" | "failure" | "info";
 export type ObservabilityHealthStatus = "ok" | "warn" | "error";
 export type ObservabilityMetricName =
   | "api_request"
@@ -362,7 +362,7 @@ export function createProjectObserver(
           };
           currentCounter.total += 1;
           currentCounter.lastAt = timestamp;
-          if (input.outcome === "success") {
+          if (input.outcome === "success" || input.outcome === "info") {
             currentCounter.success += 1;
             currentCounter.lastSuccessAt = timestamp;
           } else {
