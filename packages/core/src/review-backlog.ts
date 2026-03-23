@@ -36,9 +36,27 @@ function makeFingerprint(ids: string[]): string {
   return [...ids].sort().join(",");
 }
 
+// bd-yjo: Per-session poll counter for throttling review backlog checks.
+// Only run full API check every REVIEW_BACKLOG_INTERVAL polls (always on transitions).
+const pollCounters = new Map<string, number>();
+const REVIEW_BACKLOG_INTERVAL = 3;
+
+/** Reset poll counter for a session. Exported for testing. */
+export function resetReviewBacklogCounter(sessionId: string): void {
+  pollCounters.delete(sessionId);
+}
+
+/** Reset all poll counters. Exported for testing. */
+export function resetAllReviewBacklogCounters(): void {
+  pollCounters.clear();
+}
+
 /**
  * Dispatch review reactions when the set of pending comments changes.
  * Called after each session check in the lifecycle polling loop.
+ *
+ * bd-yjo: Throttled to run every REVIEW_BACKLOG_INTERVAL polls to reduce API calls.
+ * Always runs on status transitions (oldStatus !== newStatus).
  */
 export async function maybeDispatchReviewBacklog(
   session: Session,
@@ -74,6 +92,15 @@ export async function maybeDispatchReviewBacklog(
       },
       config,
     );
+    pollCounters.delete(session.id);
+    return;
+  }
+
+  // bd-yjo: Throttle — only run full API check every Nth poll or on transitions
+  const isTransition = oldStatus !== newStatus;
+  const count = (pollCounters.get(session.id) ?? 0) + 1;
+  pollCounters.set(session.id, count);
+  if (!isTransition && count % REVIEW_BACKLOG_INTERVAL !== 1) {
     return;
   }
 

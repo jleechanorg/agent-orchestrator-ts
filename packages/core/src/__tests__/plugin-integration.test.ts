@@ -574,12 +574,11 @@ describe("plugin integration", () => {
         sessionManager: mockSM,
       });
 
-      // 1. getPRState → open
-      mockGh({ state: "OPEN" });
+      // bd-sm7: getPRStateAndReview returns both in one call
+      // 1. getPRStateAndReview → open + changes_requested
+      mockGh({ state: "OPEN", reviewDecision: "CHANGES_REQUESTED" });
       // 2. getCISummary → passing (using correct field names: state and link)
       mockGh([{ name: "lint", state: "SUCCESS", link: "", startedAt: "", completedAt: "" }]);
-      // 3. getReviewDecision (gh pr view with reviewDecision)
-      mockGh({ reviewDecision: "CHANGES_REQUESTED" });
 
       await lm.check("app-1");
 

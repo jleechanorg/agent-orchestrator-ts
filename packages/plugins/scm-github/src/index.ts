@@ -1370,6 +1370,37 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
       return "none";
     },
 
+    // bd-sm7: Combined PR state + review decision in a single gh CLI call
+    async getPRStateAndReview(pr: PRInfo): Promise<{ state: PRState; reviewDecision: ReviewDecision }> {
+      const raw = await gh([
+        "pr",
+        "view",
+        String(pr.number),
+        "--repo",
+        repoFlag(pr),
+        "--json",
+        "state,reviewDecision",
+      ]);
+      const data: { state: string; reviewDecision?: string; merged?: boolean } = JSON.parse(raw);
+
+      // Parse state (same logic as getPRState)
+      const s = data.state.toUpperCase();
+      let state: PRState;
+      if (s === "MERGED" || data.merged === true) state = "merged";
+      else if (s === "CLOSED") state = "closed";
+      else state = "open";
+
+      // Parse review decision (same logic as getReviewDecision)
+      const d = (data.reviewDecision ?? "").toUpperCase();
+      let reviewDecision: ReviewDecision;
+      if (d === "APPROVED") reviewDecision = "approved";
+      else if (d === "CHANGES_REQUESTED") reviewDecision = "changes_requested";
+      else if (d === "REVIEW_REQUIRED") reviewDecision = "pending";
+      else reviewDecision = "none";
+
+      return { state, reviewDecision };
+    },
+
     async getPendingComments(pr: PRInfo): Promise<ReviewComment[]> {
       try {
         // Use GraphQL with variables to get review threads with actual isResolved status

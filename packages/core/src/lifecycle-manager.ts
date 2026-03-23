@@ -36,6 +36,8 @@ import {
   type EventPriority,
   type ProjectConfig as _ProjectConfig,
   type MergeGateConfig,
+  type PRState,
+  type ReviewDecision,
 } from "./types.js";
 import { readMetadataRaw, updateMetadata } from "./metadata.js";
 import { getSessionsDir } from "./paths.js";
@@ -340,16 +342,23 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     // 4. Check PR state if PR exists
     if (session.pr && scm) {
       try {
-        const prState = await scm.getPRState(session.pr);
+        // bd-sm7: Use combined call when available to save 1 gh CLI invocation
+        let prState: PRState;
+        let reviewDecision: ReviewDecision;
+        if (scm.getPRStateAndReview) {
+          const combined = await scm.getPRStateAndReview(session.pr);
+          prState = combined.state;
+          reviewDecision = combined.reviewDecision;
+        } else {
+          prState = await scm.getPRState(session.pr);
+          reviewDecision = await scm.getReviewDecision(session.pr);
+        }
         if (prState === PR_STATE.MERGED) return "merged";
         if (prState === PR_STATE.CLOSED) return "killed";
 
         // Check CI
         const ciStatus = await scm.getCISummary(session.pr);
         if (ciStatus === CI_STATUS.FAILING) return "ci_failed";
-
-        // Check reviews
-        const reviewDecision = await scm.getReviewDecision(session.pr);
         if (reviewDecision === "changes_requested") return "changes_requested";
         if (reviewDecision === "approved" || reviewDecision === "none") {
           // bd-wg5: Skip getMergeability when CI is pending — no point checking

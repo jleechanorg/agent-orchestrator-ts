@@ -584,6 +584,10 @@ export interface SCM {
   /** Get the overall review decision */
   getReviewDecision(pr: PRInfo): Promise<ReviewDecision>;
 
+  /** bd-sm7: Combined PR state + review decision in a single API call.
+   *  Optional — lifecycle-manager falls back to separate calls if not implemented. */
+  getPRStateAndReview?(pr: PRInfo): Promise<{ state: PRState; reviewDecision: ReviewDecision }>;
+
   /** Get pending (unresolved) review comments */
   getPendingComments(pr: PRInfo): Promise<ReviewComment[]>;
 
