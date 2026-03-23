@@ -212,6 +212,15 @@ export function create(config?: Record<string, unknown>): Workspace {
         // Non-fatal: exclude setup failure doesn't prevent workspace use
       }
 
+      // Lock the worktree so that `git worktree prune` cannot silently delete
+      // it while the AO session is active. Non-fatal: older git versions may
+      // not support the lock subcommand.
+      try {
+        await git(repoPath, "worktree", "lock", "--reason", "AO session active", worktreePath);
+      } catch {
+        // Best-effort — prune protection unavailable on this git version
+      }
+
       return {
         path: worktreePath,
         branch: cfg.branch,
@@ -230,7 +239,10 @@ export function create(config?: Record<string, unknown>): Workspace {
         );
         // git-common-dir returns something like /path/to/repo/.git
         const repoPath = resolve(gitCommonDir, "..");
-        await git(repoPath, "worktree", "remove", "--force", workspacePath);
+        // Use --force --force to bypass the worktree lock set during create().
+        // The first --force allows removal of dirty worktrees; the second
+        // bypasses the lock that prevents accidental `git worktree prune` deletion.
+        await git(repoPath, "worktree", "remove", "--force", "--force", workspacePath);
 
         // NOTE: We intentionally do NOT delete the branch here. The worktree
         // removal is sufficient. Auto-deleting branches risks removing
@@ -355,6 +367,13 @@ export function create(config?: Record<string, unknown>): Workspace {
         await setupAoManagedExclude(workspacePath);
       } catch {
         // Non-fatal: exclude setup failure doesn't prevent workspace use
+      }
+
+      // Lock the restored worktree to prevent accidental prune.
+      try {
+        await git(repoPath, "worktree", "lock", "--reason", "AO session active", workspacePath);
+      } catch {
+        // Best-effort — prune protection unavailable on this git version
       }
 
       return {

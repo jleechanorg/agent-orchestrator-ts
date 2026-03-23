@@ -361,10 +361,10 @@ describe("workspace.destroy()", () => {
       { cwd: "/mock-home/.worktrees/myproject/session-1" },
     );
 
-    // Second call: worktree remove
+    // Second call: worktree remove (--force --force to bypass lock)
     expect(mockExecFileAsync).toHaveBeenCalledWith(
       "git",
-      ["worktree", "remove", "--force", "/mock-home/.worktrees/myproject/session-1"],
+      ["worktree", "remove", "--force", "--force", "/mock-home/.worktrees/myproject/session-1"],
       { cwd: "/repo/path" },
     );
   });
