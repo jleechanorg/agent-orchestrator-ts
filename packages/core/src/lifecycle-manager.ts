@@ -1152,12 +1152,13 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
             const STUCK_RETRY_COOLDOWN_MS = thresholdMs > 0 ? thresholdMs : 15 * 60_000;
             const lastAttemptKey = `stuck-retry-${session.id}`;
             const now = Date.now();
-            const lastAttempt = stuckRetryTimestamps.get(lastAttemptKey) ?? 0;
+            let lastAttempt = stuckRetryTimestamps.get(lastAttemptKey) ?? 0;
             // Skip if timestamp predates current stuck entry (stale from prior stuck period)
             const stuckEntry = stuckEntryTimestamps.get(session.id) ?? 0;
             if (lastAttempt < stuckEntry) {
               // Timestamp is stale — clear it and treat as no prior attempt
               stuckRetryTimestamps.delete(lastAttemptKey);
+              lastAttempt = 0;
             }
             if (now - lastAttempt >= STUCK_RETRY_COOLDOWN_MS) {
               stuckRetryTimestamps.set(lastAttemptKey, now);
