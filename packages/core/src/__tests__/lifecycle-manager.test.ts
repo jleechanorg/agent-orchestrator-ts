@@ -359,6 +359,145 @@ describe("check (single session)", () => {
     expect(lm.getStates().get("app-1")).toBe("killed");
   });
 
+  it("returns mergeable (not killed) when agent exited but PR is green (bd-ara)", async () => {
+    // Fix 2 test: agent exit must not mask a mergeable PR. When the agent has
+    // exited but the session has a PR that is approved + CI green + no conflicts,
+    // determineStatus should return "mergeable" so auto-merge can fire.
+    vi.mocked(mockAgent.getActivityState).mockResolvedValue({ state: "exited" });
+
+    const mockSCM: SCM = {
+      name: "mock-scm",
+      detectPR: vi.fn(),
+      getPRState: vi.fn().mockResolvedValue("open"),
+      mergePR: vi.fn(),
+      closePR: vi.fn(),
+      getCIChecks: vi.fn(),
+      getCISummary: vi.fn().mockResolvedValue("passing"),
+      getReviews: vi.fn(),
+      getReviewDecision: vi.fn().mockResolvedValue("approved"),
+      getPendingComments: vi.fn(),
+      getAutomatedComments: vi.fn(),
+      getMergeability: vi.fn().mockResolvedValue({
+        mergeable: true,
+        ciPassing: true,
+        approved: true,
+        noConflicts: true,
+        blockers: [],
+      }),
+    };
+
+    const registryWithSCM: PluginRegistry = {
+      ...mockRegistry,
+      get: vi.fn().mockImplementation((slot: string) => {
+        if (slot === "runtime") return mockRuntime;
+        if (slot === "agent") return mockAgent;
+        if (slot === "scm") return mockSCM;
+        return null;
+      }),
+    };
+
+    const session = makeSession({ status: "working", pr: makePR() });
+    vi.mocked(mockSessionManager.get).mockResolvedValue(session);
+
+    writeMetadata(sessionsDir, "app-1", {
+      worktree: "/tmp",
+      branch: "main",
+      status: "working",
+      project: "my-app",
+    });
+
+    const lm = createLifecycleManager({
+      config,
+      registry: registryWithSCM,
+      sessionManager: mockSessionManager,
+    });
+
+    await lm.check("app-1");
+
+    expect(lm.getStates().get("app-1")).toBe("mergeable");
+  });
+
+  it("returns killed when agent exited and PR is not green (bd-ara)", async () => {
+    // Companion: agent exited + PR not approved → should still kill
+    vi.mocked(mockAgent.getActivityState).mockResolvedValue({ state: "exited" });
+
+    const mockSCM: SCM = {
+      name: "mock-scm",
+      detectPR: vi.fn(),
+      getPRState: vi.fn().mockResolvedValue("open"),
+      mergePR: vi.fn(),
+      closePR: vi.fn(),
+      getCIChecks: vi.fn(),
+      getCISummary: vi.fn().mockResolvedValue("passing"),
+      getReviews: vi.fn(),
+      getReviewDecision: vi.fn().mockResolvedValue("none"),
+      getPendingComments: vi.fn(),
+      getAutomatedComments: vi.fn(),
+      getMergeability: vi.fn().mockResolvedValue({
+        mergeable: false,
+        ciPassing: true,
+        approved: false,
+        noConflicts: true,
+        blockers: [],
+      }),
+    };
+
+    const registryWithSCM: PluginRegistry = {
+      ...mockRegistry,
+      get: vi.fn().mockImplementation((slot: string) => {
+        if (slot === "runtime") return mockRuntime;
+        if (slot === "agent") return mockAgent;
+        if (slot === "scm") return mockSCM;
+        return null;
+      }),
+    };
+
+    const session = makeSession({ status: "working", pr: makePR() });
+    vi.mocked(mockSessionManager.get).mockResolvedValue(session);
+
+    writeMetadata(sessionsDir, "app-1", {
+      worktree: "/tmp",
+      branch: "main",
+      status: "working",
+      project: "my-app",
+    });
+
+    const lm = createLifecycleManager({
+      config,
+      registry: registryWithSCM,
+      sessionManager: mockSessionManager,
+    });
+
+    await lm.check("app-1");
+
+    expect(lm.getStates().get("app-1")).toBe("killed");
+  });
+
+  it("returns killed when agent exited and session has no PR (bd-ara)", async () => {
+    // No PR → no reason to defer the kill
+    vi.mocked(mockAgent.getActivityState).mockResolvedValue({ state: "exited" });
+
+    const session = makeSession({ status: "working", pr: null });
+    vi.mocked(mockSessionManager.get).mockResolvedValue(session);
+
+    writeMetadata(sessionsDir, "app-1", {
+      worktree: "/tmp",
+      branch: "main",
+      status: "working",
+      project: "my-app",
+    });
+
+    const lm = createLifecycleManager({
+      config,
+      registry: mockRegistry,
+      sessionManager: mockSessionManager,
+    });
+
+    await lm.check("app-1");
+
+    expect(lm.getStates().get("app-1")).toBe("killed");
+  });
+
   it("detects killed via terminal fallback when getActivityState returns null", async () => {
     vi.mocked(mockAgent.getActivityState).mockResolvedValue(null);
     vi.mocked(mockAgent.detectActivity).mockReturnValue("idle");
@@ -1031,6 +1170,166 @@ describe("check (single session)", () => {
     await lm.check("app-1");
 
     expect(lm.getStates().get("app-1")).toBe("merge_conflicts");
+  });
+
+  it("skips getMergeability when CI is pending and review approved (bd-wg5)", async () => {
+    const mockSCM: SCM = {
+      name: "mock-scm",
+      detectPR: vi.fn(),
+      getPRState: vi.fn().mockResolvedValue("open"),
+      mergePR: vi.fn(),
+      closePR: vi.fn(),
+      getCIChecks: vi.fn(),
+      getCISummary: vi.fn().mockResolvedValue("pending"),
+      getReviews: vi.fn(),
+      getReviewDecision: vi.fn().mockResolvedValue("approved"),
+      getPendingComments: vi.fn(),
+      getAutomatedComments: vi.fn(),
+      getMergeability: vi.fn().mockResolvedValue({
+        mergeable: false,
+        ciPassing: false,
+        approved: true,
+        noConflicts: true,
+        blockers: ["CI pending"],
+      }),
+    };
+
+    const registryWithSCM: PluginRegistry = {
+      ...mockRegistry,
+      get: vi.fn().mockImplementation((slot: string) => {
+        if (slot === "runtime") return mockRuntime;
+        if (slot === "agent") return mockAgent;
+        if (slot === "scm") return mockSCM;
+        return null;
+      }),
+    };
+
+    const session = makeSession({ status: "pr_open", pr: makePR() });
+    vi.mocked(mockSessionManager.get).mockResolvedValue(session);
+
+    writeMetadata(sessionsDir, "app-1", {
+      worktree: "/tmp",
+      branch: "main",
+      status: "pr_open",
+      project: "my-app",
+    });
+
+    const lm = createLifecycleManager({
+      config,
+      registry: registryWithSCM,
+      sessionManager: mockSessionManager,
+    });
+
+    await lm.check("app-1");
+
+    // Should return "approved" (not "mergeable") and NOT call getMergeability
+    expect(lm.getStates().get("app-1")).toBe("approved");
+    expect(mockSCM.getMergeability).not.toHaveBeenCalled();
+  });
+
+  it("allows getMergeability when CI is 'none' so repos without CI can merge (bd-wg5)", async () => {
+    const mockSCM: SCM = {
+      name: "mock-scm",
+      detectPR: vi.fn(),
+      getPRState: vi.fn().mockResolvedValue("open"),
+      mergePR: vi.fn(),
+      closePR: vi.fn(),
+      getCIChecks: vi.fn(),
+      getCISummary: vi.fn().mockResolvedValue("none"),
+      getReviews: vi.fn(),
+      getReviewDecision: vi.fn().mockResolvedValue("none"),
+      getPendingComments: vi.fn(),
+      getAutomatedComments: vi.fn(),
+      getMergeability: vi.fn().mockResolvedValue({
+        mergeable: true,
+        ciPassing: true,
+        approved: false,
+        noConflicts: true,
+        blockers: [],
+      }),
+    };
+
+    const registryWithSCM: PluginRegistry = {
+      ...mockRegistry,
+      get: vi.fn().mockImplementation((slot: string) => {
+        if (slot === "runtime") return mockRuntime;
+        if (slot === "agent") return mockAgent;
+        if (slot === "scm") return mockSCM;
+        return null;
+      }),
+    };
+
+    const session = makeSession({ status: "pr_open", pr: makePR() });
+    vi.mocked(mockSessionManager.get).mockResolvedValue(session);
+
+    writeMetadata(sessionsDir, "app-1", {
+      worktree: "/tmp",
+      branch: "main",
+      status: "pr_open",
+      project: "my-app",
+    });
+
+    const lm = createLifecycleManager({
+      config,
+      registry: registryWithSCM,
+      sessionManager: mockSessionManager,
+    });
+
+    await lm.check("app-1");
+
+    // With CI "none" and review "none", getMergeability should still be called
+    // so repos without CI can reach "mergeable" status
+    expect(mockSCM.getMergeability).toHaveBeenCalled();
+    expect(lm.getStates().get("app-1")).toBe("mergeable");
+  });
+
+  it("skips getMergeability when CI is 'pending' (bd-wg5)", async () => {
+    const mockSCM: SCM = {
+      name: "mock-scm",
+      detectPR: vi.fn(),
+      getPRState: vi.fn().mockResolvedValue("open"),
+      mergePR: vi.fn(),
+      closePR: vi.fn(),
+      getCIChecks: vi.fn(),
+      getCISummary: vi.fn().mockResolvedValue("pending"),
+      getReviews: vi.fn(),
+      getReviewDecision: vi.fn().mockResolvedValue("none"),
+      getPendingComments: vi.fn(),
+      getAutomatedComments: vi.fn(),
+      getMergeability: vi.fn(),
+    };
+
+    const registryWithSCM: PluginRegistry = {
+      ...mockRegistry,
+      get: vi.fn().mockImplementation((slot: string) => {
+        if (slot === "runtime") return mockRuntime;
+        if (slot === "agent") return mockAgent;
+        if (slot === "scm") return mockSCM;
+        return null;
+      }),
+    };
+
+    const session = makeSession({ status: "pr_open", pr: makePR() });
+    vi.mocked(mockSessionManager.get).mockResolvedValue(session);
+
+    writeMetadata(sessionsDir, "app-1", {
+      worktree: "/tmp",
+      branch: "main",
+      status: "pr_open",
+      project: "my-app",
+    });
+
+    const lm = createLifecycleManager({
+      config,
+      registry: registryWithSCM,
+      sessionManager: mockSessionManager,
+    });
+
+    await lm.check("app-1");
+
+    // With CI "pending", should return "pr_open" and skip getMergeability
+    expect(lm.getStates().get("app-1")).toBe("pr_open");
+    expect(mockSCM.getMergeability).not.toHaveBeenCalled();
   });
 
   it("throws for nonexistent session", async () => {

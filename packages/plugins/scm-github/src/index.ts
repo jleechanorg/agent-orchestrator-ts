@@ -1583,9 +1583,7 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
         return comments
           .filter((c) => BOT_AUTHORS.has(c.user?.login ?? ""))
           .map((c) => {
-            // Determine severity from body content.
-            // Use structured patterns to avoid false positives from incidental
-            // keywords (e.g. "bug" in "Bugbot", "error" in "error handling").
+            // Determine severity from body content
             let severity: AutomatedComment["severity"] = "info";
             const bodyLower = c.body.toLowerCase();
             // Check for explicit severity headers first (Bugbot/Copilot style)

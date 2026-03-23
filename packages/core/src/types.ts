@@ -1270,6 +1270,9 @@ export interface TrackerConfig {
 export interface SCMConfig {
   plugin: string;
   webhook?: SCMWebhookConfig;
+  /** bd-4nz: Skip automated comment polling (getAutomatedComments) in review backlog.
+   *  Saves 1+ REST calls per session per cycle for repos without Bugbot/Copilot. */
+  skipAutomatedCommentPolling?: boolean;
   [key: string]: unknown;
 }
 
