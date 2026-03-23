@@ -1204,9 +1204,35 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
 
       const dirty = await git(["status", "--porcelain"], workspacePath);
       if (dirty) {
-        throw new Error(
-          `Workspace has uncommitted changes; cannot switch to PR branch "${pr.branch}" safely`,
-        );
+        // Filter out AO-managed runtime files (written by agent-base plugin
+        // at session startup) that are expected to differ from committed versions.
+        const AO_MANAGED = new Set([
+          ".claude/metadata-updater.sh",
+          ".claude/settings.json",
+          ".cursor/metadata-updater.sh",
+          ".cursor/settings.json",
+          ".gemini/metadata-updater.sh",
+          ".gemini/settings.json",
+        ]);
+        const realDirty = dirty
+          .split("\n")
+          .filter((line) => {
+            // Porcelain format: XY FILENAME (XY = 1-2 status chars)
+            // Strip leading status characters and whitespace to extract filename
+            const filePath = line.replace(/^[MADRCU?! ]{1,2}\s/, "").trim();
+            return filePath.length > 0 && !AO_MANAGED.has(filePath);
+          })
+          .join("\n")
+          .trim();
+        if (realDirty) {
+          throw new Error(
+            `Workspace has uncommitted changes; cannot switch to PR branch "${pr.branch}" safely`,
+          );
+        }
+        // Reset AO-managed files so checkout succeeds cleanly
+        for (const f of AO_MANAGED) {
+          await git(["checkout", "--", f], workspacePath).catch(() => {});
+        }
       }
 
       await ghInDir(["pr", "checkout", String(pr.number), "--repo", repoFlag(pr)], workspacePath);
