@@ -352,6 +352,13 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         const reviewDecision = await scm.getReviewDecision(session.pr);
         if (reviewDecision === "changes_requested") return "changes_requested";
         if (reviewDecision === "approved" || reviewDecision === "none") {
+          // bd-wg5: Skip getMergeability when CI is pending — no point checking
+          // merge state when CI hasn't finished (saves 3 gh CLI invocations).
+          // Allow CI_STATUS.NONE through so repos without CI can still reach "mergeable".
+          if (ciStatus === CI_STATUS.PENDING) {
+            if (reviewDecision === "approved") return "approved";
+            return "pr_open";
+          }
           // Check merge readiness — treat "none" (no reviewers required)
           // the same as "approved" so CI-green PRs reach "mergeable" status
           // and fire the merge.ready event / approved-and-green reaction.

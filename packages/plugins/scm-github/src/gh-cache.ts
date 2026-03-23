@@ -7,7 +7,7 @@
  * - Provide instrumentation so callers can observe cache hit/miss rates
  *
  * Design:
- * - Cache entries expire after TTL_MS milliseconds (default: 15 000 = 15 s)
+ * - Cache entries expire after TTL_MS milliseconds (default: 60 000 = 60 s)
  * - Entries store the resolved result, not the pending promise, so callers that
  *   miss an in-flight slot still get a cached value if it was set before they started.
  * - In-flight entries hold the unresolved promise; new callers for the same key wait on it.
@@ -39,7 +39,7 @@ export interface CacheMetrics {
 }
 
 
-const DEFAULT_TTL_MS = 15_000; // 15 seconds — short enough for PR status freshness
+const DEFAULT_TTL_MS = 60_000; // 60 seconds — bd-91z: increased from 15s; with 300s poll interval, 60s is fresh enough and improves cross-session cache hits within a poll cycle
 
 // ---------------------------------------------------------------------------
 // Serialization helpers
