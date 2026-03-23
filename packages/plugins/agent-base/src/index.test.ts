@@ -296,19 +296,6 @@ describe("setupWorkspaceHooks — hook event names", () => {
     expect(hooks).not.toHaveProperty("BeforeTool");
   });
 
-    const settings = JSON.parse(settingsJson!) as Record<string, unknown>;
-    const hooks = settings["hooks"] as Record<string, unknown>;
-    const postToolUse = hooks["PostToolUse"] as Array<Record<string, unknown>>;
-    expect(postToolUse).toBeDefined();
-    const hookDef = postToolUse[0] as Record<string, unknown>;
-    const hooksList = hookDef["hooks"] as Array<Record<string, unknown>>;
-    const postCommand = hooksList[0]["command"] as string;
-
-    expect(postCommand).toContain("AO_DATA_DIR=");
-    expect(postCommand).toContain("/data/sessions");
-    expect(postCommand).toContain("AO_HOOK_EVENT_NAME=");
-  });
-
   it("uses AfterTool/BeforeTool when hookEventNames configured for Gemini", async () => {
     const agent = createAgentPlugin({
       name: "gemini",
