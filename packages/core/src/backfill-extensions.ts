@@ -100,7 +100,10 @@ export async function backfillUncoveredPRs(
 
     // Spawn one session at a time to avoid thundering herd.
     // If spawn/claim fails for a PR, skip it and try the next uncovered PR.
-    // The next backfill cycle (5 min later) will pick up the rest.
+    // After 3 consecutive spawn failures, stop — systemic issues (project paused,
+    // missing plugin, etc.) will fail identically for every PR in this cycle.
+    const MAX_CONSECUTIVE_SPAWN_FAILURES = 3;
+    let consecutiveSpawnFailures = 0;
     for (const pr of uncovered) {
       try {
         // Don't pass branch to spawn — let claimPR handle checkout so
@@ -109,6 +112,7 @@ export async function backfillUncoveredPRs(
           projectId,
           prompt: `Continue working on PR #${pr.number}: ${pr.title}. Check PR status, fix any blockers (CI failures, review comments, merge conflicts), and drive it to 6-green.`,
         });
+        consecutiveSpawnFailures = 0; // reset on success
 
         // Claim the PR for this session — this checks out the branch
         try {
@@ -128,7 +132,23 @@ export async function backfillUncoveredPRs(
             },
             level: "warn",
           });
-          await sessionManager.kill(session.id).catch(() => {});
+          try {
+            await sessionManager.kill(session.id);
+          } catch (killErr) {
+            observer.recordOperation({
+              metric: "lifecycle_poll",
+              operation: "lifecycle.backfill.orphan_cleanup_failed",
+              outcome: "failure",
+              correlationId,
+              projectId,
+              sessionId: session.id,
+              data: {
+                prNumber: pr.number,
+                error: killErr instanceof Error ? killErr.message : String(killErr),
+              },
+              level: "warn",
+            });
+          }
           continue; // try next uncovered PR
         }
 
@@ -144,6 +164,7 @@ export async function backfillUncoveredPRs(
         });
         return true;
       } catch (spawnErr) {
+        consecutiveSpawnFailures++;
         observer.recordOperation({
           metric: "lifecycle_poll",
           operation: "lifecycle.backfill.spawn_failed",
@@ -152,10 +173,25 @@ export async function backfillUncoveredPRs(
           projectId,
           data: {
             prNumber: pr.number,
+            consecutiveSpawnFailures,
             error: spawnErr instanceof Error ? spawnErr.message : String(spawnErr),
           },
           level: "warn",
         });
+        // Stop after MAX_CONSECUTIVE_SPAWN_FAILURES — systemic issue (project paused,
+        // missing plugin, etc.) will fail every PR identically in this cycle.
+        if (consecutiveSpawnFailures >= MAX_CONSECUTIVE_SPAWN_FAILURES) {
+          observer.recordOperation({
+            metric: "lifecycle_poll",
+            operation: "lifecycle.backfill.spawn_failed_abort",
+            outcome: "failure",
+            correlationId,
+            projectId,
+            data: { consecutiveSpawnFailures },
+            level: "warn",
+          });
+          return false;
+        }
         continue; // try next uncovered PR
       }
     }

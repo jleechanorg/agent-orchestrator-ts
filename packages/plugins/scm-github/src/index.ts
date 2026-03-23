@@ -1219,7 +1219,7 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
           .filter((line) => {
             // Porcelain format: XY FILENAME (XY = 1-2 status chars)
             // Strip leading status characters and whitespace to extract filename
-            const filePath = line.replace(/^[MADRCU?! ]{1,2}\s/, "").trim();
+            const filePath = line.replace(/^[MADRCUT?! ]{1,2}\s/, "").trim();
             return filePath.length > 0 && !AO_MANAGED.has(filePath);
           })
           .join("\n")
