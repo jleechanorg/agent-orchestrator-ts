@@ -34,13 +34,15 @@ interface TmuxSessionInfo {
   activityMs: number | null;
 }
 
+const TMUX_TIMEOUT_MS = 5_000;
+
 async function listTmuxSessionsWithActivity(): Promise<TmuxSessionInfo[]> {
   try {
-    const { stdout } = await execFileAsync("tmux", [
-      "list-sessions",
-      "-F",
-      "#{session_name}\t#{session_activity}",
-    ]);
+    const { stdout } = await execFileAsync(
+      "tmux",
+      ["list-sessions", "-F", "#{session_name}\t#{session_activity}"],
+      { timeout: TMUX_TIMEOUT_MS },
+    );
     return stdout
       .trim()
       .split("\n")
@@ -99,7 +101,9 @@ async function sweepOrphanTmuxSessions(opts: {
 
     orphanCount += 1;
     try {
-      await execFileAsync("tmux", ["kill-session", "-t", tmuxSession.name]);
+      await execFileAsync("tmux", ["kill-session", "-t", tmuxSession.name], {
+        timeout: TMUX_TIMEOUT_MS,
+      });
       cleanedCount += 1;
     } catch {
       // best-effort cleanup; continue with the rest
@@ -124,7 +128,7 @@ export function registerLifecycleWorker(program: Command): void {
     .command("lifecycle-worker")
     .description("Internal lifecycle polling worker")
     .argument("<project>", "Project ID from config")
-    .option("--interval-ms <ms>", "Polling interval in milliseconds", "300000")
+    .option("--interval-ms <ms>", "Polling interval in milliseconds", "30000")
     .option(
       "--orphan-sweep-interval-ms <ms>",
       "Interval for tmux orphan sweep in milliseconds",
@@ -174,7 +178,7 @@ export function registerLifecycleWorker(program: Command): void {
 
         const lifecycle = await getLifecycleManager(config, projectId);
         const sessionManager = await getSessionManager(config);
-        const intervalMs = parseInterval(opts.intervalMs ?? "300000");
+        const intervalMs = parseInterval(opts.intervalMs ?? "30000");
         const orphanSweepIntervalMs = parseInterval(opts.orphanSweepIntervalMs ?? "300000");
         const orphanTtlMs = parseDurationMs(opts.orphanTtlMs ?? "21600000", 6 * 60 * 60 * 1000);
         const configHash = generateConfigHash(config.configPath);
