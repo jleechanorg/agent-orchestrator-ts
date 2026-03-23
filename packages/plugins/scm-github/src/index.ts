@@ -1193,7 +1193,34 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
         );
       }
 
-      await ghInDir(["pr", "checkout", String(pr.number), "--repo", repoFlag(pr)], workspacePath);
+      // Use git fetch + git checkout instead of `gh pr checkout` to avoid GraphQL
+      // rate limit burn. `gh pr checkout` resolves the PR head ref via GraphQL
+      // internally, which exhausts quota when many workers run simultaneously.
+      // git fetch uses the git protocol, which doesn't consume API quota. (bd-49u)
+      const remote = `https://github.com/${repoFlag(pr)}.git`;
+      await git(["fetch", remote, `${pr.branch}:${pr.branch}`], workspacePath).catch(async () => {
+        // Branch may already exist locally — fetch into FETCH_HEAD and reset
+        await git(["fetch", remote, pr.branch], workspacePath);
+        await git(["checkout", pr.branch], workspacePath);
+        await git(["reset", "--hard", "FETCH_HEAD"], workspacePath);
+        return;
+      });
+
+      // Switch to the branch if not already there (the catch path may have done it)
+      const currentAfterFetch = await git(["branch", "--show-current"], workspacePath);
+      if (currentAfterFetch !== pr.branch) {
+        await git(["checkout", pr.branch], workspacePath);
+      }
+
+      // Verify checkout succeeded
+      const afterBranch = await git(["branch", "--show-current"], workspacePath);
+      if (afterBranch !== pr.branch) {
+        throw new Error(
+          `git checkout failed: worktree is on "${afterBranch}" instead of "${pr.branch}". ` +
+            `Another worktree may have this branch checked out.`,
+        );
+      }
+
       return true;
     },
 
