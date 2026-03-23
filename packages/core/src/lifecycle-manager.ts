@@ -219,6 +219,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
   const reactionTrackers = new Map<string, ReactionTracker>(); // "sessionId:reactionKey"
   const mergeRetryTimestamps = new Map<string, number>(); // "merge-retry-{sessionId}" → last attempt epoch
   const stuckRetryTimestamps = new Map<string, number>(); // "stuck-retry-{sessionId}" → last attempt epoch
+  const stuckEntryTimestamps = new Map<string, number>(); // "stuck-entry-{sessionId}" → when session entered stuck
   let pollTimer: ReturnType<typeof setInterval> | null = null;
   let polling = false; // re-entrancy guard
   let allCompleteEmitted = false; // guard against repeated all_complete
@@ -893,6 +894,13 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
                 correlationId,
               );
               transitionReaction = { key: reactionKey, result: reactionResult };
+              // Seed stuck retry cooldown from the initial transition nudge (bd-sbr.2)
+              if (reactionKey === "agent-stuck") {
+                const key = `stuck-retry-${session.id}`;
+                const now = Date.now();
+                stuckRetryTimestamps.set(key, now);
+                stuckEntryTimestamps.set(session.id, now);
+              }
               observer.recordOperation({
                 metric: "lifecycle_poll",
                 operation: "lifecycle.reaction.result",
@@ -1125,29 +1133,44 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       // respond (e.g., stuck ruminating), the session stays "stuck" forever with no
       // further nudges. Re-send on a cooldown matching the configured threshold so
       // persistent stuck sessions get periodic recovery attempts. (bd-sbr)
+      //
+      // Only retry custom project-level agent-stuck reactions (bd-sbr.1), not the
+      // global default notify-human nudge — repeatedly notifying humans is disruptive.
+      // Skip timestamps that pre-date the current stuck entry (bd-sbr.3) to avoid
+      // a stale timestamp from a prior stuck period blocking retries on re-entry.
       if (newStatus === "stuck") {
-        const reactionKey = "agent-stuck";
-        const reactionConfig = getReactionConfigForSession(session, reactionKey);
-        if (reactionConfig?.action && reactionConfig.auto !== false) {
-          const thresholdMs =
-            typeof reactionConfig.threshold === "string"
-              ? parseDuration(reactionConfig.threshold)
-              : 15 * 60_000;
-          const STUCK_RETRY_COOLDOWN_MS = thresholdMs > 0 ? thresholdMs : 15 * 60_000;
-          const lastAttemptKey = `stuck-retry-${session.id}`;
-          const now = Date.now();
-          const lastAttempt = stuckRetryTimestamps.get(lastAttemptKey) ?? 0;
-          if (now - lastAttempt >= STUCK_RETRY_COOLDOWN_MS) {
-            stuckRetryTimestamps.set(lastAttemptKey, now);
-            const result = await executeReaction(
-              session.id,
-              session.projectId,
-              reactionKey,
-              reactionConfig,
-              session,
-            );
-            if (result?.success) {
-              transitionReaction = { key: reactionKey, result };
+        const project = config.projects[session.projectId];
+        const isCustomReaction = !!project?.reactions?.["agent-stuck"];
+        if (isCustomReaction) {
+          const reactionKey = "agent-stuck";
+          const reactionConfig = getReactionConfigForSession(session, reactionKey);
+          if (reactionConfig?.action && reactionConfig.auto !== false) {
+            const thresholdMs =
+              typeof reactionConfig.threshold === "string"
+                ? parseDuration(reactionConfig.threshold)
+                : 15 * 60_000;
+            const STUCK_RETRY_COOLDOWN_MS = thresholdMs > 0 ? thresholdMs : 15 * 60_000;
+            const lastAttemptKey = `stuck-retry-${session.id}`;
+            const now = Date.now();
+            const lastAttempt = stuckRetryTimestamps.get(lastAttemptKey) ?? 0;
+            // Skip if timestamp predates current stuck entry (stale from prior stuck period)
+            const stuckEntry = stuckEntryTimestamps.get(session.id) ?? 0;
+            if (lastAttempt < stuckEntry) {
+              // Timestamp is stale — clear it and treat as no prior attempt
+              stuckRetryTimestamps.delete(lastAttemptKey);
+            }
+            if (now - lastAttempt >= STUCK_RETRY_COOLDOWN_MS) {
+              stuckRetryTimestamps.set(lastAttemptKey, now);
+              const result = await executeReaction(
+                session.id,
+                session.projectId,
+                reactionKey,
+                reactionConfig,
+                session,
+              );
+              if (result?.success) {
+                transitionReaction = { key: reactionKey, result };
+              }
             }
           }
         }
@@ -1351,6 +1374,11 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         const sessionId = retryKey.replace("stuck-retry-", "");
         if (!currentSessionIds.has(sessionId)) {
           stuckRetryTimestamps.delete(retryKey);
+        }
+      }
+      for (const sessionId of stuckEntryTimestamps.keys()) {
+        if (!currentSessionIds.has(sessionId)) {
+          stuckEntryTimestamps.delete(sessionId);
         }
       }
 
