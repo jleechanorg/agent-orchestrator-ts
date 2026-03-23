@@ -77,9 +77,14 @@ gh pr list --repo jleechanorg/agent-orchestrator --state open \
 if command -v yq >/dev/null 2>&1; then
   yq '.projects."agent-orchestrator".reactions."approved-and-green" // .reactions."approved-and-green" // empty' ~/.openclaw/agent-orchestrator.yaml
 else
-  # grep approach: widen capture range (+A10), strip comments first
-  grep -v '^\s*#' ~/.openclaw/agent-orchestrator.yaml \
-    | grep -A10 'projects:' | grep -A5 'approved-and-green' \
+  # grep approach: strip comments first, then check BOTH project-scoped
+  # (under projects:) and global (under reactions:) blocks
+  cfg=$(grep -v '^\s*#' ~/.openclaw/agent-orchestrator.yaml)
+  echo "--- project-scoped ---"
+  echo "$cfg" | grep -A5 '^\s*agent-orchestrator:' \
+    | grep -A10 '^\s*reactions:' | grep -E '^\s*auto:|^\s*action:'
+  echo "--- global reactions fallback ---"
+  echo "$cfg" | grep -A5 '^\s*reactions:' \
     | grep -E '^\s*auto:|^\s*action:'
 fi
 # Expected: auto: true (or absent = defaults true), action: auto-merge
