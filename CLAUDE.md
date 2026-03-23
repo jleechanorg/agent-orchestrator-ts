@@ -117,7 +117,7 @@ When reviewing or producing evidence, identify the **claim class** before issuin
 
 Before dispatching AO workers:
 
-1. Run `unset GITHUB_TOKEN && gh api rate_limit` and inspect budgets.
+1. Run `gh api rate_limit` and inspect budgets.
 2. Count active tmux sessions: `tmux list-sessions | wc -l`.
 3. Spawn gate:
    - If `graphql.remaining < 200`, do **not** spawn new AO workers; warn the user instead.
@@ -132,14 +132,15 @@ When blocked by this gate, include current counts and the exact blocker in your 
 - **Check PR metadata via REST** (never exhausted): `gh api repos/OWNER/REPO/pulls/N --jq '{branch: .head.ref, state: .state}'`
 - **REST quota**: typically 3000-5000/hr — use `gh api rate_limit --jq '.resources.core.remaining'`
 
-### `GITHUB_TOKEN` auth override warning
+### `GITHUB_TOKEN` auth — verify first, unset only if broken
 
-If `GITHUB_TOKEN` env var is set to a stale value, it overrides `~/.config/gh/` and breaks
-all `gh`/`ao` commands. **Always prefix with `unset GITHUB_TOKEN`** if you see auth errors:
+Do NOT `unset GITHUB_TOKEN` by default. First run `gh auth status` to check if auth is healthy.
+Only unset temporarily when auth is broken/stale:
 
 ```bash
+gh auth status                         # check if auth works
+# Only if auth is broken:
 unset GITHUB_TOKEN && gh auth status   # confirm real auth
-unset GITHUB_TOKEN && ao spawn ...
 ```
 
 ## Coding Standards
