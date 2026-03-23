@@ -1338,14 +1338,26 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       }
 
       // bd-jo6: tmux orphan sweep — runs every SWEEP_INTERVAL_MS to prevent tmux
-      // session accumulation. Sessions matching the AO naming pattern (ao|jc|wa|cc|ra|wc)-NNN
+      // session accumulation. Sessions with tmux names matching the AO pattern
+      // {12-hex-hash}-{prefix}-{num} (where prefix ∈ project session prefixes)
       // that exist in tmux but have no AO DB record and are idle >orphanIdleThresholdMs
       // are killed. This unblocks the spawn gate (>15 sessions threshold).
       const nowMs = Date.now();
       if (nowMs - lastSweepTime >= SWEEP_INTERVAL_MS) {
         lastSweepTime = nowMs;
         try {
-          const sweepResult = await sweepOrphanTmuxSessions(DEFAULT_TMUX_SWEEPER_CONFIG, { sessionManager });
+          // Collect all unique session prefixes from configured projects so the
+          // sweeper can identify orphaned sessions regardless of which project they belong to
+          const projectPrefixes = new Set(
+            Object.values(config.projects)
+              .map((p) => p.sessionPrefix)
+              .filter(Boolean),
+          );
+          const sweepConfig = {
+            ...DEFAULT_TMUX_SWEEPER_CONFIG,
+            aoSessionPrefixes: projectPrefixes.size > 0 ? projectPrefixes : DEFAULT_TMUX_SWEEPER_CONFIG.aoSessionPrefixes,
+          };
+          const sweepResult = await sweepOrphanTmuxSessions(sweepConfig, { sessionManager });
           if (sweepResult.killed.length > 0) {
             console.log(
               `[tmux-sweeper] killed ${sweepResult.killed.length} orphan tmux session(s): ${sweepResult.killed.map((s) => s.tmuxName).join(", ")}`,
