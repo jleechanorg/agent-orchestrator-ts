@@ -3535,7 +3535,8 @@ describe("spawnOrchestrator", () => {
 
     const sm = createSessionManager({ config, registry: mockRegistry });
     // Must not throw "already exists but is not in a reusable state"
-    await expect(sm.spawnOrchestrator({ projectId: "my-app" })).resolves.not.toThrow();
+    const session = await sm.spawnOrchestrator({ projectId: "my-app" });
+    expect(session).toBeDefined();
     expect(mockRuntime.create).toHaveBeenCalledTimes(1);
     const meta = readMetadataRaw(sessionsDir, "app-orchestrator");
     expect(meta?.["runtimeHandle"]).toBe(JSON.stringify(makeHandle("rt-1")));
@@ -3546,7 +3547,8 @@ describe("spawnOrchestrator", () => {
     writeFileSync(ghostPath, "status=merged\nrole=orchestrator\n", "utf-8");
 
     const sm = createSessionManager({ config, registry: mockRegistry });
-    await expect(sm.spawnOrchestrator({ projectId: "my-app" })).resolves.not.toThrow();
+    const session = await sm.spawnOrchestrator({ projectId: "my-app" });
+    expect(session).toBeDefined();
     expect(mockRuntime.create).toHaveBeenCalledTimes(1);
   });
 
