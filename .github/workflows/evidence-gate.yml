@@ -90,15 +90,34 @@ jobs:
           echo "Claim class detected: $CLAIM"
 
           # Validate claim class is recognized
+          # Accept both short forms (unit, integration, merge-gate) used internally
+          # and the longer forms documented in CLAUDE.md (unit-test-coverage,
+          # integration-test, merge-gate-green) which normalize to hyphenated strings
+          # after tr ' ' '-' transforms "Unit test coverage" → "unit-test-coverage"
           case "$CLAIM" in
-            unit|integration|pipeline-e2e|pr-lifecycle-e2e|merge-gate)
+            unit|unit-test-coverage|unit-test)
+              CLAIM="unit"
+              echo "Validated claim class: unit"
+              ;;
+            integration|integration-test)
+              CLAIM="integration"
+              echo "Validated claim class: integration"
+              ;;
+            pipeline-e2e)
               echo "Validated claim class: $CLAIM"
-              # Subsequent steps re-extract CLAIM from the PR body file directly
-              # for simplicity (file-based approach — no cross-step output needed)
+              ;;
+            pr-lifecycle-e2e|pr-lifecycle)
+              CLAIM="pr-lifecycle-e2e"
+              echo "Validated claim class: pr-lifecycle-e2e"
+              ;;
+            merge-gate|merge-gate-green)
+              CLAIM="merge-gate"
+              echo "Validated claim class: merge-gate"
               ;;
             *)
               echo "ERROR: Unrecognized claim class: '$CLAIM'"
               echo "Valid classes: unit, integration, pipeline-e2e, pr-lifecycle-e2e, merge-gate"
+              echo "(Also accepted: unit-test-coverage, integration-test, merge-gate-green — CLAUDE.md forms)"
               exit 1
               ;;
           esac
@@ -115,6 +134,25 @@ jobs:
             | tr -d '*' | tr '[:upper:]' '[:lower:]' \
             | tr ' ' '-' | tr -d '\t' \
             | sed 's/^[ \t-]*//;s/[ \t-]*$//')
+
+          # Fallback: also try list-bullet format
+          if [ -z "$CLAIM" ]; then
+            CLAIM=$(printf '%s' "$BODY" \
+              | grep -i '^-.*\*\*Claim class' | head -1 \
+              | sed 's/.*\*\*Claim class\*\*:\s*//I' \
+              | sed 's/(.*//' \
+              | tr -d '*' | tr '[:upper:]' '[:lower:]' \
+              | tr ' ' '-' | tr -d '\t' \
+              | sed 's/^[ \t-]*//;s/[ \t-]*$//')
+          fi
+
+          # Normalize CLAUDE.md long forms to canonical short forms
+          case "$CLAIM" in
+            unit-test-coverage|unit-test) CLAIM="unit" ;;
+            integration-test) CLAIM="integration" ;;
+            pr-lifecycle) CLAIM="pr-lifecycle-e2e" ;;
+            merge-gate-green) CLAIM="merge-gate" ;;
+          esac
 
           if [ "$CLAIM" = "pr-lifecycle-e2e" ]; then
             echo "Checking required proofs for: $CLAIM"
@@ -203,16 +241,27 @@ jobs:
         run: |
           BODY=$(cat "$RUNNER_TEMP/pr_body.txt")
 
-          # Check for PASS verdict
-          if printf '%s' "$BODY" | grep -qi '[Vv]erdict.*:.*[Pp][Aa][Ss][Ss]'; then
+          # Extract only the Evidence section to avoid false matches from surrounding text
+          # (e.g. "Previous PR's verdict: PASS" in the description body outside the bundle)
+          # sed -n finds lines from "## Evidence" through next "##" header (exclusive) or EOF
+          EVIDENCE_SECTION=$(printf '%s' "$BODY" \
+            | sed -n '/^[[:space:]]*## [Ee]vidence/,/^[[:space:]]*## /{ /^[[:space:]]*## [^E]/d; p; }')
+
+          # Fallback to full body if Evidence section could not be isolated
+          if [ -z "$EVIDENCE_SECTION" ]; then
+            EVIDENCE_SECTION="$BODY"
+          fi
+
+          # Check for PASS verdict — scoped to Evidence section
+          if printf '%s' "$EVIDENCE_SECTION" | grep -qi '[Vv]erdict.*:.*[Pp][Aa][Ss][Ss]'; then
             echo "Verdict: PASS — evidence gate passes"
 
           # Check for INSUFFICIENT verdict — gate passes; missing proof correctly triggers this
-          elif printf '%s' "$BODY" | grep -qi '[Vv]erdict.*:.*[Ii][Nn][Ss][Uu][Ff][Ff][Ii][Cc][Ii][Ee][Nn][Tt]'; then
+          elif printf '%s' "$EVIDENCE_SECTION" | grep -qi '[Vv]erdict.*:.*[Ii][Nn][Ss][Uu][Ff][Ff][Ii][Cc][Ii][Ee][Nn][Tt]'; then
             echo "Verdict: INSUFFICIENT — gate passes (INSUFFICIENT is a valid fail-closed verdict)"
 
           # Check for FAIL verdict — gate passes; claiming FAIL with a present bundle is contradictory
-          elif printf '%s' "$BODY" | grep -qi '[Vv]erdict.*:.*[Ff][Aa][Ii][Ll]'; then
+          elif printf '%s' "$EVIDENCE_SECTION" | grep -qi '[Vv]erdict.*:.*[Ff][Aa][Ii][Ll]'; then
             echo "Verdict: FAIL with present bundle — contradiction; gate passes but this bundle should be re-examined"
 
           # No verdict found — hard requirement, gate fails
