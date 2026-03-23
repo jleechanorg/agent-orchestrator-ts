@@ -1273,7 +1273,7 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
         // We bypass `gh api -f` because ghRestFallback (the curl fallback for
         // `gh api`) passes `-f` to curl as "fail on HTTP errors" instead of
         // converting it into a request-body field, silently dropping merge_method.
-        console.warn("[scm-github] mergePR: rate limit hit on gh pr merge, falling back to REST API via curl");
+        console.warn("[scm-github] mergePR: rate limit hit on gh pr merge — falling back to REST API via curl");
         const token =
           process.env.GITHUB_TOKEN ??
           process.env.GH_TOKEN ??
