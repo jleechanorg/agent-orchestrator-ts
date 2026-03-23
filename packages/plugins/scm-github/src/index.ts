@@ -1876,4 +1876,6 @@ export function create(config?: Record<string, unknown>): SCM {
   return createGitHubSCM(config);
 }
 
+export { _resetGhCache } from "./gh-cache.js";
+
 export default { manifest, create } satisfies PluginModule<SCM>;
