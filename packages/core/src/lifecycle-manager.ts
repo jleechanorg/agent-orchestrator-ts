@@ -351,10 +351,14 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
           reviewDecision = combined.reviewDecision;
         } else {
           // Fallback: check state first to early-return on merged/closed
-          // before spending an API call on getReviewDecision
+          // before spending an API call on getReviewDecision.
+          // Always call getPRState first — getReviewDecision can hit rate limits
+          // and masking a successfully-fetched merged/closed state would skip
+          // cleanup and notifications.
           prState = await scm.getPRState(session.pr);
           if (prState === PR_STATE.MERGED) return "merged";
           if (prState === PR_STATE.CLOSED) return "killed";
+          // Safe to call getReviewDecision now: merged/closed states are ruled out.
           reviewDecision = await scm.getReviewDecision(session.pr);
         }
         if (prState === PR_STATE.MERGED) return "merged";

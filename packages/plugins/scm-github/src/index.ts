@@ -1384,11 +1384,19 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
           "state,reviewDecision",
         ]);
       } catch (err) {
-        // Rate limits: rethrow so determineStatus preserves current session status.
-        // Other errors: rethrow too — getPRState has no fail-closed fallback,
-        // and the caller's catch block will preserve status.
+        // Rate limits: rethrow so determineStatus preserves current session status for retry.
         if (isGhRateLimitError(err)) throw err;
-        throw new Error("Failed to fetch PR state and review", { cause: err });
+        // Non-rate-limit errors: fall back to separate calls, which have their own
+        // fail-closed handling. If the fallback itself hits a rate limit, rethrow so
+        // the outer retry logic runs. Otherwise, return fail-closed values.
+        try {
+          const [state, reviewDecision] = await Promise.all([this.getPRState(pr), this.getReviewDecision(pr)]);
+          return { state, reviewDecision };
+        } catch (fallbackErr) {
+          if (isGhRateLimitError(fallbackErr)) throw fallbackErr;
+          // Fail closed: do not leave a stale "mergeable"/"approved" status.
+          return { state: "open", reviewDecision: "pending" };
+        }
       }
       const data: { state: string; reviewDecision?: string; merged?: boolean } = JSON.parse(raw);
 

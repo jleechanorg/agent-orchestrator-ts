@@ -96,19 +96,18 @@ export async function maybeDispatchReviewBacklog(
     return;
   }
 
-  // bd-yjo: Throttle — only run full API check every Nth poll or on transitions
+  // bd-yjo: Throttle — only run dispatch/executeReaction every Nth poll or on transitions.
+  // Fingerprint updates always run so changes are detected even during throttled cycles.
   const isTransition = oldStatus !== newStatus;
   const count = (pollCounters.get(session.id) ?? 0) + 1;
   pollCounters.set(session.id, count);
-  if (!isTransition && count % REVIEW_BACKLOG_INTERVAL !== 1) {
-    return;
-  }
+  const shouldDispatch = isTransition || count % REVIEW_BACKLOG_INTERVAL === 1;
 
   // bd-4nz: Skip automated comment polling when configured (saves 1+ REST calls/session)
   const skipAutomated = project.scm?.skipAutomatedCommentPolling === true;
   const [pendingResult, automatedResult] = await Promise.allSettled([
     scm.getPendingComments(session.pr),
-    skipAutomated ? Promise.resolve([]) : scm.getAutomatedComments(session.pr),
+    skipAutomated ? Promise.resolve(null) : scm.getAutomatedComments(session.pr),
   ]);
 
   // null means "failed to fetch" — preserve existing metadata.
@@ -168,6 +167,7 @@ export async function maybeDispatchReviewBacklog(
         );
       }
     } else if (
+      shouldDispatch &&
       !(oldStatus !== newStatus && newStatus === "changes_requested") &&
       pendingFingerprint !== lastPendingDispatchHash
     ) {
@@ -224,7 +224,7 @@ export async function maybeDispatchReviewBacklog(
         },
         config,
       );
-    } else if (automatedFingerprint !== lastAutomatedDispatchHash) {
+    } else if (shouldDispatch && automatedFingerprint !== lastAutomatedDispatchHash) {
       const reactionConfig = getReactionConfigForSession(session, automatedReactionKey);
       if (
         reactionConfig &&
