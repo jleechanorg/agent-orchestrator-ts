@@ -1080,6 +1080,16 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       subagent: spawnConfig.subagent ?? selection.subagent,
     };
 
+    // Write workspace hooks BEFORE launching the agent — some agents (e.g. Gemini CLI)
+    // read their settings.json only at startup, so hooks must exist before launch.
+    if (plugins.agent.setupWorkspaceHooks) {
+      try {
+        await plugins.agent.setupWorkspaceHooks(workspacePath, { dataDir: sessionsDir });
+      } catch {
+        // Non-fatal: agent will still run, hooks just won't fire
+      }
+    }
+
     let handle: RuntimeHandle;
     try {
       const launchCommand = plugins.agent.getLaunchCommand(agentLaunchConfig);

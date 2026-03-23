@@ -4,14 +4,29 @@ import type { Session, RuntimeHandle, AgentLaunchConfig } from "@jleechanorg/ao-
 // ---------------------------------------------------------------------------
 // Hoisted mocks — available inside vi.mock factories
 // ---------------------------------------------------------------------------
-const { mockExecFileAsync, mockReaddir, mockReadFile, mockStat, mockHomedir } =
-  vi.hoisted(() => ({
-    mockExecFileAsync: vi.fn(),
-    mockReaddir: vi.fn(),
-    mockReadFile: vi.fn(),
-    mockStat: vi.fn(),
-    mockHomedir: vi.fn(() => "/mock/home"),
-  }));
+const {
+  mockExecFileAsync,
+  mockReaddir,
+  mockReadFile,
+  mockStat,
+  mockHomedir,
+  mockLstat,
+  mockMkdir,
+  mockWriteFile,
+  mockChmod,
+  mockExistsSync,
+} = vi.hoisted(() => ({
+  mockExecFileAsync: vi.fn(),
+  mockReaddir: vi.fn(),
+  mockReadFile: vi.fn(),
+  mockStat: vi.fn(),
+  mockHomedir: vi.fn(() => "/mock/home"),
+  mockLstat: vi.fn().mockRejectedValue(Object.assign(new Error("ENOENT"), { code: "ENOENT" })),
+  mockMkdir: vi.fn(),
+  mockWriteFile: vi.fn(),
+  mockChmod: vi.fn(),
+  mockExistsSync: vi.fn(() => false),
+}));
 
 vi.mock("node:child_process", () => {
   const fn = Object.assign((..._args: unknown[]) => {}, {
@@ -24,6 +39,14 @@ vi.mock("node:fs/promises", () => ({
   readdir: mockReaddir,
   readFile: mockReadFile,
   stat: mockStat,
+  lstat: mockLstat,
+  mkdir: mockMkdir,
+  writeFile: mockWriteFile,
+  chmod: mockChmod,
+}));
+
+vi.mock("node:fs", () => ({
+  existsSync: mockExistsSync,
 }));
 
 vi.mock("node:os", () => ({
@@ -684,5 +707,100 @@ describe("getSessionInfo", () => {
       const result = await agent.getSessionInfo(makeSession());
       expect(result).toBeNull();
     });
+  });
+});
+
+// =========================================================================
+// setupWorkspaceHooks — Gemini-specific hook event names
+// =========================================================================
+describe("setupWorkspaceHooks — Gemini uses AfterTool/BeforeTool event names", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockHomedir.mockReturnValue("/mock/home");
+    // Simulate configDir does not yet exist
+    mockLstat.mockRejectedValue(Object.assign(new Error("ENOENT"), { code: "ENOENT" }));
+    mockMkdir.mockResolvedValue(undefined);
+    mockWriteFile.mockResolvedValue(undefined);
+    mockChmod.mockResolvedValue(undefined);
+    // No existing settings.json
+    mockExistsSync.mockReturnValue(false);
+    // Simulate metadata-updater.sh does not exist yet (ENOENT → will be created)
+    mockReadFile.mockRejectedValue(Object.assign(new Error("ENOENT"), { code: "ENOENT" }));
+  });
+
+  it("writes AfterTool (metadata) and PreToolUse (guardrail) to .gemini/settings.json", async () => {
+    const agent = create();
+
+    await agent.setupWorkspaceHooks!("/workspace/test", { dataDir: "/data/sessions" });
+
+    // Find the settings.json write call
+    const settingsCall = mockWriteFile.mock.calls.find(
+      ([path]: [string]) => typeof path === "string" && path.endsWith("settings.json"),
+    );
+    expect(settingsCall).toBeDefined();
+
+    const settingsJson = settingsCall![1] as string;
+    const settings = JSON.parse(settingsJson) as Record<string, unknown>;
+    const hooks = settings["hooks"] as Record<string, unknown>;
+
+    // Gemini:
+    // - AfterTool: metadata tracking (exit_code needed — only available post-execution)
+    // - PreToolUse: guardrail (no exit_code needed; deny response hardcodes running hook name)
+    // BeforeTool is NOT used — exit_code unavailable pre-execution would track failed
+    // commands as successful metadata updates.
+    expect(hooks).toHaveProperty("AfterTool");
+    expect(hooks).toHaveProperty("PreToolUse");
+    expect(hooks).not.toHaveProperty("PostToolUse");
+    expect(hooks).not.toHaveProperty("BeforeTool");
+  });
+
+  it("pre-event hook command does not include AO_DATA_DIR (guardrail exits before session needed)", async () => {
+    const agent = create();
+
+    await agent.setupWorkspaceHooks!("/workspace/test", { dataDir: "/data/sessions" });
+
+    const settingsCall = mockWriteFile.mock.calls.find(
+      ([path]: [string]) => typeof path === "string" && path.endsWith("settings.json"),
+    );
+    expect(settingsCall).toBeDefined();
+
+    const settingsJson = settingsCall![1] as string;
+    const settings = JSON.parse(settingsJson) as Record<string, unknown>;
+    const hooks = settings["hooks"] as Record<string, unknown>;
+    const preToolUse = hooks["PreToolUse"] as Array<Record<string, unknown>>;
+
+    expect(preToolUse).toBeDefined();
+    const hookDef = preToolUse[0] as Record<string, unknown>;
+    const hooksList = hookDef["hooks"] as Array<Record<string, unknown>>;
+    const preCommand = hooksList[0]["command"] as string;
+
+    // Guardrail script must NOT include AO_DATA_DIR — it exits before needing session
+    expect(preCommand).not.toContain("AO_DATA_DIR=");
+    // Guardrail must include AO_HOOK_EVENT_NAME so deny responses match the running hook
+    expect(preCommand).toContain("AO_HOOK_EVENT_NAME=");
+  });
+
+  it("post-event hook command includes AO_DATA_DIR (metadata needs session directory)", async () => {
+    const agent = create();
+
+    await agent.setupWorkspaceHooks!("/workspace/test", { dataDir: "/data/sessions" });
+
+    const settingsCall = mockWriteFile.mock.calls.find(
+      ([path]: [string]) => typeof path === "string" && path.endsWith("settings.json"),
+    );
+    expect(settingsCall).toBeDefined();
+
+    const settingsJson = settingsCall![1] as string;
+    const settings = JSON.parse(settingsJson) as Record<string, unknown>;
+    const hooks = settings["hooks"] as Record<string, unknown>;
+    const afterTool = hooks["AfterTool"] as Array<Record<string, unknown>>;
+
+    expect(afterTool).toBeDefined();
+    const hookDef = afterTool[0] as Record<string, unknown>;
+    const hooksList = hookDef["hooks"] as Array<Record<string, unknown>>;
+    const postCommand = hooksList[0]["command"] as string;
+
+    // Metadata script must include AO_DATA_DIR so it writes to the right session directory
+    expect(postCommand).toContain("AO_DATA_DIR=");
   });
 });
