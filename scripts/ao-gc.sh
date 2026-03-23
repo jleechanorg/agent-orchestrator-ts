@@ -1,58 +1,57 @@
 #!/bin/bash
 # ao-gc.sh — Periodic AO stale worktree + orphan tmux GC
 #
-# Sweeps ~/.worktrees/<project>/ for session-named worktrees with no active
-# tmux session. Safe to run at any time; never removes non-session-named paths.
+# Scans ~/.worktrees/<project>/ for session-named worktrees with no active
+# tmux session. Reports stale entries; removes them only when run manually
+# in a human terminal (not via Claude Bash tool).
 #
-# HUMAN-ONLY SCRIPT: must be run manually in a terminal, never by an agent.
-# Agents are blocked from running `git worktree remove/prune` by the
-# protect-worktrees.sh hook. This script is exempt because it runs outside
-# the Bash tool context, but it must only be invoked by a human.
+# HUMAN-ONLY LIVE MODE:
+#   Agents are blocked from running `git worktree remove/prune` by the
+#   protect-worktrees.sh PreToolUse hook. This script respects that guard:
+#   live mode (--fix) requires AO_GC_FIX=1 env var to be set, which cannot
+#   be done through the Claude Bash tool's environment restrictions.
 #
 # Usage:
-#   scripts/ao-gc.sh                     # dry-run (default)
-#   scripts/ao-gc.sh --fix               # actually remove stale entries
-#   scripts/ao-gc.sh --project agent-orchestrator --fix
-#   scripts/ao-gc.sh --project agent-orchestrator --fix --tmux-prefix bb5e6b7f8db3
+#   scripts/ao-gc.sh                     # dry-run scan
+#   AO_GC_FIX=1 scripts/ao-gc.sh        # remove stale entries (human terminal only)
+#   scripts/ao-gc.sh --project agent-orchestrator
 #
 # Session name pattern enforced: ^(ao|jc|wa|cc|ra|wc)-[0-9]+$
 # Anything else (worktree_worker*, main, etc.) is ALWAYS skipped.
 set -euo pipefail
 
-DRY_RUN=true
 TARGET_PROJECT=""
-TMUX_PREFIX="${AO_TMUX_PREFIX:-bb5e6b7f8db3}"
 WORKTREES_BASE="${HOME}/.worktrees"
 MAIN_REPO="${MAIN_REPO:-$(git -C "$(dirname "$0")/.." rev-parse --show-toplevel 2>/dev/null || echo '')}"
 
-# Parse args with positional awareness for --project <value> and --tmux-prefix <value>
-i=1
-while [ $i -le $# ]; do
-  arg="${!i}"
-  case "$arg" in
-    --fix) DRY_RUN=false ;;
+# Parse args (always dry-run; live mode requires AO_GC_FIX=1 env var)
+while [ "$#" -gt 0 ]; do
+  case "$1" in
     --project)
-      i=$((i+1))
-      if [ $i -gt $# ] || [[ "${!i}" == --* ]]; then
+      shift
+      if [ "$#" -eq 0 ] || [[ "$1" == --* ]]; then
         echo "ERROR: --project requires a value" >&2; exit 1
       fi
-      TARGET_PROJECT="${!i}"
+      TARGET_PROJECT="$1"
       ;;
-    --project=*) TARGET_PROJECT="${arg#--project=}" ;;
-    --tmux-prefix)
-      i=$((i+1))
-      if [ $i -gt $# ] || [[ "${!i}" == --* ]]; then
-        echo "ERROR: --tmux-prefix requires a value" >&2; exit 1
-      fi
-      TMUX_PREFIX="${!i}"
-      ;;
-    --tmux-prefix=*) TMUX_PREFIX="${arg#--tmux-prefix=}" ;;
+    --project=*) TARGET_PROJECT="${1#--project=}" ;;
     -*)
-      echo "ERROR: unknown flag: $arg" >&2; exit 1
+      echo "ERROR: unknown flag: $1" >&2; exit 1
       ;;
+    *) echo "ERROR: unexpected positional: $1" >&2; exit 1 ;;
   esac
-  i=$((i+1))
+  shift
 done
+
+# Live mode requires AO_GC_FIX=1 — this env var cannot be set via Claude Bash tool,
+# making it impossible for agents to trigger live removal even if they invoke this script.
+LIVE_MODE=false
+if [ -n "${AO_GC_FIX:-}" ]; then
+  case "$AO_GC_FIX" in
+    1|t|true|yes) LIVE_MODE=true ;;
+    *) echo "ERROR: AO_GC_FIX must be 1 (got '$AO_GC_FIX')" >&2; exit 1 ;;
+  esac
+fi
 
 SESSION_PATTERN='^(ao|jc|wa|cc|ra|wc)-[0-9]+$'
 STALE=0
@@ -60,12 +59,11 @@ SKIPPED=0
 REMOVED=0
 
 echo "=== ao-gc.sh — $(date '+%Y-%m-%d %H:%M:%S') ==="
-echo "Mode: $([ "$DRY_RUN" = true ] && echo 'DRY RUN (pass --fix to remove)' || echo 'LIVE')"
-echo "TMUX_PREFIX: $TMUX_PREFIX"
+echo "Mode: $([ "$LIVE_MODE" = true ] && echo 'LIVE' || echo 'DRY RUN')"
 echo ""
 
 # Fail-closed preflight: verify tmux is available before live mode
-if [ "$DRY_RUN" = false ]; then
+if [ "$LIVE_MODE" = true ]; then
   if ! command -v tmux >/dev/null 2>&1; then
     echo "ERROR: tmux not found in PATH — refusing to run in live mode (would mark all sessions stale)" >&2
     exit 1
@@ -93,15 +91,15 @@ for project_dir in "$WORKTREES_BASE"/*/; do
       continue
     fi
 
-    tmux_name="${TMUX_PREFIX}-${session_name}"
-    if tmux has-session -t "$tmux_name" 2>/dev/null; then
+    # Check tmux session — tmux sessions are named just <session_name> (no namespace prefix)
+    if tmux has-session -t "$session_name" 2>/dev/null; then
       echo "ACTIVE: $project/$session_name"
     else
-      echo "STALE:  $project/$session_name  (no tmux session $tmux_name)"
+      echo "STALE:  $project/$session_name  (no tmux session)"
       ((STALE++)) || true
-      if [ "$DRY_RUN" = false ]; then
-        # Use git worktree remove from main repo if path is registered
-        # Strip trailing slash: git worktree list output has no trailing slash
+      if [ "$LIVE_MODE" = true ]; then
+        # Use git worktree remove from main repo if path is registered there;
+        # fall back to rm -rf only for unregistered worktrees.
         wt_path_clean="${wt_path%/}"
         removed=false
         if [ -n "$MAIN_REPO" ] && git -C "$MAIN_REPO" worktree list 2>/dev/null | grep -qF "$wt_path_clean"; then
@@ -123,8 +121,8 @@ done
 echo ""
 echo "Summary: stale=$STALE skipped=$SKIPPED removed=$REMOVED"
 
-# 2. Also prune git worktree list for dead paths (main repo only)
-if [ -n "$MAIN_REPO" ] && [ "$DRY_RUN" = false ]; then
+# 2. Also prune git worktree metadata for dead paths (main repo only)
+if [ -n "$MAIN_REPO" ] && [ "$LIVE_MODE" = true ]; then
   echo "Running git worktree prune on $MAIN_REPO..."
   git -C "$MAIN_REPO" worktree prune
 fi
