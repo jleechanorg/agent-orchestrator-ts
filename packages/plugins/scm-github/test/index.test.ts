@@ -1381,6 +1381,90 @@ describe("scm-github plugin", () => {
       );
     });
 
+    it("does not classify non-critical: as error (only line-start critical:)", async () => {
+      mockGh([
+        {
+          id: 1,
+          user: { login: "github-actions[bot]" },
+          // "non-critical:" is NOT a direct error report; the `critical:` pattern must be
+          // at line-start to avoid false-positives on negations like "non-critical:".
+          // No error pattern matches and no warning pattern matches → defaults to info.
+          body: "The build succeeded but non-critical: lint warnings were emitted",
+          path: "a.ts",
+          line: 1,
+          original_line: null,
+          created_at: "2025-01-01T00:00:00Z",
+          html_url: "u",
+        },
+        {
+          id: 2,
+          user: { login: "github-actions[bot]" },
+          // Line-start "critical:" IS a direct error report → error
+          body: "critical: unable to resolve dependencies",
+          path: "b.ts",
+          line: 2,
+          original_line: null,
+          created_at: "2025-01-01T00:00:00Z",
+          html_url: "u",
+        },
+        {
+          id: 3,
+          user: { login: "github-actions[bot]" },
+          // Line-start "warning:" IS a direct warning report → warning
+          body: "warning: deprecation notice — /api/v1 is deprecated",
+          path: "c.ts",
+          line: 3,
+          original_line: null,
+          created_at: "2025-01-01T00:00:00Z",
+          html_url: "u",
+        },
+      ]);
+
+      const comments = await scm.getAutomatedComments(pr);
+      expect(comments).toHaveLength(3);
+      // "non-critical:" is a negation, no warning pattern matches → info
+      expect(comments[0].severity).toBe("info");
+      // "critical:" at line-start IS a direct error report → error
+      expect(comments[1].severity).toBe("error");
+      // "warning:" at line-start IS a direct warning report → warning
+      expect(comments[2].severity).toBe("warning");
+    });
+
+    it("does not false-positive on incidental severity keywords in long comments", async () => {
+      mockGh([
+        {
+          id: 1,
+          user: { login: "cursor[bot]" },
+          // "High Severity" and "bug" appear but this is a Bugbot analysis comment,
+          // not a direct error report. The word "bug" appears in "Bugbot" and in
+          // descriptive text, not as a severity label.
+          body: "### Filter uses pre-repair status causing cross-call inconsistency\n\n**Medium Severity**\n\n<!-- DESCRIPTION START -->\nThe filter looks up the original status which may cause a bug in error handling paths. Using the repaired status would avoid this issue.",
+          path: "a.ts",
+          line: 10,
+          original_line: null,
+          created_at: "2025-01-01T00:00:00Z",
+          html_url: "u1",
+        },
+        {
+          id: 2,
+          user: { login: "cursor[bot]" },
+          // "High Severity" header but no actual error-level keyword in severity position
+          body: "### Spurious all_complete reaction fires\n\n**High Severity**\n\n<!-- DESCRIPTION START -->\nRemoving the sessions.length > 0 guard means the reaction fires with no sessions.",
+          path: "b.ts",
+          line: 20,
+          original_line: null,
+          created_at: "2025-01-01T00:00:00Z",
+          html_url: "u2",
+        },
+      ]);
+
+      const comments = await scm.getAutomatedComments(pr);
+      expect(comments).toHaveLength(2);
+      // Bugbot "Medium/High Severity" headers should map to warning, not error
+      expect(comments[0].severity).toBe("warning");
+      expect(comments[1].severity).toBe("warning");
+    });
+
     it("uses original_line as fallback", async () => {
       mockGh([
         {
