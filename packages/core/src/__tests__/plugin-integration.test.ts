@@ -531,7 +531,7 @@ describe("plugin integration", () => {
       expect(states.get("app-1")).toBe("ci_failed");
     });
 
-    it("check() detects merged via scm-github getPRState()", async () => {
+    it("check() detects merged via scm-github getBatchPRStatus()", async () => {
       seedSession({ status: "pr_open", pr });
 
       const mockSM: SessionManager = {

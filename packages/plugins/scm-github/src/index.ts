@@ -1836,6 +1836,10 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
       else if (s === "CLOSED") state = "closed";
       else state = "open";
 
+      // Normalize REST-shape fields (mergeable_state, draft) before deriving typed fields.
+      // Copilot: normalize first so reviewDecision undefined is treated as REVIEW_REQUIRED.
+      normalizeMergePayloadFromRestShape(data as Record<string, unknown>);
+
       // --- Review Decision ---
       const d = (data.reviewDecision ?? "").toUpperCase();
       let reviewDecision: ReviewDecision;
@@ -1878,7 +1882,6 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
       }
 
       // --- Merge Readiness ---
-      normalizeMergePayloadFromRestShape(data as Record<string, unknown>);
       const blockers: string[] = [];
 
       // CI
