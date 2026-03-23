@@ -42,7 +42,6 @@ function assertValidSessionId(id: string): void {
  * Send content into a tmux pane using load-buffer/paste-buffer (for long text)
  * or send-keys -l (for short literal text).
  */
-/** Send content into a tmux pane using the load-buffer/paste-buffer or send-keys method. */
 async function sendContent(sessionId: string, content: string): Promise<void> {
   if (content.includes("\n") || content.length > 200) {
     const bufferName = `ao-${randomUUID()}`;
