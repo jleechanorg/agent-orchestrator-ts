@@ -211,6 +211,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
   let pollTimer: ReturnType<typeof setInterval> | null = null;
   let polling = false; // re-entrancy guard
   let allCompleteEmitted = false; // guard against repeated all_complete
+  let everHadSessions = false; // tracks whether any sessions have ever been observed
 
   /** Check if idle time exceeds the agent-stuck threshold. */
   function isIdleBeyondThreshold(session: Session, idleTimestamp: Date): boolean {
@@ -818,6 +819,14 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     try {
       const sessions = await sessionManager.list(scopedProjectId);
 
+      // Track whether any sessions have been observed across all poll cycles.
+      // list() only returns active (non-terminal) sessions, so when all sessions
+      // reach a terminal state sessions.length drops to 0. We need this flag to
+      // distinguish "never had sessions" (startup) from "all sessions completed".
+      if (sessions.length > 0) {
+        everHadSessions = true;
+      }
+
       // Include sessions that are active OR whose status changed from what we last saw
       // (e.g., list() detected a dead runtime and marked it "killed" — we need to
       // process that transition even though the new status is terminal)
@@ -857,9 +866,11 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       const activeSessions = sessions.filter((s) => s.status !== "merged" && s.status !== "killed");
 
       // Check if all sessions are complete (trigger reaction only once).
-      // Require sessions.length > 0 to avoid spurious all_complete on startup
-      // when no sessions have ever existed.
-      if (sessions.length > 0 && activeSessions.length === 0 && !allCompleteEmitted) {
+      // Use everHadSessions to avoid spurious all_complete on startup when no
+      // sessions have ever existed. Since list() filters out terminal sessions,
+      // sessions.length === 0 after all work is done — everHadSessions guards
+      // against the empty-at-startup case.
+      if (everHadSessions && activeSessions.length === 0 && !allCompleteEmitted) {
         allCompleteEmitted = true;
 
         // Execute all-complete reaction if configured

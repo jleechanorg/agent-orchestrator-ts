@@ -557,8 +557,9 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
 
     const repaired = repairSessionMetadataOnRead(sessionsDir, records);
     // Filter out killed/merged sessions to keep the active session list clean.
-    // Stale metadata (e.g. merged→working) is corrected by repair first,
-    // so we must check the original status before repair to catch them.
+    // Check the pre-repair (original) status because repair can promote a
+    // merged orchestrator session to "working" — we must still exclude it.
+    // The original status is the authoritative source for terminal-state filtering.
     return repaired.filter((record) => {
       const originalStatus = records.find((r) => r.sessionName === record.sessionName)?.raw["status"] ?? "";
       return originalStatus !== "killed" && originalStatus !== "merged";
