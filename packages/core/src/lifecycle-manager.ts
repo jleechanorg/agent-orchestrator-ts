@@ -53,6 +53,7 @@ import { maybeDispatchReviewBacklog } from "./review-backlog.js";
 import { updateSessionMetadataHelper } from "./fork-utils.js";
 import { checkMergeGate } from "./merge-gate.js";
 import { GLOBAL_PAUSE_UNTIL_KEY, GLOBAL_PAUSE_REASON_KEY, parsePauseUntil } from "./global-pause.js";
+import { isGhRateLimitError } from "./gh-rate-limit.js";
 
 /** Parse a duration string like "10m", "30s", "1h" to milliseconds. */
 export function parseDuration(str: string): number {
@@ -380,8 +381,12 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
               if (batch.reviewDecision === "approved") return "approved";
             }
             if (batch.reviewDecision === "pending") return "review_pending";
-          } catch {
-            // Batch failed — fall through to individual calls
+          } catch (err) {
+            // bd-att: If batch failed due to a GitHub API rate limit (or network error),
+            // DO NOT fall back. Rethrow so determineStatus exits immediately.
+            // Failing back would cause an immediate 4-5x thundering herd of individual queries!
+            if (isGhRateLimitError(err)) throw err;
+            // Otherwise, batch failed (e.g. unsupported) — fall through to individual calls
           }
         }
         if (!usedBatch) {
