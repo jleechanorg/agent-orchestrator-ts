@@ -22,7 +22,19 @@ gh api graphql ... (resolveReviewThread mutation per thread)
 After addressing review comments (from CodeRabbit, Copilot, Bugbot, or humans):
 1. Push the fix commit
 2. Document what you resolved in the PR description by appending a table:
-   gh pr edit --body "$(gh pr view --json body --jq '.body')"$'\n\n'"## Resolved Comments\n| Reviewer | File | Comment | Resolution |\n|---|---|---|---|\n| coderabbitai[bot] | <file> | <comment summary> | Fixed in $(git rev-parse --short HEAD) |"
+   python3 -c "
+   import subprocess, json
+   owner, repo, prnum = '<OWNER>', '<REPO>', '<PR>'
+   body = subprocess.run(
+       ['gh', 'pr', 'view', prnum, '--repo', f'{owner}/{repo}', '--json', 'body', '--jq', '.body'],
+       capture_output=True, text=True
+   ).stdout.strip()
+   commit = subprocess.run(['git', 'rev-parse', '--short', 'HEAD'], capture_output=True, text=True).stdout.strip()
+   table = '\n\n## Resolved Comments\n| Reviewer | File | Comment | Resolution |\n|---|---|---|---|\n| coderabbitai[bot] | <file> | <comment summary> | Fixed in ' + commit + ' |'
+   with open('/tmp/pr_body.md', 'w') as f:
+       f.write(body + table)
+   subprocess.run(['gh', 'api', f'repos/{owner}/{repo}/pulls/{prnum}', '--method', 'PATCH', '--field', 'body=@/tmp/pr_body.md'])
+   "
    - Only document Major/Critical/actionable comments — nitpicks and "suggestion" comments do not block green.
    - This satisfies green condition #5 (all inline comments resolved) by providing an auditable record.
 3. Post `@coderabbitai all good?` to trigger re-review
