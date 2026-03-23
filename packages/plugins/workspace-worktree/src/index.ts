@@ -128,16 +128,33 @@ async function git(cwd: string, ...args: string[]): Promise<string> {
   return stdout.trimEnd();
 }
 
-async function listTmuxSessionNames(): Promise<string[]> {
+/** Timeout for tmux queries (5 seconds) */
+const TMUX_TIMEOUT = 5_000;
+
+/**
+ * Returns the list of tmux session names, or null if tmux cannot be queried
+ * (e.g. ENOENT, socket error, timeout). Callers must treat null as "unknown"
+ * and fail-safe (assume a session may be active).
+ */
+async function listTmuxSessionNames(): Promise<string[] | null> {
   try {
-    const { stdout } = await execFileAsync("tmux", ["list-sessions", "-F", "#{session_name}"]);
+    const { stdout } = await execFileAsync("tmux", ["list-sessions", "-F", "#{session_name}"], {
+      timeout: TMUX_TIMEOUT,
+    });
     return stdout
       .trim()
       .split("\n")
       .map((line) => line.trim())
       .filter(Boolean);
-  } catch {
-    return [];
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    // tmux exits 1 with this message when the server is running but has no sessions
+    if (msg.includes("no server running") || msg.includes("no sessions")) {
+      return [];
+    }
+    // Any other error (ENOENT, socket issues, timeout) means we cannot determine
+    // session state — return null so callers can fail-safe.
+    return null;
   }
 }
 
@@ -155,6 +172,8 @@ async function hasActiveTmuxSessionForWorktreeName(worktreePath: string): Promis
   const sessionName = basename(worktreePath);
   if (!sessionName) return false;
   const tmuxSessions = await listTmuxSessionNames();
+  // null means tmux could not be queried — fail-safe: assume session may be active
+  if (tmuxSessions === null) return true;
   return tmuxSessions.some((tmuxSession) => tmuxSession === sessionName || tmuxSession.endsWith(`-${sessionName}`));
 }
 
