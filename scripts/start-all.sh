@@ -2,6 +2,9 @@
 # Start AO for all projects defined in agent-orchestrator.yaml.
 # First project: ao start (dashboard + lifecycle-worker + orchestrator)
 # Remaining projects: lifecycle-worker + orchestrator only (no duplicate dashboard)
+#
+# Idempotent: skips lifecycle-workers that are already running per project.
+# Pre-flight: validates YAML parses cleanly before attempting to start anything.
 set -euo pipefail
 
 CONFIG_FILE="${AO_CONFIG_PATH:-$HOME/.openclaw/agent-orchestrator.yaml}"
@@ -10,6 +13,13 @@ if [ ! -f "$CONFIG_FILE" ]; then
   echo "ERROR: Config not found at $CONFIG_FILE"
   exit 1
 fi
+
+# Pre-flight: validate YAML parses without errors (catches duplicate keys, syntax errors)
+if ! python3 -c "import yaml; yaml.safe_load(open('$CONFIG_FILE'))" 2>/dev/null; then
+  echo "ERROR: $CONFIG_FILE has YAML parse errors. Run scripts/validate-config.sh for details."
+  exit 1
+fi
+echo "Config OK: $CONFIG_FILE"
 
 PROJECTS=$(python3 -c "
 import yaml
@@ -41,9 +51,14 @@ for PROJECT in $SELECTED; do
     FIRST=false
   else
     echo "=== Starting $PROJECT (worker + orchestrator) ==="
-    # Start lifecycle-worker (detached, survives this script)
-    nohup ao lifecycle-worker "$PROJECT" > "$LOG_DIR/ao-lifecycle-${PROJECT}.log" 2>&1 &
-    disown
+    # Idempotency: skip if a lifecycle-worker for this project is already running
+    if pgrep -f "ao lifecycle-worker ${PROJECT}$" > /dev/null 2>&1; then
+      echo "  lifecycle-worker $PROJECT already running — skipping"
+    else
+      nohup ao lifecycle-worker "$PROJECT" > "$LOG_DIR/ao-lifecycle-${PROJECT}.log" 2>&1 &
+      disown
+      echo "  lifecycle-worker $PROJECT started"
+    fi
     # Start orchestrator if not already running
     ao start --no-dashboard "$PROJECT" 2>&1 | grep -E "✔|✓|Orchestrator:|error" | head -3 || true
   fi
