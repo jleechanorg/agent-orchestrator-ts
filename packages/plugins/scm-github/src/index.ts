@@ -558,6 +558,22 @@ async function git(args: string[], cwd: string): Promise<string> {
 }
 
 /**
+ * Retrieve the GitHub token via `gh auth token` as a fallback when no
+ * environment variable token is present.
+ */
+async function getGhToken(): Promise<string | undefined> {
+  try {
+    const { stdout } = await execFileAsync("gh", ["auth", "token"], {
+      maxBuffer: 10 * 1024 * 1024,
+      timeout: 30_000,
+    });
+    return stdout.trim() || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * Map REST check-run conclusion/status to the GraphQL-style state string
  * used in `statusCheckRollup` entries.
  */
@@ -1257,11 +1273,14 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
         // We bypass `gh api -f` because ghRestFallback (the curl fallback for
         // `gh api`) passes `-f` to curl as "fail on HTTP errors" instead of
         // converting it into a request-body field, silently dropping merge_method.
-        console.warn("mergePR: rate limit hit on gh pr merge, falling back to REST API via curl");
-        const token = process.env.GITHUB_TOKEN ?? process.env.GH_TOKEN;
+        console.warn("[scm-github] mergePR: rate limit hit on gh pr merge, falling back to REST API via curl");
+        const token =
+          process.env.GITHUB_TOKEN ??
+          process.env.GH_TOKEN ??
+          await getGhToken();
         if (!token) {
           throw new Error(
-            "mergePR: rate limit hit and no GitHub token found in GITHUB_TOKEN or GH_TOKEN for REST fallback",
+            "mergePR: rate limit hit and no GitHub token found in GITHUB_TOKEN, GH_TOKEN, or gh auth token for REST fallback",
             { cause: err },
           );
         }
