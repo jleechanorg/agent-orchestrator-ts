@@ -599,6 +599,13 @@ export interface SCM {
   /** Check if PR is ready to merge */
   getMergeability(pr: PRInfo): Promise<MergeReadiness>;
 
+  // --- Batch PR Status (bd-att) ---
+
+  /** bd-att: Fetch all PR status fields in a single API call.
+   *  Optional — lifecycle-manager falls back to individual calls if not implemented.
+   *  Replaces getPRState + getCISummary + getReviewDecision + getMergeability. */
+  getBatchPRStatus?(pr: PRInfo): Promise<BatchPRStatus>;
+
   // --- Session Exit Reconciliation (bd-uxs.6) ---
 
   /**
@@ -740,6 +747,14 @@ export interface MergeReadiness {
   approved: boolean;
   noConflicts: boolean;
   blockers: string[];
+}
+
+/** bd-att: All PR status fields from a single batch API call. */
+export interface BatchPRStatus {
+  state: PRState;
+  ciStatus: CIStatus;
+  reviewDecision: ReviewDecision;
+  mergeReadiness: MergeReadiness;
 }
 
 // =============================================================================
