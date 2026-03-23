@@ -1381,6 +1381,41 @@ describe("scm-github plugin", () => {
       );
     });
 
+    it("does not false-positive on incidental severity keywords in long comments", async () => {
+      mockGh([
+        {
+          id: 1,
+          user: { login: "cursor[bot]" },
+          // "High Severity" and "bug" appear but this is a Bugbot analysis comment,
+          // not a direct error report. The word "bug" appears in "Bugbot" and in
+          // descriptive text, not as a severity label.
+          body: "### Filter uses pre-repair status causing cross-call inconsistency\n\n**Medium Severity**\n\n<!-- DESCRIPTION START -->\nThe filter looks up the original status which may cause a bug in error handling paths. Consider using the repaired status instead.",
+          path: "a.ts",
+          line: 10,
+          original_line: null,
+          created_at: "2025-01-01T00:00:00Z",
+          html_url: "u1",
+        },
+        {
+          id: 2,
+          user: { login: "cursor[bot]" },
+          // "High Severity" header but no actual error-level keyword in severity position
+          body: "### Spurious all_complete reaction fires\n\n**High Severity**\n\n<!-- DESCRIPTION START -->\nRemoving the sessions.length > 0 guard means the reaction fires with no sessions.",
+          path: "b.ts",
+          line: 20,
+          original_line: null,
+          created_at: "2025-01-01T00:00:00Z",
+          html_url: "u2",
+        },
+      ]);
+
+      const comments = await scm.getAutomatedComments(pr);
+      expect(comments).toHaveLength(2);
+      // Bugbot "Medium/High Severity" headers should map to warning, not error
+      expect(comments[0].severity).toBe("warning");
+      expect(comments[1].severity).toBe("warning");
+    });
+
     it("uses original_line as fallback", async () => {
       mockGh([
         {

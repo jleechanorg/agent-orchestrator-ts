@@ -1583,18 +1583,30 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
         return comments
           .filter((c) => BOT_AUTHORS.has(c.user?.login ?? ""))
           .map((c) => {
-            // Determine severity from body content
+            // Determine severity from body content.
+            // Use structured patterns to avoid false positives from incidental
+            // keywords (e.g. "bug" in "Bugbot", "error" in "error handling").
             let severity: AutomatedComment["severity"] = "info";
             const bodyLower = c.body.toLowerCase();
-            if (
-              bodyLower.includes("error") ||
-              bodyLower.includes("bug") ||
-              bodyLower.includes("critical") ||
+            // Check for explicit severity headers first (Bugbot/Copilot style)
+            const hasCriticalHeader = /\*\*(critical|high)\s+severity\*\*/i.test(c.body);
+            const hasMediumHeader = /\*\*(medium|low)\s+severity\*\*/i.test(c.body);
+            if (hasCriticalHeader && !hasMediumHeader) {
+              // Explicit "Critical/High Severity" header → warning (not error),
+              // because these are review suggestions, not build failures.
+              // Only the Bugbot check-run conclusion determines blocking.
+              severity = "warning";
+            } else if (hasMediumHeader) {
+              severity = "warning";
+            } else if (
+              // Direct error reports (CI bots, build failures) — match at line start
+              /^error[:\s]/m.test(bodyLower) ||
+              /\bcritical[:\s]/m.test(bodyLower) ||
               bodyLower.includes("potential issue")
             ) {
               severity = "error";
             } else if (
-              bodyLower.includes("warning") ||
+              /^warning[:\s]/m.test(bodyLower) ||
               bodyLower.includes("suggest") ||
               bodyLower.includes("consider")
             ) {
