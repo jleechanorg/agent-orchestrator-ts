@@ -1,0 +1,272 @@
+name: Evidence Gate
+
+on:
+  pull_request:
+    types: [opened, synchronize, edited, reopened]
+
+concurrency:
+  group: evidence-gate-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  evidence-gate:
+    name: Evidence Gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Write PR body to temp file
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          # Use the PR body from the workflow context — available without auth scope
+          # Skip gracefully if PR body is empty (valid GitHub state — no evidence bundle)
+          printf '%s' "$PR_BODY" > "$RUNNER_TEMP/pr_body.txt"
+          echo "Body fetched: ${#PR_BODY} chars"
+          if [ ${#PR_BODY} -eq 0 ]; then
+            echo "PR body is empty — treating as no evidence bundle (workflow skips)"
+            echo "found=false" >> "$GITHUB_OUTPUT"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Check for evidence bundle in PR body
+        id: check
+        run: |
+          # If body was empty, skip was already set
+          if [ "${{ steps.check.outputs.skip }}" = "true" ]; then
+            echo "Skipping — empty PR body"
+            exit 0
+          fi
+
+          BODY=$(cat "$RUNNER_TEMP/pr_body.txt")
+
+          # Check if body contains Evidence section — must be a markdown header (## Evidence)
+          # '^[[:space:]]*## Evidence' anchors to line-start so "No evidence of issues"
+          # and other false positives don't match (grep -i is case-insensitive)
+          if printf '%s' "$BODY" | grep -qi '^[[:space:]]*## Evidence'; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "found=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Validate evidence bundle format
+        if: steps.check.outputs.found == 'true'
+        run: |
+          BODY=$(cat "$RUNNER_TEMP/pr_body.txt")
+
+          # Extract claim class — normalize to lowercase
+          # Support two common markdown formats:
+          #   - **Claim class**: pipeline-e2e  (bold inline)
+          #   - **Claim class**: PR-lifecycle E2E (with parenthetical)
+          # grep -i '\*\*Claim class' matches bold-markdown lines
+          # | grep -v '^- ' filters list bullets (extracted separately below)
+          # First sed: strip markdown and extract text after "**Claim class**:" up to first '('
+          # Second sed: strip any trailing parenthetical or extra text
+          # tr -d '*' removes markdown bold markers; tr '[:upper:]' '[:lower:]' lowercases
+          # tr ' ' '-' converts remaining spaces to hyphens so "Pipeline E2E" → "pipeline-e2e"
+          # tr -d '[:space:]' removes ALL whitespace (not just leading/trailing) — collapses
+          #   multi-word names cleanly; sed then strips leading/trailing characters
+          # sed 'I' flag makes the pattern case-insensitive so "**Claim Class**:" (title case)
+          # is also correctly stripped even though the pattern uses lowercase 'c'
+          CLAIM=$(printf '%s' "$BODY" \
+            | grep -i '\*\*Claim class' | grep -v '^- ' | head -1 \
+            | sed 's/.*\*\*Claim class\*\*:\s*//I' \
+            | sed 's/(.*//' \
+            | tr -d '*' | tr '[:upper:]' '[:lower:]' \
+            | tr ' ' '-' | tr -d '\t' \
+            | sed 's/^[ \t-]*//;s/[ \t-]*$//')
+
+          # Fallback: also try extracting from list-bullet format "- **Claim class**: ..."
+          if [ -z "$CLAIM" ]; then
+            CLAIM=$(printf '%s' "$BODY" \
+              | grep -i '^-.*\*\*Claim class' | head -1 \
+              | sed 's/.*\*\*Claim class\*\*:\s*//I' \
+              | sed 's/(.*//' \
+              | tr -d '*' | tr '[:upper:]' '[:lower:]' \
+              | tr ' ' '-' | tr -d '\t' \
+              | sed 's/^[ \t-]*//;s/[ \t-]*$//')
+          fi
+
+          echo "Claim class detected: $CLAIM"
+
+          # Validate claim class is recognized
+          # Accept both short forms (unit, integration, merge-gate) used internally
+          # and the longer forms documented in CLAUDE.md (unit-test-coverage,
+          # integration-test, merge-gate-green) which normalize to hyphenated strings
+          # after tr ' ' '-' transforms "Unit test coverage" → "unit-test-coverage"
+          case "$CLAIM" in
+            unit|unit-test-coverage|unit-test)
+              CLAIM="unit"
+              echo "Validated claim class: unit"
+              ;;
+            integration|integration-test)
+              CLAIM="integration"
+              echo "Validated claim class: integration"
+              ;;
+            pipeline-e2e)
+              echo "Validated claim class: $CLAIM"
+              ;;
+            pr-lifecycle-e2e|pr-lifecycle)
+              CLAIM="pr-lifecycle-e2e"
+              echo "Validated claim class: pr-lifecycle-e2e"
+              ;;
+            merge-gate|merge-gate-green)
+              CLAIM="merge-gate"
+              echo "Validated claim class: merge-gate"
+              ;;
+            *)
+              echo "ERROR: Unrecognized claim class: '$CLAIM'"
+              echo "Valid classes: unit, integration, pipeline-e2e, pr-lifecycle-e2e, merge-gate"
+              echo "(Also accepted: unit-test-coverage, integration-test, merge-gate-green — CLAUDE.md forms)"
+              exit 1
+              ;;
+          esac
+
+      - name: Validate PR-lifecycle-e2e required proofs
+        if: steps.check.outputs.found == 'true'
+        run: |
+          BODY=$(cat "$RUNNER_TEMP/pr_body.txt")
+
+          CLAIM=$(printf '%s' "$BODY" \
+            | grep -i '\*\*Claim class' | grep -v '^- ' | head -1 \
+            | sed 's/.*\*\*Claim class\*\*:\s*//I' \
+            | sed 's/(.*//' \
+            | tr -d '*' | tr '[:upper:]' '[:lower:]' \
+            | tr ' ' '-' | tr -d '\t' \
+            | sed 's/^[ \t-]*//;s/[ \t-]*$//')
+
+          # Fallback: also try list-bullet format
+          if [ -z "$CLAIM" ]; then
+            CLAIM=$(printf '%s' "$BODY" \
+              | grep -i '^-.*\*\*Claim class' | head -1 \
+              | sed 's/.*\*\*Claim class\*\*:\s*//I' \
+              | sed 's/(.*//' \
+              | tr -d '*' | tr '[:upper:]' '[:lower:]' \
+              | tr ' ' '-' | tr -d '\t' \
+              | sed 's/^[ \t-]*//;s/[ \t-]*$//')
+          fi
+
+          # Normalize CLAUDE.md long forms to canonical short forms
+          case "$CLAIM" in
+            unit-test-coverage|unit-test) CLAIM="unit" ;;
+            integration-test) CLAIM="integration" ;;
+            pr-lifecycle) CLAIM="pr-lifecycle-e2e" ;;
+            merge-gate-green) CLAIM="merge-gate" ;;
+          esac
+
+          if [ "$CLAIM" = "pr-lifecycle-e2e" ]; then
+            echo "Checking required proofs for: $CLAIM"
+
+            # Proof 1: PR creation — must have GitHub PR URL
+            if ! printf '%s' "$BODY" | grep -qiE 'https://github\.com/[^/]+/[^/]+/pull/[0-9]+'; then
+              echo "ERROR: Missing PR creation URL in evidence bundle"
+              exit 1
+            fi
+            echo "PR creation proof: PASS"
+
+            # Proof 2: Transition — require structured evidence of CI/review activity
+            if ! printf '%s' "$BODY" | grep -qiE '(transition proof|CI timeline|review timeline|check run|workflow run|codecov|status check)'; then
+              echo "ERROR: Missing transition proof (CI/review timeline) in evidence bundle"
+              exit 1
+            fi
+            echo "Transition proof: PASS"
+
+            # Proof 3: Merge outcome — structured phrase required
+            if ! printf '%s' "$BODY" | grep -qiE '(commit SHA|mergeable|merged|merge commit)'; then
+              echo "ERROR: Missing merge outcome proof in evidence bundle"
+              exit 1
+            fi
+            echo "Merge outcome proof: PASS"
+
+            # Proof 4: Cleanup — structured phrase required
+            if ! printf '%s' "$BODY" | grep -qiE '(cleanup proof|branch.*deleted|session.*kill|worktree.*remov)'; then
+              echo "ERROR: Missing cleanup proof in evidence bundle"
+              exit 1
+            fi
+            echo "Cleanup proof: PASS"
+
+            echo "All 4 required proofs present for $CLAIM"
+          elif [ "$CLAIM" = "merge-gate" ]; then
+            echo "Checking required proofs for: $CLAIM (merge-gate = all 6 green conditions)"
+            # merge-gate requires evidence of all 6 merge-gate conditions per CLAUDE.md:
+            # 1. CI green
+            if ! printf '%s' "$BODY" | grep -qiE '(CI (passing|success|green)|checks (passing|success|green))'; then
+              echo "ERROR: Missing CI-green proof in merge-gate evidence"
+              exit 1
+            fi
+            echo "Condition 1/6 (CI green): PASS"
+
+            # 2. No merge conflicts
+            if ! printf '%s' "$BODY" | grep -qiE '(mergeable|MERGEABLE|conflict-free|no conflict)'; then
+              echo "ERROR: Missing mergeable-state proof in merge-gate evidence"
+              exit 1
+            fi
+            echo "Condition 2/6 (no merge conflicts): PASS"
+
+            # 3. CR approved
+            if ! printf '%s' "$BODY" | grep -qiE '(CodeRabbit APPROVED|CR APPROVED|crab.*approved)'; then
+              echo "ERROR: Missing CR-approved proof in merge-gate evidence"
+              exit 1
+            fi
+            echo "Condition 3/6 (CR approved): PASS"
+
+            # 4. Bugbot finished
+            if ! printf '%s' "$BODY" | grep -qiE '(Bugbot finished|Cursor Bugbot|bugbot (finished|neutral|success))'; then
+              echo "ERROR: Missing Bugbot-finished proof in merge-gate evidence"
+              exit 1
+            fi
+            echo "Condition 4/6 (Bugbot finished): PASS"
+
+            # 5. All threads resolved
+            if ! printf '%s' "$BODY" | grep -qiE '(all threads resolved|threads resolved|no unresolved threads)'; then
+              echo "ERROR: Missing all-threads-resolved proof in merge-gate evidence"
+              exit 1
+            fi
+            echo "Condition 5/6 (all threads resolved): PASS"
+
+            # 6. Evidence review passed
+            if ! printf '%s' "$BODY" | grep -qiE '(evidence review passed|/er PASS|evidence-gate PASS)'; then
+              echo "ERROR: Missing evidence-review-passed proof in merge-gate evidence"
+              exit 1
+            fi
+            echo "Condition 6/6 (evidence review passed): PASS"
+
+            echo "All 6 merge-gate conditions verified for $CLAIM"
+          else
+            echo "No additional validation required for claim class: $CLAIM"
+          fi
+
+      - name: Validate verdict is present and consistent
+        if: steps.check.outputs.found == 'true'
+        run: |
+          BODY=$(cat "$RUNNER_TEMP/pr_body.txt")
+
+          # Extract from "## Evidence" to EOF to avoid false matches from text that
+          # appears before the Evidence section (e.g. "Previous PR's verdict: PASS"
+          # in the Background or Goals sections). Extracting to EOF ensures that a
+          # "## Verdict:" section header following ## Evidence is also captured.
+          EVIDENCE_SECTION=$(printf '%s' "$BODY" \
+            | sed -n '/^[[:space:]]*## [Ee]vidence/,$p')
+
+          # Fallback to full body if Evidence section could not be isolated
+          if [ -z "$EVIDENCE_SECTION" ]; then
+            EVIDENCE_SECTION="$BODY"
+          fi
+
+          # Check for PASS verdict — scoped to Evidence section
+          if printf '%s' "$EVIDENCE_SECTION" | grep -qi '[Vv]erdict.*:.*[Pp][Aa][Ss][Ss]'; then
+            echo "Verdict: PASS — evidence gate passes"
+
+          # Check for INSUFFICIENT verdict — gate passes; missing proof correctly triggers this
+          elif printf '%s' "$EVIDENCE_SECTION" | grep -qi '[Vv]erdict.*:.*[Ii][Nn][Ss][Uu][Ff][Ff][Ii][Cc][Ii][Ee][Nn][Tt]'; then
+            echo "Verdict: INSUFFICIENT — gate passes (INSUFFICIENT is a valid fail-closed verdict)"
+
+          # Check for FAIL verdict — gate passes; claiming FAIL with a present bundle is contradictory
+          elif printf '%s' "$EVIDENCE_SECTION" | grep -qi '[Vv]erdict.*:.*[Ff][Aa][Ii][Ll]'; then
+            echo "Verdict: FAIL with present bundle — contradiction; gate passes but this bundle should be re-examined"
+
+          # No verdict found — hard requirement, gate fails
+          else
+            echo "ERROR: No verdict found in evidence bundle. Verdict is a mandatory field — missing verdict fails the evidence gate."
+            exit 1
+          fi
