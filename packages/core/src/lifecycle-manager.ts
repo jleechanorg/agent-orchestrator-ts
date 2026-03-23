@@ -773,9 +773,63 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
 
     if (newStatus !== oldStatus) {
       const correlationId = createCorrelationId("lifecycle-transition");
-      // State transition detected
-      states.set(session.id, newStatus);
-      updateSessionMetadata(session, { status: newStatus });
+
+      // bd-kki: when transitioning to killed and session has a PR, verify the PR is
+      // actually merged before persisting the killed state — the runtime/activity check
+      // in determineStatus may have fired before the SCM PR-state check.  If SCM is
+      // unreachable, skip persisting so the next poll can retry.
+      let effectiveStatus = newStatus;
+      // mergedConfirmed is set by the SCM check below and reused in the terminal-block
+      // belt-and-suspenders section to avoid a second getPRState() call.
+      let mergedConfirmed = false;
+      if (
+        newStatus === "killed" &&
+        TERMINAL_STATUSES.has(oldStatus) === false &&
+        session.pr
+      ) {
+        const project = config.projects[session.projectId];
+        const scm = project?.scm ? registry.get<SCM>("scm", project.scm.plugin) : null;
+        if (scm) {
+          try {
+            const prState = await scm.getPRState(session.pr);
+            mergedConfirmed = prState === PR_STATE.MERGED;
+            if (prState === PR_STATE.OPEN) {
+              // PR still open — agent died but PR is alive; skip persisting
+              // killed so next poll can re-check PR state for auto-merge.
+              effectiveStatus = oldStatus;
+            }
+            // PR is merged or closed — proceed with killed transition
+          } catch {
+            // SCM unreachable — skip persisting killed, retry next poll
+            effectiveStatus = oldStatus;
+          }
+        }
+      }
+
+      // Skip persisting if bd-kki check absorbed the killed transition — keep session
+      // in oldStatus so the next poll can retry the SCM check.
+      if (effectiveStatus !== oldStatus) {
+        // State transition detected
+        states.set(session.id, effectiveStatus);
+        updateSessionMetadata(session, { status: effectiveStatus });
+      } else {
+        // Preserve oldStatus so the next poll can re-evaluate the SCM check.
+        // Bugbot bd-25aa4f11: storing newStatus ("killed") caused the next poll
+        // to see oldStatus="killed" matching newStatus="killed", breaking retry.
+        states.set(session.id, oldStatus);
+        // CR (bd-xxx): still dispatch review backlog on absorbed polls so steady-state
+        // PR sessions continue receiving comment notifications even when the killed
+        // transition is absorbed and no status change is persisted.
+        await maybeDispatchReviewBacklog(session, oldStatus, effectiveStatus, {
+          config,
+          registry,
+          clearReactionTracker,
+          getReactionConfigForSession,
+          executeReaction,
+        }, undefined);
+        return;
+      }
+
       observer.recordOperation({
         metric: "lifecycle_poll",
         operation: "lifecycle.transition",
@@ -892,6 +946,100 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
             data: { oldStatus, newStatus },
           });
           await notifyHuman(event, priority);
+        }
+      }
+
+      await maybeDispatchReviewBacklog(session, oldStatus, effectiveStatus, {
+        config,
+        registry,
+        clearReactionTracker,
+        getReactionConfigForSession,
+        executeReaction,
+      }, transitionReaction);
+
+      // Session exit reconciliation (bd-uxs.6): validate commits and emit proof on terminal states
+      if (TERMINAL_STATUSES.has(effectiveStatus) && !TERMINAL_STATUSES.has(oldStatus)) {
+        await validateAndEmitExitProof(session, effectiveStatus, {
+          config,
+          registry,
+          observer,
+          notifyHuman,
+          createEvent,
+        });
+
+        // Record outcome for strategy learning (bd-nig)
+        // Guarded: disk errors must not break session lifecycle checks
+        if (outcomeRecorder) {
+          try {
+            const success = effectiveStatus === "merged";
+            outcomeRecorder.record({
+              sessionId: session.id,
+              projectId: session.projectId,
+              trigger: session.metadata["trigger"] ?? "unknown",
+              action: session.metadata["action"] ?? "unknown",
+              strategy: session.metadata["strategy"],
+              errorClass: session.metadata["errorClass"],
+              success,
+              durationMs: Date.now() - new Date(session.createdAt).getTime(),
+              error: !success ? `Session ended with status: ${effectiveStatus}` : undefined,
+              prNumber: session.pr?.number,
+              recordedAt: new Date().toISOString(),
+            });
+          } catch (recordErr) {
+            console.warn(
+              `Failed to record outcome for session ${session.id}:`,
+              recordErr instanceof Error ? recordErr.message : String(recordErr),
+            );
+          }
+        }
+
+        // bd-s4t.1 + bd-e4t + bd-kki: when a session reaches ANY terminal state,
+        // proactively clean up runtime and worktree. Without this, dead sessions
+        // leave orphaned worktrees that lock branches and block future spawns.
+        // Orchestrator sessions are excluded: killing the orchestrator would clear
+        // its rate-limit pause metadata, breaking the pause mechanism.
+        if (TERMINAL_STATUSES.has(effectiveStatus) && !isOrchestratorSession(session)) {
+          try {
+            await sessionManager.kill(session.id);
+          } catch (killErr) {
+            observer.recordOperation({
+              metric: "lifecycle_poll",
+              operation: "lifecycle.terminal_cleanup",
+              outcome: "failure",
+              correlationId: createCorrelationId("lifecycle-cleanup"),
+              projectId: session.projectId,
+              sessionId: session.id,
+              data: { error: killErr instanceof Error ? killErr.message : String(killErr) },
+              level: "warn",
+            });
+          }
+        }
+
+      }
+
+      // bd-kki: belt-and-suspenders. When the first absorb check ran (non-terminal
+      // oldStatus) and confirmed merged=true, mergedConfirmed is already set so no
+      // second SCM call is needed.  When oldStatus was already terminal the absorb
+      // check did not run — re-check SCM once and call kill() if merged.
+      // Placed OUTSIDE the !TERMINAL_STATUSES.has(oldStatus) guard so it can fire
+      // for terminal→killed transitions (e.g. errored→killed).
+      if (effectiveStatus === "killed" && session.pr) {
+        if (mergedConfirmed) {
+          // Absorb check confirmed merged — kill using cached result
+          await sessionManager.kill(session.id);
+        } else if (TERMINAL_STATUSES.has(oldStatus)) {
+          // Terminal→killed transition: re-check SCM once to catch merged PRs
+          const project = config.projects[session.projectId];
+          const scm = project?.scm ? registry.get<SCM>("scm", project.scm.plugin) : null;
+          if (scm) {
+            try {
+              if ((await scm.getPRState(session.pr)) === PR_STATE.MERGED) {
+                await sessionManager.kill(session.id);
+              }
+            } catch {
+              // SCM unreachable — skip kill; next poll will retry if status changes
+            }
+          }
         }
       }
     } else {
