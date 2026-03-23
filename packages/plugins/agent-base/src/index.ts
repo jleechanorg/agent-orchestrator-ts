@@ -184,7 +184,7 @@ fi
 
 # Validate AO_SESSION is set
 if [[ -z "\${AO_SESSION:-}" ]]; then
-  echo '{"systemMessage": "AO_SESSION environment variable not set, skipping metadata update"}'
+  echo '{}'
   exit 0
 fi
 
