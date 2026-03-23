@@ -65,6 +65,9 @@ function makePR(overrides: Partial<PRInfo> = {}): PRInfo {
 }
 
 beforeEach(() => {
+  // bd-yjo: Reset review backlog throttle counters between tests
+  reviewBacklog.resetAllReviewBacklogCounters();
+
   tmpDir = join(tmpdir(), `ao-test-lifecycle-${randomUUID()}`);
   mkdirSync(tmpDir, { recursive: true });
 
