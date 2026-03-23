@@ -49,8 +49,15 @@ launchctl list | grep -E "ao|openclaw|agentorchestrator"
 tail -50 /tmp/ao-pr-poller.log 2>/dev/null || echo "no poller log"
 tail -50 /tmp/ao-lifecycle-jleechanclaw.log 2>/dev/null || echo "no lifecycle log"
 
-# 3. Are sessions being spawned?
+# 3. Are sessions being spawned? Check BOTH tmux AND AO session store
 tmux list-sessions | grep -E "^[a-z]{2}-" 2>/dev/null || echo "no ao sessions"
+# AO's internal view (may differ from tmux — desync = zombie sessions):
+ao session ls --project agent-orchestrator 2>/dev/null || echo "ao session ls failed"
+# Zombie check: AO=killed but tmux alive
+for s in $(grep -rl "status=killed" ~/.agent-orchestrator/bb5e6b7f8db3-agent-orchestrator/sessions/ 2>/dev/null); do
+  tmux_name=$(grep "^tmuxName=" "$s" | cut -d= -f2)
+  tmux has-session -t "$tmux_name" 2>/dev/null && echo "ZOMBIE: $s (tmux=$tmux_name still alive)"
+done
 
 # 4. Is the path correct in config?
 grep -A6 "agent-orchestrator:" ~/.openclaw/agent-orchestrator.yaml | grep path
@@ -74,7 +81,9 @@ gh pr list --repo jleechanorg/agent-orchestrator --state open \
 | AO running but not touching PRs | Wrong `path:` in config | Fix path in agent-orchestrator.yaml |
 | AO runs agents but they don't push | Missing `permissions: skip` | Add `agentConfig.permissions: skip` |
 | Only [agento]-tagged PRs handled | Missing `backfillAllPRs` | Add `backfillAllPRs: true` to project |
-| Sessions spawn but exit quickly | Stray worktree blocking claim | `git worktree prune` in repo |
+| Sessions spawn but exit quickly | Stray worktree blocking claim | Tell human to manually prune stale worktrees (NEVER run `git worktree prune` — banned) |
+| Spawn fails: "uncommitted changes" | Dirty `.claude/` file in worktree template | Commit the dirty file to main (e.g., PR for metadata-updater.sh) |
+| `ao session ls` shows no active sessions but tmux has sessions | Zombie sessions: AO=killed, tmux=alive — lifecycle-worker ignores them | Spawn new sessions; tell human to kill stale tmux panes |
 | Agent runs but doesn't merge | 6-green check not passing | See criteria below |
 
 ## Step 5 — The 6 green criteria (from AGENTS.md / jleechanclaw)
