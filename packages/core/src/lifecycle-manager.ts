@@ -1144,7 +1144,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         if (isCustomReaction) {
           const reactionKey = "agent-stuck";
           const reactionConfig = getReactionConfigForSession(session, reactionKey);
-          if (reactionConfig?.action && reactionConfig.auto !== false) {
+          if (reactionConfig?.action && reactionConfig.action !== "notify" && reactionConfig.auto !== false) {
             const thresholdMs =
               typeof reactionConfig.threshold === "string"
                 ? parseDuration(reactionConfig.threshold)
