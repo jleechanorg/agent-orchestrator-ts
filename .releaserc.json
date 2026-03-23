@@ -6,6 +6,7 @@
     ["@semantic-release/commit-analyzer", {
       "preset": "conventionalcommits",
       "releaseRules": [
+        { "breaking": true, "release": "major" },
         { "type": "feat", "release": "minor" },
         { "type": "fix", "release": "patch" },
         { "type": "perf", "release": "patch" },
@@ -14,8 +15,7 @@
         { "type": "style", "release": false },
         { "type": "chore", "release": false },
         { "type": "refactor", "release": false },
-        { "type": "test", "release": false },
-        { "breaking": true, "release": "major" }
+        { "type": "test", "release": false }
       ]
     }],
     ["@semantic-release/release-notes-generator", {

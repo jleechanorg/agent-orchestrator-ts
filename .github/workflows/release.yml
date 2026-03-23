@@ -100,13 +100,16 @@ jobs:
           GIT_COMMITTER_EMAIL: github-actions[bot]@users.noreply.github.com
 
   # Phase 2b: major releases require human approval
-  # Approval mechanism: human manually re-runs this workflow via workflow_dispatch.
-  # The auto push-trigger opens an issue to notify about the pending major release.
+  # Approval mechanism: GitHub environment protection on "major-release" (configured in
+  # repo Settings → Environments). Add required reviewers there. The environment gate
+  # pauses this job until at least one reviewer approves. Dry-run is always allowed.
   release-major:
     name: Release (major)
     needs: detect-release
     if: needs.detect-release.outputs.release_type == 'major'
     runs-on: ${{ fromJson(vars.SELF_HOSTED_RUNNER_LABELS || '["self-hosted","self-hosted-mikey"]') }}
+    # Requires repo Settings → Environments → "major-release" with required reviewers set.
+    environment: major-release
     permissions:
       contents: write
       issues: write
@@ -163,6 +166,6 @@ jobs:
     if: needs.detect-release.outputs.release_type == 'error'
     runs-on: ubuntu-latest
     steps:
-      - run: >
+      - run: |
           echo "::error::semantic-release --dry-run failed — check auth, token permissions, and plugin configuration."
           exit 1
