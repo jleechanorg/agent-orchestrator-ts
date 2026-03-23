@@ -71,14 +71,19 @@ These PRs fix specific autonomy blockers. Priority order for merging:
 | #99 | Kill zombie tmux sessions on merge | bd-s4t | Merged PRs leave zombie sessions consuming resources |
 | #112 | Lock worktrees to prevent accidental prune | bd-diq | Workers lose workspace when worktree is cleaned |
 
-### Not Yet Started
+### Not Yet Started — Agent-Prompt Approach (not more TypeScript)
 
-| Component | Bead | Description |
+These capabilities should be delivered via **richer `agentRules`** in `agent-orchestrator.yaml`, NOT by coding new TypeScript reaction handlers. The spawned agent (Claude Code) is flexible — it can run `/polish`, `/copilot`, resolve comments, rebase, etc. We just need to tell it what to do.
+
+| Capability | Approach | Bead |
 |---|---|---|
-| Inline comment resolution | bd-ara.1 | Workers need to resolve review threads after fixing |
-| Stale branch rebase | bd-ara.2 | Workers need to rebase when mergeable=UNKNOWN |
-| CHANGES_REQUESTED recovery | bd-ara.4 | Workers fix code but don't re-request review |
-| Test failure self-healing | bd-ara.5 | Workers should interpret test output and fix |
+| Inline comment resolution | `agentRules`: "After fixing code, resolve review threads with `@coderabbitai all good?`" | bd-ara.1 |
+| Stale branch rebase | `agentRules`: "If mergeable=UNKNOWN or CONFLICTING, rebase on main" | bd-ara.2 |
+| CHANGES_REQUESTED recovery | `agentRules`: "After addressing review comments, push and wait for re-review" | bd-ara.4 |
+| Test failure self-healing | `agentRules`: "Read CI logs, fix failing tests, push fixes" | bd-ara.5 |
+| PR polish loop | `agentRules`: "Use /polish to iteratively fix blockers until 6-green" | — |
+
+**Design principle**: The lifecycle-worker spawns sessions and detects state transitions. The agent inside the session handles everything flexibly via its prompt and agentRules. We code infrastructure (spawn, kill, observe), not business logic.
 
 ## Verification Plan
 
