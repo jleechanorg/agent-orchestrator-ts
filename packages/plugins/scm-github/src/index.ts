@@ -1288,38 +1288,45 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
         const url = `https://api.github.com/repos/${pr.owner}/${pr.repo}/pulls/${pr.number}/merge`;
         const body = JSON.stringify({ merge_method: method });
 
+        // Pass token via GH_TOKEN env var so it never appears in process arguments.
+        // Remove -f so we capture the full error body on failure (GitHub returns
+        // structured JSON with the reason, e.g. "Pull Request is not mergeable").
         try {
-          await execFileAsync("curl", [
-            "-sS",
-            "-f",
-            "-X",
-            "PUT",
-            "-H",
-            "Accept: application/vnd.github+json",
-            "-H",
-            `Authorization: Bearer ${token}`,
-            "-H",
-            "X-GitHub-Api-Version: 2022-11-28",
-            "-H",
-            "Content-Type: application/json",
-            "-d",
-            body,
-            url,
-          ], {
-            maxBuffer: 10 * 1024 * 1024,
-            timeout: 30_000,
-          });
+          const raw = await execFileAsync(
+            "curl",
+            [
+              "-sS",
+              "-X", "PUT",
+              "-H", "Accept: application/vnd.github+json",
+              "-H", `Authorization: Bearer ${token}`,
+              "-H", "X-GitHub-Api-Version: 2022-11-28",
+              "-H", "Content-Type: application/json",
+              "-d", body,
+              "-w", "\n%{http_code}",
+              url,
+            ],
+            { maxBuffer: 10 * 1024 * 1024, timeout: 30_000 },
+          );
+          const lines = raw.stdout.trim().split("\n");
+          const httpStatus = parseInt(lines[lines.length - 1] ?? "", 10);
+          if (httpStatus < 200 || httpStatus >= 300) {
+            throw new Error(
+              `mergePR REST fallback received HTTP ${httpStatus}: ${lines.slice(0, -1).join("\n")}`,
+              { cause: raw.stdout },
+            );
+          }
         } catch (curlErr) {
           throw new Error(`mergePR REST fallback via curl failed: ${(curlErr as Error).message}`, {
             cause: curlErr,
           });
         }
 
-        // gh pr merge --delete-branch deletes the head branch after merging.
-        // Replicate that behaviour in the fallback path (best-effort; only possible
-        // when the head repo matches the base repo to have write access).
+        // Branch deletion via REST (best-effort; only possible when the head
+        // repo matches the base repo to have write access).  Encode the branch
+        // name so chars such as '#' or '%' in branch names do not corrupt the URL.
+        const encodedBranch = encodeURIComponent(pr.branch);
         try {
-          await gh(["api", `repos/${pr.owner}/${pr.repo}/git/refs/heads/${pr.branch}`, "--method", "DELETE"]);
+          await gh(["api", `repos/${pr.owner}/${pr.repo}/git/refs/heads/${encodedBranch}`, "--method", "DELETE"]);
         } catch {
           // Non-fatal: best-effort branch cleanup. Log and continue.
           console.warn(
