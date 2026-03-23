@@ -241,11 +241,12 @@ jobs:
         run: |
           BODY=$(cat "$RUNNER_TEMP/pr_body.txt")
 
-          # Extract only the Evidence section to avoid false matches from surrounding text
-          # (e.g. "Previous PR's verdict: PASS" in the description body outside the bundle)
-          # sed -n finds lines from "## Evidence" through next "##" header (exclusive) or EOF
+          # Extract from "## Evidence" to EOF to avoid false matches from text that
+          # appears before the Evidence section (e.g. "Previous PR's verdict: PASS"
+          # in the Background or Goals sections). Extracting to EOF ensures that a
+          # "## Verdict:" section header following ## Evidence is also captured.
           EVIDENCE_SECTION=$(printf '%s' "$BODY" \
-            | sed -n '/^[[:space:]]*## [Ee]vidence/,/^[[:space:]]*## /{ /^[[:space:]]*## [^E]/d; p; }')
+            | sed -n '/^[[:space:]]*## [Ee]vidence/,$p')
 
           # Fallback to full body if Evidence section could not be isolated
           if [ -z "$EVIDENCE_SECTION" ]; then
