@@ -4,25 +4,13 @@
  * Exported symbols are used by index.ts (sendMessage, restartAgentCli).
  * Not upstreamed to ComposioHQ (bd-tln).
  */
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
 import { setTimeout as sleep } from "node:timers/promises";
 import { randomUUID } from "node:crypto";
 import { writeFileSync, unlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { RuntimeHandle } from "@jleechanorg/ao-core";
-
-const execFileAsync = promisify(execFile);
-const TMUX_COMMAND_TIMEOUT_MS = 5_000;
-
-/** Run a tmux command and return stdout */
-async function tmux(...args: string[]): Promise<string> {
-  const { stdout } = await execFileAsync("tmux", args, {
-    timeout: TMUX_COMMAND_TIMEOUT_MS,
-  });
-  return stdout.trimEnd();
-}
+import { tmux } from "./tmux-utils.js";
 
 /**
  * Bash/shell prompt patterns that indicate the agent CLI has exited and the
@@ -33,10 +21,10 @@ async function tmux(...args: string[]): Promise<string> {
  * Fork-only logic (bd-tln): not upstreamed to ComposioHQ.
  */
 export const SHELL_PROMPT_PATTERNS = [
-  /\$\s*$/, // bash: ends with "$ "
+  /(?:^|[\s\w@~.-])\$\s*$/, // bash: word/path then "$ " (avoids "$100")
   /%\s*$/, // zsh: ends with "% "
   /❯\s*$/, // starship / oh-my-zsh: ends with "❯ "
-  />\s*$/, // Windows-style or fish: ends with "> "
+  /(?:^|\s)>\s*$/, // fish: space before ">" (avoids "Click here >")
   /#\s*$/, // root bash: ends with "# "
 ];
 
@@ -63,11 +51,12 @@ export const AGENT_ALIVE_PATTERNS = [
  * Strategy (detection order matters — fixes stale-token masking):
  *  1. Capture the last 30 lines of pane output.
  *  2. Check the LAST NON-EMPTY line for a shell prompt pattern → dead if matched.
- *  3. Check the full buffer for any agent-alive token → alive if found.
+ *  3. Check a TRAILING WINDOW (last 5 lines) for any agent-alive token → alive if found.
  *  4. Otherwise → assume alive (conservative).
  *
  * Order is critical: a stale "✻ Thinking" in earlier lines must not mask a
  * shell prompt on the final line (which indicates the agent has already exited).
+ * Only a RECENT activity token in the last 5 lines counts as proof of liveness.
  *
  * Fork-only logic (bd-tln).
  */
@@ -93,14 +82,19 @@ export async function isAgentAliveInPane(sessionName: string): Promise<boolean> 
     }
   }
 
-  // Step 2: If any agent-alive indicator is present in the buffer, agent is running.
-  for (const pattern of AGENT_ALIVE_PATTERNS) {
-    if (pattern.test(paneOutput)) {
-      return true;
+  // Step 2: Only search a trailing window (last 5 non-empty lines) for agent-alive
+  // tokens. A stale spinner/tool indicator in old scrollback must not override the
+  // current prompt state — only recent activity counts.
+  const recentLines = lines.slice(-5);
+  for (const line of recentLines) {
+    for (const pattern of AGENT_ALIVE_PATTERNS) {
+      if (pattern.test(line)) {
+        return true;
+      }
     }
   }
 
-  // No conclusive indicator — assume alive (conservative default).
+  // No conclusive indicator → assume alive (conservative default).
   return true;
 }
 
@@ -111,7 +105,7 @@ export async function isAgentAliveInPane(sessionName: string): Promise<boolean> 
  * Steps:
  *  1. Send C-c twice to cancel any partial input and return to a clean prompt.
  *  2. Re-send the original launch command.
- *  3. Poll up to 30s for the agent to show a ready/alive indicator.
+ *  3. Poll for up to 30s with exponential backoff for the agent to show a ready/alive indicator.
  *
  * Fork-only logic (bd-tln).
  */
@@ -143,26 +137,47 @@ export async function restartAgentCli(handle: RuntimeHandle): Promise<void> {
       } catch {
         /* ignore cleanup errors */
       }
+      try {
+        await tmux("delete-buffer", "-b", bufferName);
+      } catch {
+        /* Buffer may already be deleted by -d flag — that's fine */
+      }
     }
     await sleep(300);
     await tmux("send-keys", "-t", handle.id, "Enter");
   } else {
-    await tmux("send-keys", "-t", handle.id, launchCommand, "Enter");
+    // Use -l (literal) so tokens like "Enter" in the command aren't interpreted as keypresses
+    await tmux("send-keys", "-t", handle.id, "-l", launchCommand);
+    await sleep(300);
+    await tmux("send-keys", "-t", handle.id, "Enter");
   }
 
-  // Poll up to 30s (6 × 5s intervals) for the agent to show an alive indicator
-  const pollIntervalMs = 5_000;
-  const maxAttempts = 6;
-  for (let i = 0; i < maxAttempts; i++) {
-    await sleep(pollIntervalMs);
+  // Poll up to 30s with exponential backoff: 1s, 2s, 4s, 5s, 5s, 5s (total ~22s)
+  const pollIntervals = [1_000, 2_000, 4_000, 5_000, 5_000, 5_000];
+  for (const interval of pollIntervals) {
+    // Immediate first check (interval 0 = 0ms delay), then sleep between subsequent checks
+    if (interval > 0) {
+      await sleep(interval);
+    }
     const alive = await isAgentAliveInPane(handle.id);
     if (alive) {
       return;
     }
   }
 
-  // Only include executable name in error to avoid leaking full command
-  const executable = launchCommand.split(" ")[0] ?? "agent";
+  // Extract executable name without env-prefix tokens (e.g. "NODE_ENV=production node")
+  const tokens = launchCommand.trim().split(/\s+/);
+  let executable = "agent";
+  for (const token of tokens) {
+    // Skip tokens that are env assignments (e.g. "NODE_ENV=production", "FOO=bar")
+    if (/^[a-zA-Z_][a-zA-Z0-9_]*=/u.test(token)) {
+      continue;
+    }
+    // First non-assignment token is the executable
+    executable = token.split("/").pop() ?? token;
+    break;
+  }
+
   throw new Error(
     `Agent CLI did not restart within 30s in session "${handle.id}" (command: ${executable})`,
   );
