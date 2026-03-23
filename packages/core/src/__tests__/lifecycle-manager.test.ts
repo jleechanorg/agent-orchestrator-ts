@@ -3354,3 +3354,83 @@ describe("workspace-deleted detection", () => {
     expect(lm.getStates().get("app-1")).not.toBe("killed");
   });
 });
+
+describe("worktree cleanup on terminal transitions", () => {
+  it("calls sessionManager.kill() when session transitions to killed to clean up worktree", async () => {
+    vi.mocked(mockRuntime.isAlive).mockResolvedValue(false);
+    vi.mocked(mockAgent.getActivityState).mockResolvedValue({ state: "exited" });
+
+    const session = makeSession({ status: "working" });
+    vi.mocked(mockSessionManager.get).mockResolvedValue(session);
+
+    writeMetadata(sessionsDir, "app-1", {
+      worktree: "/tmp/test-worktree",
+      branch: "feat/test",
+      status: "working",
+      project: "my-app",
+    });
+
+    const lm = createLifecycleManager({
+      config,
+      registry: mockRegistry,
+      sessionManager: mockSessionManager,
+    });
+
+    await lm.check("app-1");
+
+    expect(lm.getStates().get("app-1")).toBe("killed");
+    expect(mockSessionManager.kill).toHaveBeenCalledWith("app-1");
+  });
+
+  it("calls sessionManager.kill() when session transitions to merged", async () => {
+    const session = makeSession({
+      status: "merged",
+      metadata: { status: "working" },
+    });
+    vi.mocked(mockSessionManager.get).mockResolvedValue(session);
+    vi.mocked(mockRuntime.isAlive).mockResolvedValue(true);
+
+    writeMetadata(sessionsDir, "app-1", {
+      worktree: "/tmp/test-worktree",
+      branch: "feat/test",
+      status: "working",
+      project: "my-app",
+    });
+
+    const lm = createLifecycleManager({
+      config,
+      registry: mockRegistry,
+      sessionManager: mockSessionManager,
+    });
+
+    await lm.check("app-1");
+
+    expect(mockSessionManager.kill).toHaveBeenCalledWith("app-1");
+  });
+
+  it("does not call kill() when session stays in working state", async () => {
+    vi.mocked(mockRuntime.isAlive).mockResolvedValue(true);
+    vi.mocked(mockAgent.getActivityState).mockResolvedValue({ state: "active" });
+
+    const session = makeSession({ status: "working" });
+    vi.mocked(mockSessionManager.get).mockResolvedValue(session);
+
+    writeMetadata(sessionsDir, "app-1", {
+      worktree: "/tmp/test-worktree",
+      branch: "feat/test",
+      status: "working",
+      project: "my-app",
+    });
+
+    const lm = createLifecycleManager({
+      config,
+      registry: mockRegistry,
+      sessionManager: mockSessionManager,
+    });
+
+    await lm.check("app-1");
+
+    expect(lm.getStates().get("app-1")).toBe("working");
+    expect(mockSessionManager.kill).not.toHaveBeenCalled();
+  });
+});
