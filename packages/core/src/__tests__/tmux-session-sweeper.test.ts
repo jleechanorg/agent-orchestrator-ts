@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 
 // Use vi.hoisted so we can reference mock functions inside vi.mock factory
 // and also access them in beforeEach/afterEach for per-test setup.
