@@ -36,9 +36,27 @@ function makeFingerprint(ids: string[]): string {
   return [...ids].sort().join(",");
 }
 
+// bd-yjo: Per-session poll counter for throttling review backlog checks.
+// Only run full API check every REVIEW_BACKLOG_INTERVAL polls (always on transitions).
+const pollCounters = new Map<string, number>();
+const REVIEW_BACKLOG_INTERVAL = 3;
+
+/** Reset poll counter for a session. Exported for testing. */
+export function resetReviewBacklogCounter(sessionId: string): void {
+  pollCounters.delete(sessionId);
+}
+
+/** Reset all poll counters. Exported for testing. */
+export function resetAllReviewBacklogCounters(): void {
+  pollCounters.clear();
+}
+
 /**
  * Dispatch review reactions when the set of pending comments changes.
  * Called after each session check in the lifecycle polling loop.
+ *
+ * bd-yjo: Throttled to run every REVIEW_BACKLOG_INTERVAL polls to reduce API calls.
+ * Always runs on status transitions (oldStatus !== newStatus).
  */
 export async function maybeDispatchReviewBacklog(
   session: Session,
@@ -74,24 +92,41 @@ export async function maybeDispatchReviewBacklog(
       },
       config,
     );
+    pollCounters.delete(session.id);
     return;
   }
 
-  const [pendingResult, automatedResult] = await Promise.allSettled([
-    scm.getPendingComments(session.pr),
-    scm.getAutomatedComments(session.pr),
-  ]);
+  // bd-yjo: Throttle — skip the expensive SCM API calls every Nth poll or on transitions.
+  // Fingerprint dispatch is also throttled so the reaction retry/escalateAfter logic
+  // advances at the same cadence as the fetches (avoids dispatching on stale fingerprints).
+  const isTransition = oldStatus !== newStatus;
+  const count = (pollCounters.get(session.id) ?? 0) + 1;
+  pollCounters.set(session.id, count);
+  const shouldThrottle = !isTransition && count % REVIEW_BACKLOG_INTERVAL !== 1;
 
-  // null means "failed to fetch" — preserve existing metadata.
-  // [] means "confirmed no comments" — safe to clear.
-  const pendingComments =
-    pendingResult.status === "fulfilled" && Array.isArray(pendingResult.value)
-      ? pendingResult.value
-      : null;
-  const automatedComments =
-    automatedResult.status === "fulfilled" && Array.isArray(automatedResult.value)
-      ? automatedResult.value
-      : null;
+  // bd-4nz: Skip automated comment polling when configured (saves 1+ REST calls/session)
+  const skipAutomated = project.scm?.skipAutomatedCommentPolling === true;
+
+  let pendingComments: Awaited<ReturnType<typeof scm.getPendingComments>> | null = null;
+  let automatedComments: Awaited<ReturnType<typeof scm.getAutomatedComments>> | null = null;
+
+  if (!shouldThrottle) {
+    const [pendingResult, automatedResult] = await Promise.allSettled([
+      scm.getPendingComments(session.pr),
+      skipAutomated ? Promise.resolve(null) : scm.getAutomatedComments(session.pr),
+    ]);
+
+    // null means "failed to fetch" — preserve existing metadata.
+    // [] means "confirmed no comments" — safe to clear.
+    pendingComments =
+      pendingResult.status === "fulfilled" && Array.isArray(pendingResult.value)
+        ? pendingResult.value
+        : null;
+    automatedComments =
+      automatedResult.status === "fulfilled" && Array.isArray(automatedResult.value)
+        ? automatedResult.value
+        : null;
+  }
 
   // --- Pending (human) review comments ---
   if (pendingComments !== null) {
@@ -139,6 +174,7 @@ export async function maybeDispatchReviewBacklog(
         );
       }
     } else if (
+      !shouldThrottle &&
       !(oldStatus !== newStatus && newStatus === "changes_requested") &&
       pendingFingerprint !== lastPendingDispatchHash
     ) {
@@ -195,7 +231,7 @@ export async function maybeDispatchReviewBacklog(
         },
         config,
       );
-    } else if (automatedFingerprint !== lastAutomatedDispatchHash) {
+    } else if (!shouldThrottle && automatedFingerprint !== lastAutomatedDispatchHash) {
       const reactionConfig = getReactionConfigForSession(session, automatedReactionKey);
       if (
         reactionConfig &&

@@ -160,11 +160,14 @@ export async function sendKeys(
   }
 
   if (pressEnter) {
-    // Delay for paste to complete before sending Enter
-    // Higher delay needed when using paste-buffer to ensure tmux processes the paste
-    // before receiving the Enter keystroke (especially with Claude permission prompts)
+    // Adaptive delay (bd-orch2v3, bd-qhf): long/multiline messages need more time for
+    // tmux to render the paste before Enter arrives. Flat 1000ms was insufficient for
+    // large messages. Formula: base 1000ms + 200ms per KB (UTF-8 bytes), capped at 2000ms.
+    // Uses Buffer.byteLength to correctly count UTF-8 bytes for emoji/CJK strings.
     if (text.includes("\n") || text.length > 200) {
-      await new Promise((resolve) => setTimeout(resolve, 1000));
+      const byteLen = Buffer.byteLength(text, "utf8");
+      const delayMs = Math.min(1000 + Math.ceil(byteLen / 1000) * 200, 2000);
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
     }
     await tmux("send-keys", "-t", sessionName, "Enter");
   }

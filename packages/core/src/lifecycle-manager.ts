@@ -48,11 +48,14 @@ import { resolveAgentSelection, resolveSessionRole } from "./agent-selection.js"
 import type { OutcomeRecorder } from "./outcome-recorder.js";
 import { buildReactionContext } from "./reaction-context.js";
 import { validateAndEmitExitProof } from "./session-exit-proof.js";
+import { isPRMerged } from "./fork-lifecycle-kki-override.js";
 import { handleRequestMerge, handleParallelRetry } from "./fork-reaction-handlers.js";
 import { maybeDispatchReviewBacklog } from "./review-backlog.js";
 import { updateSessionMetadataHelper } from "./fork-utils.js";
 import { checkMergeGate } from "./merge-gate.js";
 import { GLOBAL_PAUSE_UNTIL_KEY, GLOBAL_PAUSE_REASON_KEY, parsePauseUntil } from "./global-pause.js";
+import { isGhRateLimitError } from "./gh-rate-limit.js";
+import { backfillUncoveredPRs } from "./backfill-extensions.js";
 
 /** Parse a duration string like "10m", "30s", "1h" to milliseconds. */
 export function parseDuration(str: string): number {
@@ -214,9 +217,11 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
 
   const states = new Map<SessionId, SessionStatus>();
   const reactionTrackers = new Map<string, ReactionTracker>(); // "sessionId:reactionKey"
+  const mergeRetryTimestamps = new Map<string, number>(); // "merge-retry-{sessionId}" → last attempt epoch
   let pollTimer: ReturnType<typeof setInterval> | null = null;
   let polling = false; // re-entrancy guard
   let allCompleteEmitted = false; // guard against repeated all_complete
+  let everHadSessions = false; // tracks whether any sessions have ever been observed
 
   /** Check if idle time exceeds the agent-stuck threshold. */
   function isIdleBeyondThreshold(session: Session, idleTimestamp: Date): boolean {
@@ -255,24 +260,42 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     // Track activity state across steps so stuck detection can run after PR checks
     let detectedIdleTimestamp: Date | null = null;
 
+    // Track whether agent is dead so we can return "killed" AFTER PR checks
+    // (bd-ara auto-merge fix: agent exit must not mask a mergeable PR)
+    let agentDead = false;
+
     // 1. Check if runtime is alive
     if (session.runtimeHandle && runtime) {
       const alive = await runtime.isAlive(session.runtimeHandle).catch(() => true);
-      if (!alive) return "killed";
+      if (!alive) {
+        // Don't return "killed" yet — if the session has a PR (or might have
+        // one discoverable via branch-based auto-detect in step 3), check PR
+        // state first so auto-merge can fire for green PRs with exited agents.
+        if (!scm) return "killed";
+        agentDead = true;
+      }
 
-      await detectAndApplyRateLimitPause(config.configPath, session, project, runtime, sessionManager);
+      if (!agentDead) {
+        await detectAndApplyRateLimitPause(config.configPath, session, project, runtime, sessionManager);
+      }
     }
 
     // 2. Check agent activity — prefer JSONL-based detection (runtime-agnostic)
-    if (agent && session.runtimeHandle) {
+    if (!agentDead && agent && session.runtimeHandle) {
       try {
         // Try JSONL-based activity detection first (reads agent's session files directly)
         const activityState = await agent.getActivityState(session, config.readyThresholdMs);
         if (activityState) {
           if (activityState.state === "waiting_input") return "needs_input";
-          if (activityState.state === "exited") return "killed";
+          if (activityState.state === "exited") {
+            // Don't return "killed" yet — defer to step 3 (branch-based PR
+            // auto-detect) and step 4 (PR state checks) before giving up.
+            if (!scm) return "killed";
+            agentDead = true;
+          }
 
           if (
+            !agentDead &&
             (activityState.state === "idle" || activityState.state === "blocked") &&
             activityState.timestamp
           ) {
@@ -293,7 +316,10 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
             if (activity === "waiting_input") return "needs_input";
 
             const processAlive = await agent.isProcessRunning(session.runtimeHandle);
-            if (!processAlive) return "killed";
+            if (!processAlive) {
+              if (!scm) return "killed";
+              agentDead = true;
+            }
           }
         }
       } catch {
@@ -339,29 +365,57 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     // 4. Check PR state if PR exists
     if (session.pr && scm) {
       try {
-        const prState = await scm.getPRState(session.pr);
-        if (prState === PR_STATE.MERGED) return "merged";
-        if (prState === PR_STATE.CLOSED) return "killed";
-
-        // Check CI
-        const ciStatus = await scm.getCISummary(session.pr);
-        if (ciStatus === CI_STATUS.FAILING) return "ci_failed";
-
-        // Check reviews
-        const reviewDecision = await scm.getReviewDecision(session.pr);
-        if (reviewDecision === "changes_requested") return "changes_requested";
-        if (reviewDecision === "approved" || reviewDecision === "none") {
-          // Check merge readiness — treat "none" (no reviewers required)
-          // the same as "approved" so CI-green PRs reach "mergeable" status
-          // and fire the merge.ready event / approved-and-green reaction.
-          const mergeReady = await scm.getMergeability(session.pr);
-          if (mergeReady.mergeable) return "mergeable";
-          // Check for merge conflicts — emit merge.conflicts event so users
-          // can configure reactions (e.g., send-to-agent to resolve conflicts)
-          if (!mergeReady.noConflicts) return "merge_conflicts";
-          if (reviewDecision === "approved") return "approved";
+        // bd-att: Use batch query when available (~1 gh call instead of ~6).
+        // If batch fails, fall back to individual calls rather than silently
+        // preserving stale status.
+        let usedBatch = false;
+        if (scm.getBatchPRStatus) {
+          try {
+            const batch = await scm.getBatchPRStatus(session.pr);
+            usedBatch = true;
+            if (batch.state === PR_STATE.MERGED) return "merged";
+            if (batch.state === PR_STATE.CLOSED) return "killed";
+            if (batch.ciStatus === CI_STATUS.FAILING) return "ci_failed";
+            if (batch.reviewDecision === "changes_requested") return "changes_requested";
+            if (batch.reviewDecision === "approved" || batch.reviewDecision === "none") {
+              if (batch.mergeReadiness.mergeable) return "mergeable";
+              if (!batch.mergeReadiness.noConflicts) return "merge_conflicts";
+              if (batch.reviewDecision === "approved") return "approved";
+            }
+            if (batch.reviewDecision === "pending") return "review_pending";
+          } catch (err) {
+            // bd-att: If batch failed due to a GitHub API rate limit (or network error),
+            // DO NOT fall back. Rethrow so determineStatus exits immediately.
+            // Failing back would cause an immediate 4-5x thundering herd of individual queries!
+            if (isGhRateLimitError(err)) throw err;
+            // Otherwise, batch failed (e.g. unsupported) — fall through to individual calls
+          }
         }
-        if (reviewDecision === "pending") return "review_pending";
+        if (!usedBatch) {
+          // Fallback: individual calls (no batch support or batch failed)
+          const prState = await scm.getPRState(session.pr);
+          if (prState === PR_STATE.MERGED) return "merged";
+          if (prState === PR_STATE.CLOSED) return "killed";
+
+          const ciStatus = await scm.getCISummary(session.pr);
+          if (ciStatus === CI_STATUS.FAILING) return "ci_failed";
+
+          // Check reviews
+          const reviewDecision = await scm.getReviewDecision(session.pr);
+          if (reviewDecision === "changes_requested") return "changes_requested";
+          if (reviewDecision === "approved" || reviewDecision === "none") {
+            // bd-wg5: Skip getMergeability when CI is pending
+            if (ciStatus === CI_STATUS.PENDING) {
+              if (reviewDecision === "approved") return "approved";
+              return "pr_open";
+            }
+            const mergeReady = await scm.getMergeability(session.pr);
+            if (mergeReady.mergeable) return "mergeable";
+            if (!mergeReady.noConflicts) return "merge_conflicts";
+            if (reviewDecision === "approved") return "approved";
+          }
+          if (reviewDecision === "pending") return "review_pending";
+        }
 
         // 4b. Post-PR stuck detection: agent has a PR open but is idle beyond
         // threshold. This catches the case where step 2's stuck check was
@@ -372,11 +426,19 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
           return "stuck";
         }
 
+        // Agent is dead but PR isn't in a merge-ready state — kill the session
+        if (agentDead) return "killed";
+
         return "pr_open";
       } catch {
-        // SCM check failed — keep current status
+        // SCM check failed — keep current status so next poll can retry.
+        // Don't kill dead-agent sessions on transient SCM failures; they
+        // may still have a mergeable PR once the SCM recovers.
       }
     }
+
+    // bd-ara: If agent is dead but we had no PR branch to check, kill
+    if (agentDead) return "killed";
 
     // 5. Post-all stuck detection: if we detected idle in step 2 but had no PR,
     // still check stuck threshold. This handles agents that finish without creating a PR.
@@ -402,7 +464,20 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     reactionKey: string,
     reactionConfig: ReactionConfig,
     session?: Session,
+    correlationId?: string,
   ): Promise<ReactionResult> {
+    const reactionCorrelationId = correlationId ?? createCorrelationId("reaction");
+    observer.recordOperation({
+      metric: "lifecycle_poll",
+      operation: "lifecycle.reaction.start",
+      outcome: "info",
+      correlationId: reactionCorrelationId,
+      projectId,
+      sessionId,
+      data: { reactionKey, action: reactionConfig.action, auto: reactionConfig.auto },
+      level: "info",
+    });
+
     const trackerKey = `${sessionId}:${reactionKey}`;
     let tracker = reactionTrackers.get(trackerKey);
 
@@ -473,8 +548,20 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
               message: finalMessage,
               escalated: false,
             };
-          } catch {
+          } catch (sendErr) {
             // Send failed — allow retry on next poll cycle (don't escalate immediately)
+            const sendErrMsg = sendErr instanceof Error ? sendErr.message : String(sendErr);
+            observer.recordOperation({
+              metric: "lifecycle_poll",
+              operation: "lifecycle.reaction.send_failed",
+              outcome: "failure",
+              reason: sendErrMsg,
+              correlationId: reactionCorrelationId,
+              projectId,
+              sessionId,
+              data: { reactionKey, error: sendErrMsg },
+              level: "warn",
+            });
             return {
               reactionType: reactionKey,
               success: false,
@@ -682,14 +769,77 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     const tracked = states.get(session.id);
     const oldStatus =
       tracked ?? ((session.metadata?.["status"] as SessionStatus | undefined) || session.status);
-    const newStatus = await determineStatus(session);
+    let newStatus = await determineStatus(session);
     let transitionReaction: { key: string; result: ReactionResult | null } | undefined;
+
+    // bd-kki: check if PR is merged before recording "killed" status.
+    // If the SCM call fails (transient error), the session stays in its previous
+    // state and will be retried on the next poll — avoiding zombie tmux sessions
+    // caused by a failed SCM check locking in a terminal "killed" state.
+    if (newStatus === "killed" && session.pr) {
+      const merged = await isPRMerged(session, config, registry);
+      if (merged) newStatus = "merged";
+    }
 
     if (newStatus !== oldStatus) {
       const correlationId = createCorrelationId("lifecycle-transition");
-      // State transition detected
-      states.set(session.id, newStatus);
-      updateSessionMetadata(session, { status: newStatus });
+
+      // bd-kki: when transitioning to killed and session has a PR, verify the PR is
+      // actually merged before persisting the killed state — the runtime/activity check
+      // in determineStatus may have fired before the SCM PR-state check.  If SCM is
+      // unreachable, skip persisting so the next poll can retry.
+      let effectiveStatus = newStatus;
+      // mergedConfirmed is set by the SCM check below and reused in the terminal-block
+      // belt-and-suspenders section to avoid a second getPRState() call.
+      let mergedConfirmed = false;
+      if (
+        newStatus === "killed" &&
+        TERMINAL_STATUSES.has(oldStatus) === false &&
+        session.pr
+      ) {
+        const project = config.projects[session.projectId];
+        const scm = project?.scm ? registry.get<SCM>("scm", project.scm.plugin) : null;
+        if (scm) {
+          try {
+            const prState = await scm.getPRState(session.pr);
+            mergedConfirmed = prState === PR_STATE.MERGED;
+            if (prState === PR_STATE.OPEN) {
+              // PR still open — agent died but PR is alive; skip persisting
+              // killed so next poll can re-check PR state for auto-merge.
+              effectiveStatus = oldStatus;
+            }
+            // PR is merged or closed — proceed with killed transition
+          } catch {
+            // SCM unreachable — skip persisting killed, retry next poll
+            effectiveStatus = oldStatus;
+          }
+        }
+      }
+
+      // Skip persisting if bd-kki check absorbed the killed transition — keep session
+      // in oldStatus so the next poll can retry the SCM check.
+      if (effectiveStatus !== oldStatus) {
+        // State transition detected
+        states.set(session.id, effectiveStatus);
+        updateSessionMetadata(session, { status: effectiveStatus });
+      } else {
+        // Preserve oldStatus so the next poll can re-evaluate the SCM check.
+        // Bugbot bd-25aa4f11: storing newStatus ("killed") caused the next poll
+        // to see oldStatus="killed" matching newStatus="killed", breaking retry.
+        states.set(session.id, oldStatus);
+        // CR (bd-xxx): still dispatch review backlog on absorbed polls so steady-state
+        // PR sessions continue receiving comment notifications even when the killed
+        // transition is absorbed and no status change is persisted.
+        await maybeDispatchReviewBacklog(session, oldStatus, effectiveStatus, {
+          config,
+          registry,
+          clearReactionTracker,
+          getReactionConfigForSession,
+          executeReaction,
+        }, undefined);
+        return;
+      }
+
       observer.recordOperation({
         metric: "lifecycle_poll",
         operation: "lifecycle.transition",
@@ -701,8 +851,8 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         level: transitionLogLevel(newStatus),
       });
 
-      // Reset allCompleteEmitted when any session becomes active again
-      if (newStatus !== "merged" && newStatus !== "killed") {
+      // Reset allCompleteEmitted when any session becomes active again (bd-e4t)
+      if (!TERMINAL_STATUSES.has(newStatus)) {
         allCompleteEmitted = false;
       }
 
@@ -727,21 +877,71 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
           if (reactionConfig && reactionConfig.action) {
             // auto: false skips automated agent actions but still allows notifications
             if (reactionConfig.auto !== false || reactionConfig.action === "notify") {
+              // Reaction will execute
               const reactionResult = await executeReaction(
                 session.id,
                 session.projectId,
                 reactionKey,
                 reactionConfig,
                 session,
+                correlationId,
               );
               transitionReaction = { key: reactionKey, result: reactionResult };
+              observer.recordOperation({
+                metric: "lifecycle_poll",
+                operation: "lifecycle.reaction.result",
+                outcome: reactionResult?.success ? "success" : "failure",
+                correlationId,
+                projectId: session.projectId,
+                sessionId: session.id,
+                data: {
+                  reactionKey,
+                  action: reactionResult?.action,
+                  escalated: reactionResult?.escalated,
+                  success: reactionResult?.success,
+                },
+                level: reactionResult?.success ? "info" : "warn",
+              });
               // Reaction is handling this event — suppress immediate human notification.
               // "send-to-agent" retries + escalates on its own; "notify"/"auto-merge"
               // already call notifyHuman internally. Notifying here would bypass the
               // delayed escalation behaviour configured via retries/escalateAfter.
               reactionHandledNotify = true;
+            } else {
+              observer.recordOperation({
+                metric: "lifecycle_poll",
+                operation: "lifecycle.reaction.skipped",
+                outcome: "success",
+                correlationId,
+                projectId: session.projectId,
+                sessionId: session.id,
+                data: { reactionKey, reason: "auto_disabled", auto: reactionConfig.auto, action: reactionConfig.action },
+                level: "info",
+              });
             }
+          } else {
+            observer.recordOperation({
+              metric: "lifecycle_poll",
+              operation: "lifecycle.reaction.skipped",
+              outcome: "success",
+              correlationId,
+              projectId: session.projectId,
+              sessionId: session.id,
+              data: { reactionKey, reason: "no_action", hasConfig: !!reactionConfig, action: reactionConfig?.action },
+              level: "info",
+            });
           }
+        } else {
+          observer.recordOperation({
+            metric: "lifecycle_poll",
+            operation: "lifecycle.reaction.skipped",
+            outcome: "success",
+            correlationId,
+            projectId: session.projectId,
+            sessionId: session.id,
+            data: { eventType, reason: "no_reaction_key" },
+            level: "info",
+          });
         }
 
         // For transitions not already notified by a reaction, notify humans.
@@ -758,9 +958,136 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
           await notifyHuman(event, priority);
         }
       }
+
+      await maybeDispatchReviewBacklog(session, oldStatus, effectiveStatus, {
+        config,
+        registry,
+        clearReactionTracker,
+        getReactionConfigForSession,
+        executeReaction,
+      }, transitionReaction);
+
+      // Session exit reconciliation (bd-uxs.6): validate commits and emit proof on terminal states
+      if (TERMINAL_STATUSES.has(effectiveStatus) && !TERMINAL_STATUSES.has(oldStatus)) {
+        await validateAndEmitExitProof(session, effectiveStatus, {
+          config,
+          registry,
+          observer,
+          notifyHuman,
+          createEvent,
+        });
+
+        // Record outcome for strategy learning (bd-nig)
+        // Guarded: disk errors must not break session lifecycle checks
+        if (outcomeRecorder) {
+          try {
+            const success = effectiveStatus === "merged";
+            outcomeRecorder.record({
+              sessionId: session.id,
+              projectId: session.projectId,
+              trigger: session.metadata["trigger"] ?? "unknown",
+              action: session.metadata["action"] ?? "unknown",
+              strategy: session.metadata["strategy"],
+              errorClass: session.metadata["errorClass"],
+              success,
+              durationMs: Date.now() - new Date(session.createdAt).getTime(),
+              error: !success ? `Session ended with status: ${effectiveStatus}` : undefined,
+              prNumber: session.pr?.number,
+              recordedAt: new Date().toISOString(),
+            });
+          } catch (recordErr) {
+            console.warn(
+              `Failed to record outcome for session ${session.id}:`,
+              recordErr instanceof Error ? recordErr.message : String(recordErr),
+            );
+          }
+        }
+
+        // bd-s4t.1 + bd-e4t + bd-kki: when a session reaches ANY terminal state,
+        // proactively clean up runtime and worktree. Without this, dead sessions
+        // leave orphaned worktrees that lock branches and block future spawns.
+        // Orchestrator sessions are excluded: killing the orchestrator would clear
+        // its rate-limit pause metadata, breaking the pause mechanism.
+        if (TERMINAL_STATUSES.has(effectiveStatus) && !isOrchestratorSession(session)) {
+          try {
+            await sessionManager.kill(session.id);
+          } catch (killErr) {
+            observer.recordOperation({
+              metric: "lifecycle_poll",
+              operation: "lifecycle.terminal_cleanup",
+              outcome: "failure",
+              correlationId: createCorrelationId("lifecycle-cleanup"),
+              projectId: session.projectId,
+              sessionId: session.id,
+              data: { error: killErr instanceof Error ? killErr.message : String(killErr) },
+              level: "warn",
+            });
+          }
+        }
+
+      }
+
+      // bd-kki: belt-and-suspenders. When the first absorb check ran (non-terminal
+      // oldStatus) and confirmed merged=true, mergedConfirmed is already set so no
+      // second SCM call is needed.  When oldStatus was already terminal the absorb
+      // check did not run — re-check SCM once and call kill() if merged.
+      // Placed OUTSIDE the !TERMINAL_STATUSES.has(oldStatus) guard so it can fire
+      // for terminal→killed transitions (e.g. errored→killed).
+      if (effectiveStatus === "killed" && session.pr) {
+        if (mergedConfirmed) {
+          // Absorb check confirmed merged — kill using cached result
+          await sessionManager.kill(session.id);
+        } else if (TERMINAL_STATUSES.has(oldStatus)) {
+          // Terminal→killed transition: re-check SCM once to catch merged PRs
+          const project = config.projects[session.projectId];
+          const scm = project?.scm ? registry.get<SCM>("scm", project.scm.plugin) : null;
+          if (scm) {
+            try {
+              if ((await scm.getPRState(session.pr)) === PR_STATE.MERGED) {
+                await sessionManager.kill(session.id);
+              }
+            } catch {
+              // SCM unreachable — skip kill; next poll will retry if status changes
+            }
+          }
+        }
+      }
     } else {
       // No transition but track current state
       states.set(session.id, newStatus);
+
+      // Retry auto-merge when status stays "mergeable" — the approved-and-green
+      // reaction fires on transition but may fail (e.g., merge gate fails due to
+      // GraphQL rate limit treating all comments as unresolved). Re-attempt on
+      // subsequent polls so transient gate failures don't permanently block merge.
+      // Cooldown: only retry once per 5 minutes to avoid notification spam and
+      // reaction budget exhaustion (bd-ara CR feedback).
+      if (newStatus === "mergeable") {
+        const reactionKey = "approved-and-green";
+        const reactionConfig = getReactionConfigForSession(session, reactionKey);
+        if (
+          reactionConfig?.action === "auto-merge" &&
+          reactionConfig.auto !== false
+        ) {
+          const MERGE_RETRY_COOLDOWN_MS = 5 * 60_000;
+          const lastAttemptKey = `merge-retry-${session.id}`;
+          const now = Date.now();
+          const lastAttempt = (mergeRetryTimestamps as Map<string, number>).get(lastAttemptKey) ?? 0;
+          if (now - lastAttempt >= MERGE_RETRY_COOLDOWN_MS) {
+            (mergeRetryTimestamps as Map<string, number>).set(lastAttemptKey, now);
+            const result = await executeReaction(
+              session.id,
+              session.projectId,
+              reactionKey,
+              reactionConfig,
+              session,
+            );
+            if (result?.success) {
+              transitionReaction = { key: reactionKey, result };
+            }
+          }
+        }
+      }
     }
 
     await maybeDispatchReviewBacklog(session, oldStatus, newStatus, {
@@ -807,13 +1134,34 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         }
       }
 
-      // bd-s4t.1: when a session reaches merged, proactively kill the runtime
-      // to prevent zombie tmux sessions lingering after merge.
-      // Placed here (after exit proof validation and outcome recording) to ensure
-      // worktree is available for commit validation in validateAndEmitExitProof.
-      if (newStatus === "merged") {
-        await sessionManager.kill(session.id);
+      // bd-s4t.1 + bd-e4t: when a session reaches ANY terminal state (merged,
+      // killed, etc.), proactively clean up runtime and worktree. Without this,
+      // dead sessions leave orphaned worktrees that lock branches and block
+      // future `ao spawn --claim-pr` calls (git refuses to checkout a branch
+      // already checked out in another worktree). Placed after exit proof
+      // validation and outcome recording so the worktree is still available
+      // for commit validation in validateAndEmitExitProof.
+      // Orchestrator sessions are excluded: killing the orchestrator would clear
+      // its rate-limit pause metadata, breaking the pause mechanism.
+      if (TERMINAL_STATUSES.has(newStatus) && !isOrchestratorSession(session)) {
+        try {
+          await sessionManager.kill(session.id);
+        } catch (killErr) {
+          // kill() may fail if session is already partially cleaned up.
+          // Log so operators can see cleanup failures rather than silently losing them.
+          observer.recordOperation({
+            metric: "lifecycle_poll",
+            operation: "lifecycle.terminal_cleanup",
+            outcome: "failure",
+            correlationId: createCorrelationId("lifecycle-cleanup"),
+            projectId: session.projectId,
+            sessionId: session.id,
+            data: { error: killErr instanceof Error ? killErr.message : String(killErr) },
+            level: "warn",
+          });
+        }
       }
+
     }
   }
 
@@ -845,6 +1193,14 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         pausedProjects.set(session.projectId, until);
       }
 
+      // Track whether any sessions have been observed across all poll cycles.
+      // list() only returns active (non-terminal) sessions, so when all sessions
+      // reach a terminal state sessions.length drops to 0. We need this flag to
+      // distinguish "never had sessions" (startup) from "all sessions completed".
+      if (sessions.length > 0) {
+        everHadSessions = true;
+      }
+
       // Include sessions that are active OR whose status changed from what we last saw
       // (e.g., list() detected a dead runtime and marked it "killed" — we need to
       // process that transition even though the new status is terminal).
@@ -853,9 +1209,8 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       const sessionsToCheck = sessions.filter((s) => {
         // Skip terminal statuses only if we've already seen and processed this session.
         // If tracked is undefined (e.g., after lifecycle manager restart), allow it
-        // through once so exit proof and outcome can be emitted.
-        const isTerminal = s.status === "merged" || s.status === "killed";
-        if (isTerminal) {
+        // through once so exit proof and outcome can be emitted (bd-e4t).
+        if (TERMINAL_STATUSES.has(s.status)) {
           const tracked = states.get(s.id);
           return tracked === undefined || tracked !== s.status;
         }
@@ -887,9 +1242,8 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         }
         // Skip non-orchestrator sessions if project is currently paused.
         // Terminal sessions bypass so exit proof, outcome recording, and cleanup
-        // are not delayed.
-        const isTerminal = s.status === "merged" || s.status === "killed";
-        if (pausedProjects.has(s.projectId) && !isOrchestratorSession(s) && !isTerminal) {
+        // are not delayed (bd-e4t).
+        if (pausedProjects.has(s.projectId) && !isOrchestratorSession(s) && !TERMINAL_STATUSES.has(s.status)) {
           continue;
         }
         await checkSession(s).catch((err) => {
@@ -923,15 +1277,41 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
           reactionTrackers.delete(trackerKey);
         }
       }
+      for (const retryKey of mergeRetryTimestamps.keys()) {
+        const sessionId = retryKey.replace("merge-retry-", "");
+        if (!currentSessionIds.has(sessionId)) {
+          mergeRetryTimestamps.delete(retryKey);
+        }
+      }
 
-      // bd-awq: PR poller disabled — the orchestrator session handles PR discovery
-      // and worker spawning via `ao spawn --claim-pr`. The poller was spawning
-      // generic sessions without PR claims, causing duplicates and sessions on
-      // wrong branches. See bd-b02 for the full analysis.
-      const activeSessions = sessions.filter((s) => s.status !== "merged" && s.status !== "killed");
+      const activeSessions = sessions.filter((s) => !TERMINAL_STATUSES.has(s.status));
 
-      // Check if all sessions are complete (trigger reaction only once)
-      if (sessions.length > 0 && activeSessions.length === 0 && !allCompleteEmitted) {
+      // backfillAllPRs: spawn sessions for open PRs that have no active session.
+      // Replaces the old orchestrator-session-based PR discovery (bd-awq) with a
+      // deterministic loop inside the lifecycle-worker itself.
+      let backfillSpawned = false;
+      if (scopedProjectId) {
+        const project = config.projects[scopedProjectId];
+        if (project?.backfillAllPRs) {
+          backfillSpawned = await backfillUncoveredPRs(
+            { registry, sessionManager, observer },
+            { projectId: scopedProjectId, project, activeSessions, correlationId },
+          );
+          // If we just spawned a session, skip all_complete — more work exists.
+          if (backfillSpawned) {
+            allCompleteEmitted = false;
+          }
+        }
+      }
+
+      // Check if all sessions are complete (trigger reaction only once).
+      // Use everHadSessions to avoid spurious all_complete on startup when no
+      // sessions have ever existed. Since list() filters out terminal sessions,
+      // sessions.length === 0 after all work is done — everHadSessions guards
+      // against the empty-at-startup case.
+      // Skip when backfillSpawned is true: activeSessions is stale (computed
+      // before the spawn) and would incorrectly trigger all_complete.
+      if (!backfillSpawned && everHadSessions && activeSessions.length === 0 && !allCompleteEmitted) {
         allCompleteEmitted = true;
 
         // Execute all-complete reaction if configured

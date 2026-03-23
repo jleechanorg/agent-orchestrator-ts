@@ -123,6 +123,23 @@ Additional fork features that make extra API calls:
 3. **NODE_DEBUG=http**: Incompatible with ESM modules — no per-endpoint HTTP breakdown possible.
 4. **Session mutation**: Lifecycle worker removes `pr=` field and adds `prAutoDetect=off` to sessions without runtimeHandle, requiring session reset between runs.
 
+## bd-8y9: Deep Code Analysis — Per-Cycle Call Attribution
+
+Code trace reveals fork and upstream make the **same structural calls** per session.
+Fork actually makes fewer (6 gh invocations vs 8) due to GhCache. The 86-call gap
+is environmental (retries, REST fallbacks, auto-orchestrator).
+
+### Reduction opportunities implemented (Phase 1)
+
+| # | Bead | Optimization | Status |
+|---|---|---|---|
+| 1 | bd-wg5 | Skip getMergeability when CI not passing | Done |
+| 2 | bd-91z | Increase GhCache TTL 15s → 60s | Done |
+| 3 | bd-4nz | Config flag to skip getAutomatedComments | Done |
+| 4 | bd-sm7 | Combine getPRState + getReviewDecision | Planned (Phase 2) |
+| 5 | bd-yjo | Throttle review backlog to every Nth poll | Planned (Phase 2) |
+| 6 | bd-att | Batch GraphQL query for all PR checks | Planned (Phase 3) |
+
 ## Conclusions
 
 The fork's API reduction strategy is **"poll less often" (10x interval)**, not
@@ -132,3 +149,7 @@ from additional features is more than offset by the 10x reduction in poll freque
 This is architecturally sound — the fork trades per-cycle overhead for better
 behavior under rate-limit pressure (pause state, fail-closed, retry with backoff).
 The poll interval change alone provides ~82% hourly reduction.
+
+Phase 1 quick wins skip unnecessary API calls when CI is not green and increase
+cache effectiveness. Phase 2-3 will further reduce calls through query combining
+and batching.

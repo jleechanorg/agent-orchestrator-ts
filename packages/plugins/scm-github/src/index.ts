@@ -7,11 +7,8 @@
 import { execFile } from "node:child_process";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { promisify } from "node:util";
-import { getGhCache, _resetGhCache } from "./gh-cache.js";
 import {
   CI_STATUS,
-  isGhRateLimitError,
-  ghSleep,
   type PluginModule,
   type SCM,
   type SCMWebhookEvent,
@@ -29,6 +26,7 @@ import {
   type ReviewComment,
   type AutomatedComment,
   type MergeReadiness,
+  type BatchPRStatus,
 } from "@jleechanorg/ao-core";
 import {
   getWebhookHeader,
@@ -68,9 +66,34 @@ function buildBotAuthors(config?: Record<string, unknown>): Set<string> {
 }
 
 // ---------------------------------------------------------------------------
-// Rate Limit Handling — uses shared utilities from ao-core
+// Rate Limit Handling
 // ---------------------------------------------------------------------------
 
+const RATE_LIMIT_ERROR_PATTERNS = [
+  "rate limit",
+  "rate Limit",
+  "API rate limit",
+  "GraphQL rate limit",
+  "rate limit exceeded",
+  "Too Many Requests",
+];
+
+function isRateLimitError(error: unknown): boolean {
+  const msg = error instanceof Error ? error.message : String(error);
+  if (
+    RATE_LIMIT_ERROR_PATTERNS.some((pattern) => msg.toLowerCase().includes(pattern.toLowerCase()))
+  ) {
+    return true;
+  }
+  if (error instanceof Error && error.cause) {
+    return isRateLimitError(error.cause);
+  }
+  return false;
+}
+
+async function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 /** Parsed `gh pr view ... --json a,b,c` for REST fallback synthesis. */
 type PrViewRestConversion = {
@@ -177,38 +200,10 @@ function mapRestReviewsToPrViewReviewsShape(reviewsUnknown: unknown): Array<{
   }));
 }
 
-/**
- * Map REST check-runs response to the same shape as GraphQL statusCheckRollup.
- * REST: GET /repos/{owner}/{repo}/commits/{sha}/check-runs
- * Each check run has: name, status (queued/in_progress/completed), conclusion (success/failure/...).
- */
-function mapRestCheckRunsToStatusCheckRollup(
-  checkRunsPayload: unknown,
-): Array<Record<string, unknown>> {
-  if (!checkRunsPayload || typeof checkRunsPayload !== "object") return [];
-  const data = checkRunsPayload as Record<string, unknown>;
-  const runs = Array.isArray(data.check_runs) ? data.check_runs : [];
-  return (runs as Array<Record<string, unknown>>).map((run) => ({
-    __typename: "CheckRun",
-    name: run.name ?? "",
-    status: typeof run.status === "string" ? run.status.toUpperCase() : "QUEUED",
-    conclusion: typeof run.conclusion === "string" ? run.conclusion.toUpperCase() : null,
-    state:
-      typeof run.conclusion === "string"
-        ? run.conclusion.toUpperCase()
-        : typeof run.status === "string"
-          ? run.status.toUpperCase()
-          : "QUEUED",
-    startedAt: run.started_at ?? undefined,
-    completedAt: run.completed_at ?? undefined,
-    detailsUrl: run.html_url ?? undefined,
-  }));
-}
-
 function synthesizePrViewJsonFromRest(
   rest: Record<string, unknown>,
   jsonFields: string[],
-  opts: { reviewDecision?: string; reviewsPayload?: unknown; checkRunsPayload?: unknown },
+  opts: { reviewDecision?: string; reviewsPayload?: unknown; statusCheckRollup?: unknown[] },
 ): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   const want = new Set(jsonFields);
@@ -247,11 +242,8 @@ function synthesizePrViewJsonFromRest(
     out.reviews = mapRestReviewsToPrViewReviewsShape(opts.reviewsPayload);
   }
 
-  if (want.has("statusCheckRollup")) {
-    out.statusCheckRollup =
-      opts.checkRunsPayload !== undefined
-        ? mapRestCheckRunsToStatusCheckRollup(opts.checkRunsPayload)
-        : [];
+  if (want.has("statusCheckRollup") && opts.statusCheckRollup !== undefined) {
+    out.statusCheckRollup = opts.statusCheckRollup;
   }
 
   for (const f of jsonFields) {
@@ -293,23 +285,34 @@ async function fetchPrViewFallbackAsJson(
     }
   }
 
-  // Fetch check-runs from REST when statusCheckRollup is requested.
-  // REST endpoint: GET /repos/{owner}/{repo}/commits/{sha}/check-runs
-  let checkRunsPayload: unknown;
+  // Fetch check-runs via REST when statusCheckRollup is requested.
+  // The REST PR object doesn't include statusCheckRollup, so we synthesize it
+  // from the /commits/{sha}/check-runs endpoint.
+  let statusCheckRollup: unknown[] | undefined;
   if (conv.jsonFields.includes("statusCheckRollup")) {
-    const head = restObj.head as Record<string, unknown> | undefined;
-    const sha = typeof head?.sha === "string" ? head.sha : null;
+    const headObj = restObj.head as Record<string, unknown> | undefined;
+    const sha = typeof headObj?.sha === "string" ? headObj.sha : undefined;
     if (sha) {
       try {
-        const checkRaw = await execCli(
+        const checksRaw = await execCli(
           "gh",
-          ["api", `repos/${conv.repo}/commits/${sha}/check-runs?per_page=100`],
+          ["api", `repos/${conv.repo}/commits/${sha}/check-runs`],
           cwd,
         );
-        checkRunsPayload = JSON.parse(checkRaw);
+        const checksData = JSON.parse(checksRaw) as { check_runs?: unknown[] };
+        statusCheckRollup = (checksData.check_runs ?? []).map(
+          (run: Record<string, unknown> | unknown) => {
+            const r = run as Record<string, unknown>;
+            return {
+              name: r.name,
+              state: mapCheckRunConclusionToState(r.conclusion, r.status),
+              detailsUrl: r.html_url,
+            };
+          },
+        );
       } catch {
-        // Non-critical — downstream will treat missing rollup as empty checks
-        checkRunsPayload = undefined;
+        // Best-effort: return empty rollup rather than failing the whole fallback
+        statusCheckRollup = [];
       }
     }
   }
@@ -318,67 +321,16 @@ async function fetchPrViewFallbackAsJson(
     synthesizePrViewJsonFromRest(restObj, conv.jsonFields, {
       reviewDecision,
       reviewsPayload,
-      checkRunsPayload,
+      statusCheckRollup,
     }),
   );
 }
 
 /**
- * Returns true when the given gh args represent a read-only operation that is safe to cache.
- * Write operations (merge, close, create, edit, POST/PUT/PATCH, etc.) must never be cached.
- */
-function isCacheableArgs(args: string[]): boolean {
-  if (args.length === 0) return false;
-  const [cmd, sub] = args;
-  if (cmd === "api") {
-    // Skip write methods — gh api ... --method POST, -X POST, -X PUT, etc.
-    // Also skip implicit POST: gh api switches to POST automatically when -f, -F,
-    // --field, --raw-field, or --input flags are present (gh docs).
-    for (let i = 0; i < args.length; i++) {
-      const a = args[i];
-      if (a === "--method" || a === "-X") {
-        const method = (args[i + 1] ?? "").toUpperCase();
-        if (["POST", "PUT", "PATCH", "DELETE"].includes(method)) return false;
-      }
-      if (a === "-f" || a === "-F" || a === "--field" || a === "--raw-field" || a === "--input") {
-        return false;
-      }
-    }
-    return true;
-  }
-  if (cmd === "pr") {
-    if (sub === "view") return true;
-    if (sub === "checks") return true;
-  }
-  return false;
-}
-
-/**
  * Execute gh CLI with rate limit retry and fallback to REST API.
- * Read operations (gh api, gh pr view, gh pr checks) are cached for 15 s
- * with in-flight request deduplication to reduce redundant network calls.
+ * Uses exponential backoff for rate limit errors, then falls back to curl-based REST calls.
  */
 async function ghWithRetry(args: string[], cwd?: string, maxRetries = 3): Promise<string> {
-  if (!isCacheableArgs(args)) {
-    // Write operations: bypass cache and in-flight dedupe entirely
-    return ghWithRetryNoCache(args, cwd, maxRetries);
-  }
-
-  const cache = getGhCache();
-
-  const hit = cache.tryGet(args, cwd);
-  if (hit.cached) return hit.value;
-
-  const result = await cache.withDedupe(args, cwd, async (): Promise<string> => {
-    return ghWithRetryNoCache(args, cwd, maxRetries);
-  });
-
-  cache.set(args, cwd, result);
-  return result;
-}
-
-/** Core retry + fallback logic; wrapped by ghWithRetry which adds caching. */
-async function ghWithRetryNoCache(args: string[], cwd: string | undefined, maxRetries: number): Promise<string> {
   let lastError: unknown;
 
   for (let attempt = 0; attempt < maxRetries; attempt++) {
@@ -387,30 +339,42 @@ async function ghWithRetryNoCache(args: string[], cwd: string | undefined, maxRe
     } catch (err) {
       lastError = err;
 
-      if (isGhRateLimitError(err)) {
+      // Check if it's a rate limit error
+      if (isRateLimitError(err)) {
+        // Skip sleep on final attempt - no more retries anyway
         if (attempt < maxRetries - 1) {
-          const backoffMs = Math.min(1000 * Math.pow(2, attempt), 30000);
+          const backoffMs = Math.min(1000 * Math.pow(2, attempt), 30000); // Max 30s backoff
           console.warn(
             `GitHub rate limit detected, retrying in ${backoffMs}ms (attempt ${attempt + 1}/${maxRetries})`,
           );
-          await ghSleep(backoffMs);
+          await sleep(backoffMs);
         }
       } else {
+        // Non-rate-limit error, don't retry
         throw err;
       }
     }
   }
 
+  // All retries exhausted
+  // Only attempt REST fallback for explicit `gh api ...` calls that the fallback supports.
   if (args[0] === "api") {
     console.warn("Gh CLI rate limit retries exhausted, trying REST API fallback for `gh api` call");
     try {
       return await ghRestFallback(args);
     } catch {
-      if (lastError instanceof Error) throw lastError;
+      // If the REST fallback cannot safely handle these args (for example,
+      // unsupported `gh api` forms like GraphQL), rethrow the original error
+      // from the final failed `gh` invocation instead of a new one.
+      if (lastError instanceof Error) {
+        throw lastError;
+      }
       throw new Error(String(lastError));
     }
   }
 
+  // Attempt REST fallback for `gh pr view` commands: fetch pull (+ reviews when needed) and
+  // synthesize the same JSON shape as `gh pr view --json …`.
   if (args[0] === "pr" && args[1] === "view") {
     const conv = parsePrViewRestConversion(args);
     if (conv) {
@@ -421,8 +385,11 @@ async function ghWithRetryNoCache(args: string[], cwd: string | undefined, maxRe
     }
   }
 
+  // No fallback available — rethrow the last error.
   console.warn("Gh CLI rate limit retries exhausted, no REST fallback available");
-  if (lastError instanceof Error) throw lastError;
+  if (lastError instanceof Error) {
+    throw lastError;
+  }
   throw new Error(String(lastError));
 }
 
@@ -444,29 +411,6 @@ async function ghWithRetryNoCache(args: string[], cwd: string | undefined, maxRe
  * (ghWithRetry) can rethrow the original gh error instead of attempting
  * a malformed curl call.
  */
-/** First non-flag token after `gh api` (endpoint path), skipping `--method GET` etc. */
-function findGhApiEndpointIndex(apiArgs: string[]): number {
-  let i = 0;
-  while (i < apiArgs.length) {
-    const a = apiArgs[i];
-    if (a === "--method" || a === "-X") {
-      i += 2;
-      continue;
-    }
-    if (a.startsWith("-")) {
-      const next = apiArgs[i + 1];
-      if (next && !next.startsWith("-")) {
-        i += 2;
-      } else {
-        i += 1;
-      }
-      continue;
-    }
-    return i;
-  }
-  throw new Error("ghRestFallback: missing endpoint for `gh api` command");
-}
-
 export async function ghRestFallback(args: string[]): Promise<string> {
   // We only support `gh api ...` invocations here.
   if (!Array.isArray(args) || args.length === 0 || args[0] !== "api") {
@@ -478,8 +422,20 @@ export async function ghRestFallback(args: string[]): Promise<string> {
     throw new Error("ghRestFallback: missing endpoint for `gh api` command");
   }
 
-  const endpointIdx = findGhApiEndpointIndex(apiArgs);
-  let endpoint = apiArgs[endpointIdx];
+  // Find the first positional argument (endpoint) — skip flags like --method, -X, etc.
+  let endpoint = "";
+  for (let i = 0; i < apiArgs.length; i++) {
+    const arg = apiArgs[i];
+    if (arg === "--method" || arg === "-X") {
+      i++; // Skip the next argument (the method value)
+    } else if (!arg.startsWith("-")) {
+      endpoint = arg;
+      break;
+    }
+  }
+  if (!endpoint) {
+    throw new Error("ghRestFallback: missing endpoint for `gh api` command");
+  }
 
   // Explicitly reject GraphQL usages like `gh api graphql` so we don't
   // attempt to construct a bogus REST URL.
@@ -512,8 +468,7 @@ export async function ghRestFallback(args: string[]): Promise<string> {
   const queryParts: string[] = [];
   const curlFlags: string[] = [];
 
-  for (let i = 0; i < apiArgs.length; i++) {
-    if (i === endpointIdx) continue;
+  for (let i = 1; i < apiArgs.length; i++) {
     const arg = apiArgs[i];
     if (arg.startsWith("?")) {
       // Query string parameter
@@ -600,6 +555,36 @@ async function ghInDir(args: string[], cwd: string): Promise<string> {
 
 async function git(args: string[], cwd: string): Promise<string> {
   return execCli("git", args, cwd);
+}
+
+/**
+ * Map REST check-run conclusion/status to the GraphQL-style state string
+ * used in `statusCheckRollup` entries.
+ */
+function mapCheckRunConclusionToState(
+  conclusion: unknown,
+  status: unknown,
+): string {
+  if (typeof conclusion === "string" && conclusion) {
+    const c = conclusion.toUpperCase();
+    if (c === "SUCCESS") return "SUCCESS";
+    if (c === "FAILURE") return "FAILURE";
+    if (c === "NEUTRAL") return "NEUTRAL";
+    if (c === "CANCELLED") return "CANCELLED";
+    if (c === "TIMED_OUT") return "TIMED_OUT";
+    if (c === "ACTION_REQUIRED") return "ACTION_REQUIRED";
+    if (c === "SKIPPED") return "SKIPPED";
+    return c;
+  }
+  // No conclusion yet — map from status
+  if (typeof status === "string") {
+    const s = status.toUpperCase();
+    if (s === "COMPLETED") return "SUCCESS";
+    if (s === "IN_PROGRESS") return "IN_PROGRESS";
+    if (s === "QUEUED") return "QUEUED";
+    return s;
+  }
+  return "PENDING";
 }
 
 function parseProjectRepo(projectRepo: string): [string, string] {
@@ -977,7 +962,9 @@ function normalizeMergePayloadFromRestShape(data: Record<string, unknown>): void
   if (typeof data["draft"] === "boolean" && data["isDraft"] === undefined) {
     data["isDraft"] = data["draft"];
   }
-  if (data["reviewDecision"] === undefined) {
+  // reviewDecision can be null (no reviews requested) or undefined (not requested).
+  // Treat both as "REVIEW_REQUIRED" for conservative fail-closed behavior.
+  if (data["reviewDecision"] === null || data["reviewDecision"] === undefined) {
     data["reviewDecision"] = "REVIEW_REQUIRED";
   }
 }
@@ -1051,8 +1038,7 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
       return parseGitHubWebhookEvent(request, payload, config);
     },
 
-    async detectPR(session: Session, project: ProjectConfig): Promise<PRInfo | null> {
-      if (!session.branch) return null;
+    async listOpenPRs(project: ProjectConfig): Promise<PRInfo[]> {
       const [owner, repo] = parseProjectRepo(project.repo);
       type RestPull = {
         number: number;
@@ -1063,7 +1049,14 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
         draft: boolean;
       };
 
-      const pullFromRest = (pr: RestPull) =>
+      // Errors propagate naturally so the caller can distinguish "no open PRs"
+      // from "API failure" and log accordingly (lifecycle.backfill.list_failed).
+      const raw = await gh([
+        "api",
+        `repos/${owner}/${repo}/pulls?state=open&per_page=100&sort=updated&direction=desc`,
+      ]);
+      const prs: RestPull[] = JSON.parse(raw);
+      return prs.map((pr) =>
         prInfoFromView(
           {
             number: pr.number,
@@ -1074,32 +1067,88 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
             isDraft: pr.draft,
           },
           project.repo,
-        );
+        ),
+      );
+    },
 
+    async detectPR(session: Session, project: ProjectConfig): Promise<PRInfo | null> {
+      if (!session.branch) return null;
+      const [owner, repo] = parseProjectRepo(project.repo);
+
+      // Primary: gh pr list --head (GraphQL-backed) — finds PRs regardless of
+      // which fork owner the head branch lives on, unlike the owner-scoped REST
+      // `head=owner:branch` filter which can miss fork-PRs.
+      // REST is only a fallback when GraphQL fails (rate-limit, network error).
       try {
-        // Use REST API directly to avoid GraphQL rate limits (gh pr list --json uses GraphQL).
-        // 1) Same-repo / push-origin PRs: `head=owner:branch` matches GitHub's filter.
-        // 2) Fork PRs use `head=forkOwner:branch`; `session.branch` is only the ref name, so
-        //    if (1) is empty, list open PRs and match `head.ref` (see gh pr list --head limits).
-        const headScoped = `repos/${owner}/${repo}/pulls?head=${owner}:${encodeURIComponent(session.branch)}&state=open&per_page=1`;
-        const rawHead = await gh(["api", headScoped]);
-        let prs: RestPull[] = JSON.parse(rawHead);
+        const listRaw = await gh([
+          "pr",
+          "list",
+          "--repo",
+          project.repo,
+          "--head",
+          session.branch,
+          "--json",
+          "number,url,title,headRefName,baseRefName,isDraft",
+          "--limit",
+          "1",
+        ]);
 
-        if (prs.length === 0) {
-          const rawList = await gh([
-            "api",
-            `repos/${owner}/${repo}/pulls?state=open&per_page=100&sort=updated&direction=desc`,
-          ]);
-          const openPrs: RestPull[] = JSON.parse(rawList);
-          prs = openPrs.filter((p) => p.head?.ref === session.branch);
+        const listPrs: Array<{
+          number: number;
+          url: string;
+          title: string;
+          headRefName: string;
+          baseRefName: string;
+          isDraft: boolean;
+        }> = JSON.parse(listRaw);
+
+        if (listPrs.length > 0) {
+          return prInfoFromView(listPrs[0], project.repo);
         }
 
-        if (prs.length === 0) return null;
-
-        return pullFromRest(prs[0]);
-      } catch {
+        // GraphQL succeeded but no PR found — skip REST fallback since it is
+        // owner-scoped and cannot improve on a "no PR" result from GraphQL.
         return null;
+      } catch {
+        // REST fallback: only reached when GraphQL throws (rate-limit, network
+        // error). The owner-scoped `head=owner:branch` filter is a best-effort
+        // scan that may miss fork-owner PRs — but it is the only safe fallback
+        // that avoids adding GraphQL cost in steady-state.
+        try {
+          const raw = await gh([
+            "api",
+            `repos/${owner}/${repo}/pulls?head=${owner}:${encodeURIComponent(session.branch)}&state=open&per_page=1`,
+          ]);
+
+          const prs: Array<{
+            number: number;
+            html_url: string;
+            title: string;
+            head: { ref: string };
+            base: { ref: string };
+            draft: boolean;
+          }> = JSON.parse(raw);
+
+          if (prs.length > 0) {
+            const pr = prs[0];
+            return prInfoFromView(
+              {
+                number: pr.number,
+                url: pr.html_url,
+                title: pr.title,
+                headRefName: pr.head.ref,
+                baseRefName: pr.base.ref,
+                isDraft: pr.draft,
+              },
+              project.repo,
+            );
+          }
+        } catch {
+          // Both GraphQL and REST failed — return null per Promise<PRInfo | null>
+        }
       }
+
+      return null;
     },
 
     async resolvePR(reference: string, project: ProjectConfig): Promise<PRInfo> {
@@ -1145,20 +1194,6 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
       }
 
       await ghInDir(["pr", "checkout", String(pr.number), "--repo", repoFlag(pr)], workspacePath);
-
-      // Verify the checkout actually succeeded by confirming the worktree is now on
-      // the PR branch.  This catches the case where `gh pr checkout` silently fails
-      // (e.g. exit 128 because another worktree already has the branch checked out)
-      // and prevents claimPR from reporting success when the session is still on a
-      // different branch.
-      const afterBranch = await git(["branch", "--show-current"], workspacePath);
-      if (afterBranch !== pr.branch) {
-        throw new Error(
-          `gh pr checkout succeeded but worktree is still on branch "${afterBranch}" ` +
-            `instead of "${pr.branch}". Another worktree may have the branch checked out.`,
-        );
-      }
-
       return true;
     },
 
@@ -1265,11 +1300,11 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
       try {
         checks = await this.getCIChecks(pr);
       } catch (err) {
-        // Rate limit errors are transient — re-throw so the lifecycle manager's
-        // catch block preserves current status and retries next cycle, rather than
-        // returning "none" which falsely signals "no CI checks" and allows mergeability.
-        if (isGhRateLimitError(err)) {
-          throw err;
+        // Rate limit errors are transient — do not fail-close to "failing",
+        // which would spam the agent with spurious "CI is failing" reactions.
+        // Return "none" so the lifecycle poller retries next cycle.
+        if (isRateLimitError(err)) {
+          return "none";
         }
         // Before fail-closing, check if the PR is merged/closed —
         // GitHub may not return check data for those, and reporting
@@ -1353,13 +1388,13 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
           "reviewDecision",
         ]);
       } catch (err) {
-        // Rate limits: rethrow so determineStatus keeps the current session status for retry.
-        // Other errors: fail closed as "pending" so we do not leave a stale "mergeable" status
-        // (throwing would hit the outer catch and preserve status unchanged).
-        if (isGhRateLimitError(err)) {
-          throw err;
+        // Rate limit errors are transient — return "none" so the lifecycle
+        // poller retries next cycle rather than triggering a "changes-requested"
+        // reaction on every poll.
+        if (isRateLimitError(err)) {
+          return "none";
         }
-        return "pending";
+        throw err;
       }
       const data: { reviewDecision: string } = JSON.parse(raw);
 
@@ -1368,6 +1403,55 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
       if (d === "CHANGES_REQUESTED") return "changes_requested";
       if (d === "REVIEW_REQUIRED") return "pending";
       return "none";
+    },
+
+    // bd-sm7: Combined PR state + review decision in a single gh CLI call
+    async getPRStateAndReview(pr: PRInfo): Promise<{ state: PRState; reviewDecision: ReviewDecision }> {
+      let raw: string;
+      try {
+        raw = await gh([
+          "pr",
+          "view",
+          String(pr.number),
+          "--repo",
+          repoFlag(pr),
+          "--json",
+          "state,reviewDecision",
+        ]);
+      } catch (err) {
+        // Rate limits: rethrow so determineStatus preserves current session status for retry.
+        if (isRateLimitError(err)) throw err;
+        // Non-rate-limit errors: fall back to separate calls, which have their own
+        // fail-closed handling. If the fallback itself hits a rate limit, rethrow so
+        // the outer retry logic runs. Otherwise, return fail-closed values.
+        try {
+          const [state, reviewDecision] = await Promise.all([this.getPRState(pr), this.getReviewDecision(pr)]);
+          return { state, reviewDecision };
+        } catch (fallbackErr) {
+          if (isRateLimitError(fallbackErr)) throw fallbackErr;
+          // Fail closed: do not leave a stale "mergeable"/"approved" status.
+          return { state: "open", reviewDecision: "pending" };
+        }
+      }
+      const data: { state: string; reviewDecision?: string; merged?: boolean } = JSON.parse(raw);
+
+      // Parse state (same logic as getPRState)
+      const s = data.state.toUpperCase();
+      let state: PRState;
+      if (s === "MERGED" || data.merged === true) state = "merged";
+      else if (s === "CLOSED") state = "closed";
+      else state = "open";
+
+      // Parse review decision — fail-closed: default to "pending" on unexpected values
+      // (matches getReviewDecision behavior where non-rate-limit errors return "pending")
+      const d = (data.reviewDecision ?? "").toUpperCase();
+      let reviewDecision: ReviewDecision;
+      if (d === "APPROVED") reviewDecision = "approved";
+      else if (d === "CHANGES_REQUESTED") reviewDecision = "changes_requested";
+      else if (d === "REVIEW_REQUIRED") reviewDecision = "pending";
+      else reviewDecision = "none";
+
+      return { state, reviewDecision };
     },
 
     async getPendingComments(pr: PRInfo): Promise<ReviewComment[]> {
@@ -1586,15 +1670,30 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
             // Determine severity from body content
             let severity: AutomatedComment["severity"] = "info";
             const bodyLower = c.body.toLowerCase();
-            if (
-              bodyLower.includes("error") ||
-              bodyLower.includes("bug") ||
-              bodyLower.includes("critical") ||
+            // Check for explicit severity headers first (Bugbot/Copilot style)
+            const hasCriticalHeader = /\*\*(critical|high)\s+severity\*\*/i.test(c.body);
+            const hasMediumHeader = /\*\*(medium|low)\s+severity\*\*/i.test(c.body);
+            if (hasCriticalHeader && !hasMediumHeader) {
+              // Explicit "Critical/High Severity" header from cursor[bot] or Copilot →
+              // "warning" (not "error"). These are review-level severity flags, not build
+              // errors. The Bugbot check-run conclusion (merge gate check #4) is the
+              // authoritative signal for whether Bugbot considers the PR blocked; body
+              // severity is a secondary filter that would otherwise create false
+              // positives (e.g. "High Severity" in a description of an old bug).
+              severity = "warning";
+            } else if (hasMediumHeader) {
+              severity = "warning";
+            } else if (
+              // Direct error reports (CI bots, build failures) — anchored to line-start
+              // with optional leading whitespace (CI bots often indent). The \s* allows
+              // indented messages like "  error:" while staying anchored to line-start.
+              /^\s*error[:\s]/m.test(bodyLower) ||
+              /^\s*critical[:\s]/m.test(bodyLower) ||
               bodyLower.includes("potential issue")
             ) {
               severity = "error";
             } else if (
-              bodyLower.includes("warning") ||
+              /^\s*warning[:\s]/m.test(bodyLower) ||
               bodyLower.includes("suggest") ||
               bodyLower.includes("consider")
             ) {
@@ -1657,25 +1756,10 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
 
       normalizeMergePayloadFromRestShape(data as Record<string, unknown>);
 
-      // CI — on rate limit, fail closed with a clear blocker so request-merge still notifies
-      // the human instead of rejecting the reaction with an uncaught error (bd-uxs).
-      let ciStatus: CIStatus;
-      let ciRateLimited = false;
-      try {
-        ciStatus = await this.getCISummary(pr);
-      } catch (err) {
-        if (isGhRateLimitError(err)) {
-          ciRateLimited = true;
-          ciStatus = CI_STATUS.FAILING;
-        } else {
-          throw err;
-        }
-      }
-      const ciPassing =
-        !ciRateLimited && (ciStatus === CI_STATUS.PASSING || ciStatus === CI_STATUS.NONE);
-      if (ciRateLimited) {
-        blockers.push("GitHub API rate limited; CI status temporarily unavailable — try again shortly");
-      } else if (!ciPassing) {
+      // CI
+      const ciStatus = await this.getCISummary(pr);
+      const ciPassing = ciStatus === CI_STATUS.PASSING || ciStatus === CI_STATUS.NONE;
+      if (!ciPassing) {
         blockers.push(`CI is ${ciStatus}`);
       }
 
@@ -1737,6 +1821,143 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
         blockers,
       };
     },
+
+    // bd-att: Fetch all PR status fields in a single gh CLI call.
+    // Replaces getPRState + getCISummary + getReviewDecision + getMergeability
+    // with one `gh pr view --json` (~2 GraphQL points instead of ~10).
+    async getBatchPRStatus(pr: PRInfo): Promise<BatchPRStatus> {
+      const raw = await gh([
+        "pr",
+        "view",
+        String(pr.number),
+        "--repo",
+        repoFlag(pr),
+        "--json",
+        "state,reviewDecision,statusCheckRollup,mergeable,mergeStateStatus,isDraft",
+      ]);
+
+      const data = JSON.parse(raw) as {
+        state: string;
+        merged?: boolean;
+        reviewDecision?: string;
+        statusCheckRollup?: unknown[];
+        mergeable?: string | boolean | null;
+        mergeStateStatus?: string;
+        isDraft?: boolean;
+        draft?: boolean;
+        mergeable_state?: string;
+      };
+
+      // --- PR State ---
+      const s = data.state.toUpperCase();
+      let state: PRState;
+      if (s === "MERGED" || data.merged === true) state = "merged";
+      else if (s === "CLOSED") state = "closed";
+      else state = "open";
+
+      // Normalize REST-shape fields (mergeable_state, draft) before deriving typed fields.
+      // Copilot: normalize first so reviewDecision undefined is treated as REVIEW_REQUIRED.
+      normalizeMergePayloadFromRestShape(data as Record<string, unknown>);
+
+      // --- Review Decision ---
+      // Fail-closed: null/undefined reviewDecision → "pending" (not "none"), matching
+      // normalizeMergePayloadFromRestShape behavior. "none" means reviews were explicitly
+      // not required; null means we don't know → conservative.
+      const d = (data.reviewDecision ?? "").toUpperCase();
+      let reviewDecision: ReviewDecision;
+      if (d === "APPROVED") reviewDecision = "approved";
+      else if (d === "CHANGES_REQUESTED") reviewDecision = "changes_requested";
+      else if (d === "REVIEW_REQUIRED") reviewDecision = "pending";
+      else if (data.reviewDecision === null || data.reviewDecision === undefined) reviewDecision = "pending";
+      else reviewDecision = "none";
+
+      // --- CI Status (from statusCheckRollup) ---
+      const rollup = Array.isArray(data.statusCheckRollup) ? data.statusCheckRollup : [];
+      let ciStatus: CIStatus;
+      if (rollup.length === 0) {
+        ciStatus = "none";
+      } else {
+        const checks = rollup.map((entry) => {
+          if (!entry || typeof entry !== "object") return "pending" as const;
+          const row = entry as Record<string, unknown>;
+          const rawState =
+            typeof row["conclusion"] === "string"
+              ? row["conclusion"]
+              : typeof row["state"] === "string"
+                ? row["state"]
+                : typeof row["status"] === "string"
+                  ? row["status"]
+                  : undefined;
+          return mapRawCheckStateToStatus(rawState);
+        });
+        const hasFailing = checks.some((c) => c === "failed");
+        if (hasFailing) {
+          ciStatus = "failing";
+        } else {
+          const hasPending = checks.some((c) => c === "pending" || c === "running");
+          if (hasPending) {
+            ciStatus = "pending";
+          } else {
+            const hasPassing = checks.some((c) => c === "passed");
+            ciStatus = hasPassing ? "passing" : "none";
+          }
+        }
+      }
+
+      // --- Merge Readiness ---
+      const blockers: string[] = [];
+
+      // CI
+      const ciPassing = ciStatus === "passing" || ciStatus === "none";
+      if (!ciPassing) blockers.push(`CI is ${ciStatus}`);
+
+      // Reviews
+      const approved = reviewDecision === "approved";
+      if (reviewDecision === "changes_requested") blockers.push("Changes requested in review");
+      else if (reviewDecision === "pending") blockers.push("Review required");
+
+      // Conflicts / merge state
+      let noConflicts: boolean;
+      const mergeableVal = data.mergeable;
+      if (mergeableVal === null || mergeableVal === undefined) {
+        noConflicts = false;
+        blockers.push("Merge status unknown (GitHub is computing)");
+      } else if (typeof mergeableVal === "boolean") {
+        noConflicts = mergeableVal;
+        if (!mergeableVal) blockers.push("Merge conflicts");
+      } else {
+        const mergeable = String(mergeableVal ?? "").toUpperCase();
+        if (mergeable === "NULL") {
+          noConflicts = false;
+          blockers.push("Merge status unknown (GitHub is computing)");
+        } else {
+          noConflicts = mergeable === "MERGEABLE";
+          if (mergeable === "CONFLICTING") blockers.push("Merge conflicts");
+          else if (mergeable === "UNKNOWN" || mergeable === "") {
+            blockers.push("Merge status unknown (GitHub is computing)");
+          }
+        }
+      }
+      const mergeState = (data.mergeStateStatus ?? "").toUpperCase();
+      if (mergeState === "BEHIND") blockers.push("Branch is behind base branch");
+      else if (mergeState === "BLOCKED") blockers.push("Merge is blocked by branch protection");
+      else if (mergeState === "UNSTABLE") blockers.push("Required checks are failing");
+
+      if (data.isDraft || data.draft) blockers.push("PR is still a draft");
+
+      return {
+        state,
+        ciStatus,
+        reviewDecision,
+        mergeReadiness: {
+          mergeable: blockers.length === 0,
+          ciPassing,
+          approved,
+          noConflicts,
+          blockers,
+        },
+      };
+    },
   };
 }
 
@@ -1755,10 +1976,6 @@ export function create(config?: Record<string, unknown>): SCM {
   return createGitHubSCM(config);
 }
 
-/** Exposed for test isolation — resets the shared GhCache singleton between test cases. */
 export { _resetGhCache } from "./gh-cache.js";
-
-/** Exposed for observability — returns the shared cache with hit/miss metrics. */
-export { getGhCache } from "./gh-cache.js";
 
 export default { manifest, create } satisfies PluginModule<SCM>;

@@ -515,11 +515,15 @@ describe("plugin integration", () => {
         sessionManager: mockSM,
       });
 
-      // gh calls for determineStatus:
-      // 1. getPRState → open
-      mockGh({ state: "OPEN" });
-      // 2. getCISummary → failing (pr checks returns array of checks with correct field names)
-      mockGh([{ name: "lint", state: "FAILURE", link: "", startedAt: "", completedAt: "" }]);
+      // bd-att: getBatchPRStatus returns all fields in one call
+      mockGh({
+        state: "OPEN",
+        reviewDecision: "",
+        statusCheckRollup: [{ name: "lint", conclusion: "FAILURE" }],
+        mergeable: "MERGEABLE",
+        mergeStateStatus: "CLEAN",
+        isDraft: false,
+      });
 
       await lm.check("app-1");
 
@@ -527,7 +531,7 @@ describe("plugin integration", () => {
       expect(states.get("app-1")).toBe("ci_failed");
     });
 
-    it("check() detects merged via scm-github getPRState()", async () => {
+    it("check() detects merged via scm-github getBatchPRStatus()", async () => {
       seedSession({ status: "pr_open", pr });
 
       const mockSM: SessionManager = {
@@ -546,13 +550,59 @@ describe("plugin integration", () => {
         sessionManager: mockSM,
       });
 
-      // getPRState → merged
-      mockGh({ state: "MERGED" });
+      // bd-att: getBatchPRStatus returns all fields in one call
+      mockGh({
+        state: "MERGED",
+        reviewDecision: "",
+        statusCheckRollup: [],
+        mergeable: null,
+        mergeStateStatus: "",
+        isDraft: false,
+      });
 
       await lm.check("app-1");
 
       const states = lm.getStates();
       expect(states.get("app-1")).toBe("merged");
+    });
+
+    // bd-att regression: OPEN PR with empty CI rollup and no reviewDecision must NOT
+    // incorrectly pass. normalizeMergePayloadFromRestShape sets null/undefined
+    // reviewDecision → "REVIEW_REQUIRED", which maps to "pending" → "review_pending".
+    it("check() OPEN PR with empty CI rollup stays review_pending (fail-closed)", async () => {
+      seedSession({ status: "pr_open", pr });
+
+      const mockSM: SessionManager = {
+        ...sm,
+        list: vi.fn().mockResolvedValue([makeSession({ status: "pr_open", pr })]),
+        get: vi.fn().mockResolvedValue(makeSession({ status: "pr_open", pr })),
+        kill: vi.fn().mockResolvedValue(undefined),
+        send: vi.fn().mockResolvedValue(undefined),
+        claimPR: vi.fn(),
+        spawnOrchestrator: vi.fn(),
+      };
+
+      const lm = createLifecycleManager({
+        config,
+        registry,
+        sessionManager: mockSM,
+      });
+
+      mockGh({
+        state: "OPEN",
+        reviewDecision: null, // explicit null — normalizeMergePayloadFromRestShape must catch this
+        statusCheckRollup: [],
+        mergeable: "MERGEABLE",
+        mergeStateStatus: "CLEAN",
+        isDraft: false,
+      });
+
+      await lm.check("app-1");
+
+      const states = lm.getStates();
+      // normalizeMergePayloadFromRestShape sets null → "REVIEW_REQUIRED" → "pending"
+      // → lifecycle-manager returns "review_pending", NOT "approved" or "mergeable"
+      expect(states.get("app-1")).toBe("review_pending");
     });
 
     it("check() detects changes_requested via scm-github getReviewDecision()", async () => {
@@ -574,12 +624,15 @@ describe("plugin integration", () => {
         sessionManager: mockSM,
       });
 
-      // 1. getPRState → open
-      mockGh({ state: "OPEN" });
-      // 2. getCISummary → passing (using correct field names: state and link)
-      mockGh([{ name: "lint", state: "SUCCESS", link: "", startedAt: "", completedAt: "" }]);
-      // 3. getReviewDecision (gh pr view with reviewDecision)
-      mockGh({ reviewDecision: "CHANGES_REQUESTED" });
+      // bd-att: getBatchPRStatus returns all fields in one call
+      mockGh({
+        state: "OPEN",
+        reviewDecision: "CHANGES_REQUESTED",
+        statusCheckRollup: [{ name: "lint", conclusion: "SUCCESS" }],
+        mergeable: "MERGEABLE",
+        mergeStateStatus: "CLEAN",
+        isDraft: false,
+      });
 
       await lm.check("app-1");
 

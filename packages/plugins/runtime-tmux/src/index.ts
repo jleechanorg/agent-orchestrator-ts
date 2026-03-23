@@ -1,5 +1,3 @@
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
 import { setTimeout as sleep } from "node:timers/promises";
 import { randomUUID } from "node:crypto";
 import { writeFileSync, unlinkSync } from "node:fs";
@@ -13,9 +11,16 @@ import type {
   RuntimeMetrics,
   AttachInfo,
 } from "@jleechanorg/ao-core";
+import {
+  AGENT_ALIVE_PATTERNS,
+  isAgentAliveInPane,
+  restartAgentCli,
+} from "./agent-liveness.js";
+import { tmux } from "./tmux-utils.js";
 
-const execFileAsync = promisify(execFile);
-const TMUX_COMMAND_TIMEOUT_MS = 5_000;
+// Re-export fork-only liveness utilities so tests and external consumers
+// can import from the main entry point (bd-tln)
+export { isAgentAliveInPane, restartAgentCli } from "./agent-liveness.js";
 
 export const manifest = {
   name: "tmux",
@@ -33,12 +38,96 @@ function assertValidSessionId(id: string): void {
   }
 }
 
-/** Run a tmux command and return stdout */
-async function tmux(...args: string[]): Promise<string> {
-  const { stdout } = await execFileAsync("tmux", args, {
-    timeout: TMUX_COMMAND_TIMEOUT_MS,
-  });
-  return stdout.trimEnd();
+/**
+ * Send content into a tmux pane using load-buffer/paste-buffer (for long text)
+ * or send-keys -l (for short literal text).
+ */
+async function sendContent(sessionId: string, content: string): Promise<void> {
+  if (content.includes("\n") || content.length > 200) {
+    const bufferName = `ao-${randomUUID()}`;
+    const tmpPath = join(tmpdir(), `ao-send-${randomUUID()}.txt`);
+    writeFileSync(tmpPath, content, { encoding: "utf-8", mode: 0o600 });
+    try {
+      await tmux("load-buffer", "-b", bufferName, tmpPath);
+      await tmux("paste-buffer", "-b", bufferName, "-t", sessionId, "-d");
+    } finally {
+      try {
+        unlinkSync(tmpPath);
+      } catch {
+        // ignore cleanup errors
+      }
+      try {
+        await tmux("delete-buffer", "-b", bufferName);
+      } catch {
+        // Buffer may already be deleted by -d flag — that's fine
+      }
+    }
+  } else {
+    // Use -l (literal) so text like "Enter" or "Space" isn't interpreted
+    // as tmux key names
+    await tmux("send-keys", "-t", sessionId, "-l", content);
+  }
+}
+
+/**
+ * Send a message to a tmux pane and verify delivery.
+ * - Adaptive delay before Enter (scales with UTF-8 byte size of message)
+ * - Enter retry loop for long messages: checks pane for agent response
+ *   and retries Enter up to 3 times if the paste appears to have been swallowed.
+ *
+ * Fork-only logic (bd-orch2v3, bd-qhf).
+ */
+async function doSendWithRetry(handle: RuntimeHandle, message: string): Promise<void> {
+  // Clear any partial input
+  await tmux("send-keys", "-t", handle.id, "C-u");
+
+  const isLong = message.includes("\n") || message.length > 200;
+  await sendContent(handle.id, message);
+
+  // Adaptive delay (bd-orch2v3, bd-qhf): long messages need more time for
+  // tmux to render the paste before Enter arrives. Flat 300ms was insufficient
+  // for messages >~8KB — Enter arrived before paste completed, causing 8 sessions
+  // (ao-411 through ao-420) to require manual Enter.
+  // Formula: base 1000ms + 200ms per KB (UTF-8 bytes), capped at 2000ms.
+  const byteLen = Buffer.byteLength(message, "utf8");
+  const delayMs = isLong ? Math.min(1000 + Math.ceil(byteLen / 1000) * 200, 2000) : 300;
+  await sleep(delayMs);
+  await tmux("send-keys", "-t", handle.id, "Enter");
+
+  // Enter retry (bd-orch2v3, bd-qhf): for long messages, check if the agent
+  // started responding. Only the LAST 5 NON-EMPTY LINES are checked for agent
+  // activity — stale activity tokens in old scrollback must not mask the
+  // current state. If the pane still ends with the pasted message tail and
+  // shows no recent agent activity, Enter was swallowed — retry up to 3 times.
+  if (isLong) {
+    const messageTail = message.slice(-80).trim();
+    // Guard: if trimmed tail is empty (e.g. 80+ trailing whitespace), skip
+    // the retry check — every string endsWith("") so the check would always fail.
+    const shouldRetry = messageTail.length > 0;
+    for (let attempt = 0; attempt < 3 && shouldRetry; attempt++) {
+      await sleep(1_000);
+      let paneOutput: string;
+      try {
+        paneOutput = await tmux("capture-pane", "-t", handle.id, "-p", "-S", "-20");
+      } catch {
+        // Session may have died; stop retrying
+        break;
+      }
+      const trimmedOutput = paneOutput.trimEnd();
+      // Agent has started if: any RECENT activity token is present (last 5 lines),
+      // OR the pane no longer ends with our message tail.
+      const recentLines = trimmedOutput.split("\n").filter((l) => l.trim().length > 0).slice(-5);
+      const hasRecentActivity = recentLines.some((line) =>
+        AGENT_ALIVE_PATTERNS.some((p) => p.test(line)),
+      );
+      const agentStarted = hasRecentActivity || !trimmedOutput.endsWith(messageTail);
+      if (agentStarted) {
+        break;
+      }
+      // Enter was swallowed — send it again
+      await tmux("send-keys", "-t", handle.id, "Enter");
+    }
+  }
 }
 
 export function create(): Runtime {
@@ -75,6 +164,11 @@ export function create(): Runtime {
             } catch {
               /* ignore cleanup errors */
             }
+            try {
+              await tmux("delete-buffer", "-b", bufferName);
+            } catch {
+              /* Buffer may already be deleted by -d flag — that's fine */
+            }
           }
           await sleep(300);
           await tmux("send-keys", "-t", sessionName, "Enter");
@@ -99,6 +193,8 @@ export function create(): Runtime {
         data: {
           createdAt: Date.now(),
           workspacePath: config.workspacePath,
+          // Store launchCommand so restartAgentCli() can re-launch after a crash (bd-tln)
+          launchCommand: config.launchCommand,
         },
       };
     },
@@ -112,42 +208,28 @@ export function create(): Runtime {
     },
 
     async sendMessage(handle: RuntimeHandle, message: string): Promise<void> {
-      // Clear any partial input
-      await tmux("send-keys", "-t", handle.id, "C-u");
-
-      // For long or multiline messages, use load-buffer + paste-buffer
-      // Use randomUUID to avoid temp file collisions on concurrent sends
-      if (message.includes("\n") || message.length > 200) {
-        const bufferName = `ao-${randomUUID()}`;
-        const tmpPath = join(tmpdir(), `ao-send-${randomUUID()}.txt`);
-        writeFileSync(tmpPath, message, { encoding: "utf-8", mode: 0o600 });
-        try {
-          await tmux("load-buffer", "-b", bufferName, tmpPath);
-          await tmux("paste-buffer", "-b", bufferName, "-t", handle.id, "-d");
-        } finally {
-          // Clean up temp file and tmux buffer (in case paste-buffer failed
-          // and the -d flag didn't delete it)
-          try {
-            unlinkSync(tmpPath);
-          } catch {
-            // ignore cleanup errors
-          }
-          try {
-            await tmux("delete-buffer", "-b", bufferName);
-          } catch {
-            // Buffer may already be deleted by -d flag — that's fine
-          }
-        }
-      } else {
-        // Use -l (literal) so text like "Enter" or "Space" isn't interpreted
-        // as tmux key names
-        await tmux("send-keys", "-t", handle.id, "-l", message);
+      // Dead-agent CLI detection (bd-tln): check if the agent CLI is still alive
+      // before sending. If the shell has taken over (agent exited), attempt to
+      // restart the agent CLI before delivering the message.
+      const agentAlive = await isAgentAliveInPane(handle.id);
+      if (!agentAlive) {
+        await restartAgentCli(handle);
       }
 
-      // Small delay to let tmux process the pasted text before pressing Enter.
-      // Without this, Enter can arrive before the text is fully rendered.
-      await sleep(300);
-      await tmux("send-keys", "-t", handle.id, "Enter");
+      // Send message + Enter (with Enter-retry loop for long messages)
+      await doSendWithRetry(handle, message);
+
+      // Post-send dead-agent check (bd-tln): after sending, verify the agent
+      // picked up the message. Short messages: 500ms wait (reduces throughput
+      // penalty for healthy agents). Long messages: 2000ms (paste needs time).
+      const isLong = message.includes("\n") || message.length > 200;
+      await sleep(isLong ? 2_000 : 500);
+      const agentAliveAfter = await isAgentAliveInPane(handle.id);
+      if (!agentAliveAfter) {
+        await restartAgentCli(handle);
+        // Retry: send message again using the same doSendWithRetry logic
+        await doSendWithRetry(handle, message);
+      }
     },
 
     async getOutput(handle: RuntimeHandle, lines = 50): Promise<string> {

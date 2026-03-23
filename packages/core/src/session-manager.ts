@@ -556,7 +556,17 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       return [{ sessionName, raw, modifiedAt } satisfies ActiveSessionRecord];
     });
 
-    return repairSessionMetadataOnRead(sessionsDir, records);
+    const repaired = repairSessionMetadataOnRead(sessionsDir, records);
+    // Filter out killed/merged sessions to keep the active session list clean.
+    // Check the pre-repair (original) status because repair can promote a
+    // merged orchestrator session to "working" — we must still exclude it.
+    // The original status is the authoritative source for terminal-state filtering.
+    // Build a lookup map once (O(n)) instead of scanning inside filter (O(n²)).
+    const originalStatusByName = new Map(records.map((r) => [r.sessionName, r.raw["status"] ?? ""]));
+    return repaired.filter((record) => {
+      const originalStatus = originalStatusByName.get(record.sessionName) ?? "";
+      return originalStatus !== "killed" && originalStatus !== "merged";
+    });
   }
 
   function markArchivedOpenCodeCleanup(sessionsDir: string, sessionId: SessionId): void {
@@ -1080,6 +1090,20 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       subagent: spawnConfig.subagent ?? selection.subagent,
     };
 
+    // Write workspace hooks BEFORE launching the agent — some agents (e.g. Gemini CLI)
+    // read their settings.json only at startup, so hooks must exist before launch.
+    if (plugins.agent.setupWorkspaceHooks) {
+      try {
+        await plugins.agent.setupWorkspaceHooks(workspacePath, { dataDir: sessionsDir });
+      } catch (err) {
+        // Non-fatal: agent will still run, hooks just won't fire
+        console.warn(
+          `[session-manager] hook setup failed for workspace=${workspacePath} ` +
+            `agent=${plugins.agent.constructor.name}: ${err}`,
+        );
+      }
+    }
+
     let handle: RuntimeHandle;
     try {
       const launchCommand = plugins.agent.getLaunchCommand(agentLaunchConfig);
@@ -1266,7 +1290,11 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
 
     // Setup agent hooks for automatic metadata updates
     if (plugins.agent.setupWorkspaceHooks) {
-      await plugins.agent.setupWorkspaceHooks(project.path, { dataDir: sessionsDir });
+      try {
+        await plugins.agent.setupWorkspaceHooks(project.path, { dataDir: sessionsDir });
+      } catch {
+        // Non-fatal: consistent with pre-launch hook setup in spawn()
+      }
     }
 
     // Write system prompt to a file to avoid shell/tmux truncation.

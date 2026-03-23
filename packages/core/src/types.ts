@@ -539,6 +539,9 @@ export interface SCM {
 
   // --- PR Lifecycle ---
 
+  /** List all open PRs for a project. Used by backfillAllPRs. */
+  listOpenPRs?(project: ProjectConfig): Promise<PRInfo[]>;
+
   /** Detect if a session has an open PR (by branch name) */
   detectPR(session: Session, project: ProjectConfig): Promise<PRInfo | null>;
 
@@ -584,6 +587,10 @@ export interface SCM {
   /** Get the overall review decision */
   getReviewDecision(pr: PRInfo): Promise<ReviewDecision>;
 
+  /** bd-sm7: Combined PR state + review decision in a single API call.
+   *  Optional — lifecycle-manager falls back to separate calls if not implemented. */
+  getPRStateAndReview?(pr: PRInfo): Promise<{ state: PRState; reviewDecision: ReviewDecision }>;
+
   /** Get pending (unresolved) review comments */
   getPendingComments(pr: PRInfo): Promise<ReviewComment[]>;
 
@@ -594,6 +601,13 @@ export interface SCM {
 
   /** Check if PR is ready to merge */
   getMergeability(pr: PRInfo): Promise<MergeReadiness>;
+
+  // --- Batch PR Status (bd-att) ---
+
+  /** bd-att: Fetch all PR status fields in a single API call.
+   *  Optional — lifecycle-manager falls back to individual calls if not implemented.
+   *  Replaces getPRState + getCISummary + getReviewDecision + getMergeability. */
+  getBatchPRStatus?(pr: PRInfo): Promise<BatchPRStatus>;
 
   // --- Session Exit Reconciliation (bd-uxs.6) ---
 
@@ -736,6 +750,14 @@ export interface MergeReadiness {
   approved: boolean;
   noConflicts: boolean;
   blockers: string[];
+}
+
+/** bd-att: All PR status fields from a single batch API call. */
+export interface BatchPRStatus {
+  state: PRState;
+  ciStatus: CIStatus;
+  reviewDecision: ReviewDecision;
+  mergeReadiness: MergeReadiness;
 }
 
 // =============================================================================
@@ -1225,6 +1247,13 @@ export interface ProjectConfig {
   // =============================================================================
 
   /**
+   * When true, the lifecycle-worker periodically lists open PRs and spawns
+   * sessions for any PR that has no active session.  This closes the gap
+   * where workers die and nobody restarts them.
+   */
+  backfillAllPRs?: boolean;
+
+  /**
    * Configurable merge-gate: custom conditions for auto-merge beyond approved+CI-green.
    * Enables projects to define custom auto-merge conditions.
    */
@@ -1270,6 +1299,9 @@ export interface TrackerConfig {
 export interface SCMConfig {
   plugin: string;
   webhook?: SCMWebhookConfig;
+  /** bd-4nz: Skip automated comment polling (getAutomatedComments) in review backlog.
+   *  Saves 1+ REST calls per session per cycle for repos without Bugbot/Copilot. */
+  skipAutomatedCommentPolling?: boolean;
   [key: string]: unknown;
 }
 

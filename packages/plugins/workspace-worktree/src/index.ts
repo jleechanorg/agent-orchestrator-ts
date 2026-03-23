@@ -128,6 +128,77 @@ async function git(cwd: string, ...args: string[]): Promise<string> {
   return stdout.trimEnd();
 }
 
+/** Timeout for tmux queries (5 seconds) */
+const TMUX_TIMEOUT = 5_000;
+
+/**
+ * Returns the list of tmux session names, or null if tmux cannot be queried
+ * (e.g. ENOENT, socket error, timeout). Callers must treat null as "unknown"
+ * and fail-safe (assume a session may be active).
+ */
+async function listTmuxSessionNames(): Promise<string[] | null> {
+  try {
+    const { stdout } = await execFileAsync("tmux", ["list-sessions", "-F", "#{session_name}"], {
+      timeout: TMUX_TIMEOUT,
+    });
+    return stdout
+      .trim()
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean);
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    // tmux exits 1 with this message when the server is running but has no sessions
+    if (msg.includes("no server running") || msg.includes("no sessions")) {
+      return [];
+    }
+    // Any other error (ENOENT, socket issues, timeout) means we cannot determine
+    // session state — return null so callers can fail-safe.
+    return null;
+  }
+}
+
+function extractCheckedOutWorktreePath(errorMessage: string): string | null {
+  const singleQuote = errorMessage.match(/already checked out at '([^']+)'/);
+  if (singleQuote?.[1]) return singleQuote[1];
+
+  const doubleQuote = errorMessage.match(/already checked out at "([^"]+)"/);
+  if (doubleQuote?.[1]) return doubleQuote[1];
+
+  return null;
+}
+
+async function hasActiveTmuxSessionForWorktreeName(worktreePath: string): Promise<boolean> {
+  const sessionName = basename(worktreePath);
+  if (!sessionName) return false;
+  const tmuxSessions = await listTmuxSessionNames();
+  // null means tmux could not be queried — fail-safe: assume session may be active
+  if (tmuxSessions === null) return true;
+  return tmuxSessions.some((tmuxSession) => tmuxSession === sessionName || tmuxSession.endsWith(`-${sessionName}`));
+}
+
+async function maybeRemoveStaleCheckedOutWorktree(
+  repoPath: string,
+  checkoutErrorMessage: string,
+  worktreeBaseDir: string,
+): Promise<boolean> {
+  const stalePath = extractCheckedOutWorktreePath(checkoutErrorMessage);
+  if (!stalePath) return false;
+
+  // Only remove worktrees under AO's managed base directory to avoid touching
+  // user-managed worktrees checked out elsewhere on disk.
+  const pathSep = "/";
+  const resolvedStale = resolve(stalePath);
+  const resolvedBase = resolve(worktreeBaseDir);
+  if (!resolvedStale.startsWith(resolvedBase + pathSep)) return false;
+
+  const hasActiveTmux = await hasActiveTmuxSessionForWorktreeName(stalePath);
+  if (hasActiveTmux) return false;
+
+  await git(repoPath, "worktree", "remove", "--force", stalePath);
+  return true;
+}
+
 /** Only allow safe characters in path segments to prevent directory traversal */
 const SAFE_PATH_SEGMENT = /^[a-zA-Z0-9_-]+$/;
 
@@ -143,6 +214,68 @@ function expandPath(p: string): string {
     return join(homedir(), p.slice(2));
   }
   return p;
+}
+
+/**
+ * Find the repo path that owns a worktree entry, given only the worktree path.
+ * Used when the worktree directory no longer exists on disk but git still has
+ * a locked worktree reference for it.
+ *
+ * Walks up from workspacePath looking for a .git directory, then runs
+ * `git worktree list --porcelain` to find the matching worktree entry and
+ * extract its gitdir reference (which points into the shared .git/worktrees/
+ * directory, from which we derive the repo root).
+ */
+async function findRepoPathForWorktree(workspacePath: string): Promise<string | null> {
+  // Walk up the directory tree looking for a .git directory
+  let dir = dirname(workspacePath);
+  const root = dirname(homedir()); // stop at home
+  while (dir !== root && dir !== "/") {
+    const dotGit = join(dir, ".git");
+    if (existsSync(dotGit)) {
+      try {
+        const gitCommonDir = await git(
+          dir,
+          "rev-parse",
+          "--path-format=absolute",
+          "--git-common-dir",
+        );
+        return resolve(gitCommonDir, "..");
+      } catch {
+        // Not a valid git repo — keep walking up
+      }
+    }
+    const parent = dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+
+  // Fallback: scan git worktree list from homedir to find any repo that has this entry
+  try {
+    const output = await git(homedir(), "worktree", "list", "--porcelain");
+    const blocks = output.split("\n\n");
+    for (const block of blocks) {
+      const lines = block.trim().split("\n");
+      let worktreePath = "";
+      let gitdir = "";
+      for (const line of lines) {
+        if (line.startsWith("worktree ")) {
+          worktreePath = line.slice("worktree ".length);
+        } else if (line.startsWith("gitdir ")) {
+          gitdir = line.slice("gitdir ".length);
+        }
+      }
+      if (worktreePath === workspacePath && gitdir) {
+        // gitdir is like /path/to/repo/.git/worktrees/session-name
+        // repo path is two levels up from the worktrees subdir
+        return resolve(gitdir, "..", "..");
+      }
+    }
+  } catch {
+    // Best-effort
+  }
+
+  return null;
 }
 
 export function create(config?: Record<string, unknown>): Workspace {
@@ -185,20 +318,40 @@ export function create(config?: Record<string, unknown>): Workspace {
         }
         // Branch already exists — create worktree and check it out
         await git(repoPath, "worktree", "add", worktreePath, baseRef);
+        let checkoutSucceeded = false;
         try {
           await git(worktreePath, "checkout", cfg.branch);
+          checkoutSucceeded = true;
         } catch (checkoutErr: unknown) {
-          // Checkout failed — remove the orphaned worktree before rethrowing
-          try {
-            await git(repoPath, "worktree", "remove", "--force", worktreePath);
-          } catch {
-            // Best-effort cleanup
-          }
           const checkoutMsg =
             checkoutErr instanceof Error ? checkoutErr.message : String(checkoutErr);
-          throw new Error(`Failed to checkout branch "${cfg.branch}" in worktree: ${checkoutMsg}`, {
-            cause: checkoutErr,
-          });
+
+          // bd-xf5: Recover from stale checked-out worktrees that block checkout.
+          // If target branch is checked out in another worktree but that worktree has
+          // no active tmux session, force-remove it and retry checkout once.
+          if (checkoutMsg.includes("already checked out") && checkoutMsg.includes("checked out at")) {
+            try {
+              const removedStale = await maybeRemoveStaleCheckedOutWorktree(repoPath, checkoutMsg, worktreeBaseDir);
+              if (removedStale) {
+                await git(worktreePath, "checkout", cfg.branch);
+                checkoutSucceeded = true;
+              }
+            } catch {
+              // Fall through to original error path.
+            }
+          }
+
+          if (!checkoutSucceeded) {
+            // Checkout failed — remove the orphaned worktree before rethrowing
+            try {
+              await git(repoPath, "worktree", "remove", "--force", worktreePath);
+            } catch {
+              // Best-effort cleanup
+            }
+            throw new Error(`Failed to checkout branch "${cfg.branch}" in worktree: ${checkoutMsg}`, {
+              cause: checkoutErr,
+            });
+          }
         }
       }
 
@@ -212,6 +365,15 @@ export function create(config?: Record<string, unknown>): Workspace {
         // Non-fatal: exclude setup failure doesn't prevent workspace use
       }
 
+      // Lock the worktree so that `git worktree prune` cannot silently delete
+      // it while the AO session is active. Non-fatal: older git versions may
+      // not support the lock subcommand.
+      try {
+        await git(repoPath, "worktree", "lock", "--reason", "AO session active", worktreePath);
+      } catch {
+        // Best-effort — prune protection unavailable on this git version
+      }
+
       return {
         path: worktreePath,
         branch: cfg.branch,
@@ -221,6 +383,8 @@ export function create(config?: Record<string, unknown>): Workspace {
     },
 
     async destroy(workspacePath: string): Promise<void> {
+      let repoPath: string | null = null;
+
       try {
         const gitCommonDir = await git(
           workspacePath,
@@ -229,8 +393,11 @@ export function create(config?: Record<string, unknown>): Workspace {
           "--git-common-dir",
         );
         // git-common-dir returns something like /path/to/repo/.git
-        const repoPath = resolve(gitCommonDir, "..");
-        await git(repoPath, "worktree", "remove", "--force", workspacePath);
+        repoPath = resolve(gitCommonDir, "..");
+        // Use --force --force to bypass the worktree lock set during create().
+        // The first --force allows removal of dirty worktrees; the second
+        // bypasses the lock that prevents accidental `git worktree prune` deletion.
+        await git(repoPath, "worktree", "remove", "--force", "--force", workspacePath);
 
         // NOTE: We intentionally do NOT delete the branch here. The worktree
         // removal is sufficient. Auto-deleting branches risks removing
@@ -238,10 +405,34 @@ export function create(config?: Record<string, unknown>): Workspace {
         // containing "/" would have been deleted). Stale branches can be
         // cleaned up separately via `git branch --merged` or similar.
       } catch {
-        // If git commands fail, try to clean up the directory
-        if (existsSync(workspacePath)) {
-          rmSync(workspacePath, { recursive: true, force: true });
+        // If the directory was deleted externally but git still has a locked
+        // worktree entry, find the repo path by scanning .git/worktrees/ and
+        // then unlock + remove the entry directly.
+        if (repoPath === null) {
+          repoPath = await findRepoPathForWorktree(workspacePath);
         }
+        if (repoPath) {
+          try {
+            await git(repoPath, "worktree", "unlock", workspacePath);
+          } catch {
+            // Best-effort — may already be unlocked or entry missing
+          }
+          try {
+            await git(repoPath, "worktree", "remove", "--force", workspacePath);
+          } catch {
+            // Best-effort — entry may already be gone
+          }
+          try {
+            await git(repoPath, "worktree", "prune");
+          } catch {
+            // Best-effort
+          }
+        }
+
+        // Last resort: clean up the directory if it still exists on disk.
+        // rmSync with force:true is safe to call even when the directory
+        // is already gone — it will be a no-op in that case.
+        rmSync(workspacePath, { recursive: true, force: true });
       }
     },
 
@@ -318,6 +509,15 @@ export function create(config?: Record<string, unknown>): Workspace {
     async restore(cfg: WorkspaceCreateConfig, workspacePath: string): Promise<WorkspaceInfo> {
       const repoPath = expandPath(cfg.project.path);
 
+      // Unlock any stale locked entry for this path before pruning.
+      // This recovers worktrees whose directories were deleted externally
+      // while git still holds a lock entry (e.g. dead session cleanup).
+      try {
+        await git(repoPath, "worktree", "unlock", workspacePath);
+      } catch {
+        // Best-effort — entry may not exist or may already be unlocked
+      }
+
       // Prune stale worktree entries
       try {
         await git(repoPath, "worktree", "prune");
@@ -355,6 +555,13 @@ export function create(config?: Record<string, unknown>): Workspace {
         await setupAoManagedExclude(workspacePath);
       } catch {
         // Non-fatal: exclude setup failure doesn't prevent workspace use
+      }
+
+      // Lock the restored worktree to prevent accidental prune.
+      try {
+        await git(repoPath, "worktree", "lock", "--reason", "AO session active", workspacePath);
+      } catch {
+        // Best-effort — prune protection unavailable on this git version
       }
 
       return {

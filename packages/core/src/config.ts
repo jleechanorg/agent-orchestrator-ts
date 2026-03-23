@@ -206,6 +206,8 @@ const ProjectConfigSchema = z.object({
     .optional(),
   opencodeIssueSessionStrategy: z.enum(["reuse", "delete", "ignore"]).optional(),
   decomposer: DecomposerConfigSchema.optional(),
+  // Lifecycle-worker auto-spawns sessions for open PRs without an active worker.
+  backfillAllPRs: z.boolean().optional(),
   // bd-uxs.8: Merge gate configuration
   mergeGate: MergeGateConfigSchema.optional(),
 });

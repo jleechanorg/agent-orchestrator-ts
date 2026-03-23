@@ -251,6 +251,27 @@ describe("workspace.create()", () => {
     );
   });
 
+  it("recovers checkout by removing stale checked-out worktree with no active tmux session", async () => {
+    const ws = create();
+
+    mockGitSuccess(""); // fetch
+    mockGitError("already exists"); // worktree add -b fails
+    mockGitSuccess(""); // worktree add (without -b)
+    mockGitError("fatal: 'feat/TEST-1' is already checked out at '/mock-home/.worktrees/myproject/ao-999'"); // checkout fails first time
+    mockGitSuccess("aa11bb22cc33-ao-123"); // tmux list-sessions (does NOT include ao-999)
+    mockGitSuccess(""); // remove stale worktree
+    mockGitSuccess(""); // checkout retry succeeds
+
+    const info = await ws.create(makeCreateConfig());
+
+    expect(info.branch).toBe("feat/TEST-1");
+    expect(mockExecFileAsync).toHaveBeenCalledWith(
+      "git",
+      ["worktree", "remove", "--force", "/mock-home/.worktrees/myproject/ao-999"],
+      { cwd: "/repo/path" },
+    );
+  });
+
   it("still throws on checkout failure even if cleanup fails", async () => {
     const ws = create();
 
@@ -361,10 +382,10 @@ describe("workspace.destroy()", () => {
       { cwd: "/mock-home/.worktrees/myproject/session-1" },
     );
 
-    // Second call: worktree remove
+    // Second call: worktree remove (--force --force to bypass lock)
     expect(mockExecFileAsync).toHaveBeenCalledWith(
       "git",
-      ["worktree", "remove", "--force", "/mock-home/.worktrees/myproject/session-1"],
+      ["worktree", "remove", "--force", "--force", "/mock-home/.worktrees/myproject/session-1"],
       { cwd: "/repo/path" },
     );
   });
@@ -373,7 +394,8 @@ describe("workspace.destroy()", () => {
     const ws = create();
 
     mockGitError("not a git repository"); // rev-parse fails
-    mockExistsSync.mockReturnValueOnce(true);
+    mockGitSuccess(""); // git worktree list --porcelain (findRepoPathForWorktree returns null)
+    // rmSync is always called as a last resort (no existsSync guard needed).
 
     await ws.destroy("/mock-home/.worktrees/myproject/session-1");
 
@@ -387,11 +409,16 @@ describe("workspace.destroy()", () => {
     const ws = create();
 
     mockGitError("not a git repository");
-    mockExistsSync.mockReturnValueOnce(false);
+    mockGitSuccess(""); // git worktree list --porcelain (findRepoPathForWorktree returns null)
+    // rmSync is always called as a last resort; force:true makes it a safe no-op
+    // on already-gone directories so no existsSync guard is needed.
 
     await ws.destroy("/nonexistent/path");
 
-    expect(mockRmSync).not.toHaveBeenCalled();
+    expect(mockRmSync).toHaveBeenCalledWith("/nonexistent/path", {
+      recursive: true,
+      force: true,
+    });
   });
 });
 
@@ -839,10 +866,12 @@ describe("setupAoManagedExclude (via workspace.restore())", () => {
     const worktreePath = "/mock-home/.worktrees/myproject/session-1";
 
     // restore() git call sequence:
-    // 1. git worktree prune (caught if fails — ok to leave unmocked)
-    // 2. git fetch origin --quiet (caught if fails — ok to leave unmocked)
-    // 3. git worktree add <worktreePath> <branch> (first attempt)
+    // 1. git worktree unlock <worktreePath> (best-effort — must mock to avoid undefined)
+    // 2. git worktree prune (caught if fails — ok to leave unmocked)
+    // 3. git fetch origin --quiet (caught if fails — ok to leave unmocked)
+    // 4. git worktree add <worktreePath> <branch> (first attempt)
     // setupAoManagedExclude: git rev-parse --git-common-dir (caught, falls back)
+    mockGitSuccess(""); // unlock
     mockGitSuccess(""); // prune
     mockGitSuccess(""); // fetch
     mockGitSuccess(""); // worktree add
