@@ -1261,6 +1261,7 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
       };
     },
 
+    // mergePR: uses gh CLI first, then falls back to direct REST via curl on rate limit.
     async mergePR(pr: PRInfo, method: MergeMethod = "squash"): Promise<void> {
       const flag = method === "rebase" ? "--rebase" : method === "merge" ? "--merge" : "--squash";
 
