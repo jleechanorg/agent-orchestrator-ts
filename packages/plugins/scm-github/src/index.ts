@@ -1370,6 +1370,55 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
       return "none";
     },
 
+    // bd-sm7: Combined PR state + review decision in a single gh CLI call
+    async getPRStateAndReview(pr: PRInfo): Promise<{ state: PRState; reviewDecision: ReviewDecision }> {
+      let raw: string;
+      try {
+        raw = await gh([
+          "pr",
+          "view",
+          String(pr.number),
+          "--repo",
+          repoFlag(pr),
+          "--json",
+          "state,reviewDecision",
+        ]);
+      } catch (err) {
+        // Rate limits: rethrow so determineStatus preserves current session status for retry.
+        if (isGhRateLimitError(err)) throw err;
+        // Non-rate-limit errors: fall back to separate calls, which have their own
+        // fail-closed handling. If the fallback itself hits a rate limit, rethrow so
+        // the outer retry logic runs. Otherwise, return fail-closed values.
+        try {
+          const [state, reviewDecision] = await Promise.all([this.getPRState(pr), this.getReviewDecision(pr)]);
+          return { state, reviewDecision };
+        } catch (fallbackErr) {
+          if (isGhRateLimitError(fallbackErr)) throw fallbackErr;
+          // Fail closed: do not leave a stale "mergeable"/"approved" status.
+          return { state: "open", reviewDecision: "pending" };
+        }
+      }
+      const data: { state: string; reviewDecision?: string; merged?: boolean } = JSON.parse(raw);
+
+      // Parse state (same logic as getPRState)
+      const s = data.state.toUpperCase();
+      let state: PRState;
+      if (s === "MERGED" || data.merged === true) state = "merged";
+      else if (s === "CLOSED") state = "closed";
+      else state = "open";
+
+      // Parse review decision — fail-closed: default to "pending" on unexpected values
+      // (matches getReviewDecision behavior where non-rate-limit errors return "pending")
+      const d = (data.reviewDecision ?? "").toUpperCase();
+      let reviewDecision: ReviewDecision;
+      if (d === "APPROVED") reviewDecision = "approved";
+      else if (d === "CHANGES_REQUESTED") reviewDecision = "changes_requested";
+      else if (d === "REVIEW_REQUIRED") reviewDecision = "pending";
+      else reviewDecision = "none";
+
+      return { state, reviewDecision };
+    },
+
     async getPendingComments(pr: PRInfo): Promise<ReviewComment[]> {
       try {
         // Use GraphQL with variables to get review threads with actual isResolved status

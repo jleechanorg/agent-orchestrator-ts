@@ -36,6 +36,8 @@ import {
   type EventPriority,
   type ProjectConfig as _ProjectConfig,
   type MergeGateConfig,
+  type PRState,
+  type ReviewDecision,
 } from "./types.js";
 import { readMetadataRaw, updateMetadata } from "./metadata.js";
 import { getSessionsDir } from "./paths.js";
@@ -256,24 +258,37 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     // Track activity state across steps so stuck detection can run after PR checks
     let detectedIdleTimestamp: Date | null = null;
 
+    // Track whether agent is dead so we can return "killed" AFTER PR checks
+    // (bd-ara auto-merge fix: agent exit must not mask a mergeable PR)
+    let agentDead = false;
+
     // 1. Check if runtime is alive
     if (session.runtimeHandle && runtime) {
       const alive = await runtime.isAlive(session.runtimeHandle).catch(() => true);
-      if (!alive) return "killed";
+      if (!alive) {
+        if (!session.pr || !scm) return "killed";
+        agentDead = true;
+      }
 
-      await detectAndApplyRateLimitPause(config.configPath, session, project, runtime, sessionManager);
+      if (!agentDead) {
+        await detectAndApplyRateLimitPause(config.configPath, session, project, runtime, sessionManager);
+      }
     }
 
     // 2. Check agent activity — prefer JSONL-based detection (runtime-agnostic)
-    if (agent && session.runtimeHandle) {
+    if (!agentDead && agent && session.runtimeHandle) {
       try {
         // Try JSONL-based activity detection first (reads agent's session files directly)
         const activityState = await agent.getActivityState(session, config.readyThresholdMs);
         if (activityState) {
           if (activityState.state === "waiting_input") return "needs_input";
-          if (activityState.state === "exited") return "killed";
+          if (activityState.state === "exited") {
+            if (!session.pr || !scm) return "killed";
+            agentDead = true;
+          }
 
           if (
+            !agentDead &&
             (activityState.state === "idle" || activityState.state === "blocked") &&
             activityState.timestamp
           ) {
@@ -294,7 +309,10 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
             if (activity === "waiting_input") return "needs_input";
 
             const processAlive = await agent.isProcessRunning(session.runtimeHandle);
-            if (!processAlive) return "killed";
+            if (!processAlive) {
+              if (!session.pr || !scm) return "killed";
+              agentDead = true;
+            }
           }
         }
       } catch {
@@ -340,16 +358,31 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     // 4. Check PR state if PR exists
     if (session.pr && scm) {
       try {
-        const prState = await scm.getPRState(session.pr);
+        // bd-sm7: Use combined call when available to save 1 gh CLI invocation
+        let prState: PRState;
+        let reviewDecision: ReviewDecision;
+        if (scm.getPRStateAndReview) {
+          const combined = await scm.getPRStateAndReview(session.pr);
+          prState = combined.state;
+          reviewDecision = combined.reviewDecision;
+        } else {
+          // Fallback: check state first to early-return on merged/closed
+          // before spending an API call on getReviewDecision.
+          // Always call getPRState first — getReviewDecision can hit rate limits
+          // and masking a successfully-fetched merged/closed state would skip
+          // cleanup and notifications.
+          prState = await scm.getPRState(session.pr);
+          if (prState === PR_STATE.MERGED) return "merged";
+          if (prState === PR_STATE.CLOSED) return "killed";
+          // Safe to call getReviewDecision now: merged/closed states are ruled out.
+          reviewDecision = await scm.getReviewDecision(session.pr);
+        }
         if (prState === PR_STATE.MERGED) return "merged";
         if (prState === PR_STATE.CLOSED) return "killed";
 
         // Check CI
         const ciStatus = await scm.getCISummary(session.pr);
         if (ciStatus === CI_STATUS.FAILING) return "ci_failed";
-
-        // Check reviews
-        const reviewDecision = await scm.getReviewDecision(session.pr);
         if (reviewDecision === "changes_requested") return "changes_requested";
         if (reviewDecision === "approved" || reviewDecision === "none") {
           // bd-wg5: Skip getMergeability when CI is pending — no point checking
@@ -380,11 +413,18 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
           return "stuck";
         }
 
+        // bd-ara: If agent is dead and PR isn't mergeable, the session is done
+        if (agentDead) return "killed";
+
         return "pr_open";
       } catch {
         // SCM check failed — keep current status
+        if (agentDead) return "killed";
       }
     }
+
+    // bd-ara: If agent is dead but we had no PR branch to check, kill
+    if (agentDead) return "killed";
 
     // 5. Post-all stuck detection: if we detected idle in step 2 but had no PR,
     // still check stuck threshold. This handles agents that finish without creating a PR.
