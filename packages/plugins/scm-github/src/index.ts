@@ -1843,11 +1843,15 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
       normalizeMergePayloadFromRestShape(data as Record<string, unknown>);
 
       // --- Review Decision ---
+      // Fail-closed: null/undefined reviewDecision → "pending" (not "none"), matching
+      // normalizeMergePayloadFromRestShape behavior. "none" means reviews were explicitly
+      // not required; null means we don't know → conservative.
       const d = (data.reviewDecision ?? "").toUpperCase();
       let reviewDecision: ReviewDecision;
       if (d === "APPROVED") reviewDecision = "approved";
       else if (d === "CHANGES_REQUESTED") reviewDecision = "changes_requested";
       else if (d === "REVIEW_REQUIRED") reviewDecision = "pending";
+      else if (data.reviewDecision == null) reviewDecision = "pending";
       else reviewDecision = "none";
 
       // --- CI Status (from statusCheckRollup) ---
