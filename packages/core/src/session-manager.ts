@@ -1630,12 +1630,106 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
     return null;
   }
 
+  /**
+   * Kill a tmux session directly using the stored tmuxName from session metadata.
+   * This is a safety net: if the runtimeHandle is missing from metadata (e.g. for
+   * externally-created sessions or legacy sessions), the runtime plugin's destroy()
+   * cannot be called, so we fall back to a direct tmux kill.
+   */
+  async function killTmuxSessionFallback(tmuxName: string): Promise<void> {
+    try {
+      await execFileAsync("tmux", ["kill-session", "-t", tmuxName], { timeout: 5_000 });
+    } catch {
+      // Session may already be dead — that's fine
+    }
+  }
+
+  /**
+   * Prune stale worktrees whose tmux sessions are dead.
+   *
+   * Scans all AO-managed worktree directories for entries whose tmux sessions are
+   * no longer alive. Guards with the AO session name pattern so human worktrees
+   * (which don't match the pattern) are never touched.
+   *
+   * AO session name pattern: {prefix}-{num} where prefix matches one of the
+   * configured session prefixes (e.g. ao, jc, wa, cc, ra, wc).
+   */
+  async function pruneStaleWorktrees(): Promise<void> {
+    // Match AO-managed session worktrees: {prefix}-{num}
+    const AO_SESSION_WORKTREE_PATTERN = /^([a-z]{2,4})-(\d+)$/;
+    const worktreeBaseDir = join(homedir(), ".worktrees");
+
+    if (!existsSync(worktreeBaseDir)) return;
+
+    for (const projectEntry of readdirSync(worktreeBaseDir, { withFileTypes: true })) {
+      if (!projectEntry.isDirectory()) continue;
+      const projectWorktreeDir = join(worktreeBaseDir, projectEntry.name);
+      if (!existsSync(projectWorktreeDir)) continue;
+
+      for (const entry of readdirSync(projectWorktreeDir, { withFileTypes: true })) {
+        if (!entry.isDirectory()) continue;
+
+        // Only process AO-managed session worktrees
+        if (!AO_SESSION_WORKTREE_PATTERN.test(entry.name)) continue;
+
+        const worktreePath = join(projectWorktreeDir, entry.name);
+        const tmuxName = entry.name;
+
+        // Check if the tmux session is still alive
+        let sessionAlive: boolean;
+        try {
+          await execFileAsync("tmux", ["has-session", "-t", tmuxName], { timeout: 3_000 });
+          sessionAlive = true;
+        } catch {
+          sessionAlive = false;
+        }
+
+        if (sessionAlive) continue;
+
+        // Tmux session is dead — find the repo path for this worktree
+        let repoPath: string | null = null;
+        for (const [, proj] of Object.entries(config.projects)) {
+          try {
+            await execFileAsync(
+              "git",
+              ["-C", proj.path, "rev-parse", "--is-inside-work-tree"],
+              { timeout: 5_000 },
+            );
+            repoPath = proj.path;
+            break;
+          } catch {
+            // Not this project — continue
+          }
+        }
+
+        if (!repoPath) continue;
+
+        // Remove the worktree
+        try {
+          await execFileAsync(
+            "git",
+            ["worktree", "remove", "--force", "--force", worktreePath],
+            { cwd: repoPath, timeout: 30_000 },
+          );
+        } catch {
+          // Best-effort: fall back to rmSync if git worktree remove fails
+          try {
+            rmSync(worktreePath, { recursive: true, force: true });
+          } catch {
+            // Already gone
+          }
+        }
+      }
+    }
+  }
+
   async function kill(sessionId: SessionId, options?: { purgeOpenCode?: boolean }): Promise<void> {
     const { raw, sessionsDir, project, projectId } = requireSessionRecord(sessionId);
 
     const cleanupAgent = resolveSelectionForSession(project, sessionId, raw).agentName;
 
     // Destroy runtime — prefer handle.runtimeName to find the correct plugin
+    let runtimeDestroyed = false;
     if (raw["runtimeHandle"]) {
       const handle = safeJsonParse<RuntimeHandle>(raw["runtimeHandle"]);
       if (handle) {
@@ -1647,11 +1741,19 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
         if (runtimePlugin) {
           try {
             await runtimePlugin.destroy(handle);
+            runtimeDestroyed = true;
           } catch {
             // Runtime might already be gone
           }
         }
       }
+    }
+
+    // Safety net: if no runtimeHandle was available, try to kill the tmux session
+    // directly using the stored tmuxName. This handles sessions where the runtimeHandle
+    // was not persisted to metadata (e.g. externally-created or legacy sessions).
+    if (!runtimeDestroyed && raw["tmuxName"]) {
+      await killTmuxSessionFallback(raw["tmuxName"]);
     }
 
     const worktree = raw["worktree"];
@@ -1852,6 +1954,16 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
 
     result.killed = [...killedKeys].map(formatEntry);
     result.skipped = [...skippedKeys].map(formatEntry);
+
+    // Prune stale worktrees whose tmux sessions are dead.
+    // Only runs if not in dry-run mode. Non-fatal: errors are best-effort.
+    if (!options?.dryRun) {
+      try {
+        await pruneStaleWorktrees();
+      } catch {
+        // Best-effort
+      }
+    }
 
     return result;
   }

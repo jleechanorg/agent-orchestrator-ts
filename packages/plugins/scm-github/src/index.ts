@@ -1250,7 +1250,7 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
         // Fallback: fetch the branch directly (works when the branch is on the base repo)
         try {
           await git(["fetch", remote, `${pr.branch}:${pr.branch}`], workspacePath);
-        } catch (_fallbackErr) {
+        } catch {
           // Both refs failed — surface the more informative original error
           throw fetchErr;
         }
