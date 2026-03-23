@@ -143,6 +143,22 @@ gh auth status                         # check if auth works
 unset GITHUB_TOKEN && gh auth status   # confirm real auth
 ```
 
+## Worktree protection — ABSOLUTE RULE
+
+**NEVER run `git worktree remove` or `git worktree prune`.** Only a human running manually in a terminal is permitted. A hook (`.claude/hooks/protect-worktrees.sh`) blocks these at the tool level.
+
+**Hook registration**: The hook is a PreToolUse hook registered in `~/.claude/settings.json` (user-scope). For new agent sessions spawned by AO, the `agent-claude-code` plugin writes a settings file — to ensure the hook runs in spawned sessions, add the hook path to that settings file or document it in onboarding. The hook file is committed to this repo at `.claude/hooks/protect-worktrees.sh` for reference and distribution.
+
+When writing worktree-cleanup scripts, scope ONLY to AO session names:
+```bash
+# REQUIRED guard at top of any worktree loop
+if [[ ! "$session_name" =~ ^(ao|jc|wa|cc|ra|wc)-[0-9]+$ ]]; then
+  echo "SKIP (non-session worktree): $session_name"
+  continue
+fi
+```
+Worktrees named `worktree_worker*`, `worktree_pr*`, `worktree_agentog*` etc. are Claude Code session directories — removing them kills the agent session.
+
 ## Coding Standards
 
 - TDD: write the failing test first, then implement
