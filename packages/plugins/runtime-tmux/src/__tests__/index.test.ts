@@ -1036,13 +1036,13 @@ describe("runtime.sendMessage() — dead-agent restart integration (bd-tln)", ()
 
     // Pre-flight alive check → alive
     mockTmuxSuccess("✻ Thinking");
-    // doSend initial: Enter (sendContent for short: send-keys -l)
+    // doSend initial: C-u, sendContent (send-keys -l), Enter
     mockTmuxSuccess();
-    // doSend initial: retry loop capture-pane → dead (/workspace $) → retry Enter
+    mockTmuxSuccess();
+    mockTmuxSuccess();
+    // didAgentStart attempt 0: capture-pane → pane shows shell, ≠ sent msg → true → break
     mockTmuxSuccess("/workspace $");
-    // doSend initial: retry Enter
-    mockTmuxSuccess();
-    // sendMessage post-send isAgentAliveInPane → dead
+    // sendMessage post-send isAgentAliveInPane → dead (shell prompt → false)
     mockTmuxSuccess("/workspace $");
     // restartAgentCli: C-c, C-c, send-keys -l launch, Enter, poll → alive
     mockTmuxSuccess();
@@ -1050,13 +1050,12 @@ describe("runtime.sendMessage() — dead-agent restart integration (bd-tln)", ()
     mockTmuxSuccess();
     mockTmuxSuccess();
     mockTmuxSuccess("✻ Thinking");
-    // waitForRestoredSession: isAgentAliveInPane → alive (exit immediately)
-    mockTmuxSuccess("✻ Thinking");
-    // doSend retry: Enter (sendContent for short: send-keys -l)
+    // C-u before retry doSend
     mockTmuxSuccess();
-    // doSend retry: retry loop capture-pane → alive (✻) → break
-    mockTmuxSuccess("✻ Thinking");
-    // sendMessage post-send isAgentAliveInPane → alive
+    // doSend retry: sendContent (send-keys -l), Enter
+    mockTmuxSuccess();
+    mockTmuxSuccess();
+    // didAgentStart attempt 0: capture-pane → alive (✻) → break
     mockTmuxSuccess("✻ Thinking");
 
     await runtime.sendMessage(handle, "important task");
