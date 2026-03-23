@@ -1065,30 +1065,26 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
         draft: boolean;
       };
 
-      try {
-        const raw = await gh([
-          "api",
-          `repos/${owner}/${repo}/pulls?state=open&per_page=100&sort=updated&direction=desc`,
-        ]);
-        const prs: RestPull[] = JSON.parse(raw);
-        return prs.map((pr) =>
-          prInfoFromView(
-            {
-              number: pr.number,
-              url: pr.html_url,
-              title: pr.title,
-              headRefName: pr.head.ref,
-              baseRefName: pr.base.ref,
-              isDraft: pr.draft,
-            },
-            project.repo,
-          ),
-        );
-      } catch (err) {
-        // Propagate errors so the caller can distinguish "no open PRs" from
-        // "API failure" and log accordingly (lifecycle.backfill.list_failed).
-        throw err;
-      }
+      // Errors propagate naturally so the caller can distinguish "no open PRs"
+      // from "API failure" and log accordingly (lifecycle.backfill.list_failed).
+      const raw = await gh([
+        "api",
+        `repos/${owner}/${repo}/pulls?state=open&per_page=100&sort=updated&direction=desc`,
+      ]);
+      const prs: RestPull[] = JSON.parse(raw);
+      return prs.map((pr) =>
+        prInfoFromView(
+          {
+            number: pr.number,
+            url: pr.html_url,
+            title: pr.title,
+            headRefName: pr.head.ref,
+            baseRefName: pr.base.ref,
+            isDraft: pr.draft,
+          },
+          project.repo,
+        ),
+      );
     },
 
     async detectPR(session: Session, project: ProjectConfig): Promise<PRInfo | null> {
