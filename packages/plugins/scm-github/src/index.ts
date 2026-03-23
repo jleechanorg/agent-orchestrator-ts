@@ -549,9 +549,6 @@ async function gh(args: string[]): Promise<string> {
   return ghWithRetry(args);
 }
 
-async function ghInDir(args: string[], cwd: string): Promise<string> {
-  return ghWithRetry(args, cwd);
-}
 
 async function git(args: string[], cwd: string): Promise<string> {
   return execCli("git", args, cwd);
@@ -1179,7 +1176,25 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
     },
 
     async assignPRToCurrentUser(pr: PRInfo): Promise<void> {
-      await gh(["pr", "edit", String(pr.number), "--repo", repoFlag(pr), "--add-assignee", "@me"]);
+      try {
+        await gh(["pr", "edit", String(pr.number), "--repo", repoFlag(pr), "--add-assignee", "@me"]);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        // GraphQL rate limit — fall back to REST API
+        if (/GraphQL.*rate limit|API rate limit.*exceeded/i.test(msg)) {
+          const login = await gh(["api", "user", "--jq", ".login"]);
+          await gh([
+            "api",
+            "-X",
+            "PATCH",
+            `repos/${repoFlag(pr)}/issues/${pr.number}`,
+            "-f",
+            `assignees=${login}`,
+          ]);
+        } else {
+          throw err;
+        }
+      }
     },
 
     async checkoutPR(pr: PRInfo, workspacePath: string): Promise<boolean> {
@@ -1188,9 +1203,24 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
 
       const dirty = await git(["status", "--porcelain"], workspacePath);
       if (dirty) {
-        throw new Error(
-          `Workspace has uncommitted changes; cannot switch to PR branch "${pr.branch}" safely`,
-        );
+        // Filter out AO-managed runtime files that are written at session startup
+        const AO_MANAGED = new Set([
+          ".claude/metadata-updater.sh", ".claude/settings.json",
+          ".cursor/metadata-updater.sh", ".cursor/settings.json",
+          ".gemini/metadata-updater.sh", ".gemini/settings.json",
+        ]);
+        const realDirty = dirty.split("\n").filter((line) => {
+          const filePath = line.replace(/^[MADRCU?! ]{1,2}\s/, "").trim();
+          return filePath.length > 0 && !AO_MANAGED.has(filePath);
+        }).join("\n").trim();
+        if (realDirty) {
+          throw new Error(
+            `Workspace has uncommitted changes; cannot switch to PR branch "${pr.branch}" safely`,
+          );
+        }
+        for (const f of AO_MANAGED) {
+          await git(["checkout", "--", f], workspacePath).catch(() => {});
+        }
       }
 
       // Use git fetch + git checkout instead of `gh pr checkout` to avoid GraphQL
@@ -1220,7 +1250,7 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
         // Fallback: fetch the branch directly (works when the branch is on the base repo)
         try {
           await git(["fetch", remote, `${pr.branch}:${pr.branch}`], workspacePath);
-        } catch (fallbackErr) {
+        } catch (_fallbackErr) {
           // Both refs failed — surface the more informative original error
           throw fetchErr;
         }
@@ -1240,7 +1270,6 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
             `Another worktree may have this branch checked out.`,
         );
       }
-
       return true;
     },
 
