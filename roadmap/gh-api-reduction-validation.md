@@ -1,94 +1,66 @@
-# GH API Call Reduction — Runtime Validation Report
+# GH API Call Reduction — Runtime Validation v3
 
-## Date
-2026-03-22T23:18Z
+**Date:** 2026-03-22
+**PR:** https://github.com/jleechanorg/agent-orchestrator/pull/110
+**Branch:** `docs/gh-api-validation-report`
+**Beads:** bd-q3x (GhCache), bd-fy7 (GraphQL executor), bd-ggf (beads tracker)
 
-## Provenance
+## v2 Results Summary (baseline)
 
-| | Upstream | Fork |
-|---|---|---|
-| Repo | ComposioHQ/agent-orchestrator | jleechanorg/agent-orchestrator |
-| SHA | a37a210977561f50138e3104b9c5c880bff18198 | 6e1f6ade993270a06fd5ca6520145a0cb4d89daa |
-| Branch | main | main |
-| Poll interval default | 30,000ms (30s) | 300,000ms (5min) |
+- Fork used **165 calls/cycle** vs upstream **133 calls/cycle** (+24.1%)
+- Workload: ~17 killed sessions — wrong workload, no GhCache exercise
+- Evidence review: WARN (N=1, empty logs, hourly claim was projection)
+- Poll interval difference confirmed: upstream=30s, fork=5min
 
-## Test Configuration
+## v3 Plan — Real PRs in mctrl_test
 
-- Config: `~/.openclaw/agent-orchestrator.yaml` (shared between both)
-- Namespace: `bb5e6b7f8db3-agent-orchestrator`
-- Sessions: ~17 killed sessions in namespace
-- Method: `npx ao lifecycle-worker agent-orchestrator --interval-ms 999999`
-- Each worker ran for up to 120 seconds before being killed
-- Rate limits captured via `gh api rate_limit` before and after each run
+### Target PRs (jleechanorg/mctrl_test)
 
-## Raw Rate-Limit Data
-
-### Upstream (ComposioHQ)
-
-| Metric | Before | After | Raw Delta |
+| PR | CI checks | Reviews | Branch |
 |---|---|---|---|
-| core.remaining | 4658 | 4644 | 14 |
-| graphql.remaining | 4686 | 4565 | 121 |
+| #172 | 6 | 2 | feat/lc1192-critical-connections |
+| #168 | 6 | 3 | session/mt-65 |
+| #158 | 6 | 2 | feat/lc84-largest-rectangle-histogram |
 
-### Fork (jleechanorg)
+### Session layout: 2 sessions per PR (6 total)
 
-| Metric | Before | After | Raw Delta |
-|---|---|---|---|
-| core.remaining | 4643 | 4624 | 19 |
-| graphql.remaining | 4551 | 4403 | 148 |
+Key design: GhCache deduplicates when multiple sessions check the same PR.
 
-## Adjusted Deltas
+Per session, `checkSession` makes 4 SCM calls (lifecycle-manager.ts:330-370):
+1. `scm.getPRState(session.pr)`
+2. `scm.getCISummary(session.pr)`
+3. `scm.getReviewDecision(session.pr)`
+4. `scm.getMergeability(session.pr)` (conditional)
 
-Each run includes 2 `gh api rate_limit` calls (before + after) that are not part of the lifecycle-worker's consumption. Subtract 2 from each core delta.
+With 2 sessions per PR and 15s cache TTL (sequential polling):
+- Session A: 4 API calls (cache miss)
+- Session B: 4 cache hits (same PR, within TTL)
+- Expected fork savings: ~12 calls/cycle (4 x 3 deduplicated sessions)
+- Expected upstream: 24 calls (no cache)
 
-| Metric | Upstream (adjusted) | Fork (adjusted) |
-|---|---|---|
-| Core (REST) | 12 | 17 |
-| GraphQL | 121 | 148 |
-| **Total** | **133** | **165** |
+### Session files: no runtimeHandle
 
-## Per-Cycle Analysis
+Sessions created WITHOUT runtimeHandle field. This skips the tmux liveness
+check (lifecycle-manager.ts:249: `if (session.runtimeHandle)`) and proceeds
+directly to PR status checks. No agent contamination.
 
-**The fork used MORE API calls per cycle than upstream: 165 vs 133 (+24.1%).**
+### Measurement: N=3 per variant, alternating
 
-This is the opposite of what the "per-cycle efficiency" claim would predict. Possible explanations:
+For each run: reset sessions to working, capture rate-limit before/after,
+run lifecycle-worker with `--interval-ms 999999`, wait for poll, kill.
 
-1. **Fork has additional features** that make extra API calls (beads tracker, MCP mail, pause-state checks, GraphQL executor with retry logic)
-2. **GhCache deduplication** only helps when the same API call is made multiple times within a cycle -- with ~17 killed sessions, each session may need unique API calls (different branch, different PR)
-3. **Fork's sequential session processing** (for-loop) vs upstream's concurrent (`Promise.allSettled`) does not reduce call count -- it only changes timing
+Fork runs also dump `getGhCache().metrics` and use `NODE_DEBUG=http`.
 
-## Poll Interval Analysis (Primary Savings Mechanism)
+### Required artifacts
 
-The fork's primary API savings is NOT per-cycle efficiency but reduced poll frequency:
+```
+/tmp/ao-validation-v3/
+  provenance/{upstream,fork}.json
+  upstream/run-{1,2,3}/{rate-limit-before,rate-limit-after}.json, lifecycle.log
+  fork/run-{1,2,3}/{rate-limit-before,rate-limit-after}.json, lifecycle.log, cache-metrics.json
+  comparison-report.md
+```
 
-| | Upstream | Fork | Reduction |
-|---|---|---|---|
-| Poll interval | 30s | 5min (300s) | 10x fewer cycles |
-| Calls per cycle | 133 | 165 | -24.1% (more) |
-| Calls per hour | 133 * 120 = 15,960 | 165 * 12 = 1,980 | **87.6% reduction** |
+## v3 Results
 
-Even though the fork uses more calls per cycle, the 10x reduction in poll frequency yields an estimated **87.6% reduction in hourly API consumption**.
-
-## Cache Hit Analysis
-
-The fork's GhCache produced no debug log output during the run. The `DEBUG=gh-cache` environment variable did not produce visible cache hit/miss logging in the lifecycle-cycle.log. This means either:
-- GhCache is not being invoked in the lifecycle-worker code path
-- The DEBUG namespace does not match the cache module's debug logger
-- Cache hits occurred but were not logged to stdout/stderr
-
-## Conclusion
-
-1. **Per-cycle claim ("fork uses fewer API calls per cycle") is NOT supported.** The fork used 165 calls vs upstream's 133 calls -- 24% MORE per cycle.
-
-2. **Hourly/daily reduction claim IS supported**, purely through the poll interval change (30s -> 5min), yielding an estimated 87.6% reduction in API calls per hour.
-
-3. **The GhCache deduplication benefit was not observable** in this test. No cache hit logs were produced, and the fork's higher per-cycle count suggests the cache may not be effectively reducing calls for this workload (killed sessions with unique branches/PRs).
-
-4. **Both workers produced minimal/no log output**, making it impossible to trace individual API calls. The rate-limit delta is the only reliable measurement.
-
-## Caveats
-
-- Both workers processed the same ~17 killed sessions
-- The upstream worker exited after one cycle (exitCode 0); the fork worker ran for 120s without producing output
-- Time between upstream-after and fork-before captures was <1 minute, so natural rate-limit recovery is negligible
-- The fork has additional features (beads, MCP mail, pause-state) that may add API calls not present in upstream
+*(to be filled after execution)*
