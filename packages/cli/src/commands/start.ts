@@ -13,6 +13,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve, basename } from "node:path";
 import { cwd } from "node:process";
+import { resolveProjectByCwd } from "../lib/resolve-project-cwd.js";
 import chalk from "chalk";
 import ora from "ora";
 import type { Command } from "commander";
@@ -96,7 +97,12 @@ function resolveProject(
     return { projectId, project: config.projects[projectId] };
   }
 
-  // Multiple projects, no argument — error
+  // Multiple projects — try matching cwd to a project path (exact or subdir)
+  // Note: loadConfig() already expands ~ in project paths via expandPaths()
+  const cwdMatch = resolveProjectByCwd({ config, currentDir: cwd() });
+  if (cwdMatch) return cwdMatch;
+
+  // No match — error with helpful message
   throw new Error(
     `Multiple projects configured. Specify which one to start:\n  ${projectIds.map((id) => `ao start ${id}`).join("\n  ")}`,
   );
