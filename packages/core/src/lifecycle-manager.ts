@@ -54,6 +54,7 @@ import { updateSessionMetadataHelper } from "./fork-utils.js";
 import { checkMergeGate } from "./merge-gate.js";
 import { GLOBAL_PAUSE_UNTIL_KEY, GLOBAL_PAUSE_REASON_KEY, parsePauseUntil } from "./global-pause.js";
 import { isGhRateLimitError } from "./gh-rate-limit.js";
+import { backfillUncoveredPRs } from "./backfill-extensions.js";
 
 /** Parse a duration string like "10m", "30s", "1h" to milliseconds. */
 export function parseDuration(str: string): number {
@@ -1124,18 +1125,34 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         }
       }
 
-      // bd-awq: PR poller disabled — the orchestrator session handles PR discovery
-      // and worker spawning via `ao spawn --claim-pr`. The poller was spawning
-      // generic sessions without PR claims, causing duplicates and sessions on
-      // wrong branches. See bd-b02 for the full analysis.
       const activeSessions = sessions.filter((s) => !TERMINAL_STATUSES.has(s.status));
+
+      // backfillAllPRs: spawn sessions for open PRs that have no active session.
+      // Replaces the old orchestrator-session-based PR discovery (bd-awq) with a
+      // deterministic loop inside the lifecycle-worker itself.
+      let backfillSpawned = false;
+      if (scopedProjectId) {
+        const project = config.projects[scopedProjectId];
+        if (project?.backfillAllPRs) {
+          backfillSpawned = await backfillUncoveredPRs(
+            { registry, sessionManager, observer },
+            { projectId: scopedProjectId, project, activeSessions, correlationId },
+          );
+          // If we just spawned a session, skip all_complete — more work exists.
+          if (backfillSpawned) {
+            allCompleteEmitted = false;
+          }
+        }
+      }
 
       // Check if all sessions are complete (trigger reaction only once).
       // Use everHadSessions to avoid spurious all_complete on startup when no
       // sessions have ever existed. Since list() filters out terminal sessions,
       // sessions.length === 0 after all work is done — everHadSessions guards
       // against the empty-at-startup case.
-      if (everHadSessions && activeSessions.length === 0 && !allCompleteEmitted) {
+      // Skip when backfillSpawned is true: activeSessions is stale (computed
+      // before the spawn) and would incorrectly trigger all_complete.
+      if (!backfillSpawned && everHadSessions && activeSessions.length === 0 && !allCompleteEmitted) {
         allCompleteEmitted = true;
 
         // Execute all-complete reaction if configured

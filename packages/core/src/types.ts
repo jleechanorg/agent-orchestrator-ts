@@ -539,6 +539,9 @@ export interface SCM {
 
   // --- PR Lifecycle ---
 
+  /** List all open PRs for a project. Used by backfillAllPRs. */
+  listOpenPRs?(project: ProjectConfig): Promise<PRInfo[]>;
+
   /** Detect if a session has an open PR (by branch name) */
   detectPR(session: Session, project: ProjectConfig): Promise<PRInfo | null>;
 
@@ -1242,6 +1245,13 @@ export interface ProjectConfig {
   // =============================================================================
   // MERGE GATE — bd-uxs.8
   // =============================================================================
+
+  /**
+   * When true, the lifecycle-worker periodically lists open PRs and spawns
+   * sessions for any PR that has no active session.  This closes the gap
+   * where workers die and nobody restarts them.
+   */
+  backfillAllPRs?: boolean;
 
   /**
    * Configurable merge-gate: custom conditions for auto-merge beyond approved+CI-green.
