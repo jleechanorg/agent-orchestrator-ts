@@ -145,6 +145,68 @@ function expandPath(p: string): string {
   return p;
 }
 
+/**
+ * Find the repo path that owns a worktree entry, given only the worktree path.
+ * Used when the worktree directory no longer exists on disk but git still has
+ * a locked worktree reference for it.
+ *
+ * Walks up from workspacePath looking for a .git directory, then runs
+ * `git worktree list --porcelain` to find the matching worktree entry and
+ * extract its gitdir reference (which points into the shared .git/worktrees/
+ * directory, from which we derive the repo root).
+ */
+async function findRepoPathForWorktree(workspacePath: string): Promise<string | null> {
+  // Walk up the directory tree looking for a .git directory
+  let dir = dirname(workspacePath);
+  const root = dirname(homedir()); // stop at home
+  while (dir !== root && dir !== "/") {
+    const dotGit = join(dir, ".git");
+    if (existsSync(dotGit)) {
+      try {
+        const gitCommonDir = await git(
+          dir,
+          "rev-parse",
+          "--path-format=absolute",
+          "--git-common-dir",
+        );
+        return resolve(gitCommonDir, "..");
+      } catch {
+        // Not a valid git repo — keep walking up
+      }
+    }
+    const parent = dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+
+  // Fallback: scan git worktree list from homedir to find any repo that has this entry
+  try {
+    const output = await git(homedir(), "worktree", "list", "--porcelain");
+    const blocks = output.split("\n\n");
+    for (const block of blocks) {
+      const lines = block.trim().split("\n");
+      let worktreePath = "";
+      let gitdir = "";
+      for (const line of lines) {
+        if (line.startsWith("worktree ")) {
+          worktreePath = line.slice("worktree ".length);
+        } else if (line.startsWith("gitdir ")) {
+          gitdir = line.slice("gitdir ".length);
+        }
+      }
+      if (worktreePath === workspacePath && gitdir) {
+        // gitdir is like /path/to/repo/.git/worktrees/session-name
+        // repo path is two levels up from the worktrees subdir
+        return resolve(gitdir, "..", "..");
+      }
+    }
+  } catch {
+    // Best-effort
+  }
+
+  return null;
+}
+
 export function create(config?: Record<string, unknown>): Workspace {
   const worktreeBaseDir = config?.worktreeDir
     ? expandPath(config.worktreeDir as string)
@@ -230,6 +292,8 @@ export function create(config?: Record<string, unknown>): Workspace {
     },
 
     async destroy(workspacePath: string): Promise<void> {
+      let repoPath: string | null = null;
+
       try {
         const gitCommonDir = await git(
           workspacePath,
@@ -238,7 +302,7 @@ export function create(config?: Record<string, unknown>): Workspace {
           "--git-common-dir",
         );
         // git-common-dir returns something like /path/to/repo/.git
-        const repoPath = resolve(gitCommonDir, "..");
+        repoPath = resolve(gitCommonDir, "..");
         // Use --force --force to bypass the worktree lock set during create().
         // The first --force allows removal of dirty worktrees; the second
         // bypasses the lock that prevents accidental `git worktree prune` deletion.
@@ -250,10 +314,34 @@ export function create(config?: Record<string, unknown>): Workspace {
         // containing "/" would have been deleted). Stale branches can be
         // cleaned up separately via `git branch --merged` or similar.
       } catch {
-        // If git commands fail, try to clean up the directory
-        if (existsSync(workspacePath)) {
-          rmSync(workspacePath, { recursive: true, force: true });
+        // If the directory was deleted externally but git still has a locked
+        // worktree entry, find the repo path by scanning .git/worktrees/ and
+        // then unlock + remove the entry directly.
+        if (repoPath === null) {
+          repoPath = await findRepoPathForWorktree(workspacePath);
         }
+        if (repoPath) {
+          try {
+            await git(repoPath, "worktree", "unlock", workspacePath);
+          } catch {
+            // Best-effort — may already be unlocked or entry missing
+          }
+          try {
+            await git(repoPath, "worktree", "remove", "--force", workspacePath);
+          } catch {
+            // Best-effort — entry may already be gone
+          }
+          try {
+            await git(repoPath, "worktree", "prune");
+          } catch {
+            // Best-effort
+          }
+        }
+
+        // Last resort: clean up the directory if it still exists on disk.
+        // rmSync with force:true is safe to call even when the directory
+        // is already gone — it will be a no-op in that case.
+        rmSync(workspacePath, { recursive: true, force: true });
       }
     },
 
@@ -329,6 +417,15 @@ export function create(config?: Record<string, unknown>): Workspace {
 
     async restore(cfg: WorkspaceCreateConfig, workspacePath: string): Promise<WorkspaceInfo> {
       const repoPath = expandPath(cfg.project.path);
+
+      // Unlock any stale locked entry for this path before pruning.
+      // This recovers worktrees whose directories were deleted externally
+      // while git still holds a lock entry (e.g. dead session cleanup).
+      try {
+        await git(repoPath, "worktree", "unlock", workspacePath);
+      } catch {
+        // Best-effort — entry may not exist or may already be unlocked
+      }
 
       // Prune stale worktree entries
       try {
