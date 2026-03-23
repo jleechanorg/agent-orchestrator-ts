@@ -162,15 +162,14 @@ detect_repos() {
 
 check_ao_doctor() {
   log "--- Running ao doctor (baseline) ---"
-  # Run in subshell so set +e does not leak into caller
+  # Run in subshell so errexit state is always clean; never set -e in this function
   local out rc
   rc=0
-  out=$(set +e; ao doctor 2>&1) || rc=$?
+  out=$(ao doctor 2>&1) || rc=$?
   local fails warns
-  set +e
-  fails=$(echo "$out" | grep -c "^FAIL"); [ $? -eq 0 ] || fails=0
-  warns=$(echo "$out" | grep -c "^WARN"); [ $? -eq 0 ] || warns=0
-  set -e
+  # grep -c exits 1 when zero lines match; capture matches count safely
+  fails=$(echo "$out" | grep -c "^FAIL") || fails=0
+  warns=$(echo "$out" | grep -c "^WARN") || warns=0
   if [ "$rc" -ne 0 ] && [ "$fails" -gt 0 ]; then
     fail "ao doctor: ${fails} failures, command exited with code $rc (run 'ao doctor' for details)"
   elif [ "$rc" -ne 0 ] && [ "$fails" -eq 0 ] && [ "$warns" -eq 0 ]; then
@@ -256,7 +255,12 @@ check_lifecycle_workers() {
   config_path_for_count=$(resolve_config) || true
   local project_count=8  # default
   if [ -n "$config_path_for_count" ]; then
-    project_count=$(set +e; grep -cE '^[[:space:]]+[a-zA-Z0-9_-]+:$' "$config_path_for_count" 2>/dev/null); [ $? -eq 0 ] || project_count=8
+    local raw_count
+    raw_count=$(grep -cE '^[[:space:]]+[a-zA-Z0-9_-]+:$' "$config_path_for_count" 2>/dev/null) || raw_count=0
+    # Validate: grep -c can emit "0\n8" when it exits non-zero (output + fallback)
+    if [[ "$raw_count" =~ ^[0-9]+$ ]]; then
+      project_count="$raw_count"
+    fi
     # Minimum reasonable threshold
     [ "$project_count" -lt 3 ] && project_count=3
   fi
@@ -430,10 +434,9 @@ check_stray_worktrees() {
 check_config_valid() {
   log "--- Config validation ---"
   local config_path="$1"
-  # Run in subshell so set +e is isolated and does not leak to parent shell
-  local out rc
-  rc=0
-  out=$(set +e; AO_CONFIG_PATH="$config_path" ao doctor 2>&1) || rc=$?
+  # Run in subshell so errexit is always clean; never set -e here
+  local rc=0
+  AO_CONFIG_PATH="$config_path" ao doctor >/dev/null 2>&1 || rc=$?
   if [ "$rc" -eq 0 ]; then
     pass "Config validates OK ($config_path)"
   else
@@ -565,15 +568,18 @@ ${line}" ;;
 
   # Try MCP Slack tool via curl to openclaw gateway, fall back to webhook
   if [ -n "${SLACK_WEBHOOK_URL:-}" ]; then
-    local payload
-    payload=$(python3 -c "
+    local payload_file
+    payload_file=$(mktemp /tmp/slack-webhook-payload.XXXXXX)
+    python3 -c "
 import json, sys
 print(json.dumps({'text': sys.argv[1], 'channel': sys.argv[2]}))
-" "$message" "$AO_DOCTOR_SLACK_CHANNEL" 2>/dev/null)
-    curl -s -X POST -H 'Content-type: application/json' -d "$payload" "$SLACK_WEBHOOK_URL" > /dev/null 2>&1 && {
+" "$message" "$AO_DOCTOR_SLACK_CHANNEL" > "$payload_file" 2>/dev/null
+    curl -s -X POST -H 'Content-type: application/json' -d "@$payload_file" "$SLACK_WEBHOOK_URL" > /dev/null 2>&1 && {
       log "Slack report sent to $AO_DOCTOR_SLACK_CHANNEL"
+      rm -f "$payload_file"
       return
     }
+    rm -f "$payload_file"
   fi
 
   # Fall back: post via gh (uses user token, posts as user)
