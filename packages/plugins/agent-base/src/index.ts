@@ -104,21 +104,15 @@ export interface AgentPluginConfig {
 export const METADATA_UPDATER_SCRIPT = `#!/usr/bin/env bash
 # Metadata Updater Hook for Agent Orchestrator
 #
-# This hook automatically updates session metadata when:
+# This PostToolUse hook automatically updates session metadata when:
 # - gh pr create: extracts PR URL and writes to metadata
 # - git checkout -b / git switch -c: extracts branch name and writes to metadata
 # - gh pr merge: updates status to "merged"
-#
-# AO_HOOK_EVENT_NAME: the active event name (e.g. "PostToolUse", "AfterTool",
-#   "PreToolUse") — set by the caller so the deny response matches the active hook.
 
 set -euo pipefail
 
 # Configuration
 AO_DATA_DIR="\${AO_DATA_DIR:-$HOME/.ao-sessions}"
-# The event name the CLI used to invoke this hook — used in deny responses so
-# the response matches the running hook (e.g. "PreToolUse" vs "BeforeTool").
-HOOK_EVENT_NAME="\${AO_HOOK_EVENT_NAME:-PostToolUse}"
 
 # Read hook input from stdin
 input=$(cat)
@@ -129,12 +123,14 @@ if command -v jq &>/dev/null; then
   command=$(echo "$input" | jq -r '.tool_input.command // empty')
   output=$(echo "$input" | jq -r '.tool_response // empty')
   exit_code=$(echo "$input" | jq -r '.exit_code // 0')
+  hook_event_name=$(echo "$input" | jq -r '.hook_event_name // empty')
 else
   # Fallback: basic JSON parsing without jq
   tool_name=$(echo "$input" | grep -o '"tool_name"[[:space:]]*:[[:space:]]*"[^"]*"' | cut -d'"' -f4 || echo "")
   command=$(echo "$input" | grep -o '"command"[[:space:]]*:[[:space:]]*"[^"]*"' | cut -d'"' -f4 || echo "")
   output=$(echo "$input" | grep -o '"tool_response"[[:space:]]*:[[:space:]]*"[^"]*"' | cut -d'"' -f4 || echo "")
   exit_code=$(echo "$input" | grep -o '"exit_code"[[:space:]]*:[[:space:]]*[0-9]*' | grep -o '[0-9]*$' || echo "0")
+  hook_event_name=$(echo "$input" | grep -o '"hook_event_name"[[:space:]]*:[[:space:]]*"[^"]*"' | cut -d'"' -f4 || echo "")
 fi
 
 # Only process successful commands (exit code 0)
@@ -171,7 +167,7 @@ done
 # This check runs BEFORE AO_SESSION/metadata checks since blocking a merge doesn't require session metadata.
 merge_pattern='^[[:space:]]*([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]+[[:space:]]+)*gh[[:space:]]+pr[[:space:]]+merge([[:space:]]|$)'
 if [[ "$clean_command" =~ $merge_pattern && "\${AO_ALLOW_GH_PR_MERGE:-}" != "1" ]]; then
-  echo "{\\"hookSpecificOutput\\":{\\"hookEventName\\":\\"$HOOK_EVENT_NAME\\",\\"permissionDecision\\":\\"deny\\",\\"permissionDecisionReason\\":\\"Blocked by AO policy: agents must not run gh pr merge. Leave merge to orchestrator/human.\\"}}"
+  echo '{"hookSpecificOutput":{"hookEventName":"'"\${hook_event_name:-PreToolUse}"'","permissionDecision":"deny","permissionDecisionReason":"Blocked by AO policy: agents must not run gh pr merge. Leave merge to orchestrator/human."}}'
   exit 0
 fi
 
@@ -592,6 +588,14 @@ async function findAgentProcess(
 // Terminal Output Patterns for detectActivity
 // =============================================================================
 
+/**
+ * Unicode spinner characters emitted by Claude Code, Gemini CLI, and other
+ * agents while actively processing. Presence in the terminal window means the
+ * agent is mid-work even if the prompt glyph (❯) is also visible at the
+ * bottom (orch-jtc7: false-idle fix).
+ */
+const ACTIVE_SPINNER_RE = /[✻✶✳✽✾⠁⠂⠄⠈⠐⠠⡀⢀⣀]/;
+
 /** Classify agent activity state from terminal output (pure, sync). */
 function classifyTerminalOutput(terminalOutput: string): ActivityState {
   // Empty output — can't determine state
@@ -600,9 +604,16 @@ function classifyTerminalOutput(terminalOutput: string): ActivityState {
   const lines = terminalOutput.trim().split("\n");
   const lastLine = lines[lines.length - 1]?.trim() ?? "";
 
-  // Check the last line FIRST — if the prompt is visible, the agent is idle
-  // regardless of historical output (e.g. "Reading file..." from earlier).
-  if (/^[❯>$#]\s*$/.test(lastLine)) return "idle";
+  // Check the last line FIRST — if the prompt is visible, the agent MAY be idle.
+  // But also check the last 20 lines for active spinner indicators: agents like
+  // Claude Code render ❯ at the bottom while still thinking/using tools above
+  // (orch-jtc7: false-idle between tool calls).
+  if (/^[❯>$#]\s*$/.test(lastLine)) {
+    const windowStart = Math.max(0, lines.length - 21);
+    const window = lines.slice(windowStart, lines.length - 1); // exclude the last prompt line
+    if (window.some((l) => ACTIVE_SPINNER_RE.test(l))) return "active";
+    return "idle";
+  }
 
   // Check the bottom of the buffer for permission prompts BEFORE checking
   // full-buffer active indicators. Historical "Thinking"/"Reading" text in
@@ -622,23 +633,30 @@ function classifyTerminalOutput(terminalOutput: string): ActivityState {
 // =============================================================================
 
 /**
+ * Options for setupHookInWorkspace.
+ * Typed to prevent accidental event-name swap at call sites.
+ */
+interface SetupHookOptions {
+  workspacePath: string;
+  configDir: string;
+  hookCommand: string;
+  hookMatcher?: string;
+  postToolUseEvent?: string;
+  preToolUseEvent?: string;
+}
+
+/**
  * Shared helper to setup tool hooks in a workspace.
  * Writes metadata-updater.sh script and updates settings.json.
- *
- * @param preHookCommand  - command run on the pre-event hook (e.g. PreToolUse).
- *                          Must include AO_HOOK_EVENT_NAME so deny responses match.
- * @param postHookCommand - command run on the post-event hook (e.g. PostToolUse).
- *                          Includes AO_DATA_DIR for metadata writes.
  */
-async function setupHookInWorkspace(
-  workspacePath: string,
-  configDir: string,
-  preHookCommand: string,
-  postHookCommand: string,
+async function setupHookInWorkspace({
+  workspacePath,
+  configDir,
+  hookCommand,
   hookMatcher = "Bash",
   postToolUseEvent = "PostToolUse",
   preToolUseEvent = "PreToolUse",
-): Promise<void> {
+}: SetupHookOptions): Promise<void> {
   const agentDir = join(workspacePath, configDir);
   const settingsPath = join(agentDir, "settings.json");
   const hookScriptPath = join(agentDir, "metadata-updater.sh");
@@ -709,7 +727,69 @@ async function setupHookInWorkspace(
   const rawPreToolUse = hooks[preToolUseEvent];
   const preToolUse: Array<unknown> = Array.isArray(rawPreToolUse) ? rawPreToolUse : [];
 
-  const ensureMetadataHook = (eventHooks: Array<unknown>, hookCmd: string): void => {
+  // Migrate legacy AO hook buckets when switching to custom event names (e.g. Gemini
+  // switching from PostToolUse/PreToolUse to AfterTool/BeforeTool). Old buckets are
+  // scanned for AO-managed entries and those entries are preserved in the new bucket.
+  // The legacy bucket is then deleted so the agent doesn't fire duplicate hooks.
+  const LEGACY_POST = "PostToolUse";
+  const LEGACY_PRE = "PreToolUse";
+  const isLegacyPostEvent = postToolUseEvent !== LEGACY_POST && hooks[LEGACY_POST] !== undefined;
+  const isLegacyPreEvent = preToolUseEvent !== LEGACY_PRE && hooks[LEGACY_PRE] !== undefined;
+
+  if (isLegacyPostEvent || isLegacyPreEvent) {
+    for (const legacyKey of [LEGACY_POST, LEGACY_PRE] as const) {
+      if (hooks[legacyKey] === undefined) continue;
+      const legacyArr: unknown[] = Array.isArray(hooks[legacyKey]) ? (hooks[legacyKey] as unknown[]) : [];
+      for (const item of legacyArr) {
+        if (typeof item !== "object" || item === null || Array.isArray(item)) continue;
+        const h = item as Record<string, unknown>;
+        const hList = h["hooks"];
+        if (!Array.isArray(hList)) continue;
+        for (const def of hList) {
+          if (typeof def !== "object" || def === null || Array.isArray(def)) continue;
+          const d = def as Record<string, unknown>;
+          if (typeof d["command"] !== "string") continue;
+          const cmd = d["command"] as string;
+          if (!cmd.includes("metadata-updater.sh") && !cmd.includes("AO_DATA_DIR")) continue;
+          // This is an AO-managed hook entry — migrate it to the new event bucket
+          const newKey = legacyKey === LEGACY_POST ? postToolUseEvent : preToolUseEvent;
+          const newArr: Array<unknown> = Array.isArray(hooks[newKey]) ? (hooks[newKey] as Array<unknown>) : [];
+          const alreadyExists = newArr.some((entry) => {
+            if (typeof entry !== "object" || entry === null) return false;
+            const e = entry as Record<string, unknown>;
+            const list = e["hooks"];
+            if (!Array.isArray(list)) return false;
+            return list.some((def2) => {
+              if (typeof def2 !== "object" || def2 === null) return false;
+              return (def2 as Record<string, unknown>)["command"] === cmd;
+            });
+          });
+          if (!alreadyExists) {
+            newArr.push({ matcher: hookMatcher, hooks: [{ type: "command", command: cmd, timeout: 5000 }] });
+          }
+        }
+      }
+      // eslint-disable-next-line @typescript-eslint/no-dynamic-delete
+      delete hooks[legacyKey];
+    }
+    // Re-read the new buckets now that migration may have populated them
+    if (isLegacyPostEvent) {
+      const migrated = hooks[postToolUseEvent];
+      if (Array.isArray(migrated)) {
+        postToolUse.length = 0;
+        postToolUse.push(...migrated);
+      }
+    }
+    if (isLegacyPreEvent) {
+      const migrated = hooks[preToolUseEvent];
+      if (Array.isArray(migrated)) {
+        preToolUse.length = 0;
+        preToolUse.push(...migrated);
+      }
+    }
+  }
+
+  const ensureMetadataHook = (eventHooks: Array<unknown>): void => {
     let hookIndex = -1;
     let hookDefIndex = -1;
 
@@ -738,7 +818,7 @@ async function setupHookInWorkspace(
         hooks: [
           {
             type: "command",
-            command: hookCmd,
+            command: hookCommand,
             timeout: 5000,
           },
         ],
@@ -750,16 +830,16 @@ async function setupHookInWorkspace(
     const hooksList = hook["hooks"] as Array<Record<string, unknown>>;
     const existingCommand = hooksList[hookDefIndex]["command"] as string | undefined;
     const newCommandDropsDataDir =
-      !hookCmd.includes("AO_DATA_DIR=") &&
+      !hookCommand.includes("AO_DATA_DIR=") &&
       typeof existingCommand === "string" &&
       existingCommand.includes("AO_DATA_DIR=");
     if (!newCommandDropsDataDir) {
-      hooksList[hookDefIndex]["command"] = hookCmd;
+      hooksList[hookDefIndex]["command"] = hookCommand;
     }
   };
 
-  ensureMetadataHook(postToolUse, postHookCommand);
-  ensureMetadataHook(preToolUse, preHookCommand);
+  ensureMetadataHook(postToolUse);
+  ensureMetadataHook(preToolUse);
 
   hooks[postToolUseEvent] = postToolUse;
   hooks[preToolUseEvent] = preToolUse;
@@ -1103,22 +1183,17 @@ export function createAgentPlugin(config: AgentPluginConfig, overrides?: Partial
       hookConfig: WorkspaceHooksConfig,
     ): Promise<void> {
       const hookScriptPath = join(workspacePath, config.configDir, "metadata-updater.sh");
-      const postToolEvent = config.hookEventNames?.postToolUse ?? "PostToolUse";
-      const preToolEvent = config.hookEventNames?.preToolUse ?? "PreToolUse";
-      // Pre-event: guardrail only. AO_HOOK_EVENT_NAME ensures deny responses match.
-      // No AO_DATA_DIR — the pre-event exits before needing session metadata.
-      const preHookCommand = `AO_HOOK_EVENT_NAME=${shellEscape(preToolEvent)} ${shellEscape(hookScriptPath)}`;
-      // Post-event: full metadata tracking with AO_DATA_DIR for session writes.
-      const postHookCommand = `AO_DATA_DIR=${shellEscape(hookConfig.dataDir)} AO_HOOK_EVENT_NAME=${shellEscape(postToolEvent)} ${shellEscape(hookScriptPath)}`;
-      await setupHookInWorkspace(
+      // Prefix AO_DATA_DIR so the hook writes to the configured data directory
+      // rather than the default $HOME/.ao-sessions.
+      const hookCommand = `AO_DATA_DIR=${shellEscape(hookConfig.dataDir)} ${shellEscape(hookScriptPath)}`;
+      await setupHookInWorkspace({
         workspacePath,
-        config.configDir,
-        preHookCommand,
-        postHookCommand,
-        config.hookToolMatcher ?? "Bash",
-        postToolEvent,
-        preToolEvent,
-      );
+        configDir: config.configDir,
+        hookCommand,
+        hookMatcher: config.hookToolMatcher ?? "Bash",
+        postToolUseEvent: config.hookEventNames?.postToolUse ?? "PostToolUse",
+        preToolUseEvent: config.hookEventNames?.preToolUse ?? "PreToolUse",
+      });
       // Also configure MCP mail server for agent coordination
       await setupMcpMailInWorkspace(workspacePath, config.configDir);
     },
@@ -1130,21 +1205,15 @@ export function createAgentPlugin(config: AgentPluginConfig, overrides?: Partial
         config.configDir,
         "metadata-updater.sh",
       );
-      const postToolEvent = config.hookEventNames?.postToolUse ?? "PostToolUse";
-      const preToolEvent = config.hookEventNames?.preToolUse ?? "PreToolUse";
-      // Pre-event: guardrail only. No AO_DATA_DIR — exits before needing session.
-      const preHookCommand = `AO_HOOK_EVENT_NAME=${shellEscape(preToolEvent)} ${shellEscape(hookScriptPath)}`;
-      // Post-event: full metadata tracking.
-      const postHookCommand = `AO_HOOK_EVENT_NAME=${shellEscape(postToolEvent)} ${shellEscape(hookScriptPath)}`;
-      await setupHookInWorkspace(
-        session.workspacePath,
-        config.configDir,
-        preHookCommand,
-        postHookCommand,
-        config.hookToolMatcher ?? "Bash",
-        postToolEvent,
-        preToolEvent,
-      );
+      // postLaunchSetup does not receive hookConfig — use the env-var default
+      await setupHookInWorkspace({
+        workspacePath: session.workspacePath,
+        configDir: config.configDir,
+        hookCommand: shellEscape(hookScriptPath),
+        hookMatcher: config.hookToolMatcher ?? "Bash",
+        postToolUseEvent: config.hookEventNames?.postToolUse ?? "PostToolUse",
+        preToolUseEvent: config.hookEventNames?.preToolUse ?? "PreToolUse",
+      });
       // Also configure MCP mail server for agent coordination
       await setupMcpMailInWorkspace(session.workspacePath, config.configDir);
     },

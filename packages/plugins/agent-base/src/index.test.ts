@@ -265,8 +265,11 @@ describe("setupWorkspaceHooks — hook event names", () => {
   });
 
   function getSettingsJsonArg(): string | null {
-    for (const call of mockWriteFile.mock.calls) {
-      const [path, content] = call as [string, string, unknown];
+    // Scan in reverse so we capture the LAST settings.json write (e.g. if
+    // setupMcpMailInWorkspace writes a second settings.json after the hook write).
+    const calls = mockWriteFile.mock.calls;
+    for (let i = calls.length - 1; i >= 0; i--) {
+      const [path, content] = calls[i] as [string, string, unknown];
       if (typeof path === "string" && path.endsWith("settings.json")) {
         return content;
       }
@@ -296,60 +299,7 @@ describe("setupWorkspaceHooks — hook event names", () => {
     expect(hooks).not.toHaveProperty("BeforeTool");
   });
 
-  it("pre-event command does not include AO_DATA_DIR (guardrail exits before session needed)", async () => {
-    const agent = createAgentPlugin({
-      name: "claude-code",
-      description: "Claude Code",
-      processName: "claude",
-      command: "claude",
-      configDir: ".claude",
-      permissionlessFlag: "--dangerously-skip-permissions",
-    });
-
-    await agent.setupWorkspaceHooks!("/workspace/test", { dataDir: "/data/sessions" });
-
-    const settingsJson = getSettingsJsonArg();
-    expect(settingsJson).not.toBeNull();
-    const settings = JSON.parse(settingsJson!) as Record<string, unknown>;
-    const hooks = settings["hooks"] as Record<string, unknown>;
-    const preToolUse = hooks["PreToolUse"] as Array<Record<string, unknown>>;
-    expect(preToolUse).toBeDefined();
-    const hookDef = preToolUse[0] as Record<string, unknown>;
-    const hooksList = hookDef["hooks"] as Array<Record<string, unknown>>;
-    const preCommand = hooksList[0]["command"] as string;
-
-    expect(preCommand).not.toContain("AO_DATA_DIR=");
-    expect(preCommand).toContain("AO_HOOK_EVENT_NAME=");
-  });
-
-  it("post-event command includes AO_DATA_DIR (metadata tracking needs session directory)", async () => {
-    const agent = createAgentPlugin({
-      name: "claude-code",
-      description: "Claude Code",
-      processName: "claude",
-      command: "claude",
-      configDir: ".claude",
-      permissionlessFlag: "--dangerously-skip-permissions",
-    });
-
-    await agent.setupWorkspaceHooks!("/workspace/test", { dataDir: "/data/sessions" });
-
-    const settingsJson = getSettingsJsonArg();
-    expect(settingsJson).not.toBeNull();
-    const settings = JSON.parse(settingsJson!) as Record<string, unknown>;
-    const hooks = settings["hooks"] as Record<string, unknown>;
-    const postToolUse = hooks["PostToolUse"] as Array<Record<string, unknown>>;
-    expect(postToolUse).toBeDefined();
-    const hookDef = postToolUse[0] as Record<string, unknown>;
-    const hooksList = hookDef["hooks"] as Array<Record<string, unknown>>;
-    const postCommand = hooksList[0]["command"] as string;
-
-    expect(postCommand).toContain("AO_DATA_DIR=");
-    expect(postCommand).toContain("/data/sessions");
-    expect(postCommand).toContain("AO_HOOK_EVENT_NAME=");
-  });
-
-  it("uses AfterTool when hookEventNames configured for Gemini", async () => {
+  it("uses AfterTool/BeforeTool when hookEventNames configured for Gemini", async () => {
     const agent = createAgentPlugin({
       name: "gemini",
       description: "Gemini CLI",
@@ -357,7 +307,7 @@ describe("setupWorkspaceHooks — hook event names", () => {
       command: "gemini",
       configDir: ".gemini",
       permissionlessFlag: "--yolo",
-      hookEventNames: { postToolUse: "AfterTool" },
+      hookEventNames: { postToolUse: "AfterTool", preToolUse: "BeforeTool" },
     });
 
     await agent.setupWorkspaceHooks!("/workspace/test", { dataDir: "/data/sessions" });
@@ -367,8 +317,154 @@ describe("setupWorkspaceHooks — hook event names", () => {
     const settings = JSON.parse(settingsJson!) as Record<string, unknown>;
     const hooks = settings["hooks"] as Record<string, unknown>;
     expect(hooks).toHaveProperty("AfterTool");
-    expect(hooks).toHaveProperty("PreToolUse"); // guardrail still uses PreToolUse
+    expect(hooks).toHaveProperty("BeforeTool");
     expect(hooks).not.toHaveProperty("PostToolUse");
-    expect(hooks).not.toHaveProperty("BeforeTool");
+    expect(hooks).not.toHaveProperty("PreToolUse");
+  });
+
+  it("migrates legacy PostToolUse/PreToolUse hooks to custom AfterTool/BeforeTool on upgrade", async () => {
+    const legacySettings = JSON.stringify({
+      hooks: {
+        PostToolUse: [
+          {
+            matcher: "Bash",
+            hooks: [
+              {
+                type: "command",
+                command: "AO_DATA_DIR=/data/sessions /workspace/test/.gemini/metadata-updater.sh",
+                timeout: 5000,
+              },
+            ],
+          },
+        ],
+        PreToolUse: [
+          {
+            matcher: "run_shell_command",
+            hooks: [
+              {
+                type: "command",
+                command: "/workspace/test/.gemini/metadata-updater.sh",
+                timeout: 5000,
+              },
+            ],
+          },
+        ],
+      },
+    });
+
+    mockExistsSync.mockReturnValue(true);
+    mockReadFile.mockResolvedValue(legacySettings);
+
+    const agent = createAgentPlugin({
+      name: "gemini",
+      description: "Gemini CLI",
+      processName: "gemini",
+      command: "gemini",
+      configDir: ".gemini",
+      permissionlessFlag: "--yolo",
+      hookEventNames: { postToolUse: "AfterTool", preToolUse: "BeforeTool" },
+    });
+
+    await agent.setupWorkspaceHooks!("/workspace/test", { dataDir: "/data/sessions" });
+
+    const settingsJson = getSettingsJsonArg();
+    expect(settingsJson).not.toBeNull();
+    const settings = JSON.parse(settingsJson!) as Record<string, unknown>;
+    const hooks = settings["hooks"] as Record<string, unknown>;
+    // Legacy buckets should be removed
+    expect(hooks).not.toHaveProperty("PostToolUse");
+    expect(hooks).not.toHaveProperty("PreToolUse");
+    // New buckets should have migrated hooks
+    expect(hooks).toHaveProperty("AfterTool");
+    expect(hooks).toHaveProperty("BeforeTool");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// detectActivity — classifyTerminalOutput (orch-jtc7: false-idle fix)
+// ---------------------------------------------------------------------------
+describe("detectActivity — classifyTerminalOutput", () => {
+  const agent = createAgentPlugin({
+    name: "test-agent",
+    description: "Test agent",
+    processName: "test",
+    command: "test",
+    configDir: ".test",
+    permissionlessFlag: "--flag",
+  });
+
+  it("returns 'idle' for empty output", () => {
+    expect(agent.detectActivity("")).toBe("idle");
+    expect(agent.detectActivity("   \n  ")).toBe("idle");
+  });
+
+  it("returns 'idle' when last line is bare prompt with no activity above", () => {
+    const output = "$ ls\nfoo.txt\n$ ";
+    expect(agent.detectActivity(output)).toBe("idle");
+  });
+
+  it("returns 'idle' when last line is bare ❯ with no activity above", () => {
+    const output = "some output\n❯ ";
+    expect(agent.detectActivity(output)).toBe("idle");
+  });
+
+  // orch-jtc7: false IDLE — agent thinking above, ❯ at bottom
+  it("returns 'active' when Unicode spinner ✻ appears near bottom even if last line is ❯", () => {
+    const output = [
+      "❯ ao spawn --agent claude ...",
+      "✻ Analyzing the codebase...",
+      "  Reading src/index.ts",
+      "  Writing src/output.ts",
+      "❯",
+    ].join("\n");
+    expect(agent.detectActivity(output)).toBe("active");
+  });
+
+  it("returns 'active' when spinner ✶ appears in last 20 lines with ❯ on last line", () => {
+    const output = [
+      "❯",
+      "✶ Thinking...",
+      "  Tool call: read_file(path='src/main.ts')",
+      "❯",
+    ].join("\n");
+    expect(agent.detectActivity(output)).toBe("active");
+  });
+
+  it("returns 'active' when spinner ✳ appears in last 20 lines with > on last line", () => {
+    const output = ["✳ Processing...", "> "].join("\n");
+    expect(agent.detectActivity(output)).toBe("active");
+  });
+
+  it("returns 'active' when spinner is within the last 20 lines despite prompt on last line", () => {
+    // 1 spinner + 5 step lines = 7 total, all within 20-line window, prompt on last line
+    const lines = ["✻ Working...", ...Array(5).fill("  step"), "❯"];
+    expect(agent.detectActivity(lines.join("\n"))).toBe("active");
+  });
+
+  it("returns 'active' when spinner is exactly 20 lines before ❯ (boundary)", () => {
+    // spinner at index 0, 19 filler lines, prompt at index 20 = 21 total lines
+    // windowStart = max(0, 21-21) = 0; window = lines[0..19] includes spinner → active
+    const lines = ["✻ Boundary activity...", ...Array(19).fill("done"), "❯"];
+    expect(agent.detectActivity(lines.join("\n"))).toBe("active");
+  });
+
+  it("returns 'idle' when spinner is more than 20 lines before ❯ (outside window)", () => {
+    // spinner far above, then 21 blank/done lines, then prompt
+    const lines = ["✻ Old activity...", ...Array(21).fill("done"), "❯"];
+    expect(agent.detectActivity(lines.join("\n"))).toBe("idle");
+  });
+
+  it("returns 'active' for output with no prompt on last line", () => {
+    expect(agent.detectActivity("Reading file...\nDone")).toBe("active");
+  });
+
+  it("returns 'waiting_input' for permission prompt near bottom", () => {
+    const output = "some text\nDo you want to proceed?\n(Y)es  (N)o";
+    expect(agent.detectActivity(output)).toBe("waiting_input");
+  });
+
+  it("returns 'waiting_input' for bypass permissions prompt", () => {
+    const output = "bypass permissions mode\nConfirm?";
+    expect(agent.detectActivity(output)).toBe("waiting_input");
   });
 });
