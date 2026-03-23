@@ -148,6 +148,8 @@ export async function backfillUncoveredPRs(
               },
               level: "warn",
             });
+            // Orphan session couldn't be cleaned up — abort backfill rather than leak
+            return false;
           }
           continue; // try next uncovered PR
         }

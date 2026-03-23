@@ -270,7 +270,8 @@ describe("backfillUncoveredPRs", () => {
     ];
     vi.mocked(mockSCM.listOpenPRs!).mockResolvedValue(prs);
 
-    // First spawn fails, second succeeds
+    // First spawn fails (throws), second succeeds — use mockImplementation
+    // with call-tracking so we can distinguish which call belongs to which PR.
     let spawnCount = 0;
     vi.mocked(mockSessionManager.spawn).mockImplementation(async () => {
       spawnCount++;
@@ -282,6 +283,8 @@ describe("backfillUncoveredPRs", () => {
 
     expect(result).toBe(true);
     expect(mockSessionManager.spawn).toHaveBeenCalledTimes(2);
+    // claimPR was only called once — for the successful second spawn, not the failed one
+    expect(mockSessionManager.claimPR).toHaveBeenCalledTimes(1);
     expect(mockSessionManager.claimPR).toHaveBeenCalledWith("new-2", "77");
     expect(mockObserver.recordOperation).toHaveBeenCalledWith(
       expect.objectContaining({
