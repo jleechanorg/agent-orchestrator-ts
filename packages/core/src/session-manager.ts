@@ -556,7 +556,17 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       return [{ sessionName, raw, modifiedAt } satisfies ActiveSessionRecord];
     });
 
-    return repairSessionMetadataOnRead(sessionsDir, records);
+    const repaired = repairSessionMetadataOnRead(sessionsDir, records);
+    // Filter out killed/merged sessions to keep the active session list clean.
+    // Check the pre-repair (original) status because repair can promote a
+    // merged orchestrator session to "working" — we must still exclude it.
+    // The original status is the authoritative source for terminal-state filtering.
+    // Build a lookup map once (O(n)) instead of scanning inside filter (O(n²)).
+    const originalStatusByName = new Map(records.map((r) => [r.sessionName, r.raw["status"] ?? ""]));
+    return repaired.filter((record) => {
+      const originalStatus = originalStatusByName.get(record.sessionName) ?? "";
+      return originalStatus !== "killed" && originalStatus !== "merged";
+    });
   }
 
   function markArchivedOpenCodeCleanup(sessionsDir: string, sessionId: SessionId): void {
