@@ -777,8 +777,13 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     // state and will be retried on the next poll — avoiding zombie tmux sessions
     // caused by a failed SCM check locking in a terminal "killed" state.
     if (newStatus === "killed" && session.pr) {
-      const merged = await isPRMerged(session, config, registry);
-      if (merged) newStatus = "merged";
+      try {
+        const merged = await isPRMerged(session, config, registry);
+        if (merged) newStatus = "merged";
+      } catch {
+        // SCM unreachable — same as the absorb path below: keep prior status and retry next poll
+        newStatus = oldStatus;
+      }
     }
 
     if (newStatus !== oldStatus) {
@@ -1050,6 +1055,31 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
               // SCM unreachable — skip kill; next poll will retry if status changes
             }
           }
+        }
+      }
+
+      // bd-kki: early isPRMerged can upgrade killed→merged while oldStatus is already
+      // terminal (e.g. errored + missing workspace). The block above only runs exit proof +
+      // kill when !TERMINAL_STATUSES.has(oldStatus), so merge cleanup would be skipped.
+      if (
+        effectiveStatus === "merged" &&
+        TERMINAL_STATUSES.has(oldStatus) &&
+        oldStatus !== "merged" &&
+        !isOrchestratorSession(session)
+      ) {
+        try {
+          await sessionManager.kill(session.id);
+        } catch (killErr) {
+          observer.recordOperation({
+            metric: "lifecycle_poll",
+            operation: "lifecycle.terminal_cleanup",
+            outcome: "failure",
+            correlationId: createCorrelationId("lifecycle-cleanup"),
+            projectId: session.projectId,
+            sessionId: session.id,
+            data: { error: killErr instanceof Error ? killErr.message : String(killErr) },
+            level: "warn",
+          });
         }
       }
     } else {

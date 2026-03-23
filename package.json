@@ -5,7 +5,7 @@
   "description": "Orchestrate parallel AI coding agents across any runtime, any repo, any issue tracker",
   "license": "MIT",
   "engines": {
-    "node": ">=20.0.0"
+    "node": ">=22.0.0"
   },
   "packageManager": "pnpm@9.15.4",
   "type": "module",
@@ -20,22 +20,27 @@
     "test": "pnpm -r --filter '!@jleechanorg/ao-web' test",
     "test:integration": "pnpm --filter @jleechanorg/ao-integration-tests test:integration",
     "clean": "pnpm -r clean",
-    "changeset": "changeset",
-    "version-packages": "changeset version",
-    "release": "pnpm -r build && changeset publish",
     "prepare": "husky",
     "postinstall": "node scripts/rebuild-node-pty.js"
   },
   "devDependencies": {
-    "@changesets/cli": "^2.29.8",
+    "@eslint/js": "^10.0.1",
     "@jleechanorg/ao-plugin-agent-cursor": "workspace:^",
     "@jleechanorg/ao-plugin-agent-gemini": "workspace:^",
-    "@eslint/js": "^10.0.1",
+    "@semantic-release/commit-analyzer": "^13.0.1",
+    "@semantic-release/exec": "^7.1.0",
+    "@semantic-release/git": "^10.0.1",
+    "@semantic-release/github": "^12.0.6",
+    "@semantic-release/npm": "^13.1.5",
+    "@semantic-release/release-notes-generator": "^14.1.0",
     "@types/node": "^25.2.3",
+    "conventional-changelog-conventionalcommits": "^9.3.0",
     "eslint": "^10.0.0",
     "eslint-config-prettier": "^10.1.8",
+    "glob": "^11.0.1",
     "husky": "^9.1.7",
     "prettier": "^3.8.1",
+    "semantic-release": "^25.0.3",
     "typescript-eslint": "^8.55.0"
   }
 }

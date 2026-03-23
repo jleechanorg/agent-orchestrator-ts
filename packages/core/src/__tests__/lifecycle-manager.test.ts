@@ -449,6 +449,11 @@ describe("check (single session)", () => {
       getCISummary: vi.fn().mockResolvedValue("passing"),
       getReviewDecision: vi.fn().mockResolvedValue("none"),
       getMergeability: vi.fn().mockResolvedValue({ mergeable: true, noConflicts: true }),
+      getCIChecks: vi.fn(),
+      getReviews: vi.fn(),
+      getPendingComments: vi.fn(),
+      getAutomatedComments: vi.fn(),
+      closePR: vi.fn(),
       createPR: vi.fn(),
       mergePR: vi.fn(),
       detectPR: vi.fn(),
@@ -498,10 +503,10 @@ describe("check (single session)", () => {
       sessionManager: mockSessionManager,
     });
 
-    // SCM call fails (transient error) — the error must propagate so the session
-    // state is NOT recorded as "killed", allowing the next poll to retry.
-    await expect(lm.check("app-1")).rejects.toThrow("SCM temporarily unreachable");
-    expect(lm.getStates().get("app-1")).toBeUndefined();
+    // SCM call fails during early bd-kki merge check — absorb like the killed absorb
+    // path: stay on prior status so the next poll can retry (fork-lifecycle-kki-override).
+    await lm.check("app-1");
+    expect(lm.getStates().get("app-1")).toBe("working");
     expect(mockSessionManager.kill).not.toHaveBeenCalled();
   });
 
@@ -3601,7 +3606,7 @@ describe("bd-kki: killed transition + merged PR race", () => {
     };
   }
 
-  it("calls sessionManager.kill() when killed transition and SCM reports merged", async () => {
+  it("upgrades to merged when killed transition and SCM reports merged (then kill cleans up)", async () => {
     const nonExistentPath = join(tmpDir, "non-existent-workspace-" + randomUUID());
     const session = makeSession({ status: "pr_open", pr: makePR(), workspacePath: nonExistentPath });
     vi.mocked(mockSessionManager.get).mockResolvedValue(session);
@@ -3621,7 +3626,7 @@ describe("bd-kki: killed transition + merged PR race", () => {
 
     await lm.check("app-1");
 
-    expect(lm.getStates().get("app-1")).toBe("killed");
+    expect(lm.getStates().get("app-1")).toBe("merged");
     expect(mockSessionManager.kill).toHaveBeenCalledWith("app-1");
   });
 
@@ -3678,9 +3683,9 @@ describe("bd-kki: killed transition + merged PR race", () => {
     expect(lm.getStates().get("app-1")).toBe("pr_open");
   });
 
-  it("re-checks SCM in belt-and-suspenders for terminal oldStatus and kills if merged", async () => {
-    // When oldStatus is already terminal (e.g. errored→killed), the absorb check is skipped.
-    // The belt-and-suspenders section re-checks SCM and calls kill() if PR is merged.
+  it("early isPRMerged upgrades terminal errored→merged and kill() still runs for cleanup", async () => {
+    // When oldStatus is already terminal, the killed absorb block is skipped. Early
+    // isPRMerged upgrades killed→merged; terminal→merged cleanup must still call kill().
     vi.mocked(mockSCM.getPRState).mockResolvedValue("merged");
     const nonExistentPath = join(tmpDir, "non-existent-workspace-" + randomUUID());
     const session = makeSession({ status: "errored", pr: makePR(), workspacePath: nonExistentPath });
@@ -3701,9 +3706,8 @@ describe("bd-kki: killed transition + merged PR race", () => {
 
     await lm.check("app-1");
 
-    // Belt-and-suspenders re-checks SCM for terminal oldStatus and calls kill() if merged
     expect(mockSCM.getPRState).toHaveBeenCalledTimes(1);
     expect(mockSessionManager.kill).toHaveBeenCalledWith("app-1");
-    expect(lm.getStates().get("app-1")).toBe("killed");
+    expect(lm.getStates().get("app-1")).toBe("merged");
   });
 });
