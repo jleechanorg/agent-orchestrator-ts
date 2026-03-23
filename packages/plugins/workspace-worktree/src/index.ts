@@ -128,6 +128,77 @@ async function git(cwd: string, ...args: string[]): Promise<string> {
   return stdout.trimEnd();
 }
 
+/** Timeout for tmux queries (5 seconds) */
+const TMUX_TIMEOUT = 5_000;
+
+/**
+ * Returns the list of tmux session names, or null if tmux cannot be queried
+ * (e.g. ENOENT, socket error, timeout). Callers must treat null as "unknown"
+ * and fail-safe (assume a session may be active).
+ */
+async function listTmuxSessionNames(): Promise<string[] | null> {
+  try {
+    const { stdout } = await execFileAsync("tmux", ["list-sessions", "-F", "#{session_name}"], {
+      timeout: TMUX_TIMEOUT,
+    });
+    return stdout
+      .trim()
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean);
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    // tmux exits 1 with this message when the server is running but has no sessions
+    if (msg.includes("no server running") || msg.includes("no sessions")) {
+      return [];
+    }
+    // Any other error (ENOENT, socket issues, timeout) means we cannot determine
+    // session state — return null so callers can fail-safe.
+    return null;
+  }
+}
+
+function extractCheckedOutWorktreePath(errorMessage: string): string | null {
+  const singleQuote = errorMessage.match(/already checked out at '([^']+)'/);
+  if (singleQuote?.[1]) return singleQuote[1];
+
+  const doubleQuote = errorMessage.match(/already checked out at "([^"]+)"/);
+  if (doubleQuote?.[1]) return doubleQuote[1];
+
+  return null;
+}
+
+async function hasActiveTmuxSessionForWorktreeName(worktreePath: string): Promise<boolean> {
+  const sessionName = basename(worktreePath);
+  if (!sessionName) return false;
+  const tmuxSessions = await listTmuxSessionNames();
+  // null means tmux could not be queried — fail-safe: assume session may be active
+  if (tmuxSessions === null) return true;
+  return tmuxSessions.some((tmuxSession) => tmuxSession === sessionName || tmuxSession.endsWith(`-${sessionName}`));
+}
+
+async function maybeRemoveStaleCheckedOutWorktree(
+  repoPath: string,
+  checkoutErrorMessage: string,
+  worktreeBaseDir: string,
+): Promise<boolean> {
+  const stalePath = extractCheckedOutWorktreePath(checkoutErrorMessage);
+  if (!stalePath) return false;
+
+  // Only remove worktrees under AO's managed base directory to avoid touching
+  // user-managed worktrees checked out elsewhere on disk.
+  const pathSep = "/";
+  const resolvedStale = resolve(stalePath);
+  const resolvedBase = resolve(worktreeBaseDir);
+  if (!resolvedStale.startsWith(resolvedBase + pathSep)) return false;
+
+  const hasActiveTmux = await hasActiveTmuxSessionForWorktreeName(stalePath);
+  if (hasActiveTmux) return false;
+
+  await git(repoPath, "worktree", "remove", "--force", stalePath);
+  return true;
+}
+
 /** Only allow safe characters in path segments to prevent directory traversal */
 const SAFE_PATH_SEGMENT = /^[a-zA-Z0-9_-]+$/;
 
@@ -185,20 +256,40 @@ export function create(config?: Record<string, unknown>): Workspace {
         }
         // Branch already exists — create worktree and check it out
         await git(repoPath, "worktree", "add", worktreePath, baseRef);
+        let checkoutSucceeded = false;
         try {
           await git(worktreePath, "checkout", cfg.branch);
+          checkoutSucceeded = true;
         } catch (checkoutErr: unknown) {
-          // Checkout failed — remove the orphaned worktree before rethrowing
-          try {
-            await git(repoPath, "worktree", "remove", "--force", worktreePath);
-          } catch {
-            // Best-effort cleanup
-          }
           const checkoutMsg =
             checkoutErr instanceof Error ? checkoutErr.message : String(checkoutErr);
-          throw new Error(`Failed to checkout branch "${cfg.branch}" in worktree: ${checkoutMsg}`, {
-            cause: checkoutErr,
-          });
+
+          // bd-xf5: Recover from stale checked-out worktrees that block checkout.
+          // If target branch is checked out in another worktree but that worktree has
+          // no active tmux session, force-remove it and retry checkout once.
+          if (checkoutMsg.includes("already checked out") && checkoutMsg.includes("checked out at")) {
+            try {
+              const removedStale = await maybeRemoveStaleCheckedOutWorktree(repoPath, checkoutMsg, worktreeBaseDir);
+              if (removedStale) {
+                await git(worktreePath, "checkout", cfg.branch);
+                checkoutSucceeded = true;
+              }
+            } catch {
+              // Fall through to original error path.
+            }
+          }
+
+          if (!checkoutSucceeded) {
+            // Checkout failed — remove the orphaned worktree before rethrowing
+            try {
+              await git(repoPath, "worktree", "remove", "--force", worktreePath);
+            } catch {
+              // Best-effort cleanup
+            }
+            throw new Error(`Failed to checkout branch "${cfg.branch}" in worktree: ${checkoutMsg}`, {
+              cause: checkoutErr,
+            });
+          }
         }
       }
 
