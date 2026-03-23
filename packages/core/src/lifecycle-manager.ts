@@ -1055,15 +1055,16 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       // backfillAllPRs: spawn sessions for open PRs that have no active session.
       // Replaces the old orchestrator-session-based PR discovery (bd-awq) with a
       // deterministic loop inside the lifecycle-worker itself.
+      let backfillSpawned = false;
       if (scopedProjectId) {
         const project = config.projects[scopedProjectId];
         if (project?.backfillAllPRs) {
-          const spawned = await backfillUncoveredPRs(
+          backfillSpawned = await backfillUncoveredPRs(
             { registry, sessionManager, observer },
             { projectId: scopedProjectId, project, activeSessions, correlationId },
           );
           // If we just spawned a session, skip all_complete — more work exists.
-          if (spawned) {
+          if (backfillSpawned) {
             allCompleteEmitted = false;
           }
         }
@@ -1074,7 +1075,9 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       // sessions have ever existed. Since list() filters out terminal sessions,
       // sessions.length === 0 after all work is done — everHadSessions guards
       // against the empty-at-startup case.
-      if (everHadSessions && activeSessions.length === 0 && !allCompleteEmitted) {
+      // Skip when backfillSpawned is true: activeSessions is stale (computed
+      // before the spawn) and would incorrectly trigger all_complete.
+      if (!backfillSpawned && everHadSessions && activeSessions.length === 0 && !allCompleteEmitted) {
         allCompleteEmitted = true;
 
         // Execute all-complete reaction if configured
