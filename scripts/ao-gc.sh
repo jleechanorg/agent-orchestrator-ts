@@ -25,38 +25,7 @@ TMUX_PREFIX="${AO_TMUX_PREFIX:-bb5e6b7f8db3}"
 WORKTREES_BASE="${HOME}/.worktrees"
 MAIN_REPO="${MAIN_REPO:-$(git -C "$(dirname "$0")/.." rev-parse --show-toplevel 2>/dev/null || echo '')}"
 
-# Parse args — fail fast on unknown flags or missing values
-SKIP_NEXT=false
-for arg in "$@"; do
-  if [ "$SKIP_NEXT" = true ]; then
-    SKIP_NEXT=false
-    continue
-  fi
-  case "$arg" in
-    --fix) DRY_RUN=false ;;
-    --project)
-      SKIP_NEXT=true  # next token is the project name — handled via shift-style below
-      ;;
-    --tmux-prefix)
-      SKIP_NEXT=true
-      ;;
-    --project=*) TARGET_PROJECT="${arg#--project=}" ;;
-    --tmux-prefix=*) TMUX_PREFIX="${arg#--tmux-prefix=}" ;;
-    -*)
-      echo "ERROR: unknown flag: $arg" >&2
-      exit 1
-      ;;
-    *)
-      # Bare value after --project or --tmux-prefix
-      TARGET_PROJECT="$arg"
-      ;;
-  esac
-done
-
-# Re-parse with positional awareness for --project <value> and --tmux-prefix <value>
-DRY_RUN=true
-TARGET_PROJECT=""
-TMUX_PREFIX="${AO_TMUX_PREFIX:-bb5e6b7f8db3}"
+# Parse args with positional awareness for --project <value> and --tmux-prefix <value>
 i=1
 while [ $i -le $# ]; do
   arg="${!i}"
@@ -132,9 +101,11 @@ for project_dir in "$WORKTREES_BASE"/*/; do
       ((STALE++)) || true
       if [ "$DRY_RUN" = false ]; then
         # Use git worktree remove from main repo if path is registered
+        # Strip trailing slash: git worktree list output has no trailing slash
+        wt_path_clean="${wt_path%/}"
         removed=false
-        if [ -n "$MAIN_REPO" ] && git -C "$MAIN_REPO" worktree list 2>/dev/null | grep -qF "$wt_path"; then
-          if git -C "$MAIN_REPO" worktree remove --force "$wt_path" 2>/dev/null; then
+        if [ -n "$MAIN_REPO" ] && git -C "$MAIN_REPO" worktree list 2>/dev/null | grep -qF "$wt_path_clean"; then
+          if git -C "$MAIN_REPO" worktree remove --force "$wt_path_clean" 2>/dev/null; then
             echo "  → removed via git worktree remove"
             removed=true
           fi

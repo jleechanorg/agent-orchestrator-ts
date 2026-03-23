@@ -113,7 +113,7 @@ print('OK')
 PYEOF
 )
 
-if [ "$RESULT" = "BLOCKED" ]; then
+if [ "$RESULT" != "OK" ]; then
   echo "BLOCKED: 'git worktree remove/prune' requires explicit manual human approval." >&2
   echo "Run the command yourself in a terminal. Claude is never permitted to remove worktrees." >&2
   exit 2
