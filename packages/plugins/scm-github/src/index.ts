@@ -1606,6 +1606,7 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
               // with optional leading whitespace (CI bots often indent). The \s* allows
               // indented messages like "  error:" while staying anchored to line-start.
               /^\s*error[:\s]/m.test(bodyLower) ||
+              // to avoid matching incidental text like "non-critical" or "critical bug"
               /^\s*critical[:\s]/m.test(bodyLower) ||
               bodyLower.includes("potential issue")
             ) {
