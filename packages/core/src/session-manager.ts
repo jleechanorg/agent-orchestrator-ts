@@ -43,6 +43,7 @@ import {
   type Issue,
   isOrchestratorSession,
   PR_STATE,
+  TERMINAL_STATUSES,
 } from "./types.js";
 import {
   readMetadataRaw,
@@ -1280,6 +1281,25 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
     }
 
     const existingRaw = readMetadataRaw(sessionsDir, sessionId);
+
+    // Handle terminal-status files with no runtimeHandle (e.g., status=killed written by
+    // lifecycle-manager after a crash). These are stale ghost files that block reserveSessionId
+    // because O_EXCL fails on an existing file, yet the runtimeHandle check below skips cleanup.
+    // Self-heal by deleting them — they have no live runtime.
+    // Archive when using opencode reuse strategy to preserve any opencodeSessionId for reuse lookup.
+    if (existingRaw && !existingRaw["runtimeHandle"]) {
+      const rawStatus = existingRaw["status"] ?? "";
+      if (TERMINAL_STATUSES.has(rawStatus as Parameters<typeof TERMINAL_STATUSES.has>[0])) {
+        const shouldArchive =
+          plugins.agent.name === "opencode" && orchestratorSessionStrategy === "reuse";
+        try {
+          deleteMetadata(sessionsDir, sessionId, shouldArchive);
+        } catch {
+          // Another concurrent respawn may have already deleted the file — that's fine.
+        }
+      }
+    }
+
     const existingOrchestrator = existingRaw?.["runtimeHandle"]
       ? metadataToSession(sessionId, existingRaw, orchestratorConfig.projectId)
       : null;
