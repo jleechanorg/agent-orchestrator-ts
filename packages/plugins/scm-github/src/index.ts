@@ -978,7 +978,9 @@ function normalizeMergePayloadFromRestShape(data: Record<string, unknown>): void
   if (typeof data["draft"] === "boolean" && data["isDraft"] === undefined) {
     data["isDraft"] = data["draft"];
   }
-  if (data["reviewDecision"] === undefined) {
+  // reviewDecision can be null (no reviews requested) or undefined (not requested).
+  // Treat both as "REVIEW_REQUIRED" for conservative fail-closed behavior.
+  if (data["reviewDecision"] == null) {
     data["reviewDecision"] = "REVIEW_REQUIRED";
   }
 }

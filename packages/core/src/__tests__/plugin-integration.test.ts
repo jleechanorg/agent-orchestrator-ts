@@ -566,6 +566,45 @@ describe("plugin integration", () => {
       expect(states.get("app-1")).toBe("merged");
     });
 
+    // bd-att regression: OPEN PR with empty CI rollup and no reviewDecision must NOT
+    // incorrectly pass. normalizeMergePayloadFromRestShape sets null/undefined
+    // reviewDecision → "REVIEW_REQUIRED", which maps to "pending" → "review_pending".
+    it("check() OPEN PR with empty CI rollup stays review_pending (fail-closed)", async () => {
+      seedSession({ status: "pr_open", pr });
+
+      const mockSM: SessionManager = {
+        ...sm,
+        list: vi.fn().mockResolvedValue([makeSession({ status: "pr_open", pr })]),
+        get: vi.fn().mockResolvedValue(makeSession({ status: "pr_open", pr })),
+        kill: vi.fn().mockResolvedValue(undefined),
+        send: vi.fn().mockResolvedValue(undefined),
+        claimPR: vi.fn(),
+        spawnOrchestrator: vi.fn(),
+      };
+
+      const lm = createLifecycleManager({
+        config,
+        registry,
+        sessionManager: mockSM,
+      });
+
+      mockGh({
+        state: "OPEN",
+        reviewDecision: null, // explicit null — normalizeMergePayloadFromRestShape must catch this
+        statusCheckRollup: [],
+        mergeable: "MERGEABLE",
+        mergeStateStatus: "CLEAN",
+        isDraft: false,
+      });
+
+      await lm.check("app-1");
+
+      const states = lm.getStates();
+      // normalizeMergePayloadFromRestShape sets null → "REVIEW_REQUIRED" → "pending"
+      // → lifecycle-manager returns "review_pending", NOT "approved" or "mergeable"
+      expect(states.get("app-1")).toBe("review_pending");
+    });
+
     it("check() detects changes_requested via scm-github getReviewDecision()", async () => {
       seedSession({ status: "pr_open", pr });
 
