@@ -980,7 +980,7 @@ function normalizeMergePayloadFromRestShape(data: Record<string, unknown>): void
   }
   // reviewDecision can be null (no reviews requested) or undefined (not requested).
   // Treat both as "REVIEW_REQUIRED" for conservative fail-closed behavior.
-  if (data["reviewDecision"] == null) {
+  if (data["reviewDecision"] === null || data["reviewDecision"] === undefined) {
     data["reviewDecision"] = "REVIEW_REQUIRED";
   }
 }
