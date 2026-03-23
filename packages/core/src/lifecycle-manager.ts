@@ -424,8 +424,9 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
 
         return "pr_open";
       } catch {
-        // SCM check failed — keep current status
-        if (agentDead) return "killed";
+        // SCM check failed — keep current status so next poll can retry.
+        // Don't kill dead-agent sessions on transient SCM failures; they
+        // may still have a mergeable PR once the SCM recovers.
       }
     }
 
@@ -1016,6 +1017,12 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         const sessionId = trackerKey.split(":")[0];
         if (sessionId && !currentSessionIds.has(sessionId)) {
           reactionTrackers.delete(trackerKey);
+        }
+      }
+      for (const retryKey of mergeRetryTimestamps.keys()) {
+        const sessionId = retryKey.replace("merge-retry-", "");
+        if (!currentSessionIds.has(sessionId)) {
+          mergeRetryTimestamps.delete(retryKey);
         }
       }
 
