@@ -1319,7 +1319,7 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
         // Replicate that behaviour in the fallback path (best-effort; only possible
         // when the head repo matches the base repo to have write access).
         try {
-          await gh(["api", `repos/${pr.owner}/${pr.repo}/git/refs/heads/${encodeURIComponent(pr.branch)}`, "--method", "DELETE"]);
+          await gh(["api", `repos/${pr.owner}/${pr.repo}/git/refs/heads/${pr.branch}`, "--method", "DELETE"]);
         } catch {
           // Non-fatal: best-effort branch cleanup. Log and continue.
           console.warn(
