@@ -211,8 +211,13 @@ async function didAgentStart(sessionId: string, message: string, isLong: boolean
     const messageTail = message.slice(-80).trim();
     return !trimmedOutput.endsWith(messageTail);
   } else {
-    // Short: pane output must differ from what we sent (agent overwrote it)
-    return trimmedOutput !== message;
+    // Short: pane's last non-empty line must not still end with the message.
+    // Using endsWith (not full equality) to match the long-message strategy —
+    // avoids false-negatives when scrollback precedes the last line.
+    const lines = trimmedOutput.split("\n").filter((l) => l.trim().length > 0);
+    const lastLine = lines[lines.length - 1] ?? "";
+    const messageTail = message.trimEnd();
+    return !lastLine.endsWith(messageTail);
   }
 }
 

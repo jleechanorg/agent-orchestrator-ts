@@ -375,11 +375,11 @@ describe("runtime.sendMessage()", () => {
     mockTmuxSuccess();
     mockTmuxSuccess();
     mockTmuxSuccess();
-    // Enter-retry 1: pane still shows short message (no change) → retry
-    mockTmuxSuccess("hello world");
+    // Enter-retry 1: pane shows shell prompt + pending input (Enter swallowed)
+    mockTmuxSuccess("user@host /workspace $ hello world");
     // Enter retry 1
     mockTmuxSuccess();
-    // Enter-retry 2: agent started responding
+    // Enter-retry 2: agent started responding (last non-empty line no longer ends with message)
     mockTmuxSuccess("✻ working");
     // Post-send isAgentAliveInPane
     mockTmuxSuccess("✻ still working");
