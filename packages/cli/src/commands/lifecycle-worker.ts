@@ -18,7 +18,7 @@ export function registerLifecycleWorker(program: Command): void {
     .command("lifecycle-worker")
     .description("Internal lifecycle polling worker")
     .argument("<project>", "Project ID from config")
-    .option("--interval-ms <ms>", "Polling interval in milliseconds", "300000")
+    .option("--interval-ms <ms>", "Polling interval in milliseconds", "30000")
     .action(async (projectId: string, opts: { intervalMs?: string }) => {
       const config = loadConfig();
       const observer = createProjectObserver(config, "lifecycle-worker");

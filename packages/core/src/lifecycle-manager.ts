@@ -266,6 +266,8 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     if (session.runtimeHandle && runtime) {
       const alive = await runtime.isAlive(session.runtimeHandle).catch(() => true);
       if (!alive) {
+        // Don't return "killed" yet — if the session has a PR, check PR state
+        // first so auto-merge can still fire for green PRs with exited agents.
         if (!session.pr || !scm) return "killed";
         agentDead = true;
       }
@@ -283,6 +285,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         if (activityState) {
           if (activityState.state === "waiting_input") return "needs_input";
           if (activityState.state === "exited") {
+            // Don't return "killed" yet — check PR state first
             if (!session.pr || !scm) return "killed";
             agentDead = true;
           }
@@ -415,7 +418,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
           return "stuck";
         }
 
-        // bd-ara: If agent is dead and PR isn't mergeable, the session is done
+        // Agent is dead but PR isn't in a merge-ready state — kill the session
         if (agentDead) return "killed";
 
         return "pr_open";
@@ -811,6 +814,27 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     } else {
       // No transition but track current state
       states.set(session.id, newStatus);
+
+      // Retry auto-merge when status stays "mergeable" — the approved-and-green
+      // reaction fires on transition but may fail (e.g., merge gate fails due to
+      // GraphQL rate limit treating all comments as unresolved). Re-attempt on
+      // subsequent polls so transient gate failures don't permanently block merge.
+      if (newStatus === "mergeable") {
+        const reactionKey = "approved-and-green";
+        const reactionConfig = getReactionConfigForSession(session, reactionKey);
+        if (reactionConfig?.action === "auto-merge") {
+          const result = await executeReaction(
+            session.id,
+            session.projectId,
+            reactionKey,
+            reactionConfig,
+            session,
+          );
+          if (result?.success) {
+            transitionReaction = { key: reactionKey, result };
+          }
+        }
+      }
     }
 
     await maybeDispatchReviewBacklog(session, oldStatus, newStatus, {
