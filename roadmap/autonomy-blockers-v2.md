@@ -13,7 +13,7 @@
 
 | # | Blocker | Impact | Root Cause | Fix Type |
 |---|---------|--------|------------|----------|
-| 1 | Unresolved inline comments | 19/19 PRs blocked | `autoResolveThreads()` is dead code; workers don't document fixes | Config (agentRules) |
+| 1 | Unresolved inline comments | 19/19 PRs blocked | `autoResolveThreads()` is dead code; workers don't document fixes | ✅ Config (agentRules) — RESOLVED |
 | 2 | `mergeable=UNKNOWN` | 13/19 PRs | No reaction for UNKNOWN; workers only rebase on CONFLICTING | Config + lifecycle event |
 | 3 | Stale session accumulation | 25 tmux sessions (gate=15) | No kill signal on PR merge; reaper too slow | Core code (lifecycle-manager) |
 | 4 | CHANGES_REQUESTED stuck | 8/19 PRs | Workers fix code but don't trigger CR re-review | Config (agentRules) + hook |
@@ -22,6 +22,10 @@
 ---
 
 ## Blocker 1: Workers Don't Clear Unresolved Comments (bd-ara.1)
+
+**Status:** ✅ RESOLVED — 2026-03-23 (session ao-611)
+**Implementation:** `~/.openclaw/agent-orchestrator.yaml` defaults.agentRules — GraphQL thread resolution removed; replaced with PR description documentation approach.
+**Artifact:** `roadmap/autonomy-blockers-v2.md` (this file)
 
 **Observed:** Even CR-APPROVED PRs have 1-14 unresolved review threads. Green condition #5 (all comments resolved) never passes.
 
