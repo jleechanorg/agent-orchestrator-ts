@@ -35,6 +35,7 @@ function runHook(opts: {
   exitCode?: number;
   metadataContent?: string;
   allowMerge?: boolean;
+  hookEvent?: string;
 }): { stdout: string; metadata: string } {
   const sessionId = `test-session-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const sessionsDir = join(testDir, "sessions");
@@ -42,12 +43,16 @@ function runHook(opts: {
   const metadataFile = join(sessionsDir, sessionId);
   writeFileSync(metadataFile, opts.metadataContent ?? "status=spawning\n");
 
-  const input = JSON.stringify({
+  const inputJson: Record<string, unknown> = {
     tool_name: opts.toolName ?? "Bash",
     tool_input: { command: opts.command },
     tool_response: opts.output ?? "",
     exit_code: opts.exitCode ?? 0,
-  });
+  };
+  if (opts.hookEvent !== undefined) {
+    inputJson.hook_event_name = opts.hookEvent;
+  }
+  const input = JSON.stringify(inputJson);
 
   let stdout: string;
   try {
@@ -197,7 +202,33 @@ describe("hook script: gh pr merge", () => {
     const { metadata } = runHook({
       command: "gh pr merge 123 --squash",
       allowMerge: true,
+      hookEvent: "PostToolUse",
     });
+    expect(metadata).toContain("status=merged");
+  });
+
+  it("PreToolUse: allows gh pr merge when AO_ALLOW_GH_PR_MERGE=1", () => {
+    // PreToolUse fires before the tool runs — when AO_ALLOW_GH_PR_MERGE=1, allow it to proceed.
+    // Metadata update happens in PostToolUse after the merge succeeds.
+    const { stdout, metadata } = runHook({
+      command: "gh pr merge 123 --squash",
+      allowMerge: true,
+      hookEvent: "PreToolUse",
+      metadataContent: "status=pr_open\n",
+    });
+    expect(stdout).not.toContain("deny");
+    expect(metadata).toContain("status=pr_open");
+    expect(metadata).not.toContain("status=merged");
+  });
+
+  it("PostToolUse: allows gh pr merge with AO_ALLOW_GH_PR_MERGE=1 and updates metadata", () => {
+    const { stdout, metadata } = runHook({
+      command: "gh pr merge 123 --squash",
+      allowMerge: true,
+      hookEvent: "PostToolUse",
+      metadataContent: "status=pr_open\n",
+    });
+    expect(stdout).not.toContain("deny");
     expect(metadata).toContain("status=merged");
   });
 
@@ -205,6 +236,7 @@ describe("hook script: gh pr merge", () => {
     const { metadata } = runHook({
       command: "cd ~/.worktrees/project && gh pr merge 42 --squash",
       allowMerge: true,
+      hookEvent: "PostToolUse",
     });
     expect(metadata).toContain("status=merged");
   });
@@ -213,6 +245,7 @@ describe("hook script: gh pr merge", () => {
     const { metadata } = runHook({
       command: "cd /project ; gh pr merge --rebase",
       allowMerge: true,
+      hookEvent: "PostToolUse",
     });
     expect(metadata).toContain("status=merged");
   });
@@ -290,6 +323,7 @@ describe("hook script: metadata file updates", () => {
       command: "gh pr merge 10 --squash",
       metadataContent: "status=pr_open\nbranch=feat/test\n",
       allowMerge: true,
+      hookEvent: "PostToolUse",
     });
     expect(metadata).toContain("status=merged");
     expect(metadata).toContain("branch=feat/test");
@@ -311,6 +345,7 @@ describe("hook script: metadata file updates", () => {
     const { stdout } = runHook({
       command: "gh pr merge 1 --squash",
       allowMerge: true,
+      hookEvent: "PostToolUse",
     });
     expect(stdout).toContain("systemMessage");
     expect(stdout).toContain("merged");
