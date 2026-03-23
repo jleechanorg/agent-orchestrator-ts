@@ -44,3 +44,4 @@ NOTE: Do NOT use GraphQL to resolve individual review threads — it is expensiv
 - Zero GraphQL mutations per PR for comment resolution (was 10-14 per PR)
 - Condition #5 (all comments resolved) now has a clear, auditable path
 - Aligns with the `/copilot` approach already used in the codebase
+- Reduces agent workload: no need to manage thread resolution state
