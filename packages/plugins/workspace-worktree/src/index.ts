@@ -177,9 +177,20 @@ async function hasActiveTmuxSessionForWorktreeName(worktreePath: string): Promis
   return tmuxSessions.some((tmuxSession) => tmuxSession === sessionName || tmuxSession.endsWith(`-${sessionName}`));
 }
 
-async function maybeRemoveStaleCheckedOutWorktree(repoPath: string, checkoutErrorMessage: string): Promise<boolean> {
+async function maybeRemoveStaleCheckedOutWorktree(
+  repoPath: string,
+  checkoutErrorMessage: string,
+  worktreeBaseDir: string,
+): Promise<boolean> {
   const stalePath = extractCheckedOutWorktreePath(checkoutErrorMessage);
   if (!stalePath) return false;
+
+  // Only remove worktrees under AO's managed base directory to avoid touching
+  // user-managed worktrees checked out elsewhere on disk.
+  const pathSep = "/";
+  const resolvedStale = resolve(stalePath);
+  const resolvedBase = resolve(worktreeBaseDir);
+  if (!resolvedStale.startsWith(resolvedBase + pathSep)) return false;
 
   const hasActiveTmux = await hasActiveTmuxSessionForWorktreeName(stalePath);
   if (hasActiveTmux) return false;
@@ -258,7 +269,7 @@ export function create(config?: Record<string, unknown>): Workspace {
           // no active tmux session, force-remove it and retry checkout once.
           if (checkoutMsg.includes("already checked out") && checkoutMsg.includes("checked out at")) {
             try {
-              const removedStale = await maybeRemoveStaleCheckedOutWorktree(repoPath, checkoutMsg);
+              const removedStale = await maybeRemoveStaleCheckedOutWorktree(repoPath, checkoutMsg, worktreeBaseDir);
               if (removedStale) {
                 await git(worktreePath, "checkout", cfg.branch);
                 checkoutSucceeded = true;
