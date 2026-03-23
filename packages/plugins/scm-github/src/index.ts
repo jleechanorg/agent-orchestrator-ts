@@ -29,6 +29,7 @@ import {
   type ReviewComment,
   type AutomatedComment,
   type MergeReadiness,
+  type BatchPRStatus,
 } from "@jleechanorg/ao-core";
 import {
   getWebhookHeader,
@@ -1799,6 +1800,136 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
         approved,
         noConflicts,
         blockers,
+      };
+    },
+
+    // bd-att: Fetch all PR status fields in a single gh CLI call.
+    // Replaces getPRState + getCISummary + getReviewDecision + getMergeability
+    // with one `gh pr view --json` (~2 GraphQL points instead of ~10).
+    async getBatchPRStatus(pr: PRInfo): Promise<BatchPRStatus> {
+      const raw = await gh([
+        "pr",
+        "view",
+        String(pr.number),
+        "--repo",
+        repoFlag(pr),
+        "--json",
+        "state,reviewDecision,statusCheckRollup,mergeable,mergeStateStatus,isDraft",
+      ]);
+
+      const data = JSON.parse(raw) as {
+        state: string;
+        merged?: boolean;
+        reviewDecision?: string;
+        statusCheckRollup?: unknown[];
+        mergeable?: string | boolean | null;
+        mergeStateStatus?: string;
+        isDraft?: boolean;
+        draft?: boolean;
+        mergeable_state?: string;
+      };
+
+      // --- PR State ---
+      const s = data.state.toUpperCase();
+      let state: PRState;
+      if (s === "MERGED" || data.merged === true) state = "merged";
+      else if (s === "CLOSED") state = "closed";
+      else state = "open";
+
+      // --- Review Decision ---
+      const d = (data.reviewDecision ?? "").toUpperCase();
+      let reviewDecision: ReviewDecision;
+      if (d === "APPROVED") reviewDecision = "approved";
+      else if (d === "CHANGES_REQUESTED") reviewDecision = "changes_requested";
+      else if (d === "REVIEW_REQUIRED") reviewDecision = "pending";
+      else reviewDecision = "none";
+
+      // --- CI Status (from statusCheckRollup) ---
+      const rollup = Array.isArray(data.statusCheckRollup) ? data.statusCheckRollup : [];
+      let ciStatus: CIStatus;
+      if (rollup.length === 0) {
+        ciStatus = "none";
+      } else {
+        const checks = rollup.map((entry) => {
+          if (!entry || typeof entry !== "object") return "unknown";
+          const row = entry as Record<string, unknown>;
+          const rawState =
+            typeof row["conclusion"] === "string"
+              ? row["conclusion"]
+              : typeof row["state"] === "string"
+                ? row["state"]
+                : typeof row["status"] === "string"
+                  ? row["status"]
+                  : undefined;
+          return mapRawCheckStateToStatus(rawState);
+        });
+        const hasFailing = checks.some((c) => c === "failed");
+        if (hasFailing) {
+          ciStatus = "failing";
+        } else {
+          const hasPending = checks.some((c) => c === "pending" || c === "running");
+          if (hasPending) {
+            ciStatus = "pending";
+          } else {
+            const hasPassing = checks.some((c) => c === "passed");
+            ciStatus = hasPassing ? "passing" : "none";
+          }
+        }
+      }
+
+      // --- Merge Readiness ---
+      normalizeMergePayloadFromRestShape(data as Record<string, unknown>);
+      const blockers: string[] = [];
+
+      // CI
+      const ciPassing = ciStatus === "passing" || ciStatus === "none";
+      if (!ciPassing) blockers.push(`CI is ${ciStatus}`);
+
+      // Reviews
+      const approved = reviewDecision === "approved";
+      if (reviewDecision === "changes_requested") blockers.push("Changes requested in review");
+      else if (reviewDecision === "pending") blockers.push("Review required");
+
+      // Conflicts / merge state
+      let noConflicts: boolean;
+      const mergeableVal = data.mergeable;
+      if (mergeableVal === null || mergeableVal === undefined) {
+        noConflicts = false;
+        blockers.push("Merge status unknown (GitHub is computing)");
+      } else if (typeof mergeableVal === "boolean") {
+        noConflicts = mergeableVal;
+        if (!mergeableVal) blockers.push("Merge conflicts");
+      } else {
+        const mergeable = String(mergeableVal ?? "").toUpperCase();
+        if (mergeable === "NULL") {
+          noConflicts = false;
+          blockers.push("Merge status unknown (GitHub is computing)");
+        } else {
+          noConflicts = mergeable === "MERGEABLE";
+          if (mergeable === "CONFLICTING") blockers.push("Merge conflicts");
+          else if (mergeable === "UNKNOWN" || mergeable === "") {
+            blockers.push("Merge status unknown (GitHub is computing)");
+          }
+        }
+      }
+      const mergeState = (data.mergeStateStatus ?? "").toUpperCase();
+      if (mergeState === "BEHIND") blockers.push("Branch is behind base branch");
+      else if (mergeState === "BLOCKED") blockers.push("Merge is blocked by branch protection");
+      else if (mergeState === "UNSTABLE") blockers.push("Required checks are failing");
+
+      if (data.isDraft || data.draft) blockers.push("PR is still a draft");
+
+      return {
+        state,
+        ciStatus,
+        reviewDecision,
+        mergeReadiness: {
+          mergeable: blockers.length === 0,
+          ciPassing,
+          approved,
+          noConflicts,
+          blockers,
+        },
       };
     },
   };

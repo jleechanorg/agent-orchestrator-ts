@@ -358,51 +358,44 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     // 4. Check PR state if PR exists
     if (session.pr && scm) {
       try {
-        // bd-sm7: Use combined call when available to save 1 gh CLI invocation
-        let prState: PRState;
-        let reviewDecision: ReviewDecision;
-        if (scm.getPRStateAndReview) {
-          const combined = await scm.getPRStateAndReview(session.pr);
-          prState = combined.state;
-          reviewDecision = combined.reviewDecision;
+        // bd-att: Use batch query when available (~1 gh call instead of ~6)
+        if (scm.getBatchPRStatus) {
+          const batch = await scm.getBatchPRStatus(session.pr);
+          if (batch.state === PR_STATE.MERGED) return "merged";
+          if (batch.state === PR_STATE.CLOSED) return "killed";
+          if (batch.ciStatus === CI_STATUS.FAILING) return "ci_failed";
+          if (batch.reviewDecision === "changes_requested") return "changes_requested";
+          if (batch.reviewDecision === "approved" || batch.reviewDecision === "none") {
+            if (batch.mergeReadiness.mergeable) return "mergeable";
+            if (!batch.mergeReadiness.noConflicts) return "merge_conflicts";
+            if (batch.reviewDecision === "approved") return "approved";
+          }
+          if (batch.reviewDecision === "pending") return "review_pending";
         } else {
-          // Fallback: check state first to early-return on merged/closed
-          // before spending an API call on getReviewDecision.
-          // Always call getPRState first — getReviewDecision can hit rate limits
-          // and masking a successfully-fetched merged/closed state would skip
-          // cleanup and notifications.
-          prState = await scm.getPRState(session.pr);
+          // Fallback: individual calls for SCM plugins without batch support
+          const prState = await scm.getPRState(session.pr);
           if (prState === PR_STATE.MERGED) return "merged";
           if (prState === PR_STATE.CLOSED) return "killed";
-          // Safe to call getReviewDecision now: merged/closed states are ruled out.
-          reviewDecision = await scm.getReviewDecision(session.pr);
-        }
-        if (prState === PR_STATE.MERGED) return "merged";
-        if (prState === PR_STATE.CLOSED) return "killed";
 
-        // Check CI
-        const ciStatus = await scm.getCISummary(session.pr);
-        if (ciStatus === CI_STATUS.FAILING) return "ci_failed";
-        if (reviewDecision === "changes_requested") return "changes_requested";
-        if (reviewDecision === "approved" || reviewDecision === "none") {
-          // bd-wg5: Skip getMergeability when CI is pending — no point checking
-          // merge state when CI hasn't finished (saves 3 gh CLI invocations).
-          // Allow CI_STATUS.NONE through so repos without CI can still reach "mergeable".
-          if (ciStatus === CI_STATUS.PENDING) {
+          const ciStatus = await scm.getCISummary(session.pr);
+          if (ciStatus === CI_STATUS.FAILING) return "ci_failed";
+
+          // Check reviews
+          const reviewDecision = await scm.getReviewDecision(session.pr);
+          if (reviewDecision === "changes_requested") return "changes_requested";
+          if (reviewDecision === "approved" || reviewDecision === "none") {
+            // bd-wg5: Skip getMergeability when CI is pending
+            if (ciStatus === CI_STATUS.PENDING) {
+              if (reviewDecision === "approved") return "approved";
+              return "pr_open";
+            }
+            const mergeReady = await scm.getMergeability(session.pr);
+            if (mergeReady.mergeable) return "mergeable";
+            if (!mergeReady.noConflicts) return "merge_conflicts";
             if (reviewDecision === "approved") return "approved";
-            return "pr_open";
           }
-          // Check merge readiness — treat "none" (no reviewers required)
-          // the same as "approved" so CI-green PRs reach "mergeable" status
-          // and fire the merge.ready event / approved-and-green reaction.
-          const mergeReady = await scm.getMergeability(session.pr);
-          if (mergeReady.mergeable) return "mergeable";
-          // Check for merge conflicts — emit merge.conflicts event so users
-          // can configure reactions (e.g., send-to-agent to resolve conflicts)
-          if (!mergeReady.noConflicts) return "merge_conflicts";
-          if (reviewDecision === "approved") return "approved";
+          if (reviewDecision === "pending") return "review_pending";
         }
-        if (reviewDecision === "pending") return "review_pending";
 
         // 4b. Post-PR stuck detection: agent has a PR open but is idle beyond
         // threshold. This catches the case where step 2's stuck check was

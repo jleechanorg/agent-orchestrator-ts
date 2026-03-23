@@ -515,11 +515,15 @@ describe("plugin integration", () => {
         sessionManager: mockSM,
       });
 
-      // gh calls for determineStatus:
-      // 1. getPRState → open
-      mockGh({ state: "OPEN" });
-      // 2. getCISummary → failing (pr checks returns array of checks with correct field names)
-      mockGh([{ name: "lint", state: "FAILURE", link: "", startedAt: "", completedAt: "" }]);
+      // bd-att: getBatchPRStatus returns all fields in one call
+      mockGh({
+        state: "OPEN",
+        reviewDecision: "",
+        statusCheckRollup: [{ name: "lint", conclusion: "FAILURE" }],
+        mergeable: "MERGEABLE",
+        mergeStateStatus: "CLEAN",
+        isDraft: false,
+      });
 
       await lm.check("app-1");
 
@@ -546,8 +550,15 @@ describe("plugin integration", () => {
         sessionManager: mockSM,
       });
 
-      // getPRState → merged
-      mockGh({ state: "MERGED" });
+      // bd-att: getBatchPRStatus returns all fields in one call
+      mockGh({
+        state: "MERGED",
+        reviewDecision: "",
+        statusCheckRollup: [],
+        mergeable: null,
+        mergeStateStatus: "",
+        isDraft: false,
+      });
 
       await lm.check("app-1");
 
@@ -574,11 +585,15 @@ describe("plugin integration", () => {
         sessionManager: mockSM,
       });
 
-      // bd-sm7: getPRStateAndReview returns both in one call
-      // 1. getPRStateAndReview → open + changes_requested
-      mockGh({ state: "OPEN", reviewDecision: "CHANGES_REQUESTED" });
-      // 2. getCISummary → passing (using correct field names: state and link)
-      mockGh([{ name: "lint", state: "SUCCESS", link: "", startedAt: "", completedAt: "" }]);
+      // bd-att: getBatchPRStatus returns all fields in one call
+      mockGh({
+        state: "OPEN",
+        reviewDecision: "CHANGES_REQUESTED",
+        statusCheckRollup: [{ name: "lint", conclusion: "SUCCESS" }],
+        mergeable: "MERGEABLE",
+        mergeStateStatus: "CLEAN",
+        isDraft: false,
+      });
 
       await lm.check("app-1");
 
