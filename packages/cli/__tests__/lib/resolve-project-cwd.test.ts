@@ -41,7 +41,7 @@ describe("resolveProjectByCwd", () => {
       backend: makeProject({ name: "Backend", path: "/projects/backend" }),
     });
 
-    const result = resolveProjectByCwd(config, "/projects/frontend");
+    const result = resolveProjectByCwd({ config, currentDir: "/projects/frontend" });
 
     expect(result).not.toBeNull();
     expect(result!.projectId).toBe("frontend");
@@ -54,7 +54,7 @@ describe("resolveProjectByCwd", () => {
       backend: makeProject({ name: "Backend", path: "/projects/backend" }),
     });
 
-    const result = resolveProjectByCwd(config, "/projects/frontend/src/components");
+    const result = resolveProjectByCwd({ config, currentDir: "/projects/frontend/src/components" });
 
     expect(result).not.toBeNull();
     expect(result!.projectId).toBe("frontend");
@@ -67,7 +67,7 @@ describe("resolveProjectByCwd", () => {
       backend: makeProject({ name: "Backend", path: "/projects/backend" }),
     });
 
-    const result = resolveProjectByCwd(config, "/other/path");
+    const result = resolveProjectByCwd({ config, currentDir: "/other/path" });
 
     expect(result).toBeNull();
   });
@@ -79,10 +79,11 @@ describe("resolveProjectByCwd", () => {
       child: makeProject({ name: "Child", path: "/projects/child" }),
     });
 
-    const result = resolveProjectByCwd(config, "/projects/child/src");
+    const result = resolveProjectByCwd({ config, currentDir: "/projects/child/src" });
 
-    // Both match, but iteration order determines outcome without explicit sorting.
-    // This test documents the current behaviour (first match wins).
+    // Both /projects and /projects/child match — deepest/longest path should win
     expect(result).not.toBeNull();
+    expect(result!.projectId).toBe("child");
+    expect(result!.project.name).toBe("Child");
   });
 });

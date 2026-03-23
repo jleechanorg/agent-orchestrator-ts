@@ -99,7 +99,7 @@ function resolveProject(
 
   // Multiple projects — try matching cwd to a project path (exact or subdir)
   // Note: loadConfig() already expands ~ in project paths via expandPaths()
-  const cwdMatch = resolveProjectByCwd(config, cwd());
+  const cwdMatch = resolveProjectByCwd({ config, currentDir: cwd() });
   if (cwdMatch) return cwdMatch;
 
   // No match — error with helpful message
