@@ -256,24 +256,40 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     // Track activity state across steps so stuck detection can run after PR checks
     let detectedIdleTimestamp: Date | null = null;
 
+    // Track whether agent is dead so we can return "killed" AFTER PR checks
+    // (bd-ara auto-merge fix: agent exit must not mask a mergeable PR)
+    let agentDead = false;
+
     // 1. Check if runtime is alive
     if (session.runtimeHandle && runtime) {
       const alive = await runtime.isAlive(session.runtimeHandle).catch(() => true);
-      if (!alive) return "killed";
+      if (!alive) {
+        // Don't return "killed" yet — if the session has a PR, check PR state
+        // first so auto-merge can still fire for green PRs with exited agents.
+        if (!session.pr || !scm) return "killed";
+        agentDead = true;
+      }
 
-      await detectAndApplyRateLimitPause(config.configPath, session, project, runtime, sessionManager);
+      if (!agentDead) {
+        await detectAndApplyRateLimitPause(config.configPath, session, project, runtime, sessionManager);
+      }
     }
 
     // 2. Check agent activity — prefer JSONL-based detection (runtime-agnostic)
-    if (agent && session.runtimeHandle) {
+    if (!agentDead && agent && session.runtimeHandle) {
       try {
         // Try JSONL-based activity detection first (reads agent's session files directly)
         const activityState = await agent.getActivityState(session, config.readyThresholdMs);
         if (activityState) {
           if (activityState.state === "waiting_input") return "needs_input";
-          if (activityState.state === "exited") return "killed";
+          if (activityState.state === "exited") {
+            // Don't return "killed" yet — check PR state first
+            if (!session.pr || !scm) return "killed";
+            agentDead = true;
+          }
 
           if (
+            !agentDead &&
             (activityState.state === "idle" || activityState.state === "blocked") &&
             activityState.timestamp
           ) {
@@ -294,7 +310,10 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
             if (activity === "waiting_input") return "needs_input";
 
             const processAlive = await agent.isProcessRunning(session.runtimeHandle);
-            if (!processAlive) return "killed";
+            if (!processAlive) {
+              if (!session.pr || !scm) return "killed";
+              agentDead = true;
+            }
           }
         }
       } catch {
@@ -380,11 +399,18 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
           return "stuck";
         }
 
+        // bd-ara: If agent is dead and PR isn't mergeable, the session is done
+        if (agentDead) return "killed";
+
         return "pr_open";
       } catch {
         // SCM check failed — keep current status
+        if (agentDead) return "killed";
       }
     }
+
+    // bd-ara: If agent is dead but we had no PR branch to check, kill
+    if (agentDead) return "killed";
 
     // 5. Post-all stuck detection: if we detected idle in step 2 but had no PR,
     // still check stuck threshold. This handles agents that finish without creating a PR.
