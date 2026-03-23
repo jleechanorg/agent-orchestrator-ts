@@ -15,7 +15,6 @@ import {
   AGENT_ALIVE_PATTERNS,
   isAgentAliveInPane,
   restartAgentCli,
-  SHELL_PROMPT_PATTERNS,
 } from "./agent-liveness.js";
 import { tmux } from "./tmux-utils.js";
 
@@ -43,64 +42,6 @@ function assertValidSessionId(id: string): void {
  * Send content into a tmux pane using load-buffer/paste-buffer (for long text)
  * or send-keys -l (for short literal text).
  */
-/**
- * Check whether the pane shows the agent has started processing — either
- * via alive-token presence OR output no longer matching the sent content.
- * Returns true if the agent appears active; false if the pane is unchanged
- * (Enter was likely swallowed and needs retrying).
- */
-async function didAgentStart(sessionId: string, message: string, isLong: boolean): Promise<boolean> {
-  let paneOutput: string;
-  try {
-    paneOutput = await tmux("capture-pane", "-t", sessionId, "-p", "-S", "-20");
-  } catch {
-    // Session may have died — stop retrying
-    return true;
-  }
-  const trimmedOutput = paneOutput.trimEnd();
-  if (AGENT_ALIVE_PATTERNS.some((p) => p.test(trimmedOutput))) {
-    return true;
-  }
-  if (isLong) {
-    // Long: pane must not still end with the pasted message tail
-    const messageTail = message.slice(-80).trim();
-    return !trimmedOutput.endsWith(messageTail);
-  } else {
-    // Short: pane's last non-empty line must not still end with the message.
-    // Using endsWith (not full equality) to match the long-message strategy —
-    // avoids false-negatives when scrollback precedes the last line.
-    const lines = trimmedOutput.split("\n").filter((l) => l.trim().length > 0);
-    const lastLine = lines[lines.length - 1] ?? "";
-    const messageTail = message.trimEnd();
-    return !lastLine.endsWith(messageTail);
-  }
-}
-
-async function doSend(sessionId: string, message: string): Promise<void> {
-  const isLong = message.includes("\n") || message.length > 200;
-  await sendContent(sessionId, message);
-
-  // Adaptive delay: long messages need more time for tmux to render the paste
-  // before Enter arrives. Short messages keep 300ms.
-  const delayMs = isLong
-    ? Math.min(1000 + Math.ceil(message.length / 1000) * 200, 2000)
-    : 300;
-  await sleep(delayMs);
-  await tmux("send-keys", "-t", sessionId, "Enter");
-
-  // Enter retry (bd-orch2v3, bd-qhf): for ALL messages, check if the agent
-  // started responding. If the pane is unchanged (no alive token, output matches
-  // what we sent), Enter was swallowed — retry up to 3 times.
-  for (let attempt = 0; attempt < 3; attempt++) {
-    await sleep(1000);
-    if (await didAgentStart(sessionId, message, isLong)) {
-      break;
-    }
-    // Enter was swallowed — send it again
-    await tmux("send-keys", "-t", sessionId, "Enter");
-  }
-}
-
 /** Send content into a tmux pane using the load-buffer/paste-buffer or send-keys method. */
 async function sendContent(sessionId: string, content: string): Promise<void> {
   if (content.includes("\n") || content.length > 200) {
