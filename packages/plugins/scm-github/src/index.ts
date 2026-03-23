@@ -1851,7 +1851,7 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
       if (d === "APPROVED") reviewDecision = "approved";
       else if (d === "CHANGES_REQUESTED") reviewDecision = "changes_requested";
       else if (d === "REVIEW_REQUIRED") reviewDecision = "pending";
-      else if (data.reviewDecision == null) reviewDecision = "pending";
+      else if (data.reviewDecision === null || data.reviewDecision === undefined) reviewDecision = "pending";
       else reviewDecision = "none";
 
       // --- CI Status (from statusCheckRollup) ---
