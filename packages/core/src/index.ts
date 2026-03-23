@@ -86,12 +86,12 @@ export type {
 export { generateOrchestratorPrompt } from "./orchestrator-prompt.js";
 export type { OrchestratorPromptConfig } from "./orchestrator-prompt.js";
 
-
 // Global pause constants and utilities
 export {
   GLOBAL_PAUSE_UNTIL_KEY,
   GLOBAL_PAUSE_REASON_KEY,
   GLOBAL_PAUSE_SOURCE_KEY,
+  GLOBAL_PAUSE_CREATED_AT_KEY,
   parsePauseUntil,
 } from "./global-pause.js";
 
@@ -112,6 +112,13 @@ export {
   parseWebhookBranchRef,
 } from "./scm-webhook-utils.js";
 export { asValidOpenCodeSessionId } from "./opencode-session-id.js";
+
+// GitHub rate-limit detection & backoff (shared across gh-based plugins)
+export {
+  GH_RATE_LIMIT_ERROR_PATTERNS,
+  isGhRateLimitError,
+  ghSleep,
+} from "./gh-rate-limit.js";
 export { normalizeOrchestratorSessionStrategy } from "./orchestrator-session-strategy.js";
 export type { NormalizedOrchestratorSessionStrategy } from "./orchestrator-session-strategy.js";
 
@@ -228,6 +235,10 @@ export type {
   ThreadError,
   GraphQLExecutor,
 } from "./auto-resolve-threads.js";
+
+// Resilient GraphQL executor — retry + backoff + deferred state (bd-fy7)
+export { DeferredGraphQLExecutor, withRetryAndDefer } from "./gh-graphql-defer.js";
+export type { DeferredItem, ResilientResult } from "./gh-graphql-defer.js";
 
 // Slack outbox — outbox queue + dead letter handling (bd-sw3)
 export { SlackOutbox } from "./slack-outbox.js";

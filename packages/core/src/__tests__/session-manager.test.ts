@@ -1958,7 +1958,7 @@ describe("kill", () => {
     await expect(sm.kill("app-1")).resolves.toBeUndefined();
   });
 
-  it("does not purge mapped OpenCode session on default kill", async () => {
+  it("does NOT purge mapped OpenCode session on default kill (purgeOpenCode opt-in)", async () => {
     const deleteLogPath = join(tmpDir, "opencode-delete-kill-default.log");
     const mockBin = installMockOpencode("[]", deleteLogPath);
     process.env.PATH = `${mockBin}:${originalPath ?? ""}`;
@@ -1976,7 +1976,9 @@ describe("kill", () => {
     const sm = createSessionManager({ config, registry: mockRegistry });
     await sm.kill("app-1");
 
-    expect(existsSync(deleteLogPath)).toBe(false);
+    // Default kill should NOT purge OpenCode session — purgeOpenCode must be explicit
+    const deleteLogExists = existsSync(deleteLogPath);
+    expect(deleteLogExists).toBe(false);
   });
 
   it("purges mapped OpenCode session when requested", async () => {
@@ -3602,6 +3604,31 @@ describe("spawnOrchestrator", () => {
 
     const meta = readMetadataRaw(sessionsDir, "app-orchestrator");
     expect(meta?.["orchestratorSessionReused"]).toBeUndefined();
+  });
+
+  it("self-heals when a terminal-status ghost file exists with no runtimeHandle (launchd restart scenario)", async () => {
+    // Simulate the launchd restart failure: lifecycle-manager wrote status=killed
+    // with no runtimeHandle, leaving a ghost file that blocks reserveSessionId (O_EXCL).
+    const ghostPath = join(sessionsDir, "app-orchestrator");
+    writeFileSync(ghostPath, "status=killed\nrole=orchestrator\nprAutoDetect=off\n", "utf-8");
+
+    const sm = createSessionManager({ config, registry: mockRegistry });
+    // Must not throw "already exists but is not in a reusable state"
+    const session = await sm.spawnOrchestrator({ projectId: "my-app" });
+    expect(session).toBeDefined();
+    expect(mockRuntime.create).toHaveBeenCalledTimes(1);
+    const meta = readMetadataRaw(sessionsDir, "app-orchestrator");
+    expect(meta?.["runtimeHandle"]).toBe(JSON.stringify(makeHandle("rt-1")));
+  });
+
+  it("self-heals when a merged-status ghost file exists with no runtimeHandle", async () => {
+    const ghostPath = join(sessionsDir, "app-orchestrator");
+    writeFileSync(ghostPath, "status=merged\nrole=orchestrator\n", "utf-8");
+
+    const sm = createSessionManager({ config, registry: mockRegistry });
+    const session = await sm.spawnOrchestrator({ projectId: "my-app" });
+    expect(session).toBeDefined();
+    expect(mockRuntime.create).toHaveBeenCalledTimes(1);
   });
 
   it("respawns the orchestrator when stale metadata exists but the runtime is dead", async () => {

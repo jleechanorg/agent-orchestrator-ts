@@ -1,6 +1,7 @@
 export const GLOBAL_PAUSE_UNTIL_KEY = "globalPauseUntil";
 export const GLOBAL_PAUSE_REASON_KEY = "globalPauseReason";
 export const GLOBAL_PAUSE_SOURCE_KEY = "globalPauseSource";
+export const GLOBAL_PAUSE_CREATED_AT_KEY = "globalPauseCreatedAt";
 
 export function parsePauseUntil(raw: string | undefined): Date | null {
   if (!raw) return null;

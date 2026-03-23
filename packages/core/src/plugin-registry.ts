@@ -31,6 +31,7 @@ const BUILTIN_PLUGINS: Array<{ slot: PluginSlot; name: string; pkg: string }> = 
   { slot: "agent", name: "claude-code", pkg: "@jleechanorg/ao-plugin-agent-claude-code" },
   { slot: "agent", name: "codex", pkg: "@jleechanorg/ao-plugin-agent-codex" },
   { slot: "agent", name: "cursor", pkg: "@jleechanorg/ao-plugin-agent-cursor" },
+  { slot: "agent", name: "gemini", pkg: "@jleechanorg/ao-plugin-agent-gemini" },
   { slot: "agent", name: "aider", pkg: "@jleechanorg/ao-plugin-agent-aider" },
   { slot: "agent", name: "opencode", pkg: "@jleechanorg/ao-plugin-agent-opencode" },
   // Workspaces
@@ -40,6 +41,7 @@ const BUILTIN_PLUGINS: Array<{ slot: PluginSlot; name: string; pkg: string }> = 
   { slot: "tracker", name: "github", pkg: "@jleechanorg/ao-plugin-tracker-github" },
   { slot: "tracker", name: "linear", pkg: "@jleechanorg/ao-plugin-tracker-linear" },
   { slot: "tracker", name: "gitlab", pkg: "@jleechanorg/ao-plugin-tracker-gitlab" },
+  { slot: "tracker", name: "beads", pkg: "@jleechanorg/ao-plugin-tracker-beads" },
   // SCM
   { slot: "scm", name: "github", pkg: "@jleechanorg/ao-plugin-scm-github" },
   { slot: "scm", name: "gitlab", pkg: "@jleechanorg/ao-plugin-scm-gitlab" },
@@ -49,6 +51,8 @@ const BUILTIN_PLUGINS: Array<{ slot: PluginSlot; name: string; pkg: string }> = 
   { slot: "notifier", name: "openclaw", pkg: "@jleechanorg/ao-plugin-notifier-openclaw" },
   { slot: "notifier", name: "slack", pkg: "@jleechanorg/ao-plugin-notifier-slack" },
   { slot: "notifier", name: "webhook", pkg: "@jleechanorg/ao-plugin-notifier-webhook" },
+  // Fork-specific notifiers
+  { slot: "notifier", name: "mcp-mail", pkg: "@jleechanorg/ao-plugin-notifier-mcp-mail" },
   // Terminals
   { slot: "terminal", name: "iterm2", pkg: "@jleechanorg/ao-plugin-terminal-iterm2" },
   { slot: "terminal", name: "web", pkg: "@jleechanorg/ao-plugin-terminal-web" },

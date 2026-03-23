@@ -59,15 +59,22 @@ echo "[ok] ao $AO_VERSION installed"
 
 # ─── Start all projects via ao start ────────────────────────────────────────
 
-echo ""
-echo "Starting all projects..."
-
-START_ALL="$REPO_ROOT/scripts/start-all.sh"
-if [ -f "$START_ALL" ]; then
-  bash "$START_ALL"
+# Skip in CI environments — the onboarding test starts its own dashboard on
+# a known port, and running ao start here would cause a port conflict.
+if [ "$CI" = "true" ]; then
+  echo ""
+  echo "Skipping 'ao start' in CI environment (onboarding test manages its own dashboard)."
 else
-  echo "  WARNING: scripts/start-all.sh not found. Run manually:"
-  echo "    ao start <project-name>"
+  echo ""
+  echo "Starting all projects..."
+
+  START_ALL="$REPO_ROOT/scripts/start-all.sh"
+  if [ -f "$START_ALL" ]; then
+    bash "$START_ALL"
+  else
+    echo "  WARNING: scripts/start-all.sh not found. Run manually:"
+    echo "    ao start <project-name>"
+  fi
 fi
 
 # ─── Legacy launchd cleanup ─────────────────────────────────────────────────
@@ -143,10 +150,9 @@ PLIST_EOF
       launchctl load "$PLIST_PATH" 2>/dev/null
       echo "  [ok] $PROJECT lifecycle-worker installed and started"
     done
+  else
+    echo "  Skipping launchd setup (no config or python3 missing)"
   fi
-else
-  echo "  Skipping launchd setup (no config or python3 missing)"
-fi
 
 # ─── Clean stale PID files ─────────────────────────────────────────────────
 

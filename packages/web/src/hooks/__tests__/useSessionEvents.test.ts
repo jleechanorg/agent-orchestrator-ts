@@ -13,6 +13,7 @@ describe("useSessionEvents", () => {
   let eventSourceInstances: (typeof eventSourceMock)[];
 
   beforeEach(() => {
+    vi.restoreAllMocks();
     eventSourceInstances = [];
     const eventSourceConstructor = vi.fn(() => {
       const instance = {
@@ -34,7 +35,6 @@ describe("useSessionEvents", () => {
 
   afterEach(() => {
     vi.useRealTimers();
-    vi.restoreAllMocks();
   });
 
   const makeSessions = (count: number): DashboardSession[] =>

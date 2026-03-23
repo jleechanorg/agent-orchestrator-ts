@@ -50,6 +50,7 @@ export async function GET(request: Request) {
     const orchestrators = listDashboardOrchestrators(visibleSessions, config.projects);
     const orchestratorId = orchestrators.length === 1 ? (orchestrators[0]?.id ?? null) : null;
 
+    const globalPause = resolveGlobalPause(allSessions);
     let workerSessions = visibleSessions.filter((session) => !isOrchestratorSession(session));
 
     // Convert to dashboard format
@@ -105,7 +106,7 @@ export async function GET(request: Request) {
         stats: computeStats(dashboardSessions),
         orchestratorId,
         orchestrators,
-        globalPause: resolveGlobalPause(allSessions),
+        globalPause,
       },
       { status: 200 },
       correlationId,

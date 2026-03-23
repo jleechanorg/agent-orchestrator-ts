@@ -17,6 +17,7 @@ import {
   PR_STATE,
   CI_STATUS,
   TERMINAL_STATUSES,
+  isOrchestratorSession,
   type LifecycleManager,
   type SessionManager,
   type SessionId,
@@ -36,8 +37,12 @@ import {
   type ProjectConfig as _ProjectConfig,
   type MergeGateConfig,
 } from "./types.js";
-import { updateMetadata } from "./metadata.js";
+import { readMetadataRaw, updateMetadata } from "./metadata.js";
 import { getSessionsDir } from "./paths.js";
+import {
+  clearProjectPause,
+  detectAndApplyRateLimitPause,
+} from "./fork-lifecycle-manager.js";
 import { createCorrelationId, createProjectObserver } from "./observability.js";
 import { resolveAgentSelection, resolveSessionRole } from "./agent-selection.js";
 import type { OutcomeRecorder } from "./outcome-recorder.js";
@@ -47,6 +52,7 @@ import { handleRequestMerge, handleParallelRetry } from "./fork-reaction-handler
 import { maybeDispatchReviewBacklog } from "./review-backlog.js";
 import { updateSessionMetadataHelper } from "./fork-utils.js";
 import { checkMergeGate } from "./merge-gate.js";
+import { GLOBAL_PAUSE_UNTIL_KEY, GLOBAL_PAUSE_REASON_KEY, parsePauseUntil } from "./global-pause.js";
 
 /** Parse a duration string like "10m", "30s", "1h" to milliseconds. */
 export function parseDuration(str: string): number {
@@ -243,16 +249,19 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     const agent = registry.get<Agent>("agent", agentName);
     const scm = project.scm ? registry.get<SCM>("scm", project.scm.plugin) : null;
 
+    const runtime = session.runtimeHandle
+      ? registry.get<Runtime>("runtime", project.runtime ?? config.defaults.runtime)
+      : null;
+
     // Track activity state across steps so stuck detection can run after PR checks
     let detectedIdleTimestamp: Date | null = null;
 
     // 1. Check if runtime is alive
-    if (session.runtimeHandle) {
-      const runtime = registry.get<Runtime>("runtime", project.runtime ?? config.defaults.runtime);
-      if (runtime) {
-        const alive = await runtime.isAlive(session.runtimeHandle).catch(() => true);
-        if (!alive) return "killed";
-      }
+    if (session.runtimeHandle && runtime) {
+      const alive = await runtime.isAlive(session.runtimeHandle).catch(() => true);
+      if (!alive) return "killed";
+
+      await detectAndApplyRateLimitPause(config.configPath, session, project, runtime, sessionManager);
     }
 
     // 2. Check agent activity — prefer JSONL-based detection (runtime-agnostic)
@@ -648,6 +657,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     updateSessionMetadataHelper(session, updates, config);
   }
 
+
   /** Send a notification to all configured notifiers. */
   async function notifyHuman(event: OrchestratorEvent, priority: EventPriority): Promise<void> {
     const eventWithPriority = { ...event, priority };
@@ -819,6 +829,23 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     try {
       const sessions = await sessionManager.list(scopedProjectId);
 
+      const pausedProjects = new Map<string, Date>();
+      for (const session of sessions) {
+        if (!isOrchestratorSession(session)) continue;
+        const until = parsePauseUntil(session.metadata[GLOBAL_PAUSE_UNTIL_KEY]);
+        if (!until) continue;
+        if (until.getTime() <= Date.now()) {
+          // Only clear REASON if still set; UNTIL is intentionally preserved for the
+          // grace-window check in detectAndApplyRateLimitPause (avoids repeated disk writes).
+          const project = config.projects[session.projectId];
+          if (project && session.metadata[GLOBAL_PAUSE_REASON_KEY]) {
+            clearProjectPause(config.configPath, project);
+          }
+          continue;
+        }
+        pausedProjects.set(session.projectId, until);
+      }
+
       // Track whether any sessions have been observed across all poll cycles.
       // list() only returns active (non-terminal) sessions, so when all sessions
       // reach a terminal state sessions.length drops to 0. We need this flag to
@@ -829,20 +856,67 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
 
       // Include sessions that are active OR whose status changed from what we last saw
       // (e.g., list() detected a dead runtime and marked it "killed" — we need to
-      // process that transition even though the new status is terminal)
+      // process that transition even though the new status is terminal).
+      // Do NOT pre-filter paused projects here: pause state may clear mid-cycle, and
+      // excluded sessions can never be restored within the same poll tick.
       const sessionsToCheck = sessions.filter((s) => {
         // Skip terminal statuses only if we've already seen and processed this session.
         // If tracked is undefined (e.g., after lifecycle manager restart), allow it
         // through once so exit proof and outcome can be emitted.
-        if (s.status === "merged" || s.status === "killed") {
+        const isTerminal = s.status === "merged" || s.status === "killed";
+        if (isTerminal) {
           const tracked = states.get(s.id);
           return tracked === undefined || tracked !== s.status;
         }
         return true;
       });
 
-      // Poll all sessions concurrently
-      await Promise.allSettled(sessionsToCheck.map((s) => checkSession(s)));
+      // bd-wse: Poll sessions sequentially instead of concurrently.
+      // Concurrent polling (Promise.allSettled) fires N×4 GitHub API calls in parallel,
+      // exhausting the 5000/hr GraphQL rate limit when many sessions exist.
+      // Sequential checks run back-to-back within one poll cycle (no pacing between
+      // sessions). With many sessions, the cycle can exceed the configured interval;
+      // the re-entrancy guard above then skips overlapping ticks until the cycle finishes.
+      for (const s of sessionsToCheck) {
+        // Pre-refresh: reload pause state from disk at the top of each iteration so
+        // this session sees pauses set OR cleared by orchestrators or earlier sessions
+        // in the same cycle. This ensures a mid-cycle pause clear immediately unblocks
+        // subsequent workers without waiting for the next poll tick.
+        const project = config.projects[s.projectId];
+        if (project) {
+          const sessionsDir = getSessionsDir(config.configPath, project.path);
+          const orchId = `${project.sessionPrefix}-orchestrator`;
+          const raw = readMetadataRaw(sessionsDir, orchId);
+          const until = raw ? parsePauseUntil(raw[GLOBAL_PAUSE_UNTIL_KEY]) : null;
+          if (until && until.getTime() > Date.now()) {
+            pausedProjects.set(s.projectId, until);
+          } else {
+            pausedProjects.delete(s.projectId);
+          }
+        }
+        // Skip non-orchestrator sessions if project is currently paused.
+        // Terminal sessions bypass so exit proof, outcome recording, and cleanup
+        // are not delayed.
+        const isTerminal = s.status === "merged" || s.status === "killed";
+        if (pausedProjects.has(s.projectId) && !isOrchestratorSession(s) && !isTerminal) {
+          continue;
+        }
+        await checkSession(s).catch((err) => {
+          const errorReason = err instanceof Error ? err.message : String(err);
+          observer.recordOperation({
+            metric: "lifecycle_poll",
+            operation: "lifecycle.session.check",
+            outcome: "failure",
+            correlationId,
+            projectId: s.projectId,
+            sessionId: s.id,
+            durationMs: 0,
+            reason: errorReason,
+            level: "error",
+            data: { sessionId: s.id },
+          });
+        });
+      }
 
       // Prune stale entries from states and reactionTrackers for sessions
       // that no longer appear in the session list (e.g., after kill/cleanup)

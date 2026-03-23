@@ -10,7 +10,7 @@ import {
 
 function parseInterval(value: string): number {
   const parsed = Number.parseInt(value, 10);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : 30_000;
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 300_000;
 }
 
 export function registerLifecycleWorker(program: Command): void {
@@ -18,7 +18,7 @@ export function registerLifecycleWorker(program: Command): void {
     .command("lifecycle-worker")
     .description("Internal lifecycle polling worker")
     .argument("<project>", "Project ID from config")
-    .option("--interval-ms <ms>", "Polling interval in milliseconds", "30000")
+    .option("--interval-ms <ms>", "Polling interval in milliseconds", "300000")
     .action(async (projectId: string, opts: { intervalMs?: string }) => {
       const config = loadConfig();
       const observer = createProjectObserver(config, "lifecycle-worker");
@@ -39,6 +39,8 @@ export function registerLifecycleWorker(program: Command): void {
       if (existing.running && existing.pid !== process.pid) {
         // Another lifecycle worker is already running for this project — exit
         // silently to avoid duplicate polling loops.
+        // Note: getLifecycleWorkerStatus already validates the PID is alive via
+        // kill -0, so this is not a stale-PID false positive.
         observer.setHealth({
           surface: "lifecycle.worker",
           status: "warn",
@@ -51,7 +53,7 @@ export function registerLifecycleWorker(program: Command): void {
       }
 
       const lifecycle = await getLifecycleManager(config, projectId);
-      const intervalMs = parseInterval(opts.intervalMs ?? "30000");
+      const intervalMs = parseInterval(opts.intervalMs ?? "300000");
       let shuttingDown = false;
       let heartbeat: ReturnType<typeof setInterval> | null = null;
 
@@ -133,6 +135,14 @@ export function registerLifecycleWorker(program: Command): void {
         });
       }, 5 * 60_000); // every 5 minutes
       heartbeat.unref();
+
+      // bd-wse: Add startup jitter (0–10s) to stagger poll start across concurrent
+      // project workers. Without this, all lifecycle-workers start polling at T=0
+      // simultaneously, firing bursts of GitHub API calls that exhaust the rate limit.
+      const jitterMs = Math.floor(Math.random() * Math.min(intervalMs, 10_000));
+      if (jitterMs > 0) {
+        await new Promise<void>((resolve) => setTimeout(resolve, jitterMs));
+      }
 
       lifecycle.start(intervalMs);
     });

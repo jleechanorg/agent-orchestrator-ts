@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
 import { createLifecycleManager } from "../lifecycle-manager.js";
 import { createSessionManager } from "../session-manager.js";
+import * as reviewBacklog from "../review-backlog.js";
 import { writeMetadata, readMetadataRaw } from "../metadata.js";
 import { getSessionsDir, getProjectBaseDir } from "../paths.js";
 import type {
@@ -175,6 +176,57 @@ describe("start / stop", () => {
     lm.stop();
     // Should not throw on double stop
     lm.stop();
+  });
+});
+
+describe("sequential session polling (bd-wse)", () => {
+  it("pollAll processes later sessions after one checkSession rejects", async () => {
+    const sessions = [
+      makeSession({ id: "app-1", status: "spawning" }),
+      makeSession({ id: "app-2", status: "spawning" }),
+      makeSession({ id: "app-3", status: "spawning" }),
+    ];
+
+    for (const s of sessions) {
+      writeMetadata(sessionsDir, s.id, {
+        worktree: "/tmp",
+        branch: "main",
+        status: "spawning",
+        project: "my-app",
+      });
+    }
+
+    vi.mocked(mockSessionManager.list).mockResolvedValue(sessions);
+    vi.mocked(mockSessionManager.get).mockImplementation(async (id) =>
+      sessions.find((s) => s.id === id) ?? null,
+    );
+
+    // `determineStatus` treats rejected `isAlive` as alive (`.catch(() => true)`), so
+    // force a real rejection from a post-status hook to exercise the pollAll loop.
+    const origDispatch = reviewBacklog.maybeDispatchReviewBacklog;
+    const dispatchSpy = vi.spyOn(reviewBacklog, "maybeDispatchReviewBacklog").mockImplementation(
+      async (session, oldStatus, newStatus, deps, transitionReaction) => {
+        if (session.id === "app-2") {
+          throw new Error("forced session check failure");
+        }
+        return origDispatch(session, oldStatus, newStatus, deps, transitionReaction);
+      },
+    );
+
+    const lm = createLifecycleManager({
+      config,
+      registry: mockRegistry,
+      sessionManager: mockSessionManager,
+    });
+
+    try {
+      lm.start(60_000);
+      await vi.waitUntil(() => lm.getStates().get("app-3") === "working", { timeout: 5000 });
+      expect(lm.getStates().get("app-1")).toBe("working");
+    } finally {
+      dispatchSpy.mockRestore();
+      lm.stop();
+    }
   });
 });
 

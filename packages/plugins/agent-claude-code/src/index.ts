@@ -608,9 +608,26 @@ async function setupHookInWorkspace(workspacePath: string): Promise<void> {
     await mkdir(claudeDir, { recursive: true });
   }
 
-  // Write the metadata updater script only if content changed (idempotent)
-  if (!existsSync(hookScriptPath) || (await readFile(hookScriptPath, "utf-8")) !== METADATA_UPDATER_SCRIPT) {
+  // Guard: refuse to write through an existing symlink to avoid overwriting an arbitrary target file
+  let hookScriptIsSymlink = false;
+  try {
+    const scriptSt = await lstat(hookScriptPath);
+    hookScriptIsSymlink = scriptSt.isSymbolicLink();
+    if (hookScriptIsSymlink) {
+      console.warn(`[agent-claude-code] ${hookScriptPath} is a symlink — skipping hook script write to avoid clobbering target`);
+    }
+  } catch {
+    // File does not exist — safe to write
+  }
+
+  // Write the metadata updater script only if content changed (idempotent) and not a symlink
+  if (!hookScriptIsSymlink && (!existsSync(hookScriptPath) || (await readFile(hookScriptPath, "utf-8")) !== METADATA_UPDATER_SCRIPT)) {
     await writeFile(hookScriptPath, METADATA_UPDATER_SCRIPT, "utf-8");
+  }
+  // Always ensure execute bit is set, but skip if the hook script is itself a symlink
+  // (chmod follows symlinks and could alter permissions on an unrelated target file).
+  const hookStat = await lstat(hookScriptPath).catch(() => null);
+  if (hookStat && !hookStat.isSymbolicLink()) {
     await chmod(hookScriptPath, 0o755);
   }
 
@@ -681,9 +698,21 @@ async function setupHookInWorkspace(workspacePath: string): Promise<void> {
   hooks["PreToolUse"] = preToolUse;
   existingSettings["hooks"] = hooks;
 
-  // Write settings only if content changed (idempotent)
+  // Guard: refuse to write through an existing symlink to avoid clobbering an arbitrary target file
+  let settingsPathIsSymlink = false;
+  try {
+    const settingsStat = await lstat(settingsPath);
+    settingsPathIsSymlink = settingsStat.isSymbolicLink();
+    if (settingsPathIsSymlink) {
+      console.warn(`[agent-claude-code] ${settingsPath} is a symlink — skipping settings write to avoid clobbering target`);
+    }
+  } catch {
+    // File does not exist — safe to write
+  }
+
+  // Write settings only if content changed (idempotent) and not a symlink
   const settingsBody = JSON.stringify(existingSettings, null, 2) + "\n";
-  if (!existsSync(settingsPath) || (await readFile(settingsPath, "utf-8")) !== settingsBody) {
+  if (!settingsPathIsSymlink && (!existsSync(settingsPath) || (await readFile(settingsPath, "utf-8")) !== settingsBody)) {
     await writeFile(settingsPath, settingsBody, "utf-8");
   }
 }

@@ -15,6 +15,7 @@ vi.mock("node:child_process", () => {
 });
 
 import { create, manifest, ghRestFallback } from "../src/index.js";
+import { _resetGhCache } from "../src/gh-cache.js";
 import type { PRInfo, SCMWebhookRequest, Session, ProjectConfig } from "@jleechanorg/ao-core";
 
 // ---------------------------------------------------------------------------
@@ -95,6 +96,7 @@ describe("scm-github plugin", () => {
   let scm: ReturnType<typeof create>;
 
   beforeEach(() => {
+    _resetGhCache();
     vi.clearAllMocks();
     scm = create();
     delete process.env["GITHUB_WEBHOOK_SECRET"];
@@ -532,8 +534,29 @@ describe("scm-github plugin", () => {
 
     it("returns null when no PR found", async () => {
       mockGh([]);
+      mockGh([]);
       const result = await scm.detectPR(makeSession(), project);
       expect(result).toBeNull();
+    });
+
+    it("discovers fork PR when head=owner:branch filter is empty", async () => {
+      mockGh([]);
+      mockGh([
+        {
+          number: 7,
+          html_url: "https://github.com/acme/repo/pull/7",
+          title: "from fork",
+          head: { ref: "feat/my-feature" },
+          base: { ref: "main" },
+          draft: false,
+        },
+      ]);
+      const result = await scm.detectPR(makeSession(), project);
+      expect(result).toMatchObject({
+        number: 7,
+        url: "https://github.com/acme/repo/pull/7",
+        branch: "feat/my-feature",
+      });
     });
 
     it("returns null when session has no branch", async () => {
@@ -599,12 +622,51 @@ describe("scm-github plugin", () => {
     });
 
     it("checks out PR when workspace is clean and branch differs", async () => {
-      ghMock.mockResolvedValueOnce({ stdout: "main\n" });
-      ghMock.mockResolvedValueOnce({ stdout: "" });
-      ghMock.mockResolvedValueOnce({ stdout: "" });
+      ghMock.mockResolvedValueOnce({ stdout: "main\n" }); // git branch --show-current (before)
+      ghMock.mockResolvedValueOnce({ stdout: "" }); // git status --porcelain
+      ghMock.mockResolvedValueOnce({ stdout: "" }); // gh pr checkout
+      ghMock.mockResolvedValueOnce({ stdout: "feat/my-feature\n" }); // git branch --show-current (after)
 
       const changed = await scm.checkoutPR?.(pr, "/tmp/repo");
       expect(changed).toBe(true);
+    });
+
+    it("throws when gh pr checkout silently fails (e.g. branch locked by another worktree)", async () => {
+      ghMock.mockResolvedValueOnce({ stdout: "main\n" }); // git branch --show-current (before)
+      ghMock.mockResolvedValueOnce({ stdout: "" }); // git status --porcelain
+      ghMock.mockRejectedValueOnce(new Error("Command failed: exit 128")); // gh pr checkout fails
+      // No post-checkout branch verification call expected since gh threw
+
+      await expect(scm.checkoutPR?.(pr, "/tmp/repo")).rejects.toThrow("Command failed: exit 128");
+    });
+
+    it("throws when gh pr checkout appears to succeed but worktree is on wrong branch", async () => {
+      ghMock.mockResolvedValueOnce({ stdout: "main\n" }); // git branch --show-current (before)
+      ghMock.mockResolvedValueOnce({ stdout: "" }); // git status --porcelain
+      ghMock.mockResolvedValueOnce({ stdout: "" }); // gh pr checkout (exit 0 but wrong branch)
+      ghMock.mockResolvedValueOnce({ stdout: "other-branch\n" }); // git branch --show-current (after) — still wrong
+
+      await expect(scm.checkoutPR?.(pr, "/tmp/repo")).rejects.toThrow(
+        /gh pr checkout succeeded but worktree is still on branch "other-branch" instead of "feat\/my-feature"/,
+      );
+    });
+
+    it("returns false without error when workspace is already on the PR branch", async () => {
+      ghMock.mockResolvedValueOnce({ stdout: "feat/my-feature\n" }); // git branch --show-current (already on PR branch)
+      // No dirty check, no checkout, no post-checkout verification
+
+      const changed = await scm.checkoutPR?.(pr, "/tmp/repo");
+      expect(changed).toBe(false);
+    });
+
+    it("throws when workspace has uncommitted changes", async () => {
+      ghMock.mockResolvedValueOnce({ stdout: "main\n" }); // git branch --show-current
+      ghMock.mockResolvedValueOnce({ stdout: "M  src/foo.ts\n" }); // git status --porcelain (dirty)
+      // No checkout attempt
+
+      await expect(scm.checkoutPR?.(pr, "/tmp/repo")).rejects.toThrow(
+        "Workspace has uncommitted changes",
+      );
     });
   });
 
@@ -834,6 +896,33 @@ describe("scm-github plugin", () => {
       expect(checks[0].completedAt).toBeUndefined();
     });
 
+    it("falls back to REST check-runs when rate-limited on statusCheckRollup", async () => {
+      // First call: gh pr checks fails (unsupported)
+      mockGhError("gh pr checks failed: unknown json field 'state'");
+      // Second call: gh pr view --json statusCheckRollup => rate limit (3 retries)
+      mockGhError("API rate limit exceeded");
+      mockGhError("API rate limit exceeded");
+      mockGhError("API rate limit exceeded");
+      // REST fallback: gh api repos/acme/repo/pulls/42
+      mockGh({
+        state: "open",
+        head: { sha: "abc123", ref: "feat/test" },
+        base: { ref: "main" },
+      });
+      // REST fallback: gh api repos/acme/repo/commits/abc123/check-runs
+      mockGh({
+        check_runs: [
+          { name: "build", status: "completed", conclusion: "success", html_url: "https://ci/1" },
+          { name: "lint", status: "completed", conclusion: "failure", html_url: "https://ci/2" },
+        ],
+      });
+
+      const checks = await scm.getCIChecks(pr);
+      expect(checks).toHaveLength(2);
+      expect(checks[0]).toMatchObject({ name: "build", status: "passed" });
+      expect(checks[1]).toMatchObject({ name: "lint", status: "failed" });
+    });
+
     it("falls back to statusCheckRollup when pr checks json is unsupported", async () => {
       mockGhError("gh pr checks failed: unknown json field 'state'");
       mockGh({
@@ -897,6 +986,13 @@ describe("scm-github plugin", () => {
         { name: "b", state: "NEUTRAL" },
       ]);
       expect(await scm.getCISummary(pr)).toBe("none");
+    });
+
+    it("rethrows rate limit errors (wrapped by getCIChecks)", async () => {
+      for (let i = 0; i < 4; i++) {
+        mockGhError("API rate limit exceeded");
+      }
+      await expect(scm.getCISummary(pr)).rejects.toThrow(/Failed to fetch CI checks/i);
     });
   });
 
@@ -992,6 +1088,11 @@ describe("scm-github plugin", () => {
     it('returns "none" when reviewDecision is null', async () => {
       mockGh({ reviewDecision: null });
       expect(await scm.getReviewDecision(pr)).toBe("none");
+    });
+
+    it('returns "pending" on non-rate-limit gh failure (fail-closed)', async () => {
+      mockGhError("gh crashed");
+      expect(await scm.getReviewDecision(pr)).toBe("pending");
     });
   });
 
@@ -1385,13 +1486,31 @@ describe("scm-github plugin", () => {
         mergeStateStatus: "UNSTABLE",
         isDraft: false,
       });
-      mockGhError("rate limited");
+      mockGhError("ENOTFOUND github.com");
 
       const result = await scm.getMergeability(pr);
       expect(result.ciPassing).toBe(false);
       expect(result.mergeable).toBe(false);
       expect(result.blockers).toContain("CI is failing");
       expect(result.blockers).toContain("Required checks are failing");
+    });
+
+    it("reports a dedicated blocker when CI summary hits rate limits", async () => {
+      mockGh({ state: "OPEN" });
+      mockGh({
+        mergeable: "MERGEABLE",
+        reviewDecision: "APPROVED",
+        mergeStateStatus: "CLEAN",
+        isDraft: false,
+      });
+      for (let i = 0; i < 4; i++) {
+        mockGhError("API rate limit exceeded");
+      }
+
+      const result = await scm.getMergeability(pr);
+      expect(result.ciPassing).toBe(false);
+      expect(result.mergeable).toBe(false);
+      expect(result.blockers.some((b) => b.includes("rate limited"))).toBe(true);
     });
 
     it("reports changes requested as blockers", async () => {
@@ -1643,6 +1762,25 @@ describe("scm-github plugin", () => {
       expect(curlCalls[0][1]).toContain("GET");
     });
 
+    it("finds endpoint when --method GET precedes the path", async () => {
+      ghMock
+        .mockRejectedValueOnce(new Error("not authenticated"))
+        .mockResolvedValueOnce({ stdout: '{"test": true}' });
+
+      await ghRestFallback([
+        "api",
+        "--method",
+        "GET",
+        "repos/owner/repo/pulls/1/comments?per_page=100",
+      ]);
+
+      const curlCalls = ghMock.mock.calls.filter((call) => call[0] === "curl");
+      expect(curlCalls).toHaveLength(1);
+      expect(curlCalls[0][1].join(" ")).toContain(
+        "https://api.github.com/repos/owner/repo/pulls/1/comments?per_page=100",
+      );
+    });
+
     it("includes auth token when available", async () => {
       // First call is gh auth token, second is curl
       ghMock
@@ -1656,6 +1794,27 @@ describe("scm-github plugin", () => {
       const curlArgs = curlCalls[0][1] as string[];
       expect(curlArgs).toContain("-H");
       expect(curlArgs).toContain("Authorization: Bearer test-token");
+    });
+  });
+
+  // ---- GhCache write-dedupe exclusion ------------------------------------
+
+  describe("GhCache write-operation dedupe exclusion", () => {
+    it("concurrent identical write operations each invoke gh CLI independently (not deduplicated)", async () => {
+      // Provide two separate responses. If in-flight dedupe incorrectly applied to writes,
+      // ghMock would only be called once and the second response would go unconsumed.
+      ghMock
+        .mockResolvedValueOnce({ stdout: "" })
+        .mockResolvedValueOnce({ stdout: "" });
+
+      // Fire two concurrent identical merges for the same PR
+      await Promise.all([scm.mergePR(pr, "squash"), scm.mergePR(pr, "squash")]);
+
+      // Both calls must reach gh CLI — no in-flight sharing for write operations
+      const mergeCalls = ghMock.mock.calls.filter(
+        (c) => c[0] === "gh" && Array.isArray(c[1]) && (c[1] as string[]).includes("merge"),
+      );
+      expect(mergeCalls).toHaveLength(2);
     });
   });
 });
