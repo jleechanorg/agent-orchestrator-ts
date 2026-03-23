@@ -295,8 +295,8 @@ export function toAgentProjectPath(workspacePath: string): string {
 // JSONL Helpers
 // =============================================================================
 
-/** Find the most recently modified session file in a directory */
-async function findLatestSessionFile(
+/** Find the most recently modified session file in a directory. Exported for use by agent plugins that need to locate session files. */
+export async function findLatestSessionFile(
   projectDir: string,
   ext = ".jsonl",
 ): Promise<string | null> {
@@ -592,6 +592,14 @@ async function findAgentProcess(
 // Terminal Output Patterns for detectActivity
 // =============================================================================
 
+/**
+ * Unicode spinner characters emitted by Claude Code, Gemini CLI, and other
+ * agents while actively processing. Presence in the terminal window means the
+ * agent is mid-work even if the prompt glyph (❯) is also visible at the
+ * bottom (orch-jtc7: false-idle fix).
+ */
+const ACTIVE_SPINNER_RE = /[✻✶✳✽✾⠁⠂⠄⠈⠐⠠⡀⢀⣀]/;
+
 /** Classify agent activity state from terminal output (pure, sync). */
 function classifyTerminalOutput(terminalOutput: string): ActivityState {
   // Empty output — can't determine state
@@ -600,9 +608,16 @@ function classifyTerminalOutput(terminalOutput: string): ActivityState {
   const lines = terminalOutput.trim().split("\n");
   const lastLine = lines[lines.length - 1]?.trim() ?? "";
 
-  // Check the last line FIRST — if the prompt is visible, the agent is idle
-  // regardless of historical output (e.g. "Reading file..." from earlier).
-  if (/^[❯>$#]\s*$/.test(lastLine)) return "idle";
+  // Check the last line FIRST — if the prompt is visible, the agent MAY be idle.
+  // But also check the last 20 lines for active spinner indicators: agents like
+  // Claude Code render ❯ at the bottom while still thinking/using tools above
+  // (orch-jtc7: false-idle between tool calls).
+  if (/^[❯>$#]\s*$/.test(lastLine)) {
+    const windowStart = Math.max(0, lines.length - 20);
+    const window = lines.slice(windowStart, lines.length - 1); // exclude the last prompt line
+    if (window.some((l) => ACTIVE_SPINNER_RE.test(l))) return "active";
+    return "idle";
+  }
 
   // Check the bottom of the buffer for permission prompts BEFORE checking
   // full-buffer active indicators. Historical "Thinking"/"Reading" text in
