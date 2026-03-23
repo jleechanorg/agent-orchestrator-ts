@@ -53,7 +53,7 @@ async function tmux(...args: string[]): Promise<string> {
  * Fork-only logic (bd-tln): not upstreamed to ComposioHQ.
  */
 const SHELL_PROMPT_PATTERNS = [
-  /(?:^|[\s\w@~\/.-])\$\s*$/, // bash: word/path then "$ " (avoids "$100")
+  /(?:^|[\s\w@~.-])\$\s*$/, // bash: word/path then "$ " (avoids "$100")
   /%\s*$/, // zsh: ends with "% "
   /❯\s*$/, // starship / oh-my-zsh: ends with "❯ "
   /(?:^|\s)>\s*$/, // fish: space before ">" (avoids "Click here >")
