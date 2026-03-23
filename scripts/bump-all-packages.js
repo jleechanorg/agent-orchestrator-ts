@@ -5,13 +5,17 @@
  */
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { globSync } from "glob";
 
-const root = new URL("..", import.meta.url).pathname;
+const root = fileURLToPath(new URL("..", import.meta.url));
 const rootPkg = JSON.parse(readFileSync(join(root, "package.json"), "utf-8"));
 const version = rootPkg.version;
 
-const pkgFiles = globSync("packages/*/package.json", { cwd: root });
+const pkgFiles = [
+  ...globSync("packages/*/package.json", { cwd: root, ignore: "packages/mobile/package.json" }),
+  ...globSync("packages/plugins/*/package.json", { cwd: root }),
+];
 
 for (const rel of pkgFiles) {
   const abs = join(root, rel);

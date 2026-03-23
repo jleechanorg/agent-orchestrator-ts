@@ -5,7 +5,7 @@
   "description": "Orchestrate parallel AI coding agents across any runtime, any repo, any issue tracker",
   "license": "MIT",
   "engines": {
-    "node": ">=20.0.0"
+    "node": ">=22.0.0"
   },
   "packageManager": "pnpm@9.15.4",
   "type": "module",
@@ -20,14 +20,10 @@
     "test": "pnpm -r --filter '!@jleechanorg/ao-web' test",
     "test:integration": "pnpm --filter @jleechanorg/ao-integration-tests test:integration",
     "clean": "pnpm -r clean",
-    "changeset": "changeset",
-    "version-packages": "changeset version",
-    "release": "pnpm -r build && changeset publish",
     "prepare": "husky",
     "postinstall": "node scripts/rebuild-node-pty.js"
   },
   "devDependencies": {
-    "@changesets/cli": "^2.29.8",
     "@eslint/js": "^10.0.1",
     "@jleechanorg/ao-plugin-agent-cursor": "workspace:^",
     "@jleechanorg/ao-plugin-agent-gemini": "workspace:^",
