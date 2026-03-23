@@ -1095,8 +1095,12 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
     if (plugins.agent.setupWorkspaceHooks) {
       try {
         await plugins.agent.setupWorkspaceHooks(workspacePath, { dataDir: sessionsDir });
-      } catch {
+      } catch (err) {
         // Non-fatal: agent will still run, hooks just won't fire
+        console.warn(
+          `[session-manager] hook setup failed for workspace=${workspacePath} ` +
+            `agent=${plugins.agent.constructor.name}: ${err}`,
+        );
       }
     }
 
