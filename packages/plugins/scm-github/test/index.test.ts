@@ -1438,7 +1438,7 @@ describe("scm-github plugin", () => {
           // "High Severity" and "bug" appear but this is a Bugbot analysis comment,
           // not a direct error report. The word "bug" appears in "Bugbot" and in
           // descriptive text, not as a severity label.
-          body: "### Filter uses pre-repair status causing cross-call inconsistency\n\n**Medium Severity**\n\n<!-- DESCRIPTION START -->\nThe filter looks up the original status which may cause a bug in error handling paths. Consider using the repaired status instead.",
+          body: "### Filter uses pre-repair status causing cross-call inconsistency\n\n**Medium Severity**\n\n<!-- DESCRIPTION START -->\nThe filter looks up the original status which may cause a bug in error handling paths. Using the repaired status would avoid this issue.",
           path: "a.ts",
           line: 10,
           original_line: null,
