@@ -900,11 +900,13 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         }
       }
 
-      // bd-s4t.1: when a session reaches merged, proactively kill the runtime
-      // to prevent zombie tmux sessions lingering after merge.
-      // Placed here (after exit proof validation and outcome recording) to ensure
-      // worktree is available for commit validation in validateAndEmitExitProof.
-      if (newStatus === "merged") {
+      // auto-kill runtime for terminal (merged/killed) non-orchestrator sessions
+      // to prevent zombie tmux session accumulation (jleechan-v7oa).
+      // Orchestrator sessions are excluded: killing the orchestrator would clear
+      // its rate-limit pause metadata, breaking the pause mechanism.
+      // Placed after exit proof validation and outcome recording so the worktree
+      // remains available for validateAndEmitExitProof.
+      if ((newStatus === "merged" || newStatus === "killed") && !isOrchestratorSession(session)) {
         await sessionManager.kill(session.id);
       }
     }

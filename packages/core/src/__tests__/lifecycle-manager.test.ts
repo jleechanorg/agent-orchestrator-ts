@@ -336,6 +336,41 @@ describe("check (single session)", () => {
     await lm.check("app-1");
 
     expect(lm.getStates().get("app-1")).toBe("killed");
+    // auto-kill runtime to prevent session accumulation (jleechan-v7oa)
+    expect(mockSessionManager.kill).toHaveBeenCalledWith("app-1");
+  });
+
+  it("does NOT kill runtime when orchestrator session transitions to killed (preserve pause metadata — jleechan-v7oa)", async () => {
+    // Orchestrator sessions must not be auto-killed: killing the orchestrator clears
+    // its rate-limit pause metadata, which would unblock workers before the pause expires.
+    vi.mocked(mockRuntime.isAlive).mockResolvedValue(false);
+
+    const orchestratorSession = makeSession({
+      id: "my-app-orchestrator",
+      status: "working",
+      metadata: { role: "orchestrator" },
+    });
+    vi.mocked(mockSessionManager.get).mockResolvedValue(orchestratorSession);
+
+    writeMetadata(sessionsDir, "my-app-orchestrator", {
+      worktree: "/tmp",
+      branch: "main",
+      status: "working",
+      project: "my-app",
+      role: "orchestrator",
+    });
+
+    const lm = createLifecycleManager({
+      config,
+      registry: mockRegistry,
+      sessionManager: mockSessionManager,
+    });
+
+    await lm.check("my-app-orchestrator");
+
+    expect(lm.getStates().get("my-app-orchestrator")).toBe("killed");
+    // Orchestrator kill must be skipped to preserve pause metadata
+    expect(mockSessionManager.kill).not.toHaveBeenCalled();
   });
 
   it("detects killed state when getActivityState returns exited", async () => {
@@ -360,6 +395,8 @@ describe("check (single session)", () => {
     await lm.check("app-1");
 
     expect(lm.getStates().get("app-1")).toBe("killed");
+    // auto-kill runtime to prevent session accumulation (jleechan-v7oa)
+    expect(mockSessionManager.kill).toHaveBeenCalledWith("app-1");
   });
 
   it("returns mergeable (not killed) when agent exited but PR is green (bd-ara)", async () => {
@@ -1066,6 +1103,54 @@ describe("check (single session)", () => {
     await lm.check("app-1");
 
     expect(lm.getStates().get("app-1")).toBe("merged");
+    expect(mockSessionManager.kill).toHaveBeenCalledWith("app-1");
+  });
+
+  it("detects closed PR → killed and calls sessionManager.kill (jleechan-v7oa)", async () => {
+    const mockSCM: SCM = {
+      name: "mock-scm",
+      detectPR: vi.fn(),
+      getPRState: vi.fn().mockResolvedValue("closed"),
+      mergePR: vi.fn(),
+      closePR: vi.fn(),
+      getCIChecks: vi.fn(),
+      getCISummary: vi.fn(),
+      getReviews: vi.fn(),
+      getReviewDecision: vi.fn(),
+      getPendingComments: vi.fn(),
+      getAutomatedComments: vi.fn(),
+      getMergeability: vi.fn(),
+    };
+
+    const registryWithSCM: PluginRegistry = {
+      ...mockRegistry,
+      get: vi.fn().mockImplementation((slot: string) => {
+        if (slot === "runtime") return mockRuntime;
+        if (slot === "agent") return mockAgent;
+        if (slot === "scm") return mockSCM;
+        return null;
+      }),
+    };
+
+    const session = makeSession({ status: "approved", pr: makePR() });
+    vi.mocked(mockSessionManager.get).mockResolvedValue(session);
+
+    writeMetadata(sessionsDir, "app-1", {
+      worktree: "/tmp",
+      branch: "main",
+      status: "approved",
+      project: "my-app",
+    });
+
+    const lm = createLifecycleManager({
+      config,
+      registry: registryWithSCM,
+      sessionManager: mockSessionManager,
+    });
+
+    await lm.check("app-1");
+
+    expect(lm.getStates().get("app-1")).toBe("killed");
     expect(mockSessionManager.kill).toHaveBeenCalledWith("app-1");
   });
 
