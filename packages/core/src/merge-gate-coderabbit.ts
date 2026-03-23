@@ -16,7 +16,9 @@ export type { Review };
 
 /** Sort comparator: newest-first by submittedAt. Exported for reuse by both helpers. */
 export function sortReviewsNewestFirst(a: Review, b: Review): number {
-  return b.submittedAt.getTime() - a.submittedAt.getTime();
+  // Defensive: tolerate missing submittedAt (e.g., from SCM stubs) without throwing.
+  // Treats missing timestamps as epoch 0 (oldest), preserving insertion order among them.
+  return (b.submittedAt?.getTime() ?? 0) - (a.submittedAt?.getTime() ?? 0);
 }
 
 /**
