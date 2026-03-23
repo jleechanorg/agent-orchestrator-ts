@@ -218,6 +218,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
   const states = new Map<SessionId, SessionStatus>();
   const reactionTrackers = new Map<string, ReactionTracker>(); // "sessionId:reactionKey"
   const mergeRetryTimestamps = new Map<string, number>(); // "merge-retry-{sessionId}" → last attempt epoch
+  const stuckRetryTimestamps = new Map<string, number>(); // "stuck-retry-{sessionId}" → last attempt epoch
   let pollTimer: ReturnType<typeof setInterval> | null = null;
   let polling = false; // re-entrancy guard
   let allCompleteEmitted = false; // guard against repeated all_complete
@@ -1118,6 +1119,39 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
           }
         }
       }
+
+      // Retry agent-stuck nudge when status stays "stuck" — the agent-stuck reaction
+      // fires on the working→stuck transition but only once. If the agent doesn't
+      // respond (e.g., stuck ruminating), the session stays "stuck" forever with no
+      // further nudges. Re-send on a cooldown matching the configured threshold so
+      // persistent stuck sessions get periodic recovery attempts. (bd-sbr)
+      if (newStatus === "stuck") {
+        const reactionKey = "agent-stuck";
+        const reactionConfig = getReactionConfigForSession(session, reactionKey);
+        if (reactionConfig?.action && reactionConfig.auto !== false) {
+          const thresholdMs =
+            typeof reactionConfig.threshold === "string"
+              ? parseDuration(reactionConfig.threshold)
+              : 15 * 60_000;
+          const STUCK_RETRY_COOLDOWN_MS = thresholdMs > 0 ? thresholdMs : 15 * 60_000;
+          const lastAttemptKey = `stuck-retry-${session.id}`;
+          const now = Date.now();
+          const lastAttempt = stuckRetryTimestamps.get(lastAttemptKey) ?? 0;
+          if (now - lastAttempt >= STUCK_RETRY_COOLDOWN_MS) {
+            stuckRetryTimestamps.set(lastAttemptKey, now);
+            const result = await executeReaction(
+              session.id,
+              session.projectId,
+              reactionKey,
+              reactionConfig,
+              session,
+            );
+            if (result?.success) {
+              transitionReaction = { key: reactionKey, result };
+            }
+          }
+        }
+      }
     }
 
     await maybeDispatchReviewBacklog(session, oldStatus, newStatus, {
@@ -1311,6 +1345,12 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         const sessionId = retryKey.replace("merge-retry-", "");
         if (!currentSessionIds.has(sessionId)) {
           mergeRetryTimestamps.delete(retryKey);
+        }
+      }
+      for (const retryKey of stuckRetryTimestamps.keys()) {
+        const sessionId = retryKey.replace("stuck-retry-", "");
+        if (!currentSessionIds.has(sessionId)) {
+          stuckRetryTimestamps.delete(retryKey);
         }
       }
 
