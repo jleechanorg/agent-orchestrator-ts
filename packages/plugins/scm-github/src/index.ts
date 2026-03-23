@@ -1253,17 +1253,61 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
       } catch (err) {
         if (!isRateLimitError(err)) throw err;
 
-        // Rate limit hit — fall back to REST API directly via gh api
-        console.warn("mergePR: rate limit hit on gh pr merge, falling back to REST API");
-        const mergeMethod = method === "rebase" ? "rebase" : method === "merge" ? "merge" : "squash";
-        await gh([
-          "api",
-          `repos/${pr.owner}/${pr.repo}/pulls/${pr.number}/merge`,
-          "--method",
-          "PUT",
-          "-f",
-          `merge_method=${mergeMethod}`,
-        ]);
+        // Rate limit hit — fall back to REST API via curl with explicit JSON body.
+        // We bypass `gh api -f` because ghRestFallback (the curl fallback for
+        // `gh api`) passes `-f` to curl as "fail on HTTP errors" instead of
+        // converting it into a request-body field, silently dropping merge_method.
+        console.warn("mergePR: rate limit hit on gh pr merge, falling back to REST API via curl");
+        const token = process.env.GITHUB_TOKEN ?? process.env.GH_TOKEN;
+        if (!token) {
+          throw new Error(
+            "mergePR: rate limit hit and no GitHub token found in GITHUB_TOKEN or GH_TOKEN for REST fallback",
+            { cause: err },
+          );
+        }
+
+        const url = `https://api.github.com/repos/${pr.owner}/${pr.repo}/pulls/${pr.number}/merge`;
+        const body = JSON.stringify({ merge_method: method });
+
+        try {
+          await execFileAsync("curl", [
+            "-sS",
+            "-f",
+            "-X",
+            "PUT",
+            "-H",
+            "Accept: application/vnd.github+json",
+            "-H",
+            `Authorization: Bearer ${token}`,
+            "-H",
+            "X-GitHub-Api-Version: 2022-11-28",
+            "-H",
+            "Content-Type: application/json",
+            "-d",
+            body,
+            url,
+          ], {
+            maxBuffer: 10 * 1024 * 1024,
+            timeout: 30_000,
+          });
+        } catch (curlErr) {
+          throw new Error(`mergePR REST fallback via curl failed: ${(curlErr as Error).message}`, {
+            cause: curlErr,
+          });
+        }
+
+        // gh pr merge --delete-branch deletes the head branch after merging.
+        // Replicate that behaviour in the fallback path (best-effort; only possible
+        // when the head repo matches the base repo to have write access).
+        try {
+          await gh(["api", `repos/${pr.owner}/${pr.repo}/git/refs/heads/${pr.branch}`, "--method", "DELETE"]);
+        } catch {
+          // Non-fatal: best-effort branch cleanup. Log and continue.
+          console.warn(
+            `mergePR: could not delete branch "${pr.branch}" after REST merge — ` +
+              "this is non-fatal; the branch may be cleaned up manually or by repository settings",
+          );
+        }
       }
     },
 
