@@ -1583,18 +1583,35 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
         return comments
           .filter((c) => BOT_AUTHORS.has(c.user?.login ?? ""))
           .map((c) => {
-            // Determine severity from body content
+            // Determine severity from body content.
+            // Use structured patterns to avoid false positives from incidental
+            // keywords (e.g. "bug" in "Bugbot", "error" in "error handling").
             let severity: AutomatedComment["severity"] = "info";
             const bodyLower = c.body.toLowerCase();
-            if (
-              bodyLower.includes("error") ||
-              bodyLower.includes("bug") ||
-              bodyLower.includes("critical") ||
+            // Check for explicit severity headers first (Bugbot/Copilot style)
+            const hasCriticalHeader = /\*\*(critical|high)\s+severity\*\*/i.test(c.body);
+            const hasMediumHeader = /\*\*(medium|low)\s+severity\*\*/i.test(c.body);
+            if (hasCriticalHeader && !hasMediumHeader) {
+              // Explicit "Critical/High Severity" header from cursor[bot] or Copilot →
+              // "warning" (not "error"). These are review-level severity flags, not build
+              // errors. The Bugbot check-run conclusion (merge gate check #4) is the
+              // authoritative signal for whether Bugbot considers the PR blocked; body
+              // severity is a secondary filter that would otherwise create false
+              // positives (e.g. "High Severity" in a description of an old bug).
+              severity = "warning";
+            } else if (hasMediumHeader) {
+              severity = "warning";
+            } else if (
+              // Direct error reports (CI bots, build failures) — anchored to line-start
+              // with optional leading whitespace (CI bots often indent). The \s* allows
+              // indented messages like "  error:" while staying anchored to line-start.
+              /^\s*error[:\s]/m.test(bodyLower) ||
+              /^\s*critical[:\s]/m.test(bodyLower) ||
               bodyLower.includes("potential issue")
             ) {
               severity = "error";
             } else if (
-              bodyLower.includes("warning") ||
+              /^\s*warning[:\s]/m.test(bodyLower) ||
               bodyLower.includes("suggest") ||
               bodyLower.includes("consider")
             ) {
