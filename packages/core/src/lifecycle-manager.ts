@@ -232,6 +232,112 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     return idleMs > stuckThresholdMs;
   }
 
+  // ---- backfillAllPRs state ----
+  let lastBackfillTime = 0;
+  const BACKFILL_INTERVAL_MS = 5 * 60_000; // Only check every 5 minutes to avoid API spam
+
+  /**
+   * Spawn sessions for open PRs that have no active session.
+   * Throttled to run at most once per BACKFILL_INTERVAL_MS.
+   */
+  async function backfillUncoveredPRs(
+    projectId: string,
+    project: _ProjectConfig,
+    activeSessions: Session[],
+    correlationId: string,
+  ): Promise<void> {
+    const now = Date.now();
+    if (now - lastBackfillTime < BACKFILL_INTERVAL_MS) return;
+    lastBackfillTime = now;
+
+    const scm = project.scm ? registry.get<SCM>("scm", project.scm.plugin) : null;
+    if (!scm?.listOpenPRs) return;
+
+    try {
+      const openPRs = await scm.listOpenPRs(project);
+      if (openPRs.length === 0) return;
+
+      // Build set of PR numbers covered by active sessions
+      const coveredPRs = new Set<number>();
+      for (const s of activeSessions) {
+        if (s.pr?.number) coveredPRs.add(s.pr.number);
+      }
+
+      // Find uncovered PRs (skip drafts)
+      const uncovered = openPRs.filter(
+        (pr) => !pr.isDraft && !coveredPRs.has(pr.number),
+      );
+
+      if (uncovered.length === 0) return;
+
+      observer.recordOperation({
+        metric: "lifecycle_poll",
+        operation: "lifecycle.backfill.detected",
+        outcome: "success",
+        correlationId,
+        projectId,
+        data: {
+          openPRs: openPRs.length,
+          activeSessions: activeSessions.length,
+          coveredPRs: coveredPRs.size,
+          uncoveredCount: uncovered.length,
+          uncoveredPRs: uncovered.map((pr) => pr.number),
+        },
+        level: "info",
+      });
+
+      // Spawn one session at a time to avoid thundering herd.
+      // The next backfill cycle (5 min later) will pick up the rest.
+      const pr = uncovered[0];
+      try {
+        const session = await sessionManager.spawn({
+          projectId,
+          branch: pr.branch,
+          prompt: `Continue working on PR #${pr.number}: ${pr.title}. Check PR status, fix any blockers (CI failures, review comments, merge conflicts), and drive it to 6-green.`,
+        });
+
+        // Claim the PR for this session
+        await sessionManager.claimPR(session.id, String(pr.number));
+
+        observer.recordOperation({
+          metric: "lifecycle_poll",
+          operation: "lifecycle.backfill.spawned",
+          outcome: "success",
+          correlationId,
+          projectId,
+          sessionId: session.id,
+          data: { prNumber: pr.number, prTitle: pr.title, branch: pr.branch },
+          level: "info",
+        });
+      } catch (spawnErr) {
+        observer.recordOperation({
+          metric: "lifecycle_poll",
+          operation: "lifecycle.backfill.spawn_failed",
+          outcome: "failure",
+          correlationId,
+          projectId,
+          data: {
+            prNumber: pr.number,
+            error: spawnErr instanceof Error ? spawnErr.message : String(spawnErr),
+          },
+          level: "warn",
+        });
+      }
+    } catch (listErr) {
+      observer.recordOperation({
+        metric: "lifecycle_poll",
+        operation: "lifecycle.backfill.list_failed",
+        outcome: "failure",
+        correlationId,
+        projectId,
+        data: {
+          error: listErr instanceof Error ? listErr.message : String(listErr),
+        },
+        level: "warn",
+      });
+    }
+  }
+
   /** Determine current status for a session by polling plugins. */
   async function determineStatus(session: Session): Promise<SessionStatus> {
     // If workspace was deleted (e.g., worktree cleaned up), session is dead
@@ -1049,11 +1155,22 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         }
       }
 
-      // bd-awq: PR poller disabled — the orchestrator session handles PR discovery
-      // and worker spawning via `ao spawn --claim-pr`. The poller was spawning
-      // generic sessions without PR claims, causing duplicates and sessions on
-      // wrong branches. See bd-b02 for the full analysis.
       const activeSessions = sessions.filter((s) => !TERMINAL_STATUSES.has(s.status));
+
+      // backfillAllPRs: spawn sessions for open PRs that have no active session.
+      // Replaces the old orchestrator-session-based PR discovery (bd-awq) with a
+      // deterministic loop inside the lifecycle-worker itself.
+      if (scopedProjectId) {
+        const project = config.projects[scopedProjectId];
+        if (project?.backfillAllPRs) {
+          await backfillUncoveredPRs(
+            scopedProjectId,
+            project,
+            activeSessions,
+            correlationId,
+          );
+        }
+      }
 
       // Check if all sessions are complete (trigger reaction only once).
       // Use everHadSessions to avoid spurious all_complete on startup when no
