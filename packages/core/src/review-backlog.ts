@@ -107,8 +107,8 @@ export async function maybeDispatchReviewBacklog(
   // bd-4nz: Skip automated comment polling when configured (saves 1+ REST calls/session)
   const skipAutomated = project.scm?.skipAutomatedCommentPolling === true;
 
-  let pendingComments: ReturnType<typeof scm.getPendingComments> | null = null;
-  let automatedComments: (Awaited<ReturnType<typeof scm.getAutomatedComments>> & object) | null = null;
+  let pendingComments: Awaited<ReturnType<typeof scm.getPendingComments>> | null = null;
+  let automatedComments: Awaited<ReturnType<typeof scm.getAutomatedComments>> | null = null;
 
   if (!shouldThrottle) {
     const [pendingResult, automatedResult] = await Promise.allSettled([
