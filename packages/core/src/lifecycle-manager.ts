@@ -36,8 +36,6 @@ import {
   type EventPriority,
   type ProjectConfig as _ProjectConfig,
   type MergeGateConfig,
-  type PRState,
-  type ReviewDecision,
 } from "./types.js";
 import { readMetadataRaw, updateMetadata } from "./metadata.js";
 import { getSessionsDir } from "./paths.js";
