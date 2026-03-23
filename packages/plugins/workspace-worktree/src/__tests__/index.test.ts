@@ -251,6 +251,27 @@ describe("workspace.create()", () => {
     );
   });
 
+  it("recovers checkout by removing stale checked-out worktree with no active tmux session", async () => {
+    const ws = create();
+
+    mockGitSuccess(""); // fetch
+    mockGitError("already exists"); // worktree add -b fails
+    mockGitSuccess(""); // worktree add (without -b)
+    mockGitError("fatal: 'feat/TEST-1' is already checked out at '/mock-home/.worktrees/myproject/ao-999'"); // checkout fails first time
+    mockGitSuccess("aa11bb22cc33-ao-123"); // tmux list-sessions (does NOT include ao-999)
+    mockGitSuccess(""); // remove stale worktree
+    mockGitSuccess(""); // checkout retry succeeds
+
+    const info = await ws.create(makeCreateConfig());
+
+    expect(info.branch).toBe("feat/TEST-1");
+    expect(mockExecFileAsync).toHaveBeenCalledWith(
+      "git",
+      ["worktree", "remove", "--force", "/mock-home/.worktrees/myproject/ao-999"],
+      { cwd: "/repo/path" },
+    );
+  });
+
   it("still throws on checkout failure even if cleanup fails", async () => {
     const ws = create();
 
