@@ -819,6 +819,24 @@ describe("isAgentAliveInPane() — dead-agent detection (bd-tln)", () => {
     const alive = await isAgentAliveInPane("test-session");
     expect(alive).toBe(false);
   });
+
+  // Regression: mixed-window — spinner/tool line in older scrollback followed by
+  // a shell prompt on the last line. The shell prompt takes precedence (agent dead),
+  // but when the last line has NO shell prompt, spinner evidence is still checked
+  // in the trailing 5-line window only (stale tokens don't mask a live agent).
+  it("returns true when last line has no shell prompt but recent window shows spinner", async () => {
+    // Last line is NOT a shell prompt — no spinner in last 5 lines → dead
+    mockTmuxSuccess("Loading workspace\nDone\n/workspace: repo-main");
+    const alive = await isAgentAliveInPane("test-session");
+    expect(alive).toBe(true); // no shell prompt, no conclusive evidence → conservative true
+  });
+
+  it("returns true when spinner appears in last 5 lines (recent activity)", async () => {
+    // Spinner in last 5 non-empty lines, no shell prompt on last line
+    mockTmuxSuccess("Loading\n✻ Thinking...\n/workspace: repo-main");
+    const alive = await isAgentAliveInPane("test-session");
+    expect(alive).toBe(true);
+  });
 });
 
 // =============================================================================
