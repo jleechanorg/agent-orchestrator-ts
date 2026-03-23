@@ -1320,7 +1320,7 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
         ]);
       } catch (err) {
         // Rate limits: rethrow so determineStatus preserves current session status for retry.
-        if (isGhRateLimitError(err)) throw err;
+        if (isRateLimitError(err)) throw err;
         // Non-rate-limit errors: fall back to separate calls, which have their own
         // fail-closed handling. If the fallback itself hits a rate limit, rethrow so
         // the outer retry logic runs. Otherwise, return fail-closed values.
@@ -1328,7 +1328,7 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
           const [state, reviewDecision] = await Promise.all([this.getPRState(pr), this.getReviewDecision(pr)]);
           return { state, reviewDecision };
         } catch (fallbackErr) {
-          if (isGhRateLimitError(fallbackErr)) throw fallbackErr;
+          if (isRateLimitError(fallbackErr)) throw fallbackErr;
           // Fail closed: do not leave a stale "mergeable"/"approved" status.
           return { state: "open", reviewDecision: "pending" };
         }
