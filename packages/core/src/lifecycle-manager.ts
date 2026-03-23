@@ -775,6 +775,20 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     let newStatus = await determineStatus(session);
     let transitionReaction: { key: string; result: ReactionResult | null } | undefined;
 
+    // bd-kki: check if PR is merged before recording "killed" status.
+    // If the SCM call fails (transient error), the session stays in its previous
+    // state and will be retried on the next poll — avoiding zombie tmux sessions
+    // caused by a failed SCM check locking in a terminal "killed" state.
+    if (newStatus === "killed" && session.pr) {
+      try {
+        const merged = await isPRMerged(session, config, registry);
+        if (merged) newStatus = "merged";
+      } catch {
+        // SCM unreachable — same as the absorb path below: keep prior status and retry next poll
+        newStatus = oldStatus;
+      }
+    }
+
     if (newStatus !== oldStatus) {
       const correlationId = createCorrelationId("lifecycle-transition");
 
