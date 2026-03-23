@@ -3527,6 +3527,31 @@ describe("spawnOrchestrator", () => {
     expect(meta?.["orchestratorSessionReused"]).toBeUndefined();
   });
 
+  it("self-heals when a terminal-status ghost file exists with no runtimeHandle (launchd restart scenario)", async () => {
+    // Simulate the launchd restart failure: lifecycle-manager wrote status=killed
+    // with no runtimeHandle, leaving a ghost file that blocks reserveSessionId (O_EXCL).
+    const ghostPath = join(sessionsDir, "app-orchestrator");
+    writeFileSync(ghostPath, "status=killed\nrole=orchestrator\nprAutoDetect=off\n", "utf-8");
+
+    const sm = createSessionManager({ config, registry: mockRegistry });
+    // Must not throw "already exists but is not in a reusable state"
+    const session = await sm.spawnOrchestrator({ projectId: "my-app" });
+    expect(session).toBeDefined();
+    expect(mockRuntime.create).toHaveBeenCalledTimes(1);
+    const meta = readMetadataRaw(sessionsDir, "app-orchestrator");
+    expect(meta?.["runtimeHandle"]).toBe(JSON.stringify(makeHandle("rt-1")));
+  });
+
+  it("self-heals when a merged-status ghost file exists with no runtimeHandle", async () => {
+    const ghostPath = join(sessionsDir, "app-orchestrator");
+    writeFileSync(ghostPath, "status=merged\nrole=orchestrator\n", "utf-8");
+
+    const sm = createSessionManager({ config, registry: mockRegistry });
+    const session = await sm.spawnOrchestrator({ projectId: "my-app" });
+    expect(session).toBeDefined();
+    expect(mockRuntime.create).toHaveBeenCalledTimes(1);
+  });
+
   it("respawns the orchestrator when stale metadata exists but the runtime is dead", async () => {
     writeMetadata(sessionsDir, "app-orchestrator", {
       worktree: join(tmpDir, "my-app"),
