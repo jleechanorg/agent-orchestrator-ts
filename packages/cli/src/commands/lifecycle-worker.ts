@@ -1,16 +1,116 @@
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import type { Command } from "commander";
 import chalk from "chalk";
-import { createCorrelationId, createProjectObserver, loadConfig } from "@jleechanorg/ao-core";
-import { getLifecycleManager } from "../lib/create-session-manager.js";
+import {
+  createCorrelationId,
+  createProjectObserver,
+  generateConfigHash,
+  loadConfig,
+  parseTmuxName,
+  type SessionManager,
+} from "@jleechanorg/ao-core";
+import { getLifecycleManager, getSessionManager } from "../lib/create-session-manager.js";
 import {
   clearLifecycleWorkerPid,
   getLifecycleWorkerStatus,
   writeLifecycleWorkerPid,
 } from "../lib/lifecycle-service.js";
 
+const execFileAsync = promisify(execFile);
+
 function parseInterval(value: string): number {
   const parsed = Number.parseInt(value, 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 30_000;
+}
+
+function parseDurationMs(value: string, fallbackMs: number): number {
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallbackMs;
+}
+
+interface TmuxSessionInfo {
+  name: string;
+  activityMs: number | null;
+}
+
+async function listTmuxSessionsWithActivity(): Promise<TmuxSessionInfo[]> {
+  try {
+    const { stdout } = await execFileAsync("tmux", [
+      "list-sessions",
+      "-F",
+      "#{session_name}\t#{session_activity}",
+    ]);
+    return stdout
+      .trim()
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => {
+        const [name, activityRaw] = line.split("\t");
+        const activitySeconds = Number.parseInt(activityRaw ?? "", 10);
+        return {
+          name,
+          activityMs: Number.isFinite(activitySeconds) ? activitySeconds * 1000 : null,
+        };
+      });
+  } catch {
+    return [];
+  }
+}
+
+async function sweepOrphanTmuxSessions(opts: {
+  sessionManager: SessionManager;
+  projectId: string;
+  configHash: string;
+  orphanTtlMs: number;
+  observer: ReturnType<typeof createProjectObserver>;
+}): Promise<void> {
+  const { sessionManager, projectId, configHash, orphanTtlMs, observer } = opts;
+  const correlationId = createCorrelationId("lifecycle-worker");
+
+  const sessions = await sessionManager.list(projectId);
+  const activeRuntimeIds = new Set(
+    sessions
+      .map((s) => s.runtimeHandle?.id)
+      .filter((id): id is string => typeof id === "string" && id.length > 0),
+  );
+
+  const now = Date.now();
+  const tmuxSessions = await listTmuxSessionsWithActivity();
+  let orphanCount = 0;
+  let cleanedCount = 0;
+
+  for (const tmuxSession of tmuxSessions) {
+    const parsed = parseTmuxName(tmuxSession.name);
+    if (!parsed) continue;
+    if (parsed.hash !== configHash) continue;
+
+    // Managed by AO DB, skip.
+    if (activeRuntimeIds.has(tmuxSession.name)) continue;
+
+    const idleForMs = tmuxSession.activityMs ? now - tmuxSession.activityMs : Number.MAX_SAFE_INTEGER;
+    if (idleForMs < orphanTtlMs) continue;
+
+    orphanCount += 1;
+    try {
+      await execFileAsync("tmux", ["kill-session", "-t", tmuxSession.name]);
+      cleanedCount += 1;
+    } catch {
+      // best-effort cleanup; continue with the rest
+    }
+  }
+
+  if (orphanCount > 0) {
+    observer.recordOperation({
+      metric: "lifecycle_poll",
+      operation: "lifecycle.tmux_orphan_sweep",
+      outcome: cleanedCount > 0 ? "success" : "failure",
+      correlationId,
+      projectId,
+      data: { orphanCount, cleanedCount, orphanTtlMs },
+      level: cleanedCount > 0 ? "warn" : "error",
+    });
+  }
 }
 
 export function registerLifecycleWorker(program: Command): void {
@@ -18,132 +118,173 @@ export function registerLifecycleWorker(program: Command): void {
     .command("lifecycle-worker")
     .description("Internal lifecycle polling worker")
     .argument("<project>", "Project ID from config")
-    .option("--interval-ms <ms>", "Polling interval in milliseconds", "30000")
-    .action(async (projectId: string, opts: { intervalMs?: string }) => {
-      const config = loadConfig();
-      const observer = createProjectObserver(config, "lifecycle-worker");
-      if (!config.projects[projectId]) {
-        observer.setHealth({
-          surface: "lifecycle.worker",
-          status: "error",
-          projectId,
-          correlationId: createCorrelationId("lifecycle-worker"),
-          reason: `Unknown project: ${projectId}`,
-          details: { projectId },
-        });
-        console.error(chalk.red(`Unknown project: ${projectId}`));
-        process.exit(1);
-      }
-
-      const existing = getLifecycleWorkerStatus(config, projectId);
-      if (existing.running && existing.pid !== process.pid) {
-        // Another lifecycle worker is already running for this project — exit
-        // silently to avoid duplicate polling loops.
-        // Note: getLifecycleWorkerStatus already validates the PID is alive via
-        // kill -0, so this is not a stale-PID false positive.
-        observer.setHealth({
-          surface: "lifecycle.worker",
-          status: "warn",
-          projectId,
-          correlationId: createCorrelationId("lifecycle-worker"),
-          reason: `Worker already running with pid ${existing.pid}`,
-          details: { projectId, pid: existing.pid },
-        });
-        return;
-      }
-
-      const lifecycle = await getLifecycleManager(config, projectId);
-      const intervalMs = parseInterval(opts.intervalMs ?? "30000");
-      let shuttingDown = false;
-      let heartbeat: ReturnType<typeof setInterval> | null = null;
-
-      const shutdown = (code: number): void => {
-        if (shuttingDown) return;
-        shuttingDown = true;
-        if (heartbeat) clearInterval(heartbeat);
-        lifecycle.stop();
-        clearLifecycleWorkerPid(config, projectId, process.pid);
-        observer.setHealth({
-          surface: "lifecycle.worker",
-          status: code === 0 ? "warn" : "error",
-          projectId,
-          correlationId: createCorrelationId("lifecycle-worker"),
-          reason: code === 0 ? "Worker stopped" : "Worker exited unexpectedly",
-          details: { projectId, pid: process.pid, exitCode: code },
-        });
-        // Flush stdout/stderr before exiting so crash messages reach the log file
-        const done = (): void => process.exit(code);
-        if (process.stdout.writableFinished && process.stderr.writableFinished) {
-          done();
-        } else {
-          let flushed = 0;
-          const tryExit = (): void => {
-            flushed++;
-            if (flushed >= 2) done();
-          };
-          process.stdout.write("", tryExit);
-          process.stderr.write("", tryExit);
-          // Hard exit if flush hangs
-          setTimeout(done, 1_000).unref();
+    .option("--interval-ms <ms>", "Polling interval in milliseconds", "300000")
+    .option(
+      "--orphan-sweep-interval-ms <ms>",
+      "Interval for tmux orphan sweep in milliseconds",
+      "300000",
+    )
+    .option(
+      "--orphan-ttl-ms <ms>",
+      "Idle threshold before orphan tmux sessions are cleaned",
+      "21600000",
+    )
+    .action(
+      async (
+        projectId: string,
+        opts: { intervalMs?: string; orphanSweepIntervalMs?: string; orphanTtlMs?: string },
+      ) => {
+        const config = loadConfig();
+        const observer = createProjectObserver(config, "lifecycle-worker");
+        if (!config.projects[projectId]) {
+          observer.setHealth({
+            surface: "lifecycle.worker",
+            status: "error",
+            projectId,
+            correlationId: createCorrelationId("lifecycle-worker"),
+            reason: `Unknown project: ${projectId}`,
+            details: { projectId },
+          });
+          console.error(chalk.red(`Unknown project: ${projectId}`));
+          process.exit(1);
         }
-      };
 
-      process.on("SIGINT", () => shutdown(0));
-      process.on("SIGTERM", () => shutdown(0));
-      process.on("uncaughtException", (err) => {
-        observer.recordOperation({
-          metric: "lifecycle_poll",
-          operation: "lifecycle.worker_crash",
-          outcome: "failure",
-          correlationId: createCorrelationId("lifecycle-worker"),
-          projectId,
-          reason: err instanceof Error ? err.message : String(err),
-          level: "error",
+        const existing = getLifecycleWorkerStatus(config, projectId);
+        if (existing.running && existing.pid !== process.pid) {
+          // Another lifecycle worker is already running for this project — exit
+          // silently to avoid duplicate polling loops.
+          // Note: getLifecycleWorkerStatus already validates the PID is alive via
+          // kill -0, so this is not a stale-PID false positive.
+          observer.setHealth({
+            surface: "lifecycle.worker",
+            status: "warn",
+            projectId,
+            correlationId: createCorrelationId("lifecycle-worker"),
+            reason: `Worker already running with pid ${existing.pid}`,
+            details: { projectId, pid: existing.pid },
+          });
+          return;
+        }
+
+        const lifecycle = await getLifecycleManager(config, projectId);
+        const sessionManager = await getSessionManager(config);
+        const intervalMs = parseInterval(opts.intervalMs ?? "300000");
+        const orphanSweepIntervalMs = parseInterval(opts.orphanSweepIntervalMs ?? "300000");
+        const orphanTtlMs = parseDurationMs(opts.orphanTtlMs ?? "21600000", 6 * 60 * 60 * 1000);
+        const configHash = generateConfigHash(config.configPath);
+        let shuttingDown = false;
+        let heartbeat: ReturnType<typeof setInterval> | null = null;
+        let orphanSweepTimer: ReturnType<typeof setInterval> | null = null;
+
+        const shutdown = (code: number): void => {
+          if (shuttingDown) return;
+          shuttingDown = true;
+          if (heartbeat) clearInterval(heartbeat);
+          if (orphanSweepTimer) clearInterval(orphanSweepTimer);
+          lifecycle.stop();
+          clearLifecycleWorkerPid(config, projectId, process.pid);
+          observer.setHealth({
+            surface: "lifecycle.worker",
+            status: code === 0 ? "warn" : "error",
+            projectId,
+            correlationId: createCorrelationId("lifecycle-worker"),
+            reason: code === 0 ? "Worker stopped" : "Worker exited unexpectedly",
+            details: { projectId, pid: process.pid, exitCode: code },
+          });
+          // Flush stdout/stderr before exiting so crash messages reach the log file
+          const done = (): void => process.exit(code);
+          if (process.stdout.writableFinished && process.stderr.writableFinished) {
+            done();
+          } else {
+            let flushed = 0;
+            const tryExit = (): void => {
+              flushed++;
+              if (flushed >= 2) done();
+            };
+            process.stdout.write("", tryExit);
+            process.stderr.write("", tryExit);
+            // Hard exit if flush hangs
+            setTimeout(done, 1_000).unref();
+          }
+        };
+
+        process.on("SIGINT", () => shutdown(0));
+        process.on("SIGTERM", () => shutdown(0));
+        process.on("uncaughtException", (err) => {
+          observer.recordOperation({
+            metric: "lifecycle_poll",
+            operation: "lifecycle.worker_crash",
+            outcome: "failure",
+            correlationId: createCorrelationId("lifecycle-worker"),
+            projectId,
+            reason: err instanceof Error ? err.message : String(err),
+            level: "error",
+          });
+          shutdown(1);
         });
-        shutdown(1);
-      });
-      process.on("unhandledRejection", (reason) => {
-        observer.recordOperation({
-          metric: "lifecycle_poll",
-          operation: "lifecycle.worker_rejection",
-          outcome: "failure",
-          correlationId: createCorrelationId("lifecycle-worker"),
-          projectId,
-          reason: reason instanceof Error ? reason.message : String(reason),
-          level: "error",
+        process.on("unhandledRejection", (reason) => {
+          observer.recordOperation({
+            metric: "lifecycle_poll",
+            operation: "lifecycle.worker_rejection",
+            outcome: "failure",
+            correlationId: createCorrelationId("lifecycle-worker"),
+            projectId,
+            reason: reason instanceof Error ? reason.message : String(reason),
+            level: "error",
+          });
+          shutdown(1);
         });
-        shutdown(1);
-      });
 
-      writeLifecycleWorkerPid(config, projectId, process.pid);
-      observer.setHealth({
-        surface: "lifecycle.worker",
-        status: "ok",
-        projectId,
-        correlationId: createCorrelationId("lifecycle-worker"),
-        details: { projectId, pid: process.pid, intervalMs },
-      });
-
-      // Periodic heartbeat so we can verify the worker is alive from the log
-      heartbeat = setInterval(() => {
+        writeLifecycleWorkerPid(config, projectId, process.pid);
         observer.setHealth({
           surface: "lifecycle.worker",
           status: "ok",
           projectId,
           correlationId: createCorrelationId("lifecycle-worker"),
-          details: { projectId, pid: process.pid, intervalMs, heartbeat: true },
+          details: { projectId, pid: process.pid, intervalMs, orphanSweepIntervalMs, orphanTtlMs },
         });
-      }, 5 * 60_000); // every 5 minutes
-      heartbeat.unref();
 
-      // bd-wse: Add startup jitter (0–10s) to stagger poll start across concurrent
-      // project workers. Without this, all lifecycle-workers start polling at T=0
-      // simultaneously, firing bursts of GitHub API calls that exhaust the rate limit.
-      const jitterMs = Math.floor(Math.random() * Math.min(intervalMs, 10_000));
-      if (jitterMs > 0) {
-        await new Promise<void>((resolve) => setTimeout(resolve, jitterMs));
-      }
+        // Periodic heartbeat so we can verify the worker is alive from the log
+        heartbeat = setInterval(() => {
+          observer.setHealth({
+            surface: "lifecycle.worker",
+            status: "ok",
+            projectId,
+            correlationId: createCorrelationId("lifecycle-worker"),
+            details: { projectId, pid: process.pid, intervalMs, heartbeat: true },
+          });
+        }, 5 * 60_000); // every 5 minutes
+        heartbeat.unref();
 
-      lifecycle.start(intervalMs);
-    });
+        orphanSweepTimer = setInterval(() => {
+          void sweepOrphanTmuxSessions({
+            sessionManager,
+            projectId,
+            configHash,
+            orphanTtlMs,
+            observer,
+          });
+        }, orphanSweepIntervalMs);
+        orphanSweepTimer.unref();
+
+        // Run an immediate sweep at startup (best-effort)
+        void sweepOrphanTmuxSessions({
+          sessionManager,
+          projectId,
+          configHash,
+          orphanTtlMs,
+          observer,
+        });
+
+        // bd-wse: Add startup jitter (0–10s) to stagger poll start across concurrent
+        // project workers. Without this, all lifecycle-workers start polling at T=0
+        // simultaneously, firing bursts of GitHub API calls that exhaust the rate limit.
+        const jitterMs = Math.floor(Math.random() * Math.min(intervalMs, 10_000));
+        if (jitterMs > 0) {
+          await new Promise<void>((resolve) => setTimeout(resolve, jitterMs));
+        }
+
+        lifecycle.start(intervalMs);
+      },
+    );
 }
