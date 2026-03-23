@@ -76,7 +76,6 @@ const RATE_LIMIT_ERROR_PATTERNS = [
   "GraphQL rate limit",
   "rate limit exceeded",
   "Too Many Requests",
-  "API error:reth",
 ];
 
 function isRateLimitError(error: unknown): boolean {
@@ -386,7 +385,20 @@ export async function ghRestFallback(args: string[]): Promise<string> {
     throw new Error("ghRestFallback: missing endpoint for `gh api` command");
   }
 
-  let endpoint = apiArgs[0];
+  // Find the first positional argument (endpoint) — skip flags like --method, -X, etc.
+  let endpoint = "";
+  for (let i = 0; i < apiArgs.length; i++) {
+    const arg = apiArgs[i];
+    if (arg === "--method" || arg === "-X") {
+      i++; // Skip the next argument (the method value)
+    } else if (!arg.startsWith("-")) {
+      endpoint = arg;
+      break;
+    }
+  }
+  if (!endpoint) {
+    throw new Error("ghRestFallback: missing endpoint for `gh api` command");
+  }
 
   // Explicitly reject GraphQL usages like `gh api graphql` so we don't
   // attempt to construct a bogus REST URL.

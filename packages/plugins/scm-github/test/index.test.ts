@@ -1043,11 +1043,13 @@ describe("scm-github plugin", () => {
       expect(await scm.getCISummary(pr)).toBe("none");
     });
 
-    it("rethrows rate limit errors (wrapped by getCIChecks)", async () => {
+    it("returns 'none' when all retries hit rate limits", async () => {
       for (let i = 0; i < 4; i++) {
         mockGhError("API rate limit exceeded");
       }
-      await expect(scm.getCISummary(pr)).rejects.toThrow(/Failed to fetch CI checks/i);
+      // getCISummary catches isRateLimitError(err) and returns "none"
+      // so transient rate limits don't fail-close to "failing"
+      await expect(scm.getCISummary(pr)).resolves.toEqual("none");
     });
   });
 
