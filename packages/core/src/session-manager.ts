@@ -1280,6 +1280,18 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
     }
 
     const existingRaw = readMetadataRaw(sessionsDir, sessionId);
+
+    // Handle terminal-status files with no runtimeHandle (e.g., status=killed written by
+    // lifecycle-manager after a crash). These are stale ghost files that block reserveSessionId
+    // because O_EXCL fails on an existing file, yet the runtimeHandle check below skips cleanup.
+    // Self-heal by deleting terminal ghost files unconditionally — they have no live runtime.
+    if (existingRaw && !existingRaw["runtimeHandle"]) {
+      const terminalStatuses = ["killed", "merged"];
+      if (terminalStatuses.includes(existingRaw["status"] ?? "")) {
+        deleteMetadata(sessionsDir, sessionId, false);
+      }
+    }
+
     const existingOrchestrator = existingRaw?.["runtimeHandle"]
       ? metadataToSession(sessionId, existingRaw, orchestratorConfig.projectId)
       : null;
