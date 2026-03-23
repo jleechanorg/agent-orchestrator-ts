@@ -900,10 +900,13 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         }
       }
 
-      // auto-kill runtime to prevent session accumulation (jleechan-v7oa).
-      // Placed here (after exit proof validation and outcome recording) so the
-      // worktree remains available for commit validation in validateAndEmitExitProof.
-      if (newStatus === "merged" || newStatus === "killed") {
+      // auto-kill runtime for terminal (merged/killed) non-orchestrator sessions
+      // to prevent zombie tmux session accumulation (jleechan-v7oa).
+      // Orchestrator sessions are excluded: killing the orchestrator would clear
+      // its rate-limit pause metadata, breaking the pause mechanism.
+      // Placed after exit proof validation and outcome recording so the worktree
+      // remains available for validateAndEmitExitProof.
+      if ((newStatus === "merged" || newStatus === "killed") && !isOrchestratorSession(session)) {
         await sessionManager.kill(session.id);
       }
     }
