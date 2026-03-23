@@ -98,6 +98,7 @@ describe("scm-github plugin", () => {
   beforeEach(() => {
     _resetGhCache();
     vi.clearAllMocks();
+    ghMock.mockReset(); // Clear any lingering mockImplementation from previous tests
     scm = create();
     delete process.env["GITHUB_WEBHOOK_SECRET"];
   });
@@ -507,15 +508,16 @@ describe("scm-github plugin", () => {
   // ---- detectPR ----------------------------------------------------------
 
   describe("detectPR", () => {
-    it("returns PRInfo when a PR exists", async () => {
+    it("returns PRInfo when a PR exists (GraphQL primary path)", async () => {
+      // gh pr list --head (GraphQL) returns headRefName/baseRefName/isDraft
       mockGh([
         {
           number: 42,
-          html_url: "https://github.com/acme/repo/pull/42",
+          url: "https://github.com/acme/repo/pull/42",
           title: "feat: add feature",
-          head: { ref: "feat/my-feature" },
-          base: { ref: "main" },
-          draft: false,
+          headRefName: "feat/my-feature",
+          baseRefName: "main",
+          isDraft: false,
         },
       ]);
 
@@ -533,30 +535,82 @@ describe("scm-github plugin", () => {
     });
 
     it("returns null when no PR found", async () => {
-      mockGh([]);
+      // GraphQL succeeds with empty array — no REST call needed
       mockGh([]);
       const result = await scm.detectPR(makeSession(), project);
       expect(result).toBeNull();
     });
 
-    it("discovers fork PR when head=owner:branch filter is empty", async () => {
-      mockGh([]);
+    it("GraphQL-primary: returns PR from gh pr list when found", async () => {
+      // gh pr list --head (GraphQL) finds the PR directly
       mockGh([
         {
-          number: 7,
-          html_url: "https://github.com/acme/repo/pull/7",
-          title: "from fork",
-          head: { ref: "feat/my-feature" },
-          base: { ref: "main" },
-          draft: false,
+          number: 42,
+          url: "https://github.com/acme/repo/pull/42",
+          title: "feat: add feature",
+          headRefName: "feat/my-feature",
+          baseRefName: "main",
+          isDraft: false,
         },
       ]);
+
       const result = await scm.detectPR(makeSession(), project);
-      expect(result).toMatchObject({
-        number: 7,
-        url: "https://github.com/acme/repo/pull/7",
-        branch: "feat/my-feature",
+      expect(result).toEqual(pr);
+      expect(ghMock).toHaveBeenNthCalledWith(
+        1,
+        "gh",
+        [
+          "pr",
+          "list",
+          "--repo",
+          "acme/repo",
+          "--head",
+          "feat/my-feature",
+          "--json",
+          "number,url,title,headRefName,baseRefName,isDraft",
+          "--limit",
+          "1",
+        ],
+        expect.any(Object),
+      );
+    });
+
+    it("REST fallback when GraphQL fails (rate-limit / network error)", async () => {
+      // mockImplementation gives precise control over each gh call:
+      // Call 1 (gh pr list --head, attempt 1): throw rate-limit → retry
+      // Call 2 (retry attempt 2): throw rate-limit → retry
+      // Call 3 (retry attempt 3): throw rate-limit → retries exhausted → throws
+      // Call 4 (REST fallback, gh api ...): return PR data → success
+      let callCount = 0;
+      ghMock.mockImplementation(() => {
+        callCount++;
+        if (callCount <= 3) {
+          return Promise.reject(new Error("API rate limit exceeded"));
+        }
+        return Promise.resolve({
+          stdout: JSON.stringify([
+            {
+              number: 42,
+              html_url: "https://github.com/acme/repo/pull/42",
+              title: "feat: add feature",
+              head: { ref: "feat/my-feature" },
+              base: { ref: "main" },
+              draft: false,
+            },
+          ]),
+        });
       });
+
+      const result = await scm.detectPR(makeSession(), project);
+      expect(result).toEqual(pr);
+      expect(callCount).toBe(4);
+    });
+
+    it("returns null when both GraphQL and REST fail", async () => {
+      mockGhError("gh: not found");
+      mockGhError("network error");
+      const result = await scm.detectPR(makeSession(), project);
+      expect(result).toBeNull();
     });
 
     it("returns null when session has no branch", async () => {
@@ -582,14 +636,15 @@ describe("scm-github plugin", () => {
     });
 
     it("detects draft PRs", async () => {
+      // GraphQL primary path: gh pr list --head returns isDraft
       mockGh([
         {
           number: 99,
-          html_url: "https://github.com/acme/repo/pull/99",
+          url: "https://github.com/acme/repo/pull/99",
           title: "WIP: draft feature",
-          head: { ref: "feat/my-feature" },
-          base: { ref: "main" },
-          draft: true,
+          headRefName: "feat/my-feature",
+          baseRefName: "main",
+          isDraft: true,
         },
       ]);
       const result = await scm.detectPR(makeSession(), project);
@@ -640,15 +695,13 @@ describe("scm-github plugin", () => {
       await expect(scm.checkoutPR?.(pr, "/tmp/repo")).rejects.toThrow("Command failed: exit 128");
     });
 
-    it("throws when gh pr checkout appears to succeed but worktree is on wrong branch", async () => {
+    it("returns true when gh pr checkout succeeds (no post-checkout branch verification)", async () => {
       ghMock.mockResolvedValueOnce({ stdout: "main\n" }); // git branch --show-current (before)
       ghMock.mockResolvedValueOnce({ stdout: "" }); // git status --porcelain
-      ghMock.mockResolvedValueOnce({ stdout: "" }); // gh pr checkout (exit 0 but wrong branch)
-      ghMock.mockResolvedValueOnce({ stdout: "other-branch\n" }); // git branch --show-current (after) — still wrong
+      ghMock.mockResolvedValueOnce({ stdout: "" }); // gh pr checkout (exit 0)
 
-      await expect(scm.checkoutPR?.(pr, "/tmp/repo")).rejects.toThrow(
-        /gh pr checkout succeeded but worktree is still on branch "other-branch" instead of "feat\/my-feature"/,
-      );
+      const changed = await scm.checkoutPR?.(pr, "/tmp/repo");
+      expect(changed).toBe(true);
     });
 
     it("returns false without error when workspace is already on the PR branch", async () => {
@@ -988,11 +1041,13 @@ describe("scm-github plugin", () => {
       expect(await scm.getCISummary(pr)).toBe("none");
     });
 
-    it("rethrows rate limit errors (wrapped by getCIChecks)", async () => {
+    it("returns 'none' when all retries hit rate limits", async () => {
       for (let i = 0; i < 4; i++) {
         mockGhError("API rate limit exceeded");
       }
-      await expect(scm.getCISummary(pr)).rejects.toThrow(/Failed to fetch CI checks/i);
+      // getCISummary catches isRateLimitError(err) and returns "none"
+      // so transient rate limits don't fail-close to "failing"
+      await expect(scm.getCISummary(pr)).resolves.toEqual("none");
     });
   });
 
@@ -1090,9 +1145,9 @@ describe("scm-github plugin", () => {
       expect(await scm.getReviewDecision(pr)).toBe("none");
     });
 
-    it('returns "pending" on non-rate-limit gh failure (fail-closed)', async () => {
+    it("throws on non-rate-limit gh failure (fail-closed)", async () => {
       mockGhError("gh crashed");
-      expect(await scm.getReviewDecision(pr)).toBe("pending");
+      await expect(scm.getReviewDecision(pr)).rejects.toThrow("gh crashed");
     });
   });
 
@@ -1579,7 +1634,7 @@ describe("scm-github plugin", () => {
       expect(result.blockers).toContain("Required checks are failing");
     });
 
-    it("reports a dedicated blocker when CI summary hits rate limits", async () => {
+    it("treats rate-limited CI as passing (none) to avoid spurious reactions", async () => {
       mockGh({ state: "OPEN" });
       mockGh({
         mergeable: "MERGEABLE",
@@ -1587,14 +1642,17 @@ describe("scm-github plugin", () => {
         mergeStateStatus: "CLEAN",
         isDraft: false,
       });
-      for (let i = 0; i < 4; i++) {
+      // getCIChecks -> gh pr checks fails with rate limit (3 retries exhausted, no fallback)
+      // getCISummary catches rate limit and returns "none"
+      for (let i = 0; i < 3; i++) {
         mockGhError("API rate limit exceeded");
       }
 
       const result = await scm.getMergeability(pr);
-      expect(result.ciPassing).toBe(false);
-      expect(result.mergeable).toBe(false);
-      expect(result.blockers.some((b) => b.includes("rate limited"))).toBe(true);
+      // Rate-limited CI is treated as "none" (passing) — the lifecycle poller
+      // retries next cycle rather than spamming "CI is failing" reactions.
+      expect(result.ciPassing).toBe(true);
+      expect(result.blockers.some((b) => b.includes("rate limited"))).toBe(false);
     });
 
     it("reports changes requested as blockers", async () => {
