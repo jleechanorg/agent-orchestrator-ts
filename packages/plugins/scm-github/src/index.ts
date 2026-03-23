@@ -1248,7 +1248,23 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
     async mergePR(pr: PRInfo, method: MergeMethod = "squash"): Promise<void> {
       const flag = method === "rebase" ? "--rebase" : method === "merge" ? "--merge" : "--squash";
 
-      await gh(["pr", "merge", String(pr.number), "--repo", repoFlag(pr), flag, "--delete-branch"]);
+      try {
+        await gh(["pr", "merge", String(pr.number), "--repo", repoFlag(pr), flag, "--delete-branch"]);
+      } catch (err) {
+        if (!isRateLimitError(err)) throw err;
+
+        // Rate limit hit — fall back to REST API directly via gh api
+        console.warn("mergePR: rate limit hit on gh pr merge, falling back to REST API");
+        const mergeMethod = method === "rebase" ? "rebase" : method === "merge" ? "merge" : "squash";
+        await gh([
+          "api",
+          `repos/${pr.owner}/${pr.repo}/pulls/${pr.number}/merge`,
+          "--method",
+          "PUT",
+          "-f",
+          `merge_method=${mergeMethod}`,
+        ]);
+      }
     },
 
     async closePR(pr: PRInfo): Promise<void> {
