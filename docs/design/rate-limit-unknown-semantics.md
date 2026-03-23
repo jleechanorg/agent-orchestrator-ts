@@ -16,7 +16,7 @@ In mergeability flows, this can look optimistic when status is actually unknown.
 
 ## Desired behavior
 
-Introduce an explicit **unknown_due_to_rate_limit** path so rate-limit failures are never represented as semantic `"none"`.
+Introduce an explicit `unknown_due_to_rate_limit` path so rate-limit failures are never represented as semantic `"none"`.
 
 ## Work items
 
@@ -25,7 +25,7 @@ Introduce an explicit **unknown_due_to_rate_limit** path so rate-limit failures 
 3. Keep anti-spam behavior by suppressing repetitive retries/notifications while unknown is active.
 4. Add regression tests for:
    - CI rate-limit in `getCISummary`
-   - reviewDecision rate-limit in `getReviewDecision`
+   - `reviewDecision` rate-limit in `getReviewDecision`
    - mergeability behavior with unknown status
 
 ## Acceptance criteria
