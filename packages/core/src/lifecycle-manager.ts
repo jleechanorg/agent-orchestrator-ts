@@ -767,10 +767,12 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
           try {
             const prState = await scm.getPRState(session.pr);
             mergedConfirmed = prState === PR_STATE.MERGED;
-            if (!mergedConfirmed) {
-              // PR is not merged — skip persisting killed, retry next poll
+            if (prState === PR_STATE.OPEN) {
+              // PR still open — agent died but PR is alive; skip persisting
+              // killed so next poll can re-check PR state for auto-merge.
               effectiveStatus = oldStatus;
             }
+            // PR is merged or closed — proceed with killed transition
           } catch {
             // SCM unreachable — skip persisting killed, retry next poll
             effectiveStatus = oldStatus;
@@ -937,26 +939,29 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
           }
         }
 
-        // bd-kki: belt-and-suspenders. When the first absorb check ran (non-terminal
-        // oldStatus) and confirmed merged=true, mergedConfirmed is already set so no
-        // second SCM call is needed.  When oldStatus was already terminal the absorb
-        // check did not run — re-check SCM once and call kill() if merged.
-        if (effectiveStatus === "killed" && session.pr) {
-          if (mergedConfirmed) {
-            // Absorb check confirmed merged — kill using cached result
-            await sessionManager.kill(session.id);
-          } else if (TERMINAL_STATUSES.has(oldStatus)) {
-            // Terminal→killed transition: re-check SCM once to catch merged PRs
-            const project = config.projects[session.projectId];
-            const scm = project?.scm ? registry.get<SCM>("scm", project.scm.plugin) : null;
-            if (scm) {
-              try {
-                if ((await scm.getPRState(session.pr)) === PR_STATE.MERGED) {
-                  await sessionManager.kill(session.id);
-                }
-              } catch {
-                // SCM unreachable — skip kill; next poll will retry if status changes
+      }
+
+      // bd-kki: belt-and-suspenders. When the first absorb check ran (non-terminal
+      // oldStatus) and confirmed merged=true, mergedConfirmed is already set so no
+      // second SCM call is needed.  When oldStatus was already terminal the absorb
+      // check did not run — re-check SCM once and call kill() if merged.
+      // Placed OUTSIDE the !TERMINAL_STATUSES.has(oldStatus) guard so it can fire
+      // for terminal→killed transitions (e.g. errored→killed).
+      if (effectiveStatus === "killed" && session.pr) {
+        if (mergedConfirmed) {
+          // Absorb check confirmed merged — kill using cached result
+          await sessionManager.kill(session.id);
+        } else if (TERMINAL_STATUSES.has(oldStatus)) {
+          // Terminal→killed transition: re-check SCM once to catch merged PRs
+          const project = config.projects[session.projectId];
+          const scm = project?.scm ? registry.get<SCM>("scm", project.scm.plugin) : null;
+          if (scm) {
+            try {
+              if ((await scm.getPRState(session.pr)) === PR_STATE.MERGED) {
+                await sessionManager.kill(session.id);
               }
+            } catch {
+              // SCM unreachable — skip kill; next poll will retry if status changes
             }
           }
         }

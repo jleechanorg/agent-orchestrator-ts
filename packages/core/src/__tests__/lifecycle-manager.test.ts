@@ -457,8 +457,9 @@ describe("check (single session)", () => {
     expect(lm.getStates().get("app-1")).toBe("mergeable");
   });
 
-  it("returns killed when agent exited and PR is not green (bd-ara)", async () => {
-    // Companion: agent exited + PR not approved → should still kill
+  it("absorbs killed when agent exited but PR is still open (bd-ara + bd-kki)", async () => {
+    // bd-kki: agent exited + PR still open → absorb killed, retry next poll
+    // so auto-merge can fire if the PR becomes mergeable.
     vi.mocked(mockAgent.getActivityState).mockResolvedValue({ state: "exited" });
 
     const mockSCM: SCM = {
@@ -510,7 +511,8 @@ describe("check (single session)", () => {
 
     await lm.check("app-1");
 
-    expect(lm.getStates().get("app-1")).toBe("killed");
+    // bd-kki absorbs the killed transition — PR is open, not merged/closed
+    expect(lm.getStates().get("app-1")).toBe("working");
   });
 
   it("returns killed when agent exited and session has no PR (bd-ara)", async () => {
@@ -3517,8 +3519,8 @@ describe("bd-kki: killed transition + merged PR race", () => {
     expect(lm.getStates().get("app-1")).toBe("pr_open");
   });
 
-  it("skips killed persistence when PR is not merged (retry next poll)", async () => {
-    vi.mocked(mockSCM.getPRState).mockResolvedValue("closed");
+  it("skips killed persistence when PR is still open (retry next poll)", async () => {
+    vi.mocked(mockSCM.getPRState).mockResolvedValue("open");
     const nonExistentPath = join(tmpDir, "non-existent-workspace-" + randomUUID());
     const session = makeSession({ status: "pr_open", pr: makePR(), workspacePath: nonExistentPath });
     vi.mocked(mockSessionManager.get).mockResolvedValue(session);
@@ -3538,7 +3540,7 @@ describe("bd-kki: killed transition + merged PR race", () => {
 
     await lm.check("app-1");
 
-    // PR is not merged — transition absorbed; tracked state stays oldStatus so next poll retries
+    // PR still open — transition absorbed; tracked state stays oldStatus so next poll retries
     expect(mockSCM.getPRState).toHaveBeenCalled();
     expect(mockSessionManager.kill).not.toHaveBeenCalled();
     expect(lm.getStates().get("app-1")).toBe("pr_open");
