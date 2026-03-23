@@ -203,7 +203,7 @@ function mapRestReviewsToPrViewReviewsShape(reviewsUnknown: unknown): Array<{
 function synthesizePrViewJsonFromRest(
   rest: Record<string, unknown>,
   jsonFields: string[],
-  opts: { reviewDecision?: string; reviewsPayload?: unknown },
+  opts: { reviewDecision?: string; reviewsPayload?: unknown; statusCheckRollup?: unknown[] },
 ): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   const want = new Set(jsonFields);
@@ -240,6 +240,10 @@ function synthesizePrViewJsonFromRest(
 
   if (want.has("reviews") && opts.reviewsPayload !== undefined) {
     out.reviews = mapRestReviewsToPrViewReviewsShape(opts.reviewsPayload);
+  }
+
+  if (want.has("statusCheckRollup") && opts.statusCheckRollup !== undefined) {
+    out.statusCheckRollup = opts.statusCheckRollup;
   }
 
   for (const f of jsonFields) {
@@ -281,10 +285,43 @@ async function fetchPrViewFallbackAsJson(
     }
   }
 
+  // Fetch check-runs via REST when statusCheckRollup is requested.
+  // The REST PR object doesn't include statusCheckRollup, so we synthesize it
+  // from the /commits/{sha}/check-runs endpoint.
+  let statusCheckRollup: unknown[] | undefined;
+  if (conv.jsonFields.includes("statusCheckRollup")) {
+    const headObj = restObj.head as Record<string, unknown> | undefined;
+    const sha = typeof headObj?.sha === "string" ? headObj.sha : undefined;
+    if (sha) {
+      try {
+        const checksRaw = await execCli(
+          "gh",
+          ["api", `repos/${conv.repo}/commits/${sha}/check-runs`],
+          cwd,
+        );
+        const checksData = JSON.parse(checksRaw) as { check_runs?: unknown[] };
+        statusCheckRollup = (checksData.check_runs ?? []).map(
+          (run: Record<string, unknown> | unknown) => {
+            const r = run as Record<string, unknown>;
+            return {
+              name: r.name,
+              state: mapCheckRunConclusionToState(r.conclusion, r.status),
+              detailsUrl: r.html_url,
+            };
+          },
+        );
+      } catch {
+        // Best-effort: return empty rollup rather than failing the whole fallback
+        statusCheckRollup = [];
+      }
+    }
+  }
+
   return JSON.stringify(
     synthesizePrViewJsonFromRest(restObj, conv.jsonFields, {
       reviewDecision,
       reviewsPayload,
+      statusCheckRollup,
     }),
   );
 }
@@ -518,6 +555,36 @@ async function ghInDir(args: string[], cwd: string): Promise<string> {
 
 async function git(args: string[], cwd: string): Promise<string> {
   return execCli("git", args, cwd);
+}
+
+/**
+ * Map REST check-run conclusion/status to the GraphQL-style state string
+ * used in `statusCheckRollup` entries.
+ */
+function mapCheckRunConclusionToState(
+  conclusion: unknown,
+  status: unknown,
+): string {
+  if (typeof conclusion === "string" && conclusion) {
+    const c = conclusion.toUpperCase();
+    if (c === "SUCCESS") return "SUCCESS";
+    if (c === "FAILURE") return "FAILURE";
+    if (c === "NEUTRAL") return "NEUTRAL";
+    if (c === "CANCELLED") return "CANCELLED";
+    if (c === "TIMED_OUT") return "TIMED_OUT";
+    if (c === "ACTION_REQUIRED") return "ACTION_REQUIRED";
+    if (c === "SKIPPED") return "SKIPPED";
+    return c;
+  }
+  // No conclusion yet — map from status
+  if (typeof status === "string") {
+    const s = status.toUpperCase();
+    if (s === "COMPLETED") return "SUCCESS";
+    if (s === "IN_PROGRESS") return "IN_PROGRESS";
+    if (s === "QUEUED") return "QUEUED";
+    return s;
+  }
+  return "PENDING";
 }
 
 function parseProjectRepo(projectRepo: string): [string, string] {

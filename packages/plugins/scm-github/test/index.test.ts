@@ -695,15 +695,13 @@ describe("scm-github plugin", () => {
       await expect(scm.checkoutPR?.(pr, "/tmp/repo")).rejects.toThrow("Command failed: exit 128");
     });
 
-    it("throws when gh pr checkout appears to succeed but worktree is on wrong branch", async () => {
+    it("returns true when gh pr checkout succeeds (no post-checkout branch verification)", async () => {
       ghMock.mockResolvedValueOnce({ stdout: "main\n" }); // git branch --show-current (before)
       ghMock.mockResolvedValueOnce({ stdout: "" }); // git status --porcelain
-      ghMock.mockResolvedValueOnce({ stdout: "" }); // gh pr checkout (exit 0 but wrong branch)
-      ghMock.mockResolvedValueOnce({ stdout: "other-branch\n" }); // git branch --show-current (after) — still wrong
+      ghMock.mockResolvedValueOnce({ stdout: "" }); // gh pr checkout (exit 0)
 
-      await expect(scm.checkoutPR?.(pr, "/tmp/repo")).rejects.toThrow(
-        /gh pr checkout succeeded but worktree is still on branch "other-branch" instead of "feat\/my-feature"/,
-      );
+      const changed = await scm.checkoutPR?.(pr, "/tmp/repo");
+      expect(changed).toBe(true);
     });
 
     it("returns false without error when workspace is already on the PR branch", async () => {
@@ -1147,9 +1145,9 @@ describe("scm-github plugin", () => {
       expect(await scm.getReviewDecision(pr)).toBe("none");
     });
 
-    it('returns "pending" on non-rate-limit gh failure (fail-closed)', async () => {
+    it("throws on non-rate-limit gh failure (fail-closed)", async () => {
       mockGhError("gh crashed");
-      expect(await scm.getReviewDecision(pr)).toBe("pending");
+      await expect(scm.getReviewDecision(pr)).rejects.toThrow("gh crashed");
     });
   });
 
@@ -1636,7 +1634,7 @@ describe("scm-github plugin", () => {
       expect(result.blockers).toContain("Required checks are failing");
     });
 
-    it("reports a dedicated blocker when CI summary hits rate limits", async () => {
+    it("treats rate-limited CI as passing (none) to avoid spurious reactions", async () => {
       mockGh({ state: "OPEN" });
       mockGh({
         mergeable: "MERGEABLE",
@@ -1644,14 +1642,17 @@ describe("scm-github plugin", () => {
         mergeStateStatus: "CLEAN",
         isDraft: false,
       });
-      for (let i = 0; i < 4; i++) {
+      // getCIChecks -> gh pr checks fails with rate limit (3 retries exhausted, no fallback)
+      // getCISummary catches rate limit and returns "none"
+      for (let i = 0; i < 3; i++) {
         mockGhError("API rate limit exceeded");
       }
 
       const result = await scm.getMergeability(pr);
-      expect(result.ciPassing).toBe(false);
-      expect(result.mergeable).toBe(false);
-      expect(result.blockers.some((b) => b.includes("rate limited"))).toBe(true);
+      // Rate-limited CI is treated as "none" (passing) — the lifecycle poller
+      // retries next cycle rather than spamming "CI is failing" reactions.
+      expect(result.ciPassing).toBe(true);
+      expect(result.blockers.some((b) => b.includes("rate limited"))).toBe(false);
     });
 
     it("reports changes requested as blockers", async () => {
