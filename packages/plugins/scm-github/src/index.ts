@@ -1603,14 +1603,15 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
               severity = "warning";
             } else if (
               // Direct error reports (CI bots, build failures) — anchored to line-start
-              // to avoid matching incidental text like "non-critical" or "critical bug"
-              /^error[:\s]/m.test(bodyLower) ||
+              // with optional leading whitespace (CI bots often indent). The \s* allows
+              // indented messages like "  error:" while staying anchored to line-start.
+              /^\s*error[:\s]/m.test(bodyLower) ||
               /^\s*critical[:\s]/m.test(bodyLower) ||
               bodyLower.includes("potential issue")
             ) {
               severity = "error";
             } else if (
-              /^warning[:\s]/m.test(bodyLower) ||
+              /^\s*warning[:\s]/m.test(bodyLower) ||
               bodyLower.includes("suggest") ||
               bodyLower.includes("consider")
             ) {
