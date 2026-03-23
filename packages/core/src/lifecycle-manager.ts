@@ -214,6 +214,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
 
   const states = new Map<SessionId, SessionStatus>();
   const reactionTrackers = new Map<string, ReactionTracker>(); // "sessionId:reactionKey"
+  const mergeRetryTimestamps = new Map<string, number>(); // "merge-retry-{sessionId}" → last attempt epoch
   let pollTimer: ReturnType<typeof setInterval> | null = null;
   let polling = false; // re-entrancy guard
   let allCompleteEmitted = false; // guard against repeated all_complete
@@ -264,9 +265,10 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     if (session.runtimeHandle && runtime) {
       const alive = await runtime.isAlive(session.runtimeHandle).catch(() => true);
       if (!alive) {
-        // Don't return "killed" yet — if the session has a PR, check PR state
-        // first so auto-merge can still fire for green PRs with exited agents.
-        if (!session.pr || !scm) return "killed";
+        // Don't return "killed" yet — if the session has a PR (or might have
+        // one discoverable via branch-based auto-detect in step 3), check PR
+        // state first so auto-merge can fire for green PRs with exited agents.
+        if (!scm) return "killed";
         agentDead = true;
       }
 
@@ -283,8 +285,9 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         if (activityState) {
           if (activityState.state === "waiting_input") return "needs_input";
           if (activityState.state === "exited") {
-            // Don't return "killed" yet — check PR state first
-            if (!session.pr || !scm) return "killed";
+            // Don't return "killed" yet — defer to step 3 (branch-based PR
+            // auto-detect) and step 4 (PR state checks) before giving up.
+            if (!scm) return "killed";
             agentDead = true;
           }
 
@@ -311,7 +314,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
 
             const processAlive = await agent.isProcessRunning(session.runtimeHandle);
             if (!processAlive) {
-              if (!session.pr || !scm) return "killed";
+              if (!scm) return "killed";
               agentDead = true;
             }
           }
@@ -817,19 +820,31 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       // reaction fires on transition but may fail (e.g., merge gate fails due to
       // GraphQL rate limit treating all comments as unresolved). Re-attempt on
       // subsequent polls so transient gate failures don't permanently block merge.
+      // Cooldown: only retry once per 5 minutes to avoid notification spam and
+      // reaction budget exhaustion (bd-ara CR feedback).
       if (newStatus === "mergeable") {
         const reactionKey = "approved-and-green";
         const reactionConfig = getReactionConfigForSession(session, reactionKey);
-        if (reactionConfig?.action === "auto-merge") {
-          const result = await executeReaction(
-            session.id,
-            session.projectId,
-            reactionKey,
-            reactionConfig,
-            session,
-          );
-          if (result?.success) {
-            transitionReaction = { key: reactionKey, result };
+        if (
+          reactionConfig?.action === "auto-merge" &&
+          reactionConfig.auto !== false
+        ) {
+          const MERGE_RETRY_COOLDOWN_MS = 5 * 60_000;
+          const lastAttemptKey = `merge-retry-${session.id}`;
+          const now = Date.now();
+          const lastAttempt = (mergeRetryTimestamps as Map<string, number>).get(lastAttemptKey) ?? 0;
+          if (now - lastAttempt >= MERGE_RETRY_COOLDOWN_MS) {
+            (mergeRetryTimestamps as Map<string, number>).set(lastAttemptKey, now);
+            const result = await executeReaction(
+              session.id,
+              session.projectId,
+              reactionKey,
+              reactionConfig,
+              session,
+            );
+            if (result?.success) {
+              transitionReaction = { key: reactionKey, result };
+            }
           }
         }
       }
