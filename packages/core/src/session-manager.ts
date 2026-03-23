@@ -1286,7 +1286,11 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
 
     // Setup agent hooks for automatic metadata updates
     if (plugins.agent.setupWorkspaceHooks) {
-      await plugins.agent.setupWorkspaceHooks(project.path, { dataDir: sessionsDir });
+      try {
+        await plugins.agent.setupWorkspaceHooks(project.path, { dataDir: sessionsDir });
+      } catch {
+        // Non-fatal: consistent with pre-launch hook setup in spawn()
+      }
     }
 
     // Write system prompt to a file to avoid shell/tmux truncation.

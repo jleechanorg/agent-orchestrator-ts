@@ -148,20 +148,17 @@ const geminiOverrides: Partial<Agent> = {
 
     if (!session.workspacePath) return null;
 
-    const projectDir = join(
-      homedir(),
-      ".gemini",
-      "tmp",
-      toGeminiProjectPath(session.workspacePath),
-      "chats",
-    );
+    const projectDir = geminiConfig.getSessionDir(session.workspacePath);
 
     const sessionFile = await findLatestSessionFile(projectDir, ".json");
     if (!sessionFile) return null;
 
     // Try native Gemini JSON format first: { sessionId, messages: [...] }
     const nativeEntry = await readLastGeminiNativeEntry(sessionFile);
-    if (nativeEntry) {
+    // Only use native entry if lastType is a known string; null means the entry
+    // exists but has no string `type`, so fall through to JSONL rather than
+    // mis-classifying via the `default` branch.
+    if (nativeEntry && nativeEntry.lastType !== null) {
       const ageMs = Date.now() - nativeEntry.modifiedAt.getTime();
       const timestamp = nativeEntry.modifiedAt;
       switch (nativeEntry.lastType) {
@@ -171,8 +168,10 @@ const geminiOverrides: Partial<Agent> = {
           return { state: "blocked", timestamp };
         case "user":
         case "info":
-        default:
           return { state: ageMs > threshold ? "idle" : "active", timestamp };
+        default:
+          // Unknown type — fall through to JSONL to avoid false-active/idle
+          break;
       }
     }
 
