@@ -1197,14 +1197,34 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
       // rate limit burn. `gh pr checkout` resolves the PR head ref via GraphQL
       // internally, which exhausts quota when many workers run simultaneously.
       // git fetch uses the git protocol, which doesn't consume API quota. (bd-49u)
+      //
+      // Strategy: fetch via refs/pull/<num>/head (GitHub-maintained ref pointing to the
+      // PR head commit — works for both regular and fork PRs regardless of where the
+      // branch lives). Fall back to a direct branch fetch only when that ref is
+      // unavailable (e.g. shallow clone that prunes pull/ refs). (bd-49u)
       const remote = `https://github.com/${repoFlag(pr)}.git`;
-      await git(["fetch", remote, `${pr.branch}:${pr.branch}`], workspacePath).catch(async () => {
-        // Branch may already exist locally — fetch into FETCH_HEAD and reset
-        await git(["fetch", remote, pr.branch], workspacePath);
-        await git(["checkout", pr.branch], workspacePath);
-        await git(["reset", "--hard", "FETCH_HEAD"], workspacePath);
-        return;
-      });
+      const prRef = `refs/pull/${pr.number}/head`;
+
+      let fetchErr: Error | undefined;
+      try {
+        // Primary: fetch via GitHub's pull-request ref (works for fork and regular PRs)
+        await git(["fetch", remote, `${prRef}:${pr.branch}`], workspacePath);
+      } catch (err) {
+        // Only handle "ref not found" — let auth/network errors propagate
+        const msg = err instanceof Error ? err.message : String(err);
+        if (!/couldn't find remote ref|doesn't exist|not found/i.test(msg)) {
+          throw err;
+        }
+        fetchErr = err as Error;
+
+        // Fallback: fetch the branch directly (works when the branch is on the base repo)
+        try {
+          await git(["fetch", remote, `${pr.branch}:${pr.branch}`], workspacePath);
+        } catch (fallbackErr) {
+          // Both refs failed — surface the more informative original error
+          throw fetchErr;
+        }
+      }
 
       // Switch to the branch if not already there (the catch path may have done it)
       const currentAfterFetch = await git(["branch", "--show-current"], workspacePath);
