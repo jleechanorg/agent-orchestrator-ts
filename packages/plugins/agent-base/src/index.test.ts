@@ -401,3 +401,90 @@ describe("detectActivity — classifyTerminalOutput", () => {
     expect(agent.detectActivity(output)).toBe("waiting_input");
   });
 });
+// detectActivity — classifyTerminalOutput (orch-jtc7: false-idle fix)
+// ---------------------------------------------------------------------------
+describe("detectActivity — classifyTerminalOutput", () => {
+  const agent = createAgentPlugin({
+    name: "test-agent",
+    description: "Test agent",
+    processName: "test",
+    command: "test",
+    configDir: ".test",
+    permissionlessFlag: "--flag",
+  });
+
+  it("returns 'idle' for empty output", () => {
+    expect(agent.detectActivity("")).toBe("idle");
+    expect(agent.detectActivity("   \n  ")).toBe("idle");
+  });
+
+  it("returns 'idle' when last line is bare prompt with no activity above", () => {
+    const output = "$ ls\nfoo.txt\n$ ";
+    expect(agent.detectActivity(output)).toBe("idle");
+  });
+
+  it("returns 'idle' when last line is bare ❯ with no activity above", () => {
+    const output = "some output\n❯ ";
+    expect(agent.detectActivity(output)).toBe("idle");
+  });
+
+  // orch-jtc7: false IDLE — agent thinking above, ❯ at bottom
+  it("returns 'active' when Unicode spinner ✻ appears near bottom even if last line is ❯", () => {
+    const output = [
+      "❯ ao spawn --agent claude ...",
+      "✻ Analyzing the codebase...",
+      "  Reading src/index.ts",
+      "  Writing src/output.ts",
+      "❯",
+    ].join("\n");
+    expect(agent.detectActivity(output)).toBe("active");
+  });
+
+  it("returns 'active' when spinner ✶ appears in last 20 lines with ❯ on last line", () => {
+    const output = [
+      "❯",
+      "✶ Thinking...",
+      "  Tool call: read_file(path='src/main.ts')",
+      "❯",
+    ].join("\n");
+    expect(agent.detectActivity(output)).toBe("active");
+  });
+
+  it("returns 'active' when spinner ✳ appears in last 20 lines with > on last line", () => {
+    const output = ["✳ Processing...", "> "].join("\n");
+    expect(agent.detectActivity(output)).toBe("active");
+  });
+
+  it("returns 'active' when spinner is within the last 20 lines despite prompt on last line", () => {
+    // 1 spinner + 5 step lines = 7 total, all within 20-line window, prompt on last line
+    const lines = ["✻ Working...", ...Array(5).fill("  step"), "❯"];
+    expect(agent.detectActivity(lines.join("\n"))).toBe("active");
+  });
+
+  it("returns 'idle' when spinner is exactly 20 lines before ❯ (outside window)", () => {
+    // spinner at index 0, 19 filler lines, prompt at index 20 = 21 total lines
+    // windowStart = max(0, 21-20) = 1; window = lines[1..20] (excludes spinner at 0) → idle
+    const lines = ["✻ Boundary activity...", ...Array(19).fill("done"), "❯"];
+    expect(agent.detectActivity(lines.join("\n"))).toBe("idle");
+  });
+
+  it("returns 'idle' when spinner is more than 20 lines before ❯ (outside window)", () => {
+    // spinner far above, then 21 blank/done lines, then prompt
+    const lines = ["✻ Old activity...", ...Array(21).fill("done"), "❯"];
+    expect(agent.detectActivity(lines.join("\n"))).toBe("idle");
+  });
+
+  it("returns 'active' for output with no prompt on last line", () => {
+    expect(agent.detectActivity("Reading file...\nDone")).toBe("active");
+  });
+
+  it("returns 'waiting_input' for permission prompt near bottom", () => {
+    const output = "some text\nDo you want to proceed?\n(Y)es  (N)o";
+    expect(agent.detectActivity(output)).toBe("waiting_input");
+  });
+
+  it("returns 'waiting_input' for bypass permissions prompt", () => {
+    const output = "bypass permissions mode\nConfirm?";
+    expect(agent.detectActivity(output)).toBe("waiting_input");
+  });
+});
