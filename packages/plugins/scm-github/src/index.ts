@@ -1372,15 +1372,24 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
 
     // bd-sm7: Combined PR state + review decision in a single gh CLI call
     async getPRStateAndReview(pr: PRInfo): Promise<{ state: PRState; reviewDecision: ReviewDecision }> {
-      const raw = await gh([
-        "pr",
-        "view",
-        String(pr.number),
-        "--repo",
-        repoFlag(pr),
-        "--json",
-        "state,reviewDecision",
-      ]);
+      let raw: string;
+      try {
+        raw = await gh([
+          "pr",
+          "view",
+          String(pr.number),
+          "--repo",
+          repoFlag(pr),
+          "--json",
+          "state,reviewDecision",
+        ]);
+      } catch (err) {
+        // Rate limits: rethrow so determineStatus preserves current session status.
+        // Other errors: rethrow too — getPRState has no fail-closed fallback,
+        // and the caller's catch block will preserve status.
+        if (isGhRateLimitError(err)) throw err;
+        throw new Error("Failed to fetch PR state and review", { cause: err });
+      }
       const data: { state: string; reviewDecision?: string; merged?: boolean } = JSON.parse(raw);
 
       // Parse state (same logic as getPRState)
@@ -1390,7 +1399,8 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
       else if (s === "CLOSED") state = "closed";
       else state = "open";
 
-      // Parse review decision (same logic as getReviewDecision)
+      // Parse review decision — fail-closed: default to "pending" on unexpected values
+      // (matches getReviewDecision behavior where non-rate-limit errors return "pending")
       const d = (data.reviewDecision ?? "").toUpperCase();
       let reviewDecision: ReviewDecision;
       if (d === "APPROVED") reviewDecision = "approved";
