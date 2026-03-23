@@ -1084,7 +1084,12 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
             project.repo,
           ),
         );
-      } catch {
+      } catch (err) {
+        // Log but don't throw — caller handles empty list gracefully and
+        // lifecycle.backfill.list_failed logs the details.
+        if (process.env.AO_DEBUG) {
+          console.error("[scm-github] listOpenPRs failed:", err);
+        }
         return [];
       }
     },

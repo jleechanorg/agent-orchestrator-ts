@@ -248,24 +248,31 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
   ): Promise<void> {
     const now = Date.now();
     if (now - lastBackfillTime < BACKFILL_INTERVAL_MS) return;
-    lastBackfillTime = now;
 
     const scm = project.scm ? registry.get<SCM>("scm", project.scm.plugin) : null;
     if (!scm?.listOpenPRs) return;
+
+    // Set throttle AFTER confirming SCM supports listOpenPRs — so missing
+    // support doesn't block retries when a different SCM plugin is loaded.
+    lastBackfillTime = now;
 
     try {
       const openPRs = await scm.listOpenPRs(project);
       if (openPRs.length === 0) return;
 
-      // Build set of PR numbers covered by active sessions
+      // Build set of PR numbers AND branches covered by active sessions.
+      // Sessions may not have pr.number set yet if detectPR hasn't run,
+      // but they will have branch — match on both to avoid duplicate spawns.
       const coveredPRs = new Set<number>();
+      const coveredBranches = new Set<string>();
       for (const s of activeSessions) {
         if (s.pr?.number) coveredPRs.add(s.pr.number);
+        if (s.branch) coveredBranches.add(s.branch);
       }
 
-      // Find uncovered PRs (skip drafts)
+      // Find uncovered PRs (skip drafts, check both PR number and branch)
       const uncovered = openPRs.filter(
-        (pr) => !pr.isDraft && !coveredPRs.has(pr.number),
+        (pr) => !pr.isDraft && !coveredPRs.has(pr.number) && !coveredBranches.has(pr.branch),
       );
 
       if (uncovered.length === 0) return;
@@ -290,14 +297,34 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       // The next backfill cycle (5 min later) will pick up the rest.
       const pr = uncovered[0];
       try {
+        // Don't pass branch to spawn — let claimPR handle checkout so
+        // the workspace starts on the correct PR branch via SCM checkout.
         const session = await sessionManager.spawn({
           projectId,
-          branch: pr.branch,
           prompt: `Continue working on PR #${pr.number}: ${pr.title}. Check PR status, fix any blockers (CI failures, review comments, merge conflicts), and drive it to 6-green.`,
         });
 
-        // Claim the PR for this session
-        await sessionManager.claimPR(session.id, String(pr.number));
+        // Claim the PR for this session — this checks out the branch
+        try {
+          await sessionManager.claimPR(session.id, String(pr.number));
+        } catch (claimErr) {
+          // claimPR failed — kill the orphan session to avoid waste
+          observer.recordOperation({
+            metric: "lifecycle_poll",
+            operation: "lifecycle.backfill.claim_failed",
+            outcome: "failure",
+            correlationId,
+            projectId,
+            sessionId: session.id,
+            data: {
+              prNumber: pr.number,
+              error: claimErr instanceof Error ? claimErr.message : String(claimErr),
+            },
+            level: "warn",
+          });
+          await sessionManager.kill(session.id).catch(() => {});
+          return;
+        }
 
         observer.recordOperation({
           metric: "lifecycle_poll",
