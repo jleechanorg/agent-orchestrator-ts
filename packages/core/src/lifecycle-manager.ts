@@ -463,6 +463,18 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     reactionConfig: ReactionConfig,
     session?: Session,
   ): Promise<ReactionResult> {
+    const reactionCorrelationId = createCorrelationId("reaction");
+    observer.recordOperation({
+      metric: "lifecycle_poll",
+      operation: "lifecycle.reaction.start",
+      outcome: "success",
+      correlationId: reactionCorrelationId,
+      projectId,
+      sessionId,
+      data: { reactionKey, action: reactionConfig.action, auto: reactionConfig.auto },
+      level: "info",
+    });
+
     const trackerKey = `${sessionId}:${reactionKey}`;
     let tracker = reactionTrackers.get(trackerKey);
 
@@ -533,8 +545,18 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
               message: finalMessage,
               escalated: false,
             };
-          } catch {
+          } catch (sendErr) {
             // Send failed — allow retry on next poll cycle (don't escalate immediately)
+            observer.recordOperation({
+              metric: "lifecycle_poll",
+              operation: "lifecycle.reaction.send_failed",
+              outcome: "failure",
+              correlationId: reactionCorrelationId,
+              projectId,
+              sessionId,
+              data: { reactionKey, error: sendErr instanceof Error ? sendErr.message : String(sendErr) },
+              level: "warn",
+            });
             return {
               reactionType: reactionKey,
               success: false,
@@ -787,6 +809,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
           if (reactionConfig && reactionConfig.action) {
             // auto: false skips automated agent actions but still allows notifications
             if (reactionConfig.auto !== false || reactionConfig.action === "notify") {
+              // Reaction will execute
               const reactionResult = await executeReaction(
                 session.id,
                 session.projectId,
@@ -795,13 +818,61 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
                 session,
               );
               transitionReaction = { key: reactionKey, result: reactionResult };
+              observer.recordOperation({
+                metric: "lifecycle_poll",
+                operation: "lifecycle.reaction.result",
+                outcome: reactionResult?.success ? "success" : "failure",
+                correlationId,
+                projectId: session.projectId,
+                sessionId: session.id,
+                data: {
+                  reactionKey,
+                  action: reactionResult?.action,
+                  escalated: reactionResult?.escalated,
+                  success: reactionResult?.success,
+                },
+                level: reactionResult?.success ? "info" : "warn",
+              });
               // Reaction is handling this event — suppress immediate human notification.
               // "send-to-agent" retries + escalates on its own; "notify"/"auto-merge"
               // already call notifyHuman internally. Notifying here would bypass the
               // delayed escalation behaviour configured via retries/escalateAfter.
               reactionHandledNotify = true;
+            } else {
+              observer.recordOperation({
+                metric: "lifecycle_poll",
+                operation: "lifecycle.reaction.skipped",
+                outcome: "success",
+                correlationId,
+                projectId: session.projectId,
+                sessionId: session.id,
+                data: { reactionKey, reason: "auto_disabled", auto: reactionConfig.auto, action: reactionConfig.action },
+                level: "info",
+              });
             }
+          } else {
+            observer.recordOperation({
+              metric: "lifecycle_poll",
+              operation: "lifecycle.reaction.skipped",
+              outcome: "success",
+              correlationId,
+              projectId: session.projectId,
+              sessionId: session.id,
+              data: { reactionKey, reason: "no_action", hasConfig: !!reactionConfig, action: reactionConfig?.action },
+              level: "info",
+            });
           }
+        } else {
+          observer.recordOperation({
+            metric: "lifecycle_poll",
+            operation: "lifecycle.reaction.skipped",
+            outcome: "success",
+            correlationId,
+            projectId: session.projectId,
+            sessionId: session.id,
+            data: { eventType, reason: "no_reaction_key" },
+            level: "info",
+          });
         }
 
         // For transitions not already notified by a reaction, notify humans.
