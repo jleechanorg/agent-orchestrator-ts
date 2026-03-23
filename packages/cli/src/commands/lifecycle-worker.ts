@@ -61,16 +61,20 @@ async function listTmuxSessionsWithActivity(): Promise<TmuxSessionInfo[]> {
 async function sweepOrphanTmuxSessions(opts: {
   sessionManager: SessionManager;
   projectId: string;
+  allProjectIds: string[];
   configHash: string;
   orphanTtlMs: number;
   observer: ReturnType<typeof createProjectObserver>;
 }): Promise<void> {
-  const { sessionManager, projectId, configHash, orphanTtlMs, observer } = opts;
+  const { sessionManager, projectId, allProjectIds, configHash, orphanTtlMs, observer } = opts;
   const correlationId = createCorrelationId("lifecycle-worker");
 
-  const sessions = await sessionManager.list(projectId);
+  // Collect active runtime IDs across ALL projects in this config to avoid
+  // cross-project false positives (all projects share the same configHash).
+  const allSessionGroups = await Promise.all(allProjectIds.map((pid) => sessionManager.list(pid)));
   const activeRuntimeIds = new Set(
-    sessions
+    allSessionGroups
+      .flat()
       .map((s) => s.runtimeHandle?.id)
       .filter((id): id is string => typeof id === "string" && id.length > 0),
   );
@@ -85,10 +89,12 @@ async function sweepOrphanTmuxSessions(opts: {
     if (!parsed) continue;
     if (parsed.hash !== configHash) continue;
 
-    // Managed by AO DB, skip.
+    // Managed by AO DB (any project), skip.
     if (activeRuntimeIds.has(tmuxSession.name)) continue;
 
-    const idleForMs = tmuxSession.activityMs ? now - tmuxSession.activityMs : Number.MAX_SAFE_INTEGER;
+    // Fail-safe: if activity timestamp is missing, do NOT assume orphan.
+    if (tmuxSession.activityMs === null) continue;
+    const idleForMs = now - tmuxSession.activityMs;
     if (idleForMs < orphanTtlMs) continue;
 
     orphanCount += 1;
@@ -172,6 +178,7 @@ export function registerLifecycleWorker(program: Command): void {
         const orphanSweepIntervalMs = parseInterval(opts.orphanSweepIntervalMs ?? "300000");
         const orphanTtlMs = parseDurationMs(opts.orphanTtlMs ?? "21600000", 6 * 60 * 60 * 1000);
         const configHash = generateConfigHash(config.configPath);
+        const allProjectIds = Object.keys(config.projects ?? {});
         let shuttingDown = false;
         let heartbeat: ReturnType<typeof setInterval> | null = null;
         let orphanSweepTimer: ReturnType<typeof setInterval> | null = null;
@@ -257,23 +264,29 @@ export function registerLifecycleWorker(program: Command): void {
         heartbeat.unref();
 
         orphanSweepTimer = setInterval(() => {
-          void sweepOrphanTmuxSessions({
+          sweepOrphanTmuxSessions({
             sessionManager,
             projectId,
+            allProjectIds,
             configHash,
             orphanTtlMs,
             observer,
+          }).catch(() => {
+            // best-effort sweep; errors must not crash the lifecycle worker
           });
         }, orphanSweepIntervalMs);
         orphanSweepTimer.unref();
 
         // Run an immediate sweep at startup (best-effort)
-        void sweepOrphanTmuxSessions({
+        sweepOrphanTmuxSessions({
           sessionManager,
           projectId,
+          allProjectIds,
           configHash,
           orphanTtlMs,
           observer,
+        }).catch(() => {
+          // best-effort sweep; errors must not crash the lifecycle worker
         });
 
         // bd-wse: Add startup jitter (0–10s) to stagger poll start across concurrent
