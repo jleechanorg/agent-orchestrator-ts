@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import {
   closeSync,
   existsSync,
@@ -19,6 +19,8 @@ const STOP_TIMEOUT_MS = 5_000;
 export interface LifecycleWorkerStatus {
   running: boolean;
   pid: number | null;
+  /** Whether the PID was verified as a genuine lifecycle-worker via ps. */
+  verified: boolean | null;
   pidFile: string;
   logFile: string;
 }
@@ -43,20 +45,47 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function isProcessRunning(pid: number): boolean {
+/**
+ * Verify the PID belongs to a lifecycle-worker process for the given projectId.
+ *
+ * Uses `ps` to read the full command line of the PID and checks for the
+ * `lifecycle-worker <projectId>` marker. This prevents false positives when
+ * the PID has been recycled and now belongs to an unrelated process.
+ *
+ * Returns:
+ *   true  — process is a lifecycle-worker for this projectId
+ *   false — process is confirmed not a lifecycle-worker for this projectId
+ *   null  — cannot determine (ps failed); callers must handle conservatively
+ */
+function isLifecycleWorkerProcess(
+  pid: number,
+  projectId: string,
+): boolean | null {
   try {
-    process.kill(pid, 0);
-    return true;
-  } catch (err) {
-    if (
-      err &&
-      typeof err === "object" &&
-      "code" in err &&
-      (err as NodeJS.ErrnoException).code === "EPERM"
-    ) {
-      return true;
-    }
-    return false;
+    // macOS and Linux both support -o args= for the full command line.
+    // Use -ww to disable column truncation (macOS/BSD default to ~16 columns,
+    // cutting off the lifecycle-worker marker for long paths/args).
+    // Use execFileSync so no shell is involved — avoids quoting issues.
+    const cmdline = execFileSync("ps", ["-ww", "-p", String(pid), "-o", "args="], {
+      timeout: 3_000,
+      stdio: ["ignore", "pipe", "ignore"],
+    })
+      .toString("utf-8")
+      .trim();
+
+    // Require the marker to appear as a distinct token pair: the ao binary
+    // argument list ends with "... lifecycle-worker <projectId>", so the
+    // marker must either be at the start of the line or follow whitespace.
+    // Using a word-boundary check prevents "api" from matching "api-v2".
+    const marker = `lifecycle-worker ${projectId}`;
+    const markerEscaped = marker.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const pattern = new RegExp(`(?:^|\\s)${markerEscaped}(?:\\s|$)`);
+    return pattern.test(cmdline);
+  } catch {
+    // ps failed (process gone, permission denied, or timeout) — we cannot
+    // confirm identity. Return null so callers treat this as indeterminate
+    // rather than definitively clearing a potentially valid PID file.
+    return null;
   }
 }
 
@@ -112,15 +141,24 @@ export function getLifecycleWorkerStatus(
   const logFile = getLifecycleLogFile(config, projectId);
   const pid = readPid(pidFile);
 
-  if (pid !== null && isProcessRunning(pid)) {
-    return { running: true, pid, pidFile, logFile };
-  }
-
   if (pid !== null) {
-    clearLifecycleWorkerPid(config, projectId, pid);
+    const confirmed = isLifecycleWorkerProcess(pid, projectId);
+    if (confirmed === true) {
+      return { running: true, pid, verified: true, pidFile, logFile };
+    }
+    // false = confirmed not ours → clear the stale PID file.
+    // null  = indeterminate (ps failed) → leave PID file; next startup
+    //           will retry verification or clear when the PID is gone.
+    if (confirmed === false) {
+      clearLifecycleWorkerPid(config, projectId, pid);
+      return { running: false, pid: null, verified: false, pidFile, logFile };
+    }
+    // confirmed === null: indeterminate; preserve PID file and surface
+    // verified=null so callers know not to act on this state.
+    return { running: false, pid: null, verified: null, pidFile, logFile };
   }
 
-  return { running: false, pid: null, pidFile, logFile };
+  return { running: false, pid: null, verified: false, pidFile, logFile };
 }
 
 function resolveLifecycleWorkerLaunch(projectId: string): { command: string; args: string[] } {
@@ -173,6 +211,12 @@ export async function ensureLifecycleWorker(
   if (current.running) {
     return { ...current, started: false };
   }
+  // verified === null means ps failed and we cannot confirm the process state.
+  // Do not spawn a new worker — a genuine worker may already exist and we risk
+  // creating a duplicate. The PID file is preserved so the next call retries.
+  if (current.verified === null) {
+    return { ...current, started: false };
+  }
 
   const baseDir = getProjectBase(config, projectId);
   const logFile = getLifecycleLogFile(config, projectId);
@@ -223,6 +267,11 @@ export async function stopLifecycleWorker(
 ): Promise<boolean> {
   const status = getLifecycleWorkerStatus(config, projectId);
   if (!status.running || status.pid === null) {
+    // verified=null means ps failed; do not clear the PID file — a genuine
+    // worker may be running and the next call can retry verification.
+    if (status.verified === null) {
+      return false;
+    }
     clearLifecycleWorkerPid(config, projectId);
     return false;
   }
@@ -236,11 +285,14 @@ export async function stopLifecycleWorker(
 
   const deadline = Date.now() + STOP_TIMEOUT_MS;
   while (Date.now() < deadline) {
-    if (!isProcessRunning(status.pid)) {
-      clearLifecycleWorkerPid(config, projectId, status.pid);
-      return true;
+    const confirmed = isLifecycleWorkerProcess(status.pid, projectId);
+    if (confirmed === true) {
+      await sleep(100);
+      continue;
     }
-    await sleep(100);
+    // null (ps failed, process likely gone) or false (PID recycled) → success
+    clearLifecycleWorkerPid(config, projectId, status.pid);
+    return true;
   }
 
   try {
