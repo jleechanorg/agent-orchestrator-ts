@@ -11,8 +11,8 @@ import { executeWithFallback, type FallbackConfig, type FallbackResult } from ".
 
 const mockExecFile = execFileCb as unknown as ReturnType<typeof vi.fn>;
 
-/** Helper: make execFile resolve with stdout */
-function stubExecFileSuccess(stdout: string): void {
+/** Helper: make execFile resolve with stdout. Returns a fake ChildProcess with pid. */
+function stubExecFileSuccess(stdout: string, pid = 12345): void {
   mockExecFile.mockImplementation(
     (
       _bin: string,
@@ -20,7 +20,9 @@ function stubExecFileSuccess(stdout: string): void {
       _opts: Record<string, unknown>,
       cb: (err: Error | null, stdout: string, stderr: string) => void,
     ) => {
-      cb(null, stdout, "");
+      // Call cb async so child.pid is captured before resolve fires
+      queueMicrotask(() => cb(null, stdout, ""));
+      return { pid };
     },
   );
 }
@@ -34,7 +36,8 @@ function stubExecFileFailure(message: string): void {
       _opts: Record<string, unknown>,
       cb: (err: Error | null, stdout: string, stderr: string) => void,
     ) => {
-      cb(new Error(message), "", "");
+      queueMicrotask(() => cb(new Error(message), "", ""));
+      return { pid: -1 };
     },
   );
 }
@@ -79,6 +82,7 @@ describe("executeWithFallback()", () => {
       success: true,
       output: "claude output here",
       fallbackUsed: true,
+      pid: 12345,
     });
     expect(primary).toHaveBeenCalledTimes(1);
     expect(mockExecFile).toHaveBeenCalledTimes(1);
@@ -179,11 +183,15 @@ describe("executeWithFallback()", () => {
         cb: (err: Error | null, stdout: string, stderr: string) => void,
       ) => {
         callCount++;
-        if (callCount === 2) {
-          cb(null, "success on retry 2", "");
-        } else {
-          cb(new Error("transient"), "", "");
-        }
+        const c = callCount;
+        queueMicrotask(() => {
+          if (c === 2) {
+            cb(null, "success on retry 2", "");
+          } else {
+            cb(new Error("transient"), "", "");
+          }
+        });
+        return { pid: 99999 };
       },
     );
 

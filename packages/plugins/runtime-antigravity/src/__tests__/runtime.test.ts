@@ -526,7 +526,7 @@ describe("runtime.getAttachInfo()", () => {
     const info = await runtime.getAttachInfo!(handle);
 
     expect(info).toEqual({
-      type: "web",
+      type: "process",
       target: "Antigravity window 2: Test Conversation",
     });
   });
@@ -538,7 +538,7 @@ describe("runtime.getAttachInfo()", () => {
     const info = await runtime.getAttachInfo!(handle);
 
     expect(info).toEqual({
-      type: "web",
+      type: "process",
       target: "Antigravity (unknown window)",
     });
   });

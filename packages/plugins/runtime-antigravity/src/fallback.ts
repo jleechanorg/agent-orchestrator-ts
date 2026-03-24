@@ -29,6 +29,8 @@ export interface FallbackResult {
   output: string;
   fallbackUsed: boolean;
   error?: string;
+  /** PID of the CLI fallback process, if one was spawned. */
+  pid?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -64,20 +66,27 @@ function isPrimaryFailure(output: string): boolean {
   return ERROR_PATTERNS.some((p) => p.test(output));
 }
 
+/** Result of a single CLI invocation. */
+interface CliInvokeResult {
+  output: string;
+  pid: number;
+}
+
 /**
  * Invoke the Claude Code CLI once.
  *
- * @returns stdout on success, throws on failure
+ * @returns stdout and PID on success, throws on failure
  */
 function invokeCli(
   task: string,
   workspacePath: string,
   config: FallbackConfig,
-): Promise<string> {
-  return new Promise<string>((resolve, reject) => {
+): Promise<CliInvokeResult> {
+  return new Promise<CliInvokeResult>((resolve, reject) => {
     const args = [...config.cliFlags, "-p", task];
+    let childPid = -1;
 
-    execFileCb(
+    const child = execFileCb(
       config.cliBin,
       args,
       { cwd: workspacePath, timeout: CLI_TIMEOUT_MS },
@@ -86,9 +95,12 @@ function invokeCli(
           reject(err);
           return;
         }
-        resolve(String(stdout ?? ""));
+        resolve({ output: String(stdout ?? ""), pid: childPid });
       },
     );
+
+    // Capture PID immediately after spawn (before async callback fires)
+    childPid = child.pid ?? -1;
   });
 }
 
@@ -138,8 +150,8 @@ export async function executeWithFallback(
 
   for (let attempt = 1; attempt <= merged.maxRetries; attempt++) {
     try {
-      const output = await invokeCli(task, workspacePath, merged);
-      return { success: true, output, fallbackUsed: true };
+      const result = await invokeCli(task, workspacePath, merged);
+      return { success: true, output: result.output, fallbackUsed: true, pid: result.pid };
     } catch (err: unknown) {
       lastError =
         err instanceof Error ? err.message : String(err);

@@ -137,7 +137,7 @@ export function createAntigravityRuntime(config?: AntigravityConfig): Runtime {
           status: "running",
           createdAt: Date.now(),
           lastCheckedAt: Date.now(),
-          fallbackPid: undefined,
+          fallbackPid: result.pid,
         };
       }
 
@@ -160,14 +160,24 @@ export function createAntigravityRuntime(config?: AntigravityConfig): Runtime {
           | undefined;
         if (!session) return;
 
-        // Best-effort: try to close the conversation window
-        // by focusing it and sending Cmd+W or similar
+        // For fallback sessions, kill the CLI process
+        if (session.windowId === -1 && session.fallbackPid) {
+          try {
+            process.kill(session.fallbackPid);
+          } catch {
+            // Process may have already exited
+          }
+          session.status = "failed";
+          return;
+        }
+
+        // For Peekaboo sessions, close the conversation window
         const windows = await peekaboo.windowList(APP_NAME);
         const conversationWindow = windows.find(
           (w) => w.window_id === session.windowId,
         );
         if (conversationWindow) {
-          // Click the window first to focus it, then press Cmd+W
+          // Focus the window by clicking it, then close with Cmd+W
           const snapshot = await peekaboo.see(APP_NAME, session.windowId);
           if (snapshot.ui_elements.length > 0) {
             await peekaboo.click(
@@ -218,10 +228,17 @@ export function createAntigravityRuntime(config?: AntigravityConfig): Runtime {
         return "sent";
       };
 
+      const fallbackCfg: Partial<FallbackConfig> = {
+        cliBin: runtimeConfig.fallbackCliBin,
+        cliFlags: runtimeConfig.fallbackCliFlags,
+        maxRetries: runtimeConfig.fallbackMaxRetries,
+      };
+
       const result = await executeWithFallback(
         primaryFn,
         message,
         String(handle.data["workspacePath"] ?? "."),
+        fallbackCfg,
       );
 
       if (result.fallbackUsed) {
@@ -249,10 +266,17 @@ export function createAntigravityRuntime(config?: AntigravityConfig): Runtime {
       };
 
       try {
+        const fallbackCfg: Partial<FallbackConfig> = {
+          cliBin: runtimeConfig.fallbackCliBin,
+          cliFlags: runtimeConfig.fallbackCliFlags,
+          maxRetries: runtimeConfig.fallbackMaxRetries,
+        };
+
         const result = await executeWithFallback(
           primaryFn,
           "get current output",
           String(handle.data["workspacePath"] ?? "."),
+          fallbackCfg,
         );
 
         if (result.fallbackUsed) {
@@ -271,9 +295,20 @@ export function createAntigravityRuntime(config?: AntigravityConfig): Runtime {
         | undefined;
       if (!session) return false;
 
-      // Fallback sessions (windowId === -1) are alive if status is running
+      // Fallback sessions (windowId === -1): check if CLI process is still alive
       if (session.windowId === -1) {
-        return session.status === "running";
+        if (session.status !== "running") return false;
+        if (session.fallbackPid) {
+          try {
+            // Signal 0 checks if process exists without killing it
+            process.kill(session.fallbackPid, 0);
+            return true;
+          } catch {
+            session.status = "idle";
+            return false;
+          }
+        }
+        return false;
       }
 
       try {
@@ -299,7 +334,7 @@ export function createAntigravityRuntime(config?: AntigravityConfig): Runtime {
         ? `${APP_NAME} window ${session.windowId}: ${session.conversationTitle}`
         : `${APP_NAME} (unknown window)`;
       return {
-        type: "web",
+        type: "process",
         target,
       };
     },
