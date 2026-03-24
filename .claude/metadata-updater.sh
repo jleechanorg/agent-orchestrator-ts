@@ -30,6 +30,11 @@ else
   hook_event=$(echo "$input" | grep -o '"hook_event_name"[[:space:]]*:[[:space:]]*"[^"]*"' | cut -d'"' -f4 || echo "")
 fi
 
+# Fallback to env var when JSON field is absent (e.g., agent-base hook invocations)
+if [[ -z "$hook_event" ]]; then
+  hook_event="${AO_HOOK_EVENT_NAME:-}"
+fi
+
 # Only process successful commands (exit code 0)
 if [[ "$exit_code" -ne 0 ]]; then
   echo '{}'
@@ -143,9 +148,9 @@ if [[ "$clean_command" =~ ^git[[:space:]]+checkout[[:space:]]+([^[:space:]-]+[/-
   fi
 fi
 
-# Detect: gh pr merge (only when explicitly allowed AND in PostToolUse — not PreToolUse)
-# Gate on PostToolUse to avoid marking status=merged before the merge actually succeeds.
-if [[ "$clean_command" =~ $merge_pattern && "${AO_ALLOW_GH_PR_MERGE:-}" == "1" && "$hook_event" == "PostToolUse" ]]; then
+# Detect: gh pr merge in PostToolUse — marks status=merged on successful merge.
+# PostToolUse guard ensures the command already succeeded before we update metadata.
+if [[ "$clean_command" =~ $merge_pattern && "$hook_event" == "PostToolUse" ]]; then
   update_metadata_key "status" "merged"
   echo '{"systemMessage": "Updated metadata: status = merged"}'
   exit 0
