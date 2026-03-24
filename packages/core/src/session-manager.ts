@@ -76,7 +76,7 @@ import { sessionFromMetadata } from "./utils/session-from-metadata.js";
 import { safeJsonParse } from "./utils/validation.js";
 import { resolveAgentSelection, resolveSessionRole } from "./agent-selection.js";
 
-const execFileAsync = promisify(execFile);
+const _execFileAsync = promisify(execFile);
 const OPENCODE_DISCOVERY_TIMEOUT_MS = 2_000;
 const OPENCODE_INTERACTIVE_DISCOVERY_TIMEOUT_MS = 10_000;
 
@@ -97,7 +97,7 @@ async function deleteOpenCodeSession(sessionId: string): Promise<void> {
       await new Promise((resolve) => setTimeout(resolve, delayMs));
     }
     try {
-      await execFileAsync("opencode", ["session", "delete", validatedSessionId], {
+      await _execFileAsync("opencode", ["session", "delete", validatedSessionId], {
         timeout: 30_000,
       });
       return;
@@ -121,7 +121,7 @@ async function fetchOpenCodeSessionList(
   timeoutMs = OPENCODE_DISCOVERY_TIMEOUT_MS,
 ): Promise<OpenCodeSessionListEntry[]> {
   try {
-    const { stdout } = await execFileAsync("opencode", ["session", "list", "--format", "json"], {
+    const { stdout } = await _execFileAsync("opencode", ["session", "list", "--format", "json"], {
       timeout: timeoutMs,
     });
     const parsed = safeJsonParse<unknown>(stdout);
@@ -255,7 +255,7 @@ Steps:
 
 async function getTmuxForegroundCommand(sessionName: string): Promise<string | null> {
   try {
-    const { stdout } = await execFileAsync(
+    const { stdout } = await _execFileAsync(
       "tmux",
       ["display-message", "-p", "-t", sessionName, "#{pane_current_command}"],
       { timeout: 5_000 },
@@ -285,11 +285,16 @@ function metadataToSession(
 export interface SessionManagerDeps {
   config: OrchestratorConfig;
   registry: PluginRegistry;
+  /** Injectable for testability; omit to use the real promisify(execFile). */
+  execFileAsync?: (file: string, args?: readonly string[], opts?: object) => Promise<[string, string]>;
 }
 
 /** Create a SessionManager instance. */
 export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionManager {
-  const { config, registry } = deps;
+  const { config, registry, execFileAsync: injectedExecFileAsync } = deps;
+  // Shadow module-level execFileAsync with the injected test mock when provided
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const execFileAsync = injectedExecFileAsync ?? _execFileAsync;
 
   interface LocatedSession {
     raw: Record<string, string>;
@@ -1669,14 +1674,33 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       const projectWorktreeDir = join(worktreeBaseDir, projectEntry.name);
       if (!existsSync(projectWorktreeDir)) continue;
 
+      // Look up project config to get sessionPrefix and configPath
+      const projectId = projectEntry.name;
+      const projectConfig = config.projects[projectId];
+      if (!projectConfig) continue;
+
+      const { sessionPrefix } = projectConfig;
+      const configPath = projectConfig.configPath;
+
       for (const entry of readdirSync(projectWorktreeDir, { withFileTypes: true })) {
         if (!entry.isDirectory()) continue;
 
-        // Only process AO-managed session worktrees matching the naming pattern
-        if (!AO_SESSION_WORKTREE_PATTERN.test(entry.name)) continue;
+        const worktreeName = entry.name;
 
-        const worktreePath = join(projectWorktreeDir, entry.name);
-        const tmuxName = entry.name;
+        // Only process AO-managed session worktrees matching the naming pattern
+        if (!AO_SESSION_WORKTREE_PATTERN.test(worktreeName)) continue;
+
+        // Derive prefix and number from worktree name (e.g. "ao-748" → prefix="ao", num=748)
+        const nameMatch = worktreeName.match(/^([a-zA-Z0-9_-]+)-(\d+)$/);
+        if (!nameMatch) continue;
+        const prefix = nameMatch[1]!;
+        const num = Number.parseInt(nameMatch[2]!, 10);
+
+        // Construct the full tmux session name using the same logic as session creation:
+        // tmux sessions are named "{hash}-{prefix}-{num}" (e.g. "bb5e6b7f8db3-ao-748")
+        const tmuxName = generateTmuxName(configPath, prefix, num);
+
+        const worktreePath = join(projectWorktreeDir, worktreeName);
 
         // Check if the tmux session is still alive
         let sessionAlive: boolean;
@@ -2622,5 +2646,5 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
     return restoredSession;
   }
 
-  return { spawn, spawnOrchestrator, restore, list, get, kill, cleanup, send, claimPR, remap };
+  return { spawn, spawnOrchestrator, restore, list, get, kill, cleanup, send, claimPR, remap, pruneStaleWorktrees };
 }

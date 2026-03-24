@@ -257,6 +257,7 @@ beforeEach(() => {
         sessionPrefix: "app",
         scm: { plugin: "github" },
         tracker: { plugin: "github" },
+        configPath,
       },
     },
     notifiers: {},
