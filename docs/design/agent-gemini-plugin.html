@@ -135,7 +135,7 @@
         </p>
         <p>
           <span class="tag">process: gemini</span>
-          <span class="tag">session path: ~/.gemini/projects/</span>
+          <span class="tag">session path: ~/.gemini/tmp/&lt;sha256&gt;/chats/</span>
           <span class="tag">runtime: tmux</span>
           <span class="tag">permission flag: --yolo</span>
         </p>
@@ -162,12 +162,12 @@
           <table>
             <tr><th>Aspect</th><th>Gemini</th><th>Claude Code</th></tr>
             <tr><td>Process name</td><td><code>gemini</code></td><td><code>claude</code></td></tr>
-            <tr><td>Session directory</td><td><code>~/.gemini/projects/</code></td><td><code>~/.claude/projects/</code></td></tr>
+            <tr><td>Session directory</td><td><code>~/.gemini/tmp/&lt;sha256(workspacePath)&gt;/chats/</code></td><td><code>~/.claude/projects/&lt;encoded-path&gt;/</code></td></tr>
             <tr><td>Permission flag</td><td><code>--yolo</code></td><td><code>--dangerously-skip-permissions</code></td></tr>
             <tr><td>System prompt flag</td><td>Not supported</td><td><code>--append-system-prompt</code></td></tr>
           </table>
           <p class="muted" style="margin-top:0.5rem;font-size:0.9rem;">
-            A shared <code>agent-jsonl-utils</code> extraction is tracked as a follow-up.
+            Shared logic is already extracted to <code>@composio/ao-plugin-agent-base</code>.
           </p>
         </article>
       </section>
@@ -188,19 +188,20 @@
         <article class="card">
           <h3>Session Tracking</h3>
           <ul>
-            <li>JSONL files in <code>~/.gemini/projects/&lt;encoded-path&gt;/</code></li>
+            <li>Native JSON files in <code>~/.gemini/tmp/&lt;sha256(workspacePath)&gt;/chats/</code></li>
+            <li>Format: <code>{ sessionId, messages: [{ type, content, id, timestamp }, ...] }</code></li>
             <li>Latest file selected by <code>mtime</code></li>
-            <li>Tail-parse for summary, cost, and session ID</li>
-            <li><code>toGeminiProjectPath()</code> encodes workspace path identically to how Gemini CLI does</li>
+            <li><code>toGeminiProjectPath()</code> SHA-256 hashes the workspace path (unlike Claude Code's path-mangling)</li>
           </ul>
         </article>
 
         <article class="card">
           <h3>Activity Detection</h3>
           <ul>
-            <li>Idle: no JSONL writes in last 8 s</li>
-            <li>Working: recent JSONL write activity</li>
-            <li>Stuck: no new JSONL writes beyond the stuck threshold</li>
+            <li><strong>Active</strong>: last message type is <code>"user"</code> or <code>"info"</code></li>
+            <li><strong>Ready</strong>: last message type is <code>"gemini"</code> (agent completed its turn)</li>
+            <li><strong>Blocked</strong>: last message type is <code>"error"</code></li>
+            <li><strong>Idle</strong>: any state older than the ready threshold (default 5 min)</li>
             <li>Process check via <code>ps</code> across all tmux pane TTYs</li>
           </ul>
         </article>
@@ -213,8 +214,8 @@
             <li><code>getLaunchCommand(config)</code> — builds the <code>gemini</code> CLI string</li>
             <li><code>getEnvironment(config)</code> — injects <code>AO_SESSION_ID</code> and metadata env vars</li>
             <li><code>isProcessRunning(handle)</code> — checks tmux pane TTYs via <code>ps</code> for <code>gemini</code></li>
-            <li><code>getActivityState(handle)</code> — JSONL mtime-based idle/working/stuck classification</li>
-            <li><code>getSessionInfo(session)</code> — extracts summary, cost, and session UUID from JSONL tail</li>
+            <li><code>getActivityState(handle)</code> — native JSON message-type classification (user/gemini/error/info)</li>
+            <li><code>getSessionInfo(session)</code> — extracts summary, cost, and session UUID from JSON session file</li>
             <li><code>getWorkspaceHooks()</code> — installs metadata-updater hook</li>
           </ul>
         </article>
@@ -253,9 +254,8 @@ export const builtinPlugins = [
               are both delivered post-launch via <code>sendMessage()</code>.
             </li>
             <li>
-              <strong>Cost estimation</strong>: Falls back to Gemini 2.0 Flash pricing
-              ($0.10/M input, $0.40/M output) when no direct <code>costUSD</code> field
-              is present in the JSONL.
+              <strong>Cost estimation</strong>: Cost tracking is not yet implemented.
+              Gemini CLI does not expose per-call cost in session files.
             </li>
           </ul>
         </article>
@@ -270,7 +270,7 @@ export const builtinPlugins = [
             </li>
             <li>
               <strong>Cost not tracked</strong>: <code>defaultCostRate</code> was removed from config.
-              Cost estimation returns 0 until Gemini CLI exposes per-call costs in JSONL.
+              Cost estimation returns 0 until Gemini CLI exposes per-call costs in session files.
             </li>
             <li>
               <strong>Code sharing</strong>: Shared logic extracted to <code>agent-base</code> plugin.
@@ -283,17 +283,16 @@ export const builtinPlugins = [
         <article class="card">
           <h2>Testing</h2>
           <ul>
-            <li><code>src/index.test.ts</code> — manifest, launch command, process detection, session parsing (67 tests)</li>
-            <li><code>src/__tests__/activity-detection.test.ts</code> — JSONL mtime-based activity states with real temp directories (42 tests)</li>
-            <li>All 109 tests pass; no mocks of the filesystem in activity tests (real <code>fs</code> operations)</li>
+            <li><code>src/index.test.ts</code> — manifest, launch command, process detection, session parsing</li>
+            <li><code>src/__tests__/activity-detection.test.ts</code> — native JSON message-type activity states with real temp directories</li>
+            <li>All tests use real filesystem operations — no filesystem mocks</li>
           </ul>
         </article>
 
         <article class="card">
           <h2>Future Work</h2>
           <ul>
-            <li>Extract shared JSONL utilities (<code>parseJsonlFileTail</code>, <code>extractCost</code>, <code>normalizePermissionMode</code>, etc.) to a shared package used by <code>agent-claude-code</code>, <code>agent-cursor</code>, and <code>agent-gemini</code></li>
-            <li>Update cost estimation when Gemini CLI exposes per-call token pricing in JSONL output</li>
+            <li>Update cost estimation when Gemini CLI exposes per-call token pricing in session files</li>
             <li>Investigate <code>--append-system-prompt</code> equivalent when Gemini CLI adds system prompt support</li>
             <li>Make pricing configurable per-project so operators running non-Flash models get accurate estimates</li>
           </ul>
