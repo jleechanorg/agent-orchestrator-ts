@@ -2235,17 +2235,26 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
         const output = await captureOutput(handle);
         const activity = detectActivityFromOutput(output) ?? session.activity;
         const updatedAt = await getOpenCodeSessionUpdatedAt();
+        const queued = hasQueuedMessage(output);
         const delivered =
           (baselineUpdatedAt !== undefined &&
             updatedAt !== undefined &&
             updatedAt > baselineUpdatedAt) ||
-          hasQueuedMessage(output) ||
           (output.length > 0 && output !== baselineOutput) ||
           (baselineActivity !== "active" && activity === "active") ||
           (baselineActivity !== "waiting_input" && activity === "waiting_input");
 
         if (delivered) {
           return;
+        }
+
+        if (queued) {
+          // Message is in the input buffer but NOT yet submitted. Press Enter to
+          // confirm, then continue polling to verify the agent picked it up.
+          if (runtimePlugin.sendKeys) {
+            await runtimePlugin.sendKeys(handle, "Enter");
+          }
+          continue;
         }
       }
 

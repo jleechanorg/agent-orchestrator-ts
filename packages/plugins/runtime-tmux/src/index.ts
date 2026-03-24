@@ -114,6 +114,7 @@ async function doSendWithRetry(handle: RuntimeHandle, message: string): Promise<
         break;
       }
       const trimmedOutput = paneOutput.trimEnd();
+      const hasQueuedMessage = trimmedOutput.includes("Press up to edit queued messages");
       // Agent has started if: any RECENT activity token is present (last 5 lines),
       // OR the pane no longer ends with our message tail.
       const recentLines = trimmedOutput.split("\n").filter((l) => l.trim().length > 0).slice(-5);
@@ -121,7 +122,7 @@ async function doSendWithRetry(handle: RuntimeHandle, message: string): Promise<
         AGENT_ALIVE_PATTERNS.some((p) => p.test(line)),
       );
       const agentStarted = hasRecentActivity || !trimmedOutput.endsWith(messageTail);
-      if (agentStarted) {
+      if (agentStarted && !hasQueuedMessage) {
         break;
       }
       // Enter was swallowed — send it again
@@ -230,6 +231,12 @@ export function create(): Runtime {
         // Retry: send message again using the same doSendWithRetry logic
         await doSendWithRetry(handle, message);
       }
+    },
+
+    async sendKeys(handle: RuntimeHandle, key: string): Promise<void> {
+      // Send a key without clearing the input buffer (unlike sendMessage which calls C-u first).
+      // Used to confirm queued messages that are pending submission.
+      await tmux("send-keys", "-t", handle.id, key);
     },
 
     async getOutput(handle: RuntimeHandle, lines = 50): Promise<string> {

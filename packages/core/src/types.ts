@@ -223,6 +223,12 @@ export interface Runtime {
   /** Send a text message/prompt to the running agent */
   sendMessage(handle: RuntimeHandle, message: string): Promise<void>;
 
+  /**
+   * Send a special key (Enter, Tab, Ctrl+C, etc.) without clearing the input buffer.
+   * Used to confirm queued messages that are pending submission.
+   */
+  sendKeys?(handle: RuntimeHandle, key: string): Promise<void>;
+
   /** Capture recent output from the session */
   getOutput(handle: RuntimeHandle, lines?: number): Promise<string>;
 
