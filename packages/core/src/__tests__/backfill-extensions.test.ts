@@ -312,11 +312,7 @@ describe("backfillUncoveredPRs", () => {
       spawnCount++;
       return makeSession({ id: `new-${spawnCount}` });
     });
-    let claimCount = 0;
-    vi.mocked(mockSessionManager.claimPR).mockImplementation(async () => {
-      claimCount++;
-      throw new Error("conflict");
-    });
+    vi.mocked(mockSessionManager.claimPR).mockRejectedValue(new Error("conflict"));
 
     const result = await backfillUncoveredPRs(deps, makeParams());
 
