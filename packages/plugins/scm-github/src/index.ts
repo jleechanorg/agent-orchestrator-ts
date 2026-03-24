@@ -1930,6 +1930,7 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
           if (mergeable === "CONFLICTING") {
             blockers.push("Merge conflicts");
           } else if (mergeable === "UNKNOWN" || mergeable === "") {
+            noConflicts = false; // bd-ara.2: UNKNOWN is not confirmed conflict-free — fire merge-conflicts reaction so worker rebases
             blockers.push("Merge status unknown (GitHub is computing)");
           }
         }
