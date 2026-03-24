@@ -6,14 +6,9 @@ import type { Command } from "commander";
 import {
   type Agent,
   type OpenCodeSessionManager,
-  type RuntimeHandle,
   type Session,
   loadConfig,
 } from "@jleechanorg/ao-core";
-import {
-  isAgentAliveInPane,
-  restartAgentCli,
-} from "@jleechanorg/ao-plugin-runtime-tmux";
 import { exec, tmux } from "../lib/shell.js";
 import { getAgentByName } from "../lib/plugins.js";
 import { getSessionManager } from "../lib/create-session-manager.js";
@@ -193,28 +188,16 @@ export function registerSend(program: Command): void {
           return;
         }
 
-        // Dead-agent CLI detection (bd-tln): before pasting, verify the agent CLI
-        // is still alive in the pane.  The sessionManager path above already goes
-        // through runtime.sendMessage which has its own liveness check.  This
-        // guard covers the direct tmux path where we call sendViaTmux directly.
-        const agentAlive = await isAgentAliveInPane(tmuxTarget);
-        if (!agentAlive) {
-          const handle: RuntimeHandle | null = existingSession?.runtimeHandle ?? null;
-          if (handle) {
-            console.log(chalk.yellow("Agent CLI appears dead — restarting before paste..."));
-            await restartAgentCli(handle);
-            console.log(chalk.green("Agent restarted — proceeding with paste."));
-          } else {
-            // No session record — we lack the launchCommand needed to restart.
-            // Warn and send anyway so the user at least sees what ended up in the pane.
-            console.log(
-              chalk.yellow(
-                "Agent CLI appears dead and no session record available to restart. " +
-                  "Message will be pasted to bare shell — verify the pane is correct.",
-              ),
-            );
-          }
-        }
+        // Unmanaged session (no AO session record): paste directly via tmux.
+        // Note: we skip isAgentAliveInPane here to avoid false-positive "dead agent"
+        // warnings for idle sessions whose pane shows a shell prompt (❯ / $).  The
+        // sessionManager path above already has its own liveness check via
+        // runtime.sendMessage; unmanaged sessions have no restart capability anyway.
+        console.log(
+          chalk.dim(
+            `Session '${session}' is not tracked by AO — sending directly via tmux.`,
+          ),
+        );
 
         await sendViaTmux(tmuxTarget, message);
 
