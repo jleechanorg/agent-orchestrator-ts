@@ -959,7 +959,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       // state and won't reach this block via a killed transition. This guard catches
       // other transitions (e.g. mergeable→something) for sessions where the agent died
       // between polls.
-      if (eventType && !agentDead) {
+      if (eventType) {
         let reactionHandledNotify = false;
         const reactionKey = eventToReactionKey(eventType);
 
@@ -967,8 +967,14 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
           const reactionConfig = getReactionConfigForSession(session, reactionKey);
 
           if (reactionConfig && reactionConfig.action) {
+            // bd-5o1: skip send-to-agent reactions for dead agents — ao send to a dead
+            // session wastes resources and generates spurious escalation notifications.
+            // All other reactions (auto-merge, notify, request-merge, parallel-retry) are
+            // SCM/notification operations that don't require a live agent.
+            const skipForDead = agentDead && reactionConfig.action === "send-to-agent";
+
             // auto: false skips automated agent actions but still allows notifications
-            if (reactionConfig.auto !== false || reactionConfig.action === "notify") {
+            if ((reactionConfig.auto !== false || reactionConfig.action === "notify") && !skipForDead) {
               // Reaction will execute
               const reactionResult = await executeReaction(
                 session.id,
@@ -1187,10 +1193,12 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       // subsequent polls so transient gate failures don't permanently block merge.
       // Cooldown: only retry once per 5 minutes to avoid notification spam and
       // reaction budget exhaustion (bd-ara CR feedback).
-      // bd-5o1: skip auto-merge retry for dead agents — a dead agent can't respond
-      // to merge failures (e.g. branch protection errors). If the PR needs manual
-      // intervention, leave it for human review rather than retrying into the void.
-      if (newStatus === "mergeable" && !agentDead) {
+      // bd-5o1 cursor fix: do NOT skip retry for dead agents — bd-ara's intent was
+      // that "auto-merge can fire for green PRs with exited agents". The retry handles
+      // transient failures (network, rate limits). If the failure is persistent (branch
+      // protection), the merge gate will fail again and the next-cycle notifyHuman call
+      // will alert humans rather than retrying forever.
+      if (newStatus === "mergeable") {
         const reactionKey = "approved-and-green";
         const reactionConfig = getReactionConfigForSession(session, reactionKey);
         if (
