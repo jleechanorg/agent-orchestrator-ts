@@ -11,19 +11,23 @@
 
 19 open PRs. 0 are 6-green. The autonomy pipeline (`ao spawn` → code → PR → 6 green → merge) has 5 systemic blockers. v1 closed the merge-gate and reaction plumbing gaps. v2 addresses the **last-mile failures** that prevent workers from actually reaching green.
 
-| # | Blocker | Impact | Root Cause | Fix Type |
-|---|---------|--------|------------|----------|
-| 1 | Unresolved inline comments | 19/19 PRs blocked | `autoResolveThreads()` is dead code; workers don't document fixes | Config (agentRules) |
-| 2 | `mergeable=UNKNOWN` | 13/19 PRs | No reaction for UNKNOWN; workers only rebase on CONFLICTING | Config + lifecycle event |
-| 3 | Stale session accumulation | 25 tmux sessions (gate=15) | No kill signal on PR merge; reaper too slow | Core code (lifecycle-manager) |
-| 4 | CHANGES_REQUESTED stuck | 8/19 PRs | Workers fix code but don't trigger CR re-review | Config (agentRules) + hook |
-| 5 | Test failures not self-healed | 3/19 PRs | ci-failed reaction lacks test output; no local-first rule | Config + reaction context |
+| # | Blocker | Impact | Root Cause | Fix Type | Status |
+|---|---------|--------|------------|----------|--------|
+| 1 | Unresolved inline comments | 19/19 PRs blocked | `autoResolveThreads()` is dead code; workers don't document fixes | Config (agentRules) | ✅ RESOLVED |
+| 2 | `mergeable=UNKNOWN` | 13/19 PRs | No reaction for UNKNOWN; workers only rebase on CONFLICTING | Config + lifecycle event | OPEN |
+| 3 | Stale session accumulation | 25 tmux sessions (gate=15) | No kill signal on PR merge; reaper too slow | Core code (lifecycle-manager) | OPEN |
+| 4 | CHANGES_REQUESTED stuck | 8/19 PRs | Workers fix code but don't trigger CR re-review | Config (agentRules) + hook | OPEN |
+| 5 | Test failures not self-healed | 3/19 PRs | ci-failed reaction lacks test output; no local-first rule | Config + reaction context | OPEN |
 
 ---
 
 ## Blocker 1: Workers Don't Clear Unresolved Comments (bd-ara.1)
 
-**Observed:** Even CR-APPROVED PRs have 1-14 unresolved review threads. Green condition #5 (all comments resolved) never passes.
+**Status:** ✅ RESOLVED — 2026-03-23 (session ao-611)
+**Implementation:** `~/.openclaw/agent-orchestrator.yaml` defaults.agentRules — GraphQL thread resolution removed; replaced with PR description documentation approach.
+**Artifact:** `roadmap/autonomy-blockers-v2.md` (this file)
+
+**Previously observed (pre-fix):** Even CR-APPROVED PRs had 1-14 unresolved review threads, so green condition #5 (all comments resolved) did not pass.
 
 ### 5 Whys — Technical
 
