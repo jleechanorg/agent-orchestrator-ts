@@ -974,7 +974,7 @@ export interface ReactionConfig {
   mergeMethod?: "merge" | "squash" | "rebase";
 
   /**
-   * Boolean flag for GitHub's native auto-merge behavior.
+   * Numeric flag for GitHub's native auto-merge behavior.
    * When > 0: the lifecycle-manager calls `gh pr merge --auto` (or the GraphQL
    * enablePullRequestAutoMerge mutation on rate limit), which activates GitHub's
    * native auto-merge — GitHub itself waits for all required status checks to pass
