@@ -1230,24 +1230,23 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
           );
         }
         // Reset AO-managed files so checkout succeeds cleanly.
-        // git checkout -- <file> restores a tracked file from the index but is a
-        // no-op for untracked files (??) and only unstages staged changes without
-        // restoring content. Use targeted git commands per status instead.
+        // git checkout -- <file> restores from the index, not HEAD, so it is a
+        // no-op for untracked (??). Use targeted commands per status instead.
+        // Status format: XY FILENAME (X=index, Y=working tree; space=no change).
         for (const line of dirty.split("\n")) {
-          const filePath = line.replace(/^[MADRCUT?! ]{1,2}\s/, "").trim();
+          const filePath = line.replace(/^[MADRCUT?! ]{2}\s/, "").trim();
           if (!AO_MANAGED.has(filePath)) continue;
-          const status = line[0] + (line[1] || " ");
-          if (status === "? ") {
-            // Untracked — remove from working tree
-            await git(["clean", "-f", "--", filePath], workspacePath).catch(() => {});
-          } else if (status === "M " || status === "MM") {
-            // Staged AND modified (index differs from HEAD) — restore from HEAD
-            await git(["restore", "--source=HEAD", "--", filePath], workspacePath).catch(() => {});
-          } else if (status === "M") {
-            // Modified in working tree only — restore from index
+          const idx = line[0];
+          const wt = line[1];
+          if (wt === "?" || wt === "!") {
+            // Untracked or ignored — remove from working tree
+            await git(["clean", "-f", filePath], workspacePath).catch(() => {});
+          } else if (wt !== " " && wt !== undefined) {
+            // Working-tree change (e.g. " M", "MD") — restore working tree from index
             await git(["checkout", "--", filePath], workspacePath).catch(() => {});
           }
-          // " D" (deleted), "AM" (staged after add), etc. — let checkout fail naturally
+          // If only index changed (e.g. "M "), git checkout skips working-tree
+          // changes anyway — leave staged-only modifications untouched.
         }
       }
 

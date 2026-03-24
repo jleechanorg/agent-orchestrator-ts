@@ -100,28 +100,31 @@ export async function backfillUncoveredPRs(
 
     // Spawn one session at a time to avoid thundering herd.
     // If spawn/claim fails for a PR, skip it and try the next uncovered PR.
-    // After 3 consecutive spawn failures, stop — systemic issues (project paused,
-    // missing plugin, etc.) will fail identically for every PR in this cycle.
+    // Stop after consecutive failures to avoid unbounded churn.
+    // Spawn failures indicate systemic issues (project paused, missing plugin, etc.)
+    // Claim failures indicate systemic workspace issues (CONFLICTING PR, locked ws, etc.)
     const MAX_CONSECUTIVE_SPAWN_FAILURES = 3;
+    const MAX_CONSECUTIVE_CLAIM_FAILURES = 3;
     let consecutiveSpawnFailures = 0;
+    let consecutiveClaimFailures = 0;
     for (const pr of uncovered) {
       try {
         // Don't pass branch to spawn — let claimPR handle checkout so
         // the workspace starts on the correct PR branch via SCM checkout.
+        // pr.title is contributor-supplied — escape quotes to prevent prompt injection.
+        const escapedTitle = pr.title.replace(/"/g, '\\"');
         const session = await sessionManager.spawn({
           projectId,
-          prompt: `Continue working on PR #${pr.number}: ${pr.title}. Check PR status, fix any blockers (CI failures, review comments, merge conflicts), and drive it to 6-green.`,
+          prompt: `Continue working on PR #${pr.number}: "${escapedTitle}". Check PR status, fix any blockers (CI failures, review comments, merge conflicts), and drive it to 6-green.`,
         });
+        consecutiveClaimFailures = 0; // reset on spawn success
 
         // Claim the PR for this session — this checks out the branch
         try {
           await sessionManager.claimPR(session.id, String(pr.number));
-          // Only reset counter after both spawn AND claim succeed.
-          // Claim failures preserve any prior spawn-failure count, ensuring
-          // subsequent spawn failures still accumulate toward the abort limit.
-          consecutiveSpawnFailures = 0;
+          consecutiveSpawnFailures = 0; // reset when both succeed
         } catch (claimErr) {
-          // claimPR failed — kill the orphan session and try next PR
+          consecutiveClaimFailures++;
           observer.recordOperation({
             metric: "lifecycle_poll",
             operation: "lifecycle.backfill.claim_failed",
@@ -131,10 +134,12 @@ export async function backfillUncoveredPRs(
             sessionId: session.id,
             data: {
               prNumber: pr.number,
+              consecutiveClaimFailures,
               error: claimErr instanceof Error ? claimErr.message : String(claimErr),
             },
             level: "warn",
           });
+          // If kill fails, abort rather than leaking an orphan session
           try {
             await sessionManager.kill(session.id);
           } catch (killErr) {
@@ -154,8 +159,23 @@ export async function backfillUncoveredPRs(
             // Orphan session couldn't be cleaned up — abort backfill rather than leak
             return false;
           }
+          // Stop if claim keeps failing — systemic workspace issue (e.g. all PRs CONFLICTING)
+          if (consecutiveClaimFailures >= MAX_CONSECUTIVE_CLAIM_FAILURES) {
+            observer.recordOperation({
+              metric: "lifecycle_poll",
+              operation: "lifecycle.backfill.claim_failed_abort",
+              outcome: "failure",
+              correlationId,
+              projectId,
+              data: { consecutiveClaimFailures },
+              level: "warn",
+            });
+            return false;
+          }
           continue; // try next uncovered PR
         }
+
+        consecutiveSpawnFailures = 0; // both spawn AND claim succeeded
 
         observer.recordOperation({
           metric: "lifecycle_poll",
