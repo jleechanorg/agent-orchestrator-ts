@@ -286,11 +286,11 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     if (session.runtimeHandle && runtime) {
       const alive = await runtime.isAlive(session.runtimeHandle).catch(() => true);
       if (!alive) {
-        // Don't return "killed" yet — if the session has a PR (or might have
-        // one discoverable via branch-based auto-detect in step 3), check PR
-        // state first so auto-merge can fire for green PRs with exited agents.
-        if (!scm) return "killed";
-        agentDead = true;
+        // bd-5o1: return "killed" immediately — do NOT fall through to step 4 (PR
+        // state evaluation). The bd-kki check in checkSession handles the
+        // "killed → check if PR merged" case separately; reactions must not fire
+        // for dead sessions regardless of their PR state.
+        return "killed";
       }
 
       if (!agentDead) {
