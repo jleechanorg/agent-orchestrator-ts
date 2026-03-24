@@ -16,6 +16,8 @@ import * as peekaboo from "./peekaboo.js";
 import { executeWithFallback } from "./fallback.js";
 import type { AntigravitySession } from "./types.js";
 import type { FallbackConfig } from "./fallback.js";
+import type { AntigravityConfig } from "./config.js";
+import { defaultConfig } from "./config.js";
 
 /** Application name for Peekaboo targeting. */
 const APP_NAME = "Antigravity";
@@ -24,8 +26,11 @@ const APP_NAME = "Antigravity";
  * Create an AntigravityRuntime instance.
  *
  * Follows the same factory pattern as the tmux runtime.
+ *
+ * @param config - Optional validated config. Falls back to defaults.
  */
-export function createAntigravityRuntime(): Runtime {
+export function createAntigravityRuntime(config?: AntigravityConfig): Runtime {
+  const _config = config ?? defaultConfig();
   return {
     name: "antigravity",
 

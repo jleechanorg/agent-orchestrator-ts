@@ -7,8 +7,17 @@
 
 import type { PluginModule, Runtime } from "@jleechanorg/ao-core";
 import { createAntigravityRuntime } from "./runtime.js";
+import { parseConfig } from "./config.js";
+
 export type { FallbackConfig, FallbackResult } from "./fallback.js";
 export { executeWithFallback } from "./fallback.js";
+export {
+  AntigravityConfigSchema,
+  WorkspaceMapSchema,
+  parseConfig,
+  defaultConfig,
+} from "./config.js";
+export type { AntigravityConfig, WorkspaceMap } from "./config.js";
 
 export const manifest = {
   name: "antigravity",
@@ -17,8 +26,10 @@ export const manifest = {
   version: "0.1.0",
 };
 
-export function create(): Runtime {
-  return createAntigravityRuntime();
+export function create(options?: unknown): Runtime {
+  const config = parseConfig(options ?? {});
+  return createAntigravityRuntime(config);
 }
 
 export default { manifest, create } satisfies PluginModule<Runtime>;
+
