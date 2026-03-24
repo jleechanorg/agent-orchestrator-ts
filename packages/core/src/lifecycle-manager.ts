@@ -278,13 +278,6 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     let scmFailureCount =
       typeof rawCount === "string" ? parseInt(rawCount, 10) : Number(rawCount);
     if (Number.isNaN(scmFailureCount)) scmFailureCount = 0;
-    // bd-6jc: killConfirmed is set when the consecutive-failure threshold fires.
-    // Used in checkSession to bypass bd-kki SCM re-check (which could throw or
-    // absorb on a session whose PR state is stale). Stored as string for updateMetadata.
-    const killConfirmed = session.metadata["killConfirmed"] === "true";
-    // bd-6jc: flag set inside catch to signal finally should NOT reset counter
-    // (counter was incremented as part of the kill-after-threshold path).
-    let killAfterThreshold = false;
     // bd-6jc: tracks whether an SCM error was caught; used in finally to decide
     // whether to reset the counter (only reset on genuine SCM success).
     let scmErrorOccurred = false;
@@ -461,8 +454,8 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         return "pr_open";
       } catch {
         // bd-6jc: SCM threw — increment consecutive failure counter, persist, and
-        // check threshold.  The finally always runs (even after this block), so we
-        // use killAfterThreshold to signal it should NOT reset the counter.
+        // check threshold.  The finally only resets the counter on SCM success
+        // (when scmErrorOccurred stays false); on catch, the counter accumulates.
         scmErrorOccurred = true;
         scmFailureCount++;
         session.metadata["scmFailureCount"] = String(scmFailureCount);
@@ -476,13 +469,11 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
           // guard activates within the same poll cycle.
           session.metadata["killConfirmed"] = "true";
           updateMetadata(sessionsDir, session.id, { killConfirmed: "true" });
-          killAfterThreshold = true;
           return "killed";
         }
       } finally {
         // bd-6jc: SCM succeeded (scmErrorOccurred=false) — reset counter if non-zero.
-        // On catch, scmErrorOccurred=true; in that case don't reset unless killAfterThreshold
-        // is set (threshold was reached — counter was already persisted with the kill).
+        // On catch (scmErrorOccurred=true): do NOT reset — counter should accumulate.
         if (!scmErrorOccurred && scmFailureCount !== 0) {
           const sessionsDir = getSessionsDir(config.configPath, project.path);
           updateMetadata(sessionsDir, session.id, { scmFailureCount: "0" });
