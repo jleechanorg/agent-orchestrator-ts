@@ -465,8 +465,12 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
           return { status: "stuck", agentDead: false };
         }
 
-        // Agent is dead but PR isn't in a merge-ready state — kill the session
-        if (agentDead) return { status: "killed", agentDead: true };
+        // Agent is dead but PR isn't in a merge-ready state.
+        // bd-6jc: If SCM succeeded (scmFailureCount=0 from try block), return
+        // "pr_open" immediately — SCM confirmed the PR won't auto-merge so there's
+        // no reason to defer. The consecutive-failure threshold only applies when
+        // SCM throws; the catch block below handles that case.
+        if (agentDead) return { status: "pr_open", agentDead: true };
 
         return { status: "pr_open", agentDead: false };
       } catch {
@@ -501,8 +505,12 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       }
     }
 
-    // bd-ara: If agent is dead but we had no PR branch to check, kill
-    if (agentDead) return { status: "killed", agentDead: true };
+    // bd-ara + bd-6jc: If agent is dead and SCM was never invoked or all SCM calls
+    // have succeeded (scmFailureCount=0), kill immediately — no need to wait.  When
+    // scmFailureCount > 0, SCM has been called at least once (detectPR or PR checks)
+    // and thrown, so the counter gates the kill — do not double-count with an
+    // immediate kill here.
+    if (agentDead && !(session.pr && scm) && scmFailureCount === 0) return { status: "killed", agentDead: true };
 
     // 5. Post-all stuck detection: if we detected idle in step 2 but had no PR,
     // still check stuck threshold. This handles agents that finish without creating a PR.
