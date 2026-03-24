@@ -319,17 +319,14 @@ check_lifecycle_workers() {
   local canonical_binary
   canonical_binary="$(command -v ao 2>/dev/null || printf '%s' "$HOME/bin/ao")"
 
-  if [ ! -f "$config_file" ]; then
-    warn "No canonical config at $config_file — cannot check lifecycle-worker counts"
-    return
-  fi
-
   # --- Check 1: detect ALL lifecycle-worker processes, flag non-canonical binaries ---
+  # NOTE: Checks 1 and 2 run unconditionally — they do not require the config file.
+  # config_file is only needed for Check 3 (per-project duplicate detection).
   local all_workers
   all_workers="$(ps aux 2>/dev/null | grep -v grep | grep 'lifecycle-worker' || true)"
-  # Use grep -c safely: count lines from ps output, default to 0 if no matches
+  # Count via wc -l to avoid grep -c exit-code / multiline artefacts
   local total_count
-  total_count="$(printf '%s' "$all_workers" | grep -c 'lifecycle-worker' || true)"
+  total_count="$(printf '%s\n' "$all_workers" | grep 'lifecycle-worker' | wc -l | tr -d ' ')"
   total_count="${total_count:-0}"
 
   if [ "$total_count" -gt 0 ]; then
