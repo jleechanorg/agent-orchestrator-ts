@@ -257,6 +257,7 @@ beforeEach(() => {
         sessionPrefix: "app",
         scm: { plugin: "github" },
         tracker: { plugin: "github" },
+        configPath,
       },
     },
     notifiers: {},
@@ -2209,6 +2210,7 @@ describe("cleanup", () => {
           sessionPrefix: "app",
           scm: { plugin: "github" },
           tracker: { plugin: "github" },
+          configPath,
         },
       },
     };
