@@ -297,7 +297,6 @@ export interface SessionManagerDeps {
 export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionManager {
   const { config, registry, execFileAsync: injectedExecFileAsync } = deps;
   // Shadow module-level execFileAsync with the injected test mock when provided
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const execFileAsync = injectedExecFileAsync ?? _execFileAsync;
 
   interface LocatedSession {
@@ -1678,12 +1677,11 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       const projectWorktreeDir = join(worktreeBaseDir, projectEntry.name);
       if (!existsSync(projectWorktreeDir)) continue;
 
-      // Look up project config to get configPath (for hash-based tmux name generation)
+      // Look up project config; use top-level configPath for hash generation
       const projectId = projectEntry.name;
-      const projectConfig = config.projects[projectId];
-      if (!projectConfig) continue;
+      if (!config.projects[projectId]) continue;
 
-      const configPath = projectConfig.configPath ?? config.configPath;
+      const configPath = config.configPath;
       if (!configPath) continue;
 
       for (const entry of readdirSync(projectWorktreeDir, { withFileTypes: true })) {
