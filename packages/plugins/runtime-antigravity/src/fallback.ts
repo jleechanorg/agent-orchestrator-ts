@@ -83,7 +83,6 @@ function invokeCli(
 ): Promise<CliInvokeResult> {
   return new Promise<CliInvokeResult>((resolve, reject) => {
     const args = [...config.cliFlags, "-p", task];
-    let childPid: number | undefined;
 
     const child = execFileCb(
       config.cliBin,
@@ -94,14 +93,10 @@ function invokeCli(
           reject(err);
           return;
         }
-        resolve({ output: String(stdout ?? ""), pid: childPid });
+        // child.pid is captured at spawn time — safe to read in callback.
+        resolve({ output: String(stdout ?? ""), pid: child.pid });
       },
     );
-
-    // Capture PID immediately after spawn (before async callback fires).
-    // If child.pid is undefined (spawn failed), leave childPid as undefined
-    // so callers never receive -1 which would pass to process.kill(-1).
-    childPid = child.pid;
   });
 }
 
