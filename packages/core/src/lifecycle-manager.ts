@@ -497,16 +497,20 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         // bd-6jc: SCM succeeded (scmErrorOccurred=false) — reset counter if non-zero.
         // On catch (scmErrorOccurred=true): do NOT reset — counter should accumulate.
         if (!scmErrorOccurred && scmFailureCount !== 0) {
+          scmFailureCount = 0;
+          session.metadata["scmFailureCount"] = "0"; // bd-6jc: sync in-memory so next poll reads 0
           const sessionsDir = getSessionsDir(config.configPath, project.path);
           updateMetadata(sessionsDir, session.id, { scmFailureCount: "0" });
         }
       }
     }
 
-    // bd-ara: If agent is dead but we had no PR/branch to check, kill immediately.
-    // SCM was never attempted so there's nothing to wait for — do not gate on
-    // scmFailureCount (that counter only applies when SCM was actually called).
-    if (agentDead && !(session.pr && scm)) return { status: "killed", agentDead: true };
+    // bd-ara + bd-6jc: If agent is dead and SCM was never invoked or all SCM calls
+    // have succeeded (scmFailureCount=0), kill immediately — no need to wait.  When
+    // scmFailureCount > 0, SCM has been called at least once (detectPR or PR checks)
+    // and threw, so the counter gates the kill — do not double-count with an
+    // immediate kill here.
+    if (agentDead && !(session.pr && scm) && scmFailureCount === 0) return { status: "killed", agentDead: true };
 
     // 5. Post-all stuck detection: if we detected idle in step 2 but had no PR,
     // still check stuck threshold. This handles agents that finish without creating a PR.
