@@ -1229,9 +1229,25 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
             `Workspace has uncommitted changes; cannot switch to PR branch "${pr.branch}" safely`,
           );
         }
-        // Reset AO-managed files so checkout succeeds cleanly
-        for (const f of AO_MANAGED) {
-          await git(["checkout", "--", f], workspacePath).catch(() => {});
+        // Reset AO-managed files so checkout succeeds cleanly.
+        // git checkout -- <file> restores a tracked file from the index but is a
+        // no-op for untracked files (??) and only unstages staged changes without
+        // restoring content. Use targeted git commands per status instead.
+        for (const line of dirty.split("\n")) {
+          const filePath = line.replace(/^[MADRCUT?! ]{1,2}\s/, "").trim();
+          if (!AO_MANAGED.has(filePath)) continue;
+          const status = line[0] + (line[1] || " ");
+          if (status === "? ") {
+            // Untracked — remove from working tree
+            await git(["clean", "-f", "--", filePath], workspacePath).catch(() => {});
+          } else if (status === "M " || status === "MM") {
+            // Staged AND modified (index differs from HEAD) — restore from HEAD
+            await git(["restore", "--source=HEAD", "--", filePath], workspacePath).catch(() => {});
+          } else if (status === "M") {
+            // Modified in working tree only — restore from index
+            await git(["checkout", "--", filePath], workspacePath).catch(() => {});
+          }
+          // " D" (deleted), "AM" (staged after add), etc. — let checkout fail naturally
         }
       }
 
