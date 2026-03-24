@@ -98,7 +98,8 @@ describe("scm-github plugin", () => {
   beforeEach(() => {
     _resetGhCache();
     vi.clearAllMocks();
-    ghMock.mockReset(); // Clear any lingering mockImplementation from previous tests
+    ghMock.mockReset(); // clear queue + stale mockResolvedValue from previous test
+    ghMock.mockResolvedValue({ stdout: "" }); // neutral base: no output for unexpected gh calls
     scm = create();
     delete process.env["GITHUB_WEBHOOK_SECRET"];
   });
@@ -678,27 +679,34 @@ describe("scm-github plugin", () => {
 
     it("checks out PR when workspace is clean and branch differs", async () => {
       ghMock.mockResolvedValueOnce({ stdout: "main\n" }); // git branch --show-current (before)
-      ghMock.mockResolvedValueOnce({ stdout: "" }); // git status --porcelain
-      ghMock.mockResolvedValueOnce({ stdout: "" }); // gh pr checkout
-      ghMock.mockResolvedValueOnce({ stdout: "feat/my-feature\n" }); // git branch --show-current (after)
+      ghMock.mockResolvedValueOnce({ stdout: "" }); // git status --porcelain (clean)
+      ghMock.mockResolvedValueOnce({ stdout: "https://github.com/acme/repo.git\n" }); // git remote get-url origin
+      ghMock.mockResolvedValueOnce({ stdout: "" }); // git fetch refs/pull/42/head:feat/my-feature (primary succeeds)
+      ghMock.mockResolvedValueOnce({ stdout: "main\n" }); // git branch --show-current (after fetch — still on main)
+      ghMock.mockResolvedValueOnce({ stdout: "" }); // git checkout feat/my-feature
+      ghMock.mockResolvedValueOnce({ stdout: "feat/my-feature\n" }); // git branch --show-current (verify)
 
       const changed = await scm.checkoutPR?.(pr, "/tmp/repo");
       expect(changed).toBe(true);
     });
 
-    it("throws when gh pr checkout silently fails (e.g. branch locked by another worktree)", async () => {
+    it("throws when git fetch fails for non-ref-not-found reasons (auth, network)", async () => {
       ghMock.mockResolvedValueOnce({ stdout: "main\n" }); // git branch --show-current (before)
-      ghMock.mockResolvedValueOnce({ stdout: "" }); // git status --porcelain
-      ghMock.mockRejectedValueOnce(new Error("Command failed: exit 128")); // gh pr checkout fails
-      // No post-checkout branch verification call expected since gh threw
+      ghMock.mockResolvedValueOnce({ stdout: "" }); // git status --porcelain (clean)
+      ghMock.mockResolvedValueOnce({ stdout: "https://github.com/acme/repo.git\n" }); // git remote get-url origin
+      ghMock.mockRejectedValueOnce(new Error("Authentication failed")); // git fetch fails with auth error
 
-      await expect(scm.checkoutPR?.(pr, "/tmp/repo")).rejects.toThrow("Command failed: exit 128");
+      await expect(scm.checkoutPR?.(pr, "/tmp/repo")).rejects.toThrow("Authentication failed");
     });
 
-    it("returns true when gh pr checkout succeeds (no post-checkout branch verification)", async () => {
+    it("returns true when git fetch + checkout succeeds (already on branch after fetch)", async () => {
       ghMock.mockResolvedValueOnce({ stdout: "main\n" }); // git branch --show-current (before)
-      ghMock.mockResolvedValueOnce({ stdout: "" }); // git status --porcelain
-      ghMock.mockResolvedValueOnce({ stdout: "" }); // gh pr checkout (exit 0)
+      ghMock.mockResolvedValueOnce({ stdout: "" }); // git status --porcelain (clean)
+      ghMock.mockResolvedValueOnce({ stdout: "https://github.com/acme/repo.git\n" }); // git remote get-url origin
+      ghMock.mockResolvedValueOnce({ stdout: "" }); // git fetch refs/pull/42/head:feat/my-feature (primary succeeds)
+      ghMock.mockResolvedValueOnce({ stdout: "main\n" }); // git branch --show-current (after fetch — still on main, needs checkout)
+      ghMock.mockResolvedValueOnce({ stdout: "" }); // git checkout feat/my-feature
+      ghMock.mockResolvedValueOnce({ stdout: "feat/my-feature\n" }); // git branch --show-current (verify)
 
       const changed = await scm.checkoutPR?.(pr, "/tmp/repo");
       expect(changed).toBe(true);
