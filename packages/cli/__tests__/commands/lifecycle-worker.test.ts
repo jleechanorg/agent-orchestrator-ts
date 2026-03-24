@@ -227,8 +227,8 @@ describe("sweepOrphanWorktrees", () => {
 
     expect(mockExec).toHaveBeenCalledWith(
       "git",
-      ["worktree", "remove", "--force", worktreePath],
-      expect.any(Object),
+      ["worktree", "remove", "--force", "--force", worktreePath],
+      expect.objectContaining({ cwd: worktreePath }),
       expect.any(Function),
     );
     expect(observer.recordOperation).toHaveBeenCalledWith(
@@ -258,7 +258,7 @@ describe("sweepOrphanWorktrees", () => {
 
     const removedPaths = mockExec.mock.calls
       .filter(([cmd, args]) => cmd === "git" && args[1] === "remove")
-      .map(([, args]) => args[3]);
+      .map(([, args]) => args[4]);
     expect(removedPaths).toHaveLength(3);
     expect(removedPaths).toContain(w1);
     expect(removedPaths).toContain(w2);
@@ -283,7 +283,7 @@ describe("sweepOrphanWorktrees", () => {
         return;
       }
       if (cmd === "git" && args[0] === "worktree" && args[1] === "remove") {
-        const path = args[3];
+        const path = args[4];
         if (path === w1) {
           cb(new Error("git permission denied"), "", "");
         } else {
@@ -358,6 +358,6 @@ describe("sweepOrphanWorktrees", () => {
       ([cmd, args]) => cmd === "git" && args[1] === "remove",
     );
     expect(removeCalls).toHaveLength(1);
-    expect(removeCalls[0][1][3]).toBe(orphanPath);
+    expect(removeCalls[0][1][4]).toBe(orphanPath);
   });
 });

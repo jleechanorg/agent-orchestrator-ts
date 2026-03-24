@@ -212,9 +212,17 @@ export async function sweepOrphanWorktrees(opts: {
     const fullPath = join(worktreeBaseDir, projectId, entry);
     orphanCount += 1;
     try {
-      await execFileAsync("git", ["worktree", "remove", "--force", fullPath], {
-        timeout: 15_000,
-      });
+      // Double --force: the workspace-worktree plugin locks every worktree at creation
+      // via `git worktree lock`. Ghost worktrees are precisely those that never had
+      // `destroy()` called, so their lock is still held. Git requires --force --force
+      // to remove a locked worktree.
+      // cwd=fullPath: ensures git worktree remove discovers the main repo correctly even
+      // when the lifecycle-worker process is not running from inside a git repository.
+      await execFileAsync(
+        "git",
+        ["worktree", "remove", "--force", "--force", fullPath],
+        { timeout: 15_000, cwd: fullPath },
+      );
       cleanedCount += 1;
     } catch {
       // best-effort cleanup; continue with the rest
