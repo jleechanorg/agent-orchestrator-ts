@@ -1,8 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { mkdirSync, rmSync, existsSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { mkdirSync, rmSync, existsSync, writeFileSync, realpathSync } from "node:fs";
+import { join, dirname } from "node:path";
 import { homedir, tmpdir } from "node:os";
-import { randomUUID } from "node:crypto";
+import { randomUUID, createHash } from "node:crypto";
 import { createSessionManager } from "../session-manager.js";
 import {
   type OrchestratorConfig,
@@ -28,6 +28,7 @@ let config: OrchestratorConfig;
 let mockExecFile: ExecFileAsync;
 
 beforeEach(() => {
+
   tmpDir = join(tmpdir(), `ao-test-prune-${randomUUID()}`);
   mkdirSync(tmpDir, { recursive: true });
 
@@ -108,12 +109,11 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  rmSync(tmpDir, { recursive: true, force: true });
-  // Clean up worktrees directories (live under ~/.worktrees, outside tmpDir)
   for (const projectId of Object.keys(config.projects)) {
     const wd = join(homedir(), ".worktrees", projectId);
     if (existsSync(wd)) rmSync(wd, { recursive: true, force: true });
   }
+  rmSync(tmpDir, { recursive: true, force: true });
 });
 
 describe("pruneStaleWorktrees", () => {
@@ -181,7 +181,6 @@ describe("pruneStaleWorktrees", () => {
     await sm.pruneStaleWorktrees();
 
     expect(existsSync(humanWorktree)).toBe(true);
-    // No tmux calls should have been made for the non-AO worktree
     expect(execFileCalls.filter((c) => c === "tmux").length).toBe(0);
   });
 
@@ -211,32 +210,197 @@ describe("pruneStaleWorktrees", () => {
     const sm = createSessionManager({ config, registry: mockRegistry, execFileAsync: mockExecFile });
     await sm.pruneStaleWorktrees();
 
-    // The tmux session name MUST include the 12-char hash prefix (e.g. "aabbccddeeff-ao-999")
-    // It must NOT be just "ao-999" (the bare worktree name — that was the bug)
     expect(capturedTmuxName).toBeDefined();
     expect(capturedTmuxName!).toMatch(/^[a-f0-9]{12}-ao-999$/);
     expect(existsSync(staleWorktree)).toBe(false);
   });
 
   it("skips worktrees whose project is not in config", async () => {
-    // Create a worktree under a project not in config.projects
     const otherProjectDir = join(homedir(), ".worktrees", "other-project");
     mkdirSync(otherProjectDir, { recursive: true });
     const orphanedWorktree = join(otherProjectDir, "ao-777");
     mkdirSync(orphanedWorktree, { recursive: true });
 
-    const execFileCalls: string[] = [];
-    mockExecFile = async (cmd: string) => {
-      execFileCalls.push(cmd);
+    // Pass 2 iterates config.projects (my-app only), not ~/.worktrees/ project names.
+    // So no tmux/git calls targeting other-project should happen.
+    const otherProjectCalls: string[] = [];
+    mockExecFile = async (cmd: string, args?: readonly string[]) => {
+      if (args && args.some((a) => a.includes("other-project"))) {
+        otherProjectCalls.push(`${cmd} ${args.join(" ")}`);
+      }
       return Promise.resolve({ stdout: "", stderr: "" });
     };
 
     const sm = createSessionManager({ config, registry: mockRegistry, execFileAsync: mockExecFile });
     await sm.pruneStaleWorktrees();
 
-    // Worktree should NOT be removed (project not in config → skipped)
     expect(existsSync(orphanedWorktree)).toBe(true);
-    // No execFile calls should have been made (project not in config)
-    expect(execFileCalls.length).toBe(0);
+    // Pass 1 skips other-project (not in config); Pass 2 only iterates config.projects
+    expect(otherProjectCalls.length).toBe(0);
+  });
+
+  // ─── Pass 2 tests: zombie worktrees outside ~/.worktrees/ ───────────────────────
+
+  it("Pass 2: removes zombie worktrees outside ~/.worktrees/ when session is dead (orch-tzc)", async () => {
+    const zombiePath = join(tmpdir(), "pr360-worktree");
+    mkdirSync(zombiePath, { recursive: true });
+    mkdirSync(config.projects["my-app"]!.path, { recursive: true });
+
+    // Write dead session metadata to disk so listMetadata finds it.
+    // Must match implementation's hash: sha256(dirname(realpathSync(configPath)))[0:12]
+    const configHash = createHash("sha256")
+      .update(dirname(realpathSync(configPath)))
+      .digest("hex")
+      .slice(0, 12);
+    const sessionsDir = join(
+      homedir(),
+      ".agent-orchestrator",
+      `${configHash}-my-app`,
+      "sessions",
+    );
+    mkdirSync(sessionsDir, { recursive: true });
+    writeFileSync(
+      join(sessionsDir, "pr-360"),
+      `worktree=${zombiePath}\nstatus=killed\ntmuxName=bb5e6b7f8db3-pr-360\n`,
+      "utf8",
+    );
+
+    const porcelainOutput =
+      `worktree ${config.projects["my-app"]!.path}\nHEAD abc123\nbranch refs/heads/main\n\n` +
+      `worktree ${zombiePath}\nHEAD def456\ndetached\n`;
+
+    let capturedRemovePath: string | undefined;
+    mockExecFile = async (cmd: string, args?: readonly string[], _opts?: object) => {
+      if (cmd === "tmux" && args?.[0] === "has-session") {
+        return Promise.reject(new Error("no server"));
+      }
+      const argsStr = args?.join(" ") ?? "";
+      if (cmd === "git" && argsStr.includes("worktree list --porcelain")) {
+        return Promise.resolve({ stdout: porcelainOutput, stderr: "" });
+      }
+      if (cmd === "git" && argsStr.includes("rev-parse --is-inside-work-tree")) {
+        return Promise.resolve({ stdout: "true\n", stderr: "" });
+      }
+      if (cmd === "git" && argsStr.includes("worktree remove")) {
+        capturedRemovePath = args?.[args.length - 1];
+        return Promise.reject(new Error("simulated"));
+      }
+      return Promise.resolve({ stdout: "", stderr: "" });
+    };
+
+    const sm = createSessionManager({
+      config,
+      registry: mockRegistry,
+      execFileAsync: mockExecFile,
+    });
+
+    await sm.pruneStaleWorktrees();
+
+    // Zombie worktree should be removed (session is dead, worktree outside ~/.worktrees/)
+    expect(existsSync(zombiePath)).toBe(false);
+    // git worktree remove should have been called with the zombie path
+    expect(capturedRemovePath).toBe(zombiePath);
+  });
+
+  it("Pass 2: skips worktrees outside ~/.worktrees/ when session is still alive", async () => {
+    const zombiePath = join(tmpdir(), "pr400-worktree");
+    mkdirSync(zombiePath, { recursive: true });
+    mkdirSync(config.projects["my-app"]!.path, { recursive: true });
+
+    // Write session metadata to disk so listMetadata finds it.
+    const configHash = createHash("sha256")
+      .update(dirname(realpathSync(configPath)))
+      .digest("hex")
+      .slice(0, 12);
+    const sessionsDir = join(
+      homedir(),
+      ".agent-orchestrator",
+      `${configHash}-my-app`,
+      "sessions",
+    );
+    mkdirSync(sessionsDir, { recursive: true });
+    writeFileSync(
+      join(sessionsDir, "pr-400"),
+      `worktree=${zombiePath}\nstatus=running\n`,
+      "utf8",
+    );
+
+    const porcelainOutput =
+      `worktree ${config.projects["my-app"]!.path}\nHEAD abc123\n\n` +
+      `worktree ${zombiePath}\nHEAD def456\ndetached\n`;
+
+    mockExecFile = async (cmd: string, args?: readonly string[]) => {
+      if (cmd === "tmux" && args?.[0] === "has-session") {
+        return Promise.resolve({ stdout: "", stderr: "" }); // session alive
+      }
+      const argsStr = args?.join(" ") ?? "";
+      if (cmd === "git" && argsStr.includes("worktree list --porcelain")) {
+        return Promise.resolve({ stdout: porcelainOutput, stderr: "" });
+      }
+      if (cmd === "git" && argsStr.includes("rev-parse --is-inside-work-tree")) {
+        return Promise.resolve({ stdout: "true\n", stderr: "" });
+      }
+      return Promise.resolve({ stdout: "", stderr: "" });
+    };
+
+    const sm = createSessionManager({
+      config,
+      registry: mockRegistry,
+      execFileAsync: mockExecFile,
+    });
+    await sm.pruneStaleWorktrees();
+
+    // Zombie worktree should be preserved because session is still alive (status=running)
+    expect(existsSync(zombiePath)).toBe(true);
+  });
+
+  it("Pass 2: skips non-AO worktrees outside ~/.worktrees/ (no session record)", async () => {
+    const humanPath = join(tmpdir(), "my-custom-worktree");
+    mkdirSync(humanPath, { recursive: true });
+    mkdirSync(config.projects["my-app"]!.path, { recursive: true });
+
+    // Write an unrelated session metadata file so Pass 2 has sessions to iterate,
+    // but none of them match the human worktree path.
+    const configHash = createHash("sha256")
+      .update(dirname(realpathSync(configPath)))
+      .digest("hex")
+      .slice(0, 12);
+    const sessionsDir = join(
+      homedir(),
+      ".agent-orchestrator",
+      `${configHash}-my-app`,
+      "sessions",
+    );
+    mkdirSync(sessionsDir, { recursive: true });
+    writeFileSync(
+      join(sessionsDir, "pr-401"),
+      `worktree=${join(tmpdir(), "other-worktree")}\nstatus=killed\n`,
+      "utf8",
+    );
+
+    const porcelainOutput =
+      `worktree ${config.projects["my-app"]!.path}\nHEAD abc123\n\n` +
+      `worktree ${humanPath}\nHEAD def456\nbranch refs/heads/feature-x\n`;
+
+    mockExecFile = async (cmd: string, args?: readonly string[]) => {
+      const argsStr = args?.join(" ") ?? "";
+      if (cmd === "git" && argsStr.includes("worktree list --porcelain")) {
+        return Promise.resolve({ stdout: porcelainOutput, stderr: "" });
+      }
+      if (cmd === "git" && argsStr.includes("rev-parse --is-inside-work-tree")) {
+        return Promise.resolve({ stdout: "true\n", stderr: "" });
+      }
+      return Promise.resolve({ stdout: "", stderr: "" });
+    };
+
+    const sm = createSessionManager({
+      config,
+      registry: mockRegistry,
+      execFileAsync: mockExecFile,
+    });
+    await sm.pruneStaleWorktrees();
+
+    // Human worktree should be preserved — no matching AO session record
+    expect(existsSync(humanPath)).toBe(true);
   });
 });
