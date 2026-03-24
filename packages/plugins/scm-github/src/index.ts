@@ -1244,8 +1244,14 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
             // Working-tree change (e.g. " M", "MD") — restore working tree from index
             await git(["checkout", "--", filePath], workspacePath).catch(() => {});
           }
-          // If only index changed (e.g. "M "), git checkout skips working-tree
-          // changes anyway — leave staged-only modifications untouched.
+          // Also clear the index for any AO-managed file that is staged.
+          // `git checkout --` does not touch the index — staged-only changes ("M ")
+          // remain and can block `gh pr checkout`. Use `git reset HEAD -- <file>`
+          // to unstage without touching the working tree.
+          const idx = line[0];
+          if (idx !== " " && idx !== undefined) {
+            await git(["reset", "HEAD", "--", filePath], workspacePath).catch(() => {});
+          }
         }
       }
 
