@@ -1515,6 +1515,7 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
                   if (mergeStatus >= 200 && mergeStatus < 300) {
                     try {
                       const mergeJson = JSON.parse(mergeBody);
+                      // eslint-disable-next-line eqeqeq -- upstream uses != to catch both null and undefined
                       gqlSuccess = mergeJson?.data?.enablePullRequestAutoMerge != null;
                     } catch {
                       // parse error — treat as failure
@@ -1593,9 +1594,10 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
         validateHttpStatus(rawResult.stdout);
 
         // Branch deletion via REST (best-effort; only possible when the head
-        // repo matches the base repo to have write access).  Encode the branch
-        // name so chars such as '#' or '%' in branch names do not corrupt the URL.
-        const encodedBranch = encodeURIComponent(pr.branch);
+        // repo matches the base repo to have write access).  Encode chars that
+        // corrupt the URL (e.g. '#') but preserve '/' since GitHub ref paths
+        // use slashes (e.g. feat/bd-pjh → feat%2Fbd-pjh → feat/bd-pjh).
+        const encodedBranch = encodeURIComponent(pr.branch).replace(/%2F/g, "/");
         try {
           await gh(["api", `repos/${pr.owner}/${pr.repo}/git/refs/heads/${encodedBranch}`, "--method", "DELETE"]);
         } catch {
