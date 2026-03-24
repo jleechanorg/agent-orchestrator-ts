@@ -1659,15 +1659,10 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
 
     if (!existsSync(worktreeBaseDir)) return;
 
-    // Build the set of configured AO session prefixes so we only touch worktrees
-    // that belong to this AO installation.  This guards against accidental deletion
-    // of human-created worktrees whose names happen to match the old numeric pattern.
-    const aoPrefixes = new Set(
-      Object.values(config.projects)
-        .map((p) => p.sessionPrefix)
-        .filter((prefix): prefix is string => !!prefix),
-    );
-    if (aoPrefixes.size === 0) return;
+    // Only touch worktrees whose names match the AO session naming pattern:
+    // {prefix}-{num} where prefix is one of the standard AO prefixes.
+    // This guards against accidental deletion of human-created worktrees.
+    const AO_SESSION_WORKTREE_PATTERN = /^(ao|jc|wa|cc|ra|wc)-\d+$/;
 
     for (const projectEntry of readdirSync(worktreeBaseDir, { withFileTypes: true })) {
       if (!projectEntry.isDirectory()) continue;
@@ -1677,10 +1672,8 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       for (const entry of readdirSync(projectWorktreeDir, { withFileTypes: true })) {
         if (!entry.isDirectory()) continue;
 
-        // Only process AO-managed session worktrees: name must start with a
-        // configured sessionPrefix (e.g. "ao-42", "jc-7", "my-prefix-3").
-        const isAoManaged = [...aoPrefixes].some((p) => entry.name.startsWith(`${p}-`));
-        if (!isAoManaged) continue;
+        // Only process AO-managed session worktrees matching the naming pattern
+        if (!AO_SESSION_WORKTREE_PATTERN.test(entry.name)) continue;
 
         const worktreePath = join(projectWorktreeDir, entry.name);
         const tmuxName = entry.name;

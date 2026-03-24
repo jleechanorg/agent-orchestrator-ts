@@ -1205,7 +1205,7 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
             "PATCH",
             `repos/${repoFlag(pr)}/issues/${pr.number}`,
             "-f",
-            `assignees=${login}`,
+            `assignees[]=${login}`,
           ]);
         } else {
           throw err;
@@ -1287,8 +1287,8 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
       let fetchErr: Error | undefined;
       try {
         // Primary: fetch via GitHub's pull-request ref (works for fork and regular PRs).
-        // Use +src:dst refspec so fetch updates an existing branch (force-like behaviour).
-        await git(["fetch", remote, `+${prRef}:${pr.branch}`], workspacePath);
+        // Use +src:dst refspec with --force so fetch updates an existing branch.
+        await git(["fetch", "--force", remote, `+${prRef}:${pr.branch}`], workspacePath);
       } catch (err) {
         // Only handle "ref not found" — let auth/network errors propagate
         const msg = err instanceof Error ? err.message : String(err);
@@ -1298,9 +1298,9 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
         fetchErr = err as Error;
 
         // Fallback: fetch the branch directly (works when the branch is on the base repo).
-        // Also use +src:dst to handle the case where the local branch already exists.
+        // Use +src:dst with --force to handle the case where the local branch already exists.
         try {
-          await git(["fetch", remote, `+${pr.branch}:${pr.branch}`], workspacePath);
+          await git(["fetch", "--force", remote, `+${pr.branch}:${pr.branch}`], workspacePath);
         } catch {
           // Both refs failed — surface the more informative original error
           throw fetchErr;
