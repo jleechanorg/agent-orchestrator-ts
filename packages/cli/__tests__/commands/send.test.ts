@@ -3,11 +3,14 @@ import { rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
-const { mockTmux, mockExec, mockDetectActivity } = vi.hoisted(() => ({
-  mockTmux: vi.fn(),
-  mockExec: vi.fn(),
-  mockDetectActivity: vi.fn(),
-}));
+const { mockTmux, mockExec, mockDetectActivity, mockIsAgentAliveInPane, mockRestartAgentCli } =
+  vi.hoisted(() => ({
+    mockTmux: vi.fn(),
+    mockExec: vi.fn(),
+    mockDetectActivity: vi.fn(),
+    mockIsAgentAliveInPane: vi.fn(),
+    mockRestartAgentCli: vi.fn(),
+  }));
 
 const { mockConfigRef, mockSessionManager } = vi.hoisted(() => ({
   mockConfigRef: { current: null as Record<string, unknown> | null },
@@ -55,6 +58,11 @@ vi.mock("../../src/lib/create-session-manager.js", () => ({
   getSessionManager: async () => mockSessionManager,
 }));
 
+vi.mock("@jleechanorg/ao-plugin-runtime-tmux", () => ({
+  isAgentAliveInPane: mockIsAgentAliveInPane,
+  restartAgentCli: mockRestartAgentCli,
+}));
+
 import { Command } from "commander";
 import { registerSend } from "../../src/commands/send.js";
 
@@ -80,6 +88,9 @@ beforeEach(() => {
   mockSessionManager.send.mockReset();
   mockConfigRef.current = null;
   mockExec.mockResolvedValue({ stdout: "", stderr: "" });
+  mockIsAgentAliveInPane.mockReset();
+  mockRestartAgentCli.mockReset();
+  mockIsAgentAliveInPane.mockResolvedValue(true); // agent alive by default
 });
 
 afterEach(() => {
@@ -264,6 +275,65 @@ describe("send command", () => {
 
       // C-u should be called to clear input
       expect(mockExec).toHaveBeenCalledWith("tmux", ["send-keys", "-t", "my-session", "C-u"]);
+    });
+  });
+
+  describe("dead agent detection", () => {
+    // These tests intentionally use real timers (skipping the top-level fake-timers
+    // setup) so the async isAgentAliveInPane mock resolves naturally without needing
+    // explicit timer tick.  afterEach restores fake timers so subsequent tests are
+    // unaffected.  Spy cleanup is delegated to the top-level afterEach.
+    beforeEach(() => {
+      vi.useRealTimers();
+    });
+    afterEach(() => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+    });
+
+    it("skips restart when agent is alive (direct tmux path)", async () => {
+      mockTmux.mockImplementation(async (...args: string[]) => {
+        if (args[0] === "has-session") return "";
+        if (args[0] === "capture-pane") return "❯ ";
+        return "";
+      });
+      mockDetectActivity.mockReturnValue("idle");
+      mockIsAgentAliveInPane.mockResolvedValue(true);
+
+      await program.parseAsync(["node", "test", "send", "my-session", "hello"]);
+
+      expect(mockIsAgentAliveInPane).toHaveBeenCalledWith("my-session");
+      expect(mockRestartAgentCli).not.toHaveBeenCalled();
+      expect(mockExec).toHaveBeenCalledWith("tmux", [
+        "send-keys",
+        "-t",
+        "my-session",
+        "-l",
+        "hello",
+      ]);
+    });
+
+    it("warns but sends when agent is dead and no session record available", async () => {
+      mockTmux.mockImplementation(async (...args: string[]) => {
+        if (args[0] === "has-session") return "";
+        if (args[0] === "capture-pane") return "$ "; // shell prompt = agent dead
+        return "";
+      });
+      mockDetectActivity.mockReturnValue("idle");
+      mockIsAgentAliveInPane.mockResolvedValue(false);
+
+      await program.parseAsync(["node", "test", "send", "my-session", "hello"]);
+
+      expect(mockIsAgentAliveInPane).toHaveBeenCalledWith("my-session");
+      expect(mockRestartAgentCli).not.toHaveBeenCalled();
+      expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining("appears dead"));
+      // Message still gets pasted so user can see what ended up in the pane
+      expect(mockExec).toHaveBeenCalledWith("tmux", [
+        "send-keys",
+        "-t",
+        "my-session",
+        "-l",
+        "hello",
+      ]);
     });
   });
 
