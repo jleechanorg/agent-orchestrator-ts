@@ -1,12 +1,10 @@
 #!/usr/bin/env bash
 # Metadata Updater Hook for Agent Orchestrator
 #
-# This hook runs on both PreToolUse and PostToolUse events:
-# - PreToolUse: enforces merge policy (blocks gh pr merge unless AO_ALLOW_GH_PR_MERGE=1)
-# - PostToolUse: automatically updates session metadata when:
-#   - gh pr create: extracts PR URL and writes to metadata
-#   - git checkout -b / git switch -c: extracts branch name and writes to metadata
-#   - gh pr merge: updates status to "merged"
+# This PostToolUse hook automatically updates session metadata when:
+# - gh pr create: extracts PR URL and writes to metadata
+# - git checkout -b / git switch -c: extracts branch name and writes to metadata
+# - gh pr merge: updates status to "merged"
 
 set -euo pipefail
 
@@ -30,14 +28,6 @@ else
   output=$(echo "$input" | grep -o '"tool_response"[[:space:]]*:[[:space:]]*"[^"]*"' | cut -d'"' -f4 || echo "")
   exit_code=$(echo "$input" | grep -o '"exit_code"[[:space:]]*:[[:space:]]*[0-9]*' | grep -o '[0-9]*$' || echo "0")
   hook_event=$(echo "$input" | grep -o '"hook_event_name"[[:space:]]*:[[:space:]]*"[^"]*"' | cut -d'"' -f4 || echo "")
-fi
-
-# Fallback: use AO_HOOK_EVENT_NAME env var if hook_event was not set via JSON.
-# The hook runner exports AO_HOOK_EVENT_NAME in the environment regardless of
-# whether the stdin JSON includes hook_event_name, so this covers edge cases
-# where the JSON field is absent (e.g., older runner versions, jq unavailable).
-if [[ -z "${hook_event:-}" ]]; then
-  hook_event="${AO_HOOK_EVENT_NAME:-}"
 fi
 
 # Only process successful commands (exit code 0)
