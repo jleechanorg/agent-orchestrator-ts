@@ -77,13 +77,11 @@ describe("sweepOrphanWorktrees", () => {
   beforeEach(() => {
     tmpDir = mkdtempSync(join(tmpdir(), "sweep-test-"));
     worktreeBaseDir = join(tmpDir, "worktrees");
+    // Default: tmux throws (unreachable) — sweepOrphanWorktrees returns early.
+    // Tests that verify orphan removal call withLiveTmuxSessions() first.
     mockExec.mockImplementation((cmd, args, _opts, cb) => {
       if (cmd === "tmux" && args[0] === "list-sessions") {
-        cb(null, "", "");
-        return;
-      }
-      if (cmd === "git" && args[0] === "worktree" && args[1] === "remove") {
-        cb(null, "", "");
+        cb(new Error("tmux socket unavailable"), "", "");
         return;
       }
       cb(new Error(`unexpected exec: ${cmd} ${args.join(" ")}`), "", "");
@@ -102,6 +100,9 @@ describe("sweepOrphanWorktrees", () => {
     return dir;
   }
 
+  // Provides a valid non-empty tmux response so sweepOrphanWorktrees does NOT
+  // return early (avoids allTmuxSessions.length === 0 guard). Sessions with a
+  // short ID that does not match the worktree being tested will not block removal.
   function withLiveTmuxSessions(sessions: Array<{ name: string }>): void {
     mockExec.mockImplementation((cmd, args, _opts, cb) => {
       if (cmd === "tmux" && args[0] === "list-sessions") {
@@ -131,6 +132,31 @@ describe("sweepOrphanWorktrees", () => {
       observer: observer as never,
     });
 
+    expect(mockExec).not.toHaveBeenCalledWith(
+      "git",
+      expect.arrayContaining(["worktree", "remove"]),
+      expect.anything(),
+      expect.anything(),
+    );
+    expect(observer.recordOperation).not.toHaveBeenCalled();
+  });
+
+  it("skips entire sweep when tmux is unreachable (fail-safe)", async () => {
+    const observer = createMockObserver();
+    const projectId = "proj";
+    mkWorktree(projectId, "ao-1");
+    mkWorktree(projectId, "jc-2");
+
+    await sweepOrphanWorktrees({
+      sessionManager: makeSessionManager(new Set()),
+      projectId,
+      allProjectIds: [projectId],
+      configHash: "abc123",
+      worktreeBaseDir,
+      observer: observer as never,
+    });
+
+    // tmux throws → early return → no worktree inspection, no git remove calls
     expect(mockExec).not.toHaveBeenCalledWith(
       "git",
       expect.arrayContaining(["worktree", "remove"]),
@@ -212,6 +238,9 @@ describe("sweepOrphanWorktrees", () => {
   });
 
   it("removes worktrees absent from DB with dead tmux session (true orphan)", async () => {
+    // Provide a valid tmux response with non-matching sessions so sweep proceeds.
+    // The specific orphan (ao-777) has no live tmux session → removed.
+    withLiveTmuxSessions([{ name: "xyz-999\t0" }]);
     const observer = createMockObserver();
     const projectId = "proj";
     const worktreePath = mkWorktree(projectId, "ao-777");
@@ -241,6 +270,8 @@ describe("sweepOrphanWorktrees", () => {
   });
 
   it("removes multiple orphans in a single sweep", async () => {
+    // Valid tmux response with non-matching sessions so sweep proceeds.
+    withLiveTmuxSessions([{ name: "xyz-999\t0" }]);
     const observer = createMockObserver();
     const projectId = "proj";
     const w1 = mkWorktree(projectId, "ao-100");
@@ -271,6 +302,7 @@ describe("sweepOrphanWorktrees", () => {
   });
 
   it("continues after a failed git worktree remove (best-effort)", async () => {
+    // Note: custom mock below handles tmux (returns xyz-999) and git remove (fails for w1).
     const observer = createMockObserver();
     const projectId = "proj";
     const w1 = mkWorktree(projectId, "ao-1");
@@ -279,7 +311,8 @@ describe("sweepOrphanWorktrees", () => {
 
     mockExec.mockImplementation((cmd, args, _opts, cb) => {
       if (cmd === "tmux" && args[0] === "list-sessions") {
-        cb(null, "", "");
+        // Return xyz-999 so sweep does NOT return early (liveSessionIds = {xyz-999}).
+        cb(null, "xyz-999\t0\n", "");
         return;
       }
       if (cmd === "git" && args[0] === "worktree" && args[1] === "remove") {
@@ -337,6 +370,8 @@ describe("sweepOrphanWorktrees", () => {
   });
 
   it("only removes orphans — skips DB-tracked and non-matching entries", async () => {
+    // Valid tmux response with sessions that match DB entries (ao-2, jc-3).
+    withLiveTmuxSessions([{ name: "abc123-ao-2" }, { name: "abc123-jc-3" }]);
     const observer = createMockObserver();
     const projectId = "proj";
     const orphanPath = mkWorktree(projectId, "ao-1");

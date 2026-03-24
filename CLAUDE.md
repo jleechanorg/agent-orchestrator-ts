@@ -274,7 +274,7 @@ When seeing `lifecycle.backfill.claim_failed` with "refusing to fetch into branc
 2. **Ghost worktrees?** `git worktree list | grep ao-` — fix: `git worktree remove --force <path>`
 3. **Both?** Fix main repo first, then ghost worktrees.
 
-The lifecycle-worker's `sweepOrphanWorktrees` runs every 5min and auto-cleans ghost worktrees after the orphan TTL (default 6h). If you see claim failures before TTL, check the main repo branch first.
+The lifecycle-worker's `sweepOrphanWorktrees` runs every 5min (orphanSweepIntervalMs) and auto-cleans ghost worktrees immediately when both conditions hold: (1) no entry in the AO session DB, and (2) no live tmux session for that worktree's short ID. There is no TTL — cleanup is eager once both guards confirm orphan state. If you see claim failures, check the main repo branch first.
 
 ## AO Infrastructure Operations
 

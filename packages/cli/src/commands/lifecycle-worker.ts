@@ -173,6 +173,12 @@ export async function sweepOrphanWorktrees(opts: {
   // worktree is at the same path. Scanning all live sessions prevents
   // cross-config false-positive removal.
   const allTmuxSessions = await listTmuxSessionsWithActivity();
+  // Fail-safe: if we cannot reach tmux at all, do not remove worktrees based on
+  // an empty liveSessionIds set — a dead tmux daemon means we cannot reliably
+  // determine which worktrees are in use. Skip this sweep cycle; the next run
+  // (after tmux recovers) will perform the cleanup.
+  if (allTmuxSessions.length === 0) return;
+
   const liveSessionIds = new Set<string>(
     allTmuxSessions
       .map((s) => {
