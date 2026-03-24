@@ -32,6 +32,14 @@ else
   hook_event=$(echo "$input" | grep -o '"hook_event_name"[[:space:]]*:[[:space:]]*"[^"]*"' | cut -d'"' -f4 || echo "")
 fi
 
+# Fallback: use AO_HOOK_EVENT_NAME env var if hook_event was not set via JSON.
+# The hook runner exports AO_HOOK_EVENT_NAME in the environment regardless of
+# whether the stdin JSON includes hook_event_name, so this covers edge cases
+# where the JSON field is absent (e.g., older runner versions, jq unavailable).
+if [[ -z "${hook_event:-}" ]]; then
+  hook_event="${AO_HOOK_EVENT_NAME:-}"
+fi
+
 # Only process successful commands (exit code 0)
 if [[ "$exit_code" -ne 0 ]]; then
   echo '{}'
