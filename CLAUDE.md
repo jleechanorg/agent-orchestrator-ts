@@ -246,6 +246,36 @@ There is a separate mirror fork at `jleechan2015/agent-orchestrator-mirror` that
 
 This fork's work will be proposed to ComposioHQ separately from this repo's custom development.
 
+## Main Repo Branch Invariant
+
+The main repo at `/Users/jleechan/project_agento/agent-orchestrator` **MUST stay on `main`**.
+
+AO agents work in git worktrees (`~/.worktrees/`), never directly in the main clone.
+
+**If you find the main repo on a feature branch:**
+```bash
+git -C /Users/jleechan/project_agento/agent-orchestrator checkout main
+git -C /Users/jleechan/project_agento/agent-orchestrator pull --ff-only
+```
+
+**Before diagnosing `lifecycle.backfill.claim_failed` errors, always verify:**
+```bash
+git -C /Users/jleechan/project_agento/agent-orchestrator branch --show-current
+# Must print "main"
+```
+
+A feature branch checked out in the main repo blocks ALL `git fetch --force` operations for any PR on that same branch, causing cascading `claim_failed` aborts in `backfillUncoveredPRs`.
+
+## Lifecycle Backfill Claim Failure — Triage Checklist
+
+When seeing `lifecycle.backfill.claim_failed` with "refusing to fetch into branch", check IN ORDER:
+
+1. **Main repo on wrong branch?** `git -C <repoPath> branch --show-current` — fix: `git checkout main`
+2. **Ghost worktrees?** `git worktree list | grep ao-` — fix: `git worktree remove --force <path>`
+3. **Both?** Fix main repo first, then ghost worktrees.
+
+The lifecycle-worker's `sweepOrphanWorktrees` runs every 5min and auto-cleans ghost worktrees after the orphan TTL (default 6h). If you see claim failures before TTL, check the main repo branch first.
+
 ## AO Infrastructure Operations
 
 ### Config path and data namespace
