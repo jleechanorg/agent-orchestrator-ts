@@ -66,10 +66,8 @@ describe("fork-lifecycle-postmerge", () => {
 
       await reapPostMergeCoWorkers(mergedSession, sm, observer);
 
-      // list() must be called with projectId filter
-      expect(sm.list).toHaveBeenCalledWith(
-        expect.objectContaining({ projectId: PROJECT_ID }),
-      );
+      // list() must be called with the merged session's projectId (string)
+      expect(sm.list).toHaveBeenCalledWith(PROJECT_ID);
     });
 
     it("records success when co-workers are reaped", async () => {

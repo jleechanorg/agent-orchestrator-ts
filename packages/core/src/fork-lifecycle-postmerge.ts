@@ -18,8 +18,7 @@ import {
   type ReaperResult,
 } from "./session-reaper.js";
 import type { SessionManager, Session } from "./types.js";
-import type { ProjectObserver } from "./observability.js";
-import { createCorrelationId } from "./observability.js";
+import { createCorrelationId, type ProjectObserver } from "./observability.js";
 
 // Configurable thresholds — kept in one place so reviewers can validate intent.
 export const POST_MERGE_REAPER_CONFIG = {
@@ -44,8 +43,8 @@ function projectScopedSessionManager(
 ): SessionManager {
   return {
     ...delegate,
-    async list(filter) {
-      return delegate.list({ ...filter, projectId });
+    async list(_filter) {
+      return delegate.list(projectId);
     },
   };
 }
