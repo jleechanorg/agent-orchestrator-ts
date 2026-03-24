@@ -12,7 +12,7 @@
 
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
-import { reapStaleSessions, DEFAULT_REAPER_CONFIG } from "./session-reaper.js";
+import { reapPostMergeCoWorkers } from "./fork-lifecycle-postmerge.js";
 import {
   SESSION_STATUS,
   PR_STATE,
@@ -1344,40 +1344,11 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         // On PR merge, immediately reap co-workers that have no PR and have
         // been idle for 5+ minutes — they finished their work and are waiting
         // for direction that will never come.
+        // Fork companion (fork-lifecycle-postmerge.ts): project-scoped + idle-gated
+        // so a merge in one project does not reap sessions from other projects,
+        // and active sessions that are simply old are not killed prematurely.
         if (newStatus === "merged") {
-          try {
-            const reaped = await reapStaleSessions(
-              {
-                ...DEFAULT_REAPER_CONFIG,
-                noPrThresholdMs: 5 * 60_000, // 5 min — much shorter than 4h default
-              },
-              { sessionManager },
-            );
-            if (reaped.killed.length > 0) {
-              observer.recordOperation({
-                metric: "lifecycle_poll",
-                operation: "lifecycle.post_merge_reap",
-                outcome: "success",
-                correlationId: createCorrelationId("post-merge-reap"),
-                projectId: session.projectId,
-                sessionId: session.id,
-                data: { killed: reaped.killed.map((r) => r.sessionId) },
-                level: "info",
-              });
-            }
-          } catch (reapErr) {
-            // Non-fatal — reap failure must not break the merge transition.
-            observer.recordOperation({
-              metric: "lifecycle_poll",
-              operation: "lifecycle.post_merge_reap",
-              outcome: "failure",
-              correlationId: createCorrelationId("post-merge-reap"),
-              projectId: session.projectId,
-              sessionId: session.id,
-              data: { error: reapErr instanceof Error ? reapErr.message : String(reapErr) },
-              level: "warn",
-            });
-          }
+          await reapPostMergeCoWorkers(session, sessionManager, observer);
         }
       }
 

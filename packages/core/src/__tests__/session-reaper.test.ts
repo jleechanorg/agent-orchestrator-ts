@@ -294,4 +294,72 @@ describe("reapStaleSessions", () => {
     expect(result.killed).toHaveLength(1);
     expect(result.killed[0].sessionId).toBe("s2");
   });
+
+  it("13. idleThresholdMs gates no-PR reaping: old-but-active session is NOT killed", async () => {
+    // Session is 5h old (past 4h noPrThreshold) but was active 1 min ago.
+    // With idleThresholdMs=5min, it should NOT be reaped.
+    const sessions = [
+      makeSession("s1", {
+        pr: null,
+        status: "working",
+        activity: "active",
+        createdAt: new Date(BASE_NOW.getTime() - FOUR_HOURS_MS - 1000),
+        lastActivityAt: new Date(BASE_NOW.getTime() - 60_000), // 1 min ago — still active
+      }),
+    ];
+    const sm = makeSessionManager(sessions);
+    const result = await reapStaleSessions(
+      makeConfig({ noPrThresholdMs: FOUR_HOURS_MS, idleThresholdMs: 5 * 60_000 }),
+      makeDeps(sm),
+    );
+
+    expect(result.killed).toHaveLength(0);
+    expect(result.skipped).toHaveLength(1);
+    expect(sm.kill).not.toHaveBeenCalled();
+  });
+
+  it("14. idleThresholdMs gates no-PR reaping: old-and-idle session IS killed", async () => {
+    // Session is 5h old AND has been idle for 10 min — past both thresholds.
+    const sessions = [
+      makeSession("s1", {
+        pr: null,
+        status: "working",
+        activity: "active",
+        createdAt: new Date(BASE_NOW.getTime() - FOUR_HOURS_MS - 1000),
+        lastActivityAt: new Date(BASE_NOW.getTime() - 10 * 60_000), // 10 min ago
+      }),
+    ];
+    const sm = makeSessionManager(sessions);
+    const result = await reapStaleSessions(
+      makeConfig({ noPrThresholdMs: FOUR_HOURS_MS, idleThresholdMs: 5 * 60_000 }),
+      makeDeps(sm),
+    );
+
+    expect(result.killed).toHaveLength(1);
+    expect(result.killed[0].sessionId).toBe("s1");
+    expect(sm.kill).toHaveBeenCalledWith("s1");
+  });
+
+  it("15. idleThresholdMs=undefined preserves backward-compatible age-only behavior", async () => {
+    // Without idleThresholdMs, a 5h-old session (even if recently active) is killed.
+    const sessions = [
+      makeSession("s1", {
+        pr: null,
+        status: "working",
+        activity: "active",
+        createdAt: new Date(BASE_NOW.getTime() - FOUR_HOURS_MS - 1000),
+        lastActivityAt: new Date(BASE_NOW.getTime() - 60_000), // 1 min ago
+      }),
+    ];
+    const sm = makeSessionManager(sessions);
+    const result = await reapStaleSessions(
+      makeConfig({ noPrThresholdMs: FOUR_HOURS_MS }),
+      makeDeps(sm),
+    );
+
+    // Without idleThresholdMs, the age gate is the only condition
+    expect(result.killed).toHaveLength(1);
+    expect(result.killed[0].sessionId).toBe("s1");
+    expect(sm.kill).toHaveBeenCalledWith("s1");
+  });
 });
