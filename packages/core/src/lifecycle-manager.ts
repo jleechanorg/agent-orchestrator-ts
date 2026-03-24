@@ -123,6 +123,8 @@ function createEvent(
 /** Determine which event type corresponds to a status transition. */
 function statusToEventType(_from: SessionStatus | undefined, to: SessionStatus): EventType | null {
   switch (to) {
+    case "spawning":
+      return "session.spawned";
     case "working":
       return "session.working";
     case "pr_open":
@@ -149,6 +151,8 @@ function statusToEventType(_from: SessionStatus | undefined, to: SessionStatus):
       return "session.errored";
     case "killed":
       return "session.killed";
+    case "terminated":
+      return "session.exited";
     default:
       return null;
   }
@@ -175,6 +179,10 @@ function eventToReactionKey(eventType: EventType): string | null {
       return "agent-exited";
     case "summary.all_complete":
       return "all-complete";
+    case "session.spawned":
+      return "session-spawned";
+    case "session.exited":
+      return "session-exited";
     default:
       return null;
   }
@@ -240,14 +248,14 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
   }
 
   /** Determine current status for a session by polling plugins. */
-  async function determineStatus(session: Session): Promise<SessionStatus> {
+  async function determineStatus(session: Session): Promise<{ status: SessionStatus; agentDead: boolean }> {
     // If workspace was deleted (e.g., worktree cleaned up), session is dead
     if (session.workspacePath && !existsSync(session.workspacePath)) {
-      return "killed";
+      return { status: "killed", agentDead: true };
     }
 
     const project = config.projects[session.projectId];
-    if (!project) return session.status;
+    if (!project) return { status: session.status, agentDead: false };
 
     const agentName = resolveAgentSelection({
       role: resolveSessionRole(session.id, session.metadata),
@@ -286,11 +294,11 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     if (session.runtimeHandle && runtime) {
       const alive = await runtime.isAlive(session.runtimeHandle).catch(() => true);
       if (!alive) {
-        // bd-5o1: return "killed" immediately — do NOT fall through to step 4 (PR
-        // state evaluation). The bd-kki check in checkSession handles the
-        // "killed → check if PR merged" case separately; reactions must not fire
-        // for dead sessions regardless of their PR state.
-        return "killed";
+        // Don't return "killed" yet — if the session has a PR (or might have
+        // one discoverable via branch-based auto-detect in step 3), check PR
+        // state first so auto-merge can fire for green PRs with exited agents.
+        if (!scm) return { status: "killed", agentDead: true };
+        agentDead = true;
       }
 
       if (!agentDead) {
@@ -304,11 +312,11 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         // Try JSONL-based activity detection first (reads agent's session files directly)
         const activityState = await agent.getActivityState(session, config.readyThresholdMs);
         if (activityState) {
-          if (activityState.state === "waiting_input") return "needs_input";
+          if (activityState.state === "waiting_input") return { status: "needs_input", agentDead: false };
           if (activityState.state === "exited") {
             // Don't return "killed" yet — defer to step 3 (branch-based PR
             // auto-detect) and step 4 (PR state checks) before giving up.
-            if (!scm) return "killed";
+            if (!scm) return { status: "killed", agentDead: true };
             agentDead = true;
           }
 
@@ -331,11 +339,11 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
           const terminalOutput = runtime ? await runtime.getOutput(session.runtimeHandle, 10) : "";
           if (terminalOutput) {
             const activity = agent.detectActivity(terminalOutput);
-            if (activity === "waiting_input") return "needs_input";
+            if (activity === "waiting_input") return { status: "needs_input", agentDead: false };
 
             const processAlive = await agent.isProcessRunning(session.runtimeHandle);
             if (!processAlive) {
-              if (!scm) return "killed";
+              if (!scm) return { status: "killed", agentDead: true };
               agentDead = true;
             }
           }
@@ -347,7 +355,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
           session.status === SESSION_STATUS.STUCK ||
           session.status === SESSION_STATUS.NEEDS_INPUT
         ) {
-          return session.status;
+          return { status: session.status, agentDead: false };
         }
       }
     }
@@ -404,16 +412,16 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
           try {
             const batch = await scm.getBatchPRStatus(session.pr);
             usedBatch = true;
-            if (batch.state === PR_STATE.MERGED) return "merged";
-            if (batch.state === PR_STATE.CLOSED) return "killed";
-            if (batch.ciStatus === CI_STATUS.FAILING) return "ci_failed";
-            if (batch.reviewDecision === "changes_requested") return "changes_requested";
+            if (batch.state === PR_STATE.MERGED) return { status: "merged", agentDead: false };
+            if (batch.state === PR_STATE.CLOSED) return { status: "killed", agentDead: false };
+            if (batch.ciStatus === CI_STATUS.FAILING) return { status: "ci_failed", agentDead: false };
+            if (batch.reviewDecision === "changes_requested") return { status: "changes_requested", agentDead: false };
             if (batch.reviewDecision === "approved" || batch.reviewDecision === "none") {
-              if (batch.mergeReadiness.mergeable) return "mergeable";
-              if (!batch.mergeReadiness.noConflicts) return "merge_conflicts";
-              if (batch.reviewDecision === "approved") return "approved";
+              if (batch.mergeReadiness.mergeable) return { status: "mergeable", agentDead: false };
+              if (!batch.mergeReadiness.noConflicts) return { status: "merge_conflicts", agentDead: false };
+              if (batch.reviewDecision === "approved") return { status: "approved", agentDead: false };
             }
-            if (batch.reviewDecision === "pending") return "review_pending";
+            if (batch.reviewDecision === "pending") return { status: "review_pending", agentDead: false };
           } catch (err) {
             // bd-att: If batch failed due to a GitHub API rate limit (or network error),
             // DO NOT fall back. Rethrow so determineStatus exits immediately.
@@ -425,27 +433,27 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         if (!usedBatch) {
           // Fallback: individual calls (no batch support or batch failed)
           const prState = await scm.getPRState(session.pr);
-          if (prState === PR_STATE.MERGED) return "merged";
-          if (prState === PR_STATE.CLOSED) return "killed";
+          if (prState === PR_STATE.MERGED) return { status: "merged", agentDead: false };
+          if (prState === PR_STATE.CLOSED) return { status: "killed", agentDead: false };
 
           const ciStatus = await scm.getCISummary(session.pr);
-          if (ciStatus === CI_STATUS.FAILING) return "ci_failed";
+          if (ciStatus === CI_STATUS.FAILING) return { status: "ci_failed", agentDead: false };
 
           // Check reviews
           const reviewDecision = await scm.getReviewDecision(session.pr);
-          if (reviewDecision === "changes_requested") return "changes_requested";
+          if (reviewDecision === "changes_requested") return { status: "changes_requested", agentDead: false };
           if (reviewDecision === "approved" || reviewDecision === "none") {
             // bd-wg5: Skip getMergeability when CI is pending
             if (ciStatus === CI_STATUS.PENDING) {
-              if (reviewDecision === "approved") return "approved";
-              return "pr_open";
+              if (reviewDecision === "approved") return { status: "approved", agentDead: false };
+              return { status: "pr_open", agentDead: false };
             }
             const mergeReady = await scm.getMergeability(session.pr);
-            if (mergeReady.mergeable) return "mergeable";
-            if (!mergeReady.noConflicts) return "merge_conflicts";
-            if (reviewDecision === "approved") return "approved";
+            if (mergeReady.mergeable) return { status: "mergeable", agentDead: false };
+            if (!mergeReady.noConflicts) return { status: "merge_conflicts", agentDead: false };
+            if (reviewDecision === "approved") return { status: "approved", agentDead: false };
           }
-          if (reviewDecision === "pending") return "review_pending";
+          if (reviewDecision === "pending") return { status: "review_pending", agentDead: false };
         }
 
         // 4b. Post-PR stuck detection: agent has a PR open but is idle beyond
@@ -454,17 +462,13 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         // wasn't available during step 2 but the session has been at pr_open
         // for a long time. Without this, sessions get stuck at "pr_open" forever.
         if (detectedIdleTimestamp && isIdleBeyondThreshold(session, detectedIdleTimestamp)) {
-          return "stuck";
+          return { status: "stuck", agentDead: false };
         }
 
-        // Agent is dead but PR isn't in a merge-ready state.
-        // bd-6jc: If SCM succeeded (scmFailureCount=0 from try block), return
-        // "pr_open" immediately — SCM confirmed the PR won't auto-merge so there's
-        // no reason to defer. The consecutive-failure threshold only applies when
-        // SCM throws; the catch block below handles that case.
-        if (agentDead) return "pr_open";
+        // Agent is dead but PR isn't in a merge-ready state — kill the session
+        if (agentDead) return { status: "killed", agentDead: true };
 
-        return "pr_open";
+        return { status: "pr_open", agentDead: false };
       } catch {
         // bd-6jc: SCM threw — increment consecutive failure counter, persist, and
         // check threshold.  The finally only resets the counter on SCM success
@@ -496,17 +500,13 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       }
     }
 
-    // bd-ara + bd-6jc: If agent is dead and SCM was never invoked or all SCM calls
-    // have succeeded (scmFailureCount=0), kill immediately — no need to wait.  When
-    // scmFailureCount > 0, SCM has been called at least once (detectPR or PR checks)
-    // and thrown, so the counter gates the kill — do not double-count with an
-    // immediate kill here.
-    if (agentDead && !(session.pr && scm) && scmFailureCount === 0) return "killed";
+    // bd-ara: If agent is dead but we had no PR branch to check, kill
+    if (agentDead) return { status: "killed", agentDead: true };
 
     // 5. Post-all stuck detection: if we detected idle in step 2 but had no PR,
     // still check stuck threshold. This handles agents that finish without creating a PR.
     if (detectedIdleTimestamp && isIdleBeyondThreshold(session, detectedIdleTimestamp)) {
-      return "stuck";
+      return { status: "stuck", agentDead: false };
     }
 
     // 6. Default: if agent is active, it's working
@@ -515,9 +515,9 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       session.status === SESSION_STATUS.STUCK ||
       session.status === SESSION_STATUS.NEEDS_INPUT
     ) {
-      return "working";
+      return { status: "working", agentDead: false };
     }
-    return session.status;
+    return { status: session.status, agentDead: false };
   }
 
   /** Execute a reaction for a session. */
@@ -834,7 +834,8 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     const tracked = states.get(session.id);
     const oldStatus =
       tracked ?? ((session.metadata?.["status"] as SessionStatus | undefined) || session.status);
-    let newStatus = await determineStatus(session);
+    const { status: determinedStatus, agentDead } = await determineStatus(session);
+    let newStatus: SessionStatus = determinedStatus;
     let transitionReaction: { key: string; result: ReactionResult | null } | undefined;
 
     // bd-kki: check if PR is merged before recording "killed" status.
@@ -944,7 +945,14 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
 
       // Handle transition: notify humans and/or trigger reactions
       const eventType = statusToEventType(oldStatus, newStatus);
-      if (eventType) {
+      // bd-5o1: skip reactions for dead agents — ao send to a dead session wastes
+      // resources and generates spurious escalation notifications. The PR state check
+      // in determineStatus already handles bd-kki (preserves oldStatus for open PRs
+      // when agent is dead), so dead agents that have open PRs stay in their prior
+      // state and won't reach this block via a killed transition. This guard catches
+      // other transitions (e.g. mergeable→something) for sessions where the agent died
+      // between polls.
+      if (eventType && !agentDead) {
         let reactionHandledNotify = false;
         const reactionKey = eventToReactionKey(eventType);
 
@@ -1172,7 +1180,10 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       // subsequent polls so transient gate failures don't permanently block merge.
       // Cooldown: only retry once per 5 minutes to avoid notification spam and
       // reaction budget exhaustion (bd-ara CR feedback).
-      if (newStatus === "mergeable") {
+      // bd-5o1: skip auto-merge retry for dead agents — a dead agent can't respond
+      // to merge failures (e.g. branch protection errors). If the PR needs manual
+      // intervention, leave it for human review rather than retrying into the void.
+      if (newStatus === "mergeable" && !agentDead) {
         const reactionKey = "approved-and-green";
         const reactionConfig = getReactionConfigForSession(session, reactionKey);
         if (
