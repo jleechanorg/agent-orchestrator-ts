@@ -13,9 +13,9 @@ import type {
   AttachInfo,
 } from "@jleechanorg/ao-core";
 import * as peekaboo from "./peekaboo.js";
-import { executeWithFallback } from "./fallback.js";
 import type { AntigravitySession } from "./types.js";
-import type { FallbackConfig } from "./fallback.js";
+import type { AntigravityConfig } from "./config.js";
+import { defaultConfig } from "./config.js";
 
 /** Application name for Peekaboo targeting. */
 const APP_NAME = "Antigravity";
@@ -24,111 +24,75 @@ const APP_NAME = "Antigravity";
  * Create an AntigravityRuntime instance.
  *
  * Follows the same factory pattern as the tmux runtime.
+ *
+ * @param config - Optional validated config. Falls back to defaults.
  */
-export function createAntigravityRuntime(): Runtime {
+export function createAntigravityRuntime(config?: AntigravityConfig): Runtime {
+  const _config = config ?? defaultConfig();
   return {
     name: "antigravity",
 
     async create(config: RuntimeCreateConfig): Promise<RuntimeHandle> {
-      const fallbackCfg = config.environment["FALLBACK_CONFIG"] as
-        | Partial<FallbackConfig>
-        | undefined;
-
-      const primaryFn = async (): Promise<string> => {
-        // 1. Find the Antigravity Manager window
-        const windows = await peekaboo.windowList(APP_NAME);
-        const managerWindow = windows.find((w) =>
-          w.title.toLowerCase().includes("manager"),
+      // 1. Find the Antigravity Manager window
+      const windows = await peekaboo.windowList(APP_NAME);
+      const managerWindow = windows.find((w) =>
+        w.title.toLowerCase().includes("manager"),
+      );
+      if (!managerWindow) {
+        throw new Error(
+          "Antigravity Manager window not found. Is Antigravity running?",
         );
-        if (!managerWindow) {
-          throw new Error(
-            "Antigravity Manager window not found. Is Antigravity running?",
-          );
-        }
+      }
 
-        // 2. Take snapshot of Manager window, find workspace to click
-        const snapshot = await peekaboo.see(APP_NAME, managerWindow.window_id);
-        const workspaceElement = snapshot.ui_elements.find(
-          (el) =>
-            el.title.toLowerCase().includes(config.workspacePath.toLowerCase()) ||
-            el.value.toLowerCase().includes(config.workspacePath.toLowerCase()),
+      // 2. Take snapshot of Manager window, find workspace to click
+      const snapshot = await peekaboo.see(APP_NAME, managerWindow.window_id);
+      const workspaceElement = snapshot.ui_elements.find(
+        (el) =>
+          el.title.toLowerCase().includes(config.workspacePath.toLowerCase()) ||
+          el.value.toLowerCase().includes(config.workspacePath.toLowerCase()),
+      );
+      if (!workspaceElement) {
+        throw new Error(
+          `Workspace "${config.workspacePath}" not found in Antigravity Manager`,
         );
-        if (!workspaceElement) {
-          throw new Error(
-            `Workspace "${config.workspacePath}" not found in Antigravity Manager`,
-          );
-        }
+      }
 
-        // 3. Click the workspace to open/focus it
-        await peekaboo.click(
-          APP_NAME,
-          managerWindow.window_id,
-          workspaceElement.id,
-          snapshot.snapshot_id,
-        );
-
-        // 4. Find the conversation window that opens
-        const postClickWindows = await peekaboo.windowList(APP_NAME);
-        const conversationWindow = postClickWindows.find(
-          (w) =>
-            w.window_id !== managerWindow.window_id &&
-            !w.title.toLowerCase().includes("manager"),
-        );
-        if (!conversationWindow) {
-          throw new Error(
-            "Conversation window did not open after clicking workspace",
-          );
-        }
-
-        // 5. Send the initial prompt if provided via launchCommand
-        if (config.launchCommand) {
-          await peekaboo.paste(APP_NAME, config.launchCommand);
-          await peekaboo.press(APP_NAME, "Return");
-        }
-
-        return conversationWindow.title;
-      };
-
-      const result = await executeWithFallback(
-        primaryFn,
-        config.launchCommand ?? "start session",
-        config.workspacePath,
-        fallbackCfg,
+      // 3. Click the workspace to open/focus it
+      await peekaboo.click(
+        APP_NAME,
+        managerWindow.window_id,
+        workspaceElement.id,
+        snapshot.snapshot_id,
       );
 
-      // When peekaboo succeeds, build session from the actual window state.
-      // When fallback was used, create a synthetic session.
-      let session: AntigravitySession;
-      if (!result.fallbackUsed) {
-        // Re-fetch window state to populate session fields
-        const postWindows = await peekaboo.windowList(APP_NAME);
-        const managerWindow = postWindows.find((w) =>
-          w.title.toLowerCase().includes("manager"),
+      // 4. Find the conversation window that opens
+      const postClickWindows = await peekaboo.windowList(APP_NAME);
+      const conversationWindow = postClickWindows.find(
+        (w) =>
+          w.window_id !== managerWindow.window_id &&
+          !w.title.toLowerCase().includes("manager"),
+      );
+      if (!conversationWindow) {
+        throw new Error(
+          "Conversation window did not open after clicking workspace",
         );
-        const conversationWindow = postWindows.find(
-          (w) => !w.title.toLowerCase().includes("manager"),
-        );
-        session = {
-          conversationTitle:
-            conversationWindow?.title ?? result.output,
-          workspaceName: config.workspacePath,
-          windowId: conversationWindow?.window_id ?? -1,
-          managerWindowId: managerWindow?.window_id ?? -1,
-          status: "running",
-          createdAt: Date.now(),
-          lastCheckedAt: Date.now(),
-        };
-      } else {
-        session = {
-          conversationTitle: `CLI fallback: ${config.workspacePath}`,
-          workspaceName: config.workspacePath,
-          windowId: -1,
-          managerWindowId: -1,
-          status: result.success ? "running" : "failed",
-          createdAt: Date.now(),
-          lastCheckedAt: Date.now(),
-        };
       }
+
+      // 5. Send the initial prompt if provided via launchCommand
+      if (config.launchCommand) {
+        await peekaboo.paste(APP_NAME, config.launchCommand);
+        await peekaboo.press(APP_NAME, "Return");
+      }
+
+      const session: AntigravitySession = {
+        conversationTitle: conversationWindow.title,
+        workspaceName: config.workspacePath,
+        windowId: conversationWindow.window_id,
+        managerWindowId: managerWindow.window_id,
+        status: "running",
+        createdAt: Date.now(),
+        lastCheckedAt: Date.now(),
+      };
 
       return {
         id: config.sessionId,
@@ -137,7 +101,6 @@ export function createAntigravityRuntime(): Runtime {
           createdAt: session.createdAt,
           workspacePath: config.workspacePath,
           session,
-          fallbackUsed: result.fallbackUsed,
         },
       };
     },
@@ -172,41 +135,28 @@ export function createAntigravityRuntime(): Runtime {
         throw new Error("No session data in handle — was create() called?");
       }
 
-      const primaryFn = async (): Promise<string> => {
-        // 1. Take a snapshot to find the text input field
-        const snapshot = await peekaboo.see(APP_NAME, session.windowId);
-        const inputField = snapshot.ui_elements.find(
-          (el) =>
-            el.role === "AXTextArea" ||
-            el.role === "AXTextField" ||
-            el.role === "textField",
-        );
-
-        if (inputField) {
-          // Click the text field to focus it
-          await peekaboo.click(
-            APP_NAME,
-            session.windowId,
-            inputField.id,
-            snapshot.snapshot_id,
-          );
-        }
-
-        // 2. Paste the message and press Enter to send
-        await peekaboo.paste(APP_NAME, message);
-        await peekaboo.press(APP_NAME, "Return");
-        return "sent";
-      };
-
-      const result = await executeWithFallback(
-        primaryFn,
-        message,
-        String(handle.data["workspacePath"] ?? "."),
+      // 1. Take a snapshot to find the text input field
+      const snapshot = await peekaboo.see(APP_NAME, session.windowId);
+      const inputField = snapshot.ui_elements.find(
+        (el) =>
+          el.role === "AXTextArea" ||
+          el.role === "AXTextField" ||
+          el.role === "textField",
       );
 
-      if (result.fallbackUsed) {
-        handle.data["fallbackUsed"] = true;
+      if (inputField) {
+        // Click the text field to focus it
+        await peekaboo.click(
+          APP_NAME,
+          session.windowId,
+          inputField.id,
+          snapshot.snapshot_id,
+        );
       }
+
+      // 2. Paste the message and press Enter to send
+      await peekaboo.paste(APP_NAME, message);
+      await peekaboo.press(APP_NAME, "Return");
     },
 
     async getOutput(handle: RuntimeHandle, lines = 50): Promise<string> {
@@ -215,7 +165,7 @@ export function createAntigravityRuntime(): Runtime {
         | undefined;
       if (!session) return "";
 
-      const primaryFn = async (): Promise<string> => {
+      try {
         // Take a snapshot and extract visible text content
         const snapshot = await peekaboo.see(APP_NAME, session.windowId);
         const textContent = snapshot.ui_elements
@@ -226,20 +176,6 @@ export function createAntigravityRuntime(): Runtime {
         // Return last N lines
         const allLines = textContent.split("\n");
         return allLines.slice(-lines).join("\n");
-      };
-
-      try {
-        const result = await executeWithFallback(
-          primaryFn,
-          "get current output",
-          String(handle.data["workspacePath"] ?? "."),
-        );
-
-        if (result.fallbackUsed) {
-          handle.data["fallbackUsed"] = true;
-        }
-
-        return result.output;
       } catch {
         return "";
       }

@@ -34,15 +34,8 @@ export interface AntigravitySession {
   lastCheckedAt: number;
 }
 
-/** Runtime-level configuration knobs. */
-export interface AntigravityConfig {
-  /** How often (ms) to poll for conversation state. */
-  pollIntervalMs: number;
-  /** Number of retry attempts for flaky peekaboo operations. */
-  retryAttempts: number;
-  /** Backoff (ms) when Antigravity is at capacity. */
-  capacityBackoffMs: number;
-}
+// NOTE: AntigravityConfig is now defined via Zod schema in config.ts.
+
 
 // =============================================================================
 // Peekaboo CLI Output Types
