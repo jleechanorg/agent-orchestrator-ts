@@ -2504,7 +2504,7 @@ describe("reactions", () => {
 
     // With mergeGate disabled, merge should proceed even though conditions would fail
     // (because checkMergeGate returns early with passed: true when enabled: false)
-    expect(mockSCM.mergePR).toHaveBeenCalledWith(session.pr, "squash");
+    expect(mockSCM.mergePR).toHaveBeenCalledWith(session.pr, "squash", 0);
   });
 });
 
@@ -2595,7 +2595,7 @@ describe("getStates", () => {
     await lm.check("app-1");
 
     expect(mockSCM.getMergeability).toHaveBeenCalledWith(session.pr);
-    expect(mockSCM.mergePR).toHaveBeenCalledWith(session.pr, "squash");
+    expect(mockSCM.mergePR).toHaveBeenCalledWith(session.pr, "squash", 0);
   });
 
   it("does not merge when session has no PR", async () => {
@@ -2720,7 +2720,7 @@ describe("getStates", () => {
 
     await lm.check("app-1");
 
-    expect(mockSCM.mergePR).toHaveBeenCalledWith(session.pr, "squash");
+    expect(mockSCM.mergePR).toHaveBeenCalledWith(session.pr, "squash", 0);
   });
 
   it("auto-merge merges immediately and notifies of completion", async () => {
@@ -2797,7 +2797,7 @@ describe("getStates", () => {
     expect(call.message).toContain("completed auto-merge");
 
     // Verify merge was called immediately
-    expect(mockSCM.mergePR).toHaveBeenCalledWith(session.pr, "squash");
+    expect(mockSCM.mergePR).toHaveBeenCalledWith(session.pr, "squash", 0);
   });
 
   it("works with request-merge action (notifies human without merging)", async () => {
