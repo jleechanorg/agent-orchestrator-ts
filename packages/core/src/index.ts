@@ -268,6 +268,17 @@ export type { ExitProofDeps } from "./session-exit-proof.js";
 export { handleRequestMerge, handleParallelRetry } from "./fork-reaction-handlers.js";
 export type { ReactionHandlerDeps } from "./fork-reaction-handlers.js";
 
+// Skeptic Agent — independent exit criteria verifier (bd-qw6)
+export { buildSkepticPrompt, resolveSkepticModel } from "./skeptic-prompt.js";
+export {
+  parseSkepticReport,
+  computeOverallVerdict,
+  buildFeedbackMessage,
+} from "./skeptic-report.js";
+export type { SkepticReport, CriterionVerdict, CriterionVerdictValue, OverallVerdict } from "./skeptic-report.js";
+export { handleSpawnSkeptic } from "./skeptic-reaction.js";
+export type { SkepticReactionDeps } from "./skeptic-reaction.js";
+
 // Review backlog dispatch (extracted from lifecycle-manager)
 export { maybeDispatchReviewBacklog } from "./review-backlog.js";
 export type { ReviewBacklogDeps } from "./review-backlog.js";

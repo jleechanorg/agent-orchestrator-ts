@@ -50,6 +50,7 @@ import { buildReactionContext } from "./reaction-context.js";
 import { validateAndEmitExitProof } from "./session-exit-proof.js";
 import { isPRMerged } from "./fork-lifecycle-kki-override.js";
 import { handleRequestMerge, handleParallelRetry } from "./fork-reaction-handlers.js";
+import { handleSpawnSkeptic } from "./skeptic-reaction.js";
 import { maybeDispatchReviewBacklog } from "./review-backlog.js";
 import { updateSessionMetadataHelper } from "./fork-utils.js";
 import { checkMergeGate } from "./merge-gate.js";
@@ -175,6 +176,8 @@ function eventToReactionKey(eventType: EventType): string | null {
       return "agent-exited";
     case "summary.all_complete":
       return "all-complete";
+    case "worker.signals_completion":
+      return "worker-signals-completion";
     default:
       return null;
   }
@@ -704,6 +707,12 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
 
       case "parallel-retry": {
         return handleParallelRetry(sessionId, projectId, reactionKey, reactionConfig, {
+          sessionManager, config, registry, notifyHuman, createEvent,
+        });
+      }
+
+      case "spawn-skeptic": {
+        return handleSpawnSkeptic(sessionId, projectId, reactionKey, reactionConfig, {
           sessionManager, config, registry, notifyHuman, createEvent,
         });
       }

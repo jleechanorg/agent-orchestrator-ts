@@ -925,6 +925,8 @@ export type EventType =
   // Session exit reconciliation (bd-uxs.6)
   | "session.exit_validated"
   | "session.exit_failed"
+  // Skeptic Agent (bd-qw6)
+  | "worker.signals_completion"
   // Summary
   | "summary.all_complete";
 
@@ -949,8 +951,8 @@ export interface ReactionConfig {
   /** Whether this reaction is enabled */
   auto: boolean;
 
-  /** What to do: send message to agent, notify human, auto-merge, request-merge, parallel-retry */
-  action: "send-to-agent" | "notify" | "auto-merge" | "request-merge" | "parallel-retry";
+  /** What to do: send message to agent, notify human, auto-merge, request-merge, parallel-retry, spawn-skeptic */
+  action: "send-to-agent" | "notify" | "auto-merge" | "request-merge" | "parallel-retry" | "spawn-skeptic";
 
   /** Message to send (for send-to-agent) */
   message?: string;
@@ -1078,6 +1080,21 @@ export interface OrchestratorConfig {
 
   /** Plugin-specific configs (e.g., scm-github.extraBotAuthors) */
   plugins?: Record<string, Record<string, unknown>>;
+
+  /** Skeptic Agent configuration (bd-qw6) */
+  skeptic?: SkepticConfig;
+}
+
+/** Skeptic Agent configuration (bd-qw6) */
+export interface SkepticConfig {
+  /** Whether skeptic verification is enabled */
+  enabled: boolean;
+  /** Max skeptic iterations before accepting result */
+  maxIterations: number;
+  /** Model selection: "auto" picks opposite of coder model */
+  model: "auto" | string;
+  /** Output patterns that trigger skeptic evaluation */
+  triggerOn: string[];
 }
 
 export interface DefaultPlugins {
