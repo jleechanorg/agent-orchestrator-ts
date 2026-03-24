@@ -921,6 +921,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
           clearReactionTracker,
           getReactionConfigForSession,
           executeReaction,
+          agentDead: true, // killed-status absorbed block: agent is confirmed dead
         }, undefined);
         return;
       }
@@ -1071,6 +1072,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         clearReactionTracker,
         getReactionConfigForSession,
         executeReaction,
+        agentDead,
       }, transitionReaction);
 
       // Session exit reconciliation (bd-uxs.6): validate commits and emit proof on terminal states
@@ -1281,6 +1283,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       clearReactionTracker,
       getReactionConfigForSession,
       executeReaction,
+      agentDead,
     }, transitionReaction);
 
     // Session exit reconciliation (bd-uxs.6): validate commits and emit proof on terminal states

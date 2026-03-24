@@ -30,6 +30,8 @@ export interface ReviewBacklogDeps {
     reactionConfig: ReactionConfig,
     session?: Session,
   ) => Promise<ReactionResult>;
+  /** Whether the agent is confirmed dead — skips send-to-agent backlog dispatches (bd-5o1) */
+  agentDead?: boolean;
 }
 
 function makeFingerprint(ids: string[]): string {
@@ -65,7 +67,7 @@ export async function maybeDispatchReviewBacklog(
   deps: ReviewBacklogDeps,
   transitionReaction?: { key: string; result: ReactionResult | null },
 ): Promise<void> {
-  const { config, registry, clearReactionTracker, getReactionConfigForSession, executeReaction } =
+  const { config, registry, clearReactionTracker, getReactionConfigForSession, executeReaction, agentDead } =
     deps;
 
   const project = config.projects[session.projectId];
@@ -179,10 +181,14 @@ export async function maybeDispatchReviewBacklog(
       pendingFingerprint !== lastPendingDispatchHash
     ) {
       const reactionConfig = getReactionConfigForSession(session, humanReactionKey);
+      // bd-5o1: skip send-to-agent backlog dispatches for dead agents — same logic
+      // as the transition block in checkSession. notifyHuman is still allowed.
+      const skipForDead = agentDead && reactionConfig?.action === "send-to-agent";
       if (
         reactionConfig &&
         reactionConfig.action &&
-        (reactionConfig.auto !== false || reactionConfig.action === "notify")
+        (reactionConfig.auto !== false || reactionConfig.action === "notify") &&
+        !skipForDead
       ) {
         const result = await executeReaction(
           session.id,
@@ -233,10 +239,13 @@ export async function maybeDispatchReviewBacklog(
       );
     } else if (!shouldThrottle && automatedFingerprint !== lastAutomatedDispatchHash) {
       const reactionConfig = getReactionConfigForSession(session, automatedReactionKey);
+      // bd-5o1: skip send-to-agent backlog dispatches for dead agents
+      const skipForDead = agentDead && reactionConfig?.action === "send-to-agent";
       if (
         reactionConfig &&
         reactionConfig.action &&
-        (reactionConfig.auto !== false || reactionConfig.action === "notify")
+        (reactionConfig.auto !== false || reactionConfig.action === "notify") &&
+        !skipForDead
       ) {
         const result = await executeReaction(
           session.id,
