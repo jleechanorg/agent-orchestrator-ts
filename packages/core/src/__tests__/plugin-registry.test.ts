@@ -137,8 +137,16 @@ describe("loadBuiltins", () => {
   it("silently skips unavailable packages", async () => {
     const registry = createPluginRegistry();
     // loadBuiltins tries to import all built-in packages.
-    // In the test environment, most are not resolvable — should not throw.
-    await expect(registry.loadBuiltins()).resolves.toBeUndefined();
+    // Pass a mock importFn that always throws (simulating unavailable packages).
+    // The registry should silently swallow these errors, not propagate them.
+    await expect(
+      registry.loadBuiltins(
+        undefined,
+        async () => {
+          throw new Error("package not found");
+        },
+      ),
+    ).resolves.toBeUndefined();
   });
 
   it("registers multiple agent plugins from importFn", async () => {
@@ -322,7 +330,15 @@ describe("loadFromConfig", () => {
     const config = makeOrchestratorConfig({});
 
     // loadFromConfig calls loadBuiltins internally, which may fail to
-    // import packages in the test env — should still succeed gracefully
-    await expect(registry.loadFromConfig(config)).resolves.toBeUndefined();
+    // import packages in the test env — should still succeed gracefully.
+    // Pass a mock importFn that always throws to avoid real npm imports in test.
+    await expect(
+      registry.loadFromConfig(
+        config,
+        async () => {
+          throw new Error("package not found");
+        },
+      ),
+    ).resolves.toBeUndefined();
   });
 });
