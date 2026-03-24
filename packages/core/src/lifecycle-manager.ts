@@ -750,8 +750,9 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
   /** Send a notification to all configured notifiers. */
   async function notifyHuman(event: OrchestratorEvent, priority: EventPriority): Promise<void> {
     const eventWithPriority = { ...event, priority };
-    const notifierNames = config.notificationRouting[priority] ?? config.defaults.notifiers;
-
+    const notifierNames = (config.notificationRouting[priority]?.length ?? 0) > 0
+      ? config.notificationRouting[priority]!
+      : config.defaults.notifiers;
     for (const name of notifierNames) {
       const notifier = registry.get<Notifier>("notifier", name);
       if (notifier) {
