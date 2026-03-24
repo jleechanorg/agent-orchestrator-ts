@@ -315,9 +315,13 @@ check_stale_temp_files() {
 check_lifecycle_workers() {
   # Count lifecycle-worker processes per project via launchd and ps
   local config_file="$HOME/.openclaw/agent-orchestrator.yaml"
-  # Resolve canonical ao binary from PATH at runtime rather than hardcoding a path
+  # Resolve canonical ao binary from PATH at runtime rather than hardcoding a path.
+  # Also resolve the real path (symlink target) so we match both launchd-spawned
+  # workers (show as /path/to/ao) and node-spawned workers (show as node /real/path.js).
   local canonical_binary
   canonical_binary="$(command -v ao 2>/dev/null || printf '%s' "$HOME/bin/ao")"
+  local canonical_real
+  canonical_real="$(realpath "$canonical_binary" 2>/dev/null || printf '%s' "$canonical_binary")"
 
   # --- Check 1: detect ALL lifecycle-worker processes, flag non-canonical binaries ---
   # NOTE: Checks 1 and 2 run unconditionally — they do not require the config file.
@@ -335,7 +339,8 @@ check_lifecycle_workers() {
     local stale_pids=""
     while IFS= read -r line; do
       [ -z "$line" ] && continue
-      if ! echo "$line" | grep -qF "${canonical_binary} "; then
+      if ! echo "$line" | grep -qF "${canonical_binary} " && \
+         ! echo "$line" | grep -qF "${canonical_real} "; then
         stale_count=$((stale_count + 1))
         local pid
         pid="$(echo "$line" | awk '{print $2}')"
