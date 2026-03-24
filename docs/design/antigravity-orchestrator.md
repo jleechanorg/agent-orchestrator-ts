@@ -72,26 +72,15 @@ If Antigravity/Gemini returns a capacity error:
 | PR strategy | Single PR (feat/runtime-antigravity) | All phases merge into one feature branch |
 | Model | Opus 4.6 (as configured in Antigravity) | User preference |
 | Capacity handling | Parse retry time, exponential backoff, part of daemon | Graceful degradation |
-| Self-healing | Convo restart, Antigravity relaunch, state rebuild, launchd KeepAlive | 8hr unattended durability |
+| Self-healing | Convo restart, Antigravity relaunch, state rebuild | 8hr unattended durability |
+| Execution model | LLM-driven — Claude orchestrator calls peekaboo directly | No shell script wrappers, more adaptive |
+| Shell scripts | DROPPED (bd-5kp.2 → wont_do) | LLM-driven approach is more flexible and self-healing |
 
 ---
 
 ## Components
 
-### 1. Shell Executor Scripts (`scripts/antigravity/`)
-
-```
-scripts/antigravity/
-  lib.sh      — shared: get MANAGER_ID, find workspace element, error handling
-  start.sh    — open workspace, start conversation, paste prompt, send
-  status.sh   — check if conversation is running/idle/unknown, return JSON
-  kill.sh     — navigate to conversation, cancel
-  send.sh     — paste follow-up message to open conversation
-```
-
-Reference: `~/.claude/skills/antigravity-computer-use/SKILL.md`
-
-### 2. `runtime-antigravity` Plugin (`packages/plugins/runtime-antigravity/`)
+### 1. `runtime-antigravity` Plugin (`packages/plugins/runtime-antigravity/`)
 
 ```
 packages/plugins/runtime-antigravity/
@@ -101,16 +90,18 @@ packages/plugins/runtime-antigravity/
     index.ts        — export AntigravityRuntime class, manifest
     runtime.ts      — implements Runtime interface (create, destroy, sendMessage, getOutput, isAlive, getMetrics, getAttachInfo)
     queue.ts        — serial async executor (p-queue, concurrency: 1)
-    executor.ts     — calls scripts/antigravity/*.sh, captures output, handles fallback
+    peekaboo.ts     — typed wrapper around peekaboo CLI calls (see, click, paste, press, window list)
     types.ts        — AntigravitySession, AntigravityConfig
   src/__tests__/
     queue.test.ts
-    executor.test.ts
+    peekaboo.test.ts
     index.test.ts
 ```
 
 Mirrors structure from `packages/plugins/runtime-tmux/`.
 Implements: `Runtime` interface from `packages/core/src/types.ts`.
+
+**LLM-driven execution:** Instead of shell scripts, the plugin calls peekaboo CLI directly from TypeScript. The `peekaboo.ts` module provides typed wrappers. All peekaboo operations go through the serial queue. When peekaboo fails (element not found, Antigravity not running), the Claude Code CLI fallback fires.
 
 ### 3. Idle Poller (15s interval)
 
@@ -273,15 +264,15 @@ All must be true simultaneously:
 
 | Phase | Bead | Description | Depends On |
 |-------|------|-------------|------------|
-| 1 | bd-5kp.2 | Shell executor scripts | — |
-| 2 | bd-5kp.1 | TypeScript plugin skeleton | bd-5kp.2 |
-| 3 | bd-5kp.6 | Idle poller (15s) | bd-5kp.1 |
-| 4 | bd-5kp.3 | Claude Code CLI fallback | bd-5kp.1 |
-| 5 | bd-5kp.4 | MCP tools | bd-5kp.1 |
-| 6 | bd-5kp.5 | agent-orchestrator.yaml config | bd-5kp.1 |
-| 7 | bd-5kp.7 | Slack + CLI entry points | bd-5kp.4, bd-5kp.5 |
+| ~~1~~ | ~~bd-5kp.2~~ | ~~Shell executor scripts~~ | DROPPED — LLM-driven |
+| 1 | bd-5kp.1 | TypeScript plugin skeleton (Runtime + queue + peekaboo.ts) | — |
+| 2 | bd-5kp.6 | Idle poller (15s) | bd-5kp.1 |
+| 3 | bd-5kp.3 | Claude Code CLI fallback | bd-5kp.1 |
+| 4 | bd-5kp.4 | MCP tools | bd-5kp.1 |
+| 5 | bd-5kp.5 | agent-orchestrator.yaml config | bd-5kp.1 |
+| 6 | bd-5kp.7 | Slack + CLI entry points | bd-5kp.4, bd-5kp.5 |
 
-Phases 3-6 can run in parallel once Phase 2 completes.
+Phases 2-5 can run in parallel once Phase 1 completes.
 
 ### Worktree Strategy
 
