@@ -167,7 +167,7 @@ export function createAntigravityRuntime(config?: AntigravityConfig): Runtime {
           } catch {
             // Process may have already exited
           }
-          session.status = "failed";
+          session.status = "idle";
           return;
         }
 
@@ -330,11 +330,16 @@ export function createAntigravityRuntime(config?: AntigravityConfig): Runtime {
       const session = handle.data["session"] as
         | AntigravitySession
         | undefined;
-      const target = session
-        ? `${APP_NAME} window ${session.windowId}: ${session.conversationTitle}`
-        : `${APP_NAME} (unknown window)`;
+      let target: string;
+      if (!session) {
+        target = `${APP_NAME} (unknown window)`;
+      } else if (session.windowId === -1) {
+        target = `${APP_NAME} CLI fallback: ${session.workspaceName}`;
+      } else {
+        target = `${APP_NAME} window ${session.windowId}: ${session.conversationTitle}`;
+      }
       return {
-        type: "process",
+        type: session?.windowId === -1 ? "process" : "web",
         target,
       };
     },

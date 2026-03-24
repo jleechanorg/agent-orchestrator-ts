@@ -519,26 +519,54 @@ describe("runtime.getMetrics()", () => {
 // =============================================================================
 
 describe("runtime.getAttachInfo()", () => {
-  it("returns web type with window info", async () => {
+  it("returns web type with window info for GUI sessions", async () => {
     const runtime = create();
     const handle = makeHandle("attach-test");
 
     const info = await runtime.getAttachInfo!(handle);
 
     expect(info).toEqual({
-      type: "process",
+      type: "web",
       target: "Antigravity window 2: Test Conversation",
     });
   });
 
-  it("returns fallback target when no session data", async () => {
+  it("returns process type with workspace for CLI fallback sessions", async () => {
+    const runtime = create();
+    const handle: RuntimeHandle = {
+      id: "fallback-test",
+      runtimeName: "antigravity",
+      data: {
+        workspacePath: "/tmp/workspace",
+        session: {
+          conversationTitle: "CLI fallback: /tmp/workspace",
+          workspaceName: "/tmp/workspace",
+          windowId: -1,
+          managerWindowId: -1,
+          status: "running",
+          createdAt: 1000,
+          lastCheckedAt: 1000,
+          fallbackPid: 12345,
+        },
+      },
+    };
+
+    const info = await runtime.getAttachInfo!(handle);
+
+    expect(info).toEqual({
+      type: "process",
+      target: "Antigravity CLI fallback: /tmp/workspace",
+    });
+  });
+
+  it("returns web type when no session data", async () => {
     const runtime = create();
     const handle = makeEmptyHandle("no-session");
 
     const info = await runtime.getAttachInfo!(handle);
 
     expect(info).toEqual({
-      type: "process",
+      type: "web",
       target: "Antigravity (unknown window)",
     });
   });
