@@ -324,7 +324,7 @@ describe("merge gate blockers observability", () => {
     await lm.check("app-1");
 
     // Verify merge was called
-    expect(mockSCM.mergePR).toHaveBeenCalledWith(session.pr, "squash");
+    expect(mockSCM.mergePR).toHaveBeenCalledWith(session.pr, "squash", 0);
 
     // Verify observability does NOT include blockers field when merge succeeds
     const summary = readObservabilitySummary(config);
