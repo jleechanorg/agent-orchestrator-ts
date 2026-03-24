@@ -660,6 +660,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
             success: false,
             action,
             escalated: false,
+            blockers: gateResult.blockers,
           };
         }
 
@@ -913,6 +914,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
                   action: reactionResult?.action,
                   escalated: reactionResult?.escalated,
                   success: reactionResult?.success,
+                  ...(reactionResult?.blockers && { blockers: reactionResult.blockers }),
                 },
                 level: reactionResult?.success ? "info" : "warn",
               });
