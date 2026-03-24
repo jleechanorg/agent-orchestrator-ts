@@ -1204,9 +1204,55 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
 
       const dirty = await git(["status", "--porcelain"], workspacePath);
       if (dirty) {
-        throw new Error(
-          `Workspace has uncommitted changes; cannot switch to PR branch "${pr.branch}" safely`,
-        );
+        // Filter out AO-managed runtime files (written by agent-base plugin
+        // at session startup) that are expected to differ from committed versions.
+        const AO_MANAGED = new Set([
+          ".claude/metadata-updater.sh",
+          ".claude/settings.json",
+          ".cursor/metadata-updater.sh",
+          ".cursor/settings.json",
+          ".gemini/metadata-updater.sh",
+          ".gemini/settings.json",
+        ]);
+        const realDirty = dirty
+          .split("\n")
+          .filter((line) => {
+            // Porcelain format: XY FILENAME (XY = 1-2 status chars)
+            // Strip leading status characters and whitespace to extract filename
+            const filePath = line.replace(/^[MADRCUT?! ]{1,2}\s/, "").trim();
+            return filePath.length > 0 && !AO_MANAGED.has(filePath);
+          })
+          .join("\n")
+          .trim();
+        if (realDirty) {
+          throw new Error(
+            `Workspace has uncommitted changes; cannot switch to PR branch "${pr.branch}" safely`,
+          );
+        }
+        // Reset AO-managed files so checkout succeeds cleanly.
+        // git checkout -- <file> restores from the index, not HEAD, so it is a
+        // no-op for untracked (??). Use targeted commands per status instead.
+        // Status format: XY FILENAME (X=index, Y=working tree; space=no change).
+        for (const line of dirty.split("\n")) {
+          const filePath = line.replace(/^[MADRCUT?! ]{2}\s/, "").trim();
+          if (!AO_MANAGED.has(filePath)) continue;
+          const wt = line[1];
+          if (wt === "?" || wt === "!") {
+            // Untracked or ignored — remove from working tree
+            await git(["clean", "-f", filePath], workspacePath).catch(() => {});
+          } else if (wt !== " " && wt !== undefined) {
+            // Working-tree change (e.g. " M", "MD") — restore working tree from index
+            await git(["checkout", "--", filePath], workspacePath).catch(() => {});
+          }
+          // Also clear the index for any AO-managed file that is staged.
+          // `git checkout --` does not touch the index — staged-only changes ("M ")
+          // remain and can block `gh pr checkout`. Use `git reset HEAD -- <file>`
+          // to unstage without touching the working tree.
+          const idx = line[0];
+          if (idx !== " " && idx !== undefined) {
+            await git(["reset", "HEAD", "--", filePath], workspacePath).catch(() => {});
+          }
+        }
       }
 
       await ghInDir(["pr", "checkout", String(pr.number), "--repo", repoFlag(pr)], workspacePath);

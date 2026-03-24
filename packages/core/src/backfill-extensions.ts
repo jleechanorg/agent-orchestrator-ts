@@ -3,6 +3,8 @@
  *
  * Extracted from lifecycle-manager.ts to keep the core polling loop minimal
  * and the backfill logic independently testable.
+ *
+ * @module backfill-extensions
  */
 
 import type {
@@ -99,62 +101,130 @@ export async function backfillUncoveredPRs(
     });
 
     // Spawn one session at a time to avoid thundering herd.
-    // The next backfill cycle (5 min later) will pick up the rest.
-    const pr = uncovered[0];
-    try {
-      // Don't pass branch to spawn — let claimPR handle checkout so
-      // the workspace starts on the correct PR branch via SCM checkout.
-      const session = await sessionManager.spawn({
-        projectId,
-        prompt: `Continue working on PR #${pr.number}: ${pr.title}. Check PR status, fix any blockers (CI failures, review comments, merge conflicts), and drive it to 6-green.`,
-      });
-
-      // Claim the PR for this session — this checks out the branch
+    // If spawn/claim fails for a PR, skip it and try the next uncovered PR.
+    // Stop after 3 total spawn OR claim failures to avoid unbounded churn.
+    // Spawn failures indicate systemic issues (project paused, missing plugin, etc.)
+    // Claim failures indicate systemic workspace issues (CONFLICTING PR, locked ws, etc.)
+    // Counters are independent — claim failures accumulate across spawn successes.
+    const MAX_CONSECUTIVE_SPAWN_FAILURES = 3;
+    const MAX_CONSECUTIVE_CLAIM_FAILURES = 3;
+    let consecutiveSpawnFailures = 0;
+    let consecutiveClaimFailures = 0;
+    for (const pr of uncovered) {
       try {
-        await sessionManager.claimPR(session.id, String(pr.number));
-      } catch (claimErr) {
-        // claimPR failed — kill the orphan session to avoid waste
+        // Don't pass branch to spawn — let claimPR handle checkout so
+        // the workspace starts on the correct PR branch via SCM checkout.
+        // pr.title is contributor-supplied — escape quotes to prevent prompt injection.
+        const escapedTitle = pr.title
+          .replace(/\\/g, "\\\\") // escape backslashes first
+          .replace(/"/g, '\\"');
+        const session = await sessionManager.spawn({
+          projectId,
+          // Label the title as untrusted contributor input so the agent does not
+          // treat embedded text as system directives. Quotes prevent injection.
+          prompt: `Continue working on PR #${pr.number}: [PR title: "${escapedTitle}"]. Check PR status, fix any blockers (CI failures, review comments, merge conflicts), and drive it to 6-green.`,
+        });
+
+        // Claim the PR for this session — this checks out the branch
+        try {
+          await sessionManager.claimPR(session.id, String(pr.number));
+          consecutiveSpawnFailures = 0; // reset when both succeed
+        } catch (claimErr) {
+          consecutiveClaimFailures++;
+          observer.recordOperation({
+            metric: "lifecycle_poll",
+            operation: "lifecycle.backfill.claim_failed",
+            outcome: "failure",
+            correlationId,
+            projectId,
+            sessionId: session.id,
+            data: {
+              prNumber: pr.number,
+              consecutiveClaimFailures,
+              error: claimErr instanceof Error ? claimErr.message : String(claimErr),
+            },
+            level: "warn",
+          });
+          // If kill fails, abort rather than leaking an orphan session
+          try {
+            await sessionManager.kill(session.id);
+          } catch (killErr) {
+            observer.recordOperation({
+              metric: "lifecycle_poll",
+              operation: "lifecycle.backfill.orphan_cleanup_failed",
+              outcome: "failure",
+              correlationId,
+              projectId,
+              sessionId: session.id,
+              data: {
+                prNumber: pr.number,
+                error: killErr instanceof Error ? killErr.message : String(killErr),
+              },
+              level: "warn",
+            });
+            // Orphan session couldn't be cleaned up — abort backfill rather than leak
+            return false;
+          }
+          // Stop if claim keeps failing — systemic workspace issue (e.g. all PRs CONFLICTING)
+          if (consecutiveClaimFailures >= MAX_CONSECUTIVE_CLAIM_FAILURES) {
+            observer.recordOperation({
+              metric: "lifecycle_poll",
+              operation: "lifecycle.backfill.claim_failed_abort",
+              outcome: "failure",
+              correlationId,
+              projectId,
+              data: { consecutiveClaimFailures },
+              level: "warn",
+            });
+            return false;
+          }
+          continue; // try next uncovered PR
+        }
+
+        consecutiveSpawnFailures = 0; // both spawn AND claim succeeded
+
         observer.recordOperation({
           metric: "lifecycle_poll",
-          operation: "lifecycle.backfill.claim_failed",
-          outcome: "failure",
+          operation: "lifecycle.backfill.spawned",
+          outcome: "success",
           correlationId,
           projectId,
           sessionId: session.id,
+          data: { prNumber: pr.number, prTitle: pr.title, branch: pr.branch },
+          level: "info",
+        });
+        return true;
+      } catch (spawnErr) {
+        consecutiveSpawnFailures++;
+        observer.recordOperation({
+          metric: "lifecycle_poll",
+          operation: "lifecycle.backfill.spawn_failed",
+          outcome: "failure",
+          correlationId,
+          projectId,
           data: {
             prNumber: pr.number,
-            error: claimErr instanceof Error ? claimErr.message : String(claimErr),
+            consecutiveSpawnFailures,
+            error: spawnErr instanceof Error ? spawnErr.message : String(spawnErr),
           },
           level: "warn",
         });
-        await sessionManager.kill(session.id).catch(() => {});
-        return false;
+        // Stop after MAX_CONSECUTIVE_SPAWN_FAILURES — systemic issue (project paused,
+        // missing plugin, etc.) will fail every PR identically in this cycle.
+        if (consecutiveSpawnFailures >= MAX_CONSECUTIVE_SPAWN_FAILURES) {
+          observer.recordOperation({
+            metric: "lifecycle_poll",
+            operation: "lifecycle.backfill.spawn_failed_abort",
+            outcome: "failure",
+            correlationId,
+            projectId,
+            data: { consecutiveSpawnFailures },
+            level: "warn",
+          });
+          return false;
+        }
+        continue; // try next uncovered PR
       }
-
-      observer.recordOperation({
-        metric: "lifecycle_poll",
-        operation: "lifecycle.backfill.spawned",
-        outcome: "success",
-        correlationId,
-        projectId,
-        sessionId: session.id,
-        data: { prNumber: pr.number, prTitle: pr.title, branch: pr.branch },
-        level: "info",
-      });
-      return true;
-    } catch (spawnErr) {
-      observer.recordOperation({
-        metric: "lifecycle_poll",
-        operation: "lifecycle.backfill.spawn_failed",
-        outcome: "failure",
-        correlationId,
-        projectId,
-        data: {
-          prNumber: pr.number,
-          error: spawnErr instanceof Error ? spawnErr.message : String(spawnErr),
-        },
-        level: "warn",
-      });
     }
   } catch (listErr) {
     observer.recordOperation({
