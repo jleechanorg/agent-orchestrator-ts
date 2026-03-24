@@ -1271,13 +1271,24 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
       // PR head commit — works for both regular and fork PRs regardless of where the
       // branch lives). Fall back to a direct branch fetch only when that ref is
       // unavailable (e.g. shallow clone that prunes pull/ refs). (bd-49u)
-      const remote = `https://github.com/${repoFlag(pr)}.git`;
+
+      // Discover the actual remote URL from the workspace rather than hardcoding.
+      // This respects SSH / HTTPS / GHE configurations configured in the workspace.
+      let remote: string;
+      try {
+        remote = (await git(["remote", "get-url", "origin"], workspacePath)).trim();
+      } catch {
+        // Fall back to the well-known GitHub HTTPS URL only when origin is missing
+        remote = `https://github.com/${repoFlag(pr)}.git`;
+      }
+
       const prRef = `refs/pull/${pr.number}/head`;
 
       let fetchErr: Error | undefined;
       try {
-        // Primary: fetch via GitHub's pull-request ref (works for fork and regular PRs)
-        await git(["fetch", remote, `${prRef}:${pr.branch}`], workspacePath);
+        // Primary: fetch via GitHub's pull-request ref (works for fork and regular PRs).
+        // Use +src:dst refspec so fetch updates an existing branch (force-like behaviour).
+        await git(["fetch", remote, `+${prRef}:${pr.branch}`], workspacePath);
       } catch (err) {
         // Only handle "ref not found" — let auth/network errors propagate
         const msg = err instanceof Error ? err.message : String(err);
@@ -1286,9 +1297,10 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
         }
         fetchErr = err as Error;
 
-        // Fallback: fetch the branch directly (works when the branch is on the base repo)
+        // Fallback: fetch the branch directly (works when the branch is on the base repo).
+        // Also use +src:dst to handle the case where the local branch already exists.
         try {
-          await git(["fetch", remote, `${pr.branch}:${pr.branch}`], workspacePath);
+          await git(["fetch", remote, `+${pr.branch}:${pr.branch}`], workspacePath);
         } catch {
           // Both refs failed — surface the more informative original error
           throw fetchErr;
