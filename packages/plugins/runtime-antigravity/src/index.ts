@@ -16,6 +16,10 @@ export {
   defaultConfig,
 } from "./config.js";
 export type { AntigravityConfig, WorkspaceMap } from "./config.js";
+export { createMcpTools } from "./mcp-tools.js";
+export type { McpToolDefinition, McpToolResult } from "./mcp-tools.js";
+export { parseCliArgs, parseSlackMessage } from "./entrypoints.js";
+export type { SpawnRequest } from "./entrypoints.js";
 
 export const manifest = {
   name: "antigravity",
