@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { readdirSync, statSync } from "node:fs";
+import { readdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -131,30 +131,19 @@ async function sweepOrphanTmuxSessions(opts: {
 // AO session name pattern — matches ao-749, jc-12, etc.
 const AO_SESSION_PATTERN = /^(ao|jc|wa|cc|ra|wc)-\d+$/;
 
-async function isTmuxSessionAlive(sessionName: string): Promise<boolean> {
-  try {
-    await execFileAsync("tmux", ["has-session", "-t", sessionName], {
-      timeout: TMUX_TIMEOUT_MS,
-    });
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 /**
  * Remove git worktrees for AO sessions whose tmux session is dead and that are
  * no longer tracked in the AO session DB. Mirrors sweepOrphanTmuxSessions but
  * operates on git worktrees, preventing "refusing to fetch into checked-out
  * branch" errors in backfillUncoveredPRs. (harness: ghost-worktree-sweep)
  */
-async function sweepOrphanWorktrees(opts: {
+// Exported for unit testing — prefer testing through the CLI command where possible
+export async function sweepOrphanWorktrees(opts: {
   sessionManager: SessionManager;
   projectId: string;
   allProjectIds: string[];
   configHash: string;
   worktreeBaseDir: string;
-  orphanTtlMs: number;
   observer: ReturnType<typeof createProjectObserver>;
 }): Promise<void> {
   const {
@@ -163,7 +152,6 @@ async function sweepOrphanWorktrees(opts: {
     allProjectIds,
     configHash,
     worktreeBaseDir,
-    orphanTtlMs,
     observer,
   } = opts;
   const correlationId = createCorrelationId("lifecycle-worker");
@@ -176,6 +164,24 @@ async function sweepOrphanWorktrees(opts: {
       .filter((id): id is string => typeof id === "string" && id.length > 0),
   );
 
+  // Build a set of AO session short-IDs (ao-749, jc-12, …) that have a live
+  // tmux session under ANY config hash. Tmux session names follow the format
+  // "${hash}-${sessionId}", e.g. "bb5e6b7f8db3-ao-749".
+  //
+  // Checking only ${configHash}-${entry} is insufficient: a second AO config
+  // targeting the same projectId would create "${otherHash}-ao-749" whose
+  // worktree is at the same path. Scanning all live sessions prevents
+  // cross-config false-positive removal.
+  const allTmuxSessions = await listTmuxSessionsWithActivity();
+  const liveSessionIds = new Set<string>(
+    allTmuxSessions
+      .map((s) => {
+        const m = s.name.match(/-((?:ao|jc|wa|cc|ra|wc)-\d+)$/);
+        return m ? m[1] : null;
+      })
+      .filter((id): id is string => id !== null),
+  );
+
   // Worktrees live at <worktreeBaseDir>/<projectId>/<sessionId>/
   const projectWorktreeDir = join(worktreeBaseDir, projectId);
   let entries: string[];
@@ -186,31 +192,24 @@ async function sweepOrphanWorktrees(opts: {
     return;
   }
 
-  const now = Date.now();
   let orphanCount = 0;
   let cleanedCount = 0;
 
   for (const entry of entries) {
     if (!AO_SESSION_PATTERN.test(entry)) continue;
 
-    const fullPath = join(projectWorktreeDir, entry);
-    // Tmux session name: "{configHash}-{sessionId}" (e.g. "bb5e6b7f8db3-ao-749")
+    // Tmux session name: "{configHash}-{sessionId}" (e.g. "bb5e6b7f8db3-ao-749").
+    // This is also the runtimeId used in the AO session DB for this config.
     const tmuxSessionName = `${configHash}-${entry}`;
 
-    // Fail-safe: skip if we can't stat the dir
-    let mtime: number;
-    try {
-      mtime = statSync(fullPath).mtimeMs;
-    } catch {
-      continue;
-    }
-
-    if (now - mtime < orphanTtlMs) continue;
-    // Skip if AO DB still knows about this session (any project)
+    // Primary guard: AO DB knows about this session → it's managed, skip.
     if (activeRuntimeIds.has(tmuxSessionName)) continue;
-    // Skip if tmux session is still alive
-    if (await isTmuxSessionAlive(tmuxSessionName)) continue;
 
+    // Secondary guard: any live tmux session for this short ID (any config hash)
+    // means the worktree is still in use — do not remove it.
+    if (liveSessionIds.has(entry)) continue;
+
+    const fullPath = join(worktreeBaseDir, projectId, entry);
     orphanCount += 1;
     try {
       await execFileAsync("git", ["worktree", "remove", "--force", fullPath], {
@@ -229,7 +228,7 @@ async function sweepOrphanWorktrees(opts: {
       outcome: cleanedCount > 0 ? "success" : "failure",
       correlationId,
       projectId,
-      data: { orphanCount, cleanedCount, orphanTtlMs, projectWorktreeDir },
+      data: { orphanCount, cleanedCount, projectWorktreeDir },
       level: cleanedCount > 0 ? "warn" : "error",
     });
   }
@@ -398,7 +397,6 @@ export function registerLifecycleWorker(program: Command): void {
             allProjectIds,
             configHash,
             worktreeBaseDir,
-            orphanTtlMs,
             observer,
           }).catch(() => {
             // best-effort sweep; errors must not crash the lifecycle worker
@@ -423,7 +421,6 @@ export function registerLifecycleWorker(program: Command): void {
           allProjectIds,
           configHash,
           worktreeBaseDir,
-          orphanTtlMs,
           observer,
         }).catch(() => {
           // best-effort sweep; errors must not crash the lifecycle worker
