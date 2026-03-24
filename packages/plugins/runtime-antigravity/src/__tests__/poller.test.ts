@@ -13,8 +13,7 @@ vi.mock("../peekaboo.js", () => ({
 
 // Import after mocks
 import * as peekaboo from "../peekaboo.js";
-import { createPoller } from "../poller.js";
-import type { PollerCallbacks } from "../poller.js";
+import { createPoller, type PollerCallbacks } from "../poller.js";
 
 const mockSee = peekaboo.see as ReturnType<typeof vi.fn>;
 

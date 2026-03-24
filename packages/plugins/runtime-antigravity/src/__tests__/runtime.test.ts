@@ -15,12 +15,8 @@ vi.mock("../peekaboo.js", () => ({
 vi.mock("../fallback.js", () => ({
   executeWithFallback: vi.fn(
     async (primaryFn: () => Promise<string>) => {
-      try {
-        const output = await primaryFn();
-        return { success: true, output, fallbackUsed: false };
-      } catch (err: unknown) {
-        throw err;
-      }
+      const output = await primaryFn();
+      return { success: true, output, fallbackUsed: false };
     },
   ),
 }));
@@ -270,11 +266,18 @@ describe("runtime.destroy()", () => {
         bounds: { x: 100, y: 100, width: 600, height: 400 },
       },
     ]);
+    // see() is called to get a snapshot for focusing
+    mockSee.mockResolvedValueOnce({
+      snapshot_id: "snap-destroy",
+      ui_elements: [{ id: "el-1", role: "button", title: "close", value: "", bounds: { x: 0, y: 0, width: 10, height: 10 } }],
+    });
+    mockClick.mockResolvedValueOnce({ success: true });
     mockPress.mockResolvedValueOnce(undefined);
 
     await runtime.destroy(handle);
 
     expect(mockWindowList).toHaveBeenCalledWith("Antigravity");
+    expect(mockSee).toHaveBeenCalledWith("Antigravity", 2);
     expect(mockPress).toHaveBeenCalledWith("Antigravity", "Command+w");
   });
 

@@ -1,7 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { ZodError } from "zod";
 import {
-  AntigravityConfigSchema,
   WorkspaceMapSchema,
   parseConfig,
   defaultConfig,

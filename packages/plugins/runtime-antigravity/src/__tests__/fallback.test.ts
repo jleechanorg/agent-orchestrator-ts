@@ -7,8 +7,7 @@ vi.mock("node:child_process", () => ({
 }));
 
 // Import after mock
-import { executeWithFallback } from "../fallback.js";
-import type { FallbackConfig, FallbackResult } from "../fallback.js";
+import { executeWithFallback, type FallbackConfig, type FallbackResult } from "../fallback.js";
 
 const mockExecFile = execFileCb as unknown as ReturnType<typeof vi.fn>;
 

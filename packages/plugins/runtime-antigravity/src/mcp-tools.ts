@@ -96,7 +96,7 @@ export function createMcpTools(
             (el) =>
               el.role === "button" &&
               (el.title.includes("progress_activity") ||
-                /\d+[mhd]$/.test(el.title.trim())),
+                /\d+[smhd]\s*(ago)?$/i.test(el.title.trim())),
           );
 
           if (conversations.length === 0) {

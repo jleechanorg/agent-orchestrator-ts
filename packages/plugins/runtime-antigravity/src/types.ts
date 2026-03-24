@@ -32,6 +32,8 @@ export interface AntigravitySession {
   createdAt: number;
   /** Epoch ms when session was last checked via peekaboo. */
   lastCheckedAt: number;
+  /** PID of fallback CLI process, if fallback was used. */
+  fallbackPid?: number;
 }
 
 // NOTE: AntigravityConfig is now defined via Zod schema in config.ts.

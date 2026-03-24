@@ -50,7 +50,9 @@ const CLI_TIMEOUT_MS = 120_000;
  */
 const ERROR_PATTERNS: RegExp[] = [
   /element not found/i,
-  /not found/i,
+  /window not found/i,
+  /peekaboo.*failed/i,
+  /accessibility.*error/i,
 ];
 
 // ---------------------------------------------------------------------------

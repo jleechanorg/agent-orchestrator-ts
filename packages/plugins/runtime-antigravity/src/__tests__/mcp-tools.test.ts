@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { Runtime, RuntimeHandle } from "@jleechanorg/ao-core";
-import { createMcpTools } from "../mcp-tools.js";
-import type { McpToolDefinition } from "../mcp-tools.js";
+import { createMcpTools, type McpToolDefinition } from "../mcp-tools.js";
 
 // Mock peekaboo module
 vi.mock("../peekaboo.js", () => ({
