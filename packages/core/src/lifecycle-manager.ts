@@ -413,16 +413,16 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
           try {
             const batch = await scm.getBatchPRStatus(session.pr);
             usedBatch = true;
-            if (batch.state === PR_STATE.MERGED) return { status: "merged", agentDead: false };
-            if (batch.state === PR_STATE.CLOSED) return { status: "killed", agentDead: false };
-            if (batch.ciStatus === CI_STATUS.FAILING) return { status: "ci_failed", agentDead: false };
-            if (batch.reviewDecision === "changes_requested") return { status: "changes_requested", agentDead: false };
+            if (batch.state === PR_STATE.MERGED) return { status: "merged", agentDead };
+            if (batch.state === PR_STATE.CLOSED) return { status: "killed", agentDead };
+            if (batch.ciStatus === CI_STATUS.FAILING) return { status: "ci_failed", agentDead };
+            if (batch.reviewDecision === "changes_requested") return { status: "changes_requested", agentDead };
             if (batch.reviewDecision === "approved" || batch.reviewDecision === "none") {
-              if (batch.mergeReadiness.mergeable) return { status: "mergeable", agentDead: false };
-              if (!batch.mergeReadiness.noConflicts) return { status: "merge_conflicts", agentDead: false };
-              if (batch.reviewDecision === "approved") return { status: "approved", agentDead: false };
+              if (batch.mergeReadiness.mergeable) return { status: "mergeable", agentDead };
+              if (!batch.mergeReadiness.noConflicts) return { status: "merge_conflicts", agentDead };
+              if (batch.reviewDecision === "approved") return { status: "approved", agentDead };
             }
-            if (batch.reviewDecision === "pending") return { status: "review_pending", agentDead: false };
+            if (batch.reviewDecision === "pending") return { status: "review_pending", agentDead };
           } catch (err) {
             // bd-att: If batch failed due to a GitHub API rate limit (or network error),
             // DO NOT fall back. Rethrow so determineStatus exits immediately.
@@ -434,27 +434,27 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         if (!usedBatch) {
           // Fallback: individual calls (no batch support or batch failed)
           const prState = await scm.getPRState(session.pr);
-          if (prState === PR_STATE.MERGED) return { status: "merged", agentDead: false };
-          if (prState === PR_STATE.CLOSED) return { status: "killed", agentDead: false };
+          if (prState === PR_STATE.MERGED) return { status: "merged", agentDead };
+          if (prState === PR_STATE.CLOSED) return { status: "killed", agentDead };
 
           const ciStatus = await scm.getCISummary(session.pr);
-          if (ciStatus === CI_STATUS.FAILING) return { status: "ci_failed", agentDead: false };
+          if (ciStatus === CI_STATUS.FAILING) return { status: "ci_failed", agentDead };
 
           // Check reviews
           const reviewDecision = await scm.getReviewDecision(session.pr);
-          if (reviewDecision === "changes_requested") return { status: "changes_requested", agentDead: false };
+          if (reviewDecision === "changes_requested") return { status: "changes_requested", agentDead };
           if (reviewDecision === "approved" || reviewDecision === "none") {
             // bd-wg5: Skip getMergeability when CI is pending
             if (ciStatus === CI_STATUS.PENDING) {
-              if (reviewDecision === "approved") return { status: "approved", agentDead: false };
-              return { status: "pr_open", agentDead: false };
+              if (reviewDecision === "approved") return { status: "approved", agentDead };
+              return { status: "pr_open", agentDead };
             }
             const mergeReady = await scm.getMergeability(session.pr);
-            if (mergeReady.mergeable) return { status: "mergeable", agentDead: false };
-            if (!mergeReady.noConflicts) return { status: "merge_conflicts", agentDead: false };
-            if (reviewDecision === "approved") return { status: "approved", agentDead: false };
+            if (mergeReady.mergeable) return { status: "mergeable", agentDead };
+            if (!mergeReady.noConflicts) return { status: "merge_conflicts", agentDead };
+            if (reviewDecision === "approved") return { status: "approved", agentDead };
           }
-          if (reviewDecision === "pending") return { status: "review_pending", agentDead: false };
+          if (reviewDecision === "pending") return { status: "review_pending", agentDead };
         }
 
         // 4b. Post-PR stuck detection: agent has a PR open but is idle beyond
