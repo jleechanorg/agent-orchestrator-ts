@@ -18,11 +18,6 @@ type ExecFileAsync = (
   opts?: object,
 ) => Promise<{ stdout: string; stderr: string }>;
 
-type MockReadMeta = (
-  dataDir: string,
-  sessionId: string,
-) => Record<string, string> | null;
-
 let tmpDir: string;
 let configPath: string;
 let mockRuntime: Runtime;
@@ -32,23 +27,7 @@ let mockRegistry: PluginRegistry;
 let config: OrchestratorConfig;
 let mockExecFile: ExecFileAsync;
 
-// Per-test session data for readMetadataRaw injection
-let mockMeta: Record<string, Record<string, string> | null>;
-
-function clearMockMeta() {
-  for (const k of Object.keys(mockMeta)) delete mockMeta[k];
-}
-
-function setMockMeta(sessionId: string, data: Record<string, string>) {
-  mockMeta[sessionId] = data;
-}
-
-function makeReadMeta(mock: typeof mockMeta): MockReadMeta {
-  return (_dataDir: string, sessionId: string) => mock[sessionId] ?? null;
-}
-
 beforeEach(() => {
-  mockMeta = {};
 
   tmpDir = join(tmpdir(), `ao-test-prune-${randomUUID()}`);
   mkdirSync(tmpDir, { recursive: true });
@@ -130,7 +109,6 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  clearMockMeta();
   for (const projectId of Object.keys(config.projects)) {
     const wd = join(homedir(), ".worktrees", projectId);
     if (existsSync(wd)) rmSync(wd, { recursive: true, force: true });
@@ -300,10 +278,10 @@ describe("pruneStaleWorktrees", () => {
       if (cmd === "git" && argsStr.includes("worktree list --porcelain")) {
         return Promise.resolve({ stdout: porcelainOutput, stderr: "" });
       }
-      if (cmd === "git" && argsStr.includes("rev-parse --show-toplevel")) {
-        return Promise.resolve({ stdout: config.projects["my-app"]!.path, stderr: "" });
+      if (cmd === "git" && argsStr.includes("rev-parse --is-inside-work-tree")) {
+        return Promise.resolve({ stdout: "true\n", stderr: "" });
       }
-      if (cmd === "git" && argsStr.startsWith("worktree remove")) {
+      if (cmd === "git" && argsStr.includes("worktree remove")) {
         capturedRemovePath = args?.[args.length - 1];
         return Promise.reject(new Error("simulated"));
       }
@@ -329,8 +307,23 @@ describe("pruneStaleWorktrees", () => {
     mkdirSync(zombiePath, { recursive: true });
     mkdirSync(config.projects["my-app"]!.path, { recursive: true });
 
-    // Session is alive (status = running, not terminal)
-    setMockMeta("pr-400", { worktree: zombiePath, status: "running" });
+    // Write session metadata to disk so listMetadata finds it.
+    const configHash = createHash("sha256")
+      .update(dirname(realpathSync(configPath)))
+      .digest("hex")
+      .slice(0, 12);
+    const sessionsDir = join(
+      homedir(),
+      ".agent-orchestrator",
+      `${configHash}-my-app`,
+      "sessions",
+    );
+    mkdirSync(sessionsDir, { recursive: true });
+    writeFileSync(
+      join(sessionsDir, "pr-400"),
+      `worktree=${zombiePath}\nstatus=running\n`,
+      "utf8",
+    );
 
     const porcelainOutput =
       `worktree ${config.projects["my-app"]!.path}\nHEAD abc123\n\n` +
@@ -340,11 +333,12 @@ describe("pruneStaleWorktrees", () => {
       if (cmd === "tmux" && args?.[0] === "has-session") {
         return Promise.resolve({ stdout: "", stderr: "" }); // session alive
       }
-      if (cmd === "git" && args?.join(" ") === "worktree list --porcelain") {
+      const argsStr = args?.join(" ") ?? "";
+      if (cmd === "git" && argsStr.includes("worktree list --porcelain")) {
         return Promise.resolve({ stdout: porcelainOutput, stderr: "" });
       }
-      if (cmd === "git" && args?.join(" ") === "rev-parse --show-toplevel") {
-        return Promise.resolve({ stdout: config.projects["my-app"]!.path, stderr: "" });
+      if (cmd === "git" && argsStr.includes("rev-parse --is-inside-work-tree")) {
+        return Promise.resolve({ stdout: "true\n", stderr: "" });
       }
       return Promise.resolve({ stdout: "", stderr: "" });
     };
@@ -353,10 +347,10 @@ describe("pruneStaleWorktrees", () => {
       config,
       registry: mockRegistry,
       execFileAsync: mockExecFile,
-      readMetadataRaw: makeReadMeta(mockMeta),
     });
     await sm.pruneStaleWorktrees();
 
+    // Zombie worktree should be preserved because session is still alive (status=running)
     expect(existsSync(zombiePath)).toBe(true);
   });
 
@@ -365,17 +359,36 @@ describe("pruneStaleWorktrees", () => {
     mkdirSync(humanPath, { recursive: true });
     mkdirSync(config.projects["my-app"]!.path, { recursive: true });
 
-    // No mock sessions → readMetadataRaw returns null for all session IDs
+    // Write an unrelated session metadata file so Pass 2 has sessions to iterate,
+    // but none of them match the human worktree path.
+    const configHash = createHash("sha256")
+      .update(dirname(realpathSync(configPath)))
+      .digest("hex")
+      .slice(0, 12);
+    const sessionsDir = join(
+      homedir(),
+      ".agent-orchestrator",
+      `${configHash}-my-app`,
+      "sessions",
+    );
+    mkdirSync(sessionsDir, { recursive: true });
+    writeFileSync(
+      join(sessionsDir, "pr-401"),
+      `worktree=${join(tmpdir(), "other-worktree")}\nstatus=killed\n`,
+      "utf8",
+    );
+
     const porcelainOutput =
       `worktree ${config.projects["my-app"]!.path}\nHEAD abc123\n\n` +
       `worktree ${humanPath}\nHEAD def456\nbranch refs/heads/feature-x\n`;
 
     mockExecFile = async (cmd: string, args?: readonly string[]) => {
-      if (cmd === "git" && args?.join(" ") === "worktree list --porcelain") {
+      const argsStr = args?.join(" ") ?? "";
+      if (cmd === "git" && argsStr.includes("worktree list --porcelain")) {
         return Promise.resolve({ stdout: porcelainOutput, stderr: "" });
       }
-      if (cmd === "git" && args?.join(" ") === "rev-parse --show-toplevel") {
-        return Promise.resolve({ stdout: config.projects["my-app"]!.path, stderr: "" });
+      if (cmd === "git" && argsStr.includes("rev-parse --is-inside-work-tree")) {
+        return Promise.resolve({ stdout: "true\n", stderr: "" });
       }
       return Promise.resolve({ stdout: "", stderr: "" });
     };
@@ -384,10 +397,10 @@ describe("pruneStaleWorktrees", () => {
       config,
       registry: mockRegistry,
       execFileAsync: mockExecFile,
-      readMetadataRaw: makeReadMeta(mockMeta),
     });
     await sm.pruneStaleWorktrees();
 
+    // Human worktree should be preserved — no matching AO session record
     expect(existsSync(humanPath)).toBe(true);
   });
 });
