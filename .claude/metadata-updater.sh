@@ -4,7 +4,7 @@
 # This PostToolUse hook automatically updates session metadata when:
 # - gh pr create: extracts PR URL and writes to metadata
 # - git checkout -b / git switch -c: extracts branch name and writes to metadata
-# - gh pr merge: updates status to "merged"
+# - gh pr merge: updates status to "merged" (only when AO_ALLOW_GH_PR_MERGE=1 and hook_event=="PostToolUse")
 
 set -euo pipefail
 
