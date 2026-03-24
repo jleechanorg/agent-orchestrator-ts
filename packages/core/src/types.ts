@@ -1001,6 +1001,8 @@ export interface ReactionResult {
   action: string;
   message?: string;
   escalated: boolean;
+  /** Merge gate blockers when auto-merge fails (bd-harness) */
+  blockers?: string[];
 }
 
 /** Proof payload for session exit reconciliation (bd-uxs.6) */
