@@ -339,8 +339,10 @@ check_lifecycle_workers() {
     local stale_pids=""
     while IFS= read -r line; do
       [ -z "$line" ] && continue
-      if ! echo "$line" | grep -qF "${canonical_binary} " && \
-         ! echo "$line" | grep -qF "${canonical_real} "; then
+      local cmd
+      cmd="$(printf '%s' "$line" | awk '{print $11}')"
+      if [ "$cmd" != "${canonical_binary}" ] && \
+         [ "$cmd" != "${canonical_real}" ]; then
         stale_count=$((stale_count + 1))
         local pid
         pid="$(echo "$line" | awk '{print $2}')"
