@@ -4,7 +4,9 @@ import {
   type AgentPluginConfig,
 } from "@composio/ao-plugin-agent-base";
 import { execFileSync } from "node:child_process";
-import type { Agent, PluginModule, ProjectConfig, Session } from "@composio/ao-core";
+import { readFile, readdir, stat } from "node:fs/promises";
+import type { Agent, ActivityDetection, PluginModule, ProjectConfig, Session } from "@composio/ao-core";
+import { DEFAULT_READY_THRESHOLD_MS } from "@composio/ao-core";
 import { createHash } from "node:crypto";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -68,6 +70,103 @@ const geminiConfig: AgentPluginConfig = {
 };
 
 // =============================================================================
+// Gemini native JSON session reader (orch-cb3e)
+// =============================================================================
+
+/**
+ * Find the most recently modified .json session file in a directory,
+ * excluding agent-* prefixed files (toolkit manifests, not sessions).
+ * Returns both path and mtime so callers can skip a redundant stat() call.
+ */
+async function findLatestGeminiSessionFile(
+  projectDir: string,
+): Promise<{ path: string; mtime: number } | null> {
+  let entries: string[];
+  try {
+    entries = await readdir(projectDir);
+  } catch {
+    return null;
+  }
+  const jsonFiles = entries.filter((f) => f.endsWith(".json") && !f.startsWith("agent-"));
+  if (jsonFiles.length === 0) return null;
+  const withStats = await Promise.all(
+    jsonFiles.map(async (f) => {
+      const fullPath = join(projectDir, f);
+      try {
+        const s = await stat(fullPath);
+        return { path: fullPath, mtime: s.mtimeMs };
+      } catch {
+        return { path: fullPath, mtime: 0 };
+      }
+    }),
+  );
+  withStats.sort((a, b) => b.mtime - a.mtime);
+  return withStats[0] ?? null;
+}
+
+/**
+ * Read the last message type from a Gemini session file.
+ *
+ * Tries native Gemini JSON format first:
+ *   { sessionId, messages: [{ type, content, id, timestamp }, ...] }
+ * Falls back to JSONL (one JSON object per line) for compatibility.
+ *
+ * Gemini message types (observed in production):
+ *   "user"   → user prompt pending response → active
+ *   "gemini" → agent completed its turn     → ready
+ *   "error"  → error occurred               → blocked
+ *   "info"   → informational progress       → active
+ */
+async function readLastGeminiEntry(
+  filePath: string,
+  fileMtime: Date,
+): Promise<{ lastType: string | null; modifiedAt: Date } | null> {
+  try {
+    const content = await readFile(filePath, "utf-8");
+    const trimmed = content.trim();
+    if (!trimmed) return null;
+
+    // Try native Gemini JSON: top-level object with messages array
+    try {
+      const parsed: unknown = JSON.parse(trimmed);
+      if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
+        const obj = parsed as Record<string, unknown>;
+        if (Array.isArray(obj.messages)) {
+          // This is a native Gemini JSON file — do not fall through to JSONL
+          if (obj.messages.length === 0) return null;
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const lastMsg = obj.messages[obj.messages.length - 1] as any;
+          const lastType = typeof lastMsg?.type === "string" ? lastMsg.type : null;
+          return { lastType, modifiedAt: fileMtime };
+        }
+      }
+    } catch {
+      // Not valid JSON — fall through to JSONL
+    }
+
+    // Fall back to JSONL: read last non-empty line
+    const lines = trimmed.split("\n");
+    for (let i = lines.length - 1; i >= 0; i--) {
+      const line = lines[i]?.trim();
+      if (!line) continue;
+      try {
+        const parsed: unknown = JSON.parse(line);
+        if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
+          const obj = parsed as Record<string, unknown>;
+          const lastType = typeof obj.type === "string" ? obj.type : null;
+          return { lastType, modifiedAt: fileMtime };
+        }
+      } catch {
+        // Skip malformed lines
+      }
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+// =============================================================================
 // Gemini-specific overrides
 // Gemini CLI does not support session restore via CLI flag (no --resume equivalent).
 // getRestoreCommand returns null - sessions must be restored manually or via UI.
@@ -77,6 +176,57 @@ const geminiOverrides: Partial<Agent> = {
   async getRestoreCommand(_session: Session, _project: ProjectConfig): Promise<string | null> {
     // Gemini CLI does not have a --resume flag; sessions are restored via UI
     return null;
+  },
+
+  async getActivityState(
+    session: Session,
+    readyThresholdMs?: number,
+  ): Promise<ActivityDetection | null> {
+    const threshold = readyThresholdMs ?? DEFAULT_READY_THRESHOLD_MS;
+
+    const exitedAt = new Date();
+    if (!session.runtimeHandle) return { state: "exited", timestamp: exitedAt };
+    const running = await this.isProcessRunning!(session.runtimeHandle);
+    if (!running) return { state: "exited", timestamp: exitedAt };
+
+    if (!session.workspacePath) return null;
+
+    const projectDir = geminiConfig.getSessionDir?.(session.workspacePath);
+    if (!projectDir) return null;
+
+    const latest = await findLatestGeminiSessionFile(projectDir);
+    if (!latest) return null;
+
+    const entry = await readLastGeminiEntry(latest.path, new Date(latest.mtime));
+    if (!entry) return null;
+
+    const ageMs = Date.now() - entry.modifiedAt.getTime();
+    const timestamp = entry.modifiedAt;
+
+    switch (entry.lastType) {
+      // Native Gemini types
+      case "gemini": // agent completed its turn — done signal
+        return { state: ageMs > threshold ? "idle" : "ready", timestamp };
+      // Shared types
+      case "error":
+        return { state: "blocked", timestamp };
+      case "user":
+      case "info":
+        return { state: ageMs > threshold ? "idle" : "active", timestamp };
+      // JSONL fallback: Claude Code-compatible types
+      case "assistant":
+      case "system":
+      case "summary":
+      case "result":
+        return { state: ageMs > threshold ? "idle" : "ready", timestamp };
+      case "tool_use":
+      case "progress":
+        return { state: ageMs > threshold ? "idle" : "active", timestamp };
+      case "permission_request":
+        return { state: "waiting_input", timestamp };
+      default:
+        return { state: ageMs > threshold ? "idle" : "active", timestamp };
+    }
   },
 };
 

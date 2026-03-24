@@ -2,7 +2,7 @@
 
 Design reference for `@composio/ao-plugin-agent-gemini` — integrates Gemini CLI into the AO plugin system as a first-class agent backend.
 
-**Tags:** `process: gemini` · `session path: ~/.gemini/projects/` · `runtime: tmux` · `permission flag: --yolo`
+**Tags:** `process: gemini` · `session path: ~/.gemini/tmp/<sha256>/chats/` · `runtime: tmux` · `permission flag: --yolo`
 
 ---
 
@@ -19,7 +19,7 @@ The implementation is structurally identical to `agent-claude-code` (~87% shared
 | Aspect | Gemini | Claude Code |
 |--------|--------|-------------|
 | Process name | `gemini` | `claude` |
-| Session directory | `~/.gemini/projects/` | `~/.claude/projects/` |
+| Session directory | `~/.gemini/tmp/<sha256(workspacePath)>/chats/` | `~/.claude/projects/<encoded-path>/` |
 | Permission flag | `--yolo` | `--dangerously-skip-permissions` |
 | System prompt flag | Not supported | `--append-system-prompt` |
 
@@ -42,21 +42,23 @@ The implementation is structurally identical to `agent-claude-code` (~87% shared
 
 ## Session Tracking
 
-- **Location:** JSONL files in `~/.gemini/projects/<encoded-path>/`
+- **Location:** Native JSON files in `~/.gemini/tmp/<sha256(workspacePath)>/chats/`
 - **Selection:** Latest file selected by `mtime`
-- **Parsing:** Tail-parse for summary, cost, and session ID
-- **Path encoding:** `toGeminiProjectPath()` encodes workspace path identically to how Gemini CLI does
+- **File format:** Top-level JSON object `{ sessionId, messages: [{ type, content, id, timestamp }, ...] }`
+- **Path encoding:** `toGeminiProjectPath()` SHA-256 hashes the workspace path (unlike Claude Code's path-mangling)
 
 ---
 
 ## Activity Detection
 
-| State | Condition |
-|-------|-----------|
-| Idle | No JSONL writes in last 8 seconds |
-| Working | Recent JSONL write activity |
-| Stuck | No new JSONL writes beyond the stuck threshold |
+| State | Trigger |
+|-------|---------|
+| Active | Last message type is `"user"` or `"info"` |
+| Ready | Last message type is `"gemini"` (agent completed its turn) |
+| Idle | Any state older than the ready threshold (default 5 min) |
+| Blocked | Last message type is `"error"` |
 
+Reads the last entry in the `messages` array of the native JSON session file.
 **Process check:** Via `ps` across all tmux pane TTYs.
 
 ---
@@ -68,8 +70,8 @@ Implements the full `Agent` interface:
 - `getLaunchCommand(config)` — builds the `gemini` CLI string
 - `getEnvironment(config)` — injects `AO_SESSION_ID` and metadata env vars
 - `isProcessRunning(handle)` — checks tmux pane TTYs via `ps` for `gemini`
-- `getActivityState(handle)` — JSONL mtime-based idle/working/stuck classification
-- `getSessionInfo(session)` — extracts summary, cost, and session UUID from JSONL tail
+- `getActivityState(handle)` — native JSON message-type classification (user/gemini/error/info)
+- `getSessionInfo(session)` — extracts summary, cost, and session UUID from JSON session file
 - `getWorkspaceHooks()` — installs metadata-updater hook
 
 ---
@@ -130,19 +132,18 @@ Gemini Flash pricing is used as a rough baseline. Multi-modal inputs and premium
 
 | Test File | Coverage |
 |-----------|----------|
-| `src/index.test.ts` | Manifest, launch command, process detection, session parsing (67 tests) |
-| `src/__tests__/activity-detection.test.ts` | JSONL mtime-based activity states with real temp directories (42 tests) |
+| `src/index.test.ts` | Manifest, launch command, process detection, session parsing |
+| `src/__tests__/activity-detection.test.ts` | Native JSON message-type activity states with real temp directories |
 
-**All 109 tests pass** — no mocks of the filesystem in activity tests (real `fs` operations).
+All tests use real filesystem operations — no filesystem mocks.
 
 ---
 
 ## Future Work
 
-1. **Extract shared JSONL utilities** — `parseJsonlFileTail`, `extractCost`, `normalizePermissionMode`, etc. — to a shared package used by `agent-claude-code`, `agent-cursor`, and `agent-gemini`
-2. **Update cost estimation** when Gemini CLI exposes per-call token pricing in JSONL output
-3. **Investigate `--append-system-prompt` equivalent** when Gemini CLI adds system prompt support
-4. **Make pricing configurable per-project** so operators running non-Flash models get accurate estimates
+1. **Update cost estimation** when Gemini CLI exposes per-call token pricing in session files
+2. **Investigate `--append-system-prompt` equivalent** when Gemini CLI adds system prompt support
+3. **Make pricing configurable per-project** so operators running non-Flash models get accurate estimates
 
 ---
 

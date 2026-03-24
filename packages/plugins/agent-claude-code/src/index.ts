@@ -528,6 +528,9 @@ function classifyTerminalOutput(terminalOutput: string): ActivityState {
 // Hook Setup Helper
 // =============================================================================
 
+/** Relative path to the metadata-updater hook script inside a workspace. */
+const HOOK_SCRIPT_CMD = ".claude/metadata-updater.sh";
+
 /**
  * Shared helper to setup PostToolUse hooks in a workspace.
  * Writes metadata-updater.sh script and updates settings.json.
@@ -602,10 +605,20 @@ async function setupHookInWorkspace(workspacePath: string, hookCommand: string):
       ],
     });
   } else {
-    // Hook exists, update the command
+    // Hook exists, update the command — but preserve an existing AO_DATA_DIR
+    // prefix if the new command doesn't carry one (e.g. postLaunchSetup calling
+    // without a config doesn't have access to dataDir).
     const hook = postToolUse[hookIndex] as Record<string, unknown>;
     const hooksList = hook["hooks"] as Array<Record<string, unknown>>;
-    hooksList[hookDefIndex]["command"] = hookCommand;
+    const existingCmd = hooksList[hookDefIndex]?.["command"];
+    const existingHasDataDir = typeof existingCmd === "string" && existingCmd.startsWith("AO_DATA_DIR=");
+    const newLacksDataDir = !hookCommand.startsWith("AO_DATA_DIR=");
+    // Preserve an existing AO_DATA_DIR prefix if the incoming command lacks one
+    // (postLaunchSetup has no config, so it cannot supply dataDir).
+    const shouldPreserveDataDir = existingHasDataDir && newLacksDataDir;
+    if (!shouldPreserveDataDir) {
+      hooksList[hookDefIndex]["command"] = hookCommand;
+    }
   }
 
   hooks["PostToolUse"] = postToolUse;
@@ -803,16 +816,21 @@ function createClaudeCodeAgent(): Agent {
       return parts.join(" ");
     },
 
-    async setupWorkspaceHooks(workspacePath: string, _config: WorkspaceHooksConfig): Promise<void> {
-      // Relative path so that symlinked .claude/ dirs across worktrees
-      // all produce the same settings.json (last writer doesn't clobber).
-      await setupHookInWorkspace(workspacePath, ".claude/metadata-updater.sh");
+    async setupWorkspaceHooks(workspacePath: string, config: WorkspaceHooksConfig): Promise<void> {
+      // Bake AO_DATA_DIR into the hook command so the script resolves metadata
+      // files in the correct directory even when the env var is not set at
+      // hook-execution time.  Relative script path keeps settings.json
+      // identical across worktrees sharing the same .claude/ dir.
+      const hookCommand = config.dataDir
+        ? `AO_DATA_DIR=${config.dataDir} ${HOOK_SCRIPT_CMD}`
+        : HOOK_SCRIPT_CMD;
+      await setupHookInWorkspace(workspacePath, hookCommand);
     },
 
     async postLaunchSetup(session: Session): Promise<void> {
       if (!session.workspacePath) return;
 
-      await setupHookInWorkspace(session.workspacePath, ".claude/metadata-updater.sh");
+      await setupHookInWorkspace(session.workspacePath, HOOK_SCRIPT_CMD);
     },
   };
 }

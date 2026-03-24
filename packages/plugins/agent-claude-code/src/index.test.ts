@@ -856,6 +856,45 @@ describe("hook setup — relative path (symlink-safe)", () => {
     );
   });
 
+  it("setupWorkspaceHooks bakes AO_DATA_DIR into hook command when dataDir provided", async () => {
+    await agent.setupWorkspaceHooks!(
+      "/Users/equinox/.worktrees/integrator/integrator-5",
+      { dataDir: "/custom/ao-sessions" } as WorkspaceHooksConfig,
+    );
+    const hookCommand = getWrittenHookCommand();
+    expect(hookCommand).toBe("AO_DATA_DIR=/custom/ao-sessions .claude/metadata-updater.sh");
+  });
+
+  it("postLaunchSetup preserves existing AO_DATA_DIR in command", async () => {
+    mockExistsSync.mockReturnValue(true);
+    mockReadFile.mockResolvedValue(
+      JSON.stringify({
+        hooks: {
+          PostToolUse: [
+            {
+              matcher: "Bash",
+              hooks: [
+                {
+                  type: "command",
+                  command: "AO_DATA_DIR=/custom/ao-sessions .claude/metadata-updater.sh",
+                  timeout: 5000,
+                },
+              ],
+            },
+          ],
+        },
+      }),
+    );
+
+    await agent.postLaunchSetup!(
+      makeSession({ workspacePath: "/Users/equinox/.worktrees/integrator/integrator-10" }),
+    );
+
+    const hookCommand = getWrittenHookCommand();
+    // postLaunchSetup has no config, uses bare command — but existing AO_DATA_DIR is preserved
+    expect(hookCommand).toBe("AO_DATA_DIR=/custom/ao-sessions .claude/metadata-updater.sh");
+  });
+
   it("skips postLaunchSetup when workspacePath is null", async () => {
     await agent.postLaunchSetup!(makeSession({ workspacePath: null }));
     expect(mockWriteFile).not.toHaveBeenCalled();

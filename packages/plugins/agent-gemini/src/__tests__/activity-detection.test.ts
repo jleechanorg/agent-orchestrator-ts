@@ -339,4 +339,105 @@ describe("Gemini Activity Detection", () => {
       });
     });
   });
+
+  // =============================================================================
+  // getActivityState — real Gemini native JSON format (orch-cb3e)
+  // Gemini CLI stores sessions as a top-level JSON object:
+  //   { sessionId, messages: [{ type, content, id, timestamp }, ...] }
+  // readLastJsonlEntry returns null (last line is "}") — plugin must parse natively.
+  // =============================================================================
+
+  describe("getActivityState — native Gemini JSON format (orch-cb3e)", () => {
+    const agent = create();
+
+    function writeGeminiNativeJson(
+      messages: Array<{ type: string; content?: string; [key: string]: unknown }>,
+      ageMs = 0,
+      filename = "session-native-abc.json",
+    ): void {
+      const sessionObj = {
+        sessionId: "test-session-id",
+        projectHash: "abc123",
+        startTime: new Date().toISOString(),
+        lastUpdated: new Date().toISOString(),
+        messages: messages.map((m, i) => ({
+          id: `msg-${i}`,
+          timestamp: new Date().toISOString(),
+          ...m,
+        })),
+      };
+      const filePath = join(projectDir, filename);
+      writeFileSync(filePath, JSON.stringify(sessionObj, null, 2));
+      if (ageMs > 0) {
+        const past = new Date(Date.now() - ageMs);
+        utimesSync(filePath, past, past);
+      }
+    }
+
+    beforeEach(() => {
+      fakeHome = mkdtempSync(join(tmpdir(), "ao-gemini-native-test-"));
+      workspacePath = join(fakeHome, "workspace");
+      mkdirSync(workspacePath, { recursive: true });
+
+      const hash = toGeminiProjectPath(workspacePath);
+      projectDir = join(fakeHome, ".gemini", "tmp", hash, "chats");
+      mkdirSync(projectDir, { recursive: true });
+
+      vi.spyOn(agent, "isProcessRunning").mockResolvedValue(true);
+    });
+
+    afterEach(() => {
+      rmSync(fakeHome, { recursive: true, force: true });
+      vi.restoreAllMocks();
+    });
+
+    it("returns 'ready' when last message type is 'gemini' (done-signal, orch-cb3e)", async () => {
+      writeGeminiNativeJson([
+        { type: "user", content: "implement auth" },
+        { type: "gemini", content: "I've implemented the auth feature." },
+      ]);
+      expect((await agent.getActivityState(makeSession()))?.state).toBe("ready");
+    });
+
+    it("returns 'active' when last message type is 'user'", async () => {
+      writeGeminiNativeJson([{ type: "user", content: "fix the tests" }]);
+      expect((await agent.getActivityState(makeSession()))?.state).toBe("active");
+    });
+
+    it("returns 'blocked' when last message type is 'error'", async () => {
+      writeGeminiNativeJson([
+        { type: "user", content: "do something" },
+        { type: "error", content: "failed to execute" },
+      ]);
+      expect((await agent.getActivityState(makeSession()))?.state).toBe("blocked");
+    });
+
+    it("returns 'active' when last message type is 'info'", async () => {
+      writeGeminiNativeJson([
+        { type: "user", content: "run tests" },
+        { type: "info", content: "Running..." },
+      ]);
+      expect((await agent.getActivityState(makeSession()))?.state).toBe("active");
+    });
+
+    it("returns 'idle' when last gemini message is stale (> threshold)", async () => {
+      writeGeminiNativeJson(
+        [
+          { type: "user", content: "implement auth" },
+          { type: "gemini", content: "Done!" },
+        ],
+        400_000, // 6+ min old
+      );
+      expect((await agent.getActivityState(makeSession()))?.state).toBe("idle");
+    });
+
+    it("returns null when messages array is empty", async () => {
+      const filePath = join(projectDir, "empty-messages.json");
+      writeFileSync(
+        filePath,
+        JSON.stringify({ sessionId: "test", messages: [] }),
+      );
+      expect(await agent.getActivityState(makeSession())).toBeNull();
+    });
+  });
 });
