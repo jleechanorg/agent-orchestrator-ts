@@ -312,6 +312,99 @@ check_stale_temp_files() {
   warn "$stale_count stale temp files older than 60 minutes found under $temp_root. Fix: rerun ao doctor --fix"
 }
 
+check_lifecycle_workers() {
+  # Count lifecycle-worker processes per project via launchd and ps
+  local config_file="$HOME/.openclaw/agent-orchestrator.yaml"
+  # Resolve canonical ao binary from PATH at runtime rather than hardcoding a path
+  local canonical_binary
+  canonical_binary="$(command -v ao 2>/dev/null || printf '%s' "$HOME/bin/ao")"
+
+  if [ ! -f "$config_file" ]; then
+    warn "No canonical config at $config_file — cannot check lifecycle-worker counts"
+    return
+  fi
+
+  # --- Check 1: detect ALL lifecycle-worker processes, flag non-canonical binaries ---
+  local all_workers
+  all_workers="$(ps aux 2>/dev/null | grep -v grep | grep 'lifecycle-worker' || true)"
+  # Use grep -c safely: count lines from ps output, default to 0 if no matches
+  local total_count
+  total_count="$(printf '%s' "$all_workers" | grep -c 'lifecycle-worker' || true)"
+  total_count="${total_count:-0}"
+
+  if [ "$total_count" -gt 0 ]; then
+    # Count workers NOT using the canonical binary
+    local stale_count=0
+    local stale_pids=""
+    while IFS= read -r line; do
+      [ -z "$line" ] && continue
+      if ! echo "$line" | grep -q "$canonical_binary"; then
+        stale_count=$((stale_count + 1))
+        local pid
+        pid="$(echo "$line" | awk '{print $2}')"
+        stale_pids="$stale_pids $pid"
+        warn "non-canonical lifecycle-worker binary detected: PID=$pid binary contains: $(echo "$line" | grep -oE '/[^ ]+lifecycle|[^ ]+/ao' | head -1 || echo "unknown")"
+      fi
+    done <<< "$all_workers"
+
+    if [ "$stale_count" -gt 0 ]; then
+      if [ "$FIX_MODE" = true ]; then
+        for pid in $stale_pids; do
+          kill "$pid" 2>/dev/null && fixed "killed non-canonical lifecycle-worker PID=$pid" || warn "failed to kill PID=$pid"
+        done
+      else
+        warn "$stale_count non-canonical lifecycle-worker(s) running. Fix: run 'ao doctor --fix' to kill them. PIDs:$stale_pids"
+      fi
+    else
+      pass "all lifecycle-workers using canonical binary ($canonical_binary)"
+    fi
+  fi
+
+  # --- Check 2: total worker count sanity (warn if > 3 regardless of binary) ---
+  if [ "$total_count" -gt 3 ]; then
+    warn "unusually high lifecycle-worker count: $total_count (expected ≤3). This drains GraphQL quota rapidly."
+  elif [ "$total_count" -gt 0 ]; then
+    pass "total lifecycle-worker count is $total_count (within normal range)"
+  fi
+
+  local projects
+  projects="$(python3 -c "
+import yaml, sys
+try:
+    with open('$config_file') as f:
+        cfg = yaml.safe_load(f)
+    for pid in cfg.get('projects', {}):
+        print(pid)
+except Exception:
+    pass
+" 2>/dev/null || true)"
+
+  if [ -z "$projects" ]; then
+    pass "no projects in config — per-project lifecycle-worker check skipped"
+    return
+  fi
+
+  # --- Check 3: per-project duplicate detection (original check) ---
+  local duplicates_found=0
+  for proj in $projects; do
+    local count
+    count="$(ps aux 2>/dev/null | grep -v grep | grep -E -w "lifecycle-worker[[:space:]].*$proj($|[[:space:]])" | wc -l | tr -d ' ')"
+
+    if [ "$count" -eq 0 ]; then
+      warn "no lifecycle-worker process found for project '$proj'"
+    elif [ "$count" -ge 2 ]; then
+      warn "duplicate lifecycle-worker processes detected for project '$proj': count=$count"
+      duplicates_found=$((duplicates_found + 1))
+    else
+      pass "lifecycle-worker for project '$proj' is running normally (count=$count)"
+    fi
+  done
+
+  if [ "$duplicates_found" -gt 0 ]; then
+    warn "$duplicates_found project(s) have duplicate lifecycle-worker processes. Fix: identify PIDs with 'ps aux | grep lifecycle-worker' and kill duplicate PIDs manually"
+  fi
+}
+
 FIX_MODE=false
 
 # Guard: return early when sourced (e.g., for unit tests) - after functions are defined
@@ -333,7 +426,7 @@ Usage: ao doctor [--fix]
 Checks install, PATH, binaries, service health, stale temp files, and runtime sanity.
 
 Options:
-  --fix    Apply safe fixes for missing launcher links, missing support dirs, and stale temp files
+  --fix    Apply safe fixes for missing launcher links, support dirs, stale temp files, and non-canonical lifecycle-workers
 EOF
       exit 0
       ;;
@@ -357,6 +450,7 @@ check_config_dirs
 check_stale_temp_files
 check_install_layout
 check_runtime_sanity
+check_lifecycle_workers
 
 printf '\nResults: %s PASS, %s WARN, %s FAIL, %s FIXED\n' "$PASS_COUNT" "$WARN_COUNT" "$FAIL_COUNT" "$FIX_COUNT"
 
