@@ -3900,3 +3900,208 @@ describe("post-merge reap: reapPostMergeCoWorkers is called on merged transition
     expect(reapPostMergeCoWorkers).toHaveBeenCalledTimes(1);
   });
 });
+
+
+describe("bd-5o1: skip reactions when agent is dead", () => {
+  // These tests verify that when the runtime is dead AND the PR state changes,
+  // the agentDead flag is preserved through determineStatus() so that checkSession
+  // skips reactions (send-to-agent) and auto-merge retry for dead sessions.
+
+  let mockSCM: SCM;
+
+  beforeEach(() => {
+    // Reset isAlive to default (alive) — individual tests override this
+    vi.mocked(mockRuntime.isAlive).mockResolvedValue(true);
+    mockSCM = {
+      name: "mock-scm",
+      detectPR: vi.fn(),
+      getPRState: vi.fn().mockResolvedValue("open"),
+      mergePR: vi.fn(),
+      closePR: vi.fn(),
+      getCIChecks: vi.fn(),
+      getCISummary: vi.fn(),
+      getReviews: vi.fn(),
+      getReviewDecision: vi.fn(),
+      getPendingComments: vi.fn(),
+      getAutomatedComments: vi.fn(),
+      getMergeability: vi.fn(),
+    };
+  });
+
+  function makeRegistryWithSCM(): PluginRegistry {
+    return {
+      ...mockRegistry,
+      get: vi.fn().mockImplementation((slot: string) => {
+        if (slot === "runtime") return mockRuntime;
+        if (slot === "agent") return mockAgent;
+        if (slot === "scm") return mockSCM;
+        return null;
+      }),
+    };
+  }
+
+  it("skips send-to-agent reaction when agent is dead + PR gets changes_requested", async () => {
+    // Runtime is dead, PR receives changes_requested. No ao send should fire.
+    vi.mocked(mockRuntime.isAlive).mockResolvedValue(false);
+    vi.mocked(mockSCM.getPRState).mockResolvedValue("open");
+    vi.mocked(mockSCM.getReviewDecision).mockResolvedValue("changes_requested");
+    vi.mocked(mockSCM.getMergeability).mockResolvedValue({ mergeable: false, noConflicts: true });
+
+    const reactionsConfig = {
+      ...config,
+      reactions: {
+        "changes-requested": { auto: true, action: "send-to-agent", message: "fix comments" },
+      },
+    };
+
+    const session = makeSession({ status: "pr_open", pr: makePR() });
+    vi.mocked(mockSessionManager.get).mockResolvedValue(session);
+
+    writeMetadata(sessionsDir, "app-1", {
+      worktree: tmpDir,
+      branch: "feat/test",
+      status: "pr_open",
+      project: "my-app",
+    });
+
+    const lm = createLifecycleManager({
+      config: reactionsConfig,
+      registry: makeRegistryWithSCM(),
+      sessionManager: mockSessionManager,
+    });
+
+    await lm.check("app-1");
+
+    // Status transitions to changes_requested
+    expect(lm.getStates().get("app-1")).toBe("changes_requested");
+    // No ao send for dead agent
+    expect(mockSessionManager.send).not.toHaveBeenCalled();
+  });
+
+  it("skips auto-merge when agent is dead + PR is mergeable", async () => {
+    // Runtime is dead, PR is mergeable. No merge attempt should happen.
+    vi.mocked(mockRuntime.isAlive).mockResolvedValue(false);
+    vi.mocked(mockSCM.getPRState).mockResolvedValue("open");
+    vi.mocked(mockSCM.getReviewDecision).mockResolvedValue("approved");
+    vi.mocked(mockSCM.getMergeability).mockResolvedValue({ mergeable: true, noConflicts: true });
+    vi.mocked(mockSCM.getCISummary).mockResolvedValue("passing");
+
+    const reactionsConfig = {
+      ...config,
+      reactions: {
+        "approved-and-green": { auto: true, action: "auto-merge", mergeMethod: "squash" },
+      },
+    };
+
+    const session = makeSession({ status: "pr_open", pr: makePR() });
+    vi.mocked(mockSessionManager.get).mockResolvedValue(session);
+
+    writeMetadata(sessionsDir, "app-1", {
+      worktree: tmpDir,
+      branch: "feat/test",
+      status: "pr_open",
+      project: "my-app",
+    });
+
+    const lm = createLifecycleManager({
+      config: reactionsConfig,
+      registry: makeRegistryWithSCM(),
+      sessionManager: mockSessionManager,
+    });
+
+    await lm.check("app-1");
+
+    // Status transitions to mergeable
+    expect(lm.getStates().get("app-1")).toBe("mergeable");
+    // No merge attempt for dead agent
+    expect(mockSCM.mergePR).not.toHaveBeenCalled();
+  });
+
+  it("fires send-to-agent reaction when agent is alive + PR gets changes_requested", async () => {
+    // Sanity: alive agent + changes_requested SHOULD fire reaction.
+    vi.mocked(mockRuntime.isAlive).mockResolvedValue(true);
+    vi.mocked(mockAgent.getActivityState).mockResolvedValue({ state: "active" });
+    vi.mocked(mockSCM.getPRState).mockResolvedValue("open");
+    vi.mocked(mockSCM.getReviewDecision).mockResolvedValue("changes_requested");
+    vi.mocked(mockSCM.getMergeability).mockResolvedValue({ mergeable: false, noConflicts: true });
+
+    const reactionsConfig = {
+      ...config,
+      reactions: {
+        "changes-requested": { auto: true, action: "send-to-agent", message: "fix comments" },
+      },
+    };
+
+    const session = makeSession({ status: "pr_open", pr: makePR() });
+    vi.mocked(mockSessionManager.get).mockResolvedValue(session);
+
+    writeMetadata(sessionsDir, "app-1", {
+      worktree: tmpDir,
+      branch: "feat/test",
+      status: "pr_open",
+      project: "my-app",
+    });
+
+    const lm = createLifecycleManager({
+      config: reactionsConfig,
+      registry: makeRegistryWithSCM(),
+      sessionManager: mockSessionManager,
+    });
+
+    await lm.check("app-1");
+
+    // Status transitions to changes_requested
+    expect(lm.getStates().get("app-1")).toBe("changes_requested");
+    // ao send SHOULD have fired — agent is alive
+    expect(mockSessionManager.send).toHaveBeenCalled();
+  });
+
+  it("fires auto-merge reaction when agent is dead but PR becomes mergeable (bd-5o1)", async () => {
+    // The skipForDead guard only blocks send-to-agent actions.
+    // auto-merge is an SCM operation that does not require a live agent,
+    // so it must still fire for dead agents with a mergeable PR.
+    vi.mocked(mockRuntime.isAlive).mockResolvedValue(true);
+    vi.mocked(mockAgent.getActivityState).mockResolvedValue({ state: "exited" as ActivityState });
+    vi.mocked(mockSCM.getPRState).mockResolvedValue("open");
+    vi.mocked(mockSCM.getCISummary).mockResolvedValue("passing");
+    vi.mocked(mockSCM.getReviewDecision).mockResolvedValue("approved");
+    vi.mocked(mockSCM.getMergeability).mockResolvedValue({ mergeable: true, noConflicts: true });
+    vi.mocked(mockSCM.mergePR).mockResolvedValue(undefined);
+
+    const reactionsConfig = {
+      ...config,
+      // Disable merge gate so auto-merge fires without CodeRabbit/evidence requirements
+      projects: {
+        "my-app": { ...config.projects!["my-app"], mergeGate: { enabled: false } },
+      },
+      reactions: {
+        "approved-and-green": { auto: true, action: "auto-merge", mergeMethod: "squash" },
+      },
+    };
+
+    const session = makeSession({ status: "pr_open", pr: makePR() });
+    vi.mocked(mockSessionManager.get).mockResolvedValue(session);
+
+    writeMetadata(sessionsDir, "app-1", {
+      worktree: tmpDir,
+      branch: "feat/test",
+      status: "pr_open",
+      project: "my-app",
+    });
+
+    const lm = createLifecycleManager({
+      config: reactionsConfig,
+      registry: makeRegistryWithSCM(),
+      sessionManager: mockSessionManager,
+    });
+
+    await lm.check("app-1");
+
+    // Status transitions to mergeable
+    expect(lm.getStates().get("app-1")).toBe("mergeable");
+    // auto-merge MUST fire even for a dead agent (bd-5o1: auto-merge is SCM-only)
+    expect(mockSCM.mergePR).toHaveBeenCalled();
+    // send-to-agent must NOT have been called
+    expect(mockSessionManager.send).not.toHaveBeenCalled();
+  });
+});
