@@ -1326,9 +1326,19 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       if (TERMINAL_STATUSES.has(newStatus) && !isOrchestratorSession(session)) {
         try {
           await sessionManager.kill(session.id);
+          // On PR merge, immediately reap co-workers that have no PR and have
+          // been idle for 5+ minutes — they finished their work and are waiting
+          // for direction that will never come.
+          // Fork companion (fork-lifecycle-postmerge.ts): project-scoped + idle-gated
+          // so a merge in one project does not reap sessions from other projects,
+          // and active sessions that are simply old are not killed prematurely.
+          // Non-fatal: reap failures are warning-only so they never block session cleanup.
+          if (newStatus === "merged") {
+            await reapPostMergeCoWorkers(session, sessionManager, observer);
+          }
         } catch (killErr) {
-          // kill() may fail if session is already partially cleaned up.
-          // Log so operators can see cleanup failures rather than silently losing them.
+          // kill() may fail if session is already partially cleaned up; reapPostMergeCoWorkers
+          // may fail if the reaper is unreachable. Both are non-fatal — log and continue.
           observer.recordOperation({
             metric: "lifecycle_poll",
             operation: "lifecycle.terminal_cleanup",
@@ -1339,16 +1349,6 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
             data: { error: killErr instanceof Error ? killErr.message : String(killErr) },
             level: "warn",
           });
-        }
-
-        // On PR merge, immediately reap co-workers that have no PR and have
-        // been idle for 5+ minutes — they finished their work and are waiting
-        // for direction that will never come.
-        // Fork companion (fork-lifecycle-postmerge.ts): project-scoped + idle-gated
-        // so a merge in one project does not reap sessions from other projects,
-        // and active sessions that are simply old are not killed prematurely.
-        if (newStatus === "merged") {
-          await reapPostMergeCoWorkers(session, sessionManager, observer);
         }
       }
 
