@@ -1516,7 +1516,8 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
                     try {
                       const mergeJson = JSON.parse(mergeBody);
                       gqlSuccess =
-                        mergeJson?.data?.enablePullRequestAutoMerge !== null;
+                        // eslint-disable-next-line eqeqeq -- mergeJson?.data short-circuits null/undefined
+                        mergeJson?.data?.enablePullRequestAutoMerge != null;
                     } catch {
                       // parse error — treat as failure
                     }
