@@ -1683,7 +1683,8 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       const projectConfig = config.projects[projectId];
       if (!projectConfig) continue;
 
-      const configPath = projectConfig.configPath;
+      const configPath = projectConfig.configPath ?? config.configPath;
+      if (!configPath) continue;
 
       for (const entry of readdirSync(projectWorktreeDir, { withFileTypes: true })) {
         if (!entry.isDirectory()) continue;

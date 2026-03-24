@@ -1171,7 +1171,7 @@ export interface ProjectConfig {
   path: string;
 
   /** Path to the agent-orchestrator.yaml config file (used for tmux name hash) */
-  configPath: string;
+  configPath?: string;
 
   /** Default branch (main, master, next, develop, etc.) */
   defaultBranch: string;
