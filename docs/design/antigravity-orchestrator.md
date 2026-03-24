@@ -65,7 +65,7 @@ If Antigravity/Gemini returns a capacity error:
 | Decision | Choice | Rationale |
 |----------|--------|-----------|
 | Exit criteria | B (multi-repo live demo), then loop 20x for C (fallback) | Proves real multi-workspace capability |
-| Loop mechanism | launchd daemon, 5min cycles | Survives 8hr unattended runs, reboots |
+| Loop mechanism | Persistent Claude tmux session, 5min sleep cycles | Matches AO patterns, preserves context across cycles |
 | Loop strategy | Observe-Evaluate-Steer (tight control) | Catch errors early, steer Gemini |
 | Prompt strategy | Hybrid — paste Runtime interface, let Gemini read the rest | Contract too critical to risk misread |
 | Worktree strategy | Sub-branches per phase, merge during eval | Parallel convos without conflicts |
@@ -164,90 +164,54 @@ projects:
 
 ---
 
-## Orchestration Loop (launchd Daemon)
+## Orchestration Loop (Persistent Claude Session)
 
-A **launchd plist** runs every 5 minutes. Each cycle spawns a short-lived `claude --dangerously-skip-permissions` invocation with a self-contained prompt file.
-
-### Cycle Logic
+A **persistent Claude session in tmux** runs the observe-evaluate-steer loop. This follows the same pattern as all other AO worker sessions — a long-lived `claude --dangerously-skip-permissions` process with full context.
 
 ```
-1. Acquire PID lock (skip if another cycle running)
-2. Read state file (~/.antigravity-loop/state.json)
-3. For each active convo:
-   a. peekaboo see → check status (running/idle/capacity-out/error)
-   b. If running → skip (let it cook)
-   c. If capacity-out → parse retry time, update state, skip
-   d. If idle → evaluate output:
-      - git diff in the convo's worktree
-      - Does it compile? (pnpm build in worktree)
-      - Does it match the phase spec?
-   e. If output good → commit/push to sub-branch, update state
-   f. If output needs fixes → send correction via peekaboo
-   g. If phase complete → merge sub-branch into feat/runtime-antigravity
-4. For pending phases with no blockers:
-   - Create worktree, reset to origin/main
-   - Spawn new Antigravity convo with hybrid prompt
-   - Record convo ID in state
-5. Check overall exit criteria
-6. Write updated state file
-7. Release PID lock
+tmux: antigravity-orch
+  └── claude --dangerously-skip-permissions (persistent)
+       └── spawns Antigravity convos via peekaboo
+       └── evaluates output, sends corrections
+       └── commits/pushes to feat/runtime-antigravity
+       └── sleeps 5min between eval cycles
 ```
 
-### State File
+### Why Persistent Session (not launchd/cron)
 
-```json
-{
-  "startedAt": "2026-03-24T10:00:00Z",
-  "phases": {
-    "bd-5kp.2": {"status": "in-progress", "convoId": "...", "subBranch": "feat/runtime-antigravity/scripts", "worktree": "..."},
-    "bd-5kp.1": {"status": "pending"}
-  },
-  "exitB": {"passed": false, "attempts": 0},
-  "exitC": {"passed": false, "attempts": 0, "maxAttempts": 20},
-  "lastCycleAt": "...",
-  "capacityWait": {"until": null, "backoffMin": 5}
-}
+- **Context preservation** — the orchestrator remembers what it did last cycle (no cold-start per cycle)
+- **Matches AO patterns** — all AO workers are persistent tmux sessions
+- **Simpler** — no PID lock, no state file serialization, no shell wrapper
+- **Self-healing** — if the session dies, AO's existing session recovery can restart it
+
+### Cycle Logic (internal loop)
+
+```
+loop forever (sleep 5min between cycles):
+  1. peekaboo see → check all active Antigravity convos
+  2. For each active convo:
+     - Running → skip
+     - Capacity-out → note retry time, skip
+     - Idle → evaluate: git diff, pnpm build, quality check
+       - Good → commit/push to sub-branch, mark phase done
+       - Needs fixes → send correction via peekaboo
+     - Missing/died → restart convo
+  3. For pending phases with deps met → spawn new Antigravity convo
+  4. Merge completed sub-branches into feat/runtime-antigravity
+  5. Check exit criteria (B then C)
+  6. If all done → notify Slack, exit
+  7. If 8 hours elapsed → notify Slack, exit
 ```
 
 ### Self-Healing
 
 | Failure | Recovery |
 |---------|----------|
-| Convo dies/errors | Daemon detects idle/missing → restarts phase convo |
-| Daemon crashes | launchd `KeepAlive` restarts it |
-| Antigravity crashes | Cycle runs `open -a Antigravity`, waits 10s, retries |
-| state.json corrupted | Cycle detects invalid JSON, rebuilds from git branch state |
-| Peekaboo hangs | 15min hard timeout kills cycle, next one starts clean |
-| Model capacity out | Parse retry time from UI, exponential backoff |
-
-### Daemon Files
-
-```
-~/.antigravity-loop/
-  state.json                            # Persisted state across cycles
-  cycle-prompt.md                       # Self-contained prompt for each cycle
-  cycle.sh                             # Wrapper with PID lock + timeout
-  com.jleechan.antigravity-loop.plist   # launchd plist
-  logs/                                 # Per-cycle output logs
-```
-
-### Anti-Clobber (PID Lock)
-
-```bash
-LOCKFILE=~/.antigravity-loop/cycle.lock
-if [ -f "$LOCKFILE" ]; then
-  PID=$(cat "$LOCKFILE")
-  if kill -0 "$PID" 2>/dev/null; then
-    echo "cycle already running (PID $PID), skipping"
-    exit 0
-  fi
-  rm "$LOCKFILE"  # stale lock from crash
-fi
-echo $$ > "$LOCKFILE"
-trap 'rm -f "$LOCKFILE"' EXIT
-```
-
-Hard timeout via launchd `<key>TimeOut</key><integer>900</integer>` (15 min).
+| Convo dies/errors | Orchestrator detects missing convo → restarts it |
+| Orchestrator session dies | Restart: `tmux new-session -d -s antigravity-orch ... && tmux send-keys ...` |
+| Antigravity crashes | `open -a Antigravity`, wait 10s, retry |
+| Peekaboo fails 3x | Log warning, skip cycle, retry next cycle |
+| Model capacity out | Parse retry time from UI, exponential backoff (5m→60m cap) |
 
 ---
 
