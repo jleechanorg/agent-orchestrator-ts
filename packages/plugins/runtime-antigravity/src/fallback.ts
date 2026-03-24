@@ -54,7 +54,6 @@ const ERROR_PATTERNS: RegExp[] = [
   /element not found/i,
   /window not found/i,
   /peekaboo.*failed/i,
-  /accessibility.*error/i,
 ];
 
 // ---------------------------------------------------------------------------

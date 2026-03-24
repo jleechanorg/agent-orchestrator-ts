@@ -19,7 +19,7 @@ const queue = new PQueue({ concurrency: 1 });
  * @returns The resolved value of fn
  */
 export function enqueue<T>(fn: () => Promise<T>): Promise<T> {
-  return queue.add(fn, { throwOnTimeout: true }) as Promise<T>;
+  return queue.add(fn) as Promise<T>;
 }
 
 /** Number of tasks currently pending (including the running one). */

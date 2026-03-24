@@ -94,7 +94,7 @@ export function createMcpTools(
           );
           const conversations = snapshot.ui_elements.filter(
             (el) =>
-              el.role === "button" &&
+              el.role.toLowerCase().includes("button") &&
               (el.title.includes("progress_activity") ||
                 /\d+[smhd]\s*(ago)?$/i.test(el.title.trim())),
           );
