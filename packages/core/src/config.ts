@@ -62,6 +62,7 @@ const ReactionConfigSchema = z.object({
   threshold: z.string().optional(),
   includeSummary: z.boolean().optional(),
   mergeMethod: z.enum(["merge", "squash", "rebase"]).optional(),
+  autoMergeWaitSeconds: z.number().optional(),
   // bd-uxs.3: Failure budget fields
   failureBudget: z
     .object({
