@@ -571,8 +571,8 @@ export interface SCM {
     deletions: number;
   }>;
 
-  /** Merge a PR */
-  mergePR(pr: PRInfo, method?: MergeMethod): Promise<void>;
+  /** Merge a PR. When autoWaitSeconds > 0, uses GitHub's native auto-merge (--auto flag). */
+  mergePR(pr: PRInfo, method?: MergeMethod, autoWaitSeconds?: number): Promise<void>;
 
   /** Close a PR without merging */
   closePR(pr: PRInfo): Promise<void>;
@@ -972,6 +972,15 @@ export interface ReactionConfig {
 
   /** Merge method for auto-merge/reaction-merge reaction (merge, squash, or rebase) */
   mergeMethod?: "merge" | "squash" | "rebase";
+
+  /**
+   * Seconds to wait after PR reaches mergeable before executing the merge.
+   * Allows CI status checks to fully settle before the merge attempt.
+   * Uses GitHub's native --auto flag when > 0, which additionally waits for
+   * required status checks to pass before completing the merge.
+   * Default: 0 (merge immediately if gate passes).
+   */
+  autoMergeWaitSeconds?: number;
 
   // bd-uxs.3: Escalation router - failure budgets
 

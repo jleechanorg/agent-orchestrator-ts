@@ -1412,11 +1412,18 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
     },
 
     // mergePR: uses gh CLI first, then falls back to direct REST via curl on rate limit.
-    async mergePR(pr: PRInfo, method: MergeMethod = "squash"): Promise<void> {
+    // When autoWaitSeconds > 0, uses GitHub's native auto-merge (--auto flag) which
+    // waits for required status checks to pass before completing the merge. This handles
+    // the race where the PR transitions to mergeable while CI is still completing.
+    async mergePR(pr: PRInfo, method: MergeMethod = "squash", autoWaitSeconds?: number): Promise<void> {
       const flag = method === "rebase" ? "--rebase" : method === "merge" ? "--merge" : "--squash";
+      const useAuto = autoWaitSeconds != null && autoWaitSeconds > 0;
 
       try {
-        await gh(["pr", "merge", String(pr.number), "--repo", repoFlag(pr), flag, "--delete-branch"]);
+        const args = ["pr", "merge", String(pr.number), "--repo", repoFlag(pr), flag];
+        if (useAuto) args.push("--auto");
+        args.push("--delete-branch");
+        await gh(args);
       } catch (err) {
         if (!isRateLimitError(err)) throw err;
 
@@ -1437,7 +1444,11 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
         }
 
         const url = `https://api.github.com/repos/${pr.owner}/${pr.repo}/pulls/${pr.number}/merge`;
-        const body = JSON.stringify({ merge_method: method });
+        const bodyObj: Record<string, unknown> = { merge_method: method };
+        // When using --auto via REST, set head_branch to activate GitHub's native auto-merge.
+        // GitHub will wait for required status checks before completing the merge.
+        if (useAuto) bodyObj.head_branch = pr.branch ?? pr.baseBranch;
+        const body = JSON.stringify(bodyObj);
 
         // SECURITY: Write auth header to a temp curl config file so the token
         // never appears in process arguments (visible via `ps`).

@@ -725,16 +725,21 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
           };
         }
 
-        // Auto-merge: execute merge immediately
+        // Auto-merge: execute merge. When autoMergeWaitSeconds is set, uses GitHub's
+        // native --auto flag which waits for required status checks before completing the
+        // merge — handles the race where PR transitions to mergeable while CI is still
+        // completing (bd-5gl: workers post green but nothing merges).
         const mergeMethod = reactionConfig.mergeMethod ?? "squash";
+        const autoWaitSeconds = reactionConfig.autoMergeWaitSeconds ?? 0;
         try {
-          await scm.mergePR(freshSession.pr, mergeMethod);
+          await scm.mergePR(freshSession.pr, mergeMethod, autoWaitSeconds);
 
+          const autoLabel = autoWaitSeconds > 0 ? " (--auto)" : "";
           const successEvent = createEvent("reaction.triggered", {
             sessionId,
             projectId,
-            message: `Reaction '${reactionKey}' completed ${action} (${mergeMethod})`,
-            data: { reactionKey, action, mergeMethod },
+            message: `Reaction '${reactionKey}' completed ${action}${autoLabel} (${mergeMethod})`,
+            data: { reactionKey, action, mergeMethod, autoWaitSeconds },
           });
           await notifyHuman(successEvent, "action");
           return {
