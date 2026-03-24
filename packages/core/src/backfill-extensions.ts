@@ -3,6 +3,8 @@
  *
  * Extracted from lifecycle-manager.ts to keep the core polling loop minimal
  * and the backfill logic independently testable.
+ *
+ * @module backfill-extensions
  */
 
 import type {
