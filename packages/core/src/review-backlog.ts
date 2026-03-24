@@ -31,7 +31,7 @@ export interface ReviewBacklogDeps {
     session?: Session,
   ) => Promise<ReactionResult>;
   /** Whether the agent is confirmed dead — skips send-to-agent backlog dispatches (bd-5o1) */
-  agentDead?: boolean;
+  agentDead: boolean;
 }
 
 function makeFingerprint(ids: string[]): string {

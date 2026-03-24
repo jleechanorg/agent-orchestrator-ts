@@ -1517,11 +1517,14 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
                   if (mergeStatus >= 200 && mergeStatus < 300) {
                     try {
                       const mergeJson = JSON.parse(mergeBody);
-                      // Use ?? null so both undefined (missing field) and null (explicit null)
-                      // are treated as failures. != null was a lint bypass; strict !== null alone
-                      // incorrectly treats undefined as success.
-
-                      gqlSuccess = (mergeJson?.data?.enablePullRequestAutoMerge ?? null) !== null;
+                      // ?? null coerces undefined to null so both undefined (missing field) and
+                      // explicit null are treated as failure (REST fallback). === null is the
+                      // canonical check; the ?? is an eqeqeq bypass required to avoid
+                      // "undefined !== null is true" incorrectly succeeding on missing fields.
+                      // eslint-disable-next-line eqeqeq
+                      gqlSuccess = (mergeJson?.data?.enablePullRequestAutoMerge ?? null) === null
+                        ? false
+                        : true;
                     } catch {
                       // parse error — treat as failure
                     }
