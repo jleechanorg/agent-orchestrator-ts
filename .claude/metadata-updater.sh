@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
 # Metadata Updater Hook for Agent Orchestrator
 #
-# This PostToolUse hook automatically updates session metadata when:
-# - gh pr create: extracts PR URL and writes to metadata
-# - git checkout -b / git switch -c: extracts branch name and writes to metadata
-# - gh pr merge: updates status to "merged" (only when AO_ALLOW_GH_PR_MERGE=1 and hook_event=="PostToolUse")
+# This hook registers for both PreToolUse and PostToolUse events:
+# - PreToolUse: enforces gh pr merge hard guardrail — denies merge unless AO_ALLOW_GH_PR_MERGE=1
+# - PostToolUse: updates session metadata when:
+#   - gh pr create: extracts PR URL and writes to metadata
+#   - git checkout -b / git switch -c: extracts branch name and writes to metadata
+#   - gh pr merge: updates status to "merged" (only when AO_ALLOW_GH_PR_MERGE=1 and hook_event=="PostToolUse")
 
 set -euo pipefail
 
