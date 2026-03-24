@@ -555,6 +555,22 @@ async function git(args: string[], cwd: string): Promise<string> {
 }
 
 /**
+ * Retrieve the GitHub token via `gh auth token` as a fallback when no
+ * environment variable token is present.
+ */
+async function getGhToken(): Promise<string | undefined> {
+  try {
+    const { stdout } = await execFileAsync("gh", ["auth", "token"], {
+      maxBuffer: 10 * 1024 * 1024,
+      timeout: 30_000,
+    });
+    return stdout.trim() || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * Map REST check-run conclusion/status to the GraphQL-style state string
  * used in `statusCheckRollup` entries.
  */
@@ -1203,23 +1219,46 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
 
       const dirty = await git(["status", "--porcelain"], workspacePath);
       if (dirty) {
-        // Filter out AO-managed runtime files that are written at session startup
+        // Filter out AO-managed runtime files (written by agent-base plugin
+        // at session startup) that are expected to differ from committed versions.
         const AO_MANAGED = new Set([
-          ".claude/metadata-updater.sh", ".claude/settings.json",
-          ".cursor/metadata-updater.sh", ".cursor/settings.json",
-          ".gemini/metadata-updater.sh", ".gemini/settings.json",
+          ".claude/metadata-updater.sh",
+          ".claude/settings.json",
+          ".cursor/metadata-updater.sh",
+          ".cursor/settings.json",
+          ".gemini/metadata-updater.sh",
+          ".gemini/settings.json",
         ]);
-        const realDirty = dirty.split("\n").filter((line) => {
-          const filePath = line.replace(/^[MADRCU?! ]{1,2}\s/, "").trim();
-          return filePath.length > 0 && !AO_MANAGED.has(filePath);
-        }).join("\n").trim();
+        const realDirty = dirty
+          .split("\n")
+          .filter((line) => {
+            // Porcelain format: XY FILENAME (XY = 1-2 status chars)
+            // Strip leading status characters and whitespace to extract filename
+            const filePath = line.replace(/^[MADRCUT?! ]{1,2}\s/, "").trim();
+            return filePath.length > 0 && !AO_MANAGED.has(filePath);
+          })
+          .join("\n")
+          .trim();
         if (realDirty) {
           throw new Error(
             `Workspace has uncommitted changes; cannot switch to PR branch "${pr.branch}" safely`,
           );
         }
-        for (const f of AO_MANAGED) {
-          await git(["checkout", "--", f], workspacePath).catch(() => {});
+        // Reset AO-managed files so checkout succeeds cleanly.
+        // git checkout -- <file> restores from the index, not HEAD, so it is a
+        // no-op for untracked (??). Use targeted commands per status instead.
+        // Status format: XY FILENAME (X=index, Y=working tree; space=no change).
+        for (const line of dirty.split("\n")) {
+          const filePath = line.replace(/^[MADRCUT?! ]{2}\s/, "").trim();
+          if (!AO_MANAGED.has(filePath)) continue;
+          const wt = line[1];
+          if (wt === "?" || wt === "!") {
+            // Untracked or ignored — remove from working tree
+            await git(["clean", "-f", filePath], workspacePath).catch(() => {});
+          } else if (wt !== " " && wt !== undefined) {
+            // Working-tree change (e.g. " M", "MD") — restore working tree from index
+            await git(["checkout", "--", filePath], workspacePath).catch(() => {});
+          }
         }
       }
 
@@ -1321,10 +1360,83 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
       };
     },
 
+    // mergePR: uses gh CLI first, then falls back to direct REST via curl on rate limit.
     async mergePR(pr: PRInfo, method: MergeMethod = "squash"): Promise<void> {
       const flag = method === "rebase" ? "--rebase" : method === "merge" ? "--merge" : "--squash";
 
-      await gh(["pr", "merge", String(pr.number), "--repo", repoFlag(pr), flag, "--delete-branch"]);
+      try {
+        await gh(["pr", "merge", String(pr.number), "--repo", repoFlag(pr), flag, "--delete-branch"]);
+      } catch (err) {
+        if (!isRateLimitError(err)) throw err;
+
+        // Rate limit hit — fall back to REST API via curl with explicit JSON body.
+        // We bypass `gh api -f` because ghRestFallback (the curl fallback for
+        // `gh api`) passes `-f` to curl as "fail on HTTP errors" instead of
+        // converting it into a request-body field, silently dropping merge_method.
+        console.warn("[scm-github] mergePR: rate limit hit on gh pr merge — falling back to REST API via curl");
+        const token =
+          process.env.GITHUB_TOKEN ??
+          process.env.GH_TOKEN ??
+          await getGhToken();
+        if (!token) {
+          throw new Error(
+            "mergePR: rate limit hit and no GitHub token found in GITHUB_TOKEN, GH_TOKEN, or gh auth token for REST fallback",
+            { cause: err },
+          );
+        }
+
+        const url = `https://api.github.com/repos/${pr.owner}/${pr.repo}/pulls/${pr.number}/merge`;
+        const body = JSON.stringify({ merge_method: method });
+
+        // Pass token via GH_TOKEN env var so it never appears in process arguments.
+        // Remove -f so we capture the full error body on failure (GitHub returns
+        // structured JSON with the reason, e.g. "Pull Request is not mergeable").
+        const rawResult = await execFileAsync(
+          "curl",
+          [
+            "-sS",
+            "-X", "PUT",
+            "-H", "Accept: application/vnd.github+json",
+            "-H", `Authorization: Bearer ${token}`,
+            "-H", "X-GitHub-Api-Version: 2022-11-28",
+            "-H", "Content-Type: application/json",
+            "-d", body,
+            "-w", "\n%{http_code}",
+            url,
+          ],
+          { maxBuffer: 10 * 1024 * 1024, timeout: 30_000 },
+        ).catch((curlErr) => {
+          throw new Error(`mergePR REST fallback via curl failed: ${(curlErr as Error).message}`, {
+            cause: curlErr,
+          });
+        });
+        // validateHttpStatus is extracted to its own function so it is not
+        // inside any catch scope — prevents false-positive preserve-caught-error.
+        const validateHttpStatus = (raw: string): void => {
+          const lines = raw.trim().split("\n");
+          const httpStatus = parseInt(lines[lines.length - 1] ?? "", 10);
+          if (httpStatus < 200 || httpStatus >= 300) {
+            throw new Error(
+              `mergePR REST fallback received HTTP ${httpStatus}: ${lines.slice(0, -1).join("\n")}`,
+            );
+          }
+        };
+        validateHttpStatus(rawResult.stdout);
+
+        // Branch deletion via REST (best-effort; only possible when the head
+        // repo matches the base repo to have write access).  Encode the branch
+        // name so chars such as '#' or '%' in branch names do not corrupt the URL.
+        const encodedBranch = encodeURIComponent(pr.branch);
+        try {
+          await gh(["api", `repos/${pr.owner}/${pr.repo}/git/refs/heads/${encodedBranch}`, "--method", "DELETE"]);
+        } catch {
+          // Non-fatal: best-effort branch cleanup. Log and continue.
+          console.warn(
+            `mergePR: could not delete branch "${pr.branch}" after REST merge — ` +
+              "this is non-fatal; the branch may be cleaned up manually or by repository settings",
+          );
+        }
+      }
     },
 
     async closePR(pr: PRInfo): Promise<void> {

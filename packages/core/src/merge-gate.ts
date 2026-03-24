@@ -3,14 +3,10 @@
  */
 
 import type { PRInfo, MergeGateConfig, SCM } from "./types.js";
-import {
-  evaluateCoderabbitApproval,
-  getLatestDecisiveReview,
-  hasUnresolvedDismissedReview,
-} from "./merge-gate-coderabbit.js";
+import { type Review, evaluateCoderabbitApproval, getLatestDecisiveReview, hasUnresolvedDismissedReview, sortReviewsNewestFirst } from "./merge-gate-coderabbit.js";
 
 export type { Review } from "./merge-gate-coderabbit.js";
-export { getLatestDecisiveReview, hasUnresolvedDismissedReview };
+export { getLatestDecisiveReview, hasUnresolvedDismissedReview, sortReviewsNewestFirst };
 
 export interface MergeGateCheck {
   name: string;
@@ -36,7 +32,7 @@ export async function checkMergeGate(
 
   let ciStatus: string;
   let mergeability: { noConflicts: boolean; mergeable?: boolean };
-  let reviews: Array<{ author: string; state: string; submittedAt?: Date }>;
+  let reviews: Review[];
   let automatedComments: Array<{ botName: string; severity: string; body: string }>;
   let pendingComments: Array<{ isResolved: boolean; body: string }>;
 
