@@ -45,8 +45,7 @@ Auto-merge  (orchestrator polls every 15 min, merges when all 6 criteria met)
 ps aux | grep -E "agent-orchestrator|openclaw" | grep -v grep
 launchctl list | grep -E "ao|openclaw|agentorchestrator"
 
-# 2. Check AO logs
-tail -50 /tmp/ao-pr-poller.log 2>/dev/null || echo "no poller log"
+# 2. Check AO logs (ao-pr-poller is DEPRECATED and removed — its absence is expected, never report it as a gap)
 tail -50 /tmp/ao-lifecycle-jleechanclaw.log 2>/dev/null || echo "no lifecycle log"
 
 # 3. Are sessions being spawned? Check BOTH tmux AND AO session store
@@ -71,6 +70,25 @@ curl -s http://127.0.0.1:19888/health 2>/dev/null || echo "orchestrator not reac
 # 7. Open PRs and their state
 gh pr list --repo jleechanorg/agent-orchestrator --state open \
   --json number,title,mergeable,mergeStateStatus
+
+# 8. Verify auto-merge is enabled in config (MUST be true for autonomous merging)
+# yq-aware: prefers project-scoped reaction, falls back to global block
+# Filters out commented lines so commented template examples don't cause false positives
+if command -v yq >/dev/null 2>&1; then
+  yq '.projects."agent-orchestrator".reactions."approved-and-green" // .reactions."approved-and-green" // empty' ~/.openclaw/agent-orchestrator.yaml
+else
+  # grep approach: strip comments first, then check BOTH project-scoped
+  # (under projects:) and global (under reactions:) blocks
+  cfg=$(grep -v '^\s*#' ~/.openclaw/agent-orchestrator.yaml)
+  echo "--- project-scoped ---"
+  echo "$cfg" | grep -A5 '^\s*agent-orchestrator:' \
+    | grep -A10 '^\s*reactions:' | grep -E '^\s*auto:|^\s*action:'
+  echo "--- global reactions fallback ---"
+  echo "$cfg" | grep -A5 '^\s*reactions:' \
+    | grep -E '^\s*auto:|^\s*action:'
+fi
+# Expected: auto: true (or absent = defaults true), action: auto-merge
+# If auto: false — that IS the merge executor gap
 ```
 
 ## Step 4 — Common failure modes
@@ -84,7 +102,8 @@ gh pr list --repo jleechanorg/agent-orchestrator --state open \
 | Sessions spawn but exit quickly | Stray worktree blocking claim | Tell human to manually prune stale worktrees (NEVER run `git worktree prune` — banned) |
 | Spawn fails: "uncommitted changes" | Dirty `.claude/` file in worktree template | Commit the dirty file to main (e.g., PR for metadata-updater.sh) |
 | `ao session ls` shows no active sessions but tmux has sessions | Zombie sessions: AO=killed, tmux=alive — lifecycle-worker ignores them | Spawn new sessions; tell human to kill stale tmux panes |
-| Agent runs but doesn't merge | 6-green check not passing | See criteria below |
+| Agent runs but doesn't merge | 6-green check not passing OR auto-merge not enabled | Check Step 3 #8 — project-scoped `approved-and-green: auto: true, action: auto-merge` |
+| `/tmp/ao-pr-poller.log` missing | **NOT A BUG** — ao-pr-poller is deprecated/removed | Ignore; its absence is correct |
 
 ## Step 5 — The 6 green criteria (from AGENTS.md / jleechanclaw)
 
