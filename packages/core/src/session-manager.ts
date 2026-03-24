@@ -47,6 +47,7 @@ import {
 } from "./types.js";
 import {
   readMetadataRaw,
+  readMetadataRaw as _readMetadataRaw,
   readArchivedMetadataRaw,
   updateArchivedMetadata,
   writeMetadata,
@@ -291,13 +292,33 @@ export interface SessionManagerDeps {
     args?: readonly string[],
     opts?: object,
   ) => Promise<{ stdout: string; stderr: string }>;
+  /**
+   * Injectable for testability; allows tests to mock session metadata reads.
+   * Omit to use the real readMetadataRaw.
+   */
+  readMetadataRaw?: typeof _readMetadataRaw;
+  /**
+   * Injectable for testability; allows tests to mock session enumeration.
+   * Omit to use the real listMetadata (readdirSync-based).
+   */
+  listMetadata?: typeof listMetadata;
 }
 
 /** Create a SessionManager instance. */
 export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionManager {
-  const { config, registry, execFileAsync: injectedExecFileAsync } = deps;
+  const {
+    config,
+    registry,
+    execFileAsync: injectedExecFileAsync,
+    readMetadataRaw: injectedReadMeta,
+    listMetadata: injectedListMetadata,
+  } = deps;
   // Shadow module-level execFileAsync with the injected test mock when provided
   const execFileAsync = injectedExecFileAsync ?? _execFileAsync;
+  // Shadow module-level readMetadataRaw when injected (for test isolation)
+  const readMeta = injectedReadMeta ?? _readMetadataRaw;
+  // Shadow listMetadata when injected (for test isolation)
+  const sessionListMetadata = injectedListMetadata ?? listMetadata;
 
   interface LocatedSession {
     raw: Record<string, string>;
@@ -1655,9 +1676,13 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
   /**
    * Prune stale worktrees whose tmux sessions are dead.
    *
-   * Scans all AO-managed worktree directories for entries whose tmux sessions are
-   * no longer alive. Guards with the AO session name pattern so human worktrees
-   * (which don't match the pattern) are never touched.
+   * Pass 1 — scans ~/.worktrees/{projectId}/ for AO-managed session directories
+   * whose tmux sessions are no longer alive.
+   *
+   * Pass 2 — uses `git worktree list --porcelain` to find ALL registered worktrees
+   * (including those at custom paths outside ~/.worktrees/), then removes zombies
+   * whose AO sessions are in a terminal state. Guards with the AO session name
+   * pattern so human worktrees (which don't match the pattern) are never touched.
    *
    * AO session name pattern: {prefix}-{num} where prefix matches one of the
    * configured session prefixes (e.g. ao, jc, wa, cc, ra, wc).
@@ -1665,13 +1690,14 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
   async function pruneStaleWorktrees(): Promise<void> {
     const worktreeBaseDir = join(homedir(), ".worktrees");
 
-    if (!existsSync(worktreeBaseDir)) return;
-
     // Only touch worktrees whose names match the AO session naming pattern:
     // {prefix}-{num} where prefix is one of the standard AO prefixes.
     // This guards against accidental deletion of human-created worktrees.
     const AO_SESSION_WORKTREE_PATTERN = /^(ao|jc|wa|cc|ra|wc)-\d+$/;
 
+    // ─── Pass 1: ~/.worktrees/{projectId}/{sessionId}/ ───────────────────────
+    // Skip entirely when ~/.worktrees/ does not exist (fresh installs, custom-only setups).
+    if (existsSync(worktreeBaseDir)) {
     for (const projectEntry of readdirSync(worktreeBaseDir, { withFileTypes: true })) {
       if (!projectEntry.isDirectory()) continue;
       const projectWorktreeDir = join(worktreeBaseDir, projectEntry.name);
@@ -1737,11 +1763,107 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
         try {
           await execFileAsync(
             "git",
-            ["worktree", "remove", "--force", "--force", worktreePath],
+            ["worktree", "remove", "--force", worktreePath],
             { cwd: repoPath, timeout: 30_000 },
           );
         } catch {
           // Best-effort: fall back to rmSync if git worktree remove fails
+          try {
+            rmSync(worktreePath, { recursive: true, force: true });
+          } catch {
+            // Already gone
+          }
+        }
+      }
+    }
+    } // end Pass 1
+
+    // ─── Pass 2: Zombie worktrees outside ~/.worktrees/ ────────────────────────
+    // Use git worktree list --porcelain to find ALL registered worktrees for each
+    // project, then remove zombies whose AO sessions are in a terminal state.
+    // This catches worktrees created at custom paths (e.g. /tmp/pr-360-worktree).
+
+    for (const [, project] of Object.entries(config.projects)) {
+      const repoPath = project.path;
+
+      // Verify this path is inside a git work tree
+      try {
+        await execFileAsync(
+          "git",
+          ["-C", repoPath, "rev-parse", "--is-inside-work-tree"],
+          { timeout: 5_000 },
+        );
+      } catch {
+        continue;
+      }
+
+      // Get all registered worktrees for this repo
+      let porcelainOutput: string;
+      try {
+        const result = await execFileAsync(
+          "git",
+          ["-C", repoPath, "worktree", "list", "--porcelain"],
+          { timeout: 10_000 },
+        );
+        porcelainOutput = result.stdout;
+      } catch {
+        continue;
+      }
+
+      // Parse porcelain output into worktree blocks (separated by blank lines)
+      const blocks = porcelainOutput.split(/\n\n/);
+      for (const block of blocks) {
+        const lines = block.trim().split("\n");
+        if (lines.length === 0 || !lines[0]!.startsWith("worktree ")) continue;
+
+        // First line is "worktree /path"
+        const worktreePath = lines[0]!.slice("worktree ".length).trim();
+        if (!worktreePath) continue;
+
+        const normalizedWorktree = normalizePath(worktreePath);
+
+        // Skip worktrees inside ~/.worktrees/ — handled by Pass 1
+        if (isPathInside(normalizedWorktree, worktreeBaseDir)) continue;
+
+        // Look up this worktree in session metadata
+        // Iterate all sessions for this project and find the one with matching worktree
+        const sessionsDir = getProjectSessionsDir(project);
+        const sessionIds = sessionListMetadata(sessionsDir);
+        let matchingRaw: Record<string, string> | null = null;
+
+        for (const sessionId of sessionIds) {
+          const raw = readMeta(sessionsDir, sessionId);
+          if (!raw) continue;
+          const storedWorktree = raw["worktree"];
+          if (storedWorktree && normalizePath(storedWorktree) === normalizedWorktree) {
+            matchingRaw = raw;
+            break;
+          }
+        }
+
+        if (!matchingRaw) continue; // Not an AO session — skip (human-created)
+
+        const status = matchingRaw["status"];
+        if (!status) continue;
+
+        // Only remove if session is in a terminal state
+        if (
+          !TERMINAL_STATUSES.has(
+            status as Parameters<typeof TERMINAL_STATUSES.has>[0],
+          )
+        ) {
+          continue;
+        }
+
+        // Session is dead — remove the zombie worktree
+        try {
+          await execFileAsync(
+            "git",
+            ["worktree", "remove", "--force", worktreePath],
+            { cwd: repoPath, timeout: 30_000 },
+          );
+        } catch {
+          // Best-effort fallback: rmSync
           try {
             rmSync(worktreePath, { recursive: true, force: true });
           } catch {
