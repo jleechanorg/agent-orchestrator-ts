@@ -1170,6 +1170,9 @@ export interface ProjectConfig {
   /** Local path to the repo */
   path: string;
 
+  /** Path to the agent-orchestrator.yaml config file (used for tmux name hash) */
+  configPath?: string;
+
   /** Default branch (main, master, next, develop, etc.) */
   defaultBranch: string;
 
@@ -1470,6 +1473,8 @@ export interface SessionManager {
 export interface OpenCodeSessionManager extends SessionManager {
   /** Remap session to OpenCode session ID, returns the mapped OpenCode session ID */
   remap(sessionId: SessionId, force?: boolean): Promise<string>;
+  /** Prune worktrees whose tmux sessions are no longer alive. Exposed for testing and manual use. */
+  pruneStaleWorktrees(): Promise<void>;
 }
 
 export interface ClaimPROptions {
