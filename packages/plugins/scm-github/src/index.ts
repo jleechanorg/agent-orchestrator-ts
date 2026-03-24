@@ -1417,7 +1417,7 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
     // the race where the PR transitions to mergeable while CI is still completing.
     async mergePR(pr: PRInfo, method: MergeMethod = "squash", autoWaitSeconds?: number): Promise<void> {
       const flag = method === "rebase" ? "--rebase" : method === "merge" ? "--merge" : "--squash";
-      const useAuto = autoWaitSeconds != null && autoWaitSeconds > 0;
+      const useAuto = autoWaitSeconds !== undefined && autoWaitSeconds > 0;
 
       try {
         const args = ["pr", "merge", String(pr.number), "--repo", repoFlag(pr), flag];
