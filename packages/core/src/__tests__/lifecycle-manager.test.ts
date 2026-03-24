@@ -594,7 +594,7 @@ describe("check (single session)", () => {
     expect(lm.getStates().get("app-1")).toBe("mergeable");
   });
 
-  it("absorbs killed when agent exited but PR is still open (bd-ara + bd-kki)", async () => {
+  it("bd-6jc: agent dead + SCM succeeded + non-mergeable PR → pr_open (no kill yet)", async () => {
     // bd-kki: agent exited + PR still open → absorb killed, retry next poll
     // so auto-merge can fire if the PR becomes mergeable.
     vi.mocked(mockAgent.getActivityState).mockResolvedValue({ state: "exited" });
@@ -648,8 +648,10 @@ describe("check (single session)", () => {
 
     await lm.check("app-1");
 
-    // bd-kki absorbs the killed transition — PR is open, not merged/closed
-    expect(lm.getStates().get("app-1")).toBe("working");
+    // bd-6jc: agent dead + SCM succeeded + PR non-mergeable → return "pr_open"
+    // (SCM confirmed the PR won't auto-merge, no bd-kki absorption needed — the
+    // kill is deferred to the consecutive-failure counter when SCM throws).
+    expect(lm.getStates().get("app-1")).toBe("pr_open");
   });
 
   it("returns killed when agent exited and session has no PR (bd-ara)", async () => {
