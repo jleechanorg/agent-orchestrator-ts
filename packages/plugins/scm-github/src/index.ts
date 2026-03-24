@@ -5,7 +5,7 @@
  */
 
 import { execFile } from "node:child_process";
-import { createHmac, timingSafeEqual } from "node:crypto";
+import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import { promisify } from "node:util";
 import { writeFileSync, unlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -421,10 +421,15 @@ async function ghWithRetry(args: string[], cwd?: string, maxRetries = 3): Promis
  * The file is created with mode 0o600 (owner-only read/write).
  */
 function writeTempCurlConfig(token: string): string {
-  const configPath = join(tmpdir(), `.curl-auth-${process.pid}-${Date.now()}`);
+  // Use randomUUID so concurrent calls within the same process get unique paths
+  // (process.pid + Date.now() can collide when multiple async calls share a PID
+  // and occur within the same millisecond). 0o600 ensures only the owner can read it.
+  const configPath = join(tmpdir(), `.curl-auth-${randomUUID()}`);
   // curl config file format: https://curl.se/docs/manpage.html#-K
   // Each line is a curl option. The header option is: header = "Name: Value"
-  writeFileSync(configPath, `header = "Authorization: Bearer ${token}"\n`, {
+  // Escape \ and newlines so a token containing these chars does not corrupt the file.
+  const escapedToken = token.replace(/\\/g, "\\\\").replace(/\n/g, "\\n");
+  writeFileSync(configPath, `header = "Authorization: Bearer ${escapedToken}"\n`, {
     mode: 0o600,
   });
   return configPath;
