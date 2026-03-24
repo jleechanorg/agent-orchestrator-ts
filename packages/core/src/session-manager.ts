@@ -47,6 +47,7 @@ import {
 } from "./types.js";
 import {
   readMetadataRaw,
+  readMetadataRaw as _readMetadataRaw,
   readArchivedMetadataRaw,
   updateArchivedMetadata,
   writeMetadata,
@@ -291,13 +292,20 @@ export interface SessionManagerDeps {
     args?: readonly string[],
     opts?: object,
   ) => Promise<{ stdout: string; stderr: string }>;
+  /**
+   * Injectable for testability; allows tests to mock session metadata reads.
+   * Omit to use the real readMetadataRaw.
+   */
+  readMetadataRaw?: typeof _readMetadataRaw;
 }
 
 /** Create a SessionManager instance. */
 export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionManager {
-  const { config, registry, execFileAsync: injectedExecFileAsync } = deps;
+  const { config, registry, execFileAsync: injectedExecFileAsync, readMetadataRaw: injectedReadMeta } = deps;
   // Shadow module-level execFileAsync with the injected test mock when provided
   const execFileAsync = injectedExecFileAsync ?? _execFileAsync;
+  // Shadow module-level readMetadataRaw when injected (for test isolation)
+  const readMeta = injectedReadMeta ?? _readMetadataRaw;
 
   interface LocatedSession {
     raw: Record<string, string>;
@@ -1655,9 +1663,13 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
   /**
    * Prune stale worktrees whose tmux sessions are dead.
    *
-   * Scans all AO-managed worktree directories for entries whose tmux sessions are
-   * no longer alive. Guards with the AO session name pattern so human worktrees
-   * (which don't match the pattern) are never touched.
+   * Pass 1 — scans ~/.worktrees/{projectId}/ for AO-managed session directories
+   * whose tmux sessions are no longer alive.
+   *
+   * Pass 2 — uses `git worktree list --porcelain` to find ALL registered worktrees
+   * (including those at custom paths outside ~/.worktrees/), then removes zombies
+   * whose AO sessions are in a terminal state. Guards with the AO session name
+   * pattern so human worktrees (which don't match the pattern) are never touched.
    *
    * AO session name pattern: {prefix}-{num} where prefix matches one of the
    * configured session prefixes (e.g. ao, jc, wa, cc, ra, wc).
@@ -1742,6 +1754,108 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
           );
         } catch {
           // Best-effort: fall back to rmSync if git worktree remove fails
+          try {
+            rmSync(worktreePath, { recursive: true, force: true });
+          } catch {
+            // Already gone
+          }
+        }
+      }
+    }
+
+    // ─── Pass 2: Zombie worktrees outside ~/.worktrees/ ────────────────────────
+    // Use git worktree list --porcelain to find ALL registered worktrees for each
+    // project, then remove zombies whose AO sessions are in a terminal state.
+    // This catches worktrees created at custom paths (e.g. /tmp/pr-360-worktree).
+
+    const worktreeBaseDir2 = join(homedir(), ".worktrees");
+    const normalizePath = (p: string) => resolve(p).replace(/\/$/, "");
+
+    for (const [, project] of Object.entries(config.projects)) {
+      // Find the repo path for this project
+      let repoPath: string | null = null;
+      for (const [, proj] of Object.entries(config.projects)) {
+        try {
+          await execFileAsync(
+            "git",
+            ["-C", proj.path, "rev-parse", "--is-inside-work-tree"],
+            { timeout: 5_000 },
+          );
+          repoPath = proj.path;
+          break;
+        } catch {
+          // Not this project
+        }
+      }
+      if (!repoPath) continue;
+
+      // Get all registered worktrees for this repo
+      let porcelainOutput: string;
+      try {
+        const result = await execFileAsync(
+          "git",
+          ["-C", repoPath, "worktree", "list", "--porcelain"],
+          { timeout: 10_000 },
+        );
+        porcelainOutput = result.stdout;
+      } catch {
+        continue;
+      }
+
+      // Parse porcelain output into worktree blocks (separated by blank lines)
+      const blocks = porcelainOutput.split(/\n\n/);
+      for (const block of blocks) {
+        const lines = block.trim().split("\n");
+        if (lines.length === 0 || !lines[0]!.startsWith("worktree ")) continue;
+
+        // First line is "worktree /path"
+        const worktreePath = lines[0]!.slice("worktree ".length).trim();
+        if (!worktreePath) continue;
+
+        const normalizedWorktree = normalizePath(worktreePath);
+
+        // Skip worktrees inside ~/.worktrees/ — handled by Pass 1
+        if (normalizedWorktree.startsWith(normalizePath(worktreeBaseDir2))) continue;
+
+        // Look up this worktree in session metadata
+        // Iterate all sessions for this project and find the one with matching worktree
+        const sessionsDir = getProjectSessionsDir(project);
+        const sessionIds = listMetadata(sessionsDir);
+        let matchingRaw: Record<string, string> | null = null;
+
+        for (const sessionId of sessionIds) {
+          const raw = readMeta(sessionsDir, sessionId);
+          if (!raw) continue;
+          const storedWorktree = raw["worktree"];
+          if (storedWorktree && normalizePath(storedWorktree) === normalizedWorktree) {
+            matchingRaw = raw;
+            break;
+          }
+        }
+
+        if (!matchingRaw) continue; // Not an AO session — skip (human-created)
+
+        const status = matchingRaw["status"];
+        if (!status) continue;
+
+        // Only remove if session is in a terminal state
+        if (
+          !TERMINAL_STATUSES.has(
+            status as Parameters<typeof TERMINAL_STATUSES.has>[0],
+          )
+        ) {
+          continue;
+        }
+
+        // Session is dead — remove the zombie worktree
+        try {
+          await execFileAsync(
+            "git",
+            ["worktree", "remove", "--force", "--force", worktreePath],
+            { cwd: repoPath, timeout: 30_000 },
+          );
+        } catch {
+          // Best-effort fallback: rmSync
           try {
             rmSync(worktreePath, { recursive: true, force: true });
           } catch {
