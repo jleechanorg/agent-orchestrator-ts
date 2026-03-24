@@ -188,6 +188,17 @@ export function registerSend(program: Command): void {
           return;
         }
 
+        // Unmanaged session (no AO session record): paste directly via tmux.
+        // Note: we skip isAgentAliveInPane here to avoid false-positive "dead agent"
+        // warnings for idle sessions whose pane shows a shell prompt (❯ / $).  The
+        // sessionManager path above already has its own liveness check via
+        // runtime.sendMessage; unmanaged sessions have no restart capability anyway.
+        console.log(
+          chalk.dim(
+            `Session '${session}' is not tracked by AO — sending directly via tmux.`,
+          ),
+        );
+
         await sendViaTmux(tmuxTarget, message);
 
         // Verify delivery with retries
