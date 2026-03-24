@@ -1022,7 +1022,9 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
                 correlationId,
                 projectId: session.projectId,
                 sessionId: session.id,
-                data: { reactionKey, reason: "auto_disabled", auto: reactionConfig.auto, action: reactionConfig.action },
+                data: skipForDead
+                  ? { reactionKey, reason: "agent_dead", auto: reactionConfig.auto, action: reactionConfig.action }
+                  : { reactionKey, reason: "auto_disabled", auto: reactionConfig.auto, action: reactionConfig.action },
                 level: "info",
               });
             }
