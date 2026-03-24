@@ -467,11 +467,21 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         }
 
         // Agent is dead but PR isn't in a merge-ready state.
-        // bd-6jc: If SCM succeeded (scmFailureCount=0 from try block), return
-        // "pr_open" immediately — SCM confirmed the PR won't auto-merge so there's
-        // no reason to defer. The consecutive-failure threshold only applies when
-        // SCM throws; the catch block below handles that case.
-        if (agentDead) return { status: "pr_open", agentDead: true };
+        // bd-6jc: If SCM threw (transient failure), require N consecutive failures
+        // before killing so a network blip doesn't destroy worktrees. If SCM
+        // succeeded and returned a non-mergeable state, kill immediately — SCM
+        // confirmed the PR isn't going auto-merge so there's no reason to wait.
+        if (agentDead) {
+          if (scmFailureCount >= SCM_FAILURE_THRESHOLD) {
+            // Mark killConfirmed so checkSession's bd-kki skips the secondary SCM
+            // absorption check (which would re-query SCM and potentially throw or
+            // absorb on a session whose PR was already resolved).
+            const sessionsDir = getSessionsDir(config.configPath, project.path);
+            updateMetadata(sessionsDir, session.id, { killConfirmed: "true" });
+            return { status: "killed", agentDead: true };
+          }
+          return { status: "pr_open", agentDead: true };
+        }
 
         return { status: "pr_open", agentDead: false };
       } catch {
@@ -506,17 +516,10 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       }
     }
 
-    // bd-ara: If agent is dead but we had no PR branch to check, kill.
-    // Note on scmFailureCount: the original `&& !(session.pr && scm) && scmFailureCount === 0`
-    // guard was redundant with the step-4 catch block above, which already returns "killed"
-    // when scmFailureCount >= 3. When scmFailureCount < 3 (below threshold), scmFailureCount
-    // is only non-zero after the catch increments it from a PR check failure. In that case,
-    // agentDead + (scmFailureCount > 0) means the agent died and PR checks failed — killing
-    // immediately is correct (the threshold just caps how many retries before we give up).
-    // scmFailureCount only resets to 0 in the step-4 try finally on SCM success, at which
-    // point the PR check either returned a status (non-killed) or threw. The simplified
-    // guard here is equivalent to the original for all live code paths.
-    if (agentDead) return { status: "killed", agentDead: true };
+    // bd-ara: If agent is dead but we had no PR/branch to check, kill immediately.
+    // SCM was never attempted so there's nothing to wait for — do not gate on
+    // scmFailureCount (that counter only applies when SCM was actually called).
+    if (agentDead && !(session.pr && scm)) return { status: "killed", agentDead: true };
 
     // 5. Post-all stuck detection: if we detected idle in step 2 but had no PR,
     // still check stuck threshold. This handles agents that finish without creating a PR.
