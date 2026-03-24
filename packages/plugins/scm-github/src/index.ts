@@ -1411,7 +1411,7 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
       };
     },
 
-    // mergePR: uses gh CLI first, then falls back to direct REST via curl on rate limit.
+    // mergePR: uses gh CLI first, then falls back to GraphQL + REST on rate limit.
     // When autoWaitSeconds > 0, uses GitHub's native auto-merge (--auto flag) which
     // waits for required status checks to pass before completing the merge. This handles
     // the race where the PR transitions to mergeable while CI is still completing.
@@ -1427,11 +1427,105 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
       } catch (err) {
         if (!isRateLimitError(err)) throw err;
 
-        // Rate limit hit — fall back to REST API via curl with explicit JSON body.
+        // gh CLI rate-limited — GraphQL and REST have separate rate limit budgets
+        // so GraphQL may still be available. Use GraphQL for auto-merge since
+        // the REST API merge endpoint does not support the head_branch field needed
+        // to enable GitHub's native auto-merge (that requires enablePullRequestAutoMerge).
+        if (useAuto) {
+          console.warn("[scm-github] mergePR: gh rate-limited with --auto — attempting GraphQL enablePullRequestAutoMerge");
+          const gqlToken =
+            process.env.GITHUB_TOKEN ??
+            process.env.GH_TOKEN ??
+            await getGhToken();
+          if (gqlToken) {
+            // Note: GitHub GraphQL requires a pull request node ID, not a number.
+            // First look up the PR node ID from the PR number, then enable auto-merge.
+            const lookupQuery = JSON.stringify({
+              query: `query GetPRId($owner: String!, $repo: String!, $number: Int!) {
+                repository(owner: $owner, name: $repo) {
+                  pullRequest(number: $number) { id }
+                }
+              }`,
+              variables: { owner: pr.owner, repo: pr.repo, number: pr.number },
+            });
+            const gqlUrl = "https://api.github.com/graphql";
+            const gqlConfigPath = writeTempCurlConfig(gqlToken);
+            try {
+              const rawLookup = await execFileAsync(
+                "curl",
+                [
+                  "-sS",
+                  "-X", "POST",
+                  "--config", gqlConfigPath,
+                  "-H", "Accept: application/vnd.github+json",
+                  "-H", "X-GitHub-Api-Version: 2022-11-28",
+                  "-H", "Content-Type: application/json",
+                  "-d", lookupQuery,
+                  "-w", "\n%{http_code}",
+                  gqlUrl,
+                ],
+                { maxBuffer: 10 * 1024 * 1024, timeout: 30_000 },
+              );
+              const lookupLines = rawLookup.stdout.trim().split("\n");
+              const lookupStatus = parseInt(lookupLines[lookupLines.length - 1] ?? "", 10);
+              if (lookupStatus !== 200) {
+                console.warn(`[scm-github] mergePR: GraphQL PR lookup failed (HTTP ${lookupStatus}) — falling back to REST`);
+              } else {
+                const lookupBody = lookupLines.slice(0, -1).join("\n");
+                let prNodeId: string | undefined;
+                try {
+                  const lookupJson = JSON.parse(lookupBody);
+                  prNodeId = lookupJson?.data?.repository?.pullRequest?.id;
+                } catch {
+                  // ignore parse error
+                }
+                if (prNodeId) {
+                  // Now enable auto-merge using the node ID
+                  const mergeQuery = JSON.stringify({
+                    query: `mutation EnableAutoMerge($prId: ID!, $method: PullRequestMergeMethod!) {
+                      enablePullRequestAutoMerge(input: {
+                        pullRequestId: $prId,
+                        mergeMethod: $method,
+                        autorenameBranchPermitted: true
+                      }) { clientMutationId }
+                    }`,
+                    variables: { prId: prNodeId, method: method.toUpperCase() },
+                  });
+                  const rawMerge = await execFileAsync(
+                    "curl",
+                    [
+                      "-sS",
+                      "-X", "POST",
+                      "--config", gqlConfigPath,
+                      "-H", "Accept: application/vnd.github+json",
+                      "-H", "X-GitHub-Api-Version: 2022-11-28",
+                      "-H", "Content-Type: application/json",
+                      "-d", mergeQuery,
+                      "-w", "\n%{http_code}",
+                      gqlUrl,
+                    ],
+                    { maxBuffer: 10 * 1024 * 1024, timeout: 30_000 },
+                  );
+                  const mergeLines = rawMerge.stdout.trim().split("\n");
+                  const mergeStatus = parseInt(mergeLines[mergeLines.length - 1] ?? "", 10);
+                  if (mergeStatus >= 200 && mergeStatus < 300) {
+                    console.warn("[scm-github] mergePR: auto-merge enabled via GraphQL — GitHub will wait for CI");
+                    return;
+                  }
+                  console.warn(`[scm-github] mergePR: GraphQL enablePullRequestAutoMerge failed (HTTP ${mergeStatus}) — falling back to REST`);
+                }
+              }
+            } finally {
+              cleanupTempCurlConfig(gqlConfigPath);
+            }
+          }
+        }
+
+        // Fallback: REST API via curl for immediate merge (no auto-merge wait).
         // We bypass `gh api -f` because ghRestFallback (the curl fallback for
         // `gh api`) passes `-f` to curl as "fail on HTTP errors" instead of
         // converting it into a request-body field, silently dropping merge_method.
-        console.warn("[scm-github] mergePR: rate limit hit on gh pr merge — falling back to REST API via curl");
+        console.warn("[scm-github] mergePR: falling back to REST API via curl");
         const token =
           process.env.GITHUB_TOKEN ??
           process.env.GH_TOKEN ??
@@ -1444,11 +1538,7 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
         }
 
         const url = `https://api.github.com/repos/${pr.owner}/${pr.repo}/pulls/${pr.number}/merge`;
-        const bodyObj: Record<string, unknown> = { merge_method: method };
-        // When using --auto via REST, set head_branch to activate GitHub's native auto-merge.
-        // GitHub will wait for required status checks before completing the merge.
-        if (useAuto) bodyObj.head_branch = pr.branch ?? pr.baseBranch;
-        const body = JSON.stringify(bodyObj);
+        const body = JSON.stringify({ merge_method: method });
 
         // SECURITY: Write auth header to a temp curl config file so the token
         // never appears in process arguments (visible via `ps`).
