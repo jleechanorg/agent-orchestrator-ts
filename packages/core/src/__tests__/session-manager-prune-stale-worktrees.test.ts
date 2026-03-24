@@ -12,7 +12,11 @@ import {
   type Workspace,
 } from "../types.js";
 
-type ExecFileAsync = (file: string, args?: readonly string[], opts?: object) => Promise<[string, string]>;
+type ExecFileAsync = (
+  file: string,
+  args?: readonly string[],
+  opts?: object,
+) => Promise<{ stdout: string; stderr: string }>;
 
 let tmpDir: string;
 let configPath: string;

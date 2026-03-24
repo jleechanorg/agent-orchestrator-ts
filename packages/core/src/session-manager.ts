@@ -286,7 +286,11 @@ export interface SessionManagerDeps {
   config: OrchestratorConfig;
   registry: PluginRegistry;
   /** Injectable for testability; omit to use the real promisify(execFile). */
-  execFileAsync?: (file: string, args?: readonly string[], opts?: object) => Promise<[string, string]>;
+  execFileAsync?: (
+    file: string,
+    args?: readonly string[],
+    opts?: object,
+  ) => Promise<{ stdout: string; stderr: string }>;
 }
 
 /** Create a SessionManager instance. */
