@@ -117,8 +117,8 @@ export async function backfillUncoveredPRs(
         try {
           await sessionManager.claimPR(session.id, String(pr.number));
           // Only reset counter after both spawn AND claim succeed.
-          // If claimPR fails for every PR (e.g. systemic workspace issue),
-          // counter stays elevated and the 3-spawn-failure limit kicks in correctly.
+          // Claim failures preserve any prior spawn-failure count, ensuring
+          // subsequent spawn failures still accumulate toward the abort limit.
           consecutiveSpawnFailures = 0;
         } catch (claimErr) {
           // claimPR failed — kill the orphan session and try next PR
