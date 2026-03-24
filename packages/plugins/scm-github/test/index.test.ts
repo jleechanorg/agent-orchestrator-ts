@@ -1942,8 +1942,11 @@ describe("scm-github plugin", () => {
       const curlCalls = ghMock.mock.calls.filter((call) => call[0] === "curl");
       expect(curlCalls).toHaveLength(1);
       const curlArgs = curlCalls[0][1] as string[];
-      expect(curlArgs).toContain("-H");
-      expect(curlArgs).toContain("Authorization: Bearer test-token");
+      // Token is written to a curl config file (not -H args) to keep it out of ps output
+      expect(curlArgs).toContain("--config");
+      const configIdx = curlArgs.indexOf("--config");
+      const configPath = curlArgs[configIdx + 1];
+      expect(configPath).toMatch(/[/\\].curl-auth-[\w-]+$/);
     });
   });
 

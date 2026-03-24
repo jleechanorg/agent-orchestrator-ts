@@ -5,8 +5,11 @@
  */
 
 import { execFile } from "node:child_process";
-import { createHmac, timingSafeEqual } from "node:crypto";
+import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import { promisify } from "node:util";
+import { writeFileSync, unlinkSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   CI_STATUS,
   type PluginModule,
@@ -411,6 +414,37 @@ async function ghWithRetry(args: string[], cwd?: string, maxRetries = 3): Promis
  * (ghWithRetry) can rethrow the original gh error instead of attempting
  * a malformed curl call.
  */
+
+/**
+ * Write a temporary curl config file containing the Authorization header.
+ * This keeps the GitHub token out of the process argument list (visible in `ps`).
+ * The file is created with mode 0o600 (owner-only read/write).
+ */
+function writeTempCurlConfig(token: string): string {
+  // Use randomUUID so concurrent calls within the same process get unique paths
+  // (process.pid + Date.now() can collide when multiple async calls share a PID
+  // and occur within the same millisecond). 0o600 ensures only the owner can read it.
+  const configPath = join(tmpdir(), `.curl-auth-${randomUUID()}`);
+  // curl config file format: https://curl.se/docs/manpage.html#-K
+  // Each line is a curl option. The header option is: header = "Name: Value"
+  // Escape \ and newlines so a token containing these chars does not corrupt the file.
+  const escapedToken = token.replace(/\\/g, "\\\\").replace(/\n/g, "\\n");
+  writeFileSync(configPath, `header = "Authorization: Bearer ${escapedToken}"\n`, {
+    mode: 0o600,
+  });
+  return configPath;
+}
+
+/** Best-effort cleanup of a temporary curl config file. */
+function cleanupTempCurlConfig(configPath: string | undefined): void {
+  if (!configPath) return;
+  try {
+    unlinkSync(configPath);
+  } catch {
+    // Best-effort: file may already be gone
+  }
+}
+
 export async function ghRestFallback(args: string[]): Promise<string> {
   // We only support `gh api ...` invocations here.
   if (!Array.isArray(args) || args.length === 0 || args[0] !== "api") {
@@ -496,7 +530,9 @@ export async function ghRestFallback(args: string[]): Promise<string> {
     url += "?" + queryParts.join("&");
   }
 
-  // Build curl command with authentication and error handling
+  // Build curl command with authentication and error handling.
+  // SECURITY: The token is written to a temporary curl config file instead of
+  // being passed as a CLI argument, so it is not visible in `ps` output.
   const curlArgs = [
     "-f", // Fail on HTTP 4xx/5xx
     "-sS", // Silent but show errors
@@ -506,9 +542,10 @@ export async function ghRestFallback(args: string[]): Promise<string> {
     "X-GitHub-Api-Version: 2022-11-28",
   ];
 
-  // Add Authorization header if we have a token
+  let curlConfigPath: string | undefined;
   if (token) {
-    curlArgs.push("-H", `Authorization: Bearer ${token}`);
+    curlConfigPath = writeTempCurlConfig(token);
+    curlArgs.push("--config", curlConfigPath);
   }
 
   curlArgs.push(...curlFlags, url);
@@ -521,6 +558,8 @@ export async function ghRestFallback(args: string[]): Promise<string> {
     return stdout.trim();
   } catch (err) {
     throw new Error(`REST fallback failed: ${(err as Error).message}`, { cause: err });
+  } finally {
+    cleanupTempCurlConfig(curlConfigPath);
   }
 }
 
@@ -1400,28 +1439,33 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
         const url = `https://api.github.com/repos/${pr.owner}/${pr.repo}/pulls/${pr.number}/merge`;
         const body = JSON.stringify({ merge_method: method });
 
-        // Pass token via GH_TOKEN env var so it never appears in process arguments.
-        // Remove -f so we capture the full error body on failure (GitHub returns
-        // structured JSON with the reason, e.g. "Pull Request is not mergeable").
-        const rawResult = await execFileAsync(
-          "curl",
-          [
-            "-sS",
-            "-X", "PUT",
-            "-H", "Accept: application/vnd.github+json",
-            "-H", `Authorization: Bearer ${token}`,
-            "-H", "X-GitHub-Api-Version: 2022-11-28",
-            "-H", "Content-Type: application/json",
-            "-d", body,
-            "-w", "\n%{http_code}",
-            url,
-          ],
-          { maxBuffer: 10 * 1024 * 1024, timeout: 30_000 },
-        ).catch((curlErr) => {
+        // SECURITY: Write auth header to a temp curl config file so the token
+        // never appears in process arguments (visible via `ps`).
+        const curlConfigPath = writeTempCurlConfig(token);
+        let rawResult: { stdout: string };
+        try {
+          rawResult = await execFileAsync(
+            "curl",
+            [
+              "-sS",
+              "-X", "PUT",
+              "--config", curlConfigPath,
+              "-H", "Accept: application/vnd.github+json",
+              "-H", "X-GitHub-Api-Version: 2022-11-28",
+              "-H", "Content-Type: application/json",
+              "-d", body,
+              "-w", "\n%{http_code}",
+              url,
+            ],
+            { maxBuffer: 10 * 1024 * 1024, timeout: 30_000 },
+          );
+        } catch (curlErr) {
           throw new Error(`mergePR REST fallback via curl failed: ${(curlErr as Error).message}`, {
             cause: curlErr,
           });
-        });
+        } finally {
+          cleanupTempCurlConfig(curlConfigPath);
+        }
         // validateHttpStatus is extracted to its own function so it is not
         // inside any catch scope — prevents false-positive preserve-caught-error.
         const validateHttpStatus = (raw: string): void => {
