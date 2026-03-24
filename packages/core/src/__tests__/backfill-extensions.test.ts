@@ -382,3 +382,7 @@ describe("backfillUncoveredPRs", () => {
     expect(mockSessionManager.claimPR).toHaveBeenCalledWith("new-1", "1");
   });
 });
+
+// Note: spawn-failure and claim-failure counters are independent.
+// A spawn success resets spawnFailures; a claim success resets claimFailures.
+// Counters never share state — a claim failure does not affect spawnFailures.
