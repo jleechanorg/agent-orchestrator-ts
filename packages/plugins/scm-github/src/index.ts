@@ -1930,7 +1930,12 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
           if (mergeable === "CONFLICTING") {
             blockers.push("Merge conflicts");
           } else if (mergeable === "UNKNOWN" || mergeable === "") {
-            noConflicts = false; // bd-ara.2: UNKNOWN is not confirmed conflict-free — fire merge-conflicts reaction so worker rebases
+            // bd-ara.2: Explicitly set noConflicts=false for UNKNOWN so the
+            // non-batch path also triggers merge_conflicts status.
+            // After line 1925 noConflicts=false for all non-MERGEABLE values,
+            // but the explicit assignment documents intent and guards against
+            // future refactors that move the noConflicts init out of line 1925.
+            noConflicts = false;
             blockers.push("Merge status unknown (GitHub is computing)");
           }
         }
@@ -2070,6 +2075,12 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
           noConflicts = mergeable === "MERGEABLE";
           if (mergeable === "CONFLICTING") blockers.push("Merge conflicts");
           else if (mergeable === "UNKNOWN" || mergeable === "") {
+            // bd-ara.2: Explicitly set noConflicts=false for UNKNOWN so the
+            // batch path (bd-att) also triggers merge_conflicts status.
+            // After line 2066 noConflicts=false for all non-MERGEABLE values,
+            // but the explicit assignment documents intent and guards against
+            // future refactors that move the noConflicts init out of line 2066.
+            noConflicts = false;
             blockers.push("Merge status unknown (GitHub is computing)");
           }
         }
