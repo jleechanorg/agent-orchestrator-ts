@@ -549,9 +549,6 @@ async function gh(args: string[]): Promise<string> {
   return ghWithRetry(args);
 }
 
-async function ghInDir(args: string[], cwd: string): Promise<string> {
-  return ghWithRetry(args, cwd);
-}
 
 async function git(args: string[], cwd: string): Promise<string> {
   return execCli("git", args, cwd);
@@ -1195,7 +1192,25 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
     },
 
     async assignPRToCurrentUser(pr: PRInfo): Promise<void> {
-      await gh(["pr", "edit", String(pr.number), "--repo", repoFlag(pr), "--add-assignee", "@me"]);
+      try {
+        await gh(["pr", "edit", String(pr.number), "--repo", repoFlag(pr), "--add-assignee", "@me"]);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        // GraphQL rate limit — fall back to REST API
+        if (/GraphQL.*rate limit|API rate limit.*exceeded/i.test(msg)) {
+          const login = await gh(["api", "user", "--jq", ".login"]);
+          await gh([
+            "api",
+            "-X",
+            "PATCH",
+            `repos/${repoFlag(pr)}/issues/${pr.number}`,
+            "-f",
+            `assignees[]=${login}`,
+          ]);
+        } else {
+          throw err;
+        }
+      }
     },
 
     async checkoutPR(pr: PRInfo, workspacePath: string): Promise<boolean> {
@@ -1244,18 +1259,68 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
             // Working-tree change (e.g. " M", "MD") — restore working tree from index
             await git(["checkout", "--", filePath], workspacePath).catch(() => {});
           }
-          // Also clear the index for any AO-managed file that is staged.
-          // `git checkout --` does not touch the index — staged-only changes ("M ")
-          // remain and can block `gh pr checkout`. Use `git reset HEAD -- <file>`
-          // to unstage without touching the working tree.
-          const idx = line[0];
-          if (idx !== " " && idx !== undefined) {
-            await git(["reset", "HEAD", "--", filePath], workspacePath).catch(() => {});
-          }
         }
       }
 
-      await ghInDir(["pr", "checkout", String(pr.number), "--repo", repoFlag(pr)], workspacePath);
+      // Use git fetch + git checkout instead of `gh pr checkout` to avoid GraphQL
+      // rate limit burn. `gh pr checkout` resolves the PR head ref via GraphQL
+      // internally, which exhausts quota when many workers run simultaneously.
+      // git fetch uses the git protocol, which doesn't consume API quota. (bd-49u)
+      //
+      // Strategy: fetch via refs/pull/<num>/head (GitHub-maintained ref pointing to the
+      // PR head commit — works for both regular and fork PRs regardless of where the
+      // branch lives). Fall back to a direct branch fetch only when that ref is
+      // unavailable (e.g. shallow clone that prunes pull/ refs). (bd-49u)
+
+      // Discover the actual remote URL from the workspace rather than hardcoding.
+      // This respects SSH / HTTPS / GHE configurations configured in the workspace.
+      let remote: string;
+      try {
+        remote = (await git(["remote", "get-url", "origin"], workspacePath)).trim();
+      } catch {
+        // Fall back to the well-known GitHub HTTPS URL only when origin is missing
+        remote = `https://github.com/${repoFlag(pr)}.git`;
+      }
+
+      const prRef = `refs/pull/${pr.number}/head`;
+
+      let fetchErr: Error | undefined;
+      try {
+        // Primary: fetch via GitHub's pull-request ref (works for fork and regular PRs).
+        // Use +src:dst refspec with --force so fetch updates an existing branch.
+        await git(["fetch", "--force", remote, `+${prRef}:${pr.branch}`], workspacePath);
+      } catch (err) {
+        // Only handle "ref not found" — let auth/network errors propagate
+        const msg = err instanceof Error ? err.message : String(err);
+        if (!/couldn't find remote ref|doesn't exist|not found/i.test(msg)) {
+          throw err;
+        }
+        fetchErr = err as Error;
+
+        // Fallback: fetch the branch directly (works when the branch is on the base repo).
+        // Use +src:dst with --force to handle the case where the local branch already exists.
+        try {
+          await git(["fetch", "--force", remote, `+${pr.branch}:${pr.branch}`], workspacePath);
+        } catch {
+          // Both refs failed — surface the more informative original error
+          throw fetchErr;
+        }
+      }
+
+      // Switch to the branch if not already there (the catch path may have done it)
+      const currentAfterFetch = await git(["branch", "--show-current"], workspacePath);
+      if (currentAfterFetch !== pr.branch) {
+        await git(["checkout", pr.branch], workspacePath);
+      }
+
+      // Verify checkout succeeded
+      const afterBranch = await git(["branch", "--show-current"], workspacePath);
+      if (afterBranch !== pr.branch) {
+        throw new Error(
+          `git checkout failed: worktree is on "${afterBranch}" instead of "${pr.branch}". ` +
+            `Another worktree may have this branch checked out.`,
+        );
+      }
       return true;
     },
 
