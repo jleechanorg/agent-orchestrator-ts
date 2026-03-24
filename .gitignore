@@ -65,6 +65,9 @@ agent-orchestrator.yaml
 # Agent configuration (keep .claude/ tracked for skills/commands)
 .claude/scheduled_tasks.lock
 .claude/worktrees/
+.claude/metadata-updater.sh
+.cursor/metadata-updater.sh
+.gemini/metadata-updater.sh
 .opencode/
 
 # Shared contributor guidelines (tracked in this fork)

@@ -196,7 +196,7 @@ describe("backfillUncoveredPRs", () => {
     expect(mockSessionManager.claimPR).toHaveBeenCalledWith("new-1", "7");
   });
 
-  it("kills the session and returns false when claimPR fails", async () => {
+  it("kills the session and returns false when claimPR fails (single PR)", async () => {
     const pr = makePR({ number: 5, branch: "feat/claim-fail" });
     vi.mocked(mockSCM.listOpenPRs!).mockResolvedValue([pr]);
     vi.mocked(mockSessionManager.claimPR).mockRejectedValue(new Error("claim boom"));
@@ -215,6 +215,40 @@ describe("backfillUncoveredPRs", () => {
     );
   });
 
+  it("skips failed PR and spawns next uncovered PR when claimPR fails", async () => {
+    const prs = [
+      makePR({ number: 123, branch: "feat/conflicting" }),
+      makePR({ number: 113, branch: "feat/good" }),
+    ];
+    vi.mocked(mockSCM.listOpenPRs!).mockResolvedValue(prs);
+
+    // First claimPR fails (e.g. CONFLICTING), second succeeds
+    let spawnCount = 0;
+    vi.mocked(mockSessionManager.spawn).mockImplementation(async () => {
+      spawnCount++;
+      return makeSession({ id: `new-${spawnCount}` });
+    });
+    vi.mocked(mockSessionManager.claimPR)
+      .mockRejectedValueOnce(new Error("Workspace has uncommitted changes"))
+      .mockResolvedValueOnce({
+        sessionId: "new-2",
+        projectId: "proj",
+        pr: prs[1],
+        branchChanged: true,
+        githubAssigned: false,
+        takenOverFrom: [],
+      });
+
+    const result = await backfillUncoveredPRs(deps, makeParams());
+
+    expect(result).toBe(true);
+    // First session spawned and killed (claim failed for PR 123), second spawned and claimed (PR 113)
+    expect(mockSessionManager.spawn).toHaveBeenCalledTimes(2);
+    expect(mockSessionManager.kill).toHaveBeenCalledWith("new-1");
+    expect(mockSessionManager.claimPR).toHaveBeenNthCalledWith(1, "new-1", "123");
+    expect(mockSessionManager.claimPR).toHaveBeenNthCalledWith(2, "new-2", "113");
+  });
+
   it("returns false and records error when listOpenPRs throws", async () => {
     vi.mocked(mockSCM.listOpenPRs!).mockRejectedValue(new Error("API down"));
 
@@ -225,6 +259,117 @@ describe("backfillUncoveredPRs", () => {
       expect.objectContaining({
         operation: "lifecycle.backfill.list_failed",
         outcome: "failure",
+      }),
+    );
+  });
+
+  it("skips failed PR and spawns next uncovered PR when spawn fails", async () => {
+    const prs = [
+      makePR({ number: 99, branch: "feat/spawn-fail" }),
+      makePR({ number: 77, branch: "feat/spawn-ok" }),
+    ];
+    vi.mocked(mockSCM.listOpenPRs!).mockResolvedValue(prs);
+
+    // First spawn fails (throws), second succeeds — use mockImplementation
+    // with call-tracking so we can distinguish which call belongs to which PR.
+    let spawnCount = 0;
+    vi.mocked(mockSessionManager.spawn).mockImplementation(async () => {
+      spawnCount++;
+      if (spawnCount === 1) throw new Error("Runtime unavailable");
+      return makeSession({ id: `new-${spawnCount}` });
+    });
+
+    const result = await backfillUncoveredPRs(deps, makeParams());
+
+    expect(result).toBe(true);
+    expect(mockSessionManager.spawn).toHaveBeenCalledTimes(2);
+    // claimPR was only called once — for the successful second spawn, not the failed one
+    expect(mockSessionManager.claimPR).toHaveBeenCalledTimes(1);
+    expect(mockSessionManager.claimPR).toHaveBeenCalledWith("new-2", "77");
+    expect(mockObserver.recordOperation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        operation: "lifecycle.backfill.spawn_failed",
+        outcome: "failure",
+        data: expect.objectContaining({ prNumber: 99, consecutiveSpawnFailures: 1 }),
+      }),
+    );
+  });
+
+  it("claim failures accumulate across spawn successes and abort after 3 total", async () => {
+    const prs = [
+      makePR({ number: 1, branch: "feat/a" }),
+      makePR({ number: 2, branch: "feat/b" }),
+      makePR({ number: 3, branch: "feat/c" }),
+      makePR({ number: 4, branch: "feat/d" }),
+    ];
+    vi.mocked(mockSCM.listOpenPRs!).mockResolvedValue(prs);
+
+    // First spawn succeeds, claim fails; second spawn succeeds, claim fails;
+    // third spawn succeeds, claim fails → 3 total claim failures, abort.
+    // Spawn success must NOT reset consecutiveClaimFailures.
+    let spawnCount = 0;
+    vi.mocked(mockSessionManager.spawn).mockImplementation(async () => {
+      spawnCount++;
+      return makeSession({ id: `new-${spawnCount}` });
+    });
+    vi.mocked(mockSessionManager.claimPR).mockRejectedValue(new Error("conflict"));
+
+    const result = await backfillUncoveredPRs(deps, makeParams());
+
+    expect(result).toBe(false);
+    // Spawn called 3 times, claim called 3 times (once per spawn), then abort
+    expect(mockSessionManager.spawn).toHaveBeenCalledTimes(3);
+    expect(mockSessionManager.claimPR).toHaveBeenCalledTimes(3);
+    // Kill was called for each failed session
+    expect(mockSessionManager.kill).toHaveBeenCalledTimes(3);
+    expect(mockObserver.recordOperation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        operation: "lifecycle.backfill.claim_failed_abort",
+        outcome: "failure",
+        data: { consecutiveClaimFailures: 3 },
+      }),
+    );
+  });
+
+  it("stops after 3 consecutive spawn failures and returns false", async () => {
+    const prs = [
+      makePR({ number: 1, branch: "feat/a" }),
+      makePR({ number: 2, branch: "feat/b" }),
+      makePR({ number: 3, branch: "feat/c" }),
+      makePR({ number: 4, branch: "feat/d" }),
+    ];
+    vi.mocked(mockSCM.listOpenPRs!).mockResolvedValue(prs);
+    vi.mocked(mockSessionManager.spawn).mockRejectedValue(new Error("Runtime unavailable"));
+
+    const result = await backfillUncoveredPRs(deps, makeParams());
+
+    expect(result).toBe(false);
+    expect(mockSessionManager.spawn).toHaveBeenCalledTimes(3);
+    expect(mockSessionManager.claimPR).not.toHaveBeenCalled();
+    // Should have recorded the abort
+    expect(mockObserver.recordOperation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        operation: "lifecycle.backfill.spawn_failed_abort",
+        outcome: "failure",
+        data: { consecutiveSpawnFailures: 3 },
+      }),
+    );
+  });
+
+  it("records error when orphan cleanup fails after claimPR failure", async () => {
+    const pr = makePR({ number: 5, branch: "feat/claim-fail" });
+    vi.mocked(mockSCM.listOpenPRs!).mockResolvedValue([pr]);
+    vi.mocked(mockSessionManager.claimPR).mockRejectedValue(new Error("conflict"));
+    vi.mocked(mockSessionManager.kill).mockRejectedValue(new Error("session already dead"));
+
+    const result = await backfillUncoveredPRs(deps, makeParams());
+
+    expect(result).toBe(false);
+    expect(mockObserver.recordOperation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        operation: "lifecycle.backfill.orphan_cleanup_failed",
+        outcome: "failure",
+        data: expect.objectContaining({ prNumber: 5 }),
       }),
     );
   });
@@ -273,3 +418,8 @@ describe("backfillUncoveredPRs", () => {
     expect(mockSessionManager.claimPR).toHaveBeenCalledWith("new-1", "1");
   });
 });
+
+// Note: spawn-failure and claim-failure counters are independent.
+// A spawn success resets spawnFailures; a claim success resets claimFailures.
+// A spawn success does NOT reset claimFailures — claim failures accumulate
+// across the entire cycle, not just consecutive ones.
