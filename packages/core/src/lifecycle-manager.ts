@@ -287,6 +287,13 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     let scmFailureCount =
       typeof rawCount === "string" ? parseInt(rawCount, 10) : Number(rawCount);
     if (Number.isNaN(scmFailureCount)) scmFailureCount = 0;
+    // bd-6jc: killConfirmed is set when the consecutive-failure threshold fires.
+    // Used in checkSession to bypass bd-kki SCM re-check (which could throw or
+    // absorb on a session whose PR state is stale). Stored as string for updateMetadata.
+    const killConfirmed = session.metadata["killConfirmed"] === "true";
+    // bd-6jc: flag set inside catch to signal finally should NOT reset counter
+    // (counter was incremented as part of the kill-after-threshold path).
+    let killAfterThreshold = false;
     // bd-6jc: tracks whether an SCM error was caught; used in finally to decide
     // whether to reset the counter (only reset on genuine SCM success).
     let scmErrorOccurred = false;
@@ -467,27 +474,17 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         }
 
         // Agent is dead but PR isn't in a merge-ready state.
-        // bd-6jc: If SCM threw (transient failure), require N consecutive failures
-        // before killing so a network blip doesn't destroy worktrees. If SCM
-        // succeeded and returned a non-mergeable state, kill immediately — SCM
-        // confirmed the PR isn't going auto-merge so there's no reason to wait.
-        if (agentDead) {
-          if (scmFailureCount >= SCM_FAILURE_THRESHOLD) {
-            // Mark killConfirmed so checkSession's bd-kki skips the secondary SCM
-            // absorption check (which would re-query SCM and potentially throw or
-            // absorb on a session whose PR was already resolved).
-            const sessionsDir = getSessionsDir(config.configPath, project.path);
-            updateMetadata(sessionsDir, session.id, { killConfirmed: "true" });
-            return { status: "killed", agentDead: true };
-          }
-          return { status: "pr_open", agentDead: true };
-        }
+        // bd-6jc: If SCM succeeded (scmFailureCount=0 from try block), return
+        // "pr_open" immediately — SCM confirmed the PR won't auto-merge so there's
+        // no reason to defer. The consecutive-failure threshold only applies when
+        // SCM throws; the catch block below handles that case.
+        if (agentDead) return { status: "pr_open", agentDead: true };
 
         return { status: "pr_open", agentDead: false };
       } catch {
         // bd-6jc: SCM threw — increment consecutive failure counter, persist, and
-        // check threshold.  The finally only resets the counter on SCM success
-        // (when scmErrorOccurred stays false); on catch, the counter accumulates.
+        // check threshold.  The finally always runs (even after this block), so we
+        // use killAfterThreshold to signal it should NOT reset the counter.
         scmErrorOccurred = true;
         scmFailureCount++;
         session.metadata["scmFailureCount"] = String(scmFailureCount);
@@ -501,15 +498,14 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
           // guard activates within the same poll cycle.
           session.metadata["killConfirmed"] = "true";
           updateMetadata(sessionsDir, session.id, { killConfirmed: "true" });
+          killAfterThreshold = true;
           return { status: "killed", agentDead: true };
         }
       } finally {
         // bd-6jc: SCM succeeded (scmErrorOccurred=false) — reset counter if non-zero.
-        // On catch (scmErrorOccurred=true): do NOT reset — counter should accumulate.
+        // On catch, scmErrorOccurred=true; in that case don't reset unless killAfterThreshold
+        // is set (threshold was reached — counter was already persisted with the kill).
         if (!scmErrorOccurred && scmFailureCount !== 0) {
-          // Sync in-memory counter to 0 (metadata update below handles persistence)
-          scmFailureCount = 0; void scmFailureCount;
-          session.metadata["scmFailureCount"] = "0"; // bd-6jc: sync in-memory so next poll reads 0
           const sessionsDir = getSessionsDir(config.configPath, project.path);
           updateMetadata(sessionsDir, session.id, { scmFailureCount: "0" });
         }

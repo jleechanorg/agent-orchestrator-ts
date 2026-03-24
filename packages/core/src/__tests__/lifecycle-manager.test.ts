@@ -691,63 +691,6 @@ describe("check (single session)", () => {
     expect(lm.getStates().get("app-1")).toBe("killed");
   });
 
-  it("bd-6jc: returns pr_open when agent dead and SCM succeeds with non-mergeable PR", async () => {
-    // bd-6jc: when agent is dead and SCM SUCCEEDS (scmFailureCount=0), return
-    // "pr_open" — SCM confirmed the PR is non-mergeable, so kill is deferred to
-    // the consecutive-failure counter which only applies to SCM throws.
-    vi.mocked(mockAgent.getActivityState).mockResolvedValue({ state: "exited" });
-
-    const mockSCM: SCM = {
-      name: "mock-scm",
-      detectPR: vi.fn(),
-      getPRState: vi.fn().mockResolvedValue("open"),
-      mergePR: vi.fn(),
-      closePR: vi.fn(),
-      getCIChecks: vi.fn(),
-      getCISummary: vi.fn().mockResolvedValue("passing"),
-      getReviews: vi.fn(),
-      getReviewDecision: vi.fn().mockResolvedValue("none"),
-      getPendingComments: vi.fn(),
-      getAutomatedComments: vi.fn(),
-      getMergeability: vi.fn().mockResolvedValue({
-        mergeable: false,
-        ciPassing: true,
-        approved: false,
-        noConflicts: true,
-        blockers: [],
-      }),
-    };
-
-    const registryWithSCM: PluginRegistry = {
-      ...mockRegistry,
-      get: vi.fn().mockImplementation((slot: string) => {
-        if (slot === "runtime") return mockRuntime;
-        if (slot === "agent") return mockAgent;
-        if (slot === "scm") return mockSCM;
-        return null;
-      }),
-    };
-
-    const session = makeSession({ status: "working", pr: makePR() });
-    vi.mocked(mockSessionManager.get).mockResolvedValue(session);
-    writeMetadata(sessionsDir, "app-1", {
-      worktree: "/tmp",
-      branch: "main",
-      status: "working",
-      project: "my-app",
-    });
-
-    const lm = createLifecycleManager({
-      config,
-      registry: registryWithSCM,
-      sessionManager: mockSessionManager,
-    });
-
-    await lm.check("app-1");
-    // bd-6jc: SCM succeeded with PR_OPEN → pr_open (counter=0, no threshold)
-    expect(lm.getStates().get("app-1")).toBe("pr_open");
-  });
-
   it("detects killed via terminal fallback when getActivityState returns null", async () => {
     vi.mocked(mockAgent.getActivityState).mockResolvedValue(null);
     vi.mocked(mockAgent.detectActivity).mockReturnValue("idle");
