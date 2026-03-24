@@ -112,11 +112,14 @@ export async function backfillUncoveredPRs(
           projectId,
           prompt: `Continue working on PR #${pr.number}: ${pr.title}. Check PR status, fix any blockers (CI failures, review comments, merge conflicts), and drive it to 6-green.`,
         });
-        consecutiveSpawnFailures = 0; // reset on success
 
         // Claim the PR for this session — this checks out the branch
         try {
           await sessionManager.claimPR(session.id, String(pr.number));
+          // Only reset counter after both spawn AND claim succeed.
+          // If claimPR fails for every PR (e.g. systemic workspace issue),
+          // counter stays elevated and the 3-spawn-failure limit kicks in correctly.
+          consecutiveSpawnFailures = 0;
         } catch (claimErr) {
           // claimPR failed — kill the orphan session and try next PR
           observer.recordOperation({
