@@ -1,7 +1,9 @@
 # CodeRabbit configuration
-# Enables APPROVE/REQUEST_CHANGES review states
-approve: true
 reviews:
   review_status: true
+  request_changes_workflow: true
+  auto_review:
+    enabled: true
+  path_filters: []
   high_level_summary: true
-  auto_title_placeholder: ""
+  auto_title_placeholder: "<title>"
