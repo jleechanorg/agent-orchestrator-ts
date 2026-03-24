@@ -885,6 +885,31 @@ describe("scm-github plugin", () => {
         expect.any(Object),
       );
     });
+
+    it("REST fallback branch deletion preserves slashes in branch name", async () => {
+      // ghWithRetry retries 3x on rate-limit errors before giving up.
+      // Exhaust all 3 retries so mergePR's REST fallback path is reached.
+      for (let i = 0; i < 3; i++) {
+        ghMock.mockRejectedValueOnce(new Error("HTTP 403: GraphQL API rate limit exceeded"));
+      }
+      // execFileAsync("curl", ...) → HTTP 200 merge response
+      ghMock.mockResolvedValueOnce({ stdout: '{"merged": true}\n200' });
+
+      process.env.GITHUB_TOKEN = "test-token";
+      await scm.mergePR(pr);
+      delete process.env["GITHUB_TOKEN"];
+
+      // Verify the branch deletion gh api call uses slashes, not %2F.
+      // execFileAsync(bin, args) → ghMock call: call[0]=bin, call[1]=args[]
+      const deleteCall = (ghMock as ReturnType<typeof vi.fn>).mock.calls.find(
+        (call) => Array.isArray(call[1]) && call[1].includes("DELETE"),
+      );
+      expect(deleteCall).toBeDefined();
+      const deleteArgs = deleteCall![1] as string[];
+      // args: ["api", "repos/acme/repo/git/refs/heads/feat/my-feature", "--method", "DELETE"]
+      expect(deleteArgs.join(" ")).toContain("refs/heads/feat/my-feature");
+      expect(deleteArgs.join(" ")).not.toContain("%2F");
+    });
   });
 
   // ---- closePR -----------------------------------------------------------
