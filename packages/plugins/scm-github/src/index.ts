@@ -1236,7 +1236,6 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
         for (const line of dirty.split("\n")) {
           const filePath = line.replace(/^[MADRCUT?! ]{2}\s/, "").trim();
           if (!AO_MANAGED.has(filePath)) continue;
-          const idx = line[0];
           const wt = line[1];
           if (wt === "?" || wt === "!") {
             // Untracked or ignored — remove from working tree
