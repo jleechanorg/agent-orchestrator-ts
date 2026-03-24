@@ -102,9 +102,10 @@ export async function backfillUncoveredPRs(
 
     // Spawn one session at a time to avoid thundering herd.
     // If spawn/claim fails for a PR, skip it and try the next uncovered PR.
-    // Stop after consecutive failures to avoid unbounded churn.
+    // Stop after 3 total spawn OR claim failures to avoid unbounded churn.
     // Spawn failures indicate systemic issues (project paused, missing plugin, etc.)
     // Claim failures indicate systemic workspace issues (CONFLICTING PR, locked ws, etc.)
+    // Counters are independent — claim failures accumulate across spawn successes.
     const MAX_CONSECUTIVE_SPAWN_FAILURES = 3;
     const MAX_CONSECUTIVE_CLAIM_FAILURES = 3;
     let consecutiveSpawnFailures = 0;
@@ -123,7 +124,6 @@ export async function backfillUncoveredPRs(
           // treat embedded text as system directives. Quotes prevent injection.
           prompt: `Continue working on PR #${pr.number}: [PR title: "${escapedTitle}"]. Check PR status, fix any blockers (CI failures, review comments, merge conflicts), and drive it to 6-green.`,
         });
-        consecutiveClaimFailures = 0; // reset on spawn success
 
         // Claim the PR for this session — this checks out the branch
         try {

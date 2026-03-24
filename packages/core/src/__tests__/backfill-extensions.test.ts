@@ -295,6 +295,46 @@ describe("backfillUncoveredPRs", () => {
     );
   });
 
+  it("claim failures accumulate across spawn successes and abort after 3 total", async () => {
+    const prs = [
+      makePR({ number: 1, branch: "feat/a" }),
+      makePR({ number: 2, branch: "feat/b" }),
+      makePR({ number: 3, branch: "feat/c" }),
+      makePR({ number: 4, branch: "feat/d" }),
+    ];
+    vi.mocked(mockSCM.listOpenPRs!).mockResolvedValue(prs);
+
+    // First spawn succeeds, claim fails; second spawn succeeds, claim fails;
+    // third spawn succeeds, claim fails → 3 total claim failures, abort.
+    // Spawn success must NOT reset consecutiveClaimFailures.
+    let spawnCount = 0;
+    vi.mocked(mockSessionManager.spawn).mockImplementation(async () => {
+      spawnCount++;
+      return makeSession({ id: `new-${spawnCount}` });
+    });
+    let claimCount = 0;
+    vi.mocked(mockSessionManager.claimPR).mockImplementation(async () => {
+      claimCount++;
+      throw new Error("conflict");
+    });
+
+    const result = await backfillUncoveredPRs(deps, makeParams());
+
+    expect(result).toBe(false);
+    // Spawn called 3 times, claim called 3 times (once per spawn), then abort
+    expect(mockSessionManager.spawn).toHaveBeenCalledTimes(3);
+    expect(mockSessionManager.claimPR).toHaveBeenCalledTimes(3);
+    // Kill was called for each failed session
+    expect(mockSessionManager.kill).toHaveBeenCalledTimes(3);
+    expect(mockObserver.recordOperation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        operation: "lifecycle.backfill.claim_failed_abort",
+        outcome: "failure",
+        data: { consecutiveClaimFailures: 3 },
+      }),
+    );
+  });
+
   it("stops after 3 consecutive spawn failures and returns false", async () => {
     const prs = [
       makePR({ number: 1, branch: "feat/a" }),
@@ -385,4 +425,5 @@ describe("backfillUncoveredPRs", () => {
 
 // Note: spawn-failure and claim-failure counters are independent.
 // A spawn success resets spawnFailures; a claim success resets claimFailures.
-// Counters never share state — a claim failure does not affect spawnFailures.
+// A spawn success does NOT reset claimFailures — claim failures accumulate
+// across the entire cycle, not just consecutive ones.
