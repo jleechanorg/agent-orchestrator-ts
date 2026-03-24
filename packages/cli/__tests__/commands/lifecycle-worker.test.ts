@@ -57,7 +57,6 @@ function makeSessionManager(activeRuntimeIds: Set<string>): SessionManager {
     kill: vi.fn(),
     cleanup: vi.fn(),
     restore: vi.fn(),
-    remap: vi.fn(),
     get: vi.fn(),
     spawn: vi.fn(),
     spawnOrchestrator: vi.fn(),
@@ -118,6 +117,8 @@ describe("sweepOrphanWorktrees", () => {
   }
 
   it("skips non-AO-session entries (pattern guard)", async () => {
+    // Valid tmux response so sweep reaches the pattern guard (not tmux-fail early return).
+    withLiveTmuxSessions([{ name: "xyz-999" }]);
     const observer = createMockObserver();
     const projectId = "proj";
     mkWorktree(projectId, "not-a-session");
