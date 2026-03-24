@@ -315,10 +315,60 @@ check_stale_temp_files() {
 check_lifecycle_workers() {
   # Count lifecycle-worker processes per project via launchd and ps
   local config_file="$HOME/.openclaw/agent-orchestrator.yaml"
+  # Resolve canonical ao binary from PATH at runtime rather than hardcoding a path.
+  # Also resolve the real path (symlink target) so we match both launchd-spawned
+  # workers (show as /path/to/ao) and node-spawned workers (show as node /real/path.js).
+  local canonical_binary
+  canonical_binary="$(command -v ao 2>/dev/null || printf '%s' "$HOME/bin/ao")"
+  local canonical_real
+  canonical_real="$(realpath "$canonical_binary" 2>/dev/null || printf '%s' "$canonical_binary")"
 
-  if [ ! -f "$config_file" ]; then
-    warn "No canonical config at $config_file — cannot check lifecycle-worker counts"
-    return
+  # --- Check 1: detect ALL lifecycle-worker processes, flag non-canonical binaries ---
+  # NOTE: Checks 1 and 2 run unconditionally — they do not require the config file.
+  # config_file is only needed for Check 3 (per-project duplicate detection).
+  local all_workers
+  all_workers="$(ps aux 2>/dev/null | grep -v grep | grep 'lifecycle-worker' || true)"
+  # Count via wc -l to avoid grep -c exit-code / multiline artefacts
+  local total_count
+  total_count="$(printf '%s\n' "$all_workers" | grep 'lifecycle-worker' | wc -l | tr -d ' ')"
+  total_count="${total_count:-0}"
+
+  if [ "$total_count" -gt 0 ]; then
+    # Count workers NOT using the canonical binary
+    local stale_count=0
+    local stale_pids=""
+    while IFS= read -r line; do
+      [ -z "$line" ] && continue
+      local cmd
+      cmd="$(printf '%s' "$line" | awk '{print $11}')"
+      if [ "$cmd" != "${canonical_binary}" ] && \
+         [ "$cmd" != "${canonical_real}" ]; then
+        stale_count=$((stale_count + 1))
+        local pid
+        pid="$(echo "$line" | awk '{print $2}')"
+        stale_pids="$stale_pids $pid"
+        warn "non-canonical lifecycle-worker binary detected: PID=$pid binary contains: $(echo "$line" | grep -oE '/[^ ]+lifecycle|[^ ]+/ao' | head -1 || echo "unknown")"
+      fi
+    done <<< "$all_workers"
+
+    if [ "$stale_count" -gt 0 ]; then
+      if [ "$FIX_MODE" = true ]; then
+        for pid in $stale_pids; do
+          kill "$pid" 2>/dev/null && fixed "killed non-canonical lifecycle-worker PID=$pid" || warn "failed to kill PID=$pid"
+        done
+      else
+        warn "$stale_count non-canonical lifecycle-worker(s) running. Fix: run 'ao doctor --fix' to kill them. PIDs:$stale_pids"
+      fi
+    else
+      pass "all lifecycle-workers using canonical binary ($canonical_binary)"
+    fi
+  fi
+
+  # --- Check 2: total worker count sanity (warn if > 3 regardless of binary) ---
+  if [ "$total_count" -gt 3 ]; then
+    warn "unusually high lifecycle-worker count: $total_count (expected ≤3). This drains GraphQL quota rapidly."
+  elif [ "$total_count" -gt 0 ]; then
+    pass "total lifecycle-worker count is $total_count (within normal range)"
   fi
 
   local projects
@@ -334,14 +384,13 @@ except Exception:
 " 2>/dev/null || true)"
 
   if [ -z "$projects" ]; then
-    pass "no projects in config — lifecycle-worker check skipped"
+    pass "no projects in config — per-project lifecycle-worker check skipped"
     return
   fi
 
+  # --- Check 3: per-project duplicate detection (original check) ---
   local duplicates_found=0
   for proj in $projects; do
-    local plist_name="com.agentorchestrator.lifecycle-${proj}"
-
     # Count how many processes appear to be lifecycle-workers for this project
     # via ps (covers both launchd-managed and manual/process-spawned workers).
     # -E + -w: require project ID to match as a whole word (prevents "api"
@@ -362,7 +411,7 @@ except Exception:
   done
 
   if [ "$duplicates_found" -gt 0 ]; then
-    warn "$duplicates_found project(s) have duplicate lifecycle-worker processes. Fix: run 'launchctl unload' for the affected plists or kill duplicate PIDs manually"
+    warn "$duplicates_found project(s) have duplicate lifecycle-worker processes. Fix: identify PIDs with 'ps aux | grep lifecycle-worker' and kill duplicate PIDs manually"
   fi
 }
 
@@ -387,7 +436,7 @@ Usage: ao doctor [--fix]
 Checks install, PATH, binaries, service health, stale temp files, and runtime sanity.
 
 Options:
-  --fix    Apply safe fixes for missing launcher links, missing support dirs, and stale temp files
+  --fix    Apply safe fixes for missing launcher links, support dirs, stale temp files, and non-canonical lifecycle-workers
 EOF
       exit 0
       ;;
