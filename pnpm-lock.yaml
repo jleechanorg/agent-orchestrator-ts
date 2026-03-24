@@ -110,6 +110,9 @@ importers:
       '@jleechanorg/ao-plugin-poller-github-pr':
         specifier: workspace:*
         version: link:../plugins/poller-github-pr
+      '@jleechanorg/ao-plugin-runtime-antigravity':
+        specifier: workspace:*
+        version: link:../plugins/runtime-antigravity
       '@jleechanorg/ao-plugin-runtime-process':
         specifier: workspace:*
         version: link:../plugins/runtime-process
