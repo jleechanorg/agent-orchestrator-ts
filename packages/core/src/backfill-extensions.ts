@@ -112,10 +112,14 @@ export async function backfillUncoveredPRs(
         // Don't pass branch to spawn — let claimPR handle checkout so
         // the workspace starts on the correct PR branch via SCM checkout.
         // pr.title is contributor-supplied — escape quotes to prevent prompt injection.
-        const escapedTitle = pr.title.replace(/"/g, '\\"');
+        const escapedTitle = pr.title
+          .replace(/\\/g, "\\\\") // escape backslashes first
+          .replace(/"/g, '\\"');
         const session = await sessionManager.spawn({
           projectId,
-          prompt: `Continue working on PR #${pr.number}: "${escapedTitle}". Check PR status, fix any blockers (CI failures, review comments, merge conflicts), and drive it to 6-green.`,
+          // Label the title as untrusted contributor input so the agent does not
+          // treat embedded text as system directives. Quotes prevent injection.
+          prompt: `Continue working on PR #${pr.number}: [PR title: "${escapedTitle}"]. Check PR status, fix any blockers (CI failures, review comments, merge conflicts), and drive it to 6-green.`,
         });
         consecutiveClaimFailures = 0; // reset on spawn success
 
