@@ -20,12 +20,14 @@ if command -v jq &>/dev/null; then
   command=$(echo "$input" | jq -r '.tool_input.command // empty')
   output=$(echo "$input" | jq -r '.tool_response // empty')
   exit_code=$(echo "$input" | jq -r '.exit_code // 0')
+  hook_event=$(echo "$input" | jq -r '.hook_event_name // empty')
 else
   # Fallback: basic JSON parsing without jq
   tool_name=$(echo "$input" | grep -o '"tool_name"[[:space:]]*:[[:space:]]*"[^"]*"' | cut -d'"' -f4 || echo "")
   command=$(echo "$input" | grep -o '"command"[[:space:]]*:[[:space:]]*"[^"]*"' | cut -d'"' -f4 || echo "")
   output=$(echo "$input" | grep -o '"tool_response"[[:space:]]*:[[:space:]]*"[^"]*"' | cut -d'"' -f4 || echo "")
   exit_code=$(echo "$input" | grep -o '"exit_code"[[:space:]]*:[[:space:]]*[0-9]*' | grep -o '[0-9]*$' || echo "0")
+  hook_event=$(echo "$input" | grep -o '"hook_event_name"[[:space:]]*:[[:space:]]*"[^"]*"' | cut -d'"' -f4 || echo "")
 fi
 
 # Only process successful commands (exit code 0)
@@ -63,10 +65,14 @@ done
 # Rationale: prompt rules (e.g., "NEVER MERGE") are advisory; this enforces policy in code.
 # Escape hatch for trusted/manual flows: AO_ALLOW_GH_PR_MERGE=1
 # This check runs BEFORE AO_SESSION/metadata checks since blocking a merge doesn't require session metadata.
+# Guard fires when NOT PostToolUse and NOT allowed. PostToolUse falls through for metadata update.
 merge_pattern='^[[:space:]]*([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]+[[:space:]]+)*gh[[:space:]]+pr[[:space:]]+merge([[:space:]]|$)'
-if [[ "$clean_command" =~ $merge_pattern && "${AO_ALLOW_GH_PR_MERGE:-}" != "1" ]]; then
-  echo '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"Blocked by AO policy: agents must not run gh pr merge. Leave merge to orchestrator/human."}}'
-  exit 0
+if [[ "$clean_command" =~ $merge_pattern ]]; then
+  if [[ "$hook_event" != "PostToolUse" && "${AO_ALLOW_GH_PR_MERGE:-}" != "1" ]]; then
+    echo '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"Blocked by AO policy: agents must not run gh pr merge. Leave merge to orchestrator/human."}}'
+    exit 0
+  fi
+  # AO_ALLOW_GH_PR_MERGE=1 during PreToolUse OR PostToolUse: fall through to metadata update below
 fi
 
 # Validate AO_SESSION is set
@@ -149,8 +155,9 @@ if [[ "$clean_command" =~ ^git[[:space:]]+checkout[[:space:]]+([^[:space:]-]+[/-
   fi
 fi
 
-# Detect: gh pr merge (only when explicitly allowed)
-if [[ "$clean_command" =~ $merge_pattern && "${AO_ALLOW_GH_PR_MERGE:-}" == "1" ]]; then
+# Detect: gh pr merge (only when explicitly allowed AND in PostToolUse — not PreToolUse)
+# Gate on PostToolUse to avoid marking status=merged before the merge actually succeeds.
+if [[ "$clean_command" =~ $merge_pattern && "${AO_ALLOW_GH_PR_MERGE:-}" == "1" && "$hook_event" == "PostToolUse" ]]; then
   update_metadata_key "status" "merged"
   echo '{"systemMessage": "Updated metadata: status = merged"}'
   exit 0
