@@ -68,7 +68,7 @@ function isPrimaryFailure(output: string): boolean {
 /** Result of a single CLI invocation. */
 interface CliInvokeResult {
   output: string;
-  pid: number;
+  pid: number | undefined;
 }
 
 /**
@@ -83,7 +83,7 @@ function invokeCli(
 ): Promise<CliInvokeResult> {
   return new Promise<CliInvokeResult>((resolve, reject) => {
     const args = [...config.cliFlags, "-p", task];
-    let childPid = -1;
+    let childPid: number | undefined;
 
     const child = execFileCb(
       config.cliBin,
@@ -98,8 +98,10 @@ function invokeCli(
       },
     );
 
-    // Capture PID immediately after spawn (before async callback fires)
-    childPid = child.pid ?? -1;
+    // Capture PID immediately after spawn (before async callback fires).
+    // If child.pid is undefined (spawn failed), leave childPid as undefined
+    // so callers never receive -1 which would pass to process.kill(-1).
+    childPid = child.pid;
   });
 }
 

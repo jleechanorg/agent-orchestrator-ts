@@ -25,17 +25,29 @@ const execFile = promisify(execFileCb);
 const PEEKABOO_TIMEOUT_MS = 15_000;
 
 /**
- * Run a peekaboo CLI command and parse JSON output.
+ * Peekaboo binary path. Defaults to the PEEKABOO_BIN env var (for tests)
+ * or "peekaboo". Override at startup with setPeekabooBin().
+ */
+let _peekabooBin: string = process.env["PEEKABOO_BIN"] ?? "peekaboo";
+
+/**
+ * Override the peekaboo binary path at runtime.
  *
- * The binary path is read on each invocation from PEEKABOO_BIN env var
- * (or defaults to "peekaboo"), so runtime config changes take effect
- * without requiring a module reload.
+ * Call this once during plugin initialisation. Avoids mutating
+ * process.env, which can bleed across multiple runtime instances.
+ */
+export function setPeekabooBin(path: string): void {
+  _peekabooBin = path;
+}
+
+/**
+ * Run a peekaboo CLI command and parse JSON output.
  *
  * @param args - CLI arguments (e.g. ["list", "--app", "Antigravity"])
  * @returns Parsed JSON output from stdout
  */
 async function run<T>(args: string[]): Promise<T> {
-  const bin = process.env["PEEKABOO_BIN"] ?? "peekaboo";
+  const bin = _peekabooBin;
   const { stdout } = await execFile(bin, args, {
     timeout: PEEKABOO_TIMEOUT_MS,
   });
@@ -111,8 +123,7 @@ export function click(
  */
 export function paste(app: string, text: string): Promise<void> {
   return enqueue(async () => {
-    const bin = process.env["PEEKABOO_BIN"] ?? "peekaboo";
-    await execFile(bin, ["paste", "--app", app, "--text", text], {
+    await execFile(_peekabooBin, ["paste", "--app", app, "--text", text], {
       timeout: PEEKABOO_TIMEOUT_MS,
     });
   });
@@ -126,8 +137,7 @@ export function paste(app: string, text: string): Promise<void> {
  */
 export function press(app: string, key: string): Promise<void> {
   return enqueue(async () => {
-    const bin = process.env["PEEKABOO_BIN"] ?? "peekaboo";
-    await execFile(bin, ["press", "--app", app, "--key", key], {
+    await execFile(_peekabooBin, ["press", "--app", app, "--key", key], {
       timeout: PEEKABOO_TIMEOUT_MS,
     });
   });

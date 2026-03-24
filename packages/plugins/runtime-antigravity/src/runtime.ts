@@ -29,11 +29,10 @@ const APP_NAME = "Antigravity";
  */
 export function createAntigravityRuntime(config?: AntigravityConfig): Runtime {
   const runtimeConfig = config ?? defaultConfig();
-  // Wire configured peekaboo binary path into the env so the peekaboo
-  // module (which reads the env lazily) picks it up on every call.
-  if (runtimeConfig.peekabooBin !== "peekaboo") {
-    process.env["PEEKABOO_BIN"] = runtimeConfig.peekabooBin;
-  }
+  // Wire configured peekaboo binary path into the module-level variable
+  // via the explicit setter (avoids mutating process.env which can bleed
+  // across multiple runtime instances).
+  peekaboo.setPeekabooBin(runtimeConfig.peekabooBin);
   return {
     name: "antigravity",
 

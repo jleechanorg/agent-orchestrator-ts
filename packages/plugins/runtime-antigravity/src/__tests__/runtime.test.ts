@@ -8,6 +8,7 @@ vi.mock("../peekaboo.js", () => ({
   click: vi.fn(),
   paste: vi.fn(),
   press: vi.fn(),
+  setPeekabooBin: vi.fn(),
 }));
 
 // Mock the fallback module — transparent pass-through to primary.
