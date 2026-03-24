@@ -122,17 +122,28 @@ Before dispatching AO workers:
 1. Run `gh api rate_limit` and inspect budgets.
 2. Count active tmux sessions: `tmux list-sessions | wc -l`.
 3. Spawn gate:
-   - If `graphql.remaining < 200`, do **not** spawn new AO workers; warn the user instead.
+   - If `graphql.remaining < 200`, do **not** use `ao spawn`; fall back to REST API workaround below.
    - If active tmux sessions > 15, do **not** spawn new AO workers; warn the user instead.
 
 When blocked by this gate, include current counts and the exact blocker in your status update.
 
 ### GraphQL exhausted — REST fallback for `ao spawn`
 
-`ao spawn --claim-pr N` uses GraphQL. When GraphQL quota is 0:
-- **Wait**: lifecycle-workers with `backfillAllPRs: true` auto-spawn uncovered PRs after reset (~1h)
-- **Check PR metadata via REST** (never exhausted): `gh api repos/OWNER/REPO/pulls/N --jq '{branch: .head.ref, state: .state}'`
-- **REST quota**: typically 3000-5000/hr — use `gh api rate_limit --jq '.resources.core.remaining'`
+`ao spawn --claim-pr N` uses GraphQL. When GraphQL quota is 0, **fall back to REST API immediately** — do NOT just wait:
+
+1. **Create worktree + branch manually** (no GraphQL needed):
+   ```bash
+   cd /Users/jleechan/project_agento/agent-orchestrator
+   git worktree add ~/.worktrees/manual-<task> -b feat/<bead-id> origin/main
+   ```
+2. **Spawn Claude Code directly** in tmux (no `ao spawn` needed):
+   ```bash
+   tmux new-session -d -s <session-name> "cd ~/.worktrees/manual-<task> && claude --dangerously-skip-permissions"
+   ```
+3. **Check PR metadata via REST** (always works): `gh api repos/OWNER/REPO/pulls/N --jq '{branch: .head.ref, state: .state}'`
+4. **Create PRs via REST**: `gh api repos/OWNER/REPO/pulls --method POST -f title="..." -f head="BRANCH" -f base="main" -f body="..."`
+5. **REST quota**: typically 3000-5000/hr — use `gh api rate_limit --jq '.resources.core.remaining'`
+6. **Lifecycle-worker auto-backfill**: workers with `backfillAllPRs: true` will adopt the PR once GraphQL resets (~1h)
 
 ### `GITHUB_TOKEN` auth — verify first, unset only if broken
 

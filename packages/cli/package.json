@@ -47,6 +47,7 @@
     "@jleechanorg/ao-plugin-notifier-openclaw": "workspace:*",
     "@jleechanorg/ao-plugin-notifier-slack": "workspace:*",
     "@jleechanorg/ao-plugin-notifier-webhook": "workspace:*",
+    "@jleechanorg/ao-plugin-runtime-antigravity": "workspace:*",
     "@jleechanorg/ao-plugin-runtime-process": "workspace:*",
     "@jleechanorg/ao-plugin-runtime-tmux": "workspace:*",
     "@jleechanorg/ao-plugin-scm-github": "workspace:*",
