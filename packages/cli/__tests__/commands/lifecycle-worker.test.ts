@@ -128,7 +128,7 @@ describe("sweepOrphanWorktrees", () => {
       sessionManager: makeSessionManager(new Set()),
       projectId,
       allProjectIds: [projectId],
-      configHash: "abc123",
+      configHash: "abc123abc123",
       worktreeBaseDir,
       observer: observer as never,
     });
@@ -152,7 +152,7 @@ describe("sweepOrphanWorktrees", () => {
       sessionManager: makeSessionManager(new Set()),
       projectId,
       allProjectIds: [projectId],
-      configHash: "abc123",
+      configHash: "abc123abc123",
       worktreeBaseDir,
       observer: observer as never,
     });
@@ -175,10 +175,10 @@ describe("sweepOrphanWorktrees", () => {
     mkWorktree(projectId, "ao-42");
 
     await sweepOrphanWorktrees({
-      sessionManager: makeSessionManager(new Set(["abc123-ao-42"])),
+      sessionManager: makeSessionManager(new Set(["abc123abc123-ao-42"])),
       projectId,
       allProjectIds: [projectId],
-      configHash: "abc123",
+      configHash: "abc123abc123",
       worktreeBaseDir,
       observer: observer as never,
     });
@@ -193,7 +193,7 @@ describe("sweepOrphanWorktrees", () => {
   });
 
   it("skips worktrees whose tmux session is alive (same config hash)", async () => {
-    withLiveTmuxSessions([{ name: "abc123-ao-99" }]);
+    withLiveTmuxSessions([{ name: "abc123abc123-ao-99" }]);
     const observer = createMockObserver();
     const projectId = "proj";
     mkWorktree(projectId, "ao-99");
@@ -202,7 +202,7 @@ describe("sweepOrphanWorktrees", () => {
       sessionManager: makeSessionManager(new Set()),
       projectId,
       allProjectIds: [projectId],
-      configHash: "abc123",
+      configHash: "abc123abc123",
       worktreeBaseDir,
       observer: observer as never,
     });
@@ -226,7 +226,7 @@ describe("sweepOrphanWorktrees", () => {
       sessionManager: makeSessionManager(new Set()),
       projectId,
       allProjectIds: [projectId],
-      configHash: "abc123",
+      configHash: "abc123abc123",
       worktreeBaseDir,
       observer: observer as never,
     });
@@ -252,7 +252,7 @@ describe("sweepOrphanWorktrees", () => {
       sessionManager: makeSessionManager(new Set()),
       projectId,
       allProjectIds: [projectId],
-      configHash: "abc123",
+      configHash: "abc123abc123",
       worktreeBaseDir,
       observer: observer as never,
     });
@@ -285,7 +285,7 @@ describe("sweepOrphanWorktrees", () => {
       sessionManager: makeSessionManager(new Set()),
       projectId,
       allProjectIds: [projectId],
-      configHash: "abc123",
+      configHash: "abc123abc123",
       worktreeBaseDir,
       observer: observer as never,
     });
@@ -334,7 +334,7 @@ describe("sweepOrphanWorktrees", () => {
       sessionManager: makeSessionManager(new Set()),
       projectId,
       allProjectIds: [projectId],
-      configHash: "abc123",
+      configHash: "abc123abc123",
       worktreeBaseDir,
       observer: observer as never,
     });
@@ -360,7 +360,7 @@ describe("sweepOrphanWorktrees", () => {
       sessionManager: makeSessionManager(new Set()),
       projectId: "nonexistent-project",
       allProjectIds: ["nonexistent-project"],
-      configHash: "abc123",
+      configHash: "abc123abc123",
       worktreeBaseDir,
       observer: observer as never,
     });
@@ -376,7 +376,7 @@ describe("sweepOrphanWorktrees", () => {
 
   it("only removes orphans — skips DB-tracked and non-matching entries", async () => {
     // Valid tmux response with sessions that match DB entries (ao-2, jc-3).
-    withLiveTmuxSessions([{ name: "abc123-ao-2" }, { name: "abc123-jc-3" }]);
+    withLiveTmuxSessions([{ name: "abc123abc123-ao-2" }, { name: "abc123abc123-jc-3" }]);
     const observer = createMockObserver();
     const projectId = "proj";
     const orphanPath = mkWorktree(projectId, "ao-1");
@@ -386,10 +386,10 @@ describe("sweepOrphanWorktrees", () => {
     mkWorktree(projectId, "review_pr");
 
     await sweepOrphanWorktrees({
-      sessionManager: makeSessionManager(new Set(["abc123-ao-2", "abc123-jc-3"])),
+      sessionManager: makeSessionManager(new Set(["abc123abc123-ao-2", "abc123abc123-jc-3"])),
       projectId,
       allProjectIds: [projectId],
-      configHash: "abc123",
+      configHash: "abc123abc123",
       worktreeBaseDir,
       observer: observer as never,
     });

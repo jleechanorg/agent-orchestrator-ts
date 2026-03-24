@@ -128,8 +128,10 @@ async function sweepOrphanTmuxSessions(opts: {
   }
 }
 
-// AO session name pattern — matches ao-749, jc-12, etc.
-const AO_SESSION_PATTERN = /^(ao|jc|wa|cc|ra|wc)-\d+$/;
+// AO session short-ID pattern — mirrors the prefix+num capture from parseTmuxName.
+// parseTmuxName accepts any [a-zA-Z0-9_-]+ prefix, so we use the same here.
+// This avoids hardcoding a fixed prefix list (which would miss custom sessionPrefixes).
+const AO_SESSION_PATTERN = /^[a-zA-Z0-9_-]+-\d+$/;
 
 /**
  * Remove git worktrees for AO sessions whose tmux session is dead and that are
@@ -182,7 +184,9 @@ export async function sweepOrphanWorktrees(opts: {
   const liveSessionIds = new Set<string>(
     allTmuxSessions
       .map((s) => {
-        const m = s.name.match(/-((?:ao|jc|wa|cc|ra|wc)-\d+)$/);
+        // Extract short session ID from tmux name: ${hash}-${prefix}-${num}.
+        // Use permissive [a-zA-Z0-9_-]+ for prefix (matches parseTmuxName).
+        const m = s.name.match(/^[a-f0-9]{12}-([a-zA-Z0-9_-]+-\d+)$/);
         return m ? m[1] : null;
       })
       .filter((id): id is string => id !== null),
@@ -308,8 +312,18 @@ export function registerLifecycleWorker(program: Command): void {
         const orphanTtlMs = parseDurationMs(opts.orphanTtlMs ?? "21600000", 6 * 60 * 60 * 1000);
         const configHash = generateConfigHash(config.configPath);
         const allProjectIds = Object.keys(config.projects ?? {});
-        // Worktrees live at ~/.worktrees/{projectId}/ — mirrors workspace-worktree plugin default.
-        const worktreeBaseDir = join(homedir(), ".worktrees");
+        // Worktrees live at <worktreeDir>/{projectId}/ where worktreeDir comes from
+        // the workspace-worktree plugin config. Mirrors the same lookup in the plugin.
+        // Check top-level config.worktreeDir and per-project override.
+        const cfg = config as unknown as Record<string, unknown>;
+        const globalWorktreeDir = cfg.worktreeDir as string | undefined;
+        // Per-project worktreeDir (extra field accepted by z.record(ProjectConfigSchema))
+        const proj = config.projects[projectId] as unknown as Record<string, unknown>;
+        const projectWorktreeDir = proj.worktreeDir as string | undefined;
+        const configuredWorktreeDir = projectWorktreeDir ?? globalWorktreeDir;
+        const expandTilde = (p: string): string =>
+          p.startsWith("~/") ? join(homedir(), p.slice(2)) : p;
+        const worktreeBaseDir = configuredWorktreeDir ? expandTilde(configuredWorktreeDir) : join(homedir(), ".worktrees");
         let shuttingDown = false;
         let heartbeat: ReturnType<typeof setInterval> | null = null;
         let orphanSweepTimer: ReturnType<typeof setInterval> | null = null;
