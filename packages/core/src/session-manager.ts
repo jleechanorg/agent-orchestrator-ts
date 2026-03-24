@@ -1678,12 +1678,11 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       const projectWorktreeDir = join(worktreeBaseDir, projectEntry.name);
       if (!existsSync(projectWorktreeDir)) continue;
 
-      // Look up project config to get sessionPrefix and configPath
+      // Look up project config to get configPath (for hash-based tmux name generation)
       const projectId = projectEntry.name;
       const projectConfig = config.projects[projectId];
       if (!projectConfig) continue;
 
-      const { sessionPrefix } = projectConfig;
       const configPath = projectConfig.configPath;
 
       for (const entry of readdirSync(projectWorktreeDir, { withFileTypes: true })) {

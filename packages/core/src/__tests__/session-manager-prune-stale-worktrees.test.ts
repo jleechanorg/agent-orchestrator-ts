@@ -130,12 +130,12 @@ describe("pruneStaleWorktrees", () => {
         return Promise.reject(new Error("no server"));
       }
       if (cmd === "git" && args?.[0] === "-C") {
-        return Promise.resolve([config.projects["my-app"]!.path, ""]);
+        return Promise.resolve({ stdout: config.projects["my-app"]!.path, stderr: "" });
       }
       if (cmd === "git" && args?.[0] === "worktree") {
         return Promise.reject(new Error("path not found"));
       }
-      return Promise.resolve(["", ""]);
+      return Promise.resolve({ stdout: "", stderr: "" });
     };
 
     const sm = createSessionManager({ config, registry: mockRegistry, execFileAsync: mockExecFile });
@@ -153,9 +153,9 @@ describe("pruneStaleWorktrees", () => {
 
     mockExecFile = async (cmd: string, args?: readonly string[]) => {
       if (cmd === "tmux" && args?.[0] === "has-session") {
-        return Promise.resolve(["", ""]);
+        return Promise.resolve({ stdout: "", stderr: "" });
       }
-      return Promise.resolve(["", ""]);
+      return Promise.resolve({ stdout: "", stderr: "" });
     };
 
     const sm = createSessionManager({ config, registry: mockRegistry, execFileAsync: mockExecFile });
@@ -171,10 +171,10 @@ describe("pruneStaleWorktrees", () => {
     const humanWorktree = join(worktreesDir, "feature-foo");
     mkdirSync(humanWorktree, { recursive: true });
 
-    let execFileCalls: string[] = [];
+    const execFileCalls: string[] = [];
     mockExecFile = async (cmd: string) => {
       execFileCalls.push(cmd);
-      return Promise.resolve(["", ""]);
+      return Promise.resolve({ stdout: "", stderr: "" });
     };
 
     const sm = createSessionManager({ config, registry: mockRegistry, execFileAsync: mockExecFile });
@@ -200,12 +200,12 @@ describe("pruneStaleWorktrees", () => {
         return Promise.reject(new Error("no server"));
       }
       if (cmd === "git" && args?.[0] === "-C") {
-        return Promise.resolve([config.projects["my-app"]!.path, ""]);
+        return Promise.resolve({ stdout: config.projects["my-app"]!.path, stderr: "" });
       }
       if (cmd === "git" && args?.[0] === "worktree") {
         return Promise.reject(new Error("path not found"));
       }
-      return Promise.resolve(["", ""]);
+      return Promise.resolve({ stdout: "", stderr: "" });
     };
 
     const sm = createSessionManager({ config, registry: mockRegistry, execFileAsync: mockExecFile });
@@ -225,10 +225,10 @@ describe("pruneStaleWorktrees", () => {
     const orphanedWorktree = join(otherProjectDir, "ao-777");
     mkdirSync(orphanedWorktree, { recursive: true });
 
-    let execFileCalls: string[] = [];
+    const execFileCalls: string[] = [];
     mockExecFile = async (cmd: string) => {
       execFileCalls.push(cmd);
-      return Promise.resolve(["", ""]);
+      return Promise.resolve({ stdout: "", stderr: "" });
     };
 
     const sm = createSessionManager({ config, registry: mockRegistry, execFileAsync: mockExecFile });
