@@ -319,17 +319,14 @@ check_lifecycle_workers() {
   local canonical_binary
   canonical_binary="$(command -v ao 2>/dev/null || printf '%s' "$HOME/bin/ao")"
 
-  if [ ! -f "$config_file" ]; then
-    warn "No canonical config at $config_file — cannot check lifecycle-worker counts"
-    return
-  fi
-
   # --- Check 1: detect ALL lifecycle-worker processes, flag non-canonical binaries ---
+  # NOTE: Checks 1 and 2 run unconditionally — they do not require the config file.
+  # config_file is only needed for Check 3 (per-project duplicate detection).
   local all_workers
   all_workers="$(ps aux 2>/dev/null | grep -v grep | grep 'lifecycle-worker' || true)"
-  # Use grep -c safely: count lines from ps output, default to 0 if no matches
+  # Count via wc -l to avoid grep -c exit-code / multiline artefacts
   local total_count
-  total_count="$(printf '%s' "$all_workers" | grep -c 'lifecycle-worker' || true)"
+  total_count="$(printf '%s\n' "$all_workers" | grep 'lifecycle-worker' | wc -l | tr -d ' ')"
   total_count="${total_count:-0}"
 
   if [ "$total_count" -gt 0 ]; then
@@ -338,7 +335,7 @@ check_lifecycle_workers() {
     local stale_pids=""
     while IFS= read -r line; do
       [ -z "$line" ] && continue
-      if ! echo "$line" | grep -qF "$canonical_binary"; then
+      if ! echo "$line" | grep -qF "${canonical_binary} "; then
         stale_count=$((stale_count + 1))
         local pid
         pid="$(echo "$line" | awk '{print $2}')"
@@ -387,6 +384,12 @@ except Exception:
   # --- Check 3: per-project duplicate detection (original check) ---
   local duplicates_found=0
   for proj in $projects; do
+    # Count how many processes appear to be lifecycle-workers for this project
+    # via ps (covers both launchd-managed and manual/process-spawned workers).
+    # -E + -w: require project ID to match as a whole word (prevents "api"
+    # from matching "lifecycle-worker api-v2"). The pattern starts with
+    # lifecycle-worker so we don't match unrelated lines containing the proj ID.
+    # -v grep filters out the grep processes themselves.
     local count
     count="$(ps aux 2>/dev/null | grep -v grep | grep -E -w "lifecycle-worker[[:space:]].*$proj($|[[:space:]])" | wc -l | tr -d ' ')"
 
