@@ -315,10 +315,54 @@ check_stale_temp_files() {
 check_lifecycle_workers() {
   # Count lifecycle-worker processes per project via launchd and ps
   local config_file="$HOME/.openclaw/agent-orchestrator.yaml"
+  local canonical_binary="$HOME/bin/ao"
 
   if [ ! -f "$config_file" ]; then
     warn "No canonical config at $config_file — cannot check lifecycle-worker counts"
     return
+  fi
+
+  # --- Check 1: detect ALL lifecycle-worker processes, flag non-canonical binaries ---
+  local all_workers
+  all_workers="$(ps aux 2>/dev/null | grep -v grep | grep 'lifecycle-worker' || true)"
+  local total_count
+  total_count="$(echo "$all_workers" | grep -c 'lifecycle-worker' || echo 0)"
+
+  if [ "$total_count" -gt 0 ]; then
+    # Count workers NOT using the canonical binary
+    local stale_count=0
+    local stale_pids=""
+    while IFS= read -r line; do
+      [ -z "$line" ] && continue
+      if ! echo "$line" | grep -q "$canonical_binary"; then
+        stale_count=$((stale_count + 1))
+        local pid
+        pid="$(echo "$line" | awk '{print $2}')"
+        local binary
+        binary="$(echo "$line" | grep -oE '[^ ]*/ao[ ]' | head -1 | tr -d ' ' || echo "unknown")"
+        stale_pids="$stale_pids $pid"
+        warn "non-canonical lifecycle-worker binary detected: PID=$pid binary contains: $(echo "$line" | grep -oE '/[^ ]+lifecycle|[^ ]+/ao' | head -1 || echo "unknown")"
+      fi
+    done <<< "$all_workers"
+
+    if [ "$stale_count" -gt 0 ]; then
+      if [ "$FIX_MODE" = true ]; then
+        for pid in $stale_pids; do
+          kill "$pid" 2>/dev/null && fixed "killed non-canonical lifecycle-worker PID=$pid" || warn "failed to kill PID=$pid"
+        done
+      else
+        warn "$stale_count non-canonical lifecycle-worker(s) running. Fix: run 'ao doctor --fix' to kill them. PIDs:$stale_pids"
+      fi
+    else
+      pass "all lifecycle-workers using canonical binary ($canonical_binary)"
+    fi
+  fi
+
+  # --- Check 2: total worker count sanity (warn if > 3 regardless of binary) ---
+  if [ "$total_count" -gt 3 ]; then
+    warn "unusually high lifecycle-worker count: $total_count (expected ≤3). This drains GraphQL quota rapidly."
+  elif [ "$total_count" -gt 0 ]; then
+    pass "total lifecycle-worker count is $total_count (within normal range)"
   fi
 
   local projects
@@ -334,14 +378,13 @@ except Exception:
 " 2>/dev/null || true)"
 
   if [ -z "$projects" ]; then
-    pass "no projects in config — lifecycle-worker check skipped"
+    pass "no projects in config — per-project lifecycle-worker check skipped"
     return
   fi
 
+  # --- Check 3: per-project duplicate detection (original check) ---
   local duplicates_found=0
   for proj in $projects; do
-    local plist_name="com.agentorchestrator.lifecycle-${proj}"
-
     # Count how many processes appear to be lifecycle-workers for this project
     # via ps (covers both launchd-managed and manual/process-spawned workers).
     # -E + -w: require project ID to match as a whole word (prevents "api"
@@ -362,7 +405,7 @@ except Exception:
   done
 
   if [ "$duplicates_found" -gt 0 ]; then
-    warn "$duplicates_found project(s) have duplicate lifecycle-worker processes. Fix: run 'launchctl unload' for the affected plists or kill duplicate PIDs manually"
+    warn "$duplicates_found project(s) have duplicate lifecycle-worker processes. Fix: run 'ao doctor --fix' or kill duplicate PIDs manually"
   fi
 }
 
