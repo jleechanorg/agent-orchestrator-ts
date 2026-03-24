@@ -269,6 +269,19 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     // (bd-ara auto-merge fix: agent exit must not mask a mergeable PR)
     let agentDead = false;
 
+    // bd-6jc: Consecutive SCM failure counter. Prevents worktree destruction on
+    // transient SCM failures (network blip, rate limit). Count is persisted in
+    // session metadata so it survives across poll cycles. Resets to 0 on any
+    // successful SCM call; only kills after 3 consecutive SCM failures.
+    const SCM_FAILURE_THRESHOLD = 3;
+    const rawCount = session.metadata["scmFailureCount"];
+    let scmFailureCount =
+      typeof rawCount === "string" ? parseInt(rawCount, 10) : Number(rawCount);
+    if (Number.isNaN(scmFailureCount)) scmFailureCount = 0;
+    // bd-6jc: tracks whether an SCM error was caught; used in finally to decide
+    // whether to reset the counter (only reset on genuine SCM success).
+    let scmErrorOccurred = false;
+
     // 1. Check if runtime is alive
     if (session.runtimeHandle && runtime) {
       const alive = await runtime.isAlive(session.runtimeHandle).catch(() => true);
@@ -363,7 +376,20 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
           updateMetadata(sessionsDir, session.id, { pr: detectedPR.url });
         }
       } catch {
-        // SCM detection failed — will retry next poll
+        // bd-6jc: detectPR threw — this SCM failure counts toward the consecutive-
+        // failure threshold just like step 4 SCM failures. Increment and persist so
+        // repeated detectPR blips accumulate across polls (e.g. network glitch).
+        scmErrorOccurred = true;
+        scmFailureCount++;
+        session.metadata["scmFailureCount"] = String(scmFailureCount);
+        const sessionsDir = getSessionsDir(config.configPath, project.path);
+        updateMetadata(sessionsDir, session.id, { scmFailureCount: String(scmFailureCount) });
+        if (agentDead && scmFailureCount >= SCM_FAILURE_THRESHOLD) {
+          // Threshold reached — same killConfirmed pattern as step 4 catch.
+          session.metadata["killConfirmed"] = "true";
+          updateMetadata(sessionsDir, session.id, { killConfirmed: "true" });
+          return "killed";
+        }
       }
     }
 
@@ -431,19 +457,51 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
           return "stuck";
         }
 
-        // Agent is dead but PR isn't in a merge-ready state — kill the session
-        if (agentDead) return "killed";
+        // Agent is dead but PR isn't in a merge-ready state.
+        // bd-6jc: If SCM succeeded (scmFailureCount=0 from try block), return
+        // "pr_open" immediately — SCM confirmed the PR won't auto-merge so there's
+        // no reason to defer. The consecutive-failure threshold only applies when
+        // SCM throws; the catch block below handles that case.
+        if (agentDead) return "pr_open";
 
         return "pr_open";
       } catch {
-        // SCM check failed — keep current status so next poll can retry.
-        // Don't kill dead-agent sessions on transient SCM failures; they
-        // may still have a mergeable PR once the SCM recovers.
+        // bd-6jc: SCM threw — increment consecutive failure counter, persist, and
+        // check threshold.  The finally only resets the counter on SCM success
+        // (when scmErrorOccurred stays false); on catch, the counter accumulates.
+        scmErrorOccurred = true;
+        scmFailureCount++;
+        session.metadata["scmFailureCount"] = String(scmFailureCount);
+        const sessionsDir = getSessionsDir(config.configPath, project.path);
+        updateMetadata(sessionsDir, session.id, { scmFailureCount: String(scmFailureCount) });
+
+        if (agentDead && scmFailureCount >= SCM_FAILURE_THRESHOLD) {
+          // Threshold reached — mark killConfirmed so checkSession's bd-kki skips
+          // its secondary SCM absorption re-check (which could throw on a session
+          // whose PR state is stale).  Update both in-memory and on-disk so the
+          // guard activates within the same poll cycle.
+          session.metadata["killConfirmed"] = "true";
+          updateMetadata(sessionsDir, session.id, { killConfirmed: "true" });
+          return "killed";
+        }
+      } finally {
+        // bd-6jc: SCM succeeded (scmErrorOccurred=false) — reset counter if non-zero.
+        // On catch (scmErrorOccurred=true): do NOT reset — counter should accumulate.
+        if (!scmErrorOccurred && scmFailureCount !== 0) {
+          scmFailureCount = 0;
+          session.metadata["scmFailureCount"] = "0"; // bd-6jc: sync in-memory so next poll reads 0
+          const sessionsDir = getSessionsDir(config.configPath, project.path);
+          updateMetadata(sessionsDir, session.id, { scmFailureCount: "0" });
+        }
       }
     }
 
-    // bd-ara: If agent is dead but we had no PR branch to check, kill
-    if (agentDead) return "killed";
+    // bd-ara + bd-6jc: If agent is dead and SCM was never invoked or all SCM calls
+    // have succeeded (scmFailureCount=0), kill immediately — no need to wait.  When
+    // scmFailureCount > 0, SCM has been called at least once (detectPR or PR checks)
+    // and thrown, so the counter gates the kill — do not double-count with an
+    // immediate kill here.
+    if (agentDead && !(session.pr && scm) && scmFailureCount === 0) return "killed";
 
     // 5. Post-all stuck detection: if we detected idle in step 2 but had no PR,
     // still check stuck threshold. This handles agents that finish without creating a PR.
@@ -783,7 +841,14 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     // If the SCM call fails (transient error), the session stays in its previous
     // state and will be retried on the next poll — avoiding zombie tmux sessions
     // caused by a failed SCM check locking in a terminal "killed" state.
-    if (newStatus === "killed" && session.pr) {
+    // bd-6jc: skip this absorption when killConfirmed is already set — the kill
+    // was confirmed by the consecutive-failure counter in determineStatus and should
+    // not be re-checked (re-querying SCM could throw or absorb on a stale PR).
+    if (
+      newStatus === "killed" &&
+      session.pr &&
+      !session.metadata["killConfirmed"]
+    ) {
       try {
         const merged = await isPRMerged(session, config, registry);
         if (merged) newStatus = "merged";
@@ -806,7 +871,8 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       let mergedConfirmed = false;
       if (
         newStatus === "killed" &&
-        session.pr
+        session.pr &&
+        !session.metadata["killConfirmed"]
       ) {
         const project = config.projects[session.projectId];
         const scm = project?.scm ? registry.get<SCM>("scm", project.scm.plugin) : null;
