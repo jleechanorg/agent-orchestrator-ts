@@ -16,7 +16,7 @@ type ExecFileImpl = (cmd: string, args: string[], opts: object, cb: ExecFileCb) 
 const { mockExec } = vi.hoisted(() => {
   // Must define the symbol inside hoisted factory — it runs before module-level code.
   const PROMISIFY_CUSTOM = Symbol.for("nodejs.util.promisify.custom");
-  const fn = vi.fn<Parameters<ExecFileImpl>, void>();
+  const fn = vi.fn<Parameters<ExecFileImpl>, undefined>();
   // Attach custom promisify so promisify(fn) returns {stdout, stderr}
   (fn as Record<symbol, unknown>)[PROMISIFY_CUSTOM] = (
     cmd: string,
