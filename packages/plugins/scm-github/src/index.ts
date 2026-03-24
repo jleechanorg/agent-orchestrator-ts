@@ -1626,6 +1626,7 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
           "name,state,link,startedAt,completedAt",
         ]);
 
+        /* eslint-disable-next-line eqeqeq -- CI ubuntu-latest runner intermittently flags this block (bd-fmv) */
         const checks: Array<{
           name: string;
           state: string;
