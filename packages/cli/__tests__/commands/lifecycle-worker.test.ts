@@ -167,6 +167,8 @@ describe("sweepOrphanWorktrees", () => {
   });
 
   it("skips worktrees present in AO session DB (active session guard)", async () => {
+    // Valid tmux response so sweep reaches the DB check (not early-return).
+    withLiveTmuxSessions([{ name: "xyz-999" }]);
     const observer = createMockObserver();
     const projectId = "proj";
     mkWorktree(projectId, "ao-42");
@@ -240,7 +242,7 @@ describe("sweepOrphanWorktrees", () => {
   it("removes worktrees absent from DB with dead tmux session (true orphan)", async () => {
     // Provide a valid tmux response with non-matching sessions so sweep proceeds.
     // The specific orphan (ao-777) has no live tmux session → removed.
-    withLiveTmuxSessions([{ name: "xyz-999\t0" }]);
+    withLiveTmuxSessions([{ name: "xyz-999" }]);
     const observer = createMockObserver();
     const projectId = "proj";
     const worktreePath = mkWorktree(projectId, "ao-777");
@@ -271,7 +273,7 @@ describe("sweepOrphanWorktrees", () => {
 
   it("removes multiple orphans in a single sweep", async () => {
     // Valid tmux response with non-matching sessions so sweep proceeds.
-    withLiveTmuxSessions([{ name: "xyz-999\t0" }]);
+    withLiveTmuxSessions([{ name: "xyz-999" }]);
     const observer = createMockObserver();
     const projectId = "proj";
     const w1 = mkWorktree(projectId, "ao-100");
@@ -349,6 +351,8 @@ describe("sweepOrphanWorktrees", () => {
   });
 
   it("does nothing when worktree dir does not exist", async () => {
+    // Valid tmux response so sweep reaches readdirSync for nonexistent-project dir.
+    withLiveTmuxSessions([{ name: "xyz-999" }]);
     const observer = createMockObserver();
 
     await sweepOrphanWorktrees({
