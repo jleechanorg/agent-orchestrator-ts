@@ -974,11 +974,14 @@ export interface ReactionConfig {
   mergeMethod?: "merge" | "squash" | "rebase";
 
   /**
-   * Seconds to wait after PR reaches mergeable before executing the merge.
-   * Allows CI status checks to fully settle before the merge attempt.
-   * Uses GitHub's native --auto flag when > 0, which additionally waits for
-   * required status checks to pass before completing the merge.
-   * Default: 0 (merge immediately if gate passes).
+   * Numeric flag for GitHub's native auto-merge behavior.
+   * When > 0: the lifecycle-manager calls `gh pr merge --auto` (or the GraphQL
+   * enablePullRequestAutoMerge mutation on rate limit), which activates GitHub's
+   * native auto-merge — GitHub itself waits for all required status checks to pass
+   * before completing the merge. This eliminates the race where the PR transitions
+   * to mergeable while CI is still completing (bd-5gl).
+   * When 0 or omitted: merge immediately (no wait for CI).
+   * The magnitude of the value is ignored; only whether it is > 0 matters.
    */
   autoMergeWaitSeconds?: number;
 

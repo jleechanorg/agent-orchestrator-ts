@@ -1418,7 +1418,6 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
     async mergePR(pr: PRInfo, method: MergeMethod = "squash", autoWaitSeconds?: number): Promise<void> {
       const flag = method === "rebase" ? "--rebase" : method === "merge" ? "--merge" : "--squash";
       const useAuto = autoWaitSeconds !== undefined && autoWaitSeconds > 0;
-
       try {
         const args = ["pr", "merge", String(pr.number), "--repo", repoFlag(pr), flag];
         if (useAuto) args.push("--auto");
@@ -1480,13 +1479,14 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
                   // ignore parse error
                 }
                 if (prNodeId) {
-                  // Now enable auto-merge using the node ID
+                  // Now enable auto-merge using the node ID.
+                  // Note: valid fields are pullRequestId, mergeMethod, authorEmail, commitBody,
+                  // commitHeadline, expectedHeadOid, clientMutationId. No autorenameBranchPermitted.
                   const mergeQuery = JSON.stringify({
                     query: `mutation EnableAutoMerge($prId: ID!, $method: PullRequestMergeMethod!) {
                       enablePullRequestAutoMerge(input: {
                         pullRequestId: $prId,
-                        mergeMethod: $method,
-                        autorenameBranchPermitted: true
+                        mergeMethod: $method
                       }) { clientMutationId }
                     }`,
                     variables: { prId: prNodeId, method: method.toUpperCase() },
@@ -1508,11 +1508,23 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
                   );
                   const mergeLines = rawMerge.stdout.trim().split("\n");
                   const mergeStatus = parseInt(mergeLines[mergeLines.length - 1] ?? "", 10);
+                  const mergeBody = mergeLines.slice(0, -1).join("\n");
+                  // GraphQL returns HTTP 200 even on application errors (e.g. invalid input).
+                  // Check for a "data" field absence or explicit "errors" array to detect failure.
+                  let gqlSuccess = false;
                   if (mergeStatus >= 200 && mergeStatus < 300) {
+                    try {
+                      const mergeJson = JSON.parse(mergeBody);
+                      gqlSuccess = mergeJson?.data?.enablePullRequestAutoMerge != null;
+                    } catch {
+                      // parse error — treat as failure
+                    }
+                  }
+                  if (gqlSuccess) {
                     console.warn("[scm-github] mergePR: auto-merge enabled via GraphQL — GitHub will wait for CI");
                     return;
                   }
-                  console.warn(`[scm-github] mergePR: GraphQL enablePullRequestAutoMerge failed (HTTP ${mergeStatus}) — falling back to REST`);
+                  console.warn(`[scm-github] mergePR: GraphQL enablePullRequestAutoMerge failed — falling back to REST`);
                 }
               }
             } finally {
