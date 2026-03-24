@@ -1399,6 +1399,62 @@ describe("check (single session)", () => {
     expect(lm.getStates().get("app-1")).toBe("merge_conflicts");
   });
 
+  // bd-ara.2: GitHub reports mergeable=UNKNOWN as "not confirmed conflict-free".
+  // getMergeability now sets noConflicts=false for UNKNOWN so the merge-conflicts
+  // reaction fires and the worker rebases instead of going idle.
+  it("detects merge_conflicts when mergeable is UNKNOWN (bd-ara.2)", async () => {
+    const mockSCM: SCM = {
+      name: "mock-scm",
+      detectPR: vi.fn(),
+      getPRState: vi.fn().mockResolvedValue("open"),
+      mergePR: vi.fn(),
+      closePR: vi.fn(),
+      getCIChecks: vi.fn(),
+      getCISummary: vi.fn().mockResolvedValue("passing"),
+      getReviews: vi.fn(),
+      getReviewDecision: vi.fn().mockResolvedValue("approved"),
+      getPendingComments: vi.fn(),
+      getAutomatedComments: vi.fn(),
+      getMergeability: vi.fn().mockResolvedValue({
+        mergeable: false,
+        ciPassing: true,
+        approved: true,
+        noConflicts: false, // bd-ara.2: getMergeability now sets this for UNKNOWN
+        blockers: ["Merge status unknown (GitHub is computing)"],
+      }),
+    };
+
+    const registryWithSCM: PluginRegistry = {
+      ...mockRegistry,
+      get: vi.fn().mockImplementation((slot: string) => {
+        if (slot === "runtime") return mockRuntime;
+        if (slot === "agent") return mockAgent;
+        if (slot === "scm") return mockSCM;
+        return null;
+      }),
+    };
+
+    const session = makeSession({ status: "pr_open", pr: makePR() });
+    vi.mocked(mockSessionManager.get).mockResolvedValue(session);
+
+    writeMetadata(sessionsDir, "app-1", {
+      worktree: "/tmp",
+      branch: "main",
+      status: "pr_open",
+      project: "my-app",
+    });
+
+    const lm = createLifecycleManager({
+      config,
+      registry: registryWithSCM,
+      sessionManager: mockSessionManager,
+    });
+
+    await lm.check("app-1");
+
+    expect(lm.getStates().get("app-1")).toBe("merge_conflicts");
+  });
+
   it("skips getMergeability when CI is pending and review approved (bd-wg5)", async () => {
     const mockSCM: SCM = {
       name: "mock-scm",
