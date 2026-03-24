@@ -10,6 +10,21 @@ vi.mock("../peekaboo.js", () => ({
   press: vi.fn(),
 }));
 
+// Mock the fallback module — transparent pass-through to primary.
+// Fallback-specific logic is tested in fallback.test.ts.
+vi.mock("../fallback.js", () => ({
+  executeWithFallback: vi.fn(
+    async (primaryFn: () => Promise<string>) => {
+      try {
+        const output = await primaryFn();
+        return { success: true, output, fallbackUsed: false };
+      } catch (err: unknown) {
+        throw err;
+      }
+    },
+  ),
+}));
+
 // Import after mocks
 import antigravityPlugin, { manifest, create } from "../index.js";
 import * as peekaboo from "../peekaboo.js";
@@ -140,6 +155,22 @@ describe("runtime.create()", () => {
     mockPaste.mockResolvedValueOnce(undefined);
     mockPress.mockResolvedValueOnce(undefined);
 
+    // 6. windowList: re-fetch for session population after fallback wrapper
+    mockWindowList.mockResolvedValueOnce([
+      {
+        window_id: 1,
+        title: "Manager",
+        app: "Antigravity",
+        bounds: { x: 0, y: 0, width: 800, height: 600 },
+      },
+      {
+        window_id: 2,
+        title: "Conversation",
+        app: "Antigravity",
+        bounds: { x: 100, y: 100, width: 600, height: 400 },
+      },
+    ]);
+
     const handle = await runtime.create({
       sessionId: "test-session",
       workspacePath: "/tmp/workspace",
@@ -151,8 +182,8 @@ describe("runtime.create()", () => {
     expect(handle.runtimeName).toBe("antigravity");
     expect(handle.data["workspacePath"]).toBe("/tmp/workspace");
 
-    // Verify peekaboo calls
-    expect(mockWindowList).toHaveBeenCalledTimes(2);
+    // Verify peekaboo calls (3 windowList calls now: find manager, post-click, re-fetch)
+    expect(mockWindowList).toHaveBeenCalledTimes(3);
     expect(mockSee).toHaveBeenCalledWith("Antigravity", 1);
     expect(mockClick).toHaveBeenCalledWith(
       "Antigravity",
