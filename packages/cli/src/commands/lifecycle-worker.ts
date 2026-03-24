@@ -21,7 +21,9 @@ const execFileAsync = promisify(execFile);
 
 function parseInterval(value: string): number {
   const parsed = Number.parseInt(value, 10);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : 30_000;
+  // bd-fmv: 75s default (was 30s) — mitigates secondary rate limit risk from
+  // concurrent lifecycle-workers polling GitHub every 30s with many sessions.
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 75_000;
 }
 
 function parseDurationMs(value: string, fallbackMs: number): number {
@@ -128,7 +130,7 @@ export function registerLifecycleWorker(program: Command): void {
     .command("lifecycle-worker")
     .description("Internal lifecycle polling worker")
     .argument("<project>", "Project ID from config")
-    .option("--interval-ms <ms>", "Polling interval in milliseconds", "30000")
+    .option("--interval-ms <ms>", "Polling interval in milliseconds", "75000") // bd-fmv
     .option(
       "--orphan-sweep-interval-ms <ms>",
       "Interval for tmux orphan sweep in milliseconds",
@@ -178,8 +180,8 @@ export function registerLifecycleWorker(program: Command): void {
 
         const lifecycle = await getLifecycleManager(config, projectId);
         const sessionManager = await getSessionManager(config);
-        const intervalMs = parseInterval(opts.intervalMs ?? "30000");
-        const orphanSweepIntervalMs = parseInterval(opts.orphanSweepIntervalMs ?? "300000");
+        const intervalMs = parseInterval(opts.intervalMs ?? "75000"); // bd-fmv
+        const orphanSweepIntervalMs = parseDurationMs(opts.orphanSweepIntervalMs ?? "300000", 300_000);
         const orphanTtlMs = parseDurationMs(opts.orphanTtlMs ?? "21600000", 6 * 60 * 60 * 1000);
         const configHash = generateConfigHash(config.configPath);
         const allProjectIds = Object.keys(config.projects ?? {});
