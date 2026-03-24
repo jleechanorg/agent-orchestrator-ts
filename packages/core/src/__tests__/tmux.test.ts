@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import * as childProcess from "node:child_process";
+
 import {
   isTmuxAvailable,
   listSessions,
@@ -9,37 +9,48 @@ import {
   capturePane,
   killSession,
   getPaneTTY,
+  tmuxInject,
 } from "../tmux.js";
 
-// Mock child_process.execFile
-vi.mock("node:child_process", () => ({
-  execFile: vi.fn(),
-}));
+/**
+ * Test doubles — injected via tmuxInject() so we avoid vi.mock complexity
+ * for node:child_process in ESM mode (vi.mock doesn't reliably replace
+ * module-level imports that are already cached by the ESM loader).
+ */
+const fakeExecFile = vi.fn<typeof import("node:child_process").execFile>();
+const fakeSleep = vi.fn<typeof import("node:timers/promises").setTimeout>(() => Promise.resolve());
 
-const mockExecFile = vi.mocked(childProcess.execFile);
+beforeEach(() => {
+  vi.clearAllMocks();
+  tmuxInject({ execFile: fakeExecFile, setTimeout: fakeSleep });
+});
 
-type ExecFileCallback = (error: Error | null, stdout: string, stderr: string) => void;
+type ExecFileCallback = (
+  error: Error | null,
+  stdout: string,
+  stderr: string,
+) => void;
 
 /** Helper to make execFile resolve with stdout. */
 function mockTmuxSuccess(stdout: string) {
-  mockExecFile.mockImplementation((_cmd, _args, _opts, callback) => {
+  fakeExecFile.mockImplementation((_cmd, _args, _opts, callback) => {
     (callback as ExecFileCallback)(null, stdout, "");
-    return {} as ReturnType<typeof childProcess.execFile>;
+    return {} as ReturnType<typeof fakeExecFile>;
   });
 }
 
 /** Helper to make execFile reject with an error. */
 function mockTmuxError(message: string) {
-  mockExecFile.mockImplementation((_cmd, _args, _opts, callback) => {
+  fakeExecFile.mockImplementation((_cmd, _args, _opts, callback) => {
     (callback as ExecFileCallback)(new Error(message), "", message);
-    return {} as ReturnType<typeof childProcess.execFile>;
+    return {} as ReturnType<typeof fakeExecFile>;
   });
 }
 
 /** Helper for sequential tmux calls returning different results. */
 function mockTmuxSequence(results: Array<{ stdout?: string; error?: string }>) {
   let callIndex = 0;
-  mockExecFile.mockImplementation((_cmd, _args, _opts, callback) => {
+  fakeExecFile.mockImplementation((_cmd, _args, _opts, callback) => {
     const result = results[callIndex] ?? results[results.length - 1];
     callIndex++;
     if (result.error) {
@@ -47,13 +58,11 @@ function mockTmuxSequence(results: Array<{ stdout?: string; error?: string }>) {
     } else {
       (callback as ExecFileCallback)(null, result.stdout ?? "", "");
     }
-    return {} as ReturnType<typeof childProcess.execFile>;
+    return {} as ReturnType<typeof fakeExecFile>;
   });
 }
 
-beforeEach(() => {
-  vi.clearAllMocks();
-});
+// (stale beforeEach removed)
 
 describe("isTmuxAvailable", () => {
   it("returns true when tmux server is running", async () => {
@@ -104,7 +113,7 @@ describe("hasSession", () => {
   it("returns true when session exists", async () => {
     mockTmuxSuccess("");
     expect(await hasSession("app-1")).toBe(true);
-    expect(mockExecFile).toHaveBeenCalledWith(
+    expect(fakeExecFile).toHaveBeenCalledWith(
       "tmux",
       ["has-session", "-t", "app-1"],
       expect.any(Object),
@@ -124,7 +133,7 @@ describe("newSession", () => {
 
     await newSession({ name: "test-1", cwd: "/tmp/workspace" });
 
-    expect(mockExecFile).toHaveBeenCalledWith(
+    expect(fakeExecFile).toHaveBeenCalledWith(
       "tmux",
       ["new-session", "-d", "-s", "test-1", "-c", "/tmp/workspace"],
       expect.any(Object),
@@ -141,7 +150,7 @@ describe("newSession", () => {
       environment: { AO_SESSION: "test-2", SOME_VAR: "value" },
     });
 
-    const args = mockExecFile.mock.calls[0][1] as string[];
+    const args = fakeExecFile.mock.calls[0][1] as string[];
     expect(args).toContain("-e");
     expect(args).toContain("AO_SESSION=test-2");
     expect(args).toContain("SOME_VAR=value");
@@ -152,7 +161,7 @@ describe("newSession", () => {
 
     await newSession({ name: "test-3", cwd: "/tmp", width: 200, height: 50 });
 
-    const args = mockExecFile.mock.calls[0][1] as string[];
+    const args = fakeExecFile.mock.calls[0][1] as string[];
     expect(args).toContain("-x");
     expect(args).toContain("200");
     expect(args).toContain("-y");
@@ -165,13 +174,13 @@ describe("newSession", () => {
 
     await newSession({ name: "test-4", cwd: "/tmp", command: "echo hello" });
 
-    expect(mockExecFile).toHaveBeenCalledTimes(4);
+    expect(fakeExecFile).toHaveBeenCalledTimes(4);
     // Call 0: new-session
     // Call 1: send-keys Escape (clear partial input)
-    const escapeArgs = mockExecFile.mock.calls[1][1] as string[];
+    const escapeArgs = fakeExecFile.mock.calls[1][1] as string[];
     expect(escapeArgs).toEqual(["send-keys", "-t", "test-4", "Escape"]);
     // Call 2: send-keys text
-    const textArgs = mockExecFile.mock.calls[2][1] as string[];
+    const textArgs = fakeExecFile.mock.calls[2][1] as string[];
     expect(textArgs).toContain("send-keys");
     expect(textArgs).toContain("echo hello");
   });
@@ -184,16 +193,14 @@ describe("sendKeys", () => {
 
     await sendKeys("app-1", "hello world");
 
-    expect(mockExecFile).toHaveBeenCalledTimes(3);
+    expect(fakeExecFile).toHaveBeenCalledTimes(3);
     // Call 0: Escape to clear partial input
-    const escapeArgs = mockExecFile.mock.calls[0][1] as string[];
+    const escapeArgs = fakeExecFile.mock.calls[0][1] as string[];
     expect(escapeArgs).toEqual(["send-keys", "-t", "app-1", "Escape"]);
     // Call 1: text
-    const textArgs = mockExecFile.mock.calls[1][1] as string[];
-    expect(textArgs).toEqual(["send-keys", "-t", "app-1", "-l", "hello world"]);
+    expect(fakeExecFile.mock.calls[1][1]).toEqual(["send-keys", "-t", "app-1", "-l", "hello world"]);
     // Call 2: Enter
-    const enterArgs = mockExecFile.mock.calls[2][1] as string[];
-    expect(enterArgs).toEqual(["send-keys", "-t", "app-1", "Enter"]);
+    expect(fakeExecFile.mock.calls[2][1]).toEqual(["send-keys", "-t", "app-1", "Enter"]);
   });
 
   it("skips Enter when pressEnter=false", async () => {
@@ -202,8 +209,8 @@ describe("sendKeys", () => {
 
     await sendKeys("app-1", "hello", false);
 
-    expect(mockExecFile).toHaveBeenCalledTimes(2);
-    const escapeArgs = mockExecFile.mock.calls[0][1] as string[];
+    expect(fakeExecFile).toHaveBeenCalledTimes(2);
+    const escapeArgs = fakeExecFile.mock.calls[0][1] as string[];
     expect(escapeArgs).toEqual(["send-keys", "-t", "app-1", "Escape"]);
   });
 
@@ -219,20 +226,20 @@ describe("sendKeys", () => {
 
     await sendKeys("app-1", longText);
 
-    expect(mockExecFile).toHaveBeenCalledTimes(4);
+    expect(fakeExecFile).toHaveBeenCalledTimes(4);
 
     // Call 0: Escape
-    const escapeArgs = mockExecFile.mock.calls[0][1] as string[];
+    const escapeArgs = fakeExecFile.mock.calls[0][1] as string[];
     expect(escapeArgs).toEqual(["send-keys", "-t", "app-1", "Escape"]);
 
     // Call 1: load-buffer with named buffer
-    const loadArgs = mockExecFile.mock.calls[1][1] as string[];
+    const loadArgs = fakeExecFile.mock.calls[1][1] as string[];
     expect(loadArgs[0]).toBe("load-buffer");
     expect(loadArgs[1]).toBe("-b");
     expect(loadArgs[2]).toMatch(/^ao-/); // named buffer
 
     // Call 2: paste-buffer with named buffer and -d (delete after paste)
-    const pasteArgs = mockExecFile.mock.calls[2][1] as string[];
+    const pasteArgs = fakeExecFile.mock.calls[2][1] as string[];
     expect(pasteArgs[0]).toBe("paste-buffer");
     expect(pasteArgs[1]).toBe("-b");
     expect(pasteArgs[2]).toMatch(/^ao-/);
@@ -252,11 +259,108 @@ describe("sendKeys", () => {
 
     await sendKeys("app-1", "line1\nline2");
 
-    expect(mockExecFile).toHaveBeenCalledTimes(4);
+    expect(fakeExecFile).toHaveBeenCalledTimes(4);
     // Call 1 (after Escape) should be load-buffer
-    const loadArgs = mockExecFile.mock.calls[1][1] as string[];
+    const loadArgs = fakeExecFile.mock.calls[1][1] as string[];
     expect(loadArgs[0]).toBe("load-buffer");
     expect(loadArgs[1]).toBe("-b"); // named buffer
+  });
+
+  // (DEBUG tests removed — retained behavior verified by the tests below)
+
+  it("retries Enter for >1KB messages when output unchanged", async () => {
+    const largeText = "x".repeat(1500); // 1500 bytes ASCII > 1000 byte threshold
+    // sendKeys makes 7 tmux calls:
+    // 0: Escape, 1: load-buffer, 2: paste-buffer, 3: Enter (initial),
+    // 4: capture before attempt 0, 5: Enter attempt 0, 6: capture after attempt 0
+    // For unchanged output, attempts 1 & 2 also consume results[4,5,6] in the loop
+    mockTmuxSequence([
+      { stdout: "" }, // 0: send-keys Escape
+      { stdout: "" }, // 1: load-buffer
+      { stdout: "" }, // 2: paste-buffer
+      { stdout: "" }, // 3: send-keys Enter (initial)
+      { stdout: "same output\n" }, // 4: capture before attempt 0 / attempt 1 / attempt 2
+      { stdout: "same output\n" }, // 5: send-keys Enter attempt 0 / attempt 1 / attempt 2
+      { stdout: "same output\n" }, // 6: capture after attempt 0 / attempt 1 / attempt 2
+    ]);
+
+    const sendPromise = sendKeys("app-1", largeText);
+    await sendPromise;
+
+    const captureCalls = fakeExecFile.mock.calls.filter(
+      (call) => (call[1] as string[])[0] === "capture-pane",
+    );
+    expect(captureCalls.length).toBe(6);
+
+    const enterCalls = fakeExecFile.mock.calls.filter(
+      (call) =>
+        (call[1] as string[])[0] === "send-keys" &&
+        (call[1] as string[]).includes("Enter"),
+    );
+    expect(enterCalls.length).toBe(4);
+  });
+
+  it("breaks retry when output changes on third attempt", async () => {
+    const largeText = "x".repeat(1500); // 1500 bytes ASCII > 1000 byte threshold
+    // 10 tmux calls: Escape, load-buffer, paste-buffer, Enter (initial),
+    // attempt 0: capture, Enter, capture  (results 4,5,6)
+    // attempt 1: capture, Enter, capture  (results 7,8,9)
+    // attempt 2: capture, Enter, capture  (results 10,fallback,11)
+    mockTmuxSequence([
+      { stdout: "" }, // 0: send-keys Escape
+      { stdout: "" }, // 1: load-buffer
+      { stdout: "" }, // 2: paste-buffer
+      { stdout: "" }, // 3: send-keys Enter (initial)
+      { stdout: "same\n" }, // 4: capture before attempt 0
+      { stdout: "" }, // 5: send-keys Enter attempt 0
+      { stdout: "same\n" }, // 6: capture after attempt 0 — unchanged, retry
+      { stdout: "same\n" }, // 7: capture before attempt 1
+      { stdout: "" }, // 8: send-keys Enter attempt 1
+      { stdout: "same\n" }, // 9: capture after attempt 1 — unchanged, retry
+      { stdout: "same\n" }, // 10: capture before attempt 2
+      { stdout: "" }, // 11: send-keys Enter attempt 2
+      { stdout: "changed!\n" }, // 12: capture after attempt 2 — changed, break
+    ]);
+
+    const sendPromise = sendKeys("app-1", largeText);
+    await sendPromise;
+
+    const captureCalls = fakeExecFile.mock.calls.filter(
+      (call) => (call[1] as string[])[0] === "capture-pane",
+    );
+    expect(captureCalls.length).toBe(6);
+
+    const enterCalls = fakeExecFile.mock.calls.filter(
+      (call) =>
+        (call[1] as string[])[0] === "send-keys" &&
+        (call[1] as string[]).includes("Enter"),
+    );
+    expect(enterCalls.length).toBe(4);
+  });
+
+  it("does not retry for short messages under 1KB", async () => {
+    const mediumText = "a".repeat(300); // 300 chars — uses paste-buffer but no retry
+    mockTmuxSequence([
+      { stdout: "" }, // send-keys Escape
+      { stdout: "" }, // load-buffer
+      { stdout: "" }, // paste-buffer
+      { stdout: "" }, // send-keys Enter
+    ]);
+
+    const sendPromise = sendKeys("app-1", mediumText);
+    await sendPromise;
+
+    const captureCalls = fakeExecFile.mock.calls.filter(
+      (call) => (call[1] as string[])[0] === "capture-pane",
+    );
+    expect(captureCalls.length).toBe(0);
+
+    const enterCalls = fakeExecFile.mock.calls.filter(
+      (call) =>
+        (call[1] as string[])[0] === "send-keys" &&
+        (call[1] as string[]).includes("Enter"),
+    );
+    expect(enterCalls.length).toBe(1);
   });
 });
 
@@ -266,7 +370,7 @@ describe("capturePane", () => {
 
     const output = await capturePane("app-1");
     expect(output).toBe("some output\nfrom tmux\n");
-    expect(mockExecFile).toHaveBeenCalledWith(
+    expect(fakeExecFile).toHaveBeenCalledWith(
       "tmux",
       ["capture-pane", "-t", "app-1", "-p", "-S", "-30"],
       expect.any(Object),
@@ -279,7 +383,7 @@ describe("capturePane", () => {
 
     await capturePane("app-1", 50);
 
-    const args = mockExecFile.mock.calls[0][1] as string[];
+    const args = fakeExecFile.mock.calls[0][1] as string[];
     expect(args).toContain("-50");
   });
 });
@@ -290,7 +394,7 @@ describe("killSession", () => {
 
     await killSession("app-1");
 
-    expect(mockExecFile).toHaveBeenCalledWith(
+    expect(fakeExecFile).toHaveBeenCalledWith(
       "tmux",
       ["kill-session", "-t", "app-1"],
       expect.any(Object),

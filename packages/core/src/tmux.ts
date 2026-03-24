@@ -4,8 +4,25 @@
  * Uses child_process.execFile for safe command execution (no shell injection).
  */
 
-import { execFile } from "node:child_process";
+import { execFile as _execFile } from "node:child_process";
+import { setTimeout as _setTimeout } from "node:timers/promises";
 
+/**
+ * Injectable test doubles for tmux.ts.
+ * execFile is directly reassignable. sleep uses a mutable ref so reassignment
+ * after tmuxInject() picks up the injected setTimeout.
+ */
+let execFile: typeof _execFile = _execFile;
+let _sleep: (ms: number) => Promise<void> = (ms) => _setTimeout(ms);
+
+/** Wraps setTimeout — updated when tmuxInject({ setTimeout }) is called. */
+const sleep = (ms: number) => _sleep(ms);
+
+/** Inject test doubles for tmux.ts. Called by tests before exercising any tmux API. */
+export function tmuxInject(doubles: { execFile?: typeof _execFile; setTimeout?: typeof _setTimeout } = {}) {
+  if (doubles.execFile) execFile = doubles.execFile;
+  if (doubles.setTimeout) _sleep = (ms) => doubles.setTimeout!(ms);
+}
 /** Run a tmux command and return stdout. */
 function tmux(...args: string[]): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -121,6 +138,10 @@ export async function newSession(opts: NewSessionOptions): Promise<void> {
  * For long/multiline messages, uses load-buffer + paste-buffer with
  * a named buffer to avoid racing on the global paste buffer.
  * Sends Escape first to clear any partial input in the agent.
+ *
+ * Implements adaptive delay + Enter retry for issue #373 (bd-qhf):
+ * - Scales delay with message length (base + 200ms per KB, cap 2000ms)
+ * - For messages >1KB, retries Enter up to 3 times if pane output unchanged
  */
 export async function sendKeys(
   sessionName: string,
@@ -130,9 +151,11 @@ export async function sendKeys(
   // Clear any partial input first (matches bash reference scripts)
   await tmux("send-keys", "-t", sessionName, "Escape");
   // Small delay to ensure Escape is processed before pasting
-  await new Promise((resolve) => setTimeout(resolve, 100));
+  await sleep(100);
 
-  if (text.includes("\n") || text.length > 200) {
+  const isLongMessage = text.includes("\n") || text.length > 200;
+
+  if (isLongMessage) {
     // Use a named buffer to avoid global paste buffer race conditions
     const { writeFileSync, unlinkSync } = await import("node:fs");
     const { tmpdir } = await import("node:os");
@@ -164,12 +187,44 @@ export async function sendKeys(
     // tmux to render the paste before Enter arrives. Flat 1000ms was insufficient for
     // large messages. Formula: base 1000ms + 200ms per KB (UTF-8 bytes), capped at 2000ms.
     // Uses Buffer.byteLength to correctly count UTF-8 bytes for emoji/CJK strings.
-    if (text.includes("\n") || text.length > 200) {
+    if (isLongMessage) {
       const byteLen = Buffer.byteLength(text, "utf8");
       const delayMs = Math.min(1000 + Math.ceil(byteLen / 1000) * 200, 2000);
-      await new Promise((resolve) => setTimeout(resolve, delayMs));
+      await sleep(delayMs);
     }
     await tmux("send-keys", "-t", sessionName, "Enter");
+
+    // Enter retry (issue #373): for large messages (>1KB UTF-8 bytes), verify the agent
+    // started processing by checking pane output. If output didn't change, Enter was
+    // swallowed — retry up to 3 times with increasing backoff.
+    const byteLen = Buffer.byteLength(text, "utf8");
+    if (isLongMessage && byteLen > 1000) {
+      const maxRetries = 3;
+      for (let attempt = 0; attempt < maxRetries; attempt++) {
+        let beforeOutput: string;
+        try {
+          beforeOutput = await tmux("capture-pane", "-t", sessionName, "-p", "-S", "-50");
+        } catch {
+          // Session may have died — stop retrying
+          break;
+        }
+        await sleep(500);
+        await tmux("send-keys", "-t", sessionName, "Enter");
+        let afterOutput: string;
+        try {
+          afterOutput = await tmux("capture-pane", "-t", sessionName, "-p", "-S", "-50");
+        } catch {
+          // Session may have died — stop retrying
+          break;
+        }
+        if (afterOutput !== beforeOutput) {
+          // Output changed — agent is processing, we're done
+          break;
+        }
+        // Output unchanged — Enter was swallowed, retry with backoff
+        await sleep(300 * (attempt + 1));
+      }
+    }
   }
 }
 
