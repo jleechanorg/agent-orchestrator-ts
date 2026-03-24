@@ -3,11 +3,12 @@ import { rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
-const { mockTmux, mockExec, mockDetectActivity } = vi.hoisted(() => ({
-  mockTmux: vi.fn(),
-  mockExec: vi.fn(),
-  mockDetectActivity: vi.fn(),
-}));
+const { mockTmux, mockExec, mockDetectActivity } =
+  vi.hoisted(() => ({
+    mockTmux: vi.fn(),
+    mockExec: vi.fn(),
+    mockDetectActivity: vi.fn(),
+  }));
 
 const { mockConfigRef, mockSessionManager } = vi.hoisted(() => ({
   mockConfigRef: { current: null as Record<string, unknown> | null },
@@ -264,6 +265,54 @@ describe("send command", () => {
 
       // C-u should be called to clear input
       expect(mockExec).toHaveBeenCalledWith("tmux", ["send-keys", "-t", "my-session", "C-u"]);
+    });
+  });
+
+  describe("unmanaged session (no AO session record)", () => {
+    // Use real timers so async sleep() calls in the busy-wait loop resolve without
+    // explicit timer advancement.  afterEach restores fake timers for subsequent tests.
+    beforeEach(() => {
+      vi.useRealTimers();
+    });
+    afterEach(() => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+    });
+
+    it("shows not-tracked-by-AO notice and sends via tmux directly", async () => {
+      mockTmux.mockImplementation(async (...args: string[]) => {
+        if (args[0] === "has-session") return "";
+        if (args[0] === "capture-pane") return "❯ ";
+        return "";
+      });
+      mockDetectActivity.mockReturnValue("idle");
+
+      await program.parseAsync(["node", "test", "send", "my-session", "hello"]);
+
+      expect(consoleSpy).toHaveBeenCalledWith(
+        expect.stringContaining("not tracked by AO"),
+      );
+      // C-u clears partial input before pasting
+      expect(mockExec).toHaveBeenCalledWith("tmux", ["send-keys", "-t", "my-session", "C-u"]);
+    });
+
+    it("still sends when session existence check fails (double-check)", async () => {
+      mockTmux.mockImplementation(async (...args: string[]) => {
+        if (args[0] === "has-session") return ""; // exists
+        if (args[0] === "capture-pane") return "$ "; // shell prompt
+        return "";
+      });
+      mockDetectActivity.mockReturnValue("idle");
+
+      await program.parseAsync(["node", "test", "send", "my-session", "hello"]);
+
+      expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining("not tracked by AO"));
+      expect(mockExec).toHaveBeenCalledWith("tmux", [
+        "send-keys",
+        "-t",
+        "my-session",
+        "-l",
+        "hello",
+      ]);
     });
   });
 
