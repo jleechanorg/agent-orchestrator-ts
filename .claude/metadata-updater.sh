@@ -69,7 +69,12 @@ done
 merge_pattern='^[[:space:]]*([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]+[[:space:]]+)*gh[[:space:]]+pr[[:space:]]+merge([[:space:]]|$)'
 if [[ "$clean_command" =~ $merge_pattern ]]; then
   if [[ "$hook_event" != "PostToolUse" && "${AO_ALLOW_GH_PR_MERGE:-}" != "1" ]]; then
-    echo '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"Blocked by AO policy: agents must not run gh pr merge. Leave merge to orchestrator/human."}}'
+    # Reflect actual hook_event if known; omit if empty/absent to avoid false attribution
+    if [[ -n "$hook_event" ]]; then
+      echo "{\"hookSpecificOutput\":{\"hookEventName\":\"$hook_event\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"Blocked by AO policy: agents must not run gh pr merge. Leave merge to orchestrator/human.\"}}"
+    else
+      echo '{"hookSpecificOutput":{"permissionDecision":"deny","permissionDecisionReason":"Blocked by AO policy: agents must not run gh pr merge. Leave merge to orchestrator/human."}}'
+    fi
     exit 0
   fi
   # AO_ALLOW_GH_PR_MERGE=1 during PreToolUse OR PostToolUse: fall through to metadata update below
