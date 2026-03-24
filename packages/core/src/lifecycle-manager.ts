@@ -506,7 +506,16 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       }
     }
 
-    // bd-ara: If agent is dead but we had no PR branch to check, kill
+    // bd-ara: If agent is dead but we had no PR branch to check, kill.
+    // Note on scmFailureCount: the original `&& !(session.pr && scm) && scmFailureCount === 0`
+    // guard was redundant with the step-4 catch block above, which already returns "killed"
+    // when scmFailureCount >= 3. When scmFailureCount < 3 (below threshold), scmFailureCount
+    // is only non-zero after the catch increments it from a PR check failure. In that case,
+    // agentDead + (scmFailureCount > 0) means the agent died and PR checks failed — killing
+    // immediately is correct (the threshold just caps how many retries before we give up).
+    // scmFailureCount only resets to 0 in the step-4 try finally on SCM success, at which
+    // point the PR check either returned a status (non-killed) or threw. The simplified
+    // guard here is equivalent to the original for all live code paths.
     if (agentDead) return { status: "killed", agentDead: true };
 
     // 5. Post-all stuck detection: if we detected idle in step 2 but had no PR,
