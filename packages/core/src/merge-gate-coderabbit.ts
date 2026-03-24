@@ -4,9 +4,22 @@
  * These helpers evaluate CodeRabbit review state for the merge gate.
  * Splitting them into a companion module keeps merge-gate.ts orchestration-only
  * and allows focused testing of the CR-specific logic.
+ *
+ * Uses the canonical `Review` interface from types.ts so that the local type
+ * declaration does not shadow the upstream definition with a weaker shape.
  */
 
-export type Review = { author: string; state: string; submittedAt?: Date };
+import type { Review } from "./types.js";
+
+// Re-export so callers can use the canonical type through this module's surface
+export type { Review };
+
+/** Sort comparator: newest-first by submittedAt. Exported for reuse by both helpers. */
+export function sortReviewsNewestFirst(a: Review, b: Review): number {
+  // Defensive: tolerate missing submittedAt (e.g., from SCM stubs) without throwing.
+  // Treats missing timestamps as epoch 0 (oldest), preserving insertion order among them.
+  return (b.submittedAt?.getTime() ?? 0) - (a.submittedAt?.getTime() ?? 0);
+}
 
 /**
  * Return the most recent non-dismissed, non-pending review from the given author.
@@ -20,11 +33,7 @@ export function getLatestDecisiveReview(reviews: Review[], author: string): Revi
           r.author === author &&
           (r.state === "approved" || r.state === "changes_requested"),
       )
-      .sort(
-        (a, b) =>
-          new Date(b.submittedAt ?? 0).getTime() -
-          new Date(a.submittedAt ?? 0).getTime(),
-      )[0] ?? null
+      .sort(sortReviewsNewestFirst)[0] ?? null
   );
 }
 
@@ -53,12 +62,8 @@ export function hasUnresolvedDismissedReview(
   const crReviews = reviews.filter((r) => r.author === author);
   if (crReviews.length === 0) return false;
 
-  // Sort newest-first
-  const sorted = [...crReviews].sort(
-    (a, b) =>
-      new Date(b.submittedAt ?? 0).getTime() -
-      new Date(a.submittedAt ?? 0).getTime(),
-  );
+  // Sort newest-first (reuses sortReviewsNewestFirst)
+  const sorted = [...crReviews].sort(sortReviewsNewestFirst);
 
   for (const review of sorted) {
     if (review.state === "dismissed") return true;
@@ -82,12 +87,15 @@ export function evaluateCoderabbitApproval(
   const hasDismissed = hasUnresolvedDismissedReview(reviews, "coderabbitai[bot]");
   const passed = latestCR?.state === "approved" && !hasDismissed;
 
+  // Detail priority: changes_requested takes precedence over dismissal so the most
+  // recent blocker is surfaced. Dismissal detail is shown only when the latest
+  // decisive review would not otherwise block (e.g., approved or absent).
   const detail = passed
     ? "CodeRabbit approved"
-    : hasDismissed
-      ? "CodeRabbit review was dismissed without a subsequent approval"
-      : latestCR?.state === "changes_requested"
-        ? "CodeRabbit requested changes"
+    : latestCR?.state === "changes_requested"
+      ? "CodeRabbit requested changes"
+      : hasDismissed
+        ? "CodeRabbit review was dismissed without a subsequent approval"
         : "No CodeRabbit approval found";
 
   return { passed, detail };
