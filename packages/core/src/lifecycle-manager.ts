@@ -396,7 +396,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
           // Threshold reached — same killConfirmed pattern as step 4 catch.
           session.metadata["killConfirmed"] = "true";
           updateMetadata(sessionsDir, session.id, { killConfirmed: "true" });
-          return "killed";
+          return { status: "killed", agentDead: true };
         }
       }
     }
@@ -486,13 +486,14 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
           // guard activates within the same poll cycle.
           session.metadata["killConfirmed"] = "true";
           updateMetadata(sessionsDir, session.id, { killConfirmed: "true" });
-          return "killed";
+          return { status: "killed", agentDead: true };
         }
       } finally {
         // bd-6jc: SCM succeeded (scmErrorOccurred=false) — reset counter if non-zero.
         // On catch (scmErrorOccurred=true): do NOT reset — counter should accumulate.
         if (!scmErrorOccurred && scmFailureCount !== 0) {
-          scmFailureCount = 0;
+          // Sync in-memory counter to 0 (metadata update below handles persistence)
+          scmFailureCount = 0; void scmFailureCount;
           session.metadata["scmFailureCount"] = "0"; // bd-6jc: sync in-memory so next poll reads 0
           const sessionsDir = getSessionsDir(config.configPath, project.path);
           updateMetadata(sessionsDir, session.id, { scmFailureCount: "0" });
