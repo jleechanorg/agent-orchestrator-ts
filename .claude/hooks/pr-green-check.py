@@ -64,7 +64,7 @@ def get_git_context() -> tuple[Optional[str], Optional[str], Optional[str]]:
 
         if len(path_part) < 2:
             return None, None, None
-        owner, repo = path_part[-2], path_part[-1]
+        owner, repo = path_part[-2].replace(".git", ""), path_part[-1].replace(".git", "")
 
         # Get current branch
         branch = (
