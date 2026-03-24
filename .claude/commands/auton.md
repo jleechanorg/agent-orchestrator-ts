@@ -4,8 +4,8 @@
 
 Diagnose WHY the jleechanclaw + AO system is NOT autonomously driving PRs to 6 green and merged. The system is supposed to do this without human intervention — if it isn't, something is broken.
 
-**Skill reference**: `~/.claude/skills/auton.md`
-**Session monitor skill**: `~/.claude/skills/ao-session-monitor.md`
+**Skill reference**: `.claude/skills/auton.md`
+**Session monitor skill**: `.claude/skills/ao-session-monitor.md`
 
 ## Usage
 
@@ -76,9 +76,14 @@ done
 echo "--- AO session store state (agent-orchestrator project) ---"
 ao session ls --project agent-orchestrator 2>/dev/null || echo "ao session ls failed"
 echo "--- Zombie check: AO-marked-killed sessions still in tmux ---"
-AO_DATA=$(ls ~/.agent-orchestrator/bb5e6b7f8db3-agent-orchestrator/sessions/ 2>/dev/null)
+# Discover session dirs dynamically — hash varies per config path
+for ns_dir in ~/.agent-orchestrator/*-agent-orchestrator/sessions; do
+  [ -d "$ns_dir" ] || continue
+  echo "(scanning $ns_dir)"
+done
+AO_DATA=$(ls ~/.agent-orchestrator/*-agent-orchestrator/sessions/ 2>/dev/null)
 for s in $AO_DATA; do
-  sfile=~/.agent-orchestrator/bb5e6b7f8db3-agent-orchestrator/sessions/$s
+  sfile=$(ls ~/.agent-orchestrator/*-agent-orchestrator/sessions/"$s" 2>/dev/null | head -1)
   [ -f "$sfile" ] || continue
   status=$(grep "^status=" "$sfile" 2>/dev/null | cut -d= -f2)
   tmux_name=$(grep "^tmuxName=" "$sfile" 2>/dev/null | cut -d= -f2)
@@ -90,7 +95,7 @@ for s in $AO_DATA; do
 done
 
 # A4. Stray worktrees blocking spawns?
-git -C /Users/jleechan/project_agento/agent-orchestrator worktree list 2>/dev/null | grep "locked" || echo "No locked worktrees"
+git -C "$(git rev-parse --show-toplevel 2>/dev/null || echo .)" worktree list 2>/dev/null | grep "locked" || echo "No locked worktrees"
 ```
 
 #### Group B — GitHub & Rate Limits
@@ -104,17 +109,30 @@ gh api rate_limit --jq '.resources | {core: .core.remaining, graphql: .graphql.r
 # B2. Open PRs with status (REST — works when GraphQL=0)
 gh api "repos/jleechanorg/agent-orchestrator/pulls?state=open" --jq '.[] | {number, title: .title[0:60], mergeable_state, branch: .head.ref}' 2>/dev/null
 
-# B2b. Review states for each open PR
+# B2b. Review states for each open PR (per-reviewer, not just global last)
 for pr in $(gh api "repos/jleechanorg/agent-orchestrator/pulls?state=open" --jq '.[].number' 2>/dev/null); do
-  review=$(gh api "repos/jleechanorg/agent-orchestrator/pulls/$pr/reviews" --jq '[.[] | select(.state != "COMMENTED")] | last | .state // "NONE"' 2>/dev/null)
-  echo "PR #$pr review=$review"
+  # Get latest review state per reviewer to avoid hiding CHANGES_REQUESTED behind another reviewer's APPROVED
+  reviews=$(gh api "repos/jleechanorg/agent-orchestrator/pulls/$pr/reviews" --jq '
+    [.[] | select(.state != "COMMENTED")]
+    | group_by(.user.login)
+    | map({reviewer: .[0].user.login, state: .[-1].state})
+    | map("\(.reviewer)=\(.state)")
+    | join(", ")
+  ' 2>/dev/null)
+  blocking=$(gh api "repos/jleechanorg/agent-orchestrator/pulls/$pr/reviews" --jq '
+    [.[] | select(.state != "COMMENTED")]
+    | group_by(.user.login)
+    | map(.[-1])
+    | any(.state == "CHANGES_REQUESTED")
+  ' 2>/dev/null)
+  echo "PR #$pr reviews=[$reviews] blocking=$blocking"
 done
 ```
 
 ### Step 3: Cross-reference — CHANGES_REQUESTED gap detection
 
 After both groups complete, cross-reference:
-1. List PRs with `reviewDecision: CHANGES_REQUESTED`
+1. From the Step B2b output, list PRs whose **latest per-reviewer review state** includes `CHANGES_REQUESTED`
 2. Check if each CR_REQ PR has an active worker session (from Group A2)
 3. If a CR_REQ PR has **no active session**, flag it as a gap — the orchestrator should be addressing it
 
@@ -130,13 +148,30 @@ current_epoch=$(date -u +%s)
 echo "=== STALLED PR DETECTION (>1hr gap, not 6-green) ==="
 for pr in $(gh api "repos/jleechanorg/agent-orchestrator/pulls?state=open" --jq '.[].number' 2>/dev/null); do
   last_commit=$(gh api "repos/jleechanorg/agent-orchestrator/pulls/$pr/commits" --jq '.[-1].commit.committer.date' 2>/dev/null)
-  commit_epoch=$(date -j -u -f "%Y-%m-%dT%H:%M:%SZ" "$last_commit" +%s 2>/dev/null || echo 0)
+  # Cross-platform date parsing: try BSD (macOS) first, then GNU (Linux)
+  commit_epoch=$(date -j -u -f "%Y-%m-%dT%H:%M:%SZ" "$last_commit" +%s 2>/dev/null || date -u -d "$last_commit" +%s 2>/dev/null || echo "")
+  if [ -z "$commit_epoch" ]; then
+    echo "SKIP #$pr — could not parse commit timestamp: $last_commit"
+    continue
+  fi
   gap_mins=$(( (current_epoch - commit_epoch) / 60 ))
   if [ "$gap_mins" -gt 60 ]; then
-    mergeable=$(gh api "repos/jleechanorg/agent-orchestrator/pulls/$pr" --jq '.mergeable_state' 2>/dev/null)
-    review=$(gh api "repos/jleechanorg/agent-orchestrator/pulls/$pr/reviews" --jq '[.[] | select(.state != "COMMENTED")] | last | .state // "NONE"' 2>/dev/null)
-    title=$(gh api "repos/jleechanorg/agent-orchestrator/pulls/$pr" --jq '.title[0:55]' 2>/dev/null)
-    branch=$(gh api "repos/jleechanorg/agent-orchestrator/pulls/$pr" --jq '.head.ref' 2>/dev/null)
+    pr_data=$(gh api "repos/jleechanorg/agent-orchestrator/pulls/$pr" --jq '{mergeable_state, title: .title[0:55], branch: .head.ref}' 2>/dev/null)
+    mergeable=$(echo "$pr_data" | jq -r '.mergeable_state')
+    title=$(echo "$pr_data" | jq -r '.title')
+    branch=$(echo "$pr_data" | jq -r '.branch')
+    # Per-reviewer review state — check if any reviewer has CHANGES_REQUESTED
+    review=$(gh api "repos/jleechanorg/agent-orchestrator/pulls/$pr/reviews" --jq '
+      [.[] | select(.state != "COMMENTED")]
+      | group_by(.user.login) | map(.[-1].state)
+      | if any(. == "CHANGES_REQUESTED") then "CHANGES_REQUESTED"
+        elif any(. == "APPROVED") then "APPROVED"
+        else "NONE" end
+    ' 2>/dev/null)
+    # Skip PRs that appear 6-green (clean + approved)
+    if [ "$mergeable" = "clean" ] && [ "$review" = "APPROVED" ]; then
+      continue
+    fi
     # Check for worker on this branch
     has_worker="no"
     for s in $(tmux list-sessions 2>/dev/null | grep -E "ao-[0-9]+|jc-[0-9]+" | cut -d: -f1); do
@@ -163,7 +198,7 @@ for pr_json in $(gh api "repos/jleechanorg/agent-orchestrator/pulls?state=closed
   number=$(echo "$pr" | jq -r '.number')
   title=$(echo "$pr" | jq -r '.title[0:50]')
   commits=$(gh api "repos/jleechanorg/agent-orchestrator/pulls/$number/commits" --jq '[.[] | .commit.message[0:50]]' 2>/dev/null)
-  human_commits=$(echo "$commits" | jq '[.[] | select(test("\\[agento\\]") | not)] | length')
+  human_commits=$(echo "$commits" | jq '[.[] | select(test("^\\[agento\\]") | not)] | length')
   total_commits=$(echo "$commits" | jq 'length')
   total=$((total + 1))
   if [ "$human_commits" -eq 0 ]; then
