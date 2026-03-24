@@ -16,6 +16,7 @@ After hardening PR checkout (GraphQL burn), merge logging, and curl token handli
 | **Enter timing / long paste** | **bd-qhf**, **bd-0gb** | Upstream ComposioHQ **#373** class of bugs; complements bd-tln (timing vs dead process). |
 | **Stale sessions vs spawn gate** | **bd-ara.3**, **bd-s4t**, **bd-s4t.1** | Merged PRs still running; reaper gaps; blows past session caps. Verify recent lifecycle kills vs beads still open. |
 | **Merge bypass** | **bd-u8p** | Agents must not merge outside orchestrator merge gate; hooks + rules + product enforcement. |
+| **Worktree pruner destroys active sessions** | **bd-6ql** | `pruneStaleWorktrees` tmux name mismatch deletes ALL active worktrees; data-destroying bug. |
 
 ## Tier 2 — Namespace and harness (P1 but systemic)
 
@@ -34,16 +35,19 @@ After hardening PR checkout (GraphQL burn), merge logging, and curl token handli
 ## Duplicate / consolidation note
 
 - **bd-i9o** and **bd-tln** describe the same root cause; **bd-tln** is the canonical technical spec. Beads link: `related` edge between them.
-- **bd-hvx** and **bd-5zr** are marked superseded in copy where applicable; keep closed when fixes land.
+- **bd-hvx** is superseded by **bd-tln** (`related` edge with `superseded-by` metadata). Keep open until bd-tln lands, then close.
+- **bd-5zr** was previously marked superseded; not present in current JSONL (already removed).
+- **bd-qhf**, **bd-s4t**, **bd-s4t.1**, **bd-u8p** bumped from P1→P0 to align with Tier 1 placement (2026-03-24).
 
 ## Suggested implementation order
 
-1. **bd-qhf** / **bd-0gb** — confirm fork parity with upstream #373; reduces false “idle” from swallowed Enter.  
-2. **bd-tln** — dead-agent detection + `getRestartCommand()` (unblocks review-check / ao send).  
-3. **bd-oji** + **bd-e4t** + **bd-4n8** — deterministic config path; fail loudly on mismatch.  
-4. **bd-u8p** — merge policy (config + enforcement).  
-5. Re-verify **bd-s4t** / **bd-s4t.1** / **bd-ara.3** against current `main`; close beads if already implemented.  
-6. **bd-77b**, **bd-gim**, **bd-7ay** in parallel as bandwidth allows.
+1. **bd-6ql** — fix `pruneStaleWorktrees` tmux name mismatch (data-destroying; blocks safe cleanup).
+2. **bd-qhf** / **bd-0gb** — confirm fork parity with upstream #373; reduces false “idle” from swallowed Enter.
+3. **bd-tln** — dead-agent detection + `getRestartCommand()` (unblocks review-check / ao send).
+4. **bd-oji** + **bd-e4t** + **bd-4n8** — deterministic config path; fail loudly on mismatch.
+5. **bd-u8p** — merge policy (config + enforcement).
+6. Re-verify **bd-s4t** / **bd-s4t.1** / **bd-ara.3** against current `main`; close beads if already implemented.
+7. **bd-77b**, **bd-gim**, **bd-7ay** in parallel as bandwidth allows.
 
 ## Beads graph notes
 
@@ -55,3 +59,4 @@ After hardening PR checkout (GraphQL burn), merge logging, and curl token handli
 | Date | Change |
 |------|--------|
 | 2026-03-24 | Initial doc; epic **bd-8wm**; parent-child + related links as documented above. **bd-6rh** priority raised P2→P1; **bd-u8p** / **bd-0gb** notes updated. |
+| 2026-03-24 | Data hygiene pass: added **bd-6ql** to Tier 1 (worktree pruner bug). Bumped bd-qhf/bd-s4t/bd-s4t.1/bd-u8p P1→P0 to match Tier 1. Added bd-hvx superseded-by bd-tln link. Noted bd-5zr already removed. |
