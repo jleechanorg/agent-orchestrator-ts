@@ -108,7 +108,7 @@ export async function reapStaleSessions(
     const ageMs = now.getTime() - session.createdAt.getTime();
     const idleMs = now.getTime() - session.lastActivityAt.getTime();
     const meetsIdleGate =
-      config.idleThresholdMs == null || idleMs > config.idleThresholdMs;
+      config.idleThresholdMs === undefined || idleMs > config.idleThresholdMs;
 
     // Determine kill reason (priority order)
     let killReason: string | null = null;
