@@ -441,4 +441,3 @@ export function registerLifecycleWorker(program: Command): void {
       },
     );
 }
-// TEST COMMENT
