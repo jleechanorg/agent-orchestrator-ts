@@ -466,8 +466,12 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
           return { status: "stuck", agentDead: false };
         }
 
-        // Agent is dead but PR isn't in a merge-ready state — kill the session
-        if (agentDead) return { status: "killed", agentDead: true };
+        // Agent is dead but PR isn't in a merge-ready state.
+        // bd-6jc: If SCM succeeded (scmFailureCount=0 from try block), return
+        // "pr_open" immediately — SCM confirmed the PR won't auto-merge so there's
+        // no reason to defer. The consecutive-failure threshold only applies when
+        // SCM throws; the catch block below handles that case.
+        if (agentDead) return { status: "pr_open", agentDead: true };
 
         return { status: "pr_open", agentDead: false };
       } catch {
