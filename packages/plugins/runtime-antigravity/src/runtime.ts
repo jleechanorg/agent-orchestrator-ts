@@ -29,6 +29,11 @@ const APP_NAME = "Antigravity";
  */
 export function createAntigravityRuntime(config?: AntigravityConfig): Runtime {
   const runtimeConfig = config ?? defaultConfig();
+  // Wire configured peekaboo binary path into the env so the peekaboo
+  // module (which reads the env lazily) picks it up on every call.
+  if (runtimeConfig.peekabooBin !== "peekaboo") {
+    process.env["PEEKABOO_BIN"] = runtimeConfig.peekabooBin;
+  }
   return {
     name: "antigravity",
 
@@ -241,6 +246,11 @@ export function createAntigravityRuntime(config?: AntigravityConfig): Runtime {
         fallbackCfg,
       );
 
+      if (!result.success) {
+        throw new Error(
+          `Failed to send message: both Peekaboo and CLI fallback failed`,
+        );
+      }
       if (result.fallbackUsed) {
         handle.data["fallbackUsed"] = true;
       }
@@ -252,8 +262,13 @@ export function createAntigravityRuntime(config?: AntigravityConfig): Runtime {
         | undefined;
       if (!session) return "";
 
-      const primaryFn = async (): Promise<string> => {
-        // Take a snapshot and extract visible text content
+      // For fallback sessions, no window to snapshot
+      if (session.windowId === -1) return "";
+
+      try {
+        // Read-only snapshot — do NOT wrap in executeWithFallback because
+        // conversation content may contain text that matches error patterns
+        // (e.g. "element not found"), causing false fallback invocations.
         const snapshot = await peekaboo.see(APP_NAME, session.windowId);
         const textContent = snapshot.ui_elements
           .filter((el) => el.value || el.title)
@@ -263,27 +278,6 @@ export function createAntigravityRuntime(config?: AntigravityConfig): Runtime {
         // Return last N lines
         const allLines = textContent.split("\n");
         return allLines.slice(-lines).join("\n");
-      };
-
-      try {
-        const fallbackCfg: Partial<FallbackConfig> = {
-          cliBin: runtimeConfig.fallbackCliBin,
-          cliFlags: runtimeConfig.fallbackCliFlags,
-          maxRetries: runtimeConfig.fallbackMaxRetries,
-        };
-
-        const result = await executeWithFallback(
-          primaryFn,
-          "get current output",
-          String(handle.data["workspacePath"] ?? "."),
-          fallbackCfg,
-        );
-
-        if (result.fallbackUsed) {
-          handle.data["fallbackUsed"] = true;
-        }
-
-        return result.output;
       } catch {
         return "";
       }

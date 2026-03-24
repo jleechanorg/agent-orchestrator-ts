@@ -24,17 +24,19 @@ const execFile = promisify(execFileCb);
 /** Default timeout for peekaboo CLI calls (ms). */
 const PEEKABOO_TIMEOUT_MS = 15_000;
 
-/** Path to the peekaboo binary. Configurable via env for testing. */
-const PEEKABOO_BIN = process.env["PEEKABOO_BIN"] ?? "peekaboo";
-
 /**
  * Run a peekaboo CLI command and parse JSON output.
+ *
+ * The binary path is read on each invocation from PEEKABOO_BIN env var
+ * (or defaults to "peekaboo"), so runtime config changes take effect
+ * without requiring a module reload.
  *
  * @param args - CLI arguments (e.g. ["list", "--app", "Antigravity"])
  * @returns Parsed JSON output from stdout
  */
 async function run<T>(args: string[]): Promise<T> {
-  const { stdout } = await execFile(PEEKABOO_BIN, args, {
+  const bin = process.env["PEEKABOO_BIN"] ?? "peekaboo";
+  const { stdout } = await execFile(bin, args, {
     timeout: PEEKABOO_TIMEOUT_MS,
   });
   return JSON.parse(stdout) as T;
@@ -109,7 +111,8 @@ export function click(
  */
 export function paste(app: string, text: string): Promise<void> {
   return enqueue(async () => {
-    await execFile(PEEKABOO_BIN, ["paste", "--app", app, "--text", text], {
+    const bin = process.env["PEEKABOO_BIN"] ?? "peekaboo";
+    await execFile(bin, ["paste", "--app", app, "--text", text], {
       timeout: PEEKABOO_TIMEOUT_MS,
     });
   });
@@ -123,7 +126,8 @@ export function paste(app: string, text: string): Promise<void> {
  */
 export function press(app: string, key: string): Promise<void> {
   return enqueue(async () => {
-    await execFile(PEEKABOO_BIN, ["press", "--app", app, "--key", key], {
+    const bin = process.env["PEEKABOO_BIN"] ?? "peekaboo";
+    await execFile(bin, ["press", "--app", app, "--key", key], {
       timeout: PEEKABOO_TIMEOUT_MS,
     });
   });
