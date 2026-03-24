@@ -1537,11 +1537,7 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
         }
 
         const url = `https://api.github.com/repos/${pr.owner}/${pr.repo}/pulls/${pr.number}/merge`;
-        const bodyObj: Record<string, unknown> = { merge_method: method };
-        // When using --auto via REST, set head_branch to activate GitHub's native auto-merge.
-        // GitHub will wait for required status checks before completing the merge.
-        if (useAuto) bodyObj.head_branch = pr.branch ?? pr.baseBranch;
-        const body = JSON.stringify(bodyObj);
+        const body = JSON.stringify({ merge_method: method });
 
         // SECURITY: Write auth header to a temp curl config file so the token
         // never appears in process arguments (visible via `ps`).
