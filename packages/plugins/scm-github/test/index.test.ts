@@ -1300,9 +1300,17 @@ describe("scm-github plugin", () => {
     });
 
     it("REST fallback when GraphQL fails with rate-limit error", async () => {
-      // Call 1 (GraphQL): throw rate-limit → retries exhausted → triggers REST fallback
+      // ghWithRetry retries up to maxRetries=3 times on rate-limit errors before exhausting
+      // and rethrowing. Mock setTimeout to avoid real sleep delays in tests.
+      const setTimeoutSpy = vi.spyOn(global, "setTimeout").mockImplementation((cb: () => void) => {
+        (cb as () => void)();
+        return 0 as unknown as NodeJS.Timeout;
+      });
+      // 3 GraphQL attempts (one per ghWithRetry attempt) all fail with rate-limit
       mockGhError("API rate limit");
-      // Call 2 (REST pulls comments): return inline review comments
+      mockGhError("API rate limit");
+      mockGhError("API rate limit");
+      // Call 4 (REST pulls comments): return inline review comments
       mockGh([
         {
           id: 1,
@@ -1314,10 +1322,11 @@ describe("scm-github plugin", () => {
           html_url: "https://github.com/acme/repo/pull/42#discussion_r1",
         },
       ]);
-      // Call 3 (REST issue comments): return empty
+      // Call 5 (REST issue comments): return empty
       mockGh([]);
 
       const comments = await scm.getPendingComments(pr);
+      setTimeoutSpy.mockRestore();
       expect(comments).toHaveLength(1);
       expect(comments[0]).toMatchObject({
         id: "1",
