@@ -1,7 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
   parseGhRateLimitOutput,
-  invalidateHeadroomCache,
   DEFAULT_HEADROOM_THRESHOLDS,
 } from "../gh-headroom.js";
 import { getBackoffForAttempt } from "../gh-graphql-defer.js";
