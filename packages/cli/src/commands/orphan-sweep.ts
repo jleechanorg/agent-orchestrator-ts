@@ -2,11 +2,7 @@ import { execFile } from "node:child_process";
 import { readdirSync } from "node:fs";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import type {
-  ObservabilityMetricName,
-  SessionManager,
-} from "@jleechanorg/ao-core";
-import { createCorrelationId } from "@jleechanorg/ao-core";
+import { type ObservabilityMetricName, type SessionManager, createCorrelationId } from "@jleechanorg/ao-core";
 
 const execFileAsync = promisify(execFile);
 
