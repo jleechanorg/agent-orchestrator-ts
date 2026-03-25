@@ -400,10 +400,10 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
           return { status: "killed", agentDead: true };
         }
       } finally {
-        // bd-6jc: detectPR succeeded (scmErrorOccurred=false) — reset counter so a
-        // transient detectPR error doesn't indefinitely block the no-PR kill path.
-        // scmErrorOccurred is always false here because step-3's finally is the only
-        // place that sets it to true; step-4's scmErrorOccurred is independent.
+        // bd-6jc: detectPR succeeded — reset counter so a transient detectPR error
+        // doesn't indefinitely block the no-PR kill path. scmErrorOccurred is scoped
+        // to step-3's try/catch/finally (step-4 has its own), so a true value here
+        // means step-3's catch ran and the counter should NOT be reset.
         if (!scmErrorOccurred && scmFailureCount !== 0) {
           scmFailureCount = 0;
           session.metadata["scmFailureCount"] = "0";
