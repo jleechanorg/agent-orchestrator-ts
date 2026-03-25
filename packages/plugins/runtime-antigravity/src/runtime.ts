@@ -15,6 +15,7 @@ import type {
 import * as peekaboo from "./peekaboo.js";
 import { executeWithFallback, type FallbackConfig } from "./fallback.js";
 import { createPoller } from "./poller.js";
+import { runPreflight } from "./preflight.js";
 import type { AntigravitySession } from "./types.js";
 import { defaultConfig, type AntigravityConfig } from "./config.js";
 
@@ -59,6 +60,16 @@ export function createAntigravityRuntime(config?: AntigravityConfig): Runtime {
       };
 
       const primaryFn = async (): Promise<string> => {
+        // Run preflight to validate the runtime environment.
+        // On failure, throw so executeWithFallback routes to CLI.
+        const preflight = await runPreflight();
+        if (!preflight.ok) {
+          const failedStep = preflight.steps[preflight.steps.length - 1];
+          throw new Error(
+            `Preflight failed [${failedStep.name}]: ${failedStep.error ?? "unknown"}`,
+          );
+        }
+
         // 1. Find the Antigravity Manager window
         const windows = await peekaboo.windowList(APP_NAME);
         const managerWindow = windows.find((w) =>

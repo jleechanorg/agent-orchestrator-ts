@@ -20,6 +20,8 @@ export { createMcpTools } from "./mcp-tools.js";
 export type { McpToolDefinition, McpToolResult } from "./mcp-tools.js";
 export { parseCliArgs, parseSlackMessage } from "./entrypoints.js";
 export type { SpawnRequest } from "./entrypoints.js";
+export { runPreflight } from "./preflight.js";
+export type { PreflightResult, PreflightConfig } from "./preflight.js";
 
 export const manifest = {
   name: "antigravity",
