@@ -51,12 +51,19 @@ describe("DEFAULT_HEADROOM_THRESHOLDS", () => {
 });
 
 describe("getOperationHeadroom / shouldDeferOperation", () => {
+  afterEach(() => {
+    ghHeadroomInject(); // reset to real execAsync
+    invalidateHeadroomCache();
+  });
+
   it("shouldDeferOperation is an alias for getOperationHeadroom", () => {
     expect(shouldDeferOperation).toBe(getOperationHeadroom);
   });
 
   it("returns a HeadroomStatus with required fields when gh CLI unavailable", async () => {
-    // gh CLI may not be available in CI; invalidate cache so we get a fresh fetch
+    // Simulate ENOENT (gh not installed) for determinism — no real subprocess
+    const err = Object.assign(new Error("ENOENT: not found"), { code: "ENOENT" });
+    ghHeadroomInject({ execAsync: vi.fn().mockRejectedValue(err) });
     invalidateHeadroomCache();
     const status = await getOperationHeadroom();
     expect(typeof status.canUseGraphQL).toBe("boolean");
