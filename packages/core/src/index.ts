@@ -341,7 +341,7 @@ export {
   recordCycleResolved,
   recordStuckReview,
   recordNoDeltaWarning,
-  recordSLAEscalation,
+  recordSLAEscalation as recordKPISLAEscalation,
   emitKPIEvent,
   buildKPISummary,
   enrichWithCommentJudgment,
