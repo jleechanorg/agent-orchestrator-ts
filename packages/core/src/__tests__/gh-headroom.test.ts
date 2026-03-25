@@ -2,6 +2,9 @@ import { describe, it, expect } from "vitest";
 import {
   parseGhRateLimitOutput,
   DEFAULT_HEADROOM_THRESHOLDS,
+  getOperationHeadroom,
+  shouldDeferOperation,
+  invalidateHeadroomCache,
 } from "../gh-headroom.js";
 
 describe("parseGhRateLimitOutput", () => {
@@ -40,5 +43,31 @@ describe("DEFAULT_HEADROOM_THRESHOLDS", () => {
     expect(DEFAULT_HEADROOM_THRESHOLDS.graphqlMin).toBe(100);
     expect(DEFAULT_HEADROOM_THRESHOLDS.restMin).toBe(50);
     expect(DEFAULT_HEADROOM_THRESHOLDS.absoluteMin).toBe(10);
+  });
+});
+
+describe("getOperationHeadroom / shouldDeferOperation", () => {
+  it("shouldDeferOperation is an alias for getOperationHeadroom", () => {
+    expect(shouldDeferOperation).toBe(getOperationHeadroom);
+  });
+
+  it("returns a HeadroomStatus with required fields when gh CLI unavailable", async () => {
+    // gh CLI may not be available in CI; invalidate cache so we get a fresh fetch
+    invalidateHeadroomCache();
+    const status = await getOperationHeadroom();
+    expect(typeof status.canUseGraphQL).toBe("boolean");
+    expect(typeof status.canUseREST).toBe("boolean");
+    expect(typeof status.graphqlRemaining).toBe("number");
+    expect(typeof status.restRemaining).toBe("number");
+    expect(["graphql", "rest", "defer"]).toContain(status.recommendation);
+  });
+});
+
+describe("invalidateHeadroomCache", () => {
+  it("does not throw when called multiple times", () => {
+    expect(() => {
+      invalidateHeadroomCache();
+      invalidateHeadroomCache();
+    }).not.toThrow();
   });
 });
