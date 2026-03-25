@@ -1,10 +1,12 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import {
   parseGhRateLimitOutput,
   DEFAULT_HEADROOM_THRESHOLDS,
   getOperationHeadroom,
   shouldDeferOperation,
   invalidateHeadroomCache,
+  fetchGhRateLimit,
+  ghHeadroomInject,
 } from "../gh-headroom.js";
 
 describe("parseGhRateLimitOutput", () => {
@@ -69,5 +71,56 @@ describe("invalidateHeadroomCache", () => {
       invalidateHeadroomCache();
       invalidateHeadroomCache();
     }).not.toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// fetchGhRateLimit subprocess paths (bd-s4t)
+// Uses ghHeadroomInject() — same pattern as tmuxInject — to inject a
+// pre-promisified exec stub that avoids util.promisify.custom complications
+// when testing with vi.fn() stubs.
+// ---------------------------------------------------------------------------
+
+describe("fetchGhRateLimit subprocess paths", () => {
+  afterEach(() => {
+    ghHeadroomInject(); // reset to real execAsync
+    invalidateHeadroomCache();
+  });
+
+  it("returns parsed resources on successful subprocess call", async () => {
+    const body = JSON.stringify({
+      resources: {
+        graphql: { remaining: 300, limit: 5000, reset: "2025-06-01T14:00:00Z" },
+        rest: { remaining: 4500, limit: 5000, reset: "2025-06-01T14:00:00Z" },
+      },
+    });
+    ghHeadroomInject({
+      execAsync: vi.fn().mockResolvedValue({ stdout: body, stderr: "" }),
+    });
+    const result = await fetchGhRateLimit();
+    expect(result?.graphql?.remaining).toBe(300);
+    expect(result?.rest?.remaining).toBe(4500);
+  });
+
+  it("returns null when subprocess throws spawn failure (ENOENT)", async () => {
+    const err = Object.assign(new Error("ENOENT: not found"), { code: "ENOENT" });
+    ghHeadroomInject({ execAsync: vi.fn().mockRejectedValue(err) });
+    const result = await fetchGhRateLimit();
+    expect(result).toBeNull();
+  });
+
+  it("returns null when subprocess returns invalid JSON", async () => {
+    ghHeadroomInject({
+      execAsync: vi.fn().mockResolvedValue({ stdout: "not valid json", stderr: "" }),
+    });
+    const result = await fetchGhRateLimit();
+    expect(result).toBeNull();
+  });
+
+  it("returns null when subprocess times out", async () => {
+    const err = Object.assign(new Error("command timed out"), { code: "ETIMEDOUT" });
+    ghHeadroomInject({ execAsync: vi.fn().mockRejectedValue(err) });
+    const result = await fetchGhRateLimit();
+    expect(result).toBeNull();
   });
 });

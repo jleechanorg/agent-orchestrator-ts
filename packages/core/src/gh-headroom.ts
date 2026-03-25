@@ -14,10 +14,29 @@
  */
 
 import { isGhRateLimitError } from "./gh-rate-limit.js";
-import { execFile } from "node:child_process";
+import { execFile as _execFile } from "node:child_process";
 import { promisify } from "node:util";
 
-const execFileAsync = promisify(execFile);
+/** Type for the promisified exec used internally. */
+type ExecAsync = (
+  cmd: string,
+  args: string[],
+  opts: { encoding: string; timeout: number },
+) => Promise<{ stdout: string; stderr: string }>;
+
+// Mutable ref — tests can replace via ghHeadroomInject()
+let _execAsync: ExecAsync = promisify(_execFile) as unknown as ExecAsync;
+
+/**
+ * Inject test doubles (same pattern as tmuxInject in tmux.ts).
+ * Accepts a pre-promisified exec function so tests avoid util.promisify.custom
+ * complications with vi.fn() stubs.
+ * @internal — for unit testing only
+ */
+export function ghHeadroomInject(doubles: { execAsync?: ExecAsync } = {}) {
+  if (doubles.execAsync) _execAsync = doubles.execAsync;
+  else _execAsync = promisify(_execFile) as unknown as ExecAsync; // reset
+}
 
 // ---------------------------------------------------------------------------
 // Types
@@ -79,7 +98,7 @@ export function parseGhRateLimitOutput(stdout: string): GHRateLimitResources | n
  */
 export async function fetchGhRateLimit(): Promise<GHRateLimitResources | null> {
   try {
-    const { stdout } = await execFileAsync("gh", ["api", "rate_limit"], {
+    const { stdout } = await _execAsync("gh", ["api", "rate_limit"], {
       encoding: "utf-8",
       timeout: 10_000,
     });
