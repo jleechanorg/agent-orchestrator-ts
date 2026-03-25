@@ -46,12 +46,10 @@ function parseLines(raw) {
 function readNovelContext(filePath) {
   try {
     const raw = readFileSync(filePath, "utf8");
-    const headings = parseLines(raw)
-      .filter((line) => line.startsWith("## "))
-      .slice(-5);
+    const headings = parseLines(raw).filter((line) => line.startsWith("## "));
     return {
-      totalHeadings: parseLines(raw).filter((l) => l.startsWith("## ")).length,
-      recentHeadings: headings,
+      totalHeadings: headings.length,
+      recentHeadings: headings.slice(-5),
     };
   } catch (error) {
     return {

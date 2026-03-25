@@ -173,7 +173,7 @@ async function run() {
     const deficit = targetCount - selected.length;
     for (let i = 0; i < deficit; i++) {
       selected.push({
-        worker: `ao-backfill-${900 + selected.length + i}`,
+        worker: `ao-backfill-${900 + selected.length - 1 + i}`,
         trigger: "backfill_padding",
         topic: "synthetic backfill entry",
         context: "generated to fill count",
@@ -182,7 +182,13 @@ async function run() {
   }
 
   const novelPath = path.resolve(process.cwd(), opts.file);
-  const existing = await fs.readFile(novelPath, "utf8");
+  let existing = "";
+  try {
+    existing = await fs.readFile(novelPath, "utf8");
+  } catch (error) {
+    if (error.code !== "ENOENT") throw error;
+    // Fresh file — treat as empty so the first-write case starts cleanly.
+  }
 
   const sections = selected
     .map((event, index) =>

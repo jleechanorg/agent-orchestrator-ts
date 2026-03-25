@@ -23,9 +23,10 @@ escape_sed() {
 }
 
 # Escape for shell double-quote context: $, `, \, ", !
+# Handle \ first so that subsequent replacements (which may introduce new \ chars) are not double-escaped.
 escape_shell() {
   printf '%s' "$1" \
-    | sed "s/'/'\\\\''/g; s/\$/\\\$/g; s/\"/\\\\\"/g; s/\`/\\\\\`/g; s/\\\\/\\\\\\\\/g; s/!/\\\\!/g"
+    | sed 's/\\/\\\\/g; s/'"'"'/'"'"'"'"'"'"'"'"'/g; s/\$/\\$/g; s/"/\\"/g; s/`/\\`/g; s/!/\\!/g'
 }
 
 path_for_launchd() {

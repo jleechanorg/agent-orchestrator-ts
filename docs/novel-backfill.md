@@ -21,13 +21,12 @@ Options:
 - `--events` JSON array of events (`worker`, `trigger`, `topic`, `context`)
 - `--count` number of entries to generate
 - `--date-prefix` prefix for section headings (default: "Backfill Day ")
-- `--words` words of generated prose for each section
+- `--words` word-generated prose for each section
 
 The helper is deterministic and inserts entries in this form:
 
 - `## Backfill Day N — <worker>`
 - `### POV: <worker> — <context> (<trigger>)`
-- `--words` words of generated prose for each section
 
 A future enhancement is to wire this helper behind lifecycle-worker event hooks so entries are generated automatically on worker reaps or PR open events.
 
