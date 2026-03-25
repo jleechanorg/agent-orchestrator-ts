@@ -250,6 +250,131 @@ describe("lifecycle", () => {
     expect(mockSee).not.toHaveBeenCalled();
   });
 
+  it("fires onIdle on unknown → idle transition (first poll already idle)", async () => {
+    // Regression: if the first poll observes idle state (session completed before
+    // the first 15s tick), the transition unknown→idle must fire onIdle.
+    const onIdle = vi.fn();
+    const onCapacityWait = vi.fn();
+    const callbacks: PollerCallbacks = { onIdle, onCapacityWait };
+
+    const poller = createPoller(15_000, callbacks);
+    const handle = makeHandle("unknown-idle-test");
+
+    // First tick returns idle directly — lastState starts as "unknown"
+    mockSee.mockResolvedValueOnce(makeSeeResult("Done 2m ago"));
+    poller.start(handle, 1);
+    await vi.advanceTimersByTimeAsync(15_000);
+
+    expect(onIdle).toHaveBeenCalledTimes(1);
+    expect(onIdle).toHaveBeenCalledWith(handle);
+
+    poller.stopAll();
+  });
+
+  it("onIdle throw does NOT update lastState — subsequent poll retries and fires again", async () => {
+    // Regression: if onIdle throws (e.g. updateMetadata fails), lastState must
+    // NOT be updated so the next poll can retry.
+    let onIdleThrow = true;
+    const onIdle = vi.fn().mockImplementation(() => {
+      if (onIdleThrow) {
+        onIdleThrow = false;
+        throw new Error("filesystem error");
+      }
+    });
+    const onCapacityWait = vi.fn();
+    const callbacks: PollerCallbacks = { onIdle, onCapacityWait };
+
+    const poller = createPoller(15_000, callbacks);
+    const handle = makeHandle("throw-retry-test");
+
+    // Use mockImplementation with closure to control each call (avoids
+    // mockResolvedValueOnce queue exhaustion with vi.asyncFn).
+    let peekabooResolve: (v: { snapshot_id: string; ui_elements: typeof makeSeeResult extends (r: string) => infer R ? R : never }) => void;
+    mockSee.mockImplementation(() => new Promise((r) => { peekabooResolve = r; }));
+
+    poller.start(handle, 1);
+
+    // First tick: advance time → interval fires → peekaboo called → resolve idle
+    await vi.advanceTimersByTimeAsync(15_000);
+    const idleEls1 = makeSeeResult("Done 3m ago").ui_elements[0];
+    peekabooResolve!({ snapshot_id: "s1", ui_elements: [idleEls1] });
+    await vi.advanceTimersByTimeAsync(0); // flush microtasks → onIdle throws
+    expect(onIdle).toHaveBeenCalledTimes(1);
+
+    // Second tick: advance time → interval fires → peekaboo called → resolve idle → onIdle succeeds
+    await vi.advanceTimersByTimeAsync(15_000);
+    const idleEls2 = makeSeeResult("Done 4m ago").ui_elements[0];
+    peekabooResolve!({ snapshot_id: "s2", ui_elements: [idleEls2] });
+    await vi.advanceTimersByTimeAsync(0); // flush microtasks → onIdle succeeds
+    expect(onIdle).toHaveBeenCalledTimes(2);
+
+    poller.stopAll();
+  });
+
+  it("start with managerWindowId=-1 is a no-op (no timer, no peekaboo call)", () => {
+    // Regression: fallback sessions (CLI-only) pass managerWindowId=-1. The poller
+    // must skip silently without starting any timer.
+    const onIdle = vi.fn();
+    const onCapacityWait = vi.fn();
+    const callbacks: PollerCallbacks = { onIdle, onCapacityWait };
+
+    const poller = createPoller(15_000, callbacks);
+    const handle = makeHandle("fallback-noop-test");
+
+    poller.start(handle, -1);
+
+    // Advance well past one full tick — no peekaboo call, no callback
+    vi.advanceTimersByTime(60_000);
+
+    expect(mockSee).not.toHaveBeenCalled();
+    expect(onIdle).not.toHaveBeenCalled();
+
+    // stopAll must be safe (nothing registered)
+    expect(() => poller.stopAll()).not.toThrow();
+  });
+
+  it("in-flight guard skips poll tick while previous peekaboo.see is still pending", async () => {
+    // Regression: if peekaboo.see is slow, a second setInterval tick must not
+    // start another overlapping peekaboo call.
+    const onIdle = vi.fn();
+    const onCapacityWait = vi.fn();
+    const callbacks: PollerCallbacks = { onIdle, onCapacityWait };
+
+    const poller = createPoller(15_000, callbacks);
+    const handle = makeHandle("inflight-test");
+
+    // peekaboo.see is slow — never resolves on its own
+    let resolveSee: (
+      v: { snapshot_id: string; ui_elements: Array<{ id: string; role: string; title: string; value: string; bounds: { x: number; y: number; width: number; height: number } }> },
+    ) => void;
+    mockSee.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveSee = resolve;
+        }),
+    );
+
+    poller.start(handle, 1);
+
+    // First tick fires — inFlight=true, peekaboo called once
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(mockSee).toHaveBeenCalledTimes(1);
+
+    // Second tick would fire — must be skipped (inFlight guard)
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(mockSee).toHaveBeenCalledTimes(1); // still 1, not 2
+
+    // Now let peekaboo resolve so inFlight=false
+    resolveSee({ snapshot_id: "snap", ui_elements: [makeSeeResult("progress_activity Running").ui_elements[0]] });
+    await vi.advanceTimersByTimeAsync(0); // flush microtasks
+
+    // Third tick — peekaboo called again (inFlight=false now)
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(mockSee).toHaveBeenCalledTimes(2);
+
+    poller.stopAll();
+  });
+
   it("silently ignores peekaboo errors during polling", async () => {
     const onIdle = vi.fn();
     const onCapacityWait = vi.fn();

@@ -107,6 +107,7 @@ function detectConversationState(
 interface PollerEntry {
   timerId: ReturnType<typeof setInterval>;
   lastState: DetectedState;
+  inFlight: boolean; // Prevents overlapping peekaboo.see() calls
 }
 
 /**
@@ -123,7 +124,8 @@ export function createPoller(
 
   function pollTick(handle: RuntimeHandle, managerWindowId: number): void {
     const entry = entries.get(handle.id);
-    if (!entry) return;
+    if (!entry || entry.inFlight) return;
+    entry.inFlight = true;
 
     const session = handle.data["session"] as AntigravitySession | undefined;
     const conversationTitle = session?.conversationTitle ?? "";
@@ -133,6 +135,8 @@ export function createPoller(
       .then((result) => {
         const currentEntry = entries.get(handle.id);
         if (!currentEntry) return; // stopped while awaiting
+        // Always clear inFlight, even on early returns
+        currentEntry.inFlight = false;
 
         const state = detectConversationState(
           conversationTitle,
@@ -143,8 +147,8 @@ export function createPoller(
 
         const previousState = currentEntry.lastState;
 
-        // Transition: running → idle
-        if (previousState === "running" && state === "idle") {
+        // Transition: running → idle OR unknown → idle (covers first-poll-already-idle case)
+        if ((previousState === "running" || previousState === "unknown") && state === "idle") {
           try {
             callbacks.onIdle(handle);
           } catch {
@@ -168,7 +172,8 @@ export function createPoller(
         currentEntry.lastState = state;
       })
       .catch(() => {
-        // Silently ignore peekaboo errors — will retry on next tick
+        const currentEntry = entries.get(handle.id);
+        if (currentEntry) currentEntry.inFlight = false;
       });
   }
 
@@ -185,6 +190,7 @@ export function createPoller(
           intervalMs,
         ),
         lastState: "unknown",
+        inFlight: false,
       };
       entries.set(handle.id, entry);
     },
