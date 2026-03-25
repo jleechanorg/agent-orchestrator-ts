@@ -113,19 +113,46 @@ export async function reapStaleSessions(
     // skipped above, so this only catches sessions stuck in a non-terminal
     // status despite a resolved PR.
     // prState is persisted by lifecycle-manager via the prState metadata field.
-    if (session.pr?.state === "merged" || session.pr?.state === "closed") {
+    //
+    // "merged" is a final state — kill unconditionally.
+    // "closed" can be re-opened, so require the session to be idle past
+    // orphanedThresholdMs before treating it as a zombie.
+    if (session.pr?.state === "merged") {
+      const zombieKillReason = `zombie: PR ${session.pr.state}`;
       if (!dryRun) {
         try {
           await deps.sessionManager.kill(session.id);
-          killed.push({ sessionId: session.id, reason: `zombie: PR ${session.pr.state}` });
+          killed.push({ sessionId: session.id, reason: zombieKillReason });
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
           errors.push({ sessionId: session.id, error: msg });
         }
       } else {
-        killed.push({ sessionId: session.id, reason: `zombie: PR ${session.pr.state}` });
+        killed.push({ sessionId: session.id, reason: zombieKillReason });
       }
       continue;
+    }
+
+    if (session.pr?.state === "closed") {
+      const closedIdleMs = now.getTime() - session.lastActivityAt.getTime();
+      if (closedIdleMs > config.orphanedThresholdMs) {
+        const zombieKillReason = `zombie: PR ${session.pr.state}`;
+        if (!dryRun) {
+          try {
+            await deps.sessionManager.kill(session.id);
+            killed.push({ sessionId: session.id, reason: zombieKillReason });
+          } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            errors.push({ sessionId: session.id, error: msg });
+          }
+        } else {
+          killed.push({ sessionId: session.id, reason: zombieKillReason });
+        }
+        continue;
+      } else {
+        skipped.push({ sessionId: session.id, reason: "closed PR but not yet idle past orphanedThreshold — may reopen" });
+        continue;
+      }
     }
 
     const ageMs = now.getTime() - session.createdAt.getTime();

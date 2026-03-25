@@ -5,7 +5,6 @@ reviews:
   request_changes_workflow: true
   auto_review:
     enabled: true
-    approve: true
   path_filters: []
   high_level_summary: true
   auto_title_placeholder: "@coderabbitai"

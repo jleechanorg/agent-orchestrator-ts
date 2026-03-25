@@ -219,8 +219,8 @@ export async function withRESTFallback<T>(
 }
 
 /**
- * Determine whether to defer a GH operation based on current headroom.
- * Returns "defer" if both GraphQL and REST are low.
+ * Return the current GitHub API headroom snapshot.
+ * Use `recommendation === "defer"` when both GraphQL and REST are low.
  */
 export async function getOperationHeadroom(
   thresholds: Partial<HeadroomThresholds> = {},

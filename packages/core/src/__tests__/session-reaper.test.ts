@@ -186,7 +186,7 @@ describe("reapStaleSessions", () => {
     expect(sm.kill).toHaveBeenCalledWith("s1");
   });
 
-  it("session with closed PR state but non-terminal status → killed as zombie (bd-s4t)", async () => {
+  it("session with closed PR state idle past orphanedThreshold → killed as zombie (bd-s4t)", async () => {
     const sessions = [
       makeSession("s1", {
         status: "working", // non-terminal; lifecycle-manager missed the transition
@@ -202,7 +202,7 @@ describe("reapStaleSessions", () => {
           isDraft: false,
           state: "closed", // GitHub PR was closed without merge
         },
-        lastActivityAt: new Date(BASE_NOW.getTime() - 60_000),
+        lastActivityAt: new Date(BASE_NOW.getTime() - TWO_HOURS_MS - 1000), // idle past threshold
         createdAt: new Date(BASE_NOW.getTime() - FOUR_HOURS_MS - 1000),
       }),
     ];
@@ -214,6 +214,35 @@ describe("reapStaleSessions", () => {
     expect(result.killed[0].reason).toContain("zombie");
     expect(result.killed[0].reason).toContain("closed");
     expect(sm.kill).toHaveBeenCalledWith("s1");
+  });
+
+  it("session with closed PR state recently active → skipped (may reopen) (bd-s4t)", async () => {
+    const sessions = [
+      makeSession("s1", {
+        status: "working",
+        activity: "active",
+        pr: {
+          number: 3,
+          url: "https://github.com/test/repo/pull/3",
+          title: "WIP PR",
+          owner: "test",
+          repo: "repo",
+          branch: "branch-s1",
+          baseBranch: "main",
+          isDraft: false,
+          state: "closed",
+        },
+        lastActivityAt: new Date(BASE_NOW.getTime() - 60_000), // only 1 min idle — under threshold
+        createdAt: new Date(BASE_NOW.getTime() - FOUR_HOURS_MS - 1000),
+      }),
+    ];
+    const sm = makeSessionManager(sessions);
+    const result = await reapStaleSessions(makeConfig(), makeDeps(sm));
+
+    expect(result.killed).toHaveLength(0);
+    expect(result.skipped).toHaveLength(1);
+    expect(result.skipped[0].reason).toContain("may reopen");
+    expect(sm.kill).not.toHaveBeenCalled();
   });
 
   it("kill count observability: result reflects exact kills and skips per cycle (bd-s4t)", async () => {

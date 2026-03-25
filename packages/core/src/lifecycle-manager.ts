@@ -429,12 +429,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
             // without SCM access. Only update if state has changed.
             const prevPrState = session.pr?.state;
             if (batch.state !== prevPrState) {
-              // bd-s4t.2: isolate metadata write so it cannot break batch state determination
-              try {
-                persistPrState(session, batch.state, project.path);
-              } catch {
-                // Metadata write failure is best-effort; do not corrupt batch state
-              }
+              persistPrState({ session, state: batch.state, projectPath: project.path });
             }
             if (batch.state === PR_STATE.MERGED) return { status: "merged", agentDead };
             if (batch.state === PR_STATE.CLOSED) return { status: "killed", agentDead };
@@ -460,12 +455,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
           // bd-s4t.2: persist PR state so the session-reaper can detect zombies
           const prevPrState = session.pr?.state;
           if (prState !== prevPrState) {
-            // bd-s4t.2: isolate metadata write so it cannot corrupt SCM failure tracking
-            try {
-              persistPrState(session, prState, project.path);
-            } catch {
-              // Metadata write failure is best-effort; do not corrupt scmFailureCount
-            }
+            persistPrState({ session, state: prState, projectPath: project.path });
           }
           if (prState === PR_STATE.MERGED) return { status: "merged", agentDead };
           if (prState === PR_STATE.CLOSED) return { status: "killed", agentDead };
@@ -860,17 +850,30 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
 
   /**
    * Persist GitHub PR state to the session metadata file + in-memory session object.
-   * Typed helper that eliminates the { state?: string } cast pattern.
+   * Owns its own best-effort try/catch and warn-level logging so callers stay
+   * straight-line. Returns true on success, false if the metadata write failed.
    */
-  function persistPrState(session: Session, state: PRState, projectPath: string): void {
-    // bd-s4t.2: write metadata first, then update in-memory — prevents using stale in-memory
-    // state as the persistence retry gate (updateMetadata failure leaves in-memory unchanged)
-    const sessionsDir = getSessionsDir(config.configPath, projectPath);
-    updateMetadata(sessionsDir, session.id, { prState: state });
-    // Only update in-memory after disk write succeeds
-    session.metadata["prState"] = state;
-    if (session.pr) {
-      session.pr.state = state;
+  function persistPrState({ session, state, projectPath }: {
+    session: Session;
+    state: PRState;
+    projectPath: string;
+  }): boolean {
+    try {
+      const sessionsDir = getSessionsDir(config.configPath, projectPath);
+      // bd-s4t.2: write metadata first, then update in-memory — prevents using stale
+      // in-memory state as the persistence retry gate (failure leaves in-memory unchanged)
+      updateMetadata(sessionsDir, session.id, { prState: state });
+      session.metadata["prState"] = state;
+      if (session.pr) {
+        session.pr.state = state;
+      }
+      return true;
+    } catch (err) {
+      console.warn(
+        `[lifecycle-manager] persistPrState: failed to persist prState=${state} ` +
+        `for session=${session.id} — best-effort, continuing: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      return false;
     }
   }
 

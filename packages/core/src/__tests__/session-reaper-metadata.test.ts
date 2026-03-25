@@ -7,7 +7,11 @@
  */
 import { describe, it, expect } from "vitest";
 import { sessionFromMetadata } from "../utils/session-from-metadata.js";
+import { writeMetadata, readMetadata } from "../metadata.js";
 import { VALID_PR_STATES, type PRState } from "../types.js";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { mkdirSync, rmSync } from "node:fs";
 
 describe("sessionFromMetadata: prState round-trip", () => {
   it("hydrates session.pr.state from metadata prState=open", () => {
@@ -83,5 +87,35 @@ describe("sessionFromMetadata: prState round-trip", () => {
     });
     expect(session.pr).not.toBeNull();
     expect(session.pr!.state).toBeUndefined();
+  });
+
+  it("real metadata I/O round-trip: writeMetadata → readMetadata → sessionFromMetadata", () => {
+    // Use a real temp directory to exercise the actual file I/O path
+    const dataDir = join(tmpdir(), `ao-metadata-roundtrip-${Date.now()}`);
+    mkdirSync(dataDir, { recursive: true });
+    try {
+      const metadata = {
+        worktree: "/tmp/wt-roundtrip",
+        branch: "feat/roundtrip",
+        status: "working" as const,
+        pr: "https://github.com/org/repo/pull/77",
+        prState: "merged" as const,
+      };
+
+      // Write via the public API (serializes to key=value, atomic write)
+      writeMetadata(dataDir, "session-roundtrip", metadata);
+
+      // Read back via the public API (parses key=value, validates prState)
+      const parsed = readMetadata(dataDir, "session-roundtrip");
+      expect(parsed).not.toBeNull();
+      expect(parsed!.prState).toBe("merged");
+
+      // Hydrate session from the parsed metadata
+      const session = sessionFromMetadata("session-roundtrip", parsed!);
+      expect(session.pr).not.toBeNull();
+      expect(session.pr!.state).toBe("merged");
+    } finally {
+      rmSync(dataDir, { recursive: true });
+    }
   });
 });
