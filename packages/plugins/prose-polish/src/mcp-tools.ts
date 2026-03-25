@@ -10,13 +10,16 @@ import type { ScanResult, FixResult } from "./types.js";
 
 function safePath(filePath: string): string | null {
   if (!filePath) return null;
+  // Check raw input for ".." segments before resolve/normalize
+  // Only reject when a full segment equals ".." (not partial matches like "chapter..1.md")
+  const segments = filePath.split(/[/\\]/);
+  if (segments.some(seg => seg === "..")) {
+    return null;
+  }
   // Resolve relative paths (e.g. "README.md", "./docs/ch1.md") against cwd
   // Absolute paths (POSIX /foo or Windows C:\) are used as-is
   const resolved = isAbsolute(filePath) ? filePath : resolve(filePath);
-  // Normalize and reject actual path traversal (.. path segments)
-  const normalized = normalize(resolved);
-  if (normalized.includes("..")) return null;
-  return normalized;
+  return normalize(resolved);
 }
 
 export interface McpToolDefinition {
@@ -83,7 +86,7 @@ export const TOOL_DEFINITIONS: McpToolDefinition[] = [
 function handleScan(args: { file_path: string; min_severity?: string }): McpToolResult {
   try {
     const resolved = safePath(args.file_path);
-    if (!resolved) return { success: false, error: "Invalid file path: absolute or relative paths accepted, path traversal ('..' segments) is rejected" };
+    if (!resolved) return { success: false, error: "Invalid file path: must be an absolute path without '..' segments" };
     const content = readFileSync(resolved, "utf-8");
     const lines = content.split("\n");
     const minSeverity = (args.min_severity as "info" | "warn" | "critical") ?? "info";
@@ -97,7 +100,7 @@ function handleScan(args: { file_path: string; min_severity?: string }): McpTool
 function handleFix(args: { file_path: string; min_severity?: string }): McpToolResult {
   try {
     const resolved = safePath(args.file_path);
-    if (!resolved) return { success: false, error: "Invalid file path: absolute or relative paths accepted, path traversal ('..' segments) is rejected" };
+    if (!resolved) return { success: false, error: "Invalid file path: must be an absolute path without '..' segments" };
     const content = readFileSync(resolved, "utf-8");
     const result: FixResult = autoFixFile(
       resolved,

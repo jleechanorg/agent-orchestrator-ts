@@ -29,7 +29,11 @@ const REDUNDANT_REPLACEMENTS: Array<[RegExp, string]> = [
 function fixLine(line: string): string {
   // Preserve leading whitespace so indentation is not destroyed
   const leadingWs = line.match(/^(\s*)/)?.[1] ?? "";
-  let result = line.slice(leadingWs.length);
+
+  // Preserve Markdown hard-break suffix (trailing 2+ spaces) before processing
+  const trailingSuffix = (line.match(/(\s{2,})$/) ?? [])[1] ?? "";
+
+  let result = line;
 
   // Remove filler words
   const fillerRE = new RegExp(`\\b(${FILLERS.join("|")})\\b`, "gi");
@@ -47,7 +51,7 @@ function fixLine(line: string): string {
     result = result.replace(pattern, replacement);
   }
 
-  return leadingWs + result;
+  return leadingWs + result.trimEnd() + trailingSuffix;
 }
 
 /**
