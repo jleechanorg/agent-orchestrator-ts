@@ -49,11 +49,15 @@ const CLI_TIMEOUT_MS = 120_000;
 /**
  * Patterns in primary output that indicate a Peekaboo failure
  * warranting a CLI fallback.
+ *
+ * Anchored to Peekaboo-specific prefixes to avoid false positives
+ * when conversation content coincidentally matches generic phrases.
  */
 const ERROR_PATTERNS: RegExp[] = [
-  /element not found/i,
-  /window not found/i,
-  /peekaboo.*failed/i,
+  /\bpeekaboo[\s:].*element not found/i,
+  /\bpeekaboo[\s:].*window not found/i,
+  /\bpeekaboo.*failed/i,
+  /Antigravity Manager window not found/i,
 ];
 
 // ---------------------------------------------------------------------------

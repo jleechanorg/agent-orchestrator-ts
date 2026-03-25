@@ -88,8 +88,10 @@ describe("executeWithFallback()", () => {
     expect(mockExecFile).toHaveBeenCalledTimes(1);
   });
 
-  it("invokes CLI fallback when primary returns error indicator", async () => {
-    const primary = vi.fn().mockResolvedValue("element not found in window");
+  it("invokes CLI fallback when primary returns peekaboo error indicator", async () => {
+    const primary = vi
+      .fn()
+      .mockResolvedValue("peekaboo: element not found in window");
     stubExecFileSuccess("fallback result");
 
     const result = await executeWithFallback(
@@ -101,6 +103,32 @@ describe("executeWithFallback()", () => {
     expect(result.fallbackUsed).toBe(true);
     expect(result.success).toBe(true);
     expect(result.output).toBe("fallback result");
+  });
+
+  it("does NOT trigger fallback for generic error without peekaboo prefix", async () => {
+    const primary = vi
+      .fn()
+      .mockResolvedValue("element not found in the DOM");
+
+    const result = await executeWithFallback(
+      primary,
+      "click button",
+      "/tmp/ws",
+    );
+
+    expect(result.fallbackUsed).toBe(false);
+    expect(result.output).toBe("element not found in the DOM");
+  });
+
+  it("triggers fallback on Antigravity Manager not found", async () => {
+    const primary = vi
+      .fn()
+      .mockResolvedValue("Antigravity Manager window not found");
+    stubExecFileSuccess("fallback ok");
+
+    const result = await executeWithFallback(primary, "spawn", "/tmp/ws");
+
+    expect(result.fallbackUsed).toBe(true);
   });
 
   it("returns success=false when both primary and fallback fail", async () => {
@@ -163,8 +191,10 @@ describe("executeWithFallback()", () => {
     );
   });
 
-  it("detects 'not found' case-insensitively in primary output", async () => {
-    const primary = vi.fn().mockResolvedValue("Element Not Found in snapshot");
+  it("detects peekaboo-prefixed 'not found' case-insensitively", async () => {
+    const primary = vi
+      .fn()
+      .mockResolvedValue("Peekaboo: Element Not Found in snapshot");
     stubExecFileSuccess("fallback ok");
 
     const result = await executeWithFallback(primary, "click", "/tmp/ws");
