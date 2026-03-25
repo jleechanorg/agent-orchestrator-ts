@@ -25,7 +25,7 @@
  */
 
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync, readFileSync, writeFileSync, appendFileSync, existsSync } from "node:fs";
+import { mkdtempSync, rmSync, readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync, renameSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { parseArgs } from "node:util";
@@ -190,9 +190,23 @@ function buildEvent(activity, novelState) {
  * Generate a per-worker prose entry using the Claude API.
  * Falls back to a template if ANTHROPIC_API_KEY is not set.
  */
+/**
+ * Validate that a session string is safe to use in a file path.
+ * Rejects path traversal sequences (../, /, \) and absolute paths.
+ */
+function isValidSession(session) {
+  if (!session || typeof session !== "string") return false;
+  if (session.length === 0 || session.length > 128) return false;
+  // Allow only [a-z][A-Z][0-9]-_
+  if (!/^[a-zA-Z0-9_-]+$/.test(session)) return false;
+  // Reject traversal attempts even if alphanumeric chars make it through
+  if (session.includes("..") || session.includes("/") || session.includes("\\")) return false;
+  return true;
+}
+
 function generateProse(session, pr, activity) {
-  const { ANTHROPIC_API_KEY } = process.env;
-  if (!ANTHROPIC_API_KEY) {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) {
     return templateProse(session, pr, activity);
   }
 
@@ -212,12 +226,12 @@ function generateProse(session, pr, activity) {
     `Merged PRs: ${(activity?.mergedPrs || []).slice(0, 3).map((p) => `#${p.number}: ${p.title}`).join("; ") || "none"}\n` +
     "Write the worker's diary entry.";
 
+  // Pass API key via environment variable — never via curl -H flag
   const r = spawnSync("curl", [
     "-sS",
     "--max-time", "30",
     "-X", "POST",
     "https://api.anthropic.com/v1/messages",
-    "-H", `x-api-key: ${ANTHROPIC_API_KEY}`,
     "-H", "anthropic-version: 2023-06-01",
     "-H", "content-type: application/json",
     "-d", JSON.stringify({
@@ -226,7 +240,10 @@ function generateProse(session, pr, activity) {
       system: systemPrompt,
       messages: [{ role: "user", content: userPrompt }],
     }),
-  ], { encoding: "utf8" });
+  ], {
+    encoding: "utf8",
+    env: { ...process.env, ANTHROPIC_API_KEY: apiKey },
+  });
 
   try {
     const parsed = JSON.parse(r.stdout?.toString() || "{}");
@@ -263,7 +280,22 @@ function templateProse(session, pr, activity) {
   );
 }
 
+/**
+ * Write a worker's individual entry file atomically:
+ * - Validates session against path-traversal chars
+ * - Creates novel/workers/ directory if missing
+ * - Uses rename(2) for atomic write (no partial files on disk)
+ * - Returns false if the file already exists (does NOT overwrite)
+ */
 function writeWorkerEntry(session, pr, prose) {
+  if (!isValidSession(session)) {
+    throw new Error(
+      `Invalid session value: "${session}". ` +
+      "Must be 1-128 alphanumeric characters, hyphens, or underscores. " +
+      "Path traversal sequences are rejected."
+    );
+  }
+
   const workersDir = path.join(REPO_ROOT, "novel", "workers");
   const filePath = path.join(workersDir, `${session}.md`);
   const date = new Date().toISOString().slice(0, 10);
@@ -278,12 +310,30 @@ function writeWorkerEntry(session, pr, prose) {
     "",
   ].join("\n");
 
-  // Upsert: only write if file doesn't already exist (protect existing entries)
-  if (existsSync(filePath)) {
-    console.log(`SKIP: ${filePath} already exists — not overwriting.`);
-    return false;
+  // Create directory if it does not exist (handle ENOENT)
+  if (!existsSync(workersDir)) {
+    mkdirSync(workersDir, { recursive: true });
   }
-  writeFileSync(filePath, content, "utf8");
+
+  // Atomic write: write to temp file in same directory, then rename.
+  // rename(2) is atomic on POSIX when source and dest are on the same filesystem.
+  const tmpPath = `${filePath}.tmp.${process.pid}`;
+  writeFileSync(tmpPath, content, "utf8");
+  try {
+    // If dest already exists, rename throws EEXIST on some platforms —
+    // guard explicitly to prevent overwriting existing entries.
+    if (existsSync(filePath)) {
+      rmSync(tmpPath);
+      console.log(`SKIP: ${filePath} already exists — not overwriting.`);
+      return false;
+    }
+    // Atomic rename; if two processes race, the second rename fails with EEXIST.
+    renameSync(tmpPath, filePath);
+  } catch (err) {
+    // Clean up tmp file on any error
+    try { rmSync(tmpPath); } catch { /* ignore */ }
+    throw err;
+  }
   console.log(`Wrote: ${filePath}`);
   return true;
 }
@@ -311,20 +361,22 @@ function main() {
   if (session) {
     const activity = collectRepoActivity(Number.isNaN(days) ? 1 : days);
     const prose = generateProse(session, pr, activity);
-    writeWorkerEntry(session, pr, prose);
+    const written = writeWorkerEntry(session, pr, prose);
 
-    // Also append to monolithic file if it exists (backward compat)
-    const novelPath = path.resolve(REPO_ROOT, file);
-    if (existsSync(novelPath)) {
-      const dateStr = new Date().toISOString().slice(0, 10);
-      const section = [
-        `## Daily ${dateStr} — ${session}`,
-        `### POV: ${session}`,
-        "",
-        prose,
-        "",
-      ].join("\n");
-      appendFileSync(novelPath, `${section}\n\n`, "utf8");
+    // Only append to monolithic file if this is a new entry (not a duplicate skip)
+    if (written) {
+      const novelPath = path.resolve(REPO_ROOT, file);
+      if (existsSync(novelPath)) {
+        const dateStr = new Date().toISOString().slice(0, 10);
+        const section = [
+          `## Daily ${dateStr} — ${session}`,
+          `### POV: ${session}`,
+          "",
+          prose,
+          "",
+        ].join("\n");
+        appendFileSync(novelPath, `${section}\n\n`, "utf8");
+      }
     }
     console.log(`Per-worker entry written for ${session}${pr ? ` (PR #${pr})` : ""}.`);
     return;

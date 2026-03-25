@@ -491,7 +491,11 @@ function main() {
     }
   } catch (error) {
     if (error.code !== "ENOENT") throw error;
-    console.warn(`No workers directory at ${WORKERS_DIR} — skipping daily entries.`);
+    console.warn(`No workers directory at ${WORKERS_DIR} — nothing to aggregate.`);
+    if (!dryRun) {
+      console.log(`Skipped: ${outputPath} not written (no workers found).`);
+    }
+    return;
   }
 
   // Sort by date, then session-id
