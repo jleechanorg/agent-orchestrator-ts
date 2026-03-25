@@ -31,7 +31,7 @@ function fixLine(line: string): string {
 
   // Remove filler words
   const fillerRE = new RegExp(`\\b(${FILLERS.join("|")})\\b`, "gi");
-  result = result.replace(fillerRE, "").replace(/\s{2,}/g, " ").trim();
+  result = result.replace(fillerRE, "").replace(/\s{2,}/g, " ");
 
   // Fix redundant phrases
   for (const [pattern, replacement] of REDUNDANT_REPLACEMENTS) {
@@ -57,14 +57,17 @@ export function autoFixFile(
   // Build corrected lines (deep copy)
   const fixed = lines.map(l => l);
 
+  // Apply fixes once per unique line to avoid repeated passes
+  const linesFixed = new Set<number>();
   for (const issue of autoFixable) {
     const idx = issue.line - 1;
-    if (idx >= 0 && idx < fixed.length) {
+    if (idx >= 0 && idx < fixed.length && !linesFixed.has(idx)) {
+      linesFixed.add(idx);
       const original = fixed[idx];
       fixed[idx] = fixLine(original);
       if (fixed[idx] !== original) {
         // Update suggestion with actual change
-        issue.suggestion = `"${original.trim()}" → "${fixed[idx].trim()}"`;
+        issue.suggestion = `"${original}" → "${fixed[idx]}"`;
       }
     }
   }

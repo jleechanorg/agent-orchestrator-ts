@@ -87,7 +87,7 @@ export function detectNotXRepetition(
   const matches: ProseMatch[] = [];
   const notXLines: Array<{ line: number; text: string; phrase: string }> = [];
 
-  const notXPattern = /^not\s+([a-z][a-z\s]{0,30})\.?$/i;
+  const notXPattern = /^not[\s-]+([a-z][a-z\s-]{0,30})\.?$/i;
 
   for (let i = 0; i < lines.length; i++) {
     const m = lines[i].trim().match(notXPattern);

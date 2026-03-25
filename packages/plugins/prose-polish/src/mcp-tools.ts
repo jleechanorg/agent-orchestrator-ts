@@ -7,6 +7,14 @@ import { scanLines, RULE_DESCRIPTIONS } from "./detector.js";
 import { autoFixFile } from "./fixer.js";
 import type { ScanResult, FixResult } from "./types.js";
 
+function safePath(filePath: string): string | null {
+  // Reject relative paths and path-traversal attempts
+  if (!filePath || filePath.includes("..") || !filePath.startsWith("/")) {
+    return null;
+  }
+  return filePath;
+}
+
 export interface McpToolDefinition {
   name: string;
   description: string;
@@ -70,10 +78,12 @@ export const TOOL_DEFINITIONS: McpToolDefinition[] = [
 
 function handleScan(args: { file_path: string; min_severity?: string }): McpToolResult {
   try {
-    const content = readFileSync(args.file_path, "utf-8");
+    const resolved = safePath(args.file_path);
+    if (!resolved) return { success: false, error: "Invalid file path: must be an absolute path without '..'" };
+    const content = readFileSync(resolved, "utf-8");
     const lines = content.split("\n");
     const minSeverity = (args.min_severity as "info" | "warn" | "critical") ?? "info";
-    const result: ScanResult = scanLines(args.file_path, lines, minSeverity);
+    const result: ScanResult = scanLines(resolved, lines, minSeverity);
     return { success: true, data: result };
   } catch (err) {
     return { success: false, error: String(err) };
@@ -82,9 +92,11 @@ function handleScan(args: { file_path: string; min_severity?: string }): McpTool
 
 function handleFix(args: { file_path: string; min_severity?: string }): McpToolResult {
   try {
-    const content = readFileSync(args.file_path, "utf-8");
+    const resolved = safePath(args.file_path);
+    if (!resolved) return { success: false, error: "Invalid file path: must be an absolute path without '..'" };
+    const content = readFileSync(resolved, "utf-8");
     const result: FixResult = autoFixFile(
-      args.file_path,
+      resolved,
       content,
       (args.min_severity as "info" | "warn" | "critical") ?? "warn"
     );
