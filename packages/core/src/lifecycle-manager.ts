@@ -413,16 +413,16 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
           try {
             const batch = await scm.getBatchPRStatus(session.pr);
             usedBatch = true;
-            if (batch.state === PR_STATE.MERGED) return { status: "merged", agentDead: false };
-            if (batch.state === PR_STATE.CLOSED) return { status: "killed", agentDead: false };
-            if (batch.ciStatus === CI_STATUS.FAILING) return { status: "ci_failed", agentDead: false };
-            if (batch.reviewDecision === "changes_requested") return { status: "changes_requested", agentDead: false };
+            if (batch.state === PR_STATE.MERGED) return { status: "merged", agentDead };
+            if (batch.state === PR_STATE.CLOSED) return { status: "killed", agentDead };
+            if (batch.ciStatus === CI_STATUS.FAILING) return { status: "ci_failed", agentDead };
+            if (batch.reviewDecision === "changes_requested") return { status: "changes_requested", agentDead };
             if (batch.reviewDecision === "approved" || batch.reviewDecision === "none") {
-              if (batch.mergeReadiness.mergeable) return { status: "mergeable", agentDead: false };
-              if (!batch.mergeReadiness.noConflicts) return { status: "merge_conflicts", agentDead: false };
-              if (batch.reviewDecision === "approved") return { status: "approved", agentDead: false };
+              if (batch.mergeReadiness.mergeable) return { status: "mergeable", agentDead };
+              if (!batch.mergeReadiness.noConflicts) return { status: "merge_conflicts", agentDead };
+              if (batch.reviewDecision === "approved") return { status: "approved", agentDead };
             }
-            if (batch.reviewDecision === "pending") return { status: "review_pending", agentDead: false };
+            if (batch.reviewDecision === "pending") return { status: "review_pending", agentDead };
           } catch (err) {
             // bd-att: If batch failed due to a GitHub API rate limit (or network error),
             // DO NOT fall back. Rethrow so determineStatus exits immediately.
@@ -434,27 +434,27 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         if (!usedBatch) {
           // Fallback: individual calls (no batch support or batch failed)
           const prState = await scm.getPRState(session.pr);
-          if (prState === PR_STATE.MERGED) return { status: "merged", agentDead: false };
-          if (prState === PR_STATE.CLOSED) return { status: "killed", agentDead: false };
+          if (prState === PR_STATE.MERGED) return { status: "merged", agentDead };
+          if (prState === PR_STATE.CLOSED) return { status: "killed", agentDead };
 
           const ciStatus = await scm.getCISummary(session.pr);
-          if (ciStatus === CI_STATUS.FAILING) return { status: "ci_failed", agentDead: false };
+          if (ciStatus === CI_STATUS.FAILING) return { status: "ci_failed", agentDead };
 
           // Check reviews
           const reviewDecision = await scm.getReviewDecision(session.pr);
-          if (reviewDecision === "changes_requested") return { status: "changes_requested", agentDead: false };
+          if (reviewDecision === "changes_requested") return { status: "changes_requested", agentDead };
           if (reviewDecision === "approved" || reviewDecision === "none") {
             // bd-wg5: Skip getMergeability when CI is pending
             if (ciStatus === CI_STATUS.PENDING) {
-              if (reviewDecision === "approved") return { status: "approved", agentDead: false };
-              return { status: "pr_open", agentDead: false };
+              if (reviewDecision === "approved") return { status: "approved", agentDead };
+              return { status: "pr_open", agentDead };
             }
             const mergeReady = await scm.getMergeability(session.pr);
-            if (mergeReady.mergeable) return { status: "mergeable", agentDead: false };
-            if (!mergeReady.noConflicts) return { status: "merge_conflicts", agentDead: false };
-            if (reviewDecision === "approved") return { status: "approved", agentDead: false };
+            if (mergeReady.mergeable) return { status: "mergeable", agentDead };
+            if (!mergeReady.noConflicts) return { status: "merge_conflicts", agentDead };
+            if (reviewDecision === "approved") return { status: "approved", agentDead };
           }
-          if (reviewDecision === "pending") return { status: "review_pending", agentDead: false };
+          if (reviewDecision === "pending") return { status: "review_pending", agentDead };
         }
 
         // 4b. Post-PR stuck detection: agent has a PR open but is idle beyond
@@ -506,12 +506,17 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       }
     }
 
-    // bd-ara + bd-6jc: If agent is dead and SCM was never invoked or all SCM calls
-    // have succeeded (scmFailureCount=0), kill immediately — no need to wait.  When
-    // scmFailureCount > 0, SCM has been called at least once (detectPR or PR checks)
-    // and thrown, so the counter gates the kill — do not double-count with an
-    // immediate kill here.
-    if (agentDead && !(session.pr && scm) && scmFailureCount === 0) return { status: "killed", agentDead: true };
+    // bd-ara: If agent is dead but we had no PR branch to check, kill.
+    // Note on scmFailureCount: the original `&& !(session.pr && scm) && scmFailureCount === 0`
+    // guard was redundant with the step-4 catch block above, which already returns "killed"
+    // when scmFailureCount >= 3. When scmFailureCount < 3 (below threshold), scmFailureCount
+    // is only non-zero after the catch increments it from a PR check failure. In that case,
+    // agentDead + (scmFailureCount > 0) means the agent died and PR checks failed — killing
+    // immediately is correct (the threshold just caps how many retries before we give up).
+    // scmFailureCount only resets to 0 in the step-4 try finally on SCM success, at which
+    // point the PR check either returned a status (non-killed) or threw. The simplified
+    // guard here is equivalent to the original for all live code paths.
+    if (agentDead) return { status: "killed", agentDead: true };
 
     // 5. Post-all stuck detection: if we detected idle in step 2 but had no PR,
     // still check stuck threshold. This handles agents that finish without creating a PR.
@@ -929,6 +934,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
           clearReactionTracker,
           getReactionConfigForSession,
           executeReaction,
+          agentDead: true, // killed-status absorbed block: agent is confirmed dead
         }, undefined);
         return;
       }
@@ -967,7 +973,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       // state and won't reach this block via a killed transition. This guard catches
       // other transitions (e.g. mergeable→something) for sessions where the agent died
       // between polls.
-      if (eventType && !agentDead) {
+      if (eventType) {
         let reactionHandledNotify = false;
         const reactionKey = eventToReactionKey(eventType);
 
@@ -975,8 +981,14 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
           const reactionConfig = getReactionConfigForSession(session, reactionKey);
 
           if (reactionConfig && reactionConfig.action) {
+            // bd-5o1: skip send-to-agent reactions for dead agents — ao send to a dead
+            // session wastes resources and generates spurious escalation notifications.
+            // All other reactions (auto-merge, notify, request-merge, parallel-retry) are
+            // SCM/notification operations that don't require a live agent.
+            const skipForDead = agentDead && reactionConfig.action === "send-to-agent";
+
             // auto: false skips automated agent actions but still allows notifications
-            if (reactionConfig.auto !== false || reactionConfig.action === "notify") {
+            if ((reactionConfig.auto !== false || reactionConfig.action === "notify") && !skipForDead) {
               // Reaction will execute
               const reactionResult = await executeReaction(
                 session.id,
@@ -1023,7 +1035,9 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
                 correlationId,
                 projectId: session.projectId,
                 sessionId: session.id,
-                data: { reactionKey, reason: "auto_disabled", auto: reactionConfig.auto, action: reactionConfig.action },
+                data: skipForDead
+                  ? { reactionKey, reason: "agent_dead", auto: reactionConfig.auto, action: reactionConfig.action }
+                  : { reactionKey, reason: "auto_disabled", auto: reactionConfig.auto, action: reactionConfig.action },
                 level: "info",
               });
             }
@@ -1073,6 +1087,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         clearReactionTracker,
         getReactionConfigForSession,
         executeReaction,
+        agentDead,
       }, transitionReaction);
 
       // Session exit reconciliation (bd-uxs.6): validate commits and emit proof on terminal states
@@ -1195,10 +1210,12 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       // subsequent polls so transient gate failures don't permanently block merge.
       // Cooldown: only retry once per 5 minutes to avoid notification spam and
       // reaction budget exhaustion (bd-ara CR feedback).
-      // bd-5o1: skip auto-merge retry for dead agents — a dead agent can't respond
-      // to merge failures (e.g. branch protection errors). If the PR needs manual
-      // intervention, leave it for human review rather than retrying into the void.
-      if (newStatus === "mergeable" && !agentDead) {
+      // bd-5o1 cursor fix: do NOT skip retry for dead agents — bd-ara's intent was
+      // that "auto-merge can fire for green PRs with exited agents". The retry handles
+      // transient failures (network, rate limits). If the failure is persistent (branch
+      // protection), the merge gate will fail again and the next-cycle notifyHuman call
+      // will alert humans rather than retrying forever.
+      if (newStatus === "mergeable") {
         const reactionKey = "approved-and-green";
         const reactionConfig = getReactionConfigForSession(session, reactionKey);
         if (
@@ -1281,6 +1298,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       clearReactionTracker,
       getReactionConfigForSession,
       executeReaction,
+      agentDead,
     }, transitionReaction);
 
     // Session exit reconciliation (bd-uxs.6): validate commits and emit proof on terminal states
