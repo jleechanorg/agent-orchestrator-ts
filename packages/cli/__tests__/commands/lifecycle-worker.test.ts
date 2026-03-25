@@ -150,8 +150,8 @@ describe("sweepOrphanWorktrees", () => {
     withLiveTmuxSessions([{ name: "xyz-999" }]);
     const observer = createMockObserver();
     const projectId = "proj";
-    const w1 = mkWorktree(projectId, "ao-1");
-    const w2 = mkWorktree(projectId, "jc-2");
+    mkWorktree(projectId, "ao-1");
+    mkWorktree(projectId, "jc-2");
 
     await sweepOrphanWorktrees({
       sessionManager: makeSessionManager(new Set()),
