@@ -1,8 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { reapStaleSessions, type ReaperConfig, type ReaperDeps } from "../session-reaper.js";
 import { sessionFromMetadata } from "../utils/session-from-metadata.js";
-import { VALID_PR_STATES } from "../types.js";
-import type { Session, SessionManager, SessionId, PRState } from "../types.js";
+import { VALID_PR_STATES, type Session, type SessionManager, type SessionId, type PRState } from "../types.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
