@@ -1,12 +1,10 @@
 #!/usr/bin/env bash
 # Metadata Updater Hook for Agent Orchestrator
 #
-# This hook registers for both PreToolUse and PostToolUse events:
-# - PreToolUse: enforces gh pr merge hard guardrail — denies merge unless AO_ALLOW_GH_PR_MERGE=1
-# - PostToolUse: updates session metadata when:
-#   - gh pr create: extracts PR URL and writes to metadata
-#   - git checkout -b / git switch -c: extracts branch name and writes to metadata
-#   - gh pr merge: updates status to "merged" (only when AO_ALLOW_GH_PR_MERGE=1 and hook_event=="PostToolUse")
+# This PostToolUse hook automatically updates session metadata when:
+# - gh pr create: extracts PR URL and writes to metadata
+# - git checkout -b / git switch -c: extracts branch name and writes to metadata
+# - gh pr merge: updates status to "merged"
 
 set -euo pipefail
 
@@ -30,11 +28,6 @@ else
   output=$(echo "$input" | grep -o '"tool_response"[[:space:]]*:[[:space:]]*"[^"]*"' | cut -d'"' -f4 || echo "")
   exit_code=$(echo "$input" | grep -o '"exit_code"[[:space:]]*:[[:space:]]*[0-9]*' | grep -o '[0-9]*$' || echo "0")
   hook_event=$(echo "$input" | grep -o '"hook_event_name"[[:space:]]*:[[:space:]]*"[^"]*"' | cut -d'"' -f4 || echo "")
-fi
-
-# Fallback to env var when JSON field is absent (e.g., agent-base hook invocations)
-if [[ -z "$hook_event" ]]; then
-  hook_event="${AO_HOOK_EVENT_NAME:-}"
 fi
 
 # Only process successful commands (exit code 0)
@@ -68,7 +61,19 @@ while [[ "$clean_command" =~ ^[[:space:]]*cd[[:space:]] ]]; do
   fi
 done
 
+# Hard guardrail: block agent-triggered gh pr merge by default.
+# Rationale: prompt rules (e.g., "NEVER MERGE") are advisory; this enforces policy in code.
+# Escape hatch for trusted/manual flows: AO_ALLOW_GH_PR_MERGE=1
+# This check runs BEFORE AO_SESSION/metadata checks since blocking a merge doesn't require session metadata.
+# Guard fires when NOT PostToolUse and NOT allowed. PostToolUse falls through for metadata update.
 merge_pattern='^[[:space:]]*([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]+[[:space:]]+)*gh[[:space:]]+pr[[:space:]]+merge([[:space:]]|$)'
+if [[ "$clean_command" =~ $merge_pattern ]]; then
+  if [[ "$hook_event" != "PostToolUse" && "${AO_ALLOW_GH_PR_MERGE:-}" != "1" ]]; then
+    echo '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"Blocked by AO policy: agents must not run gh pr merge. Leave merge to orchestrator/human."}}'
+    exit 0
+  fi
+  # AO_ALLOW_GH_PR_MERGE=1 during PreToolUse OR PostToolUse: fall through to metadata update below
+fi
 
 # Validate AO_SESSION is set
 if [[ -z "${AO_SESSION:-}" ]]; then
@@ -150,9 +155,9 @@ if [[ "$clean_command" =~ ^git[[:space:]]+checkout[[:space:]]+([^[:space:]-]+[/-
   fi
 fi
 
-# Detect: gh pr merge in PostToolUse — marks status=merged on successful merge.
-# PostToolUse guard ensures the command already succeeded before we update metadata.
-if [[ "$clean_command" =~ $merge_pattern && "$hook_event" == "PostToolUse" ]]; then
+# Detect: gh pr merge (only when explicitly allowed AND in PostToolUse — not PreToolUse)
+# Gate on PostToolUse to avoid marking status=merged before the merge actually succeeds.
+if [[ "$clean_command" =~ $merge_pattern && "${AO_ALLOW_GH_PR_MERGE:-}" == "1" && "$hook_event" == "PostToolUse" ]]; then
   update_metadata_key "status" "merged"
   echo '{"systemMessage": "Updated metadata: status = merged"}'
   exit 0

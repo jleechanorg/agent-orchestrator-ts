@@ -11,13 +11,11 @@ import {
 } from "../gh-headroom.js";
 
 describe("parseGhRateLimitOutput", () => {
-  it("parses valid gh rate_limit JSON (core key, epoch reset)", () => {
-    // GitHub API returns resources.core for REST and epoch seconds for reset
+  it("parses gh api --jq '.resources' output (graphql + core)", () => {
+    // This is what fetchGhRateLimit() passes after: gh api rate_limit --jq '.resources'
     const json = JSON.stringify({
-      resources: {
-        graphql: { remaining: 487, limit: 5000, reset: 1748779200 },
-        core:    { remaining: 4999, limit: 5000, reset: 1748779200 },
-      },
+      graphql: { remaining: 487, limit: 5000, reset: 1748779200 },
+      core:   { remaining: 4999, limit: 5000, reset: 1748779200 },
     });
     const result = parseGhRateLimitOutput(json);
     expect(result?.graphql?.remaining).toBe(487);
@@ -29,12 +27,21 @@ describe("parseGhRateLimitOutput", () => {
     expect(parseGhRateLimitOutput("")).toBeNull();
   });
 
-  it("returns null when resources key is missing", () => {
+  it("returns null when jq outputs null (missing resources key)", () => {
+    // When gh api --jq '.resources' finds no resources key, jq outputs "null"
+    expect(parseGhRateLimitOutput("null")).toBeNull();
+  });
+
+  it("returns null for arbitrary JSON without resources keys", () => {
+    // Fallback parsed ?? parsed must still require at least one known resource key
     expect(parseGhRateLimitOutput('{"foo": "bar"}')).toBeNull();
+    expect(parseGhRateLimitOutput("[]")).toBeNull();
+    expect(parseGhRateLimitOutput('{"resources": null}')).toBeNull();
   });
 
   it("handles missing graphql/core keys gracefully", () => {
-    const json = JSON.stringify({ resources: { search: { remaining: 10, limit: 30, reset: 1748779200 } } });
+    // gh api --jq '.resources' output with only search
+    const json = JSON.stringify({ search: { remaining: 10, limit: 30, reset: 0 } });
     const result = parseGhRateLimitOutput(json);
     expect(result?.graphql).toBeUndefined();
     expect(result?.core).toBeUndefined();
@@ -50,13 +57,25 @@ describe("DEFAULT_HEADROOM_THRESHOLDS", () => {
   });
 
   it("absoluteMin enforced as hard floor: both channels defer even when above graphqlMin/restMin", async () => {
-    // graphql=8, rest=8 — both above 0 but below absoluteMin=10 → must defer
+    // graphql=8, rest=8 — both below absoluteMin=10 → must defer
     ghHeadroomInject({ execAsync: stubHeadroom(8, 8) });
     invalidateHeadroomCache();
     const status = await getOperationHeadroom(); // uses DEFAULT_HEADROOM_THRESHOLDS
     expect(status.canUseGraphQL).toBe(false);
     expect(status.canUseREST).toBe(false);
     expect(status.recommendation).toBe("defer");
+    ghHeadroomInject();
+    invalidateHeadroomCache();
+  });
+
+  it("per-channel absoluteMin: GraphQL below floor but REST healthy → REST usable", async () => {
+    // graphql=5 (below absoluteMin=10), rest=4000 (well above restMin=50) → REST usable
+    ghHeadroomInject({ execAsync: stubHeadroom(5, 4000) });
+    invalidateHeadroomCache();
+    const status = await getOperationHeadroom();
+    expect(status.canUseGraphQL).toBe(false);
+    expect(status.canUseREST).toBe(true);
+    expect(status.recommendation).toBe("rest");
     ghHeadroomInject();
     invalidateHeadroomCache();
   });
@@ -82,7 +101,46 @@ describe("getOperationHeadroom / shouldDeferOperation", () => {
     expect(typeof status.canUseREST).toBe("boolean");
     expect(typeof status.graphqlRemaining).toBe("number");
     expect(typeof status.restRemaining).toBe("number");
-    expect(["graphql", "rest", "defer"]).toContain(status.recommendation);
+    // When headroom data is unavailable, the safe default is "defer"
+    expect(status.recommendation).toBe("defer");
+    expect(status.canUseGraphQL).toBe(false);
+    expect(status.canUseREST).toBe(false);
+  });
+
+  it("recommendation is defer when resources lacks graphql and core keys (search-only)", async () => {
+    // gh --jq '.resources' output with only "search" — no actionable buckets
+    ghHeadroomInject({
+      execAsync: vi.fn().mockResolvedValue({
+        stdout: JSON.stringify({ search: { remaining: 10, limit: 30, reset: 0 } }),
+        stderr: "",
+      }),
+    });
+    invalidateHeadroomCache();
+    const status = await getOperationHeadroom();
+    expect(status.recommendation).toBe("defer");
+    expect(status.canUseGraphQL).toBe(false);
+    expect(status.canUseREST).toBe(false);
+  });
+
+  it("cache hit with same thresholds skips recomputation and does not re-fetch", async () => {
+    const execStub = stubHeadroom(500, 4000);
+    ghHeadroomInject({ execAsync: execStub });
+    invalidateHeadroomCache(); // only before the FIRST call; do NOT reset between the two calls
+
+    // First call — cache miss, fetches once and populates cache
+    const first = await getOperationHeadroom();
+    expect(execStub).toHaveBeenCalledTimes(1);
+    expect(first.canUseGraphQL).toBe(true);
+    expect(first.recommendation).toBe("graphql");
+
+    // Second call — cache hit (same defaults), no re-fetch; values match first call
+    const second = await getOperationHeadroom();
+    expect(execStub).toHaveBeenCalledTimes(1); // still 1, no second fetch
+    expect(second.canUseGraphQL).toBe(first.canUseGraphQL);
+    expect(second.recommendation).toBe(first.recommendation);
+
+    ghHeadroomInject();
+    invalidateHeadroomCache(); // clean up after the test
   });
 });
 
@@ -109,11 +167,10 @@ describe("fetchGhRateLimit subprocess paths", () => {
   });
 
   it("returns parsed resources on successful subprocess call", async () => {
+    // gh api rate_limit --jq '.resources' returns the resources object directly
     const body = JSON.stringify({
-      resources: {
-        graphql: { remaining: 300, limit: 5000, reset: 1748779200 },
-        core:    { remaining: 4500, limit: 5000, reset: 1748779200 },
-      },
+      graphql: { remaining: 300, limit: 5000, reset: 1748779200 },
+      core:   { remaining: 4500, limit: 5000, reset: 1748779200 },
     });
     ghHeadroomInject({
       execAsync: vi.fn().mockResolvedValue({ stdout: body, stderr: "" }),
@@ -153,10 +210,8 @@ describe("fetchGhRateLimit subprocess paths", () => {
 /** Build an execAsync stub that returns the given headroom resources. */
 function stubHeadroom(graphqlRemaining: number, coreRemaining: number) {
   const body = JSON.stringify({
-    resources: {
-      graphql: { remaining: graphqlRemaining, limit: 5000, reset: 1748779200 },
-      core:    { remaining: coreRemaining,    limit: 5000, reset: 1748779200 },
-    },
+    graphql: { remaining: graphqlRemaining, limit: 5000, reset: 1748779200 },
+    core:   { remaining: coreRemaining,    limit: 5000, reset: 1748779200 },
   });
   return vi.fn().mockResolvedValue({ stdout: body, stderr: "" });
 }
@@ -227,16 +282,12 @@ describe("withRESTFallback", () => {
     // proving withRESTFallback actually re-fetches after cache invalidation.
     const execStub = vi.fn()
       .mockResolvedValueOnce({ stdout: JSON.stringify({
-        resources: {
-          graphql: { remaining: 500, limit: 5000, reset: 1748779200 },
-          core:    { remaining: 4000, limit: 5000, reset: 1748779200 },
-        },
+        graphql: { remaining: 500, limit: 5000, reset: 1748779200 },
+        core:   { remaining: 4000, limit: 5000, reset: 1748779200 },
       }), stderr: "" })
       .mockResolvedValueOnce({ stdout: JSON.stringify({
-        resources: {
-          graphql: { remaining: 500, limit: 5000, reset: 1748779200 },
-          core:    { remaining: 10, limit: 5000, reset: 1748779200 }, // REST exhausted
-        },
+        graphql: { remaining: 500, limit: 5000, reset: 1748779200 },
+        core:   { remaining: 10, limit: 5000, reset: 1748779200 }, // REST exhausted
       }), stderr: "" });
     ghHeadroomInject({ execAsync: execStub });
     invalidateHeadroomCache();
