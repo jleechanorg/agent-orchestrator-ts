@@ -1153,6 +1153,10 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
           AO_CONFIG_PATH: config.configPath,
           ...(config.port !== undefined && config.port !== null && { AO_PORT: String(config.port) }),
         },
+        onIdle: (idleSessionId: string) => {
+          // Persist idle state so lifecycle-manager picks it up on its next poll.
+          updateMetadata(sessionsDir, idleSessionId, { status: "idle" });
+        },
       });
     } catch (err) {
       // Clean up workspace and reserved ID if agent config or runtime creation failed
@@ -1474,6 +1478,9 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
         AO_PROJECT_ID: orchestratorConfig.projectId,
         AO_CONFIG_PATH: config.configPath,
         ...(config.port !== undefined && config.port !== null && { AO_PORT: String(config.port) }),
+      },
+      onIdle: (idleSessionId: string) => {
+        updateMetadata(sessionsDir, idleSessionId, { status: "idle" });
       },
     });
 
@@ -2735,6 +2742,9 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
         ...(projectId && { AO_PROJECT_ID: projectId }),
         AO_CONFIG_PATH: config.configPath,
         ...(config.port !== undefined && config.port !== null && { AO_PORT: String(config.port) }),
+      },
+      onIdle: (idleSessionId: string) => {
+        updateMetadata(sessionsDir, idleSessionId, { status: "idle" });
       },
     });
 
