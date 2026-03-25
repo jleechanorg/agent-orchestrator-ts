@@ -2,11 +2,11 @@ import { execFile } from "node:child_process";
 import { readdirSync } from "node:fs";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import type { SessionManager } from "@jleechanorg/ao-core";
-import {
-  createCorrelationId,
-  createProjectObserver,
+import type {
+  ObservabilityMetricName,
+  SessionManager,
 } from "@jleechanorg/ao-core";
+import { createCorrelationId } from "@jleechanorg/ao-core";
 
 const execFileAsync = promisify(execFile);
 
@@ -45,6 +45,19 @@ export async function listTmuxSessionsWithActivity(): Promise<
 // This avoids hardcoding a fixed prefix list (which would miss custom sessionPrefixes).
 export const AO_SESSION_PATTERN = /^[a-zA-Z0-9_-]+-\d+$/;
 
+interface WorktreeObserver {
+  recordOperation(opts: {
+    metric: ObservabilityMetricName;
+    operation: string;
+    outcome: "success" | "failure" | "info";
+    correlationId: string;
+    projectId: string;
+    data: Record<string, unknown>;
+    level: "debug" | "info" | "warn" | "error";
+    reason?: string;
+  }): void;
+}
+
 /**
  * Remove git worktrees for AO sessions whose tmux session is dead and that are
  * no longer tracked in the AO session DB. Prevents "refusing to fetch into checked-out
@@ -57,7 +70,7 @@ export async function sweepOrphanWorktrees(opts: {
   allProjectIds: string[];
   configHash: string;
   worktreeBaseDir: string;
-  observer: ReturnType<typeof createProjectObserver>;
+  observer: WorktreeObserver;
 }): Promise<void> {
   const {
     sessionManager,
