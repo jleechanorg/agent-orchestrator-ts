@@ -1082,7 +1082,7 @@ export interface OrchestratorConfig {
    * skips liveness/activity probes. Prevents killing sessions before the
    * agent CLI has fully initialized. (default: 120000 = 2 min)
    */
-  startupGracePeriodMs: number;
+  startupGracePeriodMs?: number;
 
   /** Default plugin selections */
   defaults: DefaultPlugins;

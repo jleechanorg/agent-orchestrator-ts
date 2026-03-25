@@ -255,8 +255,8 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     // initialize; polling before they're ready sees "exited"/"idle" and kills
     // the session. During the grace period, we trust the session is starting up.
     const sessionAgeMs = Date.now() - session.createdAt.getTime();
-    if (sessionAgeMs < config.startupGracePeriodMs) {
-      return { status: session.status, agentDead: false };
+    if (session.status === "spawning" && sessionAgeMs < (config.startupGracePeriodMs ?? 120_000)) {
+      return { status: "spawning", agentDead: false };
     }
 
     // If workspace was deleted (e.g., worktree cleaned up), session is dead
