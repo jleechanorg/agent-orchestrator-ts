@@ -67,7 +67,7 @@ describe("reapStaleSessions edge cases", () => {
       }),
     ];
     const sm = makeSessionManager(sessions);
-    (sm.kill as ReturnType<typeof vi.fn>)
+    vi.mocked(sm.kill)
       .mockRejectedValueOnce(new Error("kill failed"));
 
     const result = await reapStaleSessions(makeConfig({ maxKillsPerRun: 1 }), makeDeps(sm));
@@ -94,7 +94,7 @@ describe("reapStaleSessions edge cases", () => {
       }),
     ];
     const sm = makeSessionManager(sessions);
-    (sm.kill as ReturnType<typeof vi.fn>)
+    vi.mocked(sm.kill)
       .mockRejectedValueOnce(new Error("kill failed"))
       .mockResolvedValueOnce(undefined);
 
