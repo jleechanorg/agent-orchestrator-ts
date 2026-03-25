@@ -157,11 +157,8 @@ describe("notifier-slack", () => {
     });
 
     it("uses correct emoji for each priority level", async () => {
-      const fetchMock = mockFetchOk();
-      vi.stubGlobal("fetch", fetchMock);
-
-      const notifier = create({ webhookUrl: "https://hooks.slack.com/test" });
-
+      // Each iteration needs its own fresh fetch stub because beforeEach's
+      // vi.restoreAllMocks() clears the global stub between tests.
       const priorities: Array<[EventPriority, string]> = [
         ["urgent", ":rotating_light:"],
         ["action", ":point_right:"],
@@ -170,7 +167,9 @@ describe("notifier-slack", () => {
       ];
 
       for (const [priority, emoji] of priorities) {
-        fetchMock.mockClear();
+        const fetchMock = mockFetchOk();
+        vi.stubGlobal("fetch", fetchMock);
+        const notifier = create({ webhookUrl: "https://hooks.slack.com/test" });
         await notifier.notify(makeEvent({ priority }));
         const body = JSON.parse(fetchMock.mock.calls[0][1].body);
         expect(body.blocks[0].text.text).toContain(emoji);
@@ -345,6 +344,63 @@ describe("notifier-slack", () => {
       const actionsBlock = body.blocks.find((b: Record<string, unknown>) => b.type === "actions");
       expect(actionsBlock.elements).toHaveLength(1);
       expect(actionsBlock.elements[0].text.text).toBe("Merge");
+    });
+  });
+
+  describe("deduplication", () => {
+    it("sends first notify call for a session+eventType pair", async () => {
+      const fetchMock = mockFetchOk();
+      vi.stubGlobal("fetch", fetchMock);
+      const notifier = create({ webhookUrl: "https://hooks.slack.com/test" });
+      await notifier.notify(makeEvent({ sessionId: "app-1", type: "session.spawned" }));
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it("suppresses duplicate notify within dedupTtl window", async () => {
+      const fetchMock = mockFetchOk();
+      vi.stubGlobal("fetch", fetchMock);
+      const notifier = create({ webhookUrl: "https://hooks.slack.com/test", dedupTtlMs: 60_000 });
+      await notifier.notify(makeEvent({ sessionId: "app-1", type: "session.spawned" }));
+      await notifier.notify(makeEvent({ sessionId: "app-1", type: "session.spawned" }));
+      // Second call within TTL is suppressed — no additional POST
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it("allows same sessionId with different eventType", async () => {
+      const fetchMock = mockFetchOk();
+      vi.stubGlobal("fetch", fetchMock);
+      const notifier = create({ webhookUrl: "https://hooks.slack.com/test", dedupTtlMs: 60_000 });
+      await notifier.notify(makeEvent({ sessionId: "app-1", type: "session.spawned" }));
+      await notifier.notify(makeEvent({ sessionId: "app-1", type: "session.working" }));
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+
+    it("allows same eventType with different sessionId", async () => {
+      const fetchMock = mockFetchOk();
+      vi.stubGlobal("fetch", fetchMock);
+      const notifier = create({ webhookUrl: "https://hooks.slack.com/test", dedupTtlMs: 60_000 });
+      await notifier.notify(makeEvent({ sessionId: "app-1", type: "session.spawned" }));
+      await notifier.notify(makeEvent({ sessionId: "app-2", type: "session.spawned" }));
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+
+    it("dedup applies to notifyWithActions too", async () => {
+      const fetchMock = mockFetchOk();
+      vi.stubGlobal("fetch", fetchMock);
+      const notifier = create({ webhookUrl: "https://hooks.slack.com/test", dedupTtlMs: 60_000 });
+      const actions: NotifyAction[] = [{ label: "Merge", url: "https://example.com/merge" }];
+      await notifier.notifyWithActions!(makeEvent({ sessionId: "app-1", type: "merge.completed" }), actions);
+      await notifier.notifyWithActions!(makeEvent({ sessionId: "app-1", type: "merge.completed" }), actions);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it("post() is not subject to dedup (always sends)", async () => {
+      const fetchMock = mockFetchOk();
+      vi.stubGlobal("fetch", fetchMock);
+      const notifier = create({ webhookUrl: "https://hooks.slack.com/test", dedupTtlMs: 60_000 });
+      await notifier.post!("msg1");
+      await notifier.post!("msg2");
+      expect(fetchMock).toHaveBeenCalledTimes(2);
     });
   });
 

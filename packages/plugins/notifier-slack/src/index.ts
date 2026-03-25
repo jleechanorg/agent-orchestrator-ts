@@ -130,10 +130,26 @@ async function postToWebhook(webhookUrl: string, payload: Record<string, unknown
   }
 }
 
-export function create(config?: Record<string, unknown>): Notifier {
-  const webhookUrl = config?.webhookUrl as string | undefined;
-  const defaultChannel = config?.channel as string | undefined;
-  const username = (config?.username as string) ?? "Agent Orchestrator";
+/** In-memory dedup cache: key = "sessionId:eventType", value = last-sent timestamp (ms). */
+type DedupEntry = { ts: number };
+
+/**
+ * Deduplication config for [[create]].
+ * @param dedupTtlMs  Suppress duplicate notifies within this window (default 60 000 ms).
+ */
+export interface SlackNotifierConfig extends Record<string, unknown> {
+  webhookUrl?: string;
+  channel?: string;
+  username?: string;
+  /** Deduplication TTL in ms. Entries older than this are evicted on each sweep. Default: 60000. */
+  dedupTtlMs?: number;
+}
+
+export function create(config: SlackNotifierConfig = {}): Notifier {
+  const webhookUrl = config.webhookUrl;
+  const defaultChannel = config.channel;
+  const username = config.username ?? "Agent Orchestrator";
+  const dedupTtlMs = config.dedupTtlMs ?? 60_000;
 
   if (!webhookUrl) {
     console.warn("[notifier-slack] No webhookUrl configured — notifications will be no-ops");
@@ -141,43 +157,70 @@ export function create(config?: Record<string, unknown>): Notifier {
     validateUrl(webhookUrl, "notifier-slack");
   }
 
+  /** Deduplication map — package-level so [[sweepDedupCache]] can evict stale entries. */
+  const dedupCache = new Map<string, DedupEntry>();
+  const MAX_DEDUP_ENTRIES = 10_000;
+
+  /**
+   * Evict stale dedup entries older than [[dedupTtlMs]].
+   * Call this on each public method entry to keep the map bounded.
+   */
+  function sweepDedupCache(): void {
+    const cutoff = Date.now() - dedupTtlMs;
+    if (dedupCache.size < MAX_DEDUP_ENTRIES) return;
+    for (const [k, v] of dedupCache) {
+      if (v.ts < cutoff) dedupCache.delete(k);
+    }
+    // If still over limit (many concurrent sessions), evict oldest half
+    if (dedupCache.size > MAX_DEDUP_ENTRIES / 2) {
+      const sorted = [...dedupCache.entries()].sort((a, b) => a[1].ts - b[1].ts);
+      for (const [k] of sorted.slice(0, sorted.length / 2)) dedupCache.delete(k);
+    }
+  }
+
+  /**
+   * Return true if the (sessionId, eventType) pair was already notified
+   * within [[dedupTtlMs]]; false if it is new or the entry is stale.
+   * Marks the entry as sent on every call (idempotent update).
+   */
+  function markAndCheckDedup(sessionId: string, eventType: string): boolean {
+    sweepDedupCache();
+    const key = `${sessionId}:${eventType}`;
+    const prev = dedupCache.get(key);
+    const now = Date.now();
+    dedupCache.set(key, { ts: now });
+    return prev !== undefined && now - prev.ts < dedupTtlMs;
+  }
+
+  async function sendNotify(event: OrchestratorEvent, actions?: NotifyAction[]): Promise<void> {
+    if (!webhookUrl) return;
+    if (markAndCheckDedup(event.sessionId, event.type)) return;
+
+    const payload: Record<string, unknown> = {
+      username,
+      blocks: buildBlocks(event, actions),
+    };
+    if (defaultChannel) payload.channel = defaultChannel;
+
+    await postToWebhook(webhookUrl, payload);
+  }
+
   return {
     name: "slack",
 
     async notify(event: OrchestratorEvent): Promise<void> {
-      if (!webhookUrl) return;
-
-      const payload: Record<string, unknown> = {
-        username,
-        blocks: buildBlocks(event),
-      };
-      if (defaultChannel) payload.channel = defaultChannel;
-
-      await postToWebhook(webhookUrl, payload);
+      await sendNotify(event);
     },
 
     async notifyWithActions(event: OrchestratorEvent, actions: NotifyAction[]): Promise<void> {
-      if (!webhookUrl) return;
-
-      const payload: Record<string, unknown> = {
-        username,
-        blocks: buildBlocks(event, actions),
-      };
-      if (defaultChannel) payload.channel = defaultChannel;
-
-      await postToWebhook(webhookUrl, payload);
+      await sendNotify(event, actions);
     },
 
     async post(message: string, context?: NotifyContext): Promise<string | null> {
       if (!webhookUrl) return null;
-
       const channel = context?.channel ?? defaultChannel;
-      const payload: Record<string, unknown> = {
-        username,
-        text: message,
-      };
+      const payload: Record<string, unknown> = { username, text: message };
       if (channel) payload.channel = channel;
-
       await postToWebhook(webhookUrl, payload);
       // Incoming webhooks don't return a message ID
       return null;
