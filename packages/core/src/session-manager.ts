@@ -1513,9 +1513,9 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
           ...(config.port !== undefined &&
             config.port !== null && { AO_PORT: String(config.port) }),
         },
-        onIdle: (idleSessionId: string) => {
-          // Persist idle state so lifecycle-manager picks it up on its next poll.
-          updateMetadata(sessionsDir, idleSessionId, { status: "idle" });
+        onIdle: (_idleSessionId: string) => {
+          // Use the AO sessionId, not the runtime handle id (tmuxName) — bd-5o1.
+          updateMetadata(sessionsDir, sessionId, { status: "idle" });
         },
       });
     } catch (err) {
@@ -1821,8 +1821,9 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
         AO_CONFIG_PATH: config.configPath,
         ...(config.port !== undefined && config.port !== null && { AO_PORT: String(config.port) }),
       },
-      onIdle: (idleSessionId: string) => {
-        updateMetadata(sessionsDir, idleSessionId, { status: "idle" });
+      onIdle: (_idleSessionId: string) => {
+        // Use the AO sessionId, not the runtime handle id (tmuxName) — bd-5o1.
+        updateMetadata(sessionsDir, sessionId, { status: "idle" });
       },
     });
 
@@ -3403,8 +3404,9 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
         AO_CONFIG_PATH: config.configPath,
         ...(config.port !== undefined && config.port !== null && { AO_PORT: String(config.port) }),
       },
-      onIdle: (idleSessionId: string) => {
-        updateMetadata(sessionsDir, idleSessionId, { status: "idle" });
+      onIdle: (_idleSessionId: string) => {
+        // Use the AO sessionId, not the runtime handle id (tmuxName) — bd-5o1.
+        updateMetadata(sessionsDir, sessionId, { status: "idle" });
       },
     });
 
