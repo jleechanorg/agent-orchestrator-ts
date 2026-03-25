@@ -42,7 +42,6 @@ const META_LAST_DELTA_AT        = "no_delta_last_delta_at";
 const META_DELTA_WARN_AT        = "no_delta_warn_at";
 const META_DELTA_STUCK_AT       = "no_delta_stuck_at";
 const META_DELTA_WARN_COUNT     = "no_delta_warn_count";
-const META_DELTA_CHECK_COUNT    = "no_delta_check_count";
 
 function now(): string { return new Date().toISOString(); }
 function minutesSince(iso: string): number {
@@ -76,7 +75,6 @@ export interface NoDeltaEvaluation {
   result: NoDeltaResult;
   minutesSinceDelta: number;
   warnCount: number;
-  checkCount: number;
   shouldNotify: boolean;
   shouldMarkStuck: boolean;
 }
@@ -94,25 +92,23 @@ export function evaluateNoDeltaWatchdog(
   config: NoDeltaWatchdogConfig,
 ): NoDeltaEvaluation {
   if (!config.enabled) {
-    return { result: "ok", minutesSinceDelta: 0, warnCount: 0, checkCount: 0, shouldNotify: false, shouldMarkStuck: false };
+    return { result: "ok", minutesSinceDelta: 0, warnCount: 0, shouldNotify: false, shouldMarkStuck: false };
   }
 
   const lastDeltaAt   = session.metadata[META_LAST_DELTA_AT] ?? "";
   const deltaWarnAt   = session.metadata[META_DELTA_WARN_AT] ?? "";
   const deltaStuckAt  = session.metadata[META_DELTA_STUCK_AT] ?? "";
   const warnCount     = parseInt(session.metadata[META_DELTA_WARN_COUNT] ?? "0", 10);
-  const checkCount    = parseInt(session.metadata[META_DELTA_CHECK_COUNT] ?? "0", 10) + 1;
 
   if (!lastDeltaAt) {
     // No delta recorded yet — check against session start time
-    const sessionStart = session.metadata["created_at"] ?? now();
+    const sessionStart = session.metadata["createdAt"] ?? session.createdAt?.toISOString() ?? now();
     const minutes = minutesSince(sessionStart);
     const result: NoDeltaResult = minutes >= config.stuckThresholdMinutes ? "stuck" : minutes >= config.warnThresholdMinutes ? "warn" : "ok";
     return {
       result,
       minutesSinceDelta: minutes,
       warnCount: 0,
-      checkCount,
       shouldNotify: result === "warn",
       shouldMarkStuck: result === "stuck",
     };
@@ -127,7 +123,7 @@ export function evaluateNoDeltaWatchdog(
   const shouldNotify   = result === "warn" && !deltaWarnAt;
   const shouldMarkStuck = result === "stuck" && !deltaStuckAt;
 
-  return { result, minutesSinceDelta, warnCount, checkCount, shouldNotify, shouldMarkStuck };
+  return { result, minutesSinceDelta, warnCount, shouldNotify, shouldMarkStuck };
 }
 
 // ---------------------------------------------------------------------------

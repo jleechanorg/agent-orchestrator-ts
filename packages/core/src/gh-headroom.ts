@@ -77,17 +77,18 @@ export const DEFAULT_HEADROOM_THRESHOLDS: HeadroomThresholds = {
 // ---------------------------------------------------------------------------
 
 interface GHRateLimitResources {
-  graphql?: { remaining: number; limit: number; reset: number };
-  /** GitHub REST rate limits are reported under the "core" key, not "rest". */
-  core?: { remaining: number; limit: number; reset: number };
-  search?: { remaining: number; limit: number; reset: number };
+  graphql?: { remaining: number; limit: number; reset: string };
+  core?: { remaining: number; limit: number; reset: string };
+  search?: { remaining: number; limit: number; reset: string };
 }
 
-/** Parse `gh api rate_limit` JSON output. Returns null on parse failure. */
+/** Parse `gh api rate_limit --jq '.resources'` output. Returns null on parse failure. */
 export function parseGhRateLimitOutput(stdout: string): GHRateLimitResources | null {
   try {
     const parsed = JSON.parse(stdout);
-    return parsed.resources ?? null;
+    // Caller (fetchGhRateLimit) passes --jq '.resources' so we receive the
+    // resources object directly. Support both that and the full-response shape.
+    return parsed.resources ?? parsed;
   } catch {
     return null;
   }
@@ -99,7 +100,7 @@ export function parseGhRateLimitOutput(stdout: string): GHRateLimitResources | n
  */
 export async function fetchGhRateLimit(): Promise<GHRateLimitResources | null> {
   try {
-    const { stdout } = await _execAsync("gh", ["api", "rate_limit"], {
+    const { stdout } = await _execAsync("gh", ["api", "rate_limit", "--jq", ".resources"], {
       encoding: "utf-8",
       timeout: 10_000,
     });
@@ -131,16 +132,21 @@ export async function getHeadroomStatus(
   }
 
   const resources = await fetchGhRateLimit();
-  const resetEpoch = resources?.graphql?.reset ?? resources?.core?.reset ?? null;
-  const resetAt = resetEpoch !== null ? new Date(resetEpoch * 1000).toISOString() : null;
+  const resetAt = resources?.graphql?.reset
+    ?? resources?.core?.reset
+    ?? null;
 
   _cachedHeadroom = {
     graphqlRemaining: resources?.graphql?.remaining ?? 1000,
     restRemaining: resources?.core?.remaining ?? 5000,
     resetAt,
-    canUseGraphQL: true,
-    canUseREST: true,
-    recommendation: "graphql" as const,
+    canUseGraphQL: (resources?.graphql?.remaining ?? 1000) >= opts.graphqlMin,
+    canUseREST: (resources?.core?.remaining ?? 5000) >= opts.restMin,
+    recommendation: (resources?.graphql?.remaining ?? 1000) >= opts.graphqlMin
+      ? "graphql"
+      : (resources?.core?.remaining ?? 5000) >= opts.restMin
+      ? "rest"
+      : "defer",
   };
   _headroomFetchedAt = now;
 

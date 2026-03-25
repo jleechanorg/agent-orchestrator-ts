@@ -26,7 +26,7 @@ function makeSession(metadataOverrides: Record<string, string> = {}): Session {
     createdAt: new Date(),
     lastActivityAt: new Date(),
     metadata: {
-      created_at: minutesAgo(30),
+      createdAt: minutesAgo(30),
       ...metadataOverrides,
     },
   };
@@ -110,7 +110,7 @@ describe("evaluateNoDeltaWatchdog", () => {
 
     it("marks stuck if session is old and no delta recorded", () => {
       const session = makeSession({
-        created_at: minutesAgo(120),
+        createdAt: minutesAgo(120),
       });
       const result = evaluateNoDeltaWatchdog(session, cfg);
       expect(result.result).toBe("stuck");
@@ -119,7 +119,7 @@ describe("evaluateNoDeltaWatchdog", () => {
 
     it("returns ok for fresh session with no delta", () => {
       const session = makeSession({
-        created_at: minutesAgo(5),
+        createdAt: minutesAgo(5),
       });
       const result = evaluateNoDeltaWatchdog(session, cfg);
       expect(result.result).toBe("ok");
