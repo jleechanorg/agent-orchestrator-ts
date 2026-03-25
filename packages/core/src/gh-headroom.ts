@@ -17,6 +17,8 @@ import { isGhRateLimitError } from "./gh-rate-limit.js";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
+const execFileAsync = promisify(execFile);
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -76,11 +78,8 @@ export function parseGhRateLimitOutput(stdout: string): GHRateLimitResources | n
  * Returns null on failure (caller should fall back to REST).
  */
 export async function fetchGhRateLimit(): Promise<GHRateLimitResources | null> {
-  const { execFile } = await import("node:child_process");
-  const { promisify } = await import("node:util");
-  const execFileAsync = promisify(execFile);
   try {
-    const { stdout } = await execFileAsync("gh", ["api", "rate_limit", "--jq", ".resources"], {
+    const { stdout } = await execFileAsync("gh", ["api", "rate_limit"], {
       encoding: "utf-8",
       timeout: 10_000,
     });
