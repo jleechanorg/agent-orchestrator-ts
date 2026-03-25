@@ -203,7 +203,7 @@ describe("reapStaleSessions", () => {
   });
 
   // bd-s4t tests: merged/closed PR state → zombie kill via explicit reaper safety net
-  it("13. session with merged PR state but non-terminal status → killed as zombie (bd-s4t)", async () => {
+  it("session with merged PR state but non-terminal status → killed as zombie (bd-s4t)", async () => {
     const sessions = [
       makeSession("s1", {
         status: "working", // non-terminal; lifecycle-manager missed the transition
@@ -234,7 +234,7 @@ describe("reapStaleSessions", () => {
     expect(sm.kill).toHaveBeenCalledWith("s1");
   });
 
-  it("14. session with closed PR state but non-terminal status → killed as zombie (bd-s4t)", async () => {
+  it("session with closed PR state but non-terminal status → killed as zombie (bd-s4t)", async () => {
     const sessions = [
       makeSession("s1", {
         status: "working", // non-terminal; lifecycle-manager missed the transition
@@ -264,7 +264,7 @@ describe("reapStaleSessions", () => {
     expect(sm.kill).toHaveBeenCalledWith("s1");
   });
 
-  it("15. kill count observability: result reflects exact kills and skips per cycle (bd-s4t)", async () => {
+  it("kill count observability: result reflects exact kills and skips per cycle (bd-s4t)", async () => {
     // 3 candidates: 2 merge-zombies + 1 orphaned — verify count fields are accurate
     const sessions = [
       makeSession("s1", {
