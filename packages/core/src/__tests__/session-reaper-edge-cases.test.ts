@@ -199,6 +199,25 @@ describe("zombie detection via pr.state (bd-s4t)", () => {
     expect(sm.kill).toHaveBeenCalledWith("zombie-2");
   });
 
+  it("skips closed PR session that is not yet idle past orphanedThreshold (bd-s4t idle guard)", async () => {
+    // Explicitly verifies the idle-threshold guard: 1 min idle < 5 min threshold → skip
+    const recentlyActiveSession = makeSession("closed-active", {
+      status: "working",
+      pr: { number: 100, url: "https://github.com/org/repo/pull/100", title: "", owner: "org", repo: "repo", branch: "feat/test", baseBranch: "main", isDraft: false, state: "closed" },
+      metadata: { prState: "closed" },
+      lastActivityAt: new Date(BASE_NOW.getTime() - 60_000), // 1 minute ago
+    });
+    const sm = makeSessionManager([recentlyActiveSession]);
+    const result = await reapStaleSessions(
+      makeConfig({ maxKillsPerRun: 20, orphanedThresholdMs: 5 * 60_000 }), // 5 min threshold
+      makeDeps(sm),
+    );
+    expect(result.killed).toHaveLength(0);
+    expect(result.skipped).toHaveLength(1);
+    expect(result.skipped[0].reason).toContain("may reopen");
+    expect(sm.kill).not.toHaveBeenCalled();
+  });
+
   it("kills session reconstructed from metadata with prState=merged (bd-s4t round-trip integration)", async () => {
     // This exercises the full chain: sessionFromMetadata hydrates session.pr.state
     // from metadata prState field, then reapStaleSessions detects zombie state
