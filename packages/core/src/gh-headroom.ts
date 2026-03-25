@@ -153,9 +153,17 @@ export async function getHeadroomStatus(
     _cachedHeadroom._cachedThresholds.restMin === opts.restMin &&
     _cachedHeadroom._cachedThresholds.absoluteMin === opts.absoluteMin
   ) {
-    // Cache hit with same thresholds — return immediately, no recomputation needed.
-    const { _cachedThresholds: _, ...status } = _cachedHeadroom;
-    return { ...status, canUseGraphQL: true, canUseREST: true, recommendation: "graphql" };
+    // Cache hit with same thresholds — derive decision from cached counts directly,
+    // preserving the actual headroom state (e.g. defer-state cache is not upgraded
+    // to a healthy graphql/recommendation).
+    const { graphqlRemaining, restRemaining, resetAt } = _cachedHeadroom;
+    const belowGraphqlAbs = graphqlRemaining < opts.absoluteMin;
+    const belowRestAbs    = restRemaining    < opts.absoluteMin;
+    const canUseGraphQL   = !belowGraphqlAbs && graphqlRemaining >= opts.graphqlMin;
+    const canUseREST      = !belowRestAbs    && restRemaining    >= opts.restMin;
+    const recommendation: HeadroomStatus["recommendation"] =
+      canUseGraphQL ? "graphql" : canUseREST ? "rest" : "defer";
+    return { graphqlRemaining, restRemaining, resetAt, canUseGraphQL, canUseREST, recommendation };
   }
 
   const resources = await fetchGhRateLimit();
@@ -197,13 +205,19 @@ function applyThresholds(
   cache: CachedHeadroom,
   opts: HeadroomThresholds,
 ): HeadroomStatus {
-  // Enforce hard floor: if either remaining count is below absoluteMin,
-  // treat both channels as unusable regardless of graphqlMin/restMin.
-  const belowAbsoluteMin =
-    cache.graphqlRemaining < opts.absoluteMin ||
-    cache.restRemaining < opts.absoluteMin;
+  // Per-channel absoluteMin floor: each channel is blocked independently when below
+  // the hard floor. A healthy REST bucket is still usable when GraphQL is low, and
+  // vice versa — only the depleted channel defers.
+  const belowGraphqlAbs = cache.graphqlRemaining < opts.absoluteMin;
+  const belowRestAbs    = cache.restRemaining    < opts.absoluteMin;
 
-  if (belowAbsoluteMin) {
+  const canUseGraphQL =
+    !belowGraphqlAbs && cache.graphqlRemaining >= opts.graphqlMin;
+  const canUseREST =
+    !belowRestAbs && cache.restRemaining >= opts.restMin;
+
+  // Only defer when NEITHER channel has usable headroom.
+  if (!canUseGraphQL && !canUseREST) {
     return {
       graphqlRemaining: cache.graphqlRemaining,
       restRemaining: cache.restRemaining,
@@ -214,10 +228,8 @@ function applyThresholds(
     };
   }
 
-  const canUseGraphQL = cache.graphqlRemaining >= opts.graphqlMin;
-  const canUseREST    = cache.restRemaining >= opts.restMin;
   const recommendation: HeadroomStatus["recommendation"] =
-    canUseGraphQL ? "graphql" : canUseREST ? "rest" : "defer";
+    canUseGraphQL ? "graphql" : "rest";
   return {
     graphqlRemaining: cache.graphqlRemaining,
     restRemaining: cache.restRemaining,

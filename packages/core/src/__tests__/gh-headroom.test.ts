@@ -57,13 +57,25 @@ describe("DEFAULT_HEADROOM_THRESHOLDS", () => {
   });
 
   it("absoluteMin enforced as hard floor: both channels defer even when above graphqlMin/restMin", async () => {
-    // graphql=8, rest=8 — both above 0 but below absoluteMin=10 → must defer
+    // graphql=8, rest=8 — both below absoluteMin=10 → must defer
     ghHeadroomInject({ execAsync: stubHeadroom(8, 8) });
     invalidateHeadroomCache();
     const status = await getOperationHeadroom(); // uses DEFAULT_HEADROOM_THRESHOLDS
     expect(status.canUseGraphQL).toBe(false);
     expect(status.canUseREST).toBe(false);
     expect(status.recommendation).toBe("defer");
+    ghHeadroomInject();
+    invalidateHeadroomCache();
+  });
+
+  it("per-channel absoluteMin: GraphQL below floor but REST healthy → REST usable", async () => {
+    // graphql=5 (below absoluteMin=10), rest=4000 (well above restMin=50) → REST usable
+    ghHeadroomInject({ execAsync: stubHeadroom(5, 4000) });
+    invalidateHeadroomCache();
+    const status = await getOperationHeadroom();
+    expect(status.canUseGraphQL).toBe(false);
+    expect(status.canUseREST).toBe(true);
+    expect(status.recommendation).toBe("rest");
     ghHeadroomInject();
     invalidateHeadroomCache();
   });
@@ -116,12 +128,16 @@ describe("getOperationHeadroom / shouldDeferOperation", () => {
     invalidateHeadroomCache();
 
     // First call — cache miss, fetches once
-    await getOperationHeadroom();
+    const first = await getOperationHeadroom();
     expect(execStub).toHaveBeenCalledTimes(1);
+    expect(first.canUseGraphQL).toBe(true);
+    expect(first.recommendation).toBe("graphql");
 
-    // Second call — cache hit (same defaults), no re-fetch
-    await getOperationHeadroom();
+    // Second call — cache hit (same defaults), no re-fetch; values match first call
+    const second = await getOperationHeadroom();
     expect(execStub).toHaveBeenCalledTimes(1); // still 1, no second fetch
+    expect(second.canUseGraphQL).toBe(first.canUseGraphQL);
+    expect(second.recommendation).toBe(first.recommendation);
 
     ghHeadroomInject();
     invalidateHeadroomCache();
