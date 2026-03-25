@@ -152,18 +152,34 @@ export async function getHeadroomStatus(
       ? new Date(resetEpoch * 1000).toISOString()
       : null;
 
-  _cachedHeadroom = {
-    graphqlRemaining: resources?.graphql?.remaining ?? 1000,
-    restRemaining: resources?.core?.remaining ?? 5000,
-    resetAt,
-    canUseGraphQL: (resources?.graphql?.remaining ?? 1000) >= opts.graphqlMin,
-    canUseREST: (resources?.core?.remaining ?? 5000) >= opts.restMin,
-    recommendation: (resources?.graphql?.remaining ?? 1000) >= opts.graphqlMin
-      ? "graphql"
-      : (resources?.core?.remaining ?? 5000) >= opts.restMin
-      ? "rest"
-      : "defer",
-  };
+  // Defensive: if we have no snapshot or no actionable buckets (graphql/core),
+  // the safe default is "defer" — never guess graphql when headroom is unknown.
+  const hasGraphql = resources != null && "graphql" in resources;
+  const hasCore    = resources != null && "core"    in resources;
+
+  if (!hasGraphql && !hasCore) {
+    _cachedHeadroom = {
+      graphqlRemaining: 0,
+      restRemaining: 0,
+      resetAt,
+      canUseGraphQL: false,
+      canUseREST: false,
+      recommendation: "defer",
+    };
+  } else {
+    _cachedHeadroom = {
+      graphqlRemaining: resources?.graphql?.remaining ?? 0,
+      restRemaining: resources?.core?.remaining ?? 0,
+      resetAt,
+      canUseGraphQL: (resources?.graphql?.remaining ?? 0) >= opts.graphqlMin,
+      canUseREST: (resources?.core?.remaining ?? 0) >= opts.restMin,
+      recommendation: (resources?.graphql?.remaining ?? 0) >= opts.graphqlMin
+        ? "graphql"
+        : (resources?.core?.remaining ?? 0) >= opts.restMin
+        ? "rest"
+        : "defer",
+    };
+  }
   _headroomFetchedAt = now;
 
   return applyThresholds(_cachedHeadroom, opts);
