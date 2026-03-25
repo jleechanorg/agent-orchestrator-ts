@@ -138,6 +138,29 @@ process.stdin.on('data', c => input += c).on('end', () => {
 }
 
 // =============================================================================
+// Terminal output patterns (hoisted to avoid repeated allocation)
+// =============================================================================
+
+/** Patterns where the agent is blocked on an interactive prompt — needs human input. */
+const INTERACTIVE_PROMPT_PATTERNS: readonly RegExp[] = [
+  /\[y\/?n\]/i, // [y/n], [y/n], [Yn], etc.
+  /\[yes\/?no\]/i,
+  /\bconfirm\??\b/i, // "confirm?" or "confirm" as a standalone word
+  /\?\s*$/m, // "?" at end of line (question prompt)
+  /^\s*[→\-•]\s*$/m, // arrow/hyphen/bullet-only line (menu selection)
+];
+
+/** Patterns where the agent is waiting neutrally — AO can send work. */
+const NEUTRAL_WAIT_PATTERNS: readonly RegExp[] = [
+  /press .* to (continue|submit|send|confirm|run)/i,
+  /\b(q|quit|exit|cancel)\b.*\bto\b/i,
+  /\bwaiting\b/i,
+  /\bready\b/i,
+  /proceed\??\b/i, // "proceed?" or "proceed" as a standalone word
+  /\boptions?\b.*\bselect\b/i, // "option select" or "options, select"
+];
+
+// =============================================================================
 // Plugin Manifest
 // =============================================================================
 
@@ -238,7 +261,14 @@ function createOpenCodeAgent(): Agent {
 
     detectActivity(terminalOutput: string): ActivityState {
       if (!terminalOutput.trim()) return "idle";
-      // OpenCode doesn't have rich terminal output patterns yet
+
+      for (const p of INTERACTIVE_PROMPT_PATTERNS) {
+        if (p.test(terminalOutput)) return "waiting_input";
+      }
+      for (const p of NEUTRAL_WAIT_PATTERNS) {
+        if (p.test(terminalOutput)) return "ready";
+      }
+
       return "active";
     },
 
