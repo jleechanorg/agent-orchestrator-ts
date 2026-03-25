@@ -83,7 +83,7 @@ export function tryAcquireLifecycleLock(
 
   const _reapStaleLock = (): boolean => {
     // Read the PID stored in the stale lock file.
-    let stalePid: number | null = null;
+    let stalePid: number;
     try {
       const raw = readFileSync(lockFile, "utf-8").trim();
       stalePid = Number.parseInt(raw, 10);
