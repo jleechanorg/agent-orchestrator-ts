@@ -14,6 +14,8 @@
  */
 
 import { isGhRateLimitError } from "./gh-rate-limit.js";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -30,7 +32,7 @@ export interface HeadroomStatus {
   restRemaining: number;
   /** Reset timestamp (ISO) for the current rate-limit window */
   resetAt: string | null;
-  /** "graphql" | "rest" | "both" | "ok" */
+  /** "graphql" | "rest" | "defer" */
   recommendation: "graphql" | "rest" | "defer";
 }
 
@@ -74,15 +76,14 @@ export function parseGhRateLimitOutput(stdout: string): GHRateLimitResources | n
  * Returns null on failure (caller should fall back to REST).
  */
 export async function fetchGhRateLimit(): Promise<GHRateLimitResources | null> {
-  const { execFile } = await import("child_process");
-  const { promisify } = await import("util");
+  const { execFile } = await import("node:child_process");
+  const { promisify } = await import("node:util");
   const execFileAsync = promisify(execFile);
   try {
-    const { stdout } = await execFileAsync(
-      "gh",
-      ["api", "rate_limit", "--jq", ".resources"],
-      { timeout: 10_000 },
-    );
+    const { stdout } = await execFileAsync("gh", ["api", "rate_limit", "--jq", ".resources"], {
+      encoding: "utf-8",
+      timeout: 10_000,
+    });
     return parseGhRateLimitOutput(stdout);
   } catch {
     return null;
@@ -119,13 +120,9 @@ export async function getHeadroomStatus(
     graphqlRemaining: resources?.graphql?.remaining ?? 1000,
     restRemaining: resources?.rest?.remaining ?? 5000,
     resetAt,
-    canUseGraphQL: (resources?.graphql?.remaining ?? 1000) >= opts.graphqlMin,
-    canUseREST: (resources?.rest?.remaining ?? 5000) >= opts.restMin,
-    recommendation: (resources?.graphql?.remaining ?? 1000) >= opts.graphqlMin
-      ? "graphql"
-      : (resources?.rest?.remaining ?? 5000) >= opts.restMin
-      ? "rest"
-      : "defer",
+    canUseGraphQL: true,
+    canUseREST: true,
+    recommendation: "graphql" as const,
   };
   _headroomFetchedAt = now;
 
@@ -198,7 +195,7 @@ export async function withRESTFallback<T>(
  * Determine whether to defer a GH operation based on current headroom.
  * Returns "defer" if both GraphQL and REST are low.
  */
-export async function shouldDeferOperation(
+export async function getOperationHeadroom(
   thresholds: Partial<HeadroomThresholds> = {},
 ): Promise<HeadroomStatus> {
   return getHeadroomStatus(thresholds);

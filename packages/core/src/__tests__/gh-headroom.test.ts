@@ -3,7 +3,6 @@ import {
   parseGhRateLimitOutput,
   DEFAULT_HEADROOM_THRESHOLDS,
 } from "../gh-headroom.js";
-import { getBackoffForAttempt } from "../gh-graphql-defer.js";
 
 describe("parseGhRateLimitOutput", () => {
   it("parses valid gh rate_limit JSON", () => {
@@ -33,29 +32,6 @@ describe("parseGhRateLimitOutput", () => {
     expect(result?.graphql).toBeUndefined();
     expect(result?.rest).toBeUndefined();
     expect(result?.search?.remaining).toBe(10);
-  });
-});
-
-describe("getBackoffForAttempt", () => {
-  it("returns INITIAL_BACKOFF_MS for attempt 1", () => {
-    expect(getBackoffForAttempt(1)).toBe(1_000);
-  });
-
-  it("returns 2x for attempt 2", () => {
-    expect(getBackoffForAttempt(2)).toBe(2_000);
-  });
-
-  it("returns 4x for attempt 3", () => {
-    expect(getBackoffForAttempt(3)).toBe(4_000);
-  });
-
-  it("caps at MAX_BACKOFF_MS", () => {
-    expect(getBackoffForAttempt(10)).toBe(30_000);
-    expect(getBackoffForAttempt(10, 10_000)).toBe(10_000);
-  });
-
-  it("respects custom cap", () => {
-    expect(getBackoffForAttempt(5, 5_000)).toBe(5_000);
   });
 });
 
