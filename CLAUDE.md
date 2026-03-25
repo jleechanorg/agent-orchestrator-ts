@@ -41,6 +41,13 @@ A PR is green when **ALL SIX** are true:
 
 **Never declare a PR green or ask for merge unless all 6 are true.**
 
+**PR status check — always check merge state FIRST:**
+```bash
+# STEP 0 — mandatory first check. If merged/closed, stop.
+gh api repos/OWNER/REPO/pulls/N --jq '{state, merged}'
+```
+`mergeable_state` returns `unknown` for merged PRs. Review states don't change after merge. Omitting this check causes monitoring loops to report "blocked" on merged PRs.
+
 **After pushing to a branch: EXIT immediately.** Do not sleep-poll for CI or bot results — the monitoring loop handles rechecks. If a bash command times out mid-sleep, do not retry; exit and report current status.
 
 ## Fork Isolation — Code Separation from Upstream
