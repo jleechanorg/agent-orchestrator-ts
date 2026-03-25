@@ -18,7 +18,9 @@
  * are available.
  */
 
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
+import { dirname, join } from "node:path";
 import {
   TERMINAL_STATUSES,
   type PluginRegistry,
@@ -33,10 +35,48 @@ import { getSessionsDir } from "./paths.js";
 // ---- module-level throttle state ----
 let lastDrainTime = 0;
 const DRAIN_INTERVAL_MS = 30_000; // 30 seconds between drain attempts
+const MAX_SPAWN_RETRIES = 3;
 
 /** Reset throttle state — exposed for testing only. */
 export function _resetDrainTimer(): void {
   lastDrainTime = 0;
+}
+
+// ---- Persistent queue state (survives across poll cycles) ----
+
+interface QueueState {
+  /** Bead IDs that have been successfully dispatched and completed. */
+  dispatched: string[];
+  /** Bead IDs that failed to spawn, mapped to their retry count. */
+  failed: Record<string, number>;
+}
+
+function getQueueStatePath(configPath: string, projectId: string): string {
+  const sessionsDir = getSessionsDir(configPath, "");
+  // Place state file alongside sessions dir
+  return join(sessionsDir, "..", `queue-state-${projectId}.json`);
+}
+
+function loadQueueState(configPath: string, projectId: string): QueueState {
+  const statePath = getQueueStatePath(configPath, projectId);
+  try {
+    if (existsSync(statePath)) {
+      return JSON.parse(readFileSync(statePath, "utf-8")) as QueueState;
+    }
+  } catch {
+    // Corrupt state file — start fresh
+  }
+  return { dispatched: [], failed: {} };
+}
+
+function saveQueueState(configPath: string, projectId: string, state: QueueState): void {
+  const statePath = getQueueStatePath(configPath, projectId);
+  try {
+    mkdirSync(dirname(statePath), { recursive: true });
+    writeFileSync(statePath, JSON.stringify(state, null, 2), "utf-8");
+  } catch {
+    // Non-fatal: state file write failure shouldn't block queue processing
+  }
 }
 
 // ---- Default task template ----
@@ -55,7 +95,11 @@ const DEFAULT_TASK_TEMPLATE = (
  */
 export function resolveBead(beadId: string): { title: string; description: string } {
   try {
-    const raw = execSync(`br show ${beadId} 2>/dev/null`, { encoding: "utf-8", timeout: 10_000 });
+    const raw = execFileSync("br", ["show", beadId], {
+      encoding: "utf-8",
+      timeout: 10_000,
+      stdio: ["ignore", "pipe", "ignore"],
+    });
     // br show output is typically: title on first line, description after blank line
     const lines = raw.split("\n").map((l) => l.trim()).filter(Boolean);
     const title = lines[0] ?? beadId;
@@ -130,15 +174,22 @@ export async function drainTaskQueue(
     return 0;
   }
 
-  // Build set of already-dispatched bead IDs (in-flight or completed this run)
-  const dispatched = new Set<string>();
+  // Build set of already-dispatched bead IDs:
+  // - In-flight: active sessions with queuedBeadId (excludes terminal sessions)
+  // - Persisted: loaded from queue-state file so completed sessions aren't re-dispatched
+  const queueState = loadQueueState(configPath, projectId);
+  const dispatched = new Set<string>(queueState.dispatched);
   for (const s of activeSessions) {
     const beadId = s.metadata["queuedBeadId"];
     if (beadId) dispatched.add(beadId);
   }
 
-  // Find the first bead not yet dispatched
-  const nextBead = tq.beads.find((b) => !dispatched.has(b));
+  // Find the first bead not yet dispatched and not permanently failed
+  const nextBead = tq.beads.find(
+    (b) =>
+      !dispatched.has(b) &&
+      (queueState.failed[b] ?? 0) < MAX_SPAWN_RETRIES,
+  );
   if (!nextBead) {
     observer.recordOperation({
       metric: "lifecycle_poll",
@@ -162,30 +213,17 @@ export async function drainTaskQueue(
     .replace(/\{beadTitle\}/g, title)
     .replace(/\{beadDescription\}/g, description);
 
+  let session: Session;
   try {
-    const session = await sessionManager.spawn({
+    session = await sessionManager.spawn({
       projectId,
       issueId: nextBead,
       prompt,
     });
-
-    // Tag the session with the queued bead ID so we can track it
-    const sessionsDir = getSessionsDir(configPath, project.path);
-    updateMetadata(sessionsDir, session.id, { queuedBeadId: nextBead });
-
-    observer.recordOperation({
-      metric: "lifecycle_poll",
-      operation: "lifecycle.task_queue.spawned",
-      outcome: "success",
-      correlationId,
-      projectId,
-      sessionId: session.id,
-      data: { beadId: nextBead, beadTitle: title },
-      level: "info",
-    });
-
-    return 1;
   } catch (err) {
+    // Increment retry count so repeated failures are eventually skipped
+    queueState.failed[nextBead] = (queueState.failed[nextBead] ?? 0) + 1;
+    saveQueueState(configPath, projectId, queueState);
     observer.recordOperation({
       metric: "lifecycle_poll",
       operation: "lifecycle.task_queue.spawn_failed",
@@ -194,10 +232,54 @@ export async function drainTaskQueue(
       projectId,
       data: {
         beadId: nextBead,
+        retryCount: queueState.failed[nextBead],
+        maxRetries: MAX_SPAWN_RETRIES,
         error: err instanceof Error ? err.message : String(err),
       },
       level: "warn",
     });
     return 0;
   }
+
+  // Tag the session with the queued bead ID so we can track it
+  try {
+    const sessionsDir = getSessionsDir(configPath, project.path);
+    updateMetadata(sessionsDir, session.id, { queuedBeadId: nextBead });
+  } catch (err) {
+    // Metadata write failure is independent of spawn success — log but don't
+    // report as spawn_failed since the session is already running.
+    observer.recordOperation({
+      metric: "lifecycle_poll",
+      operation: "lifecycle.task_queue.metadata_write_failed",
+      outcome: "failure",
+      correlationId,
+      projectId,
+      sessionId: session.id,
+      data: {
+        beadId: nextBead,
+        error: err instanceof Error ? err.message : String(err),
+      },
+      level: "warn",
+    });
+  }
+
+  // Persist bead as dispatched so it won't be re-spawned after session completes
+  if (!queueState.dispatched.includes(nextBead)) {
+    queueState.dispatched.push(nextBead);
+  }
+  delete queueState.failed[nextBead];
+  saveQueueState(configPath, projectId, queueState);
+
+  observer.recordOperation({
+    metric: "lifecycle_poll",
+    operation: "lifecycle.task_queue.spawned",
+    outcome: "success",
+    correlationId,
+    projectId,
+    sessionId: session.id,
+    data: { beadId: nextBead, beadTitle: title },
+    level: "info",
+  });
+
+  return 1;
 }

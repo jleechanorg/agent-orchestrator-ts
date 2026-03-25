@@ -6,6 +6,9 @@ import type {
 } from "../types.js";
 import type { ProjectObserver } from "../observability.js";
 
+// ---- Mock state (shared across tests) ----
+const mockFsState = vi.hoisted(() => ({ dispatched: [] as string[], failed: {} as Record<string, number> }));
+
 // ---- Mock the entire task-queue module so we can spy/mocks its dependencies ----
 vi.mock("../paths.js", () => ({
   getSessionsDir: vi.fn(() => "/tmp/test-sessions"),
@@ -13,6 +16,18 @@ vi.mock("../paths.js", () => ({
 
 vi.mock("../metadata.js", () => ({
   updateMetadata: vi.fn(),
+}));
+
+vi.mock("node:fs", () => ({
+  existsSync: vi.fn(() => false),
+  readFileSync: vi.fn(() => JSON.stringify(mockFsState)),
+  writeFileSync: vi.fn(),
+  mkdirSync: vi.fn(),
+}));
+
+vi.mock("node:path", () => ({
+  dirname: vi.fn((p: string) => p.replace(/\/[^/]+$/, "")),
+  join: vi.fn((...args: string[]) => args.join("/")),
 }));
 
 // Re-import AFTER vi.mock declarations so the mocks are active
@@ -71,6 +86,8 @@ describe("drainTaskQueue", () => {
 
   beforeEach(() => {
     _resetDrainTimer();
+    mockFsState.dispatched = [];
+    mockFsState.failed = {};
     spawnMock.mockReset().mockResolvedValue(makeSession({ id: "s-new" }));
     recordOperationMock.mockReset();
 
