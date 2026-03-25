@@ -154,8 +154,8 @@ export async function getHeadroomStatus(
 
   // Defensive: if we have no snapshot or no actionable buckets (graphql/core),
   // the safe default is "defer" — never guess graphql when headroom is unknown.
-  const hasGraphql = resources != null && "graphql" in resources;
-  const hasCore    = resources != null && "core"    in resources;
+  const hasGraphql = resources !== null && "graphql" in resources;
+  const hasCore    = resources !== null && "core"    in resources;
 
   if (!hasGraphql && !hasCore) {
     _cachedHeadroom = {
