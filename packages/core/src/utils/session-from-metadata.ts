@@ -1,8 +1,7 @@
 import type { PRState, RuntimeHandle, Session, SessionId, SessionStatus } from "../types.js";
+import { VALID_PR_STATES } from "../types.js";
 import { parsePrFromUrl } from "./pr.js";
 import { safeJsonParse, validateStatus } from "./validation.js";
-
-const VALID_PR_STATES = new Set<PRState>(["open", "merged", "closed"]);
 
 interface SessionFromMetadataOptions {
   projectId?: string;

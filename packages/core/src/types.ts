@@ -677,6 +677,9 @@ export const PR_STATE = {
   CLOSED: "closed" as const,
 } satisfies Record<string, PRState>;
 
+/** Validates that a raw string is a known PR state. */
+export const VALID_PR_STATES = new Set<PRState>(["open", "merged", "closed"]);
+
 export type MergeMethod = "merge" | "squash" | "rebase";
 
 export interface SCMWebhookRequest {

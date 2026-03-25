@@ -33,10 +33,9 @@ import {
 } from "node:fs";
 import { join, dirname } from "node:path";
 import type { SessionId, SessionMetadata, PRState } from "./types.js";
+import { VALID_PR_STATES } from "./types.js";
 import { atomicWriteFileSync } from "./atomic-write.js";
 import { parseKeyValueContent } from "./key-value.js";
-
-const VALID_PR_STATES = new Set<PRState>(["open", "merged", "closed"]);
 
 /** Serialize a record back to key=value format. */
 function serializeMetadata(data: Record<string, string>): string {
