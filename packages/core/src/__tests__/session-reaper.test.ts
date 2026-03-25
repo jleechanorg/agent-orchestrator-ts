@@ -10,24 +10,6 @@ const BASE_NOW = new Date("2025-01-01T12:00:00Z");
 const TWO_HOURS_MS = 7_200_000;
 const FOUR_HOURS_MS = 14_400_000;
 
-/** Build a PR object with optional GitHub state — bd-s4t */
-function makePr(overrides: {
-  number?: number;
-  state?: "open" | "merged" | "closed";
-} = {}): Session["pr"] {
-  return {
-    number: overrides.number ?? 1,
-    url: "https://github.com/test/repo/pull/1",
-    title: "PR",
-    owner: "test",
-    repo: "repo",
-    branch: `branch`,
-    baseBranch: "main",
-    isDraft: false,
-    ...(overrides.state !== undefined ? { state: overrides.state } : {}),
-  };
-}
-
 function makeSession(id: SessionId, overrides?: Partial<Session>): Session {
   return {
     id,
