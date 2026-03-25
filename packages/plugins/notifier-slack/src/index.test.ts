@@ -394,6 +394,20 @@ describe("notifier-slack", () => {
       expect(fetchMock).toHaveBeenCalledTimes(1);
     });
 
+    it("suppresses concurrent calls with the same sessionId+eventType (TOCTOU fix)", async () => {
+      const fetchMock = mockFetchOk();
+      vi.stubGlobal("fetch", fetchMock);
+      const notifier = create({ webhookUrl: "https://hooks.slack.com/test", dedupTtlMs: 60_000 });
+      // Fire two calls concurrently — without the pendingSends guard both could
+      // pass isRecentlySent() before either records the send.
+      await Promise.all([
+        notifier.notify(makeEvent({ sessionId: "app-1", type: "session.spawned" })),
+        notifier.notify(makeEvent({ sessionId: "app-1", type: "session.spawned" })),
+      ]);
+      // Exactly one POST — the second call waited for the first and was suppressed
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
     it("post() is not subject to dedup (always sends)", async () => {
       const fetchMock = mockFetchOk();
       vi.stubGlobal("fetch", fetchMock);

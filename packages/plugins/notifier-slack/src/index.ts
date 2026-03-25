@@ -162,6 +162,12 @@ export function create(config: SlackNotifierConfig = {}): Notifier {
   const MAX_DEDUP_ENTRIES = 10_000;
 
   /**
+   * In-flight send guards — prevents concurrent calls with the same key from
+   * racing past the dedup check before either records the send (TOCTOU fix).
+   */
+  const pendingSends = new Map<string, Promise<void>>();
+
+  /**
    * Evict stale dedup entries older than [[dedupTtlMs]].
    * Call this on each send to keep the map bounded.
    */
@@ -200,15 +206,33 @@ export function create(config: SlackNotifierConfig = {}): Notifier {
 
   async function sendNotify(event: OrchestratorEvent, actions?: NotifyAction[]): Promise<void> {
     if (!webhookUrl) return;
+    const key = `${event.sessionId}:${event.type}`;
+
+    // If another call with the same key is in-flight, wait for it first so we
+    // always check the dedup cache AFTER the prior send completes.
+    const pending = pendingSends.get(key);
+    if (pending) await pending;
+
+    // Always check dedup cache before sending — this handles both sequential
+    // retries (pending was null) and calls that arrived while another was in-flight.
     if (isRecentlySent(event.sessionId, event.type)) return;
 
+    const sendPromise = doSend(event, actions);
+    pendingSends.set(key, sendPromise);
+    try {
+      await sendPromise;
+    } finally {
+      pendingSends.delete(key);
+    }
+  }
+
+  async function doSend(event: OrchestratorEvent, actions?: NotifyAction[]): Promise<void> {
     const payload: Record<string, unknown> = {
       username,
       blocks: buildBlocks(event, actions),
     };
     if (defaultChannel) payload.channel = defaultChannel;
-
-    await postToWebhook(webhookUrl, payload);
+    await postToWebhook(webhookUrl!, payload);
     recordSend(event.sessionId, event.type);
   }
 
