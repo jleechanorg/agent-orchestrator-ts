@@ -30,18 +30,17 @@ Decision tree after Phase 2 (Measure):
 
 **1a. Run /auton** — get autonomy diagnostic across all repos.
 
-**1b. Check AO workers** — for each repo AO manages:
+**1b. Check AO workers** — scoped repos:
 - `jleechanorg/agent-orchestrator` (primary)
-- `jleechanorg/worldai_claw` (worldai)
-- `jleechanorg/jleechanclaw` (orchestration — deprecated but may have active workers)
-- Antigravity orchestrator (special — check launchd daemon status)
+- `jleechanorg/jleechanclaw` (orchestration)
 
 ```bash
-# List active AO sessions
-tmux list-sessions 2>/dev/null | grep -E '(ao|jc|wa|cc|ra|wc)-[0-9]+'
+# List active AO sessions (ao-*, jc-* only — skip wa-*, wc-*)
+tmux list-sessions 2>/dev/null | grep -E '(ao|jc)-[0-9]+'
 
 # Per-repo open PRs
-for repo in agent-orchestrator worldai_claw jleechanclaw; do
+for repo in agent-orchestrator jleechanclaw; do
+  echo "=== $repo ==="
   gh api "repos/jleechanorg/$repo/pulls?state=open&per_page=20" \
     --jq '.[]|"\(.number) \(.head.ref) \(.mergeable_state)"' 2>/dev/null
 done
@@ -72,10 +71,13 @@ find novel/ docs/novel/ -name '*.md' -newer /tmp/evolve_loop_last_run 2>/dev/nul
 Calculate the [agento] zero-touch rate per the SOUL.md convention:
 
 ```bash
-# Merged PRs in last 24h with [agento] tag analysis
-gh api 'repos/jleechanorg/agent-orchestrator/pulls?state=closed&per_page=30&sort=updated&direction=desc' \
-  --jq '.[] | select(.merged_at != null and .merged_at > "YESTERDAY_ISO") |
-    {number, title: .title[:70], agento: (.title | test("^\\[agento\\]"))}'
+# Merged PRs in last 24h with [agento] tag analysis (scoped repos only)
+for repo in agent-orchestrator jleechanclaw; do
+  echo "=== $repo ==="
+  gh api "repos/jleechanorg/$repo/pulls?state=closed&per_page=30&sort=updated&direction=desc" \
+    --jq '.[] | select(.merged_at != null and .merged_at > "YESTERDAY_ISO") |
+      {number, title: .title[:70], agento: (.title | test("^\\[agento\\]"))}' 2>/dev/null
+done
 ```
 
 For each **non-[agento]** merged PR, determine WHY:
