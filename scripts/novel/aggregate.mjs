@@ -16,7 +16,7 @@
  *   --dry-run Print to stdout instead of writing
  */
 
-import { readFileSync, writeFileSync, existsSync, readdirSync } from "node:fs";
+import { readFileSync, writeFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { parseArgs } from "node:util";
 import { fileURLToPath } from "node:url";
@@ -481,7 +481,7 @@ function main() {
   const dryRun = values["dry-run"];
 
   // Read and parse all worker entry files
-  let workerEntries = [];
+  const workerEntries = [];
   try {
     const files = readdirSync(WORKERS_DIR).filter((f) => f.endsWith(".md") && f !== "README.md");
     for (const file of files) {
