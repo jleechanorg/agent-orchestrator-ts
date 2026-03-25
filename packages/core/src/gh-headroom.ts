@@ -172,7 +172,15 @@ export async function withRESTFallback<T>(
     } catch (err) {
       if (isGhRateLimitError(err)) {
         invalidateHeadroomCache();
-        // Fall through to REST
+        // Fall through to REST — re-fetch status so the REST check uses fresh headroom
+        const freshStatus = await getHeadroomStatus(thresholds);
+        if (!freshStatus.canUseREST) {
+          throw new Error(
+            `GitHub API headroom exhausted (gql:${freshStatus.graphqlRemaining} rest:${freshStatus.restRemaining}). Cannot proceed.`,
+          );
+        }
+        const data = await restFn();
+        return { data, via: "rest" };
       } else {
         throw err; // Non-rate-limit errors should propagate
       }
