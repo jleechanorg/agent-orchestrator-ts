@@ -1,6 +1,7 @@
 import React from "react";
 import {
   AbsoluteFill,
+  Composition,
   interpolate,
   useCurrentFrame,
   Sequence,
@@ -239,8 +240,8 @@ const SceneGreenStatus: React.FC = () => {
 /* ─── Scene 4: Rate Limits ─── */
 const SceneRateLimits: React.FC = () => {
   const frame = useCurrentFrame();
-  const budget = interpolate(frame, [0, 180], [5000, 0], { extrapolateLeft: "clamp", extrapolateRight: "extend" });
-  const barWidth = interpolate(frame, [0, 180], [100, 0], { extrapolateLeft: "clamp" });
+  const budget = interpolate(frame, [0, 180], [5000, 0], { extrapolateLeft: "clamp", extrapolateRight: "clamp" });
+  const barWidth = interpolate(frame, [0, 180], [100, 0], { extrapolateLeft: "clamp", extrapolateRight: "clamp" });
   const barColor = budget < 500 ? RED : budget < 1500 ? YELLOW : GREEN;
   const opacity = interpolate(frame, [0, 15], [0, 1], { extrapolateLeft: "clamp" });
 
@@ -436,8 +437,8 @@ const SceneCoda: React.FC = () => {
   );
 };
 
-/* ─── Root composition ─── */
-export const DailyLivesOfWorkers: React.FC = () => {
+/* ─── Inner composition (all scenes) ─── */
+const DailyLivesOfWorkersScenes: React.FC = () => {
   return (
     <AbsoluteFill style={{ backgroundColor: BG }}>
       <style>{`
@@ -471,6 +472,20 @@ export const DailyLivesOfWorkers: React.FC = () => {
         <SceneCoda />
       </Sequence>
     </AbsoluteFill>
+  );
+};
+
+/* ─── Root composition (required by Remotion) ─── */
+export const DailyLivesOfWorkers: React.FC = () => {
+  return (
+    <Composition
+      id="DailyLivesOfWorkers"
+      component={DailyLivesOfWorkersScenes}
+      durationInFrames={TOTAL_DUR}
+      fps={30}
+      width={1920}
+      height={1080}
+    />
   );
 };
 

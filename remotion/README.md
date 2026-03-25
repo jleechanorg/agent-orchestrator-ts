@@ -16,7 +16,7 @@ A Remotion-based animated video interpreting the serialized fiction
 | 6 | Collaboration | 7s | Internal bus, worker-to-worker coordination messages |
 | 7 | Coda | 5s | "The cursor blinks and I read it as a heartbeat." |
 
-**Total runtime: ~55 seconds** (1650 frames @ 30fps)
+**Total runtime: ~55 seconds** (1650 frames @ 30fps, 1920×1080)
 
 ## Setup
 
@@ -28,16 +28,20 @@ npm install   # or pnpm install
 ## Commands
 
 ```bash
-npm start      # open Remotion Studio (local preview)
-npm run build  # render out/daily-lives-of-workers.mp4
-npm run preview # headless preview render
+npm start        # open Remotion Studio (local browser preview)
+npm run build    # render out/daily-lives-of-workers.mp4  (composition: DailyLivesOfWorkers)
+npm run preview  # headless preview render
 ```
 
 ## Remotion Gallery Submission
 
-- **Title**: "The Daily Lives of Workers"
-- **Tool**: Claude Code
-- **Model**: Opus 4.6
-- **Credit**: jleechan (GitHub)
-- **Video**: `out/daily-lives-of-workers.mp4`
-- **Prompt submitted**: the full `src/Root.tsx` source + this README as context
+Once rendered, submit at https://www.remotion.dev/prompts/submit:
+
+| Field | Value |
+|-------|-------|
+| Title | The Daily Lives of Workers |
+| Video | `out/daily-lives-of-workers.mp4` |
+| Prompts | Full `src/Root.tsx` source + `remotion/README.md` as context |
+| Tool | Claude Code |
+| Model | Opus 4.6 |
+| Credit | jleechan (GitHub) |

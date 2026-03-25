@@ -4,7 +4,7 @@
   "description": "The Daily Lives of Workers — a Remotion video based on AO serialized fiction",
   "scripts": {
     "start": "remotion studio",
-    "build": "remotion render out/daily-lives-of-workers.mp4",
+    "build": "remotion render DailyLivesOfWorkers out/daily-lives-of-workers.mp4",
     "preview": "remotion preview",
     "upgrade": "remotion upgrade"
   },
