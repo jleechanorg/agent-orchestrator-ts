@@ -27,6 +27,7 @@ export function sessionFromMetadata(
     pr: meta["pr"]
       ? (() => {
           const parsed = parsePrFromUrl(meta["pr"]);
+          const prState = meta["prState"] as "open" | "merged" | "closed" | undefined;
           return {
             number: parsed?.number ?? 0,
             url: meta["pr"],
@@ -36,6 +37,7 @@ export function sessionFromMetadata(
             branch: meta["branch"] ?? "",
             baseBranch: "",
             isDraft: false,
+            ...(prState ? { state: prState } : {}),
           };
         })()
       : null,

@@ -424,6 +424,16 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
           try {
             const batch = await scm.getBatchPRStatus(session.pr);
             usedBatch = true;
+            // bd-s4t.2: persist PR state so the session-reaper can detect zombies
+            // without SCM access. Only update if state has changed.
+            const prevPrState = (session.pr as { state?: string } | null)?.state;
+            if (batch.state !== prevPrState) {
+              const sessionsDir = getSessionsDir(config.configPath, project.path);
+              updateMetadata(sessionsDir, session.id, { prState: batch.state });
+              if (session.pr) {
+                (session.pr as { state?: string }).state = batch.state;
+              }
+            }
             if (batch.state === PR_STATE.MERGED) return { status: "merged", agentDead };
             if (batch.state === PR_STATE.CLOSED) return { status: "killed", agentDead };
             if (batch.ciStatus === CI_STATUS.FAILING) return { status: "ci_failed", agentDead };
@@ -445,6 +455,15 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         if (!usedBatch) {
           // Fallback: individual calls (no batch support or batch failed)
           const prState = await scm.getPRState(session.pr);
+          // bd-s4t.2: persist PR state so the session-reaper can detect zombies
+          const prevPrState = (session.pr as { state?: string } | null)?.state;
+          if (prState !== prevPrState) {
+            const sessionsDir = getSessionsDir(config.configPath, project.path);
+            updateMetadata(sessionsDir, session.id, { prState });
+            if (session.pr) {
+              (session.pr as { state?: string }).state = prState;
+            }
+          }
           if (prState === PR_STATE.MERGED) return { status: "merged", agentDead };
           if (prState === PR_STATE.CLOSED) return { status: "killed", agentDead };
 

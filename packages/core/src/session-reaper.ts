@@ -69,7 +69,8 @@ export interface ReaperDeps {
 export const DEFAULT_REAPER_CONFIG: ReaperConfig = {
   orphanedThresholdMs: 7_200_000, // 2h
   noPrThresholdMs: 14_400_000, // 4h
-  maxKillsPerRun: 5,
+  maxKillsPerRun: 15, // bd-s4t: raised from 5 to handle burst cleanup when zombie
+                       // sessions accumulate past the 15-session spawn gate
 };
 
 // =============================================================================
@@ -102,6 +103,28 @@ export async function reapStaleSessions(
     // Skip sessions already in terminal status (not activity — exited activity is reaped)
     if (TERMINAL_STATUSES.has(session.status)) {
       skipped.push({ sessionId: session.id, reason: "terminal state" });
+      continue;
+    }
+
+    // bd-s4t.2: explicit kill condition for zombie sessions whose GitHub PR was
+    // merged or closed but whose AO status hasn't been reconciled yet (gap cover
+    // in case lifecycle-manager missed the transition). Sessions in terminal
+    // status are handled directly by lifecycle-manager.checkSession() and are
+    // skipped above, so this only catches sessions stuck in a non-terminal
+    // status despite a resolved PR.
+    // prState is persisted by lifecycle-manager via the prState metadata field.
+    if (session.pr?.state === "merged" || session.pr?.state === "closed") {
+      if (!dryRun) {
+        try {
+          await deps.sessionManager.kill(session.id);
+          killed.push({ sessionId: session.id, reason: `zombie: PR ${session.pr.state}` });
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          errors.push({ sessionId: session.id, error: msg });
+        }
+      } else {
+        killed.push({ sessionId: session.id, reason: `zombie: PR ${session.pr.state}` });
+      }
       continue;
     }
 
