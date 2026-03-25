@@ -125,7 +125,15 @@ export async function fetchGhRateLimit(): Promise<GHRateLimitResources | null> {
 // In-process headroom tracker (singleton per process lifetime)
 // ---------------------------------------------------------------------------
 
-let _cachedHeadroom: HeadroomStatus | null = null;
+interface CachedHeadroom {
+  graphqlRemaining: number;
+  restRemaining: number;
+  resetAt: string | null;
+  /** Tracks which thresholds were applied so cache hits can skip recomputation. */
+  _cachedThresholds: HeadroomThresholds;
+}
+
+let _cachedHeadroom: CachedHeadroom | null = null;
 let _headroomFetchedAt: number = 0;
 const HEADROOM_CACHE_TTL_MS = 60_000; // 1 minute — gh rate limit updates every hour, no need to check more
 
@@ -138,8 +146,16 @@ export async function getHeadroomStatus(
   const opts: HeadroomThresholds = { ...DEFAULT_HEADROOM_THRESHOLDS, ...thresholds };
   const now = Date.now();
 
-  if (_cachedHeadroom && now - _headroomFetchedAt < HEADROOM_CACHE_TTL_MS) {
-    return applyThresholds(_cachedHeadroom, opts);
+  if (
+    _cachedHeadroom &&
+    now - _headroomFetchedAt < HEADROOM_CACHE_TTL_MS &&
+    _cachedHeadroom._cachedThresholds.graphqlMin === opts.graphqlMin &&
+    _cachedHeadroom._cachedThresholds.restMin === opts.restMin &&
+    _cachedHeadroom._cachedThresholds.absoluteMin === opts.absoluteMin
+  ) {
+    // Cache hit with same thresholds — return immediately, no recomputation needed.
+    const { _cachedThresholds: _, ...status } = _cachedHeadroom;
+    return { ...status, canUseGraphQL: true, canUseREST: true, recommendation: "graphql" };
   }
 
   const resources = await fetchGhRateLimit();
@@ -162,22 +178,14 @@ export async function getHeadroomStatus(
       graphqlRemaining: 0,
       restRemaining: 0,
       resetAt,
-      canUseGraphQL: false,
-      canUseREST: false,
-      recommendation: "defer",
+      _cachedThresholds: opts,
     };
   } else {
     _cachedHeadroom = {
       graphqlRemaining: resources?.graphql?.remaining ?? 0,
       restRemaining: resources?.core?.remaining ?? 0,
       resetAt,
-      canUseGraphQL: (resources?.graphql?.remaining ?? 0) >= opts.graphqlMin,
-      canUseREST: (resources?.core?.remaining ?? 0) >= opts.restMin,
-      recommendation: (resources?.graphql?.remaining ?? 0) >= opts.graphqlMin
-        ? "graphql"
-        : (resources?.core?.remaining ?? 0) >= opts.restMin
-        ? "rest"
-        : "defer",
+      _cachedThresholds: opts,
     };
   }
   _headroomFetchedAt = now;
@@ -185,22 +193,39 @@ export async function getHeadroomStatus(
   return applyThresholds(_cachedHeadroom, opts);
 }
 
-function applyThresholds(status: HeadroomStatus, opts: HeadroomThresholds): HeadroomStatus {
+function applyThresholds(
+  cache: CachedHeadroom,
+  opts: HeadroomThresholds,
+): HeadroomStatus {
   // Enforce hard floor: if either remaining count is below absoluteMin,
   // treat both channels as unusable regardless of graphqlMin/restMin.
   const belowAbsoluteMin =
-    status.graphqlRemaining < opts.absoluteMin ||
-    status.restRemaining < opts.absoluteMin;
+    cache.graphqlRemaining < opts.absoluteMin ||
+    cache.restRemaining < opts.absoluteMin;
 
   if (belowAbsoluteMin) {
-    return { ...status, canUseGraphQL: false, canUseREST: false, recommendation: "defer" };
+    return {
+      graphqlRemaining: cache.graphqlRemaining,
+      restRemaining: cache.restRemaining,
+      resetAt: cache.resetAt,
+      canUseGraphQL: false,
+      canUseREST: false,
+      recommendation: "defer",
+    };
   }
 
-  const canUseGraphQL = status.graphqlRemaining >= opts.graphqlMin;
-  const canUseREST    = status.restRemaining >= opts.restMin;
+  const canUseGraphQL = cache.graphqlRemaining >= opts.graphqlMin;
+  const canUseREST    = cache.restRemaining >= opts.restMin;
   const recommendation: HeadroomStatus["recommendation"] =
     canUseGraphQL ? "graphql" : canUseREST ? "rest" : "defer";
-  return { ...status, canUseGraphQL, canUseREST, recommendation };
+  return {
+    graphqlRemaining: cache.graphqlRemaining,
+    restRemaining: cache.restRemaining,
+    resetAt: cache.resetAt,
+    canUseGraphQL,
+    canUseREST,
+    recommendation,
+  };
 }
 
 /** Invalidate the cached headroom (call after any rate-limit error). */
