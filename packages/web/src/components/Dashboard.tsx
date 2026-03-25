@@ -17,7 +17,7 @@ import { PRTableRow } from "./PRStatus";
 import { DynamicFavicon } from "./DynamicFavicon";
 import { useSessionEvents } from "@/hooks/useSessionEvents";
 import { ProjectSidebar } from "./ProjectSidebar";
-import { EmptyState } from "./Skeleton";
+import { DoneOnlyKanbanEmptyState } from "./DoneOnlyKanbanEmptyState";
 import type { ProjectInfo } from "@/lib/project-name";
 
 interface DashboardProps {
@@ -362,9 +362,11 @@ export function Dashboard({
           </div>
         )}
 
-        {!allProjectsView && !hasKanbanSessions && grouped.done.length > 0 && (
-          <EmptyState message="All sessions are done — nothing left in the kanban." />
-        )}
+        <DoneOnlyKanbanEmptyState
+          allProjectsView={allProjectsView}
+          hasKanbanSessions={hasKanbanSessions}
+          doneCount={grouped.done.length}
+        />
 
         {!allProjectsView && grouped.done.length > 0 && (
           <div className="mb-8">

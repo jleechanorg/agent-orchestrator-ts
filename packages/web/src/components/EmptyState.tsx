@@ -1,8 +1,7 @@
-// Skeleton / EmptyState components
-// Mirrors upstream's Skeleton.tsx EmptyState, used when all sessions are done
+// EmptyState component — mirrors upstream's implementation, used when all kanban levels are emptyimport type { ReactNode } from "react";
 
 interface EmptyStateProps {
-  message?: string;
+  message?: ReactNode;
 }
 
 export function EmptyState({ message }: EmptyStateProps) {
