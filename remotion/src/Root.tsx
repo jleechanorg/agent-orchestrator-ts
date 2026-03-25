@@ -104,7 +104,7 @@ const SceneSpawn: React.FC = () => {
     <AbsoluteFill style={{ backgroundColor: BG, padding: 80 }}>
       <div style={{ fontFamily: "monospace", fontSize: 26, color: TEXT, lineHeight: 1.8 }}>
         {lines.slice(0, visibleLines).map((line, i) => (
-          <div key={i} style={{ opacity: i === visibleLines - 1 ? interpolate(frame % 30, [0, 15], [1, 0.5], { extrapolateLeft: "clamp" }) : 1 }}>
+          <div key={i} style={{ opacity: i === visibleLines - 1 ? interpolate(frame % 30, [0, 15], [1, 0.5], { extrapolateLeft: "clamp", extrapolateRight: "clamp" }) : 1 }}>
             <span style={{ color: DIM, marginRight: 16, display: "inline-block", width: 24 }}>{i + 1}</span>
             {line || "\u00a0"}
           </div>
@@ -325,7 +325,7 @@ const SceneCollaboration: React.FC = () => {
   ];
   const msgFrames = [30, 90, 150];
   const msgOpacity = msgFrames.map((mf, _i) =>
-    interpolate(Math.max(0, frame - mf), [0, 5, 40, 50], [0, 1, 1, 0], { extrapolateLeft: "clamp", extrapolateRight: "extend" })
+    interpolate(Math.max(0, frame - mf), [0, 5, 40, 50], [0, 1, 1, 0], { extrapolateLeft: "clamp", extrapolateRight: "clamp" })
   );
 
   const messages = [
