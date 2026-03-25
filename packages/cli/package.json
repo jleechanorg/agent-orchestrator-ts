@@ -49,6 +49,7 @@
     "@jleechanorg/ao-plugin-notifier-webhook": "workspace:*",
     "@jleechanorg/ao-plugin-runtime-antigravity": "workspace:*",
     "@jleechanorg/ao-plugin-runtime-process": "workspace:*",
+    "@jleechanorg/ao-plugin-prose-polish": "workspace:*",
     "@jleechanorg/ao-plugin-runtime-tmux": "workspace:*",
     "@jleechanorg/ao-plugin-scm-github": "workspace:*",
     "@jleechanorg/ao-plugin-terminal-iterm2": "workspace:*",
