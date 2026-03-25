@@ -303,6 +303,66 @@ describe("tryAcquireLifecycleLock (orch-886k)", () => {
     if (release) release();
   });
 
+  it("returns null when lock is already held by a live process", () => {
+    const cfg = mockConfig({ "test-proj": "/repos/test-proj" });
+    // First acquire: succeeds.
+    const release1 = tryAcquireLifecycleLock(cfg, "test-proj");
+    expect(release1).toBeTypeOf("function");
+
+    // Simulate the lock file contains a PID of a still-alive process.
+    const lockFile = `/tmp/ao-test/test-proj/lifecycle-worker.lock`;
+    MOCK_FS.store[`readFileSync:${lockFile}`] = "99999\n";
+    // ps finds the process alive.
+    mockExecFileSync.mockReturnValueOnce(
+      Buffer.from("/path/to/node ao lifecycle-worker test-proj\n"),
+    );
+
+    // Second acquire: lock is live → must return null.
+    const release2 = tryAcquireLifecycleLock(cfg, "test-proj");
+    expect(release2).toBeNull();
+    if (release1) release1();
+  });
+
+  it("reaps a stale lock (crashed owner) and returns a valid release function", () => {
+    const cfg = mockConfig({ "test-proj": "/repos/test-proj" });
+    const lockFile = `/tmp/ao-test/test-proj/lifecycle-worker.lock`;
+
+    // First acquire succeeds and simulates a crash (no release called).
+    const release1 = tryAcquireLifecycleLock(cfg, "test-proj");
+    expect(release1).toBeTypeOf("function");
+    // Simulate the lock file contains the PID of a crashed process.
+    MOCK_FS.store[`readFileSync:${lockFile}`] = "77777\n";
+    // ps returns empty (process is dead).
+    mockExecFileSync.mockReturnValueOnce(Buffer.from("\n"));
+
+    // Second acquire: stale lock is reaped, re-acquisition succeeds.
+    const release2 = tryAcquireLifecycleLock(cfg, "test-proj");
+    expect(release2).toBeTypeOf("function");
+    if (release2) release2();
+    if (release1) release1();
+  });
+
+  it("reaps a stale lock when ps fails (process is gone)", () => {
+    const cfg = mockConfig({ "test-proj": "/repos/test-proj" });
+    const lockFile = `/tmp/ao-test/test-proj/lifecycle-worker.lock`;
+
+    // First acquire succeeds (no release — simulating crash).
+    const release1 = tryAcquireLifecycleLock(cfg, "test-proj");
+    expect(release1).toBeTypeOf("function");
+    // Lock file contains a PID.
+    MOCK_FS.store[`readFileSync:${lockFile}`] = "88888\n";
+    // ps fails (ESRCH: process does not exist).
+    mockExecFileSync.mockImplementationOnce(() => {
+      throw new Error("No such process");
+    });
+
+    // Second acquire: ps failure means process is gone → stale lock reaped.
+    const release2 = tryAcquireLifecycleLock(cfg, "test-proj");
+    expect(release2).toBeTypeOf("function");
+    if (release2) release2();
+    if (release1) release1();
+  });
+
   it("returns null when lock is already held", () => {
     const cfg = mockConfig({ "test-proj": "/repos/test-proj" });
     const release1 = tryAcquireLifecycleLock(cfg, "test-proj");

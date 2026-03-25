@@ -193,23 +193,38 @@ export function registerLifecycleWorker(program: Command): void {
         }
 
         // We hold the lock. Check for an already-running worker, then write our PID.
-        const existing = getLifecycleWorkerStatus(config, projectId);
-        if (existing.running && existing.pid !== process.pid) {
+        // Wrap the entire critical section in try/finally so the lock is always
+        // released even if getLifecycleWorkerStatus or writeLifecycleWorkerPid throws.
+        let skipStartup = false;
+        let skipReason = "";
+        let skipDetails: Record<string, unknown> = {};
+        try {
+          const existing = getLifecycleWorkerStatus(config, projectId);
+          if (existing.running && existing.pid !== process.pid) {
+            skipStartup = true;
+            skipReason = `Worker already running with pid ${existing.pid}`;
+            skipDetails = { projectId, pid: existing.pid };
+          } else {
+            // Record our PID while holding the lock so no peer races past this
+            // point. (orch-886k)
+            writeLifecycleWorkerPid(config, projectId, process.pid);
+          }
+        } finally {
+          // Always release the lock, even on throw.
           releaseLock();
+        }
+
+        if (skipStartup) {
           observer.setHealth({
             surface: "lifecycle.worker",
             status: "warn",
             projectId,
             correlationId: createCorrelationId("lifecycle-worker"),
-            reason: `Worker already running with pid ${existing.pid}`,
-            details: { projectId, pid: existing.pid },
+            reason: skipReason,
+            details: skipDetails,
           });
           return;
         }
-
-        // Record our PID while holding the lock so no peer races past this point. (orch-886k)
-        writeLifecycleWorkerPid(config, projectId, process.pid);
-        releaseLock();
 
         const lifecycle = await getLifecycleManager(config, projectId);
         const sessionManager = await getSessionManager(config);
