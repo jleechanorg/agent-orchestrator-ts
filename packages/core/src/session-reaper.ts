@@ -10,6 +10,7 @@
  */
 
 import { TERMINAL_STATUSES, type SessionManager } from "./types.js";
+import { checkAndKillZombie } from "./session-reaper-extensions.js";
 
 // =============================================================================
 // Types
@@ -106,53 +107,27 @@ export async function reapStaleSessions(
       continue;
     }
 
-    // bd-s4t.2: explicit kill condition for zombie sessions whose GitHub PR was
-    // merged or closed but whose AO status hasn't been reconciled yet (gap cover
-    // in case lifecycle-manager missed the transition). Sessions in terminal
-    // status are handled directly by lifecycle-manager.checkSession() and are
-    // skipped above, so this only catches sessions stuck in a non-terminal
-    // status despite a resolved PR.
-    // prState is persisted by lifecycle-manager via the prState metadata field.
-    //
-    // "merged" is a final state — kill unconditionally.
-    // "closed" can be re-opened, so require the session to be idle past
-    // orphanedThresholdMs before treating it as a zombie.
-    if (session.pr?.state === "merged") {
-      const zombieKillReason = `zombie: PR ${session.pr.state}`;
-      if (!dryRun) {
-        try {
-          await deps.sessionManager.kill(session.id);
-          killed.push({ sessionId: session.id, reason: zombieKillReason });
-        } catch (err) {
-          const msg = err instanceof Error ? err.message : String(err);
-          errors.push({ sessionId: session.id, error: msg });
-        }
-      } else {
-        killed.push({ sessionId: session.id, reason: zombieKillReason });
-      }
+    // bd-s4t.2: zombie detection — sessions whose GitHub PR was merged/closed
+    // but whose AO status hasn't been reconciled yet. Policy lives in the
+    // companion module session-reaper-extensions.ts (fork-specific logic).
+    const zombieResult = await checkAndKillZombie({
+      session,
+      sessionManager: deps.sessionManager,
+      orphanedThresholdMs: config.orphanedThresholdMs,
+      now,
+      dryRun,
+    });
+    if (zombieResult.action === "killed") {
+      killed.push(zombieResult.entry);
       continue;
     }
-
-    if (session.pr?.state === "closed") {
-      const closedIdleMs = now.getTime() - session.lastActivityAt.getTime();
-      if (closedIdleMs > config.orphanedThresholdMs) {
-        const zombieKillReason = `zombie: PR ${session.pr.state}`;
-        if (!dryRun) {
-          try {
-            await deps.sessionManager.kill(session.id);
-            killed.push({ sessionId: session.id, reason: zombieKillReason });
-          } catch (err) {
-            const msg = err instanceof Error ? err.message : String(err);
-            errors.push({ sessionId: session.id, error: msg });
-          }
-        } else {
-          killed.push({ sessionId: session.id, reason: zombieKillReason });
-        }
-        continue;
-      } else {
-        skipped.push({ sessionId: session.id, reason: "closed PR but not yet idle past orphanedThreshold — may reopen" });
-        continue;
-      }
+    if (zombieResult.action === "error") {
+      errors.push(zombieResult.entry);
+      continue;
+    }
+    if (zombieResult.action === "skipped") {
+      skipped.push(zombieResult.entry);
+      continue;
     }
 
     const ageMs = now.getTime() - session.createdAt.getTime();

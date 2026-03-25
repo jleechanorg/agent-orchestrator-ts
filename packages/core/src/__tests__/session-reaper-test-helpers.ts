@@ -3,7 +3,7 @@
  * Imported by session-reaper.test.ts and session-reaper-edge-cases.test.ts.
  */
 import { vi } from "vitest";
-import type { ReaperConfig, ReaperDeps } from "../session-reaper.js";
+import { DEFAULT_REAPER_CONFIG, type ReaperConfig, type ReaperDeps } from "../session-reaper.js";
 import type { Session, SessionManager, SessionId } from "../types.js";
 
 export const BASE_NOW = new Date("2025-01-01T12:00:00Z");
@@ -48,7 +48,7 @@ export function makeConfig(overrides?: Partial<ReaperConfig>): ReaperConfig {
   return {
     orphanedThresholdMs: TWO_HOURS_MS,
     noPrThresholdMs: FOUR_HOURS_MS,
-    maxKillsPerRun: 5,
+    maxKillsPerRun: DEFAULT_REAPER_CONFIG.maxKillsPerRun, // track runtime default
     ...overrides,
   };
 }
