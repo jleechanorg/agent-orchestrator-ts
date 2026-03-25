@@ -214,7 +214,8 @@ async function run() {
     );
   }
 
-  const output = `${existing.trimEnd()}\n\n---\n\n${sections}`;
+  const base = existing.trimEnd();
+  const output = base ? `${base}\n\n---\n\n${sections}` : sections;
   await fs.writeFile(novelPath, `${output}\n`, "utf8");
 
   // Summary for scripts/CI and operators.

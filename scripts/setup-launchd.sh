@@ -123,9 +123,15 @@ install_novel_plist() {
     return 1
   fi
 
-  # Build and shell-escape the run command.
+  # Build the run command with proper shell quoting using printf %q.
+  # This safely handles paths with spaces, &, ;, and other metacharacters.
   local run_cmd
-  run_cmd="cd $(escape_shell "$REPO_ROOT") ; NODE_ENV=production $(escape_shell "$node_path") scripts/novel/generate-daily-entry.mjs --file novel/the-daily-lives-of-workers.md --days 1 --words 1000"
+  printf -v run_cmd \
+    'cd %q && NODE_ENV=production %q %q --file %q --days 1 --words 1000' \
+    "$REPO_ROOT" \
+    "$node_path" \
+    "$REPO_ROOT/scripts/novel/generate-daily-entry.mjs" \
+    "$REPO_ROOT/novel/the-daily-lives-of-workers.md"
 
   sed \
     -e "s|@HOME@|$(escape_sed "$HOME")|g" \
