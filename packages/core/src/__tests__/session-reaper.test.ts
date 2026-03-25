@@ -284,7 +284,7 @@ describe("reapStaleSessions", () => {
       makeSession("s3", {
         status: "working",
         activity: "active",
-        pr: null, // no PR → qualifies for orphaned path
+        pr: null, // no PR → qualifies for no-PR reaping path
         createdAt: new Date(BASE_NOW.getTime() - FOUR_HOURS_MS - 1000),
         lastActivityAt: new Date(BASE_NOW.getTime() - FOUR_HOURS_MS - 1000),
       }),

@@ -1,6 +1,8 @@
-import type { RuntimeHandle, Session, SessionId, SessionStatus } from "../types.js";
+import type { PRState, RuntimeHandle, Session, SessionId, SessionStatus } from "../types.js";
 import { parsePrFromUrl } from "./pr.js";
 import { safeJsonParse, validateStatus } from "./validation.js";
+
+const VALID_PR_STATES = new Set<PRState>(["open", "merged", "closed"]);
 
 interface SessionFromMetadataOptions {
   projectId?: string;
@@ -27,7 +29,11 @@ export function sessionFromMetadata(
     pr: meta["pr"]
       ? (() => {
           const parsed = parsePrFromUrl(meta["pr"]);
-          const prState = meta["prState"] as "open" | "merged" | "closed" | undefined;
+          const rawPrState = meta["prState"] as string | undefined;
+          const prState: PRState | undefined =
+            rawPrState !== undefined && VALID_PR_STATES.has(rawPrState as PRState)
+              ? (rawPrState as PRState)
+              : undefined;
           return {
             number: parsed?.number ?? 0,
             url: meta["pr"],

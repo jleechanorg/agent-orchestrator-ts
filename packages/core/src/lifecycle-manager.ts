@@ -430,6 +430,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
             if (batch.state !== prevPrState) {
               const sessionsDir = getSessionsDir(config.configPath, project.path);
               updateMetadata(sessionsDir, session.id, { prState: batch.state });
+              session.metadata["prState"] = batch.state;
               if (session.pr) {
                 (session.pr as { state?: string }).state = batch.state;
               }
@@ -460,6 +461,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
           if (prState !== prevPrState) {
             const sessionsDir = getSessionsDir(config.configPath, project.path);
             updateMetadata(sessionsDir, session.id, { prState });
+            session.metadata["prState"] = prState;
             if (session.pr) {
               (session.pr as { state?: string }).state = prState;
             }
