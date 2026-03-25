@@ -38,7 +38,7 @@ export function createAntigravityRuntime(config?: AntigravityConfig): Runtime {
   // Single shared poller for all sessions on this runtime instance.
   // Polls the Manager window (not per-conversation windows) for spinner state.
   // onIdle forwards to the per-session callback stored in handle.data["onIdle"].
-  const poller = createPoller(15_000, {
+  const poller = createPoller(runtimeConfig.pollIntervalMs, {
     onIdle: (handle) => {
       const cb = handle.data["onIdle"] as ((id: string) => void) | undefined;
       if (cb) cb(handle.id);
