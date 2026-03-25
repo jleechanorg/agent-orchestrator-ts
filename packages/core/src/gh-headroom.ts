@@ -199,8 +199,13 @@ export async function withRESTFallback<T>(
             { cause: err },
           );
         }
-        const data = await restFn();
-        return { data, via: "rest" };
+        try {
+          const data = await restFn();
+          return { data, via: "rest" };
+        } catch (restErr) {
+          if (isGhRateLimitError(restErr)) invalidateHeadroomCache();
+          throw restErr;
+        }
       } else {
         throw err; // Non-rate-limit errors should propagate
       }
@@ -214,8 +219,13 @@ export async function withRESTFallback<T>(
     );
   }
 
-  const data = await restFn();
-  return { data, via: "rest" };
+  try {
+    const data = await restFn();
+    return { data, via: "rest" };
+  } catch (restErr) {
+    if (isGhRateLimitError(restErr)) invalidateHeadroomCache();
+    throw restErr;
+  }
 }
 
 /**

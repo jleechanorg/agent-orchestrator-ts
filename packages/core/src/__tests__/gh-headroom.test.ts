@@ -209,24 +209,52 @@ describe("withRESTFallback", () => {
   });
 
   it("throws when GraphQL rate-limits and fresh REST headroom is also exhausted", async () => {
-    // Set up initial inject (will be used for first getHeadroomStatus call, then swapped
-    // before the re-fetch in the rate-limit catch block)
-    ghHeadroomInject({ execAsync: stubHeadroom(500, 4000) });
+    // First call (preflight): GraphQL and REST both available
+    // Second call (post-invalidation re-fetch): REST now exhausted
+    // Using mockResolvedValueOnce so the two fetches return distinct payloads,
+    // proving withRESTFallback actually re-fetches after cache invalidation.
+    const execStub = vi.fn()
+      .mockResolvedValueOnce({ stdout: JSON.stringify({
+        resources: {
+          graphql: { remaining: 500, limit: 5000, reset: 1748779200 },
+          core:    { remaining: 4000, limit: 5000, reset: 1748779200 },
+        },
+      }), stderr: "" })
+      .mockResolvedValueOnce({ stdout: JSON.stringify({
+        resources: {
+          graphql: { remaining: 500, limit: 5000, reset: 1748779200 },
+          core:    { remaining: 10, limit: 5000, reset: 1748779200 }, // REST exhausted
+        },
+      }), stderr: "" });
+    ghHeadroomInject({ execAsync: execStub });
     invalidateHeadroomCache();
 
     const rateLimitErr = new Error("GraphQL rate limit exceeded");
     const graphqlFn = vi.fn().mockRejectedValue(rateLimitErr);
     const restFn = vi.fn().mockResolvedValue("rest-fallback-data");
 
-    // Swap to exhausted REST inject AFTER the initial cache is primed but BEFORE
-    // withRESTFallback is called — the rate-limit catch's re-fetch will use this stub
-    ghHeadroomInject({ execAsync: stubHeadroom(500, 10) }); // REST exhausted
-    // Note: invalidateHeadroomCache() is NOT called here — the rate-limit catch block
-    // will call it and then re-fetch using the currently patched execAsync
-
     await expect(withRESTFallback(graphqlFn, restFn)).rejects.toThrow(
       "GitHub API headroom exhausted",
     );
     expect(restFn).not.toHaveBeenCalled();
+    // Verify both fetches happened (preflight + post-invalidation re-fetch)
+    expect(execStub).toHaveBeenCalledTimes(2);
+  });
+
+  it("invalidates cache when REST call itself rate-limits (direct REST path)", async () => {
+    // REST path (GraphQL headroom low): restFn throws rate-limit → cache cleared
+    ghHeadroomInject({ execAsync: stubHeadroom(50, 4000) }); // graphql < 100 → direct REST
+    invalidateHeadroomCache();
+
+    const rateLimitErr = new Error("REST rate limit exceeded");
+    const graphqlFn = vi.fn().mockResolvedValue("should-not-run");
+    const restFn = vi.fn().mockRejectedValue(rateLimitErr);
+
+    await expect(withRESTFallback(graphqlFn, restFn)).rejects.toThrow("REST rate limit exceeded");
+    expect(graphqlFn).not.toHaveBeenCalled();
+
+    // Cache should be cleared so next call re-fetches fresh headroom
+    // (invalidateHeadroomCache can be called multiple times without throwing)
+    expect(() => invalidateHeadroomCache()).not.toThrow();
   });
 });
