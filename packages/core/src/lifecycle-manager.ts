@@ -1357,7 +1357,16 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
           // and active sessions that are simply old are not killed prematurely.
           // Non-fatal: reap failures are warning-only so they never block session cleanup.
           if (newStatus === "merged") {
-            await reapPostMergeCoWorkers(session, sessionManager, observer);
+            // orch-s66: pass exit proof deps so reaped co-workers emit session.exited
+            // notifications. Without this, Slack thread terminal updates are skipped for
+            // co-workers cleaned up by the post-merge sweep.
+            await reapPostMergeCoWorkers(session, sessionManager, observer, {
+              config,
+              registry,
+              observer,
+              notifyHuman,
+              createEvent,
+            });
           }
         } catch (killErr) {
           // kill() may fail if session is already partially cleaned up; reapPostMergeCoWorkers

@@ -1,6 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { reapPostMergeCoWorkers, POST_MERGE_REAPER_CONFIG } from "../fork-lifecycle-postmerge.js";
-import type { Session, SessionManager } from "../types.js";
+import type {
+  Session,
+  SessionManager,
+  OrchestratorConfig,
+  PluginRegistry,
+  EventType,
+} from "../types.js";
 import type { ProjectObserver } from "../observability.js";
 
 const PROJECT_ID = "test-project";
@@ -150,6 +156,183 @@ describe("fork-lifecycle-postmerge", () => {
       expect(result.killed).toHaveLength(0);
       expect(result.hadErrors).toBe(false);
       expect(observer.recordOperation).not.toHaveBeenCalled();
+    });
+
+    // ─── Exit notification tests (orch-s66) ─────────────────────────────────
+    // Reaped co-worker sessions must emit session.exited notifications
+    // just like the primary merged session does via validateAndEmitExitProof in
+    // lifecycle-manager. Without this, Slack thread terminal updates are skipped
+    // for co-workers that are cleaned up as part of the post-merge sweep.
+
+    it("emits exit proof via notifyHuman for each reaped co-worker", async () => {
+      const sm = makeSessionManager();
+      const coWorker = makeSession({ id: "co-worker-1", pr: null });
+      // list() is called twice: once for pre-reap snapshot, once by reapStaleSessions
+      (sm.list as ReturnType<typeof vi.fn>)
+        .mockResolvedValueOnce([coWorker])
+        .mockResolvedValueOnce([coWorker]);
+      const observer = makeObserver();
+      const mergedSession = makeSession();
+
+      const notifyHuman = vi.fn().mockResolvedValue(undefined);
+      const createEvent = vi.fn().mockReturnValue({
+        type: "session.exited" as EventType,
+        sessionId: "co-worker-1",
+        projectId: PROJECT_ID,
+        message: "",
+        data: {},
+        timestamp: new Date().toISOString(),
+        correlationId: "test",
+      });
+
+      // orch-s66: exit proof deps are required to emit notifications for reaped sessions
+      await reapPostMergeCoWorkers(mergedSession, sm, observer, {
+        config: { projects: { [PROJECT_ID]: {} } } as unknown as OrchestratorConfig,
+        registry: {} as PluginRegistry,
+        observer,
+        notifyHuman,
+        createEvent,
+      });
+
+      // Without SCM in test config, event type is "session.exit_failed" and priority is "warning".
+      // The key assertion is that createEvent WAS called with the correct session context.
+      expect(createEvent).toHaveBeenCalledWith(
+        "session.exit_failed",
+        expect.objectContaining({ sessionId: "co-worker-1", projectId: PROJECT_ID }),
+      );
+      expect(notifyHuman).toHaveBeenCalledWith(
+        expect.objectContaining({ sessionId: "co-worker-1" }),
+        "warning",
+      );
+    });
+
+    it("emits exit proof for multiple reaped co-workers", async () => {
+      const sm = makeSessionManager();
+      const coWorker1 = makeSession({ id: "co-worker-1" });
+      const coWorker2 = makeSession({ id: "co-worker-2" });
+      // list() is called twice: once for pre-reap snapshot, once by reapStaleSessions
+      (sm.list as ReturnType<typeof vi.fn>)
+        .mockResolvedValueOnce([coWorker1, coWorker2])
+        .mockResolvedValueOnce([coWorker1, coWorker2]);
+      const observer = makeObserver();
+      const mergedSession = makeSession();
+
+      const notifyHuman = vi.fn().mockResolvedValue(undefined);
+      const createEvent = vi.fn().mockReturnValue({
+        type: "session.exited" as EventType,
+        sessionId: "test",
+        projectId: PROJECT_ID,
+        message: "",
+        data: {},
+        timestamp: new Date().toISOString(),
+        correlationId: "test",
+      });
+
+      await reapPostMergeCoWorkers(mergedSession, sm, observer, {
+        config: { projects: { [PROJECT_ID]: {} } } as unknown as OrchestratorConfig,
+        registry: {} as PluginRegistry,
+        observer,
+        notifyHuman,
+        createEvent,
+      });
+
+      // One exit proof event per reaped co-worker
+      expect(createEvent).toHaveBeenCalledTimes(2);
+      expect(notifyHuman).toHaveBeenCalledTimes(2);
+    });
+
+    it("does not emit exit proof when exitProofDeps are not provided", async () => {
+      const sm = makeSessionManager();
+      (sm.list as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
+        makeSession({ id: "co-worker-1" }),
+      ]);
+      const observer = makeObserver();
+      const mergedSession = makeSession();
+
+      // No exitProofDeps passed — exit proof block must be skipped
+      const result = await reapPostMergeCoWorkers(mergedSession, sm, observer);
+
+      expect(result.killed).toHaveLength(1);
+      expect(result.hadErrors).toBe(false);
+      // Only the post_merge_reap summary call, no exit proof
+      expect(observer.recordOperation).toHaveBeenCalledTimes(1);
+      expect(observer.recordOperation).toHaveBeenCalledWith(
+        expect.objectContaining({ operation: "lifecycle.post_merge_reap" }),
+      );
+    });
+
+    it("does not emit exit proof for the merged session itself", async () => {
+      const sm = makeSessionManager();
+      // Merged session is NOT in the list — reapStaleSessions skips it via
+      // TERMINAL_STATUSES filter. Verify notifyHuman is NOT called for it.
+      (sm.list as ReturnType<typeof vi.fn>).mockResolvedValueOnce([]);
+      const observer = makeObserver();
+      const mergedSession = makeSession();
+
+      const notifyHuman = vi.fn().mockResolvedValue(undefined);
+      const createEvent = vi.fn().mockReturnValue({
+        type: "session.exited" as EventType,
+        sessionId: "test",
+        projectId: PROJECT_ID,
+        message: "",
+        data: {},
+        timestamp: new Date().toISOString(),
+        correlationId: "test",
+      });
+
+      await reapPostMergeCoWorkers(mergedSession, sm, observer, {
+        config: { projects: { [PROJECT_ID]: {} } } as unknown as OrchestratorConfig,
+        registry: {} as PluginRegistry,
+        observer,
+        notifyHuman,
+        createEvent,
+      });
+
+      expect(createEvent).not.toHaveBeenCalled();
+      expect(notifyHuman).not.toHaveBeenCalled();
+    });
+
+    it("records lifecycle.exit_proof operation for each reaped co-worker", async () => {
+      const sm = makeSessionManager();
+      const coWorker = makeSession({ id: "co-worker-1" });
+      // list() is called twice: once for pre-reap snapshot, once by reapStaleSessions
+      (sm.list as ReturnType<typeof vi.fn>)
+        .mockResolvedValueOnce([coWorker])
+        .mockResolvedValueOnce([coWorker]);
+      const observer = makeObserver();
+      const mergedSession = makeSession();
+
+      const notifyHuman = vi.fn().mockResolvedValue(undefined);
+      const createEvent = vi.fn().mockReturnValue({
+        type: "session.exited" as EventType,
+        sessionId: "co-worker-1",
+        projectId: PROJECT_ID,
+        message: "",
+        data: {},
+        timestamp: new Date().toISOString(),
+        correlationId: "test",
+      });
+
+      await reapPostMergeCoWorkers(mergedSession, sm, observer, {
+        config: { projects: { [PROJECT_ID]: {} } } as unknown as OrchestratorConfig,
+        registry: {} as PluginRegistry,
+        observer,
+        notifyHuman,
+        createEvent,
+      });
+
+      // observer.recordOperation must be called with lifecycle.exit_proof for the reaped session.
+      // Outcome is "failure" here because the test config has no SCM plugin (validateCommits
+      // unavailable), which is expected — the key assertion is that lifecycle.exit_proof IS recorded.
+      // (called FIRST; post_merge_reap summary is called second)
+      expect(observer.recordOperation).toHaveBeenNthCalledWith(
+        1,
+        expect.objectContaining({
+          operation: "lifecycle.exit_proof",
+          sessionId: "co-worker-1",
+          projectId: PROJECT_ID,
+        }),
+      );
     });
   });
 });

@@ -17,7 +17,16 @@ import {
   DEFAULT_REAPER_CONFIG,
   type ReaperResult,
 } from "./session-reaper.js";
-import type { SessionManager, Session } from "./types.js";
+import { validateAndEmitExitProof } from "./session-exit-proof.js";
+import type {
+  SessionManager,
+  Session,
+  OrchestratorConfig,
+  PluginRegistry,
+  OrchestratorEvent,
+  EventPriority,
+  EventType,
+} from "./types.js";
 import { createCorrelationId, type ProjectObserver } from "./observability.js";
 
 // Configurable thresholds — kept in one place so reviewers can validate intent.
@@ -64,6 +73,24 @@ interface ReapedSessionInfo {
   reason: string;
 }
 
+/** orch-s66: dependencies needed to emit exit proof notifications for reaped sessions. */
+export interface PostMergeExitProofDeps {
+  config: OrchestratorConfig;
+  registry: PluginRegistry;
+  observer: ProjectObserver;
+  notifyHuman: (event: OrchestratorEvent, priority: EventPriority) => Promise<void>;
+  createEvent: (
+    type: EventType,
+    opts: {
+      sessionId: string;
+      projectId: string;
+      message: string;
+      priority?: EventPriority;
+      data?: Record<string, unknown>;
+    },
+  ) => OrchestratorEvent;
+}
+
 /**
  * Reap co-worker sessions in the same project after a PR merge.
  *
@@ -73,15 +100,29 @@ interface ReapedSessionInfo {
  * @param mergedSession  - the session whose PR just merged (provides projectId)
  * @param sessionManager - the global session manager
  * @param observer       - for recording operations into the observability stream
+ * @param exitProofDeps  - orch-s66: required to emit session.exited notifications
+ *                          for reaped co-worker sessions. Pass when terminal
+ *                          notification emission is desired (typically always in prod).
  */
 export async function reapPostMergeCoWorkers(
   mergedSession: Session,
   sessionManager: SessionManager,
   observer: ProjectObserver,
+  exitProofDeps?: PostMergeExitProofDeps,
 ): Promise<PostMergeReapResult> {
   const projectId = mergedSession.projectId;
 
   try {
+    // Snapshot sessions BEFORE reaping — reapStaleSessions calls kill() which
+    // archives sessions, making them invisible to sessionManager.get(). Without
+    // this pre-reap snapshot, exit proof emission would silently fail because
+    // the reaped session data is no longer available via get().
+    const scopedManager = projectScopedSessionManager(sessionManager, projectId);
+    const preReapSessions: Session[] = exitProofDeps
+      ? await scopedManager.list(projectId)
+      : [];
+    const sessionById = new Map(preReapSessions.map((s) => [s.id, s]));
+
     const reaped: ReaperResult = await reapStaleSessions(
       {
         ...DEFAULT_REAPER_CONFIG,
@@ -90,7 +131,7 @@ export async function reapPostMergeCoWorkers(
         maxKillsPerRun: POST_MERGE_REAPER_CONFIG.maxKillsPerRun,
       },
       // Project-scope the session list so cross-project sessions are invisible
-      { sessionManager: projectScopedSessionManager(sessionManager, projectId) },
+      { sessionManager: scopedManager },
     );
 
     const killed: ReapedSessionInfo[] = reaped.killed.map((r) => ({
@@ -99,6 +140,40 @@ export async function reapPostMergeCoWorkers(
     }));
 
     const hadErrors = reaped.errors.length > 0;
+
+    // orch-s66: emit session.exited notifications for each reaped co-worker.
+    // This mirrors the exit proof that lifecycle-manager emits for the primary
+    // merged session. Without this, Slack thread terminal updates are silently
+    // skipped for co-workers cleaned up by the post-merge sweep.
+    // Uses the pre-reap snapshot since sessions are archived after kill().
+    if (exitProofDeps && killed.length > 0) {
+      for (const killedInfo of killed) {
+        try {
+          const reapedSession = sessionById.get(killedInfo.sessionId);
+          if (reapedSession) {
+            await validateAndEmitExitProof(reapedSession, "merged", {
+              config: exitProofDeps.config,
+              registry: exitProofDeps.registry,
+              observer: exitProofDeps.observer,
+              notifyHuman: exitProofDeps.notifyHuman,
+              createEvent: exitProofDeps.createEvent,
+            });
+          }
+        } catch (proofErr) {
+          // Non-fatal: exit proof failures must not corrupt the reap result
+          observer.recordOperation({
+            metric: "lifecycle_poll",
+            operation: "lifecycle.post_merge_exit_proof",
+            outcome: "failure",
+            correlationId: createCorrelationId("post-merge-reap"),
+            projectId,
+            sessionId: killedInfo.sessionId,
+            data: { error: proofErr instanceof Error ? proofErr.message : String(proofErr) },
+            level: "warn",
+          });
+        }
+      }
+    }
 
     // Record outcome(s)
     if (reaped.killed.length > 0) {
