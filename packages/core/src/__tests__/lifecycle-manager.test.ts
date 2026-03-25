@@ -8,6 +8,18 @@ import { createSessionManager } from "../session-manager.js";
 import * as reviewBacklog from "../review-backlog.js";
 import { writeMetadata, readMetadataRaw } from "../metadata.js";
 import { getSessionsDir, getProjectBaseDir } from "../paths.js";
+
+// Must precede all imports that use the mocked module
+vi.mock("../fork-lifecycle-postmerge.js", () => ({
+  reapPostMergeCoWorkers: vi.fn().mockResolvedValue({
+    killed: [],
+    hadErrors: false,
+    summary: "no co-worker sessions eligible for reaping",
+  }),
+}));
+
+// Import after vi.mock so we get the mocked version
+import { reapPostMergeCoWorkers } from "../fork-lifecycle-postmerge.js";
 import type {
   OrchestratorConfig,
   PluginRegistry,
@@ -3769,3 +3781,124 @@ describe("bd-kki: killed transition + merged PR race", () => {
     expect(lm.getStates().get("app-1")).toBe("merged");
   });
 });
+
+describe("post-merge reap: reapPostMergeCoWorkers is called on merged transition", () => {
+  // reapPostMergeCoWorkers is already imported at the top of the file (mocked by vi.mock)
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  function makeMergedRegistry(): PluginRegistry {
+    const mockScm: SCM = {
+      name: "github",
+      getIssueState: vi.fn(),
+      getPRState: vi.fn().mockResolvedValue("merged"),
+      getCISummary: vi.fn().mockResolvedValue("passing"),
+      getReviewDecision: vi.fn().mockResolvedValue("none"),
+      getMergeability: vi.fn().mockResolvedValue({ mergeable: true, noConflicts: true }),
+      createPR: vi.fn(),
+      mergePR: vi.fn(),
+      detectPR: vi.fn(),
+      listOpenPRs: vi.fn(),
+      claimPR: vi.fn(),
+      listPRComments: vi.fn(),
+      listPRReviewThreads: vi.fn(),
+      listPRReviewComments: vi.fn(),
+      listIssues: vi.fn(),
+      assignIssue: vi.fn(),
+      addIssueComment: vi.fn(),
+      updateIssue: vi.fn(),
+      addPRComment: vi.fn(),
+      updatePRBody: vi.fn(),
+      getPRDetails: vi.fn(),
+      getPRDiff: vi.fn(),
+      listPRFiles: vi.fn(),
+      listReviews: vi.fn(),
+      listChecks: vi.fn(),
+      getMergeQueueState: vi.fn(),
+    } as unknown as SCM;
+
+    return {
+      ...mockRegistry,
+      get: vi.fn().mockImplementation((slot: string) => {
+        if (slot === "runtime") return mockRuntime;
+        if (slot === "agent") return mockAgent;
+        if (slot === "scm") return mockScm;
+        return null;
+      }),
+    };
+  }
+
+  async function checkAndTransitionToMerged(metadataStatus = "working") {
+    const session = makeSession({ status: metadataStatus, pr: makePR() });
+    vi.mocked(mockSessionManager.get).mockResolvedValue(session);
+    vi.mocked(mockRuntime.isAlive).mockResolvedValue(false);
+
+    writeMetadata(sessionsDir, "app-1", {
+      worktree: "/tmp/test-worktree",
+      branch: "feat/test",
+      status: metadataStatus,
+      project: "my-app",
+    });
+
+    const lm = createLifecycleManager({
+      config,
+      registry: makeMergedRegistry(),
+      sessionManager: mockSessionManager,
+    });
+
+    await lm.check("app-1");
+    return { lm, session };
+  }
+
+  it("calls reapPostMergeCoWorkers when session transitions to merged", async () => {
+    const { lm } = await checkAndTransitionToMerged();
+
+    expect(lm.getStates().get("app-1")).toBe("merged");
+    expect(reapPostMergeCoWorkers).toHaveBeenCalledTimes(1);
+    const [calledSession, calledSM, calledObserver] = vi.mocked(reapPostMergeCoWorkers).mock.calls[0];
+    expect(calledSession.id).toBe("app-1");
+    expect(calledSM).toBe(mockSessionManager);
+    expect(calledObserver).toBeDefined();
+  });
+
+  it("does NOT call reapPostMergeCoWorkers when session transitions to killed (no merge)", async () => {
+    const session = makeSession({ status: "working", pr: makePR() });
+    vi.mocked(mockSessionManager.get).mockResolvedValue(session);
+    vi.mocked(mockRuntime.isAlive).mockResolvedValue(false);
+
+    writeMetadata(sessionsDir, "app-1", {
+      worktree: "/tmp/test-worktree",
+      branch: "feat/test",
+      status: "working",
+      project: "my-app",
+    });
+
+    // Registry WITHOUT SCM — isPRMerged returns false → status stays "killed"
+    const lm = createLifecycleManager({
+      config,
+      registry: mockRegistry,
+      sessionManager: mockSessionManager,
+    });
+
+    await lm.check("app-1");
+
+    expect(lm.getStates().get("app-1")).toBe("killed");
+    expect(reapPostMergeCoWorkers).not.toHaveBeenCalled();
+  });
+
+  it("reapPostMergeCoWorkers errors do not crash check() — failure is warning-only", async () => {
+    vi.mocked(reapPostMergeCoWorkers).mockRejectedValueOnce(
+      new Error("reaper unreachable"),
+    );
+
+    const { lm } = await checkAndTransitionToMerged();
+
+    // check() completes without throwing even though reapPostMergeCoWorkers failed
+    expect(lm.getStates().get("app-1")).toBe("merged");
+    expect(reapPostMergeCoWorkers).toHaveBeenCalledTimes(1);
+  });
+});
+
+

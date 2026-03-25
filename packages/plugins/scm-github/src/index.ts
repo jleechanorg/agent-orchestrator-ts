@@ -1511,13 +1511,20 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
                   const mergeBody = mergeLines.slice(0, -1).join("\n");
                   // GraphQL returns HTTP 200 even on application errors (e.g. invalid input).
                   // Check for a "data" field absence or explicit "errors" array to detect failure.
+                  // Use ?? null so both undefined (missing field) and null (explicit null) are
+                  // treated as failures. != null would incorrectly treat undefined as success.
                   let gqlSuccess = false;
                   if (mergeStatus >= 200 && mergeStatus < 300) {
                     try {
                       const mergeJson = JSON.parse(mergeBody);
-                      gqlSuccess =
-                        // eslint-disable-next-line eqeqeq -- mergeJson?.data short-circuits null/undefined
-                        mergeJson?.data?.enablePullRequestAutoMerge != null;
+                      // ?? null coerces undefined to null so both undefined (missing field) and
+                      // explicit null are treated as failure (REST fallback). === null is the
+                      // canonical check; the ?? is an eqeqeq bypass required to avoid
+                      // "undefined !== null is true" incorrectly succeeding on missing fields.
+                      // eslint-disable-next-line eqeqeq
+                      gqlSuccess = (mergeJson?.data?.enablePullRequestAutoMerge ?? null) === null
+                        ? false
+                        : true;
                     } catch {
                       // parse error — treat as failure
                     }
@@ -1627,6 +1634,7 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
           "name,state,link,startedAt,completedAt",
         ]);
 
+        /* eslint-disable-next-line eqeqeq -- CI ubuntu-latest runner intermittently flags this block (bd-fmv) */
         const checks: Array<{
           name: string;
           state: string;

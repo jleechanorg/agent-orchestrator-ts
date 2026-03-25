@@ -158,43 +158,50 @@ export function createAntigravityRuntime(config?: AntigravityConfig): Runtime {
     },
 
     async destroy(handle: RuntimeHandle): Promise<void> {
-      try {
-        const session = handle.data["session"] as
-          | AntigravitySession
-          | undefined;
-        if (!session) return;
+      const session = handle.data["session"] as
+        | AntigravitySession
+        | undefined;
+      if (!session) return;
 
-        // For fallback sessions, kill the CLI process
-        if (session.windowId === -1 && session.fallbackPid) {
+      try {
+        // Kill fallback CLI process if present (regardless of windowId)
+        if (session.fallbackPid) {
           try {
-            process.kill(session.fallbackPid);
+            process.kill(session.fallbackPid, "SIGTERM");
           } catch {
             // Process may have already exited
           }
-          session.status = "idle";
-          return;
         }
 
-        // For Peekaboo sessions, close the conversation window
-        const windows = await peekaboo.windowList(APP_NAME);
-        const conversationWindow = windows.find(
-          (w) => w.window_id === session.windowId,
-        );
-        if (conversationWindow) {
-          // Focus the window by clicking it, then close with Cmd+W
-          const snapshot = await peekaboo.see(APP_NAME, session.windowId);
-          if (snapshot.ui_elements.length > 0) {
-            await peekaboo.click(
+        // For Peekaboo sessions, close the conversation window.
+        // Uses window-scoped see+click to avoid targeting wrong window
+        // in multi-window scenarios (paste/press are app-scoped).
+        if (session.windowId !== -1) {
+          const windows = await peekaboo.windowList(APP_NAME);
+          const conversationWindow = windows.find(
+            (w) => w.window_id === session.windowId,
+          );
+          if (conversationWindow) {
+            const snapshot = await peekaboo.see(
               APP_NAME,
               session.windowId,
-              snapshot.ui_elements[0].id,
-              snapshot.snapshot_id,
             );
+            if (snapshot.ui_elements.length > 0) {
+              await peekaboo.click(
+                APP_NAME,
+                session.windowId,
+                snapshot.ui_elements[0].id,
+                snapshot.snapshot_id,
+              );
+            }
+            await peekaboo.press(APP_NAME, "Command+w");
           }
-          await peekaboo.press(APP_NAME, "Command+w");
         }
       } catch {
         // Best-effort cleanup — window may already be closed
+      } finally {
+        // Always mark session idle, even if cleanup threw
+        session.status = "idle";
       }
     },
 

@@ -24,6 +24,14 @@ export interface ReaperConfig {
   maxKillsPerRun: number;
   /** if true, log what would be killed but don't actually kill */
   dryRun?: boolean;
+  /**
+   * ms of inactivity required before a no-PR session is eligible for reaping.
+   * When omitted, the no-PR condition is gated solely on session age (backward-
+   * compatible default). Set to a positive value to require both age AND idle
+   * time before reaping, preventing termination of sessions that are actively
+   * working but happen to have been running longer than the age threshold.
+   */
+  idleThresholdMs?: number;
 }
 
 export interface ReapedSession {
@@ -99,12 +107,14 @@ export async function reapStaleSessions(
 
     const ageMs = now.getTime() - session.createdAt.getTime();
     const idleMs = now.getTime() - session.lastActivityAt.getTime();
+    const meetsIdleGate =
+      config.idleThresholdMs === undefined || idleMs > config.idleThresholdMs;
 
     // Determine kill reason (priority order)
     let killReason: string | null = null;
 
-    if (session.pr === null && ageMs > config.noPrThresholdMs) {
-      // No PR after threshold
+    if (session.pr === null && ageMs > config.noPrThresholdMs && meetsIdleGate) {
+      // No PR after threshold AND idle long enough (if idle gate is configured)
       killReason = "no PR after threshold";
     } else if (session.activity === "exited" && idleMs > config.orphanedThresholdMs) {
       // Orphaned: process exited
