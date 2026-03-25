@@ -172,7 +172,7 @@ describe("startup grace period in determineStatus (bd-85r)", () => {
     (mockRuntime.isAlive as ReturnType<typeof vi.fn>).mockResolvedValue(false);
 
     vi.mocked(mockSessionManager.get).mockResolvedValue(session);
-    writeMetadata(sessionsDir, session.id, { status: "spawning" });
+    writeMetadata(sessionsDir, session.id, { worktree: tmpDir, branch: "feat/test", status: "spawning" });
 
     const lm = createLifecycleManager({
       config,
@@ -200,7 +200,7 @@ describe("startup grace period in determineStatus (bd-85r)", () => {
     (mockRuntime.isAlive as ReturnType<typeof vi.fn>).mockResolvedValue(false);
 
     vi.mocked(mockSessionManager.get).mockResolvedValue(session);
-    writeMetadata(sessionsDir, session.id, { status: "working" });
+    writeMetadata(sessionsDir, session.id, { worktree: tmpDir, branch: "feat/test", status: "working" });
 
     const lm = createLifecycleManager({
       config,
@@ -221,7 +221,7 @@ describe("startup grace period in determineStatus (bd-85r)", () => {
     });
 
     vi.mocked(mockSessionManager.get).mockResolvedValue(session);
-    writeMetadata(sessionsDir, session.id, { status: "spawning" });
+    writeMetadata(sessionsDir, session.id, { worktree: tmpDir, branch: "feat/test", status: "spawning" });
 
     const lm = createLifecycleManager({
       config,
