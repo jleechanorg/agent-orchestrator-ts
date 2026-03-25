@@ -1299,8 +1299,36 @@ describe("scm-github plugin", () => {
       expect(comments[0].author).toBe("alice");
     });
 
-    it("throws on error", async () => {
+    it("REST fallback when GraphQL fails with rate-limit error", async () => {
+      // Call 1 (GraphQL): throw rate-limit → retries exhausted → triggers REST fallback
       mockGhError("API rate limit");
+      // Call 2 (REST pulls comments): return inline review comments
+      mockGh([
+        {
+          id: 1,
+          user: { login: "reviewer1" },
+          body: "Please fix this",
+          path: "src/foo.ts",
+          line: 10,
+          created_at: "2025-01-01T00:00:00Z",
+          html_url: "https://github.com/acme/repo/pull/42#discussion_r1",
+        },
+      ]);
+      // Call 3 (REST issue comments): return empty
+      mockGh([]);
+
+      const comments = await scm.getPendingComments(pr);
+      expect(comments).toHaveLength(1);
+      expect(comments[0]).toMatchObject({
+        id: "1",
+        author: "reviewer1",
+        body: "Please fix this",
+        isResolved: false, // REST has no isResolved — always false
+      });
+    });
+
+    it("throws on non-rate-limit error", async () => {
+      mockGhError("gh: not found");
       await expect(scm.getPendingComments(pr)).rejects.toThrow("Failed to fetch pending comments");
     });
 
