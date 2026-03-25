@@ -2,7 +2,7 @@ import { execFile } from "node:child_process";
 import { readdirSync } from "node:fs";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import { type ObservabilityMetricName, type SessionManager, createCorrelationId } from "@jleechanorg/ao-core";
+import { type ObservabilityMetricName, type SessionManager, createCorrelationId, parseTmuxName } from "@jleechanorg/ao-core";
 
 const execFileAsync = promisify(execFile);
 
@@ -35,11 +35,6 @@ export async function listTmuxSessionsWithActivity(): Promise<
     return [];
   }
 }
-
-// AO session short-ID pattern — mirrors the prefix+num capture from parseTmuxName.
-// parseTmuxName accepts any [a-zA-Z0-9_-]+ prefix, so we use the same here.
-// This avoids hardcoding a fixed prefix list (which would miss custom sessionPrefixes).
-export const AO_SESSION_PATTERN = /^[a-zA-Z0-9_-]+-\d+$/;
 
 interface WorktreeObserver {
   recordOperation(opts: {
@@ -108,10 +103,8 @@ export async function sweepOrphanWorktrees(opts: {
   const liveSessionIds = new Set<string>(
     allTmuxSessions
       .map((s) => {
-        // Extract short session ID from tmux name: ${hash}-${prefix}-${num}.
-        // Use permissive [a-zA-Z0-9_-]+ for prefix (matches parseTmuxName).
-        const m = s.name.match(/^[a-f0-9]{12}-([a-zA-Z0-9_-]+-\d+)$/);
-        return m ? m[1] : null;
+        const parsed = parseTmuxName(s.name);
+        return parsed ? `${parsed.prefix}-${parsed.num}` : null;
       })
       .filter((id): id is string => id !== null),
   );
@@ -121,16 +114,22 @@ export async function sweepOrphanWorktrees(opts: {
   let entries: string[];
   try {
     entries = readdirSync(projectWorktreeDir);
-  } catch {
-    // Worktree dir doesn't exist yet — nothing to sweep
-    return;
+  } catch (err) {
+    // Only ignore "directory does not exist" — re-throw permission and I/O errors.
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return;
+    throw err;
   }
 
   let orphanCount = 0;
   let cleanedCount = 0;
 
   for (const entry of entries) {
-    if (!AO_SESSION_PATTERN.test(entry)) continue;
+    // Validate that this entry is a valid AO session by parsing it as a full
+    // tmux session name (parseTmuxName requires {hash}-{prefix}-{num} format).
+    // This uses the canonical parser instead of a hardcoded regex so future
+    // format changes in parseTmuxName are automatically respected.
+    const parsed = parseTmuxName(`${configHash}-${entry}`);
+    if (!parsed) continue;
 
     // Tmux session name: "{configHash}-{sessionId}" (e.g. "bb5e6b7f8db3-ao-749").
     // This is also the runtimeId used in the AO session DB for this config.
