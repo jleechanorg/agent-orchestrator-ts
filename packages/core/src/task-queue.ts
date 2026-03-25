@@ -79,6 +79,8 @@ export interface TaskQueueDeps {
 export interface TaskQueueParams {
   projectId: string;
   project: ProjectConfig;
+  /** Root config path — passed explicitly since project.configPath is optional and never populated. */
+  configPath: string;
   activeSessions: Session[];
   correlationId: string;
 }
@@ -96,7 +98,7 @@ export async function drainTaskQueue(
   params: TaskQueueParams,
 ): Promise<number> {
   const { registry: _registry, sessionManager, observer } = deps;
-  const { projectId, project, activeSessions, correlationId } = params;
+  const { projectId, project, configPath, activeSessions, correlationId } = params;
 
   const tq = project.taskQueue;
   if (!tq || !tq.enabled || tq.beads.length === 0) {
@@ -168,7 +170,7 @@ export async function drainTaskQueue(
     });
 
     // Tag the session with the queued bead ID so we can track it
-    const sessionsDir = getSessionsDir(project.configPath ?? "", project.path);
+    const sessionsDir = getSessionsDir(configPath, project.path);
     updateMetadata(sessionsDir, session.id, { queuedBeadId: nextBead });
 
     observer.recordOperation({

@@ -1604,7 +1604,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         if (project?.taskQueue?.enabled) {
           const tqSpawned = await drainTaskQueue(
             { registry, sessionManager, observer },
-            { projectId: scopedProjectId, project, activeSessions, correlationId },
+            { projectId: scopedProjectId, project, configPath: config.configPath ?? "", activeSessions, correlationId },
           );
           if (tqSpawned > 0) {
             allCompleteEmitted = false;
