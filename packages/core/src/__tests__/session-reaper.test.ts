@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { reapStaleSessions, type ReaperConfig, type ReaperDeps } from "../session-reaper.js";
-import type { Session, SessionManager, SessionId } from "../types.js";
+import { sessionFromMetadata } from "../utils/session-from-metadata.js";
+import { VALID_PR_STATES } from "../types.js";
+import type { Session, SessionManager, SessionId, PRState } from "../types.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -467,5 +469,101 @@ describe("reapStaleSessions", () => {
     expect(result.killed).toHaveLength(1);
     expect(result.killed[0].sessionId).toBe("s1");
     expect(sm.kill).toHaveBeenCalledWith("s1");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Metadata round-trip tests (bd-s4t)
+// ---------------------------------------------------------------------------
+
+describe("sessionFromMetadata: prState round-trip", () => {
+  it("hydrates session.pr.state from metadata prState=open", () => {
+    const session = sessionFromMetadata("test-1", {
+      project: "test-project",
+      branch: "feat/test",
+      status: "working",
+      worktree: "/tmp/test-1",
+      pr: "https://github.com/org/repo/pull/42",
+      prState: "open",
+    });
+    expect(session.pr).not.toBeNull();
+    expect(session.pr!.state).toBe("open");
+    expect(session.metadata["prState"]).toBe("open");
+  });
+
+  it("hydrates session.pr.state from metadata prState=merged", () => {
+    const session = sessionFromMetadata("test-2", {
+      project: "test-project",
+      branch: "feat/test",
+      status: "working",
+      worktree: "/tmp/test-2",
+      pr: "https://github.com/org/repo/pull/99",
+      prState: "merged",
+    });
+    expect(session.pr).not.toBeNull();
+    expect(session.pr!.state).toBe("merged");
+    expect(session.metadata["prState"]).toBe("merged");
+  });
+
+  it("hydrates session.pr.state from metadata prState=closed", () => {
+    const session = sessionFromMetadata("test-3", {
+      project: "test-project",
+      branch: "feat/test",
+      status: "working",
+      worktree: "/tmp/test-3",
+      pr: "https://github.com/org/repo/pull/17",
+      prState: "closed",
+    });
+    expect(session.pr).not.toBeNull();
+    expect(session.pr!.state).toBe("closed");
+  });
+
+  it("rejects invalid prState values (session.pr.state remains undefined)", () => {
+    const session = sessionFromMetadata("test-4", {
+      project: "test-project",
+      status: "working",
+      pr: "https://github.com/org/repo/pull/1",
+      prState: "invalid-state",
+    });
+    expect(session.pr).not.toBeNull();
+    expect(session.pr!.state).toBeUndefined();
+    expect(session.metadata["prState"]).toBe("invalid-state");
+  });
+
+  it("VALID_PR_STATES correctly identifies valid and invalid values", () => {
+    const valid: PRState[] = ["open", "merged", "closed"];
+    const invalid = ["pending", "draft", "APPROVED", "CHANGES_REQUESTED", ""];
+    for (const v of valid) {
+      expect(VALID_PR_STATES.has(v)).toBe(true);
+    }
+    for (const v of invalid) {
+      expect(VALID_PR_STATES.has(v as PRState)).toBe(false);
+    }
+  });
+
+  it("no prState in metadata → session.pr.state is undefined", () => {
+    const session = sessionFromMetadata("test-5", {
+      project: "test-project",
+      status: "working",
+      worktree: "/tmp/test-5",
+      pr: "https://github.com/org/repo/pull/5",
+    });
+    expect(session.pr).not.toBeNull();
+    expect(session.pr!.state).toBeUndefined();
+  });
+
+  it("zombie detection: merged prState in metadata triggers zombie kill path", async () => {
+    // This is the bd-s4t zombie detection: session with merged PR state but
+    // non-terminal status should be killed by the reaper
+    const zombieSession = makeSession("zombie-1", {
+      status: "working", // non-terminal
+      pr: { number: 42, url: "https://github.com/org/repo/pull/42", title: "", owner: "org", repo: "repo", branch: "feat/test", baseBranch: "main", isDraft: false, state: "merged" },
+      metadata: { prState: "merged" },
+    });
+    const sm = makeSessionManager([zombieSession]);
+    const result = await reapStaleSessions(makeConfig({ maxKillsPerRun: 20 }), makeDeps(sm));
+    expect(result.killed).toHaveLength(1);
+    expect(result.killed[0].sessionId).toBe("zombie-1");
+    expect(sm.kill).toHaveBeenCalledWith("zombie-1");
   });
 });
