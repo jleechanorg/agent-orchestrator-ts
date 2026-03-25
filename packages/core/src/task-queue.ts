@@ -19,13 +19,13 @@
  */
 
 import { execSync } from "node:child_process";
-import type {
-  PluginRegistry,
-  SessionManager,
-  Session,
-  ProjectConfig,
+import {
+  TERMINAL_STATUSES,
+  type PluginRegistry,
+  type SessionManager,
+  type Session,
+  type ProjectConfig,
 } from "./types.js";
-import { TERMINAL_STATUSES } from "./types.js";
 import type { ProjectObserver } from "./observability.js";
 import { updateMetadata } from "./metadata.js";
 import { getSessionsDir } from "./paths.js";
@@ -95,7 +95,7 @@ export async function drainTaskQueue(
   deps: TaskQueueDeps,
   params: TaskQueueParams,
 ): Promise<number> {
-  const { registry, sessionManager, observer } = deps;
+  const { registry: _registry, sessionManager, observer } = deps;
   const { projectId, project, activeSessions, correlationId } = params;
 
   const tq = project.taskQueue;
