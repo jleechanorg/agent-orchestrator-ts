@@ -299,7 +299,7 @@ export type { ReviewSLAConfig, SLAEvaluation, SLAState } from "./review-sla.js";
 // GitHub API headroom tracker — REST-first fallback when GraphQL exhausted
 export {
   getHeadroomStatus,
-  shouldDeferOperation,
+  getOperationHeadroom,
   withRESTFallback,
   invalidateHeadroomCache,
   parseGhRateLimitOutput,
