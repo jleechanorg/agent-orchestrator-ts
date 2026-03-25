@@ -91,6 +91,28 @@ fi
 # If auto: false — that IS the merge executor gap
 ```
 
+## Step 3b — Flag slow PRs (>3h to 6-green)
+
+Any open PR older than 3 hours is a stall. Flag and root-cause each one.
+
+```bash
+# Flag PRs open >3h with their age
+three_hours_ago=$(date -u -v-3H +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -d '3 hours ago' +%Y-%m-%dT%H:%M:%SZ)
+gh api 'repos/jleechanorg/agent-orchestrator/pulls?state=open&per_page=20' \
+  --jq ".[] | select(.created_at < \"$three_hours_ago\") |
+    {number, title: .title[:60], created_at, hours_old: ((now - (.created_at | fromdateiso8601)) / 3600 | floor)}" 2>/dev/null
+```
+
+For each slow PR, diagnose:
+- **Review loop?** Check `/reviews` — is CR cycling CHANGES_REQUESTED → push → CHANGES_REQUESTED?
+- **CI failing?** Check `/check-runs` — persistent test failure?
+- **Merge conflict?** Check `mergeable_state` — conflict blocking CI?
+- **No worker?** Check tmux sessions — is any worker assigned to this PR?
+- **Worker stuck?** Check worker output — same output for >10 min?
+- **Garbled PR body?** Check `.body[:100]` — escaped quotes = shell quoting bug in worker
+
+**SLA**: PRs should reach 6-green within 3 hours. If >3h, treat as a P1 friction point and create a bead if root cause is systemic.
+
 ## Step 4 — Common failure modes
 
 | Symptom | Likely cause | Fix |
@@ -104,6 +126,8 @@ fi
 | `ao session ls` shows no active sessions but tmux has sessions | Zombie sessions: AO=killed, tmux=alive — lifecycle-worker ignores them | Spawn new sessions; tell human to kill stale tmux panes |
 | Agent runs but doesn't merge | 6-green check not passing OR auto-merge not enabled | Check Step 3 #8 — project-scoped `approved-and-green: auto: true, action: auto-merge` |
 | `/tmp/ao-pr-poller.log` missing | **NOT A BUG** — ao-pr-poller is deprecated/removed | Ignore; its absence is correct |
+| PR body garbled (escaped quotes/backslashes) | Worker used shell heredoc/`-f body=` with markdown | Use `python3` subprocess for REST calls with rich content (see `feedback_rest_api_python3_quoting.md`) |
+| PR open >3h, CR keeps posting CHANGES_REQUESTED | Review loop — worker fixes one issue, CR finds another | Check if PR is too large; consider splitting. Root-cause the bug quality |
 
 ## Step 5 — The 6 green criteria (from AGENTS.md / jleechanclaw)
 
