@@ -385,8 +385,9 @@ describe("tryAcquireLifecycleLock (orch-886k)", () => {
 
 describe("scanForRunningLifecycleWorker (orch-886k)", () => {
   it("returns the PID when a matching lifecycle-worker is found in ps output", () => {
+    // ps -ww -o pid,args= format: "  PID command..." (no USER column, no header)
     mockExecFileSync.mockReturnValueOnce(
-      Buffer.from("USER    12345  0.0  0.0 ... node /path/to/ao lifecycle-worker myproject\n"),
+      Buffer.from("12345 node /path/to/ao lifecycle-worker myproject\n"),
     );
     const pid = scanForRunningLifecycleWorker("myproject");
     expect(pid).toBe(12345);
@@ -394,7 +395,7 @@ describe("scanForRunningLifecycleWorker (orch-886k)", () => {
 
   it("returns null when no matching lifecycle-worker is in ps output", () => {
     mockExecFileSync.mockReturnValueOnce(
-      Buffer.from("USER    99999  0.0  0.0 ... node /path/to/ao lifecycle-worker other-project\n"),
+      Buffer.from("99999 node /path/to/ao lifecycle-worker other-project\n"),
     );
     const pid = scanForRunningLifecycleWorker("myproject");
     expect(pid).toBeNull();
@@ -408,7 +409,7 @@ describe("scanForRunningLifecycleWorker (orch-886k)", () => {
 
   it("does not match a project whose name is a prefix of another", () => {
     mockExecFileSync.mockReturnValueOnce(
-      Buffer.from("USER    11111  0.0  0.0 ... node ao lifecycle-worker api-v2\n"),
+      Buffer.from("11111 node ao lifecycle-worker api-v2\n"),
     );
     const pid = scanForRunningLifecycleWorker("api");
     expect(pid).toBeNull();
@@ -419,8 +420,9 @@ describe("ensureLifecycleWorker -- ps-scan fallback (orch-886k)", () => {
   it("does NOT spawn when scanForRunningLifecycleWorker finds a running worker (no PID file)", async () => {
     const cfg = mockConfig({ "test-proj": "/repos/test-proj" });
     setExists(pidFile("test-proj"), false);
+    // ps -ww -o pid,args= format: "  PID command..." (no USER column, no header)
     mockExecFileSync.mockReturnValueOnce(
-      Buffer.from("USER    77777  0.0  0.0 ... node ao lifecycle-worker test-proj\n"),
+      Buffer.from("77777 node ao lifecycle-worker test-proj\n"),
     );
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     mockSpawn.mockReturnValueOnce({ pid: 88888, unref: () => {} } as any);
