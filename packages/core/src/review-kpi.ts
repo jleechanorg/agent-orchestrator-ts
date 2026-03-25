@@ -20,8 +20,7 @@
 
 import type { Session, OrchestratorConfig, OrchestratorEvent, EventPriority } from "./types.js";
 import { updateSessionMetadataHelper } from "./fork-utils.js";
-import { judgeCommentBatch, type CommentBatchJudgment } from "./review-judgment-matrix.js";
-import type { ReviewComment } from "./types.js";
+import { type CommentBatchJudgment } from "./review-judgment-matrix.js";
 
 // ---------------------------------------------------------------------------
 // KPI metadata keys

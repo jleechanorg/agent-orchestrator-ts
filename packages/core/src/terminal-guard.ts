@@ -12,10 +12,9 @@
  * - Caller can override to force-transition (rare, for abandon scenarios)
  */
 
-import type { Session, OrchestratorConfig, SCM, OrchestratorEvent, EventPriority } from "./types.js";
+import type { Session, OrchestratorConfig, SCM, OrchestratorEvent, EventPriority, ReviewComment } from "./types.js";
 import { checkMergeGate, type MergeGateResult } from "./merge-gate.js";
 import { judgeCommentBatch, type CommentBatchJudgment } from "./review-judgment-matrix.js";
-import type { ReviewComment } from "./types.js";
 
 // ---------------------------------------------------------------------------
 // Guard result
