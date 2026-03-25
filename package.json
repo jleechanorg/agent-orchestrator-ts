@@ -21,7 +21,10 @@
     "test:integration": "pnpm --filter @jleechanorg/ao-integration-tests test:integration",
     "clean": "pnpm -r clean",
     "prepare": "husky",
-    "postinstall": "node scripts/rebuild-node-pty.js"
+    "postinstall": "node scripts/rebuild-node-pty.js",
+    "novel:backfill": "node scripts/novel/backfill-entries.mjs",
+    "novel:daily": "node scripts/novel/generate-daily-entry.mjs --file novel/the-daily-lives-of-workers.md --days 1 --words 1000",
+    "launchd:install": "bash scripts/setup-launchd.sh all"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
