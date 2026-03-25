@@ -159,6 +159,7 @@ beforeEach(() => {
     },
     reactions: {},
     readyThresholdMs: 300_000,
+    startupGracePeriodMs: 0, // Disable grace period for legacy tests; tested in startup-grace-period.test.ts
   };
 
   // Calculate sessions directory

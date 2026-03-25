@@ -117,6 +117,7 @@ beforeEach(() => {
     configPath,
     port: 3000,
     readyThresholdMs: 300000,
+    startupGracePeriodMs: 0,
     defaults: {
       runtime: "mock",
       agent: "mock-agent",

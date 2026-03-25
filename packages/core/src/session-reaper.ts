@@ -33,6 +33,11 @@ export interface ReaperConfig {
    * working but happen to have been running longer than the age threshold.
    */
   idleThresholdMs?: number;
+  /**
+   * bd-85r: ms after session creation during which the session is immune to
+   * reaping. Prevents killing sessions before the agent CLI has initialized.
+   */
+  startupGracePeriodMs?: number;
 }
 
 export interface ReapedSession {
@@ -131,6 +136,14 @@ export async function reapStaleSessions(
     }
 
     const ageMs = now.getTime() - session.createdAt.getTime();
+
+    // bd-85r: Skip sessions within startup grace period
+    const gracePeriodMs = config.startupGracePeriodMs ?? 0;
+    if (gracePeriodMs > 0 && ageMs < gracePeriodMs) {
+      skipped.push({ sessionId: session.id, reason: "startup grace period" });
+      continue;
+    }
+
     const idleMs = now.getTime() - session.lastActivityAt.getTime();
     const meetsIdleGate =
       config.idleThresholdMs === undefined || idleMs > config.idleThresholdMs;
