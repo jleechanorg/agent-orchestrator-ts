@@ -161,6 +161,8 @@ export function createPoller(
 
   return {
     start(handle: RuntimeHandle, managerWindowId: number): void {
+      // Skip polling for fallback sessions (CLI-only, no GUI window to observe).
+      if (managerWindowId === -1) return;
       // Prevent duplicate pollers for the same handle
       if (entries.has(handle.id)) return;
 

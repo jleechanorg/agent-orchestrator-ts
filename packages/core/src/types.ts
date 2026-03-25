@@ -249,6 +249,15 @@ export interface RuntimeCreateConfig {
   workspacePath: string;
   launchCommand: string;
   environment: Record<string, string>;
+  /**
+   * Optional lifecycle callback invoked by the runtime when it detects the
+   * managed session has gone idle (e.g. a conversation completed or is
+   * waiting for capacity). Runtimes that do not support idle detection may
+   * ignore this field.
+   *
+   * @param sessionId - The id of the session that went idle.
+   */
+  onIdle?: (sessionId: SessionId) => void;
 }
 
 /** Opaque handle returned by runtime.create() */
