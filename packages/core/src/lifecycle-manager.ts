@@ -429,7 +429,12 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
             // without SCM access. Only update if state has changed.
             const prevPrState = session.pr?.state;
             if (batch.state !== prevPrState) {
-              persistPrState(session, batch.state, project.path);
+              // bd-s4t.2: isolate metadata write so it cannot break batch state determination
+              try {
+                persistPrState(session, batch.state, project.path);
+              } catch {
+                // Metadata write failure is best-effort; do not corrupt batch state
+              }
             }
             if (batch.state === PR_STATE.MERGED) return { status: "merged", agentDead };
             if (batch.state === PR_STATE.CLOSED) return { status: "killed", agentDead };
@@ -455,7 +460,12 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
           // bd-s4t.2: persist PR state so the session-reaper can detect zombies
           const prevPrState = session.pr?.state;
           if (prState !== prevPrState) {
-            persistPrState(session, prState, project.path);
+            // bd-s4t.2: isolate metadata write so it cannot corrupt SCM failure tracking
+            try {
+              persistPrState(session, prState, project.path);
+            } catch {
+              // Metadata write failure is best-effort; do not corrupt scmFailureCount
+            }
           }
           if (prState === PR_STATE.MERGED) return { status: "merged", agentDead };
           if (prState === PR_STATE.CLOSED) return { status: "killed", agentDead };
