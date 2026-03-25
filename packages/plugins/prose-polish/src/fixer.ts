@@ -25,15 +25,19 @@ const REDUNDANT_REPLACEMENTS: Array<[RegExp, string]> = [
 
 /**
  * Apply auto-fixable corrections to a line.
+ * Exported for unit testing.
  */
-function fixLine(line: string): string {
+export function fixLine(line: string): string {
   // Preserve leading whitespace so indentation is not destroyed
   const leadingWs = line.match(/^(\s*)/)?.[1] ?? "";
 
   // Preserve Markdown hard-break suffix (trailing 2+ spaces) before processing
   const trailingSuffix = (line.match(/(\s{2,})$/) ?? [])[1] ?? "";
 
-  let result = line;
+  // Slice result to only the content between leading and trailing whitespace,
+  // so filler removal cannot inadvertently alter the trailing hard-break suffix.
+  const contentEnd = trailingSuffix ? line.length - trailingSuffix.length : line.length;
+  let result = line.slice(leadingWs.length, contentEnd);
 
   // Remove filler words
   const fillerRE = new RegExp(`\\b(${FILLERS.join("|")})\\b`, "gi");
