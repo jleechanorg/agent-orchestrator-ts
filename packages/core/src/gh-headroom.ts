@@ -123,6 +123,7 @@ export async function fetchGhRateLimit(): Promise<GHRateLimitResources | null> {
     const { stdout } = await _execAsync("gh", ["api", "rate_limit", "--jq", ".resources"], {
       encoding: "utf-8",
       timeout: 10_000,
+      encoding: "utf-8",
     });
     return parseGhRateLimitOutput(stdout);
   } catch {
