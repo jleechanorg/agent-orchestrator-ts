@@ -1,0 +1,32 @@
+[
+  {
+    "worker": "ao-826",
+    "trigger": "worker_reaped",
+    "topic": "session exodus after PR 172 handoff timeout",
+    "context": "post-merge steward"
+  },
+  {
+    "worker": "ao-827",
+    "trigger": "pr_opened",
+    "topic": "novel theme update requested during sync window",
+    "context": "lore expansion"
+  },
+  {
+    "worker": "wc-63",
+    "trigger": "worker_reaped",
+    "topic": "lifecycle exit proof for ghosted co-worker",
+    "context": "terminal archaeology"
+  },
+  {
+    "worker": "ao-808",
+    "trigger": "pr_rebased",
+    "topic": "backfill safety and rebase etiquette",
+    "context": "merge choreography"
+  },
+  {
+    "worker": "ao-809",
+    "trigger": "pr_opened",
+    "topic": "review-ready artifact produced in under sixty minutes",
+    "context": "fastlane handoff"
+  }
+]

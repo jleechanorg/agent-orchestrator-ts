@@ -61,7 +61,7 @@ echo "[ok] ao $AO_VERSION installed"
 
 # Skip in CI environments — the onboarding test starts its own dashboard on
 # a known port, and running ao start here would cause a port conflict.
-if [ "$CI" = "true" ]; then
+if [ "${CI:-}" = "true" ]; then
   echo ""
   echo "Skipping 'ao start' in CI environment (onboarding test manages its own dashboard)."
 else
@@ -74,6 +74,16 @@ else
   else
     echo "  WARNING: scripts/start-all.sh not found. Run manually:"
     echo "    ao start <project-name>"
+  fi
+
+  # Keep service automation portable across machines: install launchd jobs from one
+  # central script (lifecycle + novel). This is safe to rerun.
+  if [ -x "$REPO_ROOT/scripts/setup-launchd.sh" ]; then
+    echo ""
+    echo "Installing launchd jobs from central installer..."
+    bash "$REPO_ROOT/scripts/setup-launchd.sh" all
+  else
+    echo "  WARNING: scripts/setup-launchd.sh missing or not executable."
   fi
 fi
 
