@@ -170,7 +170,7 @@ export function create(config: SlackNotifierConfig = {}): Notifier {
     for (const [k, v] of dedupCache) {
       if (v.ts < cutoff) dedupCache.delete(k);
     }
-    if (dedupCache.size <= MAX_DEDUP_ENTRIES / 2) return;
+    if (dedupCache.size <= MAX_DEDUP_ENTRIES) return;
     // Over limit — evict oldest half
     const sorted = [...dedupCache.entries()].sort((a, b) => a[1].ts - b[1].ts);
     for (const [k] of sorted.slice(0, sorted.length / 2)) dedupCache.delete(k);
