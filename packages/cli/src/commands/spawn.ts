@@ -76,6 +76,7 @@ function resolveSpawnProjectId(
 interface SpawnClaimOptions {
   claimPr?: string;
   assignOnGithub?: boolean;
+  runtime?: string;
 }
 
 /**
@@ -89,7 +90,7 @@ async function runSpawnPreflight(
   options?: SpawnClaimOptions,
 ): Promise<void> {
   const project = config.projects[projectId];
-  const runtime = project?.runtime ?? config.defaults.runtime;
+  const runtime = options?.runtime ?? project?.runtime ?? config.defaults.runtime;
   if (runtime === "tmux") {
     await preflight.checkTmux();
   }
@@ -109,6 +110,7 @@ async function spawnSession(
   agent?: string,
   claimOptions?: SpawnClaimOptions,
 ): Promise<string> {
+  const runtime = claimOptions?.runtime;
   const spinner = ora("Creating session").start();
 
   try {
@@ -119,6 +121,7 @@ async function spawnSession(
       projectId,
       issueId,
       agent,
+      runtimeOverride: runtime,
     });
 
     let branchStr = session.branch ?? "";
@@ -187,6 +190,10 @@ export function registerSpawn(program: Command): void {
     .option("--decompose", "Decompose issue into subtasks before spawning")
     .option("--max-depth <n>", "Max decomposition depth (default: 3)")
     .option(
+      "--runtime <name>",
+      "Override the runtime plugin (e.g. antigravity, tmux). Falls back to project config → global default.",
+    )
+    .option(
       "-p, --project <id>",
       "Explicit project ID (use when multiple projects are configured and cwd does not match)",
     )
@@ -202,6 +209,7 @@ export function registerSpawn(program: Command): void {
           decompose?: boolean;
           maxDepth?: string;
           project?: string;
+          runtime?: string;
         },
       ) => {
         // Catch old two-arg usage: ao spawn <project> <issue>
@@ -284,6 +292,7 @@ export function registerSpawn(program: Command): void {
                     lineage: leaf.lineage,
                     siblings,
                     agent: opts.agent,
+                    runtimeOverride: opts.runtime,
                   });
                   console.log(`  ${chalk.green("✓")} ${session.id} — ${leaf.description}`);
                 } catch (err) {

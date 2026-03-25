@@ -767,8 +767,9 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
   }
 
   /** Resolve which plugins to use for a project. */
-  function resolvePlugins(project: ProjectConfig, agentName?: string) {
-    const runtime = registry.get<Runtime>("runtime", project.runtime ?? config.defaults.runtime);
+  function resolvePlugins(project: ProjectConfig, agentName?: string, runtimeOverride?: string) {
+    const runtimeName = runtimeOverride ?? project.runtime ?? config.defaults.runtime;
+    const runtime = registry.get<Runtime>("runtime", runtimeName);
     const agent = registry.get<Agent>("agent", agentName ?? project.agent ?? config.defaults.agent);
     const workspace = registry.get<Workspace>(
       "workspace",
@@ -973,9 +974,10 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       defaults: config.defaults,
       spawnAgentOverride: spawnConfig.agent,
     });
-    const plugins = resolvePlugins(project, selection.agentName);
+    const plugins = resolvePlugins(project, selection.agentName, spawnConfig.runtimeOverride);
     if (!plugins.runtime) {
-      throw new Error(`Runtime plugin '${project.runtime ?? config.defaults.runtime}' not found`);
+      const runtimeName = spawnConfig.runtimeOverride ?? project.runtime ?? config.defaults.runtime;
+      throw new Error(`Runtime plugin '${runtimeName}' not found`);
     }
 
     if (!plugins.agent) {
