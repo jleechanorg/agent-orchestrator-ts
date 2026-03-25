@@ -8,7 +8,6 @@ import type { ProseMatch, ScanResult, Severity } from "./types.js";
 
 const NOT_X_THRESHOLD = 3;
 const PROXIMITY_WINDOW = 10;
-const REPEATED_STARTER_COUNT = 3;
 
 const FILLERS = [
   "literally", "basically", "simply", "actually", "obviously",
@@ -210,6 +209,7 @@ export function detectRedundantPhrases(lines: string[]): ProseMatch[] {
   for (let i = 0; i < lines.length; i++) {
     const trimmed = lines[i].trim();
     for (const [pattern, suggestion] of REDUNDANT_PHRASES) {
+      pattern.lastIndex = 0;
       if (pattern.test(trimmed)) {
         matches.push({
           rule: "redundant-phrase",
@@ -345,8 +345,8 @@ export function detectAllPatterns(
 /**
  * Full scan result.
  */
-export function scanLines(filename: string, lines: string[]): ScanResult {
-  const issues = detectAllPatterns(lines);
+export function scanLines(filename: string, lines: string[], minSeverity: Severity = "info"): ScanResult {
+  const issues = detectAllPatterns(lines, minSeverity);
   return {
     file: filename,
     totalLines: lines.length,

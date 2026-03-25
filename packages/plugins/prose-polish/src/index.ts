@@ -2,7 +2,6 @@
  * Prose-Polish Runtime Plugin — entry point.
  */
 import type { PluginModule, Runtime } from "@jleechanorg/ao-core";
-import { createMcpTools } from "./mcp-tools.js";
 import { createMinimalRuntime } from "./runtime.js";
 
 export { createMcpTools } from "./mcp-tools.js";

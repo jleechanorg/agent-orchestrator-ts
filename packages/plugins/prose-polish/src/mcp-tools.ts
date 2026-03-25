@@ -2,7 +2,7 @@
  * MCP tool definitions for prose-polish.
  */
 
-import { readFileSync, writeFileSync } from "fs";
+import { readFileSync } from "node:fs";
 import { scanLines, RULE_DESCRIPTIONS } from "./detector.js";
 import { autoFixFile } from "./fixer.js";
 import type { ScanResult, FixResult } from "./types.js";
@@ -72,7 +72,8 @@ function handleScan(args: { file_path: string; min_severity?: string }): McpTool
   try {
     const content = readFileSync(args.file_path, "utf-8");
     const lines = content.split("\n");
-    const result: ScanResult = scanLines(args.file_path, lines);
+    const minSeverity = (args.min_severity as "info" | "warn" | "critical") ?? "info";
+    const result: ScanResult = scanLines(args.file_path, lines, minSeverity);
     return { success: true, data: result };
   } catch (err) {
     return { success: false, error: String(err) };

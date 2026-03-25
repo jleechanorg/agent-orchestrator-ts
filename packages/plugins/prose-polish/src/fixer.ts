@@ -2,8 +2,8 @@
  * Prose auto-fixer.
  */
 
-import { writeFileSync } from "fs";
-import type { ProseMatch, FixResult, Severity } from "./types.js";
+import { writeFileSync } from "node:fs";
+import type { FixResult, Severity } from "./types.js";
 import { detectAllPatterns } from "./detector.js";
 
 const FILLERS = [
