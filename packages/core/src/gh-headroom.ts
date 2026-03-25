@@ -77,9 +77,10 @@ export const DEFAULT_HEADROOM_THRESHOLDS: HeadroomThresholds = {
 // ---------------------------------------------------------------------------
 
 interface GHRateLimitResources {
-  graphql?: { remaining: number; limit: number; reset: string };
-  rest?: { remaining: number; limit: number; reset: string };
-  search?: { remaining: number; limit: number; reset: string };
+  graphql?: { remaining: number; limit: number; reset: number };
+  /** GitHub REST rate limits are reported under the "core" key, not "rest". */
+  core?: { remaining: number; limit: number; reset: number };
+  search?: { remaining: number; limit: number; reset: number };
 }
 
 /** Parse `gh api rate_limit` JSON output. Returns null on parse failure. */
@@ -130,13 +131,12 @@ export async function getHeadroomStatus(
   }
 
   const resources = await fetchGhRateLimit();
-  const resetAt = resources?.graphql?.reset
-    ?? resources?.rest?.reset
-    ?? null;
+  const resetEpoch = resources?.graphql?.reset ?? resources?.core?.reset ?? null;
+  const resetAt = resetEpoch !== null ? new Date(resetEpoch * 1000).toISOString() : null;
 
   _cachedHeadroom = {
     graphqlRemaining: resources?.graphql?.remaining ?? 1000,
-    restRemaining: resources?.rest?.remaining ?? 5000,
+    restRemaining: resources?.core?.remaining ?? 5000,
     resetAt,
     canUseGraphQL: true,
     canUseREST: true,

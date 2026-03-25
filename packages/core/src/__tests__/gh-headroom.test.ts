@@ -10,16 +10,17 @@ import {
 } from "../gh-headroom.js";
 
 describe("parseGhRateLimitOutput", () => {
-  it("parses valid gh rate_limit JSON", () => {
+  it("parses valid gh rate_limit JSON (core key, epoch reset)", () => {
+    // GitHub API returns resources.core for REST and epoch seconds for reset
     const json = JSON.stringify({
       resources: {
-        graphql: { remaining: 487, limit: 5000, reset: "2025-06-01T13:00:00Z" },
-        rest:    { remaining: 4999, limit: 5000, reset: "2025-06-01T13:00:00Z" },
+        graphql: { remaining: 487, limit: 5000, reset: 1748779200 },
+        core:    { remaining: 4999, limit: 5000, reset: 1748779200 },
       },
     });
     const result = parseGhRateLimitOutput(json);
     expect(result?.graphql?.remaining).toBe(487);
-    expect(result?.rest?.remaining).toBe(4999);
+    expect(result?.core?.remaining).toBe(4999);
   });
 
   it("returns null for invalid JSON", () => {
@@ -31,11 +32,11 @@ describe("parseGhRateLimitOutput", () => {
     expect(parseGhRateLimitOutput('{"foo": "bar"}')).toBeNull();
   });
 
-  it("handles missing graphql/rest keys gracefully", () => {
-    const json = JSON.stringify({ resources: { search: { remaining: 10, limit: 30, reset: "" } } });
+  it("handles missing graphql/core keys gracefully", () => {
+    const json = JSON.stringify({ resources: { search: { remaining: 10, limit: 30, reset: 1748779200 } } });
     const result = parseGhRateLimitOutput(json);
     expect(result?.graphql).toBeUndefined();
-    expect(result?.rest).toBeUndefined();
+    expect(result?.core).toBeUndefined();
     expect(result?.search?.remaining).toBe(10);
   });
 });
@@ -90,8 +91,8 @@ describe("fetchGhRateLimit subprocess paths", () => {
   it("returns parsed resources on successful subprocess call", async () => {
     const body = JSON.stringify({
       resources: {
-        graphql: { remaining: 300, limit: 5000, reset: "2025-06-01T14:00:00Z" },
-        rest: { remaining: 4500, limit: 5000, reset: "2025-06-01T14:00:00Z" },
+        graphql: { remaining: 300, limit: 5000, reset: 1748779200 },
+        core:    { remaining: 4500, limit: 5000, reset: 1748779200 },
       },
     });
     ghHeadroomInject({
@@ -99,7 +100,7 @@ describe("fetchGhRateLimit subprocess paths", () => {
     });
     const result = await fetchGhRateLimit();
     expect(result?.graphql?.remaining).toBe(300);
-    expect(result?.rest?.remaining).toBe(4500);
+    expect(result?.core?.remaining).toBe(4500);
   });
 
   it("returns null when subprocess throws spawn failure (ENOENT)", async () => {
