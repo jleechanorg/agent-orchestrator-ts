@@ -516,6 +516,50 @@ describe("detectActivity — terminal output classification", () => {
   it("returns active for non-empty terminal output", () => {
     expect(agent.detectActivity("opencode is working\n")).toBe("active");
   });
+
+  describe("ready patterns — OpenCode waiting-for-input indicators", () => {
+    it('returns ready for "press enter to continue"', () => {
+      expect(agent.detectActivity("press enter to continue")).toBe("ready");
+    });
+
+    it('returns ready for "[y/n]" prompt', () => {
+      expect(agent.detectActivity("Apply changes? [y/n]")).toBe("ready");
+    });
+
+    it('returns ready for "[Y/n]" prompt', () => {
+      expect(agent.detectActivity("Confirm [Y/n]")).toBe("ready");
+    });
+
+    it("returns ready for waiting text", () => {
+      expect(agent.detectActivity("waiting for input\n")).toBe("ready");
+    });
+
+    it("returns ready for confirm text", () => {
+      expect(agent.detectActivity("Please confirm\n")).toBe("ready");
+    });
+
+    it("returns ready for menu indicator", () => {
+      expect(agent.detectActivity("Select an option:\n")).toBe("ready");
+    });
+
+    it("returns ready for question-mark prompt at end of line", () => {
+      expect(agent.detectActivity("What would you like to do?\n")).toBe("ready");
+    });
+
+    it("returns ready regardless of case", () => {
+      expect(agent.detectActivity("PRESS ENTER TO CONTINUE")).toBe("ready");
+      expect(agent.detectActivity("WAITING...")).toBe("ready");
+    });
+
+    it("returns ready mixed with active output", () => {
+      expect(agent.detectActivity("thinking...\npress enter to continue")).toBe("ready");
+    });
+
+    it("returns active when no waiting pattern matches", () => {
+      expect(agent.detectActivity("Applying changes to file...")).toBe("active");
+      expect(agent.detectActivity("Running tests...\n")).toBe("active");
+    });
+  });
 });
 
 describe("getActivityState", () => {

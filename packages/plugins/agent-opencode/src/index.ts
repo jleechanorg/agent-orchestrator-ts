@@ -238,7 +238,34 @@ function createOpenCodeAgent(): Agent {
 
     detectActivity(terminalOutput: string): ActivityState {
       if (!terminalOutput.trim()) return "idle";
-      // OpenCode doesn't have rich terminal output patterns yet
+
+      // Recognize OpenCode waiting / not-processing patterns → "ready"
+      // These indicate the agent finished a turn and is waiting for input or
+      // displaying a non-processing UI element.
+      const waitingPatterns = [
+        /press .* to (continue|submit|send|confirm|run)/i,
+        /\b(q|quit|exit|cancel)\b.*\bto\b/i,
+        /\bwaiting\b/i,
+        /\bready\b/i,
+        /\[y\/n\]/i,
+        /\[Y\/n\]/i,
+        /\[yes\/no\]/i,
+        /confirm/i,
+        /proceed\?/i,
+        /options?\. select/i,
+        /menu/i,
+        /\?\s*$/m, // "?" prompt at end of line
+        /^\s*→\s*$/m, // arrow-only line (menu selection)
+        /\bmenu\b/i,
+        /\bselect\b.*\boption\b/i,
+      ];
+      const outputLower = terminalOutput.toLowerCase();
+      for (const pattern of waitingPatterns) {
+        if (pattern.test(terminalOutput) || pattern.test(outputLower)) {
+          return "ready";
+        }
+      }
+
       return "active";
     },
 
