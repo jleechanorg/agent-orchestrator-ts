@@ -173,7 +173,7 @@ export function createAntigravityRuntime(config?: AntigravityConfig): Runtime {
       };
 
       // Start idle detection polling against the Manager window.
-      // Safe for fallback sessions — poller.start skips when managerWindowId is -1.
+      // Safe for fallback sessions — poller.start skips when managerWindowId === -1.
       poller.start(handle, session.managerWindowId);
 
       return handle;
