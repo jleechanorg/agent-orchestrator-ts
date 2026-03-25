@@ -11,7 +11,7 @@ import { writeMetadata, readMetadata } from "../metadata.js";
 import { VALID_PR_STATES, type PRState } from "../types.js";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { mkdirSync, rmSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 
 describe("sessionFromMetadata: prState round-trip", () => {
   it("hydrates session.pr.state from metadata prState=open", () => {
@@ -114,6 +114,37 @@ describe("sessionFromMetadata: prState round-trip", () => {
       const session = sessionFromMetadata("session-roundtrip", parsed!);
       expect(session.pr).not.toBeNull();
       expect(session.pr!.state).toBe("merged");
+    } finally {
+      rmSync(dataDir, { recursive: true });
+    }
+  });
+
+  it("drops invalid prState values when reading raw metadata from disk", () => {
+    // Write a raw key=value metadata file with an invalid prState to exercise
+    // the disk-read validation path that writeMetadata() cannot produce.
+    const dataDir = join(tmpdir(), `ao-metadata-invalid-${Date.now()}`);
+    mkdirSync(dataDir, { recursive: true });
+    try {
+      writeFileSync(
+        join(dataDir, "session-invalid"),
+        [
+          "worktree=/tmp/wt-invalid",
+          "branch=feat/invalid",
+          "status=working",
+          "pr=https://github.com/org/repo/pull/88",
+          "prState=bogus",
+          "",
+        ].join("\n"),
+      );
+      const parsed = readMetadata(dataDir, "session-invalid");
+      expect(parsed).not.toBeNull();
+      // readMetadata validates prState on disk-read — invalid values are stripped
+      expect(parsed!["prState"]).toBeUndefined();
+
+      // sessionFromMetadata also rejects the invalid value — session.pr.state undefined
+      const session = sessionFromMetadata("session-invalid", parsed!);
+      expect(session.pr).not.toBeNull();
+      expect(session.pr!.state).toBeUndefined();
     } finally {
       rmSync(dataDir, { recursive: true });
     }

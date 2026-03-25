@@ -148,14 +148,20 @@ export async function getHeadroomStatus(
 }
 
 function applyThresholds(status: HeadroomStatus, opts: HeadroomThresholds): HeadroomStatus {
+  // Enforce hard floor: if either remaining count is below absoluteMin,
+  // treat both channels as unusable regardless of graphqlMin/restMin.
+  const belowAbsoluteMin =
+    status.graphqlRemaining < opts.absoluteMin ||
+    status.restRemaining < opts.absoluteMin;
+
+  if (belowAbsoluteMin) {
+    return { ...status, canUseGraphQL: false, canUseREST: false, recommendation: "defer" };
+  }
+
   const canUseGraphQL = status.graphqlRemaining >= opts.graphqlMin;
   const canUseREST    = status.restRemaining >= opts.restMin;
   const recommendation: HeadroomStatus["recommendation"] =
-    status.graphqlRemaining >= opts.graphqlMin
-      ? "graphql"
-      : status.restRemaining >= opts.restMin
-      ? "rest"
-      : "defer";
+    canUseGraphQL ? "graphql" : canUseREST ? "rest" : "defer";
   return { ...status, canUseGraphQL, canUseREST, recommendation };
 }
 

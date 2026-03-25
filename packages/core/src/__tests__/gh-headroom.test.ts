@@ -48,6 +48,18 @@ describe("DEFAULT_HEADROOM_THRESHOLDS", () => {
     expect(DEFAULT_HEADROOM_THRESHOLDS.restMin).toBe(50);
     expect(DEFAULT_HEADROOM_THRESHOLDS.absoluteMin).toBe(10);
   });
+
+  it("absoluteMin enforced as hard floor: both channels defer even when above graphqlMin/restMin", async () => {
+    // graphql=8, rest=8 — both above 0 but below absoluteMin=10 → must defer
+    ghHeadroomInject({ execAsync: stubHeadroom(8, 8) });
+    invalidateHeadroomCache();
+    const status = await getOperationHeadroom(); // uses DEFAULT_HEADROOM_THRESHOLDS
+    expect(status.canUseGraphQL).toBe(false);
+    expect(status.canUseREST).toBe(false);
+    expect(status.recommendation).toBe("defer");
+    ghHeadroomInject();
+    invalidateHeadroomCache();
+  });
 });
 
 describe("getOperationHeadroom / shouldDeferOperation", () => {
