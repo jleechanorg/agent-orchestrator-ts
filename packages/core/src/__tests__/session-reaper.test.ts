@@ -1,64 +1,16 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { reapStaleSessions, type ReaperConfig, type ReaperDeps } from "../session-reaper.js";
-import type { Session, SessionManager, SessionId } from "../types.js";
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-const BASE_NOW = new Date("2025-01-01T12:00:00Z");
-const TWO_HOURS_MS = 7_200_000;
-const FOUR_HOURS_MS = 14_400_000;
-
-function makeSession(id: SessionId, overrides?: Partial<Session>): Session {
-  return {
-    id,
-    projectId: "test-project",
-    status: "working",
-    activity: "active",
-    branch: `branch-${id}`,
-    issueId: null,
-    pr: null,
-    workspacePath: `/tmp/${id}`,
-    runtimeHandle: null,
-    agentInfo: null,
-    createdAt: new Date(BASE_NOW.getTime() - FOUR_HOURS_MS - 1000),
-    lastActivityAt: new Date(BASE_NOW.getTime() - TWO_HOURS_MS - 1000),
-    metadata: {},
-    ...overrides,
-  };
-}
-
-function makeSessionManager(sessions: Session[]): SessionManager {
-  const sm: SessionManager = {
-    spawn: vi.fn(),
-    spawnOrchestrator: vi.fn(),
-    restore: vi.fn(),
-    list: vi.fn().mockResolvedValue(sessions),
-    get: vi.fn(),
-    kill: vi.fn().mockResolvedValue(undefined),
-    cleanup: vi.fn(),
-    send: vi.fn(),
-    claimPR: vi.fn(),
-  };
-  return sm;
-}
-
-function makeConfig(overrides?: Partial<ReaperConfig>): ReaperConfig {
-  return {
-    orphanedThresholdMs: TWO_HOURS_MS,
-    noPrThresholdMs: FOUR_HOURS_MS,
-    maxKillsPerRun: 5,
-    ...overrides,
-  };
-}
-
-function makeDeps(sm: SessionManager): ReaperDeps {
-  return {
-    sessionManager: sm,
-    now: BASE_NOW,
-  };
-}
+import { reapStaleSessions } from "../session-reaper.js";
+import {
+  BASE_NOW,
+  TWO_HOURS_MS,
+  FOUR_HOURS_MS,
+  makeSession,
+  makeSessionManager,
+  makeConfig,
+  makeDeps,
+} from "./session-reaper-test-helpers.js";
+// Edge cases (9-15) and zombie detection are in session-reaper-edge-cases.test.ts
+// Metadata hydration tests are in session-reaper-metadata.test.ts
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -202,164 +154,139 @@ describe("reapStaleSessions", () => {
     expect(noPrKill).toBeUndefined();
   });
 
-  it("9. maxKillsPerRun cap respected (6 candidates, max 5 → only 5 killed)", async () => {
-    // 6 sessions all past noPrThreshold with no PR
-    const sessions = Array.from({ length: 6 }, (_, i) =>
-      makeSession(`s${i + 1}`, {
-        pr: null,
-        status: "working",
-        activity: "active",
-        createdAt: new Date(BASE_NOW.getTime() - FOUR_HOURS_MS - 1000),
-      }),
-    );
-    const sm = makeSessionManager(sessions);
-    const result = await reapStaleSessions(makeConfig({ maxKillsPerRun: 5 }), makeDeps(sm));
-
-    expect(result.killed).toHaveLength(5);
-    expect(sm.kill).toHaveBeenCalledTimes(5);
-    // The 6th session should be in skipped with a cap reason
-    expect(result.skipped.some(s => s.reason.includes("cap"))).toBe(true);
-  });
-
-  it("10. dryRun mode → no kills, sessions listed as would-kill", async () => {
+  // bd-s4t tests: merged/closed PR state → zombie kill via explicit reaper safety net
+  it("session with merged PR state but non-terminal status → killed as zombie (bd-s4t)", async () => {
     const sessions = [
       makeSession("s1", {
-        pr: null,
-        status: "working",
+        status: "working", // non-terminal; lifecycle-manager missed the transition
         activity: "active",
+        // session.pr.state reflects GitHub PR state (separate from AO session status)
+        pr: {
+          number: 1,
+          url: "https://github.com/test/repo/pull/1",
+          title: "PR",
+          owner: "test",
+          repo: "repo",
+          branch: "branch-s1",
+          baseBranch: "main",
+          isDraft: false,
+          state: "merged", // GitHub PR is merged; AO status is stale
+        },
+        lastActivityAt: new Date(BASE_NOW.getTime() - 60_000),
         createdAt: new Date(BASE_NOW.getTime() - FOUR_HOURS_MS - 1000),
       }),
     ];
     const sm = makeSessionManager(sessions);
-    const result = await reapStaleSessions(makeConfig({ dryRun: true }), makeDeps(sm));
-
-    expect(result.dryRun).toBe(true);
-    expect(result.killed).toHaveLength(1);
-    expect(sm.kill).not.toHaveBeenCalled();
-  });
-
-  it("11. failed kills count toward cap (maxKillsPerRun=1, first fails → second skipped)", async () => {
-    const sessions = [
-      makeSession("s1", {
-        pr: null,
-        status: "working",
-        activity: "active",
-        createdAt: new Date(BASE_NOW.getTime() - FOUR_HOURS_MS - 1000),
-      }),
-      makeSession("s2", {
-        pr: null,
-        status: "working",
-        activity: "active",
-        createdAt: new Date(BASE_NOW.getTime() - FOUR_HOURS_MS - 1000),
-      }),
-    ];
-    const sm = makeSessionManager(sessions);
-    (sm.kill as ReturnType<typeof vi.fn>)
-      .mockRejectedValueOnce(new Error("kill failed"));
-
-    const result = await reapStaleSessions(makeConfig({ maxKillsPerRun: 1 }), makeDeps(sm));
-
-    expect(result.errors).toHaveLength(1);
-    expect(result.killed).toHaveLength(0);
-    expect(result.skipped.some(s => s.reason.includes("cap"))).toBe(true);
-    expect(sm.kill).toHaveBeenCalledTimes(1);
-  });
-
-  it("12. kill failure → captured in errors, continues to next", async () => {
-    const sessions = [
-      makeSession("s1", {
-        pr: null,
-        status: "working",
-        activity: "active",
-        createdAt: new Date(BASE_NOW.getTime() - FOUR_HOURS_MS - 1000),
-      }),
-      makeSession("s2", {
-        pr: null,
-        status: "working",
-        activity: "active",
-        createdAt: new Date(BASE_NOW.getTime() - FOUR_HOURS_MS - 1000),
-      }),
-    ];
-    const sm = makeSessionManager(sessions);
-    (sm.kill as ReturnType<typeof vi.fn>)
-      .mockRejectedValueOnce(new Error("kill failed"))
-      .mockResolvedValueOnce(undefined);
-
     const result = await reapStaleSessions(makeConfig(), makeDeps(sm));
 
-    expect(result.errors).toHaveLength(1);
-    expect(result.errors[0].sessionId).toBe("s1");
-    expect(result.errors[0].error).toContain("kill failed");
-    // s2 should still be killed
     expect(result.killed).toHaveLength(1);
-    expect(result.killed[0].sessionId).toBe("s2");
+    expect(result.killed[0].sessionId).toBe("s1");
+    expect(result.killed[0].reason).toContain("zombie");
+    expect(result.killed[0].reason).toContain("merged");
+    expect(sm.kill).toHaveBeenCalledWith("s1");
   });
 
-  it("13. idleThresholdMs gates no-PR reaping: old-but-active session is NOT killed", async () => {
-    // Session is 5h old (past 4h noPrThreshold) but was active 1 min ago.
-    // With idleThresholdMs=5min, it should NOT be reaped.
+  it("session with closed PR state idle past orphanedThreshold → killed as zombie (bd-s4t)", async () => {
     const sessions = [
       makeSession("s1", {
-        pr: null,
-        status: "working",
+        status: "working", // non-terminal; lifecycle-manager missed the transition
         activity: "active",
+        pr: {
+          number: 2,
+          url: "https://github.com/test/repo/pull/2",
+          title: "WIP PR",
+          owner: "test",
+          repo: "repo",
+          branch: "branch-s1",
+          baseBranch: "main",
+          isDraft: false,
+          state: "closed", // GitHub PR was closed without merge
+        },
+        lastActivityAt: new Date(BASE_NOW.getTime() - TWO_HOURS_MS - 1000), // idle past threshold
         createdAt: new Date(BASE_NOW.getTime() - FOUR_HOURS_MS - 1000),
-        lastActivityAt: new Date(BASE_NOW.getTime() - 60_000), // 1 min ago — still active
       }),
     ];
     const sm = makeSessionManager(sessions);
-    const result = await reapStaleSessions(
-      makeConfig({ noPrThresholdMs: FOUR_HOURS_MS, idleThresholdMs: 5 * 60_000 }),
-      makeDeps(sm),
-    );
+    const result = await reapStaleSessions(makeConfig(), makeDeps(sm));
+
+    expect(result.killed).toHaveLength(1);
+    expect(result.killed[0].sessionId).toBe("s1");
+    expect(result.killed[0].reason).toContain("zombie");
+    expect(result.killed[0].reason).toContain("closed");
+    expect(sm.kill).toHaveBeenCalledWith("s1");
+  });
+
+  it("session with closed PR state recently active → skipped (may reopen) (bd-s4t)", async () => {
+    const sessions = [
+      makeSession("s1", {
+        status: "working",
+        activity: "active",
+        pr: {
+          number: 3,
+          url: "https://github.com/test/repo/pull/3",
+          title: "WIP PR",
+          owner: "test",
+          repo: "repo",
+          branch: "branch-s1",
+          baseBranch: "main",
+          isDraft: false,
+          state: "closed",
+        },
+        lastActivityAt: new Date(BASE_NOW.getTime() - 60_000), // only 1 min idle — under threshold
+        createdAt: new Date(BASE_NOW.getTime() - FOUR_HOURS_MS - 1000),
+      }),
+    ];
+    const sm = makeSessionManager(sessions);
+    const result = await reapStaleSessions(makeConfig(), makeDeps(sm));
 
     expect(result.killed).toHaveLength(0);
     expect(result.skipped).toHaveLength(1);
+    expect(result.skipped[0].reason).toContain("may reopen");
     expect(sm.kill).not.toHaveBeenCalled();
   });
 
-  it("14. idleThresholdMs gates no-PR reaping: old-and-idle session IS killed", async () => {
-    // Session is 5h old AND has been idle for 10 min — past both thresholds.
+  it("kill count observability: result reflects exact kills and skips per cycle (bd-s4t)", async () => {
+    // 3 candidates: 2 merge-zombies + 1 orphaned — verify count fields are accurate
     const sessions = [
       makeSession("s1", {
-        pr: null,
         status: "working",
         activity: "active",
+        pr: { number: 1, url: "https://github.com/test/repo/pull/1", title: "PR", owner: "test", repo: "repo", branch: "branch-s1", baseBranch: "main", isDraft: false, state: "merged" as const },
         createdAt: new Date(BASE_NOW.getTime() - FOUR_HOURS_MS - 1000),
-        lastActivityAt: new Date(BASE_NOW.getTime() - 10 * 60_000), // 10 min ago
+        lastActivityAt: new Date(BASE_NOW.getTime() - FOUR_HOURS_MS - 1000),
+      }),
+      makeSession("s2", {
+        status: "working",
+        activity: "active",
+        pr: { number: 2, url: "https://github.com/test/repo/pull/2", title: "PR2", owner: "test", repo: "repo", branch: "branch-s2", baseBranch: "main", isDraft: false, state: "closed" as const },
+        createdAt: new Date(BASE_NOW.getTime() - FOUR_HOURS_MS - 1000),
+        lastActivityAt: new Date(BASE_NOW.getTime() - FOUR_HOURS_MS - 1000),
+      }),
+      makeSession("s3", {
+        status: "working",
+        activity: "active",
+        pr: null, // no PR → qualifies for no-PR reaping path
+        createdAt: new Date(BASE_NOW.getTime() - FOUR_HOURS_MS - 1000),
+        lastActivityAt: new Date(BASE_NOW.getTime() - FOUR_HOURS_MS - 1000),
       }),
     ];
     const sm = makeSessionManager(sessions);
-    const result = await reapStaleSessions(
-      makeConfig({ noPrThresholdMs: FOUR_HOURS_MS, idleThresholdMs: 5 * 60_000 }),
-      makeDeps(sm),
-    );
+    const result = await reapStaleSessions(makeConfig(), makeDeps(sm));
 
-    expect(result.killed).toHaveLength(1);
-    expect(result.killed[0].sessionId).toBe("s1");
-    expect(sm.kill).toHaveBeenCalledWith("s1");
+    // All 3 should be killed (2 zombies + 1 orphaned)
+    expect(result.killed).toHaveLength(3);
+    expect(sm.kill).toHaveBeenCalledTimes(3);
+
+    // Reasons cover all three paths
+    const reasons = result.killed.map(k => k.reason);
+    expect(reasons.some(r => r.includes("zombie") && r.includes("merged"))).toBe(true);
+    expect(reasons.some(r => r.includes("zombie") && r.includes("closed"))).toBe(true);
+    expect(reasons.some(r => r.includes("no PR"))).toBe(true);
+
+    // Observability: skipped and errors should be accurate
+    expect(result.errors).toHaveLength(0);
+    expect(result.skipped).toHaveLength(0);
+    expect(result.dryRun).toBe(false);
   });
 
-  it("15. idleThresholdMs=undefined preserves backward-compatible age-only behavior", async () => {
-    // Without idleThresholdMs, a 5h-old session (even if recently active) is killed.
-    const sessions = [
-      makeSession("s1", {
-        pr: null,
-        status: "working",
-        activity: "active",
-        createdAt: new Date(BASE_NOW.getTime() - FOUR_HOURS_MS - 1000),
-        lastActivityAt: new Date(BASE_NOW.getTime() - 60_000), // 1 min ago
-      }),
-    ];
-    const sm = makeSessionManager(sessions);
-    const result = await reapStaleSessions(
-      makeConfig({ noPrThresholdMs: FOUR_HOURS_MS }),
-      makeDeps(sm),
-    );
-
-    // Without idleThresholdMs, the age gate is the only condition
-    expect(result.killed).toHaveLength(1);
-    expect(result.killed[0].sessionId).toBe("s1");
-    expect(sm.kill).toHaveBeenCalledWith("s1");
-  });
 });

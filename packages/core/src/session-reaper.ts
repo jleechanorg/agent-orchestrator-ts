@@ -10,6 +10,7 @@
  */
 
 import { TERMINAL_STATUSES, type SessionManager } from "./types.js";
+import { checkAndKillZombie } from "./session-reaper-extensions.js";
 
 // =============================================================================
 // Types
@@ -20,7 +21,7 @@ export interface ReaperConfig {
   orphanedThresholdMs: number;
   /** ms before a session with no PR is killed (default: 4h) */
   noPrThresholdMs: number;
-  /** max sessions to kill per run (default: 5) */
+  /** max sessions to kill per run (default: 15) */
   maxKillsPerRun: number;
   /** if true, log what would be killed but don't actually kill */
   dryRun?: boolean;
@@ -69,7 +70,8 @@ export interface ReaperDeps {
 export const DEFAULT_REAPER_CONFIG: ReaperConfig = {
   orphanedThresholdMs: 7_200_000, // 2h
   noPrThresholdMs: 14_400_000, // 4h
-  maxKillsPerRun: 5,
+  maxKillsPerRun: 15, // bd-s4t: raised from 5 to handle burst cleanup when zombie
+                       // sessions accumulate past the 15-session spawn gate
 };
 
 // =============================================================================
@@ -102,6 +104,29 @@ export async function reapStaleSessions(
     // Skip sessions already in terminal status (not activity — exited activity is reaped)
     if (TERMINAL_STATUSES.has(session.status)) {
       skipped.push({ sessionId: session.id, reason: "terminal state" });
+      continue;
+    }
+
+    // bd-s4t.2: zombie detection — sessions whose GitHub PR was merged/closed
+    // but whose AO status hasn't been reconciled yet. Policy lives in the
+    // companion module session-reaper-extensions.ts (fork-specific logic).
+    const zombieResult = await checkAndKillZombie({
+      session,
+      sessionManager: deps.sessionManager,
+      orphanedThresholdMs: config.orphanedThresholdMs,
+      now,
+      dryRun,
+    });
+    if (zombieResult.action === "killed") {
+      killed.push(zombieResult.entry);
+      continue;
+    }
+    if (zombieResult.action === "error") {
+      errors.push(zombieResult.entry);
+      continue;
+    }
+    if (zombieResult.action === "skipped") {
+      skipped.push(zombieResult.entry);
       continue;
     }
 

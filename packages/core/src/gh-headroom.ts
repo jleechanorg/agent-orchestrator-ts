@@ -14,6 +14,29 @@
  */
 
 import { isGhRateLimitError } from "./gh-rate-limit.js";
+import { execFile as _execFile } from "node:child_process";
+import { promisify } from "node:util";
+
+/** Type for the promisified exec used internally. */
+type ExecAsync = (
+  cmd: string,
+  args: string[],
+  opts: { encoding: string; timeout: number },
+) => Promise<{ stdout: string; stderr: string }>;
+
+// Mutable ref — tests can replace via ghHeadroomInject()
+let _execAsync: ExecAsync = promisify(_execFile) as unknown as ExecAsync;
+
+/**
+ * Inject test doubles (same pattern as tmuxInject in tmux.ts).
+ * Accepts a pre-promisified exec function so tests avoid util.promisify.custom
+ * complications with vi.fn() stubs.
+ * @internal — for unit testing only
+ */
+export function ghHeadroomInject(doubles: { execAsync?: ExecAsync } = {}) {
+  if (doubles.execAsync) _execAsync = doubles.execAsync;
+  else _execAsync = promisify(_execFile) as unknown as ExecAsync; // reset
+}
 
 // ---------------------------------------------------------------------------
 // Types
@@ -30,7 +53,7 @@ export interface HeadroomStatus {
   restRemaining: number;
   /** Reset timestamp (ISO) for the current rate-limit window */
   resetAt: string | null;
-  /** "graphql" | "rest" | "both" | "ok" */
+  /** "graphql" | "rest" | "defer" */
   recommendation: "graphql" | "rest" | "defer";
 }
 
@@ -54,9 +77,10 @@ export const DEFAULT_HEADROOM_THRESHOLDS: HeadroomThresholds = {
 // ---------------------------------------------------------------------------
 
 interface GHRateLimitResources {
-  graphql?: { remaining: number; limit: number; reset: string };
-  rest?: { remaining: number; limit: number; reset: string };
-  search?: { remaining: number; limit: number; reset: string };
+  graphql?: { remaining: number; limit: number; reset: number };
+  /** GitHub REST rate limits are reported under the "core" key, not "rest". */
+  core?: { remaining: number; limit: number; reset: number };
+  search?: { remaining: number; limit: number; reset: number };
 }
 
 /** Parse `gh api rate_limit` JSON output. Returns null on parse failure. */
@@ -74,15 +98,11 @@ export function parseGhRateLimitOutput(stdout: string): GHRateLimitResources | n
  * Returns null on failure (caller should fall back to REST).
  */
 export async function fetchGhRateLimit(): Promise<GHRateLimitResources | null> {
-  const { execFile } = await import("child_process");
-  const { promisify } = await import("util");
-  const execFileAsync = promisify(execFile);
   try {
-    const { stdout } = await execFileAsync(
-      "gh",
-      ["api", "rate_limit", "--jq", ".resources"],
-      { timeout: 10_000 },
-    );
+    const { stdout } = await _execAsync("gh", ["api", "rate_limit"], {
+      encoding: "utf-8",
+      timeout: 10_000,
+    });
     return parseGhRateLimitOutput(stdout);
   } catch {
     return null;
@@ -111,21 +131,16 @@ export async function getHeadroomStatus(
   }
 
   const resources = await fetchGhRateLimit();
-  const resetAt = resources?.graphql?.reset
-    ?? resources?.rest?.reset
-    ?? null;
+  const resetEpoch = resources?.graphql?.reset ?? resources?.core?.reset ?? null;
+  const resetAt = resetEpoch !== null ? new Date(resetEpoch * 1000).toISOString() : null;
 
   _cachedHeadroom = {
     graphqlRemaining: resources?.graphql?.remaining ?? 1000,
-    restRemaining: resources?.rest?.remaining ?? 5000,
+    restRemaining: resources?.core?.remaining ?? 5000,
     resetAt,
-    canUseGraphQL: (resources?.graphql?.remaining ?? 1000) >= opts.graphqlMin,
-    canUseREST: (resources?.rest?.remaining ?? 5000) >= opts.restMin,
-    recommendation: (resources?.graphql?.remaining ?? 1000) >= opts.graphqlMin
-      ? "graphql"
-      : (resources?.rest?.remaining ?? 5000) >= opts.restMin
-      ? "rest"
-      : "defer",
+    canUseGraphQL: true,
+    canUseREST: true,
+    recommendation: "graphql" as const,
   };
   _headroomFetchedAt = now;
 
@@ -133,14 +148,20 @@ export async function getHeadroomStatus(
 }
 
 function applyThresholds(status: HeadroomStatus, opts: HeadroomThresholds): HeadroomStatus {
+  // Enforce hard floor: if either remaining count is below absoluteMin,
+  // treat both channels as unusable regardless of graphqlMin/restMin.
+  const belowAbsoluteMin =
+    status.graphqlRemaining < opts.absoluteMin ||
+    status.restRemaining < opts.absoluteMin;
+
+  if (belowAbsoluteMin) {
+    return { ...status, canUseGraphQL: false, canUseREST: false, recommendation: "defer" };
+  }
+
   const canUseGraphQL = status.graphqlRemaining >= opts.graphqlMin;
   const canUseREST    = status.restRemaining >= opts.restMin;
   const recommendation: HeadroomStatus["recommendation"] =
-    status.graphqlRemaining >= opts.graphqlMin
-      ? "graphql"
-      : status.restRemaining >= opts.restMin
-      ? "rest"
-      : "defer";
+    canUseGraphQL ? "graphql" : canUseREST ? "rest" : "defer";
   return { ...status, canUseGraphQL, canUseREST, recommendation };
 }
 
@@ -176,7 +197,21 @@ export async function withRESTFallback<T>(
     } catch (err) {
       if (isGhRateLimitError(err)) {
         invalidateHeadroomCache();
-        // Fall through to REST
+        // Fall through to REST — re-fetch status so the REST check uses fresh headroom
+        const freshStatus = await getHeadroomStatus(thresholds);
+        if (!freshStatus.canUseREST) {
+          throw new Error(
+            `GitHub API headroom exhausted (gql:${freshStatus.graphqlRemaining} rest:${freshStatus.restRemaining}). Cannot proceed.`,
+            { cause: err },
+          );
+        }
+        try {
+          const data = await restFn();
+          return { data, via: "rest" };
+        } catch (restErr) {
+          if (isGhRateLimitError(restErr)) invalidateHeadroomCache();
+          throw restErr;
+        }
       } else {
         throw err; // Non-rate-limit errors should propagate
       }
@@ -190,16 +225,26 @@ export async function withRESTFallback<T>(
     );
   }
 
-  const data = await restFn();
-  return { data, via: "rest" };
+  try {
+    const data = await restFn();
+    return { data, via: "rest" };
+  } catch (restErr) {
+    if (isGhRateLimitError(restErr)) invalidateHeadroomCache();
+    throw restErr;
+  }
 }
 
 /**
- * Determine whether to defer a GH operation based on current headroom.
- * Returns "defer" if both GraphQL and REST are low.
+ * Return the current GitHub API headroom snapshot.
+ * Use `recommendation === "defer"` when both GraphQL and REST are low.
  */
-export async function shouldDeferOperation(
+export async function getOperationHeadroom(
   thresholds: Partial<HeadroomThresholds> = {},
 ): Promise<HeadroomStatus> {
   return getHeadroomStatus(thresholds);
 }
+
+/**
+ * @deprecated Use `getOperationHeadroom` instead.
+ */
+export const shouldDeferOperation = getOperationHeadroom;

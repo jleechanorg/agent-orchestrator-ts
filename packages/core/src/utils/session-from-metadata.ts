@@ -1,4 +1,4 @@
-import type { RuntimeHandle, Session, SessionId, SessionStatus } from "../types.js";
+import { VALID_PR_STATES, type PRState, type RuntimeHandle, type Session, type SessionId, type SessionStatus } from "../types.js";
 import { parsePrFromUrl } from "./pr.js";
 import { safeJsonParse, validateStatus } from "./validation.js";
 
@@ -27,6 +27,11 @@ export function sessionFromMetadata(
     pr: meta["pr"]
       ? (() => {
           const parsed = parsePrFromUrl(meta["pr"]);
+          const rawPrState = meta["prState"] as string | undefined;
+          const prState: PRState | undefined =
+            rawPrState !== undefined && VALID_PR_STATES.has(rawPrState as PRState)
+              ? (rawPrState as PRState)
+              : undefined;
           return {
             number: parsed?.number ?? 0,
             url: meta["pr"],
@@ -36,6 +41,7 @@ export function sessionFromMetadata(
             branch: meta["branch"] ?? "",
             baseBranch: "",
             isDraft: false,
+            ...(prState ? { state: prState } : {}),
           };
         })()
       : null,
