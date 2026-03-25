@@ -1,9 +1,23 @@
 # Zero-Touch 6-Green Rate Improvement Plan
 
 **Created**: 2026-03-24
+**Updated**: 2026-03-25
 **Metric**: % of merged PRs that reach 6-green with zero human commits
 **Baseline**: 16% (7/43 over last 7 days as of 2026-03-24)
+**Current**: 25% (14/55 over last 7 days as of 2026-03-25)
 **Target**: 50%+ within 2 weeks
+
+## Session Results (2026-03-24 17:00Z — 2026-03-25 04:30Z, ~12h)
+
+- **22 PRs merged** (12 original open + 10 new from workers)
+- **0 PRs remaining open** (queue fully cleared)
+- **6-green rate**: 16% → 25% (+9pp)
+- **New merges zero-touch rate**: 58% (7/12 new merges were fully autonomous)
+- **Phase 1 landed**: bd-8se (worktree cleanup), bd-5gl (merge executor)
+- **Phase 2 deployed**: agentRules `@coderabbitai full review` (bd-ara.4)
+- **Harness improvements**: CR silent fallback rule, codex subagent review
+- **Workers spawned**: 9 (ao-772-778, ao-805, ao-807)
+- **Biggest friction**: CR re-approval loop (7h stalls on #155, #166)
 
 ## Problem
 
