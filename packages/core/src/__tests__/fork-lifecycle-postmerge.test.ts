@@ -5,8 +5,6 @@ import type {
   SessionManager,
   OrchestratorConfig,
   PluginRegistry,
-  OrchestratorEvent,
-  EventPriority,
   EventType,
 } from "../types.js";
 import type { ProjectObserver } from "../observability.js";
@@ -169,8 +167,10 @@ describe("fork-lifecycle-postmerge", () => {
     it("emits exit proof via notifyHuman for each reaped co-worker", async () => {
       const sm = makeSessionManager();
       const coWorker = makeSession({ id: "co-worker-1", pr: null });
-      (sm.list as ReturnType<typeof vi.fn>).mockResolvedValueOnce([coWorker]);
-      (sm.get as ReturnType<typeof vi.fn>).mockResolvedValueOnce(coWorker);
+      // list() is called twice: once for pre-reap snapshot, once by reapStaleSessions
+      (sm.list as ReturnType<typeof vi.fn>)
+        .mockResolvedValueOnce([coWorker])
+        .mockResolvedValueOnce([coWorker]);
       const observer = makeObserver();
       const mergedSession = makeSession();
 
@@ -210,10 +210,10 @@ describe("fork-lifecycle-postmerge", () => {
       const sm = makeSessionManager();
       const coWorker1 = makeSession({ id: "co-worker-1" });
       const coWorker2 = makeSession({ id: "co-worker-2" });
-      (sm.list as ReturnType<typeof vi.fn>).mockResolvedValueOnce([coWorker1, coWorker2]);
-      (sm.get as ReturnType<typeof vi.fn>)
-        .mockResolvedValueOnce(coWorker1)
-        .mockResolvedValueOnce(coWorker2);
+      // list() is called twice: once for pre-reap snapshot, once by reapStaleSessions
+      (sm.list as ReturnType<typeof vi.fn>)
+        .mockResolvedValueOnce([coWorker1, coWorker2])
+        .mockResolvedValueOnce([coWorker1, coWorker2]);
       const observer = makeObserver();
       const mergedSession = makeSession();
 
@@ -295,8 +295,10 @@ describe("fork-lifecycle-postmerge", () => {
     it("records lifecycle.exit_proof operation for each reaped co-worker", async () => {
       const sm = makeSessionManager();
       const coWorker = makeSession({ id: "co-worker-1" });
-      (sm.list as ReturnType<typeof vi.fn>).mockResolvedValueOnce([coWorker]);
-      (sm.get as ReturnType<typeof vi.fn>).mockResolvedValueOnce(coWorker);
+      // list() is called twice: once for pre-reap snapshot, once by reapStaleSessions
+      (sm.list as ReturnType<typeof vi.fn>)
+        .mockResolvedValueOnce([coWorker])
+        .mockResolvedValueOnce([coWorker]);
       const observer = makeObserver();
       const mergedSession = makeSession();
 

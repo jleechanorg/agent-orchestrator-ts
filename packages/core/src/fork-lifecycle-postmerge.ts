@@ -113,6 +113,16 @@ export async function reapPostMergeCoWorkers(
   const projectId = mergedSession.projectId;
 
   try {
+    // Snapshot sessions BEFORE reaping — reapStaleSessions calls kill() which
+    // archives sessions, making them invisible to sessionManager.get(). Without
+    // this pre-reap snapshot, exit proof emission would silently fail because
+    // the reaped session data is no longer available via get().
+    const scopedManager = projectScopedSessionManager(sessionManager, projectId);
+    const preReapSessions: Session[] = exitProofDeps
+      ? await scopedManager.list(projectId)
+      : [];
+    const sessionById = new Map(preReapSessions.map((s) => [s.id, s]));
+
     const reaped: ReaperResult = await reapStaleSessions(
       {
         ...DEFAULT_REAPER_CONFIG,
@@ -121,7 +131,7 @@ export async function reapPostMergeCoWorkers(
         maxKillsPerRun: POST_MERGE_REAPER_CONFIG.maxKillsPerRun,
       },
       // Project-scope the session list so cross-project sessions are invisible
-      { sessionManager: projectScopedSessionManager(sessionManager, projectId) },
+      { sessionManager: scopedManager },
     );
 
     const killed: ReapedSessionInfo[] = reaped.killed.map((r) => ({
@@ -135,10 +145,11 @@ export async function reapPostMergeCoWorkers(
     // This mirrors the exit proof that lifecycle-manager emits for the primary
     // merged session. Without this, Slack thread terminal updates are silently
     // skipped for co-workers cleaned up by the post-merge sweep.
+    // Uses the pre-reap snapshot since sessions are archived after kill().
     if (exitProofDeps && killed.length > 0) {
       for (const killedInfo of killed) {
         try {
-          const reapedSession = await sessionManager.get(killedInfo.sessionId);
+          const reapedSession = sessionById.get(killedInfo.sessionId);
           if (reapedSession) {
             await validateAndEmitExitProof(reapedSession, "merged", {
               config: exitProofDeps.config,
