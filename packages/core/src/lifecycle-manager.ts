@@ -863,12 +863,13 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
    * Typed helper that eliminates the { state?: string } cast pattern.
    */
   function persistPrState(session: Session, state: PRState, projectPath: string): void {
-    const sessionsDir = getSessionsDir(config.configPath, projectPath);
-    updateMetadata(sessionsDir, session.id, { prState: state });
+    // bd-s4t.2: update in-memory FIRST so it's always consistent even if disk write fails
     session.metadata["prState"] = state;
     if (session.pr) {
       session.pr.state = state;
     }
+    const sessionsDir = getSessionsDir(config.configPath, projectPath);
+    updateMetadata(sessionsDir, session.id, { prState: state });
   }
 
 
