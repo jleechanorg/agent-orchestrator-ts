@@ -59,6 +59,8 @@ const BUILTIN_PLUGINS: Array<{ slot: PluginSlot; name: string; pkg: string }> = 
   { slot: "terminal", name: "web", pkg: "@jleechanorg/ao-plugin-terminal-web" },
   // Pollers
   { slot: "poller", name: "github-pr", pkg: "@jleechanorg/ao-plugin-poller-github-pr" },
+  // Runtimes
+  { slot: "runtime", name: "prose-polish", pkg: "@jleechanorg/ao-plugin-prose-polish" },
 ];
 
 /** Extract plugin-specific config from orchestrator config */

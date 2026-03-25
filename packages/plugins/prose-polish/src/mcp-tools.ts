@@ -1,0 +1,128 @@
+/**
+ * MCP tool definitions for prose-polish.
+ */
+
+import { readFileSync, writeFileSync } from "fs";
+import { scanLines, RULE_DESCRIPTIONS } from "./detector.js";
+import { autoFixFile } from "./fixer.js";
+import type { ScanResult, FixResult } from "./types.js";
+
+export interface McpToolDefinition {
+  name: string;
+  description: string;
+  inputSchema: Record<string, unknown>;
+}
+
+export interface McpToolResult {
+  success: boolean;
+  data?: unknown;
+  error?: string;
+}
+
+// ---- Tool definitions ----
+
+export const TOOL_DEFINITIONS: McpToolDefinition[] = [
+  {
+    name: "prose_polish_scan",
+    description: "Scan a markdown or prose file for common fiction prose patterns",
+    inputSchema: {
+      type: "object",
+      properties: {
+        file_path: { type: "string", description: "Path to the file to scan" },
+        min_severity: {
+          type: "string",
+          enum: ["info", "warn", "critical"],
+          default: "info",
+          description: "Minimum severity to report",
+        },
+      },
+      required: ["file_path"],
+    },
+  },
+  {
+    name: "prose_polish_fix",
+    description: "Apply auto-fixable prose corrections to a file (creates .bak backup)",
+    inputSchema: {
+      type: "object",
+      properties: {
+        file_path: { type: "string", description: "Path to the file to fix" },
+        min_severity: {
+          type: "string",
+          enum: ["info", "warn", "critical"],
+          default: "warn",
+          description: "Minimum severity to fix",
+        },
+      },
+      required: ["file_path"],
+    },
+  },
+  {
+    name: "prose_polish_rules",
+    description: "List all prose pattern rules with descriptions",
+    inputSchema: {
+      type: "object",
+      properties: {},
+    },
+  },
+];
+
+// ---- Tool handlers ----
+
+function handleScan(args: { file_path: string; min_severity?: string }): McpToolResult {
+  try {
+    const content = readFileSync(args.file_path, "utf-8");
+    const lines = content.split("\n");
+    const result: ScanResult = scanLines(args.file_path, lines);
+    return { success: true, data: result };
+  } catch (err) {
+    return { success: false, error: String(err) };
+  }
+}
+
+function handleFix(args: { file_path: string; min_severity?: string }): McpToolResult {
+  try {
+    const content = readFileSync(args.file_path, "utf-8");
+    const result: FixResult = autoFixFile(
+      args.file_path,
+      content,
+      (args.min_severity as "info" | "warn" | "critical") ?? "warn"
+    );
+    return { success: true, data: result };
+  } catch (err) {
+    return { success: false, error: String(err) };
+  }
+}
+
+function handleRules(): McpToolResult {
+  const rules = Object.entries(RULE_DESCRIPTIONS).map(([rule, description]) => ({
+    rule,
+    description,
+  }));
+  return { success: true, data: rules };
+}
+
+/**
+ * Dispatch a tool call by name.
+ */
+export function dispatchTool(name: string, args: Record<string, unknown>): McpToolResult {
+  switch (name) {
+    case "prose_polish_scan":
+      return handleScan(args as { file_path: string; min_severity?: string });
+    case "prose_polish_fix":
+      return handleFix(args as { file_path: string; min_severity?: string });
+    case "prose_polish_rules":
+      return handleRules();
+    default:
+      return { success: false, error: `Unknown tool: ${name}` };
+  }
+}
+
+/**
+ * Create MCP tool definitions for use in AO agent plugin.
+ */
+export function createMcpTools() {
+  return {
+    definitions: TOOL_DEFINITIONS,
+    dispatch: dispatchTool,
+  };
+}
