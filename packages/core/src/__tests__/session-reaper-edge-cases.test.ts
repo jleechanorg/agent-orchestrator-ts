@@ -7,6 +7,7 @@
  */
 import { describe, it, expect, vi } from "vitest";
 import { reapStaleSessions } from "../session-reaper.js";
+import { sessionFromMetadata } from "../utils/session-from-metadata.js";
 import {
   BASE_NOW,
   FOUR_HOURS_MS,
@@ -171,7 +172,7 @@ describe("reapStaleSessions edge cases", () => {
   });
 });
 
-describe("zombie detection via pr.state", () => {
+describe("zombie detection via pr.state (bd-s4t)", () => {
   it("kills session with merged pr.state (bd-s4t zombie path)", async () => {
     const zombieSession = makeSession("zombie-1", {
       status: "working",
@@ -183,5 +184,39 @@ describe("zombie detection via pr.state", () => {
     expect(result.killed).toHaveLength(1);
     expect(result.killed[0].sessionId).toBe("zombie-1");
     expect(sm.kill).toHaveBeenCalledWith("zombie-1");
+  });
+
+  it("kills session with closed pr.state (bd-s4t zombie path)", async () => {
+    const zombieSession = makeSession("zombie-2", {
+      status: "working",
+      pr: { number: 99, url: "https://github.com/org/repo/pull/99", title: "", owner: "org", repo: "repo", branch: "feat/test", baseBranch: "main", isDraft: false, state: "closed" },
+      metadata: { prState: "closed" },
+    });
+    const sm = makeSessionManager([zombieSession]);
+    const result = await reapStaleSessions(makeConfig({ maxKillsPerRun: 20 }), makeDeps(sm));
+    expect(result.killed).toHaveLength(1);
+    expect(result.killed[0].sessionId).toBe("zombie-2");
+    expect(sm.kill).toHaveBeenCalledWith("zombie-2");
+  });
+
+  it("kills session reconstructed from metadata with prState=merged (bd-s4t round-trip integration)", async () => {
+    // This exercises the full chain: sessionFromMetadata hydrates session.pr.state
+    // from metadata prState field, then reapStaleSessions detects zombie state
+    const hydratedSession = sessionFromMetadata("zombie-3", {
+      project: "test",
+      branch: "feat/test",
+      status: "working",
+      worktree: "/tmp/wt",
+      pr: "https://github.com/org/repo/pull/77",
+      prState: "merged",
+    });
+    expect(hydratedSession.pr).not.toBeNull();
+    expect(hydratedSession.pr!.state).toBe("merged");
+
+    const sm = makeSessionManager([hydratedSession]);
+    const result = await reapStaleSessions(makeConfig({ maxKillsPerRun: 20 }), makeDeps(sm));
+    expect(result.killed).toHaveLength(1);
+    expect(result.killed[0].sessionId).toBe("zombie-3");
+    expect(sm.kill).toHaveBeenCalledWith("zombie-3");
   });
 });
