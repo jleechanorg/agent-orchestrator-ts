@@ -1090,6 +1090,12 @@ export interface OrchestratorConfig {
 
   /** Plugin-specific configs (e.g., scm-github.extraBotAuthors) */
   plugins?: Record<string, Record<string, unknown>>;
+
+  /**
+   * Global worktree base directory. Can be overridden per-project via
+   * projects[].worktreeDir. The lifecycle-worker's orphan sweep uses this.
+   */
+  worktreeDir?: string;
 }
 
 export interface DefaultPlugins {
@@ -1281,6 +1287,12 @@ export interface ProjectConfig {
    * Enables projects to define custom auto-merge conditions.
    */
   mergeGate?: MergeGateConfig;
+
+  /**
+   * Override the global worktree base directory for this project.
+   * The lifecycle-worker's orphan sweep uses this to locate worktrees.
+   */
+  worktreeDir?: string;
 }
 
 /** Merge gate configuration (bd-uxs.8) */

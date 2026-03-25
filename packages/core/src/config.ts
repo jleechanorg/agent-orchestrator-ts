@@ -211,6 +211,8 @@ const ProjectConfigSchema = z.object({
   backfillAllPRs: z.boolean().optional(),
   // bd-uxs.8: Merge gate configuration
   mergeGate: MergeGateConfigSchema.optional(),
+  // Override the global worktree base directory for this project.
+  worktreeDir: z.string().optional(),
 });
 
 const DefaultPluginsSchema = z.object({
@@ -238,6 +240,8 @@ const OrchestratorConfigSchema = z.object({
   }),
   reactions: z.record(ReactionConfigSchema).default({}),
   plugins: z.record(z.record(z.unknown())).optional(),
+  // Global worktree base directory; can be overridden per-project.
+  worktreeDir: z.string().optional(),
 });
 
 // =============================================================================

@@ -5,6 +5,7 @@ import chalk from "chalk";
 import {
   createCorrelationId,
   createProjectObserver,
+  expandHome,
   generateConfigHash,
   loadConfig,
   parseTmuxName,
@@ -17,8 +18,14 @@ import {
   tryAcquireLifecycleLock,
   writeLifecycleWorkerPid,
 } from "../lib/lifecycle-service.js";
+import {
+  listTmuxSessionsWithActivity,
+  sweepOrphanWorktrees,
+} from "./orphan-sweep.js";
 
 const execFileAsync = promisify(execFile);
+
+const TMUX_TIMEOUT_MS = 5_000;
 
 function parseInterval(value: string): number {
   const parsed = Number.parseInt(value, 10);
@@ -30,37 +37,6 @@ function parseInterval(value: string): number {
 function parseDurationMs(value: string, fallbackMs: number): number {
   const parsed = Number.parseInt(value, 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallbackMs;
-}
-
-interface TmuxSessionInfo {
-  name: string;
-  activityMs: number | null;
-}
-
-const TMUX_TIMEOUT_MS = 5_000;
-
-async function listTmuxSessionsWithActivity(): Promise<TmuxSessionInfo[]> {
-  try {
-    const { stdout } = await execFileAsync(
-      "tmux",
-      ["list-sessions", "-F", "#{session_name}\t#{session_activity}"],
-      { timeout: TMUX_TIMEOUT_MS },
-    );
-    return stdout
-      .trim()
-      .split("\n")
-      .filter(Boolean)
-      .map((line) => {
-        const [name, activityRaw] = line.split("\t");
-        const activitySeconds = Number.parseInt(activityRaw ?? "", 10);
-        return {
-          name,
-          activityMs: Number.isFinite(activitySeconds) ? activitySeconds * 1000 : null,
-        };
-      });
-  } catch {
-    return [];
-  }
 }
 
 async function sweepOrphanTmuxSessions(opts: {
@@ -85,7 +61,25 @@ async function sweepOrphanTmuxSessions(opts: {
   );
 
   const now = Date.now();
-  const tmuxSessions = await listTmuxSessionsWithActivity();
+  const tmuxResult = await listTmuxSessionsWithActivity();
+  if (!tmuxResult.available) {
+    // no_server: no tmux server running — nothing to do
+    // error: log the failure and continue (best-effort)
+    if (tmuxResult.reason === "error") {
+      observer.recordOperation({
+        metric: "lifecycle_poll",
+        operation: "lifecycle.orphan_tmux_sweep",
+        outcome: "failure",
+        correlationId,
+        projectId,
+        data: { message: tmuxResult.message ?? "" },
+        level: "warn",
+        reason: `tmux list-sessions failed: ${tmuxResult.message}`,
+      });
+    }
+    return;
+  }
+  const tmuxSessions = tmuxResult.sessions;
   let orphanCount = 0;
   let cleanedCount = 0;
 
@@ -125,6 +119,7 @@ async function sweepOrphanTmuxSessions(opts: {
     });
   }
 }
+
 
 export function registerLifecycleWorker(program: Command): void {
   program
@@ -233,6 +228,15 @@ export function registerLifecycleWorker(program: Command): void {
         const orphanTtlMs = parseDurationMs(opts.orphanTtlMs ?? "21600000", 6 * 60 * 60 * 1000);
         const configHash = generateConfigHash(config.configPath);
         const allProjectIds = Object.keys(config.projects ?? {});
+        // Worktrees live at <worktreeDir>/{projectId>/ where worktreeDir comes from
+        // the workspace-worktree plugin config. Mirrors the same lookup in the plugin.
+        // Check per-project override, then global config.
+        const projectWorktreeDir = config.projects[projectId]?.worktreeDir;
+        const globalWorktreeDir = config.worktreeDir;
+        const configuredWorktreeDir = projectWorktreeDir ?? globalWorktreeDir;
+        const worktreeBaseDir = configuredWorktreeDir
+          ? expandHome(configuredWorktreeDir)
+          : expandHome("~/.worktrees");
         let shuttingDown = false;
         let heartbeat: ReturnType<typeof setInterval> | null = null;
         let orphanSweepTimer: ReturnType<typeof setInterval> | null = null;
@@ -328,6 +332,16 @@ export function registerLifecycleWorker(program: Command): void {
           }).catch(() => {
             // best-effort sweep; errors must not crash the lifecycle worker
           });
+          sweepOrphanWorktrees({
+            sessionManager,
+            projectId,
+            allProjectIds,
+            configHash,
+            worktreeBaseDir,
+            observer,
+          }).catch(() => {
+            // best-effort sweep; errors must not crash the lifecycle worker
+          });
         }, orphanSweepIntervalMs);
         orphanSweepTimer.unref();
 
@@ -338,6 +352,16 @@ export function registerLifecycleWorker(program: Command): void {
           allProjectIds,
           configHash,
           orphanTtlMs,
+          observer,
+        }).catch(() => {
+          // best-effort sweep; errors must not crash the lifecycle worker
+        });
+        sweepOrphanWorktrees({
+          sessionManager,
+          projectId,
+          allProjectIds,
+          configHash,
+          worktreeBaseDir,
           observer,
         }).catch(() => {
           // best-effort sweep; errors must not crash the lifecycle worker
