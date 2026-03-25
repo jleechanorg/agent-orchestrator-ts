@@ -89,7 +89,17 @@ export function parseGhRateLimitOutput(stdout: string): GHRateLimitResources | n
     // gh api rate_limit returns a top-level "resources" object.
     // Caller passes --jq '.resources' so we receive the resources object directly.
     // Support both that (jq-extracted) and the full-response shape.
-    return parsed.resources ?? parsed;
+    const resources = parsed.resources ?? parsed;
+    // Defensive: require at least one known resource key to avoid accepting
+    // arbitrary JSON that coincidentally has no 'resources' key.
+    if (
+      typeof resources !== "object" ||
+      resources === null ||
+      !("graphql" in resources || "core" in resources || "search" in resources)
+    ) {
+      return null;
+    }
+    return resources;
   } catch {
     return null;
   }
@@ -133,8 +143,14 @@ export async function getHeadroomStatus(
   }
 
   const resources = await fetchGhRateLimit();
-  const resetEpoch = resources?.graphql?.reset ?? resources?.core?.reset ?? null;
-  const resetAt = resetEpoch !== null ? new Date(resetEpoch * 1000).toISOString() : null;
+  // Coerce reset to number — GitHub API returns epoch seconds as a number, but
+  // defensive coding guards against string or unexpected types.
+  const rawReset = resources?.graphql?.reset ?? resources?.core?.reset ?? null;
+  const resetEpoch = rawReset !== null ? Number(rawReset) : null;
+  const resetAt =
+    resetEpoch !== null && !Number.isNaN(resetEpoch)
+      ? new Date(resetEpoch * 1000).toISOString()
+      : null;
 
   _cachedHeadroom = {
     graphqlRemaining: resources?.graphql?.remaining ?? 1000,
