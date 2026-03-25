@@ -125,9 +125,9 @@ describe("getOperationHeadroom / shouldDeferOperation", () => {
   it("cache hit with same thresholds skips recomputation and does not re-fetch", async () => {
     const execStub = stubHeadroom(500, 4000);
     ghHeadroomInject({ execAsync: execStub });
-    invalidateHeadroomCache();
+    invalidateHeadroomCache(); // only before the FIRST call; do NOT reset between the two calls
 
-    // First call — cache miss, fetches once
+    // First call — cache miss, fetches once and populates cache
     const first = await getOperationHeadroom();
     expect(execStub).toHaveBeenCalledTimes(1);
     expect(first.canUseGraphQL).toBe(true);
@@ -140,7 +140,7 @@ describe("getOperationHeadroom / shouldDeferOperation", () => {
     expect(second.recommendation).toBe(first.recommendation);
 
     ghHeadroomInject();
-    invalidateHeadroomCache();
+    invalidateHeadroomCache(); // clean up after the test
   });
 });
 

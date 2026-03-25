@@ -11,9 +11,19 @@
  *
  * Used alongside gh-graphql-defer.ts (retry+defer) — this module handles
  * the "should I even try GraphQL" preflight decision.
+ *
+ * Cache and threshold helpers live in gh-headroom-cache.ts to keep this file
+ * under 300 LOC.
  */
 
 import { isGhRateLimitError } from "./gh-rate-limit.js";
+import {
+  applyThresholds,
+  invalidateHeadroomCache,
+  _cacheState,
+  type CachedHeadroom,
+  HEADROOM_CACHE_TTL_MS,
+} from "./gh-headroom-cache.js";
 import { execFile as _execFile } from "node:child_process";
 import { promisify } from "node:util";
 
@@ -122,20 +132,11 @@ export async function fetchGhRateLimit(): Promise<GHRateLimitResources | null> {
 }
 
 // ---------------------------------------------------------------------------
-// In-process headroom tracker (singleton per process lifetime)
+// Cache singleton — delegates to gh-headroom-cache.ts
 // ---------------------------------------------------------------------------
 
-interface CachedHeadroom {
-  graphqlRemaining: number;
-  restRemaining: number;
-  resetAt: string | null;
-  /** Tracks which thresholds were applied so cache hits can skip recomputation. */
-  _cachedThresholds: HeadroomThresholds;
-}
-
-let _cachedHeadroom: CachedHeadroom | null = null;
-let _headroomFetchedAt: number = 0;
-const HEADROOM_CACHE_TTL_MS = 60_000; // 1 minute — gh rate limit updates every hour, no need to check more
+/** Invalidate the cached headroom (call after any rate-limit error). */
+export { invalidateHeadroomCache } from "./gh-headroom-cache.js";
 
 /**
  * Get cached headroom status, refreshing if stale.
@@ -147,16 +148,16 @@ export async function getHeadroomStatus(
   const now = Date.now();
 
   if (
-    _cachedHeadroom &&
-    now - _headroomFetchedAt < HEADROOM_CACHE_TTL_MS &&
-    _cachedHeadroom._cachedThresholds.graphqlMin === opts.graphqlMin &&
-    _cachedHeadroom._cachedThresholds.restMin === opts.restMin &&
-    _cachedHeadroom._cachedThresholds.absoluteMin === opts.absoluteMin
+    _cacheState.headroom &&
+    now - _cacheState.fetchedAt < HEADROOM_CACHE_TTL_MS &&
+    _cacheState.headroom._cachedThresholds.graphqlMin === opts.graphqlMin &&
+    _cacheState.headroom._cachedThresholds.restMin === opts.restMin &&
+    _cacheState.headroom._cachedThresholds.absoluteMin === opts.absoluteMin
   ) {
     // Cache hit with same thresholds — derive decision from cached counts directly,
     // preserving the actual headroom state (e.g. defer-state cache is not upgraded
     // to a healthy graphql/recommendation).
-    const { graphqlRemaining, restRemaining, resetAt } = _cachedHeadroom;
+    const { graphqlRemaining, restRemaining, resetAt } = _cacheState.headroom;
     const belowGraphqlAbs = graphqlRemaining < opts.absoluteMin;
     const belowRestAbs    = restRemaining    < opts.absoluteMin;
     const canUseGraphQL   = !belowGraphqlAbs && graphqlRemaining >= opts.graphqlMin;
@@ -181,69 +182,32 @@ export async function getHeadroomStatus(
   const hasGraphql = resources !== null && "graphql" in resources;
   const hasCore    = resources !== null && "core"    in resources;
 
-  if (!hasGraphql && !hasCore) {
-    _cachedHeadroom = {
-      graphqlRemaining: 0,
-      restRemaining: 0,
-      resetAt,
-      _cachedThresholds: opts,
-    };
-  } else {
-    _cachedHeadroom = {
+  // Only cache when we have actionable data from at least one bucket.
+  // Do NOT cache a search-only or otherwise incomplete snapshot — a transient
+  // probe failure (hasGraphql && hasCore both false) should not be promoted to
+  // a persistent 0/0 defer state that blocks subsequent calls once the API recovers.
+  const hasActionableData = resources !== null && (hasGraphql || hasCore);
+  if (hasActionableData) {
+    _cacheState.headroom = {
       graphqlRemaining: resources?.graphql?.remaining ?? 0,
       restRemaining: resources?.core?.remaining ?? 0,
       resetAt,
       _cachedThresholds: opts,
     };
-  }
-  _headroomFetchedAt = now;
-
-  return applyThresholds(_cachedHeadroom, opts);
-}
-
-function applyThresholds(
-  cache: CachedHeadroom,
-  opts: HeadroomThresholds,
-): HeadroomStatus {
-  // Per-channel absoluteMin floor: each channel is blocked independently when below
-  // the hard floor. A healthy REST bucket is still usable when GraphQL is low, and
-  // vice versa — only the depleted channel defers.
-  const belowGraphqlAbs = cache.graphqlRemaining < opts.absoluteMin;
-  const belowRestAbs    = cache.restRemaining    < opts.absoluteMin;
-
-  const canUseGraphQL =
-    !belowGraphqlAbs && cache.graphqlRemaining >= opts.graphqlMin;
-  const canUseREST =
-    !belowRestAbs && cache.restRemaining >= opts.restMin;
-
-  // Only defer when NEITHER channel has usable headroom.
-  if (!canUseGraphQL && !canUseREST) {
-    return {
-      graphqlRemaining: cache.graphqlRemaining,
-      restRemaining: cache.restRemaining,
-      resetAt: cache.resetAt,
-      canUseGraphQL: false,
-      canUseREST: false,
-      recommendation: "defer",
-    };
+    _cacheState.fetchedAt = now;
+    return applyThresholds(_cacheState.headroom, opts);
   }
 
-  const recommendation: HeadroomStatus["recommendation"] =
-    canUseGraphQL ? "graphql" : "rest";
+  // No actionable data (probe failed or only search bucket present): one-off defer,
+  // do not pollute the cache.
   return {
-    graphqlRemaining: cache.graphqlRemaining,
-    restRemaining: cache.restRemaining,
-    resetAt: cache.resetAt,
-    canUseGraphQL,
-    canUseREST,
-    recommendation,
+    graphqlRemaining: 0,
+    restRemaining: 0,
+    resetAt,
+    canUseGraphQL: false,
+    canUseREST: false,
+    recommendation: "defer",
   };
-}
-
-/** Invalidate the cached headroom (call after any rate-limit error). */
-export function invalidateHeadroomCache(): void {
-  _cachedHeadroom = null;
-  _headroomFetchedAt = 0;
 }
 
 // ---------------------------------------------------------------------------
