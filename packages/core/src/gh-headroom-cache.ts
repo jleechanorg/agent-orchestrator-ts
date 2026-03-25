@@ -10,7 +10,7 @@ import type { HeadroomStatus, HeadroomThresholds } from "./gh-headroom.js";
 
 /** Cached headroom snapshot — raw counts only; threshold-derived fields are
  * recomputed on every use so callers always get a consistent view. */
-export interface CachedHeadroom {
+interface CachedHeadroom {
   graphqlRemaining: number;
   restRemaining: number;
   resetAt: string | null;

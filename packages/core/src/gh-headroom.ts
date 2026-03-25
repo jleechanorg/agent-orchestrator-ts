@@ -21,7 +21,6 @@ import {
   applyThresholds,
   invalidateHeadroomCache,
   _cacheState,
-  type CachedHeadroom,
   HEADROOM_CACHE_TTL_MS,
 } from "./gh-headroom-cache.js";
 import { execFile as _execFile } from "node:child_process";
