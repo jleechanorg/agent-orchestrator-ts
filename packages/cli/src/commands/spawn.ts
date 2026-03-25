@@ -246,6 +246,7 @@ export function registerSpawn(program: Command): void {
         const claimOptions: SpawnClaimOptions = {
           claimPr: opts.claimPr,
           assignOnGithub: opts.assignOnGithub,
+          runtime: opts.runtime,
         };
 
         try {
