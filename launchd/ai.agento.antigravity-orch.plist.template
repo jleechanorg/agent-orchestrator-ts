@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>ai.agento.antigravity-orch</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>-c</string>
+    <string>cd @WORKING_DIR@ && claude --dangerously-skip-permissions --max-turns 200 -p "$(cat ~/.antigravity-loop/orchestrator-prompt.md)"</string>
+  </array>
+
+  <key>RunAtLoad</key>
+  <true/>
+
+  <key>KeepAlive</key>
+  <true/>
+
+  <key>WorkingDirectory</key>
+  <string>@WORKING_DIR@</string>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>HOME</key>
+    <string>@HOME@</string>
+    <key>PATH</key>
+    <string>@PATH@</string>
+  </dict>
+
+  <key>StandardOutPath</key>
+  <string>@LOG_FILE@</string>
+
+  <key>StandardErrorPath</key>
+  <string>@LOG_FILE@</string>
+
+  <key>ThrottleInterval</key>
+  <integer>120</integer>
+</dict>
+</plist>
