@@ -143,10 +143,9 @@ process.stdin.on('data', c => input += c).on('end', () => {
 
 /** Patterns where the agent is blocked on an interactive prompt — needs human input. */
 const INTERACTIVE_PROMPT_PATTERNS: readonly RegExp[] = [
-  /\[y\/?n\]/i, // [y/n], [y/n], [Yn], etc.
-  /\[yes\/?no\]/i,
+  /\[[yY]\/[nN]\]/, // [y/n], [Y/n], [y/N], etc.
+  /\[[yY][eE][sS]\/[nN][oO]\]/, // [yes/no], [YES/NO], etc.
   /\bconfirm\??\b/i, // "confirm?" or "confirm" as a standalone word
-  /\?\s*$/m, // "?" at end of line (question prompt)
   /^\s*[→\-•]\s*$/m, // arrow/hyphen/bullet-only line (menu selection)
 ];
 
@@ -265,6 +264,11 @@ function createOpenCodeAgent(): Agent {
       for (const p of INTERACTIVE_PROMPT_PATTERNS) {
         if (p.test(terminalOutput)) return "waiting_input";
       }
+
+      // Standalone "?" on its own line (not mid-sentence "?...") — check only the last line
+      const lastLine = terminalOutput.trimEnd().split("\n").at(-1) ?? "";
+      if (/^\s*\?\s*$/.test(lastLine)) return "waiting_input";
+
       for (const p of NEUTRAL_WAIT_PATTERNS) {
         if (p.test(terminalOutput)) return "ready";
       }

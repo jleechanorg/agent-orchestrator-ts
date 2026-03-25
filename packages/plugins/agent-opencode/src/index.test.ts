@@ -534,8 +534,15 @@ describe("detectActivity — terminal output classification", () => {
       expect(agent.detectActivity("Proceed? [yes/no]")).toBe("waiting_input");
     });
 
-    it("returns waiting_input for question-mark prompt at end of line", () => {
-      expect(agent.detectActivity("What would you like to do?\n")).toBe("waiting_input");
+    it("returns waiting_input for standalone ? on its own line (last-line extraction)", () => {
+      expect(agent.detectActivity("?\n")).toBe("waiting_input");
+      expect(agent.detectActivity("  ?  \n")).toBe("waiting_input");
+      expect(agent.detectActivity("Thinking...\n?\n")).toBe("waiting_input");
+    });
+
+    it("returns active for question-mark in sentence (not standalone)", () => {
+      expect(agent.detectActivity("What would you like to do?\n")).toBe("active");
+      expect(agent.detectActivity("Missing module — did you install it?\n")).toBe("active");
     });
 
     it("returns waiting_input for confirm text", () => {
