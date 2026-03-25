@@ -35,6 +35,7 @@ import {
   type Notifier,
   type Session,
   type EventPriority,
+  type PRState,
   type ProjectConfig as _ProjectConfig,
   type MergeGateConfig,
 } from "./types.js";
@@ -426,14 +427,9 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
             usedBatch = true;
             // bd-s4t.2: persist PR state so the session-reaper can detect zombies
             // without SCM access. Only update if state has changed.
-            const prevPrState = (session.pr as { state?: string } | null)?.state;
+            const prevPrState = session.pr?.state;
             if (batch.state !== prevPrState) {
-              const sessionsDir = getSessionsDir(config.configPath, project.path);
-              updateMetadata(sessionsDir, session.id, { prState: batch.state });
-              session.metadata["prState"] = batch.state;
-              if (session.pr) {
-                (session.pr as { state?: string }).state = batch.state;
-              }
+              persistPrState(session, batch.state, project.path);
             }
             if (batch.state === PR_STATE.MERGED) return { status: "merged", agentDead };
             if (batch.state === PR_STATE.CLOSED) return { status: "killed", agentDead };
@@ -457,14 +453,9 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
           // Fallback: individual calls (no batch support or batch failed)
           const prState = await scm.getPRState(session.pr);
           // bd-s4t.2: persist PR state so the session-reaper can detect zombies
-          const prevPrState = (session.pr as { state?: string } | null)?.state;
+          const prevPrState = session.pr?.state;
           if (prState !== prevPrState) {
-            const sessionsDir = getSessionsDir(config.configPath, project.path);
-            updateMetadata(sessionsDir, session.id, { prState });
-            session.metadata["prState"] = prState;
-            if (session.pr) {
-              (session.pr as { state?: string }).state = prState;
-            }
+            persistPrState(session, prState, project.path);
           }
           if (prState === PR_STATE.MERGED) return { status: "merged", agentDead };
           if (prState === PR_STATE.CLOSED) return { status: "killed", agentDead };
@@ -855,6 +846,19 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
 
   function updateSessionMetadata(session: Session, updates: Partial<Record<string, string>>): void {
     updateSessionMetadataHelper(session, updates, config);
+  }
+
+  /**
+   * Persist GitHub PR state to the session metadata file + in-memory session object.
+   * Typed helper that eliminates the { state?: string } cast pattern.
+   */
+  function persistPrState(session: Session, state: PRState, projectPath: string): void {
+    const sessionsDir = getSessionsDir(config.configPath, projectPath);
+    updateMetadata(sessionsDir, session.id, { prState: state });
+    session.metadata["prState"] = state;
+    if (session.pr) {
+      session.pr.state = state;
+    }
   }
 
 
