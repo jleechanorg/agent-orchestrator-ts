@@ -269,6 +269,7 @@ beforeEach(() => {
     },
     reactions: {},
     readyThresholdMs: 300_000,
+    startupGracePeriodMs: 120_000,
   };
 
   // Calculate sessions directory

@@ -29,6 +29,7 @@ const config: OrchestratorConfig = {
   },
   reactions: {},
   readyThresholdMs: 300_000,
+  startupGracePeriodMs: 120_000,
 };
 
 describe("generateOrchestratorPrompt", () => {

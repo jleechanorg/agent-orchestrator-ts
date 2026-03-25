@@ -129,6 +129,7 @@ export async function reapPostMergeCoWorkers(
         noPrThresholdMs: POST_MERGE_REAPER_CONFIG.noPrThresholdMs,
         idleThresholdMs: POST_MERGE_REAPER_CONFIG.idleThresholdMs,
         maxKillsPerRun: POST_MERGE_REAPER_CONFIG.maxKillsPerRun,
+        startupGracePeriodMs: exitProofDeps?.config.startupGracePeriodMs ?? 120_000, // bd-85r: honor configured value
       },
       // Project-scope the session list so cross-project sessions are invisible
       { sessionManager: scopedManager },
