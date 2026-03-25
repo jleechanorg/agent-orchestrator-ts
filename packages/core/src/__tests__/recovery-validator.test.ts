@@ -74,6 +74,7 @@ describe("recovery validator", () => {
       configPath: join(rootDir, "agent-orchestrator.yaml"),
       port: 3000,
       readyThresholdMs: 300_000,
+      startupGracePeriodMs: 120_000,
       defaults: {
         runtime: "tmux",
         agent: "mock-agent",

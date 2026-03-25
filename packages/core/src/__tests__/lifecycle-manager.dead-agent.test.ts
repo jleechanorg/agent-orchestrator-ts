@@ -147,6 +147,7 @@ beforeEach(() => {
     },
     reactions: {},
     readyThresholdMs: 300_000,
+    startupGracePeriodMs: 0,
   };
 
   sessionsDir = getSessionsDir(configPath, join(tmpDir, "my-app"));

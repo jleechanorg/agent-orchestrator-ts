@@ -1077,6 +1077,13 @@ export interface OrchestratorConfig {
   /** Milliseconds before a "ready" session becomes "idle" (default: 300000 = 5 min) */
   readyThresholdMs: number;
 
+  /**
+   * Milliseconds after session creation during which the lifecycle-worker
+   * skips liveness/activity probes. Prevents killing sessions before the
+   * agent CLI has fully initialized. (default: 120000 = 2 min)
+   */
+  startupGracePeriodMs: number;
+
   /** Default plugin selections */
   defaults: DefaultPlugins;
 

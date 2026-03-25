@@ -250,6 +250,15 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
 
   /** Determine current status for a session by polling plugins. */
   async function determineStatus(session: Session): Promise<{ status: SessionStatus; agentDead: boolean }> {
+    // bd-85r: Startup grace period — skip all liveness/activity probes for
+    // sessions created within the grace window. Agent CLIs need time to
+    // initialize; polling before they're ready sees "exited"/"idle" and kills
+    // the session. During the grace period, we trust the session is starting up.
+    const sessionAgeMs = Date.now() - session.createdAt.getTime();
+    if (sessionAgeMs < config.startupGracePeriodMs) {
+      return { status: session.status === "spawning" ? "spawning" : "working", agentDead: false };
+    }
+
     // If workspace was deleted (e.g., worktree cleaned up), session is dead
     if (session.workspacePath && !existsSync(session.workspacePath)) {
       return { status: "killed", agentDead: true };
