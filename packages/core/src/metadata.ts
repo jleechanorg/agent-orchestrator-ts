@@ -32,8 +32,7 @@ import {
   constants,
 } from "node:fs";
 import { join, dirname } from "node:path";
-import type { SessionId, SessionMetadata, PRState } from "./types.js";
-import { VALID_PR_STATES } from "./types.js";
+import { VALID_PR_STATES, type SessionId, type SessionMetadata, type PRState } from "./types.js";
 import { atomicWriteFileSync } from "./atomic-write.js";
 import { parseKeyValueContent } from "./key-value.js";
 
