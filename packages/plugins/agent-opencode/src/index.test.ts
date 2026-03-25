@@ -516,6 +516,67 @@ describe("detectActivity — terminal output classification", () => {
   it("returns active for non-empty terminal output", () => {
     expect(agent.detectActivity("opencode is working\n")).toBe("active");
   });
+
+  describe("ready patterns — OpenCode waiting-for-input indicators", () => {
+    it('returns ready for "press enter to continue"', () => {
+      expect(agent.detectActivity("press enter to continue")).toBe("ready");
+    });
+
+    it('returns waiting_input for "[y/n]" prompt', () => {
+      expect(agent.detectActivity("Apply changes? [y/n]")).toBe("waiting_input");
+    });
+
+    it('returns waiting_input for "[Y/n]" prompt (case-insensitive)', () => {
+      expect(agent.detectActivity("Confirm [Y/n]")).toBe("waiting_input");
+    });
+
+    it('returns waiting_input for "[yes/no]" prompt', () => {
+      expect(agent.detectActivity("Proceed? [yes/no]")).toBe("waiting_input");
+    });
+
+    it("returns waiting_input for question-mark prompt at end of line", () => {
+      expect(agent.detectActivity("What would you like to do?\n")).toBe("waiting_input");
+    });
+
+    it("returns waiting_input for confirm text", () => {
+      expect(agent.detectActivity("Please confirm\n")).toBe("waiting_input");
+    });
+
+    it("returns waiting_input for standalone confirm?", () => {
+      expect(agent.detectActivity("confirm?\n")).toBe("waiting_input");
+    });
+
+    it("returns waiting_input for arrow-only line (menu selection)", () => {
+      expect(agent.detectActivity("  →  \n")).toBe("waiting_input");
+    });
+
+    it("returns ready for waiting text", () => {
+      expect(agent.detectActivity("waiting for input\n")).toBe("ready");
+    });
+
+    it("returns ready regardless of case", () => {
+      expect(agent.detectActivity("PRESS ENTER TO CONTINUE")).toBe("ready");
+      expect(agent.detectActivity("WAITING...")).toBe("ready");
+    });
+
+    it("returns waiting_input mixed with active output", () => {
+      expect(agent.detectActivity("thinking...\nApply changes? [y/n]")).toBe("waiting_input");
+    });
+
+    it("returns active when no waiting pattern matches", () => {
+      expect(agent.detectActivity("Applying changes to file...")).toBe("active");
+      expect(agent.detectActivity("Running tests...\n")).toBe("active");
+    });
+
+    // false-positive prevention
+    it("returns active for 'confirming' (not a standalone word)", () => {
+      expect(agent.detectActivity("Confirming deployment...")).toBe("active");
+    });
+
+    it("returns active for 'submenu' (partial word match)", () => {
+      expect(agent.detectActivity("Enter submenu\n")).toBe("active");
+    });
+  });
 });
 
 describe("getActivityState", () => {
