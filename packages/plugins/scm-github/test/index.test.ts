@@ -1074,76 +1074,88 @@ describe("scm-github plugin", () => {
       expect(await scm.getCISummary(pr)).toBe("none");
     });
 
-    it("returns 'none' when all retries hit rate limits and secondary fallback also fails", async () => {
-      // getCIChecks: gh pr checks rate-limited (4 retries = 4 calls)
-      mockGhError("API rate limit exceeded");
-      mockGhError("API rate limit exceeded");
-      mockGhError("API rate limit exceeded");
-      mockGhError("API rate limit exceeded");
-      // getCIChecksFromStatusRollup: gh pr view rate-limited (4 retries = 4 calls)
-      mockGhError("API rate limit exceeded");
-      mockGhError("API rate limit exceeded");
-      mockGhError("API rate limit exceeded");
-      mockGhError("API rate limit exceeded");
-      // getCISummary catches secondary fallback failure → returns "none"
-      await expect(scm.getCISummary(pr)).resolves.toEqual("none");
-    });
+    it(
+      "returns 'none' when all retries hit rate limits and secondary fallback also fails",
+      async () => {
+        // getCIChecks: gh pr checks rate-limited (4 retries = 4 calls)
+        mockGhError("API rate limit exceeded");
+        mockGhError("API rate limit exceeded");
+        mockGhError("API rate limit exceeded");
+        mockGhError("API rate limit exceeded");
+        // getCIChecksFromStatusRollup: gh pr view rate-limited (4 retries = 4 calls)
+        mockGhError("API rate limit exceeded");
+        mockGhError("API rate limit exceeded");
+        mockGhError("API rate limit exceeded");
+        mockGhError("API rate limit exceeded");
+        // getCISummary catches secondary fallback failure → returns "none"
+        await expect(scm.getCISummary(pr)).resolves.toEqual("none");
+      },
+      120000, // ghWithRetry: 3 retries × up to 30s backoff; 8 errors ≈ 56s total
+    );
 
-    it("returns 'passing' when getCIChecks hits rate limit but REST fallback succeeds", async () => {
-      // getCIChecks: gh pr checks rate-limited (4 retries = 4 calls)
-      mockGhError("API rate limit exceeded");
-      mockGhError("API rate limit exceeded");
-      mockGhError("API rate limit exceeded");
-      mockGhError("API rate limit exceeded");
-      // getCIChecksFromStatusRollup: gh pr view rate-limited (4 retries = 4 calls)
-      mockGhError("API rate limit exceeded");
-      mockGhError("API rate limit exceeded");
-      mockGhError("API rate limit exceeded");
-      mockGhError("API rate limit exceeded");
-      // REST fallback: gh api repos/acme/repo/pulls/42
-      mockGh({
-        state: "open",
-        head: { sha: "abc123", ref: "feat/test" },
-        base: { ref: "main" },
-      });
-      // REST fallback: gh api repos/acme/repo/commits/abc123/check-runs?per_page=100
-      mockGh({
-        check_runs: [
-          { name: "build", status: "completed", conclusion: "success", html_url: "https://ci/1" },
-          { name: "lint", status: "completed", conclusion: "success", html_url: "https://ci/2" },
-        ],
-      });
+    it(
+      "returns 'passing' when getCIChecks hits rate limit but REST fallback succeeds",
+      async () => {
+        // getCIChecks: gh pr checks rate-limited (4 retries = 4 calls)
+        mockGhError("API rate limit exceeded");
+        mockGhError("API rate limit exceeded");
+        mockGhError("API rate limit exceeded");
+        mockGhError("API rate limit exceeded");
+        // getCIChecksFromStatusRollup: gh pr view rate-limited (4 retries = 4 calls)
+        mockGhError("API rate limit exceeded");
+        mockGhError("API rate limit exceeded");
+        mockGhError("API rate limit exceeded");
+        mockGhError("API rate limit exceeded");
+        // REST fallback: gh api repos/acme/repo/pulls/42
+        mockGh({
+          state: "open",
+          head: { sha: "abc123", ref: "feat/test" },
+          base: { ref: "main" },
+        });
+        // REST fallback: gh api repos/acme/repo/commits/abc123/check-runs?per_page=100
+        mockGh({
+          check_runs: [
+            { name: "build", status: "completed", conclusion: "success", html_url: "https://ci/1" },
+            { name: "lint", status: "completed", conclusion: "success", html_url: "https://ci/2" },
+          ],
+        });
 
-      await expect(scm.getCISummary(pr)).resolves.toEqual("passing");
-    });
+        await expect(scm.getCISummary(pr)).resolves.toEqual("passing");
+      },
+      120000, // ghWithRetry: 3 retries × up to 30s backoff; 8 errors ≈ 56s total
+    );
 
-    it("returns 'failing' when getCIChecks hits rate limit but REST fallback returns failing checks", async () => {
-      // getCIChecks: gh pr checks rate-limited (4 retries = 4 calls)
-      mockGhError("API rate limit exceeded");
-      mockGhError("API rate limit exceeded");
-      mockGhError("API rate limit exceeded");
-      mockGhError("API rate limit exceeded");
-      // getCIChecksFromStatusRollup: gh pr view rate-limited (4 retries = 4 calls)
-      mockGhError("API rate limit exceeded");
-      mockGhError("API rate limit exceeded");
-      mockGhError("API rate limit exceeded");
-      mockGhError("API rate limit exceeded");
-      // REST fallback: gh api repos/acme/repo/pulls/42
-      mockGh({
-        state: "open",
-        head: { sha: "abc123", ref: "feat/test" },
-        base: { ref: "main" },
-      });
-      // REST fallback: gh api repos/acme/repo/commits/abc123/check-runs?per_page=100
-      mockGh({
-        check_runs: [
-          { name: "build", status: "completed", conclusion: "success" },
-          { name: "lint", status: "completed", "conclusion": "failure" },
-        ],
-      });
+    it(
+      "returns 'failing' when getCIChecks hits rate limit but REST fallback returns failing checks",
+      async () => {
+        // getCIChecks: gh pr checks rate-limited (4 retries = 4 calls)
+        mockGhError("API rate limit exceeded");
+        mockGhError("API rate limit exceeded");
+        mockGhError("API rate limit exceeded");
+        mockGhError("API rate limit exceeded");
+        // getCIChecksFromStatusRollup: gh pr view rate-limited (4 retries = 4 calls)
+        mockGhError("API rate limit exceeded");
+        mockGhError("API rate limit exceeded");
+        mockGhError("API rate limit exceeded");
+        mockGhError("API rate limit exceeded");
+        // REST fallback: gh api repos/acme/repo/pulls/42
+        mockGh({
+          state: "open",
+          head: { sha: "abc123", ref: "feat/test" },
+          base: { ref: "main" },
+        });
+        // REST fallback: gh api repos/acme/repo/commits/abc123/check-runs?per_page=100
+        mockGh({
+          check_runs: [
+            { name: "build", status: "completed", conclusion: "success" },
+            { name: "lint", status: "completed", conclusion: "failure" },
+          ],
+        });
 
-      await expect(scm.getCISummary(pr)).resolves.toEqual("failing");
-    });
+        await expect(scm.getCISummary(pr)).resolves.toEqual("failing");
+      },
+      120000, // ghWithRetry: 3 retries × up to 30s backoff; 8 errors ≈ 56s total
+    );
   });
 
   // ---- getReviews --------------------------------------------------------
