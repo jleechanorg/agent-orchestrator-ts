@@ -290,33 +290,14 @@ async function fetchPrViewFallbackAsJson(
 
   // Fetch check-runs via REST when statusCheckRollup is requested.
   // The REST PR object doesn't include statusCheckRollup, so we synthesize it
-  // from the /commits/{sha}/check-runs endpoint.
+  // from the /commits/{sha}/check-runs endpoint using the shared helper (which
+  // uses `gh api --paginate` to read all pages).
   let statusCheckRollup: unknown[] | undefined;
   if (conv.jsonFields.includes("statusCheckRollup")) {
     const headObj = restObj.head as Record<string, unknown> | undefined;
     const sha = typeof headObj?.sha === "string" ? headObj.sha : undefined;
     if (sha) {
-      try {
-        const checksRaw = await execCli(
-          "gh",
-          ["api", `repos/${conv.repo}/commits/${sha}/check-runs`],
-          cwd,
-        );
-        const checksData = JSON.parse(checksRaw) as { check_runs?: unknown[] };
-        statusCheckRollup = (checksData.check_runs ?? []).map(
-          (run: Record<string, unknown> | unknown) => {
-            const r = run as Record<string, unknown>;
-            return {
-              name: r.name,
-              state: mapCheckRunConclusionToState(r.conclusion, r.status),
-              detailsUrl: r.html_url,
-            };
-          },
-        );
-      } catch {
-        // Best-effort: return empty rollup rather than failing the whole fallback
-        statusCheckRollup = [];
-      }
+      statusCheckRollup = await fetchCheckRunsViaRest(conv.repo, sha, cwd);
     }
   }
 
@@ -713,9 +694,38 @@ function mapRawCheckStateToStatus(rawState: string | undefined): CICheck["status
   return "skipped";
 }
 
-async function getCIChecksFromStatusRollup(pr: PRInfo): Promise<CICheck[]> {
+/**
+ * Shared helper: fetch all check-runs for a commit via the GitHub REST API
+ * using `gh api --paginate` to retrieve all pages automatically.
+ * Returns a statusCheckRollup-compatible array of entries with name, state, and detailsUrl.
+ */
+async function fetchCheckRunsViaRest(repo: string, sha: string, cwd?: string): Promise<unknown[]> {
   try {
-    const raw = await gh([
+    // gh api --paginate follows Link headers automatically to fetch all pages
+    const raw = await execCli(
+      "gh",
+      ["api", `repos/${repo}/commits/${sha}/check-runs`, "--paginate"],
+      cwd,
+    );
+    const data = JSON.parse(raw) as { check_runs?: unknown[] };
+    return (data.check_runs ?? []).map((run: Record<string, unknown> | unknown) => {
+      const r = run as Record<string, unknown>;
+      return {
+        name: r.name,
+        state: mapCheckRunConclusionToState(r.conclusion, r.status),
+        detailsUrl: r.html_url,
+      };
+    });
+  } catch {
+    // Best-effort: return empty rollup rather than failing the whole fallback
+    return [];
+  }
+}
+
+async function getCIChecksFromStatusRollup(pr: PRInfo): Promise<CICheck[]> {
+  let raw: string;
+  try {
+    raw = await gh([
       "pr",
       "view",
       String(pr.number),
@@ -724,6 +734,11 @@ async function getCIChecksFromStatusRollup(pr: PRInfo): Promise<CICheck[]> {
       "--json",
       "statusCheckRollup",
     ]);
+  } catch (err) {
+    if (!isRateLimitError(err)) throw err;
+    // Rate limit on gh pr view — fall back to REST check-runs via shared helper
+    return _getCIChecksFromStatusRollupViaRest(pr);
+  }
 
   const data: { statusCheckRollup?: unknown[] } = JSON.parse(raw);
   const rollup = Array.isArray(data.statusCheckRollup) ? data.statusCheckRollup : [];
@@ -776,61 +791,41 @@ async function getCIChecksFromStatusRollup(pr: PRInfo): Promise<CICheck[]> {
       return check;
     })
     .filter((check): check is CICheck => check !== null);
-  } catch (err) {
-    if (!isRateLimitError(err)) throw err;
+}
 
-    // Rate limit on gh pr view (GraphQL) — fall back to REST check-runs.
-    // First get the head SHA from the REST PR endpoint.
-    let sha: string | undefined;
-    try {
-      const prRaw = await gh([
-        "api",
-        `repos/${pr.owner}/${pr.repo}/pulls/${pr.number}`,
-      ]);
-      const prData = JSON.parse(prRaw) as { head?: { sha?: unknown } };
-      sha = typeof prData.head?.sha === "string" ? prData.head.sha : undefined;
-    } catch {
-      // Can't determine SHA — return empty rather than throwing
-      return [];
-    }
-
-    if (!sha) return [];
-
-    // Fetch check-runs for the head commit via REST.
-    let checkRuns: unknown[];
-    try {
-      const runsRaw = await gh([
-        "api",
-        `repos/${pr.owner}/${pr.repo}/commits/${sha}/check-runs?per_page=100`,
-      ]);
-      const runsData = JSON.parse(runsRaw) as { check_runs?: unknown[] };
-      checkRuns = runsData.check_runs ?? [];
-    } catch {
-      return [];
-    }
-
-    return (checkRuns as Record<string, unknown>[])
-      .map((run): CICheck | null => {
-        const name = typeof run.name === "string" ? run.name : undefined;
-        if (!name) return null;
-
-        const conclusion = typeof run.conclusion === "string" ? run.conclusion : undefined;
-        const status = typeof run.status === "string" ? run.status : undefined;
-        const rawState = conclusion ?? status;
-
-        return {
-          name,
-          status: mapRawCheckStateToStatus(rawState),
-          conclusion: rawState?.toUpperCase(),
-          url: typeof run.html_url === "string" ? run.html_url : undefined,
-          startedAt:
-            typeof run.started_at === "string" ? new Date(run.started_at) : undefined,
-          completedAt:
-            typeof run.completed_at === "string" ? new Date(run.completed_at) : undefined,
-        };
-      })
-      .filter((check): check is CICheck => check !== null);
+async function _getCIChecksFromStatusRollupViaRest(pr: PRInfo): Promise<CICheck[]> {
+  // Rate-limit fallback: get head SHA from REST PR endpoint, then fetch check-runs.
+  let sha: string | undefined;
+  try {
+    const prRaw = await gh(["api", `repos/${pr.owner}/${pr.repo}/pulls/${pr.number}`]);
+    const prData = JSON.parse(prRaw) as { head?: { sha?: unknown } };
+    sha = typeof prData.head?.sha === "string" ? prData.head.sha : undefined;
+  } catch {
+    return [];
   }
+  if (!sha) return [];
+
+  const rollup = await fetchCheckRunsViaRest(`${pr.owner}/${pr.repo}`, sha);
+  return (rollup as Record<string, unknown>[])
+    .map((entry): CICheck | null => {
+      const name =
+        (typeof entry.name === "string" && entry.name) ||
+        (typeof entry.context === "string" && entry.context);
+      if (!name) return null;
+      const rawState =
+        typeof entry.conclusion === "string"
+          ? entry.conclusion
+          : typeof entry.state === "string"
+            ? entry.state
+            : undefined;
+      return {
+        name,
+        status: mapRawCheckStateToStatus(rawState),
+        conclusion: typeof rawState === "string" ? rawState.toUpperCase() : undefined,
+        url: typeof entry.detailsUrl === "string" ? entry.detailsUrl : undefined,
+      };
+    })
+    .filter((check): check is CICheck => check !== null);
 }
 
 function getGitHubWebhookConfig(project: ProjectConfig) {

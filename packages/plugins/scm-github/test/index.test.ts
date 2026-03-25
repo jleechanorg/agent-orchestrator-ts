@@ -995,7 +995,8 @@ describe("scm-github plugin", () => {
         head: { sha: "abc123", ref: "feat/test" },
         base: { ref: "main" },
       });
-      // REST fallback: gh api repos/acme/repo/commits/abc123/check-runs
+      // REST fallback: gh api repos/acme/repo/commits/abc123/check-runs --paginate
+      // (fetchCheckRunsViaRest uses --paginate to read all pages)
       mockGh({
         check_runs: [
           { name: "build", status: "completed", conclusion: "success", html_url: "https://ci/1" },
@@ -1112,7 +1113,7 @@ describe("scm-github plugin", () => {
           head: { sha: "abc123", ref: "feat/test" },
           base: { ref: "main" },
         });
-        // REST fallback: gh api repos/acme/repo/commits/abc123/check-runs?per_page=100
+        // REST fallback: fetchCheckRunsViaRest → gh api repos/acme/repo/commits/abc123/check-runs --paginate
         mockGh({
           check_runs: [
             { name: "build", status: "completed", conclusion: "success", html_url: "https://ci/1" },
@@ -1144,7 +1145,7 @@ describe("scm-github plugin", () => {
           head: { sha: "abc123", ref: "feat/test" },
           base: { ref: "main" },
         });
-        // REST fallback: gh api repos/acme/repo/commits/abc123/check-runs?per_page=100
+        // REST fallback: fetchCheckRunsViaRest → gh api repos/acme/repo/commits/abc123/check-runs --paginate
         mockGh({
           check_runs: [
             { name: "build", status: "completed", conclusion: "success" },
