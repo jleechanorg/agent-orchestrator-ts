@@ -16,14 +16,22 @@ const mockSpawn = vi.fn();
 
 const MOCK_FS = vi.hoisted(() => {
   let store: Record<string, unknown> = {};
+  let lockHeld = false;
   return {
     get store() {
       return store;
+    },
+    get lockHeld() {
+      return lockHeld;
+    },
+    set lockHeld(val: boolean) {
+      lockHeld = val;
     },
     reset() {
       mockExecFileSync.mockReset();
       mockSpawn.mockReset();
       store = {};
+      lockHeld = false;
     },
   };
 });
@@ -35,14 +43,29 @@ vi.mock("node:child_process", () => ({
 
 vi.mock("node:fs", () => ({
   closeSync: () => undefined,
+  constants: { O_CREAT: 64, O_EXCL: 128, O_WRONLY: 1 },
   existsSync: (path: string) =>
     Boolean(MOCK_FS.store[`existsSync:${path}`]),
   mkdirSync: () => undefined,
-  openSync: () => 99,
+  openSync: (path: string, flags: number | string) => {
+    const O_EXCL = 128;
+    if (typeof flags === "number" && (flags & O_EXCL) !== 0) {
+      if (MOCK_FS.lockHeld) {
+        const err = Object.assign(new Error("EEXIST"), { code: "EEXIST" });
+        throw err;
+      }
+      MOCK_FS.lockHeld = true;
+      MOCK_FS.store[`existsSync:${path}`] = true;
+    }
+    return 99;
+  },
   readFileSync: (path: string) =>
     (MOCK_FS.store[`readFileSync:${path}`] as string) ?? "",
   unlinkSync: (path: string) => {
     MOCK_FS.store[`unlinkSync:${path}`] = true;
+    if (path.endsWith("lifecycle-worker.lock")) {
+      MOCK_FS.lockHeld = false;
+    }
   },
   writeFileSync: (path: string, data: string) => {
     MOCK_FS.store[`writeFileSync:${path}`] = data;
@@ -62,6 +85,8 @@ const {
   ensureLifecycleWorker,
   writeLifecycleWorkerPid,
   clearLifecycleWorkerPid,
+  tryAcquireLifecycleLock,
+  scanForRunningLifecycleWorker,
 } = await import("../../src/lib/lifecycle-service.js");
 
 function mockConfig(projects: Record<string, string>): OrchestratorConfig {
@@ -266,6 +291,82 @@ describe("ensureLifecycleWorker", () => {
     expect(mockSpawn).not.toHaveBeenCalled();
     // PID file is preserved
     expect(MOCK_FS.store[`unlinkSync:${pf}`]).toBeUndefined();
+  });
+});
+
+
+describe("tryAcquireLifecycleLock (orch-886k)", () => {
+  it("returns a release function on first acquire", () => {
+    const cfg = mockConfig({ "test-proj": "/repos/test-proj" });
+    const release = tryAcquireLifecycleLock(cfg, "test-proj");
+    expect(release).toBeTypeOf("function");
+    if (release) release();
+  });
+
+  it("returns null when lock is already held", () => {
+    const cfg = mockConfig({ "test-proj": "/repos/test-proj" });
+    const release1 = tryAcquireLifecycleLock(cfg, "test-proj");
+    expect(release1).toBeTypeOf("function");
+    const release2 = tryAcquireLifecycleLock(cfg, "test-proj");
+    expect(release2).toBeNull();
+    if (release1) release1();
+  });
+
+  it("allows re-acquire after lock is released", () => {
+    const cfg = mockConfig({ "test-proj": "/repos/test-proj" });
+    const release1 = tryAcquireLifecycleLock(cfg, "test-proj");
+    expect(release1).toBeTypeOf("function");
+    if (release1) release1();
+    const release2 = tryAcquireLifecycleLock(cfg, "test-proj");
+    expect(release2).toBeTypeOf("function");
+    if (release2) release2();
+  });
+});
+
+describe("scanForRunningLifecycleWorker (orch-886k)", () => {
+  it("returns the PID when a matching lifecycle-worker is found in ps output", () => {
+    mockExecFileSync.mockReturnValueOnce(
+      Buffer.from("USER    12345  0.0  0.0 ... node /path/to/ao lifecycle-worker myproject\n"),
+    );
+    const pid = scanForRunningLifecycleWorker("myproject");
+    expect(pid).toBe(12345);
+  });
+
+  it("returns null when no matching lifecycle-worker is in ps output", () => {
+    mockExecFileSync.mockReturnValueOnce(
+      Buffer.from("USER    99999  0.0  0.0 ... node /path/to/ao lifecycle-worker other-project\n"),
+    );
+    const pid = scanForRunningLifecycleWorker("myproject");
+    expect(pid).toBeNull();
+  });
+
+  it("returns null when ps fails", () => {
+    mockExecFileSync.mockImplementationOnce(() => { throw new Error("ps failed"); });
+    const pid = scanForRunningLifecycleWorker("myproject");
+    expect(pid).toBeNull();
+  });
+
+  it("does not match a project whose name is a prefix of another", () => {
+    mockExecFileSync.mockReturnValueOnce(
+      Buffer.from("USER    11111  0.0  0.0 ... node ao lifecycle-worker api-v2\n"),
+    );
+    const pid = scanForRunningLifecycleWorker("api");
+    expect(pid).toBeNull();
+  });
+});
+
+describe("ensureLifecycleWorker -- ps-scan fallback (orch-886k)", () => {
+  it("does NOT spawn when scanForRunningLifecycleWorker finds a running worker (no PID file)", async () => {
+    const cfg = mockConfig({ "test-proj": "/repos/test-proj" });
+    setExists(pidFile("test-proj"), false);
+    mockExecFileSync.mockReturnValueOnce(
+      Buffer.from("USER    77777  0.0  0.0 ... node ao lifecycle-worker test-proj\n"),
+    );
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    mockSpawn.mockReturnValueOnce({ pid: 88888, unref: () => {} } as any);
+    const result = await ensureLifecycleWorker(cfg, "test-proj");
+    expect(result.started).toBe(false);
+    expect(mockSpawn).not.toHaveBeenCalled();
   });
 });
 

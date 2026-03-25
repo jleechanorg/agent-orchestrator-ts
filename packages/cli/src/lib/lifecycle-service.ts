@@ -1,6 +1,7 @@
 import { execFileSync, spawn } from "node:child_process";
 import {
   closeSync,
+  constants,
   existsSync,
   mkdirSync,
   openSync,
@@ -12,6 +13,7 @@ import { join } from "node:path";
 import { getProjectBaseDir, type OrchestratorConfig } from "@jleechanorg/ao-core";
 
 const LIFECYCLE_PID_FILE = "lifecycle-worker.pid";
+const LIFECYCLE_LOCK_FILE = "lifecycle-worker.lock";
 const LIFECYCLE_LOG_FILE = "lifecycle-worker.log";
 const DEFAULT_START_TIMEOUT_MS = 5_000;
 const STOP_TIMEOUT_MS = 5_000;
@@ -39,6 +41,81 @@ export function getLifecyclePidFile(config: OrchestratorConfig, projectId: strin
 
 export function getLifecycleLogFile(config: OrchestratorConfig, projectId: string): string {
   return join(getProjectBase(config, projectId), LIFECYCLE_LOG_FILE);
+}
+
+export function getLifecycleLockFile(config: OrchestratorConfig, projectId: string): string {
+  return join(getProjectBase(config, projectId), LIFECYCLE_LOCK_FILE);
+}
+
+/**
+ * Attempt to atomically claim the lifecycle-worker startup lock for a project.
+ *
+ * Uses O_EXCL so only one process can create the lock file. Returns a release
+ * function on success, or null if another process holds the lock.
+ *
+ * This closes the TOCTOU window between getLifecycleWorkerStatus() and
+ * writeLifecycleWorkerPid(): without this lock, two concurrent lifecycle-worker
+ * processes (e.g. launchd restart + ao start) can both pass the dedup check
+ * before either writes its PID. (orch-886k)
+ */
+export function tryAcquireLifecycleLock(
+  config: OrchestratorConfig,
+  projectId: string,
+): (() => void) | null {
+  const lockFile = getLifecycleLockFile(config, projectId);
+  try {
+    mkdirSync(getProjectBase(config, projectId), { recursive: true });
+    // O_EXCL ensures the creation is atomic -- only one caller succeeds.
+    const fd = openSync(lockFile, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY);
+    writeFileSync(fd, `${process.pid}\n`);
+    closeSync(fd);
+    return () => {
+      try {
+        unlinkSync(lockFile);
+      } catch {
+        /* best effort */
+      }
+    };
+  } catch {
+    // Lock file already exists -- another process holds the lock.
+    return null;
+  }
+}
+
+/**
+ * Scan the process table for a running lifecycle-worker for the given project.
+ *
+ * Used as a fallback in ensureLifecycleWorker when no PID file exists -- covers
+ * the case where launchd started a worker before it had a chance to write its
+ * PID file, which would otherwise cause ensureLifecycleWorker to spawn a
+ * duplicate. (orch-886k)
+ *
+ * Returns the PID if found, null otherwise.
+ */
+export function scanForRunningLifecycleWorker(projectId: string): number | null {
+  try {
+    const stdout = execFileSync("ps", ["aux"], {
+      timeout: 5_000,
+      stdio: ["ignore", "pipe", "ignore"],
+    }).toString("utf-8");
+
+    const marker = `lifecycle-worker ${projectId}`;
+    const markerEscaped = marker.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const pattern = new RegExp(`(?:^|\\s)${markerEscaped}(?:\\s|$)`);
+
+    for (const line of stdout.split("\n")) {
+      if (!pattern.test(line)) continue;
+      // ps aux: USER PID ... COMMAND -- PID is the second field.
+      const fields = line.trim().split(/\s+/);
+      const pid = Number.parseInt(fields[1] ?? "", 10);
+      if (Number.isFinite(pid) && pid > 0 && pid !== process.pid) {
+        return pid;
+      }
+    }
+    return null;
+  } catch {
+    return null;
+  }
 }
 
 function sleep(ms: number): Promise<void> {
@@ -216,6 +293,16 @@ export async function ensureLifecycleWorker(
   // creating a duplicate. The PID file is preserved so the next call retries.
   if (current.verified === null) {
     return { ...current, started: false };
+  }
+
+  // orch-886k: ps-scan fallback -- detect workers started by launchd (or any
+  // external caller) that haven't written their PID file yet. If a running
+  // lifecycle-worker is found in the process table, skip spawning a duplicate
+  // even when no PID file exists. This closes the window where launchd + ao
+  // start race to spawn two workers for the same project.
+  const scannedPid = scanForRunningLifecycleWorker(projectId);
+  if (scannedPid !== null) {
+    return { ...current, running: false, pid: scannedPid, verified: true, started: false };
   }
 
   const baseDir = getProjectBase(config, projectId);
