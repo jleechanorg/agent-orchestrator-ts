@@ -76,6 +76,7 @@ export async function sweepOrphanWorktrees(opts: {
   const allSessionGroups = await Promise.all(
     allProjectIds.map((pid) => sessionManager.list(pid)),
   );
+  // Full runtime IDs used by this config: "${configHash}-${sessionId}".
   const activeRuntimeIds = new Set(
     allSessionGroups
       .flat()
@@ -83,6 +84,14 @@ export async function sweepOrphanWorktrees(opts: {
       .filter(
         (id): id is string => typeof id === "string" && id.length > 0,
       ),
+  );
+  // Short session IDs tracked in the DB (e.g. "ao-749"). Guards against
+  // DB-restored sessions that have no runtimeHandle — they are still managed.
+  const trackedSessionIds = new Set(
+    allSessionGroups
+      .flat()
+      .map((s) => s.id)
+      .filter((id): id is string => typeof id === "string" && id.length > 0),
   );
 
   // Build a set of AO session short-IDs (ao-749, jc-12, …) that have a live
@@ -94,10 +103,13 @@ export async function sweepOrphanWorktrees(opts: {
   // worktree is at the same path. Scanning all live sessions prevents
   // cross-config false-positive removal.
   const allTmuxSessions = await listTmuxSessionsWithActivity();
-  // Fail-safe: if we cannot reach tmux at all, do not remove worktrees based on
-  // an empty liveSessionIds set — a dead tmux daemon means we cannot reliably
-  // determine which worktrees are in use. Skip this sweep cycle; the next run
-  // (after tmux recovers) will perform the cleanup.
+  // Fail-safe: if tmux is unreachable, do not remove worktrees based on an empty
+  // liveSessionIds set. The lifecycle-worker depends on tmux for session management,
+  // so tmux being down means (a) session state is stale and we cannot reliably
+  // determine which worktrees are in use, and (b) the sweep will be retried on the
+  // next cycle. Skip this sweep; tmux availability is tracked separately by the
+  // orphan tmux session sweep which will surface tmux failures via its own observer
+  // call with actual orphan counts.
   if (allTmuxSessions.length === 0) return;
 
   const liveSessionIds = new Set<string>(
@@ -136,7 +148,10 @@ export async function sweepOrphanWorktrees(opts: {
     const tmuxSessionName = `${configHash}-${entry}`;
 
     // Primary guard: AO DB knows about this session → it's managed, skip.
+    // Check both the full runtime ID (runtimeHandle.id) and the short session ID
+    // (s.id) to cover DB-restored sessions that have no active runtime handle.
     if (activeRuntimeIds.has(tmuxSessionName)) continue;
+    if (trackedSessionIds.has(entry)) continue;
 
     // Secondary guard: any live tmux session for this short ID (any config hash)
     // means the worktree is still in use — do not remove it.
