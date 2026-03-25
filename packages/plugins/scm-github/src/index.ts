@@ -1909,8 +1909,14 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
           });
       } catch (err) {
         // REST fallback when GraphQL is rate-limited (bd-b02)
+        // Check error and its cause chain — ghRestFallback wraps the original error
         const errMsg = err instanceof Error ? err.message : String(err);
-        if (!errMsg.includes("rate limit") && !errMsg.includes("RATE_LIMIT")) {
+        const causeMsg = err instanceof Error && err.cause instanceof Error ? err.cause.message : "";
+        if (
+          !errMsg.includes("rate limit") &&
+          !errMsg.includes("RATE_LIMIT") &&
+          !causeMsg.includes("rate limit")
+        ) {
           throw new Error("Failed to fetch pending comments", { cause: err });
         }
 
