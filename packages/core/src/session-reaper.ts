@@ -20,7 +20,7 @@ export interface ReaperConfig {
   orphanedThresholdMs: number;
   /** ms before a session with no PR is killed (default: 4h) */
   noPrThresholdMs: number;
-  /** max sessions to kill per run (default: 5) */
+  /** max sessions to kill per run (default: 15) */
   maxKillsPerRun: number;
   /** if true, log what would be killed but don't actually kill */
   dryRun?: boolean;
