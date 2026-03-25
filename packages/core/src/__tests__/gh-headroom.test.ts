@@ -32,6 +32,13 @@ describe("parseGhRateLimitOutput", () => {
     expect(parseGhRateLimitOutput("null")).toBeNull();
   });
 
+  it("returns null for arbitrary JSON without resources keys", () => {
+    // Fallback parsed ?? parsed must still require at least one known resource key
+    expect(parseGhRateLimitOutput('{"foo": "bar"}')).toBeNull();
+    expect(parseGhRateLimitOutput("[]")).toBeNull();
+    expect(parseGhRateLimitOutput('{"resources": null}')).toBeNull();
+  });
+
   it("handles missing graphql/core keys gracefully", () => {
     // gh api --jq '.resources' output with only search
     const json = JSON.stringify({ search: { remaining: 10, limit: 30, reset: 0 } });
