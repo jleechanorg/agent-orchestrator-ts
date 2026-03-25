@@ -17,6 +17,7 @@ import { PRTableRow } from "./PRStatus";
 import { DynamicFavicon } from "./DynamicFavicon";
 import { useSessionEvents } from "@/hooks/useSessionEvents";
 import { ProjectSidebar } from "./ProjectSidebar";
+import { EmptyState } from "./Skeleton";
 import type { ProjectInfo } from "@/lib/project-name";
 
 interface DashboardProps {
@@ -359,6 +360,10 @@ export function Dashboard({
               ) : null,
             )}
           </div>
+        )}
+
+        {!allProjectsView && !hasKanbanSessions && grouped.done.length > 0 && (
+          <EmptyState message="All sessions are done — nothing left in the kanban." />
         )}
 
         {!allProjectsView && grouped.done.length > 0 && (
