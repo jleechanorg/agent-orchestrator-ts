@@ -17,10 +17,12 @@ This loop is problem-driven. If the system is healthy:
 - **Problem cycle** (~5min): Observe → Measure → Diagnose → Plan → Record → Fix → Recap
 
 Decision tree after Phase 2 (Measure):
-- Zero-touch rate unchanged AND no new friction AND all workers alive → SKIP to Phase 7 (Recap)
+- Zero-touch rate unchanged AND no **unaddressed** friction AND all workers alive → SKIP to Phase 7 (Recap)
+- Known friction with NO dispatched fix (no worker/bead actively working it) → run Phase 3-6. **Identifying a problem without dispatching a fix is not "healthy".**
 - New dead worker or new PR failure → run Phase 3-6
 - Worker stuck (same output 3 checks) → kill + respawn, skip full diagnosis
 - Build broken on main → fix immediately, skip /harness
+- **Self-improvement trigger**: If /eloop itself has a gap (missed a dispatch, wrong adaptive decision, missing diagnostic), fix the skill file directly in Phase 6 and push to main. /eloop can and should improve itself.
 
 ---
 
@@ -144,7 +146,14 @@ git push origin main
 - Or create PR directly if the fix is small (config change, agentRules edit)
 - Record the /claw failure in a bead
 
-**6c. REST API fallback** — always prefer REST over GraphQL:
+**6c. Self-improvement** — if /eloop itself has a gap (missed dispatch, wrong adaptive threshold, missing diagnostic), edit `.claude/skills/evolve_loop.md` directly, commit, and push to main. /eloop is a living document that improves itself every cycle.
+
+**6d. Direct config fixes** — for agentRules/config changes that don't need a PR:
+- Edit `~/.openclaw/agent-orchestrator.yaml` directly
+- Backup to `~/Downloads/` per policy
+- Restart lifecycle-worker if reactions changed
+
+**6e. REST API fallback** — always prefer REST over GraphQL:
 ```bash
 # Merge via REST
 gh api repos/OWNER/REPO/pulls/NUM/merge --method PUT -f merge_method=squash
