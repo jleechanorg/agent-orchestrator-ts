@@ -767,8 +767,9 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
   }
 
   /** Resolve which plugins to use for a project. */
-  function resolvePlugins(project: ProjectConfig, agentName?: string) {
-    const runtime = registry.get<Runtime>("runtime", project.runtime ?? config.defaults.runtime);
+  function resolvePlugins(project: ProjectConfig, agentName?: string, runtimeOverride?: string) {
+    const runtimeName = runtimeOverride ?? project.runtime ?? config.defaults.runtime;
+    const runtime = registry.get<Runtime>("runtime", runtimeName);
     const agent = registry.get<Agent>("agent", agentName ?? project.agent ?? config.defaults.agent);
     const workspace = registry.get<Workspace>(
       "workspace",
@@ -911,9 +912,15 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
     // Fabricated handles (constructed as fallback for external sessions) should
     // NOT override status to "killed" — we don't know if the session ever had
     // a tmux session, and we'd clobber meaningful statuses like "pr_open".
-    if (handleFromMetadata && session.runtimeHandle && plugins.runtime) {
+    if (handleFromMetadata && session.runtimeHandle) {
       try {
-        const alive = await plugins.runtime.isAlive(session.runtimeHandle);
+        const aliveRuntime = registry.get<Runtime>("runtime", session.runtimeHandle.runtimeName);
+        if (!aliveRuntime) {
+          // Unknown runtime — skip liveness check rather than using wrong plugin
+          session.runtimeHandle = null;
+          return;
+        }
+        const alive = await aliveRuntime.isAlive(session.runtimeHandle);
         if (!alive) {
           session.status = "killed";
           session.activity = "exited";
@@ -973,9 +980,10 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       defaults: config.defaults,
       spawnAgentOverride: spawnConfig.agent,
     });
-    const plugins = resolvePlugins(project, selection.agentName);
+    const plugins = resolvePlugins(project, selection.agentName, spawnConfig.runtimeOverride);
     if (!plugins.runtime) {
-      throw new Error(`Runtime plugin '${project.runtime ?? config.defaults.runtime}' not found`);
+      const runtimeName = spawnConfig.runtimeOverride ?? project.runtime ?? config.defaults.runtime;
+      throw new Error(`Runtime plugin '${runtimeName}' not found`);
     }
 
     if (!plugins.agent) {
@@ -2024,11 +2032,14 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
           }
         }
 
-        // Check if runtime is dead
-        if (!shouldKill && session.runtimeHandle && plugins.runtime) {
+        // Check if runtime is dead — resolve runtime by handle's runtimeName, not project default
+        if (!shouldKill && session.runtimeHandle) {
           try {
-            const alive = await plugins.runtime.isAlive(session.runtimeHandle);
-            if (!alive) shouldKill = true;
+            const aliveRuntime = registry.get<Runtime>("runtime", session.runtimeHandle.runtimeName);
+            if (aliveRuntime) {
+              const alive = await aliveRuntime.isAlive(session.runtimeHandle);
+              if (!alive) shouldKill = true;
+            }
           } catch {
             // Can't check — skip
           }

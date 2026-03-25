@@ -195,6 +195,8 @@ export interface SessionSpawnConfig {
   lineage?: string[];
   /** Decomposition context — sibling task descriptions (passed to prompt builder) */
   siblings?: string[];
+  /** Override the runtime plugin for this session (e.g. "antigravity", "tmux"). Falls back to project config → global default. */
+  runtimeOverride?: string;
 }
 
 /** Config for creating an orchestrator session */
