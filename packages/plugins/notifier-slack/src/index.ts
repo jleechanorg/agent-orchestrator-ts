@@ -141,7 +141,7 @@ export interface SlackNotifierConfig extends Record<string, unknown> {
   webhookUrl?: string;
   channel?: string;
   username?: string;
-  /** Deduplication TTL in ms. Entries older than this are evicted on each sweep. Default: 60000. */
+  /** Deduplication TTL in ms. Default: 60000. */
   dedupTtlMs?: number;
 }
 
@@ -157,44 +157,50 @@ export function create(config: SlackNotifierConfig = {}): Notifier {
     validateUrl(webhookUrl, "notifier-slack");
   }
 
-  /** Deduplication map — package-level so [[sweepDedupCache]] can evict stale entries. */
+  /** Deduplication map — per notifier instance, survives process restarts via launchd. */
   const dedupCache = new Map<string, DedupEntry>();
   const MAX_DEDUP_ENTRIES = 10_000;
 
   /**
    * Evict stale dedup entries older than [[dedupTtlMs]].
-   * Call this on each public method entry to keep the map bounded.
+   * Call this on each send to keep the map bounded.
    */
   function sweepDedupCache(): void {
     const cutoff = Date.now() - dedupTtlMs;
-    if (dedupCache.size < MAX_DEDUP_ENTRIES) return;
     for (const [k, v] of dedupCache) {
       if (v.ts < cutoff) dedupCache.delete(k);
     }
-    // If still over limit (many concurrent sessions), evict oldest half
-    if (dedupCache.size > MAX_DEDUP_ENTRIES / 2) {
-      const sorted = [...dedupCache.entries()].sort((a, b) => a[1].ts - b[1].ts);
-      for (const [k] of sorted.slice(0, sorted.length / 2)) dedupCache.delete(k);
-    }
+    if (dedupCache.size <= MAX_DEDUP_ENTRIES / 2) return;
+    // Over limit — evict oldest half
+    const sorted = [...dedupCache.entries()].sort((a, b) => a[1].ts - b[1].ts);
+    for (const [k] of sorted.slice(0, sorted.length / 2)) dedupCache.delete(k);
   }
 
   /**
-   * Return true if the (sessionId, eventType) pair was already notified
+   * Return true if the (sessionId, eventType) pair was already sent
    * within [[dedupTtlMs]]; false if it is new or the entry is stale.
-   * Marks the entry as sent on every call (idempotent update).
+   * Does NOT update the timestamp — only [[recordSend]] marks a send.
    */
-  function markAndCheckDedup(sessionId: string, eventType: string): boolean {
-    sweepDedupCache();
+  function isRecentlySent(sessionId: string, eventType: string): boolean {
     const key = `${sessionId}:${eventType}`;
-    const prev = dedupCache.get(key);
-    const now = Date.now();
-    dedupCache.set(key, { ts: now });
-    return prev !== undefined && now - prev.ts < dedupTtlMs;
+    const entry = dedupCache.get(key);
+    if (!entry) return false;
+    if (Date.now() - entry.ts >= dedupTtlMs) {
+      dedupCache.delete(key); // stale, allow through
+      return false;
+    }
+    return true;
+  }
+
+  /** Record a successful send so future calls within TTL are suppressed. */
+  function recordSend(sessionId: string, eventType: string): void {
+    sweepDedupCache();
+    dedupCache.set(`${sessionId}:${eventType}`, { ts: Date.now() });
   }
 
   async function sendNotify(event: OrchestratorEvent, actions?: NotifyAction[]): Promise<void> {
     if (!webhookUrl) return;
-    if (markAndCheckDedup(event.sessionId, event.type)) return;
+    if (isRecentlySent(event.sessionId, event.type)) return;
 
     const payload: Record<string, unknown> = {
       username,
@@ -203,6 +209,7 @@ export function create(config: SlackNotifierConfig = {}): Notifier {
     if (defaultChannel) payload.channel = defaultChannel;
 
     await postToWebhook(webhookUrl, payload);
+    recordSend(event.sessionId, event.type);
   }
 
   return {

@@ -356,14 +356,14 @@ describe("notifier-slack", () => {
       expect(fetchMock).toHaveBeenCalledTimes(1);
     });
 
-    it("suppresses duplicate notify within dedupTtl window", async () => {
+    it("suppresses duplicate notify within dedupTtl window (fixed window, not sliding)", async () => {
       const fetchMock = mockFetchOk();
       vi.stubGlobal("fetch", fetchMock);
+      // TTL = 60 s — a single suppressed call must NOT reset the window
       const notifier = create({ webhookUrl: "https://hooks.slack.com/test", dedupTtlMs: 60_000 });
       await notifier.notify(makeEvent({ sessionId: "app-1", type: "session.spawned" }));
       await notifier.notify(makeEvent({ sessionId: "app-1", type: "session.spawned" }));
-      // Second call within TTL is suppressed — no additional POST
-      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(fetchMock).toHaveBeenCalledTimes(1); // second suppressed
     });
 
     it("allows same sessionId with different eventType", async () => {
@@ -400,6 +400,16 @@ describe("notifier-slack", () => {
       const notifier = create({ webhookUrl: "https://hooks.slack.com/test", dedupTtlMs: 60_000 });
       await notifier.post!("msg1");
       await notifier.post!("msg2");
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+
+    it("stale entry (past TTL) allows send through on next call", async () => {
+      const fetchMock = mockFetchOk();
+      vi.stubGlobal("fetch", fetchMock);
+      const notifier = create({ webhookUrl: "https://hooks.slack.com/test", dedupTtlMs: 0 });
+      await notifier.notify(makeEvent({ sessionId: "app-1", type: "session.spawned" }));
+      await notifier.notify(makeEvent({ sessionId: "app-1", type: "session.spawned" }));
+      // dedupTtlMs=0 means entry is immediately stale → no suppression
       expect(fetchMock).toHaveBeenCalledTimes(2);
     });
   });
