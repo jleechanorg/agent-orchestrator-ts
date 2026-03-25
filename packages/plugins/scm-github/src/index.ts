@@ -714,15 +714,16 @@ function mapRawCheckStateToStatus(rawState: string | undefined): CICheck["status
 }
 
 async function getCIChecksFromStatusRollup(pr: PRInfo): Promise<CICheck[]> {
-  const raw = await gh([
-    "pr",
-    "view",
-    String(pr.number),
-    "--repo",
-    repoFlag(pr),
-    "--json",
-    "statusCheckRollup",
-  ]);
+  try {
+    const raw = await gh([
+      "pr",
+      "view",
+      String(pr.number),
+      "--repo",
+      repoFlag(pr),
+      "--json",
+      "statusCheckRollup",
+    ]);
 
   const data: { statusCheckRollup?: unknown[] } = JSON.parse(raw);
   const rollup = Array.isArray(data.statusCheckRollup) ? data.statusCheckRollup : [];
@@ -775,6 +776,61 @@ async function getCIChecksFromStatusRollup(pr: PRInfo): Promise<CICheck[]> {
       return check;
     })
     .filter((check): check is CICheck => check !== null);
+  } catch (err) {
+    if (!isRateLimitError(err)) throw err;
+
+    // Rate limit on gh pr view (GraphQL) — fall back to REST check-runs.
+    // First get the head SHA from the REST PR endpoint.
+    let sha: string | undefined;
+    try {
+      const prRaw = await gh([
+        "api",
+        `repos/${pr.owner}/${pr.repo}/pulls/${pr.number}`,
+      ]);
+      const prData = JSON.parse(prRaw) as { head?: { sha?: unknown } };
+      sha = typeof prData.head?.sha === "string" ? prData.head.sha : undefined;
+    } catch {
+      // Can't determine SHA — return empty rather than throwing
+      return [];
+    }
+
+    if (!sha) return [];
+
+    // Fetch check-runs for the head commit via REST.
+    let checkRuns: unknown[];
+    try {
+      const runsRaw = await gh([
+        "api",
+        `repos/${pr.owner}/${pr.repo}/commits/${sha}/check-runs?per_page=100`,
+      ]);
+      const runsData = JSON.parse(runsRaw) as { check_runs?: unknown[] };
+      checkRuns = runsData.check_runs ?? [];
+    } catch {
+      return [];
+    }
+
+    return (checkRuns as Record<string, unknown>[])
+      .map((run): CICheck | null => {
+        const name = typeof run.name === "string" ? run.name : undefined;
+        if (!name) return null;
+
+        const conclusion = typeof run.conclusion === "string" ? run.conclusion : undefined;
+        const status = typeof run.status === "string" ? run.status : undefined;
+        const rawState = conclusion ?? status;
+
+        return {
+          name,
+          status: mapRawCheckStateToStatus(rawState),
+          conclusion: rawState?.toUpperCase(),
+          url: typeof run.html_url === "string" ? run.html_url : undefined,
+          startedAt:
+            typeof run.started_at === "string" ? new Date(run.started_at) : undefined,
+          completedAt:
+            typeof run.completed_at === "string" ? new Date(run.completed_at) : undefined,
+        };
+      })
+      .filter((check): check is CICheck => check !== null);
+  }
 }
 
 function getGitHubWebhookConfig(project: ProjectConfig) {
@@ -1670,22 +1726,28 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
       } catch (err) {
         // Rate limit errors are transient — do not fail-close to "failing",
         // which would spam the agent with spurious "CI is failing" reactions.
-        // Return "none" so the lifecycle poller retries next cycle.
+        // Try the status-rollup path (GraphQL gh pr view with REST fallback)
+        // before returning "none".
         if (isRateLimitError(err)) {
-          return "none";
+          try {
+            checks = await getCIChecksFromStatusRollup(pr);
+          } catch {
+            return "none";
+          }
+        } else {
+          // Before fail-closing, check if the PR is merged/closed —
+          // GitHub may not return check data for those, and reporting
+          // "failing" for a merged PR is wrong.
+          try {
+            const state = await this.getPRState(pr);
+            if (state === "merged" || state === "closed") return "none";
+          } catch {
+            // Can't determine state either; fall through to fail-closed.
+          }
+          // Fail closed for open PRs: report as failing rather than
+          // "none" (which getMergeability treats as passing).
+          return "failing";
         }
-        // Before fail-closing, check if the PR is merged/closed —
-        // GitHub may not return check data for those, and reporting
-        // "failing" for a merged PR is wrong.
-        try {
-          const state = await this.getPRState(pr);
-          if (state === "merged" || state === "closed") return "none";
-        } catch {
-          // Can't determine state either; fall through to fail-closed.
-        }
-        // Fail closed for open PRs: report as failing rather than
-        // "none" (which getMergeability treats as passing).
-        return "failing";
       }
       if (checks.length === 0) return "none";
 
