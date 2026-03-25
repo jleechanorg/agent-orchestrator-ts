@@ -27,18 +27,27 @@ const REDUNDANT_REPLACEMENTS: Array<[RegExp, string]> = [
  * Apply auto-fixable corrections to a line.
  */
 function fixLine(line: string): string {
-  let result = line;
+  // Preserve leading whitespace so indentation is not destroyed
+  const leadingWs = line.match(/^(\s*)/)?.[1] ?? "";
+  let result = line.slice(leadingWs.length);
 
   // Remove filler words
   const fillerRE = new RegExp(`\\b(${FILLERS.join("|")})\\b`, "gi");
-  result = result.replace(fillerRE, "").replace(/\s{2,}/g, " ");
+  result = result.replace(fillerRE, "");
+
+  // Collapse only internal whitespace runs (not leading/trailing)
+  result = result.replace(/\s{2,}/g, " ");
+
+  // Strip artifact spaces left when a filler word at the start/end of
+  // the non-whitespace content is removed (e.g. "Just a note" → " a note")
+  result = result.trim();
 
   // Fix redundant phrases
   for (const [pattern, replacement] of REDUNDANT_REPLACEMENTS) {
     result = result.replace(pattern, replacement);
   }
 
-  return result;
+  return leadingWs + result;
 }
 
 /**
@@ -67,7 +76,7 @@ export function autoFixFile(
       fixed[idx] = fixLine(original);
       if (fixed[idx] !== original) {
         // Update suggestion with actual change
-        issue.suggestion = `"${original}" → "${fixed[idx]}"`;
+        issue.suggestion = `"${original.trim()}" → "${fixed[idx].trim()}"`;
       }
     }
   }
