@@ -401,7 +401,11 @@ export async function ensureLifecycleWorker(
   // start race to spawn two workers for the same project.
   const scannedPid = scanForRunningLifecycleWorker(projectId);
   if (scannedPid !== null) {
-    return { ...current, running: false, pid: scannedPid, verified: true, started: false };
+    // A worker was found via ps scan even though no PID file exists (e.g.
+    // launchd started it). running=true is consistent with LifecycleWorkerStatus:
+    // verified=true means ps confirmed a genuine lifecycle-worker process, so the
+    // worker IS running even though it hasn't written the PID file yet.
+    return { ...current, running: true, pid: scannedPid, verified: true, started: false };
   }
 
   const baseDir = getProjectBase(config, projectId);

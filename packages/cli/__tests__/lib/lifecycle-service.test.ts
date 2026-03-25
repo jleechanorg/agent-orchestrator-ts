@@ -427,7 +427,12 @@ describe("ensureLifecycleWorker -- ps-scan fallback (orch-886k)", () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     mockSpawn.mockReturnValueOnce({ pid: 88888, unref: () => {} } as any);
     const result = await ensureLifecycleWorker(cfg, "test-proj");
+    // running=true: verified=true means ps confirmed the worker is alive, so the
+    // worker IS running even though no PID file exists yet (e.g. launchd started it).
     expect(result.started).toBe(false);
+    expect(result.running).toBe(true);
+    expect(result.pid).toBe(77777);
+    expect(result.verified).toBe(true);
     expect(mockSpawn).not.toHaveBeenCalled();
   });
 });
