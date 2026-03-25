@@ -300,6 +300,7 @@ export type { ReviewSLAConfig, SLAEvaluation, SLAState } from "./review-sla.js";
 export {
   getHeadroomStatus,
   getOperationHeadroom,
+  shouldDeferOperation,
   withRESTFallback,
   invalidateHeadroomCache,
   parseGhRateLimitOutput,

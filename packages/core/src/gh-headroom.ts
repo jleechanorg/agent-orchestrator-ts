@@ -199,3 +199,8 @@ export async function getOperationHeadroom(
 ): Promise<HeadroomStatus> {
   return getHeadroomStatus(thresholds);
 }
+
+/**
+ * @deprecated Use `getOperationHeadroom` instead.
+ */
+export const shouldDeferOperation = getOperationHeadroom;
