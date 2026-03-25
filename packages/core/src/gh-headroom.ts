@@ -1,5 +1,5 @@
 /**
- * GitHub API headroom tracker + REST-first fallback.
+ * GraphQL headroom preflight with REST fallback.
  *
  * Mechanism (4): GraphQL headroom preflight with REST-first fallback when exhausted.
  *
@@ -74,13 +74,15 @@ export function parseGhRateLimitOutput(stdout: string): GHRateLimitResources | n
  * Returns null on failure (caller should fall back to REST).
  */
 export async function fetchGhRateLimit(): Promise<GHRateLimitResources | null> {
-  const { execSync } = await import("child_process");
+  const { execFile } = await import("child_process");
   try {
-    const out = execSync("gh api rate_limit --jq '.resources'", {
-      encoding: "utf-8",
+    const { stdout } = await (
+      execFile as unknown as (cmd: string, args: string[], opts: object) => Promise<{ stdout: string }>
+    )("gh", ["api", "rate_limit", "--jq", ".resources"], {
       timeout: 10_000,
+      encoding: "utf-8",
     });
-    return parseGhRateLimitOutput(out);
+    return parseGhRateLimitOutput(stdout);
   } catch {
     return null;
   }
