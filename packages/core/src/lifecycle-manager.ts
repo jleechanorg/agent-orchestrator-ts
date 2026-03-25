@@ -35,6 +35,7 @@ import {
   type Notifier,
   type Session,
   type EventPriority,
+  type PRState,
   type ProjectConfig as _ProjectConfig,
   type MergeGateConfig,
 } from "./types.js";
@@ -424,6 +425,12 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
           try {
             const batch = await scm.getBatchPRStatus(session.pr);
             usedBatch = true;
+            // bd-s4t.2: persist PR state so the session-reaper can detect zombies
+            // without SCM access. Only update if state has changed.
+            const prevPrState = session.pr?.state;
+            if (batch.state !== prevPrState) {
+              persistPrState({ session, state: batch.state, projectPath: project.path });
+            }
             if (batch.state === PR_STATE.MERGED) return { status: "merged", agentDead };
             if (batch.state === PR_STATE.CLOSED) return { status: "killed", agentDead };
             if (batch.ciStatus === CI_STATUS.FAILING) return { status: "ci_failed", agentDead };
@@ -445,6 +452,11 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         if (!usedBatch) {
           // Fallback: individual calls (no batch support or batch failed)
           const prState = await scm.getPRState(session.pr);
+          // bd-s4t.2: persist PR state so the session-reaper can detect zombies
+          const prevPrState = session.pr?.state;
+          if (prState !== prevPrState) {
+            persistPrState({ session, state: prState, projectPath: project.path });
+          }
           if (prState === PR_STATE.MERGED) return { status: "merged", agentDead };
           if (prState === PR_STATE.CLOSED) return { status: "killed", agentDead };
 
@@ -834,6 +846,35 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
 
   function updateSessionMetadata(session: Session, updates: Partial<Record<string, string>>): void {
     updateSessionMetadataHelper(session, updates, config);
+  }
+
+  /**
+   * Persist GitHub PR state to the session metadata file + in-memory session object.
+   * Owns its own best-effort try/catch and warn-level logging so callers stay
+   * straight-line. Returns true on success, false if the metadata write failed.
+   */
+  function persistPrState({ session, state, projectPath }: {
+    session: Session;
+    state: PRState;
+    projectPath: string;
+  }): boolean {
+    try {
+      const sessionsDir = getSessionsDir(config.configPath, projectPath);
+      // bd-s4t.2: write metadata first, then update in-memory — prevents using stale
+      // in-memory state as the persistence retry gate (failure leaves in-memory unchanged)
+      updateMetadata(sessionsDir, session.id, { prState: state });
+      session.metadata["prState"] = state;
+      if (session.pr) {
+        session.pr.state = state;
+      }
+      return true;
+    } catch (err) {
+      console.warn(
+        `[lifecycle-manager] persistPrState: failed to persist prState=${state} ` +
+        `for session=${session.id} — best-effort, continuing: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      return false;
+    }
   }
 
 
