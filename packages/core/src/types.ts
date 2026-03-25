@@ -665,7 +665,7 @@ export interface PRInfo {
   baseBranch: string;
   isDraft: boolean;
   /** GitHub PR state — persisted from metadata prState field (bd-s4t) */
-  state?: "open" | "merged" | "closed";
+  state?: PRState;
 }
 
 export type PRState = "open" | "merged" | "closed";
@@ -1489,8 +1489,8 @@ export interface SessionMetadata {
   issue?: string;
   pr?: string;
   prAutoDetect?: "on" | "off";
-  /** GitHub PR state — "open" | "merged" | "closed" (bd-s4t) */
-  prState?: "open" | "merged" | "closed";
+  /** GitHub PR state (bd-s4t) */
+  prState?: PRState;
   summary?: string;
   project?: string;
   agent?: string; // Agent plugin name (e.g. "codex", "claude-code") — persisted for lifecycle
