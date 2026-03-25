@@ -7,6 +7,7 @@ import {
   invalidateHeadroomCache,
   fetchGhRateLimit,
   ghHeadroomInject,
+  withRESTFallback,
 } from "../gh-headroom.js";
 
 describe("parseGhRateLimitOutput", () => {
@@ -123,5 +124,80 @@ describe("fetchGhRateLimit subprocess paths", () => {
     ghHeadroomInject({ execAsync: vi.fn().mockRejectedValue(err) });
     const result = await fetchGhRateLimit();
     expect(result).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// withRESTFallback (bd-s4t)
+// ---------------------------------------------------------------------------
+
+/** Build an execAsync stub that returns the given headroom resources. */
+function stubHeadroom(graphqlRemaining: number, coreRemaining: number) {
+  const body = JSON.stringify({
+    resources: {
+      graphql: { remaining: graphqlRemaining, limit: 5000, reset: 1748779200 },
+      core:    { remaining: coreRemaining,    limit: 5000, reset: 1748779200 },
+    },
+  });
+  return vi.fn().mockResolvedValue({ stdout: body, stderr: "" });
+}
+
+describe("withRESTFallback", () => {
+  afterEach(() => {
+    ghHeadroomInject();
+    invalidateHeadroomCache();
+  });
+
+  it("uses GraphQL when headroom is sufficient", async () => {
+    ghHeadroomInject({ execAsync: stubHeadroom(500, 4000) });
+    invalidateHeadroomCache();
+
+    const graphqlFn = vi.fn().mockResolvedValue("graphql-data");
+    const restFn = vi.fn().mockResolvedValue("rest-data");
+
+    const result = await withRESTFallback(graphqlFn, restFn);
+    expect(result).toEqual({ data: "graphql-data", via: "graphql" });
+    expect(restFn).not.toHaveBeenCalled();
+  });
+
+  it("uses REST directly when GraphQL headroom is low", async () => {
+    // graphql < 100 threshold → skip GraphQL, go direct to REST
+    ghHeadroomInject({ execAsync: stubHeadroom(50, 4000) });
+    invalidateHeadroomCache();
+
+    const graphqlFn = vi.fn().mockResolvedValue("graphql-data");
+    const restFn = vi.fn().mockResolvedValue("rest-data");
+
+    const result = await withRESTFallback(graphqlFn, restFn);
+    expect(result).toEqual({ data: "rest-data", via: "rest" });
+    expect(graphqlFn).not.toHaveBeenCalled();
+  });
+
+  it("throws when both GraphQL and REST are exhausted", async () => {
+    ghHeadroomInject({ execAsync: stubHeadroom(5, 10) }); // below both thresholds
+    invalidateHeadroomCache();
+
+    const graphqlFn = vi.fn().mockResolvedValue("data");
+    const restFn = vi.fn().mockResolvedValue("data");
+
+    await expect(withRESTFallback(graphqlFn, restFn)).rejects.toThrow(
+      "GitHub API headroom exhausted",
+    );
+    expect(graphqlFn).not.toHaveBeenCalled();
+    expect(restFn).not.toHaveBeenCalled();
+  });
+
+  it("falls back to REST when GraphQL fails with rate-limit error", async () => {
+    // GraphQL headroom available, but the actual call hits rate limit
+    ghHeadroomInject({ execAsync: stubHeadroom(500, 4000) });
+    invalidateHeadroomCache();
+
+    const rateLimitErr = new Error("GraphQL rate limit exceeded");
+    const graphqlFn = vi.fn().mockRejectedValue(rateLimitErr);
+    const restFn = vi.fn().mockResolvedValue("rest-fallback-data");
+
+    const result = await withRESTFallback(graphqlFn, restFn);
+    expect(result).toEqual({ data: "rest-fallback-data", via: "rest" });
+    expect(restFn).toHaveBeenCalled();
   });
 });
