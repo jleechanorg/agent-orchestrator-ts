@@ -5241,6 +5241,24 @@ describe("PluginRegistry.loadBuiltins importFn", () => {
     expect(importedPackages.length).toBeGreaterThan(0);
     expect(importedPackages).toContain("@jleechanorg/ao-plugin-runtime-tmux");
   });
+
+  it("rejects spawn when runtimeOverride plugin is not found and surfaces override name in error", async () => {
+    const registryWithMissingRuntime: PluginRegistry = {
+      ...mockRegistry,
+      get: vi.fn().mockImplementation((slot: string, name?: string) => {
+        if (slot === "runtime" && name === "nonexistent") return null;
+        if (slot === "runtime") return mockRuntime;
+        if (slot === "agent") return mockAgent;
+        if (slot === "workspace") return mockWorkspace;
+        return null;
+      }),
+    };
+    const sm = createSessionManager({ config, registry: registryWithMissingRuntime });
+
+    await expect(sm.spawn({ projectId: "my-app", runtimeOverride: "nonexistent" })).rejects.toThrow(
+      "Runtime plugin 'nonexistent' not found",
+    );
+  });
 });
 
 describe("isIssueNotFoundError", () => {

@@ -43,7 +43,6 @@ export const DEFAULT_REVIEW_SLA_CONFIG: ReviewSLAConfig = {
 const META_FIRST_SEEN_AT      = "review_sla_first_seen_at";
 const META_LAST_ESCL_AT        = "review_sla_last_escalate_at";
 const META_CYCLE_COUNT         = "review_sla_cycle_count";
-const _META_LAST_SLA_CHECK_AT  = "review_sla_last_check_at";
 const META_SLA_LEVEL           = "review_sla_level"; // "ok" | "warn" | "escalate" | "abandon"
 
 export type SLAState = "ok" | "warn" | "escalate" | "abandon";
