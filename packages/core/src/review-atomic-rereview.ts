@@ -220,8 +220,8 @@ export async function executeAtomicRereview(
   } catch (err) {
     const errorMsg = err instanceof Error ? err.message : String(err);
 
-    // Determine if rollback is needed or if we can resume
-    const currentPhase = checkpoint?.phase ?? "fix_applied";
+    // Read current phase from session metadata (checkpoint variable is stale after updateCheckpoint calls)
+    const currentPhase = (session.metadata[META_REREVIEW_PHASE] as RereviewPhase) ?? "fix_applied";
     if (currentPhase === "done" || currentPhase === "verified") {
       // Already completed — don't roll back
       return { success: false, phase: currentPhase, error: errorMsg, viaREST };

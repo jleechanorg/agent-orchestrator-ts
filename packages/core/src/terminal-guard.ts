@@ -155,9 +155,8 @@ export async function runTerminalGuard(deps: TerminalGuardDeps): Promise<Termina
     }
 
     // Check 3: Active session guard — don't terminal-ize if agent recently heartbeated
-    const lastHeartbeat = session.metadata["last_heartbeat_at"];
-    if (lastHeartbeat) {
-      const minutesSinceHeartbeat = (Date.now() - new Date(lastHeartbeat).getTime()) / 60_000;
+    if (session.lastActivityAt) {
+      const minutesSinceHeartbeat = (Date.now() - session.lastActivityAt.getTime()) / 60_000;
       if (minutesSinceHeartbeat < 2) {
         blockers.push({
           code: "session_active",

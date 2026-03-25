@@ -11,9 +11,18 @@
  *
  * Used alongside gh-graphql-defer.ts (retry+defer) — this module handles
  * the "should I even try GraphQL" preflight decision.
+ *
+ * Cache and threshold helpers live in gh-headroom-cache.ts to keep this file
+ * under 300 LOC.
  */
 
 import { isGhRateLimitError } from "./gh-rate-limit.js";
+import {
+  applyThresholds,
+  invalidateHeadroomCache,
+  _cacheState,
+  HEADROOM_CACHE_TTL_MS,
+} from "./gh-headroom-cache.js";
 import { execFile as _execFile } from "node:child_process";
 import { promisify } from "node:util";
 
@@ -78,16 +87,28 @@ export const DEFAULT_HEADROOM_THRESHOLDS: HeadroomThresholds = {
 
 interface GHRateLimitResources {
   graphql?: { remaining: number; limit: number; reset: number };
-  /** GitHub REST rate limits are reported under the "core" key, not "rest". */
   core?: { remaining: number; limit: number; reset: number };
   search?: { remaining: number; limit: number; reset: number };
 }
 
-/** Parse `gh api rate_limit` JSON output. Returns null on parse failure. */
+/** Parse `gh api rate_limit --jq '.resources'` output. Returns null on parse failure. */
 export function parseGhRateLimitOutput(stdout: string): GHRateLimitResources | null {
   try {
     const parsed = JSON.parse(stdout);
-    return parsed.resources ?? null;
+    // gh api rate_limit returns a top-level "resources" object.
+    // Caller passes --jq '.resources' so we receive the resources object directly.
+    // Support both that (jq-extracted) and the full-response shape.
+    const resources = parsed.resources ?? parsed;
+    // Defensive: require at least one known resource key to avoid accepting
+    // arbitrary JSON that coincidentally has no 'resources' key.
+    if (
+      typeof resources !== "object" ||
+      resources === null ||
+      !("graphql" in resources || "core" in resources || "search" in resources)
+    ) {
+      return null;
+    }
+    return resources;
   } catch {
     return null;
   }
@@ -99,7 +120,7 @@ export function parseGhRateLimitOutput(stdout: string): GHRateLimitResources | n
  */
 export async function fetchGhRateLimit(): Promise<GHRateLimitResources | null> {
   try {
-    const { stdout } = await _execAsync("gh", ["api", "rate_limit"], {
+    const { stdout } = await _execAsync("gh", ["api", "rate_limit", "--jq", ".resources"], {
       encoding: "utf-8",
       timeout: 10_000,
     });
@@ -110,12 +131,11 @@ export async function fetchGhRateLimit(): Promise<GHRateLimitResources | null> {
 }
 
 // ---------------------------------------------------------------------------
-// In-process headroom tracker (singleton per process lifetime)
+// Cache singleton — delegates to gh-headroom-cache.ts
 // ---------------------------------------------------------------------------
 
-let _cachedHeadroom: HeadroomStatus | null = null;
-let _headroomFetchedAt: number = 0;
-const HEADROOM_CACHE_TTL_MS = 60_000; // 1 minute — gh rate limit updates every hour, no need to check more
+/** Invalidate the cached headroom (call after any rate-limit error). */
+export { invalidateHeadroomCache } from "./gh-headroom-cache.js";
 
 /**
  * Get cached headroom status, refreshing if stale.
@@ -126,49 +146,67 @@ export async function getHeadroomStatus(
   const opts: HeadroomThresholds = { ...DEFAULT_HEADROOM_THRESHOLDS, ...thresholds };
   const now = Date.now();
 
-  if (_cachedHeadroom && now - _headroomFetchedAt < HEADROOM_CACHE_TTL_MS) {
-    return applyThresholds(_cachedHeadroom, opts);
+  if (
+    _cacheState.headroom &&
+    now - _cacheState.fetchedAt < HEADROOM_CACHE_TTL_MS &&
+    _cacheState.headroom._cachedThresholds.graphqlMin === opts.graphqlMin &&
+    _cacheState.headroom._cachedThresholds.restMin === opts.restMin &&
+    _cacheState.headroom._cachedThresholds.absoluteMin === opts.absoluteMin
+  ) {
+    // Cache hit with same thresholds — derive decision from cached counts directly,
+    // preserving the actual headroom state (e.g. defer-state cache is not upgraded
+    // to a healthy graphql/recommendation).
+    const { graphqlRemaining, restRemaining, resetAt } = _cacheState.headroom;
+    const belowGraphqlAbs = graphqlRemaining < opts.absoluteMin;
+    const belowRestAbs    = restRemaining    < opts.absoluteMin;
+    const canUseGraphQL   = !belowGraphqlAbs && graphqlRemaining >= opts.graphqlMin;
+    const canUseREST      = !belowRestAbs    && restRemaining    >= opts.restMin;
+    const recommendation: HeadroomStatus["recommendation"] =
+      canUseGraphQL ? "graphql" : canUseREST ? "rest" : "defer";
+    return { graphqlRemaining, restRemaining, resetAt, canUseGraphQL, canUseREST, recommendation };
   }
 
   const resources = await fetchGhRateLimit();
-  const resetEpoch = resources?.graphql?.reset ?? resources?.core?.reset ?? null;
-  const resetAt = resetEpoch !== null ? new Date(resetEpoch * 1000).toISOString() : null;
+  // Coerce reset to number — GitHub API returns epoch seconds as a number, but
+  // defensive coding guards against string or unexpected types.
+  const rawReset = resources?.graphql?.reset ?? resources?.core?.reset ?? null;
+  const resetEpoch = rawReset !== null ? Number(rawReset) : null;
+  const resetAt =
+    resetEpoch !== null && !Number.isNaN(resetEpoch)
+      ? new Date(resetEpoch * 1000).toISOString()
+      : null;
 
-  _cachedHeadroom = {
-    graphqlRemaining: resources?.graphql?.remaining ?? 1000,
-    restRemaining: resources?.core?.remaining ?? 5000,
-    resetAt,
-    canUseGraphQL: true,
-    canUseREST: true,
-    recommendation: "graphql" as const,
-  };
-  _headroomFetchedAt = now;
+  // Defensive: if we have no snapshot or no actionable buckets (graphql/core),
+  // the safe default is "defer" — never guess graphql when headroom is unknown.
+  const hasGraphql = resources !== null && "graphql" in resources;
+  const hasCore    = resources !== null && "core"    in resources;
 
-  return applyThresholds(_cachedHeadroom, opts);
-}
-
-function applyThresholds(status: HeadroomStatus, opts: HeadroomThresholds): HeadroomStatus {
-  // Enforce hard floor: if either remaining count is below absoluteMin,
-  // treat both channels as unusable regardless of graphqlMin/restMin.
-  const belowAbsoluteMin =
-    status.graphqlRemaining < opts.absoluteMin ||
-    status.restRemaining < opts.absoluteMin;
-
-  if (belowAbsoluteMin) {
-    return { ...status, canUseGraphQL: false, canUseREST: false, recommendation: "defer" };
+  // Only cache when we have actionable data from at least one bucket.
+  // Do NOT cache a search-only or otherwise incomplete snapshot — a transient
+  // probe failure (hasGraphql && hasCore both false) should not be promoted to
+  // a persistent 0/0 defer state that blocks subsequent calls once the API recovers.
+  const hasActionableData = resources !== null && (hasGraphql || hasCore);
+  if (hasActionableData) {
+    _cacheState.headroom = {
+      graphqlRemaining: resources?.graphql?.remaining ?? 0,
+      restRemaining: resources?.core?.remaining ?? 0,
+      resetAt,
+      _cachedThresholds: opts,
+    };
+    _cacheState.fetchedAt = now;
+    return applyThresholds(_cacheState.headroom, opts);
   }
 
-  const canUseGraphQL = status.graphqlRemaining >= opts.graphqlMin;
-  const canUseREST    = status.restRemaining >= opts.restMin;
-  const recommendation: HeadroomStatus["recommendation"] =
-    canUseGraphQL ? "graphql" : canUseREST ? "rest" : "defer";
-  return { ...status, canUseGraphQL, canUseREST, recommendation };
-}
-
-/** Invalidate the cached headroom (call after any rate-limit error). */
-export function invalidateHeadroomCache(): void {
-  _cachedHeadroom = null;
-  _headroomFetchedAt = 0;
+  // No actionable data (probe failed or only search bucket present): one-off defer,
+  // do not pollute the cache.
+  return {
+    graphqlRemaining: 0,
+    restRemaining: 0,
+    resetAt,
+    canUseGraphQL: false,
+    canUseREST: false,
+    recommendation: "defer",
+  };
 }
 
 // ---------------------------------------------------------------------------
