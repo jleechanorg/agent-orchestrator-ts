@@ -603,6 +603,14 @@ export interface SCM {
   /** Get automated review comments (bots, linters, security scanners) */
   getAutomatedComments(pr: PRInfo): Promise<AutomatedComment[]>;
 
+  // --- Review Actions (bd-yjo: atomic re-review transaction) ---
+
+  /** Resolve a review comment thread. No-op if not supported. */
+  resolveComment?(pr: PRInfo, commentId: string): Promise<void>;
+
+  /** Request a review from a specific GitHub user. No-op if not supported. */
+  requestReview?(pr: PRInfo, reviewerLogin: string): Promise<void>;
+
   // --- Merge Readiness ---
 
   /** Check if PR is ready to merge */

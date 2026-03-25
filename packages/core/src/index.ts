@@ -274,3 +274,76 @@ export type { ReviewBacklogDeps } from "./review-backlog.js";
 
 // Shared fork utility: session metadata update helper
 export { updateSessionMetadataHelper } from "./fork-utils.js";
+
+// Review judgment policy matrix — objective vs subjective comment classification
+export {
+  classifyComment,
+  judgeCommentBatch,
+  hasActionableComments,
+  batchSeverityScore,
+} from "./review-judgment-matrix.js";
+export type { CommentClass, JudgmentResult, CommentBatchJudgment } from "./review-judgment-matrix.js";
+
+// Review SLA tracker — stuck-review SLA with escalation
+export {
+  evaluateReviewSLA,
+  getSLAState,
+  recordSLAStart,
+  recordSLAEscalation,
+  recordSLAWarn,
+  clearSLAState,
+  DEFAULT_REVIEW_SLA_CONFIG,
+} from "./review-sla.js";
+export type { ReviewSLAConfig, SLAEvaluation, SLAState } from "./review-sla.js";
+
+// GitHub API headroom tracker — REST-first fallback when GraphQL exhausted
+export {
+  getHeadroomStatus,
+  shouldDeferOperation,
+  withRESTFallback,
+  invalidateHeadroomCache,
+  parseGhRateLimitOutput,
+  DEFAULT_HEADROOM_THRESHOLDS,
+} from "./gh-headroom.js";
+export type { HeadroomStatus, HeadroomThresholds } from "./gh-headroom.js";
+
+// Atomic re-review transaction coordinator
+export {
+  executeAtomicRereview,
+  hasInFlightTransaction,
+  abortTransaction,
+  getCheckpoint,
+} from "./review-atomic-rereview.js";
+export type { AtomicRereviewDeps, AtomicRereviewResult, RereviewPhase, RereviewCheckpoint } from "./review-atomic-rereview.js";
+
+// Terminal finalizer guard — PR health check before terminal transition
+export {
+  runTerminalGuard,
+  formatGuardResult,
+} from "./terminal-guard.js";
+export type { TerminalGuardResult, TerminalGuardBlocker, TerminalGuardDeps } from "./terminal-guard.js";
+
+// No-delta watchdog — detect agent stalls via heartbeat monitoring
+export {
+  evaluateNoDeltaWatchdog,
+  recordDelta,
+  recordDeltaWarning,
+  recordDeltaStuck,
+  emitWatchdogEvent,
+  DEFAULT_NO_DELTA_CONFIG,
+} from "./no-delta-watchdog.js";
+export type { NoDeltaWatchdogConfig, NoDeltaEvaluation, NoDeltaResult, WatchdogEventDeps } from "./no-delta-watchdog.js";
+
+// Review KPI emitter — measurable metrics for CHANGES_REQUESTED stalls
+export {
+  getReviewKPIs,
+  recordCycleStart,
+  recordCycleResolved,
+  recordStuckReview,
+  recordNoDeltaWarning,
+  recordSLAEscalation,
+  emitKPIEvent,
+  buildKPISummary,
+  enrichWithCommentJudgment,
+} from "./review-kpi.js";
+export type { ReviewKPIs, KPIEmitDeps } from "./review-kpi.js";
