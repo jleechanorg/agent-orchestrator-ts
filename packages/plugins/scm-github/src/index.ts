@@ -271,11 +271,26 @@ async function fetchPrViewFallbackAsJson(
 
   if (needReviews) {
     try {
-      const revRaw = await execCli(
-        "gh",
-        ["api", `repos/${conv.repo}/pulls/${conv.prNumber}/reviews`],
-        cwd,
-      );
+      // Retry the reviews endpoint with backoff on rate-limit errors, mirroring
+      // ghWithRetry behaviour so the REST fallback doesn't immediately fail when
+      // the primary gh CLI call was rate-limited.
+      let revRaw = "";
+      let lastErr: unknown;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          revRaw = await execCli(
+            "gh",
+            ["api", `repos/${conv.repo}/pulls/${conv.prNumber}/reviews`, "--paginate"],
+            cwd,
+          );
+          break;
+        } catch (err) {
+          lastErr = err;
+          if (!isRateLimitError(err)) throw err;
+          if (attempt < 2) await sleep(Math.min(1000 * Math.pow(2, attempt), 30000));
+        }
+      }
+      if (!revRaw && lastErr) throw lastErr;
       reviewsPayload = JSON.parse(revRaw);
       if (conv.jsonFields.includes("reviewDecision")) {
         reviewDecision = deriveReviewDecisionGraphqlFromReviews(reviewsPayload);
@@ -1722,7 +1737,6 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
         }>;
       } = JSON.parse(raw);
 
-      // REST API fallback doesn't include reviews — return empty
       if (!data.reviews) return [];
 
       return data.reviews.map((r) => {
@@ -1744,26 +1758,19 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
     },
 
     async getReviewDecision(pr: PRInfo): Promise<ReviewDecision> {
-      let raw: string;
-      try {
-        raw = await gh([
-          "pr",
-          "view",
-          String(pr.number),
-          "--repo",
-          repoFlag(pr),
-          "--json",
-          "reviewDecision",
-        ]);
-      } catch (err) {
-        // Rate limit errors are transient — return "none" so the lifecycle
-        // poller retries next cycle rather than triggering a "changes-requested"
-        // reaction on every poll.
-        if (isRateLimitError(err)) {
-          return "none";
-        }
-        throw err;
-      }
+      // Rate-limit errors propagate to ghWithRetry, which falls back to the REST
+      // /pulls/{n}/reviews endpoint so we still return a meaningful decision
+      // rather than the conservative "none" that previously short-circuited the
+      // fallback on every poll cycle.
+      const raw = await gh([
+        "pr",
+        "view",
+        String(pr.number),
+        "--repo",
+        repoFlag(pr),
+        "--json",
+        "reviewDecision",
+      ]);
       const data: { reviewDecision: string } = JSON.parse(raw);
 
       const d = (data.reviewDecision ?? "").toUpperCase();
