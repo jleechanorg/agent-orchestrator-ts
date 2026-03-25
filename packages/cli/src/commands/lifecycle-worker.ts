@@ -1,12 +1,11 @@
 import { execFile } from "node:child_process";
-import { homedir } from "node:os";
-import { join } from "node:path";
 import { promisify } from "node:util";
 import type { Command } from "commander";
 import chalk from "chalk";
 import {
   createCorrelationId,
   createProjectObserver,
+  expandHome,
   generateConfigHash,
   loadConfig,
   parseTmuxName,
@@ -61,7 +60,25 @@ async function sweepOrphanTmuxSessions(opts: {
   );
 
   const now = Date.now();
-  const tmuxSessions = await listTmuxSessionsWithActivity();
+  const tmuxResult = await listTmuxSessionsWithActivity();
+  if (!tmuxResult.available) {
+    // no_server: no tmux server running — nothing to do
+    // error: log the failure and continue (best-effort)
+    if (tmuxResult.reason === "error") {
+      observer.recordOperation({
+        metric: "lifecycle_poll",
+        operation: "lifecycle.orphan_tmux_sweep",
+        outcome: "failure",
+        correlationId,
+        projectId,
+        data: { message: tmuxResult.message ?? "" },
+        level: "warn",
+        reason: `tmux list-sessions failed: ${tmuxResult.message}`,
+      });
+    }
+    return;
+  }
+  const tmuxSessions = tmuxResult.sessions;
   let orphanCount = 0;
   let cleanedCount = 0;
 
@@ -163,18 +180,15 @@ export function registerLifecycleWorker(program: Command): void {
         const orphanTtlMs = parseDurationMs(opts.orphanTtlMs ?? "21600000", 6 * 60 * 60 * 1000);
         const configHash = generateConfigHash(config.configPath);
         const allProjectIds = Object.keys(config.projects ?? {});
-        // Worktrees live at <worktreeDir>/{projectId}/ where worktreeDir comes from
+        // Worktrees live at <worktreeDir>/{projectId>/ where worktreeDir comes from
         // the workspace-worktree plugin config. Mirrors the same lookup in the plugin.
-        // Check top-level config.worktreeDir and per-project override.
-        const cfg = config as unknown as Record<string, unknown>;
-        const globalWorktreeDir = cfg.worktreeDir as string | undefined;
-        // Per-project worktreeDir (extra field accepted by z.record(ProjectConfigSchema))
-        const proj = config.projects[projectId] as unknown as Record<string, unknown>;
-        const projectWorktreeDir = proj.worktreeDir as string | undefined;
+        // Check per-project override, then global config.
+        const projectWorktreeDir = config.projects[projectId]?.worktreeDir;
+        const globalWorktreeDir = config.worktreeDir;
         const configuredWorktreeDir = projectWorktreeDir ?? globalWorktreeDir;
-        const expandTilde = (p: string): string =>
-          p.startsWith("~/") ? join(homedir(), p.slice(2)) : p;
-        const worktreeBaseDir = configuredWorktreeDir ? expandTilde(configuredWorktreeDir) : join(homedir(), ".worktrees");
+        const worktreeBaseDir = configuredWorktreeDir
+          ? expandHome(configuredWorktreeDir)
+          : expandHome("~/.worktrees");
         let shuttingDown = false;
         let heartbeat: ReturnType<typeof setInterval> | null = null;
         let orphanSweepTimer: ReturnType<typeof setInterval> | null = null;

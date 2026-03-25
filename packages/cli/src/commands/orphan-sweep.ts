@@ -8,16 +8,27 @@ const execFileAsync = promisify(execFile);
 
 const TMUX_TIMEOUT_MS = 5_000;
 
-export async function listTmuxSessionsWithActivity(): Promise<
-  Array<{ name: string; activityMs: number | null }>
-> {
+/** Return type that explicitly distinguishes "no tmux server" from real failures. */
+export type TmuxListResult =
+  | { available: true; sessions: Array<{ name: string; activityMs: number | null }> }
+  | { available: false; reason: "no_server" | "error"; message?: string };
+
+/**
+ * List all tmux sessions with their last activity timestamp.
+ * Returns `{ available: true, sessions: [...] }` on success (including zero sessions
+ * when the server is running but empty).
+ * Returns `{ available: false, reason: "no_server" }` when no tmux server is running.
+ * Returns `{ available: false, reason: "error", message }` for real failures
+ * (permission denied, timeout, etc.) so callers can log/alert appropriately.
+ */
+export async function listTmuxSessionsWithActivity(): Promise<TmuxListResult> {
   try {
     const { stdout } = await execFileAsync(
       "tmux",
       ["list-sessions", "-F", "#{session_name}\t#{session_activity}"],
       { timeout: TMUX_TIMEOUT_MS },
     );
-    return stdout
+    const sessions = stdout
       .trim()
       .split("\n")
       .filter(Boolean)
@@ -31,8 +42,20 @@ export async function listTmuxSessionsWithActivity(): Promise<
             : null,
         };
       });
-  } catch {
-    return [];
+    return { available: true, sessions };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    // "No running tmux server" produces exit code 1 with one of these messages.
+    // Treat this as a valid zero-session result — the sweep can still inspect worktrees.
+    if (
+      msg.includes("no such file") ||
+      msg.includes("connection refused") ||
+      msg.includes("No such file or directory")
+    ) {
+      return { available: false, reason: "no_server" };
+    }
+    // Real failure — return an error result so the caller can log/alert.
+    return { available: false, reason: "error", message: msg };
   }
 }
 
@@ -102,23 +125,32 @@ export async function sweepOrphanWorktrees(opts: {
   // targeting the same projectId would create "${otherHash}-ao-749" whose
   // worktree is at the same path. Scanning all live sessions prevents
   // cross-config false-positive removal.
-  const allTmuxSessions = await listTmuxSessionsWithActivity();
-  // Fail-safe: if tmux is unreachable, do not remove worktrees based on an empty
-  // liveSessionIds set. The lifecycle-worker depends on tmux for session management,
-  // so tmux being down means (a) session state is stale and we cannot reliably
-  // determine which worktrees are in use, and (b) the sweep will be retried on the
-  // next cycle. Skip this sweep; tmux availability is tracked separately by the
-  // orphan tmux session sweep which will surface tmux failures via its own observer
-  // call with actual orphan counts.
-  if (allTmuxSessions.length === 0) return;
+  const tmuxResult = await listTmuxSessionsWithActivity();
+
+  // Differentiate "no tmux server" from real failures:
+  // - no_server: valid zero-session result; worktree inspection still runs
+  // - error: log and continue with empty session list (best-effort sweep)
+  if (!tmuxResult.available) {
+    if (tmuxResult.reason === "error") {
+      observer.recordOperation({
+        metric: "lifecycle_poll",
+        operation: "lifecycle.worktree_orphan_sweep",
+        outcome: "failure",
+        correlationId,
+        projectId,
+        data: { reason: "tmux_list_error", message: tmuxResult.message ?? "" },
+        level: "warn",
+        reason: `tmux list-sessions failed: ${tmuxResult.message}`,
+      });
+    }
+    // Proceed with an empty liveSessionIds set — worktree inspection still runs.
+  }
 
   const liveSessionIds = new Set<string>(
-    allTmuxSessions
-      .map((s) => {
-        const parsed = parseTmuxName(s.name);
-        return parsed ? `${parsed.prefix}-${parsed.num}` : null;
-      })
-      .filter((id): id is string => id !== null),
+    (tmuxResult.available ? tmuxResult.sessions : []).map((s) => {
+      const parsed = parseTmuxName(s.name);
+      return parsed ? `${parsed.prefix}-${parsed.num}` : null;
+    }).filter((id): id is string => id !== null),
   );
 
   // Worktrees live at <worktreeBaseDir>/<projectId>/<sessionId>/

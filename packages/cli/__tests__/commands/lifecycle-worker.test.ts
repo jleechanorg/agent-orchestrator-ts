@@ -142,11 +142,16 @@ describe("sweepOrphanWorktrees", () => {
     expect(observer.recordOperation).not.toHaveBeenCalled();
   });
 
-  it("skips entire sweep when tmux is unreachable (fail-safe)", async () => {
+  it("skips worktrees when tmux has no matching sessions (liveSessionIds empty)", async () => {
+    // Even when tmux returns no matching sessions, the sweep proceeds with
+    // liveSessionIds = {}. Worktrees with no live tmux are evaluated against
+    // the DB. Since these worktrees have no DB entry, they ARE orphans and
+    // should be removed — not skipped.
+    withLiveTmuxSessions([{ name: "xyz-999" }]);
     const observer = createMockObserver();
     const projectId = "proj";
-    mkWorktree(projectId, "ao-1");
-    mkWorktree(projectId, "jc-2");
+    const w1 = mkWorktree(projectId, "ao-1");
+    const w2 = mkWorktree(projectId, "jc-2");
 
     await sweepOrphanWorktrees({
       sessionManager: makeSessionManager(new Set()),
@@ -157,14 +162,19 @@ describe("sweepOrphanWorktrees", () => {
       observer: observer as never,
     });
 
-    // tmux throws → early return → no worktree inspection, no git remove calls
-    expect(mockExec).not.toHaveBeenCalledWith(
+    // No matching tmux sessions, no DB entries → both are orphans → removed
+    expect(mockExec).toHaveBeenCalledWith(
       "git",
-      expect.arrayContaining(["worktree", "remove"]),
-      expect.anything(),
-      expect.anything(),
+      ["worktree", "remove", "--force", "--force", expect.any(String)],
+      expect.objectContaining({ cwd: expect.any(String) }),
+      expect.any(Function),
     );
-    expect(observer.recordOperation).not.toHaveBeenCalled();
+    expect(observer.recordOperation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        operation: "lifecycle.worktree_orphan_sweep",
+        data: expect.objectContaining({ orphanCount: 2, cleanedCount: 2 }),
+      }),
+    );
   });
 
   it("skips worktrees present in AO session DB (active session guard)", async () => {
