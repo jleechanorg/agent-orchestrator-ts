@@ -42,6 +42,9 @@ vi.mock("node:child_process", async (importOriginal) => {
   };
 });
 
+// sweepOrphanWorktrees is imported here for the sweepOrphanWorktrees describe block.
+// Do NOT add vi.mock("../../src/commands/orphan-sweep.js") to this file — it
+// would replace this import with a mock and break the real-function tests below.
 const { sweepOrphanWorktrees } = await import(
   "../../src/commands/orphan-sweep.js"
 );
