@@ -1299,8 +1299,45 @@ describe("scm-github plugin", () => {
       expect(comments[0].author).toBe("alice");
     });
 
-    it("throws on error", async () => {
+    it("REST fallback when GraphQL fails with rate-limit error", async () => {
+      // ghWithRetry retries up to maxRetries=3 times on rate-limit errors before exhausting
+      // and rethrowing. Mock setTimeout to avoid real sleep delays in tests.
+      const setTimeoutSpy = vi.spyOn(global, "setTimeout").mockImplementation((cb: () => void) => {
+        (cb as () => void)();
+        return 0 as unknown as NodeJS.Timeout;
+      });
+      // 3 GraphQL attempts (one per ghWithRetry attempt) all fail with rate-limit
       mockGhError("API rate limit");
+      mockGhError("API rate limit");
+      mockGhError("API rate limit");
+      // Call 4 (REST pulls comments): return inline review comments
+      mockGh([
+        {
+          id: 1,
+          user: { login: "reviewer1" },
+          body: "Please fix this",
+          path: "src/foo.ts",
+          line: 10,
+          created_at: "2025-01-01T00:00:00Z",
+          html_url: "https://github.com/acme/repo/pull/42#discussion_r1",
+        },
+      ]);
+      // Call 5 (REST issue comments): return empty
+      mockGh([]);
+
+      const comments = await scm.getPendingComments(pr);
+      setTimeoutSpy.mockRestore();
+      expect(comments).toHaveLength(1);
+      expect(comments[0]).toMatchObject({
+        id: "1",
+        author: "reviewer1",
+        body: "Please fix this",
+        isResolved: false, // REST has no isResolved — always false
+      });
+    });
+
+    it("throws on non-rate-limit error", async () => {
+      mockGhError("gh: not found");
       await expect(scm.getPendingComments(pr)).rejects.toThrow("Failed to fetch pending comments");
     });
 
