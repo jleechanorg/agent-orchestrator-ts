@@ -36,23 +36,6 @@ const FadeIn: React.FC<{ children: React.ReactNode; delay?: number }> = ({ child
   return <div style={{ opacity }}>{children}</div>;
 };
 
-const _Typewriter: React.FC<{ text: string; start?: number; end?: number; color?: string; fontSize?: number }> = ({
-  text,
-  start: s = 0,
-  end: e = s + 60,
-  color = TEXT,
-  fontSize = 36,
-}) => {
-  const frame = useCurrentFrame();
-  const chars = interpolate(Math.max(0, frame - s), [0, e - s], [0, text.length], { extrapolateLeft: "clamp", extrapolateRight: "extend" });
-  return (
-    <span style={{ color, fontSize, fontFamily: "monospace", letterSpacing: "0.05em" }}>
-      {text.slice(0, Math.floor(chars))}
-      <span style={{ animation: "blink 1s step-end infinite" }}>_</span>
-    </span>
-  );
-};
-
 /* ─── Title Card ─── */
 const TitleCard: React.FC = () => {
   const frame = useCurrentFrame();
