@@ -177,6 +177,7 @@ export async function withRESTFallback<T>(
         if (!freshStatus.canUseREST) {
           throw new Error(
             `GitHub API headroom exhausted (gql:${freshStatus.graphqlRemaining} rest:${freshStatus.restRemaining}). Cannot proceed.`,
+            { cause: err },
           );
         }
         const data = await restFn();
