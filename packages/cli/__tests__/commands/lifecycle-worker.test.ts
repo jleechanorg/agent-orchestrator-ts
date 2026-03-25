@@ -43,7 +43,7 @@ vi.mock("node:child_process", async (importOriginal) => {
 });
 
 const { sweepOrphanWorktrees } = await import(
-  "../../src/commands/lifecycle-worker.js"
+  "../../src/commands/orphan-sweep.js"
 );
 
 function createMockObserver() {
