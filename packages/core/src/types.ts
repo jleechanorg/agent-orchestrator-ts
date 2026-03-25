@@ -1324,6 +1324,13 @@ export interface ProjectConfig {
    * The lifecycle-worker's orphan sweep uses this to locate worktrees.
    */
   worktreeDir?: string;
+
+  // =============================================================================
+  // TASK QUEUE — bd-bsu
+  // =============================================================================
+
+  /** Config-driven bead task queue with maxConcurrent concurrency limit. */
+  taskQueue?: TaskQueueConfig;
 }
 
 /** Merge gate configuration (bd-uxs.8) */
@@ -1354,6 +1361,21 @@ export interface MergeGateConfig {
 
   /** Timeout for webhook response (default: 30s) */
   webhookTimeout?: number;
+}
+
+/** Task queue configuration for config-driven bead processing (bd-bsu) */
+export interface TaskQueueConfig {
+  /** Enable the task queue drainer */
+  enabled: boolean;
+
+  /** Max simultaneous queue-spawned sessions (default: 4) */
+  maxConcurrent: number;
+
+  /** Ordered list of bead IDs to process */
+  beads: string[];
+
+  /** Optional template for the task description sent to each session */
+  taskTemplate?: string;
 }
 
 export interface TrackerConfig {

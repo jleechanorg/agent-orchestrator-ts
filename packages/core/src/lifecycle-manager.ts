@@ -59,6 +59,7 @@ import { GLOBAL_PAUSE_UNTIL_KEY, GLOBAL_PAUSE_REASON_KEY, parsePauseUntil } from
 import { isGhRateLimitError } from "./gh-rate-limit.js";
 import { backfillUncoveredPRs } from "./backfill-extensions.js";
 import { sweepOrphanTmuxSessions, DEFAULT_TMUX_SWEEPER_CONFIG } from "./tmux-session-sweeper.js";
+import { drainTaskQueue } from "./task-queue.js";
 
 /** Parse a duration string like "10m", "30s", "1h" to milliseconds. */
 export function parseDuration(str: string): number {
@@ -1591,6 +1592,21 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
           );
           // If we just spawned a session, skip all_complete — more work exists.
           if (backfillSpawned) {
+            allCompleteEmitted = false;
+          }
+        }
+      }
+
+      // bd-bsu: Task queue drainer — spawns sessions for queued beads up to maxConcurrent.
+      // Runs independently of backfillAllPRs; both can co-exist.
+      if (scopedProjectId) {
+        const project = config.projects[scopedProjectId];
+        if (project?.taskQueue?.enabled) {
+          const tqSpawned = await drainTaskQueue(
+            { registry, sessionManager, observer },
+            { projectId: scopedProjectId, project, activeSessions, correlationId },
+          );
+          if (tqSpawned > 0) {
             allCompleteEmitted = false;
           }
         }
