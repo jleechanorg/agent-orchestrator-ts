@@ -14,6 +14,7 @@ import { getLifecycleManager, getSessionManager } from "../lib/create-session-ma
 import {
   clearLifecycleWorkerPid,
   getLifecycleWorkerStatus,
+  tryAcquireLifecycleLock,
   writeLifecycleWorkerPid,
 } from "../lib/lifecycle-service.js";
 
@@ -161,19 +162,66 @@ export function registerLifecycleWorker(program: Command): void {
           process.exit(1);
         }
 
-        const existing = getLifecycleWorkerStatus(config, projectId);
-        if (existing.running && existing.pid !== process.pid) {
-          // Another lifecycle worker is already running for this project — exit
-          // silently to avoid duplicate polling loops.
-          // Note: getLifecycleWorkerStatus already validates the PID is alive via
-          // kill -0, so this is not a stale-PID false positive.
+        // orch-886k: acquire an exclusive lock before checking status or writing
+        // the PID file. This closes the TOCTOU window that allowed two concurrent
+        // lifecycle-worker processes (e.g. launchd restart + ao start) to both
+        // pass the "not running" check before either recorded its PID.
+        const releaseLock = tryAcquireLifecycleLock(config, projectId);
+        if (!releaseLock) {
+          // Another process holds the lock -- it is starting up or already running.
+          const existingLocked = getLifecycleWorkerStatus(config, projectId);
+          if (existingLocked.running && existingLocked.pid !== process.pid) {
+            observer.setHealth({
+              surface: "lifecycle.worker",
+              status: "warn",
+              projectId,
+              correlationId: createCorrelationId("lifecycle-worker"),
+              reason: `Worker already running with pid ${existingLocked.pid} (lock held)`,
+              details: { projectId, pid: existingLocked.pid },
+            });
+            return;
+          }
           observer.setHealth({
             surface: "lifecycle.worker",
             status: "warn",
             projectId,
             correlationId: createCorrelationId("lifecycle-worker"),
-            reason: `Worker already running with pid ${existing.pid}`,
-            details: { projectId, pid: existing.pid },
+            reason: "Startup lock held by peer; yielding to avoid duplicate worker",
+            details: { projectId, pid: process.pid },
+          });
+          return;
+        }
+
+        // We hold the lock. Check for an already-running worker, then write our PID.
+        // Wrap the entire critical section in try/finally so the lock is always
+        // released even if getLifecycleWorkerStatus or writeLifecycleWorkerPid throws.
+        let skipStartup = false;
+        let skipReason = "";
+        let skipDetails: Record<string, unknown> = {};
+        try {
+          const existing = getLifecycleWorkerStatus(config, projectId);
+          if (existing.running && existing.pid !== process.pid) {
+            skipStartup = true;
+            skipReason = `Worker already running with pid ${existing.pid}`;
+            skipDetails = { projectId, pid: existing.pid };
+          } else {
+            // Record our PID while holding the lock so no peer races past this
+            // point. (orch-886k)
+            writeLifecycleWorkerPid(config, projectId, process.pid);
+          }
+        } finally {
+          // Always release the lock, even on throw.
+          releaseLock();
+        }
+
+        if (skipStartup) {
+          observer.setHealth({
+            surface: "lifecycle.worker",
+            status: "warn",
+            projectId,
+            correlationId: createCorrelationId("lifecycle-worker"),
+            reason: skipReason,
+            details: skipDetails,
           });
           return;
         }
@@ -248,7 +296,7 @@ export function registerLifecycleWorker(program: Command): void {
           shutdown(1);
         });
 
-        writeLifecycleWorkerPid(config, projectId, process.pid);
+        // PID was written while holding the lock above. (orch-886k)
         observer.setHealth({
           surface: "lifecycle.worker",
           status: "ok",

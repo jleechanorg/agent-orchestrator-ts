@@ -1,6 +1,7 @@
 import { execFileSync, spawn } from "node:child_process";
 import {
   closeSync,
+  constants,
   existsSync,
   mkdirSync,
   openSync,
@@ -12,6 +13,7 @@ import { join } from "node:path";
 import { getProjectBaseDir, type OrchestratorConfig } from "@jleechanorg/ao-core";
 
 const LIFECYCLE_PID_FILE = "lifecycle-worker.pid";
+const LIFECYCLE_LOCK_FILE = "lifecycle-worker.lock";
 const LIFECYCLE_LOG_FILE = "lifecycle-worker.log";
 const DEFAULT_START_TIMEOUT_MS = 5_000;
 const STOP_TIMEOUT_MS = 5_000;
@@ -39,6 +41,166 @@ export function getLifecyclePidFile(config: OrchestratorConfig, projectId: strin
 
 export function getLifecycleLogFile(config: OrchestratorConfig, projectId: string): string {
   return join(getProjectBase(config, projectId), LIFECYCLE_LOG_FILE);
+}
+
+export function getLifecycleLockFile(config: OrchestratorConfig, projectId: string): string {
+  return join(getProjectBase(config, projectId), LIFECYCLE_LOCK_FILE);
+}
+
+/**
+ * Attempt to atomically claim the lifecycle-worker startup lock for a project.
+ *
+ * Uses O_EXCL so only one process can create the lock file. Returns a release
+ * function on success, or null if another process holds the lock. Closes the
+ * TOCTOU window between getLifecycleWorkerStatus() and writeLifecycleWorkerPid()
+ * so two concurrent processes (e.g. launchd restart + ao start) cannot both
+ * pass the dedup check before either writes its PID. (orch-886k)
+ *
+ * If the lock file already exists, checks whether the owning process is still
+ * alive. Stale locks from crashed workers are reaped and acquisition is retried
+ * atomically, preventing a crash from permanently blocking future startups.
+ */
+export function tryAcquireLifecycleLock(
+  config: OrchestratorConfig,
+  projectId: string,
+): (() => void) | null {
+  const lockFile = getLifecycleLockFile(config, projectId);
+  const baseDir = getProjectBase(config, projectId);
+
+  const _reapStaleLock = (): boolean => {
+    // Read the PID stored in the stale lock file.
+    let stalePid: number;
+    try {
+      const raw = readFileSync(lockFile, "utf-8").trim();
+      stalePid = Number.parseInt(raw, 10);
+    } catch {
+      return false;
+    }
+    if (!Number.isFinite(stalePid) || stalePid === process.pid) return false;
+
+    try {
+      // -ww: do not truncate the command column (avoids false negatives for
+      // long command lines on macOS/BSD).
+      // -p: select only the specific PID.
+      // -o args=: output only the command line, no header.
+      const cmdline = execFileSync("ps", ["-ww", "-p", String(stalePid), "-o", "args="], {
+        timeout: 3_000,
+        stdio: ["ignore", "pipe", "ignore"],
+      }).toString("utf-8").trim();
+
+      // Non-empty output means the process is still alive.
+      if (cmdline.length > 0) return false;
+    } catch {
+      // ps failed — process is gone (ESRCH, EPERM, etc.) or ps is unavailable.
+      // Treat as dead: the lock is stale and can be reaped.
+    }
+
+    try {
+      unlinkSync(lockFile);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  try {
+    mkdirSync(baseDir, { recursive: true });
+    // O_EXCL ensures the creation is atomic -- only one caller succeeds.
+    const fd = openSync(lockFile, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY);
+    try {
+      writeFileSync(fd, `${process.pid}\n`);
+    } finally {
+      closeSync(fd);
+    }
+    return () => {
+      try {
+        unlinkSync(lockFile);
+      } catch {
+        /* best effort */
+      }
+    };
+  } catch (err: unknown) {
+    // Distinguish EEXIST (lock held by peer) from other filesystem errors.
+    const code = typeof err === "object" && err !== null && "code" in err
+      ? String((err as { code: unknown }).code)
+      : "";
+    if (code !== "EEXIST") {
+      // EACCES, ENOENT, disk full, etc. — re-throw so the caller knows this
+      // is a real error, not merely "another worker is starting".
+      throw err;
+    }
+    // EEXIST: another process holds the lock. Check for a stale lock (crashed
+    // owner) before giving up.
+    if (_reapStaleLock()) {
+      // Stale lock removed. Retry acquisition atomically.
+      try {
+        mkdirSync(baseDir, { recursive: true });
+        const fd2 = openSync(lockFile, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY);
+        try {
+          writeFileSync(fd2, `${process.pid}\n`);
+        } finally {
+          closeSync(fd2);
+        }
+        return () => {
+          try {
+            unlinkSync(lockFile);
+          } catch {
+            /* best effort */
+          }
+        };
+      } catch {
+        // Another process acquired it between our unlink and retry — yield.
+        return null;
+      }
+    }
+    // Genuinely held by a live process — yield to the peer.
+    return null;
+  }
+}
+
+/**
+ * Scan the process table for a running lifecycle-worker for the given project.
+ *
+ * Used as a fallback in ensureLifecycleWorker when no PID file exists -- covers
+ * the case where launchd started a worker before it had a chance to write its
+ * PID file, which would otherwise cause ensureLifecycleWorker to spawn a
+ * duplicate. (orch-886k)
+ *
+ * Returns the PID if found, null otherwise. Returns null on ps failure so that
+ * the caller (ensureLifecycleWorker) skips the scan and conservatively refuses
+ * to spawn -- preserving the PID file for the next call to retry.
+ */
+export function scanForRunningLifecycleWorker(projectId: string): number | null {
+  try {
+    // -ww: do not truncate the command column (macOS/BSD default to ~16 columns,
+    // which cuts off the "lifecycle-worker <projectId>" marker for long paths).
+    // -o pid,args=: output PID and full command line, no header.
+    const stdout = execFileSync("ps", ["-ww", "-o", "pid,args="], {
+      timeout: 5_000,
+      stdio: ["ignore", "pipe", "ignore"],
+    }).toString("utf-8");
+
+    const marker = `lifecycle-worker ${projectId}`;
+    const markerEscaped = marker.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const pattern = new RegExp(`(?:^|\\s)${markerEscaped}(?:\\s|$)`);
+
+    for (const line of stdout.split("\n")) {
+      if (!pattern.test(line)) continue;
+      // Output format: "  PID  args..." — PID is the first whitespace-separated token.
+      const trimmed = line.trim();
+      const spaceIdx = trimmed.indexOf(" ");
+      const pidStr = spaceIdx >= 0 ? trimmed.slice(0, spaceIdx) : trimmed;
+      const pid = Number.parseInt(pidStr, 10);
+      if (Number.isFinite(pid) && pid > 0 && pid !== process.pid) {
+        return pid;
+      }
+    }
+    return null;
+  } catch {
+    // ps failed (unavailable, timeout, etc.) -- return null so the caller
+    // refuses to spawn rather than risk creating a duplicate worker.
+    return null;
+  }
 }
 
 function sleep(ms: number): Promise<void> {
@@ -216,6 +378,20 @@ export async function ensureLifecycleWorker(
   // creating a duplicate. The PID file is preserved so the next call retries.
   if (current.verified === null) {
     return { ...current, started: false };
+  }
+
+  // orch-886k: ps-scan fallback -- detect workers started by launchd (or any
+  // external caller) that haven't written their PID file yet. If a running
+  // lifecycle-worker is found in the process table, skip spawning a duplicate
+  // even when no PID file exists. This closes the window where launchd + ao
+  // start race to spawn two workers for the same project.
+  const scannedPid = scanForRunningLifecycleWorker(projectId);
+  if (scannedPid !== null) {
+    // A worker was found via ps scan even though no PID file exists (e.g.
+    // launchd started it). running=true is consistent with LifecycleWorkerStatus:
+    // verified=true means ps confirmed a genuine lifecycle-worker process, so the
+    // worker IS running even though it hasn't written the PID file yet.
+    return { ...current, running: true, pid: scannedPid, verified: true, started: false };
   }
 
   const baseDir = getProjectBase(config, projectId);
