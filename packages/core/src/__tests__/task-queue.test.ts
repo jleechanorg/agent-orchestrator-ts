@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import type {
   Session,
   ProjectConfig,
+  SessionManager,
 } from "../types.js";
 import type { ProjectObserver } from "../observability.js";
 
@@ -17,7 +18,6 @@ vi.mock("../metadata.js", () => ({
 // Re-import AFTER vi.mock declarations so the mocks are active
 const { drainTaskQueue, resolveBead, _resetDrainTimer } = await import("../task-queue.js");
 import type { TaskQueueDeps, TaskQueueParams } from "../task-queue.js";
-import type { SessionManager } from "../types.js";
 
 function makeSession(overrides: Partial<Session> = {}): Session {
   return {
