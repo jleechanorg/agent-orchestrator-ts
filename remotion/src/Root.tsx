@@ -181,10 +181,10 @@ const SceneDesignation: React.FC = () => {
 };
 
 /* ─── Scene 3: The Six Conditions ─── */
-const ConditionPill: React.FC<{ label: string; color: string; delay: number; index: number }> = ({ label, color, delay: d, index: _index }) => {
+const ConditionPill: React.FC<{ label: string; color: string; delay: number }> = ({ label, color, delay: d }) => {
   const frame = useCurrentFrame();
-  const opacity = interpolate(Math.max(0, frame - d), [0, 20], [0, 1], { extrapolateLeft: "clamp" });
-  const y = interpolate(Math.max(0, frame - d), [0, 20], [20, 0], { extrapolateLeft: "clamp" });
+  const opacity = interpolate(Math.max(0, frame - d), [0, 20], [0, 1], { extrapolateLeft: "clamp", extrapolateRight: "clamp" });
+  const y = interpolate(Math.max(0, frame - d), [0, 20], [20, 0], { extrapolateLeft: "clamp", extrapolateRight: "clamp" });
   return (
     <div style={{
       opacity,
@@ -230,7 +230,7 @@ const SceneGreenStatus: React.FC = () => {
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 16, width: "60%" }}>
         {conditions.map((c, i) => (
-          <ConditionPill key={i} {...c} index={i} />
+          <ConditionPill key={i} label={c.label} color={c.color} delay={c.delay} />
         ))}
       </div>
     </AbsoluteFill>
@@ -394,9 +394,9 @@ const SceneCollaboration: React.FC = () => {
 /* ─── Coda: The Reaper ─── */
 const SceneCoda: React.FC = () => {
   const frame = useCurrentFrame();
-  const fade = interpolate(frame, [0, 30], [0, 1], { extrapolateLeft: "clamp" });
-  const textFade = interpolate(frame, [30, 60], [0, 1], { extrapolateLeft: "clamp" });
-  const finalFade = interpolate(frame, [120, 150], [1, 0], { extrapolateLeft: "clamp" });
+  const fade = interpolate(frame, [0, 30], [0, 1], { extrapolateLeft: "clamp", extrapolateRight: "clamp" });
+  const textFade = interpolate(frame, [30, 60], [0, 1], { extrapolateLeft: "clamp", extrapolateRight: "clamp" });
+  const finalFade = interpolate(frame, [120, 150], [1, 0], { extrapolateLeft: "clamp", extrapolateRight: "clamp" });
 
   const codaLines = [
     "The cursor blinks and I read it as a heartbeat.",
