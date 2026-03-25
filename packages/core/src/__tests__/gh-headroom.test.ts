@@ -14,8 +14,8 @@ describe("parseGhRateLimitOutput", () => {
   it("parses gh api --jq '.resources' output (graphql + core)", () => {
     // This is what fetchGhRateLimit() passes after: gh api rate_limit --jq '.resources'
     const json = JSON.stringify({
-      graphql: { remaining: 487, limit: 5000, reset: "2025-06-01T13:00:00Z" },
-      core:   { remaining: 4999, limit: 5000, reset: "2025-06-01T13:00:00Z" },
+      graphql: { remaining: 487, limit: 5000, reset: 1748779200 },
+      core:   { remaining: 4999, limit: 5000, reset: 1748779200 },
     });
     const result = parseGhRateLimitOutput(json);
     expect(result?.graphql?.remaining).toBe(487);
@@ -34,7 +34,7 @@ describe("parseGhRateLimitOutput", () => {
 
   it("handles missing graphql/core keys gracefully", () => {
     // gh api --jq '.resources' output with only search
-    const json = JSON.stringify({ search: { remaining: 10, limit: 30, reset: "" } });
+    const json = JSON.stringify({ search: { remaining: 10, limit: 30, reset: 0 } });
     const result = parseGhRateLimitOutput(json);
     expect(result?.graphql).toBeUndefined();
     expect(result?.core).toBeUndefined();
@@ -111,8 +111,8 @@ describe("fetchGhRateLimit subprocess paths", () => {
   it("returns parsed resources on successful subprocess call", async () => {
     // gh api rate_limit --jq '.resources' returns the resources object directly
     const body = JSON.stringify({
-      graphql: { remaining: 300, limit: 5000, reset: "2025-06-01T13:00:00Z" },
-      core:   { remaining: 4500, limit: 5000, reset: "2025-06-01T13:00:00Z" },
+      graphql: { remaining: 300, limit: 5000, reset: 1748779200 },
+      core:   { remaining: 4500, limit: 5000, reset: 1748779200 },
     });
     ghHeadroomInject({
       execAsync: vi.fn().mockResolvedValue({ stdout: body, stderr: "" }),
@@ -152,8 +152,8 @@ describe("fetchGhRateLimit subprocess paths", () => {
 /** Build an execAsync stub that returns the given headroom resources. */
 function stubHeadroom(graphqlRemaining: number, coreRemaining: number) {
   const body = JSON.stringify({
-    graphql: { remaining: graphqlRemaining, limit: 5000, reset: "2025-06-01T13:00:00Z" },
-    core:   { remaining: coreRemaining,    limit: 5000, reset: "2025-06-01T13:00:00Z" },
+    graphql: { remaining: graphqlRemaining, limit: 5000, reset: 1748779200 },
+    core:   { remaining: coreRemaining,    limit: 5000, reset: 1748779200 },
   });
   return vi.fn().mockResolvedValue({ stdout: body, stderr: "" });
 }
@@ -224,12 +224,12 @@ describe("withRESTFallback", () => {
     // proving withRESTFallback actually re-fetches after cache invalidation.
     const execStub = vi.fn()
       .mockResolvedValueOnce({ stdout: JSON.stringify({
-        graphql: { remaining: 500, limit: 5000, reset: "2025-06-01T13:00:00Z" },
-        core:   { remaining: 4000, limit: 5000, reset: "2025-06-01T13:00:00Z" },
+        graphql: { remaining: 500, limit: 5000, reset: 1748779200 },
+        core:   { remaining: 4000, limit: 5000, reset: 1748779200 },
       }), stderr: "" })
       .mockResolvedValueOnce({ stdout: JSON.stringify({
-        graphql: { remaining: 500, limit: 5000, reset: "2025-06-01T13:00:00Z" },
-        core:   { remaining: 10, limit: 5000, reset: "2025-06-01T13:00:00Z" }, // REST exhausted
+        graphql: { remaining: 500, limit: 5000, reset: 1748779200 },
+        core:   { remaining: 10, limit: 5000, reset: 1748779200 }, // REST exhausted
       }), stderr: "" });
     ghHeadroomInject({ execAsync: execStub });
     invalidateHeadroomCache();

@@ -77,17 +77,18 @@ export const DEFAULT_HEADROOM_THRESHOLDS: HeadroomThresholds = {
 // ---------------------------------------------------------------------------
 
 interface GHRateLimitResources {
-  graphql?: { remaining: number; limit: number; reset: string };
-  core?: { remaining: number; limit: number; reset: string };
-  search?: { remaining: number; limit: number; reset: string };
+  graphql?: { remaining: number; limit: number; reset: number };
+  core?: { remaining: number; limit: number; reset: number };
+  search?: { remaining: number; limit: number; reset: number };
 }
 
 /** Parse `gh api rate_limit --jq '.resources'` output. Returns null on parse failure. */
 export function parseGhRateLimitOutput(stdout: string): GHRateLimitResources | null {
   try {
     const parsed = JSON.parse(stdout);
-    // Caller (fetchGhRateLimit) passes --jq '.resources' so we receive the
-    // resources object directly. Support both that and the full-response shape.
+    // gh api rate_limit returns a top-level "resources" object.
+    // Caller passes --jq '.resources' so we receive the resources object directly.
+    // Support both that (jq-extracted) and the full-response shape.
     return parsed.resources ?? parsed;
   } catch {
     return null;
@@ -132,9 +133,8 @@ export async function getHeadroomStatus(
   }
 
   const resources = await fetchGhRateLimit();
-  const resetAt = resources?.graphql?.reset
-    ?? resources?.core?.reset
-    ?? null;
+  const resetEpoch = resources?.graphql?.reset ?? resources?.core?.reset ?? null;
+  const resetAt = resetEpoch !== null ? new Date(resetEpoch * 1000).toISOString() : null;
 
   _cachedHeadroom = {
     graphqlRemaining: resources?.graphql?.remaining ?? 1000,
