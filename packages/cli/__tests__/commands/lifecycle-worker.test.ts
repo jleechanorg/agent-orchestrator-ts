@@ -346,7 +346,7 @@ describe("sweepOrphanWorktrees", () => {
     expect(observer.recordOperation).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({ orphanCount: 3, cleanedCount: 2 }),
-        outcome: "success",
+        outcome: "failure",
       }),
     );
   });

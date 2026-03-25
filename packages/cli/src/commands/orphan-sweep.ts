@@ -166,11 +166,13 @@ export async function sweepOrphanWorktrees(opts: {
     observer.recordOperation({
       metric: "lifecycle_poll",
       operation: "lifecycle.worktree_orphan_sweep",
-      outcome: cleanedCount > 0 ? "success" : "failure",
+      // "success" only when ALL detected orphans were cleaned; partial cleanup
+      // still means orphans remain and needs follow-up investigation.
+      outcome: cleanedCount === orphanCount ? "success" : "failure",
       correlationId,
       projectId,
       data: { orphanCount, cleanedCount, projectWorktreeDir },
-      level: cleanedCount > 0 ? "warn" : "error",
+      level: "warn",
     });
   }
 }
