@@ -173,8 +173,11 @@ export function createAntigravityRuntime(config?: AntigravityConfig): Runtime {
       };
 
       // Start idle detection polling against the Manager window.
-      // Safe for fallback sessions — poller.start skips when managerWindowId is -1.
-      poller.start(handle, session.managerWindowId);
+      // Only poll when there's a real onIdle subscriber — avoids wasteful
+      // peekaboo.see() calls when no callback is registered.
+      if (config.onIdle) {
+        poller.start(handle, session.managerWindowId);
+      }
 
       return handle;
     },
