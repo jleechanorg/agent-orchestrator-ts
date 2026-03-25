@@ -23,13 +23,30 @@ const REDUNDANT_REPLACEMENTS: Array<[RegExp, string]> = [
   [/\bblatantly\sobvious\b/gi, "obvious"],
 ];
 
+/** Trim leading whitespace only. */
+function ltrim(str: string): string {
+  return str.replace(/^\s+/, "");
+}
+
 /**
- * Apply auto-fixable corrections to a line.
+ * Apply auto-fixable corrections to a line, preserving leading indentation.
+ *
+ * Filler-word removal can leave single artifact spaces (e.g. "Just a note" →
+ * " a note") because the filler itself is 1 char and the space after it is a
+ * single char — below the \s{2,} collapse threshold.  We solve this by:
+ *   1. Stripping and stashing any leading indentation
+ *   2. Removing fillers and collapsing whitespace in the content
+ *   3. Trimming only the content (removes artifact trailing space)
+ *   4. ltrim()ing the content (removes artifact leading space)
+ *   5. Restoring the original indentation
  */
 function fixLine(line: string): string {
-  let result = line;
+  // Preserve leading indentation (tabs/spaces that form the line's indent)
+  const indentMatch = line.match(/^(\s+)/);
+  const indent = indentMatch ? indentMatch[1] : "";
+  let result = ltrim(line);
 
-  // Remove filler words
+  // Remove filler words (now ltrimmed so no artifact leading space)
   const fillerRE = new RegExp(`\\b(${FILLERS.join("|")})\\b`, "gi");
   result = result.replace(fillerRE, "").replace(/\s{2,}/g, " ");
 
@@ -38,7 +55,7 @@ function fixLine(line: string): string {
     result = result.replace(pattern, replacement);
   }
 
-  return result;
+  return indent + result;
 }
 
 /**
