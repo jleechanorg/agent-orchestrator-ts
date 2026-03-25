@@ -89,7 +89,25 @@ describe("getOperationHeadroom / shouldDeferOperation", () => {
     expect(typeof status.canUseREST).toBe("boolean");
     expect(typeof status.graphqlRemaining).toBe("number");
     expect(typeof status.restRemaining).toBe("number");
-    expect(["graphql", "rest", "defer"]).toContain(status.recommendation);
+    // When headroom data is unavailable, the safe default is "defer"
+    expect(status.recommendation).toBe("defer");
+    expect(status.canUseGraphQL).toBe(false);
+    expect(status.canUseREST).toBe(false);
+  });
+
+  it("recommendation is defer when resources lacks graphql and core keys (search-only)", async () => {
+    // gh --jq '.resources' output with only "search" — no actionable buckets
+    ghHeadroomInject({
+      execAsync: vi.fn().mockResolvedValue({
+        stdout: JSON.stringify({ search: { remaining: 10, limit: 30, reset: 0 } }),
+        stderr: "",
+      }),
+    });
+    invalidateHeadroomCache();
+    const status = await getOperationHeadroom();
+    expect(status.recommendation).toBe("defer");
+    expect(status.canUseGraphQL).toBe(false);
+    expect(status.canUseREST).toBe(false);
   });
 });
 
