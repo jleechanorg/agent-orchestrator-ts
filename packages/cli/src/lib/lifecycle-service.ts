@@ -53,17 +53,6 @@ export function getLifecycleLockFile(config: OrchestratorConfig, projectId: stri
  * Uses O_EXCL so only one process can create the lock file. Returns a release
  * function on success, or null if another process holds the lock.
  *
- * This closes the TOCTOU window between getLifecycleWorkerStatus() and
- * writeLifecycleWorkerPid(): without this lock, two concurrent lifecycle-worker
- * processes (e.g. launchd restart + ao start) can both pass the dedup check
- * before either writes its PID. (orch-886k)
- */
-/**
- * Attempt to atomically claim the lifecycle-worker startup lock for a project.
- *
- * Uses O_EXCL so only one process can create the lock file. Returns a release
- * function on success, or null if another process holds the lock.
- *
  * If the lock file already exists, this function checks whether the owning
  * process is still alive. If the process is dead (crashed without releasing the
  * lock), the stale lock is reaped and acquisition is retried atomically.
