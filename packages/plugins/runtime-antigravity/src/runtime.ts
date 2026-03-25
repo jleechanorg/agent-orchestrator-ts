@@ -14,6 +14,7 @@ import type {
 } from "@jleechanorg/ao-core";
 import * as peekaboo from "./peekaboo.js";
 import { executeWithFallback, type FallbackConfig } from "./fallback.js";
+import { createPoller } from "./poller.js";
 import type { AntigravitySession } from "./types.js";
 import { defaultConfig, type AntigravityConfig } from "./config.js";
 
@@ -33,6 +34,20 @@ export function createAntigravityRuntime(config?: AntigravityConfig): Runtime {
   // via the explicit setter (avoids mutating process.env which can bleed
   // across multiple runtime instances).
   peekaboo.setPeekabooBin(runtimeConfig.peekabooBin);
+
+  // Single shared poller for all sessions on this runtime instance.
+  // Polls the Manager window (not per-conversation windows) for spinner state.
+  // onIdle forwards to the per-session callback stored in handle.data["onIdle"].
+  const poller = createPoller(runtimeConfig.pollIntervalMs, {
+    onIdle: (handle) => {
+      const cb = handle.data["onIdle"] as ((id: string) => void) | undefined;
+      if (cb) cb(handle.id);
+    },
+    onCapacityWait: () => {
+      // Caller subscribes via lifecycle events when needed.
+    },
+  });
+
   return {
     name: "antigravity",
 
@@ -145,7 +160,7 @@ export function createAntigravityRuntime(config?: AntigravityConfig): Runtime {
         };
       }
 
-      return {
+      const handle: RuntimeHandle = {
         id: config.sessionId,
         runtimeName: "antigravity",
         data: {
@@ -153,21 +168,39 @@ export function createAntigravityRuntime(config?: AntigravityConfig): Runtime {
           workspacePath: config.workspacePath,
           session,
           fallbackUsed: result.fallbackUsed,
+          ...(config.onIdle && { onIdle: config.onIdle }),
         },
       };
+
+      // Start idle detection polling against the Manager window.
+      // Only poll when there's a real onIdle subscriber — avoids wasteful
+      // peekaboo.see() calls when no callback is registered.
+      if (config.onIdle) {
+        poller.start(handle, session.managerWindowId);
+      }
+
+      return handle;
     },
 
     async destroy(handle: RuntimeHandle): Promise<void> {
+      // One-shot guard — prevent double-destroy from calling SIGTERM on a
+      // recycled PID. (CodeRabbit #a493466b)
+      if (handle.data["destroyed"] === true) return;
+      handle.data["destroyed"] = true;
+
       const session = handle.data["session"] as
         | AntigravitySession
         | undefined;
       if (!session) return;
 
       try {
-        // Kill fallback CLI process if present (regardless of windowId)
+        // Kill fallback CLI process if present — capture and clear PID first so
+        // a second destroy() call is a no-op even if the PID was recycled.
         if (session.fallbackPid) {
+          const fallbackPid = session.fallbackPid;
+          session.fallbackPid = undefined;
           try {
-            process.kill(session.fallbackPid, "SIGTERM");
+            process.kill(fallbackPid, "SIGTERM");
           } catch {
             // Process may have already exited
           }
@@ -203,6 +236,9 @@ export function createAntigravityRuntime(config?: AntigravityConfig): Runtime {
         // Always mark session idle, even if cleanup threw
         session.status = "idle";
       }
+
+      // Stop idle detection polling for this session.
+      poller.stop(handle.id);
     },
 
     async sendMessage(handle: RuntimeHandle, message: string): Promise<void> {

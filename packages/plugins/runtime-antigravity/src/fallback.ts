@@ -56,7 +56,7 @@ const CLI_TIMEOUT_MS = 120_000;
 const ERROR_PATTERNS: RegExp[] = [
   /\bpeekaboo[\s:].*element not found/i,
   /\bpeekaboo[\s:].*window not found/i,
-  /\bpeekaboo.*failed/i,
+  /\bpeekaboo[\s:].*failed/i,
   /Antigravity Manager window not found/i,
 ];
 

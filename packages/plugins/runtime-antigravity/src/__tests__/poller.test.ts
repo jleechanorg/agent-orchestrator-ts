@@ -272,4 +272,80 @@ describe("lifecycle", () => {
 
     poller.stopAll();
   });
+
+  it("start() with managerWindowId=-1 does not schedule any timer", async () => {
+    const onIdle = vi.fn();
+    const onCapacityWait = vi.fn();
+    const callbacks: PollerCallbacks = { onIdle, onCapacityWait };
+
+    const poller = createPoller(15_000, callbacks);
+    const handle = makeHandle("noop-window", -1); // windowId = -1
+
+    // Start with managerWindowId = -1 (fallback session — no GUI)
+    poller.start(handle, -1);
+
+    // Advance well past when a tick would have fired
+    await vi.advanceTimersByTimeAsync(60_000);
+
+    // No peekaboo.see() calls should have been made
+    expect(mockSee).not.toHaveBeenCalled();
+    expect(onIdle).not.toHaveBeenCalled();
+  });
+});
+
+describe("callback resilience", () => {
+  it("onIdle throw does not update lastState — next poll retries and succeeds", async () => {
+    const onIdle = vi.fn().mockImplementation(() => {
+      throw new Error("transient failure");
+    });
+    const onCapacityWait = vi.fn();
+    const callbacks: PollerCallbacks = { onIdle, onCapacityWait };
+
+    const poller = createPoller(15_000, callbacks);
+    const handle = makeHandle("retry-test");
+
+    // Tick 1: running (transitions unknown → running)
+    mockSee.mockResolvedValueOnce(makeSeeResult("progress_activity Working"));
+    poller.start(handle, 1);
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(onIdle).not.toHaveBeenCalled(); // unknown → running, not idle
+
+    // Tick 2: idle, but onIdle throws — lastState must NOT update
+    mockSee.mockResolvedValueOnce(makeSeeResult("Finished 5m ago"));
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(onIdle).toHaveBeenCalledTimes(1); // running → idle, threw
+
+    // Tick 3: idle again — lastState was NOT updated, so retry fires
+    mockSee.mockResolvedValueOnce(makeSeeResult("Finished 6m ago"));
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(onIdle).toHaveBeenCalledTimes(2); // retry succeeded
+
+    poller.stopAll();
+  });
+
+  it("onCapacityWait throw does not update lastState", async () => {
+    const onIdle = vi.fn();
+    const onCapacityWait = vi.fn().mockImplementation(() => {
+      throw new Error("transient capacity error");
+    });
+    const callbacks: PollerCallbacks = { onIdle, onCapacityWait };
+
+    const poller = createPoller(15_000, callbacks);
+    const handle = makeHandle("capacity-retry-test");
+
+    mockSee.mockResolvedValueOnce(makeSeeResult("Waiting for capacity"));
+    poller.start(handle, 1);
+    await vi.advanceTimersByTimeAsync(15_000);
+
+    expect(onCapacityWait).toHaveBeenCalledTimes(1);
+
+    // Next tick: still capacity-wait
+    mockSee.mockResolvedValueOnce(makeSeeResult("Waiting for capacity"));
+    await vi.advanceTimersByTimeAsync(15_000);
+
+    // Should have retried
+    expect(onCapacityWait).toHaveBeenCalledTimes(2);
+
+    poller.stopAll();
+  });
 });

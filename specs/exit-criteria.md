@@ -17,7 +17,7 @@ grep -q 'antigravity' packages/core/src/plugin-registry.ts
 ```
 **What PASS looks like:**
 - `pnpm build` exits 0, no TypeScript errors
-- All test files pass (currently 8 files, 93+ tests)
+- All test files pass (see `pnpm test --filter '*antigravity*'` output for actual count)
 - `plugin-registry.ts` contains the antigravity import and registration
 **What FAIL looks like:**
 - "Tests pass" without showing `pnpm test` output

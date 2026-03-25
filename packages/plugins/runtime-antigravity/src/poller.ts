@@ -142,17 +142,30 @@ export function createPoller(
         if (state === "unknown") return;
 
         const previousState = currentEntry.lastState;
-        currentEntry.lastState = state;
 
         // Transition: running → idle
         if (previousState === "running" && state === "idle") {
-          callbacks.onIdle(handle);
+          try {
+            callbacks.onIdle(handle);
+          } catch {
+            // Callback failed — do NOT update lastState; next poll will retry.
+            return;
+          }
         }
 
         // Capacity-wait detection (fire every tick while in this state)
         if (state === "capacity-wait") {
-          callbacks.onCapacityWait(handle, CAPACITY_RETRY_MS);
+          try {
+            callbacks.onCapacityWait(handle, CAPACITY_RETRY_MS);
+          } catch {
+            // Callback failed — skip state update so next poll retries.
+            return;
+          }
         }
+
+        // Only update lastState after callbacks succeed — prevents lost
+        // transitions when onIdle/onCapacityWait throws (Cursor BugBot #e4679aca).
+        currentEntry.lastState = state;
       })
       .catch(() => {
         // Silently ignore peekaboo errors — will retry on next tick
@@ -161,6 +174,8 @@ export function createPoller(
 
   return {
     start(handle: RuntimeHandle, managerWindowId: number): void {
+      // Skip polling for fallback sessions (CLI-only, no GUI window to observe).
+      if (managerWindowId === -1) return;
       // Prevent duplicate pollers for the same handle
       if (entries.has(handle.id)) return;
 
