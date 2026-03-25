@@ -181,16 +181,24 @@ export function createAntigravityRuntime(config?: AntigravityConfig): Runtime {
     },
 
     async destroy(handle: RuntimeHandle): Promise<void> {
+      // One-shot guard — prevent double-destroy from calling SIGTERM on a
+      // recycled PID. (CodeRabbit #a493466b)
+      if (handle.data["destroyed"] === true) return;
+      handle.data["destroyed"] = true;
+
       const session = handle.data["session"] as
         | AntigravitySession
         | undefined;
       if (!session) return;
 
       try {
-        // Kill fallback CLI process if present (regardless of windowId)
+        // Kill fallback CLI process if present — capture and clear PID first so
+        // a second destroy() call is a no-op even if the PID was recycled.
         if (session.fallbackPid) {
+          const fallbackPid = session.fallbackPid;
+          session.fallbackPid = undefined;
           try {
-            process.kill(session.fallbackPid, "SIGTERM");
+            process.kill(fallbackPid, "SIGTERM");
           } catch {
             // Process may have already exited
           }
