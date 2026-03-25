@@ -32,9 +32,11 @@ import {
   constants,
 } from "node:fs";
 import { join, dirname } from "node:path";
-import type { SessionId, SessionMetadata } from "./types.js";
+import type { SessionId, SessionMetadata, PRState } from "./types.js";
 import { atomicWriteFileSync } from "./atomic-write.js";
 import { parseKeyValueContent } from "./key-value.js";
+
+const VALID_PR_STATES = new Set<PRState>(["open", "merged", "closed"]);
 
 /** Serialize a record back to key=value format. */
 function serializeMetadata(data: Record<string, string>): string {
@@ -78,7 +80,9 @@ export function readMetadata(dataDir: string, sessionId: SessionId): SessionMeta
     tmuxName: raw["tmuxName"],
     issue: raw["issue"],
     pr: raw["pr"],
-    prState: raw["prState"] as "open" | "merged" | "closed" | undefined,
+    prState: VALID_PR_STATES.has(raw["prState"] as PRState)
+      ? (raw["prState"] as PRState)
+      : undefined,
     prAutoDetect:
       raw["prAutoDetect"] === "off" ? "off" : raw["prAutoDetect"] === "on" ? "on" : undefined,
     summary: raw["summary"],
