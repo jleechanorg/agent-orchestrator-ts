@@ -158,7 +158,7 @@ unset GITHUB_TOKEN && gh auth status   # confirm real auth
 
 ## Worktree protection — ABSOLUTE RULE
 
-**NEVER run `git worktree remove` or `git worktree prune`.** Only a human running manually in a terminal is permitted. A hook (`.claude/hooks/protect-worktrees.sh`) blocks these at the tool level.
+**NEVER run `git worktree remove` or `git worktree prune` in an interactive agent session.** Only a human running manually in a terminal, or the automated `lifecycle-worker` (which uses the AO session DB + tmux liveness as a fail-safe), is permitted to remove AO worktrees. A hook (`.claude/hooks/protect-worktrees.sh`) blocks these at the tool level for interactive sessions.
 
 **Hook registration**: The hook is a PreToolUse hook registered in `~/.claude/settings.json` (user-scope). For new agent sessions spawned by AO, the `agent-claude-code` plugin writes a settings file — to ensure the hook runs in spawned sessions, add the hook path to that settings file or document it in onboarding. The hook file is committed to this repo at `.claude/hooks/protect-worktrees.sh` for reference and distribution.
 
@@ -245,6 +245,36 @@ There is a separate mirror fork at `jleechan2015/agent-orchestrator-mirror` that
 **Current mirror PR**: https://github.com/jleechan2015/agent-orchestrator-mirror/pull/1
 
 This fork's work will be proposed to ComposioHQ separately from this repo's custom development.
+
+## Main Repo Branch Invariant
+
+The main repo at `/Users/jleechan/project_agento/agent-orchestrator` **MUST stay on `main`**.
+
+AO agents work in git worktrees (`~/.worktrees/`), never directly in the main clone.
+
+**If you find the main repo on a feature branch:**
+```bash
+git -C /Users/jleechan/project_agento/agent-orchestrator checkout main
+git -C /Users/jleechan/project_agento/agent-orchestrator pull --ff-only
+```
+
+**Before diagnosing `lifecycle.backfill.claim_failed` errors, always verify:**
+```bash
+git -C /Users/jleechan/project_agento/agent-orchestrator branch --show-current
+# Must print "main"
+```
+
+A feature branch checked out in the main repo blocks ALL `git fetch --force` operations for any PR on that same branch, causing cascading `claim_failed` aborts in `backfillUncoveredPRs`.
+
+## Lifecycle Backfill Claim Failure — Triage Checklist
+
+When seeing `lifecycle.backfill.claim_failed` with "refusing to fetch into branch", check IN ORDER:
+
+1. **Main repo on wrong branch?** `git -C <repoPath> branch --show-current` — fix: `git checkout main`
+2. **Ghost worktrees?** `git worktree list | grep -E '^-.*-(ao|jc|wa|cc|ra|wc)-[0-9]+ '` — fix: `git worktree remove --force --force <path>`
+3. **Both?** Fix main repo first, then ghost worktrees.
+
+The lifecycle-worker's `sweepOrphanWorktrees` runs every 5min (orphanSweepIntervalMs) and auto-cleans ghost worktrees immediately when both conditions hold: (1) no entry in the AO session DB, and (2) no live tmux session for that worktree's short ID. There is no TTL — cleanup is eager once both guards confirm orphan state. If you see claim failures, check the main repo branch first.
 
 ## AO Infrastructure Operations
 
