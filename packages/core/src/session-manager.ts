@@ -912,9 +912,15 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
     // Fabricated handles (constructed as fallback for external sessions) should
     // NOT override status to "killed" — we don't know if the session ever had
     // a tmux session, and we'd clobber meaningful statuses like "pr_open".
-    if (handleFromMetadata && session.runtimeHandle && plugins.runtime) {
+    if (handleFromMetadata && session.runtimeHandle) {
       try {
-        const alive = await plugins.runtime.isAlive(session.runtimeHandle);
+        const aliveRuntime = registry.get<Runtime>("runtime", session.runtimeHandle.runtimeName);
+        if (!aliveRuntime) {
+          // Unknown runtime — skip liveness check rather than using wrong plugin
+          session.runtimeHandle = null;
+          return;
+        }
+        const alive = await aliveRuntime.isAlive(session.runtimeHandle);
         if (!alive) {
           session.status = "killed";
           session.activity = "exited";
@@ -2026,11 +2032,14 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
           }
         }
 
-        // Check if runtime is dead
-        if (!shouldKill && session.runtimeHandle && plugins.runtime) {
+        // Check if runtime is dead — resolve runtime by handle's runtimeName, not project default
+        if (!shouldKill && session.runtimeHandle) {
           try {
-            const alive = await plugins.runtime.isAlive(session.runtimeHandle);
-            if (!alive) shouldKill = true;
+            const aliveRuntime = registry.get<Runtime>("runtime", session.runtimeHandle.runtimeName);
+            if (aliveRuntime) {
+              const alive = await aliveRuntime.isAlive(session.runtimeHandle);
+              if (!alive) shouldKill = true;
+            }
           } catch {
             // Can't check — skip
           }
