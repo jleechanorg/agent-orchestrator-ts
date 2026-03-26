@@ -22,7 +22,7 @@ export interface PRInfo {
 
 export interface ReviewInfo {
   author: { login: string };
-  state: string;
+  state: "approved" | "changes_requested" | "commented" | "dismissed" | "pending";
   body: string | null;
   submittedAt: string;
 }
@@ -84,7 +84,11 @@ export async function fetchReviews(
       };
     };
   };
-  return (r?.data?.repository?.pullRequest?.reviews?.nodes ?? []) as ReviewInfo[];
+  return (r?.data?.repository?.pullRequest?.reviews?.nodes ?? []).map((n) => ({
+    ...n,
+    // Normalize GitHub GraphQL uppercase enum to lowercase to match the Review type
+    state: (n.state as string).toLowerCase() as ReviewInfo["state"],
+  })) as ReviewInfo[];
 }
 
 export async function fetchDiff(owner: string, repo: string, prNumber: number): Promise<string> {

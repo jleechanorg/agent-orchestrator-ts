@@ -43,8 +43,8 @@ function hasUnresolvedDismissedReview(reviews: ReviewInfo[]): boolean {
   if (crReviews.length === 0) return false;
   const sorted = [...crReviews].sort(sortReviewsNewestFirst);
   for (const review of sorted) {
-    if (review.state?.toUpperCase() === "DISMISSED") return true;
-    if (review.state === "APPROVED") return false;
+    if ((review.state ?? "").toUpperCase() === "DISMISSED") return true;
+    if (review.state === "approved") return false;
   }
   return false;
 }
@@ -58,7 +58,7 @@ function getLatestDecisiveReview(reviews: ReviewInfo[]): ReviewInfo | null {
       .filter(
         (r) =>
           r.author?.login === CR_BOT &&
-          (r.state === "APPROVED" || r.state === "CHANGES_REQUESTED"),
+          (r.state === "approved" || r.state === "changes_requested"),
       )
       .sort(sortReviewsNewestFirst)[0] ?? null
   );
@@ -72,7 +72,7 @@ export async function fetchMergeGateState(
 ): Promise<MergeGateState> {
   // 1. CI status + mergeability — single call to /pulls/{prNumber}, extract both
   let ciPassing = false;
-  let noConflicts: boolean;
+  let noConflicts = false;
   try {
     const prData = await ghJson(
       "repos/" + owner + "/" + repo + "/pulls/" + prNumber,
@@ -86,8 +86,7 @@ export async function fetchMergeGateState(
       ciPassing = commitStatus?.state === "success";
     }
   } catch {
-    // noConflicts stays uninitialized (will be checked as falsy)
-    ciPassing = false;
+    // ciPassing stays false; noConflicts stays false (already initialized)
   }
 
   // 2. CR review state — mirrors checkMergeGate + merge-gate-coderabbit.ts
@@ -99,7 +98,7 @@ export async function fetchMergeGateState(
   let crState = "none";
   if (latestCR) {
     crState = latestCR.state;
-    crApproved = latestCR.state === "APPROVED" && !crDismissedWithoutApproval;
+    crApproved = latestCR.state === "approved" && !crDismissedWithoutApproval;
   }
 
   // 3. Review threads — nit-filtered unresolved counts (matches checkMergeGate)
@@ -136,7 +135,7 @@ export async function fetchMergeGateState(
   // 4. Evidence review
   const evidenceReviews = reviews.filter((r) => r.author?.login === EVIDENCE_BOT);
   const latestEvidence = evidenceReviews.sort(sortReviewsNewestFirst)[0];
-  const evidenceApproved = latestEvidence?.state === "APPROVED";
+  const evidenceApproved = latestEvidence?.state === "approved";
   const evidenceRequired = false; // controlled via config; default false for skeptic CLI
 
   // 5. Existing skeptic verdict
