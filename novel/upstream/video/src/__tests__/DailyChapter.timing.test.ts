@@ -13,7 +13,8 @@ const EXCERPT_START = TITLE_DURATION;
 const WORDS_PER_MINUTE = 20; // ~20 wpm (words per minute at 30fps)
 
 function computeExcerptDuration(shortExcerptLength: number, fps: number): number {
-  return Math.ceil(shortExcerptLength * fps / WORDS_PER_MINUTE);
+  // 20 wpm = 1 word per 3 seconds. At fps frames/second, each word spans 3*fps frames.
+  return Math.ceil(shortExcerptLength * 3 * fps);
 }
 
 function computeClosingStart(excerptDuration: number): number {
@@ -34,12 +35,13 @@ function parseExcerptWords(excerpt: string): string[] {
 
 describe("DailyChapter timing calculations", () => {
   describe("computeExcerptDuration", () => {
-    it("computes 120 frames for 80 words at 30fps (~20wpm)", () => {
-      expect(computeExcerptDuration(80, 30)).toBe(120);
+    it("computes 7200 frames for 80 words at 30fps (~20wpm)", () => {
+      // 20 wpm = 1 word per 3 seconds. At 30fps: 80 words × 3 s/word × 30 fps = 7200 frames
+      expect(computeExcerptDuration(80, 30)).toBe(7200);
     });
 
-    it("computes 45 frames for 30 words at 30fps", () => {
-      expect(computeExcerptDuration(30, 30)).toBe(45);
+    it("computes 2700 frames for 30 words at 30fps", () => {
+      expect(computeExcerptDuration(30, 30)).toBe(2700);
     });
 
     it("returns 0 for 0 words", () => {
@@ -60,10 +62,10 @@ describe("DailyChapter timing calculations", () => {
       expect(closingStart).toBe(EXCERPT_START + excerptDuration + 30);
     });
 
-    it("closes 240 frames from start for 80-word excerpt at 30fps", () => {
+    it("closes 7320 frames from start for 80-word excerpt at 30fps", () => {
       const excerptDuration = computeExcerptDuration(80, 30);
       const closingStart = computeClosingStart(excerptDuration);
-      expect(closingStart).toBe(240); // 90 + 120 + 30
+      expect(closingStart).toBe(7320); // 90 + 7200 + 30
     });
   });
 
@@ -75,11 +77,11 @@ describe("DailyChapter timing calculations", () => {
       expect(totalFrames).toBe(closingStart + 50);
     });
 
-    it("is 290 frames for 80-word excerpt at 30fps", () => {
+    it("is 7370 frames for 80-word excerpt at 30fps", () => {
       const excerptDuration = computeExcerptDuration(80, 30);
       const closingStart = computeClosingStart(excerptDuration);
       const totalFrames = computeTotalFrames(closingStart);
-      expect(totalFrames).toBe(290); // 240 + 50
+      expect(totalFrames).toBe(7370); // 7320 + 50
     });
   });
 

@@ -33,7 +33,7 @@ const WordReveal: React.FC<{ words: string[]; startFrame: number; fps: number }>
 }) => {
   const frame = useCurrentFrame();
   const elapsed = Math.max(0, frame - startFrame);
-  const shownWords = Math.min(Math.floor((elapsed * fps) / 1200), words.length);
+  const shownWords = Math.min(Math.floor((elapsed * fps) / 90), words.length);
 
   return (
     <div
@@ -186,7 +186,7 @@ export const DailyChapter: React.FC<{ chapter?: ChapterData }> = ({ chapter }) =
   // Total duration: title + excerpt + closing
   const TITLE_DURATION = 90;   // frames (~1.5s)
   const EXCERPT_START = 90;
-  const EXCERPT_DURATION = shortExcerpt.length * (fps * 60 / 1200); // ~20 wpm
+  const EXCERPT_DURATION = shortExcerpt.length * 3 * fps; // ~20 wpm (1 word per 3 seconds)
   const CLOSING_START = EXCERPT_START + EXCERPT_DURATION + 30;
 
   return (
