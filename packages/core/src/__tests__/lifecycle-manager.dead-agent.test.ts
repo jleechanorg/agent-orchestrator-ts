@@ -230,8 +230,10 @@ describe("bd-5o1: skip reactions when agent is dead", () => {
 
     await lm.check("app-1");
 
-    expect(lm.getStates().get("app-1")).toBe("changes_requested");
+    // bd-5o1: dead agent + send-to-agent → session is killed for cleanup
+    expect(lm.getStates().get("app-1")).toBe("killed");
     expect(mockSessionManager.send).not.toHaveBeenCalled();
+    expect(mockSessionManager.kill).toHaveBeenCalledWith("app-1");
   });
 
   it("skips auto-merge when agent is dead + PR is mergeable", async () => {
@@ -346,5 +348,90 @@ describe("bd-5o1: skip reactions when agent is dead", () => {
     expect(lm.getStates().get("app-1")).toBe("mergeable");
     expect(mockSCM.mergePR).toHaveBeenCalled();
     expect(mockSessionManager.send).not.toHaveBeenCalled();
+  });
+
+  it("marks session killed for cleanup when agent is dead and send-to-agent is skipped (bd-5o1)", async () => {
+    // When agent is dead and the only applicable reaction is send-to-agent,
+    // the session should transition to "killed" for terminal cleanup —
+    // not stay in "changes_requested" forever.
+    vi.mocked(mockRuntime.isAlive).mockResolvedValue(false);
+    vi.mocked(mockSCM.getPRState).mockResolvedValue("open");
+    vi.mocked(mockSCM.getReviewDecision).mockResolvedValue("changes_requested");
+    vi.mocked(mockSCM.getMergeability).mockResolvedValue({ mergeable: false, noConflicts: true });
+
+    const reactionsConfig: OrchestratorConfig = {
+      ...config,
+      reactions: {
+        "changes-requested": { auto: true, action: "send-to-agent", message: "fix comments" },
+      },
+    };
+
+    const session = makeSession({ status: "pr_open", pr: makePR() });
+    vi.mocked(mockSessionManager.get).mockResolvedValue(session);
+
+    writeMetadata(sessionsDir, "app-1", {
+      worktree: tmpDir,
+      branch: "feat/test",
+      status: "pr_open",
+      project: "my-app",
+    });
+
+    const lm = createLifecycleManager({
+      config: reactionsConfig,
+      registry: makeRegistryWithSCM(),
+      sessionManager: mockSessionManager,
+    });
+
+    await lm.check("app-1");
+
+    // Session should be marked "killed" for cleanup, not left at "changes_requested"
+    expect(lm.getStates().get("app-1")).toBe("killed");
+    // send should NOT have been called (agent is dead)
+    expect(mockSessionManager.send).not.toHaveBeenCalled();
+    // kill should have been called (terminal cleanup)
+    expect(mockSessionManager.kill).toHaveBeenCalledWith("app-1");
+  });
+
+  it("does NOT override to killed when reaction is send-to-agent but auto: false (bd-5o1)", async () => {
+    // When the reaction is configured as manual (auto: false), the override must
+    // NOT activate — manual reactions are operator-driven, not auto-cleanup targets.
+    // The override guard mirrors the reaction engine: auto !== false means skip.
+    vi.mocked(mockRuntime.isAlive).mockResolvedValue(false);
+    vi.mocked(mockSCM.getPRState).mockResolvedValue("open");
+    vi.mocked(mockSCM.getReviewDecision).mockResolvedValue("changes_requested");
+    vi.mocked(mockSCM.getMergeability).mockResolvedValue({ mergeable: false, noConflicts: true });
+
+    const reactionsConfig: OrchestratorConfig = {
+      ...config,
+      reactions: {
+        // Manual reaction — operator must trigger it; override must not activate.
+        "changes-requested": { auto: false, action: "send-to-agent", message: "fix comments" },
+      },
+    };
+
+    const session = makeSession({ status: "pr_open", pr: makePR() });
+    vi.mocked(mockSessionManager.get).mockResolvedValue(session);
+
+    writeMetadata(sessionsDir, "app-1", {
+      worktree: tmpDir,
+      branch: "feat/test",
+      status: "pr_open",
+      project: "my-app",
+    });
+
+    const lm = createLifecycleManager({
+      config: reactionsConfig,
+      registry: makeRegistryWithSCM(),
+      sessionManager: mockSessionManager,
+    });
+
+    await lm.check("app-1");
+
+    // Should NOT be killed — auto: false means manual reaction, override skips it.
+    // Session stays in whatever non-terminal state the poller determined (no SCM
+    // transition since changes_requested PRs don't auto-transition without SCM poller).
+    expect(lm.getStates().get("app-1")).not.toBe("killed");
+    expect(mockSessionManager.send).not.toHaveBeenCalled();
+    expect(mockSessionManager.kill).not.toHaveBeenCalled();
   });
 });
