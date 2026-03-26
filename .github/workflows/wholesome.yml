@@ -1,0 +1,127 @@
+name: Wholesome PR Checks
+
+on:
+  pull_request:
+    types: [opened, synchronize, edited, reopened]
+
+concurrency:
+  group: wholesome-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  pr-title-prefix:
+    name: PR Title [agento] Prefix
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check PR title prefix
+        run: |
+          TITLE="${{ github.event.pull_request.title }}"
+          if printf '%s' "$TITLE" | grep -q '^\\[agento\\]'; then
+            echo "PASS: PR title has [agento] prefix"
+          else
+            echo "FAIL: PR title must start with '[agento]'"
+            echo "Current title: $TITLE"
+            exit 1
+          fi
+
+  evidence-section:
+    name: Evidence Section Present
+    runs-on: ubuntu-latest
+    outputs:
+      found: ${{ steps.check_evidence.outputs.found }}
+      reason: ${{ steps.check_evidence.outputs.reason }}
+    steps:
+      - name: Check for Evidence section in PR body
+        id: check_evidence
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          BODY="$PR_BODY"
+          echo "PR body length: ${#BODY} chars"
+          if [ ${#BODY} -eq 0 ]; then
+            echo "found=false" >> "$GITHUB_OUTPUT"
+            echo "reason=empty_body" >> "$GITHUB_OUTPUT"
+          elif printf '%s' "$BODY" | grep -qi '^[[:space:]]*## Evidence'; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+            echo "reason=evidence_section_found" >> "$GITHUB_OUTPUT"
+          else
+            echo "found=false" >> "$GITHUB_OUTPUT"
+            echo "reason=no_evidence_section" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Fail if Evidence section missing
+        if: steps.check_evidence.outputs.found == 'false'
+        run: |
+          echo "FAIL: No ## Evidence section found in PR body."
+          echo "Reason: ${{ steps.check_evidence.outputs.reason }}"
+          echo ""
+          echo "Every PR must include an Evidence section in the body."
+          echo "Format:"
+          echo '  ## Evidence'
+          echo '  **Claim class**: <type>'
+          echo '  **Verdict**: PASS'
+          echo '  **Media**: <screenshot path or terminal output>'
+          echo ""
+          echo "See /pr-media skill for automated capture workflow."
+          exit 1
+
+  evidence-media-attachment:
+    name: Evidence Has Media Attachment
+    runs-on: ubuntu-latest
+    needs: evidence-section
+    # Only meaningful if Evidence section was found
+    if: needs.evidence-section.outputs.found == 'true'
+    env:
+      PR_BODY: ${{ github.event.pull_request.body }}
+    steps:
+      - name: Check Evidence section has media (image or code block)
+        run: |
+          BODY="$PR_BODY"
+
+          # Extract the Evidence section only
+          EVIDENCE=$(printf '%s' "$BODY" | sed -n '/^[[:space:]]*## [Ee]vidence/,$p')
+
+          if [ -z "$EVIDENCE" ]; then
+            echo "No Evidence section found to validate"
+            exit 1
+          fi
+
+          echo "=== Evidence section ==="
+          printf '%s\n' "$EVIDENCE" | head -30
+          echo "========================"
+
+          # Check for markdown image attachment: ![alt](url)
+          HAS_IMAGE=false
+          if printf '%s' "$EVIDENCE" | grep -qiE '!\[.*\]\(.*\)'; then
+            echo "PASS: Markdown image found in Evidence section"
+            HAS_IMAGE=true
+          elif printf '%s' "$EVIDENCE" | grep -qiE '\*\*Media\*\*.*\.(png|jpg|jpeg|gif|webp|mp4|webm)'; then
+            echo "PASS: Media file path found in Evidence section"
+            HAS_IMAGE=true
+          fi
+
+          # Check for terminal output / code block
+          HAS_CODE=false
+          if printf '%s' "$EVIDENCE" | grep -q '```'; then
+            echo "PASS: Code block found in Evidence section"
+            HAS_CODE=true
+          elif printf '%s' "$EVIDENCE" | grep -qiE '(test output|terminal output|command output)'; then
+            echo "PASS: Output reference found in Evidence section"
+            HAS_CODE=true
+          fi
+
+          # Pass if either media image or code output is present
+          if [ "$HAS_IMAGE" = "true" ] || [ "$HAS_CODE" = "true" ]; then
+            echo ""
+            echo "Evidence section contains media: image=$HAS_IMAGE code=$HAS_CODE"
+            exit 0
+          else
+            echo ""
+            echo "FAIL: Evidence section exists but contains no media attachment."
+            echo "Expected one of:"
+            echo "  - Markdown image: ![alt](url)"
+            echo "  - Media file path: **Media**: ... .png/.jpg/.mp4/..."
+            echo "  - Code block: ```...```"
+            echo "  - Output reference: test output, terminal output, command output"
+            exit 1
+          fi
