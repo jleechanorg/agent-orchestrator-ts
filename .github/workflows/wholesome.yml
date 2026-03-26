@@ -16,11 +16,14 @@ jobs:
       - name: Check PR title prefix
         run: |
           TITLE="${{ github.event.pull_request.title }}"
-          if printf '%s' "$TITLE" | grep -q '^\\[agento\\]'; then
+          # Use -F (fixed-string) to avoid regex bracket interpretation issues
+          if printf '%s' "$TITLE" | grep -qF '[agento]'; then
             echo "PASS: PR title has [agento] prefix"
+            echo "title=$TITLE" >> "$GITHUB_OUTPUT"
           else
             echo "FAIL: PR title must start with '[agento]'"
             echo "Current title: $TITLE"
+            echo "title=$TITLE" >> "$GITHUB_OUTPUT"
             exit 1
           fi
 
@@ -28,42 +31,45 @@ jobs:
     name: Evidence Section Present
     runs-on: ubuntu-latest
     outputs:
-      found: ${{ steps.check_evidence.outputs.found }}
-      reason: ${{ steps.check_evidence.outputs.reason }}
+      found: ${{ steps.check.outputs.found }}
     steps:
       - name: Check for Evidence section in PR body
-        id: check_evidence
+        id: check
         env:
           PR_BODY: ${{ github.event.pull_request.body }}
         run: |
           BODY="$PR_BODY"
           echo "PR body length: ${#BODY} chars"
+
           if [ ${#BODY} -eq 0 ]; then
             echo "found=false" >> "$GITHUB_OUTPUT"
             echo "reason=empty_body" >> "$GITHUB_OUTPUT"
-          elif printf '%s' "$BODY" | grep -qi '^[[:space:]]*## Evidence'; then
+            echo "SKIP: empty PR body"
+            exit 0
+          fi
+
+          # Use grep -F (fixed-string) to match "## Evidence" literally
+          # The -q flag suppresses output, -i makes it case-insensitive
+          # ^[[:space:]]* matches optional leading whitespace before the header
+          if printf '%s' "$BODY" | grep -qiF '## Evidence'; then
             echo "found=true" >> "$GITHUB_OUTPUT"
             echo "reason=evidence_section_found" >> "$GITHUB_OUTPUT"
+            echo "PASS: ## Evidence section found"
           else
             echo "found=false" >> "$GITHUB_OUTPUT"
             echo "reason=no_evidence_section" >> "$GITHUB_OUTPUT"
+            echo "FAIL: No ## Evidence section found in PR body."
+            echo ""
+            echo "Every PR must include an Evidence section in the body."
+            echo "Format:"
+            echo '  ## Evidence'
+            echo '  **Claim class**: <type>'
+            echo '  **Verdict**: PASS'
+            echo '  **Media**: <screenshot path or terminal output>'
+            echo ""
+            echo "See /pr-media skill for automated capture workflow."
+            exit 1
           fi
-
-      - name: Fail if Evidence section missing
-        if: steps.check_evidence.outputs.found == 'false'
-        run: |
-          echo "FAIL: No ## Evidence section found in PR body."
-          echo "Reason: ${{ steps.check_evidence.outputs.reason }}"
-          echo ""
-          echo "Every PR must include an Evidence section in the body."
-          echo "Format:"
-          echo '  ## Evidence'
-          echo '  **Claim class**: <type>'
-          echo '  **Verdict**: PASS'
-          echo '  **Media**: <screenshot path or terminal output>'
-          echo ""
-          echo "See /pr-media skill for automated capture workflow."
-          exit 1
 
   evidence-media-attachment:
     name: Evidence Has Media Attachment
@@ -78,7 +84,7 @@ jobs:
         run: |
           BODY="$PR_BODY"
 
-          # Extract the Evidence section only
+          # Extract the Evidence section only — everything after "## Evidence" to EOF
           EVIDENCE=$(printf '%s' "$BODY" | sed -n '/^[[:space:]]*## [Ee]vidence/,$p')
 
           if [ -z "$EVIDENCE" ]; then
@@ -92,8 +98,8 @@ jobs:
 
           # Check for markdown image attachment: ![alt](url)
           HAS_IMAGE=false
-          if printf '%s' "$EVIDENCE" | grep -qiE '!\[.*\]\(.*\)'; then
-            echo "PASS: Markdown image found in Evidence section"
+          if printf '%s' "$EVIDENCE" | grep -qiE '!\[.*\]\(https?://'; then
+            echo "PASS: Markdown image with URL found in Evidence section"
             HAS_IMAGE=true
           elif printf '%s' "$EVIDENCE" | grep -qiE '\*\*Media\*\*.*\.(png|jpg|jpeg|gif|webp|mp4|webm)'; then
             echo "PASS: Media file path found in Evidence section"
@@ -105,8 +111,11 @@ jobs:
           if printf '%s' "$EVIDENCE" | grep -q '```'; then
             echo "PASS: Code block found in Evidence section"
             HAS_CODE=true
-          elif printf '%s' "$EVIDENCE" | grep -qiE '(test output|terminal output|command output)'; then
-            echo "PASS: Output reference found in Evidence section"
+          elif printf '%s' "$EVIDENCE" | grep -qiF 'test output'; then
+            echo "PASS: 'test output' reference found in Evidence section"
+            HAS_CODE=true
+          elif printf '%s' "$EVIDENCE" | grep -qiF 'terminal output'; then
+            echo "PASS: 'terminal output' reference found in Evidence section"
             HAS_CODE=true
           fi
 
@@ -119,9 +128,9 @@ jobs:
             echo ""
             echo "FAIL: Evidence section exists but contains no media attachment."
             echo "Expected one of:"
-            echo "  - Markdown image: ![alt](url)"
-            echo "  - Media file path: **Media**: ... .png/.jpg/.mp4/..."
-            echo "  - Code block: ```...```"
-            echo "  - Output reference: test output, terminal output, command output"
+            echo "  - Markdown image with URL: ![alt](https://...)"
+            echo "  - Media file path: **Media**: ... .png/.jpg/.gif/.mp4/..."
+            echo "  - Code block: \`\`\`...\`\`\`"
+            echo "  - Text reference: 'test output' or 'terminal output'"
             exit 1
           fi
