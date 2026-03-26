@@ -71,13 +71,22 @@ These PRs fix specific autonomy blockers. Priority order for merging:
 | #99 | Kill zombie tmux sessions on merge | bd-s4t | Merged PRs leave zombie sessions consuming resources |
 | #112 | Lock worktrees to prevent accidental prune | bd-diq | Workers lose workspace when worktree is cleaned |
 
-### Not Yet Started — Agent-Prompt Approach (not more TypeScript)
+### Agent-Prompt Approach (not more TypeScript)
 
 These capabilities should be delivered via **richer `agentRules`** in `agent-orchestrator.yaml`, NOT by coding new TypeScript reaction handlers. The spawned agent (Claude Code) is flexible — it can run `/polish`, `/copilot`, resolve comments, rebase, etc. We just need to tell it what to do.
 
+**Implemented:**
+
 | Capability | Approach | Bead |
 |---|---|---|
-| Inline comment resolution | `agentRules`: "After fixing code, resolve review threads with `@coderabbitai all good?`" | bd-ara.1 |
+| Inline comment audit trail | `agentRules`: "After fixing code, append `## Resolved Comments` table to PR description via `gh pr edit`" | bd-ara.1 ✅ |
+
+NOTE: This is a **worker self-certification audit trail**, not GitHub thread resolution. Merge-gate condition #5 still uses `scm.getPendingComments()` `isResolved`. Workers must still fix the underlying code.
+
+**Not yet started:**
+
+| Capability | Approach | Bead |
+|---|---|---|
 | Stale branch rebase | `agentRules`: "If mergeable=UNKNOWN or CONFLICTING, rebase on main" | bd-ara.2 |
 | CHANGES_REQUESTED recovery | `agentRules`: "After addressing review comments, push and wait for re-review" | bd-ara.4 |
 | Test failure self-healing | `agentRules`: "Read CI logs, fix failing tests, push fixes" | bd-ara.5 |
