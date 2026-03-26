@@ -86,7 +86,7 @@ jobs:
           # This prevents media from later sections (e.g. "## Other" with ![img]) from incorrectly passing the gate
           # Use awk for robust multi-line section boundary parsing
           EVIDENCE=$(printf '%s\n' "$BODY" | awk '
-            /^[[:space:]]*## [Ee]vidence/ { in_section=1; next }
+            /^[[:space:]]*##[[:space:]]+[Ee]vidence/ { in_section=1; next }
             in_section && /^[[:space:]]*## / { exit }
             in_section { print }
           ')
