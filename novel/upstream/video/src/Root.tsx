@@ -1,9 +1,10 @@
 import React from "react";
 import { Composition } from "remotion";
-import { TheAwakening } from "./TheAwakening.js";
-import { TOTAL_FRAMES } from "./scenes.js";
-import { ThePantheon } from "./ThePantheon.js";
-import { PANTHEON_TOTAL_FRAMES } from "./pantheon-data.js";
+import { TheAwakening } from "./TheAwakening";
+import { TOTAL_FRAMES } from "./scenes";
+import { ThePantheon } from "./ThePantheon";
+import { PANTHEON_TOTAL_FRAMES } from "./pantheon-data";
+import { DailyChapter } from "./DailyChapter";
 
 export const RemotionRoot: React.FC = () => {
   return (
@@ -23,6 +24,14 @@ export const RemotionRoot: React.FC = () => {
         fps={30}
         width={1920}
         height={1080}
+      />
+      <Composition
+        id="DailyChapter"
+        component={DailyChapter}
+        durationInFrames={300}  // 10s at 30fps
+        fps={30}
+        width={1080}
+        height={1920}  // 9:16 portrait for Shorts/TikTok
       />
     </>
   );

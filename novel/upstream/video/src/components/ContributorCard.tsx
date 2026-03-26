@@ -5,7 +5,7 @@ import {
   useCurrentFrame,
   useVideoConfig,
 } from "remotion";
-import type { Contributor } from "../pantheon-data.js";
+import type { Contributor } from "../pantheon-data";
 
 interface ContributorCardProps {
   contributor: Contributor;
