@@ -73,12 +73,19 @@ export async function fetchMergeGateState(
   // 1. CI status + mergeability
   let ciPassing = false;
   let noConflicts = false;
+
+  // CI via REST status rollup (matches checkMergeGate CI check)
   try {
-    const ciData = await ghJson(
+    const statusData = await ghJson(
       "repos/" + owner + "/" + repo + "/pulls/" + prNumber,
-    ) as { head?: { commit?: { status?: { state: string } } } };
-    const statusState = ciData?.head?.commit?.status?.state;
-    ciPassing = statusState === "success";
+    ) as { head?: { ref?: string } };
+    const headRef = statusData?.head?.ref;
+    if (headRef) {
+      const commitStatus = await ghJson(
+        "repos/" + owner + "/" + repo + "/commits/" + headRef + "/status",
+      ) as { state?: string };
+      ciPassing = commitStatus?.state === "success";
+    }
   } catch {
     ciPassing = false;
   }
