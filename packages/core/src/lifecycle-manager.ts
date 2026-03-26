@@ -997,6 +997,16 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       case "respawn-for-review": {
         if (agentDead !== false) {
           // Agent is dead — spawn a fresh worker targeting this PR
+          // Skip if already respawned for this PR (prevents unbounded duplicate workers)
+          if (session?.metadata?.["pr_respawned"] === "true") {
+            return {
+              reactionType: reactionKey,
+              success: true,
+              action: "respawn-for-review",
+              message: `PR #${session.pr!.number} already has a respawned worker`,
+              escalated: false,
+            };
+          }
           if (!session?.pr) {
             const event = createEvent("reaction.triggered", {
               sessionId,
@@ -1067,6 +1077,13 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
                 prNumber: session.pr.number,
               },
               level: "info",
+            });
+
+            // Mark this session as respawned so the backlog skips it on subsequent cycles.
+            // The spawned worker owns the PR from now on.
+            updateSessionMetadata(session, {
+              pr_respawned: "true",
+              respawned_session_id: spawned.id,
             });
 
             return {
