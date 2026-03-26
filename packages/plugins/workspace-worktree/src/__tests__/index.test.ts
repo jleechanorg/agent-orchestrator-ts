@@ -368,24 +368,42 @@ describe("workspace.destroy()", () => {
   it("removes worktree via git commands", async () => {
     const ws = create();
 
+    // branch --show-current returns the checked-out branch
+    mockGitSuccess("feat/TEST-1");
     // rev-parse returns the .git dir
     mockGitSuccess("/repo/path/.git");
     // worktree remove succeeds
     mockGitSuccess("");
+    // branch -D succeeds
+    mockGitSuccess("");
 
     await ws.destroy("/mock-home/.worktrees/myproject/session-1");
 
-    // First call: rev-parse
+    // First call: branch --show-current (captures branch before removal)
+    expect(mockExecFileAsync).toHaveBeenCalledWith(
+      "git",
+      ["branch", "--show-current"],
+      { cwd: "/mock-home/.worktrees/myproject/session-1" },
+    );
+
+    // Second call: rev-parse
     expect(mockExecFileAsync).toHaveBeenCalledWith(
       "git",
       ["rev-parse", "--path-format=absolute", "--git-common-dir"],
       { cwd: "/mock-home/.worktrees/myproject/session-1" },
     );
 
-    // Second call: worktree remove (--force --force to bypass lock)
+    // Third call: worktree remove (--force --force to bypass lock)
     expect(mockExecFileAsync).toHaveBeenCalledWith(
       "git",
       ["worktree", "remove", "--force", "--force", "/mock-home/.worktrees/myproject/session-1"],
+      { cwd: "/repo/path" },
+    );
+
+    // Fourth call: branch -D (cleanup to prevent cascading fetch failures)
+    expect(mockExecFileAsync).toHaveBeenCalledWith(
+      "git",
+      ["branch", "-D", "feat/TEST-1"],
       { cwd: "/repo/path" },
     );
   });

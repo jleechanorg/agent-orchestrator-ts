@@ -195,7 +195,11 @@ async function maybeRemoveStaleCheckedOutWorktree(
   const hasActiveTmux = await hasActiveTmuxSessionForWorktreeName(stalePath);
   if (hasActiveTmux) return false;
 
-  await git(repoPath, "worktree", "remove", "--force", stalePath);
+  try {
+    await git(repoPath, "worktree", "remove", "--force", stalePath);
+  } catch {
+    // Best-effort — worktree may already be partially removed
+  }
   return true;
 }
 
@@ -384,6 +388,14 @@ export function create(config?: Record<string, unknown>): Workspace {
 
     async destroy(workspacePath: string): Promise<void> {
       let repoPath: string | null = null;
+      let checkedOutBranch: string | null = null;
+
+      // Capture branch before removal so we can clean it up afterwards.
+      try {
+        checkedOutBranch = await git(workspacePath, "branch", "--show-current");
+      } catch {
+        // Worktree may already be partially broken — that's OK
+      }
 
       try {
         const gitCommonDir = await git(
@@ -398,12 +410,6 @@ export function create(config?: Record<string, unknown>): Workspace {
         // The first --force allows removal of dirty worktrees; the second
         // bypasses the lock that prevents accidental `git worktree prune` deletion.
         await git(repoPath, "worktree", "remove", "--force", "--force", workspacePath);
-
-        // NOTE: We intentionally do NOT delete the branch here. The worktree
-        // removal is sufficient. Auto-deleting branches risks removing
-        // pre-existing local branches unrelated to this workspace (any branch
-        // containing "/" would have been deleted). Stale branches can be
-        // cleaned up separately via `git branch --merged` or similar.
       } catch {
         // If the directory was deleted externally but git still has a locked
         // worktree entry, find the repo path by scanning .git/worktrees/ and
@@ -433,6 +439,19 @@ export function create(config?: Record<string, unknown>): Workspace {
         // rmSync with force:true is safe to call even when the directory
         // is already gone — it will be a no-op in that case.
         rmSync(workspacePath, { recursive: true, force: true });
+      }
+
+      // Delete the local branch to prevent cascading fetch failures.
+      // Only delete branches that look AO-managed to avoid accidentally
+      // removing pre-existing important branches (main, master, develop).
+      if (checkedOutBranch && !/^(main|master|develop)$/.test(checkedOutBranch)) {
+        if (repoPath) {
+          try {
+            await git(repoPath, "branch", "-D", checkedOutBranch);
+          } catch {
+            // Branch may not exist locally or may be checked out elsewhere — that's OK
+          }
+        }
       }
     },
 

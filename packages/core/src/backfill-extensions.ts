@@ -15,6 +15,10 @@ import type {
   ProjectConfig,
 } from "./types.js";
 import type { ProjectObserver } from "./observability.js";
+import { homedir } from "node:os";
+import { resolve } from "node:path";
+import { existsSync, rmSync } from "node:fs";
+import { execSync } from "node:child_process";
 
 /** Dependencies injected by the lifecycle-manager call site. */
 export interface BackfillDeps {
@@ -145,7 +149,9 @@ export async function backfillUncoveredPRs(
             },
             level: "warn",
           });
-          // If kill fails, abort rather than leaking an orphan session
+          // If kill fails, attempt direct worktree cleanup before aborting.
+          // The session may not be fully registered yet so kill() can't find it,
+          // but we know the session ID and can compute the workspace path.
           try {
             await sessionManager.kill(session.id);
           } catch (killErr) {
@@ -162,8 +168,83 @@ export async function backfillUncoveredPRs(
               },
               level: "warn",
             });
-            // Orphan session couldn't be cleaned up — abort backfill rather than leak
-            return false;
+            // Direct worktree cleanup fallback — session wasn't registered so
+            // kill() couldn't find it, but we know where the worktree lives.
+            try {
+              const worktreeDir = resolve(homedir(), ".worktrees", projectId, session.id);
+              if (existsSync(worktreeDir)) {
+                // Capture branch before cleanup.
+                let branch: string | null = null;
+                try {
+                  branch = execSync(`git -C "${worktreeDir}" branch --show-current`, {
+                    encoding: "utf8",
+                  }).trim();
+                } catch { /* may be broken */ }
+                // Find the parent repo.
+                let repoDir: string | null = null;
+                try {
+                  const gitCommon = execSync(
+                    `git -C "${worktreeDir}" rev-parse --path-format=absolute --git-common-dir`,
+                    { encoding: "utf8" },
+                  ).trim();
+                  repoDir = resolve(gitCommon, "..");
+                } catch { /* may be broken */ }
+                // Unlock + remove worktree.
+                if (repoDir) {
+                  try {
+                    execSync(`git -C "${repoDir}" worktree unlock "${worktreeDir}"`, { encoding: "utf8" });
+                  } catch { /* best-effort */ }
+                  try {
+                    execSync(`git -C "${repoDir}" worktree remove --force "${worktreeDir}"`, { encoding: "utf8" });
+                  } catch { /* best-effort */ }
+                  // Delete stale local branch to prevent cascading fetch failures.
+                  if (branch && !/^(main|master|develop)$/.test(branch)) {
+                    try {
+                      execSync(`git -C "${repoDir}" branch -D "${branch}"`, { encoding: "utf8" });
+                    } catch { /* best-effort */ }
+                  }
+                }
+                // Last resort: just remove the directory.
+                if (existsSync(worktreeDir)) {
+                  rmSync(worktreeDir, { recursive: true, force: true });
+                }
+                observer.recordOperation({
+                  metric: "lifecycle_poll",
+                  operation: "lifecycle.backfill.direct_cleanup_success",
+                  outcome: "success",
+                  correlationId,
+                  projectId,
+                  sessionId: session.id,
+                  data: { prNumber: pr.number, branch },
+                  level: "info",
+                });
+              }
+            } catch (cleanupErr) {
+              observer.recordOperation({
+                metric: "lifecycle_poll",
+                operation: "lifecycle.backfill.direct_cleanup_failed",
+                outcome: "failure",
+                correlationId,
+                projectId,
+                sessionId: session.id,
+                data: { error: cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr) },
+                level: "warn",
+              });
+            }
+            // Direct cleanup attempted — try next PR rather than aborting entirely.
+            if (consecutiveClaimFailures >= MAX_CONSECUTIVE_CLAIM_FAILURES) {
+              observer.recordOperation({
+                metric: "lifecycle_poll",
+                operation: "lifecycle.backfill.claim_failed_abort",
+                outcome: "failure",
+                correlationId,
+                projectId,
+                data: { consecutiveClaimFailures },
+                level: "warn",
+              });
+              return false;
+            }
+            continue; // try next uncovered PR
           }
           // Stop if claim keeps failing — systemic workspace issue (e.g. all PRs CONFLICTING)
           if (consecutiveClaimFailures >= MAX_CONSECUTIVE_CLAIM_FAILURES) {
