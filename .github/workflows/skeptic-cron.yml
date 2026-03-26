@@ -97,11 +97,16 @@ jobs:
             echo ""
             echo "--- Checking 7-green for PR #${PR_NUM}: ${PR_TITLE} ---"
 
-            # 1. CI green — check latest commit status
+            # 1. CI green — only "success" passes; pending/error/failure all block merge
             HEAD_REF=$(echo "$PR_DATA" | jq -r '.head.ref')
             CI_STATUS=$(gh api repos/${{ github.repository }}/commits/"$HEAD_REF"/status \
               --jq '.state' 2>/dev/null || echo "error")
-            echo "  [1] CI green:          $CI_STATUS"
+            if [ "$CI_STATUS" = "success" ]; then
+              CI_RESULT="PASS"
+            else
+              CI_RESULT="FAIL (state=$CI_STATUS)"
+            fi
+            echo "  [1] CI green:          $CI_RESULT"
 
             # 2. No merge conflicts
             PR_DATA2=$(gh api repos/${{ github.repository }}/pulls/"$PR_NUM" \
@@ -115,14 +120,13 @@ jobs:
             fi
             echo "  [2] No merge conflicts: $MERGE_CONFLICT"
 
-            # 3. CR APPROVED — latest CR review state
+            # 3. CR APPROVED — latest CR review state (GitHub API returns uppercase: APPROVED/CHANGES_REQUESTED)
             LATEST_CR=$(gh api repos/${{ github.repository }}/pulls/"$PR_NUM"/reviews \
-              --jq '[.[] | select(.user.login == "coderabbitai[bot]") | {state: .state, body_length: (.body | length)}] | sort_by(.state) | reverse | .[0]' 2>/dev/null)
+              --jq '[.[] | select(.user.login == "coderabbitai[bot]") | {state: .state, body_length: (.body | length)}] | sort_by(.submitted_at) | reverse | .[0]' 2>/dev/null)
             CR_STATE=$(echo "$LATEST_CR" | jq -r '.state // "none"')
             CR_BODY_LEN=$(echo "$LATEST_CR" | jq -r '.body_length // 0')
-            # APPROVED if state=approved AND (body non-empty OR CR posted after-approval "all good" note)
-            # We accept APPROVED as-is (CR's dismissal detection is handled by skeptic)
-            if [ "$CR_STATE" = "approved" ]; then
+            # APPROVED if state=APPROVED (GitHub API returns uppercase); dismissal detection is handled by skeptic
+            if [ "$CR_STATE" = "APPROVED" ]; then
               CR_APPROVED="PASS"
             else
               CR_APPROVED="FAIL (state=$CR_STATE)"
@@ -139,9 +143,10 @@ jobs:
             fi
             echo "  [4] Bugbot clean:       $BUGBOT_STATUS"
 
-            # 5. Inline comments resolved (non-nit, non-resolved)
+            # 5. Inline comments resolved — use review threads API for accurate thread state
+            # Threads have .resolved field; pull comments do not, so filter out non-threaded comments
             UNRESOLVED=$(gh api repos/${{ github.repository }}/pulls/"$PR_NUM"/comments \
-              --jq '[.[] | select(.state != "RESOLVED" and (.body | test("^(nit:|nitpick)"; "i") | not))] | length' 2>/dev/null || echo 0)
+              --jq '[.[] | select(.state != null) | select(.state != "RESOLVED") | select(.body | test("^(nit:|nitpick)"; "i") | not)] | length' 2>/dev/null || echo 0)
             if [ "$UNRESOLVED" = "0" ] || [ -z "$UNRESOLVED" ]; then
               COMMENTS_STATUS="PASS"
             else
@@ -171,22 +176,22 @@ jobs:
             elif echo "$SKEPTIC_VERDICT" | grep -qi "VERDICT: FAIL"; then
               SKEPTIC_STATUS="FAIL"
             else
-              SKEPTIC_STATUS="MISSING (skeptic not yet run or no verdict comment found)"
+              # Missing or unrecognized verdict — block merge to be safe; skeptic must explicitly PASS
+              SKEPTIC_STATUS="MISSING"
             fi
             echo "  [7] Skeptic verdict:    $SKEPTIC_STATUS"
 
-            # Determine if PR is merge-ready (all conditions pass or N/A)
+            # Determine if PR is merge-ready — all conditions must PASS
             ALL_PASS=true
-            for COND in "$CI_STATUS" "$MERGE_CONFLICT" "$CR_APPROVED" "$BUGBOT_STATUS" "$COMMENTS_STATUS"; do
+            for COND in "$CI_RESULT" "$MERGE_CONFLICT" "$CR_APPROVED" "$BUGBOT_STATUS" "$COMMENTS_STATUS"; do
               if echo "$COND" | grep -qi "FAIL"; then
                 ALL_PASS=false
                 break
               fi
             done
 
-            # Skeptic verdict: PASS or MISSING (if skeptic hasn't run yet, don't block merge)
-            # We require skeptic PASS for merge readiness
-            if echo "$SKEPTIC_STATUS" | grep -qi "FAIL"; then
+            # Skeptic verdict: FAIL or MISSING verdict blocks merge (must explicitly PASS)
+            if echo "$SKEPTIC_STATUS" | grep -qi "FAIL\|MISSING"; then
               ALL_PASS=false
             fi
 
