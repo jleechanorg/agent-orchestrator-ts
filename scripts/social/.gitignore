@@ -1,0 +1,5 @@
+node_modules/
+credentials/
+upload-log.jsonl
+*.log
+.env

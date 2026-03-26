@@ -1,9 +1,9 @@
 import React from "react";
 import { AbsoluteFill, Sequence } from "remotion";
-import { SCENES } from "./scenes.js";
-import { TitleScreen } from "./components/TitleScreen.js";
-import { ChapterTitle } from "./components/ChapterTitle.js";
-import { QuoteScene } from "./components/QuoteScene.js";
+import { SCENES } from "./scenes";
+import { TitleScreen } from "./components/TitleScreen";
+import { ChapterTitle } from "./components/ChapterTitle";
+import { QuoteScene } from "./components/QuoteScene";
 
 const Background: React.FC = () => (
   <AbsoluteFill

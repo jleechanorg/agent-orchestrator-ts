@@ -1,0 +1,14 @@
+{
+  "name": "ao-novel-social-pipeline",
+  "version": "1.0.0",
+  "description": "Daily YouTube + TikTok upload pipeline for AO novel content",
+  "type": "module",
+  "scripts": {
+    "pipeline": "node pipeline.js",
+    "render": "cd ../../novel/upstream/video && bash render.sh"
+  },
+  "dependencies": {
+    "googleapis": "^140.0.0",
+    "puppeteer": "^24.40.0"
+  }
+}
