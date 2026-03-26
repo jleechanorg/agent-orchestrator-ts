@@ -48,6 +48,15 @@ import {
 import { createCorrelationId, createProjectObserver } from "./observability.js";
 import { resolveAgentSelection, resolveSessionRole } from "./agent-selection.js";
 import type { OutcomeRecorder } from "./outcome-recorder.js";
+import {
+  checkStuckWorker,
+  resetIdleCycles,
+} from "./stuck-worker-detector.js";
+import {
+  capturePane as tmuxCapturePane,
+  killSession as tmuxKillSession,
+  sendKeys as tmuxSendKeys,
+} from "./tmux.js";
 import { buildReactionContext } from "./reaction-context.js";
 import { validateAndEmitExitProof } from "./session-exit-proof.js";
 import { isPRMerged } from "./fork-lifecycle-kki-override.js";
@@ -981,7 +990,9 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       // Skip persisting if bd-kki check absorbed the killed transition — keep session
       // in oldStatus so the next poll can retry the SCM check.
       if (effectiveStatus !== oldStatus) {
-        // State transition detected
+        // State transition detected — reset stuck-worker idle counter since the
+        // session made progress. (bd-stuck-probe)
+        resetIdleCycles(session.id);
         states.set(session.id, effectiveStatus);
         updateSessionMetadata(session, { status: effectiveStatus });
       } else {
@@ -1352,6 +1363,58 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
               }
             }
           }
+        }
+      }
+
+      // Stuck worker probe: after 3+ consecutive idle polls with no status change,
+      // capture tmux pane content to detect exited/stuck agents. tmux has-session
+      // returns true even when the agent CLI exited (bash shell stays alive), so
+      // this deep pane inspection catches false-liveness. (bd-stuck-probe)
+      if (
+        !TERMINAL_STATUSES.has(newStatus) &&
+        !isOrchestratorSession(session) &&
+        session.runtimeHandle
+      ) {
+        try {
+          const probeResult = await checkStuckWorker({
+            sessionName: session.runtimeHandle.id,
+            sessionId: session.id,
+            hasNewPRs: false, // no status change ⇒ no new PRs this cycle
+            capturePane: tmuxCapturePane,
+            killSession: async (name: string) => {
+              await tmuxKillSession(name);
+              // Mark session as killed so next poll picks up the transition
+              updateSessionMetadata(session, { status: "killed", killConfirmed: "stuck-probe" });
+            },
+            sendKeys: tmuxSendKeys,
+          });
+          if (probeResult.inspected && probeResult.verdict) {
+            observer.recordOperation({
+              metric: "lifecycle_poll",
+              operation: "lifecycle.stuck_probe",
+              outcome: probeResult.actionTaken ? "success" : "info",
+              correlationId: createCorrelationId("stuck-probe"),
+              projectId: session.projectId,
+              sessionId: session.id,
+              data: {
+                action: probeResult.verdict.action,
+                reason: probeResult.verdict.reason,
+                idleCycles: probeResult.idleCycleCount,
+              },
+              level: probeResult.actionTaken ? "warn" : "info",
+            });
+          }
+        } catch (probeErr) {
+          observer.recordOperation({
+            metric: "lifecycle_poll",
+            operation: "lifecycle.stuck_probe",
+            outcome: "failure",
+            correlationId: createCorrelationId("stuck-probe"),
+            projectId: session.projectId,
+            sessionId: session.id,
+            reason: probeErr instanceof Error ? probeErr.message : String(probeErr),
+            level: "warn",
+          });
         }
       }
     }
