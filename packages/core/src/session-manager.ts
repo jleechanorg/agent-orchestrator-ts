@@ -1044,6 +1044,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
 
     // Create workspace (if workspace plugin is available)
     let workspacePath = project.path;
+    let workspaceRepoPath = project.path; // default to project path; workspace plugin overrides if it returns repoPath
     if (plugins.workspace) {
       try {
         const wsInfo = await plugins.workspace.create({
@@ -1053,6 +1054,9 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
           branch,
         });
         workspacePath = wsInfo.path;
+        if (wsInfo.repoPath) workspaceRepoPath = wsInfo.repoPath;
+        // Persist the owning repo path so destroy() can use it directly without
+        // re-discovering via git worktree list (avoids the .git vs repo-root ambiguity).
 
         // Run post-create hooks — clean up workspace on failure
         if (plugins.workspace.postCreate) {
@@ -1061,7 +1065,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
           } catch (err) {
             if (shouldDestroyWorkspacePath(project, spawnConfig.projectId, workspacePath)) {
               try {
-                await plugins.workspace.destroy(workspacePath);
+                await plugins.workspace.destroy(workspacePath, workspaceRepoPath);
               } catch {
                 /* best effort */
               }
@@ -1173,7 +1177,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
         shouldDestroyWorkspacePath(project, spawnConfig.projectId, workspacePath)
       ) {
         try {
-          await plugins.workspace.destroy(workspacePath);
+          await plugins.workspace.destroy(workspacePath, workspaceRepoPath);
         } catch {
           /* best effort */
         }
@@ -1208,6 +1212,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
     try {
       writeMetadata(sessionsDir, sessionId, {
         worktree: workspacePath,
+        repoPath: workspaceRepoPath, // owning repo for destroy() convenience
         branch,
         status: "spawning",
         tmuxName, // Store tmux name for mapping
@@ -1252,7 +1257,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
         shouldDestroyWorkspacePath(project, spawnConfig.projectId, workspacePath)
       ) {
         try {
-          await plugins.workspace.destroy(workspacePath);
+          await plugins.workspace.destroy(workspacePath, workspaceRepoPath);
         } catch {
           /* best effort */
         }
@@ -1782,7 +1787,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
         try {
           await execFileAsync(
             "git",
-            ["worktree", "remove", "--force", worktreePath],
+            ["worktree", "remove", "--force", "--force", worktreePath],
             { cwd: repoPath, timeout: 30_000 },
           );
         } catch {
@@ -1894,7 +1899,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
         try {
           await execFileAsync(
             "git",
-            ["worktree", "remove", "--force", worktreePath],
+            ["worktree", "remove", "--force", "--force", worktreePath],
             { cwd: repoPath, timeout: 30_000 },
           );
         } catch {
@@ -1962,7 +1967,8 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
         : registry.get<Workspace>("workspace", config.defaults.workspace);
       if (workspacePlugin) {
         try {
-          await workspacePlugin.destroy(worktree);
+          const repoPath = raw["repoPath"];
+          await workspacePlugin.destroy(worktree, repoPath || undefined);
         } catch {
           // Workspace might already be gone
         }

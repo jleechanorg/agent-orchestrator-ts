@@ -18,7 +18,7 @@ import type { ProjectObserver } from "./observability.js";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { existsSync, readdirSync, rmSync } from "node:fs";
-import { execFileSync, execFile } from "node:child_process";
+import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
@@ -206,6 +206,7 @@ export async function backfillUncoveredPRs(
                 // Always attempt git-level cleanup even when the directory is already
                 // gone — the git worktree entry can persist and block the next claim.
                 // Capture branch (from worktree dir if it exists, else from git list).
+                // Use project.path as the owning repo — avoid re-discovering via sibling scan.
                 let repoDir: string | null = null;
 
                 if (existsSync(worktreeDir)) {
@@ -230,10 +231,43 @@ export async function backfillUncoveredPRs(
                   } catch { /* may be broken */ }
                 }
 
-                // If directory is gone or repo wasn't found via dir, use the configured
-                // worktree base dir to find which repo owns this worktree. Scan each
-                // project subdirectory's git worktree list to locate the entry.
-                // homedir() is NOT a git repo so we can't scan from there directly.
+                // If repo wasn't resolved from the worktree dir, use project.path directly
+                // (the owning repo is already known from the backfill caller's project param).
+                // Validate by checking the worktree appears in git worktree list; if that fails,
+                // fall back to the sibling scan below.
+                if (repoDir === null) {
+                  const candidateRepo = project.path;
+                  try {
+                    const listOutput = (
+                      await execFileAsync(
+                        "git",
+                        ["-C", candidateRepo, "worktree", "list", "--porcelain"],
+                        { timeout: GIT_TIMEOUT, encoding: "utf8" },
+                      )
+                    ).stdout.trim();
+                    // Verify the stale worktree is registered under this repo
+                    const blocks = listOutput.split("\n\n");
+                    for (const block of blocks) {
+                      const lines = block.trim().split("\n");
+                      let wp = "";
+                      let br = "";
+                      for (const line of lines) {
+                        if (line.startsWith("worktree ")) wp = line.slice("worktree ".length);
+                        else if (line.startsWith("branch "))
+                          br = line.slice("branch ".length).replace(/^refs\/heads\//, "");
+                      }
+                      if (wp === worktreeDir) {
+                        repoDir = candidateRepo;
+                        if (!branch) branch = br || null;
+                        break;
+                      }
+                    }
+                  } catch { /* project.path is not a valid repo — try sibling scan below */ }
+                }
+
+                // Last resort: scan sibling worktree directories under projectWorktreeDir to
+                // find the repo that has worktreeDir registered. homedir() is not a git repo
+                // so we can't scan from there directly.
                 if (repoDir === null) {
                   try {
                     const projectWorktreeDir = resolve(worktreeRoot, projectId);

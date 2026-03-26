@@ -288,9 +288,8 @@ async function findRepoPathForWorktree(workspacePath: string): Promise<{ repoPat
         }
       }
       if (worktreePath === workspacePath && gitdir) {
-        // gitdir is like /path/to/repo/.git/worktrees/session-name
-        // repo path is two levels up from the worktrees subdir
-        return { repoPath: resolve(gitdir, "..", ".."), branch };
+        // gitdir = /repo/.git/worktrees/<name>; .. → worktrees, ../.. → .git, ../../.. → repo root
+        return { repoPath: resolve(gitdir, "..", "..", ".."), branch };
       }
     }
   } catch {
@@ -401,11 +400,16 @@ export function create(config?: Record<string, unknown>): Workspace {
         branch: cfg.branch,
         sessionId: cfg.sessionId,
         projectId: cfg.projectId,
+        // Persist repoPath so destroy() can use it directly without re-discovering.
+        // This avoids the .git vs repo-root ambiguity when gitdir resolution fails.
+        repoPath,
       };
     },
 
-    async destroy(workspacePath: string): Promise<void> {
-      let repoPath: string | null = null;
+    async destroy(workspacePath: string, repoPathFromCaller?: string): Promise<void> {
+      // repoPathFromCaller is the owning repo path passed from session metadata.
+      // Use it directly when available to skip repo-discovery.
+      let repoPath: string | null = repoPathFromCaller ?? null;
       let checkedOutBranch: string | null = null;
 
       // Capture branch before removal so we can clean it up afterwards.
@@ -416,18 +420,21 @@ export function create(config?: Record<string, unknown>): Workspace {
       }
 
       try {
-        const gitCommonDir = await git(
-          workspacePath,
-          "rev-parse",
-          "--path-format=absolute",
-          "--git-common-dir",
-        );
-        // git-common-dir returns something like /path/to/repo/.git
-        repoPath = resolve(gitCommonDir, "..");
+        // Prefer repoPathFromCaller if set; otherwise resolve from workspace dir.
+        if (!repoPath) {
+          const gitCommonDir = await git(
+            workspacePath,
+            "rev-parse",
+            "--path-format=absolute",
+            "--git-common-dir",
+          );
+          // git-common-dir returns something like /path/to/repo/.git
+          repoPath = resolve(gitCommonDir, "..");
+        }
         // Use --force --force to bypass the worktree lock set during create().
         // The first --force allows removal of dirty worktrees; the second
         // bypasses the lock that prevents accidental `git worktree prune` deletion.
-        await git(repoPath, "worktree", "remove", "--force", "--force", workspacePath);
+        await git(repoPath!, "worktree", "remove", "--force", "--force", workspacePath);
       } catch {
         // If the directory was deleted externally but git still has a locked
         // worktree entry, find the repo path by scanning .git/worktrees/ and

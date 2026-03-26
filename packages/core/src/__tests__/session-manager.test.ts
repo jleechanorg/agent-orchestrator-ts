@@ -1860,7 +1860,7 @@ describe("kill", () => {
     await sm.kill("app-1");
 
     expect(mockRuntime.destroy).toHaveBeenCalledWith(makeHandle("rt-1"));
-    expect(mockWorkspace.destroy).toHaveBeenCalledWith(managedWorktree);
+    expect(mockWorkspace.destroy).toHaveBeenCalledWith(managedWorktree, undefined);
     expect(readMetadata(sessionsDir, "app-1")).toBeNull(); // archived + deleted
   });
 
@@ -1892,7 +1892,7 @@ describe("kill", () => {
     const sm = createSessionManager({ config, registry: mockRegistry });
     await sm.kill("app-1");
 
-    expect(mockWorkspace.destroy).toHaveBeenCalledWith(legacyWorktree);
+    expect(mockWorkspace.destroy).toHaveBeenCalledWith(legacyWorktree, undefined);
   });
 
   it("never destroys workspace equal to project path", async () => {
