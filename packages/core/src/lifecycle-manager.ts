@@ -648,6 +648,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     reactionConfig: ReactionConfig,
     session?: Session,
     correlationId?: string,
+    agentDead?: boolean,
   ): Promise<ReactionResult> {
     const reactionCorrelationId = correlationId ?? createCorrelationId("reaction");
     observer.recordOperation({
@@ -987,6 +988,145 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         });
       }
 
+      // bd-rfr: When the agent is dead and the PR has CHANGES_REQUESTED feedback,
+      // spawn a fresh worker targeting the same PR branch with pre-loaded review context.
+      // When the agent is alive, fall back to send-to-agent behavior.
+      case "respawn-for-review": {
+        if (agentDead) {
+          // Agent is dead — spawn a fresh worker targeting this PR
+          if (!session?.pr) {
+            const event = createEvent("reaction.triggered", {
+              sessionId,
+              projectId,
+              message: `Reaction '${reactionKey}' triggered respawn but no PR is associated with this session`,
+              data: { reactionKey, action },
+            });
+            await notifyHuman(event, "warning");
+            return {
+              reactionType: reactionKey,
+              success: false,
+              action: "respawn-for-review",
+              escalated: false,
+            };
+          }
+
+          const project = config.projects[projectId];
+          if (!project) {
+            const event = createEvent("reaction.triggered", {
+              sessionId,
+              projectId,
+              message: `Reaction '${reactionKey}' triggered respawn but project '${projectId}' not found`,
+              data: { reactionKey, action, projectId },
+            });
+            await notifyHuman(event, "warning");
+            return {
+              reactionType: reactionKey,
+              success: false,
+              action: "respawn-for-review",
+              escalated: false,
+            };
+          }
+
+          // Build review context to pre-load into the new worker's prompt
+          let context = "";
+          if (reactionConfig.message?.includes("{{context}}") && session) {
+            try {
+              context = await buildReactionContext(reactionKey, session, projectId, config, registry);
+            } catch {
+              // Non-fatal: proceed without context
+            }
+          }
+
+          let prompt = reactionConfig.message ?? `Fix review comments on PR #${session.pr.number} and push.`;
+          if (context) {
+            prompt = prompt.replaceAll("{{context}}", context);
+          }
+          // Prepend PR context so the new worker knows exactly what to fix
+          const prContext = `PR #${session.pr.number} (${session.pr.url}) has review comments that need to be addressed. Work on branch '${session.pr.branch}'. `;
+          prompt = prContext + prompt;
+
+          try {
+            const spawned = await sessionManager.spawn({
+              projectId,
+              branch: session.pr.branch,
+              prompt,
+            });
+
+            observer.recordOperation({
+              metric: "lifecycle_poll",
+              operation: "lifecycle.reaction.respawn_for_review",
+              outcome: "success",
+              correlationId: reactionCorrelationId,
+              projectId,
+              sessionId,
+              data: {
+                reactionKey,
+                action: "respawn-for-review",
+                spawnedSessionId: spawned.id,
+                prNumber: session.pr.number,
+              },
+              level: "info",
+            });
+
+            return {
+              reactionType: reactionKey,
+              success: true,
+              action: "respawn-for-review",
+              message: `Spawned fresh worker '${spawned.id}' for PR #${session.pr.number}`,
+              escalated: false,
+            };
+          } catch (spawnErr) {
+            const errMsg = spawnErr instanceof Error ? spawnErr.message : String(spawnErr);
+            observer.recordOperation({
+              metric: "lifecycle_poll",
+              operation: "lifecycle.reaction.respawn_for_review",
+              outcome: "failure",
+              correlationId: reactionCorrelationId,
+              projectId,
+              sessionId,
+              data: { reactionKey, error: errMsg },
+              level: "error",
+            });
+            // Spawn failed — allow retry on next cycle (don't escalate immediately)
+            return {
+              reactionType: reactionKey,
+              success: false,
+              action: "respawn-for-review",
+              escalated: false,
+            };
+          }
+        }
+
+        // Agent is alive — fall back to send-to-agent behavior
+        if (reactionConfig.message) {
+          try {
+            let finalMessage = reactionConfig.message;
+            if (session && reactionConfig.message.includes("{{context}}")) {
+              const context = await buildReactionContext(reactionKey, session, projectId, config, registry);
+              finalMessage = reactionConfig.message.replace(/\{\{context\}\}/g, () => context);
+            }
+            await sessionManager.send(sessionId, finalMessage);
+            return {
+              reactionType: reactionKey,
+              success: true,
+              action: "respawn-for-review",
+              message: finalMessage,
+              escalated: false,
+            };
+          } catch (sendErr) {
+            const sendErrMsg = sendErr instanceof Error ? sendErr.message : String(sendErr);
+            return {
+              reactionType: reactionKey,
+              success: false,
+              action: "respawn-for-review",
+              escalated: false,
+            };
+          }
+        }
+        break;
+      }
+      }
+
       default: {
         // Log warning for unknown reaction action types
         console.warn(`Unknown reaction action type: ${action}`);
@@ -1300,6 +1440,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
                 reactionConfig,
                 session,
                 correlationId,
+                agentDead,
               );
               transitionReaction = { key: reactionKey, result: reactionResult };
               // Seed stuck retry cooldown from the initial transition nudge (bd-sbr.2)
@@ -1537,6 +1678,8 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
               reactionKey,
               reactionConfig,
               session,
+              undefined,
+              false,
             );
             if (result?.success) {
               transitionReaction = { key: reactionKey, result };
@@ -1585,6 +1728,8 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
                 reactionKey,
                 reactionConfig,
                 session,
+                undefined,
+                false,
               );
               if (result?.success) {
                 transitionReaction = { key: reactionKey, result };
