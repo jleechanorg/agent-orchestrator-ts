@@ -915,8 +915,9 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       // bd-rfr: When the agent is dead and the PR has CHANGES_REQUESTED feedback,
       // spawn a fresh worker targeting the same PR branch with pre-loaded review context.
       // When the agent is alive, fall back to send-to-agent behavior.
+      // agentDead is optional; treat undefined (retry dispatch path) as dead to always respawn.
       case "respawn-for-review": {
-        if (agentDead) {
+        if (agentDead !== false) {
           // Agent is dead — spawn a fresh worker targeting this PR
           if (!session?.pr) {
             const event = createEvent("reaction.triggered", {
@@ -1037,8 +1038,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
               message: finalMessage,
               escalated: false,
             };
-          } catch (sendErr) {
-            const sendErrMsg = sendErr instanceof Error ? sendErr.message : String(sendErr);
+          } catch {
             return {
               reactionType: reactionKey,
               success: false,
