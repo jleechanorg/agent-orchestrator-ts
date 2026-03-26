@@ -16,8 +16,8 @@ import type {
 } from "./types.js";
 import type { ProjectObserver } from "./observability.js";
 import { homedir } from "node:os";
-import { resolve } from "node:path";
-import { existsSync, rmSync } from "node:fs";
+import { join, resolve } from "node:path";
+import { existsSync, readdirSync, rmSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 
 /** Timeout for git commands in direct cleanup (30 seconds). */
@@ -218,33 +218,49 @@ export async function backfillUncoveredPRs(
                 } catch { /* may be broken */ }
               }
 
-              // If directory is gone or repo wasn't found via dir, scan git worktree
-              // list from homedir to locate the worktree entry and recover branch+repo.
+              // If directory is gone or repo wasn't found via dir, use the configured
+              // worktree base dir to find which repo owns this worktree. Scan each
+              // project subdirectory's git worktree list to locate the entry.
+              // homedir() is NOT a git repo so we can't scan from there directly.
               if (repoDir === null) {
                 try {
-                  const listOutput = execFileSync(
-                    "git",
-                    ["-C", homedir(), "worktree", "list", "--porcelain"],
-                    { encoding: "utf8", timeout: GIT_TIMEOUT },
-                  ).trim();
-                  const blocks = listOutput.split("\n\n");
-                  for (const block of blocks) {
-                    const lines = block.trim().split("\n");
-                    let wp = "";
-                    let gd = "";
-                    let br = "";
-                    for (const line of lines) {
-                      if (line.startsWith("worktree ")) wp = line.slice("worktree ".length);
-                      else if (line.startsWith("gitdir ")) gd = line.slice("gitdir ".length);
-                      else if (line.startsWith("branch ")) br = line.slice("branch ".length).replace(/^refs\/heads\//, "");
-                    }
-                    if (wp === worktreeDir && gd) {
-                      repoDir = resolve(gd, "..", "..");
-                      if (!branch) branch = br || null;
-                      break;
+                  const projectWorktreeDir = resolve(worktreeRoot, projectId);
+                  if (existsSync(projectWorktreeDir)) {
+                    const entries = readdirSync(projectWorktreeDir);
+                    for (const entry of entries) {
+                      const candidatePath = join(projectWorktreeDir, entry);
+                      if (!entry.startsWith(".")) {
+                        try {
+                          const listOutput = execFileSync(
+                            "git",
+                            ["-C", candidatePath, "worktree", "list", "--porcelain"],
+                            { encoding: "utf8", timeout: GIT_TIMEOUT },
+                          ).trim();
+                          const blocks = listOutput.split("\n\n");
+                          for (const block of blocks) {
+                            const lines = block.trim().split("\n");
+                            let wp = "";
+                            let gd = "";
+                            let br = "";
+                            for (const line of lines) {
+                              if (line.startsWith("worktree ")) wp = line.slice("worktree ".length);
+                              else if (line.startsWith("gitdir ")) gd = line.slice("gitdir ".length);
+                              else if (line.startsWith("branch "))
+                                br = line.slice("branch ".length).replace(/^refs\/heads\//, "");
+                            }
+                            if (wp === worktreeDir && gd) {
+                              // gitdir = /repo/.git/worktrees/<name>; .. → .git, ../.. → repo root
+                              repoDir = resolve(gd, "..", "..");
+                              if (!branch) branch = br || null;
+                              break;
+                            }
+                          }
+                          if (repoDir !== null) break;
+                        } catch { /* candidate not a git repo — try next */ }
+                      }
                     }
                   }
-                } catch { /* best-effort — scan may fail */ }
+                } catch { /* best-effort */ }
               }
 
               // Unlock + remove worktree (--force --force mirrors destroy()).
