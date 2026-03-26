@@ -241,8 +241,9 @@ bd-ara.3 (kill sessions on merge)  ← unblocks spawn gate immediately
 bd-ara.4 (CR recovery)            ← unblocks 8 PRs
   └─ depends on: nothing (config change)
 
-bd-ara.1 (comment documentation)  ← unblocks green condition #5
-  └─ depends on: nothing (config change)
+bd-ara.1 (comment documentation)  ← ✅ DONE — agentRules workaround for worker self-certification
+  └─ implemented: `~/.openclaw/agent-orchestrator.yaml` agentRules section "AFTER FIXING REVIEW COMMENTS — DOCUMENT IN PR DESCRIPTION (bd-ara.1)"
+  └─ NOTE: merge-gate still uses `scm.getPendingComments()` `isResolved` for condition #5. The PR description table is an **audit trail + worker self-certification record**, not a merge-gate bypass.
 
 bd-ara.2 (mergeable=UNKNOWN)      ← unblocks 13 PRs
   └─ depends on: nothing (config + optional lifecycle event)
@@ -251,6 +252,6 @@ bd-ara.5 (test self-heal)         ← unblocks 3 PRs
   └─ depends on: nothing (config change)
 ```
 
-**Suggested order:** bd-ara.3 → bd-ara.4 → bd-ara.1 → bd-ara.2 → bd-ara.5
+**Suggested order:** bd-ara.3 → bd-ara.4 → bd-ara.1✅ → bd-ara.2 → bd-ara.5
 
 Most fixes are **config-only** (agentRules changes). Only bd-ara.3 requires core code changes.
