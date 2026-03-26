@@ -113,11 +113,15 @@ export async function maybeDispatchReviewBacklog(
 
   let pendingComments: Awaited<ReturnType<typeof scm.getPendingComments>> | null = null;
   let automatedComments: Awaited<ReturnType<typeof scm.getAutomatedComments>> | null = null;
+  // bd-xxx: Gate changes-requested dispatch on CR's latest verdict so we don't re-alert
+  // on unresolved suggestions after CR moves to COMMENTED (not a formal CHANGES_REQUESTED verdict).
+  let crLatestVerdict: string | null = null;
 
   if (!shouldThrottle) {
-    const [pendingResult, automatedResult] = await Promise.allSettled([
+    const [pendingResult, automatedResult, reviewsResult] = await Promise.allSettled([
       scm.getPendingComments(session.pr),
       skipAutomated ? Promise.resolve(null) : scm.getAutomatedComments(session.pr),
+      scm.getReviews(session.pr),
     ]);
 
     // null means "failed to fetch" — preserve existing metadata.
@@ -130,6 +134,16 @@ export async function maybeDispatchReviewBacklog(
       automatedResult.status === "fulfilled" && Array.isArray(automatedResult.value)
         ? automatedResult.value
         : null;
+
+    // bd-xxx: Extract CR's latest review verdict to gate changes-requested dispatch.
+    // Fail open (null = don't know) so we don't suppress legitimate alerts during transient
+    // API errors.
+    if (reviewsResult.status === "fulfilled" && Array.isArray(reviewsResult.value)) {
+      const crReviews = (reviewsResult.value as Array<{ user?: { login?: string }; state?: string }>)
+        .filter((r) => r.user?.login === "coderabbitai[bot]");
+      const latest = crReviews[crReviews.length - 1];
+      crLatestVerdict = latest?.state ?? null;
+    }
   }
 
   // --- Pending (human) review comments ---
@@ -180,7 +194,12 @@ export async function maybeDispatchReviewBacklog(
     } else if (
       !shouldThrottle &&
       !(oldStatus !== newStatus && newStatus === "changes_requested") &&
-      pendingFingerprint !== lastPendingDispatchHash
+      pendingFingerprint !== lastPendingDispatchHash &&
+      // bd-xxx: only re-alert on pending comments when CR's latest verdict is CHANGES_REQUESTED.
+      // When CR moves to COMMENTED (suggestions without formal verdict) we should not re-fire
+      // changes-requested for the same unresolved suggestions — the agent already knows.
+      // Fail open (crLatestVerdict === null) to avoid suppressing during transient API errors.
+      (crLatestVerdict === null || crLatestVerdict === "CHANGES_REQUESTED")
     ) {
       const reactionConfig = getReactionConfigForSession(session, humanReactionKey);
       // bd-5o1: skip send-to-agent for dead agents. respawn-for-review is always
