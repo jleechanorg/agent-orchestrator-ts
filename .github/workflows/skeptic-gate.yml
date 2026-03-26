@@ -39,7 +39,8 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
           # Run skeptic — CLI returns 0 even for FAIL verdicts (it posts the comment)
-          pnpm ao skeptic --pr ${{ github.event.pull_request.number }} > skeptic-output.txt 2>&1 || true
+          # Use node directly since pnpm ao may not be in PATH after workspace build
+          node packages/cli/dist/index.js skeptic --pr ${{ github.event.pull_request.number }} > skeptic-output.txt 2>&1 || true
 
           # Always print output for workflow logs
           cat skeptic-output.txt
