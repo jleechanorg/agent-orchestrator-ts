@@ -360,9 +360,15 @@ export async function backfillUncoveredPRs(
                       { timeout: GIT_TIMEOUT, encoding: "utf8" },
                     )
                   ).stdout.trim();
-                  const stillRegistered = listOut
-                    .split("\n\n")
-                    .some((block) => block.includes(`worktree ${worktreeDir}`));
+                  const stillRegistered = listOut.split("\n\n").some((block) => {
+                    const lines = block.trim().split("\n");
+                    for (const line of lines) {
+                      if (line.startsWith("worktree ") && line.slice("worktree ".length) === worktreeDir) {
+                        return true;
+                      }
+                    }
+                    return false;
+                  });
                   if (stillRegistered) {
                     throw new Error(
                       `worktree ${worktreeDir} still registered in ${repoDir} after cleanup`,
