@@ -15,6 +15,10 @@ jobs:
   skeptic_cron:
     name: Skeptic Cron
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
     outputs:
       prs_evaluated: ${{ steps.list_prs.outputs.pr_numbers }}
       merged_count: ${{ steps.merge_prs.outputs.merged_count }}
@@ -46,7 +50,7 @@ jobs:
         run: |
           # Fetch all open PRs (not drafts) with numbers, head refs, and base branches
           PR_JSON=$(gh api repos/${{ github.repository }}/pulls \
-            --jq '[.[] | select(.draft == false) | {number, title, head.ref, base.ref, mergeable, state}]')
+            --jq '[.[] | select(.draft == false) | {number, title, head: {ref: .head.ref, sha: .head.sha}, base: {ref: .base.ref}, mergeable}]')
 
           echo "Open non-draft PRs found:"
           echo "$PR_JSON" | jq -c '.[]' 2>/dev/null || echo "$PR_JSON"
@@ -62,7 +66,7 @@ jobs:
         run: |
           set -e
 
-          PR_JSON='${{ fromJSON(steps.list_prs.outputs.pr_numbers) }}'
+          PR_JSON='${{ steps.list_prs.outputs.pr_numbers }}'
 
           for PR in $(echo "$PR_JSON" | jq -r '.[] | @base64'); do
             PR_DATA=$(echo "$PR" | base64 -d)
@@ -88,7 +92,7 @@ jobs:
         run: |
           MERGED=0
 
-          PR_JSON='${{ fromJSON(steps.list_prs.outputs.pr_numbers) }}'
+          PR_JSON='${{ steps.list_prs.outputs.pr_numbers }}'
 
           for PR in $(echo "$PR_JSON" | jq -r '.[] | @base64'); do
             PR_DATA=$(echo "$PR" | base64 -d)
@@ -99,8 +103,9 @@ jobs:
             echo "--- Checking 7-green for PR #${PR_NUM}: ${PR_TITLE} ---"
 
             # 1. CI green — only "success" passes; pending/error/failure all block merge
-            HEAD_REF=$(echo "$PR_DATA" | jq -r '.head.ref')
-            CI_STATUS=$(gh api repos/${{ github.repository }}/commits/"$HEAD_REF"/status \
+            # Use immutable SHA (not mutable branch ref) to avoid stale results on force-push
+            HEAD_SHA=$(gh api repos/${{ github.repository }}/pulls/"$PR_NUM" --jq '.head.sha')
+            CI_STATUS=$(gh api repos/${{ github.repository }}/commits/"$HEAD_SHA"/status \
               --jq '.state' 2>/dev/null || echo "error")
             if [ "$CI_STATUS" = "success" ]; then
               CI_RESULT="PASS"
@@ -159,7 +164,7 @@ jobs:
 
             # 6. Evidence review (evidence-review-bot approved review)
             EVIDENCE_APPROVED=$(gh api repos/${{ github.repository }}/pulls/"$PR_NUM"/reviews \
-              --jq '[.[] | select(.user.login == "evidence-review-bot" and .state == "approved")] | length' 2>/dev/null || echo 0)
+              --jq '[.[] | select(.user.login == "evidence-review-bot" and .state == "APPROVED")] | length' 2>/dev/null || echo 0)
             if [ "$EVIDENCE_APPROVED" = "0" ]; then
               # Evidence review is optional in many configs; check if evidence-gate passed instead
               EVIDENCE_STATUS="N/A (optional)"
@@ -168,9 +173,9 @@ jobs:
             fi
             echo "  [6] Evidence review:    $EVIDENCE_STATUS"
 
-            # 7. Skeptic verdict — look for skeptic bot's comment with VERDICT
-            # Bot author defaults to jleechan-agent[bot] per skeptic.ts SKEPTIC_BOT_AUTHOR
-            SKEPTIC_BOT="${SKEPTIC_BOT:-jleechan-agent[bot]}"
+            # 7. Skeptic verdict — look for skeptic gate's VERDICT comment
+            # skeptic-gate.yml posts via GITHUB_TOKEN → author is github-actions[bot]
+            SKEPTIC_BOT="${SKEPTIC_BOT:-github-actions[bot]}"
             SKEPTIC_JQ_FILTER='[.[] | select(.user.login == "'"$SKEPTIC_BOT"'" and (.body | test("VERDICT:"; "i"))) | .body]'
             SKEPTIC_VERDICT=$(gh api repos/${{ github.repository }}/issues/"$PR_NUM"/comments \
               --jq "$SKEPTIC_JQ_FILTER" 2>/dev/null | head -1 || echo "")
