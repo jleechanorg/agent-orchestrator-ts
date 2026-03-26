@@ -350,32 +350,56 @@ export async function backfillUncoveredPRs(
                 }
 
                 // Postcondition check: only mark cleanup as successful if the worktree
-                // is actually gone. Silent git failures (each wrapped in try/catch above)
-                // would otherwise cause cleanupOk=true even though nothing was cleaned up.
+                // is actually gone. Each git step above is best-effort (wrapped in
+                // individual try/catch), so we must independently verify the outcome.
+                // Wrap in a dedicated try/catch so transient git failures (timeouts,
+                // network glitches) during verification don't abort the backfill
+                // even when the cleanup actually succeeded (worktree gone from disk).
+                let postconditionErr: unknown;
                 if (repoDir) {
-                  const listOut = (
-                    await execFileAsync(
-                      "git",
-                      ["-C", repoDir, "worktree", "list", "--porcelain"],
-                      { timeout: GIT_TIMEOUT, encoding: "utf8" },
-                    )
-                  ).stdout.trim();
-                  const stillRegistered = listOut.split("\n\n").some((block) => {
-                    const lines = block.trim().split("\n");
-                    for (const line of lines) {
-                      if (line.startsWith("worktree ") && line.slice("worktree ".length) === worktreeDir) {
-                        return true;
+                  try {
+                    const listOut = (
+                      await execFileAsync(
+                        "git",
+                        ["-C", repoDir, "worktree", "list", "--porcelain"],
+                        { timeout: GIT_TIMEOUT, encoding: "utf8" },
+                      )
+                    ).stdout.trim();
+                    const stillRegistered = listOut.split("\n\n").some((block) => {
+                      const lines = block.trim().split("\n");
+                      for (const line of lines) {
+                        if (
+                          line.startsWith("worktree ") &&
+                          line.slice("worktree ".length) === worktreeDir
+                        ) {
+                          return true;
+                        }
                       }
+                      return false;
+                    });
+                    if (stillRegistered) {
+                      postconditionErr = new Error(
+                        `worktree ${worktreeDir} still registered in ${repoDir} after cleanup`,
+                      );
+                    } else {
+                      cleanupOk = true;
                     }
-                    return false;
-                  });
-                  if (stillRegistered) {
-                    throw new Error(
-                      `worktree ${worktreeDir} still registered in ${repoDir} after cleanup`,
-                    );
+                  } catch (e) {
+                    postconditionErr = e;
+                    // Transient git failure (timeout, I/O error) — verify the directory
+                    // is actually gone from disk before reporting failure. If the worktree
+                    // was removed, the cleanup succeeded even if git verification errored.
+                    if (!existsSync(worktreeDir)) {
+                      cleanupOk = true;
+                    } else {
+                      cleanupErr = postconditionErr;
+                    }
                   }
-                  // Verified: worktree is gone and repoDir was known.
-                  cleanupOk = true;
+                  // Fail only when the worktree is still on disk (git remove silently failed).
+                  // When the directory is gone, cleanup succeeded regardless of git state.
+                  if (postconditionErr !== undefined && !cleanupOk) {
+                    cleanupErr = postconditionErr;
+                  }
                 } else {
                   // repoDir unknown — directory removed but git worktree entry unverified.
                   // Log for operator visibility; the entry may persist and block future claims.
@@ -385,8 +409,7 @@ export async function backfillUncoveredPRs(
                   );
                 }
               })();
-              // cleanupOk was set inside the IIFE if verification succeeded.
-              // If repoDir was null, cleanupOk stays false and the failure path runs.
+              // Propagate any error captured inside the IIFE (e.g. from directory removal).
             } catch (e) {
               cleanupErr = e;
             }
