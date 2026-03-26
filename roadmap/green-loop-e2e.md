@@ -78,9 +78,12 @@ These capabilities should be delivered via **richer `agentRules`** in `agent-orc
 **Implemented:**
 | Capability | Approach | Bead |
 |---|---|---|
-| Inline comment resolution | `agentRules`: "After fixing code, append `## Resolved Comments` table to PR description via `gh pr edit`" | bd-ara.1 ✅ |
+| Inline comment audit trail | `agentRules`: "After fixing code, append `## Resolved Comments` table to PR description via `gh pr edit`" | bd-ara.1 ✅ |
+
+NOTE: This is a **worker self-certification audit trail**, not GitHub thread resolution. Merge-gate condition #5 still uses `scm.getPendingComments()` `isResolved`. Workers must still fix the underlying code.
 
 **Not yet started:**
+
 | Capability | Approach | Bead |
 |---|---|---|
 | Stale branch rebase | `agentRules`: "If mergeable=UNKNOWN or CONFLICTING, rebase on main" | bd-ara.2 |
