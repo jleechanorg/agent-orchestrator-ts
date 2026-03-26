@@ -1,0 +1,90 @@
+name: Skeptic Gate
+
+on:
+  pull_request:
+    types: [opened, synchronize, edited, reopened]
+
+concurrency:
+  group: skeptic-gate-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  skeptic_gate:
+    name: Skeptic Gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Install Claude CLI
+        run: npm install -g @anthropic-ai/claude-code
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build CLI
+        run: pnpm -C packages/cli build
+
+      - name: Run Skeptic and set conclusion
+        id: run_skeptic
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          # Run skeptic — CLI returns 0 even for FAIL verdicts (it posts the comment)
+          pnpm ao skeptic --pr ${{ github.event.pull_request.number }} > skeptic-output.txt 2>&1 || true
+
+          # Always print output for workflow logs
+          cat skeptic-output.txt
+
+          # Parse verdict to determine job outcome
+          # FAIL verdict → job fails (blocks merge)
+          # PASS verdict → job succeeds
+          # UNKNOWN / error → fail closed (skeptic must produce recognizable verdict)
+          if grep -qi "VERDICT: FAIL" skeptic-output.txt; then
+            echo "verdict=FAIL" >> "$GITHUB_OUTPUT"
+            echo "" >> skeptic-output.txt
+            echo "CONCLUSION: FAIL — skeptic found gaps" >> skeptic-output.txt
+            exit 1
+          elif grep -qi "VERDICT: PASS" skeptic-output.txt; then
+            echo "verdict=PASS" >> "$GITHUB_OUTPUT"
+            echo "" >> skeptic-output.txt
+            echo "CONCLUSION: PASS — skeptic approves" >> skeptic-output.txt
+            exit 0
+          else
+            echo "verdict=UNKNOWN" >> "$GITHUB_OUTPUT"
+            echo "" >> skeptic-output.txt
+            echo "CONCLUSION: UNKNOWN — could not parse VERDICT from output (failing closed)" >> skeptic-output.txt
+            exit 1
+          fi
+
+      - name: Post skeptic findings as PR comment
+        if: always()
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ -f skeptic-output.txt ]; then
+            # Truncate to 6000 chars (GitHub comment limit buffer)
+            BODY=$(cat skeptic-output.txt | head -c 6000)
+            gh pr comment ${{ github.event.pull_request.number }} \
+              --body "## Skeptic Gate Findings
+
+<details>
+<summary>Click to expand skeptic output</summary>
+
+\`\`\`
+${BODY}
+\`\`\`
+</details>
+
+_Skeptic gate ran on commit \`${GITHUB_SHA:0:7}\`_" \
+              2>/dev/null || true
+          fi
