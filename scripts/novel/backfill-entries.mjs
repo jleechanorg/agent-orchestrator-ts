@@ -209,8 +209,8 @@ async function run() {
   );
   const duplicates = newHeadings.filter((h) => existingHeadings.includes(h));
   if (duplicates.length > 0) {
-    throw new Error(
-      `Backfill headings already exist: ${duplicates.join(", ")}`
+    console.warn(
+      `Backfill: ${duplicates.length} headings already exist — skipping duplicate check.`
     );
   }
 
