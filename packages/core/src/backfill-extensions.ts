@@ -18,7 +18,10 @@ import type { ProjectObserver } from "./observability.js";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { existsSync, readdirSync, rmSync } from "node:fs";
-import { execFileSync } from "node:child_process";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+
+const execFileAsync = promisify(execFile);
 
 /** Timeout for git commands in direct cleanup (30 seconds). */
 const GIT_TIMEOUT = 30_000;
@@ -183,117 +186,235 @@ export async function backfillUncoveredPRs(
             });
             // Direct worktree cleanup fallback — session wasn't registered so
             // kill() couldn't find it, but we know where the worktree lives.
+            // Runs as an async IIFE so we can use execFileAsync (non-blocking) instead
+            // of execFileSync, avoiding event-loop stalls when many stale worktrees exist.
+            let cleanupOk = false;
+            let cleanupErr: unknown;
+            let branch: string | null = null;
             try {
-              // Prefer global worktreeDir (config), then project.worktreeDir,
-              // then the standard ~/.worktrees/{projectId}/{sessionId} path.
-              // expandPath handles ~ expansion for custom worktreeDir paths.
-              const worktreeRoot = expandPath(
-                params.worktreeDir ||
-                  (project as { worktreeDir?: string }).worktreeDir ||
-                  resolve(homedir(), ".worktrees"),
-              );
-              const worktreeDir = resolve(worktreeRoot, projectId, session.id);
+              await (async () => {
+                // Prefer global worktreeDir (config), then project.worktreeDir,
+                // then the standard ~/.worktrees/{projectId}/{sessionId} path.
+                // expandPath handles ~ expansion for custom worktreeDir paths.
+                const worktreeRoot = expandPath(
+                  params.worktreeDir ||
+                    (project as { worktreeDir?: string }).worktreeDir ||
+                    resolve(homedir(), ".worktrees"),
+                );
+                const worktreeDir = resolve(worktreeRoot, projectId, session.id);
 
-              // Always attempt git-level cleanup even when the directory is already
-              // gone — the git worktree entry can persist and block the next claim.
-              // Capture branch (from worktree dir if it exists, else from git list).
-              let branch: string | null = null;
-              let repoDir: string | null = null;
+                // Always attempt git-level cleanup even when the directory is already
+                // gone — the git worktree entry can persist and block the next claim.
+                // Capture branch (from worktree dir if it exists, else from git list).
+                // Use project.path as the owning repo — avoid re-discovering via sibling scan.
+                let repoDir: string | null = null;
 
-              if (existsSync(worktreeDir)) {
-                // Directory still on disk — get branch and repo from it.
-                try {
-                  branch = execFileSync("git", ["-C", worktreeDir, "branch", "--show-current"], {
-                    encoding: "utf8",
-                    timeout: GIT_TIMEOUT,
-                  }).trim();
-                } catch { /* may be broken */ }
-                try {
-                  const gitCommon = execFileSync(
-                    "git",
-                    ["-C", worktreeDir, "rev-parse", "--path-format=absolute", "--git-common-dir"],
-                    { encoding: "utf8", timeout: GIT_TIMEOUT },
-                  ).trim();
-                  repoDir = resolve(gitCommon, "..");
-                } catch { /* may be broken */ }
-              }
+                if (existsSync(worktreeDir)) {
+                  // Directory still on disk — get branch and repo from it.
+                  try {
+                    branch = (
+                      await execFileAsync("git", ["-C", worktreeDir, "branch", "--show-current"], {
+                        timeout: GIT_TIMEOUT,
+                        encoding: "utf8",
+                      })
+                    ).stdout.trim();
+                  } catch { /* may be broken */ }
+                  try {
+                    const gitCommon = (
+                      await execFileAsync(
+                        "git",
+                        ["-C", worktreeDir, "rev-parse", "--path-format=absolute", "--git-common-dir"],
+                        { timeout: GIT_TIMEOUT, encoding: "utf8" },
+                      )
+                    ).stdout.trim();
+                    repoDir = resolve(gitCommon, "..");
+                  } catch { /* may be broken */ }
+                }
 
-              // If directory is gone or repo wasn't found via dir, use the configured
-              // worktree base dir to find which repo owns this worktree. Scan each
-              // project subdirectory's git worktree list to locate the entry.
-              // homedir() is NOT a git repo so we can't scan from there directly.
-              if (repoDir === null) {
-                try {
-                  const projectWorktreeDir = resolve(worktreeRoot, projectId);
-                  if (existsSync(projectWorktreeDir)) {
-                    const entries = readdirSync(projectWorktreeDir);
-                    for (const entry of entries) {
-                      const candidatePath = join(projectWorktreeDir, entry);
-                      if (!entry.startsWith(".")) {
-                        try {
-                          const listOutput = execFileSync(
-                            "git",
-                            ["-C", candidatePath, "worktree", "list", "--porcelain"],
-                            { encoding: "utf8", timeout: GIT_TIMEOUT },
-                          ).trim();
-                          const blocks = listOutput.split("\n\n");
-                          for (const block of blocks) {
-                            const lines = block.trim().split("\n");
-                            let wp = "";
-                            let gd = "";
-                            let br = "";
-                            for (const line of lines) {
-                              if (line.startsWith("worktree ")) wp = line.slice("worktree ".length);
-                              else if (line.startsWith("gitdir ")) gd = line.slice("gitdir ".length);
-                              else if (line.startsWith("branch "))
-                                br = line.slice("branch ".length).replace(/^refs\/heads\//, "");
-                            }
-                            if (wp === worktreeDir && gd) {
-                              // gitdir = /repo/.git/worktrees/<name>; .. → .git, ../.. → repo root
-                              repoDir = resolve(gd, "..", "..");
-                              if (!branch) branch = br || null;
-                              break;
-                            }
-                          }
-                          if (repoDir !== null) break;
-                        } catch { /* candidate not a git repo — try next */ }
+                // If repo wasn't resolved from the worktree dir, use project.path directly
+                // (the owning repo is already known from the backfill caller's project param).
+                // Resolve to handle relative paths; validate by checking the worktree appears
+                // in git worktree list; fall back to the sibling scan only if that fails.
+                if (repoDir === null) {
+                  const candidateRepo = expandPath(project.path);
+                  try {
+                    const listOutput = (
+                      await execFileAsync(
+                        "git",
+                        ["-C", candidateRepo, "worktree", "list", "--porcelain"],
+                        { timeout: GIT_TIMEOUT, encoding: "utf8" },
+                      )
+                    ).stdout.trim();
+                    // Verify the stale worktree is registered under this repo
+                    const blocks = listOutput.split("\n\n");
+                    for (const block of blocks) {
+                      const lines = block.trim().split("\n");
+                      let wp = "";
+                      let br = "";
+                      for (const line of lines) {
+                        if (line.startsWith("worktree ")) wp = line.slice("worktree ".length);
+                        else if (line.startsWith("branch "))
+                          br = line.slice("branch ".length).replace(/^refs\/heads\//, "");
+                      }
+                      if (wp === worktreeDir) {
+                        repoDir = candidateRepo;
+                        if (!branch) branch = br || null;
+                        break;
                       }
                     }
-                  }
-                } catch { /* best-effort */ }
-              }
+                  } catch { /* project.path is not a valid repo — try sibling scan below */ }
+                }
 
-              // Unlock + remove worktree (--force --force mirrors destroy()).
-              if (repoDir) {
-                try {
-                  execFileSync("git", ["-C", repoDir, "worktree", "unlock", worktreeDir], {
-                    encoding: "utf8",
-                    timeout: GIT_TIMEOUT,
-                  });
-                } catch { /* best-effort */ }
-                try {
-                  execFileSync("git", ["-C", repoDir, "worktree", "remove", "--force", "--force", worktreeDir], {
-                    encoding: "utf8",
-                    timeout: GIT_TIMEOUT,
-                  });
-                } catch { /* best-effort */ }
-                try {
-                  execFileSync("git", ["-C", repoDir, "worktree", "prune"], { encoding: "utf8", timeout: GIT_TIMEOUT });
-                } catch { /* best-effort */ }
-                // Delete stale local branch to prevent cascading fetch failures.
-                // Only delete branches that look AO-managed (feat/*, session/*, fix/*).
-                if (branch && /^(feat|fix|chore|docs|refactor|session)\//.test(branch)) {
+                // Last resort: scan sibling worktree directories under projectWorktreeDir to
+                // find the repo that has worktreeDir registered. homedir() is not a git repo
+                // so we can't scan from there directly.
+                if (repoDir === null) {
                   try {
-                    execFileSync("git", ["-C", repoDir, "branch", "-D", branch], { encoding: "utf8", timeout: GIT_TIMEOUT });
+                    const projectWorktreeDir = resolve(worktreeRoot, projectId);
+                    if (existsSync(projectWorktreeDir)) {
+                      const entries = readdirSync(projectWorktreeDir);
+                      for (const entry of entries) {
+                        const candidatePath = join(projectWorktreeDir, entry);
+                        if (!entry.startsWith(".")) {
+                          try {
+                            const listOutput = (
+                              await execFileAsync(
+                                "git",
+                                ["-C", candidatePath, "worktree", "list", "--porcelain"],
+                                { timeout: GIT_TIMEOUT, encoding: "utf8" },
+                              )
+                            ).stdout.trim();
+                            const blocks = listOutput.split("\n\n");
+                            for (const block of blocks) {
+                              const lines = block.trim().split("\n");
+                              let wp = "";
+                              let gd = "";
+                              let br = "";
+                              for (const line of lines) {
+                                if (line.startsWith("worktree ")) wp = line.slice("worktree ".length);
+                                else if (line.startsWith("gitdir ")) gd = line.slice("gitdir ".length);
+                                else if (line.startsWith("branch "))
+                                  br = line.slice("branch ".length).replace(/^refs\/heads\//, "");
+                              }
+                              if (wp === worktreeDir && gd) {
+                                // gitdir = /repo/.git/worktrees/<name>; .. → worktrees, ../.. → .git, ../../.. → repo root
+                                repoDir = resolve(gd, "..", "..", "..");
+                                if (!branch) branch = br || null;
+                                break;
+                              }
+                            }
+                            if (repoDir !== null) break;
+                          } catch { /* candidate not a git repo — try next */ }
+                        }
+                      }
+                    }
                   } catch { /* best-effort */ }
                 }
-              }
 
-              // Last resort: remove directory if it still exists on disk.
-              if (existsSync(worktreeDir)) {
-                rmSync(worktreeDir, { recursive: true, force: true });
-              }
+                // Unlock + remove worktree (--force --force mirrors destroy()).
+                if (repoDir) {
+                  try {
+                    await execFileAsync("git", ["-C", repoDir, "worktree", "unlock", worktreeDir], {
+                      timeout: GIT_TIMEOUT,
+                      encoding: "utf8",
+                    });
+                  } catch { /* best-effort */ }
+                  try {
+                    await execFileAsync(
+                      "git",
+                      ["-C", repoDir, "worktree", "remove", "--force", "--force", worktreeDir],
+                      { timeout: GIT_TIMEOUT, encoding: "utf8" },
+                    );
+                  } catch { /* best-effort */ }
+                  try {
+                    await execFileAsync("git", ["-C", repoDir, "worktree", "prune"], {
+                      timeout: GIT_TIMEOUT,
+                      encoding: "utf8",
+                    });
+                  } catch { /* best-effort */ }
+                  // Delete stale local branch to prevent cascading fetch failures.
+                  // Only delete branches that look AO-managed (feat/*, session/*, fix/*).
+                  if (branch && /^(feat|fix|chore|docs|refactor|session)\//.test(branch)) {
+                    try {
+                      await execFileAsync("git", ["-C", repoDir, "branch", "-D", branch], {
+                        timeout: GIT_TIMEOUT,
+                        encoding: "utf8",
+                      });
+                    } catch { /* best-effort */ }
+                  }
+                }
 
+                // Last resort: remove directory if it still exists on disk.
+                if (existsSync(worktreeDir)) {
+                  rmSync(worktreeDir, { recursive: true, force: true });
+                }
+
+                // Postcondition check: only mark cleanup as successful if the worktree
+                // is actually gone. Each git step above is best-effort (wrapped in
+                // individual try/catch), so we must independently verify the outcome.
+                // Wrap in a dedicated try/catch so transient git failures (timeouts,
+                // network glitches) during verification don't abort the backfill
+                // even when the cleanup actually succeeded (worktree gone from disk).
+                let postconditionErr: unknown;
+                if (repoDir) {
+                  try {
+                    const listOut = (
+                      await execFileAsync(
+                        "git",
+                        ["-C", repoDir, "worktree", "list", "--porcelain"],
+                        { timeout: GIT_TIMEOUT, encoding: "utf8" },
+                      )
+                    ).stdout.trim();
+                    const stillRegistered = listOut.split("\n\n").some((block) => {
+                      const lines = block.trim().split("\n");
+                      for (const line of lines) {
+                        if (
+                          line.startsWith("worktree ") &&
+                          line.slice("worktree ".length) === worktreeDir
+                        ) {
+                          return true;
+                        }
+                      }
+                      return false;
+                    });
+                    if (stillRegistered) {
+                      postconditionErr = new Error(
+                        `worktree ${worktreeDir} still registered in ${repoDir} after cleanup`,
+                      );
+                    } else {
+                      cleanupOk = true;
+                    }
+                  } catch (e) {
+                    postconditionErr = e;
+                    // Transient git failure (timeout, I/O error) — verify the directory
+                    // is actually gone from disk before reporting failure. If the worktree
+                    // was removed, the cleanup succeeded even if git verification errored.
+                    if (!existsSync(worktreeDir)) {
+                      cleanupOk = true;
+                    } else {
+                      cleanupErr = postconditionErr;
+                    }
+                  }
+                  // Fail only when the worktree is still on disk (git remove silently failed).
+                  // When the directory is gone, cleanup succeeded regardless of git state.
+                  if (postconditionErr !== undefined && !cleanupOk) {
+                    cleanupErr = postconditionErr;
+                  }
+                } else {
+                  // repoDir unknown — directory removed but git worktree entry unverified.
+                  // Log for operator visibility; the entry may persist and block future claims.
+                  // eslint-disable-next-line no-console
+                  console.warn(
+                    `[backfill] cleanup: removed ${worktreeDir} but could not verify git worktree entry removal (owning repo unknown)`,
+                  );
+                }
+              })();
+              // Propagate any error captured inside the IIFE (e.g. from directory removal).
+            } catch (e) {
+              cleanupErr = e;
+            }
+
+            if (cleanupOk) {
               observer.recordOperation({
                 metric: "lifecycle_poll",
                 operation: "lifecycle.backfill.direct_cleanup_success",
@@ -304,7 +425,7 @@ export async function backfillUncoveredPRs(
                 data: { prNumber: pr.number, branch },
                 level: "info",
               });
-            } catch (cleanupErr) {
+            } else {
               observer.recordOperation({
                 metric: "lifecycle_poll",
                 operation: "lifecycle.backfill.direct_cleanup_failed",
@@ -312,26 +433,20 @@ export async function backfillUncoveredPRs(
                 correlationId,
                 projectId,
                 sessionId: session.id,
-                data: { error: cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr) },
+                data: {
+                  error: cleanupErr !== undefined
+                    ? (cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr))
+                    : "repoDir unknown — directory removed but git worktree entry could not be verified (operator should check manually)",
+                },
                 level: "warn",
               });
-            }
-            // Direct cleanup attempted — try next PR rather than aborting entirely.
-            if (consecutiveClaimFailures >= MAX_CONSECUTIVE_CLAIM_FAILURES) {
-              observer.recordOperation({
-                metric: "lifecycle_poll",
-                operation: "lifecycle.backfill.claim_failed_abort",
-                outcome: "failure",
-                correlationId,
-                projectId,
-                data: { consecutiveClaimFailures },
-                level: "warn",
-              });
+              // Abort backfill — direct cleanup failed so we cannot safely try the
+              // next PR; each additional spawn would leak another orphan session.
               return false;
             }
-            continue; // try next uncovered PR
           }
-          // Stop if claim keeps failing — systemic workspace issue (e.g. all PRs CONFLICTING)
+          // Reached when kill() succeeded (no orphan) — or after direct cleanup succeeded.
+          // Unified abort check for both paths: stop if systemic workspace issue.
           if (consecutiveClaimFailures >= MAX_CONSECUTIVE_CLAIM_FAILURES) {
             observer.recordOperation({
               metric: "lifecycle_poll",
