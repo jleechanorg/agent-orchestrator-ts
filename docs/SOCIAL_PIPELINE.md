@@ -23,12 +23,10 @@ PR merged / worker reaped
 
 ```bash
 # The Remotion project lives in the agent-orchestrator repo:
-cd novel/upstream/video
-npm install
+(cd novel/upstream/video && npm install)
 
 # Install social pipeline deps:
-cd scripts/social
-npm install
+(cd scripts/social && npm install)
 
 # Optional: Puppeteer for TikTok browser automation
 npm install puppeteer
