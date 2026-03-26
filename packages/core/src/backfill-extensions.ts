@@ -20,6 +20,9 @@ import { resolve } from "node:path";
 import { existsSync, rmSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 
+/** Timeout for git commands in direct cleanup (30 seconds). */
+const GIT_TIMEOUT = 30_000;
+
 /** Dependencies injected by the lifecycle-manager call site. */
 export interface BackfillDeps {
   registry: PluginRegistry;
@@ -196,6 +199,7 @@ export async function backfillUncoveredPRs(
                 try {
                   branch = execFileSync("git", ["-C", worktreeDir, "branch", "--show-current"], {
                     encoding: "utf8",
+                    timeout: GIT_TIMEOUT,
                   }).trim();
                 } catch { /* may be broken */ }
                 // Find the parent repo.
@@ -204,7 +208,7 @@ export async function backfillUncoveredPRs(
                   const gitCommon = execFileSync(
                     "git",
                     ["-C", worktreeDir, "rev-parse", "--path-format=absolute", "--git-common-dir"],
-                    { encoding: "utf8" },
+                    { encoding: "utf8", timeout: GIT_TIMEOUT },
                   ).trim();
                   repoDir = resolve(gitCommon, "..");
                 } catch { /* may be broken */ }
@@ -213,21 +217,23 @@ export async function backfillUncoveredPRs(
                   try {
                     execFileSync("git", ["-C", repoDir, "worktree", "unlock", worktreeDir], {
                       encoding: "utf8",
+                      timeout: GIT_TIMEOUT,
                     });
                   } catch { /* best-effort */ }
                   try {
                     execFileSync("git", ["-C", repoDir, "worktree", "remove", "--force", "--force", worktreeDir], {
                       encoding: "utf8",
+                      timeout: GIT_TIMEOUT,
                     });
                   } catch { /* best-effort */ }
                   try {
-                    execFileSync("git", ["-C", repoDir, "worktree", "prune"], { encoding: "utf8" });
+                    execFileSync("git", ["-C", repoDir, "worktree", "prune"], { encoding: "utf8", timeout: GIT_TIMEOUT });
                   } catch { /* best-effort */ }
                   // Delete stale local branch to prevent cascading fetch failures.
                   // Only delete branches that look AO-managed (feat/*, session/*, fix/*).
                   if (branch && /^(feat|fix|chore|docs|refactor|session)\//.test(branch)) {
                     try {
-                      execFileSync("git", ["-C", repoDir, "branch", "-D", branch], { encoding: "utf8" });
+                      execFileSync("git", ["-C", repoDir, "branch", "-D", branch], { encoding: "utf8", timeout: GIT_TIMEOUT });
                     } catch { /* best-effort */ }
                   }
                 }
