@@ -647,6 +647,8 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     reactionConfig: ReactionConfig,
     session?: Session,
     correlationId?: string,
+    /** Treats undefined as dead — intended for retry dispatch paths where the caller's
+     *  determineStatus result is unavailable. Backlog callers pass agentDead explicitly. */
     agentDead?: boolean,
   ): Promise<ReactionResult> {
     const reactionCorrelationId = correlationId ?? createCorrelationId("reaction");

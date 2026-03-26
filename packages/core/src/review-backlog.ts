@@ -29,6 +29,7 @@ export interface ReviewBacklogDeps {
     reactionKey: string,
     reactionConfig: ReactionConfig,
     session?: Session,
+    correlationId?: string,
     agentDead?: boolean,
   ) => Promise<ReactionResult>;
   /** Whether the agent is confirmed dead — skips send-to-agent backlog dispatches (bd-5o1) */
@@ -182,11 +183,11 @@ export async function maybeDispatchReviewBacklog(
       pendingFingerprint !== lastPendingDispatchHash
     ) {
       const reactionConfig = getReactionConfigForSession(session, humanReactionKey);
-      // bd-5o1 + bd-rfr: skip backlog dispatches for dead agents — applies to both
-      // send-to-agent and respawn-for-review. The transition handler owns dead-agent
-      // respawn; the backlog should not duplicate that spawn for alive agents.
-      const skipForDead =
-        agentDead && (reactionConfig?.action === "send-to-agent" || reactionConfig?.action === "respawn-for-review");
+      // bd-5o1: skip send-to-agent for dead agents. respawn-for-review is always
+      // allowed from the backlog — the fingerprint guard (lastPendingDispatchHash)
+      // prevents same-cycle duplicates, and the retry path needs backlog to re-attempt
+      // if a spawn fails.
+      const skipForDead = agentDead && reactionConfig?.action === "send-to-agent";
       if (
         reactionConfig &&
         reactionConfig.action &&
@@ -199,6 +200,7 @@ export async function maybeDispatchReviewBacklog(
           humanReactionKey,
           reactionConfig,
           session,
+          undefined,
           agentDead,
         );
         if (result.success) {
@@ -243,8 +245,7 @@ export async function maybeDispatchReviewBacklog(
       );
     } else if (!shouldThrottle && automatedFingerprint !== lastAutomatedDispatchHash) {
       const reactionConfig = getReactionConfigForSession(session, automatedReactionKey);
-      // bd-5o1 + bd-rfr: skip backlog dispatches for dead agents (applies to both
-      // send-to-agent and respawn-for-review)
+      // bd-5o1: skip send-to-agent for dead agents (automated path)
       const skipForDead =
         agentDead && (reactionConfig?.action === "send-to-agent" || reactionConfig?.action === "respawn-for-review");
       if (
@@ -259,6 +260,8 @@ export async function maybeDispatchReviewBacklog(
           automatedReactionKey,
           reactionConfig,
           session,
+          undefined,
+          agentDead,
         );
         if (result.success) {
           updateSessionMetadataHelper(
