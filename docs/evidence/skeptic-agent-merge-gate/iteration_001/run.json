@@ -1,0 +1,53 @@
+{
+  "test_name": "skeptic-agent-merge-gate",
+  "run_id": "skeptic-agent-merge-gate-001-20260326T165000Z",
+  "iteration": 1,
+  "bundle_version": "1.1.0",
+  "timestamp": "2026-03-26T16:50:00.000000+00:00",
+  "claim_class": "Unit test coverage",
+  "verdict": "PASS",
+  "scenarios": [
+    {
+      "name": "Core unit tests",
+      "campaign_id": "N/A",
+      "passed": true,
+      "errors": [],
+      "checks": {
+        "test_command": "pnpm -C packages/core test",
+        "test_files": 51,
+        "tests_passed": 1005,
+        "tests_total": 1005,
+        "duration_seconds": 31.69,
+        "ci_run": "https://github.com/jleechanorg/agent-orchestrator/actions/runs/23606317062"
+      }
+    },
+    {
+      "name": "TypeScript build",
+      "campaign_id": "N/A",
+      "passed": true,
+      "errors": [],
+      "checks": {
+        "build_command": "pnpm build",
+        "typescript_errors": 0,
+        "ci_run": "https://github.com/jleechanorg/agent-orchestrator/actions/runs/23606317062"
+      }
+    },
+    {
+      "name": "ESLint",
+      "campaign_id": "N/A",
+      "passed": true,
+      "errors": [],
+      "checks": {
+        "lint_command": "pnpm lint",
+        "skeptic_lint_errors": 0,
+        "ci_run": "https://github.com/jleechanorg/agent-orchestrator/actions/runs/23606317062"
+      }
+    }
+  ],
+  "summary": {
+    "total_scenarios": 3,
+    "passed": 3,
+    "failed": 0,
+    "errors": []
+  }
+}
