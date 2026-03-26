@@ -1774,6 +1774,20 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
 
         if (!repoPath) continue;
 
+        // Capture branch before removal so we can clean it up afterwards.
+        // This prevents a stale local branch from blocking future `git fetch` into
+        // the same branch name in other worktrees (cascading poison scenario).
+        let branch: string | null = null;
+        try {
+          branch = (
+            await execFileAsync("git", ["-C", worktreePath, "branch", "--show-current"], {
+              timeout: 5_000,
+            })
+          ).stdout.trim();
+        } catch {
+          // Directory may already be gone or not a valid git dir — that's OK
+        }
+
         // Remove the worktree
         try {
           await execFileAsync(
@@ -1787,6 +1801,19 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
             rmSync(worktreePath, { recursive: true, force: true });
           } catch {
             // Already gone
+          }
+        }
+
+        // Delete the local branch to prevent cascading fetch failures.
+        // Only delete branches that look AO-managed — this guards against accidentally
+        // deleting pre-existing user branches (main, master, develop, etc.).
+        if (branch && /^(feat|fix|chore|docs|refactor|session)\//.test(branch)) {
+          try {
+            await execFileAsync("git", ["-C", repoPath, "branch", "-D", branch], {
+              timeout: 10_000,
+            });
+          } catch {
+            // Branch may already be gone or checked out elsewhere — that's OK
           }
         }
       }
@@ -1871,6 +1898,9 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
         }
 
         // Session is dead — remove the zombie worktree
+        // Capture branch from session metadata before removal so we can clean it up.
+        const branch = matchingRaw["branch"] ?? null;
+
         try {
           await execFileAsync(
             "git",
@@ -1883,6 +1913,19 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
             rmSync(worktreePath, { recursive: true, force: true });
           } catch {
             // Already gone
+          }
+        }
+
+        // Delete the local branch to prevent cascading fetch failures.
+        // Only delete branches that look AO-managed — guards against accidentally
+        // deleting pre-existing user branches (main, master, develop, etc.).
+        if (branch && /^(feat|fix|chore|docs|refactor|session)\//.test(branch)) {
+          try {
+            await execFileAsync("git", ["-C", repoPath, "branch", "-D", branch], {
+              timeout: 10_000,
+            });
+          } catch {
+            // Branch may already be gone or checked out elsewhere — that's OK
           }
         }
       }
