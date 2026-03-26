@@ -246,8 +246,7 @@ export async function maybeDispatchReviewBacklog(
     } else if (!shouldThrottle && automatedFingerprint !== lastAutomatedDispatchHash) {
       const reactionConfig = getReactionConfigForSession(session, automatedReactionKey);
       // bd-5o1: skip send-to-agent for dead agents (automated path)
-      const skipForDead =
-        agentDead && (reactionConfig?.action === "send-to-agent" || reactionConfig?.action === "respawn-for-review");
+      const skipForDead = agentDead && reactionConfig?.action === "send-to-agent";
       if (
         reactionConfig &&
         reactionConfig.action &&
