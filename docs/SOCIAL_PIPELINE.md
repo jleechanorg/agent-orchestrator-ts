@@ -69,9 +69,8 @@ npm install puppeteer
 ### 3. TikTok Setup
 
 **Option A — Browser automation (recommended for MVP):**
-```bash
-npm install puppeteer
-```
+
+> Puppeteer is installed in the Setup step above.
 
 TikTok requires you to be logged in. Export your session cookies:
 
@@ -185,9 +184,9 @@ Delete `scripts/social/credentials/youtube-token.json` and re-run — it will pr
 
 ### "TikTok upload blocked"
 TikTok aggressively blocks automated uploads. Options:
-- Use a fresh session cookie (logged in, not 2FA'd)
+- Keep 2FA enabled and use a fresh authenticated session cookie obtained via browser DevTools (never disable 2FA)
 - Rotate user agents
-- Use TikTok Creator API (Option B) for production
+- Use TikTok Creator API (Option B) for production — recommended for reliable automated posting
 
 ## Credential Security
 
