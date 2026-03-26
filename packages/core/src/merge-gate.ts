@@ -1,5 +1,14 @@
 /**
- * Merge Gate — 6-condition enforcement for PR merge readiness (bd-nrp)
+ * Merge Gate — 7-condition enforcement for PR merge readiness (bd-nrp + bd-qw6)
+ *
+ * Conditions:
+ *  1. CI green
+ *  2. No merge conflicts
+ *  3. CodeRabbit APPROVED
+ *  4. Bugbot clean
+ *  5. Inline comments resolved
+ *  6. Evidence review PASS
+ *  7. Skeptic agent VERDICT: PASS | SKIPPED  (bd-qw6)
  */
 
 import type { PRInfo, MergeGateConfig, SCM } from "./types.js";
@@ -130,6 +139,31 @@ export async function checkMergeGate(
         : "Evidence review not required"
       : "No evidence review approval found",
   });
+
+  // 7. Skeptic agent approved — independent exit criteria verification (bd-qw6)
+  // Only run the check when skepticRequired is explicitly true.
+  const skepticRequired = config.skepticRequired ?? false;
+  if (skepticRequired) {
+    let skepticPassed = true;
+    // Check if project is in bypass list (for bootstrapping skeptic's own PRs)
+    const isBypassProject = config.skepticBypassProjects?.some(
+      (p) => pr.repo === p || `${pr.owner}/${pr.repo}` === p,
+    );
+    if (!isBypassProject) {
+      if (scm.getSkepticVerdict) {
+        const verdict = await scm.getSkepticVerdict(pr);
+        skepticPassed = verdict === "PASS" || verdict === "SKIPPED";
+      }
+      // If getSkepticVerdict is not implemented, treat as SKIPPED (passes)
+    }
+    checks.push({
+      name: "Skeptic approved",
+      passed: skepticPassed,
+      detail: skepticPassed
+        ? "Skeptic approved"
+        : "Skeptic verdict: FAIL or MISSING",
+    });
+  }
 
   const blockers = checks.filter((c) => !c.passed).map((c) => c.name);
 
