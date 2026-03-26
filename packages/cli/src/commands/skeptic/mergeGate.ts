@@ -43,7 +43,7 @@ function hasUnresolvedDismissedReview(reviews: ReviewInfo[]): boolean {
   if (crReviews.length === 0) return false;
   const sorted = [...crReviews].sort(sortReviewsNewestFirst);
   for (const review of sorted) {
-    if (review.state === "dismissed") return true;
+    if (review.state?.toUpperCase() === "DISMISSED") return true;
     if (review.state === "APPROVED") return false;
   }
   return false;
