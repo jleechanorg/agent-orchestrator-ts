@@ -16,14 +16,13 @@ jobs:
       - name: Check PR title prefix
         run: |
           TITLE="${{ github.event.pull_request.title }}"
-          # Use -F (fixed-string) to avoid regex bracket interpretation issues
-          if printf '%s' "$TITLE" | grep -qF '[agento]'; then
+          # Only check the first line — multi-line titles are a script injection vector
+          FIRST_LINE=$(printf '%s' "$TITLE" | head -1)
+          if printf '%s' "$FIRST_LINE" | grep -qF '[agento]'; then
             echo "PASS: PR title has [agento] prefix"
-            echo "title=$TITLE" >> "$GITHUB_OUTPUT"
           else
             echo "FAIL: PR title must start with '[agento]'"
-            echo "Current title: $TITLE"
-            echo "title=$TITLE" >> "$GITHUB_OUTPUT"
+            echo "Current title: $FIRST_LINE"
             exit 1
           fi
 
@@ -44,8 +43,8 @@ jobs:
           if [ ${#BODY} -eq 0 ]; then
             echo "found=false" >> "$GITHUB_OUTPUT"
             echo "reason=empty_body" >> "$GITHUB_OUTPUT"
-            echo "SKIP: empty PR body"
-            exit 0
+            echo "FAIL: Empty PR body — ## Evidence section is required."
+            exit 1
           fi
 
           # Use grep -F (fixed-string) to match "## Evidence" literally
@@ -84,8 +83,9 @@ jobs:
         run: |
           BODY="$PR_BODY"
 
-          # Extract the Evidence section only — everything after "## Evidence" to EOF
-          EVIDENCE=$(printf '%s' "$BODY" | sed -n '/^[[:space:]]*## [Ee]vidence/,$p')
+          # Extract only the Evidence section content: from "## Evidence" to the next "## " heading
+          # This prevents media from later sections (e.g. "## Other" with ![img]) from incorrectly passing the gate
+          EVIDENCE=$(printf '%s' "$BODY" | sed -n '/^[[:space:]]*## [Ee]vidence/,/^[[:space:]]*## /p' | sed '$d')
 
           if [ -z "$EVIDENCE" ]; then
             echo "No Evidence section found to validate"
