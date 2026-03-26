@@ -214,7 +214,7 @@ The single `agentRules` field in `agent-orchestrator.yaml` carries ~200 lines of
 
 ### Gap B: REST fallback treats ALL comments as unresolved
 
-When GraphQL is rate-limited, `getPendingComments()` falls back to REST (`repos/{owner}/{repo}/pulls/{number}/comments`). The REST API has **no `isResolved` field**, so the fallback treats ALL comments as unresolved — even ones the worker already fixed. This means merge-gate condition #5 always fails during GraphQL rate-limit windows. The PR-description approach (bd-ara.1) provides an **audit trail** even when REST fallback makes `isResolved` unavailable — the worker self-certification table gives operators visibility into what was addressed. It does **not** bypass merge-gate condition #5 (which still keys off `isResolved`).
+When GraphQL is rate-limited, `getPendingComments()` falls back to REST (`repos/{owner}/{repo}/pulls/{number}/comments`). The REST API has **no `isResolved` field**, so the fallback treats ALL comments as unresolved — even ones the worker already fixed. This means merge-gate condition #5 may block during GraphQL rate-limit windows when REST fallback treats unresolved comments as blocking. The PR-description approach (bd-ara.1) provides an **audit trail** even when REST fallback makes `isResolved` unavailable — the worker self-certification table gives operators visibility into what was addressed. It does **not** bypass merge-gate condition #5 (which still keys off `isResolved`).
 
 ### Gap C: autoResolveThreads is dead code
 
