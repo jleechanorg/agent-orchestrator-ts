@@ -143,10 +143,12 @@ jobs:
             fi
             echo "  [4] Bugbot clean:       $BUGBOT_STATUS"
 
-            # 5. Inline comments resolved — use review threads API for accurate thread state
-            # Threads have .resolved field; pull comments do not, so filter out non-threaded comments
+            # 5. Inline comments resolved — use /pulls/{n}/comments as a reasonable proxy
+            # Pull comments don't have .state (only review threads do), so we count top-level
+            # review comments (in_reply_to_id == null) that are non-nit as active discussions.
+            # This matches the pattern used in skeptic.ts mergeGate.ts
             UNRESOLVED=$(gh api repos/${{ github.repository }}/pulls/"$PR_NUM"/comments \
-              --jq '[.[] | select(.state != null) | select(.state != "RESOLVED") | select(.body | test("^(nit:|nitpick)"; "i") | not)] | length' 2>/dev/null || echo 0)
+              --jq '[.[] | select(.in_reply_to_id == null) | select(.body | test("^(nit:|nitpick)"; "i") | not)] | length' 2>/dev/null || echo 0)
             if [ "$UNRESOLVED" = "0" ] || [ -z "$UNRESOLVED" ]; then
               COMMENTS_STATUS="PASS"
             else

@@ -29,8 +29,8 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Build CLI
-        run: pnpm -C packages/cli build
+      - name: Build all packages
+        run: pnpm -r --filter '!@jleechanorg/ao-web' build
 
       - name: Run Skeptic and set conclusion
         id: run_skeptic
