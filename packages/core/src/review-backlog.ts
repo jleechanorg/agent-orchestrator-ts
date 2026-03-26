@@ -181,9 +181,11 @@ export async function maybeDispatchReviewBacklog(
       pendingFingerprint !== lastPendingDispatchHash
     ) {
       const reactionConfig = getReactionConfigForSession(session, humanReactionKey);
-      // bd-5o1: skip send-to-agent backlog dispatches for dead agents — same logic
-      // as the transition block in checkSession. notifyHuman is still allowed.
-      const skipForDead = agentDead && reactionConfig?.action === "send-to-agent";
+      // bd-5o1 + bd-rfr: skip backlog dispatches for dead agents — applies to both
+      // send-to-agent and respawn-for-review. The transition handler owns dead-agent
+      // respawn; the backlog should not duplicate that spawn for alive agents.
+      const skipForDead =
+        agentDead && (reactionConfig?.action === "send-to-agent" || reactionConfig?.action === "respawn-for-review");
       if (
         reactionConfig &&
         reactionConfig.action &&
@@ -239,8 +241,10 @@ export async function maybeDispatchReviewBacklog(
       );
     } else if (!shouldThrottle && automatedFingerprint !== lastAutomatedDispatchHash) {
       const reactionConfig = getReactionConfigForSession(session, automatedReactionKey);
-      // bd-5o1: skip send-to-agent backlog dispatches for dead agents
-      const skipForDead = agentDead && reactionConfig?.action === "send-to-agent";
+      // bd-5o1 + bd-rfr: skip backlog dispatches for dead agents (applies to both
+      // send-to-agent and respawn-for-review)
+      const skipForDead =
+        agentDead && (reactionConfig?.action === "send-to-agent" || reactionConfig?.action === "respawn-for-review");
       if (
         reactionConfig &&
         reactionConfig.action &&
