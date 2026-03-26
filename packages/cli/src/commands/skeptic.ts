@@ -48,8 +48,14 @@ interface ReviewInfo {
 interface IssueComment {
   id: number;
   body: string;
-  author: { login: string };
+  user: { login: string };
   createdAt: string;
+  isMinimized?: boolean;
+}
+
+interface ReviewThreadComment {
+  body: string | null;
+  author?: { login: string } | null;
   isMinimized?: boolean;
 }
 
@@ -76,7 +82,7 @@ async function fetchMergeGateState(
   let ciPassing: boolean;
   try {
     const query = [
-      "query={",
+      "{",
       '  repository(owner:"' + owner + '", name:"' + repo + '") {',
       "    pullRequest(number:" + prNumber + ") {",
       "      commits(last:1) {",
@@ -102,7 +108,7 @@ async function fetchMergeGateState(
 
   try {
     const reviewQuery = [
-      "query={",
+      "{",
       '  repository(owner:"' + owner + '", name:"' + repo + '") {',
       "    pullRequest(number:" + prNumber + ") {",
       "      reviewDecision",
@@ -129,7 +135,7 @@ async function fetchMergeGateState(
             reviewThreads?: {
               nodes?: Array<{
                 isResolved?: boolean;
-                comments?: { nodes?: IssueComment[] };
+                comments?: { nodes?: ReviewThreadComment[] };
               }>;
             };
           };
@@ -178,7 +184,7 @@ async function fetchMergeGateState(
       "repos/" + owner + "/" + repo + "/issues/" + prNumber + "/comments?per_page=100",
     )) as IssueComment[];
     for (const c of comments) {
-      if (c.author?.login === SKEPTIC_BOT_AUTHOR) {
+      if (c.user?.login === SKEPTIC_BOT_AUTHOR) {
         if (/VERDICT:\s*PASS/i.test(c.body)) {
           skepticVerdict = "PASS";
           skepticCommentId = c.id;
@@ -255,7 +261,7 @@ function buildSkepticPrompt(
 async function runSkepticEvaluation(prompt: string): Promise<string> {
   try {
     // Use claude CLI if available
-    const { execSync } = await import("child_process");
+    const { execSync } = await import("node:child_process");
     const result = execSync(
       "claude --print --no-input 2>/dev/null",
       {
@@ -336,7 +342,7 @@ export function registerSkeptic(program: Command): void {
         [owner, repo] = parts;
       } else {
         try {
-          const result = await exec("gh", ["repo", "--json", "owner,name"]);
+          const result = await exec("gh", ["repo", "view", "--json", "owner,name"]);
           const repoInfo = JSON.parse(result.stdout) as { owner: { login: string }; name: string };
           owner = repoInfo.owner.login;
           repo = repoInfo.name;
@@ -352,7 +358,7 @@ export function registerSkeptic(program: Command): void {
       let pr: PRInfo;
       try {
         const prQuery = [
-          "query={",
+          "{",
           '  repository(owner:"' + owner + '", name:"' + repo + '") {',
           "    pullRequest(number:" + prNumber + ") {",
           "      number title body state headRefOid baseRefName isDraft",
@@ -386,7 +392,7 @@ export function registerSkeptic(program: Command): void {
       let reviews: ReviewInfo[] = [];
       try {
         const reviewQuery = [
-          "query={",
+          "{",
           '  repository(owner:"' + owner + '", name:"' + repo + '") {',
           "    pullRequest(number:" + prNumber + ") {",
           "      reviews(last:10) {",
