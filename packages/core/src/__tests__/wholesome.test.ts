@@ -20,16 +20,15 @@ import { execFileSync } from "node:child_process";
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** The base branch for diff comparison. In CI this is GITHUB_BASE_REF (the PR target);
+/** The base branch for diff comparison.
  *  Validated to prevent shell injection — only safe git-ref characters allowed.
  *
- *  In CI (fork PR): GITHUB_BASE_REF is the upstream target (e.g. "main"), checked out
- *  as a local branch, so the bare name is resolvable.
+ *  In CI: GITHUB_BASE_REF is always set for PR events. The base branch is checked
+ *  out as a local ref (refs/heads/main), so a bare name like "main" IS resolvable.
+ *  GitHub guarantees GITHUB_BASE_REF for every pull_request event.
  *
- *  Locally: fall back to origin/HEAD (always points to the remote default branch).
- *  Using a remote tracking ref avoids false negatives when local main is out of sync
- *  with the remote. origin/main may not exist on all remotes, so origin/HEAD is
- *  preferred as the guaranteed remote tracking ref for the default branch. */
+ *  Locally: origin/HEAD is the guaranteed remote tracking ref for the default branch.
+ *  It is maintained by GitHub for all repos and never stale. */
 const BASE_BRANCH = (() => {
   const raw = process.env.GITHUB_BASE_REF;
   if (raw !== undefined) {
@@ -193,9 +192,9 @@ describe("wholesome — structural source-code assertions", () => {
       // Only flag actual eslint-disable directives. Key insight: the directive name must be
       // followed by whitespace, @ (rule prefix), or / (block comment end) — not a letter.
       // This prevents false positives from "No eslint-disable added" style section headers.
-      // Matches: // eslint-disable, // eslint-disable-next-line, /* eslint-disable rule */,
-      // // eslint-disable-next-line @typescript-eslint/no-unused-vars, etc.
-      const directive = /\beslint-disable(?:-next-line)?\b(?=\s|@|\/)/;
+      // Matches: // eslint-disable, // eslint-disable-next-line, // eslint-disable-line,
+      // /* eslint-disable rule */, // eslint-disable-next-line @typescript-eslint/no-unused-vars, etc.
+      const directive = /\beslint-disable(?:-next-line|-line)?\b(?=\s|@|\/)/;
       const violations = getAddedLinesMatching(REPO_ROOT, directive)
         // Exclude this test file: its section headers, describe calls, and
         // comments document the check without being actual directives.
@@ -233,7 +232,7 @@ describe("wholesome — structural source-code assertions", () => {
 
       // Only check lines added in this branch within these high-conflict files
       it(`no fork logic added to ${relPath}`, () => {
-        const raw = git(`diff --diff-filter=AM origin/main...HEAD -- "${relPath}"`, REPO_ROOT);
+        const raw = git(`diff --diff-filter=AM ${BASE_BRANCH}...HEAD -- "${relPath}"`, REPO_ROOT);
         if (!raw) return; // no changes to this file in this branch — OK
 
         const violations: string[] = [];
