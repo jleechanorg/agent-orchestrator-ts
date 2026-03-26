@@ -40,14 +40,26 @@ jobs:
 
           BODY=$(cat "$RUNNER_TEMP/pr_body.txt")
 
-          # Check if body contains Evidence section — must be a markdown header (## Evidence)
-          # '^[[:space:]]*## Evidence' anchors to line-start so "No evidence of issues"
-          # and other false positives don't match (grep -i is case-insensitive)
           if printf '%s' "$BODY" | grep -qi '^[[:space:]]*## Evidence'; then
             echo "found=true" >> "$GITHUB_OUTPUT"
           else
             echo "found=false" >> "$GITHUB_OUTPUT"
           fi
+
+      - name: Fail when no Evidence section found
+        # This step MUST fail when no Evidence section is present. Exiting 0 (skipping)
+        # enables a silent bypass of the merge gate: workers omit the ## Evidence section
+        # from the PR body, the workflow passes, and gh pr merge --auto merges without
+        # CodeRabbit approval or any human review. Branch protection has no required checks,
+        # so the evidence gate is the only enforcement. Failing hard here is the correct
+        # behavior — it prevents unevidenced PRs from sneaking through the merge gate.
+        if: steps.check.outputs.found == 'false'
+        run: |
+          echo "ERROR: No ## Evidence section found in PR body."
+          echo "The evidence gate MUST fail when Evidence section is absent —"
+          echo "skipping allows workers to bypass the merge gate by omitting Evidence."
+          echo "Fix: add a ## Evidence section with a Claim class and verdict to the PR body."
+          exit 1
 
       - name: Validate evidence bundle format
         if: steps.check.outputs.found == 'true'
