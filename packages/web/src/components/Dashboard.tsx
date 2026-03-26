@@ -17,6 +17,7 @@ import { PRTableRow } from "./PRStatus";
 import { DynamicFavicon } from "./DynamicFavicon";
 import { useSessionEvents } from "@/hooks/useSessionEvents";
 import { ProjectSidebar } from "./ProjectSidebar";
+import { DoneOnlyKanbanEmptyState } from "./DoneOnlyKanbanEmptyState";
 import type { ProjectInfo } from "@/lib/project-name";
 
 interface DashboardProps {
@@ -360,6 +361,12 @@ export function Dashboard({
             )}
           </div>
         )}
+
+        <DoneOnlyKanbanEmptyState
+          allProjectsView={allProjectsView}
+          hasKanbanSessions={hasKanbanSessions}
+          doneCount={grouped.done.length}
+        />
 
         {!allProjectsView && grouped.done.length > 0 && (
           <div className="mb-8">
