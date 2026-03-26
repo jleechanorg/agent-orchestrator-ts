@@ -32,14 +32,14 @@ import type { ProjectObserver } from "./observability.js";
 import { updateMetadata } from "./metadata.js";
 import { getSessionsDir } from "./paths.js";
 
-// ---- module-level throttle state ----
-let lastDrainTime = 0;
+// ---- module-level throttle state (keyed by projectId) ----
+const lastDrainTimeByProject = new Map<string, number>();
 const DRAIN_INTERVAL_MS = 30_000; // 30 seconds between drain attempts
 const MAX_SPAWN_RETRIES = 3;
 
 /** Reset throttle state — exposed for testing only. */
 export function _resetDrainTimer(): void {
-  lastDrainTime = 0;
+  lastDrainTimeByProject.clear();
 }
 
 // ---- Persistent queue state (survives across poll cycles) ----
@@ -53,8 +53,8 @@ interface QueueState {
 
 function getQueueStatePath(configPath: string, projectId: string): string {
   const sessionsDir = getSessionsDir(configPath, "");
-  // Place state file alongside sessions dir
-  return join(sessionsDir, "..", `queue-state-${projectId}.json`);
+  // Place state file alongside sessions dir so both use identical hashing.
+  return join(sessionsDir, `queue-state-${projectId}.json`);
 }
 
 function loadQueueState(configPath: string, projectId: string): QueueState {
@@ -150,10 +150,11 @@ export async function drainTaskQueue(
   }
 
   const now = Date.now();
+  const lastDrainTime = lastDrainTimeByProject.get(projectId) ?? 0;
   if (now - lastDrainTime < DRAIN_INTERVAL_MS) {
     return 0;
   }
-  lastDrainTime = now;
+  lastDrainTimeByProject.set(projectId, now);
 
   // Count active queue-spawned sessions (those with queuedBeadId in metadata)
   const queueSlotsUsed = activeSessions.filter(
