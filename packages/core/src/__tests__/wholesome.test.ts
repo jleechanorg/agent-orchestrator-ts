@@ -21,14 +21,25 @@ import { execFileSync } from "node:child_process";
 // ---------------------------------------------------------------------------
 
 /** The base branch for diff comparison. In CI this is GITHUB_BASE_REF (the PR target);
- *  locally, defaults to origin/main. Using GITHUB_BASE_REF avoids fork-PR false positives.
- *  Validated to prevent shell injection — only safe git-ref characters allowed. */
+ *  Validated to prevent shell injection — only safe git-ref characters allowed.
+ *
+ *  In CI (fork PR): GITHUB_BASE_REF is the upstream target (e.g. "main"), checked out
+ *  as a local branch, so the bare name is resolvable.
+ *
+ *  Locally: fall back to origin/HEAD (always points to the remote default branch).
+ *  Using a remote tracking ref avoids false negatives when local main is out of sync
+ *  with the remote. origin/main may not exist on all remotes, so origin/HEAD is
+ *  preferred as the guaranteed remote tracking ref for the default branch. */
 const BASE_BRANCH = (() => {
-  const raw = process.env.GITHUB_BASE_REF ?? "origin/main";
-  if (!/^[a-zA-Z0-9/._-]+$/.test(raw) || raw.includes("..")) {
-    throw new Error(`Invalid GITHUB_BASE_REF (possible injection): ${raw}`);
+  const raw = process.env.GITHUB_BASE_REF;
+  if (raw !== undefined) {
+    if (!/^[a-zA-Z0-9/._-]+$/.test(raw) || raw.includes("..")) {
+      throw new Error(`Invalid GITHUB_BASE_REF (possible injection): ${raw}`);
+    }
+    return raw;
   }
-  return raw;
+  // Local fallback: origin/HEAD is the remote default branch (never stale)
+  return "origin/HEAD";
 })();
 
 /** Recursively collect all .ts/.tsx files under a directory. */
@@ -65,26 +76,28 @@ function git(args: string, cwd: string): string {
   }
 }
 
-/** Return diff lines that ADD (not delete) a given pattern in .ts files. */
-function getAddedLinesMatching(cwd: string, pattern: RegExp): string[] {
+/** Return diff lines (with file path) that ADD a given pattern in .ts files. */
+function getAddedLinesMatching(cwd: string, pattern: RegExp): Array<{file: string; line: string}> {
   const raw = git(`diff --diff-filter=AM ${BASE_BRANCH}...HEAD`, cwd);
   if (!raw) return [];
-  const lines: string[] = [];
-  let inFile = false;
+  const results: Array<{file: string; line: string}> = [];
+  let currentFile = "";
+  let inTsFile = false;
   for (const line of raw.split("\n")) {
     if (line.startsWith("diff --git")) {
-      inFile = line.match(/\.(ts|tsx)/) !== null;
+      currentFile = line.replace("diff --git a/", "").split(" ")[0] ?? "";
+      inTsFile = /\.(ts|tsx)$/.test(currentFile);
       continue;
     }
-    if (!inFile) continue;
+    if (!inTsFile) continue;
     if (line.startsWith("+") && !line.startsWith("+++")) {
       const content = line.slice(1);
       if (pattern.test(content)) {
-        lines.push(content.trim());
+        results.push({ file: currentFile, line: content.trim() });
       }
     }
   }
-  return lines;
+  return results;
 }
 
 /** Get the PR title — uses gh CLI in CI (GITHUB_TOKEN available), falls back to branch name. */
@@ -177,13 +190,18 @@ describe("wholesome — structural source-code assertions", () => {
   // -------------------------------------------------------------------------
   describe("no eslint-disable added in new/modified files", () => {
     it("no eslint-disable directive added in this branch", () => {
-      // Only flag actual eslint-disable directives in source code — not text that merely
-      // mentions "eslint-disable" in section headers or descriptions.
-      // Matches: // eslint-disable, // eslint-disable-next-line,
-      // /* eslint-disable */, etc.
-      const directive = /^\s*(\/\/|\/\*)(\s*[a-z-]+\s+)?eslint-disable/;
-      const violations = getAddedLinesMatching(REPO_ROOT, directive);
-      expect(violations, "eslint-disable directive added in this branch:\n" + violations.join("\n")).toHaveLength(0);
+      // Only flag actual eslint-disable directives. Key insight: the directive name must be
+      // followed by whitespace, @ (rule prefix), or / (block comment end) — not a letter.
+      // This prevents false positives from "No eslint-disable added" style section headers.
+      // Matches: // eslint-disable, // eslint-disable-next-line, /* eslint-disable rule */,
+      // // eslint-disable-next-line @typescript-eslint/no-unused-vars, etc.
+      const directive = /\beslint-disable(?:-next-line)?\b(?=\s|@|\/)/;
+      const violations = getAddedLinesMatching(REPO_ROOT, directive)
+        // Exclude this test file: its section headers, describe calls, and
+        // comments document the check without being actual directives.
+        .filter(v => !v.file.includes("wholesome.test.ts"));
+      expect(violations, "eslint-disable directive added in this branch:\n" +
+        violations.map(v => `${v.file}: ${v.line}`).join("\n")).toHaveLength(0);
     });
   });
 

@@ -13,7 +13,8 @@ concurrency:
   cancel-in-progress: true
 
 permissions:
-  contents: read  # needed for gh CLI to read PR metadata
+  contents: read    # needed for git history and diff operations
+  pull-requests: read  # needed for gh CLI to fetch PR title
 
 jobs:
   wholesome:
