@@ -50,10 +50,16 @@ function collectTsFiles(root: string, prefix = ""): string[] {
 /**
  * Run a git command and return stdout (string, trimmed).
  * Returns empty string if the command fails.
+ * Uses execFileSync with an explicitly parsed arg array to avoid shell injection
+ * when any argument contains user-controlled data (e.g. BASE_BRANCH from GITHUB_BASE_REF).
  */
 function git(args: string, cwd: string): string {
   try {
-    return execSync(`git ${args}`, { cwd, encoding: "utf-8" }).trim();
+    // Split on whitespace but preserve quoted arguments so --jq '.title' stays together.
+    const parsed = args.match(/[^\s"']+|"([^"]*)"|'([^']*)'/g)?.map(token =>
+      token.replace(/^['"]|['"]$/g, "")
+    ) ?? [];
+    return execFileSync("git", parsed, { cwd, encoding: "utf-8" }).trim();
   } catch {
     return "";
   }
