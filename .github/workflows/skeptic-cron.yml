@@ -63,10 +63,9 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          PR_JSON: ${{ steps.list_prs.outputs.pr_numbers }}
         run: |
           set -e
-
-          PR_JSON='${{ steps.list_prs.outputs.pr_numbers }}'
 
           for PR in $(echo "$PR_JSON" | jq -r '.[] | @base64'); do
             PR_DATA=$(echo "$PR" | base64 -d)
@@ -89,10 +88,9 @@ jobs:
         id: merge_prs
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_JSON: ${{ steps.list_prs.outputs.pr_numbers }}
         run: |
           MERGED=0
-
-          PR_JSON='${{ steps.list_prs.outputs.pr_numbers }}'
 
           for PR in $(echo "$PR_JSON" | jq -r '.[] | @base64'); do
             PR_DATA=$(echo "$PR" | base64 -d)
