@@ -19,7 +19,7 @@
  *   node pipeline.js --chapter "Chapter 42"   # render specific chapter
  */
 
-import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'fs';
+import { readFileSync, statSync, writeFileSync, mkdirSync, existsSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { execSync } from 'child_process';
@@ -33,8 +33,18 @@ const CRED_DIR = join(__dirname, 'credentials');
 
 const args = process.argv.slice(2);
 const renderOnly = args.includes('--render-only');
-const chapterArg = args.find(a => a.startsWith('--chapter='));
-const chapterFilter = chapterArg ? chapterArg.split('=')[1] : null;
+
+// Support both --chapter=VALUE and --chapter VALUE forms
+let chapterFilter = null;
+const chapterIdx = args.indexOf('--chapter');
+if (chapterIdx !== -1 && args[chapterIdx + 1] !== undefined) {
+  chapterFilter = args[chapterIdx + 1];
+} else {
+  const chapterArg = args.find(a => a.startsWith('--chapter='));
+  if (chapterArg) {
+    chapterFilter = chapterArg.split('=')[1];
+  }
+}
 
 // ─── Step 1: Extract latest chapter ─────────────────────────────────────────
 
@@ -53,7 +63,8 @@ function extractLatestChapter(filePath) {
     const heading = lines[0].trim();
 
     // Skip non-chapter headings like "Prologue", "Epilogue", "Summary"
-    if (chapterFilter && !heading.toLowerCase().includes(chapterFilter.toLowerCase())) {
+    if (chapterFilter && heading !== chapterFilter) {
+      // Exact comparison prevents "Chapter 1" matching "Chapter 10"
       continue;
     }
     if (/^(Prologue|Epilogue|Summary|Key Findings)/i.test(heading)) {
@@ -79,11 +90,19 @@ function extractLatestChapter(filePath) {
 // ─── Step 2: Render video via Remotion ───────────────────────────────────────
 
 function renderVideo(chapter) {
-  console.log(`🎬  Rendering video for: "${chapter.heading}"`);
+  console.log(`\uD83C\uDFAC  Rendering video for: "${chapter.heading}"`);
 
   const videoDir = join(REPO_ROOT, 'novel/upstream/video');
+
   if (!existsSync(join(videoDir, 'package.json'))) {
-    console.log('📦  Installing Remotion dependencies...');
+    throw new Error(
+      `Remotion project not found at ${videoDir}/package.json — cannot render. ` +
+      'Ensure novel/upstream/video/ exists in the repo.'
+    );
+  }
+
+  if (!existsSync(join(videoDir, 'node_modules'))) {
+    console.log('\uD83D\uDCE6  Installing Remotion dependencies...');
     execSync('npm install', { cwd: videoDir, stdio: 'inherit' });
   }
 
@@ -91,22 +110,31 @@ function renderVideo(chapter) {
   const chapterDataPath = join(videoDir, 'src/chapter-data.json');
   writeFileSync(chapterDataPath, JSON.stringify(chapter, null, 2));
 
-  // Render the daily-chapter composition (create this in Remotion project)
+  // Render the DailyChapter composition with chapter data
   const outFile = `ao-novel-${Date.now()}.mp4`;
   mkdirSync(join(videoDir, 'out'), { recursive: true });
 
   try {
     execSync(
-      `npx remotion render src/index.ts DailyChapter out/${outFile} --log=verbose --overwrite`,
+      `npx remotion render src/index.ts DailyChapter out/${outFile} --props "${chapterDataPath}" --log=verbose --overwrite`,
       { cwd: videoDir, stdio: 'inherit' }
     );
-  } catch {
-    // If DailyChapter composition doesn't exist yet, fall back to TheAwakening
-    console.warn('⚠️  DailyChapter composition not found — using TheAwakening fallback');
-    execSync(
-      `npx remotion render src/index.ts TheAwakening out/${outFile} --log=verbose --overwrite`,
-      { cwd: videoDir, stdio: 'inherit' }
-    );
+  } catch (err) {
+    // Only fallback for missing composition — surface other errors
+    const isMissingComp =
+      err.message?.includes('composition not found') ||
+      (err.stderr && err.stderr.includes('composition not found')) ||
+      (err.message && /DailyChapter/i.test(err.message));
+    if (isMissingComp) {
+      console.warn('\u26A0\uFE0F  DailyChapter composition not found — using TheAwakening fallback');
+      execSync(
+        `npx remotion render src/index.ts TheAwakening out/${outFile} --log=verbose --overwrite`,
+        { cwd: videoDir, stdio: 'inherit' }
+      );
+    } else {
+      console.error(`\u274C  Render failed: ${err.message ?? err}`);
+      throw err;
+    }
   }
 
   const videoPath = join(videoDir, 'out', outFile);
@@ -114,8 +142,8 @@ function renderVideo(chapter) {
     throw new Error(`Render failed — output not found at ${videoPath}`);
   }
 
-  const stats = existsSync(videoPath) ? readFileSync(videoPath).length : 0;
-  console.log(`✅  Video rendered: ${outFile} (${Math.round(stats / 1024 / 1024)}MB)`);
+  const { size } = statSync(videoPath);
+  console.log(`\u2705  Video rendered: ${outFile} (${Math.round(size / 1024 / 1024)}MB)`);
   return videoPath;
 }
 
@@ -124,21 +152,23 @@ function renderVideo(chapter) {
 async function uploadToYouTube(videoPath, chapter) {
   const credPath = join(CRED_DIR, 'youtube-credentials.json');
   if (!existsSync(credPath)) {
-    console.warn('⚠️  YouTube credentials not found. Skipping YouTube upload.');
+    console.warn('\u26A0\uFE0F  YouTube credentials not found. Skipping YouTube upload.');
     console.warn(`   Place OAuth credentials at: ${credPath}`);
     console.warn('   See: docs/SOCIAL_PIPELINE.md for setup instructions.');
     return null;
   }
 
-  console.log('📤  Uploading to YouTube Shorts...');
+  console.log('\uD83D\uDCE4  Uploading to YouTube Shorts...');
 
   const { google } = await import('googleapis');
-  const credentials = JSON.parse(readFileSync(credPath, 'utf-8'));
+  const parsed = JSON.parse(readFileSync(credPath, 'utf-8'));
+  // Normalize: Google wraps credentials under "installed" or "web" key
+  const credentials = parsed.installed ?? parsed.web ?? parsed;
 
   const oauth2Client = new google.auth.OAuth2(
     credentials.client_id,
     credentials.client_secret,
-    credentials.redirect_uris[0]
+    credentials.redirect_uris?.[0] ?? 'http://localhost'
   );
 
   // Check for cached token
@@ -146,7 +176,7 @@ async function uploadToYouTube(videoPath, chapter) {
   if (existsSync(tokenPath)) {
     oauth2Client.setCredentials(JSON.parse(readFileSync(tokenPath, 'utf-8')));
   } else {
-    console.log('🔑  YouTube OAuth — open browser to authorize...');
+    console.log('\uD83D\uDD11  YouTube OAuth — open browser to authorize...');
     const authUrl = oauth2Client.generateAuthUrl({
       access_type: 'offline',
       scope: ['https://www.googleapis.com/auth/youtube.upload'],
@@ -162,20 +192,10 @@ async function uploadToYouTube(videoPath, chapter) {
     const { tokens } = await oauth2Client.getToken(code);
     oauth2Client.setCredentials(tokens);
     writeFileSync(tokenPath, JSON.stringify(tokens));
-    console.log('✅  YouTube token cached.');
+    console.log('\u2705  YouTube token cached.');
   }
 
   const youtube = google.youtube({ version: 'v3', auth: oauth2Client });
-
-  // Get video duration via ffprobe
-  try {
-    execSync(
-      `ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "${videoPath}"`,
-      { encoding: 'utf-8', stdio: 'pipe' }
-    );
-  } catch {
-    // ffprobe unavailable — continue without duration metadata
-  }
 
   const response = await youtube.videos.insert({
     part: ['snippet', 'status'],
@@ -197,7 +217,7 @@ async function uploadToYouTube(videoPath, chapter) {
   });
 
   const videoId = response.data.id;
-  console.log(`✅  YouTube Shorts uploaded! https://youtube.com/shorts/${videoId}`);
+  console.log(`\u2705  YouTube Shorts uploaded! https://youtube.com/shorts/${videoId}`);
   return videoId;
 }
 
@@ -206,30 +226,21 @@ async function uploadToYouTube(videoPath, chapter) {
 async function uploadToTikTok(videoPath, chapter) {
   const sessionPath = join(CRED_DIR, 'tiktok-session.json');
   if (!existsSync(sessionPath)) {
-    console.warn('⚠️  TikTok session cookies not found. Skipping TikTok upload.');
+    console.warn('\u26A0\uFE0F  TikTok session cookies not found. Skipping TikTok upload.');
     console.warn(`   Place session cookies at: ${sessionPath}`);
     console.warn('   See: docs/SOCIAL_PIPELINE.md for setup instructions.');
     return null;
   }
 
-  console.log('📤  Uploading to TikTok...');
+  console.log('\uD83D\uDCE4  Uploading to TikTok...');
 
   const session = JSON.parse(readFileSync(sessionPath, 'utf-8'));
 
-  // TikTok upload via Puppeteer browser automation (session cookies)
-  // TikTok requires browser-based upload flow — no simple REST alternative
-  const _formData = (await import('form-data')).default;
-  const _fetch = (await import('node-fetch')).default;
-
-  // Step 1: Probe upload endpoint (informational)
-  await _fetch('https://www.tiktok.com/api/upload/instances/', {
-    headers: { 'User-Agent': 'Mozilla/5.0' }
-  }).catch(() => {});
-
   // TikTok requires browser-based upload flow. Use Puppeteer if available.
+  let browser = null;
   try {
     const { default: puppeteer } = await import('puppeteer');
-    const browser = await puppeteer.launch({ headless: true });
+    browser = await puppeteer.launch({ headless: true });
     const page = await browser.newPage();
 
     // Set session cookies
@@ -242,46 +253,56 @@ async function uploadToTikTok(videoPath, chapter) {
 
     // Upload video via file input
     const fileInput = await page.$('input[type="file"]');
-    if (fileInput) {
-      await fileInput.uploadFile(videoPath);
-      await page.waitForTimeout(5000); // Wait for upload + processing
-
-      // Fill in caption
-      const caption = `${chapter.heading} — The Daily Lives of Workers\n\n${chapter.excerpt.slice(0, 150)}...\n\n#AI #codingagents #automation`;
-      const captionField = await page.$('div[contenteditable="true"]');
-      if (captionField) {
-        await captionField.click();
-        await page.keyboard.type(caption);
-      }
-
-      // Click post button
-      const postBtn = await page.$('button:has-text("Post")');
-      if (postBtn) {
-        await postBtn.click();
-        await page.waitForTimeout(3000);
-      }
+    if (!fileInput) {
+      console.warn('\u26A0\uFE0F  TikTok upload: file input not found on page.');
+      return null;
     }
 
-    await browser.close();
-    console.log('✅  TikTok upload initiated via browser automation.');
+    await fileInput.uploadFile(videoPath);
+    await page.waitForTimeout(5000); // Wait for upload + processing
+
+    // Fill in caption
+    const caption = `${chapter.heading} — The Daily Lives of Workers\n\n${chapter.excerpt.slice(0, 150)}...\n\n#AI #codingagents #automation`;
+    const captionField = await page.$('div[contenteditable="true"]');
+    if (captionField) {
+      await captionField.click();
+      await page.keyboard.type(caption);
+    }
+
+    // Click post button
+    const postBtn = await page.$('button');
+    const postBtnText = postBtn ? await postBtn.evaluate(el => el.textContent) : '';
+    if (postBtn && /post/i.test(postBtnText)) {
+      await postBtn.click();
+      await page.waitForTimeout(3000);
+    } else {
+      console.warn('\u26A0\uFE0F  TikTok upload: post button not found.');
+      return null;
+    }
+
+    console.log('\u2705  TikTok upload initiated via browser automation.');
     return 'uploaded';
   } catch (err) {
     if (err.code === 'ERR_MODULE_NOT_FOUND') {
-      console.warn('⚠️  Puppeteer not installed. TikTok upload requires: npm install puppeteer');
+      console.warn('\u26A0\uFE0F  Puppeteer not installed. TikTok upload requires: npm install puppeteer');
     } else {
-      console.warn(`⚠️  TikTok upload failed: ${err.message}`);
+      console.warn(`\u26A0\uFE0F  TikTok upload failed: ${err.message}`);
     }
     return null;
+  } finally {
+    if (browser) {
+      await browser.close().catch(() => {});
+    }
   }
 }
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 async function main() {
-  console.log('🚀  AO Novel Social Pipeline — starting...\n');
+  console.log('\uD83D\uDE80  AO Novel Social Pipeline — starting...\n');
 
   // Step 1: Extract chapter
-  console.log('📖  Extracting latest chapter...');
+  console.log('\uD83D\uDCD6  Extracting latest chapter...');
   const chapter = extractLatestChapter(NOVEL_FILE);
   console.log(`   "${chapter.heading}" (${chapter.wordCount} words)`);
 
@@ -290,7 +311,7 @@ async function main() {
   const videoPath = renderVideo(chapter);
 
   if (renderOnly) {
-    console.log('\n✅  Render-only mode — skipping uploads.');
+    console.log('\n\u2705  Render-only mode — skipping uploads.');
     return;
   }
 
@@ -300,7 +321,7 @@ async function main() {
   try {
     youtubeId = await uploadToYouTube(videoPath, chapter);
   } catch (err) {
-    console.error(`❌  YouTube upload failed: ${err.message}`);
+    console.error(`\u274C  YouTube upload failed: ${err.message}`);
   }
 
   // Step 4: Upload to TikTok
@@ -309,7 +330,7 @@ async function main() {
   try {
     tiktokId = await uploadToTikTok(videoPath, chapter);
   } catch (err) {
-    console.error(`❌  TikTok upload failed: ${err.message}`);
+    console.error(`\u274C  TikTok upload failed: ${err.message}`);
   }
 
   // Log result
@@ -324,13 +345,13 @@ async function main() {
   const logFile = join(__dirname, 'upload-log.jsonl');
   writeFileSync(logFile, JSON.stringify(logEntry) + '\n', { flag: 'a' });
 
-  console.log('\n🏁  Pipeline complete.');
+  console.log('\n\uD83C\uDFC1  Pipeline complete.');
   if (youtubeId) console.log(`   YouTube: https://youtube.com/shorts/${youtubeId}`);
-  if (tiktokId) console.log(`   TikTok: uploaded`);
+  if (tiktokId) console.log('   TikTok: uploaded');
   if (!youtubeId && !tiktokId) console.log('   (no uploads completed — set credentials first)');
 }
 
 main().catch(err => {
-  console.error(`\n❌  Pipeline failed: ${err.message}`);
+  console.error(`\n\u274C  Pipeline failed: ${err.message}`);
   process.exit(1);
 });

@@ -4,7 +4,7 @@ Automated daily pipeline: AO worker activity → serialized chapter → animated
 
 ## Architecture
 
-```
+```text
 PR merged / worker reaped
          ↓
   ai.agento.novel-daily (launchd, 6am PT)
@@ -173,11 +173,11 @@ Remotion's `DailyChapter` composition renders at 1080x1920 portrait by default �
 ## Troubleshooting
 
 ### "DailyChapter composition not found"
-The composition doesn't exist yet in the Remotion project. For now, the pipeline falls back to `TheAwakening`. To create it:
+The pipeline falls back to `TheAwakening` when DailyChapter is not registered. The PR already adds DailyChapter to `src/Root.tsx`. To ensure it's active:
 
-1. Add `src/DailyChapter.tsx` to the Remotion project
-2. Export it from `src/index.ts`
-3. Rebuild
+1. `src/DailyChapter.tsx` is already in the Remotion project (added by this PR)
+2. It is registered in `src/Root.tsx` via `<Composition id="DailyChapter" ...>` (added by this PR)
+3. Rebuild: `cd novel/upstream/video && npm run build`
 
 ### "YouTube token expired"
 Delete `scripts/social/credentials/youtube-token.json` and re-run — it will prompt for fresh auth.

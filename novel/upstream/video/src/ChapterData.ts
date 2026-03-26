@@ -1,5 +1,5 @@
 /**
- * chapter-data.ts
+ * ChapterData.ts
  * Runtime data file written by the social pipeline before rendering.
  * Contains the latest chapter content.
  */

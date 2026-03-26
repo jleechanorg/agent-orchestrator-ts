@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React from "react";
 import {
   AbsoluteFill,
   Sequence,
@@ -79,13 +79,8 @@ const WordReveal: React.FC<{ words: string[]; startFrame: number; fps: number }>
   fps,
 }) => {
   const frame = useCurrentFrame();
-  const [shownWords, setShownWords] = useState(0);
-
-  useEffect(() => {
-    const elapsed = Math.max(0, frame - startFrame);
-    const newCount = Math.floor((elapsed * fps) / 1200); // ~20 words per second
-    setShownWords(Math.min(newCount, words.length));
-  }, [frame, startFrame, fps, words.length]);
+  const elapsed = Math.max(0, frame - startFrame);
+  const shownWords = Math.min(Math.floor((elapsed * fps) / 1200), words.length);
 
   return (
     <div
