@@ -305,33 +305,14 @@ async function fetchPrViewFallbackAsJson(
 
   // Fetch check-runs via REST when statusCheckRollup is requested.
   // The REST PR object doesn't include statusCheckRollup, so we synthesize it
-  // from the /commits/{sha}/check-runs endpoint.
+  // from the /commits/{sha}/check-runs endpoint using the shared helper (which
+  // uses `gh api --paginate` to read all pages).
   let statusCheckRollup: unknown[] | undefined;
   if (conv.jsonFields.includes("statusCheckRollup")) {
     const headObj = restObj.head as Record<string, unknown> | undefined;
     const sha = typeof headObj?.sha === "string" ? headObj.sha : undefined;
     if (sha) {
-      try {
-        const checksRaw = await execCli(
-          "gh",
-          ["api", `repos/${conv.repo}/commits/${sha}/check-runs`],
-          cwd,
-        );
-        const checksData = JSON.parse(checksRaw) as { check_runs?: unknown[] };
-        statusCheckRollup = (checksData.check_runs ?? []).map(
-          (run: Record<string, unknown> | unknown) => {
-            const r = run as Record<string, unknown>;
-            return {
-              name: r.name,
-              state: mapCheckRunConclusionToState(r.conclusion, r.status),
-              detailsUrl: r.html_url,
-            };
-          },
-        );
-      } catch {
-        // Best-effort: return empty rollup rather than failing the whole fallback
-        statusCheckRollup = [];
-      }
+      statusCheckRollup = await fetchCheckRunsViaRest(conv.repo, sha, cwd);
     }
   }
 
@@ -728,16 +709,51 @@ function mapRawCheckStateToStatus(rawState: string | undefined): CICheck["status
   return "skipped";
 }
 
+/**
+ * Shared helper: fetch all check-runs for a commit via the GitHub REST API
+ * using `gh api --paginate` to retrieve all pages automatically.
+ * Returns a statusCheckRollup-compatible array of entries with name, state, and detailsUrl.
+ */
+async function fetchCheckRunsViaRest(repo: string, sha: string, cwd?: string): Promise<unknown[]> {
+  try {
+    // gh api --paginate follows Link headers automatically to fetch all pages
+    const raw = await execCli(
+      "gh",
+      ["api", `repos/${repo}/commits/${sha}/check-runs`, "--paginate"],
+      cwd,
+    );
+    const data = JSON.parse(raw) as { check_runs?: unknown[] };
+    return (data.check_runs ?? []).map((run: Record<string, unknown> | unknown) => {
+      const r = run as Record<string, unknown>;
+      return {
+        name: r.name,
+        state: mapCheckRunConclusionToState(r.conclusion, r.status),
+        detailsUrl: r.html_url,
+      };
+    });
+  } catch {
+    // Best-effort: return empty rollup rather than failing the whole fallback
+    return [];
+  }
+}
+
 async function getCIChecksFromStatusRollup(pr: PRInfo): Promise<CICheck[]> {
-  const raw = await gh([
-    "pr",
-    "view",
-    String(pr.number),
-    "--repo",
-    repoFlag(pr),
-    "--json",
-    "statusCheckRollup",
-  ]);
+  let raw: string;
+  try {
+    raw = await gh([
+      "pr",
+      "view",
+      String(pr.number),
+      "--repo",
+      repoFlag(pr),
+      "--json",
+      "statusCheckRollup",
+    ]);
+  } catch (err) {
+    if (!isRateLimitError(err)) throw err;
+    // Rate limit on gh pr view — fall back to REST check-runs via shared helper
+    return _getCIChecksFromStatusRollupViaRest(pr);
+  }
 
   const data: { statusCheckRollup?: unknown[] } = JSON.parse(raw);
   const rollup = Array.isArray(data.statusCheckRollup) ? data.statusCheckRollup : [];
@@ -788,6 +804,41 @@ async function getCIChecksFromStatusRollup(pr: PRInfo): Promise<CICheck[]> {
       }
 
       return check;
+    })
+    .filter((check): check is CICheck => check !== null);
+}
+
+async function _getCIChecksFromStatusRollupViaRest(pr: PRInfo): Promise<CICheck[]> {
+  // Rate-limit fallback: get head SHA from REST PR endpoint, then fetch check-runs.
+  let sha: string | undefined;
+  try {
+    const prRaw = await gh(["api", `repos/${pr.owner}/${pr.repo}/pulls/${pr.number}`]);
+    const prData = JSON.parse(prRaw) as { head?: { sha?: unknown } };
+    sha = typeof prData.head?.sha === "string" ? prData.head.sha : undefined;
+  } catch {
+    return [];
+  }
+  if (!sha) return [];
+
+  const rollup = await fetchCheckRunsViaRest(`${pr.owner}/${pr.repo}`, sha);
+  return (rollup as Record<string, unknown>[])
+    .map((entry): CICheck | null => {
+      const name =
+        (typeof entry.name === "string" && entry.name) ||
+        (typeof entry.context === "string" && entry.context);
+      if (!name) return null;
+      const rawState =
+        typeof entry.conclusion === "string"
+          ? entry.conclusion
+          : typeof entry.state === "string"
+            ? entry.state
+            : undefined;
+      return {
+        name,
+        status: mapRawCheckStateToStatus(rawState),
+        conclusion: typeof rawState === "string" ? rawState.toUpperCase() : undefined,
+        url: typeof entry.detailsUrl === "string" ? entry.detailsUrl : undefined,
+      };
     })
     .filter((check): check is CICheck => check !== null);
 }
@@ -1685,22 +1736,28 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
       } catch (err) {
         // Rate limit errors are transient — do not fail-close to "failing",
         // which would spam the agent with spurious "CI is failing" reactions.
-        // Return "none" so the lifecycle poller retries next cycle.
+        // Try the status-rollup path (GraphQL gh pr view with REST fallback)
+        // before returning "none".
         if (isRateLimitError(err)) {
-          return "none";
+          try {
+            checks = await getCIChecksFromStatusRollup(pr);
+          } catch {
+            return "none";
+          }
+        } else {
+          // Before fail-closing, check if the PR is merged/closed —
+          // GitHub may not return check data for those, and reporting
+          // "failing" for a merged PR is wrong.
+          try {
+            const state = await this.getPRState(pr);
+            if (state === "merged" || state === "closed") return "none";
+          } catch {
+            // Can't determine state either; fall through to fail-closed.
+          }
+          // Fail closed for open PRs: report as failing rather than
+          // "none" (which getMergeability treats as passing).
+          return "failing";
         }
-        // Before fail-closing, check if the PR is merged/closed —
-        // GitHub may not return check data for those, and reporting
-        // "failing" for a merged PR is wrong.
-        try {
-          const state = await this.getPRState(pr);
-          if (state === "merged" || state === "closed") return "none";
-        } catch {
-          // Can't determine state either; fall through to fail-closed.
-        }
-        // Fail closed for open PRs: report as failing rather than
-        // "none" (which getMergeability treats as passing).
-        return "failing";
       }
       if (checks.length === 0) return "none";
 
