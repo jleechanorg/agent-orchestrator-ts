@@ -233,10 +233,10 @@ export async function backfillUncoveredPRs(
 
                 // If repo wasn't resolved from the worktree dir, use project.path directly
                 // (the owning repo is already known from the backfill caller's project param).
-                // Validate by checking the worktree appears in git worktree list; if that fails,
-                // fall back to the sibling scan below.
+                // Resolve to handle relative paths; validate by checking the worktree appears
+                // in git worktree list; fall back to the sibling scan only if that fails.
                 if (repoDir === null) {
-                  const candidateRepo = project.path;
+                  const candidateRepo = resolve(project.path);
                   try {
                     const listOutput = (
                       await execFileAsync(

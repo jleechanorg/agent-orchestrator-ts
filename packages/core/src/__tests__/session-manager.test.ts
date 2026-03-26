@@ -1864,6 +1864,27 @@ describe("kill", () => {
     expect(readMetadata(sessionsDir, "app-1")).toBeNull(); // archived + deleted
   });
 
+  it("passes repoPath to workspace.destroy when metadata includes it", async () => {
+    const managedWorktree = join(
+      getWorktreesDir(config.configPath, config.projects["my-app"]!.path),
+      "app-1",
+    );
+    const repoPath = config.projects["my-app"]!.path;
+    writeMetadata(sessionsDir, "app-1", {
+      worktree: managedWorktree,
+      branch: "feat/TEST-1",
+      status: "working",
+      project: "my-app",
+      repoPath,
+      runtimeHandle: JSON.stringify(makeHandle("rt-1")),
+    });
+
+    const sm = createSessionManager({ config, registry: mockRegistry });
+    await sm.kill("app-1");
+
+    expect(mockWorkspace.destroy).toHaveBeenCalledWith(managedWorktree, repoPath);
+  });
+
   it("does not destroy workspace paths outside managed roots", async () => {
     writeMetadata(sessionsDir, "app-1", {
       worktree: "/tmp/ws",

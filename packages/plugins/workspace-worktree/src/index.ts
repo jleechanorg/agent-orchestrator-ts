@@ -439,12 +439,13 @@ export function create(config?: Record<string, unknown>): Workspace {
         // If the directory was deleted externally but git still has a locked
         // worktree entry, find the repo path by scanning .git/worktrees/ and
         // then unlock + remove the entry directly.
-        if (repoPath === null) {
+        // Also run this recovery when checkedOutBranch is empty even if
+        // repoPath was provided by the caller — we still need the branch name
+        // to clean up the local branch at the end of destroy().
+        if (repoPath === null || !checkedOutBranch) {
           const result = await findRepoPathForWorktree(workspacePath);
           if (result) {
-            repoPath = result.repoPath;
-            // Recover the branch from git worktree list if we couldn't get it
-            // via branch --show-current (directory may be gone).
+            if (!repoPath) repoPath = result.repoPath;
             if (!checkedOutBranch) checkedOutBranch = result.branch;
           }
         }
