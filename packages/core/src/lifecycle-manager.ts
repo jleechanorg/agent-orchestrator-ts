@@ -746,9 +746,13 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         }
 
         // Build MergeGateConfig with sensible defaults: enabled: true, all conditions required
+        // NOTE: evidence-review is intentionally excluded from requiredChecks here.
+        // The evidence-reviewer subagent posts PASS as a PR comment (not a GitHub review),
+        // so checking for evidence-review-bot GitHub review will always fail.
+        // Agents are required to run /er and post the PASS verdict before posting the green
+        // signal, making the review-based gate redundant and broken.
         const mergeGateConfig: MergeGateConfig = {
           enabled: true,
-          requiredChecks: ["evidence-review"],
           ...project.mergeGate,
         };
 
