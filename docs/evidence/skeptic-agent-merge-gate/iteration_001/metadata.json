@@ -1,0 +1,27 @@
+{
+  "test_name": "skeptic-agent-merge-gate",
+  "run_id": "skeptic-agent-merge-gate-001-20260326T165000Z",
+  "iteration": 1,
+  "bundle_version": "1.1.0",
+  "bundle_timestamp": "2026-03-26T16:50:00.000000+00:00",
+  "pr_number": 206,
+  "repository": "jleechanorg/agent-orchestrator",
+  "branch": "feat/skeptic-agent-7th-merge-gate",
+  "commit": "7c76a7b93699768da3356f19907d9fbbddfffff0",
+  "base_commit": "33fca0dca74224496e211b3dcc5240a6aa908676",
+  "provenance": {
+    "git_head": "7c76a7b93699768da3356f19907d9fbbddfffff0",
+    "git_branch": "feat/skeptic-agent-7th-merge-gate",
+    "merge_base": "33fca0dca74224496e211b3dcc5240a6aa908676",
+    "commits_ahead_of_main": 3,
+    "diff_stat_vs_main": "6 files changed, 676 insertions(+), 2 deletions(-)"
+  },
+  "summary": {
+    "verdict": "PASS",
+    "claim_class": "Unit test coverage",
+    "tests_passed": 1005,
+    "tests_total": 1005,
+    "ci_run_url": "https://github.com/jleechanorg/agent-orchestrator/actions/runs/23606317062",
+    "ci_conclusion": "success"
+  }
+}
