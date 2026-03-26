@@ -236,7 +236,7 @@ export async function backfillUncoveredPRs(
                 // Resolve to handle relative paths; validate by checking the worktree appears
                 // in git worktree list; fall back to the sibling scan only if that fails.
                 if (repoDir === null) {
-                  const candidateRepo = resolve(project.path);
+                  const candidateRepo = expandPath(project.path);
                   try {
                     const listOutput = (
                       await execFileAsync(
