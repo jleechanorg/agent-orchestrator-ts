@@ -997,16 +997,6 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       case "respawn-for-review": {
         if (agentDead !== false) {
           // Agent is dead — spawn a fresh worker targeting this PR
-          // Skip if already respawned for this PR (prevents unbounded duplicate workers)
-          if (session?.metadata?.["pr_respawned"] === "true") {
-            return {
-              reactionType: reactionKey,
-              success: true,
-              action: "respawn-for-review",
-              message: `PR #${session.pr!.number} already has a respawned worker`,
-              escalated: false,
-            };
-          }
           if (!session?.pr) {
             const event = createEvent("reaction.triggered", {
               sessionId,
@@ -1019,6 +1009,17 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
               reactionType: reactionKey,
               success: false,
               action: "respawn-for-review",
+              escalated: false,
+            };
+          }
+
+          // Skip if already respawned for this PR (prevents unbounded duplicate workers)
+          if (session.metadata?.["pr_respawned"] === "true") {
+            return {
+              reactionType: reactionKey,
+              success: true,
+              action: "respawn-for-review",
+              message: `PR #${session.pr.number} already has a respawned worker`,
               escalated: false,
             };
           }
@@ -1051,7 +1052,8 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
           }
 
           let prompt = reactionConfig.message ?? `Fix review comments on PR #${session.pr.number} and push.`;
-          prompt = prompt.replaceAll("{{context}}", context);
+          // Use callback form so $ patterns in context are not interpreted as replacement tokens
+          prompt = prompt.replaceAll("{{context}}", () => context);
           // Prepend PR context so the new worker knows exactly what to fix
           const prContext = `PR #${session.pr.number} (${session.pr.url}) has review comments that need to be addressed. Work on branch '${session.pr.branch}'. `;
           prompt = prContext + prompt;
