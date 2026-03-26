@@ -32,32 +32,32 @@ jobs:
       - name: Build all packages
         run: pnpm -r --filter '!@jleechanorg/ao-web' build
 
-      - name: Run Skeptic and set conclusion
+      - name: Run Skeptic evaluation
         id: run_skeptic
         env:
+          # GITHUB_TOKEN and ANTHROPIC_API_KEY are passed to the CLI for API calls
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
-          # Run skeptic — CLI returns 0 even for FAIL verdicts (it posts the comment)
-          # Use node directly since pnpm ao may not be in PATH after workspace build
-          node packages/cli/dist/index.js skeptic --pr ${{ github.event.pull_request.number }} > skeptic-output.txt 2>&1 || true
+          # Run skeptic with --dry-run so it does NOT try to post a comment
+          # (the jleechan-agent[bot] lacks write access; the workflow posts via GITHUB_TOKEN)
+          node packages/cli/dist/index.js skeptic \
+            --pr ${{ github.event.pull_request.number }} \
+            --dry-run \
+            > skeptic-output.txt 2>&1 || true
 
-          # Always print output for workflow logs
+          # Print output for workflow logs
           cat skeptic-output.txt
 
-          # Parse verdict to determine job outcome
+          # Parse verdict from output to determine job conclusion
           # FAIL verdict → job fails (blocks merge)
           # PASS verdict → job succeeds
           # UNKNOWN / error → fail closed (skeptic must produce recognizable verdict)
           if grep -qi "VERDICT: FAIL" skeptic-output.txt; then
             echo "verdict=FAIL" >> "$GITHUB_OUTPUT"
-            echo "" >> skeptic-output.txt
-            echo "CONCLUSION: FAIL — skeptic found gaps" >> skeptic-output.txt
             exit 1
           elif grep -qi "VERDICT: PASS" skeptic-output.txt; then
             echo "verdict=PASS" >> "$GITHUB_OUTPUT"
-            echo "" >> skeptic-output.txt
-            echo "CONCLUSION: PASS — skeptic approves" >> skeptic-output.txt
             exit 0
           else
             echo "verdict=UNKNOWN" >> "$GITHUB_OUTPUT"

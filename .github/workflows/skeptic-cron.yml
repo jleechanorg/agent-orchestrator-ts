@@ -74,9 +74,9 @@ jobs:
             echo "Skeptic evaluation: PR #${PR_NUM} — ${PR_TITLE}"
             echo "========================================"
 
-            # Run skeptic — CLI returns 0 even for FAIL; output is the source of truth
-            # Use node directly since pnpm ao may not be in PATH after workspace build
-            node packages/cli/dist/index.js skeptic --pr "$PR_NUM" 2>&1 || true
+            # Run skeptic with --dry-run so it does NOT try to post a comment
+            # (the jleechan-agent[bot] lacks write access; cron workflow posts via GITHUB_TOKEN)
+            node packages/cli/dist/index.js skeptic --pr "$PR_NUM" --dry-run 2>&1 || true
 
             echo "Skeptic complete for PR #${PR_NUM}"
           done
