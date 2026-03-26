@@ -1039,9 +1039,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
           }
 
           let prompt = reactionConfig.message ?? `Fix review comments on PR #${session.pr.number} and push.`;
-          if (context) {
-            prompt = prompt.replaceAll("{{context}}", context);
-          }
+          prompt = prompt.replaceAll("{{context}}", context);
           // Prepend PR context so the new worker knows exactly what to fix
           const prContext = `PR #${session.pr.number} (${session.pr.url}) has review comments that need to be addressed. Work on branch '${session.pr.branch}'. `;
           prompt = prContext + prompt;
