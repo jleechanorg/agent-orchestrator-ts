@@ -1044,6 +1044,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
 
     // Create workspace (if workspace plugin is available)
     let workspacePath = project.path;
+    let workspaceRepoPath = project.path; // default to project path; workspace plugin overrides if it returns repoPath
     if (plugins.workspace) {
       try {
         const wsInfo = await plugins.workspace.create({
@@ -1053,6 +1054,9 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
           branch,
         });
         workspacePath = wsInfo.path;
+        if (wsInfo.repoPath) workspaceRepoPath = wsInfo.repoPath;
+        // Persist the owning repo path so destroy() can use it directly without
+        // re-discovering via git worktree list (avoids the .git vs repo-root ambiguity).
 
         // Run post-create hooks — clean up workspace on failure
         if (plugins.workspace.postCreate) {
@@ -1061,7 +1065,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
           } catch (err) {
             if (shouldDestroyWorkspacePath(project, spawnConfig.projectId, workspacePath)) {
               try {
-                await plugins.workspace.destroy(workspacePath);
+                await plugins.workspace.destroy(workspacePath, workspaceRepoPath);
               } catch {
                 /* best effort */
               }
@@ -1173,7 +1177,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
         shouldDestroyWorkspacePath(project, spawnConfig.projectId, workspacePath)
       ) {
         try {
-          await plugins.workspace.destroy(workspacePath);
+          await plugins.workspace.destroy(workspacePath, workspaceRepoPath);
         } catch {
           /* best effort */
         }
@@ -1208,6 +1212,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
     try {
       writeMetadata(sessionsDir, sessionId, {
         worktree: workspacePath,
+        repoPath: workspaceRepoPath, // owning repo for destroy() convenience
         branch,
         status: "spawning",
         tmuxName, // Store tmux name for mapping
@@ -1252,7 +1257,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
         shouldDestroyWorkspacePath(project, spawnConfig.projectId, workspacePath)
       ) {
         try {
-          await plugins.workspace.destroy(workspacePath);
+          await plugins.workspace.destroy(workspacePath, workspaceRepoPath);
         } catch {
           /* best effort */
         }
@@ -1756,29 +1761,33 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
 
         if (sessionAlive) continue;
 
-        // Tmux session is dead — find the repo path for this worktree
-        let repoPath: string | null = null;
-        for (const [, proj] of Object.entries(config.projects)) {
-          try {
-            await execFileAsync(
-              "git",
-              ["-C", proj.path, "rev-parse", "--is-inside-work-tree"],
-              { timeout: 5_000 },
-            );
-            repoPath = proj.path;
-            break;
-          } catch {
-            // Not this project — continue
-          }
-        }
+        // Tmux session is dead — use the correct project's repo path directly.
+        // Do NOT infer by probing all projects: in multi-project configs, probing
+        // could return the wrong repo and delete a branch that shares a name with
+        // the stale AO worktree's branch.
+        const project = config.projects[projectId];
+        if (!project) continue;
+        const repoPath = project.path;
 
-        if (!repoPath) continue;
+        // Capture branch before removal so we can clean it up afterwards.
+        // This prevents a stale local branch from blocking future `git fetch` into
+        // the same branch name in other worktrees (cascading poison scenario).
+        let branch: string | null = null;
+        try {
+          branch = (
+            await execFileAsync("git", ["-C", worktreePath, "branch", "--show-current"], {
+              timeout: 5_000,
+            })
+          ).stdout.trim();
+        } catch {
+          // Directory may already be gone or not a valid git dir — that's OK
+        }
 
         // Remove the worktree
         try {
           await execFileAsync(
             "git",
-            ["worktree", "remove", "--force", worktreePath],
+            ["worktree", "remove", "--force", "--force", worktreePath],
             { cwd: repoPath, timeout: 30_000 },
           );
         } catch {
@@ -1787,6 +1796,19 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
             rmSync(worktreePath, { recursive: true, force: true });
           } catch {
             // Already gone
+          }
+        }
+
+        // Delete the local branch to prevent cascading fetch failures.
+        // Only delete branches that look AO-managed — this guards against accidentally
+        // deleting pre-existing user branches (main, master, develop, etc.).
+        if (branch && /^(feat|fix|chore|docs|refactor|session)\//.test(branch)) {
+          try {
+            await execFileAsync("git", ["-C", repoPath, "branch", "-D", branch], {
+              timeout: 10_000,
+            });
+          } catch {
+            // Branch may already be gone or checked out elsewhere — that's OK
           }
         }
       }
@@ -1871,10 +1893,13 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
         }
 
         // Session is dead — remove the zombie worktree
+        // Capture branch from session metadata before removal so we can clean it up.
+        const branch = matchingRaw["branch"] ?? null;
+
         try {
           await execFileAsync(
             "git",
-            ["worktree", "remove", "--force", worktreePath],
+            ["worktree", "remove", "--force", "--force", worktreePath],
             { cwd: repoPath, timeout: 30_000 },
           );
         } catch {
@@ -1883,6 +1908,19 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
             rmSync(worktreePath, { recursive: true, force: true });
           } catch {
             // Already gone
+          }
+        }
+
+        // Delete the local branch to prevent cascading fetch failures.
+        // Only delete branches that look AO-managed — guards against accidentally
+        // deleting pre-existing user branches (main, master, develop, etc.).
+        if (branch && /^(feat|fix|chore|docs|refactor|session)\//.test(branch)) {
+          try {
+            await execFileAsync("git", ["-C", repoPath, "branch", "-D", branch], {
+              timeout: 10_000,
+            });
+          } catch {
+            // Branch may already be gone or checked out elsewhere — that's OK
           }
         }
       }
@@ -1929,7 +1967,8 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
         : registry.get<Workspace>("workspace", config.defaults.workspace);
       if (workspacePlugin) {
         try {
-          await workspacePlugin.destroy(worktree);
+          const repoPath = raw["repoPath"];
+          await workspacePlugin.destroy(worktree, repoPath || undefined);
         } catch {
           // Workspace might already be gone
         }

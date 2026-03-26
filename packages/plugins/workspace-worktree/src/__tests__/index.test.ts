@@ -361,6 +361,7 @@ describe("workspace.create()", () => {
       branch: "feat/TEST-1",
       sessionId: "session-1",
       projectId: "myproject",
+      repoPath: "/repo/path",
     });
   });
 
@@ -492,12 +493,12 @@ describe("workspace.destroy()", () => {
     // 8. worktree remove --force --force in fallback (succeeds)
     // 9. worktree prune (succeeds)
     // 10. branch -D (branch recovered from git worktree list)
-    // repoPath = resolve("/repo/path/.git/worktrees/session-1", "..", "..") = "/repo/path/.git"
+    // repoPath = resolve("/repo/path/.git/worktrees/session-1", "..", "..", "..") = "/repo/path"
     expect(mockExecFileAsync).toHaveBeenNthCalledWith(
       10,
       "git",
       ["branch", "-D", "feat/TEST-1"],
-      { cwd: "/repo/path/.git" },
+      { cwd: "/repo/path" },
     );
   });
 

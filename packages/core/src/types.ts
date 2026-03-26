@@ -431,8 +431,8 @@ export interface Workspace {
   /** Create an isolated workspace for a session */
   create(config: WorkspaceCreateConfig): Promise<WorkspaceInfo>;
 
-  /** Destroy a workspace */
-  destroy(workspacePath: string): Promise<void>;
+  /** Destroy a workspace. repoPath is optional and lets destroy() skip repo-discovery. */
+  destroy(workspacePath: string, repoPath?: string): Promise<void>;
 
   /** List existing workspaces for a project */
   list(projectId: string): Promise<WorkspaceInfo[]>;
@@ -459,6 +459,8 @@ export interface WorkspaceInfo {
   branch: string;
   sessionId: SessionId;
   projectId: string;
+  /** Owning repo path — populated by workspace-worktree so destroy() can use it directly. */
+  repoPath?: string;
 }
 
 // =============================================================================
@@ -1562,6 +1564,8 @@ export interface SessionMetadata {
   terminalWsPort?: number;
   directTerminalWsPort?: number;
   opencodeSessionId?: string;
+  /** Owning repo path — populated by workspace-worktree so destroy() can use it directly. */
+  repoPath?: string;
 }
 
 // =============================================================================
