@@ -348,3 +348,7 @@ export {
   enrichWithCommentJudgment,
 } from "./review-kpi.js";
 export type { ReviewKPIs, KPIEmitDeps } from "./review-kpi.js";
+
+// Task queue drainer — config-driven bead processing with maxConcurrent (bd-bsu)
+export { drainTaskQueue, resolveBead, _resetDrainTimer } from "./task-queue.js";
+export type { TaskQueueDeps, TaskQueueParams } from "./task-queue.js";

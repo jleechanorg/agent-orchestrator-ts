@@ -179,6 +179,14 @@ const MergeGateConfigSchema = z
   .default({})
   .optional();
 
+// bd-bsu: Task queue config schema
+const TaskQueueConfigSchema = z.object({
+  enabled: z.boolean().default(false),
+  maxConcurrent: z.number().int().min(1).max(20).default(4),
+  beads: z.array(z.string()).default([]),
+  taskTemplate: z.string().optional(),
+}).optional();
+
 const ProjectConfigSchema = z.object({
   name: z.string().optional(),
   repo: z.string(),
@@ -213,6 +221,9 @@ const ProjectConfigSchema = z.object({
   mergeGate: MergeGateConfigSchema.optional(),
   // Override the global worktree base directory for this project.
   worktreeDir: z.string().optional(),
+
+  // bd-bsu: Config-driven bead task queue with maxConcurrent concurrency limit.
+  taskQueue: TaskQueueConfigSchema,
 });
 
 const DefaultPluginsSchema = z.object({
