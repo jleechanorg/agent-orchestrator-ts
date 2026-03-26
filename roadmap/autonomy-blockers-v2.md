@@ -63,7 +63,7 @@
 
 **Implementation:**
 1. **[Config]** Add to agentRules: "After fixing review comments, append a '## Resolved Comments' table to the PR description listing each comment, file, and how you resolved it. Use `gh pr edit --body` to update."
-2. **[Config]** Update merge-gate condition #5: instead of requiring `unresolvedThreads === 0`, check that all Major/Critical comments have a matching entry in the PR description's Resolved Comments table.
+2. ~~**[Config] Update merge-gate condition #5**~~ — not implemented. Merge-gate still uses `scm.getPendingComments()` `isResolved`. The PR description table is an **audit trail + worker self-certification record**, not a merge-gate bypass.
 3. **[Bead bd-xj8]** Repurpose: close as "won't fix (GraphQL approach)" and reference bd-ara.1 as the replacement.
 
 **Cost:** Zero GraphQL mutations. Workers already read comments; they just need to write a table.
@@ -214,7 +214,7 @@ The single `agentRules` field in `agent-orchestrator.yaml` carries ~200 lines of
 
 ### Gap B: REST fallback treats ALL comments as unresolved
 
-When GraphQL is rate-limited, `getPendingComments()` falls back to REST (`repos/{owner}/{repo}/pulls/{number}/comments`). The REST API has **no `isResolved` field**, so the fallback treats ALL comments as unresolved — even ones the worker already fixed. This means merge-gate condition #5 always fails during GraphQL rate-limit windows. The PR-description approach (bd-ara.1) would bypass this entirely since it doesn't depend on GitHub's thread resolution state.
+When GraphQL is rate-limited, `getPendingComments()` falls back to REST (`repos/{owner}/{repo}/pulls/{number}/comments`). The REST API has **no `isResolved` field**, so the fallback treats ALL comments as unresolved — even ones the worker already fixed. This means merge-gate condition #5 may block during GraphQL rate-limit windows when REST fallback treats unresolved comments as blocking. The PR-description approach (bd-ara.1) provides an **audit trail** even when REST fallback makes `isResolved` unavailable — the worker self-certification table gives operators visibility into what was addressed. It does **not** bypass merge-gate condition #5 (which still keys off `isResolved`).
 
 ### Gap C: autoResolveThreads is dead code
 
@@ -241,8 +241,9 @@ bd-ara.3 (kill sessions on merge)  ← unblocks spawn gate immediately
 bd-ara.4 (CR recovery)            ← unblocks 8 PRs
   └─ depends on: nothing (config change)
 
-bd-ara.1 (comment documentation)  ← unblocks green condition #5
-  └─ depends on: nothing (config change)
+bd-ara.1 (comment documentation)  ← ✅ DONE — agentRules workaround for worker self-certification
+  └─ implemented: `~/.openclaw/agent-orchestrator.yaml` agentRules section "AFTER FIXING REVIEW COMMENTS — DOCUMENT IN PR DESCRIPTION (bd-ara.1)"
+  └─ NOTE: merge-gate still uses `scm.getPendingComments()` `isResolved` for condition #5. The PR description table is an **audit trail + worker self-certification record**, not a merge-gate bypass.
 
 bd-ara.2 (mergeable=UNKNOWN)      ← unblocks 13 PRs
   └─ depends on: nothing (config + optional lifecycle event)
@@ -251,6 +252,6 @@ bd-ara.5 (test self-heal)         ← unblocks 3 PRs
   └─ depends on: nothing (config change)
 ```
 
-**Suggested order:** bd-ara.3 → bd-ara.4 → bd-ara.1 → bd-ara.2 → bd-ara.5
+**Suggested order:** bd-ara.3 → bd-ara.4 → bd-ara.1✅ → bd-ara.2 → bd-ara.5
 
 Most fixes are **config-only** (agentRules changes). Only bd-ara.3 requires core code changes.
