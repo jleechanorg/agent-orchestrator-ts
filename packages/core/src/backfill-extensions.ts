@@ -18,7 +18,7 @@ import type { ProjectObserver } from "./observability.js";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
 import { existsSync, rmSync } from "node:fs";
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 
 /** Dependencies injected by the lifecycle-manager call site. */
 export interface BackfillDeps {
@@ -171,36 +171,50 @@ export async function backfillUncoveredPRs(
             // Direct worktree cleanup fallback — session wasn't registered so
             // kill() couldn't find it, but we know where the worktree lives.
             try {
-              const worktreeDir = resolve(homedir(), ".worktrees", projectId, session.id);
+              // Prefer configured project worktreeDir when available, else fall back to
+              // the standard ~/.worktrees/{projectId}/{sessionId} path.
+              const worktreeRoot =
+                (project as { worktreeDir?: string }).worktreeDir ||
+                resolve(homedir(), ".worktrees");
+              const worktreeDir = resolve(worktreeRoot, projectId, session.id);
               if (existsSync(worktreeDir)) {
                 // Capture branch before cleanup.
                 let branch: string | null = null;
                 try {
-                  branch = execSync(`git -C "${worktreeDir}" branch --show-current`, {
+                  branch = execFileSync("git", ["-C", worktreeDir, "branch", "--show-current"], {
                     encoding: "utf8",
                   }).trim();
                 } catch { /* may be broken */ }
                 // Find the parent repo.
                 let repoDir: string | null = null;
                 try {
-                  const gitCommon = execSync(
-                    `git -C "${worktreeDir}" rev-parse --path-format=absolute --git-common-dir`,
+                  const gitCommon = execFileSync(
+                    "git",
+                    ["-C", worktreeDir, "rev-parse", "--path-format=absolute", "--git-common-dir"],
                     { encoding: "utf8" },
                   ).trim();
                   repoDir = resolve(gitCommon, "..");
                 } catch { /* may be broken */ }
-                // Unlock + remove worktree.
+                // Unlock + remove worktree (--force --force mirrors workspace-worktree destroy()).
                 if (repoDir) {
                   try {
-                    execSync(`git -C "${repoDir}" worktree unlock "${worktreeDir}"`, { encoding: "utf8" });
+                    execFileSync("git", ["-C", repoDir, "worktree", "unlock", worktreeDir], {
+                      encoding: "utf8",
+                    });
                   } catch { /* best-effort */ }
                   try {
-                    execSync(`git -C "${repoDir}" worktree remove --force "${worktreeDir}"`, { encoding: "utf8" });
+                    execFileSync("git", ["-C", repoDir, "worktree", "remove", "--force", "--force", worktreeDir], {
+                      encoding: "utf8",
+                    });
+                  } catch { /* best-effort */ }
+                  try {
+                    execFileSync("git", ["-C", repoDir, "worktree", "prune"], { encoding: "utf8" });
                   } catch { /* best-effort */ }
                   // Delete stale local branch to prevent cascading fetch failures.
-                  if (branch && !/^(main|master|develop)$/.test(branch)) {
+                  // Only delete branches that look AO-managed (feat/*, session/*, fix/*).
+                  if (branch && /^(feat|fix|chore|docs|refactor|session)\//.test(branch)) {
                     try {
-                      execSync(`git -C "${repoDir}" branch -D "${branch}"`, { encoding: "utf8" });
+                      execFileSync("git", ["-C", repoDir, "branch", "-D", branch], { encoding: "utf8" });
                     } catch { /* best-effort */ }
                   }
                 }

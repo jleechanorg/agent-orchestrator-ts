@@ -200,7 +200,9 @@ async function maybeRemoveStaleCheckedOutWorktree(
   } catch {
     // Best-effort — worktree may already be partially removed
   }
-  return true;
+  // Only signal successful removal if the directory is actually gone,
+  // so callers only retry checkout when the blocker is confirmed removed.
+  return !existsSync(resolvedStale);
 }
 
 /** Only allow safe characters in path segments to prevent directory traversal */
@@ -442,9 +444,10 @@ export function create(config?: Record<string, unknown>): Workspace {
       }
 
       // Delete the local branch to prevent cascading fetch failures.
-      // Only delete branches that look AO-managed to avoid accidentally
-      // removing pre-existing important branches (main, master, develop).
-      if (checkedOutBranch && !/^(main|master|develop)$/.test(checkedOutBranch)) {
+      // Only delete branches that match AO-managed branch patterns — this
+      // excludes long-lived branches (main, master, develop) and any other
+      // user-created branches that shouldn't be auto-deleted.
+      if (checkedOutBranch && /^(feat|fix|chore|docs|refactor|session)\//.test(checkedOutBranch)) {
         if (repoPath) {
           try {
             await git(repoPath, "branch", "-D", checkedOutBranch);

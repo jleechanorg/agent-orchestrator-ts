@@ -380,28 +380,32 @@ describe("workspace.destroy()", () => {
     await ws.destroy("/mock-home/.worktrees/myproject/session-1");
 
     // First call: branch --show-current (captures branch before removal)
-    expect(mockExecFileAsync).toHaveBeenCalledWith(
+    expect(mockExecFileAsync).toHaveBeenNthCalledWith(
+      1,
       "git",
       ["branch", "--show-current"],
       { cwd: "/mock-home/.worktrees/myproject/session-1" },
     );
 
     // Second call: rev-parse
-    expect(mockExecFileAsync).toHaveBeenCalledWith(
+    expect(mockExecFileAsync).toHaveBeenNthCalledWith(
+      2,
       "git",
       ["rev-parse", "--path-format=absolute", "--git-common-dir"],
       { cwd: "/mock-home/.worktrees/myproject/session-1" },
     );
 
     // Third call: worktree remove (--force --force to bypass lock)
-    expect(mockExecFileAsync).toHaveBeenCalledWith(
+    expect(mockExecFileAsync).toHaveBeenNthCalledWith(
+      3,
       "git",
       ["worktree", "remove", "--force", "--force", "/mock-home/.worktrees/myproject/session-1"],
       { cwd: "/repo/path" },
     );
 
     // Fourth call: branch -D (cleanup to prevent cascading fetch failures)
-    expect(mockExecFileAsync).toHaveBeenCalledWith(
+    expect(mockExecFileAsync).toHaveBeenNthCalledWith(
+      4,
       "git",
       ["branch", "-D", "feat/TEST-1"],
       { cwd: "/repo/path" },
@@ -411,9 +415,12 @@ describe("workspace.destroy()", () => {
   it("falls back to rmSync when git commands fail", async () => {
     const ws = create();
 
-    mockGitError("not a git repository"); // rev-parse fails
-    mockGitSuccess(""); // git worktree list --porcelain (findRepoPathForWorktree returns null)
-    // rmSync is always called as a last resort (no existsSync guard needed).
+    // branch --show-current fails (worktree path doesn't exist)
+    mockGitError("not a git repository");
+    // rev-parse fails (not a git repository)
+    mockGitSuccess("");
+    // findRepoPathForWorktree → git worktree list --porcelain succeeds (returns empty)
+    // rmSync is always called as a last resort.
 
     await ws.destroy("/mock-home/.worktrees/myproject/session-1");
 
