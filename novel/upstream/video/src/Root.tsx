@@ -4,8 +4,8 @@ import { TheAwakening } from "./TheAwakening";
 import { TOTAL_FRAMES } from "./scenes";
 import { ThePantheon } from "./ThePantheon";
 import { PANTHEON_TOTAL_FRAMES } from "./pantheon-data";
-import { DailyChapter, DEFAULT_CHAPTER } from "./DailyChapter";
-import type { ChapterData } from "./ChapterData";
+import { DailyChapter } from "./DailyChapter";
+import { DEFAULT_CHAPTER, type ChapterData } from "./ChapterData";
 
 const calculateDailyChapterDuration: CalculateMetadataFunction<{ chapter?: ChapterData }> = ({
   props,
@@ -16,7 +16,8 @@ const calculateDailyChapterDuration: CalculateMetadataFunction<{ chapter?: Chapt
     .split(/\s+/)
     .filter(Boolean)
     .slice(0, 80);
-  const excerptDuration = Math.ceil(words.length * (30 * 60) / 1200);
+  // 20 wpm = 1 word per 3 seconds. At fps frames/second: duration = words × 3 × fps
+  const excerptDuration = Math.ceil(words.length * 3 * 30);
   const totalFrames = 90 + excerptDuration + 30 + 50;
   return { durationInFrames: totalFrames };
 };
