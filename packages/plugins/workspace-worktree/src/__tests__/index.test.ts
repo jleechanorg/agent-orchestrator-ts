@@ -96,11 +96,21 @@ function makeCreateConfig(overrides?: Partial<WorkspaceCreateConfig>): Workspace
 // ---------------------------------------------------------------------------
 
 beforeEach(() => {
-  vi.clearAllMocks();
+  // Use resetAllMocks (not clearAllMocks) to also drain the mock implementation
+  // queue — clearAllMocks only resets call history, leaving mockReturnValueOnce /
+  // mockResolvedValueOnce values in the queue and causing cross-test contamination.
+  vi.resetAllMocks();
 
-  // Default: no existing exclude file, writes succeed
+  // Default: no existing exclude file, writes succeed.
+  // Re-apply after resetAllMocks since it clears mockReturnValue / mockResolvedValue.
   mockReadFile.mockRejectedValue(Object.assign(new Error("ENOENT"), { code: "ENOENT" }));
   mockWriteFile.mockResolvedValue(undefined);
+  // Re-apply lstatSync mock so setupAoManagedExclude fallback path (lstatSync +
+  // readFileSync on .git file) works in tests that exercise it.
+  mockLstatSync.mockImplementation((p) => ({
+    isFile: () => String(p).endsWith(".git") || String(p).endsWith(".git/info"),
+    isDirectory: () => false,
+  }));
 });
 
 // ===========================================================================
@@ -254,20 +264,29 @@ describe("workspace.create()", () => {
   it("recovers checkout by removing stale checked-out worktree with no active tmux session", async () => {
     const ws = create();
 
+    // create() makes many git calls — provide enough mocks for all of them.
+    // Mock values after the first 4 determine the stale-worktree-removal path.
     mockGitSuccess(""); // fetch
     mockGitError("already exists"); // worktree add -b fails
     mockGitSuccess(""); // worktree add (without -b)
     mockGitError("fatal: 'feat/TEST-1' is already checked out at '/mock-home/.worktrees/myproject/ao-999'"); // checkout fails first time
-    mockGitSuccess("aa11bb22cc33-ao-123"); // tmux list-sessions (does NOT include ao-999)
-    mockGitSuccess(""); // remove stale worktree
+    mockGitSuccess(""); // branch --show-current from stale worktree dir (caught)
+    mockGitSuccess(""); // rev-parse from stale worktree dir (caught)
+    mockGitSuccess(""); // git worktree list --porcelain from homedir (caught, returns empty)
+    mockGitSuccess(""); // git worktree remove of stale (caught)
+    mockGitSuccess(""); // git worktree remove --force --force of worktree
+    mockGitSuccess(""); // setupAoManagedExclude readFile (ENOENT caught)
+    mockGitSuccess(""); // setupAoManagedExclude writeFile (success)
+    mockGitSuccess(""); // git worktree lock (success)
     mockGitSuccess(""); // checkout retry succeeds
 
     const info = await ws.create(makeCreateConfig());
 
     expect(info.branch).toBe("feat/TEST-1");
+    // Verify stale worktree removal was attempted (from the walk-up in maybeRemoveStaleCheckedOutWorktree)
     expect(mockExecFileAsync).toHaveBeenCalledWith(
       "git",
-      ["worktree", "remove", "--force", "/mock-home/.worktrees/myproject/ao-999"],
+      ["worktree", "remove", "--force", "--force", "/mock-home/.worktrees/myproject/ao-999"],
       { cwd: "/repo/path" },
     );
   });
@@ -417,9 +436,12 @@ describe("workspace.destroy()", () => {
 
     // branch --show-current fails (worktree path doesn't exist)
     mockGitError("not a git repository");
-    // rev-parse fails (not a git repository)
-    mockGitSuccess("");
+    // rev-parse fails at worktree dir and during walk-up (no .git found)
+    mockGitError("not a git repository");
+    mockGitError("not a git repository");
+    mockGitError("not a git repository");
     // findRepoPathForWorktree → git worktree list --porcelain succeeds (returns empty)
+    mockGitSuccess("");
     // rmSync is always called as a last resort.
 
     await ws.destroy("/mock-home/.worktrees/myproject/session-1");
@@ -428,6 +450,55 @@ describe("workspace.destroy()", () => {
       recursive: true,
       force: true,
     });
+  });
+
+  it("recovers branch from findRepoPathForWorktree when directory is gone but git entry exists", async () => {
+    const ws = create();
+
+    // destroy() calls branch --show-current first (fails because dir is gone)
+    mockGitError("not a git repository");
+    // then rev-parse --git-common-dir at worktree dir fails (no .git there either)
+    mockGitError("not a git repository");
+    // findRepoPathForWorktree walks up from worktree dir:
+    // existsSync(".git") returns truthy → git rev-parse --git-common-dir called (fails)
+    mockExistsSync.mockReturnValueOnce(true); // /mock-home/.worktrees/myproject/.git
+    mockGitError("not a git repository");
+    mockExistsSync.mockReturnValueOnce(true); // /mock-home/.worktrees/myproject/.git
+    mockGitError("not a git repository");
+    mockExistsSync.mockReturnValueOnce(true); // /mock-home/.worktrees/myproject/.git
+    mockGitError("not a git repository");
+    // findRepoPathForWorktree: git worktree list --porcelain from homedir succeeds
+    mockGitSuccess(
+      "worktree /mock-home/.worktrees/myproject/session-1\n" +
+        "branch refs/heads/feat/TEST-1\n" +
+        "gitdir /repo/path/.git/worktrees/session-1",
+    );
+    // fallback: worktree unlock + worktree remove --force --force
+    mockGitSuccess("");
+    mockGitSuccess("");
+    // worktree prune
+    mockGitSuccess("");
+    // branch -D (branch recovered from git worktree list)
+    mockGitSuccess("");
+
+    await ws.destroy("/mock-home/.worktrees/myproject/session-1");
+
+    // The fallback path makes 10 prior git calls before branch -D:
+    // 1. branch --show-current (fails)
+    // 2. rev-parse --git-common-dir at worktree dir (fails)
+    // 3-5. findRepoPathForWorktree walk-up: 3x existsSync→true + rev-parse (all fail)
+    // 6. findRepoPathForWorktree: git worktree list --porcelain from homedir (succeeds)
+    // 7. worktree unlock (succeeds)
+    // 8. worktree remove --force --force in fallback (succeeds)
+    // 9. worktree prune (succeeds)
+    // 10. branch -D (branch recovered from git worktree list)
+    // repoPath = resolve("/repo/path/.git/worktrees/session-1", "..", "..") = "/repo/path/.git"
+    expect(mockExecFileAsync).toHaveBeenNthCalledWith(
+      10,
+      "git",
+      ["branch", "-D", "feat/TEST-1"],
+      { cwd: "/repo/path/.git" },
+    );
   });
 
   it("does nothing if git fails and directory does not exist", async () => {

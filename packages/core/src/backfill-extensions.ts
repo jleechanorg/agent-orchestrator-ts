@@ -33,6 +33,8 @@ export interface BackfillParams {
   project: ProjectConfig;
   activeSessions: Session[];
   correlationId: string;
+  /** Optional configured worktree root (from config.defaults.worktreeDir). */
+  worktreeDir?: string;
 }
 
 // ---- module-level throttle state ----
@@ -42,6 +44,14 @@ const BACKFILL_INTERVAL_MS = 5 * 60_000; // 5 minutes
 /** Reset throttle state — exposed for testing only. */
 export function _resetBackfillTimer(): void {
   lastBackfillTime = 0;
+}
+
+/** Expand ~ to home directory (mirrors workspace-worktree expandPath). */
+function expandPath(p: string): string {
+  if (p.startsWith("~/")) {
+    return resolve(homedir(), p.slice(2));
+  }
+  return p;
 }
 
 /**
@@ -171,11 +181,14 @@ export async function backfillUncoveredPRs(
             // Direct worktree cleanup fallback — session wasn't registered so
             // kill() couldn't find it, but we know where the worktree lives.
             try {
-              // Prefer configured project worktreeDir when available, else fall back to
-              // the standard ~/.worktrees/{projectId}/{sessionId} path.
-              const worktreeRoot =
-                (project as { worktreeDir?: string }).worktreeDir ||
-                resolve(homedir(), ".worktrees");
+              // Prefer global worktreeDir (config.defaults), then project.worktreeDir,
+              // then the standard ~/.worktrees/{projectId}/{sessionId} path.
+              // expandPath handles ~ expansion for custom worktreeDir paths.
+              const worktreeRoot = expandPath(
+                params.worktreeDir ||
+                  (project as { worktreeDir?: string }).worktreeDir ||
+                  resolve(homedir(), ".worktrees"),
+              );
               const worktreeDir = resolve(worktreeRoot, projectId, session.id);
               if (existsSync(worktreeDir)) {
                 // Capture branch before cleanup.
