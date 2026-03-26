@@ -1,6 +1,28 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
+<!--
+  ai.agento.novel-daily — launchd agent
+
+  Installs the novel-daily launchd agent so it runs automatically each morning.
+
+  Setup (from the agent-orchestrator repo root):
+    1. Link the plist into LaunchAgents:
+       ln -sf "$(pwd)/launchd/ai.agento.novel-daily.plist" ~/Library/LaunchAgents/
+
+    2. (First time only) create the logs directory:
+       mkdir -p logs
+
+    3. Load the agent:
+       launchctl load ~/Library/LaunchAgents/ai.agento.novel-daily.plist
+
+    4. To see it run tomorrow at 06:00 PT, or trigger manually:
+       launchctl kickstart -kp gui/$(id -u)/ai.agento.novel-daily
+
+  The agent reads @REPO_ROOT@ as its WorkingDirectory and calls the
+  run-novel-daily.sh wrapper, which invokes generate-daily-entry.mjs.
+  stdout/stderr are appended to logs/novel-daily.log in the repo.
+-->
 <dict>
   <key>Label</key>
   <string>ai.agento.novel-daily</string>
@@ -9,13 +31,14 @@
   <array>
     <string>/bin/bash</string>
     <string>-lc</string>
-    <string>@GENERATE_DAILY_SCRIPT@</string>
+    <string>REPO_ROOT=@REPO_ROOT@ exec "@REPO_ROOT@/scripts/novel/run-novel-daily.sh"</string>
   </array>
 
   <key>RunAtLoad</key>
   <false/>
 
   <key>StartCalendarInterval</key>
+  <!-- Runs at 06:00 Pacific every day -->
   <dict>
     <key>Hour</key>
     <integer>6</integer>
