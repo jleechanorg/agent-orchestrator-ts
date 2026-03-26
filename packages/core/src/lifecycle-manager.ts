@@ -987,6 +987,25 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         }
       }
 
+      // bd-5o1: when agent is dead and the transition would trigger a send-to-agent
+      // reaction that can't be delivered, override to "killed" for terminal cleanup.
+      // Without this, dead-agent sessions stay in non-terminal states (e.g.
+      // "changes_requested") forever, getting polled every cycle with the reaction
+      // skipped but never cleaned up.  SCM-only reactions (auto-merge, notify,
+      // request-merge) don't require a live agent and proceed normally.
+      if (agentDead && effectiveStatus !== oldStatus && !TERMINAL_STATUSES.has(effectiveStatus)) {
+        const preReactionEvent = statusToEventType(oldStatus, effectiveStatus);
+        if (preReactionEvent) {
+          const preReactionKey = eventToReactionKey(preReactionEvent);
+          if (preReactionKey) {
+            const preReactionCfg = getReactionConfigForSession(session, preReactionKey);
+            if (preReactionCfg?.action === "send-to-agent") {
+              effectiveStatus = "killed" as SessionStatus;
+            }
+          }
+        }
+      }
+
       // Skip persisting if bd-kki check absorbed the killed transition — keep session
       // in oldStatus so the next poll can retry the SCM check.
       if (effectiveStatus !== oldStatus) {
