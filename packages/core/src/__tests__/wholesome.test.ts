@@ -75,7 +75,7 @@ function git(args: string, cwd: string, strict = false): string {
   } catch (err: unknown) {
     if (strict) {
       const msg = err instanceof Error ? err.message : String(err);
-      throw new Error(`git ${args} failed: ${msg}`);
+      throw new Error(`git ${args} failed: ${msg}`, { cause: err });
     }
     return "";
   }
