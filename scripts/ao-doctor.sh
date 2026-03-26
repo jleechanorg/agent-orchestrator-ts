@@ -327,7 +327,8 @@ check_lifecycle_workers() {
   # NOTE: Checks 1 and 2 run unconditionally — they do not require the config file.
   # config_file is only needed for Check 3 (per-project duplicate detection).
   local all_workers
-  all_workers="$(ps aux 2>/dev/null | grep -v grep | grep 'lifecycle-worker' || true)"
+  # Use 'lifecycle-worker ' (trailing space) to avoid matching file paths like ao-lifecycle-triage.md or diagnose-lifecycle-worker.md
+  all_workers="$(ps aux 2>/dev/null | grep -v grep | grep 'lifecycle-worker ' || true)"
   # Count via wc -l to avoid grep -c exit-code / multiline artefacts
   local total_count
   total_count="$(printf '%s\n' "$all_workers" | grep 'lifecycle-worker' | wc -l | tr -d ' ')"
@@ -340,9 +341,8 @@ check_lifecycle_workers() {
     while IFS= read -r line; do
       [ -z "$line" ] && continue
       local cmd
-      cmd="$(printf '%s' "$line" | awk '{print $11}')"
-      if [ "$cmd" != "${canonical_binary}" ] && \
-         [ "$cmd" != "${canonical_real}" ]; then
+      cmd="$(printf '%s' "$line" | awk '{for(i=1;i<=NF;i++) if($i ~ /\/ao$/) {print $i; exit}}')"
+      if [ -z "$cmd" ] || { [ "$cmd" != "${canonical_binary}" ] && [ "$cmd" != "${canonical_real}" ]; }; then
         stale_count=$((stale_count + 1))
         local pid
         pid="$(echo "$line" | awk '{print $2}')"
