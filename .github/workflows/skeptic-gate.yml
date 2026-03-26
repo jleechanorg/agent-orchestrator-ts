@@ -35,10 +35,18 @@ jobs:
       - name: Run Skeptic evaluation
         id: run_skeptic
         env:
-          # GITHUB_TOKEN and ANTHROPIC_API_KEY are passed to the CLI for API calls
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
+          # Check if ANTHROPIC_API_KEY is configured
+          if [ -z "$ANTHROPIC_API_KEY" ]; then
+            echo "ANTHROPIC_API_KEY secret not configured — skipping skeptic evaluation"
+            echo "verdict=SKIPPED" >> "$GITHUB_OUTPUT"
+            echo "VERDICT: SKIPPED — ANTHROPIC_API_KEY not configured" > skeptic-output.txt
+            echo "Setup required: add ANTHROPIC_API_KEY to repo secrets (Settings > Secrets)" >> skeptic-output.txt
+            exit 0
+          fi
+
           # Run skeptic with --dry-run so it does NOT try to post a comment
           # (the jleechan-agent[bot] lacks write access; the workflow posts via GITHUB_TOKEN)
           node packages/cli/dist/index.js skeptic \
