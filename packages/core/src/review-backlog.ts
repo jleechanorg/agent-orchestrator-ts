@@ -29,6 +29,7 @@ export interface ReviewBacklogDeps {
     reactionKey: string,
     reactionConfig: ReactionConfig,
     session?: Session,
+    agentDead?: boolean,
   ) => Promise<ReactionResult>;
   /** Whether the agent is confirmed dead — skips send-to-agent backlog dispatches (bd-5o1) */
   agentDead: boolean;
@@ -198,6 +199,7 @@ export async function maybeDispatchReviewBacklog(
           humanReactionKey,
           reactionConfig,
           session,
+          agentDead,
         );
         if (result.success) {
           updateSessionMetadataHelper(
