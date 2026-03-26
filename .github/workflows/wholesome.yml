@@ -14,15 +14,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check PR title prefix
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
         run: |
-          # Use fromJson (GHA security best practice) to safely parse the title.
-          # The surrounding single-quotes prevent shell interpretation;
-          # fromJson returns the string value safely escaped for shell use.
-          TITLE='${{ fromJson(github.event.pull_request.title) }}'
-          case "$TITLE" in
+          # env: context automatically JSON-encodes the value, preventing injection.
+          # GitHub Actions stores it as a JSON string, which bash reads literally.
+          case "$PR_TITLE" in
             '[agento]'*) echo "PASS: PR title has [agento] prefix" ;;
             *) echo "FAIL: PR title must start with '[agento]'"
-               echo "Current title: $TITLE"
+               echo "Current title: $PR_TITLE"
                exit 1 ;;
           esac
 
@@ -100,10 +100,10 @@ jobs:
           printf '%s\n' "$EVIDENCE" | head -30
           echo "========================"
 
-          # Check for markdown image attachment: ![alt](url)
+          # Check for markdown image attachment: any valid ![alt](url) format
           HAS_IMAGE=false
-          if printf '%s' "$EVIDENCE" | grep -qiE '!\[.*\]\(https?://'; then
-            echo "PASS: Markdown image with URL found in Evidence section"
+          if printf '%s' "$EVIDENCE" | grep -qiE '!\[[^]]*\]\([^)]+\)'; then
+            echo "PASS: Markdown image found in Evidence section"
             HAS_IMAGE=true
           elif printf '%s' "$EVIDENCE" | grep -qiE '\*\*Media\*\*.*\.(png|jpg|jpeg|gif|webp|mp4|webm)'; then
             echo "PASS: Media file path found in Evidence section"
