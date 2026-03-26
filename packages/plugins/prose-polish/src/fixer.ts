@@ -23,39 +23,39 @@ const REDUNDANT_REPLACEMENTS: Array<[RegExp, string]> = [
   [/\bblatantly\sobvious\b/gi, "obvious"],
 ];
 
-/** Trim leading whitespace only. */
-function ltrim(str: string): string {
-  return str.replace(/^\s+/, "");
-}
-
 /**
- * Apply auto-fixable corrections to a line, preserving leading indentation.
- *
- * Filler-word removal can leave single artifact spaces (e.g. "Just a note" →
- * " a note") because the filler itself is 1 char and the space after it is a
- * single char — below the \s{2,} collapse threshold.  We solve this by:
- *   1. Stripping and stashing any leading indentation
- *   2. Removing fillers and collapsing whitespace in the content
- *   3. Trimming only the content (removes artifact trailing space)
- *   4. ltrim()ing the content (removes artifact leading space)
- *   5. Restoring the original indentation
+ * Apply auto-fixable corrections to a line.
+ * Exported for unit testing.
  */
-function fixLine(line: string): string {
-  // Preserve leading indentation (tabs/spaces that form the line's indent)
-  const indentMatch = line.match(/^(\s+)/);
-  const indent = indentMatch ? indentMatch[1] : "";
-  let result = ltrim(line);
+export function fixLine(line: string): string {
+  // Preserve leading whitespace so indentation is not destroyed
+  const leadingWs = line.match(/^(\s*)/)?.[1] ?? "";
 
-  // Remove filler words (now ltrimmed so no artifact leading space)
+  // Preserve Markdown hard-break suffix (trailing 2+ spaces) before processing
+  const trailingSuffix = (line.match(/(\s{2,})$/) ?? [])[1] ?? "";
+
+  // Slice result to only the content between leading and trailing whitespace,
+  // so filler removal cannot inadvertently alter the trailing hard-break suffix.
+  const contentEnd = trailingSuffix ? line.length - trailingSuffix.length : line.length;
+  let result = line.slice(leadingWs.length, contentEnd);
+
+  // Remove filler words
   const fillerRE = new RegExp(`\\b(${FILLERS.join("|")})\\b`, "gi");
-  result = result.replace(fillerRE, "").replace(/\s{2,}/g, " ");
+  result = result.replace(fillerRE, "");
+
+  // Collapse only internal whitespace runs (not leading/trailing)
+  result = result.replace(/\s{2,}/g, " ");
+
+  // Strip artifact spaces left when a filler word at the start/end of
+  // the non-whitespace content is removed (e.g. "Just a note" → " a note")
+  result = result.trim();
 
   // Fix redundant phrases
   for (const [pattern, replacement] of REDUNDANT_REPLACEMENTS) {
     result = result.replace(pattern, replacement);
   }
 
-  return indent + result;
+  return leadingWs + result.trimEnd() + trailingSuffix;
 }
 
 /**
@@ -84,7 +84,7 @@ export function autoFixFile(
       fixed[idx] = fixLine(original);
       if (fixed[idx] !== original) {
         // Update suggestion with actual change
-        issue.suggestion = `"${original}" → "${fixed[idx]}"`;
+        issue.suggestion = `"${original.trim()}" → "${fixed[idx].trim()}"`;
       }
     }
   }
@@ -97,6 +97,7 @@ export function autoFixFile(
   writeFileSync(filePath, fixed.join("\n"), "utf-8");
 
   const fixes = autoFixable
+    .filter(i => linesFixed.has(i.line - 1))
     .map(i => ({
       line: i.line,
       original: lines[i.line - 1],
