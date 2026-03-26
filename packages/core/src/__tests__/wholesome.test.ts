@@ -59,25 +59,31 @@ function collectTsFiles(root: string, prefix = ""): string[] {
 
 /**
  * Run a git command and return stdout (string, trimmed).
- * Returns empty string if the command fails.
  * Uses execFileSync with an explicitly parsed arg array to avoid shell injection
  * when any argument contains user-controlled data (e.g. BASE_BRANCH from GITHUB_BASE_REF).
+ *
+ * @param strict - if true, throws on any git failure; use for structural checks where
+ *   an error means the check is invalid (not "no violations"). If false, returns ""
+ *   on error (lenient — use for fallback/non-critical commands like branch-name lookup).
  */
-function git(args: string, cwd: string): string {
+function git(args: string, cwd: string, strict = false): string {
   try {
-    // Split on whitespace but preserve quoted arguments so --jq '.title' stays together.
     const parsed = args.match(/[^\s"']+|"([^"]*)"|'([^']*)'/g)?.map(token =>
       token.replace(/^['"]|['"]$/g, "")
     ) ?? [];
     return execFileSync("git", parsed, { cwd, encoding: "utf-8" }).trim();
-  } catch {
+  } catch (err: unknown) {
+    if (strict) {
+      const msg = err instanceof Error ? err.message : String(err);
+      throw new Error(`git ${args} failed: ${msg}`);
+    }
     return "";
   }
 }
 
 /** Return diff lines (with file path) that ADD a given pattern in .ts files. */
 function getAddedLinesMatching(cwd: string, pattern: RegExp): Array<{file: string; line: string}> {
-  const raw = git(`diff --diff-filter=AM ${BASE_BRANCH}...HEAD`, cwd);
+  const raw = git(`diff --diff-filter=AM ${BASE_BRANCH}...HEAD`, cwd, true);
   if (!raw) return [];
   const results: Array<{file: string; line: string}> = [];
   let currentFile = "";
@@ -232,7 +238,7 @@ describe("wholesome — structural source-code assertions", () => {
 
       // Only check lines added in this branch within these high-conflict files
       it(`no fork logic added to ${relPath}`, () => {
-        const raw = git(`diff --diff-filter=AM ${BASE_BRANCH}...HEAD -- "${relPath}"`, REPO_ROOT);
+        const raw = git(`diff --diff-filter=AM ${BASE_BRANCH}...HEAD -- "${relPath}"`, REPO_ROOT, true);
         if (!raw) return; // no changes to this file in this branch — OK
 
         const violations: string[] = [];
@@ -264,7 +270,7 @@ describe("wholesome — structural source-code assertions", () => {
       // Exclude merge commits (2nd parent = GitHub merge commit from squash/rebase).
       // Using --no-merges: only non-merge commits
       // Using --first-parent: only commits whose first parent is on the mainline
-      const raw = git(`log --format=%H --first-parent --no-merges ${BASE_BRANCH}..HEAD`, REPO_ROOT);
+      const raw = git(`log --format=%H --first-parent --no-merges ${BASE_BRANCH}..HEAD`, REPO_ROOT, true);
       if (!raw) return; // no non-merge commits made on this branch — nothing to check
 
       const violations: string[] = [];
