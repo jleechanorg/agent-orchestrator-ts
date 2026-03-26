@@ -73,7 +73,7 @@ async function fetchMergeGateState(
   prNumber: number,
 ): Promise<MergeGateState> {
   // 1. CI checks via GraphQL
-  let ciPassing = false;
+  let ciPassing: boolean;
   try {
     const query = [
       "query={",
@@ -370,7 +370,7 @@ export function registerSkeptic(program: Command): void {
       }
 
       // Fetch diff
-      let diff = "";
+      let diff: string;
       try {
         const result = await exec("gh", [
           "pr", "diff",
