@@ -14,15 +14,22 @@
 import { describe, it, expect } from "vitest";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, extname } from "node:path";
-import { execSync } from "node:child_process";
+import { execSync, execFileSync } from "node:child_process";
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
 /** The base branch for diff comparison. In CI this is GITHUB_BASE_REF (the PR target);
- *  locally, defaults to origin/main. Using GITHUB_BASE_REF avoids fork-PR false positives. */
-const BASE_BRANCH = process.env.GITHUB_BASE_REF ?? "origin/main";
+ *  locally, defaults to origin/main. Using GITHUB_BASE_REF avoids fork-PR false positives.
+ *  Validated to prevent shell injection — only safe git-ref characters allowed. */
+const BASE_BRANCH = (() => {
+  const raw = process.env.GITHUB_BASE_REF ?? "origin/main";
+  if (!/^[a-zA-Z0-9/._-]+$/.test(raw) || raw.includes("..")) {
+    throw new Error(`Invalid GITHUB_BASE_REF (possible injection): ${raw}`);
+  }
+  return raw;
+})();
 
 /** Recursively collect all .ts/.tsx files under a directory. */
 function collectTsFiles(root: string, prefix = ""): string[] {
@@ -81,8 +88,11 @@ function getPRTitle(): string {
     const repo   = process.env.GITHUB_REPOSITORY; // "owner/repo"
     const branch = process.env.GITHUB_HEAD_REF;
     try {
-      const title = execSync(
-        `gh pr view "${branch}" --repo "${repo}" --json title --jq '.title'`,
+      // Use execFileSync (array args) to avoid shell injection when env vars are
+      // interpolated. execSync with a template string runs through the shell.
+      const title = execFileSync(
+        "gh",
+        ["pr", "view", branch, "--repo", repo, "--json", "title", "--jq", ".title"],
         { encoding: "utf-8", timeout: 30_000 }
       ).trim();
       if (title) return title;
