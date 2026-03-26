@@ -1078,32 +1078,28 @@ describe("scm-github plugin", () => {
     it(
       "returns 'none' when all retries hit rate limits and secondary fallback also fails",
       async () => {
-        // getCIChecks: gh pr checks rate-limited (4 retries = 4 calls)
+        // getCIChecks: gh pr checks rate-limited (2 retries = 3 gh calls)
         mockGhError("API rate limit exceeded");
         mockGhError("API rate limit exceeded");
         mockGhError("API rate limit exceeded");
-        mockGhError("API rate limit exceeded");
-        // getCIChecksFromStatusRollup: gh pr view rate-limited (4 retries = 4 calls)
-        mockGhError("API rate limit exceeded");
+        // getCIChecksFromStatusRollup: gh pr view rate-limited (2 retries = 3 gh calls)
         mockGhError("API rate limit exceeded");
         mockGhError("API rate limit exceeded");
         mockGhError("API rate limit exceeded");
         // getCISummary catches secondary fallback failure → returns "none"
         await expect(scm.getCISummary(pr)).resolves.toEqual("none");
       },
-      120000, // ghWithRetry: 3 retries × up to 30s backoff; 8 errors ≈ 56s total
+      60000, // ghWithRetry: 2 retries × up to 30s backoff; 6 errors ≈ 7s total
     );
 
     it(
       "returns 'passing' when getCIChecks hits rate limit but REST fallback succeeds",
       async () => {
-        // getCIChecks: gh pr checks rate-limited (4 retries = 4 calls)
+        // getCIChecks: gh pr checks rate-limited (2 retries = 3 gh calls)
         mockGhError("API rate limit exceeded");
         mockGhError("API rate limit exceeded");
         mockGhError("API rate limit exceeded");
-        mockGhError("API rate limit exceeded");
-        // getCIChecksFromStatusRollup: gh pr view rate-limited (4 retries = 4 calls)
-        mockGhError("API rate limit exceeded");
+        // getCIChecksFromStatusRollup: gh pr view rate-limited (2 retries = 3 gh calls)
         mockGhError("API rate limit exceeded");
         mockGhError("API rate limit exceeded");
         mockGhError("API rate limit exceeded");
@@ -1123,19 +1119,17 @@ describe("scm-github plugin", () => {
 
         await expect(scm.getCISummary(pr)).resolves.toEqual("passing");
       },
-      120000, // ghWithRetry: 3 retries × up to 30s backoff; 8 errors ≈ 56s total
+      60000, // ghWithRetry: 2 retries × up to 30s backoff; 6 errors ≈ 7s total
     );
 
     it(
       "returns 'failing' when getCIChecks hits rate limit but REST fallback returns failing checks",
       async () => {
-        // getCIChecks: gh pr checks rate-limited (4 retries = 4 calls)
+        // getCIChecks: gh pr checks rate-limited (2 retries = 3 gh calls)
         mockGhError("API rate limit exceeded");
         mockGhError("API rate limit exceeded");
         mockGhError("API rate limit exceeded");
-        mockGhError("API rate limit exceeded");
-        // getCIChecksFromStatusRollup: gh pr view rate-limited (4 retries = 4 calls)
-        mockGhError("API rate limit exceeded");
+        // getCIChecksFromStatusRollup: gh pr view rate-limited (2 retries = 3 gh calls)
         mockGhError("API rate limit exceeded");
         mockGhError("API rate limit exceeded");
         mockGhError("API rate limit exceeded");
@@ -1155,7 +1149,7 @@ describe("scm-github plugin", () => {
 
         await expect(scm.getCISummary(pr)).resolves.toEqual("failing");
       },
-      120000, // ghWithRetry: 3 retries × up to 30s backoff; 8 errors ≈ 56s total
+      60000, // ghWithRetry: 2 retries × up to 30s backoff; 6 errors ≈ 7s total
     );
   });
 
@@ -1927,7 +1921,7 @@ describe("scm-github plugin", () => {
       const scm = await create({});
 
       await expect(scm.getPRState(pr)).rejects.toThrow();
-      // 3 retries + 1 REST fallback attempt = 4 calls
+      // 2 retries + 1 REST fallback + 1 REST gh call = 4 calls
       expect(ghMock).toHaveBeenCalledTimes(4);
     });
 
