@@ -139,6 +139,7 @@ beforeEach(() => {
     getMergeability: vi.fn(),
     mergePR: vi.fn(),
     getReviewComments: vi.fn(),
+    getReviews: vi.fn().mockResolvedValue([]),
     getPendingComments: vi.fn().mockResolvedValue([]),
     getAutomatedComments: vi.fn().mockResolvedValue([]),
     getCIChecks: vi.fn().mockResolvedValue([]),
