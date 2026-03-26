@@ -153,8 +153,10 @@ export async function checkMergeGate(
       if (scm.getSkepticVerdict) {
         const verdict = await scm.getSkepticVerdict(pr);
         skepticPassed = verdict === "PASS" || verdict === "SKIPPED";
+      } else {
+        // CRITICAL (bd-qw6): if hook is missing in required mode, block — don't silently pass.
+        skepticPassed = false;
       }
-      // If getSkepticVerdict is not implemented, treat as SKIPPED (passes)
     }
     checks.push({
       name: "Skeptic approved",

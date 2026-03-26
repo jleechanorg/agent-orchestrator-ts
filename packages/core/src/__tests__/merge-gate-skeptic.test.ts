@@ -92,13 +92,14 @@ describe("Skeptic Agent — 7th merge gate", () => {
     expect(skepticCheck?.passed).toBe(true);
   });
 
-  it("skips skeptic check when SCM does not implement getSkepticVerdict (warn mode)", async () => {
+  it("blocks when SCM does not implement getSkepticVerdict in required mode", async () => {
     const scm = makePassingScm();
-    // No getSkepticVerdict defined — should not throw, should pass trivially
+    // No getSkepticVerdict defined — CRITICAL( bd-qw6): must block in required mode
     const config: MergeGateConfig = { enabled: true, skepticRequired: true };
     const result = await checkMergeGate(pr, config, scm as unknown as SCM);
-    // Should not throw; passes as SKIPPED
-    expect(result.checks.find((c) => c.name === "Skeptic approved")?.passed).toBe(true);
+    const skepticCheck = result.checks.find((c) => c.name === "Skeptic approved");
+    expect(skepticCheck?.passed).toBe(false);
+    expect(result.blockers).toContain("Skeptic approved");
   });
 
   it("reports 6 checks (no skeptic) when skepticRequired is absent", async () => {

@@ -9,7 +9,7 @@
  * - Evidence review state is included
  */
 
-import { ghJson, type ReviewInfo } from "./gh-client.js";
+import { ghJson, fetchReviews, type ReviewInfo } from "./gh-client.js";
 
 const NIT_PATTERN = /^(nit:|nitpick)/i;
 const CR_BOT = "coderabbitai[bot]";
@@ -70,16 +70,15 @@ export async function fetchMergeGateState(
   prNumber: number,
   skepticBotAuthor: string,
 ): Promise<MergeGateState> {
-  // 1. CI status + mergeability
+  // 1. CI status + mergeability — single call to /pulls/{prNumber}, extract both
   let ciPassing = false;
   let noConflicts = false;
-
-  // CI via REST status rollup (matches checkMergeGate CI check)
   try {
-    const statusData = await ghJson(
+    const prData = await ghJson(
       "repos/" + owner + "/" + repo + "/pulls/" + prNumber,
-    ) as { head?: { ref?: string } };
-    const headRef = statusData?.head?.ref;
+    ) as { head?: { ref?: string }; mergeable?: boolean; merged?: boolean };
+    noConflicts = prData?.mergeable === true || prData?.merged === true;
+    const headRef = prData?.head?.ref;
     if (headRef) {
       const commitStatus = await ghJson(
         "repos/" + owner + "/" + repo + "/commits/" + headRef + "/status",
@@ -88,15 +87,6 @@ export async function fetchMergeGateState(
     }
   } catch {
     ciPassing = false;
-  }
-
-  // Merge conflicts
-  try {
-    const mergeData = await ghJson(
-      "repos/" + owner + "/" + repo + "/pulls/" + prNumber,
-    ) as { mergeable?: boolean; merged?: boolean };
-    noConflicts = mergeData?.mergeable === true || mergeData?.merged === true;
-  } catch {
     noConflicts = false;
   }
 
@@ -188,33 +178,4 @@ export async function fetchMergeGateState(
   };
 }
 
-async function fetchReviews(
-  owner: string,
-  repo: string,
-  prNumber: number,
-): Promise<ReviewInfo[]> {
-  const query = [
-    "{",
-    `  repository(owner:"${owner}", name:"${repo}") {`,
-    `    pullRequest(number:${prNumber}) {`,
-    "      reviewDecision",
-    "      reviews(last:20) {",
-    "        nodes { author { login } state body submittedAt }",
-    "      }",
-    "    }",
-    "  }",
-    "}",
-  ].join("\n");
-  const data = await ghJson("graphql", ["-f", "query=" + query]);
-  const r = data as {
-    data?: {
-      repository?: {
-        pullRequest?: {
-          reviewDecision?: string;
-          reviews?: { nodes?: ReviewInfo[] };
-        };
-      };
-    };
-  };
-  return (r?.data?.repository?.pullRequest?.reviews?.nodes ?? []) as ReviewInfo[];
-}
+

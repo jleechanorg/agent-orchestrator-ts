@@ -50,7 +50,8 @@ async function findExistingVerdict(
 ): Promise<{ verdict: "PASS" | "FAIL" | "SKIPPED"; commentId: number } | null> {
   const comments = await fetchIssueComments(owner, repo, prNumber);
   for (const c of comments) {
-    if (c.user?.login === SKEPTIC_BOT_AUTHOR) {
+    // Find by HTML marker first (most robust), then by bot author
+    if (/<!-- skeptic-agent-verdict -->/i.test(c.body)) {
       if (/VERDICT:\s*PASS/i.test(c.body)) return { verdict: "PASS", commentId: c.id };
       if (/VERDICT:\s*FAIL/i.test(c.body)) return { verdict: "FAIL", commentId: c.id };
     }
