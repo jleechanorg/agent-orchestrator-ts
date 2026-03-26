@@ -392,23 +392,20 @@ describe("bd-5o1: skip reactions when agent is dead", () => {
     expect(mockSessionManager.kill).toHaveBeenCalledWith("app-1");
   });
 
-  it("does NOT mark session killed when agent is dead but reaction is auto-merge (bd-5o1)", async () => {
-    // Auto-merge is an SCM operation that doesn't require a live agent.
-    // Dead agent + mergeable PR should still attempt auto-merge, not kill.
+  it("does NOT override to killed when reaction is send-to-agent but auto: false (bd-5o1)", async () => {
+    // When the reaction is configured as manual (auto: false), the override must
+    // NOT activate — manual reactions are operator-driven, not auto-cleanup targets.
+    // The override guard mirrors the reaction engine: auto !== false means skip.
     vi.mocked(mockRuntime.isAlive).mockResolvedValue(false);
     vi.mocked(mockSCM.getPRState).mockResolvedValue("open");
-    vi.mocked(mockSCM.getCISummary).mockResolvedValue("passing");
-    vi.mocked(mockSCM.getReviewDecision).mockResolvedValue("approved");
-    vi.mocked(mockSCM.getMergeability).mockResolvedValue({ mergeable: true, noConflicts: true });
-    vi.mocked(mockSCM.mergePR).mockResolvedValue(undefined);
+    vi.mocked(mockSCM.getReviewDecision).mockResolvedValue("changes_requested");
+    vi.mocked(mockSCM.getMergeability).mockResolvedValue({ mergeable: false, noConflicts: true });
 
     const reactionsConfig: OrchestratorConfig = {
       ...config,
-      projects: {
-        "my-app": { ...config.projects!["my-app"], mergeGate: { enabled: false } },
-      },
       reactions: {
-        "approved-and-green": { auto: true, action: "auto-merge", mergeMethod: "squash" },
+        // Manual reaction — operator must trigger it; override must not activate.
+        "changes-requested": { auto: false, action: "send-to-agent", message: "fix comments" },
       },
     };
 
@@ -430,8 +427,11 @@ describe("bd-5o1: skip reactions when agent is dead", () => {
 
     await lm.check("app-1");
 
-    // Should NOT be killed — auto-merge should proceed
+    // Should NOT be killed — auto: false means manual reaction, override skips it.
+    // Session stays in whatever non-terminal state the poller determined (no SCM
+    // transition since changes_requested PRs don't auto-transition without SCM poller).
     expect(lm.getStates().get("app-1")).not.toBe("killed");
-    expect(mockSCM.mergePR).toHaveBeenCalled();
+    expect(mockSessionManager.send).not.toHaveBeenCalled();
+    expect(mockSessionManager.kill).not.toHaveBeenCalled();
   });
 });
