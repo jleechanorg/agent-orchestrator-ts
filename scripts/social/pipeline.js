@@ -19,16 +19,14 @@
  *   node pipeline.js --chapter "Chapter 42"   # render specific chapter
  */
 
-import { readFileSync, readdirSync, writeFileSync, mkdirSync, existsSync } from 'fs';
+import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { execSync } from 'child_process';
-import { createRequire } from 'module';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = join(__dirname, '../..');
 const NOVEL_FILE = join(REPO_ROOT, 'novel/the-daily-lives-of-workers.md');
-const VIDEO_OUT = join(REPO_ROOT, 'novel/upstream/video/out');
 const CRED_DIR = join(__dirname, 'credentials');
 
 // ─── Argument parsing ──────────────────────────────────────────────────────────
@@ -102,7 +100,7 @@ function renderVideo(chapter) {
       `npx remotion render src/index.ts DailyChapter out/${outFile} --log=verbose --overwrite`,
       { cwd: videoDir, stdio: 'inherit' }
     );
-  } catch (err) {
+  } catch {
     // If DailyChapter composition doesn't exist yet, fall back to TheAwakening
     console.warn('⚠️  DailyChapter composition not found — using TheAwakening fallback');
     execSync(
@@ -170,14 +168,14 @@ async function uploadToYouTube(videoPath, chapter) {
   const youtube = google.youtube({ version: 'v3', auth: oauth2Client });
 
   // Get video duration via ffprobe
-  let durationSec = 45;
   try {
-    const ffprobeOut = execSync(
+    execSync(
       `ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "${videoPath}"`,
-      { encoding: 'utf-8' }
+      { encoding: 'utf-8', stdio: 'pipe' }
     );
-    durationSec = Math.round(parseFloat(ffprobeOut.trim())) || 45;
-  } catch {}
+  } catch {
+    // ffprobe unavailable — continue without duration metadata
+  }
 
   const response = await youtube.videos.insert({
     part: ['snippet', 'status'],
@@ -218,15 +216,15 @@ async function uploadToTikTok(videoPath, chapter) {
 
   const session = JSON.parse(readFileSync(sessionPath, 'utf-8'));
 
-  // TikTok upload via unofficial API (works with session cookies)
-  // This uses the internal upload endpoint
-  const FormData = (await import('form-data')).default;
-  const fetch = (await import('node-fetch')).default;
+  // TikTok upload via Puppeteer browser automation (session cookies)
+  // TikTok requires browser-based upload flow — no simple REST alternative
+  const _formData = (await import('form-data')).default;
+  const _fetch = (await import('node-fetch')).default;
 
-  // Step 1: Get upload URL
-  const uploadUrlResp = await fetch('https://www.tiktok.com/api/upload/instances/', {
+  // Step 1: Probe upload endpoint (informational)
+  await _fetch('https://www.tiktok.com/api/upload/instances/', {
     headers: { 'User-Agent': 'Mozilla/5.0' }
-  });
+  }).catch(() => {});
 
   // TikTok requires browser-based upload flow. Use Puppeteer if available.
   try {

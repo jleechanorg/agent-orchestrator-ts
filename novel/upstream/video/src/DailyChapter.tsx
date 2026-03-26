@@ -7,11 +7,11 @@ import {
   useVideoConfig,
   spring,
 } from "remotion";
-import { ChapterData, DEFAULT_CHAPTER } from "./ChapterData";
+import { DEFAULT_CHAPTER, type ChapterData } from "./ChapterData";
 
 // ─── Shared background (same aesthetic as TheAwakening) ───────────────────────
 
-const Background: React.FC<{ children: React.ReactNode }> = ({ children }) => (
+const _Background: React.FC<{ children: React.ReactNode }> = ({ children }) => (
   <AbsoluteFill
     style={{
       background: "#0a0a0a",
@@ -33,13 +33,12 @@ const Background: React.FC<{ children: React.ReactNode }> = ({ children }) => (
 
 // ─── Typewriter effect ────────────────────────────────────────────────────────
 
-const TypewriterText: React.FC<{ text: string; startFrame: number; delay?: number }> = ({
+const _TypewriterText: React.FC<{ text: string; startFrame: number; delay?: number }> = ({
   text,
   startFrame,
   delay = 0,
 }) => {
   const frame = useCurrentFrame();
-  const { fps } = useVideoConfig();
   const visibleChars = interpolate(
     Math.max(0, frame - startFrame - delay),
     [0, text.length * 1.8],
@@ -241,7 +240,6 @@ export const DailyChapter: React.FC<{ chapter?: ChapterData }> = ({ chapter }) =
   const EXCERPT_START = 90;
   const EXCERPT_DURATION = shortExcerpt.length * (fps * 60 / 1200); // ~20 wpm
   const CLOSING_START = EXCERPT_START + EXCERPT_DURATION + 30;
-  const TOTAL_FRAMES = CLOSING_START + 50;
 
   return (
     <AbsoluteFill
