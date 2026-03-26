@@ -11,8 +11,8 @@ import {
   CARD_FRAMES,
   INTRO_FRAMES,
   OUTRO_FRAMES,
-} from "./pantheon-data.js";
-import { ContributorCard } from "./components/ContributorCard.js";
+} from "./pantheon-data";
+import { ContributorCard } from "./components/ContributorCard";
 
 // ── Shared background ─────────────────────────────────────────────────────────
 

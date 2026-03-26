@@ -1,9 +1,26 @@
 import React from "react";
-import { Composition } from "remotion";
-import { TheAwakening } from "./TheAwakening.js";
-import { TOTAL_FRAMES } from "./scenes.js";
-import { ThePantheon } from "./ThePantheon.js";
-import { PANTHEON_TOTAL_FRAMES } from "./pantheon-data.js";
+import { Composition, type CalculateMetadataFunction } from "remotion";
+import { TheAwakening } from "./TheAwakening";
+import { TOTAL_FRAMES } from "./scenes";
+import { ThePantheon } from "./ThePantheon";
+import { PANTHEON_TOTAL_FRAMES } from "./pantheon-data";
+import { DailyChapter } from "./DailyChapter";
+import { DEFAULT_CHAPTER, type ChapterData } from "./ChapterData";
+
+const calculateDailyChapterDuration: CalculateMetadataFunction<{ chapter?: ChapterData }> = ({
+  props,
+}) => {
+  const chapter = props.chapter ?? DEFAULT_CHAPTER;
+  const words = chapter.excerpt
+    .replace(/\n/g, " ")
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 80);
+  // 20 wpm = 1 word per 3 seconds. At fps frames/second: duration = words × 3 × fps
+  const excerptDuration = Math.ceil(words.length * 3 * 30);
+  const totalFrames = 90 + excerptDuration + 30 + 50;
+  return { durationInFrames: totalFrames };
+};
 
 export const RemotionRoot: React.FC = () => {
   return (
@@ -23,6 +40,14 @@ export const RemotionRoot: React.FC = () => {
         fps={30}
         width={1920}
         height={1080}
+      />
+      <Composition
+        id="DailyChapter"
+        component={DailyChapter}
+        fps={30}
+        width={1080}
+        height={1920}
+        calculateMetadata={calculateDailyChapterDuration}
       />
     </>
   );

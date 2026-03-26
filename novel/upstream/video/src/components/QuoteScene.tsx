@@ -5,7 +5,7 @@ import {
   useCurrentFrame,
   useVideoConfig,
 } from "remotion";
-import { WordReveal } from "./WordReveal.js";
+import { WordReveal } from "./WordReveal";
 
 interface QuoteSceneProps {
   text: string;
