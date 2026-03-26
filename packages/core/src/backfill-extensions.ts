@@ -353,24 +353,20 @@ export async function backfillUncoveredPRs(
                 // is actually gone. Silent git failures (each wrapped in try/catch above)
                 // would otherwise cause cleanupOk=true even though nothing was cleaned up.
                 if (repoDir) {
-                  try {
-                    const listOut = (
-                      await execFileAsync(
-                        "git",
-                        ["-C", repoDir, "worktree", "list", "--porcelain"],
-                        { timeout: GIT_TIMEOUT, encoding: "utf8" },
-                      )
-                    ).stdout.trim();
-                    const stillRegistered = listOut
-                      .split("\n\n")
-                      .some((block) => block.includes(`worktree ${worktreeDir}`));
-                    if (stillRegistered) {
-                      throw new Error(
-                        `worktree ${worktreeDir} still registered in ${repoDir} after cleanup`,
-                      );
-                    }
-                  } catch (postCheckErr) {
-                    throw postCheckErr; // propagate to outer catch to set cleanupErr
+                  const listOut = (
+                    await execFileAsync(
+                      "git",
+                      ["-C", repoDir, "worktree", "list", "--porcelain"],
+                      { timeout: GIT_TIMEOUT, encoding: "utf8" },
+                    )
+                  ).stdout.trim();
+                  const stillRegistered = listOut
+                    .split("\n\n")
+                    .some((block) => block.includes(`worktree ${worktreeDir}`));
+                  if (stillRegistered) {
+                    throw new Error(
+                      `worktree ${worktreeDir} still registered in ${repoDir} after cleanup`,
+                    );
                   }
                 }
               })();
