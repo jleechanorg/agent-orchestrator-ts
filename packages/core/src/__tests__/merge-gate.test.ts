@@ -38,7 +38,7 @@ const pr: PRInfo = {
 const config: MergeGateConfig = { enabled: true };
 
 describe("checkMergeGate", () => {
-  it("passes when all 6 checks pass", async () => {
+  it("passes when all 6 checks pass (skepticRequired absent)", async () => {
     const scm = makePassingScm();
     const result = await checkMergeGate(pr, config, scm as unknown as SCM);
     expect(result.passed).toBe(true);
