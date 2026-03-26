@@ -1,4 +1,5 @@
-// EmptyState component — mirrors upstream's implementation, used when all kanban levels are emptyimport type { ReactNode } from "react";
+// EmptyState component — mirrors upstream's implementation, used when all kanban levels are empty
+import type { ReactNode } from "react";
 
 interface EmptyStateProps {
   message?: ReactNode;
