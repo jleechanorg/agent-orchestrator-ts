@@ -1,0 +1,44 @@
+name: Wholesome Checks
+
+# "Multiple shots on goal" — structural CI assertions supplementing runtime hooks.
+# Asserts invariants on code structure and PR metadata rather than just behavior.
+# Runs on every PR push; failures block merge when required checks are enabled.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  push:
+    branches: [main]
+
+concurrency:
+  group: wholesome-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  wholesome:
+    name: Wholesome Checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # need full history for merge-base computation
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run wholesome tests
+        env:
+          GITHUB_TOKEN:     ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_REF:        ${{ github.ref }}
+          GITHUB_HEAD_REF:   ${{ github.head_ref }}
+          # GITHUB_PR_TITLE is not provided by GitHub Actions — getPRTitle()
+          # fetches it via gh CLI using GITHUB_TOKEN + GITHUB_HEAD_REF
+        run: pnpm --filter @jleechanorg/ao-core test -- --reporter verbose src/__tests__/wholesome.test.ts
