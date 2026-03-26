@@ -195,8 +195,24 @@ async function maybeRemoveStaleCheckedOutWorktree(
   const hasActiveTmux = await hasActiveTmuxSessionForWorktreeName(stalePath);
   if (hasActiveTmux) return false;
 
-  await git(repoPath, "worktree", "remove", "--force", stalePath);
-  return true;
+  try {
+    // Use --force --force (consistent with destroy()) to bypass worktree locks.
+    await git(repoPath, "worktree", "remove", "--force", "--force", stalePath);
+  } catch {
+    // Best-effort — worktree may already be partially removed
+  }
+  // Verify the worktree entry is actually gone from git's perspective before
+  // returning success, so callers only retry checkout when the blocker is gone.
+  try {
+    const list = await git(repoPath, "worktree", "list", "--porcelain");
+    const stillPresent = list
+      .split("\n\n")
+      .some((block) => block.trim().split("\n").some((l) => l.startsWith("worktree ") && l.slice("worktree ".length) === stalePath));
+    return !stillPresent && !existsSync(resolvedStale);
+  } catch {
+    // If git worktree list fails, fall back to filesystem check.
+    return !existsSync(resolvedStale);
+  }
 }
 
 /** Only allow safe characters in path segments to prevent directory traversal */
@@ -217,16 +233,18 @@ function expandPath(p: string): string {
 }
 
 /**
- * Find the repo path that owns a worktree entry, given only the worktree path.
+ * Find the repo path and checked-out branch for a worktree entry,
+ * given only the worktree path.
+ *
  * Used when the worktree directory no longer exists on disk but git still has
- * a locked worktree reference for it.
+ * a locked worktree reference for it. The branch is needed so the destroy()
+ * fallback can still delete the stale branch.
  *
  * Walks up from workspacePath looking for a .git directory, then runs
  * `git worktree list --porcelain` to find the matching worktree entry and
- * extract its gitdir reference (which points into the shared .git/worktrees/
- * directory, from which we derive the repo root).
+ * extract its gitdir reference and branch.
  */
-async function findRepoPathForWorktree(workspacePath: string): Promise<string | null> {
+async function findRepoPathForWorktree(workspacePath: string): Promise<{ repoPath: string; branch: string } | null> {
   // Walk up the directory tree looking for a .git directory
   let dir = dirname(workspacePath);
   const root = dirname(homedir()); // stop at home
@@ -240,7 +258,7 @@ async function findRepoPathForWorktree(workspacePath: string): Promise<string | 
           "--path-format=absolute",
           "--git-common-dir",
         );
-        return resolve(gitCommonDir, "..");
+        return { repoPath: resolve(gitCommonDir, ".."), branch: "" };
       } catch {
         // Not a valid git repo — keep walking up
       }
@@ -258,17 +276,21 @@ async function findRepoPathForWorktree(workspacePath: string): Promise<string | 
       const lines = block.trim().split("\n");
       let worktreePath = "";
       let gitdir = "";
+      let branch = "";
       for (const line of lines) {
         if (line.startsWith("worktree ")) {
           worktreePath = line.slice("worktree ".length);
         } else if (line.startsWith("gitdir ")) {
           gitdir = line.slice("gitdir ".length);
+        } else if (line.startsWith("branch ")) {
+          // Strip refs/heads/ prefix so the name works with `git branch -D`.
+          branch = line.slice("branch ".length).replace(/^refs\/heads\//, "");
         }
       }
       if (worktreePath === workspacePath && gitdir) {
         // gitdir is like /path/to/repo/.git/worktrees/session-name
         // repo path is two levels up from the worktrees subdir
-        return resolve(gitdir, "..", "..");
+        return { repoPath: resolve(gitdir, "..", ".."), branch };
       }
     }
   } catch {
@@ -384,6 +406,14 @@ export function create(config?: Record<string, unknown>): Workspace {
 
     async destroy(workspacePath: string): Promise<void> {
       let repoPath: string | null = null;
+      let checkedOutBranch: string | null = null;
+
+      // Capture branch before removal so we can clean it up afterwards.
+      try {
+        checkedOutBranch = await git(workspacePath, "branch", "--show-current");
+      } catch {
+        // Worktree may already be partially broken — that's OK
+      }
 
       try {
         const gitCommonDir = await git(
@@ -398,18 +428,18 @@ export function create(config?: Record<string, unknown>): Workspace {
         // The first --force allows removal of dirty worktrees; the second
         // bypasses the lock that prevents accidental `git worktree prune` deletion.
         await git(repoPath, "worktree", "remove", "--force", "--force", workspacePath);
-
-        // NOTE: We intentionally do NOT delete the branch here. The worktree
-        // removal is sufficient. Auto-deleting branches risks removing
-        // pre-existing local branches unrelated to this workspace (any branch
-        // containing "/" would have been deleted). Stale branches can be
-        // cleaned up separately via `git branch --merged` or similar.
       } catch {
         // If the directory was deleted externally but git still has a locked
         // worktree entry, find the repo path by scanning .git/worktrees/ and
         // then unlock + remove the entry directly.
         if (repoPath === null) {
-          repoPath = await findRepoPathForWorktree(workspacePath);
+          const result = await findRepoPathForWorktree(workspacePath);
+          if (result) {
+            repoPath = result.repoPath;
+            // Recover the branch from git worktree list if we couldn't get it
+            // via branch --show-current (directory may be gone).
+            if (!checkedOutBranch) checkedOutBranch = result.branch;
+          }
         }
         if (repoPath) {
           try {
@@ -418,7 +448,8 @@ export function create(config?: Record<string, unknown>): Workspace {
             // Best-effort — may already be unlocked or entry missing
           }
           try {
-            await git(repoPath, "worktree", "remove", "--force", workspacePath);
+            // Use --force --force (consistent with the main-path removal above)
+            await git(repoPath, "worktree", "remove", "--force", "--force", workspacePath);
           } catch {
             // Best-effort — entry may already be gone
           }
@@ -433,6 +464,20 @@ export function create(config?: Record<string, unknown>): Workspace {
         // rmSync with force:true is safe to call even when the directory
         // is already gone — it will be a no-op in that case.
         rmSync(workspacePath, { recursive: true, force: true });
+      }
+
+      // Delete the local branch to prevent cascading fetch failures.
+      // Only delete branches that match AO-managed branch patterns — this
+      // excludes long-lived branches (main, master, develop) and any other
+      // user-created branches that shouldn't be auto-deleted.
+      if (checkedOutBranch && /^(feat|fix|chore|docs|refactor|session)\//.test(checkedOutBranch)) {
+        if (repoPath) {
+          try {
+            await git(repoPath, "branch", "-D", checkedOutBranch);
+          } catch {
+            // Branch may not exist locally or may be checked out elsewhere — that's OK
+          }
+        }
       }
     },
 
