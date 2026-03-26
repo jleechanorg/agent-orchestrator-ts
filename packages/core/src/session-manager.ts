@@ -1756,23 +1756,13 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
 
         if (sessionAlive) continue;
 
-        // Tmux session is dead — find the repo path for this worktree
-        let repoPath: string | null = null;
-        for (const [, proj] of Object.entries(config.projects)) {
-          try {
-            await execFileAsync(
-              "git",
-              ["-C", proj.path, "rev-parse", "--is-inside-work-tree"],
-              { timeout: 5_000 },
-            );
-            repoPath = proj.path;
-            break;
-          } catch {
-            // Not this project — continue
-          }
-        }
-
-        if (!repoPath) continue;
+        // Tmux session is dead — use the correct project's repo path directly.
+        // Do NOT infer by probing all projects: in multi-project configs, probing
+        // could return the wrong repo and delete a branch that shares a name with
+        // the stale AO worktree's branch.
+        const project = config.projects[projectId];
+        if (!project) continue;
+        const repoPath = project.path;
 
         // Capture branch before removal so we can clean it up afterwards.
         // This prevents a stale local branch from blocking future `git fetch` into
