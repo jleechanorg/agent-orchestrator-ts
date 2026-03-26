@@ -10,14 +10,17 @@ Ryan's team at OpenAI runs Codex agents in a tmux+local-app pattern strikingly s
 
 ## Initiatives
 
-### 1. PR Media Proof (bd-mpr) — P1
+### 1. PR Media Proof (bd-mpr) — DONE
 
 Agents must attach visual proof to every PR. Ryan's exact quote: "I'm expecting that they did the job and that they can prove to me that the code is worth merging."
 
 - **What**: Screenshots/video attached to PR body showing the change works
-- **How**: agentRules + PR media skill + chrome MCP for web changes
+- **How**: agentRules + /pr-media skill + wholesome CI check
 - **Impact**: Faster review cycles, better evidence for /er gate, catches UI regressions
-- **Effort**: 1 afternoon (Ryan's estimate for similar tooling)
+- **Implementation**:
+  - `~/.openclaw/agent-orchestrator.yaml`: `defaults.agentRules` updated with PR media proof instruction
+  - `~/.claude/commands/pr-media.md`: `/pr-media` skill for capture-and-attach workflow
+  - `.github/workflows/wholesome.yml`: CI checks for Evidence section presence + media attachment
 
 ### 2. Wholesome Tests (bd-wht) — P1
 
@@ -58,7 +61,7 @@ When CR posts CHANGES_REQUESTED and the worker is dead, spawn a fresh worker wit
 1. **bd-pfx** (in progress, ao-1025) — prefix enforcement hooks
 2. **bd-rfr** — review-fix respawn (unblocks 2 stuck PRs immediately)
 3. **bd-wht** — wholesome tests (supplements bd-pfx with CI-time enforcement)
-4. **bd-mpr** — PR media proof (highest long-term leverage)
+4. ~~**bd-mpr**~~ — PR media proof → DONE (agentRules + /pr-media skill + wholesome.yml CI)
 5. **bd-arc** — architecture map (reduces context waste)
 
 ## Success Criteria
