@@ -348,7 +348,33 @@ export async function backfillUncoveredPRs(
                 if (existsSync(worktreeDir)) {
                   rmSync(worktreeDir, { recursive: true, force: true });
                 }
+
+                // Postcondition check: only mark cleanup as successful if the worktree
+                // is actually gone. Silent git failures (each wrapped in try/catch above)
+                // would otherwise cause cleanupOk=true even though nothing was cleaned up.
+                if (repoDir) {
+                  try {
+                    const listOut = (
+                      await execFileAsync(
+                        "git",
+                        ["-C", repoDir, "worktree", "list", "--porcelain"],
+                        { timeout: GIT_TIMEOUT, encoding: "utf8" },
+                      )
+                    ).stdout.trim();
+                    const stillRegistered = listOut
+                      .split("\n\n")
+                      .some((block) => block.includes(`worktree ${worktreeDir}`));
+                    if (stillRegistered) {
+                      throw new Error(
+                        `worktree ${worktreeDir} still registered in ${repoDir} after cleanup`,
+                      );
+                    }
+                  } catch (postCheckErr) {
+                    throw postCheckErr; // propagate to outer catch to set cleanupErr
+                  }
+                }
               })();
+              // IIFE completed without throwing AND postcondition checks passed.
               cleanupOk = true;
             } catch (e) {
               cleanupErr = e;
@@ -380,24 +406,9 @@ export async function backfillUncoveredPRs(
               // next PR; each additional spawn would leak another orphan session.
               return false;
             }
-            // Direct cleanup succeeded — try next PR.
-            // If cleanup had failed we would have returned false above, so at this
-            // point resources are clean and the backfill cycle can continue safely.
-            if (consecutiveClaimFailures >= MAX_CONSECUTIVE_CLAIM_FAILURES) {
-              observer.recordOperation({
-                metric: "lifecycle_poll",
-                operation: "lifecycle.backfill.claim_failed_abort",
-                outcome: "failure",
-                correlationId,
-                projectId,
-                data: { consecutiveClaimFailures },
-                level: "warn",
-              });
-              return false;
-            }
-            continue; // try next uncovered PR
           }
-          // Stop if claim keeps failing — systemic workspace issue (e.g. all PRs CONFLICTING)
+          // Reached when kill() succeeded (no orphan) — or after direct cleanup succeeded.
+          // Unified abort check for both paths: stop if systemic workspace issue.
           if (consecutiveClaimFailures >= MAX_CONSECUTIVE_CLAIM_FAILURES) {
             observer.recordOperation({
               metric: "lifecycle_poll",
