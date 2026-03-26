@@ -1588,7 +1588,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         if (project?.backfillAllPRs) {
           backfillSpawned = await backfillUncoveredPRs(
             { registry, sessionManager, observer },
-            { projectId: scopedProjectId, project, activeSessions, correlationId, worktreeDir: (config as { defaults?: { worktreeDir?: string } }).defaults?.worktreeDir },
+            { projectId: scopedProjectId, project, activeSessions, correlationId, worktreeDir: (config as { worktreeDir?: string }).worktreeDir },
           );
           // If we just spawned a session, skip all_complete — more work exists.
           if (backfillSpawned) {
