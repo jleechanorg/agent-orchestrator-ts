@@ -17,12 +17,12 @@ jobs:
         env:
           PR_TITLE: ${{ github.event.pull_request.title }}
         run: |
-          # env: context automatically JSON-encodes the value, preventing injection.
-          # GitHub Actions stores it as a JSON string, which bash reads literally.
-          case "$PR_TITLE" in
-            '[agento]'*) echo "PASS: PR title has [agento] prefix" ;;
+          # Sanitize PR_TITLE: strip newlines and GitHub annotation commands to prevent log injection
+          SAFE_PR_TITLE="$(printf '%s' "$PR_TITLE" | tr -d '\n\r' | sed 's/::/??/g')"
+          case "$SAFE_PR_TITLE" in
+            \[agento\]*) echo "PASS: PR title has [agento] prefix" ;;
             *) echo "FAIL: PR title must start with '[agento]'"
-               echo "Current title: $PR_TITLE"
+               echo "Current title: $SAFE_PR_TITLE"
                exit 1 ;;
           esac
 
@@ -63,7 +63,7 @@ jobs:
             echo '  ## Evidence'
             echo '  **Claim class**: <type>'
             echo '  **Verdict**: PASS'
-            echo '  **Media**: <screenshot path or terminal output>'
+            echo '  **Media**: <screenshot path or **Test output**: <value>>'
             echo ""
             echo "See /pr-media skill for automated capture workflow."
             exit 1
@@ -82,12 +82,13 @@ jobs:
         run: |
           BODY="$PR_BODY"
 
-          # Extract only the Evidence section content: from "## Evidence" to the next "## " heading
+          # Extract only the Evidence section content: from "## Evidence" to the next ## heading
           # This prevents media from later sections (e.g. "## Other" with ![img]) from incorrectly passing the gate
           # Use awk for robust multi-line section boundary parsing
           EVIDENCE=$(printf '%s\n' "$BODY" | awk '
-            /^[[:space:]]*## [Ee]vidence/ { in_section=1; next }
-            in_section && /^[[:space:]]*## / { exit }
+            BEGIN { IGNORECASE=1 }
+            /^[[:space:]]*##[[:space:]]+evidence([[:space:]]|$)/ { in_section=1; next }
+            in_section && /^[[:space:]]*##[[:space:]]/ { exit }
             in_section { print }
           ')
 
@@ -100,13 +101,13 @@ jobs:
           printf '%s\n' "$EVIDENCE" | head -30
           echo "========================"
 
-          # Check for markdown image attachment: any valid ![alt](url) format
+          # Check for markdown image attachment: require HTTPS URL scheme
           HAS_IMAGE=false
-          if printf '%s' "$EVIDENCE" | grep -qiE '!\[[^]]*\]\([^)]+\)'; then
-            echo "PASS: Markdown image found in Evidence section"
+          if printf '%s' "$EVIDENCE" | grep -qiE '!\[[^]]*\]\(https://[^)]+\)'; then
+            echo "PASS: Markdown image with HTTPS URL found in Evidence section"
             HAS_IMAGE=true
-          elif printf '%s' "$EVIDENCE" | grep -qiE '\*\*Media\*\*.*\.(png|jpg|jpeg|gif|webp|mp4|webm)'; then
-            echo "PASS: Media file path found in Evidence section"
+          elif printf '%s' "$EVIDENCE" | grep -qiE '\*\*Media\*\*:[[:space:]]*https://[^[:space:]]+\.(png|jpg|jpeg|gif|webp|mp4|webm)'; then
+            echo "PASS: Media with HTTPS URL found in Evidence section"
             HAS_IMAGE=true
           fi
 
@@ -115,11 +116,8 @@ jobs:
           if printf '%s' "$EVIDENCE" | grep -q '```'; then
             echo "PASS: Code block found in Evidence section"
             HAS_CODE=true
-          elif printf '%s' "$EVIDENCE" | grep -qiF 'test output'; then
-            echo "PASS: 'test output' reference found in Evidence section"
-            HAS_CODE=true
-          elif printf '%s' "$EVIDENCE" | grep -qiF 'terminal output'; then
-            echo "PASS: 'terminal output' reference found in Evidence section"
+          elif printf '%s' "$EVIDENCE" | grep -qiE '\*\*(Test|Terminal) output\*\*:[[:space:]]+\S'; then
+            echo "PASS: Structured output reference found in Evidence section"
             HAS_CODE=true
           fi
 
@@ -133,8 +131,8 @@ jobs:
             echo "FAIL: Evidence section exists but contains no media attachment."
             echo "Expected one of:"
             echo "  - Markdown image with URL: ![alt](https://...)"
-            echo "  - Media file path: **Media**: ... .png/.jpg/.gif/.mp4/..."
+            echo "  - Media with HTTPS: **Media**: https://... .png/.jpg/.gif/.mp4/..."
             echo "  - Code block: \`\`\`...\`\`\`"
-            echo "  - Text reference: 'test output' or 'terminal output'"
+            echo "  - Structured text reference: **Test output**: or **Terminal output**:"
             exit 1
           fi
