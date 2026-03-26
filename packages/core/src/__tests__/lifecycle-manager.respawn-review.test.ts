@@ -14,7 +14,6 @@ import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
 import { createLifecycleManager } from "../lifecycle-manager.js";
 import { writeMetadata } from "../metadata.js";
-import { getSessionsDir } from "../paths.js";
 import type {
   OrchestratorConfig,
   PluginRegistry,
@@ -351,7 +350,7 @@ describe("respawn-for-review reaction action", () => {
     expect(lm.getStates().get("app-1")).toBeDefined();
   });
 
-  it("pre-loads unresolved review comments into the spawned worker's prompt", async () => {
+  it("calls getPendingComments to gather review context when spawning for dead agent", async () => {
     vi.mocked(mockRuntime.isAlive).mockResolvedValue(false);
     vi.mocked(mockSCM.getPRState).mockResolvedValue("open");
     vi.mocked(mockSCM.getReviewDecision).mockResolvedValue("changes_requested");
@@ -366,7 +365,7 @@ describe("respawn-for-review reaction action", () => {
         "changes-requested": {
           auto: true,
           action: "respawn-for-review",
-          message: "CodeRabbit requested changes. Fix all comments and push.",
+          message: "CodeRabbit requested changes. Fix all comments and push: {{context}}",
           escalateAfter: "30m",
         },
       },
