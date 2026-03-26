@@ -1,0 +1,96 @@
+name: Skeptic Gate
+
+on:
+  pull_request:
+    types: [opened, synchronize, edited, reopened]
+
+concurrency:
+  group: skeptic-gate-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  skeptic_gate:
+    name: Skeptic Gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Node.js and pnpm
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Install Claude CLI
+        run: npm install -g @anthropic-ai/claude-code
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build all packages
+        run: pnpm -r --filter '!@jleechanorg/ao-web' build
+
+      - name: Run Skeptic evaluation
+        id: run_skeptic
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          # Check if ANTHROPIC_API_KEY is configured
+          if [ -z "$ANTHROPIC_API_KEY" ]; then
+            echo "ANTHROPIC_API_KEY secret not configured — skipping skeptic evaluation"
+            echo "verdict=SKIPPED" >> "$GITHUB_OUTPUT"
+            echo "VERDICT: SKIPPED — ANTHROPIC_API_KEY not configured" > skeptic-output.txt
+            echo "Setup required: add ANTHROPIC_API_KEY to repo secrets (Settings > Secrets)" >> skeptic-output.txt
+            exit 0
+          fi
+
+          # Run skeptic with --dry-run so it does NOT try to post a comment
+          # (the jleechan-agent[bot] lacks write access; the workflow posts via GITHUB_TOKEN)
+          node packages/cli/dist/index.js skeptic \
+            --pr ${{ github.event.pull_request.number }} \
+            --dry-run \
+            > skeptic-output.txt 2>&1 || true
+
+          # Print output for workflow logs
+          cat skeptic-output.txt
+
+          # Parse verdict from output to determine job conclusion
+          # FAIL verdict → job fails (blocks merge)
+          # PASS verdict → job succeeds
+          # UNKNOWN / error → fail closed (skeptic must produce recognizable verdict)
+          if grep -qi "VERDICT: FAIL" skeptic-output.txt; then
+            echo "verdict=FAIL" >> "$GITHUB_OUTPUT"
+            exit 1
+          elif grep -qi "VERDICT: PASS" skeptic-output.txt; then
+            echo "verdict=PASS" >> "$GITHUB_OUTPUT"
+            exit 0
+          else
+            echo "verdict=UNKNOWN" >> "$GITHUB_OUTPUT"
+            echo "" >> skeptic-output.txt
+            echo "CONCLUSION: UNKNOWN — could not parse VERDICT from output (failing closed)" >> skeptic-output.txt
+            exit 1
+          fi
+
+      - name: Post skeptic findings as PR comment
+        if: always()
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ -f skeptic-output.txt ]; then
+            # Write comment body to temp file (avoids YAML multiline quoting issues)
+            {
+              echo "## Skeptic Gate Findings"
+              echo ""
+              echo '```'
+              head -c 6000 skeptic-output.txt
+              echo '```'
+              echo ""
+              echo "_Skeptic gate ran on commit \`${GITHUB_SHA:0:7}\`_"
+            } > "$RUNNER_TEMP/pr_comment.txt"
+            gh pr comment ${{ github.event.pull_request.number }} \
+              --body-file "$RUNNER_TEMP/pr_comment.txt" \
+              2>/dev/null || true
+          fi
