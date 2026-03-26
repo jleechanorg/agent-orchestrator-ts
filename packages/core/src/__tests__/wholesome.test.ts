@@ -35,7 +35,9 @@ const BASE_BRANCH = (() => {
     if (!/^[a-zA-Z0-9/._-]+$/.test(raw) || raw.includes("..")) {
       throw new Error(`Invalid GITHUB_BASE_REF (possible injection): ${raw}`);
     }
-    return raw;
+    // Prefix with refs/heads/ so git resolves the bare branch name unambiguously.
+    // In CI (fork PR), GITHUB_BASE_REF="main" is available as refs/heads/main.
+    return `refs/heads/${raw}`;
   }
   // Local fallback: origin/HEAD is the remote default branch (never stale)
   return "origin/HEAD";
@@ -120,8 +122,11 @@ function getPRTitle(): string {
         { encoding: "utf-8", timeout: 30_000 }
       ).trim();
       if (title) return title;
-    } catch {
-      // gh pr view can fail for branches with no open PR — fall through to branch name
+    } catch (err: unknown) {
+      // All CI env vars are present but gh pr view failed — this is a test environment
+      // error, not "no open PR". Throw rather than silently falling back to branch name.
+      const msg = err instanceof Error ? err.message : String(err);
+      throw new Error(`gh pr view failed in CI context: ${msg}`, { cause: err });
     }
   }
   // Fallback: use branch name (useful for local TDD — correctly fails when prefix is missing)
