@@ -72,7 +72,7 @@ export async function fetchMergeGateState(
 ): Promise<MergeGateState> {
   // 1. CI status + mergeability — single call to /pulls/{prNumber}, extract both
   let ciPassing = false;
-  let noConflicts = false;
+  let noConflicts: boolean;
   try {
     const prData = await ghJson(
       "repos/" + owner + "/" + repo + "/pulls/" + prNumber,
@@ -86,7 +86,7 @@ export async function fetchMergeGateState(
       ciPassing = commitStatus?.state === "success";
     }
   } catch {
-    // noConflicts stays false (already initialized)
+    // noConflicts stays uninitialized (will be checked as falsy)
     ciPassing = false;
   }
 
