@@ -72,19 +72,17 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           if [ -f skeptic-output.txt ]; then
-            # Truncate to 6000 chars (GitHub comment limit buffer)
-            BODY=$(cat skeptic-output.txt | head -c 6000)
+            # Write comment body to temp file (avoids YAML multiline quoting issues)
+            {
+              echo "## Skeptic Gate Findings"
+              echo ""
+              echo '```'
+              head -c 6000 skeptic-output.txt
+              echo '```'
+              echo ""
+              echo "_Skeptic gate ran on commit \`${GITHUB_SHA:0:7}\`_"
+            } > "$RUNNER_TEMP/pr_comment.txt"
             gh pr comment ${{ github.event.pull_request.number }} \
-              --body "## Skeptic Gate Findings
-
-<details>
-<summary>Click to expand skeptic output</summary>
-
-\`\`\`
-${BODY}
-\`\`\`
-</details>
-
-_Skeptic gate ran on commit \`${GITHUB_SHA:0:7}\`_" \
+              --body-file "$RUNNER_TEMP/pr_comment.txt" \
               2>/dev/null || true
           fi

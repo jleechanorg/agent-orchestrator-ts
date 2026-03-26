@@ -205,15 +205,18 @@ jobs:
                   2>&1 || echo "MERGE_FAILED")
                 if echo "$MERGE_RESULT" | grep -qi "MERGE_FAILED\|error"; then
                   echo "Merge failed for PR #${PR_NUM}: $MERGE_RESULT"
+                  {
+                    echo "## ⚠️ Auto-merge failed"
+                    echo ""
+                    echo "Skeptic cron detected this PR is 7-green but auto-merge failed."
+                    echo "Please merge manually or check branch protection settings."
+                    echo ""
+                    echo '```'
+                    echo "$MERGE_RESULT"
+                    echo '```'
+                  } > "$RUNNER_TEMP/merge_fail_comment.txt"
                   gh pr comment "$PR_NUM" \
-                    --body "## ⚠️ Auto-merge failed
-
-Skeptic cron detected this PR is 7-green but auto-merge failed.
-Please merge manually or check branch protection settings.
-
-\`\`\`
-$MERGE_RESULT
-\`\`\`" \
+                    --body-file "$RUNNER_TEMP/merge_fail_comment.txt" \
                     --repo ${{ github.repository }} 2>/dev/null || true
                 else
                   echo "Successfully merged PR #${PR_NUM}"
