@@ -28,8 +28,8 @@ PR merged / worker reaped
 # Install social pipeline deps:
 (cd scripts/social && npm install)
 
-# Optional: Puppeteer for TikTok browser automation
-npm install puppeteer
+# Optional: Puppeteer for TikTok browser automation (inside scripts/social):
+(cd scripts/social && npm install puppeteer)
 ```
 
 ### 2. YouTube OAuth Setup
