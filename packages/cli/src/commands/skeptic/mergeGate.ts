@@ -86,8 +86,8 @@ export async function fetchMergeGateState(
       ciPassing = commitStatus?.state === "success";
     }
   } catch {
+    // noConflicts stays false (already initialized)
     ciPassing = false;
-    noConflicts = false;
   }
 
   // 2. CR review state — mirrors checkMergeGate + merge-gate-coderabbit.ts
