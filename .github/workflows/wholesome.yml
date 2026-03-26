@@ -16,15 +16,15 @@ jobs:
       - name: Check PR title prefix
         run: |
           TITLE="${{ github.event.pull_request.title }}"
-          # Only check the first line — multi-line titles are a script injection vector
-          FIRST_LINE=$(printf '%s' "$TITLE" | head -1)
-          if printf '%s' "$FIRST_LINE" | grep -qF '[agento]'; then
-            echo "PASS: PR title has [agento] prefix"
-          else
-            echo "FAIL: PR title must start with '[agento]'"
-            echo "Current title: $FIRST_LINE"
-            exit 1
-          fi
+          # Use awk to extract only the first line — safe against script injection
+          FIRST_LINE=$(printf '%s\n' "$TITLE" | awk 'NR==1')
+          # case anchors to start of string: pattern must be at the beginning
+          case "$FIRST_LINE" in
+            '[agento]'*) echo "PASS: PR title has [agento] prefix" ;;
+            *) echo "FAIL: PR title must start with '[agento]'"
+               echo "Current title: $FIRST_LINE"
+               exit 1 ;;
+          esac
 
   evidence-section:
     name: Evidence Section Present
@@ -47,10 +47,9 @@ jobs:
             exit 1
           fi
 
-          # Use grep -F (fixed-string) to match "## Evidence" literally
-          # The -q flag suppresses output, -i makes it case-insensitive
-          # ^[[:space:]]* matches optional leading whitespace before the header
-          if printf '%s' "$BODY" | grep -qiF '## Evidence'; then
+          # Use anchored regex: ## must be at start of line, followed by space + "Evidence" + space or EOL
+          # grep -E enables extended regex; anchors ensure this is a markdown H2, not a word-in-sentence
+          if printf '%s' "$BODY" | grep -qiE '^[[:space:]]*##[[:space:]]+[Ee]vidence([[:space:]]|$)'; then
             echo "found=true" >> "$GITHUB_OUTPUT"
             echo "reason=evidence_section_found" >> "$GITHUB_OUTPUT"
             echo "PASS: ## Evidence section found"
@@ -85,7 +84,12 @@ jobs:
 
           # Extract only the Evidence section content: from "## Evidence" to the next "## " heading
           # This prevents media from later sections (e.g. "## Other" with ![img]) from incorrectly passing the gate
-          EVIDENCE=$(printf '%s' "$BODY" | sed -n '/^[[:space:]]*## [Ee]vidence/,/^[[:space:]]*## /p' | sed '$d')
+          # Use awk for robust multi-line section boundary parsing
+          EVIDENCE=$(printf '%s\n' "$BODY" | awk '
+            /^[[:space:]]*## [Ee]vidence/ { in_section=1; next }
+            in_section && /^[[:space:]]*## / { exit }
+            in_section { print }
+          ')
 
           if [ -z "$EVIDENCE" ]; then
             echo "No Evidence section found to validate"
