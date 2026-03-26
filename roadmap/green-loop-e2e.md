@@ -76,6 +76,7 @@ These PRs fix specific autonomy blockers. Priority order for merging:
 These capabilities should be delivered via **richer `agentRules`** in `agent-orchestrator.yaml`, NOT by coding new TypeScript reaction handlers. The spawned agent (Claude Code) is flexible — it can run `/polish`, `/copilot`, resolve comments, rebase, etc. We just need to tell it what to do.
 
 **Implemented:**
+
 | Capability | Approach | Bead |
 |---|---|---|
 | Inline comment audit trail | `agentRules`: "After fixing code, append `## Resolved Comments` table to PR description via `gh pr edit`" | bd-ara.1 ✅ |
