@@ -11,6 +11,11 @@ vi.mock("../peekaboo.js", () => ({
   setPeekabooBin: vi.fn(),
 }));
 
+// Mock preflight — always pass so tests control windowList mocks directly.
+vi.mock("../preflight.js", () => ({
+  runPreflight: vi.fn().mockResolvedValue({ ok: true, steps: [], elapsedMs: 0 }),
+}));
+
 // Mock the fallback module — transparent pass-through to primary.
 // Fallback-specific logic is tested in fallback.test.ts.
 vi.mock("../fallback.js", () => ({

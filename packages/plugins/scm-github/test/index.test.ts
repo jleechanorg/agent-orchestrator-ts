@@ -799,13 +799,30 @@ describe("scm-github plugin", () => {
   });
 
   // ---- getReviewDecision REST fallback ------------------------------------
+  // All tests here mock setTimeout so retry sleeps resolve immediately.
 
   describe("getReviewDecision REST fallback", () => {
+    let setTimeoutSpy: ReturnType<typeof vi.spyOn>;
+
+    beforeEach(() => {
+      setTimeoutSpy = vi.spyOn(global, "setTimeout").mockImplementation((cb: () => void) => {
+        cb();
+        return 0 as unknown as NodeJS.Timeout;
+      });
+    });
+
+    afterEach(() => {
+      setTimeoutSpy.mockRestore();
+    });
+
     it("returns pending when REST synthesizes from pull + reviews (empty reviews = conservative)", async () => {
+      // ghWithRetry: 3 retries on gh pr view, then REST fallback
       mockGhError("API rate limit exceeded");
       mockGhError("API rate limit exceeded");
       mockGhError("API rate limit exceeded");
       mockGh({ state: "open", merged: false });
+      // Reviews retry loop: 1 rate-limit (sleeps 1s, mocked), then succeeds
+      mockGhError("API rate limit exceeded");
       mockGh([]);
       expect(await scm.getReviewDecision(pr)).toBe("pending");
       expect(ghMock).toHaveBeenNthCalledWith(
@@ -817,7 +834,7 @@ describe("scm-github plugin", () => {
       expect(ghMock).toHaveBeenNthCalledWith(
         5,
         "gh",
-        ["api", "repos/acme/repo/pulls/42/reviews"],
+        ["api", "repos/acme/repo/pulls/42/reviews", "--paginate"],
         expect.any(Object),
       );
     });
@@ -833,6 +850,8 @@ describe("scm-github plugin", () => {
       mockGhError("API rate limit exceeded");
       // REST: gh api repos/{owner}/{repo}/pulls/{pr}
       mockGh({ state: "open", merged: false });
+      // Reviews retry loop: 1 rate-limit (sleeps 1s, mocked), then succeeds with CR reviews
+      mockGhError("API rate limit exceeded");
       // REST: gh api repos/{owner}/{repo}/pulls/{pr}/reviews
       // CodeRabbit APPROVED first, then posted a COMMENTED review later.
       mockGh([
@@ -850,6 +869,24 @@ describe("scm-github plugin", () => {
         },
       ]);
       expect(await scm.getReviewDecision(pr)).toBe("approved");
+    });
+
+    // bd-yo1: when both gh pr view and the REST fallback's reviews call rate-limit,
+    // deriveReviewDecisionGraphqlFromReviews returns REVIEW_REQUIRED → "pending".
+    // This is the correct conservative fallback (previously the rate-limit on
+    // gh pr view was caught and "none" was returned, short-circuiting the REST path).
+    it("returns pending when REST fallback reviews endpoint also rate-limits", async () => {
+      // ghWithRetry: 3 retries on gh pr view, then REST fallback
+      mockGhError("API rate limit exceeded");
+      mockGhError("API rate limit exceeded");
+      mockGhError("API rate limit exceeded");
+      // ghWithRetry REST fallback: gh api repos/.../pulls/42
+      mockGh({ state: "open", merged: false });
+      // fetchPrViewFallbackAsJson reviews retry loop: all 3 attempts rate-limit
+      mockGhError("API rate limit exceeded");
+      mockGhError("API rate limit exceeded");
+      mockGhError("API rate limit exceeded"); // 3rd attempt → throws, caught → REVIEW_REQUIRED
+      expect(await scm.getReviewDecision(pr)).toBe("pending");
     });
   });
 
@@ -1144,15 +1181,47 @@ describe("scm-github plugin", () => {
   });
 
   describe("getReviews REST fallback", () => {
+    let setTimeoutSpy: ReturnType<typeof vi.spyOn>;
+
+    beforeEach(() => {
+      setTimeoutSpy = vi.spyOn(global, "setTimeout").mockImplementation((cb: () => void) => {
+        cb();
+        return 0 as unknown as NodeJS.Timeout;
+      });
+    });
+
+    afterEach(() => {
+      setTimeoutSpy.mockRestore();
+    });
+
     it("returns empty array when REST fallback has no reviews field", async () => {
+      // ghWithRetry: 3 retries on gh pr view, then REST fallback
       mockGhError("API rate limit exceeded");
       mockGhError("API rate limit exceeded");
       mockGhError("API rate limit exceeded");
-      // REST API /pulls/{number} doesn't include reviews
+      // REST fallback gh api repos/.../pulls/42
       mockGh({ state: "open", merged: false });
-      // REST /reviews endpoint returns empty array
+      // Reviews retry loop: 1 rate-limit (sleeps 1s, mocked), then succeeds with []
+      mockGhError("API rate limit exceeded");
       mockGh([]);
       expect(await scm.getReviews(pr)).toEqual([]);
+    });
+
+    // bd-yo1: even when gh pr view rate-limits, the REST fallback should still
+    // invoke gh api .../reviews. If that also rate-limits, throw so the caller
+    // (determineStatus) can handle it rather than silently returning [].
+    it("throws when REST fallback reviews endpoint also rate-limits", async () => {
+      // ghWithRetry: 3 retries on gh pr view, then REST fallback
+      mockGhError("API rate limit exceeded");
+      mockGhError("API rate limit exceeded");
+      mockGhError("API rate limit exceeded");
+      // ghWithRetry REST fallback: gh api repos/.../pulls/42
+      mockGh({ state: "open", merged: false });
+      // fetchPrViewFallbackAsJson reviews retry loop: all 3 attempts rate-limit
+      mockGhError("API rate limit exceeded");
+      mockGhError("API rate limit exceeded");
+      mockGhError("API rate limit exceeded"); // 3rd attempt → throws
+      await expect(scm.getReviews(pr)).rejects.toThrow("API rate limit exceeded");
     });
   });
 
@@ -1299,8 +1368,45 @@ describe("scm-github plugin", () => {
       expect(comments[0].author).toBe("alice");
     });
 
-    it("throws on error", async () => {
+    it("REST fallback when GraphQL fails with rate-limit error", async () => {
+      // ghWithRetry retries up to maxRetries=3 times on rate-limit errors before exhausting
+      // and rethrowing. Mock setTimeout to avoid real sleep delays in tests.
+      const setTimeoutSpy = vi.spyOn(global, "setTimeout").mockImplementation((cb: () => void) => {
+        (cb as () => void)();
+        return 0 as unknown as NodeJS.Timeout;
+      });
+      // 3 GraphQL attempts (one per ghWithRetry attempt) all fail with rate-limit
       mockGhError("API rate limit");
+      mockGhError("API rate limit");
+      mockGhError("API rate limit");
+      // Call 4 (REST pulls comments): return inline review comments
+      mockGh([
+        {
+          id: 1,
+          user: { login: "reviewer1" },
+          body: "Please fix this",
+          path: "src/foo.ts",
+          line: 10,
+          created_at: "2025-01-01T00:00:00Z",
+          html_url: "https://github.com/acme/repo/pull/42#discussion_r1",
+        },
+      ]);
+      // Call 5 (REST issue comments): return empty
+      mockGh([]);
+
+      const comments = await scm.getPendingComments(pr);
+      setTimeoutSpy.mockRestore();
+      expect(comments).toHaveLength(1);
+      expect(comments[0]).toMatchObject({
+        id: "1",
+        author: "reviewer1",
+        body: "Please fix this",
+        isResolved: false, // REST has no isResolved — always false
+      });
+    });
+
+    it("throws on non-rate-limit error", async () => {
+      mockGhError("gh: not found");
       await expect(scm.getPendingComments(pr)).rejects.toThrow("Failed to fetch pending comments");
     });
 
