@@ -15,14 +15,14 @@ jobs:
     steps:
       - name: Check PR title prefix
         run: |
-          TITLE="${{ github.event.pull_request.title }}"
-          # Use awk to extract only the first line — safe against script injection
-          FIRST_LINE=$(printf '%s\n' "$TITLE" | awk 'NR==1')
-          # case anchors to start of string: pattern must be at the beginning
-          case "$FIRST_LINE" in
+          # Use fromJson (GHA security best practice) to safely parse the title.
+          # The surrounding single-quotes prevent shell interpretation;
+          # fromJson returns the string value safely escaped for shell use.
+          TITLE='${{ fromJson(github.event.pull_request.title) }}'
+          case "$TITLE" in
             '[agento]'*) echo "PASS: PR title has [agento] prefix" ;;
             *) echo "FAIL: PR title must start with '[agento]'"
-               echo "Current title: $FIRST_LINE"
+               echo "Current title: $TITLE"
                exit 1 ;;
           esac
 
