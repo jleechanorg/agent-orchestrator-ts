@@ -374,10 +374,19 @@ export async function backfillUncoveredPRs(
                       `worktree ${worktreeDir} still registered in ${repoDir} after cleanup`,
                     );
                   }
+                  // Verified: worktree is gone and repoDir was known.
+                  cleanupOk = true;
+                } else {
+                  // repoDir unknown — directory removed but git worktree entry unverified.
+                  // Log for operator visibility; the entry may persist and block future claims.
+                  // eslint-disable-next-line no-console
+                  console.warn(
+                    `[backfill] cleanup: removed ${worktreeDir} but could not verify git worktree entry removal (owning repo unknown)`,
+                  );
                 }
               })();
-              // IIFE completed without throwing AND postcondition checks passed.
-              cleanupOk = true;
+              // cleanupOk was set inside the IIFE if verification succeeded.
+              // If repoDir was null, cleanupOk stays false and the failure path runs.
             } catch (e) {
               cleanupErr = e;
             }
@@ -401,7 +410,11 @@ export async function backfillUncoveredPRs(
                 correlationId,
                 projectId,
                 sessionId: session.id,
-                data: { error: cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr) },
+                data: {
+                  error: cleanupErr !== undefined
+                    ? (cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr))
+                    : "repoDir unknown — directory removed but git worktree entry could not be verified (operator should check manually)",
+                },
                 level: "warn",
               });
               // Abort backfill — direct cleanup failed so we cannot safely try the
