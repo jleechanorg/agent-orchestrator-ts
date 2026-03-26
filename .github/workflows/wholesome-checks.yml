@@ -7,12 +7,13 @@ name: Wholesome Checks
 on:
   pull_request:
     types: [opened, synchronize, reopened]
-  push:
-    branches: [main]
 
 concurrency:
   group: wholesome-${{ github.ref }}
   cancel-in-progress: true
+
+permissions:
+  contents: read  # needed for gh CLI to read PR metadata
 
 jobs:
   wholesome:
@@ -35,10 +36,11 @@ jobs:
 
       - name: Run wholesome tests
         env:
-          GITHUB_TOKEN:     ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN:      ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
-          GITHUB_REF:        ${{ github.ref }}
           GITHUB_HEAD_REF:   ${{ github.head_ref }}
-          # GITHUB_PR_TITLE is not provided by GitHub Actions — getPRTitle()
-          # fetches it via gh CLI using GITHUB_TOKEN + GITHUB_HEAD_REF
+          # GITHUB_BASE_REF is the PR target branch (e.g. main) — used as the base
+          # for diff and commit checks; avoids false positives on fork PRs where
+          # origin/main differs from the actual PR base.
+          GITHUB_BASE_REF: ${{ github.base_ref }}
         run: pnpm --filter @jleechanorg/ao-core test -- --reporter verbose src/__tests__/wholesome.test.ts

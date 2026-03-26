@@ -20,6 +20,10 @@ import { execSync } from "node:child_process";
 // Helpers
 // ---------------------------------------------------------------------------
 
+/** The base branch for diff comparison. In CI this is GITHUB_BASE_REF (the PR target);
+ *  locally, defaults to origin/main. Using GITHUB_BASE_REF avoids fork-PR false positives. */
+const BASE_BRANCH = process.env.GITHUB_BASE_REF ?? "origin/main";
+
 /** Recursively collect all .ts/.tsx files under a directory. */
 function collectTsFiles(root: string, prefix = ""): string[] {
   const results: string[] = [];
@@ -50,7 +54,7 @@ function git(args: string, cwd: string): string {
 
 /** Return diff lines that ADD (not delete) a given pattern in .ts files. */
 function getAddedLinesMatching(cwd: string, pattern: RegExp): string[] {
-  const raw = git(`diff --diff-filter=AM origin/main...HEAD`, cwd);
+  const raw = git(`diff --diff-filter=AM ${BASE_BRANCH}...HEAD`, cwd);
   if (!raw) return [];
   const lines: string[] = [];
   let inFile = false;
@@ -73,15 +77,15 @@ function getAddedLinesMatching(cwd: string, pattern: RegExp): string[] {
 /** Get the PR title — uses gh CLI in CI (GITHUB_TOKEN available), falls back to branch name. */
 function getPRTitle(): string {
   // In CI, use the gh CLI to fetch the actual PR title for the current branch
-  if (process.env.GITHUB_TOKEN && process.env.GITHUB_REPOSITORY && process.env.GITHUB_REF) {
+  if (process.env.GITHUB_TOKEN && process.env.GITHUB_REPOSITORY && process.env.GITHUB_HEAD_REF) {
     const repo   = process.env.GITHUB_REPOSITORY; // "owner/repo"
-    const branch = process.env.GITHUB_HEAD_REF ?? git("rev-parse --abbrev-ref HEAD", REPO_ROOT);
+    const branch = process.env.GITHUB_HEAD_REF;
     try {
       const title = execSync(
         `gh pr view "${branch}" --repo "${repo}" --json title --jq '.title'`,
-        { encoding: "utf-8", timeout: 10_000 }
+        { encoding: "utf-8", timeout: 30_000 }
       ).trim();
-      if (title && !title.startsWith("graphql")) return title;
+      if (title) return title;
     } catch {
       // gh pr view can fail for branches with no open PR — fall through to branch name
     }
@@ -94,7 +98,13 @@ function getPRTitle(): string {
 // Test suite
 // ---------------------------------------------------------------------------
 
-const REPO_ROOT = join(import.meta.dirname, "..", "..", "..", "..");
+// import.meta.dirname is the directory of this test file:
+//   packages/core/src/__tests__/wholesome.test.ts
+// Going up 4 levels reaches the git worktree root (where .git lives):
+//   packages/core/src/__tests__ → packages/core/src → packages/core → packages → worktree-root
+const REPO_ROOT = import.meta.dirname
+  ? join(import.meta.dirname, "..", "..", "..", "..")
+  : join(process.cwd()); // CJS fallback
 
 describe("wholesome — structural source-code assertions", () => {
 
@@ -150,9 +160,14 @@ describe("wholesome — structural source-code assertions", () => {
   // 3. No eslint-disable added in new/modified files
   // -------------------------------------------------------------------------
   describe("no eslint-disable added in new/modified files", () => {
-    it("no eslint-disable added in this branch", () => {
-      const violations = getAddedLinesMatching(REPO_ROOT, /eslint-disable/);
-      expect(violations, "eslint-disable added in this branch:\n" + violations.join("\n")).toHaveLength(0);
+    it("no eslint-disable directive added in this branch", () => {
+      // Only flag actual eslint-disable directives in source code — not text that merely
+      // mentions "eslint-disable" in section headers or descriptions.
+      // Matches: // eslint-disable, // eslint-disable-next-line,
+      // /* eslint-disable */, etc.
+      const directive = /^\s*(\/\/|\/\*)(\s*[a-z-]+\s+)?eslint-disable/;
+      const violations = getAddedLinesMatching(REPO_ROOT, directive);
+      expect(violations, "eslint-disable directive added in this branch:\n" + violations.join("\n")).toHaveLength(0);
     });
   });
 
@@ -211,16 +226,13 @@ describe("wholesome — structural source-code assertions", () => {
   // 5. Commit message prefix
   // -------------------------------------------------------------------------
   describe("commit message follows [agento] convention", () => {
-    it("all commits made on this branch have [agento] prefix", () => {
+    it("all non-merge commits made on this branch have [agento] prefix", () => {
       // Only check commits that originated on this branch (not inherited from main).
-      // A commit "originated here" if its first parent is on origin/main.
-      const mergeBase = git("merge-base origin/main HEAD", REPO_ROOT);
-      if (!mergeBase) return; // cannot determine — skip
-
-      // origin/main..HEAD gives commits on this branch not reachable from main.
-      // --first-parent walks only the primary history (excludes side branches).
-      const raw = git(`log --format=%H --first-parent origin/main..HEAD`, REPO_ROOT);
-      if (!raw) return; // no commits made on this branch — nothing to check
+      // Exclude merge commits (2nd parent = GitHub merge commit from squash/rebase).
+      // Using --no-merges: only non-merge commits
+      // Using --first-parent: only commits whose first parent is on the mainline
+      const raw = git(`log --format=%H --first-parent --no-merges ${BASE_BRANCH}..HEAD`, REPO_ROOT);
+      if (!raw) return; // no non-merge commits made on this branch — nothing to check
 
       const violations: string[] = [];
       for (const sha of raw.split("\n")) {
