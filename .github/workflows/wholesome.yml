@@ -82,7 +82,7 @@ jobs:
         run: |
           BODY="$PR_BODY"
 
-          # Extract only the Evidence section content: from "## Evidence" to the next "## " heading
+          # Extract only the Evidence section content: from "## Evidence" to the next ## heading
           # This prevents media from later sections (e.g. "## Other" with ![img]) from incorrectly passing the gate
           # Use awk for robust multi-line section boundary parsing
           EVIDENCE=$(printf '%s\n' "$BODY" | awk '
