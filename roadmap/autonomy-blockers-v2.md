@@ -63,7 +63,7 @@
 
 **Implementation:**
 1. **[Config]** Add to agentRules: "After fixing review comments, append a '## Resolved Comments' table to the PR description listing each comment, file, and how you resolved it. Use `gh pr edit --body` to update."
-2. **[Config]** Update merge-gate condition #5: instead of requiring `unresolvedThreads === 0`, check that all Major/Critical comments have a matching entry in the PR description's Resolved Comments table.
+2. ~~**[Config] Update merge-gate condition #5**~~ — not implemented. Merge-gate still uses `scm.getPendingComments()` `isResolved`. The PR description table is an **audit trail + worker self-certification record**, not a merge-gate bypass.
 3. **[Bead bd-xj8]** Repurpose: close as "won't fix (GraphQL approach)" and reference bd-ara.1 as the replacement.
 
 **Cost:** Zero GraphQL mutations. Workers already read comments; they just need to write a table.
@@ -214,7 +214,7 @@ The single `agentRules` field in `agent-orchestrator.yaml` carries ~200 lines of
 
 ### Gap B: REST fallback treats ALL comments as unresolved
 
-When GraphQL is rate-limited, `getPendingComments()` falls back to REST (`repos/{owner}/{repo}/pulls/{number}/comments`). The REST API has **no `isResolved` field**, so the fallback treats ALL comments as unresolved — even ones the worker already fixed. This means merge-gate condition #5 always fails during GraphQL rate-limit windows. The PR-description approach (bd-ara.1) would bypass this entirely since it doesn't depend on GitHub's thread resolution state.
+When GraphQL is rate-limited, `getPendingComments()` falls back to REST (`repos/{owner}/{repo}/pulls/{number}/comments`). The REST API has **no `isResolved` field**, so the fallback treats ALL comments as unresolved — even ones the worker already fixed. This means merge-gate condition #5 always fails during GraphQL rate-limit windows. The PR-description approach (bd-ara.1) provides an **audit trail** even when REST fallback makes `isResolved` unavailable — the worker self-certification table gives operators visibility into what was addressed. It does **not** bypass merge-gate condition #5 (which still keys off `isResolved`).
 
 ### Gap C: autoResolveThreads is dead code
 
