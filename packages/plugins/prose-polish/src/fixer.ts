@@ -97,6 +97,7 @@ export function autoFixFile(
   writeFileSync(filePath, fixed.join("\n"), "utf-8");
 
   const fixes = autoFixable
+    .filter(i => linesFixed.has(i.line - 1))
     .map(i => ({
       line: i.line,
       original: lines[i.line - 1],
