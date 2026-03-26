@@ -14,6 +14,7 @@ export function EmptyState({ message }: EmptyStateProps) {
         stroke="currentColor"
         strokeWidth="1.5"
         viewBox="0 0 24 24"
+        aria-hidden="true"
       >
         <rect x="2" y="4" width="20" height="16" rx="2" />
         <path d="M6 9l4 3-4 3M13 15h5" />
