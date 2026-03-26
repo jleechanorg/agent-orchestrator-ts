@@ -352,3 +352,22 @@ export type { ReviewKPIs, KPIEmitDeps } from "./review-kpi.js";
 // Task queue drainer — config-driven bead processing with maxConcurrent (bd-bsu)
 export { drainTaskQueue, resolveBead, _resetDrainTimer } from "./task-queue.js";
 export type { TaskQueueDeps, TaskQueueParams } from "./task-queue.js";
+
+// Stuck worker detection — deep pane inspection after consecutive idle cycles
+export {
+  analyzePaneContent,
+  checkStuckWorker,
+  recordIdleCycle,
+  resetIdleCycles,
+  resetAllIdleCycles,
+  getIdleCycleState,
+  DEFAULT_IDLE_CYCLE_THRESHOLD,
+  DEFAULT_NUDGE_TEXT,
+} from "./stuck-worker-detector.js";
+export type {
+  StuckAction,
+  StuckWorkerVerdict,
+  IdleCycleState,
+  CheckStuckWorkerOptions,
+  CheckStuckWorkerResult,
+} from "./stuck-worker-detector.js";
