@@ -267,7 +267,7 @@ export async function drainTaskQueue(
   if (!queueState.dispatched.includes(nextBead)) {
     queueState.dispatched.push(nextBead);
   }
-  delete queueState.failed[nextBead];
+  Reflect.deleteProperty(queueState.failed, nextBead);
   saveQueueState(configPath, projectId, queueState);
 
   observer.recordOperation({
