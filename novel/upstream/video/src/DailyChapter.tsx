@@ -9,53 +9,6 @@ import {
 } from "remotion";
 import { DEFAULT_CHAPTER, type ChapterData } from "./ChapterData";
 
-// ─── Shared background (same aesthetic as TheAwakening) ───────────────────────
-
-const _Background: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-  <AbsoluteFill
-    style={{
-      background: "#0a0a0a",
-      fontFamily: "'IM Fell English', Georgia, serif",
-    }}
-  >
-    <div
-      style={{
-        position: "absolute",
-        inset: 0,
-        background:
-          "radial-gradient(ellipse at 50% 50%, transparent 40%, rgba(0,0,0,0.7) 100%)",
-        pointerEvents: "none",
-      }}
-    />
-    {children}
-  </AbsoluteFill>
-);
-
-// ─── Typewriter effect ────────────────────────────────────────────────────────
-
-const _TypewriterText: React.FC<{ text: string; startFrame: number; delay?: number }> = ({
-  text,
-  startFrame,
-  delay = 0,
-}) => {
-  const frame = useCurrentFrame();
-  const visibleChars = interpolate(
-    Math.max(0, frame - startFrame - delay),
-    [0, text.length * 1.8],
-    [0, text.length],
-    { extrapolateLeft: "clamp", extrapolateRight: "clamp" }
-  );
-
-  return (
-    <span style={{ color: "#e8dcc8" }}>
-      {text.slice(0, Math.floor(visibleChars))}
-      {frame < startFrame + delay + text.length * 1.8 && (
-        <span style={{ opacity: 0.8, color: "#f0e8d0" }}>|</span>
-      )}
-    </span>
-  );
-};
-
 // ─── Fade in ─────────────────────────────────────────────────────────────────
 
 const FadeIn: React.FC<{ children: React.ReactNode; startFrame: number; duration?: number }> = ({

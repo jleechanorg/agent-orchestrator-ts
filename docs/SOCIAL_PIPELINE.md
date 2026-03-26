@@ -23,11 +23,11 @@ PR merged / worker reaped
 
 ```bash
 # The Remotion project lives in the agent-orchestrator repo:
-cd ~/projects/orch_jleechanclaw/novel/upstream/video
+cd novel/upstream/video
 npm install
 
 # Install social pipeline deps:
-cd ~/projects/orch_jleechanclaw/scripts/social
+cd scripts/social
 npm install
 
 # Optional: Puppeteer for TikTok browser automation
@@ -95,7 +95,7 @@ TikTok requires you to be logged in. Export your session cookies:
 ### 4. Verify Remotion renders
 
 ```bash
-cd ~/projects/orch_jleechanclaw/novel/upstream/video
+cd novel/upstream/video
 bash render.sh
 # or render a specific composition:
 bash render.sh TheAwakening
@@ -107,7 +107,7 @@ Expected output: `out/the-awakening.mp4` (or similar)
 
 ### Full pipeline (render + both uploads)
 ```bash
-cd ~/projects/orch_jleechanclaw/scripts/social
+cd scripts/social
 node pipeline.js
 ```
 
@@ -138,7 +138,8 @@ Create `~/Library/LaunchAgents/ai.agento.social-pipeline.plist`:
   <key>ProgramArguments</key>
   <array>
     <string>/usr/local/bin/node</string>
-    <string>/Users/jleechan/projects/orch_jleechanclaw/scripts/social/pipeline.js</string>
+    <!-- Replace /path/to/repo with your actual repo path -->
+    <string>/path/to/repo/scripts/social/pipeline.js</string>
   </array>
   <key>StartCalendarInterval</key>
   <dict>
@@ -157,7 +158,7 @@ Create `~/Library/LaunchAgents/ai.agento.social-pipeline.plist`:
 
 Then:
 ```bash
-ln -sf ~/projects/orch_jleechanclaw/docs/ai.agento.social-pipeline.plist ~/Library/LaunchAgents/
+# Create the plist file (see above) at ~/Library/LaunchAgents/ai.agento.social-pipeline.plist
 launchctl load ~/Library/LaunchAgents/ai.agento.social-pipeline.plist
 ```
 
