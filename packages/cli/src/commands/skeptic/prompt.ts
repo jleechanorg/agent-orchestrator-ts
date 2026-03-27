@@ -6,6 +6,13 @@
 import type { PRInfo, ReviewInfo } from "./gh-client.js";
 import type { MergeGateState } from "./mergeGate.js";
 
+// Truncation limits for content included in the skeptic prompt
+const MAX_DESIGN_DOC_CHARS = 6_000;
+const MAX_PR_DESCRIPTION_CHARS = 4_000;
+const MAX_DIFF_CHARS = 12_000;
+const MAX_REVIEW_BODY_CHARS = 200;
+const MAX_REVIEWS_TO_SHOW = 8;
+
 export function buildSkepticPrompt(
   pr: PRInfo,
   state: MergeGateState,
@@ -32,7 +39,7 @@ export function buildSkepticPrompt(
     ? [
         "",
         "--- DESIGN DOC (docs/design/pr-designs/pr-" + pr.number + ".md) ---",
-        designDoc.slice(0, 6_000),
+        designDoc.slice(0, MAX_DESIGN_DOC_CHARS),
       ].join("\n")
     : [
         "",
@@ -45,7 +52,7 @@ export function buildSkepticPrompt(
     ? [
         "",
         "--- PR DESCRIPTION ---",
-        pr.body.slice(0, 4_000),
+        pr.body.slice(0, MAX_PR_DESCRIPTION_CHARS),
       ].join("\n")
     : "";
 
@@ -65,18 +72,18 @@ export function buildSkepticPrompt(
     "",
     "--- RECENT REVIEWS (chronological) ---",
     ...reviews
-      .slice(0, 8)
+      .slice(0, MAX_REVIEWS_TO_SHOW)
       .sort(
         (a, b) =>
           new Date(a.submittedAt).getTime() - new Date(b.submittedAt).getTime(),
       )
       .map(
         (r) =>
-          `[${r.submittedAt.slice(0, 16)}] ${r.author?.login} (${r.state}): ${(r.body ?? "(no body)").slice(0, 200)}`,
+          `[${r.submittedAt.slice(0, 16)}] ${r.author?.login} (${r.state}): ${(r.body ?? "(no body)").slice(0, MAX_REVIEW_BODY_CHARS)}`,
       ),
     "",
     "--- DIFF (first 300 lines) ---",
-    diff.slice(0, 12_000),
+    diff.slice(0, MAX_DIFF_CHARS),
   ].join("\n");
 
   return [

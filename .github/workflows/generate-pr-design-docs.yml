@@ -96,16 +96,19 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           PR_NUM="${{ github.event.pull_request.number }}"
+          BODY_FILE=$(mktemp)
+          printf '%s\n' \
+            "## Design Doc Generated" \
+            "" \
+            "Design documentation has been generated for this PR and committed to the branch." \
+            "" \
+            "You can view the design doc here:" \
+            "\`docs/design/pr-designs/pr-${PR_NUM}.md\`" \
+            "" \
+            "_The Skeptic agent will review this PR against the design doc as part of the skeptic gate._" \
+            > "$BODY_FILE"
           gh pr comment "$PR_NUM" \
             --repo "${{ github.repository }}" \
-            --body-file - << COMMENT_EOF
-          ## Design Doc Generated
-
-          Design documentation has been generated for this PR and committed to the branch.
-
-          You can view the design doc here:
-          \`docs/design/pr-designs/pr-${PR_NUM}.md\`
-
-          _The Skeptic agent will review this PR against the design doc as part of the skeptic gate._
-          COMMENT_EOF
-          || echo "WARN: Could not post PR comment (may lack permissions)"
+            --body-file "$BODY_FILE" \
+            || echo "WARN: Could not post PR comment (may lack permissions)"
+          rm -f "$BODY_FILE"
