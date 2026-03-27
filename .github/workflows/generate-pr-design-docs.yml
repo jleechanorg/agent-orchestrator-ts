@@ -17,7 +17,8 @@ jobs:
     # from a fork_PR event only has read access, so we cannot push design docs.
     # Also skip runs triggered by our own bot commits to avoid regenerate loops.
     # Also skip PR #231 — design doc already generated; removing to avoid CR re-review loops.
-    # Remove this condition after PR #231 is merged.
+    # NOTE: This exclusion MUST be removed when PR #231 is merged, otherwise the workflow
+    # will silently skip for all future PRs. Schedule a follow-up commit to remove it.
     if: github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'github-actions[bot]' && github.event.pull_request.number != 231
     permissions:
       contents: write   # needed to commit design docs to the PR branch
@@ -114,4 +115,3 @@ jobs:
             --body-file "$BODY_FILE" \
             || echo "WARN: Could not post PR comment (may lack permissions)"
           rm -f "$BODY_FILE"
-# trigger CI
