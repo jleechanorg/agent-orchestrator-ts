@@ -69,6 +69,21 @@ jobs:
             exit 1
           fi
 
+  actionlint:
+    name: Actionlint (Workflow Lint)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run actionlint
+        uses: reviewdog/actionlint@v1
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          reporter: github-pr-review
+          filter_mode: nofilter
+        env:
+          ACTIONLINT_FLAGS: --format '{{json .}}'
+
   evidence-media-attachment:
     name: Evidence Has Media Attachment
     runs-on: ubuntu-latest
