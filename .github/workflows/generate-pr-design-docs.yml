@@ -4,6 +4,11 @@ on:
   pull_request:
     types: [opened, synchronize, reopened]
 
+# Skip PR #231 — design doc already generated; preventing further auto-commits
+# to avoid CR re-review loops while this PR is under review.
+# Remove this condition after PR #231 is merged.
+if: github.event.pull_request.number != 231
+
 # Do not run concurrently on the same PR — design doc generation is idempotent
 concurrency:
   group: design-doc-${{ github.event.pull_request.number }}
