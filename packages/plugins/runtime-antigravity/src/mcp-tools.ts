@@ -93,10 +93,14 @@ export function createMcpTools(
             managerWindow.window_id,
           );
           const conversations = snapshot.ui_elements.filter(
-            (el) =>
-              el.role.toLowerCase().includes("button") &&
-              (el.title.includes("progress_activity") ||
-                /\d+[smhd]\s*(ago)?$/i.test(el.title.trim())),
+            (el) => {
+              const text = el.label ?? el.title;
+              return (
+                el.role.toLowerCase().includes("button") &&
+                (text.includes("progress_activity") ||
+                  /\d+[smhd]\s*(ago)?$/i.test(text.trim()))
+              );
+            },
           );
 
           if (conversations.length === 0) {
@@ -104,10 +108,11 @@ export function createMcpTools(
           }
 
           const lines = conversations.map((c) => {
+            const text = c.label ?? c.title;
             const isActive =
-              c.title.includes("progress_activity") ||
-              c.title.includes("now");
-            const title = c.title
+              text.includes("progress_activity") ||
+              text.includes("now");
+            const title = text
               .replace("progress_activity ", "")
               .replace(" now", "")
               .trim();

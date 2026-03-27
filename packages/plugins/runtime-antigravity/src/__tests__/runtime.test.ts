@@ -8,6 +8,7 @@ vi.mock("../peekaboo.js", () => ({
   click: vi.fn(),
   paste: vi.fn(),
   press: vi.fn(),
+  hotkey: vi.fn(),
   setPeekabooBin: vi.fn(),
 }));
 
@@ -36,6 +37,31 @@ const mockSee = peekaboo.see as ReturnType<typeof vi.fn>;
 const mockClick = peekaboo.click as ReturnType<typeof vi.fn>;
 const mockPaste = peekaboo.paste as ReturnType<typeof vi.fn>;
 const mockPress = peekaboo.press as ReturnType<typeof vi.fn>;
+const mockHotkey = peekaboo.hotkey as ReturnType<typeof vi.fn>;
+
+/** Helper to create a window fixture matching PeekabooWindow shape. */
+function makeWindow(overrides: { window_id: number; title: string }) {
+  return {
+    window_id: overrides.window_id,
+    title: overrides.title,
+    isOnScreen: true,
+    isMinimized: false,
+    bounds: { x: 0, y: 0, width: 800, height: 600 },
+  };
+}
+
+/** Helper to create a UI element fixture matching PeekabooUIElement shape. */
+function makeElement(overrides: { id: string; role: string; title: string; label?: string }) {
+  return {
+    id: overrides.id,
+    role: overrides.role,
+    title: overrides.title,
+    label: overrides.label ?? overrides.title,
+    description: "",
+    role_description: "",
+    is_actionable: true,
+  };
+}
 
 /** Create a RuntimeHandle with Antigravity session data for testing. */
 function makeHandle(
@@ -111,27 +137,12 @@ describe("runtime.create()", () => {
     const runtime = create();
 
     // 1. windowList: returns Manager window
-    mockWindowList.mockResolvedValueOnce([
-      {
-        window_id: 1,
-        title: "Manager",
-        app: "Antigravity",
-        bounds: { x: 0, y: 0, width: 800, height: 600 },
-      },
-    ]);
+    mockWindowList.mockResolvedValueOnce([makeWindow({ window_id: 1, title: "Manager" })]);
 
     // 2. see: returns snapshot with workspace element
     mockSee.mockResolvedValueOnce({
       snapshot_id: "snap-1",
-      ui_elements: [
-        {
-          id: "ws-el",
-          role: "AXButton",
-          title: "/tmp/workspace",
-          value: "",
-          bounds: { x: 10, y: 10, width: 200, height: 30 },
-        },
-      ],
+      ui_elements: [makeElement({ id: "ws-el", role: "AXButton", title: "/tmp/workspace" })],
     });
 
     // 3. click: workspace element
@@ -139,18 +150,8 @@ describe("runtime.create()", () => {
 
     // 4. windowList: returns conversation window after click
     mockWindowList.mockResolvedValueOnce([
-      {
-        window_id: 1,
-        title: "Manager",
-        app: "Antigravity",
-        bounds: { x: 0, y: 0, width: 800, height: 600 },
-      },
-      {
-        window_id: 2,
-        title: "Conversation",
-        app: "Antigravity",
-        bounds: { x: 100, y: 100, width: 600, height: 400 },
-      },
+      makeWindow({ window_id: 1, title: "Manager" }),
+      makeWindow({ window_id: 2, title: "Conversation" }),
     ]);
 
     // 5. paste + press for launch command
@@ -159,18 +160,8 @@ describe("runtime.create()", () => {
 
     // 6. windowList: re-fetch for session population after fallback wrapper
     mockWindowList.mockResolvedValueOnce([
-      {
-        window_id: 1,
-        title: "Manager",
-        app: "Antigravity",
-        bounds: { x: 0, y: 0, width: 800, height: 600 },
-      },
-      {
-        window_id: 2,
-        title: "Conversation",
-        app: "Antigravity",
-        bounds: { x: 100, y: 100, width: 600, height: 400 },
-      },
+      makeWindow({ window_id: 1, title: "Manager" }),
+      makeWindow({ window_id: 2, title: "Conversation" }),
     ]);
 
     const handle = await runtime.create({
@@ -201,12 +192,7 @@ describe("runtime.create()", () => {
     const runtime = create();
 
     mockWindowList.mockResolvedValueOnce([
-      {
-        window_id: 5,
-        title: "Some Other Window",
-        app: "Antigravity",
-        bounds: { x: 0, y: 0, width: 800, height: 600 },
-      },
+      makeWindow({ window_id: 5, title: "Some Other Window" }),
     ]);
 
     await expect(
@@ -222,25 +208,12 @@ describe("runtime.create()", () => {
   it("throws when workspace is not found in Manager", async () => {
     const runtime = create();
 
-    mockWindowList.mockResolvedValueOnce([
-      {
-        window_id: 1,
-        title: "Manager",
-        app: "Antigravity",
-        bounds: { x: 0, y: 0, width: 800, height: 600 },
-      },
-    ]);
+    mockWindowList.mockResolvedValueOnce([makeWindow({ window_id: 1, title: "Manager" })]);
 
     mockSee.mockResolvedValueOnce({
       snapshot_id: "snap-2",
       ui_elements: [
-        {
-          id: "other-ws",
-          role: "AXButton",
-          title: "different-workspace",
-          value: "",
-          bounds: { x: 10, y: 10, width: 200, height: 30 },
-        },
+        makeElement({ id: "other-ws", role: "AXButton", title: "different-workspace" }),
       ],
     });
 
@@ -260,31 +233,26 @@ describe("runtime.create()", () => {
 // =============================================================================
 
 describe("runtime.destroy()", () => {
-  it("attempts to close the conversation window", async () => {
+  it("attempts to close the conversation window via hotkey", async () => {
     const runtime = create();
     const handle = makeHandle("destroy-test");
 
     mockWindowList.mockResolvedValueOnce([
-      {
-        window_id: 2,
-        title: "Conversation",
-        app: "Antigravity",
-        bounds: { x: 100, y: 100, width: 600, height: 400 },
-      },
+      makeWindow({ window_id: 2, title: "Conversation" }),
     ]);
     // see() is called to get a snapshot for focusing
     mockSee.mockResolvedValueOnce({
       snapshot_id: "snap-destroy",
-      ui_elements: [{ id: "el-1", role: "button", title: "close", value: "", bounds: { x: 0, y: 0, width: 10, height: 10 } }],
+      ui_elements: [makeElement({ id: "el-1", role: "button", title: "close" })],
     });
     mockClick.mockResolvedValueOnce({ success: true });
-    mockPress.mockResolvedValueOnce(undefined);
+    mockHotkey.mockResolvedValueOnce(undefined);
 
     await runtime.destroy(handle);
 
     expect(mockWindowList).toHaveBeenCalledWith("Antigravity");
     expect(mockSee).toHaveBeenCalledWith("Antigravity", 2);
-    expect(mockPress).toHaveBeenCalledWith("Antigravity", "Command+w");
+    expect(mockHotkey).toHaveBeenCalledWith("Antigravity", "cmd+w");
   });
 
   it("does not throw when window is already closed", async () => {
@@ -316,13 +284,7 @@ describe("runtime.sendMessage()", () => {
     mockSee.mockResolvedValueOnce({
       snapshot_id: "snap-msg",
       ui_elements: [
-        {
-          id: "input-field",
-          role: "AXTextArea",
-          title: "",
-          value: "",
-          bounds: { x: 10, y: 500, width: 580, height: 40 },
-        },
+        makeElement({ id: "input-field", role: "AXTextArea", title: "" }),
       ],
     });
     mockClick.mockResolvedValueOnce({ success: true });
@@ -349,13 +311,7 @@ describe("runtime.sendMessage()", () => {
     mockSee.mockResolvedValueOnce({
       snapshot_id: "snap-nf",
       ui_elements: [
-        {
-          id: "some-button",
-          role: "AXButton",
-          title: "Submit",
-          value: "",
-          bounds: { x: 10, y: 10, width: 100, height: 30 },
-        },
+        makeElement({ id: "some-button", role: "AXButton", title: "Submit" }),
       ],
     });
     mockPaste.mockResolvedValueOnce(undefined);
@@ -387,27 +343,15 @@ describe("runtime.sendMessage()", () => {
 // =============================================================================
 
 describe("runtime.getOutput()", () => {
-  it("captures visible text content from the window", async () => {
+  it("captures visible text content from the window using label field", async () => {
     const runtime = create();
     const handle = makeHandle("output-test");
 
     mockSee.mockResolvedValueOnce({
       snapshot_id: "snap-out",
       ui_elements: [
-        {
-          id: "text-1",
-          role: "AXStaticText",
-          title: "",
-          value: "Line 1",
-          bounds: { x: 10, y: 10, width: 500, height: 20 },
-        },
-        {
-          id: "text-2",
-          role: "AXStaticText",
-          title: "",
-          value: "Line 2",
-          bounds: { x: 10, y: 30, width: 500, height: 20 },
-        },
+        makeElement({ id: "text-1", role: "AXStaticText", title: "", label: "Line 1" }),
+        makeElement({ id: "text-2", role: "AXStaticText", title: "", label: "Line 2" }),
       ],
     });
 
@@ -445,12 +389,7 @@ describe("runtime.isAlive()", () => {
     const handle = makeHandle("alive-test");
 
     mockWindowList.mockResolvedValueOnce([
-      {
-        window_id: 2,
-        title: "Conversation",
-        app: "Antigravity",
-        bounds: { x: 100, y: 100, width: 600, height: 400 },
-      },
+      makeWindow({ window_id: 2, title: "Conversation" }),
     ]);
 
     const alive = await runtime.isAlive(handle);
@@ -462,12 +401,7 @@ describe("runtime.isAlive()", () => {
     const handle = makeHandle("dead-test");
 
     mockWindowList.mockResolvedValueOnce([
-      {
-        window_id: 1,
-        title: "Manager",
-        app: "Antigravity",
-        bounds: { x: 0, y: 0, width: 800, height: 600 },
-      },
+      makeWindow({ window_id: 1, title: "Manager" }),
     ]);
 
     const alive = await runtime.isAlive(handle);

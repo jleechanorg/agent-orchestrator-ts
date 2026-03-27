@@ -636,6 +636,19 @@ export interface SCM {
    *  Replaces getPRState + getCISummary + getReviewDecision + getMergeability. */
   getBatchPRStatus?(pr: PRInfo): Promise<BatchPRStatus>;
 
+  // --- Skeptic Agent — 7th merge gate (bd-qw6) ---
+
+  /**
+   * Get the skeptic agent's VERDICT from PR issue comments.
+   * Returns "PASS" if a skeptic bot posted "VERDICT: PASS",
+   * "FAIL" if "VERDICT: FAIL" was found,
+   * or "SKIPPED" if no skeptic verdict comment exists.
+   *
+   * The skeptic bot author is configured via plugins[scm-github].skepticBotAuthor.
+   * Optional — when not implemented, skeptic check passes as SKIPPED.
+   */
+  getSkepticVerdict?(pr: PRInfo): Promise<"PASS" | "FAIL" | "SKIPPED">;
+
   // --- Session Exit Reconciliation (bd-uxs.6) ---
 
   /**
@@ -1363,6 +1376,23 @@ export interface MergeGateConfig {
 
   /** Timeout for webhook response (default: 30s) */
   webhookTimeout?: number;
+
+  // =============================================================================
+  // SKEPTIC AGENT — 7th merge gate (bd-qw6)
+  // =============================================================================
+
+  /**
+   * Require skeptic agent VERDICT before merge.
+   * When false (default): skeptic check is skipped (warn mode for initial deployment).
+   * When true: merge is blocked unless skeptic posts VERDICT: PASS or VERDICT: SKIPPED.
+   */
+  skepticRequired?: boolean;
+
+  /**
+   * Projects exempt from skeptic requirement (for bootstrapping the skeptic itself).
+   * Skeptic's own PRs can self-approve without a verdict from a separate skeptic instance.
+   */
+  skepticBypassProjects?: string[];
 }
 
 /** Task queue configuration for config-driven bead processing (bd-bsu) */

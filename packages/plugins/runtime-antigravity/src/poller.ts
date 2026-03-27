@@ -77,13 +77,13 @@ function detectConversationState(
   for (const el of elements) {
     const matchesConversation =
       el.title.includes(conversationTitle) ||
-      el.value.includes(conversationTitle);
+      el.label.includes(conversationTitle);
 
     if (matchesConversation) {
       const fromTitle = detectStateFromLabel(el.title);
       if (fromTitle !== "unknown") return fromTitle;
 
-      const fromValue = detectStateFromLabel(el.value);
+      const fromValue = detectStateFromLabel(el.label);
       if (fromValue !== "unknown") return fromValue;
     }
   }
@@ -93,7 +93,7 @@ function detectConversationState(
     const fromTitle = detectStateFromLabel(el.title);
     if (fromTitle !== "unknown") return fromTitle;
 
-    const fromValue = detectStateFromLabel(el.value);
+    const fromValue = detectStateFromLabel(el.label);
     if (fromValue !== "unknown") return fromValue;
   }
 

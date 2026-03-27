@@ -9,12 +9,37 @@ vi.mock("../peekaboo.js", () => ({
   click: vi.fn(),
   paste: vi.fn(),
   press: vi.fn(),
+  hotkey: vi.fn(),
 }));
 
 import * as peekaboo from "../peekaboo.js";
 
 const mockWindowList = vi.mocked(peekaboo.windowList);
 const mockSee = vi.mocked(peekaboo.see);
+
+/** Helper to create a window fixture. */
+function makeWindow(overrides: { window_id: number; title: string }) {
+  return {
+    window_id: overrides.window_id,
+    title: overrides.title,
+    isOnScreen: true,
+    isMinimized: false,
+    bounds: { x: 0, y: 0, width: 100, height: 100 },
+  };
+}
+
+/** Helper to create a UI element fixture. */
+function makeElement(overrides: { id: string; role: string; title: string; label?: string }) {
+  return {
+    id: overrides.id,
+    role: overrides.role,
+    title: overrides.title,
+    label: overrides.label ?? overrides.title,
+    description: "",
+    role_description: "",
+    is_actionable: true,
+  };
+}
 
 function createMockRuntime(): Runtime {
   return {
@@ -101,14 +126,12 @@ describe("createMcpTools", () => {
 
   describe("antigravity_status", () => {
     it("returns conversation list from Manager", async () => {
-      mockWindowList.mockResolvedValue([
-        { window_id: 1, title: "Manager", app: "Antigravity", bounds: { x: 0, y: 0, width: 100, height: 100 } },
-      ]);
+      mockWindowList.mockResolvedValue([makeWindow({ window_id: 1, title: "Manager" })]);
       mockSee.mockResolvedValue({
         snapshot_id: "snap1",
         ui_elements: [
-          { id: "e1", role: "button", title: "progress_activity Building Feature now", value: "", bounds: { x: 0, y: 0, width: 100, height: 20 } },
-          { id: "e2", role: "button", title: "Code Review 5m", value: "", bounds: { x: 0, y: 0, width: 100, height: 20 } },
+          makeElement({ id: "e1", role: "button", title: "progress_activity Building Feature now", label: "progress_activity Building Feature now" }),
+          makeElement({ id: "e2", role: "button", title: "Code Review 5m", label: "Code Review 5m" }),
         ],
       });
 
@@ -188,8 +211,8 @@ describe("createMcpTools", () => {
   describe("antigravity_workspaces", () => {
     it("lists all Antigravity windows", async () => {
       mockWindowList.mockResolvedValue([
-        { window_id: 1, title: "Manager", app: "Antigravity", bounds: { x: 0, y: 0, width: 100, height: 100 } },
-        { window_id: 2, title: "worktree_ao", app: "Antigravity", bounds: { x: 0, y: 0, width: 100, height: 100 } },
+        makeWindow({ window_id: 1, title: "Manager" }),
+        makeWindow({ window_id: 2, title: "worktree_ao" }),
       ]);
 
       const tool = findTool(tools, "antigravity_workspaces");

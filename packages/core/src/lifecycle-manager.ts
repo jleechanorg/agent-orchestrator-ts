@@ -69,6 +69,7 @@ import { isGhRateLimitError } from "./gh-rate-limit.js";
 import { backfillUncoveredPRs } from "./backfill-extensions.js";
 import { sweepOrphanTmuxSessions, DEFAULT_TMUX_SWEEPER_CONFIG } from "./tmux-session-sweeper.js";
 import { drainTaskQueue } from "./task-queue.js";
+import { applyDeadAgentOverride } from "./fork-dead-agent.js";
 
 /** Parse a duration string like "10m", "30s", "1h" to milliseconds. */
 export function parseDuration(str: string): number {
@@ -986,6 +987,21 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
           }
         }
       }
+
+      // bd-5o1: when agent is dead and the transition would trigger a send-to-agent
+      // reaction that can't be delivered, override to "killed" for terminal cleanup.
+      // Without this, dead-agent sessions stay in non-terminal states (e.g.
+      // "changes_requested") forever, getting polled every cycle with the reaction
+      // skipped but never cleaned up.  SCM-only reactions (auto-merge, notify,
+      // request-merge) don't require a live agent and proceed normally.
+      // Extracted to fork-dead-agent.ts per CR (bd-5o1).
+      const override = await applyDeadAgentOverride(agentDead, effectiveStatus, oldStatus, newStatus, session, {
+        statusToEventType,
+        eventToReactionKey,
+        getReactionConfigForSession,
+      });
+      effectiveStatus = override.effectiveStatus;
+      newStatus = override.newStatus;
 
       // Skip persisting if bd-kki check absorbed the killed transition — keep session
       // in oldStatus so the next poll can retry the SCM check.
