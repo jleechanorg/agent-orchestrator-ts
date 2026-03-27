@@ -169,8 +169,9 @@ describe("wholesome — structural source-code assertions", () => {
 
     it("PR title has correct format: [agento] <type>: <description>", () => {
       const title = getPRTitle();
-      // "[agento] " followed by conventional-commit type + colon
-      expect(title).toMatch(/^\[agento\] [a-z]+: /);
+      // "[agento] " followed by conventional-commit type + optional scope + colon
+      // Scope format: (scope-name) — supports issue refs like (skeptic-cron)
+      expect(title).toMatch(/^\[agento\] [a-z]+(\([^)]+\))?: /);
     });
   });
 
