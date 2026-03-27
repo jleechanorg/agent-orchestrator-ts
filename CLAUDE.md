@@ -15,6 +15,57 @@ This file is read by Claude Code when working in this repository.
 
 Core code (`packages/core/src/`) should be treated as stable infrastructure. The vast majority of new capabilities should live in plugins. Roadmap docs, design notes, and fork-specific tooling config live in `roadmap/`, `.beads/`, and `CLAUDE.md` — these are first-class artifacts, not noise.
 
+## AO Workers Are the Default Execution Model
+
+**This is the most important operational principle in this repo.**
+
+When given a task, **default to dispatching an AO worker** — not running `claude -p`, not opening a terminal yourself, not writing a one-off script.
+
+### When to use AO workers
+- Implementing features, bug fixes, or refactors
+- Running tests, fixing CI failures
+- Reviewing PRs, addressing review comments
+- Investigating issues, reading logs, debugging
+- Any coding task of more than a few lines
+- Orchestrating multi-step workflows
+
+### When to use CLI directly (`claude -p`, `claude --print`)
+**Almost never.** Reserve direct CLI invocations for:
+1. **Quick one-liners** — verifying a regex, checking a file diff, reading a config value
+2. **Diagnostic commands** — `gh pr status`, `git log`, `grep`ing logs
+3. **Setup/teardown** — bootstrapping a new worktree, cleaning up before an AO session starts
+4. **When AO is genuinely unavailable** — tmux is down, the repo has no worktree set up, or AO's spawn path is broken
+
+If the task involves writing code, opening a PR, running CI, or doing anything non-trivial — **dispatch an AO worker**. Never spend your own tokens on work an AO worker can do better and in parallel.
+
+### AO workers are general-purpose — not PR-bound
+
+AO workers are **sessions that run tasks**, not "sessions that claim PRs." A worker can:
+- Work on a PR (via `ao spawn --claim-pr N`)
+- Work on a bead or issue (via `ao spawn --bead <id>`)
+- Work on an arbitrary task with no PR or bead (via `ao spawn "fix the rate limit handler in scm-github"`)
+- Run a monitoring loop, cron job, or background task
+
+Do not require an AO worker to claim a PR in order to be useful. If a PR exists for the work, the worker can claim it — but PR-bound worktree linkage is a detail, not the worker's identity.
+
+### How to dispatch an AO worker
+
+```bash
+# General task — no PR required
+ao spawn "fix the authentication bug in the Slack notifier"
+
+# On a specific PR (creates worktree automatically)
+ao spawn --project agent-orchestrator --claim-pr <N>
+
+# On a bead
+ao spawn --project agent-orchestrator --bead bd-xxx
+
+# Monitor/loop task (long-running)
+ao spawn --project agent-orchestrator --no-worktree "run the evolve loop"
+```
+
+Do not manually create worktrees, `cd` into directories, or run `claude` directly for tasks that belong to an AO worker.
+
 ## What "Config" Covers
 
 The yaml config is richer than it looks. Before coding, check:
@@ -28,9 +79,9 @@ projects.*:         # Per-project overrides for all of the above
 plugins:            # Plugin credentials and settings
 ```
 
-## Definition of a "Green" PR
+## Definition of a "Green" PR (7-Green)
 
-A PR is green when **ALL SIX** are true:
+A PR is green when **ALL SEVEN** are true:
 
 1. **CI green** — all required GitHub Actions checks pass (no failures, no pending required)
 2. **No merge conflicts** — `mergeable: MERGEABLE` (not CONFLICTING)
@@ -38,8 +89,9 @@ A PR is green when **ALL SIX** are true:
 4. **Cursor Bugbot finished** — conclusion neutral/success, no blocking findings
 5. **All inline comments resolved** — EVEN after CR APPROVED, check ALL reviewers (CR, Copilot, Bugbot, humans). Major/Critical/actionable are blockers, nitpicks are OK. PRIMARY (GraphQL): `gh api graphql -f query='...'` to get unresolved thread count. FALLBACK (REST — use when GraphQL rate-limited): `gh api repos/OWNER/REPO/pulls/NUM/comments --jq '[.[] | {user: .user.login, body: .body[0:200], path: .path}]'` — review each comment, fix actionable ones.
 6. **Evidence review passed** — run `/er` if PR has evidence bundle (skip if none)
+7. **Skeptic PASS** — `Skeptic Gate` CI check must pass. Skeptic is an independent LLM verifier that checks all 7 conditions; if it finds a gap, it fails. If `ANTHROPIC_API_KEY` is not configured, the check SKIPs (not a blocker) but a real skeptic run is required for a genuine green PR.
 
-**Never declare a PR green or ask for merge unless all 6 are true.**
+**Never declare a PR green or ask for merge unless all 7 are true.**
 
 **PR status check — always check merge state FIRST:**
 ```bash
@@ -129,28 +181,31 @@ Before dispatching AO workers:
 1. Run `gh api rate_limit` and inspect budgets.
 2. Count active tmux sessions: `tmux list-sessions | wc -l`.
 3. Spawn gate:
-   - If `graphql.remaining < 200`, do **not** use `ao spawn`; fall back to REST API workaround below.
    - If active tmux sessions > 15, do **not** spawn new AO workers; warn the user instead.
 
 When blocked by this gate, include current counts and the exact blocker in your status update.
 
-### GraphQL exhausted — REST fallback for `ao spawn`
+### GraphQL exhausted — REST worktree path (still spawns an AO worker)
 
-`ao spawn --claim-pr N` uses GraphQL. When GraphQL quota is 0, **fall back to REST API immediately** — do NOT just wait:
+`ao spawn --claim-pr N` uses GraphQL. When GraphQL quota is 0, **still dispatch an AO worker** — just create the worktree via REST instead:
 
-1. **Create worktree + branch manually** (no GraphQL needed):
+1. **Create worktree + branch manually** (REST / no GraphQL needed):
    ```bash
    cd /Users/jleechan/project_agento/agent-orchestrator
    git worktree add ~/.worktrees/manual-<task> -b feat/<bead-id> origin/main
    ```
-2. **Spawn Claude Code directly** in tmux (no `ao spawn` needed):
+2. **Spawn the AO worker in tmux** (this IS the AO worker — not a CLI fallback):
    ```bash
    tmux new-session -d -s <session-name> "cd ~/.worktrees/manual-<task> && claude --dangerously-skip-permissions"
    ```
+   This is still an AO worker — it runs in tmux, can receive work, push code, and open PRs. The only difference is the worktree was created via REST instead of `ao spawn`.
+
 3. **Check PR metadata via REST** (always works): `gh api repos/OWNER/REPO/pulls/N --jq '{branch: .head.ref, state: .state}'`
 4. **Create PRs via REST**: `gh api repos/OWNER/REPO/pulls --method POST -f title="..." -f head="BRANCH" -f base="main" -f body="..."`
 5. **REST quota**: typically 3000-5000/hr — use `gh api rate_limit --jq '.resources.core.remaining'`
 6. **Lifecycle-worker auto-backfill**: workers with `backfillAllPRs: true` will adopt the PR once GraphQL resets (~1h)
+
+**Never fall back to "just run `claude -p` and do it yourself."** The AO worker in tmux is always preferred over direct CLI execution.
 
 ### `GITHUB_TOKEN` auth — verify first, unset only if broken
 
@@ -311,18 +366,18 @@ Use the `ao-session-monitor` skill (`~/.claude/skills/ao-session-monitor.md`) wh
 
 ## PR Worker Coverage — Harness Safeguards (bd-7ay)
 
-PR worker coverage repair must be **deterministic and fail-closed**. The following rules apply whenever a session is dispatched to repair uncovered or inactive PR workers.
+AO workers drive this repo's PR lifecycle. Coverage repair must be **deterministic and fail-closed**. The following rules apply whenever a session is dispatched to repair uncovered or inactive PR workers.
 
 ### Mandatory recovery command
 
-When a user asks about uncovered or inactive PR workers, recovery **MUST** use explicit `ao spawn` per uncovered PR:
+When a user asks about uncovered or inactive PR workers, dispatch an AO worker per uncovered PR:
 
 ```bash
-# One session per uncovered PR — never batch or use bead/issue spawn
+# One session per uncovered PR
 ao spawn --project agent-orchestrator --claim-pr <PR_NUMBER>
 ```
 
-**Do NOT use `bd open` or bead/issue spawn in this flow.** Bead/issue spawn does not guarantee 1:1 PR→session mapping and can create orphaned or duplicate sessions.
+**AO workers are the tool — not a last resort.** Do NOT use `bd open`, bead spawn, or direct CLI (`claude -p`) for coverage repair. An AO worker in tmux with the worktree already set up is always the right answer.
 
 ### PR Coverage Reconciliation Procedure
 

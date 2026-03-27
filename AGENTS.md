@@ -8,7 +8,23 @@ Before writing any code, ask: "Can I achieve this without changing core?"
 
 Follow this order strictly:
 
-### 1. Use Config First
+### 1. Dispatch an AO Worker (default — almost always)
+When given a task, **dispatch an AO worker first** — not `claude -p`, not manual investigation, not a one-off script. AO workers are the standard execution model for all work in this repo.
+
+```bash
+# General task
+ao spawn "fix the rate limit handler in scm-github"
+
+# On a specific PR
+ao spawn --project agent-orchestrator --claim-pr <N>
+
+# On a bead
+ao spawn --project agent-orchestrator --bead bd-xxx
+```
+
+AO workers are general-purpose. They are not limited to claiming PRs — a worker can do any task. Only fall back to direct CLI (`claude -p`, `claude --print`) for quick one-liners, diagnostics, or when AO is genuinely unavailable.
+
+### 2. Use Config First
 Check whether `agent-orchestrator.yaml` already supports what you need:
 - `reactions` — add/override event reactions (ci-failed, changes-requested, agent-stuck, etc.)
 - `agentRules` — per-project or global instructions injected into agent system prompts
@@ -18,7 +34,7 @@ Check whether `agent-orchestrator.yaml` already supports what you need:
 
 If the config surface can express the behavior, **stop here**. No code needed.
 
-### 2. Make a New Plugin (existing plugin slot)
+### 3. Make a New Plugin (existing plugin slot)
 If config is not enough, implement a plugin using an existing slot:
 - `runtime` — how sessions run (tmux, docker, etc.)
 - `agent` — how to talk to an AI agent (claude-code, codex, cursor, opencode, etc.)
@@ -29,16 +45,16 @@ If config is not enough, implement a plugin using an existing slot:
 
 Use an existing plugin package as a template. Publish as `@composio/ao-plugin-<slot>-<name>`.
 
-### 3. Make a New Plugin Type (new plugin slot)
+### 4. Make a New Plugin Type (new plugin slot)
 If none of the existing slots fit, propose and implement a new plugin slot in `plugin-registry.ts`.
 This requires a small core change but keeps the business logic in a plugin.
 
 Open an issue (bead) first to discuss the new slot design before implementing.
 
-### 4. Change Core Code (last resort)
+### 5. Change Core Code (last resort)
 Only modify `packages/core/src/` if the capability genuinely cannot be expressed via config or any plugin slot.
 
-Justify in your PR why options 1–3 were insufficient. Core changes need stronger scrutiny than plugin changes.
+Justify in your PR why options 1–4 were insufficient. Core changes need stronger scrutiny than plugin changes.
 
 ---
 
