@@ -3,12 +3,10 @@
 # Used by skeptic-gate.yml and skeptic-cron.yml
 # =============================================================================
 name: "Skeptic setup"
-description: "Checkout + Node + pnpm + Claude CLI + dependencies + CLI build"
+description: "Node + pnpm + Claude/Codex CLI + dependencies + workspace build"
 runs:
   using: composite
   steps:
-    - uses: actions/checkout@v4
-
     - name: Install pnpm
       uses: pnpm/action-setup@v4
 
@@ -35,6 +33,6 @@ runs:
       run: pnpm install --frozen-lockfile
       shell: bash
 
-    - name: Build CLI
-      run: pnpm -C packages/cli build
+    - name: Build workspace
+      run: pnpm -r --filter '!@jleechanorg/ao-web' build
       shell: bash
