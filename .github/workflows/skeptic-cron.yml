@@ -175,9 +175,8 @@ jobs:
 
             # 7. Skeptic verdict — prefer this cron run's skeptic-output file
             # bd-skp2: fall back to gh comments API only if no output file exists
-            # bd-ao2b: skeptic step now fails the workflow if exit != 0 (aligns with merge-gate.ts).
-            #   When skeptic exits 0 but finds no VERDICT (--dry-run mode, no API keys): treat as SKIPPED → PASS.
-            #   This is intentional — the cron workflow's skeptic step is for evaluation, not blocking.
+            # bd-ao2b: infra failures (Codex/Claude unavailable) → VERDICT: SKIPPED → PASS.
+            #   Real code quality FAIL → VERDICT: FAIL → SKEPTIC_STATUS=FAIL (blocks merge).
             if [ -f "skeptic-output-${PR_NUM}.txt" ]; then
               # bd-8tpa: prefer PASS when both FAIL and PASS are in output (Codex 401 + Claude fallback)
               if grep -qi "VERDICT: PASS" "skeptic-output-${PR_NUM}.txt"; then
@@ -185,7 +184,7 @@ jobs:
               elif grep -qi "VERDICT: FAIL" "skeptic-output-${PR_NUM}.txt"; then
                 SKEPTIC_STATUS="FAIL"
               else
-                # skeptic exited 0 with no VERDICT (e.g., SKIPPED due to no API keys) → treat as SKIPPED → PASS
+                # VERDICT: SKIPPED (infra unavailability) or no VERDICT → treat as SKIPPED → PASS
                 SKEPTIC_STATUS="PASS"
               fi
             else
