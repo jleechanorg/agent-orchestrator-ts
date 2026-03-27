@@ -35,9 +35,10 @@ const BASE_BRANCH = (() => {
     if (!/^[a-zA-Z0-9/._-]+$/.test(raw) || raw.includes("..")) {
       throw new Error(`Invalid GITHUB_BASE_REF (possible injection): ${raw}`);
     }
-    // Prefix with refs/heads/ so git resolves the bare branch name unambiguously.
-    // In CI (fork PR), GITHUB_BASE_REF="main" is available as refs/heads/main.
-    return `refs/heads/${raw}`;
+    // In CI, only remote-tracking refs exist (origin/main, origin/feat/xyz).
+    // GITHUB_BASE_REF="main" → use origin/main which is guaranteed to exist
+    // after fetch-depth: 0. Bare "main" is ambiguous (no refs/heads/main in CI).
+    return `origin/${raw}`;
   }
   // Local fallback: origin/HEAD is the remote default branch (never stale)
   return "origin/HEAD";
