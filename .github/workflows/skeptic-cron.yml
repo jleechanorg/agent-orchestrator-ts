@@ -127,6 +127,8 @@ jobs:
             # Also exclude comments from the PR author (they can always resolve their own threads).
             # Nit/nitpick comments are excluded as they don't block CR approval.
             PR_AUTHOR=$(gh api repos/${{ github.repository }}/pulls/"$PR_NUM" --jq '.user.login')
+            # Strip the "owner/" prefix from github.repository to get just the repo name
+            REPO_NAME="${GITHUB_REPOSITORY#*/}"
             UNRESOLVED=$(gh api graphql -f query='
               query($owner: String!, $name: String!, $number: Int!) {
                 repository(owner: $owner, name: $name) {
@@ -145,7 +147,7 @@ jobs:
                   }
                 }
               }
-            ' -f owner='${{ github.repository_owner }}' -f name='${{ github.repository }}' -F number="$PR_NUM" \
+            ' -f owner='${{ github.repository_owner }}' -f name="$REPO_NAME" -F number="$PR_NUM" \
               --jq "[.data.repository.pullRequest.reviewThreads.nodes[] | select(.isResolved == false) | .comments.nodes[] | select(.author.login != null and (.author.login | ascii_downcase) != (\"$PR_AUTHOR\" | ascii_downcase) and (.body | test(\"^\\\\s*(nit:|nitpick)\"; \"i\") | not))] | length" 2>/dev/null || echo 0)
             if [ "$UNRESOLVED" = "0" ] || [ -z "$UNRESOLVED" ]; then
               COMMENTS_STATUS="PASS"
