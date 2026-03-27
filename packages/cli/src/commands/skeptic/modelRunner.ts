@@ -1,3 +1,5 @@
+import { spawn } from "node:child_process";
+
 /**
  * Model runner — runs the skeptical LLM evaluation.
  * Uses Claude CLI (`claude --print`) for headless evaluation.
@@ -7,18 +9,48 @@
  */
 
 export async function runSkepticEvaluation(prompt: string): Promise<string> {
-  try {
-    const { execSync } = await import("node:child_process");
-    // --print: outputs LLM response only (no interactive UI).
-    // Prompt is piped via stdin. 2>/dev/null suppresses hook stderr noise.
-    const result = execSync("claude --print 2>/dev/null", {
-      input: prompt,
-      encoding: "utf-8",
-      timeout: 120_000,
+  return new Promise((resolve) => {
+    const child = spawn("claude", ["--print"], {
+      // Explicit stdio: capture stderr for error diagnostics, pipe stdin.
+      stdio: ["pipe", "pipe", "pipe"],
+      // Keep env clean; Claude reads stdin for prompt.
     });
-    return result.trim();
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    return `VERDICT: FAIL — Claude CLI evaluation failed: ${msg.slice(0, 200)}`;
-  }
+
+    let stdout = "";
+    let stderr = "";
+
+    child.stdout?.on("data", (chunk) => {
+      stdout += chunk.toString();
+    });
+
+    child.stderr?.on("data", (chunk) => {
+      stderr += chunk.toString();
+    });
+
+    const timeout = setTimeout(() => {
+      child.kill();
+      resolve("VERDICT: FAIL — Claude CLI timed out after 120s");
+    }, 120_000);
+
+    child.on("close", (code) => {
+      clearTimeout(timeout);
+      if (code === 0) {
+        resolve(stdout.trim());
+      } else {
+        const stderrSnippet = stderr ? `\nstderr: ${stderr.slice(0, 300)}` : "";
+        resolve(
+          `VERDICT: FAIL — Claude CLI exited with code ${code}${stderrSnippet}`,
+        );
+      }
+    });
+
+    child.on("error", (err) => {
+      clearTimeout(timeout);
+      resolve(`VERDICT: FAIL — Claude CLI not available: ${err.message.slice(0, 200)}`);
+    });
+
+    // Write prompt to stdin and close it so Claude processes it.
+    child.stdin?.write(prompt);
+    child.stdin?.end();
+  });
 }
