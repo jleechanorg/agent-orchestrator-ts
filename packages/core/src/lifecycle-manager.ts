@@ -1057,7 +1057,19 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
               message: finalMessage,
               escalated: false,
             };
-          } catch {
+          } catch (sendErr) {
+            const errMsg = sendErr instanceof Error ? sendErr.message : String(sendErr);
+            observer.recordOperation({
+              metric: "lifecycle_poll",
+              operation: "lifecycle.reaction.send_failed",
+              outcome: "failure",
+              reason: errMsg,
+              correlationId: undefined,
+              projectId,
+              sessionId,
+              data: { reactionKey, error: errMsg },
+              level: "warn",
+            });
             return {
               reactionType: reactionKey,
               success: false,
@@ -1386,13 +1398,23 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
                   // getReviews returns { author: { login: string }, state: string, ... }
                   const crReviews = (reviews as Array<{ author?: { login?: string }; state?: string }>)
                     .filter((r) => r.author?.login === "coderabbitai[bot]");
-                  const latest = crReviews[crReviews.length - 1];
-                  const crVerdict = latest?.state ?? null;
+                  const crVerdict = crReviews[crReviews.length - 1]?.state ?? null;
+
+                  // Allow the reaction if ANY reviewer (human or bot) has posted CHANGES_REQUESTED
+                  // more recently than CR's latest verdict. This prevents blocking legitimate human
+                  // change requests when CR's latest formal verdict is COMMENTED.
+                  const allReviews = reviews as Array<{ author?: { login?: string }; state?: string }>;
+                  const latestCRIndex = crReviews.length > 0
+                    ? allReviews.findIndex((r) => r === crReviews[crReviews.length - 1])
+                    : -1;
+                  const newerHumanCR = allReviews.slice(latestCRIndex + 1).some(
+                    (r) => r.state === "changes_requested" && r.author?.login !== "coderabbitai[bot]",
+                  );
                   // Block only when verdict is explicitly non-CHANGES_REQUESTED (COMMENTED or DISMISSED).
                   // null = fail open (allow reaction).
                   // SCM normalizes GitHub API values: "CHANGES_REQUESTED" → "changes_requested",
                   // "DISMISSED" → "dismissed", "COMMENTED" → "commented" (see scm-github getReviews).
-                  skipVerdictGate = crVerdict === null || crVerdict === "changes_requested";
+                  skipVerdictGate = newerHumanCR || crVerdict === null || crVerdict === "changes_requested";
                 }
               }
             } catch {
