@@ -15,7 +15,7 @@ import chalk from "chalk";
 import ora from "ora";
 import type { Command } from "commander";
 import { exec } from "../lib/shell.js";
-import { fetchPRMeta, fetchReviews, fetchDiff, fetchIssueComments } from "./skeptic/gh-client.js";
+import { fetchPRMeta, fetchReviews, fetchDiff, fetchIssueComments, fetchDesignDoc } from "./skeptic/gh-client.js";
 import { fetchMergeGateState } from "./skeptic/mergeGate.js";
 import { buildSkepticPrompt } from "./skeptic/prompt.js";
 import { runSkepticEvaluation } from "./skeptic/modelRunner.js";
@@ -85,8 +85,8 @@ export function registerSkeptic(program: Command): void {
       const [owner, repo] = await resolveRepo(options);
       const spinner = ora(`Fetching PR #${prNumber} state…`).start();
 
-      // Fetch all needed data in parallel
-      const [pr, diff, reviews, existing] = await Promise.all([
+      // Fetch all needed data in parallel (including design doc from local checkout)
+      const [pr, diff, reviews, existing, designDoc] = await Promise.all([
         fetchPRMeta(owner, repo, prNumber).catch((err) => {
           spinner.fail(chalk.red("Failed to fetch PR: " + err));
           process.exit(1);
@@ -95,6 +95,7 @@ export function registerSkeptic(program: Command): void {
         fetchDiff(owner, repo, prNumber),
         fetchReviews(owner, repo, prNumber).catch(() => []),
         findExistingVerdict(owner, repo, prNumber).catch(() => null),
+        fetchDesignDoc(prNumber).catch(() => null),
       ]);
 
       spinner.succeed(chalk.green(`Fetched PR #${prNumber}: "${pr.title}"`));
@@ -111,7 +112,7 @@ export function registerSkeptic(program: Command): void {
 
       // Build and run evaluation
       const spinner3 = ora("Running skeptic evaluation…").start();
-      const prompt = buildSkepticPrompt(pr, state, diff, reviews);
+      const prompt = buildSkepticPrompt(pr, state, diff, reviews, designDoc);
       const verdict = await runSkepticEvaluation(prompt, {
         model: options.model as "codex" | "claude" | "gemini" | undefined,
       });
