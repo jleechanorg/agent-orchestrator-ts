@@ -3,6 +3,7 @@ name: Wholesome Checks
 # "Multiple shots on goal" — structural CI assertions supplementing runtime hooks.
 # Asserts invariants on code structure and PR metadata rather than just behavior.
 # Runs on every PR push; failures block merge when required checks are enabled.
+# NOTE: does not run on push-to-main (ci.yml handles that for the wholesome test file).
 
 on:
   pull_request:
