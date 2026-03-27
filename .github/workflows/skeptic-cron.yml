@@ -114,8 +114,8 @@ jobs:
             # reviewDecision aggregates formal APPROVED/CHANGES_REQUESTED state correctly.
             # bd-ao2b: also accept COMMENTED if the latest formal review was APPROVED.
             LATEST_CR=$(gh api repos/${{ github.repository }}/pulls/"$PR_NUM"/reviews \
-              --jq '[.[] | select(.user.login == "coderabbitai[bot]")] | [.[] | select(.state != "COMMENTED")] | sort_by(.submitted_at) | reverse | .[0] | {state: .state}]' 2>/dev/null || echo '[{"state":"none"}]')
-            CR_STATE=$(echo "$LATEST_CR" | jq -r '.[0].state // "none"')
+              --jq '[.[] | select(.user.login == "coderabbitai[bot]" and (.state == "APPROVED" or .state == "CHANGES_REQUESTED"))] | sort_by(.submitted_at) | reverse | .[0].state' 2>/dev/null || echo "none")
+            CR_STATE="${LATEST_CR:-none}"
             CR_APPROVED=$([ "$CR_STATE" = "APPROVED" ] && echo "PASS" || echo "FAIL (state=$CR_STATE)")
             echo "  [3] CR APPROVED:        $CR_APPROVED"
 
