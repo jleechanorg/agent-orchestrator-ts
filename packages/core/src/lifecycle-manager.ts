@@ -1389,7 +1389,9 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
                   const crVerdict = latest?.state ?? null;
                   // Block only when verdict is explicitly non-CHANGES_REQUESTED (COMMENTED or DISMISSED).
                   // null = fail open (allow reaction).
-                  skipVerdictGate = crVerdict === null || crVerdict === "CHANGES_REQUESTED";
+                  // SCM normalizes GitHub API values: "CHANGES_REQUESTED" → "changes_requested",
+                  // "DISMISSED" → "dismissed", "COMMENTED" → "commented" (see scm-github getReviews).
+                  skipVerdictGate = crVerdict === null || crVerdict === "changes_requested";
                 }
               }
             } catch {
