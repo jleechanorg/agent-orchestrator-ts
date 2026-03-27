@@ -42,15 +42,17 @@ interface RegisterAgentParams {
 
 /**
  * Post a JSON-RPC tools/call to the MCP Agent Mail transport.
+ * Accepts an optional fetch function (injected for testing); defaults to the global.
  */
 async function apiPost(
   endpoint: string,
   toolName: string,
   params: Record<string, unknown>,
+  fetchFn: typeof fetch = fetch,
 ): Promise<unknown> {
   const base = endpoint.replace(/\/+$/, "").replace(/\/mcp$/, "");
   const url = `${base}/mcp`;
-  const response = await fetch(url, {
+  const response = await fetchFn(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -116,6 +118,8 @@ export interface McpMailNotifierConfig {
   agentId?: string;
   projectId?: string;
   to?: string[];
+  /** Injectable fetch for testing; defaults to the global. */
+  _fetch?: typeof fetch;
 }
 
 export function create(config?: McpMailNotifierConfig): Notifier {
@@ -130,6 +134,7 @@ export function create(config?: McpMailNotifierConfig): Notifier {
     Array.isArray(config?.to)
       ? (config.to as unknown[]).filter((v): v is string => typeof v === "string")
       : [];
+  const fetchFn: typeof fetch = config?._fetch ?? fetch;
 
   if (!endpoint) {
     console.warn("[notifier-mcp-mail] No endpoint configured — notifications will be no-ops");
@@ -153,7 +158,7 @@ export function create(config?: McpMailNotifierConfig): Notifier {
           model: "claude",
           agent_name: agentId,
         };
-        await apiPost(endpoint, "register_agent", params);
+        await apiPost(endpoint, "register_agent", params, fetchFn);
       })();
       registrationPromise = p;
       p.catch(() => { registrationPromise = null; });
@@ -176,7 +181,7 @@ export function create(config?: McpMailNotifierConfig): Notifier {
         body_md: buildMessageBody(event),
       };
 
-      await apiPost(endpoint, "send_message", params);
+      await apiPost(endpoint, "send_message", params, fetchFn);
     },
 
     async notifyWithActions(event: OrchestratorEvent, actions: NotifyAction[]): Promise<void> {
@@ -191,7 +196,7 @@ export function create(config?: McpMailNotifierConfig): Notifier {
         body_md: buildBodyWithActions(event, actions),
       };
 
-      await apiPost(endpoint, "send_message", params);
+      await apiPost(endpoint, "send_message", params, fetchFn);
     },
 
     async post(message: string, context?: NotifyContext): Promise<string | null> {
@@ -207,7 +212,7 @@ export function create(config?: McpMailNotifierConfig): Notifier {
         body_md: message,
       };
 
-      await apiPost(endpoint, "send_message", params);
+      await apiPost(endpoint, "send_message", params, fetchFn);
       return null;
     },
   };
