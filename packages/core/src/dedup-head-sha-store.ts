@@ -42,9 +42,17 @@ export function clearLastSentHeadSha(sessionId: SessionId): void {
 }
 
 /**
- * Returns all session IDs currently stored in the SHA dedup map.
- * Used by lifecycle-manager to prune entries for sessions no longer tracked.
+ * Prune SHA dedup entries for session IDs that are no longer active.
+ * CR 3002468214: only deletes entries whose sessionId is NOT in liveSessionIds,
+ * preventing cross-project pollution when multiple lifecycle-manager instances
+ * share the same process (each LM passes only its own active session set).
+ *
+ * @param liveSessionIds Set of session IDs currently managed by the caller.
  */
-export function getAllTrackedSessionIds(): SessionId[] {
-  return Array.from(headShaStore.keys());
+export function pruneStaleSessionIds(liveSessionIds: Set<SessionId>): void {
+  for (const trackedSessionId of headShaStore.keys()) {
+    if (!liveSessionIds.has(trackedSessionId)) {
+      headShaStore.delete(trackedSessionId);
+    }
+  }
 }

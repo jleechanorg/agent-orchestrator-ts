@@ -13,7 +13,7 @@
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { reapPostMergeCoWorkers } from "./fork-lifecycle-postmerge.js";
-import { clearLastSentHeadSha, getAllTrackedSessionIds, getLastSentHeadSha, setLastSentHeadSha } from "./dedup-head-sha-store.js";
+import { pruneStaleSessionIds, getLastSentHeadSha, setLastSentHeadSha } from "./dedup-head-sha-store.js";
 import {
   SESSION_STATUS,
   PR_STATE,
@@ -1720,12 +1720,9 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
           reactionTrackers.delete(trackerKey);
         }
       }
-      // bd-1178: prune dedup SHA store entries for sessions no longer tracked
-      for (const staleSessionId of getAllTrackedSessionIds()) {
-        if (!currentSessionIds.has(staleSessionId)) {
-          clearLastSentHeadSha(staleSessionId);
-        }
-      }
+      // bd-1178: prune dedup SHA store entries for sessions no longer tracked.
+      // CR 3002468214: pass currentSessionIds so pruning is scoped to this LM's sessions.
+      pruneStaleSessionIds(currentSessionIds);
       for (const retryKey of mergeRetryTimestamps.keys()) {
         const sessionId = retryKey.replace("merge-retry-", "");
         if (!currentSessionIds.has(sessionId)) {

@@ -1470,7 +1470,10 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
         "--json",
         "headRefOid",
       ]);
-      const data: { headRefOid: string } = JSON.parse(raw);
+      const data = JSON.parse(raw) as { headRefOid?: unknown };
+      if (typeof data.headRefOid !== "string" || data.headRefOid.length === 0) {
+        throw new Error(`Missing headRefOid for PR #${pr.number} in repo ${repoFlag(pr)}`);
+      }
       return data.headRefOid;
     },
 
