@@ -131,8 +131,9 @@ function getPRTitle(): string {
       throw new Error(`gh pr view failed in CI context: ${msg}`, { cause: err });
     }
   }
-  // Fallback: use branch name (useful for local TDD — correctly fails when prefix is missing)
-  return git("rev-parse --abbrev-ref HEAD", REPO_ROOT);
+  // Fallback: use branch name (useful for local TDD — correctly fails when prefix is missing).
+  // strict=true so broken git state (e.g. detached HEAD with no ref) raises instead of silently passing.
+  return git("rev-parse --abbrev-ref HEAD", REPO_ROOT, true);
 }
 
 // ---------------------------------------------------------------------------
@@ -143,9 +144,17 @@ function getPRTitle(): string {
 //   packages/core/src/__tests__/wholesome.test.ts
 // Going up 4 levels reaches the git worktree root (where .git lives):
 //   packages/core/src/__tests__ → packages/core/src → packages/core → packages → worktree-root
-const REPO_ROOT = import.meta.dirname
-  ? join(import.meta.dirname, "..", "..", "..", "..")
-  : join(process.cwd()); // CJS fallback
+function computeRepoRoot(): string {
+  const candidate = import.meta.dirname
+    ? join(import.meta.dirname, "..", "..", "..", "..")
+    : join(process.cwd()); // CJS fallback
+  // Sanity-check: ensure .git exists so broken traversal fails loudly.
+  try { statSync(join(candidate, ".git")); } catch {
+    throw new Error(`REPO_ROOT=${candidate} is not a git repo (no .git found)`);
+  }
+  return candidate;
+}
+const REPO_ROOT = computeRepoRoot();
 
 describe("wholesome — structural source-code assertions", () => {
 
