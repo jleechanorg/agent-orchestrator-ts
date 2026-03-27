@@ -411,13 +411,14 @@ describe("METADATA_UPDATER_SCRIPT — [agento] prefix enforcement", () => {
     expect(METADATA_UPDATER_SCRIPT).toMatch(/deny.*gh pr create titles must start with \[agento\]/);
   });
 
-  it("uses bash regex to check [agento] prefix (not fragile grep|sed)", () => {
-    // Avoids POSIX sed capture-group portability issues; uses bash regex instead.
-    // Verifies the bash regex guard (if [[ ! "$clean_command" =~ --title) is present.
-    // The .*?agento covers all three quote-variants of the [agento] prefix check.
-    expect(METADATA_UPDATER_SCRIPT).toMatch(
-      /if \[\[ ! "\$clean_command" =~ --title.*?agento/,
-    );
+  it("uses Python shlex to parse --title argv value (not substring regex)", () => {
+    // Uses Python shlex to correctly parse --title as an argv token, avoiding
+    // false matches when --title appears as literal text inside --body values.
+    // /s flag needed because the Python code spans multiple lines in the JS string.
+    expect(METADATA_UPDATER_SCRIPT).toMatch(/python3.*shlex.split/s);
+    expect(METADATA_UPDATER_SCRIPT).toMatch(/if arg == '--title'/);
+    // Check the guard is present — use .toContain() to avoid regex-escaping ambiguity.
+    expect(METADATA_UPDATER_SCRIPT).toContain('!= ' + '\\[agento\\]*');
   });
 
   it("checks hook_event is PreToolUse before enforcing prefix", () => {
