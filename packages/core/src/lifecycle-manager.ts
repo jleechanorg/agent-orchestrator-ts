@@ -1383,8 +1383,9 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
                   : null;
                 if (verdictScm) {
                   const reviews = await verdictScm.getReviews(session.pr);
-                  const crReviews = (reviews as Array<{ user?: { login?: string }; state?: string }>)
-                    .filter((r) => r.user?.login === "coderabbitai[bot]");
+                  // getReviews returns { author: { login: string }, state: string, ... }
+                  const crReviews = (reviews as Array<{ author?: { login?: string }; state?: string }>)
+                    .filter((r) => r.author?.login === "coderabbitai[bot]");
                   const latest = crReviews[crReviews.length - 1];
                   const crVerdict = latest?.state ?? null;
                   // Block only when verdict is explicitly non-CHANGES_REQUESTED (COMMENTED or DISMISSED).
