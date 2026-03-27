@@ -925,6 +925,10 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
 
   function clearReactionTracker(sessionId: SessionId, reactionKey: string): void {
     reactionTrackers.delete(`${sessionId}:${reactionKey}`);
+    // Note: clearLastSentHeadSha(sessionId) intentionally NOT called here.
+    // Calling it would clear the SHA on every status transition (pending, approved, etc.)
+    // before the next changes-requested reaction fires, breaking dedup.
+    // Dedup store entries are small (sessionId → SHA) and cleared on process restart.
   }
 
   function getReactionConfigForSession(
