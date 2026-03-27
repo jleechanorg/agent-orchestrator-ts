@@ -48,10 +48,8 @@ function runHook(opts: {
     tool_input: { command: opts.command },
     tool_response: opts.output ?? "",
     exit_code: opts.exitCode ?? 0,
+    hook_event_name: opts.hookEvent ?? "PostToolUse",
   };
-  if (opts.hookEvent !== undefined) {
-    inputJson.hook_event_name = opts.hookEvent;
-  }
   const input = JSON.stringify(inputJson);
 
   let stdout: string;
@@ -63,6 +61,7 @@ function runHook(opts: {
         AO_SESSION: sessionId,
         AO_DATA_DIR: sessionsDir,
         AO_ALLOW_GH_PR_MERGE: opts.allowMerge ? "1" : undefined,
+        AO_HOOK_EVENT_NAME: opts.hookEvent ?? "PostToolUse",
         HOME: testDir,
       },
       encoding: "utf-8",
@@ -136,6 +135,128 @@ describe("hook script: gh pr create", () => {
 });
 
 // =========================================================================
+// [agento] prefix enforcement via PreToolUse guard
+// =========================================================================
+describe("hook script: [agento] prefix enforcement", () => {
+  it("denies gh pr create with title missing [agento] prefix in PreToolUse", () => {
+    const { stdout } = runHook({
+      command: 'gh pr create --title "fix: bug" --body "test"',
+      hookEvent: "PreToolUse",
+    });
+    expect(stdout).toContain('"permissionDecision":"deny"');
+    expect(stdout).toContain("gh pr create titles must start with [agento]");
+  });
+
+  it("allows gh pr create with [agento] prefix in PreToolUse (exits silently)", () => {
+    const { stdout } = runHook({
+      command: 'gh pr create --title "[agento] fix: bug" --body "test"',
+      hookEvent: "PreToolUse",
+    });
+    // No deny — exits silently (empty JSON {})
+    expect(stdout.trim()).toBe("{}");
+  });
+
+  it("allows gh pr create with [agento] prefix (single-quoted) in PreToolUse", () => {
+    const { stdout } = runHook({
+      command: "gh pr create --title '[agento] fix: bug' --body 'test'",
+      hookEvent: "PreToolUse",
+    });
+    expect(stdout.trim()).toBe("{}");
+  });
+
+  it("allows gh pr create with [agento] prefix (double-quoted) in PreToolUse", () => {
+    const { stdout } = runHook({
+      command: 'gh pr create --title "[agento] fix: bug" --body "test"',
+      hookEvent: "PreToolUse",
+    });
+    expect(stdout.trim()).toBe("{}");
+  });
+
+  it("allows gh pr create with [agento] prefix (equals form: --title=[agento]) in PreToolUse", () => {
+    const { stdout } = runHook({
+      command: "gh pr create --title=[agento] fix --body 'test'",
+      hookEvent: "PreToolUse",
+    });
+    expect(stdout.trim()).toBe("{}");
+  });
+
+  it("denies gh pr create with env prefix but missing [agento] in PreToolUse", () => {
+    const { stdout } = runHook({
+      command: "GH_TOKEN=ghs_xxxx gh pr create --title \"fix: bug\" --body \"test\"",
+      hookEvent: "PreToolUse",
+    });
+    expect(stdout).toContain('"permissionDecision":"deny"');
+    expect(stdout).toContain("gh pr create titles must start with [agento]");
+  });
+
+  it("allows gh pr create with env prefix and [agento] title in PreToolUse", () => {
+    const { stdout } = runHook({
+      command: "GH_TOKEN=ghs_xxxx gh pr create --title \"[agento] fix: bug\" --body \"test\"",
+      hookEvent: "PreToolUse",
+    });
+    expect(stdout.trim()).toBe("{}");
+  });
+
+  it("denies when --body contains literal --title with [agento] but actual title is unprefixed", () => {
+    // Regression: --title inside --body must not be mistaken for the actual --title flag.
+    const { stdout } = runHook({
+      command: 'gh pr create --title "fix: bug" --body "Try: gh pr create --title [agento] your title"',
+      hookEvent: "PreToolUse",
+    });
+    expect(stdout).toContain('"permissionDecision":"deny"');
+  });
+
+  it("allows when actual --title has [agento] even if --body contains literal [agento]", () => {
+    const { stdout } = runHook({
+      command: 'gh pr create --title "[agento] fix: bug" --body "Note: use [agento] prefix"',
+      hookEvent: "PreToolUse",
+    });
+    expect(stdout.trim()).toBe("{}");
+  });
+
+  it("PreToolUse: allowed gh pr create exits silently without updating metadata", () => {
+    // When [agento] prefix is present, PreToolUse should allow the call but NOT
+    // fall through to metadata writers. The metadata file stays unchanged.
+    const { stdout, metadata } = runHook({
+      command: 'gh pr create --title "[agento] fix: bug" --body "test"',
+      hookEvent: "PreToolUse",
+    });
+    expect(stdout.trim()).toBe("{}");
+    expect(metadata).toBe("status=spawning\n");
+  });
+
+  it("PreToolUse: git checkout -b does NOT update branch metadata", () => {
+    // PreToolUse events should NOT fall through to metadata writers.
+    // git checkout -b in PreToolUse should exit silently without updating branch.
+    const { stdout, metadata } = runHook({
+      command: "git checkout -b feat/new-feature",
+      hookEvent: "PreToolUse",
+    });
+    expect(stdout.trim()).toBe("{}");
+    expect(metadata).toBe("status=spawning\n");
+  });
+
+  it("PostToolUse: detects gh pr create with env prefix and extracts PR URL", () => {
+    const { metadata } = runHook({
+      command: "GH_TOKEN=ghs_xxxx gh pr create --title \"[agento] fix\" --body \"test\"",
+      output: "https://github.com/owner/repo/pull/77",
+    });
+    expect(metadata).toContain("pr=https://github.com/owner/repo/pull/77");
+    expect(metadata).toContain("status=pr_open");
+  });
+
+  it("PostToolUse gh pr create still updates metadata (no prefix check)", () => {
+    const { metadata } = runHook({
+      command: 'gh pr create --title "fix: bug" --body "test"',
+      output: "https://github.com/owner/repo/pull/99",
+      hookEvent: "PostToolUse",
+    });
+    expect(metadata).toContain("pr=https://github.com/owner/repo/pull/99");
+    expect(metadata).toContain("status=pr_open");
+  });
+});
+
+// =========================================================================
 // git checkout -b / git switch -c detection
 // =========================================================================
 describe("hook script: git checkout -b / git switch -c", () => {
@@ -190,6 +311,7 @@ describe("hook script: gh pr merge", () => {
     const { stdout, metadata } = runHook({
       command: "gh pr merge 123 --squash",
       metadataContent: "status=pr_open\n",
+      hookEvent: "PreToolUse",
     });
     expect(stdout).toContain("permissionDecision");
     expect(stdout).toContain("deny");

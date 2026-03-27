@@ -733,7 +733,7 @@ describe("getSessionInfo", () => {
 describe("METADATA_UPDATER_SCRIPT content", () => {
   it("contains clean_command stripping logic for cd prefixes", () => {
     expect(METADATA_UPDATER_SCRIPT).toContain('clean_command="$command"');
-    expect(METADATA_UPDATER_SCRIPT).toMatch(/while.*clean_command.*cd/);
+    expect(METADATA_UPDATER_SCRIPT).toMatch(/while.*clean_command.*cd/s);
   });
 
   it("uses $clean_command (not $command) for all regex-based command detection", () => {
@@ -768,12 +768,16 @@ describe("METADATA_UPDATER_SCRIPT content", () => {
   });
 
   it("handles multiple chained cd commands via while loop", () => {
-    expect(METADATA_UPDATER_SCRIPT).toMatch(/while.*clean_command/);
+    expect(METADATA_UPDATER_SCRIPT).toMatch(/while.*clean_command/s);
   });
 
-  it("detects gh pr create on clean_command", () => {
+  it("detects gh pr create on clean_command via pr_create_pattern", () => {
+    // Uses shared pr_create_pattern (env-prefix tolerant), not bare ^gh anchor
     expect(METADATA_UPDATER_SCRIPT).toMatch(
-      /"\$clean_command"\s*=~\s*\^gh\[/,
+      /pr_create_pattern.*=.*\^.*gh.*pr.*create/,
+    );
+    expect(METADATA_UPDATER_SCRIPT).toMatch(
+      /"\$clean_command"\s*=~\s*\$pr_create_pattern/,
     );
   });
 
@@ -786,6 +790,29 @@ describe("METADATA_UPDATER_SCRIPT content", () => {
   it("detects gh pr merge on clean_command", () => {
     expect(METADATA_UPDATER_SCRIPT).toContain("merge_pattern");
     expect(METADATA_UPDATER_SCRIPT).toMatch(/"\$clean_command"\s*=~\s*\$merge_pattern/);
+  });
+
+  // [agento] prefix enforcement
+  it("denies gh pr create when title lacks [agento] prefix in PreToolUse", () => {
+    expect(METADATA_UPDATER_SCRIPT).toMatch(
+      /deny.*gh pr create titles must start with \[agento\]/,
+    );
+  });
+
+  it("uses Python shlex to parse --title argv value (not substring regex)", () => {
+    // Uses Python shlex to correctly parse --title as an argv token, avoiding
+    // false matches when --title appears as literal text inside --body values.
+    expect(METADATA_UPDATER_SCRIPT).toMatch(/python3.*shlex.split/s);
+    expect(METADATA_UPDATER_SCRIPT).toMatch(/if arg == '--title'/);
+    // Check the guard is present using .toContain() — avoids regex-escaping issues
+    // The compiled script has: if [[ -z "$first_title" || "$first_title" != \[agento\]*
+    // String representation in TypeScript: '\\[' = backslash + '[' (one backslash char)
+    expect(METADATA_UPDATER_SCRIPT).toContain('!= ' + '\\[agento\\]*');
+  });
+
+  it("checks hook_event is PreToolUse before enforcing prefix", () => {
+    // Prefix guard fires only in PreToolUse; PostToolUse falls through to metadata update
+    expect(METADATA_UPDATER_SCRIPT).toMatch(/"PreToolUse".*\$pr_create_pattern/);
   });
 });
 
