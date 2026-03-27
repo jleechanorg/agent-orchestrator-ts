@@ -75,14 +75,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install actionlint
+        run: |
+          # Install actionlint binary directly (avoids third-party action availability issues)
+          curl -sfL https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/install.sh | sh -s -- \
+            --dest "$HOME/.local/bin"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
       - name: Run actionlint
-        uses: reviewdog/actionlint@v1
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          reporter: github-pr-review
-          filter_mode: nofilter
-        env:
-          ACTIONLINT_FLAGS: --format '{{json .}}'
+        run: actionlint .github/workflows/
 
   evidence-media-attachment:
     name: Evidence Has Media Attachment
