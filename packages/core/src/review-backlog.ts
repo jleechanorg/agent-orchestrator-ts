@@ -139,8 +139,9 @@ export async function maybeDispatchReviewBacklog(
     // Fail open (null = don't know) so we don't suppress legitimate alerts during transient
     // API errors.
     if (reviewsResult.status === "fulfilled" && Array.isArray(reviewsResult.value)) {
-      const crReviews = (reviewsResult.value as Array<{ user?: { login?: string }; state?: string }>)
-        .filter((r) => r.user?.login === "coderabbitai[bot]");
+      // getReviews returns { author: { login: string }, state: string, ... }
+      const crReviews = (reviewsResult.value as Array<{ author?: { login?: string }; state?: string }>)
+        .filter((r) => r.author?.login === "coderabbitai[bot]");
       const latest = crReviews[crReviews.length - 1];
       crLatestVerdict = latest?.state ?? null;
     }
