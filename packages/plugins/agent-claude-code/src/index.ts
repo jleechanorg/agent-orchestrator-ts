@@ -148,20 +148,29 @@ for i, arg in enumerate(args):
     echo "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"Blocked by AO policy: gh pr create titles must start with [agento]. Prefix your title with [agento] and retry.\"}}"
     exit 0
   fi
+  # Prefix check passed — title is valid, allow the tool.
+  # Exit here so PreToolUse does NOT fall through to metadata writers below.
+  echo '{}'
+  exit 0
 fi
 
 # Hard guardrail: block agent-triggered gh pr merge by default.
+# Placed BEFORE the PostToolUse-only guard so PreToolUse denials fire correctly.
 # Rationale: prompt rules (e.g., "NEVER MERGE") are advisory; this enforces policy in code.
 # Escape hatch for trusted/manual flows: AO_ALLOW_GH_PR_MERGE=1
-# This check runs BEFORE AO_SESSION/metadata checks since blocking a merge doesn't require session metadata.
-# Guard fires when NOT PostToolUse and NOT allowed. PostToolUse falls through for metadata update.
 merge_pattern='^[[:space:]]*([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]+[[:space:]]+)*gh[[:space:]]+pr[[:space:]]+merge([[:space:]]|$)'
 if [[ "$clean_command" =~ $merge_pattern ]]; then
   if [[ "$hook_event" != "PostToolUse" && ${BASH_AO_ALLOW_GH_PR_MERGE} != "1" ]]; then
     echo '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"Blocked by AO policy: agents must not run gh pr merge. Leave merge to orchestrator/human."}}'
     exit 0
   fi
-  # AO_ALLOW_GH_PR_MERGE=1 during PreToolUse OR PostToolUse: fall through to metadata update below
+fi
+
+# All metadata writers run in PostToolUse only.
+# Allow PreToolUse (hook_event empty or "PreToolUse") to fall through to guards above.
+if [[ "$hook_event" != "PostToolUse" && -n "$hook_event" ]]; then
+  echo '{}'
+  exit 0
 fi
 
 # Validate AO_SESSION is set

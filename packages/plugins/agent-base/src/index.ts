@@ -219,6 +219,17 @@ for i, arg in enumerate(args):
     echo "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"Blocked by AO policy: gh pr create titles must start with [agento]. Prefix your title with [agento] and retry.\"}}"
     exit 0
   fi
+  # Prefix check passed — title is valid, allow the tool.
+  # Exit here so PreToolUse does NOT fall through to metadata writers below.
+  echo '{}'
+  exit 0
+fi
+
+# All metadata writers run in PostToolUse only.
+# Allow PreToolUse (hook_event empty or "PreToolUse") to fall through to guards above.
+if [[ "$hook_event" != "PostToolUse" && -n "$hook_event" ]]; then
+  echo '{}'
+  exit 0
 fi
 
 # Hard guardrail: block agent-triggered gh pr merge by default.
