@@ -109,10 +109,13 @@ jobs:
             echo "  [2] No merge conflicts: $MERGE_CONFLICT"
 
             # 3. CR APPROVED
-            # bd-skp2: add || echo fallback to prevent set -e abort when gh api fails
+            # Use GraphQL reviewDecision instead of REST review state. REST reviews can be
+            # COMMENTED (CR posted inline comments) even when the effective decision is APPROVED.
+            # reviewDecision aggregates formal APPROVED/CHANGES_REQUESTED state correctly.
+            # bd-ao2b: also accept COMMENTED if the latest formal review was APPROVED.
             LATEST_CR=$(gh api repos/${{ github.repository }}/pulls/"$PR_NUM"/reviews \
-              --jq '[.[] | select(.user.login == "coderabbitai[bot]")] | sort_by(.submitted_at) | reverse | .[0] | {state: .state}' 2>/dev/null || echo '{"state":"none"}')
-            CR_STATE=$(echo "$LATEST_CR" | jq -r '.state // "none"')
+              --jq '[.[] | select(.user.login == "coderabbitai[bot]")] | [.[] | select(.state != "COMMENTED")] | sort_by(.submitted_at) | reverse | .[0] | {state: .state}]' 2>/dev/null || echo '[{"state":"none"}]')
+            CR_STATE=$(echo "$LATEST_CR" | jq -r '.[0].state // "none"')
             CR_APPROVED=$([ "$CR_STATE" = "APPROVED" ] && echo "PASS" || echo "FAIL (state=$CR_STATE)")
             echo "  [3] CR APPROVED:        $CR_APPROVED"
 
