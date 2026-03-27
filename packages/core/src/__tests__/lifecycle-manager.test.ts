@@ -2228,6 +2228,8 @@ describe("reactions", () => {
     const sha1 = "aaaa1111aaaa1111aaaa1111aaaa1111aaaa1111";
     const sha2 = "bbbb2222bbbb2222bbbb2222bbbb2222bbbb2222";
 
+    // Use a mutable ref so we can change SHA mid-test without vi.fn() mocking issues
+    let currentSha = sha1;
     const mockSCM: SCM = {
       name: "mock-scm",
       detectPR: vi.fn(),
@@ -2241,8 +2243,8 @@ describe("reactions", () => {
       getPendingComments: vi.fn().mockResolvedValue([]),
       getAutomatedComments: vi.fn(),
       getMergeability: vi.fn(),
-      // bd-1178: track call count to verify SHA is fetched each cycle
-      getPRHeadSha: vi.fn().mockResolvedValue(sha1),
+      // bd-1178: return currentSha which we mutate between polls
+      getPRHeadSha: vi.fn().mockImplementation(() => Promise.resolve(currentSha)),
     };
 
     const registryWithSCM: PluginRegistry = {
@@ -2281,7 +2283,7 @@ describe("reactions", () => {
     expect(mockSessionManager.send).toHaveBeenCalledTimes(1);
 
     // Third poll: SHA changed to sha2, send fires again
-    vi.mocked(mockSCM.getPRHeadSha!).mockResolvedValue(sha2);
+    currentSha = sha2;
     await lm.check("app-1");
     expect(mockSessionManager.send).toHaveBeenCalledTimes(2);
 
