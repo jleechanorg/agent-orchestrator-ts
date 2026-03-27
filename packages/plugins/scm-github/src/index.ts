@@ -1100,11 +1100,19 @@ function normalizeMergePayloadFromRestShape(data: Record<string, unknown>): void
 
 function createGitHubSCM(config?: Record<string, unknown>): SCM {
   const BOT_AUTHORS = buildBotAuthors(config);
-  // SKEPTIC_BOT_AUTHOR — resolved from config, then GH_SKEPTIC_BOT_AUTHOR env var, then fallback
-  const SKEPTIC_BOT_AUTHOR: string =
-    (config?.skepticBotAuthor as string | undefined) ??
-    process.env["GH_SKEPTIC_BOT_AUTHOR"] ??
-    "jleechan-agent[bot]";
+
+  // Trusted authors for skeptic verdict detection.
+  // Defaults to github-actions[bot] (CI workflows) and jleechan-agent[bot] (agent CLI).
+  // Extendable via config.trustedSkepticAuthors in agent-orchestrator.yaml.
+  const skepticAuthorsExtra = config?.trustedSkepticAuthors;
+  const TRUSTED_SKEPTIC_AUTHORS = new Set(
+    Array.isArray(skepticAuthorsExtra) && skepticAuthorsExtra.length > 0
+      ? (skepticAuthorsExtra as string[]).filter(
+          (v): v is string => typeof v === "string" && v.length > 0,
+        )
+      : ["github-actions[bot]", "jleechan-agent[bot]"],
+  );
+
   return {
     name: "github",
 
@@ -2178,12 +2186,6 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
     },
 
     async getSkepticVerdict(pr: PRInfo): Promise<"PASS" | "FAIL" | "SKIPPED"> {
-      // Fetch issue comments from the skeptic bot.
-      // The skeptic bot posts a comment containing <!-- skeptic-agent-verdict --> marker
-      // and VERDICT: PASS or VERDICT: FAIL inside the body.
-      // Scan all comments and keep the last (newest) matching verdict — GitHub returns
-      // comments oldest-first, so iterating forward and overwriting finds the newest.
-      // Paginate through all pages since a busy PR may have >100 comments.
       try {
         const perPage = 100;
         let lastVerdict: "PASS" | "FAIL" | null = null;
@@ -2204,15 +2206,16 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
           }
 
           for (const c of comments) {
-            if (c.user?.login === SKEPTIC_BOT_AUTHOR) {
-              // Require both the HTML marker and the VERDICT: line
-              const body = c.body ?? "";
-              const hasMarker = /<!--\s*skeptic-agent-verdict\s*-->/i.test(body);
-              if (hasMarker && /VERDICT:\s*PASS/i.test(body)) {
-                lastVerdict = "PASS";
-              } else if (hasMarker && /VERDICT:\s*FAIL/i.test(body)) {
-                lastVerdict = "FAIL";
-              }
+            // Skip untrusted authors — prevents spoofed verdicts from arbitrary commenters
+            if (!TRUSTED_SKEPTIC_AUTHORS.has(c.user.login)) {
+              continue;
+            }
+            const body = c.body ?? "";
+            const hasMarker = /<!--\s*skeptic-agent-verdict\s*-->/i.test(body);
+            if (hasMarker && /VERDICT:\s*PASS/i.test(body)) {
+              lastVerdict = "PASS";
+            } else if (hasMarker && /VERDICT:\s*FAIL/i.test(body)) {
+              lastVerdict = "FAIL";
             }
           }
 

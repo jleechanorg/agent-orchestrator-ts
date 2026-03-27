@@ -21,6 +21,9 @@ import { buildSkepticPrompt } from "./skeptic/prompt.js";
 import { runSkepticEvaluation } from "./skeptic/modelRunner.js";
 import { postVerdict } from "./skeptic/posting.js";
 
+/** Line-anchored VERDICT matcher — only accepts a single-line literal "VERDICT: PASS" or "VERDICT: FAIL". */
+const VERDICT_LINE_RE = /^VERDICT:\s*(PASS|FAIL)\s*$/im;
+
 const SKEPTIC_BOT_AUTHOR =
   process.env["GH_SKEPTIC_BOT_AUTHOR"] ?? "jleechan-agent[bot]";
 
@@ -52,8 +55,10 @@ async function findExistingVerdict(
   for (const c of comments) {
     // Find by HTML marker first (most robust), then by bot author
     if (/<!-- skeptic-agent-verdict -->/i.test(c.body)) {
-      if (/VERDICT:\s*PASS/i.test(c.body)) return { verdict: "PASS", commentId: c.id };
-      if (/VERDICT:\s*FAIL/i.test(c.body)) return { verdict: "FAIL", commentId: c.id };
+      const m = c.body.match(VERDICT_LINE_RE);
+      if (m) {
+        return { verdict: m[1].toUpperCase() as "PASS" | "FAIL", commentId: c.id };
+      }
     }
   }
   return null;
@@ -69,6 +74,7 @@ export function registerSkeptic(program: Command): void {
       "--dry-run",
       "Run the skeptical evaluation and print the verdict to stdout (skip posting to GitHub)",
     )
+    .option("-m, --model <model>", "Model to use for evaluation (codex, claude, gemini)")
     .action(async (options) => {
       const prNumber = parseInt(String(options.pr), 10);
       if (isNaN(prNumber) || prNumber <= 0) {
@@ -106,13 +112,15 @@ export function registerSkeptic(program: Command): void {
       // Build and run evaluation
       const spinner3 = ora("Running skeptic evaluation…").start();
       const prompt = buildSkepticPrompt(pr, state, diff, reviews);
-      const verdict = await runSkepticEvaluation(prompt);
+      const verdict = await runSkepticEvaluation(prompt, {
+        model: options.model as "codex" | "claude" | "gemini" | undefined,
+      });
       spinner3.succeed(chalk.green("Skeptic evaluation complete"));
 
       // Dry-run: print verdict without posting
       if (options.dryRun) {
         console.log(chalk.yellow("\n=== DRY RUN — Verdict ===\n"));
-        const verdictMatch = verdict.match(/VERDICT:\s*(PASS|FAIL)/i);
+        const verdictMatch = verdict.match(VERDICT_LINE_RE);
         if (verdictMatch) {
           console.log(chalk[verdictMatch[1].toLowerCase() === "pass" ? "green" : "red"](verdictMatch[0]));
         } else {
@@ -124,7 +132,7 @@ export function registerSkeptic(program: Command): void {
       }
 
       // Parse verdict from LLM output
-      const verdictMatch = verdict.match(/VERDICT:\s*(PASS|FAIL)/i);
+      const verdictMatch = verdict.match(VERDICT_LINE_RE);
       if (!verdictMatch) {
         console.warn(chalk.yellow("Could not parse VERDICT from LLM output. Posting raw output."));
       }

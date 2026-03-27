@@ -967,6 +967,8 @@ export type EventType =
   // Session exit reconciliation (bd-uxs.6)
   | "session.exit_validated"
   | "session.exit_failed"
+  // Worker completion signal (bd-skp2)
+  | "worker.signals_completion"
   // Summary
   | "summary.all_complete";
 
@@ -991,8 +993,8 @@ export interface ReactionConfig {
   /** Whether this reaction is enabled */
   auto: boolean;
 
-  /** What to do: send message to agent, notify human, auto-merge, request-merge, parallel-retry */
-  action: "send-to-agent" | "notify" | "auto-merge" | "request-merge" | "parallel-retry";
+  /** What to do: send message to agent, notify human, auto-merge, request-merge, parallel-retry, skeptic-review */
+  action: "send-to-agent" | "notify" | "auto-merge" | "request-merge" | "parallel-retry" | "skeptic-review";
 
   /** Message to send (for send-to-agent) */
   message?: string;
@@ -1053,6 +1055,12 @@ export interface ReactionConfig {
     /** Kill losing sessions when one succeeds */
     killOnSuccess?: boolean;
   };
+
+  // bd-skp2: Skeptic review configuration
+  /** Skeptic review: alternate model to use for skeptic evaluation (e.g. "claude" or "gemini") */
+  skepticModel?: string;
+  /** Skeptic review: post verdict as PR comment (default: true) */
+  skepticPostComment?: boolean;
 }
 
 export interface ReactionResult {
