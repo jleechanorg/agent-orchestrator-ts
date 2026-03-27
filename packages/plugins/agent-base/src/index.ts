@@ -118,9 +118,12 @@ const BASH_REMATCH2 = '"${BASH_REMATCH[2]}"';
 
 // Bash parameter expansions — expressed as single-quoted JS strings (no JS interpretation)
 // so they survive TypeScript compilation and expand correctly in bash.
-const BASH_AO_ALLOW_GH_PR_MERGE = '${AO_ALLOW_GH_PR_MERGE:-}';
+const BASH_AO_ALLOW_GH_PR_MERGE = '${AO_ALLOW_GH_PR_MERGE:-_}';
 const BASH_AO_SESSION = '${AO_SESSION:-}';
 // Result: ${AO_ALLOW_GH_PR_MERGE:-} and ${AO_SESSION:-} as literal bash parameter expansion
+
+// PreToolUse event name — plain JS string, expands to PreToolUse for JSON output
+const HOOK_EVENT_VAR = "PreToolUse";
 
 // AO_DATA_DIR: use env var if set, else $HOME/.ao-sessions. Built with plain concatenation
 // to avoid JS template expression parsing eating the { from ${HOME}.
@@ -193,20 +196,12 @@ done
 
 # Guardrail: enforce [agento] prefix on gh pr create titles (PreToolUse only).
 # PostToolUse falls through to metadata update — no need to re-check there.
+# Use bash regex to check for [agento] prefix directly in the command string.
+# This avoids fragile grep|sed pipelines and POSIX sed capture-group portability issues.
 if [[ "$hook_event" == "PreToolUse" && "$clean_command" =~ ^gh[[:space:]]+pr[[:space:]]+create ]]; then
-  AGENTO_PREFIX="[agento]"
-  # Extract --title value: grep grabs the first token after --title.
-  # sed strips the leading --title<space>; the -e adds a second substitution that
-  # strips a leading and trailing character (e.g. surrounding quotes) from the result.
-  pr_title="$(echo "$clean_command" | grep -oE '--title[[:space:]][^[:space:]]*' | sed -e 's/--title[[:space:]]//' -e 's/^.\(.*\).$/\1/' || true)"
-  # Strip surrounding single/double quotes via bash # ## % %% expansion.
-  # \' and \" are literal backslash-quote in bash (prefix-strip / suffix-strip patterns).
-  pr_title="\${pr_title#\'}"
-  pr_title="\${pr_title%\'}"
-  pr_title="\${pr_title#\"}"
-  pr_title="\${pr_title%\"}"
-  if [[ -n "$pr_title" && "$pr_title" != "$AGENTO_PREFIX"* ]]; then
-    echo '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"Blocked by AO policy: gh pr create titles must start with [agento]. Prefix your title with [agento] and retry."}}'
+  # Match --title followed by optional quotes and [agento] prefix (case-sensitive).
+  if [[ ! "$clean_command" =~ --title[[:space:]]+(\'\[agento\]|\"\[agento\]|\[agento\]) ]]; then
+    echo "{\"hookSpecificOutput\":{\"hookEventName\":\"" + HOOK_EVENT_VAR + "\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"Blocked by AO policy: gh pr create titles must start with [agento]. Prefix your title with [agento] and retry.\"}}"
     exit 0
   fi
 fi
@@ -225,7 +220,7 @@ fi
 merge_pattern='^[[:space:]]*([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]+[[:space:]]+)*gh[[:space:]]+pr[[:space:]]+merge([[:space:]]|$)'
 if [[ "$clean_command" =~ $merge_pattern ]]; then
   if [[ "$hook_event" != "PostToolUse" && ${BASH_AO_ALLOW_GH_PR_MERGE} != "1" ]]; then
-    echo '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"Blocked by AO policy: agents must not run gh pr merge. Leave merge to orchestrator/human."}}'
+    echo "{\"hookSpecificOutput\":{\"hookEventName\":\"" + HOOK_EVENT_VAR + "\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"Blocked by AO policy: agents must not run gh pr merge. Leave merge to orchestrator/human.\"}}"
     exit 0
   fi
   # AO_ALLOW_GH_PR_MERGE=1 during PreToolUse OR PostToolUse: fall through to metadata update below
@@ -253,7 +248,7 @@ update_metadata_key() {
   local value="$2"
 
   # Create temp file
-  local temp_file="\${metadata_file}.tmp"
+  local temp_file="${'$'}{metadata_file}.tmp"
 
   # Escape special sed characters in value (& | / \\)
   local escaped_value=$(echo "$value" | sed 's/[&|\\/]/\\\\&/g')
@@ -276,7 +271,7 @@ update_metadata_key() {
 # Detect: gh pr create
 if [[ "$clean_command" =~ ^gh[[:space:]]+pr[[:space:]]+create ]]; then
   # Extract PR URL from output
-  pr_url=$(echo "$output" | grep -Eo 'https://github[.]com/[^/]+/[^/]+/pull/[0-9]+' | head -1)
+  pr_url=$(echo "$output" | grep -Eo 'https://github[.]com/[^/]+/[^/]+/pull/[0-9]+' | head -1 || true)
 
   if [[ -n "$pr_url" ]]; then
     update_metadata_key "pr" "$pr_url"

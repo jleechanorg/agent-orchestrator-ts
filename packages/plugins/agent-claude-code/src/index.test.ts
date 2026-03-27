@@ -789,17 +789,18 @@ describe("METADATA_UPDATER_SCRIPT content", () => {
   });
 
   // [agento] prefix enforcement
-  it("contains AGENTO_PREFIX constant with [agento] value", () => {
-    expect(METADATA_UPDATER_SCRIPT).toContain('AGENTO_PREFIX="[agento]"');
-  });
-
-  it("extracts --title argument from gh pr create", () => {
-    expect(METADATA_UPDATER_SCRIPT).toMatch(/grep -oE? '--title/);
-  });
-
   it("denies gh pr create when title lacks [agento] prefix in PreToolUse", () => {
     expect(METADATA_UPDATER_SCRIPT).toMatch(
       /deny.*gh pr create titles must start with \[agento\]/,
+    );
+  });
+
+  it("uses bash regex to check [agento] prefix (not fragile grep|sed)", () => {
+    // Avoids POSIX sed capture-group portability issues; uses bash regex instead.
+    // Verifies the bash regex guard (if [[ ! "$clean_command" =~ --title) is present.
+    // The .*?agento covers all three quote-variants of the [agento] prefix check.
+    expect(METADATA_UPDATER_SCRIPT).toMatch(
+      /if \[\[ ! "\$clean_command" =~ --title.*?agento/,
     );
   });
 

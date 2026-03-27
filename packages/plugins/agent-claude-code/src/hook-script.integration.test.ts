@@ -136,6 +136,55 @@ describe("hook script: gh pr create", () => {
 });
 
 // =========================================================================
+// [agento] prefix enforcement via PreToolUse guard
+// =========================================================================
+describe("hook script: [agento] prefix enforcement", () => {
+  it("denies gh pr create with title missing [agento] prefix in PreToolUse", () => {
+    const { stdout } = runHook({
+      command: 'gh pr create --title "fix: bug" --body "test"',
+      hookEvent: "PreToolUse",
+    });
+    expect(stdout).toContain('"permissionDecision":"deny"');
+    expect(stdout).toContain("gh pr create titles must start with [agento]");
+  });
+
+  it("allows gh pr create with [agento] prefix in PreToolUse (exits silently)", () => {
+    const { stdout } = runHook({
+      command: 'gh pr create --title "[agento] fix: bug" --body "test"',
+      hookEvent: "PreToolUse",
+    });
+    // No deny — exits silently (empty JSON {})
+    expect(stdout.trim()).toBe("{}");
+  });
+
+  it("allows gh pr create with [agento] prefix (single-quoted) in PreToolUse", () => {
+    const { stdout } = runHook({
+      command: "gh pr create --title '[agento] fix: bug' --body 'test'",
+      hookEvent: "PreToolUse",
+    });
+    expect(stdout.trim()).toBe("{}");
+  });
+
+  it("allows gh pr create with [agento] prefix (double-quoted) in PreToolUse", () => {
+    const { stdout } = runHook({
+      command: 'gh pr create --title "[agento] fix: bug" --body "test"',
+      hookEvent: "PreToolUse",
+    });
+    expect(stdout.trim()).toBe("{}");
+  });
+
+  it("PostToolUse gh pr create still updates metadata (no prefix check)", () => {
+    const { metadata } = runHook({
+      command: 'gh pr create --title "fix: bug" --body "test"',
+      output: "https://github.com/owner/repo/pull/99",
+      hookEvent: "PostToolUse",
+    });
+    expect(metadata).toContain("pr=https://github.com/owner/repo/pull/99");
+    expect(metadata).toContain("status=pr_open");
+  });
+});
+
+// =========================================================================
 // git checkout -b / git switch -c detection
 // =========================================================================
 describe("hook script: git checkout -b / git switch -c", () => {
