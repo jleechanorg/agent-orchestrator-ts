@@ -1337,11 +1337,13 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
                   const newerHumanCR = reviews.slice(latestCRIndex + 1).some(
                     (r) => r.state === "changes_requested" && !String(r.author ?? "").endsWith("coderabbitai[bot]"),
                   );
-                  // Block only when verdict is explicitly non-CHANGES_REQUESTED (COMMENTED or DISMISSED).
+                  // Block only when verdict is explicitly COMMENTED or DISMISSED with no newer human CR.
+                  // Allow dispatch when: newer human CR exists, verdict is CHANGES_REQUESTED, verdict is null,
+                  // or verdict is any other state (e.g. APPROVED) — only COMMENTED/DISMISSED are suppressed.
                   // null = fail open (allow reaction).
                   // SCM normalizes GitHub API values: "CHANGES_REQUESTED" → "changes_requested",
                   // "DISMISSED" → "dismissed", "COMMENTED" → "commented" (see scm-github getReviews).
-                  skipVerdictGate = newerHumanCR || crVerdict === null || crVerdict === "changes_requested";
+                  skipVerdictGate = crVerdict === null || crVerdict !== "commented" && crVerdict !== "dismissed";
                 }
               }
             } catch (verdictErr) {
