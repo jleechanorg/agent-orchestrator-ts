@@ -3,7 +3,9 @@ name: Skeptic Cron
 # Runs every 30 minutes — evaluates all open PRs with skeptic and merges when 7-green.
 # This makes skeptic truly universal: even PRs that skip the evolve loop get skeptic
 # review and automatic merge when ready.
-# Gate 5 (inline comments resolved) uses GraphQL reviewThreads.isResolved for accuracy.
+# Gate 5 (inline comments resolved): uses GraphQL reviewThreads.isResolved (not REST
+# /pulls/{n}/comments) — GitHub only exposes thread resolution state via GraphQL.
+# Gate 5 fails closed on GraphQL errors (|| echo __GQL_ERROR__) rather than passing silently.
 on:
   schedule:
     - cron: "*/30 * * * *"
