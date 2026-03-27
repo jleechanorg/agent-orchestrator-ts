@@ -121,13 +121,33 @@ jobs:
             BUGBOT_STATUS=$(if [ "$BUGBOT_ERRORS" = "0" ] || [ -z "$BUGBOT_ERRORS" ]; then echo "PASS"; else echo "FAIL ($BUGBOT_ERRORS error(s))"; fi)
             echo "  [4] Bugbot clean:       $BUGBOT_STATUS"
 
-            # 5. Inline comments resolved
-            # Note: REST /pulls/N/comments cannot distinguish resolved vs unresolved threads.
-            # This check counts root-level non-nitpick comments as a heuristic approximation.
-            # bd-skp2: add || echo fallback to prevent set -e abort when gh api fails
-            UNRESOLVED=$(gh api repos/${{ github.repository }}/pulls/"$PR_NUM"/comments \
-              --jq '[.[] | select(.in_reply_to_id == null) | select(.body | test("^(nit:|nitpick)"; "i") | not)] | length' 2>/dev/null || echo 0)
-            COMMENTS_STATUS=$(if [ "$UNRESOLVED" = "0" ] || [ -z "$UNRESOLVED" ]; then echo "PASS"; else echo "FAIL ($UNRESOLVED unresolved)"; fi)
+            # 5. Inline comments resolved — use GraphQL to get thread-level isResolved
+            # (REST /pulls/{n}/comments lacks isResolved; GitHub tracks resolution at thread level)
+            # Also exclude comments from the PR author (they can always resolve their own threads).
+            # Nit/nitpick comments are excluded as they don't block CR approval.
+            PR_AUTHOR=$(gh api repos/${{ github.repository }}/pulls/"$PR_NUM" --jq '.user.login')
+            UNRESOLVED=$(gh api graphql -f query='
+              query($owner: String!, $name: String!, $number: Int!) {
+                repository(owner: $owner, name: $name) {
+                  pullRequest(number: $number) {
+                    reviewThreads(first: 100) {
+                      nodes {
+                        isResolved
+                        comments(first: 50) {
+                          nodes { author { login } body }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            ' -f owner='${{ github.repository_owner }}' -f name='${{ github.repository }}' -f number="$PR_NUM" \
+              --jq "[.data.repository.pullRequest.reviewThreads.nodes[] | select(.isResolved == false) | .comments.nodes[] | select(.author.login != null and (.author.login | ascii_downcase) != (\"$PR_AUTHOR\" | ascii_downcase) and (.body | test(\"^\\\\s*(nit:|nitpick)\"; \"i\") | not))] | length" 2>/dev/null || echo 0)
+            if [ "$UNRESOLVED" = "0" ] || [ -z "$UNRESOLVED" ]; then
+              COMMENTS_STATUS="PASS"
+            else
+              COMMENTS_STATUS="FAIL ($UNRESOLVED unresolved)"
+            fi ([agento] fix(gate-5): check isResolved via GraphQL and exclude PR-author comments)
             echo "  [5] Comments resolved:   $COMMENTS_STATUS"
 
             # 6. Evidence review

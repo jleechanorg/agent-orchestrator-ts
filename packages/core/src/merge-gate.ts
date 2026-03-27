@@ -109,10 +109,11 @@ export async function checkMergeGate(
         : `${bugbotErrors.length} Bugbot error(s) found`,
   });
 
-  // 5. Inline comments resolved — ignore nit/nitpick comments
+  // 5. Inline comments resolved — ignore nit/nitpick comments and PR author comments
+  // (PR author can always resolve their own threads; they don't block CR approval)
   const nitPattern = /^(nit:|nitpick)/i;
   const unresolvedBlockingComments = pendingComments.filter(
-    (c) => !c.isResolved && !nitPattern.test(c.body.trimStart()),
+    (c) => !c.isResolved && !nitPattern.test(c.body.trimStart()) && c.author !== pr.author,
   );
   checks.push({
     name: "Inline comments resolved",
