@@ -2228,8 +2228,15 @@ describe("reactions", () => {
     const sha1 = "aaaa1111aaaa1111aaaa1111aaaa1111aaaa1111";
     const sha2 = "bbbb2222bbbb2222bbbb2222bbbb2222bbbb2222";
 
-    // Use a mutable ref so we can change SHA mid-test without vi.fn() mocking issues
+    // Use mutable refs for both SHA and reviewDecision.
+    // Reactions fire on STATUS TRANSITIONS, not every poll cycle. To exercise
+    // dedup across multiple poll cycles we must create a transition each time:
+    // - getReviewDecision alternates: "changes_requested" → "pending" → "changes_requested"
+    //   This creates status transitions: pr_open→cr, cr→pending, pending→cr, cr→pending
+    //   The reaction fires on every "→cr" transition, allowing dedup to be exercised.
+    // - currentSha is mutated between reaction fires (not between every poll).
     let currentSha = sha1;
+    let reviewDecisionCallCount = 0;
     const mockSCM: SCM = {
       name: "mock-scm",
       detectPR: vi.fn(),
@@ -2239,11 +2246,16 @@ describe("reactions", () => {
       getCIChecks: vi.fn(),
       getCISummary: vi.fn().mockResolvedValue("passing"),
       getReviews: vi.fn(),
-      getReviewDecision: vi.fn().mockResolvedValue("changes_requested"),
+      getReviewDecision: vi.fn().mockImplementation(() => {
+        reviewDecisionCallCount++;
+        // Alternate between changes_requested and pending so every other poll
+        // creates a review_pending→changes_requested transition (reaction fires)
+        return Promise.resolve(reviewDecisionCallCount % 2 === 1 ? "changes_requested" : "pending");
+      }),
       getPendingComments: vi.fn().mockResolvedValue([]),
       getAutomatedComments: vi.fn(),
       getMergeability: vi.fn(),
-      // bd-1178: return currentSha which we mutate between polls
+      // bd-1178: return currentSha which we mutate between reaction fires
       getPRHeadSha: vi.fn().mockImplementation(() => Promise.resolve(currentSha)),
     };
 
