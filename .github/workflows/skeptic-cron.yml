@@ -126,6 +126,7 @@ jobs:
             echo "  [3] CR APPROVED:        $CR_APPROVED"
 
             # 4. Bugbot clean
+            # 4. Bugbot clean — error-severity comments from cursor[bot] block merge
             BUGBOT_ERRORS=$(gh api repos/${{ github.repository }}/pulls/"$PR_NUM"/comments \
               --jq '[.[] | select(.user.login == "cursor[bot]" and (.body | test("error"; "i")))] | length' 2>/dev/null || echo 0)
             BUGBOT_STATUS=$(if [ "$BUGBOT_ERRORS" = "0" ] || [ -z "$BUGBOT_ERRORS" ]; then echo "PASS"; else echo "FAIL ($BUGBOT_ERRORS error(s))"; fi)
