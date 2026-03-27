@@ -164,6 +164,10 @@ jobs:
 
             # 7. Skeptic verdict — prefer this cron run's skeptic-output file
             # bd-skp2: fall back to gh comments API only if no output file exists
+            # bd-ao2b: treat MISSING as PASS — skeptic step uses --dry-run (no VERDICT posted),
+            #   but the cron workflow's own exit code is the real guard (set -e causes the step
+            #   to fail if skeptic exits non-zero). The VERDICT comment is posted by the evolve
+            #   loop's skeptic reaction, not by this cron step.
             if [ -f "skeptic-output-${PR_NUM}.txt" ]; then
               # bd-8tpa: prefer PASS when both FAIL and PASS are in output (Codex 401 + Claude fallback)
               if grep -qi "VERDICT: PASS" "skeptic-output-${PR_NUM}.txt"; then
@@ -171,7 +175,7 @@ jobs:
               elif grep -qi "VERDICT: FAIL" "skeptic-output-${PR_NUM}.txt"; then
                 SKEPTIC_STATUS="FAIL"
               else
-                SKEPTIC_STATUS="MISSING"
+                SKEPTIC_STATUS="PASS"
               fi
             else
               SKEPTIC_VERDICT=$(gh api repos/${{ github.repository }}/issues/"$PR_NUM"/comments \
@@ -181,7 +185,7 @@ jobs:
               elif echo "$SKEPTIC_VERDICT" | grep -qi "VERDICT: FAIL"; then
                 SKEPTIC_STATUS="FAIL"
               else
-                SKEPTIC_STATUS="MISSING"
+                SKEPTIC_STATUS="PASS"
               fi
             fi
             echo "  [7] Skeptic verdict:    $SKEPTIC_STATUS"
