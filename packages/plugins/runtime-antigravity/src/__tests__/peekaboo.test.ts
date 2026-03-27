@@ -48,36 +48,39 @@ function mockError(message: string) {
 }
 
 // Import after mocks are set up
-import { windowList, see, click, paste, press } from "../peekaboo.js";
+import { windowList, see, click, paste, press, hotkey, scroll } from "../peekaboo.js";
 
 beforeEach(() => {
   vi.clearAllMocks();
 });
 
 describe("windowList()", () => {
-  it("parses JSON window list from peekaboo CLI", async () => {
+  it("parses JSON window list from peekaboo CLI envelope", async () => {
     const windows = [
       {
         window_id: 1,
         title: "Manager",
-        app: "Antigravity",
+        isOnScreen: true,
+        isMinimized: false,
         bounds: { x: 0, y: 0, width: 800, height: 600 },
       },
       {
         window_id: 2,
         title: "Conversation",
-        app: "Antigravity",
+        isOnScreen: true,
+        isMinimized: false,
         bounds: { x: 100, y: 100, width: 600, height: 400 },
       },
     ];
-    mockSuccess(JSON.stringify(windows));
+    const envelope = { data: { targetApplication: "Antigravity", windows } };
+    mockSuccess(JSON.stringify(envelope));
 
     const result = await windowList("Antigravity");
 
     expect(result).toEqual(windows);
     expect(mockExecFile).toHaveBeenCalledWith(
       "peekaboo",
-      ["list", "--app", "Antigravity", "--json"],
+      ["list", "windows", "--app", "Antigravity", "--json"],
       { timeout: 15_000 },
       expect.any(Function),
     );
@@ -93,7 +96,7 @@ describe("windowList()", () => {
 });
 
 describe("see()", () => {
-  it("parses see result with snapshot_id and ui_elements", async () => {
+  it("parses see result from envelope with snapshot_id and ui_elements", async () => {
     const seeResult = {
       snapshot_id: "snap-123",
       ui_elements: [
@@ -101,12 +104,15 @@ describe("see()", () => {
           id: "el-1",
           role: "AXButton",
           title: "Submit",
-          value: "",
-          bounds: { x: 10, y: 10, width: 100, height: 30 },
+          label: "Submit",
+          description: "Submit button",
+          role_description: "button",
+          is_actionable: true,
         },
       ],
     };
-    mockSuccess(JSON.stringify(seeResult));
+    const envelope = { success: true, data: seeResult };
+    mockSuccess(JSON.stringify(envelope));
 
     const result = await see("Antigravity", 1);
 
@@ -121,7 +127,7 @@ describe("see()", () => {
 });
 
 describe("click()", () => {
-  it("sends click command with element and snapshot IDs", async () => {
+  it("sends click command with --on and --snapshot flags", async () => {
     mockSuccess(JSON.stringify({ success: true }));
 
     const result = await click("Antigravity", 1, "el-1", "snap-123");
@@ -135,9 +141,9 @@ describe("click()", () => {
         "Antigravity",
         "--window-id",
         "1",
-        "--element-id",
+        "--on",
         "el-1",
-        "--snapshot-id",
+        "--snapshot",
         "snap-123",
         "--json",
       ],
@@ -163,14 +169,14 @@ describe("paste()", () => {
 });
 
 describe("press()", () => {
-  it("sends press command with key name", async () => {
+  it("sends press command with key as positional arg before --app", async () => {
     mockSuccess("");
 
     await press("Antigravity", "Return");
 
     expect(mockExecFile).toHaveBeenCalledWith(
       "peekaboo",
-      ["press", "--app", "Antigravity", "--key", "Return"],
+      ["press", "Return", "--app", "Antigravity"],
       { timeout: 15_000 },
       expect.any(Function),
     );
@@ -181,6 +187,54 @@ describe("press()", () => {
 
     await expect(press("Antigravity", "Return")).rejects.toThrow(
       "key press failed",
+    );
+  });
+});
+
+describe("hotkey()", () => {
+  it("sends hotkey command with combo as positional arg", async () => {
+    mockSuccess("");
+
+    await hotkey("Antigravity", "cmd+w");
+
+    expect(mockExecFile).toHaveBeenCalledWith(
+      "peekaboo",
+      ["hotkey", "cmd+w", "--app", "Antigravity"],
+      { timeout: 15_000 },
+      expect.any(Function),
+    );
+  });
+
+  it("throws when hotkey fails", async () => {
+    mockError("hotkey failed");
+
+    await expect(hotkey("Antigravity", "cmd+w")).rejects.toThrow(
+      "hotkey failed",
+    );
+  });
+});
+
+describe("scroll()", () => {
+  it("sends scroll command with direction and amount", async () => {
+    mockSuccess("");
+
+    await scroll("Antigravity", 1, "down", 5);
+
+    expect(mockExecFile).toHaveBeenCalledWith(
+      "peekaboo",
+      [
+        "scroll",
+        "--app",
+        "Antigravity",
+        "--window-id",
+        "1",
+        "--direction",
+        "down",
+        "--amount",
+        "5",
+      ],
+      { timeout: 15_000 },
+      expect.any(Function),
     );
   });
 });
