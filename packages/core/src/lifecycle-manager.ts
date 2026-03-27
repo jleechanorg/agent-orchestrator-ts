@@ -282,8 +282,15 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
   function startInboxPolling(): void {
     if (inboxPollTimer) return;
     inboxPollTimer = setInterval(async () => {
-      if (getMcpMailClientConfig()) {
-        await pollMcpMailInbox().catch(() => {/* non-fatal */});
+      // Re-entrancy guard: skip this poll if the previous one is still running
+      if (inboxPolling) return;
+      inboxPolling = true;
+      try {
+        if (getMcpMailClientConfig()) {
+          await pollMcpMailInbox().catch(() => {/* non-fatal */});
+        }
+      } finally {
+        inboxPolling = false;
       }
     }, INBOX_POLL_INTERVAL_MS);
     inboxPollTimer.unref();
@@ -296,6 +303,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
   const stuckEntryTimestamps = new Map<string, number>(); // "stuck-entry-{sessionId}" → when session entered stuck
   let pollTimer: ReturnType<typeof setInterval> | null = null;
   let polling = false; // re-entrancy guard
+  let inboxPolling = false; // re-entrancy guard for concurrent inbox polls
   let allCompleteEmitted = false; // guard against repeated all_complete
   let everHadSessions = false; // tracks whether any sessions have ever been observed
   let lastSweepTime = 0; // timestamp of last orphan tmux sweep
@@ -1012,7 +1020,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       : undefined;
     if (task) {
       sessionCurrentTask.set(session.id, task);
-    } else {
+    } else if (newStatus === "merged" || newStatus === "killed") {
       sessionCurrentTask.delete(session.id);
     }
 
