@@ -214,15 +214,18 @@ function extractLabels(pr) {
 function archDiagram(pr) {
   const title = pr.title.replace(/^\[agento\]\s*/i, "");
   const prNum = pr.number;
-  return `┌─────────────────────────────────────────┐
+  // Use dynamic box width so long titles are never truncated
+  const boxWidth = Math.max(title.length + 4, 41);
+  const hz = "─".repeat(boxWidth);
+  return `┌${hz}┐
 │      PR #${String(prNum).padStart(4)} — agent-orchestrator  │
-└─────────────────────────────────────────┘
+└${hz}┘
                   │
     ${pr.files?.length > 0 ? `▼ ${pr.files.length} file(s) changed` : "  (no files)"}
                   │
-┌─────────────────────────────────────────────────┐
-│  ${title.slice(0, 49).padEnd(49)} │
-└─────────────────────────────────────────────────┘`;
+┌${hz}┐
+│  ${title.padEnd(boxWidth)}  │
+└${hz}┘`;
 }
 
 // ---------------------------------------------------------------------------
