@@ -206,13 +206,14 @@ export async function maybeDispatchReviewBacklog(
       !shouldThrottle &&
       !(oldStatus !== newStatus && newStatus === "changes_requested") &&
       pendingFingerprint !== lastPendingDispatchHash &&
-      // bd-xxx: only re-alert on pending comments when CR's latest verdict is CHANGES_REQUESTED,
-      // or when a human reviewer posted CHANGES_REQUESTED after CR's latest verdict.
-      // When CR moves to COMMENTED (suggestions without formal verdict) we should not re-fire
-      // changes-requested for the same unresolved suggestions — the agent already knows.
-      // Fail open (crLatestVerdict === null) to avoid suppressing during transient API errors.
+      // bd-xxx: only re-alert on pending comments when verdict is not COMMENTED/DISMISSED
+      // (including CHANGES_REQUESTED, null, or any other state), OR when a human reviewer
+      // posted CHANGES_REQUESTED after CR's latest verdict. This ensures we never suppress
+      // dispatch when verdict is null (fail open for API errors), and we always allow
+      // dispatch for CHANGES_REQUESTED or newer human CR. Only COMMENTED/DISMISSED with
+      // no newer human CR is suppressed.
       // SCM normalizes GitHub API values: "CHANGES_REQUESTED" → "changes_requested" (scm-github getReviews).
-      (newerHumanCR || crLatestVerdict === null || crLatestVerdict === "changes_requested")
+      (crLatestVerdict === null || crLatestVerdict !== "commented" && crLatestVerdict !== "dismissed" || newerHumanCR)
     ) {
       const reactionConfig = getReactionConfigForSession(session, humanReactionKey);
       // bd-5o1: skip send-to-agent for dead agents. respawn-for-review is always
