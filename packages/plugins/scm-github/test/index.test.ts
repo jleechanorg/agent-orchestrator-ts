@@ -241,6 +241,80 @@ describe("scm-github plugin", () => {
     });
   });
 
+  describe("getSkepticVerdict", () => {
+    it("returns PASS when skeptic bot posted VERDICT: PASS", async () => {
+      mockGh([
+        { id: 1, user: { login: "coderabbitai[bot]" }, body: "looks good" },
+        {
+          id: 2,
+          user: { login: "jleechan-agent[bot]" },
+          body: "<!-- skeptic-agent-verdict -->\nVERDICT: PASS\n\nAll exit criteria met.",
+        },
+      ]);
+      const result = await scm.getSkepticVerdict!(pr);
+      expect(result).toBe("PASS");
+    });
+
+    it("returns FAIL when skeptic bot posted VERDICT: FAIL", async () => {
+      mockGh([
+        { id: 1, user: { login: "other-bot" }, body: "comment" },
+        {
+          id: 2,
+          user: { login: "jleechan-agent[bot]" },
+          body: "<!-- skeptic-agent-verdict -->\nVERDICT: FAIL\n\nGap: missing test coverage",
+        },
+      ]);
+      const result = await scm.getSkepticVerdict!(pr);
+      expect(result).toBe("FAIL");
+    });
+
+    it("returns SKIPPED when no skeptic verdict comment exists", async () => {
+      mockGh([
+        { id: 1, user: { login: "coderabbitai[bot]" }, body: "looks good" },
+        { id: 2, user: { login: "human" }, body: "please review" },
+      ]);
+      const result = await scm.getSkepticVerdict!(pr);
+      expect(result).toBe("SKIPPED");
+    });
+
+    it("returns SKIPPED when skeptic bot exists but no VERDICT marker", async () => {
+      mockGh([
+        {
+          id: 3,
+          user: { login: "jleechan-agent[bot]" },
+          body: "Running skeptic analysis...",
+        },
+      ]);
+      const result = await scm.getSkepticVerdict!(pr);
+      expect(result).toBe("SKIPPED");
+    });
+
+    it("returns SKIPPED when API call fails (non-fatal)", async () => {
+      mockGhError("API error");
+      const result = await scm.getSkepticVerdict!(pr);
+      expect(result).toBe("SKIPPED");
+    });
+
+    it("returns SKIPPED when comments list is empty", async () => {
+      mockGh([]);
+      const result = await scm.getSkepticVerdict!(pr);
+      expect(result).toBe("SKIPPED");
+    });
+
+    it("uses skepticBotAuthor from config when provided", async () => {
+      const customSCM = create({ skepticBotAuthor: "custom-skeptic[bot]" });
+      mockGh([
+        {
+          id: 1,
+          user: { login: "custom-skeptic[bot]" },
+          body: "<!-- skeptic-agent-verdict -->\nVERDICT: PASS",
+        },
+      ]);
+      const result = await customSCM.getSkepticVerdict!(pr);
+      expect(result).toBe("PASS");
+    });
+  });
+
   describe("verifyWebhook", () => {
     it("accepts unsigned webhooks when no secret is configured", async () => {
       await expect(scm.verifyWebhook?.(makeWebhookRequest(), project)).resolves.toEqual({

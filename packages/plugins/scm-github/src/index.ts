@@ -1093,6 +1093,11 @@ function normalizeMergePayloadFromRestShape(data: Record<string, unknown>): void
 
 function createGitHubSCM(config?: Record<string, unknown>): SCM {
   const BOT_AUTHORS = buildBotAuthors(config);
+  // SKEPTIC_BOT_AUTHOR — defaults to env var then hardcoded fallback
+  const SKEPTIC_BOT_AUTHOR: string =
+    (config?.skepticBotAuthor as string | undefined) ??
+    process.env["GH_SKEPTIC_BOT_AUTHOR"] ??
+    "jleechan-agent[bot]";
   return {
     name: "github",
 
@@ -2146,6 +2151,41 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
       } catch (err) {
         throw new Error("Failed to fetch automated comments", { cause: err });
       }
+    },
+
+    async getSkepticVerdict(pr: PRInfo): Promise<"PASS" | "FAIL" | "SKIPPED"> {
+      // Fetch issue comments (not PR review comments) from the skeptic bot
+      // The skeptic bot posts a comment with <!-- skeptic-agent-verdict --> marker
+      // and VERDICT: PASS or VERDICT: FAIL inside the body.
+      try {
+        const raw = await gh([
+          "api",
+          "repos",
+          repoFlag(pr),
+          "issues",
+          String(pr.number),
+          "comments?per_page=100",
+        ]);
+        const comments: Array<{
+          id: number;
+          user: { login: string };
+          body: string;
+        }> = JSON.parse(raw);
+
+        for (const c of comments) {
+          if (c.user?.login === SKEPTIC_BOT_AUTHOR) {
+            if (/VERDICT:\s*PASS/i.test(c.body)) {
+              return "PASS";
+            }
+            if (/VERDICT:\s*FAIL/i.test(c.body)) {
+              return "FAIL";
+            }
+          }
+        }
+      } catch {
+        // Non-fatal: if we can't fetch comments, treat as SKIPPED
+      }
+      return "SKIPPED";
     },
 
     async getMergeability(pr: PRInfo): Promise<MergeReadiness> {
