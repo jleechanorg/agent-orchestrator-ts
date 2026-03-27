@@ -245,8 +245,22 @@ jobs:
             echo "Condition 6/7 (evidence review passed): PASS"
 
             # Condition 7/7: Skeptic gate CI passed
-            if ! printf '%s' "$BODY" | grep -qiE '(skeptic.*(verdict|gate).*pass|condition.*(7|seven).*pass)'; then
-              echo "ERROR: Missing Condition 7/7 (skeptic gate PASS) in evidence bundle"
+            # Check both PR body (evidence bundle) AND skeptic-agent verdict comments.
+            # The verdict may be in the evidence bundle text OR posted by skeptic-gate
+            # as a PR comment (<!-- skeptic-agent-verdict -->). Either source is valid.
+            SKEPTIC_PASSED=false
+            if printf '%s' "$BODY" | grep -qiE '(skeptic.*(verdict|gate).*pass|condition.*(7|seven).*pass)'; then
+              SKEPTIC_PASSED=true
+            else
+              # Fallback: check skeptic-agent verdict comments via GitHub API
+              SKEPTIC_COMMENT=$(gh api "repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments" \
+                --jq '[.[] | select(.body | test("<!--\\s*skeptic-agent-verdict\\s*-->"; "i"))] | .[0].body // ""' 2>/dev/null)
+              if printf '%s' "$SKEPTIC_COMMENT" | grep -qiE '(VERDICT.*PASS|skeptic.*pass)'; then
+                SKEPTIC_PASSED=true
+              fi
+            fi
+            if [ "$SKEPTIC_PASSED" = "false" ]; then
+              echo "ERROR: Missing Condition 7/7 (skeptic gate PASS) in evidence bundle or skeptic-agent comment"
               exit 1
             fi
             echo "Condition 7/7 (skeptic gate PASS): PASS"
