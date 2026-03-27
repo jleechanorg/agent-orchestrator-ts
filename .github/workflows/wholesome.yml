@@ -75,11 +75,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
       - name: Install and run actionlint
         run: |
-          # Install actionlint binary directly to /usr/local/bin (already in PATH)
-          curl -sfL https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/install.sh | sh -s -- \
-            --dest /usr/local/bin
+          npm install -g actionlint
           actionlint .github/workflows/
 
   evidence-media-attachment:
