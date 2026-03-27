@@ -1367,8 +1367,41 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
             // skeptic-review) are SCM/API operations that don't require a live agent.
             const skipForDead = agentDead && reactionConfig.action === "send-to-agent";
 
+            // bd-rfr: Gate changes-requested transition reaction on CR's latest verdict.
+            // CR posts inline suggestions under COMMENTED (no formal verdict) before optionally
+            // posting CHANGES_REQUESTED. Inline suggestions persist after dismissal.
+            // Suppress the transition reaction when verdict is COMMENTED or DISMISSED — the backlog
+            // path (which has the same gate) handles fresh CHANGES_REQUESTED alerts via fingerprint.
+            // Default to true (allow reaction) so non-changes-requested reactions are unaffected.
+            // Only set to false when verdict is explicitly COMMENTED or DISMISSED.
+            let skipVerdictGate = true;
+            try {
+              if (reactionKey === "changes-requested" && session.pr) {
+                const verdictProject = config.projects[session.projectId];
+                const verdictScm = verdictProject?.scm
+                  ? registry.get<SCM>("scm", verdictProject.scm.plugin)
+                  : null;
+                if (verdictScm) {
+                  const reviews = await verdictScm.getReviews(session.pr);
+                  const crReviews = (reviews as Array<{ user?: { login?: string }; state?: string }>)
+                    .filter((r) => r.user?.login === "coderabbitai[bot]");
+                  const latest = crReviews[crReviews.length - 1];
+                  const crVerdict = latest?.state ?? null;
+                  // Block only when verdict is explicitly non-CHANGES_REQUESTED (COMMENTED or DISMISSED).
+                  // null = fail open (allow reaction).
+                  skipVerdictGate = crVerdict === null || crVerdict === "CHANGES_REQUESTED";
+                }
+              }
+            } catch {
+              // Fail open: any error fetching CR verdict should not block the reaction
+            }
+
             // auto: false skips automated agent actions but still allows notifications
-            if ((reactionConfig.auto !== false || reactionConfig.action === "notify") && !skipForDead) {
+            if (
+              (reactionConfig.auto !== false || reactionConfig.action === "notify") &&
+              !skipForDead &&
+              skipVerdictGate
+            ) {
               // Reaction will execute
               const reactionResult = await executeReaction(
                 session.id,
