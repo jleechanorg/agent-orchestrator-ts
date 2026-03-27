@@ -16,7 +16,8 @@ jobs:
     # Skip for fork PRs — head branches live in the fork repo; GITHUB_TOKEN
     # from a fork_PR event only has read access, so we cannot push design docs.
     # Also skip runs triggered by our own bot commits to avoid regenerate loops.
-    if: github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'github-actions[bot]'
+    # Also skip PR #231 — design doc removed (inaccurate overview); regenerate after merge.
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'github-actions[bot]' && github.event.pull_request.number != 231
     permissions:
       contents: write   # needed to commit design docs to the PR branch
       pull-requests: write # needed to post PR comment
