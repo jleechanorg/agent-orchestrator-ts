@@ -150,7 +150,7 @@ jobs:
               COMMENTS_STATUS="PASS"
             else
               COMMENTS_STATUS="FAIL ($UNRESOLVED unresolved)"
-            fi ([agento] fix(gate-5): check isResolved via GraphQL and exclude PR-author comments)
+            fi
             echo "  [5] Comments resolved:   $COMMENTS_STATUS"
 
             # 6. Evidence review
