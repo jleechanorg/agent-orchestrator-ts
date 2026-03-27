@@ -122,10 +122,7 @@ const BASH_AO_ALLOW_GH_PR_MERGE = '${AO_ALLOW_GH_PR_MERGE:-_}';
 const BASH_AO_SESSION = '${AO_SESSION:-}';
 // Result: ${AO_ALLOW_GH_PR_MERGE:-} and ${AO_SESSION:-} as literal bash parameter expansion
 
-// PreToolUse event name — plain JS string, expands to PreToolUse for JSON output
-// NOTE: prefixed with _ so ESLint no-unused-vars doesn't complain
-// (ESLint skips template-literal content for variable tracking)
-const _HOOK_EVENT_VAR = "PreToolUse";
+// PreToolUse event name — used as literal string in bash script JSON output
 
 // AO_DATA_DIR: use env var if set, else $HOME/.ao-sessions. Built with plain concatenation
 // to avoid JS template expression parsing eating the { from ${HOME}.
@@ -203,7 +200,7 @@ done
 if [[ "$hook_event" == "PreToolUse" && "$clean_command" =~ ^gh[[:space:]]+pr[[:space:]]+create ]]; then
   # Match --title followed by optional quotes and [agento] prefix (case-sensitive).
   if [[ ! "$clean_command" =~ --title[[:space:]]+(\'\[agento\]|\"\[agento\]|\[agento\]) ]]; then
-    echo "{\"hookSpecificOutput\":{\"hookEventName\":\"" + _HOOK_EVENT_VAR + "\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"Blocked by AO policy: gh pr create titles must start with [agento]. Prefix your title with [agento] and retry.\"}}"
+    echo "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"Blocked by AO policy: gh pr create titles must start with [agento]. Prefix your title with [agento] and retry.\"}}"
     exit 0
   fi
 fi
@@ -222,7 +219,7 @@ fi
 merge_pattern='^[[:space:]]*([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]+[[:space:]]+)*gh[[:space:]]+pr[[:space:]]+merge([[:space:]]|$)'
 if [[ "$clean_command" =~ $merge_pattern ]]; then
   if [[ "$hook_event" != "PostToolUse" && ${BASH_AO_ALLOW_GH_PR_MERGE} != "1" ]]; then
-    echo "{\"hookSpecificOutput\":{\"hookEventName\":\"" + _HOOK_EVENT_VAR + "\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"Blocked by AO policy: agents must not run gh pr merge. Leave merge to orchestrator/human.\"}}"
+    echo "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"Blocked by AO policy: agents must not run gh pr merge. Leave merge to orchestrator/human.\"}}"
     exit 0
   fi
   # AO_ALLOW_GH_PR_MERGE=1 during PreToolUse OR PostToolUse: fall through to metadata update below
