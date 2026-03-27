@@ -1,61 +1,34 @@
-import { spawn } from "node:child_process";
-
 /**
  * Model runner — runs the skeptical LLM evaluation.
- * Uses Claude CLI (`claude --print`) for headless evaluation.
  *
- * Note: `--no-input` is NOT a valid Claude CLI flag (as of v2.1.x).
- * Use `--print` for non-interactive output. Prompt is passed via stdin.
+ * Delegates to the shared llmEval() utility in packages/cli/src/lib/.
+ * All LLM evaluation MUST go through llm-eval.ts — never hard-code
+ * binary paths or exec calls here.
+ *
+ * The skeptic must produce a VERDICT: PASS or VERDICT: FAIL line.
+ * If no VERDICT is found in output, the caller treats it as FAIL (fail-closed).
  */
 
-export async function runSkepticEvaluation(prompt: string): Promise<string> {
-  return new Promise((resolve) => {
-    const child = spawn("claude", ["--print"], {
-      // Explicit stdio: capture stderr for error diagnostics, pipe stdin.
-      stdio: ["pipe", "pipe", "pipe"],
-      // Keep env clean; Claude reads stdin for prompt.
-    });
+import { llmEval } from "../../lib/llm-eval.js";
 
-    let stdout = "";
-    let stderr = "";
+const SUPPORTED_MODELS = ["codex", "claude"] as const;
+type SupportedModel = (typeof SUPPORTED_MODELS)[number];
 
-    child.stdout?.on("data", (chunk) => {
-      stdout += chunk.toString();
-    });
-
-    child.stderr?.on("data", (chunk) => {
-      stderr += chunk.toString();
-    });
-
-    const timeout = setTimeout(() => {
-      child.kill();
-      resolve("VERDICT: FAIL — Claude CLI timed out after 120s");
-    }, 120_000);
-
-    child.on("close", (code) => {
-      clearTimeout(timeout);
-      if (code === 0) {
-        resolve(stdout.trim());
-      } else {
-        const stderrSnippet = stderr ? `\nstderr: ${stderr.slice(0, 300)}` : "";
-        resolve(
-          `VERDICT: FAIL — Claude CLI exited with code ${code}${stderrSnippet}`,
-        );
-      }
-    });
-
-    child.on("error", (err) => {
-      clearTimeout(timeout);
-      resolve(`VERDICT: FAIL — Claude CLI not available: ${err.message.slice(0, 200)}`);
-    });
-
-    // Guard stdin write against EPIPE if the process exits before write completes.
-    child.stdin?.on("error", () => {
-      // Process exited before stdin write completed — close event will resolve.
-    });
-
-    // Write prompt to stdin and close it so Claude processes it.
-    child.stdin?.write(prompt);
-    child.stdin?.end();
-  });
+export async function runSkepticEvaluation(
+  prompt: string,
+  options: { model?: "codex" | "claude" | "gemini" } = {},
+): Promise<string> {
+  if (options.model === "gemini") {
+    throw new Error(
+      `Unsupported skeptic model: "gemini". The skeptic agent does not yet support Gemini. ` +
+        `Supported models are: ${[...SUPPORTED_MODELS].join(", ")}. ` +
+        `Omit the --model flag or specify --model codex or --model claude.`,
+    );
+  }
+  if (options.model !== undefined && !SUPPORTED_MODELS.includes(options.model as SupportedModel)) {
+    throw new Error(
+      `Unsupported skeptic model: "${options.model}". Supported models are: ${[...SUPPORTED_MODELS].join(", ")}.`,
+    );
+  }
+  return llmEval(prompt, { model: options.model });
 }

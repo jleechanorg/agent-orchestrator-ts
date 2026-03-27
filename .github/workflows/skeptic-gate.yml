@@ -26,8 +26,19 @@ jobs:
       - name: Install pnpm
         uses: pnpm/action-setup@v4
 
-      - name: Install Claude CLI
-        run: npm install -g @anthropic-ai/claude-code
+      - name: Install Codex CLI
+        run: |
+          if command -v codex &>/dev/null; then
+            echo "Codex CLI already installed: $(codex --version 2>/dev/null || echo 'version check failed')"
+          else
+            echo "Installing Codex CLI..."
+            # Codex is installed via npm or direct binary — attempt npm first
+            npm install -g @openai/codex &>/dev/null || true
+          fi
+          # Verify Codex is available (OPENAI_API_KEY set at runtime)
+          if ! command -v codex &>/dev/null; then
+            echo "WARNING: codex CLI not found — skeptic will fall back to Claude CLI if ANTHROPIC_API_KEY is set"
+          fi
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -39,31 +50,33 @@ jobs:
         id: run_skeptic
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
-          # Check if ANTHROPIC_API_KEY is configured
-          if [ -z "$ANTHROPIC_API_KEY" ]; then
-            echo "ANTHROPIC_API_KEY secret not configured — skipping skeptic evaluation"
+          # Check if at least one API key is configured
+          if [ -z "$OPENAI_API_KEY" ] && [ -z "$ANTHROPIC_API_KEY" ]; then
+            echo "Neither OPENAI_API_KEY nor ANTHROPIC_API_KEY secret configured — skipping skeptic evaluation"
             echo "verdict=SKIPPED" >> "$GITHUB_OUTPUT"
-            echo "VERDICT: SKIPPED — ANTHROPIC_API_KEY not configured" > skeptic-output.txt
-            echo "Setup required: add ANTHROPIC_API_KEY to repo secrets (Settings > Secrets)" >> skeptic-output.txt
+            echo "VERDICT: SKIPPED — no API keys configured" > skeptic-output.txt
+            echo "Setup required: add OPENAI_API_KEY to repo secrets (Settings > Secrets)" >> skeptic-output.txt
             exit 0
           fi
 
           # Run skeptic with --dry-run so it does NOT try to post a comment
           # (the jleechan-agent[bot] lacks write access; the workflow posts via GITHUB_TOKEN)
-          node packages/cli/dist/index.js skeptic \
+          # bd-skp2: use subshell || exit capture (like skeptic-cron.yml) — removes misleading
+          # `|| true` that caused PIPESTATUS[0] confusion; subshell exit is captured explicitly.
+          skeptic_exit=0
+          (node packages/cli/dist/index.js skeptic \
             --pr ${{ github.event.pull_request.number }} \
             --dry-run \
-            > skeptic-output.txt 2>&1 || true
-
-          # Print output for workflow logs
+            > skeptic-output.txt 2>&1) || skeptic_exit=$?
           cat skeptic-output.txt
 
           # Parse verdict from output to determine job conclusion
           # FAIL verdict → job fails (blocks merge)
           # PASS verdict → job succeeds
-          # UNKNOWN / error → fail closed (skeptic must produce recognizable verdict)
+          # UNKNOWN / error / no VERDICT line → fail closed (skeptic must produce recognizable verdict)
           if grep -qi "VERDICT: FAIL" skeptic-output.txt; then
             echo "verdict=FAIL" >> "$GITHUB_OUTPUT"
             exit 1
@@ -73,7 +86,8 @@ jobs:
           else
             echo "verdict=UNKNOWN" >> "$GITHUB_OUTPUT"
             echo "" >> skeptic-output.txt
-            echo "CONCLUSION: UNKNOWN — could not parse VERDICT from output (failing closed)" >> skeptic-output.txt
+            echo "CONCLUSION: UNKNOWN — could not parse VERDICT from skeptic output (failing closed)" >> skeptic-output.txt
+            echo "Exit code from skeptic: $skeptic_exit" >> skeptic-output.txt
             exit 1
           fi
 
@@ -94,7 +108,8 @@ jobs:
               echo ""
               echo "_Skeptic gate ran on commit \`${GITHUB_SHA:0:7}\`_"
             } > "$RUNNER_TEMP/pr_comment.txt"
+            # Post comment — fail the step if posting fails (bd-skp2: catch silent failures)
             gh pr comment ${{ github.event.pull_request.number }} \
               --body-file "$RUNNER_TEMP/pr_comment.txt" \
-              || echo "WARN: gh pr comment failed — check GITHUB_TOKEN permissions"
+              || { echo "ERROR: Failed to post skeptic comment to PR" >&2; exit 1; }
           fi
