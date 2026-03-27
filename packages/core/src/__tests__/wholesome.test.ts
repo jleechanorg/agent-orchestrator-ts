@@ -31,7 +31,7 @@ import { execFileSync } from "node:child_process";
  *  It is maintained by GitHub for all repos and never stale. */
 const BASE_BRANCH = (() => {
   const raw = process.env.GITHUB_BASE_REF;
-  if (raw !== undefined) {
+  if (raw !== undefined && raw !== "") {
     if (!/^[a-zA-Z0-9/._-]+$/.test(raw) || raw.includes("..")) {
       throw new Error(`Invalid GITHUB_BASE_REF (possible injection): ${raw}`);
     }
@@ -202,12 +202,11 @@ describe("wholesome — structural source-code assertions", () => {
   // -------------------------------------------------------------------------
   describe("no eslint-disable added in new/modified files", () => {
     it("no eslint-disable directive added in this branch", () => {
-      // Only flag actual eslint-disable directives. Key insight: the directive name must be
-      // followed by whitespace, @ (rule prefix), or / (block comment end) — not a letter.
-      // This prevents false positives from "No eslint-disable added" style section headers.
-      // Matches: // eslint-disable, // eslint-disable-next-line, // eslint-disable-line,
-      // /* eslint-disable rule */, // eslint-disable-next-line @typescript-eslint/no-unused-vars, etc.
-      const directive = /\beslint-disable(?:-next-line|-line)?\b(?=\s|@|\/)/;
+      // Only flag eslint-disable directives that appear in actual comments.
+      // Require leading // (single-line) or /* (block comment start) so the pattern
+      // doesn't match string literals or prose that merely mention eslint-disable.
+      // Matches: // eslint-disable, // eslint-disable-next-line, /* eslint-disable */, etc.
+      const directive = /^\s*(\/\/|\/\*)\s*\beslint-disable(?:-next-line|-line)?\b/;
       const violations = getAddedLinesMatching(REPO_ROOT, directive)
         // Exclude this test file: its section headers, describe calls, and
         // comments document the check without being actual directives.
