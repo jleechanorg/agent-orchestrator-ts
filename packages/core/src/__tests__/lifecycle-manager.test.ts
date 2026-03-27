@@ -18,6 +18,17 @@ vi.mock("../fork-lifecycle-postmerge.js", () => ({
   }),
 }));
 
+// bd-skp2: Use vi.hoisted so the mock ref is available at top level before vi.mock runs
+const { mockRunSkepticReviewReaction } = vi.hoisted<{
+  mockRunSkepticReviewReaction: () => Promise<{ success: boolean; message?: string; blockers?: string[] }>;
+}>(() => ({
+  mockRunSkepticReviewReaction: vi.fn<[], Promise<{ success: boolean; message?: string; blockers?: string[] }>>(),
+}));
+
+vi.mock("../fork-skeptic-extension.js", () => ({
+  runSkepticReviewReaction: mockRunSkepticReviewReaction,
+}));
+
 // Import after vi.mock so we get the mocked version
 import { reapPostMergeCoWorkers } from "../fork-lifecycle-postmerge.js";
 import type {
@@ -3899,6 +3910,188 @@ describe("post-merge reap: reapPostMergeCoWorkers is called on merged transition
     // check() completes without throwing even though reapPostMergeCoWorkers failed
     expect(lm.getStates().get("app-1")).toBe("merged");
     expect(reapPostMergeCoWorkers).toHaveBeenCalledTimes(1);
+  });
+});
+
+// bd-skp2: Regression coverage for skeptic trigger lifecycle integration
+describe("bd-skp2 skeptic trigger on pr_open", () => {
+  beforeEach(() => {
+    mockRunSkepticReviewReaction.mockReset();
+    mockRunSkepticReviewReaction.mockResolvedValue({ success: true });
+  });
+
+  function makeSkepticProjectConfig(reactionAuto: boolean) {
+    return {
+      ...config,
+      reactions: {
+        "worker-signals-completion": {
+          auto: reactionAuto,
+          action: "skeptic-review" as const,
+        },
+      },
+    };
+  }
+
+  it("calls skeptic-review reaction when session transitions to pr_open (auto=true)", async () => {
+    const skepticConfig = makeSkepticProjectConfig(true);
+
+    const mockSCM: SCM = {
+      name: "mock-scm",
+      detectPR: vi.fn(),
+      getPRState: vi.fn().mockResolvedValue("open"),
+      mergePR: vi.fn(),
+      closePR: vi.fn(),
+      getCIChecks: vi.fn(),
+      getCISummary: vi.fn().mockResolvedValue("passing"),
+      getReviews: vi.fn(),
+      getReviewDecision: vi.fn().mockResolvedValue("none"),
+      getPendingComments: vi.fn(),
+      getAutomatedComments: vi.fn(),
+      // Return a non-mergeable result so status becomes "pr_open" not "mergeable"
+      getMergeability: vi.fn().mockResolvedValue({ mergeable: false, noConflicts: true }),
+    };
+
+    const registryWithSCM: PluginRegistry = {
+      ...mockRegistry,
+      get: vi.fn().mockImplementation((slot: string) => {
+        if (slot === "runtime") return mockRuntime;
+        if (slot === "agent") return mockAgent;
+        if (slot === "scm") return mockSCM;
+        return null;
+      }),
+    };
+
+    // Session starts in "working" with an open PR — check() will transition to "pr_open"
+    const session = makeSession({
+      status: "working",
+      pr: makePR(),
+    });
+    vi.mocked(mockSessionManager.get).mockResolvedValue(session);
+
+    writeMetadata(sessionsDir, "app-1", {
+      worktree: "/tmp",
+      branch: "main",
+      status: "working",
+      project: "my-app",
+    });
+
+    const lm = createLifecycleManager({
+      config: skepticConfig,
+      registry: registryWithSCM,
+      sessionManager: mockSessionManager,
+    });
+
+    await lm.check("app-1");
+
+    // The skeptic-review reaction should have been called via executeReaction
+    expect(mockRunSkepticReviewReaction).toHaveBeenCalled();
+  });
+
+  it("skips skeptic-review reaction when auto=false on worker-signals-completion", async () => {
+    const skepticConfig = makeSkepticProjectConfig(false);
+
+    const mockSCM: SCM = {
+      name: "mock-scm",
+      detectPR: vi.fn(),
+      getPRState: vi.fn().mockResolvedValue("open"),
+      mergePR: vi.fn(),
+      closePR: vi.fn(),
+      getCIChecks: vi.fn(),
+      getCISummary: vi.fn().mockResolvedValue("passing"),
+      getReviews: vi.fn(),
+      getReviewDecision: vi.fn().mockResolvedValue("none"),
+      getPendingComments: vi.fn(),
+      getAutomatedComments: vi.fn(),
+      // Return a non-mergeable result so status becomes "pr_open" not "mergeable"
+      getMergeability: vi.fn().mockResolvedValue({ mergeable: false, noConflicts: true }),
+    };
+
+    const registryWithSCM: PluginRegistry = {
+      ...mockRegistry,
+      get: vi.fn().mockImplementation((slot: string) => {
+        if (slot === "runtime") return mockRuntime;
+        if (slot === "agent") return mockAgent;
+        if (slot === "scm") return mockSCM;
+        return null;
+      }),
+    };
+
+    const session = makeSession({
+      status: "working",
+      pr: makePR(),
+    });
+    vi.mocked(mockSessionManager.get).mockResolvedValue(session);
+
+    writeMetadata(sessionsDir, "app-1", {
+      worktree: "/tmp",
+      branch: "main",
+      status: "working",
+      project: "my-app",
+    });
+
+    const lm = createLifecycleManager({
+      config: skepticConfig,
+      registry: registryWithSCM,
+      sessionManager: mockSessionManager,
+    });
+
+    await lm.check("app-1");
+
+    // Reaction must NOT fire when auto=false (the condition is auto !== false)
+    expect(mockRunSkepticReviewReaction).not.toHaveBeenCalled();
+  });
+
+  it("skips skeptic trigger when no worker-signals-completion reaction is configured", async () => {
+    // config.reactions = {} by default (set in beforeEach)
+    const mockSCM: SCM = {
+      name: "mock-scm",
+      detectPR: vi.fn(),
+      getPRState: vi.fn().mockResolvedValue("open"),
+      mergePR: vi.fn(),
+      closePR: vi.fn(),
+      getCIChecks: vi.fn(),
+      getCISummary: vi.fn().mockResolvedValue("passing"),
+      getReviews: vi.fn(),
+      getReviewDecision: vi.fn().mockResolvedValue("none"),
+      getPendingComments: vi.fn(),
+      getAutomatedComments: vi.fn(),
+      // Return a non-mergeable result so status becomes "pr_open" not "mergeable"
+      getMergeability: vi.fn().mockResolvedValue({ mergeable: false, noConflicts: true }),
+    };
+
+    const registryWithSCM: PluginRegistry = {
+      ...mockRegistry,
+      get: vi.fn().mockImplementation((slot: string) => {
+        if (slot === "runtime") return mockRuntime;
+        if (slot === "agent") return mockAgent;
+        if (slot === "scm") return mockSCM;
+        return null;
+      }),
+    };
+
+    const session = makeSession({
+      status: "working",
+      pr: makePR(),
+    });
+    vi.mocked(mockSessionManager.get).mockResolvedValue(session);
+
+    writeMetadata(sessionsDir, "app-1", {
+      worktree: "/tmp",
+      branch: "main",
+      status: "working",
+      project: "my-app",
+    });
+
+    const lm = createLifecycleManager({
+      config,
+      registry: registryWithSCM,
+      sessionManager: mockSessionManager,
+    });
+
+    await lm.check("app-1");
+
+    // No skeptic reaction configured — nothing to call
+    expect(mockRunSkepticReviewReaction).not.toHaveBeenCalled();
   });
 });
 

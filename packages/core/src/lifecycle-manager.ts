@@ -79,6 +79,7 @@ import {
   sendMcpMailSessionEnd,
   type McpMailClientConfig,
 } from "./mcp-mail.js";
+import { runSkepticReviewReaction } from "./fork-skeptic-extension.js";
 
 /** Parse a duration string like "10m", "30s", "1h" to milliseconds. */
 export function parseDuration(str: string): number {
@@ -201,6 +202,8 @@ function eventToReactionKey(eventType: EventType): string | null {
       return "agent-exited";
     case "summary.all_complete":
       return "all-complete";
+    case "worker.signals_completion":
+      return "worker-signals-completion";
     case "session.spawned":
       return "session-spawned";
     case "session.exited":
@@ -891,6 +894,23 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         });
       }
 
+      // bd-skp2: skeptic-review — implementation in fork-skeptic-extension
+      case "skeptic-review": {
+        if (!session) {
+          return {
+            reactionType: reactionKey,
+            success: false,
+            action: "skeptic-review",
+            escalated: false,
+          };
+        }
+        return runSkepticReviewReaction({
+          session: session!,
+          reactionKey,
+          reactionConfig,
+        });
+      }
+
       default: {
         // Log warning for unknown reaction action types
         console.warn(`Unknown reaction action type: ${action}`);
@@ -1139,6 +1159,34 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
 
       // Handle transition: notify humans and/or trigger reactions
       const eventType = statusToEventType(oldStatus, newStatus);
+
+      // bd-skk2: emit worker.signals_completion when worker creates a PR.
+      // Triggering only on pr_open avoids duplicate skeptic evaluations if a PR
+      // later transitions to approved (or bounces back and forth between states).
+      // Re-triggering on approved is unnecessary since the PR content hasn't changed.
+      let completionReactionHandledNotify = false;
+      if (newStatus === "pr_open") {
+        // Trigger the worker-signals-completion reaction (e.g., skeptic-review).
+        // Honor auto=false — users must be able to disable the reaction via config.
+        // Do NOT call notifyHuman here — the pr.created fallback below handles
+        // notification routing through the configured notificationRouting table,
+        // avoiding duplicate notifications (skeptic-review posts a VERDICT comment
+        // to the PR directly and does not call notifyHuman itself).
+        const completionReactionKey = "worker-signals-completion";
+        const completionReactionConfig = getReactionConfigForSession(session, completionReactionKey);
+        if (completionReactionConfig?.action && completionReactionConfig.auto !== false) {
+          await executeReaction(
+            session.id,
+            session.projectId,
+            completionReactionKey,
+            completionReactionConfig,
+            session,
+            createCorrelationId("skeptic-trigger"),
+          );
+          completionReactionHandledNotify = true;
+        }
+      }
+
       // bd-5o1: skip reactions for dead agents — ao send to a dead session wastes
       // resources and generates spurious escalation notifications. The PR state check
       // in determineStatus already handles bd-kki (preserves oldStatus for open PRs
@@ -1147,7 +1195,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       // other transitions (e.g. mergeable→something) for sessions where the agent died
       // between polls.
       if (eventType) {
-        let reactionHandledNotify = false;
+        let reactionHandledNotify = completionReactionHandledNotify;
         const reactionKey = eventToReactionKey(eventType);
 
         if (reactionKey) {
@@ -1156,8 +1204,8 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
           if (reactionConfig && reactionConfig.action) {
             // bd-5o1: skip send-to-agent reactions for dead agents — ao send to a dead
             // session wastes resources and generates spurious escalation notifications.
-            // All other reactions (auto-merge, notify, request-merge, parallel-retry) are
-            // SCM/notification operations that don't require a live agent.
+            // All other reactions (auto-merge, notify, request-merge, parallel-retry,
+            // skeptic-review) are SCM/API operations that don't require a live agent.
             const skipForDead = agentDead && reactionConfig.action === "send-to-agent";
 
             // auto: false skips automated agent actions but still allows notifications
