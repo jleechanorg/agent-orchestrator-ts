@@ -157,8 +157,10 @@ jobs:
                 }
               }
             ' -f owner='${{ github.repository_owner }}' -f name="$REPO_NAME" -F number="$PR_NUM" \
-              --jq "[.data.repository.pullRequest.reviewThreads.nodes[] | select(.isResolved == false) | .comments.nodes[] | select(.author.login != null and (.author.login | ascii_downcase) != (\"$PR_AUTHOR\" | ascii_downcase) and (.body | test(\"^\\\\s*(nit:|nitpick)\"; \"i\") | not))] | length" 2>/dev/null || echo 0)
-            if [ "$UNRESOLVED" = "0" ] || [ -z "$UNRESOLVED" ]; then
+              --jq "[.data.repository.pullRequest.reviewThreads.nodes[] | select(.isResolved == false) | .comments.nodes[] | select(.author.login != null and (.author.login | ascii_downcase) != (\"$PR_AUTHOR\" | ascii_downcase) and (.body | test(\"^\\\\s*(nit:|nitpick)\"; \"i\") | not))] | length" 2>/dev/null || echo "__GQL_ERROR__")
+            if [ "$UNRESOLVED" = "__GQL_ERROR__" ]; then
+              COMMENTS_STATUS="FAIL (graphql-error)"
+            elif [ "$UNRESOLVED" = "0" ] || [ -z "$UNRESOLVED" ]; then
               COMMENTS_STATUS="PASS"
             else
               COMMENTS_STATUS="FAIL ($UNRESOLVED unresolved)"
