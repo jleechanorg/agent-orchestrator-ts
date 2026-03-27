@@ -1,0 +1,38 @@
+# =============================================================================
+# Composite action: Setup environment for skeptic CLI
+# Used by skeptic-gate.yml and skeptic-cron.yml
+# =============================================================================
+name: "Skeptic setup"
+description: "Node + pnpm + Claude/Codex CLI + dependencies + workspace build"
+runs:
+  using: composite
+  steps:
+    - name: Install pnpm
+      uses: pnpm/action-setup@v4
+
+    - name: Install Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: "22"
+        cache: pnpm
+
+    - name: Install Claude CLI and Codex CLI
+      shell: bash
+      run: |
+        if command -v codex &>/dev/null; then
+          echo "Codex CLI already installed"
+        else
+          echo "Installing Codex CLI..."
+          npm install -g @openai/codex 2>&1 || echo "Codex install failed — checking for existing..."
+        fi
+        if ! command -v codex &>/dev/null; then
+          echo "WARNING: codex CLI not available — skeptic will use Claude CLI fallback if ANTHROPIC_API_KEY is set"
+        fi
+
+    - name: Install dependencies
+      run: pnpm install --frozen-lockfile
+      shell: bash
+
+    - name: Build workspace
+      run: pnpm -r --filter '!@jleechanorg/ao-web' build
+      shell: bash
