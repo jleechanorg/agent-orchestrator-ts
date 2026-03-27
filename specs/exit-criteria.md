@@ -135,7 +135,7 @@ ao session ls --project agent-orchestrator  # session should still be alive
 
 ### Criterion E: PR #151 merged
 
-**What to verify:** PR #151 is merged into main with all 6 green checks passing.
+**What to verify:** PR #151 is merged into main with all 7 green checks passing.
 **Commands to run:**
 ```bash
 gh api repos/jleechanorg/agent-orchestrator/pulls/151 --jq '{state: .state, merged: .merged, mergeable_state: .mergeable_state}'
