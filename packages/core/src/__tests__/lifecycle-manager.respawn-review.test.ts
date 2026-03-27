@@ -8,12 +8,13 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
 import { createLifecycleManager } from "../lifecycle-manager.js";
 import { writeMetadata } from "../metadata.js";
+import { getSessionsDir, getProjectBaseDir } from "../paths.js";
 import type {
   OrchestratorConfig,
   PluginRegistry,
@@ -108,7 +109,7 @@ beforeEach(() => {
   configPath = join(tmpDir, "agent-orchestrator.yaml");
   writeFileSync(configPath, "projects: {}\n");
 
-  sessionsDir = join(tmpDir, "sessions");
+  sessionsDir = getSessionsDir(configPath, join(tmpDir, "my-app"));
   mkdirSync(sessionsDir, { recursive: true });
 
   mockRuntime = {
@@ -208,6 +209,10 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  const projectBaseDir = getProjectBaseDir(configPath, join(tmpDir, "my-app"));
+  if (existsSync(projectBaseDir)) {
+    rmSync(projectBaseDir, { recursive: true, force: true });
+  }
   rmSync(tmpDir, { recursive: true, force: true });
   vi.clearAllMocks();
 });

@@ -17,8 +17,6 @@ export default tseslint.config(
       "test-clipboard*.mjs",
       "test-clipboard*.sh",
       "packages/mobile/**",
-      // Fork-only: novel pipeline, not part of core AO packages
-      "novel/**",
     ],
   },
 
