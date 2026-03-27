@@ -53,7 +53,7 @@ export function setMcpMailInboxCallback(cb: InboxCallback): void {
 class McpMailClient {
   readonly config: McpMailClientConfig;
   private _registrationPromise: Promise<void> | null = null;
-  private _lastSeenMessageIds = new Set<string>();
+  private _seenMessageIds = new Set<string>();
   private _inboxCallback: InboxCallback | null = null;
 
   constructor(config: McpMailClientConfig) {
@@ -156,11 +156,11 @@ class McpMailClient {
         };
       });
 
-      // Surface only messages not seen in the previous poll
-      const newMessages = messages.filter((m) => !this._lastSeenMessageIds.has(m.id));
+      // Surface only messages never seen across any previous poll
+      const newMessages = messages.filter((m) => !this._seenMessageIds.has(m.id));
 
-      // Remember all IDs from this fetch so next poll can exclude them
-      this._lastSeenMessageIds = new Set(messages.map((m) => m.id));
+      // Remember all IDs so stale messages are never re-delivered
+      this._seenMessageIds = new Set(messages.map((m) => m.id));
 
       if (newMessages.length > 0 && this._inboxCallback) {
         try { this._inboxCallback(newMessages); } catch { /* non-fatal */ }
