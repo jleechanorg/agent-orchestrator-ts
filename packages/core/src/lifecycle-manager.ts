@@ -928,9 +928,11 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
   function clearReactionTracker(sessionId: SessionId, reactionKey: string): void {
     reactionTrackers.delete(`${sessionId}:${reactionKey}`);
     // Note: clearLastSentHeadSha(sessionId) intentionally NOT called here.
-    // Calling it would clear the SHA on every status transition (pending, approved, etc.)
-    // before the next changes-requested reaction fires, breaking dedup.
-    // Dedup store entries are small (sessionId → SHA) and cleared on process restart.
+    // FIX 3002095873 / cursor#3001685342: DedupHeadShaStore is a SEPARATE Map
+    // (dedup-head-sha-store.ts) — SHA is NOT stored inside ReactionTracker.
+    // Calling clearReactionTracker clears the tracker, NOT the dedup SHA.
+    // Pruning: headShaStore entries for dead sessions are cleaned up in pollAll's
+    // stale-session loop via pruneStaleSessionIds(currentSessionIds).
   }
 
   function getReactionConfigForSession(
