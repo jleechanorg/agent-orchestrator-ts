@@ -319,8 +319,8 @@ describe("scm-github plugin", () => {
       expect(result).toBe("SKIPPED");
     });
 
-    it("uses skepticBotAuthor from config when provided", async () => {
-      const customSCM = create({ skepticBotAuthor: "custom-skeptic[bot]" });
+    it("uses trustedSkepticAuthors from config when provided", async () => {
+      const customSCM = create({ trustedSkepticAuthors: ["custom-skeptic[bot]"] });
       mockGh([
         {
           id: 1,
