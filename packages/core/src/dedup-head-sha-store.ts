@@ -43,9 +43,9 @@ export function clearLastSentHeadSha(sessionId: SessionId): void {
 
 /**
  * Prune SHA dedup entries for session IDs that are no longer active.
- * CR 3002468214: only deletes entries whose sessionId is NOT in liveSessionIds,
- * preventing cross-project pollution when multiple lifecycle-manager instances
- * share the same process (each LM passes only its own active session set).
+ * CR 3002468214 / cursor#3002468214: only deletes entries whose sessionId is NOT in
+ * liveSessionIds, preventing cross-project pollution when multiple lifecycle-manager
+ * instances share the same process (each LM passes only its own active session set).
  *
  * @param liveSessionIds Set of session IDs currently managed by the caller.
  */
