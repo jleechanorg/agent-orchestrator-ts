@@ -45,8 +45,13 @@ jobs:
   test:
     name: Test
     runs-on: ${{ github.event_name == 'pull_request' && 'ubuntu-latest' || fromJson(vars.SELF_HOSTED_RUNNER_LABELS || '["self-hosted","self-hosted-mikey"]') }}
+    permissions:
+      contents: read    # needed for git history and gh pr view in wholesome tests
+      pull-requests: read
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # wholesome.test.ts needs full history for commit prefix check
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
@@ -54,7 +59,16 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm -r --filter '!@jleechanorg/ao-web' build
+      - name: Ensure base branch ref is available
+        if: github.event_name == 'pull_request'
+        # For fork PRs, origin/ is the fork; explicitly fetch base branch as local ref.
+        run: git fetch origin ${{ github.base_ref }}:${{ github.base_ref }}
       - run: pnpm test
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_HEAD_REF: ${{ github.head_ref }}
+          GITHUB_BASE_REF: ${{ github.base_ref }}
 
   test-web:
     name: Test (Web)
