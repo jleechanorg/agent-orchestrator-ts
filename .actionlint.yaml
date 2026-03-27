@@ -1,0 +1,20 @@
+# Actionlint configuration for jleechanorg/agent-orchestrator
+#
+# Rules:
+# - Fail on expression errors (undefined step properties, type errors)
+# - Fail on shell errors
+# - Warn on style issues
+# - Suppress known false positives from existing workflows
+
+# Suppress false positives in existing workflow files
+ignore:
+  # actionlint can't infer step IDs from `id: check` in conditional contexts
+  # https://github.com/rhysd/actionlint/blob/main/README.md#expression
+  - property "check" is not defined in object type
+
+  # SC2086: Double quote to prevent globbing — used intentionally for GH output vars
+  # (these appear in evidence-gate.yml, skeptic-cron.yml, release.yml)
+  - SC2086:info
+
+  # SC2034: appears unused — CR_BODY_LEN in skeptic-cron.yml is checked in conditional
+  - SC2034:warning
