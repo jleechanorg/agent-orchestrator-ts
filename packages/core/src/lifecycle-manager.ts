@@ -657,7 +657,9 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
           // bd-1178: Skip re-send when PR head SHA hasn't changed since last dispatch.
           // This prevents burning worker context when the same review feedback is
           // re-delivered every poll cycle for unchanged PRs (5-9x multiplier).
-          if (session?.pr) {
+          // Restrict to changes-requested reactions only — other reactions (e.g. ci-failed)
+          // may need to fire when status changes independently of HEAD SHA.
+          if (reactionKey === "changes-requested" && session?.pr) {
             const project = config.projects[session.projectId];
             const scm = project?.scm ? registry.get<SCM>("scm", project.scm.plugin) : null;
             if (scm && scm.getPRHeadSha) {
@@ -667,7 +669,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
                   observer.recordOperation({
                     metric: "lifecycle_poll",
                     operation: "lifecycle.reaction.deduped",
-                    outcome: "skipped",
+                    outcome: "info",
                     reason: "head_sha_unchanged",
                     correlationId: reactionCorrelationId,
                     projectId,
@@ -698,7 +700,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
             await sessionManager.send(sessionId, finalMessage);
 
             // Record SHA on successful send so the next poll cycle skips if unchanged
-            if (session?.pr) {
+            if (reactionKey === "changes-requested" && session?.pr) {
               const project = config.projects[session.projectId];
               const scm = project?.scm ? registry.get<SCM>("scm", project.scm.plugin) : null;
               if (scm?.getPRHeadSha) {
