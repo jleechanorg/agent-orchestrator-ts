@@ -8,6 +8,7 @@ import { createSessionManager } from "../session-manager.js";
 import * as reviewBacklog from "../review-backlog.js";
 import { writeMetadata, readMetadataRaw } from "../metadata.js";
 import { getSessionsDir, getProjectBaseDir } from "../paths.js";
+import { clearLastSentHeadSha } from "../dedup-head-sha-store.js";
 
 // Must precede all imports that use the mocked module
 vi.mock("../fork-lifecycle-postmerge.js", () => ({
@@ -2302,9 +2303,10 @@ describe("reactions", () => {
     // Fourth poll: sha2 unchanged, dedup kicks in
     await lm.check("app-1");
     expect(mockSessionManager.send).toHaveBeenCalledTimes(2);
-  });
 
-  // bd-1178: FIX 3002210779 — test unchanged-SHA dedup on consecutive changes_requested
+    // CR 3002442125: clear dedup store so this test's state doesn't affect other tests
+    clearLastSentHeadSha("app-1");
+  });
   // transitions. CR noted that the "no send" assertions at polls 2 & 4 are on pending
   // transitions (no reaction path entered), so they don't prove dedup works. Add a CR→CR
   // transition (unchanged SHA) before mutating to sha2 to properly exercise the dedup guard.
@@ -2378,7 +2380,11 @@ describe("reactions", () => {
     await lm.check("app-1");
 
     // Poll 3: cr transition, SHA=sha1 unchanged → dedup kicks in (consecutive CR, unchanged SHA)
+    // CR 3002173129: verify getPRHeadSha was called to exercise the dedup path explicitly.
+    const getPRHeadShaCallsAfterPoll2 = vi.mocked(mockSCM.getPRHeadSha!).mock.calls.length;
     await lm.check("app-1");
+    // getPRHeadSha must have been called during poll 3's dedup check
+    expect(vi.mocked(mockSCM.getPRHeadSha!).mock.calls.length).toBe(getPRHeadShaCallsAfterPoll2 + 1);
     expect(mockSessionManager.send).toHaveBeenCalledTimes(1); // still 1 — dedup worked
 
     // Poll 4: pending
@@ -2388,6 +2394,9 @@ describe("reactions", () => {
     currentSha = sha2;
     await lm.check("app-1");
     expect(mockSessionManager.send).toHaveBeenCalledTimes(2);
+
+    // CR 3002442125: clear dedup store so this test's state doesn't affect other tests
+    clearLastSentHeadSha("app-1");
   });
 
   // bd-1178: FIX 3002210800 — regression test: getPRHeadSha rejection must not block send-to-agent.
@@ -2449,6 +2458,9 @@ describe("reactions", () => {
     // SHA fetch fails — send should still fire (dedup is best-effort)
     await lm.check("app-1");
     expect(mockSessionManager.send).toHaveBeenCalledTimes(1);
+
+    // CR 3002442125: clear dedup store so this test's state doesn't affect other tests
+    clearLastSentHeadSha("app-1");
   });
 
   it("dispatches automated review comments only once for an unchanged backlog", async () => {

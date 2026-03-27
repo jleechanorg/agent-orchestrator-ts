@@ -607,6 +607,9 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     }
 
     // bd-1178 dedup check for changes-requested reactions (before attempts increment).
+    // Scope: only applies to reactionKey="changes-requested" AND action="send-to-agent".
+    // This intentionally does NOT affect agent-stuck cooldown retries or other send-to-agent
+    // flows — those use different reactionKeys and will never enter this block.
     // Prevents wasted API calls and avoids consuming the retry budget on unchanged SHA.
     // Also fixes race condition: SHA is captured once before send and reused for recording.
     // FIX 3002095878: do NOT early-return — fall through to escalation checks so duration-
@@ -716,14 +719,15 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
             await sessionManager.send(sessionId, finalMessage);
 
             // Record SHA after successful send so the next poll skips if SHA is unchanged.
-            // CR: recording before send would skip retry on send failure — fix: record only on success.
-            if (reactionKey === "changes-requested" && session?.pr) {
+            // Only record when dedupedSha is available — the pre-send SHA is the only one safe to
+            // record (a newer SHA pushed during send would incorrectly suppress the next dispatch).
+            // Skip recording entirely if pre-send fetch failed (dedupedSha is undefined).
+            if (dedupedSha && reactionKey === "changes-requested" && session?.pr) {
               const project = config.projects[session.projectId];
               const scm = project?.scm ? registry.get<SCM>("scm", project.scm.plugin) : null;
               if (scm?.getPRHeadSha) {
                 try {
-                  // dedupedSha was captured before send — use it if available; otherwise fetch.
-                  setLastSentHeadSha(sessionId, dedupedSha ?? await scm.getPRHeadSha(session.pr));
+                  setLastSentHeadSha(sessionId, dedupedSha);
                 } catch {
                   // Non-fatal — SHA tracking is best-effort
                 }
