@@ -33,8 +33,17 @@ jobs:
       - name: Install pnpm
         uses: pnpm/action-setup@v4
 
-      - name: Install Claude CLI
-        run: npm install -g @anthropic-ai/claude-code
+      - name: Install Codex CLI
+        run: |
+          if command -v codex &>/dev/null; then
+            echo "Codex CLI already installed"
+          else
+            echo "Installing Codex CLI..."
+            npm install -g @openai/codex 2>&1 || echo "npm install failed — checking for codex binary..."
+          fi
+          if ! command -v codex &>/dev/null; then
+            echo "WARNING: codex CLI not available — skeptic will use Claude CLI fallback if ANTHROPIC_API_KEY is set"
+          fi
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -61,6 +70,7 @@ jobs:
       - name: Run skeptic on each open PR
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           PR_JSON: ${{ steps.list_prs.outputs.pr_numbers }}
         run: |
@@ -78,9 +88,20 @@ jobs:
 
             # Run skeptic with --dry-run so it does NOT try to post a comment
             # (the jleechan-agent[bot] lacks write access; cron workflow posts via GITHUB_TOKEN)
-            node packages/cli/dist/index.js skeptic --pr "$PR_NUM" --dry-run 2>&1 || true
+            # Output to file so the grep below can read it.
+            # Wrap in subshell: prevents set -e from aborting the loop if skeptic exits non-zero
+            # bd-skp2: removed || true (misleading) — capture real exit code and check explicitly
+            skeptic_exit=0
+            (node packages/cli/dist/index.js skeptic --pr "$PR_NUM" --dry-run > "skeptic-output-${PR_NUM}.txt" 2>&1) || skeptic_exit=$?
+            # Print output for workflow logs
+            cat "skeptic-output-${PR_NUM}.txt" || true
 
-            echo "Skeptic complete for PR #${PR_NUM}"
+            # Verify output contains a VERDICT line (fail-closed — missing VERDICT means skeptic failed)
+            if ! grep -qi "VERDICT:" "skeptic-output-${PR_NUM}.txt" 2>/dev/null; then
+              echo "WARNING: No VERDICT line found for PR #${PR_NUM} (skeptic exit=${skeptic_exit}) — this PR will not be merged"
+            fi
+
+            echo "Skeptic complete for PR #${PR_NUM} (exit=${skeptic_exit})"
           done
 
       - name: Check 7-green conditions and merge ready PRs

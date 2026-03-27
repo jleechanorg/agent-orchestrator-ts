@@ -53,7 +53,7 @@ function inferScmPlugin(project: {
 const ReactionConfigSchema = z.object({
   auto: z.boolean().default(true),
   action: z
-    .enum(["send-to-agent", "notify", "auto-merge", "request-merge", "parallel-retry"])
+    .enum(["send-to-agent", "notify", "auto-merge", "request-merge", "parallel-retry", "skeptic-review"])
     .default("notify"),
   message: z.string().optional(),
   priority: z.enum(["urgent", "action", "warning", "info"]).optional(),
@@ -80,6 +80,9 @@ const ReactionConfigSchema = z.object({
       killOnSuccess: z.boolean().optional(),
     })
     .optional(),
+  // bd-skp2: Skeptic review fields
+  skepticModel: z.enum(["codex", "claude", "gemini"]).optional(),
+  skepticPostComment: z.boolean().optional(),
 });
 
 const TrackerConfigSchema = z

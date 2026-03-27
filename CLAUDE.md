@@ -65,6 +65,17 @@ ao spawn --project agent-orchestrator --no-worktree "run the evolve loop"
 ```
 
 Do not manually create worktrees, `cd` into directories, or run `claude` directly for tasks that belong to an AO worker.
+## LLM Evaluation — Shared Utility
+
+**All LLM evaluation (skeptic, verifier, exit-criteria checks) MUST route through `packages/cli/src/lib/llm-eval.ts`.** Never hard-code binary paths (`codex`, `claude`) or `execSync`/`execFileSync` calls in command handlers.
+
+**Re-use chain:**
+- `llmEval(prompt, {model?})` → full fallback chain (Codex primary → Claude fallback)
+- `tryCodexPrint(prompt)` → codex `--print --no-input` only
+- `tryClaudePrint(prompt)` → claude `--print --no-input` only
+- `resolveCodexBinary()` is imported from `@jleechanorg/ao-plugin-agent-codex` — do not re-implement path detection
+
+**Why:** `llm-eval.ts` centralizes timeout, error classification (ENOENT vs real failure), fail-closed VERDICT parsing, and cross-platform binary resolution. Scattering `execSync("codex ...")` strings across command handlers causes inconsistent error handling and hard-to-find bugs.
 
 ## What "Config" Covers
 
