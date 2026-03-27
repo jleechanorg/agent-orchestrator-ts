@@ -129,12 +129,22 @@ done
 
 # Guardrail: enforce [agento] prefix on gh pr create titles (PreToolUse only).
 # PostToolUse falls through to metadata update — no need to re-check there.
-# Use bash regex to check for [agento] prefix directly in the command string.
-# This avoids fragile grep|sed pipelines and POSIX sed capture-group portability issues.
 pr_create_pattern='^[[:space:]]*([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]+[[:space:]]+)*gh[[:space:]]+pr[[:space:]]+create([[:space:]]|$)'
 if [[ "$hook_event" == "PreToolUse" && "$clean_command" =~ $pr_create_pattern ]]; then
-  # Match --title=value or --title [agento] (equals or space form) with optional quotes.
-  if [[ ! "$clean_command" =~ --title(=|[[:space:]]+)(\'\[agento\]|\"\[agento\]|\[agento\]) ]]; then
+  # Parse --title as a proper argv token (not substring in --body etc.).
+  # Python shlex correctly handles quoted strings containing literal "--title".
+  first_title=$(python3 -c "
+import shlex, sys
+args = shlex.split(sys.argv[1])
+for i, arg in enumerate(args):
+    if arg == '--title':
+        print(args[i+1], end='')
+        break
+    if arg.startswith('--title='):
+        print(arg[len('--title='):], end='')
+        break
+" "$clean_command" 2>/dev/null)
+  if [[ -z "$first_title" || "$first_title" != \[agento\]* ]]; then
     echo "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"Blocked by AO policy: gh pr create titles must start with [agento]. Prefix your title with [agento] and retry.\"}}"
     exit 0
   fi

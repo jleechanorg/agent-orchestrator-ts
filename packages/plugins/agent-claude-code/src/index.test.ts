@@ -799,18 +799,20 @@ describe("METADATA_UPDATER_SCRIPT content", () => {
     );
   });
 
-  it("uses bash regex to check [agento] prefix (not fragile grep|sed)", () => {
-    // Avoids POSIX sed capture-group portability issues; uses bash regex instead.
-    // Verifies the bash regex guard (if [[ ! "$clean_command" =~ --title) is present.
-    // The .*?agento covers all three quote-variants of the [agento] prefix check.
-    expect(METADATA_UPDATER_SCRIPT).toMatch(
-      /if \[\[ ! "\$clean_command" =~ --title.*?agento/,
-    );
+  it("uses Python shlex to parse --title argv value (not substring regex)", () => {
+    // Uses Python shlex to correctly parse --title as an argv token, avoiding
+    // false matches when --title appears as literal text inside --body values.
+    expect(METADATA_UPDATER_SCRIPT).toMatch(/python3.*shlex.split/s);
+    expect(METADATA_UPDATER_SCRIPT).toMatch(/if arg == '--title'/);
+    // Check the guard is present using .toContain() — avoids regex-escaping issues
+    // The compiled script has: if [[ -z "$first_title" || "$first_title" != \[agento\]*
+    // String representation in TypeScript: '\\[' = backslash + '[' (one backslash char)
+    expect(METADATA_UPDATER_SCRIPT).toContain('!= ' + '\\[agento\\]*');
   });
 
   it("checks hook_event is PreToolUse before enforcing prefix", () => {
     // Prefix guard fires only in PreToolUse; PostToolUse falls through to metadata update
-    expect(METADATA_UPDATER_SCRIPT).toMatch(/"PreToolUse".*\$clean_command/);
+    expect(METADATA_UPDATER_SCRIPT).toMatch(/"PreToolUse".*\$pr_create_pattern/);
   });
 });
 

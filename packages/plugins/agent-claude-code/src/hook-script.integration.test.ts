@@ -198,6 +198,23 @@ describe("hook script: [agento] prefix enforcement", () => {
     expect(stdout.trim()).toBe("{}");
   });
 
+  it("denies when --body contains literal --title with [agento] but actual title is unprefixed", () => {
+    // Regression: --title inside --body must not be mistaken for the actual --title flag.
+    const { stdout } = runHook({
+      command: 'gh pr create --title "fix: bug" --body "Try: gh pr create --title [agento] your title"',
+      hookEvent: "PreToolUse",
+    });
+    expect(stdout).toContain('"permissionDecision":"deny"');
+  });
+
+  it("allows when actual --title has [agento] even if --body contains literal [agento]", () => {
+    const { stdout } = runHook({
+      command: 'gh pr create --title "[agento] fix: bug" --body "Note: use [agento] prefix"',
+      hookEvent: "PreToolUse",
+    });
+    expect(stdout.trim()).toBe("{}");
+  });
+
   it("PostToolUse: detects gh pr create with env prefix and extracts PR URL", () => {
     const { metadata } = runHook({
       command: "GH_TOKEN=ghs_xxxx gh pr create --title \"[agento] fix\" --body \"test\"",
