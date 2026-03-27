@@ -19,6 +19,7 @@ runs:
         cache: pnpm
 
     - name: Install Claude CLI and Codex CLI
+      shell: bash
       run: |
         if command -v codex &>/dev/null; then
           echo "Codex CLI already installed"
