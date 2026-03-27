@@ -1,7 +1,7 @@
 {
   "name": "@jleechanorg/ao-plugin-notifier-mcp-mail",
   "version": "0.1.0",
-  "description": "Notifier plugin: MCP Agent Mail inter-agent messaging",
+  "description": "Notifier plugin: MCP Agent Mail inter-agent messaging + inbox polling",
   "license": "MIT",
   "type": "module",
   "main": "dist/index.js",
