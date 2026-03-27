@@ -696,6 +696,32 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     switch (action) {
       case "send-to-agent": {
         if (reactionConfig.message) {
+          // FIX 3002210802: if SHA was unchanged (deduped), skip the send but still record
+          // the SHA so the next cycle's dedup check is accurate. Do not return early from
+          // here — setLastSentHeadSha must run so the next poll's dedup works correctly.
+          if (reactionKey === "changes-requested" && session?.pr) {
+            const project = config.projects[session.projectId];
+            const scm = project?.scm ? registry.get<SCM>("scm", project.scm.plugin) : null;
+            if (scm?.getPRHeadSha) {
+              try {
+                // Record SHA so next cycle's dedup is accurate. This runs for both sent and
+                // deduped paths. dedupedSha may be undefined (pre-fetch failed) — fetch fresh.
+                setLastSentHeadSha(sessionId, dedupedSha ?? await scm.getPRHeadSha(session.pr));
+              } catch {
+                // Non-fatal — SHA tracking is best-effort
+              }
+            }
+          }
+
+          if (deduped) {
+            return {
+              reactionType: reactionKey,
+              success: true,
+              action: "send-to-agent",
+              escalated: false,
+            };
+          }
+
           // dedupedSha is pre-fetched above (race-condition guard: one SHA, used for both checks)
           try {
             // Inject context if message contains {{context}} placeholder
@@ -705,23 +731,6 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
               finalMessage = reactionConfig.message.replace(/\{\{context\}\}/g, () => context);
             }
             await sessionManager.send(sessionId, finalMessage);
-
-            // Record SHA on successful send so the next poll cycle skips if unchanged.
-            // If dedupedSha is set, it is the pre-fetched current SHA (used when SHA was
-            // unchanged and we skipped the dedup path — recording now completes the loop).
-            // Otherwise fetch it fresh to record the SHA that was actually sent.
-            if (reactionKey === "changes-requested" && session?.pr) {
-              const project = config.projects[session.projectId];
-              const scm = project?.scm ? registry.get<SCM>("scm", project.scm.plugin) : null;
-              if (scm?.getPRHeadSha) {
-                try {
-                  // FIX 3002095873: use DedupHeadShaStore so SHA survives tracker clearing
-                  setLastSentHeadSha(sessionId, dedupedSha ?? await scm.getPRHeadSha(session.pr));
-                } catch {
-                  // Non-fatal — SHA tracking is best-effort
-                }
-              }
-            }
 
             return {
               reactionType: reactionKey,
