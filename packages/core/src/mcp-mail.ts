@@ -186,8 +186,8 @@ class McpMailClient {
     });
   }
 
-  async sendHeartbeat(currentTask?: string): Promise<void> {
-    const body = currentTask ? `I'm working on: ${currentTask}` : "I'm alive — heartbeat";
+  async sendHeartbeat(body_md?: string): Promise<void> {
+    const body = body_md ?? "I'm alive — heartbeat";
     await this._send({
       subject: `worker heartbeat — ${this.config.agentId}`,
       body_md: body,

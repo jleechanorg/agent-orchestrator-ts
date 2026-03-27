@@ -1517,6 +1517,17 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       agentDead,
     }, transitionReaction);
 
+    // MCP mail: notify when session becomes blocked waiting for human input (non-terminal state)
+    // Fires on the transition INTO needs_input so the global inbox gets alerted promptly.
+    if (
+      newStatus === "needs_input" &&
+      oldStatus !== "needs_input" &&
+      getMcpMailClientConfig()
+    ) {
+      const blockedTask = sessionCurrentTask.get(session.id);
+      await sendMcpMailSessionEnd(blockedTask, "human input").catch(() => {/* non-fatal */});
+    }
+
     // Session exit reconciliation (bd-uxs.6): validate commits and emit proof on terminal states
     if (TERMINAL_STATUSES.has(newStatus) && !TERMINAL_STATUSES.has(oldStatus)) {
       // MCP mail: send session-end to global inbox before exit proof
@@ -1524,12 +1535,6 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         const doneTask = sessionCurrentTask.get(session.id);
         await sendMcpMailSessionEnd(doneTask).catch(() => {/* non-fatal */});
         sessionCurrentTask.delete(session.id);
-      }
-
-      // MCP mail: notify when session becomes blocked waiting for human input (non-terminal)
-      if (newStatus === "needs_input") {
-        const blockedTask = sessionCurrentTask.get(session.id);
-        await sendMcpMailSessionEnd(blockedTask, "human input").catch(() => {/* non-fatal */});
       }
 
       await validateAndEmitExitProof(session, newStatus, {
