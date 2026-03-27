@@ -794,7 +794,7 @@ describe("METADATA_UPDATER_SCRIPT content", () => {
   });
 
   it("extracts --title argument from gh pr create", () => {
-    expect(METADATA_UPDATER_SCRIPT).toMatch(/grep -o '--title/);
+    expect(METADATA_UPDATER_SCRIPT).toMatch(/grep -oE? '--title/);
   });
 
   it("denies gh pr create when title lacks [agento] prefix in PreToolUse", () => {

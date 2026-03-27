@@ -125,7 +125,7 @@ done
 # PostToolUse falls through to metadata update — no need to re-check there.
 if [[ "$hook_event" == "PreToolUse" && "$clean_command" =~ ^gh[[:space:]]+pr[[:space:]]+create ]]; then
   AGENTO_PREFIX="[agento]"
-  pr_title="$(echo "$clean_command" | grep -o '--title[[:space:]][^[:space:]]*' | sed -e 's/--title[[:space:]]//' -e "s/^'(.*)'$/\1/" -e 's/^"(.*)"$/\1/' || true)"
+  pr_title="$(echo "$clean_command" | grep -oE '--title[[:space:]][^[:space:]]*' | sed -e 's/--title[[:space:]]//' -e "s/^'(.*)'$/\1/" -e 's/^"(.*)"$/\1/' || true)"
   if [[ -n "$pr_title" && "$pr_title" != "$AGENTO_PREFIX"* ]]; then
     echo '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"Blocked by AO policy: gh pr create titles must start with [agento]. Prefix your title with [agento] and retry."}}'
     exit 0

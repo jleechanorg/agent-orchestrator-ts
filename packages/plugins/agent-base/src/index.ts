@@ -198,7 +198,7 @@ if [[ "$hook_event" == "PreToolUse" && "$clean_command" =~ ^gh[[:space:]]+pr[[:s
   # Extract --title value: grep grabs the first token after --title.
   # sed strips the leading --title<space>; the -e adds a second substitution that
   # strips a leading and trailing character (e.g. surrounding quotes) from the result.
-  pr_title="$(echo "$clean_command" | grep -o '--title[[:space:]][^[:space:]]*' | sed -e 's/--title[[:space:]]//' -e 's/^.\(.*\).$/\1/' || true)"
+  pr_title="$(echo "$clean_command" | grep -oE '--title[[:space:]][^[:space:]]*' | sed -e 's/--title[[:space:]]//' -e 's/^.\(.*\).$/\1/' || true)"
   # Strip surrounding single/double quotes via bash # ## % %% expansion.
   # \' and \" are literal backslash-quote in bash (prefix-strip / suffix-strip patterns).
   pr_title="\${pr_title#\'}"

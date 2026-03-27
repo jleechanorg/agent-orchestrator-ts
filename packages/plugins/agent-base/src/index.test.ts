@@ -412,7 +412,7 @@ describe("METADATA_UPDATER_SCRIPT — [agento] prefix enforcement", () => {
 
   it("extracts --title argument from gh pr create", () => {
     // The script uses grep to extract the --title token from the command
-    expect(METADATA_UPDATER_SCRIPT).toMatch(/grep -o '--title/);
+    expect(METADATA_UPDATER_SCRIPT).toMatch(/grep -oE? '--title/);
   });
 
   it("denies gh pr create when title lacks [agento] prefix in PreToolUse", () => {
