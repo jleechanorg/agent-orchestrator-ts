@@ -15,6 +15,7 @@ import { registerVerify } from "./commands/verify.js";
 import { registerDoctor } from "./commands/doctor.js";
 import { registerUpdate } from "./commands/update.js";
 import { registerSkeptic } from "./commands/skeptic.js";
+import { registerSkepticInstall } from "./commands/skeptic/install.js";
 import { getConfigInstruction } from "./lib/config-instruction.js";
 
 const program = new Command();
@@ -39,7 +40,8 @@ registerLifecycleWorker(program);
 registerVerify(program);
 registerDoctor(program);
 registerUpdate(program);
-registerSkeptic(program);
+const skepticCmd = registerSkeptic(program);
+registerSkepticInstall(skepticCmd);
 
 program
   .command("config-help")
