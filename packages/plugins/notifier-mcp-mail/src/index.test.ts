@@ -24,6 +24,14 @@ function mockFetchOk(responseBody: unknown = {}) {
   });
 }
 
+function mockFetchError(status: number, body: string) {
+  return vi.fn().mockResolvedValue({
+    ok: false,
+    status,
+    text: () => Promise.resolve(body),
+  });
+}
+
 /** Find the call whose JSON-RPC method matches. */
 function findRpcCall(
   fetchMock: ReturnType<typeof mockFetchOk>,
@@ -37,10 +45,16 @@ function findRpcCall(
   });
 }
 
+function parseSecondCallBody(fetchMock: ReturnType<typeof vi.fn>) {
+  const secondCall = fetchMock.mock.calls[1]!;
+  return JSON.parse((secondCall[1] as { body: string }).body);
+}
+
 describe("notifier-mcp-mail", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
   });
 
   describe("manifest", () => {
@@ -61,6 +75,12 @@ describe("notifier-mcp-mail", () => {
       const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
       create();
       expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("No endpoint configured"));
+    });
+
+    it("warns when endpoint configured but no projectId", () => {
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      create({ endpoint: "http://127.0.0.1:8765/mcp" });
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("No projectId configured"));
     });
 
     it("uses MCP_AGENT_MAIL_URL env var as default endpoint", () => {
@@ -120,7 +140,6 @@ describe("notifier-mcp-mail", () => {
       const fetchMock = mockFetchOk();
       vi.stubGlobal("fetch", fetchMock);
 
-      // Simulate MCP_AGENT_MAIL_URL set to http://host:8765/mcp/
       const notifier = create({ endpoint: "http://localhost:8765/mcp/", agentId: "ao-1" });
       await notifier.notify(makeEvent());
 
@@ -259,6 +278,18 @@ describe("notifier-mcp-mail", () => {
 
       const notifier = create({ endpoint: "http://localhost:3000", agentId: "ao-1" });
       await expect(notifier.notify(makeEvent())).rejects.toThrow("JSON-RPC error: unknown tool");
+    });
+
+    it("uses env var MCP_AGENT_MAIL_URL when no endpoint passed", async () => {
+      const fetchMock = mockFetchOk();
+      vi.stubGlobal("fetch", fetchMock);
+      vi.stubEnv("MCP_AGENT_MAIL_URL", "http://localhost:9999/mcp");
+
+      const notifier = create({ projectId: "jleechanclaw" });
+      await notifier.notify(makeEvent());
+
+      const firstCall = fetchMock.mock.calls[0]! as unknown[];
+      expect(firstCall[0]).toBe("http://localhost:9999/mcp");
     });
   });
 

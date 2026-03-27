@@ -26,12 +26,13 @@ export interface McpMailMessage {
 
 let _mcpClientConfig: McpMailClientConfig | null = null;
 let _registrationPromise: Promise<void> | null = null;
-let _lastSeenMessageId: string | null = null;
+/** IDs of all messages returned in the previous poll — used to surface only new messages. */
+let _lastSeenMessageIds = new Set<string>();
 
 export function initMcpMailClient(config: McpMailClientConfig): void {
   _mcpClientConfig = config;
   _registrationPromise = null;
-  _lastSeenMessageId = null;
+  _lastSeenMessageIds = new Set();
 }
 
 export function getMcpMailClientConfig(): McpMailClientConfig | null {
@@ -156,13 +157,11 @@ export async function pollMcpMailInbox(): Promise<InboxMessage[]> {
       };
     });
 
-    // Surface only new messages since last poll
-    const newMessages =
-      _lastSeenMessageId !== null
-        ? messages.filter((m) => m.id !== _lastSeenMessageId)
-        : messages;
+    // Surface only messages not seen in the previous poll
+    const newMessages = messages.filter((m) => !_lastSeenMessageIds.has(m.id));
 
-    if (messages.length > 0) _lastSeenMessageId = messages[0].id;
+    // Remember all IDs from this fetch so next poll can exclude them
+    _lastSeenMessageIds = new Set(messages.map((m) => m.id));
 
     if (newMessages.length > 0 && _inboxCallback) {
       try { _inboxCallback(newMessages); } catch { /* non-fatal */ }
@@ -195,32 +194,35 @@ async function mcpSend(params: {
 
 /** Send a heartbeat to the global inbox (worker wake-up + periodic). */
 export async function sendMcpMailHeartbeat(currentTask?: string): Promise<void> {
+  if (!_mcpClientConfig) return;
   const body = currentTask ? `I'm working on: ${currentTask}` : "I'm alive — heartbeat";
   await mcpSend({
-    subject: `worker heartbeat — ${_mcpClientConfig?.agentId ?? "ao"}`,
+    subject: `worker heartbeat — ${_mcpClientConfig.agentId}`,
     body_md: body,
-    to: ["global:jleechanclaw"],
+    to: [`global:${_mcpClientConfig.projectKey}`],
   });
 }
 
 /** Send a session-start message to the global inbox. */
 export async function sendMcpMailSessionStart(taskDescription?: string): Promise<void> {
+  if (!_mcpClientConfig) return;
   const body = taskDescription ? `Starting task: ${taskDescription}` : "Session started";
   await mcpSend({
-    subject: `session start — ${_mcpClientConfig?.agentId ?? "ao"}`,
+    subject: `session start — ${_mcpClientConfig.agentId}`,
     body_md: body,
-    to: ["global:jleechanclaw"],
+    to: [`global:${_mcpClientConfig.projectKey}`],
   });
 }
 
 /** Send a session-end message to the global inbox. */
 export async function sendMcpMailSessionEnd(doneTask?: string, blockedOn?: string): Promise<void> {
+  if (!_mcpClientConfig) return;
   let body = doneTask ? `Done with: ${doneTask}` : "Session ended";
   if (blockedOn) body += `\nBlocked on: ${blockedOn}`;
   await mcpSend({
-    subject: `session end — ${_mcpClientConfig?.agentId ?? "ao"}`,
+    subject: `session end — ${_mcpClientConfig.agentId}`,
     body_md: body,
-    to: ["global:jleechanclaw"],
+    to: [`global:${_mcpClientConfig.projectKey}`],
   });
 }
 
