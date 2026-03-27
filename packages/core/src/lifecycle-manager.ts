@@ -70,6 +70,15 @@ import { backfillUncoveredPRs } from "./backfill-extensions.js";
 import { sweepOrphanTmuxSessions, DEFAULT_TMUX_SWEEPER_CONFIG } from "./tmux-session-sweeper.js";
 import { drainTaskQueue } from "./task-queue.js";
 import { applyDeadAgentOverride } from "./fork-dead-agent.js";
+import {
+  initMcpMailClient,
+  getMcpMailClientConfig,
+  pollMcpMailInbox,
+  sendMcpMailHeartbeat,
+  sendMcpMailSessionStart,
+  sendMcpMailSessionEnd,
+  type McpMailClientConfig,
+} from "./mcp-mail.js";
 
 /** Parse a duration string like "10m", "30s", "1h" to milliseconds. */
 export function parseDuration(str: string): number {
@@ -224,6 +233,8 @@ export interface LifecycleManagerDeps {
   projectId?: string;
   /** Optional outcome recorder for tracking session results. */
   outcomeRecorder?: OutcomeRecorder;
+  /** MCP mail client config — initialized from project config if not provided. */
+  mcpMailConfig?: McpMailClientConfig;
 }
 
 /** Track attempt counts for reactions per session. */
@@ -234,8 +245,45 @@ interface ReactionTracker {
 
 /** Create a LifecycleManager instance. */
 export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleManager {
-  const { config, registry, sessionManager, projectId: scopedProjectId, outcomeRecorder } = deps;
+  const {
+    config,
+    registry,
+    sessionManager,
+    projectId: scopedProjectId,
+    outcomeRecorder,
+    mcpMailConfig: providedMcpMailConfig,
+  } = deps;
   const observer = createProjectObserver(config, "lifecycle-manager");
+
+  // Initialize MCP mail client from project config or provided override
+  const mcpEndpoint = process.env["MCP_AGENT_MAIL_URL"];
+  if (mcpEndpoint) {
+    const project = scopedProjectId ? config.projects[scopedProjectId] : undefined;
+    const mcpMailCfg: McpMailClientConfig = providedMcpMailConfig ?? {
+      endpoint: mcpEndpoint,
+      projectKey: scopedProjectId ?? "jleechanclaw",
+      agentId: scopedProjectId ? `lw-${scopedProjectId}` : "lw-global",
+    };
+    initMcpMailClient(mcpMailCfg);
+  }
+
+  // Inbox poll state — separate timer so inbox polls run every 5 min
+  // regardless of the session lifecycle poll interval
+  let inboxPollTimer: ReturnType<typeof setInterval> | null = null;
+  const INBOX_POLL_INTERVAL_MS = 5 * 60_000; // every 5 minutes
+
+  /** Track current task per session (for heartbeat messaging). */
+  const sessionCurrentTask = new Map<string, string>();
+
+  function startInboxPolling(): void {
+    if (inboxPollTimer) return;
+    inboxPollTimer = setInterval(async () => {
+      if (getMcpMailClientConfig()) {
+        await pollMcpMailInbox().catch(() => {/* non-fatal */});
+      }
+    }, INBOX_POLL_INTERVAL_MS);
+    inboxPollTimer.unref();
+  }
 
   const states = new Map<SessionId, SessionStatus>();
   const reactionTrackers = new Map<string, ReactionTracker>(); // "sessionId:reactionKey"
@@ -953,6 +1001,26 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       }
     }
 
+    // Track current task for MCP mail heartbeat messaging
+    const task = typeof session.metadata?.["task"] === "string"
+      ? session.metadata["task"]
+      : undefined;
+    if (task) {
+      sessionCurrentTask.set(session.id, task);
+    } else if (newStatus === "merged" || newStatus === "killed") {
+      sessionCurrentTask.delete(session.id);
+    }
+
+    // MCP mail: send session-start when a session resumes from a terminal state
+    // into active work. Uses tracked state so the guard fires exactly once per resume.
+    if (
+      getMcpMailClientConfig() &&
+      tracked !== undefined &&
+      TERMINAL_STATUSES.has(oldStatus!) &&
+      !TERMINAL_STATUSES.has(newStatus)
+    ) {
+      await sendMcpMailSessionStart(task).catch(() => {/* non-fatal */});
+    }
     if (newStatus !== oldStatus) {
       const correlationId = createCorrelationId("lifecycle-transition");
 
@@ -1446,6 +1514,14 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
 
     // Session exit reconciliation (bd-uxs.6): validate commits and emit proof on terminal states
     if (TERMINAL_STATUSES.has(newStatus) && !TERMINAL_STATUSES.has(oldStatus)) {
+      // MCP mail: send session-end to global inbox before exit proof
+      if (getMcpMailClientConfig()) {
+        const doneTask = sessionCurrentTask.get(session.id);
+        const blockedOn = newStatus === "needs_input" ? "human input" : undefined;
+        await sendMcpMailSessionEnd(doneTask, blockedOn).catch(() => {/* non-fatal */});
+        sessionCurrentTask.delete(session.id);
+      }
+
       await validateAndEmitExitProof(session, newStatus, {
         config,
         registry,
@@ -1761,6 +1837,15 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
           }
         }
       }
+      // MCP mail: send periodic worker heartbeat listing active sessions
+      if (getMcpMailClientConfig()) {
+        const activeTasks = Array.from(sessionCurrentTask.values()).filter(Boolean);
+        const heartbeatBody = activeTasks.length > 0
+          ? `Active sessions (${activeTasks.length}): ${activeTasks.join("; ")}`
+          : "No active sessions";
+        await sendMcpMailHeartbeat(heartbeatBody).catch(() => {/* non-fatal */});
+      }
+
       if (scopedProjectId) {
         observer.recordOperation({
           metric: "lifecycle_poll",
@@ -1813,6 +1898,10 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     start(intervalMs = 30_000): void {
       if (pollTimer) return; // Already running
       pollTimer = setInterval(() => void pollAll(), intervalMs);
+      // Start MCP mail inbox polling (separate 5-min interval)
+      if (getMcpMailClientConfig()) {
+        startInboxPolling();
+      }
       // Run immediately on start
       void pollAll();
     },
@@ -1821,6 +1910,10 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       if (pollTimer) {
         clearInterval(pollTimer);
         pollTimer = null;
+      }
+      if (inboxPollTimer) {
+        clearInterval(inboxPollTimer);
+        inboxPollTimer = null;
       }
     },
 
