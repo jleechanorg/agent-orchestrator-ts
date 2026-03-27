@@ -269,5 +269,17 @@ export async function handleRespawnForReview(
       return { reactionType: reactionKey, success: false, action, escalated: false };
     }
   }
+  // No message configured — nothing to send to the alive agent
+  observer.recordOperation({
+    metric: "lifecycle_poll",
+    operation: "lifecycle.reaction.respawn_for_review",
+    outcome: "failure",
+    reason: "no reaction message configured",
+    correlationId,
+    projectId,
+    sessionId,
+    data: { reactionKey },
+    level: "warn",
+  });
   return { reactionType: reactionKey, success: false, action, escalated: false };
 }
