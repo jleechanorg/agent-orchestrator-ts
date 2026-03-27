@@ -173,6 +173,14 @@ describe("hook script: [agento] prefix enforcement", () => {
     expect(stdout.trim()).toBe("{}");
   });
 
+  it("allows gh pr create with [agento] prefix (equals form: --title=[agento]) in PreToolUse", () => {
+    const { stdout } = runHook({
+      command: "gh pr create --title=[agento] fix --body 'test'",
+      hookEvent: "PreToolUse",
+    });
+    expect(stdout.trim()).toBe("{}");
+  });
+
   it("PostToolUse gh pr create still updates metadata (no prefix check)", () => {
     const { metadata } = runHook({
       command: 'gh pr create --title "fix: bug" --body "test"',

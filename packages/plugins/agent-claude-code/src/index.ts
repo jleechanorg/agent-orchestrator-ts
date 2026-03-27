@@ -59,8 +59,6 @@ const BASH_AO_ALLOW_GH_PR_MERGE = '${AO_ALLOW_GH_PR_MERGE:-_}';
 const BASH_AO_SESSION = '${AO_SESSION:-}';
 // Result: ${AO_ALLOW_GH_PR_MERGE:-} and ${AO_SESSION:-} as literal bash parameter expansion
 
-// PreToolUse event name — plain JS string, expands to PreToolUse for JSON output
-const HOOK_EVENT_VAR = "PreToolUse";
 export const METADATA_UPDATER_SCRIPT = _`#!/usr/bin/env bash
 # Metadata Updater Hook for Agent Orchestrator
 #
@@ -134,9 +132,9 @@ done
 # Use bash regex to check for [agento] prefix directly in the command string.
 # This avoids fragile grep|sed pipelines and POSIX sed capture-group portability issues.
 if [[ "$hook_event" == "PreToolUse" && "$clean_command" =~ ^gh[[:space:]]+pr[[:space:]]+create ]]; then
-  # Match --title followed by optional quotes and [agento] prefix (case-sensitive).
-  if [[ ! "$clean_command" =~ --title[[:space:]]+(\'\[agento\]|\"\[agento\]|\[agento\]) ]]; then
-    echo "{\"hookSpecificOutput\":{\"hookEventName\":\"${HOOK_EVENT_VAR}\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"Blocked by AO policy: gh pr create titles must start with [agento]. Prefix your title with [agento] and retry.\"}}"
+  # Match --title=value or --title [agento] (equals or space form) with optional quotes.
+  if [[ ! "$clean_command" =~ --title(=|[[:space:]]+)(\'\[agento\]|\"\[agento\]|\[agento\]) ]]; then
+    echo "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"Blocked by AO policy: gh pr create titles must start with [agento]. Prefix your title with [agento] and retry.\"}}"
     exit 0
   fi
 fi
