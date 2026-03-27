@@ -1,10 +1,10 @@
-# Zero-touch-by-operator (6-green) snapshot log
+# Zero-touch-by-operator (7-green) snapshot log
 
 _Last updated (WAM): 2026-03-26 01:05:00 PDT_
 
 ## Current status (operational snapshot)
 
-- Definition in this workspace: **6-green = PR brought to merge (6-green milestone) with no direct operator intervention**.
+- Definition in this workspace: **7-green = PR brought to merge (7-green milestone) with no direct operator intervention**.
 - Pulls currently open: **3** (`#191`, `#185`, `#195` [already merged by another process at 01:04 UTC])
   - `#185` — `[agento] feat: config-driven bead task queue with maxConcurrent in lifecycle-worker` — all CI green, CodeRabbit pending → ready to merge
   - `#191` — `[agento] fix(web): show EmptyState when all sessions are done` — Typecheck + Test Fresh Onboarding = FAILURE → blocked
