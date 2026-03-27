@@ -11,12 +11,19 @@ import { join } from "node:path";
  * Read the design doc for a PR from the local checkout.
  * Works both in CI (file is checked out) and locally (agent has repo).
  * Returns null if the design doc does not exist yet.
+ *
+ * Uses `git rev-parse --show-toplevel` to resolve the repo root explicitly,
+ * so this works even when the CLI is invoked from a subdirectory or with
+ * a `--repo` flag that doesn't match the current working directory.
+ * Only ENOENT is treated as "doc not found" — all other errors are re-thrown.
  */
 export async function fetchDesignDoc(prNumber: number): Promise<string | null> {
-  // Design docs live at docs/design/pr-designs/pr-{N}.md in the repo
-  // The CLI is always run from the repo root (checked out by the workflow or agent)
   try {
-    const designDocPath = join(process.cwd(), "docs", "design", "pr-designs", `pr-${prNumber}.md`);
+    // Resolve the repo root so we always find docs/design/pr-designs/
+    // regardless of the current working directory.
+    const { stdout: repoRoot } = await exec("git", ["rev-parse", "--show-toplevel"]);
+    const root = repoRoot.trim();
+    const designDocPath = join(root, "docs", "design", "pr-designs", `pr-${prNumber}.md`);
     const content = readFileSync(designDocPath, "utf8");
     return content;
   } catch (err: unknown) {

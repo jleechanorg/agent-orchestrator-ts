@@ -488,6 +488,7 @@ async function main() {
       const htmlPath = join(outDir, `pr-${SINGLE_PR}.html`);
 
       // Idempotency: skip if both files already exist and --force not set
+      // Short-circuit BEFORE any API calls to avoid burning quota on reruns.
       if (!FORCE && fileExists(mdPath) && fileExists(htmlPath)) {
         console.log(`   ⏭️  #${SINGLE_PR} — already exists, skipping`);
         console.log(`\n✅ Done — PR #${SINGLE_PR} already has design docs\n`);
