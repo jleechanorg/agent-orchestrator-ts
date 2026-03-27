@@ -1246,18 +1246,8 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
                   const crReviews = reviews.filter((r) => String(r.author ?? "").endsWith("coderabbitai[bot]"));
                   const crVerdict = crReviews[crReviews.length - 1]?.state ?? null;
 
-                  // Allow the reaction if ANY reviewer (human or bot) has posted CHANGES_REQUESTED
-                  // more recently than CR's latest verdict. This prevents blocking legitimate human
-                  // change requests when CR's latest formal verdict is COMMENTED.
-                  const latestCRIndex = crReviews.length > 0
-                    ? reviews.findIndex((r) => r === crReviews[crReviews.length - 1])
-                    : -1;
-                  const newerHumanCR = reviews.slice(latestCRIndex + 1).some(
-                    (r) => r.state === "changes_requested" && !String(r.author ?? "").endsWith("coderabbitai[bot]"),
-                  );
-                  // Block only when verdict is explicitly COMMENTED or DISMISSED with no newer human CR.
-                  // Allow dispatch when: newer human CR exists, verdict is CHANGES_REQUESTED, verdict is null,
-                  // or verdict is any other state (e.g. APPROVED) — only COMMENTED/DISMISSED are suppressed.
+                  // Block only when verdict is explicitly COMMENTED or DISMISSED.
+                  // Allow dispatch for all other verdicts (null, CHANGES_REQUESTED, APPROVED, etc.)
                   // null = fail open (allow reaction).
                   // SCM normalizes GitHub API values: "CHANGES_REQUESTED" → "changes_requested",
                   // "DISMISSED" → "dismissed", "COMMENTED" → "commented" (see scm-github getReviews).
