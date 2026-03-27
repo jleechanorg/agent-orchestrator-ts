@@ -111,9 +111,14 @@ export async function checkMergeGate(
 
   // 5. Inline comments resolved — ignore nit/nitpick comments and PR author comments
   // (PR author can always resolve their own threads; they don't block CR approval)
+  // GitHub usernames are case-insensitive; normalize both sides for comparison.
   const nitPattern = /^(nit:|nitpick)/i;
+  const prAuthorLower = pr.author?.toLowerCase();
   const unresolvedBlockingComments = pendingComments.filter(
-    (c) => !c.isResolved && !nitPattern.test(c.body.trimStart()) && c.author !== pr.author,
+    (c) =>
+      !c.isResolved &&
+      !nitPattern.test(c.body.trimStart()) &&
+      c.author?.toLowerCase() !== prAuthorLower,
   );
   checks.push({
     name: "Inline comments resolved",

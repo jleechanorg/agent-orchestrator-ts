@@ -134,7 +134,10 @@ jobs:
                       nodes {
                         isResolved
                         comments(first: 50) {
-                          nodes { author { login } body }
+                          nodes {
+                            author { login }
+                            body
+                          }
                         }
                       }
                     }
