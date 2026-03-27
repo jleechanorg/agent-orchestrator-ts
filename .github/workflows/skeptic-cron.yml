@@ -20,6 +20,8 @@ jobs:
       prs_evaluated: ${{ steps.list_prs.outputs.pr_numbers }}
       merged_count: ${{ steps.merge_prs.outputs.merged_count }}
     steps:
+      - uses: actions/checkout@v4
+
       - name: Setup
         uses: ./.github/actions/skeptic-setup
 
@@ -141,7 +143,7 @@ jobs:
                 break
               fi
             done
-            if echo "$SKEPTIC_STATUS" | grep -qi "FAIL\|MISSING"; then
+            if echo "$SKEPTIC_STATUS" | grep -Ei "FAIL|MISSING"; then
               ALL_PASS=false
             fi
 
@@ -156,7 +158,7 @@ jobs:
                   --squash --auto \
                   --delete-branch \
                   2>&1 || echo "MERGE_FAILED")
-                if echo "$MERGE_RESULT" | grep -qi "MERGE_FAILED\|error"; then
+                if echo "$MERGE_RESULT" | grep -Ei "MERGE_FAILED|error"; then
                   echo "Merge failed for PR #${PR_NUM}: $MERGE_RESULT"
                 else
                   echo "Successfully merged PR #${PR_NUM}"
