@@ -241,6 +241,134 @@ describe("scm-github plugin", () => {
     });
   });
 
+  describe("getSkepticVerdict", () => {
+    it("returns PASS when skeptic bot posted VERDICT: PASS", async () => {
+      mockGh([
+        { id: 1, user: { login: "coderabbitai[bot]" }, body: "looks good" },
+        {
+          id: 2,
+          user: { login: "jleechan-agent[bot]" },
+          body: "<!-- skeptic-agent-verdict -->\nVERDICT: PASS\n\nAll exit criteria met.",
+        },
+      ]);
+      const result = await scm.getSkepticVerdict!(pr);
+      expect(result).toBe("PASS");
+      // Verify gh was called with the correct REST endpoint
+      expect(ghMock).toHaveBeenCalledWith(
+        "gh",
+        expect.arrayContaining(["api", expect.stringContaining("repos/acme/repo/issues/42/comments")]),
+        expect.any(Object),
+      );
+    });
+
+    it("returns FAIL when skeptic bot posted VERDICT: FAIL", async () => {
+      mockGh([
+        { id: 1, user: { login: "other-bot" }, body: "comment" },
+        {
+          id: 2,
+          user: { login: "jleechan-agent[bot]" },
+          body: "<!-- skeptic-agent-verdict -->\nVERDICT: FAIL\n\nGap: missing test coverage",
+        },
+      ]);
+      const result = await scm.getSkepticVerdict!(pr);
+      expect(result).toBe("FAIL");
+    });
+
+    it("returns SKIPPED when no skeptic verdict comment exists", async () => {
+      mockGh([
+        { id: 1, user: { login: "coderabbitai[bot]" }, body: "looks good" },
+        { id: 2, user: { login: "human" }, body: "please review" },
+      ]);
+      const result = await scm.getSkepticVerdict!(pr);
+      expect(result).toBe("SKIPPED");
+    });
+
+    it("returns SKIPPED when skeptic bot exists with marker but no VERDICT line", async () => {
+      mockGh([
+        {
+          id: 3,
+          user: { login: "jleechan-agent[bot]" },
+          body: "<!-- skeptic-agent-verdict -->\nRunning skeptic analysis...",
+        },
+      ]);
+      const result = await scm.getSkepticVerdict!(pr);
+      expect(result).toBe("SKIPPED");
+    });
+
+    it("returns SKIPPED when skeptic bot has VERDICT line but no marker", async () => {
+      mockGh([
+        {
+          id: 4,
+          user: { login: "jleechan-agent[bot]" },
+          body: "VERDICT: PASS\n\nAll criteria met.",
+        },
+      ]);
+      const result = await scm.getSkepticVerdict!(pr);
+      expect(result).toBe("SKIPPED");
+    });
+
+    it("returns SKIPPED when API call fails (non-fatal)", async () => {
+      mockGhError("API error");
+      const result = await scm.getSkepticVerdict!(pr);
+      expect(result).toBe("SKIPPED");
+    });
+
+    it("returns SKIPPED when comments list is empty", async () => {
+      mockGh([]);
+      const result = await scm.getSkepticVerdict!(pr);
+      expect(result).toBe("SKIPPED");
+    });
+
+    it("uses skepticBotAuthor from config when provided", async () => {
+      const customSCM = create({ skepticBotAuthor: "custom-skeptic[bot]" });
+      mockGh([
+        {
+          id: 1,
+          user: { login: "custom-skeptic[bot]" },
+          body: "<!-- skeptic-agent-verdict -->\nVERDICT: PASS",
+        },
+      ]);
+      const result = await customSCM.getSkepticVerdict!(pr);
+      expect(result).toBe("PASS");
+    });
+
+    it("returns last (newest) verdict when skeptic posts multiple verdicts", async () => {
+      mockGh([
+        {
+          id: 1,
+          user: { login: "jleechan-agent[bot]" },
+          body: "<!-- skeptic-agent-verdict -->\nVERDICT: FAIL\n\nInitial check failed",
+        },
+        {
+          id: 2,
+          user: { login: "jleechan-agent[bot]" },
+          body: "<!-- skeptic-agent-verdict -->\nVERDICT: PASS\n\nAll exit criteria met.",
+        },
+      ]);
+      // GitHub returns oldest first; last matching comment wins
+      const result = await scm.getSkepticVerdict!(pr);
+      expect(result).toBe("PASS");
+    });
+
+    it("finds skeptic verdict on second page of comments (pagination)", async () => {
+      // Page 1: no skeptic comments — 100 items (exactly full page → continue)
+      const page1 = Array.from({ length: 100 }, (_, i) => ({
+        id: i + 1,
+        user: { login: "other-bot" },
+        body: `comment ${i}`,
+      }));
+      // Page 2: skeptic PASS verdict — fewer than 100 items → pagination stops
+      const page2 = [
+        { id: 101, user: { login: "jleechan-agent[bot]" }, body: "<!-- skeptic-agent-verdict -->\nVERDICT: PASS" },
+      ];
+      ghMock.mockResolvedValueOnce({ stdout: JSON.stringify(page1) });
+      ghMock.mockResolvedValueOnce({ stdout: JSON.stringify(page2) });
+
+      const result = await scm.getSkepticVerdict!(pr);
+      expect(result).toBe("PASS");
+    });
+  });
+
   describe("verifyWebhook", () => {
     it("accepts unsigned webhooks when no secret is configured", async () => {
       await expect(scm.verifyWebhook?.(makeWebhookRequest(), project)).resolves.toEqual({
