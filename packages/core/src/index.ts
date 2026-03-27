@@ -201,6 +201,18 @@ export type { WebhookIngressConfig } from "./webhook-ingress.js";
 export { AgentMailBridge, formatGuidancePrompt } from "./mcp-mail.js";
 export type { AgentMailMessage, AgentMailConfig } from "./mcp-mail.js";
 
+// MCP mail HTTP client — global inbox polling + heartbeat for workers
+export {
+  initMcpMailClient,
+  getMcpMailClientConfig,
+  setMcpMailInboxCallback,
+  pollMcpMailInbox,
+  sendMcpMailHeartbeat,
+  sendMcpMailSessionStart,
+  sendMcpMailSessionEnd,
+} from "./mcp-mail.js";
+export type { McpMailClientConfig, InboxMessage, InboxCallback } from "./mcp-mail.js";
+
 // Outcome recorder — persist and query fix strategy outcomes
 export { OutcomeRecorder } from "./outcome-recorder.js";
 export type { OutcomeRecorderDeps } from "./outcome-recorder.js";

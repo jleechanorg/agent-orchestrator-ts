@@ -98,6 +98,9 @@ importers:
       '@jleechanorg/ao-plugin-notifier-desktop':
         specifier: workspace:*
         version: link:../plugins/notifier-desktop
+      '@jleechanorg/ao-plugin-notifier-mcp-mail':
+        specifier: workspace:*
+        version: link:../plugins/notifier-mcp-mail
       '@jleechanorg/ao-plugin-notifier-openclaw':
         specifier: workspace:*
         version: link:../plugins/notifier-openclaw
