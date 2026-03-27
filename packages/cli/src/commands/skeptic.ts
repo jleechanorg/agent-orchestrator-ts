@@ -64,9 +64,13 @@ async function findExistingVerdict(
   return null;
 }
 
-export function registerSkeptic(program: Command): void {
-  program
+export function registerSkeptic(program: Command): Command {
+  const skepticCmd = program
     .command("skeptic")
+    .description("Skeptic agent commands — run verification and manage CI installation (bd-qw6, bd-8tpa)");
+
+  skepticCmd
+    .command("verify")
     .description("Run skeptic agent verification on a PR and post VERDICT comment (bd-qw6)")
     .requiredOption("-n, --pr <number>", "PR number")
     .option("-r, --repo <owner/repo>", "Repository (defaults to current repo)")
@@ -158,4 +162,6 @@ export function registerSkeptic(program: Command): void {
         process.exit(1);
       }
     });
+
+  return skepticCmd;
 }

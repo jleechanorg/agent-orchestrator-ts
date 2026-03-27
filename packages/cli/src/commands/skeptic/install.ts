@@ -1,0 +1,218 @@
+/**
+ * Skeptic CI Installer — bd-8tpa
+ *
+ * CLI: ao skeptic install [--gate] [--cron]
+ *
+ * Copies skeptic-gate.yml and/or skeptic-cron.yml into the target repo's
+ * .github/workflows/ directory.
+ *
+ * - Auto-detects repo owner/name from `gh repo view` (git remote fallback)
+ * - Copies files locally only — user commits/pushes to activate workflows
+ * - Configures which gates to install via --gate / --cron flags
+ * - Templates use ${{ github.repository }} at runtime — no injection needed
+ */
+
+import chalk from "chalk";
+import { existsSync, mkdirSync, writeFileSync, readFileSync } from "node:fs";
+import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
+import { cwd } from "node:process";
+import type { Command } from "commander";
+import { exec } from "../../lib/shell.js";
+
+// Template directory — resolved relative to this file's location
+// Templates live in src/templates/skeptic/ so TypeScript (rootDir=src) copies them to dist/templates/skeptic/
+const TEMPLATE_DIR = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "templates", "skeptic");
+
+interface RepoInfo {
+  owner: string;
+  name: string;
+}
+
+/**
+ * Detect the current repo from `gh repo view`, falling back to git remote parsing.
+ */
+async function detectRepo(): Promise<RepoInfo> {
+  try {
+    const result = await exec("gh", ["repo", "view", "--json", "owner,name"]);
+    const data = JSON.parse(result.stdout) as { owner: { login: string }; name: string };
+    return { owner: data.owner.login, name: data.name };
+  } catch {
+    // Fallback: parse git remote
+    try {
+      const remoteResult = await exec("git", ["remote", "get-url", "origin"]);
+      const url = remoteResult.stdout.trim();
+      // Supports: https://github.com/owner/repo.git  or  git@github.com:owner/repo.git
+      const httpsMatch = url.match(/github\.com[/:]([^/]+)\/([^/.]+)/);
+      if (httpsMatch) {
+        return { owner: httpsMatch[1], name: httpsMatch[2] };
+      }
+    } catch {
+      // ignore
+    }
+    throw new Error(
+      "Could not detect repo. Run in a git repo with a configured remote, or use --repo owner/repo.",
+    );
+  }
+}
+
+/**
+ * Ensure .github/workflows/ exists under the given root.
+ */
+function ensureWorkflowsDir(root: string): void {
+  const dir = join(root, ".github", "workflows");
+  if (!existsSync(dir)) {
+    mkdirSync(dir, { recursive: true });
+  }
+}
+
+/**
+ * Copy a template to the target repo's .github/workflows/ directory.
+ */
+function installWorkflow(
+  root: string,
+  filename: string,
+  options: { force?: boolean } = {},
+): "installed" | "skipped-exists" {
+  const src = join(TEMPLATE_DIR, filename);
+  const dst = join(root, ".github", "workflows", filename);
+
+  if (existsSync(dst) && !options.force) {
+    return "skipped-exists";
+  }
+
+  const content = readFileSync(src, "utf8");
+  writeFileSync(dst, content, "utf8");
+  return "installed";
+}
+
+/**
+ * Verify the CLI is installed and buildable in the target repo.
+ * Warns if pnpm/npm not found.
+ */
+async function checkBuildTools(_repo: RepoInfo): Promise<void> {
+  const hasPnpm = await exec("pnpm", ["--version"]).then(() => true).catch(() => false);
+  const hasNpm = await exec("npm", ["--version"]).then(() => true).catch(() => false);
+
+  if (!hasPnpm && !hasNpm) {
+    console.warn(
+      chalk.yellow("⚠  Neither pnpm nor npm found — the skeptic workflows require Node.js tooling."),
+    );
+  } else if (!hasPnpm) {
+    console.warn(
+      chalk.yellow("⚠  pnpm not found — the skeptic workflows assume pnpm. Adjust build steps if using npm."),
+    );
+  }
+
+  console.log(chalk.cyan("  ℹ  After committing, add these secrets in GitHub repo Settings > Secrets:"));
+  console.log(chalk.cyan("     • OPENAI_API_KEY   (for Codex — primary LLM)"));
+  console.log(chalk.cyan("     • ANTHROPIC_API_KEY (for Claude CLI — fallback LLM)"));
+  console.log(chalk.cyan("     At least one is required for skeptic to run."));
+}
+
+export function registerSkepticInstall(skepticCmd: Command): void {
+  skepticCmd
+    .command("install")
+    .description(
+      "Install skeptic CI workflows into the current repo's .github/workflows/ (bd-8tpa)",
+    )
+    .option(
+      "--gate",
+      "Install skeptic-gate.yml (runs on every PR open/sync)",
+      false,
+    )
+    .option(
+      "--cron",
+      "Install skeptic-cron.yml (runs every 30 min, auto-merges 7-green PRs)",
+      false,
+    )
+    .option(
+      "--all",
+      "Install all available skeptic workflows (gate + cron)",
+      false,
+    )
+    .option(
+      "--force",
+      "Overwrite existing workflow files if present",
+      false,
+    )
+    .option(
+      "--repo <owner/repo>",
+      "Target repo (defaults to current repo detected via gh/gh remote)",
+    )
+    .action(async (options) => {
+      const installGate = options.all || options.gate;
+      const installCron = options.all || options.cron;
+
+      if (!installGate && !installCron) {
+        console.error(
+          chalk.red("Error: specify at least one workflow to install.\n") +
+            "  Use --gate, --cron, or --all.\n" +
+            "  Example: ao skeptic install --all",
+        );
+        process.exit(1);
+      }
+
+      // Detect repo
+      let repo: RepoInfo;
+      if (options.repo) {
+        const parts = String(options.repo).split("/");
+        if (parts.length !== 2) {
+          console.error(chalk.red("Repo must be in format: owner/repo"));
+          process.exit(1);
+        }
+        repo = { owner: parts[0]!, name: parts[1]! };
+      } else {
+        repo = await detectRepo();
+      }
+
+      const root = cwd();
+      ensureWorkflowsDir(root);
+
+      console.log(chalk.bold(`\n🔧 Installing skeptic CI in ${chalk.cyan(repo.owner + "/" + repo.name)}`));
+      console.log(chalk.dim(`   Target: ${root}/.github/workflows/\n`));
+
+      let gateResult: "installed" | "skipped-exists" | null = null;
+      let cronResult: "installed" | "skipped-exists" | null = null;
+
+      if (installGate) {
+        const r = installWorkflow(root, "skeptic-gate.yml", { force: options.force });
+        gateResult = r;
+        if (r === "installed") {
+          console.log(chalk.green(`  ✅ skeptic-gate.yml installed`));
+        } else {
+          console.log(chalk.yellow(`  ⚠  skeptic-gate.yml already exists (use --force to overwrite)`));
+        }
+      }
+
+      if (installCron) {
+        const r = installWorkflow(root, "skeptic-cron.yml", { force: options.force });
+        cronResult = r;
+        if (r === "installed") {
+          console.log(chalk.green(`  ✅ skeptic-cron.yml installed`));
+        } else {
+          console.log(chalk.yellow(`  ⚠  skeptic-cron.yml already exists (use --force to overwrite)`));
+        }
+      }
+
+      console.log();
+      await checkBuildTools(repo);
+
+      console.log(
+        chalk.bold("\n📋 Next steps:") +
+          "\n" +
+          chalk.cyan("  1. Commit the new files:") +
+          `\n     git add .github/workflows/skeptic-gate.yml .github/workflows/skeptic-cron.yml` +
+          `\n     git commit -m "feat: add skeptic CI (gate+cron)"` +
+          "\n" +
+          chalk.cyan("  2. Push to activate workflows:") +
+          "\n     git push" +
+          "\n" +
+          chalk.cyan("  3. Add secrets in GitHub > Settings > Secrets:") +
+          "\n     • OPENAI_API_KEY   (Codex — primary)" +
+          "\n     • ANTHROPIC_API_KEY (Claude — fallback)" +
+          "\n" +
+          chalk.green("  Done! Skeptic will run on your next PR.\n"),
+      );
+    });
+}
