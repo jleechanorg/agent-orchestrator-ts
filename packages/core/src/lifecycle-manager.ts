@@ -13,6 +13,7 @@
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { reapPostMergeCoWorkers } from "./fork-lifecycle-postmerge.js";
+import { getLastSentHeadSha, setLastSentHeadSha } from "./dedup-head-sha-store.js";
 import {
   SESSION_STATUS,
   PR_STATE,
@@ -230,9 +231,6 @@ export interface LifecycleManagerDeps {
 interface ReactionTracker {
   attempts: number;
   firstTriggered: Date;
-  /** bd-1178: SHA of PR head at last successful send-to-agent dispatch.
-   *  Skips re-send when SHA is unchanged across poll cycles. */
-  lastSentHeadSha?: string;
 }
 
 /** Create a LifecycleManager instance. */
@@ -611,6 +609,9 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     // bd-1178 dedup check for changes-requested reactions (before attempts increment).
     // Prevents wasted API calls and avoids consuming the retry budget on unchanged SHA.
     // Also fixes race condition: SHA is captured once before send and reused for recording.
+    // FIX 3002095878: do NOT early-return — fall through to escalation checks so duration-
+    // based escalation (escalateAfter as string) still fires even on deduped polls.
+    let deduped = false;
     let dedupedSha: string | undefined;
     if (reactionKey === "changes-requested" && reactionConfig.action === "send-to-agent" && session?.pr) {
       const project = config.projects[session.projectId];
@@ -618,7 +619,10 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       if (scm?.getPRHeadSha) {
         try {
           const currentSha = await scm.getPRHeadSha(session.pr);
-          if (tracker.lastSentHeadSha === currentSha) {
+          // FIX 3002095873: use DedupHeadShaStore (separate from ReactionTracker) so SHA
+          // survives clearReactionTracker() on status transitions and process restarts.
+          if (getLastSentHeadSha(sessionId) === currentSha) {
+            deduped = true;
             observer.recordOperation({
               metric: "lifecycle_poll",
               operation: "lifecycle.reaction.deduped",
@@ -630,14 +634,10 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
               data: { reactionKey, currentSha },
               level: "debug",
             });
-            return {
-              reactionType: reactionKey,
-              success: true,
-              action: "send-to-agent",
-              escalated: false,
-            };
+            // Do NOT return — fall through to escalation checks (Fix 3002095878)
+          } else {
+            dedupedSha = currentSha; // capture for post-send recording
           }
-          dedupedSha = currentSha; // capture for post-send recording
         } catch {
           // getPRHeadSha failed — proceed with send (don't block on SHA check)
         }
@@ -645,17 +645,23 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     }
 
     // Increment attempts only when we actually attempt the action (not on dedup skip)
-    tracker.attempts++;
+    if (!deduped) tracker.attempts++;
 
-    // Check if we should escalate
+    // Check if we should escalate.
+    // FIX 3002095878: retry/attempt-based escalation is suppressed on deduped polls
+    // (no actual send was made, so counting it toward attempts would be wrong).
+    // Duration-based escalation still fires on deduped polls — if nothing has happened
+    // for X time, escalate regardless of whether SHA changed.
     const maxRetries = reactionConfig.retries ?? Infinity;
     const escalateAfter = reactionConfig.escalateAfter;
     let shouldEscalate = false;
 
-    if (tracker.attempts > maxRetries) {
+    if (!deduped && tracker.attempts > maxRetries) {
       shouldEscalate = true;
     }
 
+    // Duration-based escalation: fires on both sent and deduped polls.
+    // This is intentional — a stalled session should escalate even when SHA is unchanged.
     if (typeof escalateAfter === "string") {
       const durationMs = parseDuration(escalateAfter);
       if (durationMs > 0 && Date.now() - tracker.firstTriggered.getTime() > durationMs) {
@@ -663,7 +669,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       }
     }
 
-    if (typeof escalateAfter === "number" && tracker.attempts > escalateAfter) {
+    if (!deduped && typeof escalateAfter === "number" && tracker.attempts > escalateAfter) {
       shouldEscalate = true;
     }
 
@@ -709,7 +715,8 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
               const scm = project?.scm ? registry.get<SCM>("scm", project.scm.plugin) : null;
               if (scm?.getPRHeadSha) {
                 try {
-                  tracker.lastSentHeadSha = dedupedSha ?? await scm.getPRHeadSha(session.pr);
+                  // FIX 3002095873: use DedupHeadShaStore so SHA survives tracker clearing
+                  setLastSentHeadSha(sessionId, dedupedSha ?? await scm.getPRHeadSha(session.pr));
                 } catch {
                   // Non-fatal — SHA tracking is best-effort
                 }
