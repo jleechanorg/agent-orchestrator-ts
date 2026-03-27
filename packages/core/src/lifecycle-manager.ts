@@ -1525,16 +1525,12 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         await sendMcpMailSessionEnd(doneTask).catch(() => {/* non-fatal */});
         sessionCurrentTask.delete(session.id);
       }
-    }
 
-    // MCP mail: notify when session becomes blocked waiting for human input (non-terminal)
-    if (
-      newStatus === "needs_input" &&
-      getMcpMailClientConfig() &&
-      newStatus !== oldStatus
-    ) {
-      const blockedTask = sessionCurrentTask.get(session.id);
-      await sendMcpMailSessionEnd(blockedTask, "human input").catch(() => {/* non-fatal */});
+      // MCP mail: notify when session becomes blocked waiting for human input (non-terminal)
+      if (newStatus === "needs_input") {
+        const blockedTask = sessionCurrentTask.get(session.id);
+        await sendMcpMailSessionEnd(blockedTask, "human input").catch(() => {/* non-fatal */});
+      }
     }
 
     await validateAndEmitExitProof(session, newStatus, {

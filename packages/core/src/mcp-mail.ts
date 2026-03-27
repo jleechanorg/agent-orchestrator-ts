@@ -149,7 +149,9 @@ export async function pollMcpMailInbox(): Promise<InboxMessage[]> {
         id: String(msg["id"] ?? msg["message_id"] ?? ""),
         project_key: _mcpClientConfig!.projectKey,
         sender_name: String(msg["sender_name"] ?? msg["from"] ?? msg["sender"] ?? ""),
-        to: Array.isArray(msg["to"]) ? (msg["to"] as string[]) : [],
+        to: Array.isArray(msg["to"])
+          ? (msg["to"] as unknown[]).filter((v): v is string => typeof v === "string")
+          : [],
         subject: String(msg["subject"] ?? ""),
         body_md: String(msg["body_md"] ?? msg["body"] ?? msg["text"] ?? ""),
         created_at: String(msg["created_at"] ?? msg["created_ts"] ?? msg["timestamp"] ?? ""),
