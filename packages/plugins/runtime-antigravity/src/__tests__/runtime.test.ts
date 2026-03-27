@@ -9,6 +9,7 @@ vi.mock("../peekaboo.js", () => ({
   paste: vi.fn(),
   press: vi.fn(),
   hotkey: vi.fn(),
+  scroll: vi.fn(),
   setPeekabooBin: vi.fn(),
 }));
 
@@ -30,14 +31,16 @@ vi.mock("../fallback.js", () => ({
 
 // Import after mocks
 import antigravityPlugin, { manifest, create } from "../index.js";
+import { setScrollSettleMs } from "../runtime.js";
 import * as peekaboo from "../peekaboo.js";
 
-const mockWindowList = peekaboo.windowList as ReturnType<typeof vi.fn>;
-const mockSee = peekaboo.see as ReturnType<typeof vi.fn>;
-const mockClick = peekaboo.click as ReturnType<typeof vi.fn>;
-const mockPaste = peekaboo.paste as ReturnType<typeof vi.fn>;
-const mockPress = peekaboo.press as ReturnType<typeof vi.fn>;
-const mockHotkey = peekaboo.hotkey as ReturnType<typeof vi.fn>;
+const mockWindowList = vi.mocked(peekaboo.windowList);
+const mockSee = vi.mocked(peekaboo.see);
+const mockClick = vi.mocked(peekaboo.click);
+const mockPaste = vi.mocked(peekaboo.paste);
+const mockPress = vi.mocked(peekaboo.press);
+const mockHotkey = vi.mocked(peekaboo.hotkey);
+const mockScroll = vi.mocked(peekaboo.scroll);
 
 /** Helper to create a window fixture matching PeekabooWindow shape. */
 function makeWindow(overrides: { window_id: number; title: string }) {
@@ -97,8 +100,31 @@ function makeEmptyHandle(id: string): RuntimeHandle {
   };
 }
 
+// Need to import mocked modules to re-setup implementations after reset
+import { executeWithFallback } from "../fallback.js";
+import { runPreflight } from "../preflight.js";
+const mockExecuteWithFallback = vi.mocked(executeWithFallback);
+const mockRunPreflight = vi.mocked(runPreflight);
+
 beforeEach(() => {
-  vi.clearAllMocks();
+  // resetAllMocks clears mockResolvedValueOnce queues (clearAllMocks does not)
+  vi.resetAllMocks();
+  // Re-setup module-level mock implementations after reset
+  mockExecuteWithFallback.mockImplementation(
+    async (primaryFn: () => Promise<string>) => {
+      const output = await primaryFn();
+      return { success: true, output, fallbackUsed: false };
+    },
+  );
+  mockRunPreflight.mockResolvedValue({ ok: true, steps: [], elapsedMs: 0 });
+  // Default implementations (prevent "undefined.find" crashes after Once values consumed)
+  mockSee.mockImplementation(async () => ({
+    snapshot_id: "default",
+    ui_elements: [],
+  }));
+  mockScroll.mockImplementation(async () => undefined);
+  // Disable scroll settle delay for fast tests
+  setScrollSettleMs(0);
 });
 
 // =============================================================================
@@ -133,16 +159,17 @@ describe("create()", () => {
 // =============================================================================
 
 describe("runtime.create()", () => {
-  it("finds Manager window and opens conversation", async () => {
+  it("finds Manager window and opens conversation with Send button", async () => {
     const runtime = create();
 
     // 1. windowList: returns Manager window
     mockWindowList.mockResolvedValueOnce([makeWindow({ window_id: 1, title: "Manager" })]);
 
-    // 2. see: returns snapshot with workspace element
+    // 2. see (findWorkspaceElement): returns snapshot with workspace element
+    //    Workspace matching uses basename ("workspace") not full path
     mockSee.mockResolvedValueOnce({
       snapshot_id: "snap-1",
-      ui_elements: [makeElement({ id: "ws-el", role: "AXButton", title: "/tmp/workspace" })],
+      ui_elements: [makeElement({ id: "ws-el", role: "other", title: "workspace" })],
     });
 
     // 3. click: workspace element
@@ -151,17 +178,27 @@ describe("runtime.create()", () => {
     // 4. windowList: returns conversation window after click
     mockWindowList.mockResolvedValueOnce([
       makeWindow({ window_id: 1, title: "Manager" }),
-      makeWindow({ window_id: 2, title: "Conversation" }),
+      makeWindow({ window_id: 2, title: "workspace" }),
     ]);
 
-    // 5. paste + press for launch command
-    mockPaste.mockResolvedValueOnce(undefined);
-    mockPress.mockResolvedValueOnce(undefined);
+    // 5. see (Manager): find text field + Send button for launch command
+    mockSee.mockResolvedValueOnce({
+      snapshot_id: "snap-2",
+      ui_elements: [
+        makeElement({ id: "input-field", role: "textField", title: "" }),
+        makeElement({ id: "send-btn", role: "button", title: "Send", label: "Send" }),
+      ],
+    });
 
-    // 6. windowList: re-fetch for session population after fallback wrapper
+    // 6. click text field, paste, click Send button
+    mockClick.mockResolvedValueOnce({ success: true }); // focus text field
+    mockPaste.mockResolvedValueOnce(undefined);
+    mockClick.mockResolvedValueOnce({ success: true }); // click Send
+
+    // 7. windowList: re-fetch for session population after fallback wrapper
     mockWindowList.mockResolvedValueOnce([
       makeWindow({ window_id: 1, title: "Manager" }),
-      makeWindow({ window_id: 2, title: "Conversation" }),
+      makeWindow({ window_id: 2, title: "workspace" }),
     ]);
 
     const handle = await runtime.create({
@@ -175,17 +212,99 @@ describe("runtime.create()", () => {
     expect(handle.runtimeName).toBe("antigravity");
     expect(handle.data["workspacePath"]).toBe("/tmp/workspace");
 
-    // Verify peekaboo calls (3 windowList calls now: find manager, post-click, re-fetch)
+    // Verify peekaboo calls
     expect(mockWindowList).toHaveBeenCalledTimes(3);
-    expect(mockSee).toHaveBeenCalledWith("Antigravity", 1);
-    expect(mockClick).toHaveBeenCalledWith(
+    expect(mockSee).toHaveBeenCalledTimes(2);
+    // Workspace click
+    expect(mockClick).toHaveBeenCalledWith("Antigravity", 1, "ws-el", "snap-1");
+    // Paste includes workspace context prefix
+    expect(mockPaste).toHaveBeenCalledWith(
       "Antigravity",
-      1,
-      "ws-el",
-      "snap-1",
+      "You are working in /tmp/workspace. implement feature X",
     );
-    expect(mockPaste).toHaveBeenCalledWith("Antigravity", "implement feature X");
+    // Send button clicked (not Return pressed)
+    expect(mockClick).toHaveBeenCalledWith("Antigravity", 1, "send-btn", "snap-2");
+    expect(mockPress).not.toHaveBeenCalled();
+  });
+
+  it("falls back to Return when Send button not found", async () => {
+    const runtime = create();
+
+    mockWindowList.mockResolvedValueOnce([makeWindow({ window_id: 1, title: "Manager" })]);
+    mockSee.mockResolvedValueOnce({
+      snapshot_id: "snap-1",
+      ui_elements: [makeElement({ id: "ws-el", role: "other", title: "workspace" })],
+    });
+    mockClick.mockResolvedValueOnce({ success: true });
+    mockWindowList.mockResolvedValueOnce([
+      makeWindow({ window_id: 1, title: "Manager" }),
+      makeWindow({ window_id: 2, title: "workspace" }),
+    ]);
+
+    // Manager snapshot without Send button
+    mockSee.mockResolvedValueOnce({
+      snapshot_id: "snap-2",
+      ui_elements: [
+        makeElement({ id: "input-field", role: "textField", title: "" }),
+      ],
+    });
+    mockClick.mockResolvedValueOnce({ success: true }); // focus text field
+    mockPaste.mockResolvedValueOnce(undefined);
+    mockPress.mockResolvedValueOnce(undefined); // Return fallback
+
+    mockWindowList.mockResolvedValueOnce([
+      makeWindow({ window_id: 1, title: "Manager" }),
+      makeWindow({ window_id: 2, title: "workspace" }),
+    ]);
+
+    const handle = await runtime.create({
+      sessionId: "test-session",
+      workspacePath: "/tmp/workspace",
+      launchCommand: "hello",
+      environment: {},
+    });
+
+    expect(handle.id).toBe("test-session");
     expect(mockPress).toHaveBeenCalledWith("Antigravity", "Return");
+  });
+
+  it("scrolls to find workspace not in viewport", async () => {
+    const runtime = create();
+
+    mockWindowList.mockResolvedValueOnce([makeWindow({ window_id: 1, title: "Manager" })]);
+
+    // First see: workspace not visible
+    mockSee.mockResolvedValueOnce({
+      snapshot_id: "snap-1",
+      ui_elements: [makeElement({ id: "other", role: "button", title: "unrelated" })],
+    });
+    mockScroll.mockResolvedValueOnce(undefined);
+
+    // Second see after scroll: workspace found
+    mockSee.mockResolvedValueOnce({
+      snapshot_id: "snap-2",
+      ui_elements: [makeElement({ id: "ws-el", role: "other", title: "workspace" })],
+    });
+    mockClick.mockResolvedValueOnce({ success: true });
+    mockWindowList.mockResolvedValueOnce([
+      makeWindow({ window_id: 1, title: "Manager" }),
+      makeWindow({ window_id: 2, title: "workspace" }),
+    ]);
+    // No launch command — skip send
+    mockWindowList.mockResolvedValueOnce([
+      makeWindow({ window_id: 1, title: "Manager" }),
+      makeWindow({ window_id: 2, title: "workspace" }),
+    ]);
+
+    const handle = await runtime.create({
+      sessionId: "scroll-test",
+      workspacePath: "/tmp/workspace",
+      launchCommand: "",
+      environment: {},
+    });
+
+    expect(handle.id).toBe("scroll-test");
+    expect(mockScroll).toHaveBeenCalledWith("Antigravity", 1, "down", 5);
   });
 
   it("throws when Manager window is not found", async () => {
@@ -205,17 +324,19 @@ describe("runtime.create()", () => {
     ).rejects.toThrow("Antigravity Manager window not found");
   });
 
-  it("throws when workspace is not found in Manager", async () => {
+  it("throws when workspace is not found after scrolling", async () => {
     const runtime = create();
 
     mockWindowList.mockResolvedValueOnce([makeWindow({ window_id: 1, title: "Manager" })]);
 
-    mockSee.mockResolvedValueOnce({
-      snapshot_id: "snap-2",
+    // Make see() always return unrelated elements (use mockImplementation
+    // instead of mockResolvedValueOnce to ensure consistent behavior)
+    mockSee.mockImplementation(async () => ({
+      snapshot_id: "snap-scroll",
       ui_elements: [
-        makeElement({ id: "other-ws", role: "AXButton", title: "different-workspace" }),
+        makeElement({ id: "other-ws", role: "AXButton", title: "some-other-project" }),
       ],
-    });
+    }));
 
     await expect(
       runtime.create({
@@ -224,7 +345,7 @@ describe("runtime.create()", () => {
         launchCommand: "echo",
         environment: {},
       }),
-    ).rejects.toThrow('Workspace "/tmp/workspace" not found');
+    ).rejects.toThrow("not found in Antigravity Manager after");
   });
 });
 
@@ -277,34 +398,67 @@ describe("runtime.destroy()", () => {
 // =============================================================================
 
 describe("runtime.sendMessage()", () => {
-  it("finds text field, clicks it, pastes message, and presses Enter", async () => {
+  it("uses Manager window, finds text field, clicks Send button", async () => {
     const runtime = create();
     const handle = makeHandle("msg-test");
 
+    // sendMessage targets Manager window (id 1), not conversation window
     mockSee.mockResolvedValueOnce({
       snapshot_id: "snap-msg",
       ui_elements: [
         makeElement({ id: "input-field", role: "AXTextArea", title: "" }),
+        makeElement({ id: "send-btn", role: "button", title: "Send", label: "Send" }),
       ],
     });
-    mockClick.mockResolvedValueOnce({ success: true });
+    mockClick.mockResolvedValueOnce({ success: true }); // focus text field
     mockPaste.mockResolvedValueOnce(undefined);
-    mockPress.mockResolvedValueOnce(undefined);
+    mockClick.mockResolvedValueOnce({ success: true }); // click Send
 
     await runtime.sendMessage(handle, "hello world");
 
-    expect(mockSee).toHaveBeenCalledWith("Antigravity", 2);
+    // Target is Manager window (id 1), not conversation window (id 2)
+    expect(mockSee).toHaveBeenCalledWith("Antigravity", 1);
     expect(mockClick).toHaveBeenCalledWith(
       "Antigravity",
-      2,
+      1,
       "input-field",
       "snap-msg",
     );
     expect(mockPaste).toHaveBeenCalledWith("Antigravity", "hello world");
+    // Send button clicked, not Return
+    expect(mockClick).toHaveBeenCalledWith(
+      "Antigravity",
+      1,
+      "send-btn",
+      "snap-msg",
+    );
+    expect(mockPress).not.toHaveBeenCalled();
+  });
+
+  it("falls back to Return when no Send button found", async () => {
+    const runtime = create();
+    const handle = makeHandle("msg-no-send");
+
+    mockSee.mockResolvedValueOnce({
+      snapshot_id: "snap-nf",
+      ui_elements: [
+        makeElement({ id: "input-field", role: "AXTextArea", title: "" }),
+      ],
+    });
+    mockClick.mockResolvedValueOnce({ success: true }); // focus text field
+    mockPaste.mockResolvedValueOnce(undefined);
+    mockPress.mockResolvedValueOnce(undefined); // Return fallback
+
+    await runtime.sendMessage(handle, "message without send btn");
+
+    expect(mockPaste).toHaveBeenCalledWith(
+      "Antigravity",
+      "message without send btn",
+    );
     expect(mockPress).toHaveBeenCalledWith("Antigravity", "Return");
   });
 
-  it("pastes directly when no text field is found (fallback)", async () => {
+  it("pastes directly when no text field is found", async () => {
     const runtime = create();
     const handle = makeHandle("msg-no-field");
 
@@ -319,7 +473,7 @@ describe("runtime.sendMessage()", () => {
 
     await runtime.sendMessage(handle, "message without field");
 
-    // click should NOT be called since no text field was found
+    // click should NOT be called for text field since none found
     expect(mockClick).not.toHaveBeenCalled();
     expect(mockPaste).toHaveBeenCalledWith(
       "Antigravity",
@@ -343,7 +497,7 @@ describe("runtime.sendMessage()", () => {
 // =============================================================================
 
 describe("runtime.getOutput()", () => {
-  it("captures visible text content from the window using label field", async () => {
+  it("reads from Manager window and captures visible text content", async () => {
     const runtime = create();
     const handle = makeHandle("output-test");
 
@@ -357,6 +511,8 @@ describe("runtime.getOutput()", () => {
 
     const output = await runtime.getOutput(handle);
 
+    // Should target Manager window (id 1), not conversation window (id 2)
+    expect(mockSee).toHaveBeenCalledWith("Antigravity", 1);
     expect(output).toBe("Line 1\nLine 2");
   });
 
