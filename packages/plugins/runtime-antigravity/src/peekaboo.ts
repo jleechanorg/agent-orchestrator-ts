@@ -17,6 +17,8 @@ import type {
   PeekabooWindow,
   PeekabooSeeResult,
   PeekabooClickResult,
+  PeekabooListResponse,
+  PeekabooSeeResponse,
 } from "./types.js";
 
 const execFile = promisify(execFileCb);
@@ -43,7 +45,7 @@ export function setPeekabooBin(path: string): void {
 /**
  * Run a peekaboo CLI command and parse JSON output.
  *
- * @param args - CLI arguments (e.g. ["list", "--app", "Antigravity"])
+ * @param args - CLI arguments (e.g. ["list", "windows", "--app", "Antigravity"])
  * @returns Parsed JSON output from stdout
  */
 async function run<T>(args: string[]): Promise<T> {
@@ -57,35 +59,53 @@ async function run<T>(args: string[]): Promise<T> {
 /**
  * List windows for an application.
  *
+ * CLI: `peekaboo list windows --app <app> --json`
+ * Output envelope: `{data: {targetApplication, windows: [...]}}`
+ *
  * @param app - Application name (e.g. "Antigravity")
- * @returns Array of window info
+ * @returns Array of window info (unwrapped from envelope)
  */
 export function windowList(app: string): Promise<PeekabooWindow[]> {
-  return enqueue(() => run<PeekabooWindow[]>(["list", "--app", app, "--json"]));
+  return enqueue(async () => {
+    const envelope = await run<PeekabooListResponse>([
+      "list",
+      "windows",
+      "--app",
+      app,
+      "--json",
+    ]);
+    return envelope.data.windows;
+  });
 }
 
 /**
  * Capture a UI snapshot of a window.
  *
+ * CLI: `peekaboo see --app <app> --window-id <id> --json`
+ * Output envelope: `{success: true, data: {snapshot_id, ui_elements: [...]}}`
+ *
  * @param app - Application name
  * @param windowId - Peekaboo window ID
- * @returns Snapshot with snapshot_id and ui_elements
+ * @returns Snapshot with snapshot_id and ui_elements (unwrapped from envelope)
  */
 export function see(app: string, windowId: number): Promise<PeekabooSeeResult> {
-  return enqueue(() =>
-    run<PeekabooSeeResult>([
+  return enqueue(async () => {
+    const envelope = await run<PeekabooSeeResponse>([
       "see",
       "--app",
       app,
       "--window-id",
       String(windowId),
       "--json",
-    ]),
-  );
+    ]);
+    return envelope.data;
+  });
 }
 
 /**
  * Click a UI element identified by a snapshot.
+ *
+ * CLI: `peekaboo click --app <app> --window-id <id> --on <elementId> --snapshot <snapshotId> --json`
  *
  * @param app - Application name
  * @param windowId - Peekaboo window ID
@@ -106,9 +126,9 @@ export function click(
       app,
       "--window-id",
       String(windowId),
-      "--element-id",
+      "--on",
       elementId,
-      "--snapshot-id",
+      "--snapshot",
       snapshotId,
       "--json",
     ]),
@@ -130,15 +150,71 @@ export function paste(app: string, text: string): Promise<void> {
 }
 
 /**
- * Press a key in the focused element of an application.
+ * Press a single key in the focused element of an application.
+ *
+ * CLI: `peekaboo press <key> --app <app>`
+ * For key combinations (e.g. cmd+w), use hotkey() instead.
  *
  * @param app - Application name
  * @param key - Key name (e.g. "Return", "Escape")
  */
 export function press(app: string, key: string): Promise<void> {
   return enqueue(async () => {
-    await execFile(_peekabooBin, ["press", "--app", app, "--key", key], {
+    await execFile(_peekabooBin, ["press", key, "--app", app], {
       timeout: PEEKABOO_TIMEOUT_MS,
     });
+  });
+}
+
+/**
+ * Press a key combination (hotkey) in the focused element of an application.
+ *
+ * CLI: `peekaboo hotkey <combo> --app <app>`
+ * Use this for modifier combos like "cmd+w", "cmd+l".
+ * For single keys, use press() instead.
+ *
+ * @param app - Application name
+ * @param combo - Key combination (e.g. "cmd+w", "cmd+l")
+ */
+export function hotkey(app: string, combo: string): Promise<void> {
+  return enqueue(async () => {
+    await execFile(_peekabooBin, ["hotkey", combo, "--app", app], {
+      timeout: PEEKABOO_TIMEOUT_MS,
+    });
+  });
+}
+
+/**
+ * Scroll within a window.
+ *
+ * CLI: `peekaboo scroll --app <app> --window-id <id> --direction <dir> --amount <n>`
+ *
+ * @param app - Application name
+ * @param windowId - Peekaboo window ID
+ * @param direction - Scroll direction (e.g. "up", "down")
+ * @param amount - Scroll amount in lines/units
+ */
+export function scroll(
+  app: string,
+  windowId: number,
+  direction: string,
+  amount: number,
+): Promise<void> {
+  return enqueue(async () => {
+    await execFile(
+      _peekabooBin,
+      [
+        "scroll",
+        "--app",
+        app,
+        "--window-id",
+        String(windowId),
+        "--direction",
+        direction,
+        "--amount",
+        String(amount),
+      ],
+      { timeout: PEEKABOO_TIMEOUT_MS },
+    );
   });
 }

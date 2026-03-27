@@ -43,11 +43,12 @@ export interface AntigravitySession {
 // Peekaboo CLI Output Types
 // =============================================================================
 
-/** A window entry returned by `peekaboo list`. */
+/** A window entry returned by `peekaboo list windows`. */
 export interface PeekabooWindow {
   window_id: number;
   title: string;
-  app: string;
+  isOnScreen: boolean;
+  isMinimized: boolean;
   bounds: { x: number; y: number; width: number; height: number };
 }
 
@@ -56,14 +57,27 @@ export interface PeekabooUIElement {
   id: string;
   role: string;
   title: string;
-  value: string;
-  bounds: { x: number; y: number; width: number; height: number };
+  label: string;
+  description: string;
+  role_description: string;
+  is_actionable: boolean;
 }
 
 /** Result of `peekaboo see` — a visual snapshot of a window. */
 export interface PeekabooSeeResult {
   snapshot_id: string;
   ui_elements: PeekabooUIElement[];
+}
+
+/** Envelope returned by `peekaboo list windows --json`. */
+export interface PeekabooListResponse {
+  data: { targetApplication: string; windows: PeekabooWindow[] };
+}
+
+/** Envelope returned by `peekaboo see --json`. */
+export interface PeekabooSeeResponse {
+  success: boolean;
+  data: PeekabooSeeResult;
 }
 
 /** Result of `peekaboo click`. */
