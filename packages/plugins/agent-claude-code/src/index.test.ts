@@ -771,9 +771,13 @@ describe("METADATA_UPDATER_SCRIPT content", () => {
     expect(METADATA_UPDATER_SCRIPT).toMatch(/while.*clean_command/s);
   });
 
-  it("detects gh pr create on clean_command", () => {
+  it("detects gh pr create on clean_command via pr_create_pattern", () => {
+    // Uses shared pr_create_pattern (env-prefix tolerant), not bare ^gh anchor
     expect(METADATA_UPDATER_SCRIPT).toMatch(
-      /"\$clean_command"\s*=~\s*\^gh\[/,
+      /pr_create_pattern.*=.*\^.*gh.*pr.*create/,
+    );
+    expect(METADATA_UPDATER_SCRIPT).toMatch(
+      /"\$clean_command"\s*=~\s*\$pr_create_pattern/,
     );
   });
 

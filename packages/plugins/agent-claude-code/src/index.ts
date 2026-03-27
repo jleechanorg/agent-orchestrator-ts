@@ -117,7 +117,7 @@ cd_prefix_pattern='^[[:space:]]*cd[[:space:]]+.*[[:space:]]+(&&|;)[[:space:]]+(.
 clean_command="$command"
 while true; do
   # Strip leading env assignments: FOO=bar BAZ=qux gh pr create ...
-  if [[ "$clean_command" =~ ^[[:space:]]*[A-Za-z_][A-Za-z0-9_]*=([^=]+|[[:space:]])*[[:space:]]+(.+) ]]; then
+  if [[ "$clean_command" =~ ^[[:space:]]*([A-Za-z_][A-Za-z0-9_]*=[^= ]*)[[:space:]]+(.+)$ ]]; then
     clean_command=${BASH_REMATCH2}
   # Strip leading cd prefixes: cd /path && gh pr create ...
   elif [[ "$clean_command" =~ $cd_prefix_pattern ]]; then
@@ -131,7 +131,8 @@ done
 # PostToolUse falls through to metadata update — no need to re-check there.
 # Use bash regex to check for [agento] prefix directly in the command string.
 # This avoids fragile grep|sed pipelines and POSIX sed capture-group portability issues.
-if [[ "$hook_event" == "PreToolUse" && "$clean_command" =~ ^gh[[:space:]]+pr[[:space:]]+create ]]; then
+pr_create_pattern='^[[:space:]]*([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]+[[:space:]]+)*gh[[:space:]]+pr[[:space:]]+create([[:space:]]|$)'
+if [[ "$hook_event" == "PreToolUse" && "$clean_command" =~ $pr_create_pattern ]]; then
   # Match --title=value or --title [agento] (equals or space form) with optional quotes.
   if [[ ! "$clean_command" =~ --title(=|[[:space:]]+)(\'\[agento\]|\"\[agento\]|\[agento\]) ]]; then
     echo "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"Blocked by AO policy: gh pr create titles must start with [agento]. Prefix your title with [agento] and retry.\"}}"
@@ -194,8 +195,8 @@ update_metadata_key() {
   mv "$temp_file" "$metadata_file"
 }
 
-# Detect: gh pr create
-if [[ "$clean_command" =~ ^gh[[:space:]]+pr[[:space:]]+create ]]; then
+# Detect: gh pr create (uses same pr_create_pattern as the guardrail above)
+if [[ "$clean_command" =~ $pr_create_pattern ]]; then
   # Extract PR URL from output
   pr_url=$(echo "$output" | grep -Eo 'https://github[.]com/[^/]+/[^/]+/pull/[0-9]+' | head -1 || true)
 

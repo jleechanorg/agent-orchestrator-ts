@@ -181,6 +181,32 @@ describe("hook script: [agento] prefix enforcement", () => {
     expect(stdout.trim()).toBe("{}");
   });
 
+  it("denies gh pr create with env prefix but missing [agento] in PreToolUse", () => {
+    const { stdout } = runHook({
+      command: "GH_TOKEN=ghs_xxxx gh pr create --title \"fix: bug\" --body \"test\"",
+      hookEvent: "PreToolUse",
+    });
+    expect(stdout).toContain('"permissionDecision":"deny"');
+    expect(stdout).toContain("gh pr create titles must start with [agento]");
+  });
+
+  it("allows gh pr create with env prefix and [agento] title in PreToolUse", () => {
+    const { stdout } = runHook({
+      command: "GH_TOKEN=ghs_xxxx gh pr create --title \"[agento] fix: bug\" --body \"test\"",
+      hookEvent: "PreToolUse",
+    });
+    expect(stdout.trim()).toBe("{}");
+  });
+
+  it("PostToolUse: detects gh pr create with env prefix and extracts PR URL", () => {
+    const { metadata } = runHook({
+      command: "GH_TOKEN=ghs_xxxx gh pr create --title \"[agento] fix\" --body \"test\"",
+      output: "https://github.com/owner/repo/pull/77",
+    });
+    expect(metadata).toContain("pr=https://github.com/owner/repo/pull/77");
+    expect(metadata).toContain("status=pr_open");
+  });
+
   it("PostToolUse gh pr create still updates metadata (no prefix check)", () => {
     const { metadata } = runHook({
       command: 'gh pr create --title "fix: bug" --body "test"',
