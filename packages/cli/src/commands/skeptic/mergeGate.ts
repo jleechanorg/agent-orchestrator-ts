@@ -35,7 +35,7 @@ function sortReviewsNewestFirst(a: ReviewInfo, b: ReviewInfo): number {
 }
 
 /**
- * Detect if a CR review was dismissed without a subsequent real APPROVED.
+ * Detect if a CR review was dismissed without a subsequent real approved.
  * Mirrors hasUnresolvedDismissedReview in merge-gate-coderabbit.ts.
  */
 function hasUnresolvedDismissedReview(reviews: ReviewInfo[]): boolean {
@@ -43,8 +43,8 @@ function hasUnresolvedDismissedReview(reviews: ReviewInfo[]): boolean {
   if (crReviews.length === 0) return false;
   const sorted = [...crReviews].sort(sortReviewsNewestFirst);
   for (const review of sorted) {
-    if (review.state?.toUpperCase() === "DISMISSED") return true;
-    if (review.state === "APPROVED") return false;
+    if (review.state === "dismissed") return true;
+    if (review.state === "approved") return false;
   }
   return false;
 }
@@ -58,7 +58,7 @@ function getLatestDecisiveReview(reviews: ReviewInfo[]): ReviewInfo | null {
       .filter(
         (r) =>
           r.author?.login === CR_BOT &&
-          (r.state === "APPROVED" || r.state === "CHANGES_REQUESTED"),
+          (r.state === "approved" || r.state === "changes_requested"),
       )
       .sort(sortReviewsNewestFirst)[0] ?? null
   );
@@ -88,10 +88,8 @@ export async function fetchMergeGateState(
   } catch {
     ciPassing = false;
   }
-  // NOTE: noConflicts is intentionally NOT re-assigned in catch — it retains
-  // the `false` default from declaration. ESLint will warn about this, but
-  // the initialization is intentional: it serves as the error fallback value.
-  // eslint-disable-next-line no-useless-assignment
+  // NOTE: noConflicts intentionally keeps its `= false` init — serves as error
+  // fallback when the try block throws before assignment.
 
   // 2. CR review state — mirrors checkMergeGate + merge-gate-coderabbit.ts
   const reviews = await fetchReviews(owner, repo, prNumber);
@@ -102,7 +100,7 @@ export async function fetchMergeGateState(
   let crState = "none";
   if (latestCR) {
     crState = latestCR.state;
-    crApproved = latestCR.state === "APPROVED" && !crDismissedWithoutApproval;
+    crApproved = latestCR.state === "approved" && !crDismissedWithoutApproval;
   }
 
   // 3. Review threads — nit-filtered unresolved counts (matches checkMergeGate)
@@ -139,7 +137,7 @@ export async function fetchMergeGateState(
   // 4. Evidence review
   const evidenceReviews = reviews.filter((r) => r.author?.login === EVIDENCE_BOT);
   const latestEvidence = evidenceReviews.sort(sortReviewsNewestFirst)[0];
-  const evidenceApproved = latestEvidence?.state === "APPROVED";
+  const evidenceApproved = latestEvidence?.state === "approved";
   const evidenceRequired = false; // controlled via config; default false for skeptic CLI
 
   // 5. Existing skeptic verdict
