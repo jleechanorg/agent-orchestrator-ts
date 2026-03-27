@@ -40,3 +40,11 @@ export function setLastSentHeadSha(sessionId: SessionId, sha: string): void {
 export function clearLastSentHeadSha(sessionId: SessionId): void {
   headShaStore.delete(sessionId);
 }
+
+/**
+ * Returns all session IDs currently stored in the SHA dedup map.
+ * Used by lifecycle-manager to prune entries for sessions no longer tracked.
+ */
+export function getAllTrackedSessionIds(): SessionId[] {
+  return Array.from(headShaStore.keys());
+}

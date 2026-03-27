@@ -2255,7 +2255,7 @@ describe("reactions", () => {
       getPendingComments: vi.fn().mockResolvedValue([]),
       getAutomatedComments: vi.fn(),
       getMergeability: vi.fn(),
-      // bd-1178: return currentSha which we mutate between reaction fires
+      // bd-1178: getPRHeadSha returns currentSha which we mutate between reaction fires
       getPRHeadSha: vi.fn().mockImplementation(() => Promise.resolve(currentSha)),
     };
 
