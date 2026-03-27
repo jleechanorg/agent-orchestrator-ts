@@ -24,6 +24,9 @@ outputs:
 runs:
   using: composite
   steps:
+    # Note: outputs.verdict prefers steps.run (PASS/FAIL/UNKNOWN) over
+    # steps.check (SKIPPED/RUNNING) via GitHub Actions output interpolation.
+    # See: value: ${{ steps.run.outputs.verdict || steps.check.outputs.verdict }}
     - name: Check API key and set verdict
       id: check
       shell: bash
