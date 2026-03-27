@@ -1251,7 +1251,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
                   // null = fail open (allow reaction).
                   // SCM normalizes GitHub API values: "CHANGES_REQUESTED" → "changes_requested",
                   // "DISMISSED" → "dismissed", "COMMENTED" → "commented" (see scm-github getReviews).
-                  skipVerdictGate = crVerdict === null || crVerdict !== "commented" && crVerdict !== "dismissed";
+                  skipVerdictGate = crVerdict === null || (crVerdict !== "commented" && crVerdict !== "dismissed");
                 }
               }
             } catch (verdictErr) {
