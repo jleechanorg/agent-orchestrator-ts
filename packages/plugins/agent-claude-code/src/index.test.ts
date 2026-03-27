@@ -733,7 +733,7 @@ describe("getSessionInfo", () => {
 describe("METADATA_UPDATER_SCRIPT content", () => {
   it("contains clean_command stripping logic for cd prefixes", () => {
     expect(METADATA_UPDATER_SCRIPT).toContain('clean_command="$command"');
-    expect(METADATA_UPDATER_SCRIPT).toMatch(/while.*clean_command.*cd/);
+    expect(METADATA_UPDATER_SCRIPT).toMatch(/while.*clean_command.*cd/s);
   });
 
   it("uses $clean_command (not $command) for all regex-based command detection", () => {
@@ -768,7 +768,7 @@ describe("METADATA_UPDATER_SCRIPT content", () => {
   });
 
   it("handles multiple chained cd commands via while loop", () => {
-    expect(METADATA_UPDATER_SCRIPT).toMatch(/while.*clean_command/);
+    expect(METADATA_UPDATER_SCRIPT).toMatch(/while.*clean_command/s);
   });
 
   it("detects gh pr create on clean_command", () => {

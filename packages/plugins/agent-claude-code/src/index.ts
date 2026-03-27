@@ -109,15 +109,20 @@ fi
 # Command Detection and Parsing
 # ============================================================================
 
-# Strip leading directory-change prefixes so that commands like
+# Strip leading prefixes so commands like
 #   cd ~/.worktrees/project && gh pr create ...
+#   FOO=bar gh pr create ...
 # are correctly detected. Agents frequently cd into a worktree first.
 # Store the regex pattern in a variable for clarity (avoids shell quoting confusion).
 # Uses space-padded (&&|;) to avoid breaking on paths containing & or ; chars.
 cd_prefix_pattern='^[[:space:]]*cd[[:space:]]+.*[[:space:]]+(&&|;)[[:space:]]+(.*)'
 clean_command="$command"
-while [[ "$clean_command" =~ ^[[:space:]]*cd[[:space:]] ]]; do
-  if [[ "$clean_command" =~ $cd_prefix_pattern ]]; then
+while true; do
+  # Strip leading env assignments: FOO=bar BAZ=qux gh pr create ...
+  if [[ "$clean_command" =~ ^[[:space:]]*[A-Za-z_][A-Za-z0-9_]*=([^=]+|[[:space:]])*[[:space:]]+(.+) ]]; then
+    clean_command=${BASH_REMATCH2}
+  # Strip leading cd prefixes: cd /path && gh pr create ...
+  elif [[ "$clean_command" =~ $cd_prefix_pattern ]]; then
     clean_command=${BASH_REMATCH2}
   else
     break
