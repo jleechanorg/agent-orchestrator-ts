@@ -1453,6 +1453,20 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
       return "open";
     },
 
+    async getPRHeadSha(pr: PRInfo): Promise<string> {
+      const raw = await gh([
+        "pr",
+        "view",
+        String(pr.number),
+        "--repo",
+        repoFlag(pr),
+        "--json",
+        "headRefOid",
+      ]);
+      const data: { headRefOid: string } = JSON.parse(raw);
+      return data.headRefOid;
+    },
+
     async getPRSummary(pr: PRInfo) {
       const raw = await gh([
         "pr",

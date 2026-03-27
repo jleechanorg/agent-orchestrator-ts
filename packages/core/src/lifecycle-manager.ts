@@ -230,6 +230,9 @@ export interface LifecycleManagerDeps {
 interface ReactionTracker {
   attempts: number;
   firstTriggered: Date;
+  /** bd-1178: SHA of PR head at last successful send-to-agent dispatch.
+   *  Skips re-send when SHA is unchanged across poll cycles. */
+  lastSentHeadSha?: string;
 }
 
 /** Create a LifecycleManager instance. */
@@ -651,6 +654,40 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     switch (action) {
       case "send-to-agent": {
         if (reactionConfig.message) {
+          // bd-1178: Skip re-send when PR head SHA hasn't changed since last dispatch.
+          // This prevents burning worker context when the same review feedback is
+          // re-delivered every poll cycle for unchanged PRs (5-9x multiplier).
+          if (session?.pr) {
+            const project = config.projects[session.projectId];
+            const scm = project?.scm ? registry.get<SCM>("scm", project.scm.plugin) : null;
+            if (scm && scm.getPRHeadSha) {
+              try {
+                const currentSha = await scm.getPRHeadSha(session.pr);
+                if (tracker.lastSentHeadSha === currentSha) {
+                  observer.recordOperation({
+                    metric: "lifecycle_poll",
+                    operation: "lifecycle.reaction.deduped",
+                    outcome: "skipped",
+                    reason: "head_sha_unchanged",
+                    correlationId: reactionCorrelationId,
+                    projectId,
+                    sessionId,
+                    data: { reactionKey, currentSha },
+                    level: "debug",
+                  });
+                  return {
+                    reactionType: reactionKey,
+                    success: true,
+                    action: "send-to-agent",
+                    escalated: false,
+                  };
+                }
+              } catch {
+                // getPRHeadSha failed — proceed with send (don't block on SHA check)
+              }
+            }
+          }
+
           try {
             // Inject context if message contains {{context}} placeholder
             let finalMessage = reactionConfig.message;
@@ -659,6 +696,19 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
               finalMessage = reactionConfig.message.replace(/\{\{context\}\}/g, () => context);
             }
             await sessionManager.send(sessionId, finalMessage);
+
+            // Record SHA on successful send so the next poll cycle skips if unchanged
+            if (session?.pr) {
+              const project = config.projects[session.projectId];
+              const scm = project?.scm ? registry.get<SCM>("scm", project.scm.plugin) : null;
+              if (scm?.getPRHeadSha) {
+                try {
+                  tracker.lastSentHeadSha = await scm.getPRHeadSha(session.pr);
+                } catch {
+                  // Non-fatal — SHA tracking is best-effort
+                }
+              }
+            }
 
             return {
               reactionType: reactionKey,

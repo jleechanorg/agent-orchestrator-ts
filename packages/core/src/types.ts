@@ -626,6 +626,9 @@ export interface SCM {
 
   // --- Merge Readiness ---
 
+  /** Get the head commit SHA of a PR. Used for send-to-agent dedup. */
+  getPRHeadSha?(pr: PRInfo): Promise<string>;
+
   /** Check if PR is ready to merge */
   getMergeability(pr: PRInfo): Promise<MergeReadiness>;
 

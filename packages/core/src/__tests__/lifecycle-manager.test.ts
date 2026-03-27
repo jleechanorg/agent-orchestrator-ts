@@ -2213,6 +2213,83 @@ describe("reactions", () => {
     expect(mockSessionManager.send).toHaveBeenCalledWith("app-1", "Handle requested changes.");
   });
 
+  // bd-1178
+  it("skips send-to-agent when PR head SHA is unchanged across poll cycles", async () => {
+    config.reactions = {
+      "changes-requested": {
+        auto: true,
+        action: "send-to-agent",
+        message: "Review changes requested.",
+        retries: 2,
+        escalateAfter: 2,
+      },
+    };
+
+    const sha1 = "aaaa1111aaaa1111aaaa1111aaaa1111aaaa1111";
+    const sha2 = "bbbb2222bbbb2222bbbb2222bbbb2222bbbb2222";
+
+    const mockSCM: SCM = {
+      name: "mock-scm",
+      detectPR: vi.fn(),
+      getPRState: vi.fn().mockResolvedValue("open"),
+      mergePR: vi.fn(),
+      closePR: vi.fn(),
+      getCIChecks: vi.fn(),
+      getCISummary: vi.fn().mockResolvedValue("passing"),
+      getReviews: vi.fn(),
+      getReviewDecision: vi.fn().mockResolvedValue("changes_requested"),
+      getPendingComments: vi.fn().mockResolvedValue([]),
+      getAutomatedComments: vi.fn(),
+      getMergeability: vi.fn(),
+      // bd-1178: track call count to verify SHA is fetched each cycle
+      getPRHeadSha: vi.fn().mockResolvedValue(sha1),
+    };
+
+    const registryWithSCM: PluginRegistry = {
+      ...mockRegistry,
+      get: vi.fn().mockImplementation((slot: string) => {
+        if (slot === "runtime") return mockRuntime;
+        if (slot === "agent") return mockAgent;
+        if (slot === "scm") return mockSCM;
+        return null;
+      }),
+    };
+
+    const session = makeSession({ status: "pr_open", pr: makePR() });
+    vi.mocked(mockSessionManager.get).mockResolvedValue(session);
+    vi.mocked(mockSessionManager.send).mockResolvedValue(undefined);
+
+    writeMetadata(sessionsDir, "app-1", {
+      worktree: "/tmp",
+      branch: "main",
+      status: "pr_open",
+      project: "my-app",
+    });
+
+    const lm = createLifecycleManager({
+      config,
+      registry: registryWithSCM,
+      sessionManager: mockSessionManager,
+    });
+
+    // First poll: SHA is sha1, send fires, SHA recorded
+    await lm.check("app-1");
+    expect(mockSessionManager.send).toHaveBeenCalledTimes(1);
+
+    // Second poll: SHA still sha1, dedup kicks in — no send
+    await lm.check("app-1");
+    expect(mockSessionManager.send).toHaveBeenCalledTimes(1);
+
+    // Third poll: SHA changed to sha2, send fires again
+    vi.mocked(mockSCM.getPRHeadSha!).mockResolvedValue(sha2);
+    await lm.check("app-1");
+    expect(mockSessionManager.send).toHaveBeenCalledTimes(2);
+
+    // Fourth poll: sha2 unchanged, dedup kicks in
+    await lm.check("app-1");
+    expect(mockSessionManager.send).toHaveBeenCalledTimes(2);
+  });
+
   it("dispatches automated review comments only once for an unchanged backlog", async () => {
     config.reactions = {
       "bugbot-comments": {
