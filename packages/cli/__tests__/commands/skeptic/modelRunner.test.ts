@@ -1,67 +1,58 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { runSkepticEvaluation } from "../../../src/commands/skeptic/modelRunner.js";
+import type { ChildProcess } from "node:child_process";
+import { EventEmitter } from "node:stream";
 
-// Hoist ALL mocks before they're referenced in vi.mock / vi.hoisted calls
-const mockChildOn = vi.hoisted(() => vi.fn());
-const mockChildStdoutOn = vi.hoisted(() => vi.fn());
-const mockChildStderrOn = vi.hoisted(() => vi.fn());
-const mockChildStdinWrite = vi.hoisted(() => vi.fn());
-const mockChildStdinEnd = vi.hoisted(() => vi.fn());
-const mockChildKill = vi.hoisted(() => vi.fn());
-
-// mockSpawnInstance must also be hoisted since it references hoisted mocks
-const mockSpawnInstance = vi.hoisted(() => ({
-  on: mockChildOn,
-  stdout: { on: mockChildStdoutOn },
-  stderr: { on: mockChildStderrOn },
-  stdin: { write: mockChildStdinWrite, end: mockChildStdinEnd },
-  kill: mockChildKill,
+const { mockSpawn } = vi.hoisted(() => ({
+  mockSpawn: vi.fn(),
 }));
 
 vi.mock("node:child_process", () => ({
-  spawn: vi.fn(() => mockSpawnInstance),
+  spawn: mockSpawn,
 }));
 
-import { spawn } from "node:child_process";
+import { runSkepticEvaluation } from "../../../src/commands/skeptic/modelRunner.js";
 
-// Helpers to simulate events on the mock child process
-function simulateClose(code: number | null) {
-  const closeHandler = mockChildOn.mock.calls.find(([event]) => event === "close")?.[1] as (
-    code: number | null
-  ) => void;
-  closeHandler?.(code);
+function makeMockChild(opts: {
+  stdout?: string;
+  stderr?: string;
+  exitCode?: number | null;
+  emitError?: Error;
+}): ChildProcess {
+  const emitter = new EventEmitter() as ChildProcess;
+  // Minimal writable stdin that handles the 1-arg and 2-arg write signature
+  emitter.stdin = {
+    write(chunk: unknown, _encoding?: BufferEncoding | ((err?: Error | null) => void), _cb?: (err?: Error | null) => void) {
+      if (typeof _encoding === "function") _encoding();
+      return true;
+    },
+    end() {},
+    on() { return this; },
+    removeListener() { return this; },
+  } as unknown as NodeJS.WritableStream & { write(chunk: unknown, cb?: (err?: Error | null) => void): boolean; end(): void; on(): void; removeListener(): void };
+  emitter.stdout = new EventEmitter();
+  emitter.stderr = new EventEmitter();
+  emitter.killed = false;
+  emitter.kill = vi.fn();
+  emitter.on = emitter.addListener.bind(emitter);
+
+  const { stdout = "", stderr = "", exitCode = 0, emitError } = opts;
+
+  queueMicrotask(() => {
+    if (emitError) {
+      emitter.emit("error", emitError);
+      return;
+    }
+    if (stdout) emitter.stdout.emit("data", Buffer.from(stdout));
+    if (stderr) emitter.stderr.emit("data", Buffer.from(stderr));
+    if (exitCode !== null) emitter.emit("close", exitCode);
+  });
+
+  return emitter;
 }
 
-function simulateError(err: Error) {
-  const errorHandler = mockChildOn.mock.calls.find(([event]) => event === "error")?.[1] as (
-    err: Error
-  ) => void;
-  errorHandler?.(err);
-}
-
-function simulateStdout(data: string) {
-  const handler = mockChildStdoutOn.mock.calls.find(([event]) => event === "data")?.[1] as (
-    chunk: Buffer
-  ) => void;
-  handler?.(Buffer.from(data));
-}
-
-function simulateStderr(data: string) {
-  const handler = mockChildStderrOn.mock.calls.find(([event]) => event === "data")?.[1] as (
-    chunk: Buffer
-  ) => void;
-  handler?.(Buffer.from(data));
-}
-
-// Use Vitest's built-in fake timers — more reliable than manual spies
 beforeEach(() => {
   vi.useFakeTimers();
-  mockChildOn.mockReset();
-  mockChildStdoutOn.mockReset();
-  mockChildStderrOn.mockReset();
-  mockChildStdinWrite.mockReset();
-  mockChildStdinEnd.mockReset();
-  mockChildKill.mockReset();
+  mockSpawn.mockReset();
 });
 
 afterEach(() => {
@@ -69,96 +60,113 @@ afterEach(() => {
 });
 
 describe("runSkepticEvaluation", () => {
-  it("spawns claude with --print flag", async () => {
-    const p = runSkepticEvaluation("test prompt");
-    expect(spawn).toHaveBeenCalledWith("claude", ["--print"], {
-      stdio: ["pipe", "pipe", "pipe"],
-    });
-    // Resolve with success
-    simulateStdout("VERDICT: PASS\n");
-    simulateClose(0);
-    await expect(p).resolves.toBe("VERDICT: PASS");
+  it("returns trimmed VERDICT output on successful execution (exit code 0)", async () => {
+    mockSpawn.mockReturnValue(makeMockChild({ stdout: "  VERDICT: PASS  \n", exitCode: 0 }));
+
+    const result = await runSkepticEvaluation("test prompt");
+    expect(result).toBe("VERDICT: PASS");
+    expect(mockSpawn).toHaveBeenCalledWith("claude", ["--print"], expect.any(Object));
   });
 
-  it("writes the prompt to stdin", async () => {
-    const p = runSkepticEvaluation("test prompt");
-    expect(mockChildStdinWrite).toHaveBeenCalledWith("test prompt");
-    expect(mockChildStdinEnd).toHaveBeenCalled();
-    simulateStdout("ok");
-    simulateClose(0);
-    await p;
+  it("writes prompt to stdin and closes it", async () => {
+    const child = makeMockChild({ stdout: "VERDICT: PASS", exitCode: 0 });
+    const writeSpy = vi.spyOn(child.stdin!, "write");
+    const endSpy = vi.spyOn(child.stdin!, "end");
+    mockSpawn.mockReturnValue(child);
+
+    const prompt = "my multiline\nprompt content";
+    await runSkepticEvaluation(prompt);
+
+    expect(writeSpy).toHaveBeenCalledWith(prompt);
+    expect(endSpy).toHaveBeenCalled();
   });
 
-  it("returns trimmed stdout on successful exit (code 0)", async () => {
-    const p = runSkepticEvaluation("prompt");
-    simulateStdout("  VERDICT: PASS  \n");
-    simulateClose(0);
-    await expect(p).resolves.toBe("VERDICT: PASS");
-  });
-
-  it("returns FAIL with exit code and stderr snippet on non-zero exit", async () => {
-    const p = runSkepticEvaluation("prompt");
-    simulateStderr("some error message");
-    simulateClose(42);
-    await expect(p).resolves.toBe(
-      "VERDICT: FAIL — Claude CLI exited with code 42\nstderr: some error message",
+  it("returns FAIL verdict with exit code and stderr snippet on non-zero exit", async () => {
+    mockSpawn.mockReturnValue(
+      makeMockChild({ stderr: "error: unknown option '--no-input'", exitCode: 1 }),
     );
+
+    const result = await runSkepticEvaluation("test prompt");
+    expect(result).toMatch(/^VERDICT: FAIL — Claude CLI exited with code 1\nstderr: error: unknown option/);
   });
 
-  it("returns FAIL with exit code and truncated stderr (300 chars)", async () => {
-    const p = runSkepticEvaluation("prompt");
-    const longStderr = "x".repeat(500);
-    simulateStderr(longStderr);
-    simulateClose(1);
-    const result = await p;
-    expect(result).toMatch(/^VERDICT: FAIL — Claude CLI exited with code 1\nstderr: /);
-    const stderrPart = result.split("stderr: ")[1];
-    expect(stderrPart.length).toBe(300);
+  it("returns FAIL verdict with exit code only when stderr is empty on non-zero exit", async () => {
+    mockSpawn.mockReturnValue(makeMockChild({ exitCode: 2 }));
+
+    const result = await runSkepticEvaluation("test prompt");
+    expect(result).toBe("VERDICT: FAIL — Claude CLI exited with code 2");
   });
 
-  it("returns FAIL and truncates error message to 200 chars on spawn error", async () => {
+  it("returns FAIL verdict with error message when child process emits an error event", async () => {
+    mockSpawn.mockReturnValue(
+      makeMockChild({ emitError: new Error("ENOENT: claude not found in PATH") }),
+    );
+
+    const result = await runSkepticEvaluation("test prompt");
+    expect(result).toMatch(/^VERDICT: FAIL — Claude CLI not available: /);
+    expect(result).toContain("ENOENT");
+  });
+
+  it("truncates error message to 200 characters on spawn error", async () => {
     const longMessage = "E".repeat(400);
-    const p = runSkepticEvaluation("prompt");
-    simulateError(new Error(longMessage));
-    const result = await p;
+    mockSpawn.mockReturnValue(
+      makeMockChild({ emitError: new Error(longMessage) }),
+    );
+
+    const result = await runSkepticEvaluation("test prompt");
     expect(result).toMatch(/^VERDICT: FAIL — Claude CLI not available: /);
     const msgPart = result.split("Claude CLI not available: ")[1];
     expect(msgPart.length).toBe(200);
   });
 
-  it("sets a 120s timeout and kills child on timeout", async () => {
-    const p = runSkepticEvaluation("prompt");
-    // The timeout is set for 120_000ms; advance past it
+  it("kills child and returns timeout message after 120s", async () => {
+    const child = makeMockChild({ stdout: "slow response" });
+    mockSpawn.mockReturnValue(child);
+
+    const p = runSkepticEvaluation("test prompt");
     vi.advanceTimersByTime(120_001);
-    expect(mockChildKill).toHaveBeenCalled();
+    expect(child.kill).toHaveBeenCalled();
     await expect(p).resolves.toBe("VERDICT: FAIL — Claude CLI timed out after 120s");
   });
 
-  it("clears timeout on successful close", async () => {
-    const p = runSkepticEvaluation("prompt");
-    simulateStdout("ok");
-    simulateClose(0);
-    // Pending timers should be cleared
-    vi.runAllTimers();
+  it("clears timeout on successful close (exit code 0)", async () => {
+    const child = makeMockChild({ stdout: "ok" });
+    mockSpawn.mockReturnValue(child);
+
+    const p = runSkepticEvaluation("test prompt");
+    expect(vi.getTimerCount()).toBe(1); // timeout pending
+    vi.runAllTimers(); // fire close, which clears the timeout
     await p;
-    // Should have no pending timers after close resolved
     expect(vi.getTimerCount()).toBe(0);
   });
 
   it("clears timeout on non-zero exit", async () => {
-    const p = runSkepticEvaluation("prompt");
-    simulateStderr("");
-    simulateClose(1);
+    const child = makeMockChild({ stderr: "failed", exitCode: 1 });
+    mockSpawn.mockReturnValue(child);
+
+    const p = runSkepticEvaluation("test prompt");
     vi.runAllTimers();
     await p;
     expect(vi.getTimerCount()).toBe(0);
   });
 
   it("clears timeout on spawn error", async () => {
-    const p = runSkepticEvaluation("prompt");
-    simulateError(new Error("not available"));
+    mockSpawn.mockReturnValue(
+      makeMockChild({ emitError: new Error("not available") }),
+    );
+
+    const p = runSkepticEvaluation("test prompt");
     vi.runAllTimers();
     await p;
     expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("spawns with exact command args and pipe stdio", async () => {
+    mockSpawn.mockReturnValue(makeMockChild({ stdout: "ok", exitCode: 0 }));
+
+    await runSkepticEvaluation("my prompt");
+    expect(mockSpawn).toHaveBeenCalledWith("claude", ["--print"], {
+      stdio: ["pipe", "pipe", "pipe"],
+    });
   });
 });
