@@ -141,9 +141,9 @@ export async function maybeDispatchReviewBacklog(
     // Fail open (null = don't know) so we don't suppress legitimate alerts during transient
     // API errors.
     if (reviewsResult.status === "fulfilled" && Array.isArray(reviewsResult.value)) {
-      // getReviews returns { author: { login: string }, state: string, ... }
-      const allReviews = reviewsResult.value as Array<{ author?: { login?: string }; state?: string }>;
-      const crReviews = allReviews.filter((r) => r.author?.login === "coderabbitai[bot]");
+      // getReviews returns Review[] with flat author: string (not author.login)
+      const allReviews = reviewsResult.value;
+      const crReviews = allReviews.filter((r) => r.author === "coderabbitai[bot]");
       const latestCRReview = crReviews[crReviews.length - 1];
       crLatestVerdict = latestCRReview?.state ?? null;
 
@@ -152,7 +152,7 @@ export async function maybeDispatchReviewBacklog(
         ? allReviews.findIndex((r) => r === latestCRReview)
         : -1;
       newerHumanCR = allReviews.slice(latestCRIndex + 1).some(
-        (r) => r.state === "changes_requested" && r.author?.login !== "coderabbitai[bot]",
+        (r) => r.state === "changes_requested" && r.author !== "coderabbitai[bot]",
       );
     }
   }
