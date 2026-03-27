@@ -34,6 +34,7 @@ const REPO = args.repo ?? "jleechanorg/agent-orchestrator";
 const FORCE = args.force === true;
 const DRY_RUN = args["dry-run"] === true;
 const LIMIT = args.limit ? parseInt(args.limit, 10) : Infinity;
+const SINGLE_PR = args["single-pr"] ? parseInt(args["single-pr"], 10) : null;
 
 // ---------------------------------------------------------------------------
 // GitHub REST helpers
@@ -469,6 +470,61 @@ function ensureDir(dir) {
 // ---------------------------------------------------------------------------
 
 async function main() {
+  // --single-pr mode: generate only one PR's docs and exit
+  if (SINGLE_PR !== null) {
+    console.log(`\n🔍 Generating design doc for PR #${SINGLE_PR} …`);
+    try {
+      const [files, commits] = await Promise.all([
+        fetchPRFiles(SINGLE_PR),
+        fetchPRCommits(SINGLE_PR),
+      ]);
+      const prs = await ghApi(
+        `pulls?state=open&per_page=20&sort=created&direction=desc`,
+        null
+      );
+      // Find the PR in open list first, then closed
+      let pr = (Array.isArray(prs) ? prs : []).find((p) => p.number === SINGLE_PR);
+      if (!pr) {
+        const closed = await ghApi(
+          `pulls?state=closed&per_page=100&sort=updated&direction=desc`,
+          null
+        );
+        pr = (Array.isArray(closed) ? closed : []).find((p) => p.number === SINGLE_PR);
+      }
+      if (!pr) {
+        // Fetch single PR directly
+        pr = await ghApi(`pulls/${SINGLE_PR}`, null);
+      }
+      if (!pr || !pr.number) {
+        console.error(`   ❌ PR #${SINGLE_PR} not found`);
+        process.exit(1);
+      }
+      const data = { pr: { ...pr, files, commits }, files, commits };
+      const outDir = join(ROOT, "docs", "design", "pr-designs");
+      ensureDir(outDir);
+      const mdPath = join(outDir, `pr-${SINGLE_PR}.md`);
+      const htmlPath = join(outDir, `pr-${SINGLE_PR}.html`);
+      if (!FORCE && fileExists(mdPath) && fileExists(htmlPath)) {
+        console.log(`   ⏭️  #${SINGLE_PR} — already exists, skipping`);
+        console.log(`\n✅ Done — PR #${SINGLE_PR} already has design docs\n`);
+        return;
+      }
+      if (!DRY_RUN) {
+        writeFileSync(mdPath, mdDoc(data), "utf8");
+        writeFileSync(htmlPath, htmlDoc(data), "utf8");
+        console.log(`   ✅ Generated pr-${SINGLE_PR}.md and pr-${SINGLE_PR}.html`);
+        console.log(`\n✅ Done — generated: 1\n`);
+      } else {
+        console.log(`   (dry-run, no files written)`);
+        console.log(`\n✅ Dry run complete\n`);
+      }
+    } catch (err) {
+      console.error(`   ❌ PR #${SINGLE_PR} error: ${err.message}`);
+      process.exit(1);
+    }
+    return;
+  }
+
   console.log(`\n🔍 Fetching PRs from ${REPO} …`);
   const allPRs = await fetchAllPRs();
   console.log(`   Found ${allPRs.length} total PRs`);

@@ -4,6 +4,26 @@
  */
 
 import { exec } from "../../lib/shell.js";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
+/**
+ * Read the design doc for a PR from the local checkout.
+ * Works both in CI (file is checked out) and locally (agent has repo).
+ * Returns null if the design doc does not exist yet.
+ */
+export async function fetchDesignDoc(prNumber: number): Promise<string | null> {
+  // Design docs live at docs/design/pr-designs/pr-{N}.md in the repo
+  // The CLI is always run from the repo root (checked out by the workflow or agent)
+  try {
+    const designDocPath = join(process.cwd(), "docs", "design", "pr-designs", `pr-${prNumber}.md`);
+    const content = readFileSync(designDocPath, "utf8");
+    return content;
+  } catch {
+    // Design doc does not exist yet — this is a gap the skeptic should flag
+    return null;
+  }
+}
 
 export async function ghJson(endpoint: string, args: string[] = []): Promise<unknown> {
   const result = await exec("gh", ["api", endpoint, ...args]);
