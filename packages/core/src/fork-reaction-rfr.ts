@@ -45,6 +45,32 @@ export interface RespawnForReviewDeps {
 }
 
 /**
+ * Build the reaction message with review context injected.
+ * Shared by both dead-agent (spawn) and alive-agent (send) paths.
+ */
+async function buildRespawnMessage(
+  reactionConfig: ReactionConfig,
+  session: Session,
+  projectId: string,
+  config: OrchestratorConfig,
+  registry: PluginRegistry,
+  reactionKey: string,
+): Promise<string> {
+  let message = reactionConfig.message ?? `Fix review comments on PR #${session.pr!.number} and push.`;
+  if (reactionConfig.message?.includes("{{context}}") && session) {
+    try {
+      const context = await buildReactionContext(reactionKey, session, projectId, config, registry);
+      message = reactionConfig.message.replace(/\{\{context\}\}/g, () => context);
+    } catch (ctxErr) {
+      console.warn(
+        `[lifecycle-manager] buildReactionContext failed: ${ctxErr instanceof Error ? ctxErr.message : String(ctxErr)} — proceeding without context`,
+      );
+    }
+  }
+  return message;
+}
+
+/**
  * Handle respawn-for-review reaction.
  *
  * When agent is dead (agentDead !== false):
@@ -107,32 +133,22 @@ export async function handleRespawnForReview(
       return { reactionType: reactionKey, success: false, action, escalated: false };
     }
 
-    // Build review context to pre-load into the new worker's prompt
-    let context = "";
-    if (reactionConfig.message?.includes("{{context}}") && session) {
-      try {
-        context = await buildReactionContext(reactionKey, session, projectId, config, registry);
-      } catch (ctxErr) {
-        console.warn(
-          `[lifecycle-manager] buildReactionContext failed for session=${sessionId}: ` +
-          `${ctxErr instanceof Error ? ctxErr.message : String(ctxErr)} — proceeding without context`,
-        );
-      }
-    }
-
-    let prompt = reactionConfig.message ?? `Fix review comments on PR #${session.pr.number} and push.`;
-    // Use callback form so $ patterns in context are not interpreted as replacement tokens
-    prompt = prompt.replaceAll("{{context}}", () => context);
+    // Build review context message (shared helper for both branches)
+    const reactionMessage = await buildRespawnMessage(
+      reactionConfig, session, projectId, config, registry, reactionKey,
+    );
     // Prepend PR context so the new worker knows exactly what to fix
     const prContext = `PR #${session.pr.number} (${session.pr.url}) has review comments that need to be addressed. Work on branch '${session.pr.branch}'. `;
-    prompt = prContext + prompt;
+    const prompt = prContext + reactionMessage;
 
+    let spawnedId: string | undefined;
     try {
       const spawned = await sessionManager.spawn({
         projectId,
         branch: session.pr.branch,
         prompt,
       });
+      spawnedId = spawned.id;
 
       observer.recordOperation({
         metric: "lifecycle_poll",
@@ -149,21 +165,6 @@ export async function handleRespawnForReview(
         },
         level: "info",
       });
-
-      // Mark this session as respawned so the backlog skips it on subsequent cycles.
-      // The spawned worker owns the PR from now on.
-      updateSessionMetadataHelper(session, {
-        pr_respawned: "true",
-        respawned_session_id: spawned.id,
-      }, config);
-
-      return {
-        reactionType: reactionKey,
-        success: true,
-        action: "respawn-for-review",
-        message: `Spawned fresh worker '${spawned.id}' for PR #${session.pr.number}`,
-        escalated: false,
-      };
     } catch (spawnErr) {
       const errMsg = spawnErr instanceof Error ? spawnErr.message : String(spawnErr);
       observer.recordOperation({
@@ -179,16 +180,46 @@ export async function handleRespawnForReview(
       // Spawn failed — allow retry on next cycle (don't escalate immediately)
       return { reactionType: reactionKey, success: false, action, escalated: false };
     }
+
+    // Persist metadata after confirmed spawn success. If this fails, the next backlog
+    // poll will retry spawn (harmless duplicate) rather than losing the session.
+    try {
+      updateSessionMetadataHelper(session, {
+        pr_respawned: "true",
+        respawned_session_id: spawnedId!,
+      }, config);
+    } catch (metaErr) {
+      const metaErrMsg = metaErr instanceof Error ? metaErr.message : String(metaErr);
+      observer.recordOperation({
+        metric: "lifecycle_poll",
+        operation: "lifecycle.reaction.respawn_for_review",
+        outcome: "failure",
+        correlationId,
+        projectId,
+        sessionId,
+        data: { reactionKey, error: `spawn succeeded but metadata persist failed: ${metaErrMsg}` },
+        level: "warn",
+      });
+      // Spawn succeeded but metadata failed — report failure so backlog retries.
+      // The duplicate spawn on next cycle is preferable to losing the PR to zombie state.
+      return { reactionType: reactionKey, success: false, action, escalated: false };
+    }
+
+    return {
+      reactionType: reactionKey,
+      success: true,
+      action: "respawn-for-review",
+      message: `Spawned fresh worker '${spawnedId}' for PR #${session.pr.number}`,
+      escalated: false,
+    };
   }
 
   // Agent is alive — fall back to send-to-agent behavior
   if (reactionConfig.message) {
     try {
-      let finalMessage = reactionConfig.message;
-      if (session && reactionConfig.message.includes("{{context}}")) {
-        const context = await buildReactionContext(reactionKey, session, projectId, config, registry);
-        finalMessage = reactionConfig.message.replace(/\{\{context\}\}/g, () => context);
-      }
+      const finalMessage = await buildRespawnMessage(
+        reactionConfig, session, projectId, config, registry, reactionKey,
+      );
       await sessionManager.send(sessionId, finalMessage);
       return {
         reactionType: reactionKey,
