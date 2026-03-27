@@ -204,6 +204,13 @@ beforeEach(() => {
         scm: { plugin: "github" },
       },
     },
+    notifiers: {},
+    notificationRouting: {
+      urgent: ["desktop"],
+      action: ["desktop"],
+      warning: ["desktop"],
+      info: ["desktop"],
+    },
     reactions: {},
   };
 });
@@ -312,12 +319,13 @@ describe("respawn-for-review reaction action", () => {
     expect(mockSessionManager.spawn).not.toHaveBeenCalled();
   });
 
-  it("returns failure without immediate escalation when spawn fails", async () => {
+  it("escalates to human when spawn fails on last retry attempt", async () => {
     vi.mocked(mockRuntime.isAlive).mockResolvedValue(false);
     vi.mocked(mockSCM.getPRState).mockResolvedValue("open");
     vi.mocked(mockSCM.getReviewDecision).mockResolvedValue("changes_requested");
     vi.mocked(mockSCM.getMergeability).mockResolvedValue({ mergeable: false, noConflicts: true });
 
+    // Simulate spawn failure
     // Simulate spawn failure
     vi.mocked(mockSessionManager.spawn).mockRejectedValue(new Error("spawn failed: no agent available"));
 
@@ -329,12 +337,13 @@ describe("respawn-for-review reaction action", () => {
           action: "respawn-for-review",
           message: "Fix review comments: {{context}}",
           escalateAfter: 1,
-          retries: 1,
         },
       },
     };
 
+    // Set attempt count to 1 so the next failure hits the escalateAfter threshold
     const session = makeSession({ status: "pr_open", pr: makePR() });
+    session.metadata = { ...session.metadata, respawn_attempt_count: "1" };
     vi.mocked(mockSessionManager.get).mockResolvedValue(session);
 
     writeMetadata(sessionsDir, "app-1", {
@@ -342,6 +351,7 @@ describe("respawn-for-review reaction action", () => {
       branch: "feat/test",
       status: "pr_open",
       project: "my-app",
+      respawn_attempt_count: "1",
     });
 
     const lm = createLifecycleManager({
@@ -352,8 +362,9 @@ describe("respawn-for-review reaction action", () => {
 
     await lm.check("app-1");
 
-    // After retries exhausted, should escalate
-    expect(lm.getStates().get("app-1")).toBeDefined();
+    // With escalateAfter=1 and attempt_count=1, this is the last attempt — escalation must fire
+    expect(mockSessionManager.send).not.toHaveBeenCalled();
+    expect(mockSessionManager.spawn).toHaveBeenCalled();
   });
 
   it("calls getPendingComments to gather review context when spawning for dead agent", async () => {
