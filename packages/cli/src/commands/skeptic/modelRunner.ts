@@ -49,6 +49,11 @@ export async function runSkepticEvaluation(prompt: string): Promise<string> {
       resolve(`VERDICT: FAIL — Claude CLI not available: ${err.message.slice(0, 200)}`);
     });
 
+    // Guard stdin write against EPIPE if the process exits before write completes.
+    child.stdin?.on("error", () => {
+      // Process exited before stdin write completed — close event will resolve.
+    });
+
     // Write prompt to stdin and close it so Claude processes it.
     child.stdin?.write(prompt);
     child.stdin?.end();
