@@ -61,6 +61,7 @@ import { buildReactionContext } from "./reaction-context.js";
 import { validateAndEmitExitProof } from "./session-exit-proof.js";
 import { isPRMerged } from "./fork-lifecycle-kki-override.js";
 import { handleRequestMerge, handleParallelRetry } from "./fork-reaction-handlers.js";
+import { handleRespawnForReview } from "./fork-reaction-rfr.js";
 import { maybeDispatchReviewBacklog } from "./review-backlog.js";
 import { updateSessionMetadataHelper } from "./fork-utils.js";
 import { checkMergeGate } from "./merge-gate.js";
@@ -914,172 +915,16 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         });
       }
 
-      // bd-rfr: When the agent is dead and the PR has CHANGES_REQUESTED feedback,
-      // spawn a fresh worker targeting the same PR branch with pre-loaded review context.
-      // When the agent is alive, fall back to send-to-agent behavior.
-      // agentDead is optional; treat undefined (retry dispatch path) as dead to always respawn.
+      // bd-rfr: Delegate to fork-reaction-rfr.ts — extracted for upstream isolation
       case "respawn-for-review": {
-        if (agentDead !== false) {
-          // Agent is dead — spawn a fresh worker targeting this PR
-          if (!session?.pr) {
-            const event = createEvent("reaction.triggered", {
-              sessionId,
-              projectId,
-              message: `Reaction '${reactionKey}' triggered respawn but no PR is associated with this session`,
-              data: { reactionKey, action },
-            });
-            await notifyHuman(event, "warning");
-            return {
-              reactionType: reactionKey,
-              success: false,
-              action: "respawn-for-review",
-              escalated: false,
-            };
-          }
-
-          // Skip if already respawned for this PR (prevents unbounded duplicate workers)
-          if (session.metadata?.["pr_respawned"] === "true") {
-            return {
-              reactionType: reactionKey,
-              success: true,
-              action: "respawn-for-review",
-              message: `PR #${session.pr.number} already has a respawned worker`,
-              escalated: false,
-            };
-          }
-
-          const project = config.projects[projectId];
-          if (!project) {
-            const event = createEvent("reaction.triggered", {
-              sessionId,
-              projectId,
-              message: `Reaction '${reactionKey}' triggered respawn but project '${projectId}' not found`,
-              data: { reactionKey, action, projectId },
-            });
-            await notifyHuman(event, "warning");
-            return {
-              reactionType: reactionKey,
-              success: false,
-              action: "respawn-for-review",
-              escalated: false,
-            };
-          }
-
-          // Build review context to pre-load into the new worker's prompt
-          let context = "";
-          if (reactionConfig.message?.includes("{{context}}") && session) {
-            try {
-              context = await buildReactionContext(reactionKey, session, projectId, config, registry);
-            } catch {
-              // Non-fatal: proceed without context
-            }
-          }
-
-          let prompt = reactionConfig.message ?? `Fix review comments on PR #${session.pr.number} and push.`;
-          // Use callback form so $ patterns in context are not interpreted as replacement tokens
-          prompt = prompt.replaceAll("{{context}}", () => context);
-          // Prepend PR context so the new worker knows exactly what to fix
-          const prContext = `PR #${session.pr.number} (${session.pr.url}) has review comments that need to be addressed. Work on branch '${session.pr.branch}'. `;
-          prompt = prContext + prompt;
-
-          try {
-            const spawned = await sessionManager.spawn({
-              projectId,
-              branch: session.pr.branch,
-              prompt,
-            });
-
-            observer.recordOperation({
-              metric: "lifecycle_poll",
-              operation: "lifecycle.reaction.respawn_for_review",
-              outcome: "success",
-              correlationId: reactionCorrelationId,
-              projectId,
-              sessionId,
-              data: {
-                reactionKey,
-                action: "respawn-for-review",
-                spawnedSessionId: spawned.id,
-                prNumber: session.pr.number,
-              },
-              level: "info",
-            });
-
-            // Mark this session as respawned so the backlog skips it on subsequent cycles.
-            // The spawned worker owns the PR from now on.
-            updateSessionMetadata(session, {
-              pr_respawned: "true",
-              respawned_session_id: spawned.id,
-            });
-
-            return {
-              reactionType: reactionKey,
-              success: true,
-              action: "respawn-for-review",
-              message: `Spawned fresh worker '${spawned.id}' for PR #${session.pr.number}`,
-              escalated: false,
-            };
-          } catch (spawnErr) {
-            const errMsg = spawnErr instanceof Error ? spawnErr.message : String(spawnErr);
-            observer.recordOperation({
-              metric: "lifecycle_poll",
-              operation: "lifecycle.reaction.respawn_for_review",
-              outcome: "failure",
-              correlationId: reactionCorrelationId,
-              projectId,
-              sessionId,
-              data: { reactionKey, error: errMsg },
-              level: "error",
-            });
-            // Spawn failed — allow retry on next cycle (don't escalate immediately)
-            return {
-              reactionType: reactionKey,
-              success: false,
-              action: "respawn-for-review",
-              escalated: false,
-            };
-          }
-        }
-
-        // Agent is alive — fall back to send-to-agent behavior
-        if (reactionConfig.message) {
-          try {
-            let finalMessage = reactionConfig.message;
-            if (session && reactionConfig.message.includes("{{context}}")) {
-              const context = await buildReactionContext(reactionKey, session, projectId, config, registry);
-              finalMessage = reactionConfig.message.replace(/\{\{context\}\}/g, () => context);
-            }
-            await sessionManager.send(sessionId, finalMessage);
-            return {
-              reactionType: reactionKey,
-              success: true,
-              action: "respawn-for-review",
-              message: finalMessage,
-              escalated: false,
-            };
-          } catch (sendErr) {
-            const errMsg = sendErr instanceof Error ? sendErr.message : String(sendErr);
-            observer.recordOperation({
-              metric: "lifecycle_poll",
-              operation: "lifecycle.reaction.send_failed",
-              outcome: "failure",
-              reason: errMsg,
-              correlationId: reactionCorrelationId,
-              projectId,
-              sessionId,
-              data: { reactionKey, error: errMsg },
-              level: "warn",
-            });
-            return {
-              reactionType: reactionKey,
-              success: false,
-              action: "respawn-for-review",
-              escalated: false,
-            };
-          }
-        }
-        break;
-      }
+        return handleRespawnForReview(sessionId, projectId, reactionKey, reactionConfig, session!, agentDead, reactionCorrelationId, {
+          sessionManager,
+          config,
+          registry,
+          notifyHuman,
+          createEvent,
+          observer,
+        });
       }
 
       default: {
@@ -1395,20 +1240,18 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
                   : null;
                 if (verdictScm) {
                   const reviews = await verdictScm.getReviews(session.pr);
-                  // getReviews returns { author: { login: string }, state: string, ... }
-                  const crReviews = (reviews as Array<{ author?: { login?: string }; state?: string }>)
-                    .filter((r) => r.author?.login === "coderabbitai[bot]");
+                  // getReviews returns Review[] with flat author: string (not author.login)
+                  const crReviews = reviews.filter((r) => r.author === "coderabbitai[bot]");
                   const crVerdict = crReviews[crReviews.length - 1]?.state ?? null;
 
                   // Allow the reaction if ANY reviewer (human or bot) has posted CHANGES_REQUESTED
                   // more recently than CR's latest verdict. This prevents blocking legitimate human
                   // change requests when CR's latest formal verdict is COMMENTED.
-                  const allReviews = reviews as Array<{ author?: { login?: string }; state?: string }>;
                   const latestCRIndex = crReviews.length > 0
-                    ? allReviews.findIndex((r) => r === crReviews[crReviews.length - 1])
+                    ? reviews.findIndex((r) => r === crReviews[crReviews.length - 1])
                     : -1;
-                  const newerHumanCR = allReviews.slice(latestCRIndex + 1).some(
-                    (r) => r.state === "changes_requested" && r.author?.login !== "coderabbitai[bot]",
+                  const newerHumanCR = reviews.slice(latestCRIndex + 1).some(
+                    (r) => r.state === "changes_requested" && r.author !== "coderabbitai[bot]",
                   );
                   // Block only when verdict is explicitly non-CHANGES_REQUESTED (COMMENTED or DISMISSED).
                   // null = fail open (allow reaction).
@@ -1417,8 +1260,12 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
                   skipVerdictGate = newerHumanCR || crVerdict === null || crVerdict === "changes_requested";
                 }
               }
-            } catch {
+            } catch (verdictErr) {
               // Fail open: any error fetching CR verdict should not block the reaction
+              console.warn(
+                `[lifecycle-manager] verdict gate getReviews failed for session=${session.id}: ` +
+                `${verdictErr instanceof Error ? verdictErr.message : String(verdictErr)} — allowing reaction`,
+              );
             }
 
             // auto: false skips automated agent actions but still allows notifications
