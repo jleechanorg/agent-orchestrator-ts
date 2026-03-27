@@ -16,11 +16,67 @@ import * as peekaboo from "./peekaboo.js";
 import { executeWithFallback, type FallbackConfig } from "./fallback.js";
 import { createPoller } from "./poller.js";
 import { runPreflight } from "./preflight.js";
-import type { AntigravitySession } from "./types.js";
+import type { AntigravitySession, PeekabooUIElement, PeekabooSeeResult } from "./types.js";
 import { defaultConfig, type AntigravityConfig } from "./config.js";
 
 /** Application name for Peekaboo targeting. */
 const APP_NAME = "Antigravity";
+
+/**
+ * Check whether a UI element's text matches a workspace path.
+ *
+ * The Antigravity Manager sidebar shows only the directory basename
+ * (e.g. "worldai_claw"), never the full absolute path. This helper
+ * tries: direct substring, basename, and parent directory name.
+ */
+export function matchesWorkspace(elementText: string, workspacePath: string): boolean {
+  const lower = elementText.toLowerCase();
+  const pathLower = workspacePath.toLowerCase();
+  // Direct match (handles rare case where full path is shown)
+  if (lower.includes(pathLower)) return true;
+  // Basename match (e.g., "worldai_claw" from "/Users/.../worldai_claw")
+  const basename = pathLower.split("/").filter(Boolean).pop() ?? "";
+  if (basename && lower.includes(basename)) return true;
+  // Parent dir match (e.g., "project_worldaiclaw")
+  const parts = pathLower.split("/").filter(Boolean);
+  if (parts.length >= 2) {
+    const parent = parts[parts.length - 2];
+    if (lower.includes(parent)) return true;
+  }
+  return false;
+}
+
+/**
+ * Find a workspace element in a list of UI elements by matching
+ * title or label against the workspace path.
+ */
+function findWorkspace(
+  elements: PeekabooUIElement[],
+  workspacePath: string,
+): PeekabooUIElement | undefined {
+  return elements.find(
+    (el) =>
+      matchesWorkspace(el.title, workspacePath) ||
+      matchesWorkspace(el.label, workspacePath),
+  );
+}
+
+/**
+ * After pasting a message, find and click the Send button.
+ * Falls back to pressing Return if no Send button is found.
+ */
+async function clickSendButton(windowId: number, snapshotForSend?: PeekabooSeeResult): Promise<void> {
+  const snap = snapshotForSend ?? await peekaboo.see(APP_NAME, windowId);
+  const sendButton = snap.ui_elements.find(
+    (el) => el.label === "Send" || el.title === "Send",
+  );
+  if (sendButton) {
+    await peekaboo.click(APP_NAME, windowId, sendButton.id, snap.snapshot_id);
+  } else {
+    // Fallback: press Return (may add newline in some contexts)
+    await peekaboo.press(APP_NAME, "Return");
+  }
+}
 
 /**
  * Create an AntigravityRuntime instance.
@@ -81,13 +137,24 @@ export function createAntigravityRuntime(config?: AntigravityConfig): Runtime {
           );
         }
 
-        // 2. Take snapshot of Manager window, find workspace to click
-        const snapshot = await peekaboo.see(APP_NAME, managerWindow.window_id);
-        const workspaceElement = snapshot.ui_elements.find(
-          (el) =>
-            el.title.toLowerCase().includes(config.workspacePath.toLowerCase()) ||
-            el.label.toLowerCase().includes(config.workspacePath.toLowerCase()),
-        );
+        // 2. Take snapshot of Manager window, find workspace to click.
+        //    Uses basename matching (Bug 1) and scroll retry (Bug 2).
+        let snapshot = await peekaboo.see(APP_NAME, managerWindow.window_id);
+        let workspaceElement = findWorkspace(snapshot.ui_elements, config.workspacePath);
+
+        // If workspace not visible, scroll down and retry up to 5 times
+        if (!workspaceElement) {
+          for (let i = 0; i < 5 && !workspaceElement; i++) {
+            await peekaboo.scroll(APP_NAME, managerWindow.window_id, "down", 5);
+            await new Promise((r) => setTimeout(r, 500));
+            const newSnapshot = await peekaboo.see(APP_NAME, managerWindow.window_id);
+            workspaceElement = findWorkspace(newSnapshot.ui_elements, config.workspacePath);
+            if (workspaceElement) {
+              snapshot = newSnapshot; // Update snapshot for click
+            }
+          }
+        }
+
         if (!workspaceElement) {
           throw new Error(
             `Workspace "${config.workspacePath}" not found in Antigravity Manager`,
@@ -102,9 +169,17 @@ export function createAntigravityRuntime(config?: AntigravityConfig): Runtime {
           snapshot.snapshot_id,
         );
 
-        // 4. Find the conversation window that opens
+        // 4. Find the conversation window that opens.
+        //    Match workspace basename in window title instead of picking
+        //    the first non-Manager window (Bug 3).
         const postClickWindows = await peekaboo.windowList(APP_NAME);
+        const wsBasename = config.workspacePath.split("/").filter(Boolean).pop() ?? "";
         const conversationWindow = postClickWindows.find(
+          (w) =>
+            w.window_id !== managerWindow.window_id &&
+            w.title.toLowerCase().includes(wsBasename.toLowerCase()),
+        ) ?? postClickWindows.find(
+          // Fallback: any non-Manager window if basename match fails
           (w) =>
             w.window_id !== managerWindow.window_id &&
             !w.title.toLowerCase().includes("manager"),
@@ -115,10 +190,11 @@ export function createAntigravityRuntime(config?: AntigravityConfig): Runtime {
           );
         }
 
-        // 5. Send the initial prompt if provided via launchCommand
+        // 5. Send the initial prompt if provided via launchCommand.
+        //    Click Send button instead of pressing Return (Bug 4).
         if (config.launchCommand) {
           await peekaboo.paste(APP_NAME, config.launchCommand);
-          await peekaboo.press(APP_NAME, "Return");
+          await clickSendButton(conversationWindow.window_id);
         }
 
         return conversationWindow.title;
@@ -261,8 +337,15 @@ export function createAntigravityRuntime(config?: AntigravityConfig): Runtime {
       }
 
       const primaryFn = async (): Promise<string> => {
+        // Use managerWindowId for Manager-based sessions (Bug 5),
+        // fall back to editor windowId for direct sessions.
+        const targetWindow =
+          session.managerWindowId !== -1
+            ? session.managerWindowId
+            : session.windowId;
+
         // 1. Take a snapshot to find the text input field
-        const snapshot = await peekaboo.see(APP_NAME, session.windowId);
+        const snapshot = await peekaboo.see(APP_NAME, targetWindow);
         const inputField = snapshot.ui_elements.find(
           (el) =>
             el.role === "AXTextArea" ||
@@ -275,15 +358,15 @@ export function createAntigravityRuntime(config?: AntigravityConfig): Runtime {
           // Click the text field to focus it
           await peekaboo.click(
             APP_NAME,
-            session.windowId,
+            targetWindow,
             inputField.id,
             snapshot.snapshot_id,
           );
         }
 
-        // 2. Paste the message and press Enter to send
+        // 2. Paste the message and click Send button (Bug 4)
         await peekaboo.paste(APP_NAME, message);
-        await peekaboo.press(APP_NAME, "Return");
+        await clickSendButton(targetWindow);
         return "sent";
       };
 
