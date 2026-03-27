@@ -133,6 +133,10 @@ export function registerSkeptic(program: Command): Command {
         }
         console.log(chalk.yellow("\n=== Full LLM output ===\n"));
         console.log(verdict);
+        // Exit non-zero if verdict is FAIL — aligns with merge-gate.ts (non-PASS/SKIPPED = FAIL)
+        if (verdictMatch?.[1]?.toUpperCase() === "FAIL") {
+          process.exit(1);
+        }
         return;
       }
 
