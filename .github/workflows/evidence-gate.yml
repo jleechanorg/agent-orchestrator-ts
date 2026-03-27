@@ -249,13 +249,14 @@ jobs:
             # The verdict may be in the evidence bundle text OR posted by skeptic-gate
             # as a PR comment (<!-- skeptic-agent-verdict -->). Either source is valid.
             SKEPTIC_PASSED=false
-            if printf '%s' "$BODY" | grep -qiE '(skeptic.*(verdict|gate).*pass|condition.*(7|seven).*pass)'; then
+            if printf '%s' "$BODY" | grep -qiE 'skeptic.*(verdict|gate).*pass'; then
               SKEPTIC_PASSED=true
             else
               # Fallback: check skeptic-agent verdict comments via GitHub API
+              # Filter by author (app/skeptic-agent) and HTML marker to prevent spoofing
               SKEPTIC_COMMENT=$(gh api "repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments" \
-                --jq '[.[] | select(.body | test("<!--\\s*skeptic-agent-verdict\\s*-->"; "i"))] | .[0].body // ""' 2>/dev/null)
-              if printf '%s' "$SKEPTIC_COMMENT" | grep -qiE '(VERDICT.*PASS|skeptic.*pass)'; then
+                --jq '[.[] | select(.user.login == "app/skeptic-agent" and (.body | test("<!--\\s*skeptic-agent-verdict\\s*-->"; "i")))] | .[0].body // ""' 2>/dev/null)
+              if printf '%s' "$SKEPTIC_COMMENT" | grep -qiE 'VERDICT:\\s*PASS'; then
                 SKEPTIC_PASSED=true
               fi
             fi
