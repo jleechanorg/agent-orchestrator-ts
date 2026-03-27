@@ -1239,9 +1239,11 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
                   ? registry.get<SCM>("scm", verdictProject.scm.plugin)
                   : null;
                 if (verdictScm) {
-                  const reviews = await verdictScm.getReviews(session.pr);
-                  // getReviews returns Review[] with flat author: string (not author.login)
-                  const crReviews = reviews.filter((r) => r.author === "coderabbitai[bot]");
+                  const rawReviews = await verdictScm.getReviews(session.pr);
+                  // Cast to match SCM's normalized shape (author: string, state: string).
+                  // Defensive: author may arrive as { login: string } in some SCM implementations.
+                  const reviews: Array<{ author?: string; state?: string }> = rawReviews;
+                  const crReviews = reviews.filter((r) => String(r.author ?? "").endsWith("coderabbitai[bot]"));
                   const crVerdict = crReviews[crReviews.length - 1]?.state ?? null;
 
                   // Allow the reaction if ANY reviewer (human or bot) has posted CHANGES_REQUESTED
@@ -1251,7 +1253,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
                     ? reviews.findIndex((r) => r === crReviews[crReviews.length - 1])
                     : -1;
                   const newerHumanCR = reviews.slice(latestCRIndex + 1).some(
-                    (r) => r.state === "changes_requested" && r.author !== "coderabbitai[bot]",
+                    (r) => r.state === "changes_requested" && !String(r.author ?? "").endsWith("coderabbitai[bot]"),
                   );
                   // Block only when verdict is explicitly non-CHANGES_REQUESTED (COMMENTED or DISMISSED).
                   // null = fail open (allow reaction).
