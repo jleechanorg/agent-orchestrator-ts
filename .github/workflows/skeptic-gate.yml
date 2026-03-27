@@ -12,6 +12,9 @@ jobs:
   skeptic_gate:
     name: Skeptic Gate
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
     steps:
       - uses: actions/checkout@v4
 
@@ -85,12 +88,13 @@ jobs:
               echo "## Skeptic Gate Findings"
               echo ""
               echo '```'
-              head -c 6000 skeptic-output.txt
+              head -c 5800 skeptic-output.txt
+              echo ""
               echo '```'
               echo ""
               echo "_Skeptic gate ran on commit \`${GITHUB_SHA:0:7}\`_"
             } > "$RUNNER_TEMP/pr_comment.txt"
             gh pr comment ${{ github.event.pull_request.number }} \
               --body-file "$RUNNER_TEMP/pr_comment.txt" \
-              2>/dev/null || true
+              || echo "WARN: gh pr comment failed — check GITHUB_TOKEN permissions"
           fi
