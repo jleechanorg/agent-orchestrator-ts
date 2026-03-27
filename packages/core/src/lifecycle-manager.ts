@@ -255,16 +255,20 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
   } = deps;
   const observer = createProjectObserver(config, "lifecycle-manager");
 
-  // Initialize MCP mail client from project config or provided override
-  const mcpEndpoint = process.env["MCP_AGENT_MAIL_URL"];
-  if (mcpEndpoint) {
-    const project = scopedProjectId ? config.projects[scopedProjectId] : undefined;
-    const mcpMailCfg: McpMailClientConfig = providedMcpMailConfig ?? {
-      endpoint: mcpEndpoint,
-      projectKey: scopedProjectId ?? "jleechanclaw",
-      agentId: scopedProjectId ? `lw-${scopedProjectId}` : "lw-global",
-    };
-    initMcpMailClient(mcpMailCfg);
+  // Initialize MCP mail client — prefer caller-supplied config, fall back to env var
+  if (providedMcpMailConfig) {
+    initMcpMailClient(providedMcpMailConfig);
+  } else {
+    const mcpEndpoint = process.env["MCP_AGENT_MAIL_URL"];
+    if (mcpEndpoint) {
+      const project = scopedProjectId ? config.projects[scopedProjectId] : undefined;
+      const mcpMailCfg: McpMailClientConfig = {
+        endpoint: mcpEndpoint,
+        projectKey: scopedProjectId ?? project?.name ?? "global",
+        agentId: scopedProjectId ? `lw-${scopedProjectId}` : "lw-global",
+      };
+      initMcpMailClient(mcpMailCfg);
+    }
   }
 
   // Inbox poll state — separate timer so inbox polls run every 5 min
@@ -1001,13 +1005,14 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       }
     }
 
-    // Track current task for MCP mail heartbeat messaging
+    // Track current task for MCP mail heartbeat messaging — update when task changes,
+    // delete when it clears or session exits so heartbeats never send stale work
     const task = typeof session.metadata?.["task"] === "string"
       ? session.metadata["task"]
       : undefined;
     if (task) {
       sessionCurrentTask.set(session.id, task);
-    } else if (newStatus === "merged" || newStatus === "killed") {
+    } else {
       sessionCurrentTask.delete(session.id);
     }
 
@@ -1517,12 +1522,22 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       // MCP mail: send session-end to global inbox before exit proof
       if (getMcpMailClientConfig()) {
         const doneTask = sessionCurrentTask.get(session.id);
-        const blockedOn = newStatus === "needs_input" ? "human input" : undefined;
-        await sendMcpMailSessionEnd(doneTask, blockedOn).catch(() => {/* non-fatal */});
+        await sendMcpMailSessionEnd(doneTask).catch(() => {/* non-fatal */});
         sessionCurrentTask.delete(session.id);
       }
+    }
 
-      await validateAndEmitExitProof(session, newStatus, {
+    // MCP mail: notify when session becomes blocked waiting for human input (non-terminal)
+    if (
+      newStatus === "needs_input" &&
+      getMcpMailClientConfig() &&
+      newStatus !== oldStatus
+    ) {
+      const blockedTask = sessionCurrentTask.get(session.id);
+      await sendMcpMailSessionEnd(blockedTask, "human input").catch(() => {/* non-fatal */});
+    }
+
+    await validateAndEmitExitProof(session, newStatus, {
         config,
         registry,
         observer,
