@@ -97,6 +97,14 @@ export async function handleRespawnForReview(
   const { sessionManager, config, registry, notifyHuman, createEvent, observer } = deps;
   const action = "respawn-for-review";
 
+  // Track how many times this session has already failed respawn attempts.
+  // Used to enforce the escalateAfter threshold.
+  const attemptCount = parseInt(String(session.metadata?.["respawn_attempt_count"] ?? "0"), 10);
+  const escalateAfter = typeof reactionConfig.escalateAfter === "number"
+    ? reactionConfig.escalateAfter
+    : Infinity;
+  const isLastAttempt = attemptCount >= escalateAfter;
+
   if (agentDead !== false) {
     // Agent is dead — spawn a fresh worker targeting this PR
     if (!session?.pr) {
@@ -177,7 +185,24 @@ export async function handleRespawnForReview(
         data: { reactionKey, error: errMsg },
         level: "error",
       });
-      // Spawn failed — allow retry on next cycle (don't escalate immediately)
+
+      // Increment attempt counter so next cycle can escalate if threshold reached
+      updateSessionMetadataHelper(session, {
+        respawn_attempt_count: String(attemptCount + 1),
+      }, config);
+
+      if (isLastAttempt) {
+        const event = createEvent("reaction.escalated", {
+          sessionId,
+          projectId,
+          message: `respawn-for-review exhausted after ${escalateAfter} attempt(s): ${errMsg}`,
+          priority: "warning",
+          data: { reactionKey, error: errMsg },
+        });
+        await notifyHuman(event, "warning");
+        return { reactionType: reactionKey, success: false, action, escalated: true };
+      }
+      // Spawn failed but not last attempt — allow retry on next cycle
       return { reactionType: reactionKey, success: false, action, escalated: false };
     }
 
