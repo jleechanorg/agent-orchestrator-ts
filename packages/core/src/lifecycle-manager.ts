@@ -1140,7 +1140,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
               operation: "lifecycle.reaction.send_failed",
               outcome: "failure",
               reason: errMsg,
-              correlationId: undefined,
+              correlationId: reactionCorrelationId,
               projectId,
               sessionId,
               data: { reactionKey, error: errMsg },
