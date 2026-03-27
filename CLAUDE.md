@@ -184,6 +184,22 @@ When reviewing or producing evidence, identify the **claim class** before issuin
 
 **Fail-closed rules:** PASS only if ALL required proofs are present. INSUFFICIENT if any missing. Never downgrade the claim class to avoid INSUFFICIENT. A pipeline E2E does NOT satisfy a PR-lifecycle E2E claim.
 
+## Reaction Action Idempotency
+
+The reaction system (`lifecycle-manager.ts`) fires actions on every poll cycle when a condition holds. Actions MUST be designed for repeated execution:
+
+| Action type | Idempotent? | Guard required |
+|---|---|---|
+| `notify` | Yes (duplicate notifications are cheap) | None |
+| `auto-merge` | Yes (GitHub ignores duplicate merge attempts) | None |
+| `send-to-agent` | **NO** — each send consumes agent context window | `retries` cap + SHA dedup |
+| `spawn-worker` | **NO** — creates duplicate sessions | Session existence check |
+
+**Rules for non-idempotent actions:**
+1. Always set `retries: 2-3` in the reaction config — never rely on the default (`Infinity`)
+2. Use `escalateAfter` to cap total time, not just retry count
+3. When adding new action types, classify idempotency FIRST. If non-idempotent, add dedup logic to `executeReaction()` before shipping.
+4. The `ReactionTracker` currently tracks `attempts` only. SHA-based dedup (`lastSentHeadSha`) is being added (bd-n039). Until then, config-level `retries` is the primary guard.
 
 ## Pre-spawn capacity check
 
