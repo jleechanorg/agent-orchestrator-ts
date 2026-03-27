@@ -696,23 +696,6 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     switch (action) {
       case "send-to-agent": {
         if (reactionConfig.message) {
-          // FIX 3002210802: if SHA was unchanged (deduped), skip the send but still record
-          // the SHA so the next cycle's dedup check is accurate. Do not return early from
-          // here — setLastSentHeadSha must run so the next poll's dedup works correctly.
-          if (reactionKey === "changes-requested" && session?.pr) {
-            const project = config.projects[session.projectId];
-            const scm = project?.scm ? registry.get<SCM>("scm", project.scm.plugin) : null;
-            if (scm?.getPRHeadSha) {
-              try {
-                // Record SHA so next cycle's dedup is accurate. This runs for both sent and
-                // deduped paths. dedupedSha may be undefined (pre-fetch failed) — fetch fresh.
-                setLastSentHeadSha(sessionId, dedupedSha ?? await scm.getPRHeadSha(session.pr));
-              } catch {
-                // Non-fatal — SHA tracking is best-effort
-              }
-            }
-          }
-
           if (deduped) {
             return {
               reactionType: reactionKey,
@@ -731,6 +714,21 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
               finalMessage = reactionConfig.message.replace(/\{\{context\}\}/g, () => context);
             }
             await sessionManager.send(sessionId, finalMessage);
+
+            // Record SHA after successful send so the next poll skips if SHA is unchanged.
+            // CR: recording before send would skip retry on send failure — fix: record only on success.
+            if (reactionKey === "changes-requested" && session?.pr) {
+              const project = config.projects[session.projectId];
+              const scm = project?.scm ? registry.get<SCM>("scm", project.scm.plugin) : null;
+              if (scm?.getPRHeadSha) {
+                try {
+                  // dedupedSha was captured before send — use it if available; otherwise fetch.
+                  setLastSentHeadSha(sessionId, dedupedSha ?? await scm.getPRHeadSha(session.pr));
+                } catch {
+                  // Non-fatal — SHA tracking is best-effort
+                }
+              }
+            }
 
             return {
               reactionType: reactionKey,
