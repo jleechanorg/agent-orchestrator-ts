@@ -684,6 +684,8 @@ export interface PRInfo {
   isDraft: boolean;
   /** GitHub PR state — persisted from metadata prState field (bd-s4t) */
   state?: PRState;
+  /** PR author's GitHub login */
+  author?: string;
 }
 
 export type PRState = "open" | "merged" | "closed";

@@ -658,6 +658,7 @@ function prInfoFromView(
     headRefName: string;
     baseRefName: string;
     isDraft: boolean;
+    author?: string;
   },
   projectRepo: string,
 ): PRInfo {
@@ -672,6 +673,7 @@ function prInfoFromView(
     branch: data.headRefName,
     baseBranch: data.baseRefName,
     isDraft: data.isDraft,
+    author: data.author,
   };
 }
 
@@ -1185,6 +1187,7 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
         head: { ref: string };
         base: { ref: string };
         draft: boolean;
+        user: { login: string };
       };
 
       // Errors propagate naturally so the caller can distinguish "no open PRs"
@@ -1203,6 +1206,7 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
             headRefName: pr.head.ref,
             baseRefName: pr.base.ref,
             isDraft: pr.draft,
+            author: pr.user.login,
           },
           project.repo,
         ),
@@ -1238,6 +1242,7 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
           headRefName: string;
           baseRefName: string;
           isDraft: boolean;
+          user: { login: string };
         }> = JSON.parse(listRaw);
 
         if (listPrs.length > 0) {
@@ -1265,6 +1270,7 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
             head: { ref: string };
             base: { ref: string };
             draft: boolean;
+            user: { login: string };
           }> = JSON.parse(raw);
 
           if (prs.length > 0) {
@@ -1277,6 +1283,7 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
                 headRefName: pr.head.ref,
                 baseRefName: pr.base.ref,
                 isDraft: pr.draft,
+                author: pr.user.login,
               },
               project.repo,
             );
@@ -1301,6 +1308,7 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
         head: { ref: string };
         base: { ref: string };
         draft: boolean;
+        user: { login: string };
       } = JSON.parse(raw);
 
       return prInfoFromView(
@@ -1311,6 +1319,7 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
           headRefName: data.head.ref,
           baseRefName: data.base.ref,
           isDraft: data.draft,
+          author: data.user.login,
         },
         project.repo,
       );

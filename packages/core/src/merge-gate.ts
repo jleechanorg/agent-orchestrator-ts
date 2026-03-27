@@ -11,7 +11,7 @@
  *  7. Skeptic agent VERDICT: PASS | SKIPPED  (bd-qw6)
  */
 
-import type { PRInfo, MergeGateConfig, SCM } from "./types.js";
+import type { PRInfo, MergeGateConfig, SCM, ReviewComment } from "./types.js";
 import { type Review, evaluateCoderabbitApproval, getLatestDecisiveReview, hasUnresolvedDismissedReview, sortReviewsNewestFirst } from "./merge-gate-coderabbit.js";
 
 export type { Review } from "./merge-gate-coderabbit.js";
@@ -43,7 +43,7 @@ export async function checkMergeGate(
   let mergeability: { noConflicts: boolean; mergeable?: boolean };
   let reviews: Review[];
   let automatedComments: Array<{ botName: string; severity: string; body: string }>;
-  let pendingComments: Array<{ isResolved: boolean; body: string }>;
+  let pendingComments: ReviewComment[];
 
   try {
     const [ci, mergeabilityResult, reviewsResult, automatedCommentsResult, pendingCommentsResult] =
