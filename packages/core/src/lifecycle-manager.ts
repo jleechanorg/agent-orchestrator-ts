@@ -608,7 +608,43 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       reactionTrackers.set(trackerKey, tracker);
     }
 
-    // Increment attempts before checking escalation
+    // bd-1178 dedup check for changes-requested reactions (before attempts increment).
+    // Prevents wasted API calls and avoids consuming the retry budget on unchanged SHA.
+    // Also fixes race condition: SHA is captured once before send and reused for recording.
+    let dedupedSha: string | undefined;
+    if (reactionKey === "changes-requested" && reactionConfig.action === "send-to-agent" && session?.pr) {
+      const project = config.projects[session.projectId];
+      const scm = project?.scm ? registry.get<SCM>("scm", project.scm.plugin) : null;
+      if (scm?.getPRHeadSha) {
+        try {
+          const currentSha = await scm.getPRHeadSha(session.pr);
+          if (tracker.lastSentHeadSha === currentSha) {
+            observer.recordOperation({
+              metric: "lifecycle_poll",
+              operation: "lifecycle.reaction.deduped",
+              outcome: "info",
+              reason: "head_sha_unchanged",
+              correlationId: reactionCorrelationId,
+              projectId,
+              sessionId,
+              data: { reactionKey, currentSha },
+              level: "debug",
+            });
+            return {
+              reactionType: reactionKey,
+              success: true,
+              action: "send-to-agent",
+              escalated: false,
+            };
+          }
+          dedupedSha = currentSha; // capture for post-send recording
+        } catch {
+          // getPRHeadSha failed — proceed with send (don't block on SHA check)
+        }
+      }
+    }
+
+    // Increment attempts only when we actually attempt the action (not on dedup skip)
     tracker.attempts++;
 
     // Check if we should escalate
@@ -654,42 +690,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     switch (action) {
       case "send-to-agent": {
         if (reactionConfig.message) {
-          // bd-1178: Skip re-send when PR head SHA hasn't changed since last dispatch.
-          // This prevents burning worker context when the same review feedback is
-          // re-delivered every poll cycle for unchanged PRs (5-9x multiplier).
-          // Restrict to changes-requested reactions only — other reactions (e.g. ci-failed)
-          // may need to fire when status changes independently of HEAD SHA.
-          if (reactionKey === "changes-requested" && session?.pr) {
-            const project = config.projects[session.projectId];
-            const scm = project?.scm ? registry.get<SCM>("scm", project.scm.plugin) : null;
-            if (scm && scm.getPRHeadSha) {
-              try {
-                const currentSha = await scm.getPRHeadSha(session.pr);
-                if (tracker.lastSentHeadSha === currentSha) {
-                  observer.recordOperation({
-                    metric: "lifecycle_poll",
-                    operation: "lifecycle.reaction.deduped",
-                    outcome: "info",
-                    reason: "head_sha_unchanged",
-                    correlationId: reactionCorrelationId,
-                    projectId,
-                    sessionId,
-                    data: { reactionKey, currentSha },
-                    level: "debug",
-                  });
-                  return {
-                    reactionType: reactionKey,
-                    success: true,
-                    action: "send-to-agent",
-                    escalated: false,
-                  };
-                }
-              } catch {
-                // getPRHeadSha failed — proceed with send (don't block on SHA check)
-              }
-            }
-          }
-
+          // dedupedSha is pre-fetched above (race-condition guard: one SHA, used for both checks)
           try {
             // Inject context if message contains {{context}} placeholder
             let finalMessage = reactionConfig.message;
@@ -699,8 +700,11 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
             }
             await sessionManager.send(sessionId, finalMessage);
 
-            // Record SHA on successful send so the next poll cycle skips if unchanged
-            if (reactionKey === "changes-requested" && session?.pr) {
+            // Record SHA on successful send using the pre-fetched value (avoids race)
+            if (dedupedSha) {
+              tracker.lastSentHeadSha = dedupedSha;
+            } else if (reactionKey === "changes-requested" && session?.pr) {
+              // Fallback: fetch SHA if not already captured (non-changes-requested or no session.pr)
               const project = config.projects[session.projectId];
               const scm = project?.scm ? registry.get<SCM>("scm", project.scm.plugin) : null;
               if (scm?.getPRHeadSha) {
