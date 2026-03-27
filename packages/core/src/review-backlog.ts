@@ -199,7 +199,8 @@ export async function maybeDispatchReviewBacklog(
       // When CR moves to COMMENTED (suggestions without formal verdict) we should not re-fire
       // changes-requested for the same unresolved suggestions — the agent already knows.
       // Fail open (crLatestVerdict === null) to avoid suppressing during transient API errors.
-      (crLatestVerdict === null || crLatestVerdict === "CHANGES_REQUESTED")
+      // SCM normalizes GitHub API values: "CHANGES_REQUESTED" → "changes_requested" (scm-github getReviews).
+      (crLatestVerdict === null || crLatestVerdict === "changes_requested")
     ) {
       const reactionConfig = getReactionConfigForSession(session, humanReactionKey);
       // bd-5o1: skip send-to-agent for dead agents. respawn-for-review is always
