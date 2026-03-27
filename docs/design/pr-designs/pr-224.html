@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>[agento] fix(backfill): clean up worktree + local branch on claim_failed to prevent cascading poison — Agent Orchestrator</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;600&family=IBM+Plex+Serif:wght@400;600&family=IBM+Plex+Mono&display=swap" rel="stylesheet" />
+    <style>
+      :root {
+        --bg: #f2efe7;
+        --panel: #fffdf8;
+        --ink: #1f1a16;
+        --muted: #6f6357;
+        --brand: #165a72;
+        --line: #dfd3c2;
+      }
+      * { box-sizing: border-box; }
+      body { margin: 0; color: var(--ink); font-family: "IBM Plex Sans", "Segoe UI", sans-serif; line-height: 1.5; background: radial-gradient(circle at 12% 10%, #ebdfcb 0%, transparent 35%), radial-gradient(circle at 88% 85%, #e5d4ba 0%, transparent 30%), var(--bg); }
+      .wrap { max-width: 1100px; margin: 2rem auto; padding: 0 1rem 3rem; }
+      .hero, .card { border: 1px solid var(--line); border-radius: 14px; background: var(--panel); }
+      .hero { padding: 1.2rem; }
+      .card { padding: 1rem; margin-top: 1rem; }
+      h1, h2, h3 { font-family: "IBM Plex Serif", Georgia, serif; margin: 0.6rem 0; }
+      .muted { color: var(--muted); }
+      .grid { margin-top: 1rem; display: grid; gap: 1rem; }
+      @media (min-width: 900px) { .grid.two { grid-template-columns: repeat(2, minmax(0, 1fr)); } .grid.three { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+      ul, ol { margin: 0.4rem 0 0; padding-left: 1.2rem; }
+      code { font-family: "IBM Plex Mono", "SFMono-Regular", monospace; background: #f3ebe0; border-radius: 4px; padding: 0.1rem 0.28rem; font-size: 0.85em; }
+      pre { margin-top: 0.7rem; padding: 0.7rem; border: 1px solid var(--line); border-radius: 10px; background: #faf4ec; overflow-x: auto; }
+      table { width: 100%; border-collapse: collapse; margin: 1rem 0; font-size: 0.88rem; }
+      th { background: #f3ebe0; text-align: left; padding: 0.5rem 0.7rem; border: 1px solid var(--line); font-weight: 600; }
+      td { padding: 0.5rem 0.7rem; border: 1px solid var(--line); vertical-align: top; }
+      .badge { display: inline-block; padding: 0.1rem 0.4rem; border-radius: 6px; font-size: 0.75rem; font-weight: 600; margin-right: 0.3rem; }
+      .badge-new { background: #3fb950; color: #000; }
+      .badge-merged { background: #8250df; color: #fff; }
+      .badge-closed { background: #6f6357; color: #fff; }
+      .badge-open { background: #1f77ff; color: #fff; }
+      .badge-shared { background: var(--brand); color: #fff; }
+      .diagram { background: #faf4ec; border: 1px solid var(--line); border-radius: 10px; padding: 1rem; margin: 1rem 0; }
+      .stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 0.5rem; margin-top: 1rem; }
+      .stat { background: #f3ebe0; border: 1px solid var(--line); border-radius: 8px; padding: 0.6rem; text-align: center; }
+      .stat .num { font-size: 1.4rem; font-weight: 700; font-family: "IBM Plex Mono", monospace; }
+      .stat .lbl { font-size: 0.72rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
+      a { color: var(--brand); }
+      .footer { margin-top: 2rem; padding-top: 1rem; border-top: 1px solid var(--line); color: var(--muted); font-size: 0.85rem; }
+    </style>
+  </head>
+  <body>
+    <main class="wrap">
+      <section class="hero">
+        <h1>[agento] fix(backfill): clean up worktree + local branch on claim_failed to prevent cascading poison</h1>
+        <p class="muted">**Claim class**: unit</p>
+        <p class="muted" style="margin-top:0.5rem">
+          PR: <a href="https://github.com/jleechanorg/agent-orchestrator/pull/224">#224</a>
+          &nbsp;·&nbsp; Status: <span class="badge badge-open">Open</span>
+          &nbsp;·&nbsp; March 26, 2026
+          
+        </p>
+      </section>
+
+      <section class="grid two">
+        <article class="card">
+          <h2>Architecture</h2>
+          <div class="diagram">
+<pre>┌─────────────────────────────────────────┐
+│      PR # 224 — agent-orchestrator  │
+└─────────────────────────────────────────┘
+                  │
+      (no files)
+                  │
+┌─────────────────────────────────────────┐
+│           fix(backfill): clean up worktree +  │
+└─────────────────────────────────────────┘</pre>
+          </div>
+        </article>
+        <article class="card">
+          <h2>Metadata</h2>
+          <div class="stat-grid">
+            <div class="stat"><div class="num">0</div><div class="lbl">Files</div></div>
+            <div class="stat"><div class="num">14</div><div class="lbl">Commits</div></div>
+            <div class="stat"><div class="num" style="color:#2ea043">+0</div><div class="lbl">Additions</div></div>
+            <div class="stat"><div class="num" style="color:#cf222e">-0</div><div class="lbl">Deletions</div></div>
+          </div>
+          <ul style="margin-top:1rem">
+            <li>Author: <code>jleechan2015</code></li>
+            <li>Created: March 26, 2026</li>
+            
+            <li>Head branch: <code>feat/orch-ihp</code></li>
+          </ul>
+        </article>
+      </section>
+
+      
+
+      
+
+      
+
+      <div class="footer">
+        Generated by <code>scripts/generate-pr-design-docs.mjs</code>
+        &nbsp;·&nbsp;
+        <a href="https://github.com/jleechanorg/agent-orchestrator/pull/224">View PR #224 on GitHub</a>
+      </div>
+    </main>
+  </body>
+</html>
