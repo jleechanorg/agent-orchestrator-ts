@@ -1025,7 +1025,8 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     }
 
     // MCP mail: send session-start when a session resumes from a terminal state
-    // into active work. Uses tracked state so the guard fires exactly once per resume.
+    // into active work. Uses tracked state (last seen) when available so the guard
+    // fires exactly once per resume rather than on every poll.
     if (
       getMcpMailClientConfig() &&
       tracked !== undefined &&
