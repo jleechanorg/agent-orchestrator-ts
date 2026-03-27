@@ -307,7 +307,7 @@ describe("respawn-for-review reaction action", () => {
     expect(mockSessionManager.spawn).not.toHaveBeenCalled();
   });
 
-  it("escalates to human when respawn itself fails", async () => {
+  it("returns failure without immediate escalation when spawn fails", async () => {
     vi.mocked(mockRuntime.isAlive).mockResolvedValue(false);
     vi.mocked(mockSCM.getPRState).mockResolvedValue("open");
     vi.mocked(mockSCM.getReviewDecision).mockResolvedValue("changes_requested");

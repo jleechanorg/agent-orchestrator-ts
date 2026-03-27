@@ -116,6 +116,8 @@ export async function maybeDispatchReviewBacklog(
   // bd-xxx: Gate changes-requested dispatch on CR's latest verdict so we don't re-alert
   // on unresolved suggestions after CR moves to COMMENTED (not a formal CHANGES_REQUESTED verdict).
   let crLatestVerdict: string | null = null;
+  // Track whether any human posted CHANGES_REQUESTED after CR's latest verdict
+  let newerHumanCR = false;
 
   if (!shouldThrottle) {
     const [pendingResult, automatedResult, reviewsResult] = await Promise.allSettled([
@@ -140,10 +142,18 @@ export async function maybeDispatchReviewBacklog(
     // API errors.
     if (reviewsResult.status === "fulfilled" && Array.isArray(reviewsResult.value)) {
       // getReviews returns { author: { login: string }, state: string, ... }
-      const crReviews = (reviewsResult.value as Array<{ author?: { login?: string }; state?: string }>)
-        .filter((r) => r.author?.login === "coderabbitai[bot]");
-      const latest = crReviews[crReviews.length - 1];
-      crLatestVerdict = latest?.state ?? null;
+      const allReviews = reviewsResult.value as Array<{ author?: { login?: string }; state?: string }>;
+      const crReviews = allReviews.filter((r) => r.author?.login === "coderabbitai[bot]");
+      const latestCRReview = crReviews[crReviews.length - 1];
+      crLatestVerdict = latestCRReview?.state ?? null;
+
+      // Allow dispatch if a human posted CHANGES_REQUESTED after CR's latest verdict
+      const latestCRIndex = latestCRReview
+        ? allReviews.findIndex((r) => r === latestCRReview)
+        : -1;
+      newerHumanCR = allReviews.slice(latestCRIndex + 1).some(
+        (r) => r.state === "changes_requested" && r.author?.login !== "coderabbitai[bot]",
+      );
     }
   }
 
@@ -196,12 +206,13 @@ export async function maybeDispatchReviewBacklog(
       !shouldThrottle &&
       !(oldStatus !== newStatus && newStatus === "changes_requested") &&
       pendingFingerprint !== lastPendingDispatchHash &&
-      // bd-xxx: only re-alert on pending comments when CR's latest verdict is CHANGES_REQUESTED.
+      // bd-xxx: only re-alert on pending comments when CR's latest verdict is CHANGES_REQUESTED,
+      // or when a human reviewer posted CHANGES_REQUESTED after CR's latest verdict.
       // When CR moves to COMMENTED (suggestions without formal verdict) we should not re-fire
       // changes-requested for the same unresolved suggestions — the agent already knows.
       // Fail open (crLatestVerdict === null) to avoid suppressing during transient API errors.
       // SCM normalizes GitHub API values: "CHANGES_REQUESTED" → "changes_requested" (scm-github getReviews).
-      (crLatestVerdict === null || crLatestVerdict === "changes_requested")
+      (newerHumanCR || crLatestVerdict === null || crLatestVerdict === "changes_requested")
     ) {
       const reactionConfig = getReactionConfigForSession(session, humanReactionKey);
       // bd-5o1: skip send-to-agent for dead agents. respawn-for-review is always
