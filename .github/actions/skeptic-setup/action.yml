@@ -1,0 +1,31 @@
+# =============================================================================
+# Composite action: Setup environment for skeptic CLI
+# Used by skeptic-gate.yml and skeptic-cron.yml
+# =============================================================================
+name: "Skeptic setup"
+description: "Checkout + Node + pnpm + Claude CLI + dependencies + CLI build"
+runs:
+  using: composite
+  steps:
+    - uses: actions/checkout@v4
+
+    - name: Install pnpm
+      uses: pnpm/action-setup@v4
+
+    - name: Install Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: "22"
+        cache: pnpm
+
+    - name: Install Claude CLI
+      run: npm install -g @anthropic-ai/claude-code
+      shell: bash
+
+    - name: Install dependencies
+      run: pnpm install --frozen-lockfile
+      shell: bash
+
+    - name: Build CLI
+      run: pnpm -C packages/cli build
+      shell: bash
