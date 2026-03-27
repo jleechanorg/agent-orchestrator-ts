@@ -1,4 +1,9 @@
-<h1 align="center">Agent Orchestrator — The Orchestration Layer for Parallel AI Agents (forked from https://github.com/ComposioHQ/agent-orchestrator)</h1>
+<h1 align="center">Agent Orchestrator — AO Fork</h1>
+
+> **⚠️ This is a fork.** The canonical upstream is
+> [**ComposioHQ/agent-orchestrator**](https://github.com/ComposioHQ/agent-orchestrator).
+> This fork runs independently and may have diverged. PRs from upstream are regularly
+> cherry-picked; fork changes can be proposed upstream via PR.</p>
 
 <p align="center">
 <a href="https://platform.composio.dev/?utm_source=Github&utm_medium=Banner&utm_content=AgentOrchestrator">
@@ -6,15 +11,24 @@
 </a>
 </p>
 
-### Fork Improvements over Upstream
+### This Fork vs Upstream
 
-This fork includes the following enhancements:
-- **OpenClaw Integration**: Wired OpenClaw notifier plugin for improved notifications
-- **GitHub Rate Limit Handling**: Added exponential backoff with REST API fallback for robust SCM operations
-- **New Agent Plugins**: Added Cursor and Gemini CLI agent plugins for more agent options
-- **Testing Infrastructure**: Added Vitest support with proper package scope handling
-- **CLI Enhancements**: Improved doctor command and script runner for npm-install layouts
-- **Fork Isolation**: Extracted fork logic for cleaner upstream/main distinction
+This fork adds **agentic CI infrastructure** on top of the upstream agent-orchestrator. The upstream is a standard CI repo; this fork is an autonomous coding pipeline where AO workers drive PRs to merge with zero operator intervention.
+
+| Feature | ComposioHQ/agent-orchestrator | jleechanorg/agent-orchestrator (this fork) |
+|---------|-------------------------------|------------------------------------------|
+| Auto-merge | ❌ None | ✅ AO orchestrator + evolve loop |
+| Skeptic agent | ❌ None | ✅ 7th merge gate (independent LLM verifier) |
+| Evidence Gate | ❌ None | ✅ CI validates PR evidence bundle + claim class |
+| CodeRabbit reviews | ❌ None | ✅ Per-PR reviews on every PR |
+| Cursor Bugbot | ⚠️ Skipped | ✅ Runs on every PR |
+| REST fallback | ❌ None | ✅ GH rate limit → REST fallback |
+| OpenClaw notifier | ❌ None | ✅ Wired for Slack notifications |
+| Self-hosted runners | ❌ | ✅ |
+| CI jobs | lint, typecheck, test, test-web | same + evidence-gate, skeptic-gate |
+| Workflows | 5 | 6 (+ skeptic-cron.yml) |
+
+This fork's goal is **fully autonomous, zero-touch PR merging** for its own codebase. The upstream goal is a general-purpose orchestration tool.
 
 <div align="center">
 
