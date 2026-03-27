@@ -143,7 +143,7 @@ export async function maybeDispatchReviewBacklog(
     if (reviewsResult.status === "fulfilled" && Array.isArray(reviewsResult.value)) {
       // getReviews returns Review[] with flat author: string (not author.login)
       const allReviews = reviewsResult.value;
-      const crReviews = allReviews.filter((r) => r.author === "coderabbitai[bot]");
+      const crReviews = allReviews.filter((r) => String(r.author ?? "").endsWith("coderabbitai[bot]"));
       const latestCRReview = crReviews[crReviews.length - 1];
       crLatestVerdict = latestCRReview?.state ?? null;
 
@@ -152,7 +152,7 @@ export async function maybeDispatchReviewBacklog(
         ? allReviews.findIndex((r) => r === latestCRReview)
         : -1;
       newerHumanCR = allReviews.slice(latestCRIndex + 1).some(
-        (r) => r.state === "changes_requested" && r.author !== "coderabbitai[bot]",
+        (r) => r.state === "changes_requested" && !String(r.author ?? "").endsWith("coderabbitai[bot]"),
       );
     }
   }
