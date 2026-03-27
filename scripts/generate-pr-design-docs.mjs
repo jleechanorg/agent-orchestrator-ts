@@ -32,7 +32,7 @@ const args = Object.fromEntries(
 
 const REPO = args.repo ?? "jleechanorg/agent-orchestrator";
 const FORCE = args.force === true;
-const DRY_RUN = args.dryRun === true;
+const DRY_RUN = args["dry-run"] === true;
 const LIMIT = args.limit ? parseInt(args.limit, 10) : Infinity;
 
 // ---------------------------------------------------------------------------
@@ -134,13 +134,14 @@ async function fetchPRCommits(prNumber) {
 
 function isAOManaged(pr) {
   const title = (pr.title || "").toLowerCase();
+  const branch = (pr.head?.ref || "").toLowerCase();
   const labels = (pr.labels || []).map((l) =>
     typeof l === "string" ? l : l.name
   ).map((l) => l.toLowerCase());
 
   return (
     title.includes("[agento]") ||
-    /^(feat|fix|chore|docs|test|refactor)\/((orch|ao|bd|wc|jc|ra|cc)-|[a-z]{2,4}-)/.test(title) ||
+    /^(feat|fix|chore|docs|test|refactor)\/((orch|ao|bd|wc|jc|ra|cc)-|[a-z]{2,4}-)/.test(branch) ||
     labels.some((l) => l.includes("agento") || l.includes("autonomous"))
   );
 }
@@ -423,7 +424,7 @@ ${diagram}
 | Deletions | -${totalDeletions} |
 | Head branch | \`${pr.head?.ref || ""}\` |
 | Created | ${formatDate(pr.created_at)} |
-| ${mergedAt ? `Merged | ${formatDate(mergedAt)}` : ""}
+${mergedAt ? `| Merged | ${formatDate(mergedAt)} |` : ""}
 
 ---
 
