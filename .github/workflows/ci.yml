@@ -45,6 +45,9 @@ jobs:
   test:
     name: Test
     runs-on: ${{ github.event_name == 'pull_request' && 'ubuntu-latest' || fromJson(vars.SELF_HOSTED_RUNNER_LABELS || '["self-hosted","self-hosted-mikey"]') }}
+    permissions:
+      contents: read    # needed for git history and gh pr view in wholesome tests
+      pull-requests: read
     steps:
       - uses: actions/checkout@v4
         with:
