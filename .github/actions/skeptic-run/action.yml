@@ -14,6 +14,9 @@ inputs:
   anthropic_api_key:
     description: "ANTHROPIC_API_KEY value"
     default: ""
+  openai_api_key:
+    description: "OPENAI_API_KEY value"
+    default: ""
 outputs:
   verdict:
     description: "PASS | FAIL | UNKNOWN | SKIPPED"
@@ -40,13 +43,15 @@ runs:
       env:
         GITHUB_TOKEN: ${{ inputs.github_token }}
         ANTHROPIC_API_KEY: ${{ inputs.anthropic_api_key }}
+        OPENAI_API_KEY: ${{ inputs.openai_api_key }}
       shell: bash
       run: |
-        node packages/cli/dist/index.js skeptic \
+        # bd-skp2: capture exit code explicitly (removed misleading || true)
+        skeptic_exit=0
+        (node packages/cli/dist/index.js skeptic \
           --pr ${{ inputs.pr_number }} \
           --dry-run \
-          > skeptic-output.txt 2>&1 || true
-
+          > skeptic-output.txt 2>&1) || skeptic_exit=$?
         cat skeptic-output.txt
 
         if grep -qi "VERDICT: FAIL" skeptic-output.txt; then
@@ -59,6 +64,7 @@ runs:
           echo "verdict=UNKNOWN" >> "$GITHUB_OUTPUT"
           echo "" >> skeptic-output.txt
           echo "CONCLUSION: UNKNOWN — could not parse VERDICT (failing closed)" >> skeptic-output.txt
+          echo "Exit code from skeptic: $skeptic_exit" >> skeptic-output.txt
           exit 1
         fi
 

@@ -29,6 +29,7 @@ jobs:
           pr_number: ${{ github.event.pull_request.number }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          openai_api_key: ${{ secrets.OPENAI_API_KEY }}
 
       - name: Post skeptic findings as PR comment
         if: always()
@@ -46,7 +47,8 @@ jobs:
               echo ""
               echo "_Skeptic gate ran on commit \`${GITHUB_SHA:0:7}\`_"
             } > "$RUNNER_TEMP/pr_comment.txt"
+            # Post comment — fail the step if posting fails (bd-skp2: catch silent failures)
             gh pr comment ${{ github.event.pull_request.number }} \
               --body-file "$RUNNER_TEMP/pr_comment.txt" \
-              || echo "WARN: gh pr comment failed — check GITHUB_TOKEN permissions"
+              || { echo "ERROR: Failed to post skeptic comment to PR" >&2; exit 1; }
           fi

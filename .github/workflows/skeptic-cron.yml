@@ -42,6 +42,7 @@ jobs:
       - name: Run skeptic on each open PR
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           PR_JSON: ${{ steps.list_prs.outputs.pr_numbers }}
         run: |
@@ -57,14 +58,22 @@ jobs:
             echo "Skeptic evaluation: PR #${PR_NUM} — ${PR_TITLE}"
             echo "========================================"
 
-            # Skip if ANTHROPIC_API_KEY not configured
-            if [ -z "$ANTHROPIC_API_KEY" ]; then
-              echo "ANTHROPIC_API_KEY not configured — skipping"
-              continue
+            # Run skeptic with --dry-run so it does NOT try to post a comment
+            # (the jleechan-agent[bot] lacks write access; cron workflow posts via GITHUB_TOKEN)
+            # Output to file so the grep below can read it.
+            # Wrap in subshell: prevents set -e from aborting the loop if skeptic exits non-zero
+            # bd-skp2: removed || true (misleading) — capture real exit code and check explicitly
+            skeptic_exit=0
+            (node packages/cli/dist/index.js skeptic --pr "$PR_NUM" --dry-run > "skeptic-output-${PR_NUM}.txt" 2>&1) || skeptic_exit=$?
+            # Print output for workflow logs
+            cat "skeptic-output-${PR_NUM}.txt" || true
+
+            # Verify output contains a VERDICT line (fail-closed — missing VERDICT means skeptic failed)
+            if ! grep -qi "VERDICT:" "skeptic-output-${PR_NUM}.txt" 2>/dev/null; then
+              echo "WARNING: No VERDICT line found for PR #${PR_NUM} (skeptic exit=${skeptic_exit}) — this PR will not be merged"
             fi
 
-            node packages/cli/dist/index.js skeptic --pr "$PR_NUM" --dry-run 2>&1 || true
-            echo "Skeptic complete for PR #${PR_NUM}"
+            echo "Skeptic complete for PR #${PR_NUM} (exit=${skeptic_exit})"
           done
 
       - name: Check 7-green conditions and merge ready PRs

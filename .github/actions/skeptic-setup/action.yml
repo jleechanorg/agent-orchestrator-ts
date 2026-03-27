@@ -18,9 +18,17 @@ runs:
         node-version: "22"
         cache: pnpm
 
-    - name: Install Claude CLI
-      run: npm install -g @anthropic-ai/claude-code
-      shell: bash
+    - name: Install Claude CLI and Codex CLI
+      run: |
+        if command -v codex &>/dev/null; then
+          echo "Codex CLI already installed"
+        else
+          echo "Installing Codex CLI..."
+          npm install -g @openai/codex 2>&1 || echo "Codex install failed — checking for existing..."
+        fi
+        if ! command -v codex &>/dev/null; then
+          echo "WARNING: codex CLI not available — skeptic will use Claude CLI fallback if ANTHROPIC_API_KEY is set"
+        fi
 
     - name: Install dependencies
       run: pnpm install --frozen-lockfile
