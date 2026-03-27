@@ -86,7 +86,7 @@ export function createAntigravityRuntime(config?: AntigravityConfig): Runtime {
         const workspaceElement = snapshot.ui_elements.find(
           (el) =>
             el.title.toLowerCase().includes(config.workspacePath.toLowerCase()) ||
-            el.value.toLowerCase().includes(config.workspacePath.toLowerCase()),
+            el.label.toLowerCase().includes(config.workspacePath.toLowerCase()),
         );
         if (!workspaceElement) {
           throw new Error(
@@ -238,7 +238,7 @@ export function createAntigravityRuntime(config?: AntigravityConfig): Runtime {
                 snapshot.snapshot_id,
               );
             }
-            await peekaboo.press(APP_NAME, "Command+w");
+            await peekaboo.hotkey(APP_NAME, "cmd+w");
           }
         }
       } catch {
@@ -267,7 +267,8 @@ export function createAntigravityRuntime(config?: AntigravityConfig): Runtime {
           (el) =>
             el.role === "AXTextArea" ||
             el.role === "AXTextField" ||
-            el.role === "textField",
+            el.role === "textField" ||
+            el.role === "textArea",
         );
 
         if (inputField) {
@@ -324,8 +325,8 @@ export function createAntigravityRuntime(config?: AntigravityConfig): Runtime {
         // (e.g. "element not found"), causing false fallback invocations.
         const snapshot = await peekaboo.see(APP_NAME, session.windowId);
         const textContent = snapshot.ui_elements
-          .filter((el) => el.value || el.title)
-          .map((el) => el.value || el.title)
+          .filter((el) => el.label || el.title)
+          .map((el) => el.label || el.title)
           .join("\n");
 
         // Return last N lines

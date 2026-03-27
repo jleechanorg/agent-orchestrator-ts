@@ -9,6 +9,7 @@ vi.mock("../peekaboo.js", () => ({
   click: vi.fn(),
   paste: vi.fn(),
   press: vi.fn(),
+  hotkey: vi.fn(),
 }));
 
 // Import after mocks
@@ -38,8 +39,8 @@ function makeHandle(id: string, windowId = 2): RuntimeHandle {
   };
 }
 
-/** Create a PeekabooSeeResult with a given label on a conversation element. */
-function makeSeeResult(label: string): PeekabooSeeResult {
+/** Create a PeekabooSeeResult with a given status label on a conversation element. */
+function makeSeeResult(statusLabel: string): PeekabooSeeResult {
   return {
     snapshot_id: "snap-poll",
     ui_elements: [
@@ -47,8 +48,10 @@ function makeSeeResult(label: string): PeekabooSeeResult {
         id: "conv-el",
         role: "AXStaticText",
         title: "Test Conversation",
-        value: label,
-        bounds: { x: 0, y: 0, width: 200, height: 30 },
+        label: statusLabel,
+        description: "",
+        role_description: "",
+        is_actionable: false,
       },
     ],
   };

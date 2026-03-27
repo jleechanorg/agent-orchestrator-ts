@@ -50,25 +50,34 @@ beforeEach(() => {
 const MANAGER_WINDOW = {
   window_id: 1,
   title: "Manager",
-  app: "Antigravity",
+  isOnScreen: true,
+  isMinimized: false,
   bounds: { x: 0, y: 0, width: 800, height: 600 },
 };
 
 const CONVERSATION_WINDOW = {
   window_id: 2,
   title: "conversation-42",
-  app: "Antigravity",
+  isOnScreen: true,
+  isMinimized: false,
   bounds: { x: 100, y: 100, width: 600, height: 400 },
 };
+
+/** Wrap windows in the Peekaboo list envelope format. */
+function listEnvelope(windows: typeof MANAGER_WINDOW[]) {
+  return JSON.stringify({
+    data: { targetApplication: "Antigravity", windows },
+  });
+}
 
 describe("runPreflight()", () => {
   it("returns ok=true when all three steps pass", async () => {
     // Step 1: peekaboo-reachable
-    mockSuccess(JSON.stringify([MANAGER_WINDOW, CONVERSATION_WINDOW]));
+    mockSuccess(listEnvelope([MANAGER_WINDOW, CONVERSATION_WINDOW]));
     // Step 2: app-running
-    mockSuccess(JSON.stringify([MANAGER_WINDOW, CONVERSATION_WINDOW]));
+    mockSuccess(listEnvelope([MANAGER_WINDOW, CONVERSATION_WINDOW]));
     // Step 3: manager-window
-    mockSuccess(JSON.stringify([MANAGER_WINDOW, CONVERSATION_WINDOW]));
+    mockSuccess(listEnvelope([MANAGER_WINDOW, CONVERSATION_WINDOW]));
 
     const result = await runPreflight();
 
@@ -96,9 +105,9 @@ describe("runPreflight()", () => {
 
   it("fails at app-running when no windows are returned", async () => {
     // Step 1: peekaboo-reachable
-    mockSuccess(JSON.stringify([]));
+    mockSuccess(listEnvelope([]));
     // Step 2: app-running (empty list)
-    mockSuccess(JSON.stringify([]));
+    mockSuccess(listEnvelope([]));
 
     const result = await runPreflight();
 
@@ -112,11 +121,11 @@ describe("runPreflight()", () => {
 
   it("fails at manager-window when Manager window is absent", async () => {
     // Step 1: peekaboo-reachable
-    mockSuccess(JSON.stringify([CONVERSATION_WINDOW]));
+    mockSuccess(listEnvelope([CONVERSATION_WINDOW]));
     // Step 2: app-running
-    mockSuccess(JSON.stringify([CONVERSATION_WINDOW]));
+    mockSuccess(listEnvelope([CONVERSATION_WINDOW]));
     // Step 3: manager-window — no Manager window
-    mockSuccess(JSON.stringify([CONVERSATION_WINDOW]));
+    mockSuccess(listEnvelope([CONVERSATION_WINDOW]));
 
     const result = await runPreflight();
 
@@ -130,9 +139,9 @@ describe("runPreflight()", () => {
 
   it("respects custom timeoutMs via config", async () => {
     // All 3 steps must pass: peekaboo-reachable, app-running, manager-window
-    mockSuccess(JSON.stringify([MANAGER_WINDOW]));
-    mockSuccess(JSON.stringify([MANAGER_WINDOW]));
-    mockSuccess(JSON.stringify([MANAGER_WINDOW]));
+    mockSuccess(listEnvelope([MANAGER_WINDOW]));
+    mockSuccess(listEnvelope([MANAGER_WINDOW]));
+    mockSuccess(listEnvelope([MANAGER_WINDOW]));
 
     const result = await runPreflight({ timeoutMs: 5_000 });
 
