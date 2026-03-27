@@ -25,6 +25,11 @@ jobs:
         with:
           fetch-depth: 0  # need full history for merge-base computation
 
+      - name: Ensure base branch ref is available
+        # For fork PRs, origin/ is the fork so origin/<base> may not be fetched.
+        # Explicitly fetch it so BASE_BRANCH in the test can use it as a local ref.
+        run: git fetch origin ${{ github.base_ref }}:${{ github.base_ref }}
+
       - uses: pnpm/action-setup@v4
 
       - uses: actions/setup-node@v4

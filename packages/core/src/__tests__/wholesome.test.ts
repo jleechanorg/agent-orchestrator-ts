@@ -35,10 +35,10 @@ const BASE_BRANCH = (() => {
     if (!/^[a-zA-Z0-9/._-]+$/.test(raw) || raw.includes("..")) {
       throw new Error(`Invalid GITHUB_BASE_REF (possible injection): ${raw}`);
     }
-    // In CI, only remote-tracking refs exist (origin/main, origin/feat/xyz).
-    // GITHUB_BASE_REF="main" → use origin/main which is guaranteed to exist
-    // after fetch-depth: 0. Bare "main" is ambiguous (no refs/heads/main in CI).
-    return `origin/${raw}`;
+    // GITHUB_BASE_REF is the bare branch name (e.g. "main"). The workflow's
+    // "Ensure base branch ref is available" step fetches it as a local ref.
+    // Use bare name so git resolves it as a local branch ref, not a remote-tracking ref.
+    return raw;
   }
   // Local fallback: origin/HEAD is the remote default branch (never stale)
   return "origin/HEAD";
@@ -110,7 +110,8 @@ function getAddedLinesMatching(cwd: string, pattern: RegExp): Array<{file: strin
 
 /** Get the PR title — uses gh CLI in CI (GITHUB_TOKEN available), falls back to branch name. */
 function getPRTitle(): string {
-  // In CI, use the gh CLI to fetch the actual PR title for the current branch
+  // In CI, use the gh CLI to fetch the actual PR title for the current branch.
+  // Always use GITHUB_HEAD_REF (not git rev-parse) — detached HEAD in CI returns "HEAD".
   if (process.env.GITHUB_TOKEN && process.env.GITHUB_REPOSITORY && process.env.GITHUB_HEAD_REF) {
     const repo   = process.env.GITHUB_REPOSITORY; // "owner/repo"
     const branch = process.env.GITHUB_HEAD_REF;
