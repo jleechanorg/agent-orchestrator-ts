@@ -131,7 +131,7 @@ done
 # PostToolUse falls through to metadata update — no need to re-check there.
 pr_create_pattern='^[[:space:]]*([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]+[[:space:]]+)*gh[[:space:]]+pr[[:space:]]+create([[:space:]]|$)'
 if [[ "$hook_event" == "PreToolUse" && "$clean_command" =~ $pr_create_pattern ]]; then
-  # Parse --title as a proper argv token (not substring in --body etc.).
+  # Parse --title or -t as proper argv tokens (not substring in --body etc.).
   # Python shlex correctly handles quoted strings containing literal "--title".
   first_title=$(python3 -c "
 import shlex, sys
@@ -142,6 +142,12 @@ for i, arg in enumerate(args):
         break
     if arg.startswith('--title='):
         print(arg[len('--title='):], end='')
+        break
+    if arg == '-t':
+        print(args[i+1], end='')
+        break
+    if arg.startswith('-t'):
+        print(arg[2:], end='')
         break
 " "$clean_command" 2>/dev/null || true)
   if [[ -z "$first_title" || "$first_title" != \[agento\]* ]]; then
@@ -197,8 +203,8 @@ update_metadata_key() {
   # Create temp file
   local temp_file="${'$'}{metadata_file}.tmp"
 
-  # Escape special sed characters in value (& | / \\)
-  local escaped_value=$(echo "$value" | sed 's/[&|\\/]/\\\\&/g')
+  # Escape special sed characters in value (& and \ — not | or / in BRE)
+  local escaped_value=$(echo "$value" | sed 's/[&\\]/\\&/g')
 
   # Check if key already exists
   if grep -q "^$key=" "$metadata_file" 2>/dev/null; then
