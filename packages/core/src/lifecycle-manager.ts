@@ -722,6 +722,8 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
             // Only record when dedupedSha is available — the pre-send SHA is the only one safe to
             // record (a newer SHA pushed during send would incorrectly suppress the next dispatch).
             // Skip recording entirely if pre-send fetch failed (dedupedSha is undefined).
+            // FIX 3002442133 / cursor#3002258060: moved after send (was before send, blocking retry).
+            // FIX cursor#3002173123: deduped guard above ensures no send on unchanged SHA.
             if (dedupedSha && reactionKey === "changes-requested" && session?.pr) {
               const project = config.projects[session.projectId];
               const scm = project?.scm ? registry.get<SCM>("scm", project.scm.plugin) : null;
