@@ -1533,6 +1533,11 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       oldStatus !== "needs_input" &&
       getMcpMailClientConfig()
     ) {
+      // Send session-start if this is the first time seeing this session (no prior tracked state)
+      // so the inbox gets a coherent start→blocked lifecycle rather than orphan end messages.
+      if (tracked === undefined) {
+        await sendMcpMailSessionStart(task).catch(() => {/* non-fatal */});
+      }
       const blockedTask = sessionCurrentTask.get(session.id);
       await sendMcpMailSessionEnd(blockedTask, "human input").catch(() => {/* non-fatal */});
     }
