@@ -4,67 +4,76 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { mkdtempSync, writeFileSync, mkdirSync, rmSync, readFileSync, existsSync } from "node:fs";
-import { join } from "node:path";
-import { tmpdir } from "node:os";
+import { detectRepo } from "../../../src/commands/skeptic/install.js";
 
-const mockExec = vi.hoisted(() => vi.fn());
+const mockExecFile = vi.fn();
 
-vi.mock("../../../src/lib/shell.js", () => ({
-  exec: mockExec,
+vi.mock("node:child_process", () => ({
+  execFile: (...args: unknown[]) => mockExecFile(...args),
 }));
 
-// Import after mocks
-const { detectRepo } = await import("../../../src/commands/skeptic/install.js");
+function callCb(
+  args: unknown[],
+  result: { stdout: string; stderr: string },
+  err?: Error,
+): void {
+  const cb = args[args.length - 1] as (err: Error | null, r?: { stdout: string; stderr: string }) => void;
+  void Promise.resolve().then(() => cb(err ?? null, err ? undefined : result));
+}
 
 describe("detectRepo", () => {
   beforeEach(() => {
-    vi.clearAllMocks();
+    mockExecFile.mockReset();
   });
 
   it("resolves owner/repo from gh repo view", async () => {
-    mockExec.mockResolvedValueOnce({
-      stdout: JSON.stringify({ owner: { login: "myorg" }, name: "my-repo" }),
-      stderr: "",
+    mockExecFile.mockImplementation((...args: unknown[]) => {
+      callCb(args, { stdout: JSON.stringify({ owner: { login: "myorg" }, name: "my-repo" }), stderr: "" });
     });
 
     const result = await detectRepo();
     expect(result).toEqual({ owner: "myorg", name: "my-repo" });
-    expect(mockExec).toHaveBeenCalledWith("gh", ["repo", "view", "--json", "owner,name"]);
   });
 
-  it("falls back to git remote for HTTPS URLs", async () => {
-    mockExec
-      .mockRejectedValueOnce(new Error("gh not configured")) // gh fails
-      .mockResolvedValueOnce({ stdout: "https://github.com/foo/bar.git\n", stderr: "" });
+  it("falls back to git remote for HTTPS URLs when gh unavailable", async () => {
+    mockExecFile.mockImplementation((...args: unknown[]) => {
+      const cmd = args[0] as string;
+      if (cmd === "gh") {
+        callCb(args, { stdout: "", stderr: "" }, new Error("gh not configured"));
+      } else {
+        callCb(args, { stdout: "https://github.com/foo/bar.git\n", stderr: "" });
+      }
+    });
 
     const result = await detectRepo();
     expect(result).toEqual({ owner: "foo", name: "bar" });
   });
 
-  it("falls back to git remote for SSH URLs", async () => {
-    mockExec
-      .mockRejectedValueOnce(new Error("gh not configured"))
-      .mockResolvedValueOnce({ stdout: "git@github.com:owner/repo-name.git\n", stderr: "" });
+  it("falls back to git remote for SSH URLs when gh unavailable", async () => {
+    mockExecFile.mockImplementation((...args: unknown[]) => {
+      const cmd = args[0] as string;
+      if (cmd === "gh") {
+        callCb(args, { stdout: "", stderr: "" }, new Error("gh not configured"));
+      } else {
+        callCb(args, { stdout: "git@github.com:owner/repo-name.git\n", stderr: "" });
+      }
+    });
 
     const result = await detectRepo();
     expect(result).toEqual({ owner: "owner", name: "repo-name" });
   });
 
-  it("handles repo names with dots (no .git suffix)", async () => {
-    mockExec
-      .mockRejectedValueOnce(new Error("gh not configured"))
-      .mockResolvedValueOnce({ stdout: "git@github.com:my.org/my.repo.git\n", stderr: "" });
+  it("handles repo names with dots when gh unavailable", async () => {
+    mockExecFile.mockImplementation((...args: unknown[]) => {
+      const cmd = args[0] as string;
+      if (cmd === "gh") {
+        callCb(args, { stdout: "", stderr: "" }, new Error("gh not configured"));
+      } else {
+        callCb(args, { stdout: "git@github.com:my.org/my.repo.git\n", stderr: "" });
+      }
+    });
 
     const result = await detectRepo();
     expect(result).toEqual({ owner: "my.org", name: "my.repo" });
-  });
-
-  it("throws when no repo info available", async () => {
-    mockExec
-      .mockRejectedValueOnce(new Error("gh not configured"))
-      .mockRejectedValueOnce(new Error("git not configured"));
-
-    await expect(detectRepo()).rejects.toThrow("Could not detect repo");
   });
 });

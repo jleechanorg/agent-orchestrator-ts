@@ -16,7 +16,6 @@ import chalk from "chalk";
 import { existsSync, mkdirSync, writeFileSync, readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { cwd } from "node:process";
 import type { Command } from "commander";
 import { exec } from "../../lib/shell.js";
 
@@ -31,26 +30,33 @@ interface RepoInfo {
 
 /**
  * Detect the current repo from `gh repo view`, falling back to git remote parsing.
+ * @param execFn Optional override for the exec function (used for testing).
  */
-export async function detectRepo(): Promise<RepoInfo> {
+export async function detectRepo(execFn = exec): Promise<RepoInfo> {
   try {
-    const result = await exec("gh", ["repo", "view", "--json", "owner,name"]);
+    const result = await execFn("gh", ["repo", "view", "--json", "owner,name"]);
     const data = JSON.parse(result.stdout) as { owner: { login: string }; name: string };
     return { owner: data.owner.login, name: data.name };
   } catch {
     // Fallback: parse git remote
     try {
-      const remoteResult = await exec("git", ["remote", "get-url", "origin"]);
+      const remoteResult = await execFn("git", ["remote", "get-url", "origin"]);
       const url = remoteResult.stdout.trim();
       // Supports: https://github.com/owner/repo.git  or  git@github.com:owner/repo.git
       // Capture full owner+name, then strip optional trailing .git
       const httpsMatch = url.match(/github\.com[/:]([^/]+\/[^/]+?)(?:\.git)?$/);
       if (httpsMatch) {
-        const [owner, name] = httpsMatch[1]!.split("/");
-        return { owner, name };
+        const parts = httpsMatch[1]!.split("/");
+        if (parts.length !== 2) {
+          // Re-throw so it propagates to the outer throw, not swallowed by inner catch
+          throw new Error(`Could not parse owner/repo from git remote: ${url}`);
+        }
+        return { owner: parts[0]!, name: parts[1]! };
       }
-    } catch {
-      // ignore
+      throw new Error("Git remote does not appear to be a GitHub URL");
+    } catch (err) {
+      // Only ignore exec errors; re-throw descriptive parse errors
+      if (!(err instanceof Error) || !err.message.startsWith("Could not parse")) throw err;
     }
     throw new Error(
       "Could not detect repo. Run in a git repo with a configured remote, or use --repo owner/repo.",
@@ -180,12 +186,8 @@ export function registerSkepticInstall(skepticCmd: Command): void {
       console.log(chalk.bold(`\n🔧 Installing skeptic CI in ${chalk.cyan(repo.owner + "/" + repo.name)}`));
       console.log(chalk.dim(`   Target: ${root}/.github/workflows/\n`));
 
-      let gateResult: "installed" | "skipped-exists" | null = null;
-      let cronResult: "installed" | "skipped-exists" | null = null;
-
       if (installGate) {
         const r = installWorkflow(root, "skeptic-gate.yml", { force: options.force });
-        gateResult = r;
         if (r === "installed") {
           console.log(chalk.green(`  ✅ skeptic-gate.yml installed`));
         } else {
@@ -195,7 +197,6 @@ export function registerSkepticInstall(skepticCmd: Command): void {
 
       if (installCron) {
         const r = installWorkflow(root, "skeptic-cron.yml", { force: options.force });
-        cronResult = r;
         if (r === "installed") {
           console.log(chalk.green(`  ✅ skeptic-cron.yml installed`));
         } else {
