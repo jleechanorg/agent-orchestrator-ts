@@ -132,27 +132,13 @@ jobs:
             EVIDENCE_STATUS=$(if [ "$EVIDENCE_APPROVED" = "0" ]; then echo "N/A (optional)"; else echo "PASS"; fi)
             echo "  [6] Evidence review:    $EVIDENCE_STATUS"
 
-            # 7. Skeptic verdict — from skeptic-output file produced by skeptical-run step
-            # bd-skp2: use the skeptic-output file from this cron run (not stale comments)
+            # 7. Skeptic verdict — prefer this cron run's skeptic-output file
+            # bd-skp2: fall back to gh comments API only if no output file exists
             if [ -f "skeptic-output-${PR_NUM}.txt" ]; then
               if grep -qi "VERDICT: FAIL" "skeptic-output-${PR_NUM}.txt"; then
                 SKEPTIC_STATUS="FAIL"
               elif grep -qi "VERDICT: PASS" "skeptic-output-${PR_NUM}.txt"; then
                 SKEPTIC_STATUS="PASS"
-              else
-                SKEPTIC_STATUS="MISSING"
-              fi
-            else
-              SKEPTIC_VERDICT=$(gh api repos/${{ github.repository }}/issues/"$PR_NUM"/comments \
-                --jq '[.[] | select(.user.login == "github-actions[bot]" and (.body | test("VERDICT:"; "i"))) | .body] | last' 2>/dev/null || echo "")
-              if echo "$SKEPTIC_VERDICT" | grep -qi "VERDICT: PASS"; then
-                SKEPTIC_STATUS="PASS"
-              elif echo "$SKEPTIC_VERDICT" | grep -qi "VERDICT: FAIL"; then
-                SKEPTIC_STATUS="FAIL"
-              else
-                SKEPTIC_STATUS="MISSING"
-              fi
-            fi
               else
                 SKEPTIC_STATUS="MISSING"
               fi
