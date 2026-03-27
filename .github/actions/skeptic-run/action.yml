@@ -20,7 +20,7 @@ inputs:
 outputs:
   verdict:
     description: "PASS | FAIL | UNKNOWN | SKIPPED"
-    value: ${{ steps.check.outputs.verdict || steps.run.outputs.verdict }}
+    value: ${{ steps.run.outputs.verdict || steps.check.outputs.verdict }}
 runs:
   using: composite
   steps:
@@ -39,7 +39,7 @@ runs:
 
     - name: Run Skeptic
       id: run
-      if: steps.check.outputs.verdict == 'RUNNING'
+      if: steps.check.outputs.verdict != 'SKIPPED'
       env:
         GITHUB_TOKEN: ${{ inputs.github_token }}
         ANTHROPIC_API_KEY: ${{ inputs.anthropic_api_key }}
