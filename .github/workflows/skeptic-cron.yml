@@ -62,16 +62,22 @@ jobs:
             # Run skeptic with --dry-run so it does NOT try to post a comment
             # (the jleechan-agent[bot] lacks write access; cron workflow posts via GITHUB_TOKEN)
             # Output to file so the grep below can read it.
-            # Wrap in subshell: prevents set -e from aborting the loop if skeptic exits non-zero
+            # Wrap in subshell: captures exit code so set -e doesn't abort the loop.
             # bd-skp2: removed || true (misleading) — capture real exit code and check explicitly
             skeptic_exit=0
-            (node packages/cli/dist/index.js skeptic verify --pr "$PR_NUM" --dry-run > "skeptic-output-${PR_NUM}.txt" 2>&1) || skeptic_exit=$?
+            # npx @jleechanorg/ao-cli: CLI installed globally in GHA; packages/cli/dist/index.js does not exist at runtime
+            (npx @jleechanorg/ao-cli skeptic verify -n "$PR_NUM" --dry-run > "skeptic-output-${PR_NUM}.txt" 2>&1) || skeptic_exit=$?
+            # Fail the step if skeptic exited non-zero — aligns with merge-gate.ts (non-PASS/SKIPPED = FAIL)
+            if [ "$skeptic_exit" -ne 0 ]; then
+              echo "ERROR: skeptic exited with code $skeptic_exit for PR #$PR_NUM — blocking merge"
+              exit 1
+            fi
             # Print output for workflow logs
             cat "skeptic-output-${PR_NUM}.txt" || true
 
-            # Verify output contains a VERDICT line (fail-closed — missing VERDICT means skeptic failed)
+            # Verify output contains a VERDICT line (informational — missing VERDICT means SKIPPED in gate 7)
             if ! grep -qi "VERDICT:" "skeptic-output-${PR_NUM}.txt" 2>/dev/null; then
-              echo "WARNING: No VERDICT line found for PR #${PR_NUM} (skeptic exit=${skeptic_exit}) — this PR will not be merged"
+              echo "INFO: No VERDICT line in skeptic output for PR #${PR_NUM} (skeptic exit=${skeptic_exit}) — gate-7 will treat as SKIPPED"
             fi
 
             echo "Skeptic complete for PR #${PR_NUM} (exit=${skeptic_exit})"
@@ -167,10 +173,9 @@ jobs:
 
             # 7. Skeptic verdict — prefer this cron run's skeptic-output file
             # bd-skp2: fall back to gh comments API only if no output file exists
-            # bd-ao2b: treat MISSING as PASS — skeptic step uses --dry-run (no VERDICT posted),
-            #   but the cron workflow's own exit code is the real guard (set -e causes the step
-            #   to fail if skeptic exits non-zero). The VERDICT comment is posted by the evolve
-            #   loop's skeptic reaction, not by this cron step.
+            # bd-ao2b: skeptic step now fails the workflow if exit != 0 (aligns with merge-gate.ts).
+            #   When skeptic exits 0 but finds no VERDICT (--dry-run mode, no API keys): treat as SKIPPED → PASS.
+            #   This is intentional — the cron workflow's skeptic step is for evaluation, not blocking.
             if [ -f "skeptic-output-${PR_NUM}.txt" ]; then
               # bd-8tpa: prefer PASS when both FAIL and PASS are in output (Codex 401 + Claude fallback)
               if grep -qi "VERDICT: PASS" "skeptic-output-${PR_NUM}.txt"; then
@@ -178,6 +183,7 @@ jobs:
               elif grep -qi "VERDICT: FAIL" "skeptic-output-${PR_NUM}.txt"; then
                 SKEPTIC_STATUS="FAIL"
               else
+                # skeptic exited 0 with no VERDICT (e.g., SKIPPED due to no API keys) → treat as SKIPPED → PASS
                 SKEPTIC_STATUS="PASS"
               fi
             else
