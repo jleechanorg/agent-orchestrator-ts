@@ -19,9 +19,14 @@ export async function fetchDesignDoc(prNumber: number): Promise<string | null> {
     const designDocPath = join(process.cwd(), "docs", "design", "pr-designs", `pr-${prNumber}.md`);
     const content = readFileSync(designDocPath, "utf8");
     return content;
-  } catch {
-    // Design doc does not exist yet — this is a gap the skeptic should flag
-    return null;
+  } catch (err: unknown) {
+    // Only swallow "file not found" — re-throw any other error (permissions, invalid cwd, etc.)
+    const code = (err as { code?: string }).code;
+    if (code === "ENOENT") {
+      // Design doc does not exist yet — this is a gap the skeptic should flag
+      return null;
+    }
+    throw err;
   }
 }
 
