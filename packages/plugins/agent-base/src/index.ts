@@ -214,9 +214,13 @@ for i, arg in enumerate(args):
     if arg.startswith('--title='):
         print(arg[len('--title='):], end='')
         break
-" "$clean_command" 2>/dev/null)
+" "$clean_command" 2>/dev/null || true)
+  # Deny if title is missing or doesn't start with [agento].
+  # Note: hardcodes PreToolUse in deny JSON — correct for Claude Code.
+  # AO_HOOK_EVENT_NAME is used in setupWorkspaceHooks but the deny JSON
+  # output is for Claude Code's hook protocol which always uses PreToolUse.
   if [[ -z "$first_title" || "$first_title" != \[agento\]* ]]; then
-    echo "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"Blocked by AO policy: gh pr create titles must start with [agento]. Prefix your title with [agento] and retry.\"}}"
+    echo '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"Blocked by AO policy: gh pr create titles must start with [agento]. Prefix your title with [agento] and retry."}}'
     exit 0
   fi
   # Prefix check passed — title is valid, allow the tool.
@@ -246,7 +250,7 @@ fi
 merge_pattern='^[[:space:]]*([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]+[[:space:]]+)*gh[[:space:]]+pr[[:space:]]+merge([[:space:]]|$)'
 if [[ "$clean_command" =~ $merge_pattern ]]; then
   if [[ "$hook_event" != "PostToolUse" && ${BASH_AO_ALLOW_GH_PR_MERGE} != "1" ]]; then
-    echo "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"Blocked by AO policy: agents must not run gh pr merge. Leave merge to orchestrator/human.\"}}"
+    echo '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"Blocked by AO policy: agents must not run gh pr merge. Leave merge to orchestrator/human."}}'
     exit 0
   fi
   # AO_ALLOW_GH_PR_MERGE=1 during PreToolUse OR PostToolUse: fall through to metadata update below

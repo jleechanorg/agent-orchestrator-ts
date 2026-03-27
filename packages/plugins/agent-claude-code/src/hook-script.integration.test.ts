@@ -61,6 +61,7 @@ function runHook(opts: {
         AO_SESSION: sessionId,
         AO_DATA_DIR: sessionsDir,
         AO_ALLOW_GH_PR_MERGE: opts.allowMerge ? "1" : undefined,
+        AO_HOOK_EVENT_NAME: opts.hookEvent ?? "PostToolUse",
         HOME: testDir,
       },
       encoding: "utf-8",

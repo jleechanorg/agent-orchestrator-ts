@@ -143,7 +143,7 @@ for i, arg in enumerate(args):
     if arg.startswith('--title='):
         print(arg[len('--title='):], end='')
         break
-" "$clean_command" 2>/dev/null)
+" "$clean_command" 2>/dev/null || true)
   if [[ -z "$first_title" || "$first_title" != \[agento\]* ]]; then
     echo "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"Blocked by AO policy: gh pr create titles must start with [agento]. Prefix your title with [agento] and retry.\"}}"
     exit 0
