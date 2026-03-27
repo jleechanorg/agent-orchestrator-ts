@@ -6,11 +6,19 @@
 import type { PRInfo, ReviewInfo } from "./gh-client.js";
 import type { MergeGateState } from "./mergeGate.js";
 
+// Truncation limits for content included in the skeptic prompt
+const MAX_DESIGN_DOC_CHARS = 6_000;
+const MAX_PR_DESCRIPTION_CHARS = 4_000;
+const MAX_DIFF_CHARS = 12_000;
+const MAX_REVIEW_BODY_CHARS = 200;
+const MAX_REVIEWS_TO_SHOW = 8;
+
 export function buildSkepticPrompt(
   pr: PRInfo,
   state: MergeGateState,
   diff: string,
   reviews: ReviewInfo[],
+  designDoc: string | null,
 ): string {
   const crDetail = state.crDismissedWithoutApproval
     ? `${state.crState} + DISMISSED_WITHOUT_APPROVAL`
@@ -26,6 +34,27 @@ export function buildSkepticPrompt(
       ? "PASS"
       : "FAIL"
     : "N/A (not required)";
+
+  const designDocSection = designDoc
+    ? [
+        "",
+        "--- DESIGN DOC (docs/design/pr-designs/pr-" + pr.number + ".md) ---",
+        designDoc.slice(0, MAX_DESIGN_DOC_CHARS),
+      ].join("\n")
+    : [
+        "",
+        "--- DESIGN DOC ---",
+        "DESIGN DOC NOT FOUND for this PR. The generate-pr-design-docs.yml workflow",
+        "should have generated one on PR open. If no design doc exists, flag this as a gap.",
+      ].join("\n");
+
+  const prDescriptionSection = pr.body
+    ? [
+        "",
+        "--- PR DESCRIPTION ---",
+        pr.body.slice(0, MAX_PR_DESCRIPTION_CHARS),
+      ].join("\n")
+    : "";
 
   const summary = [
     `PR #${pr.number}: ${pr.title}`,
@@ -43,18 +72,18 @@ export function buildSkepticPrompt(
     "",
     "--- RECENT REVIEWS (chronological) ---",
     ...reviews
-      .slice(0, 8)
+      .slice(0, MAX_REVIEWS_TO_SHOW)
       .sort(
         (a, b) =>
           new Date(a.submittedAt).getTime() - new Date(b.submittedAt).getTime(),
       )
       .map(
         (r) =>
-          `[${r.submittedAt.slice(0, 16)}] ${r.author?.login} (${r.state}): ${(r.body ?? "(no body)").slice(0, 200)}`,
+          `[${r.submittedAt.slice(0, 16)}] ${r.author?.login} (${r.state}): ${(r.body ?? "(no body)").slice(0, MAX_REVIEW_BODY_CHARS)}`,
       ),
     "",
     "--- DIFF (first 300 lines) ---",
-    diff.slice(0, 12_000),
+    diff.slice(0, MAX_DIFF_CHARS),
   ].join("\n");
 
   return [
@@ -74,10 +103,32 @@ export function buildSkepticPrompt(
     "9. If CR's most recent state is CHANGES_REQUESTED and the review body says 'REQUEST CHANGES', that is a gap.",
     "10. Evidence review is required only when config requires it; default is N/A.",
     "",
+    "--- DESIGN ALIGNMENT CHECK (Rule 11) ---",
+    "IMPORTANT: The design doc is auto-generated from this PR's metadata and diff",
+    "(via generate-pr-design-docs.yml). It is NOT an independent specification.",
+    "Your job is to use it as a starting point — verify its accuracy against the diff",
+    "and PR description, and flag any discrepancies or omissions.",
+    "",
+    "You MUST check that the code diff aligns with what the design doc and PR description claim.",
+    "Specifically check:",
+    "  11a. If the design doc says 'adds X package/file', verify the diff adds it.",
+    "  11b. If the PR description says 'fixes Y bug', verify the diff contains the fix.",
+    "  11c. If the design doc describes a new capability, verify the diff implements it.",
+    "  11d. If the diff changes a file that the design doc/PR description does not mention, flag it as unexplained.",
+    "  11e. If functionality described in the design doc is absent from the diff, flag it as missing.",
+    "Gap examples that Rule 11 catches:",
+    "  - Design doc says 'adds agent-foo plugin' but no new plugin file exists in the diff",
+    "  - PR description says 'fixes auth token expiry bug' but no auth-related code is changed",
+    "  - Design doc shows a new API endpoint but the diff only touches tests",
+    "When flagging Rule 11 gaps, quote the specific design doc claim and the corresponding diff gap.",
+    "If no design doc exists, flag it as a gap (Rule 11f: missing design doc).",
+    "",
     "OUTPUT FORMAT:",
     "VERDICT: PASS — All 7-green conditions genuinely satisfied",
     "OR",
     "VERDICT: FAIL — Missing: [specific list of gaps, be concrete]",
+    "",
+    "Include a '## Design Alignment' section in your FAIL report when Rule 11 gaps are found.",
     "",
     "Be specific. 'The code looks fine' is NOT a valid PASS.",
     "Find at least one concrete gap before declaring FAIL.",
@@ -85,5 +136,7 @@ export function buildSkepticPrompt(
     "",
     "--- PR CONTEXT ---",
     summary,
+    prDescriptionSection,
+    designDocSection,
   ].join("\n");
 }
