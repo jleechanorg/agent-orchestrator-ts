@@ -108,8 +108,9 @@ jobs:
             echo "  [2] No merge conflicts: $MERGE_CONFLICT"
 
             # 3. CR APPROVED
+            # bd-skp2: add || echo fallback to prevent set -e abort when gh api fails
             LATEST_CR=$(gh api repos/${{ github.repository }}/pulls/"$PR_NUM"/reviews \
-              --jq '[.[] | select(.user.login == "coderabbitai[bot]")] | sort_by(.submitted_at) | reverse | .[0] | {state: .state}' 2>/dev/null)
+              --jq '[.[] | select(.user.login == "coderabbitai[bot]")] | sort_by(.submitted_at) | reverse | .[0] | {state: .state}' 2>/dev/null || echo '{"state":"none"}')
             CR_STATE=$(echo "$LATEST_CR" | jq -r '.state // "none"')
             CR_APPROVED=$([ "$CR_STATE" = "APPROVED" ] && echo "PASS" || echo "FAIL (state=$CR_STATE)")
             echo "  [3] CR APPROVED:        $CR_APPROVED"
@@ -121,6 +122,9 @@ jobs:
             echo "  [4] Bugbot clean:       $BUGBOT_STATUS"
 
             # 5. Inline comments resolved
+            # Note: REST /pulls/N/comments cannot distinguish resolved vs unresolved threads.
+            # This check counts root-level non-nitpick comments as a heuristic approximation.
+            # bd-skp2: add || echo fallback to prevent set -e abort when gh api fails
             UNRESOLVED=$(gh api repos/${{ github.repository }}/pulls/"$PR_NUM"/comments \
               --jq '[.[] | select(.in_reply_to_id == null) | select(.body | test("^(nit:|nitpick)"; "i") | not)] | length' 2>/dev/null || echo 0)
             COMMENTS_STATUS=$(if [ "$UNRESOLVED" = "0" ] || [ -z "$UNRESOLVED" ]; then echo "PASS"; else echo "FAIL ($UNRESOLVED unresolved)"; fi)
