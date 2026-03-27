@@ -4,10 +4,6 @@ on:
   pull_request:
     types: [opened, synchronize, reopened]
 
-# Skip runs triggered by our own bot commits to avoid loops
-# (bot commits update the design doc; we don't need to regenerate on those)
-if: github.actor != 'github-actions[bot]'
-
 # Do not run concurrently on the same PR — design doc generation is idempotent
 concurrency:
   group: design-doc-${{ github.event.pull_request.number }}
@@ -17,10 +13,10 @@ jobs:
   generate-design-doc:
     name: Generate Design Doc
     runs-on: ubuntu-latest
-    # Skip for fork PRs — head branches live in the base repo but GITHUB_TOKEN
+    # Skip for fork PRs — head branches live in the fork repo; GITHUB_TOKEN
     # from a fork_PR event only has read access, so we cannot push design docs.
-    # Same-repo PRs work fine because GITHUB_TOKEN can write to the base repo.
-    if: github.event.pull_request.head.repo.full_name == github.repository
+    # Also skip runs triggered by our own bot commits to avoid regenerate loops.
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'github-actions[bot]'
     permissions:
       contents: write   # needed to commit design docs to the PR branch
       pull-requests: write # needed to post PR comment
@@ -101,12 +97,14 @@ jobs:
           PR_NUM="${{ github.event.pull_request.number }}"
           gh pr comment "$PR_NUM" \
             --repo "${{ github.repository }}" \
-            --body "## Design Doc Generated
+            --body-file - << COMMENT_EOF
+          ## Design Doc Generated
 
-Design documentation has been generated for this PR and committed to the branch.
+          Design documentation has been generated for this PR and committed to the branch.
 
-You can view the design doc here:
-\`docs/design/pr-designs/pr-${PR_NUM}.md\`
+          You can view the design doc here:
+          \`docs/design/pr-designs/pr-${PR_NUM}.md\`
 
-_The Skeptic agent will review this PR against the design doc as part of the skeptic gate._"
-            || echo "WARN: Could not post PR comment (may lack permissions)"
+          _The Skeptic agent will review this PR against the design doc as part of the skeptic gate._
+          COMMENT_EOF
+          || echo "WARN: Could not post PR comment (may lack permissions)"
