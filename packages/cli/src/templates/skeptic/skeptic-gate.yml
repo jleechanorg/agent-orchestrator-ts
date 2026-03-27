@@ -40,6 +40,9 @@ jobs:
             echo "WARNING: codex CLI not found — skeptic will fall back to Claude CLI if ANTHROPIC_API_KEY is set"
           fi
 
+      - name: Install skeptic CLI
+        run: npm install -g @jleechanorg/ao-cli
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
@@ -67,7 +70,7 @@ jobs:
           # bd-skp2: use subshell || exit capture (like skeptic-cron.yml) — removes misleading
           # `|| true` that caused PIPESTATUS[0] confusion; subshell exit is captured explicitly.
           skeptic_exit=0
-          (node packages/cli/dist/index.js skeptic \
+          (node packages/cli/dist/index.js skeptic verify \
             --pr ${{ github.event.pull_request.number }} \
             --dry-run \
             > skeptic-output.txt 2>&1) || skeptic_exit=$?

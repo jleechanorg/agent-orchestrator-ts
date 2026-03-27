@@ -25,7 +25,7 @@
     "node": ">=20.0.0"
   },
   "scripts": {
-    "build": "tsc && mkdir -p dist/templates && cp -r src/templates/* dist/templates/",
+    "build": "tsc && node --input-type=module --eval \"import{copyFileSync,mkdirSync,readdirSync,statSync}from'node:fs';import{join,dirname}from'node:path';import{fileURLToPath}from'node:url';const __dirname=dirname(fileURLToPath(import.meta.url));const src='src/templates',dst='dist/templates';mkdirSync(dst,{recursive:true});for(const f of readdirSync(src)){const s=join(src,f),d=join(dst,f);statSync(s).isDirectory()?(function copyDir(s,d){mkdirSync(d,{recursive:true});for(const e of readdirSync(s))copyDir(join(s,e),join(d,e))}(s,d)):(copyFileSync(s,d),process.stdout.write('Copied '+f+'\\n'));}\"",
     "dev": "tsx src/index.ts",
     "test": "vitest run",
     "test:watch": "vitest",

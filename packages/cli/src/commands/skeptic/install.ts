@@ -32,7 +32,7 @@ interface RepoInfo {
 /**
  * Detect the current repo from `gh repo view`, falling back to git remote parsing.
  */
-async function detectRepo(): Promise<RepoInfo> {
+export async function detectRepo(): Promise<RepoInfo> {
   try {
     const result = await exec("gh", ["repo", "view", "--json", "owner,name"]);
     const data = JSON.parse(result.stdout) as { owner: { login: string }; name: string };
@@ -43,9 +43,11 @@ async function detectRepo(): Promise<RepoInfo> {
       const remoteResult = await exec("git", ["remote", "get-url", "origin"]);
       const url = remoteResult.stdout.trim();
       // Supports: https://github.com/owner/repo.git  or  git@github.com:owner/repo.git
-      const httpsMatch = url.match(/github\.com[/:]([^/]+)\/([^/.]+)/);
+      // Capture full owner+name, then strip optional trailing .git
+      const httpsMatch = url.match(/github\.com[/:]([^/]+\/[^/]+?)(?:\.git)?$/);
       if (httpsMatch) {
-        return { owner: httpsMatch[1], name: httpsMatch[2] };
+        const [owner, name] = httpsMatch[1]!.split("/");
+        return { owner, name };
       }
     } catch {
       // ignore
@@ -138,19 +140,19 @@ export function registerSkepticInstall(skepticCmd: Command): void {
     )
     .option(
       "--repo <owner/repo>",
-      "Target repo (defaults to current repo detected via gh/gh remote)",
+      "Target repo (defaults to current repo detected via gh repo view / git remote)",
     )
-    .action(async (options) => {
+    .action(async function (options) {
+      const cmd = this as unknown as Command;
       const installGate = options.all || options.gate;
       const installCron = options.all || options.cron;
 
       if (!installGate && !installCron) {
-        console.error(
-          chalk.red("Error: specify at least one workflow to install.\n") +
+        cmd.error(
+          "Specify at least one workflow to install.\n" +
             "  Use --gate, --cron, or --all.\n" +
             "  Example: ao skeptic install --all",
         );
-        process.exit(1);
       }
 
       // Detect repo
@@ -158,8 +160,7 @@ export function registerSkepticInstall(skepticCmd: Command): void {
       if (options.repo) {
         const parts = String(options.repo).split("/");
         if (parts.length !== 2) {
-          console.error(chalk.red("Repo must be in format: owner/repo"));
-          process.exit(1);
+          cmd.error("Repo must be in format: owner/repo");
         }
         repo = { owner: parts[0]!, name: parts[1]! };
       } else {
