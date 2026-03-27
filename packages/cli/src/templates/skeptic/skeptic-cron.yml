@@ -30,9 +30,6 @@ jobs:
         with:
           node-version: "22"
 
-      - name: Install pnpm
-        uses: pnpm/action-setup@v4
-
       - name: Install Codex CLI
         run: |
           if command -v codex &>/dev/null; then
@@ -47,12 +44,6 @@ jobs:
 
       - name: Install skeptic CLI
         run: npm install -g @jleechanorg/ao-cli
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Build CLI
-        run: pnpm -C packages/cli build
 
       - name: List open PRs
         id: list_prs
@@ -95,7 +86,7 @@ jobs:
             # Wrap in subshell: prevents set -e from aborting the loop if skeptic exits non-zero
             # bd-skp2: removed || true (misleading) — capture real exit code and check explicitly
             skeptic_exit=0
-            (node packages/cli/dist/index.js skeptic verify --pr "$PR_NUM" --dry-run > "skeptic-output-${PR_NUM}.txt" 2>&1) || skeptic_exit=$?
+            (ao skeptic verify --pr "$PR_NUM" --dry-run > "skeptic-output-${PR_NUM}.txt" 2>&1) || skeptic_exit=$?
             # Print output for workflow logs
             cat "skeptic-output-${PR_NUM}.txt" || true
 

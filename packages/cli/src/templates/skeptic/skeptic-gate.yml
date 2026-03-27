@@ -18,13 +18,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Node.js and pnpm
+      - name: Install Node.js
         uses: actions/setup-node@v4
         with:
           node-version: "22"
-
-      - name: Install pnpm
-        uses: pnpm/action-setup@v4
 
       - name: Install Codex CLI
         run: |
@@ -32,22 +29,14 @@ jobs:
             echo "Codex CLI already installed: $(codex --version 2>/dev/null || echo 'version check failed')"
           else
             echo "Installing Codex CLI..."
-            # Codex is installed via npm or direct binary — attempt npm first
             npm install -g @openai/codex &>/dev/null || true
           fi
-          # Verify Codex is available (OPENAI_API_KEY set at runtime)
           if ! command -v codex &>/dev/null; then
             echo "WARNING: codex CLI not found — skeptic will fall back to Claude CLI if ANTHROPIC_API_KEY is set"
           fi
 
       - name: Install skeptic CLI
         run: npm install -g @jleechanorg/ao-cli
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Build all packages
-        run: pnpm -r --filter '!@jleechanorg/ao-web' build
 
       - name: Run Skeptic evaluation
         id: run_skeptic
@@ -56,7 +45,6 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
-          # Check if at least one API key is configured
           if [ -z "$OPENAI_API_KEY" ] && [ -z "$ANTHROPIC_API_KEY" ]; then
             echo "Neither OPENAI_API_KEY nor ANTHROPIC_API_KEY secret configured — skipping skeptic evaluation"
             echo "verdict=SKIPPED" >> "$GITHUB_OUTPUT"
@@ -65,21 +53,15 @@ jobs:
             exit 0
           fi
 
-          # Run skeptic with --dry-run so it does NOT try to post a comment
-          # (the jleechan-agent[bot] lacks write access; the workflow posts via GITHUB_TOKEN)
-          # bd-skp2: use subshell || exit capture (like skeptic-cron.yml) — removes misleading
-          # `|| true` that caused PIPESTATUS[0] confusion; subshell exit is captured explicitly.
           skeptic_exit=0
-          (node packages/cli/dist/index.js skeptic verify \
+          (ao skeptic verify \
             --pr ${{ github.event.pull_request.number }} \
-            --dry-run \
             > skeptic-output.txt 2>&1) || skeptic_exit=$?
           cat skeptic-output.txt
 
-          # Parse verdict from output to determine job conclusion
-          # FAIL verdict → job fails (blocks merge)
-          # PASS verdict → job succeeds
-          # UNKNOWN / error / no VERDICT line → fail closed (skeptic must produce recognizable verdict)
+          # The CLI's postVerdict handles idempotent comment posting (finds and updates
+          # the existing <!-- skeptic-agent-verdict --> comment rather than appending).
+
           if grep -qi "VERDICT: FAIL" skeptic-output.txt; then
             echo "verdict=FAIL" >> "$GITHUB_OUTPUT"
             exit 1
@@ -92,27 +74,4 @@ jobs:
             echo "CONCLUSION: UNKNOWN — could not parse VERDICT from skeptic output (failing closed)" >> skeptic-output.txt
             echo "Exit code from skeptic: $skeptic_exit" >> skeptic-output.txt
             exit 1
-          fi
-
-      - name: Post skeptic findings as PR comment
-        if: always()
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          if [ -f skeptic-output.txt ]; then
-            # Write comment body to temp file (avoids YAML multiline quoting issues)
-            {
-              echo "## Skeptic Gate Findings"
-              echo ""
-              echo '```'
-              head -c 5800 skeptic-output.txt
-              echo ""
-              echo '```'
-              echo ""
-              echo "_Skeptic gate ran on commit \`${GITHUB_SHA:0:7}\`_"
-            } > "$RUNNER_TEMP/pr_comment.txt"
-            # Post comment — fail the step if posting fails (bd-skp2: catch silent failures)
-            gh pr comment ${{ github.event.pull_request.number }} \
-              --body-file "$RUNNER_TEMP/pr_comment.txt" \
-              || { echo "ERROR: Failed to post skeptic comment to PR" >&2; exit 1; }
           fi

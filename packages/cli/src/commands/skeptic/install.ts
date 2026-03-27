@@ -167,7 +167,14 @@ export function registerSkepticInstall(skepticCmd: Command): void {
         repo = await detectRepo();
       }
 
-      const root = cwd();
+      // Resolve the git repo root so we always write to .github/workflows/ in the
+      // actual repo root, even if the user ran the command from a subdirectory.
+      const { stdout: repoRoot } = await exec("git", ["rev-parse", "--show-toplevel"]);
+      const root = repoRoot.trim();
+      if (!root) {
+        cmd.error("Not a git repository. Run from inside a git checkout.");
+      }
+
       ensureWorkflowsDir(root);
 
       console.log(chalk.bold(`\n🔧 Installing skeptic CI in ${chalk.cyan(repo.owner + "/" + repo.name)}`));
