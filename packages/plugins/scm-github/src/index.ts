@@ -2159,30 +2159,44 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
       // and VERDICT: PASS or VERDICT: FAIL inside the body.
       // Scan all comments and keep the last (newest) matching verdict — GitHub returns
       // comments oldest-first, so iterating forward and overwriting finds the newest.
+      // Paginate through all pages since a busy PR may have >100 comments.
       try {
-        const raw = await gh([
-          "api",
-          `repos/${repoFlag(pr)}/issues/${pr.number}/comments?per_page=100`,
-        ]);
-        const comments: Array<{
-          id: number;
-          user: { login: string };
-          body: string;
-        }> = JSON.parse(raw);
-
+        const perPage = 100;
         let lastVerdict: "PASS" | "FAIL" | null = null;
-        for (const c of comments) {
-          if (c.user?.login === SKEPTIC_BOT_AUTHOR) {
-            // Require both the HTML marker and the VERDICT: line
-            const body = c.body ?? "";
-            const hasMarker = /<!--\s*skeptic-agent-verdict\s*-->/i.test(body);
-            if (hasMarker && /VERDICT:\s*PASS/i.test(body)) {
-              lastVerdict = "PASS";
-            } else if (hasMarker && /VERDICT:\s*FAIL/i.test(body)) {
-              lastVerdict = "FAIL";
+
+        for (let page = 1; ; page++) {
+          const raw = await gh([
+            "api",
+            `repos/${repoFlag(pr)}/issues/${pr.number}/comments?per_page=${perPage}&page=${page}`,
+          ]);
+          const comments: Array<{
+            id: number;
+            user: { login: string };
+            body: string;
+          }> = JSON.parse(raw);
+
+          if (comments.length === 0) {
+            break;
+          }
+
+          for (const c of comments) {
+            if (c.user?.login === SKEPTIC_BOT_AUTHOR) {
+              // Require both the HTML marker and the VERDICT: line
+              const body = c.body ?? "";
+              const hasMarker = /<!--\s*skeptic-agent-verdict\s*-->/i.test(body);
+              if (hasMarker && /VERDICT:\s*PASS/i.test(body)) {
+                lastVerdict = "PASS";
+              } else if (hasMarker && /VERDICT:\s*FAIL/i.test(body)) {
+                lastVerdict = "FAIL";
+              }
             }
           }
+
+          if (comments.length < perPage) {
+            break;
+          }
         }
+
         return lastVerdict ?? "SKIPPED";
       } catch {
         // Non-fatal: if we can't fetch comments, treat as SKIPPED

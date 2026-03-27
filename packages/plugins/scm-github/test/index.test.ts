@@ -349,6 +349,24 @@ describe("scm-github plugin", () => {
       const result = await scm.getSkepticVerdict!(pr);
       expect(result).toBe("PASS");
     });
+
+    it("finds skeptic verdict on second page of comments (pagination)", async () => {
+      // Page 1: no skeptic comments — 100 items (exactly full page → continue)
+      const page1 = Array.from({ length: 100 }, (_, i) => ({
+        id: i + 1,
+        user: { login: "other-bot" },
+        body: `comment ${i}`,
+      }));
+      // Page 2: skeptic PASS verdict — fewer than 100 items → pagination stops
+      const page2 = [
+        { id: 101, user: { login: "jleechan-agent[bot]" }, body: "<!-- skeptic-agent-verdict -->\nVERDICT: PASS" },
+      ];
+      ghMock.mockResolvedValueOnce({ stdout: JSON.stringify(page1) });
+      ghMock.mockResolvedValueOnce({ stdout: JSON.stringify(page2) });
+
+      const result = await scm.getSkepticVerdict!(pr);
+      expect(result).toBe("PASS");
+    });
   });
 
   describe("verifyWebhook", () => {
