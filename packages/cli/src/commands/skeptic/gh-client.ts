@@ -4,6 +4,38 @@
  */
 
 import { exec } from "../../lib/shell.js";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
+/**
+ * Read the design doc for a PR from the local checkout.
+ * Works both in CI (file is checked out) and locally (agent has repo).
+ * Returns null if the design doc does not exist yet.
+ *
+ * Uses `git rev-parse --show-toplevel` to resolve the repo root explicitly,
+ * so this works even when the CLI is invoked from a subdirectory or with
+ * a `--repo` flag that doesn't match the current working directory.
+ * Only ENOENT is treated as "doc not found" — all other errors are re-thrown.
+ */
+export async function fetchDesignDoc(prNumber: number): Promise<string | null> {
+  try {
+    // Resolve the repo root so we always find docs/design/pr-designs/
+    // regardless of the current working directory.
+    const { stdout: repoRoot } = await exec("git", ["rev-parse", "--show-toplevel"]);
+    const root = repoRoot.trim();
+    const designDocPath = join(root, "docs", "design", "pr-designs", `pr-${prNumber}.md`);
+    const content = readFileSync(designDocPath, "utf8");
+    return content;
+  } catch (err: unknown) {
+    // Only swallow "file not found" — re-throw any other error (permissions, invalid cwd, etc.)
+    const code = (err as { code?: string }).code;
+    if (code === "ENOENT") {
+      // Design doc does not exist yet — this is a gap the skeptic should flag
+      return null;
+    }
+    throw err;
+  }
+}
 
 export async function ghJson(endpoint: string, args: string[] = []): Promise<unknown> {
   const result = await exec("gh", ["api", endpoint, ...args]);
