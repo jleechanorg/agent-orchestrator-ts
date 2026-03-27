@@ -213,7 +213,7 @@ export async function maybeDispatchReviewBacklog(
       // dispatch for CHANGES_REQUESTED or newer human CR. Only COMMENTED/DISMISSED with
       // no newer human CR is suppressed.
       // SCM normalizes GitHub API values: "CHANGES_REQUESTED" → "changes_requested" (scm-github getReviews).
-      (crLatestVerdict === null || crLatestVerdict !== "commented" && crLatestVerdict !== "dismissed" || newerHumanCR)
+      (crLatestVerdict === null || (crLatestVerdict !== "commented" && crLatestVerdict !== "dismissed") || newerHumanCR)
     ) {
       const reactionConfig = getReactionConfigForSession(session, humanReactionKey);
       // bd-5o1: skip send-to-agent for dead agents. respawn-for-review is always
