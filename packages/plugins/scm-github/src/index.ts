@@ -1093,7 +1093,7 @@ function normalizeMergePayloadFromRestShape(data: Record<string, unknown>): void
 
 function createGitHubSCM(config?: Record<string, unknown>): SCM {
   const BOT_AUTHORS = buildBotAuthors(config);
-  // SKEPTIC_BOT_AUTHOR — defaults to env var then hardcoded fallback
+  // SKEPTIC_BOT_AUTHOR — resolved from config, then GH_SKEPTIC_BOT_AUTHOR env var, then fallback
   const SKEPTIC_BOT_AUTHOR: string =
     (config?.skepticBotAuthor as string | undefined) ??
     process.env["GH_SKEPTIC_BOT_AUTHOR"] ??
@@ -2154,17 +2154,15 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
     },
 
     async getSkepticVerdict(pr: PRInfo): Promise<"PASS" | "FAIL" | "SKIPPED"> {
-      // Fetch issue comments (not PR review comments) from the skeptic bot
-      // The skeptic bot posts a comment with <!-- skeptic-agent-verdict --> marker
+      // Fetch issue comments from the skeptic bot.
+      // The skeptic bot posts a comment containing <!-- skeptic-agent-verdict --> marker
       // and VERDICT: PASS or VERDICT: FAIL inside the body.
+      // Scan all comments and keep the last (newest) matching verdict — GitHub returns
+      // comments oldest-first, so iterating forward and overwriting finds the newest.
       try {
         const raw = await gh([
           "api",
-          "repos",
-          repoFlag(pr),
-          "issues",
-          String(pr.number),
-          "comments?per_page=100",
+          `repos/${repoFlag(pr)}/issues/${pr.number}/comments?per_page=100`,
         ]);
         const comments: Array<{
           id: number;
@@ -2172,20 +2170,24 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
           body: string;
         }> = JSON.parse(raw);
 
+        let lastVerdict: "PASS" | "FAIL" | null = null;
         for (const c of comments) {
           if (c.user?.login === SKEPTIC_BOT_AUTHOR) {
-            if (/VERDICT:\s*PASS/i.test(c.body)) {
-              return "PASS";
-            }
-            if (/VERDICT:\s*FAIL/i.test(c.body)) {
-              return "FAIL";
+            // Require both the HTML marker and the VERDICT: line
+            const body = c.body ?? "";
+            const hasMarker = /<!--\s*skeptic-agent-verdict\s*-->/i.test(body);
+            if (hasMarker && /VERDICT:\s*PASS/i.test(body)) {
+              lastVerdict = "PASS";
+            } else if (hasMarker && /VERDICT:\s*FAIL/i.test(body)) {
+              lastVerdict = "FAIL";
             }
           }
         }
+        return lastVerdict ?? "SKIPPED";
       } catch {
         // Non-fatal: if we can't fetch comments, treat as SKIPPED
+        return "SKIPPED";
       }
-      return "SKIPPED";
     },
 
     async getMergeability(pr: PRInfo): Promise<MergeReadiness> {

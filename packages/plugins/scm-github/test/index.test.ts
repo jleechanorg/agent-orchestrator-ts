@@ -253,6 +253,12 @@ describe("scm-github plugin", () => {
       ]);
       const result = await scm.getSkepticVerdict!(pr);
       expect(result).toBe("PASS");
+      // Verify gh was called with the correct REST endpoint
+      expect(ghMock).toHaveBeenCalledWith(
+        "gh",
+        expect.arrayContaining(["api", expect.stringContaining("repos/acme/repo/issues/42/comments")]),
+        expect.any(Object),
+      );
     });
 
     it("returns FAIL when skeptic bot posted VERDICT: FAIL", async () => {
@@ -277,12 +283,24 @@ describe("scm-github plugin", () => {
       expect(result).toBe("SKIPPED");
     });
 
-    it("returns SKIPPED when skeptic bot exists but no VERDICT marker", async () => {
+    it("returns SKIPPED when skeptic bot exists with marker but no VERDICT line", async () => {
       mockGh([
         {
           id: 3,
           user: { login: "jleechan-agent[bot]" },
-          body: "Running skeptic analysis...",
+          body: "<!-- skeptic-agent-verdict -->\nRunning skeptic analysis...",
+        },
+      ]);
+      const result = await scm.getSkepticVerdict!(pr);
+      expect(result).toBe("SKIPPED");
+    });
+
+    it("returns SKIPPED when skeptic bot has VERDICT line but no marker", async () => {
+      mockGh([
+        {
+          id: 4,
+          user: { login: "jleechan-agent[bot]" },
+          body: "VERDICT: PASS\n\nAll criteria met.",
         },
       ]);
       const result = await scm.getSkepticVerdict!(pr);
@@ -311,6 +329,24 @@ describe("scm-github plugin", () => {
         },
       ]);
       const result = await customSCM.getSkepticVerdict!(pr);
+      expect(result).toBe("PASS");
+    });
+
+    it("returns last (newest) verdict when skeptic posts multiple verdicts", async () => {
+      mockGh([
+        {
+          id: 1,
+          user: { login: "jleechan-agent[bot]" },
+          body: "<!-- skeptic-agent-verdict -->\nVERDICT: FAIL\n\nInitial check failed",
+        },
+        {
+          id: 2,
+          user: { login: "jleechan-agent[bot]" },
+          body: "<!-- skeptic-agent-verdict -->\nVERDICT: PASS\n\nAll exit criteria met.",
+        },
+      ]);
+      // GitHub returns oldest first; last matching comment wins
+      const result = await scm.getSkepticVerdict!(pr);
       expect(result).toBe("PASS");
     });
   });
