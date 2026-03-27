@@ -10,7 +10,6 @@ import { describe, it, expect } from "vitest";
 // Extracted timing logic from DailyChapter.tsx for testability
 const TITLE_DURATION = 90; // frames (~1.5s at 30fps)
 const EXCERPT_START = TITLE_DURATION;
-const _WORDS_PER_MINUTE = 20; // ~20 wpm (words per minute at 30fps)
 
 function computeExcerptDuration(shortExcerptLength: number, fps: number): number {
   // 20 wpm = 1 word per 3 seconds. At fps frames/second, each word spans 3*fps frames.
