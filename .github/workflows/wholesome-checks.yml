@@ -1,0 +1,53 @@
+name: Wholesome Checks
+
+# "Multiple shots on goal" — structural CI assertions supplementing runtime hooks.
+# Asserts invariants on code structure and PR metadata rather than just behavior.
+# Runs on every PR push; failures block merge when required checks are enabled.
+# NOTE: does not run on push-to-main (ci.yml handles that for the wholesome test file).
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+concurrency:
+  group: wholesome-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read    # needed for git history and diff operations
+  pull-requests: read  # needed for gh CLI to fetch PR title
+
+jobs:
+  wholesome:
+    name: Wholesome Checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # need full history for merge-base computation
+
+      - name: Ensure base branch ref is available
+        # For fork PRs, origin/ is the fork so origin/<base> may not be fetched.
+        # Explicitly fetch it so BASE_BRANCH in the test can use it as a local ref.
+        run: git fetch origin ${{ github.base_ref }}:${{ github.base_ref }}
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run wholesome tests
+        env:
+          GITHUB_TOKEN:      ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_HEAD_REF:   ${{ github.head_ref }}
+          # GITHUB_BASE_REF is the PR target branch (e.g. main) — used as the base
+          # for diff and commit checks; avoids false positives on fork PRs where
+          # origin/main differs from the actual PR base.
+          GITHUB_BASE_REF: ${{ github.base_ref }}
+        run: pnpm --filter @jleechanorg/ao-core test -- --reporter verbose src/__tests__/wholesome.test.ts
