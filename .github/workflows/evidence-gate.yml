@@ -200,51 +200,57 @@ jobs:
 
             echo "All 4 required proofs present for $CLAIM"
           elif [ "$CLAIM" = "merge-gate" ]; then
-            echo "Checking required proofs for: $CLAIM (merge-gate = all 6 green conditions)"
-            # merge-gate requires evidence of all 6 merge-gate conditions per CLAUDE.md:
+            echo "Checking required proofs for: $CLAIM (merge-gate = all 7 green conditions)"
+            # merge-gate requires evidence of all 7 merge-gate conditions per CLAUDE.md:
             # 1. CI green
             if ! printf '%s' "$BODY" | grep -qiE '(CI (passing|success|green)|checks (passing|success|green))'; then
               echo "ERROR: Missing CI-green proof in merge-gate evidence"
               exit 1
             fi
-            echo "Condition 1/6 (CI green): PASS"
+            echo "Condition 1/7 (CI green): PASS"
 
             # 2. No merge conflicts
             if ! printf '%s' "$BODY" | grep -qiE '(mergeable|MERGEABLE|conflict-free|no conflict)'; then
               echo "ERROR: Missing mergeable-state proof in merge-gate evidence"
               exit 1
             fi
-            echo "Condition 2/6 (no merge conflicts): PASS"
+            echo "Condition 2/7 (no merge conflicts): PASS"
 
             # 3. CR approved
             if ! printf '%s' "$BODY" | grep -qiE '(CodeRabbit APPROVED|CR APPROVED|crab.*approved)'; then
               echo "ERROR: Missing CR-approved proof in merge-gate evidence"
               exit 1
             fi
-            echo "Condition 3/6 (CR approved): PASS"
+            echo "Condition 3/7 (CR approved): PASS"
 
             # 4. Bugbot finished
             if ! printf '%s' "$BODY" | grep -qiE '(Bugbot finished|Cursor Bugbot|bugbot (finished|neutral|success))'; then
               echo "ERROR: Missing Bugbot-finished proof in merge-gate evidence"
               exit 1
             fi
-            echo "Condition 4/6 (Bugbot finished): PASS"
+            echo "Condition 4/7 (Bugbot finished): PASS"
 
             # 5. All threads resolved
             if ! printf '%s' "$BODY" | grep -qiE '(all threads resolved|threads resolved|no unresolved threads)'; then
               echo "ERROR: Missing all-threads-resolved proof in merge-gate evidence"
               exit 1
             fi
-            echo "Condition 5/6 (all threads resolved): PASS"
+            echo "Condition 5/7 (all threads resolved): PASS"
 
             # 6. Evidence review passed
             if ! printf '%s' "$BODY" | grep -qiE '(evidence review passed|/er PASS|evidence-gate PASS)'; then
               echo "ERROR: Missing evidence-review-passed proof in merge-gate evidence"
               exit 1
             fi
-            echo "Condition 6/6 (evidence review passed): PASS"
+            echo "Condition 6/7 (evidence review passed): PASS"
 
-            echo "All 6 merge-gate conditions verified for $CLAIM"
+            # Condition 7/7: Skeptic gate CI passed
+            if ! printf '%s' "$BODY" | grep -qiE '(skeptic.*(verdict|gate).*pass|condition.*(7|seven).*pass)'; then
+              echo "ERROR: Missing Condition 7/7 (skeptic gate PASS) in evidence bundle"
+              exit 1
+            fi
+            echo "Condition 7/7 (skeptic gate PASS): PASS"
+            echo "All 7 merge-gate conditions verified for $CLAIM"
           else
             echo "No additional validation required for claim class: $CLAIM"
           fi
