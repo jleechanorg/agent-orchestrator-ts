@@ -38,7 +38,27 @@ function normalizePermissionMode(mode: string | undefined): "permissionless" | "
 
 /** Hook script content that updates session metadata on git/gh commands.
  *  Exported for integration testing. */
-export const METADATA_UPDATER_SCRIPT = `#!/usr/bin/env bash
+const _ = String.raw;
+// AO_DATA_DIR with bash parameter expansion: use env var if set, else $HOME/.ao-sessions
+// The outer ${AO_DATA_DIR:-...} is bash parameter expansion (not JS).
+// The inner ${HOME} must be expressed as a bash expansion that survives JS parsing.
+const AO_DATA_DIR_LINE =
+  'AO_DATA_DIR="${AO_DATA_DIR:-' + "$" + "{HOME}/.ao-sessions}\"";
+// Result: AO_DATA_DIR="${AO_DATA_DIR:-$HOME/.ao-sessions}"
+
+// Bash array reference as a string — built with plain concatenation to avoid JS template
+// expression parsing. The dollar sign must survive JS and expand in bash.
+// MUST use ${array[index]} (not "$array[index]") for bash array access.
+const BASH_REMATCH1 = '"${BASH_REMATCH[1]}"';
+const BASH_REMATCH2 = '"${BASH_REMATCH[2]}"';
+// Result: "${BASH_REMATCH[1]}" and "${BASH_REMATCH[2]}" as literal bash array access
+
+// Bash parameter expansions — expressed as single-quoted JS strings (no JS interpretation)
+// so they survive TypeScript compilation and expand correctly in bash.
+const BASH_AO_ALLOW_GH_PR_MERGE = '${AO_ALLOW_GH_PR_MERGE:-}';
+const BASH_AO_SESSION = '${AO_SESSION:-}';
+// Result: ${AO_ALLOW_GH_PR_MERGE:-} and ${AO_SESSION:-} as literal bash parameter expansion
+export const METADATA_UPDATER_SCRIPT = _`#!/usr/bin/env bash
 # Metadata Updater Hook for Agent Orchestrator
 #
 # This PostToolUse hook automatically updates session metadata when:
@@ -49,7 +69,7 @@ export const METADATA_UPDATER_SCRIPT = `#!/usr/bin/env bash
 set -euo pipefail
 
 # Configuration
-AO_DATA_DIR="\${AO_DATA_DIR:-$HOME/.ao-sessions}"
+${AO_DATA_DIR_LINE}
 
 # Read hook input from stdin
 input=$(cat)
@@ -95,11 +115,22 @@ cd_prefix_pattern='^[[:space:]]*cd[[:space:]]+.*[[:space:]]+(&&|;)[[:space:]]+(.
 clean_command="$command"
 while [[ "$clean_command" =~ ^[[:space:]]*cd[[:space:]] ]]; do
   if [[ "$clean_command" =~ $cd_prefix_pattern ]]; then
-    clean_command="\${BASH_REMATCH[2]}"
+    clean_command=${BASH_REMATCH2}
   else
     break
   fi
 done
+
+# Guardrail: enforce [agento] prefix on gh pr create titles (PreToolUse only).
+# PostToolUse falls through to metadata update — no need to re-check there.
+if [[ "$hook_event" == "PreToolUse" && "$clean_command" =~ ^gh[[:space:]]+pr[[:space:]]+create ]]; then
+  AGENTO_PREFIX="[agento]"
+  pr_title="$(echo "$clean_command" | grep -o '--title[[:space:]][^[:space:]]*' | sed -e 's/--title[[:space:]]//' -e "s/^'(.*)'$/\1/" -e 's/^"(.*)"$/\1/' || true)"
+  if [[ -n "$pr_title" && "$pr_title" != "$AGENTO_PREFIX"* ]]; then
+    echo '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"Blocked by AO policy: gh pr create titles must start with [agento]. Prefix your title with [agento] and retry."}}'
+    exit 0
+  fi
+fi
 
 # Hard guardrail: block agent-triggered gh pr merge by default.
 # Rationale: prompt rules (e.g., "NEVER MERGE") are advisory; this enforces policy in code.
@@ -108,7 +139,7 @@ done
 # Guard fires when NOT PostToolUse and NOT allowed. PostToolUse falls through for metadata update.
 merge_pattern='^[[:space:]]*([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]+[[:space:]]+)*gh[[:space:]]+pr[[:space:]]+merge([[:space:]]|$)'
 if [[ "$clean_command" =~ $merge_pattern ]]; then
-  if [[ "$hook_event" != "PostToolUse" && "\${AO_ALLOW_GH_PR_MERGE:-}" != "1" ]]; then
+  if [[ "$hook_event" != "PostToolUse" && ${BASH_AO_ALLOW_GH_PR_MERGE} != "1" ]]; then
     echo '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"Blocked by AO policy: agents must not run gh pr merge. Leave merge to orchestrator/human."}}'
     exit 0
   fi
@@ -116,7 +147,7 @@ if [[ "$clean_command" =~ $merge_pattern ]]; then
 fi
 
 # Validate AO_SESSION is set
-if [[ -z "\${AO_SESSION:-}" ]]; then
+if [[ -z ${BASH_AO_SESSION} ]]; then
   echo '{"systemMessage": "AO_SESSION environment variable not set, skipping metadata update"}'
   exit 0
 fi
@@ -170,9 +201,19 @@ if [[ "$clean_command" =~ ^gh[[:space:]]+pr[[:space:]]+create ]]; then
 fi
 
 # Detect: git checkout -b <branch> or git switch -c <branch>
-if [[ "$clean_command" =~ ^git[[:space:]]+checkout[[:space:]]+-b[[:space:]]+([^[:space:]]+) ]] || \\
-   [[ "$clean_command" =~ ^git[[:space:]]+switch[[:space:]]+-c[[:space:]]+([^[:space:]]+) ]]; then
-  branch="\${BASH_REMATCH[1]}"
+if [[ "$clean_command" =~ ^git[[:space:]]+checkout[[:space:]]+-b[[:space:]]+([^[:space:]]+) ]]; then
+  branch=${BASH_REMATCH1}
+
+  if [[ -n "$branch" ]]; then
+    update_metadata_key "branch" "$branch"
+    echo '{"systemMessage": "Updated metadata: branch = '"$branch"'"}'
+    exit 0
+  fi
+fi
+
+# Detect: git switch -c <branch>
+if [[ "$clean_command" =~ ^git[[:space:]]+switch[[:space:]]+-c[[:space:]]+([^[:space:]]+) ]]; then
+  branch=${BASH_REMATCH1}
 
   if [[ -n "$branch" ]]; then
     update_metadata_key "branch" "$branch"
@@ -183,11 +224,17 @@ fi
 
 # Detect: git checkout <branch> (without -b) or git switch <branch> (without -c)
 # Only update if the branch name looks like a feature branch (contains / or -)
-if [[ "$clean_command" =~ ^git[[:space:]]+checkout[[:space:]]+([^[:space:]-]+[/-][^[:space:]]+) ]] || \\
-   [[ "$clean_command" =~ ^git[[:space:]]+switch[[:space:]]+([^[:space:]-]+[/-][^[:space:]]+) ]]; then
-  branch="\${BASH_REMATCH[1]}"
+if [[ "$clean_command" =~ ^git[[:space:]]+checkout[[:space:]]+([^[:space:]-]+[/-][^[:space:]]+) ]]; then
+  branch=${BASH_REMATCH1}
+  if [[ -n "$branch" && "$branch" != "HEAD" ]]; then
+    update_metadata_key "branch" "$branch"
+    echo '{"systemMessage": "Updated metadata: branch = '"$branch"'"}'
+    exit 0
+  fi
+fi
 
-  # Avoid updating for checkout of commits/tags
+if [[ "$clean_command" =~ ^git[[:space:]]+switch[[:space:]]+([^[:space:]-]+[/-][^[:space:]]+) ]]; then
+  branch=${BASH_REMATCH1}
   if [[ -n "$branch" && "$branch" != "HEAD" ]]; then
     update_metadata_key "branch" "$branch"
     echo '{"systemMessage": "Updated metadata: branch = '"$branch"'"}'
@@ -197,7 +244,7 @@ fi
 
 # Detect: gh pr merge (only when explicitly allowed AND in PostToolUse — not PreToolUse)
 # Gate on PostToolUse to avoid marking status=merged before the merge actually succeeds.
-if [[ "$clean_command" =~ $merge_pattern && "\${AO_ALLOW_GH_PR_MERGE:-}" == "1" && "$hook_event" == "PostToolUse" ]]; then
+if [[ "$clean_command" =~ $merge_pattern && ${BASH_AO_ALLOW_GH_PR_MERGE} == "1" && "$hook_event" == "PostToolUse" ]]; then
   update_metadata_key "status" "merged"
   echo '{"systemMessage": "Updated metadata: status = merged"}'
   exit 0

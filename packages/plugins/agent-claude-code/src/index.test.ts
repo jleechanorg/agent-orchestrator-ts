@@ -787,6 +787,26 @@ describe("METADATA_UPDATER_SCRIPT content", () => {
     expect(METADATA_UPDATER_SCRIPT).toContain("merge_pattern");
     expect(METADATA_UPDATER_SCRIPT).toMatch(/"\$clean_command"\s*=~\s*\$merge_pattern/);
   });
+
+  // [agento] prefix enforcement
+  it("contains AGENTO_PREFIX constant with [agento] value", () => {
+    expect(METADATA_UPDATER_SCRIPT).toContain('AGENTO_PREFIX="[agento]"');
+  });
+
+  it("extracts --title argument from gh pr create", () => {
+    expect(METADATA_UPDATER_SCRIPT).toMatch(/grep -o '--title/);
+  });
+
+  it("denies gh pr create when title lacks [agento] prefix in PreToolUse", () => {
+    expect(METADATA_UPDATER_SCRIPT).toMatch(
+      /deny.*gh pr create titles must start with \[agento\]/,
+    );
+  });
+
+  it("checks hook_event is PreToolUse before enforcing prefix", () => {
+    // Prefix guard fires only in PreToolUse; PostToolUse falls through to metadata update
+    expect(METADATA_UPDATER_SCRIPT).toMatch(/"PreToolUse".*\$clean_command/);
+  });
 });
 
 // ==================================================================
