@@ -13,6 +13,7 @@ export interface McpMailClientConfig {
   agentId: string;
 }
 
+/** Canonical message shape used for both inbound (fetch_inbox) and outbound (send) messages. */
 export interface McpMailMessage {
   id: string;
   project_key: string;
@@ -24,208 +25,219 @@ export interface McpMailMessage {
   read: boolean;
 }
 
-let _mcpClientConfig: McpMailClientConfig | null = null;
-let _registrationPromise: Promise<void> | null = null;
-/** IDs of all messages returned in the previous poll — used to surface only new messages. */
-let _lastSeenMessageIds = new Set<string>();
-
-export function initMcpMailClient(config: McpMailClientConfig): void {
-  _mcpClientConfig = config;
-  _registrationPromise = null;
-  _lastSeenMessageIds = new Set();
-}
-
-export function getMcpMailClientConfig(): McpMailClientConfig | null {
-  return _mcpClientConfig;
-}
-
-async function apiPost(toolName: string, params: Record<string, unknown>): Promise<unknown> {
-  if (!_mcpClientConfig) throw new Error("MCP mail client not initialized");
-  const base = _mcpClientConfig.endpoint.replace(/\/+$/, "").replace(/\/mcp$/, "");
-  const url = `${base}/mcp`;
-  const response = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      jsonrpc: "2.0",
-      method: "tools/call",
-      params: { name: toolName, arguments: params },
-      id: 1,
-    }),
-    signal: AbortSignal.timeout(MCP_TIMEOUT_MS),
-  });
-
-  if (!response.ok) {
-    const body = await response.text();
-    throw new Error(`MCP mail ${toolName} failed (${response.status}): ${body}`);
-  }
-
-  const result = (await response.json()) as {
-    error?: { message?: string; code?: number };
-    result?: { content?: Array<{ text?: string }> };
-  };
-  if (result.error) {
-    throw new Error(
-      `MCP mail ${toolName} error (${result.error.code ?? "?"}): ${result.error.message ?? JSON.stringify(result.error)}`,
-    );
-  }
-  return result.result;
-}
-
-async function ensureRegistered(): Promise<void> {
-  if (!_mcpClientConfig) return;
-  if (!_registrationPromise) {
-    const p = (async () => {
-      await apiPost("register_agent", {
-        project_key: _mcpClientConfig!.projectKey,
-        program: "agent-orchestrator",
-        model: "claude",
-        agent_name: _mcpClientConfig!.agentId,
-      });
-    })();
-    _registrationPromise = p;
-    p.catch(() => { _registrationPromise = null; });
-  }
-  await _registrationPromise;
-}
-
-/** Inbox message shape returned by fetch_inbox. */
-export interface InboxMessage {
-  id: string;
-  project_key: string;
-  sender_name: string;
-  to: string[];
-  subject: string;
-  body_md: string;
-  created_at: string;
-  read: boolean;
-}
+/** Alias for inbox messages (identical structure to McpMailMessage). */
+export type InboxMessage = McpMailMessage;
 
 /** Callback invoked with new inbox messages on each poll. */
 export type InboxCallback = (messages: InboxMessage[]) => void;
-let _inboxCallback: InboxCallback | null = null;
 
-export function setMcpMailInboxCallback(cb: InboxCallback): void {
-  _inboxCallback = cb;
+// ---------------------------------------------------------------------------
+// McpMailClient — encapsulates all per-client state to avoid cross-process
+// or cross-test contamination from module-level singletons.
+// ---------------------------------------------------------------------------
+
+let _instance: McpMailClient | null = null;
+
+export function initMcpMailClient(config: McpMailClientConfig): void {
+  _instance = new McpMailClient(config);
 }
 
-/**
- * Fetch the global inbox, surface new messages via the registered callback,
- * and return all messages from the last fetch.
- */
-export async function pollMcpMailInbox(): Promise<InboxMessage[]> {
-  if (!_mcpClientConfig) return [];
+export function getMcpMailClientConfig(): McpMailClientConfig | null {
+  return _instance?.config ?? null;
+}
 
-  try {
-    await ensureRegistered();
-    const raw = await apiPost("fetch_inbox", {
-      project_key: _mcpClientConfig.projectKey,
-      agent_name: _mcpClientConfig.agentId,
-      limit: 20,
-      include_bodies: true,
+export function setMcpMailInboxCallback(cb: InboxCallback): void {
+  if (_instance) _instance._setCallback(cb);
+}
+
+class McpMailClient {
+  readonly config: McpMailClientConfig;
+  private _registrationPromise: Promise<void> | null = null;
+  private _lastSeenMessageIds = new Set<string>();
+  private _inboxCallback: InboxCallback | null = null;
+
+  constructor(config: McpMailClientConfig) {
+    this.config = config;
+  }
+
+  _setCallback(cb: InboxCallback): void {
+    this._inboxCallback = cb;
+  }
+
+  private async _apiPost(toolName: string, params: Record<string, unknown>): Promise<unknown> {
+    const base = this.config.endpoint.replace(/\/+$/, "").replace(/\/mcp$/, "");
+    const url = `${base}/mcp`;
+    const response = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        method: "tools/call",
+        params: { name: toolName, arguments: params },
+        id: 1,
+      }),
+      signal: AbortSignal.timeout(MCP_TIMEOUT_MS),
     });
 
-    // Parse inbox from structuredContent (preferred) or content[0].text fallback
-    let rawMessages: unknown[] = [];
-    const result = raw as {
-      content?: Array<{ text?: string }>;
-      structuredContent?: { result?: unknown[] };
+    if (!response.ok) {
+      const body = await response.text();
+      throw new Error(`MCP mail ${toolName} failed (${response.status}): ${body}`);
+    }
+
+    const result = (await response.json()) as {
+      error?: { message?: string; code?: number };
+      result?: { content?: Array<{ text?: string }> };
     };
-    if (result.structuredContent?.result) {
-      rawMessages = result.structuredContent.result;
-    } else if (result.content?.[0]?.text) {
-      // Skip error text (e.g. "Error calling tool...") returned when agent not found
-      const rawText = result.content[0].text;
-      try {
-        rawMessages = JSON.parse(rawText) as unknown[];
-      } catch {
-        // non-JSON response (error message) — treat as empty inbox
-      }
+    if (result.error) {
+      throw new Error(
+        `MCP mail ${toolName} error (${result.error.code ?? "?"}): ${result.error.message ?? JSON.stringify(result.error)}`,
+      );
     }
+    return result.result;
+  }
 
-    const messages: InboxMessage[] = rawMessages.map((m) => {
-      const msg = m as Record<string, unknown>;
-      return {
-        id: String(msg["id"] ?? msg["message_id"] ?? ""),
-        project_key: _mcpClientConfig!.projectKey,
-        sender_name: String(msg["sender_name"] ?? msg["from"] ?? msg["sender"] ?? ""),
-        to: Array.isArray(msg["to"])
-          ? (msg["to"] as unknown[]).filter((v): v is string => typeof v === "string")
-          : [],
-        subject: String(msg["subject"] ?? ""),
-        body_md: String(msg["body_md"] ?? msg["body"] ?? msg["text"] ?? ""),
-        created_at: String(msg["created_at"] ?? msg["created_ts"] ?? msg["timestamp"] ?? ""),
-        read: Boolean(msg["read"] ?? msg["is_read"]),
+  private async _ensureRegistered(): Promise<void> {
+    if (!this._registrationPromise) {
+      const p = (async () => {
+        await this._apiPost("register_agent", {
+          project_key: this.config.projectKey,
+          program: "agent-orchestrator",
+          model: "claude",
+          agent_name: this.config.agentId,
+        });
+      })();
+      this._registrationPromise = p;
+      p.catch(() => { this._registrationPromise = null; });
+    }
+    await this._registrationPromise;
+  }
+
+  async pollInbox(): Promise<InboxMessage[]> {
+    try {
+      await this._ensureRegistered();
+      const raw = await this._apiPost("fetch_inbox", {
+        project_key: this.config.projectKey,
+        agent_name: this.config.agentId,
+        limit: 20,
+        include_bodies: true,
+      });
+
+      // Parse inbox from structuredContent (preferred) or content[0].text fallback
+      let rawMessages: unknown[] = [];
+      const result = raw as {
+        content?: Array<{ text?: string }>;
+        structuredContent?: { result?: unknown[] };
       };
-    });
+      if (result.structuredContent?.result) {
+        rawMessages = result.structuredContent.result;
+      } else if (result.content?.[0]?.text) {
+        // Skip error text returned when agent not found
+        const rawText = result.content[0].text;
+        try {
+          rawMessages = JSON.parse(rawText) as unknown[];
+        } catch {
+          // non-JSON — treat as empty inbox
+        }
+      }
 
-    // Surface only messages not seen in the previous poll
-    const newMessages = messages.filter((m) => !_lastSeenMessageIds.has(m.id));
+      const messages: InboxMessage[] = rawMessages.map((m) => {
+        const msg = m as Record<string, unknown>;
+        return {
+          id: String(msg["id"] ?? msg["message_id"] ?? ""),
+          project_key: this.config.projectKey,
+          sender_name: String(msg["sender_name"] ?? msg["from"] ?? msg["sender"] ?? ""),
+          to: Array.isArray(msg["to"])
+            ? (msg["to"] as unknown[]).filter((v): v is string => typeof v === "string")
+            : [],
+          subject: String(msg["subject"] ?? ""),
+          body_md: String(msg["body_md"] ?? msg["body"] ?? msg["text"] ?? ""),
+          created_at: String(msg["created_at"] ?? msg["created_ts"] ?? msg["timestamp"] ?? ""),
+          read: Boolean(msg["read"] ?? msg["is_read"]),
+        };
+      });
 
-    // Remember all IDs from this fetch so next poll can exclude them
-    _lastSeenMessageIds = new Set(messages.map((m) => m.id));
+      // Surface only messages not seen in the previous poll
+      const newMessages = messages.filter((m) => !this._lastSeenMessageIds.has(m.id));
 
-    if (newMessages.length > 0 && _inboxCallback) {
-      try { _inboxCallback(newMessages); } catch { /* non-fatal */ }
+      // Remember all IDs from this fetch so next poll can exclude them
+      this._lastSeenMessageIds = new Set(messages.map((m) => m.id));
+
+      if (newMessages.length > 0 && this._inboxCallback) {
+        try { this._inboxCallback(newMessages); } catch { /* non-fatal */ }
+      }
+
+      return messages;
+    } catch (err) {
+      console.warn(
+        `[mcp-mail] Inbox poll failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      return [];
     }
+  }
 
-    return messages;
-  } catch (err) {
-    console.warn(
-      `[mcp-mail] Inbox poll failed: ${err instanceof Error ? err.message : String(err)}`,
-    );
-    return [];
+  private async _send(params: { subject: string; body_md: string; to?: string[] }): Promise<void> {
+    await this._ensureRegistered();
+    await this._apiPost("send_message", {
+      project_key: this.config.projectKey,
+      sender_name: this.config.agentId,
+      to: params.to ?? [],
+      subject: params.subject,
+      body_md: params.body_md,
+    });
+  }
+
+  async sendHeartbeat(currentTask?: string): Promise<void> {
+    const body = currentTask ? `I'm working on: ${currentTask}` : "I'm alive — heartbeat";
+    await this._send({
+      subject: `worker heartbeat — ${this.config.agentId}`,
+      body_md: body,
+      to: [`global:${this.config.projectKey}`],
+    });
+  }
+
+  async sendSessionStart(taskDescription?: string): Promise<void> {
+    const body = taskDescription ? `Starting task: ${taskDescription}` : "Session started";
+    await this._send({
+      subject: `session start — ${this.config.agentId}`,
+      body_md: body,
+      to: [`global:${this.config.projectKey}`],
+    });
+  }
+
+  async sendSessionEnd(doneTask?: string, blockedOn?: string): Promise<void> {
+    let body = doneTask ? `Done with: ${doneTask}` : "Session ended";
+    if (blockedOn) body += `\nBlocked on: ${blockedOn}`;
+    await this._send({
+      subject: `session end — ${this.config.agentId}`,
+      body_md: body,
+      to: [`global:${this.config.projectKey}`],
+    });
   }
 }
 
-async function mcpSend(params: {
-  subject: string;
-  body_md: string;
-  to?: string[];
-}): Promise<void> {
-  if (!_mcpClientConfig) return;
-  await ensureRegistered();
-  await apiPost("send_message", {
-    project_key: _mcpClientConfig.projectKey,
-    sender_name: _mcpClientConfig.agentId,
-    to: params.to ?? [],
-    subject: params.subject,
-    body_md: params.body_md,
-  });
+// ---------------------------------------------------------------------------
+// Module-level shims that delegate to the singleton instance.
+// Required to keep the existing public API (lifecycle-manager, notifier plugin).
+// ---------------------------------------------------------------------------
+
+export async function pollMcpMailInbox(): Promise<InboxMessage[]> {
+  if (!_instance) return [];
+  return _instance.pollInbox();
 }
 
-/** Send a heartbeat to the global inbox (worker wake-up + periodic). */
 export async function sendMcpMailHeartbeat(currentTask?: string): Promise<void> {
-  if (!_mcpClientConfig) return;
-  const body = currentTask ? `I'm working on: ${currentTask}` : "I'm alive — heartbeat";
-  await mcpSend({
-    subject: `worker heartbeat — ${_mcpClientConfig.agentId}`,
-    body_md: body,
-    to: [`global:${_mcpClientConfig.projectKey}`],
-  });
+  if (!_instance) return;
+  await _instance.sendHeartbeat(currentTask);
 }
 
-/** Send a session-start message to the global inbox. */
 export async function sendMcpMailSessionStart(taskDescription?: string): Promise<void> {
-  if (!_mcpClientConfig) return;
-  const body = taskDescription ? `Starting task: ${taskDescription}` : "Session started";
-  await mcpSend({
-    subject: `session start — ${_mcpClientConfig.agentId}`,
-    body_md: body,
-    to: [`global:${_mcpClientConfig.projectKey}`],
-  });
+  if (!_instance) return;
+  await _instance.sendSessionStart(taskDescription);
 }
 
-/** Send a session-end message to the global inbox. */
 export async function sendMcpMailSessionEnd(doneTask?: string, blockedOn?: string): Promise<void> {
-  if (!_mcpClientConfig) return;
-  let body = doneTask ? `Done with: ${doneTask}` : "Session ended";
-  if (blockedOn) body += `\nBlocked on: ${blockedOn}`;
-  await mcpSend({
-    subject: `session end — ${_mcpClientConfig.agentId}`,
-    body_md: body,
-    to: [`global:${_mcpClientConfig.projectKey}`],
-  });
+  if (!_instance) return;
+  await _instance.sendSessionEnd(doneTask, blockedOn);
 }
 
 // ---------------------------------------------------------------------------

@@ -46,6 +46,9 @@ function findRpcCall(
 }
 
 function parseSecondCallBody(fetchMock: ReturnType<typeof vi.fn>) {
+  if (fetchMock.mock.calls.length < 2) {
+    throw new Error(`Expected at least 2 fetch calls, got ${fetchMock.mock.calls.length}`);
+  }
   const secondCall = fetchMock.mock.calls[1]!;
   return JSON.parse((secondCall[1] as { body: string }).body);
 }

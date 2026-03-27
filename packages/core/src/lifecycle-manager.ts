@@ -1531,9 +1531,8 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         const blockedTask = sessionCurrentTask.get(session.id);
         await sendMcpMailSessionEnd(blockedTask, "human input").catch(() => {/* non-fatal */});
       }
-    }
 
-    await validateAndEmitExitProof(session, newStatus, {
+      await validateAndEmitExitProof(session, newStatus, {
         config,
         registry,
         observer,
