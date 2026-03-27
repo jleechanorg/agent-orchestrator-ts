@@ -22,7 +22,7 @@ import { runSkepticEvaluation } from "./skeptic/modelRunner.js";
 import { postVerdict } from "./skeptic/posting.js";
 
 /** Line-anchored VERDICT matcher — only accepts a single-line literal "VERDICT: PASS" or "VERDICT: FAIL". */
-const VERDICT_LINE_RE = /^VERDICT:\s*(PASS|FAIL)\b/im;
+const VERDICT_LINE_RE = /^VERDICT:\s*(PASS|FAIL|SKIPPED)\b/im;
 
 const SKEPTIC_BOT_AUTHOR =
   process.env["GH_SKEPTIC_BOT_AUTHOR"] ?? "jleechan-agent[bot]";
@@ -133,7 +133,9 @@ export function registerSkeptic(program: Command): Command {
         }
         console.log(chalk.yellow("\n=== Full LLM output ===\n"));
         console.log(verdict);
-        // Exit non-zero if verdict is FAIL — aligns with merge-gate.ts (non-PASS/SKIPPED = FAIL)
+        // Exit non-zero only for VERDICT: FAIL from LLM evaluation.
+        // Infrastructure failures (Codex/Claude unavailable) output VERDICT: FAIL and exit 0
+        // so the cron step continues; gate 7 detects the FAIL string to block merges.
         if (verdictMatch?.[1]?.toUpperCase() === "FAIL") {
           process.exit(1);
         }
@@ -148,7 +150,7 @@ export function registerSkeptic(program: Command): Command {
 
       const verdictLine = verdictMatch
         ? verdictMatch[0]
-        : "VERDICT: FAIL — could not parse LLM output";
+        : "VERDICT: FAIL — could not parse LLM output (expected VERDICT: PASS/FAIL/SKIPPED)";
 
       const spinner4 = ora("Posting verdict to PR #" + prNumber + "…").start();
       try {

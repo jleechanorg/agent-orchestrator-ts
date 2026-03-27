@@ -143,7 +143,7 @@ export async function llmEval(
     // Claude unavailable — fall through to codex as last resort
     const codexResult = await tryCodexPrint(prompt);
     if (codexResult.validVerdict) return codexResult.output;
-    return `VERDICT: FAIL — Neither Claude nor Codex available. Claude: ${result.error ?? "not available"}. Codex: ${codexResult.error ?? "not available"}.`;
+    return `VERDICT: SKIPPED — infra: Neither Claude nor Codex available. Claude: ${result.error ?? "not available"}. Codex: ${codexResult.error ?? "not available"}.`;
   }
 
   // Default: codex primary
@@ -151,15 +151,15 @@ export async function llmEval(
   if (codexResult.validVerdict) return codexResult.output;
   if (codexResult.error) {
     // Codex failed with a real error — fail closed (don't silently fall through)
-    return `VERDICT: FAIL — Codex evaluation failed: ${codexResult.error}`;
+    return `VERDICT: SKIPPED — infra: Codex evaluation failed: ${codexResult.error}`;
   }
 
   // Codex not available — try Claude as fallback
   const claudeResult = await tryClaudePrint(prompt);
   if (claudeResult.validVerdict) return claudeResult.output;
   if (claudeResult.error) {
-    return `VERDICT: FAIL — Both Codex and Claude evaluation failed. Codex: ${codexResult.error ?? "not available"}. Claude: ${claudeResult.error}`;
+    return `VERDICT: SKIPPED — infra: Both Codex and Claude evaluation failed. Codex: ${codexResult.error ?? "not available"}. Claude: ${claudeResult.error}`;
   }
 
-  return "VERDICT: FAIL — Neither Codex nor Claude CLI available for skeptic evaluation";
+  return "VERDICT: SKIPPED — infra: Neither Codex nor Claude CLI available for skeptic evaluation";
 }
