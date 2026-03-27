@@ -46,6 +46,7 @@ export function clearLastSentHeadSha(sessionId: SessionId): void {
  * CR 3002468214 / cursor#3002468214: only deletes entries whose sessionId is NOT in
  * liveSessionIds, preventing cross-project pollution when multiple lifecycle-manager
  * instances share the same process (each LM passes only its own active session set).
+ * Each lifecycle-manager instance calls this with its own active session set only.
  *
  * @param liveSessionIds Set of session IDs currently managed by the caller.
  */
