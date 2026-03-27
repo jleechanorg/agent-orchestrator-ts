@@ -99,7 +99,7 @@ describe("notifier-mcp-mail", () => {
       await notifier.notify(makeEvent());
       const sendCall = findCall(mf, "send_message");
       expect(sendCall![1].headers["Content-Type"]).toBe("application/json");
-      const body = JSON.parse(sendCall![1].body);
+      const body = JSON.parse(sendCall![1].body as string);
       expect(body.jsonrpc).toBe("2.0");
     });
     it("includes agentId as sender_name in params", async () => {
