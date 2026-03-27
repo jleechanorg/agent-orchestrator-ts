@@ -700,16 +700,16 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
             }
             await sessionManager.send(sessionId, finalMessage);
 
-            // Record SHA on successful send using the pre-fetched value (avoids race)
-            if (dedupedSha) {
-              tracker.lastSentHeadSha = dedupedSha;
-            } else if (reactionKey === "changes-requested" && session?.pr) {
-              // Fallback: fetch SHA if not already captured (non-changes-requested or no session.pr)
+            // Record SHA on successful send so the next poll cycle skips if unchanged.
+            // If dedupedSha is set, it is the pre-fetched current SHA (used when SHA was
+            // unchanged and we skipped the dedup path — recording now completes the loop).
+            // Otherwise fetch it fresh to record the SHA that was actually sent.
+            if (reactionKey === "changes-requested" && session?.pr) {
               const project = config.projects[session.projectId];
               const scm = project?.scm ? registry.get<SCM>("scm", project.scm.plugin) : null;
               if (scm?.getPRHeadSha) {
                 try {
-                  tracker.lastSentHeadSha = await scm.getPRHeadSha(session.pr);
+                  tracker.lastSentHeadSha = dedupedSha ?? await scm.getPRHeadSha(session.pr);
                 } catch {
                   // Non-fatal — SHA tracking is best-effort
                 }
