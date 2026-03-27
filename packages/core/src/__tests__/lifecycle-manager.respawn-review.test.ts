@@ -319,13 +319,12 @@ describe("respawn-for-review reaction action", () => {
     expect(mockSessionManager.spawn).not.toHaveBeenCalled();
   });
 
-  it("escalates to human when spawn fails on last retry attempt", async () => {
+  it("increments attempt count and escalates when spawn fails on last attempt", async () => {
     vi.mocked(mockRuntime.isAlive).mockResolvedValue(false);
     vi.mocked(mockSCM.getPRState).mockResolvedValue("open");
     vi.mocked(mockSCM.getReviewDecision).mockResolvedValue("changes_requested");
     vi.mocked(mockSCM.getMergeability).mockResolvedValue({ mergeable: false, noConflicts: true });
 
-    // Simulate spawn failure
     // Simulate spawn failure
     vi.mocked(mockSessionManager.spawn).mockRejectedValue(new Error("spawn failed: no agent available"));
 
@@ -362,8 +361,11 @@ describe("respawn-for-review reaction action", () => {
 
     await lm.check("app-1");
 
-    // With escalateAfter=1 and attempt_count=1, this is the last attempt — escalation must fire
+    // With attempt_count=1 and escalateAfter=1, isLastAttempt is true before spawn.
+    // Spawn fails → attempt count increments to 2 → escalation fires.
+    // Alive-agent path must not be reached.
     expect(mockSessionManager.send).not.toHaveBeenCalled();
+    // Spawn must be called (dead-agent path entered before escalation decision).
     expect(mockSessionManager.spawn).toHaveBeenCalled();
   });
 

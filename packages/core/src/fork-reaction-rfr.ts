@@ -186,10 +186,18 @@ export async function handleRespawnForReview(
         level: "error",
       });
 
-      // Increment attempt counter so next cycle can escalate if threshold reached
-      updateSessionMetadataHelper(session, {
-        respawn_attempt_count: String(attemptCount + 1),
-      }, config);
+      // Increment attempt counter so next cycle can escalate if threshold reached.
+      // Best-effort: if the write fails, proceed to escalation decision immediately
+      // rather than silently swallowing the escalation on a metadata I/O error.
+      try {
+        updateSessionMetadataHelper(session, {
+          respawn_attempt_count: String(attemptCount + 1),
+        }, config);
+      } catch (metaWriteErr) {
+        console.warn(
+          `[lifecycle-manager] respawn_attempt_count persist failed: ${metaWriteErr instanceof Error ? metaWriteErr.message : String(metaWriteErr)} — proceeding to escalation check`,
+        );
+      }
 
       if (isLastAttempt) {
         const event = createEvent("reaction.escalated", {
