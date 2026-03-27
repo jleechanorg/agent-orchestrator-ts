@@ -81,7 +81,7 @@ jobs:
           curl -sfL \
             "https://github.com/rhysd/actionlint/releases/download/v1.7.4/actionlint_1.7.4_linux_amd64.tar.gz" \
             | tar -xz -C /usr/local/bin
-          actionlint .github/workflows/
+          actionlint .github/workflows/*.yml
 
   evidence-media-attachment:
     name: Evidence Has Media Attachment
