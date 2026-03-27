@@ -4,14 +4,8 @@ import { manifest, create } from "./index.js";
 
 function makeMockFetch() { return vi.fn(); }
 
-function mockOk(mf: ReturnType<typeof makeMockFetch>, body: unknown = {}) {
-  // Each notify/post call triggers 2 fetch calls: register_agent then send_message.
-  mf.mockResolvedValue({ ok: true, json: () => Promise.resolve({}), text: () => Promise.resolve("{}") });
-  mf.mockResolvedValue({ ok: true, json: () => Promise.resolve(body), text: () => Promise.resolve(JSON.stringify(body)) });
-}
-
 function mockOk2(mf: ReturnType<typeof makeMockFetch>) {
-  // For tests that call notify twice (register + send_message), set both responses.
+  // Each notify/post call triggers 2 fetch calls: register_agent then send_message.
   mf.mockResolvedValue({ ok: true, json: () => Promise.resolve({}), text: () => Promise.resolve("{}") });
   mf.mockResolvedValue({ ok: true, json: () => Promise.resolve({}), text: () => Promise.resolve("{}") });
 }
@@ -106,28 +100,28 @@ describe("notifier-mcp-mail", () => {
       const mf = makeMockFetch(); mockOk2(mf);
       const notifier = create({ endpoint: "http://localhost:3000", agentId: "ao-1", _fetch: mf });
       await notifier.notify(makeEvent());
-      const body = JSON.parse(findCall(mf, "send_message")![1].body);
+      const body = JSON.parse(findCall(mf, "send_message")![1].body as string);
       expect(body.params.arguments.sender_name).toBe("ao-1");
     });
     it("uses projectId as project_key in params", async () => {
       const mf = makeMockFetch(); mockOk2(mf);
       const notifier = create({ endpoint: "http://localhost:3000", agentId: "ao-1", projectId: "proj-abc", _fetch: mf });
       await notifier.notify(makeEvent());
-      const body = JSON.parse(findCall(mf, "send_message")![1].body);
+      const body = JSON.parse(findCall(mf, "send_message")![1].body as string);
       expect(body.params.arguments.project_key).toBe("proj-abc");
     });
     it("sends body_md built from buildMessageBody", async () => {
       const mf = makeMockFetch(); mockOk2(mf);
       const notifier = create({ endpoint: "http://localhost:3000", agentId: "ao-1", _fetch: mf });
       await notifier.notify(makeEvent({ message: "CI failed on PR #42" }));
-      const body = JSON.parse(findCall(mf, "send_message")![1].body);
+      const body = JSON.parse(findCall(mf, "send_message")![1].body as string);
       expect(body.params.arguments.body_md).toContain("CI failed on PR #42");
     });
     it("sends to as a string array", async () => {
       const mf = makeMockFetch(); mockOk2(mf);
       const notifier = create({ endpoint: "http://localhost:3000", agentId: "ao-1", to: ["orchestrator"], _fetch: mf });
       await notifier.notify(makeEvent());
-      const body = JSON.parse(findCall(mf, "send_message")![1].body);
+      const body = JSON.parse(findCall(mf, "send_message")![1].body as string);
       expect(Array.isArray(body.params.arguments.to)).toBe(true);
       expect(body.params.arguments.to).toContain("orchestrator");
     });
@@ -135,14 +129,14 @@ describe("notifier-mcp-mail", () => {
       const mf = makeMockFetch(); mockOk2(mf);
       const notifier = create({ endpoint: "http://localhost:3000", agentId: "ao-1", _fetch: mf });
       await notifier.notify(makeEvent({ type: "ci.failing" }));
-      const body = JSON.parse(findCall(mf, "send_message")![1].body);
+      const body = JSON.parse(findCall(mf, "send_message")![1].body as string);
       expect(body.params.arguments.subject).toContain("ci.failing");
     });
     it("includes sessionId and projectId in body_md", async () => {
       const mf = makeMockFetch(); mockOk2(mf);
       const notifier = create({ endpoint: "http://localhost:3000", agentId: "ao-1", _fetch: mf });
       await notifier.notify(makeEvent({ sessionId: "backend-3", projectId: "myproj" }));
-      const body = JSON.parse(findCall(mf, "send_message")![1].body);
+      const body = JSON.parse(findCall(mf, "send_message")![1].body as string);
       expect(body.params.arguments.body_md).toContain("backend-3");
       expect(body.params.arguments.body_md).toContain("myproj");
     });
@@ -150,7 +144,7 @@ describe("notifier-mcp-mail", () => {
       const mf = makeMockFetch(); mockOk2(mf);
       const notifier = create({ endpoint: "http://localhost:3000", agentId: "ao-1", _fetch: mf });
       await notifier.notify(makeEvent({ data: { prUrl: "https://github.com/org/repo/pull/42" } }));
-      const body = JSON.parse(findCall(mf, "send_message")![1].body);
+      const body = JSON.parse(findCall(mf, "send_message")![1].body as string);
       expect(body.params.arguments.body_md).toContain("https://github.com/org/repo/pull/42");
     });
     it("throws on non-ok response from send_message", async () => {
@@ -186,7 +180,7 @@ describe("notifier-mcp-mail", () => {
         { label: "Kill Session", callbackEndpoint: "/api/sessions/app-1/kill" },
       ];
       await notifier.notifyWithActions!(makeEvent(), actions);
-      const body = JSON.parse(findCall(mf, "send_message")![1].body);
+      const body = JSON.parse(findCall(mf, "send_message")![1].body as string);
       expect(body.params.arguments.body_md).toContain("View PR");
       expect(body.params.arguments.body_md).toContain("https://github.com/org/repo/pull/42");
       expect(body.params.arguments.body_md).toContain("Kill Session");
@@ -201,19 +195,17 @@ describe("notifier-mcp-mail", () => {
 
   describe("post", () => {
     it("sends a free-form text message via body_md", async () => {
-      const mf = makeMockFetch();
-      mf.mockResolvedValue({ ok: true, json: () => Promise.resolve({}), text: () => Promise.resolve("{}") });
-      mf.mockResolvedValue({ ok: true, json: () => Promise.resolve({ messageId: "msg-abc" }), text: () => Promise.resolve(JSON.stringify({ messageId: "msg-abc" })) });
+      const mf = makeMockFetch(); mockOk2(mf);
       const notifier = create({ endpoint: "http://localhost:3000", agentId: "ao-1", _fetch: mf });
       await notifier.post!("Hello from AO");
-      const body = JSON.parse(findCall(mf, "send_message")![1].body);
+      const body = JSON.parse(findCall(mf, "send_message")![1].body as string);
       expect(body.params.arguments.body_md).toBe("Hello from AO");
     });
     it("uses context channel as to array when provided", async () => {
       const mf = makeMockFetch(); mockOk2(mf);
       const notifier = create({ endpoint: "http://localhost:3000", agentId: "ao-1", _fetch: mf });
       await notifier.post!("ping", { channel: "orchestrator" });
-      const body = JSON.parse(findCall(mf, "send_message")![1].body);
+      const body = JSON.parse(findCall(mf, "send_message")![1].body as string);
       expect(body.params.arguments.to).toEqual(["orchestrator"]);
     });
     it("returns null when no endpoint configured", async () => {
@@ -236,7 +228,7 @@ describe("notifier-mcp-mail", () => {
       const mf = makeMockFetch(); mockOk2(mf);
       const notifier = create({ endpoint: "http://localhost:3000", agentId: "ao-session-abc", projectId: "proj-xyz", _fetch: mf });
       await notifier.notify(makeEvent());
-      const body = JSON.parse(findCall(mf, "register_agent")![1].body);
+      const body = JSON.parse(findCall(mf, "register_agent")![1].body as string);
       expect(body.params.arguments.project_key).toBe("proj-xyz");
       expect(body.params.arguments.program).toBe("agent-orchestrator");
       expect(body.params.arguments.model).toBe("claude");
@@ -248,8 +240,9 @@ describe("notifier-mcp-mail", () => {
       await notifier.notify(makeEvent());
       await notifier.notify(makeEvent());
       const registerCalls = mf.mock.calls.filter((call) => {
+        if (!call[1]) return false;
         const body = JSON.parse((call[1] as { body: string }).body) as { params?: { name?: string } };
-        return body.params?.name === "register_agent";
+        return body.params?.name === "register_agent" || body.params?.arguments?.name === "register_agent";
       });
       expect(registerCalls).toHaveLength(1);
     });
@@ -258,8 +251,9 @@ describe("notifier-mcp-mail", () => {
       const notifier = create({ endpoint: "http://localhost:3000", agentId: "ao-1", _fetch: mf });
       await Promise.all([notifier.notify(makeEvent()), notifier.notify(makeEvent()), notifier.notify(makeEvent())]);
       const registerCalls = mf.mock.calls.filter((call) => {
+        if (!call[1]) return false;
         const body = JSON.parse((call[1] as { body: string }).body) as { params?: { name?: string } };
-        return body.params?.name === "register_agent";
+        return body.params?.name === "register_agent" || body.params?.arguments?.name === "register_agent";
       });
       expect(registerCalls).toHaveLength(1);
     });
