@@ -55,9 +55,9 @@ async function findExistingVerdict(
   for (const c of comments) {
     // Find by HTML marker first (most robust), then by bot author
     if (/<!-- skeptic-agent-verdict -->/i.test(c.body)) {
-      if (VERDICT_LINE_RE.test(c.body)) {
-        const m = c.body.match(VERDICT_LINE_RE);
-        return { verdict: m![1].toUpperCase() as "PASS" | "FAIL", commentId: c.id };
+      const m = c.body.match(VERDICT_LINE_RE);
+      if (m) {
+        return { verdict: m[1].toUpperCase() as "PASS" | "FAIL", commentId: c.id };
       }
     }
   }
