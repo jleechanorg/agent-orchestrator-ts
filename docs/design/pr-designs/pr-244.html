@@ -52,9 +52,9 @@
       <section class="hero">
         <h1>[agento] refactor(skeptic-gate): route through AO worker instead of GHA API keys</h1>
         <p class="muted">The AO infrastructure for skeptic evaluation already exists (bd-skp2):
--  calls 
--  implements the  reaction
--  triggers on  transition</p>
+- skeptic-reviewer.ts calls ao skeptic verify
+- fork-skeptic-extension.ts implements the skeptic-review reaction
+- worker-signals-completion triggers on pr_open transition</p>
         <p class="muted" style="margin-top:0.5rem">
           PR: <a href="https://github.com/jleechanorg/agent-orchestrator/pull/244">#244</a>
           &nbsp;·&nbsp; Status: <span class="badge badge-open">Open</span>
@@ -71,7 +71,7 @@
 │      PR # 244 — agent-orchestrator  │
 └─────────────────────────────────────────┘
                   │
-    ▼ 4 file(s) changed
+    ▼ 6 file(s) changed
                   │
 ┌─────────────────────────────────────────┐
 │           refactor(skeptic-gate): route throu │
@@ -81,10 +81,10 @@
         <article class="card">
           <h2>Metadata</h2>
           <div class="stat-grid">
-            <div class="stat"><div class="num">4</div><div class="lbl">Files</div></div>
-            <div class="stat"><div class="num">1</div><div class="lbl">Commits</div></div>
-            <div class="stat"><div class="num" style="color:#2ea043">+330</div><div class="lbl">Additions</div></div>
-            <div class="stat"><div class="num" style="color:#cf222e">-88</div><div class="lbl">Deletions</div></div>
+            <div class="stat"><div class="num">6</div><div class="lbl">Files</div></div>
+            <div class="stat"><div class="num">3</div><div class="lbl">Commits</div></div>
+            <div class="stat"><div class="num" style="color:#2ea043">+567</div><div class="lbl">Additions</div></div>
+            <div class="stat"><div class="num" style="color:#cf222e">-90</div><div class="lbl">Deletions</div></div>
           </div>
           <ul style="margin-top:1rem">
             <li>Author: <code>jleechan2015</code></li>
@@ -101,7 +101,8 @@
         <table>
           <thead><tr><th>Package / Path</th><th>Files</th></tr></thead>
           <tbody>
-            <tr><td><code>.github/workflows</code></td><td>1</td></tr>
+            <tr><td><code>docs/design</code></td><td>2</td></tr>
+<tr><td><code>.github/workflows</code></td><td>1</td></tr>
 <tr><td><code>docs/superpowers</code></td><td>1</td></tr>
 <tr><td><code>packages/cli</code></td><td>1</td></tr>
 <tr><td><code>packages/core</code></td><td>1</td></tr>
@@ -118,8 +119,20 @@
             <tr>
       <td><code>.github/workflows/skeptic-gate.yml</code></td>
       <td>modified</td>
-      <td style="text-align:right;color:#2ea043">+91</td>
-      <td style="text-align:right;color:#cf222e">-30</td>
+      <td style="text-align:right;color:#2ea043">+95</td>
+      <td style="text-align:right;color:#cf222e">-32</td>
+    </tr>
+<tr>
+      <td><code>docs/design/pr-designs/pr-244.html</code></td>
+      <td><span class="badge badge-new">added</span></td>
+      <td style="text-align:right;color:#2ea043">+156</td>
+      <td style="text-align:right;color:#cf222e">-0</td>
+    </tr>
+<tr>
+      <td><code>docs/design/pr-designs/pr-244.md</code></td>
+      <td><span class="badge badge-new">added</span></td>
+      <td style="text-align:right;color:#2ea043">+69</td>
+      <td style="text-align:right;color:#cf222e">-0</td>
     </tr>
 <tr>
       <td><code>docs/superpowers/specs/2026-03-27-skeptic-gate-ao-dispatch-design.md</code></td>
@@ -130,7 +143,7 @@
 <tr>
       <td><code>packages/cli/src/templates/skeptic/skeptic-gate.yml</code></td>
       <td>modified</td>
-      <td style="text-align:right;color:#2ea043">+79</td>
+      <td style="text-align:right;color:#2ea043">+87</td>
       <td style="text-align:right;color:#cf222e">-51</td>
     </tr>
 <tr>
