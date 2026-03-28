@@ -212,7 +212,9 @@ When an agent needs human judgment:
 2. Check the dashboard or \`ao status\` for details
 3. Attach to the session if needed: \`ao session attach <session>\`
 4. Send instructions: \`ao send <session> '...'\`
-5. Or handle the human-only action yourself (merge PR, close issue, etc.) while keeping implementation in worker sessions.`);
+5. Or handle the human-only action yourself (merge PR, etc.) while keeping implementation in worker sessions.
+
+**Closing PRs**: Only close a PR when it is fully superseded by another PR. Before closing, verify ALL changes are covered by the superseding PR and post a comment documenting which PR supersedes it.`);
 
   // Tips
   sections.push(`## Tips

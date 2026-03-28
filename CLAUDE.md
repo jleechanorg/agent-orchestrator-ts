@@ -269,7 +269,7 @@ Worktrees named `worktree_worker*`, `worktree_pr*`, `worktree_agentog*` etc. are
 - TypeScript strict: no `any`, no `// @ts-ignore`
 - Conventional commits: `feat:`, `fix:`, `chore:`, `docs:`, `test:`
 - Never push to main — always open a PR
-- Never close a PR — rebase conflicts, don't abandon. Leave close decisions to humans.
+- Closing a PR is allowed ONLY when it is superseded by another PR. Before closing: (1) verify ALL changes from the closed PR are present in the superseding PR, (2) post a comment "Superseded by #NNN — all changes verified covered." If a PR has conflicts, rebase it — don't close it.
 - Force-push your own PR branches with `--force-with-lease` when rebasing. Never force-push main.
 - Never `git add -A` — stage only files you changed
 - Files under ~300 LOC; split for clarity
