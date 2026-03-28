@@ -9,7 +9,7 @@
  * to benefit from its cross-platform path detection logic.
  *
  * Fallback chain:
- *   codex --print  (primary — Codex with OPENAI_API_KEY)
+ *   codex exec [prompt]   (primary — Codex with OAuth / OPENAI_API_KEY)
  *   claude --print --no-input  (secondary — Claude with ANTHROPIC_API_KEY)
  *
  * The evaluated output must contain VERDICT: PASS or VERDICT: FAIL.
@@ -37,7 +37,7 @@ export interface LlmEvalResult {
 }
 
 /**
- * Run codex --print --no-input for headless evaluation.
+ * Run codex exec [prompt] for headless evaluation.
  * Uses resolveCodexBinary() from agent-codex plugin for portable path detection.
  * Fail-closed: missing VERDICT = failure (returns error string, not undefined).
  */
@@ -49,12 +49,11 @@ export async function tryCodexPrint(prompt: string): Promise<LlmEvalResult> {
   try {
     const result = execFileSync(
       binary,
-      ["--print", "--no-input"],
+      ["exec", prompt],
       {
-        input: prompt,
         encoding: "utf-8",
         timeout: CODEX_TIMEOUT_MS,
-        stdio: ["pipe", "pipe", "ignore"],
+        stdio: ["ignore", "pipe", "pipe"],
       },
     );
     const output = result.trim();
