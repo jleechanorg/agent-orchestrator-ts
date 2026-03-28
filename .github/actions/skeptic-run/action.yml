@@ -53,7 +53,7 @@ runs:
       run: |
         # bd-skp2: capture exit code explicitly (removed misleading || true)
         skeptic_exit=0
-        (node packages/cli/dist/index.js skeptic \
+        (node packages/cli/dist/index.js skeptic verify \
           --pr ${{ inputs.pr_number }} \
           --dry-run \
           > skeptic-output.txt 2>&1) || skeptic_exit=$?
