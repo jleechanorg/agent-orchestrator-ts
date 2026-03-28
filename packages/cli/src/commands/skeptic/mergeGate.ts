@@ -155,6 +155,14 @@ export async function fetchMergeGateState(
           skepticVerdict = "FAIL";
           skepticCommentId = c.id;
           break;
+        } else if (/VERDICT:\s*SKIPPED/i.test(c.body)) {
+          skepticVerdict = "SKIPPED";
+          skepticCommentId = c.id;
+          break;
+        } else if (/VERDICT:\s*SKIPPED/i.test(c.body)) {
+          skepticVerdict = "SKIPPED";
+          skepticCommentId = c.id;
+          break;
         }
       }
     }
