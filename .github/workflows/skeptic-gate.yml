@@ -4,12 +4,11 @@ name: Skeptic Gate
 # Flow: GHA posts trigger comment → lifecycle-manager runs ao skeptic verify →
 # posts VERDICT comment → GHA polls for VERDICT and exits PASS/FAIL.
 #
-# Security: uses pull_request (not pull_request_target) — this workflow only
-# posts comments and polls for verdicts; it never executes PR code and never
-# needs access to repository secrets. pull_request_target creates elevated
-# risk (base-repo token + untrusted code execution) for no benefit here.
+# Security: uses pull_request_target — this workflow needs write access to
+# post VERDICT comments on the PR. For same-repo PRs (same owner) this is safe.
+# The pull_request variant lacks secrets access needed for gh api comment posts.
 on:
-  pull_request:
+  pull_request_target:
     types: [opened, synchronize, edited, reopened]
 
 # Do NOT cancel in-progress runs — killing a polling step mid-loop discards its
