@@ -20,6 +20,7 @@ import { resolveCodexBinary } from "@jleechanorg/ao-plugin-agent-codex";
 
 const CODEX_TIMEOUT_MS = 90_000;
 const CLAUDE_TIMEOUT_MS = 60_000;
+const MINIMAX_TIMEOUT_MS = 60_000;
 
 /** Line-anchored VERDICT matcher — only accepts a single-line literal "VERDICT: PASS" or "VERDICT: FAIL". */
 const VERDICT_LINE_RE = /^VERDICT:\s*(PASS|FAIL)\s*$/im;
@@ -74,6 +75,70 @@ export async function tryCodexPrint(prompt: string): Promise<LlmEvalResult> {
     }
     // All other errors (timeout, auth failure, Command failed, etc.) are real failures
     // — fail-closed: do NOT fall through to next tool
+    const msg = err instanceof Error ? err.message : String(err);
+    return { validVerdict: false, output: "", error: msg };
+  }
+}
+
+/**
+ * Call MiniMax chat API (OpenAI-compatible endpoint) for headless evaluation.
+ * Uses MINIMAX_API_KEY env var. Fail-closed: missing VERDICT = failure.
+ */
+export async function tryMiniMax(prompt: string): Promise<LlmEvalResult> {
+  const apiKey = process.env["MINIMAX_API_KEY"];
+  if (!apiKey) {
+    return { validVerdict: false, output: "", error: undefined }; // → try next
+  }
+
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), MINIMAX_TIMEOUT_MS);
+
+    const response = await fetch(
+      "https://api.minimaxi.chat/v1/text/chatcompletion_v2",
+      {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: "MiniMax-Text-01",
+          messages: [{ role: "user", content: prompt }],
+          max_tokens: 1024,
+        }),
+        signal: controller.signal,
+      },
+    );
+    clearTimeout(timeout);
+
+    if (!response.ok) {
+      return {
+        validVerdict: false,
+        output: "",
+        error: `MiniMax HTTP ${response.status}: ${response.statusText}`,
+      };
+    }
+
+    const json = await response.json() as {
+      choices?: Array<{ messages?: Array<{ role: string; content: string }> }>;
+      error?: { message?: string };
+    };
+    const content =
+      json?.choices?.[0]?.messages?.[0]?.content ??
+      json?.error?.message ??
+      "";
+    const output = content.trim();
+
+    if (!VERDICT_LINE_RE.test(output)) {
+      return {
+        validVerdict: false,
+        output,
+        error: `MiniMax output missing VERDICT line (got ${output.slice(0, 100)}...)`,
+      };
+    }
+    return { validVerdict: true, output };
+  } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     return { validVerdict: false, output: "", error: msg };
   }
@@ -145,16 +210,22 @@ export async function llmEval(
   const codexResult = await tryCodexPrint(prompt);
   if (codexResult.validVerdict) return codexResult.output;
   if (codexResult.error) {
-    // Codex failed with a real error — fail closed (don't silently fall through)
-    return `VERDICT: FAIL — Codex evaluation failed: ${codexResult.error}`;
+    // Codex failed with a real error — try MiniMax then Claude as fallbacks
+    const miniMaxResult = await tryMiniMax(prompt);
+    if (miniMaxResult.validVerdict) return miniMaxResult.output;
+    const claudeResult = await tryClaudePrint(prompt);
+    if (claudeResult.validVerdict) return claudeResult.output;
+    return `VERDICT: FAIL — All LLM providers failed. Codex: ${codexResult.error}. MiniMax: ${miniMaxResult.error ?? "not configured"}. Claude: ${claudeResult.error ?? "not available"}.`;
   }
 
-  // Codex not available — try Claude as fallback
+  // Codex not available — try MiniMax then Claude
+  const miniMaxResult = await tryMiniMax(prompt);
+  if (miniMaxResult.validVerdict) return miniMaxResult.output;
+
   const claudeResult = await tryClaudePrint(prompt);
   if (claudeResult.validVerdict) return claudeResult.output;
   if (claudeResult.error) {
-    return `VERDICT: FAIL — Both Codex and Claude evaluation failed. Codex: ${codexResult.error ?? "not available"}. Claude: ${claudeResult.error}`;
+    return `VERDICT: FAIL — Codex (not available), MiniMax, and Claude all failed. MiniMax: ${miniMaxResult.error ?? "not configured"}. Claude: ${claudeResult.error}`;
   }
-
   return "VERDICT: FAIL — Neither Codex nor Claude CLI available for skeptic evaluation";
 }
