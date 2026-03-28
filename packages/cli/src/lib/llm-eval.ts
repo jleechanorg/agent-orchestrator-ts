@@ -17,7 +17,6 @@
  */
 
 import { resolveCodexBinary } from "@jleechanorg/ao-plugin-agent-codex";
-import { VERDICT_LINE_RE } from "../commands/skeptic/verdict-utils.js";
 
 const CODEX_TIMEOUT_MS = 120_000;
 const CLAUDE_TIMEOUT_MS = 120_000;
