@@ -117,9 +117,27 @@ jobs:
           echo "Polling for VERDICT from $SKEPTIC_BOT_AUTHOR on PR #$PR_NUM (commit ${HEAD_SHA:0:7})..."
           echo "Max wait: $((MAX_ATTEMPTS * INTERVAL / 60)) minutes"
 
+          API_FAILURES=0
           for i in $(seq 1 $MAX_ATTEMPTS); do
             # Check immediately before sleeping — catches VERDICT already posted.
-            PR_STATE=$(gh api repos/${{ github.repository }}/pulls/"$PR_NUM" --jq '.state' 2>/dev/null || echo "unknown")
+            PR_STATE=$(gh api repos/${{ github.repository }}/pulls/"$PR_NUM" --jq '.state' 2>&1)
+            # Detect API errors: grep -q returns 0 if match found, 1 if no match, 2 on error.
+            # Only treat as error if grep succeeded AND matched an error keyword (not just "closed").
+            if echo "$PR_STATE" | grep -qi "error\|rate limit\|authentication\|not found\|server error"; then
+              API_FAILURES=$((API_FAILURES + 1))
+              echo "API warning: PR state lookup failed (attempt $((i))): ${PR_STATE:0:100}"
+              if [ "$API_FAILURES" -ge 3 ]; then
+                echo "ERROR: Too many consecutive API failures — exiting as ERROR (not TIMEOUT)"
+                echo "verdict=ERROR" >> "$GITHUB_OUTPUT"
+                exit 1
+              fi
+            elif echo "$PR_STATE" | grep -qi "^closed$" > /dev/null; then
+              API_FAILURES=0
+            else
+              # Successful response (no error keyword, not "closed") — reset counter
+              API_FAILURES=0
+            fi
+
             if [ "$PR_STATE" = "closed" ]; then
               echo "PR closed — exiting"
               echo "verdict=SKIPPED" >> "$GITHUB_OUTPUT"
@@ -136,9 +154,18 @@ jobs:
             VERDICT_JQ="[.[] | select(.user.login == \"\$SKEPTIC_BOT_AUTHOR\" and (.body | test(\"VERDICT:\"; \"i\")) and (.created_at > \"\$TRIGGER_UPDATED\") and (.body | test(\"skeptic-gate-trigger-\" + \"\$TRIGGER_SHA\"; \"i\")))] | .[0] // empty"
             VERDICT_JSON=$(gh api repos/${{ github.repository }}/issues/"$PR_NUM"/comments \
               --paginate \
-              --jq "$VERDICT_JQ" 2>/dev/null || echo "empty")
+              --jq "$VERDICT_JQ" 2>&1)
+            if echo "$VERDICT_JSON" | grep -qi "error\|rate limit\|authentication\|not found\|server error"; then
+              API_FAILURES=$((API_FAILURES + 1))
+              echo "API warning: verdict comment lookup failed (attempt $((i))): ${VERDICT_JSON:0:100}"
+              if [ "$API_FAILURES" -ge 3 ]; then
+                echo "ERROR: Too many consecutive API failures — exiting as ERROR (not TIMEOUT)"
+                echo "verdict=ERROR" >> "$GITHUB_OUTPUT"
+                exit 1
+              fi
+            fi
 
-            if [ "$VERDICT_JSON" != "empty" ] && echo "$VERDICT_JSON" | jq -e '.body' > /dev/null 2>&1; then
+            if echo "$VERDICT_JSON" | jq -e '.body' > /dev/null 2>&1; then
               VERDICT_BODY=$(echo "$VERDICT_JSON" | jq -r '.body')
               VERDICT_CREATED=$(echo "$VERDICT_JSON" | jq -r '.created_at')
 
