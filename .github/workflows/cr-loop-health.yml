@@ -54,7 +54,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           # Run cr-loop-guard in query mode to get stats
-          RESULT=$(.github/workflows/../../../scripts/cr-loop-guard.sh \
+          RESULT=$(../../scripts/cr-loop-guard.sh \
             ${{ github.inputs.owner_repo }} \
             ${{ github.inputs.pr_number }} \
             query 2>/dev/null || echo '{"loop_count":0,"actionable_count":0}')

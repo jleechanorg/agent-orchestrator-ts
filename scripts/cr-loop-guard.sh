@@ -58,7 +58,7 @@ ACTIONABLE_HASH=$(echo "$RAW" | jq -r '
    select(.isResolved == false) |
    select(.comments.nodes[0].author.login == "coderabbitai") |
    .comments.nodes[0].body // "" |
-   .[:80] | gsub("[ \n\r\t]+"; ""; "r")] |
+   .[:80] | gsub("[ \n\r\t]+"; ""))] |
   sort | join("|")' 2>/dev/null || echo "PARSE_ERROR")
 
 ACTIONABLE_COUNT=$(echo "$RAW" | jq -r '
@@ -93,11 +93,11 @@ fi
 if [ "$SHA_CHANGED" = "true" ]; then
   LOOP_COUNT=0
 else
-  # If same actionable set and no SHA progress: increment loop
+  # SHA same — actionable hash changed means CR has new comments: reset loop count
   if [ "$ACTIONABLE_HASH" = "$PREV_HASH" ] && [ "$ACTIONABLE_HASH" != "" ]; then
     LOOP_COUNT=$((PREV_LOOPS + 1))
   else
-    LOOP_COUNT=$((PREV_LOOPS + 1))
+    LOOP_COUNT=0
   fi
 fi
 

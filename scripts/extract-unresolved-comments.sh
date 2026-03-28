@@ -87,7 +87,7 @@ def priority($body):
     map(select(.isResolved == false)) |
     map(.comments.nodes[0] // null) |
     map(select(. != null)) |
-    map(select((.author.login // "") | inside(BOT_AUTHORS) | not)) |
+    map(select((.author.login // "") | IN(BOT_AUTHORS[]) | not)) |
     map({
       path: .path,
       line: .line,
