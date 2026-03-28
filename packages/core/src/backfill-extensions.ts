@@ -26,6 +26,8 @@ const execFileAsync = promisify(execFile);
 /** Timeout for git commands in direct cleanup (30 seconds). */
 const GIT_TIMEOUT = 30_000;
 
+import { findRepoPathForWorktree } from "./utils/worktree-git.js";
+
 /** Dependencies injected by the lifecycle-manager call site. */
 export interface BackfillDeps {
   registry: PluginRegistry;
@@ -309,6 +311,20 @@ export async function backfillUncoveredPRs(
                       }
                     }
                   } catch { /* best-effort */ }
+                }
+
+                // Absolute last resort: walk up from the worktree path or scan git worktree
+                // list from homedir to find the owning repo. This handles the case where
+                // the worktree directory has been deleted from disk but its git entry and
+                // local branch remain — without cleanup the branch poisons all future
+                // backfill attempts for the same PR (git refuses to `worktree add -b <branch>`
+                // when the branch already exists locally).
+                if (repoDir === null) {
+                  const fallback = await findRepoPathForWorktree(worktreeDir);
+                  if (fallback) {
+                    repoDir = fallback.repoPath;
+                    if (!branch) branch = fallback.branch || null;
+                  }
                 }
 
                 // Unlock + remove worktree (--force --force mirrors destroy()).

@@ -4,6 +4,7 @@ import { existsSync, lstatSync, symlinkSync, rmSync, mkdirSync, readdirSync, rea
 import { readFile, writeFile } from "node:fs/promises";
 import { join, resolve, basename, dirname } from "node:path";
 import { homedir } from "node:os";
+import { findRepoPathForWorktree } from "@jleechanorg/ao-core";
 import type {
   PluginModule,
   Workspace,
@@ -232,72 +233,6 @@ function expandPath(p: string): string {
   return p;
 }
 
-/**
- * Find the repo path and checked-out branch for a worktree entry,
- * given only the worktree path.
- *
- * Used when the worktree directory no longer exists on disk but git still has
- * a locked worktree reference for it. The branch is needed so the destroy()
- * fallback can still delete the stale branch.
- *
- * Walks up from workspacePath looking for a .git directory, then runs
- * `git worktree list --porcelain` to find the matching worktree entry and
- * extract its gitdir reference and branch.
- */
-async function findRepoPathForWorktree(workspacePath: string): Promise<{ repoPath: string; branch: string } | null> {
-  // Walk up the directory tree looking for a .git directory
-  let dir = dirname(workspacePath);
-  const root = dirname(homedir()); // stop at home
-  while (dir !== root && dir !== "/") {
-    const dotGit = join(dir, ".git");
-    if (existsSync(dotGit)) {
-      try {
-        const gitCommonDir = await git(
-          dir,
-          "rev-parse",
-          "--path-format=absolute",
-          "--git-common-dir",
-        );
-        return { repoPath: resolve(gitCommonDir, ".."), branch: "" };
-      } catch {
-        // Not a valid git repo — keep walking up
-      }
-    }
-    const parent = dirname(dir);
-    if (parent === dir) break;
-    dir = parent;
-  }
-
-  // Fallback: scan git worktree list from homedir to find any repo that has this entry
-  try {
-    const output = await git(homedir(), "worktree", "list", "--porcelain");
-    const blocks = output.split("\n\n");
-    for (const block of blocks) {
-      const lines = block.trim().split("\n");
-      let worktreePath = "";
-      let gitdir = "";
-      let branch = "";
-      for (const line of lines) {
-        if (line.startsWith("worktree ")) {
-          worktreePath = line.slice("worktree ".length);
-        } else if (line.startsWith("gitdir ")) {
-          gitdir = line.slice("gitdir ".length);
-        } else if (line.startsWith("branch ")) {
-          // Strip refs/heads/ prefix so the name works with `git branch -D`.
-          branch = line.slice("branch ".length).replace(/^refs\/heads\//, "");
-        }
-      }
-      if (worktreePath === workspacePath && gitdir) {
-        // gitdir = /repo/.git/worktrees/<name>; .. → worktrees, ../.. → .git, ../../.. → repo root
-        return { repoPath: resolve(gitdir, "..", "..", ".."), branch };
-      }
-    }
-  } catch {
-    // Best-effort
-  }
-
-  return null;
-}
 
 export function create(config?: Record<string, unknown>): Workspace {
   const worktreeBaseDir = config?.worktreeDir
