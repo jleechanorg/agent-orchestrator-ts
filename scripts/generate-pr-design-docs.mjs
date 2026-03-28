@@ -236,6 +236,12 @@ function archDiagram(pr) {
 // HTML template
 // ---------------------------------------------------------------------------
 
+// Converts markdown code spans in an already-escaped HTML string back to <code> tags.
+// escHtml leaves backticks intact (not HTML-special), so we convert them directly.
+function unescCode(str) {
+  return str.replace(/`([^`]+)`/g, (_m, code) => `<code>${code}</code>`);
+}
+
 function htmlDoc({ pr, files, commits }) {
   const title = pr.title || "Untitled PR";
   const description = extractDescription(pr.body);
@@ -322,7 +328,7 @@ function htmlDoc({ pr, files, commits }) {
     <main class="wrap">
       <section class="hero">
         <h1>${escHtml(title)}</h1>
-        <p class="muted">${escHtml(description)}</p>
+        <p class="muted">${unescCode(escHtml(description))}</p>
         <p class="muted" style="margin-top:0.5rem">
           PR: <a href="https://github.com/${REPO}/pull/${pr.number}">#${pr.number}</a>
           &nbsp;·&nbsp; Status: ${stateLabel(state, mergedAt)}
