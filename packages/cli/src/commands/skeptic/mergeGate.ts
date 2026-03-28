@@ -11,9 +11,10 @@
 
 import { ghJson, ghJsonPaginate, fetchReviews, type ReviewInfo } from "./gh-client.js";
 
-const NIT_PATTERN = /^(nit:|nitpick)/i;
+const NIT_PATTERN = /^(nit:|nitpick|_🧹\s*nitpick)/i;
 const CR_BOT = "coderabbitai[bot]";
 const EVIDENCE_BOT = "evidence-review-bot";
+const CR_CHAT_APPROVE_PATTERN = /\[approve\]|ready for merge|this pr is ready to ship|STATUS: READY FOR MERGE/i;
 
 export interface CheckRunSummary {
   name: string;
@@ -32,6 +33,8 @@ export interface MergeGateState {
   mergeableRaw: boolean | null;
   crApproved: boolean;
   crState: string;
+  /** CR posted [approve]/READY FOR MERGE in chat (incremental review deadlock bypass) */
+  crChatApproval: boolean;
   crDismissedWithoutApproval: boolean;
   bugbotErrors: number;
   unresolvedBlockingComments: number;
@@ -91,11 +94,13 @@ export async function fetchMergeGateState(
   try {
     const prData = await ghJson(
       "repos/" + owner + "/" + repo + "/pulls/" + prNumber,
-    ) as { head?: { sha?: string; ref?: string }; mergeable?: boolean; merged?: boolean };
+    ) as { head?: { ref?: string; sha?: string }; mergeable?: boolean; merged?: boolean };
+    mergeableRaw = prData?.mergeable ?? null;
     noConflicts = prData?.mergeable === true || prData?.merged === true;
-    // Use head.sha (immutable commit SHA) instead of head.ref (mutable branch ref)
-    // to avoid TOCTOU races where the branch moves between status check and merge.
+    const headRef = prData?.head?.ref;
     const headSha = prData?.head?.sha;
+    // Use the immutable head SHA (not the mutable branch ref) so a push between
+    // fetching PR data and fetching status cannot mix states from different commits.
     if (headSha) {
       const commitStatus = await ghJson(
         "repos/" + owner + "/" + repo + "/commits/" + headSha + "/status",
@@ -140,45 +145,10 @@ export async function fetchMergeGateState(
   }
 
   // 3. Review threads — nit-filtered unresolved counts (matches checkMergeGate)
-  // Uses GraphQL reviewThreads to get accurate isResolved state (REST /comments lacks it).
+  // Uses GraphQL reviewThreads.isResolved (REST /pulls/{n}/comments has no state field).
   let bugbotErrors = 0;
   let unresolvedBlockingComments = 0;
   try {
-<<<<<<< HEAD
-    const gqlQuery = `
-      query($owner: String!, $repo: String!, $pr: Int!) {
-        repository(owner: $owner, name: $repo) {
-          pullRequest(number: $pr) {
-            reviewThreads(first: 100) {
-              nodes {
-                isResolved
-                comments(first: 1) {
-                  nodes {
-                    author { login }
-                    body
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    `;
-    const gqlData = await ghJson("graphql", [
-      "-f", "query=" + gqlQuery,
-      "-F", "owner=" + owner,
-      "-F", "repo=" + repo,
-      "-F", "pr=" + prNumber,
-    ]) as {
-      data?: {
-        repository?: {
-          pullRequest?: {
-            reviewThreads?: {
-              nodes?: Array<{
-                isResolved: boolean;
-                comments: { nodes: Array<{ author?: { login?: string }; body?: string }> };
-              }>;
-=======
     // Paginate through all review threads (100 per page)
     const allNodes: Array<{
       isResolved: boolean;
@@ -217,7 +187,6 @@ export async function fetchMergeGateState(
                   comments?: { nodes?: Array<{ body: string; author?: { login: string } }> };
                 }>;
               };
->>>>>>> d27e3b5d (fix: CR blockers — mergeGate pagination, headSha, verdict regex)
             };
           };
         };
@@ -231,7 +200,6 @@ export async function fetchMergeGateState(
     for (const t of threads) {
       if (t.isResolved || t.isOutdated) continue;
       const firstComment = t.comments?.nodes?.[0];
-
       const body = firstComment?.body ?? "";
       const author = firstComment?.author?.login ?? "";
       const isNit = NIT_PATTERN.test(body.trimStart());
@@ -243,11 +211,7 @@ export async function fetchMergeGateState(
       if (!isNit) unresolvedBlockingComments++;
     }
   } catch {
-    // non-fatal: fall back to 0 unresolved (conservative — avoids false positives)
-  }
-
-  } catch {
-    // non-fatal: fall back to 0 unresolved (conservative — avoids false positives)
+    // non-fatal
   }
 
   // 4. Evidence review
@@ -256,29 +220,43 @@ export async function fetchMergeGateState(
   const evidenceApproved = latestEvidence?.state === "approved";
   const evidenceRequired = false; // controlled via config; default false for skeptic CLI
 
-  // 5. Existing skeptic verdict
+  // 5. Issue comments — skeptic verdict + CR chat approval detection
   let skepticVerdict: "PASS" | "FAIL" | "SKIPPED" | null = null;
   let skepticCommentId: number | null = null;
+  let crChatApproval = false;
   try {
     const comments = await ghJson(
       "repos/" + owner + "/" + repo + "/issues/" + prNumber + "/comments?per_page=100",
     ) as Array<{ id: number; body: string; user?: { login: string } }>;
     for (const c of comments) {
+      // CR chat approval detection: CR posts "[approve]" or "READY FOR MERGE" in chat
+      // when incremental review system prevents formal APPROVED state update after rebases.
+      if (c.user?.login === CR_BOT && CR_CHAT_APPROVE_PATTERN.test(c.body)) {
+        const hasCRChangesRequested = reviews.some(
+          (r) => r.author?.login === CR_BOT && r.state === "changes_requested",
+        );
+        if (!hasCRChangesRequested) {
+          crChatApproval = true;
+        }
+      }
+      // Skeptic verdict detection
       if (c.user?.login === skepticBotAuthor) {
         if (/VERDICT:\s*PASS/i.test(c.body)) {
           skepticVerdict = "PASS";
           skepticCommentId = c.id;
-          break;
         } else if (/VERDICT:\s*FAIL/i.test(c.body)) {
           skepticVerdict = "FAIL";
           skepticCommentId = c.id;
-          break;
         } else if (/VERDICT:\s*SKIPPED/i.test(c.body)) {
           skepticVerdict = "SKIPPED";
           skepticCommentId = c.id;
-          break;
         }
       }
+    }
+    // CR chat approval override: if CR approved via chat and no blocking comments, treat as approved
+    if (crChatApproval && !crApproved && unresolvedBlockingComments === 0) {
+      crApproved = true;
+      crState = crState === "none" ? "commented_chat_approved" : crState + "_chat_approved";
     }
   } catch {
     // non-fatal
@@ -292,6 +270,7 @@ export async function fetchMergeGateState(
     mergeableRaw,
     crApproved,
     crState,
+    crChatApproval,
     crDismissedWithoutApproval,
     bugbotErrors,
     unresolvedBlockingComments,
@@ -301,5 +280,3 @@ export async function fetchMergeGateState(
     skepticCommentId,
   };
 }
-
-

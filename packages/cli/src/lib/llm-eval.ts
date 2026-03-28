@@ -26,7 +26,7 @@ const CLAUDE_TIMEOUT_MS = 120_000;
  * and trailing bold markers (VERDICT: FAIL**). SKIPPED is produced by llmEval as an
  * infrastructure-unavailable sentinel and must NOT be treated as a valid merge-gate
  * verdict here. */
-const STRICT_VERDICT_RE = /^(?:#{1,3}\s*|\*{1,2})?VERDICT:\s*(PASS|FAIL)(\s*\*+)?\s*$/im;
+const STRICT_VERDICT_RE = /^(?:#{1,3}\s*|\*{1,2})?VERDICT:\s*(PASS|FAIL)\b/im;
 
 export interface LlmEvalResult {
   /** Whether a valid VERDICT line was obtained from the tool.

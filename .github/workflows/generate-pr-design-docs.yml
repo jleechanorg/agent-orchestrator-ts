@@ -39,14 +39,37 @@ jobs:
         # PRs with stale script copies in their branch get the latest fix
         # without needing to rebase. This breaks the regenerate-loop cycle.
         # Use git show (not checkout) to avoid staging the script into the
-        # design-doc commit index. Quote BASE_REF to prevent word-splitting
-        # on any unusual characters in the branch name.
+        # design-doc commit index. Write to a temp file first so a failed
+        # git show does not truncate the existing script before we attempt
+        # recovery. If the base branch has no script, the existing PR-branch
+        # copy is preserved and the workflow continues.
         env:
           BASE_REF: ${{ github.base_ref }}
         run: |
-          git fetch origin "${BASE_REF}" --depth=1
-          git show "FETCH_HEAD:scripts/generate-pr-design-docs.mjs" > scripts/generate-pr-design-docs.mjs || \
-            echo "WARN: could not sync script from base branch (may not exist yet)"
+          BACKUP="scripts/generate-pr-design-docs.mjs.bak"
+          # Preserve the PR-branch copy before attempting overwrite
+          if [ -f scripts/generate-pr-design-docs.mjs ]; then
+            cp scripts/generate-pr-design-docs.mjs "$BACKUP"
+          fi
+          if ! git fetch origin "${BASE_REF}" --depth=1 2>/dev/null; then
+            echo "ERROR: could not fetch base branch '${BASE_REF}'"
+            exit 1
+          fi
+          TMP=$(mktemp)
+          if git show "FETCH_HEAD:scripts/generate-pr-design-docs.mjs" > "$TMP" 2>/dev/null; then
+            mv "$TMP" scripts/generate-pr-design-docs.mjs
+            rm -f "$BACKUP"
+          else
+            rm -f "$TMP"
+            # Restore the PR-branch copy if we backed it up
+            if [ -f "$BACKUP" ]; then
+              mv "$BACKUP" scripts/generate-pr-design-docs.mjs
+              echo "WARN: base branch has no script — PR-branch copy preserved"
+            else
+              echo "ERROR: no generator script found on base branch and none exists on PR branch"
+              exit 1
+            fi
+          fi
 
       - name: Set up Node.js
         uses: actions/setup-node@v4

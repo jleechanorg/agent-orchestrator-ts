@@ -65,9 +65,10 @@ jobs:
           echo "trigger_sha=$HEAD_SHA" >> "$GITHUB_OUTPUT"
 
       # Step 2: Poll for VERDICT from the skeptic bot (configurable via SKEPTIC_BOT_AUTHOR).
-      # Uses TRIGGER_UPDATED = date -u (captured at step start) as the cutoff for
-      # verdict filtering. Any verdict comment from SKEPTIC_BOT_AUTHOR with created_at
-      # >= TRIGGER_UPDATED and containing the current trigger SHA is accepted.
+      # Uses TRIGGER_UPDATED (the trigger comment's updated_at from the GitHub API, captured
+      # by steps.post_trigger) as the cutoff when filtering skeptic bot verdicts. Any verdict
+      # comment from SKEPTIC_BOT_AUTHOR with created_at >= TRIGGER_UPDATED and containing the
+      # current trigger SHA is accepted.
       - name: Poll for skeptic VERDICT
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

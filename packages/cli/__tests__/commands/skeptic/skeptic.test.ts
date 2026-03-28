@@ -6,13 +6,11 @@
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-// CR: import the real VERDICT_LINE_RE from production to avoid duplication.
-// NOTE: vitest's resolvePackageEntry limitation prevents direct import from
-// src/commands/skeptic.js; we verify alignment via an integration test below.
-// The local definition must be kept in sync with skeptic.ts:VERDICT_LINE_RE.
-const VERDICT_LINE_RE = /^VERDICT:\s*(PASS|FAIL|SKIPPED)\b/im;
+// Import from shared verdict utilities — single source of truth for VERDICT_LINE_RE.
+import { VERDICT_LINE_RE, getVerdictColor } from "../../../src/commands/skeptic/verdict-utils.js";
 
-// Re-exported for testing — mirrors the actual export from skeptic.ts
+// findExistingVerdict is private in skeptic.ts; tests use a local copy that calls
+// the same VERDICT_LINE_RE so regressions in parsing logic are still caught.
 async function findExistingVerdict(
   owner: string,
   repo: string,
@@ -75,15 +73,11 @@ describe("VERDICT_LINE_RE — SKIPPED path", () => {
 });
 
 describe("dry-run SKIPPED color mapping", () => {
-  // Mirrors production behavior (skeptic.ts line ~130):
-  // chalk[verdictMatch[1].toLowerCase() === "pass" ? "green" : "red"]
-  // PASS→green, everything else (SKIPPED, FAIL, unknown)→red
-  function getVerdictColor(verdictType: string): string {
-    return verdictType.toLowerCase() === "pass" ? "green" : "red";
-  }
-
-  it("SKIPPED maps to red (matches production)", () => {
-    expect(getVerdictColor("SKIPPED")).toBe("red");
+  // getVerdictColor is imported from the shared verdict-utils module (skeptic.ts
+  // and tests share this as the single source of truth).
+  // PASS→green, SKIPPED→yellow, FAIL/unknown→red
+  it("SKIPPED maps to yellow", () => {
+    expect(getVerdictColor("SKIPPED")).toBe("yellow");
   });
 
   it("PASS maps to green", () => {
