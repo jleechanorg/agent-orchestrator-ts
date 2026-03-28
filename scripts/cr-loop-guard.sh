@@ -92,16 +92,15 @@ if [ "$PREV_SHA" = "$HEAD_SHA" ] || [ -z "$PREV_SHA" ]; then
   SHA_CHANGED="false"
 fi
 
-# If SHA changed: reset loop count (new commit = new chance)
-if [ "$SHA_CHANGED" = "true" ]; then
-  LOOP_COUNT=0
+# Loop detection: only increment when both SHA unchanged AND actionable set unchanged
+# (neither new code pushed nor any comments resolved → stall)
+# Reset in all other cases: new commit, or CR made progress (new comments posted/resolved)
+if [ "$SHA_CHANGED" = "false" ] && \
+   [ "$ACTIONABLE_HASH" = "$PREV_HASH" ] && \
+   [ -n "$PREV_HASH" ]; then
+  LOOP_COUNT=$((PREV_LOOPS + 1))
 else
-  # SHA same — actionable hash changed means CR has new comments: reset loop count
-  if [ "$ACTIONABLE_HASH" = "$PREV_HASH" ] && [ "$ACTIONABLE_HASH" != "" ]; then
-    LOOP_COUNT=$((PREV_LOOPS + 1))
-  else
-    LOOP_COUNT=0
-  fi
+  LOOP_COUNT=0
 fi
 
 # Step 6: Write cache
