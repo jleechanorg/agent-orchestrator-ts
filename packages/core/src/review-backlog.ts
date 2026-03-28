@@ -147,12 +147,14 @@ export async function maybeDispatchReviewBacklog(
       const latestCRReview = crReviews[crReviews.length - 1];
       crLatestVerdict = latestCRReview?.state ?? null;
 
-      // Allow dispatch if a human posted CHANGES_REQUESTED after CR's latest verdict
+      // Allow dispatch if a human posted any meaningful review after CR's latest verdict.
+      // This includes CHANGES_REQUESTED (action required), APPROVED (human cleared the PR),
+      // or any other non-CR review that signals human engagement worth acting on.
       const latestCRIndex = latestCRReview
         ? allReviews.findIndex((r) => r === latestCRReview)
         : -1;
       newerHumanCR = allReviews.slice(latestCRIndex + 1).some(
-        (r) => r.state === "changes_requested" && !String(r.author ?? "").endsWith("coderabbitai[bot]"),
+        (r) => !String(r.author ?? "").endsWith("coderabbitai[bot]"),
       );
     }
   }
