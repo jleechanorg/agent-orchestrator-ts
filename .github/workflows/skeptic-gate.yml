@@ -26,47 +26,44 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-        set -euo pipefail
-        PR=${{ github.event.pull_request.number }}
+          set -euo pipefail
+          PR=${{ github.event.pull_request.number }}
 
-        # Accept either AO worker bot or workflow bot comments.
-        # Match either marker-based comment or explicit VERDICT line.
-        COMMENTS=$(gh api repos/${{ github.repository }}/issues/$PR/comments --paginate)
+          # Accept either AO worker bot or workflow bot comments.
+          # Require marker AND explicit VERDICT:PASS or VERDICT:FAIL.
+          COMMENTS=$(gh api repos/${{ github.repository }}/issues/$PR/comments --paginate)
 
-        VERDICT=$(echo "$COMMENTS" | jq -s 'add' | jq -r '
-          [.[]
-            | select(
-                (.user.login == "jleechan-agent[bot]" or .user.login == "github-actions[bot]")
-                and (
-                  (.body | test("<!-- skeptic-agent-verdict -->"; "i"))
-                  or
-                  (.body | test("VERDICT:"; "i"))
+          VERDICT=$(echo "$COMMENTS" | jq -s 'add' | jq -r '
+            [.[]
+              | select(
+                  (.user.login == "jleechan-agent[bot]" or .user.login == "github-actions[bot]")
+                  and (.body | test("<!-- skeptic-agent-verdict -->"; "i"))
+                  and (.body | test("VERDICT:[[:space:]]*(PASS|FAIL)"; "i"))
                 )
-              )
-          ]
-          | sort_by(.created_at)
-          | reverse
-          | .[0].body // ""
-        ')
+            ]
+            | sort_by(.created_at)
+            | reverse
+            | .[0].body // ""
+          ')
 
-        if echo "$VERDICT" | grep -qi "VERDICT:[[:space:]]*PASS"; then
-          echo "verdict=PASS" >> "$GITHUB_OUTPUT"
-          echo "Skeptic verdict PASS"
-          exit 0
-        fi
+          if echo "$VERDICT" | grep -qi "VERDICT:[[:space:]]*PASS"; then
+            echo "verdict=PASS" >> "$GITHUB_OUTPUT"
+            echo "Skeptic verdict PASS"
+            exit 0
+          fi
 
-        if echo "$VERDICT" | grep -qi "VERDICT:[[:space:]]*FAIL"; then
-          echo "verdict=FAIL" >> "$GITHUB_OUTPUT"
-          echo "Skeptic verdict FAIL"
+          if echo "$VERDICT" | grep -qi "VERDICT:[[:space:]]*FAIL"; then
+            echo "verdict=FAIL" >> "$GITHUB_OUTPUT"
+            echo "Skeptic verdict FAIL"
+            exit 1
+          fi
+
+          # Fail closed if no verdict comment yet.
+          echo "verdict=MISSING" >> "$GITHUB_OUTPUT"
+          echo "No skeptic VERDICT comment found yet (expected AO worker verdict)."
           exit 1
-        fi
-
-        # Fail closed if no verdict comment yet.
-        echo "verdict=MISSING" >> "$GITHUB_OUTPUT"
-        echo "No skeptic VERDICT comment found yet (expected AO worker verdict)."
-        exit 1
 
       - name: Post gate status summary
         if: always()
         run: |
-        echo "Skeptic gate result: ${{ steps.verdict.outputs.verdict }}"
+          echo "Skeptic gate result: ${{ steps.verdict.outputs.verdict }}"
