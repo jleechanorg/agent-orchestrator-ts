@@ -3,9 +3,12 @@ name: Skeptic Cron
 # Runs every 30 minutes — evaluates all open PRs with skeptic and merges when 7-green.
 # This makes skeptic truly universal: even PRs that skip the evolve loop get skeptic
 # review and automatic merge when ready.
+
 on:
   schedule:
+    # Every 30 minutes
     - cron: "*/30 * * * *"
+  # Allow manual trigger from GitHub Actions UI
   workflow_dispatch:
 
 jobs:
@@ -22,20 +25,39 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup
-        uses: ./.github/actions/skeptic-setup
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install Codex CLI
+        run: |
+          if command -v codex &>/dev/null; then
+            echo "Codex CLI already installed"
+          else
+            echo "Installing Codex CLI..."
+            npm install -g @openai/codex 2>&1 || echo "npm install failed — checking for codex binary..."
+          fi
+          if ! command -v codex &>/dev/null; then
+            echo "WARNING: codex CLI not available — skeptic will use Claude CLI fallback if ANTHROPIC_API_KEY is set"
+          fi
+
+      - name: Install skeptic CLI
+        run: npm install -g @jleechanorg/ao-cli
 
       - name: List open PRs
         id: list_prs
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          # Fetch all open PRs (not drafts) with numbers, head refs, and base branches
           PR_JSON=$(gh api repos/${{ github.repository }}/pulls \
             --jq '[.[] | select(.draft == false) | {number, title, head: {ref: .head.ref, sha: .head.sha}, base: {ref: .base.ref}, mergeable}]')
 
           echo "Open non-draft PRs found:"
           echo "$PR_JSON" | jq -c '.[]' 2>/dev/null || echo "$PR_JSON"
 
+          # Store as JSON array string (escaped for YAML)
           echo "pr_numbers=$(echo "$PR_JSON" | jq -c '.')" >> "$GITHUB_OUTPUT"
           echo "pr_count=$(echo "$PR_JSON" | jq 'length')" >> "$GITHUB_OUTPUT"
 
@@ -64,7 +86,7 @@ jobs:
             # Wrap in subshell: prevents set -e from aborting the loop if skeptic exits non-zero
             # bd-skp2: removed || true (misleading) — capture real exit code and check explicitly
             skeptic_exit=0
-            (node packages/cli/dist/index.js skeptic --pr "$PR_NUM" --dry-run > "skeptic-output-${PR_NUM}.txt" 2>&1) || skeptic_exit=$?
+            (ao skeptic verify --pr "$PR_NUM" --dry-run > "skeptic-output-${PR_NUM}.txt" 2>&1) || skeptic_exit=$?
             # Print output for workflow logs
             cat "skeptic-output-${PR_NUM}.txt" || true
 
@@ -92,11 +114,16 @@ jobs:
             echo ""
             echo "--- Checking 7-green for PR #${PR_NUM}: ${PR_TITLE} ---"
 
-            # 1. CI green
+            # 1. CI green — only "success" passes; pending/error/failure all block merge
+            # Use immutable SHA (not mutable branch ref) to avoid stale results on force-push
             HEAD_SHA=$(gh api repos/${{ github.repository }}/pulls/"$PR_NUM" --jq '.head.sha')
             CI_STATUS=$(gh api repos/${{ github.repository }}/commits/"$HEAD_SHA"/status \
               --jq '.state' 2>/dev/null || echo "error")
-            CI_RESULT=$([ "$CI_STATUS" = "success" ] && echo "PASS" || echo "FAIL (state=$CI_STATUS)")
+            if [ "$CI_STATUS" = "success" ]; then
+              CI_RESULT="PASS"
+            else
+              CI_RESULT="FAIL (state=$CI_STATUS)"
+            fi
             echo "  [1] CI green:          $CI_RESULT"
 
             # 2. No merge conflicts
@@ -104,62 +131,77 @@ jobs:
               --jq '{mergeable: .mergeable, merged: .merged}' 2>/dev/null)
             MERGEABLE=$(echo "$PR_DATA2" | jq -r '.mergeable // "unknown"')
             MERGED_FLAG=$(echo "$PR_DATA2" | jq -r '.merged // false')
-            MERGE_CONFLICT=$(if [ "$MERGEABLE" = "true" ] || [ "$MERGED_FLAG" = "true" ]; then echo "PASS"; else echo "FAIL (mergeable=$MERGEABLE)"; fi)
+            if [ "$MERGEABLE" = "true" ] || [ "$MERGED_FLAG" = "true" ]; then
+              MERGE_CONFLICT="PASS"
+            else
+              MERGE_CONFLICT="FAIL (mergeable=$MERGEABLE)"
+            fi
             echo "  [2] No merge conflicts: $MERGE_CONFLICT"
 
-            # 3. CR APPROVED
-            # bd-skp2: add || echo fallback to prevent set -e abort when gh api fails
+            # 3. CR APPROVED — latest CR review state (GitHub API returns uppercase: APPROVED/CHANGES_REQUESTED)
             LATEST_CR=$(gh api repos/${{ github.repository }}/pulls/"$PR_NUM"/reviews \
-              --jq '[.[] | select(.user.login == "coderabbitai[bot]")] | sort_by(.submitted_at) | reverse | .[0] | {state: .state}' 2>/dev/null || echo '{"state":"none"}')
+              --jq '[.[] | select(.user.login == "coderabbitai[bot]") | {state: .state, body_length: (.body | length)}] | sort_by(.submitted_at) | reverse | .[0]' 2>/dev/null)
             CR_STATE=$(echo "$LATEST_CR" | jq -r '.state // "none"')
-            CR_APPROVED=$([ "$CR_STATE" = "APPROVED" ] && echo "PASS" || echo "FAIL (state=$CR_STATE)")
+            CR_BODY_LEN=$(echo "$LATEST_CR" | jq -r '.body_length // 0')
+            # APPROVED if state=APPROVED (GitHub API returns uppercase); dismissal detection is handled by skeptic
+            if [ "$CR_STATE" = "APPROVED" ]; then
+              CR_APPROVED="PASS"
+            else
+              CR_APPROVED="FAIL (state=$CR_STATE)"
+            fi
             echo "  [3] CR APPROVED:        $CR_APPROVED"
 
-            # 4. Bugbot clean
+            # 4. Bugbot clean — no error-severity comments from cursor[bot]
             BUGBOT_ERRORS=$(gh api repos/${{ github.repository }}/pulls/"$PR_NUM"/comments \
               --jq '[.[] | select(.user.login == "cursor[bot]" and (.body | test("error"; "i")))] | length' 2>/dev/null || echo 0)
-            BUGBOT_STATUS=$(if [ "$BUGBOT_ERRORS" = "0" ] || [ -z "$BUGBOT_ERRORS" ]; then echo "PASS"; else echo "FAIL ($BUGBOT_ERRORS error(s))"; fi)
+            if [ "$BUGBOT_ERRORS" = "0" ] || [ -z "$BUGBOT_ERRORS" ]; then
+              BUGBOT_STATUS="PASS"
+            else
+              BUGBOT_STATUS="FAIL ($BUGBOT_ERRORS error(s))"
+            fi
             echo "  [4] Bugbot clean:       $BUGBOT_STATUS"
 
-            # 5. Inline comments resolved
-            # Note: REST /pulls/N/comments cannot distinguish resolved vs unresolved threads.
-            # This check counts root-level non-nitpick comments as a heuristic approximation.
-            # bd-skp2: add || echo fallback to prevent set -e abort when gh api fails
+            # 5. Inline comments resolved — use /pulls/{n}/comments as a reasonable proxy
+            # Pull comments don't have .state (only review threads do), so we count top-level
+            # review comments (in_reply_to_id == null) that are non-nit as active discussions.
+            # This matches the pattern used in skeptic.ts mergeGate.ts
             UNRESOLVED=$(gh api repos/${{ github.repository }}/pulls/"$PR_NUM"/comments \
               --jq '[.[] | select(.in_reply_to_id == null) | select(.body | test("^(nit:|nitpick)"; "i") | not)] | length' 2>/dev/null || echo 0)
-            COMMENTS_STATUS=$(if [ "$UNRESOLVED" = "0" ] || [ -z "$UNRESOLVED" ]; then echo "PASS"; else echo "FAIL ($UNRESOLVED unresolved)"; fi)
+            if [ "$UNRESOLVED" = "0" ] || [ -z "$UNRESOLVED" ]; then
+              COMMENTS_STATUS="PASS"
+            else
+              COMMENTS_STATUS="FAIL ($UNRESOLVED unresolved)"
+            fi
             echo "  [5] Comments resolved:   $COMMENTS_STATUS"
 
-            # 6. Evidence review
+            # 6. Evidence review (evidence-review-bot approved review)
             EVIDENCE_APPROVED=$(gh api repos/${{ github.repository }}/pulls/"$PR_NUM"/reviews \
               --jq '[.[] | select(.user.login == "evidence-review-bot" and .state == "APPROVED")] | length' 2>/dev/null || echo 0)
-            EVIDENCE_STATUS=$(if [ "$EVIDENCE_APPROVED" = "0" ]; then echo "N/A (optional)"; else echo "PASS"; fi)
+            if [ "$EVIDENCE_APPROVED" = "0" ]; then
+              # Evidence review is optional in many configs; check if evidence-gate passed instead
+              EVIDENCE_STATUS="N/A (optional)"
+            else
+              EVIDENCE_STATUS="PASS"
+            fi
             echo "  [6] Evidence review:    $EVIDENCE_STATUS"
 
-            # 7. Skeptic verdict — prefer this cron run's skeptic-output file
-            # bd-skp2: fall back to gh comments API only if no output file exists
-            if [ -f "skeptic-output-${PR_NUM}.txt" ]; then
-              if grep -qi "VERDICT: FAIL" "skeptic-output-${PR_NUM}.txt"; then
-                SKEPTIC_STATUS="FAIL"
-              elif grep -qi "VERDICT: PASS" "skeptic-output-${PR_NUM}.txt"; then
-                SKEPTIC_STATUS="PASS"
-              else
-                SKEPTIC_STATUS="MISSING"
-              fi
+            # 7. Skeptic verdict — look for skeptic gate's VERDICT comment
+            # skeptic-gate.yml posts via GITHUB_TOKEN → author is github-actions[bot]
+            SKEPTIC_BOT="${SKEPTIC_BOT:-github-actions[bot]}"
+            SKEPTIC_JQ_FILTER='[.[] | select(.user.login == "'"$SKEPTIC_BOT"'" and (.body | test("VERDICT:"; "i"))) | .body]'
+            SKEPTIC_VERDICT=$(gh api repos/${{ github.repository }}/issues/"$PR_NUM"/comments \
+              --jq "$SKEPTIC_JQ_FILTER" 2>/dev/null | head -1 || echo "")
+            if echo "$SKEPTIC_VERDICT" | grep -qi "VERDICT: PASS"; then
+              SKEPTIC_STATUS="PASS"
+            elif echo "$SKEPTIC_VERDICT" | grep -qi "VERDICT: FAIL"; then
+              SKEPTIC_STATUS="FAIL"
             else
-              SKEPTIC_VERDICT=$(gh api repos/${{ github.repository }}/issues/"$PR_NUM"/comments \
-                --jq '[.[] | select(.user.login == "github-actions[bot]" and (.body | test("VERDICT:"; "i"))) | .body] | last' 2>/dev/null || echo "")
-              if echo "$SKEPTIC_VERDICT" | grep -qi "VERDICT: PASS"; then
-                SKEPTIC_STATUS="PASS"
-              elif echo "$SKEPTIC_VERDICT" | grep -qi "VERDICT: FAIL"; then
-                SKEPTIC_STATUS="FAIL"
-              else
-                SKEPTIC_STATUS="MISSING"
-              fi
+              # Missing or unrecognized verdict — block merge to be safe; skeptic must explicitly PASS
+              SKEPTIC_STATUS="MISSING"
             fi
             echo "  [7] Skeptic verdict:    $SKEPTIC_STATUS"
 
-            # All must PASS
+            # Determine if PR is merge-ready — all conditions must PASS
             ALL_PASS=true
             for COND in "$CI_RESULT" "$MERGE_CONFLICT" "$CR_APPROVED" "$BUGBOT_STATUS" "$COMMENTS_STATUS"; do
               if echo "$COND" | grep -qi "FAIL"; then
@@ -167,13 +209,17 @@ jobs:
                 break
               fi
             done
-            if echo "$SKEPTIC_STATUS" | grep -Ei "FAIL|MISSING"; then
+
+            # Skeptic verdict: FAIL or MISSING verdict blocks merge (must explicitly PASS)
+            if echo "$SKEPTIC_STATUS" | grep -qi "FAIL\|MISSING"; then
               ALL_PASS=false
             fi
 
             if [ "$ALL_PASS" = "true" ]; then
               echo ""
               echo "*** PR #${PR_NUM} is 7-green! Merging... ***"
+
+              # Check if already merged
               if [ "$MERGED_FLAG" = "true" ]; then
                 echo "Already merged — skipping"
               else
@@ -182,8 +228,21 @@ jobs:
                   --squash --auto \
                   --delete-branch \
                   2>&1 || echo "MERGE_FAILED")
-                if echo "$MERGE_RESULT" | grep -Ei "MERGE_FAILED|error"; then
+                if echo "$MERGE_RESULT" | grep -qi "MERGE_FAILED\|error"; then
                   echo "Merge failed for PR #${PR_NUM}: $MERGE_RESULT"
+                  {
+                    echo "## ⚠️ Auto-merge failed"
+                    echo ""
+                    echo "Skeptic cron detected this PR is 7-green but auto-merge failed."
+                    echo "Please merge manually or check branch protection settings."
+                    echo ""
+                    echo '```'
+                    echo "$MERGE_RESULT"
+                    echo '```'
+                  } > "$RUNNER_TEMP/merge_fail_comment.txt"
+                  gh pr comment "$PR_NUM" \
+                    --body-file "$RUNNER_TEMP/merge_fail_comment.txt" \
+                    --repo ${{ github.repository }} 2>/dev/null || true
                 else
                   echo "Successfully merged PR #${PR_NUM}"
                   MERGED=$((MERGED + 1))

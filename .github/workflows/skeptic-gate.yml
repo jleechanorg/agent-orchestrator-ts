@@ -16,38 +16,62 @@ jobs:
       contents: read
       pull-requests: write
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup
-        uses: ./.github/actions/skeptic-setup
-
-      - name: Run Skeptic
-        uses: ./.github/actions/skeptic-run
+      - name: Install Node.js
+        uses: actions/setup-node@v4
         with:
-          pr_number: ${{ github.event.pull_request.number }}
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          openai_api_key: ${{ secrets.OPENAI_API_KEY }}
+          node-version: "22"
 
-      - name: Post skeptic findings as PR comment
-        if: always()
+      - name: Install Codex CLI
+        run: |
+          if command -v codex &>/dev/null; then
+            echo "Codex CLI already installed: $(codex --version 2>/dev/null || echo 'version check failed')"
+          else
+            echo "Installing Codex CLI..."
+            npm install -g @openai/codex &>/dev/null || true
+          fi
+          if ! command -v codex &>/dev/null; then
+            echo "WARNING: codex CLI not found — skeptic will fall back to Claude CLI if ANTHROPIC_API_KEY is set"
+          fi
+
+      - name: Install skeptic CLI
+        run: npm install -g @jleechanorg/ao-cli
+
+      - name: Run Skeptic evaluation
+        id: run_skeptic
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
-          if [ -f skeptic-output.txt ]; then
-            {
-              echo "## Skeptic Gate Findings"
-              echo ""
-              echo '```'
-              head -c 5800 skeptic-output.txt
-              echo ""
-              echo '```'
-              echo ""
-              echo "_Skeptic gate ran on commit \`${GITHUB_SHA:0:7}\`_"
-            } > "$RUNNER_TEMP/pr_comment.txt"
-            # Post comment — fail the step if posting fails (bd-skp2: catch silent failures)
-            gh pr comment ${{ github.event.pull_request.number }} \
-              --body-file "$RUNNER_TEMP/pr_comment.txt" \
-              || { echo "ERROR: Failed to post skeptic comment to PR" >&2; exit 1; }
+          if [ -z "$OPENAI_API_KEY" ] && [ -z "$ANTHROPIC_API_KEY" ]; then
+            echo "Neither OPENAI_API_KEY nor ANTHROPIC_API_KEY secret configured — skipping skeptic evaluation"
+            echo "verdict=SKIPPED" >> "$GITHUB_OUTPUT"
+            echo "VERDICT: SKIPPED — no API keys configured" > skeptic-output.txt
+            echo "Setup required: add OPENAI_API_KEY to repo secrets (Settings > Secrets)" >> skeptic-output.txt
+            exit 0
+          fi
+
+          skeptic_exit=0
+          (ao skeptic verify \
+            --pr ${{ github.event.pull_request.number }} \
+            > skeptic-output.txt 2>&1) || skeptic_exit=$?
+          cat skeptic-output.txt
+
+          # The CLI's postVerdict handles idempotent comment posting (finds and updates
+          # the existing <!-- skeptic-agent-verdict --> comment rather than appending).
+
+          if grep -qi "VERDICT: FAIL" skeptic-output.txt; then
+            echo "verdict=FAIL" >> "$GITHUB_OUTPUT"
+            exit 1
+          elif grep -qi "VERDICT: PASS" skeptic-output.txt; then
+            echo "verdict=PASS" >> "$GITHUB_OUTPUT"
+            exit 0
+          else
+            echo "verdict=UNKNOWN" >> "$GITHUB_OUTPUT"
+            echo "" >> skeptic-output.txt
+            echo "CONCLUSION: UNKNOWN — could not parse VERDICT from skeptic output (failing closed)" >> skeptic-output.txt
+            echo "Exit code from skeptic: $skeptic_exit" >> skeptic-output.txt
+            exit 1
           fi
