@@ -49,7 +49,7 @@ import json, urllib.request, os
 msg = "[AI Terminal: <workspace>] <@U0AEZC7RX1Q> <nudge text>"
 
 payload = json.dumps({
-    "channel": "C0AKYEY48GM",
+    "channel": channel_id if channel_id else "C0AKYEY48GM",
     "thread_ts": "<thread_ts>",
     "text": msg
 })
