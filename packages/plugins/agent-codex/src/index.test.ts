@@ -1168,8 +1168,17 @@ describe("getRestoreCommand", () => {
 // resolveCodexBinary
 // =========================================================================
 describe("resolveCodexBinary", () => {
-  it("returns path from `which` when codex is found", async () => {
+  // Helper: mock stat to return executable for a specific path, ENOENT for all others.
+  function mockStatExecutable(path: string): void {
+    mockStat.mockImplementation((p: string) => {
+      if (p === path) return Promise.resolve({ mode: 0o100755 });
+      return Promise.reject(new Error("ENOENT"));
+    });
+  }
+
+  it("returns path from `which` when codex is found and executable", async () => {
     mockExecFileAsync.mockResolvedValue({ stdout: "/usr/local/bin/codex\n", stderr: "" });
+    mockStatExecutable("/usr/local/bin/codex");
     const result = await resolveCodexBinary();
     expect(result).toBe("/usr/local/bin/codex");
     expect(mockExecFileAsync).toHaveBeenCalledWith("which", ["codex"], { timeout: 10_000 });
@@ -1177,52 +1186,28 @@ describe("resolveCodexBinary", () => {
 
   it("falls back to common locations when `which` fails", async () => {
     mockExecFileAsync.mockRejectedValue(new Error("not found"));
-    mockStat.mockImplementation((path: string) => {
-      if (path === "/usr/local/bin/codex") {
-        return Promise.resolve({ mtimeMs: 1000 });
-      }
-      return Promise.reject(new Error("ENOENT"));
-    });
-
+    mockStatExecutable("/usr/local/bin/codex");
     const result = await resolveCodexBinary();
     expect(result).toBe("/usr/local/bin/codex");
   });
 
   it("checks /opt/homebrew/bin/codex as fallback", async () => {
     mockExecFileAsync.mockRejectedValue(new Error("not found"));
-    mockStat.mockImplementation((path: string) => {
-      if (path === "/opt/homebrew/bin/codex") {
-        return Promise.resolve({ mtimeMs: 1000 });
-      }
-      return Promise.reject(new Error("ENOENT"));
-    });
-
+    mockStatExecutable("/opt/homebrew/bin/codex");
     const result = await resolveCodexBinary();
     expect(result).toBe("/opt/homebrew/bin/codex");
   });
 
   it("checks ~/.cargo/bin/codex as fallback (Rust-based codex)", async () => {
     mockExecFileAsync.mockRejectedValue(new Error("not found"));
-    mockStat.mockImplementation((path: string) => {
-      if (path === "/mock/home/.cargo/bin/codex") {
-        return Promise.resolve({ mtimeMs: 1000 });
-      }
-      return Promise.reject(new Error("ENOENT"));
-    });
-
+    mockStatExecutable("/mock/home/.cargo/bin/codex");
     const result = await resolveCodexBinary();
     expect(result).toBe("/mock/home/.cargo/bin/codex");
   });
 
   it("checks ~/.npm/bin/codex as fallback", async () => {
     mockExecFileAsync.mockRejectedValue(new Error("not found"));
-    mockStat.mockImplementation((path: string) => {
-      if (path === "/mock/home/.npm/bin/codex") {
-        return Promise.resolve({ mtimeMs: 1000 });
-      }
-      return Promise.reject(new Error("ENOENT"));
-    });
-
+    mockStatExecutable("/mock/home/.npm/bin/codex");
     const result = await resolveCodexBinary();
     expect(result).toBe("/mock/home/.npm/bin/codex");
   });
@@ -1275,6 +1260,11 @@ describe("postLaunchSetup", () => {
     const agent = create();
     mockExecFileAsync.mockResolvedValue({ stdout: "/opt/bin/codex\n", stderr: "" });
     mockReadFile.mockRejectedValue(new Error("ENOENT"));
+    // mockStat must return executable so resolveCodexBinary trusts the which output
+    mockStat.mockImplementation((p: string) => {
+      if (p === "/opt/bin/codex") return Promise.resolve({ mode: 0o100755 });
+      return Promise.reject(new Error("ENOENT"));
+    });
 
     // Before postLaunchSetup, binary is "codex"
     expect(agent.getLaunchCommand(makeLaunchConfig())).toBe("'codex' -c check_for_update_on_startup=false");
