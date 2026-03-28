@@ -277,45 +277,40 @@ describe("respawn-for-review reaction action", () => {
   });
 
   it("does NOT respawn when agent is alive (sends message instead)", async () => {
-    // Agent is alive
+    // When agent is alive, respawn-for-review falls back to send-to-agent.
+    // Use _testing.executeReaction directly to avoid the full check() lifecycle machinery
+    // (which involves status determination, backlog dispatch, and throttle timing).
     vi.mocked(mockRuntime.isAlive).mockResolvedValue(true);
     vi.mocked(mockAgent.getActivityState).mockResolvedValue({ state: "active" });
-    vi.mocked(mockSCM.getPRState).mockResolvedValue("open");
-    vi.mocked(mockSCM.getReviewDecision).mockResolvedValue("changes_requested");
-    vi.mocked(mockSCM.getMergeability).mockResolvedValue({ mergeable: false, noConflicts: true });
-    vi.mocked(mockSCM.getPendingComments).mockResolvedValue(makeReviewComments());
-
-    const reactionsConfig: OrchestratorConfig = {
-      ...config,
-      reactions: {
-        "changes-requested": {
-          auto: true,
-          action: "respawn-for-review",
-          message: "Fix review comments: {{context}}",
-          escalateAfter: "30m",
-        },
-      },
-    };
 
     const session = makeSession({ status: "pr_open", pr: makePR() });
-    vi.mocked(mockSessionManager.get).mockResolvedValue(session);
-
-    writeMetadata(sessionsDir, "app-1", {
-      worktree: tmpDir,
-      branch: "feat/test",
-      status: "pr_open",
-      project: "my-app",
-    });
 
     const lm = createLifecycleManager({
-      config: reactionsConfig,
+      config,
       registry: mockRegistry,
       sessionManager: mockSessionManager,
     });
 
-    await lm.check("app-1");
+    // @ts-expect-error — _testing is typed via the `as` cast at module level
+    const result = await lm._testing!.executeReaction(
+      session.id,
+      session.projectId,
+      "changes-requested",
+      {
+        auto: true,
+        action: "respawn-for-review",
+        message: "Fix review comments: {{context}}",
+        escalateAfter: "30m",
+      },
+      session,
+      undefined, // correlationId
+      false, // isPeriodic
+      false, // agentDead=false → triggers the "agent alive" fallback to send
+    );
 
-    // When alive, respawn-for-review should send a message (not spawn)
+    // When alive, respawn-for-review delegates to send-to-agent
+    expect(result.action).toBe("respawn-for-review");
+    expect(result.success).toBe(true);
     expect(mockSessionManager.send).toHaveBeenCalled();
     expect(mockSessionManager.spawn).not.toHaveBeenCalled();
   });

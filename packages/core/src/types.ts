@@ -684,7 +684,7 @@ export interface PRInfo {
   isDraft: boolean;
   /** GitHub PR state — persisted from metadata prState field (bd-s4t) */
   state?: PRState;
-  /** PR author's GitHub login */
+  /** PR author login — used by merge-gate to filter PR-author comments from blocking counts */
   author?: string;
 }
 

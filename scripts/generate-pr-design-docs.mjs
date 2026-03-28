@@ -224,7 +224,8 @@ function archDiagram(pr) {
   ];
   const W = Math.max(...lines.map(l => l.length)) + 4;
   const bar = "─".repeat(W);
-  const pad = (s) => s.padEnd(W);
+  // Content width = bar width; pad to W-4 to account for "│ " prefix and " │" suffix
+  const pad = (s) => s.padEnd(W - 4);
   // Use string concatenation to avoid nested template literal parse ambiguity
   const archHeader = "│ " + pad("PR #" + prNum + " — agent-orchestrator") + " │";
   const archTitle  = "│ " + pad(title) + " │";

@@ -186,7 +186,7 @@ When reviewing or producing evidence, identify the **claim class** before issuin
 
 ## Reaction Action Idempotency
 
-The reaction system (`lifecycle-manager.ts`) fires actions on every poll cycle when a condition holds. Actions MUST be designed for repeated execution:
+The reaction system (`lifecycle-manager.ts`) fires actions when a lifecycle condition holds (see `executeReaction`). Supported action types: `notify`, `auto-merge`, `send-to-agent`, `respawn-for-review`. Actions MUST be designed for repeated execution:
 
 | Action type | Idempotent? | Guard required |
 |---|---|---|
@@ -195,8 +195,10 @@ The reaction system (`lifecycle-manager.ts`) fires actions on every poll cycle w
 | `send-to-agent` | **NO** — each send consumes agent context window | `retries` cap + SHA dedup |
 | `spawn-worker` | **NO** — creates duplicate sessions | Session existence check |
 
+`escalate` is an internal outcome (reaction stops and emits `reaction.escalated` event) — it is not a configured action type.
+
 **Rules for non-idempotent actions:**
-1. Always set `retries: 2-3` in the reaction config — never rely on the default (`Infinity`)
+1. Always set `retries: 2-3` in the reaction config — never rely on the default (`Infinity` for non-send-to-agent actions)
 2. Use `escalateAfter` to cap total time, not just retry count
 3. When adding new action types, classify idempotency FIRST. If non-idempotent, add dedup logic to `executeReaction()` before shipping.
 4. The `ReactionTracker` currently tracks `attempts` only. SHA-based dedup (`lastSentHeadSha`) is being added (bd-n039). Until then, config-level `retries` is the primary guard.

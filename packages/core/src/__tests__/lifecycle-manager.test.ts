@@ -4044,6 +4044,274 @@ describe("bd-kki: killed transition + merged PR race", () => {
   });
 });
 
+describe("send-to-agent retry policy (bd-5nxx)", () => {
+  // bd-5nt5: verifies the bd-5nxx default cap of 3 for send-to-agent is applied correctly.
+  //
+  // Key behaviour for the send-to-agent reaction on the changes_requested transition:
+  // - Fires once on the changes_requested transition (cycle 1).
+  // - On stable status (cycles 2-5) the reaction does NOT re-fire for this transition.
+  //   The attempt counter in executeReaction only increments when the reaction IS called,
+  //   not on every poll cycle.
+  // - The default cap of 3 is a safety guard against edge-case retry storms.
+  //   It is never reached for changes_requested because the transition only fires once.
+  //
+  // Note: other mechanisms (maybeDispatchReviewBacklog(), mergeable retry loop,
+  // stuck retry loop) can trigger reactions without a status transition — those paths
+  // are covered by their own tests and are bounded by their own retry policies
+  // (BacklogFingerprint, STUCK_RETRY_COOLDOWN_MS respectively).
+  it("send-to-agent fires exactly once on changes_requested transition and never on stable status (bd-5nxx default cap)", async () => {
+    config.reactions = {
+      "changes-requested": {
+        auto: true,
+        action: "send-to-agent",
+        message: "CR feedback: address review comments.",
+      },
+    };
+
+    const mockSCM: SCM = {
+      name: "mock-scm",
+      detectPR: vi.fn(),
+      getPRState: vi.fn().mockResolvedValue("open"),
+      mergePR: vi.fn(),
+      closePR: vi.fn(),
+      getCIChecks: vi.fn(),
+      getCISummary: vi.fn().mockResolvedValue("passing"),
+      getReviews: vi.fn(),
+      getReviewDecision: vi.fn().mockResolvedValue("changes_requested"),
+      getPendingComments: vi.fn(),
+      getAutomatedComments: vi.fn(),
+      getMergeability: vi.fn().mockResolvedValue({ mergeable: true, noConflicts: true }),
+    };
+
+    const registryWithSCM: PluginRegistry = {
+      ...mockRegistry,
+      get: vi.fn().mockImplementation((slot: string) => {
+        if (slot === "runtime") return mockRuntime;
+        if (slot === "agent") return mockAgent;
+        if (slot === "scm") return mockSCM;
+        return null;
+      }),
+    };
+
+    const session = makeSession({ status: "pr_open", pr: makePR() });
+
+    // Reassign mockSessionManager so vi.mocked() picks up the new reference
+    // (matching existing passing test pattern)
+    mockSessionManager = {
+      ...mockSessionManager,
+      get: vi.fn().mockResolvedValue(session),
+      send: vi.fn().mockResolvedValue(undefined),
+    };
+
+    writeMetadata(sessionsDir, "app-1", {
+      worktree: "/tmp",
+      branch: "main",
+      status: "pr_open",
+      project: "my-app",
+    });
+
+    const lm = createLifecycleManager({
+      config,
+      registry: registryWithSCM,
+      sessionManager: mockSessionManager,
+    });
+
+    // Cycle 1: pr_open→changes_requested transition — send fires
+    await lm.check("app-1");
+    expect(lm.getStates().get("app-1")).toBe("changes_requested");
+    expect(mockSessionManager.send).toHaveBeenCalledTimes(1);
+
+    // Cycles 2-5: stable changes_requested — reaction does NOT re-fire.
+    // NOTE: This test proves transition-only firing (bd-5nxx) — it intentionally does NOT
+    // exercise the 3-retry cap because send() succeeds on cycle 1 (line 4122) and the
+    // stable-poll fingerprint guard prevents re-invocation. The 3-retry cap is covered by
+    // the pure-function unit test below (line 4139: "resolveReactionMaxRetries:
+    // send-to-agent defaults to 3") which directly imports the policy function and uses
+    // .not.toBe(Infinity) as an explicit regression guard. The cap cannot be reached
+    // from this integration test without a sequence of send() failures, which requires
+    // restructuring the mock — the unit test is the correct place for this check.
+    for (let cycle = 2; cycle <= 5; cycle++) {
+      vi.mocked(mockSessionManager.send).mockClear();
+      await lm.check("app-1");
+      expect(mockSessionManager.send).not.toHaveBeenCalled();
+    }
+  });
+
+  // bd-5nt5 integration test 1: send-to-agent fires 3 times then escalates when send()
+  // persistently fails. This is the integration test that CR correctly identified was missing —
+  // the "changes_requested" transition test never reaches the cap because send() succeeds, and
+  // the pure-function test only covers resolveReactionMaxRetries() in isolation.
+  //
+  // How the test exercises the cap despite fingerprint dedup:
+  // - Cycle 1: pr_open→changes_requested transition fires executeReaction (attempts=1), send() fails.
+  //   The fingerprint (HEAD SHA) is set and prevents re-entry on the same SHA.
+  // - The transition's executeReaction call is independent from maybeDispatchReviewBacklog's
+  //   separate human-review path (different fingerprint namespace).
+  // - maybeDispatchReviewBacklog calls executeReaction on cycles where count%3===1 (REVIEW_BACKLOG_INTERVAL=3):
+  //   Cycle 1 (transition): attempts=1, send() fails
+  //   Cycle 4 (backlog, count=4): attempts=2, send() fails (fingerprint different namespace)
+  //   Cycle 5 (backlog, count=5): attempts=3, send() fails
+  //   Cycle 6 (backlog, count=6): attempts=4 > maxRetries(3) → shouldEscalate=true → send() skipped
+  // - REVIEW_BACKLOG_INTERVAL=3 means shouldThrottle=false (allow) on cycles 1, 4, 7, ...
+  //   The transition call on cycle 1 does NOT reset the backlog's count — they're independent.
+  // bd-5nt5 integration test: send-to-agent fires 3 times then escalates when send()
+  // persistently fails. Uses lm._testing.executeReaction() to directly drive the
+  // reaction 4 times without depending on REVIEW_BACKLOG_INTERVAL throttle timing —
+  // the throttle fires unpredictably from outside the lifecycle manager (REVIEW_BACKLOG_INTERVAL
+  // is not exported from review-backlog.ts), so we bypass it entirely by calling
+  // executeReaction directly through the _testing API.
+  //
+  // This addresses the CR concern: the transition-only test doesn't reach the cap because
+  // send() succeeds, and the pure-function test only covers resolveReactionMaxRetries()
+  // in isolation. This integration test exercises the full executeReaction path with a
+  // failing send() and verifies the cap is enforced.
+  it("send-to-agent attempts 3 times then skips+escalates when send() persistently fails (bd-5nxx integration)", async () => {
+    const sha = "aaaa1111aaaa1111aaaa1111aaaa1111aaaa1111";
+
+    config.reactions = {
+      "changes-requested": {
+        auto: true,
+        action: "send-to-agent",
+        message: "Handle requested changes.",
+      },
+    };
+
+    const mockSCM: SCM = {
+      name: "mock-scm",
+      detectPR: vi.fn(),
+      getPRState: vi.fn().mockResolvedValue("open"),
+      mergePR: vi.fn(),
+      closePR: vi.fn(),
+      getCIChecks: vi.fn(),
+      getCISummary: vi.fn().mockResolvedValue("passing"),
+      getReviews: vi.fn(),
+      getReviewDecision: vi.fn().mockResolvedValue("changes_requested"),
+      getPendingComments: vi.fn().mockResolvedValue([
+        { id: "c1", body: "fix this", path: "a.ts", line: 1, author: "coderabbit", isResolved: false },
+      ]),
+      getAutomatedComments: vi.fn().mockResolvedValue([]),
+      getMergeability: vi.fn().mockResolvedValue({ mergeable: true, noConflicts: true }),
+      getPRHeadSha: vi.fn().mockResolvedValue(sha),
+    };
+
+    const registryWithSCM: PluginRegistry = {
+      ...mockRegistry,
+      get: vi.fn().mockImplementation((slot: string) => {
+        if (slot === "runtime") return mockRuntime;
+        if (slot === "agent") return mockAgent;
+        if (slot === "scm") return mockSCM;
+        return null;
+      }),
+    };
+
+    const session = makeSession({ status: "pr_open", pr: makePR({ headSha: sha }) });
+
+    // Use a stable local spy — assigning it to mockSessionManager.send ensures
+    // vi.mocked(mockSessionManager.send) resolves to sendSpy for ALL assertions.
+    // (vi.mocked() captures the reference at call-time; reassigning
+    // mockSessionManager.send to the spy AFTER creation still means the spy IS
+    // the current mockSessionManager.send, so vi.mocked() tracks it correctly.)
+    const sendSpy = vi.fn<[string, string], any>();
+    sendSpy.mockRejectedValue(new Error("agent session unreachable"));
+
+    mockSessionManager = {
+      ...mockSessionManager,
+      get: vi.fn().mockResolvedValue(session),
+      send: sendSpy,
+    };
+
+    writeMetadata(sessionsDir, "app-1", {
+      worktree: "/tmp",
+      branch: "main",
+      status: "pr_open",
+      project: "my-app",
+    });
+
+    const lm = createLifecycleManager({
+      config,
+      registry: registryWithSCM,
+      sessionManager: mockSessionManager,
+    });
+
+    // Use lm._testing to directly call executeReaction — bypasses REVIEW_BACKLOG_INTERVAL
+    // throttle timing entirely. The reactionTracker is shared across calls so attempts
+    // accumulate correctly (attempts=1, 2, 3, then skipped at attempts=4 > cap=3).
+    const { executeReaction, getReactionConfigForSession } = (lm as any)._testing;
+    const reactionConfig = getReactionConfigForSession(session, "changes-requested")!;
+
+    // Verify _testing API is accessible
+    expect(executeReaction).toBeDefined();
+    expect(typeof executeReaction).toBe("function");
+    expect(reactionConfig).not.toBeNull();
+    expect(reactionConfig.action).toBe("send-to-agent");
+
+    // Attempt 1: send() fails (agent unreachable) — attempts=1
+    await executeReaction(session.id, session.projectId, "changes-requested", reactionConfig, session);
+    expect(sendSpy).toHaveBeenCalledTimes(1);
+
+    // Attempts 2-3: send() still fails (persistently failing agent) — attempts=2, 3
+    // Attempts 2-3: two more executeReaction calls with a failing send().
+    // sendSpy.mockClear() between calls so each iteration verifies exactly 1 send() call.
+    let sendCallCount = 1; // attempt 1 fired send() once
+    for (const _ of [2, 3] as const) {
+      sendSpy.mockClear();
+      await executeReaction(session.id, session.projectId, "changes-requested", reactionConfig, session);
+      expect(sendSpy).toHaveBeenCalledTimes(1); // each executeReaction call fires send() once
+      sendCallCount++; // = 2, then = 3
+    }
+    // 3 total executeReaction calls → send() was invoked exactly 3 times
+    expect(sendCallCount).toBe(3);
+
+    // Attempt 4: attempts=4 > maxRetries(3) → send() is skipped, escalation fires
+    sendSpy.mockClear();
+    const result = await executeReaction(
+      session.id,
+      session.projectId,
+      "changes-requested",
+      reactionConfig,
+      session,
+    );
+    expect(sendSpy).not.toHaveBeenCalled(); // capped, no send()
+    expect(result.action).toBe("escalated");
+    expect(result.escalated).toBe(true);
+  });
+
+  // bd-5nt5 pure-function test: verifies resolveReactionMaxRetries() caps send-to-agent at 3
+  // while other actions remain uncapped. This pure-function test is deterministic and does not
+  // require complex mock orchestration for the stuck-retry loop.
+  //
+  // This test directly imports and calls the policy function — a regression to
+  // defaultRetries = Infinity for send-to-agent would fail immediately because
+  // Infinity !== 3. The .not.toBe(Infinity) assertion is the explicit regression guard.
+  it("resolveReactionMaxRetries: send-to-agent defaults to 3, notify stays Infinity (bd-5nxx)", async () => {
+    const { resolveReactionMaxRetries } = await import("../fork-reaction-retry-policy.js");
+
+    // Default cap: send-to-agent → 3, all others → Infinity
+    expect(resolveReactionMaxRetries("send-to-agent", {})).toBe(3);
+    expect(resolveReactionMaxRetries("notify", {})).toBe(Infinity);
+    // respawn-for-review is a real supported action — must stay uncapped (bd-5nxx)
+    expect(resolveReactionMaxRetries("respawn-for-review", {})).toBe(Infinity);
+    expect(resolveReactionMaxRetries("auto-merge", {})).toBe(Infinity);
+
+    // Per-reaction override takes precedence
+    expect(resolveReactionMaxRetries("send-to-agent", { retries: 5 })).toBe(5);
+    expect(resolveReactionMaxRetries("notify", { retries: 0 })).toBe(0);
+
+    // A regression to defaultRetries = Infinity for send-to-agent would cause this test to fail
+    // because Infinity !== 3. This is verified by changing the implementation temporarily.
+    expect(resolveReactionMaxRetries("send-to-agent", {})).not.toBe(Infinity);
+
+    // bd-sbr.periodic-cap: periodic invocations (agent-stuck nudge retry) are bounded by
+    // their own cooldown timer (STUCK_RETRY_COOLDOWN_MS) and should NOT consume the transition
+    // cap. isPeriodic=true returns Infinity regardless of action type.
+    expect(resolveReactionMaxRetries("send-to-agent", {}, true)).toBe(Infinity);
+    expect(resolveReactionMaxRetries("notify", {}, true)).toBe(Infinity);
+    expect(resolveReactionMaxRetries("auto-merge", {}, true)).toBe(Infinity);
+    // Even with an explicit retries override, periodic should stay uncapped
+    expect(resolveReactionMaxRetries("send-to-agent", { retries: 1 }, true)).toBe(Infinity);
+  });
+});
+
 describe("post-merge reap: reapPostMergeCoWorkers is called on merged transition", () => {
   // reapPostMergeCoWorkers is already imported at the top of the file (mocked by vi.mock)
 
@@ -4344,5 +4612,3 @@ describe("bd-skp2 skeptic trigger on pr_open", () => {
     expect(mockRunSkepticReviewReaction).not.toHaveBeenCalled();
   });
 });
-
-
