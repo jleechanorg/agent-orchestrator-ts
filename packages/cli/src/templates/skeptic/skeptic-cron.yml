@@ -87,7 +87,7 @@ jobs:
             # bd-skp2: removed || true (misleading) — capture real exit code and check explicitly
             # bd-ao2b: correct subcommand is 'verify -n' not '--pr'
             skeptic_exit=0
-            (node packages/cli/dist/index.js skeptic verify -n "$PR_NUM" --repo "${{ github.repository }}" --dry-run > "skeptic-output-${PR_NUM}.txt" 2>&1) || skeptic_exit=$?
+            (npx @jleechanorg/ao-cli skeptic verify -n "$PR_NUM" --repo "${{ github.repository }}" --dry-run > "skeptic-output-${PR_NUM}.txt" 2>&1) || skeptic_exit=$?
             # Print output for workflow logs
             cat "skeptic-output-${PR_NUM}.txt" || true
 

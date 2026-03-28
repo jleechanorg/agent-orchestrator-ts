@@ -55,9 +55,14 @@ export async function detectRepo(execFn = exec): Promise<RepoInfo> {
       }
       throw new Error("Git remote does not appear to be a GitHub URL");
     } catch (err) {
-      // Only ignore exec (ENOENT/EACCES) errors; re-throw all descriptive parse errors
-      if (err instanceof Error && (err as NodeJS.ErrnoException).code &&
-          (err as NodeJS.ErrnoException).code !== "ENOENT" && (err as NodeJS.ErrnoException).code !== "EACCES") {
+      // Only ignore exec (ENOENT/EACCES) errors; re-throw all descriptive parse errors.
+      // exec errors indicate missing binaries — swallow silently and fall through.
+      // parse errors indicate malformed remote/response — re-throw so the outer catch surfaces them.
+      if (err instanceof Error && (err as NodeJS.ErrnoException).code === "ENOENT") {
+        // swallow
+      } else if (err instanceof Error && (err as NodeJS.ErrnoException).code === "EACCES") {
+        // swallow
+      } else {
         throw err;
       }
     }

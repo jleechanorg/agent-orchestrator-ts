@@ -648,6 +648,7 @@ describe("scm-github plugin", () => {
           headRefName: "feat/my-feature",
           baseRefName: "main",
           isDraft: false,
+          author: null,
         },
       ]);
 
@@ -661,6 +662,7 @@ describe("scm-github plugin", () => {
         branch: "feat/my-feature",
         baseBranch: "main",
         isDraft: false,
+        author: null,
       });
     });
 
@@ -681,7 +683,7 @@ describe("scm-github plugin", () => {
           headRefName: "feat/my-feature",
           baseRefName: "main",
           isDraft: false,
-          user: { login: "testuser" },
+          author: { login: "testuser" },
         },
       ]);
 
@@ -698,7 +700,7 @@ describe("scm-github plugin", () => {
           "--head",
           "feat/my-feature",
           "--json",
-          "number,url,title,headRefName,baseRefName,isDraft",
+          "number,url,title,headRefName,baseRefName,isDraft,author",
           "--limit",
           "1",
         ],

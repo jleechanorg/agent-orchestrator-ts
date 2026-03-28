@@ -673,7 +673,7 @@ function prInfoFromView(
     branch: data.headRefName,
     baseBranch: data.baseRefName,
     isDraft: data.isDraft,
-    author: data.author,
+    ...(data.author != null ? { author: data.author } : {}),
   };
 }
 
@@ -1230,7 +1230,7 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
           "--head",
           session.branch,
           "--json",
-          "number,url,title,headRefName,baseRefName,isDraft",
+          "number,url,title,headRefName,baseRefName,isDraft,author",
           "--limit",
           "1",
         ]);
@@ -1242,11 +1242,11 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
           headRefName: string;
           baseRefName: string;
           isDraft: boolean;
-          user: { login: string };
+          author: { login: string } | null;
         }> = JSON.parse(listRaw);
 
         if (listPrs.length > 0) {
-          return prInfoFromView({ ...listPrs[0], author: listPrs[0].user?.login }, project.repo);
+          return prInfoFromView({ ...listPrs[0]!, author: listPrs[0].author?.login ?? null }, project.repo);
         }
 
         // GraphQL succeeded but no PR found — skip REST fallback since it is
