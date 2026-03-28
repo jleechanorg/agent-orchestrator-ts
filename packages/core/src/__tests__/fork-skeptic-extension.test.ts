@@ -298,4 +298,27 @@ describe("runSkepticReviewReaction", () => {
       expect.objectContaining({ model: undefined }),
     );
   });
+
+  it("calls runSkepticReview when session has no workspacePath (backfill session)", async () => {
+    // Backfill sessions spawned by lifecycle-manager may have no workspacePath.
+    // runSkepticReview still succeeds because ao skeptic verify only needs GitHub API access.
+    mockedRunSkepticReview.mockResolvedValueOnce({
+      verdict: "PASS",
+      details: "ok",
+      modelUsed: "codex",
+    });
+
+    const session = makeSession({ workspacePath: undefined as unknown as string });
+    const config = makeReactionConfig();
+
+    const result = await runSkepticReviewReaction({
+      reactionKey: "skeptic-review",
+      reactionConfig: config,
+      session,
+    });
+
+    expect(mockedRunSkepticReview).toHaveBeenCalledOnce();
+    expect(mockedRunSkepticReview).toHaveBeenCalledWith(session, expect.any(Object));
+    expect(result.success).toBe(true);
+  });
 });

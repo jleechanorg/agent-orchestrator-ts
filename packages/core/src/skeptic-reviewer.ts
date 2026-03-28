@@ -81,6 +81,7 @@ export async function runSkepticReview(
   const aoBinary = process.env["AO_CLI_PATH"] ?? "ao";
   const args: string[] = [
     "skeptic",
+    "verify",
     "--pr",
     String(prNumber),
     "--repo",

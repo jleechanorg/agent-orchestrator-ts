@@ -11,7 +11,7 @@ Tracking: orch-rx8
 `skeptic-gate.yml` currently tries to install Codex/Claude CLI and run skeptic evaluation directly in GitHub Actions. This requires `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` as repo secrets. Since those keys aren't configured (and shouldn't be), every PR gets `VERDICT: SKIPPED — ANTHROPIC_API_KEY not configured`.
 
 The AO infrastructure for skeptic review already exists (bd-skp2):
-- `skeptic-reviewer.ts` calls `ao skeptic --pr N`
+- `skeptic-reviewer.ts` calls `ao skeptic verify --pr N`
 - `fork-skeptic-extension.ts` implements the `skeptic-review` reaction
 - `lifecycle-manager.ts` triggers `worker-signals-completion` → `skeptic-review` on PR open
 
@@ -29,7 +29,7 @@ Why this approach:
 
 ## Architecture
 
-```
+```text
 PR opened/updated
     │
     ▼
@@ -88,14 +88,14 @@ GHA polling loop:
 ## Data Flow Details
 
 ### Trigger Comment Format
-```
+```text
 🤖 [agento] Skeptic evaluation triggered on commit `{sha}`.
 _AO worker will evaluate and post VERDICT here._
 <!-- skeptic-gate-trigger-{sha} -->
 ```
 
 ### VERDICT Comment Format
-```
+```text
 🤖 Skeptic Agent — Independent Exit Criteria Verifier
 
 ## Verdict
@@ -107,7 +107,7 @@ _This PR meets the skeptic exit criteria._ (or _fails on: ..._)
 ```
 
 ### Comment Detection Logic (lifecycle-manager)
-```
+```text
 For each open PR:
   1. Fetch latest 5 comments from github-actions[bot]
   2. Look for comment matching: body contains "Skeptic evaluation triggered"
@@ -117,7 +117,7 @@ For each open PR:
 ```
 
 ### GHA Polling Loop
-```
+```bash
 MAX_WAIT=60  (30-minute timeout at 30s intervals)
 
 for i in $(seq 1 $MAX_WAIT); do

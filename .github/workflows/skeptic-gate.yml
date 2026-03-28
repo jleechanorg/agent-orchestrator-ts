@@ -18,54 +18,78 @@ jobs:
     permissions:
       pull-requests: write
       issues: write
+    outputs:
+      # Pass the trigger-comment updated_at to the polling step so it can filter
+      # out verdicts from cancelled previous runs (only accept verdicts posted
+      # AFTER the current trigger was last updated).
+      trigger_updated: ${{ steps.post_trigger.outputs.trigger_updated }}
     steps:
       # Step 1: Post trigger comment for lifecycle-manager to pick up.
       # lifecycle-manager runs ao skeptic verify with local API keys.
+      # We capture the comment's updated_at timestamp to use as a cutoff in polling.
       - name: Post skeptic trigger comment
+        id: post_trigger
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           PR_NUM=${{ github.event.pull_request.number }}
 
-          # Idempotent: update existing trigger comment instead of appending.
           # NOTE: parentheses around (.body | test(...)) are required — in jq, the `and`
           # operator has lower precedence than `|`, so `.a == X and .b | test(...)`
           # would be parsed as `(.a == X and .b) | test(...)` without parens.
-          EXISTING_ID=$(gh api repos/${{ github.repository }}/issues/"$PR_NUM"/comments \
-            --jq '[.[] | select(.user.login == "github-actions[bot]" and (.body | test("skeptic-gate-trigger"; "i")))] | .[0].id // empty' 2>/dev/null || echo "")
+          EXISTING=$(gh api repos/${{ github.repository }}/issues/"$PR_NUM"/comments \
+            --jq '[.[] | select(.user.login == "github-actions[bot]" and (.body | test("skeptic-gate-trigger"; "i")))] | .[0] // empty' 2>/dev/null || echo "empty")
 
-          if [ -n "$EXISTING_ID" ] && [ "$EXISTING_ID" != "empty" ]; then
-            gh api repos/${{ github.repository }}/issues/"$PR_NUM"/comments/"$EXISTING_ID" \
+          # Build the body via printf (not inline YAML) so $HEAD_SHA substitution is safe.
+          BODY="$(printf '%s\n\n%s\n\n%s' \
+            "🤖 [agento] Skeptic evaluation triggered on commit \`${HEAD_SHA:0:7}\`." \
+            "_AO worker will evaluate and post VERDICT._" \
+            "<!-- skeptic-gate-trigger-${HEAD_SHA} -->")"
+
+          if [ "$EXISTING" != "empty" ] && echo "$EXISTING" | jq -e '.id' > /dev/null 2>&1; then
+            EXISTING_ID=$(echo "$EXISTING" | jq -r '.id')
+            echo "Updating existing trigger comment: $EXISTING_ID"
+            UPDATED=$(gh api repos/${{ github.repository }}/issues/"$PR_NUM"/comments/"$EXISTING_ID" \
               --method PATCH \
-              -f body="🤖 [agento] Skeptic evaluation triggered on commit \`${HEAD_SHA:0:7}\`.
-
-_AO worker will evaluate and post VERDICT._
-
-<!-- skeptic-gate-trigger-${HEAD_SHA} -->" \
-              || echo "WARNING: Failed to update trigger comment"
+              -f body="$BODY" 2>/dev/null)
+            # Use updated_at — this is the moment the current workflow's trigger was posted.
+            # Any VERDICT with created_at <= this timestamp belongs to a previous run.
+            TRIGGER_UPDATED=$(echo "$UPDATED" | jq -r '.updated_at')
+            echo "trigger_updated=$TRIGGER_UPDATED" >> "$GITHUB_OUTPUT"
           else
-            gh pr comment "$PR_NUM" \
-              --body "🤖 [agento] Skeptic evaluation triggered on commit \`${HEAD_SHA:0:7}\`.
-
-_AO worker will evaluate and post VERDICT._
-
-<!-- skeptic-gate-trigger-${HEAD_SHA} -->" \
-              || { echo "ERROR: Failed to post trigger comment" >&2; exit 1; }
+            echo "Posting new trigger comment"
+            CREATED=$(gh api repos/${{ github.repository }}/issues/"$PR_NUM"/comments \
+              --method POST \
+              -f body="$BODY" 2>/dev/null)
+            TRIGGER_UPDATED=$(echo "$CREATED" | jq -r '.updated_at')
+            echo "trigger_updated=$TRIGGER_UPDATED" >> "$GITHUB_OUTPUT"
           fi
 
       # Step 2: Poll for VERDICT from jleechan-agent[bot].
-      # lifecycle-manager picks up the trigger on its next poll cycle (~30s) and runs
-      # ao skeptic verify, which posts VERDICT: PASS or VERDICT: FAIL.
+      # Only accept verdicts whose `created_at` is AFTER the trigger comment was
+      # updated — this prevents a verdict from a cancelled previous run from
+      # causing a false early exit on the current push.
       - name: Poll for skeptic VERDICT
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          TRIGGER_UPDATED: ${{ needs.skeptic_gate.outputs.trigger_updated }}
         # 28 min timeout — leave 2 min buffer so the step exits cleanly before the
         # 30-min job timeout rather than being killed by the runner.
         timeout-minutes: 28
         run: |
           PR_NUM=${{ github.event.pull_request.number }}
+          # TRIGGER_UPDATED is ISO-8601: 2024-01-15T12:00:00Z
+          # ISO-8601 lexicographic ordering equals chronological ordering, so
+          # we can use string comparison directly (no date conversion needed).
+          if [ -z "$TRIGGER_UPDATED" ] || [ "$TRIGGER_UPDATED" = "null" ]; then
+            echo "ERROR: trigger_updated not set — cannot poll for verdicts"
+            echo "verdict=ERROR" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+          echo "Only accepting verdicts posted after trigger was updated: $TRIGGER_UPDATED"
+
           MAX_ATTEMPTS=55   # 55 * 30s = 27.5 min (safe of 28-min step timeout)
           INTERVAL=30
 
@@ -74,7 +98,6 @@ _AO worker will evaluate and post VERDICT._
 
           for i in $(seq 1 $MAX_ATTEMPTS); do
             # Check immediately before sleeping — catches VERDICT already posted.
-            # Check if PR was closed/merged (exit early).
             PR_STATE=$(gh api repos/${{ github.repository }}/pulls/"$PR_NUM" --jq '.state' 2>/dev/null || echo "unknown")
             if [ "$PR_STATE" = "closed" ]; then
               echo "PR closed — exiting"
@@ -82,18 +105,21 @@ _AO worker will evaluate and post VERDICT._
               exit 0
             fi
 
-            # Look for VERDICT from jleechan-agent[bot] (posted by ao skeptic verify).
+            # Find verdict comments from jleechan-agent[bot] posted AFTER the
+            # trigger was updated. This prevents accepting verdicts from a
+            # cancelled previous workflow run on the same PR.
             # Parentheses required around (.body | test(...)) — jq `and` has lower
             # precedence than `|`, so unparenthesized form would be parsed as
-            # (.user.login == X and .body) | test(...) which always selects all entries.
-            VERDICT=$(gh api repos/${{ github.repository }}/issues/"$PR_NUM"/comments \
-              --jq '[.[] | select(.user.login == "jleechan-agent[bot]" and (.body | test("VERDICT:"; "i")))] | .[-1] | {id, body: .body} // empty' 2>/dev/null || echo "")
+            # (.user.login == X and .body) | test(...) which always selects all.
+            VERDICT_JSON=$(gh api repos/${{ github.repository }}/issues/"$PR_NUM"/comments \
+              --jq "[.[] | select(.user.login == \"jleechan-agent[bot]\" and (.body | test(\"VERDICT:\"; \"i\")) and (.created_at > \"$TRIGGER_UPDATED\"))] | .[0] // empty" 2>/dev/null || echo "empty")
 
-            if [ -n "$VERDICT" ] && [ "$VERDICT" != "empty" ]; then
-              VERDICT_ID=$(echo "$VERDICT" | jq -r '.id // empty')
-              VERDICT_BODY=$(echo "$VERDICT" | jq -r '.body // empty')
+            if [ "$VERDICT_JSON" != "empty" ] && echo "$VERDICT_JSON" | jq -e '.body' > /dev/null 2>&1; then
+              VERDICT_BODY=$(echo "$VERDICT_JSON" | jq -r '.body')
+              VERDICT_CREATED=$(echo "$VERDICT_JSON" | jq -r '.created_at')
+
               echo ""
-              echo "=== Found VERDICT ==="
+              echo "=== Found VERDICT (posted $VERDICT_CREATED) ==="
               echo "$VERDICT_BODY"
 
               if echo "$VERDICT_BODY" | grep -qi "VERDICT: PASS"; then
@@ -107,10 +133,10 @@ _AO worker will evaluate and post VERDICT._
               fi
             fi
 
-            echo "Attempt $i/$MAX_ATTEMPTS — no VERDICT yet, sleeping ${INTERVAL}s..."
+            echo "Attempt $i/$MAX_ATTEMPTS — no fresh VERDICT yet, sleeping ${INTERVAL}s..."
             sleep $INTERVAL
           done
 
-          echo "TIMEOUT: No VERDICT after $((MAX_ATTEMPTS * INTERVAL / 60)) minutes"
+          echo "TIMEOUT: No fresh VERDICT after $((MAX_ATTEMPTS * INTERVAL / 60)) minutes"
           echo "verdict=TIMEOUT" >> "$GITHUB_OUTPUT"
           exit 1
