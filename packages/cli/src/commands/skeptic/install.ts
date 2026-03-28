@@ -113,7 +113,8 @@ async function checkBuildTools(_repo: RepoInfo): Promise<void> {
   }
 
   console.log(chalk.cyan("  ℹ  After committing, add secrets in GitHub repo Settings > Secrets:"));
-  console.log(chalk.cyan("     • OPENAI_API_KEY   (Codex — required; Codex uses OAuth + API key)"));
+  console.log(chalk.cyan("     • OPENAI_API_KEY    (Codex primary — optional if MINIMAX_API_KEY set)"));
+  console.log(chalk.cyan("     • MINIMAX_API_KEY   (MiniMax HTTP fallback — recommended)"));
   console.log(chalk.cyan("     • ANTHROPIC_API_KEY (Claude CLI — optional fallback)"));
 }
 
@@ -216,9 +217,10 @@ export function registerSkepticInstall(skepticCmd: Command): void {
           chalk.cyan("  2. Push to activate workflows:") +
           "\n     git push" +
           "\n" +
-          chalk.cyan("  3. Add this secret in GitHub > Settings > Secrets:") +
-          "\n     • OPENAI_API_KEY   (Codex — required)" +
-          "\n     (ANTHROPIC_API_KEY is optional — Claude CLI fallback if set)" +
+          chalk.cyan("  3. Add secrets in GitHub > Settings > Secrets:") +
+          "\n     • MINIMAX_API_KEY   (MiniMax — recommended fallback)" +
+          "\n     • OPENAI_API_KEY    (Codex primary — optional)" +
+          "\n     • ANTHROPIC_API_KEY (Claude CLI — optional)" +
           "\n" +
           chalk.green("  Done! Skeptic will run on your next PR.\n"),
       );
