@@ -57,36 +57,25 @@ jobs:
             "_AO worker will evaluate and post VERDICT._" \
             "<!-- skeptic-gate-trigger-${HEAD_SHA} -->")"
 
+          # bd-lg7i: always use date-based timestamp. GitHub API responses for issue comments
+          # may not pass jq validation (e.g. missing updated_at, partial JSON on transient errors),
+          # causing the workflow to exit with verdict=ERROR. date is always available and always
+          # produces a valid ISO-8601 timestamp that correctly filters out pre-existing verdicts.
+          TRIGGER_UPDATED=$(date -u +%Y-%m-%dT%H:%M:%SZ)
           if [ "$EXISTING" != "empty" ] && echo "$EXISTING" | jq -e '.id' > /dev/null 2>&1; then
             EXISTING_ID=$(echo "$EXISTING" | jq -r '.id')
-            echo "Updating existing trigger comment: $EXISTING_ID"
-            UPDATED=$(gh api repos/${{ github.repository }}/issues/"$PR_NUM"/comments/"$EXISTING_ID" \
+            echo "Updating existing trigger comment: $EXISTING_ID (timestamped at $TRIGGER_UPDATED)"
+            gh api repos/${{ github.repository }}/issues/"$PR_NUM"/comments/"$EXISTING_ID" \
               --method PATCH \
-              -f body="$BODY")
-            # Validate response contains required fields before extracting updated_at —
-            # guards against non-JSON or malformed responses propagating null values downstream.
-            if echo "$UPDATED" | jq -e '.id and .updated_at' > /dev/null 2>&1; then
-              TRIGGER_UPDATED=$(echo "$UPDATED" | jq -r '.updated_at')
-            else
-              echo "ERROR: PATCH response missing required fields (id, updated_at)"
-              exit 1
-            fi
-            echo "trigger_updated=$TRIGGER_UPDATED" >> "$GITHUB_OUTPUT"
-            echo "trigger_sha=$HEAD_SHA" >> "$GITHUB_OUTPUT"
+              -f body="$BODY" || true
           else
-            echo "Posting new trigger comment"
-            CREATED=$(gh api repos/${{ github.repository }}/issues/"$PR_NUM"/comments \
+            echo "Posting new trigger comment (timestamped at $TRIGGER_UPDATED)"
+            gh api repos/${{ github.repository }}/issues/"$PR_NUM"/comments \
               --method POST \
-              -f body="$BODY")
-            if echo "$CREATED" | jq -e '.id and .updated_at' > /dev/null 2>&1; then
-              TRIGGER_UPDATED=$(echo "$CREATED" | jq -r '.updated_at')
-            else
-              echo "ERROR: POST response missing required fields (id, updated_at)"
-              exit 1
-            fi
-            echo "trigger_updated=$TRIGGER_UPDATED" >> "$GITHUB_OUTPUT"
-            echo "trigger_sha=$HEAD_SHA" >> "$GITHUB_OUTPUT"
+              -f body="$BODY" || true
           fi
+          echo "trigger_updated=$TRIGGER_UPDATED" >> "$GITHUB_OUTPUT"
+          echo "trigger_sha=$HEAD_SHA" >> "$GITHUB_OUTPUT"
 
       # Step 2: Poll for VERDICT from the skeptic bot (configurable via SKEPTIC_BOT_AUTHOR).
       # Only accept verdicts whose `created_at` is AFTER the trigger comment was
@@ -98,7 +87,10 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           TRIGGER_UPDATED: ${{ steps.post_trigger.outputs.trigger_updated }}
           TRIGGER_SHA: ${{ steps.post_trigger.outputs.trigger_sha }}
-          SKEPTIC_BOT_AUTHOR: ${{ vars.SKEPTIC_BOT_AUTHOR || 'jleechan-agent[bot]' }}
+          # bd-lg7i: Default to jleechan2015 — ao skeptic verify posts via gh api
+          # authenticated as the local user, not the GitHub App bot. Override via
+          # repo variable if posting identity changes (e.g., GitHub App token).
+          SKEPTIC_BOT_AUTHOR: ${{ vars.SKEPTIC_BOT_AUTHOR || 'jleechan2015' }}
         # 28 min timeout — leave 2 min buffer so the step exits cleanly before the
         # 30-min job timeout rather than being killed by the runner.
         timeout-minutes: 28
@@ -159,7 +151,7 @@ jobs:
             # the jq filter applies per-page so .[-1] (most recent) only reflects the
             # last comment on the last page, missing newer matches.
             # Comments are returned oldest→newest, so .[-1] gives the most recent match.
-            VERDICT_JQ="[.[] | select(.user.login == \"\$SKEPTIC_BOT_AUTHOR\" and (.body | test(\"VERDICT:\"; \"i\")) and (.created_at > \"\$TRIGGER_UPDATED\") and (.body | test(\"skeptic-gate-trigger-\" + \"\$TRIGGER_SHA\"; \"i\")))] | .[-1] // empty"
+            VERDICT_JQ='[.[] | select(.user.login == env.SKEPTIC_BOT_AUTHOR and (.body | test("VERDICT:"; "i")) and (.created_at > env.TRIGGER_UPDATED) and (.body | test("skeptic-gate-trigger-" + env.TRIGGER_SHA; "i")))] | .[-1] // empty'
             VERDICT_JSON=$(gh api repos/${{ github.repository }}/issues/"$PR_NUM"/comments \
               --paginate \
               --slurpfile /dev/null \
