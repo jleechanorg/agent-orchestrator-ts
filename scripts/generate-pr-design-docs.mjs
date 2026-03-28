@@ -325,7 +325,7 @@ function htmlDoc({ pr, files, commits }) {
     <main class="wrap">
       <section class="hero">
         <h1>${escHtml(title)}</h1>
-        <p class="muted">${escHtml(description)}</p>
+        ${mdToHtml(description)}
         <p class="muted" style="margin-top:0.5rem">
           PR: <a href="https://github.com/${REPO}/pull/${pr.number}">#${pr.number}</a>
           &nbsp;·&nbsp; Status: ${stateLabel(state, mergedAt)}
