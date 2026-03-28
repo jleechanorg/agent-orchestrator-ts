@@ -14,7 +14,7 @@ import { ghJson, ghJsonPaginate, fetchReviews, type ReviewInfo } from "./gh-clie
 const NIT_PATTERN = /^(nit:|nitpick|_🧹\s*nitpick)/i;
 const CR_BOT = "coderabbitai[bot]";
 const EVIDENCE_BOT = "evidence-review-bot";
-const CR_CHAT_APPROVE_PATTERN = /\[approve\]|ready for merge|this pr is ready to ship|STATUS: READY FOR MERGE/i;
+const CR_CHAT_APPROVE_PATTERN = /\[approve\]|ready for merge|ready to merge|this pr is ready to ship|STATUS: READY FOR MERGE|all good from my side/i;
 
 export interface CheckRunSummary {
   name: string;
@@ -97,7 +97,6 @@ export async function fetchMergeGateState(
     ) as { head?: { ref?: string; sha?: string }; mergeable?: boolean; merged?: boolean };
     mergeableRaw = prData?.mergeable ?? null;
     noConflicts = prData?.mergeable === true || prData?.merged === true;
-    const headRef = prData?.head?.ref;
     const headSha = prData?.head?.sha;
     // Use the immutable head SHA (not the mutable branch ref) so a push between
     // fetching PR data and fetching status cannot mix states from different commits.

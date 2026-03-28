@@ -96,7 +96,7 @@ export function buildSkepticPrompt(
     "",
     "RULES:",
     "1. Verify each of the 7-green conditions independently — do not trust the status summary alone.",
-    "2. CR APPROVED means: (a) review state=APPROVED, OR (b) review state=COMMENTED/none AND CR has posted a PR/issue comment containing 'READY FOR MERGE' or '[approve]' AFTER its latest review AND unresolvedBlockingComments=0 AND no CHANGES_REQUESTED in CR review history (CR incremental review deadlock bypass — CR formal APPROVED is broken after rebases; it approves via chat comment instead). If the status shows 'chat_approval=YES', treat CR as APPROVED.",
+    "2. CR APPROVED means: (a) review state=APPROVED, OR (b) review state=COMMENTED/none AND CR has posted a PR/issue comment containing 'READY FOR MERGE', 'ready to merge', '[approve]', or 'all good from my side' AFTER its latest review AND unresolvedBlockingComments=0 AND no CHANGES_REQUESTED in CR review history (CR incremental review deadlock bypass — CR formal APPROVED is broken after rebases; it approves via chat comment instead). If the status shows 'chat_approval=YES', treat CR as APPROVED.",
     "3. CR COMMENTED alone (without an explicit [approve]/READY FOR MERGE chat comment) is NOT approval. CR CHANGES_REQUESTED is NOT approval.",
     "4. A dismissed CR review without a subsequent real APPROVED review is a blocker.",
     "5. Bugbot errors always block merge.",
