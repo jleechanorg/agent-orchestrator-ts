@@ -96,9 +96,11 @@ export async function fetchMergeGateState(
     noConflicts = prData?.mergeable === true || prData?.merged === true;
     const headRef = prData?.head?.ref;
     const headSha = prData?.head?.sha;
-    if (headRef) {
+    // Use headSha (immutable commit SHA) instead of headRef (mutable branch ref)
+    // to avoid TOCTOU races where the branch moves between status check and merge.
+    if (headSha) {
       const commitStatus = await ghJson(
-        "repos/" + owner + "/" + repo + "/commits/" + headRef + "/status",
+        "repos/" + owner + "/" + repo + "/commits/" + headSha + "/status",
       ) as { state?: string };
       ciRawState = commitStatus?.state ?? "unknown";
       ciPassing = commitStatus?.state === "success";
