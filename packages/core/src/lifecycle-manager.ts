@@ -12,6 +12,7 @@
 
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
+import { logAoAction } from "./ao-action-log.js";
 import { reapPostMergeCoWorkers } from "./fork-lifecycle-postmerge.js";
 import { pruneStaleSessionIds, getLastSentHeadSha, setLastSentHeadSha } from "./dedup-head-sha-store.js";
 import {
@@ -1005,6 +1006,15 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         const autoWaitSeconds = reactionConfig.autoMergeWaitSeconds ?? 0;
         try {
           await scm.mergePR(freshSession.pr, mergeMethod, autoWaitSeconds);
+          logAoAction({
+            ts: new Date().toISOString(),
+            session: sessionId,
+            action: "pr_merge",
+            pr: freshSession.pr.number,
+            repo: `${freshSession.pr.owner}/${freshSession.pr.repo}`,
+            reason: `reaction:${reactionKey}`,
+            detail: `${mergeMethod}${autoWaitSeconds > 0 ? " --auto" : ""}`,
+          });
 
           const autoLabel = autoWaitSeconds > 0 ? " (--auto)" : "";
           const successEvent = createEvent("reaction.triggered", {
@@ -1587,6 +1597,14 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         // Orchestrator sessions are excluded: killing the orchestrator would clear
         // its rate-limit pause metadata, breaking the pause mechanism.
         if (TERMINAL_STATUSES.has(effectiveStatus) && !isOrchestratorSession(session)) {
+          logAoAction({
+            ts: new Date().toISOString(),
+            session: session.id,
+            action: "session_kill",
+            pr: session.pr?.number,
+            repo: session.pr ? `${session.pr.owner}/${session.pr.repo}` : undefined,
+            reason: `terminal:${effectiveStatus}`,
+          });
           try {
             await sessionManager.kill(session.id);
           } catch (killErr) {
