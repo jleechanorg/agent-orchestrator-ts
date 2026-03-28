@@ -4,8 +4,12 @@ name: Skeptic Gate
 # Flow: GHA posts trigger comment → lifecycle-manager runs ao skeptic verify →
 # posts VERDICT comment → GHA polls for VERDICT and exits PASS/FAIL.
 #
+# Security: uses pull_request (not pull_request_target) — this workflow only
+# posts comments and polls for verdicts; it never executes PR code and never
+# needs access to repository secrets. pull_request_target creates elevated
+# risk (base-repo token + untrusted code execution) for no benefit here.
 on:
-  pull_request_target:
+  pull_request:
     types: [opened, synchronize, edited, reopened]
 
 # Do NOT cancel in-progress runs — killing a polling step mid-loop discards its
@@ -32,7 +36,9 @@ jobs:
       # evaluation SHA (prevents accepting a VERDICT from a different commit).
       trigger_sha: ${{ steps.post_trigger.outputs.trigger_sha }}
     steps:
-      # Step 1: Set trigger timestamp and SHA for the polling step's cutoff filter.
+      # Step 1: Post trigger comment for lifecycle-manager to pick up.
+      # lifecycle-manager runs ao skeptic verify with local API keys.
+      # We capture the comment's updated_at timestamp to use as a cutoff in polling.
       - name: Post skeptic trigger comment
         id: post_trigger
         env:
@@ -40,53 +46,26 @@ jobs:
         run: |
           PR_NUM=${{ github.event.pull_request.number }}
 
-          # Always use date-based timestamp as the cutoff for filtering verdict comments.
-          # github-actions[bot] token lacks write access to PR comments in pull_request_target
-          # context on forked PRs. Using date -u (ISO-8601, second resolution) as cutoff.
-          # Verdicts posted in the same second as the trigger will be caught by the next
-          # poll cycle (30s interval).
-          TRIGGER_UPDATED=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-          echo "Trigger timestamp (UTC): $TRIGGER_UPDATED"
+          # Post trigger comment and use GitHub's own timestamp as cutoff.
+          # This avoids runner/GitHub clock drift (runner date -u vs GitHub server time).
+          # lifecycle-manager watches for this comment to begin ao skeptic verify.
+          TRIGGER_MARKER="<!-- skeptic-gate-trigger-${HEAD_SHA} -->"
+          TRIGGER_BODY=$'SKEPTIC_GATE_TRIGGER\n'"$TRIGGER_MARKER"
+
+          TRIGGER_UPDATED=$(gh api repos/${{ github.repository }}/issues/"$PR_NUM"/comments \
+            -f body="$TRIGGER_BODY" \
+            --jq '.updated_at')
+
+          if [ -z "$TRIGGER_UPDATED" ] || [ "$TRIGGER_UPDATED" = "null" ]; then
+            echo "ERROR: failed to obtain trigger_updated from posted comment" >&2
+            exit 1
+          fi
+
+          echo "Trigger timestamp (GitHub): $TRIGGER_UPDATED"
           echo "trigger_updated=$TRIGGER_UPDATED" >> "$GITHUB_OUTPUT"
           echo "trigger_sha=$HEAD_SHA" >> "$GITHUB_OUTPUT"
 
-      # Step 2: Run skeptic verification and post VERDICT comment.
-      # The polling step below waits for this comment — we post first, then poll to confirm.
-      # Uses skeptic-setup + skeptic-run so the CLI uses GITHUB_TOKEN for posting
-      # (not the jleechan-agent[bot] token which lacks write access on forked PRs).
-      # For pull_request_target, base repo is available but not auto-checked into GITHUB_WORKSPACE.
-      - name: Checkout base branch
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ github.base_ref }}
-          persist-credentials: false
-
-      - name: Setup skeptic environment
-        uses: ./.github/actions/skeptic-setup
-
-      - name: Post skeptic VERDICT
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GH_SKEPTIC_BOT_AUTHOR: ${{ vars.SKEPTIC_BOT_AUTHOR || 'jleechan2015' }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-        run: |
-          PR_NUM=${{ github.event.pull_request.number }}
-          TRIGGER_SHA="$HEAD_SHA"
-          SKEPTIC_EXIT=0
-          echo "Running skeptic verification for PR #$PR_NUM (trigger SHA ${TRIGGER_SHA:0:7})..."
-          # Run WITHOUT --dry-run so postVerdict() is called and posts the comment.
-          # skeptic-setup already built the CLI above, so dist/index.js is available.
-          # Capture VERDICT line to stdout for workflow logs.
-          (node packages/cli/dist/index.js skeptic verify -n "$PR_NUM" --trigger-sha "$TRIGGER_SHA" 2>&1 | tee skeptic-output.txt) || SKEPTIC_EXIT=$?
-          echo "Skeptic verify exit code: $SKEPTIC_EXIT"
-          if grep -qi "VERDICT:" skeptic-output.txt 2>/dev/null; then
-            echo "VERDICT found in skeptic output — comment should be posted."
-          else
-            echo "WARNING: No VERDICT line in skeptic output — gate will treat as SKIPPED."
-          fi
-
-      # Step 3: Poll for the VERDICT comment posted by Step 2 above.
-      # The skeptic VERDICT is idempotent — re-running updates the same comment.
+      # Step 2: Poll for VERDICT from the skeptic bot (configurable via SKEPTIC_BOT_AUTHOR).
       # Uses TRIGGER_UPDATED = date -u (captured at step start) as the cutoff for
       # verdict filtering. Any verdict comment from SKEPTIC_BOT_AUTHOR with created_at
       # >= TRIGGER_UPDATED and containing the current trigger SHA is accepted.

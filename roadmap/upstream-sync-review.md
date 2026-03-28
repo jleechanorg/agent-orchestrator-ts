@@ -12,7 +12,7 @@
 |---|---|
 | Upstream (ComposioHQ) ahead of origin | 477 (total); upstream advances daily — see current git rev-list counts |
 | Origin (jleechanorg) ahead of upstream | 17 commits (fork-specific) |
-| Origin commits (last 30d) | 12 |
+| Origin commits (last 30d) | 11 |
 
 **The fork has ~200 commits from upstream that it does not have.** The fork diverged significantly months ago and has been developing independently.
 
@@ -243,10 +243,10 @@ These are the jleechanorg fork's unique contributions:
 | CP-5 | `packages/plugins/agent-codex/src/index.ts` | GH_PATH env var in getEnvironment() | **SKIP — already in fork** |
 
 **P0 gitleaks patch applied to `security.yml`:**
-- `fetch-depth: 0` changed to conditional: shallow clone for PRs (`fetch-depth: 1`), full for main
-- Added SHA256 checksum verification before extracting gitleaks binary
-- Changed gitleaks scan to use `--log-opts` with commit range (`$BASE_SHA..$HEAD_SHA`) for PRs
-- Combines all 3 upstream gitleaks security fixes from PRs #720, #721, #735
+- `fetch-depth: 50` for sufficient history without full clone
+- Added SHA256 checksum verification before extracting gitleaks binary (fail-closed)
+- Added explicit `head.sha` + `persist-credentials: false` for PR checkout
+- Combines upstream gitleaks security fixes from PRs #731, #732
 
 ### Evaluate before cherry-pick (medium risk / high value)
 

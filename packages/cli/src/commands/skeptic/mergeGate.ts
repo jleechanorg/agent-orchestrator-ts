@@ -9,15 +9,27 @@
  * - Evidence review state is included
  */
 
-import { ghJson, fetchReviews, type ReviewInfo } from "./gh-client.js";
+import { ghJson, ghJsonPaginate, fetchReviews, type ReviewInfo } from "./gh-client.js";
 
 const NIT_PATTERN = /^(nit:|nitpick)/i;
 const CR_BOT = "coderabbitai[bot]";
 const EVIDENCE_BOT = "evidence-review-bot";
 
+export interface CheckRunSummary {
+  name: string;
+  status: string;
+  conclusion: string | null;
+}
+
 export interface MergeGateState {
   ciPassing: boolean;
+  /** Raw commit status state from GitHub API (e.g. "success", "failure", "pending") */
+  ciRawState: string;
+  /** Individual CI check run results for independent verification */
+  checkRuns: CheckRunSummary[];
   noConflicts: boolean;
+  /** Raw mergeable boolean from GitHub API: true = MERGEABLE, false/null = not yet determined or conflicting */
+  mergeableRaw: boolean | null;
   crApproved: boolean;
   crState: string;
   crDismissedWithoutApproval: boolean;
@@ -72,7 +84,10 @@ export async function fetchMergeGateState(
 ): Promise<MergeGateState> {
   // 1. CI status + mergeability — single call to /pulls/{prNumber}, extract both
   let ciPassing = false;
+  let ciRawState = "unknown";
   let noConflicts = false;
+  let mergeableRaw: boolean | null = null;
+  let checkRuns: CheckRunSummary[] = [];
   try {
     const prData = await ghJson(
       "repos/" + owner + "/" + repo + "/pulls/" + prNumber,
@@ -85,7 +100,28 @@ export async function fetchMergeGateState(
       const commitStatus = await ghJson(
         "repos/" + owner + "/" + repo + "/commits/" + headSha + "/status",
       ) as { state?: string };
+      ciRawState = commitStatus?.state ?? "unknown";
       ciPassing = commitStatus?.state === "success";
+    }
+    // Fetch individual check runs for independent verification (paginated to capture all pages)
+    if (headSha) {
+      try {
+        const checkRunData = await ghJsonPaginate(
+          "repos/" + owner + "/" + repo + "/commits/" + headSha + "/check-runs?per_page=100",
+        ) as Array<{ name: string; status: string; conclusion: string | null }>;
+        // Deduplicate by name, keeping latest conclusion
+        const seen = new Map<string, CheckRunSummary>();
+        for (const run of (checkRunData ?? [])) {
+          const existing = seen.get(run.name);
+          // Prefer completed runs over in-progress
+          if (!existing || (run.status === "completed" && existing.status !== "completed")) {
+            seen.set(run.name, { name: run.name, status: run.status, conclusion: run.conclusion });
+          }
+        }
+        checkRuns = [...seen.values()];
+      } catch {
+        // non-fatal — check runs stay empty
+      }
     }
   } catch {
     // ciPassing stays false; noConflicts stays false (already initialized)
@@ -108,6 +144,7 @@ export async function fetchMergeGateState(
   let bugbotErrors = 0;
   let unresolvedBlockingComments = 0;
   try {
+<<<<<<< HEAD
     const gqlQuery = `
       query($owner: String!, $repo: String!, $pr: Int!) {
         repository(owner: $owner, name: $repo) {
@@ -141,25 +178,74 @@ export async function fetchMergeGateState(
                 isResolved: boolean;
                 comments: { nodes: Array<{ author?: { login?: string }; body?: string }> };
               }>;
+=======
+    // Paginate through all review threads (100 per page)
+    const allNodes: Array<{
+      isResolved: boolean;
+      isOutdated: boolean;
+      comments?: { nodes?: Array<{ body: string; author?: { login: string } }> };
+    }> = [];
+    let cursor: string | null = null;
+    let hasNextPage = true;
+    while (hasNextPage) {
+      const afterArg = cursor ? `, after:"${cursor}"` : "";
+      const threadQuery = `{
+  repository(owner:"${owner}", name:"${repo}") {
+    pullRequest(number:${prNumber}) {
+      reviewThreads(first:100${afterArg}) {
+        pageInfo { hasNextPage endCursor }
+        nodes {
+          isResolved
+          isOutdated
+          comments(first:1) {
+            nodes { body author { login } }
+          }
+        }
+      }
+    }
+  }
+}`;
+      const threadData = await ghJson("graphql", ["-f", "query=" + threadQuery]) as {
+        data?: {
+          repository?: {
+            pullRequest?: {
+              reviewThreads?: {
+                pageInfo?: { hasNextPage?: boolean; endCursor?: string };
+                nodes?: Array<{
+                  isResolved: boolean;
+                  isOutdated: boolean;
+                  comments?: { nodes?: Array<{ body: string; author?: { login: string } }> };
+                }>;
+              };
+>>>>>>> d27e3b5d (fix: CR blockers — mergeGate pagination, headSha, verdict regex)
             };
           };
         };
       };
-    };
-    const threads = gqlData?.data?.repository?.pullRequest?.reviewThreads?.nodes ?? [];
-    for (const thread of threads) {
-      const firstComment = thread.comments.nodes[0];
+      const page = threadData?.data?.repository?.pullRequest?.reviewThreads;
+      if (page?.nodes) allNodes.push(...page.nodes);
+      hasNextPage = page?.pageInfo?.hasNextPage ?? false;
+      cursor = page?.pageInfo?.endCursor ?? null;
+    }
+    const threads = allNodes;
+    for (const t of threads) {
+      if (t.isResolved || t.isOutdated) continue;
+      const firstComment = t.comments?.nodes?.[0];
+
       const body = firstComment?.body ?? "";
       const author = firstComment?.author?.login ?? "";
       const isNit = NIT_PATTERN.test(body.trimStart());
       const isBugbot =
         /cursor\[bot]/i.test(author) &&
-        /error/i.test(body) &&
-        !thread.isResolved;
+        /error/i.test(body);
 
       if (isBugbot) bugbotErrors++;
-      if (!thread.isResolved && !isNit) unresolvedBlockingComments++;
+      if (!isNit) unresolvedBlockingComments++;
     }
+  } catch {
+    // non-fatal: fall back to 0 unresolved (conservative — avoids false positives)
+  }
+
   } catch {
     // non-fatal: fall back to 0 unresolved (conservative — avoids false positives)
   }
@@ -200,7 +286,10 @@ export async function fetchMergeGateState(
 
   return {
     ciPassing,
+    ciRawState,
+    checkRuns,
     noConflicts,
+    mergeableRaw,
     crApproved,
     crState,
     crDismissedWithoutApproval,
