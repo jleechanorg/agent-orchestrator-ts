@@ -103,7 +103,7 @@ export async function tryCodexPrint(prompt: string): Promise<LlmEvalResult> {
 }
 
 /**
- * Run claude --print --no-input for headless evaluation.
+ * Run claude --print for headless evaluation.
  * Fail-closed: missing VERDICT = failure.
  */
 export async function tryClaudePrint(prompt: string): Promise<LlmEvalResult> {
@@ -112,7 +112,7 @@ export async function tryClaudePrint(prompt: string): Promise<LlmEvalResult> {
   try {
     const result = execFileSync(
       "claude",
-      ["--print", "--no-input"],
+      ["--print"],
       {
         input: prompt,
         encoding: "utf-8",
