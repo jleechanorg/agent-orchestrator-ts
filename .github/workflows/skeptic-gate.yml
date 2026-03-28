@@ -3,13 +3,21 @@ name: Skeptic Gate
 # Evaluates PRs via AO worker dispatch — no API keys needed in GitHub secrets.
 # Flow: GHA posts trigger comment → lifecycle-manager runs ao skeptic verify →
 # posts VERDICT comment → GHA polls for VERDICT and exits PASS/FAIL.
+#
+# Security: uses pull_request (not pull_request_target) — this workflow only
+# posts comments and polls for verdicts; it never executes PR code and never
+# needs access to repository secrets. pull_request_target creates elevated
+# risk (base-repo token + untrusted code execution) for no benefit here.
 on:
-  pull_request_target:
+  pull_request:
     types: [opened, synchronize, edited, reopened]
 
+# Do NOT cancel in-progress runs — killing a polling step mid-loop discards its
+# loop state. A new concurrent run with the same SHA is harmless since the jq
+# timestamp filter rejects stale verdicts from cancelled runs.
 concurrency:
   group: skeptic-gate-${{ github.event.pull_request.number }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   skeptic_gate:
@@ -68,6 +76,12 @@ jobs:
         timeout-minutes: 28
         run: |
           PR_NUM=${{ github.event.pull_request.number }}
+
+          # Do NOT use 'set -e' here — jq -e returns non-zero on empty/null (no match),
+          # which would cause premature script exit. Guards handle errors explicitly.
+          # Disable errexit for the remainder of the script.
+          set +e
+
           # TRIGGER_UPDATED is ISO-8601: 2024-01-15T12:00:00Z
           # ISO-8601 lexicographic ordering equals chronological ordering, so
           # we can use string comparison directly (no date conversion needed).
