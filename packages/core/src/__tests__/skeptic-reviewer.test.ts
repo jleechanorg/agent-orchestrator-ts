@@ -81,12 +81,12 @@ function makeSession(overrides: Partial<Session> = {}): Session {
 describe("runSkepticReview", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    // Default: gh returns a SHA, ao skeptic returns PASS
-    execMock.mockResolvedValue({ stdout: "abc123def456789", stderr: "" });
+    // Default: gh api returns a valid SHA-1 (40 hex chars), ao skeptic returns PASS
     execFileMock.mockResolvedValue({
       stdout: "VERDICT: PASS\nAll exit criteria met.",
       stderr: "",
     });
+    execMock.mockResolvedValue({ stdout: "abc123def456789", stderr: "" });
   });
 
   it("skips when session has no PR", async () => {
@@ -100,32 +100,45 @@ describe("runSkepticReview", () => {
   it("calls gh api to fetch PR head SHA", async () => {
     const session = makeSession();
     await runSkepticReview(session);
-    expect(execMock).toHaveBeenCalledWith(
-      "gh api repos/acme/app/pulls/42 --jq .head.sha",
+    // gh api now uses execFileAsync (not execAsync) for shell-injection safety
+    expect(execFileMock).toHaveBeenCalledWith(
+      "gh",
+      ["api", "repos/acme/app/pulls/42", "--jq", ".head.sha"],
       expect.objectContaining({ timeout: 10_000 }),
     );
   });
 
   it("passes --trigger-sha from gh api response to ao skeptic verify", async () => {
-    execMock.mockResolvedValue({ stdout: "abc123def456789", stderr: "" });
+    // Set up execFileMock: first call (gh api) returns a valid SHA,
+    // second call (ao skeptic) returns PASS (default from beforeEach)
+    const mockResults = [
+      { stdout: "abc123def4567890000000000000000000000000", stderr: "" }, // gh api: valid 40-char SHA
+      { stdout: "VERDICT: PASS\nAll exit criteria met.", stderr: "" },  // ao skeptic
+    ];
+    execFileMock.mockResolvedValue({ stdout: "", stderr: "" }); // reset
+    for (const r of mockResults) {
+      execFileMock.mockResolvedValueOnce(r);
+    }
     const session = makeSession();
-    await runSkepticReview(session);
-    expect(execFileMock).toHaveBeenCalledWith(
-      "ao",
-      expect.arrayContaining(["--trigger-sha", "abc123def456789"]),
-      expect.any(Object),
-    );
+    const result = await runSkepticReview(session);
+    expect(result.verdict).toBe("PASS");
+    // The ao skeptic call should include --trigger-sha with the validated SHA
+    const aoCall = execFileMock.mock.calls.find((call) => call[0] === "ao");
+    expect(aoCall).toBeDefined();
+    expect(aoCall![1]).toContain("--trigger-sha");
+    expect(aoCall![1]).toContain("abc123def4567890000000000000000000000000");
   });
 
   it("omits --trigger-sha when gh api fails (non-fatal)", async () => {
-    execMock.mockRejectedValue(new Error("gh not found"));
+    // Override gh api mock to reject — triggerSha remains undefined
+    execFileMock.mockRejectedValueOnce(new Error("gh not found"));
     const session = makeSession();
     const result = await runSkepticReview(session);
-    expect(execFileMock).toHaveBeenCalledWith(
-      "ao",
-      expect.not.arrayContaining(["--trigger-sha"]),
-      expect.any(Object),
+    const aoCall = execFileMock.mock.calls.find(
+      (call) => call[0] === "ao",
     );
+    expect(aoCall).toBeDefined();
+    expect(aoCall![1]).not.toContain("--trigger-sha");
     expect(result.verdict).toBe("PASS");
   });
 

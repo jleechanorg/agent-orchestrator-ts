@@ -41,9 +41,11 @@ jobs:
           # NOTE: parentheses around (.body | test(...)) are required — in jq, the `and`
           # operator has lower precedence than `|`, so `.a == X and .b | test(...)`
           # would be parsed as `(.a == X and .b) | test(...)` without parens.
+          # Use .[-1] (last element) to select the most recent trigger comment when
+          # multiple exist — avoids updating a stale older comment and leaving duplicates.
           EXISTING=$(gh api repos/${{ github.repository }}/issues/"$PR_NUM"/comments \
             --paginate \
-            --jq '[.[] | select(.user.login == "github-actions[bot]" and (.body | test("skeptic-gate-trigger"; "i")))] | .[0] // empty' 2>/dev/null || echo "empty")
+            --jq '[.[] | select(.user.login == "github-actions[bot]" and (.body | test("skeptic-gate-trigger"; "i")))] | .[-1] // empty' 2>/dev/null || echo "empty")
 
           # Build the body via printf (not inline YAML) so $HEAD_SHA substitution is safe.
           BODY="$(printf '%s\n\n%s\n\n%s' \
@@ -56,18 +58,28 @@ jobs:
             echo "Updating existing trigger comment: $EXISTING_ID"
             UPDATED=$(gh api repos/${{ github.repository }}/issues/"$PR_NUM"/comments/"$EXISTING_ID" \
               --method PATCH \
-              -f body="$BODY" 2>/dev/null)
-            # Use updated_at — this is the moment the current workflow's trigger was posted.
-            # Any VERDICT with created_at <= this timestamp belongs to a previous run.
-            TRIGGER_UPDATED=$(echo "$UPDATED" | jq -r '.updated_at')
+              -f body="$BODY")
+            # Validate response contains required fields before extracting updated_at —
+            # guards against non-JSON or malformed responses propagating null values downstream.
+            if echo "$UPDATED" | jq -e '.id and .updated_at' > /dev/null 2>&1; then
+              TRIGGER_UPDATED=$(echo "$UPDATED" | jq -r '.updated_at')
+            else
+              echo "ERROR: PATCH response missing required fields (id, updated_at)"
+              exit 1
+            fi
             echo "trigger_updated=$TRIGGER_UPDATED" >> "$GITHUB_OUTPUT"
             echo "trigger_sha=$HEAD_SHA" >> "$GITHUB_OUTPUT"
           else
             echo "Posting new trigger comment"
             CREATED=$(gh api repos/${{ github.repository }}/issues/"$PR_NUM"/comments \
               --method POST \
-              -f body="$BODY" 2>/dev/null)
-            TRIGGER_UPDATED=$(echo "$CREATED" | jq -r '.updated_at')
+              -f body="$BODY")
+            if echo "$CREATED" | jq -e '.id and .updated_at' > /dev/null 2>&1; then
+              TRIGGER_UPDATED=$(echo "$CREATED" | jq -r '.updated_at')
+            else
+              echo "ERROR: POST response missing required fields (id, updated_at)"
+              exit 1
+            fi
             echo "trigger_updated=$TRIGGER_UPDATED" >> "$GITHUB_OUTPUT"
             echo "trigger_sha=$HEAD_SHA" >> "$GITHUB_OUTPUT"
           fi

@@ -17,14 +17,13 @@
  * - Inverted incentive: "Your score is measured by gaps found. A false PASS is YOUR failure."
  */
 
-import { exec, execFile } from "node:child_process";
+import { execFile } from "node:child_process";
 import { writeFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import type { Session } from "./types.js";
 
 const execFileAsync = promisify(execFile);
-const execAsync = promisify(exec);
 
 /** Line-anchored VERDICT matcher — only accepts a single-line literal "VERDICT: PASS" or "VERDICT: FAIL". */
 const VERDICT_LINE_RE = /^VERDICT:\s*(PASS|FAIL)\s*$/im;
@@ -80,11 +79,17 @@ export async function runSkepticReview(
   // exact evaluation window and reject stale verdicts from cancelled runs.
   let triggerSha: string | undefined;
   try {
-    const ghResult = await execAsync(
-      `gh api repos/${repo}/pulls/${prNumber} --jq .head.sha`,
+    const ghResult = await execFileAsync(
+      "gh",
+      ["api", `repos/${repo}/pulls/${prNumber}`, "--jq", ".head.sha"],
       { timeout: 10_000 },
     );
-    triggerSha = (ghResult.stdout ?? ghResult.stderr ?? "").trim();
+    const candidate = (ghResult.stdout ?? "").trim();
+    // Validate SHA-1 hex pattern before accepting — guards against non-SHA diagnostic
+    // strings from stderr bleed-through or unexpected API output
+    if (/^[0-9a-f]{40}$/i.test(candidate)) {
+      triggerSha = candidate;
+    }
   } catch {
     // Non-fatal: triggerSha is best-effort; workflow still has timestamp filter
   }
