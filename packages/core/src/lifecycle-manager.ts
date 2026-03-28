@@ -1214,7 +1214,17 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     ) {
       try {
         const merged = await isPRMerged(session, config, registry);
-        if (merged) newStatus = "merged";
+        if (merged) {
+          newStatus = "merged";
+          logAoAction({
+            ts: new Date().toISOString(),
+            session: session.id,
+            action: "pr_merge",
+            pr: session.pr?.number,
+            repo: session.pr ? `${session.pr.owner}/${session.pr.repo}` : undefined,
+            reason: "killed-merged-absorption",
+          });
+        }
       } catch {
         // SCM unreachable — same as the absorb path below: keep prior status and retry next poll
         newStatus = oldStatus;

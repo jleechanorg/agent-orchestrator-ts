@@ -55,6 +55,10 @@ async function findExistingVerdict(
   prNumber: number,
   triggerSha?: string,
 ): Promise<{ verdict: "PASS" | "FAIL" | "SKIPPED"; commentId: number } | null> {
+  // Normalize triggerSha: trim whitespace and treat empty/invalid as unset
+  const normalizedSha = triggerSha?.trim();
+  const validSha = normalizedSha && /^[0-9a-f]{7,40}$/i.test(normalizedSha) ? normalizedSha : undefined;
+
   const comments = await fetchIssueComments(owner, repo, prNumber);
   for (const c of comments) {
     // Find by HTML marker AND trigger SHA match.
@@ -62,7 +66,7 @@ async function findExistingVerdict(
     // otherwise editing it leaves the old updated_at and the skeptical gate
     // workflow rejects it (it filters by updated_at >= TRIGGER_UPDATED).
     if (/<!-- skeptic-agent-verdict -->/i.test(c.body)) {
-      const shaMarker = triggerSha ? new RegExp(`<!-- skeptic-gate-trigger-${triggerSha.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} -->`) : null;
+      const shaMarker = validSha ? new RegExp(`<!-- skeptic-gate-trigger-${validSha.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} -->`) : null;
       if (!shaMarker || shaMarker.test(c.body)) {
         const m = c.body.match(VERDICT_LINE_RE);
         if (m) {

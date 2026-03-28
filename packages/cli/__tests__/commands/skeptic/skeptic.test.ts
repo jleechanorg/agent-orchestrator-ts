@@ -21,10 +21,14 @@ async function findExistingVerdict(
   fetchComments: (owner: string, repo: string, prNumber: number) => Promise<Array<{ id: number; body: string }>>,
   triggerSha?: string,
 ): Promise<{ verdict: "PASS" | "FAIL" | "SKIPPED"; commentId: number } | null> {
+  // Normalize triggerSha: trim whitespace and treat empty/invalid as unset
+  const normalizedSha = triggerSha?.trim();
+  const validSha = normalizedSha && /^[0-9a-f]{7,40}$/i.test(normalizedSha) ? normalizedSha : undefined;
+
   const comments = await fetchComments(owner, repo, prNumber);
   for (const c of comments) {
     if (/<!-- skeptic-agent-verdict -->/i.test(c.body)) {
-      const shaMarker = triggerSha ? new RegExp(`<!-- skeptic-gate-trigger-${triggerSha.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} -->`) : null;
+      const shaMarker = validSha ? new RegExp(`<!-- skeptic-gate-trigger-${validSha.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} -->`) : null;
       if (!shaMarker || shaMarker.test(c.body)) {
         const m = c.body.match(VERDICT_LINE_RE);
         if (m) {
@@ -203,5 +207,16 @@ describe("findExistingVerdict — trigger-SHA scoped reuse", () => {
 
     const result = await findExistingVerdict("owner", "repo", 1, mockFetchComments, SHA_Y);
     expect(result).toBeNull();
+  });
+
+  it("treats empty triggerSha as unset — reuses any SHA-tagged verdict", async () => {
+    mockFetchComments.mockResolvedValue([
+      { id: 100, body: verdictWithSha(SHA_X) },
+    ]);
+
+    // Empty string should be normalized to undefined, disabling SHA scoping
+    const result = await findExistingVerdict("owner", "repo", 1, mockFetchComments, "  ");
+    expect(result).not.toBeNull();
+    expect(result!.verdict).toBe("PASS");
   });
 });
