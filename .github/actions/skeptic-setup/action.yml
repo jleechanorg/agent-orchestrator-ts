@@ -26,7 +26,7 @@ runs:
           npm install -g @openai/codex 2>&1 || echo "Codex install failed — checking for existing..."
         fi
         if ! command -v codex &>/dev/null; then
-          echo "WARNING: codex CLI not available — skeptic will use Claude CLI fallback if ANTHROPIC_API_KEY is set"
+          echo "WARNING: codex CLI not available — skeptic will fall back to Claude CLI if ANTHROPIC_API_KEY is set"
         fi
 
     - name: Install dependencies

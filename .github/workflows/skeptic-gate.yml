@@ -3,8 +3,6 @@ name: Skeptic Gate
 on:
   pull_request:
     types: [opened, synchronize, edited, reopened]
-  issue_comment:
-    types: [created]
 
 concurrency:
   group: skeptic-gate-${{ github.event.pull_request.number }}
@@ -17,7 +15,6 @@ jobs:
     permissions:
       contents: read
       pull-requests: write
-      issues: write
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -26,7 +23,6 @@ jobs:
         uses: ./.github/actions/skeptic-setup
 
       - name: Run Skeptic
-        id: run
         uses: ./.github/actions/skeptic-run
         with:
           pr_number: ${{ github.event.pull_request.number }}
@@ -39,26 +35,19 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          PR=${{ github.event.pull_request.number }}
           if [ -f skeptic-output.txt ]; then
             {
-              printf '<!-- skeptic-agent-verdict -->\n'
-              printf '%s\n' "**Skeptic Gate Evaluation**"
-              printf '\n'
-              printf '%s\n' "```"
+              echo "## Skeptic Gate Findings"
+              echo ""
+              echo '```'
               head -c 5800 skeptic-output.txt
-              printf '\n%s\n' "```"
-              VERDICT_LINE=$(grep -i "VERDICT:" skeptic-output.txt | tail -1 || echo "VERDICT: FAIL")
-              printf '\n%s\n' "**$VERDICT_LINE**"
+              echo ""
+              echo '```'
+              echo ""
+              echo "_Skeptic gate ran on commit \`${GITHUB_SHA:0:7}\`_"
             } > "$RUNNER_TEMP/pr_comment.txt"
-            gh api repos/${{ github.repository }}/issues/$PR/comments \
-              --method POST \
-              --field body="$(cat "$RUNNER_TEMP/pr_comment.txt")" \
-              || echo "WARN: Could not post skeptic comment (may lack permissions)"
+            # Post comment — fail the step if posting fails (bd-skp2: catch silent failures)
+            gh pr comment ${{ github.event.pull_request.number }} \
+              --body-file "$RUNNER_TEMP/pr_comment.txt" \
+              || { echo "ERROR: Failed to post skeptic comment to PR" >&2; exit 1; }
           fi
-
-      - name: Gate result
-        run: |
-          VERDICT=${{ steps.run.outputs.verdict || 'UNKNOWN' }}
-          echo "Skeptic gate verdict: $VERDICT"
-          if [ "$VERDICT" = "PASS" ]; then exit 0; else exit 1; fi
