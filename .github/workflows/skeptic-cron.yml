@@ -117,9 +117,26 @@ jobs:
             CREATED=$(echo "$PR_DETAIL" | jq -r '.created_at')
             UPDATED=$(echo "$PR_DETAIL" | jq -r '.updated_at')
             if [ "$CREATED" != "null" ] && [ -n "$CREATED" ]; then
-              AGE_HRS=$(python3 -c "import sys,datetime; d='$CREATED'.replace('Z','+00:00'); print(f'{(datetime.datetime.now(datetime.timezone.utc)-datetime.datetime.fromisoformat(d)).total_seconds()/3600.0:.1f}')" 2>/dev/null || echo "unknown")
+              AGE_HRS=$(python3 - "$CREATED" <<'PYEOF'
+import sys, datetime
+try:
+    d = sys.argv[1].replace('Z','+00:00')
+    print(f'{(datetime.datetime.now(datetime.timezone.utc)-datetime.datetime.fromisoformat(d)).total_seconds()/3600.0:.1f}')
+except:
+    print('unknown')
+PYEOF
+              ) 2>/dev/null || AGE_HRS="unknown"
               echo "  [AGE] PR #${PR_NUM}: created=${CREATED}, age=${AGE_HRS}h"
-              STALE_STATUS=$(python3 -c "import sys; print('STALE' if float('${AGE_HRS}') >= 3.0 else 'FRESH')" 2>/dev/null || echo "unknown")
+              # bash arithmetic: extract integer part and compare (avoids python3 -c injection)
+              STALE_STATUS="unknown"
+              if [ "$AGE_HRS" != "unknown" ] && [ -n "$AGE_HRS" ]; then
+                AGE_INT=$(echo "$AGE_HRS" | cut -d. -f1)
+                if [ "${AGE_INT:-0}" -ge 3 ]; then
+                  STALE_STATUS="STALE"
+                else
+                  STALE_STATUS="FRESH"
+                fi
+              fi
               echo "  [AGE] PR #${PR_NUM} staleness: ${STALE_STATUS}"
             else
               echo "  [AGE] PR #${PR_NUM}: WARNING — created_at field missing"

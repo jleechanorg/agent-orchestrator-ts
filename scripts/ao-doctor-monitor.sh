@@ -475,7 +475,10 @@ check_pr_age() {
     local prs_json
     prs_json=$(gh pr list --repo "$repo" --state open --limit 100 \
       --json number,headRefName,createdAt \
-      2>/dev/null) || continue
+      2>/dev/null) || {
+      warn "Failed to fetch PRs from $repo — auth/config issue may be masking repo status"
+      continue
+    }
 
     while IFS= read -r pr_line; do
       [ -z "$pr_line" ] && continue

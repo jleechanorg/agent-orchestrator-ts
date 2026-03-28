@@ -5,7 +5,7 @@
 #
 # bd-ara.stale additions:
 # - Fetches createdAt for every open PR and displays age in hours
-# - Flags >3h PRs as STALE (stale-threshold configurable via STALE_HOURS env var)
+# - Flags PRs with age ≥${STALE_HOURS}h as STALE (stale-threshold configurable via STALE_HOURS env var)
 # - Guardrail: exits non-zero if createdAt field is missing from any PR
 
 set -euo pipefail
@@ -24,15 +24,16 @@ _pr_age_hours() {
     echo "-1"
     return
   fi
-  python3 -c "
+  # Pass value via argv to avoid shell-variable injection into Python source
+  python3 - "$created_at" 2>/dev/null <<'PY' || echo "-1"
 import sys, datetime
 try:
-    created = datetime.datetime.fromisoformat('$created_at'.replace('Z','+00:00'))
+    created = datetime.datetime.fromisoformat(sys.argv[1].replace('Z','+00:00'))
     now = datetime.datetime.now(datetime.timezone.utc)
     print(f'{(now - created).total_seconds() / 3600.0:.1f}')
 except Exception:
     print('-1')
-" 2>/dev/null || echo "-1"
+PY
 }
 
 # ---------------------------------------------------------------------------
@@ -101,7 +102,14 @@ while IFS= read -r pr_line; do
 
   age_str="${age_hours}h"
   is_stale=0
-  if python3 -c "import sys; sys.exit(0 if float('$age_hours') >= float('$STALE_HOURS') else 1)" 2>/dev/null; then
+  # Use pure bash comparison to avoid python3 -c injection risks with shell variables
+  if python3 - "$age_hours" "$STALE_HOURS" 2>/dev/null <<'PY'; then
+import sys
+try:
+    sys.exit(0 if float(sys.argv[1]) >= float(sys.argv[2]) else 1)
+except:
+    sys.exit(1)
+PY
     is_stale=1
   fi
 
