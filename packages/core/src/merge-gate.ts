@@ -8,7 +8,7 @@
  *  4. Bugbot clean
  *  5. Inline comments resolved
  *  6. Evidence review PASS
- *  7. Skeptic agent VERDICT: PASS | SKIPPED  (bd-qw6)
+ *  7. Skeptic agent VERDICT: PASS  (bd-qw6, bd-0cfv: fail-closed — SKIPPED is not PASS)
  */
 
 import type { PRInfo, MergeGateConfig, SCM, ReviewComment } from "./types.js";
@@ -158,7 +158,9 @@ export async function checkMergeGate(
     if (!isBypassProject) {
       if (scm.getSkepticVerdict) {
         const verdict = await scm.getSkepticVerdict(pr);
-        skepticPassed = verdict === "PASS" || verdict === "SKIPPED";
+        // bd-0cfv: fail-closed — only explicit PASS counts. SKIPPED means infra
+        // failure (no API keys, CLI unavailable), not "no issues found".
+        skepticPassed = verdict === "PASS";
       } else {
         // CRITICAL (bd-qw6): if hook is missing in required mode, block — don't silently pass.
         skepticPassed = false;

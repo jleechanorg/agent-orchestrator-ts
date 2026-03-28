@@ -72,24 +72,26 @@ describe("Skeptic Agent — 7th merge gate", () => {
     expect(skepticCheck?.detail).toBe("Skeptic verdict: FAIL or MISSING");
   });
 
-  it("passes skeptic check when skepticRequired=true and skeptic verdict = SKIPPED", async () => {
+  it("blocks merge when skepticRequired=true and skeptic verdict = SKIPPED (fail-closed, bd-0cfv)", async () => {
     const scm = makePassingScm();
     scm.getSkepticVerdict = vi.fn().mockResolvedValue("SKIPPED");
     const config: MergeGateConfig = { enabled: true, skepticRequired: true };
     const result = await checkMergeGate(pr, config, scm as unknown as SCM);
     const skepticCheck = result.checks.find((c) => c.name === "Skeptic approved");
-    expect(skepticCheck?.passed).toBe(true);
+    expect(skepticCheck?.passed).toBe(false);
+    expect(result.blockers).toContain("Skeptic approved");
   });
 
-  it("blocks merge when skepticRequired=true and no skeptic verdict exists", async () => {
+  it("blocks merge when skepticRequired=true and verdict is SKIPPED (infra failure, bd-0cfv)", async () => {
     const scm = makePassingScm();
-    // getSkepticVerdict not defined → SCM does not implement it yet → treat as SKIPPED
-    // (skipped verdict passes per design)
+    // getSkepticVerdict returns SKIPPED → infra failure (no API keys, CLI unavailable)
+    // fail-closed: SKIPPED is NOT PASS
     scm.getSkepticVerdict = vi.fn().mockResolvedValue("SKIPPED");
     const config: MergeGateConfig = { enabled: true, skepticRequired: true };
     const result = await checkMergeGate(pr, config, scm as unknown as SCM);
     const skepticCheck = result.checks.find((c) => c.name === "Skeptic approved");
-    expect(skepticCheck?.passed).toBe(true);
+    expect(skepticCheck?.passed).toBe(false);
+    expect(result.blockers).toContain("Skeptic approved");
   });
 
   it("blocks when SCM does not implement getSkepticVerdict in required mode", async () => {
@@ -133,9 +135,10 @@ describe("Skeptic Agent — 7th merge gate", () => {
       skepticBypassProjects: ["agent-orchestrator"],
     };
     // The PR repo is "repo" which is NOT in bypass list, so should still run
+    // SKIPPED is fail-closed (bd-0cfv) — non-bypass project with SKIPPED verdict fails
     const result = await checkMergeGate(pr, config, scm as unknown as SCM);
     const skepticCheck = result.checks.find((c) => c.name === "Skeptic approved");
-    expect(skepticCheck?.passed).toBe(true); // SKIPPED passes
+    expect(skepticCheck?.passed).toBe(false);
   });
 
   it("skeptic bypass works for agent-orchestrator project PR", async () => {

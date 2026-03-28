@@ -8,7 +8,7 @@
  *
  * The skeptic verdict is idempotent — re-running updates the same comment.
  * The bot author is configured via GH_SKEPTIC_BOT_AUTHOR env var
- * (default: jleechan-agent[bot]).
+ * (default: jleechan2015).
  */
 
 import chalk from "chalk";
@@ -24,8 +24,11 @@ import { postVerdict } from "./skeptic/posting.js";
 /** Line-anchored VERDICT matcher — accepts VERDICT: PASS, VERDICT: FAIL, or VERDICT: SKIPPED. */
 export const VERDICT_LINE_RE = /^VERDICT:\s*(PASS|FAIL|SKIPPED)\b/im;
 
+// bd-lg7i: Default to jleechan2015 — ao skeptic verify posts via `gh api`
+// authenticated as the local user, not the GitHub App bot. Override via
+// GH_SKEPTIC_BOT_AUTHOR env var if posting identity changes.
 const SKEPTIC_BOT_AUTHOR =
-  process.env["GH_SKEPTIC_BOT_AUTHOR"] ?? "jleechan-agent[bot]";
+  process.env["GH_SKEPTIC_BOT_AUTHOR"] ?? "jleechan2015";
 
 async function resolveRepo(options: { repo?: string }): Promise<[string, string]> {
   if (options.repo) {
