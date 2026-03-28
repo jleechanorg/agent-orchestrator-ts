@@ -51,13 +51,13 @@
     <main class="wrap">
       <section class="hero">
         <h1>[agento] fix(launchd): remove KeepAlive from lifecycle-all plist to prevent thrashing</h1>
-        <p class="muted">- **Root cause**: KeepAlive { SuccessfulExit: false } on ai.agento.lifecycle-all caused launchd to immediately restart the oneshot start-all.sh wrapper after every successful exit, exhausting launchd ThrashInterval protection and deregistering the service</p>
-<p class="muted">- **Fix**: Removed KeepAlive from the plist template. Workers self-manage via pid/lock files — launchd supervision of the oneshot wrapper is unnecessary and causes thrashing</p>
-<p class="muted">- **Also**: Reduced ThrottleInterval from 60 to 30 per spec</p>
+        <p class="muted">- <strong>Root cause</strong>: KeepAlive { SuccessfulExit: false } on ai.agento.lifecycle-all caused launchd to immediately restart the oneshot start-all.sh wrapper after every successful exit, exhausting launchd ThrashInterval protection and deregistering the service</p>
+<p class="muted">- <strong>Fix</strong>: Removed KeepAlive from the plist template. Workers self-manage via pid/lock files — launchd supervision of the oneshot wrapper is unnecessary and causes thrashing</p>
+<p class="muted">- <strong>Also</strong>: Reduced ThrottleInterval from 60 to 30 per spec</p>
         <p class="muted" style="margin-top:0.5rem">
           PR: <a href="https://github.com/jleechanorg/agent-orchestrator/pull/242">#242</a>
           &nbsp;·&nbsp; Status: <span class="badge badge-open">Open</span>
-          &nbsp;·&nbsp; March 28, 2026
+          &nbsp;·&nbsp; March 27, 2026
           
         </p>
       </section>
@@ -81,13 +81,13 @@
           <h2>Metadata</h2>
           <div class="stat-grid">
             <div class="stat"><div class="num">4</div><div class="lbl">Files</div></div>
-            <div class="stat"><div class="num">9</div><div class="lbl">Commits</div></div>
+            <div class="stat"><div class="num">10</div><div class="lbl">Commits</div></div>
             <div class="stat"><div class="num" style="color:#2ea043">+246</div><div class="lbl">Additions</div></div>
             <div class="stat"><div class="num" style="color:#cf222e">-16</div><div class="lbl">Deletions</div></div>
           </div>
           <ul style="margin-top:1rem">
             <li>Author: <code>jleechan2015</code></li>
-            <li>Created: March 28, 2026</li>
+            <li>Created: March 27, 2026</li>
             
             <li>Head branch: <code>feat/bd-uu9p</code></li>
           </ul>

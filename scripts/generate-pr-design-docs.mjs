@@ -323,8 +323,8 @@ function htmlDoc({ pr, files, commits }) {
       <section class="hero">
         <h1>${escHtml(title)}</h1>
         ${description.includes("\n")
-          ? description.split("\n").filter(l => l.trim()).map(l => `<p class="muted">${escMd(l)}</p>`).join("\n")
-          : `<p class="muted">${escHtml(description)}</p>`}
+          ? description.split("\n").filter(l => l.trim()).map(l => `<p class="muted">${mdToHtml(l)}</p>`).join("\n")
+          : `<p class="muted">${mdToHtml(description)}</p>`}
         <p class="muted" style="margin-top:0.5rem">
           PR: <a href="https://github.com/${REPO}/pull/${pr.number}">#${pr.number}</a>
           &nbsp;·&nbsp; Status: ${stateLabel(state, mergedAt)}
@@ -493,6 +493,17 @@ function escMd(str) {
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");
+}
+
+/**
+ * Convert markdown syntax to HTML for embedding in the HTML design doc.
+ * Handles **bold**, *italic*, and `code` inline spans.
+ */
+function mdToHtml(str) {
+  return escMd(str)
+    .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+    .replace(/\*(.+?)\*/g, "<em>$1</em>")
+    .replace(/`(.+?)`/g, "<code>$1</code>");
 }
 
 function ensureDir(dir) {
