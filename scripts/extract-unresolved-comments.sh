@@ -46,7 +46,7 @@ RAW=$(gh api graphql \
 
 # Parse threads — extract unresolved, non-bot, Major/Critical
 jq -n \
-  --argjson raw "$RAW" \
+  --arg raw "$RAW" \
   --arg owner "$OWNER" \
   --arg repo "$REPO" \
   --arg pr "$PR_NUM" \
@@ -70,50 +70,54 @@ def actionable($body):
 ;
 
 def priority($body):
-  if ($body | severity == "Critical") then 1
-  elif ($body | severity == "Major") then 2
-  elif ($body | severity == "Medium") then 3
-  elif ($body | actionable) then 4
+  if severity($body) == "Critical" then 1
+  elif severity($body) == "Major" then 2
+  elif severity($body) == "Medium" then 3
+  elif actionable($body) then 4
   else 5
   end;
 
+def map_threads($nodes):
+  $nodes |
+  map(select(.isResolved == false)) |
+  map({path, line, comment: (.comments.nodes[0] // null)}) |
+  map(select(.comment != null)) |
+  map(select(((.comment.author.login // "") as $login | BOT_AUTHORS | any(. == $login)) | not)) |
+  map({
+    path: .path,
+    line: .line,
+    body: .comment.body,
+    body_short: (.comment.body[0:120] + if (.comment.body | length > 120) then "..." else "" end),
+    severity: severity(.comment.body),
+    actionable: actionable(.comment.body),
+    priority: priority(.comment.body),
+    author: .comment.author.login,
+    created_at: .comment.createdAt
+  }) |
+  sort_by(.priority)
+;
+
+def make_summary($threads):
+  reduce $threads[] as $t
+    ({total:0, critical:0, major:0, medium:0, minor:0, actionable_count:0, by_file:{}};
+     .total += 1 |
+     (if $t.severity == "Critical" then .critical += 1
+      elif $t.severity == "Major" then .major += 1
+      elif $t.severity == "Medium" then .medium += 1
+      elif $t.severity == "Minor" then .minor += 1
+      else . end) |
+     (if $t.actionable then .actionable_count += 1 else . end) |
+     .by_file[$t.path] = (.by_file[$t.path] // 0) + 1
+    ) | {total, critical, major, medium, minor, actionable_count,
+         by_file: ([.by_file | to_entries | sort_by(.key) | map({file: .key, count: .value})])}
+;
+
+($raw|fromjson).data.repository.pullRequest.reviewThreads.nodes as $all_nodes |
 {
   pr: "\($owner)/\($repo)#\($pr)",
   fetched_at: now | todateiso8601,
   method: "graphql",
-  threads: (
-    ($raw.data.repository.pullRequest.reviewThreads.nodes // []) |
-    map(select(.isResolved == false)) |
-    # Preserve thread-level path/line before extracting comment
-    map({path, line, comment: (.comments.nodes[0] // null)}) |
-    map(select(.comment != null)) |
-    map(select((.comment.author.login // "") | IN(BOT_AUTHORS[]) | not)) |
-    map({
-      path: .path,
-      line: .line,
-      body: .comment.body,
-      body_short: (.comment.body[0:120] + if (.comment.body | length > 120) then "..." else "" end),
-      severity: (.comment.body | severity),
-      actionable: (.comment.body | actionable),
-      priority: (.comment.body | priority),
-      author: .comment.author.login,
-      created_at: .comment.createdAt
-    }) |
-    sort_by(.priority) |
-    # Compute summary from the sorted list
-    (reduce .[] as $t
-      ({total:0, critical:0, major:0, medium:0, minor:0, actionable_count:0, by_file:{}};
-       .total += 1 |
-       (if $t.severity == "Critical" then .critical += 1
-        elif $t.severity == "Major" then .major += 1
-        elif $t.severity == "Medium" then .medium += 1
-        elif $t.severity == "Minor" then .minor += 1
-        else . end) |
-       (if $t.actionable then .actionable_count += 1 else . end) |
-       .by_file[$t.path] = (.by_file[$t.path] // 0) + 1
-      ) | {total, critical, major, medium, minor, actionable_count,
-           by_file: ([.by_file | to_entries | sort_by(.key) | map({file: .key, count: .value})])}
-    ) as $summary |
-    {threads: (map({path, line, body, body_short, severity, actionable, priority, author, created_at})), summary}
+  threads: (map_threads($all_nodes)),
+  summary: (map_threads($all_nodes) | make_summary(.))
 }
 '
