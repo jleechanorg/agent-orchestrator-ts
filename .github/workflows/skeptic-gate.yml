@@ -22,6 +22,10 @@ jobs:
       - name: Setup
         uses: ./.github/actions/skeptic-setup
 
+      - name: Build workspace
+        run: pnpm -r --filter '!@jleechanorg/ao-web' build
+        shell: bash
+
       - name: Run Skeptic
         uses: ./.github/actions/skeptic-run
         with:

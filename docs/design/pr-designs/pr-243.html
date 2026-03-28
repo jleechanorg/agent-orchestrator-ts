@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>[agento] feat: generate design docs on PR open + skeptic design-alignment check — Agent Orchestrator</title>
+    <title>[agento] feat: add PR age tracking and stale-PR guardrails to harness — Agent Orchestrator</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;600&family=IBM+Plex+Serif:wght@400;600&family=IBM+Plex+Mono&display=swap" rel="stylesheet" />
@@ -50,12 +50,12 @@
   <body>
     <main class="wrap">
       <section class="hero">
-        <h1>[agento] feat: generate design docs on PR open + skeptic design-alignment check</h1>
-        <p class="muted">This change hardens the core lifecycle polling manager around the edges that were still weak after the earlier iterations. The lifecycle loop is the component responsible for normalizing session state, running reactions, and driving operator-visible status transitions, so ambiguous runtime failures here are costly: they make debugging configuration problems harder and can cause otherwise-fixable operator input mistakes to look like missing sessions or silent no-ops.</p>
+        <h1>[agento] feat: add PR age tracking and stale-PR guardrails to harness</h1>
+        <p class="muted">Add durable repo-level prevention (bd-ara.stale) for recurring blocked/stale PR patterns — addresses `orch-harness-blockers`.</p>
         <p class="muted" style="margin-top:0.5rem">
-          PR: <a href="https://github.com/jleechanorg/agent-orchestrator/pull/231">#231</a>
-          &nbsp;·&nbsp; Status: <span class="badge badge-merged">Merged</span>
-          &nbsp;·&nbsp; March 27, 2026
+          PR: <a href="https://github.com/jleechanorg/agent-orchestrator/pull/243">#243</a>
+          &nbsp;·&nbsp; Status: <span class="badge badge-open">Open</span>
+          &nbsp;·&nbsp; March 28, 2026
           
         </p>
       </section>
@@ -64,30 +64,30 @@
         <article class="card">
           <h2>Architecture</h2>
           <div class="diagram">
-<pre>┌─────────────────────────────────────────┐
-│      PR # 231 — agent-orchestrator  │
-└─────────────────────────────────────────┘
+<pre>┌──────────────────────────────────────────────────────────────── ┐
+│ PR #243 — agent-orchestrator                                     │
+└──────────────────────────────────────────────────────────────── ┘
                   │
-    ▼ 7 file(s) changed
+    ▼ 13 file(s) changed
                   │
-┌─────────────────────────────────────────┐
-│           feat: generate design docs on PR op │
-└─────────────────────────────────────────┘</pre>
+┌──────────────────────────────────────────────────────────────── ┐
+│ feat: add PR age tracking and stale-PR guardrails to harness     │
+└──────────────────────────────────────────────────────────────── ┘</pre>
           </div>
         </article>
         <article class="card">
           <h2>Metadata</h2>
           <div class="stat-grid">
-            <div class="stat"><div class="num">7</div><div class="lbl">Files</div></div>
-            <div class="stat"><div class="num">29</div><div class="lbl">Commits</div></div>
-            <div class="stat"><div class="num" style="color:#2ea043">+522</div><div class="lbl">Additions</div></div>
-            <div class="stat"><div class="num" style="color:#cf222e">-7</div><div class="lbl">Deletions</div></div>
+            <div class="stat"><div class="num">13</div><div class="lbl">Files</div></div>
+            <div class="stat"><div class="num">44</div><div class="lbl">Commits</div></div>
+            <div class="stat"><div class="num" style="color:#2ea043">+741</div><div class="lbl">Additions</div></div>
+            <div class="stat"><div class="num" style="color:#cf222e">-82</div><div class="lbl">Deletions</div></div>
           </div>
           <ul style="margin-top:1rem">
             <li>Author: <code>jleechan2015</code></li>
-            <li>Created: March 27, 2026</li>
-            <li>Merged: March 27, 2026</li>
-            <li>Head branch: <code>feat/orch-46f</code></li>
+            <li>Created: March 28, 2026</li>
+            
+            <li>Head branch: <code>feat/orch-harness-blockers</code></li>
           </ul>
         </article>
       </section>
@@ -98,10 +98,13 @@
         <table>
           <thead><tr><th>Package / Path</th><th>Files</th></tr></thead>
           <tbody>
-            <tr><td><code>packages/cli</code></td><td>4</td></tr>
-<tr><td><code>.github/workflows</code></td><td>1</td></tr>
-<tr><td><code>docs/design</code></td><td>1</td></tr>
-<tr><td><code>scripts</code></td><td>1</td></tr>
+            <tr><td><code>docs/design</code></td><td>3</td></tr>
+<tr><td><code>scripts</code></td><td>3</td></tr>
+<tr><td><code>.github/workflows</code></td><td>2</td></tr>
+<tr><td><code>packages/cli</code></td><td>2</td></tr>
+<tr><td><code>.claude</code></td><td>1</td></tr>
+<tr><td><code>.github/actions</code></td><td>1</td></tr>
+<tr><td><code>roadmap</code></td><td>1</td></tr>
           </tbody>
         </table>
       </section>
@@ -113,46 +116,82 @@
           <thead><tr><th>File</th><th>Status</th><th style="text-align:right">+</th><th style="text-align:right">−</th></tr></thead>
           <tbody>
             <tr>
-      <td><code>.github/workflows/generate-pr-design-docs.yml</code></td>
-      <td><span class="badge badge-new">added</span></td>
-      <td style="text-align:right;color:#2ea043">+115</td>
+      <td><code>.claude/metadata-updater.sh</code></td>
+      <td>modified</td>
+      <td style="text-align:right;color:#2ea043">+79</td>
+      <td style="text-align:right;color:#cf222e">-20</td>
+    </tr>
+<tr>
+      <td><code>.github/actions/skeptic-setup/action.yml</code></td>
+      <td>modified</td>
+      <td style="text-align:right;color:#2ea043">+17</td>
+      <td style="text-align:right;color:#cf222e">-2</td>
+    </tr>
+<tr>
+      <td><code>.github/workflows/skeptic-cron.yml</code></td>
+      <td>modified</td>
+      <td style="text-align:right;color:#2ea043">+34</td>
+      <td style="text-align:right;color:#cf222e">-0</td>
+    </tr>
+<tr>
+      <td><code>.github/workflows/skeptic-gate.yml</code></td>
+      <td>modified</td>
+      <td style="text-align:right;color:#2ea043">+4</td>
       <td style="text-align:right;color:#cf222e">-0</td>
     </tr>
 <tr>
       <td><code>docs/design/pr-designs/pr-231.html</code></td>
-      <td><span class="badge badge-new">added</span></td>
-      <td style="text-align:right;color:#2ea043">+177</td>
-      <td style="text-align:right;color:#cf222e">-0</td>
-    </tr>
-<tr>
-      <td><code>packages/cli/__tests__/commands/skeptic/gh-client.test.ts</code></td>
-      <td><span class="badge badge-new">added</span></td>
-      <td style="text-align:right;color:#2ea043">+80</td>
-      <td style="text-align:right;color:#cf222e">-0</td>
-    </tr>
-<tr>
-      <td><code>packages/cli/src/commands/skeptic.ts</code></td>
       <td>modified</td>
-      <td style="text-align:right;color:#2ea043">+5</td>
+      <td style="text-align:right;color:#2ea043">+9</td>
+      <td style="text-align:right;color:#cf222e">-15</td>
+    </tr>
+<tr>
+      <td><code>docs/design/pr-designs/pr-243.html</code></td>
+      <td><span class="badge badge-new">added</span></td>
+      <td style="text-align:right;color:#2ea043">+210</td>
+      <td style="text-align:right;color:#cf222e">-0</td>
+    </tr>
+<tr>
+      <td><code>docs/design/pr-designs/pr-243.md</code></td>
+      <td><span class="badge badge-new">added</span></td>
+      <td style="text-align:right;color:#2ea043">+78</td>
+      <td style="text-align:right;color:#cf222e">-0</td>
+    </tr>
+<tr>
+      <td><code>packages/cli/__tests__/lib/llm-eval.test.ts</code></td>
+      <td>modified</td>
+      <td style="text-align:right;color:#2ea043">+4</td>
       <td style="text-align:right;color:#cf222e">-4</td>
     </tr>
 <tr>
-      <td><code>packages/cli/src/commands/skeptic/gh-client.ts</code></td>
+      <td><code>packages/cli/src/lib/llm-eval.ts</code></td>
       <td>modified</td>
-      <td style="text-align:right;color:#2ea043">+32</td>
-      <td style="text-align:right;color:#cf222e">-0</td>
+      <td style="text-align:right;color:#2ea043">+33</td>
+      <td style="text-align:right;color:#cf222e">-13</td>
     </tr>
 <tr>
-      <td><code>packages/cli/src/commands/skeptic/prompt.ts</code></td>
+      <td><code>roadmap/zero-touch-6green-rate.md</code></td>
       <td>modified</td>
-      <td style="text-align:right;color:#2ea043">+56</td>
-      <td style="text-align:right;color:#cf222e">-3</td>
+      <td style="text-align:right;color:#2ea043">+31</td>
+      <td style="text-align:right;color:#cf222e">-1</td>
+    </tr>
+<tr>
+      <td><code>scripts/ao-doctor-monitor.sh</code></td>
+      <td>modified</td>
+      <td style="text-align:right;color:#2ea043">+114</td>
+      <td style="text-align:right;color:#cf222e">-1</td>
+    </tr>
+<tr>
+      <td><code>scripts/check-pr-worker-coverage.sh</code></td>
+      <td>modified</td>
+      <td style="text-align:right;color:#2ea043">+112</td>
+      <td style="text-align:right;color:#cf222e">-11</td>
     </tr>
 <tr>
       <td><code>scripts/generate-pr-design-docs.mjs</code></td>
       <td>modified</td>
-      <td style="text-align:right;color:#2ea043">+57</td>
-      <td style="text-align:right;color:#cf222e">-0</td>
+      <td style="text-align:right;color:#2ea043">+16</td>
+      <td style="text-align:right;color:#cf222e">-15</td>
     </tr>
             
           </tbody>
@@ -164,7 +203,7 @@
       <div class="footer">
         Generated by <code>scripts/generate-pr-design-docs.mjs</code>
         &nbsp;·&nbsp;
-        <a href="https://github.com/jleechanorg/agent-orchestrator/pull/231">View PR #231 on GitHub</a>
+        <a href="https://github.com/jleechanorg/agent-orchestrator/pull/243">View PR #243 on GitHub</a>
       </div>
     </main>
   </body>

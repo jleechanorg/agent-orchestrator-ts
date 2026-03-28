@@ -9,7 +9,7 @@
 set -euo pipefail
 
 # Configuration
-AO_DATA_DIR="${AO_DATA_DIR:-$HOME/.ao-sessions}"
+AO_DATA_DIR="${AO_DATA_DIR:-${HOME}/.ao-sessions}"
 
 # Read hook input from stdin
 input=$(cat)
@@ -46,37 +46,80 @@ fi
 # Command Detection and Parsing
 # ============================================================================
 
-# Strip leading directory-change prefixes so that commands like
+# Strip leading prefixes so commands like
 #   cd ~/.worktrees/project && gh pr create ...
+#   FOO=bar gh pr create ...
 # are correctly detected. Agents frequently cd into a worktree first.
 # Store the regex pattern in a variable for clarity (avoids shell quoting confusion).
 # Uses space-padded (&&|;) to avoid breaking on paths containing & or ; chars.
 cd_prefix_pattern='^[[:space:]]*cd[[:space:]]+.*[[:space:]]+(&&|;)[[:space:]]+(.*)'
 clean_command="$command"
-while [[ "$clean_command" =~ ^[[:space:]]*cd[[:space:]] ]]; do
-  if [[ "$clean_command" =~ $cd_prefix_pattern ]]; then
+while true; do
+  # Strip leading env assignments: FOO=bar BAZ=qux gh pr create ...
+  if [[ "$clean_command" =~ ^[[:space:]]*([A-Za-z_][A-Za-z0-9_]*=[^= ]*)[[:space:]]+(.+)$ ]]; then
+    clean_command="${BASH_REMATCH[2]}"
+  # Strip leading cd prefixes: cd /path && gh pr create ...
+  elif [[ "$clean_command" =~ $cd_prefix_pattern ]]; then
     clean_command="${BASH_REMATCH[2]}"
   else
     break
   fi
 done
 
+# Guardrail: enforce [agento] prefix on gh pr create titles (PreToolUse only).
+# PostToolUse falls through to metadata update — no need to re-check there.
+pr_create_pattern='^[[:space:]]*([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]+[[:space:]]+)*gh[[:space:]]+pr[[:space:]]+create([[:space:]]|$)'
+if [[ "$hook_event" == "PreToolUse" && "$clean_command" =~ $pr_create_pattern ]]; then
+  # Parse --title or -t as proper argv tokens (not substring in --body etc.).
+  # Python shlex correctly handles quoted strings containing literal "--title".
+  first_title=$(python3 -c "
+import shlex, sys
+args = shlex.split(sys.argv[1])
+for i, arg in enumerate(args):
+    if arg == '--title':
+        print(args[i+1], end='')
+        break
+    if arg.startswith('--title='):
+        print(arg[len('--title='):], end='')
+        break
+    if arg == '-t':
+        print(args[i+1], end='')
+        break
+    if arg.startswith('-t'):
+        print(arg[2:], end='')
+        break
+" "$clean_command" 2>/dev/null || true)
+  if [[ -z "$first_title" || "$first_title" != \[agento\]* ]]; then
+    echo "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"Blocked by AO policy: gh pr create titles must start with [agento]. Prefix your title with [agento] and retry.\"}}"
+    exit 0
+  fi
+  # Prefix check passed — title is valid, allow the tool.
+  # Exit here so PreToolUse does NOT fall through to metadata writers below.
+  echo '{}'
+  exit 0
+fi
+
 # Hard guardrail: block agent-triggered gh pr merge by default.
+# Placed BEFORE the PostToolUse-only guard so PreToolUse denials fire correctly.
 # Rationale: prompt rules (e.g., "NEVER MERGE") are advisory; this enforces policy in code.
 # Escape hatch for trusted/manual flows: AO_ALLOW_GH_PR_MERGE=1
-# This check runs BEFORE AO_SESSION/metadata checks since blocking a merge doesn't require session metadata.
-# Guard fires when NOT PostToolUse and NOT allowed. PostToolUse falls through for metadata update.
 merge_pattern='^[[:space:]]*([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]+[[:space:]]+)*gh[[:space:]]+pr[[:space:]]+merge([[:space:]]|$)'
 if [[ "$clean_command" =~ $merge_pattern ]]; then
-  if [[ "$hook_event" != "PostToolUse" && "${AO_ALLOW_GH_PR_MERGE:-}" != "1" ]]; then
+  if [[ "$hook_event" != "PostToolUse" && ${AO_ALLOW_GH_PR_MERGE:-_} != "1" ]]; then
     echo '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"Blocked by AO policy: agents must not run gh pr merge. Leave merge to orchestrator/human."}}'
     exit 0
   fi
-  # AO_ALLOW_GH_PR_MERGE=1 during PreToolUse OR PostToolUse: fall through to metadata update below
+fi
+
+# All metadata writers run in PostToolUse only.
+# Allow PreToolUse (hook_event empty or "PreToolUse") to fall through to guards above.
+if [[ "$hook_event" != "PostToolUse" && -n "$hook_event" ]]; then
+  echo '{}'
+  exit 0
 fi
 
 # Validate AO_SESSION is set
-if [[ -z "${AO_SESSION:-}" ]]; then
+if [[ -z ${AO_SESSION:-} ]]; then
   echo '{"systemMessage": "AO_SESSION environment variable not set, skipping metadata update"}'
   exit 0
 fi
@@ -99,8 +142,8 @@ update_metadata_key() {
   # Create temp file
   local temp_file="${metadata_file}.tmp"
 
-  # Escape special sed characters in value (& | / \)
-  local escaped_value=$(echo "$value" | sed 's/[&|\/]/\\&/g')
+  # Escape special sed characters in value (& and \ — not | or / in BRE)
+  local escaped_value=$(echo "$value" | sed 's/[&\\]/\\&/g')
 
   # Check if key already exists
   if grep -q "^$key=" "$metadata_file" 2>/dev/null; then
@@ -116,10 +159,10 @@ update_metadata_key() {
   mv "$temp_file" "$metadata_file"
 }
 
-# Detect: gh pr create
-if [[ "$clean_command" =~ ^gh[[:space:]]+pr[[:space:]]+create ]]; then
+# Detect: gh pr create (uses same pr_create_pattern as the guardrail above)
+if [[ "$clean_command" =~ $pr_create_pattern ]]; then
   # Extract PR URL from output
-  pr_url=$(echo "$output" | grep -Eo 'https://github[.]com/[^/]+/[^/]+/pull/[0-9]+' | head -1)
+  pr_url=$(echo "$output" | grep -Eo 'https://github[.]com/[^/]+/[^/]+/pull/[0-9]+' | head -1 || true)
 
   if [[ -n "$pr_url" ]]; then
     update_metadata_key "pr" "$pr_url"
@@ -130,8 +173,18 @@ if [[ "$clean_command" =~ ^gh[[:space:]]+pr[[:space:]]+create ]]; then
 fi
 
 # Detect: git checkout -b <branch> or git switch -c <branch>
-if [[ "$clean_command" =~ ^git[[:space:]]+checkout[[:space:]]+-b[[:space:]]+([^[:space:]]+) ]] || \
-   [[ "$clean_command" =~ ^git[[:space:]]+switch[[:space:]]+-c[[:space:]]+([^[:space:]]+) ]]; then
+if [[ "$clean_command" =~ ^git[[:space:]]+checkout[[:space:]]+-b[[:space:]]+([^[:space:]]+) ]]; then
+  branch="${BASH_REMATCH[1]}"
+
+  if [[ -n "$branch" ]]; then
+    update_metadata_key "branch" "$branch"
+    echo '{"systemMessage": "Updated metadata: branch = '"$branch"'"}'
+    exit 0
+  fi
+fi
+
+# Detect: git switch -c <branch>
+if [[ "$clean_command" =~ ^git[[:space:]]+switch[[:space:]]+-c[[:space:]]+([^[:space:]]+) ]]; then
   branch="${BASH_REMATCH[1]}"
 
   if [[ -n "$branch" ]]; then
@@ -143,11 +196,17 @@ fi
 
 # Detect: git checkout <branch> (without -b) or git switch <branch> (without -c)
 # Only update if the branch name looks like a feature branch (contains / or -)
-if [[ "$clean_command" =~ ^git[[:space:]]+checkout[[:space:]]+([^[:space:]-]+[/-][^[:space:]]+) ]] || \
-   [[ "$clean_command" =~ ^git[[:space:]]+switch[[:space:]]+([^[:space:]-]+[/-][^[:space:]]+) ]]; then
+if [[ "$clean_command" =~ ^git[[:space:]]+checkout[[:space:]]+([^[:space:]-]+[/-][^[:space:]]+) ]]; then
   branch="${BASH_REMATCH[1]}"
+  if [[ -n "$branch" && "$branch" != "HEAD" ]]; then
+    update_metadata_key "branch" "$branch"
+    echo '{"systemMessage": "Updated metadata: branch = '"$branch"'"}'
+    exit 0
+  fi
+fi
 
-  # Avoid updating for checkout of commits/tags
+if [[ "$clean_command" =~ ^git[[:space:]]+switch[[:space:]]+([^[:space:]-]+[/-][^[:space:]]+) ]]; then
+  branch="${BASH_REMATCH[1]}"
   if [[ -n "$branch" && "$branch" != "HEAD" ]]; then
     update_metadata_key "branch" "$branch"
     echo '{"systemMessage": "Updated metadata: branch = '"$branch"'"}'
@@ -157,7 +216,7 @@ fi
 
 # Detect: gh pr merge (only when explicitly allowed AND in PostToolUse — not PreToolUse)
 # Gate on PostToolUse to avoid marking status=merged before the merge actually succeeds.
-if [[ "$clean_command" =~ $merge_pattern && "${AO_ALLOW_GH_PR_MERGE:-}" == "1" && "$hook_event" == "PostToolUse" ]]; then
+if [[ "$clean_command" =~ $merge_pattern && ${AO_ALLOW_GH_PR_MERGE:-_} == "1" && "$hook_event" == "PostToolUse" ]]; then
   update_metadata_key "status" "merged"
   echo '{"systemMessage": "Updated metadata: status = merged"}'
   exit 0

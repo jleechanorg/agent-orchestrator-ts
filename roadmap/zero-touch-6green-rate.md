@@ -1,7 +1,7 @@
 # Zero-Touch 6-Green Rate Improvement Plan
 
 **Created**: 2026-03-24
-**Updated**: 2026-03-25
+**Updated**: 2026-03-27
 **Metric**: % of merged PRs that reach 6-green with zero human commits
 **Baseline**: 16% (7/43 over last 7 days as of 2026-03-24)
 **Current**: 25% (14/55 over last 7 days as of 2026-03-25)
@@ -90,3 +90,33 @@ reviews don't flip, and nothing auto-merges even when green.
 
 - bd-85r (P0, in flight ao-772): startup race must be fixed for workers to survive long enough
 - bd-6ql (P0, in flight ao-773): tmux mismatch must be fixed for reliable session tracking
+
+---
+
+## PR Staleness Triage Policy (bd-ara.stale)
+
+**Problem**: PRs stall silently at 6-green without any indication of why. Workers die, reactions misfire, and CI runs but nothing merges. By the time a human notices, hours of progress have been lost.
+
+**Policy** (enforced via `scripts/ao-doctor-monitor.sh` and `scripts/check-pr-worker-coverage.sh`):
+
+| Concern | Threshold | Action |
+|---|---|---|
+| Fresh PR | < 3h | No flag |
+| Stale PR | ≥ 3h | WARN in monitor + coverage script |
+| Stale + uncovered | ≥ 3h, no session | FAIL in coverage script; trigger respawn |
+| Missing `createdAt` | — | Hard guardrail: FAIL/block until fixed |
+
+**Implementation**:
+- `ao-doctor-monitor.sh`: runs `check_pr_age()` in Phase 1 — fetches `createdAt` for all open PRs, displays age in hours in terminal + Slack digest, flags >3h as stale concern, FAILS if `createdAt` missing
+- `check-pr-worker-coverage.sh`: exits non-zero if any uncovered PR is >3h stale; exits code 2 if `createdAt` is missing from any PR
+- `skeptic-cron.yml`: logs PR age and staleness on every 30-min cycle for audit trail
+
+**Triage flow**:
+```
+PR age < 3h → no action needed
+PR age ≥ 3h + covered → WARN in monitor, include in Slack digest
+PR age ≥ 3h + UNCOVERED → FAIL coverage, respawn worker
+PR missing createdAt → hard block (ci: ao-doctor; cov: exit 2)
+```
+
+**Env vars**: `AO_DOCTOR_STALE_HOURS` (default 3h), `STALE_HOURS` (coverage script)

@@ -99,6 +99,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_JSON: ${{ steps.list_prs.outputs.pr_numbers }}
+          STALE_HOURS: ${{ vars.STALE_HOURS || '3' }}
         run: |
           MERGED=0
 
@@ -109,6 +110,39 @@ jobs:
 
             echo ""
             echo "--- Checking 7-green for PR #${PR_NUM}: ${PR_TITLE} ---"
+
+            # bd-ara.stale: track PR age — flag stale PRs ≥3h in cron output
+            # Note: REST API returns snake_case fields (created_at, updated_at)
+            PR_DETAIL=$(gh api repos/${{ github.repository }}/pulls/"$PR_NUM" \
+              --jq '{created_at: .created_at}' 2>/dev/null || echo '{"created_at":null}')
+            CREATED=$(echo "$PR_DETAIL" | jq -r '.created_at')
+            if [ "$CREATED" != "null" ] && [ -n "$CREATED" ]; then
+              # Compute age in hours using bash date arithmetic (no python3 needed).
+              # epoch_CREATED=$(date -d "$CREATED" +%s); epoch_now=$(date +%s)
+              # Uses GNU date -d for ISO8601 parsing (ubuntu-latest has GNU date).
+              epoch_now=$(date +%s)
+              epoch_created=$(date -d "$CREATED" +%s 2>/dev/null) || epoch_created=0
+              if [ "$epoch_created" -gt 0 ] 2>/dev/null; then
+                age_sec=$((epoch_now - epoch_created))
+                AGE_HRS=$(printf '%s' "$age_sec" | awk '{printf "%.1f", $1/3600}')
+              else
+                AGE_HRS="unknown"
+              fi
+              echo "  [AGE] PR #${PR_NUM}: created=${CREATED}, age=${AGE_HRS}h"
+              # Bash integer comparison for stale flag — avoids python3 -c with shell vars
+              STALE_STATUS="unknown"
+              if [ "$AGE_HRS" != "unknown" ] && [ -n "$AGE_HRS" ]; then
+                AGE_INT=$(echo "$AGE_HRS" | cut -d. -f1)
+                if [ "${AGE_INT:-0}" -ge "${STALE_HOURS:-3}" ]; then
+                  STALE_STATUS="STALE"
+                else
+                  STALE_STATUS="FRESH"
+                fi
+              fi
+              echo "  [AGE] PR #${PR_NUM} staleness: ${STALE_STATUS}"
+            else
+              echo "  [AGE] PR #${PR_NUM}: WARNING — created_at field missing"
+            fi
 
             # 1. CI green
             HEAD_SHA=$(gh api repos/${{ github.repository }}/pulls/"$PR_NUM" --jq '.head.sha')
