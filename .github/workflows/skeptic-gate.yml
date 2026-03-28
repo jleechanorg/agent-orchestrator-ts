@@ -9,7 +9,7 @@ name: Skeptic Gate
 # needs access to repository secrets. pull_request_target creates elevated
 # risk (base-repo token + untrusted code execution) for no benefit here.
 on:
-  pull_request:
+  pull_request_target:
     types: [opened, synchronize, edited, reopened]
 
 # Do NOT cancel in-progress runs — killing a polling step mid-loop discards its
