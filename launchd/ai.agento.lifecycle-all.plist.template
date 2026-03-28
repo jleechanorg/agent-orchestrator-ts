@@ -14,12 +14,6 @@
   <key>RunAtLoad</key>
   <true/>
 
-  <key>KeepAlive</key>
-  <dict>
-    <key>SuccessfulExit</key>
-    <false/>
-  </dict>
-
   <key>WorkingDirectory</key>
   <string>@REPO_ROOT@</string>
 
@@ -38,6 +32,6 @@
   <string>@LOG_FILE@</string>
 
   <key>ThrottleInterval</key>
-  <integer>60</integer>
+  <integer>30</integer>
 </dict>
 </plist>
