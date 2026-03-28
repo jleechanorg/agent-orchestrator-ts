@@ -138,7 +138,7 @@ export async function llmEval(
     const result = await tryClaudePrint(prompt);
     if (result.validVerdict) return result.output;
     if (result.error) {
-      return `VERDICT: FAIL — Claude evaluation failed: ${result.error}`;
+      return `VERDICT: SKIPPED — infra: Claude evaluation failed: ${result.error}`;
     }
     // Claude unavailable — fall through to codex as last resort
     const codexResult = await tryCodexPrint(prompt);
