@@ -65,6 +65,33 @@ ao spawn --project agent-orchestrator --no-worktree "run the evolve loop"
 ```
 
 Do not manually create worktrees, `cd` into directories, or run `claude` directly for tasks that belong to an AO worker.
+
+## Skeptic Architecture — SETTLED DECISION (do not revisit)
+
+**Skeptic evaluations run via AO worker (local API keys), NOT in GHA. Do NOT add API keys to CI.**
+
+| Component | Role | Runs where |
+|-----------|------|------------|
+| `skeptic-gate.yml` | GHA check that polls for VERDICT comment | GHA (no API keys) |
+| `skeptic-cron.yml` | Cron that evaluates open PRs | GHA — calls `ao skeptic verify` which needs local LLM |
+| `ao skeptic verify` | CLI command that runs LLM evaluation | Local machine (has API keys via env/OAuth) |
+| lifecycle-worker | Detects trigger comments, dispatches `ao skeptic verify` | Local machine (launchd plist) |
+
+**The chain**: PR event → `skeptic-gate.yml` starts polling → lifecycle-worker detects PR → runs `ao skeptic verify` locally → posts VERDICT comment → `skeptic-gate.yml` sees VERDICT → exits PASS/FAIL.
+
+**When skeptic is broken, the fix is ALWAYS in this chain:**
+1. Is the lifecycle-worker running? (`launchctl print gui/$(id -u)/com.agentorchestrator.lifecycle-agent-orchestrator`)
+2. Is the lifecycle-worker detecting PRs and dispatching skeptic? (check logs)
+3. Is `ao skeptic verify` producing a VERDICT? (run manually: `ao skeptic verify -n <PR> --dry-run`)
+4. Is the VERDICT being posted? (check PR comments for SKEPTIC_BOT_AUTHOR)
+5. Is `skeptic-gate.yml` polling correctly? (check GHA run logs)
+
+**Red flags — if you think any of these, STOP:**
+- "Add ANTHROPIC_API_KEY to repo secrets" → WRONG
+- "Install claude/codex in GHA runner" → WRONG
+- "Make skeptic-cron run the LLM in GHA" → WRONG
+- The answer is: fix the AO worker chain above.
+
 ## LLM Evaluation — Shared Utility
 
 **All LLM evaluation (skeptic, verifier, exit-criteria checks) MUST route through `packages/cli/src/lib/llm-eval.ts`.** Never hard-code binary paths (`codex`, `claude`) or `execSync`/`execFileSync` calls in command handlers.
