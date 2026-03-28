@@ -10,8 +10,8 @@
 
 | Direction | Commits |
 |---|---|
-| Upstream (ComposioHQ) ahead of origin | ~200+ (346 in last 30d) |
-| Origin (jleechanorg) ahead of upstream | 12 commits (fork-specific, all from today 2026-03-28) |
+| Upstream (ComposioHQ) ahead of origin | 477 (total); upstream advances daily — see current git rev-list counts |
+| Origin (jleechanorg) ahead of upstream | 17 commits (fork-specific) |
 | Origin commits (last 30d) | 12 |
 
 **The fork has ~200 commits from upstream that it does not have.** The fork diverged significantly months ago and has been developing independently.
@@ -73,7 +73,7 @@ These are the jleechanorg fork's unique contributions:
 **Date**: 2026-03-08
 **What**: Agent sends `cd /some/path && gh pr ...` but git hooks are resolved relative to repo root. Upstream detects the `cd`-prefix and strips it before resolving hook paths.
 **Relevance**: This is the EXACT bug the fork's `metadata-updater.sh` has! The `.claude/metadata-updater.sh` uses `$GIT_DIR/../.git` to reference hooks. If agents `cd` first, this path breaks.
-**Action**: Cherry-pick this fix into the fork's agent-claude-code plugin.
+**Action**: SKIP — already in fork (see CP-3 in Cherry-Pick Action Plan).
 **Risk**: Low — isolated to hook path resolution.
 
 ---
@@ -207,7 +207,7 @@ These are the jleechanorg fork's unique contributions:
 **What**: Prevents two workers from claiming the same PR simultaneously.
 **Fork**: The fork's `claimPR` has this guard. Verify upstream's approach is compatible.
 
-### P3-B: `91117f9e` — fix: pause workers on model limits and stabilize session visibility (#367)
+### P3-B: `ffae6718` — fix: pause workers on model limits and stabilize session visibility (#367)
 **What**: Workers pause when model API returns 429 or rate limit.
 **Fork**: Should be consistent with fork's rate limit handling.
 
