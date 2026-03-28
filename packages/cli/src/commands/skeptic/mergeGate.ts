@@ -91,14 +91,14 @@ export async function fetchMergeGateState(
   try {
     const prData = await ghJson(
       "repos/" + owner + "/" + repo + "/pulls/" + prNumber,
-    ) as { head?: { sha?: string; ref?: string }; mergeable?: boolean; merged?: boolean };
+    ) as { head?: { ref?: string; sha?: string }; mergeable?: boolean; merged?: boolean };
+    mergeableRaw = prData?.mergeable ?? null;
     noConflicts = prData?.mergeable === true || prData?.merged === true;
-    // Use head.sha (immutable commit SHA) instead of head.ref (mutable branch ref)
-    // to avoid TOCTOU races where the branch moves between status check and merge.
+    const headRef = prData?.head?.ref;
     const headSha = prData?.head?.sha;
-    if (headSha) {
+    if (headRef) {
       const commitStatus = await ghJson(
-        "repos/" + owner + "/" + repo + "/commits/" + headSha + "/status",
+        "repos/" + owner + "/" + repo + "/commits/" + headRef + "/status",
       ) as { state?: string };
       ciRawState = commitStatus?.state ?? "unknown";
       ciPassing = commitStatus?.state === "success";
@@ -140,45 +140,10 @@ export async function fetchMergeGateState(
   }
 
   // 3. Review threads — nit-filtered unresolved counts (matches checkMergeGate)
-  // Uses GraphQL reviewThreads to get accurate isResolved state (REST /comments lacks it).
+  // Uses GraphQL reviewThreads.isResolved (REST /pulls/{n}/comments has no state field).
   let bugbotErrors = 0;
   let unresolvedBlockingComments = 0;
   try {
-<<<<<<< HEAD
-    const gqlQuery = `
-      query($owner: String!, $repo: String!, $pr: Int!) {
-        repository(owner: $owner, name: $repo) {
-          pullRequest(number: $pr) {
-            reviewThreads(first: 100) {
-              nodes {
-                isResolved
-                comments(first: 1) {
-                  nodes {
-                    author { login }
-                    body
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    `;
-    const gqlData = await ghJson("graphql", [
-      "-f", "query=" + gqlQuery,
-      "-F", "owner=" + owner,
-      "-F", "repo=" + repo,
-      "-F", "pr=" + prNumber,
-    ]) as {
-      data?: {
-        repository?: {
-          pullRequest?: {
-            reviewThreads?: {
-              nodes?: Array<{
-                isResolved: boolean;
-                comments: { nodes: Array<{ author?: { login?: string }; body?: string }> };
-              }>;
-=======
     // Paginate through all review threads (100 per page)
     const allNodes: Array<{
       isResolved: boolean;
@@ -217,7 +182,6 @@ export async function fetchMergeGateState(
                   comments?: { nodes?: Array<{ body: string; author?: { login: string } }> };
                 }>;
               };
->>>>>>> d27e3b5d (fix: CR blockers — mergeGate pagination, headSha, verdict regex)
             };
           };
         };
@@ -231,7 +195,6 @@ export async function fetchMergeGateState(
     for (const t of threads) {
       if (t.isResolved || t.isOutdated) continue;
       const firstComment = t.comments?.nodes?.[0];
-
       const body = firstComment?.body ?? "";
       const author = firstComment?.author?.login ?? "";
       const isNit = NIT_PATTERN.test(body.trimStart());
@@ -243,11 +206,7 @@ export async function fetchMergeGateState(
       if (!isNit) unresolvedBlockingComments++;
     }
   } catch {
-    // non-fatal: fall back to 0 unresolved (conservative — avoids false positives)
-  }
-
-  } catch {
-    // non-fatal: fall back to 0 unresolved (conservative — avoids false positives)
+    // non-fatal
   }
 
   // 4. Evidence review
