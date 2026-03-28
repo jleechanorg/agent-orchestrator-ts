@@ -673,7 +673,7 @@ function prInfoFromView(
     branch: data.headRefName,
     baseBranch: data.baseRefName,
     isDraft: data.isDraft,
-    ...(data.author != null ? { author: data.author } : {}),
+    ...(data.author !== undefined ? { author: data.author } : {}),
   };
 }
 

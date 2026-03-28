@@ -141,9 +141,8 @@ jobs:
 
             # 3. CR APPROVED — latest CR review state (GitHub API returns uppercase: APPROVED/CHANGES_REQUESTED)
             LATEST_CR=$(gh api repos/${{ github.repository }}/pulls/"$PR_NUM"/reviews \
-              --jq '[.[] | select(.user.login == "coderabbitai[bot]") | {state: .state, body_length: (.body | length)}] | sort_by(.submitted_at) | reverse | .[0]' 2>/dev/null)
-            CR_STATE=$(echo "$LATEST_CR" | jq -r '.state // "none"')
-            CR_BODY_LEN=$(echo "$LATEST_CR" | jq -r '.body_length // 0')
+              --jq '[.[] | select(.user.login == "coderabbitai[bot]" and (.state == "APPROVED" or .state == "CHANGES_REQUESTED"))] | sort_by(.submitted_at) | reverse | .[0].state' 2>/dev/null || echo "none")
+            CR_STATE="${LATEST_CR:-none}"
             # APPROVED if state=APPROVED (GitHub API returns uppercase); dismissal detection is handled by skeptic
             if [ "$CR_STATE" = "APPROVED" ]; then
               CR_APPROVED="PASS"
