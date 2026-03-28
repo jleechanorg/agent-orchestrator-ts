@@ -63,4 +63,33 @@ describe("logAoAction", () => {
 
     expect(mkdirSync).toHaveBeenCalledWith("/tmp", { recursive: true });
   });
+
+  it("defaults ts to current ISO timestamp when ts is omitted", () => {
+    logAoAction({
+      session: "ts-default-test",
+      action: "pr_merge",
+      pr: 1,
+    });
+
+    expect(appendFileSync).toHaveBeenCalledOnce();
+    const [, line] = vi.mocked(appendFileSync).mock.calls[0];
+    const parsed = JSON.parse(String(line).trim());
+    // Should be a valid ISO timestamp (approx: 2026-03-28T...)
+    expect(parsed.ts).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/);
+  });
+
+  it("returns normally when mkdirSync throws (silent-failure contract)", () => {
+    // mkdirSync throwing is also swallowed — the catch block covers all fs errors.
+    // logAoAction must never propagate a logging failure into the caller.
+    vi.mocked(mkdirSync).mockImplementation(() => {
+      throw new Error("EROFS");
+    });
+
+    expect(() =>
+      logAoAction({
+        session: "mkdir-fail-test",
+        action: "session_kill",
+      }),
+    ).not.toThrow();
+  });
 });

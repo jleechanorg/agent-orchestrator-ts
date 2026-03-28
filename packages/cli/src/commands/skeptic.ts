@@ -53,14 +53,21 @@ async function findExistingVerdict(
   owner: string,
   repo: string,
   prNumber: number,
+  triggerSha?: string,
 ): Promise<{ verdict: "PASS" | "FAIL" | "SKIPPED"; commentId: number } | null> {
   const comments = await fetchIssueComments(owner, repo, prNumber);
   for (const c of comments) {
-    // Find by HTML marker first (most robust), then by bot author
+    // Find by HTML marker AND trigger SHA match.
+    // Only reuse a comment if it was posted for the SAME trigger SHA —
+    // otherwise editing it leaves the old created_at and the skeptical gate
+    // workflow rejects it (it filters by created_at > TRIGGER_UPDATED).
     if (/<!-- skeptic-agent-verdict -->/i.test(c.body)) {
-      const m = c.body.match(VERDICT_LINE_RE);
-      if (m) {
-        return { verdict: m[1].toUpperCase() as "PASS" | "FAIL" | "SKIPPED", commentId: c.id };
+      const shaMarker = triggerSha ? new RegExp(`<!-- skeptic-gate-trigger-${triggerSha.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} -->`) : null;
+      if (!shaMarker || shaMarker.test(c.body)) {
+        const m = c.body.match(VERDICT_LINE_RE);
+        if (m) {
+          return { verdict: m[1].toUpperCase() as "PASS" | "FAIL" | "SKIPPED", commentId: c.id };
+        }
       }
     }
   }
@@ -105,7 +112,7 @@ export function registerSkeptic(program: Command): Command {
         }),
         fetchDiff(owner, repo, prNumber),
         fetchReviews(owner, repo, prNumber).catch(() => []),
-        findExistingVerdict(owner, repo, prNumber).catch(() => null),
+        findExistingVerdict(owner, repo, prNumber, options.triggerSha).catch(() => null),
         fetchDesignDoc(prNumber).catch(() => null),
       ]);
 
