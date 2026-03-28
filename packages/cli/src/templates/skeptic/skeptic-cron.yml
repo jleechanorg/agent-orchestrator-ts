@@ -39,7 +39,7 @@ jobs:
             npm install -g @openai/codex 2>&1 || echo "npm install failed — checking for codex binary..."
           fi
           if ! command -v codex &>/dev/null; then
-            echo "WARNING: codex CLI not available — skeptic will use Claude CLI fallback if ANTHROPIC_API_KEY is set"
+            echo "WARNING: codex CLI not available — skeptic will fail-closed (VERDICT: FAIL)"
           fi
 
       - name: Install skeptic CLI
@@ -65,7 +65,6 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           PR_JSON: ${{ steps.list_prs.outputs.pr_numbers }}
         run: |
           set -e
