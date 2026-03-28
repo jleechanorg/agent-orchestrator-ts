@@ -15,9 +15,21 @@ const NIT_PATTERN = /^(nit:|nitpick)/i;
 const CR_BOT = "coderabbitai[bot]";
 const EVIDENCE_BOT = "evidence-review-bot";
 
+export interface CheckRunSummary {
+  name: string;
+  status: string;
+  conclusion: string | null;
+}
+
 export interface MergeGateState {
   ciPassing: boolean;
+  /** Raw commit status state from GitHub API (e.g. "success", "failure", "pending") */
+  ciRawState: string;
+  /** Individual CI check run results for independent verification */
+  checkRuns: CheckRunSummary[];
   noConflicts: boolean;
+  /** Raw mergeable boolean from GitHub API: true = MERGEABLE, false/null = not yet determined or conflicting */
+  mergeableRaw: boolean | null;
   crApproved: boolean;
   crState: string;
   crDismissedWithoutApproval: boolean;
@@ -72,7 +84,10 @@ export async function fetchMergeGateState(
 ): Promise<MergeGateState> {
   // 1. CI status + mergeability — single call to /pulls/{prNumber}, extract both
   let ciPassing = false;
+  let ciRawState = "unknown";
   let noConflicts = false;
+  let mergeableRaw: boolean | null = null;
+  let checkRuns: CheckRunSummary[] = [];
   try {
     const prData = await ghJson(
       "repos/" + owner + "/" + repo + "/pulls/" + prNumber,
@@ -85,7 +100,28 @@ export async function fetchMergeGateState(
       const commitStatus = await ghJson(
         "repos/" + owner + "/" + repo + "/commits/" + headSha + "/status",
       ) as { state?: string };
+      ciRawState = commitStatus?.state ?? "unknown";
       ciPassing = commitStatus?.state === "success";
+    }
+    // Fetch individual check runs for independent verification
+    if (headSha) {
+      try {
+        const checkRunData = await ghJson(
+          "repos/" + owner + "/" + repo + "/commits/" + headSha + "/check-runs",
+        ) as { check_runs?: Array<{ name: string; status: string; conclusion: string | null }> };
+        // Deduplicate by name, keeping latest conclusion
+        const seen = new Map<string, CheckRunSummary>();
+        for (const run of (checkRunData?.check_runs ?? [])) {
+          const existing = seen.get(run.name);
+          // Prefer completed runs over in-progress
+          if (!existing || (run.status === "completed" && existing.status !== "completed")) {
+            seen.set(run.name, { name: run.name, status: run.status, conclusion: run.conclusion });
+          }
+        }
+        checkRuns = [...seen.values()];
+      } catch {
+        // non-fatal — check runs stay empty
+      }
     }
   } catch {
     // ciPassing stays false; noConflicts stays false (already initialized)
@@ -164,6 +200,10 @@ export async function fetchMergeGateState(
     // non-fatal: fall back to 0 unresolved (conservative — avoids false positives)
   }
 
+  } catch {
+    // non-fatal: fall back to 0 unresolved (conservative — avoids false positives)
+  }
+
   // 4. Evidence review
   const evidenceReviews = reviews.filter((r) => r.author?.login === EVIDENCE_BOT);
   const latestEvidence = evidenceReviews.sort(sortReviewsNewestFirst)[0];
@@ -200,7 +240,10 @@ export async function fetchMergeGateState(
 
   return {
     ciPassing,
+    ciRawState,
+    checkRuns,
     noConflicts,
+    mergeableRaw,
     crApproved,
     crState,
     crDismissedWithoutApproval,

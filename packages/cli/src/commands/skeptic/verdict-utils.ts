@@ -4,8 +4,8 @@
  * instead of duplicating the logic.
  */
 
-/** Line-anchored VERDICT matcher — accepts VERDICT: PASS, VERDICT: FAIL, or VERDICT: SKIPPED. */
-export const VERDICT_LINE_RE = /^VERDICT:\s*(PASS|FAIL|SKIPPED)\b/im;
+/** Line-anchored VERDICT matcher — accepts VERDICT: PASS/FAIL/SKIPPED with optional markdown prefix. */
+export const VERDICT_LINE_RE = /^(?:#{1,3}\s*|\*{1,2})?VERDICT:\s*(PASS|FAIL|SKIPPED)\b/im;
 
 export type Verdict = "PASS" | "FAIL" | "SKIPPED";
 
