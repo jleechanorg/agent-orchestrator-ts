@@ -1672,7 +1672,8 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
           newStatus === "pr_open" ||
           newStatus === "review_pending" ||
           newStatus === "changes_requested" ||
-          newStatus === "approved"
+          newStatus === "approved" ||
+          newStatus === "mergeable"
         ) &&
         session.pr
       ) {
@@ -1718,9 +1719,35 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
                 }
               }
             } else if (currentSha && !previousSha) {
-              // First time seeing this session's SHA — record without triggering
-              // (pr_open transition already fired skeptic)
-              lastSkepticSha.set(session.id, currentSha);
+              // First time seeing this session's SHA in the no-transition path.
+              // The pr_open transition may have already fired skeptic and recorded the SHA,
+              // but if that dispatch failed (or the process restarted), lastSkepticSha is empty.
+              // Trigger skeptic to cover the missed-initial-dispatch case; if skeptic already
+              // ran for this SHA, the reaction's own dedup will handle it.
+              const completionReactionKey2 = "worker-signals-completion";
+              const completionReactionConfig2 = getReactionConfigForSession(session, completionReactionKey2);
+              if (completionReactionConfig2?.action && completionReactionConfig2.auto !== false) {
+                let success = false;
+                try {
+                  const r = await executeReaction(
+                    session.id,
+                    session.projectId,
+                    completionReactionKey2,
+                    completionReactionConfig2,
+                    session,
+                    createCorrelationId("skeptic-catchup"),
+                  );
+                  success = Boolean(r?.success);
+                } catch {
+                  // dispatch failed — don't record SHA so we retry next cycle
+                }
+                if (success) {
+                  lastSkepticSha.set(session.id, currentSha);
+                }
+              } else {
+                // No reaction configured — just record SHA to avoid re-checking
+                lastSkepticSha.set(session.id, currentSha);
+              }
             }
           } catch {
             // getPRHeadSha failed — skip retrigger this cycle

@@ -138,7 +138,11 @@ jobs:
               fi
             fi
 
-            if echo "$VERDICT_JSON" | jq -e '.body' > /dev/null 2>&1; then
+            # Remove || true: jq -e exits 1 on empty/null (no fresh verdict), which is
+            # normal — the loop will retry. || true would suppress this and let an empty
+            # VERDICT_JSON fall through silently, breaking the error-detection grep on the
+            # next iteration (empty string matches no error keywords).
+            if echo "$VERDICT_JSON" | jq -e 'if . == null or .body == null then empty else .body end | length > 0' > /dev/null 2>&1; then
               VERDICT_BODY=$(echo "$VERDICT_JSON" | jq -r '.body')
               VERDICT_CREATED=$(echo "$VERDICT_JSON" | jq -r '.created_at')
 
