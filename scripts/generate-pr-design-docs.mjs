@@ -66,7 +66,7 @@ import { spawn } from "node:child_process";
 
 function run(cmd) {
   return new Promise((resolve, reject) => {
-    const proc = spawn(cmd[0], cmd.slice(1), { shell: true });
+    const proc = spawn(cmd[0], cmd.slice(1), { stdio: ["ignore", "pipe", "pipe"] });
     let out = "";
     let err = "";
     proc.stdout.on("data", (d) => (out += d));
@@ -484,7 +484,7 @@ function escHtml(str) {
 }
 
 /**
- * Escape HTML injection vectors (<, >, &) while preserving markdown formatting.
+ * Escape HTML injection vectors (&, <, >) while preserving markdown formatting.
  * Unlike escHtml, this does NOT escape * or backtick — those are markdown
  * syntax and must render for bold/code in the hero description.
  */
