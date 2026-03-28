@@ -323,7 +323,7 @@ function htmlDoc({ pr, files, commits }) {
       <section class="hero">
         <h1>${escHtml(title)}</h1>
         ${description.includes("\n")
-          ? description.split("\n").filter(l => l.trim()).map(l => mdToHtml(l)).join("\n")
+          ? mdToHtml(description.split("\n").filter(l => l.trim()).join("\n"))
           : mdToHtml(description)}
         <p class="muted" style="margin-top:0.5rem">
           PR: <a href="https://github.com/${REPO}/pull/${pr.number}">#${pr.number}</a>
