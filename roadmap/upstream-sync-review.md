@@ -46,16 +46,16 @@ These are the jleechanorg fork's unique contributions:
 
 ## P0 — Cherry-pick Immediately (Security / Data Integrity)
 
-### P0-A: `b49c69ba` — fix: last 10 commits for secrets check (2026-03-27)
+### P0-A: `b49c69ba` — fix: gitleaks scan PR scope with fetch-depth opt + checksum (2026-03-27)
 **PR**: #735 / `c487b409`
 **Severity**: Security
-**What**: Gitleaks secrets check was running against ALL repo commits instead of just the PR commits (last 10). This wastes CI time and could miss secrets in large PRs.
-**Adaptation**: Check if fork's `sweeper-gate.yml` or `skeptic-cron.yml` has the same gitleaks invocation. The upstream fix constrains `gitleaks --log-opts` to a commit range.
+**What**: Gitleaks scan now uses `fetch-depth: 50` (sufficient history without full clone) and verifies the binary's SHA256 checksum before use. The scan covers all file changes in the PR working tree via `gitleaks detect --source .`; the previous approach risked scanning a larger-than-necessary history.
+**Adaptation**: Fork's `security.yml` gitleaks step adopted: (a) `fetch-depth: 50` for PR commits, (b) SHA256 checksum verification (fail-closed), (c) `head.sha` checkout for fork-PR safety.
 **Risk**: Low — additive fix to CI config.
 
 ### P0-B: `70fe5369` — fix: use correct gitleaks --log-opts syntax with commit range (#721)
 **PR**: #720 / `ff48b052`
-**What**: Gitleaks command had incorrect `--log-opts` syntax. The fix uses `git log --format=... HEAD~N..HEAD` to enumerate PR commits for scanning.
+**What**: Upstream corrected `--log-opts` syntax for gitleaks. Fork does not use `--log-opts` (uses `gitleaks detect --source .` working-tree scan instead, which is equivalent for PR-scoped changes with `fetch-depth: 50`).
 **Related**: `f0bcb7b7` — replace gitleaks-action v2 with free CLI to fix org license error (#721)
 **Risk**: Low — CI tooling fix.
 
