@@ -208,6 +208,10 @@ jobs:
                 echo "verdict=FAIL" >> "$GITHUB_OUTPUT"
                 echo "=== SKEPTIC GATE: FAIL ==="
                 exit 1
+              elif echo "$VERDICT_BODY" | grep -qi "VERDICT: SKIPPED"; then
+                echo "verdict=SKIPPED" >> "$GITHUB_OUTPUT"
+                echo "=== SKEPTIC GATE: SKIPPED (infra issue — not blocking) ==="
+                exit 0
               fi
             fi
 
