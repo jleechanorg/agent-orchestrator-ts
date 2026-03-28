@@ -38,7 +38,6 @@ import {
   type EventPriority,
   type PRState,
   type ProjectConfig as _ProjectConfig,
-  type MergeGateConfig,
 } from "./types.js";
 import { readMetadataRaw, updateMetadata } from "./metadata.js";
 import { getSessionsDir } from "./paths.js";
@@ -65,7 +64,7 @@ import { handleRequestMerge, handleParallelRetry } from "./fork-reaction-handler
 import { handleRespawnForReview } from "./fork-reaction-rfr.js";
 import { maybeDispatchReviewBacklog } from "./review-backlog.js";
 import { updateSessionMetadataHelper } from "./fork-utils.js";
-import { checkMergeGate } from "./merge-gate.js";
+import { checkMergeGate, type MergeGateResult } from "./merge-gate.js";
 import { GLOBAL_PAUSE_UNTIL_KEY, GLOBAL_PAUSE_REASON_KEY, parsePauseUntil } from "./global-pause.js";
 import { isGhRateLimitError } from "./gh-rate-limit.js";
 import { backfillUncoveredPRs } from "./backfill-extensions.js";
@@ -83,6 +82,56 @@ import {
 } from "./mcp-mail.js";
 import { runSkepticReviewReaction } from "./fork-skeptic-extension.js";
 import { resolveReactionMaxRetries } from "./fork-reaction-retry-policy.js";
+
+/**
+ * verify6Green — explicit 6-green pre-merge verification (bd-mjtn)
+ *
+ * Enforces all six PR readiness conditions BEFORE any merge attempt:
+ *   Gate 1: CI green (all checks SUCCESS)
+ *   Gate 2: No merge conflicts (mergeable: MERGEABLE)
+ *   Gate 3: CodeRabbit APPROVED (actionable reviews only — APPROVED/CHANGES_REQUESTED,
+ *            COMMENTED/DISMISSED states are ignored)
+ *   Gate 4: Bugbot clean (no error-severity cursor[bot] comments)
+ *   Gate 5: All inline comments resolved (GraphQL reviewThreads.isResolved with
+ *            REST fallback when GraphQL is exhausted; REST returns isResolved=false
+ *            which blocks the gate until resolved — this is intentional fail-closed
+ *            behaviour)
+ *
+ * Skeptic (Gate 6) and evidence-review (Gate 7) are NOT enforced here — those are
+ * optional per-project gates controlled via MergeGateConfig.  Agents are expected
+ * to have already run /er and posted the skeptic VERDICT: PASS comment before
+ * posting the green signal.
+ *
+ * @param pr            - PR to verify
+ * @param scm           - SCM plugin instance
+ * @param projectMergeGate - Optional project-level MergeGateConfig.  When provided,
+ *                           the project's `mergeGate.enabled` setting is respected so
+ *                           that projects with mergeGate disabled still allow the
+ *                           reaction to proceed (backward compat).  The skepticRequired
+ *                           field is always forced to false to prevent the 7th gate
+ *                           from being inadvertently activated.
+ *
+ * Call this in the approved-and-green reaction BEFORE calling scm.mergePR().
+ * If any gate fails, the merge MUST be skipped — do NOT attempt to merge a
+ * non-green PR.
+ */
+export async function verify6Green(
+  pr: import("./types.js").PRInfo,
+  scm: import("./types.js").SCM,
+  projectMergeGate?: import("./types.js").MergeGateConfig,
+): Promise<MergeGateResult> {
+  const config: import("./types.js").MergeGateConfig = {
+    // Respect the project's enabled setting so projects with mergeGate disabled
+    // continue to work (backward compat).  When no project config is provided,
+    // default to enabled so verify6Green is always on when called without config.
+    enabled: projectMergeGate?.enabled ?? true,
+    ...projectMergeGate,
+    // Always force skepticRequired=false regardless of project config — Skeptic is
+    // Gate 6 / an optional per-project gate, not part of the 6-green contract.
+    skepticRequired: false,
+  };
+  return checkMergeGate(pr, config, scm);
+}
 
 /** Parse a duration string like "10m", "30s", "1h" to milliseconds. */
 export function parseDuration(str: string): number {
@@ -911,19 +960,16 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
           };
         }
 
-        // Build MergeGateConfig with sensible defaults: enabled: true, all conditions required
-        // NOTE: evidence-review is intentionally excluded from requiredChecks here.
-        // The evidence-reviewer subagent posts PASS as a PR comment (not a GitHub review),
-        // so checking for evidence-review-bot GitHub review will always fail.
-        // Agents are required to run /er and post the PASS verdict before posting the green
-        // signal, making the review-based gate redundant and broken.
-        const mergeGateConfig: MergeGateConfig = {
-          enabled: true,
-          ...project.mergeGate,
-        };
-
-        // Check all merge gate conditions before attempting auto-merge
-        const gateResult = await checkMergeGate(freshSession.pr, mergeGateConfig, scm);
+        // verify6Green enforces the 6 core PR readiness gates (bd-mjtn):
+        //   Gate 1: CI green
+        //   Gate 2: No merge conflicts
+        //   Gate 3: CodeRabbit APPROVED (actionable reviews only)
+        //   Gate 4: Bugbot clean
+        //   Gate 5: All inline comments resolved
+        // Skeptic (Gate 6) and evidence-review (Gate 7) are per-project optional gates
+        // controlled via project.mergeGate.skepticRequired / requiredChecks.
+        // Pass project.mergeGate so the project's enabled setting is respected.
+        const gateResult = await verify6Green(freshSession.pr, scm, project.mergeGate);
         if (!gateResult.passed) {
           const event = createEvent("reaction.triggered", {
             sessionId,
