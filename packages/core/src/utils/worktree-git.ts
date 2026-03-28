@@ -45,7 +45,20 @@ export async function findRepoPathForWorktree(
             encoding: "utf8",
           })
         ).stdout.trim();
-        return { repoPath: resolve(gitCommonDir, ".."), branch: "" };
+        // Attempt to get branch from the worktree's HEAD so callers can delete it.
+        let branch = "";
+        try {
+          branch = (
+            await execFileAsync(
+              "git",
+              ["-C", workspacePath, "symbolic-ref", "--short", "HEAD"],
+              { timeout: GIT_TIMEOUT, encoding: "utf8" },
+            )
+          ).stdout.trim();
+        } catch {
+          // Detached HEAD or worktree broken — leave branch empty
+        }
+        return { repoPath: resolve(gitCommonDir, ".."), branch };
       } catch {
         // Not a valid git repo — keep walking up
       }
@@ -78,7 +91,7 @@ export async function findRepoPathForWorktree(
           branch = line.slice("branch ".length).replace(/^refs\/heads\//, "");
         }
       }
-      if (worktreePath === workspacePath && gitdir) {
+      if (resolve(worktreePath) === resolve(workspacePath) && gitdir) {
         // gitdir = /repo/.git/worktrees/<name>; .. → worktrees, ../.. → .git, ../../.. → repo root
         return { repoPath: resolve(gitdir, "..", "..", ".."), branch };
       }
