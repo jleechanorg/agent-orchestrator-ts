@@ -69,11 +69,22 @@ fi
 echo
 
 # Fetch open PRs with createdAt for age tracking
+# Use REST API to avoid GraphQL rate limit exhaustion
 echo "=== Open PRs ==="
-pr_data=$(gh pr list --repo "$REPO" --state open --limit 100 \
-  --json number,title,headRefName,createdAt 2>/dev/null)
-if [[ -z "$pr_data" ]]; then
-  echo "ERROR: Failed to fetch open PRs from $REPO" >&2
+# Disable errexit for the gh call — command substitution swallows the exit code
+# but the gh command itself can fail under set -e before assignment completes.
+set +e
+pr_data=$(gh api "repos/$REPO/pulls?state=open&per_page=100" \
+  --jq '[.[] | {number: .number, title: .title, headRefName: .head.ref, createdAt: .created_at}]' 2>/dev/null)
+_fetch_rc=$?
+set -e
+if [[ "$_fetch_rc" -ne 0 ]] || [[ -z "$pr_data" ]]; then
+  echo "ERROR: Failed to fetch open PRs from $REPO (rc=$_fetch_rc)" >&2
+  exit 1
+fi
+# Also guard against empty JSON array (gh api may return [] on error)
+if [[ "$pr_data" == "[]" ]]; then
+  echo "ERROR: Empty PR list payload from $REPO" >&2
   exit 1
 fi
 

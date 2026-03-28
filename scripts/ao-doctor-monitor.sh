@@ -468,6 +468,7 @@ check_pr_age() {
 
   local missing_age_count=0
   local fresh_count=0
+  local repos_skipped=0
 
   REPORT_LINES+=("--- PR Age Summary ---")
 
@@ -477,6 +478,7 @@ check_pr_age() {
       --json number,headRefName,createdAt \
       2>/dev/null) || {
       warn "Failed to fetch PRs from $repo — auth/config issue may be masking repo status"
+      repos_skipped=$((repos_skipped + 1))
       continue
     }
 
@@ -513,6 +515,8 @@ check_pr_age() {
 
   if [ "$missing_age_count" -gt 0 ]; then
     fail "$missing_age_count PR(s) missing createdAt — age guardrail is BLOCKING"
+  elif [ "$repos_skipped" -gt 0 ]; then
+    warn "Skipped $repos_skipped repo(s) due to fetch failure — not all PRs verified"
   elif [ "$SLACK_STALE_PR_COUNT" -eq 0 ]; then
     pass "All open PRs are fresh (<${AO_DOCTOR_STALE_HOURS:-3}h, fresh=$fresh_count)"
   fi
