@@ -291,7 +291,7 @@ describe("respawn-for-review reaction action", () => {
       sessionManager: mockSessionManager,
     });
 
-    // @ts-ignore — _testing is typed via the `as` cast at module level
+    // @ts-expect-error — _testing is typed via the `as` cast at module level
     const result = await lm._testing!.executeReaction(
       session.id,
       session.projectId,
