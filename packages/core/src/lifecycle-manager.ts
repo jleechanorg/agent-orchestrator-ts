@@ -63,6 +63,7 @@ import { validateAndEmitExitProof } from "./session-exit-proof.js";
 import { isPRMerged } from "./fork-lifecycle-kki-override.js";
 import { handleRequestMerge, handleParallelRetry } from "./fork-reaction-handlers.js";
 import { handleRespawnForReview } from "./fork-reaction-rfr.js";
+import { resolveReactionMaxRetries } from "./fork-reaction-retry-policy.js";
 import { maybeDispatchReviewBacklog } from "./review-backlog.js";
 import { updateSessionMetadataHelper } from "./fork-utils.js";
 import { checkMergeGate } from "./merge-gate.js";
@@ -652,6 +653,10 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     /** Treats undefined as dead — intended for retry dispatch paths where the caller's
      *  determineStatus result is unavailable. Backlog callers pass agentDead explicitly. */
     agentDead?: boolean,
+    /** Whether this is a periodic/stable-cycle retry (e.g. agent-stuck nudge retry).
+     *  Periodic retries are bounded by their own cooldown timer and exempt from the
+     *  send-to-agent cap. */
+    isPeriodic = false,
   ): Promise<ReactionResult> {
     const reactionCorrelationId = correlationId ?? createCorrelationId("reaction");
     observer.recordOperation({
@@ -661,7 +666,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       correlationId: reactionCorrelationId,
       projectId,
       sessionId,
-      data: { reactionKey, action: reactionConfig.action, auto: reactionConfig.auto },
+      data: { reactionKey, action: reactionConfig.action, auto: reactionConfig.auto, isPeriodic },
       level: "info",
     });
 
@@ -717,12 +722,11 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     // Increment attempts only when we actually attempt the action (not on dedup skip)
     if (!deduped) tracker.attempts++;
 
-    // Check if we should escalate.
-    // FIX 3002095878: retry/attempt-based escalation is suppressed on deduped polls
-    // (no actual send was made, so counting it toward attempts would be wrong).
-    // Duration-based escalation still fires on deduped polls — if nothing has happened
-    // for X time, escalate regardless of whether SHA changed.
-    const maxRetries = reactionConfig.retries ?? Infinity;
+    // Execute the reaction action
+    const action = reactionConfig.action ?? "notify";
+    // bd-5nxx: send-to-agent capped at 3 by default. bd-sbr.periodic-cap: isPeriodic=true → Infinity.
+    const maxRetries = resolveReactionMaxRetries(action, reactionConfig, isPeriodic);
+
     const escalateAfter = reactionConfig.escalateAfter;
     let shouldEscalate = false;
 
@@ -759,9 +763,6 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         escalated: true,
       };
     }
-
-    // Execute the reaction action
-    const action = reactionConfig.action ?? "notify";
 
     switch (action) {
       case "send-to-agent": {
@@ -2150,6 +2151,13 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       const session = await sessionManager.get(sessionId);
       if (!session) throw new Error(`Session ${sessionId} not found`);
       await checkSession(session);
+    },
+
+    // Exposed for unit testing — allows direct invocation of executeReaction to test
+    // the retry cap without depending on REVIEW_BACKLOG_INTERVAL throttle timing.
+    _testing: {
+      executeReaction,
+      getReactionConfigForSession,
     },
   };
 }

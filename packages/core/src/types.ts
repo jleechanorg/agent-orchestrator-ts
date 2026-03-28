@@ -1650,6 +1650,21 @@ export interface LifecycleManager {
 
   /** Force-check a specific session now */
   check(sessionId: SessionId): Promise<void>;
+
+  /** Test-only API — exposes internal functions for unit test direct invocation */
+  _testing: {
+    executeReaction: LifecycleManager["check"] extends infer _ ? (
+      sessionId: SessionId,
+      projectId: string,
+      reactionKey: string,
+      reactionConfig: ReactionConfig,
+      session?: Session,
+      correlationId?: string,
+      agentDead?: boolean,
+      isPeriodic?: boolean,
+    ) => Promise<unknown> : never;
+    getReactionConfigForSession: (session: Session, reactionKey: string) => ReactionConfig | null;
+  };
 }
 
 /** Plugin registry — discovery + loading */

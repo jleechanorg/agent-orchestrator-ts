@@ -217,7 +217,8 @@ function archDiagram(pr) {
   // innerWidth is the consistent reference for all rows:
   // header = "PR #NNNN — agent-orchestrator" (fixed text, padded to innerWidth)
   // title  = two spaces + title text (padded to innerWidth - 4, + 2 spaces each side)
-  const innerWidth = Math.max(title.length + 4, 41);
+  // Minimum 100 ensures long titles (e.g. "idempotency") are not truncated.
+  const innerWidth = Math.max(title.length + 4, 100);
   const hz = "─".repeat(innerWidth);
   const header = `PR #${String(prNum).padStart(4)} — agent-orchestrator`;
   return `┌${hz}┐
