@@ -26,11 +26,8 @@ jobs:
         with:
           node-version: "22"
 
-      - name: Build ao CLI from repo
-        run: |
-          npm install -g pnpm
-          pnpm install
-          pnpm build
+      - name: Install ao CLI
+        run: npm install -g @jleechanorg/ao-cli
 
       - name: Resolve skeptic verdict from existing comments
         id: verdict
@@ -41,11 +38,12 @@ jobs:
         run: |
           set -euo pipefail
           PR=${{ github.event.pull_request.number }}
+          REPO="${{ github.repository }}"
 
           # Step 1: Try to find an existing verdict comment.
           # Accept either AO worker bot or workflow bot comments.
           # Require marker AND explicit VERDICT:PASS or VERDICT:FAIL.
-          COMMENTS=$(gh api repos/${{ github.repository }}/issues/$PR/comments --paginate)
+          COMMENTS=$(gh api repos/$REPO/issues/$PR/comments --paginate 2>/dev/null || echo "[]")
 
           VERDICT_BODY=$(echo "$COMMENTS" | jq -s 'add' | jq -r '
             [.[]
@@ -58,7 +56,7 @@ jobs:
             | sort_by(.created_at)
             | reverse
             | .[0].body // ""
-          ')
+          ' 2>/dev/null || echo "")
 
           if echo "$VERDICT_BODY" | grep -qi "VERDICT:[[:space:]]*PASS"; then
             echo "verdict=PASS" >> "$GITHUB_OUTPUT"
@@ -72,31 +70,28 @@ jobs:
             exit 1
           fi
 
-          # Step 2: No existing verdict comment — build and run skeptic verify.
+          # Step 2: No existing verdict comment — run ao skeptic verify.
           echo "No existing skeptic verdict comment found. Running ao skeptic verify..."
-          CLI_PATH="$(pwd)/packages/cli/dist/index.js"
-          echo "CLI path: $CLI_PATH"
+          AO_BIN="$(npm root -g)/.bin/ao"
+          echo "Using ao binary: $AO_BIN"
           echo "Node version: $(node --version)"
-          echo "CLI exists: $(test -f "$CLI_PATH" && echo YES || echo NO)"
-          echo "AO_PATH env: ${AO_PATH:-not set}"
 
-          # Capture both stdout and stderr, separately from exit code
+          # Run skeptic verify --dry-run: prints VERDICT: to stdout, no comment posting.
+          # Keys are passed via env vars (ANTHROPIC_API_KEY, OPENAI_API_KEY).
           set +e
-          SKEPTIC_OUTPUT=$(node "$CLI_PATH" skeptic verify --pr "$PR" --dry-run 2>&1)
+          SKEPTIC_OUTPUT=$("$AO_BIN" skeptic verify --pr "$PR" --repo "$REPO" --dry-run 2>&1)
           SKEPTIC_EXIT=$?
           set -e
           echo "Skeptic exit code: $SKEPTIC_EXIT"
-          echo "Skeptic output length: ${#SKEPTIC_OUTPUT}"
           echo "=== Skeptic output ==="
           echo "$SKEPTIC_OUTPUT"
           echo "=== End output ==="
 
-          # Extract VERDICT from output.
+          # Extract VERDICT line.
           VERDICT_LINE=$(echo "$SKEPTIC_OUTPUT" | grep -i "VERDICT:" | tail -1 || echo "")
 
           # Handle empty/missing output: check if any API key is available.
-          # If neither key is set and output is empty, SKIP (skeptics not configured).
-          # Otherwise fail-closed.
+          # If neither key is set and output is empty, SKIP (skeptic not configured).
           HAS_KEY=0
           if [ -n "$ANTHROPIC_API_KEY" ] || [ -n "$OPENAI_API_KEY" ]; then
             HAS_KEY=1
@@ -119,7 +114,6 @@ jobs:
           fi
 
           # Step 3: Post verdict as a comment from github-actions[bot].
-          # Build comment body line-by-line via printf to avoid YAML alias issues.
           COMMENT_TMP=$(mktemp)
           {
             printf '%s\n' "<!-- skeptic-agent-verdict -->"
@@ -131,7 +125,7 @@ jobs:
             printf '\n'
             printf '%s\n' "**VERDICT: $VERDICT_VALUE**"
           } > "$COMMENT_TMP"
-          gh api repos/${{ github.repository }}/issues/$PR/comments \
+          gh api repos/$REPO/issues/$PR/comments \
             --method POST \
             --field body="$(cat "$COMMENT_TMP")" > /dev/null
           rm -f "$COMMENT_TMP"
