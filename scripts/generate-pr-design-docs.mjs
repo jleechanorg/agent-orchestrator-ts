@@ -66,7 +66,7 @@ import { spawn } from "node:child_process";
 
 function run(cmd) {
   return new Promise((resolve, reject) => {
-    const proc = spawn(cmd[0], cmd.slice(1), { shell: true });
+    const proc = spawn(cmd[0], cmd.slice(1), { stdio: ["ignore", "pipe", "pipe"] });
     let out = "";
     let err = "";
     proc.stdout.on("data", (d) => (out += d));
@@ -322,7 +322,9 @@ function htmlDoc({ pr, files, commits }) {
     <main class="wrap">
       <section class="hero">
         <h1>${escHtml(title)}</h1>
-        <p class="muted">${escHtml(description)}</p>
+        ${description.includes("\n")
+          ? mdToHtml(description.split("\n").filter(l => l.trim()).join("\n"))
+          : mdToHtml(description)}
         <p class="muted" style="margin-top:0.5rem">
           PR: <a href="https://github.com/${REPO}/pull/${pr.number}">#${pr.number}</a>
           &nbsp;·&nbsp; Status: ${stateLabel(state, mergedAt)}
@@ -479,6 +481,59 @@ function escHtml(str) {
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
+}
+
+/**
+ * Escape HTML injection vectors (&, <, >) while preserving markdown formatting.
+ * Unlike escHtml, this does NOT escape * or backtick — those are markdown
+ * syntax and must render for bold/code in the hero description.
+ */
+function escMd(str) {
+  return String(str || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+/**
+ * Convert markdown syntax to HTML for embedding in the HTML design doc.
+ * Handles **bold**, *italic*, `code` inline spans, and - list items.
+ * CR requested: block-level list support so bullets render as HTML lists.
+ */
+function mdToHtml(str) {
+  const escaped = escMd(str);
+
+  // Process lines: wrap consecutive - list items in <ul> blocks
+  const lines = escaped.split("\n");
+  const result = [];
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i];
+    const listMatch = line.match(/^(\s*)- (.*)/);
+    if (listMatch) {
+      // Collect consecutive list items
+      const items = [];
+      while (i < lines.length) {
+        const m = lines[i].match(/^(\s*)- (.*)/);
+        if (!m) break;
+        items.push(`<li>${inlineMd(m[2])}</li>`);
+        i++;
+      }
+      result.push(`<ul class="muted">${items.join("")}</ul>`);
+    } else {
+      result.push(inlineMd(line));
+      i++;
+    }
+  }
+  return result.join("\n");
+}
+
+/** Inline markdown only (bold, italic, code) — used inside list items. */
+function inlineMd(str) {
+  return str
+    .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+    .replace(/\*(.+?)\*/g, "<em>$1</em>")
+    .replace(/`(.+?)`/g, "<code>$1</code>");
 }
 
 function ensureDir(dir) {
