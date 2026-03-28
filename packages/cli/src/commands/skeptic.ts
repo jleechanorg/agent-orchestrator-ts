@@ -21,8 +21,8 @@ import { buildSkepticPrompt } from "./skeptic/prompt.js";
 import { runSkepticEvaluation } from "./skeptic/modelRunner.js";
 import { postVerdict } from "./skeptic/posting.js";
 
-/** Line-anchored VERDICT matcher — only accepts a single-line literal "VERDICT: PASS" or "VERDICT: FAIL". */
-const VERDICT_LINE_RE = /^VERDICT:\s*(PASS|FAIL)\s*$/im;
+/** Line-anchored VERDICT matcher — accepts VERDICT: PASS, VERDICT: FAIL, or VERDICT: SKIPPED. */
+const VERDICT_LINE_RE = /^VERDICT:\s*(PASS|FAIL|SKIPPED)\s*$/im;
 
 const SKEPTIC_BOT_AUTHOR =
   process.env["GH_SKEPTIC_BOT_AUTHOR"] ?? "jleechan-agent[bot]";
@@ -57,7 +57,7 @@ async function findExistingVerdict(
     if (/<!-- skeptic-agent-verdict -->/i.test(c.body)) {
       const m = c.body.match(VERDICT_LINE_RE);
       if (m) {
-        return { verdict: m[1].toUpperCase() as "PASS" | "FAIL", commentId: c.id };
+        return { verdict: m[1].toUpperCase() as "PASS" | "FAIL" | "SKIPPED", commentId: c.id };
       }
     }
   }
@@ -127,7 +127,9 @@ export function registerSkeptic(program: Command): Command {
         console.log(chalk.yellow("\n=== DRY RUN — Verdict ===\n"));
         const verdictMatch = verdict.match(VERDICT_LINE_RE);
         if (verdictMatch) {
-          console.log(chalk[verdictMatch[1].toLowerCase() === "pass" ? "green" : "red"](verdictMatch[0]));
+          const verdictType = verdictMatch[1].toUpperCase();
+          const color = verdictType === "PASS" ? "green" : verdictType === "SKIPPED" ? "yellow" : "red";
+          console.log(chalk[color](verdictMatch[0]));
         } else {
           console.log(verdict);
         }

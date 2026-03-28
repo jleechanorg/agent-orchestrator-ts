@@ -62,6 +62,7 @@ import { buildReactionContext } from "./reaction-context.js";
 import { validateAndEmitExitProof } from "./session-exit-proof.js";
 import { isPRMerged } from "./fork-lifecycle-kki-override.js";
 import { handleRequestMerge, handleParallelRetry } from "./fork-reaction-handlers.js";
+import { handleRespawnForReview } from "./fork-reaction-rfr.js";
 import { maybeDispatchReviewBacklog } from "./review-backlog.js";
 import { updateSessionMetadataHelper } from "./fork-utils.js";
 import { checkMergeGate } from "./merge-gate.js";
@@ -648,6 +649,9 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     reactionConfig: ReactionConfig,
     session?: Session,
     correlationId?: string,
+    /** Treats undefined as dead — intended for retry dispatch paths where the caller's
+     *  determineStatus result is unavailable. Backlog callers pass agentDead explicitly. */
+    agentDead?: boolean,
   ): Promise<ReactionResult> {
     const reactionCorrelationId = correlationId ?? createCorrelationId("reaction");
     observer.recordOperation({
@@ -987,6 +991,18 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         });
       }
 
+      // bd-rfr: Delegate to fork-reaction-rfr.ts — extracted for upstream isolation
+      case "respawn-for-review": {
+        return handleRespawnForReview(sessionId, projectId, reactionKey, reactionConfig, session!, agentDead, reactionCorrelationId, {
+          sessionManager,
+          config,
+          registry,
+          notifyHuman,
+          createEvent,
+          observer,
+        });
+      }
+
       default: {
         // Log warning for unknown reaction action types
         console.warn(`Unknown reaction action type: ${action}`);
@@ -1290,8 +1306,50 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
             // skeptic-review) are SCM/API operations that don't require a live agent.
             const skipForDead = agentDead && reactionConfig.action === "send-to-agent";
 
+            // bd-rfr: Gate changes-requested transition reaction on CR's latest verdict.
+            // CR posts inline suggestions under COMMENTED (no formal verdict) before optionally
+            // posting CHANGES_REQUESTED. Inline suggestions persist after dismissal.
+            // Suppress the transition reaction when verdict is COMMENTED or DISMISSED — the backlog
+            // path (which has the same gate) handles fresh CHANGES_REQUESTED alerts via fingerprint.
+            // Default to true (allow reaction) so non-changes-requested reactions are unaffected.
+            // Only set to false when verdict is explicitly COMMENTED or DISMISSED.
+            let skipVerdictGate = true;
+            try {
+              if (reactionKey === "changes-requested" && session.pr) {
+                const verdictProject = config.projects[session.projectId];
+                const verdictScm = verdictProject?.scm
+                  ? registry.get<SCM>("scm", verdictProject.scm.plugin)
+                  : null;
+                if (verdictScm) {
+                  const rawReviews = await verdictScm.getReviews(session.pr);
+                  // Cast to match SCM's normalized shape (author: string, state: string).
+                  // Defensive: author may arrive as { login: string } in some SCM implementations.
+                  const reviews: Array<{ author?: string; state?: string }> = rawReviews;
+                  const crReviews = reviews.filter((r) => String(r.author ?? "").endsWith("coderabbitai[bot]"));
+                  const crVerdict = crReviews[crReviews.length - 1]?.state ?? null;
+
+                  // Block only when verdict is explicitly COMMENTED or DISMISSED.
+                  // Allow dispatch for all other verdicts (null, CHANGES_REQUESTED, APPROVED, etc.)
+                  // null = fail open (allow reaction).
+                  // SCM normalizes GitHub API values: "CHANGES_REQUESTED" → "changes_requested",
+                  // "DISMISSED" → "dismissed", "COMMENTED" → "commented" (see scm-github getReviews).
+                  skipVerdictGate = crVerdict === null || (crVerdict !== "commented" && crVerdict !== "dismissed");
+                }
+              }
+            } catch (verdictErr) {
+              // Fail open: any error fetching CR verdict should not block the reaction
+              console.warn(
+                `[lifecycle-manager] verdict gate getReviews failed for session=${session.id}: ` +
+                `${verdictErr instanceof Error ? verdictErr.message : String(verdictErr)} — allowing reaction`,
+              );
+            }
+
             // auto: false skips automated agent actions but still allows notifications
-            if ((reactionConfig.auto !== false || reactionConfig.action === "notify") && !skipForDead) {
+            if (
+              (reactionConfig.auto !== false || reactionConfig.action === "notify") &&
+              !skipForDead &&
+              skipVerdictGate
+            ) {
               // Reaction will execute
               const reactionResult = await executeReaction(
                 session.id,
@@ -1300,6 +1358,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
                 reactionConfig,
                 session,
                 correlationId,
+                agentDead,
               );
               transitionReaction = { key: reactionKey, result: reactionResult };
               // Seed stuck retry cooldown from the initial transition nudge (bd-sbr.2)
@@ -1537,6 +1596,8 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
               reactionKey,
               reactionConfig,
               session,
+              undefined,
+              false,
             );
             if (result?.success) {
               transitionReaction = { key: reactionKey, result };
@@ -1585,6 +1646,8 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
                 reactionKey,
                 reactionConfig,
                 session,
+                undefined,
+                false,
               );
               if (result?.success) {
                 transitionReaction = { key: reactionKey, result };

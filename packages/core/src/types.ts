@@ -993,8 +993,8 @@ export interface ReactionConfig {
   /** Whether this reaction is enabled */
   auto: boolean;
 
-  /** What to do: send message to agent, notify human, auto-merge, request-merge, parallel-retry, skeptic-review */
-  action: "send-to-agent" | "notify" | "auto-merge" | "request-merge" | "parallel-retry" | "skeptic-review";
+  /** What to do: send message to agent, notify human, auto-merge, request-merge, parallel-retry, skeptic-review, respawn-for-review */
+  action: "send-to-agent" | "notify" | "auto-merge" | "request-merge" | "parallel-retry" | "skeptic-review" | "respawn-for-review";
 
   /** Message to send (for send-to-agent) */
   message?: string;
