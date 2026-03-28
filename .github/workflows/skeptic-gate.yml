@@ -7,9 +7,12 @@ on:
   pull_request_target:
     types: [opened, synchronize, edited, reopened]
 
+# Do NOT cancel in-progress runs — killing a polling step mid-loop discards its
+# loop state (API_FAILURES counter, attempt count). A new run with the same SHA
+# starting concurrently is harmless; the jq timestamp filter rejects stale verdicts.
 concurrency:
   group: skeptic-gate-${{ github.event.pull_request.number }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   skeptic_gate:
