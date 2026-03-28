@@ -1745,7 +1745,7 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
         // use slashes (e.g. feat/bd-pjh → feat%2Fbd-pjh → feat/bd-pjh).
         const encodedBranch = encodeURIComponent(pr.branch).replace(/%2F/g, "/");
         try {
-          await gh(["api", `repos/${pr.owner}/${pr.repo}/git/refs/heads/${encodedBranch}`, "--method", "DELETE"]);
+          await ghBot(["api", `repos/${pr.owner}/${pr.repo}/git/refs/heads/${encodedBranch}`, "--method", "DELETE"]);
         } catch {
           // Non-fatal: best-effort branch cleanup. Log and continue.
           console.warn(
