@@ -51,6 +51,7 @@ jobs:
         run: |
           set -e
 
+          SKEPTIC_FAILED=""
           for PR in $(echo "$PR_JSON" | jq -r '.[] | @base64'); do
             PR_DATA=$(echo "$PR" | base64 -d)
             PR_NUM=$(echo "$PR_DATA" | jq -r '.number')
@@ -67,12 +68,14 @@ jobs:
             # Wrap in subshell: captures exit code so set -e doesn't abort the loop.
             # bd-skp2: removed || true (misleading) — capture real exit code and check explicitly
             skeptic_exit=0
-            # npx @jleechanorg/ao-cli: CLI installed globally in GHA; packages/cli/dist/index.js does not exist at runtime
-            (npx @jleechanorg/ao-cli skeptic verify -n "$PR_NUM" --dry-run > "skeptic-output-${PR_NUM}.txt" 2>&1) || skeptic_exit=$?
-            # Fail the step if skeptic exited non-zero — aligns with merge-gate.ts (non-PASS/SKIPPED = FAIL)
+            # Use locally-built CLI — skeptic-setup already ran pnpm -r build, so
+            # packages/cli/dist/index.js is available and matches the current branch code.
+            (node packages/cli/dist/index.js skeptic verify -n "$PR_NUM" --dry-run > "skeptic-output-${PR_NUM}.txt" 2>&1) || skeptic_exit=$?
+            # Record failure and continue — one PR's skeptic failure must not block all other PRs.
+            # bd-ao2b: exit 1 here aborted the entire step, preventing merge_prs from running.
             if [ "$skeptic_exit" -ne 0 ]; then
-              echo "ERROR: skeptic exited with code $skeptic_exit for PR #$PR_NUM — blocking merge"
-              exit 1
+              echo "WARNING: skeptic exited with code $skeptic_exit for PR #$PR_NUM — recording failure, continuing batch"
+              SKEPTIC_FAILED="$SKEPTIC_FAILED $PR_NUM"
             fi
             # Print output for workflow logs
             cat "skeptic-output-${PR_NUM}.txt" || true
@@ -84,6 +87,12 @@ jobs:
 
             echo "Skeptic complete for PR #${PR_NUM} (exit=${skeptic_exit})"
           done
+
+          # Fail the job if any PRs had skeptic failures (bd-ao2b)
+          if [ -n "$SKEPTIC_FAILED" ]; then
+            echo "ERROR: skeptic failed for PR(s):$SKEPTIC_FAILED — failing step"
+            exit 1
+          fi
 
       - name: Check 7-green conditions and merge ready PRs
         id: merge_prs

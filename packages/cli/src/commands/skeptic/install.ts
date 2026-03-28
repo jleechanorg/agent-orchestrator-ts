@@ -55,8 +55,11 @@ export async function detectRepo(execFn = exec): Promise<RepoInfo> {
       }
       throw new Error("Git remote does not appear to be a GitHub URL");
     } catch (err) {
-      // Only ignore exec errors; re-throw descriptive parse errors
-      if (!(err instanceof Error) || !err.message.startsWith("Could not parse")) throw err;
+      // Only ignore exec (ENOENT/EACCES) errors; re-throw all descriptive parse errors
+      if (err instanceof Error && (err as NodeJS.ErrnoException).code &&
+          (err as NodeJS.ErrnoException).code !== "ENOENT" && (err as NodeJS.ErrnoException).code !== "EACCES") {
+        throw err;
+      }
     }
     throw new Error(
       "Could not detect repo. Run in a git repo with a configured remote, or use --repo owner/repo.",
@@ -179,6 +182,27 @@ export function registerSkepticInstall(skepticCmd: Command): void {
       const root = repoRoot.trim();
       if (!root) {
         cmd.error("Not a git repository. Run from inside a git checkout.");
+      }
+
+      // Validate that --repo, if provided, matches the current checkout.
+      // The installer writes to .github/workflows/ in the actual git checkout, not to a remote repo.
+      // bd-ao2b: warn if --repo was specified but doesn't match the current checkout.
+      if (options.repo) {
+        try {
+          const ghRepoData = await exec("gh", ["repo", "view", "--json", "owner,name", "--jq", "{owner: .owner.login, name: .name}"]);
+          const current = JSON.parse(ghRepoData.stdout) as RepoInfo;
+          if (current.owner !== repo.owner || current.name !== repo.name) {
+            console.warn(
+              chalk.yellow(
+                `⚠  --repo '${options.repo}' was specified, but the current checkout is '${current.owner}/${current.name}'.` +
+                  `\n   The workflow files will be installed in the current checkout, not in '${options.repo}'.` +
+                  `\n   Run this command from the correct checkout, or omit --repo to use the current repo.`,
+              ),
+            );
+          }
+        } catch {
+          // gh repo view failed — skip validation, proceed with installation
+        }
       }
 
       ensureWorkflowsDir(root);

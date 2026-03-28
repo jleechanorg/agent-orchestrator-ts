@@ -47,17 +47,16 @@ runs:
         # bd-skp2: capture exit code explicitly (removed misleading || true)
         # Correct subcommand is 'verify -n' not '--pr' (--pr is on the verify subcommand)
         skeptic_exit=0
-        # npx @jleechanorg/ao-cli: CLI installed globally; node packages/cli/dist/index.js not available in GHA
-        (npx @jleechanorg/ao-cli skeptic verify \
+        # Use locally-built CLI — skeptic-setup already ran pnpm -r build, so
+        # packages/cli/dist/index.js is available and matches the current branch code.
+        (node packages/cli/dist/index.js skeptic verify \
           -n ${{ inputs.pr_number }} \
           --dry-run \
           > skeptic-output.txt 2>&1) || skeptic_exit=$?
         cat skeptic-output.txt
 
-        # bd-8tpa: check PASS first — when Codex fails with 401 but Claude fallback
-        # succeeds, skeptic-output.txt contains BOTH "VERDICT: FAIL" (from error text
-        # embedded in LLM output) and "VERDICT: PASS" (the authoritative verdict).
-        # Prefer PASS since the evaluation actually succeeded.
+        # Handle SKIPPED first — infra failures (Codex/Claude unavailable) emit VERDICT: SKIPPED
+        # and exit 0, so they don't block the gate; only FAIL blocks merges.
         if grep -qi "VERDICT: SKIPPED" skeptic-output.txt; then
           echo "verdict=SKIPPED" >> "$GITHUB_OUTPUT"
           exit 0
