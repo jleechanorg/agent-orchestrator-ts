@@ -237,8 +237,7 @@ jobs:
               fi
             else
               SKEPTIC_VERDICT=$(gh api repos/${{ github.repository }}/issues/"$PR_NUM"/comments \
-                --arg author "$SKEPTIC_BOT_AUTHOR" \
-                --jq '[.[] | select(.user.login == $author and (.body | test("VERDICT:"; "i"))) | .body] | last')
+                --jq "[.[] | select(.user.login == \"${SKEPTIC_BOT_AUTHOR}\" and (.body | test(\"VERDICT:\"; \"i\"))) | .body] | last")
               if echo "$SKEPTIC_VERDICT" | grep -qi "VERDICT: PASS"; then
                 SKEPTIC_STATUS="PASS"
               else
