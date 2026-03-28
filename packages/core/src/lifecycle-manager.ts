@@ -82,6 +82,7 @@ import {
   type McpMailClientConfig,
 } from "./mcp-mail.js";
 import { runSkepticReviewReaction } from "./fork-skeptic-extension.js";
+import { resolveReactionMaxRetries } from "./fork-reaction-retry-policy.js";
 
 /** Parse a duration string like "10m", "30s", "1h" to milliseconds. */
 export function parseDuration(str: string): number {
@@ -649,11 +650,18 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     reactionConfig: ReactionConfig,
     session?: Session,
     correlationId?: string,
+    isPeriodic = false,
     /** Treats undefined as dead — intended for retry dispatch paths where the caller's
      *  determineStatus result is unavailable. Backlog callers pass agentDead explicitly. */
     agentDead?: boolean,
   ): Promise<ReactionResult> {
     const reactionCorrelationId = correlationId ?? createCorrelationId("reaction");
+    // bd-5nxx: resolve action type before computing maxRetries so the cap applies to
+    // send-to-agent by default. Log the resolved action (not raw config) for observability.
+    // bd-sbr.periodic-cap: periodic invocations (e.g., agent-stuck nudge retry) pass
+    // isPeriodic=true so resolveReactionMaxRetries returns Infinity — periodic nudges
+    // are bounded by their own cooldown timer, not the transition cap.
+    const action = reactionConfig.action ?? "notify";
     observer.recordOperation({
       metric: "lifecycle_poll",
       operation: "lifecycle.reaction.start",
@@ -661,7 +669,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       correlationId: reactionCorrelationId,
       projectId,
       sessionId,
-      data: { reactionKey, action: reactionConfig.action, auto: reactionConfig.auto },
+      data: { reactionKey, action, auto: reactionConfig.auto, isPeriodic },
       level: "info",
     });
 
@@ -722,7 +730,13 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     // (no actual send was made, so counting it toward attempts would be wrong).
     // Duration-based escalation still fires on deduped polls — if nothing has happened
     // for X time, escalate regardless of whether SHA changed.
-    const maxRetries = reactionConfig.retries ?? Infinity;
+    // bd-5nxx: send-to-agent is non-idempotent — cap retries at 3 by default to prevent
+    // repeated delivery of the same message on every poll cycle for stable states.
+    // bd-sbr.periodic-cap: periodic invocations (agent-stuck nudge retry) pass isPeriodic=true
+    // so resolveReactionMaxRetries returns Infinity — periodic nudges are bounded by their
+    // own cooldown timer (STUCK_RETRY_COOLDOWN_MS), not the transition cap.
+    // Fork policy isolated in fork-reaction-retry-policy.ts to minimize upstream diff.
+    const maxRetries = resolveReactionMaxRetries(action, reactionConfig, isPeriodic);
     const escalateAfter = reactionConfig.escalateAfter;
     let shouldEscalate = false;
 
@@ -761,7 +775,6 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     }
 
     // Execute the reaction action
-    const action = reactionConfig.action ?? "notify";
 
     switch (action) {
       case "send-to-agent": {
@@ -1597,7 +1610,8 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
               reactionConfig,
               session,
               undefined,
-              false,
+              false, // isPeriodic: not a periodic/agent-stuck retry path
+              undefined, // agentDead: approved PR, agent is alive
             );
             if (result?.success) {
               transitionReaction = { key: reactionKey, result };
@@ -1646,8 +1660,9 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
                 reactionKey,
                 reactionConfig,
                 session,
-                undefined,
-                false,
+                undefined, // correlationId — periodic retry has no dedicated correlation
+                true, // isPeriodic: agent-stuck nudge retry bounded by STUCK_RETRY_COOLDOWN_MS, not transition cap
+                undefined, // agentDead
               );
               if (result?.success) {
                 transitionReaction = { key: reactionKey, result };
@@ -2151,5 +2166,12 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       if (!session) throw new Error(`Session ${sessionId} not found`);
       await checkSession(session);
     },
-  };
+
+    // Exposed for unit testing — allows direct invocation of executeReaction to test
+    // the retry cap without depending on REVIEW_BACKLOG_INTERVAL throttle timing.
+    _testing: {
+      executeReaction,
+      getReactionConfigForSession,
+    },
+  } as LifecycleManager & { _testing: { executeReaction: typeof executeReaction; getReactionConfigForSession: typeof getReactionConfigForSession } };
 }

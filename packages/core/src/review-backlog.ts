@@ -30,6 +30,7 @@ export interface ReviewBacklogDeps {
     reactionConfig: ReactionConfig,
     session?: Session,
     correlationId?: string,
+    isPeriodic?: boolean,
     agentDead?: boolean,
   ) => Promise<ReactionResult>;
   /** Whether the agent is confirmed dead — skips send-to-agent backlog dispatches (bd-5o1) */
@@ -236,6 +237,7 @@ export async function maybeDispatchReviewBacklog(
           reactionConfig,
           session,
           undefined,
+          false, // isPeriodic
           agentDead,
         );
         if (result.success) {
@@ -295,6 +297,7 @@ export async function maybeDispatchReviewBacklog(
           reactionConfig,
           session,
           undefined,
+          false, // isPeriodic
           agentDead,
         );
         if (result.success) {

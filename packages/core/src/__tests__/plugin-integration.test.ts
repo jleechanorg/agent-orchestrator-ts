@@ -37,6 +37,7 @@ import { createSessionManager } from "../session-manager.js";
 import { createLifecycleManager } from "../lifecycle-manager.js";
 import { writeMetadata } from "../metadata.js";
 import { getSessionsDir } from "../paths.js";
+import { tmuxInject } from "../tmux.js";
 import trackerGithub from "@jleechanorg/ao-plugin-tracker-github";
 import scmGithub, { _resetGhCache } from "@jleechanorg/ao-plugin-scm-github";
 import type {
@@ -143,6 +144,7 @@ beforeEach(() => {
     getLaunchCommand: vi.fn().mockReturnValue("mock-agent --start"),
     getEnvironment: vi.fn().mockReturnValue({ AGENT_VAR: "1" }),
     detectActivity: vi.fn().mockResolvedValue("active"),
+    getActivityState: vi.fn().mockResolvedValue({ state: "active" as const }),
     isProcessRunning: vi.fn().mockResolvedValue(true),
     getSessionInfo: vi.fn().mockResolvedValue(null),
   };
@@ -638,6 +640,159 @@ describe("plugin integration", () => {
 
       const states = lm.getStates();
       expect(states.get("app-1")).toBe("changes_requested");
+    });
+
+    // bd-5nt5 integration test 1 — stable-status idempotency.
+    // Verifies send-to-agent fires exactly once on the changes_requested transition
+    // and zero times on subsequent stable-status cycles (reactions only fire on
+    // STATUS CHANGES, not every poll cycle). The stable-status transition guard
+    // prevents the same reaction from re-firing in cycles 2-5.
+    //
+    // bd-5nt5 failure path: the 3-retry cap + escalation is exercised by the unit test
+    // in lifecycle-manager.test.ts. The integration test cannot reach attempts > 3 because:
+    // (a) executeReaction calls send() once per invocation — no internal retry loop
+    // (b) the stable-status guard suppresses re-triggering for the same status
+    // Therefore the cap is verified via unit test, not integration test.
+    it("send-to-agent fires exactly once on changes_requested transition and never on stable status (bd-5nxx stable-status path)", async () => {
+      seedSession({ status: "pr_open", pr });
+
+      tmuxInject({
+        execFile: vi.fn((_cmd: string, _args: string[], _opts: unknown, cb: (err: Error | null, out: string, err2: string) => void) => {
+          cb(null, "", "");
+        }),
+      });
+
+      const mockSM: SessionManager = {
+        ...sm,
+        list: vi.fn().mockResolvedValue([makeSession({ status: "pr_open", pr })]),
+        get: vi.fn().mockResolvedValue(makeSession({ status: "pr_open", pr })),
+        kill: vi.fn().mockResolvedValue(undefined),
+        send: vi.fn().mockResolvedValue(undefined),
+        claimPR: vi.fn(),
+        spawnOrchestrator: vi.fn(),
+      };
+
+      const lm = createLifecycleManager({
+        config: {
+          ...config,
+          reactions: {
+            "changes-requested": { auto: true, action: "send-to-agent", message: "CR feedback." },
+          },
+        },
+        registry,
+        sessionManager: mockSM,
+      });
+
+      // Cycle 1: pr_open → changes_requested transition — send fires once
+      mockGh({
+        state: "OPEN",
+        reviewDecision: "CHANGES_REQUESTED",
+        statusCheckRollup: [{ name: "lint", conclusion: "SUCCESS" }],
+        mergeable: "MERGEABLE",
+        mergeStateStatus: "CLEAN",
+        isDraft: false,
+      });
+      await lm.check("app-1");
+      expect(lm.getStates().get("app-1")).toBe("changes_requested");
+      expect(vi.mocked(mockSM.send!)).toHaveBeenCalledTimes(1);
+
+      // Cycles 2-5: stable changes_requested — reaction guard suppresses re-fire.
+      // NOTE: This test does NOT exercise the 3-retry cap (bd-5nxx). send() succeeds
+      // on cycle 1 (line 697), and the stable-poll guard proves fingerprint-dedup
+      // suppresses re-fire — not the cap. The 3-retry cap is covered by the
+      // pure-function unit test at lifecycle-manager.test.ts:4139, which directly
+      // imports resolveReactionMaxRetries and asserts .not.toBe(Infinity) as a regression
+      // guard. The cap cannot be exercised here without mocking a sequence of send()
+      // failures that would require restructuring the mock state machine.
+      for (let cycle = 2; cycle <= 5; cycle++) {
+        vi.mocked(mockSM.send!).mockClear();
+        mockGh({
+          state: "OPEN",
+          reviewDecision: "CHANGES_REQUESTED",
+          statusCheckRollup: [{ name: "lint", conclusion: "SUCCESS" }],
+          mergeable: "MERGEABLE",
+          mergeStateStatus: "CLEAN",
+          isDraft: false,
+        });
+        await lm.check("app-1");
+        expect(lm.getStates().get("app-1")).toBe("changes_requested");
+        expect(vi.mocked(mockSM.send!)).not.toHaveBeenCalled();
+      }
+    });
+
+    // bd-5nt5 integration test 2 — send-to-agent failure path.
+    //
+    // NOTE: The 3-retry cap itself is verified by the pure-function unit test
+    // (lifecycle-manager.test.ts: "resolveReactionMaxRetries: send-to-agent defaults
+    // to 3"). That test imports resolveReactionMaxRetries directly and asserts the
+    // default is 3 with an explicit .not.toBe(Infinity) regression guard — a code
+    // change to Infinity would fail it.
+    //
+    // This integration test separately verifies that a failing send() is handled
+    // gracefully (returns {success: false}, does not throw) and the state machine
+    // continues to function correctly — proving reaction failure does not crash
+    // the lifecycle manager.
+    it("send-to-agent failure is handled gracefully without crashing the lifecycle manager (bd-5nxx failure path)", async () => {
+      seedSession({ status: "pr_open", pr });
+
+      tmuxInject({
+        execFile: vi.fn((_cmd: string, _args: string[], _opts: unknown, cb: (err: Error | null, out: string, err2: string) => void) => {
+          cb(null, "", "");
+        }),
+      });
+
+      // send() throws on every call — simulating an agent tmux session that is unreachable
+      const mockSM: SessionManager = {
+        ...sm,
+        list: vi.fn().mockResolvedValue([makeSession({ status: "pr_open", pr })]),
+        get: vi.fn().mockResolvedValue(makeSession({ status: "pr_open", pr })),
+        kill: vi.fn().mockResolvedValue(undefined),
+        send: vi.fn().mockRejectedValue(new Error("tmux session not found")),
+        claimPR: vi.fn(),
+        spawnOrchestrator: vi.fn(),
+      };
+
+      const lm = createLifecycleManager({
+        config: {
+          ...config,
+          reactions: {
+            "changes-requested": { auto: true, action: "send-to-agent", message: "CR feedback." },
+          },
+        },
+        registry,
+        sessionManager: mockSM,
+      });
+
+      // Cycle 1: send() throws — lifecycle-manager catches and returns {success: false}.
+      // No crash. PR state transitions to changes_requested.
+      mockGh({
+        state: "OPEN",
+        reviewDecision: "CHANGES_REQUESTED",
+        statusCheckRollup: [{ name: "lint", conclusion: "SUCCESS" }],
+        mergeable: "MERGEABLE",
+        mergeStateStatus: "CLEAN",
+        isDraft: false,
+      });
+      await lm.check("app-1");
+      expect(lm.getStates().get("app-1")).toBe("changes_requested");
+      expect(vi.mocked(mockSM.send!)).toHaveBeenCalledTimes(1);
+
+      // Cycles 2-3: stable changes_requested — transition guard suppresses re-fire.
+      // Lifecycle manager continues operating normally.
+      for (let cycle = 2; cycle <= 3; cycle++) {
+        vi.mocked(mockSM.send!).mockClear();
+        mockGh({
+          state: "OPEN",
+          reviewDecision: "CHANGES_REQUESTED",
+          statusCheckRollup: [{ name: "lint", conclusion: "SUCCESS" }],
+          mergeable: "MERGEABLE",
+          mergeStateStatus: "CLEAN",
+          isDraft: false,
+        });
+        await lm.check("app-1");
+        expect(lm.getStates().get("app-1")).toBe("changes_requested");
+        expect(vi.mocked(mockSM.send!)).not.toHaveBeenCalled();
+      }
     });
   });
 });
