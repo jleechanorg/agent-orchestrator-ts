@@ -91,7 +91,7 @@ After each check, report:
 | Generic language | "dependency install completed", "reached ready state" |
 
 Real terminal output looks like:
-```
+```text
 added 262 packages, and audited 263 packages in 5s
 Successfully installed MarkupSafe-3.0.3 PyJWT-2.12.1 ...
 /Users/jleechan/.openclaw/workspace/hermes-agent

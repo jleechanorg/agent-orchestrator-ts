@@ -207,7 +207,7 @@ These are the jleechanorg fork's unique contributions:
 **What**: Prevents two workers from claiming the same PR simultaneously.
 **Fork**: The fork's `claimPR` has this guard. Verify upstream's approach is compatible.
 
-### P3-B: `91117f9e` — fix: pause workers on model limits and stabilize session visibility (#367)
+### P3-B: `ffae6718` — fix: pause workers on model limits and stabilize session visibility (#367)
 **What**: Workers pause when model API returns 429 or rate limit.
 **Fork**: Should be consistent with fork's rate limit handling.
 
