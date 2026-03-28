@@ -214,21 +214,22 @@ function extractLabels(pr) {
 function archDiagram(pr) {
   const title = pr.title.replace(/^\[agento\]\s*/i, "");
   const prNum = pr.number;
-  // innerWidth is the consistent reference for all rows:
-  // header = "PR #NNNN — agent-orchestrator" (fixed text, padded to innerWidth)
-  // title  = two spaces + title text (padded to innerWidth - 4, + 2 spaces each side)
-  const innerWidth = Math.max(title.length + 4, 41);
-  const hz = "─".repeat(innerWidth);
-  const header = `PR #${String(prNum).padStart(4)} — agent-orchestrator`;
-  return `┌${hz}┐
-│${header.padEnd(innerWidth)}│
-└${hz}┘
-                  │
-    ${pr.files?.length > 0 ? `▼ ${pr.files.length} file(s) changed` : "  (no files)"}
-                  │
-┌${hz}┐
-│${`  ${title}`.padEnd(innerWidth)}│
-└${hz}┘`;
+  // Compute box width from longest content line so no title gets truncated
+  const lines = [
+    `PR #${prNum} — agent-orchestrator`,
+    title,
+    `${pr.files.length} file(s) changed`,
+  ];
+  const W = Math.max(...lines.map(l => l.length)) + 4;
+  const bar = "─".repeat(W);
+  const pad = (s) => s.padEnd(W);
+  // Use string concatenation to avoid nested template literal parse ambiguity
+  const archHeader = "│ " + pad("PR #" + prNum + " — agent-orchestrator") + " │";
+  const archTitle  = "│ " + pad(title) + " │";
+  return "┌" + bar + " ┐\n" + archHeader + "\n" +
+    "└" + bar + " ┘\n                  │\n    ▼ " + pr.files.length +
+    " file(s) changed\n                  │\n" +
+    "┌" + bar + " ┐\n" + archTitle + "\n└" + bar + " ┘
 }
 
 // ---------------------------------------------------------------------------
