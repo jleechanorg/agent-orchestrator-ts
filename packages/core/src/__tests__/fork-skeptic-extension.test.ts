@@ -308,7 +308,7 @@ describe("runSkepticReviewReaction", () => {
       modelUsed: "codex",
     });
 
-    const session = makeSession({ workspacePath: undefined as unknown as string });
+    const session = makeSession({ workspacePath: null });
     const config = makeReactionConfig();
 
     const result = await runSkepticReviewReaction({

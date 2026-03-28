@@ -80,8 +80,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          TRIGGER_UPDATED: ${{ needs.skeptic_gate.outputs.trigger_updated }}
-          TRIGGER_SHA: ${{ needs.skeptic_gate.outputs.trigger_sha }}
+          TRIGGER_UPDATED: ${{ steps.post_trigger.outputs.trigger_updated }}
+          TRIGGER_SHA: ${{ steps.post_trigger.outputs.trigger_sha }}
         # 28 min timeout — leave 2 min buffer so the step exits cleanly before the
         # 30-min job timeout rather than being killed by the runner.
         timeout-minutes: 28

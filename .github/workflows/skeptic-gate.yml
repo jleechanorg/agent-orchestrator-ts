@@ -80,8 +80,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          TRIGGER_UPDATED: ${{ needs.skeptic_gate.outputs.trigger_updated }}
-          TRIGGER_SHA: ${{ needs.skeptic_gate.outputs.trigger_sha }}
+          TRIGGER_UPDATED: ${{ steps.post_trigger.outputs.trigger_updated }}
+          TRIGGER_SHA: ${{ steps.post_trigger.outputs.trigger_sha }}
         # 28 min timeout — leave 2 min buffer so the step exits cleanly before the
         # 30-min job timeout rather than being killed by the runner.
         timeout-minutes: 28
@@ -115,14 +115,14 @@ jobs:
 
             # Find verdict comments from jleechan-agent[bot] posted AFTER the
             # trigger was updated AND whose body contains the trigger SHA marker
-            # (<!-- skeptic-gate-trigger-${HEAD_SHA} -->). This double-checks
+            # (<!-- skeptic-gate-trigger-${TRIGGER_SHA} -->). This double-checks
             # that the verdict belongs to the current evaluation window.
             # Parentheses required around (.body | test(...)) — jq `and` has lower
             # precedence than `|`, so unparenthesized form would be parsed as
             # (.user.login == X and .body) | test(...) which always selects all.
             VERDICT_JSON=$(gh api repos/${{ github.repository }}/issues/"$PR_NUM"/comments \
               --paginate \
-              --jq "[.[] | select(.user.login == \"jleechan-agent[bot]\" and (.body | test(\"VERDICT:\"; \"i\")) and (.created_at > \"$TRIGGER_UPDATED\") and (.body | test(\"skeptic-gate-trigger-\" + \"$HEAD_SHA\"; \"i\")))] | .[0] // empty" 2>/dev/null || echo "empty")
+              --jq "[.[] | select(.user.login == \"jleechan-agent[bot]\" and (.body | test(\"VERDICT:\"; \"i\")) and (.created_at > \"$TRIGGER_UPDATED\") and (.body | test(\"skeptic-gate-trigger-\" + \"$TRIGGER_SHA\"; \"i\")))] | .[0] // empty" 2>/dev/null || echo "empty")
 
             if [ "$VERDICT_JSON" != "empty" ] && echo "$VERDICT_JSON" | jq -e '.body' > /dev/null 2>&1; then
               VERDICT_BODY=$(echo "$VERDICT_JSON" | jq -r '.body')

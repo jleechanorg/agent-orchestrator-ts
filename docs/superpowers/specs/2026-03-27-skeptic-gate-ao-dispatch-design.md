@@ -68,22 +68,23 @@ GHA polling loop:
 - Remove `skeptic-setup` action (no longer needed — no CLI installation)
 - Add step to post trigger comment with idempotent marker
 - Add polling loop to check for VERDICT comment (up to 30min timeout)
+- Add `--paginate` to all `gh api` comment fetches
+- Use `trigger_updated` output and `created_at > TRIGGER_UPDATED` filter to reject stale verdicts
+- Use `--trigger-sha` and `<!-- skeptic-gate-trigger-$HEAD_SHA -->` marker for SHA binding
 
-### 2. `.github/actions/skeptic-run/action.yml`
-- Remove `anthropic_api_key` and `openai_api_key` inputs
-- Replace skeptic CLI invocation with comment-polling logic
-- Output `verdict` (PASS/FAIL/TIMEOUT)
-
-### 3. `packages/core/src/lifecycle-manager.ts`
-- Add trigger-comment detection in the main poll loop
-- On detecting trigger comment: fire `worker-signals-completion` reaction
-- Use comment timestamp to avoid re-firing for already-processed triggers
-
-### 4. `packages/core/src/fork-skeptic-extension.ts`
-- No changes needed (already implemented)
-
-### 5. `~/.openclaw/agent-orchestrator.yaml`
+### 2. `~/.openclaw/agent-orchestrator.yaml`
 - Add `worker-signals-completion` reaction with `skeptic-review` action
+
+### 3. `packages/core/src/skeptic-reviewer.ts`
+- Fetch PR head SHA via `gh api` and pass as `--trigger-sha` to `ao skeptic verify`
+- Remove `workspacePath` requirement (backfill sessions may lack it)
+
+### 4. `packages/cli/src/commands/skeptic.ts` + `posting.ts`
+- Add `--trigger-sha` CLI option and pass through to `postVerdict`
+- Embed `<!-- skeptic-gate-trigger-$SHA -->` marker in VERDICT comment body
+
+### 5. `packages/core/src/fork-skeptic-extension.ts`
+- No changes needed (already implemented)
 
 ## Data Flow Details
 

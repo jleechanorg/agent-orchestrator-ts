@@ -81,8 +81,7 @@ export async function runSkepticReview(
   let triggerSha: string | undefined;
   try {
     const ghResult = await execAsync(
-      "gh",
-      ["api", `repos/${repo}/pulls/${prNumber}`, "--jq", ".head.sha"],
+      `gh api repos/${repo}/pulls/${prNumber} --jq .head.sha`,
       { timeout: 10_000 },
     );
     triggerSha = (ghResult.stdout ?? ghResult.stderr ?? "").trim();
