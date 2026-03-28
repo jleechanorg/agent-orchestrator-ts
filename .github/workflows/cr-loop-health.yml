@@ -1,0 +1,130 @@
+name: CR Loop Health Check
+
+# Fails when workers exit N times with no comment-resolution delta.
+# This catches CodeRabbit stall loops early before they burn hours.
+
+on:
+  workflow_dispatch:
+    inputs:
+      owner_repo:
+        description: 'owner/repo'
+        required: true
+        default: 'jleechanorg/agent-orchestrator'
+      pr_number:
+        description: 'PR number to check'
+        required: true
+        type: string
+      max_cycles:
+        description: 'Max no-progress cycles before FAIL'
+        required: false
+        type: number
+        default: 3
+jobs:
+  health_check:
+    name: CR Loop Health
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Restore loop guard cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ao-cr-loop-guard
+          key: cr-loop-cache-${{ inputs.owner_repo }}-${{ inputs.pr_number }}
+          restore-keys: |
+            cr-loop-cache-${{ inputs.owner_repo }}-
+
+      - name: Check PR merge state first
+        id: pr_state
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PR_STATE=$(gh api repos/${{ inputs.owner_repo }}/pulls/${{ inputs.pr_number }} \
+            --jq '{state: .state, merged: .merged}' 2>/dev/null || echo '{"state":"unknown","merged":false}')
+          echo "pr_state=$PR_STATE"
+          if echo "$PR_STATE" | jq -e '.merged == true or .state == "closed"' > /dev/null; then
+            echo "result=MERGED — health check moot" >> "$GITHUB_OUTPUT"
+            echo "status=moot" >> "$GITHUB_OUTPUT"
+          else
+            echo "status=active" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run anti-loop guard
+        if: steps.pr_state.outputs.status == 'active'
+        id: loop_guard
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Run cr-loop-guard in query mode to get stats
+          RESULT=$(scripts/cr-loop-guard.sh \
+            ${{ inputs.owner_repo }} \
+            ${{ inputs.pr_number }} \
+            query 2>/dev/null || echo '{"loop_count":0,"actionable_count":0}')
+
+          echo "loop_result=$RESULT"
+          LOOP_COUNT=$(echo "$RESULT" | jq -r '.loop_count // 0')
+          ACTIONABLE=$(echo "$RESULT" | jq -r '.actionable_count // 0')
+          SHA_PROGRESS=$(echo "$RESULT" | jq -r '.sha_progress')
+
+          echo "loop_count=$LOOP_COUNT" >> "$GITHUB_OUTPUT"
+          echo "actionable_count=$ACTIONABLE" >> "$GITHUB_OUTPUT"
+          echo "sha_progress=$SHA_PROGRESS" >> "$GITHUB_OUTPUT"
+
+      - name: Get unresolved comment delta
+        if: steps.pr_state.outputs.status == 'active'
+        id: comment_delta
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Run extract-unresolved-comments to get current count
+          COMMENTS=$(scripts/extract-unresolved-comments.sh \
+            ${{ inputs.owner_repo }} \
+            ${{ inputs.pr_number }} 2>/dev/null || echo '{}')
+
+          ACTIONABLE=$(echo "$COMMENTS" | jq -r '.summary.actionable_count // -1')
+          CRITICAL=$(echo "$COMMENTS" | jq -r '.summary.critical // -1')
+          MAJOR=$(echo "$COMMENTS" | jq -r '.summary.major // -1')
+
+          echo "actionable_count=$ACTIONABLE" >> "$GITHUB_OUTPUT"
+          echo "critical_count=$CRITICAL" >> "$GITHUB_OUTPUT"
+          echo "major_count=$MAJOR" >> "$GITHUB_OUTPUT"
+
+          echo "summary=🟡 $ACTIONABLE actionable ($CRITICAL critical, $MAJOR major)" >> "$GITHUB_OUTPUT"
+
+      - name: Health verdict
+        if: steps.pr_state.outputs.status == 'active'
+        id: verdict
+        run: |
+          MAX_CYCLES=${{ inputs.max_cycles }}
+          LOOP_COUNT=${{ steps.loop_guard.outputs.loop_count }}
+          ACTIONABLE=${{ steps.comment_delta.outputs.actionable_count }}
+          SHA_PROGRESS=${{ steps.loop_guard.outputs.sha_progress }}
+
+          echo "=== CR Loop Health Check ==="
+          echo "  PR: ${{ inputs.owner_repo }}/${{ inputs.pr_number }}"
+          echo "  Loop cycles: $LOOP_COUNT / $MAX_CYCLES"
+          echo "  SHA progress: $SHA_PROGRESS"
+          echo "  Actionable comments: $ACTIONABLE"
+          echo "  Summary: ${{ steps.comment_delta.outputs.summary }}"
+          echo ""
+
+          # FAIL if loop_count >= max_cycles AND sha_progress is false
+          if [ "$LOOP_COUNT" -ge "$MAX_CYCLES" ] && [ "$SHA_PROGRESS" = "false" ]; then
+            echo "VERDICT=FAIL" >> "$GITHUB_OUTPUT"
+            echo "reason=Loop limit reached ($LOOP_COUNT cycles) without SHA progress — stall detected" >> "$GITHUB_OUTPUT"
+            echo "::error::CR loop stall: $LOOP_COUNT cycles without SHA progress or comment resolution"
+            echo "STALL_DETECTED=true" >> "$GITHUB_OUTPUT"
+            exit 1
+          elif [ "$LOOP_COUNT" -ge "$MAX_CYCLES" ]; then
+            echo "VERDICT=WARN" >> "$GITHUB_OUTPUT"
+            echo "reason=Loop count high but SHA progressing — monitor closely" >> "$GITHUB_OUTPUT"
+            echo "STALL_DETECTED=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "VERDICT=PASS" >> "$GITHUB_OUTPUT"
+            echo "reason=Loop count within limits ($LOOP_COUNT < $MAX_CYCLES)" >> "$GITHUB_OUTPUT"
+            echo "STALL_DETECTED=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          VERDICT=$(grep '^VERDICT=' "$GITHUB_OUTPUT" | cut -d= -f2-)
+          REASON=$(grep '^reason=' "$GITHUB_OUTPUT" | cut -d= -f2-)
+          echo "=== $VERDICT: $REASON ==="
