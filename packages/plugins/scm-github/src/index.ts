@@ -1759,8 +1759,14 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
     async closePR(pr: PRInfo): Promise<void> {
       await ghBot(["pr", "close", String(pr.number), "--repo", repoFlag(pr)]);
       try {
-        const line = JSON.stringify({ ts: new Date().toISOString(), action: "pr_close", pr: pr.number, repo: `${pr.owner}/${pr.repo}` }) + "\n";
-        appendFileSync("/tmp/ao-actions.jsonl", line, { mode: 0o600 });
+        const entry = JSON.stringify({
+          ts: new Date().toISOString(),
+          session: "scm-github",  // SCM layer has no session context
+          action: "pr_close",
+          pr: pr.number,
+          repo: `${pr.owner}/${pr.repo}`,
+        }) + "\n";
+        appendFileSync("/tmp/ao-actions.jsonl", entry, { encoding: "utf-8", mode: 0o600 });
       } catch { /* best-effort */ }
     },
 
