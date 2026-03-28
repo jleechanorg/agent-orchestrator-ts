@@ -1608,16 +1608,18 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         // Orchestrator sessions are excluded: killing the orchestrator would clear
         // its rate-limit pause metadata, breaking the pause mechanism.
         if (TERMINAL_STATUSES.has(effectiveStatus) && !isOrchestratorSession(session)) {
-          logAoAction({
-            ts: new Date().toISOString(),
-            session: session.id,
-            action: "session_kill",
-            pr: session.pr?.number,
-            repo: session.pr ? `${session.pr.owner}/${session.pr.repo}` : undefined,
-            reason: `terminal:${effectiveStatus}`,
-          });
           try {
             await sessionManager.kill(session.id);
+            // Only log session_kill after successful kill — a false entry for a
+            // failed kill would misrepresent session state in the audit trail.
+            logAoAction({
+              ts: new Date().toISOString(),
+              session: session.id,
+              action: "session_kill",
+              pr: session.pr?.number,
+              repo: session.pr ? `${session.pr.owner}/${session.pr.repo}` : undefined,
+              reason: `terminal:${effectiveStatus}`,
+            });
           } catch (killErr) {
             observer.recordOperation({
               metric: "lifecycle_poll",
