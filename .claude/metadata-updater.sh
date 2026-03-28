@@ -112,8 +112,8 @@ if [[ "$clean_command" =~ $merge_pattern ]]; then
 fi
 
 # All metadata writers run in PostToolUse only.
-# Allow PreToolUse (hook_event empty or "PreToolUse") to fall through to guards above.
-if [[ "$hook_event" != "PostToolUse" && -n "$hook_event" ]]; then
+# Guardrails above run in PreToolUse; everything below requires an explicit PostToolUse event.
+if [[ "$hook_event" != "PostToolUse" ]]; then
   echo '{}'
   exit 0
 fi
@@ -142,8 +142,10 @@ update_metadata_key() {
   # Create temp file
   local temp_file="${metadata_file}.tmp"
 
-  # Escape special sed characters in value (& and \ — not | or / in BRE)
-  local escaped_value=$(echo "$value" | sed 's/[&\\]/\\&/g')
+  # Escape the replacement characters used by `s|...|...|`: &, |, and \.
+  # & becomes \& (literal in replacement), | becomes \|, \ becomes \\.
+  local escaped_value
+  escaped_value=$(printf '%s' "$value" | sed 's/[&|\\]/\\&/g')
 
   # Check if key already exists
   if grep -q "^$key=" "$metadata_file" 2>/dev/null; then
