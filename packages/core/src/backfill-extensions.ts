@@ -16,7 +16,7 @@ import type {
 } from "./types.js";
 import type { ProjectObserver } from "./observability.js";
 import { homedir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { existsSync, readdirSync, rmSync } from "node:fs";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -25,6 +25,76 @@ const execFileAsync = promisify(execFile);
 
 /** Timeout for git commands in direct cleanup (30 seconds). */
 const GIT_TIMEOUT = 30_000;
+
+/**
+ * Last-resort recovery: find the owning git repo for a worktree by walking up
+ * from the worktree path or scanning `git worktree list` from homedir.
+ *
+ * Mirrors `findRepoPathForWorktree` in workspace-worktree. This copy lives here
+ * so `backfill-extensions` (core) stays decoupled from the workspace plugin.
+ *
+ * @returns `{repoPath, branch}` if the worktree entry is found, else `null`.
+ */
+async function findRepoPathForWorktree(
+  workspacePath: string,
+): Promise<{ repoPath: string; branch: string } | null> {
+  // 1. Walk up the directory tree from the worktree path looking for .git
+  let dir = dirname(workspacePath);
+  const root = dirname(homedir()); // stop at home
+  while (dir !== root && dir !== "/") {
+    const dotGit = join(dir, ".git");
+    if (existsSync(dotGit)) {
+      try {
+        const gitCommonDir = (
+          await execFileAsync("git", ["-C", dir, "rev-parse", "--path-format=absolute", "--git-common-dir"], {
+            timeout: GIT_TIMEOUT,
+            encoding: "utf8",
+          })
+        ).stdout.trim();
+        return { repoPath: resolve(gitCommonDir, ".."), branch: "" };
+      } catch {
+        // Not a valid git repo — keep walking up
+      }
+    }
+    const parent = dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+
+  // 2. Fallback: scan git worktree list from homedir to find any repo that has this entry
+  try {
+    const output = (
+      await execFileAsync("git", ["-C", homedir(), "worktree", "list", "--porcelain"], {
+        timeout: GIT_TIMEOUT,
+        encoding: "utf8",
+      })
+    ).stdout.trim();
+    const blocks = output.split("\n\n");
+    for (const block of blocks) {
+      const lines = block.trim().split("\n");
+      let worktreePath = "";
+      let gitdir = "";
+      let branch = "";
+      for (const line of lines) {
+        if (line.startsWith("worktree ")) {
+          worktreePath = line.slice("worktree ".length);
+        } else if (line.startsWith("gitdir ")) {
+          gitdir = line.slice("gitdir ".length);
+        } else if (line.startsWith("branch ")) {
+          branch = line.slice("branch ".length).replace(/^refs\/heads\//, "");
+        }
+      }
+      if (worktreePath === workspacePath && gitdir) {
+        // gitdir = /repo/.git/worktrees/<name>; .. → worktrees, ../.. → .git, ../../.. → repo root
+        return { repoPath: resolve(gitdir, "..", "..", ".."), branch };
+      }
+    }
+  } catch {
+    // Best-effort
+  }
+
+  return null;
+}
 
 /** Dependencies injected by the lifecycle-manager call site. */
 export interface BackfillDeps {
@@ -309,6 +379,20 @@ export async function backfillUncoveredPRs(
                       }
                     }
                   } catch { /* best-effort */ }
+                }
+
+                // Absolute last resort: walk up from the worktree path or scan git worktree
+                // list from homedir to find the owning repo. This handles the case where
+                // the worktree directory has been deleted from disk but its git entry and
+                // local branch remain — without cleanup the branch poisons all future
+                // backfill attempts for the same PR (git refuses to `worktree add -b <branch>`
+                // when the branch already exists locally).
+                if (repoDir === null) {
+                  const fallback = await findRepoPathForWorktree(worktreeDir);
+                  if (fallback) {
+                    repoDir = fallback.repoPath;
+                    if (!branch) branch = fallback.branch || null;
+                  }
                 }
 
                 // Unlock + remove worktree (--force --force mirrors destroy()).
