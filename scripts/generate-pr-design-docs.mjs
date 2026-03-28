@@ -189,18 +189,24 @@ function fileCountByPrefix(files) {
 
 function extractDescription(body) {
   if (!body) return "No description provided.";
-  // Use first paragraph (non-empty, non-heading line block)
-  // bd-7gs-fix: strip HTML comment markers and adjacent markdown separators from AI-generated PR bodies
+  // bd-7gs-fix: strip the full CURSOR_SUMMARY block (opening + content + closing) in one pass.
+  // The gh api JSON encoder emits literal backslash-u-hex-char sequences (e.g. \\u003c) as six
+  // separate characters; \uXXXX in a regex means the actual Unicode codepoint, so we construct
+  // the pattern with two backslashes so the resulting regex matches the literal 6-char sequence.
+  const B = String.fromCharCode(92);
+  const B2 = B + B;
+  const u003c = B2 + "u003c";
+  const u003e = B2 + "u003e";
+  const BLOCK_RE = new RegExp(
+    `${u003c}!--[\\s\\S]*?CURSOR_SUMMARY[\\s\\S]*?${u003c}!--[\\s\\S]*?/CURSOR_SUMMARY[\\s\\S]*?${u003e}`,
+    "gi"
+  );
   const cleaned = (body || "")
-    // bd-7gs-fix: strip the full CURSOR_SUMMARY block (opening + content + closing
-    // comment) in one pass so the greedy fallback stripper never sees it.  Handles
-    // all known encodings: literal, HTML-entity, single-escaped, and double-escaped.
-    .replace(/<!--\s*[\/]?CURSOR_SUMMARY[\s\S]*?-->/g, "")
-    .replace(/&lt;!--\s*[\/]?CURSOR_SUMMARY[\s\S]*?&gt;/g, "")
-    .replace(/\u003c!--\s*[\/]?CURSOR_SUMMARY[\s\S]*?\u003e/g, "")
-    .replace(/\\u003c!--\s*[\/]?CURSOR_SUMMARY[\s\S]*?\\u003e/g, "")
+    .replace(BLOCK_RE, "")
+    .replace(/<!--\s*CURSOR_SUMMARY\s*-->/gi, "")
+    .replace(/&lt;!--\s*CURSOR_SUMMARY\s*--&gt;/gi, "")
     .replace(/^---\s*$/gm, "")
-    .replace(/<!--[\s\S]*?-->/gs, ""); // strip any remaining HTML comments (dotall + non-greedy)
+    .replace(/<!--[\s\S]*?-->/g, "");
   const paragraphs = cleaned.split(/\n\n+/);
   for (const p of paragraphs) {
     const trimmed = p.trim();
