@@ -70,9 +70,11 @@ while true; do
 done
 
 # Guardrail: enforce [agento] prefix on gh pr create titles (PreToolUse only).
+# Scoped to AO_SESSION agent sessions — first-party scripts (integrate.sh) without
+# AO_SESSION set are exempted to avoid blocking internal automation workflows.
 # PostToolUse falls through to metadata update — no need to re-check there.
 pr_create_pattern='^[[:space:]]*([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]+[[:space:]]+)*gh[[:space:]]+pr[[:space:]]+create([[:space:]]|$)'
-if [[ "$hook_event" == "PreToolUse" && "$clean_command" =~ $pr_create_pattern ]]; then
+if [[ "$hook_event" == "PreToolUse" && -n "${AO_SESSION:-}" && "$clean_command" =~ $pr_create_pattern ]]; then
   # Parse --title or -t as proper argv tokens (not substring in --body etc.).
   # Python shlex correctly handles quoted strings containing literal "--title".
   first_title=$(python3 -c "
@@ -145,8 +147,9 @@ update_metadata_key() {
   # Create temp file
   local temp_file="${metadata_file}.tmp"
 
-  # Escape special sed characters in value (& and \ — not | or / in BRE)
-  local escaped_value=$(echo "$value" | sed 's/[&\\]/\\&/g')
+  # Escape special sed characters in value (& and \ need escaping in BRE).
+  # Use | as the sed delimiter to avoid conflicts with / in values (e.g. URLs, branch refs).
+  local escaped_value=$(echo "$value" | sed 's|[&\\]|\\&|g')
 
   # Check if key already exists
   if grep -q "^$key=" "$metadata_file" 2>/dev/null; then
