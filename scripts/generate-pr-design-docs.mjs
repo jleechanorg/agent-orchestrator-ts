@@ -323,7 +323,7 @@ function htmlDoc({ pr, files, commits }) {
       <section class="hero">
         <h1>${escHtml(title)}</h1>
         ${description.includes("\n")
-          ? description.split("\n").filter(l => l.trim()).map(l => `<p class="muted">${l}</p>`).join("\n")
+          ? description.split("\n").filter(l => l.trim()).map(l => `<p class="muted">${escMd(l)}</p>`).join("\n")
           : `<p class="muted">${escHtml(description)}</p>`}
         <p class="muted" style="margin-top:0.5rem">
           PR: <a href="https://github.com/${REPO}/pull/${pr.number}">#${pr.number}</a>
@@ -481,6 +481,18 @@ function escHtml(str) {
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
+}
+
+/**
+ * Escape HTML injection vectors (<, >, &) while preserving markdown formatting.
+ * Unlike escHtml, this does NOT escape * or backtick — those are markdown
+ * syntax and must render for bold/code in the hero description.
+ */
+function escMd(str) {
+  return String(str || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
 }
 
 function ensureDir(dir) {
