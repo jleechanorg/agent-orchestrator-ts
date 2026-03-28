@@ -7,8 +7,7 @@
 set -euo pipefail
 
 OWNER_REPO="${1:?Usage: $0 <owner/repo> <pr_number> [GITHUB_TOKEN]}"
-PR_NUM="${2:?Usage: $0 <owner/repo> <pr_number> [GITHUB_TOKEN]}"
-TOKEN="${3:-${GITHUB_TOKEN:-}}"
+PR_NUM="${2:?Usage: $0 <owner/repo> <pr_number>}"
 
 OWNER="${OWNER_REPO%%/*}"
 REPO="${OWNER_REPO#*/}"
@@ -52,11 +51,11 @@ jq -n \
   --arg repo "$REPO" \
   --arg pr "$PR_NUM" \
 '
-def BOT_AUTHORS: {
+def BOT_AUTHORS: [
   "coderabbitai", "coderabbitai[bot]", "copilot", "Copilot",
   "cursor[bot]", "cursor", "chatgpt-codex-connector[bot]",
   "github-actions[bot]", "codecov[bot]", "dependabot[bot]"
-};
+];
 
 def severity($body):
   if ($body | test("Critical|🔴"; "i")) then "Critical"
