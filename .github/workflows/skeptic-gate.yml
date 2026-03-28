@@ -116,6 +116,10 @@ jobs:
             # trigger was updated AND whose body contains the trigger SHA marker
             # (<!-- skeptic-gate-trigger-${TRIGGER_SHA} -->). This double-checks
             # that the verdict belongs to the current evaluation window.
+            # Uses updated_at (not created_at) — ao skeptic verify may edit an existing
+            # verdict comment when re-running for a new trigger SHA; GitHub preserves
+            # the original created_at but updates updated_at, so updated_at is the
+            # correct freshness signal.
             # Parentheses required around (.body | test(...)) — jq `and` has lower
             # precedence than `|`, so unparenthesized form would be parsed as
             # (.user.login == X and .body) | test(...) which always selects all.
@@ -123,7 +127,7 @@ jobs:
             # the jq filter applies per-page so .[-1] (most recent) only reflects the
             # last comment on the last page, missing newer matches.
             # Comments are returned oldest→newest, so .[-1] gives the most recent match.
-            VERDICT_JQ='[.[] | select(.user.login == env.SKEPTIC_BOT_AUTHOR and (.body | test("VERDICT:"; "i")) and (.created_at >= env.TRIGGER_UPDATED) and (.body | test("skeptic-gate-trigger-" + env.TRIGGER_SHA; "i")))] | .[-1] // empty'
+            VERDICT_JQ='[.[] | select(.user.login == env.SKEPTIC_BOT_AUTHOR and (.body | test("VERDICT:"; "i")) and (.updated_at >= env.TRIGGER_UPDATED) and (.body | test("skeptic-gate-trigger-" + env.TRIGGER_SHA; "i")))] | .[-1] // empty'
             VERDICT_JSON=$(gh api repos/${{ github.repository }}/issues/"$PR_NUM"/comments \
               --paginate \
               --slurpfile /dev/null \
@@ -144,7 +148,7 @@ jobs:
             # next iteration (empty string matches no error keywords).
             if echo "$VERDICT_JSON" | jq -e 'if . == null or .body == null then empty else .body end | length > 0' > /dev/null 2>&1; then
               VERDICT_BODY=$(echo "$VERDICT_JSON" | jq -r '.body')
-              VERDICT_CREATED=$(echo "$VERDICT_JSON" | jq -r '.created_at')
+              VERDICT_CREATED=$(echo "$VERDICT_JSON" | jq -r '.updated_at')
 
               echo ""
               echo "=== Found VERDICT (posted $VERDICT_CREATED) ==="
