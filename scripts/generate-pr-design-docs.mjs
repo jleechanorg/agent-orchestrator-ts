@@ -532,10 +532,20 @@ function mdToHtml(str) {
 
 /** Inline markdown only (bold, italic, code) — used inside list items. */
 function inlineMd(str) {
-  return str
+  // Protect code spans first — process bold/italic only on text outside backticks.
+  // CR: inlineMd applies bold/italic before code spans so `*literal*` gets emphasized;
+  // fix: replace code spans with placeholders, apply emphasis, restore code.
+  const codeSpans = [];
+  let result = str.replace(/`([^`]+)`/g, (_match, content) => {
+    const idx = codeSpans.length;
+    codeSpans.push(`<code>${content}</code>`);
+    return `\x00${idx}\x00`;
+  });
+  result = result
     .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
-    .replace(/\*(.+?)\*/g, "<em>$1</em>")
-    .replace(/`(.+?)`/g, "<code>$1</code>");
+    .replace(/\*(.+?)\*/g, "<em>$1</em>");
+  result = result.replace(/\x00(\d+)\x00/g, (_m, idx) => codeSpans[parseInt(idx, 10)]);
+  return result;
 }
 
 function ensureDir(dir) {

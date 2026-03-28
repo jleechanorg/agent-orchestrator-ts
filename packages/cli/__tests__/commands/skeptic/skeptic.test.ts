@@ -6,7 +6,10 @@
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-// Regex under test — matches all three verdict types
+// CR: import the real VERDICT_LINE_RE from production to avoid duplication.
+// NOTE: vitest's resolvePackageEntry limitation prevents direct import from
+// src/commands/skeptic.js; we verify alignment via an integration test below.
+// The local definition must be kept in sync with skeptic.ts:VERDICT_LINE_RE.
 const VERDICT_LINE_RE = /^VERDICT:\s*(PASS|FAIL|SKIPPED)\b/im;
 
 // Re-exported for testing — mirrors the actual export from skeptic.ts
@@ -93,7 +96,10 @@ describe("dry-run SKIPPED color mapping", () => {
 });
 
 describe("findExistingVerdict — SKIPPED path", () => {
-  const mockFetchComments = vi.fn();
+  const mockFetchComments: ReturnType<typeof vi.fn> = vi.fn<
+    [owner: string, repo: string, prNumber: number],
+    Promise<Array<{ id: number; body: string }>>
+  >();
 
   beforeEach(() => {
     mockFetchComments.mockReset();
