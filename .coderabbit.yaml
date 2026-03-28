@@ -3,6 +3,7 @@
 reviews:
   review_status: true
   approve: true
+  request_changes_workflow: true
   auto_review:
     enabled: true
   path_filters: []
