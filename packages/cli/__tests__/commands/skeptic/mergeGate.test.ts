@@ -13,8 +13,8 @@ const { fetchMergeGateState } = await import("../../../src/commands/skeptic/merg
 
 describe("fetchMergeGateState — skeptic verdict parsing", () => {
   beforeEach(() => {
-    // mockGhJson queue is reset in setupGhJson() per-test
-    // only reset fetchReviews here
+    mockGhJson.mockReset();
+    mockFetchReviews.mockReset();
     mockFetchReviews.mockResolvedValue([]);
   });
 
@@ -26,112 +26,108 @@ describe("fetchMergeGateState — skeptic verdict parsing", () => {
    * #3 ghJson("repos/{owner}/{repo}/pulls/{prNumber}/comments")
    * #4 ghJson("repos/{owner}/{repo}/issues/{prNumber}/comments")
    */
-  function setupGhJson(inlineComments: unknown[] = []) {
-    mockGhJson.mockReset(); // clear previous queue
-    mockGhJson
-      .mockResolvedValueOnce({ head: { ref: "main" }, mergeable: true }) // #1 PR
-      .mockResolvedValueOnce({ state: "success" }) // #2 CI
-      .mockResolvedValueOnce(inlineComments); // #3 inline comments
-    // #4 set per-test
+  function setupGhJson(values: unknown[]) {
+    mockGhJson.mockReset();
+    let idx = 0;
+    mockGhJson.mockResolvedValueOnce(values[idx++] as any);
+    mockGhJson.mockResolvedValueOnce(values[idx++] as any);
+    mockGhJson.mockResolvedValueOnce(values[idx++] as any);
+    mockGhJson.mockResolvedValueOnce(values[idx++] as any);
   }
 
   it("parses VERDICT: SKIPPED from skeptic bot issue comments", async () => {
-    const comments = [
-      { id: 99, body: "VERDICT: SKIPPED — ANTHROPIC_API_KEY not configured", user: { login: "jleechan-agent[bot]" } },
-    ];
-    setupGhJson([]);
-    mockGhJson.mockResolvedValueOnce(comments); // #4
+    setupGhJson([
+      { head: { ref: "main" }, mergeable: true },
+      { state: "success" },
+      [],
+      [{ id: 99, body: "VERDICT: SKIPPED — ANTHROPIC_API_KEY not configured", user: { login: "jleechan-agent[bot]" } }],
+    ]);
 
-    const state = await fetchMergeGateState({
-      owner: "test",
-      repo: "test-repo",
-      prNumber: 1,
-      skepticBotAuthor: "jleechan-agent[bot]",
-    });
+    const state = await fetchMergeGateState(
+      "test", "test-repo", 1, "jleechan-agent[bot]"
+    );
 
     expect(state.skepticVerdict).toBe("SKIPPED");
     expect(state.skepticCommentId).toBe(99);
   });
 
   it("parses VERDICT: PASS from skeptic bot issue comments", async () => {
-    const comments = [
-      { id: 98, body: "<!-- skeptic-agent-verdict -->\nVERDICT: PASS", user: { login: "jleechan-agent[bot]" } },
-    ];
-    setupGhJson([]);
-    mockGhJson.mockResolvedValueOnce(comments);
+    setupGhJson([
+      { head: { ref: "main" }, mergeable: true },
+      { state: "success" },
+      [],
+      [{ id: 98, body: "<!-- skeptic-agent-verdict -->\nVERDICT: PASS", user: { login: "jleechan-agent[bot]" } }],
+    ]);
 
-    const state = await fetchMergeGateState({
-      owner: "test",
-      repo: "test-repo",
-      prNumber: 1,
-      skepticBotAuthor: "jleechan-agent[bot]",
-    });
+    const state = await fetchMergeGateState(
+      "test", "test-repo", 1, "jleechan-agent[bot]"
+    );
 
     expect(state.skepticVerdict).toBe("PASS");
     expect(state.skepticCommentId).toBe(98);
   });
 
   it("parses VERDICT: FAIL from skeptic bot issue comments", async () => {
-    const comments = [
-      { id: 97, body: "VERDICT: FAIL — evidence bundle missing", user: { login: "jleechan-agent[bot]" } },
-    ];
-    setupGhJson([]);
-    mockGhJson.mockResolvedValueOnce(comments);
+    setupGhJson([
+      { head: { ref: "main" }, mergeable: true },
+      { state: "success" },
+      [],
+      [{ id: 97, body: "VERDICT: FAIL — evidence bundle missing", user: { login: "jleechan-agent[bot]" } }],
+    ]);
 
-    const state = await fetchMergeGateState({
-      owner: "test",
-      repo: "test-repo",
-      prNumber: 1,
-      skepticBotAuthor: "jleechan-agent[bot]",
-    });
+    const state = await fetchMergeGateState(
+      "test", "test-repo", 1, "jleechan-agent[bot]"
+    );
 
     expect(state.skepticVerdict).toBe("FAIL");
     expect(state.skepticCommentId).toBe(97);
   });
 
   it("returns null skepticVerdict when no skeptic bot comment exists", async () => {
-    setupGhJson([{ id: 1, body: "hello world", user: { login: "someone" } }]);
-    // #4 not set — returns undefined → caught by try/catch → verdict stays null
+    setupGhJson([
+      { head: { ref: "main" }, mergeable: true },
+      { state: "success" },
+      [{ id: 1, body: "hello world", user: { login: "someone" } }],
+      [],
+    ]);
 
-    const state = await fetchMergeGateState({
-      owner: "test",
-      repo: "test-repo",
-      prNumber: 1,
-      skepticBotAuthor: "jleechan-agent[bot]",
-    });
+    const state = await fetchMergeGateState(
+      "test", "test-repo", 1, "jleechan-agent[bot]"
+    );
 
     expect(state.skepticVerdict).toBeNull();
     expect(state.skepticCommentId).toBeNull();
   });
 
   it("returns null skepticVerdict when issue comments ghJson throws (non-fatal)", async () => {
-    setupGhJson([]);
-    mockGhJson.mockRejectedValueOnce(new Error("API error")); // #4 throws
+    mockGhJson.mockReset();
+    mockFetchReviews.mockReset();
+    mockFetchReviews.mockResolvedValue([]);
+    mockGhJson
+      .mockResolvedValueOnce({ head: { ref: "main" }, mergeable: true })
+      .mockResolvedValueOnce({ state: "success" })
+      .mockResolvedValueOnce([])
+      .mockRejectedValueOnce(new Error("API error")); // #4 throws
 
-    const state = await fetchMergeGateState({
-      owner: "test",
-      repo: "test-repo",
-      prNumber: 1,
-      skepticBotAuthor: "jleechan-agent[bot]",
-    });
+    const state = await fetchMergeGateState(
+      "test", "test-repo", 1, "jleechan-agent[bot]"
+    );
 
     // Non-fatal — should still return state with null verdict
     expect(state.skepticVerdict).toBeNull();
   });
 
   it("includes SKIPPED in full MergeGateState with CI passing", async () => {
-    const comments = [
-      { id: 50, body: "VERDICT: SKIPPED", user: { login: "jleechan-agent[bot]" } },
-    ];
-    setupGhJson([]);
-    mockGhJson.mockResolvedValueOnce(comments);
+    setupGhJson([
+      { head: { ref: "main" }, mergeable: true },
+      { state: "success" },
+      [],
+      [{ id: 50, body: "VERDICT: SKIPPED", user: { login: "jleechan-agent[bot]" } }],
+    ]);
 
-    const state = await fetchMergeGateState({
-      owner: "test",
-      repo: "test-repo",
-      prNumber: 1,
-      skepticBotAuthor: "jleechan-agent[bot]",
-    });
+    const state = await fetchMergeGateState(
+      "test", "test-repo", 1, "jleechan-agent[bot]"
+    );
 
     expect(state.skepticVerdict).toBe("SKIPPED");
     expect(state.skepticCommentId).toBe(50);
