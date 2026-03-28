@@ -165,7 +165,7 @@ jobs:
             # 5. Inline comments resolved — use GraphQL reviewThreads to get isResolved
             # (REST /pulls/{n}/comments lacks isResolved; GitHub tracks resolution at thread level)
             # bd-ao2b: replaced REST proxy with proper GraphQL query
-            PR_AUTHOR=$(gh api repos/${{ github.repository }}/pulls/"$PR_NUM" --jq '.user.login')
+            PR_AUTHOR=$(gh api repos/${{ github.repository }}/pulls/"$PR_NUM" --jq '.user.login' 2>/dev/null || echo "__AUTHOR_ERROR__")
             UNRESOLVED=$(gh api graphql -f query='
               query($owner: String!, $name: String!, $number: Int!) {
                 repository(owner: $owner, name: $name) {
