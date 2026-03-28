@@ -143,7 +143,8 @@ describe("runSkepticReview", () => {
   });
 
   it("succeeds when session.workspacePath is undefined (backfill session)", async () => {
-    const session = makeSession({ workspacePath: undefined as unknown as string });
+    // workspacePath is string | null on Session — backfill sessions may lack one.
+    const session = makeSession({ workspacePath: null });
     const result = await runSkepticReview(session);
     expect(result.verdict).toBe("PASS");
     expect(result.reportWritten).toBe(false);

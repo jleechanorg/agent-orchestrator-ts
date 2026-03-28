@@ -105,7 +105,11 @@ _AO worker will evaluate and post VERDICT here._
 
 _This PR meets the skeptic exit criteria._ (or _fails on: ..._)
 <!-- skeptic-agent-verdict -->
+<!-- skeptic-gate-trigger-{HEAD_SHA} -->
 ```
+
+> **Note:** The `<!-- skeptic-gate-trigger-{HEAD_SHA} -->` marker is required in the VERDICT body.
+> The GHA polling loop filters by this marker to match verdicts to the correct evaluation window.
 
 ### Comment Detection Logic (lifecycle-manager)
 ```text
