@@ -32,12 +32,20 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Restore loop guard cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ao-cr-loop-guard
+          key: cr-loop-cache-${{ inputs.owner_repo }}-${{ inputs.pr_number }}
+          restore-keys: |
+            cr-loop-cache-${{ inputs.owner_repo }}-
+
       - name: Check PR merge state first
         id: pr_state
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          PR_STATE=$(gh api repos/${{ github.inputs.owner_repo }}/pulls/${{ github.inputs.pr_number }} \
+          PR_STATE=$(gh api repos/${{ inputs.owner_repo }}/pulls/${{ inputs.pr_number }} \
             --jq '{state: .state, merged: .merged}' 2>/dev/null || echo '{"state":"unknown","merged":false}')
           echo "pr_state=$PR_STATE"
           if echo "$PR_STATE" | jq -e '.merged == true or .state == "closed"' > /dev/null; then
@@ -55,8 +63,8 @@ jobs:
         run: |
           # Run cr-loop-guard in query mode to get stats
           RESULT=$(scripts/cr-loop-guard.sh \
-            ${{ github.inputs.owner_repo }} \
-            ${{ github.inputs.pr_number }} \
+            ${{ inputs.owner_repo }} \
+            ${{ inputs.pr_number }} \
             query 2>/dev/null || echo '{"loop_count":0,"actionable_count":0}')
 
           echo "loop_result=$RESULT"
@@ -76,8 +84,8 @@ jobs:
         run: |
           # Run extract-unresolved-comments to get current count
           COMMENTS=$(scripts/extract-unresolved-comments.sh \
-            ${{ github.inputs.owner_repo }} \
-            ${{ github.inputs.pr_number }} 2>/dev/null || echo '{}')
+            ${{ inputs.owner_repo }} \
+            ${{ inputs.pr_number }} 2>/dev/null || echo '{}')
 
           ACTIONABLE=$(echo "$COMMENTS" | jq -r '.summary.actionable_count // -1')
           CRITICAL=$(echo "$COMMENTS" | jq -r '.summary.critical // -1')
@@ -93,13 +101,13 @@ jobs:
         if: steps.pr_state.outputs.status == 'active'
         id: verdict
         run: |
-          MAX_CYCLES=${{ github.inputs.max_cycles }}
+          MAX_CYCLES=${{ inputs.max_cycles }}
           LOOP_COUNT=${{ steps.loop_guard.outputs.loop_count }}
           ACTIONABLE=${{ steps.comment_delta.outputs.actionable_count }}
           SHA_PROGRESS=${{ steps.loop_guard.outputs.sha_progress }}
 
           echo "=== CR Loop Health Check ==="
-          echo "  PR: ${{ github.inputs.owner_repo }}/${{ github.inputs.pr_number }}"
+          echo "  PR: ${{ inputs.owner_repo }}/${{ inputs.pr_number }}"
           echo "  Loop cycles: $LOOP_COUNT / $MAX_CYCLES"
           echo "  SHA progress: $SHA_PROGRESS"
           echo "  Actionable comments: $ACTIONABLE"

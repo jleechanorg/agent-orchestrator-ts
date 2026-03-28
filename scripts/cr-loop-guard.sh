@@ -16,8 +16,9 @@ OWNER="${OWNER_REPO%%/*}"
 REPO="${OWNER_REPO#*/}"
 
 # NOTE: In GitHub Actions (cr-loop-health.yml), the runner filesystem is ephemeral.
-# The cache file will not persist across workflow runs. This is acceptable for
-# manual workflow_dispatch use; cross-run loop detection requires the GitHub cache API.
+# The cr-loop-health.yml workflow uses actions/cache to persist this directory
+# across runs, so loop detection works correctly in CI. For local/manual runs,
+# the cache persists in ~/.cache as usual.
 CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/ao-cr-loop-guard"
 CACHE_FILE="$CACHE_DIR/${OWNER}_${REPO}_${PR_NUM}.json"
 MAX_LOOPS=2   # Allow 2 cycles of same actionable set before forcing copilot-expanded
