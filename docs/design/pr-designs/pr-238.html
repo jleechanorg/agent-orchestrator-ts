@@ -51,7 +51,7 @@
     <main class="wrap">
       <section class="hero">
         <h1>[agento] feat: cap send-to-agent retries at 3 + document idempotency (bd-5nxx, bd-5nt5)</h1>
-        <p class="muted">`send-to-agent` is a non-idempotent reaction action — each invocation delivers a message to the agent's tmux session. If `executeReaction` fires multiple times for the same trigger (e.g., mid-handler crash, process restart, or edge-case double-dispatch), the agent receives duplicate messages. The previous default of `Infinity` retries meant there was no upper bound on retry attempts.</p>
+        <p class="muted"><code>send-to-agent</code> is a non-idempotent reaction action — each invocation delivers a message to the agent's tmux session. If <code>executeReaction</code> fires multiple times for the same trigger (e.g., mid-handler crash, process restart, or edge-case double-dispatch), the agent receives duplicate messages. The previous default of <code>Infinity</code> retries meant there was no upper bound on retry attempts.</p>
         <p class="muted" style="margin-top:0.5rem">
           PR: <a href="https://github.com/jleechanorg/agent-orchestrator/pull/238">#238</a>
           &nbsp;·&nbsp; Status: <span class="badge badge-open">Open</span>
@@ -79,8 +79,8 @@
           <h2>Metadata</h2>
           <div class="stat-grid">
             <div class="stat"><div class="num">7</div><div class="lbl">Files</div></div>
-            <div class="stat"><div class="num">2</div><div class="lbl">Commits</div></div>
-            <div class="stat"><div class="num" style="color:#2ea043">+881</div><div class="lbl">Additions</div></div>
+            <div class="stat"><div class="num">3</div><div class="lbl">Commits</div></div>
+            <div class="stat"><div class="num" style="color:#2ea043">+574</div><div class="lbl">Additions</div></div>
             <div class="stat"><div class="num" style="color:#cf222e">-10</div><div class="lbl">Deletions</div></div>
           </div>
           <ul style="margin-top:1rem">
@@ -113,13 +113,13 @@
             <tr>
       <td><code>docs/design/pr-designs/pr-238.html</code></td>
       <td><span class="badge badge-new">added</span></td>
-      <td style="text-align:right;color:#2ea043">+429</td>
+      <td style="text-align:right;color:#2ea043">+169</td>
       <td style="text-align:right;color:#cf222e">-0</td>
     </tr>
 <tr>
       <td><code>docs/design/pr-designs/pr-238.md</code></td>
       <td><span class="badge badge-new">added</span></td>
-      <td style="text-align:right;color:#2ea043">+114</td>
+      <td style="text-align:right;color:#2ea043">+67</td>
       <td style="text-align:right;color:#cf222e">-0</td>
     </tr>
 <tr>
