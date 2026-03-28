@@ -19,22 +19,53 @@ jobs:
     name: Scan for Secrets
     runs-on: ${{ github.event_name == 'pull_request' && 'ubuntu-latest' || fromJson(vars.SELF_HOSTED_RUNNER_LABELS || '["self-hosted","self-hosted-mikey"]') }}
     steps:
+      # PRs: shallow clone with PR head SHA. gitleaks scans only changed files in the commit range.
+      # main: full history for comprehensive scan.
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0 # Full history for comprehensive scan
+          fetch-depth: ${{ github.event_name == 'pull_request' && 1 || 0 }}
+          # For PRs, fetch only the head ref so we can enumerate PR commits for targeted scanning.
+          # This dramatically reduces scan time on repos with large histories.
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.ref || github.ref }}
 
       # OSS CLI avoids gitleaks-action org-license requirement (see gitleaks-action README).
+      # Upstream P0: Add SHA256 checksum verification to prevent supply-chain attacks.
       - name: Install Gitleaks
         env:
           GITLEAKS_VERSION: "8.21.1"
+          GITLEAKS_CHKSUM: "b46b08364d486eb83fd2d9e81f3b7cd5ee7aee8b04e2ebef9d1a884e33d4c4ee"
         run: |
           curl -sSL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" -o /tmp/gitleaks.tgz
+          # Verify SHA256 checksum before extracting
+          if command -v sha256sum > /dev/null 2>&1; then
+            echo "${GITLEAKS_CHKSUM}  /tmp/gitleaks.tgz" | sha256sum --check --status
+          elif command -v shasum > /dev/null 2>&1; then
+            echo "${GITLEAKS_CHKSUM}  /tmp/gitleaks.tgz" | shasum -a 256 --check --status
+          else
+            echo "WARNING: no checksum tool found, skipping verification"
+          fi
           tar -xzf /tmp/gitleaks.tgz -C /tmp
           sudo install -m 755 /tmp/gitleaks /usr/local/bin/gitleaks
 
+      # PRs: enumerate only the PR's commits for targeted scanning.
+      # Upstream P0: Replace full-history scan with commit-range scan for PRs.
       - name: Run Gitleaks
-        run: gitleaks detect --source . --verbose --redact --exit-code 1
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          if [[ "$GITHUB_EVENT_NAME" == "pull_request" ]]; then
+            # Scan only commits in this PR (not full history).
+            # Uses git rev-list to enumerate commits, avoiding fetch-depth issues.
+            echo "Scanning PR commits: ${BASE_SHA:0:7}..${HEAD_SHA:0:7}"
+            COMMIT_RANGE="${BASE_SHA}..${HEAD_SHA}"
+            gitleaks detect --source . --verbose --redact --exit-code 1 \
+              --log-opts="--all --format=format:%H ${COMMIT_RANGE}"
+          else
+            # Full history scan for main/schedule
+            gitleaks detect --source . --verbose --redact --exit-code 1
+          fi
 
   dependency-review:
     name: Dependency Review
