@@ -1,5 +1,8 @@
 name: Skeptic Gate
 
+# Evaluates PRs via AO worker dispatch — no API keys needed in GitHub secrets.
+# Flow: GHA posts trigger comment → lifecycle-manager runs ao skeptic verify →
+# posts VERDICT comment → GHA polls for VERDICT and exits PASS/FAIL.
 on:
   pull_request:
     types: [opened, synchronize, edited, reopened]
@@ -13,65 +16,90 @@ jobs:
     name: Skeptic Gate
     runs-on: ubuntu-latest
     permissions:
-      contents: read
       pull-requests: write
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Install Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-
-      - name: Install Codex CLI
-        run: |
-          if command -v codex &>/dev/null; then
-            echo "Codex CLI already installed: $(codex --version 2>/dev/null || echo 'version check failed')"
-          else
-            echo "Installing Codex CLI..."
-            npm install -g @openai/codex &>/dev/null || true
-          fi
-          if ! command -v codex &>/dev/null; then
-            echo "WARNING: codex CLI not found — skeptic will fall back to Claude CLI if ANTHROPIC_API_KEY is set"
-          fi
-
-      - name: Install skeptic CLI
-        run: npm install -g @jleechanorg/ao-cli
-
-      - name: Run Skeptic evaluation
-        id: run_skeptic
+      # Step 1: Post trigger comment for lifecycle-manager to pick up.
+      # lifecycle-manager runs ao skeptic verify with local API keys.
+      - name: Post skeptic trigger comment
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
-          if [ -z "$OPENAI_API_KEY" ] && [ -z "$ANTHROPIC_API_KEY" ]; then
-            echo "Neither OPENAI_API_KEY nor ANTHROPIC_API_KEY secret configured — skipping skeptic evaluation"
-            echo "verdict=SKIPPED" >> "$GITHUB_OUTPUT"
-            echo "VERDICT: SKIPPED — no API keys configured" > skeptic-output.txt
-            echo "Setup required: add OPENAI_API_KEY to repo secrets (Settings > Secrets)" >> skeptic-output.txt
-            exit 0
-          fi
+          PR_NUM=${{ github.event.pull_request.number }}
 
-          skeptic_exit=0
-          (ao skeptic verify \
-            --pr ${{ github.event.pull_request.number }} \
-            > skeptic-output.txt 2>&1) || skeptic_exit=$?
-          cat skeptic-output.txt
+          # Idempotent: update existing trigger comment instead of appending.
+          EXISTING_ID=$(gh api repos/${{ github.repository }}/issues/"$PR_NUM"/comments \
+            --jq '[.[] | select(.user.login == "github-actions[bot]" and .body | test("skeptic-gate-trigger"; "i"))] | .[0].id // empty' 2>/dev/null || echo "")
 
-          # The CLI's postVerdict handles idempotent comment posting (finds and updates
-          # the existing <!-- skeptic-agent-verdict --> comment rather than appending).
+          if [ -n "$EXISTING_ID" ] && [ "$EXISTING_ID" != "empty" ]; then
+            gh api repos/${{ github.repository }}/issues/"$PR_NUM"/comments/"$EXISTING_ID" \
+              --method PATCH \
+              -f body="🤖 [agento] Skeptic evaluation triggered on commit \`${HEAD_SHA:0:7}\`.
 
-          if grep -qi "VERDICT: FAIL" skeptic-output.txt; then
-            echo "verdict=FAIL" >> "$GITHUB_OUTPUT"
-            exit 1
-          elif grep -qi "VERDICT: PASS" skeptic-output.txt; then
-            echo "verdict=PASS" >> "$GITHUB_OUTPUT"
-            exit 0
+_AO worker will evaluate and post VERDICT._
+
+<!-- skeptic-gate-trigger-${HEAD_SHA} -->" \
+              || echo "WARNING: Failed to update trigger comment"
           else
-            echo "verdict=UNKNOWN" >> "$GITHUB_OUTPUT"
-            echo "" >> skeptic-output.txt
-            echo "CONCLUSION: UNKNOWN — could not parse VERDICT from skeptic output (failing closed)" >> skeptic-output.txt
-            echo "Exit code from skeptic: $skeptic_exit" >> skeptic-output.txt
-            exit 1
+            gh pr comment "$PR_NUM" \
+              --body "🤖 [agento] Skeptic evaluation triggered on commit \`${HEAD_SHA:0:7}\`.
+
+_AO worker will evaluate and post VERDICT._
+
+<!-- skeptic-gate-trigger-${HEAD_SHA} -->" \
+              || { echo "ERROR: Failed to post trigger comment" >&2; exit 1; }
           fi
+
+      # Step 2: Poll for VERDICT from jleechan-agent[bot].
+      # lifecycle-manager picks up the trigger on its next poll cycle (~30s) and runs
+      # ao skeptic verify, which posts VERDICT: PASS or VERDICT: FAIL.
+      - name: Poll for skeptic VERDICT
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        timeout-minutes: 30
+        run: |
+          PR_NUM=${{ github.event.pull_request.number }}
+          MAX_ATTEMPTS=60
+          INTERVAL=30
+
+          echo "Polling for VERDICT from jleechan-agent[bot] on PR #$PR_NUM (commit ${HEAD_SHA:0:7})..."
+          echo "Timeout: $((MAX_ATTEMPTS * INTERVAL / 60)) minutes"
+
+          for i in $(seq 1 $MAX_ATTEMPTS); do
+            sleep $INTERVAL
+
+            # Exit early if PR was closed
+            PR_STATE=$(gh api repos/${{ github.repository }}/pulls/"$PR_NUM" --jq '.state' 2>/dev/null || echo "unknown")
+            if [ "$PR_STATE" = "closed" ]; then
+              echo "PR closed — exiting"
+              echo "verdict=SKIPPED" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+
+            # Look for VERDICT from jleechan-agent[bot]
+            VERDICT_BODY=$(gh api repos/${{ github.repository }}/issues/"$PR_NUM"/comments \
+              --jq '[.[] | select(.user.login == "jleechan-agent[bot]" and (.body | test("VERDICT:"; "i")))] | .[-1].body // empty' 2>/dev/null || echo "")
+
+            if [ -n "$VERDICT_BODY" ] && [ "$VERDICT_BODY" != "empty" ]; then
+              echo ""
+              echo "=== Found VERDICT ==="
+              echo "$VERDICT_BODY"
+
+              if echo "$VERDICT_BODY" | grep -qi "VERDICT: PASS"; then
+                echo "verdict=PASS" >> "$GITHUB_OUTPUT"
+                echo "=== SKEPTIC GATE: PASS ==="
+                exit 0
+              elif echo "$VERDICT_BODY" | grep -qi "VERDICT: FAIL"; then
+                echo "verdict=FAIL" >> "$GITHUB_OUTPUT"
+                echo "=== SKEPTIC GATE: FAIL ==="
+                exit 1
+              fi
+            fi
+
+            echo "Attempt $i/$MAX_ATTEMPTS — no VERDICT yet..."
+          done
+
+          echo "TIMEOUT: No VERDICT after $((MAX_ATTEMPTS * INTERVAL / 60)) minutes"
+          echo "verdict=TIMEOUT" >> "$GITHUB_OUTPUT"
+          exit 1

@@ -67,13 +67,9 @@ export async function runSkepticReview(
     };
   }
 
-  if (!session.workspacePath) {
-    return {
-      verdict: "SKIPPED",
-      details: "No workspacePath on session — cannot write skeptic report",
-      modelUsed: model,
-    };
-  }
+  // workspacePath is optional — the ao skeptic verify CLI only needs GitHub API access.
+  // If not set, cwd falls back to process.cwd() or AO_REPO_ROOT.
+  // The workspace is only used for writing specs/skeptic-report.json (non-critical).
 
   const prNumber = session.pr.number;
   const repo = `${session.pr.owner}/${session.pr.repo}`;
@@ -128,6 +124,7 @@ export async function runSkepticReview(
   // Write skeptic-report.json to the worker's workspace
   let reportWritten = false;
   try {
+    if (!session.workspacePath) throw new Error("workspacePath not set");
     const reportDir = join(session.workspacePath, "specs");
     await mkdir(reportDir, { recursive: true });
     await writeFile(
