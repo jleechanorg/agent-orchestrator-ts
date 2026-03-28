@@ -22,7 +22,7 @@ import { runSkepticEvaluation } from "./skeptic/modelRunner.js";
 import { postVerdict } from "./skeptic/posting.js";
 
 /** Line-anchored VERDICT matcher — accepts VERDICT: PASS, VERDICT: FAIL, or VERDICT: SKIPPED. */
-const VERDICT_LINE_RE = /^VERDICT:\s*(PASS|FAIL|SKIPPED)\b/im;
+export const VERDICT_LINE_RE = /^VERDICT:\s*(PASS|FAIL|SKIPPED)\b/im;
 
 const SKEPTIC_BOT_AUTHOR =
   process.env["GH_SKEPTIC_BOT_AUTHOR"] ?? "jleechan-agent[bot]";
@@ -57,7 +57,7 @@ async function findExistingVerdict(
     if (/<!-- skeptic-agent-verdict -->/i.test(c.body)) {
       const m = c.body.match(VERDICT_LINE_RE);
       if (m) {
-        return { verdict: m[1].toUpperCase() as "PASS" | "FAIL", commentId: c.id };
+        return { verdict: m[1].toUpperCase() as "PASS" | "FAIL" | "SKIPPED", commentId: c.id };
       }
     }
   }

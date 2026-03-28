@@ -193,6 +193,8 @@ function extractDescription(body) {
   // bd-7gs-fix: strip HTML comment markers and adjacent markdown separators from AI-generated PR bodies
   const cleaned = (body || "")
     .replace(/<!--\s*CURSOR_SUMMARY\s*-->/gi, "")
+    .replace(/&lt;!--\s*CURSOR_SUMMARY\s*--&gt;/gi, "") // strip HTML-entity-encoded comment
+    .replace(/\\u003c!--\s*CURSOR_SUMMARY\s*--\\u003e/gi, "") // strip double-escaped JS-unicode form
     .replace(/^---\s*$/gm, "")
     .replace(/<!--[\s\S]*?-->/g, ""); // strip all HTML comments
   const paragraphs = cleaned.split(/\n\n+/);
@@ -322,7 +324,7 @@ function htmlDoc({ pr, files, commits }) {
     <main class="wrap">
       <section class="hero">
         <h1>${escHtml(title)}</h1>
-        <p class="muted">${escHtml(description)}</p>
+        ${mdToHtml(description)}
         <p class="muted" style="margin-top:0.5rem">
           PR: <a href="https://github.com/${REPO}/pull/${pr.number}">#${pr.number}</a>
           &nbsp;·&nbsp; Status: ${stateLabel(state, mergedAt)}
@@ -479,6 +481,75 @@ function escHtml(str) {
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
+}
+
+/**
+ * Escape HTML injection vectors (&, <, >) while preserving markdown formatting.
+ * Unlike escHtml, this does NOT escape * or backtick — those are markdown
+ * syntax and must render for bold/code in the hero description.
+ */
+function escMd(str) {
+  return String(str || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+/**
+ * Convert markdown syntax to HTML for embedding in the HTML design doc.
+ * Handles **bold**, *italic*, `code` inline spans, and - list items.
+ * CR requested: block-level list support so bullets render as HTML lists.
+ * Blank lines separate paragraphs (wrapped in <p> tags).
+ */
+function mdToHtml(str) {
+  const escaped = escMd(str);
+
+  // Split on paragraph breaks (blank lines) first
+  const paragraphs = escaped.split(/\n\n+/);
+  const result = [];
+
+  for (const para of paragraphs) {
+    const trimmed = para.trim();
+    if (!trimmed) continue;
+
+    // Check if this paragraph starts with a list item
+    if (/^(\s*)- /.test(trimmed)) {
+      const lines = trimmed.split("\n");
+      const items = lines
+        .filter((l) => /^(\s*)- (.*)/.test(l))
+        .map((l) => `<li>${inlineMd(l.replace(/^\s*- /, ""))}</li>`);
+      if (items.length > 0) {
+        result.push(`<ul class="muted">${items.join("")}</ul>`);
+      }
+    } else {
+      // Non-list paragraph — wrap in <p> to preserve line breaks within
+      result.push(`<p class="muted">${inlineMd(trimmed.replace(/\n/g, "<br>"))}</p>`);
+    }
+  }
+
+  return result.join("\n");
+}
+
+/** Inline markdown only (bold, italic, code) — used inside list items. */
+function inlineMd(str) {
+  // Process code spans last by splitting on them and only applying emphasis
+  // outside backticks. CR: inlineMd must not emphasize `*text*` inside code spans.
+  // Security fix (CR): do not unescape HTML entities inside code spans —
+  // leaving entities escaped prevents XSS from malicious content like `<script>`.
+  const segments = str.split(/(`[^`]+`)/g);
+  return segments
+    .map((segment) => {
+      if (/^`[^`]+`$/.test(segment)) {
+        // Entire segment is a code span — convert backticks to <code>
+        // Keep inner text escaped to prevent XSS (e.g. <script> inside code)
+        return `<code>${segment.slice(1, -1)}</code>`;
+      }
+      // Apply bold/italic on non-code segments
+      return segment
+        .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+        .replace(/\*(.+?)\*/g, "<em>$1</em>");
+    })
+    .join("");
 }
 
 function ensureDir(dir) {

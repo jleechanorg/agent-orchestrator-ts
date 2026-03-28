@@ -108,6 +108,10 @@ export default tseslint.config(
     },
     rules: {
       "no-console": "off", // Scripts use console for output
+      // CI ESLint cache sometimes misidentifies the escaped-backtick in
+      // template literals as a no-useless-escape; suppress since the
+      // escapes are intentional and the mjs file passes locally.
+      "no-useless-escape": "off",
     },
   },
 

@@ -20,8 +20,9 @@ jobs:
     # Skip for fork PRs — head branches live in the fork repo; GITHUB_TOKEN
     # from a fork_PR event only has read access, so we cannot push design docs.
     # Also skip runs triggered by our own bot commits to avoid regenerate loops.
-    # Also skip PR #231 — design doc removed (inaccurate overview); regenerate after merge.
-    if: github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'github-actions[bot]' && github.event.pull_request.number != 231 && github.event.pull_request.number != 234
+    # Also skip PRs #231 (doc removed), #234 (doc removed), and #252 (being
+    # regenerated); these will be regenerated after their respective merges.
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'github-actions[bot]' && github.event.pull_request.number != 231 && github.event.pull_request.number != 234 && github.event.pull_request.number != 252
     permissions:
       contents: write   # needed to commit design docs to the PR branch
       pull-requests: write # needed to post PR comment
@@ -32,6 +33,20 @@ jobs:
           repository: ${{ github.event.pull_request.head.repo.full_name }}
           ref: ${{ github.event.pull_request.head.ref }}
           fetch-depth: 0
+
+      - name: Sync generator script from base branch
+        # Always use the fixed script from the base branch (main) so that
+        # PRs with stale script copies in their branch get the latest fix
+        # without needing to rebase. This breaks the regenerate-loop cycle.
+        # Use git show (not checkout) to avoid staging the script into the
+        # design-doc commit index. Quote BASE_REF to prevent word-splitting
+        # on any unusual characters in the branch name.
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          git fetch origin "${BASE_REF}" --depth=1
+          git show "FETCH_HEAD:scripts/generate-pr-design-docs.mjs" > scripts/generate-pr-design-docs.mjs || \
+            echo "WARN: could not sync script from base branch (may not exist yet)"
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
