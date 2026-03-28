@@ -534,12 +534,15 @@ function mdToHtml(str) {
 function inlineMd(str) {
   // Process code spans last by splitting on them and only applying emphasis
   // outside backticks. CR: inlineMd must not emphasize `*text*` inside code spans.
+  // Security fix (CR): do not unescape HTML entities inside code spans —
+  // leaving entities escaped prevents XSS from malicious content like `<script>`.
   const segments = str.split(/(`[^`]+`)/g);
   return segments
     .map((segment) => {
       if (/^`[^`]+`$/.test(segment)) {
-        // Entire segment is a code span — convert backticks to <code> (unescape)
-        return `<code>${segment.slice(1, -1).replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&")}</code>`;
+        // Entire segment is a code span — convert backticks to <code>
+        // Keep inner text escaped to prevent XSS (e.g. <script> inside code)
+        return `<code>${segment.slice(1, -1)}</code>`;
       }
       // Apply bold/italic on non-code segments
       return segment

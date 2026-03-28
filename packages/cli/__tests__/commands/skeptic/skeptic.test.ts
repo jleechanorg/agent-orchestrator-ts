@@ -96,9 +96,8 @@ describe("dry-run SKIPPED color mapping", () => {
 });
 
 describe("findExistingVerdict — SKIPPED path", () => {
-  const mockFetchComments: ReturnType<typeof vi.fn> = vi.fn<
-    [owner: string, repo: string, prNumber: number],
-    Promise<Array<{ id: number; body: string }>>
+  const mockFetchComments = vi.fn<
+    (owner: string, repo: string, prNumber: number) => Promise<Array<{ id: number; body: string }>>
   >();
 
   beforeEach(() => {
