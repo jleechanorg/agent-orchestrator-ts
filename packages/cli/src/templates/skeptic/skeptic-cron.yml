@@ -85,8 +85,9 @@ jobs:
             # Output to file so the grep below can read it.
             # Wrap in subshell: prevents set -e from aborting the loop if skeptic exits non-zero
             # bd-skp2: removed || true (misleading) — capture real exit code and check explicitly
+            # bd-ao2b: correct subcommand is 'verify -n' not '--pr'
             skeptic_exit=0
-            (ao skeptic verify --pr "$PR_NUM" --dry-run > "skeptic-output-${PR_NUM}.txt" 2>&1) || skeptic_exit=$?
+            (npx @jleechanorg/ao-cli skeptic verify -n "$PR_NUM" --repo "${{ github.repository }}" --dry-run > "skeptic-output-${PR_NUM}.txt" 2>&1) || skeptic_exit=$?
             # Print output for workflow logs
             cat "skeptic-output-${PR_NUM}.txt" || true
 
@@ -140,9 +141,8 @@ jobs:
 
             # 3. CR APPROVED — latest CR review state (GitHub API returns uppercase: APPROVED/CHANGES_REQUESTED)
             LATEST_CR=$(gh api repos/${{ github.repository }}/pulls/"$PR_NUM"/reviews \
-              --jq '[.[] | select(.user.login == "coderabbitai[bot]") | {state: .state, body_length: (.body | length)}] | sort_by(.submitted_at) | reverse | .[0]' 2>/dev/null)
-            CR_STATE=$(echo "$LATEST_CR" | jq -r '.state // "none"')
-            CR_BODY_LEN=$(echo "$LATEST_CR" | jq -r '.body_length // 0')
+              --jq '[.[] | select(.user.login == "coderabbitai[bot]" and (.state == "APPROVED" or .state == "CHANGES_REQUESTED"))] | sort_by(.submitted_at) | reverse | .[0].state' 2>/dev/null || echo "none")
+            CR_STATE="${LATEST_CR:-none}"
             # APPROVED if state=APPROVED (GitHub API returns uppercase); dismissal detection is handled by skeptic
             if [ "$CR_STATE" = "APPROVED" ]; then
               CR_APPROVED="PASS"
@@ -161,16 +161,47 @@ jobs:
             fi
             echo "  [4] Bugbot clean:       $BUGBOT_STATUS"
 
-            # 5. Inline comments resolved — use /pulls/{n}/comments as a reasonable proxy
-            # Pull comments don't have .state (only review threads do), so we count top-level
-            # review comments (in_reply_to_id == null) that are non-nit as active discussions.
-            # This matches the pattern used in skeptic.ts mergeGate.ts
-            UNRESOLVED=$(gh api repos/${{ github.repository }}/pulls/"$PR_NUM"/comments \
-              --jq '[.[] | select(.in_reply_to_id == null) | select(.body | test("^(nit:|nitpick)"; "i") | not)] | length' 2>/dev/null || echo 0)
-            if [ "$UNRESOLVED" = "0" ] || [ -z "$UNRESOLVED" ]; then
-              COMMENTS_STATUS="PASS"
+            # 5. Inline comments resolved — use GraphQL reviewThreads to get isResolved
+            # (REST /pulls/{n}/comments lacks isResolved; GitHub tracks resolution at thread level)
+            # bd-ao2b: replaced REST proxy with proper GraphQL query
+            PR_AUTHOR=$(gh api repos/${{ github.repository }}/pulls/"$PR_NUM" --jq '.user.login' 2>/dev/null || echo "__AUTHOR_ERROR__")
+            GQL_RESULT=$(gh api graphql -f query='
+              query($owner: String!, $name: String!, $number: Int!) {
+                repository(owner: $owner, name: $name) {
+                  pullRequest(number: $number) {
+                    reviewThreads(first: 100) {
+                      pageInfo { hasNextPage }
+                      nodes {
+                        isResolved
+                        comments(first: 50) {
+                          pageInfo { hasNextPage }
+                          nodes {
+                            author { login }
+                            body
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            ' -f owner='${{ github.repository_owner }}' -f name="${GITHUB_REPOSITORY#*/}" -F number="$PR_NUM" 2>/dev/null)
+            if [ -z "$GQL_RESULT" ]; then
+              COMMENTS_STATUS="FAIL (graphql-error)"
             else
-              COMMENTS_STATUS="FAIL ($UNRESOLVED unresolved)"
+              # Check both pagination levels — any truncation → fail closed
+              THREADS_TRUNCATED=$(echo "$GQL_RESULT" | jq -r '.data.repository.pullRequest.reviewThreads.pageInfo.hasNextPage')
+              if [ "$THREADS_TRUNCATED" = "true" ]; then
+                COMMENTS_STATUS="FAIL (threads-truncated)"
+              else
+                # Count unresolved threads that have ≥1 qualifying comment (not PR-author, not nit)
+                UNRESOLVED=$(echo "$GQL_RESULT" | jq "[.data.repository.pullRequest.reviewThreads.nodes[] | select(.isResolved == false and (.comments.nodes | map(.author.login != null and (.author.login | ascii_downcase) != (\"$PR_AUTHOR\" | ascii_downcase) and (.body | test(\"^\\\\s*(nit:|nitpick)\"; \"i\") | not)) | any))] | length" 2>/dev/null || echo "0")
+                if [ "$UNRESOLVED" = "0" ] || [ -z "$UNRESOLVED" ]; then
+                  COMMENTS_STATUS="PASS"
+                else
+                  COMMENTS_STATUS="FAIL ($UNRESOLVED unresolved)"
+                fi
+              fi
             fi
             echo "  [5] Comments resolved:   $COMMENTS_STATUS"
 

@@ -11,7 +11,7 @@
  *  7. Skeptic agent VERDICT: PASS | SKIPPED  (bd-qw6)
  */
 
-import type { PRInfo, MergeGateConfig, SCM } from "./types.js";
+import type { PRInfo, MergeGateConfig, SCM, ReviewComment } from "./types.js";
 import { type Review, evaluateCoderabbitApproval, getLatestDecisiveReview, hasUnresolvedDismissedReview, sortReviewsNewestFirst } from "./merge-gate-coderabbit.js";
 
 export type { Review } from "./merge-gate-coderabbit.js";
@@ -43,7 +43,7 @@ export async function checkMergeGate(
   let mergeability: { noConflicts: boolean; mergeable?: boolean };
   let reviews: Review[];
   let automatedComments: Array<{ botName: string; severity: string; body: string }>;
-  let pendingComments: Array<{ isResolved: boolean; body: string }>;
+  let pendingComments: ReviewComment[];
 
   try {
     const [ci, mergeabilityResult, reviewsResult, automatedCommentsResult, pendingCommentsResult] =
@@ -109,10 +109,16 @@ export async function checkMergeGate(
         : `${bugbotErrors.length} Bugbot error(s) found`,
   });
 
-  // 5. Inline comments resolved — ignore nit/nitpick comments
+  // 5. Inline comments resolved — ignore nit/nitpick comments and PR author comments
+  // (PR author can always resolve their own threads; they don't block CR approval)
+  // GitHub usernames are case-insensitive; normalize both sides for comparison.
   const nitPattern = /^(nit:|nitpick)/i;
+  const prAuthorLower = pr.author?.toLowerCase();
   const unresolvedBlockingComments = pendingComments.filter(
-    (c) => !c.isResolved && !nitPattern.test(c.body.trimStart()),
+    (c) =>
+      !c.isResolved &&
+      !nitPattern.test(c.body.trimStart()) &&
+      c.author?.toLowerCase() !== prAuthorLower,
   );
   checks.push({
     name: "Inline comments resolved",

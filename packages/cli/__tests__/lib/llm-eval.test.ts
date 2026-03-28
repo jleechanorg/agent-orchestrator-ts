@@ -145,17 +145,25 @@ describe("llmEval — default (codex primary)", () => {
     expect(mockExecFileSync).toHaveBeenCalledTimes(1);
   });
 
-  it("returns FAIL string when codex fails with real error", async () => {
+  it("returns SKIPPED and tries Claude fallback when codex fails with infra error", async () => {
     mockResolveCodexBinary.mockResolvedValue("/usr/local/bin/codex");
-    const err = new Error("ETIMEDOUT") as NodeJS.ErrnoException;
-    err.code = "ETIMEDOUT";
-    mockExecFileSync.mockImplementation(() => {
-      throw err;
-    });
+    const etimeout = new Error("ETIMEDOUT") as NodeJS.ErrnoException;
+    etimeout.code = "ETIMEDOUT";
+    const enoent = new Error("ENOENT") as NodeJS.ErrnoException;
+    enoent.code = "ENOENT";
+    mockExecFileSync
+      .mockImplementationOnce(() => {
+        throw etimeout;
+      })
+      .mockImplementationOnce(() => {
+        throw enoent;
+      });
     const result = await llmEval("evaluate this");
-    expect(result).toContain("VERDICT: FAIL");
+    // Infra failure from codex → try Claude fallback → both fail → SKIPPED
+    expect(result).toContain("VERDICT: SKIPPED");
     expect(result).toContain("ETIMEDOUT");
-    expect(mockExecFileSync).toHaveBeenCalledTimes(1); // no fallback after real error
+    expect(result).toContain("Claude:");
+    expect(mockExecFileSync).toHaveBeenCalledTimes(2); // codex failed, then tried Claude
   });
 
   it("falls back to claude when codex is unavailable (ENOENT)", async () => {
@@ -172,7 +180,7 @@ describe("llmEval — default (codex primary)", () => {
     expect(mockExecFileSync).toHaveBeenCalledTimes(2);
   });
 
-  it("returns FAIL when both codex unavailable and claude also fails", async () => {
+  it("returns SKIPPED when both codex unavailable (ENOENT) and claude also fails (ENOENT)", async () => {
     mockResolveCodexBinary.mockResolvedValue("/usr/local/bin/codex");
     const enoent1 = new Error("ENOENT") as NodeJS.ErrnoException;
     enoent1.code = "ENOENT";
@@ -186,8 +194,19 @@ describe("llmEval — default (codex primary)", () => {
         throw enoent2;
       });
     const result = await llmEval("evaluate this");
+    // Both unavailable → SKIPPED so cron continues; only code quality FAIL blocks merge
+    expect(result).toContain("VERDICT: SKIPPED");
+    expect(result).toContain("Neither Codex nor Claude CLI available for skeptic evaluation");
+  });
+
+  it("returns FAIL (not SKIPPED) when codex runs but model omits VERDICT", async () => {
+    mockResolveCodexBinary.mockResolvedValue("/usr/local/bin/codex");
+    mockExecFileSync.mockReturnValue("Here is my analysis with no verdict");
+    const result = await llmEval("evaluate this");
+    // Missing VERDICT = code quality failure → fail-closed FAIL
     expect(result).toContain("VERDICT: FAIL");
-    expect(result).toContain("Neither Codex nor Claude CLI available");
+    expect(result).toContain("missing VERDICT");
+    expect(mockExecFileSync).toHaveBeenCalledTimes(2); // codex no-verdict → tried Claude fallback
   });
 });
 
@@ -215,15 +234,24 @@ describe("llmEval — explicit model=claude", () => {
     expect(mockExecFileSync).toHaveBeenCalledTimes(2);
   });
 
-  it("returns FAIL when claude has a real error", async () => {
-    const err = new Error("ETIMEDOUT") as NodeJS.ErrnoException;
-    err.code = "ETIMEDOUT";
-    mockExecFileSync.mockImplementation(() => {
-      throw err;
-    });
+  it("returns SKIPPED and tries codex fallback when claude has infra error", async () => {
+    mockResolveCodexBinary.mockResolvedValue("/usr/local/bin/codex");
+    const etimeout = new Error("ETIMEDOUT") as NodeJS.ErrnoException;
+    etimeout.code = "ETIMEDOUT";
+    const enoent = new Error("ENOENT") as NodeJS.ErrnoException;
+    enoent.code = "ENOENT";
+    mockExecFileSync
+      .mockImplementationOnce(() => {
+        throw etimeout;
+      })
+      .mockImplementationOnce(() => {
+        throw enoent;
+      });
     const result = await llmEval("evaluate this", { model: "claude" });
-    expect(result).toContain("VERDICT: FAIL");
-    expect(result).toContain("Claude evaluation failed");
-    expect(mockResolveCodexBinary).not.toHaveBeenCalled();
+    // Infra failure from Claude → try codex fallback → both fail → SKIPPED
+    expect(result).toContain("VERDICT: SKIPPED");
+    expect(result).toContain("Claude failed:");
+    expect(mockResolveCodexBinary).toHaveBeenCalled();
+    expect(mockExecFileSync).toHaveBeenCalledTimes(2); // Claude failed, then tried codex
   });
 });

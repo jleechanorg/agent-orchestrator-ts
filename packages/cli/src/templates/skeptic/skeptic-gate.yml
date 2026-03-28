@@ -54,17 +54,25 @@ jobs:
           fi
 
           skeptic_exit=0
-          (ao skeptic verify \
-            --pr ${{ github.event.pull_request.number }} \
+          (npx @jleechanorg/ao-cli skeptic verify \
+            -n ${{ github.event.pull_request.number }} \
             > skeptic-output.txt 2>&1) || skeptic_exit=$?
           cat skeptic-output.txt
 
           # The CLI's postVerdict handles idempotent comment posting (finds and updates
           # the existing <!-- skeptic-agent-verdict --> comment rather than appending).
 
+          # bd-ao2b: handle VERDICT: SKIPPED (infra failures) before UNKNOWN.
+          # SKIPPED means skeptic couldn't run (no API keys, tool unavailable) — don't block merge.
+          # FAIL means code quality issue — block merge.
+          # PASS means all good — allow merge.
+          # UNKNOWN means CLI ran but emitted no recognizable verdict — fail closed.
           if grep -qi "VERDICT: FAIL" skeptic-output.txt; then
             echo "verdict=FAIL" >> "$GITHUB_OUTPUT"
             exit 1
+          elif grep -qi "VERDICT: SKIPPED" skeptic-output.txt; then
+            echo "verdict=SKIPPED" >> "$GITHUB_OUTPUT"
+            exit 0
           elif grep -qi "VERDICT: PASS" skeptic-output.txt; then
             echo "verdict=PASS" >> "$GITHUB_OUTPUT"
             exit 0

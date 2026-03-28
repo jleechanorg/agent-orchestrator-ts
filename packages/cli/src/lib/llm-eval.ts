@@ -64,6 +64,7 @@ export async function tryCodexPrint(prompt: string): Promise<LlmEvalResult> {
     );
     const output = result.trim();
     if (!VERDICT_LINE_RE.test(output)) {
+      // Tool ran but model failed to produce required output — fail-closed.
       return {
         validVerdict: false,
         output,
@@ -133,33 +134,52 @@ export async function llmEval(
 ): Promise<string> {
   const model = options.model ?? "codex";
 
+  // Helper: check if error means "tool ran but model omitted VERDICT" (fail-closed)
+  const isMissingVerdict = (err?: string) =>
+    err !== undefined && /missing VERDICT/i.test(err);
+
   // If user explicitly chose claude, try it first and skip codex
   if (model === "claude") {
     const result = await tryClaudePrint(prompt);
     if (result.validVerdict) return result.output;
-    if (result.error) {
-      return `VERDICT: FAIL — Claude evaluation failed: ${result.error}`;
+    if (isMissingVerdict(result.error)) {
+      // Tool ran but model produced no VERDICT — fail closed (block merge rather than skip)
+      return `VERDICT: FAIL — claude: ${result.error}`;
     }
-    // Claude unavailable — fall through to codex as last resort
+    if (result.error) {
+      // Infra failure — try codex as fallback before returning SKIPPED
+      const codexResult = await tryCodexPrint(prompt);
+      if (codexResult.validVerdict) return codexResult.output;
+      return `VERDICT: SKIPPED — infra: Claude failed: ${result.error}. Codex: ${codexResult.error ?? "not available"}.`;
+    }
+    // Claude unavailable (ENOENT) — try codex as last resort
     const codexResult = await tryCodexPrint(prompt);
     if (codexResult.validVerdict) return codexResult.output;
-    return `VERDICT: FAIL — Neither Claude nor Codex available. Claude: ${result.error ?? "not available"}. Codex: ${codexResult.error ?? "not available"}.`;
+    return `VERDICT: SKIPPED — infra: Neither Claude nor Codex available. Claude: ${result.error ?? "not available"}. Codex: ${codexResult.error ?? "not available"}.`;
   }
 
   // Default: codex primary
   const codexResult = await tryCodexPrint(prompt);
   if (codexResult.validVerdict) return codexResult.output;
+  if (isMissingVerdict(codexResult.error)) {
+    // Tool ran but model produced no VERDICT — fail closed; try Claude before giving up
+    const claudeResult = await tryClaudePrint(prompt);
+    if (claudeResult.validVerdict) return claudeResult.output;
+    return `VERDICT: FAIL — codex: ${codexResult.error}. Claude: ${claudeResult.error ?? "not available"}.`;
+  }
   if (codexResult.error) {
-    // Codex failed with a real error — fail closed (don't silently fall through)
-    return `VERDICT: FAIL — Codex evaluation failed: ${codexResult.error}`;
+    // Infra failure — try Claude as fallback before returning SKIPPED
+    const claudeResult = await tryClaudePrint(prompt);
+    if (claudeResult.validVerdict) return claudeResult.output;
+    return `VERDICT: SKIPPED — infra: Codex failed: ${codexResult.error}. Claude: ${claudeResult.error ?? "not available"}.`;
   }
 
-  // Codex not available — try Claude as fallback
+  // Codex not available (ENOENT) — try Claude as fallback
   const claudeResult = await tryClaudePrint(prompt);
   if (claudeResult.validVerdict) return claudeResult.output;
   if (claudeResult.error) {
-    return `VERDICT: FAIL — Both Codex and Claude evaluation failed. Codex: ${codexResult.error ?? "not available"}. Claude: ${claudeResult.error}`;
+    return `VERDICT: SKIPPED — infra: Both Codex and Claude evaluation failed. Codex: ${codexResult.error ?? "not available"}. Claude: ${claudeResult.error}`;
   }
 
-  return "VERDICT: FAIL — Neither Codex nor Claude CLI available for skeptic evaluation";
+  return "VERDICT: SKIPPED — infra: Neither Codex nor Claude CLI available for skeptic evaluation";
 }

@@ -21,8 +21,8 @@ import { buildSkepticPrompt } from "./skeptic/prompt.js";
 import { runSkepticEvaluation } from "./skeptic/modelRunner.js";
 import { postVerdict } from "./skeptic/posting.js";
 
-/** Line-anchored VERDICT matcher — only accepts a single-line literal "VERDICT: PASS" or "VERDICT: FAIL". */
-const VERDICT_LINE_RE = /^VERDICT:\s*(PASS|FAIL)\s*$/im;
+/** Line-anchored VERDICT matcher — accepts VERDICT: PASS, VERDICT: FAIL, or VERDICT: SKIPPED. */
+const VERDICT_LINE_RE = /^VERDICT:\s*(PASS|FAIL|SKIPPED)\b/im;
 
 const SKEPTIC_BOT_AUTHOR =
   process.env["GH_SKEPTIC_BOT_AUTHOR"] ?? "jleechan-agent[bot]";
@@ -133,6 +133,12 @@ export function registerSkeptic(program: Command): Command {
         }
         console.log(chalk.yellow("\n=== Full LLM output ===\n"));
         console.log(verdict);
+        // Exit non-zero only for VERDICT: FAIL from LLM evaluation.
+        // Infrastructure failures (Codex/Claude unavailable) emit VERDICT: SKIPPED and exit 0
+        // so the cron step continues — gate 7 treats SKIPPED as a pass condition.
+        if (verdictMatch?.[1]?.toUpperCase() === "FAIL") {
+          process.exit(1);
+        }
         return;
       }
 
@@ -144,7 +150,7 @@ export function registerSkeptic(program: Command): Command {
 
       const verdictLine = verdictMatch
         ? verdictMatch[0]
-        : "VERDICT: FAIL — could not parse LLM output";
+        : "VERDICT: FAIL — could not parse LLM output (expected VERDICT: PASS/FAIL/SKIPPED)";
 
       const spinner4 = ora("Posting verdict to PR #" + prNumber + "…").start();
       try {

@@ -31,6 +31,7 @@ const pr: PRInfo = {
   branch: "feat/my-feature",
   baseBranch: "main",
   isDraft: false,
+  author: "testuser",
 };
 
 const project: ProjectConfig = {
@@ -647,6 +648,7 @@ describe("scm-github plugin", () => {
           headRefName: "feat/my-feature",
           baseRefName: "main",
           isDraft: false,
+          author: null,
         },
       ]);
 
@@ -680,6 +682,7 @@ describe("scm-github plugin", () => {
           headRefName: "feat/my-feature",
           baseRefName: "main",
           isDraft: false,
+          author: { login: "testuser" },
         },
       ]);
 
@@ -696,7 +699,7 @@ describe("scm-github plugin", () => {
           "--head",
           "feat/my-feature",
           "--json",
-          "number,url,title,headRefName,baseRefName,isDraft",
+          "number,url,title,headRefName,baseRefName,isDraft,author",
           "--limit",
           "1",
         ],
@@ -725,6 +728,7 @@ describe("scm-github plugin", () => {
               head: { ref: "feat/my-feature" },
               base: { ref: "main" },
               draft: false,
+              user: { login: "testuser" },
             },
           ]),
         });
@@ -789,6 +793,7 @@ describe("scm-github plugin", () => {
         head: { ref: "feat/my-feature" },
         base: { ref: "main" },
         draft: false,
+        user: { login: "testuser" },
       });
 
       const result = await scm.resolvePR?.("42", project);

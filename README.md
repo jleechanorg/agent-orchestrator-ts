@@ -256,3 +256,4 @@ Contributions welcome. The plugin system makes it straightforward to add support
 ## License
 
 MIT
+
