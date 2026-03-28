@@ -15,9 +15,21 @@ const NIT_PATTERN = /^(nit:|nitpick)/i;
 const CR_BOT = "coderabbitai[bot]";
 const EVIDENCE_BOT = "evidence-review-bot";
 
+export interface CheckRunSummary {
+  name: string;
+  status: string;
+  conclusion: string | null;
+}
+
 export interface MergeGateState {
   ciPassing: boolean;
+  /** Raw commit status state from GitHub API (e.g. "success", "failure", "pending") */
+  ciRawState: string;
+  /** Individual CI check run results for independent verification */
+  checkRuns: CheckRunSummary[];
   noConflicts: boolean;
+  /** Raw mergeable boolean from GitHub API: true = MERGEABLE, false/null = not yet determined or conflicting */
+  mergeableRaw: boolean | null;
   crApproved: boolean;
   crState: string;
   crDismissedWithoutApproval: boolean;
@@ -72,18 +84,44 @@ export async function fetchMergeGateState(
 ): Promise<MergeGateState> {
   // 1. CI status + mergeability — single call to /pulls/{prNumber}, extract both
   let ciPassing = false;
+  let ciRawState = "unknown";
   let noConflicts = false;
+  let mergeableRaw: boolean | null = null;
+  let checkRuns: CheckRunSummary[] = [];
   try {
     const prData = await ghJson(
       "repos/" + owner + "/" + repo + "/pulls/" + prNumber,
-    ) as { head?: { ref?: string }; mergeable?: boolean; merged?: boolean };
+    ) as { head?: { ref?: string; sha?: string }; mergeable?: boolean; merged?: boolean };
+    mergeableRaw = prData?.mergeable ?? null;
     noConflicts = prData?.mergeable === true || prData?.merged === true;
     const headRef = prData?.head?.ref;
+    const headSha = prData?.head?.sha;
     if (headRef) {
       const commitStatus = await ghJson(
         "repos/" + owner + "/" + repo + "/commits/" + headRef + "/status",
       ) as { state?: string };
+      ciRawState = commitStatus?.state ?? "unknown";
       ciPassing = commitStatus?.state === "success";
+    }
+    // Fetch individual check runs for independent verification
+    if (headSha) {
+      try {
+        const checkRunData = await ghJson(
+          "repos/" + owner + "/" + repo + "/commits/" + headSha + "/check-runs",
+        ) as { check_runs?: Array<{ name: string; status: string; conclusion: string | null }> };
+        // Deduplicate by name, keeping latest conclusion
+        const seen = new Map<string, CheckRunSummary>();
+        for (const run of (checkRunData?.check_runs ?? [])) {
+          const existing = seen.get(run.name);
+          // Prefer completed runs over in-progress
+          if (!existing || (run.status === "completed" && existing.status !== "completed")) {
+            seen.set(run.name, { name: run.name, status: run.status, conclusion: run.conclusion });
+          }
+        }
+        checkRuns = [...seen.values()];
+      } catch {
+        // non-fatal — check runs stay empty
+      }
     }
   } catch {
     // ciPassing stays false; noConflicts stays false (already initialized)
@@ -102,31 +140,53 @@ export async function fetchMergeGateState(
   }
 
   // 3. Review threads — nit-filtered unresolved counts (matches checkMergeGate)
+  // Uses GraphQL reviewThreads.isResolved (REST /pulls/{n}/comments has no state field).
   let bugbotErrors = 0;
   let unresolvedBlockingComments = 0;
   try {
-    const threadsData = await ghJson(
-      "repos/" + owner + "/" + repo + "/pulls/" + prNumber + "/comments",
-    ) as Array<{
-      state?: string;
-      body?: string;
-      user?: { login?: string };
-      path?: string;
-      line?: number | null;
-      side?: string;
-    }>;
-    for (const c of threadsData) {
-      const isResolved = c.state === "RESOLVED";
-      const body = c.body ?? "";
+    const threadQuery = `{
+  repository(owner:"${owner}", name:"${repo}") {
+    pullRequest(number:${prNumber}) {
+      reviewThreads(first:100) {
+        nodes {
+          isResolved
+          isOutdated
+          comments(first:1) {
+            nodes { body author { login } }
+          }
+        }
+      }
+    }
+  }
+}`;
+    const threadData = await ghJson("graphql", ["-f", "query=" + threadQuery]) as {
+      data?: {
+        repository?: {
+          pullRequest?: {
+            reviewThreads?: {
+              nodes?: Array<{
+                isResolved: boolean;
+                isOutdated: boolean;
+                comments?: { nodes?: Array<{ body: string; author?: { login: string } }> };
+              }>;
+            };
+          };
+        };
+      };
+    };
+    const threads = threadData?.data?.repository?.pullRequest?.reviewThreads?.nodes ?? [];
+    for (const t of threads) {
+      if (t.isResolved || t.isOutdated) continue;
+      const firstComment = t.comments?.nodes?.[0];
+      const body = firstComment?.body ?? "";
+      const author = firstComment?.author?.login ?? "";
       const isNit = NIT_PATTERN.test(body.trimStart());
-      const author = c.user?.login ?? "";
       const isBugbot =
         /cursor\[bot]/i.test(author) &&
-        /error/i.test(body) &&
-        !isResolved;
+        /error/i.test(body);
 
       if (isBugbot) bugbotErrors++;
-      if (!isResolved && !isNit) unresolvedBlockingComments++;
+      if (!isNit) unresolvedBlockingComments++;
     }
   } catch {
     // non-fatal
@@ -168,7 +228,10 @@ export async function fetchMergeGateState(
 
   return {
     ciPassing,
+    ciRawState,
+    checkRuns,
     noConflicts,
+    mergeableRaw,
     crApproved,
     crState,
     crDismissedWithoutApproval,
