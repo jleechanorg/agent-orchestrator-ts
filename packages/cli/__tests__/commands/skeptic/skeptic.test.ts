@@ -7,7 +7,7 @@
  * implementation, not local copies.
  */
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect } from "vitest";
 import { VERDICT_LINE_RE, getVerdictColor } from "../../../src/commands/skeptic/verdict-utils.js";
 
 describe("VERDICT_LINE_RE — SKIPPED path", () => {
