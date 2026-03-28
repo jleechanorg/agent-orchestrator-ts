@@ -193,6 +193,8 @@ function extractDescription(body) {
   // bd-7gs-fix: strip HTML comment markers and adjacent markdown separators from AI-generated PR bodies
   const cleaned = (body || "")
     .replace(/<!--\s*CURSOR_SUMMARY\s*-->/gi, "")
+    .replace(/&lt;!--\s*CURSOR_SUMMARY\s*--&gt;/gi, "") // strip entity-encoded comment
+    .replace(/\u003c!--\s*CURSOR_SUMMARY\s*--\u003e/gi, "") // strip unicode-escaped comment
     .replace(/^---\s*$/gm, "")
     .replace(/<!--[\s\S]*?-->/g, ""); // strip all HTML comments
   const paragraphs = cleaned.split(/\n\n+/);
