@@ -444,3 +444,4 @@ ao session ls --project agent-orchestrator 2>/dev/null | grep working || true
 ```
 
 Common EPIPE sources in the AO reporting path: `ao session ls` piped to `head`, `grep`, or `wc` when the consumer exits before the pipe buffer is consumed. The `--project` flag also avoids namespace shadowing when `ao` is run from a directory containing a shadowing `agent-orchestrator.yaml`.
+
