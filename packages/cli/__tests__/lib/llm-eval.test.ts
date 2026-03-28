@@ -76,8 +76,9 @@ describe("tryCodexPrint", () => {
     expect(result.error).toBeDefined(); // NOT undefined → fail closed
   });
 
-  it("returns validVerdict=false with error message for auth failure", async () => {
+  it("returns error=undefined (try next) when binary exits with auth/unavailable error", async () => {
     mockResolveCodexBinary.mockResolvedValue("/usr/local/bin/codex");
+    // "unauthorized" is classified as unavailable → fallback chain continues
     const err = new Error("Command failed: unauthorized") as NodeJS.ErrnoException;
     err.code = undefined;
     mockExecFileSync.mockImplementation(() => {
@@ -85,8 +86,7 @@ describe("tryCodexPrint", () => {
     });
     const result = await tryCodexPrint("evaluate this");
     expect(result.validVerdict).toBe(false);
-    expect(result.error).toContain("Command failed: unauthorized");
-    expect(result.error).toBeDefined(); // fail closed
+    expect(result.error).toBeUndefined(); // signal: try next tool
   });
 });
 
@@ -98,7 +98,7 @@ describe("tryClaudePrint", () => {
     expect(result.output).toBe(PASS_VERDICT);
     expect(mockExecFileSync).toHaveBeenCalledWith(
       "claude",
-      ["--print", "--no-input"],
+      ["--print"],
       expect.objectContaining({ input: "evaluate this" }),
     );
   });
