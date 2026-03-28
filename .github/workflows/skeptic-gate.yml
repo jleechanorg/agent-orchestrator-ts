@@ -38,49 +38,21 @@ jobs:
         run: |
           PR_NUM=${{ github.event.pull_request.number }}
 
-          # NOTE: parentheses around (.body | test(...)) are required — in jq, the `and`
-          # operator has lower precedence than `|`, so `.a == X and .b | test(...)`
-          # would be parsed as `(.a == X and .b) | test(...)` without parens.
-          # Use .[-1] (last element) to select the most recent trigger comment when
-          # multiple exist — avoids updating a stale older comment and leaving duplicates.
-          # --slurpfile /dev/null forces jq to aggregate ALL pages before applying the
-          # filter — without it, the jq expression applies per-page so .[-1] may select
-          # a stale match from an earlier page rather than the true last matching comment.
-          EXISTING=$(gh api repos/${{ github.repository }}/issues/"$PR_NUM"/comments \
-            --paginate \
-            --slurpfile /dev/null \
-            --jq '[.[] | select(.user.login == "github-actions[bot]" and (.body | test("skeptic-gate-trigger"; "i")))] | .[-1] // empty' 2>/dev/null || echo "empty")
-
-          # Build the body via printf (not inline YAML) so $HEAD_SHA substitution is safe.
-          BODY="$(printf '%s\n\n%s\n\n%s' \
-            "🤖 [agento] Skeptic evaluation triggered on commit \`${HEAD_SHA:0:7}\`." \
-            "_AO worker will evaluate and post VERDICT._" \
-            "<!-- skeptic-gate-trigger-${HEAD_SHA} -->")"
-
-          # bd-lg7i: always use date-based timestamp. GitHub API responses for issue comments
-          # may not pass jq validation (e.g. missing updated_at, partial JSON on transient errors),
-          # causing the workflow to exit with verdict=ERROR. date is always available and always
-          # produces a valid ISO-8601 timestamp that correctly filters out pre-existing verdicts.
+          # bd-lg7i: always use date-based timestamp. github-actions[bot] token does not
+          # have write access to PR comments in pull_request_target context on forked PRs,
+          # and even if it did, gh api responses may not pass jq validation. Rather than
+          # rely on a trigger comment timestamp, always use date -u (ISO-8601, second
+          # resolution) as the cutoff for filtering verdict comments. Verdicts posted in the
+          # same second as the trigger will be caught by the next poll cycle (30s interval).
           TRIGGER_UPDATED=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-          if [ "$EXISTING" != "empty" ] && echo "$EXISTING" | jq -e '.id' > /dev/null 2>&1; then
-            EXISTING_ID=$(echo "$EXISTING" | jq -r '.id')
-            echo "Updating existing trigger comment: $EXISTING_ID (timestamped at $TRIGGER_UPDATED)"
-            gh api repos/${{ github.repository }}/issues/"$PR_NUM"/comments/"$EXISTING_ID" \
-              --method PATCH \
-              -f body="$BODY" || true
-          else
-            echo "Posting new trigger comment (timestamped at $TRIGGER_UPDATED)"
-            gh api repos/${{ github.repository }}/issues/"$PR_NUM"/comments \
-              --method POST \
-              -f body="$BODY" || true
-          fi
+          echo "Trigger timestamp (UTC): $TRIGGER_UPDATED"
           echo "trigger_updated=$TRIGGER_UPDATED" >> "$GITHUB_OUTPUT"
           echo "trigger_sha=$HEAD_SHA" >> "$GITHUB_OUTPUT"
 
       # Step 2: Poll for VERDICT from the skeptic bot (configurable via SKEPTIC_BOT_AUTHOR).
-      # Only accept verdicts whose `created_at` is AFTER the trigger comment was
-      # updated — this prevents a verdict from a cancelled previous run from
-      # causing a false early exit on the current push.
+      # Uses TRIGGER_UPDATED = date -u (captured at step start) as the cutoff for
+      # verdict filtering. Any verdict comment from SKEPTIC_BOT_AUTHOR with created_at
+      # >= TRIGGER_UPDATED and containing the current trigger SHA is accepted.
       - name: Poll for skeptic VERDICT
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -151,7 +123,7 @@ jobs:
             # the jq filter applies per-page so .[-1] (most recent) only reflects the
             # last comment on the last page, missing newer matches.
             # Comments are returned oldest→newest, so .[-1] gives the most recent match.
-            VERDICT_JQ='[.[] | select(.user.login == env.SKEPTIC_BOT_AUTHOR and (.body | test("VERDICT:"; "i")) and (.created_at > env.TRIGGER_UPDATED) and (.body | test("skeptic-gate-trigger-" + env.TRIGGER_SHA; "i")))] | .[-1] // empty'
+            VERDICT_JQ='[.[] | select(.user.login == env.SKEPTIC_BOT_AUTHOR and (.body | test("VERDICT:"; "i")) and (.created_at >= env.TRIGGER_UPDATED) and (.body | test("skeptic-gate-trigger-" + env.TRIGGER_SHA; "i")))] | .[-1] // empty'
             VERDICT_JSON=$(gh api repos/${{ github.repository }}/issues/"$PR_NUM"/comments \
               --paginate \
               --slurpfile /dev/null \
