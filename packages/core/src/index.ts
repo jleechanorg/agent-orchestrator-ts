@@ -383,3 +383,8 @@ export type {
   CheckStuckWorkerOptions,
   CheckStuckWorkerResult,
 } from "./stuck-worker-detector.js";
+
+// Shared worktree-git utilities — used by both core (backfill-extensions) and
+// workspace-worktree plugin so the same recovery logic is in one place.
+export { findRepoPathForWorktree } from "./utils/worktree-git.js";
+export type { RepoPathResult } from "./utils/worktree-git.js";
