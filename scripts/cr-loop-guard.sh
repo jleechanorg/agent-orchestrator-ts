@@ -56,14 +56,13 @@ RAW=$(gh api graphql \
   -F pr="$PR_NUM" \
   2>/dev/null) || RAW=""
 
-# Step 2: Extract actionable comment fingerprints (path+line+first 80 non-whitespace chars)
+# Step 2: Extract actionable comment fingerprints (path:line:body-prefix per unresolved CR thread)
 ACTIONABLE_HASH=$(echo "$RAW" | jq -r '
   [.data.repository.pullRequest.reviewThreads.nodes[] |
    select(.isResolved == false) |
    select(.comments.nodes[0].author.login == "coderabbitai") |
-   .comments.nodes[0].body // "" |
-   .[:80] | gsub("[ \n\r\t]+"; ""))] |
-  sort | join("|")' 2>/dev/null || echo "PARSE_ERROR")
+   "\(.path):\(.line):\(.comments.nodes[0].body // "" | .[:80] | gsub("[ \n\r\t]+"; ""))"] |
+  sort | join("|")' || echo "PARSE_ERROR")
 
 ACTIONABLE_COUNT=$(echo "$RAW" | jq -r '
   [.data.repository.pullRequest.reviewThreads.nodes[] |
@@ -88,8 +87,10 @@ if [ -f "$CACHE_FILE" ]; then
 fi
 
 # Step 5: Determine loop state
+# SHA_CHANGED=false only when PREV_SHA is non-empty AND equals HEAD_SHA.
+# First run (empty PREV_SHA) → SHA_CHANGED=true so we don't treat first poll as a stall.
 SHA_CHANGED="true"
-if [ "$PREV_SHA" = "$HEAD_SHA" ] || [ -z "$PREV_SHA" ]; then
+if [ -n "$PREV_SHA" ] && [ "$PREV_SHA" = "$HEAD_SHA" ]; then
   SHA_CHANGED="false"
 fi
 
@@ -133,7 +134,7 @@ else
     --argjson count "$ACTIONABLE_COUNT" \
     --argjson loops "$LOOP_COUNT" \
     --argjson max "$MAX_LOOPS" \
-    --arg sha_changed "$SHA_CHANGED" \
+    --argjson sha_changed "$SHA_CHANGED" \
     --argjson same_hash "$([[ "$ACTIONABLE_HASH" = "$PREV_HASH" ]] && echo true || echo false)" \
     '{
       loop_detected: ($loops >= $max),

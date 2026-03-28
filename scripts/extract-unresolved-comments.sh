@@ -109,7 +109,7 @@ def make_summary($threads):
      (if $t.actionable then .actionable_count += 1 else . end) |
      .by_file[$t.path] = (.by_file[$t.path] // 0) + 1
     ) | {total, critical, major, medium, minor, actionable_count,
-         by_file: ([.by_file | to_entries | sort_by(.key) | map({file: .key, count: .value})])}
+         by_file: (.by_file | to_entries | sort_by(.key) | map({file: .key, count: .value}))}
 ;
 
 ($raw|fromjson).data.repository.pullRequest.reviewThreads.nodes as $all_nodes |
