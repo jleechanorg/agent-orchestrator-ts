@@ -76,12 +76,14 @@ export async function fetchMergeGateState(
   try {
     const prData = await ghJson(
       "repos/" + owner + "/" + repo + "/pulls/" + prNumber,
-    ) as { head?: { ref?: string }; mergeable?: boolean; merged?: boolean };
+    ) as { head?: { sha?: string; ref?: string }; mergeable?: boolean; merged?: boolean };
     noConflicts = prData?.mergeable === true || prData?.merged === true;
-    const headRef = prData?.head?.ref;
-    if (headRef) {
+    // Use head.sha (immutable commit SHA) instead of head.ref (mutable branch ref)
+    // to avoid TOCTOU races where the branch moves between status check and merge.
+    const headSha = prData?.head?.sha;
+    if (headSha) {
       const commitStatus = await ghJson(
-        "repos/" + owner + "/" + repo + "/commits/" + headRef + "/status",
+        "repos/" + owner + "/" + repo + "/commits/" + headSha + "/status",
       ) as { state?: string };
       ciPassing = commitStatus?.state === "success";
     }
@@ -102,34 +104,64 @@ export async function fetchMergeGateState(
   }
 
   // 3. Review threads — nit-filtered unresolved counts (matches checkMergeGate)
+  // Uses GraphQL reviewThreads to get accurate isResolved state (REST /comments lacks it).
   let bugbotErrors = 0;
   let unresolvedBlockingComments = 0;
   try {
-    const threadsData = await ghJson(
-      "repos/" + owner + "/" + repo + "/pulls/" + prNumber + "/comments",
-    ) as Array<{
-      state?: string;
-      body?: string;
-      user?: { login?: string };
-      path?: string;
-      line?: number | null;
-      side?: string;
-    }>;
-    for (const c of threadsData) {
-      const isResolved = c.state === "RESOLVED";
-      const body = c.body ?? "";
+    const gqlQuery = `
+      query($owner: String!, $repo: String!, $pr: Int!) {
+        repository(owner: $owner, name: $repo) {
+          pullRequest(number: $pr) {
+            reviewThreads(first: 100) {
+              nodes {
+                isResolved
+                comments(first: 1) {
+                  nodes {
+                    author { login }
+                    body
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    `;
+    const gqlData = await ghJson("graphql", [
+      "-f", "query=" + gqlQuery,
+      "-F", "owner=" + owner,
+      "-F", "repo=" + repo,
+      "-F", "pr=" + prNumber,
+    ]) as {
+      data?: {
+        repository?: {
+          pullRequest?: {
+            reviewThreads?: {
+              nodes?: Array<{
+                isResolved: boolean;
+                comments: { nodes: Array<{ author?: { login?: string }; body?: string }> };
+              }>;
+            };
+          };
+        };
+      };
+    };
+    const threads = gqlData?.data?.repository?.pullRequest?.reviewThreads?.nodes ?? [];
+    for (const thread of threads) {
+      const firstComment = thread.comments.nodes[0];
+      const body = firstComment?.body ?? "";
+      const author = firstComment?.author?.login ?? "";
       const isNit = NIT_PATTERN.test(body.trimStart());
-      const author = c.user?.login ?? "";
       const isBugbot =
         /cursor\[bot]/i.test(author) &&
         /error/i.test(body) &&
-        !isResolved;
+        !thread.isResolved;
 
       if (isBugbot) bugbotErrors++;
-      if (!isResolved && !isNit) unresolvedBlockingComments++;
+      if (!thread.isResolved && !isNit) unresolvedBlockingComments++;
     }
   } catch {
-    // non-fatal
+    // non-fatal: fall back to 0 unresolved (conservative — avoids false positives)
   }
 
   // 4. Evidence review
