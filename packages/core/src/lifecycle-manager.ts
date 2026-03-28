@@ -1013,7 +1013,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
             pr: freshSession.pr.number,
             repo: `${freshSession.pr.owner}/${freshSession.pr.repo}`,
             reason: `reaction:${reactionKey}`,
-            detail: `${mergeMethod}${autoWaitSeconds > 0 ? " --auto" : ""}`,
+            detail: `${mergeMethod}${autoWaitSeconds > 0 ? " --auto (enqueued)" : " (immediate)"}`,
           });
 
           const autoLabel = autoWaitSeconds > 0 ? " (--auto)" : "";

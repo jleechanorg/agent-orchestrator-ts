@@ -7,7 +7,7 @@
 import { execFile } from "node:child_process";
 import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import { promisify } from "node:util";
-import { writeFileSync, unlinkSync } from "node:fs";
+import { writeFileSync, unlinkSync, appendFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -595,9 +595,15 @@ async function execCli(bin: ExecCommand, args: string[], cwd?: string, env?: Rec
  * Read operations continue using the default token.
  */
 function botTokenEnv(): Record<string, string> | undefined {
-  const botToken = process.env.AO_BOT_GH_TOKEN;
+  const botToken = getBotToken();
   if (!botToken) return undefined;
   return { GH_TOKEN: botToken, GITHUB_TOKEN: botToken };
+}
+
+/** Return bot token if set and non-blank, otherwise undefined. */
+function getBotToken(): string | undefined {
+  const t = process.env.AO_BOT_GH_TOKEN?.trim();
+  return t || undefined;
 }
 
 async function gh(args: string[]): Promise<string> {
@@ -1563,7 +1569,7 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
         if (useAuto) {
           console.warn("[scm-github] mergePR: gh rate-limited with --auto — attempting GraphQL enablePullRequestAutoMerge");
           const gqlToken =
-            process.env.AO_BOT_GH_TOKEN ??
+            getBotToken() ??
             process.env.GITHUB_TOKEN ??
             process.env.GH_TOKEN ??
             await getGhToken();
@@ -1679,7 +1685,7 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
         // converting it into a request-body field, silently dropping merge_method.
         console.warn("[scm-github] mergePR: falling back to REST API via curl");
         const token =
-          process.env.AO_BOT_GH_TOKEN ??
+          getBotToken() ??
           process.env.GITHUB_TOKEN ??
           process.env.GH_TOKEN ??
           await getGhToken();
@@ -1752,6 +1758,10 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
 
     async closePR(pr: PRInfo): Promise<void> {
       await ghBot(["pr", "close", String(pr.number), "--repo", repoFlag(pr)]);
+      try {
+        const line = JSON.stringify({ ts: new Date().toISOString(), action: "pr_close", pr: pr.number, repo: `${pr.owner}/${pr.repo}` }) + "\n";
+        appendFileSync("/tmp/ao-actions.jsonl", line, { mode: 0o600 });
+      } catch { /* best-effort */ }
     },
 
     async getCIChecks(pr: PRInfo): Promise<CICheck[]> {
