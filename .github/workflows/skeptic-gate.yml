@@ -3,6 +3,8 @@ name: Skeptic Gate
 on:
   pull_request:
     types: [opened, synchronize, edited, reopened]
+  issue_comment:
+    types: [created]
 
 concurrency:
   group: skeptic-gate-${{ github.event.pull_request.number }}
@@ -20,10 +22,10 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Resolve skeptic verdict from existing PR comments
-      id: verdict
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      run: |
+        id: verdict
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
         set -euo pipefail
         PR=${{ github.event.pull_request.number }}
 
@@ -31,8 +33,8 @@ jobs:
         # Match either marker-based comment or explicit VERDICT line.
         COMMENTS=$(gh api repos/${{ github.repository }}/issues/$PR/comments --paginate)
 
-        VERDICT=$(echo "$COMMENTS" | jq -r '
-          [ .[]
+        VERDICT=$(echo "$COMMENTS" | jq -s 'add' | jq -r '
+          [.[]
             | select(
                 (.user.login == "jleechan-agent[bot]" or .user.login == "github-actions[bot]")
                 and (
@@ -65,6 +67,6 @@ jobs:
         exit 1
 
       - name: Post gate status summary
-      if: always()
-      run: |
+        if: always()
+        run: |
         echo "Skeptic gate result: ${{ steps.verdict.outputs.verdict }}"
