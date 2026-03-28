@@ -1342,19 +1342,28 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         const completionReactionKey = "worker-signals-completion";
         const completionReactionConfig = getReactionConfigForSession(session, completionReactionKey);
         if (completionReactionConfig?.action && completionReactionConfig.auto !== false) {
-          await executeReaction(
-            session.id,
-            session.projectId,
-            completionReactionKey,
-            completionReactionConfig,
-            session,
-            createCorrelationId("skeptic-trigger"),
-          );
-          completionReactionHandledNotify = true;
+          // bd-lg7i: only mark the SHA handled when skeptic dispatch actually succeeded.
+          // Setting lastSkepticSha unconditionally would suppress all retries for this
+          // commit until another push arrives, even if the dispatch itself failed.
+          let reactionSuccess = false;
+          try {
+            const result = await executeReaction(
+              session.id,
+              session.projectId,
+              completionReactionKey,
+              completionReactionConfig,
+              session,
+              createCorrelationId("skeptic-trigger"),
+            );
+            reactionSuccess = Boolean(result?.success);
+          } catch {
+            reactionSuccess = false;
+          }
+          completionReactionHandledNotify = reactionSuccess;
 
           // bd-qnj6: record the HEAD SHA at trigger time so the no-transition
           // path can detect new pushes and re-trigger skeptic evaluation.
-          if (session.pr) {
+          if (reactionSuccess && session.pr) {
             const project = config.projects[session.projectId];
             const scm = project?.scm ? registry.get<SCM>("scm", project.scm.plugin) : null;
             if (scm?.getPRHeadSha) {
@@ -1653,10 +1662,18 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       // bd-qnj6: re-trigger skeptic evaluation when HEAD SHA changes on an
       // already-open PR. The pr_open transition fires skeptic once, but subsequent
       // pushes (GHA synchronize events) don't cause a status transition — the
-      // session stays pr_open. Without this, GHA posts a trigger comment, polls
-      // for VERDICT, and times out because lifecycle-manager never re-fires skeptic.
+      // session stays in its current state. Without this, GHA posts a trigger
+      // comment, polls for VERDICT, and times out because lifecycle-manager never
+      // re-fires skeptic.
+      // bd-lg7i: also re-triggers for review_pending — determineStatus can hold a
+      // session in review_pending after a synchronize event, which would also timeout.
       if (
-        (newStatus === "pr_open" || newStatus === "changes_requested" || newStatus === "approved") &&
+        (
+          newStatus === "pr_open" ||
+          newStatus === "review_pending" ||
+          newStatus === "changes_requested" ||
+          newStatus === "approved"
+        ) &&
         session.pr
       ) {
         const project = config.projects[session.projectId];
@@ -1680,15 +1697,25 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
                   data: { previousSha: previousSha.slice(0, 7), currentSha: currentSha.slice(0, 7) },
                   level: "info",
                 });
-                await executeReaction(
-                  session.id,
-                  session.projectId,
-                  completionReactionKey,
-                  completionReactionConfig,
-                  session,
-                  createCorrelationId("skeptic-retrigger"),
-                );
-                lastSkepticSha.set(session.id, currentSha);
+                // bd-lg7i: only mark the SHA handled when skeptic dispatch succeeded.
+                // Setting lastSkepticSha unconditionally would suppress retries on failure.
+                let reactionSuccess = false;
+                try {
+                  const result = await executeReaction(
+                    session.id,
+                    session.projectId,
+                    completionReactionKey,
+                    completionReactionConfig,
+                    session,
+                    createCorrelationId("skeptic-retrigger"),
+                  );
+                  reactionSuccess = Boolean(result?.success);
+                } catch {
+                  reactionSuccess = false;
+                }
+                if (reactionSuccess) {
+                  lastSkepticSha.set(session.id, currentSha);
+                }
               }
             } else if (currentSha && !previousSha) {
               // First time seeing this session's SHA — record without triggering
@@ -2095,6 +2122,13 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       for (const sessionId of stuckEntryTimestamps.keys()) {
         if (!currentSessionIds.has(sessionId)) {
           stuckEntryTimestamps.delete(sessionId);
+        }
+      }
+      // bd-lg7i: lastSkepticSha entries for dead sessions must be pruned to avoid
+      // unbounded growth and stale SHA comparisons when a session ID is recycled.
+      for (const sessionId of lastSkepticSha.keys()) {
+        if (!currentSessionIds.has(sessionId)) {
+          lastSkepticSha.delete(sessionId);
         }
       }
 

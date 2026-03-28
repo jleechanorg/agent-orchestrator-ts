@@ -8,7 +8,7 @@
  *
  * The skeptic verdict is idempotent — re-running updates the same comment.
  * The bot author is configured via GH_SKEPTIC_BOT_AUTHOR env var
- * (default: jleechan-agent[bot]).
+ * (default: jleechan2015).
  */
 
 import chalk from "chalk";

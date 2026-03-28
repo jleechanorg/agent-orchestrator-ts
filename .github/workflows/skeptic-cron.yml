@@ -48,6 +48,10 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           PR_JSON: ${{ steps.list_prs.outputs.pr_numbers }}
+          # bd-lg7i: Default to jleechan2015 — ao skeptic verify posts via gh api
+          # authenticated as the local user, not the GitHub App bot. Override via
+          # repo variable SKEPTIC_BOT_AUTHOR if posting identity changes.
+          SKEPTIC_BOT_AUTHOR: ${{ vars.SKEPTIC_BOT_AUTHOR || 'jleechan2015' }}
         run: |
           set -e
 
@@ -233,7 +237,7 @@ jobs:
               fi
             else
               SKEPTIC_VERDICT=$(gh api repos/${{ github.repository }}/issues/"$PR_NUM"/comments \
-                --jq '[.[] | select(.user.login == "github-actions[bot]" and (.body | test("VERDICT:"; "i"))) | .body] | last' 2>/dev/null || echo "")
+                --jq '[.[] | select(.user.login == "$SKEPTIC_BOT_AUTHOR" and (.body | test("VERDICT:"; "i"))) | .body] | last' 2>/dev/null || echo "")
               if echo "$SKEPTIC_VERDICT" | grep -qi "VERDICT: PASS"; then
                 SKEPTIC_STATUS="PASS"
               else
