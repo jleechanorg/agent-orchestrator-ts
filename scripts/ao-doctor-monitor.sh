@@ -71,12 +71,15 @@ AO_DOCTOR_LOG="${AO_DOCTOR_LOG:-/tmp/ao-doctor-monitor.log}"
 AO_DOCTOR_QUIET="${AO_DOCTOR_QUIET:-0}"
 # Repo to check PRs for — override if multi-project
 AO_DOCTOR_REPO="${AO_DOCTOR_REPO:-}"
+# PR staleness threshold in hours (warn if PR older than this with no worker)
+AO_DOCTOR_STALE_HOURS="${AO_DOCTOR_STALE_HOURS:-3}"
 
 PASS_COUNT=0
 WARN_COUNT=0
 FAIL_COUNT=0
 PHASE1_FAILURES=()
 REPORT_LINES=()
+SLACK_STALE_PR_COUNT=0
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -431,6 +434,88 @@ check_stray_worktrees() {
   fi
 }
 
+# Returns age in hours as a float, or -1 if createdAt is missing/unparseable.
+_pr_age_hours() {
+  local created_at="$1"
+  if [ -z "$created_at" ]; then
+    echo "-1"
+    return
+  fi
+  # created_at format: "2026-03-27T12:00:00Z" — use python for reliable subtraction
+  python3 -c "
+import sys, datetime
+try:
+    created = datetime.datetime.fromisoformat('$created_at'.replace('Z','+00:00'))
+    now = datetime.datetime.now(datetime.timezone.utc)
+    age = (now - created).total_seconds() / 3600.0
+    print(f'{age:.1f}')
+except Exception:
+    print('-1')
+" 2>/dev/null || echo "-1"
+}
+
+check_pr_age() {
+  # bd-ara.stale: enforce PR age visibility + stale flag + missing-age guardrail
+  log "--- PR age tracking ---"
+  local config_path="$1"
+  local repos
+  repos=$(detect_repos "$config_path")
+
+  if [ -z "$repos" ]; then
+    warn "No repos detected — PR age check skipped"
+    return
+  fi
+
+  local missing_age_count=0
+  local fresh_count=0
+
+  REPORT_LINES+=("--- PR Age Summary ---")
+
+  for repo in $repos; do
+    local prs_json
+    prs_json=$(gh pr list --repo "$repo" --state open --limit 100 \
+      --json number,title,headRefName,createdAt,updatedAt \
+      2>/dev/null) || continue
+
+    while IFS= read -r pr_line; do
+      [ -z "$pr_line" ] && continue
+      local pr_num branch created updated
+      pr_num=$(echo "$pr_line" | jq -r '.number')
+      branch=$(echo "$pr_line" | jq -r '.headRefName')
+      created=$(echo "$pr_line" | jq -r '.createdAt')
+      updated=$(echo "$pr_line" | jq -r '.updatedAt')
+
+      local age_hours
+      age_hours=$(_pr_age_hours "$created")
+
+      # Guardrail: fail if createdAt is missing (mechanical check — bd-ara.stale)
+      if [ "$age_hours" = "-1" ] || [ -z "$created" ] || [ "$created" = "null" ]; then
+        fail "PR #$pr_num ($repo): createdAt field missing — age guardrail triggered"
+        missing_age_count=$((missing_age_count + 1))
+        REPORT_LINES+=("  PR #$pr_num [$branch]: AGE_FIELD_MISSING")
+        continue
+      fi
+
+      # Flag >3h as stale concern (configurable via AO_DOCTOR_STALE_HOURS)
+      local stale_threshold="${AO_DOCTOR_STALE_HOURS:-3}"
+      if python3 -c "import sys; sys.exit(0 if float('$age_hours') >= float('$stale_threshold') else 1)" 2>/dev/null; then
+        warn "Stale PR: PR #$pr_num ($repo) age=${age_hours}h — uncovered or stalled (threshold=${stale_threshold}h)"
+        REPORT_LINES+=("  PR #$pr_num [$branch]: age=${age_hours}h STALE")
+        SLACK_STALE_PR_COUNT=$((SLACK_STALE_PR_COUNT + 1))
+      else
+        REPORT_LINES+=("  PR #$pr_num [$branch]: age=${age_hours}h")
+        fresh_count=$((fresh_count + 1))
+      fi
+    done <<< "$(echo "$prs_json" | jq -c '.[]' 2>/dev/null || true)"
+  done
+
+  if [ "$missing_age_count" -gt 0 ]; then
+    fail "$missing_age_count PR(s) missing createdAt — age guardrail is BLOCKING"
+  elif [ "$SLACK_STALE_PR_COUNT" -eq 0 ]; then
+    pass "All open PRs are fresh (<${AO_DOCTOR_STALE_HOURS:-3}h, fresh=$fresh_count)"
+  fi
+}
+
 check_config_valid() {
   log "--- Config validation ---"
   local config_path="$1"
@@ -546,8 +631,14 @@ send_slack_report() {
     severity_emoji="warning"
   fi
 
+  local stale_info=""
+  if [ "$SLACK_STALE_PR_COUNT" -gt 0 ]; then
+    stale_info="
+:hourglass: ${SLACK_STALE_PR_COUNT} stale PR(s) >${AO_DOCTOR_STALE_HOURS:-3}h"
+  fi
+
   local header=":${severity_emoji}: *AO Doctor Monitor* — $(ts)
-Phase 1: $PASS_COUNT PASS, $WARN_COUNT WARN, $FAIL_COUNT FAIL"
+Phase 1: $PASS_COUNT PASS, $WARN_COUNT WARN, $FAIL_COUNT FAIL${stale_info}"
 
   local body=""
   for line in "${REPORT_LINES[@]}"; do
@@ -670,6 +761,7 @@ main() {
   check_zombie_sessions
   check_cr_gaps "$config_path"
   check_stray_worktrees "$config_path"
+  check_pr_age "$config_path"
 
   log ""
   log "Phase 1 results: $PASS_COUNT PASS, $WARN_COUNT WARN, $FAIL_COUNT FAIL"

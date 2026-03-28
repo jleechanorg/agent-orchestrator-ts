@@ -110,6 +110,20 @@ jobs:
             echo ""
             echo "--- Checking 7-green for PR #${PR_NUM}: ${PR_TITLE} ---"
 
+            # bd-ara.stale: track PR age — flag stale PRs >3h in cron output
+            PR_DETAIL=$(gh api repos/${{ github.repository }}/pulls/"$PR_NUM" \
+              --jq '{createdAt: .createdAt, updatedAt: .updatedAt}' 2>/dev/null || echo '{"createdAt":null}')
+            CREATED=$(echo "$PR_DETAIL" | jq -r '.createdAt')
+            UPDATED=$(echo "$PR_DETAIL" | jq -r '.updatedAt')
+            if [ "$CREATED" != "null" ] && [ -n "$CREATED" ]; then
+              AGE_HRS=$(python3 -c "import sys,datetime; d='$CREATED'.replace('Z','+00:00'); print(f'{(datetime.datetime.now(datetime.timezone.utc)-datetime.datetime.fromisoformat(d)).total_seconds()/3600.0:.1f}')" 2>/dev/null || echo "unknown")
+              echo "  [AGE] PR #${PR_NUM}: created=${CREATED}, age=${AGE_HRS}h"
+              STALE_HRS=$(python3 -c "import sys; print('STALE' if float('${AGE_HRS}') >= 3.0 else 'FRESH')" 2>/dev/null || echo "unknown")
+              echo "  [AGE] PR #${PR_NUM} staleness: ${STALE_HRS}"
+            else
+              echo "  [AGE] PR #${PR_NUM}: WARNING — createdAt field missing"
+            fi
+
             # 1. CI green
             HEAD_SHA=$(gh api repos/${{ github.repository }}/pulls/"$PR_NUM" --jq '.head.sha')
             CI_STATUS=$(gh api repos/${{ github.repository }}/commits/"$HEAD_SHA"/status \
