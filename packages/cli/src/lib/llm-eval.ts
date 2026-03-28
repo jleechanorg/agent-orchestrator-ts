@@ -130,10 +130,13 @@ export async function tryClaudePrint(prompt: string): Promise<LlmEvalResult> {
     }
     return { validVerdict: true, output };
   } catch (err: unknown) {
-    const errno = err as NodeJS.ErrnoException;
+    const errno = (err as NodeJS.ErrnoException).code;
     const msg = err instanceof Error ? err.message : String(err);
-    if (errno.code === "ENOENT" || isUnavailable(msg)) {
-      return { validVerdict: false, output: "", error: undefined }; // → no-op
+    // ENOENT = binary not installed — treat as unavailable so caller can fall through
+    // Any other non-zero exit (auth failed, token invalid, etc.) = also unavailable;
+    // the fallback chain handles credential gaps. Only fatal/ENOENT stops the chain.
+    if (errno === "ENOENT" || isUnavailable(msg)) {
+      return { validVerdict: false, output: "", error: undefined }; // → caller skips this tool
     }
     return { validVerdict: false, output: "", error: msg };
   }
