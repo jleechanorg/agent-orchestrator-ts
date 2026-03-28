@@ -166,17 +166,14 @@ jobs:
             # Parentheses required around (.body | test(...)) — jq `and` has lower
             # precedence than `|`, so unparenthesized form would be parsed as
             # (.user.login == X and .body) | test(...) which always selects all.
-            # --slurpfile /dev/null aggregates all pages before filtering — without it,
-            # the jq filter applies per-page so .[-1] (most recent) only reflects the
-            # last comment on the last page, missing newer matches.
-            # Comments are returned oldest→newest, so .[-1] gives the most recent match.
             # bd-lg7i: Remove .user.login filter — gh api posts as github-actions[bot], not
             # SKEPTIC_BOT_AUTHOR (jleechan2015). The skeptic-agent-verdict HTML marker in the
             # body uniquely identifies the comment; SHA marker + timestamp ensure freshness.
+            # --paginate returns all pages as one array, so .[-1] gives the most
+            # recent match across all pages (comments returned oldest→newest).
             VERDICT_JQ='[.[] | select((.body | test("VERDICT:"; "i")) and (.updated_at >= env.TRIGGER_UPDATED) and (.body | test("skeptic-gate-trigger-" + env.TRIGGER_SHA; "i")))] | .[-1] // empty'
             VERDICT_JSON=$(gh api repos/${{ github.repository }}/issues/"$PR_NUM"/comments \
               --paginate \
-              --slurpfile /dev/null \
               --jq "$VERDICT_JQ" 2>&1)
             if echo "$VERDICT_JSON" | grep -qi "error\|rate limit\|authentication\|not found\|server error"; then
               API_FAILURES=$((API_FAILURES + 1))
