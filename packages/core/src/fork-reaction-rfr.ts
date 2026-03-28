@@ -249,47 +249,34 @@ export async function handleRespawnForReview(
     };
   }
 
-  // Agent is alive — fall back to send-to-agent behavior
-  if (reactionConfig.message) {
-    try {
-      const finalMessage = await buildRespawnMessage(
-        reactionConfig, session, projectId, config, registry, reactionKey,
-      );
-      await sessionManager.send(sessionId, finalMessage);
-      return {
-        reactionType: reactionKey,
-        success: true,
-        action: "respawn-for-review",
-        message: finalMessage,
-        escalated: false,
-      };
-    } catch (sendErr) {
-      const errMsg = sendErr instanceof Error ? sendErr.message : String(sendErr);
-      observer.recordOperation({
-        metric: "lifecycle_poll",
-        operation: "lifecycle.reaction.send_failed",
-        outcome: "failure",
-        reason: errMsg,
-        correlationId,
-        projectId,
-        sessionId,
-        data: { reactionKey, error: errMsg },
-        level: "warn",
-      });
-      return { reactionType: reactionKey, success: false, action, escalated: false };
-    }
+  // Agent is alive — fall back to send-to-agent.
+  // buildRespawnMessage always produces a message (it has a default), so this path
+  // never silently fails due to a missing reactionConfig.message.
+  try {
+    const finalMessage = await buildRespawnMessage(
+      reactionConfig, session, projectId, config, registry, reactionKey,
+    );
+    await sessionManager.send(sessionId, finalMessage);
+    return {
+      reactionType: reactionKey,
+      success: true,
+      action: "respawn-for-review",
+      message: finalMessage,
+      escalated: false,
+    };
+  } catch (sendErr) {
+    const errMsg = sendErr instanceof Error ? sendErr.message : String(sendErr);
+    observer.recordOperation({
+      metric: "lifecycle_poll",
+      operation: "lifecycle.reaction.send_failed",
+      outcome: "failure",
+      reason: errMsg,
+      correlationId,
+      projectId,
+      sessionId,
+      data: { reactionKey, error: errMsg },
+      level: "warn",
+    });
+    return { reactionType: reactionKey, success: false, action, escalated: false };
   }
-  // No message configured — nothing to send to the alive agent
-  observer.recordOperation({
-    metric: "lifecycle_poll",
-    operation: "lifecycle.reaction.respawn_for_review",
-    outcome: "failure",
-    reason: "no reaction message configured",
-    correlationId,
-    projectId,
-    sessionId,
-    data: { reactionKey },
-    level: "warn",
-  });
-  return { reactionType: reactionKey, success: false, action, escalated: false };
 }
