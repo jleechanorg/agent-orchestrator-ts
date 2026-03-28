@@ -2,7 +2,7 @@
 # Enables APPROVE/REQUEST_CHANGES review states
 reviews:
   review_status: true
-  request_changes_workflow: true
+  approve: true
   auto_review:
     enabled: true
   path_filters: []
