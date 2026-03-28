@@ -51,7 +51,7 @@
     <main class="wrap">
       <section class="hero">
         <h1>[agento] feat: 7-green stall loop prevention — cr-loop-guard + comment extraction</h1>
-        <p class="muted">CR CHANGES_REQUESTED repeats indefinitely with no new commits — workers spam `@coderabbitai all good?` without SHA progress. No deterministic comment-resolution extraction, no loop guard, and bloated agentRules burn context without fixing the actual blockers.</p>
+        CR CHANGES_REQUESTED repeats indefinitely with no new commits — workers spam <code>@coderabbitai all good?</code> without SHA progress. No deterministic comment-resolution extraction, no loop guard, and bloated agentRules burn context without fixing the actual blockers.
         <p class="muted" style="margin-top:0.5rem">
           PR: <a href="https://github.com/jleechanorg/agent-orchestrator/pull/240">#240</a>
           &nbsp;·&nbsp; Status: <span class="badge badge-open">Open</span>
@@ -64,24 +64,24 @@
         <article class="card">
           <h2>Architecture</h2>
           <div class="diagram">
-<pre>┌─────────────────────────────────────────┐
-│      PR # 240 — agent-orchestrator  │
-└─────────────────────────────────────────┘
+<pre>┌──────────────────────────────────────────────────────────────────────────── ┐
+│ PR #240 — agent-orchestrator                                                 │
+└──────────────────────────────────────────────────────────────────────────── ┘
                   │
     ▼ 8 file(s) changed
                   │
-┌─────────────────────────────────────────┐
-│           feat: 7-green stall loop prevention │
-└─────────────────────────────────────────┘</pre>
+┌──────────────────────────────────────────────────────────────────────────── ┐
+│ feat: 7-green stall loop prevention — cr-loop-guard + comment extraction     │
+└──────────────────────────────────────────────────────────────────────────── ┘</pre>
           </div>
         </article>
         <article class="card">
           <h2>Metadata</h2>
           <div class="stat-grid">
             <div class="stat"><div class="num">8</div><div class="lbl">Files</div></div>
-            <div class="stat"><div class="num">21</div><div class="lbl">Commits</div></div>
-            <div class="stat"><div class="num" style="color:#2ea043">+651</div><div class="lbl">Additions</div></div>
-            <div class="stat"><div class="num" style="color:#cf222e">-0</div><div class="lbl">Deletions</div></div>
+            <div class="stat"><div class="num">24</div><div class="lbl">Commits</div></div>
+            <div class="stat"><div class="num" style="color:#2ea043">+654</div><div class="lbl">Additions</div></div>
+            <div class="stat"><div class="num" style="color:#cf222e">-1</div><div class="lbl">Deletions</div></div>
           </div>
           <ul style="margin-top:1rem">
             <li>Author: <code>jleechan2015</code></li>
@@ -98,9 +98,9 @@
         <table>
           <thead><tr><th>Package / Path</th><th>Files</th></tr></thead>
           <tbody>
-            <tr><td><code>.github/workflows</code></td><td>4</td></tr>
+            <tr><td><code>.github/workflows</code></td><td>3</td></tr>
+<tr><td><code>scripts</code></td><td>3</td></tr>
 <tr><td><code>docs/design</code></td><td>2</td></tr>
-<tr><td><code>scripts</code></td><td>2</td></tr>
           </tbody>
         </table>
       </section>
@@ -124,12 +124,6 @@
       <td style="text-align:right;color:#cf222e">-0</td>
     </tr>
 <tr>
-      <td><code>.github/workflows/.eg-trigger</code></td>
-      <td><span class="badge badge-new">added</span></td>
-      <td style="text-align:right;color:#2ea043">+1</td>
-      <td style="text-align:right;color:#cf222e">-0</td>
-    </tr>
-<tr>
       <td><code>.github/workflows/cr-loop-health.yml</code></td>
       <td><span class="badge badge-new">added</span></td>
       <td style="text-align:right;color:#2ea043">+130</td>
@@ -144,13 +138,13 @@
 <tr>
       <td><code>docs/design/pr-designs/pr-240.md</code></td>
       <td><span class="badge badge-new">added</span></td>
-      <td style="text-align:right;color:#2ea043">+69</td>
+      <td style="text-align:right;color:#2ea043">+71</td>
       <td style="text-align:right;color:#cf222e">-0</td>
     </tr>
 <tr>
       <td><code>scripts/cr-loop-guard.sh</code></td>
       <td><span class="badge badge-new">added</span></td>
-      <td style="text-align:right;color:#2ea043">+152</td>
+      <td style="text-align:right;color:#2ea043">+153</td>
       <td style="text-align:right;color:#cf222e">-0</td>
     </tr>
 <tr>
@@ -158,6 +152,12 @@
       <td><span class="badge badge-new">added</span></td>
       <td style="text-align:right;color:#2ea043">+123</td>
       <td style="text-align:right;color:#cf222e">-0</td>
+    </tr>
+<tr>
+      <td><code>scripts/generate-pr-design-docs.mjs</code></td>
+      <td>modified</td>
+      <td style="text-align:right;color:#2ea043">+1</td>
+      <td style="text-align:right;color:#cf222e">-1</td>
     </tr>
             
           </tbody>
