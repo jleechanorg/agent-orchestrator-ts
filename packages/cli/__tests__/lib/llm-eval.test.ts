@@ -29,7 +29,7 @@ describe("tryCodexPrint", () => {
     expect(result.output).toBe(PASS_VERDICT);
     expect(mockExecFileSync).toHaveBeenCalledWith(
       "/usr/local/bin/codex",
-      ["--print", "--no-input"],
+      ["exec", "-"],
       expect.objectContaining({ input: "evaluate this" }),
     );
   });

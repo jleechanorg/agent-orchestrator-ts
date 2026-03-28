@@ -25,12 +25,22 @@ runs:
   using: composite
   steps:
     # Note: outputs.verdict prefers steps.run (PASS/FAIL/UNKNOWN) over
-    # steps.check (RUNNING) via GitHub Actions output interpolation.
+    # steps.check (SKIPPED/RUNNING) via GitHub Actions output interpolation.
     # See: value: ${{ steps.run.outputs.verdict || steps.check.outputs.verdict }}
-    - name: Set running state
+    - name: Check API key and set verdict
       id: check
       shell: bash
       run: |
+        # bd-ru7d: removed ANTHROPIC_API_KEY-only gate — skeptic runs regardless
+        # of API key availability. Codex uses OAuth (no key needed), Claude falls
+        # back when ANTHROPIC_API_KEY is set. If neither is available, skeptic
+        # outputs VERDICT: SKIPPED from the CLI itself.
+        if [ -z "${{ inputs.anthropic_api_key }}" ] && [ -z "${{ inputs.openai_api_key }}" ]; then
+          echo "verdict=SKIPPED" >> "$GITHUB_OUTPUT"
+          echo "VERDICT: SKIPPED — No API keys configured (ANTHROPIC_API_KEY or OPENAI_API_KEY required)" > skeptic-output.txt
+          echo "SKIPPED: No API keys configured"
+          exit 0
+        fi
         echo "verdict=RUNNING" >> "$GITHUB_OUTPUT"
 
     - name: Run Skeptic
@@ -44,13 +54,16 @@ runs:
       run: |
         # bd-skp2: capture exit code explicitly (removed misleading || true)
         skeptic_exit=0
-        (node packages/cli/dist/index.js skeptic \
+        (node packages/cli/dist/index.js skeptic verify \
           --pr ${{ inputs.pr_number }} \
           --dry-run \
           > skeptic-output.txt 2>&1) || skeptic_exit=$?
         cat skeptic-output.txt
 
-        if grep -qi "VERDICT: FAIL" skeptic-output.txt; then
+        # Handle SKIPPED first — infra failures (Codex/Claude unavailable) emit VERDICT: SKIPPED
+        if grep -qi "VERDICT: SKIPPED" skeptic-output.txt; then
+          echo "verdict=SKIPPED" >> "$GITHUB_OUTPUT"
+        elif grep -qi "VERDICT: FAIL" skeptic-output.txt; then
           echo "verdict=FAIL" >> "$GITHUB_OUTPUT"
           exit 1
         elif grep -qi "VERDICT: PASS" skeptic-output.txt; then

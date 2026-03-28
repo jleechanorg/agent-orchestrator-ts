@@ -64,7 +64,7 @@ jobs:
             # Wrap in subshell: prevents set -e from aborting the loop if skeptic exits non-zero
             # bd-skp2: removed || true (misleading) — capture real exit code and check explicitly
             skeptic_exit=0
-            (node packages/cli/dist/index.js skeptic --pr "$PR_NUM" --dry-run > "skeptic-output-${PR_NUM}.txt" 2>&1) || skeptic_exit=$?
+            (node packages/cli/dist/index.js skeptic verify --pr "$PR_NUM" --dry-run > "skeptic-output-${PR_NUM}.txt" 2>&1) || skeptic_exit=$?
             # Print output for workflow logs
             cat "skeptic-output-${PR_NUM}.txt" || true
 
