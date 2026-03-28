@@ -10,9 +10,9 @@
 
 | Direction | Commits |
 |---|---|
-| Upstream (ComposioHQ) ahead of origin | ~200+ (total; 346 in last 30d) |
+| Upstream (ComposioHQ) ahead of origin | ~200+ (346 in last 30d) |
 | Origin (jleechanorg) ahead of upstream | 12 commits (fork-specific, all from today 2026-03-28) |
-| Origin commits (last 30d) | 11 |
+| Origin commits (last 30d) | 12 |
 
 **The fork has ~200 commits from upstream that it does not have.** The fork diverged significantly months ago and has been developing independently.
 
@@ -61,8 +61,9 @@ These are the jleechanorg fork's unique contributions:
 
 ### P0-C: `c975f952` — fix(core): mandate ao send and ban raw tmux (#340)
 **What**: Upstream explicitly bans raw `tmux send-keys` in favor of `ao send`. This matches the fork's philosophy exactly. Upstream is ahead on this — the fork's `mandate-ao-send` work pre-dates this.
-**Adaptation**: Verify fork has equivalent enforcement. The fork's agentRules already discourage raw tmux but may lack the core-level enforcement upstream added.
+**Adaptation**: Fork already has agentRules discouraging raw tmux; verify whether core-level enforcement is needed. See CP-5 in cherry-pick table.
 **Risk**: Medium — could conflict with fork's agentClaudeCode plugin hooks.
+**Action**: **SKIP** — fork already covers this via agentRules; CP-5 addresses the remaining enforcement gap.
 
 ### P0-D: `91117f9e` / `c36440df` — ci: gitleaks checksum verification and optimize fetch-depth (#731, #732)
 **What**: Upstream added SHA256 checksum verification for gitleaks binary download and optimized `fetch-depth: 0` to use actual PR SHA. Prevents supply-chain attacks on the gitleaks binary.
@@ -206,7 +207,7 @@ These are the jleechanorg fork's unique contributions:
 **What**: Prevents two workers from claiming the same PR simultaneously.
 **Fork**: The fork's `claimPR` has this guard. Verify upstream's approach is compatible.
 
-### P3-B: `fff` — fix: pause workers on model limits and stabilize session visibility (#367)
+### P3-B: `91117f9e` — fix: pause workers on model limits and stabilize session visibility (#367)
 **What**: Workers pause when model API returns 429 or rate limit.
 **Fork**: Should be consistent with fork's rate limit handling.
 

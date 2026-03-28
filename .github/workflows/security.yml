@@ -22,7 +22,10 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0 # Full history for comprehensive scan
+          # Shallow for PRs (just need PR commits); full history for main/schedule scans
+          fetch-depth: ${{ github.event_name == 'pull_request' && 1 || 0 }}
+          # Prefer head.sha over head.ref for fork PRs to avoid ref resolution issues
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || '' }}
 
       # OSS CLI avoids gitleaks-action org-license requirement (see gitleaks-action README).
       - name: Install Gitleaks
@@ -30,6 +33,23 @@ jobs:
           GITLEAKS_VERSION: "8.21.1"
         run: |
           curl -sSL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" -o /tmp/gitleaks.tgz
+
+          # Verify SHA256 checksum before extracting — fail closed if checksum tool unavailable
+          if ! command -v sha256sum &>/dev/null && ! command -v shasum &>/dev/null; then
+            echo "ERROR: No SHA-256 verification tool available (sha256sum/shasum)" >&2
+            exit 1
+          fi
+          EXPECTED="b46b0836ef7eefe8abe0cb21d7b5e7694b1d9f90fc9ee78fd8555dd4160b56d1"
+          if command -v sha256sum &>/dev/null; then
+            ACTUAL=$(sha256sum /tmp/gitleaks.tgz | cut -d' ' -f1)
+          else
+            ACTUAL=$(shasum -a 256 /tmp/gitleaks.tgz | cut -d' ' -f1)
+          fi
+          if [ "$ACTUAL" != "$EXPECTED" ]; then
+            echo "ERROR: SHA256 mismatch. Expected $EXPECTED, got $ACTUAL" >&2
+            exit 1
+          fi
+
           tar -xzf /tmp/gitleaks.tgz -C /tmp
           sudo install -m 755 /tmp/gitleaks /usr/local/bin/gitleaks
 
