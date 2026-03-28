@@ -1,27 +1,18 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { readFileSync, writeFileSync } from "node:fs";
-
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import { logAoAction, type AoAction } from "../src/ao-action-log.js";
+import { appendFileSync, mkdirSync } from "node:fs";
+
+vi.mock("node:fs", () => ({
+  mkdirSync: vi.fn(),
+  appendFileSync: vi.fn(),
+}));
 
 describe("logAoAction", () => {
-  const logPath = "/tmp/ao-actions.jsonl";
-  let backup: string | null = null;
-
   beforeEach(() => {
-    try {
-      backup = readFileSync(logPath, "utf-8");
-    } catch {
-      backup = null;
-    }
+    vi.clearAllMocks();
   });
 
-  afterEach(() => {
-    if (backup !== null) {
-      writeFileSync(logPath, backup, { mode: 0o600 });
-    }
-  });
-
-  it("appends a JSONL line to the log file", () => {
+  it("writes a JSONL line with the correct fields", () => {
     const action: AoAction = {
       ts: "2026-03-28T10:00:00.000Z",
       session: "test-session",
@@ -34,42 +25,42 @@ describe("logAoAction", () => {
 
     logAoAction(action);
 
-    const content = readFileSync(logPath, "utf-8");
-    const lines = content.trim().split("\n");
-    const last = JSON.parse(lines[lines.length - 1]);
+    expect(appendFileSync).toHaveBeenCalledOnce();
+    const [path, line, opts] = vi.mocked(appendFileSync).mock.calls[0];
+    expect(path).toBe("/tmp/ao-actions.jsonl");
+    expect(opts).toEqual({ mode: 0o600 });
 
-    expect(last.session).toBe("test-session");
-    expect(last.action).toBe("pr_merge");
-    expect(last.pr).toBe(42);
-    expect(last.detail).toBe("squash (immediate)");
+    const parsed = JSON.parse(String(line).trim());
+    expect(parsed.session).toBe("test-session");
+    expect(parsed.action).toBe("pr_merge");
+    expect(parsed.pr).toBe(42);
+    expect(parsed.detail).toBe("squash (immediate)");
   });
 
-  it("does not throw on write errors (silent failure contract)", () => {
+  it("does not throw when appendFileSync throws (silent-failure contract)", () => {
+    vi.mocked(appendFileSync).mockImplementation(() => {
+      throw new Error("ENOSPC");
+    });
+
     expect(() =>
       logAoAction({
         ts: "2026-03-28T10:00:00.000Z",
-        session: "s",
+        session: "silent-fail-test",
         action: "session_kill",
       }),
     ).not.toThrow();
+
+    expect(appendFileSync).toHaveBeenCalledOnce();
   });
 
-  it("uses current timestamp when ts is empty", () => {
-    const before = new Date().toISOString();
+  it("calls mkdirSync with the log directory before appending", () => {
     logAoAction({
-      ts: "",
-      session: "ts-test",
+      ts: "2026-03-28T10:00:00.000Z",
+      session: "mkdir-test",
       action: "pr_close",
       pr: 99,
     });
-    const after = new Date().toISOString();
 
-    const content = readFileSync(logPath, "utf-8");
-    const lines = content.trim().split("\n");
-    const last = JSON.parse(lines[lines.length - 1]);
-
-    expect(last.ts).toBeTruthy();
-    expect(last.ts >= before).toBe(true);
-    expect(last.ts <= after).toBe(true);
+    expect(mkdirSync).toHaveBeenCalledWith("/tmp", { recursive: true });
   });
 });
