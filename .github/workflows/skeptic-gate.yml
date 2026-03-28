@@ -125,7 +125,7 @@ jobs:
           MAX_ATTEMPTS=55   # 55 * 30s = 27.5 min (safe of 28-min step timeout)
           INTERVAL=30
 
-          echo "Polling for VERDICT from $SKEPTIC_BOT_AUTHOR on PR #$PR_NUM (commit ${HEAD_SHA:0:7})..."
+          echo "Polling for VERDICT on PR #$PR_NUM (commit ${HEAD_SHA:0:7}) via skeptic-agent-verdict marker..."
           echo "Max wait: $((MAX_ATTEMPTS * INTERVAL / 60)) minutes"
 
           API_FAILURES=0
@@ -170,7 +170,10 @@ jobs:
             # the jq filter applies per-page so .[-1] (most recent) only reflects the
             # last comment on the last page, missing newer matches.
             # Comments are returned oldest→newest, so .[-1] gives the most recent match.
-            VERDICT_JQ='[.[] | select(.user.login == env.SKEPTIC_BOT_AUTHOR and (.body | test("VERDICT:"; "i")) and (.updated_at >= env.TRIGGER_UPDATED) and (.body | test("skeptic-gate-trigger-" + env.TRIGGER_SHA; "i")))] | .[-1] // empty'
+            # bd-lg7i: Remove .user.login filter — gh api posts as github-actions[bot], not
+            # SKEPTIC_BOT_AUTHOR (jleechan2015). The skeptic-agent-verdict HTML marker in the
+            # body uniquely identifies the comment; SHA marker + timestamp ensure freshness.
+            VERDICT_JQ='[.[] | select((.body | test("VERDICT:"; "i")) and (.updated_at >= env.TRIGGER_UPDATED) and (.body | test("skeptic-gate-trigger-" + env.TRIGGER_SHA; "i")))] | .[-1] // empty'
             VERDICT_JSON=$(gh api repos/${{ github.repository }}/issues/"$PR_NUM"/comments \
               --paginate \
               --slurpfile /dev/null \
