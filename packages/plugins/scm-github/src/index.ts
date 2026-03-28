@@ -30,8 +30,8 @@ import {
   type AutomatedComment,
   type MergeReadiness,
   type BatchPRStatus,
+  logAoAction,
 } from "@jleechanorg/ao-core";
-import { logAoAction } from "@jleechanorg/ao-core";
 import {
   getWebhookHeader,
   parseWebhookBranchRef,
