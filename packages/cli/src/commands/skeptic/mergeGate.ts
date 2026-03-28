@@ -112,7 +112,7 @@ export async function fetchMergeGateState(
       query($owner: String!, $repo: String!, $pr: Int!) {
         repository(owner: $owner, name: $repo) {
           pullRequest(number: $pr) {
-            reviewThreads(first: 100) {
+            reviewThreads(first: 500) {
               nodes {
                 isResolved
                 comments(first: 1) {
