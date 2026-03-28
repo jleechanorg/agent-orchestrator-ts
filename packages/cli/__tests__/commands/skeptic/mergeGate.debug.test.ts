@@ -11,11 +11,11 @@ vi.mock("../../../src/commands/skeptic/gh-client.js", () => ({
 
 const { fetchMergeGateState } = await import("../../../src/commands/skeptic/mergeGate.js");
 
-function setupGhJson(values: unknown[]) {
+function setupGhJson(values: any[]) {
   mockGhJson.mockReset();
   mockFetchReviews.mockReset();
   mockFetchReviews.mockResolvedValue([]);
-  values.forEach(v => mockGhJson.mockResolvedValueOnce(v as any));
+  values.forEach(v => mockGhJson.mockResolvedValueOnce(v));
 }
 
 describe("fetchMergeGateState — skeptic verdict parsing", () => {
