@@ -4,7 +4,7 @@ Monitor an openclaw task in a Slack thread, detect fabrication and stalls, and n
 
 ## Usage
 
-```
+```text
 /babysit-openclaw <thread_ts> [channel_id]
 ```
 
