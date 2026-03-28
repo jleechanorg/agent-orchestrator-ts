@@ -35,24 +35,15 @@ jobs:
           ASSET_URL="https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
           # gitleaks:allow - public GitHub release URL, not a secret
           curl -sSL "$ASSET_URL" -o /tmp/gitleaks.tgz
-          # Fetch SHA256 from GitHub releases API (same origin as asset — tamper-evident).
-          # gitleaks:allow - GitHub API endpoint returning release metadata, not a secret
-          EXPECTED_SHA=$(curl -sSL "https://api.github.com/repos/gitleaks/gitleaks/releases/tags/v${GITLEAKS_VERSION}" \
-            | python3 -c "import json,sys; assets=json.load(sys.stdin)['assets']; [print(a['browser_download_url'].split('/')[-1]+'  /tmp/gitleaks.tgz') for a in assets if 'checksums.txt' in a['name']]" 2>/dev/null \
-            | grep "linux_x64.tar.gz" | awk '{print $1}' || echo "")
-          if [ -n "$EXPECTED_SHA" ]; then
-            # gitleaks:allow - public GitHub release URL for checksum file, not a secret
-            curl -sSL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_checksums.txt" -o /tmp/checksums.txt 2>/dev/null || true
-            SHA256=$(grep "gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" /tmp/checksums.txt | awk '{print $1}')
-            if [ -n "$SHA256" ]; then
-              echo "${SHA256}  /tmp/gitleaks.tgz" | sha256sum --check --status \
-                || { echo "ERROR: gitleaks checksum mismatch" >&2; exit 1; }
-            else
-              echo "ERROR: could not parse SHA256 from checksums.txt" >&2; exit 1
-            fi
-          else
-            echo "ERROR: could not fetch checksums.txt" >&2; exit 1
+          # Fetch SHA256 from checksums.txt file directly (tamper-evident, same origin as binary).
+          # gitleaks:allow - public GitHub release URL for checksum file, not a secret
+          SHA256=$(curl -sSL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_checksums.txt" \
+            | grep "gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" | awk '{print $1}')
+          if [ -z "$SHA256" ]; then
+            echo "ERROR: could not parse SHA256 from checksums.txt" >&2; exit 1
           fi
+          echo "${SHA256}  /tmp/gitleaks.tgz" | sha256sum --check --status \
+            || { echo "ERROR: gitleaks checksum mismatch" >&2; exit 1; }
           tar -xzf /tmp/gitleaks.tgz -C /tmp
           sudo install -m 755 /tmp/gitleaks /usr/local/bin/gitleaks
 
