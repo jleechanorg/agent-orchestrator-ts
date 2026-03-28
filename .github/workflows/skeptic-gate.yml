@@ -123,14 +123,14 @@ jobs:
             # Parentheses required around (.body | test(...)) — jq `and` has lower
             # precedence than `|`, so unparenthesized form would be parsed as
             # (.user.login == X and .body) | test(...) which always selects all.
-            # --slurpfile /dev/null aggregates all pages before filtering — without it,
+            # --slurp aggregates all pages before filtering — without it,
             # the jq filter applies per-page so .[-1] (most recent) only reflects the
             # last comment on the last page, missing newer matches.
             # Comments are returned oldest→newest, so .[-1] gives the most recent match.
             VERDICT_JQ='[.[] | select(.user.login == env.SKEPTIC_BOT_AUTHOR and (.body | test("VERDICT:"; "i")) and (.updated_at >= env.TRIGGER_UPDATED) and (.body | test("skeptic-gate-trigger-" + env.TRIGGER_SHA; "i")))] | .[-1] // empty'
             VERDICT_JSON=$(gh api repos/${{ github.repository }}/issues/"$PR_NUM"/comments \
               --paginate \
-              --slurpfile /dev/null \
+              --slurp \
               --jq "$VERDICT_JQ" 2>&1)
             if echo "$VERDICT_JSON" | grep -qi "error\|rate limit\|authentication\|not found\|server error"; then
               API_FAILURES=$((API_FAILURES + 1))
