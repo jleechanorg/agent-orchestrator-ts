@@ -2,9 +2,9 @@
 # =============================================================================
 # Anti-loop guard: detect repeated CodeRabbit CHANGES_REQUESTED patterns
 # Prevents workers from spamming @coderabbitai all good? without SHA progress
-# Usage: scripts/cr-loop-guard.sh <owner/repo> <pr_number> [--fix-mode]
+# Usage: scripts/cr-loop-guard.sh <owner/repo> <pr_number> [query|fix-mode]
 # Output: JSON with loop_detected, actionable_set_hash, sha_progress fields
-# If --fix-mode: prints the action to take (copilot-expanded | cr-trigger | skip)
+# If 3rd arg is "fix-mode": prints the action to take (copilot-expanded | cr-trigger | skip)
 # =============================================================================
 set -euo pipefail
 

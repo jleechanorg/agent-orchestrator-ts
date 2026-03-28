@@ -19,12 +19,6 @@ on:
         required: false
         type: number
         default: 3
-      comment_delta_required:
-        description: 'Require comment resolution delta (bool)'
-        required: false
-        type: boolean
-        default: true
-
 jobs:
   health_check:
     name: CR Loop Health
@@ -131,4 +125,6 @@ jobs:
             echo "STALL_DETECTED=false" >> "$GITHUB_OUTPUT"
           fi
 
-          echo "=== $(cat "$GITHUB_OUTPUT" | grep '^VERDICT=' | cut -d= -f2-): $(cat "$GITHUB_OUTPUT" | grep '^reason=' | cut -d= -f2-) ==="
+          VERDICT=$(grep '^VERDICT=' "$GITHUB_OUTPUT" | cut -d= -f2-)
+          REASON=$(grep '^reason=' "$GITHUB_OUTPUT" | cut -d= -f2-)
+          echo "=== $VERDICT: $REASON ==="
