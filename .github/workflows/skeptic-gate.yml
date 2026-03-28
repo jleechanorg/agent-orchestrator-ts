@@ -22,6 +22,7 @@ jobs:
     permissions:
       pull-requests: write
       issues: write
+      contents: read
     outputs:
       # Pass the trigger-comment updated_at to the polling step so it can filter
       # out verdicts from cancelled previous runs (only accept verdicts posted
@@ -31,29 +32,54 @@ jobs:
       # evaluation SHA (prevents accepting a VERDICT from a different commit).
       trigger_sha: ${{ steps.post_trigger.outputs.trigger_sha }}
     steps:
-      # Step 1: Post trigger comment for lifecycle-manager to pick up.
-      # lifecycle-manager runs ao skeptic verify with local API keys.
-      # We capture the comment's updated_at timestamp to use as a cutoff in polling.
+      # Step 1: Set trigger timestamp and SHA for the polling step's cutoff filter.
       - name: Post skeptic trigger comment
         id: post_trigger
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           PR_NUM=${{ github.event.pull_request.number }}
 
-          # bd-lg7i: always use date-based timestamp. github-actions[bot] token does not
-          # have write access to PR comments in pull_request_target context on forked PRs,
-          # and even if it did, gh api responses may not pass jq validation. Rather than
-          # rely on a trigger comment timestamp, always use date -u (ISO-8601, second
-          # resolution) as the cutoff for filtering verdict comments. Verdicts posted in the
-          # same second as the trigger will be caught by the next poll cycle (30s interval).
+          # Always use date-based timestamp as the cutoff for filtering verdict comments.
+          # github-actions[bot] token lacks write access to PR comments in pull_request_target
+          # context on forked PRs. Using date -u (ISO-8601, second resolution) as cutoff.
+          # Verdicts posted in the same second as the trigger will be caught by the next
+          # poll cycle (30s interval).
           TRIGGER_UPDATED=$(date -u +%Y-%m-%dT%H:%M:%SZ)
           echo "Trigger timestamp (UTC): $TRIGGER_UPDATED"
           echo "trigger_updated=$TRIGGER_UPDATED" >> "$GITHUB_OUTPUT"
           echo "trigger_sha=$HEAD_SHA" >> "$GITHUB_OUTPUT"
 
-      # Step 2: Poll for VERDICT from the skeptic bot (configurable via SKEPTIC_BOT_AUTHOR).
+      # Step 2: Run skeptic verification and post VERDICT comment.
+      # The polling step below waits for this comment — we post first, then poll to confirm.
+      # Uses skeptic-setup + skeptic-run so the CLI uses GITHUB_TOKEN for posting
+      # (not the jleechan-agent[bot] token which lacks write access on forked PRs).
+      - name: Setup skeptic environment
+        uses: ./.github/actions/skeptic-setup
+
+      - name: Post skeptic VERDICT
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_SKEPTIC_BOT_AUTHOR: ${{ vars.SKEPTIC_BOT_AUTHOR || 'jleechan2015' }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          PR_NUM=${{ github.event.pull_request.number }}
+          TRIGGER_SHA="$HEAD_SHA"
+          SKEPTIC_EXIT=0
+          echo "Running skeptic verification for PR #$PR_NUM (trigger SHA ${TRIGGER_SHA:0:7})..."
+          # Run WITHOUT --dry-run so postVerdict() is called and posts the comment.
+          # skeptic-setup already built the CLI above, so dist/index.js is available.
+          # Capture VERDICT line to stdout for workflow logs.
+          (node packages/cli/dist/index.js skeptic verify -n "$PR_NUM" --trigger-sha "$TRIGGER_SHA" 2>&1 | tee skeptic-output.txt) || SKEPTIC_EXIT=$?
+          echo "Skeptic verify exit code: $SKEPTIC_EXIT"
+          if grep -qi "VERDICT:" skeptic-output.txt 2>/dev/null; then
+            echo "VERDICT found in skeptic output — comment should be posted."
+          else
+            echo "WARNING: No VERDICT line in skeptic output — gate will treat as SKIPPED."
+          fi
+
+      # Step 3: Poll for the VERDICT comment posted by Step 2 above.
+      # The skeptic VERDICT is idempotent — re-running updates the same comment.
       # Uses TRIGGER_UPDATED = date -u (captured at step start) as the cutoff for
       # verdict filtering. Any verdict comment from SKEPTIC_BOT_AUTHOR with created_at
       # >= TRIGGER_UPDATED and containing the current trigger SHA is accepted.
