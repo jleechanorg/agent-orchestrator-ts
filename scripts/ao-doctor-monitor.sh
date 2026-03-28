@@ -73,6 +73,11 @@ AO_DOCTOR_QUIET="${AO_DOCTOR_QUIET:-0}"
 AO_DOCTOR_REPO="${AO_DOCTOR_REPO:-}"
 # PR staleness threshold in hours (warn if PR older than this with no worker)
 AO_DOCTOR_STALE_HOURS="${AO_DOCTOR_STALE_HOURS:-3}"
+# Guardrail: reject non-numeric values before they can cause false-green summaries
+if ! [[ "$AO_DOCTOR_STALE_HOURS" =~ ^([0-9]+([.][0-9]+)?|[.][0-9]+)$ ]]; then
+  echo "ERROR: AO_DOCTOR_STALE_HOURS must be a positive number (got: '$AO_DOCTOR_STALE_HOURS')" >&2
+  exit 1
+fi
 
 PASS_COUNT=0
 WARN_COUNT=0

@@ -13,6 +13,11 @@ set -euo pipefail
 REPO="jleechanorg/agent-orchestrator"
 PROJECT="agent-orchestrator"
 STALE_HOURS="${STALE_HOURS:-3}"
+# Guardrail: reject non-numeric values before they can cause false-stale/false-fresh
+if ! [[ "$STALE_HOURS" =~ ^([0-9]+([.][0-9]+)?|[.][0-9]+)$ ]]; then
+  echo "ERROR: STALE_HOURS must be a positive number (got: '$STALE_HOURS')" >&2
+  exit 1
+fi
 
 # ---------------------------------------------------------------------------
 # Helpers
