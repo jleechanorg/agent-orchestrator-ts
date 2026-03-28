@@ -46,14 +46,22 @@ jobs:
         run: |
           PR_NUM=${{ github.event.pull_request.number }}
 
-          # bd-lg7i: always use date-based timestamp. github-actions[bot] token does not
-          # have write access to PR comments in pull_request_target context on forked PRs,
-          # and even if it did, gh api responses may not pass jq validation. Rather than
-          # rely on a trigger comment timestamp, always use date -u (ISO-8601, second
-          # resolution) as the cutoff for filtering verdict comments. Verdicts posted in the
-          # same second as the trigger will be caught by the next poll cycle (30s interval).
-          TRIGGER_UPDATED=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-          echo "Trigger timestamp (UTC): $TRIGGER_UPDATED"
+          # Post trigger comment and use GitHub's own timestamp as cutoff.
+          # This avoids runner/GitHub clock drift (runner date -u vs GitHub server time).
+          # lifecycle-manager watches for this comment to begin ao skeptic verify.
+          TRIGGER_MARKER="<!-- skeptic-gate-trigger-${HEAD_SHA} -->"
+          TRIGGER_BODY=$'SKEPTIC_GATE_TRIGGER\n'"$TRIGGER_MARKER"
+
+          TRIGGER_UPDATED=$(gh api repos/${{ github.repository }}/issues/"$PR_NUM"/comments \
+            -f body="$TRIGGER_BODY" \
+            --jq '.updated_at')
+
+          if [ -z "$TRIGGER_UPDATED" ] || [ "$TRIGGER_UPDATED" = "null" ]; then
+            echo "ERROR: failed to obtain trigger_updated from posted comment" >&2
+            exit 1
+          fi
+
+          echo "Trigger timestamp (GitHub): $TRIGGER_UPDATED"
           echo "trigger_updated=$TRIGGER_UPDATED" >> "$GITHUB_OUTPUT"
           echo "trigger_sha=$HEAD_SHA" >> "$GITHUB_OUTPUT"
 
