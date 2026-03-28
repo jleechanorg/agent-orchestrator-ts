@@ -74,8 +74,9 @@ jobs:
 
           # Step 2: No existing verdict comment — build and run skeptic verify.
           echo "No existing skeptic verdict comment found. Running ao skeptic verify..."
-          AO_PATH="$(npm root -g)/.bin"
-          SKEPTIC_OUTPUT=$("$AO_PATH/ao" skeptic verify --pr "$PR" --dry-run 2>&1) || true
+          # Use node directly — pnpm install puts dist/ in packages/cli/ but does NOT
+          # link a global bin; node + absolute path is the reliable approach.
+          SKEPTIC_OUTPUT=$(node "$(pwd)/packages/cli/dist/index.js" skeptic verify --pr "$PR" --dry-run 2>&1) || true
           echo "=== Skeptic output ==="
           echo "$SKEPTIC_OUTPUT"
           echo "=== End output ==="
