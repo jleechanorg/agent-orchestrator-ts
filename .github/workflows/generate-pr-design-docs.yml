@@ -33,6 +33,15 @@ jobs:
           ref: ${{ github.event.pull_request.head.ref }}
           fetch-depth: 0
 
+      - name: Sync generator script from base branch
+        # Always use the fixed script from the base branch (main) so that
+        # PRs with stale script copies in their branch get the latest fix
+        # without needing to rebase. This breaks the regenerate-loop cycle.
+        run: |
+          git fetch origin "${{ github.base_ref }}:$base-ref"
+          git checkout "$base-ref/scripts/generate-pr-design-docs.mjs" -- scripts/generate-pr-design-docs.mjs || \
+            echo "WARN: could not sync script from base branch (may not exist yet)"
+
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
