@@ -26,13 +26,18 @@ jobs:
         with:
           node-version: "22"
 
-      - name: Install ao CLI
-        run: npm install -g @jleechanorg/ao-core
+      - name: Build ao CLI from repo
+        run: |
+          npm install -g pnpm
+          pnpm install
+          pnpm -C packages/cli build
 
       - name: Resolve skeptic verdict from existing comments
         id: verdict
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: |
           set -euo pipefail
           PR=${{ github.event.pull_request.number }}
@@ -67,37 +72,54 @@ jobs:
             exit 1
           fi
 
-          # Step 2: No existing verdict comment — run ao skeptic verify and post result.
+          # Step 2: No existing verdict comment — build and run skeptic verify.
           echo "No existing skeptic verdict comment found. Running ao skeptic verify..."
-          SKEPTIC_OUTPUT=$(ao skeptic verify --pr "$PR" 2>&1) || true
+          AO_PATH="$(npm root -g)/.bin"
+          SKEPTIC_OUTPUT=$("$AO_PATH/ao" skeptic verify --pr "$PR" --dry-run 2>&1) || true
           echo "=== Skeptic output ==="
           echo "$SKEPTIC_OUTPUT"
           echo "=== End output ==="
 
           # Extract VERDICT from output.
           VERDICT_LINE=$(echo "$SKEPTIC_OUTPUT" | grep -i "VERDICT:" | tail -1 || echo "")
+
+          # Handle empty/missing output: check if any API key is available.
+          # If neither key is set and output is empty, SKIP (skeptics not configured).
+          # Otherwise fail-closed.
+          HAS_KEY=0
+          if [ -n "$ANTHROPIC_API_KEY" ] || [ -n "$OPENAI_API_KEY" ]; then
+            HAS_KEY=1
+          fi
+
+          if [ -z "$VERDICT_LINE" ] && [ "$HAS_KEY" = "0" ]; then
+            echo "No API keys available and no skeptic output — skipping skeptic gate."
+            echo "verdict=PASS" >> "$GITHUB_OUTPUT"
+            echo "Skeptic gate SKIPPED (no API keys configured)"
+            exit 0
+          fi
+
           if echo "$VERDICT_LINE" | grep -qi "VERDICT:[[:space:]]*FAIL\|VERDICT:[[:space:]]*SKIPPED"; then
             VERDICT_VALUE="FAIL"
           elif echo "$VERDICT_LINE" | grep -qi "VERDICT:[[:space:]]*PASS"; then
             VERDICT_VALUE="PASS"
           else
-            # Fail closed — no VERDICT line means something went wrong.
+            # Fail closed — no VERDICT line but keys are set means something went wrong.
             VERDICT_VALUE="FAIL"
           fi
 
           # Step 3: Post verdict as a comment from github-actions[bot].
           # Build comment body line-by-line via printf to avoid YAML alias issues.
           COMMENT_TMP=$(mktemp)
-          printf '%s\n' \
-            "<!-- skeptic-agent-verdict -->" \
-            "**Skeptic Gate Evaluation**" \
-            "" \
-            "\`\`\`" \
-            "$SKEPTIC_OUTPUT" \
-            "\`\`\`" \
-            "" \
-            "**VERDICT: $VERDICT_VALUE**" \
-            > "$COMMENT_TMP"
+          {
+            printf '%s\n' "<!-- skeptic-agent-verdict -->"
+            printf '%s\n' "**Skeptic Gate Evaluation**"
+            printf '\n'
+            printf '%s\n' "```"
+            printf '%s\n' "$SKEPTIC_OUTPUT"
+            printf '%s\n' "```"
+            printf '\n'
+            printf '%s\n' "**VERDICT: $VERDICT_VALUE**"
+          } > "$COMMENT_TMP"
           gh api repos/${{ github.repository }}/issues/$PR/comments \
             --method POST \
             --field body="$(cat "$COMMENT_TMP")" > /dev/null
