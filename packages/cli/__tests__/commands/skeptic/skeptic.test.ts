@@ -75,15 +75,15 @@ describe("VERDICT_LINE_RE — SKIPPED path", () => {
 });
 
 describe("dry-run SKIPPED color mapping", () => {
-  // Mirrors lines 130-132 of skeptic.ts
+  // Mirrors production behavior (skeptic.ts line ~130):
+  // chalk[verdictMatch[1].toLowerCase() === "pass" ? "green" : "red"]
+  // PASS→green, everything else (SKIPPED, FAIL, unknown)→red
   function getVerdictColor(verdictType: string): string {
-    if (verdictType === "PASS") return "green";
-    if (verdictType === "SKIPPED") return "yellow";
-    return "red";
+    return verdictType.toLowerCase() === "pass" ? "green" : "red";
   }
 
-  it("SKIPPED maps to yellow", () => {
-    expect(getVerdictColor("SKIPPED")).toBe("yellow");
+  it("SKIPPED maps to red (matches production)", () => {
+    expect(getVerdictColor("SKIPPED")).toBe("red");
   });
 
   it("PASS maps to green", () => {
