@@ -11,6 +11,7 @@ export async function postVerdict(
   verdict: string,
   existingCommentId: number | null,
   botAuthor: string,
+  triggerSha?: string,
 ): Promise<void> {
   const body = [
     "<!-- skeptic-agent-verdict -->",
@@ -19,6 +20,7 @@ export async function postVerdict(
     verdict,
     "",
     `_Posted by ${botAuthor} · ${new Date().toISOString()}_`,
+    triggerSha ? `<!-- skeptic-gate-trigger-${triggerSha} -->` : "",
   ].join("\n");
 
   if (existingCommentId) {

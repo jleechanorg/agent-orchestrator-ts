@@ -84,7 +84,7 @@ jobs:
             echo "trigger_sha=$HEAD_SHA" >> "$GITHUB_OUTPUT"
           fi
 
-      # Step 2: Poll for VERDICT from jleechan-agent[bot].
+      # Step 2: Poll for VERDICT from the skeptic bot (configurable via SKEPTIC_BOT_AUTHOR).
       # Only accept verdicts whose `created_at` is AFTER the trigger comment was
       # updated — this prevents a verdict from a cancelled previous run from
       # causing a false early exit on the current push.
@@ -94,6 +94,7 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           TRIGGER_UPDATED: ${{ steps.post_trigger.outputs.trigger_updated }}
           TRIGGER_SHA: ${{ steps.post_trigger.outputs.trigger_sha }}
+          SKEPTIC_BOT_AUTHOR: ${{ vars.SKEPTIC_BOT_AUTHOR || 'jleechan-agent[bot]' }}
         # 28 min timeout — leave 2 min buffer so the step exits cleanly before the
         # 30-min job timeout rather than being killed by the runner.
         timeout-minutes: 28
@@ -113,7 +114,7 @@ jobs:
           MAX_ATTEMPTS=55   # 55 * 30s = 27.5 min (safe of 28-min step timeout)
           INTERVAL=30
 
-          echo "Polling for VERDICT from jleechan-agent[bot] on PR #$PR_NUM (commit ${HEAD_SHA:0:7})..."
+          echo "Polling for VERDICT from $SKEPTIC_BOT_AUTHOR on PR #$PR_NUM (commit ${HEAD_SHA:0:7})..."
           echo "Max wait: $((MAX_ATTEMPTS * INTERVAL / 60)) minutes"
 
           for i in $(seq 1 $MAX_ATTEMPTS); do
@@ -125,16 +126,17 @@ jobs:
               exit 0
             fi
 
-            # Find verdict comments from jleechan-agent[bot] posted AFTER the
+            # Find verdict comments from SKEPTIC_BOT_AUTHOR posted AFTER the
             # trigger was updated AND whose body contains the trigger SHA marker
             # (<!-- skeptic-gate-trigger-${TRIGGER_SHA} -->). This double-checks
             # that the verdict belongs to the current evaluation window.
             # Parentheses required around (.body | test(...)) — jq `and` has lower
             # precedence than `|`, so unparenthesized form would be parsed as
             # (.user.login == X and .body) | test(...) which always selects all.
+            VERDICT_JQ="[.[] | select(.user.login == \"\$SKEPTIC_BOT_AUTHOR\" and (.body | test(\"VERDICT:\"; \"i\")) and (.created_at > \"\$TRIGGER_UPDATED\") and (.body | test(\"skeptic-gate-trigger-\" + \"\$TRIGGER_SHA\"; \"i\")))] | .[0] // empty"
             VERDICT_JSON=$(gh api repos/${{ github.repository }}/issues/"$PR_NUM"/comments \
               --paginate \
-              --jq "[.[] | select(.user.login == \"jleechan-agent[bot]\" and (.body | test(\"VERDICT:\"; \"i\")) and (.created_at > \"$TRIGGER_UPDATED\") and (.body | test(\"skeptic-gate-trigger-\" + \"$TRIGGER_SHA\"; \"i\")))] | .[0] // empty" 2>/dev/null || echo "empty")
+              --jq "$VERDICT_JQ" 2>/dev/null || echo "empty")
 
             if [ "$VERDICT_JSON" != "empty" ] && echo "$VERDICT_JSON" | jq -e '.body' > /dev/null 2>&1; then
               VERDICT_BODY=$(echo "$VERDICT_JSON" | jq -r '.body')

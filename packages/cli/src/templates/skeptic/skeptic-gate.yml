@@ -41,9 +41,11 @@ jobs:
           # NOTE: parentheses around (.body | test(...)) are required — in jq, the `and`
           # operator has lower precedence than `|`, so `.a == X and .b | test(...)`
           # would be parsed as `(.a == X and .b) | test(...)` without parens.
+          # Use .[-1] (last element) to select the most recent trigger comment when
+          # multiple exist — avoids updating a stale older comment and leaving duplicates.
           EXISTING=$(gh api repos/${{ github.repository }}/issues/"$PR_NUM"/comments \
             --paginate \
-            --jq '[.[] | select(.user.login == "github-actions[bot]" and (.body | test("skeptic-gate-trigger"; "i")))] | .[0] // empty' 2>/dev/null || echo "empty")
+            --jq '[.[] | select(.user.login == "github-actions[bot]" and (.body | test("skeptic-gate-trigger"; "i")))] | .[-1] // empty' 2>/dev/null || echo "empty")
 
           # Build the body via printf (not inline YAML) so $HEAD_SHA substitution is safe.
           BODY="$(printf '%s\n\n%s\n\n%s' \
@@ -56,23 +58,33 @@ jobs:
             echo "Updating existing trigger comment: $EXISTING_ID"
             UPDATED=$(gh api repos/${{ github.repository }}/issues/"$PR_NUM"/comments/"$EXISTING_ID" \
               --method PATCH \
-              -f body="$BODY" 2>/dev/null)
-            # Use updated_at — this is the moment the current workflow's trigger was posted.
-            # Any VERDICT with created_at <= this timestamp belongs to a previous run.
-            TRIGGER_UPDATED=$(echo "$UPDATED" | jq -r '.updated_at')
+              -f body="$BODY")
+            # Validate response contains required fields before extracting updated_at —
+            # guards against non-JSON or malformed responses propagating null values downstream.
+            if echo "$UPDATED" | jq -e '.id and .updated_at' > /dev/null 2>&1; then
+              TRIGGER_UPDATED=$(echo "$UPDATED" | jq -r '.updated_at')
+            else
+              echo "ERROR: PATCH response missing required fields (id, updated_at)"
+              exit 1
+            fi
             echo "trigger_updated=$TRIGGER_UPDATED" >> "$GITHUB_OUTPUT"
             echo "trigger_sha=$HEAD_SHA" >> "$GITHUB_OUTPUT"
           else
             echo "Posting new trigger comment"
             CREATED=$(gh api repos/${{ github.repository }}/issues/"$PR_NUM"/comments \
               --method POST \
-              -f body="$BODY" 2>/dev/null)
-            TRIGGER_UPDATED=$(echo "$CREATED" | jq -r '.updated_at')
+              -f body="$BODY")
+            if echo "$CREATED" | jq -e '.id and .updated_at' > /dev/null 2>&1; then
+              TRIGGER_UPDATED=$(echo "$CREATED" | jq -r '.updated_at')
+            else
+              echo "ERROR: POST response missing required fields (id, updated_at)"
+              exit 1
+            fi
             echo "trigger_updated=$TRIGGER_UPDATED" >> "$GITHUB_OUTPUT"
             echo "trigger_sha=$HEAD_SHA" >> "$GITHUB_OUTPUT"
           fi
 
-      # Step 2: Poll for VERDICT from jleechan-agent[bot].
+      # Step 2: Poll for VERDICT from the skeptic bot (configurable via SKEPTIC_BOT_AUTHOR).
       # Only accept verdicts whose `created_at` is AFTER the trigger comment was
       # created — this prevents a verdict from a previous push's evaluation from
       # causing a false early exit on the current push.
@@ -82,6 +94,9 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           TRIGGER_UPDATED: ${{ steps.post_trigger.outputs.trigger_updated }}
           TRIGGER_SHA: ${{ steps.post_trigger.outputs.trigger_sha }}
+          # The bot that posts the VERDICT — defaults to jleechan-agent[bot] but can be
+          # overridden for forks that configure a different GH_SKEPTIC_BOT_AUTHOR.
+          SKEPTIC_BOT_AUTHOR: ${{ vars.SKEPTIC_BOT_AUTHOR || 'jleechan-agent[bot]' }}
         # 28 min timeout — leave 2 min buffer so the step exits cleanly before the
         # 30-min job timeout rather than being killed by the runner.
         timeout-minutes: 28
@@ -101,7 +116,7 @@ jobs:
           MAX_ATTEMPTS=55   # 55 * 30s = 27.5 min (safe of 28-min step timeout)
           INTERVAL=30
 
-          echo "Polling for VERDICT from jleechan-agent[bot] on PR #$PR_NUM (commit ${HEAD_SHA:0:7})..."
+          echo "Polling for VERDICT from $SKEPTIC_BOT_AUTHOR on PR #$PR_NUM (commit ${HEAD_SHA:0:7})..."
           echo "Max wait: $((MAX_ATTEMPTS * INTERVAL / 60)) minutes"
 
           for i in $(seq 1 $MAX_ATTEMPTS); do
@@ -113,16 +128,17 @@ jobs:
               exit 0
             fi
 
-            # Find verdict comments from jleechan-agent[bot] posted AFTER the
+            # Find verdict comments from SKEPTIC_BOT_AUTHOR posted AFTER the
             # trigger was updated AND whose body contains the trigger SHA marker
             # (<!-- skeptic-gate-trigger-${TRIGGER_SHA} -->). This double-checks
             # that the verdict belongs to the current evaluation window.
             # Parentheses required around (.body | test(...)) — jq `and` has lower
             # precedence than `|`, so unparenthesized form would be parsed as
             # (.user.login == X and .body) | test(...) which always selects all.
+            VERDICT_JQ="[.[] | select(.user.login == \"\$SKEPTIC_BOT_AUTHOR\" and (.body | test(\"VERDICT:\"; \"i\")) and (.created_at > \"\$TRIGGER_UPDATED\") and (.body | test(\"skeptic-gate-trigger-\" + \"\$TRIGGER_SHA\"; \"i\")))] | .[0] // empty"
             VERDICT_JSON=$(gh api repos/${{ github.repository }}/issues/"$PR_NUM"/comments \
               --paginate \
-              --jq "[.[] | select(.user.login == \"jleechan-agent[bot]\" and (.body | test(\"VERDICT:\"; \"i\")) and (.created_at > \"$TRIGGER_UPDATED\") and (.body | test(\"skeptic-gate-trigger-\" + \"$TRIGGER_SHA\"; \"i\")))] | .[0] // empty" 2>/dev/null || echo "empty")
+              --jq "$VERDICT_JQ" 2>/dev/null || echo "empty")
 
             if [ "$VERDICT_JSON" != "empty" ] && echo "$VERDICT_JSON" | jq -e '.body' > /dev/null 2>&1; then
               VERDICT_BODY=$(echo "$VERDICT_JSON" | jq -r '.body')
