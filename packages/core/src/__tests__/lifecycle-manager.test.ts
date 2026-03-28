@@ -4289,7 +4289,8 @@ describe("send-to-agent retry policy (bd-5nxx)", () => {
     // Default cap: send-to-agent → 3, all others → Infinity
     expect(resolveReactionMaxRetries("send-to-agent", {})).toBe(3);
     expect(resolveReactionMaxRetries("notify", {})).toBe(Infinity);
-    expect(resolveReactionMaxRetries("unknown-action", {})).toBe(Infinity);
+    // respawn-for-review is a real supported action — must stay uncapped (bd-5nxx)
+    expect(resolveReactionMaxRetries("respawn-for-review", {})).toBe(Infinity);
     expect(resolveReactionMaxRetries("auto-merge", {})).toBe(Infinity);
 
     // Per-reaction override takes precedence
