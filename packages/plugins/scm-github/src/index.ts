@@ -7,7 +7,7 @@
 import { execFile } from "node:child_process";
 import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import { promisify } from "node:util";
-import { writeFileSync, unlinkSync, appendFileSync } from "node:fs";
+import { writeFileSync, unlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -31,6 +31,7 @@ import {
   type MergeReadiness,
   type BatchPRStatus,
 } from "@jleechanorg/ao-core";
+import { logAoAction } from "@jleechanorg/ao-core";
 import {
   getWebhookHeader,
   parseWebhookBranchRef,
@@ -1569,7 +1570,7 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
         if (useAuto) {
           console.warn("[scm-github] mergePR: gh rate-limited with --auto — attempting GraphQL enablePullRequestAutoMerge");
           const gqlToken =
-            getBotToken() ??
+            (process.env.AO_BOT_GH_TOKEN?.trim() || undefined) ??
             process.env.GITHUB_TOKEN ??
             process.env.GH_TOKEN ??
             await getGhToken();
@@ -1685,7 +1686,7 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
         // converting it into a request-body field, silently dropping merge_method.
         console.warn("[scm-github] mergePR: falling back to REST API via curl");
         const token =
-          getBotToken() ??
+          (process.env.AO_BOT_GH_TOKEN?.trim() || undefined) ??
           process.env.GITHUB_TOKEN ??
           process.env.GH_TOKEN ??
           await getGhToken();
@@ -1758,16 +1759,13 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
 
     async closePR(pr: PRInfo): Promise<void> {
       await ghBot(["pr", "close", String(pr.number), "--repo", repoFlag(pr)]);
-      try {
-        const entry = JSON.stringify({
-          ts: new Date().toISOString(),
-          session: "scm-github",  // SCM layer has no session context
-          action: "pr_close",
-          pr: pr.number,
-          repo: `${pr.owner}/${pr.repo}`,
-        }) + "\n";
-        appendFileSync("/tmp/ao-actions.jsonl", entry, { encoding: "utf-8", mode: 0o600 });
-      } catch { /* best-effort */ }
+      logAoAction({
+        ts: new Date().toISOString(),
+        session: "scm-github",
+        action: "pr_close",
+        pr: pr.number,
+        repo: `${pr.owner}/${pr.repo}`,
+      });
     },
 
     async getCIChecks(pr: PRInfo): Promise<CICheck[]> {

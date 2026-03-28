@@ -577,7 +577,17 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
             if (batch.state !== prevPrState) {
               persistPrState({ session, state: batch.state, projectPath: project.path });
             }
-            if (batch.state === PR_STATE.MERGED) return { status: "merged", agentDead };
+            if (batch.state === PR_STATE.MERGED) {
+              logAoAction({
+                ts: new Date().toISOString(),
+                session: session.id,
+                action: "pr_merge",
+                pr: session.pr?.number,
+                repo: session.pr ? `${session.pr.owner}/${session.pr.repo}` : undefined,
+                reason: "merged-transition",
+              });
+              return { status: "merged", agentDead };
+            }
             if (batch.state === PR_STATE.CLOSED) return { status: "killed", agentDead };
             if (batch.ciStatus === CI_STATUS.FAILING) return { status: "ci_failed", agentDead };
             if (batch.reviewDecision === "changes_requested") return { status: "changes_requested", agentDead };
@@ -603,7 +613,17 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
           if (prState !== prevPrState) {
             persistPrState({ session, state: prState, projectPath: project.path });
           }
-          if (prState === PR_STATE.MERGED) return { status: "merged", agentDead };
+          if (prState === PR_STATE.MERGED) {
+            logAoAction({
+              ts: new Date().toISOString(),
+              session: session.id,
+              action: "pr_merge",
+              pr: session.pr?.number,
+              repo: session.pr ? `${session.pr.owner}/${session.pr.repo}` : undefined,
+              reason: "merged-transition",
+            });
+            return { status: "merged", agentDead };
+          }
           if (prState === PR_STATE.CLOSED) return { status: "killed", agentDead };
 
           const ciStatus = await scm.getCISummary(session.pr);
@@ -1006,15 +1026,6 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         const autoWaitSeconds = reactionConfig.autoMergeWaitSeconds ?? 0;
         try {
           await scm.mergePR(freshSession.pr, mergeMethod, autoWaitSeconds);
-          logAoAction({
-            ts: new Date().toISOString(),
-            session: sessionId,
-            action: "pr_merge",
-            pr: freshSession.pr.number,
-            repo: `${freshSession.pr.owner}/${freshSession.pr.repo}`,
-            reason: `reaction:${reactionKey}`,
-            detail: `${mergeMethod}${autoWaitSeconds > 0 ? " --auto (enqueued)" : " (immediate)"}`,
-          });
 
           const autoLabel = autoWaitSeconds > 0 ? " (--auto)" : "";
           const successEvent = createEvent("reaction.triggered", {
