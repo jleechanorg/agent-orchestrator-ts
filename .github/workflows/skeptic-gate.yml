@@ -54,6 +54,13 @@ jobs:
       # The polling step below waits for this comment — we post first, then poll to confirm.
       # Uses skeptic-setup + skeptic-run so the CLI uses GITHUB_TOKEN for posting
       # (not the jleechan-agent[bot] token which lacks write access on forked PRs).
+      # For pull_request_target, base repo is available but not auto-checked into GITHUB_WORKSPACE.
+      - name: Checkout base branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.base_ref }}
+          persist-credentials: false
+
       - name: Setup skeptic environment
         uses: ./.github/actions/skeptic-setup
 
