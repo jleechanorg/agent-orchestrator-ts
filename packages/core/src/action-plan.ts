@@ -105,3 +105,18 @@ export function buildActionPlan(gateResult: MergeGateResult): ActionPlan {
 
   return { items, ready: false };
 }
+
+/**
+ * Render an action plan as worker-readable text.
+ * Returns empty string if the plan is ready (no actions needed).
+ */
+export function formatActionPlan(plan: ActionPlan): string {
+  if (plan.ready || plan.items.length === 0) return "";
+
+  const header = `ACTION PLAN (${plan.items.length} gate${plan.items.length > 1 ? "s" : ""} to close — do in order):`;
+  const lines = plan.items.map(
+    (item, i) =>
+      `${i + 1}. [${item.gate}] ${item.action}\n   Why first: ${item.reason}`,
+  );
+  return `${header}\n${lines.join("\n")}`;
+}
