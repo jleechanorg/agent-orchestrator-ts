@@ -3,6 +3,10 @@ name: Generate PR Design Docs
 on:
   pull_request:
     types: [opened, synchronize, reopened]
+    paths:
+      - 'docs/design/pr-designs/**'
+      - 'scripts/generate-pr-design-docs.mjs'
+      - '.github/workflows/generate-pr-design-docs.yml'
 
 # Do not run concurrently on the same PR — design doc generation is idempotent
 concurrency:

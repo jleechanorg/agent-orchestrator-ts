@@ -52,15 +52,19 @@ runs:
           > skeptic-output.txt 2>&1) || skeptic_exit=$?
         cat skeptic-output.txt
 
+        # bd-8tpa: check PASS first — when Codex fails with 401 but Claude fallback
+        # succeeds, skeptic-output.txt contains BOTH "VERDICT: FAIL" (from error text
+        # embedded in LLM output) and "VERDICT: PASS" (the authoritative verdict).
+        # Prefer PASS since the evaluation actually succeeded.
         if grep -qi "VERDICT: SKIPPED" skeptic-output.txt; then
           echo "verdict=SKIPPED" >> "$GITHUB_OUTPUT"
+          exit 0
+        elif grep -qi "VERDICT: PASS" skeptic-output.txt; then
+          echo "verdict=PASS" >> "$GITHUB_OUTPUT"
           exit 0
         elif grep -qi "VERDICT: FAIL" skeptic-output.txt; then
           echo "verdict=FAIL" >> "$GITHUB_OUTPUT"
           exit 1
-        elif grep -qi "VERDICT: PASS" skeptic-output.txt; then
-          echo "verdict=PASS" >> "$GITHUB_OUTPUT"
-          exit 0
         else
           echo "verdict=UNKNOWN" >> "$GITHUB_OUTPUT"
           echo "" >> skeptic-output.txt

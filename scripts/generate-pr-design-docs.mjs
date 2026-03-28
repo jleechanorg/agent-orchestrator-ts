@@ -190,14 +190,19 @@ function fileCountByPrefix(files) {
 function extractDescription(body) {
   if (!body) return "No description provided.";
   // Use first paragraph (non-empty, non-heading line block)
-  const paragraphs = body.split(/\n\n+/);
+  // bd-7gs-fix: strip HTML comment markers and adjacent markdown separators from AI-generated PR bodies
+  const cleaned = (body || "")
+    .replace(/<!--\s*CURSOR_SUMMARY\s*-->/gi, "")
+    .replace(/^---\s*$/gm, "")
+    .replace(/<!--[\s\S]*?-->/g, ""); // strip all HTML comments
+  const paragraphs = cleaned.split(/\n\n+/);
   for (const p of paragraphs) {
     const trimmed = p.trim();
-    if (trimmed && !trimmed.startsWith("#") && !trimmed.startsWith("---") && trimmed.length > 20) {
+    if (trimmed && !trimmed.startsWith("#") && trimmed.length > 20) {
       return trimmed.replace(/\[([^\]]+)\]\([^)]+\)/g, "$1"); // strip links
     }
   }
-  return body.slice(0, 200).trim() + "…";
+  return cleaned.slice(0, 200).trim() + "…";
 }
 
 function extractLabels(pr) {
