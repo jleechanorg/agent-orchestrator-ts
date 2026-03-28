@@ -40,11 +40,13 @@ export interface LlmEvalResult {
 function isUnavailable(errMsg: string): boolean {
   // ENOENT = binary not installed
   // 401/403 = credentials missing or invalid — treat as "unavailable" so fallback chain continues
+  // Use word-boundary-aware regex to avoid false positives on strings like "took 4030ms"
   const lower = errMsg.toLowerCase();
   return (
     lower.includes("enoent") ||
-    lower.includes("401") ||
-    lower.includes("403") ||
+    // \b matches word boundary — so "401 " matches but "4012" does not
+    /\b401\b/i.test(errMsg) ||
+    /\b403\b/i.test(errMsg) ||
     lower.includes("unauthorized") ||
     lower.includes("forbidden")
   );
