@@ -1345,7 +1345,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
           // bd-lg7i: only mark the SHA handled when skeptic dispatch actually succeeded.
           // Setting lastSkepticSha unconditionally would suppress all retries for this
           // commit until another push arrives, even if the dispatch itself failed.
-          let reactionSuccess = false;
+          let reactionSuccess: boolean;
           try {
             const result = await executeReaction(
               session.id,
@@ -1699,7 +1699,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
                 });
                 // bd-lg7i: only mark the SHA handled when skeptic dispatch succeeded.
                 // Setting lastSkepticSha unconditionally would suppress retries on failure.
-                let reactionSuccess = false;
+                let reactionSuccess: boolean;
                 try {
                   const result = await executeReaction(
                     session.id,
