@@ -187,8 +187,8 @@ export async function handleRespawnForReview(
       });
 
       // Increment attempt counter so next cycle can escalate if threshold reached.
-      // Best-effort: if the write fails, proceed to escalation decision immediately
-      // rather than silently swallowing the escalation on a metadata I/O error.
+      // Always mutate in-memory first; persist is best-effort.
+      session.metadata["respawn_attempt_count"] = String(attemptCount + 1);
       try {
         updateSessionMetadataHelper(session, {
           respawn_attempt_count: String(attemptCount + 1),
@@ -214,8 +214,11 @@ export async function handleRespawnForReview(
       return { reactionType: reactionKey, success: false, action, escalated: false };
     }
 
-    // Persist metadata after confirmed spawn success. If this fails, the next backlog
-    // poll will retry spawn (harmless duplicate) rather than losing the session.
+    // Persist metadata after confirmed spawn success. The new worker already exists —
+    // if persistence fails, log and return success rather than re-queuing a duplicate spawn.
+    // Always mutate in-memory first so the session state is correct regardless of I/O outcome.
+    session.metadata["pr_respawned"] = "true";
+    session.metadata["respawned_session_id"] = spawnedId!;
     try {
       updateSessionMetadataHelper(session, {
         pr_respawned: "true",
@@ -233,9 +236,8 @@ export async function handleRespawnForReview(
         data: { reactionKey, error: `spawn succeeded but metadata persist failed: ${metaErrMsg}` },
         level: "warn",
       });
-      // Spawn succeeded but metadata failed — report failure so backlog retries.
-      // The duplicate spawn on next cycle is preferable to losing the PR to zombie state.
-      return { reactionType: reactionKey, success: false, action, escalated: false };
+      // Spawn succeeded — the replacement worker already exists. Returning success: true
+      // avoids re-queuing a non-idempotent spawn on the next backlog cycle.
     }
 
     return {
