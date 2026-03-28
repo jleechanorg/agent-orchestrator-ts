@@ -37,10 +37,14 @@ jobs:
         # Always use the fixed script from the base branch (main) so that
         # PRs with stale script copies in their branch get the latest fix
         # without needing to rebase. This breaks the regenerate-loop cycle.
+        # Use git show (not checkout) to avoid staging the script into the
+        # design-doc commit index. Quote BASE_REF to prevent word-splitting
+        # on any unusual characters in the branch name.
+        env:
+          BASE_REF: ${{ github.base_ref }}
         run: |
-          BASE_REF="${{ github.base_ref }}"
           git fetch origin "${BASE_REF}" --depth=1
-          git checkout FETCH_HEAD -- scripts/generate-pr-design-docs.mjs || \
+          git show "FETCH_HEAD:scripts/generate-pr-design-docs.mjs" > scripts/generate-pr-design-docs.mjs || \
             echo "WARN: could not sync script from base branch (may not exist yet)"
 
       - name: Set up Node.js
