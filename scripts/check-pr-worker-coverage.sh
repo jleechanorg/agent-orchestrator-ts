@@ -87,11 +87,12 @@ if [[ "$_fetch_rc" -ne 0 ]] || [[ -z "$pr_data" ]]; then
   echo "ERROR: Failed to fetch open PRs from $REPO (rc=$_fetch_rc)" >&2
   exit 1
 fi
-# Also guard against empty JSON array (gh api may return [] on error)
-if [[ "$pr_data" == "[]" ]]; then
-  echo "ERROR: Empty PR list payload from $REPO" >&2
+# Validate pr_data is a JSON array (not a malformed payload)
+if ! echo "$pr_data" | jq -e 'type == "array"' >/dev/null 2>&1; then
+  echo "ERROR: Invalid PR list payload from $REPO (not a JSON array)" >&2
   exit 1
 fi
+# Empty array is OK — no open PRs is a valid state
 
 declare -a uncovered=()
 missing_age=0
