@@ -38,7 +38,6 @@ runs:
 
     - name: Run Skeptic
       id: run
-      if: steps.check.outputs.verdict == 'RUNNING'
       env:
         GITHUB_TOKEN: ${{ inputs.github_token }}
         ANTHROPIC_API_KEY: ${{ inputs.anthropic_api_key }}
