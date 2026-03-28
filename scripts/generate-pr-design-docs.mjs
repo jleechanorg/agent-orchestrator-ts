@@ -197,13 +197,18 @@ function extractDescription(body) {
   const B2 = B + B;
   const u003c = B2 + "u003c";
   const u003e = B2 + "u003e";
+  // bd-7gs-fix-v2: anchor BLOCK_RE to line-start so inline code examples containing
+  // comment-like text (e.g. \`<!-- /CURSOR_SUMMARY -->\`) are preserved.
+  // gh api emits \uXXXX as 6 literal chars; see comment above for the escaping fix.
   const BLOCK_RE = new RegExp(
-    `${u003c}!--[\\s\\S]*?CURSOR_SUMMARY[\\s\\S]*?${u003c}!--[\\s\\S]*?/CURSOR_SUMMARY[\\s\\S]*?${u003e}`,
-    "gi"
+    `^${u003c}!--[\\s\\S]*?CURSOR_SUMMARY[\\s\\S]*?${u003c}!--[\\s\\S]*?/CURSOR_SUMMARY[\\s\\S]*?${u003e}`,
+    "gim"
   );
   const cleaned = (body || "")
     .replace(BLOCK_RE, "")
-    .replace(/<!--\s*CURSOR_SUMMARY\s*-->/gi, "")
+    .replace(/^<!--\s*CURSOR_SUMMARY\s*-->/gim, "") // anchor to line-start
+    .replace(/^&lt;!--\s*CURSOR_SUMMARY\s*--&gt;/gim, "")
+    .replace(/<!--\s*CURSOR_SUMMARY\s*-->/gi, "")    // strip any remaining
     .replace(/&lt;!--\s*CURSOR_SUMMARY\s*--&gt;/gi, "")
     .replace(/^---\s*$/gm, "")
     .replace(/<!--[\s\S]*?-->/g, "");
@@ -526,8 +531,10 @@ function mdToHtml(str) {
     // Check if this paragraph starts with a list item
     if (/^(\s*)- /.test(trimmed)) {
       const lines = trimmed.split("\n");
+      // Use the 's' flag so '.' in the bullet regex matches newlines too,
+      // preserving indented continuation lines within each list item
       const items = lines
-        .filter((l) => /^(\s*)- (.*)/.test(l))
+        .filter((l) => /^(\s*)- (.*)/s.test(l))
         .map((l) => `<li>${inlineMd(l.replace(/^\s*- /, ""))}</li>`);
       if (items.length > 0) {
         result.push(`<ul class="muted">${items.join("")}</ul>`);

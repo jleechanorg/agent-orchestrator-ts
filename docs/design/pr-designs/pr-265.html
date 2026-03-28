@@ -51,7 +51,7 @@
     <main class="wrap">
       <section class="hero">
         <h1>[agento] fix(design-doc): strip full CURSOR_SUMMARY block — prevent orphan closing tags</h1>
-        <ul class="muted"><li>Fix \<code>extractDescription()\</code> in \<code>scripts/generate-pr-design-docs.mjs\</code> to strip the <strong>full</strong> CURSOR_SUMMARY block (opening comment + content + closing \<code>\</code>) in one pass</li><li>This prevents the closing tag from being orphaned as visible text in generated \<code>.html\</code> design docs</li><li>Add \<code>gs\</code> flag to the fallback HTML comment stripper so it is non-greedy per-comment rather than non-greedy per-character</li></ul>
+        <ul class="muted"><li>Fix <code>extractDescription()</code> in <code>scripts/generate-pr-design-docs.mjs</code> to strip the <strong>full</strong> CURSOR_SUMMARY block (opening marker + content + closing marker) in one pass</li><li>This prevents the closing tag from being orphaned as visible text in generated <code>.html</code> design docs</li><li>Add <code>gs</code> flag to the fallback HTML comment stripper so it is non-greedy per-comment rather than non-greedy per-character</li></ul>
         <p class="muted" style="margin-top:0.5rem">
           PR: <a href="https://github.com/jleechanorg/agent-orchestrator/pull/265">#265</a>
           &nbsp;·&nbsp; Status: <span class="badge badge-open">Open</span>
@@ -79,8 +79,8 @@
           <h2>Metadata</h2>
           <div class="stat-grid">
             <div class="stat"><div class="num">17</div><div class="lbl">Files</div></div>
-            <div class="stat"><div class="num">25</div><div class="lbl">Commits</div></div>
-            <div class="stat"><div class="num" style="color:#2ea043">+577</div><div class="lbl">Additions</div></div>
+            <div class="stat"><div class="num">26</div><div class="lbl">Commits</div></div>
+            <div class="stat"><div class="num" style="color:#2ea043">+591</div><div class="lbl">Additions</div></div>
             <div class="stat"><div class="num" style="color:#cf222e">-110</div><div class="lbl">Deletions</div></div>
           </div>
           <ul style="margin-top:1rem">
@@ -148,13 +148,13 @@
 <tr>
       <td><code>docs/design/pr-designs/pr-265.html</code></td>
       <td><span class="badge badge-new">added</span></td>
-      <td style="text-align:right;color:#2ea043">+222</td>
+      <td style="text-align:right;color:#2ea043">+234</td>
       <td style="text-align:right;color:#cf222e">-0</td>
     </tr>
 <tr>
       <td><code>docs/design/pr-designs/pr-265.md</code></td>
       <td><span class="badge badge-new">added</span></td>
-      <td style="text-align:right;color:#2ea043">+82</td>
+      <td style="text-align:right;color:#2ea043">+84</td>
       <td style="text-align:right;color:#cf222e">-0</td>
     </tr>
 <tr>
