@@ -52,10 +52,7 @@ runs:
           > skeptic-output.txt 2>&1) || skeptic_exit=$?
         cat skeptic-output.txt
 
-        # Handle SKIPPED first — infra failures (Codex/Claude unavailable) emit VERDICT: SKIPPED
-        if grep -qi "VERDICT: SKIPPED" skeptic-output.txt; then
-          echo "verdict=SKIPPED" >> "$GITHUB_OUTPUT"
-        elif grep -qi "VERDICT: FAIL" skeptic-output.txt; then
+        if grep -qi "VERDICT: FAIL" skeptic-output.txt; then
           echo "verdict=FAIL" >> "$GITHUB_OUTPUT"
           exit 1
         elif grep -qi "VERDICT: PASS" skeptic-output.txt; then
