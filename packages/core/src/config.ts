@@ -53,7 +53,7 @@ function inferScmPlugin(project: {
 const ReactionConfigSchema = z.object({
   auto: z.boolean().default(true),
   action: z
-    .enum(["send-to-agent", "notify", "auto-merge", "request-merge", "parallel-retry", "skeptic-review"])
+    .enum(["send-to-agent", "notify", "auto-merge", "request-merge", "parallel-retry", "skeptic-review", "respawn-for-review"])
     .default("notify"),
   message: z.string().optional(),
   priority: z.enum(["urgent", "action", "warning", "info"]).optional(),

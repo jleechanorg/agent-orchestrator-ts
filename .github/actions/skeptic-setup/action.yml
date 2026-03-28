@@ -16,9 +16,11 @@ runs:
         node-version: "22"
         cache: pnpm
 
-    - name: Install Claude CLI and Codex CLI
+    - name: Install Codex CLI
       shell: bash
       run: |
+        # Codex is the primary LLM for skeptic; Claude is used as fallback via ANTHROPIC_API_KEY.
+        # Note: Claude CLI is not installed here — llm-eval.ts handles Claude via API key fallback.
         if command -v codex &>/dev/null; then
           echo "Codex CLI already installed"
         else
@@ -26,7 +28,7 @@ runs:
           npm install -g @openai/codex 2>&1 || echo "Codex install failed — checking for existing..."
         fi
         if ! command -v codex &>/dev/null; then
-          echo "WARNING: codex CLI not available — skeptic will use Claude CLI fallback if ANTHROPIC_API_KEY is set"
+          echo "WARNING: codex CLI not available — skeptic will fall back to Claude CLI via ANTHROPIC_API_KEY if configured"
         fi
 
     - name: Install dependencies

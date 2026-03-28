@@ -30,7 +30,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          PR_JSON=$(gh api repos/${{ github.repository }}/pulls \
+          PR_JSON=$(gh api repos/${{ github.repository }}/pulls --paginate \
             --jq '[.[] | select(.draft == false) | {number, title, head: {ref: .head.ref, sha: .head.sha}, base: {ref: .base.ref}, mergeable}]')
 
           echo "Open non-draft PRs found:"
@@ -81,6 +81,9 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_JSON: ${{ steps.list_prs.outputs.pr_numbers }}
+          STALE_HOURS: ${{ vars.STALE_HOURS || '3' }}
+          REPO_OWNER: ${{ github.repository_owner }}
+          REPO_NAME: ${{ github.event.repository.name }}
         run: |
           MERGED=0
 
@@ -107,28 +110,51 @@ jobs:
             MERGE_CONFLICT=$(if [ "$MERGEABLE" = "true" ] || [ "$MERGED_FLAG" = "true" ]; then echo "PASS"; else echo "FAIL (mergeable=$MERGEABLE)"; fi)
             echo "  [2] No merge conflicts: $MERGE_CONFLICT"
 
-            # 3. CR APPROVED
-            # bd-skp2: add || echo fallback to prevent set -e abort when gh api fails
+            # 3. CR APPROVED (bd-5gl fix: filter to APPROVED/CHANGES_REQUESTED only)
+            # CR posts COMMENTED reviews after APPROVED for incremental reviews.
+            # Only consider reviews with actionable states — ignore COMMENTED and DISMISSED.
             LATEST_CR=$(gh api repos/${{ github.repository }}/pulls/"$PR_NUM"/reviews \
-              --jq '[.[] | select(.user.login == "coderabbitai[bot]")] | sort_by(.submitted_at) | reverse | .[0] | {state: .state}' 2>/dev/null || echo '{"state":"none"}')
-            CR_STATE=$(echo "$LATEST_CR" | jq -r '.state // "none"')
+              --jq '[.[] | select(.user.login == "coderabbitai[bot]") | select(.state == "APPROVED" or .state == "CHANGES_REQUESTED")] | sort_by(.submitted_at) | reverse | .[0] // null | if . == null then null else {state: .state} end' 2>/dev/null || echo "null")
+            if [ "$LATEST_CR" = "null" ] || [ -z "$LATEST_CR" ]; then
+              CR_STATE="none"
+            else
+              CR_STATE=$(echo "$LATEST_CR" | jq -r '.state // "none"')
+            fi
             CR_APPROVED=$([ "$CR_STATE" = "APPROVED" ] && echo "PASS" || echo "FAIL (state=$CR_STATE)")
             echo "  [3] CR APPROVED:        $CR_APPROVED"
 
-            # 4. Bugbot clean
-            BUGBOT_ERRORS=$(gh api repos/${{ github.repository }}/pulls/"$PR_NUM"/comments \
-              --jq '[.[] | select(.user.login == "cursor[bot]" and (.body | test("error"; "i")))] | length' 2>/dev/null || echo 0)
+            # 4. Bugbot clean (bd-5gl fix: root-level only + 24h window)
+            # Count only root-level comments (not replies) from cursor[bot] with "error"
+            # scoped to the last 24 hours to avoid flagging stale/resolved errors.
+            CUTOFF_DATE=$(date -d "24 hours ago" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo "")
+            if [ -n "$CUTOFF_DATE" ]; then
+              BUGBOT_ERRORS=$(gh api repos/${{ github.repository }}/pulls/"$PR_NUM"/comments \
+                --jq "[.[] | select(.user.login == \"cursor[bot]\") | select(.in_reply_to_id == null) | select(.created_at >= \"$CUTOFF_DATE\") | select(.body | test(\"error\"; \"i\"))] | length" 2>/dev/null || echo 0)
+            else
+              # Fallback: root-level only (no 24h filter if date parsing fails)
+              BUGBOT_ERRORS=$(gh api repos/${{ github.repository }}/pulls/"$PR_NUM"/comments \
+                --jq '[.[] | select(.user.login == "cursor[bot]") | select(.in_reply_to_id == null) | select(.body | test("error"; "i"))] | length' 2>/dev/null || echo 0)
+            fi
             BUGBOT_STATUS=$(if [ "$BUGBOT_ERRORS" = "0" ] || [ -z "$BUGBOT_ERRORS" ]; then echo "PASS"; else echo "FAIL ($BUGBOT_ERRORS error(s))"; fi)
             echo "  [4] Bugbot clean:       $BUGBOT_STATUS"
 
-            # 5. Inline comments resolved
-            # Note: REST /pulls/N/comments cannot distinguish resolved vs unresolved threads.
-            # This check counts root-level non-nitpick comments as a heuristic approximation.
-            # bd-skp2: add || echo fallback to prevent set -e abort when gh api fails
-            UNRESOLVED=$(gh api repos/${{ github.repository }}/pulls/"$PR_NUM"/comments \
-              --jq '[.[] | select(.in_reply_to_id == null) | select(.body | test("^(nit:|nitpick)"; "i") | not)] | length' 2>/dev/null || echo 0)
-            COMMENTS_STATUS=$(if [ "$UNRESOLVED" = "0" ] || [ -z "$UNRESOLVED" ]; then echo "PASS"; else echo "FAIL ($UNRESOLVED unresolved)"; fi)
-            echo "  [5] Comments resolved:   $COMMENTS_STATUS"
+            # 5. Inline comments resolved (bd-5gl fix: use GraphQL, skip if exhausted)
+            # REST /pulls/N/comments has no isResolved field — GraphQL reviewThreads has it.
+            # bd-5gl: SKIP if >100 threads (pagination needed) or GraphQL unavailable;
+            # PASS/FAIL only if a complete result was returned.
+            GQL_PAGE=$(gh api graphql -f query="
+              query(\$pr: Int!) {
+                repository(owner: \"\${REPO_OWNER}\", name: \"\${REPO_NAME}\") {
+                  pullRequest(number: \$pr) {
+                    reviewThreads(first: 100) {
+                      pageInfo { hasNextPage }
+                      nodes { isResolved }
+                    }
+                  }
+                }
+              }
+            " -F "pr=${PR_NUM}" 2>/dev/null)
+            GQL_EXIT=$?
 
             # 6. Evidence review
             EVIDENCE_APPROVED=$(gh api repos/${{ github.repository }}/pulls/"$PR_NUM"/reviews \
@@ -159,7 +185,26 @@ jobs:
             fi
             echo "  [7] Skeptic verdict:    $SKEPTIC_STATUS"
 
-            # All must PASS
+            # Gate 5 outcome: derive COMMENTS_STATUS from GQL_PAGE result.
+            # bd-5gl: SKIP if >100 threads (pagination needed) or GraphQL unavailable;
+            # PASS/FAIL only if a complete result was returned.
+            if [ "$GQL_EXIT" -ne 0 ] || [ -z "$GQL_PAGE" ]; then
+              COMMENTS_STATUS="SKIP (GraphQL unavailable)"
+            elif echo "$GQL_PAGE" | jq -e '.data.repository.pullRequest.reviewThreads.pageInfo.hasNextPage' >/dev/null 2>&1; then
+              COMMENTS_STATUS="SKIP (>100 threads)"
+            else
+              GQL_UNRESOLVED=$(echo "$GQL_PAGE" | jq '[.data.repository.pullRequest.reviewThreads.nodes[] | select(.isResolved == false)] | length' 2>/dev/null || echo "")
+              if [ -z "$GQL_UNRESOLVED" ] || ! printf '%s' "$GQL_UNRESOLVED" | grep -qE '^[0-9]+$'; then
+                COMMENTS_STATUS="SKIP (null GraphQL response)"
+              elif [ "$GQL_UNRESOLVED" = "0" ]; then
+                COMMENTS_STATUS="PASS"
+              else
+                COMMENTS_STATUS="FAIL ($GQL_UNRESOLVED unresolved)"
+              fi
+            fi
+            echo "  [5] Comments resolved:   $COMMENTS_STATUS"
+
+            # All must PASS (gate 5 SKIP does not block)
             ALL_PASS=true
             for COND in "$CI_RESULT" "$MERGE_CONFLICT" "$CR_APPROVED" "$BUGBOT_STATUS" "$COMMENTS_STATUS"; do
               if echo "$COND" | grep -qi "FAIL"; then
@@ -167,7 +212,7 @@ jobs:
                 break
               fi
             done
-            if echo "$SKEPTIC_STATUS" | grep -Ei "FAIL|MISSING"; then
+            if echo "$SKEPTIC_STATUS" | grep -qiE "FAIL|MISSING"; then
               ALL_PASS=false
             fi
 
@@ -177,12 +222,15 @@ jobs:
               if [ "$MERGED_FLAG" = "true" ]; then
                 echo "Already merged — skipping"
               else
-                MERGE_RESULT=$(gh pr merge "$PR_NUM" \
-                  --repo ${{ github.repository }} \
-                  --squash --auto \
-                  --delete-branch \
+                # bd-5gl fix: use squash merge API directly instead of --auto flag.
+                # --auto requests GitHub auto-merge but does not merge immediately;
+                # the squash merge PUT completes the merge synchronously.
+                MERGE_RESULT=$(gh api repos/${{ github.repository }}/pulls/"$PR_NUM"/merge \
+                  --method PUT \
+                  -f merge_method=squash \
+                  -f commit_title="[agento] Merge PR #${PR_NUM}" \
                   2>&1 || echo "MERGE_FAILED")
-                if echo "$MERGE_RESULT" | grep -Ei "MERGE_FAILED|error"; then
+                if echo "$MERGE_RESULT" | grep -qiE "MERGE_FAILED|error"; then
                   echo "Merge failed for PR #${PR_NUM}: $MERGE_RESULT"
                 else
                   echo "Successfully merged PR #${PR_NUM}"

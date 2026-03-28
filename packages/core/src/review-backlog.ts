@@ -29,6 +29,8 @@ export interface ReviewBacklogDeps {
     reactionKey: string,
     reactionConfig: ReactionConfig,
     session?: Session,
+    correlationId?: string,
+    agentDead?: boolean,
   ) => Promise<ReactionResult>;
   /** Whether the agent is confirmed dead — skips send-to-agent backlog dispatches (bd-5o1) */
   agentDead: boolean;
@@ -111,11 +113,17 @@ export async function maybeDispatchReviewBacklog(
 
   let pendingComments: Awaited<ReturnType<typeof scm.getPendingComments>> | null = null;
   let automatedComments: Awaited<ReturnType<typeof scm.getAutomatedComments>> | null = null;
+  // bd-xxx: Gate changes-requested dispatch on CR's latest verdict so we don't re-alert
+  // on unresolved suggestions after CR moves to COMMENTED (not a formal CHANGES_REQUESTED verdict).
+  let crLatestVerdict: string | null = null;
+  // Track whether any human posted CHANGES_REQUESTED after CR's latest verdict
+  let newerHumanCR = false;
 
   if (!shouldThrottle) {
-    const [pendingResult, automatedResult] = await Promise.allSettled([
+    const [pendingResult, automatedResult, reviewsResult] = await Promise.allSettled([
       scm.getPendingComments(session.pr),
       skipAutomated ? Promise.resolve(null) : scm.getAutomatedComments(session.pr),
+      scm.getReviews(session.pr),
     ]);
 
     // null means "failed to fetch" — preserve existing metadata.
@@ -128,6 +136,27 @@ export async function maybeDispatchReviewBacklog(
       automatedResult.status === "fulfilled" && Array.isArray(automatedResult.value)
         ? automatedResult.value
         : null;
+
+    // bd-xxx: Extract CR's latest review verdict to gate changes-requested dispatch.
+    // Fail open (null = don't know) so we don't suppress legitimate alerts during transient
+    // API errors.
+    if (reviewsResult.status === "fulfilled" && Array.isArray(reviewsResult.value)) {
+      // getReviews returns Review[] with flat author: string (not author.login)
+      const allReviews = reviewsResult.value;
+      const crReviews = allReviews.filter((r) => String(r.author ?? "").endsWith("coderabbitai[bot]"));
+      const latestCRReview = crReviews[crReviews.length - 1];
+      crLatestVerdict = latestCRReview?.state ?? null;
+
+      // Allow dispatch if a human posted any meaningful review after CR's latest verdict.
+      // This includes CHANGES_REQUESTED (action required), APPROVED (human cleared the PR),
+      // or any other non-CR review that signals human engagement worth acting on.
+      const latestCRIndex = latestCRReview
+        ? allReviews.findIndex((r) => r === latestCRReview)
+        : -1;
+      newerHumanCR = allReviews.slice(latestCRIndex + 1).some(
+        (r) => !String(r.author ?? "").endsWith("coderabbitai[bot]"),
+      );
+    }
   }
 
   // --- Pending (human) review comments ---
@@ -178,11 +207,21 @@ export async function maybeDispatchReviewBacklog(
     } else if (
       !shouldThrottle &&
       !(oldStatus !== newStatus && newStatus === "changes_requested") &&
-      pendingFingerprint !== lastPendingDispatchHash
+      pendingFingerprint !== lastPendingDispatchHash &&
+      // bd-xxx: only re-alert on pending comments when verdict is not COMMENTED/DISMISSED
+      // (including CHANGES_REQUESTED, null, or any other state), OR when a human reviewer
+      // posted CHANGES_REQUESTED after CR's latest verdict. This ensures we never suppress
+      // dispatch when verdict is null (fail open for API errors), and we always allow
+      // dispatch for CHANGES_REQUESTED or newer human CR. Only COMMENTED/DISMISSED with
+      // no newer human CR is suppressed.
+      // SCM normalizes GitHub API values: "CHANGES_REQUESTED" → "changes_requested" (scm-github getReviews).
+      (crLatestVerdict === null || (crLatestVerdict !== "commented" && crLatestVerdict !== "dismissed") || newerHumanCR)
     ) {
       const reactionConfig = getReactionConfigForSession(session, humanReactionKey);
-      // bd-5o1: skip send-to-agent backlog dispatches for dead agents — same logic
-      // as the transition block in checkSession. notifyHuman is still allowed.
+      // bd-5o1: skip send-to-agent for dead agents. respawn-for-review is always
+      // allowed from the backlog — the fingerprint guard (lastPendingDispatchHash)
+      // prevents same-cycle duplicates, and the retry path needs backlog to re-attempt
+      // if a spawn fails.
       const skipForDead = agentDead && reactionConfig?.action === "send-to-agent";
       if (
         reactionConfig &&
@@ -196,6 +235,8 @@ export async function maybeDispatchReviewBacklog(
           humanReactionKey,
           reactionConfig,
           session,
+          undefined,
+          agentDead,
         );
         if (result.success) {
           updateSessionMetadataHelper(
@@ -239,7 +280,7 @@ export async function maybeDispatchReviewBacklog(
       );
     } else if (!shouldThrottle && automatedFingerprint !== lastAutomatedDispatchHash) {
       const reactionConfig = getReactionConfigForSession(session, automatedReactionKey);
-      // bd-5o1: skip send-to-agent backlog dispatches for dead agents
+      // bd-5o1: skip send-to-agent for dead agents (automated path)
       const skipForDead = agentDead && reactionConfig?.action === "send-to-agent";
       if (
         reactionConfig &&
@@ -253,6 +294,8 @@ export async function maybeDispatchReviewBacklog(
           automatedReactionKey,
           reactionConfig,
           session,
+          undefined,
+          agentDead,
         );
         if (result.success) {
           updateSessionMetadataHelper(
