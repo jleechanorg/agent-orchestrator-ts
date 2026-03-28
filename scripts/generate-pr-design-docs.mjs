@@ -230,7 +230,6 @@ function archDiagram(pr) {
     "└" + bar + " ┘\n                  │\n    ▼ " + pr.files.length +
     " file(s) changed\n                  │\n" +
     "┌" + bar + " ┐\n" + archTitle + "\n└" + bar + " ┘";
-} (feat(bd-5nxx): cap send-to-agent retries at 3 + add _testing API for tests)
 }
 
 // ---------------------------------------------------------------------------
