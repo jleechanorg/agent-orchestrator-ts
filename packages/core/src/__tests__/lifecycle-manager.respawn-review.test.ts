@@ -83,21 +83,23 @@ function makeReviewComments(): ReviewComment[] {
   return [
     {
       id: "RC_1",
+      author: "reviewer",
       body: "Please fix this typo",
       path: "src/index.ts",
       line: 10,
-      user: { login: "reviewer", type: "User" },
-      state: "CHANGES_REQUESTED",
-      createdAt: new Date().toISOString(),
+      isResolved: false,
+      createdAt: new Date(),
+      url: "https://github.com/org/repo/pull/42#discussion_RC_1",
     },
     {
       id: "RC_2",
+      author: "reviewer",
       body: "Add a test for this function",
       path: "src/index.ts",
       line: 25,
-      user: { login: "reviewer", type: "User" },
-      state: "CHANGES_REQUESTED",
-      createdAt: new Date().toISOString(),
+      isResolved: false,
+      createdAt: new Date(),
+      url: "https://github.com/org/repo/pull/42#discussion_RC_2",
     },
   ];
 }
@@ -139,7 +141,6 @@ beforeEach(() => {
     getReviewDecision: vi.fn(),
     getMergeability: vi.fn(),
     mergePR: vi.fn(),
-    getReviewComments: vi.fn(),
     getReviews: vi.fn().mockResolvedValue([]),
     getPendingComments: vi.fn().mockResolvedValue([]),
     getAutomatedComments: vi.fn().mockResolvedValue([]),
@@ -235,7 +236,7 @@ describe("respawn-for-review reaction action", () => {
     vi.mocked(mockSCM.getPRState).mockResolvedValue("open");
     vi.mocked(mockSCM.getReviewDecision).mockResolvedValue("changes_requested");
     vi.mocked(mockSCM.getMergeability).mockResolvedValue({ mergeable: false, noConflicts: true });
-    vi.mocked(mockSCM.getReviewComments).mockResolvedValue(makeReviewComments());
+    vi.mocked(mockSCM.getPendingComments).mockResolvedValue(makeReviewComments());
 
     const reactionsConfig: OrchestratorConfig = {
       ...config,
@@ -282,7 +283,7 @@ describe("respawn-for-review reaction action", () => {
     vi.mocked(mockSCM.getPRState).mockResolvedValue("open");
     vi.mocked(mockSCM.getReviewDecision).mockResolvedValue("changes_requested");
     vi.mocked(mockSCM.getMergeability).mockResolvedValue({ mergeable: false, noConflicts: true });
-    vi.mocked(mockSCM.getReviewComments).mockResolvedValue(makeReviewComments());
+    vi.mocked(mockSCM.getPendingComments).mockResolvedValue(makeReviewComments());
 
     const reactionsConfig: OrchestratorConfig = {
       ...config,
@@ -375,7 +376,6 @@ describe("respawn-for-review reaction action", () => {
     vi.mocked(mockSCM.getReviewDecision).mockResolvedValue("changes_requested");
     vi.mocked(mockSCM.getMergeability).mockResolvedValue({ mergeable: false, noConflicts: true });
     const comments = makeReviewComments();
-    vi.mocked(mockSCM.getReviewComments).mockResolvedValue(comments);
     vi.mocked(mockSCM.getPendingComments).mockResolvedValue(comments);
 
     const reactionsConfig: OrchestratorConfig = {
