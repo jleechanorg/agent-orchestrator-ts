@@ -15,11 +15,7 @@ function setupGhJson(values: unknown[]) {
   mockGhJson.mockReset();
   mockFetchReviews.mockReset();
   mockFetchReviews.mockResolvedValue([]);
-  let idx = 0;
-  mockGhJson.mockResolvedValueOnce(values[idx++] as any);
-  mockGhJson.mockResolvedValueOnce(values[idx++] as any);
-  mockGhJson.mockResolvedValueOnce(values[idx++] as any);
-  mockGhJson.mockResolvedValueOnce(values[idx++] as any);
+  values.forEach(v => mockGhJson.mockResolvedValueOnce(v as any));
 }
 
 describe("fetchMergeGateState — skeptic verdict parsing", () => {

@@ -28,11 +28,7 @@ describe("fetchMergeGateState — skeptic verdict parsing", () => {
    */
   function setupGhJson(values: unknown[]) {
     mockGhJson.mockReset();
-    let idx = 0;
-    mockGhJson.mockResolvedValueOnce(values[idx++] as any);
-    mockGhJson.mockResolvedValueOnce(values[idx++] as any);
-    mockGhJson.mockResolvedValueOnce(values[idx++] as any);
-    mockGhJson.mockResolvedValueOnce(values[idx++] as any);
+    values.forEach(v => mockGhJson.mockResolvedValueOnce(v as any));
   }
 
   it("parses VERDICT: SKIPPED from skeptic bot issue comments", async () => {
