@@ -57,7 +57,7 @@ async function findExistingVerdict(
     if (/<!-- skeptic-agent-verdict -->/i.test(c.body)) {
       const m = c.body.match(VERDICT_LINE_RE);
       if (m) {
-        return { verdict: m[1].toUpperCase() as "PASS" | "FAIL", commentId: c.id };
+        return { verdict: m[1].toUpperCase() as "PASS" | "FAIL" | "SKIPPED", commentId: c.id };
       }
     }
   }
