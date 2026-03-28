@@ -43,8 +43,12 @@ jobs:
           # would be parsed as `(.a == X and .b) | test(...)` without parens.
           # Use .[-1] (last element) to select the most recent trigger comment when
           # multiple exist — avoids updating a stale older comment and leaving duplicates.
+          # --slurpfile /dev/null forces jq to aggregate ALL pages before applying the
+          # filter — without it, the jq expression applies per-page so .[-1] may select
+          # a stale match from an earlier page rather than the true last matching comment.
           EXISTING=$(gh api repos/${{ github.repository }}/issues/"$PR_NUM"/comments \
             --paginate \
+            --slurpfile /dev/null \
             --jq '[.[] | select(.user.login == "github-actions[bot]" and (.body | test("skeptic-gate-trigger"; "i")))] | .[-1] // empty' 2>/dev/null || echo "empty")
 
           # Build the body via printf (not inline YAML) so $HEAD_SHA substitution is safe.
@@ -151,9 +155,14 @@ jobs:
             # Parentheses required around (.body | test(...)) — jq `and` has lower
             # precedence than `|`, so unparenthesized form would be parsed as
             # (.user.login == X and .body) | test(...) which always selects all.
-            VERDICT_JQ="[.[] | select(.user.login == \"\$SKEPTIC_BOT_AUTHOR\" and (.body | test(\"VERDICT:\"; \"i\")) and (.created_at > \"\$TRIGGER_UPDATED\") and (.body | test(\"skeptic-gate-trigger-\" + \"\$TRIGGER_SHA\"; \"i\")))] | .[0] // empty"
+            # --slurpfile /dev/null aggregates all pages before filtering — without it,
+            # the jq filter applies per-page so .[-1] (most recent) only reflects the
+            # last comment on the last page, missing newer matches.
+            # Comments are returned oldest→newest, so .[-1] gives the most recent match.
+            VERDICT_JQ="[.[] | select(.user.login == \"\$SKEPTIC_BOT_AUTHOR\" and (.body | test(\"VERDICT:\"; \"i\")) and (.created_at > \"\$TRIGGER_UPDATED\") and (.body | test(\"skeptic-gate-trigger-\" + \"\$TRIGGER_SHA\"; \"i\")))] | .[-1] // empty"
             VERDICT_JSON=$(gh api repos/${{ github.repository }}/issues/"$PR_NUM"/comments \
               --paginate \
+              --slurpfile /dev/null \
               --jq "$VERDICT_JQ" 2>&1)
             if echo "$VERDICT_JSON" | grep -qi "error\|rate limit\|authentication\|not found\|server error"; then
               API_FAILURES=$((API_FAILURES + 1))
