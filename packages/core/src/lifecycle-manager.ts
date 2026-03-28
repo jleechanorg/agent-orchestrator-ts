@@ -427,8 +427,15 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     // whether to reset the counter (only reset on genuine SCM success).
     let scmErrorOccurred = false;
 
-    // 1. Check if runtime is alive
-    if (session.runtimeHandle && runtime) {
+    // 1. Check if runtime is alive — but skip probes for sessions still
+    // within the startup grace period. A false negative from isAlive during
+    // agent CLI init would kill the session before it ever gets a chance to
+    // write its first activity marker.
+    if (
+      session.runtimeHandle &&
+      runtime &&
+      (session.status !== "spawning" || sessionAgeMs >= (config.startupGracePeriodMs ?? 120_000))
+    ) {
       const alive = await runtime.isAlive(session.runtimeHandle).catch(() => true);
       if (!alive) {
         // Don't return "killed" yet — if the session has a PR (or might have

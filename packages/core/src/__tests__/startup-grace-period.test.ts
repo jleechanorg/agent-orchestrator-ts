@@ -160,6 +160,36 @@ afterEach(() => {
 // =============================================================================
 
 describe("startup grace period in determineStatus (bd-85r)", () => {
+  it("does NOT kill a spawning session within grace when isAlive reports dead", async () => {
+    // bd-85r regression: isAlive was not covered by the grace period guard,
+    // so a false-negative from isAlive during agent CLI init would kill a
+    // session that was still within the grace window.
+    const session = makeSession({
+      createdAt: new Date(Date.now() - 10_000), // 10s ago — within 120s grace
+      status: "spawning",
+      activity: "active",
+    });
+
+    // isAlive returns false — this must NOT kill the session while in grace
+    (mockRuntime.isAlive as ReturnType<typeof vi.fn>).mockResolvedValue(false);
+
+    vi.mocked(mockSessionManager.get).mockResolvedValue(session);
+    writeMetadata(sessionsDir, session.id, { worktree: tmpDir, branch: "feat/test", status: "spawning" });
+
+    const lm = createLifecycleManager({
+      config,
+      registry: mockRegistry,
+      sessionManager: mockSessionManager,
+    });
+
+    await lm.check(session.id);
+
+    // Session must survive — isAlive should have been skipped entirely
+    expect(lm.getStates().get(session.id)).toBe("spawning");
+    expect(mockSessionManager.kill).not.toHaveBeenCalled();
+    expect(mockRuntime.isAlive).not.toHaveBeenCalled();
+  });
+
   it("does NOT kill a session within the grace period even if agent reports exited", async () => {
     const session = makeSession({
       createdAt: new Date(Date.now() - 10_000), // 10s ago — within 120s grace

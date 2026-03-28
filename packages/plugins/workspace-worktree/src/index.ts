@@ -4,14 +4,7 @@ import { existsSync, lstatSync, symlinkSync, rmSync, mkdirSync, readdirSync, rea
 import { readFile, writeFile } from "node:fs/promises";
 import { join, resolve, basename, dirname } from "node:path";
 import { homedir } from "node:os";
-import { findRepoPathForWorktree } from "@jleechanorg/ao-core";
-import type {
-  PluginModule,
-  Workspace,
-  WorkspaceCreateConfig,
-  WorkspaceInfo,
-  ProjectConfig,
-} from "@jleechanorg/ao-core";
+import { findRepoPathForWorktree, type PluginModule, type Workspace, type WorkspaceCreateConfig, type WorkspaceInfo, type ProjectConfig } from "@jleechanorg/ao-core";
 
 /** Timeout for git commands (30 seconds) */
 const GIT_TIMEOUT = 30_000;
