@@ -127,7 +127,9 @@ export function registerSkeptic(program: Command): Command {
         console.log(chalk.yellow("\n=== DRY RUN — Verdict ===\n"));
         const verdictMatch = verdict.match(VERDICT_LINE_RE);
         if (verdictMatch) {
-          console.log(chalk[verdictMatch[1].toLowerCase() === "pass" ? "green" : "red"](verdictMatch[0]));
+          const verdictType = verdictMatch[1].toUpperCase();
+          const color = verdictType === "PASS" ? "green" : verdictType === "SKIPPED" ? "yellow" : "red";
+          console.log(chalk[color](verdictMatch[0]));
         } else {
           console.log(verdict);
         }
