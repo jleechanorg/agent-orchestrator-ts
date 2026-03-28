@@ -6,7 +6,7 @@
 # =============================================================================
 set -euo pipefail
 
-OWNER_REPO="${1:?Usage: $0 <owner/repo> <pr_number> [GITHUB_TOKEN]}"
+OWNER_REPO="${1:?Usage: $0 <owner/repo> <pr_number>}"
 PR_NUM="${2:?Usage: $0 <owner/repo> <pr_number>}"
 
 OWNER="${OWNER_REPO%%/*}"
@@ -41,7 +41,7 @@ RAW=$(gh api graphql \
   -f query="$GRAPHQL_QUERY" \
   -f owner="$OWNER" \
   -f repo="$REPO" \
-  -f pr="$PR_NUM" \
+  -F pr="$PR_NUM" \
   2>/dev/null) || RAW=""
 
 # Parse threads — extract unresolved, non-bot, Major/Critical
@@ -84,30 +84,36 @@ def priority($body):
   threads: (
     ($raw.data.repository.pullRequest.reviewThreads.nodes // []) |
     map(select(.isResolved == false)) |
-    map(.comments.nodes[0] // null) |
-    map(select(. != null)) |
-    map(select((.author.login // "") | IN(BOT_AUTHORS[]) | not)) |
+    # Preserve thread-level path/line before extracting comment
+    map({path, line, comment: (.comments.nodes[0] // null)}) |
+    map(select(.comment != null)) |
+    map(select((.comment.author.login // "") | IN(BOT_AUTHORS[]) | not)) |
     map({
       path: .path,
       line: .line,
-      body: .body,
-      body_short: (.body[0:120] + if (.body | length > 120) then "..." else "" end),
-      severity: (.body | severity),
-      actionable: (.body | actionable),
-      priority: (.body | priority),
-      author: .author.login,
-      created_at: .createdAt
+      body: .comment.body,
+      body_short: (.comment.body[0:120] + if (.comment.body | length > 120) then "..." else "" end),
+      severity: (.comment.body | severity),
+      actionable: (.comment.body | actionable),
+      priority: (.comment.body | priority),
+      author: .comment.author.login,
+      created_at: .comment.createdAt
     }) |
-    sort_by(.priority)
-  ),
-  summary: {
-    total: length,
-    critical: map(select(.severity == "Critical")) | length,
-    major:    map(select(.severity == "Major")) | length,
-    medium:   map(select(.severity == "Medium")) | length,
-    minor:    map(select(.severity == "Minor")) | length,
-    actionable_count: map(select(.actionable == true)) | length,
-    by_file: (map(.path) | group_by(.) | map({file: .[0], count: length}))
-  }
+    sort_by(.priority) |
+    # Compute summary from the sorted list
+    (reduce .[] as $t
+      ({total:0, critical:0, major:0, medium:0, minor:0, actionable_count:0, by_file:{}};
+       .total += 1 |
+       (if $t.severity == "Critical" then .critical += 1
+        elif $t.severity == "Major" then .major += 1
+        elif $t.severity == "Medium" then .medium += 1
+        elif $t.severity == "Minor" then .minor += 1
+        else . end) |
+       (if $t.actionable then .actionable_count += 1 else . end) |
+       .by_file[$t.path] = (.by_file[$t.path] // 0) + 1
+      ) | {total, critical, major, medium, minor, actionable_count,
+           by_file: ([.by_file | to_entries | sort_by(.key) | map({file: .key, count: .value})])}
+    ) as $summary |
+    {threads: (map({path, line, body, body_short, severity, actionable, priority, author, created_at})), summary}
 }
 '

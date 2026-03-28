@@ -15,6 +15,9 @@ MODE="${3:-query}"   # query | fix-mode
 OWNER="${OWNER_REPO%%/*}"
 REPO="${OWNER_REPO#*/}"
 
+# NOTE: In GitHub Actions (cr-loop-health.yml), the runner filesystem is ephemeral.
+# The cache file will not persist across workflow runs. This is acceptable for
+# manual workflow_dispatch use; cross-run loop detection requires the GitHub cache API.
 CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/ao-cr-loop-guard"
 CACHE_FILE="$CACHE_DIR/${OWNER}_${REPO}_${PR_NUM}.json"
 MAX_LOOPS=2   # Allow 2 cycles of same actionable set before forcing copilot-expanded
@@ -49,7 +52,7 @@ RAW=$(gh api graphql \
   -f query="$GRAPHQL_QUERY" \
   -f owner="$OWNER" \
   -f repo="$REPO" \
-  -f pr="$PR_NUM" \
+  -F pr="$PR_NUM" \
   2>/dev/null) || RAW=""
 
 # Step 2: Extract actionable comment fingerprints (path+line+first 80 non-whitespace chars)

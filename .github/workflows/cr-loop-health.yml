@@ -54,7 +54,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           # Run cr-loop-guard in query mode to get stats
-          RESULT=$(../../scripts/cr-loop-guard.sh \
+          RESULT=$(scripts/cr-loop-guard.sh \
             ${{ github.inputs.owner_repo }} \
             ${{ github.inputs.pr_number }} \
             query 2>/dev/null || echo '{"loop_count":0,"actionable_count":0}')
@@ -92,8 +92,6 @@ jobs:
       - name: Health verdict
         if: steps.pr_state.outputs.status == 'active'
         id: verdict
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_OUTPUT }}
         run: |
           MAX_CYCLES=${{ github.inputs.max_cycles }}
           LOOP_COUNT=${{ steps.loop_guard.outputs.loop_count }}
@@ -125,4 +123,4 @@ jobs:
             echo "STALL_DETECTED=false" >> "$GITHUB_OUTPUT"
           fi
 
-          echo "=== $VERDICT: $reason ==="
+          echo "=== $(cat "$GITHUB_OUTPUT" | grep '^VERDICT=' | cut -d= -f2-): $(cat "$GITHUB_OUTPUT" | grep '^reason=' | cut -d= -f2-) ==="
