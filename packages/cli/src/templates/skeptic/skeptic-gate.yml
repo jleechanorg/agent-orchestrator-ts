@@ -17,6 +17,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       pull-requests: write
+      issues: write
     steps:
       # Step 1: Post trigger comment for lifecycle-manager to pick up.
       # lifecycle-manager runs ao skeptic verify with local API keys.
@@ -28,8 +29,9 @@ jobs:
           PR_NUM=${{ github.event.pull_request.number }}
 
           # Idempotent: update existing trigger comment instead of appending.
+          # Parentheses around (.body | test(...)) required — jq `and` has lower precedence than `|`
           EXISTING_ID=$(gh api repos/${{ github.repository }}/issues/"$PR_NUM"/comments \
-            --jq '[.[] | select(.user.login == "github-actions[bot]" and .body | test("skeptic-gate-trigger"; "i"))] | .[0].id // empty' 2>/dev/null || echo "")
+            --jq '[.[] | select(.user.login == "github-actions[bot]" and (.body | test("skeptic-gate-trigger"; "i")))] | .[0].id // empty' 2>/dev/null || echo "")
 
           if [ -n "$EXISTING_ID" ] && [ "$EXISTING_ID" != "empty" ]; then
             gh api repos/${{ github.repository }}/issues/"$PR_NUM"/comments/"$EXISTING_ID" \
@@ -57,19 +59,19 @@ _AO worker will evaluate and post VERDICT._
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-        timeout-minutes: 30
+        # 28 min timeout — leave 2 min buffer so the step exits cleanly before the
+        # 30-min job timeout rather than being killed by the runner.
+        timeout-minutes: 28
         run: |
           PR_NUM=${{ github.event.pull_request.number }}
-          MAX_ATTEMPTS=60
+          MAX_ATTEMPTS=55   # 55 * 30s = 27.5 min (safe of 28-min step timeout)
           INTERVAL=30
 
           echo "Polling for VERDICT from jleechan-agent[bot] on PR #$PR_NUM (commit ${HEAD_SHA:0:7})..."
-          echo "Timeout: $((MAX_ATTEMPTS * INTERVAL / 60)) minutes"
+          echo "Max wait: $((MAX_ATTEMPTS * INTERVAL / 60)) minutes"
 
           for i in $(seq 1 $MAX_ATTEMPTS); do
-            sleep $INTERVAL
-
-            # Exit early if PR was closed
+            # Check immediately before sleeping — catches VERDICT already posted.
             PR_STATE=$(gh api repos/${{ github.repository }}/pulls/"$PR_NUM" --jq '.state' 2>/dev/null || echo "unknown")
             if [ "$PR_STATE" = "closed" ]; then
               echo "PR closed — exiting"
@@ -77,11 +79,16 @@ _AO worker will evaluate and post VERDICT._
               exit 0
             fi
 
-            # Look for VERDICT from jleechan-agent[bot]
-            VERDICT_BODY=$(gh api repos/${{ github.repository }}/issues/"$PR_NUM"/comments \
-              --jq '[.[] | select(.user.login == "jleechan-agent[bot]" and (.body | test("VERDICT:"; "i")))] | .[-1].body // empty' 2>/dev/null || echo "")
+            # Look for VERDICT from jleechan-agent[bot] (posted by ao skeptic verify).
+            # Parentheses required around (.body | test(...)) — jq `and` has lower
+            # precedence than `|`, so unparenthesized form would be parsed as
+            # (.user.login == X and .body) | test(...) which always selects all entries.
+            VERDICT=$(gh api repos/${{ github.repository }}/issues/"$PR_NUM"/comments \
+              --jq '[.[] | select(.user.login == "jleechan-agent[bot]" and (.body | test("VERDICT:"; "i")))] | .[-1] | {id, body: .body} // empty' 2>/dev/null || echo "")
 
-            if [ -n "$VERDICT_BODY" ] && [ "$VERDICT_BODY" != "empty" ]; then
+            if [ -n "$VERDICT" ] && [ "$VERDICT" != "empty" ]; then
+              VERDICT_ID=$(echo "$VERDICT" | jq -r '.id // empty')
+              VERDICT_BODY=$(echo "$VERDICT" | jq -r '.body // empty')
               echo ""
               echo "=== Found VERDICT ==="
               echo "$VERDICT_BODY"
@@ -97,7 +104,8 @@ _AO worker will evaluate and post VERDICT._
               fi
             fi
 
-            echo "Attempt $i/$MAX_ATTEMPTS — no VERDICT yet..."
+            echo "Attempt $i/$MAX_ATTEMPTS — no VERDICT yet, sleeping ${INTERVAL}s..."
+            sleep $INTERVAL
           done
 
           echo "TIMEOUT: No VERDICT after $((MAX_ATTEMPTS * INTERVAL / 60)) minutes"
