@@ -192,11 +192,15 @@ function extractDescription(body) {
   // Use first paragraph (non-empty, non-heading line block)
   // bd-7gs-fix: strip HTML comment markers and adjacent markdown separators from AI-generated PR bodies
   const cleaned = (body || "")
-    .replace(/<!--\s*CURSOR_SUMMARY\s*-->/gi, "")
-    .replace(/&lt;!--\s*CURSOR_SUMMARY\s*--&gt;/gi, "") // strip HTML-entity-encoded comment
-    .replace(/\\u003c!--\s*CURSOR_SUMMARY\s*--\\u003e/gi, "") // strip double-escaped JS-unicode form
+    // bd-7gs-fix: strip the full CURSOR_SUMMARY block (opening + content + closing
+    // comment) in one pass so the greedy fallback stripper never sees it.  Handles
+    // all known encodings: literal, HTML-entity, single-escaped, and double-escaped.
+    .replace(/<!--\s*[\/]?CURSOR_SUMMARY[\s\S]*?-->/g, "")
+    .replace(/&lt;!--\s*[\/]?CURSOR_SUMMARY[\s\S]*?&gt;/g, "")
+    .replace(/\u003c!--\s*[\/]?CURSOR_SUMMARY[\s\S]*?\u003e/g, "")
+    .replace(/\\u003c!--\s*[\/]?CURSOR_SUMMARY[\s\S]*?\\u003e/g, "")
     .replace(/^---\s*$/gm, "")
-    .replace(/<!--[\s\S]*?-->/g, ""); // strip all HTML comments
+    .replace(/<!--[\s\S]*?-->/gs, ""); // strip any remaining HTML comments (dotall + non-greedy)
   const paragraphs = cleaned.split(/\n\n+/);
   for (const p of paragraphs) {
     const trimmed = p.trim();
