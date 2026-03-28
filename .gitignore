@@ -63,6 +63,8 @@ packages/web/agent-orchestrator.yaml
 agent-orchestrator.yaml
 
 # Agent configuration (keep .claude/ tracked for skills/commands)
+.claude/settings.json
+.claude/settings.local.json
 .claude/scheduled_tasks.lock
 .claude/worktrees/
 .claude/metadata-updater.sh
