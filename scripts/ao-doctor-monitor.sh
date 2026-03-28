@@ -530,7 +530,9 @@ PY
     fail "$missing_age_count PR(s) missing createdAt — age guardrail is BLOCKING"
   elif [ "$repos_skipped" -gt 0 ]; then
     warn "Skipped $repos_skipped repo(s) due to fetch failure — not all PRs verified"
-  elif [ "$SLACK_STALE_PR_COUNT" -eq 0 ]; then
+  fi
+  # Only report "all fresh" if no repos were skipped (complete data required)
+  if [ "$repos_skipped" -eq 0 ] && [ "$SLACK_STALE_PR_COUNT" -eq 0 ]; then
     pass "All open PRs are fresh (<${AO_DOCTOR_STALE_HOURS:-3}h, fresh=$fresh_count)"
   fi
 }
