@@ -211,7 +211,6 @@ function archDiagram(pr) {
   const prNum = pr.number;
   // Use a wider box for the title row — at least 70 chars to fit conventional commit titles
   const titleLen = Math.max(title.length, 70);
-  const titleRow = "│ " + title.slice(0, titleLen).padEnd(titleLen) + " │";
   const titleBorderTop = "┌" + "─".repeat(titleLen + 2) + "┐";
   const titleBorderBot = "└" + "─".repeat(titleLen + 2) + "┘";
   const paddedTitleLine = `│ ${title.slice(0, titleLen).padEnd(titleLen)} │`;
