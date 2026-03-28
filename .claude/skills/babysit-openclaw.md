@@ -41,24 +41,18 @@ Check the **last message from openclaw** and apply these signals:
 
 ## Step 3 — Nudge if needed
 
-Post via the cmux bot token from openclaw.json (NOT mcp__slack — posts as openclaw bot = self-loop):
+Post as jleechan via SLACK_USER_TOKEN (NOT mcp__slack — posts as openclaw bot = self-loop):
 
 ```python
-import json, urllib.request
+import json, urllib.request, os
 
 msg = "[AI Terminal: <workspace>] <@U0AEZC7RX1Q> <nudge text>"
-
-# Read cmux bot token from openclaw.json
-import json as _json
-with open("/Users/jleechan/.openclaw/openclaw.json") as f:
-    _cfg = _json.load(f)
-token = _cfg["channels"]["slack"]["cmuxBotToken"]
-
 payload = json.dumps({
     "channel": "C0AKYEY48GM",
     "thread_ts": "<thread_ts>",
     "text": msg
 })
+token = os.environ.get("SLACK_USER_TOKEN")
 req = urllib.request.Request(
     "https://slack.com/api/chat.postMessage",
     data=payload.encode(),
@@ -69,7 +63,7 @@ with urllib.request.urlopen(req) as resp:
     print(f"OK ts={d.get('ts')}" if d.get("ok") else f"ERROR: {d.get('error')}")
 ```
 
-Token source: `~/.openclaw/openclaw.json → channels.slack.cmuxBotToken` (cmux bot, app A0AHF4EBZPE).
+Always `source ~/.profile` first to load `SLACK_USER_TOKEN`.
 
 ### Nudge message guidelines
 
@@ -107,9 +101,9 @@ Successfully installed MarkupSafe-3.0.3 PyJWT-2.12.1 ...
 
 - openclaw bot user ID: `U0AEZC7RX1Q`
 - default channel: `C0AKYEY48GM`
-- token source: `~/.openclaw/openclaw.json → channels.slack.cmuxBotToken` (cmux bot, app A0AHF4EBZPE, user U0AH532BK2P)
+- token env var: `SLACK_USER_TOKEN` (loaded via `source ~/.profile`)
 - AI identity prefix: `[AI Terminal: <workspace-name>]` (required by CLAUDE.md)
 
 ## Why mcp__slack doesn't work for nudging
 
-`mcp__slack__conversations_add_message` posts as the openclaw bot (`$OPENCLAW_BOT_USER_ID`). openclaw's self-loop prevention ignores messages from its own account. The OpenClaw gateway (`http://127.0.0.1:18789`) may be webchat-bound with no Slack session target. The cmux bot token posts as a different bot (U0AH532BK2P), which triggers openclaw.
+`mcp__slack__conversations_add_message` posts as the openclaw bot (`$OPENCLAW_BOT_USER_ID`). openclaw's self-loop prevention ignores messages from its own account. The OpenClaw gateway (`http://127.0.0.1:18789`) may be webchat-bound with no Slack session target. Only `SLACK_USER_TOKEN` (posts as jleechan) triggers openclaw.
