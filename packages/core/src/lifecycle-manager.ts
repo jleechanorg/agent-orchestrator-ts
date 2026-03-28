@@ -356,6 +356,9 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
   const mergeRetryTimestamps = new Map<string, number>(); // "merge-retry-{sessionId}" → last attempt epoch
   const stuckRetryTimestamps = new Map<string, number>(); // "stuck-retry-{sessionId}" → last attempt epoch
   const stuckEntryTimestamps = new Map<string, number>(); // "stuck-entry-{sessionId}" → when session entered stuck
+  // bd-qnj6: track the last HEAD SHA that triggered a skeptic evaluation per session.
+  // When the SHA changes while session stays in pr_open, re-fire the skeptic reaction.
+  const lastSkepticSha = new Map<string, string>(); // sessionId → last evaluated HEAD SHA
   let pollTimer: ReturnType<typeof setInterval> | null = null;
   let polling = false; // re-entrancy guard
   let inboxPolling = false; // re-entrancy guard for concurrent inbox polls
@@ -1348,6 +1351,21 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
             createCorrelationId("skeptic-trigger"),
           );
           completionReactionHandledNotify = true;
+
+          // bd-qnj6: record the HEAD SHA at trigger time so the no-transition
+          // path can detect new pushes and re-trigger skeptic evaluation.
+          if (session.pr) {
+            const project = config.projects[session.projectId];
+            const scm = project?.scm ? registry.get<SCM>("scm", project.scm.plugin) : null;
+            if (scm?.getPRHeadSha) {
+              try {
+                const sha = await scm.getPRHeadSha(session.pr);
+                lastSkepticSha.set(session.id, sha);
+              } catch {
+                // Non-fatal — will re-trigger on next poll if SHA check fails
+              }
+            }
+          }
         }
       }
 
@@ -1631,6 +1649,57 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     } else {
       // No transition but track current state
       states.set(session.id, newStatus);
+
+      // bd-qnj6: re-trigger skeptic evaluation when HEAD SHA changes on an
+      // already-open PR. The pr_open transition fires skeptic once, but subsequent
+      // pushes (GHA synchronize events) don't cause a status transition — the
+      // session stays pr_open. Without this, GHA posts a trigger comment, polls
+      // for VERDICT, and times out because lifecycle-manager never re-fires skeptic.
+      if (
+        (newStatus === "pr_open" || newStatus === "changes_requested" || newStatus === "approved") &&
+        session.pr
+      ) {
+        const project = config.projects[session.projectId];
+        const scm = project?.scm ? registry.get<SCM>("scm", project.scm.plugin) : null;
+        if (scm?.getPRHeadSha) {
+          try {
+            const currentSha = await scm.getPRHeadSha(session.pr);
+            const previousSha = lastSkepticSha.get(session.id);
+            if (currentSha && previousSha && currentSha !== previousSha) {
+              // HEAD SHA changed — re-trigger skeptic evaluation
+              const completionReactionKey = "worker-signals-completion";
+              const completionReactionConfig = getReactionConfigForSession(session, completionReactionKey);
+              if (completionReactionConfig?.action && completionReactionConfig.auto !== false) {
+                observer.recordOperation({
+                  metric: "lifecycle_poll",
+                  operation: "lifecycle.skeptic_retrigger",
+                  outcome: "info",
+                  correlationId: createCorrelationId("skeptic-retrigger"),
+                  projectId: session.projectId,
+                  sessionId: session.id,
+                  data: { previousSha: previousSha.slice(0, 7), currentSha: currentSha.slice(0, 7) },
+                  level: "info",
+                });
+                await executeReaction(
+                  session.id,
+                  session.projectId,
+                  completionReactionKey,
+                  completionReactionConfig,
+                  session,
+                  createCorrelationId("skeptic-retrigger"),
+                );
+                lastSkepticSha.set(session.id, currentSha);
+              }
+            } else if (currentSha && !previousSha) {
+              // First time seeing this session's SHA — record without triggering
+              // (pr_open transition already fired skeptic)
+              lastSkepticSha.set(session.id, currentSha);
+            }
+          } catch {
+            // getPRHeadSha failed — skip retrigger this cycle
+          }
+        }
+      }
 
       // Retry auto-merge when status stays "mergeable" — the approved-and-green
       // reaction fires on transition but may fail (e.g., merge gate fails due to
