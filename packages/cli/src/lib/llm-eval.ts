@@ -26,14 +26,28 @@ const VERDICT_LINE_RE = /^VERDICT:\s*(PASS|FAIL)\s*$/im;
 
 export interface LlmEvalResult {
   /** Whether a valid VERDICT line was obtained from the tool.
-   *  false + error=undefined: tool binary not found — caller should try next.
+   *  false + error=undefined: tool unavailable (not installed / no credentials) — caller should try next.
    *  false + error=string: tool ran but produced no VERDICT — fail-closed.
    *  true: valid VERDICT obtained. */
   validVerdict: boolean;
   output: string;
-  /** Set when the tool ran but produced non-VERDICT output, or when it errored.
-   *  Undefined means "tool not found — try next". */
+  /** Set when the tool ran but produced non-VERDICT output, or when it errored fatally.
+   *  Undefined means "tool unavailable — try next". */
   error?: string;
+}
+
+/** Errors that mean the tool is unavailable and the caller should try the next one. */
+function isUnavailable(errMsg: string): boolean {
+  // ENOENT = binary not installed
+  // 401/403 = credentials missing or invalid — treat as "unavailable" so fallback chain continues
+  const lower = errMsg.toLowerCase();
+  return (
+    lower.includes("enoent") ||
+    lower.includes("401") ||
+    lower.includes("403") ||
+    lower.includes("unauthorized") ||
+    lower.includes("forbidden")
+  );
 }
 
 /**
@@ -74,13 +88,13 @@ export async function tryCodexPrint(prompt: string): Promise<LlmEvalResult> {
     return { validVerdict: true, output };
   } catch (err: unknown) {
     const errno = err as NodeJS.ErrnoException;
-    // ENOENT — codex binary not installed, caller should try next tool
-    if (errno.code === "ENOENT") {
+    const msg = err instanceof Error ? err.message : String(err);
+    // Unavailable: binary not installed OR auth failure — try next tool
+    if (errno.code === "ENOENT" || isUnavailable(msg)) {
       return { validVerdict: false, output: "", error: undefined }; // → try next
     }
-    // All other errors (timeout, auth failure, Command failed, etc.) are real failures
+    // All other errors (timeout, Command failed without auth issue, etc.) are real failures
     // — fail-closed: do NOT fall through to next tool
-    const msg = err instanceof Error ? err.message : String(err);
     return { validVerdict: false, output: "", error: msg };
   }
 }
@@ -114,10 +128,10 @@ export async function tryClaudePrint(prompt: string): Promise<LlmEvalResult> {
     return { validVerdict: true, output };
   } catch (err: unknown) {
     const errno = err as NodeJS.ErrnoException;
-    if (errno.code === "ENOENT") {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (errno.code === "ENOENT" || isUnavailable(msg)) {
       return { validVerdict: false, output: "", error: undefined }; // → no-op
     }
-    const msg = err instanceof Error ? err.message : String(err);
     return { validVerdict: false, output: "", error: msg };
   }
 }
