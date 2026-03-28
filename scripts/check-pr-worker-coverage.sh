@@ -59,7 +59,7 @@ while IFS= read -r line; do
 done <<< "$session_output"
 
 echo "=== Active Sessions ==="
-if [[ ${#session_map[@]} -eq 0 ]]; then
+if [[ "${session_map[@]+x}" != "x" ]] || [[ ${#session_map[@]} -eq 0 ]]; then
   echo "(none)"
 else
   for branch in "${!session_map[@]}"; do

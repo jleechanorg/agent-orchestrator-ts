@@ -113,21 +113,14 @@ jobs:
             # bd-ara.stale: track PR age — flag stale PRs ≥3h in cron output
             # Note: REST API returns snake_case fields (created_at, updated_at)
             PR_DETAIL=$(gh api repos/${{ github.repository }}/pulls/"$PR_NUM" \
-              --jq '{created_at: .created_at, updated_at: .updated_at}' 2>/dev/null || echo '{"created_at":null}')
+              --jq '{created_at: .created_at}' 2>/dev/null || echo '{"created_at":null}')
             CREATED=$(echo "$PR_DETAIL" | jq -r '.created_at')
-            UPDATED=$(echo "$PR_DETAIL" | jq -r '.updated_at')
-            if [ "$CREATED" != "null" ] && [ -n "$CREATED" ]; then
-              AGE_HRS=$(python3 - "$CREATED" <<'PYEOF'
-import sys, datetime
-try:
-    d = sys.argv[1].replace('Z','+00:00')
-    print(f'{(datetime.datetime.now(datetime.timezone.utc)-datetime.datetime.fromisoformat(d)).total_seconds()/3600.0:.1f}')
-except:
-    print('unknown')
-PYEOF
-              ) 2>/dev/null || AGE_HRS="unknown"
+            if [ "$CREATED" != "null" ] && [ -n "$CREATED" ] && [ "$CREATED" != "" ]; then
+              # python3 - (stdin mode) avoids YAML/heredoc parsing issues.
+              # CREATED is passed as argv[1]; age computed without shell-variable interpolation.
+              AGE_HRS=$(printf 'import sys, datetime\nprint((datetime.datetime.now(datetime.timezone.utc)-datetime.datetime.fromisoformat(sys.stdin.read().strip())).total_seconds()/3600.0)' | python3 - "$CREATED" 2>/dev/null) || AGE_HRS="unknown"
               echo "  [AGE] PR #${PR_NUM}: created=${CREATED}, age=${AGE_HRS}h"
-              # bash arithmetic: extract integer part and compare (avoids python3 -c injection)
+              # Bash integer comparison for stale flag — avoids python3 -c with shell vars
               STALE_STATUS="unknown"
               if [ "$AGE_HRS" != "unknown" ] && [ -n "$AGE_HRS" ]; then
                 AGE_INT=$(echo "$AGE_HRS" | cut -d. -f1)
