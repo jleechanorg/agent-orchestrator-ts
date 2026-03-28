@@ -17,11 +17,19 @@ jobs:
     permissions:
       contents: read
       pull-requests: write
-      issues: read
+      issues: write
     steps:
       - uses: actions/checkout@v4
 
-      - name: Resolve skeptic verdict from existing PR comments
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install ao CLI
+        run: npm install -g @jleechanorg/ao-core
+
+      - name: Resolve skeptic verdict from existing comments
         id: verdict
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -29,11 +37,12 @@ jobs:
           set -euo pipefail
           PR=${{ github.event.pull_request.number }}
 
+          # Step 1: Try to find an existing verdict comment.
           # Accept either AO worker bot or workflow bot comments.
           # Require marker AND explicit VERDICT:PASS or VERDICT:FAIL.
           COMMENTS=$(gh api repos/${{ github.repository }}/issues/$PR/comments --paginate)
 
-          VERDICT=$(echo "$COMMENTS" | jq -s 'add' | jq -r '
+          VERDICT_BODY=$(echo "$COMMENTS" | jq -s 'add' | jq -r '
             [.[]
               | select(
                   (.user.login == "jleechan-agent[bot]" or .user.login == "github-actions[bot]")
@@ -46,22 +55,64 @@ jobs:
             | .[0].body // ""
           ')
 
-          if echo "$VERDICT" | grep -qi "VERDICT:[[:space:]]*PASS"; then
+          if echo "$VERDICT_BODY" | grep -qi "VERDICT:[[:space:]]*PASS"; then
             echo "verdict=PASS" >> "$GITHUB_OUTPUT"
-            echo "Skeptic verdict PASS"
+            echo "Skeptic verdict PASS (from existing comment)"
             exit 0
           fi
 
-          if echo "$VERDICT" | grep -qi "VERDICT:[[:space:]]*FAIL"; then
+          if echo "$VERDICT_BODY" | grep -qi "VERDICT:[[:space:]]*FAIL"; then
             echo "verdict=FAIL" >> "$GITHUB_OUTPUT"
             echo "Skeptic verdict FAIL"
             exit 1
           fi
 
-          # Fail closed if no verdict comment yet.
-          echo "verdict=MISSING" >> "$GITHUB_OUTPUT"
-          echo "No skeptic VERDICT comment found yet (expected AO worker verdict)."
-          exit 1
+          # Step 2: No existing verdict comment — run ao skeptic verify and post result.
+          echo "No existing skeptic verdict comment found. Running ao skeptic verify..."
+          SKEPTIC_OUTPUT=$(ao skeptic verify --pr "$PR" 2>&1) || true
+          echo "=== Skeptic output ==="
+          echo "$SKEPTIC_OUTPUT"
+          echo "=== End output ==="
+
+          # Extract VERDICT from output.
+          VERDICT_LINE=$(echo "$SKEPTIC_OUTPUT" | grep -i "VERDICT:" | tail -1 || echo "")
+          if echo "$VERDICT_LINE" | grep -qi "VERDICT:[[:space:]]*FAIL\|VERDICT:[[:space:]]*SKIPPED"; then
+            VERDICT_VALUE="FAIL"
+          elif echo "$VERDICT_LINE" | grep -qi "VERDICT:[[:space:]]*PASS"; then
+            VERDICT_VALUE="PASS"
+          else
+            # Fail closed — no VERDICT line means something went wrong.
+            VERDICT_VALUE="FAIL"
+          fi
+
+          # Step 3: Post verdict as a comment from github-actions[bot].
+          # Build comment body line-by-line via printf to avoid YAML alias issues.
+          COMMENT_TMP=$(mktemp)
+          printf '%s\n' \
+            "<!-- skeptic-agent-verdict -->" \
+            "**Skeptic Gate Evaluation**" \
+            "" \
+            "\`\`\`" \
+            "$SKEPTIC_OUTPUT" \
+            "\`\`\`" \
+            "" \
+            "**VERDICT: $VERDICT_VALUE**" \
+            > "$COMMENT_TMP"
+          gh api repos/${{ github.repository }}/issues/$PR/comments \
+            --method POST \
+            --field body="$(cat "$COMMENT_TMP")" > /dev/null
+          rm -f "$COMMENT_TMP"
+
+          # Step 4: Set gate output based on verdict.
+          if [ "$VERDICT_VALUE" = "PASS" ]; then
+            echo "verdict=PASS" >> "$GITHUB_OUTPUT"
+            echo "Skeptic verdict PASS (run and posted)"
+            exit 0
+          else
+            echo "verdict=FAIL" >> "$GITHUB_OUTPUT"
+            echo "Skeptic verdict FAIL"
+            exit 1
+          fi
 
       - name: Post gate status summary
         if: always()
