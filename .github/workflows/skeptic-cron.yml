@@ -115,7 +115,7 @@ jobs:
             PR_DETAIL=$(gh api repos/${{ github.repository }}/pulls/"$PR_NUM" \
               --jq '{created_at: .created_at}' 2>/dev/null || echo '{"created_at":null}')
             CREATED=$(echo "$PR_DETAIL" | jq -r '.created_at')
-            if [ "$CREATED" != "null" ] && [ -n "$CREATED" ] && [ "$CREATED" != "" ]; then
+            if [ "$CREATED" != "null" ] && [ -n "$CREATED" ]; then
               # python3 - (stdin mode) avoids YAML/heredoc parsing issues.
               # CREATED is passed as argv[1]; age computed without shell-variable interpolation.
               AGE_HRS=$(printf 'import sys, datetime\nprint((datetime.datetime.now(datetime.timezone.utc)-datetime.datetime.fromisoformat(sys.stdin.read().strip())).total_seconds()/3600.0)' | python3 - "$CREATED" 2>/dev/null) || AGE_HRS="unknown"

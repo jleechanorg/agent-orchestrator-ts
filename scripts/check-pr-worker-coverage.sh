@@ -96,7 +96,8 @@ age_str=""
 is_stale=0
 coverage_status=""
 
-while IFS= read -r pr_line; do
+while IFS= read -r pr_line || [[ -n "$pr_line" ]]; do
+  [[ -z "$pr_line" ]] && continue
   pr_number=$(echo "$pr_line" | jq -r '.number')
   pr_branch=$(echo "$pr_line" | jq -r '.headRefName')
   pr_title=$(echo "$pr_line" | jq -r '.title')

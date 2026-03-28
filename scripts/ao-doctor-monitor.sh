@@ -441,17 +441,16 @@ _pr_age_hours() {
     echo "-1"
     return
   fi
-  # created_at format: "2026-03-27T12:00:00Z" — use python for reliable subtraction
-  python3 -c "
+  # Pass created_at as argv to avoid shell-variable injection into Python source
+  python3 - "$created_at" 2>/dev/null <<'PY' || echo "-1"
 import sys, datetime
 try:
-    created = datetime.datetime.fromisoformat('$created_at'.replace('Z','+00:00'))
+    created = datetime.datetime.fromisoformat(sys.argv[1].replace('Z','+00:00'))
     now = datetime.datetime.now(datetime.timezone.utc)
-    age = (now - created).total_seconds() / 3600.0
-    print(f'{age:.1f}')
+    print(f'{(now - created).total_seconds() / 3600.0:.1f}')
 except Exception:
     print('-1')
-" 2>/dev/null || echo "-1"
+PY
 }
 
 check_pr_age() {
@@ -469,6 +468,7 @@ check_pr_age() {
   local missing_age_count=0
   local fresh_count=0
   local repos_skipped=0
+  local pr_fetch_failed=0
 
   REPORT_LINES+=("--- PR Age Summary ---")
 
@@ -479,6 +479,7 @@ check_pr_age() {
       2>/dev/null) || {
       warn "Failed to fetch PRs from $repo — auth/config issue may be masking repo status"
       repos_skipped=$((repos_skipped + 1))
+      pr_fetch_failed=1
       continue
     }
 
@@ -502,7 +503,14 @@ check_pr_age() {
 
       # Flag >3h as stale concern (configurable via AO_DOCTOR_STALE_HOURS)
       local stale_threshold="${AO_DOCTOR_STALE_HOURS:-3}"
-      if python3 -c "import sys; sys.exit(0 if float('$age_hours') >= float('$stale_threshold') else 1)" 2>/dev/null; then
+      # Use argv-passing heredoc to avoid shell-variable injection into Python source
+      if python3 - "$age_hours" "$stale_threshold" 2>/dev/null <<'PY'; then
+import sys
+try:
+    sys.exit(0 if float(sys.argv[1]) >= float(sys.argv[2]) else 1)
+except:
+    sys.exit(1)
+PY
         warn "Stale PR: PR #$pr_num ($repo) age=${age_hours}h — uncovered or stalled (threshold=${stale_threshold}h)"
         REPORT_LINES+=("  PR #$pr_num [$branch]: age=${age_hours}h STALE")
         SLACK_STALE_PR_COUNT=$((SLACK_STALE_PR_COUNT + 1))
