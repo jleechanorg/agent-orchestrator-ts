@@ -19,22 +19,14 @@ runs:
     - name: Install Claude CLI and Codex CLI
       shell: bash
       run: |
-        # Always install @openai/codex to a known npm global prefix to ensure we get
-        # a working binary, regardless of what stale codex is already in PATH.
-        # Use npm_config_prefix so we control exactly where it goes.
-        NPM_PREFIX=$(npm config get prefix)
-        echo "Installing @openai/codex to $NPM_PREFIX..."
-        npm install -g @openai/codex 2>&1 | tail -3
-        # Verify the binary is actually executable
-        CODEX_PATH="$NPM_PREFIX/bin/codex"
-        if [ -x "$CODEX_PATH" ]; then
-          echo "Codex installed at: $CODEX_PATH"
-          # Prepend our npm global bin to PATH so it's found first
-          echo "$NPM_PREFIX/bin" >> "$GITHUB_PATH"
-        elif command -v codex &>/dev/null && [ -x "$(command -v codex)" ]; then
-          echo "Using existing codex: $(command -v codex)"
+        if command -v codex &>/dev/null; then
+          echo "Codex CLI already installed"
         else
-          echo "WARNING: codex CLI not working — skeptic will fall back to Claude CLI if ANTHROPIC_API_KEY is set"
+          echo "Installing Codex CLI..."
+          npm install -g @openai/codex 2>&1 || echo "Codex install failed — checking for existing..."
+        fi
+        if ! command -v codex &>/dev/null; then
+          echo "WARNING: codex CLI not available — skeptic will fall back to Claude CLI if ANTHROPIC_API_KEY is set"
         fi
 
     - name: Install dependencies

@@ -25,27 +25,19 @@ runs:
   using: composite
   steps:
     # Note: outputs.verdict prefers steps.run (PASS/FAIL/UNKNOWN) over
-    # steps.check (SKIPPED/RUNNING) via GitHub Actions output interpolation.
+    # steps.check (RUNNING) via GitHub Actions output interpolation.
     # See: value: ${{ steps.run.outputs.verdict || steps.check.outputs.verdict }}
-    - name: Check API key and set verdict
+    - name: Set running state
       id: check
       shell: bash
       run: |
-        # bd-ru7d: removed ANTHROPIC_API_KEY-only gate — skeptic runs regardless
-        # of API key availability. Codex uses OAuth (no key needed), Claude falls
-        # back when ANTHROPIC_API_KEY is set. If neither is available, skeptic
-        # outputs VERDICT: SKIPPED from the CLI itself.
-        if [ -z "${{ inputs.anthropic_api_key }}" ] && [ -z "${{ inputs.openai_api_key }}" ]; then
-          echo "verdict=SKIPPED" >> "$GITHUB_OUTPUT"
-          echo "VERDICT: SKIPPED — No API keys configured (ANTHROPIC_API_KEY or OPENAI_API_KEY required)" > skeptic-output.txt
-          echo "SKIPPED: No API keys configured"
-          exit 0
-        fi
+        # bd-ru7d: removed ALL API key gates — skeptic always runs.
+        # llm-eval handles the "neither available" case with VERDICT: FAIL (fail-closed).
+        # Codex uses OAuth (no key required); Claude falls back via ANTHROPIC_API_KEY.
         echo "verdict=RUNNING" >> "$GITHUB_OUTPUT"
 
     - name: Run Skeptic
       id: run
-      if: steps.check.outputs.verdict == 'RUNNING'
       env:
         GITHUB_TOKEN: ${{ inputs.github_token }}
         ANTHROPIC_API_KEY: ${{ inputs.anthropic_api_key }}
@@ -60,9 +52,9 @@ runs:
           > skeptic-output.txt 2>&1) || skeptic_exit=$?
         cat skeptic-output.txt
 
-        # Handle SKIPPED first — infra failures (Codex/Claude unavailable) emit VERDICT: SKIPPED
         if grep -qi "VERDICT: SKIPPED" skeptic-output.txt; then
           echo "verdict=SKIPPED" >> "$GITHUB_OUTPUT"
+          exit 0
         elif grep -qi "VERDICT: FAIL" skeptic-output.txt; then
           echo "verdict=FAIL" >> "$GITHUB_OUTPUT"
           exit 1

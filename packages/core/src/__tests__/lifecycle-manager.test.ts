@@ -8,6 +8,7 @@ import { createSessionManager } from "../session-manager.js";
 import * as reviewBacklog from "../review-backlog.js";
 import { writeMetadata, readMetadataRaw } from "../metadata.js";
 import { getSessionsDir, getProjectBaseDir } from "../paths.js";
+import { clearLastSentHeadSha } from "../dedup-head-sha-store.js";
 
 // Must precede all imports that use the mocked module
 vi.mock("../fork-lifecycle-postmerge.js", () => ({
@@ -2222,6 +2223,255 @@ describe("reactions", () => {
 
     expect(mockSessionManager.send).toHaveBeenCalledTimes(1);
     expect(mockSessionManager.send).toHaveBeenCalledWith("app-1", "Handle requested changes.");
+  });
+
+  // bd-1178
+  it("skips send-to-agent when PR head SHA is unchanged across poll cycles", async () => {
+    config.reactions = {
+      "changes-requested": {
+        auto: true,
+        action: "send-to-agent",
+        message: "Review changes requested.",
+        retries: 2,
+        escalateAfter: 2,
+      },
+    };
+
+    const sha1 = "aaaa1111aaaa1111aaaa1111aaaa1111aaaa1111";
+    const sha2 = "bbbb2222bbbb2222bbbb2222bbbb2222bbbb2222";
+
+    // Use mutable refs for both SHA and reviewDecision.
+    // Reactions fire on STATUS TRANSITIONS, not every poll cycle. To exercise
+    // dedup across multiple poll cycles we must create a transition each time:
+    // - getReviewDecision alternates: "changes_requested" → "pending" → "changes_requested"
+    //   This creates status transitions: pr_open→cr, cr→pending, pending→cr, cr→pending
+    //   The reaction fires on every "→cr" transition, allowing dedup to be exercised.
+    // - currentSha is mutated between reaction fires (not between every poll).
+    let currentSha = sha1;
+    let reviewDecisionCallCount = 0;
+    const mockSCM: SCM = {
+      name: "mock-scm",
+      detectPR: vi.fn(),
+      getPRState: vi.fn().mockResolvedValue("open"),
+      mergePR: vi.fn(),
+      closePR: vi.fn(),
+      getCIChecks: vi.fn(),
+      getCISummary: vi.fn().mockResolvedValue("passing"),
+      getReviews: vi.fn(),
+      getReviewDecision: vi.fn().mockImplementation(() => {
+        reviewDecisionCallCount++;
+        // Alternate between changes_requested and pending so every other poll
+        // creates a review_pending→changes_requested transition (reaction fires)
+        return Promise.resolve(reviewDecisionCallCount % 2 === 1 ? "changes_requested" : "pending");
+      }),
+      getPendingComments: vi.fn().mockResolvedValue([]),
+      getAutomatedComments: vi.fn(),
+      getMergeability: vi.fn(),
+      // bd-1178: getPRHeadSha returns currentSha which we mutate between reaction fires
+      getPRHeadSha: vi.fn().mockImplementation(() => Promise.resolve(currentSha)),
+    };
+
+    const registryWithSCM: PluginRegistry = {
+      ...mockRegistry,
+      get: vi.fn().mockImplementation((slot: string) => {
+        if (slot === "runtime") return mockRuntime;
+        if (slot === "agent") return mockAgent;
+        if (slot === "scm") return mockSCM;
+        return null;
+      }),
+    };
+
+    const session = makeSession({ status: "pr_open", pr: makePR() });
+    vi.mocked(mockSessionManager.get).mockResolvedValue(session);
+    vi.mocked(mockSessionManager.send).mockResolvedValue(undefined);
+
+    writeMetadata(sessionsDir, "app-1", {
+      worktree: "/tmp",
+      branch: "main",
+      status: "pr_open",
+      project: "my-app",
+    });
+
+    const lm = createLifecycleManager({
+      config,
+      registry: registryWithSCM,
+      sessionManager: mockSessionManager,
+    });
+
+    // First poll: SHA is sha1, send fires, SHA recorded
+    await lm.check("app-1");
+    expect(mockSessionManager.send).toHaveBeenCalledTimes(1);
+
+    // Second poll: SHA still sha1, dedup kicks in — no send
+    await lm.check("app-1");
+    expect(mockSessionManager.send).toHaveBeenCalledTimes(1);
+
+    // Third poll: SHA changed to sha2, send fires again
+    currentSha = sha2;
+    await lm.check("app-1");
+    expect(mockSessionManager.send).toHaveBeenCalledTimes(2);
+
+    // Fourth poll: sha2 unchanged, dedup kicks in
+    await lm.check("app-1");
+    expect(mockSessionManager.send).toHaveBeenCalledTimes(2);
+
+    // CR 3002442125: clear dedup store so this test's state doesn't affect other tests
+    clearLastSentHeadSha("app-1");
+  });
+  // transitions. CR noted that the "no send" assertions at polls 2 & 4 are on pending
+  // transitions (no reaction path entered), so they don't prove dedup works. Add a CR→CR
+  // transition (unchanged SHA) before mutating to sha2 to properly exercise the dedup guard.
+  it("skips send-to-agent on consecutive changes_requested transitions with unchanged SHA", async () => {
+    config.reactions = {
+      "changes-requested": {
+        auto: true,
+        action: "send-to-agent",
+        message: "Review changes requested.",
+        retries: 3,
+      },
+    };
+
+    const sha1 = "aaaa1111aaaa1111aaaa1111aaaa1111aaaa1111";
+    const sha2 = "bbbb2222bbbb2222bbbb2222bbbb2222bbbb2222";
+    let currentSha = sha1;
+    let reviewDecisionCallCount = 0;
+
+    const mockSCM: SCM = {
+      name: "mock-scm",
+      detectPR: vi.fn(),
+      getPRState: vi.fn().mockResolvedValue("open"),
+      mergePR: vi.fn(),
+      closePR: vi.fn(),
+      getCIChecks: vi.fn(),
+      getCISummary: vi.fn().mockResolvedValue("passing"),
+      getReviews: vi.fn(),
+      // Alternate so every other poll fires the reaction
+      getReviewDecision: vi.fn().mockImplementation(() => {
+        reviewDecisionCallCount++;
+        return Promise.resolve(reviewDecisionCallCount % 2 === 1 ? "changes_requested" : "pending");
+      }),
+      getPendingComments: vi.fn().mockResolvedValue([]),
+      getAutomatedComments: vi.fn(),
+      getMergeability: vi.fn(),
+      getPRHeadSha: vi.fn().mockImplementation(() => Promise.resolve(currentSha)),
+    };
+
+    const registryWithSCM: PluginRegistry = {
+      ...mockRegistry,
+      get: vi.fn().mockImplementation((slot: string) => {
+        if (slot === "runtime") return mockRuntime;
+        if (slot === "agent") return mockAgent;
+        if (slot === "scm") return mockSCM;
+        return null;
+      }),
+    };
+
+    const session = makeSession({ status: "pr_open", pr: makePR() });
+    vi.mocked(mockSessionManager.get).mockResolvedValue(session);
+    vi.mocked(mockSessionManager.send).mockResolvedValue(undefined);
+
+    writeMetadata(sessionsDir, "app-1", {
+      worktree: "/tmp",
+      branch: "main",
+      status: "pr_open",
+      project: "my-app",
+    });
+
+    const lm = createLifecycleManager({
+      config,
+      registry: registryWithSCM,
+      sessionManager: mockSessionManager,
+    });
+
+    // Poll 1: cr transition, send fires, sha1 recorded
+    await lm.check("app-1");
+    expect(mockSessionManager.send).toHaveBeenCalledTimes(1);
+
+    // Poll 2: pending — no reaction path entered
+    await lm.check("app-1");
+
+    // Poll 3: cr transition, SHA=sha1 unchanged → dedup kicks in (consecutive CR, unchanged SHA)
+    // CR 3002173129: verify getPRHeadSha was called to exercise the dedup path explicitly.
+    const getPRHeadShaCallsAfterPoll2 = vi.mocked(mockSCM.getPRHeadSha!).mock.calls.length;
+    await lm.check("app-1");
+    // getPRHeadSha must have been called during poll 3's dedup check
+    expect(vi.mocked(mockSCM.getPRHeadSha!).mock.calls.length).toBe(getPRHeadShaCallsAfterPoll2 + 1);
+    expect(mockSessionManager.send).toHaveBeenCalledTimes(1); // still 1 — dedup worked
+
+    // Poll 4: pending
+    await lm.check("app-1");
+
+    // Poll 5: cr transition, SHA now sha2 → send fires
+    currentSha = sha2;
+    await lm.check("app-1");
+    expect(mockSessionManager.send).toHaveBeenCalledTimes(2);
+
+    // CR 3002442125: clear dedup store so this test's state doesn't affect other tests
+    clearLastSentHeadSha("app-1");
+  });
+
+  // bd-1178: FIX 3002210800 — regression test: getPRHeadSha rejection must not block send-to-agent.
+  // Dedup is best-effort; if SHA fetch fails, proceed with the send anyway.
+  it("proceeds with send-to-agent when getPRHeadSha fails", async () => {
+    config.reactions = {
+      "changes-requested": {
+        auto: true,
+        action: "send-to-agent",
+        message: "Review changes requested.",
+        retries: 1,
+      },
+    };
+
+    const mockSCM: SCM = {
+      name: "mock-scm",
+      detectPR: vi.fn(),
+      getPRState: vi.fn().mockResolvedValue("open"),
+      mergePR: vi.fn(),
+      closePR: vi.fn(),
+      getCIChecks: vi.fn(),
+      getCISummary: vi.fn().mockResolvedValue("passing"),
+      getReviews: vi.fn(),
+      getReviewDecision: vi.fn().mockResolvedValue("changes_requested"),
+      getPendingComments: vi.fn().mockResolvedValue([]),
+      getAutomatedComments: vi.fn(),
+      getMergeability: vi.fn(),
+      // getPRHeadSha rejects — dedup should be skipped and send should still fire
+      getPRHeadSha: vi.fn().mockRejectedValue(new Error("network failure")),
+    };
+
+    const registryWithSCM: PluginRegistry = {
+      ...mockRegistry,
+      get: vi.fn().mockImplementation((slot: string) => {
+        if (slot === "runtime") return mockRuntime;
+        if (slot === "agent") return mockAgent;
+        if (slot === "scm") return mockSCM;
+        return null;
+      }),
+    };
+
+    const session = makeSession({ status: "pr_open", pr: makePR() });
+    vi.mocked(mockSessionManager.get).mockResolvedValue(session);
+    vi.mocked(mockSessionManager.send).mockResolvedValue(undefined);
+
+    writeMetadata(sessionsDir, "app-1", {
+      worktree: "/tmp",
+      branch: "main",
+      status: "pr_open",
+      project: "my-app",
+    });
+
+    const lm = createLifecycleManager({
+      config,
+      registry: registryWithSCM,
+      sessionManager: mockSessionManager,
+    });
+
+    // SHA fetch fails — send should still fire (dedup is best-effort)
+    await lm.check("app-1");
+    expect(mockSessionManager.send).toHaveBeenCalledTimes(1);
+
+    // CR 3002442125: clear dedup store so this test's state doesn't affect other tests
+    clearLastSentHeadSha("app-1");
   });
 
   it("dispatches automated review comments only once for an unchanged backlog", async () => {

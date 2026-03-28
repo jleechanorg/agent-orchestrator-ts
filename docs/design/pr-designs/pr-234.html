@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>[agento] feat: review-fix respawn for orphaned CHANGES_REQUESTED PRs — Agent Orchestrator</title>
+    <title>[agento] fix: dedup send-to-agent reactions by PR head SHA (bd-1178) — Agent Orchestrator</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;600&family=IBM+Plex+Serif:wght@400;600&family=IBM+Plex+Mono&display=swap" rel="stylesheet" />
@@ -50,12 +50,12 @@
   <body>
     <main class="wrap">
       <section class="hero">
-        <h1>[agento] feat: review-fix respawn for orphaned CHANGES_REQUESTED PRs</h1>
-        <p class="muted">When CR posts `CHANGES_REQUESTED` and the assigned worker is dead/exhausted, the `send-to-agent` reaction fires into the void and the PR becomes orphaned. PRs #202 and #207 were both stuck in this state.</p>
+        <h1>[agento] fix: dedup send-to-agent reactions by PR head SHA (bd-1178)</h1>
+        <p class="muted">The `send-to-agent` reaction for `changes-requested` fires on every poll cycle even when the PR head SHA hasn't changed. This sends the same review feedback 5-9 times, burning worker context on each duplicate dispatch.</p>
         <p class="muted" style="margin-top:0.5rem">
-          PR: <a href="https://github.com/jleechanorg/agent-orchestrator/pull/210">#210</a>
+          PR: <a href="https://github.com/jleechanorg/agent-orchestrator/pull/234">#234</a>
           &nbsp;·&nbsp; Status: <span class="badge badge-open">Open</span>
-          &nbsp;·&nbsp; March 26, 2026
+          &nbsp;·&nbsp; March 27, 2026
           
         </p>
       </section>
@@ -65,29 +65,29 @@
           <h2>Architecture</h2>
           <div class="diagram">
 <pre>┌─────────────────────────────────────────┐
-│      PR # 210 — agent-orchestrator  │
+│      PR # 234 — agent-orchestrator  │
 └─────────────────────────────────────────┘
                   │
-    ▼ 10 file(s) changed
+    ▼ 7 file(s) changed
                   │
 ┌─────────────────────────────────────────┐
-│           feat: review-fix respawn for orphan │
+│           fix: dedup send-to-agent reactions  │
 └─────────────────────────────────────────┘</pre>
           </div>
         </article>
         <article class="card">
           <h2>Metadata</h2>
           <div class="stat-grid">
-            <div class="stat"><div class="num">10</div><div class="lbl">Files</div></div>
-            <div class="stat"><div class="num">43</div><div class="lbl">Commits</div></div>
-            <div class="stat"><div class="num" style="color:#2ea043">+893</div><div class="lbl">Additions</div></div>
-            <div class="stat"><div class="num" style="color:#cf222e">-34</div><div class="lbl">Deletions</div></div>
+            <div class="stat"><div class="num">7</div><div class="lbl">Files</div></div>
+            <div class="stat"><div class="num">21</div><div class="lbl">Commits</div></div>
+            <div class="stat"><div class="num" style="color:#2ea043">+664</div><div class="lbl">Additions</div></div>
+            <div class="stat"><div class="num" style="color:#cf222e">-5</div><div class="lbl">Deletions</div></div>
           </div>
           <ul style="margin-top:1rem">
             <li>Author: <code>jleechan2015</code></li>
-            <li>Created: March 26, 2026</li>
+            <li>Created: March 27, 2026</li>
             
-            <li>Head branch: <code>feat/bd-rfr</code></li>
+            <li>Head branch: <code>feat/fix-reaction-dedup-in-lifecycle-manager-ts-the-send-to-agent</code></li>
           </ul>
         </article>
       </section>
@@ -98,10 +98,9 @@
         <table>
           <thead><tr><th>Package / Path</th><th>Files</th></tr></thead>
           <tbody>
-            <tr><td><code>packages/core</code></td><td>6</td></tr>
+            <tr><td><code>packages/core</code></td><td>4</td></tr>
 <tr><td><code>docs/design</code></td><td>2</td></tr>
-<tr><td><code>.coderabbit.yaml</code></td><td>1</td></tr>
-<tr><td><code>eslint.fork.config.js</code></td><td>1</td></tr>
+<tr><td><code>packages/plugins</code></td><td>1</td></tr>
           </tbody>
         </table>
       </section>
@@ -113,64 +112,46 @@
           <thead><tr><th>File</th><th>Status</th><th style="text-align:right">+</th><th style="text-align:right">−</th></tr></thead>
           <tbody>
             <tr>
-      <td><code>.coderabbit.yaml</code></td>
-      <td>modified</td>
-      <td style="text-align:right;color:#2ea043">+1</td>
-      <td style="text-align:right;color:#cf222e">-1</td>
-    </tr>
-<tr>
-      <td><code>docs/design/pr-designs/pr-210.html</code></td>
-      <td>modified</td>
-      <td style="text-align:right;color:#2ea043">+38</td>
-      <td style="text-align:right;color:#cf222e">-12</td>
-    </tr>
-<tr>
-      <td><code>docs/design/pr-designs/pr-210.md</code></td>
-      <td>modified</td>
-      <td style="text-align:right;color:#2ea043">+18</td>
-      <td style="text-align:right;color:#cf222e">-12</td>
-    </tr>
-<tr>
-      <td><code>eslint.fork.config.js</code></td>
+      <td><code>docs/design/pr-designs/pr-234.html</code></td>
       <td><span class="badge badge-new">added</span></td>
-      <td style="text-align:right;color:#2ea043">+16</td>
+      <td style="text-align:right;color:#2ea043">+170</td>
       <td style="text-align:right;color:#cf222e">-0</td>
     </tr>
 <tr>
-      <td><code>packages/core/src/__tests__/lifecycle-manager.respawn-review.test.ts</code></td>
+      <td><code>docs/design/pr-designs/pr-234.md</code></td>
       <td><span class="badge badge-new">added</span></td>
-      <td style="text-align:right;color:#2ea043">+423</td>
+      <td style="text-align:right;color:#2ea043">+68</td>
       <td style="text-align:right;color:#cf222e">-0</td>
     </tr>
 <tr>
-      <td><code>packages/core/src/config.ts</code></td>
+      <td><code>packages/core/src/__tests__/lifecycle-manager.test.ts</code></td>
       <td>modified</td>
-      <td style="text-align:right;color:#2ea043">+1</td>
-      <td style="text-align:right;color:#cf222e">-1</td>
+      <td style="text-align:right;color:#2ea043">+250</td>
+      <td style="text-align:right;color:#cf222e">-0</td>
     </tr>
 <tr>
-      <td><code>packages/core/src/fork-reaction-rfr.ts</code></td>
+      <td><code>packages/core/src/dedup-head-sha-store.ts</code></td>
       <td><span class="badge badge-new">added</span></td>
-      <td style="text-align:right;color:#2ea043">+282</td>
+      <td style="text-align:right;color:#2ea043">+59</td>
       <td style="text-align:right;color:#cf222e">-0</td>
     </tr>
 <tr>
       <td><code>packages/core/src/lifecycle-manager.ts</code></td>
       <td>modified</td>
-      <td style="text-align:right;color:#2ea043">+64</td>
-      <td style="text-align:right;color:#cf222e">-1</td>
-    </tr>
-<tr>
-      <td><code>packages/core/src/review-backlog.ts</code></td>
-      <td>modified</td>
-      <td style="text-align:right;color:#2ea043">+48</td>
+      <td style="text-align:right;color:#2ea043">+90</td>
       <td style="text-align:right;color:#cf222e">-5</td>
     </tr>
 <tr>
       <td><code>packages/core/src/types.ts</code></td>
       <td>modified</td>
-      <td style="text-align:right;color:#2ea043">+2</td>
-      <td style="text-align:right;color:#cf222e">-2</td>
+      <td style="text-align:right;color:#2ea043">+3</td>
+      <td style="text-align:right;color:#cf222e">-0</td>
+    </tr>
+<tr>
+      <td><code>packages/plugins/scm-github/src/index.ts</code></td>
+      <td>modified</td>
+      <td style="text-align:right;color:#2ea043">+24</td>
+      <td style="text-align:right;color:#cf222e">-0</td>
     </tr>
             
           </tbody>
@@ -182,7 +163,7 @@
       <div class="footer">
         Generated by <code>scripts/generate-pr-design-docs.mjs</code>
         &nbsp;·&nbsp;
-        <a href="https://github.com/jleechanorg/agent-orchestrator/pull/210">View PR #210 on GitHub</a>
+        <a href="https://github.com/jleechanorg/agent-orchestrator/pull/234">View PR #234 on GitHub</a>
       </div>
     </main>
   </body>

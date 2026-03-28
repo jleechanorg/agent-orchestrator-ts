@@ -249,6 +249,13 @@ function synthesizePrViewJsonFromRest(
     out.statusCheckRollup = opts.statusCheckRollup;
   }
 
+  // bd-1178: REST API uses head.sha; GraphQL gh pr view uses headRefOid.
+  // Map REST's head.sha → GraphQL's headRefOid for the REST fallback path.
+  if (want.has("headRefOid")) {
+    const headObj = rest.head as Record<string, unknown> | undefined;
+    if (typeof headObj?.sha === "string") out.headRefOid = headObj.sha;
+  }
+
   for (const f of jsonFields) {
     if (f in out || !(f in rest)) continue;
     out[f] = rest[f];
@@ -1459,6 +1466,23 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
       if (data.merged === true) return "merged";
       if (s === "CLOSED") return "closed";
       return "open";
+    },
+
+    async getPRHeadSha(pr: PRInfo): Promise<string> {
+      const raw = await gh([
+        "pr",
+        "view",
+        String(pr.number),
+        "--repo",
+        repoFlag(pr),
+        "--json",
+        "headRefOid",
+      ]);
+      const data = JSON.parse(raw) as { headRefOid?: unknown };
+      if (typeof data.headRefOid !== "string" || data.headRefOid.length === 0) {
+        throw new Error(`Missing headRefOid for PR #${pr.number} in repo ${repoFlag(pr)}`);
+      }
+      return data.headRefOid;
     },
 
     async getPRSummary(pr: PRInfo) {

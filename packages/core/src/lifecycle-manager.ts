@@ -13,6 +13,7 @@
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { reapPostMergeCoWorkers } from "./fork-lifecycle-postmerge.js";
+import { pruneStaleSessionIds, getLastSentHeadSha, setLastSentHeadSha } from "./dedup-head-sha-store.js";
 import {
   SESSION_STATUS,
   PR_STATE,
@@ -61,6 +62,7 @@ import { buildReactionContext } from "./reaction-context.js";
 import { validateAndEmitExitProof } from "./session-exit-proof.js";
 import { isPRMerged } from "./fork-lifecycle-kki-override.js";
 import { handleRequestMerge, handleParallelRetry } from "./fork-reaction-handlers.js";
+import { handleRespawnForReview } from "./fork-reaction-rfr.js";
 import { maybeDispatchReviewBacklog } from "./review-backlog.js";
 import { updateSessionMetadataHelper } from "./fork-utils.js";
 import { checkMergeGate } from "./merge-gate.js";
@@ -647,6 +649,9 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     reactionConfig: ReactionConfig,
     session?: Session,
     correlationId?: string,
+    /** Treats undefined as dead — intended for retry dispatch paths where the caller's
+     *  determineStatus result is unavailable. Backlog callers pass agentDead explicitly. */
+    agentDead?: boolean,
   ): Promise<ReactionResult> {
     const reactionCorrelationId = correlationId ?? createCorrelationId("reaction");
     observer.recordOperation({
@@ -668,18 +673,65 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       reactionTrackers.set(trackerKey, tracker);
     }
 
-    // Increment attempts before checking escalation
-    tracker.attempts++;
+    // bd-1178 dedup check for changes-requested reactions (before attempts increment).
+    // Scope: only applies to reactionKey="changes-requested" AND action="send-to-agent".
+    // This intentionally does NOT affect agent-stuck cooldown retries or other send-to-agent
+    // flows — those use different reactionKeys and will never enter this block.
+    // Prevents wasted API calls and avoids consuming the retry budget on unchanged SHA.
+    // Also fixes race condition: SHA is captured once before send and reused for recording.
+    // FIX 3002095878: do NOT early-return — fall through to escalation checks so duration-
+    // based escalation (escalateAfter as string) still fires even on deduped polls.
+    let deduped = false;
+    let dedupedSha: string | undefined;
+    if (reactionKey === "changes-requested" && reactionConfig.action === "send-to-agent" && session?.pr) {
+      const project = config.projects[session.projectId];
+      const scm = project?.scm ? registry.get<SCM>("scm", project.scm.plugin) : null;
+      if (scm?.getPRHeadSha) {
+        try {
+          const currentSha = await scm.getPRHeadSha(session.pr);
+          // FIX 3002095873: use DedupHeadShaStore (separate from ReactionTracker) so SHA
+          // survives clearReactionTracker() on status transitions and process restarts.
+          if (getLastSentHeadSha(sessionId) === currentSha) {
+            deduped = true;
+            observer.recordOperation({
+              metric: "lifecycle_poll",
+              operation: "lifecycle.reaction.deduped",
+              outcome: "info",
+              reason: "head_sha_unchanged",
+              correlationId: reactionCorrelationId,
+              projectId,
+              sessionId,
+              data: { reactionKey, currentSha },
+              level: "debug",
+            });
+            // Do NOT return — fall through to escalation checks (Fix 3002095878)
+          } else {
+            dedupedSha = currentSha; // capture for post-send recording
+          }
+        } catch {
+          // getPRHeadSha failed — proceed with send (don't block on SHA check)
+        }
+      }
+    }
 
-    // Check if we should escalate
+    // Increment attempts only when we actually attempt the action (not on dedup skip)
+    if (!deduped) tracker.attempts++;
+
+    // Check if we should escalate.
+    // FIX 3002095878: retry/attempt-based escalation is suppressed on deduped polls
+    // (no actual send was made, so counting it toward attempts would be wrong).
+    // Duration-based escalation still fires on deduped polls — if nothing has happened
+    // for X time, escalate regardless of whether SHA changed.
     const maxRetries = reactionConfig.retries ?? Infinity;
     const escalateAfter = reactionConfig.escalateAfter;
     let shouldEscalate = false;
 
-    if (tracker.attempts > maxRetries) {
+    if (!deduped && tracker.attempts > maxRetries) {
       shouldEscalate = true;
     }
 
+    // Duration-based escalation: fires on both sent and deduped polls.
+    // This is intentional — a stalled session should escalate even when SHA is unchanged.
     if (typeof escalateAfter === "string") {
       const durationMs = parseDuration(escalateAfter);
       if (durationMs > 0 && Date.now() - tracker.firstTriggered.getTime() > durationMs) {
@@ -687,7 +739,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       }
     }
 
-    if (typeof escalateAfter === "number" && tracker.attempts > escalateAfter) {
+    if (!deduped && typeof escalateAfter === "number" && tracker.attempts > escalateAfter) {
       shouldEscalate = true;
     }
 
@@ -714,6 +766,16 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     switch (action) {
       case "send-to-agent": {
         if (reactionConfig.message) {
+          if (deduped) {
+            return {
+              reactionType: reactionKey,
+              success: true,
+              action: "send-to-agent",
+              escalated: false,
+            };
+          }
+
+          // dedupedSha is pre-fetched above (race-condition guard: one SHA, used for both checks)
           try {
             // Inject context if message contains {{context}} placeholder
             let finalMessage = reactionConfig.message;
@@ -722,6 +784,24 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
               finalMessage = reactionConfig.message.replace(/\{\{context\}\}/g, () => context);
             }
             await sessionManager.send(sessionId, finalMessage);
+
+            // Record SHA after successful send so the next poll skips if SHA is unchanged.
+            // Only record when dedupedSha is available — the pre-send SHA is the only one safe to
+            // record (a newer SHA pushed during send would incorrectly suppress the next dispatch).
+            // Skip recording entirely if pre-send fetch failed (dedupedSha is undefined).
+            // FIX 3002442133 / cursor#3002258060: moved after send (was before send, blocking retry).
+            // FIX cursor#3002173123: deduped guard above ensures no send on unchanged SHA.
+            if (dedupedSha && reactionKey === "changes-requested" && session?.pr) {
+              const project = config.projects[session.projectId];
+              const scm = project?.scm ? registry.get<SCM>("scm", project.scm.plugin) : null;
+              if (scm?.getPRHeadSha) {
+                try {
+                  setLastSentHeadSha(sessionId, dedupedSha);
+                } catch {
+                  // Non-fatal — SHA tracking is best-effort
+                }
+              }
+            }
 
             return {
               reactionType: reactionKey,
@@ -911,6 +991,18 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         });
       }
 
+      // bd-rfr: Delegate to fork-reaction-rfr.ts — extracted for upstream isolation
+      case "respawn-for-review": {
+        return handleRespawnForReview(sessionId, projectId, reactionKey, reactionConfig, session!, agentDead, reactionCorrelationId, {
+          sessionManager,
+          config,
+          registry,
+          notifyHuman,
+          createEvent,
+          observer,
+        });
+      }
+
       default: {
         // Log warning for unknown reaction action types
         console.warn(`Unknown reaction action type: ${action}`);
@@ -933,6 +1025,12 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
 
   function clearReactionTracker(sessionId: SessionId, reactionKey: string): void {
     reactionTrackers.delete(`${sessionId}:${reactionKey}`);
+    // Note: clearLastSentHeadSha(sessionId) intentionally NOT called here.
+    // FIX 3002095873 / cursor#3001685342: DedupHeadShaStore is a SEPARATE Map
+    // (dedup-head-sha-store.ts) — SHA is NOT stored inside ReactionTracker.
+    // Calling clearReactionTracker clears the tracker, NOT the dedup SHA.
+    // Pruning: headShaStore entries for dead sessions are cleaned up in pollAll's
+    // stale-session loop via pruneStaleSessionIds(currentSessionIds).
   }
 
   function getReactionConfigForSession(
@@ -1208,8 +1306,50 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
             // skeptic-review) are SCM/API operations that don't require a live agent.
             const skipForDead = agentDead && reactionConfig.action === "send-to-agent";
 
+            // bd-rfr: Gate changes-requested transition reaction on CR's latest verdict.
+            // CR posts inline suggestions under COMMENTED (no formal verdict) before optionally
+            // posting CHANGES_REQUESTED. Inline suggestions persist after dismissal.
+            // Suppress the transition reaction when verdict is COMMENTED or DISMISSED — the backlog
+            // path (which has the same gate) handles fresh CHANGES_REQUESTED alerts via fingerprint.
+            // Default to true (allow reaction) so non-changes-requested reactions are unaffected.
+            // Only set to false when verdict is explicitly COMMENTED or DISMISSED.
+            let skipVerdictGate = true;
+            try {
+              if (reactionKey === "changes-requested" && session.pr) {
+                const verdictProject = config.projects[session.projectId];
+                const verdictScm = verdictProject?.scm
+                  ? registry.get<SCM>("scm", verdictProject.scm.plugin)
+                  : null;
+                if (verdictScm) {
+                  const rawReviews = await verdictScm.getReviews(session.pr);
+                  // Cast to match SCM's normalized shape (author: string, state: string).
+                  // Defensive: author may arrive as { login: string } in some SCM implementations.
+                  const reviews: Array<{ author?: string; state?: string }> = rawReviews;
+                  const crReviews = reviews.filter((r) => String(r.author ?? "").endsWith("coderabbitai[bot]"));
+                  const crVerdict = crReviews[crReviews.length - 1]?.state ?? null;
+
+                  // Block only when verdict is explicitly COMMENTED or DISMISSED.
+                  // Allow dispatch for all other verdicts (null, CHANGES_REQUESTED, APPROVED, etc.)
+                  // null = fail open (allow reaction).
+                  // SCM normalizes GitHub API values: "CHANGES_REQUESTED" → "changes_requested",
+                  // "DISMISSED" → "dismissed", "COMMENTED" → "commented" (see scm-github getReviews).
+                  skipVerdictGate = crVerdict === null || (crVerdict !== "commented" && crVerdict !== "dismissed");
+                }
+              }
+            } catch (verdictErr) {
+              // Fail open: any error fetching CR verdict should not block the reaction
+              console.warn(
+                `[lifecycle-manager] verdict gate getReviews failed for session=${session.id}: ` +
+                `${verdictErr instanceof Error ? verdictErr.message : String(verdictErr)} — allowing reaction`,
+              );
+            }
+
             // auto: false skips automated agent actions but still allows notifications
-            if ((reactionConfig.auto !== false || reactionConfig.action === "notify") && !skipForDead) {
+            if (
+              (reactionConfig.auto !== false || reactionConfig.action === "notify") &&
+              !skipForDead &&
+              skipVerdictGate
+            ) {
               // Reaction will execute
               const reactionResult = await executeReaction(
                 session.id,
@@ -1218,6 +1358,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
                 reactionConfig,
                 session,
                 correlationId,
+                agentDead,
               );
               transitionReaction = { key: reactionKey, result: reactionResult };
               // Seed stuck retry cooldown from the initial transition nudge (bd-sbr.2)
@@ -1455,6 +1596,8 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
               reactionKey,
               reactionConfig,
               session,
+              undefined,
+              false,
             );
             if (result?.success) {
               transitionReaction = { key: reactionKey, result };
@@ -1503,6 +1646,8 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
                 reactionKey,
                 reactionConfig,
                 session,
+                undefined,
+                false,
               );
               if (result?.success) {
                 transitionReaction = { key: reactionKey, result };
@@ -1795,6 +1940,9 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
           reactionTrackers.delete(trackerKey);
         }
       }
+      // bd-1178: prune dedup SHA store entries for sessions no longer tracked.
+      // CR 3002468214: pass currentSessionIds so pruning is scoped to this LM's sessions.
+      pruneStaleSessionIds(currentSessionIds);
       for (const retryKey of mergeRetryTimestamps.keys()) {
         const sessionId = retryKey.replace("merge-retry-", "");
         if (!currentSessionIds.has(sessionId)) {
