@@ -3,8 +3,13 @@ name: Skeptic Gate
 # Evaluates PRs via AO worker dispatch — no API keys needed in GitHub secrets.
 # Flow: GHA posts trigger comment → lifecycle-manager runs ao skeptic verify →
 # posts VERDICT comment → GHA polls for VERDICT and exits PASS/FAIL.
+#
+# Security note: uses pull_request (not pull_request_target) — this workflow only
+# posts comments and polls for verdicts; it never executes PR code and never needs
+# access to repository secrets. pull_request_target would create elevated risk
+# (base-repo token + untrusted code execution) for no benefit here.
 on:
-  pull_request_target:
+  pull_request:
     types: [opened, synchronize, edited, reopened]
 
 concurrency:

@@ -31,9 +31,12 @@ describe("logAoAction", () => {
     expect(opts).toEqual({ mode: 0o600 });
 
     const parsed = JSON.parse(String(line).trim());
+    expect(parsed.ts).toBe("2026-03-28T10:00:00.000Z");
     expect(parsed.session).toBe("test-session");
     expect(parsed.action).toBe("pr_merge");
     expect(parsed.pr).toBe(42);
+    expect(parsed.repo).toBe("owner/repo");
+    expect(parsed.reason).toBe("test");
     expect(parsed.detail).toBe("squash (immediate)");
   });
 
@@ -53,7 +56,7 @@ describe("logAoAction", () => {
     expect(appendFileSync).toHaveBeenCalledOnce();
   });
 
-  it("calls mkdirSync with the log directory before appending", () => {
+  it("calls mkdirSync with the log directory", () => {
     logAoAction({
       ts: "2026-03-28T10:00:00.000Z",
       session: "mkdir-test",

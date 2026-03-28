@@ -59,8 +59,8 @@ async function findExistingVerdict(
   for (const c of comments) {
     // Find by HTML marker AND trigger SHA match.
     // Only reuse a comment if it was posted for the SAME trigger SHA —
-    // otherwise editing it leaves the old created_at and the skeptical gate
-    // workflow rejects it (it filters by created_at > TRIGGER_UPDATED).
+    // otherwise editing it leaves the old updated_at and the skeptical gate
+    // workflow rejects it (it filters by updated_at >= TRIGGER_UPDATED).
     if (/<!-- skeptic-agent-verdict -->/i.test(c.body)) {
       const shaMarker = triggerSha ? new RegExp(`<!-- skeptic-gate-trigger-${triggerSha.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} -->`) : null;
       if (!shaMarker || shaMarker.test(c.body)) {
