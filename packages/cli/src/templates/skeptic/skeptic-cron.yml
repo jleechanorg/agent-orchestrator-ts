@@ -39,7 +39,7 @@ jobs:
             npm install -g @openai/codex 2>&1 || echo "npm install failed — checking for codex binary..."
           fi
           if ! command -v codex &>/dev/null; then
-            echo "WARNING: codex CLI not available — skeptic will fall back to Claude CLI if ANTHROPIC_API_KEY is set"
+            echo "WARNING: codex CLI not available — skeptic will fall back to MiniMax HTTP then Claude CLI if API keys are configured"
           fi
 
       - name: Install skeptic CLI

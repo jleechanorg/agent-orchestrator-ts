@@ -120,21 +120,27 @@ export async function tryMiniMax(prompt: string): Promise<LlmEvalResult> {
       };
     }
 
-    const json = await response.json() as {
-      choices?: Array<{ messages?: Array<{ role: string; content: string }> }>;
-      error?: { message?: string };
-    };
-    const content =
-      json?.choices?.[0]?.messages?.[0]?.content ??
-      json?.error?.message ??
+    const json = await response.json() as Record<string, unknown>;
+    // Try multiple field paths since MiniMax-Text-01 response structure may vary
+    const raw =
+      // OpenAI-style: choices[0].messages[0].content
+      ((json?.choices as Array<{ messages?: Array<{ role: string; content: string }> }>)?.[0]?.messages?.[0]?.content as string | undefined) ??
+      // Anthropic-style: choices[0].message.content
+      ((json?.choices as Array<{ message?: { content?: string } }>)?.[0]?.message?.content as string | undefined) ??
+      // Simple: choices[0].content (some providers use this)
+      ((json?.choices as Array<{ content?: string }>)?.[0]?.content as string | undefined) ??
+      // Error message from MiniMax error response
+      ((json?.error as { message?: string })?.message ?? json?.error as string ?? undefined) ??
       "";
-    const output = content.trim();
+
+    // Debug: log what MiniMax actually returned (first 200 chars) in case we miss VERDICT
+    const output = (typeof raw === "string" ? raw : JSON.stringify(raw)).trim();
 
     if (!VERDICT_LINE_RE.test(output)) {
       return {
         validVerdict: false,
         output,
-        error: `MiniMax output missing VERDICT line (got ${output.slice(0, 100)}...)`,
+        error: `MiniMax output missing VERDICT line (got ${output.slice(0, 200)}: ${JSON.stringify(raw).slice(0, 200)})`,
       };
     }
     return { validVerdict: true, output };
