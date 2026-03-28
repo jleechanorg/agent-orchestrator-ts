@@ -21,8 +21,8 @@ import { resolveCodexBinary } from "@jleechanorg/ao-plugin-agent-codex";
 const CODEX_TIMEOUT_MS = 90_000;
 const CLAUDE_TIMEOUT_MS = 60_000;
 
-/** Line-anchored VERDICT matcher — only accepts a single-line literal "VERDICT: PASS" or "VERDICT: FAIL". */
-const VERDICT_LINE_RE = /^VERDICT:\s*(PASS|FAIL)\s*$/im;
+/** Line-anchored VERDICT matcher — accepts plain or markdown-prefixed "VERDICT: PASS"/"VERDICT: FAIL", with optional trailing bold/italic markers. */
+const VERDICT_LINE_RE = /^(?:#{1,3}\s*|\*{1,2})?VERDICT:\s*(PASS|FAIL)(\s*\*+)?\s*$/im;
 
 export interface LlmEvalResult {
   /** Whether a valid VERDICT line was obtained from the tool.
