@@ -554,34 +554,57 @@ async function streamCodexSessionData(filePath: string): Promise<CodexSessionDat
  * Returns "codex" as final fallback (let the shell resolve it at runtime).
  */
 export async function resolveCodexBinary(): Promise<string> {
-  // 1. Try `which codex`
+  // 1. Try `which codex` — but verify it's actually executable.
+  //    On GHA Ubuntu with Node toolcache, /opt/hostedtoolcache/node/X/x64/bin/codex
+  //    may exist as a non-executable text file from a stale PATH entry.
   try {
     const { stdout } = await execFileAsync("which", ["codex"], { timeout: 10_000 });
     const resolved = stdout.trim();
-    if (resolved) return resolved;
+    if (resolved) {
+      // Verify it's executable before trusting it
+      try {
+        const stats = await stat(resolved);
+        if ((stats.mode & 0o111) !== 0) {
+          return resolved; // executable — use it
+        }
+        // Not executable — log and fall through to known-good candidates
+      } catch {
+        // stat failed — fall through
+      }
+    }
   } catch {
     // Not found via which
   }
 
-  // 2. Check common locations (npm global, Homebrew, Cargo — Codex is now Rust-based)
+  // 2. Check known npm global locations (most reliable on CI).
+  //    GHA Ubuntu: npm global bin is inside the Node toolcache.
   const home = homedir();
   const candidates = [
     "/usr/local/bin/codex",
     "/opt/homebrew/bin/codex",
     join(home, ".cargo", "bin", "codex"),
     join(home, ".npm", "bin", "codex"),
+    // GHA Ubuntu npm global (inside Node toolcache)
+    "/opt/hostedtoolcache/node/22.22.1/x64/bin/codex",
+    "/opt/hostedtoolcache/node/22.20.0/x64/bin/codex",
+    // npm exec fallback — returns the npm-resolved codex (respects package.json bin)
+    ...(process.env.PATH || "").split(":")
+      .filter((p) => p.includes("node_modules") && p.includes(".bin"))
+      .map((p) => join(p, "codex")),
   ];
 
   for (const candidate of candidates) {
     try {
-      await stat(candidate);
-      return candidate;
+      const stats = await stat(candidate);
+      if ((stats.mode & 0o111) !== 0) {
+        return candidate;
+      }
     } catch {
       // Not found at this location
     }
   }
 
-  // 3. Fallback: let the shell resolve it
+  // 3. Fallback: let the shell resolve it (uses PATH)
   return "codex";
 }
 
