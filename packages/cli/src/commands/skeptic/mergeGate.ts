@@ -226,15 +226,16 @@ export async function fetchMergeGateState(
     ) as Array<{ id: number; body: string; user?: { login: string } }>;
     for (const c of comments) {
       if (c.user?.login === skepticBotAuthor) {
-        if (/VERDICT:\s*PASS/i.test(c.body)) {
+        // Also handle markdown-bold variants: **VERDICT: SKIPPED** (matching skeptic.ts VERDICT_LINE_RE)
+        if (/\*\*?VERDICT:\s*PASS\b/i.test(c.body)) {
           skepticVerdict = "PASS";
           skepticCommentId = c.id;
           break;
-        } else if (/VERDICT:\s*FAIL/i.test(c.body)) {
+        } else if (/\*\*?VERDICT:\s*FAIL\b/i.test(c.body)) {
           skepticVerdict = "FAIL";
           skepticCommentId = c.id;
           break;
-        } else if (/VERDICT:\s*SKIPPED/i.test(c.body)) {
+        } else if (/\*\*?VERDICT:\s*SKIPPED\b/i.test(c.body)) {
           skepticVerdict = "SKIPPED";
           skepticCommentId = c.id;
           break;
