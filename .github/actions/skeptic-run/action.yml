@@ -31,10 +31,12 @@ runs:
       id: check
       shell: bash
       run: |
-        if [ -z "${{ inputs.anthropic_api_key }}" ]; then
+        # Require at least one LLM API key (Anthropic for Claude or OpenAI for Codex).
+        # llmEval tries codex first (OPENAI_API_KEY) then claude (ANTHROPIC_API_KEY).
+        if [ -z "${{ inputs.anthropic_api_key }}" ] && [ -z "${{ inputs.openai_api_key }}" ]; then
           echo "verdict=SKIPPED" >> "$GITHUB_OUTPUT"
-          echo "VERDICT: SKIPPED — ANTHROPIC_API_KEY not configured" > skeptic-output.txt
-          echo "SKIPPED: ANTHROPIC_API_KEY not configured"
+          echo "VERDICT: SKIPPED — no ANTHROPIC_API_KEY or OPENAI_API_KEY configured" > skeptic-output.txt
+          echo "SKIPPED: No API key configured"
           exit 0
         fi
         echo "verdict=RUNNING" >> "$GITHUB_OUTPUT"
