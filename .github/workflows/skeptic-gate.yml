@@ -9,8 +9,8 @@ on:
     types: [opened, synchronize, edited, reopened]
 
 # Do NOT cancel in-progress runs — killing a polling step mid-loop discards its
-# loop state. A new concurrent run with the same SHA is harmless since the jq
-# timestamp filter rejects stale verdicts from cancelled runs.
+# loop state (API_FAILURES counter, attempt count). A new run with the same SHA
+# starting concurrently is harmless; the jq timestamp filter rejects stale verdicts.
 concurrency:
   group: skeptic-gate-${{ github.event.pull_request.number }}
   cancel-in-progress: false
