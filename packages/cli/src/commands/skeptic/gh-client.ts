@@ -42,6 +42,12 @@ export async function ghJson(endpoint: string, args: string[] = []): Promise<unk
   return JSON.parse(result.stdout);
 }
 
+/** Like ghJson but uses --paginate to fetch all pages automatically (REST only). */
+export async function ghJsonPaginate(endpoint: string, args: string[] = []): Promise<unknown> {
+  const result = await exec("gh", ["api", "--paginate", endpoint, ...args]);
+  return JSON.parse(result.stdout);
+}
+
 export interface PRInfo {
   number: number;
   title: string;

@@ -17,12 +17,16 @@
  */
 
 import { resolveCodexBinary } from "@jleechanorg/ao-plugin-agent-codex";
+import { VERDICT_LINE_RE } from "../commands/skeptic/verdict-utils.js";
 
 const CODEX_TIMEOUT_MS = 120_000;
 const CLAUDE_TIMEOUT_MS = 120_000;
 
-/** Line-anchored VERDICT matcher — accepts VERDICT: PASS/FAIL/SKIPPED with optional markdown prefix and trailing content. */
-const VERDICT_LINE_RE = /^(?:#{1,3}\s*|\*{1,2})?VERDICT:\s*(PASS|FAIL|SKIPPED)\b/im;
+/** Strict VERDICT matcher for tool output validation — PASS or FAIL only.
+ * SKIPPED is produced by llmEval as an infrastructure-unavailable sentinel
+ * and is tested for explicitly in the fallback chain; it must NOT be treated
+ * as a valid merge-gate verdict here. */
+const STRICT_VERDICT_RE = /^(?:#{1,3}\s*|\*{1,2})?VERDICT:\s*(PASS|FAIL)\b/im;
 
 export interface LlmEvalResult {
   /** Whether a valid VERDICT line was obtained from the tool.
@@ -80,7 +84,7 @@ export async function tryCodexPrint(prompt: string): Promise<LlmEvalResult> {
       },
     );
     const output = result.trim();
-    if (!VERDICT_LINE_RE.test(output)) {
+    if (!STRICT_VERDICT_RE.test(output)) {
       // Tool ran but model failed to produce required output — fail-closed.
       return {
         validVerdict: false,
@@ -121,7 +125,7 @@ export async function tryClaudePrint(prompt: string): Promise<LlmEvalResult> {
       },
     );
     const output = result.trim();
-    if (!VERDICT_LINE_RE.test(output)) {
+    if (!STRICT_VERDICT_RE.test(output)) {
       return {
         validVerdict: false,
         output,
