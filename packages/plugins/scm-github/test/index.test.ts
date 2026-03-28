@@ -662,7 +662,6 @@ describe("scm-github plugin", () => {
         branch: "feat/my-feature",
         baseBranch: "main",
         isDraft: false,
-        author: null,
       });
     });
 

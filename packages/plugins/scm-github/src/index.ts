@@ -1246,7 +1246,7 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
         }> = JSON.parse(listRaw);
 
         if (listPrs.length > 0) {
-          return prInfoFromView({ ...listPrs[0]!, author: listPrs[0].author?.login ?? null }, project.repo);
+          return prInfoFromView({ ...listPrs[0]!, author: listPrs[0].author?.login ?? undefined }, project.repo);
         }
 
         // GraphQL succeeded but no PR found — skip REST fallback since it is
