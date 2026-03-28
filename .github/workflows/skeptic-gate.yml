@@ -19,129 +19,46 @@ jobs:
       pull-requests: write
       issues: write
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
+      - name: Setup
+        uses: ./.github/actions/skeptic-setup
+
+      - name: Run Skeptic
+        id: run
+        uses: ./.github/actions/skeptic-run
         with:
-          node-version: "22"
+          pr_number: ${{ github.event.pull_request.number }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          openai_api_key: ${{ secrets.OPENAI_API_KEY }}
 
-      - name: Install ao CLI
-        run: npm install -g @jleechanorg/ao-cli
-
-      - name: Resolve skeptic verdict from existing comments
-        id: verdict
+      - name: Post skeptic findings as PR comment
+        if: always()
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: |
-          set -euo pipefail
           PR=${{ github.event.pull_request.number }}
-          REPO="${{ github.repository }}"
-
-          # Step 1: Try to find an existing verdict comment.
-          # Accept either AO worker bot or workflow bot comments.
-          # Require marker AND explicit VERDICT:PASS or VERDICT:FAIL.
-          COMMENTS=$(gh api repos/$REPO/issues/$PR/comments --paginate 2>/dev/null || echo "[]")
-
-          VERDICT_BODY=$(echo "$COMMENTS" | jq -s 'add' | jq -r '
-            [.[]
-              | select(
-                  (.user.login == "jleechan-agent[bot]" or .user.login == "github-actions[bot]")
-                  and (.body | test("<!-- skeptic-agent-verdict -->"; "i"))
-                  and (.body | test("VERDICT:[[:space:]]*(PASS|FAIL)"; "i"))
-                )
-            ]
-            | sort_by(.created_at)
-            | reverse
-            | .[0].body // ""
-          ' 2>/dev/null || echo "")
-
-          if echo "$VERDICT_BODY" | grep -qi "VERDICT:[[:space:]]*PASS"; then
-            echo "verdict=PASS" >> "$GITHUB_OUTPUT"
-            echo "Skeptic verdict PASS (from existing comment)"
-            exit 0
+          if [ -f skeptic-output.txt ]; then
+            {
+              printf '<!-- skeptic-agent-verdict -->\n'
+              printf '%s\n' "**Skeptic Gate Evaluation**"
+              printf '\n'
+              printf '%s\n' "```"
+              head -c 5800 skeptic-output.txt
+              printf '\n%s\n' "```"
+              VERDICT_LINE=$(grep -i "VERDICT:" skeptic-output.txt | tail -1 || echo "VERDICT: FAIL")
+              printf '\n%s\n' "**$VERDICT_LINE**"
+            } > "$RUNNER_TEMP/pr_comment.txt"
+            gh api repos/${{ github.repository }}/issues/$PR/comments \
+              --method POST \
+              --field body="$(cat "$RUNNER_TEMP/pr_comment.txt")" \
+              || echo "WARN: Could not post skeptic comment (may lack permissions)"
           fi
 
-          if echo "$VERDICT_BODY" | grep -qi "VERDICT:[[:space:]]*FAIL"; then
-            echo "verdict=FAIL" >> "$GITHUB_OUTPUT"
-            echo "Skeptic verdict FAIL"
-            exit 1
-          fi
-
-          # Step 2: No existing verdict comment — run ao skeptic verify.
-          echo "No existing skeptic verdict comment found. Running ao skeptic verify..."
-          AO_BIN="$(npm root -g)/.bin/ao"
-          echo "Using ao binary: $AO_BIN"
-          echo "Node version: $(node --version)"
-
-          # Run skeptic verify --dry-run: prints VERDICT: to stdout, no comment posting.
-          # Keys are passed via env vars (ANTHROPIC_API_KEY, OPENAI_API_KEY).
-          set +e
-          SKEPTIC_OUTPUT=$("$AO_BIN" skeptic verify --pr "$PR" --repo "$REPO" --dry-run 2>&1)
-          SKEPTIC_EXIT=$?
-          set -e
-          echo "Skeptic exit code: $SKEPTIC_EXIT"
-          echo "=== Skeptic output ==="
-          echo "$SKEPTIC_OUTPUT"
-          echo "=== End output ==="
-
-          # Extract VERDICT line.
-          VERDICT_LINE=$(echo "$SKEPTIC_OUTPUT" | grep -i "VERDICT:" | tail -1 || echo "")
-
-          # Handle empty/missing output: check if any API key is available.
-          # If neither key is set and output is empty, SKIP (skeptic not configured).
-          HAS_KEY=0
-          if [ -n "$ANTHROPIC_API_KEY" ] || [ -n "$OPENAI_API_KEY" ]; then
-            HAS_KEY=1
-          fi
-
-          if [ -z "$VERDICT_LINE" ] && [ "$HAS_KEY" = "0" ]; then
-            echo "No API keys available and no skeptic output — skipping skeptic gate."
-            echo "verdict=PASS" >> "$GITHUB_OUTPUT"
-            echo "Skeptic gate SKIPPED (no API keys configured)"
-            exit 0
-          fi
-
-          if echo "$VERDICT_LINE" | grep -qi "VERDICT:[[:space:]]*FAIL\|VERDICT:[[:space:]]*SKIPPED"; then
-            VERDICT_VALUE="FAIL"
-          elif echo "$VERDICT_LINE" | grep -qi "VERDICT:[[:space:]]*PASS"; then
-            VERDICT_VALUE="PASS"
-          else
-            # Fail closed — no VERDICT line but keys are set means something went wrong.
-            VERDICT_VALUE="FAIL"
-          fi
-
-          # Step 3: Post verdict as a comment from github-actions[bot].
-          COMMENT_TMP=$(mktemp)
-          {
-            printf '%s\n' "<!-- skeptic-agent-verdict -->"
-            printf '%s\n' "**Skeptic Gate Evaluation**"
-            printf '\n'
-            printf '%s\n' "```"
-            printf '%s\n' "$SKEPTIC_OUTPUT"
-            printf '%s\n' "```"
-            printf '\n'
-            printf '%s\n' "**VERDICT: $VERDICT_VALUE**"
-          } > "$COMMENT_TMP"
-          gh api repos/$REPO/issues/$PR/comments \
-            --method POST \
-            --field body="$(cat "$COMMENT_TMP")" > /dev/null
-          rm -f "$COMMENT_TMP"
-
-          # Step 4: Set gate output based on verdict.
-          if [ "$VERDICT_VALUE" = "PASS" ]; then
-            echo "verdict=PASS" >> "$GITHUB_OUTPUT"
-            echo "Skeptic verdict PASS (run and posted)"
-            exit 0
-          else
-            echo "verdict=FAIL" >> "$GITHUB_OUTPUT"
-            echo "Skeptic verdict FAIL"
-            exit 1
-          fi
-
-      - name: Post gate status summary
-        if: always()
+      - name: Gate result
         run: |
-          echo "Skeptic gate result: ${{ steps.verdict.outputs.verdict }}"
+          VERDICT=${{ steps.run.outputs.verdict || 'UNKNOWN' }}
+          echo "Skeptic gate verdict: $VERDICT"
+          if [ "$VERDICT" = "PASS" ]; then exit 0; else exit 1; fi
