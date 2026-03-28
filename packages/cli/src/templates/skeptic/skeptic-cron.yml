@@ -166,14 +166,16 @@ jobs:
             # (REST /pulls/{n}/comments lacks isResolved; GitHub tracks resolution at thread level)
             # bd-ao2b: replaced REST proxy with proper GraphQL query
             PR_AUTHOR=$(gh api repos/${{ github.repository }}/pulls/"$PR_NUM" --jq '.user.login' 2>/dev/null || echo "__AUTHOR_ERROR__")
-            UNRESOLVED=$(gh api graphql -f query='
+            GQL_RESULT=$(gh api graphql -f query='
               query($owner: String!, $name: String!, $number: Int!) {
                 repository(owner: $owner, name: $name) {
                   pullRequest(number: $number) {
                     reviewThreads(first: 100) {
+                      pageInfo { hasNextPage }
                       nodes {
                         isResolved
                         comments(first: 50) {
+                          pageInfo { hasNextPage }
                           nodes {
                             author { login }
                             body
@@ -184,14 +186,23 @@ jobs:
                   }
                 }
               }
-            ' -f owner='${{ github.repository_owner }}' -f name="${GITHUB_REPOSITORY#*/}" -F number="$PR_NUM" \
-              --jq "[.data.repository.pullRequest.reviewThreads.nodes[] | select(.isResolved == false) | .comments.nodes[] | select(.author.login != null and (.author.login | ascii_downcase) != (\"$PR_AUTHOR\" | ascii_downcase) and (.body | test(\"^\\\\s*(nit:|nitpick)\"; \"i\") | not))] | length" 2>/dev/null || echo "__GQL_ERROR__")
-            if [ "$UNRESOLVED" = "__GQL_ERROR__" ]; then
+            ' -f owner='${{ github.repository_owner }}' -f name="${GITHUB_REPOSITORY#*/}" -F number="$PR_NUM" 2>/dev/null)
+            if [ -z "$GQL_RESULT" ]; then
               COMMENTS_STATUS="FAIL (graphql-error)"
-            elif [ "$UNRESOLVED" = "0" ] || [ -z "$UNRESOLVED" ]; then
-              COMMENTS_STATUS="PASS"
             else
-              COMMENTS_STATUS="FAIL ($UNRESOLVED unresolved)"
+              # Check both pagination levels — any truncation → fail closed
+              THREADS_TRUNCATED=$(echo "$GQL_RESULT" | jq -r '.data.repository.pullRequest.reviewThreads.pageInfo.hasNextPage')
+              if [ "$THREADS_TRUNCATED" = "true" ]; then
+                COMMENTS_STATUS="FAIL (threads-truncated)"
+              else
+                # Count unresolved threads that have ≥1 qualifying comment (not PR-author, not nit)
+                UNRESOLVED=$(echo "$GQL_RESULT" | jq "[.data.repository.pullRequest.reviewThreads.nodes[] | select(.isResolved == false and (.comments.nodes | map(.author.login != null and (.author.login | ascii_downcase) != (\"$PR_AUTHOR\" | ascii_downcase) and (.body | test(\"^\\\\s*(nit:|nitpick)\"; \"i\") | not)) | any))] | length" 2>/dev/null || echo "0")
+                if [ "$UNRESOLVED" = "0" ] || [ -z "$UNRESOLVED" ]; then
+                  COMMENTS_STATUS="PASS"
+                else
+                  COMMENTS_STATUS="FAIL ($UNRESOLVED unresolved)"
+                fi
+              fi
             fi
             echo "  [5] Comments resolved:   $COMMENTS_STATUS"
 
