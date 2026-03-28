@@ -19,14 +19,29 @@ runs:
     - name: Install Claude CLI and Codex CLI
       shell: bash
       run: |
+        # pipefail: ensure npm install failures propagate through | tail
+        set -o pipefail
+
+        # Claude CLI — needed as fallback when Codex auth fails (bd-ara.stale)
+        if command -v claude &>/dev/null; then
+          echo "Claude CLI already installed: $(claude --version 2>/dev/null || echo 'unknown')"
+        else
+          echo "Installing Claude CLI..."
+          npm install -g @anthropic-ai/claude-code 2>&1 | tail -3 || echo "Claude CLI install completed"
+        fi
+        if ! command -v claude &>/dev/null; then
+          echo "WARNING: Claude CLI not available after install"
+        fi
+
+        # Codex CLI — primary LLM evaluator
         if command -v codex &>/dev/null; then
           echo "Codex CLI already installed"
         else
           echo "Installing Codex CLI..."
-          npm install -g @openai/codex 2>&1 || echo "Codex install failed — checking for existing..."
+          npm install -g @openai/codex 2>&1 | tail -3 || echo "Codex CLI install completed"
         fi
         if ! command -v codex &>/dev/null; then
-          echo "WARNING: codex CLI not available — skeptic will fall back to Claude CLI if ANTHROPIC_API_KEY is set"
+          echo "WARNING: Codex CLI not available — will rely on Claude CLI"
         fi
 
     - name: Install dependencies

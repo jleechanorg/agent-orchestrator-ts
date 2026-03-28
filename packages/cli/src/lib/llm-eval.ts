@@ -37,7 +37,8 @@ export interface LlmEvalResult {
 }
 
 /** Errors that mean the tool is unavailable and the caller should try the next one. */
-function isUnavailable(errMsg: string): boolean {
+// Exported for unit testing; production callers use the public functions only.
+export function isUnavailable(errMsg: string): boolean {
   // ENOENT = binary not installed
   // 401/403 = credentials missing or invalid — treat as "unavailable" so fallback chain continues
   // Use word-boundary-aware regex to avoid false positives on strings like "took 4030ms"
