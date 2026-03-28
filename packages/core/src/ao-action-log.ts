@@ -11,7 +11,7 @@ import { dirname } from "node:path";
 const LOG_PATH = "/tmp/ao-actions.jsonl";
 
 export interface AoAction {
-  ts: string;
+  ts?: string;
   session: string;
   action: "pr_close" | "pr_merge" | "pr_comment" | "review_dismiss" | "session_kill";
   pr?: number;

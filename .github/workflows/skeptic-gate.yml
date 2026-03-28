@@ -146,7 +146,7 @@ jobs:
                 echo "verdict=ERROR" >> "$GITHUB_OUTPUT"
                 exit 1
               fi
-            elif echo "$PR_STATE" | grep -qi "^closed$" > /dev/null || true; then
+            elif echo "$PR_STATE" | grep -qi "^closed$" > /dev/null; then
               API_FAILURES=0
             else
               # Successful response (no error keyword, not "closed") — reset counter
