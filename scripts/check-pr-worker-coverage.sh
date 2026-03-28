@@ -112,7 +112,7 @@ while IFS= read -r pr_line; do
   else
     if [[ "$is_stale" == "1" ]]; then
       echo "  PR #$pr_number [$pr_branch]: age=${age_str} [STALE] [UNCOVERED] ***"
-      echo "    -> no active session; age exceeds ${STALE_HOURS}h threshold"
+      echo "    -> no active session; age ≥${STALE_HOURS}h threshold"
       uncovered+=("PR #$pr_number [STALE age=${age_str}]")
       stale_uncovered=$((stale_uncovered + 1))
       continue

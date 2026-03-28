@@ -474,16 +474,15 @@ check_pr_age() {
   for repo in $repos; do
     local prs_json
     prs_json=$(gh pr list --repo "$repo" --state open --limit 100 \
-      --json number,title,headRefName,createdAt,updatedAt \
+      --json number,headRefName,createdAt \
       2>/dev/null) || continue
 
     while IFS= read -r pr_line; do
       [ -z "$pr_line" ] && continue
-      local pr_num branch created updated
+      local pr_num branch created
       pr_num=$(echo "$pr_line" | jq -r '.number')
       branch=$(echo "$pr_line" | jq -r '.headRefName')
       created=$(echo "$pr_line" | jq -r '.createdAt')
-      updated=$(echo "$pr_line" | jq -r '.updatedAt')
 
       local age_hours
       age_hours=$(_pr_age_hours "$created")

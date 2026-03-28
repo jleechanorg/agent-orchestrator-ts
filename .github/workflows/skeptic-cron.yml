@@ -110,18 +110,19 @@ jobs:
             echo ""
             echo "--- Checking 7-green for PR #${PR_NUM}: ${PR_TITLE} ---"
 
-            # bd-ara.stale: track PR age — flag stale PRs >3h in cron output
+            # bd-ara.stale: track PR age — flag stale PRs ≥3h in cron output
+            # Note: REST API returns snake_case fields (created_at, updated_at)
             PR_DETAIL=$(gh api repos/${{ github.repository }}/pulls/"$PR_NUM" \
-              --jq '{createdAt: .createdAt, updatedAt: .updatedAt}' 2>/dev/null || echo '{"createdAt":null}')
-            CREATED=$(echo "$PR_DETAIL" | jq -r '.createdAt')
-            UPDATED=$(echo "$PR_DETAIL" | jq -r '.updatedAt')
-            if [ "$CREATED" != "null" ] && [ -n "$CREATED" ]; then
+              --jq '{created_at: .created_at, updated_at: .updated_at}' 2>/dev/null || echo '{"created_at":null}')
+            CREATED=$(echo "$PR_DETAIL" | jq -r '.created_at')
+            UPDATED=$(echo "$PR_DETAIL" | jq -r '.updated_at')
+            if [ "$CREATED" != "null" ] && [ -n "$CREATED" ] && [ "$CREATED" != "null" ]; then
               AGE_HRS=$(python3 -c "import sys,datetime; d='$CREATED'.replace('Z','+00:00'); print(f'{(datetime.datetime.now(datetime.timezone.utc)-datetime.datetime.fromisoformat(d)).total_seconds()/3600.0:.1f}')" 2>/dev/null || echo "unknown")
               echo "  [AGE] PR #${PR_NUM}: created=${CREATED}, age=${AGE_HRS}h"
               STALE_HRS=$(python3 -c "import sys; print('STALE' if float('${AGE_HRS}') >= 3.0 else 'FRESH')" 2>/dev/null || echo "unknown")
               echo "  [AGE] PR #${PR_NUM} staleness: ${STALE_HRS}"
             else
-              echo "  [AGE] PR #${PR_NUM}: WARNING — createdAt field missing"
+              echo "  [AGE] PR #${PR_NUM}: WARNING — created_at field missing"
             fi
 
             # 1. CI green
