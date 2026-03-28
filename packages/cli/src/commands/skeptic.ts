@@ -79,6 +79,7 @@ export function registerSkeptic(program: Command): Command {
       "Run the skeptical evaluation and print the verdict to stdout (skip posting to GitHub)",
     )
     .option("-m, --model <model>", "Model to use for evaluation (codex, claude, gemini)")
+    .option("--trigger-sha <sha>", "Embed this SHA as a gate marker in the VERDICT comment body")
     .action(async (options) => {
       const prNumber = parseInt(String(options.pr), 10);
       if (isNaN(prNumber) || prNumber <= 0) {
@@ -155,6 +156,7 @@ export function registerSkeptic(program: Command): Command {
           verdictLine,
           existing?.commentId ?? null,
           SKEPTIC_BOT_AUTHOR,
+          options.triggerSha,
         );
         spinner4.succeed(chalk.green("Done! Skeptic verdict posted."));
       } catch (err) {

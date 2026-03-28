@@ -11,15 +11,23 @@ export async function postVerdict(
   verdict: string,
   existingCommentId: number | null,
   botAuthor: string,
+  triggerSha?: string,
 ): Promise<void> {
+  const extra: string[] = [];
+  if (triggerSha) {
+    extra.push(`<!-- skeptic-gate-trigger-${triggerSha} -->`);
+  }
   const body = [
     "<!-- skeptic-agent-verdict -->",
+    extra.length > 0 ? extra.join("\n") : "",
     "**🤖 Skeptic Agent Verdict (bd-qw6)**",
     "",
     verdict,
     "",
     `_Posted by ${botAuthor} · ${new Date().toISOString()}_`,
-  ].join("\n");
+  ]
+    .filter((line) => line !== "") // skip blank lines from empty extra
+    .join("\n");
 
   if (existingCommentId) {
     await patchComment(owner, repo, existingCommentId, body);

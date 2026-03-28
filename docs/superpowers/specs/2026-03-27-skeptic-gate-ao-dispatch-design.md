@@ -118,16 +118,27 @@ For each open PR:
 
 ### GHA Polling Loop
 ```bash
-MAX_WAIT=60  (30-minute timeout at 30s intervals)
+# TRIGGER_UPDATED is the trigger comment's updated_at (ISO-8601)
+# HEAD_SHA is the PR's current head commit SHA
+MAX_ATTEMPTS=55  # 55 × 30s = 27.5 min (within 28-min step timeout)
 
-for i in $(seq 1 $MAX_WAIT); do
-  sleep 30
-  VERDICT=$(gh api .../comments --jq '[.[] | select(.user.login=="jleechan-agent[bot]") | select(.body|test("VERDICT:"))] | last')
+for i in $(seq 1 $MAX_ATTEMPTS); do
+  # --paginate ensures all comment pages are scanned (30 comments/page).
+  # jq selects: jleechan-agent[bot] comment with VERDICT: AND
+  # created_at > TRIGGER_UPDATED (staleness filter) AND
+  # body contains "skeptic-gate-trigger-$HEAD_SHA" (SHA binding).
+  VERDICT=$(gh api repos/OWNER/REPO/issues/N/comments \
+    --paginate \
+    --jq "[.[] | select(.user.login == \"jleechan-agent[bot]\"
+      and (.body | test(\"VERDICT:\"; \"i\"))
+      and (.created_at > \"$TRIGGER_UPDATED\")
+      and (.body | test(\"skeptic-gate-trigger-\" + \"$HEAD_SHA\"; \"i\")))] | .[0] // empty")
   if echo "$VERDICT" | grep -qi "VERDICT: PASS"; then
     echo "verdict=PASS" >> $GITHUB_OUTPUT; exit 0
   elif echo "$VERDICT" | grep -qi "VERDICT: FAIL"; then
     echo "verdict=FAIL" >> $GITHUB_OUTPUT; exit 1
   fi
+  sleep 30
 done
 echo "verdict=TIMEOUT" >> $GITHUB_OUTPUT; exit 1
 ```

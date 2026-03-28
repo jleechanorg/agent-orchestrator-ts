@@ -4,7 +4,7 @@ name: Skeptic Gate
 # Flow: GHA posts trigger comment → lifecycle-manager runs ao skeptic verify →
 # posts VERDICT comment → GHA polls for VERDICT and exits PASS/FAIL.
 on:
-  pull_request:
+  pull_request_target:
     types: [opened, synchronize, edited, reopened]
 
 concurrency:
@@ -39,6 +39,7 @@ jobs:
           # operator has lower precedence than `|`, so `.a == X and .b | test(...)`
           # would be parsed as `(.a == X and .b) | test(...)` without parens.
           EXISTING=$(gh api repos/${{ github.repository }}/issues/"$PR_NUM"/comments \
+            --paginate \
             --jq '[.[] | select(.user.login == "github-actions[bot]" and (.body | test("skeptic-gate-trigger"; "i")))] | .[0] // empty' 2>/dev/null || echo "empty")
 
           # Build the body via printf (not inline YAML) so $HEAD_SHA substitution is safe.
@@ -106,13 +107,15 @@ jobs:
             fi
 
             # Find verdict comments from jleechan-agent[bot] posted AFTER the
-            # trigger was updated. This prevents accepting verdicts from a
-            # cancelled previous workflow run on the same PR.
+            # trigger was updated AND whose body contains the trigger SHA marker
+            # (<!-- skeptic-gate-trigger-${HEAD_SHA} -->). This double-checks
+            # that the verdict belongs to the current evaluation window.
             # Parentheses required around (.body | test(...)) — jq `and` has lower
             # precedence than `|`, so unparenthesized form would be parsed as
             # (.user.login == X and .body) | test(...) which always selects all.
             VERDICT_JSON=$(gh api repos/${{ github.repository }}/issues/"$PR_NUM"/comments \
-              --jq "[.[] | select(.user.login == \"jleechan-agent[bot]\" and (.body | test(\"VERDICT:\"; \"i\")) and (.created_at > \"$TRIGGER_UPDATED\"))] | .[0] // empty" 2>/dev/null || echo "empty")
+              --paginate \
+              --jq "[.[] | select(.user.login == \"jleechan-agent[bot]\" and (.body | test(\"VERDICT:\"; \"i\")) and (.created_at > \"$TRIGGER_UPDATED\") and (.body | test(\"skeptic-gate-trigger-\" + \"$HEAD_SHA\"; \"i\")))] | .[0] // empty" 2>/dev/null || echo "empty")
 
             if [ "$VERDICT_JSON" != "empty" ] && echo "$VERDICT_JSON" | jq -e '.body' > /dev/null 2>&1; then
               VERDICT_BODY=$(echo "$VERDICT_JSON" | jq -r '.body')
