@@ -209,15 +209,21 @@ function extractLabels(pr) {
 function archDiagram(pr) {
   const title = pr.title.replace(/^\[agento\]\s*/i, "");
   const prNum = pr.number;
+  // Use a wider box for the title row — at least 70 chars to fit conventional commit titles
+  const titleLen = Math.max(title.length, 70);
+  const titleRow = "│ " + title.slice(0, titleLen).padEnd(titleLen) + " │";
+  const titleBorderTop = "┌" + "─".repeat(titleLen + 2) + "┐";
+  const titleBorderBot = "└" + "─".repeat(titleLen + 2) + "┘";
+  const paddedTitleLine = `│ ${title.slice(0, titleLen).padEnd(titleLen)} │`;
   return `┌─────────────────────────────────────────┐
 │      PR #${String(prNum).padStart(4)} — agent-orchestrator  │
 └─────────────────────────────────────────┘
                   │
     ${pr.files?.length > 0 ? `▼ ${pr.files.length} file(s) changed` : "  (no files)"}
                   │
-┌─────────────────────────────────────────┐
-│           ${title.slice(0, 35).padEnd(35)} │
-└─────────────────────────────────────────┘`;
+${titleBorderTop}
+${paddedTitleLine}
+${titleBorderBot}`;
 }
 
 // ---------------------------------------------------------------------------
