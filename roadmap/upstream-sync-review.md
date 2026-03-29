@@ -14,7 +14,7 @@
 | Origin (jleechanorg) ahead of upstream | 10 commits (fork-specific, verified 2026-03-29 via git rev-list upstream/main..origin/main) |
 | Origin commits (last 30d) | 11 |
 
-**The fork has 477 commits from upstream that it does not have** (verified via `git rev-list --left-right --count upstream/main...origin/main`).
+**The fork has ~200 commits from upstream that it does not have.** The fork diverged significantly months ago and has been developing independently.
 
 ---
 

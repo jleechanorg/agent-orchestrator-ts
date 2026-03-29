@@ -78,7 +78,7 @@ describe("fetchMergeGateState — skeptic verdict parsing", () => {
       ],
       paginate: [
         [],
-        [{ id: 99, body: "VERDICT: SKIPPED — ANTHROPIC_API_KEY not configured", user: { login: "jleechan-agent[bot]" } }],
+        [{ id: 99, body: "<!-- skeptic-agent-verdict -->\nVERDICT: SKIPPED — ANTHROPIC_API_KEY not configured", user: { login: "jleechan-agent[bot]" } }],
       ],
     });
 
@@ -120,7 +120,7 @@ describe("fetchMergeGateState — skeptic verdict parsing", () => {
       ],
       paginate: [
         [],
-        [{ id: 97, body: "VERDICT: FAIL — evidence bundle missing", user: { login: "jleechan-agent[bot]" } }],
+        [{ id: 97, body: "<!-- skeptic-agent-verdict -->\nVERDICT: FAIL — evidence bundle missing", user: { login: "jleechan-agent[bot]" } }],
       ],
     });
 
@@ -186,8 +186,8 @@ describe("fetchMergeGateState — skeptic verdict parsing", () => {
       paginate: [
         [],
         [
-          [{ id: 1, body: "VERDICT: FAIL", user: { login: "jleechan-agent[bot]" } }],
-          [{ id: 2, body: "VERDICT: PASS", user: { login: "jleechan-agent[bot]" } }],
+          [{ id: 1, body: "<!-- skeptic-agent-verdict -->\nVERDICT: FAIL", user: { login: "jleechan-agent[bot]" } }],
+          [{ id: 2, body: "<!-- skeptic-agent-verdict -->\nVERDICT: PASS", user: { login: "jleechan-agent[bot]" } }],
         ],
       ],
     });
@@ -210,7 +210,7 @@ describe("fetchMergeGateState — skeptic verdict parsing", () => {
       ],
       paginate: [
         [],
-        [{ id: 50, body: "VERDICT: SKIPPED", user: { login: "jleechan-agent[bot]" } }],
+        [{ id: 50, body: "<!-- skeptic-agent-verdict -->\nVERDICT: SKIPPED", user: { login: "jleechan-agent[bot]" } }],
       ],
     });
 
@@ -243,7 +243,7 @@ describe("fetchMergeGateState — skeptic verdict parsing", () => {
           [
             {
               id: 77,
-              body: "<!-- skeptic-gate-trigger-abc123 -->\nVERDICT: SKIPPED\nANTHROPIC_API_KEY not configured",
+              body: "<!-- skeptic-agent-verdict -->\n<!-- skeptic-gate-trigger-abc123 -->\nVERDICT: SKIPPED\nANTHROPIC_API_KEY not configured",
               user: { login: "github-actions[bot]" },
             },
           ],
@@ -272,12 +272,12 @@ describe("fetchMergeGateState — skeptic verdict parsing", () => {
           [
             {
               id: 80,
-              body: "VERDICT: FAIL",
+              body: "<!-- skeptic-agent-verdict -->\nVERDICT: FAIL",
               user: { login: "github-actions[bot]" },
             },
             {
               id: 81,
-              body: "VERDICT: PASS",
+              body: "<!-- skeptic-agent-verdict -->\nVERDICT: PASS",
               user: { login: "jleechan2015" },
             },
           ],

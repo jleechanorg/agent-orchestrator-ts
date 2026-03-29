@@ -15,8 +15,6 @@ import { VERDICT_LINE_RE } from "./verdict-utils.js";
 const NIT_PATTERN = /^(nit:|nitpick)/i;
 const CR_BOT = "coderabbitai[bot]";
 const EVIDENCE_BOT = "evidence-review-bot";
-/** Matches the HTML comment marker that marks skeptic agent comments. */
-const SKEPTIC_MARKER_RE = /<!--\s*skeptic-agent-verdict\s*-->/i;
 
 export interface CheckRunSummary {
   name: string;
@@ -147,9 +145,10 @@ export async function fetchMergeGateState(
 
   // 3. Review threads — nit-filtered unresolved counts (matches checkMergeGate)
   // Uses GraphQL reviewThreads.isResolved (REST /pulls/{n}/comments has no state field).
+  // Errors are NOT caught here — fail-closed: if we cannot determine comment state,
+  // we must not silently report 0 unresolved comments (which would bypass CR Gate 5).
   let bugbotErrors = 0;
   let unresolvedBlockingComments = 0;
-  try {
     // Paginate through all review threads (100 per page)
     const allNodes: Array<{
       isResolved: boolean;
@@ -159,8 +158,10 @@ export async function fetchMergeGateState(
     let cursor: string | null = null;
     let hasNextPage = true;
     while (hasNextPage) {
+      // Escape GraphQL string inputs to prevent injection via --repo owner/repo.
+      // owner/repo are CLI-supplied; cursor comes from GitHub API (trusted but still escaped).
       // Escape control chars (\n \r \t \f) for GraphQL single-line string literals.
-      const esc = (s: string) => s.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\n/g, "\\n").replace(/\r/g, "\\r").replace(/\t/g, "\\t");
+      const esc = (s: string) => s.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\n/g, "\\n").replace(/\r/g, "\\r").replace(/\t/g, "\\t").replace(/\f/g, "\\f");
       const safeOwner = esc(owner);
       const safeRepo = esc(repo);
       const safeCursor = esc(cursor ?? "");
@@ -216,13 +217,6 @@ export async function fetchMergeGateState(
       if (isBugbot) bugbotErrors++;
       if (!isNit) unresolvedBlockingComments++;
     }
-  } catch (e) {
-    // Fail-closed: if we cannot determine thread state, treat as blocking.
-    // This prevents false negatives where a broken API returns no threads,
-    // causing merge gate to pass despite unresolved comments being present.
-    console.error("[mergeGate] Review thread fetch failed:", e);
-    unresolvedBlockingComments = 9999; // sentinel: fetch failed, fail-closed — treat as blocking
-  }
 
   // 4. Evidence review
   const evidenceReviews = reviews.filter((r) => r.author?.login === EVIDENCE_BOT);
@@ -248,9 +242,9 @@ export async function fetchMergeGateState(
     const ACCEPTED_AUTHORS = new Set([skepticBotAuthor, "github-actions[bot]"]);
     for (const c of comments) {
       if (c.user?.login && ACCEPTED_AUTHORS.has(c.user.login)) {
-        // Only parse verdicts from comments that carry the skeptic marker — this
-        // prevents unrelated github-actions[bot] comments from being misidentified.
-        if (!SKEPTIC_MARKER_RE.test(c.body)) continue;
+        // Require the skeptic-agent-verdict HTML marker — prevents spoofed verdicts
+        // from malicious actors who gain write access to the bot account.
+        if (!/<!-- skeptic-agent-verdict -->/i.test(c.body)) continue;
         // Use the shared VERDICT_LINE_RE from verdict-utils.ts — it accepts both plain
         // VERDICT: PASS and markdown-bold **VERDICT: PASS** variants.
         const m = c.body.match(VERDICT_LINE_RE);
