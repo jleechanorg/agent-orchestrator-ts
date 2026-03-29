@@ -105,8 +105,33 @@ describe("checkMergedPRCleanup", () => {
     expect(killSession).toHaveBeenCalledWith("jc-1");
   });
 
-  it("handles ghRest error gracefully", async () => {
-    const deps = makeDeps({ ghRest: async () => { throw new Error("network error"); } });
+  it("returns skipped when PR is merged but session has no tmuxName", async () => {
+    const killSession = vi.fn();
+    const deps = makeDeps({
+      ghRest: async () => ({ state: "closed", merged: true }),
+      killSession,
+    });
+    const session = makeSession({
+      pr: TEST_PR_URL, metadata: {},
+    });
+    const result = await checkMergedPRCleanup(session, deps);
+    expect(result).toBe("skipped");
+    expect(killSession).not.toHaveBeenCalled();
+  });
+
+  it("returns skipped when killSession throws", async () => {
+    const deps = makeDeps({
+      ghRest: async () => ({ state: "closed", merged: true }),
+      killSession: vi.fn().mockRejectedValue(new Error("tmux not running")),
+    });
+    const session = makeSession({
+      pr: TEST_PR_URL, metadata: { tmuxName: "jc-dead" },
+    });
+    const result = await checkMergedPRCleanup(session, deps);
+    expect(result).toBe("skipped");
+  });
+
+  it("handles ghRest error gracefully", async () => {    const deps = makeDeps({ ghRest: async () => { throw new Error("network error"); } });
     const session = makeSession({
       pr: TEST_PR_URL,
     });

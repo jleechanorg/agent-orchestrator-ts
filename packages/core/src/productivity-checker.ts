@@ -11,7 +11,7 @@
 
 import { execFile as _execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { TERMINAL_STATUSES, type OrchestratorConfig, type Session } from "./types.js";
+import { isTerminalSession, type OrchestratorConfig, type Session } from "./types.js";
 
 const execAsync = promisify(_execFile);
 
@@ -249,12 +249,11 @@ export async function checkMergedPRCleanup(
 
   if (meta.state === "closed" || meta.merged === true) {
     const sessionName = session.metadata["tmuxName"] as string | undefined;
-    if (sessionName) {
-      try {
-        await deps.killSession(sessionName);
-      } catch {
-        // non-fatal
-      }
+    if (!sessionName) return "skipped";
+    try {
+      await deps.killSession(sessionName);
+    } catch {
+      return "skipped";
     }
     return "killed";
   }
@@ -271,7 +270,7 @@ export async function checkStallDetection(
   deps: ProductivityDeps,
 ): Promise<"nudged" | "none"> {
   if (isNudgeOnCooldown(session.id, "stall")) return "none";
-  if (TERMINAL_STATUSES.has(session.status)) return "none";
+  if (isTerminalSession(session)) return "none";
 
   const pr = parsePRUrl(session.pr as Parameters<typeof parsePRUrl>[0]);
   if (!pr) return "none";
@@ -332,7 +331,7 @@ export async function checkContextExhaustion(
   deps: ProductivityDeps,
 ): Promise<"nudged" | "none"> {
   if (isNudgeOnCooldown(session.id, "context_exhaustion")) return "none";
-  if (TERMINAL_STATUSES.has(session.status)) return "none";
+  if (isTerminalSession(session)) return "none";
 
   const sessionName = session.metadata["tmuxName"] as string | undefined;
   if (!sessionName) return "none";
@@ -381,7 +380,7 @@ export async function runProductivityChecks(
   let errors = 0;
 
   for (const session of sessions) {
-    if (TERMINAL_STATUSES.has(session.status)) continue;
+    if (isTerminalSession(session)) continue;
 
     try {
       // 1. Merged-PR cleanup — run first, before other checks
