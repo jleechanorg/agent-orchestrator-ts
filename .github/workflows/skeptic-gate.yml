@@ -5,7 +5,9 @@ name: Skeptic Gate
 # posts VERDICT comment → GHA polls for VERDICT and exits PASS/FAIL.
 #
 on:
-  pull_request_target:
+  # Security: uses pull_request (not pull_request_target) — only posts comments,
+  # no secret access needed. pull_request_target creates elevated risk for no benefit.
+  pull_request:
     types: [opened, synchronize, edited, reopened]
 
 # Do NOT cancel in-progress runs — killing a polling step mid-loop discards its
