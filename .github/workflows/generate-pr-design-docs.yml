@@ -27,6 +27,24 @@ jobs:
       contents: write   # needed to commit design docs to the PR branch
       pull-requests: write # needed to post PR comment
     steps:
+      - name: Skip if last commit is from github-actions[bot]
+        # The workflow commits design docs as github-actions[bot]. That commit triggers
+        # a new pull_request.synchronize event, which re-fires this workflow. Without
+        # this guard, the workflow loops forever: bot commits → synchronize → regenerate.
+        # github.event.pull_request.head.sha here is the NEW head (the bot's commit),
+        # so checking its author correctly detects our own preceding run.
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUM: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          LAST_AUTHOR=$(gh api repos/"$REPO"/pulls/"$PR_NUM"/commits --jq '.[-1].author.login' 2>/dev/null || echo "")
+          echo "Last commit author: '$LAST_AUTHOR'"
+          if [ "$LAST_AUTHOR" = "github-actions[bot]" ]; then
+            echo "SKIP: Last commit was made by github-actions[bot] — breaking regenerate loop."
+            exit 1
+          fi
+          echo "PROCEED: Last commit is not from github-actions[bot]."
       - name: Checkout PR branch
         uses: actions/checkout@v4
         with:
