@@ -346,7 +346,31 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     productivityRunning = true;
     try {
       const sessions = await sessionManager.list(scopedProjectId);
-      const active = sessions.filter((s: Session) => !TERMINAL_STATUSES.has(s.status));
+
+      // Mirror pollAll: build a snapshot of currently-paused projects so
+      // productivity checks skip paused sessions (bd-nk7).
+      const pausedProjects = new Map<string, Date>();
+      for (const session of sessions) {
+        if (!isOrchestratorSession(session)) continue;
+        const until = parsePauseUntil(session.metadata[GLOBAL_PAUSE_UNTIL_KEY]);
+        if (!until) continue;
+        if (until.getTime() <= Date.now()) {
+          // Pause has expired — clear it from disk.
+          const project = config.projects[session.projectId];
+          if (project && session.metadata[GLOBAL_PAUSE_REASON_KEY]) {
+            clearProjectPause(config.configPath, project);
+          }
+          continue;
+        }
+        pausedProjects.set(session.projectId, until);
+      }
+
+      // Filter to active (non-terminal) sessions, excluding paused projects.
+      const active = sessions.filter(
+        (s: Session) =>
+          !TERMINAL_STATUSES.has(s.status) &&
+          !pausedProjects.has(s.projectId),
+      );
       const tmux = await import("./tmux.js");
       const { runProductivityChecks } = await import("./productivity-checker.js");
       await runProductivityChecks(active, {
@@ -1077,11 +1101,19 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
           config.defaults.autoMerge?.enabled ??
           true;
         if (autoMergeEnabled === false) {
+          // Auto-merge is disabled — notify humans rather than silently skipping.
+          const disabledEvent = createEvent("reaction.triggered", {
+            sessionId,
+            projectId,
+            message: `Reaction '${reactionKey}' skipped: auto-merge is disabled for this project`,
+            data: { reactionKey, action },
+          });
+          await notifyHuman(disabledEvent, reactionConfig.priority ?? "warning");
           return {
             reactionType: reactionKey,
             success: false,
             action,
-            escalated: false,
+            escalated: true,
           };
         }
         try {
@@ -1784,6 +1816,10 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       // No transition but track current state
       states.set(session.id, newStatus);
 
+      // Shared project lookup for the blocks below (bd-nk7: hoisted so the
+      // auto-merge retry block also has access when newStatus === "mergeable").
+      const project = config.projects[session.projectId];
+
       // bd-qnj6: re-trigger skeptic evaluation when HEAD SHA changes on an
       // already-open PR. The pr_open transition fires skeptic once, but subsequent
       // pushes (GHA synchronize events) don't cause a status transition — the
@@ -1802,7 +1838,6 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         ) &&
         session.pr
       ) {
-        const project = config.projects[session.projectId];
         const scm = project?.scm ? registry.get<SCM>("scm", project.scm.plugin) : null;
         if (scm?.getPRHeadSha) {
           try {
@@ -1903,6 +1938,22 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
           const now = Date.now();
           const lastAttempt = (mergeRetryTimestamps as Map<string, number>).get(lastAttemptKey) ?? 0;
           if (now - lastAttempt >= MERGE_RETRY_COOLDOWN_MS) {
+            // Guard: skip merge retry if auto-merge is disabled at any config level.
+            const autoMergeEnabled =
+              project?.autoMerge?.enabled ??
+              config.autoMerge?.enabled ??
+              config.defaults.autoMerge?.enabled ??
+              true;
+            if (autoMergeEnabled === false) {
+              const disabledEvent = createEvent("reaction.triggered", {
+                sessionId: session.id,
+                projectId: session.projectId,
+                message: `Reaction '${reactionKey}' skipped: auto-merge is disabled for this project`,
+                data: { reactionKey, action: "auto-merge" },
+              });
+              await notifyHuman(disabledEvent, reactionConfig.priority ?? "warning");
+              return;
+            }
             (mergeRetryTimestamps as Map<string, number>).set(lastAttemptKey, now);
             const result = await executeReaction(
               session.id,
