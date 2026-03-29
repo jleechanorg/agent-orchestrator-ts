@@ -73,7 +73,7 @@ Do not manually create worktrees, `cd` into directories, or run `claude` directl
 | Component | Role | Runs where |
 |-----------|------|------------|
 | `skeptic-gate.yml` | GHA check: pre-checks gates 1-5, posts trigger, polls for VERDICT | GHA (no API keys) |
-| `skeptic-cron.yml` | Cron: posts `SKEPTIC_CRON_TRIGGER` for eligible PRs, checks 7th gate + merges | GHA (no API keys) |
+| `skeptic-cron.yml` | Cron: posts `SKEPTIC_CRON_TRIGGER` for eligible PRs, checks gate 6 (evidence) + gate 7 (skeptic) + merges | GHA (no API keys) |
 | `skeptic-cron-local.ts` | Local cron: runs in lifecycle-worker, evaluates all open PRs | Lifecycle-worker (local, has API keys) |
 | `skeptic-reviewer.ts` | Runs `ao skeptic verify` subprocess for a PR | Lifecycle-worker |
 | `fork-claim-verification.ts` | Deterministic claim verifier: checks trigger + VERDICT + GHA run | Lifecycle-worker |
@@ -108,7 +108,7 @@ Before opening any skeptic-related PR, verify the full chain end-to-end locally.
 ### Pre-PR Verification Checklist
 
 1. **Full-chain local test**: trigger comment → lifecycle-worker detection → `ao skeptic verify` execution → VERDICT comment posting → `skeptic-gate.yml` polling match.
-2. **Cross-layer consistency**: CLI code change? Verify GHA YAML jq filter matches CLI output format. GHA YAML change? Verify CLI output format matches jq filter. Bot author change? Verify the jq filter in `skeptic-gate.yml` (line ~235) accepts the posting identity. Note: `SKEPTIC_BOT_AUTHOR` defaults differ by design — `skeptic-cron.yml` uses `'jleechan2015'` (lifecycle-worker posts as local user), `skeptic-gate.yml` polling uses `'github-actions[bot]'` (GHA runner posts as GHA bot); the jq filter accepts both to cover both paths.
+2. **Cross-layer consistency**: CLI code change? Verify GHA YAML jq filter matches CLI output format. GHA YAML change? Verify CLI output format matches jq filter. Bot author change? Verify the jq filter in `skeptic-gate.yml` (line ~235) accepts the posting identity. Note: `SKEPTIC_BOT_AUTHOR` defaults differ by layer — both `skeptic-gate.yml` and `skeptic-cron.yml` GHA YAMLs default to `'github-actions[bot]'` via `${{ vars.SKEPTIC_BOT_AUTHOR || 'github-actions[bot]' }}`; the CLI (`ao skeptic verify`) uses `GH_SKEPTIC_BOT_AUTHOR` with default `'jleechan2015'` (local user). The jq filter in `skeptic-gate.yml` accepts both by checking for `github-actions[bot]` OR `jleechan2015`.
 3. **Minimum smoke test**: `ao skeptic verify -n <PR> --dry-run` must output a VERDICT line matching the GHA jq filter pattern. The jq filter in `skeptic-gate.yml` uses `grep -qi "VERDICT: PASS"` / `grep -qi "VERDICT: FAIL"` / `grep -qi "VERDICT: SKIPPED"` — extra text after the keyword (e.g., `VERDICT: FAIL — claude: error`) is accepted; the filter requires the keyword to be present, not a specific format.
 4. **Hook files**: If adding/modifying `.claude/hooks/*.sh`, test stdin handling manually: `echo '{"tool_name":"Bash","tool_input":{"command":"echo test"}}' | bash your-hook.sh` must not hang or read EOF prematurely. Common bug: `INPUT=$(cat)` then `python3 -c "..."` reads empty stdin — always pipe: `echo "$INPUT" | python3 -c "..."`.
 
