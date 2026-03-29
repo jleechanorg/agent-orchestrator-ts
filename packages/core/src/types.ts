@@ -1170,7 +1170,7 @@ export interface AutoMergeConfig {
   /** Default wait time (seconds) for GitHub's native auto-merge. Overridden by reaction-level autoMergeWaitSeconds. */
   waitSeconds?: number;
   /** Default merge method. Overridden by reaction-level mergeMethod. */
-  mergeMethod?: "merge" | "squash" | "rebase";
+  mergeMethod?: MergeMethod;
 }
 
 export interface DefaultPlugins {

@@ -19,6 +19,7 @@ projects:
     defaultBranch: main
 
     # Enable auto-merge for this project (inherits waitSeconds/mergeMethod from defaults)
+    # Note: autoMerge settings go at the project level, not inside reactions
     reactions:
       approved-and-green:
         auto: true

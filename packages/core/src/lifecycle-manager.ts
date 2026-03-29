@@ -973,13 +973,18 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         }
 
         // bd-n047: Centralized auto-merge kill-switch.
-        // The kill-switch guard in handleReaction now prevents executeReaction from being called
-        // when auto-merge is disabled, so retries are NOT consumed and notification is NOT
-        // suppressed (fixes CR major #5 and #6).
-        // This redundant in-function check is kept as a defence-in-depth safeguard:
-        // if a caller bypasses handleReaction and calls executeReaction directly, the guard
-        // still fires and returns without merging.
+        // The kill-switch guard in handleReaction prevents executeReaction from being called
+        // when auto-merge is disabled, so retries are NOT consumed.
+        // This in-function check is defence-in-depth: if a caller bypasses handleReaction
+        // and calls executeReaction directly, the guard still fires.
         if (!isAutoMergeEnabled(freshSession.projectId)) {
+          const event = createEvent("reaction.triggered", {
+            sessionId,
+            projectId,
+            message: `Reaction '${reactionKey}' triggered but auto-merge is disabled globally for this project. Set defaults.autoMerge.enabled=true or projects['${freshSession.projectId}'].autoMerge.enabled=true to enable.`,
+            data: { reactionKey, action },
+          });
+          await notifyHuman(event, reactionConfig.priority ?? "info");
           return { reactionType: reactionKey, success: false, action, escalated: false };
         }
 
