@@ -242,6 +242,37 @@ describe("dead tmux session reaping", () => {
     expect(respawnFn).not.toHaveBeenCalled();
   });
 
+  it("dead tmux + open PR + kill fails → no respawn (respawn only on successful kill)", async () => {
+    const { reapStaleSessions } = await import("../session-reaper.js");
+
+    const deadOpen = makeSession("tmux-dead-kill-fail", {
+      status: "working",
+      pr: { number: 55, url: "https://github.com/org/repo/pull/55", title: "R", owner: "org", repo: "repo", branch: "feat/test", baseBranch: "main", isDraft: false, state: "open" as const },
+      metadata: { prState: "open", tmuxName: "aabbccddee-ao-tmux-dead-kill-fail" },
+    });
+    const sm = makeSessionManager([deadOpen]);
+    // Simulate kill() throwing — session still exists, should not respawn
+    sm.kill = vi.fn().mockRejectedValue(new Error("kill failed"));
+
+    const tmuxHealth: TmuxHealth = vi.fn().mockResolvedValue(false);
+    const respawnFn: RespawnFn = vi.fn();
+    const config = makeTtlConfig({ sessionTtlMs: 10 * 60 * 60_000 });
+
+    const result = await reapStaleSessions(config, {
+      ...makeDeps(sm),
+      tmuxHealth,
+      respawnSession: respawnFn,
+    });
+
+    // Kill was attempted (and failed)
+    expect(sm.kill).toHaveBeenCalledWith("tmux-dead-kill-fail");
+    // Kill failed → error recorded
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0].error).toContain("kill failed");
+    // Kill failed → no respawn (session still exists)
+    expect(respawnFn).not.toHaveBeenCalled();
+  });
+
   it("healthy tmux session is not killed by tmux check alone", async () => {
     const { reapStaleSessions } = await import("../session-reaper.js");
 

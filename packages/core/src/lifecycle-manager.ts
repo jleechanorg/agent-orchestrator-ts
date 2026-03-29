@@ -431,6 +431,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
   let allCompleteEmitted = false; // guard against repeated all_complete
   let everHadSessions = false; // tracks whether any sessions have ever been observed
   let lastSweepTime = 0; // timestamp of last orphan tmux sweep
+  let lastTtlCheckTime = 0; // orch-ju1: timestamp of last TTL/dead-tmux health check
   const SWEEP_INTERVAL_MS = 5 * 60 * 1000; // run orphan sweep every 5 minutes
 
   /** Check if idle time exceeds the agent-stuck threshold. */
@@ -2530,7 +2531,10 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       // throttle as the orphan sweep. Reaps sessions that have exceeded their TTL
       // or whose tmux process is no longer running. Dead sessions with an open PR
       // are respawned targeting the same PR.
-      if (nowMs - lastSweepTime >= SWEEP_INTERVAL_MS) {
+      // Note: use a separate lastTtlCheckTime so the TTL reaper runs on its own
+      // cadence independent of the orphan sweep's lastSweepTime update.
+      if (nowMs - (lastTtlCheckTime ?? 0) >= SWEEP_INTERVAL_MS) {
+        lastTtlCheckTime = nowMs;
         try {
           const SESSION_TTL_MS = (config as { sessionTtlMs?: number }).sessionTtlMs
             ?? DEFAULT_REAPER_CONFIG.noPrThresholdMs; // default 4h

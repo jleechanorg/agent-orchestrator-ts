@@ -177,16 +177,19 @@ export async function reapStaleSessions(
         const prState = session.pr?.state;
         const isTerminalPr = prState === "merged" || prState === "closed";
         if (!dryRun) {
+          let killedSuccessfully = false;
           try {
             await deps.sessionManager.kill(session.id);
+            killedSuccessfully = true;
             killed.push({ sessionId: session.id, reason: `tmux dead (${tmuxName})` });
           } catch (err) {
             const msg = err instanceof Error ? err.message : String(err);
             errors.push({ sessionId: session.id, error: msg });
           }
-          // Respawn replacement worker for non-terminal PRs that had open work.
-          // Only respawn when the PR was open — merged/closed PRs are done.
-          if (session.pr && !isTerminalPr && deps.respawnSession) {
+          // Respawn replacement worker only when kill succeeded and PR is open.
+          // Do NOT respawn if kill failed — a failed kill means the session still
+          // exists and the respawn would create a duplicate worker.
+          if (killedSuccessfully && session.pr && !isTerminalPr && deps.respawnSession) {
             try {
               await deps.respawnSession(session.id, session.projectId, session);
             } catch (respawnErr) {
