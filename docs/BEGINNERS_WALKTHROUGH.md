@@ -16,7 +16,7 @@ Welcome! This guide will walk you through Agent Orchestrator step by step. We'll
 | 6 | Configuration - Your Settings ⚙️ | Setting up agent-orchestrator.yaml |
 | 7 | Session Lifecycle - The Life Story of a Task 📖 | States and transitions of sessions |
 | 8 | Plugin Development - How to Extend 🧩 | Writing your own plugins |
-| 9 | Common Workflows - Real-World Examples 🎬 | Practical scenarios |
+| 9 | Common Workflows - Real World Examples 🎬 | Practical scenarios |
 | 10 | Glossary - Speak the Language 📚 | Technical terms explained simply |
 | 11 | Quick Reference - Handy Links 🔗 | Where to find things |
 | 12 | Your Next Steps 🎓 | Learning paths for different goals |
@@ -598,7 +598,7 @@ To add a new plugin to the system:
 
 ---
 
-## Part 9: Common Workflows - Real-World Examples 🎬
+## Part 9: Common Workflows - Real World Examples 🎬
 
 ### Example 1: Fix a Bug
 

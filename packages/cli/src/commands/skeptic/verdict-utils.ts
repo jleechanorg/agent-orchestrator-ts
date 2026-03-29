@@ -4,9 +4,8 @@
  * instead of duplicating the logic.
  */
 
-/** Line-anchored VERDICT matcher — accepts VERDICT: PASS, VERDICT: FAIL, or VERDICT: SKIPPED.
- * Also handles GitHub blockquote markdown: "> **VERDICT: SKIPPED**" (SKIPPED fallback in skeptic-gate.yml). */
-export const VERDICT_LINE_RE = /^(?:> ?\*\*)?VERDICT:\s*(PASS|FAIL|SKIPPED)\b/im;
+/** Line-anchored VERDICT matcher — accepts VERDICT: PASS, VERDICT: FAIL, or VERDICT: SKIPPED. */
+export const VERDICT_LINE_RE = /^VERDICT:\s*(PASS|FAIL|SKIPPED)\b/im;
 
 export type Verdict = "PASS" | "FAIL" | "SKIPPED";
 
