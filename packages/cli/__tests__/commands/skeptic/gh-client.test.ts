@@ -8,15 +8,11 @@ import { tmpdir } from "node:os";
 const mockExec = vi.hoisted(() => vi.fn());
 
 // vi.spyOn fails in ESM ("Cannot redefine property: readFileSync").
-// Declare at module scope (not inside vi.hoisted) so vi.mock's factory can
-// reference it when the factory is hoisted and executed at module-init time.
-// vi.fn() created here is a plain function — not yet a vitest mock — so it
-// can be safely referenced before vi.mock runs.
-const mockReadFileSync = vi.fn(fs.readFileSync);
-vi.mock("node:fs", () => ({
-  default: { readFileSync: mockReadFileSync },
-  readFileSync: mockReadFileSync,
-}));
+// Separate hoisted call for the mutable mock object — both vi.mock and the
+// test can reference it because vi.hoisted() runs after vi.mock() hoisting,
+// and vi.mock's factory is evaluated lazily at import time (after init).
+const { mockFs } = vi.hoisted(() => ({ mockFs: { readFileSync: fs.readFileSync } }));
+vi.mock("node:fs", () => mockFs);
 
 vi.mock("../../../src/lib/shell.js", () => ({
   exec: mockExec,
@@ -82,14 +78,14 @@ describe("fetchDesignDoc", () => {
 
     mockExec.mockResolvedValueOnce({ stdout: tmp + "\n", stderr: "" });
 
-    // Replace the vi.fn wrapper to throw EACCES.
+    // Replace the mock handle to throw EACCES.
     const eaccesErr = Object.assign(new Error("EACCES permission denied"), { code: "EACCES" });
-    mockReadFileSync.mockImplementation(() => { throw eaccesErr; });
+    mockFs.readFileSync = () => { throw eaccesErr; };
 
     await expect(fetchDesignDoc(999)).rejects.toThrow("EACCES permission denied");
 
-    // Reset so subsequent tests in the same describe block are unaffected.
-    mockReadFileSync.mockReset();
+    // Restore so subsequent tests in the same describe block are unaffected.
+    mockFs.readFileSync = fs.readFileSync;
   });
 });
 
