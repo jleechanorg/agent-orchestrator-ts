@@ -41,6 +41,7 @@ Stage 6 = **the system becomes the glue**, not the human.
 | Timeout-based escalation: tasks without artifacts after N minutes auto-escalate to Slack | bd-s6a2 (new) | P1 | open |
 | Send-to-agent SHA dedup (prevents re-sending same work) | bd-n039 | P0 | open |
 | Reaction send dedup (prevents 5-9x duplicate context burn) | feedback_reaction_send_dedup | — | known |
+| **CHRONIC: zombie worker cleanup** — 5+ fix PRs merged, zombies persist every session | bd-s6z1 (new) | P0 | open |
 
 ### Blocker B: Control Plane Fragmentation — No Unified State Model
 
