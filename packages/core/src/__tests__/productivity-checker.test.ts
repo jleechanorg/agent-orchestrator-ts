@@ -7,7 +7,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { type ProductivityDeps, checkMergedPRCleanup, checkStallDetection, checkContextExhaustion, runProductivityChecks, STALL_THRESHOLD_MS, resetNudgeCooldowns } from "../productivity-checker.js";
+import { type ProductivityDeps, checkMergedPRCleanup, checkStallDetection, checkContextExhaustion, runProductivityChecks, fetchCIStatus, STALL_THRESHOLD_MS, resetNudgeCooldowns } from "../productivity-checker.js";
 
 // ---------------------------------------------------------------------------
 // Shared helpers
@@ -163,10 +163,10 @@ describe("checkStallDetection", () => {
   it("returns none when commit is recent (<30 min)", async () => {
     const deps = makeDeps({
       ghRest: async (_o, _r, path: string) => {
-        // ghRest receives RELATIVE paths: "commits/{sha}" or "pulls/{n}"
         if (path.match(/^commits\/[^/]+$/)) {
           return { commit: { committer: { date: recentCommitDate } } };
         }
+        if (path.includes("/check-runs")) return { check_runs: [] };
         if (path.includes("/commits")) return [{ commit: { committer: { date: recentCommitDate } } }];
         if (path.includes("/status")) return { state: "pending" };
         if (path.includes("/reviews")) return [];
@@ -184,10 +184,12 @@ describe("checkStallDetection", () => {
     const sendKeys = vi.fn().mockResolvedValue(undefined);
     const deps = makeDeps({
       ghRest: async (_o, _r, path: string) => {
-        // ghRest receives RELATIVE paths: "commits/{sha}" or "pulls/{n}" — NOT the
-        // full "repos/owner/repo/..." URL. Check the relative form first, then substring.
         if (path.match(/^commits\/[^/]+$/)) {
           return { commit: { committer: { date: oldCommitDate } } };
+        }
+        if (path.includes("/check-runs")) {
+          // Use checks API — should return "failure" since conclusion is not "success"
+          return { check_runs: [{ conclusion: "failure", status: "completed" }] };
         }
         if (path.includes("/commits")) return [{ commit: { committer: { date: oldCommitDate } } }];
         if (path.includes("/status")) return { state: "failure" };
@@ -216,6 +218,10 @@ describe("checkStallDetection", () => {
         if (path.match(/^commits\/[^/]+$/)) {
           return { commit: { committer: { date: oldCommitDate } } };
         }
+        if (path.includes("/check-runs")) {
+          // All checks pass — green via checks API
+          return { check_runs: [{ conclusion: "success", status: "completed" }] };
+        }
         if (path.includes("/commits")) return [{ commit: { committer: { date: oldCommitDate } } }];
         if (path.includes("/status")) return { state: "success" };
         if (path.includes("/reviews")) return [{ user: { login: "coderabbitai[bot]" }, state: "APPROVED", submitted_at: new Date(NOW_MS).toISOString() }];
@@ -237,6 +243,7 @@ describe("checkStallDetection", () => {
         if (path.match(/^commits\/[^/]+$/)) {
           return { commit: { committer: { date: oldCommitDate } } };
         }
+        if (path.includes("/check-runs")) return { check_runs: [] };
         if (path.includes("/commits")) return [{ commit: { committer: { date: oldCommitDate } } }];
         if (path.includes("/status")) return { state: "failure" };
         if (path.includes("/reviews")) return [];
@@ -264,6 +271,7 @@ describe("checkStallDetection", () => {
         if (path.match(/^commits\/[^/]+$/)) {
           return { commit: { committer: { date: oldCommitDate } } };
         }
+        if (path.includes("/check-runs")) return { check_runs: [] };
         if (path.includes("/commits")) return [{ commit: { committer: { date: oldCommitDate } } }];
         if (path.includes("/status")) return { state: "failure" };
         if (path.includes("/reviews")) return [];

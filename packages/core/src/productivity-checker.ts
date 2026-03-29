@@ -128,6 +128,10 @@ interface CIStatusMeta {
   state: string;
 }
 
+interface CheckRunsMeta {
+  check_runs: { conclusion: string | null; status: string }[];
+}
+
 interface ReviewMeta {
   user: { login: string };
   state: string;
@@ -184,13 +188,37 @@ export async function fetchLastCommitDate(
   }
 }
 
-/** Fetch CI status for a commit. Returns null on error. */
+/** Fetch CI status for a commit. Returns null on error.
+ *  Uses GitHub Actions Checks API (primary) and falls back to legacy
+ *  commit-status endpoint. GitHub Actions workflows do not appear in
+ *  the legacy /commits/{sha}/status endpoint — they require
+ *  /commits/{sha}/check-runs or /commits/{sha}/check-suites. */
 export async function fetchCIStatus(
   owner: string,
   repo: string,
   sha: string,
   ghRest = defaultGhRest,
 ): Promise<string | null> {
+  try {
+    // Primary: GitHub Actions checks (Checks API)
+    const checks = (await ghRest(owner, repo, `commits/${sha}/check-runs?per_page=100`)) as CheckRunsMeta;
+    if (checks?.check_runs?.length) {
+      // If any in-progress, call it pending
+      if (checks.check_runs.some((c) => c.status === "in_progress" || c.status === "queued")) {
+        return "pending";
+      }
+      // All completed: success only if every conclusion is "success"
+      if (checks.check_runs.every((c) => c.conclusion === "success")) {
+        return "success";
+      }
+      // At least one failure or neutral
+      return "failure";
+    }
+  } catch {
+    // Fall through to legacy endpoint
+  }
+
+  // Fallback: legacy commit-status (external CI only)
   try {
     const result = (await ghRest(owner, repo, `commits/${sha}/status`)) as CIStatusMeta;
     return result?.state ?? null;
