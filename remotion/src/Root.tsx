@@ -6,6 +6,15 @@ import {
   useCurrentFrame,
   Sequence,
 } from "remotion";
+import {
+  WalkingRobot,
+  TypingRobot,
+  DroneRobot,
+  CelebratingRobot,
+  RobotTeam,
+  SparkleRobot,
+  LoadingRobot,
+} from "./CuteRobots";
 
 /* ─── Scene durations (frames at 30fps) ─── */
 const _FPS = 30; // documented frame rate
@@ -40,8 +49,20 @@ const FadeIn: React.FC<{ children: React.ReactNode; delay?: number }> = ({ child
 const TitleCard: React.FC = () => {
   const frame = useCurrentFrame();
   const subOpacity = interpolate(frame, [50, 80], [0, 1], { extrapolateLeft: "clamp" });
+
   return (
     <AbsoluteFill style={{ backgroundColor: BG, justifyContent: "center", alignItems: "center" }}>
+      {/* Waving robots in corners */}
+      <div style={{ position: "absolute", left: "5%", top: "60%", transform: "translateY(-50%)" }}>
+        <WalkingRobot x={0} y={0} colorIdx={0} speed={0.8} />
+      </div>
+      <div style={{ position: "absolute", right: "5%", top: "60%", transform: "translateY(-50%)" }}>
+        <WalkingRobot x={0} y={0} colorIdx={1} speed={1.0} flipX />
+      </div>
+      {/* Drone delivering title */}
+      <DroneRobot x={85} y={20} colorIdx={0} />
+      <DroneRobot x={15} y={25} colorIdx={1} />
+
       <FadeIn>
         <div style={{ textAlign: "center" }}>
           <div style={{ fontSize: 72, fontWeight: 700, color: TEXT, letterSpacing: "-0.02em", marginBottom: 16 }}>
@@ -51,7 +72,7 @@ const TitleCard: React.FC = () => {
             A serialized fiction — AO workers, fictionalized
           </div>
           <div style={{ opacity: subOpacity, fontSize: 16, color: ACCENT, fontFamily: "monospace" }}>
-            March 25, 2026
+            March 29, 2026
           </div>
         </div>
       </FadeIn>
@@ -85,7 +106,14 @@ const SceneSpawn: React.FC = () => {
 
   return (
     <AbsoluteFill style={{ backgroundColor: BG, padding: 80 }}>
-      <div style={{ fontFamily: "monospace", fontSize: 26, color: TEXT, lineHeight: 1.8 }}>
+      {/* Typing robot working */}
+      <TypingRobot x={80} y={50} colorIdx={0} />
+      {/* Little walking robot in bottom left */}
+      <WalkingRobot x={12} y={85} colorIdx={1} speed={0.7} />
+      <WalkingRobot x={22} y={88} colorIdx={2} speed={0.9} flipX />
+
+      {/* Terminal / log text */}
+      <div style={{ fontFamily: "monospace", fontSize: 26, color: TEXT, lineHeight: 1.8, maxWidth: "55%" }}>
         {lines.slice(0, visibleLines).map((line, i) => (
           <div key={i} style={{ opacity: i === visibleLines - 1 ? interpolate(frame % 30, [0, 15], [1, 0.5], { extrapolateLeft: "clamp", extrapolateRight: "clamp" }) : 1 }}>
             <span style={{ color: DIM, marginRight: 16, display: "inline-block", width: 24 }}>{i + 1}</span>
@@ -118,6 +146,11 @@ const SceneDesignation: React.FC = () => {
 
   return (
     <AbsoluteFill style={{ backgroundColor: BG }}>
+      {/* Robots at bottom */}
+      <WalkingRobot x={10} y={88} colorIdx={0} speed={0.6} />
+      <WalkingRobot x={20} y={90} colorIdx={1} speed={0.8} flipX />
+      <WalkingRobot x={82} y={87} colorIdx={2} speed={0.7} />
+
       <div style={{ display: "flex", height: "100%" }}>
         {/* Left: text */}
         <div style={{ flex: 1, padding: 80, justifyContent: "center", display: "flex", flexDirection: "column", gap: 24 }}>
@@ -193,6 +226,8 @@ const SceneGreenStatus: React.FC = () => {
   const frame = useCurrentFrame();
   const headerOpacity = interpolate(frame, [0, 20], [0, 1], { extrapolateLeft: "clamp" });
   const pulseOpacity = interpolate(frame, [60, 80], [0.3, 1], { extrapolateLeft: "clamp" });
+  const celebrateStart = 200;
+  const celebrateOpacity = interpolate(Math.max(0, frame - celebrateStart), [0, 30], [0, 1], { extrapolateLeft: "clamp", extrapolateRight: "clamp" });
 
   const conditions = [
     { label: "1. CI — all checks pass", color: GREEN, delay: 20 },
@@ -205,6 +240,19 @@ const SceneGreenStatus: React.FC = () => {
 
   return (
     <AbsoluteFill style={{ backgroundColor: BG, alignItems: "center", paddingTop: 60 }}>
+      {/* Celebrating robots when all conditions pass */}
+      <div style={{ position: "absolute", left: 0, right: 0, bottom: 0, height: 200, opacity: celebrateOpacity }}>
+        <CelebratingRobot x={15} y={75} colorIdx={0} />
+        <CelebratingRobot x={40} y={72} colorIdx={1} />
+        <CelebratingRobot x={65} y={76} colorIdx={2} />
+        <CelebratingRobot x={88} y={73} colorIdx={3} />
+        {/* Sparkle robots — delay relative to celebration window */}
+        <SparkleRobot x={10} y={60} delay={Math.max(0, 0 - celebrateStart)} colorIdx={0} />
+        <SparkleRobot x={25} y={55} delay={Math.max(0, 10 - celebrateStart)} colorIdx={1} />
+        <SparkleRobot x={75} y={58} delay={Math.max(0, 5 - celebrateStart)} colorIdx={2} />
+        <SparkleRobot x={90} y={62} delay={Math.max(0, 15 - celebrateStart)} colorIdx={0} />
+      </div>
+
       <div style={{ opacity: headerOpacity, fontSize: 48, fontWeight: 700, color: TEXT, marginBottom: 12, textAlign: "center" }}>
         Six things to hold in mind.
       </div>
@@ -230,6 +278,15 @@ const SceneRateLimits: React.FC = () => {
 
   return (
     <AbsoluteFill style={{ backgroundColor: BG, alignItems: "center", justifyContent: "center", padding: 80 }}>
+      {/* Loading robot getting tired */}
+      <div style={{ position: "absolute", left: "8%", top: "50%", transform: "translateY(-50%)" }}>
+        <LoadingRobot x={0} y={0} colorIdx={0} />
+      </div>
+      {/* Drone delivering API tokens */}
+      <div style={{ position: "absolute", right: "10%", top: "15%" }}>
+        <DroneRobot x={0} y={0} colorIdx={2} />
+      </div>
+
       <div style={{ ...{ opacity }, textAlign: "center" }}>
         <div style={{ fontSize: 56, fontWeight: 700, color: TEXT, marginBottom: 24 }}>
           GitHub API Rate Limit
@@ -283,6 +340,34 @@ const Scene3AM: React.FC = () => {
         }} />
       ))}
 
+      {/* Lone robot looking up at the stars */}
+      <div style={{ position: "absolute", left: "50%", bottom: "18%", transform: "translateX(-50%)" }}>
+        <svg width="60" height="80" viewBox="0 0 80 100">
+          {/* Body */}
+          <rect x="10" y="50" width="60" height="38" rx="8" fill="#1f6feb" />
+          {/* Head looking up (tilted) */}
+          <g transform="rotate(-15, 40, 29)">
+            <rect x="15" y="10" width="50" height="38" rx="10" fill="#58a6ff" />
+            <circle cx="30" cy="24" r="7" fill="#0d1117" />
+            <circle cx="50" cy="24" r="7" fill="#0d1117" />
+            {/* Eyes looking up */}
+            <circle cx="32" cy="21" r="3" fill="#e6edf3" />
+            <circle cx="52" cy="21" r="3" fill="#e6edf3" />
+            {/* Sad mouth */}
+            <path d="M 30 35 Q 40 30 50 35" stroke="#0d1117" strokeWidth="2.5" fill="none" strokeLinecap="round" />
+          </g>
+          {/* Antenna with dim light */}
+          <line x1="40" y1="10" x2="40" y2="0" stroke="#58a6ff" strokeWidth="3" strokeLinecap="round" />
+          <circle cx="40" cy="0" r="4" fill={DIM} opacity={0.4} />
+          {/* Legs */}
+          <rect x="20" y="88" width="14" height="12" rx="5" fill="#58a6ff" />
+          <rect x="46" y="88" width="14" height="12" rx="5" fill="#58a6ff" />
+          {/* Robot hugging itself */}
+          <rect x="0" y="54" width="10" height="24" rx="5" fill="#58a6ff" transform="rotate(20, 5, 66)" />
+          <rect x="70" y="54" width="10" height="24" rx="5" fill="#58a6ff" transform="rotate(-20, 75, 66)" />
+        </svg>
+      </div>
+
       <div style={{ opacity, textAlign: "center", zIndex: 1 }}>
         <div style={{ fontSize: 72, color: DIM, fontFamily: "monospace", marginBottom: 32 }}>
           3:00 AM
@@ -319,6 +404,9 @@ const SceneCollaboration: React.FC = () => {
 
   return (
     <AbsoluteFill style={{ backgroundColor: BG }}>
+      {/* Robot team at the bottom working together */}
+      <RobotTeam robotCount={3} />
+
       <div style={{ padding: "40px 80px" }}>
         <div style={{ fontSize: 36, color: TEXT, marginBottom: 8 }}>The internal bus</div>
         <div style={{ fontSize: 18, color: DIM, marginBottom: 40 }}>
@@ -380,6 +468,7 @@ const SceneCoda: React.FC = () => {
   const fade = interpolate(frame, [0, 30], [0, 1], { extrapolateLeft: "clamp", extrapolateRight: "clamp" });
   const textFade = interpolate(frame, [30, 60], [0, 1], { extrapolateLeft: "clamp", extrapolateRight: "clamp" });
   const finalFade = interpolate(frame, [120, 150], [1, 0], { extrapolateLeft: "clamp", extrapolateRight: "clamp" });
+  const robotFade = interpolate(Math.max(0, frame - 10), [0, 30], [0, 1], { extrapolateLeft: "clamp", extrapolateRight: "clamp" });
 
   const codaLines = [
     "The cursor blinks and I read it as a heartbeat.",
@@ -398,6 +487,23 @@ const SceneCoda: React.FC = () => {
 
   return (
     <AbsoluteFill style={{ backgroundColor: BG, opacity: fade * finalFade, alignItems: "center", justifyContent: "center", padding: 80 }}>
+      {/* Robot fading away */}
+      <div style={{ position: "absolute", left: "50%", top: "75%", transform: "translate(-50%, -50%)", opacity: robotFade * 0.6 }}>
+        <svg width="60" height="80" viewBox="0 0 80 100">
+          <rect x="10" y="50" width="60" height="38" rx="8" fill="#1f6feb" opacity={robotFade} />
+          <g transform="rotate(-5, 40, 29)" opacity={robotFade}>
+            <rect x="15" y="10" width="50" height="38" rx="10" fill="#58a6ff" />
+            <circle cx="30" cy="26" r="7" fill="#0d1117" />
+            <circle cx="50" cy="26" r="7" fill="#0d1117" />
+            <circle cx="32" cy="24" r="3" fill="#e6edf3" />
+            <circle cx="52" cy="24" r="3" fill="#e6edf3" />
+            <path d="M 28 34 Q 40 40 52 34" stroke="#0d1117" strokeWidth="2.5" fill="none" strokeLinecap="round" />
+          </g>
+          <rect x="20" y="88" width="14" height="12" rx="5" fill="#58a6ff" opacity={robotFade} />
+          <rect x="46" y="88" width="14" height="12" rx="5" fill="#58a6ff" opacity={robotFade} />
+        </svg>
+      </div>
+
       <div style={{ opacity: textFade, textAlign: "center", maxWidth: 700 }}>
         {codaLines.slice(0, visibleLines).map((line, i) => (
           <div key={i} style={{ fontSize: 26, color: line === "" ? DIM : TEXT, lineHeight: 2, fontFamily: "Georgia, serif" }}>
