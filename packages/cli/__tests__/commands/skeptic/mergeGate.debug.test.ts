@@ -2,10 +2,12 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 // Both mocks at module scope, hoisted before vi.mock
 const mockGhJson = vi.hoisted(() => vi.fn());
+const mockGhJsonPaginate = vi.hoisted(() => vi.fn());
 const mockFetchReviews = vi.hoisted(() => vi.fn());
 
 vi.mock("../../../src/commands/skeptic/gh-client.js", () => ({
   ghJson: mockGhJson,
+  ghJsonPaginate: mockGhJsonPaginate,
   fetchReviews: mockFetchReviews,
 }));
 
@@ -14,6 +16,8 @@ const { fetchMergeGateState } = await import("../../../src/commands/skeptic/merg
 describe("fetchMergeGateState — skeptic verdict parsing", () => {
   beforeEach(() => {
     mockGhJson.mockReset();
+    mockGhJsonPaginate.mockReset();
+    mockGhJsonPaginate.mockResolvedValue({ check_runs: [] });
     mockFetchReviews.mockReset();
     mockFetchReviews.mockResolvedValue([]);
   });
@@ -111,6 +115,8 @@ describe("fetchMergeGateState — skeptic verdict parsing", () => {
 
   it("returns null skepticVerdict when issue comments ghJson throws (non-fatal)", async () => {
     mockGhJson.mockReset();
+    mockGhJsonPaginate.mockReset();
+    mockGhJsonPaginate.mockResolvedValue({ check_runs: [] });
     mockFetchReviews.mockReset();
     mockFetchReviews.mockResolvedValue([]);
     mockGhJson
