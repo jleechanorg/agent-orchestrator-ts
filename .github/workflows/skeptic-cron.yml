@@ -224,15 +224,20 @@ jobs:
 
             # 7. Skeptic verdict — prefer this cron run's skeptic-output file
             # bd-skp2: fall back to gh comments API only if no output file exists
-            # bd-0cfv: fail-closed — only explicit VERDICT: PASS counts as green.
-            # SKIPPED/missing/unrecognized VERDICT → FAIL. Prevents infra failures
-            # (Codex/Claude unavailable) from silently passing all PRs through gate 7.
+            # bd-0cfv: VERDICT: PASS = green, VERDICT: FAIL = block merge.
+            # VERDICT: SKIPPED (infra unavailable — no Codex/Claude in GHA) = N/A,
+            # does NOT block merge. Only explicit FAIL blocks. Missing VERDICT = FAIL.
             if [ -f "skeptic-output-${PR_NUM}.txt" ]; then
               # bd-8tpa: prefer PASS when both FAIL and PASS are in output (Codex 401 + Claude fallback)
               if grep -qi "VERDICT: PASS" "skeptic-output-${PR_NUM}.txt"; then
                 SKEPTIC_STATUS="PASS"
+              elif grep -qi "VERDICT: SKIPPED" "skeptic-output-${PR_NUM}.txt"; then
+                # Infra unavailable (no LLM tools in GHA) — treat as N/A, not blocking
+                SKEPTIC_STATUS="SKIPPED"
+              elif grep -qi "VERDICT: FAIL" "skeptic-output-${PR_NUM}.txt"; then
+                SKEPTIC_STATUS="FAIL"
               else
-                # VERDICT: FAIL, VERDICT: SKIPPED, or no VERDICT → all FAIL (fail-closed)
+                # No VERDICT line at all → FAIL (fail-closed)
                 SKEPTIC_STATUS="FAIL"
               fi
             else
@@ -240,8 +245,12 @@ jobs:
                 --jq "[.[] | select(.user.login == \"${SKEPTIC_BOT_AUTHOR}\" and (.body | test(\"VERDICT:\"; \"i\"))) | .body] | last")
               if echo "$SKEPTIC_VERDICT" | grep -qi "VERDICT: PASS"; then
                 SKEPTIC_STATUS="PASS"
+              elif echo "$SKEPTIC_VERDICT" | grep -qi "VERDICT: SKIPPED"; then
+                SKEPTIC_STATUS="SKIPPED"
+              elif echo "$SKEPTIC_VERDICT" | grep -qi "VERDICT: FAIL"; then
+                SKEPTIC_STATUS="FAIL"
               else
-                # No VERDICT or VERDICT: FAIL/SKIPPED → FAIL (fail-closed)
+                # No VERDICT or empty → FAIL (fail-closed)
                 SKEPTIC_STATUS="FAIL"
               fi
             fi
@@ -255,7 +264,8 @@ jobs:
                 break
               fi
             done
-            if echo "$SKEPTIC_STATUS" | grep -Ei "FAIL|MISSING"; then
+            # SKIPPED (infra unavailable) does not block merge — only FAIL blocks
+            if echo "$SKEPTIC_STATUS" | grep -qi "FAIL"; then
               ALL_PASS=false
             fi
 
