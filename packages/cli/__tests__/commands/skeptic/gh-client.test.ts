@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach, mocked } from "vitest";
 import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from "node:fs";
 import * as fs from "node:fs";
 import { join } from "node:path";
@@ -6,6 +6,15 @@ import { tmpdir } from "node:os";
 
 // Hoisted before any imports or vi.mock calls
 const mockExec = vi.hoisted(() => vi.fn());
+
+// vi.spyOn fails in ESM ("Cannot redefine property: readFileSync") — mock the
+// entire node:fs module so we can control readFileSync imperatively per test.
+// vi.hoisted ensures the factory captures the current values when the module is loaded.
+const { mockFs } = vi.hoisted(() => {
+  const mockFs = { readFileSync: fs.readFileSync };
+  return { mockFs };
+});
+vi.mock("node:fs", () => ({ default: mockFs, ...mockFs }));
 
 vi.mock("../../../src/lib/shell.js", () => ({
   exec: mockExec,
@@ -22,6 +31,7 @@ describe("fetchDesignDoc", () => {
   beforeEach(() => {
     tmp = mkdtempSync(join(tmpdir(), "skeptic-test-"));
     vi.clearAllMocks();
+    mockExec.mockReset();
   });
 
   afterEach(() => {
@@ -70,21 +80,21 @@ describe("fetchDesignDoc", () => {
 
     mockExec.mockResolvedValueOnce({ stdout: tmp + "\n", stderr: "" });
 
-    // Mock readFileSync to throw EACCES — this simulates a permission-denied error
-    // without relying on chmod (which root bypasses on Linux).
+    // Replace the module-level handle so the mock bypasses vi.spyOn's ESM namespace issue.
     const eaccesErr = Object.assign(new Error("EACCES permission denied"), { code: "EACCES" });
-    vi.spyOn(fs, "readFileSync").mockImplementation(() => {
-      throw eaccesErr;
-    });
+    mockFs.readFileSync = () => { throw eaccesErr; };
 
     await expect(fetchDesignDoc(999)).rejects.toThrow("EACCES permission denied");
-    vi.mocked(fs.readFileSync).mockReset();
+
+    // Reset so subsequent tests in the same describe block are unaffected.
+    mocked(mockFs.readFileSync).mockReset();
   });
 });
 
 describe("ghJsonPaginate", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockExec.mockReset();
   });
 
   it("calls gh api --paginate and returns parsed JSON for a single-page response", async () => {
@@ -141,6 +151,7 @@ describe("ghJsonPaginate", () => {
 describe("fetchIssueComments", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockExec.mockReset();
   });
 
   it("calls gh api --paginate --slurp for comments endpoint", async () => {
