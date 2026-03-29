@@ -1,0 +1,41 @@
+name: Skeptic Gate Minimal
+on:
+  pull_request:
+    types: [opened, synchronize, edited, reopened]
+  workflow_dispatch:
+concurrency:
+  group: skeptic-gate-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+jobs:
+  skeptic_gate:
+    name: Skeptic Gate
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+      issues: write
+      contents: read
+    outputs:
+      trigger_updated: ${{ steps.post_trigger.outputs.trigger_updated }}
+      trigger_sha: ${{ steps.post_trigger.outputs.trigger_sha }}
+    steps:
+      - name: Post skeptic trigger comment
+        id: post_trigger
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          PR_NUM=${{ github.event.pull_request.number }}
+          TRIGGER_SHA="$HEAD_SHA"
+          BODY=$(printf '%s\n%s' "SKEPTIC_GATE_TRIGGER" "<!-- skeptic-gate-trigger-${TRIGGER_SHA} -->")
+          TRIGGER_UPDATED=$(gh api repos/${{ github.repository }}/issues/"$PR_NUM"/comments --field body="$BODY" --jq '.updated_at')
+          echo "Trigger timestamp: $TRIGGER_UPDATED"
+          echo "trigger_updated=$TRIGGER_UPDATED" >> "$GITHUB_OUTPUT"
+          echo "trigger_sha=$TRIGGER_SHA" >> "$GITHUB_OUTPUT"
+      - name: Poll for skeptic VERDICT
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TRIGGER_UPDATED: ${{ steps.post_trigger.outputs.trigger_updated }}
+          TRIGGER_SHA: ${{ steps.post_trigger.outputs.trigger_sha }}
+        timeout-minutes: 2
+        run: |
+          echo "Waiting for skeptic VERDICT..."
