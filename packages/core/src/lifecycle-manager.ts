@@ -648,14 +648,23 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
           if (reviewDecision === "pending") return { status: "review_pending", agentDead };
           // bd-fisn: reviewDecision is null when CR has been DISMISSED (no outstanding review
           // request). This does NOT mean "no review" — it means "review was dismissed".
-          // If PR is mergeable (CI green, no conflicts), check CR's reviews directly:
-          // if CR ever approved the current SHA, treat as approved so approved-and-green fires.
+          // Check CR's reviews directly: if CR approved the current head SHA, treat as approved
+          // so approved-and-green fires. SCM normalizes state to lowercase ("APPROVED"→"approved").
+          // Restrict to current head commit via getPRHeadSha to avoid stale approvals.
           if (reviewDecision === null && scm) {
             try {
               const rawReviews = await scm.getReviews(session.pr);
-              const reviews: Array<{ author?: string; state?: string }> = rawReviews;
+              const reviews: Array<{ author?: string; state?: string; commit_id?: string }> = rawReviews;
               const crReviews = reviews.filter((r) => String(r.author ?? "").endsWith("coderabbitai[bot]"));
-              const crApproved = crReviews.some((r) => r.state === "APPROVED");
+              // bd-rfr: SCM normalizes state to lowercase; use toLowerCase() for safety.
+              let crApproved = crReviews.some((r) => (r.state ?? "").toLowerCase() === "approved");
+              // Restrict to current head SHA if SCM supports it and at least one CR approval exists.
+              if (crApproved && scm.getPRHeadSha) {
+                const headSha = await scm.getPRHeadSha(session.pr);
+                crApproved = crReviews.some(
+                  (r) => (r.state ?? "").toLowerCase() === "approved" && r.commit_id === headSha,
+                );
+              }
               if (crApproved) {
                 if (ciStatus === CI_STATUS.PENDING) return { status: "approved", agentDead };
                 const mergeReady = await scm.getMergeability(session.pr);

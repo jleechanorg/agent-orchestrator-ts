@@ -19,7 +19,7 @@ jobs:
     # pull_request events so a stale failed check run cannot be overwritten. Instead of
     # leaving a permanent failure that blocks the PR from showing green, we exit 0.
     # Evidence gate is a pre-merge gate; post-merge it has no function.
-    if: github.event.pull_request.merged == false
+    if: github.event.pull_request.merged == false && github.event.action != 'closed'
     steps:
       - uses: actions/checkout@v4
 
