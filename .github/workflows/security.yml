@@ -44,12 +44,12 @@ jobs:
             curl -sSL "$url" -H "$AUTH_HEADER" -o "$dest"
           }
 
-          # Download binary (always needed)
-          download_with_auth "$ASSET_URL" /tmp/gitleaks.tgz
-
-          # Fetch checksums.txt and verify (retried, graceful fallback)
+          # Download binary and verify checksums (retried, fail-closed after 3 attempts)
           checksum_ok=false
           for attempt in 1 2 3; do
+            echo "Download attempt ${attempt}/3..."
+            # Re-download binary each attempt so we verify a freshly-fetched copy
+            download_with_auth "$ASSET_URL" /tmp/gitleaks.tgz
             checksums_url="https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_checksums.txt"
             if download_with_auth "$checksums_url" /tmp/checksums.txt && [ -s /tmp/checksums.txt ]; then
               SHA256=$(grep "gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" /tmp/checksums.txt | awk '{print $1}')
@@ -59,7 +59,7 @@ jobs:
                   checksum_ok=true
                   break
                 else
-                  echo "WARN: checksum mismatch on attempt ${attempt}, retrying..."
+                  echo "WARN: checksum mismatch on attempt ${attempt}, retrying with fresh download..."
                 fi
               fi
             fi
@@ -67,7 +67,8 @@ jobs:
           done
 
           if [ "$checksum_ok" = false ]; then
-            echo "WARN: checksum verification unavailable (network/GH API rate limit) — proceeding without verification"
+            echo "ERROR: checksum verification failed after 3 attempts — aborting (fail-closed)"
+            exit 1
           fi
 
           tar -xzf /tmp/gitleaks.tgz -C /tmp

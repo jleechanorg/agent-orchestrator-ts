@@ -197,11 +197,11 @@ function extractDescription(body) {
   const B2 = B + B;
   const u003c = B2 + "u003c";
   const u003e = B2 + "u003e";
-  // bd-7gs-fix-v2: anchor BLOCK_RE to line-start so inline code examples containing
-  // comment-like text (e.g. \`<!-- /CURSOR_SUMMARY -->\`) are preserved.
+  // bd-7gs-fix-v2: strip full CURSOR_SUMMARY block in one pass using non-greedy
+  // [\s\S]*? so the closing marker is the first --> after the opening <!--.
   // gh api emits \uXXXX as 6 literal chars; see comment above for the escaping fix.
   const BLOCK_RE = new RegExp(
-    `^${u003c}!--[\\s\\S]*?CURSOR_SUMMARY[\\s\\S]*?${u003c}!--[\\s\\S]*?/CURSOR_SUMMARY[\\s\\S]*?${u003e}`,
+    `${u003c}!--[\\s\\S]*?CURSOR_SUMMARY[\\s\\S]*?${u003c}!--[\\s\\S]*?/CURSOR_SUMMARY[\\s\\S]*?${u003e}`,
     "gim"
   );
   const cleaned = (body || "")
@@ -531,10 +531,9 @@ function mdToHtml(str) {
     // Check if this paragraph starts with a list item
     if (/^(\s*)- /.test(trimmed)) {
       const lines = trimmed.split("\n");
-      // Use the 's' flag so '.' in the bullet regex matches newlines too,
-      // preserving indented continuation lines within each list item
+      // Filter to bullet lines; (.*) captures the rest of the line (already matches newlines via split)
       const items = lines
-        .filter((l) => /^(\s*)- (.*)/s.test(l))
+        .filter((l) => /^(\s*)- (.*)/.test(l))
         .map((l) => `<li>${inlineMd(l.replace(/^\s*- /, ""))}</li>`);
       if (items.length > 0) {
         result.push(`<ul class="muted">${items.join("")}</ul>`);
