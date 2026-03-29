@@ -60,20 +60,27 @@ jobs:
           # by keeping only the latest run per name (sort by started_at desc, take first).
           # Exclude: Skeptic Gate (self-reference), cancelled (superseded runs), skipped, neutral.
           CHECK_RUNS_FAILED=$(gh api repos/${{ github.repository }}/commits/"$HEAD_SHA"/check-runs \
-            --jq '[.check_runs | group_by(.name) | .[] | sort_by(.started_at) | reverse | .[0] | select(.name != "Skeptic Gate" and .conclusion != null and .conclusion != "success" and .conclusion != "skipped" and .conclusion != "neutral" and .conclusion != "cancelled")] | length' 2>/dev/null || echo "0")
+            --jq '[.check_runs | group_by(.name) | .[] | sort_by(.started_at) | reverse | .[0] | select(.name != "Skeptic Gate" and .conclusion != null and .conclusion != "success" and .conclusion != "skipped" and .conclusion != "neutral" and .conclusion != "cancelled")] | length' 2>/dev/null || echo "__API_ERROR__")
           CHECK_RUNS_PENDING=$(gh api repos/${{ github.repository }}/commits/"$HEAD_SHA"/check-runs \
-            --jq '[.check_runs | group_by(.name) | .[] | sort_by(.started_at) | reverse | .[0] | select(.name != "Skeptic Gate" and .status != "completed")] | length' 2>/dev/null || echo "0")
+            --jq '[.check_runs | group_by(.name) | .[] | sort_by(.started_at) | reverse | .[0] | select(.name != "Skeptic Gate" and .status != "completed")] | length' 2>/dev/null || echo "__API_ERROR__")
 
-          CI_DETAIL="commit-status=$CI_STATUS, failed-checks=${CHECK_RUNS_FAILED:-0}, pending-checks=${CHECK_RUNS_PENDING:-0}"
+          # Count total non-Skeptic-Gate check runs to detect "no CI registered yet".
+          TOTAL_CHECKS=$(gh api repos/${{ github.repository }}/commits/"$HEAD_SHA"/check-runs \
+            --jq '[.check_runs | group_by(.name) | .[] | sort_by(.started_at) | reverse | .[0] | select(.name != "Skeptic Gate")] | length' 2>/dev/null || echo "0")
+
+          CI_DETAIL="commit-status=$CI_STATUS, failed-checks=${CHECK_RUNS_FAILED:-0}, pending-checks=${CHECK_RUNS_PENDING:-0}, total-checks=${TOTAL_CHECKS:-0}"
 
           # Only "success" passes. "pending" means no statuses exist or checks
           # are still running — both are NOT green. Never let pending pass.
-          if [ "$CI_STATUS" = "success" ] && [ "${CHECK_RUNS_FAILED:-0}" -eq 0 ] && [ "${CHECK_RUNS_PENDING:-0}" -eq 0 ]; then
+          # Also fail when total non-Skeptic-Gate check runs == 0: CI hasn't registered yet.
+          if [ "$CI_STATUS" = "success" ] && [ "${CHECK_RUNS_FAILED:-0}" -eq 0 ] && [ "${CHECK_RUNS_PENDING:-0}" -eq 0 ] && [ "${TOTAL_CHECKS:-0}" -gt 0 ]; then
             GATE1="PASS"
           else
             GATE1="FAIL"
             FAILED_GATES="${FAILED_GATES}1, "
-            if [ "${CHECK_RUNS_PENDING:-0}" -gt 0 ]; then
+            if [ "${TOTAL_CHECKS:-0}" -eq 0 ]; then
+              CI_DETAIL="${CI_DETAIL} (no CI checks registered yet)"
+            elif [ "${CHECK_RUNS_PENDING:-0}" -gt 0 ]; then
               CI_DETAIL="${CI_DETAIL} (checks still running)"
             fi
           fi
@@ -213,7 +220,7 @@ jobs:
 
           | Gate | Result | Detail |
           |------|--------|--------|
-          $(printf "$GATE_ROWS")
+          $(printf '%s' "$GATE_ROWS")
 
           ${RESULT_LINE}
 
@@ -228,6 +235,8 @@ jobs:
           echo "COMMENT_EOF" >> "$GITHUB_OUTPUT"
 
       - name: Post gate results comment
+        if: always()
+        continue-on-error: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_NUM: ${{ github.event.inputs.pr_number || github.event.pull_request.number }}

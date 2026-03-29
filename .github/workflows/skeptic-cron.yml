@@ -382,9 +382,12 @@ jobs:
               SKEPTIC_STATUS="FAIL"
             else
               # Fallback: also check github-actions[bot] author
+              # CRITICAL: must also filter by HEAD_SHA to avoid matching stale verdicts
+              # from a different SHA than what we triggered evaluation against.
+              FALLBACK_TRIGGER_RE="skeptic-cron-trigger-${HEAD_SHA}"
               SKEPTIC_VERDICT=$(gh api repos/${{ github.repository }}/issues/"$PR_NUM"/comments \
                 --paginate \
-                --jq "[.[] | select((.user.login == \"${SKEPTIC_BOT_AUTHOR}\" or .user.login == \"github-actions[bot]\") and (.body | test(\"VERDICT:\"; \"i\")) and (.body | test(\"skeptic-cron-trigger-\"; \"i\"))) | .body] | last // empty" 2>/dev/null || echo "")
+                --jq "[.[] | select((.user.login == \"${SKEPTIC_BOT_AUTHOR}\" or .user.login == \"github-actions[bot]\") and (.body | test(\"VERDICT:\"; \"i\")) and (.body | test(\"$FALLBACK_TRIGGER_RE\"; \"i\"))) | .body] | last // empty" 2>/dev/null || echo "")
               if echo "$SKEPTIC_VERDICT" | grep -qi "VERDICT: PASS"; then
                 SKEPTIC_STATUS="PASS"
               elif echo "$SKEPTIC_VERDICT" | grep -qi "VERDICT: SKIPPED"; then
