@@ -134,23 +134,18 @@ jobs:
               exit 0
             fi
 
-            # Find verdict comments from SKEPTIC_BOT_AUTHOR posted AFTER the
-            # trigger was updated AND whose body contains the trigger SHA marker
-            # (<!-- skeptic-gate-trigger-${TRIGGER_SHA} -->). This double-checks
-            # that the verdict belongs to the current evaluation window.
-            # Uses updated_at (not created_at) — ao skeptic verify may edit an existing
-            # verdict comment when re-running for a new trigger SHA; GitHub preserves
-            # the original created_at but updates updated_at, so updated_at is the
-            # correct freshness signal.
-            # Parentheses required around (.body | test(...)) — jq `and` has lower
-            # precedence than `|`, so unparenthesized form would be parsed as
-            # (.user.login == X and .body) | test(...) which always selects all.
-            # bd-lg7i: Remove .user.login filter — gh api posts as github-actions[bot], not
-            # SKEPTIC_BOT_AUTHOR (jleechan2015). The skeptic-agent-verdict HTML marker in the
-            # body uniquely identifies the comment; SHA marker + timestamp ensure freshness.
-            # --paginate returns all pages as one array, so .[-1] gives the most
-            # recent match across all pages (comments returned oldest→newest).
-            VERDICT_JQ='[.[] | select((.body | test("VERDICT:"; "i")) and (.updated_at >= env.TRIGGER_UPDATED) and (.body | test("skeptic-gate-trigger-" + env.TRIGGER_SHA; "i")))] | .[-1] // empty'
+            # Find verdict comments whose body contains the trigger SHA marker
+            # (<!-- skeptic-gate-trigger-${TRIGGER_SHA} -->) and the VERDICT: keyword.
+            # The skeptic-agent-verdict HTML marker uniquely identifies the comment;
+            # SHA marker + updated_at ensure freshness (see bd-lg7i rationale).
+            # Uses updated_at (not created_at) — ao skeptic verify edits the same comment
+            # when re-running for a new trigger SHA; GitHub preserves created_at but
+            # updates updated_at, so updated_at is the correct freshness signal.
+            # --paginate returns multiple JSON arrays (one per page); .[][] iterates
+            # through each page and each element within, flattening all pages into one
+            # stream of comment objects so the outer select() sees all comments.
+            # .[-1] gives the most recent matching comment (oldest→newest order).
+            VERDICT_JQ='[.[] | select((.user.login == env.SKEPTIC_BOT_AUTHOR and (.body | test("VERDICT:"; "i")) and (.updated_at >= env.TRIGGER_UPDATED) and (.body | test("skeptic-gate-trigger-" + env.TRIGGER_SHA; "i")))] | .[-1] // empty'
             VERDICT_JSON=$(gh api repos/${{ github.repository }}/issues/"$PR_NUM"/comments \
               --paginate \
               --jq "$VERDICT_JQ" 2>&1)

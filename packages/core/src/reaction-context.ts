@@ -10,6 +10,36 @@ import type {
   OrchestratorConfig,
 } from "./types.js";
 
+import { checkMergeGate } from "./merge-gate.js";
+import { buildActionPlan, formatActionPlan } from "./action-plan.js";
+
+/**
+ * Append a prioritized gate-closure action plan to reaction context.
+ * Runs checkMergeGate to discover failing gates, formats the result as
+ * worker-readable text, and returns it for injection into the reaction message.
+ */
+async function appendActionPlan(
+  scm: SCM,
+  pr: Session["pr"],
+  projectId: string,
+  config: OrchestratorConfig,
+): Promise<string> {
+  if (!pr) return "";
+  const project = config.projects[projectId];
+  const mergeGateConfig = project?.mergeGate ?? { enabled: true };
+  try {
+    const gateResult = await checkMergeGate(
+      pr,
+      mergeGateConfig,
+      scm,
+    );
+    const plan = buildActionPlan(gateResult);
+    return formatActionPlan(plan);
+  } catch {
+    return "";
+  }
+}
+
 export async function buildReactionContext(
   reactionKey: string,
   session: Session,
@@ -37,13 +67,19 @@ export async function buildReactionContext(
       }
       case "changes-requested": {
         const comments = await scm.getPendingComments(session.pr);
-        if (comments.length === 0) return "";
+        // Always compute the action plan even when comments.length === 0,
+        // because other gates (CI, conflicts) may still be failing.
         const lines = comments.slice(0, 5).map((c) => {
           const pathPart = c.path ? ` ${c.path}:${c.line ?? ""}` : "";
           return `-${pathPart} ${c.body.slice(0, 100)}${c.body.length > 100 ? "..." : ""}`;
         });
         const more = comments.length > 5 ? `\n... and ${comments.length - 5} more` : "";
-        return `Unresolved review comments:\n${lines.join("\n")}${more}`;
+        const commentText = lines.length > 0
+          ? `Unresolved review comments:\n${lines.join("\n")}${more}`
+          : "";
+        const actionPlanText = await appendActionPlan(scm, session.pr, projectId, config);
+        const parts = [commentText, actionPlanText].filter(Boolean);
+        return parts.join("\n\n");
       }
       case "merge-conflicts": {
         const merge = await scm.getMergeability(session.pr);
@@ -52,7 +88,9 @@ export async function buildReactionContext(
       }
       case "agent-needs-input":
       case "agent-stuck": {
-        return buildPRStatusSummary(scm, session);
+        const summary = await buildPRStatusSummary(scm, session);
+        const actionPlanText = await appendActionPlan(scm, session.pr, projectId, config);
+        return actionPlanText ? `${summary}\n\n${actionPlanText}` : summary;
       }
       default:
         return "";

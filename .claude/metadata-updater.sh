@@ -55,11 +55,8 @@ fi
 cd_prefix_pattern='^[[:space:]]*cd[[:space:]]+.*[[:space:]]+(&&|;)[[:space:]]+(.*)'
 clean_command="$command"
 while true; do
-  # Strip leading env prefix: env VAR=... gh pr create ...
-  if [[ "$clean_command" =~ ^[[:space:]]*env[[:space:]]+(.+)$ ]]; then
-    clean_command="${BASH_REMATCH[1]}"
   # Strip leading env assignments: FOO=bar BAZ=qux gh pr create ...
-  elif [[ "$clean_command" =~ ^[[:space:]]*([A-Za-z_][A-Za-z0-9_]*=[^= ]*)[[:space:]]+(.+)$ ]]; then
+  if [[ "$clean_command" =~ ^[[:space:]]*([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*)[[:space:]]+(.+)$ ]]; then
     clean_command="${BASH_REMATCH[2]}"
   # Strip leading cd prefixes: cd /path && gh pr create ...
   elif [[ "$clean_command" =~ $cd_prefix_pattern ]]; then
@@ -70,11 +67,9 @@ while true; do
 done
 
 # Guardrail: enforce [agento] prefix on gh pr create titles (PreToolUse only).
-# Scoped to AO_SESSION agent sessions — first-party scripts (integrate.sh) without
-# AO_SESSION set are exempted to avoid blocking internal automation workflows.
 # PostToolUse falls through to metadata update — no need to re-check there.
 pr_create_pattern='^[[:space:]]*([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]+[[:space:]]+)*gh[[:space:]]+pr[[:space:]]+create([[:space:]]|$)'
-if [[ "$hook_event" == "PreToolUse" && -n "${AO_SESSION:-}" && "$clean_command" =~ $pr_create_pattern ]]; then
+if [[ "$hook_event" == "PreToolUse" && "$clean_command" =~ $pr_create_pattern ]]; then
   # Parse --title or -t as proper argv tokens (not substring in --body etc.).
   # Python shlex correctly handles quoted strings containing literal "--title".
   first_title=$(python3 -c "
@@ -117,7 +112,7 @@ if [[ "$clean_command" =~ $merge_pattern ]]; then
 fi
 
 # All metadata writers run in PostToolUse only.
-# Only allow fall-through when hook_event is explicitly "PostToolUse".
+# Guardrails above run in PreToolUse; everything below requires an explicit PostToolUse event.
 if [[ "$hook_event" != "PostToolUse" ]]; then
   echo '{}'
   exit 0
@@ -147,10 +142,10 @@ update_metadata_key() {
   # Create temp file
   local temp_file="${metadata_file}.tmp"
 
-  # Escape special sed characters in value (&, \, and | need escaping in BRE).
-  # Use | as the sed delimiter to avoid conflicts with / in values (e.g. URLs, branch refs).
-  # Escape | so that values containing | do not break the replacement pattern.
-  local escaped_value=$(echo "$value" | sed 's|[&\\|]|\\&|g')
+  # Escape the replacement characters used by `s|...|...|`: &, |, and \.
+  # & becomes \& (literal in replacement), | becomes \|, \ becomes \\.
+  local escaped_value
+  escaped_value=$(printf '%s' "$value" | sed 's/[&|\\]/\\&/g')
 
   # Check if key already exists
   if grep -q "^$key=" "$metadata_file" 2>/dev/null; then
@@ -203,11 +198,10 @@ fi
 
 # Detect: git checkout <branch> (without -b) or git switch <branch> (without -c)
 # Only update if the branch name looks like a feature branch (contains / or -)
-# Also verify it is a local branch to avoid overwriting metadata on detached checkouts
-# of remote refs (origin/main), tags, or commit SHAs.
+# AND is a real git revision (branch, tag, or remote ref) — verified via rev-parse.
 if [[ "$clean_command" =~ ^git[[:space:]]+checkout[[:space:]]+([^[:space:]-]+[/-][^[:space:]]+) ]]; then
   branch="${BASH_REMATCH[1]}"
-  if [[ -n "$branch" && "$branch" != "HEAD" ]] && git show-ref --verify --quiet "refs/heads/$branch"; then
+  if [[ -n "$branch" && "$branch" != "HEAD" ]] && git rev-parse --verify --quiet "$branch" 2>/dev/null; then
     update_metadata_key "branch" "$branch"
     echo '{"systemMessage": "Updated metadata: branch = '"$branch"'"}'
     exit 0
@@ -216,7 +210,7 @@ fi
 
 if [[ "$clean_command" =~ ^git[[:space:]]+switch[[:space:]]+([^[:space:]-]+[/-][^[:space:]]+) ]]; then
   branch="${BASH_REMATCH[1]}"
-  if [[ -n "$branch" && "$branch" != "HEAD" ]] && git show-ref --verify --quiet "refs/heads/$branch"; then
+  if [[ -n "$branch" && "$branch" != "HEAD" ]] && git rev-parse --verify --quiet "$branch" 2>/dev/null; then
     update_metadata_key "branch" "$branch"
     echo '{"systemMessage": "Updated metadata: branch = '"$branch"'"}'
     exit 0

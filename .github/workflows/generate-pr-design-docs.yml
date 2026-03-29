@@ -27,7 +27,31 @@ jobs:
       contents: write   # needed to commit design docs to the PR branch
       pull-requests: write # needed to post PR comment
     steps:
+      - id: skip-check
+        name: Skip if last commit is from github-actions[bot]
+        # The workflow commits design docs as github-actions[bot]. That commit triggers
+        # a new pull_request.synchronize event, which re-fires this workflow. Without
+        # this guard, the workflow loops forever: bot commits → synchronize → regenerate.
+        # github.event.pull_request.head.sha here is the NEW head (the bot's commit),
+        # so checking its author correctly detects our own preceding run.
+        # Use an output (not exit 1) so the step completes with success — a failed step
+        # would mark the PR red even though breaking the loop is the correct behavior.
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUM: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          LAST_AUTHOR=$(gh api repos/"$REPO"/pulls/"$PR_NUM"/commits --jq '.[-1].author.login' 2>/dev/null || echo "")
+          echo "Last commit author: '$LAST_AUTHOR'"
+          if [ "$LAST_AUTHOR" = "github-actions[bot]" ]; then
+            echo "SKIP: Last commit was made by github-actions[bot] — breaking regenerate loop."
+            echo "should_skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "should_skip=false" >> "$GITHUB_OUTPUT"
+            echo "PROCEED: Last commit is not from github-actions[bot]."
+          fi
       - name: Checkout PR branch
+        if: steps.skip-check.outputs.should_skip != 'true'
         uses: actions/checkout@v4
         with:
           repository: ${{ github.event.pull_request.head.repo.full_name }}
@@ -35,6 +59,7 @@ jobs:
           fetch-depth: 0
 
       - name: Sync generator script from base branch
+        if: steps.skip-check.outputs.should_skip != 'true'
         # Always use the fixed script from the base branch (main) so that
         # PRs with stale script copies in their branch get the latest fix
         # without needing to rebase. This breaks the regenerate-loop cycle.
@@ -72,14 +97,17 @@ jobs:
           fi
 
       - name: Set up Node.js
+        if: steps.skip-check.outputs.should_skip != 'true'
         uses: actions/setup-node@v4
         with:
           node-version: "22"
 
       - name: Install pnpm
+        if: steps.skip-check.outputs.should_skip != 'true'
         uses: pnpm/action-setup@v4
 
       - name: Generate design doc for this PR
+        if: steps.skip-check.outputs.should_skip != 'true'
         env:
           # GITHUB_TOKEN is pre-authenticated in Actions and works for gh api/gh pr
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -111,6 +139,7 @@ jobs:
           fi
 
       - name: Commit design docs to PR branch
+        if: steps.skip-check.outputs.should_skip != 'true'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
