@@ -159,11 +159,11 @@ export async function fetchMergeGateState(
     let cursor: string | null = null;
     let hasNextPage = true;
     while (hasNextPage) {
-      // Escape GraphQL string inputs to prevent injection via --repo owner/repo.
-      // owner/repo are CLI-supplied; cursor comes from GitHub API (trusted but still escaped).
-      const safeOwner = owner.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\f/g, "\\f");
-      const safeRepo = repo.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\f/g, "\\f");
-      const safeCursor = (cursor ?? "").replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\f/g, "\\f");
+      // Escape control chars (\n \r \t \f) for GraphQL single-line string literals.
+      const esc = (s: string) => s.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\n/g, "\\n").replace(/\r/g, "\\r").replace(/\t/g, "\\t");
+      const safeOwner = esc(owner);
+      const safeRepo = esc(repo);
+      const safeCursor = esc(cursor ?? "");
       const afterArg = safeCursor ? `, after:"${safeCursor}"` : "";
       const threadQuery = `{
   repository(owner:"${safeOwner}", name:"${safeRepo}") {
