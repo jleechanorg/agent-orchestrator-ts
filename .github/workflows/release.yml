@@ -18,7 +18,7 @@ jobs:
   # Phase 1: detect what the next release type would be
   detect-release:
     name: Detect release type
-    runs-on: ${{ fromJson(vars.SELF_HOSTED_RUNNER_LABELS || '["self-hosted","self-hosted-mikey"]') }}
+    runs-on: ${{ fromJson(vars.SELF_HOSTED_RUNNER_LABELS || '["self-hosted","Linux","ARM64","jleechanclaw"]') }}
     outputs:
       release_type: ${{ steps.detect.outputs.release_type }}
       next_version: ${{ steps.detect.outputs.next_version }}
@@ -72,7 +72,7 @@ jobs:
     name: Release (patch/minor — automatic)
     needs: detect-release
     if: needs.detect-release.outputs.release_type == 'patch' || needs.detect-release.outputs.release_type == 'minor'
-    runs-on: ${{ fromJson(vars.SELF_HOSTED_RUNNER_LABELS || '["self-hosted","self-hosted-mikey"]') }}
+    runs-on: ${{ fromJson(vars.SELF_HOSTED_RUNNER_LABELS || '["self-hosted","Linux","ARM64","jleechanclaw"]') }}
     permissions:
       contents: write
       pull-requests: write
@@ -107,7 +107,7 @@ jobs:
     name: Release (major)
     needs: detect-release
     if: needs.detect-release.outputs.release_type == 'major'
-    runs-on: ${{ fromJson(vars.SELF_HOSTED_RUNNER_LABELS || '["self-hosted","self-hosted-mikey"]') }}
+    runs-on: ${{ fromJson(vars.SELF_HOSTED_RUNNER_LABELS || '["self-hosted","Linux","ARM64","jleechanclaw"]') }}
     # Requires repo Settings → Environments → "major-release" with required reviewers set.
     environment: major-release
     permissions:
