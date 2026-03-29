@@ -111,18 +111,8 @@ jobs:
               continue
             fi
 
-            # ----------------------------------------------------------------
-            # Docs-only skip: check if the diff contains only docs files.
-            # ----------------------------------------------------------------
-            PR_BASE_REF=$(echo "$PR_DATA" | jq -r '.base.ref')
-            DIFF_FILES=$(gh api repos/${{ github.repository }}/compare/"${PR_BASE_REF}...${PR_SHA}" \
-              --jq '[.files[].filename] | map(select(test("\\.(js|ts|jsx|tsx|py|rs|go|java|cs|cpp|h|c|mk|toml|yaml|yml|json|xml|sh|bash|ps1|rb|php|swift|kt|gradle)$"; "i") | not))' \
-              2>/dev/null | jq 'length' || echo 0)
-            if [ "${DIFF_FILES:-0}" -eq 0 ]; then
-              echo "  [SKIP] No doc files in diff — all code; skeptic evaluation optional"
-              SKIPPED_DOCS=$((SKIPPED_DOCS + 1))
-              continue
-            fi
+            # (docs-only skip removed — skeptic-cron evaluates ALL PRs
+            #  regardless of file types, per deterministic gate architecture)
 
             # ----------------------------------------------------------------
             # Gate 1: CI green
