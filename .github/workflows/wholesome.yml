@@ -17,7 +17,7 @@ jobs:
   # to avoid type coercion issues (merged is a boolean, not a string "true"/"false").
   _merged-guard:
     name: Skip for merged/closed PRs
-    runs-on: ubuntu-latest
+    runs-on: ${{ fromJson(vars.SELF_HOSTED_RUNNER_LABELS || '["self-hosted","Linux","ARM64","jleechanclaw"]') }}
     outputs:
       skip: ${{ github.event.pull_request.merged == true || github.event.action == 'closed' }}
     steps:
@@ -25,7 +25,7 @@ jobs:
 
   pr-title-prefix:
     name: PR Title [agento] Prefix
-    runs-on: ubuntu-latest
+    runs-on: ${{ fromJson(vars.SELF_HOSTED_RUNNER_LABELS || '["self-hosted","Linux","ARM64","jleechanclaw"]') }}
     steps:
       - name: Check PR title prefix
         env:
@@ -42,7 +42,7 @@ jobs:
 
   evidence-section:
     name: Evidence Section Present
-    runs-on: ubuntu-latest
+    runs-on: ${{ fromJson(vars.SELF_HOSTED_RUNNER_LABELS || '["self-hosted","Linux","ARM64","jleechanclaw"]') }}
     needs: [_merged-guard]
     if: needs._merged-guard.outputs.skip != 'true'
     outputs:
@@ -88,15 +88,16 @@ jobs:
 
   actionlint:
     name: Actionlint (Workflow Lint)
-    runs-on: ubuntu-latest
+    runs-on: ${{ fromJson(vars.SELF_HOSTED_RUNNER_LABELS || '["self-hosted","Linux","ARM64","jleechanclaw"]') }}
     steps:
       - uses: actions/checkout@v4
 
       - name: Install and run actionlint
         run: |
-          # Download actionlint binary directly from GitHub releases
+          # Normalize runner.arch to actionlint's naming: X64→amd64, ARM64→arm64
+          ARCH_SUFFIX=$(echo "${{ runner.arch }}" | tr '[:upper:]' '[:lower:]' | sed 's/arm64/arm64/' | sed 's/x64/amd64/')
           curl -sfL \
-            "https://github.com/rhysd/actionlint/releases/download/v1.7.4/actionlint_1.7.4_linux_amd64.tar.gz" \
+            "https://github.com/rhysd/actionlint/releases/download/v1.7.4/actionlint_1.7.4_linux_${ARCH_SUFFIX}.tar.gz" \
             | tar -xz -C /usr/local/bin
           # Use config file to suppress known false positives in existing workflows
           actionlint -config-file .actionlint.yaml .github/workflows/*.yml || {
@@ -108,7 +109,7 @@ jobs:
 
   evidence-media-attachment:
     name: Evidence Has Media Attachment
-    runs-on: ubuntu-latest
+    runs-on: ${{ fromJson(vars.SELF_HOSTED_RUNNER_LABELS || '["self-hosted","Linux","ARM64","jleechanclaw"]') }}
     needs: [_merged-guard, evidence-section]
     # Only meaningful if Evidence section was found
     if: needs._merged-guard.outputs.skip != 'true' && needs.evidence-section.outputs.found == 'true'
