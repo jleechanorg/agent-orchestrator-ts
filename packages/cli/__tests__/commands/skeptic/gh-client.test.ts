@@ -78,7 +78,7 @@ describe("fetchDesignDoc", () => {
     });
 
     await expect(fetchDesignDoc(999)).rejects.toThrow("EACCES permission denied");
-    vi.restoreAllMocks();
+    vi.mocked(fs.readFileSync).mockReset();
   });
 });
 

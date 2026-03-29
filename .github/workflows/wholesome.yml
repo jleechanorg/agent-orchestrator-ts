@@ -54,6 +54,8 @@ jobs:
           PR_BODY: ${{ github.event.pull_request.body }}
         run: |
           BODY="$PR_BODY"
+          # Convert GitHub-escaped literal \n sequences to actual newlines before parsing.
+          BODY=$(printf '%s' "$BODY" | sed 's/\\n/\n/g; s/\\r/\r/g')
           echo "PR body length: ${#BODY} chars"
 
           if [ ${#BODY} -eq 0 ]; then
@@ -119,6 +121,10 @@ jobs:
       - name: Check Evidence section has media (image or code block)
         run: |
           BODY="$PR_BODY"
+
+          # Convert GitHub-escaped literal \n sequences to actual newlines before parsing.
+          # GHA passes multi-line PR body as literal backslash-n strings, not real newlines.
+          BODY=$(printf '%s' "$BODY" | sed 's/\\n/\n/g; s/\\r/\r/g')
 
           # Extract only the Evidence section content: from "## Evidence" to the next ## heading
           # This prevents media from later sections (e.g. "## Other" with ![img]) from incorrectly passing the gate
