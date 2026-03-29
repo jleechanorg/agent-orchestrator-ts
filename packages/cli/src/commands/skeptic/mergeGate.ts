@@ -113,17 +113,27 @@ export async function fetchMergeGateState(
         const checkRunData = (await ghJsonPaginate(
           "repos/" + owner + "/" + repo + "/commits/" + headSha + "/check-runs?per_page=100",
           { targetKey: "check_runs" },
-        )) as Array<{ name: string; status: string; conclusion: string | null }>;
-        // Deduplicate by name, keeping latest conclusion
-        const seen = new Map<string, CheckRunSummary>();
+        )) as Array<{
+          id: number;
+          name: string;
+          status: string;
+          conclusion: string | null;
+          started_at?: string | null;
+        }>;
+        // Deduplicate by name, keeping the most recent run per name.
+        // Uses started_at timestamp as sort key; falls back to run.id for tie-breaking.
+        const seen = new Map<string, { sortKey: number; summary: CheckRunSummary }>();
         for (const run of (checkRunData ?? [])) {
+          const sortKey = run.started_at ? new Date(run.started_at).getTime() : run.id;
           const existing = seen.get(run.name);
-          // Prefer completed runs over in-progress
-          if (!existing || (run.status === "completed" && existing.status !== "completed")) {
-            seen.set(run.name, { name: run.name, status: run.status, conclusion: run.conclusion });
+          if (!existing || sortKey > existing.sortKey) {
+            seen.set(run.name, {
+              sortKey,
+              summary: { name: run.name, status: run.status, conclusion: run.conclusion },
+            });
           }
         }
-        checkRuns = [...seen.values()];
+        checkRuns = [...seen.values()].map(({ summary }) => summary);
       } catch {
         // non-fatal — check runs stay empty
       }
