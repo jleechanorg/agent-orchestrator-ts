@@ -17,7 +17,7 @@ describe("fetchMergeGateState — skeptic verdict parsing", () => {
   beforeEach(() => {
     mockGhJson.mockReset();
     mockGhJsonPaginate.mockReset();
-    mockGhJsonPaginate.mockResolvedValue({ check_runs: [] });
+    mockGhJsonPaginate.mockResolvedValue([{ check_runs: [] }]);
     mockFetchReviews.mockReset();
     mockFetchReviews.mockResolvedValue([]);
   });
@@ -116,7 +116,7 @@ describe("fetchMergeGateState — skeptic verdict parsing", () => {
   it("returns null skepticVerdict when issue comments ghJson throws (non-fatal)", async () => {
     mockGhJson.mockReset();
     mockGhJsonPaginate.mockReset();
-    mockGhJsonPaginate.mockResolvedValue({ check_runs: [] });
+    mockGhJsonPaginate.mockResolvedValue([{ check_runs: [] }]);
     mockFetchReviews.mockReset();
     mockFetchReviews.mockResolvedValue([]);
     mockGhJson
