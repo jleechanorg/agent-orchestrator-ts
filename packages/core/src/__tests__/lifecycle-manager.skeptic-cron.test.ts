@@ -20,19 +20,14 @@ import { createLifecycleManager } from "../lifecycle-manager.js";
 import type {
   PluginRegistry,
   SessionManager,
-  Session,
-  SCM,
   Runtime,
   Agent,
   ActivityState,
-  PRInfo,
 } from "../types.js";
 import type { SkepticCronDeps, SkepticCronParams } from "../skeptic-cron-local.js";
-import { writeMetadata } from "../metadata.js";
 import { getSessionsDir, getProjectBaseDir } from "../paths.js";
 import * as reviewBacklog from "../review-backlog.js";
 import { logAoAction } from "../ao-action-log.js";
-import { reapPostMergeCoWorkers } from "../fork-lifecycle-postmerge.js";
 
 // Must precede lifecycle-manager import (which imports skeptic-cron-local)
 const { mockRunLocalSkepticCron } = vi.hoisted<
@@ -61,9 +56,6 @@ vi.mock("../skeptic-cron-local.js", () => ({
   _resetSkepticCronTimer: vi.fn(),
 }));
 
-// Import after vi.mock
-import { getSessionsDir as _getSessionsDir } from "../paths.js"; // renamed to avoid conflict
-
 let tmpDir: string;
 let configPath: string;
 let sessionsDir: string;
@@ -82,25 +74,6 @@ let config: {
   readyThresholdMs: number;
   startupGracePeriodMs: number;
 };
-
-function makeSession(overrides: Partial<Session> = {}): Session {
-  return {
-    id: "app-1",
-    projectId: "my-app",
-    status: "spawning",
-    activity: "active",
-    branch: "feat/test",
-    issueId: null,
-    pr: null,
-    workspacePath: tmpDir,
-    runtimeHandle: { id: "rt-1", runtimeName: "mock", data: {} },
-    agentInfo: null,
-    createdAt: new Date(),
-    lastActivityAt: new Date(),
-    metadata: {},
-    ...overrides,
-  };
-}
 
 beforeEach(() => {
   reviewBacklog.resetAllReviewBacklogCounters();
