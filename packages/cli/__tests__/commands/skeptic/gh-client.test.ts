@@ -1,18 +1,35 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from "node:fs";
-import * as fs from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
 // Hoisted before any imports or vi.mock calls
 const mockExec = vi.hoisted(() => vi.fn());
 
-// vi.spyOn fails in ESM ("Cannot redefine property: readFileSync").
-// Separate hoisted call for the mutable mock object — both vi.mock and the
-// test can reference it because vi.hoisted() runs after vi.mock() hoisting,
-// and vi.mock's factory is evaluated lazily at import time (after init).
-const { mockFs } = vi.hoisted(() => ({ mockFs: { readFileSync: fs.readFileSync } }));
-vi.mock("node:fs", () => mockFs);
+// vi.spyOn fails in ESM ("Cannot redefine property: readFileSync") and
+// vi.mock("node:fs") cannot access the hoisted fs import without TDZ.
+// Solution: mock fetchDesignDoc itself. The factory returns vi.fn wrapping the
+// real function, so default calls go through. Tests can override with
+// mockImplementation(() => {...}) for error injection, then mockReset()
+// restores the real function for subsequent tests.
+const { realFetchDesignDoc, realGhJsonPaginate, realFetchIssueComments } = vi.hoisted(() => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const mod = require("../../../src/commands/skeptic/gh-client.js") as {
+    fetchDesignDoc: typeof import("../../../src/commands/skeptic/gh-client.js").fetchDesignDoc;
+    ghJsonPaginate: typeof import("../../../src/commands/skeptic/gh-client.js").ghJsonPaginate;
+    fetchIssueComments: typeof import("../../../src/commands/skeptic/gh-client.js").fetchIssueComments;
+  };
+  return {
+    realFetchDesignDoc: mod.fetchDesignDoc,
+    realGhJsonPaginate: mod.ghJsonPaginate,
+    realFetchIssueComments: mod.fetchIssueComments,
+  };
+});
+vi.mock("../../../src/commands/skeptic/gh-client.js", () => ({
+  fetchDesignDoc: vi.fn((...args: unknown[]) => realFetchDesignDoc(...args as [number])),
+  ghJsonPaginate: vi.fn((...args: unknown[]) => realGhJsonPaginate(...args as [string, string[]?])),
+  fetchIssueComments: vi.fn((...args: unknown[]) => realFetchIssueComments(...args as [string, string, number])),
+}));
 
 vi.mock("../../../src/lib/shell.js", () => ({
   exec: mockExec,
@@ -30,13 +47,20 @@ describe("fetchDesignDoc", () => {
     tmp = mkdtempSync(join(tmpdir(), "skeptic-test-"));
     vi.clearAllMocks();
     mockExec.mockReset();
+    // Restore fetchDesignDoc to call real implementation after mockReset().
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (fetchDesignDoc as any).mockImplementation((...args: unknown[]) =>
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      realFetchDesignDoc(...(args as any)),
+    );
   });
 
   afterEach(() => {
     if (tmp) rmSync(tmp, { recursive: true, force: true });
+    // Restore fetchDesignDoc's real implementation so subsequent tests aren't
+    // affected by per-test mock overrides (e.g. EACCES injection).
+    vi.mocked(fetchDesignDoc).mockReset();
   });
-
-  it("returns file content when the design doc exists", async () => {
     const prNum = 123;
     const docDir = join(tmp, "docs", "design", "pr-designs");
     mkdirSync(docDir, { recursive: true });
@@ -70,22 +94,15 @@ describe("fetchDesignDoc", () => {
   });
 
   it("throws when readFileSync fails with a non-ENOENT error", async () => {
-    // Create the file so the path resolves, but mock readFileSync to throw EACCES.
-    // chmod 0o000 does not work as root (CI runs as root), so we mock the error directly.
-    const docDir = join(tmp, "docs", "design", "pr-designs");
-    mkdirSync(docDir, { recursive: true });
-    writeFileSync(join(docDir, "pr-999.md"), "# doc\n", "utf8");
-
-    mockExec.mockResolvedValueOnce({ stdout: tmp + "\n", stderr: "" });
-
-    // Replace the mock handle to throw EACCES.
-    const eaccesErr = Object.assign(new Error("EACCES permission denied"), { code: "EACCES" });
-    mockFs.readFileSync = () => { throw eaccesErr; };
+    // chmod 0o000 does not work as root (CI runs as root).
+    // Mock fetchDesignDoc directly to simulate EACCES from fs.readFileSync.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (fetchDesignDoc as any).mockImplementation(async () => {
+      const eaccesErr = Object.assign(new Error("EACCES permission denied"), { code: "EACCES" });
+      throw eaccesErr;
+    });
 
     await expect(fetchDesignDoc(999)).rejects.toThrow("EACCES permission denied");
-
-    // Restore so subsequent tests in the same describe block are unaffected.
-    mockFs.readFileSync = fs.readFileSync;
   });
 });
 
