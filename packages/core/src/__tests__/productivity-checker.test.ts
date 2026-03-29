@@ -29,8 +29,8 @@ function makeDeps(
   overrides: Partial<ProductivityDeps> & { ghRest?: GhRestMock } = {},
 ): ProductivityDeps {
   return {
-    config: {} as any,
-    sessionManager: {} as any,
+    config: {} as ProductivityDeps["config"],
+    sessionManager: {} as ProductivityDeps["sessionManager"],
     capturePane: vi.fn().mockResolvedValue(""),
     killSession: vi.fn().mockResolvedValue(undefined),
     sendKeys: vi.fn().mockResolvedValue(undefined),
@@ -41,15 +41,18 @@ function makeDeps(
 
 let _sessionIdCounter = 0;
 
-function makeSession(overrides: Record<string, unknown> = {}): import("../types.js").Session {
+type SessionOverrides = Partial<import("../types.js").Session>;
+function makeSession(overrides: SessionOverrides = {}): import("../types.js").Session {
   return {
     id: `test-session-${++_sessionIdCounter}`,
     projectId: "agent-orchestrator",
     status: "pr_open",
+    activity: null,
+    branch: null,
     createdAt: new Date(),
     metadata: {},
     ...overrides,
-  } as any;
+  } as import("../types.js").Session;
 }
 
 // ---------------------------------------------------------------------------
@@ -384,7 +387,7 @@ describe("runProductivityChecks", () => {
       makeSession({ id: "dead", status: "killed" }),
       makeSession({ id: "alive", status: "pr_open", metadata: { tmuxName: "jc-1" } }),
     ];
-    const result = await runProductivityChecks(sessions as any, deps);
+    const result = await runProductivityChecks(sessions, deps);
     expect(result).toEqual({ cleanedUp: 0, nudged: 0, errors: 0 });
   });
 
@@ -399,7 +402,7 @@ describe("runProductivityChecks", () => {
         pr: TEST_PR_URL, metadata: { tmuxName: "jc-1" },
       }),
     ];
-    const result = await runProductivityChecks(sessions as any, deps);
+    const result = await runProductivityChecks(sessions, deps);
     expect(result.cleanedUp).toBe(1);
   });
 
@@ -418,7 +421,7 @@ describe("runProductivityChecks", () => {
       }),
     ];
     // Should not throw — all errors are caught internally in each check function
-    const result = await runProductivityChecks(sessions as any, deps);
+    const result = await runProductivityChecks(sessions, deps);
     expect(result).toHaveProperty("cleanedUp");
     expect(result).toHaveProperty("nudged");
     expect(result).toHaveProperty("errors");
