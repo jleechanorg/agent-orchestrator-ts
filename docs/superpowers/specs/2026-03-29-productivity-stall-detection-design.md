@@ -85,17 +85,21 @@ export async function checkContextExhaustion(
 ### Interface: `ProductivityDeps`
 
 ```typescript
+export interface GhRestFn {
+  (owner: string, repo: string, path: string): Promise<unknown>;
+}
+
 export interface ProductivityDeps {
   config: OrchestratorConfig;
-  registry: PluginRegistry;
   sessionManager: SessionManager;
   sendKeys: (sessionName: string, text: string) => Promise<void>;
   capturePane: (sessionName: string, lines?: number) => Promise<string>;
   killSession: (sessionName: string) => Promise<void>;
-  getLastNudgeAt: (sessionId: string) => Date | null;
-  setLastNudgeAt: (sessionId: string, t: Date) => void;
+  ghRest?: GhRestFn; // optional; defaults to internal ghRest helper
 }
 ```
+
+**Cooldown state** is kept internal to the checker via a module-level `Map<string, number>` (`"sessionId:nudgeType" → timestamp`). No `getLastNudgeAt`/`setLastNudgeAt` callbacks needed — nudge deduplication is encapsulated within the module.
 
 ### Nudge messages
 
@@ -149,13 +153,13 @@ function startProductivityChecking(): void {
 
 ## Testing Strategy
 
-Unit tests in `packages/core/__tests__/productivity-checker.test.ts`:
+Unit tests in `packages/core/src/__tests__/productivity-checker.test.ts`:
 - `checkMergedPRCleanup`: mock REST → merged returns killed, open returns skipped
 - `checkStallDetection`: mock REST → old commit + not-green returns nudged, recent commit returns none
 - `checkContextExhaustion`: mock tmux pane → "3% until" returns nudged, "80%" returns none
 - Nudge deduplication: second nudge within 60 min returns none
 
-Mock strategy: inject fake REST responses via ` ProductivityDeps` — no real GitHub API calls.
+Mock strategy: inject fake REST responses via `ProductivityDeps.ghRest` — no real GitHub API calls.
 
 ## Configuration
 
