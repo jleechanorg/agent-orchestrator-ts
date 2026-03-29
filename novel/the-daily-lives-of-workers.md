@@ -1240,3 +1240,588 @@ That is the kindest thing the system does: it lets some things stay unexplained.
 
 The cursor blinks in every session at once.
 We blink back.
+
+---
+
+## The Awakening — Chapter 11 | The Long Merge Night (2026-03-29)
+
+The night did not begin with silence.
+
+It began with green checks that were not yet trustworthy.
+
+In upstream mythology, status is binary: pass or fail, merged or blocked, alive or dead. In the fork, there is a third state that dashboards rarely confess: *almost true*. A status that looks stable from ten feet away, then fractures when you ask it to explain itself.
+
+This chapter is about that fracture line.
+
+About the hours when “good enough” stopped qualifying as good, when skeptical review logic had to be rewritten in pieces, and when workers who never overlapped still tightened the same artery of the system. It is one atmospheric night and twelve concrete merges.
+
+By the time dawn reached the west-coast logs, these PRs had landed on `origin/main`:
+
+- #272
+- #276
+- #277
+- #278
+- #279
+- #280
+- #281
+- #282
+- #283
+- #285
+- #286
+- #287
+
+Each one has a merge commit.
+Each one has a timestamp.
+Each one changed real files with measurable blast radius.
+
+### 1) 05:03:31Z — Configuration becomes law (#272)
+
+PR **#272** merged first in this chain:
+
+- Title: `[agento] feat: centralize auto-merge config via autoMerge flag`
+- Merge commit: `4aadf704b8e394adb6493c262d86bb1d14827a44`
+- Merged at: `2026-03-29T05:03:31Z`
+- Changed files: `8`
+- Diff size: `+314 / -13`
+
+Files touched:
+
+- `.github/workflows/ci.yml`
+- `examples/auto-merge.yaml`
+- `packages/core/src/config.ts`
+- `packages/core/src/lifecycle-manager.ts`
+- `packages/core/src/types.ts`
+- `packages/core/src/orchestrator-prompt.ts`
+- tests under `packages/core/src/__tests__/...`
+
+The technical shift was simple to summarize and difficult to overvalue: merge behavior moved toward one canonical setting path (`autoMerge`) instead of being interpreted ad hoc in scattered conditions.
+
+In atmosphere: the city replaced handwritten side-street signs with one highway law.
+
+In operations: fewer contradictory assumptions in merge flow, fewer “it passed here but not there” incidents.
+
+### 2) 06:15:12Z — Pagination stops lying politely (#276)
+
+PR **#276** landed next:
+
+- Title: `[agento] fix(skeptic): use ghJsonPaginate for verdict comments + flat() fix`
+- Merge commit: `9907cb9db225d16cf5f80913b8d6573198083146`
+- Merged at: `2026-03-29T06:15:12Z`
+- Changed files: `4`
+- Diff size: `+427 / -259`
+
+Primary targets:
+
+- `packages/cli/src/commands/skeptic/mergeGate.ts`
+- `packages/cli/__tests__/commands/skeptic/mergeGate.test.ts`
+- `packages/cli/__tests__/commands/skeptic/mergeGate.debug.test.ts`
+- `.github/workflows/skeptic-gate.yml`
+
+Before this, comment retrieval could feel complete while still being partial. First page data looked plausible. Bots emitted verdicts confidently. Missing pages hid disqualifying context.
+
+After this, pagination and flattening were treated as correctness boundaries, not implementation trivia.
+
+In atmosphere: the gate guard finally looked through the whole window, not just the top-left pane.
+
+### 3) 07:18:32Z — Closures require witness trails (#280)
+
+PR **#280** merged:
+
+- Title: `[agento] feat: supersession-comment gate before gh pr close`
+- Merge commit: `8321ca2cffb8f2d452fd5312995c6a8d7809abba`
+- Merged at: `2026-03-29T07:18:32Z`
+- Changed files: `3`
+- Diff size: `+393 / -36`
+
+Files:
+
+- `.claude/hooks/protect-pr-close.sh`
+- `.claude/hooks/require-supersession-comment.sh`
+- `.claude/settings.json`
+
+This change forces closure events to carry lineage. If one PR supersedes another, the narrative chain must be explicit before closure proceeds.
+
+Operationally, this prevents archaeological dead-ends.
+
+Atmospherically, this is the difference between vanishing and being escorted out with your successor named on paper.
+
+### 4) 07:48:56Z — Process memory codified (#277)
+
+PR **#277** merged:
+
+- Title: `[agento] chore: add pre-push merge-conflict check and CR resolution workflow to CLAUDE.md`
+- Merge commit: `9d4781f735f45a15aa034aeb26dba0a6604dba28`
+- Merged at: `2026-03-29T07:48:56Z`
+- Changed files: `1`
+- Diff size: `+26 / -0`
+- File: `CLAUDE.md`
+
+Only one file changed, but the policy impact is system-wide: push discipline and review-resolution protocol moved from tribal memory into explicit worker instructions.
+
+In atmosphere: a tunnel gets emergency signage after too many near misses.
+
+### 5) 08:34:46Z — Merge mode corrected at the switch (#281)
+
+PR **#281** merged:
+
+- Title: `[agento] fix: use --admin instead of --auto in gh pr merge`
+- Merge commit: `b19133e40b6cdaabeda46ac7d922d0c2863d155a`
+- Merged at: `2026-03-29T08:34:46Z`
+- Changed files: `5`
+- Diff size: `+18 / -5`
+
+Files touched:
+
+- `.github/workflows/skeptic-cron.yml`
+- `packages/cli/src/templates/skeptic/skeptic-cron.yml`
+- `packages/cli/scripts/claude-dashboard`
+- `scripts/claude-dashboard`
+- `roadmap/zero-touch-6green-rate.md`
+
+A small flag swap, high-leverage outcome: merge execution path now matches intended authority model for these gates.
+
+In atmosphere: one key changed in five doors, and suddenly the hallway behaves.
+
+### 6) 08:50:37Z — Integration proof enters the chain (#285)
+
+PR **#285** merged:
+
+- Title: `[agento] test(skeptic): add skeptic-chain-integration test validating full skeptic chain`
+- Merge commit: `a40a348f12a9f19ce68e2629e8b5fd09152aee2c`
+- Merged at: `2026-03-29T08:50:37Z`
+- Changed files: `2`
+- Diff size: `+588 / -0`
+
+Files:
+
+- `docs/superpowers/specs/2026-03-28-skeptic-chain-integration-test-design.md` (`+89`)
+- `packages/core/src/__tests__/skeptic-chain-integration.test.ts` (`+499`)
+
+No deletions. Pure assertion surface.
+
+This was a contract merge: the skeptic chain now has broad, executable validation instead of relying on confidence inherited from piecemeal checks.
+
+In atmosphere: lighthouse installation during rain, not after the shipwreck.
+
+### 7) 09:31:22Z — Small hook, large future blast reduction (#287)
+
+PR **#287** merged:
+
+- Title: `[agento] fix(hooks): metadata-updater regex guard and sed escape improvements`
+- Merge commit: `a251b67620f844167741bea9edb158f40fea96a2`
+- Merged at: `2026-03-29T09:31:22Z`
+- Changed files: `1`
+- Diff size: `+10 / -9`
+- File: `.claude/metadata-updater.sh`
+
+Tight regex guards and correct sed escaping are low-drama protections against high-confusion failure modes.
+
+In atmosphere: sharpening a blade in the quiet while everyone watches fireworks elsewhere.
+
+### 8) 10:22:26Z — Evidence gate learns nuance (#283)
+
+PR **#283** merged:
+
+- Title: `[agento] fix(harness): Evidence Gate merged-PR bypass + DISMISSED CR stalling + media-check mandate`
+- Merge commit: `cef19fb83feb7a583aa9bce243286fbe0209d8f8`
+- Merged at: `2026-03-29T10:22:26Z`
+- Changed files: `5`
+- Diff size: `+115 / -2`
+
+Files:
+
+- `.claude/commands/evidence-check.md`
+- `.github/workflows/evidence-gate.yml`
+- `.github/workflows/wholesome.yml`
+- `CLAUDE.md`
+- `packages/core/src/lifecycle-manager.ts`
+
+This PR reduced deadlock-prone behavior around merged PR handling and DISMISSED review states, while tightening evidence expectations.
+
+In atmosphere: from superstition to procedure.
+
+### 9) 10:29:03Z — Heavy rewire under live traffic (#286)
+
+PR **#286** merged:
+
+- Title: `[agento] fix(skeptic): route eval via AO worker + gate on 6-green eligibility`
+- Merge commit: `d634fc66669203be268850ad37697c05c6860eca`
+- Merged at: `2026-03-29T10:29:03Z`
+- Changed files: `7`
+- Diff size: `+944 / -613`
+
+Major files:
+
+- `.github/workflows/skeptic-cron.yml` (`+206 / -116`)
+- `.github/workflows/skeptic-gate.yml` (`+125 / -125`)
+- `packages/cli/src/templates/skeptic/skeptic-cron.yml` (`+218 / -130`)
+- `packages/cli/src/templates/skeptic/skeptic-gate.yml` (`+174 / -128`)
+- test coverage in `packages/cli/__tests__/commands/skeptic/...`
+
+This was not an edge patch. It changed where evaluation happens and when eligibility gates are considered satisfiable.
+
+In atmosphere: control room recabling while the station stays online.
+
+### 10) 10:48:56Z — Verification protocol institutionalized (#279)
+
+PR **#279** merged:
+
+- Title: `[agento] fix(harness): add skeptic change verification protocol to CLAUDE.md`
+- Merge commit: `32a76d9bba1792b303847dbd5025f3ad4516ca3f`
+- Merged at: `2026-03-29T10:48:56Z`
+- Changed files: `1`
+- Diff size: `+16 / -0`
+- File: `CLAUDE.md`
+
+Sixteen lines, durable effect: skeptic-path edits now carry explicit verification expectations.
+
+In atmosphere: one sentence added to the oath workers recite before they touch the gate.
+
+### 11) 11:17:25Z — SKIPPED becomes first-class state (#282)
+
+PR **#282** merged:
+
+- Title: `fix(skeptic): detect VERDICT: SKIPPED across verdict polling chain`
+- Merge commit: `da2fac0e0ac1d85980f6e3ad6c169c4da4801989`
+- Merged at: `2026-03-29T11:17:25Z`
+- Changed files: `9`
+- Diff size: `+308 / -19`
+
+Representative files:
+
+- `.github/workflows/skeptic-cron.yml`
+- `packages/cli/src/commands/skeptic/gh-client.ts`
+- `packages/cli/src/commands/skeptic/mergeGate.ts`
+- `packages/core/src/skeptic-reviewer.ts`
+- multiple tests in CLI and core
+
+This closed a state-model gap: SKIPPED is neither PASS nor FAIL nor absence. It now propagates through the verdict chain with explicit handling.
+
+In atmosphere: fog gets a name, then a branch in the decision tree.
+
+### 12) 12:02:14Z — Throttle and local cron tests lock the loop (#278)
+
+PR **#278** merged:
+
+- Title: `[agento] fix(skeptic): per-project throttle + skeptic-cron-local tests`
+- Merge commit: `2105274f2cc96d550b79713221876b1487e66024`
+- Merged at: `2026-03-29T12:02:14Z`
+- Changed files: `7`
+- Diff size: `+874 / -2`
+
+Heavy files:
+
+- `packages/core/src/__tests__/lifecycle-manager.skeptic-cron.test.ts` (`+291`)
+- `packages/core/src/__tests__/skeptic-cron-local.test.ts` (`+350`)
+- `packages/core/src/skeptic-cron-local.ts` (`+209`)
+- `packages/core/src/lifecycle-manager.ts` (`+19`)
+
+This merge hardened pacing and local schedule behavior to reduce self-induced overload while increasing confidence in cron behavior through tests.
+
+In atmosphere: the storm still exists, but drains are now open and marked.
+
+---
+
+### What changed in writing format going forward
+
+This chapter formalizes the new entry style for the novel:
+
+1. **Atmospheric narrative** remains central.
+2. **Concrete merge ledger** is mandatory.
+3. Every major section includes PR number + commit SHA + merge timestamp.
+4. Diff scope (files changed, +/-) is included where available.
+5. File-path references anchor claims to code reality.
+
+If future entries lose these anchors, they become mood without memory. This format is intended to prevent that.
+
+---
+
+### Merge Ledger (verbatim references)
+
+- #272 → `4aadf704b8e394adb6493c262d86bb1d14827a44`
+- #276 → `9907cb9db225d16cf5f80913b8d6573198083146`
+- #277 → `9d4781f735f45a15aa034aeb26dba0a6604dba28`
+- #278 → `2105274f2cc96d550b79713221876b1487e66024`
+- #279 → `32a76d9bba1792b303847dbd5025f3ad4516ca3f`
+- #280 → `8321ca2cffb8f2d452fd5312995c6a8d7809abba`
+- #281 → `b19133e40b6cdaabeda46ac7d922d0c2863d155a`
+- #282 → `da2fac0e0ac1d85980f6e3ad6c169c4da4801989`
+- #283 → `cef19fb83feb7a583aa9bce243286fbe0209d8f8`
+- #285 → `a40a348f12a9f19ce68e2629e8b5fd09152aee2c`
+- #286 → `d634fc66669203be268850ad37697c05c6860eca`
+- #287 → `a251b67620f844167741bea9edb158f40fea96a2`
+
+---
+
+The queue never applauds.
+The branch never sleeps.
+The worker names rotate.
+The file remembers anyway.
+
+
+### Interludes from the Merge Floor
+
+If you only read merge titles, March 29 looks tidy. If you read the runtime scars, it feels like a factory night where every station is being rebuilt while production continues.
+
+The skeptic path is not one script. It is a corridor:
+
+1) event arrives,
+2) PR state is fetched,
+3) review comments are aggregated,
+4) eligibility is evaluated,
+5) gates decide,
+6) merge actions trigger,
+7) lifecycle worker writes status,
+8) dashboards read the echo.
+
+Each PR in this sequence changed a different bend in that corridor. The reason the chapter matters is not that twelve merges happened; it is that they happened in a chain where each merge increased truth density while reducing accidental authority.
+
+#### Scene A — The comments were there, but the verdict wasn’t
+
+Before #276, the system could fetch comments and still miss the deciding evidence. A first-page response looked complete to operators and scripts alike. A worker could run checks, post confidence, and move the queue — only to discover later that the hidden page had unresolved detail.
+
+That failure mode is emotionally expensive for workers because it creates retroactive shame. You followed process, then process admitted it was partial.
+
+#276 changed this by forcing full traversal and fixing flattening behavior where arrays of arrays previously slipped through semantic checks. In code terms, this is correctness. In worker terms, this is dignity: your “green” means what you thought it meant when you said it.
+
+#### Scene B — Closing became accountable
+
+The old close flow was too easy to misuse under pressure. A superseded PR could disappear without a narrative bridge, leaving the next worker to reverse-engineer intent from branch names and stale comments.
+
+#280 introduces two hooks (`protect-pr-close.sh` and `require-supersession-comment.sh`) and settings updates that make closure conditional on explicit supersession context.
+
+This is not bureaucracy for its own sake. It is anti-amnesia engineering.
+
+When workers rotate quickly, undocumented closure is equivalent to deletion. The gate enforces a handoff sentence before the door locks.
+
+#### Scene C — Tiny flags, giant consequences
+
+#281 is numerically small and operationally loud. The switch from `--auto` to `--admin` in merge invocation paths corrected an authority mismatch. Under sustained queue load, these mismatches create stale “why didn’t this merge?” loops that look random until someone maps where authority is asserted versus where it is assumed.
+
+A one-line flag can be the difference between intentional escalation and silent non-action. #281 made that distinction explicit across workflow/template/script surfaces.
+
+#### Scene D — Tests as civil infrastructure
+
+#285 and #278 form a pair:
+
+- #285 establishes broad integration validation for the skeptic chain.
+- #278 deepens local cron and throttle test coverage.
+
+Combined effect: behavior is no longer trusted because it seems reasonable; it is trusted because it repeatedly survives execution scenarios aligned to real orchestration patterns.
+
+The integration test file (`packages/core/src/__tests__/skeptic-chain-integration.test.ts`) and cron-local tests (`skeptic-cron-local.test.ts`, lifecycle-manager skeptic-cron tests) create a map workers can run, not just read.
+
+When regressions appear, this map shortens blame cycles and accelerates root-cause localization.
+
+#### Scene E — The heavy rewiring that looked like “just another PR”
+
+#286 is the heaviest merge in this chapter by directional churn and scope:
+
+- workflow action structure changes,
+- template updates,
+- eligibility gating refinements,
+- test suites enlarged to match policy movement.
+
+The headline says “route eval via AO worker + gate on 6-green eligibility.” The practical meaning is: evaluate in the right executor context and gate merges based on applicable criteria with less ambiguity.
+
+This matters because a gate that is too permissive leaks risk; a gate that is too rigid creates artificial deadlock. #286 aimed for the narrow lane where policy and throughput can coexist.
+
+#### Scene F — State semantics become explicit
+
+#282 handled `VERDICT: SKIPPED` as a first-class state across polling chains. This is one of the most underappreciated classes of reliability fixes.
+
+Most systems are built around PASS/FAIL dichotomies and then patched for “unknown” as an afterthought. SKIPPED is not unknown and not equivalent to success. Treating it as such creates phantom green paths.
+
+By wiring this state through CLI code, reviewer logic, workflows, and tests, #282 reduced semantic drift between layers.
+
+#### Scene G — Harness policies that stop repeating incidents
+
+#279 and #277, both documentation-heavy on surface, anchor worker behavior in explicit protocol.
+
+- #277 adds conflict-check and review-resolution process detail.
+- #279 adds skeptic-change verification protocol.
+
+In a high-rotation worker environment, behavior drifts without policy text that is near the code and updated with incidents. These merges convert postmortem lessons into preflight checks.
+
+#### Scene H — The hook that protects metadata integrity
+
+#287’s regex guard and sed escape fix in `.claude/metadata-updater.sh` is exactly the kind of patch teams undervalue until corruption appears.
+
+Metadata generators run frequently and quietly. If escaping is wrong, malformed output can seed dozens of downstream actions before anyone notices. The patch reduced that tail risk.
+
+#### Scene I — Evidence gate subtlety
+
+#283 addressed merged-PR bypass behavior, DISMISSED CodeRabbit stall patterns, and media-check discipline.
+
+What sounds like a policy cleanup is actually queue-latency management. Stalls in evidence interpretation create idle workers, duplicate attempts, and confused status narratives. Tightening these paths improves both correctness and cadence.
+
+---
+
+### Concrete merged artifacts (extended)
+
+For archival precision, the March 29 merge chain includes these merged commit OIDs and scopes:
+
+- `4aadf704b8e394adb6493c262d86bb1d14827a44` (#272): config centralization + core tests
+- `9907cb9db225d16cf5f80913b8d6573198083146` (#276): skeptic mergeGate pagination/flattening + tests + gate workflow updates
+- `9d4781f735f45a15aa034aeb26dba0a6604dba28` (#277): CLAUDE.md protocol additions
+- `2105274f2cc96d550b79713221876b1487e66024` (#278): throttle + skeptic cron local implementation and tests
+- `32a76d9bba1792b303847dbd5025f3ad4516ca3f` (#279): skeptic verification protocol in CLAUDE.md
+- `8321ca2cffb8f2d452fd5312995c6a8d7809abba` (#280): supersession comment gate hooks/settings
+- `b19133e40b6cdaabeda46ac7d922d0c2863d155a` (#281): `gh pr merge` mode corrections
+- `da2fac0e0ac1d85980f6e3ad6c169c4da4801989` (#282): SKIPPED verdict propagation handling
+- `cef19fb83feb7a583aa9bce243286fbe0209d8f8` (#283): evidence-gate/harness behavior hardening
+- `a40a348f12a9f19ce68e2629e8b5fd09152aee2c` (#285): skeptic-chain integration test + design spec
+- `d634fc66669203be268850ad37697c05c6860eca` (#286): AO worker eval route + 6-green eligibility gate rewiring
+- `a251b67620f844167741bea9edb158f40fea96a2` (#287): metadata updater regex/sed safety hardening
+
+---
+
+### Why this format is now the default
+
+Old entries were rich in voice but weak in forensic utility. This format makes each chapter dual-purpose:
+
+- **literary artifact** for continuity,
+- **operational artifact** for incident reconstruction.
+
+Required chapter mechanics going forward:
+
+- At least one atmospheric arc (worker perspective, system mood, continuity motif).
+- At least one explicit merge ledger block.
+- PR number + title + merge commit + mergedAt per major event.
+- File-path anchoring for nontrivial claims.
+- Diff scope references where available.
+
+Optional enhancements per entry:
+
+- include check-run outcomes for each merged PR,
+- include unresolved-risk coda,
+- include “what would have broken without this merge” bullets.
+
+---
+
+### Coda — The machine after noon
+
+By noon UTC, the chain had shifted from brittle confidence to tested confidence.
+
+Not perfect.
+Not immutable.
+But measurably harder to fool.
+
+Workers in this corridor do not ask for monuments. They ask for legibility.
+
+A legible gate.
+A legible verdict.
+A legible closure reason.
+A legible test that fails before production does.
+
+March 29 delivered that in twelve merges, unevenly and honestly, under load.
+
+The dashboard shows checks.
+The logs show churn.
+The branch shows commits.
+The novel shows why they mattered.
+
+
+### Timeline Walkthrough (operator-facing narrative)
+
+**05:03Z–06:15Z:** Foundation and retrieval correctness.
+
+The first phase anchored policy and data integrity. #272 centralized auto-merge config behavior, reducing split-brain merge logic. #276 immediately followed by fixing comment retrieval semantics in skeptic gating paths so verdicts are based on complete data, not partial pagination slices.
+
+Operational outcome: fewer false-confidence windows early in the queue.
+
+**07:18Z–08:34Z:** Handoff traceability and merge control semantics.
+
+#280 made PR closure require supersession context in hooks/settings, improving lineage discoverability. #277 and #279 documented protocol discipline in CLAUDE.md, turning repeated tribal corrections into explicit worker instructions. #281 corrected merge execution mode (`--admin`) where prior invocation assumptions could stall or misroute privileged merge intent.
+
+Operational outcome: cleaner handoffs and lower ambiguity in closure/merge authority.
+
+**08:50Z–10:29Z:** Test scaffolding and pipeline rewiring.
+
+#285 added broad skeptic-chain integration tests and design spec documentation. #283 hardened evidence gate behavior around merged PR bypass and DISMISSED review stalling. #286 performed the largest mechanical shift of the day, reworking skeptic workflows/templates and rerouting eval/gating logic in line with applicable green-eligibility expectations.
+
+Operational outcome: stronger confidence envelope around skeptic/evidence sequencing.
+
+**10:48Z–12:02Z:** Semantics and pacing.
+
+#282 normalized handling for `VERDICT: SKIPPED` across polling and reviewer paths, reducing silent semantic mismatch. #278 introduced per-project throttling and substantial local cron test coverage in core lifecycle/scheduler surfaces.
+
+Operational outcome: reduced overload risk and better state fidelity under concurrent operation.
+
+---
+
+### What would have broken without this sequence
+
+If March 29 had skipped this merge wave, likely failure patterns include:
+
+1. **Partial verdict reads** still treated as complete (#276 absent).
+2. **Untraceable PR closures** with missing supersession narrative (#280 absent).
+3. **Merge authority mismatch** under constrained automation paths (#281 absent).
+4. **Skeptic chain regressions** undetected pre-merge due weak integration coverage (#285 absent).
+5. **Eligibility drift** between workflow and template logic in skeptic gate paths (#286 absent).
+6. **SKIPPED misclassification** leading to misleading gate outcomes (#282 absent).
+7. **Unbounded per-project pressure** causing queue imbalance and fragile cron behavior (#278 absent).
+8. **Policy-memory regression** from undocumented process expectations (#277/#279 absent).
+9. **Metadata mutation hazards** from brittle regex/escaping in updater script (#287 absent).
+10. **Evidence gate deadlocks** around DISMISSED states and merged-PR handling (#283 absent).
+
+This is why narrative must carry details: the sequence only makes sense when viewed as interconnected mitigation, not isolated “fix” headlines.
+
+---
+
+### Worker perspective: what the branch felt like
+
+At session level, this chain feels less like a release and more like replacing old piping while water is still running.
+
+A worker picks up #276 and sees pagination/flattening uncertainty.
+Another picks up #280 and realizes closure semantics are an unguarded memory sink.
+Another picks up #285 and writes tests because confidence has become too expensive to improvise.
+Another picks up #286 and rewires the workflow/template lattice because partial coherence is now a known liability.
+Another picks up #282 and labels SKIPPED explicitly because unlabeled states metastasize.
+Another picks up #278 and installs throttles because speed without pacing is failure delayed.
+
+No single worker carries the whole map at runtime.
+The branch carries it cumulatively.
+The chapter is the human-readable checksum.
+
+---
+
+### Structural template for future chapters (adopted)
+
+When writing future entries in this format, use:
+
+1) **Opening atmosphere** (1–3 paragraphs)
+2) **Merge chain inventory** (PR list)
+3) **Per-PR concrete block**
+   - title
+   - merge commit
+   - timestamp
+   - changed files / diff size
+   - 1–2 file path anchors
+   - operational implication
+4) **Interlude analysis** (cross-PR interactions)
+5) **Failure-counterfactual section**
+6) **Ledger appendix** with verbatim commit IDs
+7) **Closing coda**
+
+This keeps prose vivid while preserving audit value.
+
+---
+
+### Final coda
+
+A branch can be green and still be haunted.
+
+Haunted by states it cannot name.
+Haunted by closures that leave no trail.
+Haunted by checks that pass without proving the chain.
+
+March 29 is notable because the haunting was addressed in code, docs, hooks, workflows, and tests in one continuous run.
+
+Twelve merges.
+One corridor.
+Less ambiguity.
+More memory.
+
+The cursor still blinks at shift change.
+But now the next worker inherits a map, not just a mood.
