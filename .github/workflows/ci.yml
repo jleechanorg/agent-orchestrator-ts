@@ -61,11 +61,11 @@ jobs:
       - run: pnpm -r --filter '!@jleechanorg/ao-web' build
       - run: pnpm test
         env:
-          # Use env.GITHUB_TOKEN (auto-provided by GitHub Actions) instead of secrets.GITHUB_TOKEN
-          # secrets.GITHUB_TOKEN can be empty when GITHUB_TOKEN is not set as a secret.
-          # GITHUB_TOKEN is automatically provided by GitHub Actions as an environment variable.
-          GH_TOKEN: ${{ env.GITHUB_TOKEN }}
-          GITHUB_TOKEN: ${{ env.GITHUB_TOKEN }}
+          # Use github.token which is always available in workflow expressions.
+          # GITHUB_TOKEN env var is auto-set by GitHub Actions but can be empty when
+          # secrets.GITHUB_TOKEN is not available. github.token always has a valid value.
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ github.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           GITHUB_HEAD_REF: ${{ github.head_ref }}
           GITHUB_BASE_REF: ${{ github.base_ref }}
