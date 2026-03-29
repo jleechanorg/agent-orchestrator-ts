@@ -82,7 +82,24 @@ jobs:
           if grep -qi "VERDICT:" skeptic-output.txt 2>/dev/null; then
             echo "VERDICT found in skeptic output — comment should be posted."
           else
-            echo "WARNING: No VERDICT line in skeptic output — gate will treat as SKIPPED."
+            echo "No VERDICT line in skeptic output — posting VERDICT: SKIPPED fallback."
+            # Post a SKIPPED verdict comment so the polling step finds it and exits
+            # cleanly instead of timing out after 28 minutes. The comment body uses the
+            # same HTML marker (skeptic-gate-trigger-) as the full skeptic-cron workflow
+            # so the poll's jq filter will match it. LLM evaluation will be retried by
+            # skeptic-cron (which runs on a schedule with API keys available locally).
+            gh api repos/${{ github.repository }}/issues/"$PR_NUM"/comments \
+              --method POST \
+              --field body="<!-- skeptic-gate-trigger-${TRIGGER_SHA} -->
+
+**Skeptic Gate:** SKIPPED
+
+> No VERDICT produced by \`ao skeptic verify\` (LLM evaluation requires local API keys, not available in GHA).
+> This is a non-blocking skip — skeptic-cron handles actual LLM evaluation via AO worker.
+>
+> **VERDICT: SKIPPED**" \
+              --jq '.id'
+            echo "SKIPPED fallback comment posted."
           fi
 
       # Step 3: Poll for the VERDICT comment posted by Step 2 above.
