@@ -49,11 +49,7 @@ import type {
   ActivityState,
   PRInfo,
   SessionExitProof,
-  ReactionConfig,
 } from "../types.js";
-
-// Valid reaction action strings used in tests
-type ReactionAction = "send-to-agent" | "notify" | "auto-merge" | "request-merge" | "parallel-retry" | "skeptic-review" | "respawn-for-review";
 
 let tmpDir: string;
 let configPath: string;
@@ -3162,6 +3158,529 @@ describe("getStates", () => {
     // Verify merge was NOT called (human must approve manually)
     expect(mockSCM.mergePR).not.toHaveBeenCalled();
   });
+
+  it("bd-n047: auto-merge is skipped when defaults.autoMerge.enabled=false (global kill-switch)", async () => {
+    config.defaults = {
+      ...config.defaults,
+      autoMerge: {
+        enabled: false,
+      },
+    };
+    config.reactions = {
+      "approved-and-green": {
+        auto: true,
+        action: "auto-merge",
+        mergeMethod: "squash",
+      },
+    };
+
+    const mockSCM: SCM = {
+      name: "mock-scm",
+      detectPR: vi.fn(),
+      getPRState: vi.fn().mockResolvedValue("open"),
+      mergePR: vi.fn().mockResolvedValue(undefined),
+      closePR: vi.fn(),
+      getCIChecks: vi.fn(),
+      getCISummary: vi.fn().mockResolvedValue("passing"),
+      getReviews: vi.fn().mockResolvedValue([{ author: "coderabbitai[bot]", state: "approved" }]),
+      getReviewDecision: vi.fn().mockResolvedValue("approved"),
+      getPendingComments: vi.fn().mockResolvedValue([]),
+      getAutomatedComments: vi.fn().mockResolvedValue([]),
+      getMergeability: vi.fn().mockResolvedValue({
+        mergeable: true,
+        ciPassing: true,
+        approved: true,
+        noConflicts: true,
+        blockers: [],
+      }),
+    };
+
+    const registryWithSCM: PluginRegistry = {
+      ...mockRegistry,
+      get: vi.fn().mockImplementation((slot: string) => {
+        if (slot === "runtime") return mockRuntime;
+        if (slot === "agent") return mockAgent;
+        if (slot === "scm") return mockSCM;
+        return null;
+      }),
+    };
+
+    const session = makeSession({ status: "pr_open", pr: makePR() });
+    vi.mocked(mockSessionManager.get).mockResolvedValue(session);
+
+    writeMetadata(sessionsDir, "app-1", {
+      worktree: "/tmp",
+      branch: "main",
+      status: "pr_open",
+      project: "my-app",
+    });
+
+    const lm = createLifecycleManager({
+      config,
+      registry: registryWithSCM,
+      sessionManager: mockSessionManager,
+    });
+
+    await lm.check("app-1");
+
+    // mergePR should NOT be called — global kill-switch disabled auto-merge
+    expect(mockSCM.mergePR).not.toHaveBeenCalled();
+    expect(lm.getStates().get("app-1")).toBe("mergeable");
+  });
+
+  it("bd-n047: per-project autoMerge.enabled=false overrides global defaults", async () => {
+    config.defaults = {
+      ...config.defaults,
+      autoMerge: {
+        enabled: true,
+        waitSeconds: 300,
+        mergeMethod: "squash",
+      },
+    };
+    // Patch project config — preserve scm etc. from beforeEach setup
+    config.projects = {
+      "my-app": {
+        ...config.projects["my-app"],
+        autoMerge: {
+          enabled: false,
+        },
+      },
+    };
+    config.reactions = {
+      "approved-and-green": {
+        auto: true,
+        action: "auto-merge",
+        mergeMethod: "squash",
+      },
+    };
+
+    const mockSCM: SCM = {
+      name: "mock-scm",
+      detectPR: vi.fn(),
+      getPRState: vi.fn().mockResolvedValue("open"),
+      mergePR: vi.fn().mockResolvedValue(undefined),
+      closePR: vi.fn(),
+      getCIChecks: vi.fn(),
+      getCISummary: vi.fn().mockResolvedValue("passing"),
+      getReviews: vi.fn().mockResolvedValue([{ author: "coderabbitai[bot]", state: "approved" }]),
+      getReviewDecision: vi.fn().mockResolvedValue("approved"),
+      getPendingComments: vi.fn().mockResolvedValue([]),
+      getAutomatedComments: vi.fn().mockResolvedValue([]),
+      getMergeability: vi.fn().mockResolvedValue({
+        mergeable: true,
+        ciPassing: true,
+        approved: true,
+        noConflicts: true,
+        blockers: [],
+      }),
+    };
+
+    const registryWithSCM: PluginRegistry = {
+      ...mockRegistry,
+      get: vi.fn().mockImplementation((slot: string) => {
+        if (slot === "runtime") return mockRuntime;
+        if (slot === "agent") return mockAgent;
+        if (slot === "scm") return mockSCM;
+        return null;
+      }),
+    };
+
+    const session = makeSession({ status: "pr_open", pr: makePR() });
+    vi.mocked(mockSessionManager.get).mockResolvedValue(session);
+
+    writeMetadata(sessionsDir, "app-1", {
+      worktree: "/tmp",
+      branch: "main",
+      status: "pr_open",
+      project: "my-app",
+    });
+
+    const lm = createLifecycleManager({
+      config,
+      registry: registryWithSCM,
+      sessionManager: mockSessionManager,
+    });
+
+    await lm.check("app-1");
+
+    // mergePR should NOT be called — per-project override disabled auto-merge
+    expect(mockSCM.mergePR).not.toHaveBeenCalled();
+    expect(lm.getStates().get("app-1")).toBe("mergeable");
+  });
+
+  it("bd-n047: per-project autoMerge.enabled=true re-enables even when global is false", async () => {
+    config.defaults = {
+      ...config.defaults,
+      autoMerge: {
+        enabled: false,
+      },
+    };
+    // Patch project config — preserve scm etc. from beforeEach setup
+    config.projects = {
+      "my-app": {
+        ...config.projects["my-app"],
+        autoMerge: {
+          enabled: true,
+        },
+      },
+    };
+    config.reactions = {
+      "approved-and-green": {
+        auto: true,
+        action: "auto-merge",
+        mergeMethod: "squash",
+      },
+    };
+
+    const mockSCM: SCM = {
+      name: "mock-scm",
+      detectPR: vi.fn(),
+      getPRState: vi.fn().mockResolvedValue("open"),
+      mergePR: vi.fn().mockResolvedValue(undefined),
+      closePR: vi.fn(),
+      getCIChecks: vi.fn(),
+      getCISummary: vi.fn().mockResolvedValue("passing"),
+      getReviews: vi.fn().mockResolvedValue([{ author: "coderabbitai[bot]", state: "approved" }]),
+      getReviewDecision: vi.fn().mockResolvedValue("approved"),
+      getPendingComments: vi.fn().mockResolvedValue([]),
+      getAutomatedComments: vi.fn().mockResolvedValue([]),
+      getMergeability: vi.fn().mockResolvedValue({
+        mergeable: true,
+        ciPassing: true,
+        approved: true,
+        noConflicts: true,
+        blockers: [],
+      }),
+    };
+
+    const registryWithSCM: PluginRegistry = {
+      ...mockRegistry,
+      get: vi.fn().mockImplementation((slot: string) => {
+        if (slot === "runtime") return mockRuntime;
+        if (slot === "agent") return mockAgent;
+        if (slot === "scm") return mockSCM;
+        return null;
+      }),
+    };
+
+    const session = makeSession({ status: "pr_open", pr: makePR() });
+    vi.mocked(mockSessionManager.get).mockResolvedValue(session);
+
+    writeMetadata(sessionsDir, "app-1", {
+      worktree: "/tmp",
+      branch: "main",
+      status: "pr_open",
+      project: "my-app",
+    });
+
+    const lm = createLifecycleManager({
+      config,
+      registry: registryWithSCM,
+      sessionManager: mockSessionManager,
+    });
+
+    await lm.check("app-1");
+
+    // mergePR SHOULD be called — per-project override re-enabled auto-merge.
+    // State is "mergeable" because getPRState returns "open" (a subsequent poll
+    // would return "merged" after GitHub processes the merge).
+    expect(mockSCM.mergePR).toHaveBeenCalledWith(session.pr, "squash", 0);
+    expect(lm.getStates().get("app-1")).toBe("mergeable");
+  });
+
+  // bd-n047: mergeMethod precedence — reaction > project > defaults > squash
+  it("bd-n047: defaults.autoMerge.mergeMethod used when reaction doesn't specify", async () => {
+    config.defaults = {
+      ...config.defaults,
+      autoMerge: {
+        mergeMethod: "rebase",
+      },
+    };
+    config.reactions = {
+      "approved-and-green": {
+        auto: true,
+        action: "auto-merge",
+        // mergeMethod not specified on reaction — should fall through to defaults
+      },
+    };
+
+    const mockSCM: SCM = {
+      name: "mock-scm",
+      detectPR: vi.fn(),
+      getPRState: vi.fn().mockResolvedValue("open"),
+      mergePR: vi.fn().mockResolvedValue(undefined),
+      closePR: vi.fn(),
+      getCIChecks: vi.fn(),
+      getCISummary: vi.fn().mockResolvedValue("passing"),
+      getReviews: vi.fn().mockResolvedValue([{ author: "coderabbitai[bot]", state: "approved" }]),
+      getReviewDecision: vi.fn().mockResolvedValue("approved"),
+      getPendingComments: vi.fn().mockResolvedValue([]),
+      getAutomatedComments: vi.fn().mockResolvedValue([]),
+      getMergeability: vi.fn().mockResolvedValue({
+        mergeable: true,
+        ciPassing: true,
+        approved: true,
+        noConflicts: true,
+        blockers: [],
+      }),
+    };
+
+    const registryWithSCM: PluginRegistry = {
+      ...mockRegistry,
+      get: vi.fn().mockImplementation((slot: string) => {
+        if (slot === "runtime") return mockRuntime;
+        if (slot === "agent") return mockAgent;
+        if (slot === "scm") return mockSCM;
+        return null;
+      }),
+    };
+
+    const session = makeSession({ status: "pr_open", pr: makePR() });
+    vi.mocked(mockSessionManager.get).mockResolvedValue(session);
+
+    writeMetadata(sessionsDir, "app-1", {
+      worktree: "/tmp",
+      branch: "main",
+      status: "pr_open",
+      project: "my-app",
+    });
+
+    const lm = createLifecycleManager({
+      config,
+      registry: registryWithSCM,
+      sessionManager: mockSessionManager,
+    });
+
+    await lm.check("app-1");
+
+    // mergeMethod should come from defaults.autoMerge ("rebase"), not the fallback "squash"
+    expect(mockSCM.mergePR).toHaveBeenCalledWith(session.pr, "rebase", 0);
+  });
+
+  it("bd-n047: project.autoMerge.mergeMethod overrides defaults.autoMerge.mergeMethod", async () => {
+    config.defaults = {
+      ...config.defaults,
+      autoMerge: {
+        mergeMethod: "rebase",
+      },
+    };
+    config.projects = {
+      "my-app": {
+        ...config.projects["my-app"],
+        autoMerge: {
+          mergeMethod: "merge",
+        },
+      },
+    };
+    config.reactions = {
+      "approved-and-green": {
+        auto: true,
+        action: "auto-merge",
+        // mergeMethod not specified — project should win over defaults
+      },
+    };
+
+    const mockSCM: SCM = {
+      name: "mock-scm",
+      detectPR: vi.fn(),
+      getPRState: vi.fn().mockResolvedValue("open"),
+      mergePR: vi.fn().mockResolvedValue(undefined),
+      closePR: vi.fn(),
+      getCIChecks: vi.fn(),
+      getCISummary: vi.fn().mockResolvedValue("passing"),
+      getReviews: vi.fn().mockResolvedValue([{ author: "coderabbitai[bot]", state: "approved" }]),
+      getReviewDecision: vi.fn().mockResolvedValue("approved"),
+      getPendingComments: vi.fn().mockResolvedValue([]),
+      getAutomatedComments: vi.fn().mockResolvedValue([]),
+      getMergeability: vi.fn().mockResolvedValue({
+        mergeable: true,
+        ciPassing: true,
+        approved: true,
+        noConflicts: true,
+        blockers: [],
+      }),
+    };
+
+    const registryWithSCM: PluginRegistry = {
+      ...mockRegistry,
+      get: vi.fn().mockImplementation((slot: string) => {
+        if (slot === "runtime") return mockRuntime;
+        if (slot === "agent") return mockAgent;
+        if (slot === "scm") return mockSCM;
+        return null;
+      }),
+    };
+
+    const session = makeSession({ status: "pr_open", pr: makePR() });
+    vi.mocked(mockSessionManager.get).mockResolvedValue(session);
+
+    writeMetadata(sessionsDir, "app-1", {
+      worktree: "/tmp",
+      branch: "main",
+      status: "pr_open",
+      project: "my-app",
+    });
+
+    const lm = createLifecycleManager({
+      config,
+      registry: registryWithSCM,
+      sessionManager: mockSessionManager,
+    });
+
+    await lm.check("app-1");
+
+    // project.autoMerge.mergeMethod ("merge") should override defaults ("rebase")
+    expect(mockSCM.mergePR).toHaveBeenCalledWith(session.pr, "merge", 0);
+  });
+
+  it("bd-n047: reaction mergeMethod overrides both project and defaults", async () => {
+    config.defaults = {
+      ...config.defaults,
+      autoMerge: {
+        mergeMethod: "rebase",
+        waitSeconds: 60,
+      },
+    };
+    config.projects = {
+      "my-app": {
+        ...config.projects["my-app"],
+        autoMerge: {
+          mergeMethod: "merge",
+          waitSeconds: 300,
+        },
+      },
+    };
+    config.reactions = {
+      "approved-and-green": {
+        auto: true,
+        action: "auto-merge",
+        mergeMethod: "squash",
+        // reaction overrides everything
+      },
+    };
+
+    const mockSCM: SCM = {
+      name: "mock-scm",
+      detectPR: vi.fn(),
+      getPRState: vi.fn().mockResolvedValue("open"),
+      mergePR: vi.fn().mockResolvedValue(undefined),
+      closePR: vi.fn(),
+      getCIChecks: vi.fn(),
+      getCISummary: vi.fn().mockResolvedValue("passing"),
+      getReviews: vi.fn().mockResolvedValue([{ author: "coderabbitai[bot]", state: "approved" }]),
+      getReviewDecision: vi.fn().mockResolvedValue("approved"),
+      getPendingComments: vi.fn().mockResolvedValue([]),
+      getAutomatedComments: vi.fn().mockResolvedValue([]),
+      getMergeability: vi.fn().mockResolvedValue({
+        mergeable: true,
+        ciPassing: true,
+        approved: true,
+        noConflicts: true,
+        blockers: [],
+      }),
+    };
+
+    const registryWithSCM: PluginRegistry = {
+      ...mockRegistry,
+      get: vi.fn().mockImplementation((slot: string) => {
+        if (slot === "runtime") return mockRuntime;
+        if (slot === "agent") return mockAgent;
+        if (slot === "scm") return mockSCM;
+        return null;
+      }),
+    };
+
+    const session = makeSession({ status: "pr_open", pr: makePR() });
+    vi.mocked(mockSessionManager.get).mockResolvedValue(session);
+
+    writeMetadata(sessionsDir, "app-1", {
+      worktree: "/tmp",
+      branch: "main",
+      status: "pr_open",
+      project: "my-app",
+    });
+
+    const lm = createLifecycleManager({
+      config,
+      registry: registryWithSCM,
+      sessionManager: mockSessionManager,
+    });
+
+    await lm.check("app-1");
+
+    // reaction.mergeMethod wins, project waitSeconds is used (reaction has no autoMergeWaitSeconds)
+    expect(mockSCM.mergePR).toHaveBeenCalledWith(session.pr, "squash", 300);
+  });
+
+  it("bd-n047: defaults.autoMerge.waitSeconds used when neither reaction nor project specifies", async () => {
+    config.defaults = {
+      ...config.defaults,
+      autoMerge: {
+        waitSeconds: 600,
+      },
+    };
+    config.reactions = {
+      "approved-and-green": {
+        auto: true,
+        action: "auto-merge",
+        mergeMethod: "squash",
+        // autoMergeWaitSeconds not specified on reaction
+      },
+    };
+    // project has no autoMerge override
+
+    const mockSCM: SCM = {
+      name: "mock-scm",
+      detectPR: vi.fn(),
+      getPRState: vi.fn().mockResolvedValue("open"),
+      mergePR: vi.fn().mockResolvedValue(undefined),
+      closePR: vi.fn(),
+      getCIChecks: vi.fn(),
+      getCISummary: vi.fn().mockResolvedValue("passing"),
+      getReviews: vi.fn().mockResolvedValue([{ author: "coderabbitai[bot]", state: "approved" }]),
+      getReviewDecision: vi.fn().mockResolvedValue("approved"),
+      getPendingComments: vi.fn().mockResolvedValue([]),
+      getAutomatedComments: vi.fn().mockResolvedValue([]),
+      getMergeability: vi.fn().mockResolvedValue({
+        mergeable: true,
+        ciPassing: true,
+        approved: true,
+        noConflicts: true,
+        blockers: [],
+      }),
+    };
+
+    const registryWithSCM: PluginRegistry = {
+      ...mockRegistry,
+      get: vi.fn().mockImplementation((slot: string) => {
+        if (slot === "runtime") return mockRuntime;
+        if (slot === "agent") return mockAgent;
+        if (slot === "scm") return mockSCM;
+        return null;
+      }),
+    };
+
+    const session = makeSession({ status: "pr_open", pr: makePR() });
+    vi.mocked(mockSessionManager.get).mockResolvedValue(session);
+
+    writeMetadata(sessionsDir, "app-1", {
+      worktree: "/tmp",
+      branch: "main",
+      status: "pr_open",
+      project: "my-app",
+    });
+
+    const lm = createLifecycleManager({
+      config,
+      registry: registryWithSCM,
+      sessionManager: mockSessionManager,
+    });
+
+    await lm.check("app-1");
+
+    // defaults.autoMerge.waitSeconds (600) should be used
+    expect(mockSCM.mergePR).toHaveBeenCalledWith(session.pr, "squash", 600);
+  });
 });
 
 describe("session exit proof reconciliation (bd-uxs.6)", () => {
@@ -4279,7 +4798,7 @@ describe("send-to-agent retry policy (bd-5nxx)", () => {
     // Use lm._testing to directly call executeReaction — bypasses REVIEW_BACKLOG_INTERVAL
     // throttle timing entirely. The reactionTracker is shared across calls so attempts
     // accumulate correctly (attempts=1, 2, 3, then skipped at attempts=4 > cap=3).
-    const { executeReaction, getReactionConfigForSession } = (lm as unknown as { _testing: { getReactionConfigForSession: (session: Session, eventKey: string) => ReactionConfig | null } })._testing;
+    const { executeReaction, getReactionConfigForSession } = (lm as any)._testing;
     const reactionConfig = getReactionConfigForSession(session, "changes-requested")!;
 
     // Verify _testing API is accessible
@@ -4653,150 +5172,5 @@ describe("bd-skp2 skeptic trigger on pr_open", () => {
 
     // No skeptic reaction configured — nothing to call
     expect(mockRunSkepticReviewReaction).not.toHaveBeenCalled();
-  });
-});
-
-describe("centralized auto-merge config (getReactionConfigForSession)", () => {
-  // These tests verify the autoMerge flag in OrchestratorConfig/ProjectConfig
-  // overrides the approved-and-green reaction's default action (notify → auto-merge).
-  // The _testing API exposes getReactionConfigForSession for isolated unit testing.
-
-  function makeLMWithAutoMerge(
-    globalAutoMerge?: boolean,
-    projectAutoMerge?: boolean,
-    projectReactionAction?: ReactionAction,
-    globalReactionAction?: ReactionAction,
-  ) {
-    const cfg: OrchestratorConfig = {
-      configPath,
-      port: 3000,
-      defaults: {
-        runtime: "mock",
-        agent: "mock-agent",
-        workspace: "mock-ws",
-        notifiers: ["desktop"],
-      },
-      projects: {
-        "my-app": {
-          name: "My App",
-          repo: "org/my-app",
-          path: join(tmpDir, "my-app"),
-          defaultBranch: "main",
-          sessionPrefix: "app",
-          scm: { plugin: "github" },
-          // Per-project override — only set if provided
-          ...(projectAutoMerge !== undefined && { autoMerge: projectAutoMerge }),
-          // Per-project reaction override — only set if provided
-          ...(projectReactionAction !== undefined && {
-            reactions: { "approved-and-green": { auto: true, action: projectReactionAction } },
-          }),
-        },
-      },
-      notifiers: {},
-      notificationRouting: {
-        urgent: [],
-        action: [],
-        warning: [],
-        info: [],
-      },
-      reactions: {
-        "approved-and-green": {
-          auto: false,
-          action: globalReactionAction ?? "notify",
-          priority: "action",
-        },
-      },
-      // @internal: only set when user explicitly declared this reaction in global config.
-      // When absent, autoMerge can override the default action.
-      ...(globalReactionAction !== undefined && {
-        _hasExplicitGlobalReaction: { "approved-and-green": true },
-      }),
-      readyThresholdMs: 300_000,
-      startupGracePeriodMs: 0,
-      // Global override — only set if provided
-      ...(globalAutoMerge !== undefined && { autoMerge: globalAutoMerge }),
-    };
-
-    const lm = createLifecycleManager({
-      config: cfg,
-      registry: mockRegistry,
-      sessionManager: mockSessionManager,
-    });
-
-    return { lm, cfg };
-  }
-
-  it("default: approved-and-green stays as notify (autoMerge=false)", async () => {
-    const { lm } = makeLMWithAutoMerge(undefined, undefined);
-    const { getReactionConfigForSession } = (lm as unknown as { _testing: { getReactionConfigForSession: (session: Session, eventKey: string) => ReactionConfig | null } })._testing;
-    const session = makeSession({ projectId: "my-app" });
-    const config = getReactionConfigForSession(session, "approved-and-green");
-    expect(config?.action).toBe("notify");
-  });
-
-  it("global autoMerge=true: overrides approved-and-green to auto-merge", async () => {
-    const { lm } = makeLMWithAutoMerge(true, undefined);
-    const { getReactionConfigForSession } = (lm as unknown as { _testing: { getReactionConfigForSession: (session: Session, eventKey: string) => ReactionConfig | null } })._testing;
-    const session = makeSession({ projectId: "my-app" });
-    const config = getReactionConfigForSession(session, "approved-and-green");
-    expect(config?.action).toBe("auto-merge");
-    expect(config?.auto).toBe(true);
-  });
-
-  it("per-project autoMerge=true: overrides approved-and-green to auto-merge", async () => {
-    const { lm } = makeLMWithAutoMerge(undefined, true);
-    const { getReactionConfigForSession } = (lm as unknown as { _testing: { getReactionConfigForSession: (session: Session, eventKey: string) => ReactionConfig | null } })._testing;
-    const session = makeSession({ projectId: "my-app" });
-    const config = getReactionConfigForSession(session, "approved-and-green");
-    expect(config?.action).toBe("auto-merge");
-    expect(config?.auto).toBe(true);
-  });
-
-  it("per-project autoMerge takes precedence over global autoMerge=false", async () => {
-    // Global says no auto-merge, but project says yes → project wins
-    const { lm } = makeLMWithAutoMerge(false, true);
-    const { getReactionConfigForSession } = (lm as unknown as { _testing: { getReactionConfigForSession: (session: Session, eventKey: string) => ReactionConfig | null } })._testing;
-    const session = makeSession({ projectId: "my-app" });
-    const config = getReactionConfigForSession(session, "approved-and-green");
-    expect(config?.action).toBe("auto-merge");
-    expect(config?.auto).toBe(true);
-  });
-
-  it("global autoMerge=true but project autoMerge=false: project wins", async () => {
-    // Global says auto-merge, but project disables it → project wins
-    const { lm } = makeLMWithAutoMerge(true, false);
-    const { getReactionConfigForSession } = (lm as unknown as { _testing: { getReactionConfigForSession: (session: Session, eventKey: string) => ReactionConfig | null } })._testing;
-    const session = makeSession({ projectId: "my-app" });
-    const config = getReactionConfigForSession(session, "approved-and-green");
-    expect(config?.action).toBe("notify");
-  });
-
-  it("explicit reaction action is not overridden by autoMerge", () => {
-    // User explicitly configured action: "notify" on the approved-and-green reaction
-    // → autoMerge flag should NOT override it
-    const { lm } = makeLMWithAutoMerge(true, undefined, "notify");
-    const { getReactionConfigForSession } = (lm as unknown as { _testing: { getReactionConfigForSession: (session: Session, eventKey: string) => ReactionConfig | null } })._testing;
-    const session = makeSession({ projectId: "my-app" });
-    const config = getReactionConfigForSession(session, "approved-and-green");
-    expect(config?.action).toBe("notify");
-  });
-
-  it("explicit global reaction action is not overridden by autoMerge", () => {
-    // User explicitly set action: "request-merge" globally — autoMerge should not override it
-    const { lm } = makeLMWithAutoMerge(true, undefined, undefined, "request-merge");
-    const { getReactionConfigForSession } = (lm as unknown as { _testing: { getReactionConfigForSession: (session: Session, eventKey: string) => ReactionConfig | null } })._testing;
-    const session = makeSession({ projectId: "my-app" });
-    const config = getReactionConfigForSession(session, "approved-and-green");
-    expect(config?.action).toBe("request-merge");
-  });
-
-  it("autoMerge does not affect non-approved-and-green reactions", async () => {
-    const { lm } = makeLMWithAutoMerge(true, true);
-    const { getReactionConfigForSession } = (lm as unknown as { _testing: { getReactionConfigForSession: (session: Session, eventKey: string) => ReactionConfig | null } })._testing;
-    const session = makeSession({ projectId: "my-app" });
-    // ci-failed is not affected by autoMerge — the test config only has
-    // approved-and-green; ci-failed returns null (no defaults applied in unit test)
-    const config = getReactionConfigForSession(session, "ci-failed");
-    expect(config).toBeNull();
   });
 });

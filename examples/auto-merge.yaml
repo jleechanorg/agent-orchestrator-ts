@@ -4,11 +4,13 @@
 dataDir: ~/.agent-orchestrator
 worktreeDir: ~/.worktrees
 
-# -----------------------------------------------------------------------------
-# Option A: Global auto-merge — applies to ALL projects unless overridden
-# This is the simplest way to enable auto-merge across the board.
-# -----------------------------------------------------------------------------
-# autoMerge: true
+# bd-n047: Centralized auto-merge defaults — applied to all projects.
+# Can be overridden per-project via projects.<projectId>.autoMerge.enabled.
+defaults:
+  autoMerge:
+    enabled: true
+    waitSeconds: 300      # Wait 5 minutes for CI before GitHub auto-merges
+    mergeMethod: squash
 
 projects:
   my-app:
@@ -16,17 +18,12 @@ projects:
     path: ~/my-app
     defaultBranch: main
 
-    # Option B: Per-project auto-merge — only enables for this project.
-    # This overrides the global autoMerge setting for this project.
-    autoMerge: true
-
-    # Option C: Per-reaction override (equivalent to Option B).
-    # Use this when you want auto-merge for ONLY the approved-and-green event,
-    # not other reactions. Also works at the global level (reactions: {}).
-    # reactions:
-    #   approved-and-green:
-    #     auto: true
-    #     action: auto-merge
+    # Enable auto-merge for this project (inherits waitSeconds/mergeMethod from defaults)
+    # Note: autoMerge settings go at the project level, not inside reactions
+    reactions:
+      approved-and-green:
+        auto: true
+        action: auto-merge
 
 # Global reactions
 reactions:

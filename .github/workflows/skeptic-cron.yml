@@ -48,10 +48,10 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           PR_JSON: ${{ steps.list_prs.outputs.pr_numbers }}
-          # bd-lg7i: Default to jleechan2015 — ao skeptic verify posts via gh api
-          # authenticated as the local user, not the GitHub App bot. Override via
-          # repo variable SKEPTIC_BOT_AUTHOR if posting identity changes.
-          SKEPTIC_BOT_AUTHOR: ${{ vars.SKEPTIC_BOT_AUTHOR || 'jleechan2015' }}
+          # Default to github-actions[bot] — skeptic-cron runs in GHA with
+          # secrets.GITHUB_TOKEN, so gh api posts as github-actions[bot].
+          # Override via repo variable SKEPTIC_BOT_AUTHOR if posting identity changes.
+          SKEPTIC_BOT_AUTHOR: ${{ vars.SKEPTIC_BOT_AUTHOR || 'github-actions[bot]' }}
         run: |
           set -e
 
