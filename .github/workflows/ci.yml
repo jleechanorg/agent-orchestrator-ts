@@ -60,9 +60,11 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm -r --filter '!@jleechanorg/ao-web' build
       - name: Setup gh authentication for wholesome tests
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          echo "${{ github.token }}" | gh auth login --with-token
-          gh auth status
+          gh auth status || gh auth login --hostname github.com --token "$GH_TOKEN"
+          gh pr view --repo jleechanorg/agent-orchestrator feat/orch-centralize-auto-merge-config --json title --jq .title
       - run: pnpm test
         env:
           GITHUB_REPOSITORY: ${{ github.repository }}
