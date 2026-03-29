@@ -99,13 +99,13 @@ Before opening any skeptic-related PR, verify the full chain end-to-end locally.
 ### Pre-PR Verification Checklist
 
 1. **Full-chain local test**: trigger comment → lifecycle-worker detection → `ao skeptic verify` execution → VERDICT comment posting → `skeptic-gate.yml` polling match.
-2. **Cross-layer consistency**: CLI code change? Verify GHA YAML jq filter matches CLI output format. GHA YAML change? Verify CLI output format matches jq filter. Bot author change? Verify BOTH `skeptic-gate.yml` polling filter AND `skeptic-cron.yml` `SKEPTIC_BOT_AUTHOR` env var match.
-3. **Minimum smoke test**: `ao skeptic verify -n <PR> --dry-run` must output a VERDICT line matching the GHA jq filter pattern (e.g., `VERDICT: PASS` or `VERDICT: FAIL` — no synonyms, no extra whitespace).
+2. **Cross-layer consistency**: CLI code change? Verify GHA YAML jq filter matches CLI output format. GHA YAML change? Verify CLI output format matches jq filter. Bot author change? Verify the jq filter in `skeptic-gate.yml` (line ~235) accepts the posting identity. Note: `SKEPTIC_BOT_AUTHOR` defaults differ by design — `skeptic-cron.yml` uses `'jleechan2015'` (lifecycle-worker posts as local user), `skeptic-gate.yml` polling uses `'github-actions[bot]'` (GHA runner posts as GHA bot); the jq filter accepts both to cover both paths.
+3. **Minimum smoke test**: `ao skeptic verify -n <PR> --dry-run` must output a VERDICT line matching the GHA jq filter pattern. The jq filter in `skeptic-gate.yml` uses `grep -qi "VERDICT: PASS"` / `grep -qi "VERDICT: FAIL"` / `grep -qi "VERDICT: SKIPPED"` — extra text after the keyword (e.g., `VERDICT: FAIL — claude: error`) is accepted; the filter requires the keyword to be present, not a specific format.
 
 ### Red flags — STOP if you see these in a skeptic PR:
 - Unit tests pass but no end-to-end chain verification documented
 - jq filter in `skeptic-gate.yml` does not match CLI VERDICT output format
-- `SKEPTIC_BOT_AUTHOR` env var differs between `skeptic-cron.yml` and `skeptic-gate.yml`
+- jq filter in `skeptic-gate.yml` does not account for the posting identity used by `ao skeptic verify` (either `'github-actions[bot]'` or `'jleechan2015'` — both are valid by design)
 - GHA YAML filters changed without verifying CLI output format, or vice versa
 
 ## LLM Evaluation — Shared Utility
