@@ -143,7 +143,7 @@ describe("dead tmux session reaping", () => {
 
     const deadMerged = makeSession("tmux-dead-merged", {
       status: "working",
-      pr: { number: 77, url: "https://github.com/org/repo/pull/77", title: "M", owner: "org", repo: "repo", branch: "feat/test", baseBranch: "main", isDraft: false, state: "merged" as "merged" },
+      pr: { number: 77, url: "https://github.com/org/repo/pull/77", title: "M", owner: "org", repo: "repo", branch: "feat/test", baseBranch: "main", isDraft: false, state: "merged" as const },
       metadata: { prState: "merged", tmuxName: "aabbccddee-ao-tmux-dead-merged" },
     });
     const sm = makeSessionManager([deadMerged]);
@@ -196,7 +196,7 @@ describe("dead tmux session reaping", () => {
 
     const deadOpen = makeSession("tmux-dead-open", {
       status: "working",
-      pr: { number: 99, url: "https://github.com/org/repo/pull/99", title: "O", owner: "org", repo: "repo", branch: "feat/test", baseBranch: "main", isDraft: false, state: "open" as "open" },
+      pr: { number: 99, url: "https://github.com/org/repo/pull/99", title: "O", owner: "org", repo: "repo", branch: "feat/test", baseBranch: "main", isDraft: false, state: "open" as const },
       metadata: { prState: "open", tmuxName: "aabbccddee-ao-tmux-dead-open" },
     });
     const sm = makeSessionManager([deadOpen]);
@@ -205,7 +205,7 @@ describe("dead tmux session reaping", () => {
     const respawnFn: RespawnFn = vi.fn();
     const config = makeTtlConfig({ sessionTtlMs: 10 * 60 * 60_000 });
 
-    const result = await reapStaleSessions(config, {
+    await reapStaleSessions(config, {
       ...makeDeps(sm),
       tmuxHealth,
       respawnSession: respawnFn,
@@ -272,7 +272,7 @@ describe("dead tmux session reaping", () => {
 
     const deadOpen = makeSession("tmux-dead-respawn-fail", {
       status: "working",
-      pr: { number: 55, url: "https://github.com/org/repo/pull/55", title: "R", owner: "org", repo: "repo", branch: "feat/test", baseBranch: "main", isDraft: false, state: "open" as "open" },
+      pr: { number: 55, url: "https://github.com/org/repo/pull/55", title: "R", owner: "org", repo: "repo", branch: "feat/test", baseBranch: "main", isDraft: false, state: "open" as const },
       metadata: { prState: "open", tmuxName: "aabbccddee-ao-tmux-dead-respawn-fail" },
     });
     const sm = makeSessionManager([deadOpen]);
@@ -298,7 +298,7 @@ describe("dead tmux session reaping", () => {
     const recentDead = makeSession("grace-dead-tmux", {
       createdAt: new Date(BASE_NOW.getTime() - 30 * 60_000),
       lastActivityAt: new Date(BASE_NOW.getTime() - 30 * 60_000),
-      pr: { number: 11, url: "https://github.com/org/repo/pull/11", title: "G", owner: "org", repo: "repo", branch: "feat/test", baseBranch: "main", isDraft: false, state: "open" as "open" },
+      pr: { number: 11, url: "https://github.com/org/repo/pull/11", title: "G", owner: "org", repo: "repo", branch: "feat/test", baseBranch: "main", isDraft: false, state: "open" as const },
       metadata: { tmuxName: "aabbccddee-ao-grace-dead" },
     });
     const sm = makeSessionManager([recentDead]);
@@ -347,15 +347,15 @@ describe("dead tmux session reaping", () => {
     const { reapStaleSessions } = await import("../session-reaper.js");
 
     const open1 = makeSession("dead-open-1", {
-      pr: { number: 1, url: "https://github.com/org/repo/pull/1", title: "1", owner: "org", repo: "repo", branch: "feat/1", baseBranch: "main", isDraft: false, state: "open" as "open" },
+      pr: { number: 1, url: "https://github.com/org/repo/pull/1", title: "1", owner: "org", repo: "repo", branch: "feat/1", baseBranch: "main", isDraft: false, state: "open" as const },
       metadata: { prState: "open", tmuxName: "aabbccddee-ao-dead-open-1" },
     });
     const open2 = makeSession("dead-open-2", {
-      pr: { number: 2, url: "https://github.com/org/repo/pull/2", title: "2", owner: "org", repo: "repo", branch: "feat/2", baseBranch: "main", isDraft: false, state: "open" as "open" },
+      pr: { number: 2, url: "https://github.com/org/repo/pull/2", title: "2", owner: "org", repo: "repo", branch: "feat/2", baseBranch: "main", isDraft: false, state: "open" as const },
       metadata: { prState: "open", tmuxName: "aabbccddee-ao-dead-open-2" },
     });
     const merged = makeSession("dead-merged", {
-      pr: { number: 3, url: "https://github.com/org/repo/pull/3", title: "3", owner: "org", repo: "repo", branch: "feat/3", baseBranch: "main", isDraft: false, state: "merged" as "merged" },
+      pr: { number: 3, url: "https://github.com/org/repo/pull/3", title: "3", owner: "org", repo: "repo", branch: "feat/3", baseBranch: "main", isDraft: false, state: "merged" as const },
       metadata: { prState: "merged", tmuxName: "aabbccddee-ao-dead-merged" },
     });
     const sm = makeSessionManager([open1, open2, merged]);
