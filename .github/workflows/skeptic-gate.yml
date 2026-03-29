@@ -6,6 +6,9 @@ name: Skeptic Gate
 on:
   pull_request:
     types: [opened, synchronize, edited, reopened]
+  workflow_dispatch:
+  workflow_dispatch:
+    types: [opened, synchronize, edited, reopened]
 
 concurrency:
   group: skeptic-gate-${{ github.event.pull_request.number }}
