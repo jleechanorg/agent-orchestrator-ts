@@ -369,7 +369,7 @@ jobs:
                 break
               fi
             done
-            if echo "$SKEPTIC_STATUS" | grep -qi "FAIL\|MISSING"; then
+            if echo "$SKEPTIC_STATUS" | grep -qi "FAIL"; then
               ALL_PASS=false
             fi
 

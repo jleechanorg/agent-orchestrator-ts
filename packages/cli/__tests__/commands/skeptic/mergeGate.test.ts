@@ -259,7 +259,7 @@ describe("fetchMergeGateState — skeptic verdict parsing", () => {
     expect(result.skepticCommentId).toBe(77);
   });
 
-  it("prefers configured author verdict over github-actions[bot] for same-age comments", async () => {
+  it("newest matching comment wins regardless of author", async () => {
     setup({
       ghJson: [
         { head: { sha: "abc123" }, mergeable: true },

@@ -317,18 +317,18 @@ describe("skeptic chain integration", () => {
   });
 
   // -------------------------------------------------------------------------
-  // Test 3: SKIPPED verdict — VERDICT_LINE_RE only matches PASS|FAIL
+  // Test 3: SKIPPED verdict — VERDICT_LINE_RE matches PASS|FAIL|SKIPPED
   // -------------------------------------------------------------------------
   describe("SKIPPED verdict", () => {
-    it("maps SKIPPED to FAIL (regex only matches PASS|FAIL)", async () => {
+    it("maps SKIPPED to SKIPPED (regex matches all three verdicts)", async () => {
       setVerdictOutput("VERDICT: SKIPPED\nNo skeptic criteria defined.");
       const session = makeSession();
 
       const result = await runSkepticReview(session, { postComment: true });
 
-      // VERDICT_LINE_RE in skeptic-reviewer.ts: /^VERDICT:\s*(PASS|FAIL)\s*$/im
-      // SKIPPED is not in the alternation → result.verdict = "FAIL"
-      expect(result.verdict).toBe("FAIL");
+      // VERDICT_LINE_RE in skeptic-reviewer.ts: /^VERDICT:\s*(PASS|FAIL|SKIPPED)\b/im
+      // SKIPPED is in the alternation → result.verdict = "SKIPPED"
+      expect(result.verdict).toBe("SKIPPED");
       expect(result.modelUsed).toBe("codex");
     });
   });
