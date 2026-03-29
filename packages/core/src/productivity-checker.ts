@@ -92,7 +92,7 @@ interface PRMeta {
 }
 
 interface CommitMeta {
-  commit: { commit: { committer: { date: string } } };
+  commit: { committer: { date: string } };
 }
 
 interface CIStatusMeta {
@@ -134,7 +134,7 @@ export async function fetchLastCommitDate(
     )) as CommitMeta[];
     if (!commits || commits.length === 0) return null;
     // GitHub returns commits newest-first; with per_page=1, [0] is the latest.
-    const lastDateStr = commits[0]?.commit?.commit?.committer?.date;
+    const lastDateStr = commits[0]?.commit?.committer?.date;
     if (!lastDateStr) return null;
     return new Date(lastDateStr);
   } catch {

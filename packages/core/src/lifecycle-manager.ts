@@ -1197,14 +1197,17 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     // Only override if the project did not explicitly configure this reaction
     // (projectReaction is absent) AND the global config did not declare it
     // (_hasExplicitGlobalReaction tracks raw user input before .partial() stripping).
+    // Only transform when the action is still the default "notify" — explicit actions
+    // like "request-merge" must not be overridden.
     const autoMergeEnabled =
       project?.autoMerge?.enabled ??
       config.autoMerge?.enabled ??
       config.defaults.autoMerge?.enabled ??
-      false;
+      true;
     if (
       autoMergeEnabled &&
       reactionKey === "approved-and-green" &&
+      reactionConfig.action === "notify" &&
       !projectReaction &&
       !(config._hasExplicitGlobalReaction?.[reactionKey])
     ) {

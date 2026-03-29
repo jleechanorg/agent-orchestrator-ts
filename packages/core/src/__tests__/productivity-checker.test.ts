@@ -130,7 +130,7 @@ describe("checkStallDetection", () => {
   it("returns none when commit is recent (<30 min)", async () => {
     const deps = makeDeps({
       ghRest: async (_o, _r, path: string) => {
-        if (path.includes("/commits")) return [{ commit: { commit: { committer: { date: recentCommitDate } } } }];
+        if (path.includes("/commits")) return [{ commit: { committer: { date: recentCommitDate } } }];
         if (path.includes("/status")) return { state: "pending" };
         if (path.includes("/reviews")) return [];
         return { state: "open", merged: false, head: { sha: "abc", ref: "feat/x" }, html_url: "https://x" };
@@ -147,7 +147,7 @@ describe("checkStallDetection", () => {
     const sendKeys = vi.fn().mockResolvedValue(undefined);
     const deps = makeDeps({
       ghRest: async (_o, _r, path: string) => {
-        if (path.includes("/commits")) return [{ commit: { commit: { committer: { date: oldCommitDate } } } }];
+        if (path.includes("/commits")) return [{ commit: { committer: { date: oldCommitDate } } }];
         if (path.includes("/status")) return { state: "failure" };
         if (path.includes("/reviews")) return [{ user: { login: "coderabbitai[bot]" }, state: "CHANGES_REQUESTED", submitted_at: new Date(NOW_MS).toISOString() }];
         return { state: "open", merged: false, head: { sha: "abc", ref: "feat/x" }, html_url: "https://github.com/test/pull/123" };
@@ -171,7 +171,7 @@ describe("checkStallDetection", () => {
     const sendKeys = vi.fn();
     const deps = makeDeps({
       ghRest: async (_o, _r, path: string) => {
-        if (path.includes("/commits")) return [{ commit: { commit: { committer: { date: oldCommitDate } } } }];
+        if (path.includes("/commits")) return [{ commit: { committer: { date: oldCommitDate } } }];
         if (path.includes("/status")) return { state: "success" };
         if (path.includes("/reviews")) return [{ user: { login: "coderabbitai[bot]" }, state: "APPROVED", submitted_at: new Date(NOW_MS).toISOString() }];
         return { state: "open", merged: false, head: { sha: "abc", ref: "feat/x" }, html_url: "https://x" };
@@ -189,7 +189,7 @@ describe("checkStallDetection", () => {
   it("returns none when PR is merged", async () => {
     const deps = makeDeps({
       ghRest: async (_o, _r, path: string) => {
-        if (path.includes("/commits")) return [{ commit: { commit: { committer: { date: oldCommitDate } } } }];
+        if (path.includes("/commits")) return [{ commit: { committer: { date: oldCommitDate } } }];
         if (path.includes("/status")) return { state: "failure" };
         if (path.includes("/reviews")) return [];
         return { state: "closed", merged: true, head: { sha: "abc", ref: "feat/x" }, html_url: "https://x" };
@@ -213,7 +213,7 @@ describe("checkStallDetection", () => {
     const sendKeys = vi.fn().mockResolvedValue(undefined);
     const deps = makeDeps({
       ghRest: async (_o, _r, path: string) => {
-        if (path.includes("/commits")) return [{ commit: { commit: { committer: { date: oldCommitDate } } } }];
+        if (path.includes("/commits")) return [{ commit: { committer: { date: oldCommitDate } } }];
         if (path.includes("/status")) return { state: "failure" };
         if (path.includes("/reviews")) return [];
         return { state: "open", merged: false, head: { sha: "abc", ref: "feat/x" }, html_url: "https://x" };
