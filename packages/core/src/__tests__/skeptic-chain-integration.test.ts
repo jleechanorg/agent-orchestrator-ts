@@ -130,7 +130,7 @@ function installDefaultExecFile() {
 // ---------------------------------------------------------------------------
 let ghCall = 0;
 
-function defaultExecImpl(cmd: string, _args?: string[]): Promise<{ stdout: string; stderr: string }> {
+function defaultExecImpl(_cmd: string, _args?: string[]): Promise<{ stdout: string; stderr: string }> {
   ghCall++;
   switch (ghCall) {
     case 1:
