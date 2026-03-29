@@ -151,7 +151,7 @@ jobs:
             # the jq filter applies per-page so .[-1] (most recent) only reflects the
             # last comment on the last page, missing newer matches.
             # Comments are returned oldest→newest, so .[-1] gives the most recent match.
-            VERDICT_JQ='[.[] | select(.user.login == env.SKEPTIC_BOT_AUTHOR and (.body | test("VERDICT:"; "i")) and (.created_at > env.TRIGGER_UPDATED) and (.body | test("skeptic-gate-trigger-" + env.TRIGGER_SHA; "i")))] | .[-1] // empty'
+            VERDICT_JQ='[.[] | select(.user.login == env.SKEPTIC_BOT_AUTHOR and (.body | test("VERDICT:"; "i")) and (.updated_at >= env.TRIGGER_UPDATED) and (.body | test("skeptic-gate-trigger-" + env.TRIGGER_SHA; "i")))] | .[-1] // empty'
             VERDICT_JSON=$(gh api repos/${{ github.repository }}/issues/"$PR_NUM"/comments \
               --paginate \
               --slurpfile /dev/null \
