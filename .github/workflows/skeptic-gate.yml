@@ -164,10 +164,11 @@ jobs:
           HEAD_SHA: ${{ github.event.inputs.head_sha || github.event.pull_request.head.sha }}
           TRIGGER_UPDATED: ${{ steps.post_trigger.outputs.trigger_updated }}
           TRIGGER_SHA: ${{ steps.post_trigger.outputs.trigger_sha }}
-          # bd-lg7i: Default to jleechan2015 — ao skeptic verify posts via gh api
-          # authenticated as the local user, not the GitHub App bot. Override via
-          # repo variable if posting identity changes (e.g., GitHub App token).
-          SKEPTIC_BOT_AUTHOR: ${{ vars.SKEPTIC_BOT_AUTHOR || 'jleechan2015' }}
+          # Default to github-actions[bot] — skeptic-gate step 2b posts SKIPPED fallback
+          # via GITHUB_TOKEN (GHA runner identity). When ao skeptic verify runs via
+          # lifecycle-worker and posts directly, it uses gh api authed as local user
+          # (jleechan2015). The jq filter below accepts both to cover both paths.
+          SKEPTIC_BOT_AUTHOR: ${{ vars.SKEPTIC_BOT_AUTHOR || 'github-actions[bot]' }}
         # 28 min timeout — leave 2 min buffer so the step exits cleanly before the
         # 30-min job timeout rather than being killed by the runner.
         timeout-minutes: 28
