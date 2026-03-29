@@ -70,6 +70,23 @@ function mockGitError(message: string) {
   mockExecFileAsync.mockRejectedValueOnce(new Error(message));
 }
 
+/**
+ * Per-test git mock using mockImplementation. Decides outcome by call arguments (not queue position),
+ * so unmocked calls succeed with empty stdout.
+ *
+ * Keys are "cmd,arg1,arg2,(cwd=/path)" — the (cwd=...) token is appended when
+ * git() is called with a cwd option (it always is for repo-path git calls).
+ */
+type GitCallResult = { stdout?: string; stderr?: string } | Error;
+function mockGitImpl(calls: Record<string, GitCallResult>): void {
+  mockExecFileAsync.mockImplementation((cmd: string, args: string[], opts?: { cwd?: string }) => {
+    const key = [cmd, ...args, opts?.cwd ? `(cwd=${opts.cwd})` : ""].join(",");
+    const result = calls[key];
+    if (result instanceof Error) return Promise.reject(result);
+    return Promise.resolve({ stdout: (result?.stdout ?? "") + "\n", stderr: result?.stderr ?? "" });
+  });
+}
+
 function makeProject(overrides?: Partial<ProjectConfig>): ProjectConfig {
   return {
     name: "test-project",
@@ -111,6 +128,8 @@ beforeEach(() => {
     isFile: () => String(p).endsWith(".git") || String(p).endsWith(".git/info"),
     isDirectory: () => false,
   }));
+  // Needed so setupAoManagedExclude sees existsSync(".git/info") = true and skips mkdirSync
+  mockExistsSync.mockImplementation((p: string) => String(p).endsWith(".git/info"));
 });
 
 // ===========================================================================
@@ -1067,8 +1086,8 @@ describe("setupAoManagedExclude (via workspace.restore())", () => {
     // 1. git worktree unlock <worktreePath> (best-effort — must mock to avoid undefined)
     // 2. git worktree prune (caught if fails — ok to leave unmocked)
     // 3. git fetch origin --quiet (caught if fails — ok to leave unmocked)
-    // 4. git worktree add <worktreePath> <branch> (first attempt)
-    // setupAoManagedExclude: git rev-parse --git-common-dir (caught, falls back)
+    // 4. git worktree add <worktreePath> <branch> (first attempt — succeeds, no disambiguateBaseRef)
+    // setupAoManagedExclude: git rev-parse --git-common-dir (caught, falls back to readFileSync)
     mockGitSuccess(""); // unlock
     mockGitSuccess(""); // prune
     mockGitSuccess(""); // fetch
@@ -1081,5 +1100,97 @@ describe("setupAoManagedExclude (via workspace.restore())", () => {
     const [writtenPath, writtenContent] = mockWriteFile.mock.calls[0] as [string, string, string];
     expect(writtenPath).toContain(".git/info/exclude");
     expect(writtenContent).toContain("# AO-managed files");
+  });
+});
+
+// bd-1483: restore() disambiguates origin/<branch> refs before git worktree add (same as create())
+describe("restore() ambiguous-ref disambiguation", () => {
+  function makeRestoreConfig(overrides?: Partial<WorkspaceCreateConfig>): WorkspaceCreateConfig {
+    return {
+      projectId: "myproject",
+      project: makeProject(),
+      sessionId: "session-1",
+      branch: "feat/TEST-1",
+      ...overrides,
+    };
+  }
+
+  it("auto-renames local conflicting branch when first worktree add fails with ambiguous remoteBranch", async () => {
+    const ws = create();
+    const worktreePath = "/mock-home/.worktrees/myproject/session-1";
+
+    // Keys include (cwd=...) — git() passes cwd as 3rd parameter.
+    mockGitImpl({
+      [`git,worktree,add,${worktreePath},feat/TEST-1,(cwd=/repo/path)`]:
+        new Error("fatal: 'feat/TEST-1' is not a commit ref"),
+      [`git,branch,--list,origin/feat/TEST-1,(cwd=/repo/path)`]: { stdout: "  origin/feat/TEST-1" },
+      [`git,branch,-m,origin/feat/TEST-1,backup/origin/feat/TEST-1,(cwd=/repo/path)`]: { stdout: "" },
+      [`git,worktree,add,-b,feat/TEST-1,${worktreePath},origin/feat/TEST-1,(cwd=/repo/path)`]: { stdout: "" },
+    });
+
+    const cfg = makeRestoreConfig();
+    await ws.restore!(cfg, worktreePath);
+
+    const branchMCall = mockExecFileAsync.mock.calls.find(
+      (call) =>
+        Array.isArray(call[1]) &&
+        call[0] === "git" &&
+        call[1][0] === "branch" &&
+        call[1][1] === "-m",
+    );
+    expect(branchMCall).toBeDefined();
+    expect(branchMCall![1]).toEqual(["branch", "-m", "origin/feat/TEST-1", "backup/origin/feat/TEST-1"]);
+
+    const worktreeCalls = mockExecFileAsync.mock.calls.filter(
+      (call) =>
+        Array.isArray(call[1]) &&
+        call[0] === "git" &&
+        call[1][0] === "worktree" &&
+        call[1][1] === "add",
+    );
+    expect(worktreeCalls.length).toBeGreaterThanOrEqual(2);
+    expect(worktreeCalls[1][1].slice(0, 5)).toEqual(["worktree", "add", "-b", "feat/TEST-1", worktreePath]);
+  });
+
+  it("throws actionable error when rename fails during restore disambiguation", async () => {
+    const ws = create();
+    const worktreePath = "/mock-home/.worktrees/myproject/session-1";
+
+    mockGitImpl({
+      [`git,worktree,add,${worktreePath},feat/TEST-1,(cwd=/repo/path)`]:
+        new Error("fatal: 'feat/TEST-1' is not a commit ref"),
+      [`git,branch,--list,origin/feat/TEST-1,(cwd=/repo/path)`]: { stdout: "  origin/feat/TEST-1" },
+      [`git,branch,-m,origin/feat/TEST-1,backup/origin/feat/TEST-1,(cwd=/repo/path)`]:
+        new Error("fatal: ref renamed because ref 'backup/origin/feat/TEST-1' already exists"),
+    });
+
+    const cfg = makeRestoreConfig();
+    await expect(ws.restore!(cfg, worktreePath)).rejects.toThrow(
+      /Ambiguous ref.*manually rename|manually rename.*Ambiguous ref/is,
+    );
+  });
+
+  it("proceeds without rename when no local branch conflicts with remoteBranch", async () => {
+    const ws = create();
+    const worktreePath = "/mock-home/.worktrees/myproject/session-1";
+
+    mockGitImpl({
+      [`git,worktree,add,${worktreePath},feat/TEST-1,(cwd=/repo/path)`]:
+        new Error("fatal: 'feat/TEST-1' is not a commit ref"),
+      [`git,branch,--list,origin/feat/TEST-1,(cwd=/repo/path)`]: { stdout: "" },
+      [`git,worktree,add,-b,feat/TEST-1,${worktreePath},origin/feat/TEST-1,(cwd=/repo/path)`]: { stdout: "" },
+    });
+
+    const cfg = makeRestoreConfig();
+    await ws.restore!(cfg, worktreePath);
+
+    const branchMCall = mockExecFileAsync.mock.calls.find(
+      (call) =>
+        Array.isArray(call[1]) &&
+        call[0] === "git" &&
+        call[1][0] === "branch" &&
+        call[1][1] === "-m",
+    );
+    expect(branchMCall).toBeUndefined();
   });
 });
