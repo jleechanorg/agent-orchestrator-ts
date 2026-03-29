@@ -4,11 +4,12 @@ name: Skeptic Gate
 # Flow: GHA posts trigger comment → lifecycle-manager runs ao skeptic verify →
 # posts VERDICT comment → GHA polls for VERDICT and exits PASS/FAIL.
 #
-# Security: uses pull_request (not pull_request_target) — only posts comments,
-# no secret access needed. pull_request_target creates elevated risk for no benefit.
 on:
+  # Security: uses pull_request (not pull_request_target) — only posts comments,
+  # no secret access needed. pull_request_target creates elevated risk for no benefit.
   pull_request:
     types: [opened, synchronize, edited, reopened]
+  workflow_dispatch:
 
 # Do NOT cancel in-progress runs — killing a polling step mid-loop discards its
 # loop state. A new concurrent run with the same SHA is harmless since the jq
