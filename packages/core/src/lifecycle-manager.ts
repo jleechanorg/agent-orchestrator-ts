@@ -356,8 +356,9 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         killSession: tmux.killSession,
         sendKeys: tmux.sendKeys,
       });
-    } catch {
+    } catch (err) {
       // non-fatal — productivity check failure should not crash the main loop
+      console.warn("[lifecycle-manager] productivity check failed:", err instanceof Error ? err.message : String(err));
     } finally {
       productivityRunning = false;
     }

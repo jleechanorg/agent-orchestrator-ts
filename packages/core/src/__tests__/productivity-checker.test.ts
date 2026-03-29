@@ -34,9 +34,11 @@ function makeDeps(
   };
 }
 
+let _sessionIdCounter = 0;
+
 function makeSession(overrides: Record<string, unknown> = {}): import("../types.js").Session {
   return {
-    id: "test-session-1",
+    id: `test-session-${++_sessionIdCounter}`,
     projectId: "agent-orchestrator",
     status: "pr_open",
     createdAt: new Date(),
