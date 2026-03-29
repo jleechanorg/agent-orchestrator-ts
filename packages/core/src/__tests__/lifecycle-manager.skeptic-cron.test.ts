@@ -11,7 +11,7 @@
  * @bd skp2
  */
 
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { mkdirSync, rmSync, writeFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -211,6 +211,9 @@ describe("runLocalSkepticCron integration (bd-skp2)", () => {
     });
     try {
       lm.start(60_000);
+      // Yield to the event loop so pollAll gets a chance to run at least once
+      // before we assert the guard skipped the skeptic-cron call.
+      await new Promise<void>(r => setTimeout(r, 10));
       // scopedProjectId is undefined so the if (scopedProjectId) block is never entered
       expect(mockRunLocalSkepticCron).not.toHaveBeenCalled();
     } finally {
@@ -237,6 +240,7 @@ describe("runLocalSkepticCron integration (bd-skp2)", () => {
     });
     try {
       lm.start(60_000);
+      await new Promise<void>(r => setTimeout(r, 10));
       expect(mockRunLocalSkepticCron).not.toHaveBeenCalled();
     } finally {
       lm.stop();
