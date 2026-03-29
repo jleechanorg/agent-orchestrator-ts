@@ -7,7 +7,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { type ProductivityDeps, checkMergedPRCleanup, checkStallDetection, checkContextExhaustion, runProductivityChecks, fetchCIStatus, STALL_THRESHOLD_MS, resetNudgeCooldowns } from "../productivity-checker.js";
+import { type ProductivityDeps, checkMergedPRCleanup, checkStallDetection, checkContextExhaustion, runProductivityChecks, STALL_THRESHOLD_MS, resetNudgeCooldowns } from "../productivity-checker.js";
 
 // ---------------------------------------------------------------------------
 // Shared helpers
