@@ -9,7 +9,7 @@
  * - Evidence review state is included
  */
 
-import { ghJson, ghJsonPaginate, fetchReviews, fetchIssueComments, type ReviewInfo } from "./gh-client.js";
+import { ghJson, ghJsonPaginate, fetchReviews, type ReviewInfo } from "./gh-client.js";
 import { VERDICT_LINE_RE } from "./verdict-utils.js";
 
 const NIT_PATTERN = /^(nit:|nitpick)/i;
@@ -219,21 +219,24 @@ export async function fetchMergeGateState(
   const evidenceApproved = latestEvidence?.state === "approved";
   const evidenceRequired = false; // controlled via config; default false for skeptic CLI
 
-  // 5. Existing skeptic verdict — use paginated fetch to capture all pages of comments
+  // 5. Existing skeptic verdict — paginate to fetch all pages; iterate all to
+  // find the newest (GitHub returns comments ascending by ID; last match = newest).
   let skepticVerdict: "PASS" | "FAIL" | "SKIPPED" | null = null;
   let skepticCommentId: number | null = null;
   try {
-    const comments = await fetchIssueComments(owner, repo, prNumber);
+    const comments = (await ghJsonPaginate(
+      "repos/" + owner + "/" + repo + "/issues/" + prNumber + "/comments?per_page=100",
+    )) as Array<{ id: number; body: string; user?: { login: string } }>;
     for (const c of comments) {
       if (c.user?.login === skepticBotAuthor) {
-        // Use the canonical VERDICT_LINE_RE from verdict-utils.ts (handles headings, bold, anchors)
-        const match = VERDICT_LINE_RE.exec(c.body);
-        if (!match) continue;
-        const verdict = match[1];
-        if (!verdict) continue;
-        skepticVerdict = verdict.toUpperCase() as "PASS" | "FAIL" | "SKIPPED";
-        skepticCommentId = c.id;
-        break;
+        // Use the shared VERDICT_LINE_RE from verdict-utils.ts — it accepts both plain
+        // VERDICT: PASS and markdown-bold **VERDICT: PASS** variants.
+        const m = c.body.match(VERDICT_LINE_RE);
+        if (m) {
+          skepticVerdict = m[1].toUpperCase() as "PASS" | "FAIL" | "SKIPPED";
+          skepticCommentId = c.id;
+          // Do NOT break — keep iterating so the last match reflects the newest verdict
+        }
       }
     }
   } catch {
