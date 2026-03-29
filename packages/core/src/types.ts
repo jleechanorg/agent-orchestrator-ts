@@ -1108,12 +1108,12 @@ export interface OrchestratorConfig {
   configPath: string;
 
   /**
-   * Global auto-merge switch. When true, the `approved-and-green` reaction
-   * automatically merges PRs (equivalent to setting `action: auto-merge`).
+   * Global auto-merge switch. When `enabled: true`, the `approved-and-green`
+   * reaction automatically merges PRs (equivalent to setting `action: auto-merge`).
    * Individual projects can override this via their own `autoMerge` field.
-   * Default: false (preserves existing behavior — notify human instead of auto-merge).
+   * Default: `enabled` is false (preserves existing behavior — notify human).
    */
-  autoMerge?: boolean;
+  autoMerge?: AutoMergeConfig;
 
   /**
    * Internal: per-reaction flag tracking whether the global config explicitly
@@ -1173,6 +1173,22 @@ export interface OrchestratorConfig {
   worktreeDir?: string;
 }
 
+/** Centralized auto-merge configuration (bd-n047) */
+export interface AutoMergeConfig {
+  /**
+   * Controls whether auto-merge reactions can fire.
+   * - In defaults.autoMerge: the default setting applied to all projects unless overridden.
+   *   Defaults to true when absent.
+   * - In projects[].autoMerge: overrides the global default for this specific project.
+   *   Absent/optional means "inherit from defaults".
+   */
+  enabled?: boolean;
+  /** Default wait time (seconds) for GitHub's native auto-merge. Overridden by reaction-level autoMergeWaitSeconds. */
+  waitSeconds?: number;
+  /** Default merge method. Overridden by reaction-level mergeMethod. */
+  mergeMethod?: MergeMethod;
+}
+
 export interface DefaultPlugins {
   runtime: string;
   agent: string;
@@ -1184,6 +1200,8 @@ export interface DefaultPlugins {
   worker?: {
     agent?: string;
   };
+  /** Default auto-merge settings for all projects (bd-n047) */
+  autoMerge?: AutoMergeConfig;
 }
 
 export interface RoleAgentConfig {
@@ -1351,12 +1369,11 @@ export interface ProjectConfig {
   // =============================================================================
 
   /**
-   * Per-project auto-merge override. When true, the `approved-and-green` reaction
-   * automatically merges PRs for this project (equivalent to setting
-   * `action: auto-merge` on the reaction). Inherits from the global `autoMerge`
-   * field if not set. Default: false (notify human instead of auto-merge).
+   * Per-project auto-merge override. When `enabled: true`, overrides the global
+   * `defaults.autoMerge` setting for this project.
+   * When omitted, inherits from `defaults.autoMerge`.
    */
-  autoMerge?: boolean;
+  autoMerge?: AutoMergeConfig;
 
   /**
    * When true, the lifecycle-worker periodically lists open PRs and spawns

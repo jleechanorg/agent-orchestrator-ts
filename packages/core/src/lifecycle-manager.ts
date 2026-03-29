@@ -1058,8 +1058,29 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         // native --auto flag which waits for required status checks before completing the
         // merge — handles the race where PR transitions to mergeable while CI is still
         // completing (bd-5gl: workers post green but nothing merges).
-        const mergeMethod = reactionConfig.mergeMethod ?? "squash";
-        const autoWaitSeconds = reactionConfig.autoMergeWaitSeconds ?? 0;
+        const mergeMethod =
+          reactionConfig.mergeMethod ??
+          project?.autoMerge?.mergeMethod ??
+          config.defaults.autoMerge?.mergeMethod ??
+          "squash";
+        const autoWaitSeconds =
+          reactionConfig.autoMergeWaitSeconds ??
+          project?.autoMerge?.waitSeconds ??
+          config.defaults.autoMerge?.waitSeconds ??
+          0;
+        const autoMergeEnabled =
+          project?.autoMerge?.enabled ??
+          config.autoMerge?.enabled ??
+          config.defaults.autoMerge?.enabled ??
+          true;
+        if (autoMergeEnabled === false) {
+          return {
+            reactionType: reactionKey,
+            success: false,
+            action,
+            escalated: false,
+          };
+        }
         try {
           await scm.mergePR(freshSession.pr, mergeMethod, autoWaitSeconds);
 
@@ -1171,12 +1192,16 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       : globalReaction;
     if (!reactionConfig) return null;
 
-    // Centralized auto-merge override: when autoMerge is true (global or per-project),
+    // Centralized auto-merge override: when autoMerge.enabled is true (global or per-project),
     // the approved-and-green reaction automatically merges instead of notifying.
     // Only override if the project did not explicitly configure this reaction
     // (projectReaction is absent) AND the global config did not declare it
     // (_hasExplicitGlobalReaction tracks raw user input before .partial() stripping).
-    const autoMergeEnabled = project?.autoMerge ?? config.autoMerge ?? false;
+    const autoMergeEnabled =
+      project?.autoMerge?.enabled ??
+      config.autoMerge?.enabled ??
+      config.defaults.autoMerge?.enabled ??
+      false;
     if (
       autoMergeEnabled &&
       reactionKey === "approved-and-green" &&
