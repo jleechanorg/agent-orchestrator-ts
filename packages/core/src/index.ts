@@ -272,6 +272,10 @@ export type {
 // Reaction context builder (extracted from lifecycle-manager)
 export { buildReactionContext } from "./reaction-context.js";
 
+// Gate-closure action plans — deterministic 7-green sequencing
+export { buildActionPlan, formatActionPlan, GATE } from "./action-plan.js";
+export type { ActionPlan, ActionItem } from "./action-plan.js";
+
 // Session exit proof (extracted from lifecycle-manager)
 export { validateAndEmitExitProof, emitExitProofEvent } from "./session-exit-proof.js";
 export type { ExitProofDeps } from "./session-exit-proof.js";
