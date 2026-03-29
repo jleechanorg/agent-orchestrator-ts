@@ -98,6 +98,10 @@ export function registerSkeptic(program: Command): Command {
       "--trigger-sha <sha>",
       "PR head SHA at dispatch time — embedded in the VERDICT comment body so the skeptic-gate workflow can match by SHA marker",
     )
+    .option(
+      "--prompt <text>",
+      "Custom evaluation prompt — prepended to the default skeptic context. Use for bootstrap PRs (e.g., 'Only verify 6-green gates 1-5, skip gate 7').",
+    )
     .action(async (options) => {
       const prNumber = parseInt(String(options.pr), 10);
       if (isNaN(prNumber) || prNumber <= 0) {
@@ -135,7 +139,11 @@ export function registerSkeptic(program: Command): Command {
 
       // Build and run evaluation
       const spinner3 = ora("Running skeptic evaluation…").start();
-      const prompt = buildSkepticPrompt(pr, state, diff, reviews, designDoc);
+      let prompt = buildSkepticPrompt(pr, state, diff, reviews, designDoc);
+      // Custom prompt: prepend user instructions before the default skeptic context
+      if (options.prompt) {
+        prompt = `CUSTOM EVALUATION INSTRUCTIONS:\n${options.prompt}\n\n---\n\n${prompt}`;
+      }
       const verdict = await runSkepticEvaluation(prompt, {
         model: options.model as "codex" | "claude" | "gemini" | undefined,
       });
