@@ -1116,16 +1116,15 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
 
     // Centralized auto-merge override: when autoMerge is true (global or per-project),
     // the approved-and-green reaction automatically merges instead of notifying.
-    // Only override if the reaction was not explicitly re-configured in the project config
-    // (project config has action !== undefined, while global defaults have action = undefined
-    // because Zod .default() fills the value at parse time, not from user input).
+    // Only override if the project reaction was not explicitly re-configured
+    // (projectReaction?.action is undefined when the project has no per-reaction config).
     const autoMergeEnabled = project?.autoMerge ?? config.autoMerge ?? false;
     if (
       autoMergeEnabled &&
       reactionKey === "approved-and-green" &&
       !projectReaction?.action
     ) {
-      return { ...(reactionConfig as ReactionConfig), action: "auto-merge" };
+      return { ...(reactionConfig as ReactionConfig), action: "auto-merge", auto: true };
     }
 
     return reactionConfig as ReactionConfig;

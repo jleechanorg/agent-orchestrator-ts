@@ -4633,7 +4633,7 @@ describe("centralized auto-merge config (getReactionConfigForSession)", () => {
   async function makeLMWithAutoMerge(
     globalAutoMerge?: boolean,
     projectAutoMerge?: boolean,
-    projectReactionAction?: string,
+    projectReactionAction?: ReactionAction,
   ) {
     const cfg: OrchestratorConfig = {
       configPath,
@@ -4656,7 +4656,7 @@ describe("centralized auto-merge config (getReactionConfigForSession)", () => {
           ...(projectAutoMerge !== undefined && { autoMerge: projectAutoMerge }),
           // Per-project reaction override — only set if provided
           ...(projectReactionAction !== undefined && {
-            reactions: { "approved-and-green": { auto: true, action: projectReactionAction as ReactionAction } },
+            reactions: { "approved-and-green": { auto: true, action: projectReactionAction } },
           }),
         },
       },
@@ -4699,6 +4699,7 @@ describe("centralized auto-merge config (getReactionConfigForSession)", () => {
     const session = makeSession({ projectId: "my-app" });
     const config = getReactionConfigForSession(session, "approved-and-green");
     expect(config?.action).toBe("auto-merge");
+    expect(config?.auto).toBe(true);
   });
 
   it("per-project autoMerge=true: overrides approved-and-green to auto-merge", async () => {
@@ -4707,6 +4708,7 @@ describe("centralized auto-merge config (getReactionConfigForSession)", () => {
     const session = makeSession({ projectId: "my-app" });
     const config = getReactionConfigForSession(session, "approved-and-green");
     expect(config?.action).toBe("auto-merge");
+    expect(config?.auto).toBe(true);
   });
 
   it("per-project autoMerge takes precedence over global autoMerge=false", async () => {
@@ -4716,6 +4718,7 @@ describe("centralized auto-merge config (getReactionConfigForSession)", () => {
     const session = makeSession({ projectId: "my-app" });
     const config = getReactionConfigForSession(session, "approved-and-green");
     expect(config?.action).toBe("auto-merge");
+    expect(config?.auto).toBe(true);
   });
 
   it("global autoMerge=true but project autoMerge=false: project wins", async () => {
