@@ -53,8 +53,15 @@ jobs:
           # Gate 1: CI green — all check runs and commit status must pass.
           # Exclude our own check (Skeptic Gate) to avoid self-reference.
           # ----------------------------------------------------------------
-          CI_STATUS=$(gh api repos/${{ github.repository }}/commits/"$HEAD_SHA"/status \
-            --jq '.state' 2>/dev/null || echo "error")
+          CI_STATUS_JSON=$(gh api repos/${{ github.repository }}/commits/"$HEAD_SHA"/status \
+            --jq '{state: .state, total: .total_count}' 2>/dev/null || echo '{"state":"error","total":0}')
+          CI_STATUS=$(echo "$CI_STATUS_JSON" | jq -r '.state')
+          CI_STATUS_TOTAL=$(echo "$CI_STATUS_JSON" | jq -r '.total')
+          # When no commit status contexts exist (total_count=0), GitHub returns "pending".
+          # This is a false negative — treat it as "success" since only check-runs matter.
+          if [ "$CI_STATUS" = "pending" ] && [ "${CI_STATUS_TOTAL:-0}" -eq 0 ]; then
+            CI_STATUS="success"
+          fi
           # Also check GitHub check runs (Actions checks use check runs API, not commit status).
           # Multiple runs exist per check name (re-runs, concurrent triggers) — deduplicate
           # by keeping only the latest run per name (sort by started_at desc, take first).
