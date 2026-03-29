@@ -129,20 +129,22 @@ jobs:
           GATE_ROWS="${GATE_ROWS}| 3. CR approved | ${GATE3} | ${GATE3_DETAIL} |\n"
 
           # ----------------------------------------------------------------
-          # Gate 4: Bugbot clean (no error-severity comments from cursor[bot])
+          # Gate 4: Bugbot clean — use Cursor Bugbot check-run conclusion.
+          # The check-run API is authoritative; text-scanning PR comments
+          # for "error" produces false positives (review comments about
+          # error handling match the pattern).
           # ----------------------------------------------------------------
-          BUGBOT_ERRORS=$(gh api repos/${{ github.repository }}/pulls/"$PR_NUM"/comments \
-            --jq '[.[] | select(.user.login == "cursor[bot]" and (.body | test("error"; "i")))] | length' \
-            2>/dev/null || echo 0)
-          BUGBOT_ERRORS="${BUGBOT_ERRORS:-0}"
+          BUGBOT_CONCLUSION=$(gh api repos/${{ github.repository }}/commits/"$HEAD_SHA"/check-runs \
+            --jq '[.check_runs[] | select(.name == "Cursor Bugbot")] | sort_by(.started_at) | reverse | .[0].conclusion // "none"' \
+            2>/dev/null || echo "none")
 
-          if [ "$BUGBOT_ERRORS" -gt 0 ] 2>/dev/null; then
+          if [ "$BUGBOT_CONCLUSION" = "failure" ]; then
             GATE4="FAIL"
             FAILED_GATES="${FAILED_GATES}4, "
           else
             GATE4="PASS"
           fi
-          GATE4_DETAIL="${BUGBOT_ERRORS} error(s)"
+          GATE4_DETAIL="check-run=$BUGBOT_CONCLUSION"
           echo "Gate 4: $GATE4 ($GATE4_DETAIL)"
           GATE_ROWS="${GATE_ROWS}| 4. Bugbot clean | ${GATE4} | ${GATE4_DETAIL} |\n"
 
