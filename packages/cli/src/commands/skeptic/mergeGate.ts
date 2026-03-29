@@ -112,8 +112,7 @@ export async function fetchMergeGateState(
         // use targetKey="check_runs" so ghJsonPaginate extracts the array from each page.
         const checkRunData = (await ghJsonPaginate(
           "repos/" + owner + "/" + repo + "/commits/" + headSha + "/check-runs?per_page=100",
-          [],
-          "check_runs",
+          { targetKey: "check_runs" },
         )) as Array<{ name: string; status: string; conclusion: string | null }>;
         // Deduplicate by name, keeping latest conclusion
         const seen = new Map<string, CheckRunSummary>();
@@ -225,13 +224,14 @@ export async function fetchMergeGateState(
   const evidenceApproved = latestEvidence?.state === "approved";
   const evidenceRequired = false; // controlled via config; default false for skeptic CLI
 
-  // 5. Existing skeptic verdict
+  // 5. Existing skeptic verdict — paginate to fetch all pages; iterate all to
+  // find the newest (GitHub returns comments ascending by ID; last match = newest).
   let skepticVerdict: "PASS" | "FAIL" | "SKIPPED" | null = null;
   let skepticCommentId: number | null = null;
   try {
-    const comments = await ghJson(
+    const comments = (await ghJsonPaginate(
       "repos/" + owner + "/" + repo + "/issues/" + prNumber + "/comments?per_page=100",
-    ) as Array<{ id: number; body: string; user?: { login: string } }>;
+    )) as Array<{ id: number; body: string; user?: { login: string } }>;
     for (const c of comments) {
       if (c.user?.login === skepticBotAuthor) {
         // Use the shared VERDICT_LINE_RE from verdict-utils.ts — it accepts both plain
@@ -240,7 +240,7 @@ export async function fetchMergeGateState(
         if (m) {
           skepticVerdict = m[1].toUpperCase() as "PASS" | "FAIL" | "SKIPPED";
           skepticCommentId = c.id;
-          break;
+          // Do NOT break — keep iterating so the last match reflects the newest verdict
         }
       }
     }

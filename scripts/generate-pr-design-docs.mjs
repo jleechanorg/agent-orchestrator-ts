@@ -197,8 +197,10 @@ function extractDescription(body) {
     // all known encodings: literal, HTML-entity, single-escaped, and double-escaped.
     .replace(/<!--\s*[\/]?CURSOR_SUMMARY[\s\S]*?-->/g, "")
     .replace(/&lt;!--\s*[\/]?CURSOR_SUMMARY[\s\S]*?--&gt;/g, "")
+    // Single-escaped form: regex \u003c = literal <, so this is equivalent to above (redundant, kept for safety)
     .replace(/\u003c!--\s*[\/]?CURSOR_SUMMARY[\s\S]*?--\u003e/g, "")
-    .replace(/\\u003c!--\s*[\/]?CURSOR_SUMMARY[\s\S]*?--\\u003e/g, "")
+    // Double-escaped form: regex \\\\u003c = literal \\u003c (handles JSON-serialized content)
+    .replace(/\\\\u003c!--\s*[\/]?CURSOR_SUMMARY[\s\S]*?--\\\\u003e/g, "")
     .replace(/^---\s*$/gm, "")
     .replace(/<!--[\s\S]*?-->/gs, ""); // strip any remaining HTML comments (dotall + non-greedy)
   const paragraphs = cleaned.split(/\n\n+/);

@@ -53,11 +53,18 @@ export async function ghJson(endpoint: string, args: string[] = []): Promise<unk
  * pass `targetKey` to extract the array field from each page. Without `targetKey`,
  * the full paginated array is returned as-is.
  */
+export interface GhJsonPaginateOptions {
+  args?: string[];
+  /** Extract this key from each page and flatten into a single array.
+   *  Required for endpoints like check-runs that return a wrapper object per page. */
+  targetKey?: string;
+}
+
 export async function ghJsonPaginate(
   endpoint: string,
-  args: string[] = [],
-  targetKey?: string,
+  options: GhJsonPaginateOptions = {},
 ): Promise<unknown> {
+  const { args = [], targetKey } = options;
   const result = await exec("gh", ["api", "--paginate", "--slurp", endpoint, ...args]);
   const parsed = JSON.parse(result.stdout) as unknown;
   // --slurp always produces an array; normalize single-object pages (non-paginated)
