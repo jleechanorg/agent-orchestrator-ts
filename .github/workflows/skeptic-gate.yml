@@ -233,7 +233,6 @@ jobs:
               gh api repos/${{ github.repository }}/issues/"$PR_NUM"/comments \
                  --paginate \
                  --jq '[.[] | select(((.user.login == env.SKEPTIC_BOT_AUTHOR) or (.user.login == "github-actions[bot]")) and (.body | test("VERDICT:"; "i")) and (.updated_at >= env.TRIGGER_UPDATED) and (.body | test("skeptic-gate-trigger-" + env.TRIGGER_SHA; "i")))] | .[-1] // empty' 2>&1)
-
             if echo "$VERDICT_JSON" | grep -qi "error\|rate limit\|authentication\|not found\|server error"; then
               API_FAILURES=$((API_FAILURES + 1))
               echo "API warning: verdict comment lookup failed (attempt $((i))): ${VERDICT_JSON:0:200}"
