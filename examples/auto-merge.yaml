@@ -4,17 +4,29 @@
 dataDir: ~/.agent-orchestrator
 worktreeDir: ~/.worktrees
 
+# -----------------------------------------------------------------------------
+# Option A: Global auto-merge — applies to ALL projects unless overridden
+# This is the simplest way to enable auto-merge across the board.
+# -----------------------------------------------------------------------------
+# autoMerge: true
+
 projects:
   my-app:
     repo: owner/my-app
     path: ~/my-app
     defaultBranch: main
 
-    # Enable auto-merge for this project
-    reactions:
-      approved-and-green:
-        auto: true # Automatically merge when PR is approved and CI passes
-        action: auto-merge
+    # Option B: Per-project auto-merge — only enables for this project.
+    # This overrides the global autoMerge setting for this project.
+    autoMerge: true
+
+    # Option C: Per-reaction override (equivalent to Option B).
+    # Use this when you want auto-merge for ONLY the approved-and-green event,
+    # not other reactions. Also works at the global level (reactions: {}).
+    # reactions:
+    #   approved-and-green:
+    #     auto: true
+    #     action: auto-merge
 
 # Global reactions
 reactions:

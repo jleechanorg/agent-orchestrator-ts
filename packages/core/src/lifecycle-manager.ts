@@ -1133,7 +1133,24 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     const reactionConfig = projectReaction
       ? { ...globalReaction, ...projectReaction }
       : globalReaction;
-    return reactionConfig ? (reactionConfig as ReactionConfig) : null;
+    if (!reactionConfig) return null;
+
+    // Centralized auto-merge override: when autoMerge is true (global or per-project),
+    // the approved-and-green reaction automatically merges instead of notifying.
+    // Only override if the project did not explicitly configure this reaction
+    // (projectReaction is absent) AND the global config did not declare it
+    // (_hasExplicitGlobalReaction tracks raw user input before .partial() stripping).
+    const autoMergeEnabled = project?.autoMerge ?? config.autoMerge ?? false;
+    if (
+      autoMergeEnabled &&
+      reactionKey === "approved-and-green" &&
+      !projectReaction &&
+      !(config._hasExplicitGlobalReaction?.[reactionKey])
+    ) {
+      return { ...(reactionConfig as ReactionConfig), action: "auto-merge", auto: true };
+    }
+
+    return reactionConfig as ReactionConfig;
   }
 
   function updateSessionMetadata(session: Session, updates: Partial<Record<string, string>>): void {

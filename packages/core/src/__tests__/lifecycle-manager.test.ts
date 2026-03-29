@@ -49,7 +49,11 @@ import type {
   ActivityState,
   PRInfo,
   SessionExitProof,
+  ReactionConfig,
 } from "../types.js";
+
+// Valid reaction action strings used in tests
+type ReactionAction = "send-to-agent" | "notify" | "auto-merge" | "request-merge" | "parallel-retry" | "skeptic-review" | "respawn-for-review";
 
 let tmpDir: string;
 let configPath: string;
@@ -4275,7 +4279,7 @@ describe("send-to-agent retry policy (bd-5nxx)", () => {
     // Use lm._testing to directly call executeReaction — bypasses REVIEW_BACKLOG_INTERVAL
     // throttle timing entirely. The reactionTracker is shared across calls so attempts
     // accumulate correctly (attempts=1, 2, 3, then skipped at attempts=4 > cap=3).
-    const { executeReaction, getReactionConfigForSession } = (lm as any)._testing;
+    const { executeReaction, getReactionConfigForSession } = (lm as unknown as { _testing: { getReactionConfigForSession: (session: Session, eventKey: string) => ReactionConfig | null } })._testing;
     const reactionConfig = getReactionConfigForSession(session, "changes-requested")!;
 
     // Verify _testing API is accessible
@@ -4649,5 +4653,150 @@ describe("bd-skp2 skeptic trigger on pr_open", () => {
 
     // No skeptic reaction configured — nothing to call
     expect(mockRunSkepticReviewReaction).not.toHaveBeenCalled();
+  });
+});
+
+describe("centralized auto-merge config (getReactionConfigForSession)", () => {
+  // These tests verify the autoMerge flag in OrchestratorConfig/ProjectConfig
+  // overrides the approved-and-green reaction's default action (notify → auto-merge).
+  // The _testing API exposes getReactionConfigForSession for isolated unit testing.
+
+  function makeLMWithAutoMerge(
+    globalAutoMerge?: boolean,
+    projectAutoMerge?: boolean,
+    projectReactionAction?: ReactionAction,
+    globalReactionAction?: ReactionAction,
+  ) {
+    const cfg: OrchestratorConfig = {
+      configPath,
+      port: 3000,
+      defaults: {
+        runtime: "mock",
+        agent: "mock-agent",
+        workspace: "mock-ws",
+        notifiers: ["desktop"],
+      },
+      projects: {
+        "my-app": {
+          name: "My App",
+          repo: "org/my-app",
+          path: join(tmpDir, "my-app"),
+          defaultBranch: "main",
+          sessionPrefix: "app",
+          scm: { plugin: "github" },
+          // Per-project override — only set if provided
+          ...(projectAutoMerge !== undefined && { autoMerge: projectAutoMerge }),
+          // Per-project reaction override — only set if provided
+          ...(projectReactionAction !== undefined && {
+            reactions: { "approved-and-green": { auto: true, action: projectReactionAction } },
+          }),
+        },
+      },
+      notifiers: {},
+      notificationRouting: {
+        urgent: [],
+        action: [],
+        warning: [],
+        info: [],
+      },
+      reactions: {
+        "approved-and-green": {
+          auto: false,
+          action: globalReactionAction ?? "notify",
+          priority: "action",
+        },
+      },
+      // @internal: only set when user explicitly declared this reaction in global config.
+      // When absent, autoMerge can override the default action.
+      ...(globalReactionAction !== undefined && {
+        _hasExplicitGlobalReaction: { "approved-and-green": true },
+      }),
+      readyThresholdMs: 300_000,
+      startupGracePeriodMs: 0,
+      // Global override — only set if provided
+      ...(globalAutoMerge !== undefined && { autoMerge: globalAutoMerge }),
+    };
+
+    const lm = createLifecycleManager({
+      config: cfg,
+      registry: mockRegistry,
+      sessionManager: mockSessionManager,
+    });
+
+    return { lm, cfg };
+  }
+
+  it("default: approved-and-green stays as notify (autoMerge=false)", async () => {
+    const { lm } = makeLMWithAutoMerge(undefined, undefined);
+    const { getReactionConfigForSession } = (lm as unknown as { _testing: { getReactionConfigForSession: (session: Session, eventKey: string) => ReactionConfig | null } })._testing;
+    const session = makeSession({ projectId: "my-app" });
+    const config = getReactionConfigForSession(session, "approved-and-green");
+    expect(config?.action).toBe("notify");
+  });
+
+  it("global autoMerge=true: overrides approved-and-green to auto-merge", async () => {
+    const { lm } = makeLMWithAutoMerge(true, undefined);
+    const { getReactionConfigForSession } = (lm as unknown as { _testing: { getReactionConfigForSession: (session: Session, eventKey: string) => ReactionConfig | null } })._testing;
+    const session = makeSession({ projectId: "my-app" });
+    const config = getReactionConfigForSession(session, "approved-and-green");
+    expect(config?.action).toBe("auto-merge");
+    expect(config?.auto).toBe(true);
+  });
+
+  it("per-project autoMerge=true: overrides approved-and-green to auto-merge", async () => {
+    const { lm } = makeLMWithAutoMerge(undefined, true);
+    const { getReactionConfigForSession } = (lm as unknown as { _testing: { getReactionConfigForSession: (session: Session, eventKey: string) => ReactionConfig | null } })._testing;
+    const session = makeSession({ projectId: "my-app" });
+    const config = getReactionConfigForSession(session, "approved-and-green");
+    expect(config?.action).toBe("auto-merge");
+    expect(config?.auto).toBe(true);
+  });
+
+  it("per-project autoMerge takes precedence over global autoMerge=false", async () => {
+    // Global says no auto-merge, but project says yes → project wins
+    const { lm } = makeLMWithAutoMerge(false, true);
+    const { getReactionConfigForSession } = (lm as unknown as { _testing: { getReactionConfigForSession: (session: Session, eventKey: string) => ReactionConfig | null } })._testing;
+    const session = makeSession({ projectId: "my-app" });
+    const config = getReactionConfigForSession(session, "approved-and-green");
+    expect(config?.action).toBe("auto-merge");
+    expect(config?.auto).toBe(true);
+  });
+
+  it("global autoMerge=true but project autoMerge=false: project wins", async () => {
+    // Global says auto-merge, but project disables it → project wins
+    const { lm } = makeLMWithAutoMerge(true, false);
+    const { getReactionConfigForSession } = (lm as unknown as { _testing: { getReactionConfigForSession: (session: Session, eventKey: string) => ReactionConfig | null } })._testing;
+    const session = makeSession({ projectId: "my-app" });
+    const config = getReactionConfigForSession(session, "approved-and-green");
+    expect(config?.action).toBe("notify");
+  });
+
+  it("explicit reaction action is not overridden by autoMerge", () => {
+    // User explicitly configured action: "notify" on the approved-and-green reaction
+    // → autoMerge flag should NOT override it
+    const { lm } = makeLMWithAutoMerge(true, undefined, "notify");
+    const { getReactionConfigForSession } = (lm as unknown as { _testing: { getReactionConfigForSession: (session: Session, eventKey: string) => ReactionConfig | null } })._testing;
+    const session = makeSession({ projectId: "my-app" });
+    const config = getReactionConfigForSession(session, "approved-and-green");
+    expect(config?.action).toBe("notify");
+  });
+
+  it("explicit global reaction action is not overridden by autoMerge", () => {
+    // User explicitly set action: "request-merge" globally — autoMerge should not override it
+    const { lm } = makeLMWithAutoMerge(true, undefined, undefined, "request-merge");
+    const { getReactionConfigForSession } = (lm as unknown as { _testing: { getReactionConfigForSession: (session: Session, eventKey: string) => ReactionConfig | null } })._testing;
+    const session = makeSession({ projectId: "my-app" });
+    const config = getReactionConfigForSession(session, "approved-and-green");
+    expect(config?.action).toBe("request-merge");
+  });
+
+  it("autoMerge does not affect non-approved-and-green reactions", async () => {
+    const { lm } = makeLMWithAutoMerge(true, true);
+    const { getReactionConfigForSession } = (lm as unknown as { _testing: { getReactionConfigForSession: (session: Session, eventKey: string) => ReactionConfig | null } })._testing;
+    const session = makeSession({ projectId: "my-app" });
+    // ci-failed is not affected by autoMerge — the test config only has
+    // approved-and-green; ci-failed returns null (no defaults applied in unit test)
+    const config = getReactionConfigForSession(session, "ci-failed");
+    expect(config).toBeNull();
   });
 });

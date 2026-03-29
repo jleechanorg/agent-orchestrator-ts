@@ -665,3 +665,83 @@ describe("Config Validation - Other reaction actions", () => {
     expect(() => validateConfig(config)).not.toThrow();
   });
 });
+
+describe("Config Validation - autoMerge flag", () => {
+  it("accepts global autoMerge: true", () => {
+    const config = {
+      autoMerge: true,
+      projects: {
+        proj1: {
+          path: "/repos/test",
+          repo: "org/test",
+          defaultBranch: "main",
+        },
+      },
+    };
+
+    const validated = validateConfig(config);
+    expect(validated.autoMerge).toBe(true);
+  });
+
+  it("accepts per-project autoMerge: true", () => {
+    const config = {
+      projects: {
+        proj1: {
+          path: "/repos/test",
+          repo: "org/test",
+          defaultBranch: "main",
+          autoMerge: true,
+        },
+      },
+    };
+
+    const validated = validateConfig(config);
+    expect(validated.projects.proj1.autoMerge).toBe(true);
+  });
+
+  it("global autoMerge defaults to undefined when absent", () => {
+    const config = {
+      projects: {
+        proj1: {
+          path: "/repos/test",
+          repo: "org/test",
+          defaultBranch: "main",
+        },
+      },
+    };
+
+    const validated = validateConfig(config);
+    expect(validated.autoMerge).toBeUndefined();
+  });
+
+  it("per-project autoMerge defaults to undefined when absent", () => {
+    const config = {
+      projects: {
+        proj1: {
+          path: "/repos/test",
+          repo: "org/test",
+          defaultBranch: "main",
+        },
+      },
+    };
+
+    const validated = validateConfig(config);
+    expect(validated.projects.proj1.autoMerge).toBeUndefined();
+  });
+
+  it("global autoMerge: false is accepted", () => {
+    const config = {
+      autoMerge: false,
+      projects: {
+        proj1: {
+          path: "/repos/test",
+          repo: "org/test",
+          defaultBranch: "main",
+        },
+      },
+    };
+
+    const validated = validateConfig(config);
+    expect(validated.autoMerge).toBe(false);
+  });
+});

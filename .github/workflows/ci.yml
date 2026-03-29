@@ -59,16 +59,15 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm -r --filter '!@jleechanorg/ao-web' build
-      - name: Ensure base branch ref is available
+      - name: Fetch main branch for wholesome tests
         if: github.event_name == 'pull_request'
-        # For fork PRs, origin/ is the fork; explicitly fetch base branch as local ref.
-        run: git fetch origin ${{ github.base_ref }}:${{ github.base_ref }}
+        run: git fetch origin main:main || true
       - run: pnpm test
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           GITHUB_HEAD_REF: ${{ github.head_ref }}
           GITHUB_BASE_REF: ${{ github.base_ref }}
+          GITHUB_TOKEN: ${{ github.token }}
 
   test-web:
     name: Test (Web)
