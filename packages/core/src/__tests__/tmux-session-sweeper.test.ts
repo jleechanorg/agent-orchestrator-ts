@@ -39,7 +39,7 @@ import {
   type TmuxSweeperConfig,
   type TmuxSweeperDeps,
 } from "../tmux-session-sweeper.js";
-import { PR_STATE, type SessionManager, type Session } from "../types.js";
+import { type SessionManager, type Session } from "../types.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
