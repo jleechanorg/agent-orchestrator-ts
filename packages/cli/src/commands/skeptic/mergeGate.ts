@@ -10,6 +10,7 @@
  */
 
 import { ghJson, ghJsonPaginate, fetchReviews, type ReviewInfo } from "./gh-client.js";
+import { VERDICT_LINE_RE } from "./verdict-utils.js";
 
 const NIT_PATTERN = /^(nit:|nitpick)/i;
 const CR_BOT = "coderabbitai[bot]";
@@ -94,11 +95,12 @@ export async function fetchMergeGateState(
     ) as { head?: { ref?: string; sha?: string }; mergeable?: boolean; merged?: boolean };
     mergeableRaw = prData?.mergeable ?? null;
     noConflicts = prData?.mergeable === true || prData?.merged === true;
-    const headRef = prData?.head?.ref;
     const headSha = prData?.head?.sha;
-    if (headRef) {
+    // Use headSha (immutable commit SHA) to avoid TOCTOU races
+    // where the branch moves between status check and merge.
+    if (headSha) {
       const commitStatus = await ghJson(
-        "repos/" + owner + "/" + repo + "/commits/" + headRef + "/status",
+        "repos/" + owner + "/" + repo + "/commits/" + headSha + "/status",
       ) as { state?: string };
       ciRawState = commitStatus?.state ?? "unknown";
       ciPassing = commitStatus?.state === "success";
@@ -106,12 +108,14 @@ export async function fetchMergeGateState(
     // Fetch individual check runs for independent verification (paginated to capture all pages)
     if (headSha) {
       try {
-        const checkRunData = await ghJsonPaginate(
+        // ghJsonPaginate returns an array of pages (--slurp), each with {total_count, check_runs: [...]}
+        const checkRunPages = await ghJsonPaginate(
           "repos/" + owner + "/" + repo + "/commits/" + headSha + "/check-runs?per_page=100",
-        ) as Array<{ name: string; status: string; conclusion: string | null }>;
+        ) as Array<{ check_runs?: Array<{ name: string; status: string; conclusion: string | null }> }>;
+        const checkRunData = checkRunPages.flatMap(p => p.check_runs ?? []);
         // Deduplicate by name, keeping latest conclusion
         const seen = new Map<string, CheckRunSummary>();
-        for (const run of (checkRunData ?? [])) {
+        for (const run of checkRunData) {
           const existing = seen.get(run.name);
           // Prefer completed runs over in-progress
           if (!existing || (run.status === "completed" && existing.status !== "completed")) {
@@ -224,19 +228,14 @@ export async function fetchMergeGateState(
     ) as Array<{ id: number; body: string; user?: { login: string } }>;
     for (const c of comments) {
       if (c.user?.login === skepticBotAuthor) {
-        if (/VERDICT:\s*PASS/i.test(c.body)) {
-          skepticVerdict = "PASS";
-          skepticCommentId = c.id;
-          break;
-        } else if (/VERDICT:\s*FAIL/i.test(c.body)) {
-          skepticVerdict = "FAIL";
-          skepticCommentId = c.id;
-          break;
-        } else if (/VERDICT:\s*SKIPPED/i.test(c.body)) {
-          skepticVerdict = "SKIPPED";
-          skepticCommentId = c.id;
-          break;
-        }
+        // Use the canonical VERDICT_LINE_RE from verdict-utils.ts (handles headings, bold, anchors)
+        const match = VERDICT_LINE_RE.exec(c.body);
+        if (!match) continue;
+        const verdict = match[1];
+        if (!verdict) continue;
+        skepticVerdict = verdict.toUpperCase() as "PASS" | "FAIL" | "SKIPPED";
+        skepticCommentId = c.id;
+        break;
       }
     }
   } catch {
