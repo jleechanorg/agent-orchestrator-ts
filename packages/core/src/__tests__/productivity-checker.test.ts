@@ -55,16 +55,16 @@ describe("checkMergedPRCleanup", () => {
     expect(result).toBe("skipped");
   });
 
-  it("returns skipped when PR metadata has no number", async () => {
-    const session = makeSession({ metadata: { pr: { owner: "x", repo: "y" } } });
-    const result = await checkMergedPRCleanup(session, makeDeps());
+  it("returns skipped when session has no PR", async () => {
+    // session.pr is null — no PR to check
+    const result = await checkMergedPRCleanup(makeSession(), makeDeps());
     expect(result).toBe("skipped");
   });
 
   it("returns skipped when PR is open", async () => {
     const deps = makeDeps({ ghRest: async () => ({ state: "open", merged: false }) });
     const session = makeSession({
-      metadata: { pr: { number: 123, owner: "jleechanorg", repo: "agent-orchestrator" } },
+      pr: { number: 123, owner: "jleechanorg", repo: "agent-orchestrator", url: "https://github.com/jleechanorg/agent-orchestrator/pull/123", title: "Test PR", branch: "feat/x", baseBranch: "main" }, metadata: { },
     });
     const result = await checkMergedPRCleanup(session, deps);
     expect(result).toBe("skipped");
@@ -77,10 +77,7 @@ describe("checkMergedPRCleanup", () => {
       killSession,
     });
     const session = makeSession({
-      metadata: {
-        pr: { number: 123, owner: "jleechanorg", repo: "agent-orchestrator" },
-        tmuxSession: "jc-1",
-      },
+      pr: { number: 123, owner: "jleechanorg", repo: "agent-orchestrator", url: "https://github.com/jleechanorg/agent-orchestrator/pull/123", title: "Test PR", branch: "feat/x", baseBranch: "main" }, metadata: { tmuxName: "jc-1" },
     });
     const result = await checkMergedPRCleanup(session, deps);
     expect(result).toBe("killed");
@@ -94,10 +91,7 @@ describe("checkMergedPRCleanup", () => {
       killSession,
     });
     const session = makeSession({
-      metadata: {
-        pr: { number: 123, owner: "jleechanorg", repo: "agent-orchestrator" },
-        tmuxSession: "jc-1",
-      },
+      pr: { number: 123, owner: "jleechanorg", repo: "agent-orchestrator", url: "https://github.com/jleechanorg/agent-orchestrator/pull/123", title: "Test PR", branch: "feat/x", baseBranch: "main" }, metadata: { tmuxName: "jc-1" },
     });
     const result = await checkMergedPRCleanup(session, deps);
     expect(result).toBe("killed");
@@ -107,7 +101,7 @@ describe("checkMergedPRCleanup", () => {
   it("handles ghRest error gracefully", async () => {
     const deps = makeDeps({ ghRest: async () => { throw new Error("network error"); } });
     const session = makeSession({
-      metadata: { pr: { number: 123, owner: "jleechanorg", repo: "agent-orchestrator" } },
+      pr: { number: 123, owner: "jleechanorg", repo: "agent-orchestrator", url: "https://github.com/jleechanorg/agent-orchestrator/pull/123", title: "Test PR", branch: "feat/x", baseBranch: "main" }, metadata: { },
     });
     const result = await checkMergedPRCleanup(session, deps);
     expect(result).toBe("skipped");
@@ -143,7 +137,7 @@ describe("checkStallDetection", () => {
       },
     });
     const session = makeSession({
-      metadata: { pr: { number: 123, owner: "jleechanorg", repo: "agent-orchestrator" }, tmuxSession: "jc-1" },
+      pr: { number: 123, owner: "jleechanorg", repo: "agent-orchestrator", url: "https://github.com/jleechanorg/agent-orchestrator/pull/123", title: "Test PR", branch: "feat/x", baseBranch: "main" }, metadata: { tmuxName: "jc-1" },
     });
     const result = await checkStallDetection(session, deps);
     expect(result).toBe("none");
@@ -161,7 +155,7 @@ describe("checkStallDetection", () => {
       sendKeys,
     });
     const session = makeSession({
-      metadata: { pr: { number: 123, owner: "jleechanorg", repo: "agent-orchestrator" }, tmuxSession: "jc-1" },
+      pr: { number: 123, owner: "jleechanorg", repo: "agent-orchestrator", url: "https://github.com/jleechanorg/agent-orchestrator/pull/123", title: "Test PR", branch: "feat/x", baseBranch: "main" }, metadata: { tmuxName: "jc-1" },
     });
     const result = await checkStallDetection(session, deps);
     expect(result).toBe("nudged");
@@ -185,7 +179,7 @@ describe("checkStallDetection", () => {
       sendKeys,
     });
     const session = makeSession({
-      metadata: { pr: { number: 123, owner: "jleechanorg", repo: "agent-orchestrator" }, tmuxSession: "jc-1" },
+      pr: { number: 123, owner: "jleechanorg", repo: "agent-orchestrator", url: "https://github.com/jleechanorg/agent-orchestrator/pull/123", title: "Test PR", branch: "feat/x", baseBranch: "main" }, metadata: { tmuxName: "jc-1" },
     });
     const result = await checkStallDetection(session, deps);
     expect(result).toBe("none");
@@ -202,7 +196,7 @@ describe("checkStallDetection", () => {
       },
     });
     const session = makeSession({
-      metadata: { pr: { number: 123, owner: "jleechanorg", repo: "agent-orchestrator" }, tmuxSession: "jc-1" },
+      pr: { number: 123, owner: "jleechanorg", repo: "agent-orchestrator", url: "https://github.com/jleechanorg/agent-orchestrator/pull/123", title: "Test PR", branch: "feat/x", baseBranch: "main" }, metadata: { tmuxName: "jc-1" },
     });
     const result = await checkStallDetection(session, deps);
     expect(result).toBe("none");
@@ -228,7 +222,7 @@ describe("checkStallDetection", () => {
     });
     const session = makeSession({
       id: "cooldown-test",
-      metadata: { pr: { number: 123, owner: "jleechanorg", repo: "agent-orchestrator" }, tmuxSession: "jc-1" },
+      pr: { number: 123, owner: "jleechanorg", repo: "agent-orchestrator", url: "https://github.com/jleechanorg/agent-orchestrator/pull/123", title: "Test PR", branch: "feat/x", baseBranch: "main" }, metadata: { tmuxName: "jc-1" },
     });
 
     const result1 = await checkStallDetection(session, deps);
@@ -255,14 +249,14 @@ describe("checkContextExhaustion", () => {
 
   it("returns none when pane has no context percentage", async () => {
     const deps = makeDeps({ capturePane: vi.fn().mockResolvedValue("some random output") });
-    const session = makeSession({ metadata: { tmuxSession: "jc-1" } });
+    const session = makeSession({ metadata: { tmuxName: "jc-1" } });
     const result = await checkContextExhaustion(session, deps);
     expect(result).toBe("none");
   });
 
   it("returns none when context >5%", async () => {
     const deps = makeDeps({ capturePane: vi.fn().mockResolvedValue("80% until auto-compact") });
-    const session = makeSession({ metadata: { tmuxSession: "jc-1" } });
+    const session = makeSession({ metadata: { tmuxName: "jc-1" } });
     const result = await checkContextExhaustion(session, deps);
     expect(result).toBe("none");
   });
@@ -273,7 +267,7 @@ describe("checkContextExhaustion", () => {
       capturePane: vi.fn().mockResolvedValue("3% until auto-compact is needed"),
       sendKeys,
     });
-    const session = makeSession({ metadata: { tmuxSession: "jc-1" } });
+    const session = makeSession({ metadata: { tmuxName: "jc-1" } });
     const result = await checkContextExhaustion(session, deps);
     expect(result).toBe("nudged");
     expect(sendKeys).toHaveBeenCalledWith("jc-1", expect.stringContaining("3% remaining"));
@@ -287,13 +281,13 @@ describe("checkContextExhaustion", () => {
 
   it("returns none when capturePane throws", async () => {
     const deps = makeDeps({ capturePane: vi.fn().mockRejectedValue(new Error("capture failed")) });
-    const session = makeSession({ metadata: { tmuxSession: "jc-1" } });
+    const session = makeSession({ metadata: { tmuxName: "jc-1" } });
     const result = await checkContextExhaustion(session, deps);
     expect(result).toBe("none");
   });
 
   it("returns none when session is in terminal status", async () => {
-    const session = makeSession({ status: "killed", metadata: { tmuxSession: "jc-1" } });
+    const session = makeSession({ status: "killed", metadata: { tmuxName: "jc-1" } });
     const result = await checkContextExhaustion(session, makeDeps());
     expect(result).toBe("none");
   });
@@ -304,7 +298,7 @@ describe("checkContextExhaustion", () => {
       capturePane: vi.fn().mockResolvedValue("3% until auto-compact"),
       sendKeys,
     });
-    const session = makeSession({ id: "ctx-cooldown", metadata: { tmuxSession: "jc-1" } });
+    const session = makeSession({ id: "ctx-cooldown", metadata: { tmuxName: "jc-1" } });
 
     const result1 = await checkContextExhaustion(session, deps);
     expect(result1).toBe("nudged");
@@ -328,7 +322,7 @@ describe("runProductivityChecks", () => {
     const deps = makeDeps({ ghRest: async () => { throw new Error("should not be called"); } });
     const sessions = [
       makeSession({ id: "dead", status: "killed" }),
-      makeSession({ id: "alive", status: "pr_open", metadata: { tmuxSession: "jc-1" } }),
+      makeSession({ id: "alive", status: "pr_open", metadata: { tmuxName: "jc-1" } }),
     ];
     const result = await runProductivityChecks(sessions as any, deps);
     expect(result).toEqual({ cleanedUp: 0, nudged: 0, errors: 0 });
@@ -342,7 +336,7 @@ describe("runProductivityChecks", () => {
       makeSession({
         id: "s1",
         status: "pr_open",
-        metadata: { pr: { number: 123, owner: "jleechanorg", repo: "agent-orchestrator" }, tmuxSession: "jc-1" },
+        pr: { number: 123, owner: "jleechanorg", repo: "agent-orchestrator", url: "https://github.com/jleechanorg/agent-orchestrator/pull/123", title: "Test PR", branch: "feat/x", baseBranch: "main" }, metadata: { tmuxName: "jc-1" },
       }),
     ];
     const result = await runProductivityChecks(sessions as any, deps);
@@ -360,7 +354,7 @@ describe("runProductivityChecks", () => {
       makeSession({
         id: "s1",
         status: "pr_open",
-        metadata: { pr: { number: 123, owner: "jleechanorg", repo: "agent-orchestrator" }, tmuxSession: "jc-1" },
+        pr: { number: 123, owner: "jleechanorg", repo: "agent-orchestrator", url: "https://github.com/jleechanorg/agent-orchestrator/pull/123", title: "Test PR", branch: "feat/x", baseBranch: "main" }, metadata: { tmuxName: "jc-1" },
       }),
     ];
     // Should not throw — all errors are caught internally in each check function

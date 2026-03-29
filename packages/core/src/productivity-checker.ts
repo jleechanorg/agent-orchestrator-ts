@@ -11,7 +11,8 @@
 
 import { execFile as _execFile } from "node:child_process";
 import { promisify } from "util";
-import type { OrchestratorConfig, Session } from "./types.js";
+import type { OrchestratorConfig, PRInfo, Session } from "./types.js";
+import { TERMINAL_STATUSES } from "./types.js";
 
 const execAsync = promisify(_execFile);
 
@@ -133,7 +134,8 @@ export async function fetchLastCommitDate(
       `pulls/${prNumber}/commits?per_page=1`,
     )) as CommitMeta[];
     if (!commits || commits.length === 0) return null;
-    const lastDateStr = commits[commits.length - 1]?.commit?.commit?.committer?.date;
+    // GitHub returns commits newest-first; with per_page=1, [0] is the latest.
+    const lastDateStr = commits[0]?.commit?.commit?.committer?.date;
     if (!lastDateStr) return null;
     return new Date(lastDateStr);
   } catch {
@@ -181,24 +183,6 @@ export async function fetchCRState(
 // Session PR metadata helpers
 // ---------------------------------------------------------------------------
 
-interface PRRef {
-  number: number;
-  owner: string;
-  repo: string;
-}
-
-/** Extract PR ref from session metadata. Returns null if not found. */
-function getPRFromSession(session: Session): PRRef | null {
-  const prInfo = session.metadata["pr"];
-  if (!prInfo || typeof prInfo !== "object") return null;
-  const pr = prInfo as Record<string, unknown>;
-  const number = Number(pr["number"]);
-  const owner = String(pr["owner"] ?? "");
-  const repo = String(pr["repo"] ?? "");
-  if (!number || !owner || !repo) return null;
-  return { number, owner, repo };
-}
-
 /** Returns true if PR is green (CI passing + CR APPROVED). */
 async function isPRGreen(
   owner: string,
@@ -218,8 +202,6 @@ async function isPRGreen(
 // Check functions
 // ---------------------------------------------------------------------------
 
-const TERMINAL_STATUSES = new Set(["killed", "merged", "failed", "completed"]);
-
 /** Resolve ghRest from deps, falling back to the real implementation. */
 function resolveGhRest(deps: ProductivityDeps) {
   return deps.ghRest ?? defaultGhRest;
@@ -235,14 +217,14 @@ export async function checkMergedPRCleanup(
   session: Session,
   deps: ProductivityDeps,
 ): Promise<"killed" | "skipped"> {
-  const pr = getPRFromSession(session);
+  const pr = session.pr;
   if (!pr) return "skipped";
   const ghRest = resolveGhRest(deps);
   const meta = await fetchPRMeta(pr.owner, pr.repo, pr.number, ghRest);
   if (!meta) return "skipped";
 
   if (meta.state === "closed" || meta.merged === true) {
-    const sessionName = session.metadata["tmuxSession"] as string | undefined;
+    const sessionName = session.metadata["tmuxName"] as string | undefined;
     if (sessionName) {
       try {
         await deps.killSession(sessionName);
@@ -267,7 +249,7 @@ export async function checkStallDetection(
   if (isNudgeOnCooldown(session.id, "stall")) return "none";
   if (TERMINAL_STATUSES.has(session.status)) return "none";
 
-  const pr = getPRFromSession(session);
+  const pr = session.pr;
   if (!pr) return "none";
 
   const ghRest = resolveGhRest(deps);
@@ -297,7 +279,7 @@ export async function checkStallDetection(
     `URL: ${meta.html_url}\n` +
     `Continue working on this PR or explain the blocker.`;
 
-  const sessionName = session.metadata["tmuxSession"] as string | undefined;
+  const sessionName = session.metadata["tmuxName"] as string | undefined;
   if (sessionName) {
     try {
       await deps.sendKeys(sessionName, nudgeText);
@@ -323,7 +305,7 @@ export async function checkContextExhaustion(
   if (isNudgeOnCooldown(session.id, "context_exhaustion")) return "none";
   if (TERMINAL_STATUSES.has(session.status)) return "none";
 
-  const sessionName = session.metadata["tmuxSession"] as string | undefined;
+  const sessionName = session.metadata["tmuxName"] as string | undefined;
   if (!sessionName) return "none";
 
   let paneContent: string;

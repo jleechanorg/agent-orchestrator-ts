@@ -859,7 +859,7 @@ Lifecycle-worker only checked tmux session liveness, not whether workers were ma
 - Detect context exhaustion (<5%) via tmux pane parsing and nudge to summarize
 
 ## Testing
-Unit tests added: `packages/core/__tests__/productivity-checker.test.ts`
+Unit tests added: `packages/core/src/__tests__/productivity-checker.test.ts`
 
 ## Low-level details
 - `packages/core/src/productivity-checker.ts` — new module, all REST API calls (no GraphQL)
