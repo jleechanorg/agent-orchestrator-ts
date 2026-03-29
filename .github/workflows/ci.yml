@@ -60,7 +60,8 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm -r --filter '!@jleechanorg/ao-web' build
       - name: Fetch main branch for wholesome tests
-        run: git fetch origin main:refs/remotes/origin/main || true
+        if: github.event_name == 'pull_request'
+        run: git fetch origin main:main || true
       - run: pnpm test
         env:
           GITHUB_REPOSITORY: ${{ github.repository }}
