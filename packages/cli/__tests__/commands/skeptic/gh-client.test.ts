@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach, mocked } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from "node:fs";
 import * as fs from "node:fs";
 import { join } from "node:path";
@@ -8,19 +8,15 @@ import { tmpdir } from "node:os";
 const mockExec = vi.hoisted(() => vi.fn());
 
 // vi.spyOn fails in ESM ("Cannot redefine property: readFileSync").
-// vi.mock is hoisted to top-level, so variables it references must also be
-// hoisted via vi.hoisted() to avoid "Cannot access before initialization".
-// Putting vi.mock inside vi.hoisted ensures the factory and its deps are
-// evaluated together at module-scope evaluation time.
-const { mockReadFileSync } = vi.hoisted(() => {
-  const mockReadFileSync = vi.fn(fs.readFileSync);
-  // vi.mock is also hoisted but lives here so it can reference mockReadFileSync
-  vi.mock("node:fs", () => ({
-    default: { readFileSync: mockReadFileSync },
-    readFileSync: mockReadFileSync,
-  }));
-  return { mockReadFileSync };
-});
+// Declare at module scope (not inside vi.hoisted) so vi.mock's factory can
+// reference it when the factory is hoisted and executed at module-init time.
+// vi.fn() created here is a plain function — not yet a vitest mock — so it
+// can be safely referenced before vi.mock runs.
+const mockReadFileSync = vi.fn(fs.readFileSync);
+vi.mock("node:fs", () => ({
+  default: { readFileSync: mockReadFileSync },
+  readFileSync: mockReadFileSync,
+}));
 
 vi.mock("../../../src/lib/shell.js", () => ({
   exec: mockExec,
