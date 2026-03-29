@@ -29,7 +29,7 @@ if ! command -v python3 >/dev/null 2>&1; then
   exit 0
 fi
 
-TOOL=$(python3 -c "
+TOOL=$(echo "$INPUT" | python3 -c "
 import sys, json
 try:
     d = json.load(sys.stdin)
@@ -42,7 +42,7 @@ if [ "$TOOL" = "PARSE_ERROR" ] || [ "$TOOL" != "Bash" ]; then
   exit 0
 fi
 
-CMD=$(python3 -c "
+CMD=$(echo "$INPUT" | python3 -c "
 import sys, json
 try:
     d = json.load(sys.stdin)

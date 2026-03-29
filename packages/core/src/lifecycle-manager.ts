@@ -1503,7 +1503,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
           if (reactionSuccess) {
             const claimReactionKey = "claim-verification";
             const claimReactionConfig = getReactionConfigForSession(session, claimReactionKey);
-            if (claimReactionConfig?.action) {
+            if (claimReactionConfig?.action && claimReactionConfig.auto !== false) {
               try {
                 const claimResult = await executeReaction(
                   session.id,
@@ -1900,7 +1900,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
                   // bd-upxh: also dispatch claim-verification after SHA-change skeptic retest
                   const claimReactionKey = "claim-verification";
                   const claimReactionConfig = getReactionConfigForSession(session, claimReactionKey);
-                  if (claimReactionConfig?.action) {
+                  if (claimReactionConfig?.action && claimReactionConfig.auto !== false) {
                     try {
                       await executeReaction(
                         session.id,
