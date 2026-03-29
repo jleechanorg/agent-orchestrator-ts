@@ -55,11 +55,14 @@ jobs:
           # ----------------------------------------------------------------
           CI_STATUS=$(gh api repos/${{ github.repository }}/commits/"$HEAD_SHA"/status \
             --jq '.state' 2>/dev/null || echo "error")
-          # Also check GitHub check runs (Actions checks use check runs API, not commit status)
+          # Also check GitHub check runs (Actions checks use check runs API, not commit status).
+          # Multiple runs exist per check name (re-runs, concurrent triggers) — deduplicate
+          # by keeping only the latest run per name (sort by started_at desc, take first).
+          # Exclude: Skeptic Gate (self-reference), cancelled (superseded runs), skipped, neutral.
           CHECK_RUNS_FAILED=$(gh api repos/${{ github.repository }}/commits/"$HEAD_SHA"/check-runs \
-            --jq '[.check_runs[] | select(.name != "Skeptic Gate" and .conclusion != null and .conclusion != "success" and .conclusion != "skipped" and .conclusion != "neutral")] | length' 2>/dev/null || echo "0")
+            --jq '[.check_runs | group_by(.name) | .[] | sort_by(.started_at) | reverse | .[0] | select(.name != "Skeptic Gate" and .conclusion != null and .conclusion != "success" and .conclusion != "skipped" and .conclusion != "neutral" and .conclusion != "cancelled")] | length' 2>/dev/null || echo "0")
           CHECK_RUNS_PENDING=$(gh api repos/${{ github.repository }}/commits/"$HEAD_SHA"/check-runs \
-            --jq '[.check_runs[] | select(.name != "Skeptic Gate" and .status != "completed")] | length' 2>/dev/null || echo "0")
+            --jq '[.check_runs | group_by(.name) | .[] | sort_by(.started_at) | reverse | .[0] | select(.name != "Skeptic Gate" and .status != "completed")] | length' 2>/dev/null || echo "0")
 
           CI_DETAIL="commit-status=$CI_STATUS, failed-checks=${CHECK_RUNS_FAILED:-0}, pending-checks=${CHECK_RUNS_PENDING:-0}"
 

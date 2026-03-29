@@ -57,6 +57,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_JSON: ${{ steps.list_prs.outputs.pr_numbers }}
+          SKEPTIC_CUSTOM_PROMPT: ${{ vars.SKEPTIC_CUSTOM_PROMPT || '' }}
         run: |
           TRIGGERED=0
           SKIPPED_DOCS=0
@@ -222,9 +223,17 @@ jobs:
             # ao skeptic verify via AO worker (Codex OAuth, no GHA API keys).
             # ----------------------------------------------------------------
             echo "  [TRIGGER] Posting skeptic trigger for PR #${PR_NUM}..."
-            BODY=$(printf '%s\n%s' \
+            # Include custom prompt in trigger if SKEPTIC_CUSTOM_PROMPT repo var is set.
+            # The AO worker reads this from the trigger comment and passes it to
+            # ao skeptic verify --prompt "...". Useful for bootstrap PRs.
+            CUSTOM_PROMPT_LINE=""
+            if [ -n "$SKEPTIC_CUSTOM_PROMPT" ]; then
+              CUSTOM_PROMPT_LINE="<!-- skeptic-custom-prompt: ${SKEPTIC_CUSTOM_PROMPT} -->"
+            fi
+            BODY=$(printf '%s\n%s\n%s' \
               "SKEPTIC_CRON_TRIGGER" \
-              "<!-- skeptic-cron-trigger-${PR_SHA} -->")
+              "<!-- skeptic-cron-trigger-${PR_SHA} -->" \
+              "$CUSTOM_PROMPT_LINE")
             if gh api repos/${{ github.repository }}/issues/"$PR_NUM"/comments \
               --field body="$BODY" \
               --jq '.id' > /dev/null 2>&1; then
