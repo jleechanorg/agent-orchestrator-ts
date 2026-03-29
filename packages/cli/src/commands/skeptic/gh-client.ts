@@ -42,10 +42,34 @@ export async function ghJson(endpoint: string, args: string[] = []): Promise<unk
   return JSON.parse(result.stdout);
 }
 
-/** Like ghJson but uses --paginate to fetch all pages automatically (REST only). */
+/** Like ghJson but uses --paginate to fetch all pages automatically (REST only).
+ *
+ * `gh api --paginate` emits NDJSON (newline-delimited JSON) — one JSON object per line.
+ * We handle both single-document and multi-line output robustly.
+ *
+ * For endpoints that return a top-level array (e.g. check-runs), we flatten all pages.
+ * For endpoints that return a single object, we parse and return the first non-null line.
+ */
 export async function ghJsonPaginate(endpoint: string, args: string[] = []): Promise<unknown> {
   const result = await exec("gh", ["api", "--paginate", endpoint, ...args]);
-  return JSON.parse(result.stdout);
+  const raw = result.stdout.trim();
+
+  // Fast path: single JSON document (no newlines beyond what JSON.stringify produces)
+  // Try parsing as-is first.
+  try {
+    return JSON.parse(raw);
+  } catch {
+    // Multi-document NDJSON: split by line, parse each, flatten arrays.
+    const lines = raw.split("\n").filter((l) => l.trim().length > 0);
+    if (lines.length === 0) return [];
+    const parsed = lines.map((l) => JSON.parse(l));
+    // If all pages are arrays, flatten into one array (handles /check-runs style endpoints)
+    if (parsed.every((p) => Array.isArray(p))) {
+      return parsed.flat();
+    }
+    // Otherwise return the first page (single-object endpoints like /repos/{owner}/{repo})
+    return parsed[0];
+  }
 }
 
 export interface PRInfo {

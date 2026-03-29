@@ -94,7 +94,6 @@ export async function fetchMergeGateState(
     ) as { head?: { ref?: string; sha?: string }; mergeable?: boolean; merged?: boolean };
     mergeableRaw = prData?.mergeable ?? null;
     noConflicts = prData?.mergeable === true || prData?.merged === true;
-    const headRef = prData?.head?.ref;
     const headSha = prData?.head?.sha;
     // Use headSha (immutable commit SHA) instead of headRef (mutable branch ref)
     // to avoid TOCTOU races where the branch moves between status check and merge.
@@ -227,15 +226,15 @@ export async function fetchMergeGateState(
     for (const c of comments) {
       if (c.user?.login === skepticBotAuthor) {
         // Also handle markdown-bold variants: **VERDICT: SKIPPED** (matching skeptic.ts VERDICT_LINE_RE)
-        if (/\*\*?VERDICT:\s*PASS\b/i.test(c.body)) {
+        if (/(?:\*{1,2})?VERDICT:\s*PASS\b/i.test(c.body)) {
           skepticVerdict = "PASS";
           skepticCommentId = c.id;
           break;
-        } else if (/\*\*?VERDICT:\s*FAIL\b/i.test(c.body)) {
+        } else if (/(?:\*{1,2})?VERDICT:\s*FAIL\b/i.test(c.body)) {
           skepticVerdict = "FAIL";
           skepticCommentId = c.id;
           break;
-        } else if (/\*\*?VERDICT:\s*SKIPPED\b/i.test(c.body)) {
+        } else if (/(?:\*{1,2})?VERDICT:\s*SKIPPED\b/i.test(c.body)) {
           skepticVerdict = "SKIPPED";
           skepticCommentId = c.id;
           break;

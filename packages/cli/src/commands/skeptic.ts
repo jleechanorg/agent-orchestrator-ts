@@ -20,9 +20,8 @@ import { fetchMergeGateState } from "./skeptic/mergeGate.js";
 import { buildSkepticPrompt } from "./skeptic/prompt.js";
 import { runSkepticEvaluation } from "./skeptic/modelRunner.js";
 import { postVerdict } from "./skeptic/posting.js";
-
-/** Line-anchored VERDICT matcher — accepts VERDICT: PASS/FAIL/SKIPPED with optional markdown prefix. */
-export const VERDICT_LINE_RE = /^(?:#{1,3}\s*|\*{1,2})?VERDICT:\s*(PASS|FAIL|SKIPPED)\b/im;
+import { VERDICT_LINE_RE } from "./skeptic/verdict-utils.js";
+export { VERDICT_LINE_RE };
 
 // bd-lg7i: Default to jleechan2015 — ao skeptic verify posts via `gh api`
 // authenticated as the local user, not the GitHub App bot. Override via

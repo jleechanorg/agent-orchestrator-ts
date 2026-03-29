@@ -64,7 +64,10 @@ export function buildSkepticPrompt(
     "--- 7-GREEN STATUS ---",
     `  1. CI green:            ${state.ciPassing ? "PASS" : "FAIL"} (raw commit status state: "${state.ciRawState}")`,
     ...(state.checkRuns && state.checkRuns.length > 0
-      ? [`     Check runs: ${state.checkRuns.map(r => `${r.name}=${r.conclusion ?? r.status}`).join(", ")}`]
+      ? [`     Check runs: ${state.checkRuns
+          .slice(0, 20)
+          .map((r) => `${r.name}=${r.conclusion ?? r.status}`)
+          .join(", ")}${state.checkRuns.length > 20 ? ", …" : ""}`]
       : []),
     `  2. No merge conflicts:  ${state.noConflicts ? "PASS" : "FAIL"} (raw mergeable: ${state.mergeableRaw === null ? "null/unknown" : state.mergeableRaw})`,
     `  3. CR APPROVED:         ${state.crApproved ? "PASS" : "FAIL"} (state: ${crDetail})`,
