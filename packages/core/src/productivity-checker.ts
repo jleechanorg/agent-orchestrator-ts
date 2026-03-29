@@ -87,7 +87,7 @@ function isNudgeOnCooldown(sessionId: string, nudgeType: NudgeType): boolean {
   const key = `${sessionId}:${nudgeType}`;
   const last = nudgeCooldowns.get(key);
   if (last === undefined) return false;
-  if (Date.now() - last > NUDGE_COOLDOWN_MS) {
+  if (Date.now() - last >= NUDGE_COOLDOWN_MS) {
     nudgeCooldowns.delete(key);
     return false;
   }
