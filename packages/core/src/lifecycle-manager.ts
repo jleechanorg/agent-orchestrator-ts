@@ -57,6 +57,7 @@ import {
   capturePane as tmuxCapturePane,
   killSession as tmuxKillSession,
   sendKeys as tmuxSendKeys,
+  hasSession as tmuxHasSession,
 } from "./tmux.js";
 import { buildReactionContext } from "./reaction-context.js";
 import { validateAndEmitExitProof } from "./session-exit-proof.js";
@@ -70,6 +71,7 @@ import { GLOBAL_PAUSE_UNTIL_KEY, GLOBAL_PAUSE_REASON_KEY, parsePauseUntil } from
 import { isGhRateLimitError } from "./gh-rate-limit.js";
 import { backfillUncoveredPRs } from "./backfill-extensions.js";
 import { sweepOrphanTmuxSessions, DEFAULT_TMUX_SWEEPER_CONFIG } from "./tmux-session-sweeper.js";
+import { reapStaleSessions, DEFAULT_REAPER_CONFIG } from "./session-reaper.js";
 import { drainTaskQueue } from "./task-queue.js";
 import { applyDeadAgentOverride } from "./fork-dead-agent.js";
 import {
@@ -2520,6 +2522,90 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
           // Sweep failures must not break the main poll cycle
           console.error(
             `[tmux-sweeper] sweep failed: ${sweepErr instanceof Error ? sweepErr.message : String(sweepErr)}`,
+          );
+        }
+      }
+
+      // orch-ju1: TTL + dead-tmux health check — runs on the same SWEEP_INTERVAL_MS
+      // throttle as the orphan sweep. Reaps sessions that have exceeded their TTL
+      // or whose tmux process is no longer running. Dead sessions with an open PR
+      // are respawned targeting the same PR.
+      if (nowMs - lastSweepTime >= SWEEP_INTERVAL_MS) {
+        try {
+          const SESSION_TTL_MS = (config as { sessionTtlMs?: number }).sessionTtlMs
+            ?? DEFAULT_REAPER_CONFIG.noPrThresholdMs; // default 4h
+
+          // respawnDeadTmuxSession: when a dead-tmux session had an open PR,
+          // spawn a replacement targeting the same PR so work continues.
+          const respawnDeadTmuxSession = async (
+            sessionId: string,
+            projectId: string,
+            deadSession: Session,
+          ): Promise<void> => {
+            if (!deadSession.pr || deadSession.pr.state !== "open") return;
+            const project = config.projects[projectId];
+            if (!project) return;
+            try {
+              const newSession = await sessionManager.spawn({
+                projectId,
+                issueId: String(deadSession.pr.number),
+              });
+              observer.recordOperation({
+                metric: "lifecycle_poll",
+                operation: "lifecycle.ttl_respawn",
+                outcome: "success",
+                correlationId: createCorrelationId("ttl-respawn"),
+                projectId,
+                sessionId: newSession.id,
+                data: {
+                  deadSessionId: sessionId,
+                  prNumber: deadSession.pr.number,
+                  newSessionId: newSession.id,
+                },
+                level: "info",
+              });
+            } catch (spawnErr) {
+              observer.recordOperation({
+                metric: "lifecycle_poll",
+                operation: "lifecycle.ttl_respawn",
+                outcome: "failure",
+                correlationId: createCorrelationId("ttl-respawn"),
+                projectId,
+                sessionId: deadSession.id,
+                data: { error: spawnErr instanceof Error ? spawnErr.message : String(spawnErr) },
+                level: "warn",
+              });
+            }
+          };
+
+          const healthResult = await reapStaleSessions(
+            {
+              orphanedThresholdMs: 10 * 60 * 60 * 1000, // TTL reaper is not responsible for orphan detection
+              noPrThresholdMs: 10 * 60 * 60 * 1000,
+              sessionTtlMs: SESSION_TTL_MS,
+              maxKillsPerRun: DEFAULT_REAPER_CONFIG.maxKillsPerRun,
+              startupGracePeriodMs: config.startupGracePeriodMs ?? 120_000,
+            },
+            {
+              sessionManager,
+              tmuxHealth: tmuxHasSession,
+              respawnSession: respawnDeadTmuxSession,
+            },
+          );
+
+          if (healthResult.killed.length > 0) {
+            console.log(
+              `[lifecycle-manager] TTL/dead-tmux reaper: killed ${healthResult.killed.length} session(s): ${healthResult.killed.map((s) => `${s.sessionId} (${s.reason})`).join(", ")}`,
+            );
+          }
+          if (healthResult.errors.length > 0) {
+            console.warn(
+              `[lifecycle-manager] TTL/dead-tmux reaper errors: ${healthResult.errors.map((e) => `${e.sessionId}: ${e.error}`).join("; ")}`,
+            );
+          }
+        } catch (healthErr) {
+          console.error(
+            `[lifecycle-manager] TTL/dead-tmux reaper failed: ${healthErr instanceof Error ? healthErr.message : String(healthErr)}`,
           );
         }
       }
