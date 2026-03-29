@@ -161,7 +161,7 @@ When CR posts CHANGES_REQUESTED on your PR:
    - Output starts with `copilot-expanded` → run `/copilot-expanded` on the exact comment list
    - Output starts with `skip` → loop limit reached, escalate
 5. Wait for CR formal review (not just `<!-- Review triggered -->` acknowledgment)
-6. If CR gets stuck in incremental mode (no new formal review after 2 cycles), dismiss the stale review: get latest CR review ID, `gh api .../reviews/<ID>/dismissals --method PUT -f default_kind="CONTRIBUTING" -f message="Stale CR verdict"`, then post `@coderabbitai all good?`
+6. If CR gets stuck in incremental mode (no new formal review after 2 cycles), dismiss the stale review: get latest CR review ID, `gh api repos/<OWNER>/<REPO>/pulls/<PR>/reviews/<ID>/dismissals --method PUT -f message="Stale CR verdict — all comments addressed, dismissing to allow fresh re-review" -f event=DISMISS`, then post `@coderabbitai all good?`
 
 ### Skeptic SKIPPED — do not merge
 If skeptic posts `VERDICT: SKIPPED` (infra unavailable — no LLM API keys in GHA), the PR does **NOT** have a genuine skeptic review. The `skeptic-cron.yml` workflow handles skeptic evaluation via AO worker. **Do not merge until skeptic-cron has run `ao skeptic verify` and posted `VERDICT: PASS` or `VERDICT: FAIL`.** Check skeptic-cron hasn't already evaluated this PR SHA (comments show `VERDICT:`).
