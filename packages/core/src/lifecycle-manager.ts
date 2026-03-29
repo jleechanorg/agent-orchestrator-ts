@@ -87,9 +87,10 @@ import { runLocalSkepticCron } from "./skeptic-cron-local.js";
 import { resolveReactionMaxRetries } from "./fork-reaction-retry-policy.js";
 
 /**
- * verify6Green — explicit 6-green pre-merge verification (bd-mjtn)
+ * verify6Green — explicit 7-green pre-merge verification (bd-mjtn)
  *
- * Enforces all six PR readiness conditions BEFORE any merge attempt:
+ * Enforces the core pre-merge gates (CI/conflicts/CR-approval/Bugbot/inline)
+ * BEFORE any merge attempt:
  *   Gate 1: CI green (all checks SUCCESS)
  *   Gate 2: No merge conflicts (mergeable: MERGEABLE)
  *   Gate 3: CodeRabbit APPROVED (actionable reviews only — APPROVED/CHANGES_REQUESTED,
@@ -100,10 +101,9 @@ import { resolveReactionMaxRetries } from "./fork-reaction-retry-policy.js";
  *            which blocks the gate until resolved — this is intentional fail-closed
  *            behaviour)
  *
- * Skeptic (Gate 6) and evidence-review (Gate 7) are NOT enforced here — those are
- * optional per-project gates controlled via MergeGateConfig.  Agents are expected
- * to have already run /er and posted the skeptic VERDICT: PASS comment before
- * posting the green signal.
+ * Evidence-review (Gate 6) and Skeptic (Gate 7) are NOT enforced here — those are
+ * optional per-project gates.  Agents are expected to have already run /er and
+ * posted the skeptic VERDICT: PASS comment before posting the green signal.
  *
  * @param pr            - PR to verify
  * @param scm           - SCM plugin instance
@@ -130,7 +130,7 @@ export async function verify6Green(
     enabled: projectMergeGate?.enabled ?? true,
     ...projectMergeGate,
     // Always force skepticRequired=false regardless of project config — Skeptic is
-    // Gate 6 / an optional per-project gate, not part of the 6-green contract.
+    // Gate 7 / an optional per-project gate, not part of the 5-core-gate contract.
     skepticRequired: false,
   };
   return checkMergeGate(pr, config, scm);
