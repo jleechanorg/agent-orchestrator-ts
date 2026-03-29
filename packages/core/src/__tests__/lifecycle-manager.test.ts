@@ -4626,6 +4626,7 @@ describe("centralized auto-merge config (getReactionConfigForSession)", () => {
     globalAutoMerge?: boolean,
     projectAutoMerge?: boolean,
     projectReactionAction?: ReactionAction,
+    globalReactionAction?: ReactionAction,
   ) {
     const cfg: OrchestratorConfig = {
       configPath,
@@ -4660,8 +4661,17 @@ describe("centralized auto-merge config (getReactionConfigForSession)", () => {
         info: [],
       },
       reactions: {
-        "approved-and-green": { auto: false, action: "notify", priority: "action" },
+        "approved-and-green": {
+          auto: false,
+          action: globalReactionAction ?? "notify",
+          priority: "action",
+        },
       },
+      // @internal: only set when user explicitly declared this reaction in global config.
+      // When absent, autoMerge can override the default action.
+      ...(globalReactionAction !== undefined && {
+        _hasExplicitGlobalReaction: { "approved-and-green": true },
+      }),
       readyThresholdMs: 300_000,
       startupGracePeriodMs: 0,
       // Global override — only set if provided
@@ -4722,7 +4732,7 @@ describe("centralized auto-merge config (getReactionConfigForSession)", () => {
     expect(config?.action).toBe("notify");
   });
 
-  it("explicit reaction action is not overridden by autoMerge", async () => {
+  it("explicit reaction action is not overridden by autoMerge", () => {
     // User explicitly configured action: "notify" on the approved-and-green reaction
     // → autoMerge flag should NOT override it
     const { lm } = makeLMWithAutoMerge(true, undefined, "notify");
@@ -4730,6 +4740,15 @@ describe("centralized auto-merge config (getReactionConfigForSession)", () => {
     const session = makeSession({ projectId: "my-app" });
     const config = getReactionConfigForSession(session, "approved-and-green");
     expect(config?.action).toBe("notify");
+  });
+
+  it("explicit global reaction action is not overridden by autoMerge", () => {
+    // User explicitly set action: "request-merge" globally — autoMerge should not override it
+    const { lm } = makeLMWithAutoMerge(true, undefined, undefined, "request-merge");
+    const { getReactionConfigForSession } = (lm as unknown as { _testing: { getReactionConfigForSession: (session: Session, eventKey: string) => ReactionConfig | null } })._testing;
+    const session = makeSession({ projectId: "my-app" });
+    const config = getReactionConfigForSession(session, "approved-and-green");
+    expect(config?.action).toBe("request-merge");
   });
 
   it("autoMerge does not affect non-approved-and-green reactions", async () => {

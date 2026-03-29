@@ -1116,13 +1116,15 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
 
     // Centralized auto-merge override: when autoMerge is true (global or per-project),
     // the approved-and-green reaction automatically merges instead of notifying.
-    // Only override if the project reaction was not explicitly re-configured
-    // (projectReaction?.action is undefined when the project has no per-reaction config).
+    // Only override if the project did not explicitly configure this reaction
+    // (projectReaction is absent) AND the global config did not declare it
+    // (_hasExplicitGlobalReaction tracks raw user input before .partial() stripping).
     const autoMergeEnabled = project?.autoMerge ?? config.autoMerge ?? false;
     if (
       autoMergeEnabled &&
       reactionKey === "approved-and-green" &&
-      !projectReaction?.action
+      !projectReaction &&
+      !(config._hasExplicitGlobalReaction?.[reactionKey])
     ) {
       return { ...(reactionConfig as ReactionConfig), action: "auto-merge", auto: true };
     }
