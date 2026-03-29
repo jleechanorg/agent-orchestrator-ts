@@ -18,7 +18,7 @@ type GhRestMock = (owner: string, repo: string, path: string) => Promise<unknown
 // Fixed epoch for deterministic fake timers
 const NOW_MS = 1_741_000_000_000;
 const recentCommitDate = new Date(NOW_MS - 60_000).toISOString();
-const oldCommitDate = new Date(NOW_MS - (60 * 60_1000) - 60_000).toISOString();
+const oldCommitDate = new Date(NOW_MS - (60 * 60_000) - 60_000).toISOString();
 
 function makeDeps(
   overrides: Partial<ProductivityDeps> & { ghRest?: GhRestMock } = {},

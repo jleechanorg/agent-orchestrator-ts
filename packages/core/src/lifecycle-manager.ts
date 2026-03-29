@@ -1061,11 +1061,13 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         const mergeMethod =
           reactionConfig.mergeMethod ??
           project?.autoMerge?.mergeMethod ??
+          config.autoMerge?.mergeMethod ??
           config.defaults.autoMerge?.mergeMethod ??
           "squash";
         const autoWaitSeconds =
           reactionConfig.autoMergeWaitSeconds ??
           project?.autoMerge?.waitSeconds ??
+          config.autoMerge?.waitSeconds ??
           config.defaults.autoMerge?.waitSeconds ??
           0;
         const autoMergeEnabled =

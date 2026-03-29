@@ -10,7 +10,7 @@
  */
 
 import { execFile as _execFile } from "node:child_process";
-import { promisify } from "util";
+import { promisify } from "node:util";
 import { TERMINAL_STATUSES, type OrchestratorConfig, type Session } from "./types.js";
 
 const execAsync = promisify(_execFile);
@@ -181,23 +181,6 @@ export async function fetchCRState(
 // ---------------------------------------------------------------------------
 // Session PR metadata helpers
 // ---------------------------------------------------------------------------
-
-/** Returns true if PR is green (CI passing + CR APPROVED). */
-async function isPRGreen(
-  owner: string,
-  repo: string,
-  prNumber: number,
-  sha: string,
-  ghRest = defaultGhRest,
-): Promise<boolean> {
-  const [ciStatus, crState] = await Promise.all([
-    fetchCIStatus(owner, repo, sha, ghRest),
-    fetchCRState(owner, repo, prNumber, ghRest),
-  ]);
-  return ciStatus === "success" && crState === "APPROVED";
-}
-
-// ---------------------------------------------------------------------------
 // Check functions
 // ---------------------------------------------------------------------------
 
@@ -263,13 +246,12 @@ export async function checkStallDetection(
   const stallMs = Date.now() - lastCommit.getTime();
   if (stallMs <= STALL_THRESHOLD_MS) return "none";
 
-  const green = await isPRGreen(pr.owner, pr.repo, pr.number, meta.head.sha, ghRest);
-  if (green) return "none";
-
   const [ciStatus, crState] = await Promise.all([
     fetchCIStatus(pr.owner, pr.repo, meta.head.sha, ghRest),
     fetchCRState(pr.owner, pr.repo, pr.number, ghRest),
   ]);
+  const green = ciStatus === "success" && crState === "APPROVED";
+  if (green) return "none";
 
   const nudgeText =
     `PR #${pr.number} has had no new commits for >30 min and is not green.\n` +
