@@ -166,6 +166,13 @@ When CR posts CHANGES_REQUESTED on your PR:
 ### Skeptic SKIPPED — do not merge
 If skeptic posts `VERDICT: SKIPPED` (infra unavailable — no LLM API keys in GHA), the PR does **NOT** have a genuine skeptic review. The `skeptic-cron.yml` workflow handles skeptic evaluation via AO worker. **Do not merge until skeptic-cron has run `ao skeptic verify` and posted `VERDICT: PASS` or `VERDICT: FAIL`.** Check skeptic-cron hasn't already evaluated this PR SHA (comments show `VERDICT:`).
 
+### Evidence Gate media proof — run `/pr-media` BEFORE first push (bd-fisn)
+The Evidence Gate CI check (`wholesome.yml` "Evidence Has Media Attachment") requires the Evidence section to contain EITHER a markdown image with an HTTPS URL (`![alt](https://...)`) OR a code block (`` ``` ``). Placeholder text like `**Media**: <path>` or `**Test output**: <value>` FAILS the CI check.
+- Before pushing a new PR for the first time: run `/pr-media` to capture a real screenshot or use `/test` output
+- If `/pr-media` is unavailable: add a `**Terminal output**: <actual output>` block with real command output
+- **Never** push a PR with `**Media**: <screenshot path>` as a placeholder — CI will fail and the failed check persists even after fixing (merging the PR clears stale checks, but it causes unnecessary churn)
+- The Evidence Gate also skips entirely for merged/closed PRs (bd-fisn fix) — so if you fix the PR body after merge, you do not need to re-push
+
 ## Fork Isolation — Code Separation from Upstream
 
 This fork diverges from `ComposioHQ/agent-orchestrator`. To minimize merge conflicts and preserve cherry-pick ability:

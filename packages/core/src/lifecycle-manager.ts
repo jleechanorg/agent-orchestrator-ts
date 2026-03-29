@@ -597,6 +597,8 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
               if (batch.reviewDecision === "approved") return { status: "approved", agentDead };
             }
             if (batch.reviewDecision === "pending") return { status: "review_pending", agentDead };
+            // bd-fisn: batch.reviewDecision is null when CR was DISMISSED (no outstanding request).
+            // Fall through to individual calls below, which have the bd-fisn null→CR-reviews fix.
           } catch (err) {
             // bd-att: If batch failed due to a GitHub API rate limit (or network error),
             // DO NOT fall back. Rethrow so determineStatus exits immediately.
@@ -644,6 +646,36 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
             if (reviewDecision === "approved") return { status: "approved", agentDead };
           }
           if (reviewDecision === "pending") return { status: "review_pending", agentDead };
+          // bd-fisn: reviewDecision is null when CR has been DISMISSED (no outstanding review
+          // request). This does NOT mean "no review" — it means "review was dismissed".
+          // Check CR's reviews directly: if CR approved the current head SHA, treat as approved
+          // so approved-and-green fires. SCM normalizes state to lowercase ("APPROVED"→"approved").
+          // Restrict to current head commit via getPRHeadSha to avoid stale approvals.
+          if (reviewDecision === null && scm) {
+            try {
+              const rawReviews = await scm.getReviews(session.pr);
+              const reviews: Array<{ author?: string; state?: string; commit_id?: string }> = rawReviews;
+              const crReviews = reviews.filter((r) => String(r.author ?? "").endsWith("coderabbitai[bot]"));
+              // bd-rfr: SCM normalizes state to lowercase; use toLowerCase() for safety.
+              let crApproved = crReviews.some((r) => (r.state ?? "").toLowerCase() === "approved");
+              // Restrict to current head SHA if SCM supports it and at least one CR approval exists.
+              if (crApproved && scm.getPRHeadSha) {
+                const headSha = await scm.getPRHeadSha(session.pr);
+                crApproved = crReviews.some(
+                  (r) => (r.state ?? "").toLowerCase() === "approved" && r.commit_id === headSha,
+                );
+              }
+              if (crApproved) {
+                if (ciStatus === CI_STATUS.PENDING) return { status: "approved", agentDead };
+                const mergeReady = await scm.getMergeability(session.pr);
+                if (mergeReady.mergeable) return { status: "mergeable", agentDead };
+                if (!mergeReady.noConflicts) return { status: "merge_conflicts", agentDead };
+                return { status: "approved", agentDead };
+              }
+            } catch {
+              // Fail open: if we can't fetch CR reviews, fall through to pr_open
+            }
+          }
         }
 
         // 4b. Post-PR stuck detection: agent has a PR open but is idle beyond
