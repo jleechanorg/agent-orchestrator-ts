@@ -138,6 +138,10 @@ describe("checkStallDetection", () => {
   it("returns none when commit is recent (<30 min)", async () => {
     const deps = makeDeps({
       ghRest: async (_o, _r, path: string) => {
+        // ghRest receives RELATIVE paths: "commits/{sha}" or "pulls/{n}"
+        if (path.match(/^commits\/[^/]+$/)) {
+          return { commit: { committer: { date: recentCommitDate } } };
+        }
         if (path.includes("/commits")) return [{ commit: { committer: { date: recentCommitDate } } }];
         if (path.includes("/status")) return { state: "pending" };
         if (path.includes("/reviews")) return [];
@@ -155,6 +159,11 @@ describe("checkStallDetection", () => {
     const sendKeys = vi.fn().mockResolvedValue(undefined);
     const deps = makeDeps({
       ghRest: async (_o, _r, path: string) => {
+        // ghRest receives RELATIVE paths: "commits/{sha}" or "pulls/{n}" — NOT the
+        // full "repos/owner/repo/..." URL. Check the relative form first, then substring.
+        if (path.match(/^commits\/[^/]+$/)) {
+          return { commit: { committer: { date: oldCommitDate } } };
+        }
         if (path.includes("/commits")) return [{ commit: { committer: { date: oldCommitDate } } }];
         if (path.includes("/status")) return { state: "failure" };
         if (path.includes("/reviews")) return [{ user: { login: "coderabbitai[bot]" }, state: "CHANGES_REQUESTED", submitted_at: new Date(NOW_MS).toISOString() }];
@@ -179,6 +188,9 @@ describe("checkStallDetection", () => {
     const sendKeys = vi.fn();
     const deps = makeDeps({
       ghRest: async (_o, _r, path: string) => {
+        if (path.match(/^commits\/[^/]+$/)) {
+          return { commit: { committer: { date: oldCommitDate } } };
+        }
         if (path.includes("/commits")) return [{ commit: { committer: { date: oldCommitDate } } }];
         if (path.includes("/status")) return { state: "success" };
         if (path.includes("/reviews")) return [{ user: { login: "coderabbitai[bot]" }, state: "APPROVED", submitted_at: new Date(NOW_MS).toISOString() }];
@@ -197,6 +209,9 @@ describe("checkStallDetection", () => {
   it("returns none when PR is merged", async () => {
     const deps = makeDeps({
       ghRest: async (_o, _r, path: string) => {
+        if (path.match(/^commits\/[^/]+$/)) {
+          return { commit: { committer: { date: oldCommitDate } } };
+        }
         if (path.includes("/commits")) return [{ commit: { committer: { date: oldCommitDate } } }];
         if (path.includes("/status")) return { state: "failure" };
         if (path.includes("/reviews")) return [];
@@ -221,6 +236,9 @@ describe("checkStallDetection", () => {
     const sendKeys = vi.fn().mockResolvedValue(undefined);
     const deps = makeDeps({
       ghRest: async (_o, _r, path: string) => {
+        if (path.match(/^commits\/[^/]+$/)) {
+          return { commit: { committer: { date: oldCommitDate } } };
+        }
         if (path.includes("/commits")) return [{ commit: { committer: { date: oldCommitDate } } }];
         if (path.includes("/status")) return { state: "failure" };
         if (path.includes("/reviews")) return [];

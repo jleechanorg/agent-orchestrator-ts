@@ -148,24 +148,37 @@ export async function fetchPRMeta(
   }
 }
 
-/** Fetch last commit date for a PR branch. Returns null on error. */
+/** Fetch last commit date for a PR branch. Returns null on error.
+ *  Uses `meta.head.sha` directly when available (from fetchPRMeta) — avoids
+ *  the chronological-ordering ambiguity of the pulls/{pr}/commits feed. */
 export async function fetchLastCommitDate(
   owner: string,
   repo: string,
   prNumber: number,
   ghRest = defaultGhRest,
+  /** Optional head SHA — if provided, fetches that commit's date directly. */
+  headSha?: string,
 ): Promise<Date | null> {
   try {
-    const commits = (await ghRest(
-      owner,
-      repo,
-      `pulls/${prNumber}/commits?per_page=1`,
-    )) as CommitMeta[];
-    if (!commits || commits.length === 0) return null;
-    // GitHub returns commits newest-first; with per_page=1, [0] is the latest.
-    const lastDateStr = commits[0]?.commit?.committer?.date;
-    if (!lastDateStr) return null;
-    return new Date(lastDateStr);
+    let dateStr: string | null = null;
+    if (headSha) {
+      // Preferred path: use meta.head.sha from fetchPRMeta (guaranteed latest)
+      const commit = (await ghRest(owner, repo, `commits/${headSha}`)) as CommitMeta;
+      dateStr = commit?.commit?.committer?.date ?? null;
+    } else {
+      // Fallback: pull the whole commit list (oldest-first per GitHub) and
+      // take the last entry. Avoids per_page=1 which returns the oldest on the
+      // chronological feed.
+      const commits = (await ghRest(
+        owner,
+        repo,
+        `pulls/${prNumber}/commits?per_page=250`,
+      )) as CommitMeta[];
+      if (!commits || commits.length === 0) return null;
+      dateStr = commits.at(-1)?.commit?.committer?.date ?? null;
+    }
+    if (!dateStr) return null;
+    return new Date(dateStr);
   } catch {
     return null;
   }
@@ -264,12 +277,18 @@ export async function checkStallDetection(
   if (!pr) return "none";
 
   const ghRest = resolveGhRest(deps);
-  const [meta, lastCommit] = await Promise.all([
-    fetchPRMeta(pr.owner, pr.repo, pr.number, ghRest),
-    fetchLastCommitDate(pr.owner, pr.repo, pr.number, ghRest),
-  ]);
+  // Fetch PR meta first to get head.sha — then use it for the remaining calls.
+  const meta = await fetchPRMeta(pr.owner, pr.repo, pr.number, ghRest);
+  if (!meta) return "none";
 
-  if (!meta || !lastCommit) return "none";
+  const lastCommit = await fetchLastCommitDate(
+    pr.owner,
+    pr.repo,
+    pr.number,
+    ghRest,
+    meta.head.sha, // Use head.sha directly — avoids chronological-feed ambiguity
+  );
+  if (!lastCommit) return "none";
   if (meta.state === "closed" || meta.merged) return "none";
 
   const stallMs = Date.now() - lastCommit.getTime();
