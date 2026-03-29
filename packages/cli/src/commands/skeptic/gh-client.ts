@@ -44,27 +44,35 @@ export async function ghJson(endpoint: string, args: string[] = []): Promise<unk
 
 /** Like ghJson but uses --paginate to fetch all pages automatically (REST only).
  *
+ * `--slurp` is used to guarantee a single JSON array is returned even for single-page
+ * responses. Without `--slurp`, the CLI emits individual JSON objects per page and
+ * `JSON.parse()` would throw on multi-page responses. The result is always a uniform
+ * array regardless of response shape.
+ *
  * For endpoints that return a wrapper object (e.g. `{ total_count, check_runs: [...] }`),
  * pass `targetKey` to extract the array field from each page. Without `targetKey`,
- * --paginate output is treated as an array of objects and returned as-is.
+ * the full paginated array is returned as-is.
  */
 export async function ghJsonPaginate(
   endpoint: string,
   args: string[] = [],
   targetKey?: string,
 ): Promise<unknown> {
-  const result = await exec("gh", ["api", "--paginate", endpoint, ...args]);
-  const parsed = JSON.parse(result.stdout);
+  const result = await exec("gh", ["api", "--paginate", "--slurp", endpoint, ...args]);
+  const parsed = JSON.parse(result.stdout) as unknown;
+  // --slurp always produces an array; normalize single-object pages (non-paginated)
+  // and plain arrays (no targetKey) to a consistent shape.
+  const pages = Array.isArray(parsed) ? parsed : [parsed];
   if (targetKey) {
     // Each page is a wrapper object; extract the target key from each and concat.
-    const pages = parsed as Array<Record<string, unknown>>;
-    const items = pages.flatMap((p) => {
+    const pageObjects = pages as Array<Record<string, unknown>>;
+    const items = pageObjects.flatMap((p) => {
       const val = p[targetKey];
       return Array.isArray(val) ? val : [];
     });
     return items;
   }
-  return parsed;
+  return pages;
 }
 
 export interface PRInfo {

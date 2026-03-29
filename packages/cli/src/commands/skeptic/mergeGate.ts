@@ -159,16 +159,18 @@ export async function fetchMergeGateState(
     let cursor: string | null = null;
     let hasNextPage = true;
     while (hasNextPage) {
-      const afterArg = cursor ? `, after:"${cursor}"` : "";
-      const threadQuery = `{
-  repository(owner:"${owner}", name:"${repo}") {
-    pullRequest(number:${prNumber}) {
-      reviewThreads(first:100${afterArg}) {
+      // Use GraphQL variables via -F flags for owner, repo, prNumber, and after.
+      // The after variable is optional (passed only when cursor is non-null).
+      const afterArg = cursor ? ` after:$after` : "";
+      const threadQuery = `query($owner: String!, $repo: String!, $pr: Int!, $after: String) {
+  repository(owner: $owner, name: $repo) {
+    pullRequest(number: $pr) {
+      reviewThreads(first: 100${afterArg}) {
         pageInfo { hasNextPage endCursor }
         nodes {
           isResolved
           isOutdated
-          comments(first:1) {
+          comments(first: 1) {
             nodes { body author { login } }
           }
         }
@@ -176,7 +178,9 @@ export async function fetchMergeGateState(
     }
   }
 }`;
-      const threadData = await ghJson("graphql", ["-f", "query=" + threadQuery]) as {
+      const args = ["-f", `query=${threadQuery}`, "-F", `owner=${owner}`, "-F", `repo=${repo}`, "-F", `pr=${prNumber}`];
+      if (cursor) args.push("-F", `after=${cursor}`);
+      const threadData = await ghJson("graphql", args) as {
         data?: {
           repository?: {
             pullRequest?: {

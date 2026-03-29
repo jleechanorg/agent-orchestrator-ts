@@ -27,7 +27,8 @@ jobs:
           persist-credentials: false
 
       # OSS CLI avoids gitleaks-action org-license requirement (see gitleaks-action README).
-      # SHA256 is fetched from checksums.txt in the release (same origin as binary, tamper-evident).
+      # SHA256 is fetched from checksums.txt in the release (same origin as binary) for
+      # integrity/self-consistency verification of the downloaded binary.
       - name: Install Gitleaks
         env:
           GITLEAKS_VERSION: "8.21.1"
