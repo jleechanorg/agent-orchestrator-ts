@@ -92,6 +92,22 @@ Do not manually create worktrees, `cd` into directories, or run `claude` directl
 - "Make skeptic-cron run the LLM in GHA" → WRONG
 - The answer is: fix the AO worker chain above.
 
+## Skeptic Change Verification Protocol
+
+Before opening any skeptic-related PR, verify the full chain end-to-end locally. Skeptic infrastructure spans CLI code, GHA YAML, lifecycle-worker, and GitHub API — changes in one layer silently break others. Isolated unit tests pass while the integration chain fails (10+ broken PRs in 24h were caught this way).
+
+### Pre-PR Verification Checklist
+
+1. **Full-chain local test**: trigger comment → lifecycle-worker detection → `ao skeptic verify` execution → VERDICT comment posting → `skeptic-gate.yml` polling match.
+2. **Cross-layer consistency**: CLI code change? Verify GHA YAML jq filter matches CLI output format. GHA YAML change? Verify CLI output format matches jq filter. Bot author change? Verify BOTH `skeptic-gate.yml` polling filter AND `skeptic-cron.yml` `SKEPTIC_BOT_AUTHOR` env var match.
+3. **Minimum smoke test**: `ao skeptic verify -n <PR> --dry-run` must output a VERDICT line matching the GHA jq filter pattern (e.g., `VERDICT: PASS` or `VERDICT: FAIL` — no synonyms, no extra whitespace).
+
+### Red flags — STOP if you see these in a skeptic PR:
+- Unit tests pass but no end-to-end chain verification documented
+- jq filter in `skeptic-gate.yml` does not match CLI VERDICT output format
+- `SKEPTIC_BOT_AUTHOR` env var differs between `skeptic-cron.yml` and `skeptic-gate.yml`
+- GHA YAML filters changed without verifying CLI output format, or vice versa
+
 ## LLM Evaluation — Shared Utility
 
 **All LLM evaluation (skeptic, verifier, exit-criteria checks) MUST route through `packages/cli/src/lib/llm-eval.ts`.** Never hard-code binary paths (`codex`, `claude`) or `execSync`/`execFileSync` calls in command handlers.
