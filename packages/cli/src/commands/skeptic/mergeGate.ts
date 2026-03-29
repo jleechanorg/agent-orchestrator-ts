@@ -224,9 +224,12 @@ export async function fetchMergeGateState(
   let skepticVerdict: "PASS" | "FAIL" | "SKIPPED" | null = null;
   let skepticCommentId: number | null = null;
   try {
-    const comments = (await ghJsonPaginate(
+    // ghJsonPaginate uses --paginate --slurp: each page is a separate array element.
+    // Flatten to a single array of comments before iterating.
+    const commentPages = (await ghJsonPaginate(
       "repos/" + owner + "/" + repo + "/issues/" + prNumber + "/comments?per_page=100",
-    )) as Array<{ id: number; body: string; user?: { login: string } }>;
+    )) as Array<Array<{ id: number; body: string; user?: { login: string } }>>;
+    const comments = commentPages.flat();
     for (const c of comments) {
       if (c.user?.login === skepticBotAuthor) {
         // Use the shared VERDICT_LINE_RE from verdict-utils.ts — it accepts both plain
