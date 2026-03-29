@@ -3,6 +3,7 @@
 **Author:** ao session feat/orch-nk7
 **Date:** 2026-03-29
 **Status:** Implemented
+**Revision:** 2026-03-29 — addressed CR code-fence labels, integration snippet, REST API table
 
 ## Background
 
