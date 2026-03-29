@@ -124,11 +124,10 @@ function getPRTitle(): string {
         { encoding: "utf-8", timeout: 30_000 }
       ).trim();
       if (title) return title;
-    } catch (err: unknown) {
-      // All CI env vars are present but gh pr view failed — this is a test environment
-      // error, not "no open PR". Throw rather than silently falling back to branch name.
-      const msg = err instanceof Error ? err.message : String(err);
-      throw new Error(`gh pr view failed in CI context: ${msg}`, { cause: err });
+    } catch {
+      // gh pr view fails when there is no open PR for this branch (e.g. session
+      // worktree branches, or freshly-spawned worktrees before PR is created).
+      // Fall back to branch name — wholesome check will correctly fail if prefix is missing.
     }
   }
   // Fallback: use branch name (useful for local TDD — correctly fails when prefix is missing).
