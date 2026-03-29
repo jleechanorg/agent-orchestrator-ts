@@ -7,8 +7,9 @@ name: Skeptic Gate
 on:
   # Security: uses pull_request (not pull_request_target) — only posts comments,
   # no secret access needed. pull_request_target creates elevated risk for no benefit.
-  pull_request:
-    types: [opened, synchronize, edited, reopened]
+
+pull_request:
+  types: [opened, synchronize, edited, reopened]
 
 # Do NOT cancel in-progress runs — killing a polling step mid-loop discards its
 # loop state. A new concurrent run with the same SHA is harmless since the jq
