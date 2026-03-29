@@ -1,6 +1,6 @@
 # Upstream Sync Review: ComposioHQ/agent-orchestrator
 
-**Date**: 2026-03-28
+**Date**: 2026-03-28 (updated 2026-03-29)
 **Fork**: jleechanorg/agent-orchestrator
 **Branch**: `feat/upstream-sync-review-1274` (worktree: `ao-1274`)
 **Upstream SHA**: `b1b32adb0f86134518ed04d74e589ad53da6049e`
@@ -11,7 +11,7 @@
 | Direction | Commits |
 |---|---|
 | Upstream (ComposioHQ) ahead of origin | 477 (total); upstream advances daily — see current git rev-list counts |
-| Origin (jleechanorg) ahead of upstream | 17 commits (fork-specific) |
+| Origin (jleechanorg) ahead of upstream | 10 commits (fork-specific, verified 2026-03-29 via git rev-list upstream/main..origin/main) |
 | Origin commits (last 30d) | 11 |
 
 **The fork has ~200 commits from upstream that it does not have.** The fork diverged significantly months ago and has been developing independently.

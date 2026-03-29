@@ -52,7 +52,7 @@ You're still in charge - you review the work and decide what gets merged. The bo
 ### What does this look like in real life?
 
 Without Agent Orchestrator:
-```
+```text
 You create branch → You start AI → You watch it work
 Tests fail → You copy error → You paste back to AI → Repeat...
 PR ready → You remember to check → You review → You merge
@@ -60,7 +60,7 @@ PR ready → You remember to check → You review → You merge
 ```
 
 With Agent Orchestrator:
-```
+```text
 You open dashboard → You click "Assign issue to AI"
 You walk away...
 Later: "Hey, your PR is ready and all tests pass!"
@@ -73,7 +73,7 @@ You review → You merge → Done
 
 ### The System Diagram
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────────┐
 │                         YOU (The Human)                         │
 └─────────────────────────────────────────────────────────────────┘
@@ -144,7 +144,7 @@ Note: **Lifecycle** is a built-in core component (the state machine), not a plug
 
 ### Let's follow an issue through the system
 
-```
+```text
 Step 1: You assign an issue to AI
     └─► Dashboard receives request
         └─► Tracker plugin reads the issue from GitHub
@@ -186,7 +186,7 @@ Step 8: PR is approved with green CI
 
 Let's walk through the codebase like we're touring a house.
 
-```
+```text
 agent-orchestrator/              ← The whole house
 │
 ├── packages/                    ← The main rooms
@@ -253,7 +253,7 @@ agent-orchestrator/              ← The whole house
 
 ### The Flow of an Issue
 
-```
+```text
 ┌──────────────┐
 │   GitHub     │ ← Issue #123: "Fix login bug"
 └──────┬───────┘
@@ -320,7 +320,7 @@ agent-orchestrator/              ← The whole house
 
 Agent Orchestrator constantly checks what's happening - like a security guard patrolling:
 
-```
+```text
 Every few seconds, the Lifecycle Manager checks:
 
 1. Are all sessions still running?
@@ -404,7 +404,7 @@ reactions:
 
 Agent Orchestrator uses a special naming system so everything stays organized:
 
-```
+```text
 ~/.agent-orchestrator/
 │
 └── a3b4c5d6e7f8-my-website/    ← Hash-based folder (prevents conflicts)
@@ -430,7 +430,7 @@ The hash (`a3b4c5d6e7f8`) comes from your config folder - it means:
 
 ### The Status States (What's happening?)
 
-```
+```text
 ┌─────────────┐
 │  spawning   │ ← Creating the workspace, starting the agent
 └──────┬──────┘
@@ -503,7 +503,7 @@ While the status shows the big picture, activity shows what's happening right no
 
 Every major piece of Agent Orchestrator is a plugin. Think of it like this:
 
-```
+```text
 Plugin = A contract + An implementation
 
 Contract (Interface): "I need a way to create, destroy, and send to a session"
@@ -576,7 +576,7 @@ export default { manifest, create };
 To add a new plugin to the system:
 
 1. **Create the package folder** in `packages/plugins/`
-   ```
+```text
    packages/plugins/runtime-mynewruntime/
    ```
 
@@ -602,7 +602,7 @@ To add a new plugin to the system:
 
 ### Example 1: Fix a Bug
 
-```
+```text
 1. Developer opens issue #456: "Login form doesn't validate email"
 
 2. You click "Assign to AI" in dashboard
@@ -633,7 +633,7 @@ To add a new plugin to the system:
 
 ### Example 2: Handle Review Comments
 
-```
+```text
 1. PR #789 is open, awaiting review
 
 2. Reviewer comments: "This function needs error handling"
@@ -753,7 +753,7 @@ ao logs <name>              # Check errors
 
 ### Important Files for Development
 
-```
+```text
 Core Services:
   packages/core/src/session-manager.ts    ← Session management
   packages/core/src/lifecycle-manager.ts  ← State and events
@@ -815,7 +815,7 @@ Web:
 
 When you run `ao start` and open `http://localhost:3000`, you'll see a colorful interface that shows everything happening in real-time. Let's break it down like reading a car dashboard!
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────┐
 │                    AGENT ORCHESTRATOR                      │
 ├─────────────────────────────────────────────────────────────┤
@@ -863,7 +863,7 @@ When you run `ao start` and open `http://localhost:3000`, you'll see a colorful 
 
 Each session card tells you a story:
 
-```
+```text
 ┌─ Session Name ─────────────────────────────────────┐
 │ web-1    Fix login bug                              │
 │ ─────────────────────────────────────────────────── │
@@ -896,7 +896,7 @@ Each session card tells you a story:
 
 At the top of the dashboard, you might see a banner like:
 
-```
+```text
 ⚠️ Lifecycle Worker: Last poll 5m ago (expected <30s)
    → Check: Are backend processes running?
 
@@ -918,7 +918,7 @@ This tells you if the system itself is working correctly, separate from the agen
 
 ### Colors You'll See
 
-```
+```text
 🟢 Green = Everything is good
 🟡 Yellow = Needs attention
 🔴 Red   = Something is wrong
@@ -938,7 +938,7 @@ Imagine you're driving a car. You don't just look out the window — you check t
 
 ### Three Levels of Information
 
-```
+```text
 Level 1: Status Dots (Dashboard)
          └─ Quick, visual check of each session
 
@@ -967,7 +967,7 @@ The system automatically tracks:
 
 The system tracks different "surfaces" — like checking different car systems:
 
-```
+```text
 Surface: lifecycle.worker
 Status: ✅ ok
 Last check: 2 seconds ago
@@ -1000,7 +1000,7 @@ AO_LOG_LEVEL=debug   # See everything (lots of output!)
 
 #### Scenario 1: Agent Seems Stuck
 
-```
+```text
 Dashboard shows: web-1 ● Working (for 2 hours)
 Activity: (no change)
 
@@ -1012,7 +1012,7 @@ Check:
 
 #### Scenario 2: Lifecycle Not Polling
 
-```
+```text
 Banner shows: ⚠️ Lifecycle Worker: Last poll 5m ago
 
 What this means: The watch dog isn't patrolling!
@@ -1025,7 +1025,7 @@ Possible causes:
 
 #### Scenario 3: CI Keeps Failing
 
-```
+```text
 web-1: ❌ CI Failed
 Retry 1: ❌ Failed
 Retry 2: ❌ Failed
@@ -1066,7 +1066,7 @@ Sometimes while working, the AI agent discovers something wrong with Agent Orche
 
 Agent Orchestrator gives agents special "feedback tools" to report these issues:
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────┐
 │              Agent Discovers a Problem                     │
 │                    │                                        │
@@ -1110,7 +1110,7 @@ Agent Orchestrator gives agents special "feedback tools" to report these issues:
 
 When an agent submits feedback, it's saved here:
 
-```
+```text
 ~/.agent-orchestrator/
   └── {config-hash}-observability/
       └── feedback/
@@ -1123,7 +1123,7 @@ Each report is a simple key-value file that's easy to read and process.
 
 ### Why This Matters
 
-```
+```text
 Traditional development:
   - Developers find bugs while coding
   - They might forget to report them
@@ -1140,7 +1140,7 @@ With Feedback Tools:
 
 The system is smart! If multiple agents find the same problem, it only saves it once.
 
-```
+```text
 Agent 1: "Spawn command fails when path has spaces"
   → Saves report with dedupe key: a1b2c3d4e5f6 # gitleaks:allow
 
@@ -1168,7 +1168,7 @@ cat report_*.kv
 
 Each report looks like:
 
-```
+```text
 version=1
 id=report_2026-03-28T10-30-00_abc123
 tool=bug_report
@@ -1186,7 +1186,7 @@ confidence=0.95
 
 ### The Big Picture
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────┐
 │                   Agent Orchestrator                        │
 │                                                             │
@@ -1214,7 +1214,7 @@ Result: Agent Orchestrator gets better because agents use it!
 
 **Symptom:** You run `ao spawn` but nothing happens
 
-```
+```text
 Possible causes:
 ┌─────────────────────────────────────────────────────────────┐
 │ 1. Config file not found                                   │
@@ -1238,7 +1238,7 @@ Possible causes:
 
 **Symptom:** Session shows red dot, exited status
 
-```
+```text
 Quick diagnosis:
 ┌─────────────────────────────────────────────────────────────┐
 │ Check the logs:                                             │
@@ -1265,7 +1265,7 @@ Quick diagnosis:
 
 **Symptom:** Agent keeps trying but CI never passes
 
-```
+```text
 When to intervene:
 ┌─────────────────────────────────────────────────────────────┐
 │ After 3+ retries, CI still fails → Time for human help   │
@@ -1289,7 +1289,7 @@ When to intervene:
 
 **Symptom:** Opening localhost:3000 shows empty or error
 
-```
+```text
 Check list:
 ┌─────────────────────────────────────────────────────────────┐
 │ 1. Is `ao start` actually running?                        │
@@ -1311,7 +1311,7 @@ Check list:
 
 **Symptom:** Activity doesn't change, but dot is still green
 
-```
+```text
 Diagnosis steps:
 ┌─────────────────────────────────────────────────────────────┐
 │ 1. Check if agent is waiting for input                      │
@@ -1333,7 +1333,7 @@ Diagnosis steps:
 
 **Symptom:** Two agents editing the same file
 
-```
+```text
 Prevention (this shouldn't happen normally):
 ┌─────────────────────────────────────────────────────────────┐
 │ Each session should have:                                   │
@@ -1352,7 +1352,7 @@ Prevention (this shouldn't happen normally):
 
 **Symptom:** Too many worktrees taking up disk space
 
-```
+```text
 Cleanup steps:
 ┌─────────────────────────────────────────────────────────────┐
 │ 1. List all sessions:                                       │
@@ -1363,7 +1363,7 @@ Cleanup steps:
 │                                                             │
 │ 3. Manual cleanup (if needed):                             │
 │    cd ~/.agent-orchestrator/<hash>-<project>/worktrees      │
-│    rm -rf <worktree-name>                                   │
+│    git worktree remove <worktree-name>                       │
 │                                                             │
 │ Note: AO should auto-cleanup when sessions complete         │
 └─────────────────────────────────────────────────────────────┘
@@ -1373,7 +1373,7 @@ Cleanup steps:
 
 **Symptom:** Clicking "Attach" doesn't open terminal
 
-```
+```text
 Check:
 ┌─────────────────────────────────────────────────────────────┐
 │ 1. Is tmux running?                                         │
@@ -1394,7 +1394,7 @@ Check:
 
 When something goes wrong, check these in order:
 
-```
+```text
 1. Is AO running?         → ps aux | grep ao
 2. Is config valid?       → ao start (check errors)
 3. Are there sessions?    → ao list
@@ -1407,7 +1407,7 @@ When something goes wrong, check these in order:
 
 If you're still stuck:
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────┐
 │ 1. Check existing docs                                      │
 │    README.md, SETUP.md, TROUBLESHOOTING.md                  │
@@ -1439,7 +1439,7 @@ Here's a complete example of how Agent Orchestrator handles a real task from sta
 
 #### Chapter 1: The Morning Standup
 
-```
+```text
 You (at your desk): "OK, let's see what needs doing today."
 
 1. You open the dashboard: http://localhost:3000
@@ -1451,7 +1451,7 @@ You (at your desk): "OK, let's see what needs doing today."
 
 #### Chapter 2: Assigning the Task
 
-```
+```text
 You click "Assign to AI" on the issue
 
 Behind the scenes (automatic):
@@ -1473,7 +1473,7 @@ Dashboard shows:
 
 #### Chapter 3: The Agent Works
 
-```
+```text
 10 minutes later:
 Dashboard shows:
 ┌─────────────────────────────────────────────────────────┐
@@ -1488,7 +1488,7 @@ You're drinking coffee, answering emails.
 
 #### Chapter 4: First CI Failure
 
-```
+```text
 20 minutes later:
 Dashboard shows:
 ┌─────────────────────────────────────────────────────────┐
@@ -1508,7 +1508,7 @@ You didn't need to do anything!
 
 #### Chapter 5: PR Created
 
-```
+```text
 45 minutes later:
 Dashboard shows:
 ┌─────────────────────────────────────────────────────────┐
@@ -1525,7 +1525,7 @@ You get a notification:
 
 #### Chapter 6: Reviewer Comments
 
-```
+```text
 Your colleague reviews the PR and comments:
 "The toggle works, but let's add a smooth animation."
 
@@ -1539,7 +1539,7 @@ Lifecycle Manager:
 
 #### Chapter 7: Agent Addresses Feedback
 
-```
+```text
 Dashboard shows:
 ┌─────────────────────────────────────────────────────────┐
 │ web-6  Add dark mode toggle  [● Working]                │
@@ -1557,7 +1557,7 @@ Dashboard shows:
 
 #### Chapter 8: Approved!
 
-```
+```text
 Your colleague reviews again:
 "Looks great! Approved! 👍"
 
@@ -1575,7 +1575,7 @@ You get notification:
 
 #### Chapter 9: Merge and Cleanup
 
-```
+```text
 You review the code, click "Merge"
 
 System automatically:
@@ -1594,7 +1594,7 @@ Dashboard shows:
 
 #### What You Actually Did
 
-```
+```text
 Time spent: ~5 minutes total
 
 Your actions:
@@ -1616,7 +1616,7 @@ Total time saved: ~2-3 hours
 
 ### The Moral of the Story
 
-```
+```text
 ┌─────────────────────────────────────────────────────────┐
 │  OLD WAY:                                                │
 │  - Create branch                                        │
@@ -1694,7 +1694,7 @@ You've now toured Agent Orchestrator from top to bottom! Here's what you learned
 
 ### The Big Picture
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────┐
 │                    YOU ARE IN CHARGE                       │
 │                                                             │
