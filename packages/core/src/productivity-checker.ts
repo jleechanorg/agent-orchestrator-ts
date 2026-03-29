@@ -11,8 +11,7 @@
 
 import { execFile as _execFile } from "node:child_process";
 import { promisify } from "util";
-import type { OrchestratorConfig, PRInfo, Session } from "./types.js";
-import { TERMINAL_STATUSES } from "./types.js";
+import { TERMINAL_STATUSES, type OrchestratorConfig, type Session } from "./types.js";
 
 const execAsync = promisify(_execFile);
 
