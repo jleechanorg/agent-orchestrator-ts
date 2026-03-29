@@ -1107,6 +1107,14 @@ export interface OrchestratorConfig {
    */
   configPath: string;
 
+  /**
+   * Global auto-merge switch. When true, the `approved-and-green` reaction
+   * automatically merges PRs (equivalent to setting `action: auto-merge`).
+   * Individual projects can override this via their own `autoMerge` field.
+   * Default: false (preserves existing behavior — notify human instead of auto-merge).
+   */
+  autoMerge?: boolean;
+
   /** Web dashboard port (defaults to 3000) */
   port?: number;
 
@@ -1333,6 +1341,14 @@ export interface ProjectConfig {
   // =============================================================================
   // MERGE GATE — bd-uxs.8
   // =============================================================================
+
+  /**
+   * Per-project auto-merge override. When true, the `approved-and-green` reaction
+   * automatically merges PRs for this project (equivalent to setting
+   * `action: auto-merge` on the reaction). Inherits from the global `autoMerge`
+   * field if not set. Default: false (notify human instead of auto-merge).
+   */
+  autoMerge?: boolean;
 
   /**
    * When true, the lifecycle-worker periodically lists open PRs and spawns

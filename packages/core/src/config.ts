@@ -218,6 +218,9 @@ const ProjectConfigSchema = z.object({
     .optional(),
   opencodeIssueSessionStrategy: z.enum(["reuse", "delete", "ignore"]).optional(),
   decomposer: DecomposerConfigSchema.optional(),
+  // Central auto-merge switch: overrides approved-and-green reaction action.
+  // Inherits from global autoMerge when not set.
+  autoMerge: z.boolean().optional(),
   // Lifecycle-worker auto-spawns sessions for open PRs without an active worker.
   backfillAllPRs: z.boolean().optional(),
   // bd-uxs.8: Merge gate configuration
@@ -255,6 +258,9 @@ const OrchestratorConfigSchema = z.object({
   }),
   reactions: z.record(ReactionConfigSchema).default({}),
   plugins: z.record(z.record(z.unknown())).optional(),
+  // Central auto-merge switch: enables auto-merge for approved-and-green reaction
+  // across all projects unless overridden per-project.
+  autoMerge: z.boolean().optional(),
   // Global worktree base directory; can be overridden per-project.
   worktreeDir: z.string().optional(),
 });

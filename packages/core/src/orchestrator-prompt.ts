@@ -204,7 +204,7 @@ ${reactionLines.join("\n")}`);
 2. CI runs automatically
 3. If CI fails: reaction auto-sends fix instructions to agent
 4. If reviewers request changes: reaction auto-sends comments to agent
-5. When approved + green: notify human to merge (unless auto-merge enabled)
+5. When approved + green: notify human to merge (unless auto-merge enabled via \`autoMerge: true\` in config)
 
 ### Manual Intervention
 When an agent needs human judgment:
