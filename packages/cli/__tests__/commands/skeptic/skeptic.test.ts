@@ -9,8 +9,8 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 // CR: import the real VERDICT_LINE_RE from production to avoid duplication.
 // NOTE: vitest's resolvePackageEntry limitation prevents direct import from
 // src/commands/skeptic.js; we verify alignment via an integration test below.
-// The local definition must be kept in sync with skeptic.ts:VERDICT_LINE_RE.
-const VERDICT_LINE_RE = /^VERDICT:\s*(PASS|FAIL|SKIPPED)\b/im;
+// The local definition must be kept in sync with verdict-utils.ts:VERDICT_LINE_RE.
+const VERDICT_LINE_RE = /^(?:> ?\*\*)?VERDICT:\s*(PASS|FAIL|SKIPPED)\b/im;
 
 // ---------------------------------------------------------------------------
 // Docs-only gate — mirrors the jq regex from skeptic-cron.yml.
@@ -98,6 +98,12 @@ describe("VERDICT_LINE_RE — SKIPPED path", () => {
   it("does NOT match SKIP (word boundary required)", () => {
     const m = "VERDICT: SKIP".match(VERDICT_LINE_RE);
     expect(m).toBeNull();
+  });
+
+  it("matches SKIPPED in blockquote markdown (skeptic-gate.yml fallback format)", () => {
+    const m = "> **VERDICT: SKIPPED**".match(VERDICT_LINE_RE);
+    expect(m).not.toBeNull();
+    expect(m![1]).toBe("SKIPPED");
   });
 
   it("still matches PASS", () => {

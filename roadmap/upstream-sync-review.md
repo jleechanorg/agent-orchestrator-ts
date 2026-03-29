@@ -1,6 +1,6 @@
 # Upstream Sync Review: ComposioHQ/agent-orchestrator
 
-**Date**: 2026-03-28
+**Date**: 2026-03-28 (updated 2026-03-29)
 **Fork**: jleechanorg/agent-orchestrator
 **Branch**: `feat/upstream-sync-review-1274` (worktree: `ao-1274`)
 **Upstream SHA**: `b1b32adb0f86134518ed04d74e589ad53da6049e`
@@ -11,8 +11,8 @@
 | Direction | Commits |
 |---|---|
 | Upstream (ComposioHQ) ahead of origin | 477 (total); upstream advances daily — see current git rev-list counts |
-| Origin (jleechanorg) ahead of upstream | 17 commits (fork-specific) |
-| Origin commits (last 30d) | 12 |
+| Origin (jleechanorg) ahead of upstream | 10 commits (fork-specific, verified 2026-03-29 via git rev-list upstream/main..origin/main) |
+| Origin commits (last 30d) | 11 |
 
 **The fork has ~200 commits from upstream that it does not have.** The fork diverged significantly months ago and has been developing independently.
 
@@ -46,16 +46,16 @@ These are the jleechanorg fork's unique contributions:
 
 ## P0 — Cherry-pick Immediately (Security / Data Integrity)
 
-### P0-A: `b49c69ba` — fix: last 10 commits for secrets check (2026-03-27)
+### P0-A: `b49c69ba` — fix: gitleaks scan PR scope with fetch-depth opt + checksum (2026-03-27)
 **PR**: #735 / `c487b409`
 **Severity**: Security
-**What**: Gitleaks secrets check was running against ALL repo commits instead of just the PR commits (last 10). This wastes CI time and could miss secrets in large PRs.
-**Adaptation**: Check if fork's `sweeper-gate.yml` or `skeptic-cron.yml` has the same gitleaks invocation. The upstream fix constrains `gitleaks --log-opts` to a commit range.
+**What**: Gitleaks scan now uses `fetch-depth: 50` (sufficient history without full clone) and verifies the binary's SHA256 checksum before use. The scan covers all file changes in the PR working tree via `gitleaks detect --source .`; the previous approach risked scanning a larger-than-necessary history.
+**Adaptation**: Fork's `security.yml` gitleaks step adopted: (a) `fetch-depth: 50` for PR commits, (b) SHA256 checksum verification (fail-closed), (c) `head.sha` checkout for fork-PR safety.
 **Risk**: Low — additive fix to CI config.
 
 ### P0-B: `70fe5369` — fix: use correct gitleaks --log-opts syntax with commit range (#721)
 **PR**: #720 / `ff48b052`
-**What**: Gitleaks command had incorrect `--log-opts` syntax. The fix uses `git log --format=... HEAD~N..HEAD` to enumerate PR commits for scanning.
+**What**: Upstream corrected `--log-opts` syntax for gitleaks. Fork does not use `--log-opts` (uses `gitleaks detect --source .` working-tree scan instead, which is equivalent for PR-scoped changes with `fetch-depth: 50`).
 **Related**: `f0bcb7b7` — replace gitleaks-action v2 with free CLI to fix org license error (#721)
 **Risk**: Low — CI tooling fix.
 
@@ -243,10 +243,10 @@ These are the jleechanorg fork's unique contributions:
 | CP-5 | `packages/plugins/agent-codex/src/index.ts` | GH_PATH env var in getEnvironment() | **SKIP — already in fork** |
 
 **P0 gitleaks patch applied to `security.yml`:**
-- `fetch-depth: 0` changed to conditional: shallow clone for PRs (`fetch-depth: 1`), full for main
-- Added SHA256 checksum verification before extracting gitleaks binary
-- Changed gitleaks scan to use `--log-opts` with commit range (`$BASE_SHA..$HEAD_SHA`) for PRs
-- Combines all 3 upstream gitleaks security fixes from PRs #720, #721, #735
+- `fetch-depth: 50` for sufficient history without full clone
+- Added SHA256 checksum verification before extracting gitleaks binary (fail-closed)
+- Added explicit `head.sha` + `persist-credentials: false` for PR checkout
+- Combines upstream gitleaks security fixes from PRs #731, #732
 
 ### Evaluate before cherry-pick (medium risk / high value)
 

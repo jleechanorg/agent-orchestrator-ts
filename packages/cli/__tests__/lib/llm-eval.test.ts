@@ -15,6 +15,7 @@ import { tryCodexPrint, tryClaudePrint, llmEval } from "../../src/lib/llm-eval.j
 
 const PASS_VERDICT = "VERDICT: PASS";
 const FAIL_VERDICT = "VERDICT: FAIL";
+const SKIPPED_VERDICT = "VERDICT: SKIPPED";
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -88,6 +89,46 @@ describe("tryCodexPrint", () => {
     expect(result.validVerdict).toBe(false);
     expect(result.error).toBeUndefined(); // signal: try next tool
   });
+
+  it("returns validVerdict=true for markdown-prefixed ## VERDICT: PASS", async () => {
+    mockResolveCodexBinary.mockResolvedValue("/usr/local/bin/codex");
+    mockExecFileSync.mockReturnValue("## VERDICT: PASS");
+    const result = await tryCodexPrint("evaluate this");
+    expect(result.validVerdict).toBe(true);
+    expect(result.output).toBe("## VERDICT: PASS");
+  });
+
+  it("returns validVerdict=true for markdown-prefixed **VERDICT: FAIL**", async () => {
+    mockResolveCodexBinary.mockResolvedValue("/usr/local/bin/codex");
+    mockExecFileSync.mockReturnValue("**VERDICT: FAIL**");
+    const result = await tryCodexPrint("evaluate this");
+    expect(result.validVerdict).toBe(true);
+    expect(result.output).toBe("**VERDICT: FAIL**");
+  });
+
+  it("returns validVerdict=true for single-# prefixed # VERDICT: PASS", async () => {
+    mockResolveCodexBinary.mockResolvedValue("/usr/local/bin/codex");
+    mockExecFileSync.mockReturnValue("# VERDICT: PASS");
+    const result = await tryCodexPrint("evaluate this");
+    expect(result.validVerdict).toBe(true);
+    expect(result.output).toBe("# VERDICT: PASS");
+  });
+
+  it("returns validVerdict=false for VERDICT: SKIPPED (not a valid merge-gate verdict)", async () => {
+    mockResolveCodexBinary.mockResolvedValue("/usr/local/bin/codex");
+    mockExecFileSync.mockReturnValue(SKIPPED_VERDICT);
+    const result = await tryCodexPrint("evaluate this");
+    expect(result.validVerdict).toBe(false);
+    expect(result.error).toContain("missing VERDICT line");
+  });
+
+  it("returns validVerdict=false for markdown-prefixed ## VERDICT: SKIPPED", async () => {
+    mockResolveCodexBinary.mockResolvedValue("/usr/local/bin/codex");
+    mockExecFileSync.mockReturnValue("## VERDICT: SKIPPED");
+    const result = await tryCodexPrint("evaluate this");
+    expect(result.validVerdict).toBe(false);
+    expect(result.error).toContain("missing VERDICT line");
+  });
 });
 
 describe("tryClaudePrint", () => {
@@ -132,6 +173,20 @@ describe("tryClaudePrint", () => {
     expect(result.validVerdict).toBe(false);
     expect(result.error).toContain("ETIMEDOUT");
     expect(result.error).toBeDefined();
+  });
+
+  it("returns validVerdict=true for markdown-prefixed ## VERDICT: PASS (claude)", async () => {
+    mockExecFileSync.mockReturnValue("## VERDICT: PASS");
+    const result = await tryClaudePrint("evaluate this");
+    expect(result.validVerdict).toBe(true);
+    expect(result.output).toBe("## VERDICT: PASS");
+  });
+
+  it("returns validVerdict=false for VERDICT: SKIPPED (not a valid merge-gate verdict)", async () => {
+    mockExecFileSync.mockReturnValue(SKIPPED_VERDICT);
+    const result = await tryClaudePrint("evaluate this");
+    expect(result.validVerdict).toBe(false);
+    expect(result.error).toContain("missing VERDICT line");
   });
 });
 

@@ -145,9 +145,10 @@ export async function fetchMergeGateState(
 
   // 3. Review threads — nit-filtered unresolved counts (matches checkMergeGate)
   // Uses GraphQL reviewThreads.isResolved (REST /pulls/{n}/comments has no state field).
+  // Errors are NOT caught here — fail-closed: if we cannot determine comment state,
+  // we must not silently report 0 unresolved comments (which would bypass CR Gate 5).
   let bugbotErrors = 0;
   let unresolvedBlockingComments = 0;
-  try {
     // Paginate through all review threads (100 per page)
     const allNodes: Array<{
       isResolved: boolean;
@@ -157,9 +158,16 @@ export async function fetchMergeGateState(
     let cursor: string | null = null;
     let hasNextPage = true;
     while (hasNextPage) {
-      const afterArg = cursor ? `, after:"${cursor}"` : "";
+      // Escape GraphQL string inputs to prevent injection via --repo owner/repo.
+      // owner/repo are CLI-supplied; cursor comes from GitHub API (trusted but still escaped).
+      // Escape control chars (\n \r \t \f) for GraphQL single-line string literals.
+      const esc = (s: string) => s.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\n/g, "\\n").replace(/\r/g, "\\r").replace(/\t/g, "\\t").replace(/\f/g, "\\f");
+      const safeOwner = esc(owner);
+      const safeRepo = esc(repo);
+      const safeCursor = esc(cursor ?? "");
+      const afterArg = safeCursor ? `, after:"${safeCursor}"` : "";
       const threadQuery = `{
-  repository(owner:"${owner}", name:"${repo}") {
+  repository(owner:"${safeOwner}", name:"${safeRepo}") {
     pullRequest(number:${prNumber}) {
       reviewThreads(first:100${afterArg}) {
         pageInfo { hasNextPage endCursor }
@@ -209,9 +217,6 @@ export async function fetchMergeGateState(
       if (isBugbot) bugbotErrors++;
       if (!isNit) unresolvedBlockingComments++;
     }
-  } catch {
-    // non-fatal
-  }
 
   // 4. Evidence review
   const evidenceReviews = reviews.filter((r) => r.author?.login === EVIDENCE_BOT);
@@ -219,8 +224,7 @@ export async function fetchMergeGateState(
   const evidenceApproved = latestEvidence?.state === "approved";
   const evidenceRequired = false; // controlled via config; default false for skeptic CLI
 
-  // 5. Existing skeptic verdict — paginate to fetch all pages; iterate all to
-  // find the newest (GitHub returns comments ascending by ID; last match = newest).
+  // 5. Existing skeptic verdict — use paginated fetch to capture all pages of comments
   let skepticVerdict: "PASS" | "FAIL" | "SKIPPED" | null = null;
   let skepticCommentId: number | null = null;
   try {
@@ -238,6 +242,9 @@ export async function fetchMergeGateState(
     const ACCEPTED_AUTHORS = new Set([skepticBotAuthor, "github-actions[bot]"]);
     for (const c of comments) {
       if (c.user?.login && ACCEPTED_AUTHORS.has(c.user.login)) {
+        // Require the skeptic-agent-verdict HTML marker — prevents spoofed verdicts
+        // from malicious actors who gain write access to the bot account.
+        if (!/<!-- skeptic-agent-verdict -->/i.test(c.body)) continue;
         // Use the shared VERDICT_LINE_RE from verdict-utils.ts — it accepts both plain
         // VERDICT: PASS and markdown-bold **VERDICT: PASS** variants.
         const m = c.body.match(VERDICT_LINE_RE);

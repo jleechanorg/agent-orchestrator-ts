@@ -22,14 +22,35 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0 # Full history for comprehensive scan
+          fetch-depth: 50 # Sufficient history for PR-scoped scan; avoids full clone overhead
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
 
       # OSS CLI avoids gitleaks-action org-license requirement (see gitleaks-action README).
+      # SHA256 verification prevents supply-chain attacks on the downloaded binary.
       - name: Install Gitleaks
         env:
           GITLEAKS_VERSION: "8.21.1"
+          # SHA256 of gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz from official release page
+          EXPECTED_SHA256: "b1e20dfbd81fa5eeefc91ace3371d4db75d2250c0d426cb6acf1e51722726779"
         run: |
+          set -e
           curl -sSL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" -o /tmp/gitleaks.tgz
+          # Verify checksum before extracting — fail closed if verification cannot run
+          if command -v sha256sum >/dev/null 2>&1; then
+            ACTUAL_SHA256=$(sha256sum /tmp/gitleaks.tgz | cut -d' ' -f1)
+          elif command -v shasum >/dev/null 2>&1; then
+            ACTUAL_SHA256=$(shasum -a 256 /tmp/gitleaks.tgz | cut -d' ' -f1)
+          else
+            echo "ERROR: neither sha256sum nor shasum available — cannot verify gitleaks binary checksum" >&2
+            exit 1
+          fi
+          echo "Expected SHA256: $EXPECTED_SHA256"
+          echo "Actual SHA256:   $ACTUAL_SHA256"
+          if [ "$ACTUAL_SHA256" != "$EXPECTED_SHA256" ]; then
+            echo "ERROR: gitleaks binary checksum mismatch — refusing to install" >&2
+            exit 1
+          fi
           tar -xzf /tmp/gitleaks.tgz -C /tmp
           sudo install -m 755 /tmp/gitleaks /usr/local/bin/gitleaks
 
