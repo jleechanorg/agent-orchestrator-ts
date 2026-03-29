@@ -61,6 +61,8 @@ describe("fetchDesignDoc", () => {
     // affected by per-test mock overrides (e.g. EACCES injection).
     vi.mocked(fetchDesignDoc).mockReset();
   });
+
+  it("returns file content when the design doc exists", async () => {
     const prNum = 123;
     const docDir = join(tmp, "docs", "design", "pr-designs");
     mkdirSync(docDir, { recursive: true });
