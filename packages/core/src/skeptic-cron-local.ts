@@ -7,8 +7,10 @@
  * the lifecycle-worker's machine where LLM tools are available.
  *
  * Called from the lifecycle-manager poll loop, throttled to run every 10 minutes.
- * For each open PR, checks if evaluation is needed (no session already handling it)
- * and runs `runSkepticReview()` which calls `ao skeptic verify --pr N`.
+ * For each open PR (non-draft), runs `runSkepticReview()` which calls `ao skeptic verify --pr N`.
+ * Prefers an existing active session for the PR when available (provides workspacePath for
+ * report writing); falls back to a synthetic session otherwise. Per-project isolation is
+ * enforced by keying the throttle map and session map by projectId.
  *
  * @module skeptic-cron-local
  */
@@ -117,12 +119,13 @@ export async function runLocalSkepticCron(
 
   if (openPRs.length === 0) return 0;
 
-  // Build a map of PR number → active session (prefer sessions that already
-  // have the PR linked, as they have workspacePath for report writing).
-  const sessionByPR = new Map<number, Session>();
+  // Build a map of (projectId, prNumber) → active session (prefer sessions that
+  // already have the PR linked, as they have workspacePath for report writing).
+  // Key by projectId too — PR numbers can collide across projects.
+  const sessionByPR = new Map<string, Session>();
   for (const s of activeSessions) {
     if (s.pr?.number) {
-      sessionByPR.set(s.pr.number, s);
+      sessionByPR.set(`${s.projectId}:${s.pr.number}`, s);
     }
   }
 
@@ -132,7 +135,7 @@ export async function runLocalSkepticCron(
     if (pr.isDraft) continue;
 
     // Use existing session if available, otherwise synthetic
-    const session = sessionByPR.get(pr.number)
+    const session = sessionByPR.get(`${projectId}:${pr.number}`)
       ?? createSyntheticSession(pr, projectId, project.path ?? null);
 
     try {
@@ -142,7 +145,7 @@ export async function runLocalSkepticCron(
         outcome: "success",
         correlationId,
         projectId,
-        data: { prNumber: pr.number, hasSession: sessionByPR.has(pr.number) },
+        data: { prNumber: pr.number, hasSession: sessionByPR.has(`${projectId}:${pr.number}`) },
         level: "info",
       });
 

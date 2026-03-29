@@ -10,8 +10,8 @@ import type {
   PluginRegistry,
   SessionManager,
   SCM,
-  SkepticReviewResult,
 } from "../types.js";
+import type { SkepticReviewResult } from "../skeptic-reviewer.js";
 import type { ProjectObserver } from "../observability.js";
 
 // --- Mock runSkepticReview ---
