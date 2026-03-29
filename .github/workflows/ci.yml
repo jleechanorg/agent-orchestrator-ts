@@ -59,10 +59,19 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm -r --filter '!@jleechanorg/ao-web' build
-      - name: Ensure base branch ref is available
+      - name: Debug gh availability and PR title lookup
         if: github.event_name == 'pull_request'
-        # For fork PRs, origin/ is the fork; explicitly fetch base branch as local ref.
-        run: git fetch origin ${{ github.base_ref }}:${{ github.base_ref }}
+        run: |
+          echo "=== gh auth ==="
+          gh auth status || echo "gh auth failed"
+          echo "=== gh version ==="
+          gh --version
+          echo "=== env vars ==="
+          echo "GITHUB_TOKEN set: ${#GITHUB_TOKEN}"
+          echo "GITHUB_REPOSITORY: $GITHUB_REPOSITORY"
+          echo "GITHUB_HEAD_REF: $GITHUB_HEAD_REF"
+          echo "=== gh pr view ==="
+          gh pr view "$GITHUB_HEAD_REF" --repo "$GITHUB_REPOSITORY" --json title --jq ".title" || echo "gh pr view failed"
       - run: pnpm test
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
