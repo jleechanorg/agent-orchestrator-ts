@@ -584,13 +584,12 @@ To add a new plugin to the system:
 
 3. **Create package.json** with proper dependencies
 
-4. **Register it** in `packages/core/src/plugin-registry.ts` by adding your package name to the `BUILTIN_PLUGINS` list
+4. **Register it** in `packages/core/src/plugin-registry.ts` by adding an entry to the `BUILTIN_PLUGINS` array (an `Array<{ slot: PluginSlot; name: string; pkg: string }>`):
    ```typescript
    // In packages/core/src/plugin-registry.ts
-   const BUILTIN_PLUGINS = [
-     "@composio/ao-plugin-runtime-tmux",
-     "@composio/ao-plugin-runtime-mynewruntime", // <--- add your plugin here
-     // ...other built-in plugins
+   const BUILTIN_PLUGINS: Array<{ slot: PluginSlot; name: string; pkg: string }> = [
+     // ...existing plugins...
+     { slot: "runtime", name: "mynewruntime", pkg: "@jleechanorg/ao-plugin-runtime-mynewruntime" }, // <--- add your plugin here
    ];
    ```
 
@@ -734,11 +733,12 @@ To add a new plugin to the system:
 # View observability data
 curl http://localhost:3000/api/observability
 
-# View session logs
-ao logs web-1
+# View session logs (via ao session attach)
+ao session ls                 # List active sessions
+ao session attach <name>    # Attach to session to see logs
 
 # Check system health
-curl http://localhost:3000/api/health
+curl http://localhost:3000/api/observability
 ```
 
 ### Troubleshooting Quick Guide (from Part 16)
@@ -746,9 +746,9 @@ curl http://localhost:3000/api/health
 ```bash
 # First things to check:
 ps aux | grep ao              # Is AO running?
-ao start                     # Check config
-ao list                      # See sessions
-ao logs <name>              # Check errors
+ao start                       # Check config
+ao session ls                 # See active sessions
+ao session attach <name>     # Check errors / logs
 ```
 
 ### Important Files for Development
@@ -1006,8 +1006,8 @@ Activity: (no change)
 
 Check:
 1. Is the dot still green? → Agent alive but slow
-2. Check logs: `ao logs web-1`
-3. Consider attaching: `ao attach web-1`
+2. Check logs: `ao session attach web-1`
+3. Consider attaching: `ao session attach web-1`
 ```
 
 #### Scenario 2: Lifecycle Not Polling
@@ -1032,7 +1032,7 @@ Retry 2: ❌ Failed
 
 This is when you need to step in:
 1. View the PR to see the actual error
-2. Attach to the session: `ao attach web-1`
+2. Attach to the session: `ao session attach web-1`
 3. Send specific instructions to the agent
 ```
 
@@ -1043,13 +1043,13 @@ This is when you need to step in:
 curl http://localhost:3000/api/observability
 
 # View specific session logs
-ao logs web-1
+ao session attach web-1
 
 # View all active sessions
-ao list
+ao session ls
 
-# View detailed session info
-ao info web-1
+# View detailed session info (via attach)
+ao session attach web-1
 ```
 
 ---
@@ -1222,10 +1222,10 @@ Possible causes:
 │             agent-orchestrator.yaml                         │
 │                                                             │
 │ 2. Invalid project ID                                       │
-│    Solution: Check project names with `ao projects`         │
+│    Solution: Check project names with `ao session ls`         │
 │                                                             │
 │ 3. Git worktree already exists with same name              │
-│    Solution: Kill existing session with `ao kill <name>`   │
+│    Solution: Kill existing session with `ao session kill <name>`   │
 │                                                             │
 │ 4. Runtime not available (e.g., tmux not installed)         │
 │    Solution: Install tmux:                                  │
@@ -1242,7 +1242,7 @@ Possible causes:
 Quick diagnosis:
 ┌─────────────────────────────────────────────────────────────┐
 │ Check the logs:                                             │
-│   ao logs <session-name>                                    │
+│   ao session attach <session-name>                                    │
 │                                                             │
 │ Common causes:                                              │
 │                                                             │
@@ -1272,7 +1272,7 @@ When to intervene:
 │                                                             │
 │ Steps:                                                      │
 │ 1. View the PR to see the actual error                     │
-│ 2. Attach to session: `ao attach <name>`                    │
+│ 2. Attach to session: `ao session attach <name>`                    │
 │ 3. Send specific guidance:                                 │
 │    "The test failure is in X. Focus on fixing that."       │
 │ 4. Or kill session and fix manually                        │
@@ -1300,7 +1300,7 @@ Check list:
 │    Check your agent-orchestrator.yaml for custom port       │
 │                                                             │
 │ 3. Is there a firewall blocking it?                         │
-│    Try: curl http://localhost:3000/api/health              │
+│    Try: curl http://localhost:3000/api/observability              │
 │                                                             │
 │ 4. Restart everything:                                     │
 │    Kill process → `ao start` again                          │
@@ -1318,13 +1318,13 @@ Diagnosis steps:
 │    Status: waiting_input → You need to respond!             │
 │                                                             │
 │ 2. Attach to see what's happening                           │
-│    ao attach <session-name>                                  │
+│    ao session attach <session-name>                                  │
 │                                                             │
 │ 3. Send a nudge:                                           │
 │    Continue with your task.                                  │
 │                                                             │
 │ 4. If truly stuck, kill and restart                        │
-│    ao kill <session-name>                                    │
+│    ao session kill <session-name>                                    │
 │    ao spawn <project> <issue>                               │
 └─────────────────────────────────────────────────────────────┘
 ```
@@ -1356,10 +1356,10 @@ Prevention (this shouldn't happen normally):
 Cleanup steps:
 ┌─────────────────────────────────────────────────────────────┐
 │ 1. List all sessions:                                       │
-│    ao list                                                  │
+│    ao session ls                                                  │
 │                                                             │
 │ 2. Kill done sessions:                                     │
-│    ao kill <session-name>                                   │
+│    ao session kill <session-name>                                   │
 │                                                             │
 │ 3. Manual cleanup (if needed):                             │
 │    cd ~/.agent-orchestrator/<hash>-<project>/worktrees      │
@@ -1383,7 +1383,7 @@ Check:
 │    Status should show: active or ready                       │
 │                                                             │
 │ 3. Try attaching manually:                                   │
-│    ao attach <session-name>                                  │
+│    ao session attach <session-name>                                  │
 │                                                             │
 │ 4. Check terminal integration setting in config             │
 │    terminal: iterm2  # or web, terminal-iterm2              │
@@ -1397,9 +1397,9 @@ When something goes wrong, check these in order:
 ```text
 1. Is AO running?         → ps aux | grep ao
 2. Is config valid?       → ao start (check errors)
-3. Are there sessions?    → ao list
-4. Check logs             → ao logs <session>
-5. Check system           → curl http://localhost:3000/api/health
+3. Are there sessions?    → ao session ls
+4. Check logs             → ao session attach <session>
+5. Check system           → curl http://localhost:3000/api/observability
 6. Check observability    → curl http://localhost:3000/api/observability
 ```
 
@@ -1423,7 +1423,7 @@ If you're still stuck:
 │    - What you were doing                                    │
 │    - What happened                                          │
 │    - Your config (sensitive parts removed)                  │
-│    - Logs from ao logs <session>                           │
+│    - Logs from ao session attach <session>                           │
 └─────────────────────────────────────────────────────────────┘
 ```
 
