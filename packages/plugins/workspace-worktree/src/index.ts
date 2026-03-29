@@ -226,6 +226,51 @@ function expandPath(p: string): string {
   return p;
 }
 
+/**
+ * bd-1483: Resolve ambiguous `origin/<branch>` refs before `git worktree add`.
+ *
+ * A local branch (refs/heads/origin/main) that matches origin/<name> shadows the
+ * remote-tracking ref (refs/remotes/origin/main), causing "ambiguous object name" in
+ * git worktree add.
+ *
+ * Fix: use `git branch --list` to detect a local branch with the same short name as
+ * the remote-tracking ref. If found, rename it to `backup/<name>` before the worktree
+ * operation so the short name resolves cleanly to the remote-tracking ref.
+ *
+ * Note: `git for-each-ref "origin/main"` does NOT match refs/remotes/origin/main — short
+ * names as patterns don't work. `git branch --list` is the reliable tool here.
+ */
+export class AmbiguousRefRenameError extends Error {
+  readonly ref: string;
+  constructor(ref: string) {
+    super(
+      `Ambiguous ref "${ref}": a local branch with this name conflicts with ` +
+      `the remote-tracking ref. Manually rename or delete it: git branch -m ${ref} backup/${ref}. ` +
+      `If backup/${ref} already exists, delete it first or pick a different name.`,
+    );
+    this.name = "AmbiguousRefRenameError";
+    this.ref = ref;
+  }
+}
+
+async function disambiguateBaseRef(repoPath: string, ref: string): Promise<void> {
+  try {
+    const branchListOutput = await git(repoPath, "branch", "--list", ref);
+    if (branchListOutput.trim()) {
+      const backupName = `backup/${ref}`;
+      try {
+        await git(repoPath, "branch", "-m", ref, backupName);
+        // After rename, `ref` resolves cleanly to the remote-tracking ref
+      } catch {
+        throw new AmbiguousRefRenameError(ref);
+      }
+    }
+  } catch (err: unknown) {
+    // Re-throw only the actionable AmbiguousRefRenameError; ignore unexpected failures
+    if (err instanceof AmbiguousRefRenameError) throw err;
+  }
+}
+
 
 export function create(config?: Record<string, unknown>): Workspace {
   const worktreeBaseDir = config?.worktreeDir
@@ -254,43 +299,9 @@ export function create(config?: Record<string, unknown>): Workspace {
 
       const baseRef = `origin/${cfg.project.defaultBranch}`;
 
-      // bd-ara.2 / bd-1483: Detect and auto-remediate ambiguous refs.
-      // A local branch (e.g. refs/heads/origin/main) that matches origin/<name> shadows
-      // the remote-tracking ref (refs/remotes/origin/main), causing "ambiguous object
-      // name" in git worktree add.
-      //
-      // Fix: use `git branch --list` to check for a local branch with the same short
-      // name as the remote-tracking ref. If found, rename it to backup/<name> before
-      // creating the worktree. This prevents the ambiguous-ref error entirely.
-      //
-      // Note: `git for-each-ref "origin/main"` does NOT match refs/remotes/origin/main
-      // (short names don't work as patterns), so we use `git branch --list` instead.
-      try {
-        const branchListOutput = await git(repoPath, "branch", "--list", baseRef);
-        if (branchListOutput.trim()) {
-          // Local branch with this name exists — rename it to avoid ambiguity
-          const localName = baseRef; // e.g. "origin/main"
-          const backupName = `backup/${localName}`;
-          try {
-            await git(repoPath, "branch", "-m", localName, backupName);
-            // Fall through — after rename, baseRef resolves cleanly to the remote-tracking ref
-          } catch {
-            // Rename failed (e.g. backup/origin/main already exists) — throw actionable error
-            throw new Error(
-              `Ambiguous ref "${baseRef}": a local branch with this name conflicts with ` +
-              `the remote-tracking ref. Failed to rename to "${backupName}" — ` +
-              `manually rename or delete it: git branch -m ${localName} ${backupName}`,
-            );
-          }
-        }
-      } catch (ambigErr: unknown) {
-        // Re-throw only the actionable error above; ignore unexpected errors from
-        // the disambiguation step (e.g. git not found, repo path invalid).
-        const errMsg = ambigErr instanceof Error ? ambigErr.message : String(ambigErr);
-        if (errMsg.includes("Ambiguous ref")) {
-          throw ambigErr;
-        }
-      }
+      // bd-1483: Disambiguate before git worktree add — local branch may shadow
+      // the remote-tracking ref, causing "ambiguous object name" error.
+      await disambiguateBaseRef(repoPath, baseRef);
 
       // Create worktree with a new branch
       try {
@@ -557,11 +568,14 @@ export function create(config?: Record<string, unknown>): Workspace {
       } catch {
         // Branch might not exist locally — try from origin
         const remoteBranch = `origin/${cfg.branch}`;
+        // bd-1483: Disambiguate before git worktree add (same shadowing risk as create())
+        await disambiguateBaseRef(repoPath, remoteBranch);
         try {
           await git(repoPath, "worktree", "add", "-b", cfg.branch, workspacePath, remoteBranch);
         } catch {
           // Last resort: create from default branch
           const baseRef = `origin/${cfg.project.defaultBranch}`;
+          await disambiguateBaseRef(repoPath, baseRef);
           await git(repoPath, "worktree", "add", "-b", cfg.branch, workspacePath, baseRef);
         }
       }
