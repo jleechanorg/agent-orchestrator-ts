@@ -9,7 +9,7 @@ Welcome! This guide will walk you through Agent Orchestrator step by step. We'll
 | Part | Title | What You'll Learn |
 |------|-------|------------------|
 | 1 | The Big Picture 🎯 | What Agent Orchestrator is and why it exists |
-| 2 | Architecture - The Building Blocks 🧱 | System diagram and seven plugin slots |
+| 2 | Architecture - The Building Blocks 🧱 | System diagram and eight plugin slots |
 | 3 | How It Works - Step by Step 🚀 | Following an issue through the system |
 | 4 | Directory Tour - Where Things Live 🗺️ | Codebase structure tour |
 | 5 | Data Flow - How Information Moves 🌊 | How data travels through the system |
@@ -120,7 +120,7 @@ You review → You merge → Done
                     └─────────────────┘
 ```
 
-### The Seven Plugin Slots (The LEGO Pieces)
+### The Eight Plugin Slots (The LEGO Pieces)
 
 Agent Orchestrator is built from interchangeable parts - like LEGO bricks! Each "slot" is a place where you can swap in different implementations.
 
@@ -133,6 +133,7 @@ Agent Orchestrator is built from interchangeable parts - like LEGO bricks! Each 
 | **SCM** | Where PRs are made | The review system | GitHub | GitLab |
 | **Notifier** | How you get alerts | The notification bell | Desktop | Slack, webhook |
 | **Terminal** | How you interact | The window you type in | iTerm2 | Web |
+| **Poller** | Scans for work to do and spawns sessions | The scout that finds new tasks | GitHub | GitLab, Linear |
 
 Note: **Lifecycle** is a built-in core component (the state machine), not a plugin slot. It handles reactions and session management internally.
 
@@ -430,57 +431,22 @@ The hash (`a3b4c5d6e7f8`) comes from your config folder - it means:
 
 ### The Status States (What's happening?)
 
+Canonical session statuses (defined in `packages/core/src/types.ts`):
+
 ```text
-┌─────────────┐
-│  spawning   │ ← Creating the workspace, starting the agent
-└──────┬──────┘
-       │
-       ▼
-┌─────────────┐
-│   working   │ ← Agent is actively coding
-└──────┬──────┘
-       │
-       ▼
-┌─────────────┐
-│  pr_open    │ ← Agent created a pull request
-└──────┬──────┘
-       │
-       ├─────────────────┐
-       │                 │
-       ▼                 ▼
-┌─────────────┐   ┌─────────────┐
-│  ci_failed  │   │ review_...  │ ← CI failed or review started
-└──────┬──────┘   └──────┬──────┘
-       │                 │
-       │ (agent fixes)    │ (agent addresses comments)
-       ▼                 ▼
-       └─────────┬───────┘
-                 │
-                 ▼
-          ┌─────────────┐
-          │  approved   │ ← PR is approved and CI passes
-          └──────┬──────┘
-                 │
-                 ▼
-          ┌─────────────┐
-          │  mergeable  │ ← Ready to merge
-          └──────┬──────┘
-                 │
-                 ▼
-          ┌─────────────┐
-          │   merged    │ ← Merged into main branch
-          └──────┬──────┘
-                 │
-                 ▼
-          ┌─────────────┐
-          │   cleanup   │ ← Cleaning up workspace
-          └──────┬──────┘
-                 │
-                 ▼
-          ┌─────────────┐
-          │    done     │ ← All finished!
-          └─────────────┘
+spawning → working → pr_open
+                    ├─► ci_failed ──► (back to working after fixes)
+                    ├─► review_pending ──► changes_requested ──► (back to working)
+                    ├─► approved ──► mergeable ──► merged
+                    ├─► merge_conflicts ──► (back to working after rebase)
+                    ├─► needs_input ──► (back to working after input)
+                    ├─► stuck ──► killed ──► terminated
+                    └─► errored ──► killed ──► terminated
+                    └─► idle ──► done (cleanup)
+                         └─► done (cleanup)
 ```
+
+Key states: `spawning` (workspace setup), `working` (agent coding), `pr_open` (PR created), `review_pending` / `changes_requested` (CR review cycle), `approved` (review done), `mergeable` (green), `merged`, `cleanup`, `done`.
 
 ### The Activity States (What's the agent doing?)
 
@@ -1646,7 +1612,7 @@ You've now toured Agent Orchestrator from top to bottom! Here's what you learned
 
 ### Core Concepts (Parts 1-3)
 - **It's a conductor for AI workers** - coordinating multiple agents like an orchestra
-- **Seven plugin slots** - swap any part you want (runtime, agent, workspace, tracker, SCM, notifier, terminal)
+- **Eight plugin slots** - swap any part you want (runtime, agent, workspace, tracker, SCM, notifier, terminal, poller)
 - **Sessions do the work** - each issue gets its own isolated workspace
 - **Reactions handle feedback** - automatically route CI failures and comments
 
@@ -1657,7 +1623,7 @@ You've now toured Agent Orchestrator from top to bottom! Here's what you learned
 
 ### Configuration and Lifecycle (Parts 6-7)
 - **Simple YAML config** - agent-orchestrator.yaml controls everything
-- **Session states** - spawning → working → pr_open → (ci_failed / review) → approved → merged → cleanup → done
+- **Session states** - spawning → working → pr_open → (ci_failed / review_pending / changes_requested / merge_conflicts) → approved → mergeable → merged → cleanup → done; also: stuck, errored, killed, needs_input, idle, terminated
 - **Activity states** - active, ready, idle, waiting_input, blocked, exited
 
 ### Extending the System (Part 8)
