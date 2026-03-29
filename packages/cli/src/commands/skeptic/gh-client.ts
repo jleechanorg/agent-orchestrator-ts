@@ -148,7 +148,7 @@ export async function fetchIssueComments(
   const pages = (await ghJsonPaginate(
     "repos/" + owner + "/" + repo + "/issues/" + prNumber + "/comments",
   )) as Array<IssueComment[]>;
-  return pages.flat();
+  return (pages ?? []).flat();
 }
 
 export async function patchComment(

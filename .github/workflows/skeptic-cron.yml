@@ -345,9 +345,10 @@ jobs:
               # Accept both the configured bot author and github-actions[bot] (GHA runner posts
               # SKIPPED fallback as github-actions[bot]). Without the github-actions[bot] fallback,
               # an empty/null SKEPTIC_BOT_AUTHOR causes jq to match nothing, masking the verdict.
+              # Filter by skeptic-cron-trigger marker to avoid matching stale verdicts from old runs.
               SKEPTIC_VERDICT=$(gh api repos/${{ github.repository }}/issues/"$PR_NUM"/comments \
                 --paginate \
-                --jq "[.[] | select((.user.login == \"${SKEPTIC_BOT_AUTHOR}\" or .user.login == \"github-actions[bot]\") and (.body | test(\"VERDICT:\"; \"i\"))) | .body] | last // empty")
+                --jq "[.[] | select((.user.login == \"${SKEPTIC_BOT_AUTHOR}\" or .user.login == \"github-actions[bot]\") and (.body | test(\"VERDICT:\"; \"i\")) and (.body | test(\"skeptic-cron-trigger-\"; \"i\"))) | .body] | last // empty" 2>/dev/null || echo "")
               if echo "$SKEPTIC_VERDICT" | grep -qi "VERDICT: PASS"; then
                 SKEPTIC_STATUS="PASS"
               elif echo "$SKEPTIC_VERDICT" | grep -qi "VERDICT: SKIPPED"; then

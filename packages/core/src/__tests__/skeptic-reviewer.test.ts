@@ -225,7 +225,7 @@ describe("runSkepticReview", () => {
     });
     const session = makeSession();
     const result = await runSkepticReview(session);
-    // Before the fix, SKIPPED matched VERDICT_LINE_RE$ (end anchor) which excluded SKIPPED,
+    // Before the fix, SKIPPED was absent from the (PASS|FAIL) capture-group alternation,
     // causing it to fall through to the "FAIL" default. Now it is a first-class verdict.
     expect(result.verdict).toBe("SKIPPED");
   });

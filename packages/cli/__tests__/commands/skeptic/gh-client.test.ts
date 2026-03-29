@@ -188,7 +188,7 @@ describe("fetchIssueComments", () => {
     expect(result).toEqual([]);
   });
 
-  it("returns empty array when gh api returns null (no comments)", async () => {
+  it("returns empty array when gh api returns empty pages", async () => {
     mockExec.mockResolvedValueOnce({
       stdout: JSON.stringify([[]]),
       stderr: "",
