@@ -59,22 +59,13 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm -r --filter '!@jleechanorg/ao-web' build
-      - name: Debug gh availability and PR title lookup
-        if: github.event_name == 'pull_request'
-        run: |
-          echo "=== gh auth ==="
-          gh auth status || echo "gh auth failed"
-          echo "=== gh version ==="
-          gh --version
-          echo "=== env vars ==="
-          echo "GITHUB_TOKEN set: ${#GITHUB_TOKEN}"
-          echo "GITHUB_REPOSITORY: $GITHUB_REPOSITORY"
-          echo "GITHUB_HEAD_REF: $GITHUB_HEAD_REF"
-          echo "=== gh pr view ==="
-          gh pr view "$GITHUB_HEAD_REF" --repo "$GITHUB_REPOSITORY" --json title --jq ".title" || echo "gh pr view failed"
       - run: pnpm test
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Use env.GITHUB_TOKEN (auto-provided by GitHub Actions) instead of secrets.GITHUB_TOKEN
+          # secrets.GITHUB_TOKEN can be empty when GITHUB_TOKEN is not set as a secret.
+          # GITHUB_TOKEN is automatically provided by GitHub Actions as an environment variable.
+          GH_TOKEN: ${{ env.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ env.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           GITHUB_HEAD_REF: ${{ github.head_ref }}
           GITHUB_BASE_REF: ${{ github.base_ref }}
