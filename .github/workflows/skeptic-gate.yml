@@ -22,6 +22,9 @@ jobs:
   skeptic_gate:
     name: Skeptic Gate
     runs-on: ubuntu-latest
+    # Restrict to same-repo PRs — pull_request_target also fires for forked PRs
+    # (which run in the base-repo security context with base-repo secrets).
+    if: github.event.pull_request.head.repo.full_name == github.repository
     permissions:
       pull-requests: write
       issues: write

@@ -10,6 +10,7 @@
  */
 
 import { ghJson, ghJsonPaginate, fetchReviews, type ReviewInfo } from "./gh-client.js";
+import { VERDICT_LINE_RE } from "./verdict-utils.js";
 
 const NIT_PATTERN = /^(nit:|nitpick)/i;
 const CR_BOT = "coderabbitai[bot]";
@@ -94,7 +95,6 @@ export async function fetchMergeGateState(
     ) as { head?: { ref?: string; sha?: string }; mergeable?: boolean; merged?: boolean };
     mergeableRaw = prData?.mergeable ?? null;
     noConflicts = prData?.mergeable === true || prData?.merged === true;
-    const headRef = prData?.head?.ref;
     const headSha = prData?.head?.sha;
     // Use headSha (immutable commit SHA) instead of headRef (mutable branch ref)
     // to avoid TOCTOU races where the branch moves between status check and merge.
@@ -108,9 +108,13 @@ export async function fetchMergeGateState(
     // Fetch individual check runs for independent verification (paginated to capture all pages)
     if (headSha) {
       try {
-        const checkRunData = await ghJsonPaginate(
+        // check-runs endpoint returns { total_count, check_runs: [...] } per page;
+        // use targetKey="check_runs" so ghJsonPaginate extracts the array from each page.
+        const checkRunData = (await ghJsonPaginate(
           "repos/" + owner + "/" + repo + "/commits/" + headSha + "/check-runs?per_page=100",
-        ) as Array<{ name: string; status: string; conclusion: string | null }>;
+          [],
+          "check_runs",
+        )) as Array<{ name: string; status: string; conclusion: string | null }>;
         // Deduplicate by name, keeping latest conclusion
         const seen = new Map<string, CheckRunSummary>();
         for (const run of (checkRunData ?? [])) {
@@ -226,17 +230,11 @@ export async function fetchMergeGateState(
     ) as Array<{ id: number; body: string; user?: { login: string } }>;
     for (const c of comments) {
       if (c.user?.login === skepticBotAuthor) {
-        // Also handle markdown-bold variants: **VERDICT: SKIPPED** (matching skeptic.ts VERDICT_LINE_RE)
-        if (/\*\*?VERDICT:\s*PASS\b/i.test(c.body)) {
-          skepticVerdict = "PASS";
-          skepticCommentId = c.id;
-          break;
-        } else if (/\*\*?VERDICT:\s*FAIL\b/i.test(c.body)) {
-          skepticVerdict = "FAIL";
-          skepticCommentId = c.id;
-          break;
-        } else if (/\*\*?VERDICT:\s*SKIPPED\b/i.test(c.body)) {
-          skepticVerdict = "SKIPPED";
+        // Use the shared VERDICT_LINE_RE from verdict-utils.ts — it accepts both plain
+        // VERDICT: PASS and markdown-bold **VERDICT: PASS** variants.
+        const m = c.body.match(VERDICT_LINE_RE);
+        if (m) {
+          skepticVerdict = m[1].toUpperCase() as "PASS" | "FAIL" | "SKIPPED";
           skepticCommentId = c.id;
           break;
         }

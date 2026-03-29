@@ -42,10 +42,29 @@ export async function ghJson(endpoint: string, args: string[] = []): Promise<unk
   return JSON.parse(result.stdout);
 }
 
-/** Like ghJson but uses --paginate to fetch all pages automatically (REST only). */
-export async function ghJsonPaginate(endpoint: string, args: string[] = []): Promise<unknown> {
+/** Like ghJson but uses --paginate to fetch all pages automatically (REST only).
+ *
+ * For endpoints that return a wrapper object (e.g. `{ total_count, check_runs: [...] }`),
+ * pass `targetKey` to extract the array field from each page. Without `targetKey`,
+ * --paginate output is treated as an array of objects and returned as-is.
+ */
+export async function ghJsonPaginate(
+  endpoint: string,
+  args: string[] = [],
+  targetKey?: string,
+): Promise<unknown> {
   const result = await exec("gh", ["api", "--paginate", endpoint, ...args]);
-  return JSON.parse(result.stdout);
+  const parsed = JSON.parse(result.stdout);
+  if (targetKey) {
+    // Each page is a wrapper object; extract the target key from each and concat.
+    const pages = parsed as Array<Record<string, unknown>>;
+    const items = pages.flatMap((p) => {
+      const val = p[targetKey];
+      return Array.isArray(val) ? val : [];
+    });
+    return items;
+  }
+  return parsed;
 }
 
 export interface PRInfo {

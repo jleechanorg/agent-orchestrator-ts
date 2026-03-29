@@ -196,9 +196,9 @@ function extractDescription(body) {
     // comment) in one pass so the greedy fallback stripper never sees it.  Handles
     // all known encodings: literal, HTML-entity, single-escaped, and double-escaped.
     .replace(/<!--\s*[\/]?CURSOR_SUMMARY[\s\S]*?-->/g, "")
-    .replace(/&lt;!--\s*[\/]?CURSOR_SUMMARY[\s\S]*?&gt;/g, "")
-    .replace(/\u003c!--\s*[\/]?CURSOR_SUMMARY[\s\S]*?\u003e/g, "")
-    .replace(/\\u003c!--\s*[\/]?CURSOR_SUMMARY[\s\S]*?\\u003e/g, "")
+    .replace(/&lt;!--\s*[\/]?CURSOR_SUMMARY[\s\S]*?--&gt;/g, "")
+    .replace(/\u003c!--\s*[\/]?CURSOR_SUMMARY[\s\S]*?--\u003e/g, "")
+    .replace(/\\u003c!--\s*[\/]?CURSOR_SUMMARY[\s\S]*?--\\u003e/g, "")
     .replace(/^---\s*$/gm, "")
     .replace(/<!--[\s\S]*?-->/gs, ""); // strip any remaining HTML comments (dotall + non-greedy)
   const paragraphs = cleaned.split(/\n\n+/);
