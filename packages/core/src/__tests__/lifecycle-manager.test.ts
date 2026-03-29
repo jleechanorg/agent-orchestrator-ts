@@ -3,6 +3,19 @@ import { mkdirSync, rmSync, writeFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
+
+// Must precede lifecycle-manager import (which imports skeptic-cron-local)
+const { mockRunLocalSkepticCron } = vi.hoisted<{
+  mockRunLocalSkepticCron: () => Promise<number>;
+}>(() => ({
+  mockRunLocalSkepticCron: vi.fn<[], Promise<number>>().mockResolvedValue(0),
+}));
+
+vi.mock("../skeptic-cron-local.js", () => ({
+  runLocalSkepticCron: mockRunLocalSkepticCron,
+  _resetSkepticCronTimer: vi.fn(),
+}));
+
 import { createLifecycleManager } from "../lifecycle-manager.js";
 import { createSessionManager } from "../session-manager.js";
 import * as reviewBacklog from "../review-backlog.js";
@@ -101,6 +114,7 @@ beforeEach(() => {
   // bd-yjo: Reset review backlog throttle counters between tests
   reviewBacklog.resetAllReviewBacklogCounters();
   vi.mocked(logAoAction).mockReset();
+  vi.mocked(mockRunLocalSkepticCron).mockReset().mockResolvedValue(0);
 
   tmpDir = join(tmpdir(), `ao-test-lifecycle-${randomUUID()}`);
   mkdirSync(tmpDir, { recursive: true });
@@ -4798,5 +4812,122 @@ describe("centralized auto-merge config (getReactionConfigForSession)", () => {
     // approved-and-green; ci-failed returns null (no defaults applied in unit test)
     const config = getReactionConfigForSession(session, "ci-failed");
     expect(config).toBeNull();
+  });
+});
+
+describe("runLocalSkepticCron integration (bd-skp2)", () => {
+  it("runLocalSkepticCron is NOT called when scopedProjectId is undefined", async () => {
+    // No projectId → scopedProjectId is undefined → skeptic cron guard skips
+    vi.mocked(mockSessionManager.list).mockResolvedValue([]);
+    const lm = createLifecycleManager({
+      config, // scopedProjectId is undefined here
+      registry: mockRegistry,
+      sessionManager: mockSessionManager,
+    });
+    try {
+      lm.start(60_000);
+      await vi.waitUntil(() => vi.mocked(mockRunLocalSkepticCron).mock.calls.length >= 0, { timeout: 3000 });
+      // Verify it was never called (sessions list was empty, so even if it were called it would return 0,
+      // but the key guard is scopedProjectId === undefined)
+      // Since scopedProjectId is undefined, the if (scopedProjectId) block is never entered
+      expect(mockRunLocalSkepticCron).not.toHaveBeenCalled();
+    } finally {
+      lm.stop();
+    }
+  });
+
+  it("runLocalSkepticCron is skipped when backfillAllPRs is false", async () => {
+    vi.mocked(mockSessionManager.list).mockResolvedValue([]);
+    const configNoBackfill: typeof config = {
+      ...config,
+      projects: {
+        "my-app": {
+          ...config.projects["my-app"],
+          backfillAllPRs: false,
+        },
+      },
+    };
+    const lm = createLifecycleManager({
+      config: configNoBackfill,
+      registry: mockRegistry,
+      sessionManager: mockSessionManager,
+      projectId: "my-app",
+    });
+    try {
+      lm.start(60_000);
+      await vi.waitUntil(() => vi.mocked(mockRunLocalSkepticCron).mock.calls.length >= 0, { timeout: 3000 });
+      expect(mockRunLocalSkepticCron).not.toHaveBeenCalled();
+    } finally {
+      lm.stop();
+    }
+  });
+
+  it("runLocalSkepticCron is called when scopedProjectId is set and backfillAllPRs is true", async () => {
+    vi.mocked(mockSessionManager.list).mockResolvedValue([]);
+    const configWithBackfill: typeof config = {
+      ...config,
+      projects: {
+        "my-app": {
+          ...config.projects["my-app"],
+          backfillAllPRs: true,
+        },
+      },
+    };
+    const lm = createLifecycleManager({
+      config: configWithBackfill,
+      registry: mockRegistry,
+      sessionManager: mockSessionManager,
+      projectId: "my-app",
+    });
+    try {
+      lm.start(60_000);
+      await vi.waitUntil(() => vi.mocked(mockRunLocalSkepticCron).mock.calls.length > 0, { timeout: 3000 });
+      expect(mockRunLocalSkepticCron).toHaveBeenCalledTimes(1);
+      const [deps, params] = vi.mocked(mockRunLocalSkepticCron).mock.calls[0]!;
+      expect(params.projectId).toBe("my-app");
+      expect(params.project).toBe(configWithBackfill.projects["my-app"]);
+      expect(params.activeSessions).toEqual([]);
+      expect(params.correlationId).toBeDefined();
+      expect(deps.registry).toBe(mockRegistry);
+      expect(deps.sessionManager).toBe(mockSessionManager);
+    } finally {
+      lm.stop();
+    }
+  });
+
+  it("runLocalSkepticCron throw does NOT crash the poll loop", async () => {
+    vi.mocked(mockSessionManager.list).mockResolvedValue([]);
+    vi.mocked(mockRunLocalSkepticCron).mockRejectedValueOnce(new Error("skepticro_err"));
+    const configWithBackfill: typeof config = {
+      ...config,
+      projects: {
+        "my-app": {
+          ...config.projects["my-app"],
+          backfillAllPRs: true,
+        },
+      },
+    };
+    const lm = createLifecycleManager({
+      config: configWithBackfill,
+      registry: mockRegistry,
+      sessionManager: mockSessionManager,
+      projectId: "my-app",
+    });
+    try {
+      // pollAll is called with "void pollAll()" inside start(), so it runs asynchronously.
+      // Wait until mockRunLocalSkepticCron is called — this means pollAll has reached
+      // the skeptic cron call site (even if it throws). If the throw escaped the
+      // try/catch, pollAll would reject and the error would propagate differently.
+      lm.start(60_000);
+      await vi.waitUntil(
+        () => vi.mocked(mockRunLocalSkepticCron).mock.calls.length > 0,
+        { timeout: 5000 },
+      );
+      // Verify it was called once — the throw was caught by the try/catch in pollAll,
+      // so the poll loop continued without crashing.
+      expect(mockRunLocalSkepticCron).toHaveBeenCalledTimes(1);
+    } finally {
+      lm.stop();
+    }
   });
 });

@@ -51,7 +51,11 @@ export function _resetSkepticCronTimer(): void {
  * Create a minimal synthetic Session for PRs that have no active AO session.
  * Only the fields used by `runSkepticReview()` need real values.
  */
-function createSyntheticSession(pr: PRInfo, projectId: string): Session {
+function createSyntheticSession(
+  pr: PRInfo,
+  projectId: string,
+  workspacePath: string | null,
+): Session {
   return {
     id: `skeptic-cron-pr-${pr.number}`,
     projectId,
@@ -60,7 +64,7 @@ function createSyntheticSession(pr: PRInfo, projectId: string): Session {
     branch: pr.branch ?? null,
     issueId: null,
     pr,
-    workspacePath: null,
+    workspacePath,
     runtimeHandle: null,
     agentInfo: null,
     createdAt: new Date(),
@@ -128,7 +132,8 @@ export async function runLocalSkepticCron(
     if (pr.isDraft) continue;
 
     // Use existing session if available, otherwise synthetic
-    const session = sessionByPR.get(pr.number) ?? createSyntheticSession(pr, projectId);
+    const session = sessionByPR.get(pr.number)
+      ?? createSyntheticSession(pr, projectId, project.path ?? null);
 
     try {
       observer.recordOperation({
