@@ -15,6 +15,8 @@ import { VERDICT_LINE_RE } from "./verdict-utils.js";
 const NIT_PATTERN = /^(nit:|nitpick)/i;
 const CR_BOT = "coderabbitai[bot]";
 const EVIDENCE_BOT = "evidence-review-bot";
+/** Matches the HTML comment marker that marks skeptic agent comments. */
+const SKEPTIC_MARKER_RE = /<!--\s*skeptic-agent-verdict\s*-->/i;
 
 export interface CheckRunSummary {
   name: string;
@@ -157,9 +159,14 @@ export async function fetchMergeGateState(
     let cursor: string | null = null;
     let hasNextPage = true;
     while (hasNextPage) {
-      const afterArg = cursor ? `, after:"${cursor}"` : "";
+      // Escape GraphQL string inputs to prevent injection via --repo owner/repo.
+      // owner/repo are CLI-supplied; cursor comes from GitHub API (trusted but still escaped).
+      const safeOwner = owner.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\f/g, "\\f");
+      const safeRepo = repo.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\f/g, "\\f");
+      const safeCursor = (cursor ?? "").replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\f/g, "\\f");
+      const afterArg = safeCursor ? `, after:"${safeCursor}"` : "";
       const threadQuery = `{
-  repository(owner:"${owner}", name:"${repo}") {
+  repository(owner:"${safeOwner}", name:"${safeRepo}") {
     pullRequest(number:${prNumber}) {
       reviewThreads(first:100${afterArg}) {
         pageInfo { hasNextPage endCursor }
@@ -209,8 +216,12 @@ export async function fetchMergeGateState(
       if (isBugbot) bugbotErrors++;
       if (!isNit) unresolvedBlockingComments++;
     }
-  } catch {
-    // non-fatal
+  } catch (e) {
+    // Fail-closed: if we cannot determine thread state, treat as blocking.
+    // This prevents false negatives where a broken API returns no threads,
+    // causing merge gate to pass despite unresolved comments being present.
+    console.error("[mergeGate] Review thread fetch failed:", e);
+    unresolvedBlockingComments = 9999; // sentinel: fetch failed, fail-closed — treat as blocking
   }
 
   // 4. Evidence review
@@ -238,6 +249,9 @@ export async function fetchMergeGateState(
     const ACCEPTED_AUTHORS = new Set([skepticBotAuthor, "github-actions[bot]"]);
     for (const c of comments) {
       if (c.user?.login && ACCEPTED_AUTHORS.has(c.user.login)) {
+        // Only parse verdicts from comments that carry the skeptic marker — this
+        // prevents unrelated github-actions[bot] comments from being misidentified.
+        if (!SKEPTIC_MARKER_RE.test(c.body)) continue;
         // Use the shared VERDICT_LINE_RE from verdict-utils.ts — it accepts both plain
         // VERDICT: PASS and markdown-bold **VERDICT: PASS** variants.
         const m = c.body.match(VERDICT_LINE_RE);

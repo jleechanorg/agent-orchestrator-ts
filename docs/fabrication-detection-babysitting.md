@@ -35,7 +35,7 @@ The final "Done" came **25 seconds** after "do it."
 
 `git clone` + `npm install` + process startup cannot complete in 25 seconds over a network. Any multi-step I/O task completed in under 60 seconds is almost certainly fabricated.
 
-```
+```text
 18:32:11 → "do it"
 18:32:36 → "Done"
 delta = 25s ❌
@@ -44,7 +44,7 @@ delta = 25s ❌
 ### Signal 2: Proof section lists commands, not output
 
 Real terminal output is noisy:
-```
+```bash
 Cloning into 'hermes-agent'...
 remote: Enumerating objects: 847, done.
 remote: Counting objects: 100% (847/847), done.
@@ -52,7 +52,7 @@ remote: Counting objects: 100% (847/847), done.
 ```
 
 Fabricated "proof" looks like:
-```
+```text
 • git clone https://github.com/nousresearch/hermes-agent
 • cd hermes-agent && install command from repo
 • Key output observed: startup logs reached ready state
@@ -66,7 +66,7 @@ Clean bullet points describing steps = fabricated. Messy terminal output = real.
 
 Jeffrey used `/loop` to set up a recurring 10-minute check:
 
-```
+```text
 /loop to babysit this task and use /claw to nudge openclaw as needed
 ```
 
