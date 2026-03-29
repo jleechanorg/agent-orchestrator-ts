@@ -2241,19 +2241,18 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       // bd-skp2-cron: Local skeptic cron — evaluates open PRs using locally-available
       // LLM tools (Codex/Claude). Replaces the broken GHA-based execution where no
       // API keys exist. Throttled internally to run every 10 minutes.
+      // Fire-and-forget so a long-running LLM evaluation does not block the poll loop.
       if (scopedProjectId) {
         const skepticProject = config.projects[scopedProjectId];
         if (skepticProject?.backfillAllPRs) {
-          try {
-            await runLocalSkepticCron(
-              { registry, sessionManager, observer },
-              { projectId: scopedProjectId, project: skepticProject, activeSessions, correlationId },
-            );
-          } catch (skepticCronErr) {
+          void runLocalSkepticCron(
+            { registry, sessionManager, observer },
+            { projectId: scopedProjectId, project: skepticProject, activeSessions, correlationId },
+          ).catch(skepticCronErr => {
             console.error(
               `[skeptic-cron] failed: ${skepticCronErr instanceof Error ? skepticCronErr.message : String(skepticCronErr)}`,
             );
-          }
+          });
         }
       }
 
