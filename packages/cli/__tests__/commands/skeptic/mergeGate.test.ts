@@ -39,7 +39,7 @@ describe("fetchMergeGateState — skeptic verdict parsing", () => {
    *
    * [ghJsonPaginate mocked separately — does not consume ghJson]
    */
-  function setupGhJson(values: any[]) {
+  function setupGhJson(values: readonly unknown[]) {
     mockGhJson.mockReset();
     values.forEach(v => mockGhJson.mockResolvedValueOnce(v));
   }
@@ -116,7 +116,7 @@ describe("fetchMergeGateState — skeptic verdict parsing", () => {
     mockGhJsonPaginate.mockResolvedValue([]);
     // ghJson call sequence: #1 PR → #2 commit status → #3 reviewThreads → #4 verdict (throws)
     mockGhJson
-      .mockResolvedValueOnce({ head: { ref: "main" }, mergeable: true })
+      .mockResolvedValueOnce({ head: { ref: "main", sha: "abc123" }, mergeable: true })
       .mockResolvedValueOnce({ state: "success" })
       .mockResolvedValueOnce([]) // reviewThreads
       .mockRejectedValueOnce(new Error("API error")); // verdict comments throws
@@ -145,5 +145,21 @@ describe("fetchMergeGateState — skeptic verdict parsing", () => {
     expect(state.skepticCommentId).toBe(50);
     expect(state.ciPassing).toBe(true);
     expect(state.noConflicts).toBe(true);
+  });
+
+  it("parses **VERDICT: PASS** (markdown-bold) from skeptic bot issue comments", async () => {
+    setupGhJson([
+      { head: { ref: "main", sha: "abc123" }, mergeable: true },
+      { state: "success" },
+      [], // reviewThreads
+      [{ id: 77, body: "**VERDICT: PASS**", user: { login: "jleechan-agent[bot]" } }],
+    ]);
+
+    const state = await fetchMergeGateState(
+      "test", "test-repo", 1, "jleechan-agent[bot]"
+    );
+
+    expect(state.skepticVerdict).toBe("PASS");
+    expect(state.skepticCommentId).toBe(77);
   });
 });

@@ -13,7 +13,7 @@ vi.mock("../../../src/commands/skeptic/gh-client.js", () => ({
 
 const { fetchMergeGateState } = await import("../../../src/commands/skeptic/mergeGate.js");
 
-function setupGhJson(values: any[]) {
+function setupGhJson(values: readonly unknown[]) {
   mockGhJson.mockReset();
   mockFetchReviews.mockReset();
   mockGhJsonPaginate.mockReset();
@@ -102,7 +102,7 @@ describe("fetchMergeGateState — skeptic verdict parsing", () => {
     mockFetchReviews.mockResolvedValue([]);
     mockGhJsonPaginate.mockResolvedValue([]);
     mockGhJson
-      .mockResolvedValueOnce({ head: { ref: "main" }, mergeable: true })
+      .mockResolvedValueOnce({ head: { ref: "main", sha: "abc123" }, mergeable: true })
       .mockResolvedValueOnce({ state: "success" })
       .mockResolvedValueOnce([]) // reviewThreads
       .mockRejectedValueOnce(new Error("API error")); // verdict comments throws

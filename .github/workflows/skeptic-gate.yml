@@ -3,10 +3,6 @@ name: Skeptic Gate
 # Evaluates PRs via AO worker dispatch — no API keys needed in GitHub secrets.
 # Flow: GHA posts trigger comment → lifecycle-manager runs ao skeptic verify →
 # posts VERDICT comment → GHA polls for VERDICT and exits PASS/FAIL.
-#
-# Security: uses pull_request_target — this workflow needs write access to
-# post VERDICT comments on the PR. For same-repo PRs (same owner) this is safe.
-# The pull_request variant lacks secrets access needed for gh api comment posts.
 on:
   # Security: uses pull_request (not pull_request_target) — only posts comments,
   # no secret access needed. pull_request_target creates elevated risk for no benefit.
@@ -92,7 +88,9 @@ jobs:
 
           # Fetch TRIGGER_UPDATED inline — step output was removed to avoid the
           # "echo var=$VAR when VAR is unset/empty" problem (produces literal "null").
+          # --paginate ensures all comment pages are scanned for high-comment-count PRs.
           TRIGGER_UPDATED=$(gh api repos/${{ github.repository }}/issues/"$PR_NUM"/comments \
+            --paginate \
             --jq '[.[] | select(.body | contains("skeptic-gate-trigger-" + env.TRIGGER_SHA))] | .[-1] | .updated_at' 2>/dev/null)
           if [ -z "$TRIGGER_UPDATED" ] || [ "$TRIGGER_UPDATED" = "null" ]; then
             echo "ERROR: failed to obtain trigger_updated from posted comment"
@@ -127,7 +125,7 @@ jobs:
                 echo "verdict=ERROR" >> "$GITHUB_OUTPUT"
                 exit 1
               fi
-            elif echo "$PR_STATE" | grep -qi "^closed$" > /dev/null; then
+            elif echo "$PR_STATE" | grep -qi "^closed$"; then
               API_FAILURES=0
             else
               # Successful response (no error keyword, not "closed") — reset counter
@@ -173,10 +171,10 @@ jobs:
             # next iteration (empty string matches no error keywords).
             if echo "$VERDICT_JSON" | jq -e 'if . == null or .body == null then empty else .body end | length > 0' > /dev/null 2>&1; then
               VERDICT_BODY=$(echo "$VERDICT_JSON" | jq -r '.body')
-              VERDICT_CREATED=$(echo "$VERDICT_JSON" | jq -r '.updated_at')
+              VERDICT_UPDATED=$(echo "$VERDICT_JSON" | jq -r '.updated_at')
 
               echo ""
-              echo "=== Found VERDICT (posted $VERDICT_CREATED) ==="
+              echo "=== Found VERDICT (updated $VERDICT_UPDATED) ==="
               echo "$VERDICT_BODY"
 
               # Use -E with [[:space:]]* (optional whitespace) to match VERDICT_LINE_RE \s* behavior
