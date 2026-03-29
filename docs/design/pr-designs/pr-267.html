@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>fix(skeptic): match markdown-bold VERDICT format in mergeGate.ts — Agent Orchestrator</title>
+    <title>[agento] fix(skeptic): match markdown-bold VERDICT format in mergeGate.ts — Agent Orchestrator</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;600&family=IBM+Plex+Serif:wght@400;600&family=IBM+Plex+Mono&display=swap" rel="stylesheet" />
@@ -50,8 +50,8 @@
   <body>
     <main class="wrap">
       <section class="hero">
-        <h1>fix(skeptic): match markdown-bold VERDICT format in mergeGate.ts</h1>
-        <p class="muted">🤖 Generated with Claude Code</p>
+        <h1>[agento] fix(skeptic): match markdown-bold VERDICT format in mergeGate.ts</h1>
+        <p class="muted">Fixes multiple skeptic tooling issues found during integration testing:</p>
         <p class="muted" style="margin-top:0.5rem">
           PR: <a href="https://github.com/jleechanorg/agent-orchestrator/pull/267">#267</a>
           &nbsp;·&nbsp; Status: <span class="badge badge-open">Open</span>
@@ -68,7 +68,7 @@
 │ PR #267 — agent-orchestrator                                     │
 └──────────────────────────────────────────────────────────────────── ┘
                   │
-    ▼ 18 file(s) changed
+    ▼ 13 file(s) changed
                   │
 ┌──────────────────────────────────────────────────────────────────── ┐
 │ fix(skeptic): match markdown-bold VERDICT format in mergeGate.ts │
@@ -78,10 +78,10 @@
         <article class="card">
           <h2>Metadata</h2>
           <div class="stat-grid">
-            <div class="stat"><div class="num">18</div><div class="lbl">Files</div></div>
-            <div class="stat"><div class="num">43</div><div class="lbl">Commits</div></div>
-            <div class="stat"><div class="num" style="color:#2ea043">+2330</div><div class="lbl">Additions</div></div>
-            <div class="stat"><div class="num" style="color:#cf222e">-152</div><div class="lbl">Deletions</div></div>
+            <div class="stat"><div class="num">13</div><div class="lbl">Files</div></div>
+            <div class="stat"><div class="num">1</div><div class="lbl">Commits</div></div>
+            <div class="stat"><div class="num" style="color:#2ea043">+676</div><div class="lbl">Additions</div></div>
+            <div class="stat"><div class="num" style="color:#cf222e">-933</div><div class="lbl">Deletions</div></div>
           </div>
           <ul style="margin-top:1rem">
             <li>Author: <code>jleechan2015</code></li>
@@ -98,13 +98,11 @@
         <table>
           <thead><tr><th>Package / Path</th><th>Files</th></tr></thead>
           <tbody>
-            <tr><td><code>packages/cli</code></td><td>7</td></tr>
-<tr><td><code>docs/design</code></td><td>4</td></tr>
+            <tr><td><code>packages/cli</code></td><td>6</td></tr>
+<tr><td><code>.claude/hooks</code></td><td>2</td></tr>
 <tr><td><code>.github/workflows</code></td><td>2</td></tr>
-<tr><td><code>docs</code></td><td>2</td></tr>
-<tr><td><code>.claude/skills</code></td><td>1</td></tr>
-<tr><td><code>roadmap</code></td><td>1</td></tr>
-<tr><td><code>scripts</code></td><td>1</td></tr>
+<tr><td><code>docs/design</code></td><td>2</td></tr>
+<tr><td><code>.claude</code></td><td>1</td></tr>
           </tbody>
         </table>
       </section>
@@ -116,10 +114,22 @@
           <thead><tr><th>File</th><th>Status</th><th style="text-align:right">+</th><th style="text-align:right">−</th></tr></thead>
           <tbody>
             <tr>
-      <td><code>.claude/skills/babysit-openclaw.md</code></td>
+      <td><code>.claude/hooks/protect-pr-close.sh</code></td>
       <td>modified</td>
-      <td style="text-align:right;color:#2ea043">+9</td>
-      <td style="text-align:right;color:#cf222e">-14</td>
+      <td style="text-align:right;color:#2ea043">+36</td>
+      <td style="text-align:right;color:#cf222e">-146</td>
+    </tr>
+<tr>
+      <td><code>.claude/hooks/require-supersession-comment.sh</code></td>
+      <td><span class="badge badge-closed">removed</span></td>
+      <td style="text-align:right;color:#2ea043">+0</td>
+      <td style="text-align:right;color:#cf222e">-214</td>
+    </tr>
+<tr>
+      <td><code>.claude/settings.json</code></td>
+      <td><span class="badge badge-closed">removed</span></td>
+      <td style="text-align:right;color:#2ea043">+0</td>
+      <td style="text-align:right;color:#cf222e">-33</td>
     </tr>
 <tr>
       <td><code>.github/workflows/security.yml</code></td>
@@ -130,98 +140,56 @@
 <tr>
       <td><code>.github/workflows/skeptic-gate.yml</code></td>
       <td>modified</td>
-      <td style="text-align:right;color:#2ea043">+23</td>
-      <td style="text-align:right;color:#cf222e">-45</td>
+      <td style="text-align:right;color:#2ea043">+82</td>
+      <td style="text-align:right;color:#cf222e">-166</td>
     </tr>
 <tr>
-      <td><code>docs/BEGINNERS_WALKTHROUGH.md</code></td>
-      <td><span class="badge badge-new">added</span></td>
-      <td style="text-align:right;color:#2ea043">+1741</td>
-      <td style="text-align:right;color:#cf222e">-0</td>
-    </tr>
-<tr>
-      <td><code>docs/design/pr-designs/pr-202.html</code></td>
-      <td>modified</td>
-      <td style="text-align:right;color:#2ea043">+7</td>
-      <td style="text-align:right;color:#cf222e">-7</td>
-    </tr>
-<tr>
-      <td><code>docs/design/pr-designs/pr-202.md</code></td>
-      <td>modified</td>
-      <td style="text-align:right;color:#2ea043">+9</td>
-      <td style="text-align:right;color:#cf222e">-9</td>
-    </tr>
-<tr>
-      <td><code>docs/design/pr-designs/pr-263.html</code></td>
+      <td><code>docs/design/pr-designs/pr-267.html</code></td>
       <td><span class="badge badge-new">added</span></td>
       <td style="text-align:right;color:#2ea043">+240</td>
       <td style="text-align:right;color:#cf222e">-0</td>
     </tr>
 <tr>
-      <td><code>docs/design/pr-designs/pr-263.md</code></td>
+      <td><code>docs/design/pr-designs/pr-267.md</code></td>
       <td><span class="badge badge-new">added</span></td>
       <td style="text-align:right;color:#2ea043">+83</td>
       <td style="text-align:right;color:#cf222e">-0</td>
     </tr>
 <tr>
-      <td><code>docs/fabrication-detection-babysitting.md</code></td>
+      <td><code>packages/cli/__tests__/commands/skeptic/mergeGate.debug.test.ts</code></td>
       <td>modified</td>
-      <td style="text-align:right;color:#2ea043">+4</td>
-      <td style="text-align:right;color:#cf222e">-4</td>
+      <td style="text-align:right;color:#2ea043">+86</td>
+      <td style="text-align:right;color:#cf222e">-169</td>
     </tr>
 <tr>
-      <td><code>packages/cli/__tests__/lib/llm-eval.test.ts</code></td>
+      <td><code>packages/cli/__tests__/commands/skeptic/mergeGate.test.ts</code></td>
       <td>modified</td>
-      <td style="text-align:right;color:#2ea043">+55</td>
-      <td style="text-align:right;color:#cf222e">-0</td>
+      <td style="text-align:right;color:#2ea043">+95</td>
+      <td style="text-align:right;color:#cf222e">-173</td>
     </tr>
 <tr>
       <td><code>packages/cli/src/commands/skeptic.ts</code></td>
       <td>modified</td>
       <td style="text-align:right;color:#2ea043">+2</td>
-      <td style="text-align:right;color:#cf222e">-2</td>
+      <td style="text-align:right;color:#cf222e">-3</td>
     </tr>
 <tr>
       <td><code>packages/cli/src/commands/skeptic/gh-client.ts</code></td>
       <td>modified</td>
-      <td style="text-align:right;color:#2ea043">+6</td>
-      <td style="text-align:right;color:#cf222e">-0</td>
+      <td style="text-align:right;color:#2ea043">+2</td>
+      <td style="text-align:right;color:#cf222e">-5</td>
     </tr>
 <tr>
       <td><code>packages/cli/src/commands/skeptic/mergeGate.ts</code></td>
       <td>modified</td>
-      <td style="text-align:right;color:#2ea043">+97</td>
-      <td style="text-align:right;color:#cf222e">-46</td>
+      <td style="text-align:right;color:#2ea043">+22</td>
+      <td style="text-align:right;color:#cf222e">-20</td>
     </tr>
 <tr>
       <td><code>packages/cli/src/commands/skeptic/prompt.ts</code></td>
       <td>modified</td>
-      <td style="text-align:right;color:#2ea043">+5</td>
-      <td style="text-align:right;color:#cf222e">-2</td>
-    </tr>
-<tr>
-      <td><code>packages/cli/src/commands/skeptic/verdict-utils.ts</code></td>
-      <td>modified</td>
-      <td style="text-align:right;color:#2ea043">+2</td>
-      <td style="text-align:right;color:#cf222e">-2</td>
-    </tr>
-<tr>
-      <td><code>packages/cli/src/lib/llm-eval.ts</code></td>
-      <td>modified</td>
-      <td style="text-align:right;color:#2ea043">+10</td>
-      <td style="text-align:right;color:#cf222e">-6</td>
-    </tr>
-<tr>
-      <td><code>roadmap/upstream-sync-review.md</code></td>
-      <td>modified</td>
-      <td style="text-align:right;color:#2ea043">+9</td>
-      <td style="text-align:right;color:#cf222e">-9</td>
-    </tr>
-<tr>
-      <td><code>scripts/generate-pr-design-docs.mjs</code></td>
-      <td>modified</td>
       <td style="text-align:right;color:#2ea043">+8</td>
-      <td style="text-align:right;color:#cf222e">-4</td>
+      <td style="text-align:right;color:#cf222e">-2</td>
     </tr>
             
           </tbody>
