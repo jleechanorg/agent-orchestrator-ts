@@ -13,20 +13,15 @@ jobs:
   # A merged PR stops receiving pull_request events, so stale failed check runs
   # can never be overwritten. These checks are pre-merge gates; post-merge
   # they have no function and would permanently block the PR from showing green.
+  # Using GitHub Actions native if: expressions (not bash string comparison)
+  # to avoid type coercion issues (merged is a boolean, not a string "true"/"false").
   _merged-guard:
     name: Skip for merged/closed PRs
     runs-on: ubuntu-latest
     outputs:
-      skip: ${{ steps.check.outputs.skip }}
+      skip: ${{ github.event.pull_request.merged == true || github.event.action == 'closed' }}
     steps:
-      - id: check
-        run: |
-          if "${{ github.event.pull_request.merged }}" = "true" || \
-             "${{ github.event.action }}" = "closed"; then
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "skip=false" >> "$GITHUB_OUTPUT"
-          fi
+      - run: 'echo "check complete"'
 
   pr-title-prefix:
     name: PR Title [agento] Prefix
