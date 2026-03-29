@@ -17,7 +17,7 @@ jobs:
     # Fork PRs use ubuntu-latest to avoid running untrusted code on self-hosted infrastructure.
     runs-on: ${{ github.event.pull_request.head.repo.fork && github.event_name == 'pull_request'
               && 'ubuntu-latest'
-              || fromJson(vars.SELF_HOSTED_RUNNER_LABELS || '["self-hosted","Linux","ARM64","jleechanclaw"]') }}
+              || fromJson(vars.SELF_HOSTED_RUNNER_LABELS || '["self-hosted","Linux","ARM64","agent-orchestrator"]') }}
     timeout-minutes: 20
 
     steps:
@@ -44,7 +44,7 @@ jobs:
         run: npm install -g @openai/codex
 
       - name: Install Aider
-        run: pip install aider-chat
+        run: pip install aider-chat || pip3 install aider-chat || python3 -m pip install aider-chat || true
 
       - name: Install OpenCode
         run: npm install -g opencode-ai

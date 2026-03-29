@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, writeFileSync, mkdirSync, rmSync, chmodSync } from "node:fs";
+import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from "node:fs";
+import * as fs from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -61,21 +62,23 @@ describe("fetchDesignDoc", () => {
   });
 
   it("throws when readFileSync fails with a non-ENOENT error", async () => {
-    // Create the file and make it unreadable (EACCES)
+    // Create the file so the path resolves, but mock readFileSync to throw EACCES.
+    // chmod 0o000 does not work as root (CI runs as root), so we mock the error directly.
     const docDir = join(tmp, "docs", "design", "pr-designs");
     mkdirSync(docDir, { recursive: true });
-    const filePath = join(docDir, "pr-999.md");
-    writeFileSync(filePath, "# doc\n", "utf8");
-    chmodSync(filePath, 0o000); // unreadable
+    writeFileSync(join(docDir, "pr-999.md"), "# doc\n", "utf8");
 
     mockExec.mockResolvedValueOnce({ stdout: tmp + "\n", stderr: "" });
 
-    try {
-      await expect(fetchDesignDoc(999)).rejects.toThrow();
-    } finally {
-      // Restore permissions so rmSync can clean up
-      chmodSync(filePath, 0o644);
-    }
+    // Mock readFileSync to throw EACCES — this simulates a permission-denied error
+    // without relying on chmod (which root bypasses on Linux).
+    const eaccesErr = Object.assign(new Error("EACCES permission denied"), { code: "EACCES" });
+    vi.spyOn(fs, "readFileSync").mockImplementation(() => {
+      throw eaccesErr;
+    });
+
+    await expect(fetchDesignDoc(999)).rejects.toThrow("EACCES permission denied");
+    vi.restoreAllMocks();
   });
 });
 
