@@ -196,9 +196,11 @@ fi
 
 # Detect: git checkout <branch> (without -b) or git switch <branch> (without -c)
 # Only update if the branch name looks like a feature branch (contains / or -)
+# AND is an actual local branch — verified via show-ref to avoid matching file paths
+# (e.g. `git checkout src/main.ts` would match the pattern but fails show-ref).
 if [[ "$clean_command" =~ ^git[[:space:]]+checkout[[:space:]]+([^[:space:]-]+[/-][^[:space:]]+) ]]; then
   branch="${BASH_REMATCH[1]}"
-  if [[ -n "$branch" && "$branch" != "HEAD" ]]; then
+  if [[ -n "$branch" && "$branch" != "HEAD" ]] && git show-ref --verify --quiet "refs/heads/$branch" 2>/dev/null; then
     update_metadata_key "branch" "$branch"
     echo '{"systemMessage": "Updated metadata: branch = '"$branch"'"}'
     exit 0
@@ -207,7 +209,7 @@ fi
 
 if [[ "$clean_command" =~ ^git[[:space:]]+switch[[:space:]]+([^[:space:]-]+[/-][^[:space:]]+) ]]; then
   branch="${BASH_REMATCH[1]}"
-  if [[ -n "$branch" && "$branch" != "HEAD" ]]; then
+  if [[ -n "$branch" && "$branch" != "HEAD" ]] && git show-ref --verify --quiet "refs/heads/$branch" 2>/dev/null; then
     update_metadata_key "branch" "$branch"
     echo '{"systemMessage": "Updated metadata: branch = '"$branch"'"}'
     exit 0
