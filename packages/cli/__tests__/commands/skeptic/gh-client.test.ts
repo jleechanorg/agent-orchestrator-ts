@@ -11,7 +11,7 @@ vi.mock("../../../src/lib/shell.js", () => ({
 }));
 
 // Import after mocks are defined
-const { fetchDesignDoc } = await import(
+const { fetchDesignDoc, ghJsonPaginate } = await import(
   "../../../src/commands/skeptic/gh-client.js"
 );
 
@@ -76,5 +76,61 @@ describe("fetchDesignDoc", () => {
       // Restore permissions so rmSync can clean up
       chmodSync(filePath, 0o644);
     }
+  });
+});
+
+describe("ghJsonPaginate", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("calls gh api --paginate and returns parsed JSON for a single-page response", async () => {
+    const mockData = { name: "Skeptic Gate", status: "completed" };
+    mockExec.mockResolvedValueOnce({ stdout: JSON.stringify(mockData), stderr: "" });
+
+    const result = await ghJsonPaginate("repos/owner/repo/pulls/123");
+
+    expect(mockExec).toHaveBeenCalledOnce();
+    const [cmd, args] = mockExec.mock.calls[0]!;
+    expect(cmd).toBe("gh");
+    expect(args).toContain("api");
+    expect(args).toContain("--paginate");
+    expect(args).toContain("repos/owner/repo/pulls/123");
+    expect(result).toEqual(mockData);
+  });
+
+  it("passes additional args through to gh api", async () => {
+    const mockData = [{ id: 1 }, { id: 2 }];
+    mockExec.mockResolvedValueOnce({ stdout: JSON.stringify(mockData), stderr: "" });
+
+    const result = await ghJsonPaginate("repos/owner/repo/issues/5/comments", [
+      "--jq", ".[].body",
+    ]);
+
+    const [, args] = mockExec.mock.calls[0]!;
+    expect(args).toContain("--jq");
+    expect(args).toContain(".[].body");
+    expect(result).toEqual(mockData);
+  });
+
+  it("rejects with a parse error when stdout is not valid JSON", async () => {
+    mockExec.mockResolvedValueOnce({ stdout: "not json at all", stderr: "" });
+
+    await expect(ghJsonPaginate("repos/owner/repo/pulls/1")).rejects.toThrow();
+  });
+
+  it("rejects when gh api fails", async () => {
+    mockExec.mockRejectedValueOnce(new Error("gh api failed: not found"));
+
+    await expect(ghJsonPaginate("repos/owner/repo/pulls/999")).rejects.toThrow(
+      "gh api failed"
+    );
+  });
+
+  it("returns null when gh api returns null JSON", async () => {
+    mockExec.mockResolvedValueOnce({ stdout: "null", stderr: "" });
+
+    const result = await ghJsonPaginate("repos/owner/repo/pulls/1");
+    expect(result).toBeNull();
   });
 });
