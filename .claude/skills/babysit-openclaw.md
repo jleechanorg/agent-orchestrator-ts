@@ -8,7 +8,7 @@ Monitor an openclaw task in a Slack thread, detect fabrication and stalls, and n
 /babysit-openclaw <thread_ts> [channel_id]
 ```
 
-Default channel: `C0AKYEY48GM`
+Default channel: `C0AKYEY48GM` (uses argument when provided, falls back to default)
 
 ## Step 1 — Read the thread
 
@@ -55,7 +55,7 @@ with open("/Users/jleechan/.openclaw/openclaw.json") as f:
 token = _cfg["channels"]["slack"]["cmuxBotToken"]
 
 payload = json.dumps({
-    "channel": "<channel_id>",  # from Step 1 argument (default: C0AKYEY48GM)
+    "channel": "<channel_id>",  # Use argument; default: C0AKYEY48GM
     "thread_ts": "<thread_ts>",
     "text": msg
 })
@@ -97,7 +97,7 @@ After each check, report:
 | Generic language | "dependency install completed", "reached ready state" |
 
 Real terminal output looks like:
-```text
+```
 added 262 packages, and audited 263 packages in 5s
 Successfully installed MarkupSafe-3.0.3 PyJWT-2.12.1 ...
 /Users/jleechan/.openclaw/workspace/hermes-agent

@@ -23,12 +23,6 @@ on:
 # Do NOT cancel in-progress runs — killing a polling step mid-loop discards its
 # loop state. A new concurrent run with the same SHA is harmless since the jq
 # timestamp filter rejects stale verdicts from cancelled runs.
-#
-# NOTE: with cancel-in-progress: false, new pushes queue behind active runs.
-# An active run that is polling will NOT be cancelled; a new run waits.
-# This means the newest SHA may not be evaluated until the active run finishes.
-# The TRIGGER_SHA output + polling step's updated_at filter ensures that only
-# verdicts matching the current trigger are accepted — old runs cannot pollute new ones.
 concurrency:
   group: skeptic-gate-${{ github.event.pull_request.number }}
   cancel-in-progress: false
@@ -157,10 +151,6 @@ jobs:
               fi
             fi
           fi
-          # Pass Step 1's outputs through Step 2 so Step 3 can reference them.
-          # Using the step output reference is the only reliable way — shell-local
-          # variables set in Step 1 are NOT inherited by Step 2 or Step 3.
-          echo "trigger_updated=${{ steps.post_trigger.outputs.trigger_updated }}" >> "$GITHUB_OUTPUT"
           echo "trigger_sha=$HEAD_SHA" >> "$GITHUB_OUTPUT"
 
       # Step 3: Poll for the VERDICT comment posted by Step 2 above.
@@ -175,10 +165,11 @@ jobs:
           HEAD_SHA: ${{ github.event.inputs.head_sha || github.event.pull_request.head.sha }}
           TRIGGER_UPDATED: ${{ steps.post_trigger.outputs.trigger_updated }}
           TRIGGER_SHA: ${{ steps.post_trigger.outputs.trigger_sha }}
-          # bd-lg7i: Default to jleechan2015 — ao skeptic verify posts via gh api
-          # authenticated as the local user, not the GitHub App bot. Override via
-          # repo variable if posting identity changes (e.g., GitHub App token).
-          SKEPTIC_BOT_AUTHOR: ${{ vars.SKEPTIC_BOT_AUTHOR || 'jleechan2015' }}
+          # Default to github-actions[bot] — skeptic-gate step 2b posts SKIPPED fallback
+          # via GITHUB_TOKEN (GHA runner identity). When ao skeptic verify runs via
+          # lifecycle-worker and posts directly, it uses gh api authed as local user
+          # (jleechan2015). The jq filter below accepts both to cover both paths.
+          SKEPTIC_BOT_AUTHOR: ${{ vars.SKEPTIC_BOT_AUTHOR || 'github-actions[bot]' }}
         # 28 min timeout — leave 2 min buffer so the step exits cleanly before the
         # 30-min job timeout rather than being killed by the runner.
         timeout-minutes: 28
@@ -234,63 +225,63 @@ jobs:
               exit 0
             fi
 
-            # Find verdict comments whose body contains the trigger SHA marker
-            # (<!-- skeptic-gate-trigger-${TRIGGER_SHA} -->) and the VERDICT: keyword.
-            # The skeptic-agent-verdict HTML marker uniquely identifies the comment;
-            # SHA marker + updated_at ensure freshness (see bd-lg7i rationale).
-            # Uses updated_at (not created_at) — ao skeptic verify edits the same comment
-            # when re-running for a new trigger SHA; GitHub preserves created_at but
-            # updates updated_at, so updated_at is the correct freshness signal.
-            # gh api --paginate writes one JSON array per page to stdout — not a single
-            # concatenated array. Piping to jq with --jq on the gh call would iterate
-            # pages (array of page-objects) instead of individual comments.
-            # FIX: write all pages to a temp file first (appending each page), then
-            # run jq on the concatenated result. .[-1] gives the most recent match.
-            rm -f /tmp/pr-comments.json
-            gh api repos/${{ github.repository }}/issues/"$PR_NUM"/comments \
-              --paginate >> /tmp/pr-comments.json
-            touch /tmp/pr-comments.json  # jq fails on empty input; ensure non-empty file
-            VERDICT_JQ='[.[] | select((.user.login == env.SKEPTIC_BOT_AUTHOR and (.body | test("VERDICT:"; "i")) and (.updated_at >= env.TRIGGER_UPDATED) and (.body | test("skeptic-gate-trigger-" + env.TRIGGER_SHA; "i")))] | .[-1] // empty'
-            VERDICT_JSON=$(jq "$VERDICT_JQ" /tmp/pr-comments.json 2>&1)
+            # Find verdict comment. gh api --paginate --jq iterates over each page
+            # correctly: it applies the jq filter to each page and accumulates the full
+            # result. The filter finds the most recent matching comment (last in list).
+            VERDICT_JSON=$(SKEPTIC_BOT_AUTHOR="$SKEPTIC_BOT_AUTHOR" \
+              TRIGGER_SHA="$TRIGGER_SHA" \
+              TRIGGER_UPDATED="$TRIGGER_UPDATED" \
+              gh api repos/${{ github.repository }}/issues/"$PR_NUM"/comments \
+                 --paginate \
+                 --jq '[.[] | select(((.user.login == env.SKEPTIC_BOT_AUTHOR) or (.user.login == "github-actions[bot]")) and (.body | test("VERDICT:"; "i")) and (.updated_at >= env.TRIGGER_UPDATED) and (.body | test("skeptic-gate-trigger-" + env.TRIGGER_SHA; "i")))] | .[-1] // empty' 2>&1)
+
             if echo "$VERDICT_JSON" | grep -qi "error\|rate limit\|authentication\|not found\|server error"; then
               API_FAILURES=$((API_FAILURES + 1))
-              echo "API warning: verdict comment lookup failed (attempt $((i))): ${VERDICT_JSON:0:100}"
+              echo "API warning: verdict comment lookup failed (attempt $((i))): ${VERDICT_JSON:0:200}"
               if [ "$API_FAILURES" -ge 3 ]; then
                 echo "ERROR: Too many consecutive API failures — exiting as ERROR (not TIMEOUT)"
                 echo "verdict=ERROR" >> "$GITHUB_OUTPUT"
                 exit 1
               fi
+              echo "Attempt $i/$MAX_ATTEMPTS — sleeping ${INTERVAL}s..."
+              sleep $INTERVAL
+              continue
             fi
 
-            # Remove || true: jq -e exits 1 on empty/null (no match), which is
-            # normal — the loop will retry. || true would suppress this and let an empty
-            # VERDICT_JSON fall through silently, breaking the error-detection grep on the
-            # next iteration (empty string matches no error keywords).
-            if echo "$VERDICT_JSON" | jq -e 'if . == null or .body == null then empty else .body end | length > 0' > /dev/null 2>&1; then
-              VERDICT_BODY=$(echo "$VERDICT_JSON" | jq -r '.body')
-              VERDICT_CREATED=$(echo "$VERDICT_JSON" | jq -r '.updated_at')
-
-              echo ""
-              echo "=== Found VERDICT (posted $VERDICT_CREATED) ==="
-              echo "$VERDICT_BODY"
-
-              if echo "$VERDICT_BODY" | grep -qi "VERDICT: PASS"; then
-                echo "verdict=PASS" >> "$GITHUB_OUTPUT"
-                echo "=== SKEPTIC GATE: PASS ==="
-                exit 0
-              elif echo "$VERDICT_BODY" | grep -qi "VERDICT: FAIL"; then
-                echo "verdict=FAIL" >> "$GITHUB_OUTPUT"
-                echo "=== SKEPTIC GATE: FAIL ==="
-                exit 1
-              elif echo "$VERDICT_BODY" | grep -qi "VERDICT: SKIPPED"; then
-                echo "verdict=SKIPPED" >> "$GITHUB_OUTPUT"
-                echo "=== SKEPTIC GATE: SKIPPED (infra issue — not blocking) ==="
-                exit 0
-              fi
+            # jq -e exits 1 on null/empty (no match) — normal, retry.
+            # shellcheck disable=SC2086
+            if ! echo "$VERDICT_JSON" | jq -e 'if . == null or (.body == null) then empty else .body end | length > 0' > /dev/null 2>&1; then
+              echo "Attempt $i/$MAX_ATTEMPTS — no fresh VERDICT yet, sleeping ${INTERVAL}s..."
+              sleep $INTERVAL
+              continue
             fi
 
-            echo "Attempt $i/$MAX_ATTEMPTS — no fresh VERDICT yet, sleeping ${INTERVAL}s..."
-            sleep $INTERVAL
+            VERDICT_BODY=$(echo "$VERDICT_JSON" | jq -r '.body')
+            VERDICT_CREATED=$(echo "$VERDICT_JSON" | jq -r '.updated_at')
+            echo ""
+            echo "=== Found VERDICT (posted $VERDICT_CREATED) ==="
+            echo "$VERDICT_BODY"
+
+            if echo "$VERDICT_BODY" | grep -qi "VERDICT: PASS"; then
+              echo "verdict=PASS" >> "$GITHUB_OUTPUT"
+              echo "=== SKEPTIC GATE: PASS ==="
+              exit 0
+            elif echo "$VERDICT_BODY" | grep -qi "VERDICT: FAIL"; then
+              echo "verdict=FAIL" >> "$GITHUB_OUTPUT"
+              echo "=== SKEPTIC GATE: FAIL ==="
+              exit 1
+            elif echo "$VERDICT_BODY" | grep -qi "VERDICT: SKIPPED"; then
+              echo "verdict=SKIPPED" >> "$GITHUB_OUTPUT"
+              echo "=== SKEPTIC GATE: SKIPPED (infra issue — not blocking) ==="
+              exit 0
+            else
+              # Malformed VERDICT: contains "VERDICT:" but none of PASS/FAIL/SKIPPED.
+              # Sleep and retry instead of spinning.
+              echo "WARNING: VERDICT body contains 'VERDICT:' but none of PASS/FAIL/SKIPPED — malformed verdict, sleeping ${INTERVAL}s before retry"
+              echo "verdict=UNKNOWN" >> "$GITHUB_OUTPUT"
+              sleep $INTERVAL
+              continue
+            fi
           done
 
           echo "TIMEOUT: No fresh VERDICT after $((MAX_ATTEMPTS * INTERVAL / 60)) minutes"

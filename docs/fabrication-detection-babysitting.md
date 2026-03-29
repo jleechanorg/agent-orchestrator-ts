@@ -44,7 +44,7 @@ delta = 25s ❌
 ### Signal 2: Proof section lists commands, not output
 
 Real terminal output is noisy:
-```text
+```bash
 Cloning into 'hermes-agent'...
 remote: Enumerating objects: 847, done.
 remote: Counting objects: 100% (847/847), done.
