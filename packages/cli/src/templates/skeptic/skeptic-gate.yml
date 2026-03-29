@@ -44,9 +44,10 @@ jobs:
         id: post_trigger
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUM: ${{ github.event.inputs.pr_number || github.event.pull_request.number }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
-          PR_NUM=${{ github.event.pull_request.number }}
+          PR_NUM=$PR_NUM
           TRIGGER_SHA="$HEAD_SHA"
           # The HTML marker identifies this trigger uniquely for the lifecycle-manager.
           # Using $'...' ANSI-C quoting so the embedded HTML comment is literal.
@@ -89,7 +90,7 @@ jobs:
           GH_SKEPTIC_BOT_AUTHOR: ${{ vars.SKEPTIC_BOT_AUTHOR || 'jleechan2015' }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
-          PR_NUM=${{ github.event.pull_request.number }}
+          PR_NUM=$PR_NUM
           TRIGGER_SHA="$HEAD_SHA"
           SKEPTIC_EXIT=0
           echo "Running skeptic verification for PR #$PR_NUM (trigger SHA ${TRIGGER_SHA:0:7})..."
@@ -123,7 +124,7 @@ jobs:
         # 30-min job timeout rather than being killed by the runner.
         timeout-minutes: 28
         run: |
-          PR_NUM=${{ github.event.pull_request.number }}
+          PR_NUM=$PR_NUM
 
           # Do NOT use 'set -e' here — jq -e returns non-zero on empty/null (no match),
           # which would cause premature script exit. Guards handle errors explicitly.
