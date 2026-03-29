@@ -26,9 +26,6 @@ const execFileAsync = promisify(execFile);
 /** VERDICT matcher for GitHub comment parsing */
 const VERDICT_RE = /VERDICT:\s*(PASS|FAIL|SKIPPED)\b/i;
 
-/** Skeptic agent verdict comment marker */
-const VERDICT_COMMENT_RE = /<!--\s*skeptic-agent-verdict\s*-->/i;
-
 /** Result of checking one chain link */
 interface ChainLink {
   name: string;
@@ -110,13 +107,11 @@ export async function verifySkepticClaimForPR(
   owner: string,
   repo: string,
   prNumber: number,
-  triggerSha?: string,
+  _triggerSha?: string,
 ): Promise<ClaimVerificationOutcome> {
   const chain: ChainLink[] = [];
   let verdictFound = false;
   let verdictType: "PASS" | "FAIL" | "SKIPPED" | null = null;
-  let commentSha: string | null = null;
-  let commentVerdictMatch = false;
 
   // ---------------------------------------------------------------------------
   // Step 1: Check for VERDICT comment (comment-level evidence)
@@ -138,11 +133,6 @@ export async function verifySkepticClaimForPR(
       const m = parsed.body.match(VERDICT_RE);
       if (m) {
         verdictType = m[1].toUpperCase() as "PASS" | "FAIL" | "SKIPPED";
-      }
-      // Check SHA binding in comment
-      if (triggerSha) {
-        const shaRe = new RegExp(`<!-- skeptic-gate-trigger-${triggerSha.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} -->`);
-        commentSha = shaRe.test(parsed.body) ? triggerSha : null;
       }
       chain.push({
         name: "comment-level",

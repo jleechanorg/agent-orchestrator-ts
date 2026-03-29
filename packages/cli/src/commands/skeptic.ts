@@ -173,7 +173,7 @@ export function registerSkeptic(program: Command): Command {
         : "VERDICT: FAIL — could not parse LLM output (expected VERDICT: PASS/FAIL/SKIPPED)";
 
       const spinner4 = ora("Posting verdict to PR #" + prNumber + "…").start();
-      let commentBody = "";
+      let commentBody: string;
       try {
         await postVerdict(
           owner,
