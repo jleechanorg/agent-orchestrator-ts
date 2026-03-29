@@ -42,11 +42,16 @@ export interface SkepticCronParams {
 // Per-project throttle state — keyed by projectId so multi-project configs
 // don't starve secondary projects when the first one claims the global timer.
 const lastSkepticCronTimeByProject = new Map<string, number>();
+// Guards against concurrent fire-and-forget calls for the same project.
+// Without this, two overlapping calls could both pass the throttle check
+// before either sets lastSkepticCronTimeByProject, bypassing the interval.
+const pendingSkepticCronByProject = new Set<string>();
 const SKEPTIC_CRON_INTERVAL_MS = 10 * 60_000; // 10 minutes
 
 /** Reset throttle state — exposed for testing only. */
 export function _resetSkepticCronTimer(): void {
   lastSkepticCronTimeByProject.clear();
+  pendingSkepticCronByProject.clear();
 }
 
 /**
@@ -89,35 +94,42 @@ export async function runLocalSkepticCron(
 ): Promise<number> {
   const now = Date.now();
   const { projectId, project, activeSessions, correlationId } = params;
-  const lastRun = lastSkepticCronTimeByProject.get(projectId) ?? 0;
-  if (now - lastRun < SKEPTIC_CRON_INTERVAL_MS) return 0;
 
-  const { registry, observer } = deps;
+  // Guard: skip if already pending for this project (prevents TOCTOU race with
+  // fire-and-forget callers where concurrent calls can both pass throttle check)
+  if (pendingSkepticCronByProject.has(projectId)) return 0;
+  pendingSkepticCronByProject.add(projectId);
 
-  const scm = project.scm ? registry.get<SCM>("scm", project.scm.plugin) : null;
-  if (!scm?.listOpenPRs) return 0;
-
-  let openPRs: PRInfo[];
   try {
-    openPRs = await scm.listOpenPRs(project);
-  } catch (err) {
-    observer.recordOperation({
-      metric: "lifecycle_poll",
-      operation: "skeptic.cron.list_prs_failed",
-      outcome: "failure",
-      correlationId,
-      projectId,
-      data: { error: err instanceof Error ? err.message : String(err) },
-      level: "warn",
-    });
-    // Do NOT set throttle on failure — allow retry on next poll cycle
-    return 0;
-  }
+    const lastRun = lastSkepticCronTimeByProject.get(projectId) ?? 0;
+    if (now - lastRun < SKEPTIC_CRON_INTERVAL_MS) return 0;
 
-  // Set throttle AFTER successful listOpenPRs — transient failures don't suppress retries
-  lastSkepticCronTimeByProject.set(projectId, now);
+    const { registry, observer } = deps;
 
-  if (openPRs.length === 0) return 0;
+    const scm = project.scm ? registry.get<SCM>("scm", project.scm.plugin) : null;
+    if (!scm?.listOpenPRs) return 0;
+
+    let openPRs: PRInfo[];
+    try {
+      openPRs = await scm.listOpenPRs(project);
+    } catch (err) {
+      observer.recordOperation({
+        metric: "lifecycle_poll",
+        operation: "skeptic.cron.list_prs_failed",
+        outcome: "failure",
+        correlationId,
+        projectId,
+        data: { error: err instanceof Error ? err.message : String(err) },
+        level: "warn",
+      });
+      // Do NOT set throttle on failure — allow retry on next poll cycle
+      return 0;
+    }
+
+    // Set throttle AFTER successful listOpenPRs — transient failures don't suppress retries
+    lastSkepticCronTimeByProject.set(projectId, now);
+
+    if (openPRs.length === 0) return 0;
 
   // Build a map of (projectId, prNumber) → active session (prefer sessions that
   // already have the PR linked, as they have workspacePath for report writing).
@@ -191,4 +203,7 @@ export async function runLocalSkepticCron(
   }
 
   return evaluated;
+  } finally {
+    pendingSkepticCronByProject.delete(projectId);
+  }
 }

@@ -165,6 +165,32 @@ describe("runLocalSkepticCron", () => {
     expect(second).toBe(0);
   });
 
+  it("pending guard deduplicates concurrent calls for same projectId", async () => {
+    const { registry, sessionManager, observer, listOpenPRs } = makeDeps();
+    listOpenPRs.mockResolvedValue([makePR()]);
+    mockRunSkepticReview.mockResolvedValue({
+      verdict: "PASS",
+      modelUsed: "claude",
+    } as SkepticReviewResult);
+
+    const params = {
+      projectId: "proj",
+      project: makeProject(),
+      activeSessions: [],
+      correlationId: "c-1",
+    };
+
+    // Fire two concurrent calls — only the first should run
+    const [first, second] = await Promise.all([
+      runLocalSkepticCron({ registry, sessionManager, observer }, params),
+      runLocalSkepticCron({ registry, sessionManager, observer }, params),
+    ]);
+
+    // One ran, one was deduplicated
+    expect(first + second).toBe(1);
+    expect(mockRunSkepticReview).toHaveBeenCalledTimes(1);
+  });
+
   it("different projectIds have independent throttles", async () => {
     const { registry, sessionManager, observer, listOpenPRs } = makeDeps();
     listOpenPRs.mockResolvedValue([makePR()]);
