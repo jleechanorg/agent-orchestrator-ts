@@ -27,7 +27,7 @@ These detect that the **agent is alive**, but not that it is **making progress**
 
 ## Architecture
 
-```
+```text
 lifecycle-manager.ts
   └── startProductivityChecking()  ← new setInterval every 15 min
         └── runProductivityChecks(sessions: Session[])
@@ -104,7 +104,7 @@ export interface ProductivityDeps {
 ### Nudge messages
 
 **Stall detection nudge:**
-```
+```text
 PR #N has had no new commits for >30 min and is not green.
 CI: <status>
 CR state: <approved/changes_requested/pending>
@@ -113,7 +113,7 @@ Continue working on this PR or explain the blocker.
 ```
 
 **Context exhaustion nudge:**
-```
+```text
 Context is <N>% remaining. Summarize progress so far and continue working.
 Do not repeat work already done.
 ```
@@ -127,18 +127,25 @@ const PRODUCTIVITY_INTERVAL_MS = 15 * 60_000;
 
 function startProductivityChecking(): void {
   if (productivityTimer) return;
-  productivityTimer = setInterval(async () => {
-    if (productivityRunning) return; // re-entrancy guard
-    productivityRunning = true;
-    try {
-      const sessions = await sessionManager.list(scopedProjectId);
-      const active = sessions.filter(s => !TERMINAL_STATUSES.has(s.status));
-      await runProductivityChecks(active, { ...deps, ...tmuxHelpers });
-    } finally {
-      productivityRunning = false;
-    }
-  }, PRODUCTIVITY_INTERVAL_MS);
+  productivityTimer = setInterval(() => void runProductivityCycle(), PRODUCTIVITY_INTERVAL_MS);
   productivityTimer.unref();
+  // Run immediately on start
+  void runProductivityCycle();
+}
+
+async function runProductivityCycle(): Promise<void> {
+  if (productivityRunning) return; // re-entrancy guard
+  productivityRunning = true;
+  try {
+    const sessions = await sessionManager.list(scopedProjectId);
+    const active = sessions.filter(s => !TERMINAL_STATUSES.has(s.status));
+    await runProductivityChecks(active, { ...deps, ...tmuxHelpers });
+  } catch (err) {
+    // non-fatal — productivity check failure should not crash the main loop
+    console.warn("[lifecycle-manager] productivity check failed:", err);
+  } finally {
+    productivityRunning = false;
+  }
 }
 ```
 
@@ -147,8 +154,8 @@ function startProductivityChecking(): void {
 | Check | Endpoint | Field used |
 |---|---|---|
 | PR merged/closed | `GET /repos/{o}/{r}/pulls/{n}` | `state`, `merged` |
-| Last commit date | `GET /repos/{o}/{r}/pulls/{n}/commits` | `commit.committer.date` (last) |
-| CI status | `GET /repos/{o}/{r}/commits/{sha}/status` | `state` |
+| Last commit date | `GET /repos/{o}/{r}/commits/{sha}` (where `sha` is from PR metadata `head.sha`) | `commit.committer.date` |
+| CI status | `GET /repos/{o}/{r}/commits/{sha}/check-runs?per_page=100` (primary; GitHub Actions) + `GET /repos/{o}/{r}/commits/{sha}/status` (fallback; external CI) | `check_runs[].conclusion`, `state` |
 | CR state | `GET /repos/{o}/{r}/pulls/{n}/reviews` | Filter to `coderabbitai[bot]`, last review `state` |
 
 ## Testing Strategy
