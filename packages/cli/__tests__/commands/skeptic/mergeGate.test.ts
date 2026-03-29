@@ -132,6 +132,31 @@ describe("fetchMergeGateState — skeptic verdict parsing", () => {
     expect(result.skepticCommentId).toBe(97);
   });
 
+  // Regression test: LLM output with markdown-bold **VERDICT: FAIL** must match.
+  // The old regex /^(?:> ?\*\*)?VERDICT:/ failed to match bold-only lines because
+  // it required either nothing or "> " before VERDICT — the \*\* anchor didn't
+  // cover the standalone-bold case (bd-lg7i).
+  it("parses **VERDICT: FAIL** with markdown-bold asterisks", async () => {
+    setup({
+      ghJson: [
+        { head: { sha: "abc123" }, mergeable: true },
+        { state: "success" },
+        [],
+      ],
+      paginate: [
+        [],
+        [{ id: 96, body: "<!-- skeptic-agent-verdict -->\n**VERDICT: FAIL** — evidence bundle missing", user: { login: "jleechan-agent[bot]" } }],
+      ],
+    });
+
+    const result = await fetchMergeGateState(
+      "test", "test-repo", 1, "jleechan-agent[bot]"
+    );
+
+    expect(result.skepticVerdict).toBe("FAIL");
+    expect(result.skepticCommentId).toBe(96);
+  });
+
   it("returns null skepticVerdict when no skeptic bot comment exists", async () => {
     setup({
       ghJson: [
