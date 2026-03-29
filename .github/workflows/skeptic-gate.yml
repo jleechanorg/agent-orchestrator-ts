@@ -9,6 +9,16 @@ on:
   # no secret access needed. pull_request_target creates elevated risk for no benefit.
   pull_request:
     types: [opened, synchronize, edited, reopened]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: "PR number"
+        required: true
+        type: string
+      head_sha:
+        description: "PR head commit SHA"
+        required: true
+        type: string
 
 # Do NOT cancel in-progress runs — killing a polling step mid-loop discards its
 # loop state. A new concurrent run with the same SHA is harmless since the jq
@@ -45,7 +55,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_NUM: ${{ github.event.inputs.pr_number || github.event.pull_request.number }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          HEAD_SHA: ${{ github.event.inputs.head_sha || github.event.pull_request.head.sha }}
         run: |
           PR_NUM=$PR_NUM
           TRIGGER_SHA="$HEAD_SHA"
@@ -78,7 +88,10 @@ jobs:
       - name: Checkout base branch
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.base_ref }}
+          # For workflow_dispatch, github.base_ref is empty so we fall back to
+          # github.ref_name (the branch the dispatch targets).
+          # For pull_request, github.base_ref is the PR target branch (e.g. main).
+          ref: ${{ github.base_ref || github.ref_name }}
           persist-credentials: false
 
       - name: Setup skeptic environment
@@ -88,7 +101,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_SKEPTIC_BOT_AUTHOR: ${{ vars.SKEPTIC_BOT_AUTHOR || 'jleechan2015' }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_NUM: ${{ github.event.inputs.pr_number || github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.inputs.head_sha || github.event.pull_request.head.sha }}
         run: |
           PR_NUM=$PR_NUM
           TRIGGER_SHA="$HEAD_SHA"
@@ -113,7 +127,8 @@ jobs:
       - name: Poll for skeptic VERDICT
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_NUM: ${{ github.event.inputs.pr_number || github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.inputs.head_sha || github.event.pull_request.head.sha }}
           TRIGGER_UPDATED: ${{ steps.post_trigger.outputs.trigger_updated }}
           TRIGGER_SHA: ${{ steps.post_trigger.outputs.trigger_sha }}
           # bd-lg7i: Default to jleechan2015 — ao skeptic verify posts via gh api
