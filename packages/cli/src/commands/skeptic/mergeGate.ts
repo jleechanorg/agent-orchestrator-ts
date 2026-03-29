@@ -9,7 +9,7 @@
  * - Evidence review state is included
  */
 
-import { ghJson, ghJsonPaginate, fetchReviews, type ReviewInfo } from "./gh-client.js";
+import { ghJson, ghJsonPaginate, fetchReviews, fetchIssueComments, type ReviewInfo } from "./gh-client.js";
 import { VERDICT_LINE_RE } from "./verdict-utils.js";
 
 const NIT_PATTERN = /^(nit:|nitpick)/i;
@@ -219,13 +219,11 @@ export async function fetchMergeGateState(
   const evidenceApproved = latestEvidence?.state === "approved";
   const evidenceRequired = false; // controlled via config; default false for skeptic CLI
 
-  // 5. Existing skeptic verdict
+  // 5. Existing skeptic verdict — use paginated fetch to capture all pages of comments
   let skepticVerdict: "PASS" | "FAIL" | "SKIPPED" | null = null;
   let skepticCommentId: number | null = null;
   try {
-    const comments = await ghJson(
-      "repos/" + owner + "/" + repo + "/issues/" + prNumber + "/comments?per_page=100",
-    ) as Array<{ id: number; body: string; user?: { login: string } }>;
+    const comments = await fetchIssueComments(owner, repo, prNumber);
     for (const c of comments) {
       if (c.user?.login === skepticBotAuthor) {
         // Use the canonical VERDICT_LINE_RE from verdict-utils.ts (handles headings, bold, anchors)
