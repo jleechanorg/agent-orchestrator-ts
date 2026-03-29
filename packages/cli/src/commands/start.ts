@@ -10,7 +10,7 @@
  */
 
 import { spawn, type ChildProcess } from "node:child_process";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { resolve, basename } from "node:path";
 import { cwd } from "node:process";
 import { resolveProjectByCwd } from "../lib/resolve-project-cwd.js";
@@ -502,7 +502,6 @@ async function startDashboard(
  * Path comparison uses realpath to canonicalize symlinks, ensuring the guard
  * works even when project.path contains home-dir aliases or relative paths.
  */
-import { realpathSync } from "node:fs";
 
 // bd-8gld: Resolve the main repo path, with realpath to canonicalize symlinks.
 // AO_MAIN_REPO env var overrides the default for custom installations.
