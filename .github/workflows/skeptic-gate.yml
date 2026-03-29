@@ -88,9 +88,10 @@ jobs:
             # but if the CLI posts a verdict without printing VERDICT: to stdout, the grep
             # misses it. Checking the API here avoids overwriting a real PASS/FAIL verdict
             # with a newer SKIPPED comment that the polling step's .[-1] sort would prefer.
+            # Require both the trigger marker AND VERDICT: keyword — matches polling step filter (line 212).
             EXISTING_VERDICT_ID=$(gh api repos/${{ github.repository }}/issues/"$PR_NUM"/comments \
               --paginate \
-              --jq '[.[] | select(.body | contains("<!-- skeptic-gate-trigger-" + env.TRIGGER_SHA + " -->"))] | .[0].id // empty' 2>/dev/null || true)
+              --jq '[.[] | select((.body | test("VERDICT:"; "i")) and (.body | contains("<!-- skeptic-gate-trigger-" + env.TRIGGER_SHA + " -->")))] | .[0].id // empty' 2>/dev/null || true)
             if [ -n "$EXISTING_VERDICT_ID" ]; then
               echo "Existing VERDICT comment found (id: $EXISTING_VERDICT_ID) — skipping SKIPPED fallback."
             else
