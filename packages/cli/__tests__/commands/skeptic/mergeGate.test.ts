@@ -171,6 +171,34 @@ describe("fetchMergeGateState — skeptic verdict parsing", () => {
     );
 
     expect(result.skepticVerdict).toBeNull();
+    expect(result.skepticCommentId).toBeNull();
+  });
+
+  it("flat() + newest-match: paginated pages return last matching comment", async () => {
+    // Simulates ghJsonPaginate --slurp: [[page1], [page2]] — two separate pages.
+    // flat() merges to [oldComment, newComment]; .[-1] picks the newest (id=2).
+    setup({
+      ghJson: [
+        { head: { sha: "abc123" }, mergeable: true },
+        { state: "success" },
+        [],
+      ],
+      paginate: [
+        [],
+        [
+          [{ id: 1, body: "VERDICT: FAIL", user: { login: "jleechan-agent[bot]" } }],
+          [{ id: 2, body: "VERDICT: PASS", user: { login: "jleechan-agent[bot]" } }],
+        ],
+      ],
+    });
+
+    const result = await fetchMergeGateState(
+      "test", "test-repo", 1, "jleechan-agent[bot]"
+    );
+
+    // Newer comment (id=2) wins — matches flatten + last-element semantics.
+    expect(result.skepticVerdict).toBe("PASS");
+    expect(result.skepticCommentId).toBe(2);
   });
 
   it("includes SKIPPED in full MergeGateState with CI passing", async () => {
