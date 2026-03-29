@@ -29,6 +29,30 @@ export const NUDGE_COOLDOWN_MS = 60 * 60_000;      // 60 minutes per nudge type
 
 export type NudgeType = "stall" | "context_exhaustion";
 
+// ---------------------------------------------------------------------------
+// URL parsing helpers
+// ---------------------------------------------------------------------------
+
+/** Parse GitHub PR URL into component fields.
+ *  `session.pr` in production is stored as a URL string (pr.url), not PRInfo.
+ *  This helper extracts the fields needed for API calls.
+ *  Also handles direct PRInfo objects (from test fixtures). */
+function parsePRUrl(pr: string | { number: number; owner: string; repo: string } | null):
+  | { number: number; owner: string; repo: string }
+  | null {
+  if (!pr) return null;
+  // If it's already an object with the needed fields, use it directly
+  if (typeof pr === "object" && "number" in pr) return pr as { number: number; owner: string; repo: string };
+  // Otherwise treat as URL string
+  const m = String(pr).match(/github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)/);
+  if (!m) return null;
+  return { owner: m[1]!, repo: m[2]!, number: parseInt(m[3]!, 10) };
+}
+
+// ---------------------------------------------------------------------------
+// ProductivityDeps
+// ---------------------------------------------------------------------------
+
 export interface ProductivityDeps {
   config: OrchestratorConfig;
   sessionManager: unknown; // SessionManager — used for future worktree cleanup
@@ -53,6 +77,11 @@ export type ProductivityResult =
 
 /** Per-session, per-nudge-type cooldown. Key: "sessionId:nudgeType" → timestamp */
 const nudgeCooldowns = new Map<string, number>();
+
+/** Reset all nudge cooldowns — for testing only. */
+export function resetNudgeCooldowns(): void {
+  nudgeCooldowns.clear();
+}
 
 function isNudgeOnCooldown(sessionId: string, nudgeType: NudgeType): boolean {
   const key = `${sessionId}:${nudgeType}`;
@@ -199,7 +228,7 @@ export async function checkMergedPRCleanup(
   session: Session,
   deps: ProductivityDeps,
 ): Promise<"killed" | "skipped"> {
-  const pr = session.pr;
+  const pr = parsePRUrl(session.pr as Parameters<typeof parsePRUrl>[0]);
   if (!pr) return "skipped";
   const ghRest = resolveGhRest(deps);
   const meta = await fetchPRMeta(pr.owner, pr.repo, pr.number, ghRest);
@@ -231,7 +260,7 @@ export async function checkStallDetection(
   if (isNudgeOnCooldown(session.id, "stall")) return "none";
   if (TERMINAL_STATUSES.has(session.status)) return "none";
 
-  const pr = session.pr;
+  const pr = parsePRUrl(session.pr as Parameters<typeof parsePRUrl>[0]);
   if (!pr) return "none";
 
   const ghRest = resolveGhRest(deps);

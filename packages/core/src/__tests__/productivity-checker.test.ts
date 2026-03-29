@@ -7,7 +7,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { type ProductivityDeps, checkMergedPRCleanup, checkStallDetection, checkContextExhaustion, runProductivityChecks } from "../productivity-checker.js";
+import { type ProductivityDeps, checkMergedPRCleanup, checkStallDetection, checkContextExhaustion, runProductivityChecks, STALL_THRESHOLD_MS, resetNudgeCooldowns } from "../productivity-checker.js";
 
 // ---------------------------------------------------------------------------
 // Shared helpers
@@ -18,7 +18,12 @@ type GhRestMock = (owner: string, repo: string, path: string) => Promise<unknown
 // Fixed epoch for deterministic fake timers
 const NOW_MS = 1_741_000_000_000;
 const recentCommitDate = new Date(NOW_MS - 60_000).toISOString();
-const oldCommitDate = new Date(NOW_MS - (60 * 60_000) - 60_000).toISOString();
+// oldCommitDate must exceed STALL_THRESHOLD_MS (30 min) so stall detection fires
+const oldCommitDate = new Date(NOW_MS - STALL_THRESHOLD_MS - 60_000).toISOString();
+
+// Production stores session.pr as a URL string (not PRInfo). Use URL strings
+// in fixtures to match real runtime behavior. parsePRUrl handles both formats.
+const TEST_PR_URL = "https://github.com/jleechanorg/agent-orchestrator/pull/123";
 
 function makeDeps(
   overrides: Partial<ProductivityDeps> & { ghRest?: GhRestMock } = {},
@@ -66,7 +71,7 @@ describe("checkMergedPRCleanup", () => {
   it("returns skipped when PR is open", async () => {
     const deps = makeDeps({ ghRest: async () => ({ state: "open", merged: false }) });
     const session = makeSession({
-      pr: { number: 123, owner: "jleechanorg", repo: "agent-orchestrator", url: "https://github.com/jleechanorg/agent-orchestrator/pull/123", title: "Test PR", branch: "feat/x", baseBranch: "main" }, metadata: { },
+      pr: TEST_PR_URL,
     });
     const result = await checkMergedPRCleanup(session, deps);
     expect(result).toBe("skipped");
@@ -79,7 +84,7 @@ describe("checkMergedPRCleanup", () => {
       killSession,
     });
     const session = makeSession({
-      pr: { number: 123, owner: "jleechanorg", repo: "agent-orchestrator", url: "https://github.com/jleechanorg/agent-orchestrator/pull/123", title: "Test PR", branch: "feat/x", baseBranch: "main" }, metadata: { tmuxName: "jc-1" },
+      pr: TEST_PR_URL, metadata: { tmuxName: "jc-1" },
     });
     const result = await checkMergedPRCleanup(session, deps);
     expect(result).toBe("killed");
@@ -93,7 +98,7 @@ describe("checkMergedPRCleanup", () => {
       killSession,
     });
     const session = makeSession({
-      pr: { number: 123, owner: "jleechanorg", repo: "agent-orchestrator", url: "https://github.com/jleechanorg/agent-orchestrator/pull/123", title: "Test PR", branch: "feat/x", baseBranch: "main" }, metadata: { tmuxName: "jc-1" },
+      pr: TEST_PR_URL, metadata: { tmuxName: "jc-1" },
     });
     const result = await checkMergedPRCleanup(session, deps);
     expect(result).toBe("killed");
@@ -103,7 +108,7 @@ describe("checkMergedPRCleanup", () => {
   it("handles ghRest error gracefully", async () => {
     const deps = makeDeps({ ghRest: async () => { throw new Error("network error"); } });
     const session = makeSession({
-      pr: { number: 123, owner: "jleechanorg", repo: "agent-orchestrator", url: "https://github.com/jleechanorg/agent-orchestrator/pull/123", title: "Test PR", branch: "feat/x", baseBranch: "main" }, metadata: { },
+      pr: TEST_PR_URL,
     });
     const result = await checkMergedPRCleanup(session, deps);
     expect(result).toBe("skipped");
@@ -118,6 +123,7 @@ describe("checkStallDetection", () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.setSystemTime(NOW_MS);
+    resetNudgeCooldowns();
   });
 
   afterEach(() => {
@@ -139,7 +145,7 @@ describe("checkStallDetection", () => {
       },
     });
     const session = makeSession({
-      pr: { number: 123, owner: "jleechanorg", repo: "agent-orchestrator", url: "https://github.com/jleechanorg/agent-orchestrator/pull/123", title: "Test PR", branch: "feat/x", baseBranch: "main" }, metadata: { tmuxName: "jc-1" },
+      pr: TEST_PR_URL, metadata: { tmuxName: "jc-1" },
     });
     const result = await checkStallDetection(session, deps);
     expect(result).toBe("none");
@@ -157,7 +163,7 @@ describe("checkStallDetection", () => {
       sendKeys,
     });
     const session = makeSession({
-      pr: { number: 123, owner: "jleechanorg", repo: "agent-orchestrator", url: "https://github.com/jleechanorg/agent-orchestrator/pull/123", title: "Test PR", branch: "feat/x", baseBranch: "main" }, metadata: { tmuxName: "jc-1" },
+      pr: TEST_PR_URL, metadata: { tmuxName: "jc-1" },
     });
     const result = await checkStallDetection(session, deps);
     expect(result).toBe("nudged");
@@ -181,7 +187,7 @@ describe("checkStallDetection", () => {
       sendKeys,
     });
     const session = makeSession({
-      pr: { number: 123, owner: "jleechanorg", repo: "agent-orchestrator", url: "https://github.com/jleechanorg/agent-orchestrator/pull/123", title: "Test PR", branch: "feat/x", baseBranch: "main" }, metadata: { tmuxName: "jc-1" },
+      pr: TEST_PR_URL, metadata: { tmuxName: "jc-1" },
     });
     const result = await checkStallDetection(session, deps);
     expect(result).toBe("none");
@@ -198,7 +204,7 @@ describe("checkStallDetection", () => {
       },
     });
     const session = makeSession({
-      pr: { number: 123, owner: "jleechanorg", repo: "agent-orchestrator", url: "https://github.com/jleechanorg/agent-orchestrator/pull/123", title: "Test PR", branch: "feat/x", baseBranch: "main" }, metadata: { tmuxName: "jc-1" },
+      pr: TEST_PR_URL, metadata: { tmuxName: "jc-1" },
     });
     const result = await checkStallDetection(session, deps);
     expect(result).toBe("none");
@@ -224,7 +230,7 @@ describe("checkStallDetection", () => {
     });
     const session = makeSession({
       id: "cooldown-test",
-      pr: { number: 123, owner: "jleechanorg", repo: "agent-orchestrator", url: "https://github.com/jleechanorg/agent-orchestrator/pull/123", title: "Test PR", branch: "feat/x", baseBranch: "main" }, metadata: { tmuxName: "jc-1" },
+      pr: TEST_PR_URL, metadata: { tmuxName: "jc-1" },
     });
 
     const result1 = await checkStallDetection(session, deps);
@@ -243,6 +249,7 @@ describe("checkContextExhaustion", () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.setSystemTime(NOW_MS);
+    resetNudgeCooldowns();
   });
 
   afterEach(() => {
@@ -338,7 +345,7 @@ describe("runProductivityChecks", () => {
       makeSession({
         id: "s1",
         status: "pr_open",
-        pr: { number: 123, owner: "jleechanorg", repo: "agent-orchestrator", url: "https://github.com/jleechanorg/agent-orchestrator/pull/123", title: "Test PR", branch: "feat/x", baseBranch: "main" }, metadata: { tmuxName: "jc-1" },
+        pr: TEST_PR_URL, metadata: { tmuxName: "jc-1" },
       }),
     ];
     const result = await runProductivityChecks(sessions as any, deps);
@@ -356,7 +363,7 @@ describe("runProductivityChecks", () => {
       makeSession({
         id: "s1",
         status: "pr_open",
-        pr: { number: 123, owner: "jleechanorg", repo: "agent-orchestrator", url: "https://github.com/jleechanorg/agent-orchestrator/pull/123", title: "Test PR", branch: "feat/x", baseBranch: "main" }, metadata: { tmuxName: "jc-1" },
+        pr: TEST_PR_URL, metadata: { tmuxName: "jc-1" },
       }),
     ];
     // Should not throw — all errors are caught internally in each check function

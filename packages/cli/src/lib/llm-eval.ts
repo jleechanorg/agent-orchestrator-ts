@@ -18,8 +18,8 @@
 
 import { resolveCodexBinary } from "@jleechanorg/ao-plugin-agent-codex";
 
-const CODEX_TIMEOUT_MS = 120_000;
-const CLAUDE_TIMEOUT_MS = 120_000;
+const CODEX_TIMEOUT_MS = 300_000;
+const CLAUDE_TIMEOUT_MS = 300_000;
 
 /** Strict VERDICT matcher for tool output validation — PASS or FAIL only.
  * SKIPPED is produced by llmEval as an infrastructure-unavailable sentinel
