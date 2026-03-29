@@ -2,10 +2,12 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 // Both mocks are at module scope, hoisted before vi.mock
 const mockGhJson = vi.hoisted(() => vi.fn());
+const mockGhJsonPaginate = vi.hoisted(() => vi.fn());
 const mockFetchReviews = vi.hoisted(() => vi.fn());
 
 vi.mock("../../../src/commands/skeptic/gh-client.js", () => ({
   ghJson: mockGhJson,
+  ghJsonPaginate: mockGhJsonPaginate,
   fetchReviews: mockFetchReviews,
 }));
 
@@ -14,16 +16,18 @@ const { fetchMergeGateState } = await import("../../../src/commands/skeptic/merg
 describe("fetchMergeGateState — skeptic verdict parsing", () => {
   beforeEach(() => {
     mockGhJson.mockReset();
+    mockGhJsonPaginate.mockReset();
+    mockGhJsonPaginate.mockResolvedValue({ check_runs: [] });
     mockFetchReviews.mockReset();
     mockFetchReviews.mockResolvedValue([]);
   });
 
   /**
-   * Mock queue setup:
+   * Mock queue setup (mergeGate.ts now makes 5 ghJson calls before verdict block):
    * #1 ghJson("repos/{owner}/{repo}/pulls/{prNumber}")
    * #2 ghJson("repos/{owner}/{repo}/commits/{ref}/status")
+   * #3 ghJson("graphql" — reviewThreads, first page)
    * [fetchReviews mocked — does not consume ghJson]
-   * #3 ghJson("repos/{owner}/{repo}/pulls/{prNumber}/comments")
    * #4 ghJson("repos/{owner}/{repo}/issues/{prNumber}/comments")
    */
   function setupGhJson(values: any[]) {
@@ -31,11 +35,25 @@ describe("fetchMergeGateState — skeptic verdict parsing", () => {
     values.forEach(v => mockGhJson.mockResolvedValueOnce(v));
   }
 
+  // Review threads response for #3 — empty threads so the loop exits after 1 page
+  const emptyThreadsResponse = {
+    data: {
+      repository: {
+        pullRequest: {
+          reviewThreads: {
+            pageInfo: { hasNextPage: false },
+            nodes: [],
+          },
+        },
+      },
+    },
+  };
+
   it("parses VERDICT: SKIPPED from skeptic bot issue comments", async () => {
     setupGhJson([
-      { head: { ref: "main" }, mergeable: true },
+      { head: { sha: "abc" }, mergeable: true },
       { state: "success" },
-      [],
+      emptyThreadsResponse,
       [{ id: 99, body: "VERDICT: SKIPPED — ANTHROPIC_API_KEY not configured", user: { login: "jleechan-agent[bot]" } }],
     ]);
 
@@ -49,9 +67,9 @@ describe("fetchMergeGateState — skeptic verdict parsing", () => {
 
   it("parses VERDICT: PASS from skeptic bot issue comments", async () => {
     setupGhJson([
-      { head: { ref: "main" }, mergeable: true },
+      { head: { sha: "abc" }, mergeable: true },
       { state: "success" },
-      [],
+      emptyThreadsResponse,
       [{ id: 98, body: "<!-- skeptic-agent-verdict -->\nVERDICT: PASS", user: { login: "jleechan-agent[bot]" } }],
     ]);
 
@@ -65,9 +83,9 @@ describe("fetchMergeGateState — skeptic verdict parsing", () => {
 
   it("parses VERDICT: FAIL from skeptic bot issue comments", async () => {
     setupGhJson([
-      { head: { ref: "main" }, mergeable: true },
+      { head: { sha: "abc" }, mergeable: true },
       { state: "success" },
-      [],
+      emptyThreadsResponse,
       [{ id: 97, body: "VERDICT: FAIL — evidence bundle missing", user: { login: "jleechan-agent[bot]" } }],
     ]);
 
@@ -81,9 +99,9 @@ describe("fetchMergeGateState — skeptic verdict parsing", () => {
 
   it("returns null skepticVerdict when no skeptic bot comment exists", async () => {
     setupGhJson([
-      { head: { ref: "main" }, mergeable: true },
+      { head: { sha: "abc" }, mergeable: true },
       { state: "success" },
-      [{ id: 1, body: "hello world", user: { login: "someone" } }],
+      emptyThreadsResponse,
       [],
     ]);
 
@@ -100,9 +118,9 @@ describe("fetchMergeGateState — skeptic verdict parsing", () => {
     mockFetchReviews.mockReset();
     mockFetchReviews.mockResolvedValue([]);
     mockGhJson
-      .mockResolvedValueOnce({ head: { ref: "main" }, mergeable: true })
+      .mockResolvedValueOnce({ head: { sha: "abc" }, mergeable: true })
       .mockResolvedValueOnce({ state: "success" })
-      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce(emptyThreadsResponse)
       .mockRejectedValueOnce(new Error("API error")); // #4 throws
 
     const state = await fetchMergeGateState(
@@ -115,9 +133,9 @@ describe("fetchMergeGateState — skeptic verdict parsing", () => {
 
   it("includes SKIPPED in full MergeGateState with CI passing", async () => {
     setupGhJson([
-      { head: { ref: "main" }, mergeable: true },
+      { head: { sha: "abc" }, mergeable: true },
       { state: "success" },
-      [],
+      emptyThreadsResponse,
       [{ id: 50, body: "VERDICT: SKIPPED", user: { login: "jleechan-agent[bot]" } }],
     ]);
 
