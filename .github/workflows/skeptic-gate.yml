@@ -35,23 +35,40 @@ jobs:
       # evaluation SHA (prevents accepting a VERDICT from a different commit).
       trigger_sha: ${{ steps.post_trigger.outputs.trigger_sha }}
     steps:
-      # Step 1: Set trigger timestamp and SHA for the polling step's cutoff filter.
+      # Step 1: Post trigger comment and capture GitHub's server-side timestamp.
+      # We use the trigger comment's updated_at as the freshness cutoff because it
+      # is set by GitHub's server at POST time — guaranteed to be before any
+      # verdict comment that the subsequent ao skeptic verify posts.
+      # This avoids the date -u bug where the runner's clock > verdict's server time
+      # causes the jq updated_at filter to always reject the fresh verdict.
       - name: Post skeptic trigger comment
         id: post_trigger
         env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           PR_NUM=${{ github.event.pull_request.number }}
+          TRIGGER_SHA="$HEAD_SHA"
+          # The HTML marker identifies this trigger uniquely for the lifecycle-manager.
+          # Using $'...' ANSI-C quoting so the embedded HTML comment is literal.
+          BODY=$(printf '%s\n%s' \
+            "SKEPTIC_GATE_TRIGGER" \
+            "<!-- skeptic-gate-trigger-${TRIGGER_SHA} -->")
 
-          # Always use date-based timestamp as the cutoff for filtering verdict comments.
-          # github-actions[bot] token lacks write access to PR comments in pull_request_target
-          # context on forked PRs. Using date -u (ISO-8601, second resolution) as cutoff.
-          # Verdicts posted in the same second as the trigger will be caught by the next
-          # poll cycle (30s interval).
-          TRIGGER_UPDATED=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-          echo "Trigger timestamp (UTC): $TRIGGER_UPDATED"
+          # Post comment and capture GitHub's server-side updated_at as the cutoff.
+          # This timestamp is guaranteed to be set at POST time (server clock),
+          # before any verdict that ao skeptic verify posts below.
+          # shellcheck disable=SC2086
+          TRIGGER_UPDATED=$(gh api repos/${{ github.repository }}/issues/"$PR_NUM"/comments \
+            --field body="$BODY" \
+            --jq '.updated_at')
+          if [ -z "$TRIGGER_UPDATED" ] || [ "$TRIGGER_UPDATED" = "null" ]; then
+            echo "ERROR: failed to obtain trigger_updated from posted comment" >&2
+            exit 1
+          fi
+          echo "Trigger timestamp (GitHub server): $TRIGGER_UPDATED"
           echo "trigger_updated=$TRIGGER_UPDATED" >> "$GITHUB_OUTPUT"
-          echo "trigger_sha=$HEAD_SHA" >> "$GITHUB_OUTPUT"
+          echo "trigger_sha=$TRIGGER_SHA" >> "$GITHUB_OUTPUT"
 
       # Step 2: Run skeptic verification and post VERDICT comment.
       # The polling step below waits for this comment — we post first, then poll to confirm.
@@ -90,9 +107,9 @@ jobs:
 
       # Step 3: Poll for the VERDICT comment posted by Step 2 above.
       # The skeptic VERDICT is idempotent — re-running updates the same comment.
-      # Uses TRIGGER_UPDATED = date -u (captured at step start) as the cutoff for
-      # verdict filtering. Any verdict comment from SKEPTIC_BOT_AUTHOR with created_at
-      # >= TRIGGER_UPDATED and containing the current trigger SHA is accepted.
+      # Uses TRIGGER_UPDATED = GitHub server time from the posted trigger comment.
+      # This is guaranteed to be BEFORE any verdict posted by ao skeptic verify,
+      # so the updated_at filter correctly accepts the fresh verdict.
       - name: Poll for skeptic VERDICT
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -183,7 +200,7 @@ jobs:
               fi
             fi
 
-            # Remove || true: jq -e exits 1 on empty/null (no fresh verdict), which is
+            # Remove || true: jq -e exits 1 on empty/null (no match), which is
             # normal — the loop will retry. || true would suppress this and let an empty
             # VERDICT_JSON fall through silently, breaking the error-detection grep on the
             # next iteration (empty string matches no error keywords).
