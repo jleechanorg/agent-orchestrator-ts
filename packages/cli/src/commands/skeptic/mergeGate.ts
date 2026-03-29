@@ -230,8 +230,14 @@ export async function fetchMergeGateState(
       "repos/" + owner + "/" + repo + "/issues/" + prNumber + "/comments?per_page=100",
     )) as Array<Array<{ id: number; body: string; user?: { login: string } }>>;
     const comments = commentPages.flat();
+    // Accept both the configured bot author and github-actions[bot].
+    // The GHA runner posts SKIPPED fallback verdicts as github-actions[bot] when
+    // ao skeptic verify cannot post (e.g., no API keys in GHA). Matching only
+    // skepticBotAuthor would miss those fallback verdicts and cause incorrect
+    // null results on subsequent fetchMergeGateState calls.
+    const ACCEPTED_AUTHORS = new Set([skepticBotAuthor, "github-actions[bot]"]);
     for (const c of comments) {
-      if (c.user?.login === skepticBotAuthor) {
+      if (c.user?.login && ACCEPTED_AUTHORS.has(c.user.login)) {
         // Use the shared VERDICT_LINE_RE from verdict-utils.ts — it accepts both plain
         // VERDICT: PASS and markdown-bold **VERDICT: PASS** variants.
         const m = c.body.match(VERDICT_LINE_RE);

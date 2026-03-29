@@ -216,4 +216,17 @@ describe("runSkepticReview", () => {
     const result = await runSkepticReview(session, { model: "gemini" });
     expect(result.modelUsed).toBe("gemini");
   });
+
+  // bd-ryw2: VERDICT_LINE_RE now includes SKIPPED — previously only matched PASS|FAIL
+  it("maps VERDICT: SKIPPED (infra unavailable) to result.verdict = SKIPPED", async () => {
+    execFileMock.mockResolvedValue({
+      stdout: "VERDICT: SKIPPED\nANTHROPIC_API_KEY not configured — cannot run evaluation.",
+      stderr: "",
+    });
+    const session = makeSession();
+    const result = await runSkepticReview(session);
+    // Before the fix, SKIPPED matched VERDICT_LINE_RE$ (end anchor) which excluded SKIPPED,
+    // causing it to fall through to the "FAIL" default. Now it is a first-class verdict.
+    expect(result.verdict).toBe("SKIPPED");
+  });
 });

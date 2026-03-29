@@ -25,8 +25,8 @@ import type { Session } from "./types.js";
 
 const execFileAsync = promisify(execFile);
 
-/** Line-anchored VERDICT matcher — only accepts a single-line literal "VERDICT: PASS" or "VERDICT: FAIL". */
-const VERDICT_LINE_RE = /^VERDICT:\s*(PASS|FAIL)\s*$/im;
+/** Line-anchored VERDICT matcher — accepts VERDICT: PASS, VERDICT: FAIL, or VERDICT: SKIPPED. */
+const VERDICT_LINE_RE = /^VERDICT:\s*(PASS|FAIL|SKIPPED)\b/im;
 
 export interface SkepticReviewResult {
   verdict: "PASS" | "FAIL" | "SKIPPED";
@@ -138,9 +138,10 @@ export async function runSkepticReview(
   }
 
   // Parse VERDICT from output — fail-closed: no VERDICT = FAIL
+  // SKIPPED (infra unavailable) is surfaced as a distinct verdict, not FAIL.
   const verdictMatch = output.match(VERDICT_LINE_RE);
-  const verdict: "PASS" | "FAIL" = verdictMatch
-    ? (verdictMatch[1].toUpperCase() as "PASS" | "FAIL")
+  const verdict: "PASS" | "FAIL" | "SKIPPED" = verdictMatch
+    ? (verdictMatch[1].toUpperCase() as "PASS" | "FAIL" | "SKIPPED")
     : "FAIL";
 
   // Write skeptic-report.json to the worker's workspace

@@ -223,5 +223,75 @@ describe("fetchMergeGateState — skeptic verdict parsing", () => {
     expect(result.ciPassing).toBe(true);
     expect(result.noConflicts).toBe(true);
   });
+
+  // bd-ryw2: accepts both configured skepticBotAuthor AND github-actions[bot].
+  // The GHA runner posts SKIPPED fallback as github-actions[bot]. Without accepting
+  // github-actions[bot] here, fetchMergeGateState would return null for those verdicts
+  // even though skeptic-gate.yml's polling step accepts them (OR condition).
+  it("parses VERDICT: SKIPPED from github-actions[bot] when configured author is different", async () => {
+    setup({
+      ghJson: [
+        { head: { sha: "abc123" }, mergeable: true },
+        { state: "success" },
+        [],
+      ],
+      // Two ghJsonPaginate calls: check-runs + comments
+      paginate: [
+        [], // check-runs consumed
+        [
+          // comments consumed — wrapped in extra array for --slurp structure: [[comment]]
+          [
+            {
+              id: 77,
+              body: "<!-- skeptic-gate-trigger-abc123 -->\nVERDICT: SKIPPED\nANTHROPIC_API_KEY not configured",
+              user: { login: "github-actions[bot]" },
+            },
+          ],
+        ],
+      ],
+    });
+
+    const result = await fetchMergeGateState(
+      "test", "test-repo", 1, "jleechan2015"
+    );
+
+    expect(result.skepticVerdict).toBe("SKIPPED");
+    expect(result.skepticCommentId).toBe(77);
+  });
+
+  it("prefers configured author verdict over github-actions[bot] for same-age comments", async () => {
+    setup({
+      ghJson: [
+        { head: { sha: "abc123" }, mergeable: true },
+        { state: "success" },
+        [],
+      ],
+      paginate: [
+        [], // check-runs consumed
+        [
+          [
+            {
+              id: 80,
+              body: "VERDICT: FAIL",
+              user: { login: "github-actions[bot]" },
+            },
+            {
+              id: 81,
+              body: "VERDICT: PASS",
+              user: { login: "jleechan2015" },
+            },
+          ],
+        ],
+      ],
+    });
+
+    const result = await fetchMergeGateState(
+      "test", "test-repo", 1, "jleechan2015"
+    );
+
+    // Newest matching comment (id=81, jleechan2015) wins
+    expect(result.skepticVerdict).toBe("PASS");
+    expect(result.skepticCommentId).toBe(81);
+  });
 });
 

@@ -143,12 +143,12 @@ export async function fetchIssueComments(
   repo: string,
   prNumber: number,
 ): Promise<IssueComment[]> {
-  // Use paginated client to fetch all pages of issue comments.
-  // Without --paginate, gh returns only the first page (100 comments),
-  // silently dropping verdict comments beyond page 1.
-  return (await ghJsonPaginate(
+  // ghJsonPaginate uses --paginate --slurp: each page is a separate array element.
+  // Flatten to a single array so all pages of comments are returned and iterated.
+  const pages = (await ghJsonPaginate(
     "repos/" + owner + "/" + repo + "/issues/" + prNumber + "/comments",
-  )) as IssueComment[];
+  )) as Array<IssueComment[]>;
+  return pages.flat();
 }
 
 export async function patchComment(

@@ -11,7 +11,7 @@ vi.mock("../../../src/lib/shell.js", () => ({
 }));
 
 // Import after mocks are defined
-const { fetchDesignDoc, ghJsonPaginate } = await import(
+const { fetchDesignDoc, ghJsonPaginate, fetchIssueComments } = await import(
   "../../../src/commands/skeptic/gh-client.js"
 );
 
@@ -132,5 +132,69 @@ describe("ghJsonPaginate", () => {
 
     const result = await ghJsonPaginate("repos/owner/repo/pulls/1");
     expect(result).toBeNull();
+  });
+});
+
+describe("fetchIssueComments", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("calls gh api --paginate --slurp for comments endpoint", async () => {
+    mockExec.mockResolvedValueOnce({
+      stdout: JSON.stringify([[{ id: 1, body: "hello", user: { login: "a" } }]]),
+      stderr: "",
+    });
+
+    await fetchIssueComments("owner", "repo", 42);
+
+    expect(mockExec).toHaveBeenCalledOnce();
+    const [, args] = mockExec.mock.calls[0]!;
+    expect(args).toContain("--paginate");
+    expect(args).toContain("repos/owner/repo/issues/42/comments");
+  });
+
+  // bd-ryw2: ghJsonPaginate returns pages as separate array elements (--slurp).
+  // Without .flat(), iterating the outer array never reaches comments on page 2+.
+  // This test verifies that multi-page results are properly flattened.
+  it("flattens paginated pages so all comments from all pages are returned", async () => {
+    const page1 = [
+      { id: 1, body: "page1 comment", user: { login: "alice" } },
+    ];
+    const page2 = [
+      { id: 101, body: "skeptic verdict on page 2", user: { login: "jleechan2015" } },
+      { id: 102, body: "page2 comment", user: { login: "bob" } },
+    ];
+    mockExec.mockResolvedValueOnce({
+      stdout: JSON.stringify([page1, page2]),
+      stderr: "",
+    });
+
+    const result = await fetchIssueComments("owner", "repo", 5);
+
+    expect(result).toHaveLength(3);
+    expect(result.find((c) => c.id === 1)?.body).toBe("page1 comment");
+    expect(result.find((c) => c.id === 101)?.body).toBe("skeptic verdict on page 2");
+    expect(result.find((c) => c.id === 102)?.body).toBe("page2 comment");
+  });
+
+  it("returns empty array when gh api returns empty pages", async () => {
+    mockExec.mockResolvedValueOnce({
+      stdout: JSON.stringify([[], []]),
+      stderr: "",
+    });
+
+    const result = await fetchIssueComments("owner", "repo", 7);
+    expect(result).toEqual([]);
+  });
+
+  it("returns empty array when gh api returns null (no comments)", async () => {
+    mockExec.mockResolvedValueOnce({
+      stdout: JSON.stringify([[]]),
+      stderr: "",
+    });
+
+    const result = await fetchIssueComments("owner", "repo", 9);
+    expect(result).toEqual([]);
   });
 });
