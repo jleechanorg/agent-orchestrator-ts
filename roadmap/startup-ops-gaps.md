@@ -137,6 +137,26 @@ commands manually: `ps aux | grep lifecycle-worker`, `tmux list-sessions`,
 
 ---
 
+---
+
+## Gap 7 — Self-hosted runners silently absent for new AO-managed repos
+
+**What happened** (2026-03-29): PR #273 (`fix/all-tests-self-hosted`) had all CI checks queued with 0 runners for 17+ hours. The worker correctly diagnosed "0 runners — CI cannot progress" but had no recovery path. Root cause: `~/.ao-runner.d/` had entries for `jleechanclaw` and `worldai_claw` but NOT `agent-orchestrator`. The `com.ao-runner.plist` runs once at boot — no watchdog.
+
+**Manual fix**: Created `~/.ao-runner.d/jleechanorg--agent-orchestrator/.env`, ran `start-runner.sh`, bootstrapped watchdog plist.
+
+**Root cause**: New repos added to AO projects config require a manual `~/.ao-runner.d/` entry — there is no detection or alerting when a configured project has no runner coverage.
+
+**Implemented fix** (PR #294, bd-sdl):
+- `ao doctor` now checks runner health per configured repo (calls `gh api .../runners`)
+- `ao doctor --fix` restarts dead containers (idempotent — skips healthy repos)
+- New `com.ao-runner-watchdog.plist` (StartInterval=3600) runs `ao doctor --fix` hourly
+
+**Remaining gap** (bd-TODO):
+- `ao doctor --fix` still cannot auto-provision missing `~/.ao-runner.d/` entries for repos not yet configured — requires a project-id → repo-URL mapping. See follow-on bead.
+
+---
+
 ## Priority order
 
 | Pri | Gap | Effort | Impact |
@@ -145,5 +165,6 @@ commands manually: `ps aux | grep lifecycle-worker`, `tmux list-sessions`,
 | P0 | Gap 2: Idempotent lifecycle-worker launch | S | Prevents duplicate processes |
 | P1 | Gap 5: Stale worktree cleanup on spawn | M | Unblocks PR coverage |
 | P1 | Gap 6: `ao health` command | M | Reduces manual ops burden |
+| P1 | Gap 7: Runner health detection + watchdog | M | Prevents silent 17h+ CI stalls |
 | P2 | Gap 3: Stale namespace tmux GC | M | Keeps tmux count accurate |
 | P2 | Gap 4: start-all.sh config default | XS | Removes footgun |

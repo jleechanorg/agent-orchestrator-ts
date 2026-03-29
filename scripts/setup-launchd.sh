@@ -152,10 +152,44 @@ install_novel_plist() {
   echo "Installed launchd: $plist_path"
 }
 
+install_watchdog_plist() {
+  local template="$TEMPLATE_DIR/com.ao-runner-watchdog.plist.template"
+  local plist_path="$LAUNCH_AGENTS_DIR/com.ao-runner-watchdog.plist"
+  local label="com.ao-runner-watchdog"
+
+  if [ ! -f "$template" ]; then
+    echo "ERROR: Missing template at $template"
+    return 1
+  fi
+
+  mkdir -p "$LAUNCH_AGENTS_DIR" "$HOME/Library/Logs/ao-runner-watchdog"
+
+  local tmp_plist
+  tmp_plist="$(mktemp)"
+  local path_value
+  path_value="$(escape_sed "$(path_for_launchd)")"
+
+  sed \
+    -e "s|@HOME@|$(escape_sed "$HOME")|g" \
+    -e "s|@PATH@|$path_value|g" \
+    "$template" > "$tmp_plist"
+
+  plutil -lint "$tmp_plist" >/dev/null
+  install -m 644 "$tmp_plist" "$plist_path"
+  rm -f "$tmp_plist"
+
+  launchctl bootout "gui/$(id -u)/$label" >/dev/null 2>&1 || true
+  launchctl bootstrap "gui/$(id -u)" "$plist_path"
+  launchctl enable "gui/$(id -u)/$label" >/dev/null 2>&1 || true
+
+  echo "Installed launchd: $plist_path"
+}
+
 case "$action_script" in
   all)
     install_lifecycle_plist
     install_novel_plist
+    install_watchdog_plist
     ;;
   lifecycle)
     install_lifecycle_plist
@@ -163,8 +197,11 @@ case "$action_script" in
   novel)
     install_novel_plist
     ;;
+  watchdog)
+    install_watchdog_plist
+    ;;
   *)
-    echo "ERROR: Unknown mode '$action_script'. Use all|lifecycle|novel"
+    echo "ERROR: Unknown mode '$action_script'. Use all|lifecycle|novel|watchdog"
     exit 1
     ;;
 esac
@@ -172,3 +209,4 @@ esac
 echo "Log: $BASE_LOG_DIR"
 echo "Check lifecycle status: launchctl print gui/$(id -u)/ai.agento.lifecycle-all"
 echo "Check novel status: launchctl print gui/$(id -u)/ai.agento.novel-daily"
+echo "Check watchdog status: launchctl print gui/$(id -u)/com.ao-runner-watchdog"

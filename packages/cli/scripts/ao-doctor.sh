@@ -418,6 +418,98 @@ except Exception:
   fi
 }
 
+# Normalize a git URL to owner/repo form.
+# Handles: https://github.com/owner/repo, git@github.com:owner/repo,
+# https://github.com/owner/repo.git, git@github.com:owner/repo.git
+normalize_repo_url() {
+  local url="$1"
+  # Strip git@github.com: or https://github.com/ or http://github.com/
+  url="${url#git@github.com:}"
+  url="${url#https://github.com/}"
+  url="${url#http://github.com/}"
+  # Strip trailing .git and trailing slash
+  url="${url%.git}"
+  url="${url%/}"
+  printf '%s' "$url"
+}
+
+check_runners() {
+  local ao_runner_d="${HOME}/.ao-runner.d"
+  local runner_script_dir="${HOME}/.local/share/ao-runner"
+
+  # Skip entirely if docker is not available
+  if ! command -v docker &>/dev/null; then
+    warn "docker not found — self-hosted runner check skipped"
+    return
+  fi
+  if ! docker info &>/dev/null 2>&1; then
+    warn "docker daemon not running — self-hosted runner check skipped"
+    return
+  fi
+
+  # Skip if no runner configs exist at all
+  if [ ! -d "$ao_runner_d" ] || [ -z "$(ls -A "$ao_runner_d" 2>/dev/null)" ]; then
+    warn "no runner configs found in $ao_runner_d — self-hosted runners not configured"
+    return
+  fi
+
+  local start_script="$runner_script_dir/start-runner.sh"
+
+  for repo_dir in "$ao_runner_d"/*/; do
+    local env_file="${repo_dir}.env"
+    [ -f "$env_file" ] || continue
+
+    local slug
+    slug="$(basename "$repo_dir")"
+
+    # Extract REPO_URL from .env
+    local repo_url
+    repo_url="$(grep '^REPO_URL=' "$env_file" 2>/dev/null | head -1 | cut -d= -f2- | tr -d '\r')"
+    if [ -z "$repo_url" ]; then
+      warn "runner config $slug missing REPO_URL — skipping"
+      continue
+    fi
+
+    # Derive owner/repo from URL (handle ssh, https, .git suffix, trailing slash)
+    local owner_repo
+    owner_repo="$(normalize_repo_url "$repo_url")"
+
+    # Check live runner count via GitHub API
+    local runner_count=0
+    if ! command -v gh &>/dev/null; then
+      warn "gh not found — runner count check skipped for $slug"
+    else
+      local gh_output gh_status
+      gh_output="$(gh api "repos/$owner_repo/actions/runners" --jq '.total_count' 2>&1)"
+      gh_status=$?
+      if [ $gh_status -ne 0 ]; then
+        warn "gh api failed for $owner_repo (exit $gh_status): ${gh_output%%$'\n'*}"
+      else
+        runner_count="$gh_output"
+      fi
+    fi
+
+    if [ "$runner_count" -gt 0 ]; then
+      pass "$runner_count runner(s) online for $owner_repo"
+    else
+      # 0 runners — containers likely dead or never started
+      if $FIX_MODE; then
+        if [ -x "$start_script" ]; then
+          if RUNNER_ENV_FILE="$env_file" "$start_script" >/dev/null 2>&1; then
+            fixed "restarted runners for $owner_repo (were offline)"
+          else
+            fail "failed to restart runners for $owner_repo — check $start_script"
+          fi
+        else
+          fail "0 runners online for $owner_repo — start script not found at $start_script"
+        fi
+      else
+        fail "0 runners online for $owner_repo (config: $slug). Fix: ao doctor --fix"
+      fi
+    fi
+  done
+}
+
 FIX_MODE=false
 
 # Guard: return early when sourced (e.g., for unit tests) - after functions are defined
@@ -464,6 +556,7 @@ check_stale_temp_files
 check_install_layout
 check_runtime_sanity
 check_lifecycle_workers
+check_runners
 
 printf '\nResults: %s PASS, %s WARN, %s FAIL, %s FIXED\n' "$PASS_COUNT" "$WARN_COUNT" "$FAIL_COUNT" "$FIX_COUNT"
 

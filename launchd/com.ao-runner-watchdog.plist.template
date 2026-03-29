@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.ao-runner-watchdog</string>
+
+  <!--
+    Runs `ao doctor --fix` every hour to detect and restart dead self-hosted
+    runner containers. Idempotent: skips repos where runners are already online.
+
+    Install:
+      sed -e "s|@HOME@|\${HOME}|g" -e "s|@PATH@|\${PATH}|g" \
+          setup/launchd/com.ao-runner-watchdog.plist.template \
+          > ~/Library/LaunchAgents/com.ao-runner-watchdog.plist
+      launchctl bootstrap gui/\$(id -u) ~/Library/LaunchAgents/com.ao-runner-watchdog.plist
+
+    Uninstall:
+      launchctl bootout gui/$(id -u)/com.ao-runner-watchdog
+  -->
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>-c</string>
+    <string>ao doctor --fix</string>
+  </array>
+
+  <key>StartInterval</key>
+  <integer>3600</integer>
+
+  <key>RunAtLoad</key>
+  <true/>
+
+  <!-- ThrottleInterval retries failed runs quickly (rather than waiting a full
+    StartInterval cycle), so a Docker-boot race at login resolves within ~30s. -->
+  <key>ThrottleInterval</key>
+  <integer>30</integer>
+
+  <key>StandardOutPath</key>
+  <string>@HOME@/Library/Logs/ao-runner-watchdog/stdout.log</string>
+
+  <key>StandardErrorPath</key>
+  <string>@HOME@/Library/Logs/ao-runner-watchdog/stderr.log</string>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>@PATH@</string>
+    <key>HOME</key>
+    <string>@HOME@</string>
+  </dict>
+</dict>
+</plist>
