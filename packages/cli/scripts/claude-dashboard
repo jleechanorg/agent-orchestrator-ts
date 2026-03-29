@@ -1262,8 +1262,10 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 repo = parts[0] + '/' + parts[1]
                 num = parts[2]
                 try:
+                    # bd-weav: --admin merges immediately as GITHUB_TOKEN; --auto delegates to
+                    # GitHub's merge queue which sets merged_by=null, breaking zero-touch rate
                     result = subprocess.run(
-                        ['gh', 'pr', 'merge', num, '--repo', repo, '--squash', '--auto'],
+                        ['gh', 'pr', 'merge', num, '--repo', repo, '--squash', '--admin'],
                         capture_output=True, text=True, timeout=30,
                         env={**os.environ, 'PATH': '/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin'}
                     )
