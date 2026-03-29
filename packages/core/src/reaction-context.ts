@@ -20,11 +20,12 @@ import { buildActionPlan, formatActionPlan } from "./action-plan.js";
  */
 async function appendActionPlan(
   scm: SCM,
-  session: Session,
+  pr: Session["pr"],
+  projectId: string,
   config: OrchestratorConfig,
 ): Promise<string> {
-  const pr = session.pr!;
-  const project = config.projects[session.projectId];
+  if (!pr) return "";
+  const project = config.projects[projectId];
   const mergeGateConfig = project?.mergeGate ?? { enabled: true };
   try {
     const gateResult = await checkMergeGate(
@@ -76,7 +77,7 @@ export async function buildReactionContext(
         const commentText = lines.length > 0
           ? `Unresolved review comments:\n${lines.join("\n")}${more}`
           : "";
-        const actionPlanText = await appendActionPlan(scm, session, config);
+        const actionPlanText = await appendActionPlan(scm, session.pr, projectId, config);
         const parts = [commentText, actionPlanText].filter(Boolean);
         return parts.join("\n\n");
       }
@@ -88,7 +89,7 @@ export async function buildReactionContext(
       case "agent-needs-input":
       case "agent-stuck": {
         const summary = await buildPRStatusSummary(scm, session);
-        const actionPlanText = await appendActionPlan(scm, session, config);
+        const actionPlanText = await appendActionPlan(scm, session.pr, projectId, config);
         return actionPlanText ? `${summary}\n\n${actionPlanText}` : summary;
       }
       default:

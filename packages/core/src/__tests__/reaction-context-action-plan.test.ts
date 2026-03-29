@@ -65,7 +65,7 @@ function makeConfig(overrides: Partial<OrchestratorConfig> = {}): OrchestratorCo
 function makeSCM(overrides: Partial<SCM> = {}): SCM {
   return {
     getCISummary: vi.fn().mockResolvedValue("failing"),
-    getCIShecks: vi.fn().mockResolvedValue([{ name: "test:unit", status: "failed", url: "" }]),
+    getCIChecks: vi.fn().mockResolvedValue([{ name: "test:unit", status: "failed", url: "" }]),
     getPendingComments: vi.fn().mockResolvedValue([]),
     getMergeability: vi.fn().mockResolvedValue({ noConflicts: true, blockers: [] }),
     getReviews: vi.fn().mockResolvedValue([]),
