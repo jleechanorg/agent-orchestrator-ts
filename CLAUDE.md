@@ -112,12 +112,22 @@ Before opening any skeptic-related PR, verify the full chain end-to-end locally.
 3. **Minimum smoke test**: `ao skeptic verify -n <PR> --dry-run` must output a VERDICT line matching the GHA jq filter pattern. The jq filter in `skeptic-gate.yml` uses `grep -qi "VERDICT: PASS"` / `grep -qi "VERDICT: FAIL"` / `grep -qi "VERDICT: SKIPPED"` — extra text after the keyword (e.g., `VERDICT: FAIL — claude: error`) is accepted; the filter requires the keyword to be present, not a specific format.
 4. **Hook files**: If adding/modifying `.claude/hooks/*.sh`, test stdin handling manually: `echo '{"tool_name":"Bash","tool_input":{"command":"echo test"}}' | bash your-hook.sh` must not hang or read EOF prematurely. Common bug: `INPUT=$(cat)` then `python3 -c "..."` reads empty stdin — always pipe: `echo "$INPUT" | python3 -c "..."`.
 
+### GitHub API ordering — never use `jq | last` for "newest"
+GitHub's check-runs and workflow-runs APIs return results in **reverse-chronological order** (newest first). `jq | last` gets the **oldest** element, not the newest. This bug blocked ALL skeptic-cron auto-merges for weeks (bd-xyxg).
+
+**Always use**: `sort_by(.started_at) | reverse | .[0]` to get the newest run.
+**Never use**: `| last |` on GitHub API arrays when you want the most recent.
+
+### Multi-run verification
+When testing skeptic changes, verify behavior with **multiple check-runs per SHA**. Re-triggers, concurrent workflow_dispatch, and `pull_request` events all create duplicate runs for the same commit. Single-run testing misses ordering bugs.
+
 ### Red flags — STOP if you see these in a skeptic PR:
 - Unit tests pass but no end-to-end chain verification documented
 - jq filter in `skeptic-gate.yml` does not match CLI VERDICT output format
 - jq filter in `skeptic-gate.yml` does not account for the posting identity used by `ao skeptic verify` (either `'github-actions[bot]'` or `'jleechan2015'` — both are valid by design)
 - GHA YAML filters changed without verifying CLI output format, or vice versa
 - Hook file uses `$(cat)` to read stdin without piping to subsequent commands
+- `jq | last` used on any GitHub API response (check-runs, workflow-runs, reviews) — always use `sort_by` instead
 
 ## LLM Evaluation — Shared Utility
 
