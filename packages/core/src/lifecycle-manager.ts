@@ -82,6 +82,7 @@ import {
   type McpMailClientConfig,
 } from "./mcp-mail.js";
 import { runSkepticReviewReaction } from "./fork-skeptic-extension.js";
+import { runLocalSkepticCron } from "./skeptic-cron-local.js";
 import { resolveReactionMaxRetries } from "./fork-reaction-retry-policy.js";
 
 /**
@@ -2310,6 +2311,24 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
           if (backfillSpawned) {
             allCompleteEmitted = false;
           }
+        }
+      }
+
+      // bd-skp2-cron: Local skeptic cron — evaluates open PRs using locally-available
+      // LLM tools (Codex/Claude). Replaces the broken GHA-based execution where no
+      // API keys exist. Throttled internally to run every 10 minutes.
+      // Fire-and-forget so a long-running LLM evaluation does not block the poll loop.
+      if (scopedProjectId) {
+        const skepticProject = config.projects[scopedProjectId];
+        if (skepticProject?.backfillAllPRs) {
+          void runLocalSkepticCron(
+            { registry, sessionManager, observer },
+            { projectId: scopedProjectId, project: skepticProject, activeSessions, correlationId },
+          ).catch(skepticCronErr => {
+            console.error(
+              `[skeptic-cron] failed: ${skepticCronErr instanceof Error ? skepticCronErr.message : String(skepticCronErr)}`,
+            );
+          });
         }
       }
 
