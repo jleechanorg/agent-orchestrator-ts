@@ -2,7 +2,7 @@
 
 **Author:** ao session feat/orch-nk7
 **Date:** 2026-03-29
-**Status:** Draft
+**Status:** Implemented
 
 ## Background
 
