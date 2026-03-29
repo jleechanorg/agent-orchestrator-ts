@@ -12,6 +12,36 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 // The local definition must be kept in sync with skeptic.ts:VERDICT_LINE_RE.
 const VERDICT_LINE_RE = /^VERDICT:\s*(PASS|FAIL|SKIPPED)\b/im;
 
+// ---------------------------------------------------------------------------
+// Docs-only gate — mirrors the jq regex from skeptic-cron.yml.
+// A file is "docs-only" (skipped) when NONE of its filenames match this
+// code-file pattern. The jq expression filters IN code files; if length=0,
+// the PR touched only docs.
+// ---------------------------------------------------------------------------
+const CODE_FILE_RE = /\.(js|ts|jsx|tsx|py|rs|go|java|cs|cpp|h|c|mk|toml|yaml|yml|json|xml|sh|bash|ps1|rb|php|swift|kt|gradle)$/i;
+
+function isDocsOnly(filenames: string[]): boolean {
+  return filenames.filter((f) => CODE_FILE_RE.test(f)).length === 0;
+}
+
+function evaluate6Green(params: {
+  ciStatus: string;
+  mergeable: string;
+  latestCrState: string;
+  bugbotErrors: number;
+  unresolvedComments: number;
+  gqlError?: boolean;
+}): { eligible: boolean; failures: string[] } {
+  const failures: string[] = [];
+  if (params.ciStatus !== "success") failures.push(`CI=${params.ciStatus}`);
+  if (params.mergeable !== "true") failures.push(`mergeable=${params.mergeable}`);
+  if (params.latestCrState !== "APPROVED") failures.push(`CR=${params.latestCrState}`);
+  if (params.bugbotErrors > 0) failures.push(`Bugbot=${params.bugbotErrors}`);
+  if (params.gqlError) failures.push("GraphQL error");
+  else if (params.unresolvedComments > 0) failures.push(`unresolved=${params.unresolvedComments}`);
+  return { eligible: failures.length === 0, failures };
+}
+
 // Re-exported for testing — mirrors the actual export from skeptic.ts
 // Includes triggerSha scoping (lines 65–66 in production) for SHA-idempotency tests.
 async function findExistingVerdict(
@@ -218,5 +248,190 @@ describe("findExistingVerdict — trigger-SHA scoped reuse", () => {
     const result = await findExistingVerdict("owner", "repo", 1, mockFetchComments, "  ");
     expect(result).not.toBeNull();
     expect(result!.verdict).toBe("PASS");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Docs-only gate — skeptic-cron skips PRs with zero code files changed.
+// ---------------------------------------------------------------------------
+describe("docs-only gate", () => {
+  it("skips PR when all files are .md or .txt", () => {
+    expect(isDocsOnly(["README.md", "docs/guide.md", "CHANGELOG.txt"])).toBe(true);
+  });
+
+  it("skips PR when only docs (rst, adoc)", () => {
+    expect(isDocsOnly(["README.rst", "docs/design.adoc"])).toBe(true);
+  });
+
+  it("does NOT skip when .ts/.js files are present", () => {
+    expect(isDocsOnly(["README.md", "src/index.ts"])).toBe(false);
+  });
+
+  it("does NOT skip when code-adjacent files present (json, yaml, toml)", () => {
+    expect(isDocsOnly(["package.json", "agent-orchestrator.yaml"])).toBe(false);
+  });
+
+  it("is case-insensitive on extension", () => {
+    expect(isDocsOnly(["README.MD", "src/index.TS"])).toBe(false);
+  });
+
+  it("empty file list is docs-only", () => {
+    expect(isDocsOnly([])).toBe(true);
+  });
+
+  it("mixed docs + code: code wins (does not skip)", () => {
+    expect(isDocsOnly(["docs/api.md", "src/agent.ts", "README.txt"])).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 6-green gate — skeptic-cron only triggers AO worker for eligible PRs.
+// Mirrors gate conditions from skeptic-cron.yml post_triggers step.
+// ---------------------------------------------------------------------------
+describe("6-green gate", () => {
+  it("eligible when all 6 gates pass", () => {
+    const r = evaluate6Green({
+      ciStatus: "success",
+      mergeable: "true",
+      latestCrState: "APPROVED",
+      bugbotErrors: 0,
+      unresolvedComments: 0,
+    });
+    expect(r.eligible).toBe(true);
+    expect(r.failures).toHaveLength(0);
+  });
+
+  it("NOT eligible when CI is pending", () => {
+    const r = evaluate6Green({
+      ciStatus: "pending",
+      mergeable: "true",
+      latestCrState: "APPROVED",
+      bugbotErrors: 0,
+      unresolvedComments: 0,
+    });
+    expect(r.eligible).toBe(false);
+    expect(r.failures).toContain("CI=pending");
+  });
+
+  it("NOT eligible when CI is failure", () => {
+    const r = evaluate6Green({
+      ciStatus: "failure",
+      mergeable: "true",
+      latestCrState: "APPROVED",
+      bugbotErrors: 0,
+      unresolvedComments: 0,
+    });
+    expect(r.eligible).toBe(false);
+    expect(r.failures).toContain("CI=failure");
+  });
+
+  it("NOT eligible when mergeable is false (conflicts)", () => {
+    const r = evaluate6Green({
+      ciStatus: "success",
+      mergeable: "false",
+      latestCrState: "APPROVED",
+      bugbotErrors: 0,
+      unresolvedComments: 0,
+    });
+    expect(r.eligible).toBe(false);
+    expect(r.failures).toContain("mergeable=false");
+  });
+
+  it("NOT eligible when mergeable is unknown", () => {
+    const r = evaluate6Green({
+      ciStatus: "success",
+      mergeable: "unknown",
+      latestCrState: "APPROVED",
+      bugbotErrors: 0,
+      unresolvedComments: 0,
+    });
+    expect(r.eligible).toBe(false);
+    expect(r.failures).toContain("mergeable=unknown");
+  });
+
+  it("NOT eligible when CR is CHANGES_REQUESTED", () => {
+    const r = evaluate6Green({
+      ciStatus: "success",
+      mergeable: "true",
+      latestCrState: "CHANGES_REQUESTED",
+      bugbotErrors: 0,
+      unresolvedComments: 0,
+    });
+    expect(r.eligible).toBe(false);
+    expect(r.failures).toContain("CR=CHANGES_REQUESTED");
+  });
+
+  it("NOT eligible when CR has no review (none)", () => {
+    const r = evaluate6Green({
+      ciStatus: "success",
+      mergeable: "true",
+      latestCrState: "none",
+      bugbotErrors: 0,
+      unresolvedComments: 0,
+    });
+    expect(r.eligible).toBe(false);
+    expect(r.failures).toContain("CR=none");
+  });
+
+  it("NOT eligible when Bugbot has error comments", () => {
+    const r = evaluate6Green({
+      ciStatus: "success",
+      mergeable: "true",
+      latestCrState: "APPROVED",
+      bugbotErrors: 2,
+      unresolvedComments: 0,
+    });
+    expect(r.eligible).toBe(false);
+    expect(r.failures).toContain("Bugbot=2");
+  });
+
+  it("NOT eligible when unresolved non-nit comments exist", () => {
+    const r = evaluate6Green({
+      ciStatus: "success",
+      mergeable: "true",
+      latestCrState: "APPROVED",
+      bugbotErrors: 0,
+      unresolvedComments: 3,
+    });
+    expect(r.eligible).toBe(false);
+    expect(r.failures).toContain("unresolved=3");
+  });
+
+  it("NOT eligible when GraphQL errors (treat as unresolved)", () => {
+    const r = evaluate6Green({
+      ciStatus: "success",
+      mergeable: "true",
+      latestCrState: "APPROVED",
+      bugbotErrors: 0,
+      unresolvedComments: 0,
+      gqlError: true,
+    });
+    expect(r.eligible).toBe(false);
+    expect(r.failures).toContain("GraphQL error");
+  });
+
+  it("accumulates multiple failures", () => {
+    const r = evaluate6Green({
+      ciStatus: "failure",
+      mergeable: "false",
+      latestCrState: "none",
+      bugbotErrors: 1,
+      unresolvedComments: 2,
+      gqlError: true,
+    });
+    expect(r.eligible).toBe(false);
+    expect(r.failures).toHaveLength(5);
+  });
+
+  it("eligible with zero unresolved comments", () => {
+    const r = evaluate6Green({
+      ciStatus: "success",
+      mergeable: "true",
+      latestCrState: "APPROVED",
+      bugbotErrors: 0,
+      unresolvedComments: 0,
+    });
+    expect(r.eligible).toBe(true);
+    expect(r.failures).toHaveLength(0);
   });
 });

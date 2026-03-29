@@ -1,9 +1,12 @@
 # =============================================================================
-# Composite action: Setup environment for skeptic CLI
-# Used by skeptic-gate.yml and skeptic-cron.yml
+# Composite action: Setup environment for skeptic CLI and workspace build.
+# Used by skeptic-gate.yml and any future workflow that needs Node/pnpm.
+#
+# NOTE: LLM evaluation runs via AO worker (Codex OAuth) — no API keys needed.
+# This action does NOT install Claude/Codex CLI for LLM use in GHA.
 # =============================================================================
 name: "Skeptic setup"
-description: "Node + pnpm + Claude/Codex CLI + dependencies + workspace build"
+description: "Node + pnpm + workspace build (no LLM CLI installation)"
 runs:
   using: composite
   steps:
@@ -15,34 +18,6 @@ runs:
       with:
         node-version: "22"
         cache: pnpm
-
-    - name: Install Claude CLI and Codex CLI
-      shell: bash
-      run: |
-        # pipefail: ensure npm install failures propagate through | tail
-        set -o pipefail
-
-        # Claude CLI — needed as fallback when Codex auth fails (bd-ara.stale)
-        if command -v claude &>/dev/null; then
-          echo "Claude CLI already installed: $(claude --version 2>/dev/null || echo 'unknown')"
-        else
-          echo "Installing Claude CLI..."
-          npm install -g @anthropic-ai/claude-code 2>&1 | tail -3 || echo "Claude CLI install completed"
-        fi
-        if ! command -v claude &>/dev/null; then
-          echo "WARNING: Claude CLI not available after install"
-        fi
-
-        # Codex CLI — primary LLM evaluator
-        if command -v codex &>/dev/null; then
-          echo "Codex CLI already installed"
-        else
-          echo "Installing Codex CLI..."
-          npm install -g @openai/codex 2>&1 | tail -3 || echo "Codex CLI install completed"
-        fi
-        if ! command -v codex &>/dev/null; then
-          echo "WARNING: Codex CLI not available — will rely on Claude CLI"
-        fi
 
     - name: Install dependencies
       run: pnpm install --frozen-lockfile
