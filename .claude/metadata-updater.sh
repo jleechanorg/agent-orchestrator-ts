@@ -142,8 +142,10 @@ update_metadata_key() {
   # Create temp file
   local temp_file="${metadata_file}.tmp"
 
-  # Escape special sed characters in value (& and \ — not | or / in BRE)
-  local escaped_value=$(echo "$value" | sed 's/[&\\]/\\&/g')
+  # Escape special sed characters in replacement: &, \, and | (the latter
+  # because the sed command uses | as its own delimiter; unescaped | in the
+  # replacement would be parsed as an additional delimiter, breaking the cmd)
+  local escaped_value=$(echo "$value" | sed 's/[&\\|]/\\&/g')
 
   # Check if key already exists
   if grep -q "^$key=" "$metadata_file" 2>/dev/null; then
