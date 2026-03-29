@@ -406,6 +406,13 @@ jobs:
               if [ "$MERGED_FLAG" = "true" ]; then
                 echo "Already merged — skipping"
               else
+                # SHA safety check: verify HEAD has not changed since we listed PRs.
+                # Prevents merging if a new commit was pushed between listing and merge.
+                CURRENT_SHA=$(gh api repos/${{ github.repository }}/pulls/"$PR_NUM" --jq '.head.sha' 2>/dev/null)
+                if [ "$CURRENT_SHA" != "$PR_SHA" ]; then
+                  echo "HEAD SHA changed ($PR_SHA -> $CURRENT_SHA) — skipping merge (will re-evaluate next cycle)"
+                  continue
+                fi
                 # bd-weav: use --admin instead of --auto to merge immediately as GITHUB_TOKEN.
                 # --auto delegates to GitHub's merge queue which sets merged_by=null, breaking
                 # zero-touch auto-merge rate tracking (measured via merged_by=github-actions[bot]).

@@ -61,27 +61,18 @@ jobs:
           CHECK_RUNS_PENDING=$(gh api repos/${{ github.repository }}/commits/"$HEAD_SHA"/check-runs \
             --jq '[.check_runs[] | select(.name != "Skeptic Gate" and .status != "completed")] | length' 2>/dev/null || echo "0")
 
-          if [ "$CI_STATUS" = "success" ] || [ "$CI_STATUS" = "pending" ]; then
-            CI_DETAIL="commit-status=$CI_STATUS"
-          else
-            CI_DETAIL="commit-status=$CI_STATUS"
-          fi
-          CI_DETAIL="${CI_DETAIL}, failed-checks=${CHECK_RUNS_FAILED:-0}, pending-checks=${CHECK_RUNS_PENDING:-0}"
+          CI_DETAIL="commit-status=$CI_STATUS, failed-checks=${CHECK_RUNS_FAILED:-0}, pending-checks=${CHECK_RUNS_PENDING:-0}"
 
-          if [ "$CI_STATUS" != "success" ] && [ "$CI_STATUS" != "pending" ]; then
-            GATE1="FAIL"
-            FAILED_GATES="${FAILED_GATES}1, "
-          elif [ "${CHECK_RUNS_FAILED:-0}" -gt 0 ]; then
-            GATE1="FAIL"
-            FAILED_GATES="${FAILED_GATES}1, "
-          elif [ "${CHECK_RUNS_PENDING:-0}" -gt 0 ]; then
-            # Pending checks — not a hard fail but not passing either
-            # Treat as FAIL since we need all CI green
-            GATE1="FAIL"
-            CI_DETAIL="${CI_DETAIL} (checks still running)"
-            FAILED_GATES="${FAILED_GATES}1, "
-          else
+          # Only "success" passes. "pending" means no statuses exist or checks
+          # are still running — both are NOT green. Never let pending pass.
+          if [ "$CI_STATUS" = "success" ] && [ "${CHECK_RUNS_FAILED:-0}" -eq 0 ] && [ "${CHECK_RUNS_PENDING:-0}" -eq 0 ]; then
             GATE1="PASS"
+          else
+            GATE1="FAIL"
+            FAILED_GATES="${FAILED_GATES}1, "
+            if [ "${CHECK_RUNS_PENDING:-0}" -gt 0 ]; then
+              CI_DETAIL="${CI_DETAIL} (checks still running)"
+            fi
           fi
           echo "Gate 1: $GATE1 ($CI_DETAIL)"
           GATE_ROWS="${GATE_ROWS}| 1. CI green | ${GATE1} | ${CI_DETAIL} |\n"
@@ -222,6 +213,8 @@ jobs:
           $(printf "$GATE_ROWS")
 
           ${RESULT_LINE}
+
+          VERDICT: ${OVERALL}
           <!-- skeptic-gate-result-${HEAD_SHA} -->"
 
           # Remove leading whitespace from heredoc-style indentation
