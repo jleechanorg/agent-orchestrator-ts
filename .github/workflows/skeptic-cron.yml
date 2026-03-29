@@ -1,18 +1,19 @@
 name: Skeptic Cron
 
-# Runs every 30 minutes — evaluates 6-green-eligible PRs via AO worker dispatch,
+# Runs every 20 minutes — evaluates 6-green-eligible PRs via AO worker dispatch,
 # then merges when 7-green.
 #
 # LLM evaluation (ao skeptic verify) runs via AO worker on the local machine
 # using Codex OAuth auth — NO API keys needed in GitHub secrets.
 #
-# Flow: list open PRs → filter to 6-green eligible (gates 1-5, skip docs-only) →
+# Flow: list open PRs → verify Skeptic Gate CI passed for current SHA →
+# check 6-green eligible (gates 1-5, skip docs-only) →
 # post trigger comment per PR → lifecycle-manager AO worker runs ao skeptic verify →
 # posts VERDICT comment → this workflow checks 7th condition + merges.
 #
 on:
   schedule:
-    - cron: "*/30 * * * *"
+    - cron: "*/20 * * * *"
   workflow_dispatch:
 
 jobs:
@@ -23,6 +24,7 @@ jobs:
       contents: write
       pull-requests: write
       issues: write
+      checks: read
     outputs:
       prs_evaluated: ${{ steps.list_prs.outputs.pr_numbers }}
       merged_count: ${{ steps.merge_prs.outputs.merged_count }}
@@ -46,6 +48,7 @@ jobs:
 
       # ----------------------------------------------------------------
       # Step 2: Filter to 6-green eligible PRs, post trigger comments.
+      # Verifies Skeptic Gate CI check passed before triggering LLM.
       # LLM evaluation is delegated to AO worker — this step only posts
       # the trigger comment. AO worker picks it up and runs ao skeptic verify.
       # ----------------------------------------------------------------
@@ -58,6 +61,7 @@ jobs:
           TRIGGERED=0
           SKIPPED_DOCS=0
           SKIPPED_NOT_6GREEN=0
+          SKIPPED_GATE_NOT_PASSED=0
 
           for PR in $(echo "$PR_JSON" | jq -r '.[] | @base64'); do
             PR_DATA=$(echo "$PR" | base64 -d)
@@ -69,11 +73,45 @@ jobs:
             echo "=== Evaluating PR #${PR_NUM}: ${PR_TITLE} ==="
 
             # ----------------------------------------------------------------
+            # Pre-check: Verify Skeptic Gate CI check passed for current SHA.
+            # Look for the skeptic-gate-result comment marker OR the Skeptic Gate
+            # check run conclusion. If not passed, skip LLM trigger.
+            # ----------------------------------------------------------------
+            GATE_COMMENT=$(gh api repos/${{ github.repository }}/issues/"$PR_NUM"/comments \
+              --paginate \
+              --jq "[.[] | select(.user.login == \"github-actions[bot]\" and (.body | test(\"skeptic-gate-result-${PR_SHA}\")))] | last // empty" 2>/dev/null || echo "")
+
+            GATE_PASSED=false
+            if [ -n "$GATE_COMMENT" ] && echo "$GATE_COMMENT" | jq -e '.body' > /dev/null 2>&1; then
+              GATE_BODY=$(echo "$GATE_COMMENT" | jq -r '.body')
+              if echo "$GATE_BODY" | grep -q "Result: PASS"; then
+                GATE_PASSED=true
+                echo "  [PRE-CHECK] Skeptic Gate comment: PASS for SHA ${PR_SHA:0:7}"
+              else
+                echo "  [PRE-CHECK] Skeptic Gate comment found but not PASS for SHA ${PR_SHA:0:7}"
+              fi
+            fi
+
+            # Fallback: check the Skeptic Gate check run status
+            if [ "$GATE_PASSED" = "false" ]; then
+              GATE_CHECK=$(gh api repos/${{ github.repository }}/commits/"$PR_SHA"/check-runs \
+                --jq '[.check_runs[] | select(.name == "Skeptic Gate")] | last | .conclusion // "none"' 2>/dev/null || echo "none")
+              if [ "$GATE_CHECK" = "success" ]; then
+                GATE_PASSED=true
+                echo "  [PRE-CHECK] Skeptic Gate check run: success for SHA ${PR_SHA:0:7}"
+              else
+                echo "  [PRE-CHECK] Skeptic Gate check run: $GATE_CHECK for SHA ${PR_SHA:0:7}"
+              fi
+            fi
+
+            if [ "$GATE_PASSED" = "false" ]; then
+              echo "  [SKIP] Skeptic Gate not passed for current SHA — skipping LLM trigger"
+              SKIPPED_GATE_NOT_PASSED=$((SKIPPED_GATE_NOT_PASSED + 1))
+              continue
+            fi
+
+            # ----------------------------------------------------------------
             # Docs-only skip: check if the diff contains only docs files.
-            # Pull the list of changed files from the comparison against base.
-            # jq: filters OUT code files; DIFF_FILES = count of non-code (doc) files.
-            # if DIFF_FILES = 0 → all files are code → skip (no docs to evaluate).
-            # if DIFF_FILES > 0 → PR has docs → process (evaluate skeptic).
             # ----------------------------------------------------------------
             PR_BASE_REF=$(echo "$PR_DATA" | jq -r '.base.ref')
             DIFF_FILES=$(gh api repos/${{ github.repository }}/compare/"${PR_BASE_REF}...${PR_SHA}" \
@@ -81,7 +119,6 @@ jobs:
               2>/dev/null | jq 'length' || echo 0)
             if [ "${DIFF_FILES:-0}" -eq 0 ]; then
               echo "  [SKIP] No doc files in diff — all code; skeptic evaluation optional"
-              echo "PR #${PR_NUM}: no-docs — skipped docs-only check"
               SKIPPED_DOCS=$((SKIPPED_DOCS + 1))
               continue
             fi
@@ -143,9 +180,6 @@ jobs:
             # ----------------------------------------------------------------
             PR_AUTHOR=$(gh api repos/${{ github.repository }}/pulls/"$PR_NUM" --jq '.user.login' 2>/dev/null || echo "")
             REPO_NAME="${GITHUB_REPOSITORY#*/}"
-            # GQL_RESULT=$(gh api graphql ...) — assigned below before the UNRESOLVED check.
-            # Fail closed on pagination truncation: if any page has hasNextPage=true,
-            # we may have missed unresolved threads/comments → mark as unresolved.
             GQL_RESULT=$(gh api graphql -f query='
               query($owner: String!, $name: String!, $number: Int!) {
                 repository(owner: $owner, name: $name) {
@@ -183,9 +217,9 @@ jobs:
             echo "  [GATE-5] All comments resolved"
 
             # ----------------------------------------------------------------
-            # 6-green eligible — post trigger comment for AO worker.
-            # Lifecycle-manager picks this up and runs ao skeptic verify
-            # via AO worker (Codex OAuth, no GHA API keys needed).
+            # 6-green eligible + Skeptic Gate passed — post trigger comment
+            # for AO worker. Lifecycle-manager picks this up and runs
+            # ao skeptic verify via AO worker (Codex OAuth, no GHA API keys).
             # ----------------------------------------------------------------
             echo "  [TRIGGER] Posting skeptic trigger for PR #${PR_NUM}..."
             BODY=$(printf '%s\n%s' \
@@ -204,6 +238,7 @@ jobs:
           echo ""
           echo "=== Trigger summary ==="
           echo "Triggered: $TRIGGERED"
+          echo "Skipped (Skeptic Gate not passed): $SKIPPED_GATE_NOT_PASSED"
           echo "Skipped (docs-only): $SKIPPED_DOCS"
           echo "Skipped (not 6-green): $SKIPPED_NOT_6GREEN"
 
@@ -218,7 +253,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_JSON: ${{ steps.list_prs.outputs.pr_numbers }}
           STALE_HOURS: ${{ vars.STALE_HOURS || '3' }}
-          # Default to github-actions[bot] — aligns with skeptic-gate.yml polling.
+          # Default to github-actions[bot] — aligns with skeptic-gate.yml.
           # AO worker posts verdict via GITHUB_TOKEN (authenticates as github-actions[bot]).
           SKEPTIC_BOT_AUTHOR: ${{ vars.SKEPTIC_BOT_AUTHOR || 'github-actions[bot]' }}
         run: |
@@ -228,6 +263,7 @@ jobs:
             PR_DATA=$(echo "$PR" | base64 -d)
             PR_NUM=$(echo "$PR_DATA" | jq -r '.number')
             PR_TITLE=$(echo "$PR_DATA" | jq -r '.title')
+            PR_SHA=$(echo "$PR_DATA" | jq -r '.head.sha')
 
             echo ""
             echo "--- Checking 7-green for PR #${PR_NUM}: ${PR_TITLE} ---"
@@ -284,9 +320,6 @@ jobs:
             # 5. Inline comments resolved (GraphQL)
             PR_AUTHOR=$(gh api repos/${{ github.repository }}/pulls/"$PR_NUM" --jq '.user.login')
             REPO_NAME="${GITHUB_REPOSITORY#*/}"
-            # GQL_RESULT=$(gh api graphql ...) — assigned below before the UNRESOLVED check.
-            # Fail closed on pagination truncation: if any page has hasNextPage=true,
-            # we may have missed unresolved threads/comments → mark as unresolved.
             GQL_RESULT=$(gh api graphql -f query='
               query($owner: String!, $name: String!, $number: Int!) {
                 repository(owner: $owner, name: $name) {
@@ -328,10 +361,7 @@ jobs:
             echo "  [6] Evidence review:    $EVIDENCE_STATUS"
 
             # 7. Skeptic verdict — look for VERDICT comment from AO worker.
-            # AO worker posts via gh api authenticated as github-actions[bot].
             # Filter by author + VERDICT: keyword + SHA marker (skeptic-cron-trigger-<SHA>)
-            # so old verdicts from previous cron runs don't incorrectly pass.
-            # Uses --paginate to fetch all comment pages (API is paginated).
             SKEPTIC_VERDICT=$(gh api repos/${{ github.repository }}/issues/"$PR_NUM"/comments \
               --paginate \
               --jq "[.[] | select(.user.login == \"${SKEPTIC_BOT_AUTHOR}\" and (.body | test(\"VERDICT:\"; \"i\")) and (.body | test(\"skeptic-cron-trigger-\" + \"$PR_SHA\"; \"i\"))) | .body] | last // empty" 2>/dev/null || echo "")
@@ -342,10 +372,7 @@ jobs:
             elif echo "$SKEPTIC_VERDICT" | grep -qi "VERDICT: FAIL"; then
               SKEPTIC_STATUS="FAIL"
             else
-              # Accept both the configured bot author and github-actions[bot] (GHA runner posts
-              # SKIPPED fallback as github-actions[bot]). Without the github-actions[bot] fallback,
-              # an empty/null SKEPTIC_BOT_AUTHOR causes jq to match nothing, masking the verdict.
-              # Filter by skeptic-cron-trigger marker to avoid matching stale verdicts from old runs.
+              # Fallback: also check github-actions[bot] author
               SKEPTIC_VERDICT=$(gh api repos/${{ github.repository }}/issues/"$PR_NUM"/comments \
                 --paginate \
                 --jq "[.[] | select((.user.login == \"${SKEPTIC_BOT_AUTHOR}\" or .user.login == \"github-actions[bot]\") and (.body | test(\"VERDICT:\"; \"i\")) and (.body | test(\"skeptic-cron-trigger-\"; \"i\"))) | .body] | last // empty" 2>/dev/null || echo "")
@@ -356,7 +383,6 @@ jobs:
               elif echo "$SKEPTIC_VERDICT" | grep -qi "VERDICT: FAIL"; then
                 SKEPTIC_STATUS="FAIL"
               else
-                # No VERDICT or empty → FAIL (fail-closed)
                 SKEPTIC_STATUS="FAIL"
               fi
             fi
@@ -383,8 +409,6 @@ jobs:
                 # bd-weav: use --admin instead of --auto to merge immediately as GITHUB_TOKEN.
                 # --auto delegates to GitHub's merge queue which sets merged_by=null, breaking
                 # zero-touch auto-merge rate tracking (measured via merged_by=github-actions[bot]).
-                # Permissions: pull-requests:write + contents:write grants admin merge authority
-                # for this repository — GITHUB_TOKEN can bypass branch protection via --admin.
                 MERGE_RESULT=$(gh pr merge "$PR_NUM" \
                   --repo ${{ github.repository }} \
                   --squash --admin \

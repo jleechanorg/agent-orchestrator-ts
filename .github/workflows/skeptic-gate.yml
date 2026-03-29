@@ -1,11 +1,8 @@
 name: Skeptic Gate
 
-# Trigger-only + polling workflow. No LLM evaluation runs in GHA.
-# Flow: pre-check 6-green eligibility → post trigger comment →
-# lifecycle-manager runs ao skeptic verify via AO worker (Codex OAuth, no API keys) →
-# posts VERDICT comment → GHA polling step detects it and exits PASS/FAIL.
-#
-# Gate 1-5 pre-check exits early for non-6-green PRs (cheap, no CLI needed).
+# Deterministic 6-green check. No polling, no LLM evaluation.
+# Checks gates 1-5 and posts a result comment on every run.
+# Exit PASS when all gates pass, FAIL when any gate fails.
 on:
   pull_request:
     types: [opened, synchronize, edited, reopened]
@@ -20,13 +17,6 @@ on:
         required: true
         type: string
 
-# Do NOT cancel in-progress runs — killing a polling step mid-loop discards its
-# loop state. A new concurrent run with the same SHA is harmless since the jq
-# timestamp filter rejects stale verdicts from cancelled runs.
-concurrency:
-  group: skeptic-gate-${{ github.event.pull_request.number }}
-  cancel-in-progress: false
-
 jobs:
   skeptic_gate:
     name: Skeptic Gate
@@ -35,84 +25,141 @@ jobs:
       pull-requests: write
       issues: write
       contents: read
-    outputs:
-      trigger_updated: ${{ steps.post_trigger.outputs.trigger_updated }}
-      trigger_sha: ${{ steps.post_trigger.outputs.trigger_sha }}
-      eligible: ${{ steps.check_6green.outputs.eligible }}
+      checks: read
     steps:
-      # ----------------------------------------------------------------
-      # Pre-check: 6-green eligibility (gates 1-5).
-      # Exits fast for non-eligible PRs — avoids expensive CLI setup.
-      # ----------------------------------------------------------------
-      - name: Check 6-green eligibility (gates 1-5)
-        id: check_6green
+      - name: Run 6-green gate checks
+        id: gates
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_NUM: ${{ github.event.inputs.pr_number || github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.inputs.head_sha || github.event.pull_request.head.sha }}
         run: |
+          set +e
           PR_NUM=$PR_NUM
-          ELIGIBLE=true
+          FAILED_GATES=""
+          GATE_ROWS=""
 
-          # Gate 1: CI green — only "success" passes
-          HEAD_SHA=$(gh api repos/${{ github.repository }}/pulls/"$PR_NUM" --jq '.head.sha' 2>/dev/null || echo "")
+          # Resolve HEAD_SHA if not provided (workflow_dispatch may have stale value)
           if [ -z "$HEAD_SHA" ]; then
-            echo "ERROR: could not fetch PR head SHA" >&2
-            ELIGIBLE=false
-          else
-            CI_STATUS=$(gh api repos/${{ github.repository }}/commits/"$HEAD_SHA"/status \
-              --jq '.state' 2>/dev/null || echo "error")
-            if [ "$CI_STATUS" != "success" ]; then
-              echo "GATE-1 FAIL: CI=$CI_STATUS"
-              ELIGIBLE=false
-            else
-              echo "GATE-1 PASS: CI=success"
-            fi
+            HEAD_SHA=$(gh api repos/${{ github.repository }}/pulls/"$PR_NUM" --jq '.head.sha' 2>/dev/null || echo "")
           fi
+          if [ -z "$HEAD_SHA" ]; then
+            echo "ERROR: could not determine HEAD SHA for PR #$PR_NUM"
+            exit 1
+          fi
+          echo "Checking PR #$PR_NUM at SHA ${HEAD_SHA:0:12}"
 
+          # ----------------------------------------------------------------
+          # Gate 1: CI green — all check runs and commit status must pass.
+          # Exclude our own check (Skeptic Gate) to avoid self-reference.
+          # ----------------------------------------------------------------
+          CI_STATUS=$(gh api repos/${{ github.repository }}/commits/"$HEAD_SHA"/status \
+            --jq '.state' 2>/dev/null || echo "error")
+          # Also check GitHub check runs (Actions checks use check runs API, not commit status)
+          CHECK_RUNS_FAILED=$(gh api repos/${{ github.repository }}/commits/"$HEAD_SHA"/check-runs \
+            --jq '[.check_runs[] | select(.name != "Skeptic Gate" and .conclusion != null and .conclusion != "success" and .conclusion != "skipped" and .conclusion != "neutral")] | length' 2>/dev/null || echo "0")
+          CHECK_RUNS_PENDING=$(gh api repos/${{ github.repository }}/commits/"$HEAD_SHA"/check-runs \
+            --jq '[.check_runs[] | select(.name != "Skeptic Gate" and .status != "completed")] | length' 2>/dev/null || echo "0")
+
+          if [ "$CI_STATUS" = "success" ] || [ "$CI_STATUS" = "pending" ]; then
+            CI_DETAIL="commit-status=$CI_STATUS"
+          else
+            CI_DETAIL="commit-status=$CI_STATUS"
+          fi
+          CI_DETAIL="${CI_DETAIL}, failed-checks=${CHECK_RUNS_FAILED:-0}, pending-checks=${CHECK_RUNS_PENDING:-0}"
+
+          if [ "$CI_STATUS" != "success" ] && [ "$CI_STATUS" != "pending" ]; then
+            GATE1="FAIL"
+            FAILED_GATES="${FAILED_GATES}1, "
+          elif [ "${CHECK_RUNS_FAILED:-0}" -gt 0 ]; then
+            GATE1="FAIL"
+            FAILED_GATES="${FAILED_GATES}1, "
+          elif [ "${CHECK_RUNS_PENDING:-0}" -gt 0 ]; then
+            # Pending checks — not a hard fail but not passing either
+            # Treat as FAIL since we need all CI green
+            GATE1="FAIL"
+            CI_DETAIL="${CI_DETAIL} (checks still running)"
+            FAILED_GATES="${FAILED_GATES}1, "
+          else
+            GATE1="PASS"
+          fi
+          echo "Gate 1: $GATE1 ($CI_DETAIL)"
+          GATE_ROWS="${GATE_ROWS}| 1. CI green | ${GATE1} | ${CI_DETAIL} |\n"
+
+          # ----------------------------------------------------------------
           # Gate 2: No merge conflicts
+          # ----------------------------------------------------------------
           PR_META=$(gh api repos/${{ github.repository }}/pulls/"$PR_NUM" \
-            --jq '{mergeable: .mergeable, merged: .merged}' 2>/dev/null)
+            --jq '{mergeable: .mergeable, mergeable_state: .mergeable_state, merged: .merged}' 2>/dev/null)
           MERGEABLE=$(echo "$PR_META" | jq -r '.mergeable // "unknown"')
-          if [ "$MERGEABLE" != "true" ]; then
-            echo "GATE-2 FAIL: mergeable=$MERGEABLE"
-            ELIGIBLE=false
-          else
-            echo "GATE-2 PASS: no conflicts"
-          fi
+          MERGED_FLAG=$(echo "$PR_META" | jq -r '.merged // false')
+          MERGEABLE_STATE=$(echo "$PR_META" | jq -r '.mergeable_state // "unknown"')
 
-          # Gate 3: CR APPROVED
+          if [ "$MERGED_FLAG" = "true" ]; then
+            GATE2="PASS"
+            GATE2_DETAIL="already merged"
+          elif [ "$MERGEABLE" = "true" ]; then
+            GATE2="PASS"
+            GATE2_DETAIL="mergeable=$MERGEABLE, state=$MERGEABLE_STATE"
+          else
+            GATE2="FAIL"
+            GATE2_DETAIL="mergeable=$MERGEABLE, state=$MERGEABLE_STATE"
+            FAILED_GATES="${FAILED_GATES}2, "
+          fi
+          echo "Gate 2: $GATE2 ($GATE2_DETAIL)"
+          GATE_ROWS="${GATE_ROWS}| 2. No conflicts | ${GATE2} | ${GATE2_DETAIL} |\n"
+
+          # ----------------------------------------------------------------
+          # Gate 3: CR APPROVED (latest CR review is APPROVED)
+          # ----------------------------------------------------------------
           LATEST_CR=$(gh api repos/${{ github.repository }}/pulls/"$PR_NUM"/reviews \
-            --jq '[.[] | select(.user.login == "coderabbitai[bot]" and .state == "APPROVED")] | sort_by(.submitted_at) | reverse | .[0].state // "none"' \
+            --jq '[.[] | select(.user.login == "coderabbitai[bot]" and (.state == "APPROVED" or .state == "CHANGES_REQUESTED"))] | sort_by(.submitted_at) | last | .state // "none"' \
             2>/dev/null || echo "none")
-          if [ "$LATEST_CR" != "APPROVED" ]; then
-            echo "GATE-3 FAIL: CR=$LATEST_CR"
-            ELIGIBLE=false
-          else
-            echo "GATE-3 PASS: CR=APPROVED"
-          fi
+          LATEST_CR="${LATEST_CR:-none}"
 
-          # Gate 4: Bugbot clean
+          if [ "$LATEST_CR" = "APPROVED" ]; then
+            GATE3="PASS"
+          else
+            GATE3="FAIL"
+            FAILED_GATES="${FAILED_GATES}3, "
+          fi
+          GATE3_DETAIL="state=$LATEST_CR"
+          echo "Gate 3: $GATE3 ($GATE3_DETAIL)"
+          GATE_ROWS="${GATE_ROWS}| 3. CR approved | ${GATE3} | ${GATE3_DETAIL} |\n"
+
+          # ----------------------------------------------------------------
+          # Gate 4: Bugbot clean (no error-severity comments from cursor[bot])
+          # ----------------------------------------------------------------
           BUGBOT_ERRORS=$(gh api repos/${{ github.repository }}/pulls/"$PR_NUM"/comments \
             --jq '[.[] | select(.user.login == "cursor[bot]" and (.body | test("error"; "i")))] | length' \
             2>/dev/null || echo 0)
-          if [ "${BUGBOT_ERRORS:-0}" -gt 0 ]; then
-            echo "GATE-4 FAIL: Bugbot=$BUGBOT_ERRORS error(s)"
-            ELIGIBLE=false
-          else
-            echo "GATE-4 PASS: Bugbot=clean"
-          fi
+          BUGBOT_ERRORS="${BUGBOT_ERRORS:-0}"
 
+          if [ "$BUGBOT_ERRORS" -gt 0 ] 2>/dev/null; then
+            GATE4="FAIL"
+            FAILED_GATES="${FAILED_GATES}4, "
+          else
+            GATE4="PASS"
+          fi
+          GATE4_DETAIL="${BUGBOT_ERRORS} error(s)"
+          echo "Gate 4: $GATE4 ($GATE4_DETAIL)"
+          GATE_ROWS="${GATE_ROWS}| 4. Bugbot clean | ${GATE4} | ${GATE4_DETAIL} |\n"
+
+          # ----------------------------------------------------------------
           # Gate 5: Inline comments resolved (GraphQL — REST lacks isResolved)
+          # ----------------------------------------------------------------
           PR_AUTHOR=$(gh api repos/${{ github.repository }}/pulls/"$PR_NUM" --jq '.user.login' 2>/dev/null || echo "")
           REPO_NAME="${GITHUB_REPOSITORY#*/}"
-          UNRESOLVED=$(gh api graphql -f query='
+          GQL_RESULT=$(gh api graphql -f query='
             query($owner: String!, $name: String!, $number: Int!) {
               repository(owner: $owner, name: $name) {
                 pullRequest(number: $number) {
                   reviewThreads(first: 100) {
+                    pageInfo { hasNextPage }
                     nodes {
                       isResolved
                       comments(first: 50) {
+                        pageInfo { hasNextPage }
                         nodes { author { login } body }
                       }
                     }
@@ -120,168 +167,101 @@ jobs:
                 }
               }
             }
-          ' -f owner='${{ github.repository_owner }}' -f name="$REPO_NAME" -F number="$PR_NUM" \
-            --jq "[.data.repository.pullRequest.reviewThreads.nodes[] | select(.isResolved == false) | .comments.nodes[] | select(.author.login != null and (.author.login | ascii_downcase) != (\"$PR_AUTHOR\" | ascii_downcase) and (.body | test(\"^\\\\s*(nit:|nitpick)\"; \"i\") | not))] | length" 2>/dev/null || echo "__GQL_ERROR__")
-          if [ "$UNRESOLVED" = "__GQL_ERROR__" ]; then
-            echo "GATE-5 FAIL: GraphQL error"
-            ELIGIBLE=false
-          elif [ "${UNRESOLVED:-0}" -gt 0 ]; then
-            echo "GATE-5 FAIL: $UNRESOLVED unresolved comments"
-            ELIGIBLE=false
+          ' -f owner='${{ github.repository_owner }}' -f name="$REPO_NAME" -F number="$PR_NUM" 2>/dev/null)
+
+          if [ -z "$GQL_RESULT" ]; then
+            UNRESOLVED="__GQL_ERROR__"
+          elif [ "$(echo "$GQL_RESULT" | jq -r '.data.repository.pullRequest.reviewThreads.pageInfo.hasNextPage')" = "true" ] || \
+               [ "$(echo "$GQL_RESULT" | jq -r '[.data.repository.pullRequest.reviewThreads.nodes[].comments.pageInfo.hasNextPage | select(. == true)] | length')" -gt 0 ]; then
+            UNRESOLVED="__TRUNCATED__"
           else
-            echo "GATE-5 PASS: all comments resolved"
+            UNRESOLVED=$(echo "$GQL_RESULT" | jq -r "[.data.repository.pullRequest.reviewThreads.nodes[] | select(.isResolved == false) | .comments.nodes[] | select(.author.login != null and (.author.login | ascii_downcase) != (\"$PR_AUTHOR\" | ascii_downcase) and (.body | test(\"^\\\\s*(nit:|nitpick)\"; \"i\") | not))] | length")
           fi
 
-          echo "6-green eligibility: $ELIGIBLE"
-          echo "eligible=$ELIGIBLE" >> "$GITHUB_OUTPUT"
+          if [ "$UNRESOLVED" = "__GQL_ERROR__" ]; then
+            GATE5="FAIL"
+            GATE5_DETAIL="GraphQL error"
+            FAILED_GATES="${FAILED_GATES}5, "
+          elif [ "$UNRESOLVED" = "__TRUNCATED__" ]; then
+            GATE5="FAIL"
+            GATE5_DETAIL="pagination truncated (fail-closed)"
+            FAILED_GATES="${FAILED_GATES}5, "
+          elif [ "${UNRESOLVED:-0}" -gt 0 ]; then
+            GATE5="FAIL"
+            GATE5_DETAIL="${UNRESOLVED} unresolved"
+            FAILED_GATES="${FAILED_GATES}5, "
+          else
+            GATE5="PASS"
+            GATE5_DETAIL="all resolved"
+          fi
+          echo "Gate 5: $GATE5 ($GATE5_DETAIL)"
+          GATE_ROWS="${GATE_ROWS}| 5. Comments resolved | ${GATE5} | ${GATE5_DETAIL} |\n"
 
-          if [ "$ELIGIBLE" != "true" ]; then
-            echo "SKIP: PR #$PR_NUM does not meet 6-green eligibility — exiting (not a failure)"
-            exit 0
+          # ----------------------------------------------------------------
+          # Build result
+          # ----------------------------------------------------------------
+          # Trim trailing ", " from FAILED_GATES
+          FAILED_GATES=$(echo "$FAILED_GATES" | sed 's/, $//')
+
+          if [ -z "$FAILED_GATES" ]; then
+            OVERALL="PASS"
+            RESULT_LINE="**Result: PASS** — all gates green"
+          else
+            OVERALL="FAIL"
+            RESULT_LINE="**Result: FAIL** — gates ${FAILED_GATES} failed"
           fi
 
-      # ----------------------------------------------------------------
-      # Step 1: Post trigger comment and capture GitHub server timestamp.
-      # Lifecycle-manager picks up this comment and dispatches AO worker
-      # to run ao skeptic verify (Codex OAuth, no GHA API keys needed).
-      # ----------------------------------------------------------------
-      - name: Post skeptic trigger comment
-        id: post_trigger
-        if: steps.check_6green.outputs.eligible == 'true'
+          echo "overall=$OVERALL" >> "$GITHUB_OUTPUT"
+          echo "head_sha=$HEAD_SHA" >> "$GITHUB_OUTPUT"
+
+          # Build the comment body
+          COMMENT_BODY="## Skeptic Gate — Deterministic 6-Green Check
+
+          | Gate | Result | Detail |
+          |------|--------|--------|
+          $(printf "$GATE_ROWS")
+
+          ${RESULT_LINE}
+          <!-- skeptic-gate-result-${HEAD_SHA} -->"
+
+          # Remove leading whitespace from heredoc-style indentation
+          COMMENT_BODY=$(echo "$COMMENT_BODY" | sed 's/^          //')
+
+          echo "comment_body<<COMMENT_EOF" >> "$GITHUB_OUTPUT"
+          echo "$COMMENT_BODY" >> "$GITHUB_OUTPUT"
+          echo "COMMENT_EOF" >> "$GITHUB_OUTPUT"
+
+      - name: Post gate results comment
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_NUM: ${{ github.event.inputs.pr_number || github.event.pull_request.number }}
-          HEAD_SHA: ${{ github.event.inputs.head_sha || github.event.pull_request.head.sha }}
+          HEAD_SHA: ${{ steps.gates.outputs.head_sha }}
+          COMMENT_BODY: ${{ steps.gates.outputs.comment_body }}
         run: |
-          PR_NUM=$PR_NUM
-          TRIGGER_SHA="$HEAD_SHA"
-          BODY=$(printf '%s\n%s' \
-            "SKEPTIC_GATE_TRIGGER" \
-            "<!-- skeptic-gate-trigger-${TRIGGER_SHA} -->")
+          # Delete previous skeptic-gate-result comments to avoid clutter
+          PREV_COMMENTS=$(gh api repos/${{ github.repository }}/issues/"$PR_NUM"/comments \
+            --paginate \
+            --jq '[.[] | select(.user.login == "github-actions[bot]" and (.body | test("skeptic-gate-result-"))) | .id]' 2>/dev/null || echo "[]")
 
-          TRIGGER_UPDATED=$(gh api repos/${{ github.repository }}/issues/"$PR_NUM"/comments \
-            --field body="$BODY" \
-            --jq '.updated_at')
-          if [ -z "$TRIGGER_UPDATED" ] || [ "$TRIGGER_UPDATED" = "null" ]; then
-            echo "ERROR: failed to obtain trigger_updated from posted comment" >&2
-            exit 1
-          fi
-          echo "Trigger timestamp (GitHub server): $TRIGGER_UPDATED"
-          echo "trigger_updated=$TRIGGER_UPDATED" >> "$GITHUB_OUTPUT"
-          echo "trigger_sha=$TRIGGER_SHA" >> "$GITHUB_OUTPUT"
-
-      # ----------------------------------------------------------------
-      # Step 2: Poll for the VERDICT comment posted by the AO worker.
-      # The lifecycle-manager runs ao skeptic verify via AO worker
-      # (Codex OAuth — no API keys in GHA) and posts VERDICT: PASS/FAIL.
-      # ----------------------------------------------------------------
-      - name: Poll for skeptic VERDICT
-        if: steps.check_6green.outputs.eligible == 'true'
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PR_NUM: ${{ github.event.inputs.pr_number || github.event.pull_request.number }}
-          HEAD_SHA: ${{ github.event.inputs.head_sha || github.event.pull_request.head.sha }}
-          TRIGGER_UPDATED: ${{ steps.post_trigger.outputs.trigger_updated }}
-          TRIGGER_SHA: ${{ steps.post_trigger.outputs.trigger_sha }}
-          # Default to github-actions[bot] — the lifecycle-manager AO worker posts
-          # via GITHUB_TOKEN (authenticated as local user). Both are accepted.
-          SKEPTIC_BOT_AUTHOR: ${{ vars.SKEPTIC_BOT_AUTHOR || 'github-actions[bot]' }}
-        # 28 min timeout — leave 2 min buffer so the step exits cleanly before
-        # the 30-min job timeout rather than being killed by the runner.
-        timeout-minutes: 28
-        run: |
-          PR_NUM=$PR_NUM
-
-          # Do NOT use 'set -e' here — jq -e returns non-zero on empty/null (no match),
-          # which would cause premature script exit. Guards handle errors explicitly.
-          set +e
-
-          if [ -z "$TRIGGER_UPDATED" ] || [ "$TRIGGER_UPDATED" = "null" ]; then
-            echo "ERROR: trigger_updated not set — cannot poll for verdicts"
-            echo "verdict=ERROR" >> "$GITHUB_OUTPUT"
-            exit 1
-          fi
-          echo "Only accepting verdicts posted after trigger was updated: $TRIGGER_UPDATED"
-          echo "Also filtering by trigger SHA: ${TRIGGER_SHA:0:7}"
-
-          MAX_ATTEMPTS=55   # 55 * 30s = 27.5 min (safe of 28-min step timeout)
-          INTERVAL=30
-
-          echo "Polling for VERDICT on PR #$PR_NUM (commit ${HEAD_SHA:0:7})..."
-          echo "Max wait: $((MAX_ATTEMPTS * INTERVAL / 60)) minutes"
-
-          API_FAILURES=0
-          for i in $(seq 1 $MAX_ATTEMPTS); do
-            PR_STATE=$(gh api repos/${{ github.repository }}/pulls/"$PR_NUM" --jq '.state' 2>&1)
-            if echo "$PR_STATE" | grep -qi "error\|rate limit\|authentication\|not found\|server error"; then
-              API_FAILURES=$((API_FAILURES + 1))
-              echo "API warning: PR state lookup failed (attempt $((i))): ${PR_STATE:0:100}"
-              if [ "$API_FAILURES" -ge 3 ]; then
-                echo "ERROR: Too many consecutive API failures — exiting as ERROR"
-                echo "verdict=ERROR" >> "$GITHUB_OUTPUT"
-                exit 1
-              fi
-            else
-              API_FAILURES=0
-            fi
-
-            if [ "$PR_STATE" = "closed" ]; then
-              echo "PR closed — exiting"
-              echo "verdict=SKIPPED" >> "$GITHUB_OUTPUT"
-              exit 0
-            fi
-
-            VERDICT_JSON=$(SKEPTIC_BOT_AUTHOR="$SKEPTIC_BOT_AUTHOR" \
-              TRIGGER_SHA="$TRIGGER_SHA" \
-              TRIGGER_UPDATED="$TRIGGER_UPDATED" \
-              gh api repos/${{ github.repository }}/issues/"$PR_NUM"/comments \
-                 --paginate \
-                 --jq '[.[] | select(((.user.login == env.SKEPTIC_BOT_AUTHOR) or (.user.login == "github-actions[bot]")) and (.body | test("VERDICT:"; "i")) and (.updated_at >= env.TRIGGER_UPDATED) and (.body | test("skeptic-gate-trigger-" + env.TRIGGER_SHA; "i")))] | .[-1] // empty' 2>&1)
-            if echo "$VERDICT_JSON" | grep -qi "error\|rate limit\|authentication\|not found\|server error"; then
-              API_FAILURES=$((API_FAILURES + 1))
-              echo "API warning: verdict comment lookup failed (attempt $((i))): ${VERDICT_JSON:0:200}"
-              if [ "$API_FAILURES" -ge 3 ]; then
-                echo "ERROR: Too many consecutive API failures — exiting as ERROR"
-                echo "verdict=ERROR" >> "$GITHUB_OUTPUT"
-                exit 1
-              fi
-              echo "Attempt $i/$MAX_ATTEMPTS — sleeping ${INTERVAL}s..."
-              sleep $INTERVAL
-              continue
-            fi
-
-            if ! echo "$VERDICT_JSON" | jq -e 'if . == null or (.body == null) then empty else .body end | length > 0' > /dev/null 2>&1; then
-              echo "Attempt $i/$MAX_ATTEMPTS — no fresh VERDICT yet, sleeping ${INTERVAL}s..."
-              sleep $INTERVAL
-              continue
-            fi
-
-            VERDICT_BODY=$(echo "$VERDICT_JSON" | jq -r '.body')
-            VERDICT_CREATED=$(echo "$VERDICT_JSON" | jq -r '.updated_at')
-            echo ""
-            echo "=== Found VERDICT (posted $VERDICT_CREATED) ==="
-            echo "$VERDICT_BODY"
-
-            if echo "$VERDICT_BODY" | grep -qi "VERDICT: PASS"; then
-              echo "verdict=PASS" >> "$GITHUB_OUTPUT"
-              echo "=== SKEPTIC GATE: PASS ==="
-              exit 0
-            elif echo "$VERDICT_BODY" | grep -qi "VERDICT: FAIL"; then
-              echo "verdict=FAIL" >> "$GITHUB_OUTPUT"
-              echo "=== SKEPTIC GATE: FAIL ==="
-              exit 1
-            elif echo "$VERDICT_BODY" | grep -qi "VERDICT: SKIPPED"; then
-              echo "verdict=SKIPPED" >> "$GITHUB_OUTPUT"
-              echo "=== SKEPTIC GATE: SKIPPED (infra issue — not blocking) ==="
-              exit 0
-            else
-              echo "WARNING: VERDICT body contains 'VERDICT:' but none of PASS/FAIL/SKIPPED — malformed verdict, sleeping ${INTERVAL}s before retry"
-              echo "verdict=UNKNOWN" >> "$GITHUB_OUTPUT"
-              sleep $INTERVAL
-              continue
-            fi
+          for CID in $(echo "$PREV_COMMENTS" | jq -r '.[]' 2>/dev/null); do
+            gh api repos/${{ github.repository }}/issues/comments/"$CID" --method DELETE 2>/dev/null || true
           done
 
-          echo "TIMEOUT: No fresh VERDICT after $((MAX_ATTEMPTS * INTERVAL / 60)) minutes"
-          echo "verdict=TIMEOUT" >> "$GITHUB_OUTPUT"
-          exit 1
+          # Post the new comment
+          gh api repos/${{ github.repository }}/issues/"$PR_NUM"/comments \
+            --field body="$COMMENT_BODY" \
+            --jq '.id' > /dev/null 2>&1
+          echo "Posted gate results comment on PR #$PR_NUM"
+
+      - name: Set check result
+        if: always()
+        env:
+          OVERALL: ${{ steps.gates.outputs.overall }}
+        run: |
+          if [ "$OVERALL" = "PASS" ]; then
+            echo "Skeptic Gate: PASS"
+            exit 0
+          else
+            echo "Skeptic Gate: FAIL"
+            exit 1
+          fi
