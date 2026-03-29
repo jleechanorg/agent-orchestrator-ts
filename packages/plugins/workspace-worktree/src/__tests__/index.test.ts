@@ -130,8 +130,9 @@ describe("create() factory", () => {
   it("uses ~/.worktrees as default base dir", async () => {
     const ws = create();
 
-    // Mock: fetch, worktree add
+    // Mock: fetch, for-each-ref (unambiguous), worktree add
     mockGitSuccess(""); // fetch
+    mockGitSuccess(""); // git branch --list origin/main — no local conflict
     mockGitSuccess(""); // worktree add
 
     const info = await ws.create(makeCreateConfig());
@@ -143,6 +144,7 @@ describe("create() factory", () => {
     const ws = create({ worktreeDir: "/custom/worktrees" });
 
     mockGitSuccess(""); // fetch
+    mockGitSuccess(""); // git branch --list origin/main — no local conflict
     mockGitSuccess(""); // worktree add
 
     const info = await ws.create(makeCreateConfig());
@@ -154,6 +156,7 @@ describe("create() factory", () => {
     const ws = create({ worktreeDir: "~/custom-path" });
 
     mockGitSuccess(""); // fetch
+    mockGitSuccess(""); // git branch --list origin/main — no local conflict
     mockGitSuccess(""); // worktree add
 
     const info = await ws.create(makeCreateConfig());
@@ -167,6 +170,7 @@ describe("workspace.create()", () => {
     const ws = create();
 
     mockGitSuccess(""); // fetch
+    mockGitSuccess(""); // git branch --list origin/main — no local conflict
     mockGitSuccess(""); // worktree add
 
     await ws.create(makeCreateConfig());
@@ -195,6 +199,7 @@ describe("workspace.create()", () => {
     const ws = create();
 
     mockGitSuccess(""); // fetch
+    mockGitSuccess(""); // git branch --list origin/main — no local conflict
     mockGitSuccess(""); // worktree add
 
     await ws.create(makeCreateConfig());
@@ -208,6 +213,7 @@ describe("workspace.create()", () => {
     const ws = create();
 
     mockGitError("Could not resolve host"); // fetch fails
+    mockGitSuccess(""); // git branch --list origin/main — no local conflict
     mockGitSuccess(""); // worktree add succeeds
 
     const info = await ws.create(makeCreateConfig());
@@ -219,6 +225,7 @@ describe("workspace.create()", () => {
     const ws = create();
 
     mockGitSuccess(""); // fetch
+    mockGitSuccess(""); // git branch --list origin/main — no local conflict
     mockGitError("already exists"); // worktree add -b fails
     mockGitSuccess(""); // worktree add (without -b)
     mockGitSuccess(""); // checkout
@@ -244,6 +251,7 @@ describe("workspace.create()", () => {
     const ws = create();
 
     mockGitSuccess(""); // fetch
+    mockGitSuccess(""); // git branch --list origin/main — no local conflict
     mockGitError("already exists"); // worktree add -b fails
     mockGitSuccess(""); // worktree add (without -b)
     mockGitError("checkout failed: conflict"); // checkout fails
@@ -265,8 +273,9 @@ describe("workspace.create()", () => {
     const ws = create();
 
     // create() makes many git calls — provide enough mocks for all of them.
-    // Mock values after the first 4 determine the stale-worktree-removal path.
+    // Mock values after the first 5 determine the stale-worktree-removal path.
     mockGitSuccess(""); // fetch
+    mockGitSuccess(""); // git branch --list origin/main — no local conflict
     mockGitError("already exists"); // worktree add -b fails
     mockGitSuccess(""); // worktree add (without -b)
     mockGitError("fatal: 'feat/TEST-1' is already checked out at '/mock-home/.worktrees/myproject/ao-999'"); // checkout fails first time
@@ -295,6 +304,7 @@ describe("workspace.create()", () => {
     const ws = create();
 
     mockGitSuccess(""); // fetch
+    mockGitSuccess(""); // git branch --list origin/main — no local conflict
     mockGitError("already exists"); // worktree add -b fails
     mockGitSuccess(""); // worktree add (without -b)
     mockGitError("checkout failed"); // checkout fails
@@ -309,10 +319,95 @@ describe("workspace.create()", () => {
     const ws = create();
 
     mockGitSuccess(""); // fetch
+    mockGitSuccess(""); // git branch --list origin/main — no local conflict
     mockGitError("fatal: invalid reference"); // worktree add fails with other error
 
     await expect(ws.create(makeCreateConfig())).rejects.toThrow(
       'Failed to create worktree for branch "feat/TEST-1": fatal: invalid reference',
+    );
+  });
+
+  // bd-1483: ambiguous origin/main (local branch shadows remote-tracking ref)
+  it("auto-renames local conflicting branch when origin/main is ambiguous", async () => {
+    const ws = create();
+
+    mockGitSuccess(""); // fetch
+    // git branch --list origin/main returns the local branch → ambiguous
+    mockGitSuccess("  origin/main");
+    // git branch -m origin/main backup/origin/main succeeds (rename)
+    mockGitSuccess("");
+    // git worktree add -b now succeeds
+    mockGitSuccess("");
+
+    await ws.create(makeCreateConfig());
+
+    // Verify branch rename was called with correct args
+    const branchMCall = mockExecFileAsync.mock.calls.find(
+      (call) =>
+        Array.isArray(call[1]) &&
+        call[0] === "git" &&
+        call[1][0] === "branch" &&
+        call[1][1] === "-m",
+    );
+    expect(branchMCall).toBeDefined();
+    expect(branchMCall![1]).toEqual(["branch", "-m", "origin/main", "backup/origin/main"]);
+
+    // worktree add should follow the rename
+    const worktreeCall = mockExecFileAsync.mock.calls.find(
+      (call) =>
+        Array.isArray(call[1]) &&
+        call[0] === "git" &&
+        call[1][0] === "worktree",
+    );
+    expect(worktreeCall).toBeDefined();
+    expect(worktreeCall![1].slice(0, 4)).toEqual(["worktree", "add", "-b", "feat/TEST-1"]);
+  });
+
+  it("throws actionable error when rename fails during ambiguous-ref remediation", async () => {
+    const ws = create();
+
+    mockGitSuccess(""); // fetch
+    // git branch --list origin/main returns the local branch → ambiguous
+    mockGitSuccess("  origin/main");
+    // git branch -m fails (backup/origin/main already exists)
+    mockGitError("fatal: ref renamed because ref 'backup/origin/main' already exists");
+
+    await expect(ws.create(makeCreateConfig())).rejects.toThrow(/Ambiguous ref.*manually rename|manually rename.*Ambiguous ref/is);
+  });
+
+  it("proceeds without rename when no local branch conflicts with baseRef", async () => {
+    const ws = create();
+
+    mockGitSuccess(""); // fetch
+    // git branch --list origin/main returns empty → no local conflict
+    mockGitSuccess("");
+    // git worktree add -b succeeds
+    mockGitSuccess("");
+
+    await ws.create(makeCreateConfig());
+
+    // No branch -m call should have been made
+    const branchMCall = mockExecFileAsync.mock.calls.find(
+      (call) =>
+        Array.isArray(call[1]) &&
+        call[0] === "git" &&
+        call[1][0] === "branch" &&
+        call[1][1] === "-m",
+    );
+    expect(branchMCall).toBeUndefined();
+
+    // worktree add should have been called directly
+    expect(mockExecFileAsync).toHaveBeenCalledWith(
+      "git",
+      [
+        "worktree",
+        "add",
+        "-b",
+        "feat/TEST-1",
+        "/mock-home/.worktrees/myproject/session-1",
+        "origin/main",
+      ],
+      { cwd: "/repo/path" },
     );
   });
 
@@ -352,6 +447,7 @@ describe("workspace.create()", () => {
     const ws = create();
 
     mockGitSuccess(""); // fetch
+    mockGitSuccess(""); // git branch --list origin/main — no local conflict
     mockGitSuccess(""); // worktree add
 
     const info = await ws.create(makeCreateConfig());
@@ -369,6 +465,7 @@ describe("workspace.create()", () => {
     const ws = create();
 
     mockGitSuccess(""); // fetch
+    mockGitSuccess(""); // git branch --list origin/main — no local conflict
     mockGitSuccess(""); // worktree add
 
     await ws.create(
@@ -890,6 +987,7 @@ describe("setupAoManagedExclude (via workspace.create())", () => {
   it("writes AO-managed patterns to .git/info/exclude on first create", async () => {
     const ws = create();
     mockGitSuccess(""); // fetch
+    mockGitSuccess(""); // git branch --list origin/main — no local conflict
     mockGitSuccess(""); // worktree add
     // git rev-parse --git-common-dir falls back to "<worktreePath>/.git" via catch
 
@@ -907,6 +1005,7 @@ describe("setupAoManagedExclude (via workspace.create())", () => {
     mockReadFile.mockResolvedValueOnce("# AO-managed files - do not track in worktree\n.metadata-updater.sh\n");
 
     mockGitSuccess(""); // fetch
+    mockGitSuccess(""); // git branch --list origin/main — no local conflict
     mockGitSuccess(""); // worktree add
 
     await ws.create(makeCreateConfig());
@@ -920,6 +1019,7 @@ describe("setupAoManagedExclude (via workspace.create())", () => {
     mockReadFile.mockResolvedValueOnce(existingExclude);
 
     mockGitSuccess(""); // fetch
+    mockGitSuccess(""); // git branch --list origin/main — no local conflict
     mockGitSuccess(""); // worktree add
 
     await ws.create(makeCreateConfig());
@@ -941,8 +1041,9 @@ describe("setupAoManagedExclude (via workspace.create())", () => {
     const mainGitDir = "/main-repo/.git";
 
     mockGitSuccess(""); // fetch
+    mockGitSuccess(""); // git branch --list origin/main — no local conflict
     mockGitSuccess(""); // worktree add
-    // No third mock → git rev-parse --git-common-dir throws → fallback fires
+    // No fourth mock → git rev-parse --git-common-dir throws → fallback fires
 
     // Simulate .git being a FILE (linked worktree)
     mockLstatSync.mockReturnValue({ isFile: () => true, isDirectory: () => false, isSymbolicLink: () => false });

@@ -254,6 +254,44 @@ export function create(config?: Record<string, unknown>): Workspace {
 
       const baseRef = `origin/${cfg.project.defaultBranch}`;
 
+      // bd-ara.2 / bd-1483: Detect and auto-remediate ambiguous refs.
+      // A local branch (e.g. refs/heads/origin/main) that matches origin/<name> shadows
+      // the remote-tracking ref (refs/remotes/origin/main), causing "ambiguous object
+      // name" in git worktree add.
+      //
+      // Fix: use `git branch --list` to check for a local branch with the same short
+      // name as the remote-tracking ref. If found, rename it to backup/<name> before
+      // creating the worktree. This prevents the ambiguous-ref error entirely.
+      //
+      // Note: `git for-each-ref "origin/main"` does NOT match refs/remotes/origin/main
+      // (short names don't work as patterns), so we use `git branch --list` instead.
+      try {
+        const branchListOutput = await git(repoPath, "branch", "--list", baseRef);
+        if (branchListOutput.trim()) {
+          // Local branch with this name exists — rename it to avoid ambiguity
+          const localName = baseRef; // e.g. "origin/main"
+          const backupName = `backup/${localName}`;
+          try {
+            await git(repoPath, "branch", "-m", localName, backupName);
+            // Fall through — after rename, baseRef resolves cleanly to the remote-tracking ref
+          } catch {
+            // Rename failed (e.g. backup/origin/main already exists) — throw actionable error
+            throw new Error(
+              `Ambiguous ref "${baseRef}": a local branch with this name conflicts with ` +
+              `the remote-tracking ref. Failed to rename to "${backupName}" — ` +
+              `manually rename or delete it: git branch -m ${localName} ${backupName}`,
+            );
+          }
+        }
+      } catch (ambigErr: unknown) {
+        // Re-throw only the actionable error above; ignore unexpected errors from
+        // the disambiguation step (e.g. git not found, repo path invalid).
+        const errMsg = ambigErr instanceof Error ? ambigErr.message : String(ambigErr);
+        if (errMsg.includes("Ambiguous ref")) {
+          throw ambigErr;
+        }
+      }
+
       // Create worktree with a new branch
       try {
         await git(repoPath, "worktree", "add", "-b", cfg.branch, worktreePath, baseRef);
