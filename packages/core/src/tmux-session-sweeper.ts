@@ -24,7 +24,7 @@
 
 import { listSessions, killSession, type TmuxSessionInfo } from "./tmux.js";
 import { parseTmuxName } from "./paths.js";
-import type { SessionManager } from "./types.js";
+import { PR_STATE, type SessionManager } from "./types.js";
 
 // =============================================================================
 // Types
@@ -196,9 +196,11 @@ export async function sweepOrphanTmuxSessions(
   const allTmuxSessions = await listSessions();
   const scanned = allTmuxSessions.length;
 
-  // Get all active AO session IDs from the DB
+  // Get all active AO session IDs from the DB and build a lookup map
+  // so we can inspect PR state for DB-tracked sessions.
   const aoSessions = await deps.sessionManager.list();
   const aoSessionIds = new Set(aoSessions.map((s) => s.id));
+  const sessionById = new Map(aoSessions.map((s) => [s.id, s]));
 
   const killed: SweptOrphan[] = [];
   const skipped: SkippedOrphan[] = [];
@@ -218,8 +220,41 @@ export async function sweepOrphanTmuxSessions(
       continue;
     }
 
-    // Skip sessions tracked in the AO DB — they are legitimate active sessions
+    // bd-s6z1: Check PR state for DB-tracked sessions. Even though the
+    // lifecycle-manager calls sessionManager.kill() when it detects a merged/closed
+    // PR, that kill() call can fail silently (e.g. runtime handle gone, race with
+    // concurrent cleanup). The sweeper acts as the backstop: if a session is in
+    // the AO DB but its PR is merged or closed, kill it immediately — no idle
+    // threshold wait. This ensures zombie tmux sessions are cleaned up within 2
+    // poll cycles (60s) rather than waiting up to 30 minutes.
     if (aoSessionIds.has(parsed.sessionId)) {
+      const aoSession = sessionById.get(parsed.sessionId);
+      const prState = aoSession?.pr?.state;
+      if (prState === PR_STATE.MERGED || prState === PR_STATE.CLOSED) {
+        const reason = `pr_state=${prState}, AO DB kill may have failed`;
+        if (killed.length + errors.length >= config.maxKillsPerSweep) {
+          skipped.push({ tmuxName: session.name, reason: "max kills per sweep reached" });
+          continue;
+        }
+        logFn(`[tmux-sweeper] ${dryRun ? "[DRYRUN] " : ""}killing DB-tracked session with ${prState} PR: ${session.name}`);
+        if (!dryRun) {
+          try {
+            await killSession(session.name);
+            killed.push({ tmuxName: session.name, aoSessionId: parsed.sessionId, created: session.created, idleMs: 0, reason });
+          } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            if (/session not found|no server/i.test(msg)) {
+              logFn(`[tmux-sweeper] session already gone: ${session.name}`);
+            } else {
+              errors.push({ tmuxName: session.name, error: msg });
+            }
+          }
+        } else {
+          killed.push({ tmuxName: session.name, aoSessionId: parsed.sessionId, created: session.created, idleMs: 0, reason });
+        }
+        continue;
+      }
+      // PR is open or unknown — skip, session is legitimately active
       skipped.push({ tmuxName: session.name, reason: "tracked in AO DB" });
       continue;
     }
