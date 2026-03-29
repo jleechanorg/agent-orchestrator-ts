@@ -503,7 +503,6 @@ async function startDashboard(
  * works even when project.path contains home-dir aliases or relative paths.
  */
 import { realpathSync } from "node:fs";
-import { dirname } from "node:path";
 
 // bd-8gld: Resolve the main repo path, with realpath to canonicalize symlinks.
 // AO_MAIN_REPO env var overrides the default for custom installations.
