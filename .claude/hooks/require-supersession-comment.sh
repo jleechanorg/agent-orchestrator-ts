@@ -1,5 +1,5 @@
 #!/bin/bash
-# protect-pr-close.sh — PreToolUse hook: enforce supersession-comment rule before gh pr close
+# require-supersession-comment.sh — PreToolUse hook: block gh pr close without supersession comment
 # 3 PRs were closed in 24h without any supersession comment documenting which PR replaced them.
 # Per CLAUDE.md: "Closing a PR is allowed ONLY when it is superseded by another PR."
 # Before closing: (1) verify all changes are in the superseding PR, (2) post "Superseded by #NNN".
