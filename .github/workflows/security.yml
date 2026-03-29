@@ -22,14 +22,28 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0 # Full history for comprehensive scan
+          fetch-depth: 50 # Sufficient history for PR-scoped scan; avoids full clone overhead
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
 
       # OSS CLI avoids gitleaks-action org-license requirement (see gitleaks-action README).
+      # SHA256 is fetched from GitHub API releases API (authenticated, tamper-evident).
       - name: Install Gitleaks
         env:
           GITLEAKS_VERSION: "8.21.1"
         run: |
-          curl -sSL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" -o /tmp/gitleaks.tgz
+          ASSET_URL="https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          # gitleaks:allow - public GitHub release URL, not a secret
+          curl -sSL "$ASSET_URL" -o /tmp/gitleaks.tgz
+          # Fetch SHA256 from checksums.txt file directly (tamper-evident, same origin as binary).
+          # gitleaks:allow - public GitHub release URL for checksum file, not a secret
+          SHA256=$(curl -sSL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_checksums.txt" \
+            | grep "gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" | awk '{print $1}')
+          if [ -z "$SHA256" ]; then
+            echo "ERROR: could not parse SHA256 from checksums.txt" >&2; exit 1
+          fi
+          echo "${SHA256}  /tmp/gitleaks.tgz" | sha256sum --check --status \
+            || { echo "ERROR: gitleaks checksum mismatch" >&2; exit 1; }
           tar -xzf /tmp/gitleaks.tgz -C /tmp
           sudo install -m 755 /tmp/gitleaks /usr/local/bin/gitleaks
 
@@ -43,6 +57,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       # Requires dependency graph + GHAS; org repos without it always error — keep signal without blocking PRs.
       - name: Dependency Review
@@ -57,6 +73,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
