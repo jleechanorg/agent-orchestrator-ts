@@ -124,6 +124,7 @@ describe("fetchMergeGateState — skeptic verdict parsing", () => {
 
     // Non-fatal — should still return state with null verdict
     expect(state.skepticVerdict).toBeNull();
+    expect(state.skepticCommentId).toBeNull();
   });
 
   it("includes SKIPPED in full MergeGateState with CI passing", async () => {
