@@ -491,12 +491,28 @@ async function startDashboard(
  * Shared startup logic: launch dashboard + orchestrator session, print summary.
  * Used by both normal and URL-based start flows.
  */
+// bd-8gld (PR #296): Hard-coded path for the main agent-orchestrator fork.
+// AO agents must operate in worktrees, never directly in the main clone.
+// Guarding here prevents any codepath (spawn, preflight hooks, etc.) from
+// accidentally writing to the main repo's working tree.
+const MAIN_AGENTO_REPO = "/Users/jleechan/project_agento/agent-orchestrator";
+
 async function runStartup(
   config: OrchestratorConfig,
   projectId: string,
   project: ProjectConfig,
   opts?: { dashboard?: boolean; orchestrator?: boolean; rebuild?: boolean },
 ): Promise<number> {
+  // Guard: refuse to operate directly on the main repo — use a worktree instead.
+  const resolvedProjectPath = resolve(project.path.replace(/^~/, process.env["HOME"] || ""));
+  if (resolvedProjectPath === MAIN_AGENTO_REPO) {
+    throw new Error(
+      `Refusing to start AO directly on the main repo at ${MAIN_AGENTO_REPO}. ` +
+      `AO agents must run in git worktrees. Create a worktree first with: ` +
+      `git worktree add ~/.worktrees/agent-orchestrator/<name> origin/main`,
+    );
+  }
+
   const sessionId = `${project.sessionPrefix}-orchestrator`;
   const shouldStartLifecycle = opts?.dashboard !== false || opts?.orchestrator !== false;
   let lifecycleStatus: Awaited<ReturnType<typeof ensureLifecycleWorker>> | null = null;

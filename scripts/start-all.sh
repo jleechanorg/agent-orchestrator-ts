@@ -7,6 +7,18 @@
 # Pre-flight: validates YAML parses cleanly before attempting to start anything.
 set -euo pipefail
 
+# bd-8gld: Guard main repo branch invariant before doing anything.
+# AO agents work in git worktrees — the main clone must stay on main.
+MAIN_REPO="${AO_MAIN_REPO:-$HOME/project_agento/agent-orchestrator}"
+if [ -d "$MAIN_REPO/.git" ]; then
+  CURRENT_BRANCH="$(git -C "$MAIN_REPO" branch --show-current 2>/dev/null || true)"
+  if [ "$CURRENT_BRANCH" != "main" ]; then
+    echo "WARNING: main repo is on branch '$CURRENT_BRANCH' — switching to main"
+    git -C "$MAIN_REPO" checkout main
+    git -C "$MAIN_REPO" pull --ff-only
+  fi
+fi
+
 export AO_CONFIG_PATH="${AO_CONFIG_PATH:-$HOME/.openclaw/agent-orchestrator.yaml}"
 CONFIG_FILE="$AO_CONFIG_PATH"
 
