@@ -6,7 +6,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import type { SessionManager } from "@jleechanorg/ao-core";
@@ -797,6 +797,84 @@ describe("stop command", () => {
 // ---------------------------------------------------------------------------
 // no-dashboard keepalive (regression: launchd wrapper should not see premature exit)
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// bd-8gld: main repo guard
+// ---------------------------------------------------------------------------
+
+/**
+ * Tests for the main-repo guard in runStartup().
+ *
+ * Guards that ao start refuses to operate directly on the main agent-orchestrator
+ * repo — agents must use worktrees. The guard uses realpathSync.native to
+ * canonicalize paths so ~/ aliases and symlinks are handled correctly.
+ */
+describe("start command — main repo guard (bd-8gld)", () => {
+  let originalRealpath: typeof realpathSync.native;
+  let mainRepoDir: string;
+
+  beforeEach(() => {
+    // Save original realpathSync.native so we can spy on it per-test
+    originalRealpath = realpathSync.native;
+
+    // Create a real temp directory for the "main repo" — this is the path
+    // that AO_MAIN_REPO and realpathSync.native will resolve to.
+    mainRepoDir = mkdtempSync(join(tmpdir(), "ao-main-repo-guard-"));
+
+    // AO_MAIN_REPO env var tells getMainRepoPath() which path to guard.
+    // Without this, the default is jleechan's machine-specific path.
+    process.env["AO_MAIN_REPO"] = mainRepoDir;
+    process.env["HOME"] = tmpdir();
+  });
+
+  afterEach(() => {
+    delete process.env["AO_MAIN_REPO"];
+    delete process.env["HOME"];
+    rmSync(mainRepoDir, { recursive: true, force: true });
+  });
+
+  it("throws when project path resolves to the main repo", async () => {
+    // Set up config where the project IS the main repo.
+    mockConfigRef.current = makeConfig({
+      "my-app": makeProject({ path: mainRepoDir }),
+    });
+
+    // Spy realpathSync.native to return the same canonical path for both calls
+    // (simulates a clean filesystem with no symlinks).
+    vi.spyOn(realpathSync, "native").mockImplementation((p: string) => {
+      return originalRealpath(p) === mainRepoDir ? mainRepoDir : originalRealpath(p);
+    });
+
+    await expect(
+      program.parseAsync(["node", "test", "start", "--no-dashboard", "--no-orchestrator"]),
+    ).rejects.toThrow("process.exit(1)");
+
+    const errors = vi.mocked(console.error).mock.calls.map((c) => c.join(" ")).join("\n");
+    expect(errors).toContain("Refusing to start AO directly on the main repo");
+  });
+
+  it("starts normally when project path is NOT the main repo", async () => {
+    // Set up config with a different project path.
+    const worktreeDir = mkdtempSync(join(tmpdir(), "ao-worktree-guard-"));
+    try {
+      mockConfigRef.current = makeConfig({
+        "my-app": makeProject({ path: worktreeDir }),
+      });
+
+      // Spy realpathSync.native to return the real canonical path for both paths.
+      vi.spyOn(realpathSync, "native").mockImplementation((p: string) => {
+        return originalRealpath(p);
+      });
+
+      await program.parseAsync(["node", "test", "start", "--no-dashboard", "--no-orchestrator"]);
+
+      const output = vi.mocked(console.log).mock.calls.map((c) => c.join(" ")).join("\n");
+      expect(output).toContain("Startup complete");
+    } finally {
+      rmSync(worktreeDir, { recursive: true, force: true });
+    }
+  });
+});
 
 describe("no-dashboard keepalive", () => {
   /**

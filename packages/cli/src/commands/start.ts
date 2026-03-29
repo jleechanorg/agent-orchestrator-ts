@@ -491,11 +491,36 @@ async function startDashboard(
  * Shared startup logic: launch dashboard + orchestrator session, print summary.
  * Used by both normal and URL-based start flows.
  */
-// bd-8gld (PR #296): Hard-coded path for the main agent-orchestrator fork.
-// AO agents must operate in worktrees, never directly in the main clone.
-// Guarding here prevents any codepath (spawn, preflight hooks, etc.) from
-// accidentally writing to the main repo's working tree.
-const MAIN_AGENTO_REPO = "/Users/jleechan/project_agento/agent-orchestrator";
+/**
+ * bd-8gld (PR #296): Path for the main agent-orchestrator fork.
+ *
+ * AO agents must operate in worktrees, never directly in the main clone.
+ * Guarding here prevents any codepath (spawn, preflight hooks, etc.) from
+ * accidentally writing to the main repo's working tree.
+ *
+ * Configurable via AO_MAIN_REPO env var for non-default installations.
+ * Path comparison uses realpath to canonicalize symlinks, ensuring the guard
+ * works even when project.path contains home-dir aliases or relative paths.
+ */
+import { realpathSync } from "node:fs";
+import { dirname } from "node:path";
+
+// bd-8gld: Resolve the main repo path, with realpath to canonicalize symlinks.
+// AO_MAIN_REPO env var overrides the default for custom installations.
+// The resolve() call handles ~ expansion; realpathSync.native() resolves symlinks
+// so that e.g. /Users/jleechan → /Users/jleechan.chan (if symlinked) matches correctly.
+function getMainRepoPath(): string {
+  const configured =
+    process.env["AO_MAIN_REPO"] ||
+    "/Users/jleechan/project_agento/agent-orchestrator";
+  try {
+    // realpathSync.native resolves symlinks on all platforms; falls back to the
+    // input path if resolution fails (ENOENT, permission errors, etc.)
+    return realpathSync.native(configured);
+  } catch {
+    return configured;
+  }
+}
 
 async function runStartup(
   config: OrchestratorConfig,
@@ -503,11 +528,21 @@ async function runStartup(
   project: ProjectConfig,
   opts?: { dashboard?: boolean; orchestrator?: boolean; rebuild?: boolean },
 ): Promise<number> {
+  const mainRepoPath = getMainRepoPath();
+
   // Guard: refuse to operate directly on the main repo — use a worktree instead.
-  const resolvedProjectPath = resolve(project.path.replace(/^~/, process.env["HOME"] || ""));
-  if (resolvedProjectPath === MAIN_AGENTO_REPO) {
+  // realpathSync.native resolves ~/ and any symlinks so the comparison is reliable.
+  const projectPath = project.path.replace(/^~\//, `${process.env["HOME"] || ""}/`);
+  let resolvedProjectPath: string;
+  try {
+    resolvedProjectPath = realpathSync.native(projectPath);
+  } catch {
+    resolvedProjectPath = resolve(projectPath);
+  }
+
+  if (resolvedProjectPath === mainRepoPath) {
     throw new Error(
-      `Refusing to start AO directly on the main repo at ${MAIN_AGENTO_REPO}. ` +
+      `Refusing to start AO directly on the main repo at ${mainRepoPath}. ` +
       `AO agents must run in git worktrees. Create a worktree first with: ` +
       `git worktree add ~/.worktrees/agent-orchestrator/<name> origin/main`,
     );
