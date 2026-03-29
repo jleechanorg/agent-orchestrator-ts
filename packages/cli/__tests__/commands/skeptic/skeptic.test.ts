@@ -291,6 +291,163 @@ describe("docs-only gate", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Gate-3 override (bd-kvvx) — fail-closed CR APPROVED enforcement at code level.
+//
+// The LLM prompt instructs gate 3 (CR APPROVED) but the model can still issue
+// PASS when CR has only COMMENTED or CHANGES_REQUESTED. This logic mirrors the
+// fail-closed override in skeptic.ts (~lines 157–175).
+// ---------------------------------------------------------------------------
+function applyGate3Override(params: {
+  llmVerdict: string;
+  crApproved: boolean;
+  crState: string;
+  crDismissedWithoutApproval: boolean;
+}): { finalVerdict: string; wasOverridden: boolean } {
+  const { llmVerdict, crApproved, crState, crDismissedWithoutApproval } = params;
+  if (!crApproved) {
+    const parsed = llmVerdict.match(VERDICT_LINE_RE);
+    const raw = parsed?.[1]?.toUpperCase();
+    if (raw !== "FAIL") {
+      const crDetail = crDismissedWithoutApproval
+        ? `${crState} + DISMISSED_WITHOUT_APPROVAL`
+        : crState;
+      return {
+        finalVerdict:
+          "VERDICT: FAIL — Gate 3 (CR APPROVED) not satisfied. " +
+          `CR review state: ${crDetail}. ` +
+          "This is a hard requirement — no PASS is possible without CR APPROVED.",
+        wasOverridden: true,
+      };
+    }
+  }
+  return { finalVerdict: llmVerdict, wasOverridden: false };
+}
+
+describe("Gate 3 override — bd-kvvx fail-closed", () => {
+  const VERDICT_LINE_RE_LOCAL = /^(?:> ?\*\*)?VERDICT:\s*(PASS|FAIL|SKIPPED)\b/im;
+
+  it("PASS → FAIL when CR has COMMENTED only", () => {
+    const { finalVerdict, wasOverridden } = applyGate3Override({
+      llmVerdict: "VERDICT: PASS\nAll checks look good.",
+      crApproved: false,
+      crState: "commented",
+      crDismissedWithoutApproval: false,
+    });
+    expect(wasOverridden).toBe(true);
+    const parsed = finalVerdict.match(VERDICT_LINE_RE_LOCAL);
+    expect(parsed?.[1]).toBe("FAIL");
+  });
+
+  it("PASS → FAIL when CR has CHANGES_REQUESTED", () => {
+    const { finalVerdict, wasOverridden } = applyGate3Override({
+      llmVerdict: "VERDICT: PASS\nCode looks fine.",
+      crApproved: false,
+      crState: "changes_requested",
+      crDismissedWithoutApproval: false,
+    });
+    expect(wasOverridden).toBe(true);
+    const parsed = finalVerdict.match(VERDICT_LINE_RE_LOCAL);
+    expect(parsed?.[1]).toBe("FAIL");
+  });
+
+  it("PASS → FAIL when CR has no review (none)", () => {
+    const { finalVerdict, wasOverridden } = applyGate3Override({
+      llmVerdict: "VERDICT: PASS",
+      crApproved: false,
+      crState: "none",
+      crDismissedWithoutApproval: false,
+    });
+    expect(wasOverridden).toBe(true);
+    const parsed = finalVerdict.match(VERDICT_LINE_RE_LOCAL);
+    expect(parsed?.[1]).toBe("FAIL");
+  });
+
+  it("SKIPPED → FAIL when CR not approved (infra failure is not a pass)", () => {
+    const { finalVerdict, wasOverridden } = applyGate3Override({
+      llmVerdict: "VERDICT: SKIPPED\nCodex unavailable",
+      crApproved: false,
+      crState: "commented",
+      crDismissedWithoutApproval: false,
+    });
+    expect(wasOverridden).toBe(true);
+    const parsed = finalVerdict.match(VERDICT_LINE_RE_LOCAL);
+    expect(parsed?.[1]).toBe("FAIL");
+  });
+
+  it("FAIL → remains FAIL when CR not approved (no double-override)", () => {
+    const { finalVerdict, wasOverridden } = applyGate3Override({
+      llmVerdict: "VERDICT: FAIL\nMissing unit tests",
+      crApproved: false,
+      crState: "commented",
+      crDismissedWithoutApproval: false,
+    });
+    expect(wasOverridden).toBe(false);
+    const parsed = finalVerdict.match(VERDICT_LINE_RE_LOCAL);
+    expect(parsed?.[1]).toBe("FAIL");
+  });
+
+  it("PASS → PASS when CR IS approved (no override)", () => {
+    const { finalVerdict, wasOverridden } = applyGate3Override({
+      llmVerdict: "VERDICT: PASS\nAll 7-green conditions met.",
+      crApproved: true,
+      crState: "approved",
+      crDismissedWithoutApproval: false,
+    });
+    expect(wasOverridden).toBe(false);
+    const parsed = finalVerdict.match(VERDICT_LINE_RE_LOCAL);
+    expect(parsed?.[1]).toBe("PASS");
+  });
+
+  it("FAIL → FAIL when CR IS approved (no override needed)", () => {
+    const { finalVerdict, wasOverridden } = applyGate3Override({
+      llmVerdict: "VERDICT: FAIL\nUnresolved comments.",
+      crApproved: true,
+      crState: "approved",
+      crDismissedWithoutApproval: false,
+    });
+    expect(wasOverridden).toBe(false);
+    const parsed = finalVerdict.match(VERDICT_LINE_RE_LOCAL);
+    expect(parsed?.[1]).toBe("FAIL");
+  });
+
+  it("override message includes DISMISSED_WITHOUT_APPROVAL context", () => {
+    const { finalVerdict, wasOverridden } = applyGate3Override({
+      llmVerdict: "VERDICT: PASS",
+      crApproved: false,
+      crState: "dismissed",
+      crDismissedWithoutApproval: true,
+    });
+    expect(wasOverridden).toBe(true);
+    expect(finalVerdict).toContain("DISMISSED_WITHOUT_APPROVAL");
+    expect(finalVerdict).toContain("dismissed");
+  });
+
+  it("accepts markdown-bold VERDICT: PASS variant (CR not approved)", () => {
+    const { finalVerdict, wasOverridden } = applyGate3Override({
+      llmVerdict: "**VERDICT: PASS**",
+      crApproved: false,
+      crState: "commented",
+      crDismissedWithoutApproval: false,
+    });
+    expect(wasOverridden).toBe(true);
+    const parsed = finalVerdict.match(VERDICT_LINE_RE_LOCAL);
+    expect(parsed?.[1]).toBe("FAIL");
+  });
+
+  it("accepts lowercase verdict: pass (CR not approved)", () => {
+    const { finalVerdict, wasOverridden } = applyGate3Override({
+      llmVerdict: "verdict: pass",
+      crApproved: false,
+      crState: "none",
+      crDismissedWithoutApproval: false,
+    });
+    expect(wasOverridden).toBe(true);
+    const parsed = finalVerdict.match(VERDICT_LINE_RE_LOCAL);
+    expect(parsed?.[1]).toBe("FAIL");
+  });
+});
+
+// ---------------------------------------------------------------------------
 // 6-green gate — skeptic-cron only triggers AO worker for eligible PRs.
 // Mirrors gate conditions from skeptic-cron.yml post_triggers step.
 // ---------------------------------------------------------------------------
