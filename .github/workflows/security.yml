@@ -22,7 +22,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          fetch-depth: 50 # Sufficient history for PR-scoped scan; avoids full clone overhead
+          fetch-depth: 0 # Full history for gitleaks to scan all commits and apply baseline/ignore rules
           ref: ${{ github.event.pull_request.head.sha }}
           persist-credentials: false
 
