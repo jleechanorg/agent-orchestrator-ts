@@ -16,7 +16,7 @@ concurrency:
 jobs:
   generate-design-doc:
     name: Generate Design Doc
-    runs-on: ${{ fromJson(vars.SELF_HOSTED_RUNNER_LABELS || '["self-hosted","self-hosted-mikey"]') }}
+    runs-on: ${{ fromJson(vars.SELF_HOSTED_RUNNER_LABELS || '["self-hosted","Linux","ARM64","jleechanclaw"]') }}
     # Skip for fork PRs — head branches live in the fork repo; GITHUB_TOKEN
     # from a fork_PR event only has read access, so we cannot push design docs.
     # Also skip runs triggered by our own bot commits to avoid regenerate loops.
