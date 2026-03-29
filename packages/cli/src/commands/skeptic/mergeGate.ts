@@ -230,8 +230,7 @@ export async function fetchMergeGateState(
   const evidenceApproved = latestEvidence?.state === "approved";
   const evidenceRequired = false; // controlled via config; default false for skeptic CLI
 
-  // 5. Existing skeptic verdict — paginate to fetch all pages; iterate all to
-  // find the newest (GitHub returns comments ascending by ID; last match = newest).
+  // 5. Existing skeptic verdict — use paginated fetch to capture all pages of comments
   let skepticVerdict: "PASS" | "FAIL" | "SKIPPED" | null = null;
   let skepticCommentId: number | null = null;
   try {

@@ -10,7 +10,7 @@
 
 | Direction | Commits |
 |---|---|
-| Upstream (ComposioHQ) ahead of origin | 477 (total); upstream advances daily — see current git rev-list counts |
+| Upstream (ComposioHQ) ahead of origin | ~477 (total); upstream advances daily — run `git rev-list --left-right --count upstream/main...origin/main` to get current count |
 | Origin (jleechanorg) ahead of upstream | 17 commits (fork-specific) |
 | Origin commits (last 30d) | 11 |
 
