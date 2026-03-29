@@ -139,18 +139,7 @@ jobs:
               #
               # Use a heredoc passed via --field body="$(cat)" so YAML does not parse
               # the *bold*, >blockquote, and \`backtick\` characters as YAML anchors/folding.
-              BODY=$(cat <<'SKEPTIC_EOF'
-<!-- skeptic-gate-trigger-SHA_PLACEHOLDER -->
-
-**Skeptic Gate:** SKIPPED
-
-> No VERDICT produced by `ao skeptic verify` (no LLM API keys were configured for this skeptic-gate run).
-> This is a non-blocking skip — skeptic-cron handles actual LLM evaluation via AO worker.
->
-> **VERDICT: SKIPPED**
-SKEPTIC_EOF
-)
-              BODY="${BODY//SHA_PLACEHOLDER/$TRIGGER_SHA}"
+              BODY=$(printf '<!-- skeptic-gate-trigger-%s -->\n\n**Skeptic Gate:** SKIPPED\n\n> No VERDICT produced by `ao skeptic verify` (no LLM API keys were configured for this skeptic-gate run).\n> This is a non-blocking skip — skeptic-cron handles actual LLM evaluation via AO worker.\n>\n> **VERDICT: SKIPPED**\n' "$TRIGGER_SHA")
               if gh api repos/${{ github.repository }}/issues/"$PR_NUM"/comments \
                 --method POST \
                 --field body="$BODY" \
