@@ -72,12 +72,21 @@ Do not manually create worktrees, `cd` into directories, or run `claude` directl
 
 | Component | Role | Runs where |
 |-----------|------|------------|
-| `skeptic-gate.yml` | GHA check that polls for VERDICT comment | GHA (no API keys) |
-| `skeptic-cron.yml` | Cron that evaluates open PRs | GHA — calls `ao skeptic verify` which needs local LLM |
-| `ao skeptic verify` | CLI command that runs LLM evaluation | Local machine (has API keys via env/OAuth) |
-| lifecycle-worker | Detects trigger comments, dispatches `ao skeptic verify` | Local machine (launchd plist) |
+| `skeptic-gate.yml` | GHA check: pre-checks gates 1-5, posts trigger, polls for VERDICT | GHA (no API keys) |
+| `skeptic-cron.yml` | Cron: posts `SKEPTIC_CRON_TRIGGER` for eligible PRs, checks 7th gate + merges | GHA (no API keys) |
+| `skeptic-cron-local.ts` | Local cron: runs in lifecycle-worker, evaluates all open PRs | Lifecycle-worker (local, has API keys) |
+| `skeptic-reviewer.ts` | Runs `ao skeptic verify` subprocess for a PR | Lifecycle-worker |
+| `fork-claim-verification.ts` | Deterministic claim verifier: checks trigger + VERDICT + GHA run | Lifecycle-worker |
+| `ao skeptic verify` | CLI: fetches PR state, runs LLM evaluation (Codex primary / Claude fallback) | Local machine |
+| `llm-eval.ts` | Shared LLM evaluation: codex exec → claude --print fallback chain | Local machine |
 
-**The chain**: PR event → `skeptic-gate.yml` starts polling → lifecycle-worker detects PR → runs `ao skeptic verify` locally → posts VERDICT comment → `skeptic-gate.yml` sees VERDICT → exits PASS/FAIL.
+**The skeptic-gate chain** (fires on PR open/sync events):
+PR event → `skeptic-gate.yml` pre-checks gates 1-5 → posts `SKEPTIC_GATE_TRIGGER` comment → lifecycle-worker `worker-signals-completion` reaction fires → `runSkepticReview()` → `ao skeptic verify` → LLM evaluation → `VERDICT: PASS/FAIL/SKIPPED` comment posted → `skeptic-gate.yml` polling sees VERDICT → exits PASS/FAIL.
+
+**The skeptic-cron chain** (fires every 30 min via GHA cron):
+`skeptic-cron.yml` posts `SKEPTIC_CRON_TRIGGER` for 6-green-eligible PRs → lifecycle-worker (backfill mode) picks up PRs → `skeptic-cron-local.ts` runs every 10 min → evaluates each PR via `runSkepticReview()` → VERDICT posted → `skeptic-cron.yml` checks gate 7 (skeptic VERDICT) + gate 6 (evidence) → merges.
+
+**Self-referential skeptic PRs**: PRs that modify skeptic infrastructure (CLI code, GHA YAML, lifecycle-worker skeptic modules) are evaluated by the SAME skeptic. They will fail early gates (pending CI, unresolved CR comments) during development — this is expected and correct. The skeptic-gate will pass once CI is green and CR approves.
 
 **When skeptic is broken, the fix is ALWAYS in this chain:**
 1. Is the lifecycle-worker running? (`launchctl print gui/$(id -u)/com.agentorchestrator.lifecycle-agent-orchestrator`)
@@ -101,12 +110,14 @@ Before opening any skeptic-related PR, verify the full chain end-to-end locally.
 1. **Full-chain local test**: trigger comment → lifecycle-worker detection → `ao skeptic verify` execution → VERDICT comment posting → `skeptic-gate.yml` polling match.
 2. **Cross-layer consistency**: CLI code change? Verify GHA YAML jq filter matches CLI output format. GHA YAML change? Verify CLI output format matches jq filter. Bot author change? Verify the jq filter in `skeptic-gate.yml` (line ~235) accepts the posting identity. Note: `SKEPTIC_BOT_AUTHOR` defaults differ by design — `skeptic-cron.yml` uses `'jleechan2015'` (lifecycle-worker posts as local user), `skeptic-gate.yml` polling uses `'github-actions[bot]'` (GHA runner posts as GHA bot); the jq filter accepts both to cover both paths.
 3. **Minimum smoke test**: `ao skeptic verify -n <PR> --dry-run` must output a VERDICT line matching the GHA jq filter pattern. The jq filter in `skeptic-gate.yml` uses `grep -qi "VERDICT: PASS"` / `grep -qi "VERDICT: FAIL"` / `grep -qi "VERDICT: SKIPPED"` — extra text after the keyword (e.g., `VERDICT: FAIL — claude: error`) is accepted; the filter requires the keyword to be present, not a specific format.
+4. **Hook files**: If adding/modifying `.claude/hooks/*.sh`, test stdin handling manually: `echo '{"tool_name":"Bash","tool_input":{"command":"echo test"}}' | bash your-hook.sh` must not hang or read EOF prematurely. Common bug: `INPUT=$(cat)` then `python3 -c "..."` reads empty stdin — always pipe: `echo "$INPUT" | python3 -c "..."`.
 
 ### Red flags — STOP if you see these in a skeptic PR:
 - Unit tests pass but no end-to-end chain verification documented
 - jq filter in `skeptic-gate.yml` does not match CLI VERDICT output format
 - jq filter in `skeptic-gate.yml` does not account for the posting identity used by `ao skeptic verify` (either `'github-actions[bot]'` or `'jleechan2015'` — both are valid by design)
 - GHA YAML filters changed without verifying CLI output format, or vice versa
+- Hook file uses `$(cat)` to read stdin without piping to subsequent commands
 
 ## LLM Evaluation — Shared Utility
 
