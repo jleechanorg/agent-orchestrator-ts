@@ -4826,10 +4826,7 @@ describe("runLocalSkepticCron integration (bd-skp2)", () => {
     });
     try {
       lm.start(60_000);
-      await vi.waitUntil(() => vi.mocked(mockRunLocalSkepticCron).mock.calls.length >= 0, { timeout: 3000 });
-      // Verify it was never called (sessions list was empty, so even if it were called it would return 0,
-      // but the key guard is scopedProjectId === undefined)
-      // Since scopedProjectId is undefined, the if (scopedProjectId) block is never entered
+      // scopedProjectId is undefined so the if (scopedProjectId) block is never entered
       expect(mockRunLocalSkepticCron).not.toHaveBeenCalled();
     } finally {
       lm.stop();
@@ -4855,7 +4852,6 @@ describe("runLocalSkepticCron integration (bd-skp2)", () => {
     });
     try {
       lm.start(60_000);
-      await vi.waitUntil(() => vi.mocked(mockRunLocalSkepticCron).mock.calls.length >= 0, { timeout: 3000 });
       expect(mockRunLocalSkepticCron).not.toHaveBeenCalled();
     } finally {
       lm.stop();
