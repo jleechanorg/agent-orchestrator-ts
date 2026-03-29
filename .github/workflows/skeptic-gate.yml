@@ -82,35 +82,49 @@ jobs:
           if grep -qi "VERDICT:" skeptic-output.txt 2>/dev/null; then
             echo "VERDICT found in skeptic output — comment should be posted."
           else
-            echo "No VERDICT line in skeptic output — posting VERDICT: SKIPPED fallback."
-            # Post a SKIPPED verdict comment so the polling step finds it and exits
-            # cleanly instead of timing out after 28 minutes. The comment body uses the
-            # same HTML marker (skeptic-gate-trigger-) as the full skeptic-cron workflow
-            # so the poll's jq filter will match it. LLM evaluation will be retried by
-            # skeptic-cron (which runs on a schedule with API keys available locally).
-            #
-            # Use a heredoc passed via --field body="$(cat)" so YAML does not parse
-            # the *bold*, >blockquote, and \`backtick\` characters as YAML anchors/folding.
-            BODY=$(cat <<'SKEPTIC_EOF'
+            echo "No VERDICT line in skeptic output — checking for existing VERDICT comment before posting fallback."
+            # Before posting SKIPPED, verify a VERDICT comment for this trigger SHA does not
+            # already exist. The grep-based check above is a proxy for "did skeptic verify succeed?"
+            # but if the CLI posts a verdict without printing VERDICT: to stdout, the grep
+            # misses it. Checking the API here avoids overwriting a real PASS/FAIL verdict
+            # with a newer SKIPPED comment that the polling step's .[-1] sort would prefer.
+            EXISTING_VERDICT_ID=$(gh api repos/${{ github.repository }}/issues/"$PR_NUM"/comments \
+              --paginate \
+              --jq '[.[] | select(.body | contains("<!-- skeptic-gate-trigger-" + env.TRIGGER_SHA + " -->"))] | .[0].id // empty' 2>/dev/null || true)
+            if [ -n "$EXISTING_VERDICT_ID" ]; then
+              echo "Existing VERDICT comment found (id: $EXISTING_VERDICT_ID) — skipping SKIPPED fallback."
+            else
+              echo "No existing VERDICT comment found — posting VERDICT: SKIPPED fallback."
+              # Post a SKIPPED verdict comment so the polling step finds it and exits
+              # cleanly instead of timing out after 28 minutes. The comment body uses the
+              # same HTML marker (skeptic-gate-trigger-<SHA>) that the polling step's jq
+              # filter expects, so this fallback is detected just like a normal verdict.
+              # LLM evaluation itself is handled asynchronously by skeptic-cron (which runs
+              # on a schedule with API keys available locally).
+              #
+              # Use a heredoc passed via --field body="$(cat)" so YAML does not parse
+              # the *bold*, >blockquote, and \`backtick\` characters as YAML anchors/folding.
+              BODY=$(cat <<'SKEPTIC_EOF'
 <!-- skeptic-gate-trigger-SHA_PLACEHOLDER -->
 
 **Skeptic Gate:** SKIPPED
 
-> No VERDICT produced by `ao skeptic verify` (LLM evaluation requires local API keys, not available in GHA).
+> No VERDICT produced by `ao skeptic verify` (no LLM API keys were configured for this skeptic-gate run).
 > This is a non-blocking skip — skeptic-cron handles actual LLM evaluation via AO worker.
 >
 > **VERDICT: SKIPPED**
 SKEPTIC_EOF
 )
-            BODY="${BODY//SHA_PLACEHOLDER/$TRIGGER_SHA}"
-            if gh api repos/${{ github.repository }}/issues/"$PR_NUM"/comments \
-              --method POST \
-              --field body="$BODY" \
-              --jq '.id' > /dev/null 2>&1; then
-              echo "SKIPPED fallback comment posted."
-            else
-              echo "ERROR: Failed to post SKIPPED fallback comment." >&2
-              exit 1
+              BODY="${BODY//SHA_PLACEHOLDER/$TRIGGER_SHA}"
+              if gh api repos/${{ github.repository }}/issues/"$PR_NUM"/comments \
+                --method POST \
+                --field body="$BODY" \
+                --jq '.id' > /dev/null 2>&1; then
+                echo "SKIPPED fallback comment posted."
+              else
+                echo "ERROR: Failed to post SKIPPED fallback comment." >&2
+                exit 1
+              fi
             fi
           fi
 
