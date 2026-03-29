@@ -1,7 +1,6 @@
 # =============================================================================
-# Composite action: Setup environment for skeptic CLI
-# Used by skeptic-gate.yml (lightweight — trigger-only, no CLI execution)
-# and any future workflow that needs Node/pnpm.
+# Composite action: Setup environment for skeptic CLI and workspace build.
+# Used by skeptic-gate.yml and any future workflow that needs Node/pnpm.
 #
 # NOTE: LLM evaluation runs via AO worker (Codex OAuth) — no API keys needed.
 # This action does NOT install Claude/Codex CLI for LLM use in GHA.

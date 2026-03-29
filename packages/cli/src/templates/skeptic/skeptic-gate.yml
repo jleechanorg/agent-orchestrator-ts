@@ -105,14 +105,17 @@ jobs:
           # Gate 5: Inline comments resolved (GraphQL — REST lacks isResolved)
           PR_AUTHOR=$(gh api repos/${{ github.repository }}/pulls/"$PR_NUM" --jq '.user.login' 2>/dev/null || echo "")
           REPO_NAME="${GITHUB_REPOSITORY#*/}"
-          UNRESOLVED=$(gh api graphql -f query='
+          # Fail closed on pagination truncation
+          GQL_RESULT=$(gh api graphql -f query='
             query($owner: String!, $name: String!, $number: Int!) {
               repository(owner: $owner, name: $name) {
                 pullRequest(number: $number) {
                   reviewThreads(first: 100) {
+                    pageInfo { hasNextPage }
                     nodes {
                       isResolved
                       comments(first: 50) {
+                        pageInfo { hasNextPage }
                         nodes { author { login } body }
                       }
                     }
@@ -120,10 +123,16 @@ jobs:
                 }
               }
             }
-          ' -f owner='${{ github.repository_owner }}' -f name="$REPO_NAME" -F number="$PR_NUM" \
-            --jq "[.data.repository.pullRequest.reviewThreads.nodes[] | select(.isResolved == false) | .comments.nodes[] | select(.author.login != null and (.author.login | ascii_downcase) != (\"$PR_AUTHOR\" | ascii_downcase) and (.body | test(\"^\\\\s*(nit:|nitpick)\"; \"i\") | not))] | length" 2>/dev/null || echo "__GQL_ERROR__")
-          if [ "$UNRESOLVED" = "__GQL_ERROR__" ]; then
-            echo "GATE-5 FAIL: GraphQL error"
+          ' -f owner='${{ github.repository_owner }}' -f name="$REPO_NAME" -F number="$PR_NUM" 2>/dev/null)
+          if [ -z "$GQL_RESULT" ]; then
+            UNRESOLVED="__GQL_ERROR__"
+          elif [ "$(echo "$GQL_RESULT" | jq -r '.data.repository.pullRequest.reviewThreads.pageInfo.hasNextPage')" = "true" ] || [ "$(echo "$GQL_RESULT" | jq -r '[.data.repository.pullRequest.reviewThreads.nodes[].comments.pageInfo.hasNextPage | select(. == true)] | length')" -gt 0 ]; then
+            UNRESOLVED="__TRUNCATED__"
+          else
+            UNRESOLVED=$(echo "$GQL_RESULT" | jq -r "[.data.repository.pullRequest.reviewThreads.nodes[] | select(.isResolved == false) | .comments.nodes[] | select(.author.login != null and (.author.login | ascii_downcase) != (\"$PR_AUTHOR\" | ascii_downcase) and (.body | test(\"^\\\\s*(nit:|nitpick)\"; \"i\") | not))] | length")
+          fi
+          if [ "$UNRESOLVED" = "__GQL_ERROR__" ] || [ "$UNRESOLVED" = "__TRUNCATED__" ]; then
+            echo "GATE-5 FAIL: GraphQL error or pagination truncated"
             ELIGIBLE=false
           elif [ "${UNRESOLVED:-0}" -gt 0 ]; then
             echo "GATE-5 FAIL: $UNRESOLVED unresolved comments"
@@ -184,7 +193,7 @@ jobs:
           TRIGGER_UPDATED: ${{ steps.post_trigger.outputs.trigger_updated }}
           TRIGGER_SHA: ${{ steps.post_trigger.outputs.trigger_sha }}
           # Default to github-actions[bot] — the lifecycle-manager AO worker posts
-          # via GITHUB_TOKEN (authenticated as local user). Both are accepted.
+          # via GITHUB_TOKEN (authenticates as github-actions[bot]).
           SKEPTIC_BOT_AUTHOR: ${{ vars.SKEPTIC_BOT_AUTHOR || 'github-actions[bot]' }}
         # 28 min timeout — leave 2 min buffer so the step exits cleanly before
         # the 30-min job timeout rather than being killed by the runner.
