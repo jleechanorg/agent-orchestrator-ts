@@ -10,7 +10,6 @@
  */
 
 import { ghJson, ghJsonPaginate, fetchReviews, type ReviewInfo } from "./gh-client.js";
-import { VERDICT_LINE_RE } from "./verdict-utils.js";
 
 const NIT_PATTERN = /^(nit:|nitpick)/i;
 const CR_BOT = "coderabbitai[bot]";
@@ -96,8 +95,8 @@ export async function fetchMergeGateState(
     mergeableRaw = prData?.mergeable ?? null;
     noConflicts = prData?.mergeable === true || prData?.merged === true;
     const headSha = prData?.head?.sha;
-    // Use headSha (immutable commit SHA) to avoid TOCTOU races
-    // where the branch moves between status check and merge.
+    // Use headSha (immutable commit SHA) instead of headRef (mutable branch ref)
+    // to avoid TOCTOU races where the branch moves between status check and merge.
     if (headSha) {
       const commitStatus = await ghJson(
         "repos/" + owner + "/" + repo + "/commits/" + headSha + "/status",
@@ -108,11 +107,12 @@ export async function fetchMergeGateState(
     // Fetch individual check runs for independent verification (paginated to capture all pages)
     if (headSha) {
       try {
-        // ghJsonPaginate returns an array of pages (--slurp), each with {total_count, check_runs: [...]}
-        const checkRunPages = await ghJsonPaginate(
+        // ghJsonPaginate returns the REST envelope { total_count, check_runs: [...] }.
+        // Unwrap check_runs for single-page and multi-page responses alike.
+        const checkRunEnvelope = await ghJsonPaginate(
           "repos/" + owner + "/" + repo + "/commits/" + headSha + "/check-runs?per_page=100",
-        ) as Array<{ check_runs?: Array<{ name: string; status: string; conclusion: string | null }> }>;
-        const checkRunData = checkRunPages.flatMap(p => p.check_runs ?? []);
+        ) as { total_count?: number; check_runs?: Array<{ name: string; status: string; conclusion: string | null }> };
+        const checkRunData = checkRunEnvelope?.check_runs ?? [];
         // Deduplicate by name, keeping latest conclusion
         const seen = new Map<string, CheckRunSummary>();
         for (const run of checkRunData) {
@@ -219,26 +219,28 @@ export async function fetchMergeGateState(
   const evidenceApproved = latestEvidence?.state === "approved";
   const evidenceRequired = false; // controlled via config; default false for skeptic CLI
 
-  // 5. Existing skeptic verdict — paginate to fetch all pages; iterate all to
-  // find the newest (GitHub returns comments ascending by ID; last match = newest).
+  // 5. Existing skeptic verdict
   let skepticVerdict: "PASS" | "FAIL" | "SKIPPED" | null = null;
   let skepticCommentId: number | null = null;
   try {
-    // ghJsonPaginate uses --paginate --slurp: each page is a separate array element.
-    // Flatten to a single array of comments before iterating.
-    const commentPages = (await ghJsonPaginate(
+    const comments = await ghJson(
       "repos/" + owner + "/" + repo + "/issues/" + prNumber + "/comments?per_page=100",
-    )) as Array<Array<{ id: number; body: string; user?: { login: string } }>>;
-    const comments = commentPages.flat();
+    ) as Array<{ id: number; body: string; user?: { login: string } }>;
     for (const c of comments) {
       if (c.user?.login === skepticBotAuthor) {
-        // Use the shared VERDICT_LINE_RE from verdict-utils.ts — it accepts both plain
-        // VERDICT: PASS and markdown-bold **VERDICT: PASS** variants.
-        const m = c.body.match(VERDICT_LINE_RE);
-        if (m) {
-          skepticVerdict = m[1].toUpperCase() as "PASS" | "FAIL" | "SKIPPED";
+        // Also handle markdown-bold variants: **VERDICT: SKIPPED** (matching skeptic.ts VERDICT_LINE_RE)
+        if (/(?:\*{1,2})?VERDICT:\s*PASS\b/i.test(c.body)) {
+          skepticVerdict = "PASS";
           skepticCommentId = c.id;
-          // Do NOT break — keep iterating so the last match reflects the newest verdict
+          break;
+        } else if (/(?:\*{1,2})?VERDICT:\s*FAIL\b/i.test(c.body)) {
+          skepticVerdict = "FAIL";
+          skepticCommentId = c.id;
+          break;
+        } else if (/(?:\*{1,2})?VERDICT:\s*SKIPPED\b/i.test(c.body)) {
+          skepticVerdict = "SKIPPED";
+          skepticCommentId = c.id;
+          break;
         }
       }
     }

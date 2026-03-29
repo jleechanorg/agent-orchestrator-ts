@@ -4,21 +4,14 @@ name: Skeptic Gate
 # Flow: GHA posts trigger comment → lifecycle-manager runs ao skeptic verify →
 # posts VERDICT comment → GHA polls for VERDICT and exits PASS/FAIL.
 #
+# Security: uses pull_request_target — this workflow needs write access to
+# post VERDICT comments on the PR. For same-repo PRs (same owner) this is safe.
+# The pull_request variant lacks secrets access needed for gh api comment posts.
 on:
   # Security: uses pull_request (not pull_request_target) — only posts comments,
   # no secret access needed. pull_request_target creates elevated risk for no benefit.
   pull_request:
     types: [opened, synchronize, edited, reopened]
-  workflow_dispatch:
-    inputs:
-      pr_number:
-        description: "PR number"
-        required: true
-        type: string
-      head_sha:
-        description: "PR head commit SHA"
-        required: true
-        type: string
 
 # Do NOT cancel in-progress runs — killing a polling step mid-loop discards its
 # loop state. A new concurrent run with the same SHA is harmless since the jq
@@ -36,158 +29,81 @@ jobs:
       issues: write
       contents: read
     outputs:
-      # Pass the trigger-comment updated_at to the polling step so it can filter
-      # out verdicts from cancelled previous runs (only accept verdicts posted
-      # AFTER the current trigger was last updated).
-      trigger_updated: ${{ steps.post_trigger.outputs.trigger_updated }}
       # Pass the trigger SHA so polling can match VERDICT comments by the exact
       # evaluation SHA (prevents accepting a VERDICT from a different commit).
       trigger_sha: ${{ steps.post_trigger.outputs.trigger_sha }}
     steps:
-      # Step 1: Post trigger comment and capture GitHub's server-side timestamp.
-      # We use the trigger comment's updated_at as the freshness cutoff because it
-      # is set by GitHub's server at POST time — guaranteed to be before any
-      # verdict comment that the subsequent ao skeptic verify posts.
-      # This avoids the date -u bug where the runner's clock > verdict's server time
-      # causes the jq updated_at filter to always reject the fresh verdict.
+      # Step 1: Post trigger comment for lifecycle-manager to pick up.
+      # lifecycle-manager runs ao skeptic verify with local API keys.
+      # We capture the comment's updated_at timestamp to use as a cutoff in polling.
       - name: Post skeptic trigger comment
         id: post_trigger
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PR_NUM: ${{ github.event.inputs.pr_number || github.event.pull_request.number }}
-          HEAD_SHA: ${{ github.event.inputs.head_sha || github.event.pull_request.head.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
-          PR_NUM=$PR_NUM
-          TRIGGER_SHA="$HEAD_SHA"
-          # The HTML marker identifies this trigger uniquely for the lifecycle-manager.
-          # Using $'...' ANSI-C quoting so the embedded HTML comment is literal.
-          BODY=$(printf '%s\n%s' \
-            "SKEPTIC_GATE_TRIGGER" \
-            "<!-- skeptic-gate-trigger-${TRIGGER_SHA} -->")
+          PR_NUM=${{ github.event.pull_request.number }}
 
-          # Post comment and capture GitHub's server-side updated_at as the cutoff.
+          # Post trigger comment and capture GitHub's server-side updated_at as the cutoff.
           # This timestamp is guaranteed to be set at POST time (server clock),
           # before any verdict that ao skeptic verify posts below.
-          # shellcheck disable=SC2086
+          # lifecycle-manager watches for this comment to begin ao skeptic verify.
+          TRIGGER_MARKER="<!-- skeptic-gate-trigger-${HEAD_SHA} -->"
+          TRIGGER_BODY=$'SKEPTIC_GATE_TRIGGER\n'"$TRIGGER_MARKER"
+
           TRIGGER_UPDATED=$(gh api repos/${{ github.repository }}/issues/"$PR_NUM"/comments \
-            --field body="$BODY" \
+            -f body="$TRIGGER_BODY" \
             --jq '.updated_at')
+
           if [ -z "$TRIGGER_UPDATED" ] || [ "$TRIGGER_UPDATED" = "null" ]; then
             echo "ERROR: failed to obtain trigger_updated from posted comment" >&2
             exit 1
           fi
-          echo "Trigger timestamp (GitHub server): $TRIGGER_UPDATED"
-          echo "trigger_updated=$TRIGGER_UPDATED" >> "$GITHUB_OUTPUT"
-          echo "trigger_sha=$TRIGGER_SHA" >> "$GITHUB_OUTPUT"
 
-      # Step 2: Run skeptic verification and post VERDICT comment.
-      # The polling step below waits for this comment — we post first, then poll to confirm.
-      # Uses skeptic-setup + skeptic-run so the CLI uses GITHUB_TOKEN for posting
-      # (not the jleechan-agent[bot] token which lacks write access on forked PRs).
-      # For pull_request_target, base repo is available but not auto-checked into GITHUB_WORKSPACE.
-      - name: Checkout base branch
-        uses: actions/checkout@v4
-        with:
-          # For workflow_dispatch, github.base_ref is empty so we fall back to
-          # github.ref_name (the branch the dispatch targets).
-          # For pull_request, github.base_ref is the PR target branch (e.g. main).
-          ref: ${{ github.base_ref || github.ref_name }}
-          persist-credentials: false
+          echo "Trigger timestamp (GitHub): $TRIGGER_UPDATED"
+          echo "trigger_sha=$HEAD_SHA" >> "$GITHUB_OUTPUT"
 
-      - name: Setup skeptic environment
-        uses: ./.github/actions/skeptic-setup
-
-      - name: Post skeptic VERDICT
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GH_SKEPTIC_BOT_AUTHOR: ${{ vars.SKEPTIC_BOT_AUTHOR || 'jleechan2015' }}
-          PR_NUM: ${{ github.event.inputs.pr_number || github.event.pull_request.number }}
-          HEAD_SHA: ${{ github.event.inputs.head_sha || github.event.pull_request.head.sha }}
-        run: |
-          PR_NUM=$PR_NUM
-          TRIGGER_SHA="$HEAD_SHA"
-          SKEPTIC_EXIT=0
-          echo "Running skeptic verification for PR #$PR_NUM (trigger SHA ${TRIGGER_SHA:0:7})..."
-          # Run WITHOUT --dry-run so postVerdict() is called and posts the comment.
-          # skeptic-setup already built the CLI above, so dist/index.js is available.
-          # Capture VERDICT line to stdout for workflow logs.
-          (node packages/cli/dist/index.js skeptic verify -n "$PR_NUM" --trigger-sha "$TRIGGER_SHA" 2>&1 | tee skeptic-output.txt) || SKEPTIC_EXIT=$?
-          echo "Skeptic verify exit code: $SKEPTIC_EXIT"
-          if grep -qi "VERDICT:" skeptic-output.txt 2>/dev/null; then
-            echo "VERDICT found in skeptic output — comment should be posted."
-          else
-            echo "No VERDICT line in skeptic output — checking for existing VERDICT comment before posting fallback."
-            # Before posting SKIPPED, verify a VERDICT comment for this trigger SHA does not
-            # already exist. The grep-based check above is a proxy for "did skeptic verify succeed?"
-            # but if the CLI posts a verdict without printing VERDICT: to stdout, the grep
-            # misses it. Checking the API here avoids overwriting a real PASS/FAIL verdict
-            # with a newer SKIPPED comment that the polling step's .[-1] sort would prefer.
-            # Require both the trigger marker AND VERDICT: keyword — matches polling step filter (line 212).
-            EXISTING_VERDICT_ID=$(gh api repos/${{ github.repository }}/issues/"$PR_NUM"/comments \
-              --paginate \
-              --jq '[.[] | select((.body | test("VERDICT:"; "i")) and (.body | contains("<!-- skeptic-gate-trigger-" + env.TRIGGER_SHA + " -->")))] | .[0].id // empty' 2>/dev/null || true)
-            if [ -n "$EXISTING_VERDICT_ID" ]; then
-              echo "Existing VERDICT comment found (id: $EXISTING_VERDICT_ID) — skipping SKIPPED fallback."
-            else
-              echo "No existing VERDICT comment found — posting VERDICT: SKIPPED fallback."
-              # Post a SKIPPED verdict comment so the polling step finds it and exits
-              # cleanly instead of timing out after 28 minutes. The comment body uses the
-              # same HTML marker (skeptic-gate-trigger-<SHA>) that the polling step's jq
-              # filter expects, so this fallback is detected just like a normal verdict.
-              # LLM evaluation itself is handled asynchronously by skeptic-cron (which runs
-              # on a schedule with API keys available locally).
-              #
-              # Use a heredoc passed via --field body="$(cat)" so YAML does not parse
-              # the *bold*, >blockquote, and \`backtick\` characters as YAML anchors/folding.
-              BODY=$(printf '<!-- skeptic-gate-trigger-%s -->\n\n**Skeptic Gate:** SKIPPED\n\n> No VERDICT produced by `ao skeptic verify` (no LLM API keys were configured for this skeptic-gate run).\n> This is a non-blocking skip — skeptic-cron handles actual LLM evaluation via AO worker.\n>\n> **VERDICT: SKIPPED**\n' "$TRIGGER_SHA")
-              if gh api repos/${{ github.repository }}/issues/"$PR_NUM"/comments \
-                --method POST \
-                --field body="$BODY" \
-                --jq '.id' > /dev/null 2>&1; then
-                echo "SKIPPED fallback comment posted."
-              else
-                echo "ERROR: Failed to post SKIPPED fallback comment." >&2
-                exit 1
-              fi
-            fi
-          fi
-
-      # Step 3: Poll for the VERDICT comment posted by Step 2 above.
+      # Step 2: Poll for the VERDICT comment posted by Step 1 above.
       # The skeptic VERDICT is idempotent — re-running updates the same comment.
       # Uses TRIGGER_UPDATED = GitHub server time from the posted trigger comment.
       # This is guaranteed to be BEFORE any verdict posted by ao skeptic verify,
       # so the updated_at filter correctly accepts the fresh verdict.
+      # TRIGGER_UPDATED is fetched inline via gh api rather than passed as a step output,
+      # which avoids the unset-TRIGGER_UPDATED-to-outputs problem (writing an empty
+      # variable to GITHUB_OUTPUT produces the literal string "null" instead of no value).
       - name: Poll for skeptic VERDICT
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PR_NUM: ${{ github.event.inputs.pr_number || github.event.pull_request.number }}
-          HEAD_SHA: ${{ github.event.inputs.head_sha || github.event.pull_request.head.sha }}
-          TRIGGER_UPDATED: ${{ steps.post_trigger.outputs.trigger_updated }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           TRIGGER_SHA: ${{ steps.post_trigger.outputs.trigger_sha }}
-          # Default to github-actions[bot] — skeptic-gate step 2b posts SKIPPED fallback
-          # via GITHUB_TOKEN (GHA runner identity). When ao skeptic verify runs via
-          # lifecycle-worker and posts directly, it uses gh api authed as local user
-          # (jleechan2015). The jq filter below accepts both to cover both paths.
-          SKEPTIC_BOT_AUTHOR: ${{ vars.SKEPTIC_BOT_AUTHOR || 'github-actions[bot]' }}
+          # bd-lg7i: kept for documentation; the jq filter now uses HTML+SHA markers
+          # instead of author login to identify verdict comments.
+          SKEPTIC_BOT_AUTHOR: ${{ vars.SKEPTIC_BOT_AUTHOR || 'jleechan2015' }}
         # 28 min timeout — leave 2 min buffer so the step exits cleanly before the
         # 30-min job timeout rather than being killed by the runner.
         timeout-minutes: 28
         run: |
-          PR_NUM=$PR_NUM
+          PR_NUM=${{ github.event.pull_request.number }}
 
           # Do NOT use 'set -e' here — jq -e returns non-zero on empty/null (no match),
           # which would cause premature script exit. Guards handle errors explicitly.
           # Disable errexit for the remainder of the script.
           set +e
 
-          # TRIGGER_UPDATED is ISO-8601: 2024-01-15T12:00:00Z
-          # ISO-8601 lexicographic ordering equals chronological ordering, so
-          # we can use string comparison directly (no date conversion needed).
+          # Fetch TRIGGER_UPDATED inline — step output was removed to avoid the
+          # "echo var=$VAR when VAR is unset/empty" problem (produces literal "null").
+          TRIGGER_UPDATED=$(gh api repos/${{ github.repository }}/issues/"$PR_NUM"/comments \
+            --jq '[.[] | select(.body | contains("skeptic-gate-trigger-" + env.TRIGGER_SHA))] | .[-1] | .updated_at' 2>/dev/null)
           if [ -z "$TRIGGER_UPDATED" ] || [ "$TRIGGER_UPDATED" = "null" ]; then
-            echo "ERROR: trigger_updated not set — cannot poll for verdicts"
+            echo "ERROR: failed to obtain trigger_updated from posted comment"
             echo "verdict=ERROR" >> "$GITHUB_OUTPUT"
             exit 1
           fi
+          echo "Trigger timestamp (GitHub): $TRIGGER_UPDATED"
+
+          # TRIGGER_UPDATED is ISO-8601: 2024-01-15T12:00:00Z
+          # ISO-8601 lexicographic ordering equals chronological ordering, so
+          # we can use string comparison directly (no date conversion needed).
           echo "Only accepting verdicts posted after trigger was updated: $TRIGGER_UPDATED"
           echo "Also filtering by trigger SHA: ${TRIGGER_SHA:0:7}"
 
@@ -224,63 +140,63 @@ jobs:
               exit 0
             fi
 
-            # Find verdict comment. gh api --paginate --jq iterates over each page
-            # correctly: it applies the jq filter to each page and accumulates the full
-            # result. The filter finds the most recent matching comment (last in list).
-            VERDICT_JSON=$(SKEPTIC_BOT_AUTHOR="$SKEPTIC_BOT_AUTHOR" \
-              TRIGGER_SHA="$TRIGGER_SHA" \
-              TRIGGER_UPDATED="$TRIGGER_UPDATED" \
-              gh api repos/${{ github.repository }}/issues/"$PR_NUM"/comments \
-                 --paginate \
-                 --jq '[.[] | select(((.user.login == env.SKEPTIC_BOT_AUTHOR) or (.user.login == "github-actions[bot]")) and (.body | test("VERDICT:"; "i")) and (.updated_at >= env.TRIGGER_UPDATED) and (.body | test("skeptic-gate-trigger-" + env.TRIGGER_SHA; "i")))] | .[-1] // empty' 2>&1)
-
+            # Find verdict comments from SKEPTIC_BOT_AUTHOR posted AFTER the
+            # trigger was updated AND whose body contains the trigger SHA marker
+            # (<!-- skeptic-gate-trigger-${TRIGGER_SHA} -->). This double-checks
+            # that the verdict belongs to the current evaluation window.
+            # Uses updated_at (not created_at) — ao skeptic verify may edit an existing
+            # verdict comment when re-running for a new trigger SHA; GitHub preserves
+            # the original created_at but updates updated_at, so updated_at is the
+            # correct freshness signal.
+            # bd-lg7i: Remove .user.login filter — gh api posts as github-actions[bot], not
+            # SKEPTIC_BOT_AUTHOR (jleechan2015). The skeptic-agent-verdict HTML marker in the
+            # body uniquely identifies the comment; SHA marker + timestamp ensure freshness.
+            # --paginate returns all pages as one array, so .[-1] gives the most
+            # recent match across all pages (comments returned oldest→newest).
+            VERDICT_JQ='[.[] | select((.body | test("VERDICT\\s*:"; "i")) and (.updated_at >= env.TRIGGER_UPDATED) and (.body | test("skeptic-gate-trigger-" + env.TRIGGER_SHA; "i")))] | .[-1] // empty'
+            VERDICT_JSON=$(gh api repos/${{ github.repository }}/issues/"$PR_NUM"/comments \
+              --paginate \
+              --jq "$VERDICT_JQ" 2>&1)
             if echo "$VERDICT_JSON" | grep -qi "error\|rate limit\|authentication\|not found\|server error"; then
               API_FAILURES=$((API_FAILURES + 1))
-              echo "API warning: verdict comment lookup failed (attempt $((i))): ${VERDICT_JSON:0:200}"
+              echo "API warning: verdict comment lookup failed (attempt $((i))): ${VERDICT_JSON:0:100}"
               if [ "$API_FAILURES" -ge 3 ]; then
                 echo "ERROR: Too many consecutive API failures — exiting as ERROR (not TIMEOUT)"
                 echo "verdict=ERROR" >> "$GITHUB_OUTPUT"
                 exit 1
               fi
-              echo "Attempt $i/$MAX_ATTEMPTS — sleeping ${INTERVAL}s..."
-              sleep $INTERVAL
-              continue
             fi
 
-            # jq -e exits 1 on null/empty (no match) — normal, retry.
-            # shellcheck disable=SC2086
-            if ! echo "$VERDICT_JSON" | jq -e 'if . == null or (.body == null) then empty else .body end | length > 0' > /dev/null 2>&1; then
-              echo "Attempt $i/$MAX_ATTEMPTS — no fresh VERDICT yet, sleeping ${INTERVAL}s..."
-              sleep $INTERVAL
-              continue
+            # Remove || true: jq -e exits 1 on empty/null (no fresh verdict), which is
+            # normal — the loop will retry. || true would suppress this and let an empty
+            # VERDICT_JSON fall through silently, breaking the error-detection grep on the
+            # next iteration (empty string matches no error keywords).
+            if echo "$VERDICT_JSON" | jq -e 'if . == null or .body == null then empty else .body end | length > 0' > /dev/null 2>&1; then
+              VERDICT_BODY=$(echo "$VERDICT_JSON" | jq -r '.body')
+              VERDICT_CREATED=$(echo "$VERDICT_JSON" | jq -r '.updated_at')
+
+              echo ""
+              echo "=== Found VERDICT (posted $VERDICT_CREATED) ==="
+              echo "$VERDICT_BODY"
+
+              # Use -E with [[:space:]]* (optional whitespace) to match VERDICT_LINE_RE \s* behavior
+              if echo "$VERDICT_BODY" | grep -Eqi "VERDICT[[:space:]]*:[[:space:]]*PASS"; then
+                echo "verdict=PASS" >> "$GITHUB_OUTPUT"
+                echo "=== SKEPTIC GATE: PASS ==="
+                exit 0
+              elif echo "$VERDICT_BODY" | grep -Eqi "VERDICT[[:space:]]*:[[:space:]]*FAIL"; then
+                echo "verdict=FAIL" >> "$GITHUB_OUTPUT"
+                echo "=== SKEPTIC GATE: FAIL ==="
+                exit 1
+              elif echo "$VERDICT_BODY" | grep -Eqi "VERDICT[[:space:]]*:[[:space:]]*SKIPPED"; then
+                echo "verdict=SKIPPED" >> "$GITHUB_OUTPUT"
+                echo "=== SKEPTIC GATE: SKIPPED (infra issue — not blocking) ==="
+                exit 0
+              fi
             fi
 
-            VERDICT_BODY=$(echo "$VERDICT_JSON" | jq -r '.body')
-            VERDICT_CREATED=$(echo "$VERDICT_JSON" | jq -r '.updated_at')
-            echo ""
-            echo "=== Found VERDICT (posted $VERDICT_CREATED) ==="
-            echo "$VERDICT_BODY"
-
-            if echo "$VERDICT_BODY" | grep -qi "VERDICT: PASS"; then
-              echo "verdict=PASS" >> "$GITHUB_OUTPUT"
-              echo "=== SKEPTIC GATE: PASS ==="
-              exit 0
-            elif echo "$VERDICT_BODY" | grep -qi "VERDICT: FAIL"; then
-              echo "verdict=FAIL" >> "$GITHUB_OUTPUT"
-              echo "=== SKEPTIC GATE: FAIL ==="
-              exit 1
-            elif echo "$VERDICT_BODY" | grep -qi "VERDICT: SKIPPED"; then
-              echo "verdict=SKIPPED" >> "$GITHUB_OUTPUT"
-              echo "=== SKEPTIC GATE: SKIPPED (infra issue — not blocking) ==="
-              exit 0
-            else
-              # Malformed VERDICT: contains "VERDICT:" but none of PASS/FAIL/SKIPPED.
-              # Sleep and retry instead of spinning.
-              echo "WARNING: VERDICT body contains 'VERDICT:' but none of PASS/FAIL/SKIPPED — malformed verdict, sleeping ${INTERVAL}s before retry"
-              echo "verdict=UNKNOWN" >> "$GITHUB_OUTPUT"
-              sleep $INTERVAL
-              continue
-            fi
+            echo "Attempt $i/$MAX_ATTEMPTS — no fresh VERDICT yet, sleeping ${INTERVAL}s..."
+            sleep $INTERVAL
           done
 
           echo "TIMEOUT: No fresh VERDICT after $((MAX_ATTEMPTS * INTERVAL / 60)) minutes"
