@@ -59,13 +59,12 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm -r --filter '!@jleechanorg/ao-web' build
+      - name: Setup gh authentication for wholesome tests
+        run: |
+          echo "${{ github.token }}" | gh auth login --with-token
+          gh auth status
       - run: pnpm test
         env:
-          # Use github.token which is always available in workflow expressions.
-          # GITHUB_TOKEN env var is auto-set by GitHub Actions but can be empty when
-          # secrets.GITHUB_TOKEN is not available. github.token always has a valid value.
-          GH_TOKEN: ${{ github.token }}
-          GITHUB_TOKEN: ${{ github.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           GITHUB_HEAD_REF: ${{ github.head_ref }}
           GITHUB_BASE_REF: ${{ github.base_ref }}
