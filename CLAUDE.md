@@ -140,6 +140,32 @@ gh api repos/OWNER/REPO/pulls/N --jq '{state, merged}'
 
 **After pushing to a branch: EXIT immediately.** Do not sleep-poll for CI or bot results — the monitoring loop handles rechecks. If a bash command times out mid-sleep, do not retry; exit and report current status.
 
+### Pre-push merge-conflict check (MUST do before every push)
+The `merge-conflicts` reaction is **reactive only** — it fires after push when the lifecycle-manager next polls. A push to a branch with merge conflicts will show `mergeableState: dirty` immediately but the reaction won't catch it until the next poll cycle. **You must check before pushing:**
+
+```bash
+gh pr view --json mergeableState --jq '.mergeableState'
+# MUST be "MERGEABLE" or "unstable" (CI running) before pushing.
+# "dirty" = merge conflicts — rebase origin/main first.
+# "blocked" = branch protection required checks not passing — wait.
+```
+**NEVER push to a PR that is `dirty` (merge conflicts).** Rebase on origin/main first, resolve conflicts, then push.
+
+### CR CHANGES_REQUESTED resolution workflow
+When CR posts CHANGES_REQUESTED on your PR:
+1. Run `scripts/extract-unresolved-comments.sh <OWNER>/<REPO> <PR>` — gets prioritized list (Critical first)
+2. Fix **only those exact items** — no other changes
+3. Commit with `[agento]` prefix and push
+4. Run `scripts/cr-loop-guard.sh <OWNER>/<REPO> <PR> fix-mode`:
+   - Output starts with `cr-trigger` → post `@coderabbitai all good?`
+   - Output starts with `copilot-expanded` → run `/copilot-expanded` on the exact comment list
+   - Output starts with `skip` → loop limit reached, escalate
+5. Wait for CR formal review (not just `<!-- Review triggered -->` acknowledgment)
+6. If CR gets stuck in incremental mode (no new formal review after 2 cycles), dismiss the stale review: get latest CR review ID, `gh api repos/<OWNER>/<REPO>/pulls/<PR>/reviews/<ID>/dismissals --method PUT -f message="Stale CR verdict — all comments addressed, dismissing to allow fresh re-review" -f event=DISMISS`, then post `@coderabbitai all good?`
+
+### Skeptic SKIPPED — do not merge
+If skeptic posts `VERDICT: SKIPPED` (infra unavailable — no LLM API keys in GHA), the PR does **NOT** have a genuine skeptic review. The `skeptic-cron.yml` workflow handles skeptic evaluation via AO worker. **Do not merge until skeptic-cron has run `ao skeptic verify` and posted `VERDICT: PASS` or `VERDICT: FAIL`.** Check skeptic-cron hasn't already evaluated this PR SHA (comments show `VERDICT:`).
+
 ## Fork Isolation — Code Separation from Upstream
 
 This fork diverges from `ComposioHQ/agent-orchestrator`. To minimize merge conflicts and preserve cherry-pick ability:
