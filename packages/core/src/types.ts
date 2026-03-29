@@ -1116,18 +1116,9 @@ export interface OrchestratorConfig {
   autoMerge?: boolean;
 
   /**
-   * Internal: set of reaction keys explicitly declared in the raw config's
-   * `reactions` block (before ReactionConfigSchema.partial() strips defaults).
-   * Used by autoMerge to detect whether the user explicitly configured a
-   * reaction vs. relying on the default-empty reactions block.
-   * @internal
-   */
-  _declaredReactionKeys?: Set<string>;
-
-  /**
    * Internal: per-reaction flag tracking whether the global config explicitly
-   * declared this reaction key in its `reactions` block. Set alongside
-   * _declaredReactionKeys during config validation.
+   * declared this reaction key in its `reactions` block. Set during
+   * config validation to detect explicit declarations vs. defaults.
    * @internal
    */
   _hasExplicitGlobalReaction?: Record<string, boolean>;

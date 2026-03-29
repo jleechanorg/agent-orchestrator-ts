@@ -257,9 +257,6 @@ const OrchestratorConfigSchema = z.object({
     info: ["composio"],
   }),
   reactions: z.record(ReactionConfigSchema).default({}),
-  // Internal: populated during parse to track which reaction keys were explicitly declared.
-  // Not part of the user-facing schema.
-  _declaredReactionKeys: z.instanceof(Set).optional(),
   _hasExplicitGlobalReaction: z.record(z.boolean()).optional(),
   plugins: z.record(z.record(z.unknown())).optional(),
   // Central auto-merge switch: enables auto-merge for approved-and-green reaction
@@ -575,11 +572,6 @@ export function loadConfigWithPath(configPath?: string): {
 /** Validate a raw config object */
 export function validateConfig(raw: unknown): OrchestratorConfig {
   const rawObj = raw as Record<string, unknown>;
-  const declaredKeys = new Set(
-    typeof rawObj?.reactions === "object" && rawObj.reactions !== null
-      ? Object.keys(rawObj.reactions)
-      : [],
-  );
   // Track per-key whether user explicitly declared this reaction (vs relying on
   // default empty reactions block). ReactionConfigSchema.partial() strips defaults,
   // so we must detect explicit declaration from raw input.
@@ -591,7 +583,6 @@ export function validateConfig(raw: unknown): OrchestratorConfig {
   }
   const validated = OrchestratorConfigSchema.parse({
     ...(raw as object),
-    _declaredReactionKeys: declaredKeys,
     _hasExplicitGlobalReaction: hasExplicitGlobalReaction,
   });
 
