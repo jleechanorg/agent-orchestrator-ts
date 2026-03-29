@@ -1,11 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-// Both mocks are at module scope, hoisted before vi.mock
+// All three mocks at module scope, hoisted before vi.mock
 const mockGhJson = vi.hoisted(() => vi.fn());
+const mockGhJsonPaginate = vi.hoisted(() => vi.fn());
 const mockFetchReviews = vi.hoisted(() => vi.fn());
 
 vi.mock("../../../src/commands/skeptic/gh-client.js", () => ({
   ghJson: mockGhJson,
+  ghJsonPaginate: mockGhJsonPaginate,
   fetchReviews: mockFetchReviews,
 }));
 
@@ -14,29 +16,49 @@ const { fetchMergeGateState } = await import("../../../src/commands/skeptic/merg
 describe("fetchMergeGateState — skeptic verdict parsing", () => {
   beforeEach(() => {
     mockGhJson.mockReset();
+    mockGhJsonPaginate.mockReset();
     mockFetchReviews.mockReset();
     mockFetchReviews.mockResolvedValue([]);
   });
 
   /**
-   * Mock queue setup:
-   * #1 ghJson("repos/{owner}/{repo}/pulls/{prNumber}")
-   * #2 ghJson("repos/{owner}/{repo}/commits/{ref}/status")
-   * [fetchReviews mocked — does not consume ghJson]
-   * #3 ghJson("repos/{owner}/{repo}/pulls/{prNumber}/comments")
-   * #4 ghJson("repos/{owner}/{repo}/issues/{prNumber}/comments")
+   * Mock call sequence when head.sha is present:
+   * ghJson:
+   *   #1 "repos/{owner}/{repo}/pulls/{prNumber}"
+   *   #2 "repos/{owner}/{repo}/commits/{sha}/status"
+   *   #3 GraphQL reviewThreads
+   * ghJsonPaginate:
+   *   #4 check-runs
+   *   #5 issue comments  ← verdict lives here
+   * fetchReviews: mocked separately (does not consume ghJson/ghJsonPaginate)
    */
   function setupGhJson(values: any[]) {
     mockGhJson.mockReset();
+    mockGhJsonPaginate.mockReset();
+    mockFetchReviews.mockReset();
+    mockFetchReviews.mockResolvedValue([]);
+    let idx = 0;
+    mockGhJson.mockImplementation((endpoint: string) => {
+      console.log(`  ghJson[${idx}] → ${String(endpoint).slice(0, 60)}`);
+      idx++;
+      return Promise.resolve(null);
+    });
     values.forEach(v => mockGhJson.mockResolvedValueOnce(v));
+  }
+
+  function setupGhJsonPaginate(values: any[]) {
+    values.forEach(v => mockGhJsonPaginate.mockResolvedValueOnce(v));
   }
 
   it("parses VERDICT: SKIPPED from skeptic bot issue comments", async () => {
     setupGhJson([
-      { head: { ref: "main" }, mergeable: true },
+      { head: { ref: "main", sha: "abc123" }, mergeable: true },
       { state: "success" },
-      [],
-      [{ id: 99, body: "VERDICT: SKIPPED — ANTHROPIC_API_KEY not configured", user: { login: "jleechan-agent[bot]" } }],
+      { data: { repository: { pullRequest: { reviewThreads: { pageInfo: { hasNextPage: false }, nodes: [] } } } } }, // GraphQL
+    ]);
+    setupGhJsonPaginate([
+      [], // check-runs
+      [{ id: 99, body: "VERDICT: SKIPPED — ANTHROPIC_API_KEY not configured", user: { login: "jleechan-agent[bot]" } }], // issue comments
     ]);
 
     const state = await fetchMergeGateState(
@@ -49,10 +71,13 @@ describe("fetchMergeGateState — skeptic verdict parsing", () => {
 
   it("parses VERDICT: PASS from skeptic bot issue comments", async () => {
     setupGhJson([
-      { head: { ref: "main" }, mergeable: true },
+      { head: { ref: "main", sha: "abc123" }, mergeable: true },
       { state: "success" },
-      [],
-      [{ id: 98, body: "<!-- skeptic-agent-verdict -->\nVERDICT: PASS", user: { login: "jleechan-agent[bot]" } }],
+      { data: { repository: { pullRequest: { reviewThreads: { pageInfo: { hasNextPage: false }, nodes: [] } } } } }, // GraphQL
+    ]);
+    setupGhJsonPaginate([
+      [], // check-runs
+      [{ id: 98, body: "<!-- skeptic-agent-verdict -->\nVERDICT: PASS", user: { login: "jleechan-agent[bot]" } }], // issue comments
     ]);
 
     const state = await fetchMergeGateState(
@@ -65,10 +90,13 @@ describe("fetchMergeGateState — skeptic verdict parsing", () => {
 
   it("parses VERDICT: FAIL from skeptic bot issue comments", async () => {
     setupGhJson([
-      { head: { ref: "main" }, mergeable: true },
+      { head: { ref: "main", sha: "abc123" }, mergeable: true },
       { state: "success" },
-      [],
-      [{ id: 97, body: "VERDICT: FAIL — evidence bundle missing", user: { login: "jleechan-agent[bot]" } }],
+      { data: { repository: { pullRequest: { reviewThreads: { pageInfo: { hasNextPage: false }, nodes: [] } } } } }, // GraphQL
+    ]);
+    setupGhJsonPaginate([
+      [], // check-runs
+      [{ id: 97, body: "VERDICT: FAIL — evidence bundle missing", user: { login: "jleechan-agent[bot]" } }], // issue comments
     ]);
 
     const state = await fetchMergeGateState(
@@ -81,10 +109,13 @@ describe("fetchMergeGateState — skeptic verdict parsing", () => {
 
   it("returns null skepticVerdict when no skeptic bot comment exists", async () => {
     setupGhJson([
-      { head: { ref: "main" }, mergeable: true },
+      { head: { ref: "main", sha: "abc123" }, mergeable: true },
       { state: "success" },
-      [{ id: 1, body: "hello world", user: { login: "someone" } }],
-      [],
+      { data: { repository: { pullRequest: { reviewThreads: { pageInfo: { hasNextPage: false }, nodes: [] } } } } }, // GraphQL
+    ]);
+    setupGhJsonPaginate([
+      [], // check-runs
+      [{ id: 1, body: "hello world", user: { login: "someone" } }], // no skeptic bot comments
     ]);
 
     const state = await fetchMergeGateState(
@@ -95,15 +126,15 @@ describe("fetchMergeGateState — skeptic verdict parsing", () => {
     expect(state.skepticCommentId).toBeNull();
   });
 
-  it("returns null skepticVerdict when issue comments ghJson throws (non-fatal)", async () => {
-    mockGhJson.mockReset();
-    mockFetchReviews.mockReset();
-    mockFetchReviews.mockResolvedValue([]);
-    mockGhJson
-      .mockResolvedValueOnce({ head: { ref: "main" }, mergeable: true })
-      .mockResolvedValueOnce({ state: "success" })
-      .mockResolvedValueOnce([])
-      .mockRejectedValueOnce(new Error("API error")); // #4 throws
+  it("returns null skepticVerdict when issue comments ghJsonPaginate throws (non-fatal)", async () => {
+    setupGhJson([
+      { head: { ref: "main", sha: "abc123" }, mergeable: true },
+      { state: "success" },
+      { data: { repository: { pullRequest: { reviewThreads: { pageInfo: { hasNextPage: false }, nodes: [] } } } } }, // GraphQL
+    ]);
+    mockGhJsonPaginate
+      .mockResolvedValueOnce([]) // check-runs OK
+      .mockRejectedValueOnce(new Error("API error")); // issue comments throws
 
     const state = await fetchMergeGateState(
       "test", "test-repo", 1, "jleechan-agent[bot]"
@@ -115,10 +146,13 @@ describe("fetchMergeGateState — skeptic verdict parsing", () => {
 
   it("includes SKIPPED in full MergeGateState with CI passing", async () => {
     setupGhJson([
-      { head: { ref: "main" }, mergeable: true },
+      { head: { ref: "main", sha: "abc123" }, mergeable: true },
       { state: "success" },
-      [],
-      [{ id: 50, body: "VERDICT: SKIPPED", user: { login: "jleechan-agent[bot]" } }],
+      { data: { repository: { pullRequest: { reviewThreads: { pageInfo: { hasNextPage: false }, nodes: [] } } } } }, // GraphQL
+    ]);
+    setupGhJsonPaginate([
+      [], // check-runs
+      [{ id: 50, body: "VERDICT: SKIPPED", user: { login: "jleechan-agent[bot]" } }], // issue comments
     ]);
 
     const state = await fetchMergeGateState(
