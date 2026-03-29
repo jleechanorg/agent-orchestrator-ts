@@ -284,6 +284,10 @@ export type { ExitProofDeps } from "./session-exit-proof.js";
 export { handleRequestMerge, handleParallelRetry } from "./fork-reaction-handlers.js";
 export type { ReactionHandlerDeps } from "./fork-reaction-handlers.js";
 
+// AO action audit log — PR mutation attribution (bd-att)
+export { logAoAction } from "./ao-action-log.js";
+export type { AoAction } from "./ao-action-log.js";
+
 // Review backlog dispatch (extracted from lifecycle-manager)
 export { maybeDispatchReviewBacklog } from "./review-backlog.js";
 export type { ReviewBacklogDeps } from "./review-backlog.js";

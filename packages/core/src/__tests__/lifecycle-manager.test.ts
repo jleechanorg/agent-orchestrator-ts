@@ -30,8 +30,13 @@ vi.mock("../fork-skeptic-extension.js", () => ({
   runSkepticReviewReaction: mockRunSkepticReviewReaction,
 }));
 
+vi.mock("../ao-action-log.js", () => ({
+  logAoAction: vi.fn(),
+}));
+
 // Import after vi.mock so we get the mocked version
 import { reapPostMergeCoWorkers } from "../fork-lifecycle-postmerge.js";
+import { logAoAction } from "../ao-action-log.js";
 import type {
   OrchestratorConfig,
   PluginRegistry,
@@ -91,6 +96,7 @@ function makePR(overrides: Partial<PRInfo> = {}): PRInfo {
 beforeEach(() => {
   // bd-yjo: Reset review backlog throttle counters between tests
   reviewBacklog.resetAllReviewBacklogCounters();
+  vi.mocked(logAoAction).mockReset();
 
   tmpDir = join(tmpdir(), `ao-test-lifecycle-${randomUUID()}`);
   mkdirSync(tmpDir, { recursive: true });
@@ -462,6 +468,9 @@ describe("check (single session)", () => {
     // bd-kki: status overridden to "merged" so bd-s4t.1 handles kill after validation
     expect(lm.getStates().get("app-1")).toBe("merged");
     expect(mockSessionManager.kill).toHaveBeenCalledWith("app-1");
+    expect(logAoAction).toHaveBeenCalledWith(
+      expect.objectContaining({ action: "pr_merge" })
+    );
   });
 
   it("bd-kki: SCM transient failure does not lock in killed state (allows retry)", async () => {
@@ -3877,6 +3886,36 @@ describe("worktree cleanup on terminal transitions", () => {
     await lm.check("app-1");
 
     expect(mockSessionManager.kill).toHaveBeenCalledWith("app-1");
+    expect(logAoAction).toHaveBeenCalledWith(
+      expect.objectContaining({ action: "session_kill", reason: expect.stringContaining("terminal:") })
+    );
+  });
+
+  it("does not log session_kill when sessionManager.kill throws", async () => {
+    vi.mocked(mockRuntime.isAlive).mockResolvedValue(false);
+    vi.mocked(mockAgent.getActivityState).mockResolvedValue({ state: "exited" });
+    vi.mocked(mockSessionManager.kill).mockRejectedValueOnce(new Error("kill failed"));
+
+    const session = makeSession({ status: "working" });
+    vi.mocked(mockSessionManager.get).mockResolvedValue(session);
+
+    writeMetadata(sessionsDir, "app-1", {
+      worktree: "/tmp/test-worktree",
+      branch: "feat/test",
+      status: "working",
+      project: "my-app",
+    });
+
+    const lm = createLifecycleManager({
+      config,
+      registry: mockRegistry,
+      sessionManager: mockSessionManager,
+    });
+
+    await lm.check("app-1");
+
+    // error is swallowed, status may or may not be terminal but logAoAction must NOT be called
+    expect(logAoAction).not.toHaveBeenCalled();
   });
 
   it("does not call kill() when session stays in working state", async () => {

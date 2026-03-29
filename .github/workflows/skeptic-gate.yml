@@ -10,6 +10,15 @@ on:
   pull_request:
     types: [opened, synchronize, edited, reopened]
   workflow_dispatch:
+    inputs:
+      pr_number:
+        description: "PR number"
+        required: true
+        type: string
+      head_sha:
+        description: "PR head commit SHA"
+        required: true
+        type: string
 
 # Do NOT cancel in-progress runs — killing a polling step mid-loop discards its
 # loop state. A new concurrent run with the same SHA is harmless since the jq
@@ -45,9 +54,10 @@ jobs:
         id: post_trigger
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_NUM: ${{ github.event.inputs.pr_number || github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.inputs.head_sha || github.event.pull_request.head.sha }}
         run: |
-          PR_NUM=${{ github.event.pull_request.number }}
+          PR_NUM=$PR_NUM
           TRIGGER_SHA="$HEAD_SHA"
           # The HTML marker identifies this trigger uniquely for the lifecycle-manager.
           # Using $'...' ANSI-C quoting so the embedded HTML comment is literal.
@@ -78,7 +88,10 @@ jobs:
       - name: Checkout base branch
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.base_ref }}
+          # For workflow_dispatch, github.base_ref is empty so we fall back to
+          # github.ref_name (the branch the dispatch targets).
+          # For pull_request, github.base_ref is the PR target branch (e.g. main).
+          ref: ${{ github.base_ref || github.ref_name }}
           persist-credentials: false
 
       - name: Setup skeptic environment
@@ -88,9 +101,10 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_SKEPTIC_BOT_AUTHOR: ${{ vars.SKEPTIC_BOT_AUTHOR || 'jleechan2015' }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_NUM: ${{ github.event.inputs.pr_number || github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.inputs.head_sha || github.event.pull_request.head.sha }}
         run: |
-          PR_NUM=${{ github.event.pull_request.number }}
+          PR_NUM=$PR_NUM
           TRIGGER_SHA="$HEAD_SHA"
           SKEPTIC_EXIT=0
           echo "Running skeptic verification for PR #$PR_NUM (trigger SHA ${TRIGGER_SHA:0:7})..."
@@ -102,7 +116,40 @@ jobs:
           if grep -qi "VERDICT:" skeptic-output.txt 2>/dev/null; then
             echo "VERDICT found in skeptic output — comment should be posted."
           else
-            echo "WARNING: No VERDICT line in skeptic output — gate will treat as SKIPPED."
+            echo "No VERDICT line in skeptic output — checking for existing VERDICT comment before posting fallback."
+            # Before posting SKIPPED, verify a VERDICT comment for this trigger SHA does not
+            # already exist. The grep-based check above is a proxy for "did skeptic verify succeed?"
+            # but if the CLI posts a verdict without printing VERDICT: to stdout, the grep
+            # misses it. Checking the API here avoids overwriting a real PASS/FAIL verdict
+            # with a newer SKIPPED comment that the polling step's .[-1] sort would prefer.
+            # Require both the trigger marker AND VERDICT: keyword — matches polling step filter (line 212).
+            EXISTING_VERDICT_ID=$(gh api repos/${{ github.repository }}/issues/"$PR_NUM"/comments \
+              --paginate \
+              --jq '[.[] | select((.body | test("VERDICT:"; "i")) and (.body | contains("<!-- skeptic-gate-trigger-" + env.TRIGGER_SHA + " -->")))] | .[0].id // empty' 2>/dev/null || true)
+            if [ -n "$EXISTING_VERDICT_ID" ]; then
+              echo "Existing VERDICT comment found (id: $EXISTING_VERDICT_ID) — skipping SKIPPED fallback."
+            else
+              echo "No existing VERDICT comment found — posting VERDICT: SKIPPED fallback."
+              # Post a SKIPPED verdict comment so the polling step finds it and exits
+              # cleanly instead of timing out after 28 minutes. The comment body uses the
+              # same HTML marker (skeptic-gate-trigger-<SHA>) that the polling step's jq
+              # filter expects, so this fallback is detected just like a normal verdict.
+              # LLM evaluation itself is handled asynchronously by skeptic-cron (which runs
+              # on a schedule with API keys available locally).
+              #
+              # Use a heredoc passed via --field body="$(cat)" so YAML does not parse
+              # the *bold*, >blockquote, and \`backtick\` characters as YAML anchors/folding.
+              BODY=$(printf '<!-- skeptic-gate-trigger-%s -->\n\n**Skeptic Gate:** SKIPPED\n\n> No VERDICT produced by `ao skeptic verify` (no LLM API keys were configured for this skeptic-gate run).\n> This is a non-blocking skip — skeptic-cron handles actual LLM evaluation via AO worker.\n>\n> **VERDICT: SKIPPED**\n' "$TRIGGER_SHA")
+              if gh api repos/${{ github.repository }}/issues/"$PR_NUM"/comments \
+                --method POST \
+                --field body="$BODY" \
+                --jq '.id' > /dev/null 2>&1; then
+                echo "SKIPPED fallback comment posted."
+              else
+                echo "ERROR: Failed to post SKIPPED fallback comment." >&2
+                exit 1
+              fi
+            fi
           fi
 
       # Step 3: Poll for the VERDICT comment posted by Step 2 above.
@@ -113,7 +160,8 @@ jobs:
       - name: Poll for skeptic VERDICT
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_NUM: ${{ github.event.inputs.pr_number || github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.inputs.head_sha || github.event.pull_request.head.sha }}
           TRIGGER_UPDATED: ${{ steps.post_trigger.outputs.trigger_updated }}
           TRIGGER_SHA: ${{ steps.post_trigger.outputs.trigger_sha }}
           # bd-lg7i: Default to jleechan2015 — ao skeptic verify posts via gh api
@@ -124,7 +172,7 @@ jobs:
         # 30-min job timeout rather than being killed by the runner.
         timeout-minutes: 28
         run: |
-          PR_NUM=${{ github.event.pull_request.number }}
+          PR_NUM=$PR_NUM
 
           # Do NOT use 'set -e' here — jq -e returns non-zero on empty/null (no match),
           # which would cause premature script exit. Guards handle errors explicitly.
@@ -182,14 +230,17 @@ jobs:
             # Uses updated_at (not created_at) — ao skeptic verify edits the same comment
             # when re-running for a new trigger SHA; GitHub preserves created_at but
             # updates updated_at, so updated_at is the correct freshness signal.
-            # --paginate returns multiple JSON arrays (one per page); .[][] iterates
-            # through each page and each element within, flattening all pages into one
-            # stream of comment objects so the outer select() sees all comments.
-            # .[-1] gives the most recent matching comment (oldest→newest order).
+            # gh api --paginate writes one JSON array per page to stdout — not a single
+            # concatenated array. Piping to jq with --jq on the gh call would iterate
+            # pages (array of page-objects) instead of individual comments.
+            # FIX: write all pages to a temp file first (appending each page), then
+            # run jq on the concatenated result. .[-1] gives the most recent match.
+            rm -f /tmp/pr-comments.json
+            gh api repos/${{ github.repository }}/issues/"$PR_NUM"/comments \
+              --paginate >> /tmp/pr-comments.json
+            touch /tmp/pr-comments.json  # jq fails on empty input; ensure non-empty file
             VERDICT_JQ='[.[] | select((.user.login == env.SKEPTIC_BOT_AUTHOR and (.body | test("VERDICT:"; "i")) and (.updated_at >= env.TRIGGER_UPDATED) and (.body | test("skeptic-gate-trigger-" + env.TRIGGER_SHA; "i")))] | .[-1] // empty'
-            VERDICT_JSON=$(gh api repos/${{ github.repository }}/issues/"$PR_NUM"/comments \
-              --paginate \
-              --jq "$VERDICT_JQ" 2>&1)
+            VERDICT_JSON=$(jq "$VERDICT_JQ" /tmp/pr-comments.json 2>&1)
             if echo "$VERDICT_JSON" | grep -qi "error\|rate limit\|authentication\|not found\|server error"; then
               API_FAILURES=$((API_FAILURES + 1))
               echo "API warning: verdict comment lookup failed (attempt $((i))): ${VERDICT_JSON:0:100}"

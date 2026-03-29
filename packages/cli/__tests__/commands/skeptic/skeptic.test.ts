@@ -13,18 +13,27 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 const VERDICT_LINE_RE = /^VERDICT:\s*(PASS|FAIL|SKIPPED)\b/im;
 
 // Re-exported for testing — mirrors the actual export from skeptic.ts
+// Includes triggerSha scoping (lines 65–66 in production) for SHA-idempotency tests.
 async function findExistingVerdict(
   owner: string,
   repo: string,
   prNumber: number,
   fetchComments: (owner: string, repo: string, prNumber: number) => Promise<Array<{ id: number; body: string }>>,
+  triggerSha?: string,
 ): Promise<{ verdict: "PASS" | "FAIL" | "SKIPPED"; commentId: number } | null> {
+  // Normalize triggerSha: trim whitespace and treat empty/invalid as unset
+  const normalizedSha = triggerSha?.trim();
+  const validSha = normalizedSha && /^[0-9a-f]{7,40}$/i.test(normalizedSha) ? normalizedSha : undefined;
+
   const comments = await fetchComments(owner, repo, prNumber);
   for (const c of comments) {
     if (/<!-- skeptic-agent-verdict -->/i.test(c.body)) {
-      const m = c.body.match(VERDICT_LINE_RE);
-      if (m) {
-        return { verdict: m[1].toUpperCase() as "PASS" | "FAIL" | "SKIPPED", commentId: c.id };
+      const shaMarker = validSha ? new RegExp(`<!-- skeptic-gate-trigger-${validSha.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} -->`) : null;
+      if (!shaMarker || shaMarker.test(c.body)) {
+        const m = c.body.match(VERDICT_LINE_RE);
+        if (m) {
+          return { verdict: m[1].toUpperCase() as "PASS" | "FAIL" | "SKIPPED", commentId: c.id };
+        }
       }
     }
   }
@@ -163,5 +172,51 @@ describe("findExistingVerdict — SKIPPED path", () => {
     expect(result).not.toBeNull();
     expect(result!.verdict).toBe("SKIPPED");
     expect(result!.commentId).toBe(2);
+  });
+});
+
+describe("findExistingVerdict — trigger-SHA scoped reuse", () => {
+  const mockFetchComments = vi.fn<
+    (owner: string, repo: string, prNumber: number) => Promise<Array<{ id: number; body: string }>>
+  >();
+
+  beforeEach(() => {
+    mockFetchComments.mockReset();
+  });
+
+  const SHA_X = "abc1234def5678";
+  const SHA_Y = "ffff0000aaaa1111";
+  const verdictWithSha = (sha: string) =>
+    `<!-- skeptic-agent-verdict -->\nVERDICT: PASS\n\n<!-- skeptic-gate-trigger-${sha} -->`;
+
+  it("reuses verdict when triggerSha matches the comment SHA marker", async () => {
+    mockFetchComments.mockResolvedValue([
+      { id: 100, body: verdictWithSha(SHA_X) },
+    ]);
+
+    const result = await findExistingVerdict("owner", "repo", 1, mockFetchComments, SHA_X);
+    expect(result).not.toBeNull();
+    expect(result!.verdict).toBe("PASS");
+    expect(result!.commentId).toBe(100);
+  });
+
+  it("does NOT reuse verdict when triggerSha differs from the comment SHA marker", async () => {
+    mockFetchComments.mockResolvedValue([
+      { id: 100, body: verdictWithSha(SHA_X) },
+    ]);
+
+    const result = await findExistingVerdict("owner", "repo", 1, mockFetchComments, SHA_Y);
+    expect(result).toBeNull();
+  });
+
+  it("treats empty triggerSha as unset — reuses any SHA-tagged verdict", async () => {
+    mockFetchComments.mockResolvedValue([
+      { id: 100, body: verdictWithSha(SHA_X) },
+    ]);
+
+    // Empty string should be normalized to undefined, disabling SHA scoping
+    const result = await findExistingVerdict("owner", "repo", 1, mockFetchComments, "  ");
+    expect(result).not.toBeNull();
+    expect(result!.verdict).toBe("PASS");
   });
 });

@@ -30,6 +30,7 @@ import {
   type AutomatedComment,
   type MergeReadiness,
   type BatchPRStatus,
+  logAoAction,
 } from "@jleechanorg/ao-core";
 import {
   getWebhookHeader,
@@ -336,12 +337,12 @@ async function fetchPrViewFallbackAsJson(
  * Execute gh CLI with rate limit retry and fallback to REST API.
  * Uses exponential backoff for rate limit errors, then falls back to curl-based REST calls.
  */
-async function ghWithRetry(args: string[], cwd?: string, maxRetries = 3): Promise<string> {
+async function ghWithRetry(args: string[], cwd?: string, maxRetries = 3, env?: Record<string, string>): Promise<string> {
   let lastError: unknown;
 
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     try {
-      return await execCli("gh", args, cwd);
+      return await execCli("gh", args, cwd, env);
     } catch (err) {
       lastError = err;
 
@@ -572,10 +573,11 @@ export async function ghRestFallback(args: string[]): Promise<string> {
 
 type ExecCommand = "gh" | "git";
 
-async function execCli(bin: ExecCommand, args: string[], cwd?: string): Promise<string> {
+async function execCli(bin: ExecCommand, args: string[], cwd?: string, env?: Record<string, string>): Promise<string> {
   try {
     const { stdout } = await execFileAsync(bin, args, {
       ...(cwd ? { cwd } : {}),
+      ...(env ? { env: { ...process.env, ...env } } : {}),
       maxBuffer: 10 * 1024 * 1024,
       timeout: 30_000,
     });
@@ -587,8 +589,31 @@ async function execCli(bin: ExecCommand, args: string[], cwd?: string): Promise<
   }
 }
 
+/**
+ * Build env override for PR mutation operations (close, merge, comment).
+ * When AO_BOT_GH_TOKEN is set, mutations are attributed to the bot account
+ * (e.g. jleechanao) instead of the operator's personal account.
+ * Read operations continue using the default token.
+ */
+function botTokenEnv(): Record<string, string> | undefined {
+  const botToken = getBotToken();
+  if (!botToken) return undefined;
+  return { GH_TOKEN: botToken, GITHUB_TOKEN: botToken };
+}
+
+/** Return bot token if set and non-blank, otherwise undefined. */
+function getBotToken(): string | undefined {
+  const t = process.env.AO_BOT_GH_TOKEN?.trim();
+  return t || undefined;
+}
+
 async function gh(args: string[]): Promise<string> {
   return ghWithRetry(args);
+}
+
+/** gh with bot token for PR mutations (close, merge, comment). Falls back to default token. */
+async function ghBot(args: string[]): Promise<string> {
+  return ghWithRetry(args, undefined, 3, botTokenEnv());
 }
 
 
@@ -1534,7 +1559,7 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
         const args = ["pr", "merge", String(pr.number), "--repo", repoFlag(pr), flag];
         if (useAuto) args.push("--auto");
         args.push("--delete-branch");
-        await gh(args);
+        await ghBot(args);
       } catch (err) {
         if (!isRateLimitError(err)) throw err;
 
@@ -1545,6 +1570,7 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
         if (useAuto) {
           console.warn("[scm-github] mergePR: gh rate-limited with --auto — attempting GraphQL enablePullRequestAutoMerge");
           const gqlToken =
+            (process.env.AO_BOT_GH_TOKEN?.trim() || undefined) ??
             process.env.GITHUB_TOKEN ??
             process.env.GH_TOKEN ??
             await getGhToken();
@@ -1660,6 +1686,7 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
         // converting it into a request-body field, silently dropping merge_method.
         console.warn("[scm-github] mergePR: falling back to REST API via curl");
         const token =
+          (process.env.AO_BOT_GH_TOKEN?.trim() || undefined) ??
           process.env.GITHUB_TOKEN ??
           process.env.GH_TOKEN ??
           await getGhToken();
@@ -1719,7 +1746,7 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
         // use slashes (e.g. feat/bd-pjh → feat%2Fbd-pjh → feat/bd-pjh).
         const encodedBranch = encodeURIComponent(pr.branch).replace(/%2F/g, "/");
         try {
-          await gh(["api", `repos/${pr.owner}/${pr.repo}/git/refs/heads/${encodedBranch}`, "--method", "DELETE"]);
+          await ghBot(["api", `repos/${pr.owner}/${pr.repo}/git/refs/heads/${encodedBranch}`, "--method", "DELETE"]);
         } catch {
           // Non-fatal: best-effort branch cleanup. Log and continue.
           console.warn(
@@ -1731,7 +1758,14 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
     },
 
     async closePR(pr: PRInfo): Promise<void> {
-      await gh(["pr", "close", String(pr.number), "--repo", repoFlag(pr)]);
+      await ghBot(["pr", "close", String(pr.number), "--repo", repoFlag(pr)]);
+      logAoAction({
+        ts: new Date().toISOString(),
+        session: "scm-github",
+        action: "pr_close",
+        pr: pr.number,
+        repo: `${pr.owner}/${pr.repo}`,
+      });
     },
 
     async getCIChecks(pr: PRInfo): Promise<CICheck[]> {

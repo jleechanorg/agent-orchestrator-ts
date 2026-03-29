@@ -12,6 +12,7 @@
 
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
+import { logAoAction } from "./ao-action-log.js";
 import { reapPostMergeCoWorkers } from "./fork-lifecycle-postmerge.js";
 import { pruneStaleSessionIds, getLastSentHeadSha, setLastSentHeadSha } from "./dedup-head-sha-store.js";
 import {
@@ -576,7 +577,17 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
             if (batch.state !== prevPrState) {
               persistPrState({ session, state: batch.state, projectPath: project.path });
             }
-            if (batch.state === PR_STATE.MERGED) return { status: "merged", agentDead };
+            if (batch.state === PR_STATE.MERGED) {
+              logAoAction({
+                ts: new Date().toISOString(),
+                session: session.id,
+                action: "pr_merge",
+                pr: session.pr?.number,
+                repo: session.pr ? `${session.pr.owner}/${session.pr.repo}` : undefined,
+                reason: "merged-transition",
+              });
+              return { status: "merged", agentDead };
+            }
             if (batch.state === PR_STATE.CLOSED) return { status: "killed", agentDead };
             if (batch.ciStatus === CI_STATUS.FAILING) return { status: "ci_failed", agentDead };
             if (batch.reviewDecision === "changes_requested") return { status: "changes_requested", agentDead };
@@ -602,7 +613,17 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
           if (prState !== prevPrState) {
             persistPrState({ session, state: prState, projectPath: project.path });
           }
-          if (prState === PR_STATE.MERGED) return { status: "merged", agentDead };
+          if (prState === PR_STATE.MERGED) {
+            logAoAction({
+              ts: new Date().toISOString(),
+              session: session.id,
+              action: "pr_merge",
+              pr: session.pr?.number,
+              repo: session.pr ? `${session.pr.owner}/${session.pr.repo}` : undefined,
+              reason: "merged-transition",
+            });
+            return { status: "merged", agentDead };
+          }
           if (prState === PR_STATE.CLOSED) return { status: "killed", agentDead };
 
           const ciStatus = await scm.getCISummary(session.pr);
@@ -1193,7 +1214,17 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     ) {
       try {
         const merged = await isPRMerged(session, config, registry);
-        if (merged) newStatus = "merged";
+        if (merged) {
+          newStatus = "merged";
+          logAoAction({
+            ts: new Date().toISOString(),
+            session: session.id,
+            action: "pr_merge",
+            pr: session.pr?.number,
+            repo: session.pr ? `${session.pr.owner}/${session.pr.repo}` : undefined,
+            reason: "killed-merged-absorption",
+          });
+        }
       } catch {
         // SCM unreachable — same as the absorb path below: keep prior status and retry next poll
         newStatus = oldStatus;
@@ -1589,6 +1620,16 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         if (TERMINAL_STATUSES.has(effectiveStatus) && !isOrchestratorSession(session)) {
           try {
             await sessionManager.kill(session.id);
+            // Only log session_kill after successful kill — a false entry for a
+            // failed kill would misrepresent session state in the audit trail.
+            logAoAction({
+              ts: new Date().toISOString(),
+              session: session.id,
+              action: "session_kill",
+              pr: session.pr?.number,
+              repo: session.pr ? `${session.pr.owner}/${session.pr.repo}` : undefined,
+              reason: `terminal:${effectiveStatus}`,
+            });
           } catch (killErr) {
             observer.recordOperation({
               metric: "lifecycle_poll",

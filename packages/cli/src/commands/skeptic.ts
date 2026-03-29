@@ -53,14 +53,25 @@ async function findExistingVerdict(
   owner: string,
   repo: string,
   prNumber: number,
+  triggerSha?: string,
 ): Promise<{ verdict: "PASS" | "FAIL" | "SKIPPED"; commentId: number } | null> {
+  // Normalize triggerSha: trim whitespace and treat empty/invalid as unset
+  const normalizedSha = triggerSha?.trim();
+  const validSha = normalizedSha && /^[0-9a-f]{7,40}$/i.test(normalizedSha) ? normalizedSha : undefined;
+
   const comments = await fetchIssueComments(owner, repo, prNumber);
   for (const c of comments) {
-    // Find by HTML marker first (most robust), then by bot author
+    // Find by HTML marker AND trigger SHA match.
+    // Only reuse a comment if it was posted for the SAME trigger SHA —
+    // otherwise editing it leaves the old updated_at and the skeptical gate
+    // workflow rejects it (it filters by updated_at >= TRIGGER_UPDATED).
     if (/<!-- skeptic-agent-verdict -->/i.test(c.body)) {
-      const m = c.body.match(VERDICT_LINE_RE);
-      if (m) {
-        return { verdict: m[1].toUpperCase() as "PASS" | "FAIL" | "SKIPPED", commentId: c.id };
+      const shaMarker = validSha ? new RegExp(`<!-- skeptic-gate-trigger-${validSha.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} -->`) : null;
+      if (!shaMarker || shaMarker.test(c.body)) {
+        const m = c.body.match(VERDICT_LINE_RE);
+        if (m) {
+          return { verdict: m[1].toUpperCase() as "PASS" | "FAIL" | "SKIPPED", commentId: c.id };
+        }
       }
     }
   }
@@ -105,7 +116,7 @@ export function registerSkeptic(program: Command): Command {
         }),
         fetchDiff(owner, repo, prNumber),
         fetchReviews(owner, repo, prNumber).catch(() => []),
-        findExistingVerdict(owner, repo, prNumber).catch(() => null),
+        findExistingVerdict(owner, repo, prNumber, options.triggerSha).catch(() => null),
         fetchDesignDoc(prNumber).catch(() => null),
       ]);
 
