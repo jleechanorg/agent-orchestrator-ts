@@ -9,7 +9,7 @@
  * - Evidence review state is included
  */
 
-import { ghJson, ghJsonPaginate, fetchReviews, type ReviewInfo } from "./gh-client.js";
+import { ghJson, ghJsonPaginate, fetchReviews, fetchIssueComments, type ReviewInfo } from "./gh-client.js";
 
 const NIT_PATTERN = /^(nit:|nitpick|_🧹\s*nitpick)/i;
 const CR_BOT = "coderabbitai[bot]";
@@ -224,9 +224,8 @@ export async function fetchMergeGateState(
   let skepticCommentId: number | null = null;
   let crChatApproval = false;
   try {
-    const comments = await ghJson(
-      "repos/" + owner + "/" + repo + "/issues/" + prNumber + "/comments?per_page=100",
-    ) as Array<{ id: number; body: string; user?: { login: string } }>;
+    // Use paginated client so verdict comments beyond page 1 are not silently dropped.
+    const comments = await fetchIssueComments(owner, repo, prNumber);
     for (const c of comments) {
       // CR chat approval detection: CR posts "[approve]" or "READY FOR MERGE" in chat
       // when incremental review system prevents formal APPROVED state update after rebases.

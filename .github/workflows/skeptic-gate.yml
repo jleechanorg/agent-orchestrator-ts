@@ -11,9 +11,9 @@ on:
   pull_request_target:
     types: [opened, synchronize, edited, reopened]
 
-# Do NOT cancel in-progress runs — killing a polling step mid-loop discards its
-# loop state. A new concurrent run with the same SHA is harmless since the jq
-# timestamp filter rejects stale verdicts from cancelled runs.
+# Cancel in-progress runs when a new run starts — the jq timestamp filter
+# ensures only verdicts posted after the current trigger are accepted,
+# preventing stale verdicts from cancelled runs.
 concurrency:
   group: skeptic-gate-${{ github.event.pull_request.number }}
   cancel-in-progress: true
@@ -46,7 +46,7 @@ jobs:
           PR_NUM=${{ github.event.pull_request.number }}
 
           # Post trigger comment and use GitHub's own timestamp as cutoff.
-          # This avoids runner/GitHub clock drift (runner date -u vs GitHub server time).
+          # Uses server-side updated_at from the GitHub API (not runner date).
           # lifecycle-manager watches for this comment to begin ao skeptic verify.
           TRIGGER_MARKER="<!-- skeptic-gate-trigger-${HEAD_SHA} -->"
           TRIGGER_BODY=$'SKEPTIC_GATE_TRIGGER\n'"$TRIGGER_MARKER"
@@ -67,7 +67,7 @@ jobs:
       # Step 2: Poll for VERDICT from the skeptic bot (configurable via SKEPTIC_BOT_AUTHOR).
       # Uses TRIGGER_UPDATED (the trigger comment's updated_at from the GitHub API, captured
       # by steps.post_trigger) as the cutoff when filtering skeptic bot verdicts. Any verdict
-      # comment from SKEPTIC_BOT_AUTHOR with created_at >= TRIGGER_UPDATED and containing the
+      # comment with updated_at >= TRIGGER_UPDATED and containing the
       # current trigger SHA is accepted.
       - name: Poll for skeptic VERDICT
         env:
