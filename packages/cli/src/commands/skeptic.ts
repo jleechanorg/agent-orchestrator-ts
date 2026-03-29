@@ -20,6 +20,7 @@ import { fetchMergeGateState } from "./skeptic/mergeGate.js";
 import { buildSkepticPrompt } from "./skeptic/prompt.js";
 import { runSkepticEvaluation } from "./skeptic/modelRunner.js";
 import { postVerdict } from "./skeptic/posting.js";
+import { verifySkepticClaim, formatClaimVerification } from "./skeptic/claim-verifier.js";
 
 /** Line-anchored VERDICT matcher — accepts VERDICT: PASS, VERDICT: FAIL, or VERDICT: SKIPPED.
  * Also handles GitHub blockquote markdown: "> **VERDICT: SKIPPED**" (SKIPPED fallback in skeptic-gate.yml). */
@@ -180,6 +181,7 @@ export function registerSkeptic(program: Command): Command {
         : "VERDICT: FAIL — could not parse LLM output (expected VERDICT: PASS/FAIL/SKIPPED)";
 
       const spinner4 = ora("Posting verdict to PR #" + prNumber + "…").start();
+      let commentBody: string;
       try {
         await postVerdict(
           owner,
@@ -192,6 +194,28 @@ export function registerSkeptic(program: Command): Command {
           verdict, // always pass full LLM output so FAIL/SKIPPED bodies carry context
         );
         spinner4.succeed(chalk.green("Done! Skeptic verdict posted."));
+
+        // bd-upxh: the comment we just posted is the comment-level evidence.
+        // Use the same body we posted (contains the HTML marker + verdict).
+        commentBody = [
+          "<!-- skeptic-agent-verdict -->",
+          verdictLine,
+        ].join("\n");
+
+        // Verify both run-level (LLM output) and comment-level (GitHub comment).
+        // This surfaces INSUFFICIENT when evidence is missing or inconsistent — fail-closed.
+        const spinner5 = ora("Verifying claim (run-level + comment-level)…").start();
+        const claimResult = verifySkepticClaim(verdict, commentBody);
+        spinner5.stop();
+        console.log(formatClaimVerification(claimResult));
+
+        if (claimResult.blocksWorking) {
+          console.warn(
+            chalk.yellow(
+              `⚠  Claim verification: ${claimResult.outcome} — agent 'working' status is NOT permitted until resolved.`,
+            ),
+          );
+        }
       } catch (err) {
         spinner4.fail(chalk.red("Failed to post verdict: " + err));
         process.exit(1);

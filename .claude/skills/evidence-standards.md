@@ -1161,9 +1161,83 @@ done
 
 **Why per-file:** Easier to verify individual artifacts; no need to parse a combined file.
 
+## Claim Verifier — Harness-Level Skeptic Gate Assertions (bd-upxh)
+
+**Rule:** "no agent may report 'working' unless run-level AND comment-level evidence passes."
+
+Fail-closed: ambiguous → INSUFFICIENT / FAIL (never PASS).
+
+### Verification Layers
+
+| Layer | Evidence | Location |
+|-------|----------|----------|
+| **Run-level** | VERDICT line in skeptic CLI output | `ao skeptic verify` stdout |
+| **Comment-level** | GitHub PR comment with `<!-- skeptic-agent-verdict -->` | `gh api .../issues/N/comments` |
+
+### Decision Matrix
+
+| Run-level | Comment-level | Outcome |
+|----------|--------------|---------|
+| VERDICT: PASS | VERDICT: PASS | **PASS** — claim verified |
+| VERDICT: FAIL | * | **FAIL** — verdict contradicts |
+| * | VERDICT: FAIL | **FAIL** — comment contradicts |
+| VERDICT: SKIPPED | * | **INSUFFICIENT** — infra failure |
+| VERDICT: PASS | absent | **INSUFFICIENT** — fail-closed |
+| absent | VERDICT: PASS | **INSUFFICIENT** — fail-closed |
+| absent | absent | **INSUFFICIENT** — fail-closed |
+
+### Claim Classes (from evidence-gate.yml)
+
+| Claim class | Canonical name | Required proofs |
+|---|---|---|
+| `unit` | unit-test-coverage | Test file path, pass/fail counts, coverage % |
+| `integration` | integration-test | Test log with real I/O, API calls shown, timing |
+| `pipeline-e2e` | pipeline-e2e | Session spawn proof, event routing proof, outcome recording proof |
+| `pr-lifecycle-e2e` | pr-lifecycle | PR creation URL, transition proof (CI/review timeline), merge outcome, cleanup proof |
+| `merge-gate` | merge-gate | All 7 green conditions checked with evidence per condition |
+
+### Skeptic-Gate Chain Verification (bd-upxh)
+
+Deterministic check of the full skeptic-gate chain:
+
+1. **precheck** — GHA skeptic-gate.yml pre-checks gates 1–5 (CI, conflicts, CR, Bugbot, comments)
+2. **trigger** — GHA posts `SKEPTIC_GATE_TRIGGER` comment
+3. **poll** — GHA polls for VERDICT comment
+4. **comment** — lifecycle-worker posts `<!-- skeptic-agent-verdict -->` + VERDICT via `ao skeptic verify`
+
+Implementation:
+- `packages/cli/src/commands/skeptic/claim-verifier.ts` — pure functions `checkRunLevel`, `checkCommentLevel`, `verifySkepticClaim`
+- `packages/core/src/fork-claim-verification.ts` — `verifySkepticClaimForPR` checks full GHA chain
+- `.claude/hooks/claim-verifier.sh` — PreToolUse hook: intercepts `gh pr create` to enforce always-comment policy
+
+### PreToolUse Hook (always-comment policy)
+
+The `.claude/hooks/claim-verifier.sh` PreToolUse hook blocks `gh pr create` if the PR body lacks:
+- `## Evidence` section header
+- `**Claim class**:` field
+- `VERDICT:` line (PASS/FAIL/INSUFFICIENT)
+
+This enforces the harness-level claim policy at the tool invocation level, before evidence is missing.
+
+### Integration Points
+
+1. **CLI integration** (`skeptic.ts`): After posting VERDICT, calls `verifySkepticClaim()` and prints the verification result with run-level + comment-level checks. Warns if `blocksWorking: true`.
+2. **Lifecycle reaction** (`lifecycle-manager.ts`): After `skeptic-review` succeeds, fires `claim-verification` reaction which calls `runClaimVerification()` to check the GHA chain. Posts a comment if verification fails.
+3. **PreToolUse hook** (`.claude/hooks/claim-verifier.sh`): Blocks `gh pr create` without evidence.
+
+### Fail-Closed Behavior
+
+Ambiguous → INSUFFICIENT. This means:
+- Missing VERDICT comment → INSUFFICIENT (not SKIP or PASS)
+- Missing run-level VERDICT → INSUFFICIENT
+- VERDICT: SKIPPED → INSUFFICIENT (infra failure is not a claim)
+- `blocksWorking: true` when outcome ≠ PASS — agent cannot claim 'working' status
+
 ## Related Standards
 
 - `CLAUDE.md` - Three Evidence Rule (lines 110-113)
 - `generatetest.toml` - Mock mode prohibition (lines 433-441)
 - `end2end-testing.md` - Test mode commands (/teste, /tester, /testerc)
 - `browser-testing-ocr-validation.md` - OCR evidence for visual claims
+- `skeptic-gate.yml` - GHA skeptic gate workflow
+- `evidence-gate.yml` - GHA evidence section validator

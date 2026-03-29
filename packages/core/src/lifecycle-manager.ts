@@ -82,6 +82,7 @@ import {
   type McpMailClientConfig,
 } from "./mcp-mail.js";
 import { runSkepticReviewReaction } from "./fork-skeptic-extension.js";
+import { runClaimVerification } from "./fork-claim-verification.js";
 import { runLocalSkepticCron } from "./skeptic-cron-local.js";
 import { resolveReactionMaxRetries } from "./fork-reaction-retry-policy.js";
 
@@ -1206,6 +1207,25 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         });
       }
 
+      // bd-upxh: claim-verification — deterministic check of skeptic-gate chain.
+      // Fails-closed: ambiguous → INSUFFICIENT/FAIL — agents cannot claim 'working'.
+      // Validates: precheck → trigger → poll → comment chain + SHA binding.
+      case "claim-verification": {
+        if (!session) {
+          return {
+            reactionType: reactionKey,
+            success: false,
+            action: "claim-verification",
+            escalated: false,
+          };
+        }
+        return runClaimVerification({
+          session: session!,
+          reactionKey,
+          reactionConfig,
+        });
+      }
+
       // bd-rfr: Delegate to fork-reaction-rfr.ts — extracted for upstream isolation
       case "respawn-for-review": {
         return handleRespawnForReview(sessionId, projectId, reactionKey, reactionConfig, session!, agentDead, reactionCorrelationId, {
@@ -1552,6 +1572,32 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
                 lastSkepticSha.set(session.id, sha);
               } catch {
                 // Non-fatal — will re-trigger on next poll if SHA check fails
+              }
+            }
+          }
+
+          // bd-upxh: after skeptic-review, fire claim-verification to validate
+          // the full skeptic-gate chain. Fail-closed — INSUFFICIENT blocks 'working'.
+          if (reactionSuccess) {
+            const claimReactionKey = "claim-verification";
+            const claimReactionConfig = getReactionConfigForSession(session, claimReactionKey);
+            if (claimReactionConfig?.action && claimReactionConfig.auto !== false) {
+              try {
+                const claimResult = await executeReaction(
+                  session.id,
+                  session.projectId,
+                  claimReactionKey,
+                  claimReactionConfig,
+                  session,
+                  createCorrelationId("claim-verification"),
+                );
+                if (claimResult && !claimResult.success && session.pr) {
+                  // Claim verification failed — log for observability.
+                  // The claim verification message is already captured via createEvent.
+                  // Agents should not see this as a fatal error — it is recorded in logs.
+                }
+              } catch {
+                // Non-fatal — claim verification failure does not block PR flow
               }
             }
           }
@@ -1909,6 +1955,24 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
                 }
                 if (reactionSuccess) {
                   lastSkepticSha.set(session.id, currentSha);
+
+                  // bd-upxh: also dispatch claim-verification after SHA-change skeptic retest
+                  const claimReactionKey = "claim-verification";
+                  const claimReactionConfig = getReactionConfigForSession(session, claimReactionKey);
+                  if (claimReactionConfig?.action && claimReactionConfig.auto !== false) {
+                    try {
+                      await executeReaction(
+                        session.id,
+                        session.projectId,
+                        claimReactionKey,
+                        claimReactionConfig,
+                        session,
+                        createCorrelationId("claim-verification-retrigger"),
+                      );
+                    } catch {
+                      // Non-fatal
+                    }
+                  }
                 }
               }
             } else if (currentSha && !previousSha) {
