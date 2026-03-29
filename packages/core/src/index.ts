@@ -392,6 +392,14 @@ export type {
   CheckStuckWorkerResult,
 } from "./stuck-worker-detector.js";
 
+// Fork-only: productivity-based stall detection
+export {
+  runProductivityChecks,
+  checkMergedPRCleanup,
+  checkStallDetection,
+  checkContextExhaustion,
+} from "./productivity-checker.js";
+
 // Shared worktree-git utilities — used by both core (backfill-extensions) and
 // workspace-worktree plugin so the same recovery logic is in one place.
 export { findRepoPathForWorktree } from "./utils/worktree-git.js";

@@ -332,8 +332,44 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
   let inboxPollTimer: ReturnType<typeof setInterval> | null = null;
   const INBOX_POLL_INTERVAL_MS = 5 * 60_000; // every 5 minutes
 
+  // Productivity check state — separate 15-min interval for PR-level checks
+  let productivityTimer: ReturnType<typeof setInterval> | null = null;
+  let productivityRunning = false; // re-entrancy guard
+  const PRODUCTIVITY_INTERVAL_MS = 15 * 60_000; // every 15 minutes
+
   /** Track current task per session (for heartbeat messaging). */
   const sessionCurrentTask = new Map<string, string>();
+
+  /** Run all productivity checks for active sessions. */
+  async function runProductivityCycle(): Promise<void> {
+    if (productivityRunning) return;
+    productivityRunning = true;
+    try {
+      const sessions = await sessionManager.list(scopedProjectId);
+      const active = sessions.filter((s: Session) => !TERMINAL_STATUSES.has(s.status));
+      const tmux = await import("./tmux.js");
+      const { runProductivityChecks } = await import("./productivity-checker.js");
+      await runProductivityChecks(active, {
+        config,
+        sessionManager,
+        capturePane: tmux.capturePane,
+        killSession: tmux.killSession,
+        sendKeys: tmux.sendKeys,
+      });
+    } catch {
+      // non-fatal — productivity check failure should not crash the main loop
+    } finally {
+      productivityRunning = false;
+    }
+  }
+
+  function startProductivityChecking(): void {
+    if (productivityTimer) return;
+    productivityTimer = setInterval(() => void runProductivityCycle(), PRODUCTIVITY_INTERVAL_MS);
+    productivityTimer.unref();
+    // Run immediately on start
+    void runProductivityCycle();
+  }
 
   function startInboxPolling(): void {
     if (inboxPollTimer) return;
@@ -972,22 +1008,6 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
           };
         }
 
-        // bd-n047: Centralized auto-merge kill-switch.
-        // The kill-switch guard in handleReaction prevents executeReaction from being called
-        // when auto-merge is disabled, so retries are NOT consumed.
-        // This in-function check is defence-in-depth: if a caller bypasses handleReaction
-        // and calls executeReaction directly, the guard still fires.
-        if (!isAutoMergeEnabled(freshSession.projectId)) {
-          const event = createEvent("reaction.triggered", {
-            sessionId,
-            projectId,
-            message: `Reaction '${reactionKey}' triggered but auto-merge is disabled globally for this project. Set defaults.autoMerge.enabled=true or projects['${freshSession.projectId}'].autoMerge.enabled=true to enable.`,
-            data: { reactionKey, action },
-          });
-          await notifyHuman(event, reactionConfig.priority ?? "info");
-          return { reactionType: reactionKey, success: false, action, escalated: false };
-        }
-
         // Get SCM plugin
         const scm = project.scm ? registry.get<SCM>("scm", project.scm.plugin) : null;
         if (!scm || !freshSession.pr) {
@@ -1038,17 +1058,8 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         // native --auto flag which waits for required status checks before completing the
         // merge — handles the race where PR transitions to mergeable while CI is still
         // completing (bd-5gl: workers post green but nothing merges).
-        // bd-n047: Precedence chain: reactionConfig → project.autoMerge → defaults.autoMerge → squash/0
-        const mergeMethod =
-          reactionConfig.mergeMethod ??
-          project.autoMerge?.mergeMethod ??
-          config.defaults.autoMerge?.mergeMethod ??
-          "squash";
-        const autoWaitSeconds =
-          reactionConfig.autoMergeWaitSeconds ??
-          project.autoMerge?.waitSeconds ??
-          config.defaults.autoMerge?.waitSeconds ??
-          0;
+        const mergeMethod = reactionConfig.mergeMethod ?? "squash";
+        const autoWaitSeconds = reactionConfig.autoMergeWaitSeconds ?? 0;
         try {
           await scm.mergePR(freshSession.pr, mergeMethod, autoWaitSeconds);
 
@@ -1158,20 +1169,24 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     const reactionConfig = projectReaction
       ? { ...globalReaction, ...projectReaction }
       : globalReaction;
-    return reactionConfig ? (reactionConfig as ReactionConfig) : null;
-  }
+    if (!reactionConfig) return null;
 
-  /**
-   * bd-n047: Centralized auto-merge kill-switch.
-   * Returns false when auto-merge is globally disabled (or disabled for this project).
-   * Project-level setting overrides the global setting.
-   */
-  function isAutoMergeEnabled(projectId: string): boolean {
-    const project = config.projects[projectId];
-    const globalEnabled = config.defaults.autoMerge?.enabled;
-    const projectEnabled = project?.autoMerge?.enabled;
-    // Project override wins; global defaults to true when absent.
-    return projectEnabled !== undefined ? projectEnabled : (globalEnabled !== false);
+    // Centralized auto-merge override: when autoMerge is true (global or per-project),
+    // the approved-and-green reaction automatically merges instead of notifying.
+    // Only override if the project did not explicitly configure this reaction
+    // (projectReaction is absent) AND the global config did not declare it
+    // (_hasExplicitGlobalReaction tracks raw user input before .partial() stripping).
+    const autoMergeEnabled = project?.autoMerge ?? config.autoMerge ?? false;
+    if (
+      autoMergeEnabled &&
+      reactionKey === "approved-and-green" &&
+      !projectReaction &&
+      !(config._hasExplicitGlobalReaction?.[reactionKey])
+    ) {
+      return { ...(reactionConfig as ReactionConfig), action: "auto-merge", auto: true };
+    }
+
+    return reactionConfig as ReactionConfig;
   }
 
   function updateSessionMetadata(session: Session, updates: Partial<Record<string, string>>): void {
@@ -1512,25 +1527,6 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
               !skipForDead &&
               skipVerdictGate
             ) {
-              // bd-n047: Kill-switch check BEFORE executeReaction so the notification is NOT
-              // suppressed (fixes CR major #5) and retry budget is NOT consumed (fixes #6).
-              // When auto-merge is disabled, let the normal notify path fire so the operator
-              // still sees the mergeable PR instead of silently consuming a retry.
-              if (
-                reactionConfig.action === "auto-merge" &&
-                !isAutoMergeEnabled(session.projectId)
-              ) {
-                observer.recordOperation({
-                  metric: "lifecycle_poll",
-                  operation: "lifecycle.reaction.skipped",
-                  outcome: "success",
-                  correlationId,
-                  projectId: session.projectId,
-                  sessionId: session.id,
-                  data: { reactionKey, reason: "auto_merge_killswitch", action: "auto-merge" },
-                  level: "info",
-                });
-              } else {
               // Reaction will execute
               const reactionResult = await executeReaction(
                 session.id,
@@ -1566,13 +1562,10 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
                 level: reactionResult?.success ? "info" : "warn",
               });
               // Reaction is handling this event — suppress immediate human notification.
-              // bd-n047: Kill-switch path above skips executeReaction, so this runs only
-              // when auto-merge IS enabled. The notification suppression is correct here.
               // "send-to-agent" retries + escalates on its own; "notify"/"auto-merge"
               // already call notifyHuman internally. Notifying here would bypass the
               // delayed escalation behaviour configured via retries/escalateAfter.
               reactionHandledNotify = true;
-              } // end kill-switch else
             } else {
               observer.recordOperation({
                 metric: "lifecycle_poll",
@@ -1872,8 +1865,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         const reactionConfig = getReactionConfigForSession(session, reactionKey);
         if (
           reactionConfig?.action === "auto-merge" &&
-          reactionConfig.auto !== false &&
-          isAutoMergeEnabled(session.projectId)
+          reactionConfig.auto !== false
         ) {
           const MERGE_RETRY_COOLDOWN_MS = 5 * 60_000;
           const lastAttemptKey = `merge-retry-${session.id}`;
@@ -2427,6 +2419,8 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       if (getMcpMailClientConfig()) {
         startInboxPolling();
       }
+      // Start productivity checking (separate 15-min interval)
+      startProductivityChecking();
       // Run immediately on start
       void pollAll();
     },
@@ -2439,6 +2433,10 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       if (inboxPollTimer) {
         clearInterval(inboxPollTimer);
         inboxPollTimer = null;
+      }
+      if (productivityTimer) {
+        clearInterval(productivityTimer);
+        productivityTimer = null;
       }
     },
 
