@@ -34,8 +34,7 @@ describe("fetchMergeGateState -- skeptic verdict parsing", () => {
     mockGhJson.mockReset();
     mockFetchReviews.mockReset();
     mockFetchReviews.mockResolvedValue([]);
-    let idx = 0;
-    mockGhJson.mockImplementation(() => { idx++; return Promise.resolve(null); });
+    mockGhJson.mockImplementation(() => Promise.resolve(null));
     values.forEach(v => mockGhJson.mockResolvedValueOnce(v));
   }
 
