@@ -181,6 +181,7 @@ export function registerSkeptic(program: Command): Command {
           existing?.commentId ?? null,
           SKEPTIC_BOT_AUTHOR,
           options.triggerSha,
+          verdict, // always pass full LLM output so FAIL/SKIPPED bodies carry context
         );
         spinner4.succeed(chalk.green("Done! Skeptic verdict posted."));
       } catch (err) {

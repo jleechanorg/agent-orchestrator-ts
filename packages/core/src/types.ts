@@ -1107,6 +1107,22 @@ export interface OrchestratorConfig {
    */
   configPath: string;
 
+  /**
+   * Global auto-merge switch. When `enabled: true`, the `approved-and-green`
+   * reaction automatically merges PRs (equivalent to setting `action: auto-merge`).
+   * Individual projects can override this via their own `autoMerge` field.
+   * Default: `enabled` is false (preserves existing behavior — notify human).
+   */
+  autoMerge?: AutoMergeConfig;
+
+  /**
+   * Internal: per-reaction flag tracking whether the global config explicitly
+   * declared this reaction key in its `reactions` block. Set during
+   * config validation to detect explicit declarations vs. defaults.
+   * @internal
+   */
+  _hasExplicitGlobalReaction?: Record<string, boolean>;
+
   /** Web dashboard port (defaults to 3000) */
   port?: number;
 
@@ -1184,7 +1200,7 @@ export interface DefaultPlugins {
   worker?: {
     agent?: string;
   };
-  /** Centralized auto-merge defaults — applied to all projects unless overridden (bd-n047) */
+  /** Default auto-merge settings for all projects (bd-n047) */
   autoMerge?: AutoMergeConfig;
 }
 
@@ -1353,6 +1369,13 @@ export interface ProjectConfig {
   // =============================================================================
 
   /**
+   * Per-project auto-merge override. When `enabled: true`, overrides the global
+   * `defaults.autoMerge` setting for this project.
+   * When omitted, inherits from `defaults.autoMerge`.
+   */
+  autoMerge?: AutoMergeConfig;
+
+  /**
    * When true, the lifecycle-worker periodically lists open PRs and spawns
    * sessions for any PR that has no active session.  This closes the gap
    * where workers die and nobody restarts them.
@@ -1377,18 +1400,6 @@ export interface ProjectConfig {
 
   /** Config-driven bead task queue with maxConcurrent concurrency limit. */
   taskQueue?: TaskQueueConfig;
-
-  // =============================================================================
-  // AUTO-MERGE — bd-n047
-  // =============================================================================
-
-  /**
-   * Per-project auto-merge override. When omitted, inherits from defaults.autoMerge.
-   * Set `enabled: false` here to disable auto-merge for this project while
-   * keeping it enabled globally, or set `enabled: true` to re-enable it for this
-   * project even if defaults.autoMerge.enabled is false.
-   */
-  autoMerge?: AutoMergeConfig;
 }
 
 /** Merge gate configuration (bd-uxs.8) */

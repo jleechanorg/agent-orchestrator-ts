@@ -190,19 +190,21 @@ const TaskQueueConfigSchema = z.object({
   taskTemplate: z.string().optional(),
 }).optional();
 
-// bd-n047: Centralized auto-merge config schema
-// Split into two schemas so that per-project overrides (ProjectConfigSchema) do NOT
-// implicitly re-enable by defaulting enabled=true.
+/** bd-n047: Defaults schema — enabled defaults to true so omitting it is an implicit enable. */
 const AutoMergeDefaultsSchema = z.object({
   enabled: z.boolean().default(true),
   waitSeconds: z.number().int().nonnegative().optional(),
   mergeMethod: z.enum(["merge", "squash", "rebase"]).optional(),
 });
-const AutoMergeOverrideSchema = z.object({
-  enabled: z.boolean().optional(),
-  waitSeconds: z.number().int().nonnegative().optional(),
-  mergeMethod: z.enum(["merge", "squash", "rebase"]).optional(),
-});
+/** bd-n047: Override schema — enabled is optional (absent = inherit). Accepts legacy boolean too. */
+const AutoMergeOverrideSchema = z.union([
+  z.boolean().transform((v): import("./types.js").AutoMergeConfig => ({ enabled: v })),
+  z.object({
+    enabled: z.boolean().optional(),
+    waitSeconds: z.number().int().nonnegative().optional(),
+    mergeMethod: z.enum(["merge", "squash", "rebase"]).optional(),
+  }),
+]);
 
 const ProjectConfigSchema = z.object({
   name: z.string().optional(),
@@ -232,6 +234,9 @@ const ProjectConfigSchema = z.object({
     .optional(),
   opencodeIssueSessionStrategy: z.enum(["reuse", "delete", "ignore"]).optional(),
   decomposer: DecomposerConfigSchema.optional(),
+  // Central auto-merge switch: overrides approved-and-green reaction action.
+  // Inherits from global autoMerge when not set.
+  autoMerge: AutoMergeOverrideSchema.optional(),
   // Lifecycle-worker auto-spawns sessions for open PRs without an active worker.
   backfillAllPRs: z.boolean().optional(),
   // bd-uxs.8: Merge gate configuration
@@ -241,9 +246,6 @@ const ProjectConfigSchema = z.object({
 
   // bd-bsu: Config-driven bead task queue with maxConcurrent concurrency limit.
   taskQueue: TaskQueueConfigSchema,
-
-  // bd-n047: Per-project auto-merge override
-  autoMerge: AutoMergeOverrideSchema.optional(),
 });
 
 const DefaultPluginsSchema = z.object({
@@ -253,7 +255,7 @@ const DefaultPluginsSchema = z.object({
   notifiers: z.array(z.string()).default(["composio", "desktop"]),
   orchestrator: RoleAgentDefaultsSchema,
   worker: RoleAgentDefaultsSchema,
-  // bd-n047: Centralized auto-merge defaults
+  // bd-n047: default auto-merge settings for all projects
   autoMerge: AutoMergeDefaultsSchema.optional(),
 });
 
@@ -273,7 +275,11 @@ const OrchestratorConfigSchema = z.object({
     info: ["composio"],
   }),
   reactions: z.record(ReactionConfigSchema).default({}),
+  _hasExplicitGlobalReaction: z.record(z.boolean()).optional(),
   plugins: z.record(z.record(z.unknown())).optional(),
+  // Central auto-merge switch: enables auto-merge for approved-and-green reaction
+  // across all projects unless overridden per-project.
+  autoMerge: AutoMergeOverrideSchema.optional(),
   // Global worktree base directory; can be overridden per-project.
   worktreeDir: z.string().optional(),
 });
@@ -583,7 +589,20 @@ export function loadConfigWithPath(configPath?: string): {
 
 /** Validate a raw config object */
 export function validateConfig(raw: unknown): OrchestratorConfig {
-  const validated = OrchestratorConfigSchema.parse(raw);
+  const rawObj = raw as Record<string, unknown>;
+  // Track per-key whether user explicitly declared this reaction (vs relying on
+  // default empty reactions block). ReactionConfigSchema.partial() strips defaults,
+  // so we must detect explicit declaration from raw input.
+  const hasExplicitGlobalReaction: Record<string, boolean> = {};
+  if (typeof rawObj?.reactions === "object" && rawObj.reactions !== null) {
+    for (const key of Object.keys(rawObj.reactions)) {
+      hasExplicitGlobalReaction[key] = true;
+    }
+  }
+  const validated = OrchestratorConfigSchema.parse({
+    ...(raw as object),
+    _hasExplicitGlobalReaction: hasExplicitGlobalReaction,
+  });
 
   let config = validated as OrchestratorConfig;
   config = expandPaths(config);
