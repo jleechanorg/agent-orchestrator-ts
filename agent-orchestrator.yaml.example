@@ -25,6 +25,13 @@ defaults:
   #   agent: codex
   workspace: worktree     # worktree | clone | copy
   notifiers: [desktop, openclaw]    # desktop | slack | discord | webhook | email | openclaw
+  # bd-n047: Centralized auto-merge control — applied to all projects unless overridden.
+  # Set enabled: false here to disable auto-merge globally, then selectively re-enable per project.
+  # Per-project overrides: set projects.<name>.autoMerge.enabled to override the global default.
+  # autoMerge:
+  #   enabled: true          # set to false to globally disable auto-merge
+  #   waitSeconds: 300      # default wait time for GitHub's native auto-merge
+  #   mergeMethod: squash   # default merge method (merge | squash | rebase)
 
 # Projects — at minimum, specify repo and path
 projects:
@@ -96,6 +103,12 @@ projects:
     # reactions:
     #   approved-and-green:
     #     auto: true         # enable auto-merge for this project
+
+    # bd-n047: Per-project auto-merge override — set enabled: false to disable
+    # for this project while keeping it enabled globally, or set enabled: true
+    # to re-enable even when defaults.autoMerge.enabled is false.
+    # autoMerge:
+    #   enabled: false
 
 # Notification channels
 # notifiers:

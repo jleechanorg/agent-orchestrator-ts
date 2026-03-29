@@ -666,10 +666,16 @@ describe("Config Validation - Other reaction actions", () => {
   });
 });
 
-describe("Config Validation - autoMerge flag", () => {
-  it("accepts global autoMerge: true", () => {
-    const config = {
-      autoMerge: true,
+describe("Config Validation - Auto-merge centralized config (bd-n047)", () => {
+  it("accepts defaults.autoMerge with all fields", () => {
+    const validated = validateConfig({
+      defaults: {
+        autoMerge: {
+          enabled: true,
+          waitSeconds: 300,
+          mergeMethod: "squash",
+        },
+      },
       projects: {
         proj1: {
           path: "/repos/test",
@@ -677,30 +683,37 @@ describe("Config Validation - autoMerge flag", () => {
           defaultBranch: "main",
         },
       },
-    };
-
-    const validated = validateConfig(config);
-    expect(validated.autoMerge).toBe(true);
+    });
+    expect(validated.defaults.autoMerge?.enabled).toBe(true);
+    expect(validated.defaults.autoMerge?.waitSeconds).toBe(300);
+    expect(validated.defaults.autoMerge?.mergeMethod).toBe("squash");
   });
 
-  it("accepts per-project autoMerge: true", () => {
-    const config = {
+  it("accepts defaults.autoMerge.enabled=false", () => {
+    const validated = validateConfig({
+      defaults: {
+        autoMerge: {
+          enabled: false,
+        },
+      },
       projects: {
         proj1: {
           path: "/repos/test",
           repo: "org/test",
           defaultBranch: "main",
-          autoMerge: true,
         },
       },
-    };
-
-    const validated = validateConfig(config);
-    expect(validated.projects.proj1.autoMerge).toBe(true);
+    });
+    expect(validated.defaults.autoMerge?.enabled).toBe(false);
   });
 
-  it("global autoMerge defaults to undefined when absent", () => {
-    const config = {
+  it("defaults autoMerge.enabled to true when omitted", () => {
+    const validated = validateConfig({
+      defaults: {
+        autoMerge: {
+          waitSeconds: 60,
+        },
+      },
       projects: {
         proj1: {
           path: "/repos/test",
@@ -708,40 +721,103 @@ describe("Config Validation - autoMerge flag", () => {
           defaultBranch: "main",
         },
       },
-    };
-
-    const validated = validateConfig(config);
-    expect(validated.autoMerge).toBeUndefined();
+    });
+    expect(validated.defaults.autoMerge?.enabled).toBe(true);
+    expect(validated.defaults.autoMerge?.waitSeconds).toBe(60);
   });
 
-  it("per-project autoMerge defaults to undefined when absent", () => {
-    const config = {
+  it("project-level autoMerge without enabled does NOT implicitly enable (bd-n047 CR fix)", () => {
+    // When a project specifies autoMerge.waitSeconds without autoMerge.enabled,
+    // the override schema must NOT materialize enabled:true — that would
+    // re-enable auto-merge for the project even if globally disabled.
+    const validated = validateConfig({
       projects: {
         proj1: {
           path: "/repos/test",
           repo: "org/test",
           defaultBranch: "main",
+          autoMerge: {
+            waitSeconds: 300,
+          },
         },
       },
-    };
-
-    const validated = validateConfig(config);
-    expect(validated.projects.proj1.autoMerge).toBeUndefined();
+    });
+    // enabled must be undefined (no implicit re-enable)
+    expect(validated.projects.proj1.autoMerge?.enabled).toBeUndefined();
+    expect(validated.projects.proj1.autoMerge?.waitSeconds).toBe(300);
   });
 
-  it("global autoMerge: false is accepted", () => {
-    const config = {
-      autoMerge: false,
+  it("accepts per-project autoMerge override", () => {
+    const validated = validateConfig({
+      defaults: {
+        autoMerge: {
+          enabled: true,
+          waitSeconds: 60,
+          mergeMethod: "squash",
+        },
+      },
       projects: {
         proj1: {
           path: "/repos/test",
           repo: "org/test",
           defaultBranch: "main",
+          autoMerge: {
+            enabled: false,
+          },
+        },
+        proj2: {
+          path: "/repos/test2",
+          repo: "org/test2",
+          defaultBranch: "main",
+          autoMerge: {
+            enabled: true,
+            waitSeconds: 120,
+            mergeMethod: "merge",
+          },
         },
       },
-    };
+    });
+    expect(validated.projects.proj1.autoMerge?.enabled).toBe(false);
+    expect(validated.projects.proj2.autoMerge?.enabled).toBe(true);
+    expect(validated.projects.proj2.autoMerge?.waitSeconds).toBe(120);
+    expect(validated.projects.proj2.autoMerge?.mergeMethod).toBe("merge");
+  });
 
-    const validated = validateConfig(config);
-    expect(validated.autoMerge).toBe(false);
+  it("rejects invalid mergeMethod in defaults.autoMerge", () => {
+    expect(() =>
+      validateConfig({
+        defaults: {
+          autoMerge: {
+            mergeMethod: "invalid",
+          },
+        },
+        projects: {
+          proj1: {
+            path: "/repos/test",
+            repo: "org/test",
+            defaultBranch: "main",
+          },
+        },
+      }),
+    ).toThrow();
+  });
+
+  it("rejects negative waitSeconds in defaults.autoMerge", () => {
+    expect(() =>
+      validateConfig({
+        defaults: {
+          autoMerge: {
+            waitSeconds: -1,
+          },
+        },
+        projects: {
+          proj1: {
+            path: "/repos/test",
+            repo: "org/test",
+            defaultBranch: "main",
+          },
+        },
+      }),
+    ).toThrow();
   });
 });

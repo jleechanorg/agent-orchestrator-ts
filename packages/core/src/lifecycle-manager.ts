@@ -972,6 +972,17 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
           };
         }
 
+        // bd-n047: Centralized auto-merge kill-switch.
+        // The kill-switch guard in handleReaction now prevents executeReaction from being called
+        // when auto-merge is disabled, so retries are NOT consumed and notification is NOT
+        // suppressed (fixes CR major #5 and #6).
+        // This redundant in-function check is kept as a defence-in-depth safeguard:
+        // if a caller bypasses handleReaction and calls executeReaction directly, the guard
+        // still fires and returns without merging.
+        if (!isAutoMergeEnabled(freshSession.projectId)) {
+          return { reactionType: reactionKey, success: false, action, escalated: false };
+        }
+
         // Get SCM plugin
         const scm = project.scm ? registry.get<SCM>("scm", project.scm.plugin) : null;
         if (!scm || !freshSession.pr) {
@@ -1022,8 +1033,17 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         // native --auto flag which waits for required status checks before completing the
         // merge — handles the race where PR transitions to mergeable while CI is still
         // completing (bd-5gl: workers post green but nothing merges).
-        const mergeMethod = reactionConfig.mergeMethod ?? "squash";
-        const autoWaitSeconds = reactionConfig.autoMergeWaitSeconds ?? 0;
+        // bd-n047: Precedence chain: reactionConfig → project.autoMerge → defaults.autoMerge → squash/0
+        const mergeMethod =
+          reactionConfig.mergeMethod ??
+          project.autoMerge?.mergeMethod ??
+          config.defaults.autoMerge?.mergeMethod ??
+          "squash";
+        const autoWaitSeconds =
+          reactionConfig.autoMergeWaitSeconds ??
+          project.autoMerge?.waitSeconds ??
+          config.defaults.autoMerge?.waitSeconds ??
+          0;
         try {
           await scm.mergePR(freshSession.pr, mergeMethod, autoWaitSeconds);
 
@@ -1133,24 +1153,20 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     const reactionConfig = projectReaction
       ? { ...globalReaction, ...projectReaction }
       : globalReaction;
-    if (!reactionConfig) return null;
+    return reactionConfig ? (reactionConfig as ReactionConfig) : null;
+  }
 
-    // Centralized auto-merge override: when autoMerge is true (global or per-project),
-    // the approved-and-green reaction automatically merges instead of notifying.
-    // Only override if the project did not explicitly configure this reaction
-    // (projectReaction is absent) AND the global config did not declare it
-    // (_hasExplicitGlobalReaction tracks raw user input before .partial() stripping).
-    const autoMergeEnabled = project?.autoMerge ?? config.autoMerge ?? false;
-    if (
-      autoMergeEnabled &&
-      reactionKey === "approved-and-green" &&
-      !projectReaction &&
-      !(config._hasExplicitGlobalReaction?.[reactionKey])
-    ) {
-      return { ...(reactionConfig as ReactionConfig), action: "auto-merge", auto: true };
-    }
-
-    return reactionConfig as ReactionConfig;
+  /**
+   * bd-n047: Centralized auto-merge kill-switch.
+   * Returns false when auto-merge is globally disabled (or disabled for this project).
+   * Project-level setting overrides the global setting.
+   */
+  function isAutoMergeEnabled(projectId: string): boolean {
+    const project = config.projects[projectId];
+    const globalEnabled = config.defaults.autoMerge?.enabled;
+    const projectEnabled = project?.autoMerge?.enabled;
+    // Project override wins; global defaults to true when absent.
+    return projectEnabled !== undefined ? projectEnabled : (globalEnabled !== false);
   }
 
   function updateSessionMetadata(session: Session, updates: Partial<Record<string, string>>): void {
@@ -1491,6 +1507,25 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
               !skipForDead &&
               skipVerdictGate
             ) {
+              // bd-n047: Kill-switch check BEFORE executeReaction so the notification is NOT
+              // suppressed (fixes CR major #5) and retry budget is NOT consumed (fixes #6).
+              // When auto-merge is disabled, let the normal notify path fire so the operator
+              // still sees the mergeable PR instead of silently consuming a retry.
+              if (
+                reactionConfig.action === "auto-merge" &&
+                !isAutoMergeEnabled(session.projectId)
+              ) {
+                observer.recordOperation({
+                  metric: "lifecycle_poll",
+                  operation: "lifecycle.reaction.skipped",
+                  outcome: "success",
+                  correlationId,
+                  projectId: session.projectId,
+                  sessionId: session.id,
+                  data: { reactionKey, reason: "auto_merge_killswitch", action: "auto-merge" },
+                  level: "info",
+                });
+              } else {
               // Reaction will execute
               const reactionResult = await executeReaction(
                 session.id,
@@ -1526,10 +1561,13 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
                 level: reactionResult?.success ? "info" : "warn",
               });
               // Reaction is handling this event — suppress immediate human notification.
+              // bd-n047: Kill-switch path above skips executeReaction, so this runs only
+              // when auto-merge IS enabled. The notification suppression is correct here.
               // "send-to-agent" retries + escalates on its own; "notify"/"auto-merge"
               // already call notifyHuman internally. Notifying here would bypass the
               // delayed escalation behaviour configured via retries/escalateAfter.
               reactionHandledNotify = true;
+              } // end kill-switch else
             } else {
               observer.recordOperation({
                 metric: "lifecycle_poll",
@@ -1829,7 +1867,8 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         const reactionConfig = getReactionConfigForSession(session, reactionKey);
         if (
           reactionConfig?.action === "auto-merge" &&
-          reactionConfig.auto !== false
+          reactionConfig.auto !== false &&
+          isAutoMergeEnabled(session.projectId)
         ) {
           const MERGE_RETRY_COOLDOWN_MS = 5 * 60_000;
           const lastAttemptKey = `merge-retry-${session.id}`;
