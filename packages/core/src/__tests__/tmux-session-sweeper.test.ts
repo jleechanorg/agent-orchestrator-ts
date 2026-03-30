@@ -39,7 +39,7 @@ import {
   type TmuxSweeperConfig,
   type TmuxSweeperDeps,
 } from "../tmux-session-sweeper.js";
-import { type SessionManager, type Session } from "../types.js";
+import { type SessionManager, type Session, PR_STATE } from "../types.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -87,7 +87,7 @@ function aoSessionWithPr(id: string, prState: "merged" | "closed"): Session {
       number: 42,
       owner: "test-owner",
       repo: "test-repo",
-      state: prState,
+      state: prState === "merged" ? PR_STATE.MERGED : PR_STATE.CLOSED,
       url: `https://github.com/test-owner/test-repo/pull/42`,
     },
   };
@@ -308,7 +308,7 @@ describe("sweepOrphanTmuxSessions", () => {
 
     const result = await sweepOrphanTmuxSessions(
       cfg(),
-      deps(sm([{ ...aoSession("wa-13"), pr: { number: 13, owner: "x", repo: "y", state: "open", url: "https://github.com/x/y/pull/13" } }])),
+      deps(sm([{ ...aoSession("wa-13"), pr: { number: 13, owner: "x", repo: "y", state: PR_STATE.OPEN, url: "https://github.com/x/y/pull/13" } }])),
     );
 
     // Open PR → skipped as normal active session
@@ -324,6 +324,7 @@ describe("sweepOrphanTmuxSessions", () => {
       .mockReturnValueOnce({ hash: "aabbccddeeff", prefix: "ao", num: 0 })
       .mockReturnValueOnce({ hash: "aabbccddeeff", prefix: "ao", num: 1 })
       .mockReturnValueOnce({ hash: "aabbccddeeff", prefix: "ao", num: 2 });
+    // Ensure each session's DB record has matching tmuxName for ownership check
     mockListSessions.mockResolvedValueOnce([
       tmuxSession("aabbccddeeff-ao-0", -2 * 60_000),
       tmuxSession("aabbccddeeff-ao-1", -2 * 60_000),
@@ -336,9 +337,9 @@ describe("sweepOrphanTmuxSessions", () => {
     const result = await sweepOrphanTmuxSessions(
       cfg({ maxKillsPerSweep: 2 }),
       deps(sm([
-        aoSessionWithPr("ao-0", "merged"),
-        aoSessionWithPr("ao-1", "merged"),
-        aoSessionWithPr("ao-2", "merged"),
+        { ...aoSessionWithPr("ao-0", "merged"), metadata: { tmuxName: "aabbccddeeff-ao-0" } },
+        { ...aoSessionWithPr("ao-1", "merged"), metadata: { tmuxName: "aabbccddeeff-ao-1" } },
+        { ...aoSessionWithPr("ao-2", "merged"), metadata: { tmuxName: "aabbccddeeff-ao-2" } },
       ])),
     );
 
@@ -394,6 +395,31 @@ describe("sweepOrphanTmuxSessions", () => {
     expect(result.killed).toHaveLength(0);
     expect(result.skipped).toHaveLength(1);
     expect(result.skipped[0].reason).toBe("hash mismatch — belongs to another AO config");
+    expect(mockKillSession).not.toHaveBeenCalled();
+  });
+
+  it("DB-tracked session with undefined tmuxName in metadata is skipped — ownership unverifiable", async () => {
+    // Older sessions may not have metadata.tmuxName set. Without it we cannot
+    // verify hash ownership, so the session is skipped to avoid killing a foreign
+    // AO config's session that happens to share the same logical id.
+    mockParseTmuxName.mockReturnValueOnce({ hash: "aabbccddeeff", prefix: "ao", num: 42 });
+    mockListSessions.mockResolvedValueOnce([tmuxSession("aabbccddeeff-ao-42", -2 * 60_000)]);
+
+    // aoSession() sets metadata.tmuxName, so override with undefined
+    const sessionWithNoTmuxName: Session = {
+      ...aoSession("ao-42"),
+      pr: { number: 42, owner: "x", repo: "y", state: PR_STATE.MERGED, url: "https://x/y/pull/42" },
+      metadata: {}, // tmuxName intentionally absent
+    };
+
+    const result = await sweepOrphanTmuxSessions(
+      cfg(),
+      deps(sm([sessionWithNoTmuxName])),
+    );
+
+    expect(result.killed).toHaveLength(0);
+    expect(result.skipped).toHaveLength(1);
+    expect(result.skipped[0].reason).toContain("tmuxName not set");
     expect(mockKillSession).not.toHaveBeenCalled();
   });
 

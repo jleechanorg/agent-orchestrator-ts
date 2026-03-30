@@ -19,7 +19,7 @@
  * - Sessions spawned by other AO installations on the same machine
  *
  * Invoked periodically by the lifecycle-manager; in the default integration
- * this sweep is throttled to roughly every 5 minutes, not every 30s poll cycle.
+ * this sweep is throttled to run every ~5 minutes (SWEEP_INTERVAL_MS = 5 min).
  */
 
 import { listSessions, killSession, type TmuxSessionInfo } from "./tmux.js";
@@ -235,7 +235,13 @@ export async function sweepOrphanTmuxSessions(
       // the scanned tmux session name. Without this check, a session like
       // "otherhash-ao-42" could be killed because "ao-42" exists in the DB.
       const dbTmuxName = aoSession.metadata?.["tmuxName"];
-      if (dbTmuxName !== undefined && dbTmuxName !== parsed.tmuxName) {
+      if (dbTmuxName === undefined) {
+        // tmuxName not set in metadata — cannot verify ownership; skip to avoid
+        // hash-blind collision with another AO config's session on the same machine.
+        skipped.push({ tmuxName: session.name, reason: "tmuxName not set in AO DB — ownership unverifiable, skipped" });
+        continue;
+      }
+      if (dbTmuxName !== parsed.tmuxName) {
         skipped.push({ tmuxName: session.name, reason: "hash mismatch — belongs to another AO config" });
         continue;
       }
