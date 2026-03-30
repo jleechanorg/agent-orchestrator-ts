@@ -16,12 +16,17 @@ import { VERDICT_LINE_RE } from "./verdict-utils.js";
  * Any ambiguity → INSUFFICIENT (not PASS).
  *
  * Note: VERDICT_LINE_RE is imported from verdict-utils.ts which has the comprehensive
- * regex (plain, blockquote, and markdown-bold forms). CLAIM_VERDICT_RE is local because
- * it requires PASS|FAIL only (no SKIPPED) — verdict-utils.ts has the full three-way variant.
+ * regex (plain, blockquote, and markdown-bold forms). CLAIM_VERDICT_RE mirrors that same
+ * three-form pattern but restricts the captured token to PASS|FAIL only (no SKIPPED) —
+ * verdict-utils.ts has the full three-way variant.
  */
 
-/** Strict VERDICT match — PASS or FAIL only (SKIPPED is infra-only, not a claim) */
-const CLAIM_VERDICT_RE = /^(?:> ?\*\*)?VERDICT:\s*(PASS|FAIL)\b/im;
+/** Strict VERDICT match — PASS or FAIL only (SKIPPED is infra-only, not a claim).
+ * Mirrors VERDICT_LINE_RE's three-form pattern but restricts to PASS|FAIL only:
+ *   - plain:          VERDICT: PASS
+ *   - blockquote:     > **VERDICT: FAIL**   (blockquote prefix + bold)
+ *   - markdown-bold:  **VERDICT: PASS**    (bold on both sides) */
+const CLAIM_VERDICT_RE = /^(?:> ?)?\*?\*?VERDICT:\s*(PASS|FAIL)\b/im;
 
 /** HTML marker identifying skeptic agent verdict comments */
 const SKEPTIC_COMMENT_MARKER_RE = /<!--\s*skeptic-agent-verdict\s*-->/i;
