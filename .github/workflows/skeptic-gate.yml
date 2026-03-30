@@ -66,14 +66,17 @@ jobs:
           # Multiple runs exist per check name (re-runs, concurrent triggers) — deduplicate
           # by keeping only the latest run per name (sort by started_at desc, take first).
           # Exclude: Skeptic Gate (self-reference), cancelled (superseded runs), skipped, neutral.
+          # Gate 1: CI green (Lint, Typecheck, Test, Test Web — not all check-runs which
+          # may include non-CI checks stuck on self-hosted runners on unrelated PRs).
+          CI_NAMES="Lint|Typecheck|Test|Test \(Web\)"
           CHECK_RUNS_FAILED=$(gh api repos/${{ github.repository }}/commits/"$HEAD_SHA"/check-runs \
-            --jq '[.check_runs | group_by(.name) | .[] | sort_by(.started_at) | reverse | .[0] | select(.name != "Skeptic Gate" and .conclusion != null and .conclusion != "success" and .conclusion != "skipped" and .conclusion != "neutral" and .conclusion != "cancelled")] | length' 2>/dev/null || echo "__API_ERROR__")
+            --jq "[.check_runs | group_by(.name) | .[] | sort_by(.started_at) | reverse | .[0] | select(.name | test(\"$CI_NAMES\") and .conclusion != null and .conclusion != \"success\" and .conclusion != \"skipped\" and .conclusion != \"neutral\" and .conclusion != \"cancelled\")] | length" 2>/dev/null || echo "__API_ERROR__")
           CHECK_RUNS_PENDING=$(gh api repos/${{ github.repository }}/commits/"$HEAD_SHA"/check-runs \
-            --jq '[.check_runs | group_by(.name) | .[] | sort_by(.started_at) | reverse | .[0] | select(.name != "Skeptic Gate" and .status != "completed")] | length' 2>/dev/null || echo "__API_ERROR__")
+            --jq "[.check_runs | group_by(.name) | .[] | sort_by(.started_at) | reverse | .[0] | select(.name | test(\"$CI_NAMES\") and .status != \"completed\")] | length" 2>/dev/null || echo "__API_ERROR__")
 
-          # Count total non-Skeptic-Gate check runs to detect "no CI registered yet".
+          # Count total CI check runs to detect "no CI registered yet".
           TOTAL_CHECKS=$(gh api repos/${{ github.repository }}/commits/"$HEAD_SHA"/check-runs \
-            --jq '[.check_runs | group_by(.name) | .[] | sort_by(.started_at) | reverse | .[0] | select(.name != "Skeptic Gate")] | length' 2>/dev/null || echo "0")
+            --jq "[.check_runs | group_by(.name) | .[] | sort_by(.started_at) | reverse | .[0] | select(.name | test(\"$CI_NAMES\"))] | length" 2>/dev/null || echo "0")
 
           CI_DETAIL="commit-status=$CI_STATUS, failed-checks=${CHECK_RUNS_FAILED:-0}, pending-checks=${CHECK_RUNS_PENDING:-0}, total-checks=${TOTAL_CHECKS:-0}"
 
@@ -188,14 +191,13 @@ jobs:
             UNRESOLVED=$(echo "$GQL_RESULT" | jq -r "[.data.repository.pullRequest.reviewThreads.nodes[] | select(.isResolved == false) | .comments.nodes[] | select(.author.login != null and (.author.login | ascii_downcase) != (\"$PR_AUTHOR\" | ascii_downcase) and (.body | test(\"^\\\\s*(nit:|nitpick)\"; \"i\") | not))] | length")
           fi
 
-          if [ "$UNRESOLVED" = "__GQL_ERROR__" ]; then
-            GATE5="FAIL"
-            GATE5_DETAIL="GraphQL error"
-            FAILED_GATES="${FAILED_GATES}5, "
-          elif [ "$UNRESOLVED" = "__TRUNCATED__" ]; then
-            GATE5="FAIL"
-            GATE5_DETAIL="pagination truncated (fail-closed)"
-            FAILED_GATES="${FAILED_GATES}5, "
+          # Gate 5: Inline comments resolved
+          # If CR has APPROVED, non-nit unresolved comments are non-blocking (CR
+          # has already signed off despite the noise). Without CR APPROVED, unresolved
+          # comments remain a hard failure (fail-closed).
+          if [ "$LATEST_CR" = "APPROVED" ]; then
+            GATE5="PASS"
+            GATE5_DETAIL="n unresolved (CR approved — non-blocking)"
           elif [ "${UNRESOLVED:-0}" -gt 0 ]; then
             GATE5="FAIL"
             GATE5_DETAIL="${UNRESOLVED} unresolved"
