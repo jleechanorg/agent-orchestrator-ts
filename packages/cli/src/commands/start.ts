@@ -853,7 +853,15 @@ export function registerStart(program: Command): void {
               loadedConfig = loadConfig();
             } catch (err) {
               if (err instanceof ConfigNotFoundError) {
-                // First run — auto-create config
+                // First run — guard against operating on the main repo
+                const mainRepoPath = getMainRepoPath();
+                let resolvedCwd: string;
+                try {
+                  resolvedCwd = realpathSync.native(cwd());
+                } catch {
+                  resolvedCwd = resolve(cwd());
+                }
+                guardMainRepo(resolvedCwd, mainRepoPath);
                 loadedConfig = await autoCreateConfig(cwd());
               } else {
                 throw err;

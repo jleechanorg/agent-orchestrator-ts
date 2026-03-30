@@ -14,9 +14,10 @@ if [ -e "$MAIN_REPO/.git" ]; then
   CURRENT_BRANCH="$(git -C "$MAIN_REPO" branch --show-current 2>/dev/null || true)"
   if [ "$CURRENT_BRANCH" != "main" ]; then
     echo "WARNING: main repo is on branch '$CURRENT_BRANCH' — switching to main"
-    if ! git -C "$MAIN_REPO" checkout main 2>/dev/null; then
-      echo "ERROR: failed to checkout main — resolve manually (uncommitted changes?)"
-    elif ! git -C "$MAIN_REPO" pull --ff-only 2>/dev/null; then
+    if ! git -C "$MAIN_REPO" checkout main; then
+      echo "ERROR: failed to checkout main — resolve manually (uncommitted changes? conflicts?)"
+      echo "  Fix: cd $MAIN_REPO && git status"
+    elif ! git -C "$MAIN_REPO" pull --ff-only; then
       echo "WARNING: git pull --ff-only failed — continuing anyway"
     fi
   fi
