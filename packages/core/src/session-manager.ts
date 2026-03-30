@@ -2215,10 +2215,10 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       throw new Error(`No agent plugin for session ${sessionId}`);
     }
 
-    // Transform plain-text comment-fix messages to slash commands for claude-code runtime.
-    // Non-Claude-Code runtimes (Codex, OpenCode) receive messages unchanged.
+    // Transform plain-text comment-fix messages to slash commands for claude-code agent.
+    // Non-Claude-Code agents (Codex, OpenCode) receive messages unchanged.
     let transformedMessage = message;
-    if (runtimeName === "claude-code" && messageContainsCommentFixIntent(message)) {
+    if (agentName === "claude-code" && messageContainsCommentFixIntent(message)) {
       transformedMessage = transformToSlashCommand(message);
     }
 
