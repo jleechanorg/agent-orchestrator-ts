@@ -40,14 +40,18 @@ function extractSkepticSections(body: string): string {
 
 /** Extract the content between a ## Section header and the next ## header or end of string. */
 function extractSection(body: string, sectionName: string): string | null {
-  // Match ## Section Name\n or ## Section Name\r\n, then capture everything up to the next ## or end
-  const pattern = new RegExp(
-    `##\\s+${sectionName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\r?\\n([\\s\\S]*?)(?=##\\s+[\\w ]|\\Z)`,
-    "i",
-  );
-  const match = body.match(pattern);
-  if (!match) return null;
-  const content = match[1].trim();
+  // Split body by ## headers, find the named section, return its content.
+  // Handles blank lines between sections by stripping trailing blank lines.
+  const parts = body.split(/(?=##\s+)/i);
+  const prefix = `## ${sectionName}`;
+  for (const part of parts) {
+    if (part.startsWith(prefix)) {
+      // Content is everything after "## Section Name\n"
+      const afterHeader = part.slice(prefix.length).replace(/^\r?\n/, "");
+      return afterHeader.trimEnd() || null;
+    }
+  }
+  return null;
   return content.length > 0 ? content : null;
 }
 

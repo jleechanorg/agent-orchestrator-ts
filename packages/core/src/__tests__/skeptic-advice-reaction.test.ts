@@ -73,7 +73,7 @@ describe("buildReactionContext skeptic-advice", () => {
       getSkepticComments: vi.fn().mockResolvedValue([
         {
           id: 100,
-          body: `## Background\nThe PR introduced a regression in the merge gate.\n\n## Current Problem\nThe action plan does not account for CI failures when CR approved.\n\n## Recommended Solution\nAdd a CI check before posting the green signal.`,
+          body: `VERDICT: FAIL\n\n## Background\nThe PR introduced a regression in the merge gate.\n\n## Current Problem\nThe action plan does not account for CI failures when CR approved.\n\n## Recommended Solution\nAdd a CI check before posting the green signal.`,
           user: { login: "jleechan2015" },
         },
       ]),
@@ -146,7 +146,7 @@ describe("buildReactionContext skeptic-advice", () => {
         },
         {
           id: 200,
-          body: `## Background\nNewest FAIL comment\n\n## Recommended Solution\nUse the latest version`,
+          body: `VERDICT: FAIL\n\n## Background\nNewest FAIL comment\n\n## Recommended Solution\nUse the latest version`,
           user: { login: "jleechan2015" },
         },
       ]),
@@ -161,7 +161,7 @@ describe("buildReactionContext skeptic-advice", () => {
     );
 
     expect(result).toContain("Newest FAIL comment");
-    expect(result).toContain("Latest version");
+    expect(result).toContain("latest version");
     expect(result).not.toContain("old problem");
   });
 
