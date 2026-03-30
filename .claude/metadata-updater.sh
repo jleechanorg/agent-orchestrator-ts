@@ -142,10 +142,10 @@ update_metadata_key() {
   # Create temp file
   local temp_file="${metadata_file}.tmp"
 
-  # Escape special sed characters in value (&, \, and | — sed uses | as delimiter)
-  # Declare separately to avoid SC2155: local var=$(subshell) discards exit code
+  # Escape replacement-special characters: & \ and | (sed uses | as the delimiter on line 151)
+  # Declare separately to avoid SC2155: local var=$(subshell) discards set -e exit code
   local escaped_value
-  escaped_value=$(printf '%s' "$value" | sed 's/[&\\|]/\\&/g')
+  escaped_value=$(printf '%s' "$value" | sed 's/[&|\\]/\\&/g')
 
   # Check if key already exists
   if grep -q "^$key=" "$metadata_file" 2>/dev/null; then
@@ -196,12 +196,12 @@ if [[ "$clean_command" =~ ^git[[:space:]]+switch[[:space:]]+-c[[:space:]]+([^[:s
   fi
 fi
 
-# Detect: git switch <branch> (without -c) — only operates on branches, not pathspecs
-# No pathspec guard needed: git switch does not accept file paths
+# Detect: git checkout <branch> (without -b)
+# Guard: only update if the operand looks like a branch ref, not a file path or options flag.
+# Explicit git checkout -b and git switch -c handlers cover those patterns above.
 if [[ "$clean_command" =~ ^git[[:space:]]+checkout[[:space:]]+([^[:space:]-]+[/-][^[:space:]]+) ]]; then
   branch="${BASH_REMATCH[1]}"
   if [[ -n "$branch" && "$branch" != "HEAD" &&
-        ! "$branch" =~ ^(src|lib|app|tests|test|docs|doc|scripts|bin|config|build|pkg|internal|tools|scripts)/ &&
         ! "$branch" =~ \.(ts|js|tsx|jsx|py|go|rs|java|cpp|c|h|sh|bash|json|yaml|yml|toml|md|html|css|scss)$ ]]; then
     update_metadata_key "branch" "$branch"
     echo '{"systemMessage": "Updated metadata: branch = '"$branch"'"}'
