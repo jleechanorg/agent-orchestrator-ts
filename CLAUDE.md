@@ -508,6 +508,7 @@ cd /Users/jleechan/.openclaw && nohup ao lifecycle-worker agent-orchestrator > ~
 ```
 
 ### Why workers die — common causes
+
 | Exit code | Cause | Fix |
 |---|---|---|
 | 0 | Network/API transient error, unhandled promise rejection | Investigate logs; file bd issue |

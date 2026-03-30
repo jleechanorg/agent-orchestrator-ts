@@ -35,6 +35,11 @@ if [ -z "$PROJECTS" ]; then
   exit 1
 fi
 
+# Escape regex metacharacters in a string (bd-rbgp: project IDs may contain dots, etc.)
+regex_escape() {
+  printf '%s' "$1" | sed 's/[][\.*^$+?{|\\()]/\\&/g'
+}
+
 SELECTED="${@:-$PROJECTS}"
 LOG_DIR="${AO_LOG_DIR:-$HOME/.openclaw/logs}"
 mkdir -p "$LOG_DIR"
@@ -55,7 +60,9 @@ for PROJECT in $SELECTED; do
     # Idempotency: skip if a lifecycle-worker for this project is already running.
     # Use "node.*lifecycle-worker" — matches the node process, NOT the bash -c wrapper
     # (bd-rbgp: old pattern falsely matched the shell script, reporting "already running" when dead).
-    if pgrep -f "node.*ao lifecycle-worker ${PROJECT}$" > /dev/null 2>&1; then
+    # Escape PROJECT to handle regex metacharacters in project IDs (bd-rbgp CR fix).
+    ESCAPED_PROJECT=$(regex_escape "$PROJECT")
+    if pgrep -f "node.*ao lifecycle-worker ${ESCAPED_PROJECT}$" > /dev/null 2>&1; then
       echo "  lifecycle-worker $PROJECT already running — skipping"
     else
       nohup ao lifecycle-worker "$PROJECT" > "$LOG_DIR/ao-lifecycle-${PROJECT}.log" 2>&1 &
