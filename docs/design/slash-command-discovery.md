@@ -6,7 +6,7 @@
 ## 1. Problem Statement
 
 ### Current State
-The `/claw` command in `~/.openclaw/.claude/commands/claw.md` handles slash command translation for AO workers. When dispatching a task that includes a slash command (e.g. `/er`, `/fixpr`), `/claw` resolves the command definition from local files (`.claude/commands/$CMD.md` or `.claude/skills/$CMD/SKILL.md`) and inlines it into the task before dispatching to any agent (Claude Code, Codex, Cursor, MiniMax).
+The `/claw` command handles slash command translation for AO workers (in `~/.openclaw/.claude/commands/claw.md` when present). When dispatching a task that includes a slash command (e.g. `/er`, `/fixpr`), `/claw` optionally resolves the command definition from local files (`.claude/commands/$CMD.md` or `.claude/skills/$CMD/SKILL.md`) and inlines it into the task before dispatching to any agent (Claude Code, Codex, Cursor, MiniMax).
 
 ### Gap
 Non-Claude agents (primarily **Codex**, OpenAI's CLI) cannot natively understand Claude slash commands like `/er`, `/fixpr`, `/simplify`, etc. The current `/claw` system only resolves from **pre-committed local files**. If a slash command exists in the Claude commands spec but hasn't been committed locally, Codex workers cannot discover or use it.
@@ -67,14 +67,14 @@ The rule goes in `defaults.agentRules` in `agent-orchestrator.yaml`, scoped to a
 
 Add to `defaults.agentRules` in `~/.openclaw/agent-orchestrator.yaml`:
 
-```
+```text
 **SLASH COMMAND DISCOVERY (for agents that do NOT natively support Claude slash commands):**
 If your agent runtime does NOT natively support slash commands (unlike Claude Code, MiniMax, or Cursor CLI),
 and you encounter a slash command (e.g. /er, /fixpr, /simplify, /evidence-review) that you cannot resolve:
 1. Do a web search for "site:claude.com <command-name> slash command" or "claude code slash command reference"
 2. Read the official documentation to understand the command's intent, arguments, and behavior
 3. Translate the command into your runtime's equivalent — do NOT ask the user how to translate it
-4. Execute the translated command autonomously
+4. Execute the translated command autonomously — use read-only/reversible operations unless explicitly directed
 5. If no equivalent exists in your runtime, report what you found and what you would do
 ```
 
@@ -129,3 +129,5 @@ and you encounter a slash command (e.g. /er, /fixpr, /simplify, /evidence-review
 |------|--------|
 | `docs/design/slash-command-discovery.md` | New design doc (this file) |
 | `~/.openclaw/agent-orchestrator.yaml` | Add SLASH COMMAND DISCOVERY section to `defaults.agentRules` |
+
+> **Note:** `~/.openclaw/agent-orchestrator.yaml` is the user's local AO config (not committed to the repo). The config already has `defaults.agentRules` field — the rule was added there. `agent-orchestrator.yaml.example` in the repo shows the schema; the actual config lives in `~/.openclaw/`.
