@@ -76,7 +76,7 @@ import {
 import { sessionFromMetadata } from "./utils/session-from-metadata.js";
 import { safeJsonParse } from "./utils/validation.js";
 import { resolveAgentSelection, resolveSessionRole } from "./agent-selection.js";
-import { messageContainsCommentFixIntent, transformToSlashCommand } from "./utils.js";
+import { applySlashCommandRouting } from "./fork-slash-command-routing.js";
 
 const _execFileAsync = promisify(execFile);
 const OPENCODE_DISCOVERY_TIMEOUT_MS = 2_000;
@@ -2217,10 +2217,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
 
     // Transform plain-text comment-fix messages to slash commands for claude-code agent.
     // Non-Claude-Code agents (Codex, OpenCode) receive messages unchanged.
-    let transformedMessage = message;
-    if (agentName === "claude-code" && messageContainsCommentFixIntent(message)) {
-      transformedMessage = transformToSlashCommand(message);
-    }
+    const transformedMessage = applySlashCommandRouting(message, agentName);
 
     const captureOutput = async (handle: RuntimeHandle): Promise<string> => {
       try {
