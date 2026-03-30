@@ -215,6 +215,12 @@ jobs:
             UNRESOLVED=$(echo "$GQL_RESULT" | jq -r "[.data.repository.pullRequest.reviewThreads.nodes[] | select(.isResolved == false) | .comments.nodes[] | select(.author.login != null and (.author.login | ascii_downcase) != (\"$PR_AUTHOR\" | ascii_downcase) and (.body | test(\"^\\\\s*(nit:|nitpick)\"; \"i\") | not))] | length")
           fi
 
+          # Gate 5 passes when:
+          #  (a) all non-nit comments resolved, OR
+          #  (b) CR has formally APPROVED — CR's remaining comments are non-blocking post-approval;
+          #      unresolved comments from bots (Copilot, Cursor, Codex) after CR APPROVAL are also
+          #      non-blocking (CR acknowledged them by approving).
+          # Fail-closed: GQL errors and pagination truncation always fail.
           if [ "$UNRESOLVED" = "__GQL_ERROR__" ]; then
             GATE5="FAIL"
             GATE5_DETAIL="GraphQL error"
@@ -223,13 +229,15 @@ jobs:
             GATE5="FAIL"
             GATE5_DETAIL="pagination truncated (fail-closed)"
             FAILED_GATES="${FAILED_GATES}5, "
-          elif [ "${UNRESOLVED:-0}" -gt 0 ]; then
+          elif [ "${UNRESOLVED:-0}" -gt 0 ] && [ "$LATEST_CR" != "APPROVED" ]; then
+            # Unresolved comments AND no CR approval → fail
             GATE5="FAIL"
-            GATE5_DETAIL="${UNRESOLVED} unresolved"
+            GATE5_DETAIL="${UNRESOLVED} unresolved (no CR approval)"
             FAILED_GATES="${FAILED_GATES}5, "
           else
+            # CR approved (unresolved comments are non-blocking) or all resolved
             GATE5="PASS"
-            GATE5_DETAIL="all resolved"
+            GATE5_DETAIL="${UNRESOLVED:-0} unresolved (CR approved — non-blocking)"
           fi
           echo "Gate 5: $GATE5 ($GATE5_DETAIL)"
           GATE_ROWS="${GATE_ROWS}| 5. Comments resolved | ${GATE5} | ${GATE5_DETAIL} |\n"
