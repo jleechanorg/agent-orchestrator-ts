@@ -16,7 +16,8 @@ if [ -e "$MAIN_REPO/.git" ]; then
     echo "WARNING: main repo is on branch '$CURRENT_BRANCH' — switching to main"
     if ! git -C "$MAIN_REPO" checkout main; then
       echo "ERROR: failed to checkout main — resolve manually (uncommitted changes? conflicts?)"
-      echo "  Fix: cd $MAIN_REPO && git status"
+      echo "  Fix: cd \"$MAIN_REPO\" && git status"
+      exit 1
     elif ! git -C "$MAIN_REPO" pull --ff-only; then
       echo "WARNING: git pull --ff-only failed — continuing anyway"
     fi
