@@ -11,7 +11,7 @@ describe("messageContainsCommentFixIntent", () => {
   });
 
   it("returns true for 'address feedback' message", () => {
-    expect(messageContainsCommentFixIntent("Please address the feedback provided")).toBe(true);
+    expect(messageContainsCommentFixIntent("Please address feedback directly")).toBe(true);
   });
 
   it("returns true for 'changes requested' message", () => {

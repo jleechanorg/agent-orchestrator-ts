@@ -7,21 +7,31 @@
 
 const COMMENT_FIX_KEYWORDS = [
   "review comment", "review comments", "comments on", "feedback on",
-  "changes requested", "address feedback", "fix comments", "fix review", "address",
+  "changes requested", "address feedback", "fix comments", "fix review",
 ];
 const CI_MERGE_KEYWORDS = [
   "ci fail", "ci-fail", "ci failing", "ci error", "not mergeable",
-  "merge conflict", "to green", "6-green", "skeptic", "verdict",
+  "merge conflict", "merge conflicts", "to green", "6-green", "skeptic", "verdict",
 ];
 
 function messageContainsCommentFixIntentImpl(msg: string): boolean {
   const lower = msg.toLowerCase();
-  // Require comment/review keywords to appear near fix-signaling context words
-  // to avoid misclassifying general mentions like "please review this plan".
-  const commentPatterns = COMMENT_FIX_KEYWORDS.map((kw) => kw.toLowerCase());
-  const hasCommentFix = commentPatterns.some((kw) => lower.includes(kw));
-  const hasCiMergeFix = CI_MERGE_KEYWORDS.some((kw) => lower.includes(kw));
+  // Single-word keywords use whole-word matching to avoid false positives like
+  // "email address" triggering fix intent. Multi-word phrases use substring matching
+  // because a word-boundary regex (\b) would fail when other words separate them.
+  const hasCommentFix = COMMENT_FIX_KEYWORDS.some((kw) =>
+    kw.includes(" ") ? lower.includes(kw.toLowerCase()) : wholeWordMatch(lower, kw.toLowerCase())
+  );
+  const hasCiMergeFix = CI_MERGE_KEYWORDS.some((kw) =>
+    kw.includes(" ") ? lower.includes(kw.toLowerCase()) : wholeWordMatch(lower, kw.toLowerCase())
+  );
   return hasCommentFix || hasCiMergeFix;
+}
+
+function wholeWordMatch(text: string, keyword: string): boolean {
+  // Escape regex special chars, then match with word boundaries on both sides.
+  const escaped = keyword.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`\\b${escaped}\\b`, "i").test(text);
 }
 
 function transformToSlashCommandImpl(msg: string): string {
@@ -34,9 +44,12 @@ function transformToSlashCommandImpl(msg: string): string {
   }
 
   const lower = msg.toLowerCase();
-  const commentPatterns = COMMENT_FIX_KEYWORDS.map((kw) => kw.toLowerCase());
-  const hasCommentFix = commentPatterns.some((kw) => lower.includes(kw));
-  const hasCiMergeFix = CI_MERGE_KEYWORDS.some((kw) => lower.includes(kw));
+  const hasCommentFix = COMMENT_FIX_KEYWORDS.some((kw) =>
+    kw.includes(" ") ? lower.includes(kw.toLowerCase()) : wholeWordMatch(lower, kw.toLowerCase())
+  );
+  const hasCiMergeFix = CI_MERGE_KEYWORDS.some((kw) =>
+    kw.includes(" ") ? lower.includes(kw.toLowerCase()) : wholeWordMatch(lower, kw.toLowerCase())
+  );
 
   const slash = hasCommentFix ? "/copilot" : hasCiMergeFix ? "/polish" : "/copilot";
   return `${slash}\n${msg.trim()}`;
