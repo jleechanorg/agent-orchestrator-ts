@@ -1,3 +1,5 @@
+import { VERDICT_LINE_RE } from "./verdict-utils.js";
+
 /**
  * Claim Verifier — Skeptic Gate Assertion Verifier (bd-upxh)
  *
@@ -13,13 +15,10 @@
  * Both layers must be present and consistent for PASS.
  * Any ambiguity → INSUFFICIENT (not PASS).
  *
- * Note: VERDICT_LINE_RE is duplicated here (not imported from skeptic.ts) to avoid
- * a dependency chain through llm-eval.ts which requires the ao-plugin-agent-codex package.
- * Must be kept in sync with skeptic.ts:VERDICT_LINE_RE.
+ * Note: VERDICT_LINE_RE is imported from verdict-utils.ts which has the comprehensive
+ * regex (plain, blockquote, and markdown-bold forms). CLAIM_VERDICT_RE is local because
+ * it requires PASS|FAIL only (no SKIPPED) — verdict-utils.ts has the full three-way variant.
  */
-
-/** Line-anchored VERDICT matcher — accepts VERDICT: PASS, VERDICT: FAIL, or VERDICT: SKIPPED. */
-const VERDICT_LINE_RE = /^(?:> ?\*\*)?VERDICT:\s*(PASS|FAIL|SKIPPED)\b/im;
 
 /** Strict VERDICT match — PASS or FAIL only (SKIPPED is infra-only, not a claim) */
 const CLAIM_VERDICT_RE = /^(?:> ?\*\*)?VERDICT:\s*(PASS|FAIL)\b/im;
