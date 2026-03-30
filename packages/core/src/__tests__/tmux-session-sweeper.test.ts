@@ -240,6 +240,19 @@ describe("sweepOrphanTmuxSessions", () => {
     expect(result.skipped[0].reason).toBe("tracked in AO DB");
   });
 
+  it("legacy AO session (no tmuxName in DB) is still skipped via sessionId match", async () => {
+    // Session in DB has no tmuxName (legacy metadata from before the field was added).
+    // The sweeper must fall back to matching parsed.sessionId against s.id.
+    mockParseTmuxName.mockReturnValueOnce({ hash: "aabbccddeeff", prefix: "jc", num: 99 });
+    mockListSessions.mockResolvedValueOnce([tmuxSession("aabbccddeeff-jc-99")]);
+
+    const result = await sweepOrphanTmuxSessions(cfg(), deps(sm([aoSession("jc-99", undefined)])));
+
+    expect(result.killed).toHaveLength(0);
+    expect(result.skipped).toHaveLength(1);
+    expect(result.skipped[0].reason).toBe("tracked in AO DB (legacy — no tmuxName in metadata)");
+  });
+
   it("AO-named session not in AO DB is a kill candidate", async () => {
     mockParseTmuxName.mockReturnValueOnce({ hash: "aabbccddeeff", prefix: "wa", num: 7 });
     mockListSessions.mockResolvedValueOnce([tmuxSession("aabbccddeeff-wa-7")]);

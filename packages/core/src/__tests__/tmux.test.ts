@@ -111,20 +111,28 @@ describe("listSessions", () => {
 
 describe("hasSession", () => {
   it("returns true when session exists", async () => {
-    mockTmuxSuccess("");
+    // list-sessions returns output containing the target session
+    mockTmuxSuccess("app-1\napp-2\n");
     expect(await hasSession("app-1")).toBe(true);
     expect(fakeExecFile).toHaveBeenCalledWith(
       "tmux",
-      ["has-session", "-t", "app-1"],
+      ["list-sessions", "-F", "#{session_name}"],
       expect.any(Object),
       expect.any(Function),
     );
   });
 
   it("returns false when session does not exist", async () => {
-    // list-sessions succeeds (server is up), but has-session fails (session not found)
-    mockTmuxSequence([{ stdout: "" }, { error: "session not found" }]);
+    // list-sessions succeeds but output does not contain the target session
+    mockTmuxSuccess("app-1\napp-2\n");
     expect(await hasSession("app-99")).toBe(false);
+  });
+
+  it("throws when tmux server is unavailable", async () => {
+    mockTmuxError("no server running");
+    await expect(hasSession("app-1")).rejects.toThrow(
+      "tmux server unavailable",
+    );
   });
 });
 

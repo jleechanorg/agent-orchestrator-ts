@@ -84,23 +84,24 @@ export async function listSessions(): Promise<TmuxSessionInfo[]> {
 
 /** Check if a specific tmux session exists. */
 export async function hasSession(sessionName: string): Promise<boolean> {
+  // Use list-sessions as both availability probe AND session lookup.
+  // `tmux has-session` exits code 1 for BOTH "session not found" and
+  // "tmux server unavailable", so we cannot distinguish the two from its error alone.
+  // list-sessions fails only when the server is unavailable, making it a reliable
+  // availability check; when it succeeds, we parse its output for the target session.
+  let output: string;
   try {
-    // Probe for tmux availability first — `tmux has-session` exits code 1 for BOTH
-    // "session not found" and "tmux server unavailable", so we cannot distinguish
-    // the two from its error alone.  list-sessions fails only when the server is
-    // unavailable, making it a reliable availability check.
-    await tmux("list-sessions", "-F", "#{session_name}");
+    output = await tmux("list-sessions", "-F", "#{session_name}");
   } catch {
     // Tmux server unavailable — throw so the caller can distinguish this from a
     // confirmed-dead session and apply its own fail-open / fail-closed policy.
     throw new Error("tmux server unavailable");
   }
-  try {
-    await tmux("has-session", "-t", sessionName);
-    return true;
-  } catch {
-    return false;
-  }
+  return output
+    .trim()
+    .split("\n")
+    .map((name) => name.trim())
+    .includes(sessionName);
 }
 
 export interface NewSessionOptions {

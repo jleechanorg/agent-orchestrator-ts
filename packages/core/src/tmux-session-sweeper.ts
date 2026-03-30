@@ -197,10 +197,18 @@ export async function sweepOrphanTmuxSessions(
   const scanned = allTmuxSessions.length;
 
   // Get all active AO session IDs from the DB.
-  // Compare using the full tmux name (session.tmuxName when present, session.id as fallback)
+  // Compare using the full tmux name when available, falling back to session.id
   // so we don't incorrectly match a local "ao-42" against a foreign "xxyyzz-ao-42".
   const aoSessions = await deps.sessionManager.list();
-  const aoTmuxNames = new Set(aoSessions.map((s) => s.tmuxName ?? s.id));
+  const aoTmuxNames = new Set(
+    aoSessions.flatMap((s) => (s.tmuxName ? [s.tmuxName] : [])),
+  );
+  // Legacy sessions (created before tmuxName was added to metadata) have no
+  // tmuxName in the DB. Track their session IDs so we can still match them
+  // against scanned sessions and avoid incorrectly sweeping them.
+  const aoLegacySessionIds = new Set(
+    aoSessions.flatMap((s) => (!s.tmuxName ? [s.id] : [])),
+  );
 
   const killed: SweptOrphan[] = [];
   const skipped: SkippedOrphan[] = [];
@@ -221,10 +229,14 @@ export async function sweepOrphanTmuxSessions(
     }
 
     // Skip sessions tracked in the AO DB — they are legitimate active sessions.
-    // Use the full tmux name so foreign sessions (e.g. "xxyyzz-ao-42" from another machine)
-    // don't incorrectly match a local "ao-42" entry.
+    // Prefer tmuxName (full hash-prefixed name) for modern sessions.
+    // For legacy sessions (no tmuxName in DB), fall back to sessionId.
     if (aoTmuxNames.has(parsed.tmuxName)) {
       skipped.push({ tmuxName: session.name, reason: "tracked in AO DB" });
+      continue;
+    }
+    if (aoLegacySessionIds.has(parsed.sessionId)) {
+      skipped.push({ tmuxName: session.name, reason: "tracked in AO DB (legacy — no tmuxName in metadata)" });
       continue;
     }
 
