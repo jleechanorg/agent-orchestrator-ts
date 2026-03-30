@@ -173,6 +173,7 @@ export function registerSkeptic(program: Command): Command {
 
       // Dry-run: print verdict without posting
       if (options.dryRun) {
+        // Show the final verdict (may be override message or original LLM output)
         console.log(chalk.yellow("\n=== DRY RUN — Verdict ===\n"));
         const verdictMatch = finalVerdict.match(VERDICT_LINE_RE);
         if (verdictMatch) {
@@ -180,10 +181,20 @@ export function registerSkeptic(program: Command): Command {
         } else {
           console.log(finalVerdict);
         }
+
+        // Always show original LLM output so developers can see the model's reasoning
         if (wasOverridden) {
-          console.log(chalk.yellow("\n=== Original LLM verdict (overridden) ===\n"));
+          console.log(chalk.yellow("\n=== Original LLM output (Gate 3 override applied) ===\n"));
           console.log(verdict);
+        } else if (!verdictMatch) {
+          // Fail-closed: unparseable output without override is treated as a failure.
+          console.warn(
+            chalk.yellow(
+              "\n⚠  Could not parse VERDICT: from LLM output. Treating as fail-closed FAIL.",
+            ),
+          );
         }
+
         // Exit non-zero only for VERDICT: FAIL from LLM evaluation.
         // Infrastructure failures (Codex/Claude unavailable) emit VERDICT: SKIPPED and exit 0
         // so the cron step continues — gate 7 treats SKIPPED as a pass condition.

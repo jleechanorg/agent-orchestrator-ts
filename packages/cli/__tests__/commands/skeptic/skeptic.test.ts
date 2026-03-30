@@ -15,6 +15,7 @@ import { VERDICT_LINE_RE, applyGate3Override } from "../../../src/commands/skept
 // code-file pattern. The jq expression filters IN code files; if length=0,
 // the PR touched only docs.
 // ---------------------------------------------------------------------------
+// VERDICT_LINE_RE imported from verdict-utils.js — no local duplicate.
 const CODE_FILE_RE = /\.(js|ts|jsx|tsx|py|rs|go|java|cs|cpp|h|c|mk|toml|yaml|yml|json|xml|sh|bash|ps1|rb|php|swift|kt|gradle)$/i;
 
 function isDocsOnly(filenames: string[]): boolean {

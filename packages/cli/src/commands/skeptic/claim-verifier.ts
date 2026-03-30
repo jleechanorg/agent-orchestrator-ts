@@ -22,7 +22,8 @@ import { VERDICT_LINE_RE } from "./verdict-utils.js";
  */
 
 /** Strict VERDICT match — PASS or FAIL only (SKIPPED is infra-only, not a claim).
- * Mirrors VERDICT_LINE_RE's three-form pattern but restricts to PASS|FAIL only:
+ * Must be kept in sync with VERDICT_LINE_RE in verdict-utils.ts.
+ * Three-form pattern:
  *   - plain:          VERDICT: PASS
  *   - blockquote:     > **VERDICT: FAIL**   (blockquote prefix + bold)
  *   - markdown-bold:  **VERDICT: PASS**    (bold on both sides) */
