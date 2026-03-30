@@ -596,7 +596,7 @@ describe("backfillUncoveredPRs", () => {
     expect(spawnCall.prompt).toContain("Continue working on PR #203");
   });
 
-  it("calls getReviewDecision for all uncovered PRs; skips getReviews for non-CHANGES_REQUESTED PRs", async () => {
+  it("calls getReviewDecision for all uncovered PRs; skips getReviews for non-CR/PRs", async () => {
     const pr = makePR({ number: 202, branch: "feat/approved", title: "Approved PR" });
     vi.mocked(mockSCM.listOpenPRs!).mockResolvedValue([pr]);
     // Default mock returns "pending" — not "changes_requested"

@@ -27,7 +27,7 @@ This design closes the gap by augmenting `backfillUncoveredPRs()` with:
 
 1. PRs with `reviewDecision=CHANGES_REQUESTED` and no live tmux session get a fresh worker within one backfill cycle
 2. The spawned worker receives the specific CR review comments, not a generic "continue working" message
-3. Rate-limiting prevents runaway spawning (max 2 respawns per cycle)
+3. Rate-limiting prevents runaway spawning (max 1 respawn per cycle — backfill exits after first success)
 4. Non-CHANGES_REQUESTED PRs behave identically to before (no behavior change)
 
 ---
@@ -44,7 +44,6 @@ This design closes the gap by augmenting `backfillUncoveredPRs()` with:
 ## Architecture
 
 ```text
-pollAll()
   └─ backfillUncoveredPRs()  [backfill-extensions.ts]
        │
        ├─ scm.listOpenPRs()              [REST — already in place]
@@ -90,16 +89,23 @@ import { hasSession } from "./tmux.js";
 **New module-level state:**
 ```typescript
 let changesRequestedRespawnCount = 0;
-const MAX_CHANGES_REQUESTED_RESPAWNS_PER_CYCLE = 2;
+const MAX_CHANGES_REQUESTED_RESPAWNS_PER_CYCLE = 1;
 ```
 
 **Tmux liveness pass** (after building `coveredPRs` / `coveredBranches`):
 ```typescript
 // Prune dead-agent sessions from covered sets so they become "uncovered"
+// Non-tmux runtimes (e.g. process) are counted as live immediately — we have no
+// way to probe their liveness from tmux. Tmux runtimes are checked via hasSession.
 for (const session of activeSessions) {
   if (TERMINAL_STATUSES.has(session.status)) continue;
-  if (!session.runtimeHandle) continue; // non-tmux runtime — skip
-  const live = await hasSession(session.runtimeHandle.id).catch(() => true);
+  if (!session.runtimeHandle || session.runtimeHandle.runtimeName !== "tmux") continue;
+  let live: boolean;
+  try {
+    live = await hasSession(session.runtimeHandle.id);
+  } catch {
+    live = true; // fail-open: tmux error → treat session as live
+  }
   if (!live) {
     if (session.pr?.number) coveredPRs.delete(session.pr.number);
     if (session.branch) coveredBranches.delete(session.branch);
