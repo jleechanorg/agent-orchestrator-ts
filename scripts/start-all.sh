@@ -52,8 +52,10 @@ for PROJECT in $SELECTED; do
     FIRST=false
   else
     echo "=== Starting $PROJECT (worker + orchestrator) ==="
-    # Idempotency: skip if a lifecycle-worker for this project is already running
-    if pgrep -f "ao lifecycle-worker ${PROJECT}$" > /dev/null 2>&1; then
+    # Idempotency: skip if a lifecycle-worker for this project is already running.
+    # Use "node.*lifecycle-worker" — matches the node process, NOT the bash -c wrapper
+    # (bd-rbgp: old pattern falsely matched the shell script, reporting "already running" when dead).
+    if pgrep -f "node.*ao lifecycle-worker ${PROJECT}$" > /dev/null 2>&1; then
       echo "  lifecycle-worker $PROJECT already running — skipping"
     else
       nohup ao lifecycle-worker "$PROJECT" > "$LOG_DIR/ao-lifecycle-${PROJECT}.log" 2>&1 &
