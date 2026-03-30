@@ -13,6 +13,25 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 
+describe("sessionFromMetadata: tmuxName", () => {
+  it("populates session.tmuxName from metadata tmuxName field", () => {
+    const session = sessionFromMetadata("test-tmux-1", {
+      project: "test-project",
+      status: "working",
+      tmuxName: "hash-test-tmux-1",
+    });
+    expect(session.tmuxName).toBe("hash-test-tmux-1");
+  });
+
+  it("session.tmuxName is undefined when metadata has no tmuxName", () => {
+    const session = sessionFromMetadata("test-tmux-2", {
+      project: "test-project",
+      status: "working",
+    });
+    expect(session.tmuxName).toBeUndefined();
+  });
+});
+
 describe("sessionFromMetadata: prState round-trip", () => {
   it("hydrates session.pr.state from metadata prState=open", () => {
     const session = sessionFromMetadata("test-1", {

@@ -134,6 +134,9 @@ export interface Session {
   /** Unique session ID, e.g. "my-app-3" */
   id: SessionId;
 
+  /** Globally unique tmux session name (includes namespace hash, e.g. "a3b4c5d6-my-app-3") */
+  tmuxName?: string;
+
   /** Which project this session belongs to */
   projectId: string;
 

@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import {
   backfillUncoveredPRs,
   _resetBackfillTimer,
+  _resetCrRespawnCounter,
   type BackfillDeps,
   type BackfillParams,
 } from "../backfill-extensions.js";
@@ -14,6 +15,13 @@ import type {
   ProjectConfig,
 } from "../types.js";
 import type { ProjectObserver } from "../observability.js";
+
+// Mock tmux.ts — must be hoisted to top level
+vi.mock("../tmux.js", () => ({
+  hasSession: vi.fn<(name: string) => Promise<boolean>>(),
+}));
+
+import { hasSession } from "../tmux.js";
 
 function makePR(overrides: Partial<PRInfo> = {}): PRInfo {
   return {
@@ -70,6 +78,9 @@ describe("backfillUncoveredPRs", () => {
 
   beforeEach(() => {
     _resetBackfillTimer();
+    _resetCrRespawnCounter();
+    vi.mocked(hasSession).mockReset(); // clear call history AND reset implementation
+    vi.mocked(hasSession).mockResolvedValue(true); // default: all sessions alive
 
     mockSCM = {
       listOpenPRs: vi.fn<(p: ProjectConfig) => Promise<PRInfo[]>>().mockResolvedValue([]),
@@ -416,6 +427,327 @@ describe("backfillUncoveredPRs", () => {
     expect(result).toBe(true);
     expect(mockSessionManager.spawn).toHaveBeenCalledOnce();
     expect(mockSessionManager.claimPR).toHaveBeenCalledWith("new-1", "1");
+  });
+
+  // ---- tmux liveness tests ----
+
+  it("treats PR as uncovered when its session's tmux session is dead", async () => {
+    const pr = makePR({ number: 77, branch: "feat/dead-tmux" });
+
+    // Session for this PR exists, but tmux is dead
+    const deadSession = makeSession({
+      id: "dead-1",
+      branch: "feat/dead-tmux",
+      pr: { ...pr },
+      runtimeHandle: { id: "rt-dead", runtimeName: "tmux", data: {} },
+    });
+    // Override: only "rt-dead" is dead, all others alive
+    vi.mocked(hasSession).mockImplementation(async (name: string) => name !== "rt-dead");
+
+    vi.mocked(mockSCM.listOpenPRs!).mockResolvedValue([pr]);
+
+    const result = await backfillUncoveredPRs(
+      deps,
+      makeParams({ activeSessions: [deadSession] }),
+    );
+
+    expect(result).toBe(true);
+    expect(mockSessionManager.spawn).toHaveBeenCalledOnce();
+    expect(mockSessionManager.claimPR).toHaveBeenCalledWith("new-1", "77");
+  });
+
+  it("keeps PR covered when session's tmux session is alive", async () => {
+    const pr = makePR({ number: 88, branch: "feat/alive-tmux" });
+    const aliveSession = makeSession({
+      branch: "feat/alive-tmux",
+      pr: { ...pr },
+      runtimeHandle: { id: "rt-alive", runtimeName: "tmux", data: {} },
+    });
+    // All sessions alive → PR stays covered
+    vi.mocked(hasSession).mockResolvedValue(true);
+
+    vi.mocked(mockSCM.listOpenPRs!).mockResolvedValue([pr]);
+
+    const result = await backfillUncoveredPRs(
+      deps,
+      makeParams({ activeSessions: [aliveSession] }),
+    );
+
+    expect(result).toBe(false);
+    expect(mockSessionManager.spawn).not.toHaveBeenCalled();
+  });
+
+  it("skips tmux check for sessions without runtimeHandle (non-tmux runtime)", async () => {
+    const pr = makePR({ number: 99, branch: "feat/no-rt" });
+    const noRtSession = makeSession({
+      branch: "feat/no-rt",
+      pr: { ...pr },
+      runtimeHandle: null, // non-tmux runtime
+    });
+    vi.mocked(hasSession).mockResolvedValue(false); // irrelevant
+
+    vi.mocked(mockSCM.listOpenPRs!).mockResolvedValue([pr]);
+
+    const result = await backfillUncoveredPRs(
+      deps,
+      makeParams({ activeSessions: [noRtSession] }),
+    );
+
+    expect(result).toBe(false);
+    expect(mockSessionManager.spawn).not.toHaveBeenCalled();
+    expect(hasSession).not.toHaveBeenCalled();
+  });
+
+  it("skips tmux check for sessions with runtimeName !== tmux (non-tmux runtime)", async () => {
+    const pr = makePR({ number: 88, branch: "feat/process-rt" });
+    const processSession = makeSession({
+      branch: "feat/process-rt",
+      pr: { ...pr },
+      runtimeHandle: { id: "rt-process", runtimeName: "process", data: {} },
+    });
+    vi.mocked(hasSession).mockResolvedValue(false); // would wrongly mark as dead without the guard
+
+    vi.mocked(mockSCM.listOpenPRs!).mockResolvedValue([pr]);
+
+    const result = await backfillUncoveredPRs(
+      deps,
+      makeParams({ activeSessions: [processSession] }),
+    );
+
+    // Non-tmux runtime: session counted as covered (no tmux liveness check).
+    // hasSession should NOT be called since runtimeName !== "tmux".
+    expect(result).toBe(false);
+    expect(mockSessionManager.spawn).not.toHaveBeenCalled();
+    expect(hasSession).not.toHaveBeenCalled();
+  });
+
+  it("treats session as alive when tmux.hasSession throws (fail-open)", async () => {
+    const pr = makePR({ number: 55, branch: "feat/tmux-err" });
+    const session = makeSession({
+      branch: "feat/tmux-err",
+      pr: { ...pr },
+      runtimeHandle: { id: "rt-err", runtimeName: "tmux", data: {} },
+    });
+    vi.mocked(hasSession).mockRejectedValue(new Error("tmux server down"));
+
+    vi.mocked(mockSCM.listOpenPRs!).mockResolvedValue([pr]);
+
+    const result = await backfillUncoveredPRs(
+      deps,
+      makeParams({ activeSessions: [session] }),
+    );
+
+    // Fail-open → session treated as alive → PR stays covered
+    expect(result).toBe(false);
+    expect(mockSessionManager.spawn).not.toHaveBeenCalled();
+  });
+
+  // ---- CR review context tests ----
+
+  it("injects CR review body into spawn prompt for CHANGES_REQUESTED PRs", async () => {
+    const pr = makePR({ number: 200, branch: "feat/cr-review" });
+    vi.mocked(mockSCM.listOpenPRs!).mockResolvedValue([pr]);
+    vi.mocked(mockSCM.getReviewDecision!).mockResolvedValue("changes_requested");
+
+    const crReview = {
+      author: "coderabbitai[bot]",
+      state: "changes_requested" as const,
+      body: "Please fix the naming convention in auth.ts",
+      submittedAt: new Date(),
+    };
+    vi.mocked(mockSCM.getReviews!).mockResolvedValue([crReview]);
+
+    const result = await backfillUncoveredPRs(deps, makeParams());
+
+    expect(result).toBe(true);
+    expect(mockSCM.getReviewDecision).toHaveBeenCalledWith(pr);
+    expect(mockSCM.getReviews).toHaveBeenCalledWith(pr);
+
+    const spawnCall = vi.mocked(mockSessionManager.spawn).mock.calls[0][0];
+    expect(spawnCall.prompt).toContain("CHANGES_REQUESTED");
+    expect(spawnCall.prompt).toContain("Please fix the naming convention in auth.ts");
+  });
+
+  it("falls back to generic prompt when CR review fetch returns no CR reviews", async () => {
+    const pr = makePR({ number: 201, branch: "feat/no-cr-review", title: "My feature" });
+    vi.mocked(mockSCM.listOpenPRs!).mockResolvedValue([pr]);
+    vi.mocked(mockSCM.getReviewDecision!).mockResolvedValue("changes_requested");
+    vi.mocked(mockSCM.getReviews!).mockResolvedValue([]); // no CR reviews
+
+    const result = await backfillUncoveredPRs(deps, makeParams());
+
+    expect(result).toBe(true);
+    const spawnCall = vi.mocked(mockSessionManager.spawn).mock.calls[0][0];
+    expect(spawnCall.prompt).not.toContain("CHANGES_REQUESTED");
+    expect(spawnCall.prompt).toContain("Continue working on PR #201");
+  });
+
+  it("falls back to generic prompt when getReviews throws", async () => {
+    const pr = makePR({ number: 203, branch: "feat/reviews-err", title: "Reviews error" });
+    vi.mocked(mockSCM.listOpenPRs!).mockResolvedValue([pr]);
+    vi.mocked(mockSCM.getReviewDecision!).mockResolvedValue("changes_requested");
+    vi.mocked(mockSCM.getReviews!).mockRejectedValue(new Error("API error"));
+
+    const result = await backfillUncoveredPRs(deps, makeParams());
+
+    expect(result).toBe(true);
+    const spawnCall = vi.mocked(mockSessionManager.spawn).mock.calls[0][0];
+    expect(spawnCall.prompt).not.toContain("CHANGES_REQUESTED");
+    expect(spawnCall.prompt).toContain("Continue working on PR #203");
+  });
+
+  it("calls getReviewDecision for all uncovered PRs; skips getReviews for non-CR/PRs", async () => {
+    const pr = makePR({ number: 202, branch: "feat/approved", title: "Approved PR" });
+    vi.mocked(mockSCM.listOpenPRs!).mockResolvedValue([pr]);
+    // Default mock returns "pending" — not "changes_requested"
+
+    const result = await backfillUncoveredPRs(deps, makeParams());
+
+    expect(result).toBe(true);
+    // getReviewDecision IS called (part of the loop over all uncovered PRs)
+    expect(mockSCM.getReviewDecision).toHaveBeenCalledWith(pr);
+    // getReviews should NOT be called for non-CHANGES_REQUESTED PRs
+    expect(mockSCM.getReviews).not.toHaveBeenCalled();
+    const spawnCall = vi.mocked(mockSessionManager.spawn).mock.calls[0][0];
+    expect(spawnCall.prompt).toContain("Continue working on PR #202");
+  });
+
+  // ---- rate-limit tests ----
+
+  // backfillUncoveredPRs returns after the FIRST successful spawn + claim.
+  // Rate-limit (counter, max=2) guards against >2 total CR-PR spawns across cycles.
+  // Per-cycle return: backfill exits after first spawn+claim success.
+  // Combined: in a single call, only 1 PR can succeed; across calls, counter caps at 2.
+  //
+  // This test exercises the rate-limit by forcing the loop to process multiple PRs:
+  // with counter=0, two CR-PRs fail claim (loop continues), third CR-PR succeeds
+  // and exits (counter=1). Next backfill call would process PR#304 (counter=1→2),
+  // and a third call would skip #305 since counter=2 (max).
+  it("skips CR-PR when rate-limit cap (2) is reached across cycles", async () => {
+    // 4 CR-PRs: first 2 fail claim (loop continues, counter stays 0),
+    // third succeeds (counter=0<2, counter becomes 1, backfill returns).
+    // Second backfill call: counter=1, PR#304 succeeds (counter becomes 2).
+    // Third backfill call: counter=2≥2, PR#305 SKIPPED.
+    const prs = [
+      makePR({ number: 301, branch: "feat/cr-1", title: "CR PR 301" }),
+      makePR({ number: 302, branch: "feat/cr-2", title: "CR PR 302" }),
+      makePR({ number: 303, branch: "feat/cr-3", title: "CR PR 303" }),
+    ];
+    vi.mocked(mockSCM.listOpenPRs!).mockResolvedValue(prs);
+    vi.mocked(mockSCM.getReviewDecision!).mockImplementation(async () => "changes_requested");
+    vi.mocked(mockSCM.getReviews!).mockResolvedValue([
+      { author: "coderabbitai[bot]", state: "changes_requested" as const, body: "fix", submittedAt: new Date().toISOString(), commit_id: "x" },
+    ]);
+    let spawnCount = 0;
+    vi.mocked(mockSessionManager.spawn).mockImplementation(async () => {
+      spawnCount++;
+      return makeSession({ id: `new-${spawnCount}` });
+    });
+    // First two claims fail (loop continues), third succeeds (backfill returns).
+    vi.mocked(mockSessionManager.claimPR)
+      .mockRejectedValueOnce(new Error("conflict"))
+      .mockRejectedValueOnce(new Error("conflict"))
+      .mockResolvedValueOnce({
+        sessionId: "new-3",
+        projectId: "proj",
+        pr: prs[2],
+        branchChanged: false,
+        githubAssigned: false,
+        takenOverFrom: [],
+      });
+
+    const result = await backfillUncoveredPRs(deps, makeParams());
+
+    // PR#301: spawn OK, claim fails → counter stays 0, continue
+    // PR#302: spawn OK, claim fails → counter stays 0, continue
+    // PR#303: counter=0<2, spawn OK, claim succeeds → counter=1, backfill returns
+    expect(result).toBe(true);
+    expect(mockSessionManager.spawn).toHaveBeenCalledTimes(3);
+    expect(mockSessionManager.claimPR).toHaveBeenCalledTimes(3);
+    // Counter is now 1 — next backfill call with the same PRs (still uncovered) would
+    // process PR#301 again (counter=1→2), and a third call would skip PR#302/#303.
+  });
+
+  // Verify rate-limit counter IS incremented for CHANGES_REQUESTED PRs
+  it("increments respawn counter for each CHANGES_REQUESTED PR processed", async () => {
+    // Single CHANGES_REQUESTED PR — counter goes from 0 to 1
+    vi.mocked(mockSCM.listOpenPRs!).mockResolvedValue([
+      makePR({ number: 401, branch: "feat/cr-c1", title: "CR C1" }),
+    ]);
+    vi.mocked(mockSCM.getReviewDecision!).mockImplementation(async () => "changes_requested");
+    vi.mocked(mockSCM.getReviews!).mockResolvedValue([
+      { author: "coderabbitai[bot]", state: "changes_requested" as const, body: "fix", submittedAt: new Date() },
+    ]);
+    vi.mocked(mockSessionManager.spawn).mockImplementation(async () => makeSession({ id: "new-401" }));
+
+    const result = await backfillUncoveredPRs(deps, makeParams());
+
+    expect(result).toBe(true);
+    expect(mockSessionManager.spawn).toHaveBeenCalledTimes(1);
+    // After processing 1 CR-PR, counter is 1
+  });
+
+  // Counter increments only after BOTH spawn and claim succeed.
+  // If claim fails, counter is NOT burned — the rate-limit slot is preserved.
+  it("does not increment counter when claim fails for a CHANGES_REQUESTED PR", async () => {
+    const prs = [
+      makePR({ number: 501, branch: "feat/cr-501", title: "CR PR 501" }),
+      makePR({ number: 502, branch: "feat/cr-502", title: "CR PR 502" }),
+    ];
+    vi.mocked(mockSCM.listOpenPRs!).mockResolvedValue(prs);
+    vi.mocked(mockSCM.getReviewDecision!).mockImplementation(async () => "changes_requested");
+    vi.mocked(mockSCM.getReviews!).mockResolvedValue([
+      { author: "coderabbitai[bot]", state: "changes_requested" as const, body: "fix", submittedAt: new Date() },
+    ]);
+    let spawnCount = 0;
+    vi.mocked(mockSessionManager.spawn).mockImplementation(async () => {
+      spawnCount++;
+      return makeSession({ id: `new-${spawnCount}` });
+    });
+    // First claim fails; second succeeds
+    vi.mocked(mockSessionManager.claimPR)
+      .mockRejectedValueOnce(new Error("conflict"))
+      .mockResolvedValueOnce({
+        sessionId: "new-2",
+        projectId: "proj",
+        pr: prs[1],
+        branchChanged: false,
+        githubAssigned: false,
+        takenOverFrom: [],
+      });
+
+    const result = await backfillUncoveredPRs(deps, makeParams());
+
+    // First PR: spawns OK, claim fails → counter NOT incremented, continue
+    // Second PR: counter still 0, spawns OK, claim succeeds → counter incremented to 1
+    expect(result).toBe(true);
+    expect(mockSessionManager.spawn).toHaveBeenCalledTimes(2);
+    expect(mockSessionManager.claimPR).toHaveBeenCalledTimes(2);
+  });
+
+  // Counter increments only after BOTH spawn and claim succeed.
+  // At counter=2 (MAX), no more CR-PRs are spawned even if more PRs remain in the same call.
+  // (backfill processes ONE PR per call — the rate-limit guards the NEXT backfill cycle.)
+  it("skips CHANGES_REQUESTED PRs once rate-limit (2) is exhausted", async () => {
+    const prs = [
+      makePR({ number: 601, branch: "feat/cr-601", title: "CR PR 601" }),
+      makePR({ number: 602, branch: "feat/cr-602", title: "CR PR 602" }),
+      makePR({ number: 603, branch: "feat/cr-603", title: "CR PR 603" }),
+    ];
+    vi.mocked(mockSCM.listOpenPRs!).mockResolvedValue(prs);
+    vi.mocked(mockSCM.getReviewDecision!).mockImplementation(async () => "changes_requested");
+    vi.mocked(mockSCM.getReviews!).mockResolvedValue([
+      { author: "coderabbitai[bot]", state: "changes_requested" as const, body: "fix", submittedAt: new Date() },
+    ]);
+    vi.mocked(mockSessionManager.spawn).mockImplementation(async () => makeSession({ id: "new-1" }));
+
+    const result = await backfillUncoveredPRs(deps, makeParams());
+
+    // PR#601: counter=0, spawn+claim succeed → counter=1, backfill returns.
+    // PRs #602/#603: not processed this cycle (backfill already returned).
+    expect(result).toBe(true);
+    expect(mockSessionManager.spawn).toHaveBeenCalledTimes(1);
+    expect(mockSessionManager.claimPR).toHaveBeenCalledWith("new-1", "601");
   });
 });
 
