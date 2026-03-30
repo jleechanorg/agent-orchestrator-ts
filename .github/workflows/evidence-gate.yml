@@ -48,7 +48,7 @@ jobs:
 
           BODY=$(cat "$RUNNER_TEMP/pr_body.txt")
 
-          if printf '%s' "$BODY" | grep -qi '^[[:space:]]*## Evidence'; then
+          if printf '%s' "$BODY" | grep -qiF '## Evidence'; then
             echo "found=true" >> "$GITHUB_OUTPUT"
           else
             echo "found=false" >> "$GITHUB_OUTPUT"
