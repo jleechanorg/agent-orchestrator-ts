@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import type * as ChildProcessModule from "node:child_process";
@@ -48,6 +48,17 @@ vi.mock("node:child_process", async (importOriginal) => {
 const { sweepOrphanWorktrees } = await import(
   "../../src/commands/orphan-sweep.js"
 );
+
+// --force flag tests use real lifecycle-service helpers on a temp directory.
+// The service helpers use real fs/syscall primitives; no mocking needed.
+const {
+  writeLifecycleWorkerPid,
+  getLifecyclePidFile,
+  clearLifecycleWorkerPid,
+} = await import("../../src/lib/lifecycle-service.js");
+
+// Needed to compute the lifecycle base dir for cleanup.
+const { getProjectBaseDir } = await import("@jleechanorg/ao-core") as { getProjectBaseDir: (a: string, b: string) => string };
 
 function createMockObserver() {
   return { recordOperation: vi.fn() };
@@ -412,5 +423,96 @@ describe("sweepOrphanWorktrees", () => {
     );
     expect(removeCalls).toHaveLength(1);
     expect(removeCalls[0][1][4]).toBe(orphanPath);
+  });
+});
+
+describe("--force flag lifecycle-service integration", () => {
+  // These tests verify lifecycle-service helpers used by the --force path.
+  // orch-886k
+
+  let tmpDir: string;
+  /** Lifecycle base dir written by writeLifecycleWorkerPid — cleaned up in afterEach. */
+  let lifecycleBase: string;
+
+  beforeEach(() => {
+    tmpDir = mkdtempSync(join(tmpdir(), "lw-force-test-"));
+    // Create stub config file so realpathSync() in generateConfigHash() doesn't throw.
+    const configPath = join(tmpDir, "agent-orchestrator.yaml");
+    writeFileSync(configPath, "projects:\n  test-proj:\n    path: .\n", "utf-8");
+    // Compute lifecycle base so afterEach can clean it up.
+    // getProjectBaseDir hashes the configPath so each test gets a unique path.
+    lifecycleBase = getProjectBaseDir(configPath, "test-proj");
+  });
+
+  afterEach(() => {
+    rmSync(tmpDir, { recursive: true, force: true });
+    rmSync(lifecycleBase, { recursive: true, force: true });
+  });
+
+  // --------------------------------------------------------------------------
+  // writeLifecycleWorkerPid / getLifecyclePidFile / clearLifecycleWorkerPid
+  // --------------------------------------------------------------------------
+
+  it("writeLifecycleWorkerPid writes our PID to the correct path", () => {
+    // Minimal config stub — only configPath and projects[projectId].path are read.
+    const config = {
+      configPath: join(tmpDir, "agent-orchestrator.yaml"),
+      projects: { "test-proj": { path: "test-proj" } },
+    } as never;
+    const projectId = "test-proj";
+
+    writeLifecycleWorkerPid(config, projectId, 42);
+    const pidFile = getLifecyclePidFile(config, projectId);
+    expect(existsSync(pidFile)).toBe(true);
+    expect(readFileSync(pidFile, "utf-8")).toBe("42\n");
+  });
+
+  it("clearLifecycleWorkerPid removes the PID file when pid matches", () => {
+    const config = {
+      configPath: join(tmpDir, "agent-orchestrator.yaml"),
+      projects: { "test-proj": { path: "test-proj" } },
+    } as never;
+    const projectId = "test-proj";
+
+    writeLifecycleWorkerPid(config, projectId, 99);
+    expect(existsSync(getLifecyclePidFile(config, projectId))).toBe(true);
+
+    clearLifecycleWorkerPid(config, projectId, 99);
+    expect(existsSync(getLifecyclePidFile(config, projectId))).toBe(false);
+  });
+
+  it("clearLifecycleWorkerPid leaves the PID file when pid does NOT match", () => {
+    const config = {
+      configPath: join(tmpDir, "agent-orchestrator.yaml"),
+      projects: { "test-proj": { path: "test-proj" } },
+    } as never;
+    const projectId = "test-proj";
+
+    writeLifecycleWorkerPid(config, projectId, 55);
+    clearLifecycleWorkerPid(config, projectId, 77); // different PID
+    expect(existsSync(getLifecyclePidFile(config, projectId))).toBe(true);
+  });
+
+  it("clearLifecycleWorkerPid is idempotent (no-op when file absent)", () => {
+    const config = {
+      configPath: join(tmpDir, "agent-orchestrator.yaml"),
+      projects: { "test-proj": { path: "test-proj" } },
+    } as never;
+    expect(() => clearLifecycleWorkerPid(config, "test-proj")).not.toThrow();
+  });
+
+  it("writeLifecycleWorkerPid overwrites a stale PID", () => {
+    const config = {
+      configPath: join(tmpDir, "agent-orchestrator.yaml"),
+      projects: { "test-proj": { path: "test-proj" } },
+    } as never;
+    const projectId = "test-proj";
+
+    writeLifecycleWorkerPid(config, projectId, 11);
+    expect(readFileSync(getLifecyclePidFile(config, projectId), "utf-8")).toBe("11\n");
+
+    // Overwrite with new PID (simulates --force recovery scenario)
+    writeLifecycleWorkerPid(config, projectId, 22);
+    expect(readFileSync(getLifecyclePidFile(config, projectId), "utf-8")).toBe("22\n");
   });
 });

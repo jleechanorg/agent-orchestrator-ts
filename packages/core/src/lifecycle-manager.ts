@@ -57,7 +57,6 @@ import {
   capturePane as tmuxCapturePane,
   killSession as tmuxKillSession,
   sendKeys as tmuxSendKeys,
-  hasSession as tmuxHasSession,
 } from "./tmux.js";
 import { buildReactionContext } from "./reaction-context.js";
 import { validateAndEmitExitProof } from "./session-exit-proof.js";
@@ -71,7 +70,6 @@ import { GLOBAL_PAUSE_UNTIL_KEY, GLOBAL_PAUSE_REASON_KEY, parsePauseUntil } from
 import { isGhRateLimitError } from "./gh-rate-limit.js";
 import { backfillUncoveredPRs } from "./backfill-extensions.js";
 import { sweepOrphanTmuxSessions, DEFAULT_TMUX_SWEEPER_CONFIG } from "./tmux-session-sweeper.js";
-import { reapStaleSessions, DEFAULT_REAPER_CONFIG } from "./session-reaper.js";
 import { drainTaskQueue } from "./task-queue.js";
 import { applyDeadAgentOverride } from "./fork-dead-agent.js";
 import {
@@ -89,10 +87,9 @@ import { runLocalSkepticCron } from "./skeptic-cron-local.js";
 import { resolveReactionMaxRetries } from "./fork-reaction-retry-policy.js";
 
 /**
- * verify6Green — explicit 7-green pre-merge verification (bd-mjtn)
+ * verify6Green — explicit 6-green pre-merge verification (bd-mjtn)
  *
- * Enforces the core pre-merge gates (CI/conflicts/CR-approval/Bugbot/inline)
- * BEFORE any merge attempt:
+ * Enforces all six PR readiness conditions BEFORE any merge attempt:
  *   Gate 1: CI green (all checks SUCCESS)
  *   Gate 2: No merge conflicts (mergeable: MERGEABLE)
  *   Gate 3: CodeRabbit APPROVED (actionable reviews only — APPROVED/CHANGES_REQUESTED,
@@ -103,9 +100,10 @@ import { resolveReactionMaxRetries } from "./fork-reaction-retry-policy.js";
  *            which blocks the gate until resolved — this is intentional fail-closed
  *            behaviour)
  *
- * Evidence-review (Gate 6) and Skeptic (Gate 7) are NOT enforced here — those are
- * optional per-project gates.  Agents are expected to have already run /er and
- * posted the skeptic VERDICT: PASS comment before posting the green signal.
+ * Skeptic (Gate 6) and evidence-review (Gate 7) are NOT enforced here — those are
+ * optional per-project gates controlled via MergeGateConfig.  Agents are expected
+ * to have already run /er and posted the skeptic VERDICT: PASS comment before
+ * posting the green signal.
  *
  * @param pr            - PR to verify
  * @param scm           - SCM plugin instance
@@ -132,7 +130,7 @@ export async function verify6Green(
     enabled: projectMergeGate?.enabled ?? true,
     ...projectMergeGate,
     // Always force skepticRequired=false regardless of project config — Skeptic is
-    // Gate 7 / an optional per-project gate, not part of the 5-core-gate contract.
+    // Gate 6 / an optional per-project gate, not part of the 6-green contract.
     skepticRequired: false,
   };
   return checkMergeGate(pr, config, scm);
@@ -431,7 +429,6 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
   let allCompleteEmitted = false; // guard against repeated all_complete
   let everHadSessions = false; // tracks whether any sessions have ever been observed
   let lastSweepTime = 0; // timestamp of last orphan tmux sweep
-  let lastTtlCheckTime = 0; // orch-ju1: timestamp of last TTL/dead-tmux health check
   const SWEEP_INTERVAL_MS = 5 * 60 * 1000; // run orphan sweep every 5 minutes
 
   /** Check if idle time exceeds the agent-stuck threshold. */
@@ -2523,93 +2520,6 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
           // Sweep failures must not break the main poll cycle
           console.error(
             `[tmux-sweeper] sweep failed: ${sweepErr instanceof Error ? sweepErr.message : String(sweepErr)}`,
-          );
-        }
-      }
-
-      // orch-ju1: TTL + dead-tmux health check — runs on the same SWEEP_INTERVAL_MS
-      // throttle as the orphan sweep. Reaps sessions that have exceeded their TTL
-      // or whose tmux process is no longer running. Dead sessions with an open PR
-      // are respawned targeting the same PR.
-      // Note: use a separate lastTtlCheckTime so the TTL reaper runs on its own
-      // cadence independent of the orphan sweep's lastSweepTime update.
-      if (nowMs - (lastTtlCheckTime ?? 0) >= SWEEP_INTERVAL_MS) {
-        lastTtlCheckTime = nowMs;
-        try {
-          const SESSION_TTL_MS = (config as { sessionTtlMs?: number }).sessionTtlMs
-            ?? DEFAULT_REAPER_CONFIG.noPrThresholdMs; // default 4h
-
-          // respawnDeadTmuxSession: when a dead-tmux session had an open PR,
-          // spawn a replacement targeting the same PR so work continues.
-          const respawnDeadTmuxSession = async (
-            sessionId: string,
-            projectId: string,
-            deadSession: Session,
-          ): Promise<void> => {
-            if (!deadSession.pr || deadSession.pr.state !== "open") return;
-            const project = config.projects[projectId];
-            if (!project) return;
-            try {
-              const newSession = await sessionManager.spawn({
-                projectId,
-                issueId: String(deadSession.pr.number),
-              });
-              observer.recordOperation({
-                metric: "lifecycle_poll",
-                operation: "lifecycle.ttl_respawn",
-                outcome: "success",
-                correlationId: createCorrelationId("ttl-respawn"),
-                projectId,
-                sessionId: newSession.id,
-                data: {
-                  deadSessionId: sessionId,
-                  prNumber: deadSession.pr.number,
-                  newSessionId: newSession.id,
-                },
-                level: "info",
-              });
-            } catch (spawnErr) {
-              observer.recordOperation({
-                metric: "lifecycle_poll",
-                operation: "lifecycle.ttl_respawn",
-                outcome: "failure",
-                correlationId: createCorrelationId("ttl-respawn"),
-                projectId,
-                sessionId: deadSession.id,
-                data: { error: spawnErr instanceof Error ? spawnErr.message : String(spawnErr) },
-                level: "warn",
-              });
-            }
-          };
-
-          const healthResult = await reapStaleSessions(
-            {
-              orphanedThresholdMs: 10 * 60 * 60 * 1000, // TTL reaper is not responsible for orphan detection
-              noPrThresholdMs: 10 * 60 * 60 * 1000,
-              sessionTtlMs: SESSION_TTL_MS,
-              maxKillsPerRun: DEFAULT_REAPER_CONFIG.maxKillsPerRun,
-              startupGracePeriodMs: config.startupGracePeriodMs ?? 120_000,
-            },
-            {
-              sessionManager,
-              tmuxHealth: tmuxHasSession,
-              respawnSession: respawnDeadTmuxSession,
-            },
-          );
-
-          if (healthResult.killed.length > 0) {
-            console.log(
-              `[lifecycle-manager] TTL/dead-tmux reaper: killed ${healthResult.killed.length} session(s): ${healthResult.killed.map((s) => `${s.sessionId} (${s.reason})`).join(", ")}`,
-            );
-          }
-          if (healthResult.errors.length > 0) {
-            console.warn(
-              `[lifecycle-manager] TTL/dead-tmux reaper errors: ${healthResult.errors.map((e) => `${e.sessionId}: ${e.error}`).join("; ")}`,
-            );
-          }
-        } catch (healthErr) {
-          console.error(
-            `[lifecycle-manager] TTL/dead-tmux reaper failed: ${healthErr instanceof Error ? healthErr.message : String(healthErr)}`,
           );
         }
       }
