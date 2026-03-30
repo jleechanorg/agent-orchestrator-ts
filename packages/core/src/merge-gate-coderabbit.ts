@@ -83,8 +83,14 @@ export function hasUnresolvedDismissedReview(
 export function evaluateCoderabbitApproval(
   reviews: Review[],
 ): { passed: boolean; detail: string } {
-  const latestCR = getLatestDecisiveReview(reviews, "coderabbitai[bot]");
-  const hasDismissed = hasUnresolvedDismissedReview(reviews, "coderabbitai[bot]");
+  // NOTE: `gh pr view --json reviews` returns author.login WITHOUT the "[bot]" suffix
+  // (e.g. "coderabbitai" not "coderabbitai[bot]"). The GitHub REST API returns "[bot]"
+  // but the gh CLI strips it. Match both to be safe.
+  const crAuthor = reviews.some((r) => r.author === "coderabbitai[bot]")
+    ? "coderabbitai[bot]"
+    : "coderabbitai";
+  const latestCR = getLatestDecisiveReview(reviews, crAuthor);
+  const hasDismissed = hasUnresolvedDismissedReview(reviews, crAuthor);
   const passed = latestCR?.state === "approved" && !hasDismissed;
 
   // Detail priority: changes_requested takes precedence over dismissal so the most
