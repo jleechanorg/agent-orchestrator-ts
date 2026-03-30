@@ -812,24 +812,31 @@ describe("stop command", () => {
 describe("start command — main repo guard (bd-8gld)", () => {
   let originalRealpath: typeof realpathSync.native;
   let mainRepoDir: string;
+  let originalHome: string | undefined;
 
   beforeEach(() => {
     // Save original realpathSync.native so we can spy on it per-test
     originalRealpath = realpathSync.native;
+    // Save original HOME so we can restore it after the test
+    originalHome = process.env["HOME"];
 
     // Create a real temp directory for the "main repo" — this is the path
     // that AO_MAIN_REPO and realpathSync.native will resolve to.
     mainRepoDir = mkdtempSync(join(tmpdir(), "ao-main-repo-guard-"));
 
     // AO_MAIN_REPO env var tells getMainRepoPath() which path to guard.
-    // Without this, the default is jleechan's machine-specific path.
+    // Without this, the default is derived from os.homedir().
     process.env["AO_MAIN_REPO"] = mainRepoDir;
     process.env["HOME"] = tmpdir();
   });
 
   afterEach(() => {
     delete process.env["AO_MAIN_REPO"];
-    delete process.env["HOME"];
+    if (originalHome !== undefined) {
+      process.env["HOME"] = originalHome;
+    } else {
+      delete process.env["HOME"];
+    }
     rmSync(mainRepoDir, { recursive: true, force: true });
   });
 
@@ -850,7 +857,7 @@ describe("start command — main repo guard (bd-8gld)", () => {
     ).rejects.toThrow("process.exit(1)");
 
     const errors = vi.mocked(console.error).mock.calls.map((c) => c.join(" ")).join("\n");
-    expect(errors).toContain("Refusing to start AO directly on the main repo");
+    expect(errors).toContain("Refusing to operate on the main repo");
   });
 
   it("starts normally when project path is NOT the main repo", async () => {
