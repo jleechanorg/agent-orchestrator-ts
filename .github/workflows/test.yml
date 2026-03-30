@@ -8,7 +8,10 @@ concurrency:
   cancel-in-progress: false
 jobs:
   skeptic_gate:
-    runs-on: ${{ fromJson(vars.SELF_HOSTED_RUNNER_LABELS || '["self-hosted","Linux","ARM64","agent-orchestrator"]') }}
+    # Fork PRs use ubuntu-latest to avoid running untrusted code on self-hosted infrastructure.
+    runs-on: ${{ github.event.pull_request.head.repo.fork && github.event_name == 'pull_request'
+              && 'ubuntu-latest'
+              || fromJson(vars.SELF_HOSTED_RUNNER_LABELS || '["self-hosted","Linux","ARM64","agent-orchestrator"]') }}
     permissions:
       pull-requests: write
       issues: write
