@@ -96,7 +96,7 @@ jobs:
             # Fallback: check the Skeptic Gate check run status
             if [ "$GATE_PASSED" = "false" ]; then
               GATE_CHECK=$(gh api repos/${{ github.repository }}/commits/"$PR_SHA"/check-runs \
-                --jq '[.check_runs[] | select(.name == "Skeptic Gate")] | sort_by((.started_at // .created_at // "")) | reverse | .[0].conclusion // "none"' 2>/dev/null || echo "none")
+                --jq '[.check_runs[] | select(.name == "Skeptic Gate")] | last | .conclusion // "none"' 2>/dev/null || echo "none")
               if [ "$GATE_CHECK" = "success" ]; then
                 GATE_PASSED=true
                 echo "  [PRE-CHECK] Skeptic Gate check run: success for SHA ${PR_SHA:0:7}"

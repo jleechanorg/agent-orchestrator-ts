@@ -144,7 +144,7 @@ export async function backfillUncoveredPRs(
           projectId,
           // Label the title as untrusted contributor input so the agent does not
           // treat embedded text as system directives. Quotes prevent injection.
-          prompt: `Continue working on PR #${pr.number}: [PR title: "${escapedTitle}"]. Check PR status, fix any blockers (CI failures, review comments, merge conflicts), and drive it to 7-green.`,
+          prompt: `Continue working on PR #${pr.number}: [PR title: "${escapedTitle}"]. Check PR status, fix any blockers (CI failures, review comments, merge conflicts), and drive it to 6-green.`,
         });
 
         // Claim the PR for this session — this checks out the branch

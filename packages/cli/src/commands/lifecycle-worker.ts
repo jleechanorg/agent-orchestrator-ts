@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { promisify } from "node:util";
 import type { Command } from "commander";
 import chalk from "chalk";
@@ -14,6 +15,8 @@ import {
 import { getLifecycleManager, getSessionManager } from "../lib/create-session-manager.js";
 import {
   clearLifecycleWorkerPid,
+  forceLifecycleLock,
+  getLifecycleLockFile,
   getLifecycleWorkerStatus,
   tryAcquireLifecycleLock,
   writeLifecycleWorkerPid,
@@ -137,10 +140,16 @@ export function registerLifecycleWorker(program: Command): void {
       "Idle threshold before orphan tmux sessions are cleaned",
       "21600000",
     )
+    .option(
+      "--force",
+      "Override the startup lock and PID-file dedup check. Use for recovery " +
+      "scenarios when the existing worker is known-dead and the lock is stale.",
+      false,
+    )
     .action(
       async (
         projectId: string,
-        opts: { intervalMs?: string; orphanSweepIntervalMs?: string; orphanTtlMs?: string },
+        opts: { intervalMs?: string; orphanSweepIntervalMs?: string; orphanTtlMs?: string; force?: boolean },
       ) => {
         const config = loadConfig();
         const observer = createProjectObserver(config, "lifecycle-worker");
@@ -161,64 +170,113 @@ export function registerLifecycleWorker(program: Command): void {
         // the PID file. This closes the TOCTOU window that allowed two concurrent
         // lifecycle-worker processes (e.g. launchd restart + ao start) to both
         // pass the "not running" check before either recorded its PID.
-        const releaseLock = tryAcquireLifecycleLock(config, projectId);
-        if (!releaseLock) {
-          // Another process holds the lock -- it is starting up or already running.
+        // --force skips the lock check entirely so operators can override stale locks.
+        const releaseLock = opts.force
+          ? null
+          : tryAcquireLifecycleLock(config, projectId);
+
+        if (releaseLock === null && !opts.force) {
+          // Lock held by a live peer — yield.
           const existingLocked = getLifecycleWorkerStatus(config, projectId);
-          if (existingLocked.running && existingLocked.pid !== process.pid) {
+          // When pid is null (peer has no PID file yet), read directly from the
+          // lock file — the peer wrote its PID there so we can surface it.
+          const lockFile = getLifecycleLockFile(config, projectId);
+          let peerPid = existingLocked.pid;
+          if (peerPid === null) {
+            try {
+              const raw = readFileSync(lockFile, "utf-8").trim();
+              const parsed = Number.parseInt(raw, 10);
+              if (Number.isFinite(parsed) && parsed > 0) peerPid = parsed;
+            } catch { /* lock file gone or unreadable — leave null */ }
+          }
+          observer.setHealth({
+            surface: "lifecycle.worker",
+            status: "warn",
+            projectId,
+            correlationId: createCorrelationId("lifecycle-worker"),
+            reason: existingLocked.running && existingLocked.pid !== process.pid
+              ? `Worker already running with pid ${existingLocked.pid} (lock held)`
+              : "Startup lock held by peer; yielding to avoid duplicate worker",
+            details: { projectId, pid: peerPid },
+          });
+          return;
+        }
+
+        if (!releaseLock && opts.force) {
+          // --force: use forceLifecycleLock which reads the current owner PID,
+          // confirms it's dead (ps check), then atomically clears and re-acquires.
+          // Returns null if the lock is held by a live process — we yield rather
+          // than steal a peer's lock. (orch-886k)
+          console.warn(
+            chalk.yellow(`[orch-886k] --force set: attempting lock reacquisition for project "${projectId}"`),
+          );
+          const reAcquire = forceLifecycleLock(config, projectId);
+          if (reAcquire === null) {
+            // Lock is held by a live process — yield to the peer rather than
+            // steal it. (orch-886k)
+            const lockFile = getLifecycleLockFile(config, projectId);
+            let peerPid: number | null = null;
+            try {
+              const raw = readFileSync(lockFile, "utf-8").trim();
+              const parsed = Number.parseInt(raw, 10);
+              if (Number.isFinite(parsed) && parsed > 0) peerPid = parsed;
+            } catch { /* lock file gone or unreadable */ }
             observer.setHealth({
               surface: "lifecycle.worker",
               status: "warn",
               projectId,
               correlationId: createCorrelationId("lifecycle-worker"),
-              reason: `Worker already running with pid ${existingLocked.pid} (lock held)`,
-              details: { projectId, pid: existingLocked.pid },
+              reason: "Lock held by live peer; yielding to avoid duplicate worker",
+              details: { projectId, pid: peerPid ?? process.pid },
             });
             return;
           }
-          observer.setHealth({
-            surface: "lifecycle.worker",
-            status: "warn",
-            projectId,
-            correlationId: createCorrelationId("lifecycle-worker"),
-            reason: "Startup lock held by peer; yielding to avoid duplicate worker",
-            details: { projectId, pid: process.pid },
-          });
-          return;
-        }
-
-        // We hold the lock. Check for an already-running worker, then write our PID.
-        // Wrap the entire critical section in try/finally so the lock is always
-        // released even if getLifecycleWorkerStatus or writeLifecycleWorkerPid throws.
-        let skipStartup = false;
-        let skipReason = "";
-        let skipDetails: Record<string, unknown> = {};
-        try {
-          const existing = getLifecycleWorkerStatus(config, projectId);
-          if (existing.running && existing.pid !== process.pid) {
-            skipStartup = true;
-            skipReason = `Worker already running with pid ${existing.pid}`;
-            skipDetails = { projectId, pid: existing.pid };
-          } else {
-            // Record our PID while holding the lock so no peer races past this
-            // point. (orch-886k)
+          // Hold the lock across writeLifecycleWorkerPid so no peer races past.
+          // (orch-886k)
+          try {
             writeLifecycleWorkerPid(config, projectId, process.pid);
+          } finally {
+            reAcquire();
           }
-        } finally {
-          // Always release the lock, even on throw.
-          releaseLock();
-        }
+        } else {
+          // Normal path: hold the lock, check peer status, write our PID.
+          let skipStartup = false;
+          let skipReason = "";
+          let skipDetails: Record<string, unknown> = {};
+          try {
+            const existing = getLifecycleWorkerStatus(config, projectId);
+            if (existing.running && existing.pid !== process.pid) {
+              skipStartup = true;
+              skipReason = `Worker already running with pid ${existing.pid}`;
+              skipDetails = { projectId, pid: existing.pid };
+            } else if (existing.verified === null) {
+              // ps failed — a genuine worker may be running and we cannot confirm.
+              // Leave the PID file intact so the next call can retry; do not
+              // overwrite with our PID and risk creating a duplicate. (orch-886k)
+              skipStartup = true;
+              skipReason = "Cannot verify peer state (ps failed); refusing to start to avoid duplicate worker";
+              skipDetails = { projectId, pid: existing.pid };
+            } else {
+              // Record our PID while holding the lock so no peer races past this
+              // point. (orch-886k)
+              writeLifecycleWorkerPid(config, projectId, process.pid);
+            }
+          } finally {
+            // Always release the lock, even on throw.
+            releaseLock!();
+          }
 
-        if (skipStartup) {
-          observer.setHealth({
-            surface: "lifecycle.worker",
-            status: "warn",
-            projectId,
-            correlationId: createCorrelationId("lifecycle-worker"),
-            reason: skipReason,
-            details: skipDetails,
-          });
-          return;
+          if (skipStartup) {
+            observer.setHealth({
+              surface: "lifecycle.worker",
+              status: "warn",
+              projectId,
+              correlationId: createCorrelationId("lifecycle-worker"),
+              reason: skipReason,
+              details: skipDetails,
+            });
+            return;
+          }
         }
 
         const lifecycle = await getLifecycleManager(config, projectId);
@@ -300,7 +358,6 @@ export function registerLifecycleWorker(program: Command): void {
           shutdown(1);
         });
 
-        // PID was written while holding the lock above. (orch-886k)
         observer.setHealth({
           surface: "lifecycle.worker",
           status: "ok",

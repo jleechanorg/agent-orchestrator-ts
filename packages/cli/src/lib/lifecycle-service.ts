@@ -48,6 +48,61 @@ export function getLifecycleLockFile(config: OrchestratorConfig, projectId: stri
 }
 
 /**
+ * Compare-and-reap helper for the --force recovery path.
+ *
+ * Reads the current lock-file owner PID. If the PID is confirmed dead (via ps),
+ * clears the stale lock and atomically re-acquires it. Returns null if the lock
+ * is held by a live process — the force worker yields rather than steal it.
+ *
+ * This closes the race in the naive force path (clearLifecycleLockFile →
+ * tryAcquireLifecycleLock) where the force worker could unlink a live peer's
+ * lock, causing both workers to proceed with overlapping locks. (orch-886k)
+ */
+export function forceLifecycleLock(
+  config: OrchestratorConfig,
+  projectId: string,
+): (() => void) | null {
+  const lockFile = getLifecycleLockFile(config, projectId);
+
+  // Step 1: read current lock owner PID.
+  let ownerPid: number | null;
+  try {
+    const raw = readFileSync(lockFile, "utf-8").trim();
+    ownerPid = Number.parseInt(raw, 10);
+    if (!Number.isFinite(ownerPid) || ownerPid <= 0) ownerPid = null;
+  } catch {
+    // No lock file — try to acquire fresh.
+    ownerPid = null;
+  }
+
+  // Step 2: if we have an owner PID, confirm it's dead before clearing anything.
+  if (ownerPid !== null && ownerPid !== process.pid) {
+    try {
+      const cmdline = execFileSync(
+        "ps",
+        ["-ww", "-p", String(ownerPid), "-o", "args="],
+        { timeout: 3_000, stdio: ["ignore", "pipe", "ignore"] },
+      )
+        .toString("utf-8")
+        .trim();
+      if (cmdline.length > 0) {
+        // Lock owner is alive — do not steal it.
+        return null;
+      }
+      // cmdline is empty → process is gone (ESRCH/exit-1). Fall through.
+    } catch {
+      // ps failed: process not found (exit-1), ps unavailable, EPERM, timeout,
+      // etc. Treat all failures as "process is gone" — if the process were
+      // alive, ps would return its command line and not throw. This matches
+      // the logic in _reapStaleLock. (orch-886k)
+    }
+  }
+
+  // Step 3: lock is absent or confirmed dead. Re-acquire atomically.
+  return tryAcquireLifecycleLock(config, projectId);
+}
+
+/**
  * Attempt to atomically claim the lifecycle-worker startup lock for a project.
  *
  * Uses O_EXCL so only one process can create the lock file. Returns a release
