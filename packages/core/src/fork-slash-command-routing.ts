@@ -14,24 +14,32 @@ const CI_MERGE_KEYWORDS = [
   "merge conflict", "merge conflicts", "to green", "6-green", "skeptic", "verdict",
 ];
 
-function messageContainsCommentFixIntentImpl(msg: string): boolean {
+type IntentCategory = "comment-fix" | "ci-merge" | "none";
+
+function intentCategory(msg: string): IntentCategory {
   const lower = msg.toLowerCase();
   // Single-word keywords use whole-word matching to avoid false positives like
   // "email address" triggering fix intent. Multi-word phrases use substring matching
-  // because a word-boundary regex (\b) would fail when other words separate them.
+  // because a word-boundary regex (\b) fails when other words separate them.
   const hasCommentFix = COMMENT_FIX_KEYWORDS.some((kw) =>
     kw.includes(" ") ? lower.includes(kw.toLowerCase()) : wholeWordMatch(lower, kw.toLowerCase())
   );
+  if (hasCommentFix) return "comment-fix";
   const hasCiMergeFix = CI_MERGE_KEYWORDS.some((kw) =>
     kw.includes(" ") ? lower.includes(kw.toLowerCase()) : wholeWordMatch(lower, kw.toLowerCase())
   );
-  return hasCommentFix || hasCiMergeFix;
+  return hasCiMergeFix ? "ci-merge" : "none";
 }
 
 function wholeWordMatch(text: string, keyword: string): boolean {
   // Escape regex special chars, then match with word boundaries on both sides.
   const escaped = keyword.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   return new RegExp(`\\b${escaped}\\b`, "i").test(text);
+}
+
+function messageContainsCommentFixIntentImpl(msg: string): boolean {
+  const cat = intentCategory(msg);
+  return cat === "comment-fix" || cat === "ci-merge";
 }
 
 function transformToSlashCommandImpl(msg: string): string {
@@ -43,15 +51,8 @@ function transformToSlashCommandImpl(msg: string): string {
     return `${slash}\n${stripped}`;
   }
 
-  const lower = msg.toLowerCase();
-  const hasCommentFix = COMMENT_FIX_KEYWORDS.some((kw) =>
-    kw.includes(" ") ? lower.includes(kw.toLowerCase()) : wholeWordMatch(lower, kw.toLowerCase())
-  );
-  const hasCiMergeFix = CI_MERGE_KEYWORDS.some((kw) =>
-    kw.includes(" ") ? lower.includes(kw.toLowerCase()) : wholeWordMatch(lower, kw.toLowerCase())
-  );
-
-  const slash = hasCommentFix ? "/copilot" : hasCiMergeFix ? "/polish" : "/copilot";
+  const cat = intentCategory(msg);
+  const slash = cat === "comment-fix" ? "/copilot" : cat === "ci-merge" ? "/polish" : "/copilot";
   return `${slash}\n${msg.trim()}`;
 }
 
