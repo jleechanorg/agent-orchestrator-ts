@@ -122,7 +122,8 @@ describe("hasSession", () => {
   });
 
   it("returns false when session does not exist", async () => {
-    mockTmuxError("session not found");
+    // list-sessions succeeds (server is up), but has-session fails (session not found)
+    mockTmuxSequence([{ stdout: "" }, { error: "session not found" }]);
     expect(await hasSession("app-99")).toBe(false);
   });
 });
