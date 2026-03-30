@@ -2032,7 +2032,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
                 // Find the highest comment ID
                 const latestId = Math.max(...skepticComments.map((c) => c.id));
                 const previousId = lastSkepticCommentId.get(session.id);
-                if (previousId === undefined || latestId > previousId) {
+                if (previousId == null || latestId > previousId) {
                   // New skeptic comment(s) detected — fire the reaction
                   const result = await executeReaction(
                     session.id,
