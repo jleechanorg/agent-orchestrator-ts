@@ -13,54 +13,14 @@ import type {
 import { checkMergeGate } from "./merge-gate.js";
 import { buildActionPlan, formatActionPlan } from "./action-plan.js";
 
-/**
- * Extract structured sections from a skeptic FAIL comment body.
- * The skeptic agent posts comments with ## Background, ## Current Problem,
- * and ## Recommended Solution sections. Returns the extracted content.
- */
-function extractSkepticSections(body: string): string {
-  const sections: string[] = [];
-
-  const background = extractSection(body, "Background");
-  if (background) sections.push(`## Background\n${background}`);
-
-  const problem = extractSection(body, "Current Problem");
-  if (problem) sections.push(`## Current Problem\n${problem}`);
-
-  const solution = extractSection(body, "Recommended Solution");
-  if (solution) sections.push(`## Recommended Solution\n${solution}`);
-
-  // Fall back to raw body if no sections found
-  if (sections.length === 0) {
-    return body.slice(0, 2000);
-  }
-
-  return sections.join("\n\n");
-}
-
-/** Extract the content between a ## Section header and the next ## header or end of string. */
-function extractSection(body: string, sectionName: string): string | null {
-  // Split body by ## headers, find the named section, return its content.
-  // Handles blank lines between sections by stripping trailing blank lines.
-  const parts = body.split(/(?=##\s+)/i);
-  const prefix = `## ${sectionName}`;
-  for (const part of parts) {
-    if (part.startsWith(prefix)) {
-      // Content is everything after "## Section Name\n"
-      const afterHeader = part.slice(prefix.length).replace(/^\r?\n/, "");
-      return afterHeader.trimEnd() || null;
-    }
-  }
-  return null;
-  return content.length > 0 ? content : null;
-}
+import { buildSkepticAdviceContext } from "./reaction-context-skeptic.js";
 
 /**
  * Append a prioritized gate-closure action plan to reaction context.
  * Runs checkMergeGate to discover failing gates, formats the result as
  * worker-readable text, and returns it for injection into the reaction message.
  */
-async function appendActionPlan(
+export async function appendActionPlan(
   scm: SCM,
   pr: Session["pr"],
   projectId: string,
@@ -135,19 +95,8 @@ export async function buildReactionContext(
         return actionPlanText ? `${summary}\n\n${actionPlanText}` : summary;
       }
       case "skeptic-advice": {
-        // Fetch skeptic agent comments and extract structured sections from the
-        // most recent FAIL verdict for delivery to the worker agent.
-        if (!scm.getSkepticComments) return "";
-        const comments = await scm.getSkepticComments(session.pr!);
-        // Find the latest FAIL verdict comment
-        let latestFail: { id: number; body: string } | null = null;
-        for (const c of comments) {
-          if (/VERDICT:\s*FAIL/i.test(c.body) && c.id > (latestFail?.id ?? -1)) {
-            latestFail = { id: c.id, body: c.body };
-          }
-        }
-        if (!latestFail) return "";
-        return extractSkepticSections(latestFail.body);
+        // Delegated to reaction-context-skeptic.ts per CR review — keeps core upstream file thin.
+        return await buildSkepticAdviceContext(scm, session);
       }
       default:
         return "";

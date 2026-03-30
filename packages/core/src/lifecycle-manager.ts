@@ -424,8 +424,8 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
   // When the SHA changes while session stays in pr_open, re-fire the skeptic reaction.
   const lastSkepticSha = new Map<string, string>(); // sessionId → last evaluated HEAD SHA
   // bd-qqm: track the last skeptic comment ID per session to detect new FAIL verdicts.
-  // Initialized lazily (null = never fetched), compared against fetched comment IDs each poll.
-  const lastSkepticCommentId = new Map<string, number | null>(); // sessionId → last known comment ID (null = never fetched)
+  // Initialized lazily (undefined = never fetched), compared against fetched comment IDs each poll.
+  const lastSkepticCommentId = new Map<string, number>(); // sessionId → last known comment ID
   let pollTimer: ReturnType<typeof setInterval> | null = null;
   let polling = false; // re-entrancy guard
   let inboxPolling = false; // re-entrancy guard for concurrent inbox polls
@@ -2032,7 +2032,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
                 // Find the highest comment ID
                 const latestId = Math.max(...skepticComments.map((c) => c.id));
                 const previousId = lastSkepticCommentId.get(session.id);
-                if (previousId == null || latestId > previousId) {
+                if (previousId === undefined || latestId > previousId) {
                   // New skeptic comment(s) detected — fire the reaction
                   const result = await executeReaction(
                     session.id,
