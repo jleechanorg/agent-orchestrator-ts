@@ -260,7 +260,8 @@ check_stale_temp_files() {
 }
 
 check_lifecycle_workers() {
-  local config_file="$HOME/.openclaw/agent-orchestrator.yaml"
+  local config_file
+  config_file="$(find_config)" || config_file="$HOME/.openclaw/agent-orchestrator.yaml"
   local canonical_binary canonical_real
   canonical_binary="$(command -v ao 2>/dev/null || printf '%s' "$HOME/bin/ao")"
   canonical_real="$(realpath "$canonical_binary" 2>/dev/null || printf '%s' "$canonical_binary")"
@@ -396,10 +397,11 @@ check_runners() {
     if ! command -v gh &>/dev/null; then
       warn "gh not found — runner count check skipped for $slug"
     else
-      gh_output="$(gh api "repos/$owner_repo/actions/runners" --jq '.total_count' 2>&1)"
+      gh_output="$(gh api "repos/$owner_repo/actions/runners" --jq '.runners | map(select(.status=="online")) | length' 2>&1)"
       gh_status=$?
       if [ $gh_status -ne 0 ]; then
         warn "gh api failed for $owner_repo (exit $gh_status): ${gh_output%%$'\n'*}"
+        continue
       else
         runner_count="$gh_output"
       fi
@@ -529,8 +531,10 @@ check_ghost_worktrees() {
       wt_name="$(basename "$wt_path")"
       if [[ "$wt_name" =~ $pattern ]]; then
         # Check if tmux session exists for this worktree
-        local session_name="${wt_name}"
-        if ! tmux has-session -t "$session_name" 2>/dev/null; then
+        local session_name="${wt_name}" tmux_rc=0
+        tmux has-session -t "$session_name" 2>/dev/null; tmux_rc=$?
+        if [ $tmux_rc -eq 1 ]; then
+          # Session does not exist — candidate for ghost worktree
           # Ghost worktree: AO-named but no live session
           if [ "${FIX_MODE:-false}" = true ]; then
             # Guard: only auto-remove clean worktrees
@@ -546,6 +550,8 @@ check_ghost_worktrees() {
             ghost_count=$((ghost_count + 1))
             warn "ghost AO worktree detected (no live session): $wt_path. Fix: ao doctor --fix"
           fi
+        elif [ $tmux_rc -gt 1 ]; then
+          warn "tmux IPC error (rc=$tmux_rc) checking session '$session_name' — skipping $wt_path"
         fi
       fi
     fi
