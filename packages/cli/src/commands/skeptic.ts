@@ -193,15 +193,19 @@ export function registerSkeptic(program: Command): Command {
         return;
       }
 
-      // Parse verdict from LLM output
+      // Parse verdict from LLM output.
+      // When Gate 3 override fires, finalVerdict carries the full FAIL message with the
+      // Gate-3 reason — use it as-is so the GitHub comment includes the explanatory tail.
       const verdictMatch = finalVerdict.match(VERDICT_LINE_RE);
-      if (!verdictMatch) {
+      if (!verdictMatch && !wasOverridden) {
         console.warn(chalk.yellow("Could not parse VERDICT from LLM output. Posting raw output."));
       }
 
-      const verdictLine = verdictMatch
-        ? verdictMatch[0]
-        : "VERDICT: FAIL — could not parse LLM output (expected VERDICT: PASS/FAIL/SKIPPED)";
+      // Use the full finalVerdict (with Gate-3 reason) when overridden;
+      // otherwise use just the matched line to keep PASS/FAIL comments compact.
+      const verdictLine = wasOverridden
+        ? finalVerdict
+        : (verdictMatch ? verdictMatch[0] : finalVerdict);
 
       const spinner4 = ora("Posting verdict to PR #" + prNumber + "…").start();
       let commentBody: string;
