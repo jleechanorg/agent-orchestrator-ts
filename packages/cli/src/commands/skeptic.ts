@@ -151,7 +151,7 @@ export function registerSkeptic(program: Command): Command {
       // The LLM prompt instructs gate 3 (CR APPROVED) but the model can still issue
       // PASS when CR has only COMMENTED or CHANGES_REQUESTED. Enforce it at code level:
       // if CR has not approved, only FAIL is acceptable — PASS or SKIPPED are overridden.
-      const { finalVerdict: rawFinal, wasOverridden } = applyGate3Override({
+      const { finalVerdict, wasOverridden, llmOutput } = applyGate3Override({
         llmVerdict: verdict,
         crApproved: state.crApproved,
         crState: state.crState,
@@ -170,7 +170,6 @@ export function registerSkeptic(program: Command): Command {
           ),
         );
       }
-      const finalVerdict = rawFinal;
 
       // Dry-run: print verdict without posting
       if (options.dryRun) {
@@ -181,8 +180,10 @@ export function registerSkeptic(program: Command): Command {
         } else {
           console.log(finalVerdict);
         }
-        console.log(chalk.yellow("\n=== Full LLM output ===\n"));
-        console.log(finalVerdict);
+        if (wasOverridden) {
+          console.log(chalk.yellow("\n=== Original LLM verdict (overridden) ===\n"));
+          console.log(verdict);
+        }
         // Exit non-zero only for VERDICT: FAIL from LLM evaluation.
         // Infrastructure failures (Codex/Claude unavailable) emit VERDICT: SKIPPED and exit 0
         // so the cron step continues — gate 7 treats SKIPPED as a pass condition.
@@ -213,7 +214,7 @@ export function registerSkeptic(program: Command): Command {
           existing?.commentId ?? null,
           SKEPTIC_BOT_AUTHOR,
           options.triggerSha,
-          finalVerdict, // always pass final (possibly overridden) verdict so bodies carry context
+          llmOutput, // original LLM output shown separately from the verdict line
         );
         spinner4.succeed(chalk.green("Done! Skeptic verdict posted."));
 
@@ -227,7 +228,10 @@ export function registerSkeptic(program: Command): Command {
         // Verify both run-level (LLM output) and comment-level (GitHub comment).
         // This surfaces INSUFFICIENT when evidence is missing or inconsistent — fail-closed.
         const spinner5 = ora("Verifying claim (run-level + comment-level)…").start();
-        const claimResult = verifySkepticClaim(finalVerdict, commentBody);
+        const claimResult = verifySkepticClaim(
+          wasOverridden ? finalVerdict : llmOutput,
+          commentBody,
+        );
         spinner5.stop();
         console.log(formatClaimVerification(claimResult));
 
