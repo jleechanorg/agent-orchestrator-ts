@@ -54,12 +54,14 @@ jobs:
           echo "Checking PR #$PR_NUM at SHA ${HEAD_SHA:0:12}"
 
           # ----------------------------------------------------------------
-          # Gate 1: CI green — all check runs and commit status must pass.
+          # Gate 1: CI green — core check runs must pass.
           #
           # Strategy: check-runs API is authoritative (real-time per-job state).
           # commit-status API aggregates these but often lags 30-60s after all
-          # check-runs complete. Pass Gate 1 when all 4 CI jobs show
-          # status=completed + conclusion=success — regardless of commit-status.
+          # check-runs complete. Gate 1 passes when the minimum required core jobs
+          # (MIN_CORE_JOBS=$MIN_CORE_JOBS — typically Lint + Typecheck) show
+          # status=completed + conclusion=success. Test and Test Web are
+          # additional/optional jobs beyond the MIN_CORE_JOBS threshold.
           #
           # Wait for CI to register (up to 5 min) before evaluating. This
           # prevents false FAIL when the workflow fires before CI has even
@@ -87,8 +89,10 @@ jobs:
             fi
 
             CHECK_RUNS_FAILED=$(gh api repos/${{ github.repository }}/commits/"$HEAD_SHA"/check-runs \
+              --paginate \
               --jq '[.check_runs | group_by(.name) | .[] | sort_by(.started_at) | reverse | .[0] | select((.name == "Lint" or .name == "Typecheck" or .name == "Test" or .name == "Test (Web)") and .conclusion != null and .conclusion != "success" and .conclusion != "skipped" and .conclusion != "neutral" and .conclusion != "cancelled")] | length' 2>/dev/null || echo "__API_ERROR__")
             CHECK_RUNS_PENDING=$(gh api repos/${{ github.repository }}/commits/"$HEAD_SHA"/check-runs \
+              --paginate \
               --jq '[.check_runs | group_by(.name) | .[] | sort_by(.started_at) | reverse | .[0] | select((.name == "Lint" or .name == "Typecheck" or .name == "Test" or .name == "Test (Web)") and .status != "completed")] | length' 2>/dev/null || echo "__API_ERROR__")
             TOTAL_CHECKS=$(gh api repos/${{ github.repository }}/commits/"$HEAD_SHA"/check-runs \
               --paginate \
