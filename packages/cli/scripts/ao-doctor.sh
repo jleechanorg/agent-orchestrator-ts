@@ -7,9 +7,20 @@ set -uo pipefail
 
 # Source ao-checks.sh relative to this script (packages/cli/scripts/) -> ../../../scripts/
 _doctor_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+_primary="${_doctor_dir}/../../../scripts/ao-checks.sh"
+_bundled="${_doctor_dir}/../../scripts/ao-checks.sh"
+
+if [ -f "$_primary" ]; then
+  _checks_path="$_primary"
+elif [ -f "$_bundled" ]; then
+  _checks_path="$_bundled"
+else
+  printf 'ERROR: ao-checks.sh not found (tried %s and %s)
+' "$_primary" "$_bundled" >&2
+  exit 1
+fi
 # shellcheck source=../../../scripts/ao-checks.sh
-source "${_doctor_dir}/../../../scripts/ao-checks.sh" 2>/dev/null || \
-  source "${_doctor_dir}/../../scripts/ao-checks.sh"
+source "$_checks_path"
 
 # ── argument parsing ───────────────────────────────────────────────────────────
 FIX_MODE=false

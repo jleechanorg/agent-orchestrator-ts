@@ -488,6 +488,11 @@ check_main_repo_branch() {
   fi
 
   if [ "${FIX_MODE:-false}" = true ]; then
+    # Guard: refuse to checkout if worktree has uncommitted changes
+    if [ -n "$(git -C "$main_repo" status --porcelain 2>/dev/null)" ]; then
+      warn "main repo has uncommitted changes — skipping auto-checkout. Commit or stash first."
+      return
+    fi
     if git -C "$main_repo" checkout main 2>&1 && git -C "$main_repo" pull --ff-only 2>&1; then
       fixed "main repo switched from '$current_branch' to main"
     else
@@ -528,7 +533,10 @@ check_ghost_worktrees() {
         if ! tmux has-session -t "$session_name" 2>/dev/null; then
           # Ghost worktree: AO-named but no live session
           if [ "${FIX_MODE:-false}" = true ]; then
-            if git -C "$main_repo" worktree remove --force "$wt_path" 2>/dev/null; then
+            # Guard: only auto-remove clean worktrees
+            if [ -n "$(git -C "$wt_path" status --porcelain 2>/dev/null)" ]; then
+              warn "ghost worktree $wt_path has uncommitted changes — skipping auto-remove. Commit or stash first."
+            elif git -C "$main_repo" worktree remove --force "$wt_path" 2>/dev/null; then
               removed_count=$((removed_count + 1))
               fixed "removed ghost worktree $wt_path"
             else

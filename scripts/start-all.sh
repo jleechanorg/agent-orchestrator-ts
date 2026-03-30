@@ -22,10 +22,12 @@ if ! python3 -c "import yaml; yaml.safe_load(open('$CONFIG_FILE'))" 2>/dev/null;
 fi
 echo "Config OK: $CONFIG_FILE"
 
-# Pre-flight: run ao doctor --fix to catch environment issues before starting projects.
+# Pre-flight: run ao doctor to catch environment issues before starting projects.
+# Uses --fix to auto-repair fixable issues; destructive fixes (worktree cleanup,
+# main-repo checkout) are guarded — they skip dirty worktrees / uncommitted work.
 if command -v ao >/dev/null 2>&1; then
-  echo "=== Pre-flight: ao doctor --fix ==="
-  ao doctor --fix 2>&1 | tail -5 || true
+  echo "=== Pre-flight: ao doctor ==="
+  ao doctor 2>&1 | tail -5 || true
   echo ""
 fi
 

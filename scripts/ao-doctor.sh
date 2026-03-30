@@ -6,9 +6,14 @@ set -uo pipefail
 
 # Determine script directory (supports both direct execution and sourcing)
 _doctor_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# Source ao-checks.sh relative to this script
+_checks_path="${_doctor_dir}/ao-checks.sh"
+if [ ! -f "$_checks_path" ]; then
+  printf 'ERROR: ao-checks.sh not found at %s\n' "$_checks_path" >&2
+  printf 'Run this script from the repository root or reinstall AO.\n' >&2
+  exit 1
+fi
 # shellcheck source=./ao-checks.sh
-source "${_doctor_dir}/ao-checks.sh"
+source "$_checks_path"
 
 # ── argument parsing ───────────────────────────────────────────────────────────
 FIX_MODE=false
@@ -21,12 +26,12 @@ Usage: ao doctor [--fix]
 
 Checks install, PATH, binaries, service health, stale temp files, and runtime sanity.
 Runs all checks from ao-checks.sh plus:
-  check_runners         — self-hosted runner status
+  check_runners           — self-hosted runner status
   check_launchd_services — launchd lifecycle-worker
   check_main_repo_branch — main repo on main
-  check_ghost_worktrees — orphan AO worktrees
-  check_rate_limits     — GitHub API quotas
-  check_skeptic_chain   — ao skeptic verify --help
+  check_ghost_worktrees  — orphan AO worktrees
+  check_rate_limits       — GitHub API quotas
+  check_skeptic_chain     — ao skeptic verify --help
 
 Options:
   --fix    Apply safe fixes for all fixable checks
