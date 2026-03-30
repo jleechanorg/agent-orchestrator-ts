@@ -25,7 +25,7 @@ jobs:
       pull-requests: write
       issues: write
       contents: read
-      checks: read
+      checks: write
     steps:
       - name: Run 6-green gate checks
         id: gates
