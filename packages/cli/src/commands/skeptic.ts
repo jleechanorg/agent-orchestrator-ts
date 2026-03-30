@@ -21,7 +21,7 @@ import { buildSkepticPrompt } from "./skeptic/prompt.js";
 import { runSkepticEvaluation } from "./skeptic/modelRunner.js";
 import { postVerdict } from "./skeptic/posting.js";
 import { verifySkepticClaim, formatClaimVerification } from "./skeptic/claim-verifier.js";
-import { VERDICT_LINE_RE } from "./skeptic/verdict-utils.js";
+import { VERDICT_LINE_RE, applyGate3Override } from "./skeptic/verdict-utils.js";
 
 // bd-lg7i: Default to jleechan2015 — ao skeptic verify posts via `gh api`
 // authenticated as the local user, not the GitHub App bot. Override via
@@ -151,27 +151,26 @@ export function registerSkeptic(program: Command): Command {
       // The LLM prompt instructs gate 3 (CR APPROVED) but the model can still issue
       // PASS when CR has only COMMENTED or CHANGES_REQUESTED. Enforce it at code level:
       // if CR has not approved, only FAIL is acceptable — PASS or SKIPPED are overridden.
-      let finalVerdict = verdict;
-      if (!state.crApproved) {
+      const { finalVerdict: rawFinal, wasOverridden } = applyGate3Override({
+        llmVerdict: verdict,
+        crApproved: state.crApproved,
+        crState: state.crState,
+        crDismissedWithoutApproval: state.crDismissedWithoutApproval,
+      });
+      if (wasOverridden) {
         const parsed = verdict.match(VERDICT_LINE_RE);
         const raw = parsed?.[1]?.toUpperCase();
-        if (raw !== "FAIL") {
-          const crDetail = state.crDismissedWithoutApproval
-            ? `${state.crState} + DISMISSED_WITHOUT_APPROVAL`
-            : state.crState;
-          console.warn(
-            chalk.yellow(
-              `⚠  Gate 3 override: CR state=${crDetail} — LLM returned VERDICT: ${raw ?? "UNPARSED"}; ` +
-                `overriding to VERDICT: FAIL (fail-closed, bd-kvvx)`,
-            ),
-          );
-          finalVerdict = "VERDICT: FAIL — Gate 3 (CR APPROVED) not satisfied. " +
-            `CR review state: ${crDetail}. ` +
-            "This is a hard requirement — no PASS is possible without CR APPROVED.\n\n" +
-            "--- Original LLM output (overridden) ---\n" +
-            verdict;
-        }
+        const crDetail = state.crDismissedWithoutApproval
+          ? `${state.crState} + DISMISSED_WITHOUT_APPROVAL`
+          : state.crState;
+        console.warn(
+          chalk.yellow(
+            `⚠  Gate 3 override: CR state=${crDetail} — LLM returned VERDICT: ${raw ?? "UNPARSED"}; ` +
+              `overriding to VERDICT: FAIL (fail-closed, bd-kvvx)`,
+          ),
+        );
       }
+      const finalVerdict = rawFinal;
 
       // Dry-run: print verdict without posting
       if (options.dryRun) {

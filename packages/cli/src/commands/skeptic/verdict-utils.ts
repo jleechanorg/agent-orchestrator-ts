@@ -19,3 +19,38 @@ export function getVerdictColor(verdictType: string): "green" | "yellow" | "red"
   if (verdictType === "SKIPPED") return "yellow";
   return "red";
 }
+
+/** bd-kvvx: fail-closed gate 3 enforcement.
+ *
+ * The LLM prompt instructs gate 3 (CR APPROVED) but the model can still issue
+ * PASS when CR has only COMMENTED or CHANGES_REQUESTED. This overrides to FAIL.
+ *
+ * Returns { finalVerdict, wasOverridden }.
+ */
+export function applyGate3Override(params: {
+  llmVerdict: string;
+  crApproved: boolean;
+  crState: string;
+  crDismissedWithoutApproval: boolean;
+}): { finalVerdict: string; wasOverridden: boolean } {
+  const { llmVerdict, crApproved, crState, crDismissedWithoutApproval } = params;
+  if (!crApproved) {
+    const parsed = llmVerdict.match(VERDICT_LINE_RE);
+    const raw = parsed?.[1]?.toUpperCase();
+    if (raw !== "FAIL") {
+      const crDetail = crDismissedWithoutApproval
+        ? `${crState} + DISMISSED_WITHOUT_APPROVAL`
+        : crState;
+      return {
+        finalVerdict:
+          "VERDICT: FAIL — Gate 3 (CR APPROVED) not satisfied. " +
+          `CR review state: ${crDetail}. ` +
+          "This is a hard requirement — no PASS is possible without CR APPROVED.\n\n" +
+          "--- Original LLM output (overridden) ---\n" +
+          llmVerdict,
+        wasOverridden: true,
+      };
+    }
+  }
+  return { finalVerdict: llmVerdict, wasOverridden: false };
+}

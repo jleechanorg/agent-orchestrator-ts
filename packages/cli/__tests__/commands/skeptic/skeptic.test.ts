@@ -6,11 +6,8 @@
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-// CR: import the real VERDICT_LINE_RE from production to avoid duplication.
-// NOTE: vitest's resolvePackageEntry limitation prevents direct import from
-// src/commands/skeptic.js; we verify alignment via an integration test below.
-// The local definition must be kept in sync with verdict-utils.ts:VERDICT_LINE_RE.
-const VERDICT_LINE_RE = /^(?:> ?\*\*)?VERDICT:\s*(PASS|FAIL|SKIPPED)\b/im;
+// Import the real constants and helpers from production code — no duplication.
+import { VERDICT_LINE_RE, applyGate3Override } from "../../../src/commands/skeptic/verdict-utils.js";
 
 // ---------------------------------------------------------------------------
 // Docs-only gate — mirrors the jq regex from skeptic-cron.yml.
@@ -294,37 +291,10 @@ describe("docs-only gate", () => {
 // Gate-3 override (bd-kvvx) — fail-closed CR APPROVED enforcement at code level.
 //
 // The LLM prompt instructs gate 3 (CR APPROVED) but the model can still issue
-// PASS when CR has only COMMENTED or CHANGES_REQUESTED. This logic mirrors the
-// fail-closed override in skeptic.ts (~lines 157–175).
+// PASS when CR has only COMMENTED or CHANGES_REQUESTED. applyGate3Override() is
+// imported from verdict-utils.ts so tests stay coupled to real production logic.
 // ---------------------------------------------------------------------------
-function applyGate3Override(params: {
-  llmVerdict: string;
-  crApproved: boolean;
-  crState: string;
-  crDismissedWithoutApproval: boolean;
-}): { finalVerdict: string; wasOverridden: boolean } {
-  const { llmVerdict, crApproved, crState, crDismissedWithoutApproval } = params;
-  if (!crApproved) {
-    const parsed = llmVerdict.match(VERDICT_LINE_RE);
-    const raw = parsed?.[1]?.toUpperCase();
-    if (raw !== "FAIL") {
-      const crDetail = crDismissedWithoutApproval
-        ? `${crState} + DISMISSED_WITHOUT_APPROVAL`
-        : crState;
-      return {
-        finalVerdict:
-          "VERDICT: FAIL — Gate 3 (CR APPROVED) not satisfied. " +
-          `CR review state: ${crDetail}. ` +
-          "This is a hard requirement — no PASS is possible without CR APPROVED.",
-        wasOverridden: true,
-      };
-    }
-  }
-  return { finalVerdict: llmVerdict, wasOverridden: false };
-}
-
 describe("Gate 3 override — bd-kvvx fail-closed", () => {
-  const VERDICT_LINE_RE_LOCAL = /^(?:> ?\*\*)?VERDICT:\s*(PASS|FAIL|SKIPPED)\b/im;
 
   it("PASS → FAIL when CR has COMMENTED only", () => {
     const { finalVerdict, wasOverridden } = applyGate3Override({
@@ -334,7 +304,7 @@ describe("Gate 3 override — bd-kvvx fail-closed", () => {
       crDismissedWithoutApproval: false,
     });
     expect(wasOverridden).toBe(true);
-    const parsed = finalVerdict.match(VERDICT_LINE_RE_LOCAL);
+    const parsed = finalVerdict.match(VERDICT_LINE_RE);
     expect(parsed?.[1]).toBe("FAIL");
   });
 
@@ -346,7 +316,7 @@ describe("Gate 3 override — bd-kvvx fail-closed", () => {
       crDismissedWithoutApproval: false,
     });
     expect(wasOverridden).toBe(true);
-    const parsed = finalVerdict.match(VERDICT_LINE_RE_LOCAL);
+    const parsed = finalVerdict.match(VERDICT_LINE_RE);
     expect(parsed?.[1]).toBe("FAIL");
   });
 
@@ -358,7 +328,7 @@ describe("Gate 3 override — bd-kvvx fail-closed", () => {
       crDismissedWithoutApproval: false,
     });
     expect(wasOverridden).toBe(true);
-    const parsed = finalVerdict.match(VERDICT_LINE_RE_LOCAL);
+    const parsed = finalVerdict.match(VERDICT_LINE_RE);
     expect(parsed?.[1]).toBe("FAIL");
   });
 
@@ -370,7 +340,7 @@ describe("Gate 3 override — bd-kvvx fail-closed", () => {
       crDismissedWithoutApproval: false,
     });
     expect(wasOverridden).toBe(true);
-    const parsed = finalVerdict.match(VERDICT_LINE_RE_LOCAL);
+    const parsed = finalVerdict.match(VERDICT_LINE_RE);
     expect(parsed?.[1]).toBe("FAIL");
   });
 
@@ -382,7 +352,7 @@ describe("Gate 3 override — bd-kvvx fail-closed", () => {
       crDismissedWithoutApproval: false,
     });
     expect(wasOverridden).toBe(false);
-    const parsed = finalVerdict.match(VERDICT_LINE_RE_LOCAL);
+    const parsed = finalVerdict.match(VERDICT_LINE_RE);
     expect(parsed?.[1]).toBe("FAIL");
   });
 
@@ -394,7 +364,7 @@ describe("Gate 3 override — bd-kvvx fail-closed", () => {
       crDismissedWithoutApproval: false,
     });
     expect(wasOverridden).toBe(false);
-    const parsed = finalVerdict.match(VERDICT_LINE_RE_LOCAL);
+    const parsed = finalVerdict.match(VERDICT_LINE_RE);
     expect(parsed?.[1]).toBe("PASS");
   });
 
@@ -406,7 +376,7 @@ describe("Gate 3 override — bd-kvvx fail-closed", () => {
       crDismissedWithoutApproval: false,
     });
     expect(wasOverridden).toBe(false);
-    const parsed = finalVerdict.match(VERDICT_LINE_RE_LOCAL);
+    const parsed = finalVerdict.match(VERDICT_LINE_RE);
     expect(parsed?.[1]).toBe("FAIL");
   });
 
@@ -430,7 +400,7 @@ describe("Gate 3 override — bd-kvvx fail-closed", () => {
       crDismissedWithoutApproval: false,
     });
     expect(wasOverridden).toBe(true);
-    const parsed = finalVerdict.match(VERDICT_LINE_RE_LOCAL);
+    const parsed = finalVerdict.match(VERDICT_LINE_RE);
     expect(parsed?.[1]).toBe("FAIL");
   });
 
@@ -442,7 +412,7 @@ describe("Gate 3 override — bd-kvvx fail-closed", () => {
       crDismissedWithoutApproval: false,
     });
     expect(wasOverridden).toBe(true);
-    const parsed = finalVerdict.match(VERDICT_LINE_RE_LOCAL);
+    const parsed = finalVerdict.match(VERDICT_LINE_RE);
     expect(parsed?.[1]).toBe("FAIL");
   });
 });
