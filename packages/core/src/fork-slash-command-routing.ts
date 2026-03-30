@@ -10,8 +10,11 @@ const COMMENT_FIX_KEYWORDS = [
   "changes requested", "address feedback", "fix comments", "fix review",
 ];
 const CI_MERGE_KEYWORDS = [
-  "ci fail", "ci-fail", "ci failing", "ci error", "not mergeable",
+  // CI failure variants — covers "CI failing", "CI fail", "check failed", "test failed", etc.
+  "ci fail", "ci-fail", "ci failing", "ci error", "check failed", "test failed",
+  "lint failed", "build failed", "not mergeable",
   "merge conflict", "merge conflicts", "to green", "6-green", "skeptic", "verdict",
+  "gate check", "gate fail",
 ];
 
 type IntentCategory = "comment-fix" | "ci-merge" | "none";
@@ -42,18 +45,23 @@ function messageContainsCommentFixIntentImpl(msg: string): boolean {
   return cat === "comment-fix" || cat === "ci-merge";
 }
 
-function transformToSlashCommandImpl(msg: string): string {
+function transformToSlashCommandImpl(msg: string): string | null {
+  // Strip leading whitespace so existingSlash detection works for "  /copilot fix this".
+  const trimmed = msg.trimStart();
+
   // If message already starts with a slash command, preserve it.
-  const existingSlash = msg.match(/^\/(copilot|polish)\s*/i);
+  const existingSlash = trimmed.match(/^\/(copilot|polish)\s*/i);
   if (existingSlash) {
     const slash = `/${existingSlash[1].toLowerCase()}`;
-    const stripped = msg.replace(/^\/(?:copilot|polish)\s*/i, "").trim();
+    const stripped = trimmed.replace(/^\/(?:copilot|polish)\s*/i, "").trim();
     return `${slash}\n${stripped}`;
   }
 
-  const cat = intentCategory(msg);
-  const slash = cat === "comment-fix" ? "/copilot" : cat === "ci-merge" ? "/polish" : "/copilot";
-  return `${slash}\n${msg.trim()}`;
+  const cat = intentCategory(trimmed);
+  // Only transform when intent is detected; return null otherwise (no silent misroute).
+  if (cat === "none") return null;
+  const slash = cat === "comment-fix" ? "/copilot" : "/polish";
+  return `${slash}\n${trimmed}`;
 }
 
 // Re-export for consumers that import from utils.ts (backward compat)
@@ -70,7 +78,10 @@ export function applySlashCommandRouting(
   agentName: string,
 ): string {
   if (agentName === "claude-code" && messageContainsCommentFixIntentImpl(message)) {
-    return transformToSlashCommandImpl(message);
+    const transformed = transformToSlashCommandImpl(message);
+    // transformToSlashCommandImpl returns null when no intent category matches,
+    // which can happen if called directly on a message with intent already consumed.
+    return transformed !== null ? transformed : message;
   }
   return message;
 }

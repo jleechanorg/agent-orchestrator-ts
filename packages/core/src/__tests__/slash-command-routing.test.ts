@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { messageContainsCommentFixIntent, transformToSlashCommand } from "../utils.js";
+import { applySlashCommandRouting } from "../fork-slash-command-routing.js";
 
 describe("messageContainsCommentFixIntent", () => {
   it("returns true for 'fix comments' message", () => {
@@ -94,5 +95,49 @@ describe("transformToSlashCommand", () => {
     const firstLine = result.split("\n")[0];
     expect(firstLine).toBe("/polish");
     expect(result).not.toMatch(/^\/polish\/polish/);
+  });
+
+  it("returns null for non-fix-intent message (no silent misroute)", () => {
+    const result = transformToSlashCommand("Please work on the login feature");
+    expect(result).toBeNull();
+  });
+
+  it("strips leading whitespace before existingSlash match", () => {
+    const result = transformToSlashCommand("  /copilot fix the CI failure");
+    expect(result).not.toBeNull();
+    const firstLine = result!.split("\n")[0];
+    expect(firstLine).toBe("/copilot");
+  });
+});
+
+describe("applySlashCommandRouting (send-path integration)", () => {
+  it("claude-code agent + fix-intent message → slash command transformed", () => {
+    const result = applySlashCommandRouting("There are review comments on your PR", "claude-code");
+    expect(result).toMatch(/^\/copilot/);
+    expect(result).toContain("review comments");
+  });
+
+  it("claude-code agent + CI failure message → /polish", () => {
+    const result = applySlashCommandRouting("CI failing — tests are broken", "claude-code");
+    expect(result).toMatch(/^\/polish/);
+  });
+
+  it("claude-code agent + no fix intent → original message unchanged", () => {
+    const msg = "Please work on the login feature";
+    const result = applySlashCommandRouting(msg, "claude-code");
+    expect(result).toBe(msg);
+  });
+
+  it("non-claude-code agent → original message unchanged (regardless of intent)", () => {
+    const msg = "There are review comments on your PR";
+    // Codex, opencode, and other agents should receive the message as-is.
+    expect(applySlashCommandRouting(msg, "codex")).toBe(msg);
+    expect(applySlashCommandRouting(msg, "opencode")).toBe(msg);
+  });
+
+  it("claude-code agent + existing slash command → preserved (not double-prefixed)", () => {
+    const msg = "/polish fix the merge conflict";
+    const result = applySlashCommandRouting(msg, "claude-code");
+    expect(result).toBe("/polish\nfix the merge conflict");
   });
 });
