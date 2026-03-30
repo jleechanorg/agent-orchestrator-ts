@@ -85,12 +85,17 @@ export function evaluateCoderabbitApproval(
 ): { passed: boolean; detail: string } {
   // NOTE: `gh pr view --json reviews` returns author.login WITHOUT the "[bot]" suffix
   // (e.g. "coderabbitai" not "coderabbitai[bot]"). The GitHub REST API returns "[bot]"
-  // but the gh CLI strips it. Match both to be safe.
-  const crAuthor = reviews.some((r) => r.author === "coderabbitai[bot]")
-    ? "coderabbitai[bot]"
-    : "coderabbitai";
-  const latestCR = getLatestDecisiveReview(reviews, crAuthor);
-  const hasDismissed = hasUnresolvedDismissedReview(reviews, crAuthor);
+  // but the gh CLI strips it. Normalize both forms to "coderabbitai" so that the gate
+  // evaluates correctly regardless of which API surface (gh CLI or REST) populated the
+  // reviews array — and regardless of whether a review dismissal/re-review cycle left
+  // reviews from both name variants in the same array.
+  const normalizedReviews = reviews.map((r) =>
+    r.author === "coderabbitai" || r.author === "coderabbitai[bot]"
+      ? { ...r, author: "coderabbitai" }
+      : r,
+  );
+  const latestCR = getLatestDecisiveReview(normalizedReviews, "coderabbitai");
+  const hasDismissed = hasUnresolvedDismissedReview(normalizedReviews, "coderabbitai");
   const passed = latestCR?.state === "approved" && !hasDismissed;
 
   // Detail priority: changes_requested takes precedence over dismissal so the most

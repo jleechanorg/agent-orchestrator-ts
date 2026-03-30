@@ -245,4 +245,42 @@ describe("checkMergeGate", () => {
     const commentsCheck = result.checks.find((c) => c.name === "Inline comments resolved");
     expect(commentsCheck?.passed).toBe(true);
   });
+
+  // --- CodeRabbit author normalization tests (gh CLI strips [bot] suffix) ---
+
+  it("passes CR check when review author is 'coderabbitai' (no [bot] suffix — gh CLI form)", async () => {
+    // gh pr view --json reviews strips the "[bot]" suffix, returning "coderabbitai"
+    // not "coderabbitai[bot]". The gate must accept both forms.
+    const scm = makePassingScm();
+    scm.getReviews.mockResolvedValue([
+      { author: "coderabbitai", state: "approved", submittedAt: new Date() },
+    ]);
+    const result = await checkMergeGate(pr, config, scm as unknown as SCM);
+    const crCheck = result.checks.find((c) => c.name === "CodeRabbit approved");
+    expect(crCheck?.passed).toBe(true);
+    expect(crCheck?.detail).toBe("CodeRabbit approved");
+  });
+
+  it("fails CR check when 'coderabbitai' (no [bot]) review is changes_requested", async () => {
+    const scm = makePassingScm();
+    scm.getReviews.mockResolvedValue([
+      { author: "coderabbitai", state: "changes_requested", submittedAt: new Date() },
+    ]);
+    const result = await checkMergeGate(pr, config, scm as unknown as SCM);
+    expect(result.passed).toBe(false);
+    expect(result.blockers).toContain("CodeRabbit approved");
+  });
+
+  it("passes CR check when mixed [bot]/non-[bot] reviews exist and latest is approved", async () => {
+    // Dismissal/re-review cycle can leave reviews from both "coderabbitai" and
+    // "coderabbitai[bot]" in the same array. Normalization must handle this correctly.
+    const scm = makePassingScm();
+    scm.getReviews.mockResolvedValue([
+      { author: "coderabbitai[bot]", state: "changes_requested", submittedAt: new Date("2024-01-01T00:00:00Z") },
+      { author: "coderabbitai", state: "approved", submittedAt: new Date("2024-01-02T00:00:00Z") },
+    ]);
+    const result = await checkMergeGate(pr, config, scm as unknown as SCM);
+    const crCheck = result.checks.find((c) => c.name === "CodeRabbit approved");
+    expect(crCheck?.passed).toBe(true);
+  });
 });
