@@ -616,6 +616,9 @@ export interface SCM {
   /** Get automated review comments (bots, linters, security scanners) */
   getAutomatedComments(pr: PRInfo): Promise<AutomatedComment[]>;
 
+  /** Get all issue/PR conversation comments (for general comment subscription, orch-nep) */
+  getIssueComments?(pr: PRInfo): Promise<IssueComment[]>;
+
   // --- Review Actions (bd-yjo: atomic re-review transaction) ---
 
   /** Resolve a review comment thread. No-op if not supported. */
@@ -788,6 +791,15 @@ export interface AutomatedComment {
   path?: string;
   line?: number;
   severity: "error" | "warning" | "info";
+  createdAt: Date;
+  url: string;
+}
+
+/** Issue/PR conversation comment — used for general comment subscription (orch-nep) */
+export interface IssueComment {
+  id: number;
+  author: string;
+  body: string;
   createdAt: Date;
   url: string;
 }

@@ -38,6 +38,7 @@ import {
   type Session,
   type EventPriority,
   type PRState,
+  type PRInfo,
   type ProjectConfig as _ProjectConfig,
 } from "./types.js";
 import { readMetadataRaw, updateMetadata } from "./metadata.js";
@@ -267,6 +268,147 @@ function eventToReactionKey(eventType: EventType): string | null {
       return null;
   }
 }
+
+// ---------------------------------------------------------------------------
+// General Comment Subscription (orch-nep)
+// Tracks the last-seen issue/PR comment ID per session and fires reactions
+// when new bot comments appear, without relying on GitHub webhooks.
+// ---------------------------------------------------------------------------
+
+const GCS_SKIP_AUTHORS = new Set([
+  "github-actions[bot]", // Skip our own GHA — not actionable bot feedback
+]);
+
+/** Map<sessionId, Map<author+contentHash, timestampMs>> — 5-min dedup window */
+const gcsDedupMap = new Map<string, Map<string, number>>();
+
+/** Clear the GCS dedup map — for use in unit tests only */
+export function _clearGcsDedupMap(): void {
+  gcsDedupMap.clear();
+}
+
+interface GCSDeps {
+  config: OrchestratorConfig;
+  registry: PluginRegistry;
+  getReactionConfigForSession: (
+    session: Session,
+    key: string,
+  ) => ReactionConfig | null;
+  executeReaction: (
+    sessionId: SessionId,
+    projectId: string,
+    reactionKey: string,
+    reactionConfig: ReactionConfig,
+    session: Session,
+    correlationId: string | undefined,
+    isPeriodic?: boolean,
+    agentDead?: boolean,
+  ) => Promise<ReactionResult | undefined>;
+  updateSessionMetadata: (session: Session, updates: Partial<Record<string, string>>) => void;
+}
+
+/**
+ * Fetch all issue/PR comments for a session, identify new ones from tracked bots,
+ * and fire the corresponding reaction. Updates lastIssueCommentId in session metadata.
+ */
+async function checkNewBotComments(
+  session: Session,
+  deps: GCSDeps,
+  correlationId: string,
+): Promise<void> {
+  if (!session.pr) return;
+
+  const { config, registry, getReactionConfigForSession, executeReaction, updateSessionMetadata } = deps;
+  const project = config.projects[session.projectId];
+  const scm = project?.scm ? registry.get<SCM>("scm", project.scm.plugin) : null;
+  if (!scm) return;
+
+  let comments: { id: number; author: string; body: string; createdAt: Date; url: string }[] = [];
+  try {
+    comments = await (scm.getIssueComments as (pr: PRInfo) => Promise<typeof comments>)(session.pr);
+  } catch {
+    return; // Non-fatal — skip this cycle
+  }
+
+  if (comments.length === 0) return;
+
+  const lastSeenId = Number(session.metadata["lastIssueCommentId"] ?? 0);
+  const newComments = comments.filter((c) => c.id > lastSeenId);
+
+  if (newComments.length === 0) return;
+
+  // Fire reactions for each new tracked bot comment
+  for (const comment of newComments) {
+    // Skip excluded authors
+    if (GCS_SKIP_AUTHORS.has(comment.author)) continue;
+
+    // Determine reaction key from bot author
+    let reactionKey: string | null = null;
+    const authorLower = comment.author.toLowerCase();
+    const bodyLower = comment.body.toLowerCase();
+
+    if (
+      authorLower === "jleechan2015" ||
+      authorLower === "skeptoid" ||
+      authorLower.includes("skeptic")
+    ) {
+      reactionKey = "skeptic-advice";
+    } else if (authorLower === "coderabbitai[bot]") {
+      reactionKey = "changes-requested";
+    } else if (authorLower === "cursor[bot]") {
+      // Only fire bugbot-comments for error-severity cursor comments
+      const isError =
+        /^\s*error[:\s]/m.test(bodyLower) ||
+        /^\s*critical[:\s]/m.test(bodyLower) ||
+        bodyLower.includes("potential issue");
+      if (isError) {
+        reactionKey = "bugbot-comments";
+      }
+    }
+
+    if (!reactionKey) continue;
+
+    // Dedup: same author + content within 5 minutes
+    const dedupKey = `${comment.author}::${comment.body.slice(0, 100)}`;
+    const now = Date.now();
+    const dedupWindow = 5 * 60_000; // 5 minutes
+
+    let sessionDedup = gcsDedupMap.get(session.id);
+    if (!sessionDedup) {
+      sessionDedup = new Map();
+      gcsDedupMap.set(session.id, sessionDedup);
+    }
+    const lastFired = sessionDedup.get(dedupKey) ?? 0;
+    if (now - lastFired < dedupWindow) continue;
+    sessionDedup.set(dedupKey, now);
+
+    // Check reaction is configured and auto !== false
+    const reactionConfig = getReactionConfigForSession(session, reactionKey);
+    if (!reactionConfig?.action || reactionConfig.auto === false) continue;
+
+    // Fire the reaction
+    try {
+      await executeReaction(
+        session.id,
+        session.projectId,
+        reactionKey,
+        reactionConfig,
+        session,
+        correlationId,
+      );
+    } catch {
+      // Non-fatal — skip reaction failure this cycle
+    }
+  }
+
+  // Update lastIssueCommentId to the max comment ID seen
+  const maxId = Math.max(...comments.map((c) => c.id), lastSeenId);
+  updateSessionMetadata(session, { lastIssueCommentId: String(maxId) });
+}
+
+// ---------------------------------------------------------------------------
+// Stuck worker probe
+// ---------------------------------------------------------------------------
 
 function transitionLogLevel(status: SessionStatus): "info" | "warn" | "error" {
   const eventType = statusToEventType(undefined, status);
@@ -2173,6 +2315,10 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         }
       }
     }
+
+    // orch-nep: General Comment Subscription — fire reactions for new bot issue comments
+    // Runs on every poll cycle for sessions with open PRs (independent of state transitions).
+    await checkNewBotComments(session, { config, registry, getReactionConfigForSession, executeReaction, updateSessionMetadata }, createCorrelationId("gcs-poll"));
 
     await maybeDispatchReviewBacklog(session, oldStatus, newStatus, {
       config,

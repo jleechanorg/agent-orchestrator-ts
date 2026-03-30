@@ -30,6 +30,7 @@ import {
   type AutomatedComment,
   type MergeReadiness,
   type BatchPRStatus,
+  type IssueComment,
   logAoAction,
 } from "@jleechanorg/ao-core";
 import {
@@ -2225,6 +2226,56 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
           });
       } catch (err) {
         throw new Error("Failed to fetch automated comments", { cause: err });
+      }
+    },
+
+    // ---------------------------------------------------------------------------
+    // General Comment Subscription (orch-nep)
+    // ---------------------------------------------------------------------------
+
+    async getIssueComments(pr: PRInfo): Promise<IssueComment[]> {
+      try {
+        const perPage = 100;
+        const allComments: IssueComment[] = [];
+
+        for (let page = 1; ; page++) {
+          const raw = await gh([
+            "api",
+            "--method",
+            "GET",
+            `repos/${repoFlag(pr)}/issues/${pr.number}/comments?per_page=${perPage}&page=${page}`,
+          ]);
+          const parsed: Array<{
+            id: number;
+            user: { login: string };
+            body: string;
+            created_at: string;
+            html_url: string;
+          }> = JSON.parse(raw);
+
+          if (parsed.length === 0) {
+            break;
+          }
+
+          for (const c of parsed) {
+            allComments.push({
+              id: c.id,
+              author: c.user.login,
+              body: c.body,
+              createdAt: parseDate(c.created_at),
+              url: c.html_url,
+            });
+          }
+
+          if (parsed.length < perPage) {
+            break;
+          }
+        }
+
+        return allComments;
+      } catch {
+        // Non-fatal: return empty array on fetch failure
+        return [];
       }
     },
 
