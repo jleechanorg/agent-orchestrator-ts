@@ -124,7 +124,7 @@ jobs:
           EVIDENCE=$(printf '%s\n' "$BODY" | awk '
             BEGIN { IGNORECASE=1 }
             /^[[:space:]]*##[[:space:]]+evidence([[:space:]]|$)/ { in_section=1; next }
-            in_section && /^[[:space:]]*##[[:space:]]/ { exit }
+            in_section && /^[[:space:]]*##[[:space:]]/ { print; exit }
             in_section { print }
           ')
 
