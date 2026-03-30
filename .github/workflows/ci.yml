@@ -13,7 +13,11 @@ concurrency:
 jobs:
   lint:
     name: Lint
-    runs-on: ${{ github.event_name == 'pull_request' && 'ubuntu-latest' || fromJson(vars.SELF_HOSTED_RUNNER_LABELS || '["self-hosted","self-hosted-mikey"]') }}
+    # Fork PRs use ubuntu-latest to avoid running untrusted code on self-hosted infrastructure.
+    # Self-hosted runners are only used for same-repo PRs and direct pushes to protected branches.
+    runs-on: ${{ github.event.pull_request.head.repo.fork && github.event_name == 'pull_request'
+              && 'ubuntu-latest'
+              || fromJson(vars.SELF_HOSTED_RUNNER_LABELS || '["self-hosted","Linux","ARM64","agent-orchestrator"]') }}
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -26,7 +30,9 @@ jobs:
 
   typecheck:
     name: Typecheck
-    runs-on: ${{ github.event_name == 'pull_request' && 'ubuntu-latest' || fromJson(vars.SELF_HOSTED_RUNNER_LABELS || '["self-hosted","self-hosted-mikey"]') }}
+    runs-on: ${{ github.event.pull_request.head.repo.fork && github.event_name == 'pull_request'
+              && 'ubuntu-latest'
+              || fromJson(vars.SELF_HOSTED_RUNNER_LABELS || '["self-hosted","Linux","ARM64","agent-orchestrator"]') }}
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -44,7 +50,9 @@ jobs:
 
   test:
     name: Test
-    runs-on: ${{ github.event_name == 'pull_request' && 'ubuntu-latest' || fromJson(vars.SELF_HOSTED_RUNNER_LABELS || '["self-hosted","self-hosted-mikey"]') }}
+    runs-on: ${{ github.event.pull_request.head.repo.fork && github.event_name == 'pull_request'
+              && 'ubuntu-latest'
+              || fromJson(vars.SELF_HOSTED_RUNNER_LABELS || '["self-hosted","Linux","ARM64","agent-orchestrator"]') }}
     permissions:
       contents: read    # needed for git history and gh pr view in wholesome tests
       pull-requests: read
@@ -72,7 +80,9 @@ jobs:
 
   test-web:
     name: Test (Web)
-    runs-on: ${{ github.event_name == 'pull_request' && 'ubuntu-latest' || fromJson(vars.SELF_HOSTED_RUNNER_LABELS || '["self-hosted","self-hosted-mikey"]') }}
+    runs-on: ${{ github.event.pull_request.head.repo.fork && github.event_name == 'pull_request'
+              && 'ubuntu-latest'
+              || fromJson(vars.SELF_HOSTED_RUNNER_LABELS || '["self-hosted","Linux","ARM64","agent-orchestrator"]') }}
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4

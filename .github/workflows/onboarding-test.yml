@@ -14,34 +14,50 @@ on:
 jobs:
   onboarding-test:
     name: Test Fresh Onboarding
-    runs-on: ${{ github.event_name == 'pull_request' && 'ubuntu-latest' || fromJson(vars.SELF_HOSTED_RUNNER_LABELS || '["self-hosted","self-hosted-mikey"]') }}
+    # Fork PRs use ubuntu-latest to avoid running untrusted code on self-hosted infrastructure.
+    runs-on: ${{ github.event.pull_request.head.repo.fork && github.event_name == 'pull_request'
+              && 'ubuntu-latest'
+              || fromJson(vars.SELF_HOSTED_RUNNER_LABELS || '["self-hosted","Linux","ARM64","agent-orchestrator"]') }}
     timeout-minutes: 15
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Check Docker availability
+        id: docker-check
+        run: |
+          if docker info > /dev/null 2>&1; then
+            echo "docker_available=true" >> $GITHUB_OUTPUT
+          else
+            echo "docker_available=false" >> $GITHUB_OUTPUT
+            echo "Docker not available on this runner — skipping onboarding test"
+          fi
+
       - name: Set up Docker Buildx
+        if: steps.docker-check.outputs.docker_available == 'true'
         uses: docker/setup-buildx-action@v3
 
       - name: Build test image
+        if: steps.docker-check.outputs.docker_available == 'true'
         working-directory: tests/integration
         run: docker compose build
 
       - name: Run onboarding test
+        if: steps.docker-check.outputs.docker_available == 'true'
         id: test
         working-directory: tests/integration
         run: |
           docker compose up --abort-on-container-exit --exit-code-from onboarding-test
 
       - name: Extract metrics
-        if: always()
+        if: always() && steps.docker-check.outputs.docker_available == 'true'
         run: |
           # Extract onboarding time from container logs
           docker logs ao-onboarding-test 2>&1 | grep "Total onboarding time" || echo "Metrics not available"
 
       - name: Cleanup
-        if: always()
+        if: always() && steps.docker-check.outputs.docker_available == 'true'
         working-directory: tests/integration
         run: docker compose down -v
 

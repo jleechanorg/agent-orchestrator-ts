@@ -1,37 +1,98 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, writeFileSync, mkdirSync, rmSync, chmodSync } from "node:fs";
+import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
-// Hoisted before any imports or vi.mock calls
+// Use a mutable object so vi.mock factories (which are hoisted) can write to it.
+// vi.hoisted creates const bindings — only the object's properties are mutable.
+const refs = vi.hoisted(() => ({
+  realFetchDesignDoc: null as (prNumber: number) => Promise<string | null>,
+  realGhJsonPaginate: null as (endpoint: string, args?: string[]) => Promise<unknown>,
+  realFetchIssueComments:
+    null as (owner: string, repo: string, prNumber: number) => Promise<unknown[]>,
+  realReadFileSync: null as ((
+    path: Parameters<typeof import("node:fs")["readFileSync"]>[0],
+    ...args: unknown[]
+  ) => string),
+}));
+
 const mockExec = vi.hoisted(() => vi.fn());
+
+// vi.mock factory is async — vitest awaits it before the module import completes,
+// so the real functions are resolved and assigned to the refs object before the mock
+// is installed. This sidesteps the ESM TDZ problem entirely.
+vi.mock("../../../src/commands/skeptic/gh-client.js", async () => {
+  const mod = await import("../../../src/commands/skeptic/gh-client.js");
+  refs.realFetchDesignDoc = mod.fetchDesignDoc;
+  refs.realGhJsonPaginate = mod.ghJsonPaginate;
+  refs.realFetchIssueComments = mod.fetchIssueComments;
+  return {
+    fetchDesignDoc: vi.fn((...args: unknown[]) => refs.realFetchDesignDoc(...(args as [number]))),
+    ghJsonPaginate: vi.fn((...args: unknown[]) =>
+      refs.realGhJsonPaginate(...(args as [string, string[]?])),
+    ),
+    fetchIssueComments: vi.fn((...args: unknown[]) =>
+      refs.realFetchIssueComments(...(args as [string, string, number])),
+    ),
+  };
+});
+
+vi.mock("node:fs", async () => {
+  const fs = await import("node:fs");
+  refs.realReadFileSync = fs.readFileSync;
+  return {
+    ...fs,
+    readFileSync: vi.fn((...args: Parameters<typeof fs.readFileSync>) =>
+      refs.realReadFileSync(...args),
+    ),
+  };
+});
 
 vi.mock("../../../src/lib/shell.js", () => ({
   exec: mockExec,
 }));
 
-// Import after mocks are defined
+// Import after mocks are defined — at this point the async vi.mock factory has run.
 const { fetchDesignDoc, ghJsonPaginate, fetchIssueComments } = await import(
   "../../../src/commands/skeptic/gh-client.js"
 );
+const { readFileSync } = await import("node:fs");
 
 describe("fetchDesignDoc", () => {
   let tmp: string;
 
   beforeEach(() => {
     tmp = mkdtempSync(join(tmpdir(), "skeptic-test-"));
+    // Reset mock call history but NOT the implementation (restored below).
+    // Note: mockReset() clears the mock implementation, so restore it immediately after.
+    vi.mocked(fetchDesignDoc).mockReset();
+    vi.mocked(readFileSync).mockReset();
+    mockExec.mockReset();
+    // Restore fetchDesignDoc and readFileSync to call their real implementations.
+    vi.mocked(fetchDesignDoc).mockImplementation(
+      (...args: unknown[]) => refs.realFetchDesignDoc(...(args as [number])),
+    );
+    vi.mocked(readFileSync).mockImplementation(
+      (...args: Parameters<typeof import("node:fs")["readFileSync"]>) =>
+        refs.realReadFileSync(...(args as [Parameters<typeof import("node:fs")["readFileSync"]>[0], ...unknown[]])),
+    );
+    // Clear call history after restoring implementations.
     vi.clearAllMocks();
   });
 
   afterEach(() => {
     if (tmp) rmSync(tmp, { recursive: true, force: true });
+    // Restore fetchDesignDoc's and readFileSync's real implementation so subsequent tests aren't
+    // affected by per-test mock overrides (e.g. EACCES injection).
+    vi.mocked(fetchDesignDoc).mockReset();
+    vi.mocked(readFileSync).mockReset();
   });
 
   it("returns file content when the design doc exists", async () => {
     const prNum = 123;
     const docDir = join(tmp, "docs", "design", "pr-designs");
     mkdirSync(docDir, { recursive: true });
-    const filePath = join(docDir, `pr-${prNum}.md`);
+    const filePath = join(docDir, "pr-" + prNum + ".md");
     const content = "# Design Doc for PR 123\nSome content here.";
     writeFileSync(filePath, content, "utf8");
 
@@ -55,33 +116,29 @@ describe("fetchDesignDoc", () => {
   it("throws when git rev-parse fails (not a git repo)", async () => {
     mockExec.mockRejectedValueOnce(new Error("fatal: not a git repository"));
 
-    await expect(fetchDesignDoc(789)).rejects.toThrow(
-      "fatal: not a git repository"
-    );
+    await expect(fetchDesignDoc(789)).rejects.toThrow("fatal: not a git repository");
   });
 
   it("throws when readFileSync fails with a non-ENOENT error", async () => {
-    // Create the file and make it unreadable (EACCES)
-    const docDir = join(tmp, "docs", "design", "pr-designs");
-    mkdirSync(docDir, { recursive: true });
-    const filePath = join(docDir, "pr-999.md");
-    writeFileSync(filePath, "# doc\n", "utf8");
-    chmodSync(filePath, 0o000); // unreadable
-
+    // chmod 0o000 does not work as root (CI runs as root).
+    // Mock exec to return a valid repo root so readFileSync is the next call to fail.
     mockExec.mockResolvedValueOnce({ stdout: tmp + "\n", stderr: "" });
+    // Mock readFileSync directly to simulate EACCES so the real fetchDesignDoc code path runs.
+    vi.mocked(readFileSync).mockImplementation(
+      (..._args: Parameters<typeof import("node:fs")["readFileSync"]>) => {
+        const eaccesErr = Object.assign(new Error("EACCES permission denied"), { code: "EACCES" });
+        throw eaccesErr;
+      },
+    );
 
-    try {
-      await expect(fetchDesignDoc(999)).rejects.toThrow();
-    } finally {
-      // Restore permissions so rmSync can clean up
-      chmodSync(filePath, 0o644);
-    }
+    await expect(fetchDesignDoc(999)).rejects.toThrow("EACCES permission denied");
   });
 });
 
 describe("ghJsonPaginate", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockExec.mockReset();
   });
 
   it("calls gh api --paginate and returns parsed JSON for a single-page response", async () => {
@@ -104,7 +161,8 @@ describe("ghJsonPaginate", () => {
     mockExec.mockResolvedValueOnce({ stdout: JSON.stringify(mockData), stderr: "" });
 
     const result = await ghJsonPaginate("repos/owner/repo/issues/5/comments", [
-      "--jq", ".[].body",
+      "--jq",
+      ".[].body",
     ]);
 
     const [, args] = mockExec.mock.calls[0]!;
@@ -122,9 +180,7 @@ describe("ghJsonPaginate", () => {
   it("rejects when gh api fails", async () => {
     mockExec.mockRejectedValueOnce(new Error("gh api failed: not found"));
 
-    await expect(ghJsonPaginate("repos/owner/repo/pulls/999")).rejects.toThrow(
-      "gh api failed"
-    );
+    await expect(ghJsonPaginate("repos/owner/repo/pulls/999")).rejects.toThrow("gh api failed");
   });
 
   it("returns null when gh api returns null JSON", async () => {
@@ -138,6 +194,7 @@ describe("ghJsonPaginate", () => {
 describe("fetchIssueComments", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockExec.mockReset();
   });
 
   it("calls gh api --paginate --slurp for comments endpoint", async () => {
@@ -158,9 +215,7 @@ describe("fetchIssueComments", () => {
   // Without .flat(), iterating the outer array never reaches comments on page 2+.
   // This test verifies that multi-page results are properly flattened.
   it("flattens paginated pages so all comments from all pages are returned", async () => {
-    const page1 = [
-      { id: 1, body: "page1 comment", user: { login: "alice" } },
-    ];
+    const page1 = [{ id: 1, body: "page1 comment", user: { login: "alice" } }];
     const page2 = [
       { id: 101, body: "skeptic verdict on page 2", user: { login: "jleechan2015" } },
       { id: 102, body: "page2 comment", user: { login: "bob" } },
