@@ -134,6 +134,12 @@ export async function readLastJsonlEntry(
 }
 
 /**
+ * Re-exported from fork-slash-command-routing.ts companion module.
+ * Implementation lives there per fork isolation policy.
+ */
+export { messageContainsCommentFixIntent, transformToSlashCommand } from "./fork-slash-command-routing.js";
+
+/**
  * Given a session ID and the orchestrator config, find which project it belongs
  * to by matching session prefixes.
  */
