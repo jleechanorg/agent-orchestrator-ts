@@ -11,6 +11,7 @@
 
 import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { resolve, basename } from "node:path";
 import { cwd } from "node:process";
 import { resolveProjectByCwd } from "../lib/resolve-project-cwd.js";
@@ -510,13 +511,31 @@ async function startDashboard(
 function getMainRepoPath(): string {
   const configured =
     process.env["AO_MAIN_REPO"] ||
-    "/Users/jleechan/project_agento/agent-orchestrator";
+    `${homedir()}/project_agento/agent-orchestrator`;
   try {
     // realpathSync.native resolves symlinks on all platforms; falls back to the
     // input path if resolution fails (ENOENT, permission errors, etc.)
     return realpathSync.native(configured);
   } catch {
     return configured;
+  }
+}
+
+/**
+ * Throw if resolvedPath is the main repo or a subdirectory of it.
+ * Guard fires before config writes to prevent the main clone from ever
+ * being added as an AO project.
+ */
+function guardMainRepo(resolvedPath: string, mainRepoPath: string): void {
+  if (
+    resolvedPath === mainRepoPath ||
+    resolvedPath.startsWith(mainRepoPath + (process.platform === "win32" ? "\\" : "/"))
+  ) {
+    throw new Error(
+      `Refusing to operate on the main repo (${resolvedPath}). ` +
+        `AO agents must run in git worktrees. Create a worktree first with: ` +
+        `git worktree add ~/.worktrees/agent-orchestrator/<name> origin/main`,
+    );
   }
 }
 
@@ -538,13 +557,7 @@ async function runStartup(
     resolvedProjectPath = resolve(projectPath);
   }
 
-  if (resolvedProjectPath === mainRepoPath) {
-    throw new Error(
-      `Refusing to start AO directly on the main repo at ${mainRepoPath}. ` +
-      `AO agents must run in git worktrees. Create a worktree first with: ` +
-      `git worktree add ~/.worktrees/agent-orchestrator/<name> origin/main`,
-    );
-  }
+  guardMainRepo(resolvedProjectPath, mainRepoPath);
 
   const sessionId = `${project.sessionPrefix}-orchestrator`;
   const shouldStartLifecycle = opts?.dashboard !== false || opts?.orchestrator !== false;
@@ -782,6 +795,15 @@ export function registerStart(program: Command): void {
           } else if (projectArg && isLocalPath(projectArg)) {
             // ── Path argument: add project if new, then start ──
             const resolvedPath = resolve(projectArg.replace(/^~/, process.env["HOME"] || ""));
+            // Guard: reject the main repo before any config write
+            const mainRepoPath = getMainRepoPath();
+            let resolvedPathForGuard: string;
+            try {
+              resolvedPathForGuard = realpathSync.native(resolvedPath);
+            } catch {
+              resolvedPathForGuard = resolvedPath;
+            }
+            guardMainRepo(resolvedPathForGuard, mainRepoPath);
 
             // Try to load existing config
             let configPath: string | undefined;
@@ -796,6 +818,7 @@ export function registerStart(program: Command): void {
               config = await autoCreateConfig(cwd());
               // If the path is different from cwd, add it as a second project
               if (resolve(cwd()) !== resolvedPath) {
+                // Guard already called above before any config write
                 const addedId = await addProjectToConfig(config, resolvedPath);
                 config = loadConfig(config.configPath);
                 projectId = addedId;
@@ -816,7 +839,7 @@ export function registerStart(program: Command): void {
                 projectId = existingEntry[0];
                 project = existingEntry[1];
               } else {
-                // New project — add it to config
+                // New project — add it to config (guard already fired above)
                 const addedId = await addProjectToConfig(config, resolvedPath);
                 config = loadConfig(config.configPath);
                 projectId = addedId;
