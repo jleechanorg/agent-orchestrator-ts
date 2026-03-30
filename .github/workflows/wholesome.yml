@@ -138,12 +138,6 @@ jobs:
           # GHA passes multi-line PR body as literal backslash-n strings, not real newlines.
           BODY=$(printf '%s' "$BODY" | sed 's/\\n/\n/g; s/\\r/\r/g')
 
-          # Extract the Evidence section (from ## Evidence marker to next ## section or EOF).
-          # Use grep -i for case-insensitive matching, then extract to the next ## heading.
-          # The PR body may contain literal \n (backslash+n) instead of actual newlines, so we use
-          # grep -F (fixed-string) to match the "## Evidence" pattern wherever it appears.
-          # Use tr to handle single-line bodies with literal \n as actual line separators.
-          # bd-ara.3: explicit character class [Ee] avoids [[:space:]]+ matching \n on some runners.
           echo "DEBUG PR_BODY chars: ${#PR_BODY}"
           echo "DEBUG BODY (after sed) chars: ${#BODY}"
           if ! printf '%s' "$BODY" | grep -qiF '## Evidence'; then
@@ -160,6 +154,7 @@ jobs:
               capture && /^[[:space:]]*##[[:space:]]+/ { exit }
               capture { print }
             ')
+          echo "DEBUG EVIDENCE chars: ${#EVIDENCE}"
 
           if [ -z "$EVIDENCE" ]; then
             echo "No Evidence section found to validate"
