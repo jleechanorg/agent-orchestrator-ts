@@ -134,6 +134,51 @@ export async function readLastJsonlEntry(
 }
 
 /**
+ * Detect whether a message contains intent to fix review comments or drive a PR to green.
+ * Matches keywords indicating comment-fix, CI-fix, or merge-conflict resolution intent.
+ */
+export function messageContainsCommentFixIntent(msg: string): boolean {
+  const lower = msg.toLowerCase();
+  // Comment-fix keywords: review comments, feedback, address
+  const commentKeywords = ["comment", "review", "feedback", "changes requested", "address"];
+  // CI/merge keywords: CI failing, not mergeable, drive to green, skeptic
+  const ciMergeKeywords = [
+    "ci fail", "ci-fail", "ci failing", "ci error", "not mergeable", "merge conflict",
+    "to green", "6-green", "skeptic", "verdict",
+  ];
+  const hasCommentFix = commentKeywords.some((kw) => lower.includes(kw));
+  const hasCiMergeFix = ciMergeKeywords.some((kw) => lower.includes(kw));
+  return hasCommentFix || hasCiMergeFix;
+}
+
+/**
+ * Maps a plain-text message to a Claude Code slash command.
+ * Slash command is the first line, followed by the original message as context.
+ */
+export function transformToSlashCommand(msg: string): string {
+  // If message already starts with a slash command, preserve it rather than
+  // re-detecting from the stripped body (which may contain no keywords).
+  const existingSlash = msg.match(/^\/(copilot|polish)\s*/i);
+  if (existingSlash) {
+    const slash = `/${existingSlash[1].toLowerCase()}`;
+    const stripped = msg.replace(/^\/(?:copilot|polish)\s*/i, "").trim();
+    return `${slash}\n${stripped}`;
+  }
+
+  const lower = msg.toLowerCase();
+  const commentKeywords = ["comment", "review", "feedback", "changes requested", "address"];
+  const ciMergeKeywords = [
+    "ci fail", "ci-fail", "ci failing", "ci error", "not mergeable", "merge conflict",
+    "to green", "6-green", "skeptic", "verdict",
+  ];
+  const hasCommentFix = commentKeywords.some((kw) => lower.includes(kw));
+  const hasCiMergeFix = ciMergeKeywords.some((kw) => lower.includes(kw));
+
+  const slash = hasCommentFix ? "/copilot" : hasCiMergeFix ? "/polish" : "/copilot";
+  return `${slash}\n${msg.trim()}`;
+}
+
+/**
  * Given a session ID and the orchestrator config, find which project it belongs
  * to by matching session prefixes.
  */

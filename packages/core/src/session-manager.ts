@@ -76,6 +76,7 @@ import {
 import { sessionFromMetadata } from "./utils/session-from-metadata.js";
 import { safeJsonParse } from "./utils/validation.js";
 import { resolveAgentSelection, resolveSessionRole } from "./agent-selection.js";
+import { messageContainsCommentFixIntent, transformToSlashCommand } from "./utils.js";
 
 const _execFileAsync = promisify(execFile);
 const OPENCODE_DISCOVERY_TIMEOUT_MS = 2_000;
@@ -2214,6 +2215,13 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       throw new Error(`No agent plugin for session ${sessionId}`);
     }
 
+    // Transform plain-text comment-fix messages to slash commands for claude-code runtime.
+    // Non-Claude-Code runtimes (Codex, OpenCode) receive messages unchanged.
+    let transformedMessage = message;
+    if (runtimeName === "claude-code" && messageContainsCommentFixIntent(message)) {
+      transformedMessage = transformToSlashCommand(message);
+    }
+
     const captureOutput = async (handle: RuntimeHandle): Promise<string> => {
       try {
         return (await runtimePlugin.getOutput(handle, SEND_CONFIRMATION_OUTPUT_LINES)) ?? "";
@@ -2404,7 +2412,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       const baselineActivity = detectActivityFromOutput(baselineOutput) ?? session.activity;
       const baselineUpdatedAt = await getOpenCodeSessionUpdatedAt();
 
-      await runtimePlugin.sendMessage(handle, message);
+      await runtimePlugin.sendMessage(handle, transformedMessage);
 
       for (let attempt = 1; attempt <= SEND_CONFIRMATION_ATTEMPTS; attempt++) {
         // Sleep before each check (including the first) so the runtime has time
