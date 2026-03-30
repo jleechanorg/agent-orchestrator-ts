@@ -13,7 +13,7 @@ if [ ! -f "$_checks_path" ]; then
   exit 1
 fi
 # shellcheck source=./ao-checks.sh
-source "$_checks_path"
+source "$_checks_path" || exit 1
 
 # ── argument parsing ───────────────────────────────────────────────────────────
 FIX_MODE=false
