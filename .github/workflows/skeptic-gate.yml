@@ -7,6 +7,11 @@ on:
   pull_request:
     types: [opened, synchronize, edited, reopened]
   workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false  # Never cancel in-progress gate runs; let multiple complete harmlessly
+
     inputs:
       pr_number:
         description: "PR number"
@@ -82,13 +87,17 @@ jobs:
 
           # Only "success" passes. "pending" means no statuses exist or checks
           # are still running — both are NOT green. Never let pending pass.
-          # Also fail when total non-Skeptic-Gate check runs == 0: CI hasn't registered yet.
-          if [ "$CI_STATUS" = "success" ] && [ "${CHECK_RUNS_FAILED:-0}" -eq 0 ] && [ "${CHECK_RUNS_PENDING:-0}" -eq 0 ] && [ "${TOTAL_CHECKS:-0}" -gt 0 ]; then
+          # Require all 4 core checks to be registered before evaluating (prevents
+          # partial-snapshot false PASS when CI is still spinning up).
+          EXPECTED_CORE_CHECKS=4
+          if [ "$CI_STATUS" = "success" ] && [ "${CHECK_RUNS_FAILED:-0}" -eq 0 ] && [ "${CHECK_RUNS_PENDING:-0}" -eq 0 ] && [ "${TOTAL_CHECKS:-0}" -eq "$EXPECTED_CORE_CHECKS" ]; then
             GATE1="PASS"
           else
             GATE1="FAIL"
             FAILED_GATES="${FAILED_GATES}1, "
-            if [ "${CHECK_RUNS_FAILED:-0}" != "__API_ERROR__" ] && [ "${CHECK_RUNS_PENDING:-0}" != "__API_ERROR__" ] && [ "${CHECK_RUNS_PENDING:-0}" -gt 0 ]; then
+            if [ "${CHECK_RUNS_FAILED:-0}" != "__API_ERROR__" ] && [ "${CHECK_RUNS_PENDING:-0}" != "__API_ERROR__" ] && [ "${TOTAL_CHECKS:-0}" -lt "$EXPECTED_CORE_CHECKS" ]; then
+              CI_DETAIL="${CI_DETAIL} (waiting for all 4 core checks to register)"
+            elif [ "${CHECK_RUNS_FAILED:-0}" != "__API_ERROR__" ] && [ "${CHECK_RUNS_PENDING:-0}" != "__API_ERROR__" ] && [ "${CHECK_RUNS_PENDING:-0}" -gt 0 ]; then
               CI_DETAIL="${CI_DETAIL} (checks still running)"
             fi
           fi
