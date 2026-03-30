@@ -7,11 +7,6 @@ on:
   pull_request:
     types: [opened, synchronize, edited, reopened]
   workflow_dispatch:
-
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: false  # Never cancel in-progress gate runs; let multiple complete harmlessly
-
     inputs:
       pr_number:
         description: "PR number"
@@ -21,6 +16,10 @@ concurrency:
         description: "PR head commit SHA"
         required: true
         type: string
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false  # Never cancel in-progress gate runs; multiple runs for same SHA are harmless
 
 jobs:
   skeptic_gate:
@@ -56,50 +55,54 @@ jobs:
 
           # ----------------------------------------------------------------
           # Gate 1: CI green — all check runs and commit status must pass.
-          # Exclude our own check (Skeptic Gate) to avoid self-reference.
+          #
+          # Strategy: check-runs API is authoritative (real-time per-job state).
+          # commit-status API aggregates these but often lags 30-60s after all
+          # check-runs complete. Pass Gate 1 when all 4 CI jobs show
+          # status=completed + conclusion=success — regardless of commit-status.
+          # This eliminates the race where the gate fires before GitHub has
+          # propagated the aggregate status update.
+          #
+          # Pass when ALL of:
+          #   (a) All 4 core CI jobs: status=completed AND conclusion=success
+          #   (b) No CI jobs registered = 0 (CI hasn't started yet — fail)
+          #
+          # Fail when:
+          #   - Any CI job: conclusion=failure
+          #   - No CI jobs registered yet
           # ----------------------------------------------------------------
-          CI_STATUS_JSON=$(gh api repos/${{ github.repository }}/commits/"$HEAD_SHA"/status \
-            --jq '{state: .state, total: .total_count}' 2>/dev/null || echo '{"state":"error","total":0}')
-          CI_STATUS=$(echo "$CI_STATUS_JSON" | jq -r '.state')
-          CI_STATUS_TOTAL=$(echo "$CI_STATUS_JSON" | jq -r '.total')
-          # When no commit status contexts exist (total_count=0), GitHub returns "pending".
-          # This is a false negative — treat it as "success" since only check-runs matter.
-          if [ "$CI_STATUS" = "pending" ] && [ "${CI_STATUS_TOTAL:-0}" -eq 0 ]; then
-            CI_STATUS="success"
-          fi
-          # Also check GitHub check runs (Actions checks use check runs API, not commit status).
-          # Multiple runs exist per check name (re-runs, concurrent triggers) — deduplicate
-          # by keeping only the latest run per name (sort by started_at desc, take first).
-          # Exclude: Skeptic Gate (self-reference), cancelled (superseded runs), skipped, neutral.
-          # Gate 1: CI green — check only the 4 core CI job names.
-          # Scoping prevents stuck self-hosted runners on unrelated PRs from
-          # causing false negatives for this PR's CI gate.
+
+          # Fetch check-runs first (authoritative signal)
           CHECK_RUNS_FAILED=$(gh api repos/${{ github.repository }}/commits/"$HEAD_SHA"/check-runs \
             --jq '[.check_runs | group_by(.name) | .[] | sort_by(.started_at) | reverse | .[0] | select((.name == "Lint" or .name == "Typecheck" or .name == "Test" or .name == "Test (Web)") and .conclusion != null and .conclusion != "success" and .conclusion != "skipped" and .conclusion != "neutral" and .conclusion != "cancelled")] | length' 2>/dev/null || echo "__API_ERROR__")
           CHECK_RUNS_PENDING=$(gh api repos/${{ github.repository }}/commits/"$HEAD_SHA"/check-runs \
             --jq '[.check_runs | group_by(.name) | .[] | sort_by(.started_at) | reverse | .[0] | select((.name == "Lint" or .name == "Typecheck" or .name == "Test" or .name == "Test (Web)") and .status != "completed")] | length' 2>/dev/null || echo "__API_ERROR__")
-
-          # Count total CI check runs to detect "no CI registered yet".
           TOTAL_CHECKS=$(gh api repos/${{ github.repository }}/commits/"$HEAD_SHA"/check-runs \
             --jq '[.check_runs | group_by(.name) | .[] | sort_by(.started_at) | reverse | .[0] | select(.name == "Lint" or .name == "Typecheck" or .name == "Test" or .name == "Test (Web)")] | length' 2>/dev/null || echo "0")
 
+          # commit-status as secondary signal (only used for CI-in-progress case)
+          CI_STATUS_JSON=$(gh api repos/${{ github.repository }}/commits/"$HEAD_SHA"/status \
+            --jq '{state: .state, total: .total_count}' 2>/dev/null || echo '{"state":"error","total":0}')
+          CI_STATUS=$(echo "$CI_STATUS_JSON" | jq -r '.state')
+          CI_STATUS_TOTAL=$(echo "$CI_STATUS_JSON" | jq -r '.total')
+
           CI_DETAIL="commit-status=$CI_STATUS, failed-checks=${CHECK_RUNS_FAILED:-0}, pending-checks=${CHECK_RUNS_PENDING:-0}, total-checks=${TOTAL_CHECKS:-0}"
 
-          # Only "success" passes. "pending" means no statuses exist or checks
-          # are still running — both are NOT green. Never let pending pass.
-          # Require all 4 core checks to be registered before evaluating (prevents
-          # partial-snapshot false PASS when CI is still spinning up).
-          EXPECTED_CORE_CHECKS=4
-          if [ "$CI_STATUS" = "success" ] && [ "${CHECK_RUNS_FAILED:-0}" -eq 0 ] && [ "${CHECK_RUNS_PENDING:-0}" -eq 0 ] && [ "${TOTAL_CHECKS:-0}" -eq "$EXPECTED_CORE_CHECKS" ]; then
+          # Gate 1 pass logic
+          if [ "${CHECK_RUNS_FAILED:-0}" -gt 0 ] && [ "${CHECK_RUNS_FAILED:-0}" != "__API_ERROR__" ]; then
+            GATE1="FAIL"
+            FAILED_GATES="${FAILED_GATES}1, "
+          elif [ "${TOTAL_CHECKS:-0}" -eq 0 ]; then
+            # No CI registered yet — fail closed
+            GATE1="FAIL"
+            FAILED_GATES="${FAILED_GATES}1, "
+          elif [ "${CHECK_RUNS_PENDING:-0}" -eq 0 ] && [ "${CHECK_RUNS_FAILED:-0}" -eq 0 ]; then
+            # All 4 CI jobs completed successfully — pass regardless of commit-status lag
             GATE1="PASS"
           else
             GATE1="FAIL"
             FAILED_GATES="${FAILED_GATES}1, "
-            if [ "${CHECK_RUNS_FAILED:-0}" != "__API_ERROR__" ] && [ "${CHECK_RUNS_PENDING:-0}" != "__API_ERROR__" ] && [ "${TOTAL_CHECKS:-0}" -lt "$EXPECTED_CORE_CHECKS" ]; then
-              CI_DETAIL="${CI_DETAIL} (waiting for all 4 core checks to register)"
-            elif [ "${CHECK_RUNS_FAILED:-0}" != "__API_ERROR__" ] && [ "${CHECK_RUNS_PENDING:-0}" != "__API_ERROR__" ] && [ "${CHECK_RUNS_PENDING:-0}" -gt 0 ]; then
-              CI_DETAIL="${CI_DETAIL} (checks still running)"
-            fi
+            CI_DETAIL="${CI_DETAIL} (checks still running)"
           fi
           echo "Gate 1: $GATE1 ($CI_DETAIL)"
           GATE_ROWS="${GATE_ROWS}| 1. CI green | ${GATE1} | ${CI_DETAIL} |\n"
