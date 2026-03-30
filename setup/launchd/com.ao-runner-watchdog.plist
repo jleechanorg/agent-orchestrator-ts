@@ -31,17 +31,17 @@
   <true/>
 
   <key>StandardOutPath</key>
-  <string>/Users/jleechan/Library/Logs/ao-runner-watchdog/stdout.log</string>
+  <string>@HOME@/Library/Logs/ao-runner-watchdog/stdout.log</string>
 
   <key>StandardErrorPath</key>
-  <string>/Users/jleechan/Library/Logs/ao-runner-watchdog/stderr.log</string>
+  <string>@HOME@/Library/Logs/ao-runner-watchdog/stderr.log</string>
 
   <key>EnvironmentVariables</key>
   <dict>
     <key>PATH</key>
-    <string>/Users/jleechan/bin:/Users/jleechan/.nvm/versions/node/v22.22.0/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+    <string>@PATH@</string>
     <key>HOME</key>
-    <string>/Users/jleechan</string>
+    <string>@HOME@</string>
   </dict>
 </dict>
 </plist>

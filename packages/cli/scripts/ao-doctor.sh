@@ -422,15 +422,17 @@ except Exception:
 # Handles: https://github.com/owner/repo, git@github.com:owner/repo,
 # https://github.com/owner/repo.git, git@github.com:owner/repo.git
 normalize_repo_url() {
-  local url="$1"
-  # Strip git@github.com: or https://github.com/ or http://github.com/
-  url="${url#git@github.com:}"
-  url="${url#https://github.com/}"
-  url="${url#http://github.com/}"
-  # Strip trailing .git and trailing slash
-  url="${url%.git}"
-  url="${url%/}"
-  printf '%s' "$url"
+  local repo_url="$1"
+  local owner_repo
+  owner_repo="$(printf '%s' "$repo_url" | sed -E \
+    -e 's#^git@github\.com:#https://github.com/#' \
+    -e 's#^https?://github\.com/##' \
+    -e 's#\.git$##' \
+    -e 's#/$##')"
+  if ! [[ "$owner_repo" =~ ^[^/]+/[^/]+$ ]]; then
+    return 1
+  fi
+  printf '%s' "$owner_repo"
 }
 
 check_runners() {
@@ -472,28 +474,40 @@ check_runners() {
 
     # Derive owner/repo from URL (handle ssh, https, .git suffix, trailing slash)
     local owner_repo
-    owner_repo="$(normalize_repo_url "$repo_url")"
+    if ! owner_repo="$(normalize_repo_url "$repo_url")"; then
+      warn "runner config $slug has unsupported REPO_URL format ($repo_url) — skipping"
+      continue
+    fi
 
     # Check live runner count via GitHub API
-    local runner_count=0
+    local runner_count=""
     if ! command -v gh &>/dev/null; then
       warn "gh not found — runner count check skipped for $slug"
-    else
-      local gh_output gh_status
-      gh_output="$(gh api "repos/$owner_repo/actions/runners" --jq '.total_count' 2>&1)"
-      gh_status=$?
-      if [ $gh_status -ne 0 ]; then
-        warn "gh api failed for $owner_repo (exit $gh_status): ${gh_output%%$'\n'*}"
-      else
-        runner_count="$gh_output"
-      fi
+      continue
+    fi
+
+    local gh_output gh_status
+    # We use jq to select only runners that are currently online.
+    # .runners[] | select(.status == "online")
+    gh_output="$(gh api "repos/$owner_repo/actions/runners" --jq '[.runners[] | select(.status == "online")] | length' 2>&1)"
+    gh_status=$?
+    if [ $gh_status -ne 0 ]; then
+      warn "gh api failed for $owner_repo (exit $gh_status): ${gh_output%%$'\n'*}"
+      continue
+    fi
+    runner_count="$gh_output"
+
+    # Validate that runner_count is a valid integer
+    if ! [[ "$runner_count" =~ ^[0-9]+$ ]]; then
+      warn "unexpected runner count '$runner_count' for $owner_repo — skipping"
+      continue
     fi
 
     if [ "$runner_count" -gt 0 ]; then
       pass "$runner_count runner(s) online for $owner_repo"
     else
-      # 0 runners — containers likely dead or never started
-      if $FIX_MODE; then
+      # 0 runners online — containers likely dead or never started
+      if [ "$FIX_MODE" = true ]; then
         if [ -x "$start_script" ]; then
           if RUNNER_ENV_FILE="$env_file" "$start_script" >/dev/null 2>&1; then
             fixed "restarted runners for $owner_repo (were offline)"

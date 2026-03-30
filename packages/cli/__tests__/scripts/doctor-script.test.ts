@@ -178,4 +178,67 @@ describe("scripts/ao-doctor.sh", () => {
     expect(commentedDataDirExists).toBe(false);
     expect(commentedWorktreeDirExists).toBe(false);
   });
+
+  it("verifies runner counts and restarts them in --fix mode", () => {
+    const tempRoot = mkdtempSync(join(tmpdir(), "ao-doctor-runners-"));
+    const fakeRepo = createHealthyRepo(tempRoot);
+    const binDir = join(tempRoot, "bin");
+    mkdirSync(binDir, { recursive: true });
+    createHealthyPath(binDir);
+
+    // Mock docker: info returns 0 (daemon running)
+    createFakeBinary(binDir, "docker", 'if [ "$1" = "info" ]; then exit 0; fi; exit 0');
+
+    // Mock gh: returns a numeric 0 when the online status filter is used
+    createFakeBinary(
+      binDir,
+      "gh",
+      `if [ "$1" = "api" ]; then
+        # Check if the online status jq filter is being used
+        if [[ "$*" == *"status == \\"online\\""* ]]; then
+          printf "0\\n"
+          exit 0
+        fi
+      fi
+      exit 0`,
+    );
+
+    // Set up a fake HOME with .ao-runner.d and .local/share/ao-runner
+    const fakeHome = join(tempRoot, "home");
+    const aoRunnerD = join(fakeHome, ".ao-runner.d");
+    const runnerScriptDir = join(fakeHome, ".local", "share", "ao-runner");
+    mkdirSync(join(aoRunnerD, "test-repo"), { recursive: true });
+    mkdirSync(runnerScriptDir, { recursive: true });
+
+    // Create a .env file for the runner
+    writeFileSync(join(aoRunnerD, "test-repo.env"), "REPO_URL=https://github.com/owner/repo\n");
+
+    // Create a start-runner.sh script that logs its execution
+    const restartLog = join(tempRoot, "restart.log");
+    writeExecutable(
+      join(runnerScriptDir, "start-runner.sh"),
+      `#!/bin/bash\nprintf "restarted %s\\n" "$RUNNER_ENV_FILE" >> ${JSON.stringify(restartLog)}\n`,
+    );
+
+    const configPath = join(tempRoot, "agent-orchestrator.yaml");
+    writeFileSync(configPath, "projects: {}\n");
+
+    const result = spawnSync("bash", [scriptPath, "--fix"], {
+      env: {
+        ...process.env,
+        PATH: `${binDir}:/usr/bin:/bin`,
+        AO_REPO_ROOT: fakeRepo,
+        AO_CONFIG_PATH: configPath,
+        HOME: fakeHome,
+      },
+      encoding: "utf8",
+    });
+
+    const restartOutput = existsSync(restartLog) ? readFileSync(restartLog, "utf8") : "";
+    rmSync(tempRoot, { recursive: true, force: true });
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain("restarted runners for owner/repo (were offline)");
+    expect(restartOutput).toContain("test-repo.env");
+  });
 });
