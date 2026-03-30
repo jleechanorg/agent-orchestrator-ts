@@ -197,12 +197,18 @@ fi
 # Detect: git checkout <branch> (without -b)
 # Resolve the actual branch from git after checkout — don't trust the shell token
 # (checkout of a tag leaves HEAD detached; token still looks like a valid branch).
+# Guard: only update if the operand is actually a branch ref (not a pathspec like src/main.ts).
 if [[ "$clean_command" =~ ^git[[:space:]]+checkout[[:space:]]+([^[:space:]-]+[/-][^[:space:]]+) ]]; then
-  current_branch=$(git symbolic-ref --quiet --short HEAD 2>/dev/null || true)
-  if [[ -n "$current_branch" ]]; then
-    update_metadata_key "branch" "$current_branch"
-    echo '{"systemMessage": "Updated metadata: branch = '"$current_branch"'"}'
-    exit 0
+  operand="${BASH_REMATCH[1]}"
+  is_branch=false
+  git rev-parse --verify --quiet "refs/heads/$operand" &>/dev/null && is_branch=true
+  if $is_branch; then
+    current_branch=$(git symbolic-ref --quiet --short HEAD 2>/dev/null || true)
+    if [[ -n "$current_branch" ]]; then
+      update_metadata_key "branch" "$current_branch"
+      echo '{"systemMessage": "Updated metadata: branch = '"$current_branch"'"}'
+      exit 0
+    fi
   fi
 fi
 
@@ -210,11 +216,16 @@ fi
 # Resolve the actual branch from git after switch — don't trust the shell token
 # (quotes in "feat/foo" are stored verbatim by some shells).
 if [[ "$clean_command" =~ ^git[[:space:]]+switch[[:space:]]+([^[:space:]-]+[/-][^[:space:]]+) ]]; then
-  current_branch=$(git symbolic-ref --quiet --short HEAD 2>/dev/null || true)
-  if [[ -n "$current_branch" ]]; then
-    update_metadata_key "branch" "$current_branch"
-    echo '{"systemMessage": "Updated metadata: branch = '"$current_branch"'"}'
-    exit 0
+  operand="${BASH_REMATCH[1]}"
+  is_branch=false
+  git rev-parse --verify --quiet "refs/heads/$operand" &>/dev/null && is_branch=true
+  if $is_branch; then
+    current_branch=$(git symbolic-ref --quiet --short HEAD 2>/dev/null || true)
+    if [[ -n "$current_branch" ]]; then
+      update_metadata_key "branch" "$current_branch"
+      echo '{"systemMessage": "Updated metadata: branch = '"$current_branch"'"}'
+      exit 0
+    fi
   fi
 fi
 

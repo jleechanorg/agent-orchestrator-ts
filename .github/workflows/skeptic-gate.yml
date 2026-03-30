@@ -195,7 +195,11 @@ jobs:
           # comments remain a hard failure (fail-closed).
           if [ "$LATEST_CR" = "APPROVED" ]; then
             GATE5="PASS"
-            GATE5_DETAIL="n unresolved (CR approved — non-blocking)"
+            GATE5_DETAIL="${UNRESOLVED:-N/A} unresolved (CR approved — non-blocking)"
+          elif [ "$UNRESOLVED" = "__GQL_ERROR__" ] || [ "$UNRESOLVED" = "__TRUNCATED__" ]; then
+            GATE5="FAIL"
+            GATE5_DETAIL="$UNRESOLVED (fail-closed)"
+            FAILED_GATES="${FAILED_GATES}5, "
           elif [ "${UNRESOLVED:-0}" -gt 0 ]; then
             GATE5="FAIL"
             GATE5_DETAIL="${UNRESOLVED} unresolved"
