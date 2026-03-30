@@ -21,10 +21,7 @@ import { buildSkepticPrompt } from "./skeptic/prompt.js";
 import { runSkepticEvaluation } from "./skeptic/modelRunner.js";
 import { postVerdict } from "./skeptic/posting.js";
 import { verifySkepticClaim, formatClaimVerification } from "./skeptic/claim-verifier.js";
-
-/** Line-anchored VERDICT matcher — accepts VERDICT: PASS, VERDICT: FAIL, or VERDICT: SKIPPED.
- * Also handles GitHub blockquote markdown: "> **VERDICT: SKIPPED**" (SKIPPED fallback in skeptic-gate.yml). */
-export const VERDICT_LINE_RE = /^(?:> ?\*\*)?VERDICT:\s*(PASS|FAIL|SKIPPED)\b/im;
+import { VERDICT_LINE_RE, applyGate3Override } from "./skeptic/verdict-utils.js";
 
 // bd-lg7i: Default to jleechan2015 — ao skeptic verify posts via `gh api`
 // authenticated as the local user, not the GitHub App bot. Override via
@@ -150,17 +147,54 @@ export function registerSkeptic(program: Command): Command {
       });
       spinner3.succeed(chalk.green("Skeptic evaluation complete"));
 
+      // bd-kvvx: fail-closed gate 3 enforcement.
+      // The LLM prompt instructs gate 3 (CR APPROVED) but the model can still issue
+      // PASS when CR has only COMMENTED or CHANGES_REQUESTED. Enforce it at code level:
+      // if CR has not approved, only FAIL is acceptable — PASS or SKIPPED are overridden.
+      const { finalVerdict, wasOverridden, llmOutput } = applyGate3Override({
+        llmVerdict: verdict,
+        crApproved: state.crApproved,
+        crState: state.crState,
+        crDismissedWithoutApproval: state.crDismissedWithoutApproval,
+      });
+      if (wasOverridden) {
+        const parsed = verdict.match(VERDICT_LINE_RE);
+        const raw = parsed?.[1]?.toUpperCase();
+        const crDetail = state.crDismissedWithoutApproval
+          ? `${state.crState} + DISMISSED_WITHOUT_APPROVAL`
+          : state.crState;
+        console.warn(
+          chalk.yellow(
+            `⚠  Gate 3 override: CR state=${crDetail} — LLM returned VERDICT: ${raw ?? "UNPARSED"}; ` +
+              `overriding to VERDICT: FAIL (fail-closed, bd-kvvx)`,
+          ),
+        );
+      }
+
       // Dry-run: print verdict without posting
       if (options.dryRun) {
+        // Show the final verdict (may be override message or original LLM output)
         console.log(chalk.yellow("\n=== DRY RUN — Verdict ===\n"));
-        const verdictMatch = verdict.match(VERDICT_LINE_RE);
+        const verdictMatch = finalVerdict.match(VERDICT_LINE_RE);
         if (verdictMatch) {
           console.log(chalk[verdictMatch[1].toLowerCase() === "pass" ? "green" : "red"](verdictMatch[0]));
         } else {
-          console.log(verdict);
+          console.log(finalVerdict);
         }
-        console.log(chalk.yellow("\n=== Full LLM output ===\n"));
-        console.log(verdict);
+
+        // Always show original LLM output so developers can see the model's reasoning
+        if (wasOverridden) {
+          console.log(chalk.yellow("\n=== Original LLM output (Gate 3 override applied) ===\n"));
+          console.log(verdict);
+        } else if (!verdictMatch) {
+          // Fail-closed: unparseable output without override is treated as a failure.
+          console.warn(
+            chalk.yellow(
+              "\n⚠  Could not parse VERDICT: from LLM output. Treating as fail-closed FAIL.",
+            ),
+          );
+        }
+
         // Exit non-zero only for VERDICT: FAIL from LLM evaluation.
         // Infrastructure failures (Codex/Claude unavailable) emit VERDICT: SKIPPED and exit 0
         // so the cron step continues — gate 7 treats SKIPPED as a pass condition.
@@ -170,15 +204,19 @@ export function registerSkeptic(program: Command): Command {
         return;
       }
 
-      // Parse verdict from LLM output
-      const verdictMatch = verdict.match(VERDICT_LINE_RE);
-      if (!verdictMatch) {
+      // Parse verdict from LLM output.
+      // When Gate 3 override fires, finalVerdict carries the full FAIL message with the
+      // Gate-3 reason — use it as-is so the GitHub comment includes the explanatory tail.
+      const verdictMatch = finalVerdict.match(VERDICT_LINE_RE);
+      if (!verdictMatch && !wasOverridden) {
         console.warn(chalk.yellow("Could not parse VERDICT from LLM output. Posting raw output."));
       }
 
-      const verdictLine = verdictMatch
-        ? verdictMatch[0]
-        : "VERDICT: FAIL — could not parse LLM output (expected VERDICT: PASS/FAIL/SKIPPED)";
+      // Use the full finalVerdict (with Gate-3 reason) when overridden;
+      // otherwise use just the matched line to keep PASS/FAIL comments compact.
+      const verdictLine = wasOverridden
+        ? finalVerdict
+        : (verdictMatch ? verdictMatch[0] : finalVerdict);
 
       const spinner4 = ora("Posting verdict to PR #" + prNumber + "…").start();
       let commentBody: string;
@@ -191,7 +229,7 @@ export function registerSkeptic(program: Command): Command {
           existing?.commentId ?? null,
           SKEPTIC_BOT_AUTHOR,
           options.triggerSha,
-          verdict, // always pass full LLM output so FAIL/SKIPPED bodies carry context
+          llmOutput, // original LLM output shown separately from the verdict line
         );
         spinner4.succeed(chalk.green("Done! Skeptic verdict posted."));
 
@@ -205,7 +243,10 @@ export function registerSkeptic(program: Command): Command {
         // Verify both run-level (LLM output) and comment-level (GitHub comment).
         // This surfaces INSUFFICIENT when evidence is missing or inconsistent — fail-closed.
         const spinner5 = ora("Verifying claim (run-level + comment-level)…").start();
-        const claimResult = verifySkepticClaim(verdict, commentBody);
+        const claimResult = verifySkepticClaim(
+          wasOverridden ? finalVerdict : llmOutput,
+          commentBody,
+        );
         spinner5.stop();
         console.log(formatClaimVerification(claimResult));
 

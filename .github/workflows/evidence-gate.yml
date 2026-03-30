@@ -48,7 +48,7 @@ jobs:
 
           BODY=$(cat "$RUNNER_TEMP/pr_body.txt")
 
-          if printf '%s' "$BODY" | grep -qi '^[[:space:]]*## Evidence'; then
+          if printf '%s' "$BODY" | grep -qiF '## Evidence'; then
             echo "found=true" >> "$GITHUB_OUTPUT"
           else
             echo "found=false" >> "$GITHUB_OUTPUT"
@@ -89,13 +89,16 @@ jobs:
           #   multi-word names cleanly; sed then strips leading/trailing characters
           # sed 'I' flag makes the pattern case-insensitive so "**Claim Class**:" (title case)
           # is also correctly stripped even though the pattern uses lowercase 'c'
+          # sed 's/\\n.*//' strips the rest of the line after literal \n (GitHub PR bodies
+          # arrive as a single line with literal backslash-n, not actual newlines)
           CLAIM=$(printf '%s' "$BODY" \
             | grep -i '\*\*Claim class' | grep -v '^- ' | head -1 \
             | sed 's/.*\*\*Claim class\*\*: *//I' \
             | sed 's/(.*//' \
             | tr -d '*' | tr '[:upper:]' '[:lower:]' \
             | tr ' ' '-' | tr -d '\t' \
-            | sed 's/^[ \t-]*//;s/[ \t-]*$//')
+            | sed 's/^[ \t-]*//;s/[ \t-]*$//' \
+            | sed 's/\\n.*//')
 
           # Fallback: also try extracting from list-bullet format "- **Claim class**: ..."
           if [ -z "$CLAIM" ]; then
@@ -105,7 +108,8 @@ jobs:
               | sed 's/(.*//' \
               | tr -d '*' | tr '[:upper:]' '[:lower:]' \
               | tr ' ' '-' | tr -d '\t' \
-              | sed 's/^[ \t-]*//;s/[ \t-]*$//')
+              | sed 's/^[ \t-]*//;s/[ \t-]*$//' \
+              | sed 's/\\n.*//')
           fi
 
           echo "Claim class detected: $CLAIM"
@@ -154,7 +158,8 @@ jobs:
             | sed 's/(.*//' \
             | tr -d '*' | tr '[:upper:]' '[:lower:]' \
             | tr ' ' '-' | tr -d '\t' \
-            | sed 's/^[ \t-]*//;s/[ \t-]*$//')
+            | sed 's/^[ \t-]*//;s/[ \t-]*$//' \
+            | sed 's/\\n.*//')
 
           # Fallback: also try list-bullet format
           if [ -z "$CLAIM" ]; then
@@ -164,7 +169,8 @@ jobs:
               | sed 's/(.*//' \
               | tr -d '*' | tr '[:upper:]' '[:lower:]' \
               | tr ' ' '-' | tr -d '\t' \
-              | sed 's/^[ \t-]*//;s/[ \t-]*$//')
+              | sed 's/^[ \t-]*//;s/[ \t-]*$//' \
+              | sed 's/\\n.*//')
           fi
 
           # Normalize CLAUDE.md long forms to canonical short forms

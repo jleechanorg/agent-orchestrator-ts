@@ -63,9 +63,10 @@ jobs:
             exit 1
           fi
 
-          # Use anchored regex: ## must be at start of line, followed by space + "Evidence" + space or EOL
-          # grep -E enables extended regex; anchors ensure this is a markdown H2, not a word-in-sentence
-          if printf '%s' "$BODY" | grep -qiE '^[[:space:]]*##[[:space:]]+[Ee]vidence([[:space:]]|$)'; then
+          # Use grep -F (fixed-string, case-insensitive) to match the ## Evidence header.
+          # The PR body may be a single line with literal \n characters, so anchored regex
+          # (^[[:space:]]*## Evidence) fails — use grep -F instead to find the pattern inline.
+          if printf '%s' "$BODY" | grep -qiF '## Evidence'; then
             echo "found=true" >> "$GITHUB_OUTPUT"
             echo "reason=evidence_section_found" >> "$GITHUB_OUTPUT"
             echo "PASS: ## Evidence section found"
@@ -120,13 +121,27 @@ jobs:
 
           # Extract only the Evidence section content: from "## Evidence" to the next ## heading
           # This prevents media from later sections (e.g. "## Other" with ![img]) from incorrectly passing the gate
-          # Use awk for robust multi-line section boundary parsing
-          EVIDENCE=$(printf '%s\n' "$BODY" | awk '
-            BEGIN { IGNORECASE=1 }
-            /^[[:space:]]*##[[:space:]]+evidence([[:space:]]|$)/ { in_section=1; next }
-            in_section && /^[[:space:]]*##[[:space:]]/ { print; exit }
-            in_section { print }
-          ')
+          # Use grep -i to find "## Evidence" case-insensitively, then extract to the next ## or end
+          # The PR body may contain literal \n (backslash+n) instead of actual newlines, so we use
+          # grep -F (fixed-string) to match the "## Evidence" pattern wherever it appears.
+          if ! printf '%s' "$BODY" | grep -qiF '## Evidence'; then
+            echo "No ## Evidence section found in PR body"
+            exit 1
+          fi
+
+          # Extract the Evidence section (from ## Evidence marker to next ## section or EOF)
+          # The PR body may be a single line with literal \n, so we split on ## markers.
+          # Strategy: grep for lines containing ## Evidence, then print from there to next ##-initial line.
+          # Since the body may be one line, we pre-process: split on '\n' using tr, then process line-by-line.
+          EVIDENCE=$(printf '%s' "$BODY" \
+            | tr '\n' '\x00' \
+            | xargs -0 printf '%s\n' \
+            | awk '
+              BEGIN { capture=0 }
+              /## Evidence/ { capture=1 }
+              capture { print }
+              capture && /^##[[:space:]]/ && ! /## Evidence/ { exit }
+            ')
 
           if [ -z "$EVIDENCE" ]; then
             echo "No Evidence section found to validate"
