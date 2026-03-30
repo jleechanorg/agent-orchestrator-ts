@@ -50,6 +50,33 @@ jobs:
           echo "Checking PR #$PR_NUM at SHA ${HEAD_SHA:0:12}"
 
           # ----------------------------------------------------------------
+          # Wait for CI check runs to register and complete.
+          # The workflow triggers on pull_request/synchronize (push), but CI
+          # check runs may not be registered yet. Wait up to 10 minutes.
+          # Exclude Skeptic Gate itself from the wait (it would deadlock).
+          # ----------------------------------------------------------------
+          echo "Waiting for CI check runs to register..."
+          MAX_WAIT=600
+          INTERVAL=30
+          ELAPSED=0
+          while [ $ELAPSED -lt $MAX_WAIT ]; do
+            TOTAL_CHECKS=$(gh api repos/${{ github.repository }}/commits/"$HEAD_SHA"/check-runs \
+              --jq '[.check_runs | group_by(.name) | .[] | sort_by(.started_at) | reverse | .[0] | select(.name != "Skeptic Gate")] | length' 2>/dev/null || echo "0")
+            PENDING_CHECKS=$(gh api repos/${{ github.repository }}/commits/"$HEAD_SHA"/check-runs \
+              --jq '[.check_runs | group_by(.name) | .[] | sort_by(.started_at) | reverse | .[0] | select(.name != "Skeptic Gate" and .status != "completed")] | length' 2>/dev/null || echo "0")
+            if [ "$TOTAL_CHECKS" -gt 0 ] && [ "$PENDING_CHECKS" -eq 0 ]; then
+              echo "All CI checks complete ($TOTAL_CHECKS checks registered, 0 pending). Proceeding."
+              break
+            fi
+            echo "  [$ELAPSED/${MAX_WAIT}s] $PENDING_CHECKS checks still running, $TOTAL_CHECKS registered — waiting ${INTERVAL}s..."
+            sleep $INTERVAL
+            ELAPSED=$((ELAPSED + INTERVAL))
+          done
+          if [ $ELAPSED -ge $MAX_WAIT ]; then
+            echo "WARNING: max wait reached, proceeding with current state"
+          fi
+
+          # ----------------------------------------------------------------
           # Gate 1: CI green — all check runs and commit status must pass.
           # Exclude our own check (Skeptic Gate) to avoid self-reference.
           # ----------------------------------------------------------------

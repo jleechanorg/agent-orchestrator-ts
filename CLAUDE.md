@@ -285,7 +285,15 @@ Before dispatching AO workers:
 
 1. Run `gh api rate_limit` and inspect budgets.
 2. Count active tmux sessions: `tmux list-sessions | wc -l`.
-3. Spawn gate:
+3. **Verify lifecycle-worker is alive** (bd-rbgp: worker death silently breaks CR-reaction, merge, skeptic):
+   ```bash
+   launchctl print gui/$(id -u)/com.agentorchestrator.lifecycle-agent-orchestrator 2>&1 | grep "state ="
+   # Expected: "state = running"
+   # If "not found" (deregistered) or no output: bootstrap the plist:
+   launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.agentorchestrator.lifecycle-agent-orchestrator.plist
+   ```
+   Also check process: `pgrep -f "node.*ao lifecycle-worker agent-orchestrator"` — must return a PID.
+4. Spawn gate:
    - If active tmux sessions > 15, do **not** spawn new AO workers; warn the user instead.
 
 When blocked by this gate, include current counts and the exact blocker in your status update.
@@ -468,6 +476,47 @@ Before deleting any directory that contains (or contained) `agent-orchestrator.y
 Use the `ao-session-monitor` skill (`~/.claude/skills/ao-session-monitor.md`) when checking if AO worker tmux sessions are active.
 
 **Critical**: Claude Code renders `❯` at the bottom while thinking above it. Checking only 5–6 lines gives **false idle reports**. Always capture 20+ lines and look for Unicode activity indicators (`✻✶✳✽✾`).
+
+## Lifecycle-Worker Health — bd-rbgp
+
+**The lifecycle-worker is the bridge between PR events and worker action.** If it dies, ALL reactions stop (CR comments, CI failures, merge, skeptic).
+
+### How to check (always do before diagnosing CR/reaction stalls)
+```bash
+# 1. launchd registration
+launchctl print gui/$(id -u)/com.agentorchestrator.lifecycle-agent-orchestrator 2>&1 | grep "state ="
+# "running" = registered and alive; "not found" = deregistered (see below)
+
+# 2. process alive
+pgrep -u $(id -u) -f "node.*ao lifecycle-worker agent-orchestrator"
+# -u scopes to current user; returns PID if alive; empty if dead
+
+# 3. recent log — look for Worker stopped entries
+tail -5 ~/.openclaw/logs/ao-lifecycle-agent-orchestrator.log | grep "Worker stopped"
+```
+
+### If deregistered or dead
+```bash
+# Bootstrap (re-register with launchd — does NOT restart if already running)
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.agentorchestrator.lifecycle-agent-orchestrator.plist
+
+# Verify
+sleep 3 && launchctl print gui/$(id -u)/com.agentorchestrator.lifecycle-agent-orchestrator 2>&1 | grep "state ="
+
+# If process still missing, start manually (bypasses launchd until next boot)
+cd ~/.openclaw && nohup ao lifecycle-worker agent-orchestrator > ~/.openclaw/logs/ao-lifecycle-agent-orchestrator.log 2>&1 &
+```
+
+### Why workers die — common causes
+
+| Exit code | Cause | Fix |
+|---|---|---|
+| 0 | Network/API transient error, unhandled promise rejection | Investigate logs; file bd issue |
+| 1 | Config parse error, missing YAML | Check `ao doctor` |
+| never starts | launchd deregistered (thrashing protection) | Bootstrap plist, then investigate exit code |
+
+### Prevention — start-all.sh idempotency (bd-rbgp fix)
+`start-all.sh` now uses `pgrep -f "node.*ao lifecycle-worker ${PROJECT}$"` — matches the **node process**, not the bash wrapper. Previous pattern `pgrep -f "ao lifecycle-worker"` falsely matched the shell script itself, causing "already running" false positives that skipped restart.
 
 ## PR Worker Coverage — Harness Safeguards (bd-7ay)
 
