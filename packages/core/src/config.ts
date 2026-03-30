@@ -458,6 +458,16 @@ function applyDefaultReactions(config: OrchestratorConfig): OrchestratorConfig {
       priority: "info",
       includeSummary: true,
     },
+    // bd-qqm: skeptic-advice — fired when skeptic agent posts a FAIL verdict on a PR.
+    // Lifecycle manager detects new skeptic comments and fires this reaction, which
+    // sends the structured skeptic advice to the worker agent via send-to-agent.
+    "skeptic-advice": {
+      auto: true,
+      action: "send-to-agent",
+      message: "Skeptic has posted advice on your PR:\n\n{{context}}",
+      retries: 2,
+      escalateAfter: 2,
+    },
   };
 
   // Merge defaults with user-specified reactions (user wins)

@@ -2274,6 +2274,46 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
       }
     },
 
+    // bd-qqm: skeptic-advice reaction — fetch all skeptic agent comments for a PR.
+    // Used by lifecycle-manager to detect new FAIL verdicts and extract structured guidance.
+    async getSkepticComments(pr: PRInfo): Promise<Array<{ id: number; body: string; user: { login: string } }>> {
+      try {
+        const perPage = 100;
+        const result: Array<{ id: number; body: string; user: { login: string } }> = [];
+
+        for (let page = 1; ; page++) {
+          const raw = await gh([
+            "api",
+            `repos/${repoFlag(pr)}/issues/${pr.number}/comments?per_page=${perPage}&page=${page}`,
+          ]);
+          const comments: Array<{
+            id: number;
+            user: { login: string };
+            body: string;
+          }> = JSON.parse(raw);
+
+          if (comments.length === 0) {
+            break;
+          }
+
+          for (const c of comments) {
+            if (!TRUSTED_SKEPTIC_AUTHORS.has(c.user.login)) {
+              continue;
+            }
+            result.push({ id: c.id, body: c.body ?? "", user: c.user });
+          }
+
+          if (comments.length < perPage) {
+            break;
+          }
+        }
+
+        return result;
+      } catch {
+        return [];
+      }
+    },
+
     async getMergeability(pr: PRInfo): Promise<MergeReadiness> {
       const blockers: string[] = [];
 

@@ -14,6 +14,44 @@ import { checkMergeGate } from "./merge-gate.js";
 import { buildActionPlan, formatActionPlan } from "./action-plan.js";
 
 /**
+ * Extract structured sections from a skeptic FAIL comment body.
+ * The skeptic agent posts comments with ## Background, ## Current Problem,
+ * and ## Recommended Solution sections. Returns the extracted content.
+ */
+function extractSkepticSections(body: string): string {
+  const sections: string[] = [];
+
+  const background = extractSection(body, "Background");
+  if (background) sections.push(`## Background\n${background}`);
+
+  const problem = extractSection(body, "Current Problem");
+  if (problem) sections.push(`## Current Problem\n${problem}`);
+
+  const solution = extractSection(body, "Recommended Solution");
+  if (solution) sections.push(`## Recommended Solution\n${solution}`);
+
+  // Fall back to raw body if no sections found
+  if (sections.length === 0) {
+    return body.slice(0, 2000);
+  }
+
+  return sections.join("\n\n");
+}
+
+/** Extract the content between a ## Section header and the next ## header or end of string. */
+function extractSection(body: string, sectionName: string): string | null {
+  // Match ## Section Name\n or ## Section Name\r\n, then capture everything up to the next ## or end
+  const pattern = new RegExp(
+    `##\\s+${sectionName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\r?\\n([\\s\\S]*?)(?=##\\s+[\\w ]|\\Z)`,
+    "i",
+  );
+  const match = body.match(pattern);
+  if (!match) return null;
+  const content = match[1].trim();
+  return content.length > 0 ? content : null;
+}
+
+/**
  * Append a prioritized gate-closure action plan to reaction context.
  * Runs checkMergeGate to discover failing gates, formats the result as
  * worker-readable text, and returns it for injection into the reaction message.
@@ -91,6 +129,21 @@ export async function buildReactionContext(
         const summary = await buildPRStatusSummary(scm, session);
         const actionPlanText = await appendActionPlan(scm, session.pr, projectId, config);
         return actionPlanText ? `${summary}\n\n${actionPlanText}` : summary;
+      }
+      case "skeptic-advice": {
+        // Fetch skeptic agent comments and extract structured sections from the
+        // most recent FAIL verdict for delivery to the worker agent.
+        if (!scm.getSkepticComments) return "";
+        const comments = await scm.getSkepticComments(session.pr!);
+        // Find the latest FAIL verdict comment
+        let latestFail: { id: number; body: string } | null = null;
+        for (const c of comments) {
+          if (/VERDICT:\s*FAIL/i.test(c.body) && c.id > (latestFail?.id ?? -1)) {
+            latestFail = { id: c.id, body: c.body };
+          }
+        }
+        if (!latestFail) return "";
+        return extractSkepticSections(latestFail.body);
       }
       default:
         return "";
