@@ -143,7 +143,9 @@ update_metadata_key() {
   local temp_file="${metadata_file}.tmp"
 
   # Escape special sed characters in value (&, \, and | — sed uses | as delimiter)
-  local escaped_value=$(echo "$value" | sed 's/[&\\|]/\\&/g')
+  # Declare separately to avoid SC2155: local var=$(subshell) discards exit code
+  local escaped_value
+  escaped_value=$(printf '%s' "$value" | sed 's/[&\\|]/\\&/g')
 
   # Check if key already exists
   if grep -q "^$key=" "$metadata_file" 2>/dev/null; then
