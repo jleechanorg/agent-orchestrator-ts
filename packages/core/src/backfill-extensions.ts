@@ -7,14 +7,10 @@
  * @module backfill-extensions
  */
 
-import type {
-  PluginRegistry,
-  SessionManager,
-  Session,
-  SCM,
-  ProjectConfig,
-} from "./types.js";
+import { type PluginRegistry, type SessionManager, type Session, type SCM, type ProjectConfig, TERMINAL_STATUSES } from "./types.js";
 import type { ProjectObserver } from "./observability.js";
+import { sortReviewsNewestFirst } from "./merge-gate-coderabbit.js";
+import { hasSession } from "./tmux.js";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { existsSync, readdirSync, rmSync } from "node:fs";
@@ -54,6 +50,15 @@ export function _resetBackfillTimer(): void {
   lastBackfillTime = 0;
 }
 
+/** Per-cycle rate-limit counter for CHANGES_REQUESTED PR respawns. */
+let changesRequestedRespawnCount = 0;
+const MAX_CHANGES_REQUESTED_RESPAWNS_PER_CYCLE = 2;
+
+/** Reset CR respawn counter — exposed for testing only. */
+export function _resetCrRespawnCounter(): void {
+  changesRequestedRespawnCount = 0;
+}
+
 /** Expand ~ to home directory (mirrors workspace-worktree expandPath). */
 function expandPath(p: string): string {
   if (p.startsWith("~/")) {
@@ -78,25 +83,57 @@ export async function backfillUncoveredPRs(
   const now = Date.now();
   if (now - lastBackfillTime < BACKFILL_INTERVAL_MS) return false;
 
-  const scm = project.scm ? registry.get<SCM>("scm", project.scm.plugin) : null;
-  if (!scm?.listOpenPRs) return false;
+  const scmNullable = project.scm ? registry.get<SCM>("scm", project.scm.plugin) : null;
+  if (!scmNullable) return false;
+  const listOpenPRs = scmNullable.listOpenPRs?.bind(scmNullable);
+  if (!listOpenPRs) return false;
+  const scm: SCM = scmNullable;
 
   // Set throttle AFTER confirming SCM supports listOpenPRs — so missing
   // support doesn't block retries when a different SCM plugin is loaded.
   lastBackfillTime = now;
 
+  // Reset per-cycle rate-limit counters.
+  // Counter is scoped per backfill invocation (each invocation is one "cycle").
+  // Backfill processes ONE PR per cycle and returns after first spawn+claim.
+  // With MAX=2: first backfill call respawns 1 CR-PR, counter=1;
+  // second backfill call (5 min later) respawns another, counter=2;
+  // third backfill call skips CR-PRs since counter>=MAX.
+  // This deliberate design keeps each backfill call fast and bounded.
+  changesRequestedRespawnCount = 0;
+
   try {
-    const openPRs = await scm.listOpenPRs(project);
+    const openPRs = await listOpenPRs(project);
     if (openPRs.length === 0) return false;
 
-    // Build set of PR numbers AND branches covered by active sessions.
-    // Sessions may not have pr.number set yet if detectPR hasn't run,
-    // but they will have branch — match on both to avoid duplicate spawns.
+    // Build set of PR numbers AND branches covered by LIVE sessions.
+    // Build-from-alive (instead of populate-then-delete) avoids a race: if two
+    // sessions share the same PR/branch and only one is dead, the delete approach
+    // would remove the entry entirely even though a live session still covers it.
+    // Non-tmux runtimes are counted as live immediately — we have no way to probe
+    // their liveness from tmux.  Tmux runtimes are checked via hasSession; on error
+    // treat the session as live (fail-open) to avoid spuriously uncovering PRs.
     const coveredPRs = new Set<number>();
     const coveredBranches = new Set<string>();
-    for (const s of activeSessions) {
-      if (s.pr?.number) coveredPRs.add(s.pr.number);
-      if (s.branch) coveredBranches.add(s.branch);
+    for (const session of activeSessions) {
+      if (TERMINAL_STATUSES.has(session.status)) continue;
+      if (session.pr?.number) coveredPRs.add(session.pr.number);
+      if (session.branch) coveredBranches.add(session.branch);
+    }
+    // Remove entries whose tmux session is actually dead.
+    for (const session of activeSessions) {
+      if (TERMINAL_STATUSES.has(session.status)) continue;
+      if (!session.runtimeHandle || session.runtimeHandle.runtimeName !== "tmux") continue;
+      let live: boolean;
+      try {
+        live = await hasSession(session.runtimeHandle.id);
+      } catch {
+        live = true; // fail-open: tmux error → treat session as live
+      }
+      if (!live) {
+        if (session.pr?.number) coveredPRs.delete(session.pr.number);
+        if (session.branch) coveredBranches.delete(session.branch);
+      }
     }
 
     // Find uncovered PRs (skip drafts, check both PR number and branch)
@@ -134,17 +171,60 @@ export async function backfillUncoveredPRs(
     let consecutiveClaimFailures = 0;
     for (const pr of uncovered) {
       try {
+        // Fetch reviewDecision to identify CHANGES_REQUESTED PRs.
+        // Fail-open: if the call fails, treat as non-CHANGES_REQUESTED.
+        let decision = "pending";
+        let crBody: string | undefined;
+        try {
+          decision = await scm.getReviewDecision(pr);
+        } catch { /* fail-open */ }
+
+        if (decision === "changes_requested") {
+          // Rate-limit: skip CHANGES_REQUESTED PRs beyond the per-cycle cap.
+          if (changesRequestedRespawnCount >= MAX_CHANGES_REQUESTED_RESPAWNS_PER_CYCLE) {
+            continue;
+          }
+
+          // Fetch CR review body for context injection.
+          // Fail-open: if getReviews fails, proceed without context.
+          try {
+            const reviews = await scm.getReviews(pr);
+            const sorted = [...reviews]
+              .filter((r) => r.author === "coderabbitai[bot]")
+              .sort(sortReviewsNewestFirst);
+            crBody = sorted.find((r) => r.state === "changes_requested")?.body;
+          } catch { /* fail-open */ }
+        }
+
+        // Build spawn prompt: CR context when available, generic fallback otherwise.
+        // crBody is contributor-controlled (from PR review text) — escape quotes,
+        // backslashes, and the prompt delimiter (---) to prevent prompt injection.
+        // Truncate to 5000 chars after sanitization.
+        let prompt: string;
+        if (decision === "changes_requested" && crBody) {
+          const safeBody = crBody
+            .replace(/\\/g, "\\\\")
+            .replace(/"/g, '\\"')
+            .replace(/^---$/gm, "\\-\\-\\-")
+            .slice(0, 5000);
+          prompt = `CodeRabbit posted CHANGES_REQUESTED on PR #${pr.number} (${pr.url}).
+The review comments are:
+---
+${safeBody}
+---
+Fix exactly these items, commit with [agento], and push.`;
+        } else {
+          const escapedTitle = pr.title.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+          prompt = `Continue working on PR #${pr.number}: [PR title: "${escapedTitle}"]. Check PR status, fix any blockers (CI failures, review comments, merge conflicts), and drive it to 7-green.`;
+        }
+
         // Don't pass branch to spawn — let claimPR handle checkout so
         // the workspace starts on the correct PR branch via SCM checkout.
-        // pr.title is contributor-supplied — escape quotes to prevent prompt injection.
-        const escapedTitle = pr.title
-          .replace(/\\/g, "\\\\") // escape backslashes first
-          .replace(/"/g, '\\"');
         const session = await sessionManager.spawn({
           projectId,
           // Label the title as untrusted contributor input so the agent does not
           // treat embedded text as system directives. Quotes prevent injection.
-          prompt: `Continue working on PR #${pr.number}: [PR title: "${escapedTitle}"]. Check PR status, fix any blockers (CI failures, review comments, merge conflicts), and drive it to 6-green.`,
+          prompt,
         });
 
         // Claim the PR for this session — this checks out the branch
@@ -419,7 +499,6 @@ export async function backfillUncoveredPRs(
                 } else {
                   // repoDir unknown — directory removed but git worktree entry unverified.
                   // Log for operator visibility; the entry may persist and block future claims.
-                  // eslint-disable-next-line no-console
                   console.warn(
                     `[backfill] cleanup: removed ${worktreeDir} but could not verify git worktree entry removal (owning repo unknown)`,
                   );
@@ -479,6 +558,11 @@ export async function backfillUncoveredPRs(
         }
 
         consecutiveSpawnFailures = 0; // both spawn AND claim succeeded
+        // Increment CR rate-limit counter only after both spawn and claim succeeded.
+        // This prevents failed attempts from burning rate-limit slots.
+        if (decision === "changes_requested") {
+          changesRequestedRespawnCount++;
+        }
 
         observer.recordOperation({
           metric: "lifecycle_poll",

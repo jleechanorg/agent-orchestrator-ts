@@ -19,12 +19,12 @@
  * - Sessions spawned by other AO installations on the same machine
  *
  * Invoked periodically by the lifecycle-manager; in the default integration
- * this sweep is throttled to run every ~5 minutes (SWEEP_INTERVAL_MS = 5 min).
+ * this sweep is throttled to roughly every 5 minutes, not every 30s.
  */
 
 import { listSessions, killSession, type TmuxSessionInfo } from "./tmux.js";
 import { parseTmuxName } from "./paths.js";
-import { PR_STATE, type SessionManager } from "./types.js";
+import type { SessionManager } from "./types.js";
 
 // =============================================================================
 // Types
@@ -196,11 +196,9 @@ export async function sweepOrphanTmuxSessions(
   const allTmuxSessions = await listSessions();
   const scanned = allTmuxSessions.length;
 
-  // Get all active AO session IDs from the DB and build a lookup map
-  // so we can inspect PR state for DB-tracked sessions.
+  // Get all active AO session IDs from the DB
   const aoSessions = await deps.sessionManager.list();
   const aoSessionIds = new Set(aoSessions.map((s) => s.id));
-  const sessionById = new Map(aoSessions.map((s) => [s.id, s]));
 
   const killed: SweptOrphan[] = [];
   const skipped: SkippedOrphan[] = [];
@@ -220,57 +218,8 @@ export async function sweepOrphanTmuxSessions(
       continue;
     }
 
-    // bd-s6z1: Check PR state for DB-tracked sessions. Even though the
-    // lifecycle-manager calls sessionManager.kill() when it detects a merged/closed
-    // PR, that kill() call can fail silently (e.g. runtime handle gone, race with
-    // concurrent cleanup). The sweeper acts as the backstop: if a session is in
-    // the AO DB but its PR is merged or closed, kill it immediately — no idle
-    // threshold wait. The hash is validated before killing to prevent
-    // hash-blind collisions: another AO config on the same machine may have a
-    // legitimate session with the same logical id (e.g. "otherhash-ao-42") that
-    // must not be killed.
+    // Skip sessions tracked in the AO DB — they are legitimate active sessions
     if (aoSessionIds.has(parsed.sessionId)) {
-      const aoSession = sessionById.get(parsed.sessionId)!;
-      // Validate hash ownership: the DB record's tmuxName (if set) must match
-      // the scanned tmux session name. Without this check, a session like
-      // "otherhash-ao-42" could be killed because "ao-42" exists in the DB.
-      const dbTmuxName = aoSession.metadata?.["tmuxName"];
-      if (dbTmuxName === undefined) {
-        // tmuxName not set in metadata — cannot verify ownership; skip to avoid
-        // hash-blind collision with another AO config's session on the same machine.
-        skipped.push({ tmuxName: session.name, reason: "tmuxName not set in AO DB — ownership unverifiable, skipped" });
-        continue;
-      }
-      if (dbTmuxName !== parsed.tmuxName) {
-        skipped.push({ tmuxName: session.name, reason: "hash mismatch — belongs to another AO config" });
-        continue;
-      }
-      const prState = aoSession.pr?.state;
-      if (prState === PR_STATE.MERGED || prState === PR_STATE.CLOSED) {
-        const reason = `pr_state=${prState}, AO DB kill may have failed`;
-        if (killed.length + errors.length >= config.maxKillsPerSweep) {
-          skipped.push({ tmuxName: session.name, reason: "max kills per sweep reached" });
-          continue;
-        }
-        logFn(`[tmux-sweeper] ${dryRun ? "[DRYRUN] " : ""}killing DB-tracked session with ${prState} PR: ${session.name}`);
-        if (!dryRun) {
-          try {
-            await killSession(session.name);
-            killed.push({ tmuxName: session.name, aoSessionId: parsed.sessionId, created: session.created, idleMs: 0, reason });
-          } catch (err) {
-            const msg = err instanceof Error ? err.message : String(err);
-            if (/session not found|no server/i.test(msg)) {
-              logFn(`[tmux-sweeper] session already gone: ${session.name}`);
-            } else {
-              errors.push({ tmuxName: session.name, error: msg });
-            }
-          }
-        } else {
-          killed.push({ tmuxName: session.name, aoSessionId: parsed.sessionId, created: session.created, idleMs: 0, reason });
-        }
-        continue;
-      }
-      // PR is open or unknown — skip, session is legitimately active
       skipped.push({ tmuxName: session.name, reason: "tracked in AO DB" });
       continue;
     }

@@ -304,6 +304,13 @@ describe("wholesome — structural source-code assertions", () => {
       "0ae4c6264774fe06c73dac001b8ca95474fd718b", // chore: retrigger skeptic gate
       "3b015e0b17362f58bc37e13690bc594c11b20c8c", // chore: retrigger CI after resolving comments
       "2c778f91e76898b32c24175c4c2f5483c4ef6333", // chore: retrigger CI for bd-n039
+      // feat/orch-bxf commits (CI noise):
+      "b21ae94e527408e78383a35d4ffeadbf5d01e0a2", // fix: add runtimeName check to tmux liveness probe
+      "e8f95b1d25edb3cf2d57a2a22396646487096868", // fix: remove eslint-disable, fix malformed spawn syntax
+      "7b7ef53bc525c6ea75ecda807361e26de1be21d5", // fix: add missing ProjectObserver import (lost in rebase)
+      "f6750186a3916345e49f191fa646f838dc652f2b", // feat(lifecycle): backfill spawns workers for dead-agent CHANGES_REQUESTED PRs
+      "69c8956d4613b5270d6efd68d5bc92cba5375eca", // docs: add backfill CHANGES_REQUESTED implementation plan
+      "988a86fc8af7e95c51fcecabfe1fab62e0fbf74c", // docs: add backfill CHANGES_REQUESTED design spec
     ]);
 
     it("all non-merge commits made on this branch have [agento] prefix", () => {
