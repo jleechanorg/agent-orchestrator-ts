@@ -144,9 +144,12 @@ jobs:
             echo "No ## Evidence section found in PR body"
             exit 1
           fi
+          # bd-ara.5: xargs -0 printf '%s\n' concatenates all null-separated fields
+          # into a SINGLE line (no separator between records), making awk's ^ anchor
+          # fail to match ## headings (they get concatenated into preceding content).
+          # Use tr '\x00' '\n' instead to convert nulls back to newlines.
           EVIDENCE=$(printf '%s' "$BODY" \
-            | tr '\n' '\x00' \
-            | xargs -0 printf '%s\n' \
+            | tr '\x00' '\n' \
             | awk '
               BEGIN { capture=0 }
               /^[[:space:]]*##[[:space:]]+[Ee][Vv][Ii][Dd][Ee][Nn][Cc][Ee]([[:space:]]|$)/ { capture=1; next }
