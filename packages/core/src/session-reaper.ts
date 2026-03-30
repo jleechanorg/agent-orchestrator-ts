@@ -5,11 +5,13 @@
  * - orphaned (activity=exited or process dead) for > orphanedThresholdMs
  * - have no PR for > noPrThresholdMs
  * - idle for > orphanedThresholdMs
+ * - alive longer than sessionTtlMs (orch-ju1)
+ * - tmux process dead (orch-ju1)
  *
  * Respects maxKillsPerRun cap per execution.
  */
 
-import { TERMINAL_STATUSES, type SessionManager } from "./types.js";
+import { TERMINAL_STATUSES, type Session, type SessionManager } from "./types.js";
 import { checkAndKillZombie } from "./session-reaper-extensions.js";
 
 // =============================================================================
@@ -38,6 +40,12 @@ export interface ReaperConfig {
    * reaping. Prevents killing sessions before the agent CLI has initialized.
    */
   startupGracePeriodMs?: number;
+  /**
+   * orch-ju1: ms after which a session is reaped regardless of other conditions.
+   * Sessions that exceed this TTL are killed even if they are active and have
+   * an open PR. Default: 4h (14_400_000 ms). Set to undefined to disable.
+   */
+  sessionTtlMs?: number;
 }
 
 export interface ReapedSession {
@@ -66,6 +74,20 @@ export interface ReaperDeps {
   sessionManager: SessionManager;
   /** Override current time (for testing) */
   now?: Date;
+  /**
+   * orch-ju1: Check if a tmux session is still alive.
+   * Receives the full tmux name (e.g. "a3b4c5d6e7f8-ao-42") from session metadata.
+   * Returns true if the tmux session exists, false if the process is dead.
+   */
+  tmuxHealth?: (tmuxName: string) => Promise<boolean>;
+  /**
+   * orch-ju1: Respawn a replacement worker for the given session.
+   * Called after kill() when the dead-tmux session had an open PR — the
+   * replacement worker is spawned targeting the same PR.
+   * The respawn fn must extract pr.number from the session and call
+   * sessionManager.claimPR(newSessionId, String(pr.number)).
+   */
+  respawnSession?: (sessionId: string, projectId: string, session: Session) => Promise<void>;
 }
 
 // =============================================================================
@@ -141,6 +163,61 @@ export async function reapStaleSessions(
     const gracePeriodMs = config.startupGracePeriodMs ?? 0;
     if (gracePeriodMs > 0 && ageMs < gracePeriodMs) {
       skipped.push({ sessionId: session.id, reason: "startup grace period" });
+      continue;
+    }
+
+    // orch-ju1: Check if the tmux session is still alive.
+    // Only possible when tmuxName is stored in session metadata (new architecture).
+    const tmuxName = session.metadata["tmuxName"];
+    if (deps.tmuxHealth && tmuxName) {
+      const tmuxAlive = await deps.tmuxHealth(tmuxName);
+      if (!tmuxAlive) {
+        // tmux process is dead — kill the AO session and optionally respawn.
+        // Grace period already applied above.
+        const prState = session.pr?.state;
+        const isTerminalPr = prState === "merged" || prState === "closed";
+        if (!dryRun) {
+          let killedSuccessfully = false;
+          try {
+            await deps.sessionManager.kill(session.id);
+            killedSuccessfully = true;
+            killed.push({ sessionId: session.id, reason: `tmux dead (${tmuxName})` });
+          } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            errors.push({ sessionId: session.id, error: msg });
+          }
+          // Respawn replacement worker only when kill succeeded and PR is open.
+          // Do NOT respawn if kill failed — a failed kill means the session still
+          // exists and the respawn would create a duplicate worker.
+          if (killedSuccessfully && session.pr && !isTerminalPr && deps.respawnSession) {
+            try {
+              await deps.respawnSession(session.id, session.projectId, session);
+            } catch (respawnErr) {
+              const msg = respawnErr instanceof Error ? respawnErr.message : String(respawnErr);
+              errors.push({ sessionId: session.id, error: `respawn: ${msg}` });
+            }
+          }
+        } else {
+          killed.push({ sessionId: session.id, reason: `tmux dead (${tmuxName})` });
+        }
+        continue;
+      }
+    }
+
+    // orch-ju1: TTL check — reap sessions that have been alive longer than configured TTL.
+    // Sessions within grace period are already skipped above.
+    if (config.sessionTtlMs !== undefined && ageMs > config.sessionTtlMs) {
+      if (!dryRun) {
+        try {
+          await deps.sessionManager.kill(session.id);
+          killed.push({ sessionId: session.id, reason: `TTL exceeded (${Math.round(ageMs / 3_600_000)}h > ${Math.round(config.sessionTtlMs / 3_600_000)}h)` });
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          errors.push({ sessionId: session.id, error: msg });
+        }
+      } else {
+        killed.push({ sessionId: session.id, reason: `TTL exceeded (${Math.round(ageMs / 3_600_000)}h > ${Math.round(config.sessionTtlMs / 3_600_000)}h)` });
+      }
       continue;
     }
 

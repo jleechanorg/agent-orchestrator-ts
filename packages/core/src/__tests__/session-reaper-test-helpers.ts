@@ -53,6 +53,16 @@ export function makeConfig(overrides?: Partial<ReaperConfig>): ReaperConfig {
   };
 }
 
+export function makeTtlConfig(overrides?: Partial<ReaperConfig>): ReaperConfig {
+  // Use 10h orphaned/noPr threshold so TTL is the active condition, not age thresholds.
+  return {
+    orphanedThresholdMs: 10 * 60 * 60 * 1000,
+    noPrThresholdMs: 10 * 60 * 60 * 1000,
+    maxKillsPerRun: DEFAULT_REAPER_CONFIG.maxKillsPerRun,
+    ...overrides,
+  };
+}
+
 export function makeDeps(sm: SessionManager): ReaperDeps {
   return {
     sessionManager: sm,
