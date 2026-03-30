@@ -196,11 +196,8 @@ if [[ "$clean_command" =~ ^git[[:space:]]+switch[[:space:]]+-c[[:space:]]+([^[:s
   fi
 fi
 
-# Detect: git checkout <branch> (without -b) or git switch <branch> (without -c)
-# Only update if the branch name looks like a feature branch (contains / or -)
-# Guard against pathspecs: skip if token looks like a file path (starts with src/lib/app/tests/docs/scripts/)
-# or contains a file extension. This is best-effort — git rev-parse verification was removed
-# for simplification, so occasional false positives on unusual pathspecs are possible.
+# Detect: git switch <branch> (without -c) — only operates on branches, not pathspecs
+# No pathspec guard needed: git switch does not accept file paths
 if [[ "$clean_command" =~ ^git[[:space:]]+checkout[[:space:]]+([^[:space:]-]+[/-][^[:space:]]+) ]]; then
   branch="${BASH_REMATCH[1]}"
   if [[ -n "$branch" && "$branch" != "HEAD" &&
@@ -214,9 +211,7 @@ fi
 
 if [[ "$clean_command" =~ ^git[[:space:]]+switch[[:space:]]+([^[:space:]-]+[/-][^[:space:]]+) ]]; then
   branch="${BASH_REMATCH[1]}"
-  if [[ -n "$branch" && "$branch" != "HEAD" &&
-        ! "$branch" =~ ^(src|lib|app|tests|test|docs|doc|scripts|bin|config|build|pkg|internal|tools|scripts)/ &&
-        ! "$branch" =~ \.(ts|js|tsx|jsx|py|go|rs|java|cpp|c|h|sh|bash|json|yaml|yml|toml|md|html|css|scss)$ ]]; then
+  if [[ -n "$branch" && "$branch" != "HEAD" ]]; then
     update_metadata_key "branch" "$branch"
     echo '{"systemMessage": "Updated metadata: branch = '"$branch"'"}'
     exit 0
