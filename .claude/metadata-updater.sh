@@ -142,9 +142,10 @@ update_metadata_key() {
   # Create temp file
   local temp_file="${metadata_file}.tmp"
 
-  # Escape replacement-special characters: & \ and | (the latter is the sed delimiter on line 151)
+  # Escape special sed characters in value (&, \, and | — sed uses | as delimiter)
+  # Declare separately to avoid SC2155: local var=$(subshell) discards exit code
   local escaped_value
-  escaped_value=$(printf '%s' "$value" | sed 's/[&|\\]/\\&/g')
+  escaped_value=$(printf '%s' "$value" | sed 's/[&\\|]/\\&/g')
 
   # Check if key already exists
   if grep -q "^$key=" "$metadata_file" 2>/dev/null; then
@@ -195,38 +196,25 @@ if [[ "$clean_command" =~ ^git[[:space:]]+switch[[:space:]]+-c[[:space:]]+([^[:s
   fi
 fi
 
-# Detect: git checkout <branch> (without -b)
-# Resolve the actual branch from git after checkout — don't trust the shell token
-# (checkout of a tag leaves HEAD detached; token still looks like a valid branch).
-# Guard: only update if the operand is actually a branch ref (not a pathspec like src/main.ts).
+# Detect: git switch <branch> (without -c) — only operates on branches, not pathspecs
+# No pathspec guard needed: git switch does not accept file paths
 if [[ "$clean_command" =~ ^git[[:space:]]+checkout[[:space:]]+([^[:space:]-]+[/-][^[:space:]]+) ]]; then
-  operand="${BASH_REMATCH[1]}"
-  is_branch=false
-  git rev-parse --verify --quiet "refs/heads/$operand" &>/dev/null && is_branch=true
-  if $is_branch; then
-    current_branch=$(git symbolic-ref --quiet --short HEAD 2>/dev/null || true)
-    if [[ -n "$current_branch" ]]; then
-      update_metadata_key "branch" "$current_branch"
-      echo '{"systemMessage": "Updated metadata: branch = '"$current_branch"'"}'
-      exit 0
-    fi
+  branch="${BASH_REMATCH[1]}"
+  if [[ -n "$branch" && "$branch" != "HEAD" &&
+        ! "$branch" =~ ^(src|lib|app|tests|test|docs|doc|scripts|bin|config|build|pkg|internal|tools|scripts)/ &&
+        ! "$branch" =~ \.(ts|js|tsx|jsx|py|go|rs|java|cpp|c|h|sh|bash|json|yaml|yml|toml|md|html|css|scss)$ ]]; then
+    update_metadata_key "branch" "$branch"
+    echo '{"systemMessage": "Updated metadata: branch = '"$branch"'"}'
+    exit 0
   fi
 fi
 
-# Detect: git switch <branch> (without -c)
-# Resolve the actual branch from git after switch — don't trust the shell token
-# (quotes in "feat/foo" are stored verbatim by some shells).
 if [[ "$clean_command" =~ ^git[[:space:]]+switch[[:space:]]+([^[:space:]-]+[/-][^[:space:]]+) ]]; then
-  operand="${BASH_REMATCH[1]}"
-  is_branch=false
-  git rev-parse --verify --quiet "refs/heads/$operand" &>/dev/null && is_branch=true
-  if $is_branch; then
-    current_branch=$(git symbolic-ref --quiet --short HEAD 2>/dev/null || true)
-    if [[ -n "$current_branch" ]]; then
-      update_metadata_key "branch" "$current_branch"
-      echo '{"systemMessage": "Updated metadata: branch = '"$current_branch"'"}'
-      exit 0
-    fi
+  branch="${BASH_REMATCH[1]}"
+  if [[ -n "$branch" && "$branch" != "HEAD" ]]; then
+    update_metadata_key "branch" "$branch"
+    echo '{"systemMessage": "Updated metadata: branch = '"$branch"'"}'
+    exit 0
   fi
 fi
 
