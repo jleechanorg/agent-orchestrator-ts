@@ -488,8 +488,8 @@ launchctl print gui/$(id -u)/com.agentorchestrator.lifecycle-agent-orchestrator 
 # "running" = registered and alive; "not found" = deregistered (see below)
 
 # 2. process alive
-pgrep -f "node.*ao lifecycle-worker agent-orchestrator"
-# returns PID if alive; empty if dead
+pgrep -u $(id -u) -f "node.*ao lifecycle-worker agent-orchestrator"
+# -u scopes to current user; returns PID if alive; empty if dead
 
 # 3. recent log — look for Worker stopped entries
 tail -5 ~/.openclaw/logs/ao-lifecycle-agent-orchestrator.log | grep "Worker stopped"
