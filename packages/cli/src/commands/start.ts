@@ -193,6 +193,18 @@ async function handleUrlStart(
   // 2. Determine target directory
   const cwd = process.cwd();
   const targetDir = resolveCloneTarget(parsed, cwd);
+
+  // Guard: refuse to operate on the main repo — use a worktree instead.
+  // Must check before cloning or writing any config.
+  const mainRepoPath = getMainRepoPath();
+  let resolvedTargetDir: string;
+  try {
+    resolvedTargetDir = realpathSync.native(targetDir);
+  } catch {
+    resolvedTargetDir = targetDir;
+  }
+  guardMainRepo(resolvedTargetDir, mainRepoPath);
+
   const alreadyCloned = isRepoAlreadyCloned(targetDir, parsed.cloneUrl);
 
   // 3. Clone or reuse
@@ -506,8 +518,8 @@ async function startDashboard(
 
 // bd-8gld: Resolve the main repo path, with realpath to canonicalize symlinks.
 // AO_MAIN_REPO env var overrides the default for custom installations.
-// The resolve() call handles ~ expansion; realpathSync.native() resolves symlinks
-// so that e.g. /Users/jleechan → /Users/jleechan.chan (if symlinked) matches correctly.
+// realpathSync.native() resolves symlinks so that e.g. /Users/jleechan →
+// /Users/jleechan.chan (if symlinked) matches correctly.
 function getMainRepoPath(): string {
   const configured =
     process.env["AO_MAIN_REPO"] ||
