@@ -170,7 +170,9 @@ export function registerSkeptic(program: Command): Command {
           );
           finalVerdict = "VERDICT: FAIL — Gate 3 (CR APPROVED) not satisfied. " +
             `CR review state: ${crDetail}. ` +
-            "This is a hard requirement — no PASS is possible without CR APPROVED.";
+            "This is a hard requirement — no PASS is possible without CR APPROVED.\n\n" +
+            "--- Original LLM output (overridden) ---\n" +
+            verdict;
         }
       }
 
