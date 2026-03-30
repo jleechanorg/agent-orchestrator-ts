@@ -22,6 +22,13 @@ if ! python3 -c "import yaml; yaml.safe_load(open('$CONFIG_FILE'))" 2>/dev/null;
 fi
 echo "Config OK: $CONFIG_FILE"
 
+# Pre-flight: run ao doctor --fix to catch environment issues before starting projects.
+if command -v ao >/dev/null 2>&1; then
+  echo "=== Pre-flight: ao doctor --fix ==="
+  ao doctor --fix 2>&1 | tail -5 || true
+  echo ""
+fi
+
 PROJECTS=$(python3 -c "
 import yaml
 with open('$CONFIG_FILE') as f:
