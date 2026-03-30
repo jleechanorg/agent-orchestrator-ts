@@ -1,32 +1,49 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach, mocked } from "vitest";
 import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
-// Mutable lets hold the real function references once the async factory populates them.
-// Declared at module scope (before vi.mock) so the closure in the factory can write to them.
-let realFetchDesignDoc: (prNumber: number) => Promise<string | null>;
-let realGhJsonPaginate: (endpoint: string, args?: string[]) => Promise<unknown>;
-let realFetchIssueComments: (owner: string, repo: string, prNumber: number) => Promise<unknown[]>;
+// Use a mutable object so vi.mock factories (which are hoisted) can write to it.
+// vi.hoisted creates const bindings — only the object's properties are mutable.
+const refs = vi.hoisted(() => ({
+  realFetchDesignDoc: null as (prNumber: number) => Promise<string | null>,
+  realGhJsonPaginate: null as (endpoint: string, args?: string[]) => Promise<unknown>,
+  realFetchIssueComments:
+    null as (owner: string, repo: string, prNumber: number) => Promise<unknown[]>,
+  realReadFileSync: null as ((
+    path: Parameters<typeof import("node:fs")["readFileSync"]>[0],
+    ...args: unknown[]
+  ) => string),
+}));
 
-// Hoisted before vi.mock so the factory closure can write to the lets above.
 const mockExec = vi.hoisted(() => vi.fn());
 
 // vi.mock factory is async — vitest awaits it before the module import completes,
-// so the real functions are resolved and assigned to the lets before the mock
+// so the real functions are resolved and assigned to the refs object before the mock
 // is installed. This sidesteps the ESM TDZ problem entirely.
 vi.mock("../../../src/commands/skeptic/gh-client.js", async () => {
   const mod = await import("../../../src/commands/skeptic/gh-client.js");
-  realFetchDesignDoc = mod.fetchDesignDoc;
-  realGhJsonPaginate = mod.ghJsonPaginate;
-  realFetchIssueComments = mod.fetchIssueComments;
+  refs.realFetchDesignDoc = mod.fetchDesignDoc;
+  refs.realGhJsonPaginate = mod.ghJsonPaginate;
+  refs.realFetchIssueComments = mod.fetchIssueComments;
   return {
-    fetchDesignDoc: vi.fn((...args: unknown[]) => realFetchDesignDoc(...(args as [number]))),
+    fetchDesignDoc: vi.fn((...args: unknown[]) => refs.realFetchDesignDoc(...(args as [number]))),
     ghJsonPaginate: vi.fn((...args: unknown[]) =>
-      realGhJsonPaginate(...(args as [string, string[]?])),
+      refs.realGhJsonPaginate(...(args as [string, string[]?])),
     ),
     fetchIssueComments: vi.fn((...args: unknown[]) =>
-      realFetchIssueComments(...(args as [string, string, number])),
+      refs.realFetchIssueComments(...(args as [string, string, number])),
+    ),
+  };
+});
+
+vi.mock("node:fs", async () => {
+  const fs = await import("node:fs");
+  refs.realReadFileSync = fs.readFileSync;
+  return {
+    ...fs,
+    readFileSync: vi.fn((...args: Parameters<typeof fs.readFileSync>) =>
+      refs.realReadFileSync(...args),
     ),
   };
 });
@@ -39,25 +56,36 @@ vi.mock("../../../src/lib/shell.js", () => ({
 const { fetchDesignDoc, ghJsonPaginate, fetchIssueComments } = await import(
   "../../../src/commands/skeptic/gh-client.js"
 );
+const { readFileSync } = await import("node:fs");
 
 describe("fetchDesignDoc", () => {
   let tmp: string;
 
   beforeEach(() => {
     tmp = mkdtempSync(join(tmpdir(), "skeptic-test-"));
-    vi.clearAllMocks();
+    // Reset mock call history but NOT the implementation (restored below).
+    // Note: mockReset() clears the mock implementation, so restore it immediately after.
+    vi.mocked(fetchDesignDoc).mockReset();
+    vi.mocked(readFileSync).mockReset();
     mockExec.mockReset();
-    // Restore fetchDesignDoc to call real implementation after mockReset().
+    // Restore fetchDesignDoc and readFileSync to call their real implementations.
     vi.mocked(fetchDesignDoc).mockImplementation(
-      (...args: unknown[]) => realFetchDesignDoc(...(args as [number])),
+      (...args: unknown[]) => refs.realFetchDesignDoc(...(args as [number])),
     );
+    vi.mocked(readFileSync).mockImplementation(
+      (...args: Parameters<typeof import("node:fs")["readFileSync"]>) =>
+        refs.realReadFileSync(...(args as [Parameters<typeof import("node:fs")["readFileSync"]>[0], ...unknown[]])),
+    );
+    // Clear call history after restoring implementations.
+    vi.clearAllMocks();
   });
 
   afterEach(() => {
     if (tmp) rmSync(tmp, { recursive: true, force: true });
-    // Restore fetchDesignDoc's real implementation so subsequent tests aren't
+    // Restore fetchDesignDoc's and readFileSync's real implementation so subsequent tests aren't
     // affected by per-test mock overrides (e.g. EACCES injection).
     vi.mocked(fetchDesignDoc).mockReset();
+    vi.mocked(readFileSync).mockReset();
   });
 
   it("returns file content when the design doc exists", async () => {
@@ -93,11 +121,15 @@ describe("fetchDesignDoc", () => {
 
   it("throws when readFileSync fails with a non-ENOENT error", async () => {
     // chmod 0o000 does not work as root (CI runs as root).
-    // Mock fetchDesignDoc directly to simulate EACCES from fs.readFileSync.
-    vi.mocked(fetchDesignDoc).mockImplementation(async () => {
-      const eaccesErr = Object.assign(new Error("EACCES permission denied"), { code: "EACCES" });
-      throw eaccesErr;
-    });
+    // Mock exec to return a valid repo root so readFileSync is the next call to fail.
+    mockExec.mockResolvedValueOnce({ stdout: tmp + "\n", stderr: "" });
+    // Mock readFileSync directly to simulate EACCES so the real fetchDesignDoc code path runs.
+    vi.mocked(readFileSync).mockImplementation(
+      (..._args: Parameters<typeof import("node:fs")["readFileSync"]>) => {
+        const eaccesErr = Object.assign(new Error("EACCES permission denied"), { code: "EACCES" });
+        throw eaccesErr;
+      },
+    );
 
     await expect(fetchDesignDoc(999)).rejects.toThrow("EACCES permission denied");
   });
