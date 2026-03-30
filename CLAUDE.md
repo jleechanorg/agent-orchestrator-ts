@@ -504,7 +504,7 @@ launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.agentorchestrator.li
 sleep 3 && launchctl print gui/$(id -u)/com.agentorchestrator.lifecycle-agent-orchestrator 2>&1 | grep "state ="
 
 # If process still missing, start manually (bypasses launchd until next boot)
-cd /Users/jleechan/.openclaw && nohup ao lifecycle-worker agent-orchestrator > ~/.openclaw/logs/ao-lifecycle-agent-orchestrator.log 2>&1 &
+cd ~/.openclaw && nohup ao lifecycle-worker agent-orchestrator > ~/.openclaw/logs/ao-lifecycle-agent-orchestrator.log 2>&1 &
 ```
 
 ### Why workers die — common causes
