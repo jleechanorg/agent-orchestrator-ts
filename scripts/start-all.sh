@@ -27,7 +27,16 @@ echo "Config OK: $CONFIG_FILE"
 # main-repo checkout) are guarded — they skip dirty worktrees / uncommitted work.
 if command -v ao >/dev/null 2>&1; then
   echo "=== Pre-flight: ao doctor ==="
-  ao doctor 2>&1 | tail -5 || true
+  set +e
+  DOCTOR_OUT=$(ao doctor 2>&1)
+  DOCTOR_STATUS=$?
+  set -e
+  # Always show doctor output so FAIL/WARN lines are visible
+  printf '%s\n' "$DOCTOR_OUT"
+  # Surface failures without blocking startup (doctor reports; human decides)
+  if [ "$DOCTOR_STATUS" -ne 0 ]; then
+    echo "NOTE: 'ao doctor' exited $DOCTOR_STATUS — review FAIL/WARN lines above before proceeding."
+  fi
   echo ""
 fi
 

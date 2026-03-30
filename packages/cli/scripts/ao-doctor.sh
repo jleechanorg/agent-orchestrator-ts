@@ -7,9 +7,18 @@ set -uo pipefail
 
 # Source ao-checks.sh relative to this script (packages/cli/scripts/) -> ../../../scripts/
 _doctor_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-_checks_path="${_doctor_dir}/../../../scripts/ao-checks.sh"
-if [ ! -f "$_checks_path" ]; then
-  printf 'ERROR: ao-checks.sh not found at %s\n' "$_checks_path" >&2
+# Resolve ao-checks.sh path (tried in order):
+# 1. $AO_REPO_ROOT/scripts/ao-checks.sh  — set by script-runner.ts in installed CLI
+# 2. $PWD/scripts/ao-checks.sh           — monorepo development
+# 3. $_doctor_dir/ao-checks.sh           — local copy in npm package (always bundled)
+if [ -n "${AO_REPO_ROOT:-}" ] && [ -f "${AO_REPO_ROOT}/scripts/ao-checks.sh" ]; then
+  _checks_path="${AO_REPO_ROOT}/scripts/ao-checks.sh"
+elif [ -f "${PWD}/scripts/ao-checks.sh" ]; then
+  _checks_path="${PWD}/scripts/ao-checks.sh"
+elif [ -f "${_doctor_dir}/ao-checks.sh" ]; then
+  _checks_path="${_doctor_dir}/ao-checks.sh"
+else
+  printf 'ERROR: ao-checks.sh not found (tried AO_REPO_ROOT=%s, PWD=%s, %s)\n'     "${AO_REPO_ROOT:-unset}" "$PWD" "$_doctor_dir" >&2
   exit 1
 fi
 # shellcheck source=../../../scripts/ao-checks.sh

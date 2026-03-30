@@ -34,9 +34,10 @@ export async function runRepoScript(scriptName: string, args: string[]): Promise
   const scriptPath = resolveScriptPath(scriptName);
 
   return await new Promise<number>((resolveExit, reject) => {
+    const repoRoot = resolveRepoRoot();
     const child = spawn(shell, [scriptPath, ...args], {
-      cwd: resolveRepoRoot(),
-      env: process.env,
+      cwd: repoRoot,
+      env: { ...process.env, AO_REPO_ROOT: repoRoot },
       stdio: "inherit",
     });
 
