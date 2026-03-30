@@ -13,12 +13,14 @@ import type {
 import { checkMergeGate } from "./merge-gate.js";
 import { buildActionPlan, formatActionPlan } from "./action-plan.js";
 
+import { buildSkepticAdviceContext } from "./reaction-context-skeptic.js";
+
 /**
  * Append a prioritized gate-closure action plan to reaction context.
  * Runs checkMergeGate to discover failing gates, formats the result as
  * worker-readable text, and returns it for injection into the reaction message.
  */
-async function appendActionPlan(
+export async function appendActionPlan(
   scm: SCM,
   pr: Session["pr"],
   projectId: string,
@@ -91,6 +93,10 @@ export async function buildReactionContext(
         const summary = await buildPRStatusSummary(scm, session);
         const actionPlanText = await appendActionPlan(scm, session.pr, projectId, config);
         return actionPlanText ? `${summary}\n\n${actionPlanText}` : summary;
+      }
+      case "skeptic-advice": {
+        // Delegated to reaction-context-skeptic.ts per CR review — keeps core upstream file thin.
+        return await buildSkepticAdviceContext(scm, session);
       }
       default:
         return "";

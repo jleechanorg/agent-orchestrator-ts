@@ -430,6 +430,9 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
   // bd-qnj6: track the last HEAD SHA that triggered a skeptic evaluation per session.
   // When the SHA changes while session stays in pr_open, re-fire the skeptic reaction.
   const lastSkepticSha = new Map<string, string>(); // sessionId → last evaluated HEAD SHA
+  // bd-qqm: track the last skeptic comment ID per session to detect new FAIL verdicts.
+  // Initialized lazily (undefined = never fetched), compared against fetched comment IDs each poll.
+  const lastSkepticCommentId = new Map<string, number>(); // sessionId → last known comment ID
   let pollTimer: ReturnType<typeof setInterval> | null = null;
   let polling = false; // re-entrancy guard
   let inboxPolling = false; // re-entrancy guard for concurrent inbox polls
@@ -2065,6 +2068,50 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         }
       }
 
+      // bd-qqm: skeptic-advice — detect new skeptic FAIL comments and fire the reaction.
+      // Works by comparing the highest comment ID seen in the current fetch against the
+      // last known ID stored in lastSkepticCommentId. Fires on any session with a PR.
+      // Uses dedup (SHA-based) via the standard executeReaction path so retries are capped.
+      if (session.pr) {
+        const project = config.projects[session.projectId];
+        const scm = project?.scm ? registry.get<SCM>("scm", project.scm.plugin) : null;
+        if (scm?.getSkepticComments) {
+          const reactionKey = "skeptic-advice";
+          const reactionConfig = getReactionConfigForSession(session, reactionKey);
+          if (reactionConfig?.action && reactionConfig.auto !== false) {
+            try {
+              const skepticComments = await scm.getSkepticComments(session.pr);
+              if (skepticComments.length > 0) {
+                // Find the highest comment ID
+                const latestId = Math.max(...skepticComments.map((c) => c.id));
+                const previousId = lastSkepticCommentId.get(session.id);
+                if (previousId === undefined || latestId > previousId) {
+                  // New skeptic comment(s) detected — fire the reaction
+                  const result = await executeReaction(
+                    session.id,
+                    session.projectId,
+                    reactionKey,
+                    reactionConfig,
+                    session,
+                    createCorrelationId("skeptic-advice-trigger"),
+                  );
+                  if (result?.success) {
+                    lastSkepticCommentId.set(session.id, latestId);
+                  }
+                }
+              } else {
+                // No skeptic comments yet — record 0 so we detect the first one
+                if (!lastSkepticCommentId.has(session.id)) {
+                  lastSkepticCommentId.set(session.id, 0);
+                }
+              }
+            } catch {
+              // Non-fatal: skip this cycle
+            }
+          }
+        }
+      }
+
       // Retry auto-merge when status stays "mergeable" — the approved-and-green
       // reaction fires on transition but may fail (e.g., merge gate fails due to
       // GraphQL rate limit treating all comments as unresolved). Re-attempt on
@@ -2484,6 +2531,12 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       for (const sessionId of lastSkepticSha.keys()) {
         if (!currentSessionIds.has(sessionId)) {
           lastSkepticSha.delete(sessionId);
+        }
+      }
+      // bd-qqm: also prune lastSkepticCommentId for dead sessions
+      for (const sessionId of lastSkepticCommentId.keys()) {
+        if (!currentSessionIds.has(sessionId)) {
+          lastSkepticCommentId.delete(sessionId);
         }
       }
 

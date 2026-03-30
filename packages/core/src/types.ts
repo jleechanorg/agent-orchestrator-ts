@@ -616,6 +616,13 @@ export interface SCM {
   /** Get automated review comments (bots, linters, security scanners) */
   getAutomatedComments(pr: PRInfo): Promise<AutomatedComment[]>;
 
+  // --- Skeptic integration (bd-qqm: skeptic-advice reaction) ---
+
+  /** Fetch issue comments authored by the skeptic agent.
+   *  Used by the skeptic-advice reaction to detect new FAIL verdicts and
+   *  extract structured guidance for workers. */
+  getSkepticComments?(pr: PRInfo): Promise<Array<{ id: number; body: string; user: { login: string } }>>;
+
   // --- Review Actions (bd-yjo: atomic re-review transaction) ---
 
   /** Resolve a review comment thread. No-op if not supported. */
