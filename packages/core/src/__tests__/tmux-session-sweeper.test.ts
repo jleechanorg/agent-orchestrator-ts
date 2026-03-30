@@ -76,7 +76,7 @@ function aoSession(id: string): Session {
     agentInfo: null,
     createdAt: new Date(BASE_NOW.getTime() - FORTY_MIN_MS),
     lastActivityAt: new Date(BASE_NOW.getTime() - 60_000),
-    metadata: {},
+    metadata: { tmuxName: `aabbccddeeff-${id}` },
   };
 }
 
@@ -320,7 +320,10 @@ describe("sweepOrphanTmuxSessions", () => {
 
   it("DB-tracked merged session respects maxKillsPerSweep cap", async () => {
     // 3 merged sessions, cap=2: first 2 killed, 3rd skipped
-    mockParseTmuxName.mockReturnValue({ hash: "aabbccddeeff", prefix: "ao", num: 0 });
+    mockParseTmuxName
+      .mockReturnValueOnce({ hash: "aabbccddeeff", prefix: "ao", num: 0 })
+      .mockReturnValueOnce({ hash: "aabbccddeeff", prefix: "ao", num: 1 })
+      .mockReturnValueOnce({ hash: "aabbccddeeff", prefix: "ao", num: 2 });
     mockListSessions.mockResolvedValueOnce([
       tmuxSession("aabbccddeeff-ao-0", -2 * 60_000),
       tmuxSession("aabbccddeeff-ao-1", -2 * 60_000),
@@ -342,6 +345,56 @@ describe("sweepOrphanTmuxSessions", () => {
     expect(result.killed).toHaveLength(2);
     expect(result.skipped.filter((s) => s.reason.includes("max kills"))).toHaveLength(1);
     expect(mockKillSession).toHaveBeenCalledTimes(2);
+  });
+
+  it("DB-tracked session with merged PR is not killed in dry-run mode", async () => {
+    mockParseTmuxName.mockReturnValueOnce({ hash: "aabbccddeeff", prefix: "jc", num: 77 });
+    mockListSessions.mockResolvedValueOnce([tmuxSession("aabbccddeeff-jc-77", -2 * 60_000)]);
+
+    const result = await sweepOrphanTmuxSessions(
+      cfg({ dryRun: true }),
+      deps(sm([aoSessionWithPr("jc-77", "merged")])),
+    );
+
+    expect(result.killed).toHaveLength(1);
+    expect(result.killed[0].tmuxName).toBe("aabbccddeeff-jc-77");
+    expect(result.killed[0].reason).toContain("pr_state=merged");
+    expect(mockKillSession).not.toHaveBeenCalled();
+  });
+
+  it("DB-tracked merged session — session-not-found error is benign", async () => {
+    mockParseTmuxName.mockReturnValueOnce({ hash: "aabbccddeeff", prefix: "ao", num: 88 });
+    mockListSessions.mockResolvedValueOnce([tmuxSession("aabbccddeeff-ao-88", -2 * 60_000)]);
+    mockKillSession.mockRejectedValueOnce(new Error("session not found: aabbccddeeff-ao-88"));
+
+    const result = await sweepOrphanTmuxSessions(
+      cfg(),
+      deps(sm([aoSessionWithPr("ao-88", "merged")])),
+    );
+
+    // Benign error — not recorded as failure
+    expect(result.errors).toHaveLength(0);
+    expect(result.killed).toHaveLength(0);
+  });
+
+  it("DB-tracked session skipped when hash does not match — belongs to another AO config", async () => {
+    // This instance's DB has ao-42 with hash "aaaa", but the scanned tmux session
+    // is "bbbb-ao-42" (another AO config's session). Must not kill it.
+    mockParseTmuxName.mockReturnValueOnce({ hash: "bbbbbbbbbbbb", prefix: "ao", num: 42 });
+    mockListSessions.mockResolvedValueOnce([tmuxSession("bbbbbbbbbbbb-ao-42", -2 * 60_000)]);
+
+    const result = await sweepOrphanTmuxSessions(
+      cfg(),
+      deps(sm([{
+        ...aoSession("ao-42"),
+        metadata: { tmuxName: "aaaaaaaaaaaa-ao-42" }, // different hash
+      }])),
+    );
+
+    expect(result.killed).toHaveLength(0);
+    expect(result.skipped).toHaveLength(1);
+    expect(result.skipped[0].reason).toBe("hash mismatch — belongs to another AO config");
+    expect(mockKillSession).not.toHaveBeenCalled();
   });
 
   it("non-AO worktree is protected — session without valid prefix is never scanned", async () => {

@@ -19,7 +19,7 @@
  * - Sessions spawned by other AO installations on the same machine
  *
  * Invoked periodically by the lifecycle-manager; in the default integration
- * this sweep is throttled to roughly every 5 minutes, not every 30s.
+ * this sweep is throttled to roughly every 5 minutes, not every 30s poll cycle.
  */
 
 import { listSessions, killSession, type TmuxSessionInfo } from "./tmux.js";
@@ -225,11 +225,21 @@ export async function sweepOrphanTmuxSessions(
     // PR, that kill() call can fail silently (e.g. runtime handle gone, race with
     // concurrent cleanup). The sweeper acts as the backstop: if a session is in
     // the AO DB but its PR is merged or closed, kill it immediately — no idle
-    // threshold wait. This ensures zombie tmux sessions are cleaned up within 2
-    // poll cycles (60s) rather than waiting up to 30 minutes.
+    // threshold wait. The hash is validated before killing to prevent
+    // hash-blind collisions: another AO config on the same machine may have a
+    // legitimate session with the same logical id (e.g. "otherhash-ao-42") that
+    // must not be killed.
     if (aoSessionIds.has(parsed.sessionId)) {
-      const aoSession = sessionById.get(parsed.sessionId);
-      const prState = aoSession?.pr?.state;
+      const aoSession = sessionById.get(parsed.sessionId)!;
+      // Validate hash ownership: the DB record's tmuxName (if set) must match
+      // the scanned tmux session name. Without this check, a session like
+      // "otherhash-ao-42" could be killed because "ao-42" exists in the DB.
+      const dbTmuxName = aoSession.metadata?.["tmuxName"];
+      if (dbTmuxName !== undefined && dbTmuxName !== parsed.tmuxName) {
+        skipped.push({ tmuxName: session.name, reason: "hash mismatch — belongs to another AO config" });
+        continue;
+      }
+      const prState = aoSession.pr?.state;
       if (prState === PR_STATE.MERGED || prState === PR_STATE.CLOSED) {
         const reason = `pr_state=${prState}, AO DB kill may have failed`;
         if (killed.length + errors.length >= config.maxKillsPerSweep) {
