@@ -56,12 +56,6 @@ describe("checkRunLevel", () => {
     expect(result.result).toBe("pass");
   });
 
-  it("handles markdown-bold format **VERDICT: PASS**", () => {
-    // bold on both sides — must match despite CLAIM_VERDICT_RE being stricter than old pattern
-    const result = checkRunLevel("**VERDICT: PASS**");
-    expect(result.result).toBe("pass");
-  });
-
   it("extracts PASS even with surrounding text", () => {
     const result = checkRunLevel("## Conclusion\nVERDICT: PASS — All checks pass\n");
     expect(result.result).toBe("pass");

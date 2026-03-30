@@ -14,10 +14,7 @@ concurrency:
 jobs:
   integration:
     name: Integration Tests
-    # Fork PRs use ubuntu-latest to avoid running untrusted code on self-hosted infrastructure.
-    runs-on: ${{ github.event.pull_request.head.repo.fork && github.event_name == 'pull_request'
-              && 'ubuntu-latest'
-              || fromJson(vars.SELF_HOSTED_RUNNER_LABELS || '["self-hosted","Linux","ARM64","agent-orchestrator"]') }}
+    runs-on: ${{ github.event_name == 'pull_request' && 'ubuntu-latest' || fromJson(vars.SELF_HOSTED_RUNNER_LABELS || '["self-hosted","self-hosted-mikey"]') }}
     timeout-minutes: 20
 
     steps:
@@ -44,7 +41,7 @@ jobs:
         run: npm install -g @openai/codex
 
       - name: Install Aider
-        run: pip install aider-chat || pip3 install aider-chat || python3 -m pip install aider-chat || true
+        run: pip install aider-chat
 
       - name: Install OpenCode
         run: npm install -g opencode-ai
@@ -54,11 +51,7 @@ jobs:
       - run: pnpm -r --filter '!@jleechanorg/ao-web' build
 
       # --- Run integration tests ---
-      # Secrets are only injected for same-repo PRs and non-PR events (not fork PRs).
-      # Fork PRs skip this step entirely — they cannot run integration tests since
-      # secrets are not available and the test logic requires API keys.
       - name: Run integration tests
-        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}

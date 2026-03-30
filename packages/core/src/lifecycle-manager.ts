@@ -14,7 +14,14 @@ import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { logAoAction } from "./ao-action-log.js";
 import { reapPostMergeCoWorkers } from "./fork-lifecycle-postmerge.js";
-import { pruneStaleSessionIds, getLastSentHeadSha, setLastSentHeadSha } from "./dedup-head-sha-store.js";
+import {
+  pruneStaleSessionIds,
+  getLastSentMessageHash,
+  setLastSentMessageHash,
+  getLastSentHeadSha,
+  setLastSentHeadSha,
+  hashMessageContent,
+} from "./dedup-head-sha-store.js";
 import {
   SESSION_STATUS,
   PR_STATE,
@@ -696,6 +703,11 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
 
           // Check reviews
           const reviewDecision = await scm.getReviewDecision(session.pr);
+          // bd-n039 fix: Persist reviewDecision on session so the verdict gate (below in
+          // checkSession) can read it without calling getReviewDecision again. Calling SCM
+          // twice in the same poll causes the verdict gate to see a different decision than
+          // determineStatus did (e.g. when the mock alternates return values).
+          session.metadata["_reviewDecision"] = reviewDecision;
           if (reviewDecision === "changes_requested") return { status: "changes_requested", agentDead };
           if (reviewDecision === "approved" || reviewDecision === "none") {
             // bd-wg5: Skip getMergeability when CI is pending
@@ -856,44 +868,65 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       reactionTrackers.set(trackerKey, tracker);
     }
 
-    // bd-1178 dedup check for changes-requested reactions (before attempts increment).
-    // Scope: only applies to reactionKey="changes-requested" AND action="send-to-agent".
-    // This intentionally does NOT affect agent-stuck cooldown retries or other send-to-agent
-    // flows — those use different reactionKeys and will never enter this block.
-    // Prevents wasted API calls and avoids consuming the retry budget on unchanged SHA.
-    // Also fixes race condition: SHA is captured once before send and reused for recording.
-    // FIX 3002095878: do NOT early-return — fall through to escalation checks so duration-
-    // based escalation (escalateAfter as string) still fires even on deduped polls.
+    // bd-n039: message-content hash dedup for send-to-agent.
+    // bd-1178: also dedup by PR head SHA — if the SHA changed, send even if message content is
+    // identical (e.g. new CI failure on same failure type). Only skip when BOTH message hash AND
+    // SHA are unchanged.
+    // cursor[bot] High (bd-n039): call buildReactionContext ONCE and reuse the result
+    // in both the dedup check and the send block. Previously it was called twice
+    // (once here for hashing, once in the send-to-agent case), which could produce
+    // different output if SCM data changed between the two async calls.
+    // FIX 3002442133 / cursor#3002258060: moved after send (was before send, blocking retry).
     let deduped = false;
-    let dedupedSha: string | undefined;
-    if (reactionKey === "changes-requested" && reactionConfig.action === "send-to-agent" && session?.pr) {
-      const project = config.projects[session.projectId];
-      const scm = project?.scm ? registry.get<SCM>("scm", project.scm.plugin) : null;
-      if (scm?.getPRHeadSha) {
-        try {
-          const currentSha = await scm.getPRHeadSha(session.pr);
-          // FIX 3002095873: use DedupHeadShaStore (separate from ReactionTracker) so SHA
-          // survives clearReactionTracker() on status transitions and process restarts.
-          if (getLastSentHeadSha(sessionId) === currentSha) {
-            deduped = true;
-            observer.recordOperation({
-              metric: "lifecycle_poll",
-              operation: "lifecycle.reaction.deduped",
-              outcome: "info",
-              reason: "head_sha_unchanged",
-              correlationId: reactionCorrelationId,
-              projectId,
-              sessionId,
-              data: { reactionKey, currentSha },
-              level: "debug",
-            });
-            // Do NOT return — fall through to escalation checks (Fix 3002095878)
-          } else {
-            dedupedSha = currentSha; // capture for post-send recording
-          }
-        } catch {
-          // getPRHeadSha failed — proceed with send (don't block on SHA check)
+    let dedupedMessageHash: string | undefined;
+    let dedupContext: string | undefined;
+    if (reactionConfig.action === "send-to-agent" && reactionConfig.message && session) {
+      try {
+        if (reactionConfig.message.includes("{{context}}")) {
+          dedupContext = await buildReactionContext(reactionKey, session, projectId, config, registry);
         }
+        const finalMessage = dedupContext !== undefined
+          ? reactionConfig.message.replace(/\{\{context\}\}/g, () => dedupContext!)
+          : reactionConfig.message;
+        const messageHash = await hashMessageContent(finalMessage);
+
+        // bd-1178: SHA-based dedup — skip only when BOTH message hash AND SHA are unchanged.
+        // If SHA changed (new commit), send even if message content is the same.
+        let currentSha: string | undefined;
+        const project = config.projects[session.projectId];
+        const scm = project?.scm ? registry.get<SCM>("scm", project.scm.plugin) : null;
+        if (scm?.getPRHeadSha && session.pr) {
+          try {
+            currentSha = await scm.getPRHeadSha(session.pr);
+          } catch {
+            // SHA fetch failed — fall back to message-hash-only dedup
+          }
+        }
+        const lastSha = getLastSentHeadSha(projectId, sessionId, reactionKey);
+        const shaUnchanged = currentSha !== undefined
+          ? (lastSha !== undefined && currentSha === lastSha)
+          : true; // SHA unavailable — fall back to message-hash-only dedup
+        const messageUnchanged = getLastSentMessageHash(projectId, sessionId, reactionKey) === messageHash;
+
+        if (shaUnchanged && messageUnchanged) {
+          deduped = true;
+          observer.recordOperation({
+            metric: "lifecycle_poll",
+            operation: "lifecycle.reaction.deduped",
+            outcome: "info",
+            reason: "message_and_sha_unchanged",
+            correlationId: reactionCorrelationId,
+            projectId,
+            sessionId,
+            data: { reactionKey, messageHash, currentSha },
+            level: "debug",
+          });
+          // Do NOT return — fall through to escalation checks (Fix 3002095878)
+        } else {
+          dedupedMessageHash = messageHash; // capture for post-send recording
+        }
+      } catch {
+        // Hashing failed — proceed with send (don't block on dedup check)
       }
     }
 
@@ -963,31 +996,41 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
             };
           }
 
-          // dedupedSha is pre-fetched above (race-condition guard: one SHA, used for both checks)
+          // dedupedMessageHash is pre-computed above using the same dedupContext
+          // (called once at the top of this block — not here, fixing cursor[bot] High).
           try {
-            // Inject context if message contains {{context}} placeholder
-            let finalMessage = reactionConfig.message;
-            if (session && reactionConfig.message.includes("{{context}}")) {
-              const context = await buildReactionContext(reactionKey, session, projectId, config, registry);
-              finalMessage = reactionConfig.message.replace(/\{\{context\}\}/g, () => context);
-            }
+            // Inject context if message contains {{context}} placeholder.
+            // dedupContext was built once at the top of this block — reuse it.
+            const finalMessage = dedupContext !== undefined
+              ? reactionConfig.message.replace(/\{\{context\}\}/g, () => dedupContext!)
+              : reactionConfig.message;
             await sessionManager.send(sessionId, finalMessage);
 
-            // Record SHA after successful send so the next poll skips if SHA is unchanged.
-            // Only record when dedupedSha is available — the pre-send SHA is the only one safe to
-            // record (a newer SHA pushed during send would incorrectly suppress the next dispatch).
-            // Skip recording entirely if pre-send fetch failed (dedupedSha is undefined).
+            // Record message content hash and SHA after successful send.
             // FIX 3002442133 / cursor#3002258060: moved after send (was before send, blocking retry).
             // FIX cursor#3002173123: deduped guard above ensures no send on unchanged SHA.
-            if (dedupedSha && reactionKey === "changes-requested" && session?.pr) {
-              const project = config.projects[session.projectId];
-              const scm = project?.scm ? registry.get<SCM>("scm", project.scm.plugin) : null;
-              if (scm?.getPRHeadSha) {
-                try {
-                  setLastSentHeadSha(sessionId, dedupedSha);
-                } catch {
-                  // Non-fatal — SHA tracking is best-effort
+            // bd-n039: uses message content hash (dedupedMessageHash).
+            // bd-1178: also records PR head SHA for SHA-based dedup.
+            // bd-n039 fix: keyed by projectId:sessionId:reactionKey for cross-project isolation.
+            if (dedupedMessageHash) {
+              try {
+                setLastSentMessageHash(projectId, sessionId, reactionKey, dedupedMessageHash);
+              } catch {
+                // Non-fatal — hash tracking is best-effort
+              }
+            }
+            // bd-1178: Record current SHA after successful send. Used by the dedup block above to
+            // bypass message-hash dedup when the SHA changed (new commit on the PR).
+            if (session) {
+              try {
+                const project = config.projects[session.projectId];
+                const scm = project?.scm ? registry.get<SCM>("scm", project.scm.plugin) : null;
+                if (scm?.getPRHeadSha && session.pr) {
+                  const sha = await scm.getPRHeadSha(session.pr);
+                  setLastSentHeadSha(projectId, sessionId, reactionKey, sha);
                 }
+              } catch {
+                // Non-fatal — SHA tracking is best-effort
               }
             }
 
@@ -1635,28 +1678,38 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
             let skipVerdictGate = true;
             try {
               if (reactionKey === "changes-requested" && session.pr) {
-                const verdictProject = config.projects[session.projectId];
-                const verdictScm = verdictProject?.scm
-                  ? registry.get<SCM>("scm", verdictProject.scm.plugin)
-                  : null;
-                if (verdictScm) {
-                  const rawReviews = await verdictScm.getReviews(session.pr);
-                  // Cast to match SCM's normalized shape (author: string, state: string).
-                  // Defensive: author may arrive as { login: string } in some SCM implementations.
-                  const reviews: Array<{ author?: string; state?: string }> = rawReviews;
-                  const crReviews = reviews.filter((r) => String(r.author ?? "").endsWith("coderabbitai[bot]"));
-                  const crVerdict = crReviews[crReviews.length - 1]?.state ?? null;
-
-                  // Block only when verdict is explicitly COMMENTED or DISMISSED.
-                  // Allow dispatch for all other verdicts (null, CHANGES_REQUESTED, APPROVED, etc.)
-                  // null = fail open (allow reaction).
-                  // SCM normalizes GitHub API values: "CHANGES_REQUESTED" → "changes_requested",
-                  // "DISMISSED" → "dismissed", "COMMENTED" → "commented" (see scm-github getReviews).
-                  skipVerdictGate = crVerdict === null || (crVerdict !== "commented" && crVerdict !== "dismissed");
+                // bd-n039 fix: Read the reviewDecision that was already computed and stored
+                // by determineStatus — do NOT call getReviewDecision again (the SCM call would
+                // consume the next call from an alternating mock, causing the verdict gate to
+                // see a different decision than determineStatus did).
+                const cachedDecision = session.metadata["_reviewDecision"];
+                if (cachedDecision !== null && cachedDecision !== undefined) {
+                  // CR verdict gate: block only on COMMENTED or DISMISSED.
+                  // These states mean CR has posted inline suggestions but no formal CHANGES_REQUESTED.
+                  // Allow all other states (null, CHANGES_REQUESTED, APPROVED, etc.) — fail open.
+                  skipVerdictGate = cachedDecision !== "commented" && cachedDecision !== "dismissed";
+                } else {
+                  // Fallback for code paths that bypass determineStatus (e.g. direct executeReaction calls).
+                  // In normal poll-cycle operation, cachedDecision is always set by determineStatus.
+                  const verdictProject = config.projects[session.projectId];
+                  const verdictScm = verdictProject?.scm
+                    ? registry.get<SCM>("scm", verdictProject.scm.plugin)
+                    : null;
+                  if (verdictScm) {
+                    const rawReviews = await verdictScm.getReviews(session.pr);
+                    const reviews: Array<{ author?: string; state?: string }> = rawReviews;
+                    const crReviews = reviews.filter((r) => String(r.author ?? "").endsWith("coderabbitai[bot]"));
+                    const crVerdict = crReviews[crReviews.length - 1]?.state ?? null;
+                    skipVerdictGate = crVerdict === null || (crVerdict !== "commented" && crVerdict !== "dismissed");
+                  }
                 }
               }
             } catch (verdictErr) {
-              // Fail open: any error fetching CR verdict should not block the reaction
+              // Fail open: any error fetching CR verdict should not block the reaction.
+              // bd-n039: explicitly set skipVerdictGate=true in catch — previously the variable
+              // was undefined after a throw (inside if(verdictScm) before let declaration), which
+              // caused the verdict gate to incorrectly block reactions.
+              skipVerdictGate = true;
               console.warn(
                 `[lifecycle-manager] verdict gate getReviews failed for session=${session.id}: ` +
                 `${verdictErr instanceof Error ? verdictErr.message : String(verdictErr)} — allowing reaction`,
@@ -2406,7 +2459,9 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       }
       // bd-1178: prune dedup SHA store entries for sessions no longer tracked.
       // CR 3002468214: pass currentSessionIds so pruning is scoped to this LM's sessions.
-      pruneStaleSessionIds(currentSessionIds);
+      if (scopedProjectId) {
+        pruneStaleSessionIds(scopedProjectId, currentSessionIds);
+      }
       for (const retryKey of mergeRetryTimestamps.keys()) {
         const sessionId = retryKey.replace("merge-retry-", "");
         if (!currentSessionIds.has(sessionId)) {
