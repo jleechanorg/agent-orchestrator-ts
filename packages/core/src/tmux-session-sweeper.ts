@@ -196,9 +196,11 @@ export async function sweepOrphanTmuxSessions(
   const allTmuxSessions = await listSessions();
   const scanned = allTmuxSessions.length;
 
-  // Get all active AO session IDs from the DB
+  // Get all active AO session IDs from the DB.
+  // Compare using the full tmux name (session.tmuxName when present, session.id as fallback)
+  // so we don't incorrectly match a local "ao-42" against a foreign "xxyyzz-ao-42".
   const aoSessions = await deps.sessionManager.list();
-  const aoSessionIds = new Set(aoSessions.map((s) => s.id));
+  const aoTmuxNames = new Set(aoSessions.map((s) => s.tmuxName ?? s.id));
 
   const killed: SweptOrphan[] = [];
   const skipped: SkippedOrphan[] = [];
@@ -218,8 +220,10 @@ export async function sweepOrphanTmuxSessions(
       continue;
     }
 
-    // Skip sessions tracked in the AO DB — they are legitimate active sessions
-    if (aoSessionIds.has(parsed.sessionId)) {
+    // Skip sessions tracked in the AO DB — they are legitimate active sessions.
+    // Use the full tmux name so foreign sessions (e.g. "xxyyzz-ao-42" from another machine)
+    // don't incorrectly match a local "ao-42" entry.
+    if (aoTmuxNames.has(parsed.tmuxName)) {
       skipped.push({ tmuxName: session.name, reason: "tracked in AO DB" });
       continue;
     }

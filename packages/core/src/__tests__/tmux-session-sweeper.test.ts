@@ -62,9 +62,10 @@ function tmuxSession(
   };
 }
 
-function aoSession(id: string): Session {
+function aoSession(id: string, tmuxName?: string): Session {
   return {
     id,
+    tmuxName,
     projectId: "test-project",
     status: "working",
     activity: "active",
@@ -232,7 +233,7 @@ describe("sweepOrphanTmuxSessions", () => {
     mockParseTmuxName.mockReturnValueOnce({ hash: "aabbccddeeff", prefix: "jc", num: 99 });
     mockListSessions.mockResolvedValueOnce([tmuxSession("aabbccddeeff-jc-99")]);
 
-    const result = await sweepOrphanTmuxSessions(cfg(), deps(sm([aoSession("jc-99")])));
+    const result = await sweepOrphanTmuxSessions(cfg(), deps(sm([aoSession("jc-99", "aabbccddeeff-jc-99")])));
 
     expect(result.killed).toHaveLength(0);
     expect(result.skipped).toHaveLength(1);
