@@ -66,17 +66,17 @@ jobs:
           # Multiple runs exist per check name (re-runs, concurrent triggers) — deduplicate
           # by keeping only the latest run per name (sort by started_at desc, take first).
           # Exclude: Skeptic Gate (self-reference), cancelled (superseded runs), skipped, neutral.
-          # Gate 1: CI green (Lint, Typecheck, Test, Test Web — not all check-runs which
-          # may include non-CI checks stuck on self-hosted runners on unrelated PRs).
-          CI_NAMES="Lint|Typecheck|Test|Test \(Web\)"
+          # Gate 1: CI green — check only the 4 core CI job names.
+          # Scoping prevents stuck self-hosted runners on unrelated PRs from
+          # causing false negatives for this PR's CI gate.
           CHECK_RUNS_FAILED=$(gh api repos/${{ github.repository }}/commits/"$HEAD_SHA"/check-runs \
-            --jq "[.check_runs | group_by(.name) | .[] | sort_by(.started_at) | reverse | .[0] | select(.name | test(\"$CI_NAMES\") and .conclusion != null and .conclusion != \"success\" and .conclusion != \"skipped\" and .conclusion != \"neutral\" and .conclusion != \"cancelled\")] | length" 2>/dev/null || echo "__API_ERROR__")
+            --jq '[.check_runs | group_by(.name) | .[] | sort_by(.started_at) | reverse | .[0] | select((.name == "Lint" or .name == "Typecheck" or .name == "Test" or .name == "Test (Web)") and .conclusion != null and .conclusion != "success" and .conclusion != "skipped" and .conclusion != "neutral" and .conclusion != "cancelled")] | length' 2>/dev/null || echo "__API_ERROR__")
           CHECK_RUNS_PENDING=$(gh api repos/${{ github.repository }}/commits/"$HEAD_SHA"/check-runs \
-            --jq "[.check_runs | group_by(.name) | .[] | sort_by(.started_at) | reverse | .[0] | select(.name | test(\"$CI_NAMES\") and .status != \"completed\")] | length" 2>/dev/null || echo "__API_ERROR__")
+            --jq '[.check_runs | group_by(.name) | .[] | sort_by(.started_at) | reverse | .[0] | select((.name == "Lint" or .name == "Typecheck" or .name == "Test" or .name == "Test (Web)") and .status != "completed")] | length' 2>/dev/null || echo "__API_ERROR__")
 
           # Count total CI check runs to detect "no CI registered yet".
           TOTAL_CHECKS=$(gh api repos/${{ github.repository }}/commits/"$HEAD_SHA"/check-runs \
-            --jq "[.check_runs | group_by(.name) | .[] | sort_by(.started_at) | reverse | .[0] | select(.name | test(\"$CI_NAMES\"))] | length" 2>/dev/null || echo "0")
+            --jq '[.check_runs | group_by(.name) | .[] | sort_by(.started_at) | reverse | .[0] | select(.name == "Lint" or .name == "Typecheck" or .name == "Test" or .name == "Test (Web)")] | length' 2>/dev/null || echo "0")
 
           CI_DETAIL="commit-status=$CI_STATUS, failed-checks=${CHECK_RUNS_FAILED:-0}, pending-checks=${CHECK_RUNS_PENDING:-0}, total-checks=${TOTAL_CHECKS:-0}"
 
@@ -88,9 +88,7 @@ jobs:
           else
             GATE1="FAIL"
             FAILED_GATES="${FAILED_GATES}1, "
-            if [ "${TOTAL_CHECKS:-0}" -eq 0 ]; then
-              CI_DETAIL="${CI_DETAIL} (no CI checks registered yet)"
-            elif [ "${CHECK_RUNS_PENDING:-0}" -gt 0 ]; then
+            if [ "${CHECK_RUNS_FAILED:-0}" != "__API_ERROR__" ] && [ "${CHECK_RUNS_PENDING:-0}" != "__API_ERROR__" ] && [ "${CHECK_RUNS_PENDING:-0}" -gt 0 ]; then
               CI_DETAIL="${CI_DETAIL} (checks still running)"
             fi
           fi
