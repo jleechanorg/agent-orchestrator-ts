@@ -19,6 +19,7 @@ export function sessionFromMetadata(
 ): Session {
   return {
     id: sessionId,
+    tmuxName: meta["tmuxName"] ?? undefined,
     projectId: meta["project"] ?? options.projectId ?? "",
     status: options.status ?? validateStatus(meta["status"]),
     activity: options.activity ?? null,
