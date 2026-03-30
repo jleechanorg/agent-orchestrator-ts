@@ -194,22 +194,26 @@ if [[ "$clean_command" =~ ^git[[:space:]]+switch[[:space:]]+-c[[:space:]]+([^[:s
   fi
 fi
 
-# Detect: git checkout <branch> (without -b) or git switch <branch> (without -c)
-# Only update if the branch name looks like a feature branch (contains / or -)
+# Detect: git checkout <branch> (without -b)
+# Resolve the actual branch from git after checkout — don't trust the shell token
+# (checkout of a tag leaves HEAD detached; token still looks like a valid branch).
 if [[ "$clean_command" =~ ^git[[:space:]]+checkout[[:space:]]+([^[:space:]-]+[/-][^[:space:]]+) ]]; then
-  branch="${BASH_REMATCH[1]}"
-  if [[ -n "$branch" && "$branch" != "HEAD" ]]; then
-    update_metadata_key "branch" "$branch"
-    echo '{"systemMessage": "Updated metadata: branch = '"$branch"'"}'
+  current_branch=$(git symbolic-ref --quiet --short HEAD 2>/dev/null || true)
+  if [[ -n "$current_branch" ]]; then
+    update_metadata_key "branch" "$current_branch"
+    echo '{"systemMessage": "Updated metadata: branch = '"$current_branch"'"}'
     exit 0
   fi
 fi
 
+# Detect: git switch <branch> (without -c)
+# Resolve the actual branch from git after switch — don't trust the shell token
+# (quotes in "feat/foo" are stored verbatim by some shells).
 if [[ "$clean_command" =~ ^git[[:space:]]+switch[[:space:]]+([^[:space:]-]+[/-][^[:space:]]+) ]]; then
-  branch="${BASH_REMATCH[1]}"
-  if [[ -n "$branch" && "$branch" != "HEAD" ]]; then
-    update_metadata_key "branch" "$branch"
-    echo '{"systemMessage": "Updated metadata: branch = '"$branch"'"}'
+  current_branch=$(git symbolic-ref --quiet --short HEAD 2>/dev/null || true)
+  if [[ -n "$current_branch" ]]; then
+    update_metadata_key "branch" "$current_branch"
+    echo '{"systemMessage": "Updated metadata: branch = '"$current_branch"'"}'
     exit 0
   fi
 fi
