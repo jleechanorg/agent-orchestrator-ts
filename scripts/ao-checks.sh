@@ -430,7 +430,7 @@ check_runners() {
 # check_launchd_services verifies lifecycle-worker launchd plists are registered
 # and the service is running. --fix bootstraps the plist.
 check_launchd_services() {
-  local plist_label="com.agentorchestrator.lifecycle-agent-orchestrator"
+  local plist_label="ai.agento.lifecycle-all"
   local plist_path="$HOME/Library/LaunchAgents/${plist_label}.plist"
   local uid
   uid="$(id -u 2>/dev/null || true)"
