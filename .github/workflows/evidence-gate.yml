@@ -14,10 +14,7 @@ permissions:
 jobs:
   evidence-gate:
     name: Evidence Gate
-    # Fork PRs use ubuntu-latest to avoid running untrusted code on self-hosted infrastructure.
-    runs-on: ${{ github.event.pull_request.head.repo.fork && github.event_name == 'pull_request'
-              && 'ubuntu-latest'
-              || fromJson(vars.SELF_HOSTED_RUNNER_LABELS || '["self-hosted","Linux","ARM64","agent-orchestrator"]') }}
+    runs-on: ubuntu-latest
     # bd-fisn: Skip entirely when PR is merged or closed — a merged PR stops receiving
     # pull_request events so a stale failed check run cannot be overwritten. Instead of
     # leaving a permanent failure that blocks the PR from showing green, we exit 0.
@@ -51,7 +48,7 @@ jobs:
 
           BODY=$(cat "$RUNNER_TEMP/pr_body.txt")
 
-          if printf '%s' "$BODY" | grep -qiF '## Evidence'; then
+          if printf '%s' "$BODY" | grep -qi '^[[:space:]]*## Evidence'; then
             echo "found=true" >> "$GITHUB_OUTPUT"
           else
             echo "found=false" >> "$GITHUB_OUTPUT"
@@ -92,16 +89,13 @@ jobs:
           #   multi-word names cleanly; sed then strips leading/trailing characters
           # sed 'I' flag makes the pattern case-insensitive so "**Claim Class**:" (title case)
           # is also correctly stripped even though the pattern uses lowercase 'c'
-          # sed 's/\\n.*//' strips the rest of the line after literal \n (GitHub PR bodies
-          # arrive as a single line with literal backslash-n, not actual newlines)
           CLAIM=$(printf '%s' "$BODY" \
             | grep -i '\*\*Claim class' | grep -v '^- ' | head -1 \
             | sed 's/.*\*\*Claim class\*\*: *//I' \
             | sed 's/(.*//' \
             | tr -d '*' | tr '[:upper:]' '[:lower:]' \
             | tr ' ' '-' | tr -d '\t' \
-            | sed 's/^[ \t-]*//;s/[ \t-]*$//' \
-            | sed 's/\\n.*//')
+            | sed 's/^[ \t-]*//;s/[ \t-]*$//')
 
           # Fallback: also try extracting from list-bullet format "- **Claim class**: ..."
           if [ -z "$CLAIM" ]; then
@@ -111,8 +105,7 @@ jobs:
               | sed 's/(.*//' \
               | tr -d '*' | tr '[:upper:]' '[:lower:]' \
               | tr ' ' '-' | tr -d '\t' \
-              | sed 's/^[ \t-]*//;s/[ \t-]*$//' \
-              | sed 's/\\n.*//')
+              | sed 's/^[ \t-]*//;s/[ \t-]*$//')
           fi
 
           echo "Claim class detected: $CLAIM"
@@ -161,8 +154,7 @@ jobs:
             | sed 's/(.*//' \
             | tr -d '*' | tr '[:upper:]' '[:lower:]' \
             | tr ' ' '-' | tr -d '\t' \
-            | sed 's/^[ \t-]*//;s/[ \t-]*$//' \
-            | sed 's/\\n.*//')
+            | sed 's/^[ \t-]*//;s/[ \t-]*$//')
 
           # Fallback: also try list-bullet format
           if [ -z "$CLAIM" ]; then
@@ -172,8 +164,7 @@ jobs:
               | sed 's/(.*//' \
               | tr -d '*' | tr '[:upper:]' '[:lower:]' \
               | tr ' ' '-' | tr -d '\t' \
-              | sed 's/^[ \t-]*//;s/[ \t-]*$//' \
-              | sed 's/\\n.*//')
+              | sed 's/^[ \t-]*//;s/[ \t-]*$//')
           fi
 
           # Normalize CLAUDE.md long forms to canonical short forms

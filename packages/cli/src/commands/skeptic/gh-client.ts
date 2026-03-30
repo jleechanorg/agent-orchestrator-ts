@@ -4,7 +4,7 @@
  */
 
 import { exec } from "../../lib/shell.js";
-import * as fs from "node:fs";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 /**
@@ -24,7 +24,7 @@ export async function fetchDesignDoc(prNumber: number): Promise<string | null> {
     const { stdout: repoRoot } = await exec("git", ["rev-parse", "--show-toplevel"]);
     const root = repoRoot.trim();
     const designDocPath = join(root, "docs", "design", "pr-designs", `pr-${prNumber}.md`);
-    const content = fs.readFileSync(designDocPath, "utf8");
+    const content = readFileSync(designDocPath, "utf8");
     return content;
   } catch (err: unknown) {
     // Only swallow "file not found" — re-throw any other error (permissions, invalid cwd, etc.)

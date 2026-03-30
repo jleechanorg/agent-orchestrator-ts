@@ -20,10 +20,7 @@ permissions:
 jobs:
   wholesome:
     name: Wholesome Checks
-    # Fork PRs use ubuntu-latest to avoid running untrusted code on self-hosted infrastructure.
-    runs-on: ${{ github.event.pull_request.head.repo.fork && github.event_name == 'pull_request'
-              && 'ubuntu-latest'
-              || fromJson(vars.SELF_HOSTED_RUNNER_LABELS || '["self-hosted","Linux","ARM64","agent-orchestrator"]') }}
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:

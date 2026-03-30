@@ -9,7 +9,7 @@ import { createSessionManager } from "../session-manager.js";
 import * as reviewBacklog from "../review-backlog.js";
 import { writeMetadata, readMetadataRaw } from "../metadata.js";
 import { getSessionsDir, getProjectBaseDir } from "../paths.js";
-import { clearLastSentHeadSha } from "../dedup-head-sha-store.js";
+import { clearLastSentHeadSha, clearAllMessageHashesForSession } from "../dedup-head-sha-store.js";
 
 // Must precede all imports that use the mocked module
 vi.mock("../fork-lifecycle-postmerge.js", () => ({
@@ -98,6 +98,10 @@ beforeEach(() => {
   // bd-yjo: Reset review backlog throttle counters between tests
   reviewBacklog.resetAllReviewBacklogCounters();
   vi.mocked(logAoAction).mockReset();
+  // bd-n039: Clear message hash dedup state between tests to prevent cross-test pollution
+  // bd-1178: Also clear SHA dedup state
+  clearAllMessageHashesForSession("app-1");
+  clearLastSentHeadSha("app-1");
 
   tmpDir = join(tmpdir(), `ao-test-lifecycle-${randomUUID()}`);
   mkdirSync(tmpDir, { recursive: true });
@@ -2267,7 +2271,7 @@ describe("reactions", () => {
       closePR: vi.fn(),
       getCIChecks: vi.fn(),
       getCISummary: vi.fn().mockResolvedValue("passing"),
-      getReviews: vi.fn(),
+      getReviews: vi.fn().mockResolvedValue([]),
       getReviewDecision: vi.fn().mockImplementation(() => {
         reviewDecisionCallCount++;
         // Alternate between changes_requested and pending so every other poll
@@ -2327,6 +2331,7 @@ describe("reactions", () => {
 
     // CR 3002442125: clear dedup store so this test's state doesn't affect other tests
     clearLastSentHeadSha("app-1");
+    clearAllMessageHashesForSession("app-1");
   });
   // transitions. CR noted that the "no send" assertions at polls 2 & 4 are on pending
   // transitions (no reaction path entered), so they don't prove dedup works. Add a CR→CR
@@ -2354,7 +2359,7 @@ describe("reactions", () => {
       closePR: vi.fn(),
       getCIChecks: vi.fn(),
       getCISummary: vi.fn().mockResolvedValue("passing"),
-      getReviews: vi.fn(),
+      getReviews: vi.fn().mockResolvedValue([]),
       // Alternate so every other poll fires the reaction
       getReviewDecision: vi.fn().mockImplementation(() => {
         reviewDecisionCallCount++;
@@ -2418,6 +2423,7 @@ describe("reactions", () => {
 
     // CR 3002442125: clear dedup store so this test's state doesn't affect other tests
     clearLastSentHeadSha("app-1");
+    clearAllMessageHashesForSession("app-1");
   });
 
   // bd-1178: FIX 3002210800 — regression test: getPRHeadSha rejection must not block send-to-agent.
@@ -2482,6 +2488,7 @@ describe("reactions", () => {
 
     // CR 3002442125: clear dedup store so this test's state doesn't affect other tests
     clearLastSentHeadSha("app-1");
+    clearAllMessageHashesForSession("app-1");
   });
 
   it("dispatches automated review comments only once for an unchanged backlog", async () => {

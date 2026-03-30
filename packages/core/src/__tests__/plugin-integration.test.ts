@@ -36,6 +36,7 @@ import { createPluginRegistry } from "../plugin-registry.js";
 import { createSessionManager } from "../session-manager.js";
 import { createLifecycleManager } from "../lifecycle-manager.js";
 import { writeMetadata } from "../metadata.js";
+import { clearAllMessageHashesForSession } from "../dedup-head-sha-store.js";
 import { getSessionsDir } from "../paths.js";
 import { tmuxInject } from "../tmux.js";
 import trackerGithub from "@jleechanorg/ao-plugin-tracker-github";
@@ -110,6 +111,8 @@ function makeSession(overrides: Partial<Session> = {}): Session {
 beforeEach(() => {
   _resetGhCache();
   vi.clearAllMocks();
+  // Clear message hash dedup state to prevent cross-test pollution
+  clearAllMessageHashesForSession("app-1");
 
   tmpDir = join(tmpdir(), `ao-test-plugin-int-${randomUUID()}`);
   mkdirSync(tmpDir, { recursive: true });

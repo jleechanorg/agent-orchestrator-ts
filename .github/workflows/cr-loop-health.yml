@@ -22,7 +22,7 @@ on:
 jobs:
   health_check:
     name: CR Loop Health
-    runs-on: ${{ fromJson(vars.SELF_HOSTED_RUNNER_LABELS || '["self-hosted","Linux","ARM64","agent-orchestrator"]') }}
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 

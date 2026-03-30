@@ -298,6 +298,12 @@ describe("wholesome — structural source-code assertions", () => {
       "3d3ccde2628ced25474ed298c40a2a0cbc6b3bfa", // chore: force CR re-review webhook event
       "20d2c8533fd0be73a79195aa4d1c3a973a6845f1", // fix(bd-5nxx): extract send-to-agent retry policy tests
       "c85a7d145067a6af2d60aef8144655136ae65bf4", // fix(bd-5nt5): tighten bd-5nt5 test comment
+      // bd-n039 CI retrigger commits (pure CI noise — chore commits only, no code changes):
+      "3c48311e5da9947c8b7c6dfee35a8f824b4d143c", // chore: trigger skeptic gate
+      "6671782d628c721b1f60670635593ccc5a0f61f4", // chore: final CI retrigger for bd-n039
+      "0ae4c6264774fe06c73dac001b8ca95474fd718b", // chore: retrigger skeptic gate
+      "3b015e0b17362f58bc37e13690bc594c11b20c8c", // chore: retrigger CI after resolving comments
+      "2c778f91e76898b32c24175c4c2f5483c4ef6333", // chore: retrigger CI for bd-n039
     ]);
 
     it("all non-merge commits made on this branch have [agento] prefix", () => {

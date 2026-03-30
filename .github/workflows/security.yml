@@ -17,10 +17,7 @@ concurrency:
 jobs:
   gitleaks:
     name: Scan for Secrets
-    # Fork PRs use ubuntu-latest to avoid running untrusted code on self-hosted infrastructure.
-    runs-on: ${{ github.event.pull_request.head.repo.fork && github.event_name == 'pull_request'
-              && 'ubuntu-latest'
-              || fromJson(vars.SELF_HOSTED_RUNNER_LABELS || '["self-hosted","Linux","ARM64","agent-orchestrator"]') }}
+    runs-on: ${{ github.event_name == 'pull_request' && 'ubuntu-latest' || fromJson(vars.SELF_HOSTED_RUNNER_LABELS || '["self-hosted","self-hosted-mikey"]') }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -34,11 +31,11 @@ jobs:
       - name: Install Gitleaks
         env:
           GITLEAKS_VERSION: "8.21.1"
+          # SHA256 of gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz from official release page
+          EXPECTED_SHA256: "b1e20dfbd81fa5eeefc91ace3371d4db75d2250c0d426cb6acf1e51722726779"
         run: |
           set -e
-          ARCH_SUFFIX=$(echo "${{ runner.arch }}" | tr '[:upper:]' '[:lower:]')
-          # Map runner.arch to gitleaks release naming: x64→x64, arm64→arm64
-          curl -sSL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_${ARCH_SUFFIX}.tar.gz" -o /tmp/gitleaks.tgz
+          curl -sSL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" -o /tmp/gitleaks.tgz
           # Verify checksum before extracting — fail closed if verification cannot run
           if command -v sha256sum >/dev/null 2>&1; then
             ACTUAL_SHA256=$(sha256sum /tmp/gitleaks.tgz | cut -d' ' -f1)
@@ -48,12 +45,6 @@ jobs:
             echo "ERROR: neither sha256sum nor shasum available — cannot verify gitleaks binary checksum" >&2
             exit 1
           fi
-          # Per-arch SHA256 checksums from official release
-          case "$ARCH_SUFFIX" in
-            x64)     EXPECTED_SHA256="b1e20dfbd81fa5eeefc91ace3371d4db75d2250c0d426cb6acf1e51722726779" ;;
-            arm64)   EXPECTED_SHA256="6bdb864bf9183525513612942c94edcf47da7ff72331b4b660a313c251214437" ;;
-            *)       echo "ERROR: unknown architecture suffix: $ARCH_SUFFIX" >&2; exit 1 ;;
-          esac
           echo "Expected SHA256: $EXPECTED_SHA256"
           echo "Actual SHA256:   $ACTUAL_SHA256"
           if [ "$ACTUAL_SHA256" != "$EXPECTED_SHA256" ]; then
@@ -68,10 +59,7 @@ jobs:
 
   dependency-review:
     name: Dependency Review
-    # Fork PRs use ubuntu-latest to avoid running untrusted code on self-hosted infrastructure.
-    runs-on: ${{ github.event.pull_request.head.repo.fork && github.event_name == 'pull_request'
-              && 'ubuntu-latest'
-              || fromJson(vars.SELF_HOSTED_RUNNER_LABELS || '["self-hosted","Linux","ARM64","agent-orchestrator"]') }}
+    runs-on: ${{ github.event_name == 'pull_request' && 'ubuntu-latest' || fromJson(vars.SELF_HOSTED_RUNNER_LABELS || '["self-hosted","self-hosted-mikey"]') }}
     if: github.event_name == 'pull_request'
     steps:
       - name: Checkout code
@@ -86,10 +74,7 @@ jobs:
 
   npm-audit:
     name: NPM Audit
-    # Fork PRs use ubuntu-latest to avoid running untrusted code on self-hosted infrastructure.
-    runs-on: ${{ github.event.pull_request.head.repo.fork && github.event_name == 'pull_request'
-              && 'ubuntu-latest'
-              || fromJson(vars.SELF_HOSTED_RUNNER_LABELS || '["self-hosted","Linux","ARM64","agent-orchestrator"]') }}
+    runs-on: ${{ github.event_name == 'pull_request' && 'ubuntu-latest' || fromJson(vars.SELF_HOSTED_RUNNER_LABELS || '["self-hosted","self-hosted-mikey"]') }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4

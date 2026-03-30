@@ -22,24 +22,6 @@ if ! python3 -c "import yaml; yaml.safe_load(open('$CONFIG_FILE'))" 2>/dev/null;
 fi
 echo "Config OK: $CONFIG_FILE"
 
-# Pre-flight: run ao doctor to catch environment issues before starting projects.
-# Uses --fix to auto-repair fixable issues; destructive fixes (worktree cleanup,
-# main-repo checkout) are guarded — they skip dirty worktrees / uncommitted work.
-if command -v ao >/dev/null 2>&1; then
-  echo "=== Pre-flight: ao doctor ==="
-  set +e
-  DOCTOR_OUT=$(ao doctor 2>&1)
-  DOCTOR_STATUS=$?
-  set -e
-  # Always show doctor output so FAIL/WARN lines are visible
-  printf '%s\n' "$DOCTOR_OUT"
-  # Surface failures without blocking startup (doctor reports; human decides)
-  if [ "$DOCTOR_STATUS" -ne 0 ]; then
-    echo "NOTE: 'ao doctor' exited $DOCTOR_STATUS — review FAIL/WARN lines above before proceeding."
-  fi
-  echo ""
-fi
-
 PROJECTS=$(python3 -c "
 import yaml
 with open('$CONFIG_FILE') as f:
@@ -52,11 +34,6 @@ if [ -z "$PROJECTS" ]; then
   echo "ERROR: No projects found in $CONFIG_FILE"
   exit 1
 fi
-
-# Escape regex metacharacters in a string (bd-rbgp: project IDs may contain dots, etc.)
-regex_escape() {
-  printf '%s' "$1" | sed 's/[][\.*^$+?{|\\()]/\\&/g'
-}
 
 SELECTED="${@:-$PROJECTS}"
 LOG_DIR="${AO_LOG_DIR:-$HOME/.openclaw/logs}"
@@ -75,12 +52,8 @@ for PROJECT in $SELECTED; do
     FIRST=false
   else
     echo "=== Starting $PROJECT (worker + orchestrator) ==="
-    # Idempotency: skip if a lifecycle-worker for this project is already running.
-    # Use "node.*lifecycle-worker" — matches the node process, NOT the bash -c wrapper
-    # (bd-rbgp: old pattern falsely matched the shell script, reporting "already running" when dead).
-    # Escape PROJECT to handle regex metacharacters in project IDs (bd-rbgp CR fix).
-    ESCAPED_PROJECT=$(regex_escape "$PROJECT")
-    if pgrep -f "node.*ao lifecycle-worker ${ESCAPED_PROJECT}$" > /dev/null 2>&1; then
+    # Idempotency: skip if a lifecycle-worker for this project is already running
+    if pgrep -f "ao lifecycle-worker ${PROJECT}$" > /dev/null 2>&1; then
       echo "  lifecycle-worker $PROJECT already running — skipping"
     else
       nohup ao lifecycle-worker "$PROJECT" > "$LOG_DIR/ao-lifecycle-${PROJECT}.log" 2>&1 &

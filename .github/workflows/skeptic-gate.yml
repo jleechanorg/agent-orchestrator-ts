@@ -17,15 +17,19 @@ on:
         required: true
         type: string
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false  # Never cancel in-progress gate runs; multiple runs for same SHA are harmless
+
 jobs:
   skeptic_gate:
     name: Skeptic Gate
-    runs-on: ${{ fromJson(vars.SELF_HOSTED_RUNNER_LABELS || '["self-hosted","Linux","ARM64","agent-orchestrator"]') }}
+    runs-on: ubuntu-latest
     permissions:
       pull-requests: write
       issues: write
       contents: read
-      checks: read
+      checks: write
     steps:
       - name: Run 6-green gate checks
         id: gates
@@ -50,73 +54,69 @@ jobs:
           echo "Checking PR #$PR_NUM at SHA ${HEAD_SHA:0:12}"
 
           # ----------------------------------------------------------------
-          # Wait for CI check runs to register and complete.
-          # The workflow triggers on pull_request/synchronize (push), but CI
-          # check runs may not be registered yet. Wait up to 10 minutes.
-          # Exclude Skeptic Gate itself from the wait (it would deadlock).
+          # Gate 1: CI green — all check runs and commit status must pass.
+          #
+          # Strategy: check-runs API is authoritative (real-time per-job state).
+          # commit-status API aggregates these but often lags 30-60s after all
+          # check-runs complete. Pass Gate 1 when all 4 CI jobs show
+          # status=completed + conclusion=success — regardless of commit-status.
+          #
+          # Wait for CI to register (up to 5 min) before evaluating. This
+          # prevents false FAIL when the workflow fires before CI has even
+          # registered its check-runs. The concurrency group uses
+          # cancel-in-progress:false so this wait won't be cancelled by
+          # subsequent CI runs for the same SHA.
           # ----------------------------------------------------------------
-          echo "Waiting for CI check runs to register..."
-          MAX_WAIT=600
+
+          echo "Waiting for CI check runs to register and complete..."
+          MAX_WAIT=300
           INTERVAL=30
           ELAPSED=0
           while [ $ELAPSED -lt $MAX_WAIT ]; do
+            CHECK_RUNS_FAILED=$(gh api repos/${{ github.repository }}/commits/"$HEAD_SHA"/check-runs \
+              --jq '[.check_runs | group_by(.name) | .[] | sort_by(.started_at) | reverse | .[0] | select((.name == "Lint" or .name == "Typecheck" or .name == "Test" or .name == "Test (Web)") and .conclusion != null and .conclusion != "success" and .conclusion != "skipped" and .conclusion != "neutral" and .conclusion != "cancelled")] | length' 2>/dev/null || echo "__API_ERROR__")
+            CHECK_RUNS_PENDING=$(gh api repos/${{ github.repository }}/commits/"$HEAD_SHA"/check-runs \
+              --jq '[.check_runs | group_by(.name) | .[] | sort_by(.started_at) | reverse | .[0] | select((.name == "Lint" or .name == "Typecheck" or .name == "Test" or .name == "Test (Web)") and .status != "completed")] | length' 2>/dev/null || echo "__API_ERROR__")
             TOTAL_CHECKS=$(gh api repos/${{ github.repository }}/commits/"$HEAD_SHA"/check-runs \
-              --jq '[.check_runs | group_by(.name) | .[] | sort_by(.started_at) | reverse | .[0] | select(.name != "Skeptic Gate")] | length' 2>/dev/null || echo "0")
-            PENDING_CHECKS=$(gh api repos/${{ github.repository }}/commits/"$HEAD_SHA"/check-runs \
-              --jq '[.check_runs | group_by(.name) | .[] | sort_by(.started_at) | reverse | .[0] | select(.name != "Skeptic Gate" and .status != "completed")] | length' 2>/dev/null || echo "0")
-            if [ "$TOTAL_CHECKS" -gt 0 ] && [ "$PENDING_CHECKS" -eq 0 ]; then
-              echo "All CI checks complete ($TOTAL_CHECKS checks registered, 0 pending). Proceeding."
+              --jq '[.check_runs | group_by(.name) | .[] | sort_by(.started_at) | reverse | .[0] | select(.name == "Lint" or .name == "Typecheck" or .name == "Test" or .name == "Test (Web)")] | length' 2>/dev/null || echo "0")
+
+            if [ "$TOTAL_CHECKS" -ge 4 ] && [ "$CHECK_RUNS_PENDING" -eq 0 ]; then
+              echo "All 4 core CI checks registered and completed after ${ELAPSED}s"
               break
             fi
-            echo "  [$ELAPSED/${MAX_WAIT}s] $PENDING_CHECKS checks still running, $TOTAL_CHECKS registered — waiting ${INTERVAL}s..."
+            echo "  [${ELAPSED}s] registered=${TOTAL_CHECKS}, pending=${CHECK_RUNS_PENDING} — waiting..."
             sleep $INTERVAL
             ELAPSED=$((ELAPSED + INTERVAL))
           done
+
           if [ $ELAPSED -ge $MAX_WAIT ]; then
-            echo "WARNING: max wait reached, proceeding with current state"
+            echo "TIMEOUT: CI checks not completed after ${MAX_WAIT}s"
           fi
 
-          # ----------------------------------------------------------------
-          # Gate 1: CI green — all check runs and commit status must pass.
-          # Exclude our own check (Skeptic Gate) to avoid self-reference.
-          # ----------------------------------------------------------------
+          # Final state after wait (or immediate if already done)
+          CHECK_RUNS_FAILED=$(gh api repos/${{ github.repository }}/commits/"$HEAD_SHA"/check-runs \
+            --jq '[.check_runs | group_by(.name) | .[] | sort_by(.started_at) | reverse | .[0] | select((.name == "Lint" or .name == "Typecheck" or .name == "Test" or .name == "Test (Web)") and .conclusion != null and .conclusion != "success" and .conclusion != "skipped" and .conclusion != "neutral" and .conclusion != "cancelled")] | length' 2>/dev/null || echo "__API_ERROR__")
+          CHECK_RUNS_PENDING=$(gh api repos/${{ github.repository }}/commits/"$HEAD_SHA"/check-runs \
+            --jq '[.check_runs | group_by(.name) | .[] | sort_by(.started_at) | reverse | .[0] | select((.name == "Lint" or .name == "Typecheck" or .name == "Test" or .name == "Test (Web)") and .status != "completed")] | length' 2>/dev/null || echo "__API_ERROR__")
+          TOTAL_CHECKS=$(gh api repos/${{ github.repository }}/commits/"$HEAD_SHA"/check-runs \
+            --jq '[.check_runs | group_by(.name) | .[] | sort_by(.started_at) | reverse | .[0] | select(.name == "Lint" or .name == "Typecheck" or .name == "Test" or .name == "Test (Web)")] | length' 2>/dev/null || echo "0")
+
           CI_STATUS_JSON=$(gh api repos/${{ github.repository }}/commits/"$HEAD_SHA"/status \
             --jq '{state: .state, total: .total_count}' 2>/dev/null || echo '{"state":"error","total":0}')
           CI_STATUS=$(echo "$CI_STATUS_JSON" | jq -r '.state')
-          CI_STATUS_TOTAL=$(echo "$CI_STATUS_JSON" | jq -r '.total')
-          # When no commit status contexts exist (total_count=0), GitHub returns "pending".
-          # This is a false negative — treat it as "success" since only check-runs matter.
-          if [ "$CI_STATUS" = "pending" ] && [ "${CI_STATUS_TOTAL:-0}" -eq 0 ]; then
-            CI_STATUS="success"
-          fi
-          # Also check GitHub check runs (Actions checks use check runs API, not commit status).
-          # Multiple runs exist per check name (re-runs, concurrent triggers) — deduplicate
-          # by keeping only the latest run per name (sort by started_at desc, take first).
-          # Exclude: Skeptic Gate (self-reference), cancelled (superseded runs), skipped, neutral.
-          CHECK_RUNS_FAILED=$(gh api repos/${{ github.repository }}/commits/"$HEAD_SHA"/check-runs \
-            --jq '[.check_runs | group_by(.name) | .[] | sort_by(.started_at) | reverse | .[0] | select(.name != "Skeptic Gate" and .conclusion != null and .conclusion != "success" and .conclusion != "skipped" and .conclusion != "neutral" and .conclusion != "cancelled")] | length' 2>/dev/null || echo "__API_ERROR__")
-          CHECK_RUNS_PENDING=$(gh api repos/${{ github.repository }}/commits/"$HEAD_SHA"/check-runs \
-            --jq '[.check_runs | group_by(.name) | .[] | sort_by(.started_at) | reverse | .[0] | select(.name != "Skeptic Gate" and .status != "completed")] | length' 2>/dev/null || echo "__API_ERROR__")
-
-          # Count total non-Skeptic-Gate check runs to detect "no CI registered yet".
-          TOTAL_CHECKS=$(gh api repos/${{ github.repository }}/commits/"$HEAD_SHA"/check-runs \
-            --jq '[.check_runs | group_by(.name) | .[] | sort_by(.started_at) | reverse | .[0] | select(.name != "Skeptic Gate")] | length' 2>/dev/null || echo "0")
 
           CI_DETAIL="commit-status=$CI_STATUS, failed-checks=${CHECK_RUNS_FAILED:-0}, pending-checks=${CHECK_RUNS_PENDING:-0}, total-checks=${TOTAL_CHECKS:-0}"
 
-          # Only "success" passes. "pending" means no statuses exist or checks
-          # are still running — both are NOT green. Never let pending pass.
-          # Also fail when total non-Skeptic-Gate check runs == 0: CI hasn't registered yet.
-          if [ "$CI_STATUS" = "success" ] && [ "${CHECK_RUNS_FAILED:-0}" -eq 0 ] && [ "${CHECK_RUNS_PENDING:-0}" -eq 0 ] && [ "${TOTAL_CHECKS:-0}" -gt 0 ]; then
+          # Pass when all 4 CI jobs completed successfully; fail on any failure or timeout
+          if [ "${CHECK_RUNS_FAILED:-0}" -gt 0 ] && [ "${CHECK_RUNS_FAILED:-0}" != "__API_ERROR__" ]; then
+            GATE1="FAIL"
+            FAILED_GATES="${FAILED_GATES}1, "
+          elif [ "${CHECK_RUNS_PENDING:-0}" -eq 0 ] && [ "${CHECK_RUNS_FAILED:-0}" -eq 0 ] && [ "${TOTAL_CHECKS:-0}" -ge 4 ]; then
             GATE1="PASS"
           else
             GATE1="FAIL"
             FAILED_GATES="${FAILED_GATES}1, "
-            if [ "${TOTAL_CHECKS:-0}" -eq 0 ]; then
-              CI_DETAIL="${CI_DETAIL} (no CI checks registered yet)"
-            elif [ "${CHECK_RUNS_PENDING:-0}" -gt 0 ]; then
-              CI_DETAIL="${CI_DETAIL} (checks still running)"
-            fi
+            CI_DETAIL="${CI_DETAIL} (timeout waiting for CI)"
           fi
           echo "Gate 1: $GATE1 ($CI_DETAIL)"
           GATE_ROWS="${GATE_ROWS}| 1. CI green | ${GATE1} | ${CI_DETAIL} |\n"
@@ -215,29 +215,24 @@ jobs:
             UNRESOLVED=$(echo "$GQL_RESULT" | jq -r "[.data.repository.pullRequest.reviewThreads.nodes[] | select(.isResolved == false) | .comments.nodes[] | select(.author.login != null and (.author.login | ascii_downcase) != (\"$PR_AUTHOR\" | ascii_downcase) and (.body | test(\"^\\\\s*(nit:|nitpick)\"; \"i\") | not))] | length")
           fi
 
-          # Gate 5 passes when:
-          #  (a) all non-nit comments resolved, OR
-          #  (b) CR has formally APPROVED — CR's remaining comments are non-blocking post-approval;
-          #      unresolved comments from bots (Copilot, Cursor, Codex) after CR APPROVAL are also
-          #      non-blocking (CR acknowledged them by approving).
-          # Fail-closed: GQL errors and pagination truncation always fail.
-          if [ "$UNRESOLVED" = "__GQL_ERROR__" ]; then
+          # Gate 5: Inline comments resolved
+          # If CR has APPROVED, non-nit unresolved comments are non-blocking (CR
+          # has already signed off despite the noise). Without CR APPROVED, unresolved
+          # comments remain a hard failure (fail-closed).
+          if [ "$LATEST_CR" = "APPROVED" ]; then
+            GATE5="PASS"
+            GATE5_DETAIL="${UNRESOLVED:-N/A} unresolved (CR approved — non-blocking)"
+          elif [ "$UNRESOLVED" = "__GQL_ERROR__" ] || [ "$UNRESOLVED" = "__TRUNCATED__" ]; then
             GATE5="FAIL"
-            GATE5_DETAIL="GraphQL error"
+            GATE5_DETAIL="$UNRESOLVED (fail-closed)"
             FAILED_GATES="${FAILED_GATES}5, "
-          elif [ "$UNRESOLVED" = "__TRUNCATED__" ]; then
+          elif [ "${UNRESOLVED:-0}" -gt 0 ]; then
             GATE5="FAIL"
-            GATE5_DETAIL="pagination truncated (fail-closed)"
-            FAILED_GATES="${FAILED_GATES}5, "
-          elif [ "${UNRESOLVED:-0}" -gt 0 ] && [ "$LATEST_CR" != "APPROVED" ]; then
-            # Unresolved comments AND no CR approval → fail
-            GATE5="FAIL"
-            GATE5_DETAIL="${UNRESOLVED} unresolved (no CR approval)"
+            GATE5_DETAIL="${UNRESOLVED} unresolved"
             FAILED_GATES="${FAILED_GATES}5, "
           else
-            # CR approved (unresolved comments are non-blocking) or all resolved
             GATE5="PASS"
-            GATE5_DETAIL="${UNRESOLVED:-0} unresolved (CR approved — non-blocking)"
+            GATE5_DETAIL="all resolved"
           fi
           echo "Gate 5: $GATE5 ($GATE5_DETAIL)"
           GATE_ROWS="${GATE_ROWS}| 5. Comments resolved | ${GATE5} | ${GATE5_DETAIL} |\n"

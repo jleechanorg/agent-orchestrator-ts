@@ -17,7 +17,7 @@ jobs:
   # to avoid type coercion issues (merged is a boolean, not a string "true"/"false").
   _merged-guard:
     name: Skip for merged/closed PRs
-    runs-on: ${{ fromJson(vars.SELF_HOSTED_RUNNER_LABELS || '["self-hosted","Linux","ARM64","agent-orchestrator"]') }}
+    runs-on: ubuntu-latest
     outputs:
       skip: ${{ github.event.pull_request.merged == true || github.event.action == 'closed' }}
     steps:
@@ -25,10 +25,7 @@ jobs:
 
   pr-title-prefix:
     name: PR Title [agento] Prefix
-    # Fork PRs use ubuntu-latest to avoid running untrusted code on self-hosted infrastructure.
-    runs-on: ${{ github.event.pull_request.head.repo.fork && github.event_name == 'pull_request'
-              && 'ubuntu-latest'
-              || fromJson(vars.SELF_HOSTED_RUNNER_LABELS || '["self-hosted","Linux","ARM64","agent-orchestrator"]') }}
+    runs-on: ubuntu-latest
     steps:
       - name: Check PR title prefix
         env:
@@ -45,10 +42,7 @@ jobs:
 
   evidence-section:
     name: Evidence Section Present
-    # Fork PRs use ubuntu-latest to avoid running untrusted code on self-hosted infrastructure.
-    runs-on: ${{ github.event.pull_request.head.repo.fork && github.event_name == 'pull_request'
-              && 'ubuntu-latest'
-              || fromJson(vars.SELF_HOSTED_RUNNER_LABELS || '["self-hosted","Linux","ARM64","agent-orchestrator"]') }}
+    runs-on: ubuntu-latest
     needs: [_merged-guard]
     if: needs._merged-guard.outputs.skip != 'true'
     outputs:
@@ -60,8 +54,6 @@ jobs:
           PR_BODY: ${{ github.event.pull_request.body }}
         run: |
           BODY="$PR_BODY"
-          # Convert GitHub-escaped literal \n sequences to actual newlines before parsing.
-          BODY=$(printf '%s' "$BODY" | sed 's/\\n/\n/g; s/\\r/\r/g')
           echo "PR body length: ${#BODY} chars"
 
           if [ ${#BODY} -eq 0 ]; then
@@ -71,10 +63,9 @@ jobs:
             exit 1
           fi
 
-          # Use grep -F (fixed-string, case-insensitive) to match the ## Evidence header.
-          # The PR body may be a single line with literal \n characters, so anchored regex
-          # (^[[:space:]]*## Evidence) fails — use grep -F instead to find the pattern inline.
-          if printf '%s' "$BODY" | grep -qiF '## Evidence'; then
+          # Use anchored regex: ## must be at start of line, followed by space + "Evidence" + space or EOL
+          # grep -E enables extended regex; anchors ensure this is a markdown H2, not a word-in-sentence
+          if printf '%s' "$BODY" | grep -qiE '^[[:space:]]*##[[:space:]]+[Ee]vidence([[:space:]]|$)'; then
             echo "found=true" >> "$GITHUB_OUTPUT"
             echo "reason=evidence_section_found" >> "$GITHUB_OUTPUT"
             echo "PASS: ## Evidence section found"
@@ -96,19 +87,15 @@ jobs:
 
   actionlint:
     name: Actionlint (Workflow Lint)
-    # Fork PRs use ubuntu-latest to avoid running untrusted code on self-hosted infrastructure.
-    runs-on: ${{ github.event.pull_request.head.repo.fork && github.event_name == 'pull_request'
-              && 'ubuntu-latest'
-              || fromJson(vars.SELF_HOSTED_RUNNER_LABELS || '["self-hosted","Linux","ARM64","agent-orchestrator"]') }}
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
       - name: Install and run actionlint
         run: |
-          # Normalize runner.arch to actionlint's naming: X64→amd64, ARM64→arm64
-          ARCH_SUFFIX=$(echo "${{ runner.arch }}" | tr '[:upper:]' '[:lower:]' | sed 's/x64/amd64/')
+          # Download actionlint binary directly from GitHub releases
           curl -sfL \
-            "https://github.com/rhysd/actionlint/releases/download/v1.7.4/actionlint_1.7.4_linux_${ARCH_SUFFIX}.tar.gz" \
+            "https://github.com/rhysd/actionlint/releases/download/v1.7.4/actionlint_1.7.4_linux_amd64.tar.gz" \
             | tar -xz -C /usr/local/bin
           # Use config file to suppress known false positives in existing workflows
           actionlint -config-file .actionlint.yaml .github/workflows/*.yml || {
@@ -120,10 +107,7 @@ jobs:
 
   evidence-media-attachment:
     name: Evidence Has Media Attachment
-    # Fork PRs use ubuntu-latest to avoid running untrusted code on self-hosted infrastructure.
-    runs-on: ${{ github.event.pull_request.head.repo.fork && github.event_name == 'pull_request'
-              && 'ubuntu-latest'
-              || fromJson(vars.SELF_HOSTED_RUNNER_LABELS || '["self-hosted","Linux","ARM64","agent-orchestrator"]') }}
+    runs-on: ubuntu-latest
     needs: [_merged-guard, evidence-section]
     # Only meaningful if Evidence section was found
     if: needs._merged-guard.outputs.skip != 'true' && needs.evidence-section.outputs.found == 'true'
@@ -134,30 +118,15 @@ jobs:
         run: |
           BODY="$PR_BODY"
 
-          # Convert GitHub-escaped literal \n sequences to actual newlines before parsing.
-          # GHA passes multi-line PR body as literal backslash-n strings, not real newlines.
-          BODY=$(printf '%s' "$BODY" | sed 's/\\n/\n/g; s/\\r/\r/g')
-
-          echo "DEBUG PR_BODY chars: ${#PR_BODY}"
-          echo "DEBUG BODY (after sed) chars: ${#BODY}"
-          if ! printf '%s' "$BODY" | grep -qiF '## Evidence'; then
-            echo "No ## Evidence section found in PR body"
-            exit 1
-          fi
-          # bd-ara.5: xargs -0 printf '%s\n' concatenates all null-separated fields
-          # into a SINGLE line (no separator between records), making awk's ^ anchor
-          # fail to match ## headings (they get concatenated into preceding content).
-          # Use tr '\x00' '\n' instead to convert nulls back to newlines.
-          EVIDENCE=$(printf '%s' "$BODY" \
-            | tr '\x00' '\n' \
-            | awk '
-              BEGIN { capture=0 }
-              /^[[:space:]]*##[[:space:]]+[Ee][Vv][Ii][Dd][Ee][Nn][Cc][Ee]([[:space:]]|$)/ { capture=1; next }
-              capture && /^[[:space:]]*##[[:space:]]+[Ss][Uu][Mm][Mm][Aa][Rr][Yy]/ { exit }
-              capture && /^[[:space:]]*##[[:space:]]+/ { exit }
-              capture { print }
-            ')
-          echo "DEBUG EVIDENCE chars: ${#EVIDENCE}"
+          # Extract only the Evidence section content: from "## Evidence" to the next ## heading
+          # This prevents media from later sections (e.g. "## Other" with ![img]) from incorrectly passing the gate
+          # Use awk for robust multi-line section boundary parsing
+          EVIDENCE=$(printf '%s\n' "$BODY" | awk '
+            BEGIN { IGNORECASE=1 }
+            /^[[:space:]]*##[[:space:]]+evidence([[:space:]]|$)/ { in_section=1; next }
+            in_section && /^[[:space:]]*##[[:space:]]/ { exit }
+            in_section { print }
+          ')
 
           if [ -z "$EVIDENCE" ]; then
             echo "No Evidence section found to validate"
