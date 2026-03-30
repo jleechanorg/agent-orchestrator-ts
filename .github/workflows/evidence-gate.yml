@@ -21,7 +21,7 @@ jobs:
     # Evidence gate is a pre-merge gate; post-merge it has no function.
     if: github.event.pull_request.merged == false && github.event.action != 'closed'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4.1.1
 
       - name: Write PR body to temp file
         env:
