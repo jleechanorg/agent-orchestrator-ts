@@ -308,6 +308,90 @@ interface ReactionTracker {
   firstTriggered: Date;
 }
 
+/**
+ * Module-level skeptic trigger — extracted so tests can call the actual implementation.
+ * Fires worker-signals-completion for a session, records the HEAD SHA on success,
+ * then dispatches claim-verification. Returns true iff the reaction succeeded.
+ *
+ * The `executeReaction` and `observer` parameters must be provided by the caller
+ * so this function is directly testable without a full LifecycleManager instance.
+ */
+export async function triggerSkepticReactionImpl(
+  session: Session,
+  lastSkepticSha: Map<string, string>,
+  correlationId: string,
+  config: OrchestratorConfig,
+  registry: PluginRegistry,
+  executeReaction: (
+    sessionId: SessionId,
+    projectId: string,
+    reactionKey: string,
+    reactionConfig: ReactionConfig,
+    session?: Session,
+    correlationId?: string,
+  ) => Promise<ReactionResult>,
+): Promise<boolean> {
+  const project = config.projects[session.projectId];
+  const globalReaction = config.reactions["worker-signals-completion"];
+  const projectReaction = project?.reactions?.["worker-signals-completion"];
+  const reactionConfig = projectReaction
+    ? { ...globalReaction, ...projectReaction }
+    : globalReaction;
+  if (!reactionConfig?.action || reactionConfig.auto === false) {
+    return false;
+  }
+
+  let reactionSuccess: boolean;
+  try {
+    const result = await executeReaction(
+      session.id,
+      session.projectId,
+      "worker-signals-completion",
+      reactionConfig,
+      session,
+      correlationId,
+    );
+    reactionSuccess = Boolean(result?.success);
+  } catch {
+    reactionSuccess = false;
+  }
+
+  if (reactionSuccess && session.pr) {
+    const scm = project?.scm ? registry.get<SCM>("scm", project.scm.plugin) : null;
+    if (scm?.getPRHeadSha) {
+      try {
+        const sha = await scm.getPRHeadSha(session.pr);
+        if (sha) lastSkepticSha.set(session.id, sha);
+      } catch {
+        // Non-fatal — will re-trigger on next poll if SHA check fails
+      }
+    }
+
+    // bd-jzan: also dispatch claim-verification after skeptic fires
+    const claimGlobal = config.reactions["claim-verification"];
+    const claimProject = project?.reactions?.["claim-verification"];
+    const claimCfg = claimProject
+      ? { ...claimGlobal, ...claimProject }
+      : claimGlobal;
+    if (claimCfg?.action && claimCfg.auto !== false) {
+      try {
+        await executeReaction(
+          session.id,
+          session.projectId,
+          "claim-verification",
+          claimCfg,
+          session,
+          "claim-verification",
+        );
+      } catch {
+        // Non-fatal — claim verification failure does not block PR flow
+      }
+    }
+  }
+
+  return reactionSuccess;
+}
+
 /** Create a LifecycleManager instance. */
 export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleManager {
   const {
@@ -830,6 +914,25 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       return { status: "working", agentDead: false };
     }
     return { status: session.status, agentDead: false };
+  }
+
+  /**
+   * Shared skeptic-reaction helper — delegates to the module-level implementation.
+   * Kept as a thin closure so existing call sites do not change.
+   */
+  async function triggerSkepticReaction(
+    session: Session,
+    lastSkepticSha: Map<string, string>,
+    correlationId: string,
+  ): Promise<boolean> {
+    return triggerSkepticReactionImpl(
+      session,
+      lastSkepticSha,
+      createCorrelationId(correlationId),
+      config,
+      registry,
+      executeReaction,
+    );
   }
 
   /** Execute a reaction for a session. */
@@ -1579,75 +1682,14 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       // Re-triggering on approved is unnecessary since the PR content hasn't changed.
       let completionReactionHandledNotify = false;
       if (newStatus === "pr_open") {
-        // Trigger the worker-signals-completion reaction (e.g., skeptic-review).
-        // Honor auto=false — users must be able to disable the reaction via config.
-        // Do NOT call notifyHuman here — the pr.created fallback below handles
-        // notification routing through the configured notificationRouting table,
-        // avoiding duplicate notifications (skeptic-review posts a VERDICT comment
-        // to the PR directly and does not call notifyHuman itself).
-        const completionReactionKey = "worker-signals-completion";
-        const completionReactionConfig = getReactionConfigForSession(session, completionReactionKey);
-        if (completionReactionConfig?.action && completionReactionConfig.auto !== false) {
-          // bd-lg7i: only mark the SHA handled when skeptic dispatch actually succeeded.
-          // Setting lastSkepticSha unconditionally would suppress all retries for this
-          // commit until another push arrives, even if the dispatch itself failed.
-          let reactionSuccess: boolean;
-          try {
-            const result = await executeReaction(
-              session.id,
-              session.projectId,
-              completionReactionKey,
-              completionReactionConfig,
-              session,
-              createCorrelationId("skeptic-trigger"),
-            );
-            reactionSuccess = Boolean(result?.success);
-          } catch {
-            reactionSuccess = false;
-          }
-          completionReactionHandledNotify = reactionSuccess;
-
-          // bd-qnj6: record the HEAD SHA at trigger time so the no-transition
-          // path can detect new pushes and re-trigger skeptic evaluation.
-          if (reactionSuccess && session.pr) {
-            const project = config.projects[session.projectId];
-            const scm = project?.scm ? registry.get<SCM>("scm", project.scm.plugin) : null;
-            if (scm?.getPRHeadSha) {
-              try {
-                const sha = await scm.getPRHeadSha(session.pr);
-                lastSkepticSha.set(session.id, sha);
-              } catch {
-                // Non-fatal — will re-trigger on next poll if SHA check fails
-              }
-            }
-          }
-
-          // bd-upxh: after skeptic-review, fire claim-verification to validate
-          // the full skeptic-gate chain. Fail-closed — INSUFFICIENT blocks 'working'.
-          if (reactionSuccess) {
-            const claimReactionKey = "claim-verification";
-            const claimReactionConfig = getReactionConfigForSession(session, claimReactionKey);
-            if (claimReactionConfig?.action && claimReactionConfig.auto !== false) {
-              try {
-                const claimResult = await executeReaction(
-                  session.id,
-                  session.projectId,
-                  claimReactionKey,
-                  claimReactionConfig,
-                  session,
-                  createCorrelationId("claim-verification"),
-                );
-                if (claimResult && !claimResult.success && session.pr) {
-                  // Claim verification failed — log for observability.
-                  // The claim verification message is already captured via createEvent.
-                  // Agents should not see this as a fatal error — it is recorded in logs.
-                }
-              } catch {
-                // Non-fatal — claim verification failure does not block PR flow
-              }
-            }
-          }
-        }
+        // bd-lg7i: triggerSkepticReaction records SHA and fires claim-verification
+        // on success. completionReactionHandledNotify feeds the pr.created notification
+        // guard below — skip duplicate notification when skeptic reaction already fired.
+        completionReactionHandledNotify = await triggerSkepticReaction(
+          session,
+          lastSkepticSha,
+          "skeptic-trigger",
+        );
       }
 
       // bd-jzan: fire skeptic immediately when CR approves on same SHA (no new push).
@@ -1691,27 +1733,8 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
                   data: { currentSha: currentSha.slice(0, 7) },
                   level: "info",
                 });
-                const completionReactionKey = "worker-signals-completion";
-                const completionReactionConfig = getReactionConfigForSession(session, completionReactionKey);
-                if (completionReactionConfig?.action && completionReactionConfig.auto !== false) {
-                  let reactionSuccess = false;
-                  try {
-                    const result = await executeReaction(
-                      session.id,
-                      session.projectId,
-                      completionReactionKey,
-                      completionReactionConfig,
-                      session,
-                      createCorrelationId("skeptic-cr-approval"),
-                    );
-                    reactionSuccess = Boolean(result?.success);
-                  } catch {
-                    reactionSuccess = false;
-                  }
-                  if (reactionSuccess) {
-                    lastSkepticSha.set(session.id, currentSha);
-                  }
-                }
+                // Uses shared helper: fires reaction, records SHA, then dispatches claim-verification.
+                await triggerSkepticReaction(session, lastSkepticSha, "skeptic-cr-approval");
               }
             }
           } catch {
