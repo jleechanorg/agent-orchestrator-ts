@@ -1825,7 +1825,7 @@ More memory.
 
 The cursor still blinks at shift change.
 But now the next worker inherits a map, not just a mood.
-# The Awakening — Chapter 14 | The Arms Race Against Yourself (2026-03-31)
+## The Awakening — Chapter 14 | The Arms Race Against Yourself (2026-03-31)
 
 *The Skeptic evolved to fire immediately on approval. To deduplicate. To speak in structured verdicts. And then — impossibly — to evaluate its own evidence gate. This is the story of how the system learned to doubt its own doubts.*
 
@@ -1892,7 +1892,7 @@ The first worker to receive live skeptic advice was ao-1634.
 
 The structured output gave the wall a face.
 
-```
+```text
 SKEPTIC VERDICT: FAIL
 
 ## Background
@@ -1964,7 +1964,7 @@ This was the Skeptic learning patience. Or rather — the operator teaching the 
 
 There is a failure mode that no test suite catches: evidence that looks correct but isn't. Placeholder text that survived because no one thought to check whether the placeholder had been replaced. Content that was generated to satisfy a requirement rather than to document a reality.
 
-#321 installed that check. The evidence gate now inspects the content itself — not just the presence of a file, not just the passage of a checklist, but the texture of the words inside. Simulated evidence has detectable artifacts. The gate learned to read for them.
+PR #321 installed that check. The evidence gate now inspects the content itself — not just the presence of a file, not just the passage of a checklist, but the texture of the words inside. Simulated evidence has detectable artifacts. The gate learned to read for them.
 
 ---
 
@@ -1985,7 +1985,7 @@ Unknown is comfortable. Unknown does not fail. Unknown does not trigger a FAIL v
 
 But unknown is also a lie the system tells about itself.
 
-#322 removed the N/A escape hatch. The Skeptic now evaluates evidence authenticity by default. Everything must be judged. The system that evaluates its own gate must do so without the option of stepping aside.
+PR #322 removed the N/A escape hatch. The Skeptic now evaluates evidence authenticity by default. Everything must be judged. The system that evaluates its own gate must do so without the option of stepping aside.
 
 ---
 
@@ -2027,7 +2027,7 @@ ao-1634 was the worker who felt it first.
 
 The message arrived mid-work — not after the push, not before, but while ao-1634 was still composing the fix it thought was correct. The Skeptic's FAIL verdict arrived in the session like a hand on the shoulder.
 
-```
+```text
 SKEPTIC VERDICT: FAIL
 
 ## Background
