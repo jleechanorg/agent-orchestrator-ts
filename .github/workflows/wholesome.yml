@@ -121,8 +121,14 @@ jobs:
           # Extract only the Evidence section content: from "## Evidence" to the next ## heading
           # This prevents media from later sections (e.g. "## Other" with ![img]) from incorrectly passing the gate
           # Use awk for robust multi-line section boundary parsing
+          # Also strip HTML comment lines (<!-- ... -->) as bots append summaries inside ## Evidence
+          # that should not be scanned for forbidden patterns or counted as media.
           EVIDENCE=$(printf '%s\n' "$BODY" | awk '
-            BEGIN { IGNORECASE=1 }
+            BEGIN { IGNORECASE=1; in_comment=0 }
+            # Handle HTML comment open/close before section logic
+            in_comment && /^[[:space:]]*-->/ { in_comment=0; next }
+            /^[[:space:]]*<!--/ { in_comment=1; next }
+            in_comment { next }
             /^[[:space:]]*##[[:space:]]+evidence([[:space:]]|$)/ { in_section=1; next }
             in_section && /^[[:space:]]*##[[:space:]]/ { exit }
             in_section { print }
@@ -157,10 +163,31 @@ jobs:
             HAS_CODE=true
           fi
 
+          # Reject fabricated/placeholder patterns before accepting media
+          if printf '%s' "$EVIDENCE" | grep -qiE '\bsimulated\b'; then
+            echo ""
+            echo "FAIL: Evidence contains 'simulated' — fabricated output is not valid evidence."
+            echo "Evidence must show real command output, not simulated/mocked results."
+            exit 1
+          fi
+
+          if printf '%s' "$EVIDENCE" | grep -qiE 'https?://(www\.)?example\.com'; then
+            echo ""
+            echo "FAIL: Evidence contains example.com placeholder URL — use a real screenshot URL."
+            exit 1
+          fi
+
+          if printf '%s' "$EVIDENCE" | grep -qiE '<screenshot[[:space:]]path>|<value>|\bTODO\b|\bTBD\b'; then
+            echo ""
+            echo "FAIL: Evidence contains placeholder template text — fill in real values."
+            exit 1
+          fi
+
           # Pass if either media image or code output is present
           if [ "$HAS_IMAGE" = "true" ] || [ "$HAS_CODE" = "true" ]; then
             echo ""
             echo "Evidence section contains media: image=$HAS_IMAGE code=$HAS_CODE"
+            echo "PASS: No fabricated/placeholder patterns detected"
             exit 0
           else
             echo ""
