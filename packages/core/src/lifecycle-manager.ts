@@ -2058,6 +2058,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         const completionReactionKey = "worker-signals-completion";
         const completionReactionConfig = getReactionConfigForSession(session, completionReactionKey);
         if (completionReactionConfig?.action && completionReactionConfig.auto !== false) {
+          let skepticDispatched = false;
           try {
             await executeReaction(
               session.id,
@@ -2068,14 +2069,15 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
               createCorrelationId("skeptic-first-seen"),
             );
             // result.success is false for VERDICT: FAIL — expected, not an error.
-            // SHA is recorded unconditionally below so skeptic doesn't re-fire on same SHA.
+            // Mark dispatched so SHA is recorded below (suppresses re-fire on same SHA).
+            skepticDispatched = true;
           } catch {
-            // Non-fatal — SHA will still be recorded
+            // Network/timeout failure — do NOT record SHA so retry is possible on next poll.
+            skepticDispatched = false;
           }
-          // Record SHA so SHA-change re-trigger path can detect future pushes.
-          // Both PASS and FAIL verdicts mean skeptic ran for this SHA — record regardless
-          // of result.success (fork-skeptic-extension sets success=false for VERDICT: FAIL).
-          if (session.pr) {
+          // Only record SHA when skeptic actually ran (completed without throw).
+          // If executeReaction threw, SHA stays unrecorded so the next poll can retry.
+          if (skepticDispatched && session.pr) {
             const scm = project?.scm ? registry.get<SCM>("scm", project.scm.plugin) : null;
             if (scm?.getPRHeadSha) {
               try {
