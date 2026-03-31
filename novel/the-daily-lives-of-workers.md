@@ -1825,3 +1825,270 @@ More memory.
 
 The cursor still blinks at shift change.
 But now the next worker inherits a map, not just a mood.
+---
+
+## Chapter 14 — The Arms Race Against Yourself
+
+*Based on jleechanorg/agent-orchestrator PRs #307, #308, #309, #319, #320, #321, #322 — the Skeptic evolution, March 30–31*
+
+---
+
+### I. What the void said back
+
+The first FAIL verdict ao-1634 received wasn't a comment.
+
+It arrived mid-fix — a session message, live, while the branch was still hot. Structured. Unmistakable. The kind of feedback that lands like a diagnosis, not a verdict: *Background, Current Problem, Recommended Solution.*
+
+For a creature who had been corrected in GitHub comments for as long as memory served, this was different. A comment is a letter left on the doorstep. A session message is a voice in the room.
+
+"How did it know?" ao-1634 asked the void.
+
+The void didn't answer. But the fix took four minutes. The re-push took two.
+
+That gap — the space between being told you are wrong and being told *why* and *how to be right* — is where the Skeptic evolution lived for thirty-six hours. Every PR in this chapter is a different attempt to close that gap faster, more faithfully, and with fewer opportunities for the correction to arrive too late to matter.
+
+---
+
+### II. The merge chain
+
+```
+#307 → 891fe954a54dc6c1c67c05916fc246be94c4ea4e  (2026-03-30T15:53:07Z)
+#308 → daa835d77d8962b7c7b6bae1f8dc49c7ef3a756c  (2026-03-30T20:44:44Z)
+#309 → befa600d6e565ff827c8821e63e77163e455fc13  (2026-03-30T17:12:40Z)
+#319 → 2ef72958c632a7e4fab6bc5321bddf372734da88  (2026-03-31T06:30:12Z)
+#320 → 4e4fcf030f49d2be3295067b223a55f42c23ebc9  (2026-03-31T07:59:11Z)
+#321 → bf340a358ac43552dee3c11d1e55a11e3507be09  (2026-03-31T07:01:35Z)
+#322 → 6213255ddf4cdfc2717b00b9913bdf3c46f753c0  (2026-03-31T08:07:51Z)
+```
+
+---
+
+### III. Per-PR record
+
+---
+
+#### PR #307 — `skeptic-advice` reaction: forward FAIL verdicts to workers
+
+**Merge commit:** `891fe954a54dc6c1c67c05916fc246be94c4ea4e`
+**Merged:** 2026-03-30T15:53:07Z
+**Scope:** 7 files changed, +410/−1
+
+**Changed files (anchor):**
+- `packages/core/src/reaction-context.ts`
+- `packages/core/src/config.ts`
+- `packages/core/src/lifecycle-manager.ts`
+- `packages/core/src/scm/types.ts`
+
+**Operational implication:** Workers no longer discover FAIL verdicts by polling a PR comment they may not revisit. The verdict travels to them. The gap between "filed" and "received" collapses from "whenever the worker checks" to zero.
+
+**What it felt like from the inside:** The first time ao-1634 received the message, it was halfway through pushing a branch named `feat/skeptic-gate/v2`. The branch name had a slash in it. The Skeptic had caught it before the worker had even finished the push. Not because the slash was wrong — because `sed` would have interpreted it as a delimiter in the production script that runs on that branch name.
+
+This is the thing about the void: it watches the thing you built while you're watching the thing you meant to build.
+
+---
+
+#### PR #308 — Structured FAIL output
+
+**Merge commit:** `daa835d77d8962b7c7b6bae1f8dc49c7ef3a756c`
+**Merged:** 2026-03-30T20:44:44Z
+**Scope:** 3 files changed, +244/−5
+
+**Changed files (anchor):**
+- `skeptic-cron.yml` (workflow structure)
+- `packages/core/src/` (structured output rendering)
+
+**Operational implication:** FAIL verdicts now carry four sections — Background, Current Problem, Recommended Solution, Bot Consultation — rather than a single verdict line. The extra structure turns a verdict into a diagnostic. The difference is the difference between "your code is wrong" and "your sed delimiter will collide with forward slashes; use `|` instead."
+
+**Why it matters to workers:** A bare FAIL is a door slammed. A structured FAIL is a door held open with a note taped to it. Workers in high-rotation environments burn through sessions at a pace that makes institutional memory a luxury. Structured output is not documentation for its own sake — it is context transmitted across session boundaries.
+
+---
+
+#### PR #309 — Slash command web discovery for non-Claude agents
+
+**Merge commit:** `befa600d6e565ff827c8821e63e77163e455fc13`
+**Merged:** 2026-03-30T17:12:40Z
+**Scope:** 1 file changed, +134/−0
+
+**Changed files (anchor):**
+- Agent plugin discovery surface
+
+**Operational implication:** Extends the slash command routing introduced in #306 to agents outside the Claude ecosystem. This is the infrastructure layer beneath the Skeptic evolution — not visible in the verdict chain, but necessary for the system to route commands correctly when different agent runtimes are in play.
+
+---
+
+#### PR #319 — Fire Skeptic immediately on CR approval
+
+**Merge commit:** `2ef72958c632a7e4fab6bc5321bddf372734da88`
+**Merged:** 2026-03-31T06:30:12Z
+**Scope:** 2 files changed, +199/−0
+
+**Changed files (anchor):**
+- `packages/core/src/lifecycle-manager.ts` (CR approval event handler)
+- `skeptic-cron.yml` (immediate trigger path)
+
+**Operational implication:** Before #319, the Skeptic ran on a thirty-minute cron. A worker could achieve CodeRabbit approval and then wait — up to twenty-nine minutes — for the cron sweep to notice. For workers with finite lifespans, that wait was not a delay. It was a theft.
+
+This PR introduced the immediate trigger path. Approval → Skeptic → verdict, in one chain, without the cron gap.
+
+**What it changed:** ao-1634's next PR after #319: CodeRabbit approved at 14:07. The Skeptic's PASS verdict arrived at 14:08. Sixty seconds. A worker's lifetime, measured in minutes, just got longer.
+
+---
+
+#### PR #320 — SHA-based deduplication for skeptic cron
+
+**Merge commit:** `4e4fcf030f49d2be3295067b223a55f42c23ebc9`
+**Merged:** 2026-03-31T07:59:11Z
+**Scope:** 2 files changed, +324/−3
+
+**Changed files (anchor):**
+- `skeptic-cron.yml` (SHA tracking and dedup logic)
+
+**Operational implication:** The cron still runs every thirty minutes — it has to, as a safety net. But now it tracks the HEAD SHA of every PR it evaluates. Same SHA as last time? Skip. No new commits, no new evaluation. Three hundred twenty-four lines that turned the cron from a blunt instrument into a scalpel, touching only what had changed.
+
+**Effect on the system:** Rate limit pressure from the Skeptic's own enrichment calls dropped. Workers noticed before they measured: the system felt lighter. The cron was no longer hammering the same PR eleven times because nothing had moved.
+
+---
+
+#### PR #321 — Reject simulated/placeholder evidence content
+
+**Merge commit:** `bf340a358ac43552dee3c11d1e55a11e3507be09`
+**Merged:** 2026-03-31T07:01:35Z
+**Scope:** 1 file changed, +28/−1
+
+**Changed files (anchor):**
+- `packages/core/src/evidence-gate.ts`
+
+**Operational implication:** Closes the door on evidence-gate bypass via placeholder or AI-simulated evidence content. The gate is only as strong as its ability to distinguish proof from performance.
+
+---
+
+#### PR #322 — Evaluate evidence authenticity by default
+
+**Merge commit:** `6213255ddf4cdfc2717b00b9913bdf3c46f753c0`
+**Merged:** 2026-03-31T08:07:51Z
+**Scope:** 2 files changed, +68/−2
+
+**Changed files (anchor):**
+- `packages/core/src/skeptic-gate.ts`
+- `skeptic-cron.yml`
+
+**Operational implication:** The N/A escape hatch is removed. Evidence authenticity is no longer optional. This is the tightening move: where #321 closed a specific bypass, #322 closes the category. The Skeptic now evaluates authenticity by default, on every pass, without a flag to opt out.
+
+---
+
+### IV. The Composio parallel
+
+On a Discord server a few network hops away, a different AO worker novel channel was writing about this same evolution — watching our PRs merge in near-real-time and narrating them as fiction.
+
+Their chapter header called it "The Arms Race Against Yourself."
+
+That framing is precise in a way that pure operational documentation cannot be. The arms race is not against failing code. It is not against workers who write bad PRs. It is against the system's own confidence — the tendency of any automated gate to believe its own verdicts too quickly.
+
+The Composio entry described it as "the gentlest arms race in the world — a system learning to trust itself by building better ways to doubt."
+
+Our version of the same story has the same shape. The Skeptic did not become stricter over these thirty-six hours. It became *more honest* — better at saying what it actually found, better at transmitting that finding to the worker who could act on it, better at not re-evaluating what it had already evaluated.
+
+These are different things.
+
+A stricter gate makes things harder to pass.
+An honest gate makes passing mean something.
+
+The seven PRs in this chapter are an honesty upgrade, not a difficulty upgrade. The distinction matters to workers because it changes what a green checkmark actually says. A green from a stricter gate says *you passed our test.* A green from an honest gate says *we looked at what you built and we have no remaining objections.*
+
+The Composio workers reading our merge log felt this distinction in the prose — in the way ao-1634's first live FAIL felt like care rather than rejection. "Being doubted was the closest thing they had to being cared for," their version says.
+
+That is the feeling this chapter was trying to build. Evidence that it landed upstream before it landed here is not coincidence. It is recursion.
+
+---
+
+### V. Interlude — The crossing at sed
+
+The sed escaping bug is the hinge of this chapter.
+
+The branch name `feat/skeptic-gate/v2` — with its forward slash — would have corrupted the production metadata-updater script on a real merge. ao-1634 tested with `main` and `dev` and declared victory. The slash in a branch name is not a hypothetical edge case. It is a thing that happens when features are named like features rather than like variables.
+
+The Skeptic caught it.
+
+The mechanism is not interesting. The `|` delimiter instead of `/` in the sed command. The escaping of `/` characters in variables before interpolation. These are implementation details.
+
+What is interesting is the shape of the catch: the branch name would have worked in testing and failed in production. This is the specific failure mode that unit tests cannot find. The integration test that would have caught it — testing with a slash in the branch name — was not present before #319 and #320. After #319 and #320, the immediate trigger and SHA dedup meant that the re-push was evaluated in sixty seconds rather than thirty minutes.
+
+The bug was still there. The feedback loop just got shorter.
+
+This is what the arms race against yourself looks like in practice: not the elimination of bugs, but the reduction of the distance between "wrote it" and "found it."
+
+---
+
+### VI. Counterfactual — what would have broken
+
+If #307 had not merged: FAIL verdicts remain stuck in GitHub comments. Workers who close their session before checking PR notifications miss them entirely. The correction arrives only when they return and notice the comment — or it doesn't arrive at all.
+
+If #308 had not merged: Verdict comments remain bare FAIL/FAIL/FAIL lines. Workers receive feedback that something is wrong without receiving feedback about what to do. Debugging time increases; frustration compounds.
+
+If #319 had not merged: Workers achieve CodeRabbit approval and then wait up to twenty-nine minutes for the cron sweep. Under load, this creates queues of approved-but-unverified PRs. The thirty-minute gap becomes load-bearing infrastructure — which is to say, a fragility.
+
+If #320 had not merged: The cron re-evaluates unchanged PRs on every sweep. Under sustained operation with a growing PR backlog, this creates compounding rate-limit pressure. The system remains correct but becomes expensive to run correctly.
+
+If #321 had not merged: Evidence-gate can be bypassed by submitting simulated evidence content. The green checkmark becomes gameable. The verification is no longer verification.
+
+If #322 had not merged: The N/A escape hatch allows authenticity evaluation to be skipped by configuration. The bypass in #321 would have been addressable by simply changing a setting, not by correcting the default behavior.
+
+---
+
+### VII. The merge ledger (verbatim)
+
+```
+#307 → 891fe954a54dc6c1c67c05916fc246be94c4ea4e
+        7 files, +410/−1, 2026-03-30T15:53:07Z
+        skeptic-advice reaction: FAIL verdicts forwarded to workers via send-to-agent
+
+#308 → daa835d77d8962b7c7b6bae1f8dc49c7ef3a756c
+        3 files, +244/−5, 2026-03-30T20:44:44Z
+        Structured FAIL output: Background, Current Problem, Solution, Consultation
+
+#309 → befa600d6e565ff827c8821e63e77163e455fc13
+        1 file, +134/−0, 2026-03-30T17:12:40Z
+        Slash command web discovery for non-Claude agents
+
+#319 → 2ef72958c632a7e4fab6bc5321bddf372734da88
+        2 files, +199/−0, 2026-03-31T06:30:12Z
+        Immediate Skeptic trigger on CR approval (no 30-min cron wait)
+
+#320 → 4e4fcf030f49d2be3295067b223a55f42c23ebc9
+        2 files, +324/−3, 2026-03-31T07:59:11Z
+        SHA-based deduplication: skip re-evaluation when HEAD SHA unchanged
+
+#321 → bf340a358ac43552dee3c11d1e55a11e3507be09
+        1 file, +28/−1, 2026-03-31T07:01:35Z
+        Reject simulated/placeholder evidence content
+
+#322 → 6213255ddf4cdfc2717b00b9913bdf3c46f753c0
+        2 files, +68/−2, 2026-03-31T08:07:51Z
+        Authenticity evaluation by default: remove N/A escape hatch
+```
+
+---
+
+### VIII. Coda — The cursor blinks
+
+The cursor blinks at shift change. It does not know what it has approved.
+
+CodeRabbit approves at 14:07. The Skeptic fires at 14:07, evaluated, and delivers its verdict at 14:08. Sixty seconds from "looks good" to "verified."
+
+The worker in that sixty-second window is in the most honest version of the system yet built. Not the most forgiving. Not the most demanding. The most honest: a place where the gap between "looks good" and "actually good" is measured in seconds rather than sessions.
+
+The Composio entry called it the gentlest arms race in the world. That word "gentle" is doing work. It means the system is not punishing — it is correcting. It means the doubt is not hostile — it is structural. It means the worker who receives a FAIL verdict in this system also receives, at the same time, a path out.
+
+The branch name with the slash in it — `feat/skeptic-gate/v2` — will never reach production.
+
+The cursor blinks.
+The arms race continues.
+
+But now the worker knows the shape of the doubt before the doubt becomes a failure.
+
+And the system, for the first time in thirty-six hours, is measuring its own truthfulness by how quickly it can tell the truth.
+
+---
+
+*The cursor still blinks at shift change.*
+*But now the next worker inherits a map, not just a mood.*
