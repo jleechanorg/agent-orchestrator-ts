@@ -293,7 +293,7 @@ export function createAntigravityRuntime(config?: AntigravityConfig): Runtime {
         if (config.launchCommand) {
           const fullPrompt = buildPromptWithWorkspace(config.launchCommand, config.workspacePath);
           
-          if (cdpClient) {
+          if (cdpClient && cdpClient.isConnected()) {
             await cdpClient.evaluateInAntigravity(`
               (() => {
                 const el = document.querySelector('textarea, [contenteditable="true"], input[type="text"]');
