@@ -46,12 +46,25 @@ const lastSkepticCronTimeByProject = new Map<string, number>();
 // Without this, two overlapping calls could both pass the throttle check
 // before either sets lastSkepticCronTimeByProject, bypassing the interval.
 const pendingSkepticCronByProject = new Set<string>();
+// Per-PR SHA dedup — keyed by `${projectId}:${prNumber}`.
+// Skips re-evaluation when HEAD SHA hasn't changed since last successful verdict.
+const lastEvaluatedShaByPR = new Map<string, string>();
 const SKEPTIC_CRON_INTERVAL_MS = 10 * 60_000; // 10 minutes
 
-/** Reset throttle state — exposed for testing only. */
+/** Reset throttle + pending state — exposed for testing only. */
 export function _resetSkepticCronTimer(): void {
   lastSkepticCronTimeByProject.clear();
   pendingSkepticCronByProject.clear();
+}
+
+/** Reset SHA dedup map — exposed for testing only. */
+export function _resetSkepticDedupMap(): void {
+  lastEvaluatedShaByPR.clear();
+}
+
+/** Returns the stored SHA for a PR cache key — exposed for testing only. */
+export function _getLastEvaluatedSha(projectId: string, prNumber: number): string | undefined {
+  return lastEvaluatedShaByPR.get(`${projectId}:${prNumber}`);
 }
 
 /**
@@ -150,6 +163,26 @@ export async function runLocalSkepticCron(
     const session = sessionByPR.get(`${projectId}:${pr.number}`)
       ?? createSyntheticSession(pr, projectId, project.path ?? null);
 
+    const cacheKey = `${projectId}:${pr.number}`;
+    let headSha: string | undefined;
+    try {
+      headSha = await scm?.getPRHeadSha?.(pr);
+    } catch {
+      // getPRHeadSha unavailable or threw — fail open, evaluate normally
+    }
+    if (headSha && lastEvaluatedShaByPR.get(cacheKey) === headSha) {
+      observer.recordOperation({
+        metric: "lifecycle_poll",
+        operation: "skeptic.cron.sha_dedup_skip",
+        outcome: "success",
+        correlationId,
+        projectId,
+        data: { prNumber: pr.number, headSha },
+        level: "info",
+      });
+      continue;
+    }
+
     try {
       observer.recordOperation({
         metric: "lifecycle_poll",
@@ -179,6 +212,9 @@ export async function runLocalSkepticCron(
         },
         level: result.verdict === "FAIL" ? "warn" : "info",
       });
+
+      // Record SHA on success — failures allow retry on next cycle
+      if (headSha) lastEvaluatedShaByPR.set(cacheKey, headSha);
 
       evaluated++;
     } catch (err) {
