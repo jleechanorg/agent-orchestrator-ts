@@ -10,7 +10,7 @@
  *
  * Fallback chain:
  *   codex exec -   (primary — Codex with OAuth / OPENAI_API_KEY; prompt via stdin)
- *   claude --print --no-input  (secondary — Claude with ANTHROPIC_API_KEY)
+ *   claude --dangerously-skip-permissions --print --no-input  (secondary — Claude Code OAuth, no proxy)
  *
  * The evaluated output must contain VERDICT: PASS or VERDICT: FAIL.
  * Missing VERDICT = fail-closed FAIL.
@@ -115,7 +115,7 @@ export async function tryClaudePrint(prompt: string): Promise<LlmEvalResult> {
   try {
     const result = execFileSync(
       "claude",
-      ["--print"],
+      ["--dangerously-skip-permissions", "--print", "--no-input"],
       {
         input: prompt,
         encoding: "utf-8",
