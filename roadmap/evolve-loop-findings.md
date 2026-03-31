@@ -233,3 +233,19 @@ All 20 merged PRs in last 24h have [agento] prefix.
 - PR #323: Evidence Gate queued (correct claim class format now), Skeptic FAIL (CI timeout), 0 unresolved threads
 - PR #318: CR CHANGES_REQUESTED (14 threads), ao-1629 working at 68% ctx
 - PR #316: CR CHANGES_REQUESTED, ao-1681 active
+
+## 2026-03-31 09:00 cycle
+
+### Zero-touch rate: 86% (42/49)
+### Workers: 14 alive (ao×5, jc×5, wa×2, wc×2), 1 zombie killed (ao-1690/PR#248-closed)
+### PRs: 
+- agent-orchestrator open: #316 (FAIL CR CHANGES_REQUESTED), #318 (FAIL CR CHANGES_REQUESTED), #323 (PASS skeptic, CR APPROVED then COMMENTED — unstable)
+- jleechanclaw open: #457 (no CR), #458 (#459 skeptic SKIPPED codex failure)
+
+### New friction points:
+1. Codex exec failing in skeptic on jleechanclaw PRs (#458/#459): VERDICT: SKIPPED — infra: Codex failed
+2. PR #323: unstable mergeable_state blocking merge despite VERDICT: PASS + prior CR APPROVED
+3. 2 stale in_progress beads (orch-jq2, orch-qyw) with no active workers
+
+### Fixes dispatched: none (healthy cycle — 86% above 20% threshold)
+### Beads created: none (existing beads cover gaps)
