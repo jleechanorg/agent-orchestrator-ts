@@ -461,3 +461,25 @@ No new merges since last cycle.
 ### Friction: 0 new points
 ### Fixes: 0 dispatched (system healthy, jc-1554 self-correcting on #457)
 ### Beads: 0 created/updated
+
+## 2026-03-31 18:45 cycle
+
+### Zero-touch rate: 82% (9/11 in last 24h)
+Non-agento merges: #453 ([P1] meetingbaas fix), #449 (scripts/harness) — missing prefix
+
+### Worker state
+- 9 sessions alive: jc-1437/1448/1450 (idle/heartbeat), jc-1554/1555/1556/1563, wa-74/76
+- PR #460: MERGED (18:10 UTC)
+- PR #457: CR stale CHANGES_REQUESTED (null commit_sha) — dismissed review, posted @coderabbitai all good? (18:40 UTC)
+- PR #461: jc-1563 on wrong branch feat/jleechanclaw → redirected to fix/doctor-expected-warns-2026-03-31
+- PR #462: Merge conflicts + Skeptic FAIL (missing design doc, unexplained skeptic-gate.yml changes) — jc-1556 dispatched to rebase+fix
+
+### New friction points
+- PR #462 Skeptic FAIL: docs PR included undocumented skeptic-gate.yml behavior change
+- jc-1563 wrong branch: spawned on feat/jleechanclaw instead of fix/doctor-expected-warns-2026-03-31
+- PR prefix gap: 2 PRs merged without [agento] prefix in 24h
+
+### Fixes dispatched
+- Dismissed stale CR review on #457, triggered fresh review
+- Redirected jc-1563 to correct branch for #461
+- Sent rebase+conflict+CR fix task to jc-1556 for #462
