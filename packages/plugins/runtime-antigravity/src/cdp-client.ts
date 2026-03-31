@@ -78,6 +78,7 @@ export class CdpClient {
 
       // Quick timeout to prevent hanging on ws connection
       const connectTimeout = setTimeout(() => {
+        client.ws.close();
         reject(new Error("WebSocket connection timeout"));
       }, 5000);
 
@@ -126,7 +127,7 @@ export class CdpClient {
   }
 
   private sendCommand(method: string, params: Record<string, unknown> = {}): Promise<unknown> {
-    if (!this.connected) {
+    if (!this.connected || this.ws.readyState !== 1 /* WebSocket.OPEN */) {
       return Promise.reject(new Error("CDP client is not connected"));
     }
 
@@ -135,7 +136,12 @@ export class CdpClient {
       this.pendingResolvers.set(id, { resolve, reject });
     });
 
-    this.ws.send(JSON.stringify({ id, method, params }));
+    try {
+      this.ws.send(JSON.stringify({ id, method, params }));
+    } catch (e) {
+      this.pendingResolvers.delete(id);
+      return Promise.reject(e instanceof Error ? e : new Error(String(e)));
+    }
     return promise;
   }
 

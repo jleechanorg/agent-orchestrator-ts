@@ -111,7 +111,7 @@ async function handleAllowPrompt(
   windowId: number,
   bounds: { x: number; y: number; width: number; height: number },
 ): Promise<void> {
-  const capturePath = "/tmp/antig_allow_check.png";
+  const capturePath = `/tmp/antig_allow_check_${Date.now()}.png`;
 
   try {
     // Step 1: Capture the Manager window region
@@ -356,6 +356,7 @@ export function createAntigravityRuntime(config?: AntigravityConfig): Runtime {
         };
       } else {
         if (!result.success) {
+          cdpClient?.disconnect();
           throw new Error(
             `Failed to create Antigravity session: both peekaboo and CLI fallback failed`,
           );
@@ -445,10 +446,13 @@ export function createAntigravityRuntime(config?: AntigravityConfig): Runtime {
 
       const primaryFn = async (): Promise<string> => {
         if (cdpClient && cdpClient.isConnected()) {
-          // Use CDP to send message directly to DOM
+          // Use CDP to send message directly to DOM.
+          // Throws if input element or send button is not found,
+          // so executeWithFallback can route to peekaboo fallback.
           await cdpClient.evaluateInAntigravity(`
-            const el = document.querySelector('textarea, [contenteditable="true"], input[type="text"]');
-            if (el) {
+            (() => {
+              const el = document.querySelector('textarea, [contenteditable="true"], input[type="text"]');
+              if (!el) throw new Error('CDP sendMessage: input element not found');
               if (el.tagName === 'TEXTAREA' || el.tagName === 'INPUT') {
                 el.value = ${JSON.stringify(message)};
                 el.dispatchEvent(new Event('input', { bubbles: true }));
@@ -456,9 +460,10 @@ export function createAntigravityRuntime(config?: AntigravityConfig): Runtime {
                 el.innerText = ${JSON.stringify(message)};
                 el.dispatchEvent(new Event('input', { bubbles: true }));
               }
-            }
-            const sendBtn = document.querySelector('button[aria-label*="Send" i], button[type="submit"]');
-            if (sendBtn) sendBtn.click();
+              const sendBtn = document.querySelector('button[aria-label*="Send" i], button[type="submit"]');
+              if (!sendBtn) throw new Error('CDP sendMessage: send button not found');
+              sendBtn.click();
+            })()
           `);
           return "sent";
         }
