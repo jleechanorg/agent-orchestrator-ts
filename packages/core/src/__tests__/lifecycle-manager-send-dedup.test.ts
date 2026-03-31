@@ -125,31 +125,40 @@ describe("bd-n039 send-to-agent dedup — pruneStaleSessionIds", () => {
     clearAllMessageHashesForSession("prune-dead");
   });
 
-  // Invariant 6: pruneStaleSessionIds removes dead entries, keeps live ones
+  // Invariant 6: pruneStaleSessionIds removes dead entries, keeps live ones (both SHA and messageHash stores)
   it("pruneStaleSessionIds removes dead session entries, preserves live ones", () => {
     setLastSentHeadSha(PROJECT, "prune-alive", "changes-requested", "sha-alive");
     setLastSentHeadSha(PROJECT, "prune-dead", "changes-requested", "sha-dead");
+    setLastSentMessageHash(PROJECT, "prune-alive", "changes-requested", "hash-alive");
+    setLastSentMessageHash(PROJECT, "prune-dead", "changes-requested", "hash-dead");
 
     const liveSessions = new Set(["prune-alive"]);
     pruneStaleSessionIds(PROJECT, liveSessions);
 
+    // SHA store assertions
     expect(getLastSentHeadSha(PROJECT, "prune-alive", "changes-requested")).toBe("sha-alive");
     expect(getLastSentHeadSha(PROJECT, "prune-dead", "changes-requested")).toBeUndefined();
+    // messageHashStore assertions
+    expect(getLastSentMessageHash(PROJECT, "prune-alive", "changes-requested")).toBe("hash-alive");
+    expect(getLastSentMessageHash(PROJECT, "prune-dead", "changes-requested")).toBeUndefined();
   });
 
-  // Invariant 6b: pruneStaleSessionIds only prunes in the specified project
+  // Invariant 6b: pruneStaleSessionIds only prunes in the specified project (both SHA and messageHash stores)
   it("pruneStaleSessionIds does not prune entries from other projects", () => {
     const OTHER_PROJECT = "project-other";
     setLastSentHeadSha(OTHER_PROJECT, "prune-dead", "reaction", "sha-other");
+    setLastSentMessageHash(OTHER_PROJECT, "prune-dead", "reaction", "hash-other");
 
     // Prune project-prune, session prune-dead is "dead" — but it's in OTHER_PROJECT
     const liveSessions = new Set<string>();
     pruneStaleSessionIds(PROJECT, liveSessions);
 
-    // OTHER_PROJECT entry should NOT be pruned
+    // OTHER_PROJECT entries should NOT be pruned
     expect(getLastSentHeadSha(OTHER_PROJECT, "prune-dead", "reaction")).toBe("sha-other");
+    expect(getLastSentMessageHash(OTHER_PROJECT, "prune-dead", "reaction")).toBe("hash-other");
 
     clearLastSentHeadSha("prune-dead");
+    clearAllMessageHashesForSession("prune-dead");
   });
 });
 
