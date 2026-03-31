@@ -1980,7 +1980,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
             skepticDispatched = true;
           } catch {
             // Network/timeout failure — do NOT record SHA so retry is possible on next poll.
-            skepticDispatched = false;
+            // skepticDispatched remains false (initialized above), no assignment needed.
           }
           // Only record SHA when skeptic actually ran (completed without throw).
           // If executeReaction threw, SHA stays unrecorded so the next poll can retry.
