@@ -44,7 +44,7 @@ const mockPress = peekaboo.press as ReturnType<typeof vi.fn>;
 const mockHotkey = peekaboo.hotkey as ReturnType<typeof vi.fn>;
 const mockScroll = peekaboo.scroll as ReturnType<typeof vi.fn>;
 const mockScreencapture = peekaboo.screencapture as ReturnType<typeof vi.fn>;
-const mockClickCoordinates = peekaboo.clickCoordinates as ReturnType<typeof vi.fn>;
+const _mockClickCoordinates = peekaboo.clickCoordinates as ReturnType<typeof vi.fn>;
 
 /** Helper to create a window fixture matching PeekabooWindow shape. */
 function makeWindow(overrides: { window_id: number; title: string }) {

@@ -23,7 +23,7 @@ import * as peekaboo from "./peekaboo.js";
 import { executeWithFallback, type FallbackConfig } from "./fallback.js";
 import { createPoller } from "./poller.js";
 import { runPreflight } from "./preflight.js";
-import type { AntigravitySession, PeekabooUIElement, PeekabooSeeResult } from "./types.js";
+import type { AntigravitySession, PeekabooUIElement } from "./types.js";
 import { defaultConfig, type AntigravityConfig } from "./config.js";
 
 /** Application name for Peekaboo targeting. */
