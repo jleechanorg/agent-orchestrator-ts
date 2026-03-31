@@ -483,3 +483,44 @@ Non-agento merges: #453 ([P1] meetingbaas fix), #449 (scripts/harness) — missi
 - Dismissed stale CR review on #457, triggered fresh review
 - Redirected jc-1563 to correct branch for #461
 - Sent rebase+conflict+CR fix task to jc-1556 for #462
+
+## 2026-03-31 18:26 cycle
+
+### Zero-touch rate: 100% (12/12 [agento] tagged in last 12h)
+All 12 PRs merged in last 12h had [agento] prefix. 0 open PRs in agent-orchestrator.
+
+### Skeptic health audit findings
+12-PR audit revealed 3 gaps:
+
+**Gap A (CRITICAL): VERDICT:SKIPPED is fail-open**
+- 4/12 PRs bypassed LLM review silently (Codex MCP proxy port 8766 down)
+-  lines 176/181/197/204/207 emit VERDICT:SKIPPED on infra failure
+-  line ~393 comment: "SKIPPED does not block"
+- Fix dispatched: bd-dmxw (ao-1812 session, feat/bd-dmxw branch)
+- Change: VERDICT:SKIPPED → VERDICT:FAIL in llm-eval.ts + remove non-blocking exception
+
+**Gap B: Evidence review missing on 10/12 PRs**
+- GHA deterministic check (5 gates) has no evidence review
+- LLM skeptic path covers evidence authenticity but fails when Codex MCP is down
+- User guidance: "maybe eval the evidence format" (advisory, not hard block)
+- Fix dispatched: bd-gnyj (ao-1813 session, feat/bd-gnyj branch)
+- Change: Add Gate 6 deterministic format check to skeptic-gate.yml (WARN not FAIL)
+
+**Gap C: Claude --print missing --no-input flag**
+- tryClaudePrint() uses ["--print"] without --no-input; may explain why Claude fallback fails
+- Included in bd-dmxw fix
+
+### Workers
+- ao-1812: fixing bd-dmxw (SKIPPED→FAIL)
+- ao-1813: fixing bd-gnyj (evidence format check)
+- 8 jc/wa workers alive on jleechanclaw + worldarchitect
+
+### Fixes dispatched
+- bd-dmxw: skeptic SKIPPED→FAIL (P0)
+- bd-gnyj: evidence format check (P1)
+
+### Beads created/updated this cycle
+- bd-dmxw (new P0 bug)
+- bd-gnyj (new P1 task)
+- bd-0cfv (reopened — was closed prematurely)
+- bd-2wdq (updated — AO worker vs Codex MCP alignment)
