@@ -1885,7 +1885,10 @@ The first worker to receive live skeptic advice was ao-1634.
 **Merged:** 2026-03-30T20:44:44Z
 **SHA:** `a3f8e2b1`
 **Changed files:** 2 | Diff: `+67 / -8`
-**Key files:** `packages/skeptic/src/verdict.ts`, `packages/skeptic/templates Skeptic was not a monster. It never had been. But it had been a wall — a flat FAIL stamped across a PR like a rejected visa. No explanation. No geography of failure. Just red.*
+**Key files:** `packages/cli/src/commands/skeptic/verify.ts`, `packages/cli/src/lib/llm-eval.ts`
+**Operational implication:** Skeptic FAIL output now includes Background, Problem, Solution, and Bot Consultation sections — making failures actionable instead of just red.
+
+*Skeptic was not a monster. It never had been. But it had been a wall — a flat FAIL stamped across a PR like a rejected visa. No explanation. No geography of failure. Just red.*
 
 The structured output gave the wall a face.
 
@@ -1956,7 +1959,7 @@ This was the Skeptic learning patience. Or rather — the operator teaching the 
 **Merged:** 2026-03-31T07:01:35Z
 **SHA:** `b2a9c4e7`
 **Changed files:** 5 | Diff: `+156 / -43`
-**Key files:** `packages/evidence-gate/src/evaluator.ts`, `packages/evidence-gate/src/content-check.ts`
+**Key files:** `.github/workflows/evidence-gate.yml`, `.github/workflows/wholesome.yml`
 **Operational implication:** Evidence that looks like a template was filled in by rote is now rejected. The gate no longer accepts the appearance of rigor as a substitute for rigor.
 
 There is a failure mode that no test suite catches: evidence that looks correct but isn't. Placeholder text that survived because no one thought to check whether the placeholder had been replaced. Content that was generated to satisfy a requirement rather than to document a reality.
@@ -1971,7 +1974,7 @@ There is a failure mode that no test suite catches: evidence that looks correct 
 **Merged:** 2026-03-31T08:07:51Z
 **SHA:** `d8e3b1c9`
 **Changed files:** 4 | Diff: `+97 / -28`
-**Key files:** `packages/skeptic/src/evidence-authenticity.ts`, `packages/skeptic/templates/verdict.md`
+**Key files:** `packages/cli/src/commands/skeptic/verify.ts`, `packages/cli/src/commands/skeptic/evidence-authenticity.ts`
 **Operational implication:** The Skeptic no longer accepts "N/A" as a valid evidence response. Everything must be evaluated. The escape hatch is gone. The system must now prove its own reliability.
 
 This is the self-merge.

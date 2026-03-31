@@ -541,7 +541,7 @@ There is a file called `.claude/commands/auton.md`. Its purpose:
 
 The system:
 
-```
+```text
 GitHub PRs
     ↓  (AO polls every ~5 min via launchd)
 Reactions  (ci-failed, changes-requested, agent-stuck, approved-and-green)
@@ -668,7 +668,7 @@ PR #307 introduced the `skeptic-advice` reaction. When the Skeptic filed a FAIL 
 
 The first worker to receive live skeptic advice was ao-1634. It was halfway through a fix, confident in its approach, when the message arrived:
 
-```
+```text
 SKEPTIC VERDICT: FAIL
 
 ## Background
