@@ -5,18 +5,16 @@ interface CdpTarget {
   webSocketDebuggerUrl: string;
 }
 
-interface CdpMessage {
-  id: number;
-  method: string;
-  params?: any;
-}
-
 interface CdpResponse {
   id: number;
-  result?: any;
-  error?: any;
+  result?: {
+    value?: unknown;
+    exceptionDetails?: { exception?: { description?: string } };
+    [key: string]: unknown;
+  };
+  error?: { code: number; message: string };
   method?: string;
-  params?: any;
+  params?: Record<string, unknown>;
 }
 
 /**
@@ -26,7 +24,7 @@ interface CdpResponse {
 export class CdpClient {
   private ws: WebSocket;
   private messageId = 1;
-  private pendingResolvers = new Map<number, { resolve: (val: any) => void; reject: (err: any) => void }>();
+  private pendingResolvers = new Map<number, { resolve: (val: unknown) => void; reject: (err: Error) => void }>();
   private connected = false;
 
   private constructor(wsUrl: string, onClose: () => void) {
@@ -54,8 +52,9 @@ export class CdpClient {
     let res: Response;
     try {
       res = await fetch(listUrl, { signal: AbortSignal.timeout(2000) });
-    } catch (e: any) {
-      throw new Error(`Failed to fetch CDP targets at ${listUrl}: ${e?.message ?? e}`);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      throw new Error(`Failed to fetch CDP targets at ${listUrl}: ${msg}`, { cause: e });
     }
 
     if (!res.ok) {
@@ -63,7 +62,7 @@ export class CdpClient {
     }
 
     const targets = (await res.json()) as CdpTarget[];
-    
+
     // Antigravity has multiple targets (background pages, service workers, tabs)
     // We want the main renderer page. Usually type: "page"
     // And to be safe, we can filter for something containing antigravity/manager/index
@@ -110,15 +109,17 @@ export class CdpClient {
     }
 
     if (data.id && this.pendingResolvers.has(data.id)) {
-      const resolver = this.pendingResolvers.get(data.id)!;
+      const resolver = this.pendingResolvers.get(data.id);
+      if (!resolver) return;
       this.pendingResolvers.delete(data.id);
 
       if (data.error) {
         resolver.reject(new Error(`CDP Error [${data.error.code}]: ${data.error.message}`));
       } else if (data.result?.exceptionDetails) {
         // Runtime.evaluate exception
-        resolver.reject(new Error(`CDP Eval Exception: ${data.result.exceptionDetails.exception?.description || "Unknown evaluation error"}`));
-      } else if (data.result) {
+        const desc = data.result.exceptionDetails.exception?.description ?? "Unknown evaluation error";
+        resolver.reject(new Error(`CDP Eval Exception: ${desc}`));
+      } else if (data.result !== undefined) {
         resolver.resolve(data.result);
       } else {
         resolver.resolve(undefined);
@@ -126,13 +127,13 @@ export class CdpClient {
     }
   }
 
-  private sendCommand(method: string, params: any = {}): Promise<any> {
+  private sendCommand(method: string, params: Record<string, unknown> = {}): Promise<unknown> {
     if (!this.connected) {
       return Promise.reject(new Error("CDP client is not connected"));
     }
 
     const id = this.messageId++;
-    const promise = new Promise((resolve, reject) => {
+    const promise = new Promise<unknown>((resolve, reject) => {
       this.pendingResolvers.set(id, { resolve, reject });
     });
 
@@ -149,7 +150,8 @@ export class CdpClient {
       returnByValue: true,
       awaitPromise: true,
     });
-    return res.result?.value;
+    const typed = res as { value?: unknown } | null;
+    return typed?.value;
   }
 
   /**
@@ -162,14 +164,14 @@ export class CdpClient {
         if (!el) return null;
         const rect = el.getBoundingClientRect();
         if (rect.width === 0 && rect.height === 0) return null;
-        return { 
-          x: Math.round(rect.left + rect.width / 2), 
-          y: Math.round(rect.top + rect.height / 2) 
+        return {
+          x: Math.round(rect.left + rect.width / 2),
+          y: Math.round(rect.top + rect.height / 2)
         };
       })()
     `;
     const res = await this.evaluateInAntigravity(js);
-    return (res as { x: number; y: number } | null) || null;
+    return (res as { x: number; y: number } | null) ?? null;
   }
 
   /**
