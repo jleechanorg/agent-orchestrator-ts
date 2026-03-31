@@ -126,7 +126,7 @@ export class CdpClient {
     }
   }
 
-  private sendCommand(method: string, params: Record<string, unknown> = {}): Promise<unknown> {
+  private sendCommand(method: string, params: Record<string, unknown> = {}, timeoutMs = 30_000): Promise<unknown> {
     if (!this.connected || this.ws.readyState !== 1 /* WebSocket.OPEN */) {
       return Promise.reject(new Error("CDP client is not connected"));
     }
@@ -136,13 +136,24 @@ export class CdpClient {
       this.pendingResolvers.set(id, { resolve, reject });
     });
 
+    const timeoutHandle = setTimeout(() => {
+      if (this.pendingResolvers.has(id)) {
+        this.pendingResolvers.delete(id);
+        reject(new Error(`CDP sendCommand timed out after ${timeoutMs}ms: ${method}`));
+      }
+    }, timeoutMs);
+
+    // Ensure the timeout is cleared once the promise settles
+    const timedPromise = promise.finally(() => clearTimeout(timeoutHandle));
+
     try {
       this.ws.send(JSON.stringify({ id, method, params }));
     } catch (e) {
+      clearTimeout(timeoutHandle);
       this.pendingResolvers.delete(id);
       return Promise.reject(e instanceof Error ? e : new Error(String(e)));
     }
-    return promise;
+    return timedPromise;
   }
 
   /**

@@ -467,8 +467,10 @@ export function createAntigravityRuntime(config?: AntigravityConfig): Runtime {
       const cdpClient = handle.data["cdpClient"] as CdpClient | undefined;
 
       const primaryFn = async (): Promise<string> => {
-        if (cdpClient && cdpClient.isConnected()) {
+        if (cdpClient && cdpClient.isConnected() && session.managerWindowId) {
           // Use CDP to send message directly to DOM.
+          // Guard: require managerWindowId so CDP only runs if create() fully
+          // completed window discovery — otherwise fall through to peekaboo.
           // Throws if input element or send button is not found,
           // so executeWithFallback can route to peekaboo fallback.
           await cdpClient.evaluateInAntigravity(`
