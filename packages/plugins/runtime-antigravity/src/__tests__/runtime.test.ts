@@ -31,6 +31,18 @@ vi.mock("../fallback.js", () => ({
   ),
 }));
 
+// Mock CdpClient — prevents 2-second CDP connection timeout per test.
+// CDP integration is tested in cdp-client.test.ts.
+vi.mock("../cdp-client.js", () => ({
+  CdpClient: class MockCdpClient {
+    static connect(): Promise<never> {
+      return Promise.reject(new Error("CDP not available in tests"));
+    }
+    isConnected(): boolean { return false; }
+    disconnect(): void { /* no-op */ }
+  },
+}));
+
 // Import after mocks
 import antigravityPlugin, { manifest, create } from "../index.js";
 import { matchesWorkspace } from "../runtime.js";
@@ -190,9 +202,7 @@ function setupSuccessfulCreateMocks() {
       makeElement({ id: "spinner", role: "AXProgressIndicator", title: "progress_activity", label: "progress_activity" }),
     ],
   });
-
-  // 10. Post-create windowList for session population (called after executeWithFallback)
-  mockWindowList.mockResolvedValueOnce([makeWindow({ window_id: 1, title: "Manager" })]);
+  // capturedManagerId is now used directly after executeWithFallback — no post-create windowList call needed.
 }
 
 describe("runtime.create() — Manager UI flow", () => {
@@ -324,9 +334,6 @@ describe("runtime.create() — Manager UI flow", () => {
       ],
     });
 
-    // Post-create windowList
-    mockWindowList.mockResolvedValueOnce([makeWindow({ window_id: 1, title: "Manager" })]);
-
     const handle = await runtime.create({
       sessionId: "test-session",
       workspacePath: "/tmp/workspace",
@@ -418,9 +425,6 @@ describe("runtime.create() — Manager UI flow", () => {
         makeElement({ id: "spinner", role: "AXProgressIndicator", title: "progress_activity", label: "progress_activity" }),
       ],
     });
-
-    // Post-create windowList
-    mockWindowList.mockResolvedValueOnce([makeWindow({ window_id: 1, title: "Manager" })]);
 
     await runtime.create({
       sessionId: "test-session",
