@@ -31,7 +31,7 @@ import {
 } from "../dedup-head-sha-store.js";
 
 // Reset store state between tests to keep tests hermetic
-function resetStoreForSession(projectId: string, sessionId: string, reactionKey: string) {
+function resetStoreForSession(sessionId: string) {
   clearLastSentHeadSha(sessionId);
   clearAllMessageHashesForSession(sessionId);
 }
@@ -42,7 +42,7 @@ describe("bd-n039 send-to-agent SHA dedup — dedup-head-sha-store invariants", 
   const REACTION = "changes-requested";
 
   beforeEach(() => {
-    resetStoreForSession(PROJECT, SESSION, REACTION);
+    resetStoreForSession(SESSION);
   });
 
   // Invariant 1: fresh session has no recorded SHA
