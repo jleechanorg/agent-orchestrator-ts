@@ -271,6 +271,7 @@ describe("bd-n039 hashMessageContent utility", () => {
     const hash2 = await hashMessageContent(content);
     expect(hash1).toBe(hash2);
     expect(hash1).toHaveLength(64); // sha256 = 64 hex chars
+    expect(hash1).toMatch(/^[a-f0-9]{64}$/);
   });
 
   it("hashes different content to different digests", async () => {
@@ -283,5 +284,6 @@ describe("bd-n039 hashMessageContent utility", () => {
     const hash = await hashMessageContent("");
     expect(typeof hash).toBe("string");
     expect(hash).toHaveLength(64);
+    expect(hash).toMatch(/^[a-f0-9]{64}$/);
   });
 });
