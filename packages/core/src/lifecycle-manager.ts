@@ -341,9 +341,9 @@ export async function triggerSkepticReactionImpl(
     return false;
   }
 
-  let reactionSuccess: boolean;
+  let handled = false;
   try {
-    const result = await executeReaction(
+    await executeReaction(
       session.id,
       session.projectId,
       "worker-signals-completion",
@@ -351,12 +351,12 @@ export async function triggerSkepticReactionImpl(
       session,
       correlationId,
     );
-    reactionSuccess = Boolean(result?.success);
+    handled = true;
   } catch {
-    reactionSuccess = false;
+    // Network/timeout failure — do NOT record SHA so retry is possible.
   }
 
-  if (reactionSuccess && session.pr) {
+  if (handled && session.pr) {
     const scm = project?.scm ? registry.get<SCM>("scm", project.scm.plugin) : null;
     if (scm?.getPRHeadSha) {
       try {
