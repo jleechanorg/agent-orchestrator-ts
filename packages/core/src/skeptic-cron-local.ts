@@ -46,12 +46,30 @@ const lastSkepticCronTimeByProject = new Map<string, number>();
 // Without this, two overlapping calls could both pass the throttle check
 // before either sets lastSkepticCronTimeByProject, bypassing the interval.
 const pendingSkepticCronByProject = new Set<string>();
+
+/** Simple bounded Map that evicts the oldest entry when max capacity is reached. */
+class BoundedMap<K, V> extends Map<K, V> {
+  constructor(private readonly maxSize: number) {
+    super();
+  }
+
+  override set(key: K, value: V): this {
+    // Only evict when inserting a new key and we've reached capacity.
+    if (!this.has(key) && this.size >= this.maxSize) {
+      const firstKey = this.keys().next().value as K | undefined;
+      if (firstKey !== undefined) {
+        this.delete(firstKey);
+      }
+    }
+    return super.set(key, value);
+  }
+}
+
 // Per-PR SHA dedup — keyed by `${projectId}:${prNumber}`.
-// Skips re-evaluation when HEAD SHA hasn't changed since last successful verdict.
-// Not pruned intentionally — bounded by the number of open PRs being monitored
-// (typically <50 per project), not unbounded by PR lifetime. Lifecycle-worker
-// processes are long-running but the map grows at most O(active PRs) entries.
-const lastEvaluatedShaByPR = new Map<string, string>();
+// Skips re-evaluation when HEAD SHA hasn't changed since last verdict.
+// Bounded to avoid unbounded growth in long-running lifecycle workers.
+const MAX_SKEPTIC_DEDUP_ENTRIES = 10_000;
+const lastEvaluatedShaByPR = new BoundedMap<string, string>(MAX_SKEPTIC_DEDUP_ENTRIES);
 const SKEPTIC_CRON_INTERVAL_MS = 10 * 60_000; // 10 minutes
 
 /** Reset throttle + pending state — exposed for testing only. */

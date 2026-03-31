@@ -424,6 +424,41 @@ describe("runLocalSkepticCron", () => {
     expect(_getLastEvaluatedSha("proj-2", 10)).toBe("sha-def456");
   });
 
+  it("same projectId, new SHA triggers re-evaluation (throttle reset)", async () => {
+    const { registry, sessionManager, observer, listOpenPRs, getPRHeadSha } = makeDeps();
+    const pr = makePR({ number: 10 });
+    listOpenPRs.mockResolvedValue([pr]);
+    getPRHeadSha.mockResolvedValue("sha-abc123");
+    mockRunSkepticReview.mockResolvedValue({
+      verdict: "PASS",
+      modelUsed: "claude",
+    } as SkepticReviewResult);
+
+    // First call stores sha-abc123
+    await runLocalSkepticCron(
+      { registry, sessionManager, observer },
+      { projectId: "proj", project: makeProject(), activeSessions: [], correlationId: "c1" },
+    );
+
+    // Reset throttle — same projectId, NEW SHA → should re-evaluate
+    _resetSkepticCronTimer();
+    getPRHeadSha.mockResolvedValue("sha-def456");
+    mockRunSkepticReview.mockClear();
+    mockRunSkepticReview.mockResolvedValue({
+      verdict: "PASS",
+      modelUsed: "claude",
+    } as SkepticReviewResult);
+
+    const second = await runLocalSkepticCron(
+      { registry, sessionManager, observer },
+      { projectId: "proj", project: makeProject(), activeSessions: [], correlationId: "c2" },
+    );
+
+    expect(second).toBe(1); // re-evaluated, not skipped
+    expect(mockRunSkepticReview).toHaveBeenCalledTimes(1);
+    expect(_getLastEvaluatedSha("proj", 10)).toBe("sha-def456"); // updated to new SHA
+  });
+
   it("fail-open: evaluates when getPRHeadSha throws", async () => {
     const { registry, sessionManager, observer, listOpenPRs, getPRHeadSha } = makeDeps();
     const pr = makePR({ number: 10 });
@@ -465,6 +500,38 @@ describe("runLocalSkepticCron", () => {
     expect(observer.recordOperation).toHaveBeenCalledWith(
       expect.objectContaining({ operation: "skeptic.cron.pr_failed" }),
     );
+  });
+
+  it("throw then success: rejection skips SHA cache, subsequent run stores SHA", async () => {
+    const { registry, sessionManager, observer, listOpenPRs, getPRHeadSha } = makeDeps();
+    const pr = makePR({ number: 10 });
+    listOpenPRs.mockResolvedValue([pr]);
+    getPRHeadSha.mockResolvedValue("sha-abc123");
+
+    // First run: LLM call fails — SHA must NOT be cached
+    mockRunSkepticReview.mockRejectedValue(new Error("LLM timeout"));
+    await runLocalSkepticCron(
+      { registry, sessionManager, observer },
+      { projectId: "proj", project: makeProject(), activeSessions: [], correlationId: "c-throw-1" },
+    );
+    expect(_getLastEvaluatedSha("proj", 10)).toBeUndefined(); // SHA NOT cached
+
+    // Second run: LLM succeeds — SHA should now be stored
+    _resetSkepticCronTimer();
+    mockRunSkepticReview.mockClear();
+    mockRunSkepticReview.mockResolvedValue({
+      verdict: "PASS",
+      modelUsed: "claude",
+    } as SkepticReviewResult);
+
+    const result = await runLocalSkepticCron(
+      { registry, sessionManager, observer },
+      { projectId: "proj", project: makeProject(), activeSessions: [], correlationId: "c-throw-2" },
+    );
+
+    expect(result).toBe(1); // re-evaluated, not skipped
+    expect(mockRunSkepticReview).toHaveBeenCalledTimes(1);
+    expect(_getLastEvaluatedSha("proj", 10)).toBe("sha-abc123"); // SHA NOW cached
   });
 
   it("fail-open: evaluates when SCM has no getPRHeadSha", async () => {
