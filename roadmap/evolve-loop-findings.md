@@ -192,3 +192,25 @@ All 20 merged PRs in last 24h have [agento] prefix.
 ### Friction: 0 new
 ### Fixes dispatched: 0 new
 ### Beads: 0 new
+
+## 2026-03-31 08:39 cycle
+
+### Zero-touch rate: 100% (20/20)
+### Workers: 5 alive, 0 zombies
+- ao-1629: PR #318, 66% ctx, addressing CR threads (14 unresolved)
+- ao-1681: PR #316, started (was stuck with queued task — sent Enter)
+- ao-1685: PR #323, 41% ctx, addressed 2 Copilot threads with replies
+- ao-1690: feat/bd-5gl, 59% ctx, working on merge executor (no PR yet)
+- ao-1660: feat/wc-zsw (worldai_claw)
+
+### Direct fixes this cycle
+- Resolved 2 Copilot threads on PR #323 (both had replies from ao-1685)
+- Patched PR #323 body: added **Claim class: merge-gate** to Evidence section (Evidence Gate was failing with "Unrecognized claim class: ''")
+- Sent Enter to ao-1681 (task was queued/not submitted)
+
+### PRs: 3 open
+- PR #323: Evidence Gate queued (fixed), Skeptic FAIL due to CI timeout, 0 unresolved threads — waiting for CI
+- PR #318: CR CHANGES_REQUESTED (14 threads), ao-1629 working
+- PR #316: CR CHANGES_REQUESTED, ao-1681 now active
+
+### Beads: 0 new
