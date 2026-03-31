@@ -225,6 +225,10 @@ export function createAntigravityRuntime(config?: AntigravityConfig): Runtime {
         maxRetries: runtimeConfig.fallbackMaxRetries,
       };
 
+      // Capture managerId from primaryFn so post-executeWithFallback code
+      // doesn't need a redundant window re-lookup that can fail.
+      let capturedManagerId = -1;
+
       const primaryFn = async (): Promise<string> => {
         // Run preflight to validate the runtime environment.
         const preflight = await runPreflight();
@@ -246,6 +250,7 @@ export function createAntigravityRuntime(config?: AntigravityConfig): Runtime {
           );
         }
         const managerId = managerWindow.window_id;
+        capturedManagerId = managerId; // Capture for use after executeWithFallback
 
         // 2. Scroll sidebar UP to reveal "Start new conversation" button
         //    Per /antig skill: button may be hidden below sidebar fold
@@ -314,6 +319,7 @@ export function createAntigravityRuntime(config?: AntigravityConfig): Runtime {
         }
 
         // 7. Verify conversation started: check for progress_activity
+        //    Fail loudly if the prompt submission didn't trigger a response.
         let started = false;
         for (let i = 0; i < VERIFY_START_RETRIES && !started; i++) {
           await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
@@ -321,6 +327,11 @@ export function createAntigravityRuntime(config?: AntigravityConfig): Runtime {
           if (hasProgressActivity(verifySnapshot.ui_elements)) {
             started = true;
           }
+        }
+        if (!started) {
+          throw new Error(
+            "Antigravity: conversation did not start — no progress_activity detected after prompt submission",
+          );
         }
 
         // 8. Handle "Allow this conversation" directory access prompt
@@ -343,18 +354,15 @@ export function createAntigravityRuntime(config?: AntigravityConfig): Runtime {
       );
 
       // Build session — conversations live INSIDE Manager, not separate windows
+      // Use capturedManagerId (set in primaryFn) to avoid a redundant window
+      // re-lookup that could fail and set windowId to -1.
       let session: AntigravitySession;
       if (!result.fallbackUsed) {
-        const postWindows = await peekaboo.windowList(APP_NAME);
-        const managerWindow = postWindows.find((w) =>
-          w.title.toLowerCase().includes("manager"),
-        );
-        // Session windowId = managerWindowId (conversations are inside Manager)
         session = {
           conversationTitle: result.output,
           workspaceName: config.workspacePath,
-          windowId: managerWindow?.window_id ?? -1,
-          managerWindowId: managerWindow?.window_id ?? -1,
+          windowId: capturedManagerId,
+          managerWindowId: capturedManagerId,
           status: "running",
           createdAt: Date.now(),
           lastCheckedAt: Date.now(),
@@ -417,6 +425,12 @@ export function createAntigravityRuntime(config?: AntigravityConfig): Runtime {
           } catch {
             // Process may have already exited
           }
+        }
+
+        // Disconnect CDP client to close the WebSocket and free resources.
+        const cdp = handle.data["cdpClient"] as CdpClient | undefined;
+        if (cdp?.isConnected()) {
+          cdp.disconnect();
         }
 
         // For Peekaboo sessions: conversations persist in Manager,
