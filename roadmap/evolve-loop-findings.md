@@ -333,3 +333,23 @@ PR #323 merged — now 21/21
 
 ### Beads created: 0 new (friction patterns documented)
 ### Roadmap: pushed to main
+
+## 2026-03-31 09:45 cycle
+
+### Zero-touch rate: 100% (21/21)
+5 new PRs merged since last cycle: #319 (skeptic fire on CR approved), #320 (SHA dedup), #321 (evidence-gate reject simulated), #322 (skeptic evaluate authenticity), #323 (docs bd-8khr)
+
+### Workers: 3 alive, 0 dead, 1 near context limit
+- ao-1629 (PR #318): pushed fix commit f6194115, posted @coderabbitai all good?, 8 unresolved threads remain, merge conflict (rebase task sent)
+- ao-1681 (PR #316): auto-compacted, 25 unresolved threads, diverged +15/-21 from main, rebase task sent
+- ao-1660 (feat/wc-zsw): idle on WorldClaw branch
+
+### PRs: 2 open (#316, #318), 5 merged since last cycle
+- PR #316: CI success, CR CHANGES_REQUESTED (25 threads), needs rebase on main
+- PR #318: CI pending (new commit), CR CHANGES_REQUESTED (8 threads), merge conflict
+
+### Friction: 1 new point
+- PreToolUse:Bash hook errors intermittently blocking worker bash commands (non-blocking, workers work around it via API fallback)
+
+### Fixes dispatched: 2 direct (rebase tasks sent to ao-1629 and ao-1681)
+### Beads created: 0
