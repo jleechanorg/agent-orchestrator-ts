@@ -240,6 +240,7 @@ describe("skeptic structured output", () => {
       );
       expect(prompt).not.toContain("default is N/A");
       expect(prompt).not.toContain("Evidence review is required only when config requires it");
+      expect(prompt).not.toContain("N/A (not required)");
     });
 
     it("PASS verdict for evidence section is conditioned on real output", () => {

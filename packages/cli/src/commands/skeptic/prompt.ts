@@ -33,7 +33,7 @@ export function buildSkepticPrompt(
     ? state.evidenceApproved
       ? "PASS"
       : "FAIL"
-    : "N/A (not required)";
+    : "(see Rule 10)";
 
   const designDocSection = designDoc
     ? [
