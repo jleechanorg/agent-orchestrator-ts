@@ -2154,11 +2154,13 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
                   data: { previousSha: previousSha.slice(0, 7), currentSha: currentSha.slice(0, 7) },
                   level: "info",
                 });
-                // bd-lg7i: only mark the SHA handled when skeptic dispatch succeeded.
-                // Setting lastSkepticSha unconditionally would suppress retries on failure.
-                let reactionSuccess: boolean;
+                // bd-lg7i / wc-zsw: mark SHA handled when executeReaction returns
+                // (skeptic-review returned without throwing — verdict was produced).
+                // Whether the verdict is PASS or FAIL, the SHA was evaluated; do not
+                // re-trigger on the same SHA. Only skip recording on throw (infra failure).
+                let handled = false;
                 try {
-                  const result = await executeReaction(
+                  await executeReaction(
                     session.id,
                     session.projectId,
                     completionReactionKey,
@@ -2166,11 +2168,11 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
                     session,
                     createCorrelationId("skeptic-retrigger"),
                   );
-                  reactionSuccess = Boolean(result?.success);
+                  handled = true;
                 } catch {
-                  reactionSuccess = false;
+                  // Network/timeout failure — do NOT record SHA so next poll can retry.
                 }
-                if (reactionSuccess) {
+                if (handled) {
                   lastSkepticSha.set(session.id, currentSha);
 
                   // bd-upxh: also dispatch claim-verification after SHA-change skeptic retest
@@ -2201,9 +2203,9 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
               const completionReactionKey2 = "worker-signals-completion";
               const completionReactionConfig2 = getReactionConfigForSession(session, completionReactionKey2);
               if (completionReactionConfig2?.action && completionReactionConfig2.auto !== false) {
-                let success = false;
+                let handled = false;
                 try {
-                  const r = await executeReaction(
+                  await executeReaction(
                     session.id,
                     session.projectId,
                     completionReactionKey2,
@@ -2211,11 +2213,11 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
                     session,
                     createCorrelationId("skeptic-catchup"),
                   );
-                  success = Boolean(r?.success);
+                  handled = true;
                 } catch {
                   // dispatch failed — don't record SHA so we retry next cycle
                 }
-                if (success) {
+                if (handled) {
                   lastSkepticSha.set(session.id, currentSha);
                 }
               } else {
