@@ -2072,8 +2072,10 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
           } catch {
             reactionSuccess = false;
           }
-          // Record SHA on success so SHA-change re-trigger path can detect future pushes.
-          if (reactionSuccess && session.pr) {
+          // Record SHA so SHA-change re-trigger path can detect future pushes.
+          // Both PASS and FAIL verdicts mean skeptic ran for this SHA — record regardless
+          // of result.success (fork-skeptic-extension sets success=false for VERDICT: FAIL).
+          if (session.pr) {
             const scm = project?.scm ? registry.get<SCM>("scm", project.scm.plugin) : null;
             if (scm?.getPRHeadSha) {
               try {

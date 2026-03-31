@@ -204,7 +204,7 @@ The 3-PR churn threshold applies to subsystem keywords. For **same file** fixes,
 # Before opening a PR, check recently merged PRs for file overlap:
 gh pr list --repo jleechanorg/agent-orchestrator --state merged \
   --search "updated:>=$(date -v-4h +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -d '4 hours ago' +%Y-%m-%dT%H:%M:%SZ)" \
-  --json number,title,files 2>/dev/null | jq '.[] | {number, title}'
+  --json number,title,files 2>/dev/null | jq '.[] | {number, title, files}'
 # If any recently merged PR touches the same file as your change → churn protocol
 ```
 
