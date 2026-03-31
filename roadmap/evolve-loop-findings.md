@@ -353,3 +353,27 @@ PR #323 merged — now 21/21
 
 ### Fixes dispatched: 2 direct (rebase tasks sent to ao-1629 and ao-1681)
 ### Beads created: 0
+
+## 2026-03-31 09:55 cycle
+
+### Zero-touch rate: 100% (21/21) →
+No change since last cycle — all merged PRs have [agento] prefix.
+
+### Workers: 8 alive, 1 zombie killed, 0 dead
+- ao-1629 (PR #318): rebased on main (new SHA f8137bae), CI running
+- ao-1681 (PR #316): pushed new SHA 35dcebf6 with CR fixes, CI running (Integration Tests in_progress)
+- ao-1660 (feat/wc-zsw): idle with unpushed commits — task sent to push branch + create PR
+- jc-1437: alive
+- jc-1448, jc-1450: alive
+- wa-74: alive (worldarchitect.ai PR #6055)
+- **ZOMBIE KILLED**: jc-1439 was on merged PR #458 — killed
+
+### PRs: 2 open (#316, #318), jleechanclaw #457 open
+- PR #316: CI running (Integration Tests, Lint, Test queued), Skeptic Gate in_progress
+- PR #318: CI running (Evidence Gate queued, Skeptic Gate in_progress), rebase resolved dirty state
+
+### Friction: 1 point
+- ao-1660 stuck with unpushed wc-zsw commits (lifecycle skeptic fixes) — task sent
+
+### Fixes: 1 direct (ao-1660 push+PR task), 1 zombie killed
+### Beads created: 0
