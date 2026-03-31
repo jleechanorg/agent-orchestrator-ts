@@ -117,7 +117,27 @@ All 18 merged PRs in last 24h have [agento] prefix — zero operator interventio
 - PR #322: CI running, CR=CHANGES_REQUESTED — ao-1657 working
 
 ### Key finding: Integration Tests + Test Fresh Onboarding are NOT required checks
-Only Test + Lint are in branch protection. Docker runner failures are non-blocking for merge.
+Only Test + Lint were in branch protection. Docker runner failures were non-blocking for merge.
+
+### bd-8khr: Skeptic Gate ADDED to branch protection (FIXED)
+**Problem:** Only `Test` and `Lint` were required checks. `Skeptic Gate` was absent, allowing PRs with `VERDICT: FAIL` to be admin-merged.
+
+**Fix applied:**
+1. PATCH `repos/.../branches/main/protection/required_status_checks` — added `Skeptic Gate` to contexts
+   - Before: `["Test","Lint"]`
+   - After: `["Test","Lint","Skeptic Gate"]`
+2. DELETE `repos/.../branches/main/protection/enforce_admins` — set `{"enabled": false}`
+   - `enforce_admins` was `true` from prior protection setup; setting to `false` allows admin bypass when needed (e.g., emergency hotfixes without a full skeptic run)
+
+**Verification:**
+```bash
+gh api repos/jleechanorg/agent-orchestrator/branches/main/protection \
+  --jq '{required_status_checks: .required_status_checks, enforce_admins: .enforce_admins}'
+# required_status_checks.contexts: ["Test","Lint","Skeptic Gate"]
+# enforce_admins.enabled: false
+```
+
+**Impact (expected; pending live FAIL verification):** Non-admin merges of FAIL verdicts are blocked. Admin users can still bypass required checks (`enforce_admins: false`). The `Skeptic Gate` required status check is produced by `.github/workflows/skeptic-gate.yml` — a GHA workflow that polls PR comments for `VERDICT: PASS/FAIL/SKIPPED` posted by `ao skeptic verify` (the local CLI that runs LLM-based evaluation). PRs created by normal agents must pass the GHA check; admins retain bypass capability for emergencies.
 
 ### Actions
 - 9 zombie sessions killed
