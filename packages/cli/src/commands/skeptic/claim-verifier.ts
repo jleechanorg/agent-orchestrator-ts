@@ -12,14 +12,9 @@
  *
  * Both layers must be present and consistent for PASS.
  * Any ambiguity → INSUFFICIENT (not PASS).
- *
- * Note: VERDICT_LINE_RE is duplicated here (not imported from skeptic.ts) to avoid
- * a dependency chain through llm-eval.ts which requires the ao-plugin-agent-codex package.
- * Must be kept in sync with skeptic.ts:VERDICT_LINE_RE.
  */
 
-/** Line-anchored VERDICT matcher — accepts VERDICT: PASS, VERDICT: FAIL, or VERDICT: SKIPPED. */
-const VERDICT_LINE_RE = /^(?:> ?\*\*)?VERDICT:\s*(PASS|FAIL|SKIPPED)\b/im;
+import { VERDICT_LINE_RE } from "./verdict-utils.js";
 
 /** Strict VERDICT match — PASS or FAIL only (SKIPPED is infra-only, not a claim) */
 const CLAIM_VERDICT_RE = /^(?:> ?\*\*)?VERDICT:\s*(PASS|FAIL)\b/im;
