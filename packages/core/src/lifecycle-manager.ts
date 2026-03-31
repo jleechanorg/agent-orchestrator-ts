@@ -1650,6 +1650,70 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         }
       }
 
+      // bd-jzan: fire skeptic immediately when CR approves on same SHA (no new push).
+      // The SHA-change block above only triggers on currentSha !== previousSha.
+      // When CR approves on the same commit (e.g. after review fixes), there is no SHA
+      // change so skeptic waits up to 30 min for skeptic-cron. This block fires it now.
+      // Dedup guard: if lastSkepticSha already has this SHA, skeptic already ran.
+      // Additional guard: if a VERDICT comment already exists for this SHA, skip.
+      if (newStatus === "approved" && oldStatus !== "approved" && session.pr) {
+        const skepticProject = config.projects[session.projectId];
+        const skepticScm = skepticProject?.scm
+          ? registry.get<SCM>("scm", skepticProject.scm.plugin)
+          : null;
+        if (skepticScm?.getPRHeadSha && skepticScm?.getSkepticComments) {
+          try {
+            const currentSha = await skepticScm.getPRHeadSha(session.pr);
+            if (currentSha) {
+              const alreadyEvaluated = lastSkepticSha.get(session.id) === currentSha;
+              // Also check: if a VERDICT comment already exists for this SHA, skip.
+              // This covers the case where lastSkepticSha was cleared (restart) but
+              // skeptic already ran and posted a VERDICT for this SHA.
+              const existingComments = await skepticScm.getSkepticComments(session.pr);
+              const hasVerdictForSha = existingComments.some((c) =>
+                /VERDICT:/i.test(c.body) &&
+                (c.body.includes(currentSha) || /<!--[^>]*-->/.test(c.body)),
+              );
+              if (!alreadyEvaluated && !hasVerdictForSha) {
+                observer.recordOperation({
+                  metric: "lifecycle_poll",
+                  operation: "lifecycle.skeptic_cr_approval_trigger",
+                  outcome: "info",
+                  correlationId: createCorrelationId("skeptic-cr-approval"),
+                  projectId: session.projectId,
+                  sessionId: session.id,
+                  data: { currentSha: currentSha.slice(0, 7) },
+                  level: "info",
+                });
+                const completionReactionKey = "worker-signals-completion";
+                const completionReactionConfig = getReactionConfigForSession(session, completionReactionKey);
+                if (completionReactionConfig?.action && completionReactionConfig.auto !== false) {
+                  let reactionSuccess = false;
+                  try {
+                    const result = await executeReaction(
+                      session.id,
+                      session.projectId,
+                      completionReactionKey,
+                      completionReactionConfig,
+                      session,
+                      createCorrelationId("skeptic-cr-approval"),
+                    );
+                    reactionSuccess = Boolean(result?.success);
+                  } catch {
+                    reactionSuccess = false;
+                  }
+                  if (reactionSuccess) {
+                    lastSkepticSha.set(session.id, currentSha);
+                  }
+                }
+              }
+            }
+          } catch {
+            // getPRHeadSha or getSkepticComments failed — skip this cycle
+          }
+        }
+      }
+
       // bd-5o1: skip reactions for dead agents — ao send to a dead session wastes
       // resources and generates spurious escalation notifications. The PR state check
       // in determineStatus already handles bd-kki (preserves oldStatus for open PRs
