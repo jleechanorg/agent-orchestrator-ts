@@ -377,3 +377,22 @@ No change since last cycle — all merged PRs have [agento] prefix.
 
 ### Fixes: 1 direct (ao-1660 push+PR task), 1 zombie killed
 ### Beads created: 0
+
+## 2026-03-31 10:05 cycle
+
+### Zero-touch rate: 100% (21/21) →
+No new merges since last cycle.
+
+### Workers: 8 alive, 0 dead
+- ao-1629 (PR #318): CR=APPROVED! CI failures: Test, Typecheck (not pre-existing) — fix task sent
+- ao-1681 (PR #316): CI pending, 5% until auto-compact — near context limit
+- ao-1660 (PR #324): Created PR! But merge conflict (dirty) — rebase task sent
+
+### PRs: 3 open (#316, #318, #324)
+- PR #318: CI=success status but Test+Typecheck failing, CR=APPROVED, 7 unresolved threads, Skeptic FAIL
+- PR #316: CI=pending, CR=CHANGES_REQUESTED
+- PR #324: CI=pending, dirty (merge conflict), CR=NONE
+
+### Friction: 1 new (PR #318 Test+Typecheck failures)
+### Fixes: 2 tasks sent (ao-1629 Test fix, ao-1660 PR #324 rebase)
+### Beads: 0
