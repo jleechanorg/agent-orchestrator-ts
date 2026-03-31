@@ -390,7 +390,7 @@ describe("runLocalSkepticCron", () => {
     );
   });
 
-  it("different SHA triggers re-evaluation", async () => {
+  it("different SHA from same PR triggers re-evaluation (different projectId bypasses throttle)", async () => {
     const { registry, sessionManager, observer, listOpenPRs, getPRHeadSha } = makeDeps();
     const pr = makePR({ number: 10 });
     listOpenPRs.mockResolvedValue([pr]);

@@ -213,7 +213,9 @@ export async function runLocalSkepticCron(
         level: result.verdict === "FAIL" ? "warn" : "info",
       });
 
-      // Record SHA on success — failures allow retry on next cycle
+      // Cache the SHA so the same HEAD is not re-evaluated unless the SHA changes
+      // or a new cycle bypasses the project-level throttle. FAIL verdicts are also
+      // cached — only uncaught throws skip caching (allowing retry on next cycle).
       if (headSha) lastEvaluatedShaByPR.set(cacheKey, headSha);
 
       evaluated++;
