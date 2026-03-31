@@ -350,6 +350,16 @@ describe("lifecycle-manager skeptic wiring — bd-jzan: triggerSkepticReaction i
 });
 
 describe("lifecycle-manager skeptic wiring — wc-zsw first-seen and ci_failed coverage", () => {
+  // Shared constant matching lifecycle-manager.ts bd-qnj6 re-trigger guard list
+  const RE_TRIGGER_STATUSES = [
+    "pr_open",
+    "ci_failed", // wc-zsw: ADDED — ci_failed sessions need SHA-change coverage too
+    "review_pending",
+    "changes_requested",
+    "approved",
+    "mergeable",
+  ] as const;
+
   // wc-zsw Bug 1: A session first polled in pr_open (tracked=undefined) must dispatch
   // skeptic in the no-transition path, since the transition block only fires when
   // newStatus === "pr_open" — which never happens when oldStatus already equals newStatus
@@ -396,15 +406,6 @@ describe("lifecycle-manager skeptic wiring — wc-zsw first-seen and ci_failed c
   // wc-zsw Bug 2: The bd-qnj6 re-trigger guard list must include ci_failed so that
   // sessions in ci_failed (first-seen or otherwise) get SHA-change re-trigger coverage.
   it("ci_failed is included in the SHA-change re-trigger status guard list", () => {
-    const RE_TRIGGER_STATUSES = [
-      "pr_open",
-      "ci_failed", // wc-zsw: ADDED — ci_failed sessions need SHA-change coverage too
-      "review_pending",
-      "changes_requested",
-      "approved",
-      "mergeable",
-    ] as const;
-
     // ci_failed must be in the list
     expect(RE_TRIGGER_STATUSES).toContain("ci_failed");
 
@@ -428,7 +429,6 @@ describe("lifecycle-manager skeptic wiring — wc-zsw first-seen and ci_failed c
     expect(shaChanged).toBe(true);
 
     // Status is ci_failed and in the re-trigger list
-    const RE_TRIGGER_STATUSES = ["pr_open", "ci_failed", "review_pending", "changes_requested", "approved", "mergeable"] as const;
     const eligible = RE_TRIGGER_STATUSES.includes("ci_failed");
     expect(eligible).toBe(true);
   });
