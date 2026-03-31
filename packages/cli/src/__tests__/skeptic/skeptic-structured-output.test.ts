@@ -256,6 +256,108 @@ describe("skeptic structured output", () => {
     });
   });
 
+  describe("Rule 12 — Goals Section Verification (always active)", () => {
+    it("prompt contains Rule 12 goals section check regardless of PR content", () => {
+      const prompt = buildSkepticPrompt(
+        makeMinimalPR({ body: "No goals here" }),
+        makePassingState(),
+        EMPTY_DIFF,
+        EMPTY_REVIEWS,
+        null,
+      );
+
+      expect(prompt).toContain("GOALS SECTION VERIFICATION");
+      expect(prompt).toContain("Rule 12");
+      expect(prompt).toContain("12a");
+      expect(prompt).toContain("12b");
+      expect(prompt).toContain("12c");
+      expect(prompt).toContain("12d");
+      expect(prompt).toContain("12e");
+    });
+
+    it("Rule 12 checks for bullet or numbered items in Goals section", () => {
+      const prompt = buildSkepticPrompt(
+        makeMinimalPR(),
+        makePassingState(),
+        EMPTY_DIFF,
+        EMPTY_REVIEWS,
+        null,
+      );
+
+      expect(prompt).toContain("bullet or numbered items");
+      expect(prompt).toContain("12a");
+      expect(prompt).toContain("Extract each bullet/numbered item");
+    });
+
+    it("Rule 12d allows test goals to be satisfied by test changes", () => {
+      const prompt = buildSkepticPrompt(
+        makeMinimalPR(),
+        makePassingState(),
+        EMPTY_DIFF,
+        EMPTY_REVIEWS,
+        null,
+      );
+
+      // 12d must say test-only goals CAN be satisfied by test changes
+      expect(prompt).toContain("Goals explicitly about adding or updating tests CAN be satisfied by test changes");
+    });
+
+    it("Rule 12d still rejects test-only for feature/bugfix goals", () => {
+      const prompt = buildSkepticPrompt(
+        makeMinimalPR(),
+        makePassingState(),
+        EMPTY_DIFF,
+        EMPTY_REVIEWS,
+        null,
+      );
+
+      expect(prompt).toContain("For feature/bugfix goals");
+      expect(prompt).toContain("a goal with only test changes is NOT implemented");
+    });
+
+    it("Rule 12 skips when no Goals section present", () => {
+      const prompt = buildSkepticPrompt(
+        makeMinimalPR({ body: "Just some text" }),
+        makePassingState(),
+        EMPTY_DIFF,
+        EMPTY_REVIEWS,
+        null,
+      );
+
+      expect(prompt).toContain("skip this rule");
+      expect(prompt).toContain("not mandatory to have Goals sections");
+    });
+
+    it("FAIL format instructs to include Goals Verification section when Rule 12 gaps found", () => {
+      const prompt = buildSkepticPrompt(
+        makeMinimalPR(),
+        makeFailingState(),
+        EMPTY_DIFF,
+        EMPTY_REVIEWS,
+        null,
+      );
+
+      const outputSection = prompt.split("OUTPUT FORMAT:")[1] ?? "";
+      expect(outputSection).toContain("## Goals Verification");
+      expect(outputSection).toContain("Rule 12 gaps");
+    });
+
+    it("FAIL format clarifies optional appendix sections placement", () => {
+      const prompt = buildSkepticPrompt(
+        makeMinimalPR(),
+        makeFailingState(),
+        EMPTY_DIFF,
+        EMPTY_REVIEWS,
+        null,
+      );
+
+      const outputSection = prompt.split("OUTPUT FORMAT:")[1] ?? "";
+      // Should explain optional sections go after ## Bot Consultation
+      expect(outputSection).toContain("Optional appendix sections");
+      expect(outputSection).toContain("append after ## Bot Consultation");
+    });
+  });
+
   describe("PASS vs FAIL — format discrimination", () => {
     it("PASS output does not require ## Background; FAIL does", () => {
       const passingPrompt = buildSkepticPrompt(
