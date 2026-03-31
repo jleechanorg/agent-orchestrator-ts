@@ -214,3 +214,22 @@ All 20 merged PRs in last 24h have [agento] prefix.
 - PR #316: CR CHANGES_REQUESTED, ao-1681 now active
 
 ### Beads: 0 new
+
+## 2026-03-31 08:49 cycle
+
+### Zero-touch rate: 100% (20/20)
+### Workers: 5 alive, 0 zombies
+- ao-1629: PR #318, 68% ctx, addressing CR threads
+- ao-1681: PR #316, diverged +8-10, active
+- ao-1685: PR #323, 41% ctx
+- ao-1690: feat/bd-5gl, 62% ctx
+- ao-1660: worldai_claw
+
+### Direct fixes
+- Fixed PR #323 Evidence Gate: **Claim class:** → **Claim class**: (colon outside bold — matches evidence-gate.yml regex)
+- New Evidence Gate run triggered (id: 23788497952, queued 08:42:53)
+
+### PRs: 3 open, 0 merged
+- PR #323: Evidence Gate queued (correct claim class format now), Skeptic FAIL (CI timeout), 0 unresolved threads
+- PR #318: CR CHANGES_REQUESTED (14 threads), ao-1629 working at 68% ctx
+- PR #316: CR CHANGES_REQUESTED, ao-1681 active
