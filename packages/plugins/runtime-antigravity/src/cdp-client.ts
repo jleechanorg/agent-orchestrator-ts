@@ -137,9 +137,10 @@ export class CdpClient {
     });
 
     const timeoutHandle = setTimeout(() => {
-      if (this.pendingResolvers.has(id)) {
+      const resolver = this.pendingResolvers.get(id);
+      if (resolver) {
         this.pendingResolvers.delete(id);
-        reject(new Error(`CDP sendCommand timed out after ${timeoutMs}ms: ${method}`));
+        resolver.reject(new Error(`CDP sendCommand timed out after ${timeoutMs}ms: ${method}`));
       }
     }, timeoutMs);
 
