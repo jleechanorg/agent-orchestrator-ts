@@ -125,7 +125,9 @@ jobs:
           # that should not be scanned for forbidden patterns or counted as media.
           EVIDENCE=$(printf '%s\n' "$BODY" | awk '
             BEGIN { IGNORECASE=1; in_comment=0 }
-            # Handle HTML comment open/close before section logic
+            # Handle single-line HTML comments: <!-- ... --> on one line
+            /<!--.*-->/ { next }
+            # Handle multi-line HTML comment open/close
             in_comment && /^[[:space:]]*-->/ { in_comment=0; next }
             /^[[:space:]]*<!--/ { in_comment=1; next }
             in_comment { next }

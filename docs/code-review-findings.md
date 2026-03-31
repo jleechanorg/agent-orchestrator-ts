@@ -106,7 +106,12 @@ async post(message: string, context?: NotifyContext): Promise<string | null> {
 
 **Problem**: ~~This fork uses `@jleechanorg/ao-core` and `@jleechanorg/ao-web`, not `@composio/ao`.~~ **Correction (per CR review):** `packages/ao/package.json` publishes as `"name": "@composio/ao"`. The error message is accurate.
 
-**Recommendation**: Remove this finding. The package name is correct.
+**Clarification**: `packages/ao/` is an upstream Composio artifact (publishes as `@composio/ao`).
+This fork's own CLI lives in `packages/cli/` and publishes as `@jleechanorg/ao-cli`
+(the `ao` binary). The upstream `@composio/ao` reference in the error message is
+expected — it refers to the upstream CLI wrapper package, not this fork's package.
+
+**Recommendation**: Remove this finding. The upstream package name in the error message is correct.
 
 ---
 

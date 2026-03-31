@@ -446,8 +446,9 @@ describe("wholesome — structural source-code assertions", () => {
             }
           }
 
-          // Detect if: false (disabled job — exempt)
-          if (currentJob && /^\s+if:\s+false\b/.test(trimmedLine)) {
+          // Detect if: false (disabled job — exempt). Only job-level (4 spaces)
+          // matches; step-level (8 spaces) disabled steps must not exempt the job.
+          if (currentJob && /^ {4}if:\s+false\b/.test(trimmedLine)) {
             jobIsExempt = true;
           }
         }
