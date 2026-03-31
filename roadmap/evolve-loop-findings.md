@@ -79,3 +79,27 @@ All 47 merged PRs in last 7 days show merged_by=null. Skeptic-cron has never suc
 ### Open PRs needing attention
 - agent-orchestrator: #289, #288, #273 (3 open)
 - jleechanclaw: #438, #437, #433 (3 open)
+
+## 2026-03-31 00:24 cycle
+
+### Zero-touch rate: 100% (18/18) last 24h ✓
+All 18 merged PRs in last 24h have [agento] prefix — zero operator intervention required.
+
+### System state
+- Open PRs: 4 (#316, #318, #320, #322)
+- Active PR workers: ao-1629 (#318), ao-1647 (#320), ao-1657 (#322)
+- Zombie workers killed: ao-1628 (PR #315 merged), ao-1668 (PR #321 merged)
+- PR #321 merged this session (Evidence Gate fix)
+
+### P0 actions this cycle
+- **bd-806w CLOSED** — fixed by PR #321 (merged)
+- **bd-8khr DISPATCHED** → ao-1679: enforce Skeptic Gate as required branch protection check
+- **bd-orch2v3 DISPATCHED** → ao-1680: ao send missing Enter after paste
+- PR workers instructed: ao-1629 (#318 evidence fix + CR), ao-1647 (#320 CR), ao-1668 (#316 CR)
+
+### Next friction targets
+- bd-8khr: skeptic FAIL not blocking merges (branch protection gap)
+- bd-ce74: skeptic-gate fresh SHA guarantee
+- bd-wak7: skeptic-cron selecting oldest check run
+- PR #316: Integration Test + Onboarding failures (Docker runner issue)
+
