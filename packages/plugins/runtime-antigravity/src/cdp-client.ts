@@ -143,6 +143,8 @@ export class CdpClient {
 
   /**
    * Executes JS in the renderer and returns the result using returnByValue.
+   * sendCommand resolves with data.result (the CDP response's result object).
+   * For Runtime.evaluate, that's { result: { type, value } }, so we extract .result.value.
    */
   async evaluateInAntigravity(js: string): Promise<unknown> {
     const res = await this.sendCommand("Runtime.evaluate", {
@@ -150,8 +152,8 @@ export class CdpClient {
       returnByValue: true,
       awaitPromise: true,
     });
-    const typed = res as { value?: unknown } | null;
-    return typed?.value;
+    const typed = res as { result?: { value?: unknown } } | null;
+    return typed?.result?.value;
   }
 
   /**
