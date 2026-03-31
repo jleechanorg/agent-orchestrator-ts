@@ -316,7 +316,7 @@ interface ReactionTracker {
  * The `executeReaction` and `observer` parameters must be provided by the caller
  * so this function is directly testable without a full LifecycleManager instance.
  */
-export async function triggerSkepticReaction(
+export async function triggerSkepticReactionImpl(
   session: Session,
   lastSkepticSha: Map<string, string>,
   correlationId: string,

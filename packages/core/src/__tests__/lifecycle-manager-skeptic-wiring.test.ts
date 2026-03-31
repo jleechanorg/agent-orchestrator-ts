@@ -13,7 +13,7 @@
  */
 
 import { describe, it, expect, vi } from "vitest";
-import { triggerSkepticReaction } from "../lifecycle-manager.js";
+import { triggerSkepticReactionImpl as triggerSkepticReaction } from "../lifecycle-manager.js";
 import type {
   Session,
   OrchestratorConfig,
