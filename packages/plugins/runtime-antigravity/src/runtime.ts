@@ -128,17 +128,26 @@ async function handleAllowPrompt(
     const { promisify } = await import("node:util");
     const execFileAsync = promisify(execFileCb);
 
+    // Detect pixel scale factor: screencapture captures at native resolution,
+    // so on 2x Retina displays the pixel count is 2x the point count.
+    // Use the ratio of captured image width to window point width to
+    // derive the scale factor automatically, avoiding hard-coded "// 2".
+    const winX = Math.round(bounds.x);
+    const winY = Math.round(bounds.y);
+    const winW = Math.round(bounds.width);
     const pythonScript = `
 from PIL import Image
 import numpy as np
 img = np.array(Image.open('${capturePath}'))
+# Derive scale factor from image width vs window width to support non-Retina displays.
+scale = img.shape[1] / ${winW} if ${winW} > 0 else 2
 blue_mask = (img[:,:,2] > 150) & (img[:,:,0] < 120) & (img[:,:,2] > img[:,:,1] + 30)
 ys, xs = np.where(blue_mask)
 if len(xs) > 0:
     right_mask = xs > (xs.max() - 250)
     cx, cy = int(np.mean(xs[right_mask])), int(np.mean(ys[right_mask]))
-    # Convert 2x retina pixels to points, add window origin
-    print(f'{${bounds.x} + cx // 2},{${bounds.y} + cy // 2}')
+    # Convert pixel coords to points using dynamic scale factor, add window origin
+    print(f'{${winX} + int(cx / scale)},{${winY} + int(cy / scale)}')
 `;
 
     const { stdout } = await execFileAsync("python3", ["-c", pythonScript], {
@@ -157,6 +166,12 @@ if len(xs) > 0:
   } catch {
     // Best-effort: if screencapture or python3 fails, continue anyway.
     // The Allow prompt may not be present, or PIL may not be installed.
+  } finally {
+    // Clean up temporary screenshot file to avoid leaving stale files.
+    const { unlink } = await import("node:fs/promises");
+    unlink(capturePath).catch(() => {
+      // Ignore if file was never created (screencapture failed early)
+    });
   }
 }
 
@@ -305,7 +320,21 @@ export function createAntigravityRuntime(config?: AntigravityConfig): Runtime {
           }
         }
 
-        // 7. Verify conversation started: check for progress_activity
+        // 7. Handle "Allow this conversation" directory access prompt FIRST.
+        //    Per /antig skill: the Allow prompt appears BEFORE the agent starts
+        //    working. If we wait for progress_activity first, the prompt blocks
+        //    the conversation from starting at all.
+        //    Blue buttons are web-rendered (not A11y tree) — use screencapture
+        //    + PIL blue-pixel detection + coordinate click.
+        if (config.launchCommand) {
+          try {
+            await handleAllowPrompt(managerId, managerWindow.bounds);
+          } catch {
+            // Best-effort — prompt may not appear or PIL may not be installed
+          }
+        }
+
+        // 8. Verify conversation started: check for progress_activity.
         //    Only verify if a prompt was actually submitted.
         if (config.launchCommand) {
           let started = false;
@@ -321,15 +350,6 @@ export function createAntigravityRuntime(config?: AntigravityConfig): Runtime {
               "Antigravity: conversation did not start — no progress_activity detected after prompt submission",
             );
           }
-        }
-
-        // 8. Handle "Allow this conversation" directory access prompt
-        //    Per /antig skill: blue buttons are web-rendered, use
-        //    screencapture + PIL blue-pixel detection + coordinate click
-        try {
-          await handleAllowPrompt(managerId, managerWindow.bounds);
-        } catch {
-          // Best-effort — prompt may not appear
         }
 
         return managerWindow.title;
