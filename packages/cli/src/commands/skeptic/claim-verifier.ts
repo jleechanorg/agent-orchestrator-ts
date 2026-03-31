@@ -80,14 +80,20 @@ export function checkRunLevel(llmOutput: string): ClaimCheck {
   }
 
   const m = trimmed.match(VERDICT_LINE_RE);
-  if (!m || m[1]?.toUpperCase() === "SKIPPED") {
-    // SKIPPED is an infra failure, not a claim verdict — treat as absent
+  if (!m) {
+    // No VERDICT line at all — treat as absent
     return {
       label: "run-level",
       result: "absent",
-      detail: m
-        ? `VERDICT: SKIPPED — infra failure, not a claim verdict: ${m[0]}`
-        : `No VERDICT: PASS/FAIL in CLI output (got: ${trimmed.slice(0, 80)}...)`,
+      detail: `No VERDICT: PASS/FAIL in CLI output (got: ${trimmed.slice(0, 80)}...)`,
+    };
+  }
+  if (m[1]?.toUpperCase() === "SKIPPED") {
+    // SKIPPED is an infra failure — fail-closed (bd-dmxw)
+    return {
+      label: "run-level",
+      result: "fail",
+      detail: `VERDICT: FAIL — infra: SKIPPED verdict (${m[0]})`,
     };
   }
 
@@ -124,14 +130,19 @@ export function checkCommentLevel(commentBody: string): ClaimCheck {
   }
 
   const m = trimmed.match(VERDICT_LINE_RE);
-  if (!m || m[1]?.toUpperCase() === "SKIPPED") {
-    // SKIPPED is an infra failure, not a claim verdict — treat as absent
+  if (!m) {
     return {
       label: "comment-level",
       result: "absent",
-      detail: m
-        ? "Comment has SKIPPED verdict — infra failure, not a claim verdict"
-        : "Comment lacks VERDICT: PASS/FAIL line",
+      detail: "Comment lacks VERDICT: PASS/FAIL line",
+    };
+  }
+  if (m[1]?.toUpperCase() === "SKIPPED") {
+    // SKIPPED is an infra failure — fail-closed (bd-dmxw)
+    return {
+      label: "comment-level",
+      result: "fail",
+      detail: `VERDICT: FAIL — infra: SKIPPED verdict in comment`,
     };
   }
 

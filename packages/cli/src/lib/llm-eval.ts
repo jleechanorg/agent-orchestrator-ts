@@ -10,7 +10,7 @@
  *
  * Fallback chain:
  *   codex exec -   (primary — Codex with OAuth / OPENAI_API_KEY; prompt via stdin)
- *   claude --print --no-input  (secondary — Claude with ANTHROPIC_API_KEY)
+ *   claude --dangerously-skip-permissions --print --no-input  (secondary — Claude Code OAuth, no proxy)
  *
  * The evaluated output must contain VERDICT: PASS or VERDICT: FAIL.
  * Missing VERDICT = fail-closed FAIL.
@@ -22,9 +22,9 @@ const CODEX_TIMEOUT_MS = 300_000;
 const CLAUDE_TIMEOUT_MS = 300_000;
 
 /** Strict VERDICT matcher for tool output validation — PASS or FAIL only.
- * SKIPPED is produced by llmEval as an infrastructure-unavailable sentinel
- * and is tested for explicitly in the fallback chain; it must NOT be treated
- * as a valid merge-gate verdict here. */
+ * SKIPPED was the old infra-unavailable sentinel; it has been replaced by
+ * VERDICT: FAIL (fail-closed). This regex intentionally rejects SKIPPED —
+ * infra failures must block merges. */
 const STRICT_VERDICT_RE = /^(?:#{1,3}\s*|\*{1,2})?VERDICT:\s*(PASS|FAIL)\b/im;
 
 export interface LlmEvalResult {
@@ -115,7 +115,7 @@ export async function tryClaudePrint(prompt: string): Promise<LlmEvalResult> {
   try {
     const result = execFileSync(
       "claude",
-      ["--print", "--no-input"],
+      ["--dangerously-skip-permissions", "--print", "--no-input"],
       {
         input: prompt,
         encoding: "utf-8",
