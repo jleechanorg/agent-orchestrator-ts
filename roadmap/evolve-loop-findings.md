@@ -122,17 +122,22 @@ Only Test + Lint were in branch protection. Docker runner failures were non-bloc
 ### bd-8khr: Skeptic Gate ADDED to branch protection (FIXED)
 **Problem:** Only `Test` and `Lint` were required checks. `Skeptic Gate` was absent, allowing PRs with `VERDICT: FAIL` to be admin-merged.
 
-**Fix applied:** PATCH `repos/jleechanorg/agent-orchestrator/branches/main/protection/required_status_checks`
-- Before: `["Test","Lint"]`
-- After: `["Test","Lint","Skeptic Gate"]`
+**Fix applied:**
+1. PATCH `repos/.../branches/main/protection/required_status_checks` — added `Skeptic Gate` to contexts
+   - Before: `["Test","Lint"]`
+   - After: `["Test","Lint","Skeptic Gate"]`
+2. POST `repos/.../branches/main/protection/enforce_admins` — set `{"enabled": true}`
+   - `enforce_admins` was `false`; without this, admin users could bypass required checks entirely
 
 **Verification:**
 ```bash
-gh api repos/jleechanorg/agent-orchestrator/branches/main/protection --jq '.required_status_checks.contexts'
-# → ["Test","Lint","Skeptic Gate"]
+gh api repos/jleechanorg/agent-orchestrator/branches/main/protection \
+  --jq '{required_status_checks: .required_status_checks, enforce_admins: .enforce_admins}'
+# required_status_checks.contexts: ["Test","Lint","Skeptic Gate"]
+# enforce_admins.enabled: true
 ```
 
-**Impact:** Admin merges of FAIL verdicts now blocked. PRs must pass Skeptic Gate (via `ao skeptic verify` → `VERDICT: PASS`) before merge is allowed.
+**Impact (expected; pending live FAIL verification):** Admin merges of FAIL verdicts should now be blocked once the `Skeptic Gate` required status check is enforced in branch protection. The `Skeptic Gate` check is produced by `.github/workflows/skeptic-gate.yml` (deterministic 6-green gates). PRs must pass this GHA check before merge is allowed.
 
 ### Actions
 - 9 zombie sessions killed
