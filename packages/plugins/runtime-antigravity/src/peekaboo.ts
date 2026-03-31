@@ -218,3 +218,64 @@ export function scroll(
     );
   });
 }
+
+/**
+ * Capture a region of the screen using macOS `screencapture`.
+ *
+ * CLI: `screencapture -R<x>,<y>,<w>,<h> <outputPath>`
+ * Uses point coordinates (not retina pixels).
+ *
+ * @param x - Screen X coordinate (points)
+ * @param y - Screen Y coordinate (points)
+ * @param width - Capture width (points)
+ * @param height - Capture height (points)
+ * @param outputPath - Path to save the PNG
+ * @returns The raw PNG file contents as a Buffer
+ */
+export function screencapture(
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  outputPath: string,
+): Promise<Buffer> {
+  return enqueue(async () => {
+    await execFile(
+      "screencapture",
+      [`-R${x},${y},${width},${height}`, outputPath],
+      { timeout: PEEKABOO_TIMEOUT_MS },
+    );
+    const fs = await import("node:fs/promises");
+    return fs.readFile(outputPath);
+  });
+}
+
+/**
+ * Click at screen-absolute coordinates within a window.
+ *
+ * CLI: `peekaboo click --app <app> --window-id <id> --coords <x>,<y>`
+ * Coordinates are screen-absolute points (not pixels).
+ *
+ * @param app - Application name
+ * @param windowId - Peekaboo window ID
+ * @param x - Screen X coordinate (points)
+ * @param y - Screen Y coordinate (points)
+ */
+export function clickCoordinates(
+  app: string,
+  windowId: number,
+  x: number,
+  y: number,
+): Promise<PeekabooClickResult> {
+  return enqueue(() =>
+    run<PeekabooClickResult>([
+      "click",
+      "--app",
+      app,
+      "--window-id",
+      String(windowId),
+      "--coords",
+      `${x},${y}`,
+    ]),
+  );
+}

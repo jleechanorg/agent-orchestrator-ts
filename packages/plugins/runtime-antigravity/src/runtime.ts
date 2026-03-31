@@ -3,6 +3,13 @@
  *
  * Drives the Antigravity IDE via Peekaboo macOS accessibility API
  * to create conversations, send messages, and capture output.
+ *
+ * Flow aligned with proven /antig skill patterns (SKILL.md):
+ * - Uses "add Start new conversation" button (not workspace labels)
+ * - Conversations live INSIDE Manager window (not separate windows)
+ * - Uses paste + Return to send (not Send button in active convos)
+ * - Handles "Allow this conversation" via screencapture + blue-pixel detection
+ * - Includes workspace path in prompt text for workspace scoping
  */
 
 import type {
@@ -21,6 +28,15 @@ import { defaultConfig, type AntigravityConfig } from "./config.js";
 
 /** Application name for Peekaboo targeting. */
 const APP_NAME = "Antigravity";
+
+/** Max retries when looking for the "Start new conversation" button. */
+const NEW_CONV_BUTTON_RETRIES = 5;
+
+/** Max retries when verifying conversation started (progress_activity). */
+const VERIFY_START_RETRIES = 5;
+
+/** Delay between retries (ms). */
+const RETRY_DELAY_MS = 1000;
 
 /**
  * Check whether a UI element's text matches a workspace path.
@@ -47,35 +63,126 @@ export function matchesWorkspace(elementText: string, workspacePath: string): bo
 }
 
 /**
- * Find a workspace element in a list of UI elements by matching
- * title or label against the workspace path.
+ * Find the "Start new conversation" button in UI elements.
+ *
+ * Matches labels: "add Start new conversation" or "add New Conversation"
+ * per the Manager UI element map in the /antig skill.
  */
-function findWorkspace(
+function findNewConversationButton(
   elements: PeekabooUIElement[],
-  workspacePath: string,
 ): PeekabooUIElement | undefined {
   return elements.find(
     (el) =>
-      matchesWorkspace(el.title, workspacePath) ||
-      matchesWorkspace(el.label, workspacePath),
+      el.label?.toLowerCase().includes("start new conversation") ||
+      el.label?.toLowerCase().includes("new conversation") ||
+      el.title?.toLowerCase().includes("start new conversation") ||
+      el.title?.toLowerCase().includes("new conversation"),
   );
 }
 
 /**
- * After pasting a message, find and click the Send button.
- * Falls back to pressing Return if no Send button is found.
+ * Find the text input field in Manager window.
+ *
+ * Per /antig skill: role=textField, label="text entry area"
  */
-async function clickSendButton(windowId: number, snapshotForSend?: PeekabooSeeResult): Promise<void> {
-  const snap = snapshotForSend ?? await peekaboo.see(APP_NAME, windowId);
-  const sendButton = snap.ui_elements.find(
-    (el) => el.label === "Send" || el.title === "Send",
+function findTextField(
+  elements: PeekabooUIElement[],
+): PeekabooUIElement | undefined {
+  return elements.find(
+    (el) =>
+      (el.role === "textField" || el.role === "AXTextField") &&
+      (el.label?.includes("text entry") ?? false),
   );
-  if (sendButton) {
-    await peekaboo.click(APP_NAME, windowId, sendButton.id, snap.snapshot_id);
-  } else {
-    // Fallback: press Return (may add newline in some contexts)
-    await peekaboo.press(APP_NAME, "Return");
+}
+
+/**
+ * Check if conversation has started by looking for progress_activity.
+ *
+ * Per /antig skill: after sending, check for "progress_activity" in A11y elements.
+ */
+function hasProgressActivity(elements: PeekabooUIElement[]): boolean {
+  return elements.some(
+    (el) =>
+      el.label?.includes("progress_activity") ||
+      el.title?.includes("progress_activity"),
+  );
+}
+
+/**
+ * Detect and dismiss "Allow this conversation" directory access prompt.
+ *
+ * Uses screencapture + python3 PIL blue-pixel detection, matching
+ * the exact pattern from /antig skill Method 0/1.
+ *
+ * The Allow/Deny buttons are web-rendered and NOT in the A11y tree.
+ * Detection: capture Manager window → find blue pixels (R<120, B>150, B>G+30)
+ * → click the rightmost blue button cluster (= "Allow This Conversation").
+ *
+ * @param windowId - Manager window ID
+ * @param bounds - Window bounds {x, y, width, height} in screen points
+ */
+async function handleAllowPrompt(
+  windowId: number,
+  bounds: { x: number; y: number; width: number; height: number },
+): Promise<void> {
+  const capturePath = "/tmp/antig_allow_check.png";
+
+  try {
+    // Step 1: Capture the Manager window region
+    await peekaboo.screencapture(
+      bounds.x, bounds.y, bounds.width, bounds.height,
+      capturePath,
+    );
+
+    // Step 2: Use python3 + PIL to detect blue button coordinates
+    // Directly translates /antig skill Method 0 pattern:
+    //   blue_mask = (B > 150) & (R < 120) & (B > G + 30)
+    //   Find rightmost cluster → "Allow This Conversation"
+    const { execFile: execFileCb } = await import("node:child_process");
+    const { promisify } = await import("node:util");
+    const execFileAsync = promisify(execFileCb);
+
+    const pythonScript = `
+from PIL import Image
+import numpy as np
+img = np.array(Image.open('${capturePath}'))
+blue_mask = (img[:,:,2] > 150) & (img[:,:,0] < 120) & (img[:,:,2] > img[:,:,1] + 30)
+ys, xs = np.where(blue_mask)
+if len(xs) > 0:
+    right_mask = xs > (xs.max() - 250)
+    cx, cy = int(np.mean(xs[right_mask])), int(np.mean(ys[right_mask]))
+    # Convert 2x retina pixels to points, add window origin
+    print(f'{${bounds.x} + cx // 2},{${bounds.y} + cy // 2}')
+`;
+
+    const { stdout } = await execFileAsync("python3", ["-c", pythonScript], {
+      timeout: 10_000,
+    });
+
+    const coords = stdout.trim();
+    if (coords && coords.includes(",")) {
+      const [clickX, clickY] = coords.split(",").map(Number);
+      if (!isNaN(clickX) && !isNaN(clickY)) {
+        await peekaboo.clickCoordinates(APP_NAME, windowId, clickX, clickY);
+        // Brief delay for UI to dismiss the prompt
+        await new Promise((r) => setTimeout(r, 500));
+      }
+    }
+  } catch {
+    // Best-effort: if screencapture or python3 fails, continue anyway.
+    // The Allow prompt may not be present, or PIL may not be installed.
   }
+}
+
+/**
+ * Build the prompt text with workspace path prefix.
+ *
+ * Per /antig skill "Workspace scoping workaround — CRITICAL":
+ * The workspace dropdown is web-rendered and unreliable.
+ * Always include the explicit workspace path in the prompt text.
+ */
+function buildPromptWithWorkspace(prompt: string, workspacePath: string): string {
+  return `You are working in ${workspacePath}. ${prompt}`;
 }
 
 /**
@@ -87,14 +194,8 @@ async function clickSendButton(windowId: number, snapshotForSend?: PeekabooSeeRe
  */
 export function createAntigravityRuntime(config?: AntigravityConfig): Runtime {
   const runtimeConfig = config ?? defaultConfig();
-  // Wire configured peekaboo binary path into the module-level variable
-  // via the explicit setter (avoids mutating process.env which can bleed
-  // across multiple runtime instances).
   peekaboo.setPeekabooBin(runtimeConfig.peekabooBin);
 
-  // Single shared poller for all sessions on this runtime instance.
-  // Polls the Manager window (not per-conversation windows) for spinner state.
-  // onIdle forwards to the per-session callback stored in handle.data["onIdle"].
   const poller = createPoller(runtimeConfig.pollIntervalMs, {
     onIdle: (handle) => {
       const cb = handle.data["onIdle"] as ((id: string) => void) | undefined;
@@ -117,7 +218,6 @@ export function createAntigravityRuntime(config?: AntigravityConfig): Runtime {
 
       const primaryFn = async (): Promise<string> => {
         // Run preflight to validate the runtime environment.
-        // On failure, throw so executeWithFallback routes to CLI.
         const preflight = await runPreflight();
         if (!preflight.ok) {
           const failedStep = preflight.steps[preflight.steps.length - 1];
@@ -136,68 +236,76 @@ export function createAntigravityRuntime(config?: AntigravityConfig): Runtime {
             "Antigravity Manager window not found. Is Antigravity running?",
           );
         }
+        const managerId = managerWindow.window_id;
 
-        // 2. Take snapshot of Manager window, find workspace to click.
-        //    Uses basename matching (Bug 1) and scroll retry (Bug 2).
-        let snapshot = await peekaboo.see(APP_NAME, managerWindow.window_id);
-        let workspaceElement = findWorkspace(snapshot.ui_elements, config.workspacePath);
+        // 2. Scroll sidebar UP to reveal "Start new conversation" button
+        //    Per /antig skill: button may be hidden below sidebar fold
+        await peekaboo.scroll(APP_NAME, managerId, "up", 10);
+        await new Promise((r) => setTimeout(r, 300));
 
-        // If workspace not visible, scroll down and retry up to 5 times
-        if (!workspaceElement) {
-          for (let i = 0; i < 5 && !workspaceElement; i++) {
-            await peekaboo.scroll(APP_NAME, managerWindow.window_id, "down", 5);
+        // 3. Find and click "Start new conversation" button
+        let snapshot = await peekaboo.see(APP_NAME, managerId);
+        let newConvButton = findNewConversationButton(snapshot.ui_elements);
+
+        // Retry with more scrolling if not found
+        if (!newConvButton) {
+          for (let i = 0; i < NEW_CONV_BUTTON_RETRIES && !newConvButton; i++) {
+            await peekaboo.scroll(APP_NAME, managerId, "up", 5);
             await new Promise((r) => setTimeout(r, 500));
-            const newSnapshot = await peekaboo.see(APP_NAME, managerWindow.window_id);
-            workspaceElement = findWorkspace(newSnapshot.ui_elements, config.workspacePath);
-            if (workspaceElement) {
-              snapshot = newSnapshot; // Update snapshot for click
-            }
+            snapshot = await peekaboo.see(APP_NAME, managerId);
+            newConvButton = findNewConversationButton(snapshot.ui_elements);
           }
         }
 
-        if (!workspaceElement) {
+        if (!newConvButton) {
           throw new Error(
-            `Workspace "${config.workspacePath}" not found in Antigravity Manager`,
+            "'Start new conversation' button not found in Manager sidebar after scrolling",
           );
         }
 
-        // 3. Click the workspace to open/focus it
-        await peekaboo.click(
-          APP_NAME,
-          managerWindow.window_id,
-          workspaceElement.id,
-          snapshot.snapshot_id,
-        );
+        await peekaboo.click(APP_NAME, managerId, newConvButton.id, snapshot.snapshot_id);
+        await new Promise((r) => setTimeout(r, 500));
 
-        // 4. Find the conversation window that opens.
-        //    Match workspace basename in window title instead of picking
-        //    the first non-Manager window (Bug 3).
-        const postClickWindows = await peekaboo.windowList(APP_NAME);
-        const wsBasename = config.workspacePath.split("/").filter(Boolean).pop() ?? "";
-        const conversationWindow = postClickWindows.find(
-          (w) =>
-            w.window_id !== managerWindow.window_id &&
-            w.title.toLowerCase().includes(wsBasename.toLowerCase()),
-        ) ?? postClickWindows.find(
-          // Fallback: any non-Manager window if basename match fails
-          (w) =>
-            w.window_id !== managerWindow.window_id &&
-            !w.title.toLowerCase().includes("manager"),
-        );
-        if (!conversationWindow) {
-          throw new Error(
-            "Conversation window did not open after clicking workspace",
-          );
+        // 4. In new conversation view: find text field, click it, paste prompt
+        //    Per /antig skill: role=textField, label="text entry area"
+        const convSnapshot = await peekaboo.see(APP_NAME, managerId);
+        const textField = findTextField(convSnapshot.ui_elements);
+
+        if (textField) {
+          await peekaboo.click(APP_NAME, managerId, textField.id, convSnapshot.snapshot_id);
         }
 
-        // 5. Send the initial prompt if provided via launchCommand.
-        //    Click Send button instead of pressing Return (Bug 4).
+        // 5. Paste prompt with workspace path prefix
         if (config.launchCommand) {
-          await peekaboo.paste(APP_NAME, config.launchCommand);
-          await clickSendButton(conversationWindow.window_id);
+          const fullPrompt = buildPromptWithWorkspace(config.launchCommand, config.workspacePath);
+          await peekaboo.paste(APP_NAME, fullPrompt);
+
+          // 6. Press Return to send (NOT click Send button)
+          //    Per /antig skill: "In active conversations, the Send button
+          //    does NOT appear in A11y. Use peekaboo press Return instead."
+          await peekaboo.press(APP_NAME, "Return");
         }
 
-        return conversationWindow.title;
+        // 7. Verify conversation started: check for progress_activity
+        let started = false;
+        for (let i = 0; i < VERIFY_START_RETRIES && !started; i++) {
+          await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
+          const verifySnapshot = await peekaboo.see(APP_NAME, managerId);
+          if (hasProgressActivity(verifySnapshot.ui_elements)) {
+            started = true;
+          }
+        }
+
+        // 8. Handle "Allow this conversation" directory access prompt
+        //    Per /antig skill: blue buttons are web-rendered, use
+        //    screencapture + PIL blue-pixel detection + coordinate click
+        try {
+          await handleAllowPrompt(managerId, managerWindow.bounds);
+        } catch {
+          // Best-effort — prompt may not appear
+        }
+
+        return managerWindow.title;
       };
 
       const result = await executeWithFallback(
@@ -207,23 +315,18 @@ export function createAntigravityRuntime(config?: AntigravityConfig): Runtime {
         fallbackCfg,
       );
 
-      // When peekaboo succeeds, build session from the actual window state.
-      // When fallback was used, create a synthetic session.
+      // Build session — conversations live INSIDE Manager, not separate windows
       let session: AntigravitySession;
       if (!result.fallbackUsed) {
-        // Re-fetch window state to populate session fields
         const postWindows = await peekaboo.windowList(APP_NAME);
         const managerWindow = postWindows.find((w) =>
           w.title.toLowerCase().includes("manager"),
         );
-        const conversationWindow = postWindows.find(
-          (w) => !w.title.toLowerCase().includes("manager"),
-        );
+        // Session windowId = managerWindowId (conversations are inside Manager)
         session = {
-          conversationTitle:
-            conversationWindow?.title ?? result.output,
+          conversationTitle: result.output,
           workspaceName: config.workspacePath,
-          windowId: conversationWindow?.window_id ?? -1,
+          windowId: managerWindow?.window_id ?? -1,
           managerWindowId: managerWindow?.window_id ?? -1,
           status: "running",
           createdAt: Date.now(),
@@ -259,9 +362,6 @@ export function createAntigravityRuntime(config?: AntigravityConfig): Runtime {
         },
       };
 
-      // Start idle detection polling against the Manager window.
-      // Only poll when there's a real onIdle subscriber — avoids wasteful
-      // peekaboo.see() calls when no callback is registered.
       if (config.onIdle) {
         poller.start(handle, session.managerWindowId);
       }
@@ -270,8 +370,7 @@ export function createAntigravityRuntime(config?: AntigravityConfig): Runtime {
     },
 
     async destroy(handle: RuntimeHandle): Promise<void> {
-      // One-shot guard — prevent double-destroy from calling SIGTERM on a
-      // recycled PID. (CodeRabbit #a493466b)
+      // One-shot guard — prevent double-destroy
       if (handle.data["destroyed"] === true) return;
       handle.data["destroyed"] = true;
 
@@ -281,8 +380,7 @@ export function createAntigravityRuntime(config?: AntigravityConfig): Runtime {
       if (!session) return;
 
       try {
-        // Kill fallback CLI process if present — capture and clear PID first so
-        // a second destroy() call is a no-op even if the PID was recycled.
+        // Kill fallback CLI process if present
         if (session.fallbackPid) {
           const fallbackPid = session.fallbackPid;
           session.fallbackPid = undefined;
@@ -293,34 +391,12 @@ export function createAntigravityRuntime(config?: AntigravityConfig): Runtime {
           }
         }
 
-        // For Peekaboo sessions, close the conversation window.
-        // Uses window-scoped see+click to avoid targeting wrong window
-        // in multi-window scenarios (paste/press are app-scoped).
-        if (session.windowId !== -1) {
-          const windows = await peekaboo.windowList(APP_NAME);
-          const conversationWindow = windows.find(
-            (w) => w.window_id === session.windowId,
-          );
-          if (conversationWindow) {
-            const snapshot = await peekaboo.see(
-              APP_NAME,
-              session.windowId,
-            );
-            if (snapshot.ui_elements.length > 0) {
-              await peekaboo.click(
-                APP_NAME,
-                session.windowId,
-                snapshot.ui_elements[0].id,
-                snapshot.snapshot_id,
-              );
-            }
-            await peekaboo.hotkey(APP_NAME, "cmd+w");
-          }
-        }
+        // For Peekaboo sessions: conversations persist in Manager,
+        // no 'close window' action needed. Just mark as idle.
+        // Per /antig skill: conversations live inside Manager window.
       } catch {
-        // Best-effort cleanup — window may already be closed
+        // Best-effort cleanup
       } finally {
-        // Always mark session idle, even if cleanup threw
         session.status = "idle";
       }
 
@@ -337,36 +413,29 @@ export function createAntigravityRuntime(config?: AntigravityConfig): Runtime {
       }
 
       const primaryFn = async (): Promise<string> => {
-        // Use managerWindowId for Manager-based sessions (Bug 5),
-        // fall back to editor windowId for direct sessions.
-        const targetWindow =
-          session.managerWindowId !== -1
-            ? session.managerWindowId
-            : session.windowId;
+        // Always target Manager window — conversations live inside it
+        const targetWindow = session.managerWindowId;
 
         // 1. Take a snapshot to find the text input field
+        //    Per /antig skill: role=textField, label="text entry area"
         const snapshot = await peekaboo.see(APP_NAME, targetWindow);
-        const inputField = snapshot.ui_elements.find(
-          (el) =>
-            el.role === "AXTextArea" ||
-            el.role === "AXTextField" ||
-            el.role === "textField" ||
-            el.role === "textArea",
-        );
+        const textField = findTextField(snapshot.ui_elements);
 
-        if (inputField) {
+        if (textField) {
           // Click the text field to focus it
           await peekaboo.click(
             APP_NAME,
             targetWindow,
-            inputField.id,
+            textField.id,
             snapshot.snapshot_id,
           );
         }
 
-        // 2. Paste the message and click Send button (Bug 4)
+        // 2. Paste the message and press Return
+        //    Per /antig skill: "In active/idle conversations, the Send
+        //    button does NOT appear in A11y. Use peekaboo press Return."
         await peekaboo.paste(APP_NAME, message);
-        await clickSendButton(targetWindow);
+        await peekaboo.press(APP_NAME, "Return");
         return "sent";
       };
 
@@ -403,10 +472,10 @@ export function createAntigravityRuntime(config?: AntigravityConfig): Runtime {
       if (session.windowId === -1) return "";
 
       try {
-        // Read-only snapshot — do NOT wrap in executeWithFallback because
-        // conversation content may contain text that matches error patterns
-        // (e.g. "element not found"), causing false fallback invocations.
-        const snapshot = await peekaboo.see(APP_NAME, session.windowId);
+        // Use Manager window for output capture
+        // Per /antig skill: conversation content is web-rendered,
+        // A11y only gives sidebar buttons. But we capture what we can.
+        const snapshot = await peekaboo.see(APP_NAME, session.managerWindowId);
         const textContent = snapshot.ui_elements
           .filter((el) => el.label || el.title)
           .map((el) => el.label || el.title)
@@ -426,12 +495,11 @@ export function createAntigravityRuntime(config?: AntigravityConfig): Runtime {
         | undefined;
       if (!session) return false;
 
-      // Fallback sessions (windowId === -1): check if CLI process is still alive
+      // Fallback sessions: check if CLI process is still alive
       if (session.windowId === -1) {
         if (session.status !== "running") return false;
         if (session.fallbackPid) {
           try {
-            // Signal 0 checks if process exists without killing it
             process.kill(session.fallbackPid, 0);
             return true;
           } catch {
@@ -443,8 +511,9 @@ export function createAntigravityRuntime(config?: AntigravityConfig): Runtime {
       }
 
       try {
+        // Check if Manager window still exists
         const windows = await peekaboo.windowList(APP_NAME);
-        return windows.some((w) => w.window_id === session.windowId);
+        return windows.some((w) => w.window_id === session.managerWindowId);
       } catch {
         return false;
       }
