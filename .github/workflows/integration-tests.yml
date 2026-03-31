@@ -44,7 +44,14 @@ jobs:
         run: npm install -g @openai/codex
 
       - name: Install Aider
-        run: pip install aider-chat
+        id: install-aider
+        run: |
+          if pip install aider-chat; then
+            echo "aider_available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::Aider install failed — Aider integration tests will be skipped"
+            echo "aider_available=false" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Install OpenCode
         run: npm install -g opencode-ai
