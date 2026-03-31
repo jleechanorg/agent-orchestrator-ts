@@ -2048,6 +2048,62 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       // auto-merge retry block also has access when newStatus === "mergeable").
       const project = config.projects[session.projectId];
 
+      // wc-zsw: first-seen skeptic dispatch — when lifecycle-manager first polls a
+      // session whose agent already wrote "pr_open" to metadata (before lifecycle-manager
+      // started watching), the transition block never fires because oldStatus (from
+      // metadata) already equals newStatus for that specific case, or the transition
+      // fires as pr_open → ci_failed without matching the pr_open-only skeptic guard.
+      // Here in the no-transition path we catch sessions we have never tracked before.
+      if (tracked === undefined && newStatus === "pr_open") {
+        const completionReactionKey = "worker-signals-completion";
+        const completionReactionConfig = getReactionConfigForSession(session, completionReactionKey);
+        if (completionReactionConfig?.action && completionReactionConfig.auto !== false) {
+          let reactionSuccess = false;
+          try {
+            const result = await executeReaction(
+              session.id,
+              session.projectId,
+              completionReactionKey,
+              completionReactionConfig,
+              session,
+              createCorrelationId("skeptic-first-seen"),
+            );
+            reactionSuccess = Boolean(result?.success);
+          } catch {
+            reactionSuccess = false;
+          }
+          // Record SHA on success so SHA-change re-trigger path can detect future pushes.
+          if (reactionSuccess && session.pr) {
+            const scm = project?.scm ? registry.get<SCM>("scm", project.scm.plugin) : null;
+            if (scm?.getPRHeadSha) {
+              try {
+                const sha = await scm.getPRHeadSha(session.pr);
+                lastSkepticSha.set(session.id, sha);
+              } catch {
+                // Non-fatal
+              }
+            }
+            // wc-zsw companion: also dispatch claim-verification after first-seen skeptic.
+            const claimReactionKey = "claim-verification";
+            const claimReactionConfig = getReactionConfigForSession(session, claimReactionKey);
+            if (claimReactionConfig?.action && claimReactionConfig.auto !== false) {
+              try {
+                await executeReaction(
+                  session.id,
+                  session.projectId,
+                  claimReactionKey,
+                  claimReactionConfig,
+                  session,
+                  createCorrelationId("claim-verification-first-seen"),
+                );
+              } catch {
+                // Non-fatal
+              }
+            }
+          }
+        }
+      }
+
       // bd-qnj6: re-trigger skeptic evaluation when HEAD SHA changes on an
       // already-open PR. The pr_open transition fires skeptic once, but subsequent
       // pushes (GHA synchronize events) don't cause a status transition — the
@@ -2056,9 +2112,12 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       // re-fires skeptic.
       // bd-lg7i: also re-triggers for review_pending — determineStatus can hold a
       // session in review_pending after a synchronize event, which would also timeout.
+      // wc-zsw: also re-triggers for ci_failed — sessions first polled in ci_failed
+      // (skipped by the transition block's pr_open guard) need SHA-change coverage too.
       if (
         (
           newStatus === "pr_open" ||
+          newStatus === "ci_failed" ||
           newStatus === "review_pending" ||
           newStatus === "changes_requested" ||
           newStatus === "approved" ||
