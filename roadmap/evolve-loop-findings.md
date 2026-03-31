@@ -149,3 +149,14 @@ Only Test + Lint are in branch protection. Docker runner failures are non-blocki
 - bd-az35 status → done
 - bd-8khr status → done (Skeptic Gate now required branch protection check!)
 - bd-5gl → ao-1690 spawned (merge executor)
+
+## 2026-03-31 01:02 cycle
+
+### Zero-touch rate: 100% (19/19 — trend: →)
+### Zombies killed: ao-1687(PR#215), ao-1686(PR#215) — bd-pfx worker got wrong PR
+### Workers: 19 alive → 17 after zombie kill
+### Open PRs: 3
+- #316: CR CHANGES_REQUESTED, 24 unresolved, Skeptic FAIL — ao-1681 active
+- #318: CR CHANGES_REQUESTED, 15 unresolved, Skeptic FAIL — ao-1629 active (54% ctx)
+- #322: CR APPROVED, 4 unresolved, Skeptic **PASS** → 6/7-green, ao-1657 nudged to resolve threads
+### Actions: Nudged ao-1657 to resolve 4 specific unresolved threads in PR #322
