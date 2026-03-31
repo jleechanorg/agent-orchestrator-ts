@@ -136,3 +136,16 @@ Only Test + Lint are in branch protection. Docker runner failures are non-blocki
 - ao-1680(bd-orch2v3) dead → ao-1686 spawned (ao send missing Enter)
 ### New dispatch: ao-1687 for bd-pfx (enforce [agento] prefix at code level)
 ### P0 beads without workers: bd-1lni, bd-866a, bd-vpzh, bd-io8q (deferred — skeptic PRs in flight)
+
+## 2026-03-31 00:59 cycle
+
+### Zero-touch rate: 100% (18/18 — trend: →)
+### Merged this cycle: PR #320 (SHA dedup skeptic-cron, bd-az35)
+### Workers: 19 alive, 0 dead, 0 stuck
+### Open PRs: 3 (#316 CR:CHANGES_REQUESTED 24 threads, #318 CR:CHANGES_REQUESTED 15 threads, #322 CR:APPROVED 4 unresolved Skeptic:FAIL)
+### Actions taken:
+- ao-1647 + ao-1672 killed (zombie on merged PR #320)
+- PR #320 Evidence section added inline (was missing — caused Evidence Gate failure)
+- bd-az35 status → done
+- bd-8khr status → done (Skeptic Gate now required branch protection check!)
+- bd-5gl → ao-1690 spawned (merge executor)
