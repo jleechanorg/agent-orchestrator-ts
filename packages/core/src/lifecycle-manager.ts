@@ -389,7 +389,7 @@ export async function triggerSkepticReactionImpl(
     }
   }
 
-  return reactionSuccess;
+  return handled;
 }
 
 /** Create a LifecycleManager instance. */
