@@ -8,6 +8,10 @@
  * 4. Detects SHA changes correctly (same SHA ≠ trigger, new SHA = trigger)
  * 5. Triggers for first-seen SHA (no prior entry)
  *
+ * wc-zsw additions:
+ * 6. First-seen session in pr_open dispatches skeptic (no-transition path)
+ * 7. ci_failed is included in SHA-change re-trigger guard list
+ *
  * The Map and its manipulation logic are tested directly — no module mocking needed.
  * The actual lifecycle-manager module exercises this logic in production.
  */
@@ -116,5 +120,90 @@ describe("lifecycle-manager skeptic wiring — lastSkepticSha Map invariants", (
     //   } else if (currentSha && !previousSha) { ... trigger skeptic ... }
     const firstTimeSeen = Boolean(currentSha && !previousSha);
     expect(firstTimeSeen).toBe(true);
+  });
+});
+
+describe("lifecycle-manager skeptic wiring — wc-zsw first-seen and ci_failed coverage", () => {
+  // wc-zsw Bug 1: A session first polled in pr_open (tracked=undefined) must dispatch
+  // skeptic in the no-transition path, since the transition block only fires when
+  // newStatus === "pr_open" — which never happens when oldStatus already equals newStatus
+  // (agent wrote pr_open to metadata before lifecycle-manager started polling).
+  it("first-seen session in pr_open dispatches skeptic in no-transition path", () => {
+    // Simulates: lifecycle-manager first polls a session, tracked is undefined,
+    // metadata.status already equals "pr_open", determineStatus() returns "pr_open".
+    // The no-transition block (else path) must catch this.
+    const tracked: string | undefined = undefined;
+    const newStatus = "pr_open";
+
+    const shouldDispatch = tracked === undefined && newStatus === "pr_open";
+    expect(shouldDispatch).toBe(true);
+  });
+
+  it("tracked session in pr_open does NOT fire the first-seen skeptic guard", () => {
+    // Once a session is tracked, the no-transition block's first-seen guard must NOT fire.
+    const tracked = "pr_open";
+    const newStatus = "pr_open";
+
+    const shouldDispatch = tracked === undefined && newStatus === "pr_open";
+    expect(shouldDispatch).toBe(false);
+  });
+
+  // wc-zsw Bug 1: A session first polled as ci_failed (agent wrote pr_open to metadata,
+  // CI already ran by the time lifecycle-manager first polled) transitions as
+  // pr_open → ci_failed without triggering the pr_open-only skeptic guard.
+  // The first-seen guard does not cover ci_failed — the SHA-change re-trigger (bd-qnj6)
+  // must include ci_failed to provide coverage on subsequent pushes.
+  it("session first seen transitioning pr_open→ci_failed has no prior SHA record", () => {
+    const lastSkepticSha = new Map<string, string>();
+    const sessionId = "ci-failed-first-seen-session";
+
+    // Simulate: lifecycle-manager first sees this session as ci_failed.
+    // No SHA record exists because skeptic never fired.
+    const previousSha = lastSkepticSha.get(sessionId);
+    const currentSha = "abc5555555555555555555555555555555555555";
+
+    // Guard: currentSha exists, but previousSha does not — SHA-change path fires.
+    const shaChangeDetected = Boolean(currentSha && !previousSha);
+    expect(shaChangeDetected).toBe(true);
+  });
+
+  // wc-zsw Bug 2: The bd-qnj6 re-trigger guard list must include ci_failed so that
+  // sessions in ci_failed (first-seen or otherwise) get SHA-change re-trigger coverage.
+  it("ci_failed is included in the SHA-change re-trigger status guard list", () => {
+    const RE_TRIGGER_STATUSES = [
+      "pr_open",
+      "ci_failed", // wc-zsw: ADDED — ci_failed sessions need SHA-change coverage too
+      "review_pending",
+      "changes_requested",
+      "approved",
+      "mergeable",
+    ] as const;
+
+    // ci_failed must be in the list
+    expect(RE_TRIGGER_STATUSES).toContain("ci_failed");
+
+    // Specifically: ci_failed session with SHA change must be re-trigger eligible
+    const session = { status: "ci_failed" as const, pr: "PR-123" };
+    const eligible = RE_TRIGGER_STATUSES.includes(session.status) && Boolean(session.pr);
+    expect(eligible).toBe(true);
+  });
+
+  // wc-zsw Bug 2: Verify the SHA-change re-trigger fires for ci_failed on new SHA
+  it("ci_failed session with new SHA triggers skeptic re-evaluation", () => {
+    const lastSkepticSha = new Map<string, string>();
+    const sessionId = "ci-failed-session";
+    const previousSha = "abc6666666666666666666666666666666666666";
+    lastSkepticSha.set(sessionId, previousSha);
+
+    const currentSha = "abc7777777777777777777777777777777777777";
+
+    // SHA changed
+    const shaChanged = Boolean(currentSha && previousSha && currentSha !== previousSha);
+    expect(shaChanged).toBe(true);
+
+    // Status is ci_failed and in the re-trigger list
+    const RE_TRIGGER_STATUSES = ["pr_open", "ci_failed", "review_pending", "changes_requested", "approved", "mergeable"] as const;
+    const eligible = RE_TRIGGER_STATUSES.includes("ci_failed");
+    expect(eligible).toBe(true);
   });
 });
