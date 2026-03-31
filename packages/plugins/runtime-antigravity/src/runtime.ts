@@ -23,8 +23,9 @@ import * as peekaboo from "./peekaboo.js";
 import { executeWithFallback, type FallbackConfig } from "./fallback.js";
 import { createPoller } from "./poller.js";
 import { runPreflight } from "./preflight.js";
-import type { AntigravitySession, PeekabooUIElement } from "./types.js";
+import type { AntigravitySession, PeekabooUIElement, PeekabooSeeResult } from "./types.js";
 import { defaultConfig, type AntigravityConfig } from "./config.js";
+import { CdpClient } from "./cdp-client.js";
 
 /** Application name for Peekaboo targeting. */
 const APP_NAME = "Antigravity";
@@ -210,6 +211,14 @@ export function createAntigravityRuntime(config?: AntigravityConfig): Runtime {
     name: "antigravity",
 
     async create(config: RuntimeCreateConfig): Promise<RuntimeHandle> {
+      let cdpClient: CdpClient | undefined;
+      try {
+        // Attempt CDP connection first
+        cdpClient = await CdpClient.connect();
+      } catch {
+        // Fallback to peekaboo if CDP is not available
+      }
+
       const fallbackCfg: Partial<FallbackConfig> = {
         cliBin: runtimeConfig.fallbackCliBin,
         cliFlags: runtimeConfig.fallbackCliFlags,
@@ -278,12 +287,30 @@ export function createAntigravityRuntime(config?: AntigravityConfig): Runtime {
         // 5. Paste prompt with workspace path prefix
         if (config.launchCommand) {
           const fullPrompt = buildPromptWithWorkspace(config.launchCommand, config.workspacePath);
-          await peekaboo.paste(APP_NAME, fullPrompt);
+          
+          if (cdpClient) {
+            await cdpClient.evaluateInAntigravity(`
+              const el = document.querySelector('textarea, [contenteditable="true"], input[type="text"]');
+              if (el) {
+                if (el.tagName === 'TEXTAREA' || el.tagName === 'INPUT') {
+                  el.value = ${JSON.stringify(fullPrompt)};
+                  el.dispatchEvent(new Event('input', { bubbles: true }));
+                } else {
+                  el.innerText = ${JSON.stringify(fullPrompt)};
+                  el.dispatchEvent(new Event('input', { bubbles: true }));
+                }
+              }
+              const sendBtn = document.querySelector('button[aria-label*="Send" i], button[type="submit"]');
+              if (sendBtn) sendBtn.click();
+            `);
+          } else {
+            await peekaboo.paste(APP_NAME, fullPrompt);
 
-          // 6. Press Return to send (NOT click Send button)
-          //    Per /antig skill: "In active conversations, the Send button
-          //    does NOT appear in A11y. Use peekaboo press Return instead."
-          await peekaboo.press(APP_NAME, "Return");
+            // 6. Press Return to send (NOT click Send button)
+            //    Per /antig skill: "In active conversations, the Send button
+            //    does NOT appear in A11y. Use peekaboo press Return instead."
+            await peekaboo.press(APP_NAME, "Return");
+          }
         }
 
         // 7. Verify conversation started: check for progress_activity
@@ -358,6 +385,7 @@ export function createAntigravityRuntime(config?: AntigravityConfig): Runtime {
           workspacePath: config.workspacePath,
           session,
           fallbackUsed: result.fallbackUsed,
+          cdpClient, // Store active CDP client for other methods
           ...(config.onIdle && { onIdle: config.onIdle }),
         },
       };
@@ -412,7 +440,28 @@ export function createAntigravityRuntime(config?: AntigravityConfig): Runtime {
         throw new Error("No session data in handle — was create() called?");
       }
 
+      const cdpClient = handle.data["cdpClient"] as CdpClient | undefined;
+
       const primaryFn = async (): Promise<string> => {
+        if (cdpClient && cdpClient.isConnected()) {
+          // Use CDP to send message directly to DOM
+          await cdpClient.evaluateInAntigravity(`
+            const el = document.querySelector('textarea, [contenteditable="true"], input[type="text"]');
+            if (el) {
+              if (el.tagName === 'TEXTAREA' || el.tagName === 'INPUT') {
+                el.value = ${JSON.stringify(message)};
+                el.dispatchEvent(new Event('input', { bubbles: true }));
+              } else {
+                el.innerText = ${JSON.stringify(message)};
+                el.dispatchEvent(new Event('input', { bubbles: true }));
+              }
+            }
+            const sendBtn = document.querySelector('button[aria-label*="Send" i], button[type="submit"]');
+            if (sendBtn) sendBtn.click();
+          `);
+          return "sent";
+        }
+
         // Always target Manager window — conversations live inside it
         const targetWindow = session.managerWindowId;
 
@@ -471,7 +520,15 @@ export function createAntigravityRuntime(config?: AntigravityConfig): Runtime {
       // For fallback sessions, no window to snapshot
       if (session.windowId === -1) return "";
 
+      const cdpClient = handle.data["cdpClient"] as CdpClient | undefined;
+
       try {
+        if (cdpClient && cdpClient.isConnected()) {
+          const textContent = await cdpClient.getConversationText();
+          const allLines = textContent.split("\n");
+          return allLines.slice(-lines).join("\n");
+        }
+
         // Use Manager window for output capture
         // Per /antig skill: conversation content is web-rendered,
         // A11y only gives sidebar buttons. But we capture what we can.
