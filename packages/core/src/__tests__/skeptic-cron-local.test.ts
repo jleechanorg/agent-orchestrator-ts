@@ -2,6 +2,8 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
   runLocalSkepticCron,
   _resetSkepticCronTimer,
+  _resetSkepticDedupMap,
+  _getLastEvaluatedSha,
 } from "../skeptic-cron-local.js";
 import type {
   Session,
@@ -69,7 +71,8 @@ function makeProject(overrides: Partial<ProjectConfig> = {}): ProjectConfig {
 
 function makeDeps() {
   const listOpenPRs = vi.fn<[ProjectConfig], Promise<PRInfo[]>>();
-  const mockSCM: Partial<SCM> = { listOpenPRs };
+  const getPRHeadSha = vi.fn<(pr: PRInfo) => Promise<string>>();
+  const mockSCM: Partial<SCM> = { listOpenPRs, getPRHeadSha };
   const registry = {
     get: vi.fn().mockReturnValue(mockSCM),
   } as unknown as PluginRegistry;
@@ -77,13 +80,14 @@ function makeDeps() {
   const observer = {
     recordOperation: vi.fn(),
   } as unknown as ProjectObserver;
-  return { registry, sessionManager, observer, listOpenPRs };
+  return { registry, sessionManager, observer, listOpenPRs, getPRHeadSha };
 }
 
 // --- Tests ---
 describe("runLocalSkepticCron", () => {
   beforeEach(() => {
     _resetSkepticCronTimer();
+    _resetSkepticDedupMap();
     mockRunSkepticReview.mockReset();
     vi.restoreAllMocks();
   });
@@ -330,6 +334,264 @@ describe("runLocalSkepticCron", () => {
 
     expect(result).toBe(0);
   });
+
+  // -------------------------------------------------------------------------
+  // SHA-based dedup tests
+  // -------------------------------------------------------------------------
+
+  it("stores SHA in dedup map after successful evaluation", async () => {
+    const { registry, sessionManager, observer, listOpenPRs, getPRHeadSha } = makeDeps();
+    const pr = makePR({ number: 10 });
+    listOpenPRs.mockResolvedValue([pr]);
+    getPRHeadSha.mockResolvedValue("sha-abc123");
+    mockRunSkepticReview.mockResolvedValue({
+      verdict: "PASS",
+      modelUsed: "claude",
+    } as SkepticReviewResult);
+
+    const result = await runLocalSkepticCron(
+      { registry, sessionManager, observer },
+      { projectId: "proj", project: makeProject(), activeSessions: [], correlationId: "c-sha" },
+    );
+
+    expect(result).toBe(1);
+    expect(_getLastEvaluatedSha("proj", 10)).toBe("sha-abc123");
+  });
+
+  it("second call with same SHA is skipped (sha_dedup_skip logged)", async () => {
+    const { registry, sessionManager, observer, listOpenPRs, getPRHeadSha } = makeDeps();
+    const pr = makePR({ number: 10 });
+    listOpenPRs.mockResolvedValue([pr]);
+    getPRHeadSha.mockResolvedValue("sha-abc123");
+    mockRunSkepticReview.mockResolvedValue({
+      verdict: "PASS",
+      modelUsed: "claude",
+    } as SkepticReviewResult);
+
+    // First call
+    await runLocalSkepticCron(
+      { registry, sessionManager, observer },
+      { projectId: "proj", project: makeProject(), activeSessions: [], correlationId: "c1" },
+    );
+
+    // Reset project-level throttle so second call with same projectId can run
+    _resetSkepticCronTimer();
+    // Same projectId, same SHA → SHA dedup should skip
+    mockRunSkepticReview.mockClear();
+    const second = await runLocalSkepticCron(
+      { registry, sessionManager, observer },
+      { projectId: "proj", project: makeProject(), activeSessions: [], correlationId: "c2" },
+    );
+
+    expect(second).toBe(0); // skipped by SHA dedup
+    expect(mockRunSkepticReview).toHaveBeenCalledTimes(0);
+    expect(observer.recordOperation).toHaveBeenCalledWith(
+      expect.objectContaining({ operation: "skeptic.cron.sha_dedup_skip" }),
+    );
+  });
+
+  it("re-evaluates same SHA from different projectId after first run stores SHA", async () => {
+    const { registry, sessionManager, observer, listOpenPRs, getPRHeadSha } = makeDeps();
+    const pr = makePR({ number: 10 });
+    listOpenPRs.mockResolvedValue([pr]);
+    getPRHeadSha.mockResolvedValue("sha-abc123");
+    mockRunSkepticReview.mockResolvedValue({
+      verdict: "PASS",
+      modelUsed: "claude",
+    } as SkepticReviewResult);
+
+    // First call stores sha-abc123
+    await runLocalSkepticCron(
+      { registry, sessionManager, observer },
+      { projectId: "proj", project: makeProject(), activeSessions: [], correlationId: "c1" },
+    );
+
+    // Different projectId bypasses throttle; different SHA → no dedup, evaluate
+    getPRHeadSha.mockResolvedValue("sha-def456");
+    mockRunSkepticReview.mockClear();
+    mockRunSkepticReview.mockResolvedValue({
+      verdict: "PASS",
+      modelUsed: "claude",
+    } as SkepticReviewResult);
+
+    const second = await runLocalSkepticCron(
+      { registry, sessionManager, observer },
+      { projectId: "proj-2", project: makeProject(), activeSessions: [], correlationId: "c2" },
+    );
+
+    expect(second).toBe(1);
+    expect(mockRunSkepticReview).toHaveBeenCalledTimes(1);
+    expect(_getLastEvaluatedSha("proj-2", 10)).toBe("sha-def456");
+  });
+
+  it("same projectId, new SHA triggers re-evaluation (throttle reset)", async () => {
+    const { registry, sessionManager, observer, listOpenPRs, getPRHeadSha } = makeDeps();
+    const pr = makePR({ number: 10 });
+    listOpenPRs.mockResolvedValue([pr]);
+    getPRHeadSha.mockResolvedValue("sha-abc123");
+    mockRunSkepticReview.mockResolvedValue({
+      verdict: "PASS",
+      modelUsed: "claude",
+    } as SkepticReviewResult);
+
+    // First call stores sha-abc123
+    await runLocalSkepticCron(
+      { registry, sessionManager, observer },
+      { projectId: "proj", project: makeProject(), activeSessions: [], correlationId: "c1" },
+    );
+
+    // Reset throttle — same projectId, NEW SHA → should re-evaluate
+    _resetSkepticCronTimer();
+    getPRHeadSha.mockResolvedValue("sha-def456");
+    mockRunSkepticReview.mockClear();
+    mockRunSkepticReview.mockResolvedValue({
+      verdict: "PASS",
+      modelUsed: "claude",
+    } as SkepticReviewResult);
+
+    const second = await runLocalSkepticCron(
+      { registry, sessionManager, observer },
+      { projectId: "proj", project: makeProject(), activeSessions: [], correlationId: "c2" },
+    );
+
+    expect(second).toBe(1); // re-evaluated, not skipped
+    expect(mockRunSkepticReview).toHaveBeenCalledTimes(1);
+    expect(_getLastEvaluatedSha("proj", 10)).toBe("sha-def456"); // updated to new SHA
+  });
+
+  it("fail-open: evaluates when getPRHeadSha throws", async () => {
+    const { registry, sessionManager, observer, listOpenPRs, getPRHeadSha } = makeDeps();
+    const pr = makePR({ number: 10 });
+    listOpenPRs.mockResolvedValue([pr]);
+    getPRHeadSha.mockRejectedValue(new Error("network failure"));
+    mockRunSkepticReview.mockResolvedValue({
+      verdict: "PASS",
+      modelUsed: "claude",
+    } as SkepticReviewResult);
+
+    const result = await runLocalSkepticCron(
+      { registry, sessionManager, observer },
+      { projectId: "proj", project: makeProject(), activeSessions: [], correlationId: "c-sha" },
+    );
+
+    expect(result).toBe(1);
+    expect(mockRunSkepticReview).toHaveBeenCalledTimes(1);
+    expect(_getLastEvaluatedSha("proj", 10)).toBeUndefined(); // no SHA stored
+    expect(observer.recordOperation).not.toHaveBeenCalledWith(
+      expect.objectContaining({ operation: "skeptic.cron.sha_dedup_skip" }),
+    );
+  });
+
+  it("throw: runSkepticReview rejection does not store SHA — allows retry", async () => {
+    const { registry, sessionManager, observer, listOpenPRs, getPRHeadSha } = makeDeps();
+    const pr = makePR({ number: 10 });
+    listOpenPRs.mockResolvedValue([pr]);
+    getPRHeadSha.mockResolvedValue("sha-abc123");
+    // LLM call fails — SHA must NOT be cached so next cycle retries
+    mockRunSkepticReview.mockRejectedValue(new Error("LLM timeout"));
+
+    const result = await runLocalSkepticCron(
+      { registry, sessionManager, observer },
+      { projectId: "proj", project: makeProject(), activeSessions: [], correlationId: "c-throw" },
+    );
+
+    expect(result).toBe(0); // eval failed, not skipped
+    expect(_getLastEvaluatedSha("proj", 10)).toBeUndefined(); // SHA NOT cached
+    expect(observer.recordOperation).toHaveBeenCalledWith(
+      expect.objectContaining({ operation: "skeptic.cron.pr_failed" }),
+    );
+  });
+
+  it("throw then success: rejection skips SHA cache, subsequent run stores SHA", async () => {
+    const { registry, sessionManager, observer, listOpenPRs, getPRHeadSha } = makeDeps();
+    const pr = makePR({ number: 10 });
+    listOpenPRs.mockResolvedValue([pr]);
+    getPRHeadSha.mockResolvedValue("sha-abc123");
+
+    // First run: LLM call fails — SHA must NOT be cached
+    mockRunSkepticReview.mockRejectedValue(new Error("LLM timeout"));
+    await runLocalSkepticCron(
+      { registry, sessionManager, observer },
+      { projectId: "proj", project: makeProject(), activeSessions: [], correlationId: "c-throw-1" },
+    );
+    expect(_getLastEvaluatedSha("proj", 10)).toBeUndefined(); // SHA NOT cached
+
+    // Second run: LLM succeeds — SHA should now be stored
+    _resetSkepticCronTimer();
+    mockRunSkepticReview.mockClear();
+    mockRunSkepticReview.mockResolvedValue({
+      verdict: "PASS",
+      modelUsed: "claude",
+    } as SkepticReviewResult);
+
+    const result = await runLocalSkepticCron(
+      { registry, sessionManager, observer },
+      { projectId: "proj", project: makeProject(), activeSessions: [], correlationId: "c-throw-2" },
+    );
+
+    expect(result).toBe(1); // re-evaluated, not skipped
+    expect(mockRunSkepticReview).toHaveBeenCalledTimes(1);
+    expect(_getLastEvaluatedSha("proj", 10)).toBe("sha-abc123"); // SHA NOW cached
+  });
+
+  it("fail-open: evaluates when SCM has no getPRHeadSha", async () => {
+    const listOpenPRs = vi.fn<[ProjectConfig], Promise<PRInfo[]>>();
+    const mockSCMWithout: Partial<SCM> = { listOpenPRs };
+    const registry = {
+      get: vi.fn().mockReturnValue(mockSCMWithout),
+    } as unknown as PluginRegistry;
+    const observer = { recordOperation: vi.fn() } as unknown as ProjectObserver;
+    const sessionManager = {} as SessionManager;
+    listOpenPRs.mockResolvedValue([makePR({ number: 10 })]);
+    mockRunSkepticReview.mockResolvedValue({
+      verdict: "PASS",
+      modelUsed: "claude",
+    } as SkepticReviewResult);
+
+    const result = await runLocalSkepticCron(
+      { registry, sessionManager, observer },
+      { projectId: "proj", project: makeProject(), activeSessions: [], correlationId: "c-sha" },
+    );
+
+    expect(result).toBe(1);
+    expect(_getLastEvaluatedSha("proj", 10)).toBeUndefined();
+  });
+
+  it("different projectId has independent SHA dedup state", async () => {
+    const { registry, sessionManager, observer, listOpenPRs, getPRHeadSha } = makeDeps();
+    listOpenPRs.mockResolvedValue([makePR({ number: 10 })]);
+    getPRHeadSha.mockResolvedValue("sha-abc123");
+    mockRunSkepticReview.mockResolvedValue({
+      verdict: "PASS",
+      modelUsed: "claude",
+    } as SkepticReviewResult);
+
+    await runLocalSkepticCron(
+      { registry, sessionManager, observer },
+      { projectId: "proj-a", project: makeProject(), activeSessions: [], correlationId: "c1" },
+    );
+
+    // Different project with same SHA — should NOT skip (independent cache key)
+    mockRunSkepticReview.mockClear();
+    mockRunSkepticReview.mockResolvedValue({
+      verdict: "PASS",
+      modelUsed: "claude",
+    } as SkepticReviewResult);
+
+    const result = await runLocalSkepticCron(
+      { registry, sessionManager, observer },
+      { projectId: "proj-b", project: makeProject(), activeSessions: [], correlationId: "c2" },
+    );
+
+    expect(result).toBe(1);
+    expect(mockRunSkepticReview).toHaveBeenCalledTimes(1);
+    expect(_getLastEvaluatedSha("proj-b", 10)).toBe("sha-abc123");
+    expect(_getLastEvaluatedSha("proj-a", 10)).toBe("sha-abc123"); // also stored for proj-a
+  });
+
+  // -------------------------------------------------------------------------
+  // Original tests
+  // -------------------------------------------------------------------------
 
   it("returns 0 when no open PRs", async () => {
     const { registry, sessionManager, observer, listOpenPRs } = makeDeps();

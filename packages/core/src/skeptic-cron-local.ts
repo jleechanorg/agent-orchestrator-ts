@@ -46,12 +46,46 @@ const lastSkepticCronTimeByProject = new Map<string, number>();
 // Without this, two overlapping calls could both pass the throttle check
 // before either sets lastSkepticCronTimeByProject, bypassing the interval.
 const pendingSkepticCronByProject = new Set<string>();
+
+/** Simple bounded Map that evicts the oldest entry when max capacity is reached. */
+class BoundedMap<K, V> extends Map<K, V> {
+  constructor(private readonly maxSize: number) {
+    super();
+  }
+
+  override set(key: K, value: V): this {
+    // Only evict when inserting a new key and we've reached capacity.
+    if (!this.has(key) && this.size >= this.maxSize) {
+      const firstKey = this.keys().next().value as K | undefined;
+      if (firstKey !== undefined) {
+        this.delete(firstKey);
+      }
+    }
+    return super.set(key, value);
+  }
+}
+
+// Per-PR SHA dedup — keyed by `${projectId}:${prNumber}`.
+// Skips re-evaluation when HEAD SHA hasn't changed since last verdict.
+// Bounded to avoid unbounded growth in long-running lifecycle workers.
+const MAX_SKEPTIC_DEDUP_ENTRIES = 10_000;
+const lastEvaluatedShaByPR = new BoundedMap<string, string>(MAX_SKEPTIC_DEDUP_ENTRIES);
 const SKEPTIC_CRON_INTERVAL_MS = 10 * 60_000; // 10 minutes
 
-/** Reset throttle state — exposed for testing only. */
+/** Reset throttle + pending state — exposed for testing only. */
 export function _resetSkepticCronTimer(): void {
   lastSkepticCronTimeByProject.clear();
   pendingSkepticCronByProject.clear();
+}
+
+/** Reset SHA dedup map — exposed for testing only. */
+export function _resetSkepticDedupMap(): void {
+  lastEvaluatedShaByPR.clear();
+}
+
+/** Returns the stored SHA for a PR cache key — exposed for testing only. */
+export function _getLastEvaluatedSha(projectId: string, prNumber: number): string | undefined {
+  return lastEvaluatedShaByPR.get(`${projectId}:${prNumber}`);
 }
 
 /**
@@ -150,6 +184,26 @@ export async function runLocalSkepticCron(
     const session = sessionByPR.get(`${projectId}:${pr.number}`)
       ?? createSyntheticSession(pr, projectId, project.path ?? null);
 
+    const cacheKey = `${projectId}:${pr.number}`;
+    let headSha: string | undefined;
+    try {
+      headSha = await scm?.getPRHeadSha?.(pr);
+    } catch {
+      // getPRHeadSha unavailable or threw — fail open, evaluate normally
+    }
+    if (headSha && lastEvaluatedShaByPR.get(cacheKey) === headSha) {
+      observer.recordOperation({
+        metric: "lifecycle_poll",
+        operation: "skeptic.cron.sha_dedup_skip",
+        outcome: "success",
+        correlationId,
+        projectId,
+        data: { prNumber: pr.number, headSha },
+        level: "info",
+      });
+      continue;
+    }
+
     try {
       observer.recordOperation({
         metric: "lifecycle_poll",
@@ -179,6 +233,11 @@ export async function runLocalSkepticCron(
         },
         level: result.verdict === "FAIL" ? "warn" : "info",
       });
+
+      // Cache the SHA so the same HEAD is not re-evaluated unless the SHA changes
+      // or a new cycle bypasses the project-level throttle. FAIL verdicts are also
+      // cached — only uncaught throws skip caching (allowing retry on next cycle).
+      if (headSha) lastEvaluatedShaByPR.set(cacheKey, headSha);
 
       evaluated++;
     } catch (err) {
