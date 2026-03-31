@@ -10,13 +10,8 @@ function makeMinimalPR(overrides: Partial<PRInfo> = {}): PRInfo {
     state: "open",
     isDraft: false,
     baseRefName: "main",
-    headRefName: "feat/auth",
+    headRefOid: "abc1234",
     body: "## Summary\nAdds JWT auth middleware.\n\nCloses #122",
-    url: "https://github.com/jleechanorg/agent-orchestrator/pull/123",
-    owner: "jleechanorg",
-    repo: "agent-orchestrator",
-    branch: "feat/auth",
-    baseBranch: "main",
     ...overrides,
   };
 }
@@ -24,7 +19,10 @@ function makeMinimalPR(overrides: Partial<PRInfo> = {}): PRInfo {
 function makePassingState(overrides: Partial<MergeGateState> = {}): MergeGateState {
   return {
     ciPassing: true,
+    ciRawState: "success",
+    checkRuns: [],
     noConflicts: true,
+    mergeableRaw: true,
     crApproved: true,
     crState: "APPROVED",
     crDismissedWithoutApproval: false,
@@ -33,6 +31,7 @@ function makePassingState(overrides: Partial<MergeGateState> = {}): MergeGateSta
     evidenceRequired: false,
     evidenceApproved: false,
     skepticVerdict: null,
+    skepticCommentId: null,
     ...overrides,
   };
 }
@@ -40,7 +39,10 @@ function makePassingState(overrides: Partial<MergeGateState> = {}): MergeGateSta
 function makeFailingState(overrides: Partial<MergeGateState> = {}): MergeGateState {
   return {
     ciPassing: false,
+    ciRawState: "failure",
+    checkRuns: [],
     noConflicts: true,
+    mergeableRaw: true,
     crApproved: false,
     crState: "CHANGES_REQUESTED",
     crDismissedWithoutApproval: false,
@@ -49,6 +51,7 @@ function makeFailingState(overrides: Partial<MergeGateState> = {}): MergeGateSta
     evidenceRequired: false,
     evidenceApproved: false,
     skepticVerdict: null,
+    skepticCommentId: null,
     ...overrides,
   };
 }
