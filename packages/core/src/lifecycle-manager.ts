@@ -341,7 +341,7 @@ export async function triggerSkepticReactionImpl(
     return false;
   }
 
-  let reactionSuccess = false;
+  let reactionSuccess: boolean;
   try {
     const result = await executeReaction(
       session.id,

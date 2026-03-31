@@ -81,6 +81,7 @@ function makeConfig(
         name: "test-project",
         path: "/tmp",
         agent: { plugin: "agent-claude-code" },
+        scm: { plugin: "github" },
       },
     },
   } as unknown as OrchestratorConfig;
