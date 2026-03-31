@@ -2058,7 +2058,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         const completionReactionKey = "worker-signals-completion";
         const completionReactionConfig = getReactionConfigForSession(session, completionReactionKey);
         if (completionReactionConfig?.action && completionReactionConfig.auto !== false) {
-          let reactionSuccess = false;
+          let reactionSuccess: boolean;
           try {
             const result = await executeReaction(
               session.id,
