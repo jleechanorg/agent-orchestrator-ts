@@ -8,15 +8,15 @@
 
 ## Summary
 
-Scanned ~200+ TypeScript source files across all packages. Found **7 actionable findings** across 3 categories.
+Scanned ~200+ TypeScript source files across all packages. Found **5 actionable findings** across 3 categories (Findings 3 and 5 withdrawn per CR review).
 
 | # | Category | Severity | File(s) |
 |---|---|---|---|
 | 1 | cleanup | **HIGH** | `scm-github/src/gh-cache.ts` — unused class, 184 lines |
 | 2 | composio-collision | **HIGH** | `scm-github/src/index.ts:1969–` — `getPendingComments` has no REST fallback |
-| 3 | cleanup | **MEDIUM** | `notifier-composio/src/index.ts:26` — dead config field `APP_TOOL_SLUG` |
+| 3 | ~~cleanup~~ | ~~MEDIUM~~ | ~~notifier-composio: `APP_TOOL_SLUG`~~ — withdrawn: constant is live (used in `notify`/`notifyWithActions`/`post`) |
 | 4 | cleanup | **MEDIUM** | `notifier-composio/src/index.ts:273` — `post()` always returns `null` |
-| 5 | cleanup | **LOW** | `cli/src/lib/web-dir.ts:184` — stale npm package name in error message |
+| 5 | ~~cleanup~~ | ~~LOW~~ | ~~cli: stale npm package name~~ — withdrawn: `packages/ao/package.json` publishes as `@composio/ao` |
 | 6 | composio-collision | **LOW** | `plugins/tracker-linear/src/index.ts:21` — imports `@composio/core` type directly |
 | 7 | plugin-candidate | **LOW** | `core/src/review-judgment-matrix.ts` — inline regex patterns, candidate for extraction |
 
@@ -73,9 +73,9 @@ const APP_TOOL_SLUG: Record<ComposioApp, string> = {
 };
 ```
 
-**Problem**: This constant is used in exactly one place — `buildToolArgs()` at line 102. It can be inlined without loss of clarity.
+**Problem**: ~~This constant is used in exactly one place — `buildToolArgs()` at line 102.~~ **Correction (per CR review):** `APP_TOOL_SLUG` is used directly in `notify`, `notifyWithActions`, and `post` (lines 241, 252, 263). It is NOT dead code — the finding was incorrect.
 
-**Recommendation**: Inline the slug strings into `buildToolArgs()`.
+**Recommendation**: Remove this finding. The constant is live.
 
 ---
 
@@ -104,9 +104,9 @@ async post(message: string, context?: NotifyContext): Promise<string | null> {
 "  If installed via npm:    npm install -g @composio/ao\n" +
 ```
 
-**Problem**: This fork uses `@jleechanorg/ao-core` and `@jleechanorg/ao-web`, not `@composio/ao`.
+**Problem**: ~~This fork uses `@jleechanorg/ao-core` and `@jleechanorg/ao-web`, not `@composio/ao`.~~ **Correction (per CR review):** `packages/ao/package.json` publishes as `"name": "@composio/ao"`. The error message is accurate.
 
-**Recommendation**: Update to `"npm install -g @jleechanorg/ao"` or remove the npm installation hint.
+**Recommendation**: Remove this finding. The package name is correct.
 
 ---
 
