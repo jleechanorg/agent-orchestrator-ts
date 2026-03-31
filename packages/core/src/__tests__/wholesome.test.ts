@@ -335,4 +335,135 @@ describe("wholesome — structural source-code assertions", () => {
       expect(violations, "Commits without [agento] prefix:\n" + violations.join("\n")).toHaveLength(0);
     });
   });
+
+  // -------------------------------------------------------------------------
+  // 6. Fork-aware runner selection in CI workflow files
+  // -------------------------------------------------------------------------
+  describe("fork-aware runner selection in workflow files", () => {
+    /**
+     * SECURITY invariant: Every workflow job that runs on pull_request events
+     * must use the fork-aware runner selection pattern. Without it, a fork PR
+     * can execute untrusted code on self-hosted runners.
+     *
+     * Required pattern:
+     *   github.event.pull_request.head.repo.fork && github.event_name == 'pull_request'
+     *     && 'ubuntu-latest'
+     *     || fromJson(vars.SELF_HOSTED_RUNNER_LABELS || '...')
+     *
+     * See PR #273 for the original implementation and PR #302 for the regression
+     * that motivated this test.
+     */
+
+    /** Workflows exempt from fork-aware runner checks. */
+    const EXEMPT_WORKFLOWS = [
+      // workflow_dispatch-only — no pull_request trigger, so no fork risk
+      "cr-loop-health.yml",
+      // Entirely disabled (if: false) — runner selection is moot
+      "generate-pr-design-docs.yml",
+      // Skeptic gate is an LLM evaluation gate, not a code execution gate
+      "skeptic-gate.yml",
+      // test.yml is the skeptic gate (alternate filename) — LLM evaluation only
+      "test.yml",
+    ];
+
+    /** Jobs that are inherently safe on ubuntu-latest (no secrets, no self-hosted need).
+     *  These inspect PR metadata or lint YAML — they don't execute project code. */
+    // Scope exemptions by workflow so a future job reusing an exempt id in a
+    // different workflow is not silently skipped.
+    const EXEMPT_JOBS_BY_WORKFLOW: Record<string, Set<string>> = {
+      "wholesome.yml": new Set([
+        "_merged-guard",
+        "pr-title-prefix",
+        "no-release",
+        "release-error",
+        "evidence-section",
+        "actionlint",
+        "evidence-media-attachment",
+        "wholesome",
+      ]),
+      "wholesome-checks.yml": new Set([
+        "wholesome", // Reads files + git history only; no untrusted code execution
+      ]),
+    };
+
+    it("all workflow jobs with pull_request trigger use fork-aware runs-on", () => {
+      const workflowDir = join(REPO_ROOT, ".github", "workflows");
+      let allFiles: string[];
+      try { allFiles = readdirSync(workflowDir).filter(f => f.endsWith(".yml")); } catch { return; }
+
+      const violations: string[] = [];
+
+      for (const file of allFiles) {
+        if (EXEMPT_WORKFLOWS.includes(file)) continue;
+
+        const content = readFileSync(join(workflowDir, file), "utf-8");
+
+        // Skip workflows that don't trigger on pull_request
+        if (!content.includes("pull_request")) continue;
+
+        // Parse jobs that have runs-on but lack the fork gate
+        const lines = content.split("\n");
+        let currentJob = "";
+        let jobHasForkGate = false;
+        let jobHasRunsOn = false;
+        let jobIsExempt = false;
+
+        for (let i = 0; i < lines.length; i++) {
+          const line = lines[i]!;
+          // Normalize CR for Windows line endings
+          const trimmedLine = line.replace(/\r$/, "");
+
+          // Detect job start: indented exactly 2 spaces followed by a key
+          const jobMatch = trimmedLine.match(/^ {2}([a-zA-Z_][a-zA-Z0-9_-]*):\s*$/);
+          if (jobMatch) {
+            // Evaluate previous job
+            if (currentJob && jobHasRunsOn && !jobHasForkGate && !jobIsExempt) {
+              violations.push(`${file}: job '${currentJob}' — runs-on without fork gate`);
+            }
+            currentJob = jobMatch[1]!;
+            jobHasForkGate = false;
+            jobHasRunsOn = false;
+            jobIsExempt = (EXEMPT_JOBS_BY_WORKFLOW[file] ?? new Set()).has(currentJob);
+            continue;
+          }
+
+          // Detect runs-on within a job
+          if (currentJob && /^\s+runs-on:/.test(trimmedLine)) {
+            jobHasRunsOn = true;
+            // Check this line + next 3 lines for the fork gate pattern
+            const runsOnBlock = lines.slice(i, i + 4).join("\n");
+            // Validate the actual safe-branch pattern: fork → ubuntu-latest (safe), !fork → self-hosted.
+            // A simple contains("pull_request.head.repo.fork") would accept reversed expressions
+            // like `fork && fromJson(...) || 'ubuntu-latest'` which still send forks to self-hosted.
+            if (
+              /pull_request\.head\.repo\.fork[\s\S]*['"]ubuntu-latest['"][\s\S]*fromJson\(vars\.SELF_HOSTED_RUNNER_LABELS/.test(runsOnBlock)
+            ) {
+              jobHasForkGate = true;
+            }
+            // Pure ubuntu-latest for exempt jobs is fine
+            if (/runs-on:\s*ubuntu-latest\s*$/.test(trimmedLine) && jobIsExempt) {
+              jobHasForkGate = true;
+            }
+          }
+
+          // Detect if: false (disabled job — exempt)
+          if (currentJob && /^\s+if:\s+false\b/.test(trimmedLine)) {
+            jobIsExempt = true;
+          }
+        }
+
+        // Check last job in file
+        if (currentJob && jobHasRunsOn && !jobHasForkGate && !jobIsExempt) {
+          violations.push(`${file}: job '${currentJob}' — runs-on without fork gate`);
+        }
+      }
+
+      expect(
+        violations,
+        "Workflow jobs missing fork-aware runner selection (pull_request.head.repo.fork):\n" +
+        violations.join("\n") +
+        "\n\nFix: Use github.event.pull_request.head.repo.fork && 'ubuntu-latest' || fromJson(vars.SELF_HOSTED_RUNNER_LABELS) pattern. See PR #273."
+      ).toHaveLength(0);
+    });
+  });
 });
