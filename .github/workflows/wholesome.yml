@@ -157,10 +157,31 @@ jobs:
             HAS_CODE=true
           fi
 
+          # Reject fabricated/placeholder patterns before accepting media
+          if printf '%s' "$EVIDENCE" | grep -qiE '\bsimulated\b'; then
+            echo ""
+            echo "FAIL: Evidence contains 'simulated' — fabricated output is not valid evidence."
+            echo "Evidence must show real command output, not simulated/mocked results."
+            exit 1
+          fi
+
+          if printf '%s' "$EVIDENCE" | grep -qiE 'https?://(www\.)?example\.com'; then
+            echo ""
+            echo "FAIL: Evidence contains example.com placeholder URL — use a real screenshot URL."
+            exit 1
+          fi
+
+          if printf '%s' "$EVIDENCE" | grep -qiE '<screenshot[[:space:]]path>|<value>|\bTODO\b|\bTBD\b'; then
+            echo ""
+            echo "FAIL: Evidence contains placeholder template text — fill in real values."
+            exit 1
+          fi
+
           # Pass if either media image or code output is present
           if [ "$HAS_IMAGE" = "true" ] || [ "$HAS_CODE" = "true" ]; then
             echo ""
             echo "Evidence section contains media: image=$HAS_IMAGE code=$HAS_CODE"
+            echo "PASS: No fabricated/placeholder patterns detected"
             exit 0
           else
             echo ""
