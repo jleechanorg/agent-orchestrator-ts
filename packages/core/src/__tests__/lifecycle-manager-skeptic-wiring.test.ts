@@ -128,8 +128,8 @@ describe("lifecycle-manager skeptic wiring — bd-jzan: approved transition fire
     const currentSha = "abc5555555555555555555555555555555555555";
 
     // Session transitions: review_pending → approved (no new push)
-    const oldStatus = "review_pending";
-    const newStatus = "approved";
+    const _oldStatus = "review_pending"; // transition from; guard verified by explicit assertion
+    const _newStatus = "approved"; // transition to; guard verified by explicit assertion
 
     // Dedup guard: lastSkepticSha has no entry for this session
     const alreadyEvaluated = lastSkepticSha.get(sessionId) === currentSha;
@@ -140,15 +140,19 @@ describe("lifecycle-manager skeptic wiring — bd-jzan: approved transition fire
     // The bd-jzan trigger conditions:
     //   newStatus === "approved" && oldStatus !== "approved" && session.pr
     //   && !alreadyEvaluated && !hasVerdictForSha
-    const hasVerdictForSha = existingComments.some(
-      (c) => /VERDICT:/i.test(c.body) && c.body.includes(currentSha),
-    );
+    const shaPrefix = currentSha.slice(0, 7);
+    const hasVerdictForSha = existingComments.some((c) => {
+      if (!/VERDICT:/i.test(c.body)) return false;
+      if (c.body.includes(currentSha)) return true;
+      const htmlMatch = c.body.match(/<!--[^>]*-->/);
+      return Boolean(htmlMatch && htmlMatch[0].includes(shaPrefix));
+    });
 
     const shouldFire = !alreadyEvaluated && !hasVerdictForSha;
     expect(shouldFire).toBe(true);
     expect(alreadyEvaluated).toBe(false);
     expect(hasVerdictForSha).toBe(false);
-    expect(oldStatus !== "approved").toBe(true);
+    expect(_oldStatus !== "approved").toBe(true);
   });
 
   it("approved transition skips skeptic when lastSkepticSha already has this SHA", () => {
@@ -159,8 +163,8 @@ describe("lifecycle-manager skeptic wiring — bd-jzan: approved transition fire
     // SHA was already recorded (skeptic ran during pr_open transition)
     lastSkepticSha.set(sessionId, currentSha);
 
-    const oldStatus = "review_pending";
-    const newStatus = "approved";
+    const _oldStatus = "review_pending"; // declared to document transition; not used in assertions
+    const _newStatus = "approved";       // declared to document transition; not used in assertions
 
     const alreadyEvaluated = lastSkepticSha.get(sessionId) === currentSha;
     expect(alreadyEvaluated).toBe(true);
@@ -178,16 +182,19 @@ describe("lifecycle-manager skeptic wiring — bd-jzan: approved transition fire
     // No lastSkepticSha entry (fresh restart scenario)
     const alreadyEvaluated = lastSkepticSha.get(sessionId) === currentSha;
 
-    // But a VERDICT comment was already posted for this SHA (e.g. via skeptic-gate.yml trigger)
+    // A VERDICT comment was posted for this SHA.
+    // Matches via c.body.includes(currentSha) (short SHA prefix in body text).
     const existingComments = [
       { id: 1, body: "Skeptic evaluation complete.\n\n<!-- skeptic-gate-trigger-abc7777 -->\nVERDICT: PASS", user: { login: "github-actions[bot]" } },
     ];
 
-    const hasVerdictForSha = existingComments.some(
-      (c) =>
-        /VERDICT:/i.test(c.body) &&
-        (c.body.includes(currentSha) || /<!--[^>]*-->/.test(c.body)),
-    );
+    const hasVerdictForSha = existingComments.some((c) => {
+      if (!/VERDICT:/i.test(c.body)) return false;
+      if (c.body.includes(currentSha)) return true;
+      const shaPrefix = currentSha.slice(0, 7);
+      const htmlMatch = c.body.match(/<!--[^>]*-->/);
+      return Boolean(htmlMatch && htmlMatch[0].includes(shaPrefix));
+    });
 
     expect(hasVerdictForSha).toBe(true);
 
@@ -197,8 +204,9 @@ describe("lifecycle-manager skeptic wiring — bd-jzan: approved transition fire
   });
 
   it("approved transition skips skeptic when status was already approved (idempotent guard)", () => {
-    const lastSkepticSha = new Map<string, string>();
-    const sessionId = "session-jzan-4";
+    // (lastSkepticSha and sessionId are intentionally unused — transition guard alone is tested)
+    const _lastSkepticSha = new Map<string, string>();
+    const _sessionId = "session-jzan-4";
 
     // Same SHA but session was already in "approved" state — this is not a new transition
     const oldStatus = "approved";
@@ -227,9 +235,13 @@ describe("lifecycle-manager skeptic wiring — bd-jzan: approved transition fire
     expect(alreadyEvaluated).toBe(false); // different SHA = not already evaluated
 
     const existingComments: Array<{ body: string }> = [];
-    const hasVerdictForSha = existingComments.some(
-      (c) => /VERDICT:/i.test(c.body) && c.body.includes(currentSha),
-    );
+    const shaPrefix2 = currentSha.slice(0, 7);
+    const hasVerdictForSha = existingComments.some((c) => {
+      if (!/VERDICT:/i.test(c.body)) return false;
+      if (c.body.includes(currentSha)) return true;
+      const htmlMatch = c.body.match(/<!--[^>]*-->/);
+      return Boolean(htmlMatch && htmlMatch[0].includes(shaPrefix2));
+    });
 
     const shouldFire = !alreadyEvaluated && !hasVerdictForSha;
     expect(shouldFire).toBe(true);

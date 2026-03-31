@@ -1669,11 +1669,17 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
               // Also check: if a VERDICT comment already exists for this SHA, skip.
               // This covers the case where lastSkepticSha was cleared (restart) but
               // skeptic already ran and posted a VERDICT for this SHA.
+              // bd-jzan CR fix: SHA must appear INSIDE the HTML comment (not any HTML comment).
               const existingComments = await skepticScm.getSkepticComments(session.pr);
-              const hasVerdictForSha = existingComments.some((c) =>
-                /VERDICT:/i.test(c.body) &&
-                (c.body.includes(currentSha) || /<!--[^>]*-->/.test(c.body)),
-              );
+              const shaPrefix = currentSha.slice(0, 7);
+              const hasVerdictForSha = existingComments.some((c) => {
+                if (!/VERDICT:/i.test(c.body)) return false;
+                if (c.body.includes(currentSha)) return true;
+                // Check if SHA prefix appears inside an HTML comment marker
+                // e.g. <!-- skeptic-gate-trigger-abc1234 --> contains "abc1234"
+                const htmlMatch = c.body.match(/<!--[^>]*-->/);
+                return Boolean(htmlMatch && htmlMatch[0].includes(shaPrefix));
+              });
               if (!alreadyEvaluated && !hasVerdictForSha) {
                 observer.recordOperation({
                   metric: "lifecycle_poll",
