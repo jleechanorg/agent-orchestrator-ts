@@ -12,17 +12,9 @@
  *
  * Both layers must be present and consistent for PASS.
  * Any ambiguity → INSUFFICIENT (not PASS).
- *
- * Note: VERDICT_LINE_RE is duplicated here (not imported from skeptic.ts) to avoid
- * a dependency chain through llm-eval.ts which requires the ao-plugin-agent-codex package.
- * Must be kept in sync with skeptic.ts:VERDICT_LINE_RE.
  */
 
-/** Line-anchored VERDICT matcher — accepts VERDICT: PASS, VERDICT: FAIL, or VERDICT: SKIPPED. */
-const VERDICT_LINE_RE = /^(?:> ?\*\*)?VERDICT:\s*(PASS|FAIL|SKIPPED)\b/im;
-
-/** Strict VERDICT match — PASS or FAIL only (SKIPPED is infra-only, not a claim) */
-const CLAIM_VERDICT_RE = /^(?:> ?\*\*)?VERDICT:\s*(PASS|FAIL)\b/im;
+import { VERDICT_LINE_RE } from "./verdict-utils.js";
 
 /** HTML marker identifying skeptic agent verdict comments */
 const SKEPTIC_COMMENT_MARKER_RE = /<!--\s*skeptic-agent-verdict\s*-->/i;
@@ -87,21 +79,15 @@ export function checkRunLevel(llmOutput: string): ClaimCheck {
     };
   }
 
-  const m = trimmed.match(CLAIM_VERDICT_RE);
-  if (!m) {
-    // Check if it's a SKIPPED verdict — infra failure, not a claim verdict
-    const skippedMatch = trimmed.match(VERDICT_LINE_RE);
-    if (skippedMatch && skippedMatch[1]?.toUpperCase() === "SKIPPED") {
-      return {
-        label: "run-level",
-        result: "absent",
-        detail: `VERDICT: SKIPPED — infra failure, not a claim verdict: ${skippedMatch[0]}`,
-      };
-    }
+  const m = trimmed.match(VERDICT_LINE_RE);
+  if (!m || m[1]?.toUpperCase() === "SKIPPED") {
+    // SKIPPED is an infra failure, not a claim verdict — treat as absent
     return {
       label: "run-level",
       result: "absent",
-      detail: `No VERDICT: PASS/FAIL in CLI output (got: ${trimmed.slice(0, 80)}...)`,
+      detail: m
+        ? `VERDICT: SKIPPED — infra failure, not a claim verdict: ${m[0]}`
+        : `No VERDICT: PASS/FAIL in CLI output (got: ${trimmed.slice(0, 80)}...)`,
     };
   }
 
@@ -137,21 +123,15 @@ export function checkCommentLevel(commentBody: string): ClaimCheck {
     };
   }
 
-  const m = trimmed.match(CLAIM_VERDICT_RE);
-  if (!m) {
-    // Check for SKIPPED in comment
-    const skippedMatch = trimmed.match(VERDICT_LINE_RE);
-    if (skippedMatch && skippedMatch[1]?.toUpperCase() === "SKIPPED") {
-      return {
-        label: "comment-level",
-        result: "absent",
-        detail: "Comment has SKIPPED verdict — infra failure, not a claim verdict",
-      };
-    }
+  const m = trimmed.match(VERDICT_LINE_RE);
+  if (!m || m[1]?.toUpperCase() === "SKIPPED") {
+    // SKIPPED is an infra failure, not a claim verdict — treat as absent
     return {
       label: "comment-level",
       result: "absent",
-      detail: "Comment lacks VERDICT: PASS/FAIL line",
+      detail: m
+        ? "Comment has SKIPPED verdict — infra failure, not a claim verdict"
+        : "Comment lacks VERDICT: PASS/FAIL line",
     };
   }
 
