@@ -199,35 +199,68 @@ describe("bd-n039 send-to-agent dedup — message hash dedup", () => {
     expect(messageUnchanged).toBe(false);
   });
 
-  // Invariant 9: SHA unavailable → shaUnchanged defaults to true (message-hash-only dedup)
-  it("when SHA is unavailable, shaUnchanged=true and dedup falls back to message-hash only", () => {
-    const currentSha = undefined; // fetch failed
-    const shaUnchanged = currentSha !== undefined
-      ? (false) // unreachable
-      : true; // SHA unavailable → message-hash only
+  // Invariant 9: SHA unavailable → store has no SHA, dedup falls back to message-hash only
+  it("when SHA is unavailable, store has no recorded SHA and dedup uses message-hash only", () => {
+    // No SHA stored — getLastSentHeadSha returns undefined (SHA fetch failed / sentinel)
+    const recordedSha = getLastSentHeadSha(PROJECT, SESSION, REACTION);
+    expect(recordedSha).toBeUndefined();
+
+    // SHA unavailable → shaUnchanged treated as true (don't block on missing SHA)
+    const currentSha: string | undefined = undefined;
+    const shaUnchanged = currentSha === undefined || currentSha === recordedSha;
     expect(shaUnchanged).toBe(true);
 
-    // If message hash also unchanged → full dedup
-    const messageUnchanged = true;
-    const shouldDedup = shaUnchanged && messageUnchanged;
-    expect(shouldDedup).toBe(true);
+    // Message hash IS stored — simulates unchanged message
+    const storedHash = "a".repeat(64);
+    setLastSentMessageHash(PROJECT, SESSION, REACTION, storedHash);
+    const messageUnchanged = getLastSentMessageHash(PROJECT, SESSION, REACTION) === storedHash;
+    expect(messageUnchanged).toBe(true);
+
+    // Combined: SHA-unavailable + message unchanged → dedup
+    expect(shaUnchanged && messageUnchanged).toBe(true);
   });
 });
 
 describe("bd-n039 send-to-agent dedup — combined SHA + message hash invariant", () => {
-  // Invariant 10: skip only when BOTH SHA and message hash are unchanged
-  it("skip send only when BOTH SHA and message hash are unchanged", () => {
-    const cases: Array<{ sha: boolean; msg: boolean; expectDedup: boolean }> = [
-      { sha: true,  msg: true,  expectDedup: true  }, // both unchanged → dedup
-      { sha: true,  msg: false, expectDedup: false }, // SHA same, message changed → send
-      { sha: false, msg: true,  expectDedup: false }, // SHA changed, message same → send
-      { sha: false, msg: false, expectDedup: false }, // both changed → send
-    ];
+  const PROJECT = "project-combined";
+  const SESSION = "session-combined-1";
+  const REACTION = "changes-requested";
 
-    for (const { sha, msg, expectDedup } of cases) {
-      const shouldDedup = sha && msg;
-      expect(shouldDedup).toBe(expectDedup);
-    }
+  beforeEach(() => {
+    clearLastSentHeadSha(SESSION);
+    clearAllMessageHashesForSession(SESSION);
+  });
+
+  // Invariant 10: skip only when BOTH SHA and message hash are unchanged (store-level test)
+  it("skip send only when BOTH SHA and message hash are unchanged", () => {
+    const sha1 = "abc1234";
+    const hash1 = "a".repeat(64);
+
+    // Record initial send
+    setLastSentHeadSha(PROJECT, SESSION, REACTION, sha1);
+    setLastSentMessageHash(PROJECT, SESSION, REACTION, hash1);
+
+    // Case: both SHA and message unchanged → dedup (skip send)
+    const shaUnchanged1 = getLastSentHeadSha(PROJECT, SESSION, REACTION) === sha1;
+    const msgUnchanged1 = getLastSentMessageHash(PROJECT, SESSION, REACTION) === hash1;
+    expect(shaUnchanged1 && msgUnchanged1).toBe(true);
+
+    // Case: SHA same, message changed → send
+    const hash2 = "b".repeat(64);
+    const shaUnchanged2 = getLastSentHeadSha(PROJECT, SESSION, REACTION) === sha1;
+    const msgUnchanged2 = getLastSentMessageHash(PROJECT, SESSION, REACTION) === hash2;
+    expect(shaUnchanged2 && msgUnchanged2).toBe(false);
+
+    // Case: SHA changed, message same → send
+    const sha2 = "def5678";
+    const shaUnchanged3 = getLastSentHeadSha(PROJECT, SESSION, REACTION) === sha2;
+    const msgUnchanged3 = getLastSentMessageHash(PROJECT, SESSION, REACTION) === hash1;
+    expect(shaUnchanged3 && msgUnchanged3).toBe(false);
+
+    // Case: both changed → send
+    const shaUnchanged4 = getLastSentHeadSha(PROJECT, SESSION, REACTION) === sha2;
+    const msgUnchanged4 = getLastSentMessageHash(PROJECT, SESSION, REACTION) === hash2;
+    expect(shaUnchanged4 && msgUnchanged4).toBe(false);
   });
 });
 
