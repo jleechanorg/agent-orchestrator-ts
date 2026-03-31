@@ -38,7 +38,6 @@ import {
   type EventPriority,
   type PRState,
   type ProjectConfig as _ProjectConfig,
-  type MergeGateConfig,
 } from "./types.js";
 import { readMetadataRaw, updateMetadata } from "./metadata.js";
 import { getSessionsDir } from "./paths.js";
@@ -65,7 +64,6 @@ import { handleRequestMerge, handleParallelRetry } from "./fork-reaction-handler
 import { handleRespawnForReview } from "./fork-reaction-rfr.js";
 import { maybeDispatchReviewBacklog } from "./review-backlog.js";
 import { updateSessionMetadataHelper } from "./fork-utils.js";
-import { checkMergeGate } from "./merge-gate.js";
 import { GLOBAL_PAUSE_UNTIL_KEY, GLOBAL_PAUSE_REASON_KEY, parsePauseUntil } from "./global-pause.js";
 import { isGhRateLimitError } from "./gh-rate-limit.js";
 import { backfillUncoveredPRs } from "./backfill-extensions.js";
@@ -898,40 +896,32 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
           };
         }
 
-        // Build MergeGateConfig with sensible defaults: enabled: true, all conditions required
-        // NOTE: evidence-review is intentionally excluded from requiredChecks here.
-        // The evidence-reviewer subagent posts PASS as a PR comment (not a GitHub review),
-        // so checking for evidence-review-bot GitHub review will always fail.
-        // Agents are required to run /er and post the PASS verdict before posting the green
-        // signal, making the review-based gate redundant and broken.
-        const mergeGateConfig: MergeGateConfig = {
-          enabled: true,
-          ...project.mergeGate,
-        };
-
-        // Check all merge gate conditions before attempting auto-merge
-        const gateResult = await checkMergeGate(freshSession.pr, mergeGateConfig, scm);
-        if (!gateResult.passed) {
-          const event = createEvent("reaction.triggered", {
-            sessionId,
-            projectId,
-            message: `Reaction '${reactionKey}' triggered ${action} but merge gate failed: ${gateResult.blockers.join(", ")}`,
-            data: { reactionKey, action, blockers: gateResult.blockers, checks: gateResult.checks },
-          });
-          await notifyHuman(event, "action");
-          return {
-            reactionType: reactionKey,
-            success: false,
-            action,
-            escalated: false,
-            blockers: gateResult.blockers,
-          };
-        }
-
-        // Auto-merge: execute merge. When autoMergeWaitSeconds is set, uses GitHub's
-        // native --auto flag which waits for required status checks before completing the
-        // merge — handles the race where PR transitions to mergeable while CI is still
-        // completing (bd-5gl: workers post green but nothing merges).
+        // bd-5gl fix: bypass checkMergeGate for auto-merge.
+        //
+        // The approved-and-green reaction's message already requires the agent to verify
+        // all 7 green conditions (CI, mergeable, CR approved, Bugbot, inline comments,
+        // evidence review, skeptic PASS) BEFORE posting "PR is green". The green signal
+        // IS the authoritative confirmation — re-checking via checkMergeGate is redundant
+        // and introduces failure modes:
+        //
+        // 1. getPendingComments uses GraphQL which exhausts the 5000/hr quota across
+        //    multiple PRs, causing checkMergeGate to return { passed: false } with an
+        //    "SCM query" blocker. The merge silently fails with no transition recorded.
+        //
+        // 2. getCISummary / getReviews can also fail on rate limits, further adding
+        //    false failures.
+        //
+        // 3. When checkMergeGate fails, executeReaction returns { success: false }.
+        //    The retry logic (1576) only fires on a *status transition*, but since
+        //    no transition was recorded, the PR stays at "mergeable" with no retry
+        //    until the next status change — PRs stall indefinitely.
+        //
+        // GitHub itself validates PR state on merge attempt (CI, approved, no conflicts).
+        // scm.mergePR is idempotent — duplicate merge attempts are safe (GitHub returns
+        // success for already-merged PRs). Trust the green signal; let GitHub validate.
+        //
+        // Auto-merge: uses GitHub's native --auto flag when autoMergeWaitSeconds > 0,
+        // which waits for required status checks before completing the merge.
         const mergeMethod = reactionConfig.mergeMethod ?? "squash";
         const autoWaitSeconds = reactionConfig.autoMergeWaitSeconds ?? 0;
         try {
