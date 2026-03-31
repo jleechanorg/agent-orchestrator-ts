@@ -45,7 +45,6 @@ vi.mock("../cdp-client.js", () => ({
 
 // Import after mocks
 import antigravityPlugin, { manifest, create } from "../index.js";
-import { matchesWorkspace } from "../runtime.js";
 import * as peekaboo from "../peekaboo.js";
 
 const mockWindowList = peekaboo.windowList as ReturnType<typeof vi.fn>;
@@ -760,35 +759,5 @@ describe("runtime.getAttachInfo()", () => {
       type: "web",
       target: "Antigravity (unknown window)",
     });
-  });
-});
-
-// =============================================================================
-// matchesWorkspace() — basename and parent dir matching
-// =============================================================================
-
-describe("matchesWorkspace()", () => {
-  it("matches full path (direct substring)", () => {
-    expect(matchesWorkspace("/Users/jleechan/project_worldaiclaw/worldai_claw", "/Users/jleechan/project_worldaiclaw/worldai_claw")).toBe(true);
-  });
-
-  it("matches basename only (sidebar shows 'worldai_claw')", () => {
-    expect(matchesWorkspace("worldai_claw", "/Users/jleechan/project_worldaiclaw/worldai_claw")).toBe(true);
-  });
-
-  it("matches parent directory name", () => {
-    expect(matchesWorkspace("project_worldaiclaw", "/Users/jleechan/project_worldaiclaw/worldai_claw")).toBe(true);
-  });
-
-  it("is case-insensitive", () => {
-    expect(matchesWorkspace("WorldAI_Claw", "/users/jleechan/project_worldaiclaw/worldai_claw")).toBe(true);
-  });
-
-  it("does not match unrelated text", () => {
-    expect(matchesWorkspace("some_other_workspace", "/Users/jleechan/project_worldaiclaw/worldai_claw")).toBe(false);
-  });
-
-  it("handles trailing slash in workspace path", () => {
-    expect(matchesWorkspace("worldai_claw", "/Users/jleechan/project_worldaiclaw/worldai_claw/")).toBe(true);
   });
 });

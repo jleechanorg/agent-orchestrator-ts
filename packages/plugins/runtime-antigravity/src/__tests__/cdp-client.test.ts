@@ -8,18 +8,29 @@ interface MockTarget {
   webSocketDebuggerUrl: string;
 }
 
+interface MockWebSocketInstance {
+  url: string;
+  onopen: (() => void) | null;
+  onmessage: ((ev: { data: string }) => void) | null;
+  onerror: ((ev: Error | Event) => void) | null;
+  onclose: (() => void) | null;
+  readyState: number;
+  send: ReturnType<typeof vi.fn>;
+  close: ReturnType<typeof vi.fn>;
+}
+
 describe("CdpClient", () => {
   let mockFetch: ReturnType<typeof vi.fn>;
-  let mockWebSocket: any;
-  let wsInstances: any[] = [];
+  let mockWebSocket: new (url: string) => MockWebSocketInstance;
+  let wsInstances: MockWebSocketInstance[] = [];
 
   beforeEach(() => {
     wsInstances = [];
-    mockWebSocket = class MockWebSocket {
+    mockWebSocket = class MockWebSocket implements MockWebSocketInstance {
       url: string;
       onopen: (() => void) | null = null;
-      onmessage: ((ev: any) => void) | null = null;
-      onerror: ((ev: any) => void) | null = null;
+      onmessage: ((ev: { data: string }) => void) | null = null;
+      onerror: ((ev: Error | Event) => void) | null = null;
       onclose: (() => void) | null = null;
       readyState: number = 0; // CONNECTING
       send = vi.fn();
@@ -41,7 +52,7 @@ describe("CdpClient", () => {
 
     mockFetch = vi.fn();
     globalThis.fetch = mockFetch;
-    globalThis.WebSocket = mockWebSocket as any;
+    globalThis.WebSocket = mockWebSocket as unknown as typeof WebSocket;
   });
 
   afterEach(() => {
@@ -55,7 +66,7 @@ describe("CdpClient", () => {
     });
   }
 
-  function simulateWsMessage(msg: Record<string, any>) {
+  function simulateWsMessage(msg: Record<string, unknown>) {
     if (wsInstances.length > 0) {
       const ws = wsInstances[wsInstances.length - 1];
       if (ws.onmessage) {

@@ -40,45 +40,30 @@ const VERIFY_START_RETRIES = 5;
 const RETRY_DELAY_MS = 1000;
 
 /**
- * Check whether a UI element's text matches a workspace path.
+ * Find the "add Start new conversation" button in UI elements.
  *
- * The Antigravity Manager sidebar shows only the directory basename
- * (e.g. "worldai_claw"), never the full absolute path. This helper
- * tries: direct substring, basename, and parent directory name.
- */
-export function matchesWorkspace(elementText: string, workspacePath: string): boolean {
-  const lower = elementText.toLowerCase();
-  const pathLower = workspacePath.toLowerCase();
-  // Direct match (handles rare case where full path is shown)
-  if (lower.includes(pathLower)) return true;
-  // Basename match (e.g., "worldai_claw" from "/Users/.../worldai_claw")
-  const basename = pathLower.split("/").filter(Boolean).pop() ?? "";
-  if (basename && lower.includes(basename)) return true;
-  // Parent dir match (e.g., "project_worldaiclaw")
-  const parts = pathLower.split("/").filter(Boolean);
-  if (parts.length >= 2) {
-    const parent = parts[parts.length - 2];
-    if (lower.includes(parent)) return true;
-  }
-  return false;
-}
-
-/**
- * Find the "Start new conversation" button in UI elements.
+ * Matches only buttons that START WITH "add" — avoids matching
+ * text that merely mentions "new conversation" (e.g. conversation
+ * titles that happen to contain those words).
  *
- * Matches labels: "add Start new conversation" or "add New Conversation"
- * per the Manager UI element map in the /antig skill.
+ * Per the Manager UI element map in the /antig skill.
  */
 function findNewConversationButton(
   elements: PeekabooUIElement[],
 ): PeekabooUIElement | undefined {
-  return elements.find(
-    (el) =>
-      el.label?.toLowerCase().includes("start new conversation") ||
-      el.label?.toLowerCase().includes("new conversation") ||
-      el.title?.toLowerCase().includes("start new conversation") ||
-      el.title?.toLowerCase().includes("new conversation"),
-  );
+  return elements.find((el) => {
+    const role = el.role?.toLowerCase() ?? "";
+    const isButtonRole =
+      role === "axbutton" || role === "button" || role === "axmenuitem";
+    const label = el.label?.toLowerCase() ?? "";
+    const title = el.title?.toLowerCase() ?? "";
+    const startsWithAdd = label.startsWith("add ") || title.startsWith("add ");
+    return (
+      isButtonRole &&
+      startsWithAdd &&
+      (label.includes("new conversation") || title.includes("new conversation"))
+    );
+  });
 }
 
 /**
@@ -319,19 +304,21 @@ export function createAntigravityRuntime(config?: AntigravityConfig): Runtime {
         }
 
         // 7. Verify conversation started: check for progress_activity
-        //    Fail loudly if the prompt submission didn't trigger a response.
-        let started = false;
-        for (let i = 0; i < VERIFY_START_RETRIES && !started; i++) {
-          await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
-          const verifySnapshot = await peekaboo.see(APP_NAME, managerId);
-          if (hasProgressActivity(verifySnapshot.ui_elements)) {
-            started = true;
+        //    Only verify if a prompt was actually submitted.
+        if (config.launchCommand) {
+          let started = false;
+          for (let i = 0; i < VERIFY_START_RETRIES && !started; i++) {
+            await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
+            const verifySnapshot = await peekaboo.see(APP_NAME, managerId);
+            if (hasProgressActivity(verifySnapshot.ui_elements)) {
+              started = true;
+            }
           }
-        }
-        if (!started) {
-          throw new Error(
-            "Antigravity: conversation did not start — no progress_activity detected after prompt submission",
-          );
+          if (!started) {
+            throw new Error(
+              "Antigravity: conversation did not start — no progress_activity detected after prompt submission",
+            );
+          }
         }
 
         // 8. Handle "Allow this conversation" directory access prompt

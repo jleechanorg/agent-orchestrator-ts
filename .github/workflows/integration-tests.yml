@@ -44,7 +44,8 @@ jobs:
         run: npm install -g @openai/codex
 
       - name: Install Aider
-        run: pip install aider-chat
+        run: pip install aider-chat || echo "Aider install failed — skipping (optional dependency)"
+        continue-on-error: true
 
       - name: Install OpenCode
         run: npm install -g opencode-ai

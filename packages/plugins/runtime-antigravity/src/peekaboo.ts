@@ -253,7 +253,7 @@ export function screencapture(
 /**
  * Click at screen-absolute coordinates within a window.
  *
- * CLI: `peekaboo click --app <app> --window-id <id> --coords <x>,<y>`
+ * CLI: `peekaboo click --app <app> --window-id <id> --coords <x>,<y> --json`
  * Coordinates are screen-absolute points (not pixels).
  *
  * @param app - Application name
@@ -276,6 +276,7 @@ export function clickCoordinates(
       String(windowId),
       "--coords",
       `${x},${y}`,
+      "--json",
     ]),
   );
 }
