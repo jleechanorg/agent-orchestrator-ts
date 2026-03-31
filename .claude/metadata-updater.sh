@@ -196,14 +196,18 @@ if [[ "$clean_command" =~ ^git[[:space:]]+switch[[:space:]]+-c[[:space:]]+([^[:s
 fi
 
 # Detect: git checkout <branch> (without -b) or git switch <branch> (without -c)
-# Only update if the branch name looks like a feature branch (contains / or -)
+# Guard: verify the candidate is actually a branch ref, not a file path.
+# Reject extensionless paths like docs/README by requiring the candidate to exist
+# as a local branch (git show-ref exits 0 only for real refs, not files).
 if [[ "$clean_command" =~ ^git[[:space:]]+checkout[[:space:]]+([^[:space:]-]+[/-][^[:space:]]+) ]]; then
   branch="${BASH_REMATCH[1]}"
   if [[ -n "$branch" && "$branch" != "HEAD" &&
         ! "$branch" =~ \.(ts|js|tsx|jsx|py|go|rs|java|cpp|c|h|sh|bash|json|yaml|yml|toml|md|html|css|scss)$ ]]; then
-    update_metadata_key "branch" "$branch"
-    echo '{"systemMessage": "Updated metadata: branch = '"$branch"'"}'
-    exit 0
+    if git show-ref --verify --quiet "refs/heads/$branch" 2>/dev/null; then
+      update_metadata_key "branch" "$branch"
+      echo '{"systemMessage": "Updated metadata: branch = '"$branch"'"}'
+      exit 0
+    fi
   fi
 fi
 
@@ -211,9 +215,11 @@ if [[ "$clean_command" =~ ^git[[:space:]]+switch[[:space:]]+([^[:space:]-]+[/-][
   branch="${BASH_REMATCH[1]}"
   if [[ -n "$branch" && "$branch" != "HEAD" &&
         ! "$branch" =~ \.(ts|js|tsx|jsx|py|go|rs|java|cpp|c|h|sh|bash|json|yaml|yml|toml|md|html|css|scss)$ ]]; then
-    update_metadata_key "branch" "$branch"
-    echo '{"systemMessage": "Updated metadata: branch = '"$branch"'"}'
-    exit 0
+    if git show-ref --verify --quiet "refs/heads/$branch" 2>/dev/null; then
+      update_metadata_key "branch" "$branch"
+      echo '{"systemMessage": "Updated metadata: branch = '"$branch"'"}'
+      exit 0
+    fi
   fi
 fi
 
