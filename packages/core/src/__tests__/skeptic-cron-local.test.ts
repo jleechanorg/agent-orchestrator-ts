@@ -390,7 +390,7 @@ describe("runLocalSkepticCron", () => {
     );
   });
 
-  it("different SHA from same PR triggers re-evaluation (different projectId bypasses throttle)", async () => {
+  it("re-evaluates same SHA from different projectId after first run stores SHA", async () => {
     const { registry, sessionManager, observer, listOpenPRs, getPRHeadSha } = makeDeps();
     const pr = makePR({ number: 10 });
     listOpenPRs.mockResolvedValue([pr]);
@@ -444,6 +444,26 @@ describe("runLocalSkepticCron", () => {
     expect(_getLastEvaluatedSha("proj", 10)).toBeUndefined(); // no SHA stored
     expect(observer.recordOperation).not.toHaveBeenCalledWith(
       expect.objectContaining({ operation: "skeptic.cron.sha_dedup_skip" }),
+    );
+  });
+
+  it("throw: runSkepticReview rejection does not store SHA — allows retry", async () => {
+    const { registry, sessionManager, observer, listOpenPRs, getPRHeadSha } = makeDeps();
+    const pr = makePR({ number: 10 });
+    listOpenPRs.mockResolvedValue([pr]);
+    getPRHeadSha.mockResolvedValue("sha-abc123");
+    // LLM call fails — SHA must NOT be cached so next cycle retries
+    mockRunSkepticReview.mockRejectedValue(new Error("LLM timeout"));
+
+    const result = await runLocalSkepticCron(
+      { registry, sessionManager, observer },
+      { projectId: "proj", project: makeProject(), activeSessions: [], correlationId: "c-throw" },
+    );
+
+    expect(result).toBe(0); // eval failed, not skipped
+    expect(_getLastEvaluatedSha("proj", 10)).toBeUndefined(); // SHA NOT cached
+    expect(observer.recordOperation).toHaveBeenCalledWith(
+      expect.objectContaining({ operation: "skeptic.cron.pr_failed" }),
     );
   });
 

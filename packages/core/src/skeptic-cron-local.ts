@@ -48,6 +48,9 @@ const lastSkepticCronTimeByProject = new Map<string, number>();
 const pendingSkepticCronByProject = new Set<string>();
 // Per-PR SHA dedup — keyed by `${projectId}:${prNumber}`.
 // Skips re-evaluation when HEAD SHA hasn't changed since last successful verdict.
+// Not pruned intentionally — bounded by the number of open PRs being monitored
+// (typically <50 per project), not unbounded by PR lifetime. Lifecycle-worker
+// processes are long-running but the map grows at most O(active PRs) entries.
 const lastEvaluatedShaByPR = new Map<string, string>();
 const SKEPTIC_CRON_INTERVAL_MS = 10 * 60_000; // 10 minutes
 
