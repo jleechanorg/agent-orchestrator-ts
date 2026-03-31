@@ -195,6 +195,67 @@ describe("skeptic structured output", () => {
     });
   });
 
+  describe("Rule 10 — evidence authenticity (always active)", () => {
+    it("prompt always contains the evidence authenticity check regardless of evidenceRequired config", () => {
+      const promptNoEvidenceRequired = buildSkepticPrompt(
+        makeMinimalPR(),
+        makePassingState({ evidenceRequired: false }),
+        EMPTY_DIFF,
+        EMPTY_REVIEWS,
+        null,
+      );
+      const promptWithEvidenceRequired = buildSkepticPrompt(
+        makeMinimalPR(),
+        makePassingState({ evidenceRequired: true }),
+        EMPTY_DIFF,
+        EMPTY_REVIEWS,
+        null,
+      );
+
+      for (const prompt of [promptNoEvidenceRequired, promptWithEvidenceRequired]) {
+        expect(prompt).toContain("ALWAYS evaluate evidence authenticity");
+        expect(prompt).toContain("simulated");
+        expect(prompt).toContain("example.com");
+        expect(prompt).toContain("<screenshot path>");
+        expect(prompt).toContain("<value>");
+        expect(prompt).toContain("TODO");
+        expect(prompt).toContain("TBD");
+        expect(prompt).toContain("coverage claim");
+        expect(prompt).toContain("percentage numbers");
+        expect(prompt).toContain("evidence section is empty");
+        expect(prompt).toContain("template placeholders");
+        expect(prompt).toContain("evidence-review-bot");
+        expect(prompt).toContain("Gate 6");
+        expect(prompt).toContain("separate pass/fail gate");
+      }
+    });
+
+    it("prompt does NOT contain the old N/A escape hatch", () => {
+      const prompt = buildSkepticPrompt(
+        makeMinimalPR(),
+        makePassingState({ evidenceRequired: false }),
+        EMPTY_DIFF,
+        EMPTY_REVIEWS,
+        null,
+      );
+      expect(prompt).not.toContain("default is N/A");
+      expect(prompt).not.toContain("Evidence review is required only when config requires it");
+      expect(prompt).not.toContain("N/A (not required)");
+    });
+
+    it("PASS verdict for evidence section is conditioned on real output", () => {
+      const prompt = buildSkepticPrompt(
+        makeMinimalPR(),
+        makePassingState(),
+        EMPTY_DIFF,
+        EMPTY_REVIEWS,
+        null,
+      );
+      expect(prompt).toContain("real command output");
+      expect(prompt).toContain("real screenshots with non-placeholder URLs");
+    });
+  });
+
   describe("PASS vs FAIL — format discrimination", () => {
     it("PASS output does not require ## Background; FAIL does", () => {
       const passingPrompt = buildSkepticPrompt(
