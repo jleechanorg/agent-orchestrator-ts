@@ -117,7 +117,22 @@ All 18 merged PRs in last 24h have [agento] prefix — zero operator interventio
 - PR #322: CI running, CR=CHANGES_REQUESTED — ao-1657 working
 
 ### Key finding: Integration Tests + Test Fresh Onboarding are NOT required checks
-Only Test + Lint are in branch protection. Docker runner failures are non-blocking for merge.
+Only Test + Lint were in branch protection. Docker runner failures were non-blocking for merge.
+
+### bd-8khr: Skeptic Gate ADDED to branch protection (FIXED)
+**Problem:** Only `Test` and `Lint` were required checks. `Skeptic Gate` was absent, allowing PRs with `VERDICT: FAIL` to be admin-merged.
+
+**Fix applied:** PATCH `repos/jleechanorg/agent-orchestrator/branches/main/protection/required_status_checks`
+- Before: `["Test","Lint"]`
+- After: `["Test","Lint","Skeptic Gate"]`
+
+**Verification:**
+```bash
+gh api repos/jleechanorg/agent-orchestrator/branches/main/protection --jq '.required_status_checks.contexts'
+# → ["Test","Lint","Skeptic Gate"]
+```
+
+**Impact:** Admin merges of FAIL verdicts now blocked. PRs must pass Skeptic Gate (via `ao skeptic verify` → `VERDICT: PASS`) before merge is allowed.
 
 ### Actions
 - 9 zombie sessions killed
