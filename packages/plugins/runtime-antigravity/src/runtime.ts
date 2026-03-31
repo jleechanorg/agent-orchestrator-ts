@@ -280,8 +280,9 @@ export function createAntigravityRuntime(config?: AntigravityConfig): Runtime {
           
           if (cdpClient) {
             await cdpClient.evaluateInAntigravity(`
-              const el = document.querySelector('textarea, [contenteditable="true"], input[type="text"]');
-              if (el) {
+              (() => {
+                const el = document.querySelector('textarea, [contenteditable="true"], input[type="text"]');
+                if (!el) throw new Error('CDP create: input element not found');
                 if (el.tagName === 'TEXTAREA' || el.tagName === 'INPUT') {
                   el.value = ${JSON.stringify(fullPrompt)};
                   el.dispatchEvent(new Event('input', { bubbles: true }));
@@ -289,9 +290,10 @@ export function createAntigravityRuntime(config?: AntigravityConfig): Runtime {
                   el.innerText = ${JSON.stringify(fullPrompt)};
                   el.dispatchEvent(new Event('input', { bubbles: true }));
                 }
-              }
-              const sendBtn = document.querySelector('button[aria-label*="Send" i], button[type="submit"]');
-              if (sendBtn) sendBtn.click();
+                const sendBtn = document.querySelector('button[aria-label*="Send" i], button[type="submit"]');
+                if (!sendBtn) throw new Error('CDP create: send button not found');
+                sendBtn.click();
+              })()
             `);
           } else {
             await peekaboo.paste(APP_NAME, fullPrompt);
