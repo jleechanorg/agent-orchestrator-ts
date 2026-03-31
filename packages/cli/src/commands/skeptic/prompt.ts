@@ -106,7 +106,7 @@ export function buildSkepticPrompt(
     "    - FAIL if a coverage claim (unit test coverage) has no percentage numbers (e.g. '97%', '85%')",
     "    - FAIL if the evidence section is empty or contains only template placeholders",
     "    - PASS if evidence shows real command output, real test results, or real screenshots with non-placeholder URLs",
-    "    - NOTE: evidenceRequired config flag only gates the evidence-review-bot approval (Gate 6); your authenticity check is always active",
+    "    - NOTE: Gate 6 (evidence-review-bot) is a separate pass/fail gate from your authenticity check. Gate 6 may be skipped depending on project configuration.",
     "",
     "--- DESIGN ALIGNMENT CHECK (Rule 11) ---",
     "IMPORTANT: The design doc is auto-generated from this PR's metadata and diff",

@@ -224,9 +224,9 @@ describe("skeptic structured output", () => {
         expect(prompt).toContain("percentage numbers");
         expect(prompt).toContain("evidence section is empty");
         expect(prompt).toContain("template placeholders");
-        expect(prompt).toContain("evidence-review-bot approval");
+        expect(prompt).toContain("evidence-review-bot");
         expect(prompt).toContain("Gate 6");
-        expect(prompt).toContain("authenticity check is always active");
+        expect(prompt).toContain("separate pass/fail gate");
       }
     });
 
