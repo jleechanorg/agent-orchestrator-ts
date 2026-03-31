@@ -2058,9 +2058,8 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         const completionReactionKey = "worker-signals-completion";
         const completionReactionConfig = getReactionConfigForSession(session, completionReactionKey);
         if (completionReactionConfig?.action && completionReactionConfig.auto !== false) {
-          let reactionSuccess: boolean;
           try {
-            const result = await executeReaction(
+            await executeReaction(
               session.id,
               session.projectId,
               completionReactionKey,
@@ -2068,9 +2067,10 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
               session,
               createCorrelationId("skeptic-first-seen"),
             );
-            reactionSuccess = Boolean(result?.success);
+            // result.success is false for VERDICT: FAIL — expected, not an error.
+            // SHA is recorded unconditionally below so skeptic doesn't re-fire on same SHA.
           } catch {
-            reactionSuccess = false;
+            // Non-fatal — SHA will still be recorded
           }
           // Record SHA so SHA-change re-trigger path can detect future pushes.
           // Both PASS and FAIL verdicts mean skeptic ran for this SHA — record regardless
