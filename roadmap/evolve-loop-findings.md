@@ -309,3 +309,27 @@ PR #323 merged — now 21/21
 - ao-1681: PR #316
 - ao-1690: feat/bd-5gl (merge executor)
 - ao-1660: worldai_claw
+
+## 2026-03-31 09:20 cycle
+
+### Zero-touch rate: 100% (21/21 merged in last 24h — all [agento] prefixed)
+### Workers: 4 alive (ao-1629 ctx 34%, ao-1660 heartbeating, ao-1681 compacting→resumed, jc sessions), 0 dead
+### PRs: 2 open (#316, #318), 0 merged this cycle
+### Friction: 2 new points found
+### Fixes: 2 direct inline
+
+#### PR #318 (feat/bd-ob1r):
+- **Evidence Gate FAIL**: Duplicate bad claim class `unit-test-coverage-test-coverage` in Test plan section was picked by `grep head -1` before the correct `unit-test-coverage` in Evidence section
+- **Fix**: Patched PR body to remove the duplicate bad line → Evidence Gate re-triggered
+- **Skeptic**: 3x VERDICT: FAIL (Evidence Gate was failing), 2x VERDICT: SKIPPED (Codex infra issue)
+- **Integration Tests FAIL**: "Install Aider" step failing — infra issue, NOT a required check
+- **CR**: CHANGES_REQUESTED (14 threads). ao-1629 active at 34%
+
+#### PR #316 (fix/runtime-antigravity-tdd):
+- **Evidence section issues**: `- **Claim class**: unit` (list bullet format — excluded by grep -v '^- '); stale test count (119 vs actual 123)
+- **Fix**: Patched PR body — changed to `**Claim class**: unit` (no bullet), updated 119→123 test count, fixed 129→123 coverage claim
+- **CI**: Lint ✅ Typecheck ✅ Test/Evidence Gate running after patch
+- **CR**: CHANGES_REQUESTED (20 threads: 9 cursor, 6 CR, 3 copilot, 2 chatgpt-codex). Sent ao-1681 task to run /copilot and address all threads.
+
+### Beads created: 0 new (friction patterns documented)
+### Roadmap: pushed to main
