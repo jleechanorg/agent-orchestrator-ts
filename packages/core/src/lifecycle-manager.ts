@@ -2078,18 +2078,18 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
           // Only record SHA when skeptic actually ran (completed without throw).
           // If executeReaction threw, SHA stays unrecorded so the next poll can retry.
           if (skepticDispatched && session.pr) {
-            // Fetch the real SHA first; only use the sentinel as a fallback if it
-            // throws. This avoids leaving "skeptic-dispatched-no-sha" in lastSkepticSha
-            // when getPRHeadSha fails — which would cause the bd-qnj6 catchup block to
-            // see previousSha!==currentSha and re-dispatch skeptic on the next cycle.
+            // Fetch the real SHA and record it. We intentionally do NOT set a sentinel
+            // on catch: leaving lastSkepticSha empty means the catchup block treats it
+            // as "no prior SHA" and re-dispatches next cycle — which is correct behavior
+            // (we want retry, not dedup, when SHA lookup fails after skeptic ran).
             const scm = project?.scm ? registry.get<SCM>("scm", project.scm.plugin) : null;
             if (scm?.getPRHeadSha) {
               try {
                 const sha = await scm.getPRHeadSha(session.pr);
-                lastSkepticSha.set(session.id, sha);
+                if (sha) lastSkepticSha.set(session.id, sha);
+                // On catch: do nothing — lastSkepticSha stays empty, catchup handles retry.
               } catch {
-                // Non-fatal — set a sentinel so bd-qnj6 does not re-fire in the same cycle.
-                lastSkepticSha.set(session.id, "skeptic-dispatched-no-sha");
+                // Non-fatal — do not record sentinel; catchup block covers retry.
               }
             }
             // wc-zsw companion: also dispatch claim-verification after first-seen skeptic.
