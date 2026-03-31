@@ -121,8 +121,14 @@ jobs:
           # Extract only the Evidence section content: from "## Evidence" to the next ## heading
           # This prevents media from later sections (e.g. "## Other" with ![img]) from incorrectly passing the gate
           # Use awk for robust multi-line section boundary parsing
+          # Also strip HTML comment lines (<!-- ... -->) as bots append summaries inside ## Evidence
+          # that should not be scanned for forbidden patterns or counted as media.
           EVIDENCE=$(printf '%s\n' "$BODY" | awk '
-            BEGIN { IGNORECASE=1 }
+            BEGIN { IGNORECASE=1; in_comment=0 }
+            # Handle HTML comment open/close before section logic
+            in_comment && /^[[:space:]]*-->/ { in_comment=0; next }
+            /^[[:space:]]*<!--/ { in_comment=1; next }
+            in_comment { next }
             /^[[:space:]]*##[[:space:]]+evidence([[:space:]]|$)/ { in_section=1; next }
             in_section && /^[[:space:]]*##[[:space:]]/ { exit }
             in_section { print }
