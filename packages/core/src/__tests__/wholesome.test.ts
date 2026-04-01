@@ -311,6 +311,9 @@ describe("wholesome — structural source-code assertions", () => {
       "f6750186a3916345e49f191fa646f838dc652f2b", // feat(lifecycle): backfill spawns workers for dead-agent CHANGES_REQUESTED PRs
       "69c8956d4613b5270d6efd68d5bc92cba5375eca", // docs: add backfill CHANGES_REQUESTED implementation plan
       "988a86fc8af7e95c51fcecabfe1fab62e0fbf74c", // docs: add backfill CHANGES_REQUESTED design spec
+      // PR #336 — pre-[agento] commits on feat/agent-minimax-plugin (superseded by later [agento] fixups):
+      "a66a1d287dc31c514effaae88204d054625725b6", // feat(agent-minimax): add MiniMax agent plugin
+      "7c719d0df57fe83c697c248ae7240906a90e8d2e", // feat(ci): add CodeRabbit ping on push action
     ]);
 
     it("all non-merge commits made on this branch have [agento] prefix", () => {
