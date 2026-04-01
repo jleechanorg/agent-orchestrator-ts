@@ -1204,6 +1204,7 @@ export interface DefaultPlugins {
   agent: string;
   workspace: string;
   notifiers: string[];
+  modelByCli?: Record<string, AgentSpecificConfig>;
   orchestrator?: {
     agent?: string;
   };
@@ -1329,6 +1330,8 @@ export interface ProjectConfig {
 
   /** Agent-specific configuration */
   agentConfig?: AgentSpecificConfig;
+  /** CLI-keyed model defaults, e.g. modelByCli.codex.model */
+  modelByCli?: Record<string, AgentSpecificConfig>;
 
   orchestrator?: RoleAgentConfig;
 

@@ -19,6 +19,15 @@ port: 3000
 defaults:
   runtime: tmux           # tmux | process | docker | kubernetes | ssh | e2b
   agent: claude-code      # claude-code | codex | aider | goose | custom
+  # CLI-keyed model defaults (preferred over a single global model)
+  # modelByCli:
+  #   claude-code:
+  #     model: claude-sonnet-4-20250514
+  #     orchestratorModel: claude-opus-4-20250514
+  #   codex:
+  #     model: gpt-5-codex
+  #   cursor:
+  #     model: composer-2
   # orchestrator:
   #   agent: claude-code
   # worker:
@@ -69,6 +78,11 @@ projects:
     # agentConfig:
     #   permissions: skip    # --dangerously-skip-permissions
     #   model: opus
+
+    # Per-project CLI-keyed model overrides (wins over defaults.modelByCli)
+    # modelByCli:
+    #   codex:
+    #     model: gpt-5-codex
 
     # Optional role-specific agent overrides
     # orchestrator:

@@ -20,6 +20,12 @@ readyThresholdMs: 300000      # Ms before "ready" session becomes "idle" (defaul
 defaults:
   runtime: tmux               # tmux | process
   agent: claude-code          # claude-code | aider | codex | opencode
+  modelByCli:                 # CLI-keyed model defaults
+    claude-code:
+      model: claude-sonnet-4-20250514
+      orchestratorModel: claude-opus-4-20250514
+    codex:
+      model: gpt-5-codex
   workspace: worktree         # worktree | clone
   notifiers:                  # List of active notifier plugins
     - desktop                 # desktop | slack | webhook | composio | openclaw
@@ -48,6 +54,9 @@ projects:
     agentConfig:
       permissions: auto       # auto | manual — agent permission mode
       model: claude-sonnet-4-20250514
+    modelByCli:
+      codex:
+        model: gpt-5-codex
 
     # ── Agent rules (optional) ────────────────────────────────────
     agentRules: |             # Inline rules passed to every agent prompt

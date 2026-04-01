@@ -48,6 +48,13 @@ export function resolveAgentSelection(params: {
         defaults.agent)
       : (roleProjectConfig?.agent ?? project.agent ?? roleDefaults?.agent ?? defaults.agent);
 
+  const defaultsCliModelConfig = defaults.modelByCli?.[agentName] ?? {};
+  const projectCliModelConfig = project.modelByCli?.[agentName] ?? {};
+  const cliModelConfig: AgentSpecificConfig = {
+    ...defaultsCliModelConfig,
+    ...projectCliModelConfig,
+  };
+
   const agentConfig: AgentSpecificConfig = {
     ...sharedConfig,
   };
@@ -62,8 +69,10 @@ export function resolveAgentSelection(params: {
       ? (roleAgentConfig.orchestratorModel ??
         roleAgentConfig.model ??
         sharedConfig.orchestratorModel ??
-        sharedConfig.model)
-      : (roleAgentConfig.model ?? sharedConfig.model);
+        cliModelConfig.orchestratorModel ??
+        sharedConfig.model ??
+        cliModelConfig.model)
+      : (roleAgentConfig.model ?? sharedConfig.model ?? cliModelConfig.model);
 
   if (model !== undefined) {
     agentConfig.model = model;

@@ -145,6 +145,13 @@ const RoleAgentDefaultsSchema = z
   })
   .optional();
 
+const CliModelDefaultsSchema = z
+  .object({
+    model: z.string().optional(),
+    orchestratorModel: z.string().optional(),
+  })
+  .passthrough();
+
 const RoleAgentConfigSchema = z
   .object({
     agent: z.string().optional(),
@@ -223,6 +230,7 @@ const ProjectConfigSchema = z.object({
   symlinks: z.array(z.string()).optional(),
   postCreate: z.array(z.string()).optional(),
   agentConfig: AgentSpecificConfigSchema.default({}),
+  modelByCli: z.record(CliModelDefaultsSchema).optional(),
   orchestrator: RoleAgentConfigSchema,
   worker: RoleAgentConfigSchema,
   reactions: z.record(ReactionConfigSchema.partial()).optional(),
@@ -253,6 +261,7 @@ const DefaultPluginsSchema = z.object({
   agent: z.string().default("claude-code"),
   workspace: z.string().default("worktree"),
   notifiers: z.array(z.string()).default(["composio", "desktop"]),
+  modelByCli: z.record(CliModelDefaultsSchema).optional(),
   orchestrator: RoleAgentDefaultsSchema,
   worker: RoleAgentDefaultsSchema,
   // bd-n047: default auto-merge settings for all projects
