@@ -19,6 +19,8 @@ port: 3000
 defaults:
   runtime: tmux           # tmux | process | docker | kubernetes | ssh | e2b
   agent: claude-code      # claude-code | codex | aider | goose | custom
+  agentConfig:
+    model: composer-2
   # orchestrator:
   #   agent: claude-code
   # worker:
@@ -68,7 +70,7 @@ projects:
     # Agent-specific config
     # agentConfig:
     #   permissions: skip    # --dangerously-skip-permissions
-    #   model: opus
+    #   model: composer-2-fast
 
     # Optional role-specific agent overrides
     # orchestrator:

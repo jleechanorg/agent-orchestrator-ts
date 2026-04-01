@@ -3856,6 +3856,30 @@ describe("spawnOrchestrator", () => {
     );
   });
 
+  it("uses defaults.agentConfig.model when launching worker sessions", async () => {
+    const configWithDefaultModel: OrchestratorConfig = {
+      ...config,
+      defaults: {
+        ...config.defaults,
+        agentConfig: {
+          model: "composer-2",
+        },
+      },
+    };
+
+    const validatedConfig = validateConfig(configWithDefaultModel);
+    validatedConfig.configPath = config.configPath;
+    const sm = createSessionManager({
+      config: validatedConfig,
+      registry: mockRegistry,
+    });
+    await sm.spawn({ projectId: "my-app" });
+
+    expect(mockAgent.getLaunchCommand).toHaveBeenCalledWith(
+      expect.objectContaining({ model: "composer-2" }),
+    );
+  });
+
   it("uses role-specific orchestratorModel when configured", async () => {
     const configWithRoleOrchestratorModel: OrchestratorConfig = {
       ...config,

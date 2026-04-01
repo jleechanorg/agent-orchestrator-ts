@@ -20,13 +20,17 @@ readyThresholdMs: 300000      # Ms before "ready" session becomes "idle" (defaul
 defaults:
   runtime: tmux               # tmux | process
   agent: claude-code          # claude-code | aider | codex | opencode
+  agentConfig:                # Shared config for all roles
+    model: claude-sonnet-4-20250514
   workspace: worktree         # worktree | clone
   notifiers:                  # List of active notifier plugins
     - desktop                 # desktop | slack | webhook | composio | openclaw
   orchestrator:
     agent: claude-code        # Agent for orchestrator sessions (optional override)
+    # agentConfig: {}         # Optional orchestrator-specific overrides
   worker:
     agent: claude-code        # Agent for worker sessions (optional override)
+    # agentConfig: {}         # Optional worker-specific overrides
 
 # ── Projects ────────────────────────────────────────────────────────
 # Each key is a project ID (typically the repo directory name).

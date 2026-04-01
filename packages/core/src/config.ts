@@ -142,6 +142,7 @@ const RoleAgentSpecificConfigSchema = z
 const RoleAgentDefaultsSchema = z
   .object({
     agent: z.string().optional(),
+    agentConfig: RoleAgentSpecificConfigSchema.optional(),
   })
   .optional();
 
@@ -253,6 +254,7 @@ const DefaultPluginsSchema = z.object({
   agent: z.string().default("claude-code"),
   workspace: z.string().default("worktree"),
   notifiers: z.array(z.string()).default(["composio", "desktop"]),
+  agentConfig: AgentSpecificConfigSchema.optional(),
   orchestrator: RoleAgentDefaultsSchema,
   worker: RoleAgentDefaultsSchema,
   // bd-n047: default auto-merge settings for all projects

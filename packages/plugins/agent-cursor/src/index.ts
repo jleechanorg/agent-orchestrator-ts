@@ -43,6 +43,38 @@ const cursorConfig: AgentPluginConfig = {
   // Cursor Agent CLI does not expose cost or token data in JSONL — cost not tracked.
 };
 
+const CURSOR_DEFAULT_MODEL = "composer-2-fast";
+
+/**
+ * Anthropic / AO-style model IDs (e.g. claude-opus-4-6) that Cursor rejects.
+ * Cursor-native claude-* slugs (e.g. claude-3-5-sonnet) are passed through.
+ */
+function isAnthropicApiStyleModelId(model: string): boolean {
+  return /^claude-(?:sonnet|opus|haiku)-\d+-\d+$/i.test(model);
+}
+
+function normalizeCursorModel(model?: string): string {
+  if (!model) {
+    return CURSOR_DEFAULT_MODEL;
+  }
+  if (model === "auto") {
+    return model;
+  }
+  if (model.startsWith("composer-")) {
+    return model;
+  }
+  if (model.startsWith("gpt-")) {
+    return model;
+  }
+  if (model.startsWith("claude-")) {
+    if (isAnthropicApiStyleModelId(model)) {
+      return CURSOR_DEFAULT_MODEL;
+    }
+    return model;
+  }
+  return CURSOR_DEFAULT_MODEL;
+}
+
 // =============================================================================
 // Cursor-specific overrides
 // Cursor stores sessions in SQLite at ~/.cursor/chats/, but also writes JSONL
@@ -67,14 +99,13 @@ const cursorOverrides: Partial<Agent> = {
       `mkdir -p "$HOME/.cursor/projects/$_EP"`,
       `printf '{"trustedAt":"%s","workspacePath":"%s"}' "$(date -u +%Y-%m-%dT%H:%M:%S.000Z)" "$_WP" > "$HOME/.cursor/projects/$_EP/.workspace-trusted" 2>/dev/null`,
     ].join(" && ");
-    // Strip the model from launchConfig: cursor-agent uses its own model naming
-    // convention (e.g. "claude-4.6-sonnet-medium") that is incompatible with
-    // Anthropic API model IDs (e.g. "claude-sonnet-4-6"). Passing an unknown
-    // model name causes cursor-agent to print the available model list and exit
-    // immediately. Users who need a specific cursor model should configure it in
-    // Cursor's own settings; AO should not override the model for cursor sessions.
-    const { model: _ignored, ...launchConfigWithoutModel } = launchConfig;
-    const agentCmd = createAgentPlugin(cursorConfig).getLaunchCommand(launchConfigWithoutModel);
+    const { model, ...launchConfigWithoutModel } = launchConfig;
+    const normalizedModel = normalizeCursorModel(model);
+    const launchConfigWithModel = {
+      ...launchConfigWithoutModel,
+      model: normalizedModel,
+    };
+    const agentCmd = createAgentPlugin(cursorConfig).getLaunchCommand(launchConfigWithModel);
     return `( ${preTrust} ); ${agentCmd}`;
   },
 };

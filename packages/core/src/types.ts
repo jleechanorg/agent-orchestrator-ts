@@ -1204,12 +1204,9 @@ export interface DefaultPlugins {
   agent: string;
   workspace: string;
   notifiers: string[];
-  orchestrator?: {
-    agent?: string;
-  };
-  worker?: {
-    agent?: string;
-  };
+  agentConfig?: AgentSpecificConfig;
+  orchestrator?: RoleAgentConfig;
+  worker?: RoleAgentConfig;
   /** Default auto-merge settings for all projects (bd-n047) */
   autoMerge?: AutoMergeConfig;
 }

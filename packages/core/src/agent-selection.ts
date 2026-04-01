@@ -35,8 +35,14 @@ export function resolveAgentSelection(params: {
   const { role, project, defaults, persistedAgent, spawnAgentOverride } = params;
   const roleProjectConfig = role === "orchestrator" ? project.orchestrator : project.worker;
   const roleDefaults = role === "orchestrator" ? defaults.orchestrator : defaults.worker;
-  const sharedConfig = project.agentConfig ?? {};
-  const roleAgentConfig = roleProjectConfig?.agentConfig ?? {};
+  const roleAgentConfig = {
+    ...(roleDefaults?.agentConfig ?? {}),
+    ...(roleProjectConfig?.agentConfig ?? {}),
+  };
+  const sharedConfig = {
+    ...(defaults.agentConfig ?? {}),
+    ...(project.agentConfig ?? {}),
+  };
 
   const agentName = persistedAgent
     ? persistedAgent

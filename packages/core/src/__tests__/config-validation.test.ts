@@ -455,6 +455,28 @@ describe("Config Schema Validation", () => {
     expect(validated.projects.proj1.agentConfig?.orchestratorModel).toBe("orchestrator-model");
   });
 
+  it("accepts defaults.agentConfig", () => {
+    const config = {
+      defaults: {
+        agentConfig: {
+          model: "composer-2",
+          permissions: "suggest",
+        },
+      },
+      projects: {
+        proj1: {
+          path: "/repos/test",
+          repo: "org/test",
+          defaultBranch: "main",
+        },
+      },
+    };
+
+    const validated = validateConfig(config);
+    expect(validated.defaults.agentConfig?.model).toBe("composer-2");
+    expect(validated.defaults.agentConfig?.permissions).toBe("suggest");
+  });
+
   it("accepts role-specific agent overrides at defaults and project scope", () => {
     const config = {
       defaults: {

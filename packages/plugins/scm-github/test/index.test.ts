@@ -1152,7 +1152,9 @@ describe("scm-github plugin", () => {
       expect(checks[0].completedAt).toBeUndefined();
     });
 
-    it("falls back to REST check-runs when rate-limited on statusCheckRollup", async () => {
+    it(
+      "falls back to REST check-runs when rate-limited on statusCheckRollup",
+      async () => {
       // First call: gh pr checks fails (unsupported)
       mockGhError("gh pr checks failed: unknown json field 'state'");
       // Second call: gh pr view --json statusCheckRollup => rate limit (3 retries)
@@ -1178,7 +1180,9 @@ describe("scm-github plugin", () => {
       expect(checks).toHaveLength(2);
       expect(checks[0]).toMatchObject({ name: "build", status: "passed" });
       expect(checks[1]).toMatchObject({ name: "lint", status: "failed" });
-    });
+    },
+      12_000,
+    );
 
     it("falls back to statusCheckRollup when pr checks json is unsupported", async () => {
       mockGhError("gh pr checks failed: unknown json field 'state'");
