@@ -63,15 +63,17 @@ jobs:
           # status=completed + conclusion=success. Test and Test Web are
           # additional/optional jobs beyond the MIN_CORE_JOBS threshold.
           #
-          # Wait for CI to register (up to 5 min) before evaluating. This
+          # Wait for CI to register (up to 15 min) before evaluating. This
           # prevents false FAIL when the workflow fires before CI has even
-          # registered its check-runs. The concurrency group uses
-          # cancel-in-progress:false so this wait won't be cancelled by
-          # subsequent CI runs for the same SHA.
+          # registered its check-runs. Lint/Typecheck often finish in ~3 min;
+          # Test + Test (Web) can exceed 5 min on busy runners — 300s caused
+          # false Gate 1 FAIL while jobs were still pending.
+          # The concurrency group uses cancel-in-progress:false so this wait
+          # won't be cancelled by subsequent CI runs for the same SHA.
           # ----------------------------------------------------------------
 
           echo "Waiting for CI check runs to register and complete..."
-          MAX_WAIT=300
+          MAX_WAIT=900
           INTERVAL=30
           ELAPSED=0
           # Minimum required core jobs: Lint + Typecheck. These are the fastest
