@@ -193,6 +193,11 @@ describe("getLaunchCommand", () => {
     expect(agentPart(cmd)).toBe("cursor-agent --model 'composer-2'");
   });
 
+  it("falls back to default when composer model id is not in the supported allowlist", () => {
+    const cmd = agent.getLaunchCommand(makeLaunchConfig({ model: "composer-2-fst" }));
+    expect(agentPart(cmd)).toContain("--model 'composer-2-fast'");
+  });
+
   it("passes through auto and OpenAI-style Cursor model IDs", () => {
     expect(agentPart(agent.getLaunchCommand(makeLaunchConfig({ model: "auto" })))).toContain(
       "--model 'auto'",

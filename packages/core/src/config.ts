@@ -223,7 +223,9 @@ const ProjectConfigSchema = z.object({
   scm: SCMConfigSchema.optional(),
   symlinks: z.array(z.string()).optional(),
   postCreate: z.array(z.string()).optional(),
-  agentConfig: AgentSpecificConfigSchema.default({}),
+  // Use RoleAgentSpecificConfigSchema so an absent project.agentConfig does not inject
+  // permissions: permissionless (which would override defaults.agentConfig.permissions).
+  agentConfig: RoleAgentSpecificConfigSchema.default({}),
   orchestrator: RoleAgentConfigSchema,
   worker: RoleAgentConfigSchema,
   reactions: z.record(ReactionConfigSchema.partial()).optional(),

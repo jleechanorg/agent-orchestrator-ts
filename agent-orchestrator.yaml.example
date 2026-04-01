@@ -19,8 +19,8 @@ port: 3000
 defaults:
   runtime: tmux           # tmux | process | docker | kubernetes | ssh | e2b
   agent: claude-code      # claude-code | codex | aider | goose | custom
-  agentConfig:
-    model: composer-2
+  # Omit defaults.agentConfig.model unless it matches defaults.agent (Composer IDs apply only to cursor).
+  # Example: defaults.agent: cursor + agentConfig.model: composer-2-fast
   # orchestrator:
   #   agent: claude-code
   # worker:

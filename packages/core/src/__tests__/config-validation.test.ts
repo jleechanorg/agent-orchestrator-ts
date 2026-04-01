@@ -541,6 +541,24 @@ describe("Config Schema Validation", () => {
     expect(config.projects.proj1.agentConfig?.permissions).toBe("suggest");
     expect(config.projects.proj1.worker?.agentConfig?.permissions).toBeUndefined();
   });
+
+  it("does not inject default permissions into project agentConfig when absent", () => {
+    const validated = validateConfig({
+      defaults: {
+        agentConfig: {
+          permissions: "suggest",
+        },
+      },
+      projects: {
+        proj1: {
+          path: "/repos/test",
+          repo: "org/test",
+          defaultBranch: "main",
+        },
+      },
+    });
+    expect(validated.projects.proj1.agentConfig?.permissions).toBeUndefined();
+  });
 });
 
 describe("Config Defaults", () => {

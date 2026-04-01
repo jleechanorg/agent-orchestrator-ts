@@ -45,6 +45,9 @@ const cursorConfig: AgentPluginConfig = {
 
 const CURSOR_DEFAULT_MODEL = "composer-2-fast";
 
+/** Known Composer model IDs from `cursor-agent models` — do not pass through arbitrary `composer-*` typos. */
+const SUPPORTED_COMPOSER_MODEL_IDS = new Set<string>(["composer-2-fast", "composer-2"]);
+
 /**
  * Anthropic / AO-style model IDs (e.g. claude-opus-4-6) that Cursor rejects.
  * Cursor-native claude-* slugs (e.g. claude-3-5-sonnet) are passed through.
@@ -61,9 +64,12 @@ function normalizeCursorModel(model?: string): string {
     return model;
   }
   if (model.startsWith("composer-")) {
-    return model;
+    return SUPPORTED_COMPOSER_MODEL_IDS.has(model) ? model : CURSOR_DEFAULT_MODEL;
   }
   if (model.startsWith("gpt-")) {
+    return model;
+  }
+  if (model.startsWith("gemini-") || model.startsWith("grok-") || model.startsWith("kimi-")) {
     return model;
   }
   if (model.startsWith("claude-")) {
