@@ -70,65 +70,71 @@ describe("scripts/install-skeptic-ci-for-repo.sh", () => {
 
   it("with no flags, installs both workflow files", () => {
     const tempRoot = mkdtempSync(join(tmpdir(), "install-skeptic-ci-"));
-    const fakeRepo = join(tempRoot, "repo");
-    mkdirSync(fakeRepo, { recursive: true });
-    initBareGitRepo(fakeRepo);
+    try {
+      const fakeRepo = join(tempRoot, "repo");
+      mkdirSync(fakeRepo, { recursive: true });
+      initBareGitRepo(fakeRepo);
 
-    const binDir = join(tempRoot, "bin");
-    mkdirSync(binDir, { recursive: true });
-    createFakeCurl(binDir);
+      const binDir = join(tempRoot, "bin");
+      mkdirSync(binDir, { recursive: true });
+      createFakeCurl(binDir);
 
-    const result = spawnSync("bash", [scriptPath], {
-      cwd: fakeRepo,
-      env: {
-        ...process.env,
-        PATH: `${binDir}:/usr/bin:/bin:/usr/local/bin`,
-        SKEPTIC_CI_REPO: "fake/ignored",
-        SKEPTIC_CI_REF: "main",
-      },
-      encoding: "utf8",
-    });
+      const result = spawnSync("bash", [scriptPath], {
+        cwd: fakeRepo,
+        env: {
+          ...process.env,
+          PATH: `${binDir}:/usr/bin:/bin:/usr/local/bin`,
+          SKEPTIC_CI_REPO: "fake/ignored",
+          SKEPTIC_CI_REF: "main",
+        },
+        encoding: "utf8",
+      });
 
-    const gate = join(fakeRepo, ".github", "workflows", "skeptic-gate.yml");
-    const cron = join(fakeRepo, ".github", "workflows", "skeptic-cron.yml");
-    const gateBody = existsSync(gate) ? readFileSync(gate, "utf8") : "";
-    const cronBody = existsSync(cron) ? readFileSync(cron, "utf8") : "";
-    rmSync(tempRoot, { recursive: true, force: true });
+      const gate = join(fakeRepo, ".github", "workflows", "skeptic-gate.yml");
+      const cron = join(fakeRepo, ".github", "workflows", "skeptic-cron.yml");
+      const gateBody = existsSync(gate) ? readFileSync(gate, "utf8") : "";
+      const cronBody = existsSync(cron) ? readFileSync(cron, "utf8") : "";
 
-    expect(result.status).toBe(0);
-    expect(gateBody).toContain("skeptic-gate");
-    expect(cronBody).toContain("skeptic-cron");
+      expect(result.status).toBe(0);
+      expect(gateBody).toContain("skeptic-gate");
+      expect(cronBody).toContain("skeptic-cron");
+    } finally {
+      rmSync(tempRoot, { recursive: true, force: true });
+    }
   });
 
   it("with --gate only, installs skeptic-gate.yml", () => {
     const tempRoot = mkdtempSync(join(tmpdir(), "install-skeptic-gate-"));
-    const fakeRepo = join(tempRoot, "repo");
-    mkdirSync(fakeRepo, { recursive: true });
-    initBareGitRepo(fakeRepo);
+    try {
+      const fakeRepo = join(tempRoot, "repo");
+      mkdirSync(fakeRepo, { recursive: true });
+      initBareGitRepo(fakeRepo);
 
-    const binDir = join(tempRoot, "bin");
-    mkdirSync(binDir, { recursive: true });
-    createFakeCurl(binDir);
+      const binDir = join(tempRoot, "bin");
+      mkdirSync(binDir, { recursive: true });
+      createFakeCurl(binDir);
 
-    const result = spawnSync("bash", [scriptPath, "--gate"], {
-      cwd: fakeRepo,
-      env: {
-        ...process.env,
-        PATH: `${binDir}:/usr/bin:/bin:/usr/local/bin`,
-        SKEPTIC_CI_REPO: "fake/ignored",
-        SKEPTIC_CI_REF: "main",
-      },
-      encoding: "utf8",
-    });
+      const result = spawnSync("bash", [scriptPath, "--gate"], {
+        cwd: fakeRepo,
+        env: {
+          ...process.env,
+          PATH: `${binDir}:/usr/bin:/bin:/usr/local/bin`,
+          SKEPTIC_CI_REPO: "fake/ignored",
+          SKEPTIC_CI_REF: "main",
+        },
+        encoding: "utf8",
+      });
 
-    const gate = join(fakeRepo, ".github", "workflows", "skeptic-gate.yml");
-    const cron = join(fakeRepo, ".github", "workflows", "skeptic-cron.yml");
-    const gateExists = existsSync(gate);
-    const cronExists = existsSync(cron);
-    rmSync(tempRoot, { recursive: true, force: true });
+      const gate = join(fakeRepo, ".github", "workflows", "skeptic-gate.yml");
+      const cron = join(fakeRepo, ".github", "workflows", "skeptic-cron.yml");
+      const gateExists = existsSync(gate);
+      const cronExists = existsSync(cron);
 
-    expect(result.status).toBe(0);
-    expect(gateExists).toBe(true);
-    expect(cronExists).toBe(false);
+      expect(result.status).toBe(0);
+      expect(gateExists).toBe(true);
+      expect(cronExists).toBe(false);
+    } finally {
+      rmSync(tempRoot, { recursive: true, force: true });
+    }
   });
 });
