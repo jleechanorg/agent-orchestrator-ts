@@ -26,6 +26,14 @@ const execFile = promisify(execFileCb);
 /** Default timeout for peekaboo CLI calls (ms). */
 const PEEKABOO_TIMEOUT_MS = 15_000;
 
+/** Large UI snapshots can exceed Node's default execFile stdout buffer. */
+const PEEKABOO_EXEC_MAX_BUFFER = 10 * 1024 * 1024;
+
+const peekabooExecOpts = {
+  timeout: PEEKABOO_TIMEOUT_MS,
+  maxBuffer: PEEKABOO_EXEC_MAX_BUFFER,
+} as const;
+
 /**
  * Peekaboo binary path. Defaults to the PEEKABOO_BIN env var (for tests)
  * or "peekaboo". Override at startup with setPeekabooBin().
@@ -50,10 +58,21 @@ export function setPeekabooBin(path: string): void {
  */
 async function run<T>(args: string[]): Promise<T> {
   const bin = _peekabooBin;
-  const { stdout } = await execFile(bin, args, {
-    timeout: PEEKABOO_TIMEOUT_MS,
-  });
-  return JSON.parse(stdout) as T;
+  const { stdout } = await execFile(bin, args, peekabooExecOpts);
+  const trimmed = stdout.trim();
+  if (!trimmed) {
+    throw new Error(`peekaboo: empty stdout (args: ${args.join(" ")})`);
+  }
+  try {
+    return JSON.parse(trimmed) as T;
+  } catch (e) {
+    const preview =
+      trimmed.length > 500 ? `${trimmed.slice(0, 500)}…` : trimmed;
+    throw new Error(
+      `peekaboo: invalid JSON in stdout: ${e instanceof Error ? e.message : String(e)}; preview: ${preview}`,
+      { cause: e },
+    );
+  }
 }
 
 /**
@@ -143,9 +162,7 @@ export function click(
  */
 export function paste(app: string, text: string): Promise<void> {
   return enqueue(async () => {
-    await execFile(_peekabooBin, ["paste", "--app", app, "--text", text], {
-      timeout: PEEKABOO_TIMEOUT_MS,
-    });
+    await execFile(_peekabooBin, ["paste", "--app", app, "--text", text], peekabooExecOpts);
   });
 }
 
@@ -160,9 +177,7 @@ export function paste(app: string, text: string): Promise<void> {
  */
 export function press(app: string, key: string): Promise<void> {
   return enqueue(async () => {
-    await execFile(_peekabooBin, ["press", key, "--app", app], {
-      timeout: PEEKABOO_TIMEOUT_MS,
-    });
+    await execFile(_peekabooBin, ["press", key, "--app", app], peekabooExecOpts);
   });
 }
 
@@ -178,9 +193,7 @@ export function press(app: string, key: string): Promise<void> {
  */
 export function hotkey(app: string, combo: string): Promise<void> {
   return enqueue(async () => {
-    await execFile(_peekabooBin, ["hotkey", combo, "--app", app], {
-      timeout: PEEKABOO_TIMEOUT_MS,
-    });
+    await execFile(_peekabooBin, ["hotkey", combo, "--app", app], peekabooExecOpts);
   });
 }
 
@@ -214,7 +227,7 @@ export function scroll(
         "--amount",
         String(amount),
       ],
-      { timeout: PEEKABOO_TIMEOUT_MS },
+      peekabooExecOpts,
     );
   });
 }
@@ -243,7 +256,7 @@ export function screencapture(
     await execFile(
       "screencapture",
       [`-R${x},${y},${width},${height}`, outputPath],
-      { timeout: PEEKABOO_TIMEOUT_MS },
+      peekabooExecOpts,
     );
     const fs = await import("node:fs/promises");
     return fs.readFile(outputPath);
