@@ -20,6 +20,8 @@ interface MockWebSocketInstance {
 }
 
 describe("CdpClient", () => {
+  const originalFetch = globalThis.fetch;
+  const originalWebSocket = globalThis.WebSocket;
   let mockFetch: ReturnType<typeof vi.fn>;
   let mockWebSocket: new (url: string) => MockWebSocketInstance;
   let wsInstances: MockWebSocketInstance[] = [];
@@ -57,6 +59,8 @@ describe("CdpClient", () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+    globalThis.fetch = originalFetch;
+    globalThis.WebSocket = originalWebSocket;
   });
 
   function setupMockTargets(targets: MockTarget[]) {

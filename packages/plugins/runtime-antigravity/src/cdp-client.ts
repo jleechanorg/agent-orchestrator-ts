@@ -63,9 +63,13 @@ export class CdpClient {
 
     // Antigravity has multiple targets (background pages, service workers, tabs)
     // We want the main renderer page. Usually type: "page"
-    // And to be safe, we can filter for something containing antigravity/manager/index
+    // And to be safe, we can filter for something containing manager
     // If not, just taking the first 'page' type works for electron apps with a single window.
-    const pageTarget = targets.find((t) => t.type === "page" && !t.title.includes("devtools"));
+    const pageTarget = targets.find((t) => 
+      t.type === "page" && 
+      !t.title.includes("devtools") &&
+      t.title.toLowerCase().includes("manager")
+    ) ?? targets.find((t) => t.type === "page" && !t.title.includes("devtools"));
 
     if (!pageTarget?.webSocketDebuggerUrl) {
       throw new Error("No suitable CDP page target found");

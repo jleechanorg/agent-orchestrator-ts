@@ -35,11 +35,17 @@ vi.mock("../fallback.js", () => ({
 // CDP integration is tested in cdp-client.test.ts.
 vi.mock("../cdp-client.js", () => ({
   CdpClient: class MockCdpClient {
-    static connect(): Promise<never> {
+    static connect(): Promise<any> {
+      if ((globalThis as any)._cdpShouldConnect) {
+         return Promise.resolve(new MockCdpClient());
+      }
       return Promise.reject(new Error("CDP not available in tests"));
     }
-    isConnected(): boolean { return false; }
+    isConnected(): boolean { return (globalThis as any)._cdpShouldConnect; }
     disconnect(): void { /* no-op */ }
+    evaluateInAntigravity(js: string) {
+       return (globalThis as any)._mockCdpEval ? (globalThis as any)._mockCdpEval(js) : Promise.resolve();
+    }
   },
 }));
 
@@ -205,6 +211,29 @@ function setupSuccessfulCreateMocks() {
 }
 
 describe("runtime.create() — Manager UI flow", () => {
+  it("should fall back to Peekaboo path if CDP connect succeeds but evaluateInAntigravity throws", async () => {
+    (globalThis as any)._cdpShouldConnect = true;
+    const mockEval = vi.fn().mockRejectedValue(new Error("CDP create: input element not found"));
+    (globalThis as any)._mockCdpEval = mockEval;
+
+    const runtime = create();
+    setupSuccessfulCreateMocks();
+
+    await runtime.create({
+      sessionId: "test-session",
+      workspacePath: "/tmp/workspace",
+      launchCommand: "do work",
+      environment: {},
+    });
+
+    expect(mockEval).toHaveBeenCalled();
+    // Verify fallback to peekaboo
+    expect(mockPaste).toHaveBeenCalled();
+    expect(mockPress).toHaveBeenCalledWith("Antigravity", "Return");
+
+    (globalThis as any)._cdpShouldConnect = false;
+    (globalThis as any)._mockCdpEval = undefined;
+  });
   it("should click 'add Start new conversation' button, not workspace label", async () => {
     const runtime = create();
     setupSuccessfulCreateMocks();
