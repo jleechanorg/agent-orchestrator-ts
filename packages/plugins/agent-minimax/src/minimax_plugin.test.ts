@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { manifest, create } from "./index.js";
-import type { AgentLaunchConfig } from "@jleechanorg/ao-core";
+import type { AgentLaunchConfig, ProjectConfig, Session } from "@jleechanorg/ao-core";
 
 describe("agent-minimax manifest", () => {
   it("has correct slot and name", () => {
@@ -122,6 +122,15 @@ describe("agent-minimax create()", () => {
 
     expect(cmd).not.toContain("claude-sonnet-4");
     expect(cmd).not.toContain("--model");
+  });
+
+  it("getRestoreCommand returns null so restore does not pass incompatible --model", async () => {
+    const agent = create();
+    const cmd = await agent.getRestoreCommand!(
+      { id: "s1" } as Session,
+      { agentConfig: { model: "claude-sonnet-4-20250514" } } as ProjectConfig,
+    );
+    expect(cmd).toBeNull();
   });
 
   it("sets AO_SESSION_ID in environment", () => {
