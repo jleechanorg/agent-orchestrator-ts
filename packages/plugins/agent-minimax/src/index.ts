@@ -16,6 +16,8 @@ import type {
   Agent,
   AgentLaunchConfig,
   PluginModule,
+  ProjectConfig,
+  Session,
 } from "@jleechanorg/ao-core";
 
 // =============================================================================
@@ -50,35 +52,19 @@ const minimaxConfig: AgentPluginConfig = {
   systemPromptFlag: "--append-system-prompt",
 };
 
+/** Base agent without MiniMax overrides — used to compose env and launch command. */
+const baseMinimaxAgent = createAgentPlugin(minimaxConfig);
+
 // =============================================================================
 // MiniMax-specific overrides
 // =============================================================================
 
 const minimaxOverrides: Partial<Agent> = {
   getEnvironment(launchConfig: AgentLaunchConfig): Record<string, string> {
-    // Get base env from the default implementation
-    const env: Record<string, string> = {};
+    const env: Record<string, string> = {
+      ...baseMinimaxAgent.getEnvironment(launchConfig),
+    };
 
-    // Unset CLAUDECODE to avoid nested agent conflicts
-    env["CLAUDECODE"] = "";
-
-    // Set session info for introspection
-    env["AO_SESSION"] = launchConfig.sessionId;
-    env["AO_SESSION_ID"] = launchConfig.sessionId;
-
-    if (launchConfig.issueId) {
-      env["AO_ISSUE_ID"] = launchConfig.issueId;
-    }
-
-    // Pass MCP mail configuration if available
-    if (process.env.MCP_AGENT_MAIL_URL) {
-      env["MCP_AGENT_MAIL_URL"] = process.env.MCP_AGENT_MAIL_URL;
-    }
-    if (process.env.MCP_AGENT_MAIL_TOKEN) {
-      env["MCP_AGENT_MAIL_TOKEN"] = process.env.MCP_AGENT_MAIL_TOKEN;
-    }
-
-    // MiniMax API routing — point Claude CLI at MiniMax's Anthropic-compatible endpoint
     env["ANTHROPIC_BASE_URL"] = MINIMAX_BASE_URL;
 
     const apiKey = process.env.MINIMAX_API_KEY;
@@ -91,9 +77,9 @@ const minimaxOverrides: Partial<Agent> = {
       env["ANTHROPIC_API_KEY"] = apiKey;
     }
 
-    // Set model defaults — MiniMax uses its own model names
-    env["ANTHROPIC_MODEL"] = MINIMAX_DEFAULT_MODEL;
-    env["ANTHROPIC_SMALL_FAST_MODEL"] = MINIMAX_DEFAULT_MODEL;
+    const selectedModel = launchConfig.model ?? MINIMAX_DEFAULT_MODEL;
+    env["ANTHROPIC_MODEL"] = selectedModel;
+    env["ANTHROPIC_SMALL_FAST_MODEL"] = selectedModel;
 
     return env;
   },
@@ -102,7 +88,13 @@ const minimaxOverrides: Partial<Agent> = {
     // Strip model from launch config — MiniMax models are set via env vars above,
     // and Claude CLI's --model flag would pass an Anthropic model ID that MiniMax rejects.
     const { model: _ignored, ...launchConfigWithoutModel } = launchConfig;
-    return createAgentPlugin(minimaxConfig).getLaunchCommand(launchConfigWithoutModel);
+    return baseMinimaxAgent.getLaunchCommand(launchConfigWithoutModel);
+  },
+
+  async getRestoreCommand(_session: Session, _project: ProjectConfig): Promise<string | null> {
+    // Returning null prevents the base plugin from building a restore command that
+    // would pass --model with an Anthropic model ID (rejected by MiniMax API).
+    return null;
   },
 };
 

@@ -89,6 +89,9 @@ importers:
       '@jleechanorg/ao-plugin-agent-gemini':
         specifier: workspace:*
         version: link:../plugins/agent-gemini
+      '@jleechanorg/ao-plugin-agent-minimax':
+        specifier: workspace:*
+        version: link:../plugins/agent-minimax
       '@jleechanorg/ao-plugin-agent-opencode':
         specifier: workspace:*
         version: link:../plugins/agent-opencode

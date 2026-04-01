@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { manifest, create } from "../index.js";
+import { manifest, create } from "./index.js";
 import type { AgentLaunchConfig } from "@jleechanorg/ao-core";
 
 describe("agent-minimax manifest", () => {
@@ -10,14 +10,19 @@ describe("agent-minimax manifest", () => {
 });
 
 describe("agent-minimax create()", () => {
-  const originalEnv = { ...process.env };
+  let originalMinimaxApiKey: string | undefined;
 
   beforeEach(() => {
+    originalMinimaxApiKey = process.env.MINIMAX_API_KEY;
     process.env.MINIMAX_API_KEY = "test-minimax-key-123";
   });
 
   afterEach(() => {
-    process.env = { ...originalEnv };
+    if (originalMinimaxApiKey === undefined) {
+      delete process.env.MINIMAX_API_KEY;
+    } else {
+      process.env.MINIMAX_API_KEY = originalMinimaxApiKey;
+    }
   });
 
   it("returns an agent with required methods", () => {
@@ -46,7 +51,7 @@ describe("agent-minimax create()", () => {
     expect(env.ANTHROPIC_API_KEY).toBe("test-minimax-key-123");
   });
 
-  it("sets MiniMax model defaults", () => {
+  it("sets MiniMax model defaults when launchConfig.model is absent", () => {
     const agent = create();
     const env = agent.getEnvironment!({
       sessionId: "test-session",
@@ -54,6 +59,17 @@ describe("agent-minimax create()", () => {
 
     expect(env.ANTHROPIC_MODEL).toBe("MiniMax-M2.7");
     expect(env.ANTHROPIC_SMALL_FAST_MODEL).toBe("MiniMax-M2.7");
+  });
+
+  it("honors launchConfig.model for ANTHROPIC_MODEL env vars", () => {
+    const agent = create();
+    const env = agent.getEnvironment!({
+      sessionId: "test-session",
+      model: "MiniMax-M2.5",
+    } as AgentLaunchConfig);
+
+    expect(env.ANTHROPIC_MODEL).toBe("MiniMax-M2.5");
+    expect(env.ANTHROPIC_SMALL_FAST_MODEL).toBe("MiniMax-M2.5");
   });
 
   it("warns when MINIMAX_API_KEY is not set", () => {
@@ -73,7 +89,7 @@ describe("agent-minimax create()", () => {
 
   it("does not set ANTHROPIC_AUTH_TOKEN when MINIMAX_API_KEY is missing", () => {
     delete process.env.MINIMAX_API_KEY;
-    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
 
     const agent = create();
     const env = agent.getEnvironment!({
@@ -82,6 +98,7 @@ describe("agent-minimax create()", () => {
 
     expect(env.ANTHROPIC_AUTH_TOKEN).toBeUndefined();
     expect(env.ANTHROPIC_API_KEY).toBeUndefined();
+    warnSpy.mockRestore();
   });
 
   it("launch command uses claude CLI", () => {

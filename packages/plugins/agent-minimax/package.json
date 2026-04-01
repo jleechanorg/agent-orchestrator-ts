@@ -30,6 +30,7 @@
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit",
+    "pretest": "pnpm --filter @jleechanorg/ao-plugin-agent-minimax^... run build",
     "test": "vitest run",
     "clean": "rm -rf dist"
   },
