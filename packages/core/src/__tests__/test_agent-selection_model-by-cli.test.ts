@@ -49,4 +49,29 @@ describe("resolveAgentSelection — modelByCli", () => {
     expect(out.agentConfig.model).toBe("cli-model");
     expect(out.agentName).toBe("mock-agent");
   });
+
+  it("prefers project modelByCli over defaults modelByCli for the same agent", () => {
+    const out = resolveAgentSelection({
+      role: "worker",
+      project: {
+        ...baseProject,
+        modelByCli: {
+          "mock-agent": { model: "project-model" },
+        },
+      },
+      defaults: {
+        runtime: "t",
+        agent: "mock-agent",
+        workspace: "w",
+        notifiers: [],
+        modelByCli: {
+          "MOCK-AGENT": { model: "default-model" },
+        },
+      },
+    });
+
+    expect(out.model).toBe("project-model");
+    expect(out.agentConfig.model).toBe("project-model");
+    expect(out.agentName).toBe("mock-agent");
+  });
 });
