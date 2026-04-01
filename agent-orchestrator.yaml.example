@@ -87,7 +87,7 @@ projects:
     #   Before spawning new work or making GitHub API calls, check `gh api rate_limit`.
     #   If graphql.remaining < 100, use REST fallback exclusively.
     #   If core.remaining < 500, defer non-critical reads.
-    #   Before dispatching multiple workers, check `tmux list-sessions | wc -l` and do not spawn if active sessions > 15.
+    #   Before dispatching multiple workers, check `tmux list-sessions | wc -l` and do not spawn if active sessions > 20.
 
     # Path to a rules file (relative to project path)
     # agentRulesFile: .agent-rules.md
