@@ -4,9 +4,11 @@ on:
   pull_request:
     types: [opened, synchronize, edited, reopened]
 
+# Do not cancel in-progress runs: a second event (e.g. push + Bugbot PR-body edit)
+# would cancel the first job; GitHub surfaces that as a failed check on the same SHA.
 concurrency:
   group: evidence-gate-${{ github.event.pull_request.number }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 permissions:
   pull-requests: read  # needed to read merged status
