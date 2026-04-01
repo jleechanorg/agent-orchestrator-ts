@@ -6,7 +6,9 @@ type: skill
 
 ## Purpose
 
-Autonomous self-improving loop that observes the AO ecosystem, measures zero-touch rate, diagnoses friction, creates beads for gaps, dispatches fixes via /claw, and records everything. Runs via `/loop 10m` for max 12 hours.
+Autonomous self-improving loop that observes the AO ecosystem, measures zero-touch rate, diagnoses friction, creates beads for gaps, dispatches fixes, and records everything. Runs via `/loop 10m` for max 12 hours.
+
+**IDE-mediated work:** To actually land multi-repo fixes when tmux/AO capacity is tight or the task benefits from Antigravity (Manager + editor, `agy` workspaces), the loop operator MUST use **`/antig`** — that slash command routes to the **`antigravity-computer-use`** skill (`~/.claude/skills/antigravity-computer-use/SKILL.md`). Use Peekaboo/`agy` to open the target worktree, paste the task (include bead id, PR #, paths), and require **`[antig]`** commit prefix for zero-touch accounting separate from **`[agento]`**. `/claw` / `ao spawn` remain the default for tmux workers; **`/antig` is not optional** when the cycle would otherwise skip dispatch for “session cap” reasons — trade parallel tmux for Antigravity instead of doing nothing.
 
 ---
 
@@ -135,18 +137,31 @@ git push origin main
 
 ### Phase 6: FIX — Dispatch Workers
 
-**6a. Use /claw** for each actionable bead:
+**Dispatch order (prefer in this order):**
+
+1. **`/claw`** — `ao spawn` / tmux worker (default for AO-shaped work).
+2. **`/antig`** — Antigravity IDE via **`antigravity-computer-use`** (Peekaboo + Manager + `agy <path>`). **Use this when:**
+   - Active tmux sessions are at/near the spawn gate (>15 per CLAUDE.md pre-spawn check) or GraphQL is exhausted and you still need a coding agent.
+   - The fix spans **multiple repos** or needs **IDE** affordances (artifacts, long Planning runs, worldai_claw + agent-orchestrator in one steering session).
+   - You would otherwise **skip Phase 6** “because cap” — **do not skip**; open Antigravity and paste a single batched prompt with explicit workspace paths and `[antig]` / git rules from that skill.
+
+**`/antig` prompt checklist (paste into Antigravity):**
+- Bead id(s) + PR # + branch + **absolute workspace path** (dropdown is unreliable; path in text is authoritative).
+- `pnpm test` / filter scope; target remote **`jleechanorg/...`** only unless human approved upstream.
+- **Every commit:** `[antig] …` prefix; never `git add -A`; explicit `git push origin <branch>`.
+
+**6a. Use /claw** for each actionable bead when tmux capacity allows:
 ```bash
 # /claw dispatches to ao spawn or manual worktree+claude
 /claw "Fix bd-XXX: <description>. After completing, run /learn."
 ```
 
-**6b. If /claw fails** (GraphQL exhausted, session cap, etc.):
-- Fall back to manual worktree + `claude --dangerously-skip-permissions` in tmux
-- Or create PR directly if the fix is small (config change, agentRules edit)
-- Record the /claw failure in a bead
+**6b. If /claw fails or cap blocks spawn** (GraphQL exhausted, session cap, etc.):
+- **First:** run **`/antig`** with the same task body (see checklist above) and follow **`antigravity-computer-use`** (Allow-directory prompts, screenshot read-assess loop).
+- Then fall back: manual worktree + `claude --dangerously-skip-permissions` in tmux, or small direct PR (config only).
+- Record the /claw failure + whether /antig was used in the cycle recap and optionally in a bead.
 
-**6c. Self-improvement** — if /eloop itself has a gap (missed dispatch, wrong adaptive threshold, missing diagnostic), edit `.claude/skills/evolve_loop.md` directly, commit, and push to main. /eloop is a living document that improves itself every cycle.
+**6c. Self-improvement** — if /eloop itself has a gap (missed dispatch, wrong adaptive threshold, missing diagnostic), edit `.claude/skills/evolve_loop.md` directly, commit, and push to main. /eloop is a living document that improves itself every cycle. If the gap is “no tmux capacity,” improve the skill to say **use /antig** (not “defer”).
 
 **6d. Direct config fixes** — for agentRules/config changes that don't need a PR:
 - Edit `~/.openclaw/agent-orchestrator.yaml` directly
@@ -174,7 +189,7 @@ Output a concise cycle summary:
 - Workers: N alive, N dead, N stuck
 - PRs: N open, N merged since last cycle
 - Friction: N new points found
-- Fixes: N dispatched via /claw, N direct
+- Fixes: N via /claw, N via /antig (Antigravity), N direct
 - Beads: N created, N updated
 - Roadmap: pushed to main
 ```
@@ -203,7 +218,7 @@ The `/loop` wrapper handles the 12-hour max and 10-minute interval. Each `/eloop
 - If GraphQL is exhausted, switch to REST immediately — never sleep-retry
 - If session cap is hit (>30), do not spawn — report and defer
 - If a worker is stuck (same output 3 consecutive checks), kill and respawn
-- If /claw fails twice on the same bead, create PR directly
+- If /claw fails twice on the same bead, use **`/antig`** once with full context; if still blocked, create PR directly or record bead escalation
 - If main repo is on wrong branch, fix it silently (git checkout main)
 - If build is broken on main, fix it before dispatching workers
 
@@ -214,3 +229,5 @@ The `/loop` wrapper handles the 12-hour max and 10-minute interval. Each `/eloop
 - `~/.openclaw/SOUL.md` — zero-touch convention ([agento] prefix)
 - `~/.openclaw/agent-orchestrator.yaml` — agentRules config
 - `novel/` — worker friction narratives
+- `~/.claude/skills/antigravity-computer-use/SKILL.md` — **Antigravity / Peekaboo / `agy`** (used by **`/antig`**)
+- `~/.claude/commands/antig.md` — slash wrapper for `/antig` → skill + `$ARGUMENTS`
