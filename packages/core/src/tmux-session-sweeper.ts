@@ -12,7 +12,7 @@
  * 3. Idle beyond the configured threshold (default: 30 minutes)
  *
  * This prevents gradual tmux accumulation that would eventually block the
- * spawn gate (>15 sessions). Orphans arise from:
+ * spawn gate (>20 sessions). Orphans arise from:
  * - Lifecycle-manager restarts mid-session
  * - Sessions killed outside AO's control
  * - Corrupted/deleted metadata files
