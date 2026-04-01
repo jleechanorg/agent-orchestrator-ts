@@ -137,16 +137,22 @@ describe("loadBuiltins", () => {
   it("warns when a builtin plugin import fails (no silent swallow)", async () => {
     const warnSpy = vi.spyOn(console, "warn").mockReturnValue();
     const registry = createPluginRegistry();
-    // Simulate npm failing to resolve the package (outside monorepo case)
+    // Simulate npm failing to resolve the package (outside monorepo case).
+    // Disable real monorepo fallback so we assert on [plugin-registry] warn, not
+    // successful disk loads or unrelated notifier warnings.
     await registry.loadBuiltins(
       undefined,
       async () => {
         throw new Error("ERR_MODULE_NOT_FOUND: cannot find package '@jleechanorg/ao-plugin-runtime-tmux'");
       },
+      async () => null,
     );
     // Must log a warning, not silently swallow
     expect(warnSpy).toHaveBeenCalled();
-    expect(warnSpy.mock.calls[0][0]).toContain("@jleechanorg/ao-plugin-runtime-tmux");
+    const registryWarn = warnSpy.mock.calls.find((c) =>
+      String(c[0]).includes("[plugin-registry]"),
+    );
+    expect(registryWarn?.[0]).toContain("@jleechanorg/ao-plugin-runtime-tmux");
     warnSpy.mockRestore();
   });
 
@@ -160,6 +166,7 @@ describe("loadBuiltins", () => {
         (err as NodeJS.ErrnoException).code = "ERR_MODULE_NOT_FOUND";
         throw err;
       },
+      async () => null,
     );
     expect(warnSpy).toHaveBeenCalled();
     warnSpy.mockRestore();
@@ -167,8 +174,8 @@ describe("loadBuiltins", () => {
 
   it("falls back to __dirname-relative resolution when normal import fails", async () => {
     // This test simulates running `ao` from outside the monorepo where npm cannot
-    // resolve workspace-linked packages. The registry should try a fallback path
-    // relative to the CLI binary location.
+    // resolve workspace-linked packages. The registry should try monorepo-relative
+    // resolution from plugin-registry's location.
     const warnSpy = vi.spyOn(console, "warn").mockReturnValue();
     const registry = createPluginRegistry();
     const fakeGemini = makePlugin("agent", "gemini");
@@ -231,14 +238,18 @@ describe("loadBuiltins", () => {
     const fakeGemini = makePlugin("agent", "gemini");
     const fakeMinimax = makePlugin("agent", "minimax");
 
-    await registry.loadBuiltins(undefined, async (pkg: string) => {
-      if (pkg === "@jleechanorg/ao-plugin-agent-claude-code") return fakeClaudeCode;
-      if (pkg === "@jleechanorg/ao-plugin-agent-codex") return fakeCodex;
-      if (pkg === "@jleechanorg/ao-plugin-agent-opencode") return fakeOpenCode;
-      if (pkg === "@jleechanorg/ao-plugin-agent-gemini") return fakeGemini;
-      if (pkg === "@jleechanorg/ao-plugin-agent-minimax") return fakeMinimax;
-      throw new Error(`Not found: ${pkg}`);
-    });
+    await registry.loadBuiltins(
+      undefined,
+      async (pkg: string) => {
+        if (pkg === "@jleechanorg/ao-plugin-agent-claude-code") return fakeClaudeCode;
+        if (pkg === "@jleechanorg/ao-plugin-agent-codex") return fakeCodex;
+        if (pkg === "@jleechanorg/ao-plugin-agent-opencode") return fakeOpenCode;
+        if (pkg === "@jleechanorg/ao-plugin-agent-gemini") return fakeGemini;
+        if (pkg === "@jleechanorg/ao-plugin-agent-minimax") return fakeMinimax;
+        throw new Error(`Not found: ${pkg}`);
+      },
+      async () => null,
+    );
 
     const agents = registry.list("agent");
     expect(agents).toContainEqual(expect.objectContaining({ name: "claude-code", slot: "agent" }));
@@ -260,11 +271,15 @@ describe("loadBuiltins", () => {
     const fakeTracker = makePlugin("tracker", "gitlab");
     const fakeScm = makePlugin("scm", "gitlab");
 
-    await registry.loadBuiltins(undefined, async (pkg: string) => {
-      if (pkg === "@jleechanorg/ao-plugin-tracker-gitlab") return fakeTracker;
-      if (pkg === "@jleechanorg/ao-plugin-scm-gitlab") return fakeScm;
-      throw new Error(`Not found: ${pkg}`);
-    });
+    await registry.loadBuiltins(
+      undefined,
+      async (pkg: string) => {
+        if (pkg === "@jleechanorg/ao-plugin-tracker-gitlab") return fakeTracker;
+        if (pkg === "@jleechanorg/ao-plugin-scm-gitlab") return fakeScm;
+        throw new Error(`Not found: ${pkg}`);
+      },
+      async () => null,
+    );
 
     expect(registry.list("tracker")).toContainEqual(
       expect.objectContaining({ name: "gitlab", slot: "tracker" }),
@@ -288,10 +303,14 @@ describe("loadBuiltins", () => {
       },
     });
 
-    await registry.loadBuiltins(config, async (pkg: string) => {
-      if (pkg === "@jleechanorg/ao-plugin-notifier-webhook") return fakeWebhookNotifier;
-      throw new Error(`Not found: ${pkg}`);
-    });
+    await registry.loadBuiltins(
+      config,
+      async (pkg: string) => {
+        if (pkg === "@jleechanorg/ao-plugin-notifier-webhook") return fakeWebhookNotifier;
+        throw new Error(`Not found: ${pkg}`);
+      },
+      async () => null,
+    );
 
     expect(fakeWebhookNotifier.create).toHaveBeenCalledWith({
       url: "http://127.0.0.1:8787/hook",
@@ -313,10 +332,14 @@ describe("loadBuiltins", () => {
       },
     });
 
-    await registry.loadBuiltins(config, async (pkg: string) => {
-      if (pkg === "@jleechanorg/ao-plugin-notifier-webhook") return fakeWebhookNotifier;
-      throw new Error(`Not found: ${pkg}`);
-    });
+    await registry.loadBuiltins(
+      config,
+      async (pkg: string) => {
+        if (pkg === "@jleechanorg/ao-plugin-notifier-webhook") return fakeWebhookNotifier;
+        throw new Error(`Not found: ${pkg}`);
+      },
+      async () => null,
+    );
 
     expect(fakeWebhookNotifier.create).toHaveBeenCalledWith({
       url: "http://127.0.0.1:8787/custom-hook",
@@ -337,10 +360,14 @@ describe("loadBuiltins", () => {
       },
     });
 
-    await registry.loadBuiltins(cfg, async (pkg: string) => {
-      if (pkg === "@jleechanorg/ao-plugin-notifier-openclaw") return fakeOpenClaw;
-      throw new Error(`Not found: ${pkg}`);
-    });
+    await registry.loadBuiltins(
+      cfg,
+      async (pkg: string) => {
+        if (pkg === "@jleechanorg/ao-plugin-notifier-openclaw") return fakeOpenClaw;
+        throw new Error(`Not found: ${pkg}`);
+      },
+      async () => null,
+    );
 
     expect(fakeOpenClaw.create).toHaveBeenCalledWith({
       url: "http://127.0.0.1:18789/hooks/agent",
@@ -362,11 +389,15 @@ describe("loadBuiltins", () => {
       },
     });
 
-    await registry.loadBuiltins(cfg, async (pkg: string) => {
-      if (pkg === "@jleechanorg/ao-plugin-notifier-openclaw") return fakeOpenClaw;
-      if (pkg === "@jleechanorg/ao-plugin-notifier-webhook") return fakeWebhook;
-      throw new Error(`Not found: ${pkg}`);
-    });
+    await registry.loadBuiltins(
+      cfg,
+      async (pkg: string) => {
+        if (pkg === "@jleechanorg/ao-plugin-notifier-openclaw") return fakeOpenClaw;
+        if (pkg === "@jleechanorg/ao-plugin-notifier-webhook") return fakeWebhook;
+        throw new Error(`Not found: ${pkg}`);
+      },
+      async () => null,
+    );
 
     expect(fakeOpenClaw.create).toHaveBeenCalledWith(undefined);
     expect(fakeWebhook.create).toHaveBeenCalledWith({
@@ -415,6 +446,7 @@ describe("loadFromConfig", () => {
         async () => {
           throw new Error("package not found");
         },
+        async () => null,
       ),
     ).resolves.toBeUndefined();
   });

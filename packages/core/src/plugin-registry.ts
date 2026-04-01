@@ -7,7 +7,7 @@
  * 3. Local file paths specified in config
  */
 
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { dirname, join, resolve } from "node:path";
 import type {
   PluginSlot,
@@ -23,9 +23,8 @@ type PluginMap = Map<string, { manifest: PluginManifest; instance: unknown }>;
 /**
  * Attempt to resolve a plugin via a path relative to the monorepo root.
  *
- * The CLI binary is at packages/cli/dist/index.js (or installed globally).
- * This function navigates from plugin-registry's location (packages/core/dist/)
- * up to the monorepo root, then into the target plugin's dist directory.
+ * Uses plugin-registry's own location (`packages/core/dist/`) to walk up to
+ * the monorepo root, then into `packages/plugins/<name>/dist/index.js`.
  *
  * Works when `ao` is run from outside the monorepo — npm cannot resolve
  * workspace-linked packages, but the files are present in the monorepo.
@@ -44,13 +43,13 @@ async function tryMonorepoFallback(
 
   try {
     // plugin-registry.ts lives at packages/core/dist/plugin-registry.js
-    // Navigate up to monorepo root: ../../ → project root
+    // Navigate up to monorepo root: ../../../ → project root (dist → core → packages → root)
     const coreDir = dirname(fileURLToPath(modUrl)); // packages/core/dist
-    const monorepoRoot = resolve(coreDir, "../../"); // project root
+    const monorepoRoot = resolve(coreDir, "../../../");
     const pluginPath = join(monorepoRoot, "packages", "plugins", pluginName, "dist", "index.js");
 
-    // Build a file:// URL so dynamic import() can load it as ESM
-    const pluginUrl = `file://${pluginPath}`;
+    // Build a file:// URL so dynamic import() can load it as ESM (Windows-safe)
+    const pluginUrl = pathToFileURL(pluginPath).href;
     return await import(pluginUrl);
   } catch {
     return null;
@@ -181,7 +180,7 @@ export function createPluginRegistry(): PluginRegistry {
         try {
           mod = (await doImport(builtin.pkg)) as PluginModule;
         } catch (err) {
-          // Primary import failed — try a fallback path relative to the CLI binary.
+          // Primary import failed — try monorepo-relative resolution from plugin-registry.
           // This handles the case where `ao` is run from outside the monorepo
           // and npm cannot resolve workspace-linked @jleechanorg/* packages.
           const fallback = await doFallback(builtin.pkg, selfUrl);
@@ -206,9 +205,10 @@ export function createPluginRegistry(): PluginRegistry {
     async loadFromConfig(
       config: OrchestratorConfig,
       importFn?: (pkg: string) => Promise<unknown>,
+      fallbackImportFn?: (pkg: string, selfUrl: string) => Promise<unknown>,
     ): Promise<void> {
       // Load built-ins with orchestrator config so plugins receive their settings
-      await this.loadBuiltins(config, importFn);
+      await this.loadBuiltins(config, importFn, fallbackImportFn);
 
       // Then, load any additional plugins specified in project configs
       // (future: support npm package names and local file paths)
