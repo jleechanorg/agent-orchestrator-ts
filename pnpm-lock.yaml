@@ -128,15 +128,24 @@ importers:
       '@jleechanorg/ao-plugin-scm-github':
         specifier: workspace:*
         version: link:../plugins/scm-github
+      '@jleechanorg/ao-plugin-scm-gitlab':
+        specifier: workspace:*
+        version: link:../plugins/scm-gitlab
       '@jleechanorg/ao-plugin-terminal-iterm2':
         specifier: workspace:*
         version: link:../plugins/terminal-iterm2
       '@jleechanorg/ao-plugin-terminal-web':
         specifier: workspace:*
         version: link:../plugins/terminal-web
+      '@jleechanorg/ao-plugin-tracker-beads':
+        specifier: workspace:*
+        version: link:../plugins/tracker-beads
       '@jleechanorg/ao-plugin-tracker-github':
         specifier: workspace:*
         version: link:../plugins/tracker-github
+      '@jleechanorg/ao-plugin-tracker-gitlab':
+        specifier: workspace:*
+        version: link:../plugins/tracker-gitlab
       '@jleechanorg/ao-plugin-tracker-linear':
         specifier: workspace:*
         version: link:../plugins/tracker-linear
