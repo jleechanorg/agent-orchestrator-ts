@@ -311,6 +311,12 @@ describe("wholesome — structural source-code assertions", () => {
       "f6750186a3916345e49f191fa646f838dc652f2b", // feat(lifecycle): backfill spawns workers for dead-agent CHANGES_REQUESTED PRs
       "69c8956d4613b5270d6efd68d5bc92cba5375eca", // docs: add backfill CHANGES_REQUESTED implementation plan
       "988a86fc8af7e95c51fcecabfe1fab62e0fbf74c", // docs: add backfill CHANGES_REQUESTED design spec
+      // fix/runtime-antigravity-tdd — commits landed before [agento] prefix sweep for PR #330 / wholesome CI
+      "35dcebf6d6185e0a64b3d18b13da2f6a51c7700e", // [copilot] fix(runtime-antigravity): address CDP reliability issues from review
+      "5268fdb509602b0ca0e513bc974cc806e7c6bdab", // fix(runtime-antigravity): wrap CDP create() input in IIFE with throws for fallback
+      "893f195d48a8a45d5fe294eb3ca94597bbf1e6f2", // fix(runtime-antigravity): add CDP sendCommand timeout and session guard
+      "0ce1843e0d7af7984588b68becfba70f34320562", // fix(runtime-antigravity): use resolver.reject in sendCommand timeout
+      "e87d1278c2d90b52d611c6f938ce37e51a69c3fd", // docs: evolve loop — document /antig dispatch when tmux cap blocks
     ]);
 
     it("all non-merge commits made on this branch have [agento] prefix", () => {
