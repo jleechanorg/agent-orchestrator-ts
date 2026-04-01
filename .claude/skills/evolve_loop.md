@@ -216,7 +216,7 @@ The `/loop` wrapper handles the 12-hour max and 10-minute interval. Each `/eloop
 ## Anti-Stall Rules
 
 - If GraphQL is exhausted, switch to REST immediately — never sleep-retry
-- If session cap is hit (>30), do not spawn — report and defer
+- If tmux/session cap blocks new tmux workers (>15 per CLAUDE.md pre-spawn check), **do not** open more tmux workers — run **`/antig`** once with the same task body and full context; only if `/antig` is unavailable, report and defer
 - If a worker is stuck (same output 3 consecutive checks), kill and respawn
 - If /claw fails twice on the same bead, use **`/antig`** once with full context; if still blocked, create PR directly or record bead escalation
 - If main repo is on wrong branch, fix it silently (git checkout main)

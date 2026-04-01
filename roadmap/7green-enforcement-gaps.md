@@ -159,3 +159,17 @@ The auditor confirmed a **real bug**: `worktree-git.ts:75` uses `process.cwd()` 
 ### P2 — Code quality / dead code
 - **bd-b5et**: verdict-utils.ts is dead code with wrong getVerdictColor mapping
 - **bd-18el**: generate-pr-design-docs.mjs regex misses literal \u003c CURSOR_SUMMARY
+
+## Evidence Gate Authenticity Gap (2026-03-31)
+
+**Finding**: Evidence Gate (wholesome.yml) validates format only — section present + code block or HTTPS URL. Does NOT detect fabricated evidence.
+
+**Observed in 24h audit**:
+- PR #308: evidence says "simulated" — fabricated terminal output passed gate
+- PR #304: `https://example.com/ao-doctor-evidence.png` — placeholder URL passed gate
+- PR #311: `bash -n` syntax check only — no functional test run
+- PR #302: coverage claim without --coverage % numbers
+
+**Skeptic gap**: Rule 10 in skeptic/prompt.ts defaults evidence to N/A unless evidenceRequired=true in config. Skeptic never evaluates evidence quality.
+
+**Fix plan**: bd-dc45 (wholesome.yml authenticity ban), bd-7qqa (skeptic prompt fix), bd-s398 (coverage % requirement)

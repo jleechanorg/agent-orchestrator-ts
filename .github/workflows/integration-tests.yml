@@ -45,7 +45,13 @@ jobs:
 
       - name: Install Aider
         id: install-aider
-        run: pip install aider-chat || true
+        run: |
+          if pip install aider-chat; then
+            echo "aider_available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::Aider install failed — Aider integration tests will be skipped"
+            echo "aider_available=false" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Install OpenCode
         run: npm install -g opencode-ai
@@ -65,4 +71,7 @@ jobs:
           # When both keys are set, the plugin prefers the Composio transport
           # which requires @composio/core SDK installed. The direct LINEAR_API_KEY
           # transport needs no extra dependencies.
+          # agent-aider integration tests use describe.skipIf when aider binary is missing;
+          # this flag documents pip install outcome for CI logs and future conditional steps.
+          AIDER_PIP_INSTALLED: ${{ steps.install-aider.outputs.aider_available }}
         run: pnpm test:integration

@@ -40,9 +40,10 @@ describe("checkRunLevel", () => {
     expect(result.result).toBe("absent");
   });
 
-  it("returns absent when CLI output has VERDICT: SKIPPED (infra failure)", () => {
+  it("returns fail when CLI output has VERDICT: SKIPPED (infra failure) — bd-dmxw", () => {
     const result = checkRunLevel("VERDICT: SKIPPED — infra: Neither Codex nor Claude available.");
-    expect(result.result).toBe("absent");
+    expect(result.result).toBe("fail");
+    expect(result.detail).toContain("FAIL");
     expect(result.detail).toContain("SKIPPED");
   });
 
@@ -109,12 +110,12 @@ VERDICT: FAIL — Missing: evidence section, tests`;
     expect(result.result).toBe("absent");
   });
 
-  it("returns absent when comment has SKIPPED verdict (infra)", () => {
+  it("returns fail when comment has SKIPPED verdict (infra) — bd-dmxw", () => {
     const result = checkCommentLevel(
       "<!-- skeptic-agent-verdict -->\nVERDICT: SKIPPED — infra unavailable",
     );
-    expect(result.result).toBe("absent");
-    expect(result.detail).toContain("SKIPPED");
+    expect(result.result).toBe("fail");
+    expect(result.detail).toContain("FAIL");
   });
 
   it("returns absent when comment has no VERDICT line", () => {
@@ -184,11 +185,12 @@ describe("verifySkepticClaim — decision matrix", () => {
     expect(result.blocksWorking).toBe(true);
   });
 
-  it("returns INSUFFICIENT when run-level is SKIPPED (infra failure)", () => {
+  it("returns FAIL when run-level is SKIPPED (infra failure) — bd-dmxw", () => {
     const result = verifySkepticClaim(llmSKIPPED, commentPASS);
-    expect(result.outcome).toBe("INSUFFICIENT");
+    // SKIPPED → fail-closed: infra failure blocks the claim
+    expect(result.outcome).toBe("FAIL");
     expect(result.blocksWorking).toBe(true);
-    expect(result.runLevel.result).toBe("absent");
+    expect(result.runLevel.result).toBe("fail");
   });
 
   it("returns INSUFFICIENT when run-level is empty (no LLM output)", () => {
@@ -244,14 +246,15 @@ describe("verifySkepticClaim — summary", () => {
     expect(result.summary).toContain("run-level");
   });
 
-  it("summary lists all absent layers for INSUFFICIENT", () => {
+  it("returns FAIL when run-level is SKIPPED and comment-level absent — bd-dmxw", () => {
     const result = verifySkepticClaim(
-      "VERDICT: SKIPPED",
+      "VERDICT: SKIPPED — infra: Codex unavailable.",
       "",
     );
-    expect(result.outcome).toBe("INSUFFICIENT");
-    // summary includes the detail strings for each absent layer
-    expect(result.summary).toContain("SKIPPED");
-    expect(result.summary).toContain("<!-- skeptic-agent-verdict");
+    // SKIPPED → fail-closed; empty comment → absent. fail || absent → FAIL
+    expect(result.outcome).toBe("FAIL");
+    expect(result.blocksWorking).toBe(true);
+    expect(result.summary).toContain("FAIL");
+    expect(result.summary).toContain("run-level");
   });
 });

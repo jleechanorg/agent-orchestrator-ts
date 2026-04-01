@@ -1,8 +1,8 @@
 name: Skeptic Gate
 
 # Deterministic 6-green check. No polling, no LLM evaluation.
-# Checks gates 1-5 and posts a result comment on every run.
-# Exit PASS when all gates pass, FAIL when any gate fails.
+# Checks gates 1-6 and posts a result comment on every run.
+# Exit PASS when all gates pass, FAIL when any gate fails (Gate 6 is advisory).
 on:
   pull_request:
     types: [opened, synchronize, edited, reopened]
@@ -257,6 +257,74 @@ jobs:
           fi
           echo "Gate 5: $GATE5 ($GATE5_DETAIL)"
           GATE_ROWS="${GATE_ROWS}| 5. Comments resolved | ${GATE5} | ${GATE5_DETAIL} |\n"
+
+          # ----------------------------------------------------------------
+          # Gate 6: Evidence format check — advisory (WARN, not FAIL).
+          #
+          # Checks the Evidence section of the PR body for:
+          # - Markdown image with HTTPS URL ( ![alt](https://...) )
+          # - Code block ( ``` )
+          # - Structured output reference (**Test output** or **Terminal output**)
+          # - Fabricated/placeholder patterns (rejects: simulated, example.com,
+          #   <screenshot path>, <value>, TODO, TBD)
+          #
+          # This is advisory (WARN) because the LLM skeptic path covers evidence
+          # authenticity; Gate 6 is a fast deterministic supplement only.
+          # ----------------------------------------------------------------
+          PR_BODY_GATE6=$(gh api repos/${{ github.repository }}/pulls/"$PR_NUM" --jq '.body // ""' 2>/dev/null || echo "")
+
+          GATE6_DETAIL="no_evidence_section"
+          if [ -n "$PR_BODY_GATE6" ]; then
+            # Extract Evidence section: from "## Evidence" to next ## heading
+            # Strip HTML comment lines (<!-- ... -->) before scanning
+            EVIDENCE_GATE6=$(printf '%s\n' "$PR_BODY_GATE6" | awk '
+              BEGIN { IGNORECASE=1; in_section=0; in_comment=0 }
+              /<!--.*-->/ { next }
+              in_comment && /^[[:space:]]*-->/ { in_comment=0; next }
+              /^[[:space:]]*<!--/ { in_comment=1; next }
+              in_comment { next }
+              /^[[:space:]]*##[[:space:]]+evidence([[:space:]]|$)/ { in_section=1; next }
+              in_section && /^[[:space:]]*##[[:space:]]/ { exit }
+              in_section { print }
+            ' 2>/dev/null || true)
+
+            if [ -n "$EVIDENCE_GATE6" ]; then
+              # Reject fabricated/placeholder patterns (fail-closed on fabrication)
+              if printf '%s' "$EVIDENCE_GATE6" | grep -qiE '\bsimulated\b'; then
+                GATE6="FAIL"
+                GATE6_DETAIL="fabricated_content_detected"
+              elif printf '%s' "$EVIDENCE_GATE6" | grep -qiE 'https?://(www\.)?example\.com'; then
+                GATE6="FAIL"
+                GATE6_DETAIL="placeholder_url_detected"
+              elif printf '%s' "$EVIDENCE_GATE6" | grep -qiE '<screenshot[[:space:]]path>|<value>|\bTODO\b|\bTBD\b'; then
+                GATE6="FAIL"
+                GATE6_DETAIL="placeholder_template_detected"
+              # Require real media (image with HTTPS, code block, or structured output)
+              elif printf '%s' "$EVIDENCE_GATE6" | grep -qiE '!\[[^]]*\]\(https://[^)]+\)'; then
+                GATE6="WARN"
+                GATE6_DETAIL="image_found_(advisory)"
+              elif printf '%s' "$EVIDENCE_GATE6" | grep -qiE '\*\*(Test|Terminal)\s*output\*\*:[[:space:]]+\S'; then
+                GATE6="WARN"
+                GATE6_DETAIL="structured_output_found_(advisory)"
+              elif printf '%s' "$EVIDENCE_GATE6" | grep -q '```'; then
+                GATE6="WARN"
+                GATE6_DETAIL="code_block_found_(advisory)"
+              else
+                GATE6="WARN"
+                GATE6_DETAIL="evidence_section_present_(no_media_detected)"
+              fi
+            else
+              GATE6="WARN"
+              GATE6_DETAIL="empty_evidence_section"
+            fi
+          else
+            GATE6="WARN"
+            GATE6_DETAIL="no_pr_body"
+          fi
+
+          # Gate 6 is advisory only — never adds to FAILED_GATES
+          echo "Gate 6: $GATE6 ($GATE6_DETAIL)"
+          GATE_ROWS="${GATE_ROWS}| 6. Evidence format | ${GATE6} | ${GATE6_DETAIL} |\n"
 
           # ----------------------------------------------------------------
           # Build result

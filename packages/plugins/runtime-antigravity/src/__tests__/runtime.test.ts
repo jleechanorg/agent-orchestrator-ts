@@ -1,6 +1,16 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { RuntimeHandle } from "@jleechanorg/ao-core";
 
+/** Test-only globals for the mocked CdpClient (see vi.mock below). */
+type CdpTestGlobals = {
+  _cdpShouldConnect?: boolean;
+  _mockCdpEval?: (js: string) => Promise<unknown>;
+};
+
+function cdpTest(): typeof globalThis & CdpTestGlobals {
+  return globalThis as typeof globalThis & CdpTestGlobals;
+}
+
 // Mock the peekaboo module
 vi.mock("../peekaboo.js", () => ({
   windowList: vi.fn(),
@@ -35,16 +45,21 @@ vi.mock("../fallback.js", () => ({
 // CDP integration is tested in cdp-client.test.ts.
 vi.mock("../cdp-client.js", () => ({
   CdpClient: class MockCdpClient {
-    static connect(): Promise<any> {
-      if ((globalThis as any)._cdpShouldConnect) {
-         return Promise.resolve(new MockCdpClient());
+    static connect(): Promise<MockCdpClient> {
+      if (cdpTest()._cdpShouldConnect) {
+        return Promise.resolve(new MockCdpClient());
       }
       return Promise.reject(new Error("CDP not available in tests"));
     }
-    isConnected(): boolean { return (globalThis as any)._cdpShouldConnect; }
-    disconnect(): void { /* no-op */ }
-    evaluateInAntigravity(js: string) {
-       return (globalThis as any)._mockCdpEval ? (globalThis as any)._mockCdpEval(js) : Promise.resolve();
+    isConnected(): boolean {
+      return Boolean(cdpTest()._cdpShouldConnect);
+    }
+    disconnect(): void {
+      /* no-op */
+    }
+    evaluateInAntigravity(js: string): Promise<unknown> {
+      const fn = cdpTest()._mockCdpEval;
+      return fn ? fn(js) : Promise.resolve(undefined);
     }
   },
 }));
@@ -125,6 +140,8 @@ function makeEmptyHandle(id: string): RuntimeHandle {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  cdpTest()._cdpShouldConnect = false;
+  cdpTest()._mockCdpEval = undefined;
   // Default: screencapture returns empty buffer (no Allow prompt)
   mockScreencapture.mockResolvedValue(Buffer.alloc(0));
 });
@@ -212,9 +229,9 @@ function setupSuccessfulCreateMocks() {
 
 describe("runtime.create() — Manager UI flow", () => {
   it("should fall back to Peekaboo path if CDP connect succeeds but evaluateInAntigravity throws", async () => {
-    (globalThis as any)._cdpShouldConnect = true;
+    cdpTest()._cdpShouldConnect = true;
     const mockEval = vi.fn().mockRejectedValue(new Error("CDP create: input element not found"));
-    (globalThis as any)._mockCdpEval = mockEval;
+    cdpTest()._mockCdpEval = mockEval;
 
     const runtime = create();
     setupSuccessfulCreateMocks();
@@ -227,13 +244,13 @@ describe("runtime.create() — Manager UI flow", () => {
     });
 
     expect(mockEval).toHaveBeenCalled();
-    // Verify fallback to peekaboo
     expect(mockPaste).toHaveBeenCalled();
     expect(mockPress).toHaveBeenCalledWith("Antigravity", "Return");
 
-    (globalThis as any)._cdpShouldConnect = false;
-    (globalThis as any)._mockCdpEval = undefined;
+    cdpTest()._cdpShouldConnect = false;
+    cdpTest()._mockCdpEval = undefined;
   });
+
   it("should click 'add Start new conversation' button, not workspace label", async () => {
     const runtime = create();
     setupSuccessfulCreateMocks();
@@ -561,6 +578,50 @@ describe("runtime.destroy()", () => {
 // =============================================================================
 
 describe("runtime.sendMessage()", () => {
+  it("falls back to Peekaboo when CDP evaluateInAntigravity rejects", async () => {
+    const runtime = create();
+    const mockEval = vi
+      .fn()
+      .mockRejectedValue(new Error("CDP sendMessage: send button not found"));
+    const handle: RuntimeHandle = {
+      id: "cdp-fail",
+      runtimeName: "antigravity",
+      data: {
+        workspacePath: "/tmp/workspace",
+        session: {
+          conversationTitle: "Test",
+          workspaceName: "/tmp/workspace",
+          windowId: 1,
+          managerWindowId: 1,
+          status: "running",
+          createdAt: 1000,
+          lastCheckedAt: 1000,
+        },
+        cdpClient: {
+          isConnected: () => true,
+          evaluateInAntigravity: mockEval,
+          disconnect: () => {},
+        },
+      },
+    };
+
+    mockSee.mockResolvedValueOnce({
+      snapshot_id: "snap-msg",
+      ui_elements: [
+        makeElement({ id: "input-field", role: "textField", title: "", label: "text entry area" }),
+      ],
+    });
+    mockClick.mockResolvedValueOnce({ success: true });
+    mockPaste.mockResolvedValueOnce(undefined);
+    mockPress.mockResolvedValueOnce(undefined);
+
+    await runtime.sendMessage(handle, "hello");
+
+    expect(mockEval).toHaveBeenCalled();
+    expect(mockPaste).toHaveBeenCalledWith("Antigravity", "hello");
+    expect(mockPress).toHaveBeenCalledWith("Antigravity", "Return");
+  });
+
   it("uses Manager window, finds text field, and presses Return (not Send button)", async () => {
     const runtime = create();
     const handle = makeHandle("msg-test");

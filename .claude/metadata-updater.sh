@@ -142,8 +142,7 @@ update_metadata_key() {
   # Create temp file
   local temp_file="${metadata_file}.tmp"
 
-  # Escape replacement-special characters: & \ and | (sed uses | as the delimiter on line 151)
-  # Declare separately to avoid SC2155: local var=$(subshell) discards set -e exit code
+  # Escape special sed characters in value (&, \, and | since | is our delimiter)
   local escaped_value
   escaped_value=$(printf '%s' "$value" | sed 's/[&|\\]/\\&/g')
 
@@ -196,25 +195,31 @@ if [[ "$clean_command" =~ ^git[[:space:]]+switch[[:space:]]+-c[[:space:]]+([^[:s
   fi
 fi
 
-# Detect: git checkout <branch> (without -b)
-# Guard: only update if the operand looks like a branch ref, not a file path or options flag.
-# Explicit git checkout -b and git switch -c handlers cover those patterns above.
+# Detect: git checkout <branch> (without -b) or git switch <branch> (without -c)
+# Guard: verify the candidate is actually a branch ref, not a file path.
+# Reject extensionless paths like docs/README by requiring the candidate to exist
+# as a local branch (git show-ref exits 0 only for real refs, not files).
 if [[ "$clean_command" =~ ^git[[:space:]]+checkout[[:space:]]+([^[:space:]-]+[/-][^[:space:]]+) ]]; then
   branch="${BASH_REMATCH[1]}"
   if [[ -n "$branch" && "$branch" != "HEAD" &&
         ! "$branch" =~ \.(ts|js|tsx|jsx|py|go|rs|java|cpp|c|h|sh|bash|json|yaml|yml|toml|md|html|css|scss)$ ]]; then
-    update_metadata_key "branch" "$branch"
-    echo '{"systemMessage": "Updated metadata: branch = '"$branch"'"}'
-    exit 0
+    if git show-ref --verify --quiet "refs/heads/$branch" 2>/dev/null; then
+      update_metadata_key "branch" "$branch"
+      echo '{"systemMessage": "Updated metadata: branch = '"$branch"'"}'
+      exit 0
+    fi
   fi
 fi
 
 if [[ "$clean_command" =~ ^git[[:space:]]+switch[[:space:]]+([^[:space:]-]+[/-][^[:space:]]+) ]]; then
   branch="${BASH_REMATCH[1]}"
-  if [[ -n "$branch" && "$branch" != "HEAD" ]]; then
-    update_metadata_key "branch" "$branch"
-    echo '{"systemMessage": "Updated metadata: branch = '"$branch"'"}'
-    exit 0
+  if [[ -n "$branch" && "$branch" != "HEAD" &&
+        ! "$branch" =~ \.(ts|js|tsx|jsx|py|go|rs|java|cpp|c|h|sh|bash|json|yaml|yml|toml|md|html|css|scss)$ ]]; then
+    if git show-ref --verify --quiet "refs/heads/$branch" 2>/dev/null; then
+      update_metadata_key "branch" "$branch"
+      echo '{"systemMessage": "Updated metadata: branch = '"$branch"'"}'
+      exit 0
+    fi
   fi
 fi
 

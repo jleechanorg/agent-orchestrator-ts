@@ -10,7 +10,7 @@
  *
  * Fallback chain:
  *   codex exec -   (primary — Codex with OAuth / OPENAI_API_KEY; prompt via stdin)
- *   claude --print --no-input  (secondary — Claude with ANTHROPIC_API_KEY)
+ *   claude --dangerously-skip-permissions --print --no-input  (secondary — Claude Code OAuth, no proxy)
  *
  * The evaluated output must contain VERDICT: PASS or VERDICT: FAIL.
  * Missing VERDICT = fail-closed FAIL.
@@ -22,9 +22,9 @@ const CODEX_TIMEOUT_MS = 300_000;
 const CLAUDE_TIMEOUT_MS = 300_000;
 
 /** Strict VERDICT matcher for tool output validation — PASS or FAIL only.
- * SKIPPED is produced by llmEval as an infrastructure-unavailable sentinel
- * and is tested for explicitly in the fallback chain; it must NOT be treated
- * as a valid merge-gate verdict here. */
+ * SKIPPED was the old infra-unavailable sentinel; it has been replaced by
+ * VERDICT: FAIL (fail-closed). This regex intentionally rejects SKIPPED —
+ * infra failures must block merges. */
 const STRICT_VERDICT_RE = /^(?:#{1,3}\s*|\*{1,2})?VERDICT:\s*(PASS|FAIL)\b/im;
 
 export interface LlmEvalResult {
@@ -115,7 +115,7 @@ export async function tryClaudePrint(prompt: string): Promise<LlmEvalResult> {
   try {
     const result = execFileSync(
       "claude",
-      ["--print"],
+      ["--dangerously-skip-permissions", "--print", "--no-input"],
       {
         input: prompt,
         encoding: "utf-8",
@@ -170,15 +170,15 @@ export async function llmEval(
       return `VERDICT: FAIL — claude: ${result.error}`;
     }
     if (result.error) {
-      // Infra failure — try codex as fallback before returning SKIPPED
+      // Infra failure — try codex as fallback before returning FAIL
       const codexResult = await tryCodexPrint(prompt);
       if (codexResult.validVerdict) return codexResult.output;
-      return `VERDICT: SKIPPED — infra: Claude failed: ${result.error}. Codex: ${codexResult.error ?? "not available"}.`;
+      return `VERDICT: FAIL — infra: Claude failed: ${result.error}. Codex: ${codexResult.error ?? "not available"}.`;
     }
     // Claude unavailable (ENOENT) — try codex as last resort
     const codexResult = await tryCodexPrint(prompt);
     if (codexResult.validVerdict) return codexResult.output;
-    return `VERDICT: SKIPPED — infra: Neither Claude nor Codex available. Claude: ${result.error ?? "not available"}. Codex: ${codexResult.error ?? "not available"}.`;
+    return `VERDICT: FAIL — infra: Neither Claude nor Codex available. Claude: ${result.error ?? "not available"}. Codex: ${codexResult.error ?? "not available"}.`;
   }
 
   // Default: codex primary
@@ -191,18 +191,18 @@ export async function llmEval(
     return `VERDICT: FAIL — codex: ${codexResult.error}. Claude: ${claudeResult.error ?? "not available"}.`;
   }
   if (codexResult.error) {
-    // Infra failure — try Claude as fallback before returning SKIPPED
+    // Infra failure — try Claude as fallback before returning FAIL
     const claudeResult = await tryClaudePrint(prompt);
     if (claudeResult.validVerdict) return claudeResult.output;
-    return `VERDICT: SKIPPED — infra: Codex failed: ${codexResult.error}. Claude: ${claudeResult.error ?? "not available"}.`;
+    return `VERDICT: FAIL — infra: Codex failed: ${codexResult.error}. Claude: ${claudeResult.error ?? "not available"}.`;
   }
 
   // Codex not available (ENOENT) — try Claude as fallback
   const claudeResult = await tryClaudePrint(prompt);
   if (claudeResult.validVerdict) return claudeResult.output;
   if (claudeResult.error) {
-    return `VERDICT: SKIPPED — infra: Both Codex and Claude evaluation failed. Codex: ${codexResult.error ?? "not available"}. Claude: ${claudeResult.error}`;
+    return `VERDICT: FAIL — infra: Both Codex and Claude evaluation failed. Codex: ${codexResult.error ?? "not available"}. Claude: ${claudeResult.error}`;
   }
 
-  return "VERDICT: SKIPPED — infra: Neither Codex nor Claude CLI available for skeptic evaluation";
+  return "VERDICT: FAIL — infra: Neither Codex nor Claude CLI available for skeptic evaluation";
 }

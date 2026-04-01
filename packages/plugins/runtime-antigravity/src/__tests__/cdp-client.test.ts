@@ -6,6 +6,7 @@ interface MockTarget {
   title: string;
   type: string;
   webSocketDebuggerUrl: string;
+  url?: string;
 }
 
 interface MockWebSocketInstance {
@@ -90,6 +91,29 @@ describe("CdpClient", () => {
       expect(client.isConnected()).toBe(true);
       expect(wsInstances.length).toBe(1);
       expect(wsInstances[0].url).toBe("ws://target");
+    });
+
+    it("prefers Antigravity-like page when multiple page targets exist", async () => {
+      setupMockTargets([
+        {
+          id: "1",
+          title: "Other tab",
+          type: "page",
+          webSocketDebuggerUrl: "ws://wrong",
+          url: "https://example.com/",
+        },
+        {
+          id: "2",
+          title: "Window",
+          type: "page",
+          webSocketDebuggerUrl: "ws://antig",
+          url: "chrome-extension://deadbeef/index.html",
+        },
+      ]);
+
+      const client = await CdpClient.connect();
+      expect(client.isConnected()).toBe(true);
+      expect(wsInstances[0].url).toBe("ws://antig");
     });
 
     it("should throw descriptive error if fetch fails", async () => {

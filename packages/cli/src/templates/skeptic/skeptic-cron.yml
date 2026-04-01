@@ -328,8 +328,6 @@ jobs:
               --jq "[.[] | select(.user.login == \"${SKEPTIC_BOT_AUTHOR}\" and (.body | test(\"VERDICT:\"; \"i\")) and (.body | test(\"skeptic-cron-trigger-\" + \"$PR_SHA\"; \"i\"))) | .body] | last // empty" 2>/dev/null || echo "")
             if echo "$SKEPTIC_VERDICT" | grep -qi "VERDICT: PASS"; then
               SKEPTIC_STATUS="PASS"
-            elif echo "$SKEPTIC_VERDICT" | grep -qi "VERDICT: SKIPPED"; then
-              SKEPTIC_STATUS="SKIPPED"
             elif echo "$SKEPTIC_VERDICT" | grep -qi "VERDICT: FAIL"; then
               SKEPTIC_STATUS="FAIL"
             else
@@ -337,7 +335,7 @@ jobs:
             fi
             echo "  [7] Skeptic verdict:    $SKEPTIC_STATUS"
 
-            # All gates must PASS; SKIPPED (infra unavailable) does not block
+            # All gates must PASS; infra failures emit VERDICT: FAIL (fail-closed)
             ALL_PASS=true
             for COND in "$CI_RESULT" "$MERGE_CONFLICT" "$CR_APPROVED" "$BUGBOT_STATUS" "$COMMENTS_STATUS"; do
               if echo "$COND" | grep -qi "FAIL"; then

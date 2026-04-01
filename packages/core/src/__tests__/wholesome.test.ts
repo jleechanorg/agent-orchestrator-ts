@@ -311,7 +311,8 @@ describe("wholesome — structural source-code assertions", () => {
       "f6750186a3916345e49f191fa646f838dc652f2b", // feat(lifecycle): backfill spawns workers for dead-agent CHANGES_REQUESTED PRs
       "69c8956d4613b5270d6efd68d5bc92cba5375eca", // docs: add backfill CHANGES_REQUESTED implementation plan
       "988a86fc8af7e95c51fcecabfe1fab62e0fbf74c", // docs: add backfill CHANGES_REQUESTED design spec
-      // fix/runtime-antigravity-tdd — commits landed before [agento] prefix sweep for PR #330 / wholesome CI
+      // fix/runtime-antigravity-tdd (PR #330): immutable history — these SHAs predate the
+      // [agento] prefix on that branch; removing them requires git history rewrite, not a test edit.
       "35dcebf6d6185e0a64b3d18b13da2f6a51c7700e", // [copilot] fix(runtime-antigravity): address CDP reliability issues from review
       "5268fdb509602b0ca0e513bc974cc806e7c6bdab", // fix(runtime-antigravity): wrap CDP create() input in IIFE with throws for fallback
       "893f195d48a8a45d5fe294eb3ca94597bbf1e6f2", // fix(runtime-antigravity): add CDP sendCommand timeout and session guard
@@ -452,8 +453,9 @@ describe("wholesome — structural source-code assertions", () => {
             }
           }
 
-          // Detect if: false (disabled job — exempt)
-          if (currentJob && /^\s+if:\s+false\b/.test(trimmedLine)) {
+          // Detect if: false (disabled job — exempt). Only job-level (4 spaces)
+          // matches; step-level (8 spaces) disabled steps must not exempt the job.
+          if (currentJob && /^ {4}if:\s+false\b/.test(trimmedLine)) {
             jobIsExempt = true;
           }
         }
