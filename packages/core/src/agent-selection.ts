@@ -10,6 +10,27 @@ import {
 
 export type SessionRole = "orchestrator" | "worker";
 
+/** Case-insensitive key match for `modelByCli` maps (direct key wins if present). */
+export function lookupCliModelDefaults(
+  map: Record<string, CliModelDefaults> | undefined,
+  agentName: string,
+): CliModelDefaults {
+  if (!map) {
+    return {};
+  }
+  const direct = map[agentName];
+  if (direct !== undefined) {
+    return direct;
+  }
+  const lower = agentName.toLowerCase();
+  for (const [key, value] of Object.entries(map)) {
+    if (key.toLowerCase() === lower) {
+      return value;
+    }
+  }
+  return {};
+}
+
 export interface ResolvedAgentSelection {
   role: SessionRole;
   agentName: string;
@@ -49,8 +70,8 @@ export function resolveAgentSelection(params: {
         defaults.agent)
       : (roleProjectConfig?.agent ?? project.agent ?? roleDefaults?.agent ?? defaults.agent);
 
-  const defaultsCliModelConfig = defaults.modelByCli?.[agentName] ?? {};
-  const projectCliModelConfig = project.modelByCli?.[agentName] ?? {};
+  const defaultsCliModelConfig = lookupCliModelDefaults(defaults.modelByCli, agentName);
+  const projectCliModelConfig = lookupCliModelDefaults(project.modelByCli, agentName);
   const cliModelConfig: CliModelDefaults = {
     ...defaultsCliModelConfig,
     ...projectCliModelConfig,
