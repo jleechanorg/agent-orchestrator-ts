@@ -18,6 +18,7 @@
     "format:check": "prettier --check .",
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm -r --filter '!@jleechanorg/ao-web' test",
+    "test:gates-install": "bash scripts/gates/selftest.sh",
     "test:integration": "pnpm --filter @jleechanorg/ao-integration-tests test:integration",
     "clean": "pnpm -r clean",
     "prepare": "husky",
