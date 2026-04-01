@@ -1,5 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { createPluginRegistry } from "../plugin-registry.js";
+import { existsSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import {
+  BUILTIN_PLUGINS,
+  createPluginRegistry,
+  isPackageResolutionFailure,
+} from "../plugin-registry.js";
 import type { PluginModule, PluginManifest, OrchestratorConfig } from "../types.js";
 
 // ---------------------------------------------------------------------------
@@ -34,6 +41,26 @@ function makeOrchestratorConfig(overrides?: Partial<OrchestratorConfig>): Orches
 
 beforeEach(() => {
   vi.clearAllMocks();
+});
+
+describe("isPackageResolutionFailure", () => {
+  it("returns true for ERR_MODULE_NOT_FOUND with package id in message", () => {
+    const err = new Error("Cannot find package '@jleechanorg/ao-plugin-agent-gemini'");
+    (err as NodeJS.ErrnoException).code = "ERR_MODULE_NOT_FOUND";
+    expect(isPackageResolutionFailure(err, "@jleechanorg/ao-plugin-agent-gemini")).toBe(true);
+  });
+
+  it("returns false for init/runtime errors without resolution shape", () => {
+    expect(
+      isPackageResolutionFailure(new Error("initialize() failed"), "@jleechanorg/ao-plugin-agent-gemini"),
+    ).toBe(false);
+  });
+
+  it("returns false when ERR_MODULE_NOT_FOUND message names a different package than pkg", () => {
+    const err = new Error("Cannot find package '@jleechanorg/ao-plugin-agent-codex'");
+    (err as NodeJS.ErrnoException).code = "ERR_MODULE_NOT_FOUND";
+    expect(isPackageResolutionFailure(err, "@jleechanorg/ao-plugin-agent-gemini")).toBe(false);
+  });
 });
 
 describe("createPluginRegistry", () => {
@@ -227,6 +254,55 @@ describe("loadBuiltins", () => {
       expect.objectContaining({ name: "gemini", slot: "agent" }),
     );
     warnSpy.mockRestore();
+  });
+
+  const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "..");
+  const geminiBuiltEntry = join(repoRoot, "packages/plugins/agent-gemini/dist/index.js");
+
+  it.skipIf(!existsSync(geminiBuiltEntry))(
+    "loads the real gemini builtin via default monorepo fallback when npm resolution fails",
+    async () => {
+      const warnSpy = vi.spyOn(console, "warn").mockReturnValue();
+      const registry = createPluginRegistry();
+      const geminiPkg = "@jleechanorg/ao-plugin-agent-gemini";
+
+      await registry.loadBuiltins(undefined, async (pkg) => {
+        if (pkg === geminiPkg) {
+          const e = new Error(`Cannot find package '${geminiPkg}'`);
+          (e as NodeJS.ErrnoException).code = "ERR_MODULE_NOT_FOUND";
+          throw e;
+        }
+        const spec = BUILTIN_PLUGINS.find((b) => b.pkg === pkg);
+        if (!spec) throw new Error(`unexpected builtin package: ${pkg}`);
+        return makePlugin(spec.slot, spec.name);
+      });
+
+      expect(registry.get("agent", "gemini")).not.toBeNull();
+      expect(warnSpy).not.toHaveBeenCalled();
+      warnSpy.mockRestore();
+    },
+    15_000,
+  );
+
+  it("does not invoke fallbackImportFn when primary import fails for non-resolution reasons", async () => {
+    const fallbackSpy = vi.fn(async () => makePlugin("agent", "gemini"));
+    const registry = createPluginRegistry();
+    const geminiPkg = "@jleechanorg/ao-plugin-agent-gemini";
+
+    await registry.loadBuiltins(
+      undefined,
+      async (pkg) => {
+        if (pkg === geminiPkg) {
+          throw new Error("plugin initialize() failed");
+        }
+        const spec = BUILTIN_PLUGINS.find((b) => b.pkg === pkg);
+        if (!spec) throw new Error(`unexpected builtin package: ${pkg}`);
+        return makePlugin(spec.slot, spec.name);
+      },
+      fallbackSpy,
+    );
+
+    expect(fallbackSpy).not.toHaveBeenCalled();
   });
 
   it("registers multiple agent plugins from importFn", async () => {

@@ -326,6 +326,7 @@ describe("wholesome — structural source-code assertions", () => {
       // feat/orch-bxf commits (CI noise):
       "b21ae94e527408e78383a35d4ffeadbf5d01e0a2", // fix: add runtimeName check to tmux liveness probe
       "e8f95b1d25edb3cf2d57a2a22396646487096868", // fix: remove eslint-disable, fix malformed spawn syntax
+      "cef62f6ad79a0af9455986ac746a7f38921c454f", // chore(beads): close bd-gnyj+bd-dmxw (pre-[agento] history on PR branch)
       "7b7ef53bc525c6ea75ecda807361e26de1be21d5", // fix: add missing ProjectObserver import (lost in rebase)
       "f6750186a3916345e49f191fa646f838dc652f2b", // feat(lifecycle): backfill spawns workers for dead-agent CHANGES_REQUESTED PRs
       "69c8956d4613b5270d6efd68d5bc92cba5375eca", // docs: add backfill CHANGES_REQUESTED implementation plan

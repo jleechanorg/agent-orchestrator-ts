@@ -21,6 +21,26 @@ import type {
 type PluginMap = Map<string, { manifest: PluginManifest; instance: unknown }>;
 
 /**
+ * True when `err` indicates the requested npm package could not be resolved
+ * (missing from node_modules / workspace), not runtime/init failures inside a
+ * resolved package. Used to avoid swapping in a monorepo copy when the installed
+ * plugin threw for other reasons.
+ */
+export function isPackageResolutionFailure(err: unknown, pkg: string): boolean {
+  if (!err || typeof err !== "object") return false;
+  const msg = err instanceof Error ? err.message : String(err);
+  const code = (err as NodeJS.ErrnoException).code;
+  if (code === "MODULE_NOT_FOUND" || code === "ERR_MODULE_NOT_FOUND") {
+    return msg.includes(pkg);
+  }
+  if (!msg.includes(pkg)) return false;
+  if (/cannot find (package|module)/i.test(msg)) return true;
+  if (/module not found/i.test(msg)) return true;
+  if (/^Not found:/i.test(msg.trim())) return true;
+  return false;
+}
+
+/**
  * Attempt to resolve a plugin via a path relative to the monorepo root.
  *
  * Uses plugin-registry's own location (`packages/core/dist/`) to walk up to
@@ -60,7 +80,7 @@ function makeKey(slot: PluginSlot, name: string): string {
   return `${slot}:${name}`;
 }
 
-/** Built-in plugin package names, mapped to their npm package */
+/** Built-in plugin package names, mapped to their npm package (exported for tests) */
 export const BUILTIN_PLUGINS: ReadonlyArray<{ slot: PluginSlot; name: string; pkg: string }> = [
   // Runtimes
   { slot: "runtime", name: "tmux", pkg: "@jleechanorg/ao-plugin-runtime-tmux" },
@@ -180,10 +200,13 @@ export function createPluginRegistry(): PluginRegistry {
         try {
           mod = (await doImport(builtin.pkg)) as PluginModule;
         } catch (err) {
-          // Primary import failed — try monorepo-relative resolution from plugin-registry.
-          // This handles the case where `ao` is run from outside the monorepo
-          // and npm cannot resolve workspace-linked @jleechanorg/* packages.
-          const fallback = await doFallback(builtin.pkg, selfUrl);
+          // Primary import failed — try monorepo-relative resolution only when the
+          // package itself could not be resolved (not init/runtime errors).
+          const shouldTryFallback = isPackageResolutionFailure(err, builtin.pkg);
+          let fallback: unknown = null;
+          if (shouldTryFallback) {
+            fallback = await doFallback(builtin.pkg, selfUrl);
+          }
           if (fallback) {
             mod = fallback as PluginModule;
           } else {
