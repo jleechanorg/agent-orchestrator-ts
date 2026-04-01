@@ -70,6 +70,7 @@ async function run<T>(args: string[]): Promise<T> {
       trimmed.length > 500 ? `${trimmed.slice(0, 500)}…` : trimmed;
     throw new Error(
       `peekaboo: invalid JSON in stdout: ${e instanceof Error ? e.message : String(e)}; preview: ${preview}`,
+      { cause: e },
     );
   }
 }
