@@ -134,19 +134,92 @@ describe("list", () => {
 });
 
 describe("loadBuiltins", () => {
-  it("silently skips unavailable packages", async () => {
+  it("warns when a builtin plugin import fails (no silent swallow)", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockReturnValue();
     const registry = createPluginRegistry();
-    // loadBuiltins tries to import all built-in packages.
-    // Pass a mock importFn that always throws (simulating unavailable packages).
-    // The registry should silently swallow these errors, not propagate them.
-    await expect(
-      registry.loadBuiltins(
-        undefined,
-        async () => {
-          throw new Error("package not found");
-        },
-      ),
-    ).resolves.toBeUndefined();
+    // Simulate npm failing to resolve the package (outside monorepo case)
+    await registry.loadBuiltins(
+      undefined,
+      async () => {
+        throw new Error("ERR_MODULE_NOT_FOUND: cannot find package '@jleechanorg/ao-plugin-runtime-tmux'");
+      },
+    );
+    // Must log a warning, not silently swallow
+    expect(warnSpy).toHaveBeenCalled();
+    expect(warnSpy.mock.calls[0][0]).toContain("@jleechanorg/ao-plugin-runtime-tmux");
+    warnSpy.mockRestore();
+  });
+
+  it("warns on ERR_MODULE_NOT_FOUND from outside the monorepo", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockReturnValue();
+    const registry = createPluginRegistry();
+    await registry.loadBuiltins(
+      undefined,
+      async () => {
+        const err = new Error("cannot find module '@jleechanorg/ao-plugin-agent-gemini'");
+        (err as NodeJS.ErrnoException).code = "ERR_MODULE_NOT_FOUND";
+        throw err;
+      },
+    );
+    expect(warnSpy).toHaveBeenCalled();
+    warnSpy.mockRestore();
+  });
+
+  it("falls back to __dirname-relative resolution when normal import fails", async () => {
+    // This test simulates running `ao` from outside the monorepo where npm cannot
+    // resolve workspace-linked packages. The registry should try a fallback path
+    // relative to the CLI binary location.
+    const warnSpy = vi.spyOn(console, "warn").mockReturnValue();
+    const registry = createPluginRegistry();
+    const fakeGemini = makePlugin("agent", "gemini");
+
+    // Primary importFn: always fails (npm cannot resolve workspace packages outside monorepo)
+    // fallbackImportFn: returns the fake gemini (monorepo fallback succeeded)
+    await registry.loadBuiltins(
+      undefined,
+      async () => {
+        const err = new Error("ERR_MODULE_NOT_FOUND");
+        (err as NodeJS.ErrnoException).code = "ERR_MODULE_NOT_FOUND";
+        throw err;
+      },
+      async (pkg: string) => {
+        // Fallback: simulate the monorepo-relative path resolution succeeding
+        if (pkg.includes("agent-gemini")) return fakeGemini;
+        return null; // other plugins have no fallback
+      },
+    );
+
+    // Gemini should be registered via the fallback path (not npm)
+    expect(registry.get("agent", "gemini")).not.toBeNull();
+    warnSpy.mockRestore();
+  });
+
+  it("resolves --agent gemini via fallback when outside the monorepo", async () => {
+    // Integration test: when the gemini plugin cannot be resolved via npm
+    // (ERR_MODULE_NOT_FOUND), the fallback path should still register it.
+    const warnSpy = vi.spyOn(console, "warn").mockReturnValue();
+    const registry = createPluginRegistry();
+    const fakeGemini = makePlugin("agent", "gemini");
+
+    await registry.loadBuiltins(
+      undefined,
+      async () => {
+        const err = new Error("ERR_MODULE_NOT_FOUND");
+        (err as NodeJS.ErrnoException).code = "ERR_MODULE_NOT_FOUND";
+        throw err;
+      },
+      async (pkg: string) => {
+        if (pkg.includes("agent-gemini")) return fakeGemini;
+        return null;
+      },
+    );
+
+    // The gemini agent plugin should be registered (fallback succeeded)
+    expect(registry.get("agent", "gemini")).not.toBeNull();
+    expect(registry.list("agent")).toContainEqual(
+      expect.objectContaining({ name: "gemini", slot: "agent" }),
+    );
+    warnSpy.mockRestore();
   });
 
   it("registers multiple agent plugins from importFn", async () => {

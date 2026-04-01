@@ -7,6 +7,8 @@
  * 3. Local file paths specified in config
  */
 
+import { fileURLToPath } from "node:url";
+import { dirname, join, resolve } from "node:path";
 import type {
   PluginSlot,
   PluginManifest,
@@ -17,6 +19,43 @@ import type {
 
 /** Map from "slot:name" → plugin instance */
 type PluginMap = Map<string, { manifest: PluginManifest; instance: unknown }>;
+
+/**
+ * Attempt to resolve a plugin via a path relative to the monorepo root.
+ *
+ * The CLI binary is at packages/cli/dist/index.js (or installed globally).
+ * This function navigates from plugin-registry's location (packages/core/dist/)
+ * up to the monorepo root, then into the target plugin's dist directory.
+ *
+ * Works when `ao` is run from outside the monorepo — npm cannot resolve
+ * workspace-linked packages, but the files are present in the monorepo.
+ *
+ * @param pkg  The package name (e.g. "@jleechanorg/ao-plugin-agent-gemini")
+ * @param modUrl  import.meta.url of plugin-registry.js
+ * @returns The loaded plugin module, or null if resolution failed
+ */
+async function tryMonorepoFallback(
+  pkg: string,
+  modUrl: string,
+): Promise<unknown> {
+  const match = pkg.match(/^@jleechanorg\/ao-plugin-(.+)$/);
+  if (!match) return null;
+  const pluginName = match[1]!;
+
+  try {
+    // plugin-registry.ts lives at packages/core/dist/plugin-registry.js
+    // Navigate up to monorepo root: ../../ → project root
+    const coreDir = dirname(fileURLToPath(modUrl)); // packages/core/dist
+    const monorepoRoot = resolve(coreDir, "../../"); // project root
+    const pluginPath = join(monorepoRoot, "packages", "plugins", pluginName, "dist", "index.js");
+
+    // Build a file:// URL so dynamic import() can load it as ESM
+    const pluginUrl = `file://${pluginPath}`;
+    return await import(pluginUrl);
+  } catch {
+    return null;
+  }
+}
 
 function makeKey(slot: PluginSlot, name: string): string {
   return `${slot}:${name}`;
@@ -132,19 +171,34 @@ export function createPluginRegistry(): PluginRegistry {
     async loadBuiltins(
       orchestratorConfig?: OrchestratorConfig,
       importFn?: (pkg: string) => Promise<unknown>,
+      fallbackImportFn?: (pkg: string, selfUrl: string) => Promise<unknown>,
     ): Promise<void> {
       const doImport = importFn ?? ((pkg: string) => import(pkg));
+      const selfUrl = import.meta.url; // plugin-registry.js URL for fallback resolution
+      const doFallback = fallbackImportFn ?? tryMonorepoFallback;
       for (const builtin of BUILTIN_PLUGINS) {
+        let mod: PluginModule | null = null;
         try {
-          const mod = (await doImport(builtin.pkg)) as PluginModule;
-          if (mod.manifest && typeof mod.create === "function") {
-            const pluginConfig = orchestratorConfig
-              ? extractPluginConfig(builtin.slot, builtin.name, orchestratorConfig)
-              : undefined;
-            this.register(mod, pluginConfig);
+          mod = (await doImport(builtin.pkg)) as PluginModule;
+        } catch (err) {
+          // Primary import failed — try a fallback path relative to the CLI binary.
+          // This handles the case where `ao` is run from outside the monorepo
+          // and npm cannot resolve workspace-linked @jleechanorg/* packages.
+          const fallback = await doFallback(builtin.pkg, selfUrl);
+          if (fallback) {
+            mod = fallback as PluginModule;
+          } else {
+            console.warn(
+              `[plugin-registry] failed to load builtin plugin '${builtin.pkg}':` +
+                ` ${err instanceof Error ? err.message : String(err)}`,
+            );
           }
-        } catch {
-          // Plugin not installed — that's fine, only load what's available
+        }
+        if (mod?.manifest && typeof mod.create === "function") {
+          const pluginConfig = orchestratorConfig
+            ? extractPluginConfig(builtin.slot, builtin.name, orchestratorConfig)
+            : undefined;
+          this.register(mod, pluginConfig);
         }
       }
     },
