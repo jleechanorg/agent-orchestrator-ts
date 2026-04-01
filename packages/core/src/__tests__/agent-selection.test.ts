@@ -46,5 +46,7 @@ describe("resolveAgentSelection — modelByCli", () => {
       },
     });
     expect(out.model).toBe("cli-model");
+    expect(out.agentConfig.model).toBe("cli-model");
+    expect(out.agentName).toBe("mock-agent");
   });
 });
