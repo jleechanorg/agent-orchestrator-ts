@@ -145,12 +145,13 @@ const RoleAgentDefaultsSchema = z
   })
   .optional();
 
+/** Only `model` / `orchestratorModel` are read for CLI-keyed defaults; extra keys are rejected. */
 const CliModelDefaultsSchema = z
   .object({
     model: z.string().optional(),
     orchestratorModel: z.string().optional(),
   })
-  .passthrough();
+  .strict();
 
 const RoleAgentConfigSchema = z
   .object({

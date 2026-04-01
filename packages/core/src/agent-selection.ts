@@ -3,6 +3,7 @@ import {
   isOrchestratorSession,
   type AgentPermissionMode,
   type AgentSpecificConfig,
+  type CliModelDefaults,
   type DefaultPlugins,
   type ProjectConfig,
 } from "./types.js";
@@ -50,7 +51,7 @@ export function resolveAgentSelection(params: {
 
   const defaultsCliModelConfig = defaults.modelByCli?.[agentName] ?? {};
   const projectCliModelConfig = project.modelByCli?.[agentName] ?? {};
-  const cliModelConfig: AgentSpecificConfig = {
+  const cliModelConfig: CliModelDefaults = {
     ...defaultsCliModelConfig,
     ...projectCliModelConfig,
   };
