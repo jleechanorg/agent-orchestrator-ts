@@ -13,7 +13,11 @@ function readCliPackageJson(): Record<string, unknown> {
 
 describe("BUILTIN_PLUGINS ↔ CLI package.json consistency", () => {
   const cliPkg = readCliPackageJson();
-  const cliRuntimeDeps = (cliPkg.dependencies ?? {}) as Record<string, string>;
+  // Global `npm install -g` installs dependencies + optionalDependencies only — not devDependencies.
+  const cliRuntimeDeps = {
+    ...((cliPkg.dependencies ?? {}) as Record<string, string>),
+    ...((cliPkg.optionalDependencies ?? {}) as Record<string, string>),
+  };
 
   it("registry lists builtin plugins", () => {
     expect(BUILTIN_PLUGINS.length).toBeGreaterThan(10);
