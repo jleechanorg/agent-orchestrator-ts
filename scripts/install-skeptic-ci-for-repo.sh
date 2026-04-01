@@ -33,8 +33,9 @@ FORCE=false
 
 usage() {
   echo "Usage: $0 [--gate] [--cron] [--all] [--force]"
-  echo "  --gate   Install skeptic-gate.yml"
-  echo "  --cron   Install skeptic-cron.yml"
+  echo "  (no flags)  Install both workflows (same as --all)"
+  echo "  --gate   Install only skeptic-gate.yml"
+  echo "  --cron   Install only skeptic-cron.yml"
   echo "  --all    Install both workflows"
   echo "  --force  Overwrite existing workflow files"
   echo ""

@@ -319,9 +319,9 @@ less /tmp/install-skeptic-ci-for-repo.sh
 bash /tmp/install-skeptic-ci-for-repo.sh
 ```
 
-With no flags, the script installs both workflows. Use `--gate` or `--cron` to install only one. Override template source with `SKEPTIC_CI_REPO=owner/repo` and `SKEPTIC_CI_REF=branch` if needed.
+The default `raw.githubusercontent.com` URL points to **jleechanorg/agent-orchestrator**, where fork-maintained skeptic workflow templates live under `packages/cli/src/templates/skeptic/`. With no flags, the script installs both workflows; use `--gate` or `--cron` to install only one. To pull templates from another fork or mirror, set `SKEPTIC_CI_REPO=owner/repo` and optionally `SKEPTIC_CI_REF=branch` when running the script.
 
-Then commit `.github/workflows/skeptic-gate.yml` and `skeptic-cron.yml`, push, and keep **lifecycle-manager** running with `gh` authenticated as the GitHub user that will post `VERDICT` comments. In each repo, set the Actions **repository variable** `SKEPTIC_BOT_AUTHOR` to that account’s login (for example your bot or personal user); the workflows default to `github-actions[bot]` if unset, which only matches when the verdict is posted by that bot user.
+Then commit `.github/workflows/skeptic-gate.yml` and `.github/workflows/skeptic-cron.yml`, push, and keep **lifecycle-manager** running with `gh` authenticated as the GitHub user that will post `VERDICT` comments. In each repo, set the Actions **repository variable** `SKEPTIC_BOT_AUTHOR` to that account’s login (for example your bot or personal user); the workflows default to `github-actions[bot]` if unset, which only matches when the verdict is posted by that bot user.
 
 ### GitHub Issues
 
