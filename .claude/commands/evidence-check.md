@@ -2,6 +2,10 @@
 
 Run this before pushing a PR to catch Evidence Gate failures locally instead of waiting for CI.
 
+## Philosophy (jleechanorg fork)
+
+**Claims without proof artifacts are insufficient** for substantive work. CI checks **shape** (gist, terminal media + logs, UI or N/A). **Reviewers** and **`/er`** validate **substance** using `docs/evidence/reviewer-checklist.md` (video + before/after for UI, claim→artifact map, self-validation, negative paths). Optimize for **fast human review** and **merge confidence**.
+
 ## Usage
 
 ```

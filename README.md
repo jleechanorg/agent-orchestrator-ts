@@ -30,6 +30,8 @@ This fork adds **agentic CI infrastructure** on top of the upstream agent-orches
 
 This fork's goal is **fully autonomous, zero-touch PR merging** for its own codebase. The upstream goal is a general-purpose orchestration tool.
 
+**Evidence standards** (artifacts, reviewer checklist, `/er` vs CI vs Skeptic): see **`docs/evidence/README.md`**.
+
 <div align="center">
 
 Spawn parallel AI coding agents, each in its own git worktree. Agents autonomously fix CI failures, address review comments, and open PRs — you supervise from one dashboard.

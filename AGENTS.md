@@ -81,8 +81,13 @@ roadmap/               # Design docs and decision records — first-class, commi
 - **Never push to main directly** — always open a PR.
 - **Never use `git add -A`** — stage only files you changed.
 
-## PR evidence (AO workers) — Cursor-aligned artifacts
-Every PR must satisfy **Evidence Bundle v2** in `## Evidence` (see `CLAUDE.md`: repro gist, terminal screenshot/video + logs, UI proof or `N/A`). That policy is intentionally aligned with Cursor’s **cloud agents** model: **videos, screenshots, and logs** as review artifacts, not narrative-only proof — see [Cursor agents can now control their own computers](https://cursor.com/blog/agent-computer-use).
+## PR evidence (AO workers) — proof artifacts, not claims
+- **Agent claims are insufficient without artifacts.** Substantive implementation work needs a **reproducible, human-verifiable** bundle in `## Evidence` (**Evidence Bundle v2** in `CLAUDE.md`).
+- **Minimum CI shape:** repro gist, terminal media (tmux/terminal context) + **separate** fenced test logs, UI media or exact `N/A - no UI changes`.
+- **Bar-raising (UI / interactive):** Prefer **video** of key flows + **before/after** screenshots for critical states; map claims to gist steps / logs / media (`docs/evidence/reviewer-checklist.md`).
+- **Self-validation:** Clean/isolated reruns where practical; **negative paths** when risk warrants; **revert** temp toggles before merge.
+- **Review stack:** CI Evidence Gate → `/er` (evidence review) → Skeptic — see `docs/evidence/README.md`.
+- Cursor alignment: [Cursor agents can now control their own computers](https://cursor.com/blog/agent-computer-use) (artifacts for merge confidence).
 
 ## Fork Isolation — Mandatory for All Changes
 

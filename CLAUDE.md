@@ -197,14 +197,26 @@ When CR posts CHANGES_REQUESTED on your PR:
 ### Skeptic SKIPPED — do not merge
 If skeptic posts `VERDICT: SKIPPED` (infra unavailable — no LLM API keys in GHA), the PR does **NOT** have a genuine skeptic review. The `skeptic-cron.yml` workflow handles skeptic evaluation via AO worker. **Do not merge until skeptic-cron has run `ao skeptic verify` and posted `VERDICT: PASS` or `VERDICT: FAIL`.** Check skeptic-cron hasn't already evaluated this PR SHA (comments show `VERDICT:`).
 
+### Evidence philosophy — agent claims require proof artifacts
+- **Claims without artifacts are insufficient.** Treat implementation claims (behavior, fixes, UX) as **unproven** unless tied to **human-verifiable** artifacts in `## Evidence`.
+- **Substantive work** (features, meaningful refactors, non-trivial behavior changes) requires a **reproducible evidence bundle** every time — not narrative-only summaries.
+- **UI / interactive changes:** Prefer **video** of key flows; include **before** and **after** screenshots for critical visual deltas (same framing when comparing). CI still enforces **UI media** (or exact `N/A - no UI changes`); reviewers use `docs/evidence/reviewer-checklist.md` for bar-raising on UI proof.
+- **Command logs + mapping:** Fenced **terminal test output** must support repeats; add a short **Claim → artifact map** (bullets) when multiple claims need separate proof.
+- **Self-validation:** Verify in an **isolated** context when practical (clean worktree / documented env). Exercise **negative / error paths** where risk warrants it. **Revert** temporary debug toggles or test-only hacks before finalizing.
+- **Goal:** Evidence that maximizes **fast human review** and **merge confidence** — scannable, repeatable, honest about limits.
+
 ### Evidence Bundle v2 (mandatory): reproducible gist + terminal media + terminal test logs + UI
-Evidence is fail-closed: every PR must include a self-contained bundle in `## Evidence`. CI enforces this in both `wholesome.yml` (**Evidence Has Media Attachment**) and `evidence-gate.yml` (**Evidence Gate**).
+Evidence is fail-closed: every PR must include a self-contained bundle in `## Evidence`. CI enforces this in both `wholesome.yml` (**Evidence Has Media Attachment**) and `evidence-gate.yml` (**Evidence Gate**). **Policy depth** (philosophy, reviewer checklist, `/er` guidance): `docs/evidence/README.md`.
 
 Hard requirements (all must be true):
 1. **Repro gist** — `**Repro gist**: https://gist.github.com/...` (clone-and-run capable).
-2. **Terminal media** — **Mandatory on every PR**: captioned HTTPS screenshot or video (`**Terminal media**:`) that clearly shows **tmux or terminal** context (caption must mention `tmux` or `terminal`). Image-only or code-only substitutes are **not** accepted.
+2. **Terminal media** — **Mandatory on every PR**: captioned HTTPS screenshot or video (`**Terminal media**:`) that clearly shows **tmux or terminal** context (caption must mention `tmux` or `terminal` **outside** the label line — see workflow `TM_FOR_CTX` stripping). Image-only or code-only substitutes are **not** accepted.
 3. **Terminal test output** — **Mandatory in addition to** terminal media (not either/or): `**Terminal test output**:` followed by a fenced code block with real test run logs (must reference a concrete test command such as `pnpm`/`npm`/`vitest`/… `test`).
-4. **UI media** — For UI changes: captioned HTTPS screenshot or video under `**UI media**:` . If there are **no UI changes**, use **exactly** this text (including spacing): `N/A - no UI changes` (may appear in the `**UI media**:` line or elsewhere in `## Evidence`).
+4. **UI media** — For UI changes: captioned HTTPS screenshot or video under `**UI media**:` (multiple images or a video link are fine for before/after). If there are **no UI changes**, use **exactly** this text (including spacing): `N/A - no UI changes` (may appear in the `**UI media**:` line or elsewhere in `## Evidence`).
+
+Recommended (strongly for reviewers + `/er`):
+- **`**Claim → artifact map**:`** — Bullets mapping each major PR claim → gist step / log / media.
+- **UI-rich PRs:** Video + before/after stills per `docs/evidence/reviewer-checklist.md`.
 
 Rules:
 - Before first push: run `/pr-media` (or equivalent) and capture real tmux/terminal media plus fenced test logs.
@@ -212,6 +224,11 @@ Rules:
 - Placeholder evidence (`<path>`, `<value>`, `TODO`, `TBD`, `example.com`) is forbidden and fails CI.
 - `simulated` output is forbidden — only real command output.
 - Evidence checks are pre-merge only; merged/closed PRs are skipped.
+
+### Evidence review (`/er`) vs CI vs Skeptic
+- **`/er` (step 6 of 7-green):** Human or agent review that evidence **substance** matches the **claim class** and `docs/evidence/reviewer-checklist.md`. Use when the PR has an evidence bundle; **PASS/INSUFFICIENT** is about proof fit, not YAML shape alone.
+- **Evidence Gate (CI):** Format and presence rules only; fails closed on missing fields.
+- **Skeptic Gate:** Independent LLM check on overall merge readiness (can flag gaps between claims and 7-green story). Does not replace real artifacts or `/er`.
 
 ### Cursor cloud-agent artifact model (reference)
 Cursor describes **cloud agents** that run in isolated environments, **test their changes**, and **produce artifacts (videos, screenshots, and logs)** so reviewers can validate work quickly, and open **merge-ready PRs with artifacts to demo their changes**. See [Cursor agents can now control their own computers](https://cursor.com/blog/agent-computer-use) (product announcement; read the full post for examples). The same post shows **video artifacts** for full flows, **screenshots** for static proof, and **summaries/logs** alongside — not prose-only claims.
