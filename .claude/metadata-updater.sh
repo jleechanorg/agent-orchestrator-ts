@@ -197,10 +197,12 @@ if [[ "$clean_command" =~ ^git[[:space:]]+switch[[:space:]]+-c[[:space:]]+([^[:s
 fi
 
 # Detect: git checkout <branch> (without -b) or git switch <branch> (without -c)
-# Only update if the branch name looks like a feature branch (contains / or -)
+# Guard: skip source file paths by rejecting known extensions.
+# "contains /" alone is not sufficient — e.g. docs/README.md would false-match.
 if [[ "$clean_command" =~ ^git[[:space:]]+checkout[[:space:]]+([^[:space:]-]+[/-][^[:space:]]+) ]]; then
   branch="${BASH_REMATCH[1]}"
-  if [[ -n "$branch" && "$branch" != "HEAD" ]]; then
+  if [[ -n "$branch" && "$branch" != "HEAD" &&
+        ! "$branch" =~ \.(ts|js|tsx|jsx|py|go|rs|java|cpp|c|h|sh|bash|json|yaml|yml|toml|md|html|css|scss)$ ]]; then
     update_metadata_key "branch" "$branch"
     echo '{"systemMessage": "Updated metadata: branch = '"$branch"'"}'
     exit 0
@@ -209,7 +211,8 @@ fi
 
 if [[ "$clean_command" =~ ^git[[:space:]]+switch[[:space:]]+([^[:space:]-]+[/-][^[:space:]]+) ]]; then
   branch="${BASH_REMATCH[1]}"
-  if [[ -n "$branch" && "$branch" != "HEAD" ]]; then
+  if [[ -n "$branch" && "$branch" != "HEAD" &&
+        ! "$branch" =~ \.(ts|js|tsx|jsx|py|go|rs|java|cpp|c|h|sh|bash|json|yaml|yml|toml|md|html|css|scss)$ ]]; then
     update_metadata_key "branch" "$branch"
     echo '{"systemMessage": "Updated metadata: branch = '"$branch"'"}'
     exit 0
