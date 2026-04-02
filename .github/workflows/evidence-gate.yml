@@ -328,6 +328,7 @@ jobs:
           EVIDENCE_SECTION=$(printf '%s\n' "$BODY" | awk '
             /^[[:space:]]*##[[:space:]]+[Ee]vidence([[:space:]]|$)/ { in_section=1; next }
             in_section && /^[[:space:]]*##[[:space:]]/ { exit }
+            in_section && /^[[:space:]]*<!--/ { exit }
             in_section { print }
           ')
 
