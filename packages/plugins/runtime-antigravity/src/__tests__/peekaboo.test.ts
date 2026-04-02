@@ -19,6 +19,12 @@ vi.mock("../queue.js", () => ({
 // to call the callback with our controlled output.
 const mockExecFile = childProcess.execFile as unknown as ReturnType<typeof vi.fn>;
 
+/** Must match peekaboo.ts `peekabooExecOpts` (timeout + maxBuffer for large `see` JSON). */
+const PEEKABOO_EXEC_OPTS = {
+  timeout: 15_000,
+  maxBuffer: 10 * 1024 * 1024,
+} as const;
+
 /** Set up execFile mock to call callback with success result. */
 function mockSuccess(stdout: string) {
   mockExecFile.mockImplementationOnce(
@@ -81,7 +87,7 @@ describe("windowList()", () => {
     expect(mockExecFile).toHaveBeenCalledWith(
       "peekaboo",
       ["list", "windows", "--app", "Antigravity", "--json"],
-      { timeout: 15_000 },
+      PEEKABOO_EXEC_OPTS,
       expect.any(Function),
     );
   });
@@ -120,7 +126,7 @@ describe("see()", () => {
     expect(mockExecFile).toHaveBeenCalledWith(
       "peekaboo",
       ["see", "--app", "Antigravity", "--window-id", "1", "--json"],
-      { timeout: 15_000 },
+      PEEKABOO_EXEC_OPTS,
       expect.any(Function),
     );
   });
@@ -147,7 +153,7 @@ describe("click()", () => {
         "snap-123",
         "--json",
       ],
-      { timeout: 15_000 },
+      PEEKABOO_EXEC_OPTS,
       expect.any(Function),
     );
   });
@@ -162,7 +168,7 @@ describe("paste()", () => {
     expect(mockExecFile).toHaveBeenCalledWith(
       "peekaboo",
       ["paste", "--app", "Antigravity", "--text", "Hello, world!"],
-      { timeout: 15_000 },
+      PEEKABOO_EXEC_OPTS,
       expect.any(Function),
     );
   });
@@ -177,7 +183,7 @@ describe("press()", () => {
     expect(mockExecFile).toHaveBeenCalledWith(
       "peekaboo",
       ["press", "Return", "--app", "Antigravity"],
-      { timeout: 15_000 },
+      PEEKABOO_EXEC_OPTS,
       expect.any(Function),
     );
   });
@@ -200,7 +206,7 @@ describe("hotkey()", () => {
     expect(mockExecFile).toHaveBeenCalledWith(
       "peekaboo",
       ["hotkey", "cmd+w", "--app", "Antigravity"],
-      { timeout: 15_000 },
+      PEEKABOO_EXEC_OPTS,
       expect.any(Function),
     );
   });
@@ -233,7 +239,7 @@ describe("scroll()", () => {
         "--amount",
         "5",
       ],
-      { timeout: 15_000 },
+      PEEKABOO_EXEC_OPTS,
       expect.any(Function),
     );
   });

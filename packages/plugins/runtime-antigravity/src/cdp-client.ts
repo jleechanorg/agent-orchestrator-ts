@@ -3,6 +3,8 @@ interface CdpTarget {
   title: string;
   type: string;
   webSocketDebuggerUrl: string;
+  /** Chrome/Electron DevTools /json list entries often include the page URL. */
+  url?: string;
 }
 
 interface CdpResponse {
@@ -61,11 +63,22 @@ export class CdpClient {
 
     const targets = (await res.json()) as CdpTarget[];
 
-    // Antigravity has multiple targets (background pages, service workers, tabs)
-    // We want the main renderer page. Usually type: "page"
-    // And to be safe, we can filter for something containing antigravity/manager/index
-    // If not, just taking the first 'page' type works for electron apps with a single window.
-    const pageTarget = targets.find((t) => t.type === "page" && !t.title.includes("devtools"));
+    // Antigravity has multiple targets (background pages, service workers, tabs).
+    // Prefer an explicit Antigravity/Manager page; avoid attaching to an unrelated Chromium tab.
+    const isLikelyAntigravityPage = (t: CdpTarget) => {
+      if (t.type !== "page" || t.title.includes("devtools")) return false;
+      const title = t.title.toLowerCase();
+      const url = t.url?.toLowerCase() ?? "";
+      return (
+        title.includes("manager") ||
+        title.includes("antigravity") ||
+        url.includes("antigravity") ||
+        url.startsWith("chrome-extension://")
+      );
+    };
+    const pageTarget =
+      targets.find((t) => isLikelyAntigravityPage(t)) ??
+      targets.find((t) => t.type === "page" && !t.title.includes("devtools"));
 
     if (!pageTarget?.webSocketDebuggerUrl) {
       throw new Error("No suitable CDP page target found");

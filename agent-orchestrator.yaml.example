@@ -19,8 +19,15 @@ port: 3000
 defaults:
   runtime: tmux           # tmux | process | docker | kubernetes | ssh | e2b
   agent: claude-code      # claude-code | codex | aider | goose | custom
-  # Omit defaults.agentConfig.model unless it matches defaults.agent (Composer IDs apply only to cursor).
-  # Example: defaults.agent: cursor + agentConfig.model: composer-2-fast
+  # CLI-keyed model defaults (preferred over a single global model)
+  # modelByCli:
+  #   claude-code:
+  #     model: claude-sonnet-4-20250514
+  #     orchestratorModel: claude-opus-4-20250514
+  #   codex:
+  #     model: gpt-5-codex
+  #   cursor:
+  #     model: composer-2
   # orchestrator:
   #   agent: claude-code
   # worker:
@@ -70,7 +77,12 @@ projects:
     # Agent-specific config
     # agentConfig:
     #   permissions: skip    # --dangerously-skip-permissions
-    #   model: composer-2-fast
+    #   model: opus
+
+    # Per-project CLI-keyed model overrides (wins over defaults.modelByCli)
+    # modelByCli:
+    #   codex:
+    #     model: gpt-5-codex
 
     # Optional role-specific agent overrides
     # orchestrator:
@@ -89,7 +101,7 @@ projects:
     #   Before spawning new work or making GitHub API calls, check `gh api rate_limit`.
     #   If graphql.remaining < 100, use REST fallback exclusively.
     #   If core.remaining < 500, defer non-critical reads.
-    #   Before dispatching multiple workers, check `tmux list-sessions | wc -l` and do not spawn if active sessions > 15.
+    #   Before dispatching multiple workers, check `tmux list-sessions | wc -l` and do not spawn if active sessions > 20.
 
     # Path to a rules file (relative to project path)
     # agentRulesFile: .agent-rules.md

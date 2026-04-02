@@ -455,12 +455,13 @@ describe("Config Schema Validation", () => {
     expect(validated.projects.proj1.agentConfig?.orchestratorModel).toBe("orchestrator-model");
   });
 
-  it("accepts defaults.agentConfig", () => {
+  it("accepts CLI-keyed model defaults at defaults and project scope", () => {
     const config = {
       defaults: {
-        agentConfig: {
-          model: "composer-2",
-          permissions: "suggest",
+        modelByCli: {
+          codex: {
+            model: "gpt-5-codex",
+          },
         },
       },
       projects: {
@@ -468,13 +469,24 @@ describe("Config Schema Validation", () => {
           path: "/repos/test",
           repo: "org/test",
           defaultBranch: "main",
+          modelByCli: {
+            "claude-code": {
+              model: "claude-sonnet-4-20250514",
+              orchestratorModel: "claude-opus-4-20250514",
+            },
+          },
         },
       },
     };
 
     const validated = validateConfig(config);
-    expect(validated.defaults.agentConfig?.model).toBe("composer-2");
-    expect(validated.defaults.agentConfig?.permissions).toBe("suggest");
+    expect(validated.defaults.modelByCli?.codex?.model).toBe("gpt-5-codex");
+    expect(validated.projects.proj1.modelByCli?.["claude-code"]?.model).toBe(
+      "claude-sonnet-4-20250514",
+    );
+    expect(validated.projects.proj1.modelByCli?.["claude-code"]?.orchestratorModel).toBe(
+      "claude-opus-4-20250514",
+    );
   });
 
   it("accepts role-specific agent overrides at defaults and project scope", () => {
@@ -540,24 +552,6 @@ describe("Config Schema Validation", () => {
 
     expect(config.projects.proj1.agentConfig?.permissions).toBe("suggest");
     expect(config.projects.proj1.worker?.agentConfig?.permissions).toBeUndefined();
-  });
-
-  it("does not inject default permissions into project agentConfig when absent", () => {
-    const validated = validateConfig({
-      defaults: {
-        agentConfig: {
-          permissions: "suggest",
-        },
-      },
-      projects: {
-        proj1: {
-          path: "/repos/test",
-          repo: "org/test",
-          defaultBranch: "main",
-        },
-      },
-    });
-    expect(validated.projects.proj1.agentConfig?.permissions).toBeUndefined();
   });
 });
 
