@@ -210,7 +210,7 @@ export function createAntigravityRuntime(config?: AntigravityConfig): Runtime {
   return {
     name: "antigravity",
 
-    async create(config: RuntimeCreateConfig): Promise<RuntimeHandle> {
+    async create(createConfig: RuntimeCreateConfig): Promise<RuntimeHandle> {
       let cdpClient: CdpClient | undefined;
       try {
         // Attempt CDP connection first
@@ -290,8 +290,11 @@ export function createAntigravityRuntime(config?: AntigravityConfig): Runtime {
         }
 
         // 5. Paste prompt with workspace path prefix
-        if (config.launchCommand) {
-          const fullPrompt = buildPromptWithWorkspace(config.launchCommand, config.workspacePath);
+        if (createConfig.launchCommand) {
+          const fullPrompt = buildPromptWithWorkspace(
+            createConfig.launchCommand,
+            createConfig.workspacePath,
+          );
           
           if (cdpClient && cdpClient.isConnected()) {
             await cdpClient.evaluateInAntigravity(`
@@ -326,7 +329,7 @@ export function createAntigravityRuntime(config?: AntigravityConfig): Runtime {
         //    the conversation from starting at all.
         //    Blue buttons are web-rendered (not A11y tree) — use screencapture
         //    + PIL blue-pixel detection + coordinate click.
-        if (config.launchCommand) {
+        if (createConfig.launchCommand) {
           try {
             await handleAllowPrompt(managerId, managerWindow.bounds);
           } catch {
@@ -336,7 +339,7 @@ export function createAntigravityRuntime(config?: AntigravityConfig): Runtime {
 
         // 8. Verify conversation started: check for progress_activity.
         //    Only verify if a prompt was actually submitted.
-        if (config.launchCommand) {
+        if (createConfig.launchCommand) {
           let started = false;
           for (let i = 0; i < VERIFY_START_RETRIES && !started; i++) {
             await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
@@ -357,8 +360,8 @@ export function createAntigravityRuntime(config?: AntigravityConfig): Runtime {
 
       const result = await executeWithFallback(
         primaryFn,
-        config.launchCommand ?? "start session",
-        config.workspacePath,
+        createConfig.launchCommand ?? "start session",
+        createConfig.workspacePath,
         fallbackCfg,
       );
 
@@ -369,7 +372,7 @@ export function createAntigravityRuntime(config?: AntigravityConfig): Runtime {
       if (!result.fallbackUsed) {
         session = {
           conversationTitle: result.output,
-          workspaceName: config.workspacePath,
+          workspaceName: createConfig.workspacePath,
           windowId: capturedManagerId,
           managerWindowId: capturedManagerId,
           status: "running",
@@ -384,8 +387,8 @@ export function createAntigravityRuntime(config?: AntigravityConfig): Runtime {
           );
         }
         session = {
-          conversationTitle: `CLI fallback: ${config.workspacePath}`,
-          workspaceName: config.workspacePath,
+          conversationTitle: `CLI fallback: ${createConfig.workspacePath}`,
+          workspaceName: createConfig.workspacePath,
           windowId: -1,
           managerWindowId: -1,
           status: "running",
@@ -396,19 +399,19 @@ export function createAntigravityRuntime(config?: AntigravityConfig): Runtime {
       }
 
       const handle: RuntimeHandle = {
-        id: config.sessionId,
+        id: createConfig.sessionId,
         runtimeName: "antigravity",
         data: {
           createdAt: session.createdAt,
-          workspacePath: config.workspacePath,
+          workspacePath: createConfig.workspacePath,
           session,
           fallbackUsed: result.fallbackUsed,
           cdpClient, // Store active CDP client for other methods
-          ...(config.onIdle && { onIdle: config.onIdle }),
+          ...(createConfig.onIdle && { onIdle: createConfig.onIdle }),
         },
       };
 
-      if (config.onIdle) {
+      if (createConfig.onIdle) {
         poller.start(handle, session.managerWindowId);
       }
 

@@ -76,7 +76,7 @@ export const DEFAULT_REAPER_CONFIG: ReaperConfig = {
   orphanedThresholdMs: 7_200_000, // 2h
   noPrThresholdMs: 14_400_000, // 4h
   maxKillsPerRun: 15, // bd-s4t: raised from 5 to handle burst cleanup when zombie
-                       // sessions accumulate past the 15-session spawn gate
+                       // sessions accumulate past the 20-session spawn gate
 };
 
 // =============================================================================

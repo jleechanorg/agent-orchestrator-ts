@@ -3,11 +3,33 @@ import {
   isOrchestratorSession,
   type AgentPermissionMode,
   type AgentSpecificConfig,
+  type CliModelDefaults,
   type DefaultPlugins,
   type ProjectConfig,
 } from "./types.js";
 
 export type SessionRole = "orchestrator" | "worker";
+
+/** Case-insensitive key match for `modelByCli` maps (direct key wins if present). */
+export function lookupCliModelDefaults(
+  map: Record<string, CliModelDefaults> | undefined,
+  agentName: string,
+): CliModelDefaults {
+  if (!map) {
+    return {};
+  }
+  const direct = map[agentName];
+  if (direct !== undefined) {
+    return direct;
+  }
+  const lower = agentName.toLowerCase();
+  for (const [key, value] of Object.entries(map)) {
+    if (key.toLowerCase() === lower) {
+      return value;
+    }
+  }
+  return {};
+}
 
 export interface ResolvedAgentSelection {
   role: SessionRole;
@@ -48,6 +70,13 @@ export function resolveAgentSelection(params: {
         defaults.agent)
       : (roleProjectConfig?.agent ?? project.agent ?? roleDefaults?.agent ?? defaults.agent);
 
+  const defaultsCliModelConfig = lookupCliModelDefaults(defaults.modelByCli, agentName);
+  const projectCliModelConfig = lookupCliModelDefaults(project.modelByCli, agentName);
+  const cliModelConfig: CliModelDefaults = {
+    ...defaultsCliModelConfig,
+    ...projectCliModelConfig,
+  };
+
   const agentConfig: AgentSpecificConfig = {
     ...sharedConfig,
   };
@@ -62,8 +91,10 @@ export function resolveAgentSelection(params: {
       ? (roleAgentConfig.orchestratorModel ??
         roleAgentConfig.model ??
         sharedConfig.orchestratorModel ??
-        sharedConfig.model)
-      : (roleAgentConfig.model ?? sharedConfig.model);
+        cliModelConfig.orchestratorModel ??
+        sharedConfig.model ??
+        cliModelConfig.model)
+      : (roleAgentConfig.model ?? sharedConfig.model ?? cliModelConfig.model);
 
   if (model !== undefined) {
     agentConfig.model = model;

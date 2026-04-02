@@ -312,7 +312,7 @@ Before dispatching AO workers:
 1. Run `gh api rate_limit` and inspect budgets.
 2. Count active tmux sessions: `tmux list-sessions | wc -l`.
 3. Spawn gate:
-   - If active tmux sessions > 15, do **not** spawn new AO workers; warn the user instead.
+   - If active tmux sessions > 20, do **not** spawn new AO workers; warn the user instead.
 
 When blocked by this gate, include current counts and the exact blocker in your status update.
 

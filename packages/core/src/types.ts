@@ -1204,6 +1204,7 @@ export interface DefaultPlugins {
   agent: string;
   workspace: string;
   notifiers: string[];
+  modelByCli?: Record<string, CliModelDefaults>;
   orchestrator?: {
     agent?: string;
   };
@@ -1329,6 +1330,8 @@ export interface ProjectConfig {
 
   /** Agent-specific configuration */
   agentConfig?: AgentSpecificConfig;
+  /** CLI-keyed model defaults, e.g. modelByCli.codex.model */
+  modelByCli?: Record<string, CliModelDefaults>;
 
   orchestrator?: RoleAgentConfig;
 
@@ -1502,6 +1505,12 @@ export interface SCMWebhookConfig {
 export interface NotifierConfig {
   plugin: string;
   [key: string]: unknown;
+}
+
+/** CLI-keyed model defaults only (`modelByCli`); not a full agentConfig. */
+export interface CliModelDefaults {
+  model?: string;
+  orchestratorModel?: string;
 }
 
 export interface AgentSpecificConfig {
