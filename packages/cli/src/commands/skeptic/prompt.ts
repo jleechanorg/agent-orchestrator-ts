@@ -18,10 +18,15 @@ const FABRICATED_PATTERNS = [
 ];
 
 /** Deterministic check: does the PR body contain any fabricated evidence patterns? */
-function isEvidenceAuthentic(body: string): boolean {
-  if (!body) return true; // no body = nothing to fake
+export function isEvidenceAuthentic(body: string): boolean {
+  // Rule 10: empty Evidence section is a FAIL — do not default to authentic
+  if (!body || !body.trim()) return false;
+  // Scope to ## Evidence section only — avoid false FAILs from TODO/TBD in other sections
+  const evidenceSection = body.split(/^##\s*Evidence/im)[1] ?? "";
+  const evidenceContent = evidenceSection.split(/^##\s+/m)[0]; // stop at next ## heading
+  if (!evidenceContent.trim()) return false;
   for (const pattern of FABRICATED_PATTERNS) {
-    if (pattern.test(body)) return false;
+    if (pattern.test(evidenceContent)) return false;
   }
   return true;
 }
