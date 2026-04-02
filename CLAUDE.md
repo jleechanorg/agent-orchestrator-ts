@@ -169,6 +169,8 @@ gh api repos/OWNER/REPO/pulls/N --jq '{state, merged}'
 ```
 `mergeable_state` returns `unknown` for merged PRs. Review states don't change after merge. Omitting this check causes monitoring loops to report "blocked" on merged PRs.
 
+**Mechanical preflight (agents):** `scripts/pr-rescue-status.sh OWNER/REPO N` — exit 0 only if merged (stop) or open PR has mergeable `MERGEABLE`, zero unresolved review threads (GraphQL), `reviewDecision` APPROVED, and CI rollup has no failures/pending checks. See `AGENTS.md` § PR worker harness.
+
 **After pushing to a branch: EXIT immediately.** Do not sleep-poll for CI or bot results — the monitoring loop handles rechecks. If a bash command times out mid-sleep, do not retry; exit and report current status.
 
 ### Pre-push merge-conflict check (MUST do before every push)
