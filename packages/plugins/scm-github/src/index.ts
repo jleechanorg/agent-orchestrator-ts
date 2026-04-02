@@ -1659,7 +1659,7 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
                       // explicit null are treated as failure (REST fallback). === null is the
                       // canonical check; the ?? is an eqeqeq bypass required to avoid
                       // "undefined !== null is true" incorrectly succeeding on missing fields.
-                      // eslint-disable-next-line eqeqeq
+                       
                       gqlSuccess = (mergeJson?.data?.enablePullRequestAutoMerge ?? null) === null
                         ? false
                         : true;
@@ -1780,7 +1780,7 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
           "name,state,link,startedAt,completedAt",
         ]);
 
-        /* eslint-disable-next-line eqeqeq -- CI ubuntu-latest runner intermittently flags this block (bd-fmv) */
+         
         const checks: Array<{
           name: string;
           state: string;
@@ -1814,15 +1814,16 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
       try {
         checks = await this.getCIChecks(pr);
       } catch (err) {
-        // Rate limit errors are transient — do not fail-close to "failing",
-        // which would spam the agent with spurious "CI is failing" reactions.
-        // Try the status-rollup path (GraphQL gh pr view with REST fallback)
-        // before returning "none".
+        // Rate limit errors are transient — try the status-rollup path first
+        // (GraphQL gh pr view with REST fallback) before giving up.
         if (isRateLimitError(err)) {
           try {
             checks = await getCIChecksFromStatusRollup(pr);
           } catch {
-            return "none";
+            // If the secondary fallback also fails (rate-limited), we cannot
+            // determine CI status. Fail-closed for open PRs: report "failing"
+            // rather than "none" (which getMergeability treats as passing).
+            return "failing";
           }
         } else {
           // Before fail-closing, check if the PR is merged/closed —
@@ -1839,7 +1840,18 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
           return "failing";
         }
       }
-      if (checks.length === 0) return "none";
+      // If there are no CI checks, check PR state before deciding.
+      // Open PRs: fail-closed (no CI signal → cannot confirm green).
+      // Merged/closed PRs: return "none" (terminal state doesn't need CI).
+      if (checks.length === 0) {
+        try {
+          const state = await this.getPRState(pr);
+          return state === "open" ? "failing" : "none";
+        } catch {
+          // Can't determine state; fail-closed for open PRs.
+          return "failing";
+        }
+      }
 
       const hasFailing = checks.some((c) => c.status === "failed");
       if (hasFailing) return "failing";
@@ -2479,7 +2491,9 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
       const rollup = Array.isArray(data.statusCheckRollup) ? data.statusCheckRollup : [];
       let ciStatus: CIStatus;
       if (rollup.length === 0) {
-        ciStatus = "none";
+        // Fail-closed for open PRs: no reported checks means CI cannot be confirmed green.
+        // Non-open (merged/closed) PRs get "none" since terminal state doesn't need CI.
+        ciStatus = state === "open" ? "failing" : "none";
       } else {
         const checks = rollup.map((entry) => {
           if (!entry || typeof entry !== "object") return "pending" as const;

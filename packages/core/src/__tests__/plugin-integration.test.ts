@@ -571,10 +571,10 @@ describe("plugin integration", () => {
       expect(states.get("app-1")).toBe("merged");
     });
 
-    // bd-att regression: OPEN PR with empty CI rollup and no reviewDecision must NOT
-    // incorrectly pass. normalizeMergePayloadFromRestShape sets null/undefined
-    // reviewDecision → "REVIEW_REQUIRED", which maps to "pending" → "review_pending".
-    it("check() OPEN PR with empty CI rollup stays review_pending (fail-closed)", async () => {
+    // bd-jp7q: OPEN PR with empty CI rollup must get ci_failed (fail-closed).
+    // normalizeMergePayloadFromRestShape sets null reviewDecision → "REVIEW_REQUIRED",
+    // but empty rollup on an open PR returns "failing" (bd-jp7q fix) → ci_failed first.
+    it("check() OPEN PR with empty CI rollup returns ci_failed (fail-closed)", async () => {
       seedSession({ status: "pr_open", pr });
 
       const mockSM: SessionManager = {
@@ -605,9 +605,8 @@ describe("plugin integration", () => {
       await lm.check("app-1");
 
       const states = lm.getStates();
-      // normalizeMergePayloadFromRestShape sets null → "REVIEW_REQUIRED" → "pending"
-      // → lifecycle-manager returns "review_pending", NOT "approved" or "mergeable"
-      expect(states.get("app-1")).toBe("review_pending");
+      // Empty rollup on open PR → ci_status="failing" → ci_failed (bd-jp7q fix)
+      expect(states.get("app-1")).toBe("ci_failed");
     });
 
     it("check() detects changes_requested via scm-github getReviewDecision()", async () => {
