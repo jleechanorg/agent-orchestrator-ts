@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildSkepticPrompt } from "../../commands/skeptic/prompt.js";
+import { buildSkepticPrompt, isEvidenceAuthentic } from "../../commands/skeptic/prompt.js";
 import type { PRInfo, ReviewInfo } from "../../commands/skeptic/gh-client.js";
 import type { MergeGateState } from "../../commands/skeptic/mergeGate.js";
 
@@ -384,5 +384,61 @@ describe("skeptic structured output", () => {
       const failingOutput = failingPrompt.split("--- // END PASS")[1] ?? "";
       expect(failingOutput).toContain("## Background");
     });
+  });
+});
+
+describe("isEvidenceAuthentic", () => {
+  // Edge cases
+  it("returns false for empty string (Rule 10: empty Evidence = FAIL)", () => {
+    expect(isEvidenceAuthentic("")).toBe(false);
+  });
+
+  it("returns false for whitespace-only string", () => {
+    expect(isEvidenceAuthentic("   \n\t  ")).toBe(false);
+  });
+
+  it("returns false for null/undefined (treated as empty)", () => {
+    expect(isEvidenceAuthentic("")).toBe(false);
+  });
+
+  // Scoping to ## Evidence section
+  it("returns false when Evidence section is empty (no content after heading)", () => {
+    const body = "## Background\nAdds auth middleware.\n\n## Evidence\n\n## Testing\nUnit tests added.";
+    expect(isEvidenceAuthentic(body)).toBe(false);
+  });
+
+  it("ignores fabricated patterns outside the ## Evidence section", () => {
+    // TODO in Background section — should not cause FAIL
+    const body = "## Background\nTODO: add more tests later.\n\n## Evidence\nReal command output here.";
+    expect(isEvidenceAuthentic(body)).toBe(true);
+  });
+
+  it("detects fabricated patterns inside the ## Evidence section", () => {
+    const body = "## Background\nAdds auth middleware.\n\n## Evidence\n$ pnpm test\nsimulated output would go here.";
+    expect(isEvidenceAuthentic(body)).toBe(false);
+  });
+
+  // Pattern coverage
+  it.each([
+    ["simulated", "## Evidence\nsimulated output"],
+    ["example.com", "## Evidence\nSee https://example.com/screenshot"],
+    ["<screenshot>", "## Evidence\n![img](<screenshot path>)"],
+    ["<value>", "## Evidence\nExpected: <value>"],
+    ["TODO", "## Evidence\nTODO: add more tests"],
+    ["TBD", "## Evidence\nResults: TBD"],
+    ["placeholder", "## Evidence\nplaceholder text here"],
+  ])("returns false for '%s' pattern in Evidence section", (pattern, evidence) => {
+    expect(isEvidenceAuthentic(evidence)).toBe(false);
+  });
+
+  it("returns true for clean Evidence section with real output", () => {
+    const body = `## Evidence
+\`\`\`
+$ pnpm test
+  ✓ auth.test.ts (10 tests)
+  Test Files  1 passed (1)
+       Tests  10 passed (10)
+\`\`\``;
+    expect(isEvidenceAuthentic(body)).toBe(true);
   });
 });
