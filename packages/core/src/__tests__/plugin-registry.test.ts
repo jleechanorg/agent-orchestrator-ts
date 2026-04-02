@@ -212,7 +212,7 @@ describe("loadBuiltins", () => {
     await registry.loadBuiltins(
       undefined,
       async () => {
-        const err = new Error("ERR_MODULE_NOT_FOUND");
+        const err = new Error("ERR_MODULE_NOT_FOUND: cannot find package '@jleechanorg/ao-plugin-agent-gemini'");
         (err as NodeJS.ErrnoException).code = "ERR_MODULE_NOT_FOUND";
         throw err;
       },
@@ -238,7 +238,7 @@ describe("loadBuiltins", () => {
     await registry.loadBuiltins(
       undefined,
       async () => {
-        const err = new Error("ERR_MODULE_NOT_FOUND");
+        const err = new Error("ERR_MODULE_NOT_FOUND: cannot find package '@jleechanorg/ao-plugin-agent-gemini'");
         (err as NodeJS.ErrnoException).code = "ERR_MODULE_NOT_FOUND";
         throw err;
       },
@@ -285,6 +285,7 @@ describe("loadBuiltins", () => {
   );
 
   it("does not invoke fallbackImportFn when primary import fails for non-resolution reasons", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     const fallbackSpy = vi.fn(async () => makePlugin("agent", "gemini"));
     const registry = createPluginRegistry();
     const geminiPkg = "@jleechanorg/ao-plugin-agent-gemini";
@@ -303,6 +304,10 @@ describe("loadBuiltins", () => {
     );
 
     expect(fallbackSpy).not.toHaveBeenCalled();
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining("plugin initialize() failed"),
+    );
+    warnSpy.mockRestore();
   });
 
   it("registers multiple agent plugins from importFn", async () => {
