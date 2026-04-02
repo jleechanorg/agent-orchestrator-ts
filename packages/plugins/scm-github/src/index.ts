@@ -1839,7 +1839,9 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
           return "failing";
         }
       }
-      if (checks.length === 0) return "none";
+      // Fall back to "failing" — an open PR with no CI checks reporting
+      // should not be treated as passing the merge gate.
+      if (checks.length === 0) return "failing";
 
       const hasFailing = checks.some((c) => c.status === "failed");
       if (hasFailing) return "failing";
