@@ -69,14 +69,12 @@ export async function findRepoPathForWorktree(
     dir = parent;
   }
 
-  // 2. Fallback: scan `git worktree list` starting from cwd and walk up toward `/`.
-  // Unlike phase 1 (which checks for .git), this phase tolerates a gitfile (worktree
-  // whose .git is a pointer to another repo) and resolves the branch from the worktree
-  // list entry.
-  //
-  // When cwd is `/` (e.g. launchd daemon), `scanDir === "/"` would make the old
-  // `while (scanDir !== "/" && …)` loop skip entirely — start at homedir instead.
-  let scanDir = process.cwd() === "/" ? homedir() : process.cwd();
+  // 2. Fallback: scan `git worktree list` from workspacePath upward to `/`.
+  // Phase 1 can miss when the worktree uses a gitfile (no `.git` directory). Each
+  // ancestor of workspacePath is tried. Use workspacePath — not process.cwd() —
+  // so daemon/launchd contexts (cwd `/`) still scan from the real worktree path,
+  // and repos under `~/projects/...` are reachable without assuming `$HOME` is a repo.
+  let scanDir = resolve(workspacePath);
   while (scanDir !== "/") {
     try {
       const output = (

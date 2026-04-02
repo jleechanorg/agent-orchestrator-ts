@@ -10,7 +10,8 @@
  * NOTE: These tests are designed to run in several contexts:
  *   1. CI: fetches real PR title via gh CLI (GITHUB_TOKEN available)
  *   2. Local with an open PR: `gh pr view` uses the real title (branch names like feat/bd-x are not titles)
- *   3. Local override: AO_WHOLLESOME_PR_TITLE for pre-push runs before a PR exists
+ *   3. Local override: AO_WHOLESOME_PR_TITLE (preferred) or AO_WHOLLESOME_PR_TITLE
+ *      for pre-push runs before a PR exists — ignored in CI (GITHUB_ACTIONS)
  *   4. Otherwise: branch name (fails if it is not a valid [agento] title — intentional)
  */
 import { describe, it, expect } from "vitest";
@@ -128,8 +129,10 @@ function getAddedLinesMatching(cwd: string, pattern: RegExp): Array<{file: strin
 
 /** Get the PR title — CI via gh + env; local via gh, optional env override, or branch name. */
 function getPRTitle(): string {
-  const override = process.env.AO_WHOLLESOME_PR_TITLE?.trim();
-  if (override) return override;
+  const override =
+    process.env.AO_WHOLESOME_PR_TITLE?.trim() ||
+    process.env.AO_WHOLLESOME_PR_TITLE?.trim();
+  if (override && !process.env.GITHUB_ACTIONS) return override;
 
   // In CI, use the gh CLI to fetch the actual PR title for the current branch.
   // Always use GITHUB_HEAD_REF (not git rev-parse) — detached HEAD in CI returns "HEAD".

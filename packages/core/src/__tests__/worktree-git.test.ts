@@ -6,7 +6,6 @@
  * data.  The [Symbol.for("nodejs.util.promisify.custom")] trick wires our mock
  * into promisify(execFile) inside worktree-git.ts.
  */
-import { homedir } from "node:os";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 // ------------------------------------------------------------------
@@ -119,7 +118,7 @@ describe("findRepoPathForWorktree", () => {
   // ---------------------------------------------------------------------------
   describe("phase-2 worktree list fallback", () => {
     // phase-1 walks all the way to homedir without finding .git
-    // → code calls git -C homedir worktree list --porcelain
+    // → code calls git -C <workspacePath ancestor> worktree list --porcelain
     // mockImplementation returns phase-2 data for that call; throws for phase-1
     const phase1MissesPhase2Hits = (
       worktreePath: string,
@@ -177,7 +176,7 @@ describe("findRepoPathForWorktree", () => {
       );
     });
 
-    it("phase-2 runs when cwd is / (daemon / launchd) — starts scan at homedir", async () => {
+    it("phase-2 runs when cwd is / (daemon / launchd) — scans from workspace path, not cwd", async () => {
       vi.spyOn(process, "cwd").mockReturnValue("/");
 
       phase1MissesPhase2Hits(
@@ -186,15 +185,14 @@ describe("findRepoPathForWorktree", () => {
         "/tmp/proj/.git/worktrees/session-daemon",
       );
 
-      const result = await findRepoPathForWorktree(
-        "/tmp/worktrees/proj/session-daemon",
-      );
+      const workspace = "/tmp/worktrees/proj/session-daemon";
+      const result = await findRepoPathForWorktree(workspace);
 
       expect(result).not.toBeNull();
       expect(result!.branch).toBe("feat/daemon");
       expect(gitMock).toHaveBeenCalledWith(
         "git",
-        ["-C", homedir(), "worktree", "list", "--porcelain"],
+        ["-C", workspace, "worktree", "list", "--porcelain"],
         expect.any(Object),
       );
     });
