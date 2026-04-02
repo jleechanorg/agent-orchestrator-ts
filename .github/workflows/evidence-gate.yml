@@ -344,43 +344,62 @@ jobs:
           fi
           echo "Repro gist: PASS"
 
-          # 2) Terminal media with tmux context and caption
-          if ! printf '%s' "$EVIDENCE_SECTION" | grep -qiE '\*\*Terminal media\*\*:[[:space:]]*https://[^[:space:]]+'; then
+          # Sub-blocks (CodeRabbit): validate captions across lines; scope test-command grep to the test-output block only.
+          TM_BLOCK=$(printf '%s' "$EVIDENCE_SECTION" | awk '
+            /\*\*Terminal media\*\*/ { show=1; next }
+            show && /\*\*Terminal test output\*\*/ { exit }
+            show { print }
+          ')
+          TTO_BLOCK=$(printf '%s' "$EVIDENCE_SECTION" | awk '
+            /\*\*Terminal test output\*\*/ { show=1; next }
+            show && /\*\*UI media\*\*/ { exit }
+            show { print }
+          ')
+          UI_BLOCK=$(printf '%s' "$EVIDENCE_SECTION" | awk '
+            /\*\*UI media\*\*/ { show=1; next }
+            show { print }
+          ')
+
+          # 2) Terminal media with tmux context and caption (block may span multiple lines)
+          if ! printf '%s' "$TM_BLOCK" | grep -qiE 'https://[^[:space:]]+'; then
             echo "ERROR: Missing '**Terminal media**' URL in Evidence section"
             exit 1
           fi
-          # Caption may be inline after URL or as "caption: ... tmux ..." (order varies)
-          if ! printf '%s' "$EVIDENCE_SECTION" | grep -qiE '\*\*Terminal media\*\*:.*((tmux|terminal).*caption|caption.*(tmux|terminal))'; then
-            echo "ERROR: Terminal media must include tmux/terminal caption text"
+          if ! printf '%s' "$TM_BLOCK" | grep -qiE 'caption'; then
+            echo "ERROR: Terminal media must include caption text (inline or following lines)"
+            exit 1
+          fi
+          if ! printf '%s' "$TM_BLOCK" | grep -qiE 'tmux|terminal'; then
+            echo "ERROR: Terminal media caption must reference tmux or terminal context"
             exit 1
           fi
           echo "Terminal media + caption: PASS"
 
-          # 3) Terminal test output is mandatory and must be real command output in a code block
-          if ! printf '%s' "$EVIDENCE_SECTION" | grep -qiE '\*\*Terminal test output\*\*'; then
+          # 3) Terminal test output — fenced block + concrete test command inside TTO_BLOCK only
+          if ! printf '%s' "$TTO_BLOCK" | grep -qiE '\*\*Terminal test output\*\*'; then
             echo "ERROR: Missing '**Terminal test output**' label in Evidence section"
             exit 1
           fi
-          if ! printf '%s' "$EVIDENCE_SECTION" | grep -q '```'; then
+          if ! printf '%s' "$TTO_BLOCK" | grep -q '```'; then
             echo "ERROR: Terminal test output must include a fenced code block with real logs"
             exit 1
           fi
-          if ! printf '%s' "$EVIDENCE_SECTION" | grep -qiE '(pnpm|npm|yarn|pytest|vitest|jest|go test|cargo test|bun test|ruby|rspec|rake test|mvn test|gradle test|make test)'; then
+          if ! printf '%s' "$TTO_BLOCK" | grep -qiE '(pnpm|npm|yarn|pytest|vitest|jest|go test|cargo test|bun test|ruby[[:space:]]+-e|rspec|rake test|mvn test|gradle test|make test)'; then
             echo "ERROR: Terminal test output must mention at least one concrete test command"
             exit 1
           fi
           echo "Terminal test output: PASS"
 
           # 4) UI media required (or explicit no-UI declaration)
-          if printf '%s' "$EVIDENCE_SECTION" | grep -qiE '\*\*UI media\*\*:[[:space:]]*N/A[[:space:]]*-[[:space:]]*no UI changes'; then
+          if printf '%s' "$UI_BLOCK" | grep -qiE '\*\*UI media\*\*:[[:space:]]*N/A[[:space:]]*-[[:space:]]*no UI changes'; then
             echo "UI media: PASS (explicit no-UI declaration)"
           else
-            if ! printf '%s' "$EVIDENCE_SECTION" | grep -qiE '\*\*UI media\*\*:[[:space:]]*https://[^[:space:]]+'; then
+            if ! printf '%s' "$UI_BLOCK" | grep -qiE 'https://[^[:space:]]+'; then
               echo "ERROR: Missing '**UI media**' URL (or explicit N/A - no UI changes)"
               exit 1
             fi
-            if ! printf '%s' "$EVIDENCE_SECTION" | grep -qiE '\*\*UI media\*\*:.*caption'; then
-              echo "ERROR: UI media must include caption text"
+            if ! printf '%s' "$UI_BLOCK" | grep -qiE 'caption'; then
+              echo "ERROR: UI media must include caption text (inline or following lines)"
               exit 1
             fi
             echo "UI media + caption: PASS"
