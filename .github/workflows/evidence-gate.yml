@@ -362,6 +362,9 @@ jobs:
           ')
 
           # 2) Terminal media with tmux context and caption (block may span multiple lines)
+          # Strip **Terminal media**: <URL> from line 1 before tmux/terminal check — otherwise the
+          # header "**Terminal media**" matches `terminal` and the gate is vacuous (reviewer feedback).
+          TM_FOR_CTX=$(printf '%s' "$TM_BLOCK" | sed '1s/^\*\*Terminal media\*\*:[[:space:]]*https:\/\/[^[:space:]]\+[[:space:]]*//')
           if ! printf '%s' "$TM_BLOCK" | grep -qiE 'https://[^[:space:]]+'; then
             echo "ERROR: Missing '**Terminal media**' URL in Evidence section"
             exit 1
@@ -370,8 +373,8 @@ jobs:
             echo "ERROR: Terminal media must include caption text (inline or following lines)"
             exit 1
           fi
-          if ! printf '%s' "$TM_BLOCK" | grep -qiE 'tmux|terminal'; then
-            echo "ERROR: Terminal media caption must reference tmux or terminal context"
+          if ! printf '%s' "$TM_FOR_CTX" | grep -qiE 'tmux|terminal'; then
+            echo "ERROR: Terminal media caption must reference tmux or terminal context (not only the **Terminal media** label)"
             exit 1
           fi
           echo "Terminal media + caption: PASS"

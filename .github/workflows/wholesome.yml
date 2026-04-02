@@ -155,6 +155,7 @@ jobs:
           ')
 
           # 2) Terminal media (HTTPS screenshot/video) + tmux/terminal context + caption
+          TM_FOR_CTX=$(printf '%s' "$TM_BLOCK" | sed '1s/^\*\*Terminal media\*\*:[[:space:]]*https:\/\/[^[:space:]]\+[[:space:]]*//')
           if ! printf '%s' "$TM_BLOCK" | grep -qiE 'https://[^[:space:]]+'; then
             echo "FAIL: Missing '**Terminal media**' HTTPS URL in Evidence section"
             exit 1
@@ -163,8 +164,8 @@ jobs:
             echo "FAIL: Terminal media must include caption text (inline or following lines)"
             exit 1
           fi
-          if ! printf '%s' "$TM_BLOCK" | grep -qiE 'tmux|terminal'; then
-            echo "FAIL: Terminal media caption must reference tmux or terminal context"
+          if ! printf '%s' "$TM_FOR_CTX" | grep -qiE 'tmux|terminal'; then
+            echo "FAIL: Terminal media caption must reference tmux or terminal context (not only the **Terminal media** label)"
             exit 1
           fi
           echo "Terminal media + caption: PASS"
