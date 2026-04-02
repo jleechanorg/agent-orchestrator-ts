@@ -133,6 +133,21 @@ projects.*:         # Per-project overrides for all of the above
 plugins:            # Plugin credentials and settings
 ```
 
+
+## Zero-touch metric source of truth
+
+Canonical metric definitions live in `docs/zero-touch-by-operator.md`.
+
+When changing zero-touch semantics (including smoothness), update in lockstep:
+- `docs/zero-touch-by-operator.md` (definition + formulas)
+- `README.md` pointer section
+- `AGENTS.md` / `CLAUDE.md` policy pointers
+- Monitor/reporting scripts that compute the metric
+
+Current smooth requirement:
+- A PR is zero-touch smooth only if it is zero-touch-by-operator and has
+  `max_inactivity_gap <= 60 minutes` across PR-open -> merge timeline events.
+
 ## Definition of a "Green" PR (7-Green)
 
 A PR is green when **ALL SEVEN** are true:

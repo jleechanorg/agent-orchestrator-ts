@@ -126,6 +126,19 @@ await validateAndEmitExitProof(session, newStatus, deps);
 - `packages/plugins/poller-github-pr/` — new plugin
 - All `packages/core/src/` files that are net new (evidence-bundle, failure-budget, merge-gate, mcp-mail, etc.)
 
+
+## Zero-Touch Policy Wiring (required)
+
+Do not add one-off metric docs that are never referenced.
+
+When adding or changing zero-touch metrics, you MUST update all of:
+1. `docs/zero-touch-by-operator.md` (canonical metric definitions)
+2. `README.md` (pointer to canonical doc)
+3. `CLAUDE.md` and `AGENTS.md` (execution/agent policy pointers)
+4. Any monitor script that computes/report these metrics
+
+Current smooth rule: `max_inactivity_gap <= 60 minutes` from PR open to merge.
+
 ## Testing
 
 ```bash

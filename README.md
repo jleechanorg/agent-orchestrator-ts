@@ -213,6 +213,18 @@ Running one AI agent in a terminal is easy. Running 30 across different issues, 
 
 **With Agent Orchestrator**, you: `ao start` and walk away. The system handles isolation, feedback routing, and status tracking. You review PRs and make decisions — the rest is automated.
 
+
+## Zero-Touch Policy (Canonical Reference)
+
+For this fork, zero-touch metrics are defined in:
+- `docs/zero-touch-by-operator.md` (canonical definition + formulas)
+
+This includes both:
+- **zero-touch-by-operator**
+- **zero-touch smooth** (requires max inactivity gap `<= 60 minutes` from PR open to merge)
+
+Use this doc as the source of truth for dashboards, scripts, and status reporting.
+
 ## Documentation
 
 | Doc                                      | What it covers                                               |
