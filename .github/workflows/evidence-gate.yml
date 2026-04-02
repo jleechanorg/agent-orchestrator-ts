@@ -323,10 +323,10 @@ jobs:
         run: |
           BODY=$(cat "$RUNNER_TEMP/pr_body.txt")
 
-          # Scope validation to Evidence section only
+          # Scope validation to Evidence section only.
+          # Use [Ee]vidence — do NOT rely on awk IGNORECASE (BSD awk ignores it; section extracts empty → false FAIL).
           EVIDENCE_SECTION=$(printf '%s\n' "$BODY" | awk '
-            BEGIN { IGNORECASE=1 }
-            /^[[:space:]]*##[[:space:]]+evidence([[:space:]]|$)/ { in_section=1; next }
+            /^[[:space:]]*##[[:space:]]+[Ee]vidence([[:space:]]|$)/ { in_section=1; next }
             in_section && /^[[:space:]]*##[[:space:]]/ { exit }
             in_section { print }
           ')
@@ -348,7 +348,8 @@ jobs:
             echo "ERROR: Missing '**Terminal media**' URL in Evidence section"
             exit 1
           fi
-          if ! printf '%s' "$EVIDENCE_SECTION" | grep -qiE '\*\*Terminal media\*\*:.*(tmux|terminal).*caption'; then
+          # Caption may be inline after URL or as "caption: ... tmux ..." (order varies)
+          if ! printf '%s' "$EVIDENCE_SECTION" | grep -qiE '\*\*Terminal media\*\*:.*((tmux|terminal).*caption|caption.*(tmux|terminal))'; then
             echo "ERROR: Terminal media must include tmux/terminal caption text"
             exit 1
           fi
@@ -363,7 +364,7 @@ jobs:
             echo "ERROR: Terminal test output must include a fenced code block with real logs"
             exit 1
           fi
-          if ! printf '%s' "$EVIDENCE_SECTION" | grep -qiE '(pnpm|npm|yarn|pytest|vitest|jest|go test|cargo test|bun test)'; then
+          if ! printf '%s' "$EVIDENCE_SECTION" | grep -qiE '(pnpm|npm|yarn|pytest|vitest|jest|go test|cargo test|bun test|ruby|rspec|rake test|mvn test|gradle test|make test)'; then
             echo "ERROR: Terminal test output must mention at least one concrete test command"
             exit 1
           fi
