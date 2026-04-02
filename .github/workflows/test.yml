@@ -7,10 +7,11 @@ concurrency:
   group: skeptic-gate
   cancel-in-progress: false
 jobs:
-  # Workflow renamed to "Skeptic Gate CI" (was "Skeptic Gate") to avoid job-name
-  # collision with skeptic-gate.yml's skeptic_gate job. Both shared name:"Skeptic Gate"
-  # so GHA merged them — the second skeptic_gate definition overwrote the first.
+  # Workflow name kept as "Skeptic Gate CI" to avoid workflow-name collision
+  # with skeptic-gate.yml. Job-level name:"Skeptic Gate" ensures the check run
+  # always matches the jq filter in skeptic-cron.yml regardless of workflow name.
   skeptic_gate_check:
+    name: Skeptic Gate
     runs-on: ubuntu-latest
     permissions:
       pull-requests: write
