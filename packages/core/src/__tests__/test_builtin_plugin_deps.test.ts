@@ -13,6 +13,7 @@ function readCliPackageJson(): Record<string, unknown> {
 
 describe("BUILTIN_PLUGINS ↔ CLI package.json consistency", () => {
   const cliPkg = readCliPackageJson();
+  const cliDevDeps = (cliPkg.devDependencies ?? {}) as Record<string, string>;
   // Global `npm install -g` installs dependencies + optionalDependencies only — not devDependencies.
   const cliRuntimeDeps = {
     ...((cliPkg.dependencies ?? {}) as Record<string, string>),
@@ -29,6 +30,12 @@ describe("BUILTIN_PLUGINS ↔ CLI package.json consistency", () => {
   for (const builtin of BUILTIN_PLUGINS) {
     it(`CLI depends on ${builtin.pkg} (${builtin.slot}:${builtin.name})`, () => {
       expect(cliRuntimeDeps).toHaveProperty(builtin.pkg, expect.any(String));
+    });
+
+    it(`does not rely on devDependencies for ${builtin.pkg}`, () => {
+      if (builtin.pkg in cliDevDeps) {
+        expect(cliRuntimeDeps).toHaveProperty(builtin.pkg, expect.any(String));
+      }
     });
   }
 });
