@@ -324,12 +324,11 @@ jobs:
 
             EVIDENCE_CHECKS_RAW=$(gh api repos/${{ github.repository }}/commits/"$PR_SHA"/check-runs?per_page=100 \
               --paginate 2>/dev/null || echo "[]")
-            # Fix: [.[] | .check_runs[]? | select(...)] pipes select() into the comprehension
-            # so filtering happens per check-run; 'add' was dropping earlier pages entirely.
+            # Fix: flatten all pages with .[] first, then extract .check_runs[]? from each.
             EVIDENCE_CHECK_TOTAL=$(echo "$EVIDENCE_CHECKS_RAW" | jq -s \
-              '[[.[] | .check_runs[]? | select((.name | ascii_downcase) | test("^evidence([ -]?gate| review)$"))] | length' 2>/dev/null || echo 0)
+              '[.[] | .check_runs[]? | select((.name | ascii_downcase) | test("^evidence([ -]?gate| review)$"))] | length' 2>/dev/null || echo 0)
             EVIDENCE_CHECK_PASS=$(echo "$EVIDENCE_CHECKS_RAW" | jq -s \
-              '[[.[] | .check_runs[]? | select((.name | ascii_downcase) | test("^evidence([ -]?gate| review)$")) | select(.conclusion == "success")] | length' 2>/dev/null || echo 0)
+              '[.[] | .check_runs[]? | select((.name | ascii_downcase) | test("^evidence([ -]?gate| review)$")) | select(.conclusion == "success")] | length' 2>/dev/null || echo 0)
 
             if [ "${EVIDENCE_APPROVED:-0}" -gt 0 ]; then
               EVIDENCE_STATUS="PASS (evidence-review-bot approved @HEAD)"

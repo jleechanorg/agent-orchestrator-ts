@@ -7,7 +7,11 @@ concurrency:
   group: skeptic-gate
   cancel-in-progress: false
 jobs:
-  skeptic_gate:
+  # Renamed from skeptic_gate to avoid job-name collision with skeptic-gate.yml's
+  # skeptic_gate job (which contains the real gate-checking steps). Both workflows
+  # share name:"Skeptic Gate" so they merge — the second skeptic_gate definition
+  # overwrites the first, causing the gate to silently run cron steps instead.
+  skeptic_gate_check:
     runs-on: ubuntu-latest
     permissions:
       pull-requests: write
