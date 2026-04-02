@@ -1228,8 +1228,35 @@ describe("scm-github plugin", () => {
     });
 
     it('returns "failing" when no checks (fail-closed for open PRs)', async () => {
+      // gh pr checks → empty
       mockGh([]);
+      // getPRState → open (called because checks.length === 0)
+      mockGh({ state: "OPEN" });
       expect(await scm.getCISummary(pr)).toBe("failing");
+    });
+
+    it('returns "none" when no checks for merged/closed PRs', async () => {
+      // gh pr checks → empty
+      mockGh([]);
+      // getPRState → merged (merged PRs don't need CI confirmation)
+      mockGh({ state: "MERGED" });
+      expect(await scm.getCISummary(pr)).toBe("none");
+    });
+
+    it('returns "none" when no checks and PR is merged (terminal state)', async () => {
+      // getCIChecks returns empty
+      mockGh([]);
+      // getPRState detects merged PR → "none" (no CI needed for merged PRs)
+      mockGh({ state: "merged" });
+      expect(await scm.getCISummary(pr)).toBe("none");
+    });
+
+    it('returns "none" when no checks and PR is closed (terminal state)', async () => {
+      // getCIChecks returns empty
+      mockGh([]);
+      // getPRState detects closed PR → "none"
+      mockGh({ state: "closed" });
+      expect(await scm.getCISummary(pr)).toBe("none");
     });
 
     it('returns "failing" on error (fail-closed)', async () => {
@@ -1258,10 +1285,34 @@ describe("scm-github plugin", () => {
         mockGhError("API rate limit exceeded");
         mockGhError("API rate limit exceeded");
         mockGhError("API rate limit exceeded");
-        // getCISummary catches secondary fallback failure → returns "failing" (bd-jp7q)
+        // getPRState: ghWithRetry with 4 attempts; all fail → getCISummary returns "failing" (fail-closed)
+        mockGhError("API rate limit exceeded");
+        mockGhError("API rate limit exceeded");
+        mockGhError("API rate limit exceeded");
+        mockGhError("API rate limit exceeded");
         await expect(scm.getCISummary(pr)).resolves.toEqual("failing");
       },
-      120000, // ghWithRetry: 3 retries × up to 30s backoff; 8 errors ≈ 56s total
+      120000, // ghWithRetry: 3 retries × up to 30s backoff; 12 errors ≈ 56s total
+    );
+
+    it(
+      "returns 'failing' when all retries hit rate limits and secondary fallback also fails (cannot determine state)",
+      async () => {
+        // getCIChecks: gh pr checks rate-limited (4 retries = 4 calls)
+        mockGhError("API rate limit exceeded");
+        mockGhError("API rate limit exceeded");
+        mockGhError("API rate limit exceeded");
+        mockGhError("API rate limit exceeded");
+        // getCIChecksFromStatusRollup: gh pr view rate-limited (4 retries = 4 calls)
+        mockGhError("API rate limit exceeded");
+        mockGhError("API rate limit exceeded");
+        mockGhError("API rate limit exceeded");
+        mockGhError("API rate limit exceeded");
+        // Secondary fallback throws → checks.length === 0 → getPRState also throws
+        // (no mock left) → fail-closed.
+        await expect(scm.getCISummary(pr)).resolves.toEqual("failing");
+      },
+      120000,
     );
 
     it(
@@ -1981,26 +2032,35 @@ describe("scm-github plugin", () => {
       expect(result.blockers).toContain("Required checks are failing");
     });
 
-    it("treats rate-limited CI as passing (none) to avoid spurious reactions", async () => {
+    it("treats rate-limited CI as failing (fail-closed) when secondary fallback also fails", async () => {
       mockGh({ state: "OPEN" });
+      // getBatchPRStatus gh pr view — has a statusCheckRollup entry so getCISummary is called
       mockGh({
+        state: "OPEN",
         mergeable: "MERGEABLE",
         reviewDecision: "APPROVED",
         mergeStateStatus: "CLEAN",
         isDraft: false,
+        statusCheckRollup: [{ name: "build", conclusion: "success" }],
       });
-      // getCIChecks -> gh pr checks fails with rate limit (3 retries exhausted, no fallback)
-      // getCISummary catches rate limit and returns "none"
-      for (let i = 0; i < 3; i++) {
+      // getCIChecks: gh pr checks rate-limited (4 retries)
+      for (let i = 0; i < 4; i++) {
+        mockGhError("API rate limit exceeded");
+      }
+      // getCIChecksFromStatusRollup: gh pr view rate-limited (4 retries)
+      for (let i = 0; i < 4; i++) {
+        mockGhError("API rate limit exceeded");
+      }
+      // getPRState: all retries fail
+      for (let i = 0; i < 4; i++) {
         mockGhError("API rate limit exceeded");
       }
 
       const result = await scm.getMergeability(pr);
-      // Rate-limited CI is treated as "none" (passing) — the lifecycle poller
-      // retries next cycle rather than spamming "CI is failing" reactions.
-      expect(result.ciPassing).toBe(true);
-      expect(result.blockers.some((b) => b.includes("rate limited"))).toBe(false);
-    });
+      // All CI paths exhausted → fail-closed → CI reported as failing
+      expect(result.ciPassing).toBe(false);
+      expect(result.blockers.some((b) => b.includes("CI is failing"))).toBe(true);
+    }, 180000);
 
     it("reports changes requested as blockers", async () => {
       mockGh({ state: "OPEN" }); // getPRState

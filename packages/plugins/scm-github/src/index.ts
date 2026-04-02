@@ -1814,15 +1814,16 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
       try {
         checks = await this.getCIChecks(pr);
       } catch (err) {
-        // Rate limit errors are transient — do not fail-close to "failing",
-        // which would spam the agent with spurious "CI is failing" reactions.
-        // Try the status-rollup path (GraphQL gh pr view with REST fallback)
-        // before returning "none".
+        // Rate limit errors are transient — try the status-rollup path first
+        // (GraphQL gh pr view with REST fallback) before giving up.
         if (isRateLimitError(err)) {
           try {
             checks = await getCIChecksFromStatusRollup(pr);
           } catch {
-            return "none";
+            // If the secondary fallback also fails (rate-limited), we cannot
+            // determine CI status. Fail-closed for open PRs: report "failing"
+            // rather than "none" (which getMergeability treats as passing).
+            return "failing";
           }
         } else {
           // Before fail-closing, check if the PR is merged/closed —
@@ -1839,12 +1840,18 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
           return "failing";
         }
       }
-      // Fall back to "failing" — an open PR with no CI checks reporting
-      // should not be treated as passing the merge gate.
-      // Note: getCISummary is called from getMergeability, which already handles
-      // merged/closed PRs separately (returns early before reaching this path).
-      // getBatchPRStatus additionally checks state here for its own callers.
-      if (checks.length === 0) return "failing";
+      // If there are no CI checks, check PR state before deciding.
+      // Open PRs: fail-closed (no CI signal → cannot confirm green).
+      // Merged/closed PRs: return "none" (terminal state doesn't need CI).
+      if (checks.length === 0) {
+        try {
+          const state = await this.getPRState(pr);
+          return state === "open" ? "failing" : "none";
+        } catch {
+          // Can't determine state; fail-closed for open PRs.
+          return "failing";
+        }
+      }
 
       const hasFailing = checks.some((c) => c.status === "failed");
       if (hasFailing) return "failing";
