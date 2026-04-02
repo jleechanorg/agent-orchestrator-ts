@@ -197,38 +197,23 @@ When CR posts CHANGES_REQUESTED on your PR:
 ### Skeptic SKIPPED — do not merge
 If skeptic posts `VERDICT: SKIPPED` (infra unavailable — no LLM API keys in GHA), the PR does **NOT** have a genuine skeptic review. The `skeptic-cron.yml` workflow handles skeptic evaluation via AO worker. **Do not merge until skeptic-cron has run `ao skeptic verify` and posted `VERDICT: PASS` or `VERDICT: FAIL`.** Check skeptic-cron hasn't already evaluated this PR SHA (comments show `VERDICT:`).
 
-### Skeptic FAIL — hard merge block (even for admins)
-A `VERDICT: FAIL` is a hard block. **Never merge a PR that has an unaddressed FAIL verdict**, even as admin. If you see a merged PR with a FAIL verdict in a review, flag it as a gate enforcement gap:
-```bash
-# Verify Skeptic Gate is in required status checks (it must be):
-gh api repos/jleechanorg/agent-orchestrator/branches/main/protection --jq '.required_status_checks.contexts'
-# Expected: includes "Skeptic Gate"
-# If missing: this is bd-8khr — add it to branch protection
-```
+### Evidence Bundle v2 (mandatory): tmux + test output + UI + reproducibility gist
+Evidence is now fail-closed: every PR must include a self-contained reproducibility bundle in `## Evidence`.
 
-### Adding new CI gates — branch protection checklist
-When adding a new required CI gate (e.g., a new workflow check):
-1. Verify the gate name matches exactly: `gh api repos/jleechanorg/agent-orchestrator/branches/main/protection --jq '.required_status_checks.contexts'`
-2. Add the gate name to required status checks via repo Settings → Branches → Branch protection rules
-3. Confirm with: `gh api repos/jleechanorg/agent-orchestrator/branches/main/protection --jq '.required_status_checks.contexts'` includes your gate
-4. Without step 2, any FAIL verdict can be bypassed by admin merge
+Required fields in `## Evidence`:
+- `**Claim class**: ...`
+- `**Verdict**: PASS|INSUFFICIENT|FAIL`
+- `**Repro gist**: https://gist.github.com/...` (must be clone-and-run capable)
+- `**Terminal media**: ...` (captioned screenshot/video URL that clearly shows **tmux terminal** context)
+- `**Terminal test output**:` fenced code block with real test run output from the worker (`pnpm test`, `npm test`, `pytest`, etc.)
+- `**UI media**: ...` captioned screenshot/video of full user-facing flow; if no UI change, explicitly write `N/A - no UI changes in this PR`
 
-### Churn detector — same-file threshold
-The 3-PR churn threshold applies to subsystem keywords. For **same file** fixes, the threshold is **2**: if 2 PRs touching the same file have merged within 4 hours, stop and add an integration test before opening another.
-```bash
-# Before opening a PR, check recently merged PRs for file overlap:
-gh pr list --repo jleechanorg/agent-orchestrator --state merged \
-  --search "updated:>=$(date -v-4h +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -d '4 hours ago' +%Y-%m-%dT%H:%M:%SZ)" \
-  --json number,title,files 2>/dev/null | jq '.[] | {number, title, files}'
-# If any recently merged PR touches the same file as your change → churn protocol
-```
-
-### Evidence Gate media proof — run `/pr-media` BEFORE first push (bd-fisn)
-The Evidence Gate CI check (`wholesome.yml` "Evidence Has Media Attachment") requires the Evidence section to contain EITHER a markdown image with an HTTPS URL (`![alt](https://...)`) OR a code block (`` ``` ``). Placeholder text like `**Media**: <path>` or `**Test output**: <value>` FAILS the CI check.
-- Before pushing a new PR for the first time: run `/pr-media` to capture a real screenshot or use `/test` output
-- If `/pr-media` is unavailable: add a `**Terminal output**: <actual output>` block with real command output
-- **Never** push a PR with `**Media**: <screenshot path>` as a placeholder — CI will fail and the failed check persists even after fixing (merging the PR clears stale checks, but it causes unnecessary churn)
-- The Evidence Gate also skips entirely for merged/closed PRs (bd-fisn fix) — so if you fix the PR body after merge, you do not need to re-push
+Rules:
+- Before first push: run `/pr-media` (or equivalent) and capture real tmux terminal media + UI media.
+- Repro gist must contain exact steps to clone PR branch, install deps, run tests, and reproduce the claimed result.
+- Placeholder evidence (`<path>`, `<value>`, `TODO`, `TBD`, `example.com`) is forbidden and fails CI.
+- `simulated` output is forbidden — only real command output.
+- Evidence checks are pre-merge only; merged/closed PRs are skipped.
 
 ## Fork Isolation — Code Separation from Upstream
 
