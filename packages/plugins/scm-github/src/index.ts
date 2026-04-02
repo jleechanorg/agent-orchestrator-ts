@@ -1659,7 +1659,7 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
                       // explicit null are treated as failure (REST fallback). === null is the
                       // canonical check; the ?? is an eqeqeq bypass required to avoid
                       // "undefined !== null is true" incorrectly succeeding on missing fields.
-                      // eslint-disable-next-line eqeqeq
+                       
                       gqlSuccess = (mergeJson?.data?.enablePullRequestAutoMerge ?? null) === null
                         ? false
                         : true;
@@ -1780,7 +1780,7 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
           "name,state,link,startedAt,completedAt",
         ]);
 
-        /* eslint-disable-next-line eqeqeq -- CI ubuntu-latest runner intermittently flags this block (bd-fmv) */
+         
         const checks: Array<{
           name: string;
           state: string;

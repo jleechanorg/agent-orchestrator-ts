@@ -1246,7 +1246,7 @@ describe("scm-github plugin", () => {
     });
 
     it(
-      "returns 'none' when all retries hit rate limits and secondary fallback also fails",
+      "returns 'failing' when all retries hit rate limits and secondary fallback also fails (bd-jp7q)",
       async () => {
         // getCIChecks: gh pr checks rate-limited (4 retries = 4 calls)
         mockGhError("API rate limit exceeded");
@@ -1258,8 +1258,8 @@ describe("scm-github plugin", () => {
         mockGhError("API rate limit exceeded");
         mockGhError("API rate limit exceeded");
         mockGhError("API rate limit exceeded");
-        // getCISummary catches secondary fallback failure → returns "none"
-        await expect(scm.getCISummary(pr)).resolves.toEqual("none");
+        // getCISummary catches secondary fallback failure → returns "failing" (bd-jp7q)
+        await expect(scm.getCISummary(pr)).resolves.toEqual("failing");
       },
       120000, // ghWithRetry: 3 retries × up to 30s backoff; 8 errors ≈ 56s total
     );
