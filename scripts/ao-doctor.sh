@@ -420,6 +420,93 @@ except Exception:
   fi
 }
 
+# Cross-runtime skill links: Codex reads ~/.codex/skills/ while Claude/OpenClaw read
+# ~/.claude/skills/. Key skills (harness-engineering, skeptic-agent) must be symlinked
+# so all three runtimes share the same protocol definitions.
+check_cross_runtime_skill_links() {
+  local -A REQUIRED_LINKS=(
+    [harness-engineering.md]="harness-engineering.md"
+    [skeptic-agent.md]="skeptic-agent.md"
+  )
+
+  local codex_skills_dir="$HOME/.codex/skills"
+  local claude_skills_dir="$HOME/.claude/skills"
+  local broken=0
+
+  if [ ! -d "$codex_skills_dir" ]; then
+    if [ "$FIX_MODE" = true ]; then
+      if mkdir -p "$codex_skills_dir" 2>/dev/null; then
+        fixed "created $codex_skills_dir"
+      else
+        warn "could not create $codex_skills_dir. Fix: mkdir -p $codex_skills_dir"
+        return
+      fi
+    else
+      warn "$codex_skills_dir does not exist. Fix: mkdir -p $codex_skills_dir"
+      return
+    fi
+  fi
+
+  for local_name in "${!REQUIRED_LINKS[@]}"; do
+    local source_file="${REQUIRED_LINKS[$local_name]}"
+    local link_path="$codex_skills_dir/$local_name"
+    local canonical_source="$claude_skills_dir/$source_file"
+
+    if [ -L "$link_path" ]; then
+      local target
+      target="$(readlink -f "$link_path" 2>/dev/null || readlink "$link_path")"
+      if [ "$target" = "$canonical_source" ]; then
+        if [ -f "$canonical_source" ]; then
+          pass "cross-runtime skill link $link_path → $canonical_source"
+        else
+          warn "cross-runtime skill link $link_path is dangling: $canonical_source does not exist"
+          # Only count as broken outside fix mode; in fix mode we already attempted repair
+          if [ "$FIX_MODE" != true ]; then
+            broken=$((broken + 1))
+          fi
+        fi
+      else
+        warn "cross-runtime skill link $link_path points to $target, expected $canonical_source"
+        if [ "$FIX_MODE" = true ]; then
+          if [ ! -e "$canonical_source" ]; then
+            warn "cannot repair $link_path: source $canonical_source does not exist"
+            broken=$((broken + 1))
+          elif ln -sf "$canonical_source" "$link_path" 2>/dev/null; then
+            fixed "repaired cross-runtime skill link $link_path"
+          else
+            warn "failed to repair $link_path"
+            broken=$((broken + 1))
+          fi
+        else
+          broken=$((broken + 1))
+        fi
+      fi
+    elif [ -e "$link_path" ]; then
+      warn "$link_path exists but is not a symlink — refusing to overwrite a real file"
+      broken=$((broken + 1))
+    else
+      warn "cross-runtime skill link is missing: $link_path → $canonical_source"
+      if [ "$FIX_MODE" = true ]; then
+        if [ ! -e "$canonical_source" ]; then
+          warn "cannot create $link_path: source $canonical_source does not exist"
+          broken=$((broken + 1))
+        elif ln -sf "$canonical_source" "$link_path" 2>/dev/null; then
+          fixed "created cross-runtime skill link $link_path → $canonical_source"
+        else
+          warn "failed to create $link_path. Fix: ln -sf $canonical_source $link_path"
+          broken=$((broken + 1))
+        fi
+      else
+        broken=$((broken + 1))
+      fi
+    fi
+  done
+
+  if [ "$broken" -eq 0 ]; then
+    pass "all ${#REQUIRED_LINKS[@]} cross-runtime skill links are healthy"
+  fi
+}
+
 FIX_MODE=false
 
 # Guard: return early when sourced (e.g., for unit tests) - after functions are defined
@@ -428,6 +515,17 @@ if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
 fi
 
 set -uo pipefail
+
+# Bash 4+ required for associative arrays (REQUIRED_LINKS)
+if [[ -z "${BASH_VERSION:-}" ]]; then
+  echo "ERROR: ao-doctor requires Bash 4+. detected: ${BASH_VERSION:-unknown}" >&2
+  exit 1
+fi
+_bash_major="${BASH_VERSION%%.*}"
+if [[ "$_bash_major" -lt 4 ]]; then
+  echo "ERROR: ao-doctor requires Bash 4+. detected: ${BASH_VERSION:-unknown}" >&2
+  exit 1
+fi
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -466,6 +564,7 @@ check_stale_temp_files
 check_install_layout
 check_runtime_sanity
 check_lifecycle_workers
+check_cross_runtime_skill_links
 
 printf '\nResults: %s PASS, %s WARN, %s FAIL, %s FIXED\n' "$PASS_COUNT" "$WARN_COUNT" "$FAIL_COUNT" "$FIX_COUNT"
 
