@@ -1841,6 +1841,9 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
       }
       // Fall back to "failing" — an open PR with no CI checks reporting
       // should not be treated as passing the merge gate.
+      // Note: getCISummary is called from getMergeability, which already handles
+      // merged/closed PRs separately (returns early before reaching this path).
+      // getBatchPRStatus additionally checks state here for its own callers.
       if (checks.length === 0) return "failing";
 
       const hasFailing = checks.some((c) => c.status === "failed");
@@ -2481,7 +2484,9 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
       const rollup = Array.isArray(data.statusCheckRollup) ? data.statusCheckRollup : [];
       let ciStatus: CIStatus;
       if (rollup.length === 0) {
-        ciStatus = "none";
+        // Fail-closed for open PRs: no reported checks means CI cannot be confirmed green.
+        // Non-open (merged/closed) PRs get "none" since terminal state doesn't need CI.
+        ciStatus = state === "open" ? "failing" : "none";
       } else {
         const checks = rollup.map((entry) => {
           if (!entry || typeof entry !== "object") return "pending" as const;

@@ -1227,9 +1227,9 @@ describe("scm-github plugin", () => {
       expect(await scm.getCISummary(pr)).toBe("passing");
     });
 
-    it('returns "none" when no checks', async () => {
+    it('returns "failing" when no checks (fail-closed for open PRs)', async () => {
       mockGh([]);
-      expect(await scm.getCISummary(pr)).toBe("none");
+      expect(await scm.getCISummary(pr)).toBe("failing");
     });
 
     it('returns "failing" on error (fail-closed)', async () => {
