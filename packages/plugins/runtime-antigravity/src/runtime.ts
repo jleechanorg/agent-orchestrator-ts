@@ -297,22 +297,33 @@ export function createAntigravityRuntime(config?: AntigravityConfig): Runtime {
           );
           
           if (cdpClient && cdpClient.isConnected()) {
-            await cdpClient.evaluateInAntigravity(`
-              (() => {
-                const el = document.querySelector('textarea, [contenteditable="true"], input[type="text"]');
-                if (!el) throw new Error('CDP create: input element not found');
-                if (el.tagName === 'TEXTAREA' || el.tagName === 'INPUT') {
-                  el.value = ${JSON.stringify(fullPrompt)};
-                  el.dispatchEvent(new Event('input', { bubbles: true }));
-                } else {
-                  el.innerText = ${JSON.stringify(fullPrompt)};
-                  el.dispatchEvent(new Event('input', { bubbles: true }));
-                }
-                const sendBtn = document.querySelector('button[aria-label*="Send" i], button[type="submit"]');
-                if (!sendBtn) throw new Error('CDP create: send button not found');
-                sendBtn.click();
-              })()
-            `);
+            try {
+              // Resolve input + send control before mutating the DOM so a selector miss
+              // does not leave half-filled text that Peekaboo then pastes over again.
+              await cdpClient.evaluateInAntigravity(`
+                (() => {
+                  const el = document.querySelector('textarea, [contenteditable="true"], input[type="text"]');
+                  const sendBtn = document.querySelector('button[aria-label*="Send" i], button[type="submit"]');
+                  if (!el) throw new Error('CDP create: input element not found');
+                  if (!sendBtn) throw new Error('CDP create: send button not found');
+                  if (el.tagName === 'TEXTAREA' || el.tagName === 'INPUT') {
+                    el.value = ${JSON.stringify(fullPrompt)};
+                    el.dispatchEvent(new Event('input', { bubbles: true }));
+                  } else {
+                    el.innerText = ${JSON.stringify(fullPrompt)};
+                    el.dispatchEvent(new Event('input', { bubbles: true }));
+                  }
+                  sendBtn.click();
+                })()
+              `);
+            } catch {
+              await peekaboo.paste(APP_NAME, fullPrompt);
+
+              // 6. Press Return to send (NOT click Send button)
+              //    Per /antig skill: "In active conversations, the Send button
+              //    does NOT appear in A11y. Use peekaboo press Return instead."
+              await peekaboo.press(APP_NAME, "Return");
+            }
           } else {
             await peekaboo.paste(APP_NAME, fullPrompt);
 
@@ -342,10 +353,11 @@ export function createAntigravityRuntime(config?: AntigravityConfig): Runtime {
         if (createConfig.launchCommand) {
           let started = false;
           for (let i = 0; i < VERIFY_START_RETRIES && !started; i++) {
-            await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
             const verifySnapshot = await peekaboo.see(APP_NAME, managerId);
             if (hasProgressActivity(verifySnapshot.ui_elements)) {
               started = true;
+            } else if (i < VERIFY_START_RETRIES - 1) {
+              await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
             }
           }
           if (!started) {
@@ -470,29 +482,33 @@ export function createAntigravityRuntime(config?: AntigravityConfig): Runtime {
       const cdpClient = handle.data["cdpClient"] as CdpClient | undefined;
 
       const primaryFn = async (): Promise<string> => {
-        if (cdpClient && cdpClient.isConnected() && session.managerWindowId) {
+        if (cdpClient && cdpClient.isConnected() && session.managerWindowId > 0) {
           // Use CDP to send message directly to DOM.
           // Guard: require managerWindowId so CDP only runs if create() fully
           // completed window discovery — otherwise fall through to peekaboo.
           // Throws if input element or send button is not found,
           // so executeWithFallback can route to peekaboo fallback.
-          await cdpClient.evaluateInAntigravity(`
-            (() => {
-              const el = document.querySelector('textarea, [contenteditable="true"], input[type="text"]');
-              if (!el) throw new Error('CDP sendMessage: input element not found');
-              if (el.tagName === 'TEXTAREA' || el.tagName === 'INPUT') {
-                el.value = ${JSON.stringify(message)};
-                el.dispatchEvent(new Event('input', { bubbles: true }));
-              } else {
-                el.innerText = ${JSON.stringify(message)};
-                el.dispatchEvent(new Event('input', { bubbles: true }));
-              }
-              const sendBtn = document.querySelector('button[aria-label*="Send" i], button[type="submit"]');
-              if (!sendBtn) throw new Error('CDP sendMessage: send button not found');
-              sendBtn.click();
-            })()
-          `);
-          return "sent";
+          try {
+            await cdpClient.evaluateInAntigravity(`
+              (() => {
+                const el = document.querySelector('textarea, [contenteditable="true"], input[type="text"]');
+                const sendBtn = document.querySelector('button[aria-label*="Send" i], button[type="submit"]');
+                if (!el) throw new Error('CDP sendMessage: input element not found');
+                if (!sendBtn) throw new Error('CDP sendMessage: send button not found');
+                if (el.tagName === 'TEXTAREA' || el.tagName === 'INPUT') {
+                  el.value = ${JSON.stringify(message)};
+                  el.dispatchEvent(new Event('input', { bubbles: true }));
+                } else {
+                  el.innerText = ${JSON.stringify(message)};
+                  el.dispatchEvent(new Event('input', { bubbles: true }));
+                }
+                sendBtn.click();
+              })()
+            `);
+            return "sent";
+          } catch {
+            // Swallow CDP errors and fall through to Peekaboo-based send.
+          }
         }
 
         // Always target Manager window — conversations live inside it
@@ -556,7 +572,11 @@ export function createAntigravityRuntime(config?: AntigravityConfig): Runtime {
       const cdpClient = handle.data["cdpClient"] as CdpClient | undefined;
 
       try {
-        if (cdpClient && cdpClient.isConnected()) {
+        if (
+          cdpClient &&
+          cdpClient.isConnected() &&
+          session.managerWindowId > 0
+        ) {
           const textContent = await cdpClient.getConversationText();
           const allLines = textContent.split("\n");
           return allLines.slice(-lines).join("\n");

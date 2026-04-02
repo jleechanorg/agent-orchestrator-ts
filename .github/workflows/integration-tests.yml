@@ -71,4 +71,7 @@ jobs:
           # When both keys are set, the plugin prefers the Composio transport
           # which requires @composio/core SDK installed. The direct LINEAR_API_KEY
           # transport needs no extra dependencies.
+          # agent-aider integration tests use describe.skipIf when aider binary is missing;
+          # this flag documents pip install outcome for CI logs and future conditional steps.
+          AIDER_PIP_INSTALLED: ${{ steps.install-aider.outputs.aider_available }}
         run: pnpm test:integration
