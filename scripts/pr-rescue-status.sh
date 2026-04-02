@@ -64,7 +64,8 @@ if [ "$STATE" = "CLOSED" ]; then
   die "BLOCKED: PR #$PR_NUM is CLOSED (not merged). Reopen or open a new PR."
 fi
 
-MERGEABLE=$(echo "$META" | jq -r '.mergeable // "null"')
+# Do not use `.mergeable // "null"` — `//` also triggers on boolean false and would mis-route MERGEABLE=false.
+MERGEABLE=$(echo "$META" | jq -r 'if .mergeable == null then "null" elif .mergeable == false then "false" else (.mergeable | tostring) end')
 case "$MERGEABLE" in
   CONFLICTING|false)
     die "BLOCKED: merge conflicts — git fetch origin && git rebase origin/main && resolve && git push --force-with-lease" ;;
@@ -72,22 +73,23 @@ case "$MERGEABLE" in
     die "BLOCKED: mergeability UNKNOWN — GitHub stale. Re-drive: git fetch origin && git rebase origin/main && git push --force-with-lease; recheck gh pr view --json mergeable. Or: gh pr update-branch \"$PR_NUM\" --repo \"$OWNER_REPO\"" ;;
 esac
 
-# statusCheckRollup may contain multiple rows per check name (stale runs). Evaluate only
-# the latest completedAt per name — matches what humans see as "current" check state.
-ROLLUP_LATEST=$(echo "$META" | jq '[.statusCheckRollup[]? | select(.name != null and .name != "")] | group_by(.name) | map(sort_by(.completedAt) | last)')
+# Pending/in-progress: use RAW rollup first. Deduping with sort_by(.completedAt)|last drops
+# IN_PROGRESS rows whose completedAt is null (null sorts before timestamps → last = stale SUCCESS).
+PENDING=$(echo "$META" | jq '[.statusCheckRollup[]? | select((.status // .state // "") | ascii_upcase | test("^(IN_PROGRESS|PENDING|QUEUED|WAITING|REQUESTED|EXPECTED)$"))] | length')
+if [ "${PENDING:-0}" -gt 0 ]; then
+  die "BLOCKED: $PENDING check(s) still running — exit; let orchestrator poll or wait and re-run this script."
+fi
+
+# Latest completed row per check name (stale duplicate workflow runs on same SHA).
+ROLLUP_LATEST=$(echo "$META" | jq '[.statusCheckRollup[]? | select(.name != null and .name != "")] | group_by(.name) | map(sort_by(.completedAt // "1970-01-01T00:00:00Z") | last)')
 
 ROLLUP_LEN=$(echo "$ROLLUP_LATEST" | jq 'length')
 if [ "${ROLLUP_LEN:-0}" -eq 0 ]; then
   die "BLOCKED: no status checks in rollup yet — wait for CI to start; do not declare green."
 fi
 
-PENDING=$(echo "$ROLLUP_LATEST" | jq '[.[] | select(.status=="IN_PROGRESS" or .status=="PENDING" or .status=="QUEUED" or .status=="WAITING")] | length')
-if [ "${PENDING:-0}" -gt 0 ]; then
-  die "BLOCKED: $PENDING check(s) still running — exit; let orchestrator poll or wait and re-run this script."
-fi
-
 # Skeptic-specific failure (latest Skeptic-named check only) — before generic blocking list
-LAST_SKEPTIC_CONC=$(echo "$ROLLUP_LATEST" | jq -r '[.[] | select(.name=="Skeptic Gate" or .name=="skeptic_gate")] | sort_by(.completedAt) | last | .conclusion // empty')
+LAST_SKEPTIC_CONC=$(echo "$ROLLUP_LATEST" | jq -r '[.[] | select(.name=="Skeptic Gate" or .name=="skeptic_gate")] | sort_by(.completedAt // "") | last | .conclusion // empty')
 if [ -n "$LAST_SKEPTIC_CONC" ] && [ "$LAST_SKEPTIC_CONC" != "null" ]; then
   IS_SKEPTIC_BLOCK=$(echo "$BLOCKING_CONCLUSIONS_JSON" | jq --arg c "$LAST_SKEPTIC_CONC" 'index($c) != null')
   if [ "$IS_SKEPTIC_BLOCK" = "true" ]; then
