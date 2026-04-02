@@ -1204,13 +1204,11 @@ export interface DefaultPlugins {
   agent: string;
   workspace: string;
   notifiers: string[];
+  /** Merged before role/project overrides (permissions, model, etc.). */
+  agentConfig?: AgentSpecificConfig;
   modelByCli?: Record<string, CliModelDefaults>;
-  orchestrator?: {
-    agent?: string;
-  };
-  worker?: {
-    agent?: string;
-  };
+  orchestrator?: RoleAgentConfig;
+  worker?: RoleAgentConfig;
   /** Default auto-merge settings for all projects (bd-n047) */
   autoMerge?: AutoMergeConfig;
 }

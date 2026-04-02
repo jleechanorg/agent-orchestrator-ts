@@ -142,6 +142,7 @@ const RoleAgentSpecificConfigSchema = z
 const RoleAgentDefaultsSchema = z
   .object({
     agent: z.string().optional(),
+    agentConfig: RoleAgentSpecificConfigSchema.optional(),
   })
   .optional();
 
@@ -230,7 +231,9 @@ const ProjectConfigSchema = z.object({
   scm: SCMConfigSchema.optional(),
   symlinks: z.array(z.string()).optional(),
   postCreate: z.array(z.string()).optional(),
-  agentConfig: AgentSpecificConfigSchema.default({}),
+  // RoleAgentSpecificConfigSchema: empty project must not inject permissions: permissionless
+  // (which would override defaults.agentConfig.permissions).
+  agentConfig: RoleAgentSpecificConfigSchema.default({}),
   modelByCli: z.record(CliModelDefaultsSchema).optional(),
   orchestrator: RoleAgentConfigSchema,
   worker: RoleAgentConfigSchema,
@@ -262,6 +265,7 @@ const DefaultPluginsSchema = z.object({
   agent: z.string().default("claude-code"),
   workspace: z.string().default("worktree"),
   notifiers: z.array(z.string()).default(["composio", "desktop"]),
+  agentConfig: AgentSpecificConfigSchema.optional(),
   modelByCli: z.record(CliModelDefaultsSchema).optional(),
   orchestrator: RoleAgentDefaultsSchema,
   worker: RoleAgentDefaultsSchema,
