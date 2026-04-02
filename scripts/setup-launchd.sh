@@ -6,7 +6,21 @@
 
 set -euo pipefail
 
-REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# Resolve REPO_ROOT. For the agent-orchestrator fork, prefer the canonical
+# project path over ephemeral AO worktrees so the launchd plist is stable.
+# AO worktrees (name matching ^ao-[0-9]+$) may be removed when sessions end.
+_resolve_repo_root() {
+  local _script_dir="$(cd "$(dirname "$0")/.." && pwd)"
+  # Check if script dir looks like an AO-managed ephemeral worktree
+  local _basename="$(basename "$_script_dir")"
+  if [[ "$_basename" =~ ^ao-[0-9]+$ ]] && [[ -d "/Users/jleechan/project_agento/agent-orchestrator" ]]; then
+    echo "/Users/jleechan/project_agento/agent-orchestrator"
+  else
+    echo "$_script_dir"
+  fi
+}
+
+REPO_ROOT="$(_resolve_repo_root)"
 TEMPLATE_DIR="$REPO_ROOT/launchd"
 LAUNCH_AGENTS_DIR="$HOME/Library/LaunchAgents"
 BASE_LOG_DIR="$HOME/.openclaw/logs"
@@ -124,13 +138,15 @@ install_novel_plist() {
   fi
 
   # Build the run command with proper shell quoting using printf %q.
-  # This safely handles paths with spaces, &, ;, and other metacharacters.
+  # Uses --daily mode which writes to novel/workers/{YYYY-MM-DD}.md as a separate file.
+  # The date is computed at runtime via shell expansion so the plist is static/portable.
   local run_cmd
   printf -v run_cmd \
-    'cd %q && NODE_ENV=production %q %q --file %q --days 1 --words 1000' \
+    'cd %q && NODE_ENV=production %q %q --daily %q --file %q --days 1 --words 1000' \
     "$REPO_ROOT" \
     "$node_path" \
     "$REPO_ROOT/scripts/novel/generate-daily-entry.mjs" \
+    "$(date '+%Y-%m-%d')" \
     "$REPO_ROOT/novel/the-daily-lives-of-workers.md"
 
   sed \
