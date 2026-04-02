@@ -1,13 +1,18 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 /**
  * Regression guard: pr-rescue-status.sh is the mechanical preflight for 7-green
  * (see AGENTS.md). If deleted or gutted, agents lose a deterministic blocked-vs-done check.
  */
 function repoRoot(): string {
-  const candidate = join(import.meta.dirname, "..", "..", "..", "..");
+  const here =
+    typeof import.meta.dirname === "string"
+      ? import.meta.dirname
+      : fileURLToPath(new URL(".", import.meta.url));
+  const candidate = join(here, "..", "..", "..", "..");
   statSync(join(candidate, ".git"));
   return candidate;
 }
@@ -18,6 +23,7 @@ describe("pr-rescue-status.sh harness script", () => {
     const src = readFileSync(path, "utf-8");
     expect(src.startsWith("#!/usr/bin/env bash\n")).toBe(true);
     expect(src).toContain("reviewThreads");
+    expect(src).toContain("pageInfo");
     expect(src).toContain("resolveReviewThread");
     expect(src).toContain("MERGED");
     expect(src).toContain("APPROVED");
