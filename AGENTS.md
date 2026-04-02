@@ -81,6 +81,9 @@ roadmap/               # Design docs and decision records — first-class, commi
 - **Never push to main directly** — always open a PR.
 - **Never use `git add -A`** — stage only files you changed.
 
+## PR evidence (AO workers) — Cursor-aligned artifacts
+Every PR must satisfy **Evidence Bundle v2** in `## Evidence` (see `CLAUDE.md`: repro gist, terminal screenshot/video + logs, UI proof or `N/A`). That policy is intentionally aligned with Cursor’s **cloud agents** model: **videos, screenshots, and logs** as review artifacts, not narrative-only proof — see [Cursor agents can now control their own computers](https://cursor.com/blog/agent-computer-use).
+
 ## Fork Isolation — Mandatory for All Changes
 
 This is a fork of `ComposioHQ/agent-orchestrator`. Every code change must prioritize isolation from upstream to avoid merge conflicts.

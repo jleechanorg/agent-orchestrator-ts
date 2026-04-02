@@ -213,6 +213,13 @@ Rules:
 - `simulated` output is forbidden — only real command output.
 - Evidence checks are pre-merge only; merged/closed PRs are skipped.
 
+### Cursor cloud-agent artifact model (reference)
+Cursor describes **cloud agents** that run in isolated environments, **test their changes**, and **produce artifacts (videos, screenshots, and logs)** so reviewers can validate work quickly, and open **merge-ready PRs with artifacts to demo their changes**. See [Cursor agents can now control their own computers](https://cursor.com/blog/agent-computer-use) (product announcement; read the full post for examples). The same post shows **video artifacts** for full flows, **screenshots** for static proof, and **summaries/logs** alongside — not prose-only claims.
+
+Evidence Bundle v2 mirrors that intent for AO workers: **Terminal media** = screenshot or video of tmux/terminal (visual proof), **Terminal test output** = real command logs, **Repro gist** = clone-and-run reproducibility, **UI media** = user-visible change proof or explicit N/A. Prefer **direct HTTPS links** to viewable images or videos (e.g. GitHub PR/user-attachments, or markdown `![alt](https://...)`), not a bare gist page URL as a substitute for terminal screenshot/video.
+
+For long-running agent observability, Cursor’s research on scaling autonomous coding emphasizes logging **agent messages, system actions, and command outputs, with timestamps** for replay and review — see [Towards self-driving codebases](https://cursor.com/blog/self-driving-codebases). The fenced **Terminal test output** block is the PR-level analogue: concrete command output a reviewer can grep, alongside visual terminal media.
+
 ## Fork Isolation — Code Separation from Upstream
 
 This fork diverges from `ComposioHQ/agent-orchestrator`. To minimize merge conflicts and preserve cherry-pick ability:

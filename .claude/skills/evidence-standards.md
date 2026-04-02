@@ -1,5 +1,11 @@
 # Evidence Standards for All Testing and Verification
 
+## Cursor-aligned PR artifacts (AO workers)
+
+Cursor’s cloud agents are described as producing **artifacts (videos, screenshots, and logs)** and **merge-ready PRs with artifacts to demo their changes** so reviewers can validate work without trusting prose alone. Primary source: [Cursor agents can now control their own computers](https://cursor.com/blog/agent-computer-use). For multi-agent runs, [Towards self-driving codebases](https://cursor.com/blog/self-driving-codebases) stresses **logging command outputs with timestamps** for observability and replay.
+
+**Fork mapping:** Evidence Bundle v2 in `CLAUDE.md` — **Terminal media** (tmux/terminal screenshot or video), **Terminal test output** (fenced logs), **Repro gist**, **UI media** or `N/A` — implements the same reviewer contract for AO-driven PRs.
+
 ## Core Principle
 
 **Evidence must prove what you claim.** Mock data cannot prove production behavior.
