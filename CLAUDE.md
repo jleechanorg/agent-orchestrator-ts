@@ -197,20 +197,18 @@ When CR posts CHANGES_REQUESTED on your PR:
 ### Skeptic SKIPPED — do not merge
 If skeptic posts `VERDICT: SKIPPED` (infra unavailable — no LLM API keys in GHA), the PR does **NOT** have a genuine skeptic review. The `skeptic-cron.yml` workflow handles skeptic evaluation via AO worker. **Do not merge until skeptic-cron has run `ao skeptic verify` and posted `VERDICT: PASS` or `VERDICT: FAIL`.** Check skeptic-cron hasn't already evaluated this PR SHA (comments show `VERDICT:`).
 
-### Evidence Bundle v2 (mandatory): tmux + test output + UI + reproducibility gist
-Evidence is now fail-closed: every PR must include a self-contained reproducibility bundle in `## Evidence`.
+### Evidence Bundle v2 (mandatory): reproducible gist + terminal media + terminal test logs + UI
+Evidence is fail-closed: every PR must include a self-contained bundle in `## Evidence`. CI enforces this in both `wholesome.yml` (**Evidence Has Media Attachment**) and `evidence-gate.yml` (**Evidence Gate**).
 
-Required fields in `## Evidence`:
-- `**Claim class**: ...`
-- `**Verdict**: PASS|INSUFFICIENT|FAIL`
-- `**Repro gist**: https://gist.github.com/...` (must be clone-and-run capable)
-- `**Terminal media**: ...` (captioned screenshot/video URL that clearly shows **tmux terminal** context)
-- `**Terminal test output**:` fenced code block with real test run output from the worker (`pnpm test`, `npm test`, `pytest`, etc.)
-- `**UI media**: ...` captioned screenshot/video of full user-facing flow; if no UI change, explicitly write `N/A - no UI changes in this PR`
+Hard requirements (all must be true):
+1. **Repro gist** — `**Repro gist**: https://gist.github.com/...` (clone-and-run capable).
+2. **Terminal media** — **Mandatory on every PR**: captioned HTTPS screenshot or video (`**Terminal media**:`) that clearly shows **tmux or terminal** context (caption must mention `tmux` or `terminal`). Image-only or code-only substitutes are **not** accepted.
+3. **Terminal test output** — **Mandatory in addition to** terminal media (not either/or): `**Terminal test output**:` followed by a fenced code block with real test run logs (must reference a concrete test command such as `pnpm`/`npm`/`vitest`/… `test`).
+4. **UI media** — For UI changes: captioned HTTPS screenshot or video under `**UI media**:` . If there are **no UI changes**, use **exactly** this text (including spacing): `N/A - no UI changes` (may appear in the `**UI media**:` line or elsewhere in `## Evidence`).
 
 Rules:
-- Before first push: run `/pr-media` (or equivalent) and capture real tmux terminal media + UI media.
-- Repro gist must contain exact steps to clone PR branch, install deps, run tests, and reproduce the claimed result.
+- Before first push: run `/pr-media` (or equivalent) and capture real tmux/terminal media plus fenced test logs.
+- Repro gist must contain exact steps to clone the PR branch, install deps, run tests, and reproduce the claimed result.
 - Placeholder evidence (`<path>`, `<value>`, `TODO`, `TBD`, `example.com`) is forbidden and fails CI.
 - `simulated` output is forbidden — only real command output.
 - Evidence checks are pre-merge only; merged/closed PRs are skipped.

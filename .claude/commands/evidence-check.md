@@ -12,18 +12,19 @@ Run this before pushing a PR to catch Evidence Gate failures locally instead of 
 
 ## What it checks
 
-The Evidence Gate CI check (`wholesome.yml` "Evidence Has Media Attachment") has three hard requirements:
+The Evidence Gate CI checks (`wholesome.yml` **Evidence Has Media Attachment** and `evidence-gate.yml` **Evidence Gate**) enforce **Evidence Bundle v2** (see CLAUDE.md). Hard requirements:
 
 1. **Evidence section present** — PR body must contain `## Evidence` (H2 heading)
-2. **Claim class** — Must have `**Claim class**: <unit|integration|pipeline-e2e|pr-lifecycle-e2e|merge-gate>`
-3. **Media proof** — Evidence section must contain EITHER:
-   - Markdown image with HTTPS URL: `![alt](https://...)`
-   - OR a code block: `\`\`\``
-   - OR structured text: `**Terminal output**:` or `**Test output**:` followed by non-whitespace
+2. **Claim class + verdict** — `**Claim class**: ...` and `**Verdict**: ...` (see `evidence-gate.yml` for valid classes)
+3. **Repro gist** — `**Repro gist**: https://gist.github.com/...`
+4. **Terminal media** — **Every PR**: `**Terminal media**:` with HTTPS screenshot/video URL, **caption** text, and caption references **tmux** or **terminal** context
+5. **Terminal test output** — **In addition to** terminal media: `**Terminal test output**:` plus a fenced `\`\`\`...\`\`\`` block with real logs mentioning a concrete test command (`pnpm`, `npm`, `vitest`, …)
+6. **UI media** — Either `**UI media**:` with HTTPS screenshot/video + caption, **or** the exact substring `N/A - no UI changes` anywhere in `## Evidence`
 
 **What FAILS the CI check:**
-- `**Media**: <path>` — placeholder path without actual image URL
-- `**Test output**: <value>` — inline value without code block or URL
+- Terminal media only (no fenced test logs), or test logs only (no terminal media)
+- Missing repro gist, missing caption, or caption without tmux/terminal context
+- Placeholder text (`<path>`, `<value>`, `TODO`, `example.com`), or `simulated` output
 - No Evidence section at all
 
 ## Exit codes

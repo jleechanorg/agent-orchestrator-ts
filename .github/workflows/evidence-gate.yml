@@ -392,12 +392,12 @@ jobs:
           fi
           echo "Terminal test output: PASS"
 
-          # 4) UI media required (or explicit no-UI declaration)
-          if printf '%s' "$UI_BLOCK" | grep -qiE '\*\*UI media\*\*:[[:space:]]*N/A[[:space:]]*-[[:space:]]*no UI changes'; then
-            echo "UI media: PASS (explicit no-UI declaration)"
+          # 4) UI media for UI changes; otherwise exact text: N/A - no UI changes (whole Evidence section)
+          if printf '%s' "$EVIDENCE_SECTION" | grep -qF 'N/A - no UI changes'; then
+            echo "UI media: PASS (exact N/A - no UI changes)"
           else
             if ! printf '%s' "$UI_BLOCK" | grep -qiE 'https://[^[:space:]]+'; then
-              echo "ERROR: Missing '**UI media**' URL (or explicit N/A - no UI changes)"
+              echo "ERROR: Missing '**UI media**' HTTPS URL, or add exact text: N/A - no UI changes"
               exit 1
             fi
             if ! printf '%s' "$UI_BLOCK" | grep -qiE 'caption'; then
