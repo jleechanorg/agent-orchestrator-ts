@@ -191,6 +191,51 @@ function buildEvent(activity, novelState) {
  * Falls back to a template if ANTHROPIC_API_KEY is not set.
  */
 /**
+ * Write a daily aggregate entry to novel/workers/{YYYY-MM-DD}.md.
+ * Uses rename(2) for atomic write. Skips if the date file already exists.
+ */
+function writeDailyEntry(dateStr, prose) {
+  const workersDir = path.join(REPO_ROOT, "novel", "workers");
+  const filePath = path.join(workersDir, `${dateStr}.md`);
+
+  // Validate date format: YYYY-MM-DD
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+    throw new Error(`Invalid date format: "${dateStr}". Expected YYYY-MM-DD.`);
+  }
+
+  const content = [
+    `# Daily ${dateStr}`,
+    "",
+    `*Automated daily entry — Agent Orchestrator novel log*`,
+    "",
+    "---",
+    "",
+    prose,
+    "",
+  ].join("\n");
+
+  if (!existsSync(workersDir)) {
+    mkdirSync(workersDir, { recursive: true });
+  }
+
+  const tmpPath = `${filePath}.tmp.${process.pid}`;
+  writeFileSync(tmpPath, content, "utf8");
+  try {
+    if (existsSync(filePath)) {
+      rmSync(tmpPath);
+      console.log(`SKIP: ${filePath} already exists — not overwriting.`);
+      return false;
+    }
+    renameSync(tmpPath, filePath);
+  } catch (err) {
+    try { rmSync(tmpPath); } catch { /* ignore */ }
+    throw err;
+  }
+  console.log(`Wrote: ${filePath}`);
+  return true;
+}
+
+/**
  * Validate that a session string is safe to use in a file path.
  * Rejects path traversal sequences (../, /, \) and absolute paths.
  */
@@ -348,6 +393,8 @@ function main() {
       // Per-worker entry flags
       session: { type: "string", default: "" },
       pr: { type: "string", default: "" },
+      // Daily separate-file mode: writes to novel/workers/{YYYY-MM-DD}.md
+      daily: { type: "string", default: "" },
     },
   });
 
@@ -356,6 +403,7 @@ function main() {
   const words = Number.parseInt(values.words, 10);
   const session = values.session;
   const pr = values.pr;
+  const dailyDate = values.daily;
 
   // --- Per-worker individual entry mode ---
   if (session) {
@@ -379,6 +427,33 @@ function main() {
       }
     }
     console.log(`Per-worker entry written for ${session}${pr ? ` (PR #${pr})` : ""}.`);
+    return;
+  }
+
+  // --- Daily separate-file mode: writes to novel/workers/{YYYY-MM-DD}.md ---
+  if (dailyDate) {
+    const activity = collectRepoActivity(Number.isNaN(days) ? 1 : days);
+
+    // Use the daily worker name (ao-novel-daily-YYYYMMDD) as session identity
+    const workerName = `ao-novel-daily-${dailyDate.replace(/-/g, "")}`;
+    const prose = generateProse(workerName, null, activity);
+    const written = writeDailyEntry(dailyDate, prose);
+
+    // Also append a summary to the main novel file
+    if (written) {
+      const section = [
+        `## Daily ${dailyDate}`,
+        "",
+        prose,
+        "",
+      ].join("\n");
+      const mainPath = path.resolve(REPO_ROOT, file);
+      if (existsSync(mainPath)) {
+        appendFileSync(mainPath, `${section}\n\n`, "utf8");
+      }
+    }
+
+    console.log(`Daily novel entry written for ${dailyDate}.`);
     return;
   }
 

@@ -7,9 +7,12 @@
  *
  * Tests run in CI via .github/workflows/wholesome-checks.yml
  *
- * NOTE: These tests are designed to run in two contexts:
+ * NOTE: These tests are designed to run in several contexts:
  *   1. CI: fetches real PR title via gh CLI (GITHUB_TOKEN available)
- *   2. Local: falls back to branch name (TDD mode — detects missing prefix)
+ *   2. Local with an open PR: `gh pr view` uses the real title (branch names like feat/bd-x are not titles)
+ *   3. Local override: AO_WHOLESOME_PR_TITLE (preferred) or AO_WHOLLESOME_PR_TITLE
+ *      for pre-push runs before a PR exists — ignored in CI (GITHUB_ACTIONS)
+ *   4. Otherwise: branch name (fails if it is not a valid [agento] title — intentional)
  */
 import { describe, it, expect } from "vitest";
 import { readdirSync, readFileSync, statSync } from "node:fs";
@@ -84,6 +87,22 @@ function git(args: string, cwd: string, strict = false): string {
   }
 }
 
+// import.meta.dirname is the directory of this test file:
+//   packages/core/src/__tests__/wholesome.test.ts
+// Going up 4 levels reaches the git worktree root (where .git lives).
+function computeRepoRoot(): string {
+  const candidate = import.meta.dirname
+    ? join(import.meta.dirname, "..", "..", "..", "..")
+    : join(process.cwd()); // CJS fallback
+  try {
+    statSync(join(candidate, ".git"));
+  } catch {
+    throw new Error(`REPO_ROOT=${candidate} is not a git repo (no .git found)`);
+  }
+  return candidate;
+}
+const REPO_ROOT = computeRepoRoot();
+
 /** Return diff lines (with file path) that ADD a given pattern in .ts files. */
 function getAddedLinesMatching(cwd: string, pattern: RegExp): Array<{file: string; line: string}> {
   const raw = git(`diff --diff-filter=AM ${BASE_BRANCH}...HEAD`, cwd, true);
@@ -108,8 +127,13 @@ function getAddedLinesMatching(cwd: string, pattern: RegExp): Array<{file: strin
   return results;
 }
 
-/** Get the PR title — uses gh CLI in CI (GITHUB_TOKEN available), falls back to branch name. */
+/** Get the PR title — CI via gh + env; local via gh, optional env override, or branch name. */
 function getPRTitle(): string {
+  const override =
+    process.env.AO_WHOLESOME_PR_TITLE?.trim() ||
+    process.env.AO_WHOLLESOME_PR_TITLE?.trim();
+  if (override && !process.env.GITHUB_ACTIONS) return override;
+
   // In CI, use the gh CLI to fetch the actual PR title for the current branch.
   // Always use GITHUB_HEAD_REF (not git rev-parse) — detached HEAD in CI returns "HEAD".
   if (process.env.GITHUB_TOKEN && process.env.GITHUB_REPOSITORY && process.env.GITHUB_HEAD_REF) {
@@ -131,7 +155,18 @@ function getPRTitle(): string {
       throw new Error(`gh pr view failed in CI context: ${msg}`, { cause: err });
     }
   }
-  // Fallback: use branch name (useful for local TDD — correctly fails when prefix is missing).
+  // Local: current branch may have an open PR with a proper [agento] title.
+  try {
+    const title = execFileSync(
+      "gh",
+      ["pr", "view", "--json", "title", "--jq", ".title"],
+      { cwd: REPO_ROOT, encoding: "utf-8", timeout: 30_000 }
+    ).trim();
+    if (title) return title;
+  } catch {
+    // no PR, gh missing, or not authenticated
+  }
+  // Fallback: branch name (fails when prefix is missing — e.g. feat/bd-x before PR exists).
   // strict=true so broken git state (e.g. detached HEAD with no ref) raises instead of silently passing.
   return git("rev-parse --abbrev-ref HEAD", REPO_ROOT, true);
 }
@@ -139,22 +174,6 @@ function getPRTitle(): string {
 // ---------------------------------------------------------------------------
 // Test suite
 // ---------------------------------------------------------------------------
-
-// import.meta.dirname is the directory of this test file:
-//   packages/core/src/__tests__/wholesome.test.ts
-// Going up 4 levels reaches the git worktree root (where .git lives):
-//   packages/core/src/__tests__ → packages/core/src → packages/core → packages → worktree-root
-function computeRepoRoot(): string {
-  const candidate = import.meta.dirname
-    ? join(import.meta.dirname, "..", "..", "..", "..")
-    : join(process.cwd()); // CJS fallback
-  // Sanity-check: ensure .git exists so broken traversal fails loudly.
-  try { statSync(join(candidate, ".git")); } catch {
-    throw new Error(`REPO_ROOT=${candidate} is not a git repo (no .git found)`);
-  }
-  return candidate;
-}
-const REPO_ROOT = computeRepoRoot();
 
 describe("wholesome — structural source-code assertions", () => {
 

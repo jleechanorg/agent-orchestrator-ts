@@ -4,6 +4,10 @@
 <!--
   ai.agento.novel-daily — launchd agent for AO novel daily aggregation.
 
+  Runs at 06:00 PT daily. Writes:
+    novel/workers/{YYYY-MM-DD}.md   — new daily entry as separate file
+    novel/the-daily-lives-of-workers.md  — summary appended to main log
+
   INSTALLATION (two options):
 
   Option A — via central setup (recommended):
