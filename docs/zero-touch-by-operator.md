@@ -40,6 +40,27 @@ This means:
 
 (Non-[agento] PRs #186 and #187 counted as zero-touch by proxy since they had no CHANGES_REQUESTED at merge time; strict AO-provenance requires the `[agento]` title prefix.)
 
+
+## Zero-Touch Smooth (new requirement)
+
+A merged PR counts as **zero-touch smooth** only if it already qualifies for zero-touch-by-operator **and** it never freezes/goes off track for more than 1 hour.
+
+### Operational rule
+- Measure the PR timeline from **PR open -> merge**.
+- Build ordered progress-event timestamps (commits pushed to PR branch, CI/check status updates, review submissions/comments, PR comments, issue timeline events).
+- Compute the maximum inactivity gap between adjacent progress events.
+- Passes smooth gate iff `max_inactivity_gap <= 60 minutes`.
+
+### Rate formula
+For a rolling window (default 24h):
+
+`zero_touch_smooth_rate = (count of merged PRs that are zero-touch smooth) / (count of merged PRs that are zero-touch-by-operator)`
+
+### Examples
+- PR A: max gap 38m -> smooth pass
+- PR B: max gap 83m -> smooth fail
+- PR C: max gap 6h -> smooth fail
+
 ## Evolve loop health
 
 - **Active AO sessions:** none detected in last 120 minutes
