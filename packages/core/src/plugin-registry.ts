@@ -23,7 +23,7 @@ function makeKey(slot: PluginSlot, name: string): string {
 }
 
 /** Built-in plugin package names, mapped to their npm package */
-const BUILTIN_PLUGINS: Array<{ slot: PluginSlot; name: string; pkg: string }> = [
+export const BUILTIN_PLUGINS: ReadonlyArray<{ slot: PluginSlot; name: string; pkg: string }> = [
   // Runtimes
   { slot: "runtime", name: "tmux", pkg: "@jleechanorg/ao-plugin-runtime-tmux" },
   { slot: "runtime", name: "process", pkg: "@jleechanorg/ao-plugin-runtime-process" },

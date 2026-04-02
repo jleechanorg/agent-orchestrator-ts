@@ -208,10 +208,14 @@ const geminiOverrides: Partial<Agent> = {
     const preTrust = [
       `python3 -c "import json,os; tf=os.path.expanduser('~/.gemini/trustedFolders.json'); os.makedirs(os.path.dirname(tf),exist_ok=True); d=json.load(open(tf)) if os.path.exists(tf) else {}; d[os.getcwd()]='TRUST_FOLDER'; open(tf,'w').write(json.dumps(d,indent=2))"`,
     ].join(" && ");
-    // Strip model: Gemini CLI uses its own model naming convention
-    // incompatible with Anthropic API model IDs (causes "model not found" error).
-    const { model: _ignored, ...launchConfigWithoutModel } = launchConfig;
-    const agentCmd = createAgentPlugin(geminiConfig).getLaunchCommand(launchConfigWithoutModel);
+    // Pass through Gemini-native model IDs (e.g. "gemini-3-flash-preview",
+    // "gemini-2.5-pro"). Strip non-Gemini model IDs (e.g. Anthropic's
+    // "claude-sonnet-4-6") which cause "Model not found" errors.
+    const isGeminiModel = launchConfig.model?.startsWith("gemini-");
+    const effectiveConfig = isGeminiModel
+      ? launchConfig
+      : { ...launchConfig, model: undefined };
+    const agentCmd = createAgentPlugin(geminiConfig).getLaunchCommand(effectiveConfig);
     return `( ${preTrust} ); ${agentCmd}`;
   },
 };
