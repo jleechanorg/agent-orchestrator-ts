@@ -56,8 +56,11 @@ cd_prefix_pattern='^[[:space:]]*cd[[:space:]]+.*[[:space:]]+(&&|;)[[:space:]]+(.
 clean_command="$command"
 while true; do
   # Strip leading env assignments: FOO=bar BAZ=qux gh pr create ...
-  if [[ "$clean_command" =~ ^[[:space:]]*([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*)[[:space:]]+(.+)$ ]]; then
-    clean_command="${BASH_REMATCH[2]}"
+  # Require space after = to avoid infinite loop on bare "FOO=bar" (no trailing cmd).
+  # Use parameter expansion — avoids BSD sed / POSIX char-class issues.
+  # Handles FOO=a=b (embedded =) correctly unlike [^= ]* or [^[:space:]]*.
+  if [[ "$clean_command" =~ ^[[:space:]]*[A-Za-z_][A-Za-z0-9_]*=[[:space:]] ]]; then
+    clean_command="${clean_command#*=* }"
   # Strip leading cd prefixes: cd /path && gh pr create ...
   elif [[ "$clean_command" =~ $cd_prefix_pattern ]]; then
     clean_command="${BASH_REMATCH[2]}"
@@ -142,9 +145,10 @@ update_metadata_key() {
   # Create temp file
   local temp_file="${metadata_file}.tmp"
 
-  # Escape special sed characters in value (&, \, and | since | is our delimiter)
+  # Escape special sed characters in value (& and \ — not | or / in BRE)
   local escaped_value
-  escaped_value=$(printf '%s' "$value" | sed 's/[&|\\]/\\&/g')
+  escaped_value="${value//\\/\\\\}"
+  escaped_value="${escaped_value//&/\\&}"
 
   # Check if key already exists
   if grep -q "^$key=" "$metadata_file" 2>/dev/null; then
@@ -196,18 +200,15 @@ if [[ "$clean_command" =~ ^git[[:space:]]+switch[[:space:]]+-c[[:space:]]+([^[:s
 fi
 
 # Detect: git checkout <branch> (without -b) or git switch <branch> (without -c)
-# Guard: verify the candidate is actually a branch ref, not a file path.
-# Reject extensionless paths like docs/README by requiring the candidate to exist
-# as a local branch (git show-ref exits 0 only for real refs, not files).
+# Guard: skip source file paths by rejecting known extensions.
+# "contains /" alone is not sufficient — e.g. docs/README.md would false-match.
 if [[ "$clean_command" =~ ^git[[:space:]]+checkout[[:space:]]+([^[:space:]-]+[/-][^[:space:]]+) ]]; then
   branch="${BASH_REMATCH[1]}"
   if [[ -n "$branch" && "$branch" != "HEAD" &&
         ! "$branch" =~ \.(ts|js|tsx|jsx|py|go|rs|java|cpp|c|h|sh|bash|json|yaml|yml|toml|md|html|css|scss)$ ]]; then
-    if git show-ref --verify --quiet "refs/heads/$branch" 2>/dev/null; then
-      update_metadata_key "branch" "$branch"
-      echo '{"systemMessage": "Updated metadata: branch = '"$branch"'"}'
-      exit 0
-    fi
+    update_metadata_key "branch" "$branch"
+    echo '{"systemMessage": "Updated metadata: branch = '"$branch"'"}'
+    exit 0
   fi
 fi
 
@@ -215,11 +216,9 @@ if [[ "$clean_command" =~ ^git[[:space:]]+switch[[:space:]]+([^[:space:]-]+[/-][
   branch="${BASH_REMATCH[1]}"
   if [[ -n "$branch" && "$branch" != "HEAD" &&
         ! "$branch" =~ \.(ts|js|tsx|jsx|py|go|rs|java|cpp|c|h|sh|bash|json|yaml|yml|toml|md|html|css|scss)$ ]]; then
-    if git show-ref --verify --quiet "refs/heads/$branch" 2>/dev/null; then
-      update_metadata_key "branch" "$branch"
-      echo '{"systemMessage": "Updated metadata: branch = '"$branch"'"}'
-      exit 0
-    fi
+    update_metadata_key "branch" "$branch"
+    echo '{"systemMessage": "Updated metadata: branch = '"$branch"'"}'
+    exit 0
   fi
 fi
 
