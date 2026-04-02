@@ -69,13 +69,15 @@ export async function findRepoPathForWorktree(
     dir = parent;
   }
 
-  // 2. Fallback: scan `git worktree list` from the current directory and walk up
-  // until a valid git repo is found.  Unlike phase 1 (which checks for .git), this
-  // phase tolerates a gitfile (worktree whose .git is a pointer to another repo)
-  // and resolves the branch from the worktree list entry.
-  let scanDir = process.cwd();
-  const scanRoot = homedir();
-  while (scanDir !== scanRoot && scanDir !== "/") {
+  // 2. Fallback: scan `git worktree list` starting from cwd and walk up toward `/`.
+  // Unlike phase 1 (which checks for .git), this phase tolerates a gitfile (worktree
+  // whose .git is a pointer to another repo) and resolves the branch from the worktree
+  // list entry.
+  //
+  // When cwd is `/` (e.g. launchd daemon), `scanDir === "/"` would make the old
+  // `while (scanDir !== "/" && …)` loop skip entirely — start at homedir instead.
+  let scanDir = process.cwd() === "/" ? homedir() : process.cwd();
+  while (scanDir !== "/") {
     try {
       const output = (
         await execFileAsync("git", ["-C", scanDir, "worktree", "list", "--porcelain"], {
