@@ -345,18 +345,19 @@ jobs:
           echo "Repro gist: PASS"
 
           # Sub-blocks (CodeRabbit): validate captions across lines; scope test-command grep to the test-output block only.
+          # Do not `next` on the header line — that line contains the URL / N/A declaration.
           TM_BLOCK=$(printf '%s' "$EVIDENCE_SECTION" | awk '
-            /\*\*Terminal media\*\*/ { show=1; next }
+            /\*\*Terminal media\*\*/ { show=1 }
             show && /\*\*Terminal test output\*\*/ { exit }
             show { print }
           ')
           TTO_BLOCK=$(printf '%s' "$EVIDENCE_SECTION" | awk '
-            /\*\*Terminal test output\*\*/ { show=1; next }
+            /\*\*Terminal test output\*\*/ { show=1 }
             show && /\*\*UI media\*\*/ { exit }
             show { print }
           ')
           UI_BLOCK=$(printf '%s' "$EVIDENCE_SECTION" | awk '
-            /\*\*UI media\*\*/ { show=1; next }
+            /\*\*UI media\*\*/ { show=1 }
             show { print }
           ')
 
