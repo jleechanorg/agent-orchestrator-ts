@@ -385,7 +385,8 @@ jobs:
             echo "ERROR: Terminal test output must include a fenced code block with real logs"
             exit 1
           fi
-          if ! printf '%s' "$TTO_BLOCK" | grep -qiE '(pnpm|npm|yarn|pytest|vitest|jest|go test|cargo test|bun test|rspec|rake test|mvn test|gradle test|make test)'; then
+          # Require package-manager lines to include a test invocation (pnpm --filter … test, npm test, …)
+          if ! printf '%s' "$TTO_BLOCK" | grep -qiE '(pnpm|npm|yarn|bun|pnpm exec).{0,400}test|pytest|vitest|jest|go test|cargo test|bun test|rspec|rake test|mvn test|gradle test|make test'; then
             echo "ERROR: Terminal test output must mention at least one concrete test command"
             exit 1
           fi
