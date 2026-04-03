@@ -300,7 +300,7 @@ jobs:
             exit 0
           fi
 
-          # integration+ claims: enforce Bundle v2 — repro gist + UI media
+          # integration+ claims: enforce Bundle v2 — repro gist + UI media + self-validation language
           # (terminal checks 1-4 already passed above)
           HAS_UI_MEDIA=false
           # FIX bd-ao357r2: actual label ends with ':' not '**'.
@@ -312,10 +312,16 @@ jobs:
             HAS_UI_MEDIA=true
           fi
 
+          # bd-357-fix: CLAUDE.md line 273 requires self-validation language in TTO block for non-unit claims.
+          HAS_SELF_VALIDATION=false
+          if printf '%s' "$TTO_BLOCK" | grep -qiE 'verified|confirmed|reproduced|error case|test passed|test failed|all tests|results? (show|indicate|demonstrate)'; then
+            HAS_SELF_VALIDATION=true
+          fi
+
           echo ""
           echo "Bundle v2 standard for non-unit claim (claim=$CLAIM):"
-          echo "  repro_gist=pass terminal_media=pass terminal_output=pass ui_media=$HAS_UI_MEDIA"
-          if [ "$HAS_UI_MEDIA" = "true" ]; then
+          echo "  repro_gist=pass terminal_media=pass terminal_output=pass ui_media=$HAS_UI_MEDIA self_validation=$HAS_SELF_VALIDATION"
+          if [ "$HAS_UI_MEDIA" = "true" ] && [ "$HAS_SELF_VALIDATION" = "true" ]; then
             echo "PASS: Non-unit claim — repro gist + UI media confirmed (wholesome)"
             exit 0
           else
@@ -324,6 +330,7 @@ jobs:
             echo "  2) **Terminal media**: screenshot/video + tmux caption (pass)"
             echo "  3) **Terminal test output**: fenced block + concrete test command (pass)"
             echo "  4) **UI media**: URL or 'N/A - no UI changes' ($HAS_UI_MEDIA)"
+            echo "  5) **Terminal test output** self-validation: verified/confirmed/reproduced language"
             exit 1
           fi
 
