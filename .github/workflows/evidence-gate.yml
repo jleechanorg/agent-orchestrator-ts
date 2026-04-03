@@ -283,6 +283,79 @@ jobs:
             echo "No additional validation required for claim class: $CLAIM"
           fi
 
+      - name: Enforce strong artifact evidence for non-unit claims
+        if: steps.check.outputs.found == 'true'
+        run: |
+          BODY=$(cat "$RUNNER_TEMP/pr_body.txt")
+
+          # Extract claim class and normalize
+          CLAIM=$(printf '%s' "$BODY" \
+            | grep -i '\*\*Claim class' | grep -v '^- ' | head -1 \
+            | sed 's/.*\*\*Claim class\*\*: *//I' \
+            | sed 's/(.*//' \
+            | tr -d '*' | tr '[:upper:]' '[:lower:]' \
+            | tr ' ' '-' | tr -d '\t' \
+            | sed 's/^[ \t-]*//;s/[ \t-]*$//')
+
+          if [ -z "$CLAIM" ]; then
+            CLAIM=$(printf '%s' "$BODY" \
+              | grep -i '^-.*\*\*Claim class' | head -1 \
+              | sed 's/.*\*\*Claim class\*\*: *//I' \
+              | sed 's/(.*//' \
+              | tr -d '*' | tr '[:upper:]' '[:lower:]' \
+              | tr ' ' '-' | tr -d '\t' \
+              | sed 's/^[ \t-]*//;s/[ \t-]*$//')
+          fi
+
+          case "$CLAIM" in
+            unit-test-coverage|unit-test) CLAIM="unit" ;;
+            integration-test) CLAIM="integration" ;;
+            pr-lifecycle) CLAIM="pr-lifecycle-e2e" ;;
+            merge-gate-green) CLAIM="merge-gate" ;;
+          esac
+
+          # Unit/integration claims can be satisfied with terminal evidence only.
+          # Higher claims (pipeline/pr-lifecycle/merge-gate) must include rich artifacts.
+          if [ "$CLAIM" = "pipeline-e2e" ] || [ "$CLAIM" = "pr-lifecycle-e2e" ] || [ "$CLAIM" = "merge-gate" ]; then
+            EVIDENCE=$(printf '%s\n' "$BODY" | awk '
+              BEGIN { IGNORECASE=1 }
+              /^[[:space:]]*##[[:space:]]+evidence([[:space:]]|$)/ { in_section=1; next }
+              in_section && /^[[:space:]]*##[[:space:]]/ { exit }
+              in_section { print }
+            ')
+
+            HAS_MEDIA=false
+            if printf '%s' "$EVIDENCE" | grep -qiE 'https://[^[:space:]]+\.(png|jpg|jpeg|gif|webp|mp4|webm|mov)'; then
+              HAS_MEDIA=true
+            fi
+
+            HAS_OUTPUT=false
+            if printf '%s' "$EVIDENCE" | grep -q '```'; then
+              HAS_OUTPUT=true
+            elif printf '%s' "$EVIDENCE" | grep -qiE '\*\*(Test|Terminal) output\*\*:[[:space:]]+\S'; then
+              HAS_OUTPUT=true
+            fi
+
+            HAS_VALIDATION=false
+            if printf '%s' "$EVIDENCE" | grep -qiE '(self-validation|validated|verified|error case|negative case|before/after|reproduced)'; then
+              HAS_VALIDATION=true
+            fi
+
+            if [ "$HAS_MEDIA" != "true" ] || [ "$HAS_OUTPUT" != "true" ] || [ "$HAS_VALIDATION" != "true" ]; then
+              echo "ERROR: Strong evidence standard not met for claim class '$CLAIM'."
+              echo "Required for non-unit claims:"
+              echo "  - media artifact URL (image/video)"
+              echo "  - execution output (code block or structured terminal/test output)"
+              echo "  - self-validation language (verified, error case, before/after, etc.)"
+              echo "Detected: media=$HAS_MEDIA output=$HAS_OUTPUT validation=$HAS_VALIDATION"
+              exit 1
+            fi
+
+            echo "Strong evidence standard PASS for $CLAIM"
+          else
+            echo "Strong artifact check not required for claim class: $CLAIM"
+          fi
+
       - name: Validate verdict is present and consistent
         if: steps.check.outputs.found == 'true'
         run: |

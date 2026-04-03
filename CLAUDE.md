@@ -223,12 +223,17 @@ gh pr list --repo jleechanorg/agent-orchestrator --state merged \
 # If any recently merged PR touches the same file as your change → churn protocol
 ```
 
-### Evidence Gate media proof — run `/pr-media` BEFORE first push (bd-fisn)
-The Evidence Gate CI check (`wholesome.yml` "Evidence Has Media Attachment") requires the Evidence section to contain EITHER a markdown image with an HTTPS URL (`![alt](https://...)`) OR a code block (`` ``` ``). Placeholder text like `**Media**: <path>` or `**Test output**: <value>` FAILS the CI check.
-- Before pushing a new PR for the first time: run `/pr-media` to capture a real screenshot or use `/test` output
-- If `/pr-media` is unavailable: add a `**Terminal output**: <actual output>` block with real command output
-- **Never** push a PR with `**Media**: <screenshot path>` as a placeholder — CI will fail and the failed check persists even after fixing (merging the PR clears stale checks, but it causes unnecessary churn)
-- The Evidence Gate also skips entirely for merged/closed PRs (bd-fisn fix) — so if you fix the PR body after merge, you do not need to re-push
+### Evidence Gate strong proof — run `/pr-media` BEFORE first push
+For non-unit claims (`pipeline-e2e`, `pr-lifecycle-e2e`, `merge-gate`), Evidence must contain **all three**:
+1. media artifact URL (screenshot/video)
+2. execution artifact (code block or structured terminal/test output)
+3. self-validation language (`verified`, `error case`, `before/after`, `reproduced`)
+
+This enforces a "prove it" standard instead of claim-only summaries.
+- Before first push: run `/pr-media` to capture screenshot/video and include real test/terminal output
+- If `/pr-media` is unavailable: include HTTPS media URL from another capture path plus real command output
+- Placeholder text (`<value>`, `<screenshot path>`, `TODO`, `TBD`) and `simulated` output fail the gate
+- Reference format: `docs/evidence/strong-evidence-standard.md`
 
 ## Fork Isolation — Code Separation from Upstream
 

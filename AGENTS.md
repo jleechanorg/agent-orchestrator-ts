@@ -176,6 +176,24 @@ When merging multiple PRs, use the `/bulk-merge` workflow (`.claude/commands/bul
 
 Before writing code that changes core behavior, **check the mirror first** to see if upstream already supports it. Many features (notifier plugins, reactions, config wiring) already work via config — no code change needed.
 
+## Evidence Standard (strong)
+
+For claim classes `pipeline-e2e`, `pr-lifecycle-e2e`, and `merge-gate`, PR evidence must include:
+- at least one media artifact URL (screenshot/video)
+- real execution output (code block or structured terminal/test output)
+- explicit self-validation language (`verified`, `error case`, `before/after`, `reproduced`)
+
+Reference: `docs/evidence/strong-evidence-standard.md`
+
+## Agent Docs Router (harness overlay)
+
+Use progressive disclosure instead of loading the whole repo context:
+- start: `docs/agent/index.md`
+- then open only the leaf doc needed for the task (`architecture`, `specs`, `plans`, `quality`, `reliability`, `security`)
+
+Before opening a PR that touches agent docs/policy, run:
+- `python3 scripts/agent_repo_check.py`
+
 ## PR Checklist
 
 Before opening a PR, verify:
@@ -183,6 +201,7 @@ Before opening a PR, verify:
 - [ ] All existing tests pass
 - [ ] New behavior has new tests (TDD)
 - [ ] Config-first hierarchy followed (AGENTS.md §Development Hierarchy)
+- [ ] Evidence bundle meets strong evidence standard for non-unit claims
 - [ ] No secrets or tokens committed
 - [ ] Conventional commit messages
 

@@ -187,19 +187,20 @@ jobs:
             exit 1
           fi
 
-          # Pass if either media image or code output is present
-          if [ "$HAS_IMAGE" = "true" ] || [ "$HAS_CODE" = "true" ]; then
+          # Strong evidence standard: require BOTH execution logs and media artifacts.
+          # This blocks "trust me" PR bodies that include only screenshots OR only prose.
+          if [ "$HAS_IMAGE" = "true" ] && [ "$HAS_CODE" = "true" ]; then
             echo ""
-            echo "Evidence section contains media: image=$HAS_IMAGE code=$HAS_CODE"
-            echo "PASS: No fabricated/placeholder patterns detected"
+            echo "Evidence section meets strong standard: image=$HAS_IMAGE code=$HAS_CODE"
+            echo "PASS: Includes artifact media + execution output, with no placeholders"
             exit 0
           else
             echo ""
-            echo "FAIL: Evidence section exists but contains no media attachment."
-            echo "Expected one of:"
-            echo "  - Markdown image with URL: ![alt](https://...)"
-            echo "  - Media with HTTPS: **Media**: https://... .png/.jpg/.gif/.mp4/..."
-            echo "  - Code block: \`\`\`...\`\`\`"
-            echo "  - Structured text reference: **Test output**: or **Terminal output**:"
+            echo "FAIL: Evidence section is incomplete for strong evidence standard."
+            echo "Required BOTH:"
+            echo "  1) Media artifact (screenshot/video URL)"
+            echo "  2) Execution artifact (code block or structured terminal/test output)"
+            echo ""
+            echo "Current detection: image=$HAS_IMAGE code=$HAS_CODE"
             exit 1
           fi
