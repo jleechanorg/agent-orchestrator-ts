@@ -75,6 +75,8 @@ WORKERS_FILE="$_repo_root/novel/the-daily-lives-of-workers.md"
   --words 1000
 
 # Commit and push the new daily entry to origin/main.
+# Uses ff-only merge to prevent overwriting remote commits that may have
+# advanced origin/main since we started (e.g., from the previous day's run).
 # Uses a dedicated "novel-daily" identity so these commits are distinguishable.
 DAILY_FILE="$_repo_root/novel/workers/${TODAY}.md"
 if [ -f "$DAILY_FILE" ]; then
