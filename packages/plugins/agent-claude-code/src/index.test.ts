@@ -192,6 +192,13 @@ describe("getLaunchCommand", () => {
     expect(cmd).toContain("--dangerously-skip-permissions");
   });
 
+  it("treats permissions=auto as permissionless (bypasses approval dialogs)", () => {
+    const cmd = agent.getLaunchCommand(
+      makeLaunchConfig({ permissions: "auto" as unknown as AgentLaunchConfig["permissions"] }),
+    );
+    expect(cmd).toContain("--dangerously-skip-permissions");
+  });
+
   it("shell-escapes model argument", () => {
     const cmd = agent.getLaunchCommand(makeLaunchConfig({ model: "claude-opus-4-6" }));
     expect(cmd).toContain("--model 'claude-opus-4-6'");
@@ -213,6 +220,22 @@ describe("getLaunchCommand", () => {
   it("omits --dangerously-skip-permissions when permissions=default", () => {
     const cmd = agent.getLaunchCommand(makeLaunchConfig({ permissions: "default" }));
     expect(cmd).not.toContain("--dangerously-skip-permissions");
+  });
+
+  it("treats permissions=auto as permissionless on restore", async () => {
+    mockJsonlFiles('{"type":"summary","summary":"test"}\n');
+    const project = {
+      name: "test-project",
+      repo: "owner/repo",
+      path: "/workspace/repo",
+      defaultBranch: "main",
+      sessionPrefix: "test",
+      agentConfig: {
+        permissions: "auto" as unknown as AgentLaunchConfig["permissions"],
+      },
+    };
+    const cmd = await agent.getRestoreCommand!(makeSession(), project);
+    expect(cmd).toContain("--dangerously-skip-permissions");
   });
 
   it("omits optional flags when not provided", () => {
