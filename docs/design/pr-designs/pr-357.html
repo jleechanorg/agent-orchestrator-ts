@@ -51,7 +51,12 @@
     <main class="wrap">
       <section class="hero">
         <h1>[agento] fix(novel-daily + CI): launchd date wrapper, auto commit/push, evidence-gate strong-proof + wholesome fixes</h1>
-        <p class="muted">Fixes the novel-daily launchd job (<code>scripts/novel/run-daily.sh</code>) to:<br>1. Resolve install-time hardcoded <code>--daily</code> date (uses runtime date wrapper)<br>2. Commit and push generated daily entries to <code>origin/main</code> automatically<br>3. Move <code>git fetch + ff-only merge</code> BEFORE file generation (CR feedback) to prevent conflicts</p>
+        <p class="muted">Fixes the novel-daily launchd job (<code>scripts/novel/run-daily.sh</code>) to:</p>
+        <ol class="muted">
+          <li>Resolve install-time hardcoded <code>--daily</code> date (uses runtime date wrapper)</li>
+          <li>Commit and push generated daily entries to <code>origin/main</code> automatically</li>
+          <li>Move <code>git fetch + ff-only merge</code> BEFORE file generation (CR feedback) to prevent conflicts</li>
+        </ol>
         <p class="muted" style="margin-top:0.5rem">
           PR: <a href="https://github.com/jleechanorg/agent-orchestrator/pull/357">#357</a>
           &nbsp;·&nbsp; Status: <span class="badge badge-open">Open</span>
@@ -96,6 +101,7 @@
       <section class="card">
         <h2>Files Changed (by package)</h2>
         <table>
+          <caption>Files changed grouped by package or directory</caption>
           <thead><tr><th>Package / Path</th><th>Files</th></tr></thead>
           <tbody>
             <tr><td><code>.github/workflows</code></td><td>3</td></tr>
@@ -113,6 +119,7 @@
       <section class="card">
         <h2>All Files Changed</h2>
         <table>
+          <caption>All files changed in PR #357 with status and diff stats</caption>
           <thead><tr><th>File</th><th>Status</th><th style="text-align:right">+</th><th style="text-align:right">−</th></tr></thead>
           <tbody>
             <tr>
