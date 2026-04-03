@@ -269,7 +269,7 @@ For long-running agent observability, Cursor's research on scaling autonomous co
 ### Evidence Gate strong proof — run `/pr-media` BEFORE first push
 The **Evidence Bundle v2** above is the canonical format. For non-unit claims (`integration`, `pipeline-e2e`, `pr-lifecycle-e2e`, `merge-gate`), CI also enforces these minimum strong-proof requirements:
 1. media artifact URL (screenshot/video — HTTPS, extension-suffixed or markdown image)
-2. execution artifact (fenced code block ` ``` ` or `~~~ `, or structured `**Terminal output**:` line)
+2. execution artifact (fenced code block ` ``` ` or `~~~ `, or structured `**Terminal test output**:` line)
 3. self-validation language (`verified`, `confirmed`, `error case`, `reproduced`, etc. — a bare `**Self-validation**:` label is insufficient)
 
 **`docs/evidence/strong-evidence-standard.md`** is the quick-reference template; the Evidence Bundle v2 section above is the authoritative policy.

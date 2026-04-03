@@ -285,12 +285,19 @@ jobs:
             fi
 
             # 3. UI media: HTTPS URL (extension-suffixed) or markdown image, OR exact N/A text.
+            # Scope to UI_BLOCK (after **UI media** label) to avoid accepting Terminal media
+            # URLs as satisfying the UI media requirement (copilot bd-2oko fix).
             HAS_UI_MEDIA=false
-            if printf '%s' "$EVIDENCE" | grep -qiE '\*\*UI media\*\*:[[:space:]]*N/A.*no UI|N/A - no UI'; then
+            UI_BLOCK=$(printf '%s' "$EVIDENCE" | awk '
+              /\*\*UI media\*\*/ { show=1; next }
+              show && /^[[:space:]]*##[[:space:]]/ { exit }
+              show { print }
+            ')
+            if printf '%s' "$UI_BLOCK" | grep -qiE '\*\*UI media\*\*:[[:space:]]*N/A.*no UI|N/A - no UI'; then
               HAS_UI_MEDIA=true
-            elif printf '%s' "$EVIDENCE" | grep -qiE 'https://[^[:space:]]+\.(png|jpg|jpeg|gif|webp|mp4|webm|mov)'; then
+            elif printf '%s' "$UI_BLOCK" | grep -qiE 'https://[^[:space:]]+\.(png|jpg|jpeg|gif|webp|mp4|webm|mov)'; then
               HAS_UI_MEDIA=true
-            elif printf '%s' "$EVIDENCE" | grep -qiE '!\[[^]]*\]\(https://[^)]+\.(png|jpg|jpeg|gif|webp|mp4|webm|mov)\)'; then
+            elif printf '%s' "$UI_BLOCK" | grep -qiE '!\[[^]]*\]\(https://[^)]+\.(png|jpg|jpeg|gif|webp|mp4|webm|mov)\)'; then
               HAS_UI_MEDIA=true
             fi
 
