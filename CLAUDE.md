@@ -221,7 +221,7 @@ The 3-PR churn threshold applies to subsystem keywords. For **same file** fixes,
 # does the same. The first invocation uses macOS syntax and redirects stderr to /dev/null so
 # it silently falls through to the GNU/Linux fallback on non-macOS systems.
 gh pr list --repo jleechanorg/agent-orchestrator --state merged \
-  --search "updated:>=$(date -v-4h +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -d '4 hours ago' +%Y-%m-%dT%H:%M:%SZ)" \
+  --search "merged:>=$(date -v-4h +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -d '4 hours ago' +%Y-%m-%dT%H:%M:%SZ)" \
   --json number,title,files 2>/dev/null | jq '.[] | {number, title, files}'
 # If any recently merged PR touches the same file as your change → churn protocol
 ```

@@ -204,14 +204,15 @@ jobs:
             show { print }
           ')
 
-          # 1) Repro gist URL is mandatory
+          # 1) Repro gist URL is mandatory — scope to Repro gist line only (not entire EVIDENCE_SECTION)
           # FIX bd-ao357r2: actual label is "**Repro gist:**" (with colon). grep -qF fixed string
           # must include the colon to match.
-          if ! printf '%s' "$EVIDENCE_SECTION" | grep -qF '**Repro gist:'; then
+          REPRO_LINE=$(printf '%s' "$EVIDENCE_SECTION" | grep -iF '**Repro gist:' | head -1)
+          if [ -z "$REPRO_LINE" ]; then
             echo "FAIL: Missing '**Repro gist**' label in Evidence section"
             exit 1
           fi
-          if ! printf '%s' "$EVIDENCE_SECTION" | grep -qE 'https://gist\.github\.com/[^[:space:]]+'; then
+          if ! printf '%s' "$REPRO_LINE" | grep -qE 'https://gist\.github\.com/[^[:space:]]+'; then
             echo "FAIL: Missing required gist URL (https://gist.github.com/...) in Evidence section"
             exit 1
           fi
@@ -309,12 +310,13 @@ jobs:
           # integration+ claims: enforce Bundle v2 — repro gist + UI media + self-validation language
           # (terminal checks 1-4 already passed above)
           HAS_UI_MEDIA=false
-          # FIX bd-ao357r2: actual label ends with ':' not '**'.
-          if printf '%s' "$EVIDENCE_SECTION" | grep -qF '**UI media:' && printf '%s' "$EVIDENCE_SECTION" | grep -qiE 'N/A.*no UI|N/A - no UI'; then
+          # FIX bd-ao357r2: actual label ends with ':' not '**'. Use $UI_BLOCK to scope checks
+          # (avoids matching Terminal media URLs or stray N/A text elsewhere in EVIDENCE_SECTION).
+          if printf '%s' "$UI_BLOCK" | grep -qF '**UI media:' && printf '%s' "$UI_BLOCK" | grep -qiE 'N/A.*no UI|N/A - no UI'; then
             HAS_UI_MEDIA=true
-          elif printf '%s' "$EVIDENCE_SECTION" | grep -qiE 'https://[^[:space:]]+\.(png|jpg|jpeg|gif|webp|mp4|webm|mov)'; then
+          elif printf '%s' "$UI_BLOCK" | grep -qiE 'https://[^[:space:]]+\.(png|jpg|jpeg|gif|webp|mp4|webm|mov)'; then
             HAS_UI_MEDIA=true
-          elif printf '%s' "$EVIDENCE_SECTION" | grep -qiE '!\[[^]]*\]\(https://[^)]+\.(png|jpg|jpeg|gif|webp|mp4|webm|mov)\)'; then
+          elif printf '%s' "$UI_BLOCK" | grep -qiE '!\[[^]]*\]\(https://[^)]+\.(png|jpg|jpeg|gif|webp|mp4|webm|mov)\)'; then
             HAS_UI_MEDIA=true
           fi
 

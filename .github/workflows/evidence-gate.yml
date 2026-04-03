@@ -247,9 +247,9 @@ jobs:
             # grep -qF label checks below).
             EVIDENCE=$(printf '%s\n' "$BODY" | awk '
               # Strip single-line HTML comment spans within lines (not whole lines).
-              # Use gsub to remove <!--...--> substrings while preserving surrounding text.
+              # Use gsub wrapped in braces to act unconditionally on every line.
               # Multi-line comment spans are handled by in_comment toggling.
-              gsub(/<!--[^>]*-->/, "")
+              { gsub(/<!--[^>]*-->/, "") }
               # Multi-line comment: after <!-- not followed by -->, enter comment mode.
               /^[[:space:]]*<!--/ && $0 !~ /<!--[^>]*-->/ { in_comment=1; next }
               in_comment && /^[[:space:]]*-->/ { in_comment=0; next }

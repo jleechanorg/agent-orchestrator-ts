@@ -76,12 +76,19 @@ git -C "$_repo_root" merge --ff-only origin/main
 # Any other push failure (auth, network, rejected policy) is terminal — reset to
 # origin/main so the next scheduled run starts clean instead of accumulating divergent commits.
 push_with_retry() {
-  if git push origin main 2>&1 | grep -qi "non-fast-forward\|failed to push some refs"; then
+  # Run push in subshell with set +e so grep exit-1 doesn't kill the script.
+  # pipefail still captures the push exit code; set +e prevents subshell exit on grep mismatch.
+  push_output=$(set +e; bash -c 'set -o pipefail; git push origin main 2>&1' 2>&1)
+  push_status=$?
+  if echo "$push_output" | grep -qi "non-fast-forward\|failed to push some refs"; then
     echo "run-daily.sh: push rejected (non-ff), fetching and rebasing..." >&2
     git fetch origin main
     if git rebase origin/main; then
       git push origin main && return 0
     fi
+  fi
+  if [ $push_status -eq 0 ]; then
+    return 0  # Push succeeded, no retry needed
   fi
   echo "run-daily.sh: FATAL: push failed — resetting to origin/main to prevent divergent commits." >&2
   git rebase --abort 2>/dev/null
