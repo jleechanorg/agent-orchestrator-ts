@@ -81,36 +81,21 @@ WORKERS_FILE="$_repo_root/novel/the-daily-lives-of-workers.md"
 DAILY_FILE="$_repo_root/novel/workers/${TODAY}.md"
 if [ -f "$DAILY_FILE" ]; then
   cd "$_repo_root"
-  git config user.name "ao-novel-daily" 2>/dev/null || true
-  git config user.email "ao-novel-daily@agentorchestrator" 2>/dev/null || true
+  git config --local user.name "ao-novel-daily" 2>/dev/null || true
+  git config --local user.email "ao-novel-daily@agentorchestrator" 2>/dev/null || true
 
-  # Check if both output files are tracked AND unchanged — safe to skip.
-  # Also skip if daily file is tracked and neither it nor the workers log changed.
-  _daily_tracked=0
-  _workers_tracked=0
-  if git ls-files --error-unmatch "$DAILY_FILE" >/dev/null 2>&1; then
-    _daily_tracked=1
-  fi
-  if git ls-files --error-unmatch "$WORKERS_FILE" >/dev/null 2>&1 2>/dev/null; then
-    _workers_tracked=1
-  fi
-
-  if [ "$_daily_tracked" = 1 ] && [ "$_workers_tracked" = 1 ]; then
-    # Both tracked: skip only if neither has local changes.
-    if git diff --quiet "$DAILY_FILE" "$WORKERS_FILE" 2>/dev/null; then
-      echo "run-daily.sh: both files unchanged (already committed) — skipping."
-    else
-      git add "$DAILY_FILE" "$WORKERS_FILE"
-      git commit -m "[agento] novel: daily entry $TODAY"
-      git fetch origin main
-      git merge --ff-only origin/main
-      git push origin main
-      echo "run-daily.sh: pushed updated entry to origin/main."
-    fi
+  # Skip if BOTH the daily file AND the aggregate workers file are unchanged.
+  # Guard WORKERS_FILE: only include in diff if it is tracked (untracked files would
+  # cause git diff --quiet to return non-zero, making the check fire spuriously).
+  _tracked_workers=true
+  git ls-files --error-unmatch "$WORKERS_FILE" >/dev/null 2>&1 || _tracked_workers=false
+  if git diff --quiet -- "$DAILY_FILE" 2>/dev/null && \
+     ( ! "$_tracked_workers" || git diff --quiet -- "$WORKERS_FILE" 2>/dev/null ); then
+    echo "run-daily.sh: daily and workers files unchanged (already committed) — skipping."
   else
-    # At least one is new or untracked: add, commit, push.
     git add "$DAILY_FILE" "$WORKERS_FILE"
     git commit -m "[agento] novel: daily entry $TODAY"
+    # Ensure origin/main hasn't advanced since we started; abort if it has.
     git fetch origin main
     git merge --ff-only origin/main
     git push origin main
