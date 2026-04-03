@@ -27,15 +27,41 @@ fi
 
 # Prefer nvm Node 22 — Homebrew node may be v24 with incompatible native module ABI
 # (better-sqlite3: modules=137 vs 127 causes runtime crashes).
+# Scan all v22.* versions and verify the major version is 22 before using.
+NODE=""
 if [ -x "$_repo_root/.nvm-node" ]; then
-  NODE="$_repo_root/.nvm-node"
-elif [ -x "$HOME/.nvm/versions/node/v22.22.0/bin/node" ]; then
-  NODE="$HOME/.nvm/versions/node/v22.22.0/bin/node"
-elif command -v node >/dev/null 2>&1; then
-  NODE="$(command -v node)"
-else
-  echo "ERROR: run-daily.sh: no node binary found" >&2
-  exit 1
+  _ver="$("$_repo_root/.nvm-node" --version 2>/dev/null || echo "")"
+  if [[ "$_ver" =~ ^v22\. ]]; then
+    NODE="$_repo_root/.nvm-node"
+  fi
+fi
+
+if [ -z "$NODE" ]; then
+  for _nvm_node in "$HOME"/.nvm/versions/node/v22.*/bin/node; do
+    [ -x "$_nvm_node" ] || continue
+    _ver="$("$_nvm_node" --version 2>/dev/null || echo "")"
+    if [[ "$_ver" =~ ^v22\. ]]; then
+      NODE="$_nvm_node"
+      break
+    fi
+  done
+fi
+
+if [ -z "$NODE" ]; then
+  _sys_node="$(command -v node 2>/dev/null || echo "")"
+  if [ -n "$_sys_node" ] && [ -x "$_sys_node" ]; then
+    _ver="$("$_sys_node" --version 2>/dev/null || echo "")"
+    if [[ "$_ver" =~ ^v22\. ]]; then
+      NODE="$_sys_node"
+    else
+      echo "ERROR: run-daily.sh: system node is '$_ver' (not v22); refusing to run." >&2
+      echo "       Install Node 22 via nvm, or create \$REPO_ROOT/.nvm-node symlink." >&2
+      exit 1
+    fi
+  else
+    echo "ERROR: run-daily.sh: no node binary found" >&2
+    exit 1
+  fi
 fi
 
 # Date computed at runtime, not at plist-install time
@@ -63,14 +89,14 @@ if [ -f "$DAILY_FILE" ]; then
       echo "run-daily.sh: $DAILY_FILE unchanged (already committed) — skipping."
     else
       git add "$DAILY_FILE" "$_repo_root/novel/the-daily-lives-of-workers.md"
-      git commit -m "[agento] novel: daily entry $(date '+%Y-%m-%d')"
+      git commit -m "[agento] novel: daily entry $TODAY"
       git push origin main
       echo "run-daily.sh: pushed updated entry to origin/main."
     fi
   else
     # New untracked file: add, commit, push.
     git add "$DAILY_FILE" "$_repo_root/novel/the-daily-lives-of-workers.md"
-    git commit -m "[agento] novel: daily entry $(date '+%Y-%m-%d')"
+    git commit -m "[agento] novel: daily entry $TODAY"
     git push origin main
     echo "run-daily.sh: pushed new daily entry to origin/main."
   fi
