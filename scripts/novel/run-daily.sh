@@ -16,7 +16,7 @@ _repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 _repo_branch="$(git -C "$_repo_root" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")"
 if [ "$_repo_branch" != "main" ]; then
   echo "ERROR: run-daily.sh: repo is on branch '$_repo_branch', expected 'main'. Refusing to push." >&2
-  echo "       Run against /Users/jleechan/project_agento/agent-orchestrator (the canonical main repo)." >&2
+  echo "       Run against the canonical main repo (resolved: $_repo_root)." >&2
   exit 1
 fi
 
@@ -90,6 +90,9 @@ if [ -f "$DAILY_FILE" ]; then
     else
       git add "$DAILY_FILE" "$_repo_root/novel/the-daily-lives-of-workers.md"
       git commit -m "[agento] novel: daily entry $TODAY"
+      # Ensure origin/main hasn't advanced since we started; abort if it has.
+      git fetch origin main
+      git merge --ff-only origin/main
       git push origin main
       echo "run-daily.sh: pushed updated entry to origin/main."
     fi
@@ -97,6 +100,9 @@ if [ -f "$DAILY_FILE" ]; then
     # New untracked file: add, commit, push.
     git add "$DAILY_FILE" "$_repo_root/novel/the-daily-lives-of-workers.md"
     git commit -m "[agento] novel: daily entry $TODAY"
+    # Ensure origin/main hasn't advanced since we started; abort if it has.
+    git fetch origin main
+    git merge --ff-only origin/main
     git push origin main
     echo "run-daily.sh: pushed new daily entry to origin/main."
   fi
