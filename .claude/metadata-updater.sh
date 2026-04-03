@@ -56,7 +56,7 @@ cd_prefix_pattern='^[[:space:]]*cd[[:space:]]+.*[[:space:]]+(&&|;)[[:space:]]+(.
 clean_command="$command"
 while true; do
   # Strip leading env assignments: FOO=bar BAZ=qux gh pr create ...
-  if [[ "$clean_command" =~ ^[[:space:]]*([A-Za-z_][A-Za-z0-9_]*=[^= ]*)[[:space:]]+(.+)$ ]]; then
+  if [[ "$clean_command" =~ ^[[:space:]]*([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*)[[:space:]]+(.+)$ ]]; then
     clean_command="${BASH_REMATCH[2]}"
   # Strip leading cd prefixes: cd /path && gh pr create ...
   elif [[ "$clean_command" =~ $cd_prefix_pattern ]]; then
@@ -142,8 +142,8 @@ update_metadata_key() {
   # Create temp file
   local temp_file="${metadata_file}.tmp"
 
-  # Escape special sed characters in value (& and \ — not | or / in BRE)
-  local escaped_value=$(echo "$value" | sed 's/[&\\]/\\&/g')
+  # Escape special sed characters in value (&, \, and | — all special with | delimiter)
+  local escaped_value=$(echo "$value" | sed 's/[&|\\]/\\&/g')
 
   # Check if key already exists
   if grep -q "^$key=" "$metadata_file" 2>/dev/null; then
@@ -199,18 +199,22 @@ fi
 if [[ "$clean_command" =~ ^git[[:space:]]+checkout[[:space:]]+([^[:space:]-]+[/-][^[:space:]]+) ]]; then
   branch="${BASH_REMATCH[1]}"
   if [[ -n "$branch" && "$branch" != "HEAD" ]]; then
-    update_metadata_key "branch" "$branch"
-    echo '{"systemMessage": "Updated metadata: branch = '"$branch"'"}'
-    exit 0
+    if git show-ref --verify --quiet "refs/heads/$branch" 2>/dev/null; then
+      update_metadata_key "branch" "$branch"
+      echo '{"systemMessage": "Updated metadata: branch = '"$branch"'"}'
+      exit 0
+    fi
   fi
 fi
 
 if [[ "$clean_command" =~ ^git[[:space:]]+switch[[:space:]]+([^[:space:]-]+[/-][^[:space:]]+) ]]; then
   branch="${BASH_REMATCH[1]}"
   if [[ -n "$branch" && "$branch" != "HEAD" ]]; then
-    update_metadata_key "branch" "$branch"
-    echo '{"systemMessage": "Updated metadata: branch = '"$branch"'"}'
-    exit 0
+    if git show-ref --verify --quiet "refs/heads/$branch" 2>/dev/null; then
+      update_metadata_key "branch" "$branch"
+      echo '{"systemMessage": "Updated metadata: branch = '"$branch"'"}'
+      exit 0
+    fi
   fi
 fi
 
