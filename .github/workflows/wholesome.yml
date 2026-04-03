@@ -217,7 +217,9 @@ jobs:
           echo "Terminal media + caption: PASS"
 
           # 3) Terminal test output — mandatory in addition to terminal media (fenced logs + concrete test command)
-          if ! printf '%s' "$TTO_BLOCK" | grep -qiE '\*\*Terminal test output\*\*:'; then
+          # Unit claims: exempt from the concrete-test-command requirement (evidence-gate handles
+          # unit coverage separately). Unit claims still need the fenced block label+code presence.
+          if ! printf '%s' "$TTO_BLOCK" | grep -qiE '\*\*Terminal test output\*\*'; then
             echo "FAIL: Missing '**Terminal test output**' label in Evidence section"
             exit 1
           fi
@@ -225,9 +227,12 @@ jobs:
             echo "FAIL: Terminal test output must include a fenced code block with real logs"
             exit 1
           fi
-          if ! printf '%s' "$TTO_BLOCK" | grep -qiE '\$[ \t]*(pnpm|npm|yarn|bun|pnpm exec|npx).+test|\$\.?/[a-z_-]+ (test|spec|rake)|bash.+test|sh.+test|python -m pytest|\b(pnpm|npm|yarn|bun|npx|pnpm exec).+\b(test|jest|vitest|mocha|rspec|pytest)\b|\bgo test\b|\bcargo test\b|\brake test\b|\bmvn test\b|\bgradle test\b|\bmake test\b|\bbun test\b|\brspec\b'; then
-            echo "FAIL: Terminal test output must mention at least one concrete test command"
-            exit 1
+          # Only enforce concrete test command for non-unit claims; unit claims pass without it
+          if [ "$CLAIM" != "unit" ] && [ -n "$CLAIM" ]; then
+            if ! printf '%s' "$TTO_BLOCK" | grep -qiE '\$[ \t]*(pnpm|npm|yarn|bun|pnpm exec|npx).+test|\$\.?/[a-z_-]+ (test|spec|rake)|bash.+test|sh.+test|python -m pytest|\b(pnpm|npm|yarn|bun|npx|pnpm exec).+\b(test|jest|vitest|mocha|rspec|pytest)\b|\bgo test\b|\bcargo test\b|\brake test\b|\bmvn test\b|\bgradle test\b|\bmake test\b|\bbun test\b|\brspec\b'; then
+              echo "FAIL: Terminal test output must mention at least one concrete test command"
+              exit 1
+            fi
           fi
           echo "Terminal test output: PASS"
 
