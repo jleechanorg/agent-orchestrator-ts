@@ -201,22 +201,14 @@ function extractDescription(body) {
     .replace(/\\u003c!--\s*[\/]?CURSOR_SUMMARY[\s\S]*?\\u003e/g, "")
     .replace(/^---\s*$/gm, "")
     .replace(/<!--[\s\S]*?-->/gs, ""); // strip any remaining HTML comments (dotall + non-greedy)
-  // CR bd-357-fix: strip @coderabbitai reviewer pings and CI status claims from
-  // description — these are ephemeral conversational content, not design metadata.
-  const stripped = cleaned
-    .replace(/^@coderabbitai\s+[^]*?(?=\n\n|\n#|$)/gim, "")
-    .replace(/^(?:All CI checks pass|Evidence Gate|Wholesome PR Checks|Skeptic Gate)[^\n]*\n*/gim, "");
-  const paragraphs = stripped.split(/\n\n+/);
+  const paragraphs = cleaned.split(/\n\n+/);
   for (const p of paragraphs) {
     const trimmed = p.trim();
     if (trimmed && !trimmed.startsWith("#") && trimmed.length > 20) {
       return trimmed.replace(/\[([^\]]+)\]\([^)]+\)/g, "$1"); // strip links
     }
   }
-  const normalized = stripped.trim();
-  if (!normalized) return "No description provided.";
-  const fallback = normalized.slice(0, 200);
-  return normalized.length > 200 ? `${fallback}…` : fallback;
+  return cleaned.slice(0, 200).trim() + "…";
 }
 
 function extractLabels(pr) {
