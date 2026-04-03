@@ -104,22 +104,35 @@ if [ -f "$DAILY_FILE" ]; then
 
   # Idempotency: skip if neither file has changes.  Workers changes matter only
   # if it exists (created by a prior generator run).
+  # FIX: git ls-files --error-unmatch detects untracked files (git diff returns 0 for untracked).
   _changed=false
-  if ! git diff --quiet "$DAILY_FILE" 2>/dev/null; then
+  if git ls-files --error-unmatch "$DAILY_FILE" 2>/dev/null; then
+    # File is tracked — use diff for change detection.
+    if ! git diff --quiet "$DAILY_FILE" 2>/dev/null; then
+      _changed=true
+    fi
+  elif [ -f "$DAILY_FILE" ]; then
+    # File is untracked but exists — new entry created.
     _changed=true
-  elif [ -f "$WORKERS_FILE" ] && ! git diff --quiet "$WORKERS_FILE"; then
+  fi
+  if [ "$_changed" != "true" ] && [ -f "$WORKERS_FILE" ] && ! git diff --quiet "$WORKERS_FILE" 2>/dev/null; then
     _changed=true
   fi
 
   if [ "$_changed" != "true" ]; then
     echo "run-daily.sh: no changes to commit — skipping."
   else
-    # CR bd-cng4 fix: use --only to scope commit to specific files, preventing
-    # pre-existing staged changes (from other sources) from being swept in.
+    # FIX: check for pre-existing staged changes before adding our files,
+    # preventing unrelated staged content from being swept into the automated commit.
+    if ! git diff --cached --quiet 2>/dev/null; then
+      echo "ERROR: run-daily.sh: pre-existing staged changes detected; refusing to auto-commit from dirty index." >&2
+      echo "       Unstage with: git -C $_repo_root reset HEAD" >&2
+      exit 1
+    fi
+    git add "$DAILY_FILE"
+    [ -f "$WORKERS_FILE" ] && git add "$WORKERS_FILE"
     git -c user.name="ao-novel-daily" -c user.email="ao-novel-daily@agentorchestrator" \
-      commit --only "$DAILY_FILE"
-    [ -f "$WORKERS_FILE" ] && git -c user.name="ao-novel-daily" -c user.email="ao-novel-daily@agentorchestrator" \
-      commit --only "$WORKERS_FILE"
+      commit -m "[agento] novel: daily entry $TODAY"
     push_with_retry || exit 1
     echo "run-daily.sh: pushed entry to origin/main."
   fi
