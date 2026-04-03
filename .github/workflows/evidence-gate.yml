@@ -85,8 +85,9 @@ jobs:
           #   - **Claim class**: PR-lifecycle E2E (with parenthetical — colon INSIDE bold)
           # grep -i '\*\*Claim class' matches bold-markdown lines
           # | grep -v '^- ' filters list bullets (extracted separately below)
-          # First sed: strip markdown and extract text after "**Claim class**: " (space after colon)
-          # Supports: **Claim class**: value  (colon inside bold, space after colon)
+          # First sed: strip markdown and extract text after "**Claim class**: "
+          #   (space after colon — one-or-more spaces to handle "**:  value" double-space case)
+          # Supports: **Claim class**: value  and **Claim class**:  value (double-space)
           # Second sed: strip any trailing parenthetical or extra text
           # tr -d '*' removes markdown bold markers; tr '[:upper:]' '[:lower:]' lowercases
           # tr ' ' '-' converts remaining spaces to hyphens so "Pipeline E2E" → "pipeline-e2e"
@@ -96,7 +97,7 @@ jobs:
           # is also correctly stripped even though the pattern uses lowercase 'c'
           CLAIM=$(printf '%s' "$BODY" \
             | grep -i '\*\*Claim class' | grep -v '^- ' | head -1 \
-            | sed 's/.*\*\*Claim class\*\*: *//I' \
+            | sed 's/.*\*\*Claim class\*\*: */\1/I' \
             | sed 's/(.*//' \
             | tr -d '*' | tr '[:upper:]' '[:lower:]' \
             | tr ' ' '-' | tr -d '\t' \
@@ -106,7 +107,7 @@ jobs:
           if [ -z "$CLAIM" ]; then
             CLAIM=$(printf '%s' "$BODY" \
               | grep -i '^-.*\*\*Claim class' | head -1 \
-              | sed 's/.*\*\*Claim class\*\*: *//I' \
+              | sed 's/.*\*\*Claim class\*\*: */\1/I' \
               | sed 's/(.*//' \
               | tr -d '*' | tr '[:upper:]' '[:lower:]' \
               | tr ' ' '-' | tr -d '\t' \
@@ -155,7 +156,7 @@ jobs:
 
           CLAIM=$(printf '%s' "$BODY" \
             | grep -i '\*\*Claim class' | grep -v '^- ' | head -1 \
-            | sed 's/.*\*\*Claim class\*\*: *//I' \
+            | sed 's/.*\*\*Claim class\*\*: */\1/I' \
             | sed 's/(.*//' \
             | tr -d '*' | tr '[:upper:]' '[:lower:]' \
             | tr ' ' '-' | tr -d '\t' \
@@ -165,7 +166,7 @@ jobs:
           if [ -z "$CLAIM" ]; then
             CLAIM=$(printf '%s' "$BODY" \
               | grep -i '^-.*\*\*Claim class' | head -1 \
-              | sed 's/.*\*\*Claim class\*\*: *//I' \
+              | sed 's/.*\*\*Claim class\*\*: */\1/I' \
               | sed 's/(.*//' \
               | tr -d '*' | tr '[:upper:]' '[:lower:]' \
               | tr ' ' '-' | tr -d '\t' \
@@ -301,15 +302,19 @@ jobs:
           fi
 
           # Check for PASS verdict — scoped to Evidence section
-          if printf '%s' "$EVIDENCE_SECTION" | grep -qi '[Vv]erdict.*:.*[Pp][Aa][Ss][Ss]'; then
+          # Strip ** markdown bold markers first so "**Verdict**: **PASS**" becomes "Verdict: PASS"
+          # and the [Pp][Aa][Ss][Ss] character class can match the bare PASS.
+          VERDICT_LINE=$(printf '%s' "$EVIDENCE_SECTION" | grep -i '[Vv]erdict' | head -1)
+          VERDICT_WORD=$(printf '%s' "$VERDICT_LINE" | sed 's/\*\*/ /g' | tr -s ' ' | sed 's/.*[[Vv]erdict]\? *://I' | awk '{print tolower($1)}')
+          if [ "$VERDICT_WORD" = "pass" ]; then
             echo "Verdict: PASS — evidence gate passes"
 
           # Check for INSUFFICIENT verdict — gate passes; missing proof correctly triggers this
-          elif printf '%s' "$EVIDENCE_SECTION" | grep -qi '[Vv]erdict.*:.*[Ii][Nn][Ss][Uu][Ff][Ff][Ii][Cc][Ii][Ee][Nn][Tt]'; then
+          elif [ "$VERDICT_WORD" = "insufficient" ]; then
             echo "Verdict: INSUFFICIENT — gate passes (INSUFFICIENT is a valid fail-closed verdict)"
 
           # Check for FAIL verdict — gate passes; claiming FAIL with a present bundle is contradictory
-          elif printf '%s' "$EVIDENCE_SECTION" | grep -qi '[Vv]erdict.*:.*[Ff][Aa][Ii][Ll]'; then
+          elif [ "$VERDICT_WORD" = "fail" ]; then
             echo "Verdict: FAIL with present bundle — contradiction; gate passes but this bundle should be re-examined"
 
           # No verdict found — hard requirement, gate fails
