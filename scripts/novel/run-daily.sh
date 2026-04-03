@@ -84,25 +84,33 @@ if [ -f "$DAILY_FILE" ]; then
   git config user.name "ao-novel-daily" 2>/dev/null || true
   git config user.email "ao-novel-daily@agentorchestrator" 2>/dev/null || true
 
-  # Determine whether this is a new file or a changed tracked file.
+  # Check if both output files are tracked AND unchanged — safe to skip.
+  # Also skip if daily file is tracked and neither it nor the workers log changed.
+  _daily_tracked=0
+  _workers_tracked=0
   if git ls-files --error-unmatch "$DAILY_FILE" >/dev/null 2>&1; then
-    # Tracked file: skip if working tree matches index (already committed).
-    if git diff --quiet "$DAILY_FILE" 2>/dev/null; then
-      echo "run-daily.sh: $DAILY_FILE unchanged (already committed) — skipping."
+    _daily_tracked=1
+  fi
+  if git ls-files --error-unmatch "$WORKERS_FILE" >/dev/null 2>&1 2>/dev/null; then
+    _workers_tracked=1
+  fi
+
+  if [ "$_daily_tracked" = 1 ] && [ "$_workers_tracked" = 1 ]; then
+    # Both tracked: skip only if neither has local changes.
+    if git diff --quiet "$DAILY_FILE" "$WORKERS_FILE" 2>/dev/null; then
+      echo "run-daily.sh: both files unchanged (already committed) — skipping."
     else
-      git add "$DAILY_FILE" "$_repo_root/novel/the-daily-lives-of-workers.md"
+      git add "$DAILY_FILE" "$WORKERS_FILE"
       git commit -m "[agento] novel: daily entry $TODAY"
-      # Ensure origin/main hasn't advanced since we started; abort if it has.
       git fetch origin main
       git merge --ff-only origin/main
       git push origin main
       echo "run-daily.sh: pushed updated entry to origin/main."
     fi
   else
-    # New untracked file: add, commit, push.
-    git add "$DAILY_FILE" "$_repo_root/novel/the-daily-lives-of-workers.md"
+    # At least one is new or untracked: add, commit, push.
+    git add "$DAILY_FILE" "$WORKERS_FILE"
     git commit -m "[agento] novel: daily entry $TODAY"
-    # Ensure origin/main hasn't advanced since we started; abort if it has.
     git fetch origin main
     git merge --ff-only origin/main
     git push origin main
