@@ -2,7 +2,7 @@
 
 ## jleechanorg/agent-orchestrator — AO PR evidence (authoritative)
 
-For **this repo’s PRs**, the **canonical** policy is **`CLAUDE.md` (Evidence Bundle v2)** + **`docs/evidence/README.md`** + **`docs/evidence/reviewer-checklist.md`**. Treat **agent claims as insufficient without artifacts**; require **reproducible bundles**, **command logs**, **claim→artifact mapping**, **self-validation** (isolated env, revert temp toggles), and **UI video + before/after** when doing interactive work. **`/er`** and **Skeptic** sit on top of CI — see `CLAUDE.md` section *Evidence review (`/er`) vs CI vs Skeptic*.
+For **this repo’s PRs**, the **canonical** policy is **`CLAUDE.md` (Evidence Bundle v2)** + **`docs/evidence/README.md`** + **`docs/evidence/reviewer-checklist.md`** + **`docs/evidence/agent-screen-recording.md`**. Treat **agent claims as insufficient without artifacts**; require **reproducible bundles**, **command logs**, **claim→artifact mapping**, **self-validation** (isolated env, revert temp toggles), and **UI video + before/after** when doing interactive work. For **non-unit** claim classes, **self-produce** an **`**Agent screen recording**:`** video (sandbox) **in addition to** screenshots + terminal logs. **`/er`** and **Skeptic** sit on top of CI — see `CLAUDE.md` section *Evidence review (`/er`) vs CI vs Skeptic*.
 
 The sections below (checksums, `evidence.md` layouts, etc.) apply to **other products’** structured test bundles unless a task explicitly adopts them for AO.
 

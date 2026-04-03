@@ -30,7 +30,7 @@ This fork adds **agentic CI infrastructure** on top of the upstream agent-orches
 
 This fork's goal is **fully autonomous, zero-touch PR merging** for its own codebase. The upstream goal is a general-purpose orchestration tool.
 
-**Evidence standards** (artifacts, reviewer checklist, `/er` vs CI vs Skeptic): see **`docs/evidence/README.md`**.
+**Evidence standards** (artifacts, reviewer checklist, non-unit **Agent screen recording**, `/er` vs CI vs Skeptic): see **`docs/evidence/README.md`** and **`docs/evidence/agent-screen-recording.md`**.
 
 <div align="center">
 

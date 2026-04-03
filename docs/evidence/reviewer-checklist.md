@@ -8,8 +8,9 @@ Use this for **`/er`**, CodeRabbit follow-ups, or human review. **Fail closed**:
 |--------|----------------|
 | **Evidence section** | `## Evidence` present; **Claim class** matches actual work; **Verdict** stated |
 | **Repro gist** | HTTPS gist with steps to fetch branch, install, run tests / repro |
-| **Terminal media** | Screenshot or **video** URL + caption; caption shows **tmux or terminal** context (not satisfied by the label alone) |
+| **Terminal media** | Screenshot or short **video** URL + caption; caption shows **tmux or terminal** context (not satisfied by the label alone) |
 | **Terminal test output** | Fenced logs **in addition to** media; shows real command(s) (e.g. `pnpm`/`vitest`/…) |
+| **Agent screen recording (non-unit)** | If **Claim class** ≠ `unit`: **`**Agent screen recording**:`** (or **`**Screen recording**:`**) with **HTTPS video** (mp4/webm/mov or YouTube/Loom) + **caption**; must be **agent-produced** in a sandbox run (not narrative-only). **Fails CI** if missing. |
 | **Claim → artifact** | For each major claim in the PR description, you can point to **gist step**, **log line**, or **media** — add a short **Claim → artifact map** bullet list in Evidence if crowded |
 | **No placeholders** | No `TODO`, `<path>`, `example.com`, or `simulated` in Evidence |
 | **Self-validation** | Evidence reflects **final** branch state; no leftover debug-only toggles described as “temporary” without revert |

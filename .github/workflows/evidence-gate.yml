@@ -337,6 +337,30 @@ jobs:
             exit 1
           fi
 
+          # Claim class (must match Validate evidence bundle format step) — used for non-unit screen recording
+          CLAIM=$(printf '%s' "$BODY" \
+            | grep -i '\*\*Claim class' | grep -v '^- ' | head -1 \
+            | sed 's/.*\*\*Claim class\*\*: *//I' \
+            | sed 's/(.*//' \
+            | tr -d '*' | tr '[:upper:]' '[:lower:]' \
+            | tr ' ' '-' | tr -d '\t' \
+            | sed 's/^[ \t-]*//;s/[ \t-]*$//')
+          if [ -z "$CLAIM" ]; then
+            CLAIM=$(printf '%s' "$BODY" \
+              | grep -i '^-.*\*\*Claim class' | head -1 \
+              | sed 's/.*\*\*Claim class\*\*: *//I' \
+              | sed 's/(.*//' \
+              | tr -d '*' | tr '[:upper:]' '[:lower:]' \
+              | tr ' ' '-' | tr -d '\t' \
+              | sed 's/^[ \t-]*//;s/[ \t-]*$//')
+          fi
+          case "$CLAIM" in
+            unit-test-coverage|unit-test) CLAIM="unit" ;;
+            integration-test) CLAIM="integration" ;;
+            pr-lifecycle) CLAIM="pr-lifecycle-e2e" ;;
+            merge-gate-green) CLAIM="merge-gate" ;;
+          esac
+
           # 1) Repro gist URL is mandatory
           if ! printf '%s' "$EVIDENCE_SECTION" | grep -qiE '\*\*Repro gist\*\*:[[:space:]]*https://gist\.github\.com/[^[:space:]]+'; then
             echo "ERROR: Missing required '**Repro gist**: https://gist.github.com/...' in Evidence section"
@@ -410,10 +434,34 @@ jobs:
             echo "UI media + caption: PASS"
           fi
 
-          # 5) Reject placeholders/fabrication language
+          # 5b) Non-unit claims: agent screen recording (Cursor-style video artifact), in addition to terminal + logs
+          if [ "$CLAIM" = "unit" ]; then
+            echo "Agent screen recording: SKIP (claim class unit)"
+          else
+            if ! printf '%s' "$EVIDENCE_SECTION" | grep -qiE '\*\*(Agent screen recording|Screen recording)\*\*'; then
+              echo "ERROR: **Claim class** is not unit — add **Agent screen recording** (or **Screen recording**) with HTTPS video URL (record in sandbox; self-produce, do not only describe)"
+              exit 1
+            fi
+            SR_BLOCK=$(printf '%s' "$EVIDENCE_SECTION" | awk '
+              /\*\*(Agent screen recording|Screen recording)\*\*/ { show=1 }
+              show && /^[[:space:]]*\*\*(Repro gist|Terminal media|Terminal test output|UI media|Claim class|Verdict)\*\*/ { exit }
+              show { print }
+            ')
+            if ! printf '%s' "$SR_BLOCK" | grep -qiE 'https://[^[:space:]]+\.(mp4|webm|mov)|https://(www\.)?(youtube\.com|youtu\.be)/|https://[^[:space:]]*\.loom\.com'; then
+              echo "ERROR: Agent screen recording block must include a viewable video URL (mp4/webm/mov or YouTube/Loom)"
+              exit 1
+            fi
+            if ! printf '%s' "$SR_BLOCK" | grep -qiE 'caption'; then
+              echo "ERROR: Agent screen recording must include caption text (sandbox session, what the video shows)"
+              exit 1
+            fi
+            echo "Agent screen recording (non-unit): PASS"
+          fi
+
+          # 6) Reject placeholders/fabrication language
           if printf '%s' "$EVIDENCE_SECTION" | grep -qiE '<path>|<value>|\bTODO\b|\bTBD\b|example\.com|\bsimulated\b'; then
             echo "ERROR: Evidence section contains placeholder/fabricated markers"
             exit 1
           fi
 
-          echo "Evidence Bundle v2 validation: PASS"
+          echo "Evidence Bundle v2 validation: PASS (including non-unit screen recording when applicable)"

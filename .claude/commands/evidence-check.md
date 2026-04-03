@@ -4,7 +4,7 @@ Run this before pushing a PR to catch Evidence Gate failures locally instead of 
 
 ## Philosophy (jleechanorg fork)
 
-**Claims without proof artifacts are insufficient** for substantive work. CI checks **shape** (gist, terminal media + logs, UI or N/A). **Reviewers** and **`/er`** validate **substance** using `docs/evidence/reviewer-checklist.md` (video + before/after for UI, claim→artifact map, self-validation, negative paths). Optimize for **fast human review** and **merge confidence**.
+**Claims without proof artifacts are insufficient** for substantive work. CI checks **shape** (gist, terminal media + logs, UI or N/A). If **Claim class** is **not** `unit`, CI also requires **`**Agent screen recording**:`** with a **video URL** + **caption** (self-produced in sandbox — `docs/evidence/agent-screen-recording.md`). **Reviewers** and **`/er`** validate **substance** using `docs/evidence/reviewer-checklist.md` (video + before/after for UI, claim→artifact map, self-validation, negative paths). Optimize for **fast human review** and **merge confidence**.
 
 ## Usage
 
@@ -24,12 +24,14 @@ The Evidence Gate CI checks (`wholesome.yml` **Evidence Has Media Attachment** a
 4. **Terminal media** — **Every PR**: `**Terminal media**:` with HTTPS screenshot/video URL, **caption** text, and caption references **tmux** or **terminal** context
 5. **Terminal test output** — **In addition to** terminal media: `**Terminal test output**:` plus a fenced `\`\`\`...\`\`\`` block with real logs mentioning a concrete test command (`pnpm`, `npm`, `vitest`, …)
 6. **UI media** — Either `**UI media**:` with HTTPS screenshot/video + caption, **or** the exact substring `N/A - no UI changes` anywhere in `## Evidence`
+7. **Agent screen recording** — If **Claim class** is not `unit`: `**Agent screen recording**:` (or `**Screen recording**:`) with HTTPS video (mp4/webm/mov or YouTube/Loom) + `caption` in that block
 
 **What FAILS the CI check:**
 - Terminal media only (no fenced test logs), or test logs only (no terminal media)
 - Missing repro gist, missing caption, or caption without tmux/terminal context
 - Placeholder text (`<path>`, `<value>`, `TODO`, `example.com`), or `simulated` output
 - No Evidence section at all
+- Non-unit claim without **Agent screen recording** video URL + caption in the block
 
 ## Exit codes
 

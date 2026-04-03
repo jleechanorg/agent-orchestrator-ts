@@ -201,6 +201,7 @@ If skeptic posts `VERDICT: SKIPPED` (infra unavailable — no LLM API keys in GH
 - **Claims without artifacts are insufficient.** Treat implementation claims (behavior, fixes, UX) as **unproven** unless tied to **human-verifiable** artifacts in `## Evidence`.
 - **Substantive work** (features, meaningful refactors, non-trivial behavior changes) requires a **reproducible evidence bundle** every time — not narrative-only summaries.
 - **UI / interactive changes:** Prefer **video** of key flows; include **before** and **after** screenshots for critical visual deltas (same framing when comparing). CI still enforces **UI media** (or exact `N/A - no UI changes`); reviewers use `docs/evidence/reviewer-checklist.md` for bar-raising on UI proof.
+- **Non-unit claims + screen recording:** If **Claim class** is not `unit`, CI requires **`**Agent screen recording**:`** (or **`**Screen recording**:`**) with an **HTTPS video URL** and **caption** — **self-produced in a sandbox run** (Cursor-style), **in addition to** terminal media + fenced logs. Instructions: `docs/evidence/agent-screen-recording.md`.
 - **Command logs + mapping:** Fenced **terminal test output** must support repeats; add a short **Claim → artifact map** (bullets) when multiple claims need separate proof.
 - **Self-validation:** Verify in an **isolated** context when practical (clean worktree / documented env). Exercise **negative / error paths** where risk warrants it. **Revert** temporary debug toggles or test-only hacks before finalizing.
 - **Goal:** Evidence that maximizes **fast human review** and **merge confidence** — scannable, repeatable, honest about limits.
@@ -213,6 +214,7 @@ Hard requirements (all must be true):
 2. **Terminal media** — **Mandatory on every PR**: captioned HTTPS screenshot or video (`**Terminal media**:`) that clearly shows **tmux or terminal** context (caption must mention `tmux` or `terminal` **outside** the label line — see workflow `TM_FOR_CTX` stripping). Image-only or code-only substitutes are **not** accepted.
 3. **Terminal test output** — **Mandatory in addition to** terminal media (not either/or): `**Terminal test output**:` followed by a fenced code block with real test run logs (must reference a concrete test command such as `pnpm`/`npm`/`vitest`/… `test`).
 4. **UI media** — For UI changes: captioned HTTPS screenshot or video under `**UI media**:` (multiple images or a video link are fine for before/after). If there are **no UI changes**, use **exactly** this text (including spacing): `N/A - no UI changes` (may appear in the `**UI media**:` line or elsewhere in `## Evidence`).
+5. **Agent screen recording (non-unit only)** — When **Claim class** is **not** `unit`: `**Agent screen recording**:` (or `**Screen recording**:`) with **HTTPS** video (`.mp4` / `.webm` / `.mov`, or YouTube / Loom) and a **caption** in the same subsection. **Self-produce** the recording in your **sandbox** run (do not satisfy with description alone). **`unit`** claims omit this field.
 
 Recommended (strongly for reviewers + `/er`):
 - **`**Claim → artifact map**:`** — Bullets mapping each major PR claim → gist step / log / media.
@@ -227,7 +229,7 @@ Rules:
 
 ### Evidence review (`/er`) vs CI vs Skeptic
 - **`/er` (step 6 of 7-green):** Human or agent review that evidence **substance** matches the **claim class** and `docs/evidence/reviewer-checklist.md`. Use when the PR has an evidence bundle; **PASS/INSUFFICIENT** is about proof fit, not YAML shape alone.
-- **Evidence Gate (CI):** Format and presence rules only; fails closed on missing fields.
+- **Evidence Gate (CI):** Format and presence rules (including **Agent screen recording** for non-unit claims); fails closed on missing fields. **7-green** remains: CI + merge + CR + Bugbot + threads + `/er` + Skeptic — unchanged count; this adds **stricter Evidence Gate content** for non-unit PRs.
 - **Skeptic Gate:** Independent LLM check on overall merge readiness (can flag gaps between claims and 7-green story). Does not replace real artifacts or `/er`.
 
 ### Cursor cloud-agent artifact model (reference)

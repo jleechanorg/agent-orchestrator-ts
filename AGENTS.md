@@ -84,6 +84,7 @@ roadmap/               # Design docs and decision records — first-class, commi
 ## PR evidence (AO workers) — proof artifacts, not claims
 - **Agent claims are insufficient without artifacts.** Substantive implementation work needs a **reproducible, human-verifiable** bundle in `## Evidence` (**Evidence Bundle v2** in `CLAUDE.md`).
 - **Minimum CI shape:** repro gist, terminal media (tmux/terminal context) + **separate** fenced test logs, UI media or exact `N/A - no UI changes`.
+- **Non-unit claim classes:** You **must self-produce** an **`**Agent screen recording**:`** (or **`**Screen recording**:`**) **video URL** + caption from a **sandbox run** — **in addition to** screenshots + logs — see `docs/evidence/agent-screen-recording.md`. **`unit`** omits this.
 - **Bar-raising (UI / interactive):** Prefer **video** of key flows + **before/after** screenshots for critical states; map claims to gist steps / logs / media (`docs/evidence/reviewer-checklist.md`).
 - **Self-validation:** Clean/isolated reruns where practical; **negative paths** when risk warrants; **revert** temp toggles before merge.
 - **Review stack:** CI Evidence Gate → `/er` (evidence review) → Skeptic — see `docs/evidence/README.md`.

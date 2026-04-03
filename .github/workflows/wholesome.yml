@@ -128,6 +128,29 @@ jobs:
             exit 1
           fi
 
+          CLAIM=$(printf '%s' "$BODY" \
+            | grep -i '\*\*Claim class' | grep -v '^- ' | head -1 \
+            | sed 's/.*\*\*Claim class\*\*: *//I' \
+            | sed 's/(.*//' \
+            | tr -d '*' | tr '[:upper:]' '[:lower:]' \
+            | tr ' ' '-' | tr -d '\t' \
+            | sed 's/^[ \t-]*//;s/[ \t-]*$//')
+          if [ -z "$CLAIM" ]; then
+            CLAIM=$(printf '%s' "$BODY" \
+              | grep -i '^-.*\*\*Claim class' | head -1 \
+              | sed 's/.*\*\*Claim class\*\*: *//I' \
+              | sed 's/(.*//' \
+              | tr -d '*' | tr '[:upper:]' '[:lower:]' \
+              | tr ' ' '-' | tr -d '\t' \
+              | sed 's/^[ \t-]*//;s/[ \t-]*$//')
+          fi
+          case "$CLAIM" in
+            unit-test-coverage|unit-test) CLAIM="unit" ;;
+            integration-test) CLAIM="integration" ;;
+            pr-lifecycle) CLAIM="pr-lifecycle-e2e" ;;
+            merge-gate-green) CLAIM="merge-gate" ;;
+          esac
+
           echo "=== Evidence section (preview) ==="
           printf '%s\n' "$EVIDENCE_SECTION" | head -40
           echo "===================================="
@@ -200,7 +223,31 @@ jobs:
             echo "UI media + caption: PASS"
           fi
 
-          # 5) Reject placeholders/fabrication language
+          # 5b) Non-unit: agent screen recording (video URL) — aligned with evidence-gate.yml
+          if [ "$CLAIM" = "unit" ]; then
+            echo "Agent screen recording: SKIP (claim class unit)"
+          else
+            if ! printf '%s' "$EVIDENCE_SECTION" | grep -qiE '\*\*(Agent screen recording|Screen recording)\*\*'; then
+              echo "FAIL: **Claim class** is not unit — add **Agent screen recording** with HTTPS video URL"
+              exit 1
+            fi
+            SR_BLOCK=$(printf '%s' "$EVIDENCE_SECTION" | awk '
+              /\*\*(Agent screen recording|Screen recording)\*\*/ { show=1 }
+              show && /^[[:space:]]*\*\*(Repro gist|Terminal media|Terminal test output|UI media|Claim class|Verdict)\*\*/ { exit }
+              show { print }
+            ')
+            if ! printf '%s' "$SR_BLOCK" | grep -qiE 'https://[^[:space:]]+\.(mp4|webm|mov)|https://(www\.)?(youtube\.com|youtu\.be)/|https://[^[:space:]]*\.loom\.com'; then
+              echo "FAIL: Agent screen recording must include a video URL (mp4/webm/mov or YouTube/Loom)"
+              exit 1
+            fi
+            if ! printf '%s' "$SR_BLOCK" | grep -qiE 'caption'; then
+              echo "FAIL: Agent screen recording must include caption text"
+              exit 1
+            fi
+            echo "Agent screen recording (non-unit): PASS"
+          fi
+
+          # 6) Reject placeholders/fabrication language
           if printf '%s' "$EVIDENCE_SECTION" | grep -qiE '\bsimulated\b'; then
             echo "FAIL: Evidence contains 'simulated' — fabricated output is not valid evidence."
             exit 1
