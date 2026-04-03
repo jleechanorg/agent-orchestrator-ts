@@ -125,10 +125,9 @@ jobs:
           BODY="$PR_BODY"
 
           # Extract Evidence section (same boundary rules as evidence-gate.yml — stop at next ## or <!--)
-          # bd-ara.2: use IGNORECASE so headings like "## Evidence" and "## EVIDENCE" both match
+          # bd-ara.2: use tolower() for portable case-insensitive match (IGNORECASE not supported by mawk)
           EVIDENCE_SECTION=$(printf '%s\n' "$BODY" | awk '
-            BEGIN { IGNORECASE=1 }
-            /^[[:space:]]*##[[:space:]]+[Ee]vidence([[:space:]]|$)/ { in_section=1; next }
+            tolower($0) ~ /^[[:space:]]*##[[:space:]]+evidence([[:space:]]|$)/ { in_section=1; next }
             in_section && /^[[:space:]]*##[[:space:]]/ { exit }
             in_section && /^[[:space:]]*<!--/ { exit }
             in_section { print }
@@ -229,7 +228,7 @@ jobs:
             exit 1
           fi
           # bd-ara.2: only flag TODO/TBD that look like template values (surrounded by : or whitespace) or bare angle-bracket placeholders
-          if printf '%s' "$NON_CODE_EVIDENCE" | grep -qiE '<path>|<value>|\bTODO\b|\bTBD\b'; then
+          if printf '%s' "$NON_CODE_EVIDENCE" | grep -qiE '<path>|<value>|:[[:space:]]*(TODO|TBD)([[:space:][:punct:]]|$)'; then
             echo "FAIL: Evidence contains placeholder template text"
             exit 1
           fi
