@@ -121,6 +121,14 @@ install_novel_plist() {
     echo "ERROR: Missing script: $REPO_ROOT/scripts/novel/generate-daily-entry.mjs"
     return 1
   fi
+  if [ ! -f "$REPO_ROOT/scripts/novel/run-daily.sh" ]; then
+    echo "ERROR: Missing script: $REPO_ROOT/scripts/novel/run-daily.sh"
+    return 1
+  fi
+  if [ ! -x "$REPO_ROOT/scripts/novel/run-daily.sh" ]; then
+    echo "ERROR: not executable: $REPO_ROOT/scripts/novel/run-daily.sh — run: chmod +x scripts/novel/run-daily.sh"
+    return 1
+  fi
 
   mkdir -p "$LAUNCH_AGENTS_DIR" "$BASE_LOG_DIR"
 
@@ -129,25 +137,15 @@ install_novel_plist() {
   local path_value
   path_value="$(escape_sed "$(path_for_launchd)")"
 
-  # Resolve absolute node path so launchd doesn't depend on PATH lookup.
-  local node_path
-  node_path="$(command -v node 2>/dev/null || echo "")"
-  if [ -z "$node_path" ] || [ ! -x "$node_path" ]; then
-    echo "ERROR: node not found in PATH"
-    return 1
-  fi
-
-  # Build the run command with proper shell quoting using printf %q.
-  # Uses --daily mode which writes to novel/workers/{YYYY-MM-DD}.md as a separate file.
-  # The date is computed at runtime via shell expansion so the plist is static/portable.
+  # Build the run command — delegates date-computation and node-resolution to run-daily.sh.
+  # The wrapper computes today's date at RUNTIME (not at plist-install time), ensuring
+  # each daily run writes to the correct novel/workers/{YYYY-MM-DD}.md file.
+  local run_wrapper="$REPO_ROOT/scripts/novel/run-daily.sh"
   local run_cmd
   printf -v run_cmd \
-    'cd %q && NODE_ENV=production %q %q --daily %q --file %q --days 1 --words 1000' \
+    'cd %q && %q' \
     "$REPO_ROOT" \
-    "$node_path" \
-    "$REPO_ROOT/scripts/novel/generate-daily-entry.mjs" \
-    "$(date '+%Y-%m-%d')" \
-    "$REPO_ROOT/novel/the-daily-lives-of-workers.md"
+    "$run_wrapper"
 
   sed \
     -e "s|@HOME@|$(escape_sed "$HOME")|g" \
