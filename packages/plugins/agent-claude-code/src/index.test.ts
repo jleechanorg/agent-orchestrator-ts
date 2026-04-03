@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import type { Session, RuntimeHandle, AgentLaunchConfig, WorkspaceHooksConfig } from "@jleechanorg/ao-core";
+import type { Session, RuntimeHandle, AgentLaunchConfig, AgentSpecificConfig, WorkspaceHooksConfig } from "@jleechanorg/ao-core";
 
 // ---------------------------------------------------------------------------
 // Hoisted mocks — available inside vi.mock factories
@@ -194,7 +194,7 @@ describe("getLaunchCommand", () => {
 
   it("treats permissions=auto as permissionless (bypasses approval dialogs)", () => {
     const cmd = agent.getLaunchCommand(
-      makeLaunchConfig({ permissions: "auto" as unknown as AgentLaunchConfig["permissions"] }),
+      makeLaunchConfig({ permissions: "auto" as AgentLaunchConfig["permissions"] }),
     );
     expect(cmd).toContain("--dangerously-skip-permissions");
   });
@@ -231,7 +231,7 @@ describe("getLaunchCommand", () => {
       defaultBranch: "main",
       sessionPrefix: "test",
       agentConfig: {
-        permissions: "auto" as unknown as AgentLaunchConfig["permissions"],
+        permissions: "auto" as AgentSpecificConfig["permissions"],
       },
     };
     const cmd = await agent.getRestoreCommand!(makeSession(), project);

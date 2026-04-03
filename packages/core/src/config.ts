@@ -115,9 +115,9 @@ const NotifierConfigSchema = z
   .passthrough();
 
 const AgentPermissionSchema = z
-  .enum(["permissionless", "default", "auto-edit", "suggest", "skip"])
+  .enum(["permissionless", "default", "auto-edit", "suggest", "skip", "auto"])
   .default("permissionless")
-  .transform((value) => (value === "skip" ? "permissionless" : value));
+  .transform((value) => (value === "skip" || value === "auto" ? "permissionless" : value));
 
 const AgentSpecificConfigSchema = z
   .object({
@@ -131,7 +131,7 @@ const AgentSpecificConfigSchema = z
 const RoleAgentSpecificConfigSchema = z
   .object({
     permissions: z
-      .union([z.enum(["permissionless", "default", "auto-edit", "suggest"]), z.literal("skip")])
+      .union([z.enum(["permissionless", "default", "auto-edit", "suggest"]), z.literal("skip"), z.literal("auto")])
       .optional(),
     model: z.string().optional(),
     orchestratorModel: z.string().optional(),

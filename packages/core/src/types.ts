@@ -1514,7 +1514,7 @@ export interface CliModelDefaults {
 }
 
 export interface AgentSpecificConfig {
-  permissions?: AgentPermissionMode;
+  permissions?: AgentPermissionMode | LegacyAgentPermissionMode;
   model?: string;
   orchestratorModel?: string;
   [key: string]: unknown;
@@ -1538,8 +1538,8 @@ export interface OpenCodeAgentConfig extends AgentSpecificConfig {
  */
 export type AgentPermissionMode = "permissionless" | "default" | "auto-edit" | "suggest";
 
-/** Backward-compatible legacy alias accepted in config parsing. */
-export type LegacyAgentPermissionMode = "skip";
+/** Backward-compatible legacy aliases accepted in config parsing. */
+export type LegacyAgentPermissionMode = "skip" | "auto";
 
 /** Raw permission input (supports legacy aliases). */
 export type AgentPermissionInput = AgentPermissionMode | LegacyAgentPermissionMode;
@@ -1549,13 +1549,13 @@ export function normalizeAgentPermissionMode(
   mode: string | undefined,
 ): AgentPermissionMode | undefined {
   if (!mode) return undefined;
+  if (mode === "skip" || mode === "auto") return "permissionless";
   if (
     mode !== "permissionless" &&
     mode !== "default" &&
     mode !== "auto-edit" &&
     mode !== "suggest"
   ) {
-    if (mode === "skip") return "permissionless";
     return undefined;
   }
   return mode;
