@@ -201,7 +201,12 @@ function extractDescription(body) {
     .replace(/\\u003c!--\s*[\/]?CURSOR_SUMMARY[\s\S]*?\\u003e/g, "")
     .replace(/^---\s*$/gm, "")
     .replace(/<!--[\s\S]*?-->/gs, ""); // strip any remaining HTML comments (dotall + non-greedy)
-  const paragraphs = cleaned.split(/\n\n+/);
+  // CR bd-357-fix: strip @coderabbitai reviewer pings and CI status claims from
+  // description — these are ephemeral conversational content, not design metadata.
+  const stripped = cleaned
+    .replace(/^@coderabbitai\s+[^]*?(?=\n\n|\n#|$)/im, "")
+    .replace(/^(?:All CI checks pass|Evidence Gate|Wholesome PR Checks|Skeptic Gate)[^\n]*\n*/im, "");
+  const paragraphs = stripped.split(/\n\n+/);
   for (const p of paragraphs) {
     const trimmed = p.trim();
     if (trimmed && !trimmed.startsWith("#") && trimmed.length > 20) {
