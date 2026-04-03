@@ -65,4 +65,4 @@ Video of the key user flow (or `N/A - no UI changes`)
 
 - Placeholder text (`<value>`, `<screenshot path>`, `TODO`, `TBD`) is invalid.
 - "Simulated" output is invalid.
-- Unit/integration claims may use terminal evidence without media when no UI interaction exists.
+- Unit claims (and only unit) may use terminal evidence only — no repro gist or UI media required. `integration` claims require the full bundle above; "N/A - no UI changes" is accepted when there is no UI interaction.

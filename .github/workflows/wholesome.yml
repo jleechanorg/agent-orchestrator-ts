@@ -223,7 +223,7 @@ jobs:
             echo "FAIL: Missing '**Terminal test output**' label in Evidence section"
             exit 1
           fi
-          if ! printf '%s' "$TTO_BLOCK" | grep -q '```'; then
+          if ! printf '%s' "$TTO_BLOCK" | grep -qE '```|~~~'; then
             echo "FAIL: Terminal test output must include a fenced code block with real logs"
             exit 1
           fi
@@ -254,6 +254,7 @@ jobs:
           # 5) Reject placeholders/fabrication language
           NON_CODE_EVIDENCE=$(printf '%s\n' "$EVIDENCE_SECTION" | awk '
             /^[[:space:]]*```/ { in_code=(!in_code); next }
+            /^[[:space:]]*~~~/ { in_code=(!in_code); next }
             !in_code { print }
           ')
           if printf '%s' "$NON_CODE_EVIDENCE" | grep -qiE '\bsimulated\b'; then

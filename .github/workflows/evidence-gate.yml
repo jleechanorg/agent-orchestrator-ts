@@ -237,8 +237,7 @@ jobs:
           # CR bd-2oko fix: integration was missing from this list (let it bypass strong proof).
           if [ "$CLAIM" = "integration" ] || [ "$CLAIM" = "pipeline-e2e" ] || [ "$CLAIM" = "pr-lifecycle-e2e" ] || [ "$CLAIM" = "merge-gate" ]; then
             EVIDENCE=$(printf '%s\n' "$BODY" | awk '
-              BEGIN { IGNORECASE=1 }
-              /^[[:space:]]*##[[:space:]]+evidence([[:space:]]|$)/ { in_section=1; next }
+              tolower($0) ~ /^[[:space:]]*##[[:space:]]+evidence([[:space:]]|$)/ { in_section=1; next }
               in_section && /^[[:space:]]*##[[:space:]]/ { exit }
               in_section { print }
             ')
