@@ -3,9 +3,47 @@
 > **Canonical policy doc:** This file is the source of truth for zero-touch metrics.
 > Required references: `README.md`, `AGENTS.md`, `CLAUDE.md`, and metric monitor scripts must point back here.
 
-_Last updated (WAM): 2026-03-26 01:05:00 PDT_
+_Last updated (WAM): 2026-04-02 14:55 PDT_
 
 ## Definition
+
+### Zero-touch (agent proposes, agent merges, smooth)
+
+A merged PR is **zero-touch** when:
+1. First commit author is an agent (not jleechan) — verified by `gh api .../pulls/N/commits`
+2. Merged by github-actions[bot] (auto-merge or skeptic cron)
+3. No CR CHANGES_REQUESTED ever — smooth path, no reviewer feedback required
+
+### One-touch (human proposes, agent merges, smooth)
+
+A merged PR is **one-touch** when:
+1. First commit author is jleechan (human) — verified by commit author = "jleechan"
+2. Merged by github-actions[bot] (auto-merge or skeptic cron)
+3. No CR CHANGES_REQUESTED ever — smooth path, no reviewer feedback required
+
+### External (human proposes, human merges)
+
+A merged PR is **external** when:
+- Not authored by agent or jleechan
+- Merged by a human directly
+
+### Metric calculation
+
+For a rolling window (default 30d):
+
+```
+one_touch_rate = (zero_touch + one_touch) / total_merged_prs
+zero_touch_rate = zero_touch / total_merged_prs
+```
+
+Where:
+- `zero_touch` = PRs where first commit author != "jleechan" (agent-proposed)
+- `one_touch` = PRs where first commit author == "jleechan" (human-proposed via /claw)
+- `total_merged_prs` = all merged PRs in window
+
+---
+
+### Old definition (deprecated as of 2026-04-02)
 
 **Zero-touch-by-operator** = a PR whose **every commit** (not just the merge commit) carries the `[agento]` prefix, merged with no outstanding CHANGES_REQUESTED from CodeRabbit.
 

@@ -144,9 +144,12 @@ When changing zero-touch semantics (including smoothness), update in lockstep:
 - `AGENTS.md` / `CLAUDE.md` policy pointers
 - Monitor/reporting scripts that compute the metric
 
-Current smooth requirement:
-- A PR is zero-touch smooth only if it is zero-touch-by-operator and has
-  `max_inactivity_gap <= 60 minutes` across PR-open -> merge timeline events.
+**Current definitions (2026-04-02):**
+- **Zero-touch**: First commit author != "jleechan" (agent-proposed) + merged by github-actions[bot] + no CHANGES_REQUESTED
+- **One-touch**: First commit author == "jleechan" (human-proposed) + merged by github-actions[bot] + no CHANGES_REQUESTED
+- **Smooth**: Zero-touch with max inactivity gap <= 60 minutes
+
+Measure both: one-touch rate is PRIMARY, zero-touch rate is SECONDARY.
 
 ## Definition of a "Green" PR (7-Green)
 
