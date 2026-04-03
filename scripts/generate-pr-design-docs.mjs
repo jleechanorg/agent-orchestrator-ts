@@ -213,7 +213,7 @@ function extractDescription(body) {
       return trimmed.replace(/\[([^\]]+)\]\([^)]+\)/g, "$1"); // strip links
     }
   }
-  return cleaned.slice(0, 200).trim() + "…";
+  return stripped.slice(0, 200).trim() + "…";
 }
 
 function extractLabels(pr) {
