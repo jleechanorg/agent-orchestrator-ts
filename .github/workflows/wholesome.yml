@@ -102,6 +102,15 @@ jobs:
             [ $EXIT -eq 1 ] && exit 0 || exit $EXIT
           }
 
+  pr-rescue-script-syntax:
+    name: PR rescue script (bash -n)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4.1.1
+
+      - name: Syntax-check scripts/pr-rescue-status.sh
+        run: bash -n scripts/pr-rescue-status.sh
+
   evidence-media-attachment:
     name: Evidence Has Media Attachment
     runs-on: ubuntu-latest

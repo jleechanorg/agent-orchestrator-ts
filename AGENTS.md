@@ -159,6 +159,53 @@ pnpm test
 
 All tests must pass before pushing. CI failures are blockers — fix them, don't skip.
 
+## PR worker harness — blocked vs done (7-green)
+
+Use this **before** spending tokens on fixes, and **after** each push, to avoid stale loops (e.g. working a merged PR, or declaring progress while threads are unresolved).
+
+### Step 0 — merge state (mandatory)
+
+```bash
+gh pr view <N> --repo jleechanorg/agent-orchestrator --json state,mergedAt --jq '{state, merged: (.mergedAt != null)}'
+```
+
+If **`MERGED`**: stop — there is no PR rescue on that number; open a new branch/PR for follow-up work.
+
+### Deterministic preflight (mechanical gates)
+
+Run the repo script (requires `gh` auth + `jq`):
+
+```bash
+scripts/pr-rescue-status.sh jleechanorg/agent-orchestrator <PR_NUMBER>
+```
+
+| Exit | Meaning |
+|------|---------|
+| **0** | PR merged (done) **or** open PR passes: mergeable `MERGEABLE`, **0** unresolved review threads (GraphQL), `reviewDecision` **APPROVED**, CI rollup has **no** `FAILURE` / **no** pending checks |
+| **1** | Blocked — stderr names the next action (rebase, resolve threads, wait for CI, fix Skeptic, etc.) |
+
+**Interpretation:** exit **0** means “structurally OK for merge-gate automation”; it does **not** replace `/er`, human review, or org-specific policies.
+
+### Stale worker / capacity signals
+
+Before spawning **additional** AO workers or hammering GitHub:
+
+- `gh api rate_limit` — if GraphQL remaining is low, defer GraphQL; use REST fallbacks documented in `CLAUDE.md`.
+- `tmux list-sessions | wc -l` — if **> 20** active sessions, do **not** spawn more workers; escalate.
+
+If a worker looks inactive but `pr-rescue-status.sh` returns **1** with “checks still running”, prefer **exit and let the orchestrator poll** over sleeping in a tight loop.
+
+### Unresolved threads — re-drive policy
+
+1. Prefer **GraphQL** unresolved thread count: same query as `scripts/extract-unresolved-comments.sh`.
+2. If the **code** already matches the review but threads are orphaned (e.g. file renamed), resolve threads via GitHub **resolveReviewThread** or document fixes in a **Resolved Comments** table in the PR body (`CLAUDE.md` bd-ara.1).
+3. After fixes: push (triggers **coderabbit-ping-on-push** where configured) or comment `@coderabbitai all good?`.
+
+### Related scripts
+
+- `scripts/extract-unresolved-comments.sh` — prioritized unresolved comments (REST/GraphQL).
+- `scripts/cr-loop-guard.sh` — CodeRabbit `CHANGES_REQUESTED` loop guard.
+
 ## PR Target — CRITICAL SAFETY RULE
 
 **NEVER open a PR against `ComposioHQ/agent-orchestrator` (upstream) without explicit approval from jleechan.**

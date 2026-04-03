@@ -406,6 +406,7 @@ describe("wholesome — structural source-code assertions", () => {
         "release-error",
         "evidence-section",
         "actionlint",
+        "pr-rescue-script-syntax",
         "evidence-media-attachment",
         "wholesome",
       ]),
