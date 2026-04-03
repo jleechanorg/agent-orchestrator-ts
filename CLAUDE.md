@@ -144,12 +144,9 @@ When changing zero-touch semantics (including smoothness), update in lockstep:
 - `AGENTS.md` / `CLAUDE.md` policy pointers
 - Monitor/reporting scripts that compute the metric
 
-**Current definitions (2026-04-02):**
-- **Zero-touch**: First commit author != "jleechan" (agent-proposed) + merged by github-actions[bot] + no CHANGES_REQUESTED
-- **One-touch**: First commit author == "jleechan" (human-proposed) + merged by github-actions[bot] + no CHANGES_REQUESTED
-- **Smooth**: Zero-touch with max inactivity gap <= 60 minutes
-
-Measure both: one-touch rate is PRIMARY, zero-touch rate is SECONDARY.
+Current smooth requirement:
+- A PR is zero-touch smooth only if it is zero-touch-by-operator and has
+  `max_inactivity_gap <= 60 minutes` across PR-open -> merge timeline events.
 
 ## Definition of a "Green" PR (7-Green)
 
@@ -224,7 +221,7 @@ The 3-PR churn threshold applies to subsystem keywords. For **same file** fixes,
 # does the same. The first invocation uses macOS syntax and redirects stderr to /dev/null so
 # it silently falls through to the GNU/Linux fallback on non-macOS systems.
 gh pr list --repo jleechanorg/agent-orchestrator --state merged \
-  --search "updated:>=$(date -v-4h +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -d '4 hours ago' +%Y-%m-%dT%H:%M:%SZ)" \
+  --search "merged:>=$(date -v-4h +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -d '4 hours ago' +%Y-%m-%dT%H:%M:%SZ)" \
   --json number,title,files 2>/dev/null | jq '.[] | {number, title, files}'
 # If any recently merged PR touches the same file as your change → churn protocol
 ```
