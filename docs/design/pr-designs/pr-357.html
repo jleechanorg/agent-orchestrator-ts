@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>[agento] fix(novel-daily): move fetch/merge before generation + auto commit/push — Agent Orchestrator</title>
+    <title>[agento] fix(novel-daily + CI): launchd date wrapper, auto commit/push, evidence-gate strong-proof + wholesome fixes — Agent Orchestrator</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;600&family=IBM+Plex+Serif:wght@400;600&family=IBM+Plex+Mono&display=swap" rel="stylesheet" />
@@ -50,7 +50,7 @@
   <body>
     <main class="wrap">
       <section class="hero">
-        <h1>[agento] fix(novel-daily): move fetch/merge before generation + auto commit/push</h1>
+        <h1>[agento] fix(novel-daily + CI): launchd date wrapper, auto commit/push, evidence-gate strong-proof + wholesome fixes</h1>
         <p class="muted">Fixes the novel-daily launchd job (<code>scripts/novel/run-daily.sh</code>) to:<br>1. Resolve install-time hardcoded <code>--daily</code> date (uses runtime date wrapper)<br>2. Commit and push generated daily entries to <code>origin/main</code> automatically<br>3. Move <code>git fetch + ff-only merge</code> BEFORE file generation (CR feedback) to prevent conflicts</p>
         <p class="muted" style="margin-top:0.5rem">
           PR: <a href="https://github.com/jleechanorg/agent-orchestrator/pull/357">#357</a>
@@ -64,24 +64,24 @@
         <article class="card">
           <h2>Architecture</h2>
           <div class="diagram">
-<pre>┌─────────────────────────────────────────────────────────────────────────── ┐
-│ PR #357 — agent-orchestrator                                            │
-└─────────────────────────────────────────────────────────────────────────── ┘
+<pre>┌─────────────────────────────────────────────────────────────────────────────────────────────────────────────── ┐
+│ PR #357 — agent-orchestrator                                                                                │
+└─────────────────────────────────────────────────────────────────────────────────────────────────────────────── ┘
                   │
     ▼ 12 file(s) changed
                   │
-┌─────────────────────────────────────────────────────────────────────────── ┐
-│ fix(novel-daily): move fetch/merge before generation + auto commit/push │
-└─────────────────────────────────────────────────────────────────────────── ┘</pre>
+┌─────────────────────────────────────────────────────────────────────────────────────────────────────────────── ┐
+│ fix(novel-daily + CI): launchd date wrapper, auto commit/push, evidence-gate strong-proof + wholesome fixes │
+└─────────────────────────────────────────────────────────────────────────────────────────────────────────────── ┘</pre>
           </div>
         </article>
         <article class="card">
           <h2>Metadata</h2>
           <div class="stat-grid">
             <div class="stat"><div class="num">12</div><div class="lbl">Files</div></div>
-            <div class="stat"><div class="num">1</div><div class="lbl">Commits</div></div>
-            <div class="stat"><div class="num" style="color:#2ea043">+531</div><div class="lbl">Additions</div></div>
-            <div class="stat"><div class="num" style="color:#cf222e">-60</div><div class="lbl">Deletions</div></div>
+            <div class="stat"><div class="num">3</div><div class="lbl">Commits</div></div>
+            <div class="stat"><div class="num" style="color:#2ea043">+557</div><div class="lbl">Additions</div></div>
+            <div class="stat"><div class="num" style="color:#cf222e">-63</div><div class="lbl">Deletions</div></div>
           </div>
           <ul style="margin-top:1rem">
             <li>Author: <code>jleechan2015</code></li>
@@ -142,8 +142,8 @@
 <tr>
       <td><code>.github/workflows/wholesome.yml</code></td>
       <td>modified</td>
-      <td style="text-align:right;color:#2ea043">+42</td>
-      <td style="text-align:right;color:#cf222e">-18</td>
+      <td style="text-align:right;color:#2ea043">+52</td>
+      <td style="text-align:right;color:#cf222e">-21</td>
     </tr>
 <tr>
       <td><code>CLAUDE.md</code></td>
@@ -154,13 +154,13 @@
 <tr>
       <td><code>docs/design/pr-designs/pr-357.html</code></td>
       <td><span class="badge badge-new">added</span></td>
-      <td style="text-align:right;color:#2ea043">+191</td>
+      <td style="text-align:right;color:#2ea043">+204</td>
       <td style="text-align:right;color:#cf222e">-0</td>
     </tr>
 <tr>
       <td><code>docs/design/pr-designs/pr-357.md</code></td>
       <td><span class="badge badge-new">added</span></td>
-      <td style="text-align:right;color:#2ea043">+77</td>
+      <td style="text-align:right;color:#2ea043">+80</td>
       <td style="text-align:right;color:#cf222e">-0</td>
     </tr>
 <tr>
