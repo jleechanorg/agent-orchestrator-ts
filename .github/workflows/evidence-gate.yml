@@ -317,3 +317,103 @@ jobs:
             echo "ERROR: No verdict found in evidence bundle. Verdict is a mandatory field — missing verdict fails the evidence gate."
             exit 1
           fi
+
+      - name: Validate Evidence Bundle v2 (gist + tmux + test output + UI media)
+        if: steps.check.outputs.found == 'true'
+        run: |
+          BODY=$(cat "$RUNNER_TEMP/pr_body.txt")
+
+          # Scope validation to Evidence section only.
+          # Use [Ee]vidence — do NOT rely on awk IGNORECASE (BSD awk ignores it; section extracts empty → false FAIL).
+          EVIDENCE_SECTION=$(printf '%s\n' "$BODY" | awk '
+            /^[[:space:]]*##[[:space:]]+[Ee]vidence([[:space:]]|$)/ { in_section=1; next }
+            in_section && /^[[:space:]]*##[[:space:]]/ { exit }
+            in_section && /^[[:space:]]*<!--/ { exit }
+            in_section { print }
+          ')
+
+          if [ -z "$EVIDENCE_SECTION" ]; then
+            echo "ERROR: Could not extract Evidence section"
+            exit 1
+          fi
+
+          # 1) Repro gist URL is mandatory
+          if ! printf '%s' "$EVIDENCE_SECTION" | grep -qiE '\*\*Repro gist\*\*:[[:space:]]*https://gist\.github\.com/[^[:space:]]+'; then
+            echo "ERROR: Missing required '**Repro gist**: https://gist.github.com/...' in Evidence section"
+            exit 1
+          fi
+          echo "Repro gist: PASS"
+
+          # Sub-blocks (CodeRabbit): validate captions across lines; scope test-command grep to the test-output block only.
+          # Do not `next` on the header line — that line contains the URL / N/A declaration.
+          TM_BLOCK=$(printf '%s' "$EVIDENCE_SECTION" | awk '
+            /\*\*Terminal media\*\*/ { show=1 }
+            show && /\*\*Terminal test output\*\*/ { exit }
+            show { print }
+          ')
+          TTO_BLOCK=$(printf '%s' "$EVIDENCE_SECTION" | awk '
+            /\*\*Terminal test output\*\*/ { show=1 }
+            show && /\*\*UI media\*\*/ { exit }
+            show { print }
+          ')
+          UI_BLOCK=$(printf '%s' "$EVIDENCE_SECTION" | awk '
+            /\*\*UI media\*\*/ { show=1 }
+            show { print }
+          ')
+
+          # 2) Terminal media with tmux context and caption (block may span multiple lines)
+          # Strip **Terminal media**: <URL> from line 1 before tmux/terminal check — otherwise the
+          # header "**Terminal media**" matches `terminal` and the gate is vacuous (reviewer feedback).
+          TM_FOR_CTX=$(printf '%s' "$TM_BLOCK" | sed '1s/^\*\*Terminal media\*\*:[[:space:]]*https:\/\/[^[:space:]]\+[[:space:]]*//')
+          if ! printf '%s' "$TM_BLOCK" | grep -qiE 'https://[^[:space:]]+'; then
+            echo "ERROR: Missing '**Terminal media**' URL in Evidence section"
+            exit 1
+          fi
+          if ! printf '%s' "$TM_BLOCK" | grep -qiE 'caption'; then
+            echo "ERROR: Terminal media must include caption text (inline or following lines)"
+            exit 1
+          fi
+          if ! printf '%s' "$TM_FOR_CTX" | grep -qiE 'tmux|terminal'; then
+            echo "ERROR: Terminal media caption must reference tmux or terminal context (not only the **Terminal media** label)"
+            exit 1
+          fi
+          echo "Terminal media + caption: PASS"
+
+          # 3) Terminal test output — fenced block + concrete test command inside TTO_BLOCK only
+          if ! printf '%s' "$TTO_BLOCK" | grep -qiE '\*\*Terminal test output\*\*'; then
+            echo "ERROR: Missing '**Terminal test output**' label in Evidence section"
+            exit 1
+          fi
+          if ! printf '%s' "$TTO_BLOCK" | grep -q '```'; then
+            echo "ERROR: Terminal test output must include a fenced code block with real logs"
+            exit 1
+          fi
+          # Require package-manager lines to include a test invocation (pnpm --filter … test, npm test, …)
+          if ! printf '%s' "$TTO_BLOCK" | grep -qiE '(pnpm|npm|yarn|bun|pnpm exec).+test|pytest|vitest|jest|go test|cargo test|bun test|rspec|rake test|mvn test|gradle test|make test'; then
+            echo "ERROR: Terminal test output must mention at least one concrete test command"
+            exit 1
+          fi
+          echo "Terminal test output: PASS"
+
+          # 4) UI media for UI changes; otherwise exact text: N/A - no UI changes (whole Evidence section)
+          if printf '%s' "$EVIDENCE_SECTION" | grep -qF 'N/A - no UI changes'; then
+            echo "UI media: PASS (exact N/A - no UI changes)"
+          else
+            if ! printf '%s' "$UI_BLOCK" | grep -qiE 'https://[^[:space:]]+'; then
+              echo "ERROR: Missing '**UI media**' HTTPS URL, or add exact text: N/A - no UI changes"
+              exit 1
+            fi
+            if ! printf '%s' "$UI_BLOCK" | grep -qiE 'caption'; then
+              echo "ERROR: UI media must include caption text (inline or following lines)"
+              exit 1
+            fi
+            echo "UI media + caption: PASS"
+          fi
+
+          # 5) Reject placeholders/fabrication language
+          if printf '%s' "$EVIDENCE_SECTION" | grep -qiE '<path>|<value>|\bTODO\b|\bTBD\b|example\.com|\bsimulated\b'; then
+            echo "ERROR: Evidence section contains placeholder/fabricated markers"
+            exit 1
+          fi
+
+          echo "Evidence Bundle v2 validation: PASS"

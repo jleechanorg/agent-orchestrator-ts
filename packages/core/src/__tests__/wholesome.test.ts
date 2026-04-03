@@ -337,6 +337,8 @@ describe("wholesome — structural source-code assertions", () => {
       "893f195d48a8a45d5fe294eb3ca94597bbf1e6f2", // fix(runtime-antigravity): add CDP sendCommand timeout and session guard
       "0ce1843e0d7af7984588b68becfba70f34320562", // fix(runtime-antigravity): use resolver.reject in sendCommand timeout
       "e87d1278c2d90b52d611c6f938ce37e51a69c3fd", // docs: evolve loop — document /antig dispatch when tmux cap blocks
+      // fix/runtime-antigravity-tdd (PR #340): legacy [antig] prefix on policy commit — immutable without history rewrite
+      "81ed6307a6af30898ef2872b962ace3b2db79856", // [antig] policy(evidence): require gist + tmux captioned media + reproducible test logs
     ]);
 
     it("all non-merge commits made on this branch have [agento] prefix", () => {
