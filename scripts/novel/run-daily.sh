@@ -75,8 +75,6 @@ WORKERS_FILE="$_repo_root/novel/the-daily-lives-of-workers.md"
   --words 1000
 
 # Commit and push the new daily entry to origin/main.
-# Uses ff-only merge to prevent overwriting remote commits that may have
-# advanced origin/main since we started (e.g., from the previous day's run).
 # Uses a dedicated "novel-daily" identity so these commits are distinguishable.
 DAILY_FILE="$_repo_root/novel/workers/${TODAY}.md"
 if [ -f "$DAILY_FILE" ]; then
@@ -85,15 +83,17 @@ if [ -f "$DAILY_FILE" ]; then
   git config user.email "ao-novel-daily@agentorchestrator" 2>/dev/null || true
 
   # Determine whether this is a new file or a changed tracked file.
+
+  # Determine whether this is a new file or a changed tracked file.
   if git ls-files --error-unmatch "$DAILY_FILE" >/dev/null 2>&1; then
-    # Tracked file: skip if working tree matches index (already committed).
-    if git diff --quiet "$DAILY_FILE" 2>/dev/null; then
-      echo "run-daily.sh: $DAILY_FILE unchanged (already committed) — skipping."
+    # Tracked file: skip only if BOTH the daily file AND the aggregate workers file are
+    # unchanged vs the index.  Checking only $DAILY_FILE would silently drop changes to
+    # $WORKERS_FILE when the daily entry was already committed on a previous idempotent run.
+    if git diff --quiet -- "$DAILY_FILE" "$WORKERS_FILE" 2>/dev/null; then
+      echo "run-daily.sh: $DAILY_FILE and $WORKERS_FILE unchanged (already committed) — skipping."
     else
       git add "$DAILY_FILE" "$_repo_root/novel/the-daily-lives-of-workers.md"
       git commit -m "[agento] novel: daily entry $TODAY"
-      # Ensure origin/main hasn't advanced since we started; abort if it has.
-      git fetch origin main
       git merge --ff-only origin/main
       git push origin main
       echo "run-daily.sh: pushed updated entry to origin/main."
