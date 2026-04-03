@@ -158,7 +158,7 @@ describe("getLaunchCommand", () => {
     const cmd = agent.getLaunchCommand(makeLaunchConfig({ permissions: "default" }));
     // The agent invocation part must be execFile-safe (no shell operators)
     const agentCmd = agentPart(cmd);
-    expect(agentCmd).toBe("cursor-agent");
+    expect(agentCmd).toBe("cursor-agent --model 'composer-2-fast'");
     expect(agentCmd).not.toContain("&&");
     expect(agentCmd).not.toContain("unset");
   });
@@ -180,12 +180,40 @@ describe("getLaunchCommand", () => {
     expect(cmd).toContain("--force");
   });
 
-  it("ignores model argument (cursor-agent uses its own model names)", () => {
+  it("falls back to Composer 2 fast when model is invalid for cursor", () => {
     // cursor-agent rejects Anthropic model IDs (e.g. "claude-sonnet-4-6") and
     // exits immediately with "Cannot use this model: <name>. Available models: ..."
-    // The plugin strips the model flag so cursor-agent starts with its default model.
+    // The plugin falls back to Composer model naming when provided model is unsupported.
     const cmd = agent.getLaunchCommand(makeLaunchConfig({ model: "claude-opus-4-6" }));
-    expect(cmd).not.toContain("--model");
+    expect(agentPart(cmd)).toContain("--model 'composer-2-fast'");
+  });
+
+  it("uses composer model value when it is a supported Cursor model", () => {
+    const cmd = agent.getLaunchCommand(makeLaunchConfig({ model: "composer-2" }));
+    expect(agentPart(cmd)).toBe("cursor-agent --model 'composer-2'");
+  });
+
+  it("falls back to default when composer model id is not in the supported allowlist", () => {
+    const cmd = agent.getLaunchCommand(makeLaunchConfig({ model: "composer-2-fst" }));
+    expect(agentPart(cmd)).toContain("--model 'composer-2-fast'");
+  });
+
+  it("passes through auto and OpenAI-style Cursor model IDs", () => {
+    expect(agentPart(agent.getLaunchCommand(makeLaunchConfig({ model: "auto" })))).toContain(
+      "--model 'auto'",
+    );
+    expect(agentPart(agent.getLaunchCommand(makeLaunchConfig({ model: "gpt-4o" })))).toContain(
+      "--model 'gpt-4o'",
+    );
+  });
+
+  it("passes through Cursor-native claude-* slugs but normalizes AO Anthropic API IDs", () => {
+    const nativeCmd = agent.getLaunchCommand(
+      makeLaunchConfig({ model: "claude-3-5-sonnet" }),
+    );
+    expect(agentPart(nativeCmd)).toContain("--model 'claude-3-5-sonnet'");
+    const legacyCmd = agent.getLaunchCommand(makeLaunchConfig({ model: "claude-sonnet-4-6" }));
+    expect(agentPart(legacyCmd)).toContain("--model 'composer-2-fast'");
   });
 
   it("does not include -p flag (prompt delivered post-launch)", () => {
@@ -199,8 +227,8 @@ describe("getLaunchCommand", () => {
     const cmd = agent.getLaunchCommand(
       makeLaunchConfig({ permissions: "permissionless", model: "opus", prompt: "Hello" }),
     );
-    // model is stripped because cursor-agent uses its own model naming convention
-    expect(agentPart(cmd)).toBe("cursor-agent --force");
+    // invalid models are normalized to Composer 2 fast
+    expect(agentPart(cmd)).toBe("cursor-agent --force --model 'composer-2-fast'");
   });
 
   it("omits --force when permissions=default", () => {
@@ -211,7 +239,7 @@ describe("getLaunchCommand", () => {
   it("omits optional flags when not provided", () => {
     const cmd = agent.getLaunchCommand(makeLaunchConfig());
     const agentCmd = agentPart(cmd);
-    expect(agentCmd).not.toContain("--model");
+    expect(agentCmd).toContain("--model");
     expect(agentCmd).not.toContain("-p");
   });
 
