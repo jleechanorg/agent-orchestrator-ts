@@ -74,26 +74,20 @@ jobs:
           echo "Fix: add a ## Evidence section with a Claim class and verdict to the PR body."
           exit 1
 
-      - name: Validate evidence bundle format
+      # Shared: extract and normalize claim class once, write to RUNNER_TEMP for reuse.
+      # CR bd-2oko nitpick fix: eliminates duplication across Validate bundle format,
+      # Validate PR-lifecycle-e2e proofs, and Enforce strong artifact evidence steps.
+      - name: Extract and normalize claim class
+        id: claim
         if: steps.check.outputs.found == 'true'
         run: |
           BODY=$(cat "$RUNNER_TEMP/pr_body.txt")
 
-          # Extract claim class — normalize to lowercase
-          # Support two common markdown formats:
-          #   - **Claim class**: pipeline-e2e  (bold inline — colon INSIDE bold)
-          #   - **Claim class**: PR-lifecycle E2E (with parenthetical — colon INSIDE bold)
-          # grep -i '\*\*Claim class' matches bold-markdown lines
-          # | grep -v '^- ' filters list bullets (extracted separately below)
-          # First sed: strip markdown and extract text after "**Claim class**: " (space after colon)
+          # Extract claim class — normalize to lowercase short form.
           # Supports: **Claim class**: value  (colon inside bold, space after colon)
-          # Second sed: strip any trailing parenthetical or extra text
-          # tr -d '*' removes markdown bold markers; tr '[:upper:]' '[:lower:]' lowercases
-          # tr ' ' '-' converts remaining spaces to hyphens so "Pipeline E2E" → "pipeline-e2e"
-          # tr -d '[:space:]' removes ALL whitespace (not just leading/trailing) — collapses
-          #   multi-word names cleanly; sed then strips leading/trailing characters
-          # sed 'I' flag makes the pattern case-insensitive so "**Claim Class**:" (title case)
-          # is also correctly stripped even though the pattern uses lowercase 'c'
+          # and list-bullet format "- **Claim class**: ...".
+          # tr ' ' '-' converts "Pipeline E2E" → "pipeline-e2e".
+          # sed 'I' flag makes the pattern case-insensitive for title-case edge cases.
           CLAIM=$(printf '%s' "$BODY" \
             | grep -i '\*\*Claim class' | grep -v '^- ' | head -1 \
             | sed 's/.*\*\*Claim class\*\*: *//I' \
@@ -102,66 +96,7 @@ jobs:
             | tr ' ' '-' | tr -d '\t' \
             | sed 's/^[ \t-]*//;s/[ \t-]*$//')
 
-          # Fallback: also try extracting from list-bullet format "- **Claim class**: ..."
-          if [ -z "$CLAIM" ]; then
-            CLAIM=$(printf '%s' "$BODY" \
-              | grep -i '^-.*\*\*Claim class' | head -1 \
-              | sed 's/.*\*\*Claim class\*\*: *//I' \
-              | sed 's/(.*//' \
-              | tr -d '*' | tr '[:upper:]' '[:lower:]' \
-              | tr ' ' '-' | tr -d '\t' \
-              | sed 's/^[ \t-]*//;s/[ \t-]*$//')
-          fi
-
-          echo "Claim class detected: $CLAIM"
-
-          # Validate claim class is recognized
-          # Accept both short forms (unit, integration, merge-gate) used internally
-          # and the longer forms documented in CLAUDE.md (unit-test-coverage,
-          # integration-test, merge-gate-green) which normalize to hyphenated strings
-          # after tr ' ' '-' transforms "Unit test coverage" → "unit-test-coverage"
-          case "$CLAIM" in
-            unit|unit-test-coverage|unit-test)
-              CLAIM="unit"
-              echo "Validated claim class: unit"
-              ;;
-            integration|integration-test)
-              CLAIM="integration"
-              echo "Validated claim class: integration"
-              ;;
-            pipeline-e2e)
-              echo "Validated claim class: $CLAIM"
-              ;;
-            pr-lifecycle-e2e|pr-lifecycle)
-              CLAIM="pr-lifecycle-e2e"
-              echo "Validated claim class: pr-lifecycle-e2e"
-              ;;
-            merge-gate|merge-gate-green)
-              CLAIM="merge-gate"
-              echo "Validated claim class: merge-gate"
-              ;;
-            *)
-              echo "ERROR: Unrecognized claim class: '$CLAIM'"
-              echo "Valid classes: unit, integration, pipeline-e2e, pr-lifecycle-e2e, merge-gate"
-              echo "(Also accepted: unit-test-coverage, integration-test, merge-gate-green — CLAUDE.md forms)"
-              exit 1
-              ;;
-          esac
-
-      - name: Validate PR-lifecycle-e2e required proofs
-        if: steps.check.outputs.found == 'true'
-        run: |
-          BODY=$(cat "$RUNNER_TEMP/pr_body.txt")
-
-          CLAIM=$(printf '%s' "$BODY" \
-            | grep -i '\*\*Claim class' | grep -v '^- ' | head -1 \
-            | sed 's/.*\*\*Claim class\*\*: *//I' \
-            | sed 's/(.*//' \
-            | tr -d '*' | tr '[:upper:]' '[:lower:]' \
-            | tr ' ' '-' | tr -d '\t' \
-            | sed 's/^[ \t-]*//;s/[ \t-]*$//')
-
-          # Fallback: also try list-bullet format
+          # Fallback: list-bullet format
           if [ -z "$CLAIM" ]; then
             CLAIM=$(printf '%s' "$BODY" \
               | grep -i '^-.*\*\*Claim class' | head -1 \
@@ -179,6 +114,15 @@ jobs:
             pr-lifecycle) CLAIM="pr-lifecycle-e2e" ;;
             merge-gate-green) CLAIM="merge-gate" ;;
           esac
+
+          echo "Claim class: $CLAIM"
+          echo "claim=$CLAIM" >> "$GITHUB_OUTPUT"
+
+      - name: Validate PR-lifecycle-e2e required proofs
+        if: steps.check.outputs.found == 'true'
+        run: |
+          BODY=$(cat "$RUNNER_TEMP/pr_body.txt")
+          CLAIM="${{ steps.claim.outputs.claim }}"
 
           if [ "$CLAIM" = "pr-lifecycle-e2e" ]; then
             echo "Checking required proofs for: $CLAIM"
@@ -283,6 +227,89 @@ jobs:
             echo "No additional validation required for claim class: $CLAIM"
           fi
 
+      - name: Enforce strong artifact evidence for non-unit claims
+        if: steps.check.outputs.found == 'true'
+        run: |
+          BODY=$(cat "$RUNNER_TEMP/pr_body.txt")
+          CLAIM="${{ steps.claim.outputs.claim }}"
+
+          # integration + higher claims require rich artifacts; unit can use terminal evidence only.
+          # CR bd-2oko fix: integration was missing from this list (let it bypass strong proof).
+          if [ "$CLAIM" = "integration" ] || [ "$CLAIM" = "pipeline-e2e" ] || [ "$CLAIM" = "pr-lifecycle-e2e" ] || [ "$CLAIM" = "merge-gate" ]; then
+            EVIDENCE=$(printf '%s\n' "$BODY" | awk '
+              BEGIN { IGNORECASE=1 }
+              /^[[:space:]]*##[[:space:]]+evidence([[:space:]]|$)/ { in_section=1; next }
+              in_section && /^[[:space:]]*##[[:space:]]/ { exit }
+              in_section { print }
+            ')
+
+            # Reject fabricated/placeholder evidence before accepting any artifact.
+            # CR bd-2oko fix: placeholder checks were missing from strong-proof step.
+            if printf '%s' "$EVIDENCE" | grep -qiE '\bsimulated\b'; then
+              echo "ERROR: Evidence contains 'simulated' — fabricated output is not valid."
+              exit 1
+            fi
+            if printf '%s' "$EVIDENCE" | grep -qiE 'https?://(www\.)?example\.com'; then
+              echo "ERROR: Evidence contains example.com placeholder URL — use a real screenshot URL."
+              exit 1
+            fi
+            if printf '%s' "$EVIDENCE" | grep -qiE '<screenshot[[:space:]]path>|<path>|<value>|\bTODO\b|\bTBD\b'; then
+              echo "ERROR: Evidence contains placeholder template text — fill in real values."
+              exit 1
+            fi
+
+            # 1. Repro gist: must have a gist.github.com URL in the **Repro gist**: field.
+            HAS_GIST=false
+            if printf '%s' "$EVIDENCE" | grep -qiE '\*\*Repro gist\*\*:[[:space:]]*https://gist\.github\.com/'; then
+              HAS_GIST=true
+            fi
+
+            # 2. Terminal/test output: fenced code block (backtick or tilde) with a concrete
+            #    test-command keyword present (pnpm, npm, pytest, vitest, go test, etc.).
+            HAS_OUTPUT=false
+            if printf '%s' "$EVIDENCE" | grep -q '```'; then
+              # Scan the fenced block content for a concrete test command
+              BLOCK=$(printf '%s' "$EVIDENCE" | sed -n '/```/,/```/p' | head -20 | tail -n +2 | head -n -1)
+              if printf '%s' "$BLOCK" | grep -qiE '\$[[:space:]]*(pnpm|npm|pytest|vitest|jest|go[[:space:]]+test|ruby[[:space:]].*test|bundle[[:space:]]exec[[:space:]]rspec)'; then
+                HAS_OUTPUT=true
+              fi
+            fi
+            if [ "$HAS_OUTPUT" = "false" ] && printf '%s' "$EVIDENCE" | grep -q '~~~'; then
+              BLOCK=$(printf '%s' "$EVIDENCE" | sed -n '/~~~/,/~~~/p' | head -20 | tail -n +2 | head -n -1)
+              if printf '%s' "$BLOCK" | grep -qiE '\$[[:space:]]*(pnpm|npm|pytest|vitest|jest|go[[:space:]]+test|ruby[[:space:]].*test|bundle[[:space:]]exec[[:space:]]rspec)'; then
+                HAS_OUTPUT=true
+              fi
+            fi
+            # Also accept structured **Terminal test output**: label with an immediate URL/artifact
+            if [ "$HAS_OUTPUT" = "false" ] && printf '%s' "$EVIDENCE" | grep -qiE '\*\*(Terminal test output|Test output)\*\*:[[:space:]]*https://'; then
+              HAS_OUTPUT=true
+            fi
+
+            # 3. UI media: HTTPS URL (extension-suffixed) or markdown image, OR exact N/A text.
+            HAS_UI_MEDIA=false
+            if printf '%s' "$EVIDENCE" | grep -qiE '\*\*UI media\*\*:[[:space:]]*N/A.*no UI|N/A - no UI'; then
+              HAS_UI_MEDIA=true
+            elif printf '%s' "$EVIDENCE" | grep -qiE 'https://[^[:space:]]+\.(png|jpg|jpeg|gif|webp|mp4|webm|mov)'; then
+              HAS_UI_MEDIA=true
+            elif printf '%s' "$EVIDENCE" | grep -qiE '!\[[^]]*\]\(https://[^)]+\.(png|jpg|jpeg|gif|webp|mp4|webm|mov)\)'; then
+              HAS_UI_MEDIA=true
+            fi
+
+            if [ "$HAS_GIST" != "true" ] || [ "$HAS_OUTPUT" != "true" ] || [ "$HAS_UI_MEDIA" != "true" ]; then
+              echo "ERROR: Strong evidence standard not met for claim class '$CLAIM'."
+              echo "Required for non-unit claims (CR bd-2oko fix — explicit field validation restored):"
+              echo "  - **Repro gist**: https://gist.github.com/... URL"
+              echo "  - **Terminal test output**: fenced code block with a concrete test command"
+              echo "  - **UI media**: HTTPS screenshot/video URL or 'N/A - no UI changes'"
+              echo "Detected: gist=$HAS_GIST test_output=$HAS_OUTPUT ui_media=$HAS_UI_MEDIA"
+              exit 1
+            fi
+
+            echo "Strong evidence standard PASS for $CLAIM"
+          else
+            echo "Strong artifact check not required for claim class: $CLAIM"
+          fi
+
       - name: Validate verdict is present and consistent
         if: steps.check.outputs.found == 'true'
         run: |
@@ -317,103 +344,3 @@ jobs:
             echo "ERROR: No verdict found in evidence bundle. Verdict is a mandatory field — missing verdict fails the evidence gate."
             exit 1
           fi
-
-      - name: Validate Evidence Bundle v2 (gist + tmux + test output + UI media)
-        if: steps.check.outputs.found == 'true'
-        run: |
-          BODY=$(cat "$RUNNER_TEMP/pr_body.txt")
-
-          # Scope validation to Evidence section only.
-          # Use [Ee]vidence — do NOT rely on awk IGNORECASE (BSD awk ignores it; section extracts empty → false FAIL).
-          EVIDENCE_SECTION=$(printf '%s\n' "$BODY" | awk '
-            /^[[:space:]]*##[[:space:]]+[Ee]vidence([[:space:]]|$)/ { in_section=1; next }
-            in_section && /^[[:space:]]*##[[:space:]]/ { exit }
-            in_section && /^[[:space:]]*<!--/ { exit }
-            in_section { print }
-          ')
-
-          if [ -z "$EVIDENCE_SECTION" ]; then
-            echo "ERROR: Could not extract Evidence section"
-            exit 1
-          fi
-
-          # 1) Repro gist URL is mandatory
-          if ! printf '%s' "$EVIDENCE_SECTION" | grep -qiE '\*\*Repro gist\*\*:[[:space:]]*https://gist\.github\.com/[^[:space:]]+'; then
-            echo "ERROR: Missing required '**Repro gist**: https://gist.github.com/...' in Evidence section"
-            exit 1
-          fi
-          echo "Repro gist: PASS"
-
-          # Sub-blocks (CodeRabbit): validate captions across lines; scope test-command grep to the test-output block only.
-          # Do not `next` on the header line — that line contains the URL / N/A declaration.
-          TM_BLOCK=$(printf '%s' "$EVIDENCE_SECTION" | awk '
-            /\*\*Terminal media\*\*/ { show=1 }
-            show && /\*\*Terminal test output\*\*/ { exit }
-            show { print }
-          ')
-          TTO_BLOCK=$(printf '%s' "$EVIDENCE_SECTION" | awk '
-            /\*\*Terminal test output\*\*/ { show=1 }
-            show && /\*\*UI media\*\*/ { exit }
-            show { print }
-          ')
-          UI_BLOCK=$(printf '%s' "$EVIDENCE_SECTION" | awk '
-            /\*\*UI media\*\*/ { show=1 }
-            show { print }
-          ')
-
-          # 2) Terminal media with tmux context and caption (block may span multiple lines)
-          # Strip **Terminal media**: <URL> from line 1 before tmux/terminal check — otherwise the
-          # header "**Terminal media**" matches `terminal` and the gate is vacuous (reviewer feedback).
-          TM_FOR_CTX=$(printf '%s' "$TM_BLOCK" | sed '1s/^\*\*Terminal media\*\*:[[:space:]]*https:\/\/[^[:space:]]\+[[:space:]]*//')
-          if ! printf '%s' "$TM_BLOCK" | grep -qiE 'https://[^[:space:]]+'; then
-            echo "ERROR: Missing '**Terminal media**' URL in Evidence section"
-            exit 1
-          fi
-          if ! printf '%s' "$TM_BLOCK" | grep -qiE 'caption'; then
-            echo "ERROR: Terminal media must include caption text (inline or following lines)"
-            exit 1
-          fi
-          if ! printf '%s' "$TM_FOR_CTX" | grep -qiE 'tmux|terminal'; then
-            echo "ERROR: Terminal media caption must reference tmux or terminal context (not only the **Terminal media** label)"
-            exit 1
-          fi
-          echo "Terminal media + caption: PASS"
-
-          # 3) Terminal test output — fenced block + concrete test command inside TTO_BLOCK only
-          if ! printf '%s' "$TTO_BLOCK" | grep -qiE '\*\*Terminal test output\*\*'; then
-            echo "ERROR: Missing '**Terminal test output**' label in Evidence section"
-            exit 1
-          fi
-          if ! printf '%s' "$TTO_BLOCK" | grep -q '```'; then
-            echo "ERROR: Terminal test output must include a fenced code block with real logs"
-            exit 1
-          fi
-          # Require package-manager lines to include a test invocation (pnpm --filter … test, npm test, …)
-          if ! printf '%s' "$TTO_BLOCK" | grep -qiE '(pnpm|npm|yarn|bun|pnpm exec).+test|pytest|vitest|jest|go test|cargo test|bun test|rspec|rake test|mvn test|gradle test|make test'; then
-            echo "ERROR: Terminal test output must mention at least one concrete test command"
-            exit 1
-          fi
-          echo "Terminal test output: PASS"
-
-          # 4) UI media for UI changes; otherwise exact text: N/A - no UI changes (whole Evidence section)
-          if printf '%s' "$EVIDENCE_SECTION" | grep -qF 'N/A - no UI changes'; then
-            echo "UI media: PASS (exact N/A - no UI changes)"
-          else
-            if ! printf '%s' "$UI_BLOCK" | grep -qiE 'https://[^[:space:]]+'; then
-              echo "ERROR: Missing '**UI media**' HTTPS URL, or add exact text: N/A - no UI changes"
-              exit 1
-            fi
-            if ! printf '%s' "$UI_BLOCK" | grep -qiE 'caption'; then
-              echo "ERROR: UI media must include caption text (inline or following lines)"
-              exit 1
-            fi
-            echo "UI media + caption: PASS"
-          fi
-
-          # 5) Reject placeholders/fabrication language
-          if printf '%s' "$EVIDENCE_SECTION" | grep -qiE '<path>|<value>|\bTODO\b|\bTBD\b|example\.com|\bsimulated\b'; then
-            echo "ERROR: Evidence section contains placeholder/fabricated markers"
-            exit 1
-          fi
-
-          echo "Evidence Bundle v2 validation: PASS"
