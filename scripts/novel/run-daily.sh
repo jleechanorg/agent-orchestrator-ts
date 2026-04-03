@@ -81,8 +81,6 @@ WORKERS_FILE="$_repo_root/novel/the-daily-lives-of-workers.md"
 DAILY_FILE="$_repo_root/novel/workers/${TODAY}.md"
 if [ -f "$DAILY_FILE" ]; then
   cd "$_repo_root"
-  git config user.name "ao-novel-daily" 2>/dev/null || true
-  git config user.email "ao-novel-daily@agentorchestrator" 2>/dev/null || true
 
   # Check if both output files are tracked AND unchanged — safe to skip.
   # Also skip if daily file is tracked and neither it nor the workers log changed.
@@ -101,7 +99,8 @@ if [ -f "$DAILY_FILE" ]; then
       echo "run-daily.sh: both files unchanged (already committed) — skipping."
     else
       git add "$DAILY_FILE" "$WORKERS_FILE"
-      git commit -m "[agento] novel: daily entry $TODAY"
+      git -c user.name="ao-novel-daily" -c user.email="ao-novel-daily@agentorchestrator" \
+        commit -m "[agento] novel: daily entry $TODAY"
       git fetch origin main
       git merge --ff-only origin/main
       git push origin main
@@ -110,7 +109,8 @@ if [ -f "$DAILY_FILE" ]; then
   else
     # At least one is new or untracked: add, commit, push.
     git add "$DAILY_FILE" "$WORKERS_FILE"
-    git commit -m "[agento] novel: daily entry $TODAY"
+    git -c user.name="ao-novel-daily" -c user.email="ao-novel-daily@agentorchestrator" \
+      commit -m "[agento] novel: daily entry $TODAY"
     git fetch origin main
     git merge --ff-only origin/main
     git push origin main
