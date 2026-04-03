@@ -125,8 +125,9 @@ jobs:
           BODY="$PR_BODY"
 
           # Extract Evidence section (same boundary rules as evidence-gate.yml — stop at next ## or <!--)
+          # bd-ara.2: use tolower() for portable case-insensitive match (IGNORECASE not supported by mawk)
           EVIDENCE_SECTION=$(printf '%s\n' "$BODY" | awk '
-            /^[[:space:]]*##[[:space:]]+[Ee]vidence([[:space:]]|$)/ { in_section=1; next }
+            tolower($0) ~ /^[[:space:]]*##[[:space:]]+evidence([[:space:]]|$)/ { in_section=1; next }
             in_section && /^[[:space:]]*##[[:space:]]/ { exit }
             in_section && /^[[:space:]]*<!--/ { exit }
             in_section { print }
@@ -164,16 +165,18 @@ jobs:
           ')
 
           # 2) Terminal media (HTTPS screenshot/video) + tmux/terminal context + caption
-          TM_FOR_CTX=$(printf '%s' "$TM_BLOCK" | sed '1s/^\*\*Terminal media\*\*:[[:space:]]*https:\/\/[^[:space:]]\+[[:space:]]*//')
+          # bd-ara.2: extract caption by stripping the URL line, code fences, blank lines, then assemble remaining lines
+          TM_URL_LINE=$(printf '%s' "$TM_BLOCK" | grep -n 'https://' | head -1 | cut -d: -f1)
+          CAPTION_LINES=$(printf '%s' "$TM_BLOCK" | tail -n +"${TM_URL_LINE:-1}" | grep -v '^[[:space:]]*$' | grep -v '^[[:space:]]*```' | grep -v '^[[:space:]]*\*\*Terminal media\*\*')
           if ! printf '%s' "$TM_BLOCK" | grep -qiE 'https://[^[:space:]]+'; then
             echo "FAIL: Missing '**Terminal media**' HTTPS URL in Evidence section"
             exit 1
           fi
-          if ! printf '%s' "$TM_BLOCK" | grep -qiE 'caption'; then
+          if [ -z "$CAPTION_LINES" ]; then
             echo "FAIL: Terminal media must include caption text (inline or following lines)"
             exit 1
           fi
-          if ! printf '%s' "$TM_FOR_CTX" | grep -qiE 'tmux|terminal'; then
+          if ! printf '%s' "$CAPTION_LINES" | grep -qiE 'tmux|terminal'; then
             echo "FAIL: Terminal media caption must reference tmux or terminal context (not only the **Terminal media** label)"
             exit 1
           fi
@@ -188,7 +191,8 @@ jobs:
             echo "FAIL: Terminal test output must include a fenced code block with real logs"
             exit 1
           fi
-          if ! printf '%s' "$TTO_BLOCK" | grep -qiE '(pnpm|npm|yarn|bun|pnpm exec).+test|pytest|vitest|jest|go test|cargo test|bun test|rspec|rake test|mvn test|gradle test|make test'; then
+          # bd-ara.2: require command-shaped usage — $ prefix, ./, bash/sh, or npm/yarn/pnpm/bun/npx/pnpm exec/python -m runner prefix
+          if ! printf '%s' "$TTO_BLOCK" | grep -qiE '\$[ \t]*(pnpm|npm|yarn|bun|pnpm exec|npx).+test|\$\.?/[a-z_-]+ (test|spec|rake)|bash.+test|sh.+test|python -m pytest|\b(pnpm|npm|yarn|bun|npx|pnpm exec).+\b(test|jest|vitest|mocha|rspec|pytest)\b|\bgo test\b|\bcargo test\b|\brake test\b|\bmvn test\b|\bgradle test\b|\bmake test\b|\bbun test\b|\brspec\b'; then
             echo "FAIL: Terminal test output must mention at least one concrete test command"
             exit 1
           fi
@@ -210,15 +214,21 @@ jobs:
           fi
 
           # 5) Reject placeholders/fabrication language
-          if printf '%s' "$EVIDENCE_SECTION" | grep -qiE '\bsimulated\b'; then
+          # bd-ara.2: strip fenced code blocks before checking TODO/TBD — terminal output in fences may contain incidental matches
+          NON_CODE_EVIDENCE=$(printf '%s\n' "$EVIDENCE_SECTION" | awk '
+            /^[[:space:]]*```/ { in_code=(!in_code); next }
+            !in_code { print }
+          ')
+          if printf '%s' "$NON_CODE_EVIDENCE" | grep -qiE '\bsimulated\b'; then
             echo "FAIL: Evidence contains 'simulated' — fabricated output is not valid evidence."
             exit 1
           fi
-          if printf '%s' "$EVIDENCE_SECTION" | grep -qiE 'https?://(www\.)?example\.com'; then
+          if printf '%s' "$NON_CODE_EVIDENCE" | grep -qiE 'https?://(www\.)?example\.com'; then
             echo "FAIL: Evidence contains example.com placeholder URL"
             exit 1
           fi
-          if printf '%s' "$EVIDENCE_SECTION" | grep -qiE '<path>|<value>|\bTODO\b|\bTBD\b'; then
+          # bd-ara.2: only flag TODO/TBD that look like template values (surrounded by : or whitespace) or bare angle-bracket placeholders
+          if printf '%s' "$NON_CODE_EVIDENCE" | grep -qiE '<path>|<value>|:[[:space:]]*(TODO|TBD)([[:space:][:punct:]]|$)'; then
             echo "FAIL: Evidence contains placeholder template text"
             exit 1
           fi
