@@ -197,45 +197,43 @@ When CR posts CHANGES_REQUESTED on your PR:
 ### Skeptic SKIPPED — do not merge
 If skeptic posts `VERDICT: SKIPPED` (infra unavailable — no LLM API keys in GHA), the PR does **NOT** have a genuine skeptic review. The `skeptic-cron.yml` workflow handles skeptic evaluation via AO worker. **Do not merge until skeptic-cron has run `ao skeptic verify` and posted `VERDICT: PASS` or `VERDICT: FAIL`.** Check skeptic-cron hasn't already evaluated this PR SHA (comments show `VERDICT:`).
 
-### Evidence philosophy — agent claims require proof artifacts
-- **Claims without artifacts are insufficient.** Treat implementation claims (behavior, fixes, UX) as **unproven** unless tied to **human-verifiable** artifacts in `## Evidence`.
-- **Substantive work** (features, meaningful refactors, non-trivial behavior changes) requires a **reproducible evidence bundle** every time — not narrative-only summaries.
-- **UI / interactive changes:** Prefer **video** of key flows; include **before** and **after** screenshots for critical visual deltas (same framing when comparing). CI still enforces **UI media** (or exact `N/A - no UI changes`); reviewers use `docs/evidence/reviewer-checklist.md` for bar-raising on UI proof.
-- **Command logs + mapping:** Fenced **terminal test output** must support repeats; add a short **Claim → artifact map** (bullets) when multiple claims need separate proof.
-- **Self-validation:** Verify in an **isolated** context when practical (clean worktree / documented env). Exercise **negative / error paths** where risk warrants it. **Revert** temporary debug toggles or test-only hacks before finalizing.
-- **Goal:** Evidence that maximizes **fast human review** and **merge confidence** — scannable, repeatable, honest about limits.
+### Skeptic FAIL — hard merge block (even for admins)
+A `VERDICT: FAIL` is a hard block. **Never merge a PR that has an unaddressed FAIL verdict**, even as admin. If you see a merged PR with a FAIL verdict in a review, flag it as a gate enforcement gap:
+```bash
+# Verify Skeptic Gate is in required status checks (it must be):
+gh api repos/jleechanorg/agent-orchestrator/branches/main/protection --jq '.required_status_checks.contexts'
+# Expected: includes "Skeptic Gate"
+# If missing: this is bd-8khr — add it to branch protection
+```
 
-### Evidence Bundle v2 (mandatory): reproducible gist + terminal media + terminal test logs + UI
-Evidence is fail-closed: every PR must include a self-contained bundle in `## Evidence`. CI enforces this in both `wholesome.yml` (**Evidence Has Media Attachment**) and `evidence-gate.yml` (**Evidence Gate**). **Policy depth** (philosophy, reviewer checklist, `/er` guidance): `docs/evidence/README.md`.
+### Adding new CI gates — branch protection checklist
+When adding a new required CI gate (e.g., a new workflow check):
+1. Verify the gate name matches exactly: `gh api repos/jleechanorg/agent-orchestrator/branches/main/protection --jq '.required_status_checks.contexts'`
+2. Add the gate name to required status checks via repo Settings → Branches → Branch protection rules
+3. Confirm with: `gh api repos/jleechanorg/agent-orchestrator/branches/main/protection --jq '.required_status_checks.contexts'` includes your gate
+4. Without step 2, any FAIL verdict can be bypassed by admin merge
 
-Hard requirements (all must be true):
-1. **Repro gist** — `**Repro gist**: https://gist.github.com/...` (clone-and-run capable).
-2. **Terminal media** — **Mandatory on every PR**: captioned HTTPS screenshot or video (`**Terminal media**:`) that clearly shows **tmux or terminal** context (caption must mention `tmux` or `terminal` **outside** the label line — see workflow `TM_FOR_CTX` stripping). Image-only or code-only substitutes are **not** accepted.
-3. **Terminal test output** — **Mandatory in addition to** terminal media (not either/or): `**Terminal test output**:` followed by a fenced code block with real test run logs (must reference a concrete test command such as `pnpm`/`npm`/`vitest`/… `test`).
-4. **UI media** — For UI changes: captioned HTTPS screenshot or video under `**UI media**:` (multiple images or a video link are fine for before/after). If there are **no UI changes**, use **exactly** this text (including spacing): `N/A - no UI changes` (may appear in the `**UI media**:` line or elsewhere in `## Evidence`).
+### Churn detector — same-file threshold
+The 3-PR churn threshold applies to subsystem keywords. For **same file** fixes, the threshold is **2**: if 2 PRs touching the same file have merged within 4 hours, stop and add an integration test before opening another.
+```bash
+# Before opening a PR, check recently merged PRs for file overlap:
+gh pr list --repo jleechanorg/agent-orchestrator --state merged \
+  --search "updated:>=$(date -v-4h +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -d '4 hours ago' +%Y-%m-%dT%H:%M:%SZ)" \
+  --json number,title,files 2>/dev/null | jq '.[] | {number, title, files}'
+# If any recently merged PR touches the same file as your change → churn protocol
+```
 
-Recommended (strongly for reviewers + `/er`):
-- **`**Claim → artifact map**:`** — Bullets mapping each major PR claim → gist step / log / media.
-- **UI-rich PRs:** Video + before/after stills per `docs/evidence/reviewer-checklist.md`.
+### Evidence Gate strong proof — run `/pr-media` BEFORE first push
+For non-unit claims (`pipeline-e2e`, `pr-lifecycle-e2e`, `merge-gate`), Evidence must contain **all three**:
+1. media artifact URL (screenshot/video)
+2. execution artifact (code block or structured terminal/test output)
+3. self-validation language (`verified`, `error case`, `before/after`, `reproduced`)
 
-Rules:
-- Before first push: run `/pr-media` (or equivalent) and capture real tmux/terminal media plus fenced test logs.
-- Repro gist must contain exact steps to clone the PR branch, install deps, run tests, and reproduce the claimed result.
-- Placeholder evidence (`<path>`, `<value>`, `TODO`, `TBD`, `example.com`) is forbidden and fails CI.
-- `simulated` output is forbidden — only real command output.
-- Evidence checks are pre-merge only; merged/closed PRs are skipped.
-
-### Evidence review (`/er`) vs CI vs Skeptic
-- **`/er` (step 6 of 7-green):** Human or agent review that evidence **substance** matches the **claim class** and `docs/evidence/reviewer-checklist.md`. Use when the PR has an evidence bundle; **PASS/INSUFFICIENT** is about proof fit, not YAML shape alone.
-- **Evidence Gate (CI):** Format and presence rules only; fails closed on missing fields.
-- **Skeptic Gate:** Independent LLM check on overall merge readiness (can flag gaps between claims and 7-green story). Does not replace real artifacts or `/er`.
-
-### Cursor cloud-agent artifact model (reference)
-Cursor describes **cloud agents** that run in isolated environments, **test their changes**, and **produce artifacts (videos, screenshots, and logs)** so reviewers can validate work quickly, and open **merge-ready PRs with artifacts to demo their changes**. See [Cursor agents can now control their own computers](https://cursor.com/blog/agent-computer-use) (product announcement; read the full post for examples). The same post shows **video artifacts** for full flows, **screenshots** for static proof, and **summaries/logs** alongside — not prose-only claims.
-
-Evidence Bundle v2 mirrors that intent for AO workers: **Terminal media** = screenshot or video of tmux/terminal (visual proof), **Terminal test output** = real command logs, **Repro gist** = clone-and-run reproducibility, **UI media** = user-visible change proof or explicit N/A. Prefer **direct HTTPS links** to viewable images or videos (e.g. GitHub PR/user-attachments, or markdown `![alt](https://...)`), not a bare gist page URL as a substitute for terminal screenshot/video.
-
-For long-running agent observability, Cursor’s research on scaling autonomous coding emphasizes logging **agent messages, system actions, and command outputs, with timestamps** for replay and review — see [Towards self-driving codebases](https://cursor.com/blog/self-driving-codebases). The fenced **Terminal test output** block is the PR-level analogue: concrete command output a reviewer can grep, alongside visual terminal media.
+This enforces a "prove it" standard instead of claim-only summaries.
+- Before first push: run `/pr-media` to capture screenshot/video and include real test/terminal output
+- If `/pr-media` is unavailable: include HTTPS media URL from another capture path plus real command output
+- Placeholder text (`<value>`, `<screenshot path>`, `TODO`, `TBD`) and `simulated` output fail the gate
+- Reference format: `docs/evidence/strong-evidence-standard.md`
 
 ## Fork Isolation — Code Separation from Upstream
 

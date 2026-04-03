@@ -81,14 +81,6 @@ roadmap/               # Design docs and decision records — first-class, commi
 - **Never push to main directly** — always open a PR.
 - **Never use `git add -A`** — stage only files you changed.
 
-## PR evidence (AO workers) — proof artifacts, not claims
-- **Agent claims are insufficient without artifacts.** Substantive implementation work needs a **reproducible, human-verifiable** bundle in `## Evidence` (**Evidence Bundle v2** in `CLAUDE.md`).
-- **Minimum CI shape:** repro gist, terminal media (tmux/terminal context) + **separate** fenced test logs, UI media or exact `N/A - no UI changes`.
-- **Bar-raising (UI / interactive):** Prefer **video** of key flows + **before/after** screenshots for critical states; map claims to gist steps / logs / media (`docs/evidence/reviewer-checklist.md`).
-- **Self-validation:** Clean/isolated reruns where practical; **negative paths** when risk warrants; **revert** temp toggles before merge.
-- **Review stack:** CI Evidence Gate → `/er` (evidence review) → Skeptic — see `docs/evidence/README.md`.
-- Cursor alignment: [Cursor agents can now control their own computers](https://cursor.com/blog/agent-computer-use) (artifacts for merge confidence).
-
 ## Fork Isolation — Mandatory for All Changes
 
 This is a fork of `ComposioHQ/agent-orchestrator`. Every code change must prioritize isolation from upstream to avoid merge conflicts.
@@ -184,6 +176,15 @@ When merging multiple PRs, use the `/bulk-merge` workflow (`.claude/commands/bul
 
 Before writing code that changes core behavior, **check the mirror first** to see if upstream already supports it. Many features (notifier plugins, reactions, config wiring) already work via config — no code change needed.
 
+## Evidence Standard (strong)
+
+For claim classes `pipeline-e2e`, `pr-lifecycle-e2e`, and `merge-gate`, PR evidence must include:
+- at least one media artifact URL (screenshot/video)
+- real execution output (code block or structured terminal/test output)
+- explicit self-validation language (`verified`, `error case`, `before/after`, `reproduced`)
+
+Reference: `docs/evidence/strong-evidence-standard.md`
+
 ## PR Checklist
 
 Before opening a PR, verify:
@@ -191,6 +192,7 @@ Before opening a PR, verify:
 - [ ] All existing tests pass
 - [ ] New behavior has new tests (TDD)
 - [ ] Config-first hierarchy followed (AGENTS.md §Development Hierarchy)
+- [ ] Evidence bundle meets strong evidence standard for non-unit claims
 - [ ] No secrets or tokens committed
 - [ ] Conventional commit messages
 
