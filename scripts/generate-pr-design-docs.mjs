@@ -213,7 +213,10 @@ function extractDescription(body) {
       return trimmed.replace(/\[([^\]]+)\]\([^)]+\)/g, "$1"); // strip links
     }
   }
-  return stripped.slice(0, 200).trim() + "…";
+  const normalized = stripped.trim();
+  if (!normalized) return "No description provided.";
+  const fallback = normalized.slice(0, 200);
+  return normalized.length > 200 ? `${fallback}…` : fallback;
 }
 
 function extractLabels(pr) {
