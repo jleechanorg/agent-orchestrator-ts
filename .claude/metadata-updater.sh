@@ -142,8 +142,10 @@ update_metadata_key() {
   # Create temp file
   local temp_file="${metadata_file}.tmp"
 
-  # Escape special sed characters in value (&, \, and | — all special with | delimiter)
-  local escaped_value=$(echo "$value" | sed 's/[&|\\]/\\&/g')
+  # Escape special sed characters in value (& and \ — not | or / in BRE)
+  local escaped_value
+  escaped_value="${value//\\/\\\\}"
+  escaped_value="${escaped_value//&/\\&}"
 
   # Check if key already exists
   if grep -q "^$key=" "$metadata_file" 2>/dev/null; then
@@ -198,23 +200,21 @@ fi
 # Only update if the branch name looks like a feature branch (contains / or -)
 if [[ "$clean_command" =~ ^git[[:space:]]+checkout[[:space:]]+([^[:space:]-]+[/-][^[:space:]]+) ]]; then
   branch="${BASH_REMATCH[1]}"
-  if [[ -n "$branch" && "$branch" != "HEAD" ]]; then
-    if git show-ref --verify --quiet "refs/heads/$branch" 2>/dev/null; then
+  if [[ -n "$branch" && "$branch" != "HEAD" &&
+        ! "$branch" =~ \.(ts|js|tsx|jsx|py|go|rs|java|cpp|c|h|sh|bash|json|yaml|yml|toml|md|html|css|scss)$ ]]; then
       update_metadata_key "branch" "$branch"
       echo '{"systemMessage": "Updated metadata: branch = '"$branch"'"}'
       exit 0
-    fi
   fi
 fi
 
 if [[ "$clean_command" =~ ^git[[:space:]]+switch[[:space:]]+([^[:space:]-]+[/-][^[:space:]]+) ]]; then
   branch="${BASH_REMATCH[1]}"
-  if [[ -n "$branch" && "$branch" != "HEAD" ]]; then
-    if git show-ref --verify --quiet "refs/heads/$branch" 2>/dev/null; then
+  if [[ -n "$branch" && "$branch" != "HEAD" &&
+        ! "$branch" =~ \.(ts|js|tsx|jsx|py|go|rs|java|cpp|c|h|sh|bash|json|yaml|yml|toml|md|html|css|scss)$ ]]; then
       update_metadata_key "branch" "$branch"
       echo '{"systemMessage": "Updated metadata: branch = '"$branch"'"}'
       exit 0
-    fi
   fi
 fi
 
