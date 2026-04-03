@@ -64,10 +64,30 @@ if [ -z "$NODE" ]; then
   fi
 fi
 
+# Sync to latest origin/main before generating (CR review: ff-only before generation).
+git fetch origin main
+git merge --ff-only origin/main
+
 # Date computed at runtime, not at plist-install time
 TODAY="$(date '+%Y-%m-%d')"
 WORKERS_FILE="$_repo_root/novel/the-daily-lives-of-workers.md"
+DAILY_FILE="$_repo_root/novel/workers/${TODAY}.md"
 
+# Sync to latest origin/main before generating — ensures we branch from the
+# current tip and prevents unstaged local edits from blocking the fast-forward.
+# Uses ff-only to refuse any divergent local state (only accepts fast-forward).
+cd "$_repo_root"
+git fetch origin main
+git merge --ff-only origin/main
+
+# Check if the daily file is already committed with no local changes — skip.
+if git ls-files --error-unmatch "$DAILY_FILE" >/dev/null 2>&1 &&
+   git diff --quiet "$DAILY_FILE" "$WORKERS_FILE" 2>/dev/null; then
+  echo "run-daily.sh: both files unchanged (already committed) — skipping."
+  exit 0
+fi
+
+# Generate today's entry.
 "$NODE" "$_repo_root/scripts/novel/generate-daily-entry.mjs" \
   --daily "$TODAY" \
   --file "$WORKERS_FILE" \
@@ -75,49 +95,13 @@ WORKERS_FILE="$_repo_root/novel/the-daily-lives-of-workers.md"
   --words 1000
 
 # Commit and push the new daily entry to origin/main.
-# Uses ff-only merge to prevent overwriting remote commits that may have
-# advanced origin/main since we started (e.g., from the previous day's run).
 # Uses a dedicated "novel-daily" identity so these commits are distinguishable.
-DAILY_FILE="$_repo_root/novel/workers/${TODAY}.md"
 if [ -f "$DAILY_FILE" ]; then
-  cd "$_repo_root"
-
-  # Sync to latest origin/main before making changes.
-  # The ff-only guard here catches concurrent pushes to origin/main.
-  # Post-commit push will similarly refuse if origin advanced during the
-  # window between fetch and push (serial daily run makes this rare in practice).
-  git fetch origin main
-  git merge --ff-only origin/main
-
-  # Check if both output files are tracked AND unchanged — safe to skip.
-  _daily_tracked=0
-  _workers_tracked=0
-  if git ls-files --error-unmatch "$DAILY_FILE" >/dev/null 2>&1; then
-    _daily_tracked=1
-  fi
-  if git ls-files --error-unmatch "$WORKERS_FILE" >/dev/null 2>&1 2>/dev/null; then
-    _workers_tracked=1
-  fi
-
-  if [ "$_daily_tracked" = 1 ] && [ "$_workers_tracked" = 1 ]; then
-    # Both tracked: skip only if neither has local changes.
-    if git diff --quiet "$DAILY_FILE" "$WORKERS_FILE" 2>/dev/null; then
-      echo "run-daily.sh: both files unchanged (already committed) — skipping."
-    else
-      git add "$DAILY_FILE" "$WORKERS_FILE"
-      git -c user.name="ao-novel-daily" -c user.email="ao-novel-daily@agentorchestrator" \
-        commit -m "[agento] novel: daily entry $TODAY"
-      git push origin main
-      echo "run-daily.sh: pushed updated entry to origin/main."
-    fi
-  else
-    # At least one is new or untracked: add, commit, push.
-    git add "$DAILY_FILE" "$WORKERS_FILE"
-    git -c user.name="ao-novel-daily" -c user.email="ao-novel-daily@agentorchestrator" \
-      commit -m "[agento] novel: daily entry $TODAY"
-    git push origin main
-    echo "run-daily.sh: pushed new daily entry to origin/main."
-  fi
+  git add "$DAILY_FILE" "$WORKERS_FILE"
+  git -c user.name="ao-novel-daily" -c user.email="ao-novel-daily@agentorchestrator" \
+    commit -m "[agento] novel: daily entry $TODAY"
+  git push origin main
+  echo "run-daily.sh: pushed new daily entry to origin/main."
 else
   echo "run-daily.sh: WARNING: $DAILY_FILE not created — skipping commit/push." >&2
 fi
