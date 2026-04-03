@@ -204,8 +204,8 @@ function extractDescription(body) {
   // CR bd-357-fix: strip @coderabbitai reviewer pings and CI status claims from
   // description — these are ephemeral conversational content, not design metadata.
   const stripped = cleaned
-    .replace(/^@coderabbitai\s+[^]*?(?=\n\n|\n#|$)/im, "")
-    .replace(/^(?:All CI checks pass|Evidence Gate|Wholesome PR Checks|Skeptic Gate)[^\n]*\n*/im, "");
+    .replace(/^@coderabbitai\s+[^]*?(?=\n\n|\n#|$)/gim, "")
+    .replace(/^(?:All CI checks pass|Evidence Gate|Wholesome PR Checks|Skeptic Gate)[^\n]*\n*/gim, "");
   const paragraphs = stripped.split(/\n\n+/);
   for (const p of paragraphs) {
     const trimmed = p.trim();
