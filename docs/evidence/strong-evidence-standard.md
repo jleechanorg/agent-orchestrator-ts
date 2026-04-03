@@ -17,7 +17,7 @@ For claim classes `integration`, `pipeline-e2e`, `pr-lifecycle-e2e`, and `merge-
    - HTTPS screenshot or video URL under `**Terminal media**:` with a caption that
      mentions `tmux` or `terminal` **outside** the label line
 3. **Terminal test output** (required — CI enforces via evidence-gate.yml)
-   - `**Terminal test output**:` with a fenced code block (triple backtick: ``` ` ```bash ` or tilde: `~~~`) showing
+   - `**Terminal test output**:` with a fenced code block (backtick triple: &#96;&#96;&#96;bash or tilde: &#126;&#126;&#126;) showing
      real command output (must reference a concrete test command: `pnpm test`, `pytest`, etc.)
 4. **UI media** (or explicit no-UI line — CI enforces exact `N/A - no UI changes`)
    - HTTPS screenshot/video URL with caption, **OR** exact text `N/A - no UI changes`
@@ -34,7 +34,7 @@ Review should be fast and objective:
 
 ## Suggested PR Evidence skeleton
 
-````md
+````````markdown
 ## Evidence
 **Claim class**: pipeline-e2e
 **Verdict**: PASS
@@ -46,7 +46,7 @@ Review should be fast and objective:
 Shows tmux pane with the key behavior change (caption outside label)
 
 **Terminal test output**:
-```
+```bash
 $ pnpm test
   ✓ my-test  ...
   ...
@@ -59,7 +59,7 @@ Video of the key user flow (or `N/A - no UI changes`)
 - Reproduced the issue on old SHA
 - Verified the fix on new SHA
 - Confirmed no regressions in related flows
-````
+````````
 
 ## Notes
 
