@@ -585,9 +585,10 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     let scmFailureCount =
       typeof rawCount === "string" ? parseInt(rawCount, 10) : Number(rawCount);
     if (Number.isNaN(scmFailureCount)) scmFailureCount = 0;
-    // Clamp persisted overflow values (e.g., 1524 from a prior lifecycle-manager
-    // version that accumulated without resetting on success). The cap does not
-    // affect normal operation — counter stays near 0 during successful polls.
+    // Clamp persisted overflow values from prior lifecycle-manager versions
+    // that accumulated without resetting on success. Only affects pathological/
+    // corrupt values exceeding 1,000,000 — normal historical counts (e.g. 1524)
+    // are unaffected.
     if (scmFailureCount > SCM_FAILURE_COUNT_MAX) scmFailureCount = SCM_FAILURE_COUNT_MAX;
     // bd-6jc: tracks whether an SCM error was caught; used in finally to decide
     // whether to reset the counter (only reset on genuine SCM success).
