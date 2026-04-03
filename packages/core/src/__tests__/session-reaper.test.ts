@@ -31,20 +31,26 @@ describe("reapStaleSessions", () => {
     expect(result.dryRun).toBe(false);
   });
 
-  it("2. all sessions in terminal state → all skipped", async () => {
+  it("2. all sessions in terminal state → all skipped (merged/killed are bd-ara.2 zombies, not terminal-skip)", async () => {
+    // bd-ara.2: status="merged" and status="killed" are handled by the zombie
+    // check (runs before this terminal-status guard). Only truly dead non-zombie
+    // statuses (done, errored, terminated) reach this guard.
     const sessions = [
-      makeSession("s1", { status: "killed" }),
-      makeSession("s2", { status: "done" }),
-      makeSession("s3", { status: "merged" }),
-      makeSession("s4", { status: "terminated" }),
-      makeSession("s5", { status: "errored" }),
+      makeSession("s1", { status: "killed" }),    // bd-ara.2: zombie → killed
+      makeSession("s2", { status: "done" }),      // truly dead → skipped
+      makeSession("s3", { status: "merged" }),    // bd-ara.2: zombie → killed
+      makeSession("s4", { status: "terminated" }),// truly dead → skipped
+      makeSession("s5", { status: "errored" }),  // truly dead → skipped
     ];
     const sm = makeSessionManager(sessions);
     const result = await reapStaleSessions(makeConfig(), makeDeps(sm));
 
-    expect(result.killed).toHaveLength(0);
-    expect(result.skipped).toHaveLength(5);
-    expect(sm.kill).not.toHaveBeenCalled();
+    // s1 and s3 are zombies (killed); s2, s4, s5 are truly dead (skipped)
+    expect(result.killed).toHaveLength(2);
+    expect(result.killed.map(k => k.sessionId).sort()).toEqual(["s1", "s3"]);
+    expect(result.skipped).toHaveLength(3);
+    expect(result.skipped.map(s => s.sessionId).sort()).toEqual(["s2", "s4", "s5"]);
+    expect(sm.kill).toHaveBeenCalledTimes(2);
   });
 
   it("3. session with no PR past noPrThreshold → killed", async () => {
