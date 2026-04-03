@@ -155,8 +155,8 @@ jobs:
           BODY=$(cat "$RUNNER_TEMP/pr_body.txt")
 
           CLAIM=$(printf '%s' "$BODY" \
-            | grep -i '\*\*Claim class' | grep -v '^- ' | head -1 \
-            | sed 's/.*\*\*Claim class\*\*: */\1/I' \
+            | grep -i '^[[:space:]]*\*\*Claim class\*\*:' | grep -v '^- ' | head -1 \
+            | sed 's/.*\*\*Claim class\*\*: *//I' \
             | sed 's/(.*//' \
             | tr -d '*' | tr '[:upper:]' '[:lower:]' \
             | tr ' ' '-' | tr -d '\t' \
@@ -165,8 +165,8 @@ jobs:
           # Fallback: also try list-bullet format
           if [ -z "$CLAIM" ]; then
             CLAIM=$(printf '%s' "$BODY" \
-              | grep -i '^-.*\*\*Claim class' | head -1 \
-              | sed 's/.*\*\*Claim class\*\*: */\1/I' \
+              | grep -i '^-.*\*\*Claim class\*\*:' | head -1 \
+              | sed 's/.*\*\*Claim class\*\*: *//I' \
               | sed 's/(.*//' \
               | tr -d '*' | tr '[:upper:]' '[:lower:]' \
               | tr ' ' '-' | tr -d '\t' \
