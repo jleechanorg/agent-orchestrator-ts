@@ -82,8 +82,14 @@ DAILY_FILE="$_repo_root/novel/workers/${TODAY}.md"
 if [ -f "$DAILY_FILE" ]; then
   cd "$_repo_root"
 
+  # Sync to latest origin/main before making changes.
+  # The ff-only guard here catches concurrent pushes to origin/main.
+  # Post-commit push will similarly refuse if origin advanced during the
+  # window between fetch and push (serial daily run makes this rare in practice).
+  git fetch origin main
+  git merge --ff-only origin/main
+
   # Check if both output files are tracked AND unchanged — safe to skip.
-  # Also skip if daily file is tracked and neither it nor the workers log changed.
   _daily_tracked=0
   _workers_tracked=0
   if git ls-files --error-unmatch "$DAILY_FILE" >/dev/null 2>&1; then
@@ -101,8 +107,6 @@ if [ -f "$DAILY_FILE" ]; then
       git add "$DAILY_FILE" "$WORKERS_FILE"
       git -c user.name="ao-novel-daily" -c user.email="ao-novel-daily@agentorchestrator" \
         commit -m "[agento] novel: daily entry $TODAY"
-      git fetch origin main
-      git merge --ff-only origin/main
       git push origin main
       echo "run-daily.sh: pushed updated entry to origin/main."
     fi
@@ -111,8 +115,6 @@ if [ -f "$DAILY_FILE" ]; then
     git add "$DAILY_FILE" "$WORKERS_FILE"
     git -c user.name="ao-novel-daily" -c user.email="ao-novel-daily@agentorchestrator" \
       commit -m "[agento] novel: daily entry $TODAY"
-    git fetch origin main
-    git merge --ff-only origin/main
     git push origin main
     echo "run-daily.sh: pushed new daily entry to origin/main."
   fi
