@@ -199,29 +199,15 @@ if [[ "$clean_command" =~ ^git[[:space:]]+switch[[:space:]]+-c[[:space:]]+([^[:s
   fi
 fi
 
-# Detect: git checkout <branch> (without -b) or git switch <branch> (without -c)
-# Guard: verify the candidate is actually a branch ref, not a file path.
-# Reject extensionless paths like docs/README by requiring the candidate to exist
-# as a local branch (git show-ref exits 0 only for real refs, not files).
-if [[ "$clean_command" =~ ^git[[:space:]]+checkout[[:space:]]+([^[:space:]-]+[/-][^[:space:]]+) ]]; then
-  branch="${BASH_REMATCH[1]}"
+# Detect: git checkout or git switch commands.
+# Query the actual repository HEAD post-execution to guarantee accuracy
+# and avoid parsing edge cases (e.g., detached HEAD, file paths).
+if [[ "$clean_command" =~ ^git[[:space:]]+(checkout|switch) ]]; then
+  branch=$(git branch --show-current 2>/dev/null)
   if [[ -n "$branch" && "$branch" != "HEAD" ]]; then
-    if git show-ref --verify --quiet "refs/heads/$branch" 2>/dev/null; then
-      update_metadata_key "branch" "$branch"
-      echo '{"systemMessage": "Updated metadata: branch = '"$branch"'"}'
-      exit 0
-    fi
-  fi
-fi
-
-if [[ "$clean_command" =~ ^git[[:space:]]+switch[[:space:]]+([^[:space:]-]+[/-][^[:space:]]+) ]]; then
-  branch="${BASH_REMATCH[1]}"
-  if [[ -n "$branch" && "$branch" != "HEAD" ]]; then
-    if git show-ref --verify --quiet "refs/heads/$branch" 2>/dev/null; then
-      update_metadata_key "branch" "$branch"
-      echo '{"systemMessage": "Updated metadata: branch = '"$branch"'"}'
-      exit 0
-    fi
+    update_metadata_key "branch" "$branch"
+    echo '{"systemMessage": "Updated metadata: branch = '"$branch"'"}'
+    exit 0
   fi
 fi
 
