@@ -172,6 +172,126 @@ describe("reapStaleSessions edge cases", () => {
   });
 });
 
+describe("zombie detection via session.status (bd-ara.2)", () => {
+  // bd-ara.2 fix: session.status is now the PRIMARY zombie signal. It is checked
+  // BEFORE the terminal-status skip, so sessions with status="merged" or
+  // "killed" are ALWAYS reaped — even when their PR state is stale or null.
+  // This fixes the bug where ao-2303/ao-2312/ao-2322 had status=merged but
+  // prState=open (persistPrState only writes on change, creating a staleness gap).
+
+  it("bd-ara.2: session.status=merged + PR → killed immediately (status is primary signal)", async () => {
+    // Real-world case: ao-2303, ao-2312, ao-2322
+    // prState=open (stale) but session.status=merged → session.status wins
+    const sessions = [
+      makeSession("zombie-status-1", {
+        status: "merged",
+        pr: {
+          number: 42,
+          url: "https://github.com/org/repo/pull/42",
+          title: "",
+          owner: "org",
+          repo: "repo",
+          branch: "feat/test",
+          baseBranch: "main",
+          isDraft: false,
+          state: "open", // bd-ara.2: stale — persistPrState only writes on change
+        },
+        lastActivityAt: new Date(BASE_NOW.getTime() - 60_000), // recent activity
+        createdAt: new Date(BASE_NOW.getTime() - FOUR_HOURS_MS - 1000),
+      }),
+    ];
+    const sm = makeSessionManager(sessions);
+    const result = await reapStaleSessions(makeConfig({ maxKillsPerRun: 20 }), makeDeps(sm));
+
+    expect(result.killed).toHaveLength(1);
+    expect(result.killed[0].sessionId).toBe("zombie-status-1");
+    expect(result.killed[0].reason).toContain("zombie");
+    expect(result.killed[0].reason).toContain("merged");
+    expect(result.killed[0].reason).toContain("AO status"); // confirms status-based kill
+    expect(sm.kill).toHaveBeenCalledWith("zombie-status-1");
+  });
+
+  it("bd-ara.2: session.status=killed → killed immediately (zombie, tmux still alive)", async () => {
+    // Real-world case: lifecycle-manager marks session killed but tmux is still alive
+    const sessions = [
+      makeSession("zombie-killed", {
+        status: "killed",
+        pr: null,
+        lastActivityAt: new Date(BASE_NOW.getTime() - 60_000),
+        createdAt: new Date(BASE_NOW.getTime() - FOUR_HOURS_MS - 1000),
+      }),
+    ];
+    const sm = makeSessionManager(sessions);
+    const result = await reapStaleSessions(makeConfig({ maxKillsPerRun: 20 }), makeDeps(sm));
+
+    expect(result.killed).toHaveLength(1);
+    expect(result.killed[0].sessionId).toBe("zombie-killed");
+    expect(result.killed[0].reason).toContain("zombie");
+    expect(sm.kill).toHaveBeenCalledWith("zombie-killed");
+  });
+
+  it("bd-ara.2: session.status=merged + pr=null (PR already cleaned up) → still killed", async () => {
+    // PR was already merged and cleanup ran, but tmux is still alive.
+    // pr is null → bd-s4t pr-state path can't work → session.status path catches it.
+    const sessions = [
+      makeSession("zombie-no-pr", {
+        status: "merged",
+        pr: null, // bd-ara.2: lifecycle-manager nullified PR after merge
+        lastActivityAt: new Date(BASE_NOW.getTime() - 60_000),
+        createdAt: new Date(BASE_NOW.getTime() - FOUR_HOURS_MS - 1000),
+      }),
+    ];
+    const sm = makeSessionManager(sessions);
+    const result = await reapStaleSessions(makeConfig({ maxKillsPerRun: 20 }), makeDeps(sm));
+
+    expect(result.killed).toHaveLength(1);
+    expect(result.killed[0].sessionId).toBe("zombie-no-pr");
+    expect(sm.kill).toHaveBeenCalledWith("zombie-no-pr");
+  });
+
+  it("bd-ara.2: non-merged terminal statuses (done, errored, terminated) → skipped (not zombies)", async () => {
+    // Only "merged" and "killed" are zombie statuses; other terminal statuses
+    // are truly dead sessions that don't need reaping.
+    const sessions = [
+      makeSession("done-session", { status: "done" }),
+      makeSession("errored-session", { status: "errored" }),
+      makeSession("terminated-session", { status: "terminated" }),
+    ];
+    const sm = makeSessionManager(sessions);
+    const result = await reapStaleSessions(makeConfig({ maxKillsPerRun: 20 }), makeDeps(sm));
+
+    expect(result.killed).toHaveLength(0);
+    expect(result.skipped).toHaveLength(3);
+    expect(result.skipped.every(s => s.reason === "terminal state")).toBe(true);
+    expect(sm.kill).not.toHaveBeenCalled();
+  });
+
+  it("bd-ara.2: custom zombieStatuses set → only those statuses trigger zombie kill", async () => {
+    // When zombieStatuses is configured to only include "killed", merged sessions
+    // should NOT be killed as zombies (but would still be skipped as terminal).
+    const sessions = [
+      makeSession("merged-not-in-custom", {
+        status: "merged",
+        pr: null,
+        createdAt: new Date(BASE_NOW.getTime() - FOUR_HOURS_MS - 1000),
+        lastActivityAt: new Date(BASE_NOW.getTime() - FOUR_HOURS_MS - 1000),
+      }),
+    ];
+    const sm = makeSessionManager(sessions);
+    // Config with custom zombieStatuses (only "killed", not "merged")
+    const result = await reapStaleSessions(
+      makeConfig({ maxKillsPerRun: 20, zombieStatuses: new Set(["killed"]) }),
+      makeDeps(sm),
+    );
+
+    // "merged" is not in zombieStatuses → skipped as terminal
+    expect(result.killed).toHaveLength(0);
+    expect(result.skipped).toHaveLength(1);
+    expect(result.skipped[0].reason).toBe("terminal state");
+    expect(sm.kill).not.toHaveBeenCalled();
+  });
+});
+
 describe("zombie detection via pr.state (bd-s4t)", () => {
   it("kills session with merged pr.state (bd-s4t zombie path)", async () => {
     const zombieSession = makeSession("zombie-1", {

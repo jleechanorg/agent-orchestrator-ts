@@ -38,6 +38,16 @@ export interface ReaperConfig {
    * reaping. Prevents killing sessions before the agent CLI has initialized.
    */
   startupGracePeriodMs?: number;
+  /**
+   * bd-ara.2: AO session statuses that are treated as zombie signals.
+   * Sessions in any of these statuses are immediately reaped (unconditionally,
+   * regardless of age or activity). Default: new Set(["merged", "killed"]).
+   * "merged" = PR was merged; tmux should be reaped by post-merge sweep but
+   * zombie path catches any that slip through.
+   * "killed" = lifecycle-manager marked as killed; tmux should already be dead
+   * but zombie path cleans any stragglers.
+   */
+  zombieStatuses?: Set<string>;
 }
 
 export interface ReapedSession {
@@ -106,21 +116,19 @@ export async function reapStaleSessions(
       continue;
     }
 
-    // Skip sessions already in terminal status (not activity — exited activity is reaped)
-    if (TERMINAL_STATUSES.has(session.status)) {
-      skipped.push({ sessionId: session.id, reason: "terminal state" });
-      continue;
-    }
-
-    // bd-s4t.2: zombie detection — sessions whose GitHub PR was merged/closed
-    // but whose AO status hasn't been reconciled yet. Policy lives in the
-    // companion module session-reaper-extensions.ts (fork-specific logic).
+    // bd-ara.2: Zombie detection runs BEFORE the terminal-status skip.
+    // Sessions with status="merged" or "killed" MUST be reaped — their tmux
+    // process is alive even though the AO status is terminal. The terminal-status
+    // skip below is for truly dead sessions (done, errored, terminated); the zombie
+    // check handles sessions whose PR was merged but tmux wasn't reaped yet.
+    // Policy lives in the companion module session-reaper-extensions.ts.
     const zombieResult = await checkAndKillZombie({
       session,
       sessionManager: deps.sessionManager,
       orphanedThresholdMs: config.orphanedThresholdMs,
       now,
       dryRun,
+      ZOMBIE_STATUSES: config.zombieStatuses,
     });
     if (zombieResult.action === "killed") {
       killed.push(zombieResult.entry);
@@ -132,6 +140,15 @@ export async function reapStaleSessions(
     }
     if (zombieResult.action === "skipped") {
       skipped.push(zombieResult.entry);
+      continue;
+    }
+
+    // Skip sessions already in terminal status (not activity — exited activity is reaped).
+    // bd-ara.2: "merged" and "killed" are excluded from this guard because they
+    // are handled by the zombie check above. Other terminal statuses (done, errored,
+    // terminated) are truly dead sessions that don't need reaping.
+    if (TERMINAL_STATUSES.has(session.status)) {
+      skipped.push({ sessionId: session.id, reason: "terminal state" });
       continue;
     }
 
