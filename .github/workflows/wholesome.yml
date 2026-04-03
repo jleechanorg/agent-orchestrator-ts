@@ -159,8 +159,10 @@ jobs:
           # Extract Evidence section — merged approach:
           # bd-ara.2's tolower() for mawk portability + HTML comment stripping
           EVIDENCE_SECTION=$(printf '%s\n' "$BODY" | awk '
-            # Strip single-line HTML comments: <!-- ... -->
-            /<!--.*-->/ { next }
+            # Strip single-line HTML comments inline (CR bd-357-fix).
+            # gsub replaces <!--...--> with nothing rather than { next }, preserving
+            # surrounding text so downstream label checks (e.g. **UI media:) work.
+            { gsub(/<!--[^-]*-->/, "") }
             # Strip multi-line HTML comment open/close
             # Only enter multi-line mode if <!-- is NOT immediately followed by -->,
             # otherwise single-line <!--...--> comments would be treated as multi-line openers.
@@ -226,7 +228,10 @@ jobs:
             exit 1
           fi
           TM_URL_LINE=$(printf '%s' "$TM_BLOCK" | grep -n 'https://' | head -1 | cut -d: -f1)
-          CAPTION_LINES=$(printf '%s' "$TM_BLOCK" | tail -n +"${TM_URL_LINE:-1}" | grep -v '^[[:space:]]*$' | grep -v '^[[:space:]]*```' | grep -v '^[[:space:]]*\*\*Terminal media\*\*')
+          # CR bd-357-fix: exclude lines that START with **Terminal media: (with colon)
+          # so inline "**Terminal media:** https://..." lines don't survive into CAPTION_LINES
+          # where "Terminal" would falsely satisfy the tmux/terminal check.
+          CAPTION_LINES=$(printf '%s' "$TM_BLOCK" | tail -n +"${TM_URL_LINE:-1}" | grep -v '^[[:space:]]*$' | grep -v '^[[:space:]]*```' | grep -vE '^[[:space:]]*\*\*Terminal media:\*\*')
           if [ -z "$CAPTION_LINES" ]; then
             echo "FAIL: Terminal media must include caption text (inline or following lines)"
             exit 1
