@@ -302,17 +302,18 @@ jobs:
           fi
 
           # Check for PASS verdict — scoped to Evidence section
-          # Strip ** markdown bold markers first so "**Verdict**: **PASS**" becomes "Verdict: PASS"
-          # and the [Pp][Aa][Ss][Ss] character class can match the bare PASS.
-          # Extract the verdict word by:
-          # 1. Strip ** markdown bold from the verdict line
-          # 2. Extract the first space-delimited word after the colon
-          #    (handles "**Verdict**: **PASS**", "Verdict: PASS", "VERDICT: INSUFFICIENT")
-          # Using awk to find the first word matching pass|fail|insufficient after "verdict:"
+          # Strategy: find the first word after the colon following "verdict" anywhere in
+          # the verdict line, stripped of ** bold markers. Works for:
+          #   **Verdict**: **PASS**     → "PASS"
+          #   **Verdict**: PASS         → "PASS"
+          #   Verdict: INSUFFICIENT    → "INSUFFICIENT"
+          #   VERDICT: FAIL             → "FAIL"
           VERDICT_LINE=$(printf '%s' "$EVIDENCE_SECTION" | grep -i '[Vv]erdict' | head -1)
+          # Strip **, collapse whitespace, extract everything after the first colon, take first word
           VERDICT_WORD=$(printf '%s' "$VERDICT_LINE" \
             | sed 's/\*\*/ /g' | tr -s ' ' \
-            | awk 'BEGIN{IGNORECASE=1} /[[:space:]]verdict[[:space:]]*:/{for(i=1;i<=NF;i++) if($i~/^(pass|fail|insufficient)$/) print tolower($i)}')
+            | sed 's/.*: *//' \
+            | awk '{print tolower($1)}')
           if [ "$VERDICT_WORD" = "pass" ]; then
             echo "Verdict: PASS — evidence gate passes"
 
