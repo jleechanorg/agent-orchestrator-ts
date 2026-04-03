@@ -72,23 +72,24 @@ WORKERS_FILE="$_repo_root/novel/the-daily-lives-of-workers.md"
 git -C "$_repo_root" fetch origin main
 git -C "$_repo_root" merge --ff-only origin/main
 
-# Push helper: retries once with fetch+rebase if non-ff rejection occurs
-# (edge case: concurrent push between our merge and push in a multi-instance scenario)
+# Push helper: retries once with fetch+rebase only on confirmed non-ff rejection.
+# Any other push failure (auth, network, rejected policy) is terminal — reset to
+# origin/main so the next scheduled run starts clean instead of accumulating divergent commits.
 push_with_retry() {
-  if git push origin main; then
-    return 0
+  if git push origin main 2>&1 | grep -qi "non-fast-forward\|failed to push some refs"; then
+    echo "run-daily.sh: push rejected (non-ff), fetching and rebasing..." >&2
+    git fetch origin main
+    if git rebase origin/main; then
+      git push origin main && return 0
+    fi
   fi
-  echo "run-daily.sh: push rejected (non-ff), fetching and rebasing..." >&2
-  git fetch origin main
-  if git rebase origin/main; then
-    git push origin main
-  else
-    echo "run-daily.sh: FATAL: rebase failed — resetting to origin/main." >&2
-    git rebase --abort 2>/dev/null
-    git reset --hard origin/main
-    return 1
-  fi
+  echo "run-daily.sh: FATAL: push failed — resetting to origin/main to prevent divergent commits." >&2
+  git rebase --abort 2>/dev/null
+  git reset --hard origin/main
+  return 1
 }
+
+mkdir -p "$_repo_root/novel/workers"
 
 "$NODE" "$_repo_root/scripts/novel/generate-daily-entry.mjs" \
   --daily "$TODAY" \
@@ -137,5 +138,6 @@ if [ -f "$DAILY_FILE" ]; then
     echo "run-daily.sh: pushed entry to origin/main."
   fi
 else
-  echo "run-daily.sh: WARNING: $DAILY_FILE not created — skipping commit/push." >&2
+  echo "run-daily.sh: ERROR: expected $DAILY_FILE to exist after generation — refusing to continue." >&2
+  exit 1
 fi
