@@ -1725,12 +1725,15 @@ export interface PluginRegistry {
   loadBuiltins(
     config?: OrchestratorConfig,
     importFn?: (pkg: string) => Promise<unknown>,
+    /** Optional override for monorepo-relative fallback when primary import fails */
+    fallbackImportFn?: (pkg: string, selfUrl: string) => Promise<unknown>,
   ): Promise<void>;
 
   /** Load plugins from config (npm packages, local paths) */
   loadFromConfig(
     config: OrchestratorConfig,
     importFn?: (pkg: string) => Promise<unknown>,
+    fallbackImportFn?: (pkg: string, selfUrl: string) => Promise<unknown>,
   ): Promise<void>;
 }
 

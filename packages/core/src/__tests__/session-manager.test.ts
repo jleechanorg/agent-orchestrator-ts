@@ -5319,7 +5319,7 @@ describe("PluginRegistry.loadBuiltins importFn", () => {
       throw new Error(`Module not found: ${pkg}`);
     };
 
-    await registry.loadBuiltins(undefined, fakeImportFn);
+    await registry.loadBuiltins(undefined, fakeImportFn, async () => null);
 
     // importFn should have been called for all builtin plugins
     expect(importedPackages.length).toBeGreaterThan(0);
@@ -5340,7 +5340,7 @@ describe("PluginRegistry.loadBuiltins importFn", () => {
       throw new Error(`Not found: ${pkg}`);
     };
 
-    await registry.loadFromConfig(config, fakeImportFn);
+    await registry.loadFromConfig(config, fakeImportFn, async () => null);
 
     // Should have attempted to import builtin plugins via the provided importFn
     expect(importedPackages.length).toBeGreaterThan(0);
