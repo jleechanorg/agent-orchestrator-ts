@@ -38,7 +38,7 @@ The `/eloop` skill (`.claude/skills/evolve_loop.md`) runs a 12-hour autonomous e
 
 ### 1. Architecture — Two Loops, Two Concerns
 
-```
+```text
 lifecycle-manager.ts (Node.js process)
   └── Polling loop (every ~5 min)
        ├── Reactive: fires reactions on events (ci-failed, changes-requested, etc.)
@@ -119,13 +119,13 @@ Adapt the 6-phase `/eloop` skill for the manager tmux context. All phases run wi
 - **Never** `gh pr merge` from the manager session — always delegate to lifecycle-manager reaction
 
 #### Phase 6: RECORD (end of every cycle)
-- Append finding to `~/.ao-evolve-knowledge/{projectId}.jsonl`
+- Append finding to `${evolveLoop.knowledgeBasePath || "~/.ao-evolve-knowledge"}/{projectId}.jsonl`
 - Create/update beads with `br create` or `br update`
 - Append to `roadmap/evolve-loop-findings.md`
 
 ### 4. Shared Knowledge Base
 
-Path: `~/.ao-evolve-knowledge/{projectId}.jsonl` (one file per project)
+Path: `${evolveLoop.knowledgeBasePath || "~/.ao-evolve-knowledge"}/{projectId}.jsonl` (one file per project)
 
 Canonical JSONL schema — one JSON object per line:
 
