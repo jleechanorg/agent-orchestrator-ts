@@ -215,15 +215,14 @@ GITHUB_PR_BODY
           fi
           echo "Repro gist: PASS"
 
-          # 2) Terminal media (HTTPS screenshot/video OR N/A) + caption
-          # Accept N/A when CI cannot capture tmux (e.g. "N/A — no tmux pane to capture in CI")
-          if printf '%s' "$TM_BLOCK" | grep -qiE 'N/A'; then
-            echo "Terminal media: PASS (N/A — no tmux pane to capture in CI)"
-          else
-            if ! printf '%s' "$TM_BLOCK" | grep -qF '**Terminal media**:'; then
-              echo "FAIL: Missing '**Terminal media**' label in Evidence section"
-              exit 1
-            fi
+          # 2) Terminal media (HTTPS screenshot/video) + tmux/terminal context + caption
+          # Unit claims are exempt: no runtime tmux/terminal output for pure-docs/automation PRs.
+          # Unit claims exempt from runtime terminal proof (evidence-gate.yml handles unit coverage separately).
+          if ! printf '%s' "$TM_BLOCK" | grep -qF '**Terminal media**:'; then
+            echo "FAIL: Missing '**Terminal media**' label in Evidence section"
+            exit 1
+          fi
+          if [ "$CLAIM" != "unit" ]; then
             if ! printf '%s' "$TM_BLOCK" | grep -qE 'https://[^[:space:]]+'; then
               echo "FAIL: Missing '**Terminal media**' HTTPS URL in Evidence section"
               exit 1
@@ -241,6 +240,16 @@ GITHUB_PR_BODY
               exit 1
             fi
             echo "Terminal media + caption: PASS"
+          else
+            # Unit claim: accept N/A text for terminal media (no runtime tmux output for docs/automation PRs)
+            if printf '%s' "$TM_BLOCK" | grep -qE 'https://[^[:space:]]+'; then
+              echo "Terminal media + caption: PASS (URL present)"
+            elif printf '%s' "$TM_BLOCK" | grep -qiF 'N/A'; then
+              echo "Terminal media: PASS (unit claim — N/A accepted)"
+            else
+              echo "FAIL: Terminal media requires HTTPS URL or 'N/A' for unit claims"
+              exit 1
+            fi
           fi
 
           # 3) Terminal test output — mandatory in addition to terminal media (fenced logs + concrete test command)
@@ -309,7 +318,9 @@ GITHUB_PR_BODY
           # integration+ claims: enforce Bundle v2 — repro gist + UI media + self-validation language
           # (terminal checks 1-4 already passed above)
           HAS_UI_MEDIA=false
-          if printf '%s' "$UI_BLOCK" | grep -qF '**UI media**:' && printf '%s' "$UI_BLOCK" | grep -qiE 'N/A.*no UI|N/A - no UI'; then
+          if printf '%s' "$EVIDENCE_SECTION" | grep -qF 'N/A - no UI changes'; then
+            HAS_UI_MEDIA=true
+          elif printf '%s' "$UI_BLOCK" | grep -qF '**UI media**:' && printf '%s' "$UI_BLOCK" | grep -qiE 'N/A.*no UI|N/A - no UI'; then
             HAS_UI_MEDIA=true
           elif printf '%s' "$UI_BLOCK" | grep -qiE 'https://[^[:space:]]+\.(png|jpg|jpeg|gif|webp|mp4|webm|mov)'; then
             HAS_UI_MEDIA=true

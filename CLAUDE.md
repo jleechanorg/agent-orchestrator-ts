@@ -101,6 +101,7 @@ Before opening any skeptic-related PR, verify the full chain end-to-end locally.
 1. **Full-chain local test**: trigger comment → lifecycle-worker detection → `ao skeptic verify` execution → VERDICT comment posting → `skeptic-gate.yml` polling match.
 2. **Cross-layer consistency**: CLI code change? Verify GHA YAML jq filter matches CLI output format. GHA YAML change? Verify CLI output format matches jq filter. Bot author change? Verify the jq filter in `skeptic-gate.yml` (line ~235) accepts the posting identity. Note: `SKEPTIC_BOT_AUTHOR` defaults differ by design — `skeptic-cron.yml` uses `'jleechan2015'` (lifecycle-worker posts as local user), `skeptic-gate.yml` polling uses `'github-actions[bot]'` (GHA runner posts as GHA bot); the jq filter accepts both to cover both paths.
 3. **Minimum smoke test**: `ao skeptic verify -n <PR> --dry-run` must output a VERDICT line matching the GHA jq filter pattern. The jq filter in `skeptic-gate.yml` uses `grep -qi "VERDICT: PASS"` / `grep -qi "VERDICT: FAIL"` / `grep -qi "VERDICT: SKIPPED"` — extra text after the keyword (e.g., `VERDICT: FAIL — claude: error`) is accepted; the filter requires the keyword to be present, not a specific format.
+4. **Test GHA jq filters against real API output**: When changing jq filters in GHA workflows, test the filter against real API output before merging. Example: `gh api repos/.../commits/{sha}/check-runs | jq '...'` and verify it returns the expected count. This catches bugs where the filter assumes the wrong top-level shape (for example, treating an object like an array, or treating paginated output as a single document instead of slurped pages with `jq -s` when appropriate).
 
 ### Red flags — STOP if you see these in a skeptic PR:
 - Unit tests pass but no end-to-end chain verification documented
@@ -181,6 +182,15 @@ gh pr view --json mergeableState --jq '.mergeableState'
 # "blocked" = branch protection required checks not passing — wait.
 ```
 **NEVER push to a PR that is `dirty` (merge conflicts).** Rebase on origin/main first, resolve conflicts, then push.
+
+### CONFLICTING PRs — P0 Priority
+When a PR has `mergeable_state: dirty` (merge conflicts), this is **P0 immediate** — conflicts block all other work on that PR. Do not wait for CI, CR, or any other gate on a dirty PR. Resolve conflicts immediately:
+
+1. **Check current branch**: `git branch --show-current` (must be on main before any worktree operation)
+2. **Create/fetch worktree**: `git worktree add ~/.worktrees/pr-N -b fix/PR-N origin/main`
+3. **Rebase**: `git rebase origin/main`
+4. **Resolve conflicts**, push, repeat until clean
+5. **Then** check other gates (CI, CR, etc.)
 
 ### CR CHANGES_REQUESTED resolution workflow
 When CR posts CHANGES_REQUESTED on your PR:
