@@ -68,6 +68,7 @@ export interface EvolveLoopConfig {
   autonomousFixScopes?: string[];           // allow-list: e.g. ["config-edit", "claw-dispatch", "bead-create"]
   blockedScopes?: string[];                 // explicit deny-list (see below)
   knowledgeBaseDir?: string; // directory containing per-project JSONL files, e.g. ~/.ao-evolve-knowledge/
+  zeroTouchWindow?: "24h" | "30d"; // time window for zero-touch rate calc; default "24h"
 }
 
 // In ProjectConfig:
@@ -203,6 +204,7 @@ projects:
         - antig-dispatch        # /antig when tmux cap hit
       blockedScopes: []         # project-specific additional denials (optional)
       knowledgeBaseDir: ~/.ao-evolve-knowledge  # default; must be absolute or config loader must expand ~
+      zeroTouchWindow: "24h"    # "24h" for anomaly detection, "30d" for baseline reporting
 
 # Global kill switch (env var — overrides enabled: true):
 # EVOLVE_LOOP_ENABLED=false  → loop disabled regardless of config
