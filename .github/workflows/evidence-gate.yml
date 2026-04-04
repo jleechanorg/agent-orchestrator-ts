@@ -32,9 +32,9 @@ jobs:
 
       - name: Write PR body to temp file
         run: |
-          # Fetch current PR body via gh api REST endpoint.
+          # Fetch current PR body via gh api REST endpoint with explicit GET method.
           gh api "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}" \
-            --header "Accept: application/vnd.github+json" \
+            --method GET \
             --jq '.body' > /tmp/pr_body.txt 2>&1 || true
           PR_BODY=$(cat /tmp/pr_body.txt)
           printf '%s' "$PR_BODY" > "$RUNNER_TEMP/pr_body.txt"
