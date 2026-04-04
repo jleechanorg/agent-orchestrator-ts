@@ -59,16 +59,18 @@ jobs:
       - name: Check for Evidence section in PR body
         id: check
         run: |
-          # gh api handles GITHUB_TOKEN auth automatically in GitHub Actions runners.
-          # Capture gh exit code immediately so set -e doesn't mask failures.
-          set -o pipefail
-          BODY=$(gh api \
-            "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}" \
-            --jq '.body // ""')
-          GH_RC=$?
-          echo "DEBUG: gh_exit=$GH_RC body_len=${#BODY}"
-          # Print first 200 chars of body for diagnostics
-          echo "DEBUG: body_preview=$(printf '%s' "$BODY" | head -c 200 | tr '\n' '~' | sed 's/~/ /g')"
+          # Fetch current PR body via GitHub REST API.
+          # GITHUB_TOKEN is available as an env var in Actions runners.
+          # Write JSON to file first, then extract body to avoid pipefail issues.
+          CURL_OUTPUT=$(curl -s \
+            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}")
+          CURL_RC=$?
+          echo "DEBUG: curl_rc=$CURL_RC output_len=${#CURL_OUTPUT}"
+          echo "DEBUG: output_preview=$(printf '%s' "$CURL_OUTPUT" | head -c 200 | tr '\n' '~')"
+          BODY=$(printf '%s' "$CURL_OUTPUT" | jq -r '.body // ""')
+          echo "DEBUG: body_len=${#BODY}"
           if [ ${#BODY} -eq 0 ]; then
             echo "found=false" >> "$GITHUB_OUTPUT"
             echo "reason=empty_body" >> "$GITHUB_OUTPUT"
@@ -131,10 +133,12 @@ jobs:
     steps:
       - name: Check Evidence Bundle v2 (block-level enforcement)
         run: |
-          # gh api handles GITHUB_TOKEN auth automatically in GitHub Actions runners.
-          BODY=$(gh api \
-            "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}" \
-            --jq '.body // ""')
+          # Fetch current PR body via GitHub REST API.
+          CURL_OUTPUT=$(curl -s \
+            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}")
+          BODY=$(printf '%s' "$CURL_OUTPUT" | jq -r '.body // ""')
 
           # Extract claim class — normalize to lowercase short form for CLAIM-based enforcement
           # Supports: **Claim class**: value and "- **Claim class**: ..." list formats.
