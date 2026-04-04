@@ -392,6 +392,21 @@ export type {
   CheckStuckWorkerResult,
 } from "./stuck-worker-detector.js";
 
+// Fork-only: stalled-worker auditor
+export {
+  auditStalledWorkers,
+  runStalledWorkerAuditor,
+  formatEloopCoverageReport,
+  sendGapAlert,
+} from "./stalled-worker-auditor.js";
+export type {
+  StalledWorkerRecord,
+  EloopCoverageReport,
+  StalledWorkerAuditorDeps,
+  SendMcpMailOptions,
+  SendMcpMailFn,
+} from "./stalled-worker-auditor.js";
+
 // Fork-only: productivity-based stall detection
 export {
   runProductivityChecks,
