@@ -22,7 +22,7 @@
 import { describe, it, expect } from "vitest";
 
 // ---------------------------------------------------------------------------
-// Helper: TypeScript re-implementation of jq group_by + sort_by + select
+// Shared helper: TypeScript re-implementation of jq group_by + sort_by + select
 // matching skeptic-gate.yml check-run deduplication.
 // jq: [.check_runs | group_by(.name) | .[] | sort_by(.started_at) | reverse | .[0] | select(COND)] | length
 // ---------------------------------------------------------------------------
@@ -36,26 +36,29 @@ interface CheckRun {
   started_at: string;
 }
 
-/** Re-implements the skeptic-gate.yml check-run deduplication filter. */
-function jqCheckRunsFailed(
-  checkRunsPages: Array<{ check_runs: CheckRun[] }>,
-): number {
-  // Merge pages (matches --paginate + jq)
-  const all = checkRunsPages.flatMap((p) => p.check_runs);
-  // group_by(.name) → sort_by(.started_at) desc → take .[0] (most recent)
+/**
+ * Returns the most-recent CheckRun per unique name across all paginated pages.
+ * Re-implements jq's: group_by(.name) | .[] | sort_by(.started_at) | reverse | .[0]
+ */
+function mostRecentPerName(pages: Array<{ check_runs: CheckRun[] }>): CheckRun[] {
+  const all = pages.flatMap((p) => p.check_runs);
   const groups: Record<string, CheckRun[]> = {};
   for (const run of all) {
     if (!groups[run.name]) groups[run.name] = [];
     groups[run.name].push(run);
   }
-  const mostRecent = Object.values(groups).map((runs) =>
+  return Object.values(groups).map((runs) =>
     [...runs].sort((a, b) => b.started_at.localeCompare(a.started_at))[0],
   );
+}
+
+function jqCheckRunsFailed(
+  checkRunsPages: Array<{ check_runs: CheckRun[] }>,
+): number {
+  const mostRecent = mostRecentPerName(checkRunsPages);
   // select core checks where conclusion is a concrete failure state.
-  // null is NOT a failure — jq: `.conclusion != "success"` evaluates to true for
-  // null (jq null != "success" is true), but the failure filter intentionally
-  // requires a concrete failure state to avoid conflating pending runs
-  // (pending runs have conclusion=null but are counted by jqCheckRunsPending instead).
+  // null is NOT a failure — jq: `.conclusion != null` is an explicit guard in
+  // the actual filter; pending runs (conclusion=null) are counted by jqCheckRunsPending instead.
   const failureConclusions = ["failure", "timed_out", "action_required"];
   return mostRecent.filter(
     (r) =>
@@ -67,15 +70,7 @@ function jqCheckRunsFailed(
 function jqCheckRunsPending(
   checkRunsPages: Array<{ check_runs: CheckRun[] }>,
 ): number {
-  const all = checkRunsPages.flatMap((p) => p.check_runs);
-  const groups: Record<string, CheckRun[]> = {};
-  for (const run of all) {
-    if (!groups[run.name]) groups[run.name] = [];
-    groups[run.name].push(run);
-  }
-  const mostRecent = Object.values(groups).map((runs) =>
-    [...runs].sort((a, b) => b.started_at.localeCompare(a.started_at))[0],
-  );
+  const mostRecent = mostRecentPerName(checkRunsPages);
   // jq: `.status != "completed"` — true for "in_progress", "queued", "pending".
   return mostRecent.filter(
     (r) => CORE_CHECK_NAMES.includes(r.name) && r.status !== "completed",
@@ -85,15 +80,7 @@ function jqCheckRunsPending(
 function jqCheckRunsTotal(
   checkRunsPages: Array<{ check_runs: CheckRun[] }>,
 ): number {
-  const all = checkRunsPages.flatMap((p) => p.check_runs);
-  const groups: Record<string, CheckRun[]> = {};
-  for (const run of all) {
-    if (!groups[run.name]) groups[run.name] = [];
-    groups[run.name].push(run);
-  }
-  const mostRecent = Object.values(groups).map((runs) =>
-    [...runs].sort((a, b) => b.started_at.localeCompare(a.started_at))[0],
-  );
+  const mostRecent = mostRecentPerName(checkRunsPages);
   return mostRecent.filter((r) => CORE_CHECK_NAMES.includes(r.name)).length;
 }
 
@@ -350,7 +337,7 @@ function jqPriorResultCommentIds(comments: IssueComment[]): number[] {
     .filter(
       (c) =>
         c.user.login === "github-actions[bot]" &&
-        /skeptic-gate-result-/i.test(c.body),
+        /skeptic-gate-result-/.test(c.body),
     )
     .map((c) => c.id);
 }
