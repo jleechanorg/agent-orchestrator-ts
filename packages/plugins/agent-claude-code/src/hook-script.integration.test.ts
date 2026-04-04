@@ -115,6 +115,24 @@ describe("hook script: gh pr create", () => {
     expect(metadata).toContain("status=pr_open");
   });
 
+  it("detects gh pr create with single env prefix containing embedded equals", () => {
+    const { metadata } = runHook({
+      command: "FOO=a=b gh pr create --title '[agento] fix'",
+      output: prUrl,
+    });
+    expect(metadata).toContain(`pr=${prUrl}`);
+    expect(metadata).toContain("status=pr_open");
+  });
+
+  it("detects gh pr create with multiple chained env prefixes containing embedded equals", () => {
+    const { metadata } = runHook({
+      command: "FOO=a=b BAZ=c=d gh pr create --title '[agento] fix'",
+      output: prUrl,
+    });
+    expect(metadata).toContain(`pr=${prUrl}`);
+    expect(metadata).toContain("status=pr_open");
+  });
+
   it("detects gh pr create with multiple chained cd prefixes", () => {
     const { metadata } = runHook({
       command: `cd /tmp && cd ~/.worktrees/mercury && gh pr create --title "fix" --base master`,
@@ -195,6 +213,32 @@ describe("hook script: [agento] prefix enforcement", () => {
       hookEvent: "PreToolUse",
     });
     expect(stdout.trim()).toBe("{}");
+  });
+
+  it("denies gh pr create with env value containing equals and missing [agento] prefix", () => {
+    const { stdout } = runHook({
+      command: "TOKEN=a=b gh pr create --title \"fix: bug\"",
+      hookEvent: "PreToolUse",
+    });
+    expect(stdout).toContain('"permissionDecision":"deny"');
+    expect(stdout).toContain("gh pr create titles must start with [agento]");
+  });
+
+  it("allows gh pr create with env value containing equals and [agento] prefix in PreToolUse", () => {
+    const { stdout } = runHook({
+      command: "TOKEN=a=b gh pr create --title \"[agento] fix: bug\"",
+      hookEvent: "PreToolUse",
+    });
+    expect(stdout.trim()).toBe("{}");
+  });
+
+  it("PostToolUse: detects gh pr create with env prefix containing embedded equals", () => {
+    const { metadata } = runHook({
+      command: "FOO=a=b gh pr create --title \"[agento] fix\"",
+      output: "https://github.com/owner/repo/pull/88",
+    });
+    expect(metadata).toContain("pr=https://github.com/owner/repo/pull/88");
+    expect(metadata).toContain("status=pr_open");
   });
 
   it("denies when --body contains literal --title with [agento] but actual title is unprefixed", () => {
@@ -300,6 +344,20 @@ describe("hook script: git checkout -b / git switch -c", () => {
       command: "cd /tmp && cd /project && git checkout -b feat/chained",
     });
     expect(metadata).toContain("branch=feat/chained");
+  });
+
+  it("detects git checkout -b with env prefix containing embedded equals", () => {
+    const { metadata } = runHook({
+      command: "TOKEN=a=b git checkout -b feat/with-equals",
+    });
+    expect(metadata).toContain("branch=feat/with-equals");
+  });
+
+  it("detects git checkout -b with chained env prefixes containing embedded equals", () => {
+    const { metadata } = runHook({
+      command: "FOO=a=b BAZ=c=d git checkout -b feat/multi-equals",
+    });
+    expect(metadata).toContain("branch=feat/multi-equals");
   });
 });
 
