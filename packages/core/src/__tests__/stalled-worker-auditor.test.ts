@@ -4,8 +4,7 @@
  */
 
 import { describe, it, expect } from "vitest";
-import { formatEloopCoverageReport } from "../stalled-worker-auditor.js";
-import type { StalledWorkerRecord, EloopCoverageReport } from "../stalled-worker-auditor.js";
+import { formatEloopCoverageReport, type StalledWorkerRecord, type EloopCoverageReport } from "../stalled-worker-auditor.js";
 
 function makeReport(overrides: Partial<EloopCoverageReport> = {}): EloopCoverageReport {
   return {
