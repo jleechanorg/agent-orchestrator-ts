@@ -54,6 +54,21 @@ export interface StalledWorkerAuditorDeps {
   projects: Map<string, ProjectConfig>;
   /** Threshold for idle cycles before calling a worker stalled (default: 3) */
   idleCycleThreshold?: number;
+  /**
+   * Override the idle cycle counter for all workers (for testing only).
+   * When set, the check proceeds as if this many idle cycles have been recorded.
+   */
+  idleCycleOverride?: number;
+  /**
+   * Capture pane function. Defaults to tmux.js capturePane.
+   * Inject a mock for testing.
+   */
+  capturePane?: (sessionName: string, lines?: number) => Promise<string>;
+  /**
+   * List tmux sessions function. Defaults to tmux.js listSessions.
+   * Inject a mock for testing.
+   */
+  listSessions?: () => Promise<import("./tmux.js").TmuxSessionInfo[]>;
   /** Custom nudge text override */
   nudgeText?: string;
   /** Dry-run mode (default: false — only reports, doesn't act) */
@@ -102,8 +117,9 @@ export async function auditStalledWorkers(
   const threshold = deps.idleCycleThreshold ?? DEFAULT_IDLE_CYCLE_THRESHOLD;
   const logFn = deps.log ?? ((_msg: string) => {});
   const dryRun = deps.dryRun ?? false;
+  const captureFn = deps.capturePane ?? capturePane;
 
-  const allTmuxSessions = await listSessions();
+  const allTmuxSessions = await (deps.listSessions ?? listSessions)();
   const now = new Date();
 
   const stalledWorkers: StalledWorkerRecord[] = [];
@@ -142,7 +158,8 @@ export async function auditStalledWorkers(
       sessionId,
       hasNewPRs,
       idleCycleThreshold: threshold,
-      capturePane,
+      idleCycleOverride: deps.idleCycleOverride,
+      capturePane: captureFn,
       killSession: dryRun ? async () => {} : killSession,
       sendKeys: dryRun ? async () => {} : sendKeys,
     });
@@ -150,7 +167,7 @@ export async function auditStalledWorkers(
     // Capture pane preview for reporting (even if not yet at threshold)
     let preview: string;
     try {
-      const content = await capturePane(tmuxSession.name, 30);
+      const content = await captureFn(tmuxSession.name, 30);
       preview = panePreview(content);
     } catch {
       preview = "(could not capture pane)";
@@ -162,22 +179,25 @@ export async function auditStalledWorkers(
       : 0;
 
     if (result.inspected) {
+      // In dry-run mode: don't require actionTaken (we're not actually killing/nudging)
+      const isHandled = hasEloopReaction && (dryRun || result.actionTaken);
+      const verdict = result.verdict!;
+
       const record: StalledWorkerRecord = {
         sessionId,
         tmuxName: tmuxSession.name,
         projectId: session.projectId ?? "unknown",
         projectPath: project?.path ?? "unknown",
-        verdict: result.verdict!,
+        verdict,
         hasEloopReaction,
-        eloopHandling: hasEloopReaction && result.actionTaken,
+        eloopHandling: isHandled,
         panePreview: preview,
         ageMs: createdMs,
       };
 
       stalledWorkers.push(record);
 
-      // Gap: stalled but eloop not handling it
-      if (!hasEloopReaction || (!result.actionTaken && result.verdict?.action !== "none")) {
+      if (!isHandled && verdict.action !== "none") {
         unhandledGaps.push(record);
       }
     } else {

@@ -213,6 +213,11 @@ export interface CheckStuckWorkerOptions {
   /** Number of idle cycles before triggering deep inspection (default: 3) */
   idleCycleThreshold?: number;
   /**
+   * Override the idle cycle counter (for testing only).
+   * When set, the check proceeds as if this many idle cycles have been recorded.
+   */
+  idleCycleOverride?: number;
+  /**
    * Function to capture tmux pane content. Injectable for testing.
    * Signature: (sessionName: string, lines?: number) => Promise<string>
    */
@@ -257,7 +262,8 @@ export async function checkStuckWorker(
   opts: CheckStuckWorkerOptions,
 ): Promise<CheckStuckWorkerResult> {
   const threshold = opts.idleCycleThreshold ?? DEFAULT_IDLE_CYCLE_THRESHOLD;
-  const idleCycleCount = recordIdleCycle(opts.sessionId, opts.hasNewPRs);
+  // Use override if provided (for testing); otherwise record a real idle cycle
+  const idleCycleCount = opts.idleCycleOverride ?? recordIdleCycle(opts.sessionId, opts.hasNewPRs);
 
   // Not enough idle cycles yet — skip deep inspection
   if (idleCycleCount < threshold) {
