@@ -32,8 +32,11 @@ jobs:
 
       - name: Write PR body to temp file
         run: |
-          # Fetch current PR body via gh api — gh handles auth automatically.
-          PR_BODY=$(gh api "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}" --jq '.body' 2>/dev/null || echo "")
+          # Fetch current PR body via gh api REST endpoint.
+          gh api "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}" \
+            --header "Accept: application/vnd.github+json" \
+            --jq '.body' > /tmp/pr_body.txt 2>&1 || true
+          PR_BODY=$(cat /tmp/pr_body.txt)
           printf '%s' "$PR_BODY" > "$RUNNER_TEMP/pr_body.txt"
           echo "Body fetched: ${#PR_BODY} chars"
           if [ ${#PR_BODY} -eq 0 ]; then

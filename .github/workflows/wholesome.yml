@@ -58,11 +58,11 @@ jobs:
       - name: Check for Evidence section in PR body
         id: check
         run: |
-          set -x
-          which gh && gh --version
-          gh api "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}" --jq '.body' > /tmp/pr_body.txt 2>&1
-          echo "=== gh api exit=$? ==="
-          head -c 300 /tmp/pr_body.txt
+          # Fetch current PR body via gh api REST endpoint — returns live PR body.
+          # Using --jq to extract just the body field from the JSON response.
+          gh api "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}" \
+            --header "Accept: application/vnd.github+json" \
+            --jq '.body' > /tmp/pr_body.txt 2>&1 || true
           BODY=$(cat /tmp/pr_body.txt)
           echo "BODY_LEN=${#BODY}"
 
@@ -128,8 +128,11 @@ jobs:
     steps:
       - name: Check Evidence Bundle v2 (block-level enforcement)
         run: |
-          # Fetch current PR body via gh api — gh handles auth automatically.
-          BODY=$(gh api "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}" --jq '.body' 2>/dev/null || echo "")
+          # Fetch current PR body via gh api REST endpoint.
+          gh api "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}" \
+            --header "Accept: application/vnd.github+json" \
+            --jq '.body' > /tmp/pr_body.txt 2>&1 || true
+          BODY=$(cat /tmp/pr_body.txt)
 
           # Extract claim class — normalize to lowercase short form for CLAIM-based enforcement
           # Supports: **Claim class**: value and "- **Claim class**: ..." list formats.
