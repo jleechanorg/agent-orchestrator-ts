@@ -4,10 +4,11 @@ on:
   pull_request:
     types: [opened, synchronize, edited, reopened]
 
-# Do not cancel in-flight runs: a second PR event (e.g. push + Bugbot body edit)
-# cancels the first job; GitHub reports that as a failed check on the same SHA.
+# Per-workflow concurrency group prevents cross-workflow blocking:
+# wholesome.yml and evidence-gate.yml previously shared wholesome-$PR, which caused
+# evidence-gate's edited-event run to block wholesome.yml's synchronize-event run.
 concurrency:
-  group: wholesome-${{ github.event.pull_request.number }}
+  group: wholesome-pr-checks-${{ github.event.pull_request.number }}-${{ github.workflow }}
   cancel-in-progress: false
 
 jobs:
