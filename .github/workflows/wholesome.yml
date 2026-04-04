@@ -117,12 +117,15 @@ jobs:
     needs: [_merged-guard, evidence-section]
     # Only meaningful if Evidence section was found
     if: needs._merged-guard.outputs.skip != 'true' && needs.evidence-section.outputs.found == 'true'
-    env:
-      PR_BODY: ${{ github.event.pull_request.body }}
     steps:
       - name: Check Evidence Bundle v2 (block-level enforcement)
-        run: |
-          BODY="$PR_BODY"
+        run: |-
+          # Read PR body via heredoc with single-quoted delimiter to prevent
+          # shell re-interpretation of $() expressions in the body text.
+          BODY=$(cat <<'GITHUB_PR_BODY'
+${{ github.event.pull_request.body }}
+GITHUB_PR_BODY
+)
 
           # Extract claim class — normalize to lowercase short form for CLAIM-based enforcement
           # Supports: **Claim class**: value and "- **Claim class**: ..." list formats
