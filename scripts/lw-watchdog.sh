@@ -31,16 +31,21 @@ fi
 
 UID_NUM=$(id -u)
 
-# Known lifecycle-worker services and their plists
-declare -A SERVICES
-SERVICES=(
-  ["com.agentorchestrator.lifecycle-agent-orchestrator"]="$HOME/Library/LaunchAgents/com.agentorchestrator.lifecycle-agent-orchestrator.plist"
-  ["com.agentorchestrator.lifecycle-claude-code"]="$HOME/Library/LaunchAgents/com.agentorchestrator.lifecycle-claude-code.plist"
-  ["com.agentorchestrator.lifecycle-worldarchitect"]="$HOME/Library/LaunchAgents/com.agentorchestrator.lifecycle-worldarchitect.plist"
+# Known lifecycle-worker services and their plists (bash 3.2 compatible — no associative arrays)
+SERVICE_IDS=(
+  "com.agentorchestrator.lifecycle-agent-orchestrator"
+  "com.agentorchestrator.lifecycle-claude-code"
+  "com.agentorchestrator.lifecycle-worldarchitect"
+)
+SERVICE_PLISTS=(
+  "$HOME/Library/LaunchAgents/com.agentorchestrator.lifecycle-agent-orchestrator.plist"
+  "$HOME/Library/LaunchAgents/com.agentorchestrator.lifecycle-claude-code.plist"
+  "$HOME/Library/LaunchAgents/com.agentorchestrator.lifecycle-worldarchitect.plist"
 )
 
-for SERVICE_ID in "${!SERVICES[@]}"; do
-  PLIST="${SERVICES[$SERVICE_ID]}"
+for i in "${!SERVICE_IDS[@]}"; do
+  SERVICE_ID="${SERVICE_IDS[$i]}"
+  PLIST="${SERVICE_PLISTS[$i]}"
 
   # Skip if plist doesn't exist
   if [ ! -f "$PLIST" ]; then
