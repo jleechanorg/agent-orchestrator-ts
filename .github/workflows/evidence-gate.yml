@@ -17,6 +17,7 @@ jobs:
   evidence-gate:
     name: Evidence Gate
     # Fork PRs use ubuntu-latest to avoid running untrusted code on self-hosted infrastructure.
+    # Also uses ubuntu-latest when SELF_HOSTED_DISABLED var is set (self-hosted runners offline).
     runs-on: ${{ vars.SELF_HOSTED_DISABLED == 'true' && 'ubuntu-latest'
               || (github.event.pull_request.head.repo.fork && github.event_name == 'pull_request'
                   && 'ubuntu-latest'
