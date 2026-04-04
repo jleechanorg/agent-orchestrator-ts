@@ -8,6 +8,7 @@ on:
 # workflows share the same PR number.
 permissions:
   pull-requests: read  # needed for gh pr view to fetch live PR body
+  contents: read       # needed for actions/checkout and gh api in private repos
 
 # Do not cancel in-flight runs: a second PR event (e.g. push + Bugbot body edit)
 # cancels the first job; GitHub reports that as a failed check on the same SHA.
@@ -58,12 +59,17 @@ jobs:
       - name: Check for Evidence section in PR body
         id: check
         run: |
-          # Fetch current PR body via gh api REST endpoint with explicit GET method.
-          # --method GET forces REST mode (not GraphQL), --jq extracts body field.
+          # Fetch current PR body via gh api REST endpoint.
+          # Check tools available
+          echo "jq present: $(which jq || echo NO)"
+          echo "gh present: $(which gh || echo NO)"
+          # Fetch full response
           gh api "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}" \
-            --method GET \
-            --jq '.body' > /tmp/pr_body.txt 2>&1 || true
-          BODY=$(cat /tmp/pr_body.txt)
+            --method GET > /tmp/pr_full.json 2>&1 || true
+          echo "FULL_JSON_LEN=$(wc -c < /tmp/pr_full.json)"
+          head -c 500 /tmp/pr_full.json
+          # Extract body field
+          BODY=$(jq -r '.body // ""' /tmp/pr_full.json 2>/dev/null || echo "")
           echo "BODY_LEN=${#BODY}"
 
           if [ ${#BODY} -eq 0 ]; then
@@ -128,11 +134,10 @@ jobs:
     steps:
       - name: Check Evidence Bundle v2 (block-level enforcement)
         run: |
-          # Fetch current PR body via gh api REST endpoint with explicit GET method.
+          # Fetch current PR body via gh api REST endpoint.
           gh api "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}" \
-            --method GET \
-            --jq '.body' > /tmp/pr_body.txt 2>&1 || true
-          BODY=$(cat /tmp/pr_body.txt)
+            --method GET > /tmp/pr_full.json 2>&1 || true
+          BODY=$(jq -r '.body // ""' /tmp/pr_full.json 2>/dev/null || echo "")
 
           # Extract claim class — normalize to lowercase short form for CLAIM-based enforcement
           # Supports: **Claim class**: value and "- **Claim class**: ..." list formats.
