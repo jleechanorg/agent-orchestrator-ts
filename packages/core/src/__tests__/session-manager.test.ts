@@ -3702,65 +3702,6 @@ describe("spawnOrchestrator", () => {
     );
   });
 
-  it("uses defaults.modelByCli for worker model when no project model is set", async () => {
-    const configWithCliDefaults: OrchestratorConfig = {
-      ...config,
-      defaults: {
-        ...config.defaults,
-        modelByCli: {
-          "mock-agent": {
-            model: "cli-worker-default",
-          },
-        },
-      },
-    };
-
-    const sm = createSessionManager({
-      config: configWithCliDefaults,
-      registry: mockRegistry,
-    });
-    await sm.spawn({ projectId: "my-app" });
-
-    expect(mockAgent.getLaunchCommand).toHaveBeenCalledWith(
-      expect.objectContaining({ model: "cli-worker-default" }),
-    );
-  });
-
-  it("uses project.modelByCli orchestratorModel over defaults.modelByCli", async () => {
-    const configWithCliOverrides: OrchestratorConfig = {
-      ...config,
-      defaults: {
-        ...config.defaults,
-        modelByCli: {
-          "mock-agent": {
-            orchestratorModel: "default-orchestrator-model",
-          },
-        },
-      },
-      projects: {
-        ...config.projects,
-        "my-app": {
-          ...config.projects["my-app"],
-          modelByCli: {
-            "mock-agent": {
-              orchestratorModel: "project-orchestrator-model",
-            },
-          },
-        },
-      },
-    };
-
-    const sm = createSessionManager({
-      config: configWithCliOverrides,
-      registry: mockRegistry,
-    });
-    await sm.spawnOrchestrator({ projectId: "my-app" });
-
-    expect(mockAgent.getLaunchCommand).toHaveBeenCalledWith(
-      expect.objectContaining({ model: "project-orchestrator-model" }),
-    );
-  });
-
   it("keeps orchestrator launch permissionless even when shared config sets permissions", async () => {
     const configWithSharedPermissions: OrchestratorConfig = {
       ...config,

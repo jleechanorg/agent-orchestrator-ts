@@ -299,32 +299,6 @@ projects:
 
 ## Integration Guides
 
-### Skeptic CI in consumer repositories
-
-Skeptic Gate posts a PR comment marker; **lifecycle-manager** (AO worker) runs `ao skeptic verify` and posts `VERDICT`. GitHub Actions only triggers and polls — see `docs/superpowers/specs/2026-03-27-skeptic-gate-ao-dispatch-design.md`.
-
-**Option A — `ao` CLI (from this monorepo or `npm i -g @composio/ao`):**
-
-```bash
-cd /path/to/consumer-repo
-ao skeptic install --all
-```
-
-**Option B — curl installer (no Node build):** from the consumer repo root:
-
-```bash
-curl -fsSL "https://raw.githubusercontent.com/jleechanorg/agent-orchestrator/main/scripts/install-skeptic-ci-for-repo.sh" -o /tmp/install-skeptic-ci-for-repo.sh
-# Inspect the script before executing (avoid piping curl directly to bash).
-less /tmp/install-skeptic-ci-for-repo.sh
-bash /tmp/install-skeptic-ci-for-repo.sh
-```
-
-The `curl` URL above uses **jleechanorg/agent-orchestrator** because this fork publishes the installer and skeptic workflow templates under `packages/cli/src/templates/skeptic/`. **ComposioHQ/agent-orchestrator** does not yet include `scripts/install-skeptic-ci-for-repo.sh` on `main`; do not switch the URL to upstream until those files exist there (or set `SKEPTIC_CI_REPO` / `SKEPTIC_CI_REF` to a fork or mirror that carries the same paths).
-
-With no flags, the script installs both workflows; use `--gate` or `--cron` to install only one. To pull templates from another fork or mirror, set `SKEPTIC_CI_REPO=owner/repo` and optionally `SKEPTIC_CI_REF=branch` when running the script.
-
-Then commit `.github/workflows/skeptic-gate.yml` and `.github/workflows/skeptic-cron.yml`, push, and keep **lifecycle-manager** running with `gh` authenticated as the GitHub user that will post `VERDICT` comments. In each repo, set the Actions **repository variable** `SKEPTIC_BOT_AUTHOR` (Settings → Secrets and variables → Actions → Variables) to that user’s **GitHub login** — the same account `gh auth login` uses where lifecycle-manager runs `ao skeptic verify`. In `skeptic-gate.yml`, the **Poll for skeptic VERDICT** step exports `SKEPTIC_BOT_AUTHOR` from `vars.SKEPTIC_BOT_AUTHOR` (default `github-actions[bot]`) and the comment filter accepts VERDICT comments authored by **either** that login **or** `github-actions[bot]` (so local lifecycle posts and in-GHA posts can both match).
-
 ### GitHub Issues
 
 **Authentication:**

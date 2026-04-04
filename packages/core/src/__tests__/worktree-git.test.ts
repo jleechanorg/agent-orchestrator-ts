@@ -6,7 +6,7 @@
  * data.  The [Symbol.for("nodejs.util.promisify.custom")] trick wires our mock
  * into promisify(execFile) inside worktree-git.ts.
  */
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 
 // ------------------------------------------------------------------
 // fs mock — controls which directories contain .git during phase-1 walk
@@ -45,10 +45,6 @@ describe("findRepoPathForWorktree", () => {
   beforeEach(() => {
     gitMock.mockReset();
     dotGitPrefixes.clear();
-  });
-
-  afterEach(() => {
-    vi.restoreAllMocks();
   });
 
   // ---------------------------------------------------------------------------
@@ -118,7 +114,7 @@ describe("findRepoPathForWorktree", () => {
   // ---------------------------------------------------------------------------
   describe("phase-2 worktree list fallback", () => {
     // phase-1 walks all the way to homedir without finding .git
-    // → code calls git -C <workspacePath ancestor> worktree list --porcelain
+    // → code calls git -C homedir worktree list --porcelain
     // mockImplementation returns phase-2 data for that call; throws for phase-1
     const phase1MissesPhase2Hits = (
       worktreePath: string,
@@ -168,31 +164,10 @@ describe("findRepoPathForWorktree", () => {
       expect(result).not.toBeNull();
       expect(result!.repoPath).toBe("/the/repo");
       expect(result!.branch).toBe("feat/session");
-      // Verify -C <some dir> for the worktree list scan
+      // Verify -C <homedir> for the worktree list scan
       expect(gitMock).toHaveBeenCalledWith(
         "git",
         expect.arrayContaining(["-C"]),
-        expect.any(Object),
-      );
-    });
-
-    it("phase-2 runs when cwd is / (daemon / launchd) — scans from workspace path, not cwd", async () => {
-      vi.spyOn(process, "cwd").mockReturnValue("/");
-
-      phase1MissesPhase2Hits(
-        "/tmp/worktrees/proj/session-daemon",
-        "feat/daemon",
-        "/tmp/proj/.git/worktrees/session-daemon",
-      );
-
-      const workspace = "/tmp/worktrees/proj/session-daemon";
-      const result = await findRepoPathForWorktree(workspace);
-
-      expect(result).not.toBeNull();
-      expect(result!.branch).toBe("feat/daemon");
-      expect(gitMock).toHaveBeenCalledWith(
-        "git",
-        ["-C", workspace, "worktree", "list", "--porcelain"],
         expect.any(Object),
       );
     });

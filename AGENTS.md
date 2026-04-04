@@ -81,15 +81,6 @@ roadmap/               # Design docs and decision records — first-class, commi
 - **Never push to main directly** — always open a PR.
 - **Never use `git add -A`** — stage only files you changed.
 
-## PR evidence (AO workers) — proof artifacts, not claims
-- **Agent claims are insufficient without artifacts.** Substantive implementation work needs a **reproducible, human-verifiable** bundle in `## Evidence` (**Evidence Bundle v2** in `CLAUDE.md`).
-- **Minimum CI shape:** repro gist, terminal media (tmux/terminal context) + **separate** fenced test logs, UI media or exact `N/A - no UI changes`.
-- **Non-unit claim classes:** You **must self-produce** an **`**Agent screen recording**:`** (or **`**Screen recording**:`**) **video URL** + caption from a **sandbox run** — **in addition to** screenshots + logs — see `docs/evidence/agent-screen-recording.md`. **`unit`** omits this.
-- **Bar-raising (UI / interactive):** Prefer **video** of key flows + **before/after** screenshots for critical states; map claims to gist steps / logs / media (`docs/evidence/reviewer-checklist.md`).
-- **Self-validation:** Clean/isolated reruns where practical; **negative paths** when risk warrants; **revert** temp toggles before merge.
-- **Review stack:** CI Evidence Gate → `/er` (evidence review) → Skeptic — see `docs/evidence/README.md`.
-- Cursor alignment: [Cursor agents can now control their own computers](https://cursor.com/blog/agent-computer-use) (artifacts for merge confidence).
-
 ## Fork Isolation — Mandatory for All Changes
 
 This is a fork of `ComposioHQ/agent-orchestrator`. Every code change must prioritize isolation from upstream to avoid merge conflicts.
@@ -134,19 +125,6 @@ await validateAndEmitExitProof(session, newStatus, deps);
 - `packages/plugins/agent-gemini/` — new plugin
 - `packages/plugins/poller-github-pr/` — new plugin
 - All `packages/core/src/` files that are net new (evidence-bundle, failure-budget, merge-gate, mcp-mail, etc.)
-
-
-## Zero-Touch Policy Wiring (required)
-
-Do not add one-off metric docs that are never referenced.
-
-When adding or changing zero-touch metrics, you MUST update all of:
-1. `docs/zero-touch-by-operator.md` (canonical metric definitions)
-2. `README.md` (pointer to canonical doc)
-3. `CLAUDE.md` and `AGENTS.md` (execution/agent policy pointers)
-4. Any monitor script that computes/report these metrics
-
-Current smooth rule: `max_inactivity_gap <= 60 minutes` from PR open to merge.
 
 ## Testing
 

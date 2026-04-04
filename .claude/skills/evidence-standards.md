@@ -1,17 +1,5 @@
 # Evidence Standards for All Testing and Verification
 
-## jleechanorg/agent-orchestrator — AO PR evidence (authoritative)
-
-For **this repo’s PRs**, the **canonical** policy is **`CLAUDE.md` (Evidence Bundle v2)** + **`docs/evidence/README.md`** + **`docs/evidence/reviewer-checklist.md`** + **`docs/evidence/agent-screen-recording.md`**. Treat **agent claims as insufficient without artifacts**; require **reproducible bundles**, **command logs**, **claim→artifact mapping**, **self-validation** (isolated env, revert temp toggles), and **UI video + before/after** when doing interactive work. For **non-unit** claim classes, **self-produce** an **`**Agent screen recording**:`** video (sandbox) **in addition to** screenshots + terminal logs. **`/er`** and **Skeptic** sit on top of CI — see `CLAUDE.md` section *Evidence review (`/er`) vs CI vs Skeptic*.
-
-The sections below (checksums, `evidence.md` layouts, etc.) apply to **other products’** structured test bundles unless a task explicitly adopts them for AO.
-
-## Cursor-aligned PR artifacts (AO workers)
-
-Cursor’s cloud agents are described as producing **artifacts (videos, screenshots, and logs)** and **merge-ready PRs with artifacts to demo their changes** so reviewers can validate work without trusting prose alone. Primary source: [Cursor agents can now control their own computers](https://cursor.com/blog/agent-computer-use). For multi-agent runs, [Towards self-driving codebases](https://cursor.com/blog/self-driving-codebases) stresses **logging command outputs with timestamps** for observability and replay.
-
-**Fork mapping:** Evidence Bundle v2 in `CLAUDE.md` — **Terminal media** (tmux/terminal screenshot or video), **Terminal test output** (fenced logs), **Repro gist**, **UI media** or `N/A` — implements the same reviewer contract for AO-driven PRs.
-
 ## Core Principle
 
 **Evidence must prove what you claim.** Mock data cannot prove production behavior.

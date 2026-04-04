@@ -23,7 +23,7 @@ function makeKey(slot: PluginSlot, name: string): string {
 }
 
 /** Built-in plugin package names, mapped to their npm package */
-export const BUILTIN_PLUGINS: ReadonlyArray<{ slot: PluginSlot; name: string; pkg: string }> = [
+const BUILTIN_PLUGINS: Array<{ slot: PluginSlot; name: string; pkg: string }> = [
   // Runtimes
   { slot: "runtime", name: "tmux", pkg: "@jleechanorg/ao-plugin-runtime-tmux" },
   { slot: "runtime", name: "process", pkg: "@jleechanorg/ao-plugin-runtime-process" },
@@ -33,7 +33,6 @@ export const BUILTIN_PLUGINS: ReadonlyArray<{ slot: PluginSlot; name: string; pk
   { slot: "agent", name: "codex", pkg: "@jleechanorg/ao-plugin-agent-codex" },
   { slot: "agent", name: "cursor", pkg: "@jleechanorg/ao-plugin-agent-cursor" },
   { slot: "agent", name: "gemini", pkg: "@jleechanorg/ao-plugin-agent-gemini" },
-  { slot: "agent", name: "minimax", pkg: "@jleechanorg/ao-plugin-agent-minimax" },
   { slot: "agent", name: "aider", pkg: "@jleechanorg/ao-plugin-agent-aider" },
   { slot: "agent", name: "opencode", pkg: "@jleechanorg/ao-plugin-agent-opencode" },
   // Workspaces

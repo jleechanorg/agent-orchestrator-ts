@@ -210,7 +210,7 @@ export function createAntigravityRuntime(config?: AntigravityConfig): Runtime {
   return {
     name: "antigravity",
 
-    async create(createConfig: RuntimeCreateConfig): Promise<RuntimeHandle> {
+    async create(config: RuntimeCreateConfig): Promise<RuntimeHandle> {
       let cdpClient: CdpClient | undefined;
       try {
         // Attempt CDP connection first
@@ -290,11 +290,8 @@ export function createAntigravityRuntime(config?: AntigravityConfig): Runtime {
         }
 
         // 5. Paste prompt with workspace path prefix
-        if (createConfig.launchCommand) {
-          const fullPrompt = buildPromptWithWorkspace(
-            createConfig.launchCommand,
-            createConfig.workspacePath,
-          );
+        if (config.launchCommand) {
+          const fullPrompt = buildPromptWithWorkspace(config.launchCommand, config.workspacePath);
           
           if (cdpClient && cdpClient.isConnected()) {
             try {
@@ -340,7 +337,7 @@ export function createAntigravityRuntime(config?: AntigravityConfig): Runtime {
         //    the conversation from starting at all.
         //    Blue buttons are web-rendered (not A11y tree) — use screencapture
         //    + PIL blue-pixel detection + coordinate click.
-        if (createConfig.launchCommand) {
+        if (config.launchCommand) {
           try {
             await handleAllowPrompt(managerId, managerWindow.bounds);
           } catch {
@@ -350,7 +347,7 @@ export function createAntigravityRuntime(config?: AntigravityConfig): Runtime {
 
         // 8. Verify conversation started: check for progress_activity.
         //    Only verify if a prompt was actually submitted.
-        if (createConfig.launchCommand) {
+        if (config.launchCommand) {
           let started = false;
           for (let i = 0; i < VERIFY_START_RETRIES && !started; i++) {
             const verifySnapshot = await peekaboo.see(APP_NAME, managerId);
@@ -372,8 +369,8 @@ export function createAntigravityRuntime(config?: AntigravityConfig): Runtime {
 
       const result = await executeWithFallback(
         primaryFn,
-        createConfig.launchCommand ?? "start session",
-        createConfig.workspacePath,
+        config.launchCommand ?? "start session",
+        config.workspacePath,
         fallbackCfg,
       );
 
@@ -384,7 +381,7 @@ export function createAntigravityRuntime(config?: AntigravityConfig): Runtime {
       if (!result.fallbackUsed) {
         session = {
           conversationTitle: result.output,
-          workspaceName: createConfig.workspacePath,
+          workspaceName: config.workspacePath,
           windowId: capturedManagerId,
           managerWindowId: capturedManagerId,
           status: "running",
@@ -399,8 +396,8 @@ export function createAntigravityRuntime(config?: AntigravityConfig): Runtime {
           );
         }
         session = {
-          conversationTitle: `CLI fallback: ${createConfig.workspacePath}`,
-          workspaceName: createConfig.workspacePath,
+          conversationTitle: `CLI fallback: ${config.workspacePath}`,
+          workspaceName: config.workspacePath,
           windowId: -1,
           managerWindowId: -1,
           status: "running",
@@ -411,19 +408,19 @@ export function createAntigravityRuntime(config?: AntigravityConfig): Runtime {
       }
 
       const handle: RuntimeHandle = {
-        id: createConfig.sessionId,
+        id: config.sessionId,
         runtimeName: "antigravity",
         data: {
           createdAt: session.createdAt,
-          workspacePath: createConfig.workspacePath,
+          workspacePath: config.workspacePath,
           session,
           fallbackUsed: result.fallbackUsed,
           cdpClient, // Store active CDP client for other methods
-          ...(createConfig.onIdle && { onIdle: createConfig.onIdle }),
+          ...(config.onIdle && { onIdle: config.onIdle }),
         },
       };
 
-      if (createConfig.onIdle) {
+      if (config.onIdle) {
         poller.start(handle, session.managerWindowId);
       }
 

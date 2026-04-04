@@ -455,40 +455,6 @@ describe("Config Schema Validation", () => {
     expect(validated.projects.proj1.agentConfig?.orchestratorModel).toBe("orchestrator-model");
   });
 
-  it("accepts CLI-keyed model defaults at defaults and project scope", () => {
-    const config = {
-      defaults: {
-        modelByCli: {
-          codex: {
-            model: "gpt-5-codex",
-          },
-        },
-      },
-      projects: {
-        proj1: {
-          path: "/repos/test",
-          repo: "org/test",
-          defaultBranch: "main",
-          modelByCli: {
-            "claude-code": {
-              model: "claude-sonnet-4-20250514",
-              orchestratorModel: "claude-opus-4-20250514",
-            },
-          },
-        },
-      },
-    };
-
-    const validated = validateConfig(config);
-    expect(validated.defaults.modelByCli?.codex?.model).toBe("gpt-5-codex");
-    expect(validated.projects.proj1.modelByCli?.["claude-code"]?.model).toBe(
-      "claude-sonnet-4-20250514",
-    );
-    expect(validated.projects.proj1.modelByCli?.["claude-code"]?.orchestratorModel).toBe(
-      "claude-opus-4-20250514",
-    );
-  });
-
   it("accepts role-specific agent overrides at defaults and project scope", () => {
     const config = {
       defaults: {

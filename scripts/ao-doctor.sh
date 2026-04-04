@@ -364,14 +364,11 @@ check_lifecycle_workers() {
     fi
   fi
 
-  # --- Check 2: total worker count sanity ---
-  # Default max 8: multi-project setups commonly run one worker per active project.
-  max_workers="${AO_DOCTOR_MAX_LIFECYCLE_WORKERS:-8}"
-  if ! [[ "$max_workers" =~ ^[0-9]+$ ]]; then max_workers=8; fi
-  if [ "$total_count" -gt "$max_workers" ]; then
-    warn "unusually high lifecycle-worker count: $total_count (expected ≤$max_workers). Set AO_DOCTOR_MAX_LIFECYCLE_WORKERS to raise this budget. High counts drain GraphQL quota rapidly."
+  # --- Check 2: total worker count sanity (warn if > 3 regardless of binary) ---
+  if [ "$total_count" -gt 3 ]; then
+    warn "unusually high lifecycle-worker count: $total_count (expected ≤3). This drains GraphQL quota rapidly."
   elif [ "$total_count" -gt 0 ]; then
-    pass "total lifecycle-worker count is $total_count (within normal range ≤$max_workers)"
+    pass "total lifecycle-worker count is $total_count (within normal range)"
   fi
 
   local projects
@@ -380,9 +377,7 @@ import yaml, sys
 try:
     with open('$config_file') as f:
         cfg = yaml.safe_load(f)
-    for pid, pobj in cfg.get('projects', {}).items():
-        if isinstance(pobj, dict) and pobj.get('enabled', True) is False:
-            continue
+    for pid in cfg.get('projects', {}):
         print(pid)
 except Exception:
     pass

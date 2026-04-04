@@ -2760,7 +2760,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       // session accumulation. Sessions with tmux names matching the AO pattern
       // {12-hex-hash}-{prefix}-{num} (where prefix ∈ project session prefixes)
       // that exist in tmux but have no AO DB record and are idle >orphanIdleThresholdMs
-      // are killed. This unblocks the spawn gate (>20 sessions threshold).
+      // are killed. This unblocks the spawn gate (>15 sessions threshold).
       const nowMs = Date.now();
       if (nowMs - lastSweepTime >= SWEEP_INTERVAL_MS) {
         lastSweepTime = nowMs;

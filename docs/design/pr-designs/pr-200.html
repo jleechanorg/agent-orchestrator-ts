@@ -51,7 +51,7 @@
     <main class="wrap">
       <section class="hero">
         <h1>[agento] docs: close bd-ara.3 — stale session fixes via bd-s4t</h1>
-        <p class="muted">bd-ara.3 reported that sessions for merged/closed PRs were accumulating past the 20-session spawn gate because:
+        <p class="muted">bd-ara.3 reported that sessions for merged/closed PRs were accumulating past the 15-session spawn gate because:
 1. lifecycle-manager transitioned to &quot;merged&quot; but never sent a kill signal to the tmux runtime
 2. session-reaper skipped terminal-status sessions (including merged)
 3. maxKillsPerRun was 5 — too slow for 25+ zombie sessions</p>

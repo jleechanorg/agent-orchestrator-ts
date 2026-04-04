@@ -15,7 +15,7 @@
 |---|---------|--------|------------|----------|--------|
 | 1 | Unresolved inline comments | 19/19 PRs blocked | `autoResolveThreads()` is dead code; workers don't document fixes | Config (agentRules) | ✅ RESOLVED |
 | 2 | `mergeable=UNKNOWN` | 13/19 PRs | No reaction for UNKNOWN; workers only rebase on CONFLICTING | Config + lifecycle event | OPEN |
-| 3 | Stale session accumulation | 25 tmux sessions (gate=20) | No kill signal on PR merge; reaper too slow | Core code (lifecycle-manager) | OPEN |
+| 3 | Stale session accumulation | 25 tmux sessions (gate=15) | No kill signal on PR merge; reaper too slow | Core code (lifecycle-manager) | OPEN |
 | 4 | CHANGES_REQUESTED stuck | 8/19 PRs | Workers fix code but don't trigger CR re-review | Config (agentRules) + hook | OPEN |
 | 5 | Test failures not self-healed | 3/19 PRs | ci-failed reaction lacks test output; no local-first rule | Config + reaction context | OPEN |
 
@@ -108,7 +108,7 @@
 
 ## Blocker 3: Stale Sessions Accumulate Past Spawn Gate (bd-ara.3)
 
-**Observed:** 25 active tmux sessions. Spawn gate is 20. New workers can't be spawned.
+**Observed:** 25 active tmux sessions. Spawn gate is 15. New workers can't be spawned.
 
 ### 5 Whys — Technical
 

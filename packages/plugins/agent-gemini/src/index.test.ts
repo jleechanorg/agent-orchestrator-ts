@@ -200,18 +200,12 @@ describe("getLaunchCommand", () => {
     expect(cmd).toContain("--yolo");
   });
 
-  it("strips non-Gemini model IDs (e.g. Anthropic model names)", () => {
-    // Anthropic model IDs (e.g. "claude-sonnet-4-6") cause gemini CLI to error
-    // with "Model not found or invalid". The plugin strips these.
-    const cmd = agent.getLaunchCommand(makeLaunchConfig({ model: "claude-sonnet-4-6" }));
+  it("ignores model argument (gemini CLI uses its own model names)", () => {
+    // gemini rejects Anthropic model IDs (e.g. "claude-sonnet-4-6") with
+    // "Model not found or invalid". The plugin strips the model flag so gemini
+    // starts with its default model. Users configure gemini's model in /model.
+    const cmd = agent.getLaunchCommand(makeLaunchConfig({ model: "gemini-2.0-flash" }));
     expect(agentPart(cmd)).not.toContain("--model");
-    expect(agentPart(cmd)).not.toContain("claude");
-  });
-
-  it("passes through Gemini-native model IDs (e.g. gemini-3-flash-preview)", () => {
-    const cmd = agent.getLaunchCommand(makeLaunchConfig({ model: "gemini-3-flash-preview" }));
-    expect(agentPart(cmd)).toContain("--model");
-    expect(agentPart(cmd)).toContain("gemini-3-flash-preview");
   });
 
   it("does not include -p flag (prompt delivered post-launch)", () => {
@@ -220,20 +214,12 @@ describe("getLaunchCommand", () => {
     expect(cmd).not.toContain("Fix the bug");
   });
 
-  it("combines all options — non-Gemini model stripped, prompt excluded", () => {
+  it("combines all options without prompt", () => {
     const cmd = agent.getLaunchCommand(
       makeLaunchConfig({ permissions: "permissionless", model: "flash", prompt: "Hello" }),
     );
-    // "flash" is not a gemini-prefixed model ID, so it's stripped
+    // model is stripped because gemini CLI uses its own model naming convention
     expect(agentPart(cmd)).toBe("gemini --yolo");
-  });
-
-  it("combines all options — Gemini model passed through", () => {
-    const cmd = agent.getLaunchCommand(
-      makeLaunchConfig({ permissions: "permissionless", model: "gemini-2.5-pro", prompt: "Hello" }),
-    );
-    expect(agentPart(cmd)).toContain("--model");
-    expect(agentPart(cmd)).toContain("gemini-2.5-pro");
   });
 
   it("omits --yolo when permissions=default", () => {

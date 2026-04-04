@@ -19,7 +19,7 @@ export {
 } from "./config.js";
 
 // Plugin registry
-export { createPluginRegistry, BUILTIN_PLUGINS } from "./plugin-registry.js";
+export { createPluginRegistry } from "./plugin-registry.js";
 
 // Metadata — flat-file session metadata read/write
 export {

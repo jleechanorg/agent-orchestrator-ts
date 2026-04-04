@@ -30,8 +30,6 @@ This fork adds **agentic CI infrastructure** on top of the upstream agent-orches
 
 This fork's goal is **fully autonomous, zero-touch PR merging** for its own codebase. The upstream goal is a general-purpose orchestration tool.
 
-**Evidence standards** (artifacts, reviewer checklist, non-unit **Agent screen recording**, `/er` vs CI vs Skeptic): see **`docs/evidence/README.md`** and **`docs/evidence/agent-screen-recording.md`**.
-
 <div align="center">
 
 Spawn parallel AI coding agents, each in its own git worktree. Agents autonomously fix CI failures, address review comments, and open PRs — you supervise from one dashboard.
@@ -214,18 +212,6 @@ Running one AI agent in a terminal is easy. Running 30 across different issues, 
 **Without orchestration**, you manually: create branches, start agents, check if they're stuck, read CI failures, forward review comments, track which PRs are ready to merge, clean up when done.
 
 **With Agent Orchestrator**, you: `ao start` and walk away. The system handles isolation, feedback routing, and status tracking. You review PRs and make decisions — the rest is automated.
-
-
-## Zero-Touch Policy (Canonical Reference)
-
-For this fork, zero-touch metrics are defined in:
-- `docs/zero-touch-by-operator.md` (canonical definition + formulas)
-
-This includes both:
-- **zero-touch-by-operator**
-- **zero-touch smooth** (requires max inactivity gap `<= 60 minutes` from PR open to merge)
-
-Use this doc as the source of truth for dashboards, scripts, and status reporting.
 
 ## Documentation
 
