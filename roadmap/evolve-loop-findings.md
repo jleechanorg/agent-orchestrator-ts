@@ -379,3 +379,32 @@ PR #323 merged — now 21/21
 ### Allow dialog: dismissed via osascript click at (1595, 320)
 ### Beads: closed wc-45x, marked wc-p1r in_progress
 ### worldai_claw: 0 open PRs, Antigravity now running wc-p1r
+
+## 2026-04-04 01:29 cycle (context restore)
+
+### System State
+- **Sessions**: ao-2337 (idle/session branch), ao-3195 (working/hook errors), jc-1632 (feat/orch-rrb, 24%), jc-1638 (jleechanclaw PR#487, 64%), wa-128 (worldarchitect.ai PR#6091, 46%)
+- **Killed**: ao-3223 (idle no-op), wa-40 (old namespace e78d7ebacc1b, no PR, hook loop)
+- **Unblocked**: ao-2337 bypass permissions
+- **Allow dialogs dismissed**: 2 (Manager window conversations)
+
+### Antigravity Status
+- Manager window reappeared (ID 28436) at y=-1038 on secondary display
+- Active conversation: "Finalizing WorldAI Claw PR #178" — agent analyzing AgentSetup.tsx, registration-code routes
+- Previous conversation "git pull origin main, review PRs..." ran faction_simulator.ts fixes
+- wc-p1r PRs (#163, #174) both merged — bead still marked in_progress (needs closure)
+
+### Zero-Touch Rate
+- **AO (agent-orchestrator)**: ~100% — all 9 recent merges [agento]-prefixed
+- **worldai_claw**: ~80% — 4/5 recent merges [antig]-prefixed (1 missing)
+
+### AO Open PRs
+- PR #373 (feat/churn-guard): CI pending, CR=NONE — newly created
+- PR #360 (feat/wc-zsw-fresh): CI=success, CR=COMMENTED, Skeptic=FAIL, 11 unresolved
+- PR #352 (agento/first-second-touch-metric): CI=success, CR=COMMENTED, Skeptic=REQUEST, 7 unresolved
+
+### Actions Taken
+- Killed ao-3223 (idle), wa-40 (zombie old namespace)
+- Dismissed 2 Allow dialogs in Antigravity Manager
+- Unblocked ao-2337 bypass permissions
+
