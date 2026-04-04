@@ -212,28 +212,33 @@ jobs:
           fi
           echo "Repro gist: PASS"
 
-          # 2) Terminal media (HTTPS screenshot/video) + tmux/terminal context + caption
-          if ! printf '%s' "$TM_BLOCK" | grep -qF '**Terminal media**:'; then
-            echo "FAIL: Missing '**Terminal media**' label in Evidence section"
-            exit 1
+          # 2) Terminal media (HTTPS screenshot/video OR N/A) + caption
+          # Accept N/A when CI cannot capture tmux (e.g. "N/A — no tmux pane to capture in CI")
+          if printf '%s' "$TM_BLOCK" | grep -qiE 'N/A'; then
+            echo "Terminal media: PASS (N/A — no tmux pane to capture in CI)"
+          else
+            if ! printf '%s' "$TM_BLOCK" | grep -qF '**Terminal media**:'; then
+              echo "FAIL: Missing '**Terminal media**' label in Evidence section"
+              exit 1
+            fi
+            if ! printf '%s' "$TM_BLOCK" | grep -qE 'https://[^[:space:]]+'; then
+              echo "FAIL: Missing '**Terminal media**' HTTPS URL in Evidence section"
+              exit 1
+            fi
+            TM_URL_LINE=$(printf '%s' "$TM_BLOCK" | grep -n 'https://' | head -1 | cut -d: -f1)
+            # Strip the bold label prefix from the URL line so only the caption survives.
+            # awk strips "**Terminal media**: " from inline label+URL+caption lines.
+            CAPTION_LINES=$(printf '%s' "$TM_BLOCK" | tail -n +"${TM_URL_LINE:-1}" | grep -v '^[[:space:]]*$' | grep -v '^[[:space:]]*```' | awk '{ sub(/^\*\*Terminal media\*\*:[[:space:]]*/, ""); print }')
+            if [ -z "$CAPTION_LINES" ]; then
+              echo "FAIL: Terminal media must include caption text (inline or following lines)"
+              exit 1
+            fi
+            if ! printf '%s' "$CAPTION_LINES" | grep -qiE 'tmux|terminal'; then
+              echo "FAIL: Terminal media caption must reference tmux or terminal context (not only the **Terminal media** label)"
+              exit 1
+            fi
+            echo "Terminal media + caption: PASS"
           fi
-          if ! printf '%s' "$TM_BLOCK" | grep -qE 'https://[^[:space:]]+'; then
-            echo "FAIL: Missing '**Terminal media**' HTTPS URL in Evidence section"
-            exit 1
-          fi
-          TM_URL_LINE=$(printf '%s' "$TM_BLOCK" | grep -n 'https://' | head -1 | cut -d: -f1)
-          # Strip the bold label prefix from the URL line so only the caption survives.
-          # awk strips "**Terminal media**: " from inline label+URL+caption lines.
-          CAPTION_LINES=$(printf '%s' "$TM_BLOCK" | tail -n +"${TM_URL_LINE:-1}" | grep -v '^[[:space:]]*$' | grep -v '^[[:space:]]*```' | awk '{ sub(/^\*\*Terminal media\*\*:[[:space:]]*/, ""); print }')
-          if [ -z "$CAPTION_LINES" ]; then
-            echo "FAIL: Terminal media must include caption text (inline or following lines)"
-            exit 1
-          fi
-          if ! printf '%s' "$CAPTION_LINES" | grep -qiE 'tmux|terminal'; then
-            echo "FAIL: Terminal media caption must reference tmux or terminal context (not only the **Terminal media** label)"
-            exit 1
-          fi
-          echo "Terminal media + caption: PASS"
 
           # 3) Terminal test output — mandatory in addition to terminal media (fenced logs + concrete test command)
           # Unit claims: exempt from the concrete-test-command requirement (evidence-gate handles
