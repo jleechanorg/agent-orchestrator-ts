@@ -56,11 +56,8 @@ cd_prefix_pattern='^[[:space:]]*cd[[:space:]]+.*[[:space:]]+(&&|;)[[:space:]]+(.
 clean_command="$command"
 while true; do
   # Strip leading env assignments: FOO=bar BAZ=qux gh pr create ...
-  # Require space after = to avoid infinite loop on bare "FOO=bar" (no trailing cmd).
-  # Use parameter expansion — avoids BSD sed / POSIX char-class issues.
-  # Handles FOO=a=b (embedded =) correctly unlike [^= ]* or [^[:space:]]*.
-  if [[ "$clean_command" =~ ^[[:space:]]*[A-Za-z_][A-Za-z0-9_]*=[[:space:]] ]]; then
-    clean_command="${clean_command#*=* }"
+  if [[ "$clean_command" =~ ^[[:space:]]*([A-Za-z_][A-Za-z0-9_]*=[^= ]*)[[:space:]]+(.+)$ ]]; then
+    clean_command="${BASH_REMATCH[2]}"
   # Strip leading cd prefixes: cd /path && gh pr create ...
   elif [[ "$clean_command" =~ $cd_prefix_pattern ]]; then
     clean_command="${BASH_REMATCH[2]}"
@@ -146,9 +143,7 @@ update_metadata_key() {
   local temp_file="${metadata_file}.tmp"
 
   # Escape special sed characters in value (& and \ — not | or / in BRE)
-  local escaped_value
-  escaped_value="${value//\\/\\\\}"
-  escaped_value="${escaped_value//&/\\&}"
+  local escaped_value=$(echo "$value" | sed 's/[&\\]/\\&/g')
 
   # Check if key already exists
   if grep -q "^$key=" "$metadata_file" 2>/dev/null; then

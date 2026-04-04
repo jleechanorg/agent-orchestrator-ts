@@ -6,6 +6,11 @@ on:
 
 # Per-workflow concurrency group prevents cross-workflow blocking when multiple
 # workflows share the same PR number.
+permissions:
+  pull-requests: read  # needed for gh pr view to fetch live PR body
+
+# Do not cancel in-flight runs: a second PR event (e.g. push + Bugbot body edit)
+# cancels the first job; GitHub reports that as a failed check on the same SHA.
 concurrency:
   group: wholesome-pr-checks-${{ github.event.pull_request.number }}-${{ github.workflow }}
   cancel-in-progress: false
@@ -53,10 +58,23 @@ jobs:
       - name: Check for Evidence section in PR body
         id: check
         env:
-          PR_BODY: ${{ github.event.pull_request.body }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
-          BODY="$PR_BODY"
+          # Fetch current PR body via GitHub REST API — always up-to-date, not cached from event payload.
+          # Fall back to github.event.pull_request.body if API call fails.
+          echo "GITHUB_REPOSITORY=$GITHUB_REPOSITORY"
+          echo "PR_NUMBER=$PR_NUMBER"
+          BODY=$(curl -s -H "Authorization: Bearer $GITHUB_TOKEN" \
+            -H "Accept: application/vnd.github.v3+json" \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" \
+            | python3 -c 'import sys,json; d=json.load(sys.stdin); print(d.get("body","") or "")' 2>/dev/null || echo "")
+          # Fallback to event payload body if API call returned empty
+          if [ ${#BODY} -eq 0 ]; then
+            echo "API returned empty body — falling back to event payload"
+            BODY="${{ github.event.pull_request.body }}"
+          fi
           echo "PR body length: ${#BODY} chars"
+          echo "PR body preview: ${BODY:0:200}"
 
           if [ ${#BODY} -eq 0 ]; then
             echo "found=false" >> "$GITHUB_OUTPUT"
@@ -117,15 +135,16 @@ jobs:
     needs: [_merged-guard, evidence-section]
     # Only meaningful if Evidence section was found
     if: needs._merged-guard.outputs.skip != 'true' && needs.evidence-section.outputs.found == 'true'
+    env:
+      PR_NUMBER: ${{ github.event.pull_request.number }}
     steps:
       - name: Check Evidence Bundle v2 (block-level enforcement)
-        run: |-
-          # Read PR body via heredoc with single-quoted delimiter to prevent
-          # shell re-interpretation of $() expressions in the body text.
-          BODY=$(cat <<'GITHUB_PR_BODY'
-${{ github.event.pull_request.body }}
-GITHUB_PR_BODY
-)
+        run: |
+          # Fetch current PR body via GitHub REST API — always up-to-date, not cached from event payload.
+          BODY=$(curl -s -H "Authorization: Bearer $GITHUB_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" \
+            | python3 -c 'import sys,json; print(json.load(sys.stdin).get("body",""))' 2>/dev/null || echo "")
 
           # Extract claim class — normalize to lowercase short form for CLAIM-based enforcement
           # Supports: **Claim class**: value and "- **Claim class**: ..." list formats.
