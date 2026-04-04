@@ -68,9 +68,13 @@ describe("formatEloopCoverageReport", () => {
     const report = makeReport({ stalledWorkers: workers, unhandledGaps: [] });
     const output = formatEloopCoverageReport(report);
 
+    // Assert verdict labels in output (CR P2: check labels not just session IDs)
     expect(output).toContain("ao-1");
     expect(output).toContain("ao-2");
     expect(output).toContain("ao-3");
+    expect(output).toContain("kill");
+    expect(output).toContain("nudge");
+    expect(output).toContain("none");
   });
 
   it("flags projects without agent-stuck reaction", () => {
