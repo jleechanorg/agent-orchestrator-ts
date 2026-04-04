@@ -25,6 +25,8 @@ Decision tree after Phase 2 (Measure):
 - Worker stuck (same output 3 checks) → kill + respawn, skip full diagnosis
 - Build broken on main → fix immediately, skip /harness
 - **Self-improvement trigger**: If /eloop itself has a gap (missed a dispatch, wrong adaptive decision, missing diagnostic), fix the skill file directly in Phase 6 and push to main. /eloop can and should improve itself.
+- **Retrospective trigger**: Every 6th cycle, run Phase 8 (Retrospective) to analyze cross-cycle patterns. This is mandatory — it's where eloop catches systemic issues that single cycles miss.
+- **Auto-cancel**: 3+ consecutive idle cycles (0 open PRs, 0 friction, 0 dead workers) → cancel the cron. Don't burn context monitoring an empty pipeline.
 
 ---
 
@@ -191,12 +193,84 @@ Output a concise cycle summary:
 - Friction: N new points found
 - Fixes: N via /claw, N via /antig (Antigravity), N direct
 - Beads: N created, N updated
-- Roadmap: pushed to main
+- Idle cycles: N consecutive (auto-cancel at 3)
+```
+
+**Idle cycle tracking and auto-cancel:**
+```bash
+IDLE_FILE="/tmp/eloop_idle_count"
+if [ "$FRICTION_COUNT" -eq 0 ] && [ "$OPEN_PRS" -eq 0 ] && [ "$DEAD_WORKERS" -eq 0 ]; then
+  IDLE_COUNT=$(cat "$IDLE_FILE" 2>/dev/null || echo 0)
+  IDLE_COUNT=$((IDLE_COUNT + 1))
+  echo "$IDLE_COUNT" > "$IDLE_FILE"
+  if [ "$IDLE_COUNT" -ge 3 ]; then
+    echo "Pipeline clear for 3+ consecutive cycles — self-cancelling eloop cron."
+    # Cancel the cron via CronDelete
+    rm -f "$IDLE_FILE"
+    exit 0  # Signal to cancel cron
+  fi
+else
+  echo 0 > "$IDLE_FILE"  # Reset on any activity
+fi
 ```
 
 Touch the timestamp file for next cycle:
 ```bash
 touch /tmp/evolve_loop_last_run
+```
+
+### Phase 8: RETROSPECTIVE — Cross-Cycle Pattern Analysis
+
+**Runs every 6th cycle** (roughly hourly). Tracks cycle count in `/tmp/eloop_retro_counter`.
+
+**Purpose:** Eloop's Phases 1-7 are per-cycle and stateless. Phase 8 looks ACROSS cycles to find systemic patterns that no single cycle can detect. This is where eloop improves itself and the broader AO system.
+
+**8a. Read the last 6 cycle recaps** from `roadmap/evolve-loop-findings.md` and answer:
+1. What kept recurring? (same friction type 3+ times = systemic, not one-off)
+2. What did I do manually that should be automated? (nudging workers, resolving threads, fixing PR bodies)
+3. What did I skip or defer that I shouldn't have?
+4. Did workers improve between cycles, or repeat the same mistakes?
+
+**8b. Classify patterns into fix categories:**
+
+| Pattern | Fix target | Example |
+|---------|-----------|---------|
+| Same PR blocker 3+ cycles | agentRules or reaction config | "workers don't re-check CR after push" |
+| Same manual intervention 2+ cycles | Hook or automation script | "operator resolves bot threads every cycle" |
+| Eloop missed a dispatch | Edit this skill file directly | "skipped Phase 6 because cap — should have used /antig" |
+| Zero-touch rate stuck at 0% for 3+ retros | Deep code audit of merge pipeline | "auto-merge reaction never fires" |
+| Context budget exceeded | Edit Phase 1/7 to emit less | "full observation dump in healthy cycle" |
+
+**8c. For each pattern found:**
+1. Check if a bead already exists (`br list --open | grep <keyword>`)
+2. If no bead: create one with the pattern analysis as body
+3. If bead exists but no worker dispatched: dispatch via `/claw` or `/antig`
+4. If the fix is to eloop itself: edit this skill file, commit, push to main
+
+**8d. Propose and implement agentRules/reaction changes** when the pattern is in worker behavior:
+- Workers go idle after push → add polling loop instruction to agentRules
+- Workers don't squash before review → add squash rule to agentRules
+- CR timeout with no admin merge path → add timeout reaction to config
+
+**8e. Update eloop skill when the pattern is in eloop behavior:**
+- Eloop ran idle for hours → add auto-cancel (done: Phase 7 idle tracking)
+- Eloop didn't detect chronic 0% zero-touch → add retro-level escalation
+- Eloop's observation phase produced too much output → trim healthy-cycle output
+
+**8f. Save retrospective to memory** if findings are non-trivial:
+- Create/update a project memory with the session's cumulative findings
+- This ensures the NEXT eloop session starts with awareness of known systemic issues
+
+```bash
+# Track retro counter
+RETRO_FILE="/tmp/eloop_retro_counter"
+RETRO_COUNT=$(cat "$RETRO_FILE" 2>/dev/null || echo 0)
+RETRO_COUNT=$((RETRO_COUNT + 1))
+echo "$RETRO_COUNT" > "$RETRO_FILE"
+if [ $((RETRO_COUNT % 6)) -eq 0 ]; then
+  echo "=== PHASE 8: RETROSPECTIVE (cycle $RETRO_COUNT) ==="
+  # Run retrospective analysis
+fi
 ```
 
 ---
