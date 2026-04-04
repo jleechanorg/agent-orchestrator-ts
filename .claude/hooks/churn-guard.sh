@@ -53,14 +53,21 @@ cmd = sys.stdin.read()
 if re.search(r'\bgh\s+pr\s+create\b', cmd, re.IGNORECASE):
     print('YES')
     sys.exit(0)
-# gh api repos/.../pulls --method POST (explicit POST)
-if re.search(r'\bgh\s+api\b.*pulls\b.*--method\s+POST', cmd, re.IGNORECASE):
-    print('YES')
-    sys.exit(0)
-# gh api repos/.../pulls -f ... (implicit POST via -f/-F flags)
-if re.search(r'\bgh\s+api\b.*pulls\b.*\s-[fF]\s', cmd, re.IGNORECASE):
-    print('YES')
-    sys.exit(0)
+# gh api repos/OWNER/REPO/pulls (collection endpoint only — NOT /pulls/N/... nested paths)
+pulls_collection = re.search(r'\bgh\s+api\b.*repos/[^/]+/[^/]+/pulls(?!\s*/\d)(?:\s|\Z|[\x27\x22])', cmd, re.IGNORECASE)
+if pulls_collection:
+    # Explicit POST: --method POST or --method=POST
+    if re.search(r'--method[=\s]+POST', cmd, re.IGNORECASE):
+        print('YES')
+        sys.exit(0)
+    # Implicit POST via field flags: -f, -F, --field, --raw-field
+    if re.search(r'\s(?:-[fF]\s|--field\s|--raw-field\s)', cmd, re.IGNORECASE):
+        print('YES')
+        sys.exit(0)
+    # Implicit POST via --input
+    if re.search(r'--input\s', cmd, re.IGNORECASE):
+        print('YES')
+        sys.exit(0)
 print('NO')
 " 2>/dev/null) || IS_PR_CREATE="NO"
 
@@ -68,11 +75,27 @@ if [ "$IS_PR_CREATE" != "YES" ]; then
   exit 0
 fi
 
-# Check for "Supersedes #N" override in the command (--body flag content)
+# Check for "Supersedes #N" override — only inside --body or -b payload, not the full command
 HAS_SUPERSEDES=$(echo "$CMD" | python3 -c "
 import sys, re
 cmd = sys.stdin.read()
-if re.search(r'supersedes\s*#\s*\d+', cmd, re.IGNORECASE):
+# Extract body content from --body '...' or --body "..." or -f body='...' or heredoc body
+body = ''
+# --body or -b flag (quoted value)
+m = re.search(r'(?:--body|-b)\s+[\x27\x22](.*?)[\x27\x22]', cmd, re.DOTALL)
+if m:
+    body = m.group(1)
+# -f body=... or --field body=...
+if not body:
+    m = re.search(r'(?:-[fF]|--field)\s+body=[\x27\x22]?(.*?)(?:[\x27\x22]|\s+-)', cmd, re.DOTALL)
+    if m:
+        body = m.group(1)
+# heredoc: look for body content in EOF blocks
+if not body:
+    m = re.search(r'<<[\x27]?EOF[\x27]?\n(.*?)\nEOF', cmd, re.DOTALL)
+    if m:
+        body = m.group(1)
+if re.search(r'supersedes\s*#\s*\d+', body, re.IGNORECASE):
     print('YES')
 else:
     print('NO')
@@ -88,7 +111,8 @@ fi
 REPO=$(echo "$CMD" | python3 -c "
 import sys, re
 cmd = sys.stdin.read()
-m = re.search(r'--repo\s+(\S+)', cmd, re.IGNORECASE)
+# Support: --repo VALUE, --repo=VALUE, -R VALUE
+m = re.search(r'(?:--repo[=\s]|-R\s)(\S+)', cmd, re.IGNORECASE)
 if m:
     print(m.group(1).rstrip('/'))
     sys.exit(0)
@@ -162,17 +186,25 @@ try:
             except json.JSONDecodeError:
                 continue
 
+    import time
     overlapping = []
+    # Total deadline: 45s for all PR file checks (leaves margin under 60s hook timeout)
+    deadline = time.monotonic() + 45
     for pr in prs:
         # Skip our own branch
         if pr.get("branch") == my_branch:
             continue
 
+        # Bail if approaching deadline — fail open
+        if time.monotonic() > deadline:
+            break
+
         # Get files for this PR (with --paginate for PRs with many files)
+        remaining = max(5, int(deadline - time.monotonic()))
         files_result = subprocess.run(
             ["gh", "api", f"repos/{repo}/pulls/{pr['number']}/files",
              "--paginate", "--jq", ".[].filename"],
-            capture_output=True, text=True, timeout=15
+            capture_output=True, text=True, timeout=remaining
         )
 
         if files_result.returncode != 0:

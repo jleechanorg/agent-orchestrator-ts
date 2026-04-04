@@ -20,6 +20,25 @@ LOG_DIR="$HOME/.openclaw/logs"
 LOG_FILE="$LOG_DIR/lw-watchdog.log"
 mkdir -p "$LOG_DIR"
 
+# Lock to prevent overlapping watchdog instances (launchd may re-fire before we finish)
+# Uses mkdir for atomic lock — works on macOS (no flock) and Linux
+LOCKDIR="/tmp/lw-watchdog.lock"
+cleanup_lock() { rmdir "$LOCKDIR" 2>/dev/null || true; }
+trap cleanup_lock EXIT
+if ! mkdir "$LOCKDIR" 2>/dev/null; then
+  # Check for stale lock (older than 10 minutes = stuck previous run)
+  if [ -d "$LOCKDIR" ]; then
+    LOCK_AGE=$(( $(date +%s) - $(stat -f %m "$LOCKDIR" 2>/dev/null || stat -c %Y "$LOCKDIR" 2>/dev/null || echo "0") ))
+    if [ "$LOCK_AGE" -gt 600 ]; then
+      rmdir "$LOCKDIR" 2>/dev/null || true
+      mkdir "$LOCKDIR" 2>/dev/null || { exit 0; }
+    else
+      echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) SKIP: another watchdog instance is running" >> "$LOG_FILE"
+      exit 0
+    fi
+  fi
+fi
+
 log() {
   echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) $1" >> "$LOG_FILE"
 }
@@ -32,15 +51,26 @@ fi
 UID_NUM=$(id -u)
 
 # Known lifecycle-worker services and their plists (bash 3.2 compatible — no associative arrays)
+# Includes both the consolidated service (ai.agento.lifecycle-all) and legacy per-project services.
+# setup-launchd.sh migrates to lifecycle-all, but legacy plists may still exist.
 SERVICE_IDS=(
+  "ai.agento.lifecycle-all"
   "com.agentorchestrator.lifecycle-agent-orchestrator"
   "com.agentorchestrator.lifecycle-claude-code"
   "com.agentorchestrator.lifecycle-worldarchitect"
 )
 SERVICE_PLISTS=(
+  "$HOME/Library/LaunchAgents/ai.agento.lifecycle-all.plist"
   "$HOME/Library/LaunchAgents/com.agentorchestrator.lifecycle-agent-orchestrator.plist"
   "$HOME/Library/LaunchAgents/com.agentorchestrator.lifecycle-claude-code.plist"
   "$HOME/Library/LaunchAgents/com.agentorchestrator.lifecycle-worldarchitect.plist"
+)
+# Process name patterns for pgrep — lifecycle-all runs all projects, legacy runs one each
+SERVICE_PGREP_PATTERNS=(
+  "ao[[:space:]]+lifecycle-worker"
+  "ao[[:space:]]+lifecycle-worker[[:space:]]+agent-orchestrator"
+  "ao[[:space:]]+lifecycle-worker[[:space:]]+claude-code"
+  "ao[[:space:]]+lifecycle-worker[[:space:]]+worldarchitect"
 )
 
 for i in "${!SERVICE_IDS[@]}"; do
@@ -52,8 +82,8 @@ for i in "${!SERVICE_IDS[@]}"; do
     continue
   fi
 
-  # Extract project name from service ID for process matching
-  PROJECT=$(echo "$SERVICE_ID" | sed 's/com.agentorchestrator.lifecycle-//')
+  # Use pre-defined pgrep pattern (includes 'ao' prefix for accurate matching)
+  PGREP_PATTERN="${SERVICE_PGREP_PATTERNS[$i]}"
 
   # Check launchd state
   STATE=$(launchctl print "gui/$UID_NUM/$SERVICE_ID" 2>&1 | grep "state =" | awk '{print $3}' || echo "not_found")
@@ -61,13 +91,19 @@ for i in "${!SERVICE_IDS[@]}"; do
   if [ "$STATE" = "running" ]; then
     # Healthy — check for duplicate processes (orphans alongside launchd-managed)
     MANAGED_PID=$(launchctl print "gui/$UID_NUM/$SERVICE_ID" 2>&1 | grep "pid =" | awk '{print $3}' || echo "")
-    ALL_PIDS=$(pgrep -f "lifecycle-worker[[:space:]]+$PROJECT" 2>/dev/null || echo "")
+    ALL_PIDS=$(pgrep -f "$PGREP_PATTERN" 2>/dev/null || echo "")
 
     if [ -n "$MANAGED_PID" ] && [ -n "$ALL_PIDS" ]; then
       for pid in $ALL_PIDS; do
         if [ "$pid" != "$MANAGED_PID" ]; then
-          log "ORPHAN_KILL: $SERVICE_ID — killing orphan PID $pid (managed=$MANAGED_PID)"
-          kill "$pid" 2>/dev/null || true
+          # Validate PID is actually a lifecycle-worker before killing
+          PID_CMD=$(ps -p "$pid" -o args= 2>/dev/null || echo "")
+          if echo "$PID_CMD" | grep -q "lifecycle-worker"; then
+            log "ORPHAN_KILL: $SERVICE_ID — killing orphan PID $pid (managed=$MANAGED_PID, cmd=$PID_CMD)"
+            kill "$pid" 2>/dev/null || true
+          else
+            log "ORPHAN_SKIP: $SERVICE_ID — PID $pid matched pgrep but is not lifecycle-worker (cmd=$PID_CMD)"
+          fi
         fi
       done
     fi
@@ -78,12 +114,18 @@ for i in "${!SERVICE_IDS[@]}"; do
   if echo "$STATE" | grep -q "not_found"; then
     log "DEREGISTERED: $SERVICE_ID — re-bootstrapping from $PLIST"
 
-    # Kill any orphan processes first
-    ORPHAN_PIDS=$(pgrep -f "lifecycle-worker[[:space:]]+$PROJECT" 2>/dev/null || echo "")
+    # Kill any orphan processes first (with validation)
+    ORPHAN_PIDS=$(pgrep -f "$PGREP_PATTERN" 2>/dev/null || echo "")
     if [ -n "$ORPHAN_PIDS" ]; then
       log "ORPHAN_KILL: $SERVICE_ID — killing orphan PIDs: $ORPHAN_PIDS"
       for pid in $ORPHAN_PIDS; do
-        kill "$pid" 2>/dev/null || true
+        PID_CMD=$(ps -p "$pid" -o args= 2>/dev/null || echo "")
+        if echo "$PID_CMD" | grep -q "lifecycle-worker"; then
+          log "ORPHAN_KILL: $SERVICE_ID — killing validated PID $pid (cmd=$PID_CMD)"
+          kill "$pid" 2>/dev/null || true
+        else
+          log "ORPHAN_SKIP: $SERVICE_ID — PID $pid not lifecycle-worker (cmd=$PID_CMD)"
+        fi
       done
       sleep 2
     fi
