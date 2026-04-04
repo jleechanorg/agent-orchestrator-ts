@@ -317,7 +317,21 @@ jobs:
               HAS_OUTPUT=true
             fi
 
-            # 3. UI media: HTTPS URL (extension-suffixed) or markdown image, OR exact N/A text.
+            # 3. Terminal media: HTTPS URL OR N/A text (N/A accepted when CI cannot capture tmux).
+            # bd-fix: add N/A handling to mirror wholesome.yml pattern for Terminal media.
+            HAS_TM_MEDIA=false
+            TM_BLOCK=$(printf '%s' "$EVIDENCE" | awk '
+              /\*\*Terminal media:/ { show=1 }
+              show && /\*\*Terminal test output:/ { exit }
+              show { print }
+            ')
+            if printf '%s' "$TM_BLOCK" | grep -qiE 'N/A'; then
+              HAS_TM_MEDIA=true
+            elif printf '%s' "$TM_BLOCK" | grep -qF '**Terminal media:' && printf '%s' "$TM_BLOCK" | grep -qE 'https://[^[:space:]]+'; then
+              HAS_TM_MEDIA=true
+            fi
+
+            # 4. UI media: HTTPS URL (extension-suffixed) or markdown image, OR exact N/A text.
             # Scope to UI_BLOCK (after **UI media** label) to avoid accepting Terminal media
             # URLs as satisfying the UI media requirement (copilot bd-2oko fix).
             # FIX bd-2oko: remove "next" so the **UI media** line itself is included in UI_BLOCK,
@@ -345,14 +359,15 @@ jobs:
               HAS_SELF_VALIDATION=true
             fi
 
-            if [ "$HAS_GIST" != "true" ] || [ "$HAS_OUTPUT" != "true" ] || [ "$HAS_UI_MEDIA" != "true" ] || [ "$HAS_SELF_VALIDATION" != "true" ]; then
+            if [ "$HAS_GIST" != "true" ] || [ "$HAS_OUTPUT" != "true" ] || [ "$HAS_TM_MEDIA" != "true" ] || [ "$HAS_UI_MEDIA" != "true" ] || [ "$HAS_SELF_VALIDATION" != "true" ]; then
               echo "ERROR: Strong evidence standard not met for claim class '$CLAIM'."
               echo "Required for non-unit claims (CR bd-2oko fix — explicit field validation restored):"
               echo "  - **Repro gist**: https://gist.github.com/... URL"
+              echo "  - **Terminal media**: HTTPS screenshot/video URL or N/A"
               echo "  - **Terminal test output**: fenced code block with a concrete test command"
               echo "  - **UI media**: HTTPS screenshot/video URL or 'N/A - no UI changes'"
               echo "  - Self-validation language: verified, confirmed, reproduced, etc. (CLAUDE.md bd-357-fix)"
-              echo "Detected: gist=$HAS_GIST test_output=$HAS_OUTPUT ui_media=$HAS_UI_MEDIA self_validation=$HAS_SELF_VALIDATION"
+              echo "Detected: gist=$HAS_GIST tm_media=$HAS_TM_MEDIA test_output=$HAS_OUTPUT ui_media=$HAS_UI_MEDIA self_validation=$HAS_SELF_VALIDATION"
               exit 1
             fi
 

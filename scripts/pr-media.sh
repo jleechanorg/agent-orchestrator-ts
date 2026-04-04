@@ -182,12 +182,11 @@ capture_gif() {
       echo "$gif_out"
       return
     }
-    warn "gifski conversion failed, using MP4 instead"
+    warn "gifski conversion failed — falling back to MP4"
   fi
-
-  rm -f "$mp4_out"
-  fail "GIF conversion failed."
-  exit 1
+  # gifski unavailable OR conversion failed: return MP4
+  success "Recorded (MP4): $mp4_out"
+  echo "$mp4_out"
 }
 
 # ── upload to gist ───────────────────────────────────────────────────────────
@@ -210,11 +209,6 @@ upload_gist() {
   elif [ "$size_mb" -gt 5 ]; then
     warn "Large file (${size_mb}MB). Consider compressing first."
   fi
-
-  # Build filename
-  local basename
-  basename=$(basename "$file")
-  local gist_name="${basename%.*}_$(timestamp).${ext}"
 
   info "Uploading to GitHub Gist..."
   local gist_url
