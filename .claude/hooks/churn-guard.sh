@@ -3,7 +3,7 @@
 # 8 PRs for metadata-updater.sh in 1hr on 2026-04-04 — 7 were wasted duplicates.
 # Root cause: no file-level coordination gate at PR creation time.
 #
-# Intercepts: gh pr create, gh api repos/.../pulls --method POST
+# Intercepts: gh pr create, gh api repos/.../pulls --method POST, gh api .../pulls -f ...
 # Checks: do any open PRs in the same repo touch files changed in the current branch?
 # If overlap found: BLOCK with list of overlapping PRs.
 # Override: include "Supersedes #N" in the PR body/command to bypass.
@@ -53,8 +53,12 @@ cmd = sys.stdin.read()
 if re.search(r'\bgh\s+pr\s+create\b', cmd, re.IGNORECASE):
     print('YES')
     sys.exit(0)
-# gh api repos/.../pulls --method POST (REST PR creation)
+# gh api repos/.../pulls --method POST (explicit POST)
 if re.search(r'\bgh\s+api\b.*pulls\b.*--method\s+POST', cmd, re.IGNORECASE):
+    print('YES')
+    sys.exit(0)
+# gh api repos/.../pulls -f ... (implicit POST via -f/-F flags)
+if re.search(r'\bgh\s+api\b.*pulls\b.*\s-[fF]\s', cmd, re.IGNORECASE):
     print('YES')
     sys.exit(0)
 print('NO')
@@ -137,9 +141,9 @@ try:
     )
     my_branch = branch_result.stdout.strip() if branch_result.returncode == 0 else ""
 
-    # List open PRs (single request, proper jq filter)
+    # List open PRs (with --paginate to get all pages)
     result = subprocess.run(
-        ["gh", "api", f"repos/{repo}/pulls",
+        ["gh", "api", f"repos/{repo}/pulls", "--paginate",
          "--jq", "[.[] | {number: .number, title: .title, branch: .head.ref}]"],
         capture_output=True, text=True, timeout=30
     )
@@ -148,7 +152,15 @@ try:
         print("OK")
         sys.exit(0)
 
-    prs = json.loads(result.stdout)
+    # --paginate outputs multiple JSON arrays; merge them
+    prs = []
+    for line in result.stdout.strip().split('\n'):
+        line = line.strip()
+        if line:
+            try:
+                prs.extend(json.loads(line))
+            except json.JSONDecodeError:
+                continue
 
     overlapping = []
     for pr in prs:
@@ -156,10 +168,10 @@ try:
         if pr.get("branch") == my_branch:
             continue
 
-        # Get files for this PR
+        # Get files for this PR (with --paginate for PRs with many files)
         files_result = subprocess.run(
             ["gh", "api", f"repos/{repo}/pulls/{pr['number']}/files",
-             "--jq", ".[].filename"],
+             "--paginate", "--jq", ".[].filename"],
             capture_output=True, text=True, timeout=15
         )
 
