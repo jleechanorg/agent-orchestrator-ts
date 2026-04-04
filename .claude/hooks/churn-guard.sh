@@ -6,9 +6,15 @@
 # Intercepts: gh pr create, gh api repos/.../pulls --method POST
 # Checks: do any open PRs in the same repo touch files changed in the current branch?
 # If overlap found: BLOCK with list of overlapping PRs.
-# Fail-open: if checks fail (no git, no gh, parse error), allow — don't block real work.
+# Override: include "Supersedes #N" in the PR body/command to bypass.
+# Fail-open: if checks fail (no git, no gh, no python3, parse error), allow.
 
 set -euo pipefail
+
+# Fail open if python3 is missing
+if ! command -v python3 &>/dev/null; then
+  exit 0
+fi
 
 INPUT=$(cat)
 
@@ -58,7 +64,21 @@ if [ "$IS_PR_CREATE" != "YES" ]; then
   exit 0
 fi
 
-# --- PR creation detected — check for file overlap ---
+# Check for "Supersedes #N" override in the command (--body flag content)
+HAS_SUPERSEDES=$(echo "$CMD" | python3 -c "
+import sys, re
+cmd = sys.stdin.read()
+if re.search(r'[Ss]upersedes\s+#\d+', cmd):
+    print('YES')
+else:
+    print('NO')
+" 2>/dev/null) || HAS_SUPERSEDES="NO"
+
+if [ "$HAS_SUPERSEDES" = "YES" ]; then
+  exit 0
+fi
+
+# --- PR creation detected, no override — check for file overlap ---
 
 # Get the repo (try --repo flag first, then git remote)
 REPO=$(echo "$CMD" | python3 -c "
@@ -117,31 +137,18 @@ try:
     )
     my_branch = branch_result.stdout.strip() if branch_result.returncode == 0 else ""
 
-    # List open PRs with their files
+    # List open PRs (single request, proper jq filter)
     result = subprocess.run(
         ["gh", "api", f"repos/{repo}/pulls",
-         "--jq", '.[] | {number, title, head: .head.ref, files_url: .url}',
-         "-q", "state=open"],
-        capture_output=True, text=True, timeout=30
-    )
-
-    if result.returncode != 0:
-        # API failed — fail open
-        print("OK")
-        sys.exit(0)
-
-    # Parse PR list
-    result2 = subprocess.run(
-        ["gh", "api", f"repos/{repo}/pulls", "--method", "GET",
          "--jq", "[.[] | {number: .number, title: .title, branch: .head.ref}]"],
         capture_output=True, text=True, timeout=30
     )
 
-    if result2.returncode != 0:
+    if result.returncode != 0:
         print("OK")
         sys.exit(0)
 
-    prs = json.loads(result2.stdout)
+    prs = json.loads(result.stdout)
 
     overlapping = []
     for pr in prs:
@@ -201,8 +208,7 @@ if echo "$OVERLAP" | grep -q "^OVERLAP"; then
   echo "  3. If no: coordinate with the existing PR author via MCP mail" >&2
   echo "  4. Only create a new PR if the existing one is abandoned/stale (>24h no activity)" >&2
   echo "" >&2
-  echo "To override (if you're intentionally superseding): add --body containing" >&2
-  echo "'Supersedes #<N>' to your gh pr create command." >&2
+  echo "To override: add 'Supersedes #<N>' to the PR body (--body flag)." >&2
   echo "============================================" >&2
   exit 2
 fi
