@@ -309,6 +309,35 @@ check_rate_limits() {
   fi
 }
 
+get_session_pr_info() {
+  local s="$1"
+  local pane_dir branch_name origin_url org_name repo_name repo_hint pr_num
+  
+  pane_dir=$(tmux display-message -t "$s:0.0" -p "#{pane_current_path}" 2>/dev/null || echo "")
+  if [ -z "$pane_dir" ] || [ ! -d "$pane_dir" ]; then
+    return
+  fi
+  
+  branch_name=$(git -C "$pane_dir" branch --show-current 2>/dev/null || echo "")
+  origin_url=$(git -C "$pane_dir" remote get-url origin 2>/dev/null || echo "")
+  
+  if [ -z "$branch_name" ] || [ -z "$origin_url" ]; then
+    return
+  fi
+  
+  repo_name=$(basename "$origin_url" .git)
+  org_name=$(basename "$(dirname "$origin_url")")
+  org_name="${org_name##*:}"
+  org_name="${org_name##*/}"
+  repo_hint="$org_name/$repo_name"
+  
+  pr_num=$(gh pr list --head "$branch_name" --repo "$repo_hint" --state all --json number --jq '.[0].number' 2>/dev/null | grep -E "^[0-9]+$" || echo "")
+  
+  if [ -n "$pr_num" ]; then
+    echo "$pr_num $repo_hint"
+  fi
+}
+
 check_session_sprawl() {
   log "--- Session sprawl ---"
   local sessions
@@ -322,10 +351,11 @@ check_session_sprawl() {
   # Map sessions to repo#PR keys to avoid cross-repo collisions
   local -A pr_sessions
   for s in $sessions; do
-    local pr repo_hint key
-    pr=$(tmux capture-pane -t "$s" -p -S -15 2>/dev/null | grep -oE "PR: #[0-9]+" | head -1 | grep -oE "[0-9]+" || echo "")
-    repo_hint=$(tmux capture-pane -t "$s" -p -S -15 2>/dev/null | grep -oE "github.com/[^/]+/[^/]+" | head -1 | sed 's|github.com/||' || echo "")
-    if [ -n "$pr" ] && [ -n "$repo_hint" ]; then
+    local pr repo_hint key info
+    info=$(get_session_pr_info "$s")
+    if [ -n "$info" ]; then
+      pr=$(echo "$info" | awk '{print $1}')
+      repo_hint=$(echo "$info" | awk '{print $2}')
       key="${repo_hint}#${pr}"
       pr_sessions[$key]="${pr_sessions[$key]:-} $s"
     fi
@@ -359,13 +389,13 @@ check_zombie_sessions() {
 
   local zombie_count=0
   for s in $sessions; do
-    local pr_num repo_hint
-    pr_num=$(tmux capture-pane -t "$s" -p -S -15 2>/dev/null | grep -oE "PR: #[0-9]+" | head -1 | grep -oE "[0-9]+" || echo "")
-    repo_hint=$(tmux capture-pane -t "$s" -p -S -15 2>/dev/null | grep -oE "github.com/[^/]+/[^/]+" | head -1 | sed 's|github.com/||' || echo "")
-
-    if [ -z "$pr_num" ] || [ -z "$repo_hint" ]; then
+    local pr_num repo_hint info
+    info=$(get_session_pr_info "$s")
+    if [ -z "$info" ]; then
       continue
     fi
+    pr_num=$(echo "$info" | awk '{print $1}')
+    repo_hint=$(echo "$info" | awk '{print $2}')
 
     local state
     state=$(gh pr view "$pr_num" --repo "$repo_hint" --json state --jq .state 2>/dev/null || echo "UNKNOWN")
@@ -396,10 +426,11 @@ check_cr_gaps() {
   local sessions
   sessions=$(tmux list-sessions 2>/dev/null | grep -E "ao-[0-9]|jc-[0-9]" | cut -d: -f1) || true
   for s in $sessions; do
-    local pr repo_hint key
-    pr=$(tmux capture-pane -t "$s" -p -S -15 2>/dev/null | grep -oE "PR: #[0-9]+" | head -1 | grep -oE "[0-9]+" || echo "")
-    repo_hint=$(tmux capture-pane -t "$s" -p -S -15 2>/dev/null | grep -oE "github.com/[^/]+/[^/]+" | head -1 | sed 's|github.com/||' || echo "")
-    if [ -n "$pr" ] && [ -n "$repo_hint" ]; then
+    local pr repo_hint key info
+    info=$(get_session_pr_info "$s")
+    if [ -n "$info" ]; then
+      pr=$(echo "$info" | awk '{print $1}')
+      repo_hint=$(echo "$info" | awk '{print $2}')
       key="${repo_hint}#${pr}"
       session_prs[$key]="$s"
     fi
