@@ -61,7 +61,7 @@ for i in "${!SERVICE_IDS[@]}"; do
   if [ "$STATE" = "running" ]; then
     # Healthy — check for duplicate processes (orphans alongside launchd-managed)
     MANAGED_PID=$(launchctl print "gui/$UID_NUM/$SERVICE_ID" 2>&1 | grep "pid =" | awk '{print $3}' || echo "")
-    ALL_PIDS=$(pgrep -f "lifecycle-worker $PROJECT" 2>/dev/null || echo "")
+    ALL_PIDS=$(pgrep -f "lifecycle-worker[[:space:]]+$PROJECT" 2>/dev/null || echo "")
 
     if [ -n "$MANAGED_PID" ] && [ -n "$ALL_PIDS" ]; then
       for pid in $ALL_PIDS; do
@@ -79,7 +79,7 @@ for i in "${!SERVICE_IDS[@]}"; do
     log "DEREGISTERED: $SERVICE_ID — re-bootstrapping from $PLIST"
 
     # Kill any orphan processes first
-    ORPHAN_PIDS=$(pgrep -f "lifecycle-worker $PROJECT" 2>/dev/null || echo "")
+    ORPHAN_PIDS=$(pgrep -f "lifecycle-worker[[:space:]]+$PROJECT" 2>/dev/null || echo "")
     if [ -n "$ORPHAN_PIDS" ]; then
       log "ORPHAN_KILL: $SERVICE_ID — killing orphan PIDs: $ORPHAN_PIDS"
       for pid in $ORPHAN_PIDS; do
@@ -88,10 +88,11 @@ for i in "${!SERVICE_IDS[@]}"; do
       sleep 2
     fi
 
-    # Re-bootstrap
-    launchctl bootstrap "gui/$UID_NUM" "$PLIST" 2>&1 | while read -r line; do
-      log "BOOTSTRAP: $SERVICE_ID — $line"
-    done
+    # Re-bootstrap (|| true prevents set -e from aborting remaining services)
+    BOOTSTRAP_OUT=$(launchctl bootstrap "gui/$UID_NUM" "$PLIST" 2>&1 || true)
+    if [ -n "$BOOTSTRAP_OUT" ]; then
+      log "BOOTSTRAP: $SERVICE_ID — $BOOTSTRAP_OUT"
+    fi
 
     # Verify
     sleep 3

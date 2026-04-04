@@ -72,7 +72,7 @@ fi
 HAS_SUPERSEDES=$(echo "$CMD" | python3 -c "
 import sys, re
 cmd = sys.stdin.read()
-if re.search(r'[Ss]upersedes\s+#\d+', cmd):
+if re.search(r'supersedes\s*#\s*\d+', cmd, re.IGNORECASE):
     print('YES')
 else:
     print('NO')
@@ -178,7 +178,7 @@ try:
         if files_result.returncode != 0:
             continue
 
-        pr_files = set(files_result.stdout.strip().split('\n'))
+        pr_files = set(f for f in files_result.stdout.strip().split('\n') if f)
         common = my_files & pr_files
 
         if common:
