@@ -169,6 +169,10 @@ repo = sys.argv[1]
 my_files = set(sys.argv[2].strip().split('\n'))
 
 try:
+    import time
+    # Global deadline: 50s total for the entire overlap check (hook timeout is 60s)
+    global_deadline = time.monotonic() + 50
+
     # Get current branch to exclude our own PR
     branch_result = subprocess.run(
         ["git", "branch", "--show-current"],
@@ -177,10 +181,11 @@ try:
     my_branch = branch_result.stdout.strip() if branch_result.returncode == 0 else ""
 
     # List open PRs (with --paginate to get all pages)
+    pr_list_timeout = max(5, int(global_deadline - time.monotonic() - 10))
     result = subprocess.run(
         ["gh", "api", f"repos/{repo}/pulls", "--paginate",
          "--jq", "[.[] | {number: .number, title: .title, branch: .head.ref}]"],
-        capture_output=True, text=True, timeout=30
+        capture_output=True, text=True, timeout=pr_list_timeout
     )
 
     if result.returncode != 0:
@@ -197,21 +202,18 @@ try:
             except json.JSONDecodeError:
                 continue
 
-    import time
     overlapping = []
-    # Total deadline: 45s for all PR file checks (leaves margin under 60s hook timeout)
-    deadline = time.monotonic() + 45
     for pr in prs:
         # Skip our own branch
         if pr.get("branch") == my_branch:
             continue
 
-        # Bail if approaching deadline — fail open
-        if time.monotonic() > deadline:
+        # Bail if approaching global deadline — fail open
+        if time.monotonic() > global_deadline:
             break
 
         # Get files for this PR (with --paginate for PRs with many files)
-        remaining = max(5, int(deadline - time.monotonic()))
+        remaining = max(5, int(global_deadline - time.monotonic()))
         files_result = subprocess.run(
             ["gh", "api", f"repos/{repo}/pulls/{pr['number']}/files",
              "--paginate", "--jq", ".[].filename"],
