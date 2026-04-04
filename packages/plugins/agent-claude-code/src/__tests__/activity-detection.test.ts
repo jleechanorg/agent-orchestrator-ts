@@ -10,11 +10,11 @@ vi.mock("node:os", async (importOriginal) => {
   const actual = (await importOriginal()) as Record<string, unknown>;
   return {
     ...actual,
-    homedir: () => fakeHome,
+    homedir: () => _fakeHome,
   };
 });
 
-let fakeHome: string;
+let _fakeHome: string;
 let workspacePath: string;
 let projectDir: string;
 
@@ -94,13 +94,13 @@ describe("Claude Code Activity Detection", () => {
     const agent = create();
 
     beforeEach(() => {
-      fakeHome = mkdtempSync(join(tmpdir(), "ao-activity-test-"));
-      workspacePath = join(fakeHome, "workspace");
+      _fakeHome = mkdtempSync(join(tmpdir(), "ao-activity-test-"));
+      workspacePath = join(_fakeHome, "workspace");
       mkdirSync(workspacePath, { recursive: true });
 
       // Create the Claude project directory matching the workspace path
       const encoded = toClaudeProjectPath(workspacePath);
-      projectDir = join(fakeHome, ".claude", "projects", encoded);
+      projectDir = join(_fakeHome, ".claude", "projects", encoded);
       mkdirSync(projectDir, { recursive: true });
 
       // Mock isProcessRunning to always return true (we test exited separately)
@@ -108,7 +108,7 @@ describe("Claude Code Activity Detection", () => {
     });
 
     afterEach(() => {
-      rmSync(fakeHome, { recursive: true, force: true });
+      rmSync(_fakeHome, { recursive: true, force: true });
       vi.restoreAllMocks();
     });
 
@@ -147,7 +147,7 @@ describe("Claude Code Activity Detection", () => {
 
     it("returns null when project directory does not exist", async () => {
       // Point to a workspace whose project dir doesn't exist
-      const badPath = join(fakeHome, "nonexistent-workspace");
+      const badPath = join(_fakeHome, "nonexistent-workspace");
       expect(await agent.getActivityState(makeSession({ workspacePath: badPath }))).toBeNull();
     });
 

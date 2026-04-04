@@ -5,12 +5,156 @@
  * when the orchestrator agent runs.
  */
 
+import { homedir } from "node:os";
+import { posix as pathPosix } from "node:path";
 import type { OrchestratorConfig, ProjectConfig } from "./types.js";
 
 export interface OrchestratorPromptConfig {
   config: OrchestratorConfig;
   projectId: string;
   project: ProjectConfig;
+}
+
+/**
+ * Commands that are ALWAYS blocked in the evolve loop FIX phase, regardless of
+ * autonomousFixScopes or blockedScopes config. These are never permitted.
+ */
+const IMPLICIT_DENY_LIST = [
+  "gh pr merge",
+  "gh pr close",
+  "git reset --hard",
+  "git clean -fd",
+  "git worktree remove",
+  "rm -rf",
+] as const;
+
+/** Lazy getter — homedir() is called at function call time, not module-load time. */
+function defaultKbDir(): string {
+  return pathPosix.join(homedir(), ".ao-evolve-knowledge");
+}
+
+/**
+ * Generate the manager evolve loop section for the orchestrator prompt.
+ * Returns an empty string when the loop is disabled (via config or env var).
+ */
+export function generateEvolveLoopSection(project: ProjectConfig, projectId: string): string {
+  const evolveLoop = project.evolveLoop;
+
+  // Kill switch: EVOLVE_LOOP_ENABLED=false env var always disables the loop
+  if (process.env["EVOLVE_LOOP_ENABLED"] === "false") {
+    return "";
+  }
+
+  if (evolveLoop?.enabled !== true) {
+    return "";
+  }
+
+  const scopes = evolveLoop ?? {};
+  const pollCadence = scopes.pollCadence ?? "lightweight";
+  const zeroTouchWindow = scopes.zeroTouchWindow ?? "24h";
+  const kbDir = scopes.knowledgeBaseDir ?? defaultKbDir();
+  const autonomousFixScopes = scopes.autonomousFixScopes ?? [];
+  const blockedScopes = scopes.blockedScopes ?? [];
+
+  const lines: string[] = [];
+
+  lines.push(`## Evolve Loop
+
+The manager runs a lightweight self-assessment loop every poll cycle to detect anomalies,
+measure effectiveness, and dispatch autonomous fixes. The loop follows 6 phases:
+
+### Evolve Loop Overview
+
+- **Poll cadence**: ${pollCadence === "standard" ? "Full cycle every ~10 min; lightweight OBSERVE every poll" : "Full cycle every poll"}
+- **Knowledge base**: ${pathPosix.join(kbDir, `${projectId}.jsonl`)}
+- **Zero-touch window**: ${zeroTouchWindow}
+- **Kill switch**: Set EVOLVE_LOOP_ENABLED=false to disable without removing config
+
+### Phase 1: OBSERVE (every poll cycle — lightweight)
+
+- Read tmux pane output for each worker session (capture last 20 lines)
+- Check \`ao session ls\` for worker states
+- Check open PRs via \`gh api ... --method GET\` (always REST — never GraphQL)
+- Check for cold PRs (open >3h with no activity)
+- Check lifecycle log for recent reaction outcomes
+- **Fast path**: if nothing abnormal, output "all clear" and exit
+
+### Phase 2: MEASURE (on anomaly detected)
+
+- Calculate zero-touch rate using the canonical definition:
+  - Qualifying PR author (human) + merged by bot (not human) + no CHANGES_REQUESTED review
+  - Time window: rolling ${zeroTouchWindow}
+- Compute: worker health score, average PR cycle time, reaction failure rate
+- Log snapshot to ${pathPosix.join(kbDir, `${projectId}.jsonl`)}
+
+**Quota guard**: Skip MEASURE if \`gh api\` core quota < 500 remaining.
+
+### Phase 3: DIAGNOSE (on anomaly detected)
+
+- Classify the anomaly: stuck worker, cold PR, reaction failure, friction pattern
+- Run \`/harness\` on systemic issues (delegate to a worker — do not run in manager)
+- Check bead tracker — is this already tracked?
+- Check ${pathPosix.join(kbDir, `${projectId}.jsonl`)} — has another manager already diagnosed this?
+
+**Dedup rule**: Before dispatching, normalize detail and check the knowledge base for
+a matching finding+detail entry with \`dispatched: true\` within the last 2h. If found, skip dispatch.
+
+### Phase 4: PLAN (on anomaly confirmed)
+
+- P0: Fix blocking multiple PRs → dispatch immediately
+- P1: Systemic friction → create bead + dispatch fix
+- P2: Improvement proposals → record in roadmap, defer unless capacity available
+
+### Phase 5: FIX (on plan ready)
+
+**Allowed dispatch scopes** (autonomousFixScopes allow-list):`);
+
+  if (autonomousFixScopes.length === 0) {
+    lines.push(`
+:warning: **No autonomousFixScopes configured** — the manager is in read-only mode.
+The manager may observe and log findings but will not dispatch autonomous fixes.
+Add scopes to evolveLoop.autonomousFixScopes to enable autonomous dispatch.
+`);
+  } else {
+    lines.push(`\n${autonomousFixScopes.map((s) => `- \`${s}\``).join("\n")}\n`);
+  }
+
+  lines.push(`
+**Blocked scopes** (explicit deny-list):
+${blockedScopes.length > 0 ? blockedScopes.map((s) => `- \`${s}\``).join("\n") + "\n" : "(none configured)\n"}
+**Always blocked** (implicit deny-list — applies regardless of any config):
+${IMPLICIT_DENY_LIST.map((cmd) => `- \`${cmd}\``).join("\n")}
+
+Dispatch methods:
+- \`/claw\` — \`ao spawn\` worker for the fix (default)
+- \`/antig\` — use Antigravity IDE when tmux cap is hit
+- Direct config edit — for agentRules changes that don't need a PR
+
+**Never dispatch \`gh pr merge\` from the manager** — always delegate to the lifecycle-manager reaction.
+
+**Anti-stall rules**:
+- Max 3 fix dispatches per evolve cycle
+- If \`gh api\` core quota < 500, skip MEASURE
+- If active tmux sessions > 20, prefer \`/antig\` over \`/claw\`
+- Stuck worker fast-path: probe via \`ao send\` before killing — wait 2 poll cycles for response
+- Sessions tagged \`long-running\` in metadata are exempt from output-staleness probes
+
+### Phase 6: RECORD (end of every cycle)
+
+- Append finding to ${pathPosix.join(kbDir, `${projectId}.jsonl`)} (JSONL, one object per line):
+  - \`ts\`: ISO8601 timestamp
+  - \`manager\`: manager session name (e.g. \`ao-orchestrator\`)
+  - \`phase\`: OBSERVE | MEASURE | DIAGNOSE | PLAN | FIX | RECORD
+  - \`finding\`: classification key (e.g. \`cold_prs\`, \`stuck_worker\`)
+  - \`detail\`: structured finding data
+  - \`bead\`: bead ID if created/tracked
+  - \`dispatched\`: whether a fix was dispatched
+  - \`dispatch_method\`: claw | antig | config-edit
+  - \`dispatched_to\`: target session or workspace
+- Create/update beads with \`br create\` or \`br update\`
+- Append to \`roadmap/evolve-loop-findings.md\``);
+
+  return lines.join("\n");
 }
 
 /**
@@ -240,6 +384,12 @@ When an agent needs human judgment:
     sections.push(`## Project-Specific Rules
 
 ${project.orchestratorRules}`);
+  }
+
+  // bd-jhv1: Evolve loop section — injected when evolveLoop.enabled=true
+  const evolveLoopSection = generateEvolveLoopSection(project, projectId);
+  if (evolveLoopSection) {
+    sections.push(evolveLoopSection);
   }
 
   return sections.join("\n\n");

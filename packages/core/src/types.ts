@@ -1411,6 +1411,16 @@ export interface ProjectConfig {
 
   /** Config-driven bead task queue with maxConcurrent concurrency limit. */
   taskQueue?: TaskQueueConfig;
+
+  // =============================================================================
+  // MANAGER EVOLVE LOOP — bd-jhv1
+  // =============================================================================
+
+  /**
+   * Manager evolve loop configuration.
+   * When enabled, injects 6-phase evolve loop instructions into the orchestrator prompt.
+   */
+  evolveLoop?: EvolveLoopConfig;
 }
 
 /** Merge gate configuration (bd-uxs.8) */
@@ -1458,6 +1468,68 @@ export interface MergeGateConfig {
    * Skeptic's own PRs can self-approve without a verdict from a separate skeptic instance.
    */
   skepticBypassProjects?: string[];
+}
+
+// =============================================================================
+// MANAGER EVOLVE LOOP — bd-jhv1
+// =============================================================================
+
+/**
+ * Manager evolve loop configuration.
+ * When `enabled: true`, orchestrator-prompt.ts injects 6-phase evolve loop
+ * instructions into the manager agent's prompt (OBSERVE → MEASURE → DIAGNOSE →
+ * PLAN → FIX → RECORD).
+ *
+ * The loop is disabled by default (opt-in per project).
+ * A global kill switch is available via the EVOLVE_LOOP_ENABLED=false env var.
+ */
+export interface EvolveLoopConfig {
+  /**
+   * Enable the manager evolve loop for this project.
+   * Default: undefined (false) — must be explicitly enabled.
+   * Can also be disabled globally via EVOLVE_LOOP_ENABLED=false env var.
+   */
+  enabled?: boolean;
+
+  /**
+   * How often the full MEASURE→DIAGNOSE→PLAN→FIX cycle runs.
+   * - "lightweight": OBSERVE runs every poll cycle; full cycle runs every poll cycle.
+   * - "standard": full cycle runs every ~10 min; lightweight OBSERVE runs every poll.
+   * Default: "lightweight"
+   */
+  pollCadence?: "lightweight" | "standard";
+
+  /**
+   * Allow-list of fix scopes the manager may dispatch autonomously.
+   * The manager may NOT dispatch anything outside this list.
+   * Examples: "config-edit", "claw-dispatch", "bead-create", "antig-dispatch".
+   * Default: [] (no autonomous fixes; manager is read-only if allow-list is empty).
+   */
+  autonomousFixScopes?: string[];
+
+  /**
+   * Explicit deny-list in addition to the implicit global deny-list.
+   * The implicit deny-list always applies regardless of this field:
+   *   gh pr merge, gh pr close, git reset --hard, git clean -fd,
+   *   git worktree remove, rm -rf
+   * Default: []
+   */
+  blockedScopes?: string[];
+
+  /**
+   * Directory containing per-project JSONL knowledge base files.
+   * If the path starts with ~, it is expanded to the user's home directory.
+   * Default: "~/.ao-evolve-knowledge"
+   */
+  knowledgeBaseDir?: string;
+
+  /**
+   * Time window for zero-touch rate calculation in the MEASURE phase.
+   * - "24h": rolling 24-hour window (used for anomaly detection)
+   * - "30d": rolling 30-day window (used for baseline reporting)
+   * Default: "24h"
+   */
+  zeroTouchWindow?: "24h" | "30d";
 }
 
 /** Task queue configuration for config-driven bead processing (bd-bsu) */

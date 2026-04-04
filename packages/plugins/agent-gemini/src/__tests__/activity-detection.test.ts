@@ -10,11 +10,11 @@ vi.mock("node:os", async (importOriginal) => {
   const actual = (await importOriginal()) as Record<string, unknown>;
   return {
     ...actual,
-    homedir: () => fakeHome,
+    homedir: () => _homeDir,
   };
 });
 
-let fakeHome: string;
+let _homeDir: string;
 let workspacePath: string;
 let projectDir: string;
 
@@ -118,13 +118,13 @@ describe("Gemini Activity Detection", () => {
     const agent = create();
 
     beforeEach(() => {
-      fakeHome = mkdtempSync(join(tmpdir(), "ao-activity-test-"));
-      workspacePath = join(fakeHome, "workspace");
+      _homeDir = mkdtempSync(join(tmpdir(), "ao-activity-test-"));
+      workspacePath = join(_homeDir, "workspace");
       mkdirSync(workspacePath, { recursive: true });
 
       // Create the Gemini project directory: ~/.gemini/tmp/<sha256>/chats/
       const hash = toGeminiProjectPath(workspacePath);
-      projectDir = join(fakeHome, ".gemini", "tmp", hash, "chats");
+      projectDir = join(_homeDir, ".gemini", "tmp", hash, "chats");
       mkdirSync(projectDir, { recursive: true });
 
       // Mock isProcessRunning to always return true (we test exited separately)
@@ -132,7 +132,7 @@ describe("Gemini Activity Detection", () => {
     });
 
     afterEach(() => {
-      rmSync(fakeHome, { recursive: true, force: true });
+      rmSync(_homeDir, { recursive: true, force: true });
       vi.restoreAllMocks();
     });
 
@@ -171,7 +171,7 @@ describe("Gemini Activity Detection", () => {
 
     it("returns null when project directory does not exist", async () => {
       // Point to a workspace whose project dir doesn't exist
-      const badPath = join(fakeHome, "nonexistent-workspace");
+      const badPath = join(_homeDir, "nonexistent-workspace");
       expect(await agent.getActivityState(makeSession({ workspacePath: badPath }))).toBeNull();
     });
 
@@ -382,19 +382,19 @@ describe("Gemini Activity Detection", () => {
     const agent = create();
 
     beforeEach(() => {
-      fakeHome = mkdtempSync(join(tmpdir(), "ao-gemini-native-test-"));
-      workspacePath = join(fakeHome, "workspace");
+      _homeDir = mkdtempSync(join(tmpdir(), "ao-gemini-native-test-"));
+      workspacePath = join(_homeDir, "workspace");
       mkdirSync(workspacePath, { recursive: true });
 
       const hash = toGeminiProjectPath(workspacePath);
-      projectDir = join(fakeHome, ".gemini", "tmp", hash, "chats");
+      projectDir = join(_homeDir, ".gemini", "tmp", hash, "chats");
       mkdirSync(projectDir, { recursive: true });
 
       vi.spyOn(agent, "isProcessRunning").mockResolvedValue(true);
     });
 
     afterEach(() => {
-      rmSync(fakeHome, { recursive: true, force: true });
+      rmSync(_homeDir, { recursive: true, force: true });
       vi.restoreAllMocks();
     });
 
