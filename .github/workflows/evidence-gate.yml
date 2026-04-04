@@ -33,12 +33,12 @@ jobs:
       - name: Write PR body to temp file
         run: |
           # gh api handles GITHUB_TOKEN auth automatically in GitHub Actions runners.
+          set -o pipefail
           PR_BODY=$(gh api \
-            -H "Accept: application/vnd.github+json" \
             "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}" \
-            --jq '.body // ""' 2>&1)
+            --jq '.body // ""')
+          echo "DEBUG: gh_exit=$? body_len=${#PR_BODY} chars"
           printf '%s' "$PR_BODY" > "$RUNNER_TEMP/pr_body.txt"
-          echo "Body fetched: ${#PR_BODY} chars"
           if [ ${#PR_BODY} -eq 0 ]; then
             echo "PR body is empty — treating as no evidence bundle (workflow skips)"
             echo "found=false" >> "$GITHUB_OUTPUT"

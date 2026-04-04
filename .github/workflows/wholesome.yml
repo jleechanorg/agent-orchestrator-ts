@@ -59,18 +59,16 @@ jobs:
       - name: Check for Evidence section in PR body
         id: check
         run: |
-          # gh api is pre-installed in GitHub Actions runners and handles GITHUB_TOKEN
-          # auth automatically — prefer it over raw curl.
+          # gh api handles GITHUB_TOKEN auth automatically in GitHub Actions runners.
+          # Capture gh exit code immediately so set -e doesn't mask failures.
           set -o pipefail
-          PR_BODY_FILE="$RUNNER_TEMP/pr_body_raw.txt"
           BODY=$(gh api \
-            -H "Accept: application/vnd.github+json" \
             "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}" \
-            --jq '.body // ""' 2>&1)
+            --jq '.body // ""')
           GH_RC=$?
-          printf '%s' "$BODY" > "$PR_BODY_FILE"
-          echo "DEBUG: GH_RC=$GH_RC BODY_LEN=${#BODY}"
-          echo "DEBUG: BODY_PREVIEW=$(printf '%s' "$BODY" | head -c 300 | tr '\n' '|' | sed 's/|/ /g')"
+          echo "DEBUG: gh_exit=$GH_RC body_len=${#BODY}"
+          # Print first 200 chars of body for diagnostics
+          echo "DEBUG: body_preview=$(printf '%s' "$BODY" | head -c 200 | tr '\n' '~' | sed 's/~/ /g')"
           if [ ${#BODY} -eq 0 ]; then
             echo "found=false" >> "$GITHUB_OUTPUT"
             echo "reason=empty_body" >> "$GITHUB_OUTPUT"
@@ -135,9 +133,8 @@ jobs:
         run: |
           # gh api handles GITHUB_TOKEN auth automatically in GitHub Actions runners.
           BODY=$(gh api \
-            -H "Accept: application/vnd.github+json" \
             "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}" \
-            --jq '.body // ""' 2>&1)
+            --jq '.body // ""')
 
           # Extract claim class — normalize to lowercase short form for CLAIM-based enforcement
           # Supports: **Claim class**: value and "- **Claim class**: ..." list formats.
