@@ -539,9 +539,10 @@ function jqVerdictComment(
       new RegExp(`skeptic-cron-trigger-${triggerSha}`, "i").test(c.body),
   );
   if (matching.length === 0) return "";
-  // Return the body of the last matching comment (most recent)
-  const sorted = [...matching].sort((a, b) => b.id - a.id);
-  return sorted[0].body;
+  // Return the body of the last matching comment in the array.
+  // GitHub REST API returns comments in ascending ID order, so the last
+  // element is the most recent — matching jq's `| last // empty` semantics.
+  return matching[matching.length - 1].body;
 }
 
 describe("skeptic-cron.yml — verdict comment filter (SHA-scoped)", () => {
