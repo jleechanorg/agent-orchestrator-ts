@@ -311,6 +311,9 @@ async function autoCreateConfig(workingDir: string): Promise<OrchestratorConfig>
       agent,
       workspace: "worktree",
       notifiers: ["desktop"],
+      modelByCli: {
+        [agent]: { model: "claude-sonnet-4-20250514" },
+      },
     },
     projects: {
       [projectId]: {
