@@ -125,9 +125,7 @@ jobs:
           BODY="$PR_BODY"
 
           # Extract claim class — normalize to lowercase short form for CLAIM-based enforcement
-          # Supports: **Claim class**: value and "- **Claim class**: ..." list formats
-          # FIX bd-ao357: In both BRE and ERE, the sed pattern with \*\* doesn't match **Claim class**: .
-          # Fix: strip ** FIRST with tr -d '*', then use plain sed (no asterisks in pattern needed).
+          # Supports: **Claim class**: value and "- **Claim class**: ..." list formats.
           CLAIM=$(printf '%s' "$BODY" \
             | grep -i '\*\*Claim class' | grep -v '^- ' | head -1 \
             | tr -d '*' \
@@ -184,30 +182,26 @@ jobs:
           printf '%s\n' "$EVIDENCE_SECTION" | head -40
           echo "===================================="
 
-          # Extract block-level content for targeted checks
-          # FIX bd-ao357r2: actual labels end with ':' not '**', so awk patterns and grep -qF
-          # checks must use '**Label:' (colon, no trailing **). Without this, all three blocks
-          # fail to match the actual PR body labels (**Terminal media:**, **Terminal test output:**,
-          # **UI media:**).
+          # Extract block-level content for targeted checks.
+          # Actual label format: **Label**: value (bold, colon after closing **).
           TM_BLOCK=$(printf '%s' "$EVIDENCE_SECTION" | awk '
-            /[*][*]Terminal media:/ { show=1 }
-            show && /[*][*]Terminal test output:/ { exit }
+            /[*][*]Terminal media[*][*]:/ { show=1 }
+            show && /[*][*]Terminal test output[*][*]:/ { exit }
             show { print }
           ')
           TTO_BLOCK=$(printf '%s' "$EVIDENCE_SECTION" | awk '
-            /[*][*]Terminal test output:/ { show=1 }
-            show && /[*][*]UI media:/ { exit }
+            /[*][*]Terminal test output[*][*]:/ { show=1 }
+            show && /[*][*]UI media[*][*]:/ { exit }
             show { print }
           ')
           UI_BLOCK=$(printf '%s' "$EVIDENCE_SECTION" | awk '
-            /[*][*]UI media:/ { show=1 }
+            /[*][*]UI media[*][*]:/ { show=1 }
             show { print }
           ')
 
           # 1) Repro gist URL is mandatory — scope to Repro gist line only (not entire EVIDENCE_SECTION)
-          # FIX bd-ao357r2: actual label is "**Repro gist:**" (with colon). grep -qF fixed string
-          # must include the colon to match.
-          REPRO_LINE=$(printf '%s' "$EVIDENCE_SECTION" | grep -iF '**Repro gist:' | head -1)
+          # Label format: **Repro gist**: <url> (bold text, colon after closing **)
+          REPRO_LINE=$(printf '%s' "$EVIDENCE_SECTION" | grep -iF '**Repro gist**:' | head -1)
           if [ -z "$REPRO_LINE" ]; then
             echo "FAIL: Missing '**Repro gist**' label in Evidence section"
             exit 1
@@ -219,8 +213,7 @@ jobs:
           echo "Repro gist: PASS"
 
           # 2) Terminal media (HTTPS screenshot/video) + tmux/terminal context + caption
-          # FIX bd-ao357r2: actual label ends with ':' not '**'.
-          if ! printf '%s' "$TM_BLOCK" | grep -qF '**Terminal media:'; then
+          if ! printf '%s' "$TM_BLOCK" | grep -qF '**Terminal media**:'; then
             echo "FAIL: Missing '**Terminal media**' label in Evidence section"
             exit 1
           fi
@@ -229,11 +222,9 @@ jobs:
             exit 1
           fi
           TM_URL_LINE=$(printf '%s' "$TM_BLOCK" | grep -n 'https://' | head -1 | cut -d: -f1)
-          # CR bd-357-fix: exclude lines that START with **Terminal media: (with colon)
-          # so inline "**Terminal media:** https://..." lines don't survive into CAPTION_LINES
-          # where "Terminal" would falsely satisfy the tmux/terminal check.
-          # awk strips the label from each line (handles inline label+URL+caption on one line).
-          CAPTION_LINES=$(printf '%s' "$TM_BLOCK" | tail -n +"${TM_URL_LINE:-1}" | grep -v '^[[:space:]]*$' | grep -v '^[[:space:]]*```' | awk '{ sub(/^\*\*Terminal media:\*\*[[:space:]]*/, ""); print }')
+          # Strip the bold label prefix from the URL line so only the caption survives.
+          # awk strips "**Terminal media**: " from inline label+URL+caption lines.
+          CAPTION_LINES=$(printf '%s' "$TM_BLOCK" | tail -n +"${TM_URL_LINE:-1}" | grep -v '^[[:space:]]*$' | grep -v '^[[:space:]]*```' | awk '{ sub(/^\*\*Terminal media\*\*:[[:space:]]*/, ""); print }')
           if [ -z "$CAPTION_LINES" ]; then
             echo "FAIL: Terminal media must include caption text (inline or following lines)"
             exit 1
@@ -247,7 +238,7 @@ jobs:
           # 3) Terminal test output — mandatory in addition to terminal media (fenced logs + concrete test command)
           # Unit claims: exempt from the concrete-test-command requirement (evidence-gate handles
           # unit coverage separately). Unit claims still need the fenced block label+code presence.
-          if ! printf '%s' "$TTO_BLOCK" | grep -qF '**Terminal test output:'; then
+          if ! printf '%s' "$TTO_BLOCK" | grep -qF '**Terminal test output**:'; then
             echo "FAIL: Missing '**Terminal test output**' label in Evidence section"
             exit 1
           fi
@@ -310,9 +301,7 @@ jobs:
           # integration+ claims: enforce Bundle v2 — repro gist + UI media + self-validation language
           # (terminal checks 1-4 already passed above)
           HAS_UI_MEDIA=false
-          # FIX bd-ao357r2: actual label ends with ':' not '**'. Use $UI_BLOCK to scope checks
-          # (avoids matching Terminal media URLs or stray N/A text elsewhere in EVIDENCE_SECTION).
-          if printf '%s' "$UI_BLOCK" | grep -qF '**UI media:' && printf '%s' "$UI_BLOCK" | grep -qiE 'N/A.*no UI|N/A - no UI'; then
+          if printf '%s' "$UI_BLOCK" | grep -qF '**UI media**:' && printf '%s' "$UI_BLOCK" | grep -qiE 'N/A.*no UI|N/A - no UI'; then
             HAS_UI_MEDIA=true
           elif printf '%s' "$UI_BLOCK" | grep -qiE 'https://[^[:space:]]+\.(png|jpg|jpeg|gif|webp|mp4|webm|mov)'; then
             HAS_UI_MEDIA=true

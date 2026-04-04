@@ -17,9 +17,11 @@ jobs:
   evidence-gate:
     name: Evidence Gate
     # Fork PRs use ubuntu-latest to avoid running untrusted code on self-hosted infrastructure.
-    runs-on: ${{ github.event.pull_request.head.repo.fork && github.event_name == 'pull_request'
-              && 'ubuntu-latest'
-              || fromJson(vars.SELF_HOSTED_RUNNER_LABELS || '["self-hosted","Linux","ARM64","agent-orchestrator"]') }}
+    # Also uses ubuntu-latest when SELF_HOSTED_DISABLED var is set (self-hosted runners offline).
+    runs-on: ${{ vars.SELF_HOSTED_DISABLED == 'true' && 'ubuntu-latest'
+              || (github.event.pull_request.head.repo.fork && github.event_name == 'pull_request'
+                  && 'ubuntu-latest'
+                  || fromJson(vars.SELF_HOSTED_RUNNER_LABELS || '["self-hosted","Linux","ARM64","agent-orchestrator"]')) }}
     # bd-fisn: Skip entirely when PR is merged or closed — a merged PR stops receiving
     # pull_request events so a stale failed check run cannot be overwritten. Instead of
     # leaving a permanent failure that blocks the PR from showing green, we exit 0.
