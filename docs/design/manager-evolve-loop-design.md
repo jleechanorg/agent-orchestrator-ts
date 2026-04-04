@@ -82,7 +82,7 @@ These are never permitted even if absent from `blockedScopes`. The `blockedScope
 
 When `evolveLoop?.enabled === true`, append evolve loop instructions to the generated prompt. This keeps the loop opt-in per project.
 
-**Time tracking for `pollCadence: standard`**: The manager session writes a timestamp file at `~/.ao-evolve-knowledge/.last_standard_cycle_{projectId}` after each standard-cadaence cycle completes. At the start of each evolve loop run, `generateEvolveLoopSection()` instructions compare the current time against that file's mtime — if `< 10 minutes`, skip to lightweight OBSERVE only. For `pollCadence: lightweight`, no timestamp file is used; OBSERVE always runs.
+**Time tracking for `pollCadence: standard`**: The manager session writes a timestamp file at `~/.ao-evolve-knowledge/.last_standard_cycle_{projectId}` after each standard-cadence cycle completes. At the start of each evolve loop run, `generateEvolveLoopSection()` instructions compare the current time against that file's mtime — if `< 10 minutes`, skip to lightweight OBSERVE only. For `pollCadence: lightweight`, no timestamp file is used; OBSERVE always runs.
 
 ### 3. Evolve Loop Phases — Manager Context
 
