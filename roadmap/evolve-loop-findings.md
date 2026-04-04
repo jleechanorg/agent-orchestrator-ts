@@ -524,3 +524,44 @@ All 12 PRs merged in last 12h had [agento] prefix. 0 open PRs in agent-orchestra
 - bd-gnyj (new P1 task)
 - bd-0cfv (reopened — was closed prematurely)
 - bd-2wdq (updated — AO worker vs Codex MCP alignment)
+
+## 2026-04-04 20:25 cycle
+
+### Zero-touch rate: 100% (7/7 last 24h)
+All 7 merged PRs in last 24h have [agento] prefix.
+
+### System state
+- 9 AO worker sessions active
+- PRs: 4 open (#360, #361, #362, #352) — all MERGEABLE, no conflicts
+- Workers: ao-3106 (PR #362), ao-3107 (PR #361) both active
+- ao-3108 and jc-1636 were waiting for edit approval — unblocked
+
+### Root cause found: wholesome.yml AWK patterns broken (critical)
+The `Evidence Has Media Attachment` check was failing on ALL PRs because:
+- AWK block extraction used `/[*][*]Terminal media:/` (matches `**Terminal media:`)
+- PR bodies use `**Terminal media**:` (bold markdown with closing `**` before colon)
+- These don't match → TM_BLOCK is empty → all grep checks on empty block fail
+
+This is why PR #361, #362, #352, #360 all fail Evidence Has Media Attachment.
+
+### Fixes applied (all in feat/wc-zsw-fresh / PR #360)
+1. Fixed AWK block extraction patterns: changed `/[*][*]Terminal media:/` → `/[*][*]Terminal media[*][*]:/` to match bold-label format `**Terminal media**:`
+2. Fixed all grep label checks to use bold-label patterns (`**Label**:` with closing `**` before colon) and awk `sub()` patterns updated to match
+3. Fixed skeptic-cron.yml Evidence Gate scoping (P1 CR fix)
+4. Fixed CLAUDE.md paginate note (P2 CR fix)
+5. Added repro gist + proper evidence to PR #360 body
+
+### Friction points
+- wholesome.yml had bad AWK patterns from "FIX bd-ao357r2" which introduced the bug
+- PR #361 was fixing this but only partially (grep not AWK)
+- All 4 open PRs were blocked by the same root cause
+
+### Closed PRs (superseded)
+- #347: metadata-updater changes already in main via #342, #359
+- #350, #351: evidence enforcement already in main in better versions
+
+### Next cycle actions
+- PR #360 still has Evidence Gate failure: demo placeholder `https://example.com/img.png` must be replaced with real terminal media before Evidence Has Media Attachment passes
+- Once #360's evidence is fixed and CI re-runs, the wholesome.yml AWK fix unblocks other PRs
+- Monitor ao-3107 (PR #361) — it can close as superseded once #360 merges
+
