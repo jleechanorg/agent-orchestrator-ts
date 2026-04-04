@@ -83,7 +83,7 @@ These are never permitted even if absent from `blockedScopes`. The `blockedScope
 
 When `evolveLoop?.enabled === true`, append evolve loop instructions to the generated prompt. This keeps the loop opt-in per project.
 
-**Time tracking for `pollCadence: standard`**: The manager session writes a timestamp file at `~/.ao-evolve-knowledge/.last_standard_cycle_{projectId}` after each standard-cadence cycle completes. At the start of each evolve loop run, `generateEvolveLoopSection()` instructions compare the current time against that file's mtime — if `< 10 minutes`, skip to lightweight OBSERVE only. For `pollCadence: lightweight`, no timestamp file is used; OBSERVE always runs.
+**Time tracking for `pollCadence: standard`**: The manager session writes a timestamp file at `{knowledgeBaseDir || "~/.ao-evolve-knowledge"}/.last_standard_cycle_{projectId}` after each standard-cadence cycle completes. At the start of each evolve loop run, `generateEvolveLoopSection()` instructions compare the current time against that file's mtime — if `< 10 minutes`, skip to lightweight OBSERVE only. For `pollCadence: lightweight`, no timestamp file is used; OBSERVE always runs.
 
 ### 3. Evolve Loop Phases — Manager Context
 
@@ -121,7 +121,7 @@ Adapt the 6-phase `/eloop` skill for the manager tmux context. All phases run wi
 
 #### Phase 6: RECORD (end of every cycle)
 - Append finding to `${evolveLoop.knowledgeBaseDir || "~/.ao-evolve-knowledge"}/{projectId}.jsonl`
-  **Path expansion note**: If `knowledgeBaseDir` starts with `~`, the config loader must expand it (e.g., via `path.expand()` or shell expansion). If not expanded, the path will be interpreted as a literal relative path at runtime, which is incorrect. The implementation plan must include `~` expansion for this field.
+  **Path expansion note**: If `knowledgeBaseDir` starts with `~`, the config loader must expand it to the user's home directory using Node's `os.homedir()` (e.g., `path.join(os.homedir(), knowledgeBaseDir.slice(1))`) or the `untildify` package. Note: `path.expand()` does not exist in Node.js — use `os.homedir()` for correct tilde expansion.
 - Create/update beads with `br create` or `br update`
 - Append to `roadmap/evolve-loop-findings.md`
 
