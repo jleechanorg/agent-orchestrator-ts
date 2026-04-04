@@ -15,9 +15,6 @@ import { capturePane, killSession, sendKeys, listSessions } from "./tmux.js";
 import { parseTmuxName } from "./paths.js";
 import {
   checkStuckWorker,
-  recordIdleCycle,
-  resetIdleCycles,
-  analyzePaneContent,
   type StuckWorkerVerdict,
   DEFAULT_IDLE_CYCLE_THRESHOLD,
 } from "./stuck-worker-detector.js";
@@ -151,7 +148,7 @@ export async function auditStalledWorkers(
     });
 
     // Capture pane preview for reporting (even if not yet at threshold)
-    let preview = "";
+    let preview: string;
     try {
       const content = await capturePane(tmuxSession.name, 30);
       preview = panePreview(content);
