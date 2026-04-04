@@ -51,26 +51,17 @@ fi
 UID_NUM=$(id -u)
 
 # Known lifecycle-worker services and their plists (bash 3.2 compatible — no associative arrays)
-# Includes both the consolidated service (ai.agento.lifecycle-all) and legacy per-project services.
-# setup-launchd.sh migrates to lifecycle-all, but legacy plists may still exist.
+# setup-launchd.sh removes legacy com.agentorchestrator.lifecycle-* plists and migrates to
+# ai.agento.lifecycle-all. Only monitor services that setup actually installs.
 SERVICE_IDS=(
   "ai.agento.lifecycle-all"
-  "com.agentorchestrator.lifecycle-agent-orchestrator"
-  "com.agentorchestrator.lifecycle-claude-code"
-  "com.agentorchestrator.lifecycle-worldarchitect"
 )
 SERVICE_PLISTS=(
   "$HOME/Library/LaunchAgents/ai.agento.lifecycle-all.plist"
-  "$HOME/Library/LaunchAgents/com.agentorchestrator.lifecycle-agent-orchestrator.plist"
-  "$HOME/Library/LaunchAgents/com.agentorchestrator.lifecycle-claude-code.plist"
-  "$HOME/Library/LaunchAgents/com.agentorchestrator.lifecycle-worldarchitect.plist"
 )
-# Process name patterns for pgrep — lifecycle-all runs all projects, legacy runs one each
+# Process name patterns for pgrep — lifecycle-all runs all projects
 SERVICE_PGREP_PATTERNS=(
   "ao[[:space:]]+lifecycle-worker"
-  "ao[[:space:]]+lifecycle-worker[[:space:]]+agent-orchestrator"
-  "ao[[:space:]]+lifecycle-worker[[:space:]]+claude-code"
-  "ao[[:space:]]+lifecycle-worker[[:space:]]+worldarchitect"
 )
 
 for i in "${!SERVICE_IDS[@]}"; do
@@ -85,13 +76,13 @@ for i in "${!SERVICE_IDS[@]}"; do
   # Use pre-defined pgrep pattern (includes 'ao' prefix for accurate matching)
   PGREP_PATTERN="${SERVICE_PGREP_PATTERNS[$i]}"
 
-  # Check launchd state
-  STATE=$(launchctl print "gui/$UID_NUM/$SERVICE_ID" 2>&1 | grep "state =" | awk '{print $3}' || echo "not_found")
+  # Check launchd state (subshell + || guards against pipefail killing the loop)
+  STATE=$( (launchctl print "gui/$UID_NUM/$SERVICE_ID" 2>&1 | grep "state =" | awk '{print $3}') 2>/dev/null) || STATE="not_found"
 
   if [ "$STATE" = "running" ]; then
     # Healthy — check for duplicate processes (orphans alongside launchd-managed)
-    MANAGED_PID=$(launchctl print "gui/$UID_NUM/$SERVICE_ID" 2>&1 | grep "pid =" | awk '{print $3}' || echo "")
-    ALL_PIDS=$(pgrep -f "$PGREP_PATTERN" 2>/dev/null || echo "")
+    MANAGED_PID=$( (launchctl print "gui/$UID_NUM/$SERVICE_ID" 2>&1 | grep "pid =" | awk '{print $3}') 2>/dev/null) || MANAGED_PID=""
+    ALL_PIDS=$(pgrep -f "$PGREP_PATTERN" 2>/dev/null) || ALL_PIDS=""
 
     if [ -n "$MANAGED_PID" ] && [ -n "$ALL_PIDS" ]; then
       for pid in $ALL_PIDS; do
@@ -115,7 +106,7 @@ for i in "${!SERVICE_IDS[@]}"; do
     log "DEREGISTERED: $SERVICE_ID — re-bootstrapping from $PLIST"
 
     # Kill any orphan processes first (with validation)
-    ORPHAN_PIDS=$(pgrep -f "$PGREP_PATTERN" 2>/dev/null || echo "")
+    ORPHAN_PIDS=$(pgrep -f "$PGREP_PATTERN" 2>/dev/null) || ORPHAN_PIDS=""
     if [ -n "$ORPHAN_PIDS" ]; then
       log "ORPHAN_KILL: $SERVICE_ID — killing orphan PIDs: $ORPHAN_PIDS"
       for pid in $ORPHAN_PIDS; do
@@ -138,7 +129,7 @@ for i in "${!SERVICE_IDS[@]}"; do
 
     # Verify
     sleep 3
-    NEW_STATE=$(launchctl print "gui/$UID_NUM/$SERVICE_ID" 2>&1 | grep "state =" | awk '{print $3}' || echo "unknown")
+    NEW_STATE=$( (launchctl print "gui/$UID_NUM/$SERVICE_ID" 2>&1 | grep "state =" | awk '{print $3}') 2>/dev/null) || NEW_STATE="unknown"
     log "VERIFY: $SERVICE_ID — state=$NEW_STATE after bootstrap"
 
   elif [ "$STATE" = "waiting" ] || echo "$STATE" | grep -q "spawn"; then

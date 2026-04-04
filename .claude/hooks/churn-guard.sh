@@ -53,15 +53,16 @@ cmd = sys.stdin.read()
 if re.search(r'\bgh\s+pr\s+create\b', cmd, re.IGNORECASE):
     print('YES')
     sys.exit(0)
-# gh api repos/OWNER/REPO/pulls (collection endpoint only — NOT /pulls/N/... nested paths)
-pulls_collection = re.search(r'\bgh\s+api\b.*repos/[^/]+/[^/]+/pulls(?!\s*/\d)(?:\s|\Z|[\x27\x22])', cmd, re.IGNORECASE)
-if pulls_collection:
-    # Explicit POST: --method POST or --method=POST
-    if re.search(r'--method[=\s]+POST', cmd, re.IGNORECASE):
+# gh api with pulls collection endpoint (NOT /pulls/N/... nested paths)
+has_gh_api = re.search(r'\bgh\s+api\b', cmd, re.IGNORECASE)
+has_pulls_collection = re.search(r'repos/[^/]+/[^/]+/pulls(?!\s*/\d)(?:\s|\Z|[\x27\x22])', cmd, re.IGNORECASE)
+if has_gh_api and has_pulls_collection:
+    # Explicit POST: --method POST, --method=POST, -X POST, -X=POST
+    if re.search(r'(?:--method|-X)[=\s]+POST', cmd, re.IGNORECASE):
         print('YES')
         sys.exit(0)
-    # Implicit POST via field flags: -f, -F, --field, --raw-field
-    if re.search(r'\s(?:-[fF]\s|--field\s|--raw-field\s)', cmd, re.IGNORECASE):
+    # Implicit POST via field flags: -f, -F, --field, --raw-field (can appear anywhere)
+    if re.search(r'(?:\s|^)(?:-[fF]\s|--field\s|--raw-field\s)', cmd):
         print('YES')
         sys.exit(0)
     # Implicit POST via --input
@@ -79,15 +80,25 @@ fi
 HAS_SUPERSEDES=$(echo "$CMD" | python3 -c "
 import sys, re
 cmd = sys.stdin.read()
-# Extract body content from --body '...' or --body "..." or -f body='...' or heredoc body
+# Extract body content from --body '...' or --body \"...\" or -f body='...' or heredoc body
 body = ''
-# --body or -b flag (quoted value)
-m = re.search(r'(?:--body|-b)\s+[\x27\x22](.*?)[\x27\x22]', cmd, re.DOTALL)
+# --body or -b flag with double-quoted value (match until unescaped closing double quote)
+m = re.search(r'(?:--body|-b)\s+\x22((?:[^\x22\\\\]|\\\\.)*)\x22', cmd, re.DOTALL)
 if m:
     body = m.group(1)
-# -f body=... or --field body=...
+# --body or -b flag with single-quoted value (match until closing single quote — no escapes in single quotes)
 if not body:
-    m = re.search(r'(?:-[fF]|--field)\s+body=[\x27\x22]?(.*?)(?:[\x27\x22]|\s+-)', cmd, re.DOTALL)
+    m = re.search(r\"(?:--body|-b)\s+\x27([^\x27]*)\x27\", cmd, re.DOTALL)
+    if m:
+        body = m.group(1)
+# -f body=... or --field body=... (double-quoted)
+if not body:
+    m = re.search(r'(?:-[fF]|--field)\s+body=\x22((?:[^\x22\\\\]|\\\\.)*)\x22', cmd, re.DOTALL)
+    if m:
+        body = m.group(1)
+# -f body=... (single-quoted)
+if not body:
+    m = re.search(r\"(?:-[fF]|--field)\s+body=\x27([^\x27]*)\x27\", cmd, re.DOTALL)
     if m:
         body = m.group(1)
 # heredoc: look for body content in EOF blocks

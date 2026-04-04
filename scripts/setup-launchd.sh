@@ -166,10 +166,56 @@ install_novel_plist() {
   echo "Installed launchd: $plist_path"
 }
 
+install_watchdog_plist() {
+  local template="$TEMPLATE_DIR/ai.agento.lw-watchdog.plist.template"
+  local plist_path="$LAUNCH_AGENTS_DIR/ai.agento.lw-watchdog.plist"
+  local script="$REPO_ROOT/scripts/lw-watchdog.sh"
+  local log_file="$BASE_LOG_DIR/lw-watchdog.log"
+  local label="ai.agento.lw-watchdog"
+
+  if [ ! -f "$template" ]; then
+    echo "WARN: Missing watchdog template at $template — skipping"
+    return 0
+  fi
+
+  if [ ! -f "$script" ]; then
+    echo "WARN: Missing watchdog script: $script — skipping"
+    return 0
+  fi
+
+  chmod +x "$script" 2>/dev/null || true
+
+  mkdir -p "$LAUNCH_AGENTS_DIR" "$BASE_LOG_DIR"
+
+  local tmp_plist
+  tmp_plist="$(mktemp)"
+  local path_value
+  path_value="$(escape_sed "$(path_for_launchd)")"
+
+  sed \
+    -e "s|@HOME@|$(escape_sed "$HOME")|g" \
+    -e "s|@REPO_ROOT@|$(escape_sed "$REPO_ROOT")|g" \
+    -e "s|@WATCHDOG_SCRIPT@|$(escape_sed "$script")|g" \
+    -e "s|@LOG_FILE@|$(escape_sed "$log_file")|g" \
+    -e "s|@PATH@|$path_value|g" \
+    "$template" > "$tmp_plist"
+
+  plutil -lint "$tmp_plist" >/dev/null
+  install -m 644 "$tmp_plist" "$plist_path"
+  rm -f "$tmp_plist"
+
+  launchctl bootout "gui/$(id -u)/$label" >/dev/null 2>&1 || true
+  launchctl bootstrap "gui/$(id -u)" "$plist_path"
+  launchctl enable "gui/$(id -u)/$label" >/dev/null 2>&1 || true
+
+  echo "Installed launchd: $plist_path"
+}
+
 case "$action_script" in
   all)
     install_lifecycle_plist
     install_novel_plist
+    install_watchdog_plist
     ;;
   lifecycle)
     install_lifecycle_plist
@@ -177,8 +223,11 @@ case "$action_script" in
   novel)
     install_novel_plist
     ;;
+  watchdog)
+    install_watchdog_plist
+    ;;
   *)
-    echo "ERROR: Unknown mode '$action_script'. Use all|lifecycle|novel"
+    echo "ERROR: Unknown mode '$action_script'. Use all|lifecycle|novel|watchdog"
     exit 1
     ;;
 esac
@@ -186,3 +235,4 @@ esac
 echo "Log: $BASE_LOG_DIR"
 echo "Check lifecycle status: launchctl print gui/$(id -u)/ai.agento.lifecycle-all"
 echo "Check novel status: launchctl print gui/$(id -u)/ai.agento.novel-daily"
+echo "Check watchdog status: launchctl print gui/$(id -u)/ai.agento.lw-watchdog"
