@@ -82,13 +82,13 @@ import sys, re
 cmd = sys.stdin.read()
 # Extract body content from --body '...' or --body \"...\" or -f body='...' or heredoc body
 body = ''
-# --body or -b flag with double-quoted value (match until unescaped closing double quote)
-m = re.search(r'(?:--body|-b)\s+\x22((?:[^\x22\\\\]|\\\\.)*)\x22', cmd, re.DOTALL)
+# --body or -b flag with double-quoted value (supports --body=, --body , -b )
+m = re.search(r'(?:--body|-b)[=\s]\x22((?:[^\x22\\\\]|\\\\.)*)\x22', cmd, re.DOTALL)
 if m:
     body = m.group(1)
-# --body or -b flag with single-quoted value (match until closing single quote — no escapes in single quotes)
+# --body or -b flag with single-quoted value (supports --body=, --body , -b )
 if not body:
-    m = re.search(r\"(?:--body|-b)\s+\x27([^\x27]*)\x27\", cmd, re.DOTALL)
+    m = re.search(r\"(?:--body|-b)[=\s]\x27([^\x27]*)\x27\", cmd, re.DOTALL)
     if m:
         body = m.group(1)
 # -f body=... or --field body=... (double-quoted)
@@ -180,11 +180,20 @@ try:
     )
     my_branch = branch_result.stdout.strip() if branch_result.returncode == 0 else ""
 
+    # Get current remote owner for cross-fork branch dedup
+    remote_result = subprocess.run(
+        ["git", "remote", "get-url", "origin"],
+        capture_output=True, text=True, timeout=5
+    )
+    import re as _re
+    _m = _re.search(r'github\.com[/:]([^/]+)/', remote_result.stdout.strip()) if remote_result.returncode == 0 else None
+    my_owner = _m.group(1) if _m else ""
+
     # List open PRs (with --paginate to get all pages)
     pr_list_timeout = max(5, int(global_deadline - time.monotonic() - 10))
     result = subprocess.run(
         ["gh", "api", f"repos/{repo}/pulls", "--paginate",
-         "--jq", "[.[] | {number: .number, title: .title, branch: .head.ref}]"],
+         "--jq", "[.[] | {number: .number, title: .title, branch: .head.ref, owner: (.head.repo.owner.login // \"\")}]"],
         capture_output=True, text=True, timeout=pr_list_timeout
     )
 
@@ -204,8 +213,8 @@ try:
 
     overlapping = []
     for pr in prs:
-        # Skip our own branch
-        if pr.get("branch") == my_branch:
+        # Skip our own branch (match both owner and branch to avoid cross-fork collisions)
+        if pr.get("branch") == my_branch and (not my_owner or pr.get("owner") == my_owner):
             continue
 
         # Bail if approaching global deadline — fail open

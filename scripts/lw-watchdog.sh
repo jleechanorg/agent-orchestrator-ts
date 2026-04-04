@@ -23,7 +23,8 @@ mkdir -p "$LOG_DIR"
 # Lock to prevent overlapping watchdog instances (launchd may re-fire before we finish)
 # Uses mkdir for atomic lock — works on macOS (no flock) and Linux
 LOCKDIR="/tmp/lw-watchdog.lock"
-cleanup_lock() { rmdir "$LOCKDIR" 2>/dev/null || true; }
+LOCK_ACQUIRED=false
+cleanup_lock() { if $LOCK_ACQUIRED; then rmdir "$LOCKDIR" 2>/dev/null || true; fi; }
 trap cleanup_lock EXIT
 if ! mkdir "$LOCKDIR" 2>/dev/null; then
   # Check for stale lock (older than 10 minutes = stuck previous run)
@@ -32,11 +33,14 @@ if ! mkdir "$LOCKDIR" 2>/dev/null; then
     if [ "$LOCK_AGE" -gt 600 ]; then
       rmdir "$LOCKDIR" 2>/dev/null || true
       mkdir "$LOCKDIR" 2>/dev/null || { exit 0; }
+      LOCK_ACQUIRED=true
     else
       echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) SKIP: another watchdog instance is running" >> "$LOG_FILE"
       exit 0
     fi
   fi
+else
+  LOCK_ACQUIRED=true
 fi
 
 log() {
@@ -80,6 +84,13 @@ for i in "${!SERVICE_IDS[@]}"; do
   STATE=$( (launchctl print "gui/$UID_NUM/$SERVICE_ID" 2>&1 | grep "state =" | awk '{print $3}') 2>/dev/null) || STATE="not_found"
 
   if [ "$STATE" = "running" ]; then
+    # lifecycle-all launches start-all.sh which spawns child workers — MANAGED_PID is the
+    # wrapper, not the workers. Skip orphan sweep for wrapper services to avoid killing
+    # healthy child processes that have different PIDs than the wrapper.
+    if [ "$SERVICE_ID" = "ai.agento.lifecycle-all" ]; then
+      continue
+    fi
+
     # Healthy — check for duplicate processes (orphans alongside launchd-managed)
     MANAGED_PID=$( (launchctl print "gui/$UID_NUM/$SERVICE_ID" 2>&1 | grep "pid =" | awk '{print $3}') 2>/dev/null) || MANAGED_PID=""
     ALL_PIDS=$(pgrep -f "$PGREP_PATTERN" 2>/dev/null) || ALL_PIDS=""
