@@ -146,7 +146,7 @@ Canonical JSONL schema — one JSON object per line:
 1. Sort all array values (e.g., PR lists: `[124,123]` → `[123,124]`)
 2. Stringify the normalized object
 3. Compare with each entry's normalized `detail` in the sliding 2h window
-4. If found and a bead exists → skip dispatch, log `{"phase":"RECORD","finding":"<x>","detail":{"skipped":"dedup","matching_entry":"<ts>"}}`
+4. If found **and `dispatched: true`** → skip dispatch (a fix was already sent for this finding+detail). Log `{"phase":"RECORD","finding":"<x>","detail":{"skipped":"dedup","matching_entry":"<ts>"},"dispatched":false}`. Note: `dispatched` is the signal, not `bead` — a bead may exist for an observation that never resulted in a dispatch, and conversely a dispatch may occur without creating a bead.
 
 This prevents divergent implementations: any field whose value is a collection must be sorted before hashing.
 
