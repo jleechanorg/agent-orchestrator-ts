@@ -32,12 +32,11 @@ jobs:
 
       - name: Write PR body to temp file
         run: |
-          # Fetch current PR body via GitHub REST API with explicit token.
-          IFS= read -r HTTP_CODE < <(curl -s -o /tmp/pr_body.json -w "%{http_code}" \
-            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+          # gh api handles GITHUB_TOKEN auth automatically in GitHub Actions runners.
+          PR_BODY=$(gh api \
             -H "Accept: application/vnd.github+json" \
-            "https://api.github.com/repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}")
-          PR_BODY=$(jq -r '.body // ""' /tmp/pr_body.json 2>/dev/null || echo "")
+            "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}" \
+            --jq '.body // ""' 2>&1)
           printf '%s' "$PR_BODY" > "$RUNNER_TEMP/pr_body.txt"
           echo "Body fetched: ${#PR_BODY} chars"
           if [ ${#PR_BODY} -eq 0 ]; then

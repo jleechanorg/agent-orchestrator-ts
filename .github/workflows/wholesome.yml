@@ -59,16 +59,18 @@ jobs:
       - name: Check for Evidence section in PR body
         id: check
         run: |
-          # Fetch current PR body via GitHub REST API with explicit token.
-          # -w "%{http_code}" captures HTTP status; strip it to get body.
+          # gh api is pre-installed in GitHub Actions runners and handles GITHUB_TOKEN
+          # auth automatically — prefer it over raw curl.
           set -o pipefail
-          IFS= read -r HTTP_CODE < <(curl -s -o /tmp/pr_body.json -w "%{http_code}" \
-            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+          PR_BODY_FILE="$RUNNER_TEMP/pr_body_raw.txt"
+          BODY=$(gh api \
             -H "Accept: application/vnd.github+json" \
-            "https://api.github.com/repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}")
-          BODY=$(jq -r '.body // ""' /tmp/pr_body.json 2>/dev/null || echo "")
-          echo "HTTP_CODE=$HTTP_CODE BODY_LEN=${#BODY}"
-
+            "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}" \
+            --jq '.body // ""' 2>&1)
+          GH_RC=$?
+          printf '%s' "$BODY" > "$PR_BODY_FILE"
+          echo "DEBUG: GH_RC=$GH_RC BODY_LEN=${#BODY}"
+          echo "DEBUG: BODY_PREVIEW=$(printf '%s' "$BODY" | head -c 300 | tr '\n' '|' | sed 's/|/ /g')"
           if [ ${#BODY} -eq 0 ]; then
             echo "found=false" >> "$GITHUB_OUTPUT"
             echo "reason=empty_body" >> "$GITHUB_OUTPUT"
@@ -131,12 +133,11 @@ jobs:
     steps:
       - name: Check Evidence Bundle v2 (block-level enforcement)
         run: |
-          # Fetch current PR body via GitHub REST API with explicit token.
-          IFS= read -r HTTP_CODE < <(curl -s -o /tmp/pr_body.json -w "%{http_code}" \
-            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+          # gh api handles GITHUB_TOKEN auth automatically in GitHub Actions runners.
+          BODY=$(gh api \
             -H "Accept: application/vnd.github+json" \
-            "https://api.github.com/repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}")
-          BODY=$(jq -r '.body // ""' /tmp/pr_body.json 2>/dev/null || echo "")
+            "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}" \
+            --jq '.body // ""' 2>&1)
 
           # Extract claim class — normalize to lowercase short form for CLAIM-based enforcement
           # Supports: **Claim class**: value and "- **Claim class**: ..." list formats.
