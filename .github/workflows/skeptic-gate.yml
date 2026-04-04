@@ -360,16 +360,16 @@ jobs:
           # Add actionable guidance when evidence gate fails
           if [ "$GATE6" = "FAIL" ]; then
             GATE6_HELP="**Evidence Gate FAIL — what is missing:**
-The PR description must contain:
-1. A **Repro gist** section with a real URL (screenshot, video, or artifact link) — not a placeholder like https://example.com
-2. The URL must be reachable (not return 404)
-3. For UI changes: a screen recording or screenshot
-4. For logic/API changes: test output showing the fix working
+          The PR description must contain:
+          1. A **Repro gist** section with a real URL (screenshot, video, or artifact link) — not a placeholder like https://example.com
+          2. The URL must be reachable (not return 404)
+          3. For UI changes: a screen recording or screenshot
+          4. For logic/API changes: test output showing the fix working
 
-Quick fix: add/edit the **Repro gist** section in your PR body with a real link, then re-run this gate."
+          Quick fix: add/edit the **Repro gist** section in your PR body with a real link, then re-run this gate."
             COMMENT_BODY="${COMMENT_BODY}
 
-${GATE6_HELP}"
+          ${GATE6_HELP}"
           fi
 
           # Remove leading whitespace from heredoc-style indentation
