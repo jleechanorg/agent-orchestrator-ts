@@ -56,8 +56,10 @@ cd_prefix_pattern='^[[:space:]]*cd[[:space:]]+.*[[:space:]]+(&&|;)[[:space:]]+(.
 clean_command="$command"
 while true; do
   # Strip leading env assignments: FOO=bar BAZ=qux gh pr create ...
-  if [[ "$clean_command" =~ ^[[:space:]]*([A-Za-z_][A-Za-z0-9_]*=[^= ]*)[[:space:]]+(.+)$ ]]; then
-    clean_command="${BASH_REMATCH[2]}"
+  # [^[:space:]]* for the value allows embedded = (e.g. FOO=a=b gh pr create).
+  # Trailing space required so bare "FOO=bar" (no cmd) avoids infinite loop.
+  if [[ "$clean_command" =~ ^[[:space:]]*[A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+(.+)$ ]]; then
+    clean_command="${BASH_REMATCH[1]}"
   # Strip leading cd prefixes: cd /path && gh pr create ...
   elif [[ "$clean_command" =~ $cd_prefix_pattern ]]; then
     clean_command="${BASH_REMATCH[2]}"

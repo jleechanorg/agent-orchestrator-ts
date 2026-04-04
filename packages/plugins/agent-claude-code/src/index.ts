@@ -117,7 +117,9 @@ cd_prefix_pattern='^[[:space:]]*cd[[:space:]]+.*[[:space:]]+(&&|;)[[:space:]]+(.
 clean_command="$command"
 while true; do
   # Strip leading env assignments: FOO=bar BAZ=qux gh pr create ...
-  if [[ "$clean_command" =~ ^[[:space:]]*([A-Za-z_][A-Za-z0-9_]*=[^= ]*)[[:space:]]+(.+)$ ]]; then
+  # [^[:space:]]* for the value allows embedded = (e.g. FOO=a=b gh pr create).
+  # Trailing space required so bare "FOO=bar" (no cmd) avoids infinite loop.
+  if [[ "$clean_command" =~ ^[[:space:]]*[A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+(.+)$ ]]; then
     clean_command=${BASH_REMATCH2}
   # Strip leading cd prefixes: cd /path && gh pr create ...
   elif [[ "$clean_command" =~ $cd_prefix_pattern ]]; then
@@ -249,17 +251,6 @@ if [[ "$clean_command" =~ ^git[[:space:]]+switch[[:space:]]+-c[[:space:]]+([^[:s
   branch=${BASH_REMATCH1}
 
   if [[ -n "$branch" ]]; then
-    update_metadata_key "branch" "$branch"
-    echo '{"systemMessage": "Updated metadata: branch = '"$branch"'"}'
-    exit 0
-  fi
-fi
-
-# Detect: git checkout <branch> (without -b) or git switch <branch> (without -c)
-# Only update if the branch name looks like a feature branch (contains / or -)
-if [[ "$clean_command" =~ ^git[[:space:]]+checkout[[:space:]]+([^[:space:]-]+[/-][^[:space:]]+) ]]; then
-  branch=${BASH_REMATCH1}
-  if [[ -n "$branch" && "$branch" != "HEAD" ]]; then
     update_metadata_key "branch" "$branch"
     echo '{"systemMessage": "Updated metadata: branch = '"$branch"'"}'
     exit 0
