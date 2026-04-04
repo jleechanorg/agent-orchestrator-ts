@@ -30,6 +30,11 @@
             "type": "command",
             "command": "bash .claude/hooks/claim-verifier.sh",
             "timeout": 15000
+          },
+          {
+            "type": "command",
+            "command": "bash .claude/hooks/churn-guard.sh",
+            "timeout": 60000
           }
         ]
       }
