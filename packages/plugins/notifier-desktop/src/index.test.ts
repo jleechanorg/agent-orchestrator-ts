@@ -9,6 +9,7 @@ vi.mock("node:child_process", () => ({
 // Mock node:os
 vi.mock("node:os", () => ({
   platform: vi.fn(() => "darwin"),
+  homedir: vi.fn(() => "/home/test"),
 }));
 
 import { execFile } from "node:child_process";

@@ -10,11 +10,11 @@ vi.mock("node:os", async (importOriginal) => {
   const actual = (await importOriginal()) as Record<string, unknown>;
   return {
     ...actual,
-    homedir: () => fakeHome,
+    homedir: () => _homeDir,
   };
 });
 
-let fakeHome: string;
+let _homeDir: string;
 let workspacePath: string;
 let projectDir: string;
 
@@ -80,13 +80,13 @@ describe("Claude Code Activity Detection", () => {
     const agent = create();
 
     beforeEach(() => {
-      fakeHome = mkdtempSync(join(tmpdir(), "ao-activity-test-"));
-      workspacePath = join(fakeHome, "workspace");
+      _homeDir = mkdtempSync(join(tmpdir(), "ao-activity-test-"));
+      workspacePath = join(_homeDir, "workspace");
       mkdirSync(workspacePath, { recursive: true });
 
       // Create the project directory (though it won't be used anymore)
       const encoded = toCursorProjectPath(workspacePath);
-      projectDir = join(fakeHome, ".cursor", "projects", encoded);
+      projectDir = join(_homeDir, ".cursor", "projects", encoded);
       mkdirSync(projectDir, { recursive: true });
 
       // Mock isProcessRunning to always return true (we test exited separately)
@@ -94,7 +94,7 @@ describe("Claude Code Activity Detection", () => {
     });
 
     afterEach(() => {
-      rmSync(fakeHome, { recursive: true, force: true });
+      rmSync(_homeDir, { recursive: true, force: true });
       vi.restoreAllMocks();
     });
 

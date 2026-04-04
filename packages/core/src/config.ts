@@ -199,6 +199,16 @@ const TaskQueueConfigSchema = z.object({
   taskTemplate: z.string().optional(),
 }).optional();
 
+// bd-jhv1: Manager evolve loop config schema
+const EvolveLoopConfigSchema = z.object({
+  enabled: z.boolean().optional(),
+  pollCadence: z.enum(["lightweight", "standard"]).default("lightweight"),
+  autonomousFixScopes: z.array(z.string()).default([]),
+  blockedScopes: z.array(z.string()).default([]),
+  knowledgeBaseDir: z.string().default("~/.ao-evolve-knowledge"),
+  zeroTouchWindow: z.enum(["24h", "30d"]).default("24h"),
+});
+
 /** bd-n047: Defaults schema — enabled defaults to true so omitting it is an implicit enable. */
 const AutoMergeDefaultsSchema = z.object({
   enabled: z.boolean().default(true),
@@ -258,6 +268,9 @@ const ProjectConfigSchema = z.object({
 
   // bd-bsu: Config-driven bead task queue with maxConcurrent concurrency limit.
   taskQueue: TaskQueueConfigSchema,
+
+  // bd-jhv1: Manager evolve loop configuration
+  evolveLoop: EvolveLoopConfigSchema.optional(),
 });
 
 const DefaultPluginsSchema = z.object({
@@ -613,6 +626,11 @@ export function loadConfigWithPath(configPath?: string): {
 
 /** Validate a raw config object */
 export function validateConfig(raw: unknown): OrchestratorConfig {
+  // Guard: JSON.parse(JSON.stringify()) throws on undefined, returns "null"→null on null.
+  // Both cases must go to the non-cloned branch.
+  if (typeof raw !== "object" || raw === null) {
+    raw = {};
+  }
   const rawObj = raw as Record<string, unknown>;
   // Track per-key whether user explicitly declared this reaction (vs relying on
   // default empty reactions block). ReactionConfigSchema.partial() strips defaults,
@@ -623,19 +641,51 @@ export function validateConfig(raw: unknown): OrchestratorConfig {
       hasExplicitGlobalReaction[key] = true;
     }
   }
+
+  // bd-jhv1: Kill switch — EVOLVE_LOOP_ENABLED=false disables evolveLoop globally.
+  // Uses explicit string comparison, NOT z.coerce.boolean() which misreads "false".
+  const evolveLoopKillSwitch = process.env["EVOLVE_LOOP_ENABLED"] === "false";
+
+  // Pre-process: clone raw so we can mutate per-project evolveLoop.enabled.
+  let working: Record<string, unknown>;
+  if (evolveLoopKillSwitch) {
+    working = JSON.parse(JSON.stringify(raw as object));
+    const projects = working["projects"] as Record<string, Record<string, unknown>> | undefined;
+    if (projects) {
+      for (const project of Object.values(projects)) {
+        if (project["evolveLoop"] !== undefined && project["evolveLoop"] !== null) {
+          (project["evolveLoop"] as Record<string, unknown>)["enabled"] = false;
+        }
+      }
+    }
+  } else {
+    working = raw as Record<string, unknown>;
+  }
+
   const validated = OrchestratorConfigSchema.parse({
-    ...(raw as object),
+    ...working,
     _hasExplicitGlobalReaction: hasExplicitGlobalReaction,
   });
 
   let config = validated as OrchestratorConfig;
   config = expandPaths(config);
+  config = applyEvolveLoopPaths(config);
   config = applyProjectDefaults(config);
   config = applyDefaultReactions(config);
 
   // Validate project uniqueness and prefix collisions
   validateProjectUniqueness(config);
 
+  return config;
+}
+
+/** Expand ~ in evolveLoop.knowledgeBaseDir using os.homedir() */
+function applyEvolveLoopPaths(config: OrchestratorConfig): OrchestratorConfig {
+  for (const project of Object.values(config.projects)) {
+    if (project.evolveLoop?.knowledgeBaseDir) {
+      project.evolveLoop.knowledgeBaseDir = expandHome(project.evolveLoop.knowledgeBaseDir);
+    }
+  }
   return config;
 }
 
