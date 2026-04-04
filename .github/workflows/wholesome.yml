@@ -3,6 +3,7 @@ name: Wholesome PR Checks
 on:
   pull_request:
     types: [opened, synchronize, edited, reopened]
+  workflow_dispatch:
 
 # Per-workflow concurrency group prevents cross-workflow blocking:
 # wholesome.yml and evidence-gate.yml previously shared wholesome-$PR, which caused
