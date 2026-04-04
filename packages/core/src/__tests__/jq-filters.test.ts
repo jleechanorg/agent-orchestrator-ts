@@ -56,14 +56,22 @@ function jqCheckRunsFailed(
   checkRunsPages: Array<{ check_runs: CheckRun[] }>,
 ): number {
   const mostRecent = mostRecentPerName(checkRunsPages);
-  // select core checks where conclusion is a concrete failure state.
-  // null is NOT a failure — jq: `.conclusion != null` is an explicit guard in
-  // the actual filter; pending runs (conclusion=null) are counted by jqCheckRunsPending instead.
-  const failureConclusions = ["failure", "timed_out", "action_required"];
+  // Match jq's denylist: exclude specific non-failure conclusions.
+  // jq: select(.conclusion != null and .conclusion != "success" and
+  //           .conclusion != "skipped" and .conclusion != "neutral" and
+  //           .conclusion != "cancelled")
+  // Runs with conclusion=null are NOT failures — jqCheckRunsPending handles those.
+  const nonFailureConclusions: Array<string | null> = [
+    null,
+    "success",
+    "skipped",
+    "neutral",
+    "cancelled",
+  ];
   return mostRecent.filter(
     (r) =>
       CORE_CHECK_NAMES.includes(r.name) &&
-      failureConclusions.includes(r.conclusion),
+      !nonFailureConclusions.includes(r.conclusion),
   ).length;
 }
 
@@ -456,21 +464,24 @@ function jqEvidenceCheckPassCount(
 
 describe("skeptic-cron.yml — evidence check-run filters", () => {
   it("matches evidence-gate check-run name variants", () => {
-    // The jq regex is case-sensitive: ascii_downcase converts the INPUT (check name)
-    // to lowercase before matching, but the pattern itself uses lowercase literals.
-    // "Evidence Gate" (title-case) does NOT match ^evidence... because test() is
-    // case-sensitive and the pattern has no case-insensitive flag.
-    // Valid forms: "evidence-gate", "evidence gate", "evidence_review"
+    // The jq filter applies ascii_downcase to the INPUT (check name), not the pattern.
+    // .name.toLowerCase() lowercases before matching against lowercase literals.
+    // "Evidence Gate" becomes "evidence gate" → matches ^evidence gate$.
+    // The pattern [ -]? matches zero-or-one space-or-hyphen (NOT underscore).
+    // "evidence-gate" (hyphen): matches — "evidence-gate" matches ^evidence(-)?gate$
+    // "Evidence Gate" (space): matches — "evidence gate" matches ^evidence( )?gate$
+    // "evidence_review" (underscore): does NOT match — "_" ≠ " " or "-" or ""
+    // "EvidenceGate" (no separator): does NOT match — pattern requires "gate" immediately after "evidence"
     const pages = [
       {
         check_runs: [
           { name: "evidence-gate", status: "completed", conclusion: "success", started_at: "2026-04-03T10:00:00Z" },
-          { name: "Evidence Gate", status: "completed", conclusion: "success", started_at: "2026-04-03T10:01:00Z" }, // case mismatch — won't match
+          { name: "Evidence Gate", status: "completed", conclusion: "success", started_at: "2026-04-03T10:01:00Z" },
           { name: "evidence_review", status: "completed", conclusion: "success", started_at: "2026-04-03T10:02:00Z" },
         ],
       },
     ];
-    expect(jqEvidenceCheckCount(pages)).toBe(2); // evidence-gate + evidence_review (Evidence Gate is case-mismatch)
+    expect(jqEvidenceCheckCount(pages)).toBe(2); // evidence-gate + Evidence Gate (underscore excluded)
     expect(jqEvidenceCheckPassCount(pages)).toBe(2);
   });
 
