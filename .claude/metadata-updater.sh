@@ -56,11 +56,10 @@ cd_prefix_pattern='^[[:space:]]*cd[[:space:]]+.*[[:space:]]+(&&|;)[[:space:]]+(.
 clean_command="$command"
 while true; do
   # Strip leading env assignments: FOO=bar BAZ=qux gh pr create ...
-  # Require space after = to avoid infinite loop on bare "FOO=bar" (no trailing cmd).
-  # Use parameter expansion — avoids BSD sed / POSIX char-class issues.
-  # Handles FOO=a=b (embedded =) correctly unlike [^= ]* or [^[:space:]]*.
-  if [[ "$clean_command" =~ ^[[:space:]]*[A-Za-z_][A-Za-z0-9_]*=[[:space:]] ]]; then
-    clean_command="${clean_command#*=* }"
+  # [^[:space:]]* for the value allows embedded = (e.g. FOO=a=b gh pr create).
+  # Trailing space required so bare "FOO=bar" (no cmd) avoids infinite loop.
+  if [[ "$clean_command" =~ ^[[:space:]]*[A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+(.+)$ ]]; then
+    clean_command="${BASH_REMATCH[1]}"
   # Strip leading cd prefixes: cd /path && gh pr create ...
   elif [[ "$clean_command" =~ $cd_prefix_pattern ]]; then
     clean_command="${BASH_REMATCH[2]}"
@@ -146,9 +145,7 @@ update_metadata_key() {
   local temp_file="${metadata_file}.tmp"
 
   # Escape special sed characters in value (& and \ — not | or / in BRE)
-  local escaped_value
-  escaped_value="${value//\\/\\\\}"
-  escaped_value="${escaped_value//&/\\&}"
+  local escaped_value=$(echo "$value" | sed 's/[&\\]/\\&/g')
 
   # Check if key already exists
   if grep -q "^$key=" "$metadata_file" 2>/dev/null; then
@@ -199,11 +196,19 @@ if [[ "$clean_command" =~ ^git[[:space:]]+switch[[:space:]]+-c[[:space:]]+([^[:s
   fi
 fi
 
-# Detect: git checkout or git switch commands.
-# Query the actual repository HEAD post-execution to guarantee accuracy
-# and avoid parsing edge cases (e.g., detached HEAD, file paths).
-if [[ "$clean_command" =~ ^git[[:space:]]+(checkout|switch) ]]; then
-  branch=$(git branch --show-current 2>/dev/null)
+# Detect: git checkout <branch> (without -b) or git switch <branch> (without -c)
+# Only update if the branch name looks like a feature branch (contains / or -)
+if [[ "$clean_command" =~ ^git[[:space:]]+checkout[[:space:]]+([^[:space:]-]+[/-][^[:space:]]+) ]]; then
+  branch="${BASH_REMATCH[1]}"
+  if [[ -n "$branch" && "$branch" != "HEAD" ]]; then
+    update_metadata_key "branch" "$branch"
+    echo '{"systemMessage": "Updated metadata: branch = '"$branch"'"}'
+    exit 0
+  fi
+fi
+
+if [[ "$clean_command" =~ ^git[[:space:]]+switch[[:space:]]+([^[:space:]-]+[/-][^[:space:]]+) ]]; then
+  branch="${BASH_REMATCH[1]}"
   if [[ -n "$branch" && "$branch" != "HEAD" ]]; then
     update_metadata_key "branch" "$branch"
     echo '{"systemMessage": "Updated metadata: branch = '"$branch"'"}'

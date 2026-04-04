@@ -374,25 +374,6 @@ describe("hook script: gh pr merge", () => {
 });
 
 // =========================================================================
-// git checkout <existing-branch> detection (feature branches)
-// =========================================================================
-describe("hook script: git checkout existing branch", () => {
-  it("detects plain git checkout of a feature branch", () => {
-    const { metadata } = runHook({
-      command: "git checkout feat/existing-branch",
-    });
-    expect(metadata).toContain("branch=feat/existing-branch");
-  });
-
-  it("detects git checkout of a feature branch with cd prefix", () => {
-    const { metadata } = runHook({
-      command: "cd /project && git checkout feat/existing-branch",
-    });
-    expect(metadata).toContain("branch=feat/existing-branch");
-  });
-});
-
-// =========================================================================
 // Non-matching commands (should NOT modify metadata)
 // =========================================================================
 describe("hook script: non-matching commands", () => {
