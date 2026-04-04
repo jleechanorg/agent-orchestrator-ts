@@ -30,7 +30,7 @@ The `/eloop` skill (`.claude/skills/evolve_loop.md`) runs a 12-hour autonomous e
 | No zero-touch metric tracking in manager sessions | `orchestrator-prompt.ts` + config types | Managers don't know their own effectiveness |
 | No friction auto-detection in orchestrator context | `orchestrator-prompt.ts` + `recovery/manager.ts` | Patterns of failures go undiagnosed |
 | No autonomous fix dispatch from manager sessions | `orchestrator-prompt.ts` + `agentRules` | Managers can observe but not act |
-| `orchestratorRules` field exists but carries no evolve loop content | `config.ts` types + `orchestrator-prompt.ts` | Extension point is dormant |
+| `orchestratorRules` field has no evolve-loop-specific structured content/config | `config.ts` types + `orchestrator-prompt.ts` | Existing prompt injection cannot express dedicated evolve-loop behavior |
 
 ---
 
@@ -40,7 +40,7 @@ The `/eloop` skill (`.claude/skills/evolve_loop.md`) runs a 12-hour autonomous e
 
 ```text
 lifecycle-manager.ts (Node.js process)
-  └── Polling loop (every ~5 min)
+  └── Polling loop (short default cadence: ~30s in core, ~75s via CLI lifecycle-worker)
        ├── Reactive: fires reactions on events (ci-failed, changes-requested, etc.)
        └── executeReaction → send-to-agent, auto-merge, notify
             │
@@ -67,7 +67,7 @@ export interface EvolveLoopConfig {
   pollCadence?: "lightweight" | "standard"; // lightweight = every poll; standard = every 10min
   autonomousFixScopes?: string[];           // allow-list: e.g. ["config-edit", "claw-dispatch", "bead-create"]
   blockedScopes?: string[];                 // explicit deny-list (see below)
-  knowledgeBasePath?: string;
+  knowledgeBaseDir?: string; // directory containing per-project JSONL files, e.g. ~/.ao-evolve-knowledge/
 }
 
 // In ProjectConfig:
@@ -97,7 +97,7 @@ Adapt the 6-phase `/eloop` skill for the manager tmux context. All phases run wi
 - **Fast path**: if nothing abnormal, output "all clear" and exit
 
 #### Phase 2: MEASURE (on anomaly detected)
-- Calculate zero-touch rate for this project (merged [agento] PRs / total merged PRs, rolling 24h)
+- Calculate zero-touch rate using the canonical definition from `docs/zero-touch-by-operator.md`: qualifying PR author (human) + merged by bot (not human) + no `CHANGES_REQUESTED` review. The doc's 30d window is the baseline/reporting view. For manager evolve loop anomaly detection, apply a rolling 24h window (configurable via `zeroTouchWindow: "24h" | "30d"` in `EvolveLoopConfig`).
 - Compute: worker health score, average PR cycle time, reaction failure rate
 - Log snapshot to knowledge base JSONL
 
@@ -119,13 +119,14 @@ Adapt the 6-phase `/eloop` skill for the manager tmux context. All phases run wi
 - **Never** `gh pr merge` from the manager session — always delegate to lifecycle-manager reaction
 
 #### Phase 6: RECORD (end of every cycle)
-- Append finding to `${evolveLoop.knowledgeBasePath || "~/.ao-evolve-knowledge"}/{projectId}.jsonl`
+- Append finding to `${evolveLoop.knowledgeBaseDir || "~/.ao-evolve-knowledge"}/{projectId}.jsonl`
+  **Path expansion note**: If `knowledgeBaseDir` starts with `~`, the config loader must expand it (e.g., via `path.expand()` or shell expansion). If not expanded, the path will be interpreted as a literal relative path at runtime, which is incorrect. The implementation plan must include `~` expansion for this field.
 - Create/update beads with `br create` or `br update`
 - Append to `roadmap/evolve-loop-findings.md`
 
 ### 4. Shared Knowledge Base
 
-Path: `${evolveLoop.knowledgeBasePath || "~/.ao-evolve-knowledge"}/{projectId}.jsonl` (one file per project)
+Path: `${evolveLoop.knowledgeBaseDir || "~/.ao-evolve-knowledge"}/{projectId}.jsonl` (one file per project)
 
 Canonical JSONL schema — one JSON object per line:
 
@@ -201,7 +202,7 @@ projects:
         - bead-create           # create/update beads
         - antig-dispatch        # /antig when tmux cap hit
       blockedScopes: []         # project-specific additional denials (optional)
-      knowledgeBasePath: ~/.ao-evolve-knowledge  # default
+      knowledgeBaseDir: ~/.ao-evolve-knowledge  # default; must be absolute or config loader must expand ~
 
 # Global kill switch (env var — overrides enabled: true):
 # EVOLVE_LOOP_ENABLED=false  → loop disabled regardless of config
