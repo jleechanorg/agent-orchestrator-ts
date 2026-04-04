@@ -357,6 +357,23 @@ jobs:
           VERDICT: ${OVERALL}
           <!-- skeptic-gate-result-${HEAD_SHA} -->"
 
+          # Add actionable guidance when evidence gate fails
+          if [ "$GATE6" = "FAIL" ]; then
+            GATE6_HELP="**Evidence Gate FAIL — fabricated or placeholder content detected**
+
+          Gate 6 fails when the \`## Evidence\` section contains fabricated or placeholder patterns.
+
+          Remove any of the following from your PR description's Evidence section:
+          - The word \`simulated\` (or any invented test output)
+          - URLs like \`https://example.com\` or other non-real links
+          - Placeholder text: \`<screenshot path>\`, \`<value>\`, \`TODO\`, \`TBD\`
+
+          Then re-run this gate."
+            COMMENT_BODY="${COMMENT_BODY}
+
+          ${GATE6_HELP}"
+          fi
+
           # Remove leading whitespace from heredoc-style indentation
           COMMENT_BODY=$(echo "$COMMENT_BODY" | sed 's/^          //')
 
