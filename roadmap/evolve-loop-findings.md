@@ -1,3 +1,19 @@
+## 2026-04-05 /nextsteps sync
+
+### Landed on main (recent commits)
+- **PR #380** — Evolve loop: healthy-cycle fast path + session budget (`bd-l5ko` in commit message).
+- **PR #381** — Evolve loop: Phase 7 recap + Phase 8 auto-cancel on idle cycles (`bd-aosy`).
+- **PR #382** — Docs: Zero-Framework Cognition (ZFC) section in `CLAUDE.md`.
+- **Skeptic** — `fix(skeptic): run claude --print from /tmp` to avoid project `CLAUDE.md` hooks affecting evaluation (`7a9890f9`).
+- **Zombie sweep** — Merged: `fix/wc-zsw-refactor-zombie` (branch-name detection; PR #379).
+
+### New roadmap + tracking
+- **`roadmap/session-registry-harness.md`** — Operator contract: **`ao session ls` `[working]` is not proof of active inference**; truth hierarchy (tmux pane → JSONL → metadata).
+- **`roadmap/README.md`** — Index + rolling **Recent activity**.
+- **bd-9gvm** — Harness task: align session status with real activity; reduce false `[working]` and idle shells.
+
+---
+
 ## 2026-03-29 20:00 cycle
 
 ### Zero-touch rate: 0% (0/24 merged in 24h — all merged_by=null)
