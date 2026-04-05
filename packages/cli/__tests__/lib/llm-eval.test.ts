@@ -139,8 +139,13 @@ describe("tryClaudePrint", () => {
     expect(result.output).toBe(PASS_VERDICT);
     expect(mockExecFileSync).toHaveBeenCalledWith(
       "claude",
-      ["--dangerously-skip-permissions", "--print", "--no-input"],
-      expect.objectContaining({ input: "evaluate this" }),
+      ["--dangerously-skip-permissions", "--print"],
+      expect.objectContaining({
+        input: "evaluate this",
+        cwd: "/tmp",
+        encoding: "utf-8",
+        stdio: ["pipe", "pipe", "ignore"],
+      }),
     );
   });
 
