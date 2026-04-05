@@ -2,6 +2,26 @@
 
 This file is read by Claude Code when working in this repository.
 
+## Zero-Framework Cognition (ZFC)
+
+**Core rule:** Never implement keyword routing, heuristic scoring, semantic analysis, or classification logic in application code. Delegate all such judgment to model API calls.
+
+**AO-specific forbidden patterns:**
+- Hardcoded intent/activity classifiers in plugin code (e.g., `if task.includes("fix")` to detect bug-fix tasks)
+- `detectActivity()` implementations using handcrafted regex routing for activity states — prefer model-based classification or simple process-state checks (is process running? is there recent output?)
+- Hardcoded lists of "coding task keywords" in routing logic (e.g., the `/claw` skill's `is_coding_task` Python function is a ZFC violation — flag for future migration to model call)
+- AO config classifiers (stuck detection, PR state routing) using keyword heuristics instead of model calls
+
+**Correct pattern:** Pass the text/context to the model with a clear prompt, use the model's response as the decision. For activity detection, prefer simple process-state queries over semantic analysis.
+
+**Shortcut:** If you catch yourself writing a ZFC violation, say "ZFC violation!" and refactor to model delegation.
+
+**Exemptions:**
+- Pure syntax parsing (lexing, parsing, type-checking)
+- Deterministic transformation with no judgment calls
+- Test fixtures with explicit expected outputs
+- Config file path resolution, file existence checks, or process-state queries (is running? file exists?)
+
 ## Development Hierarchy
 
 **Before writing any code, follow this order:**
