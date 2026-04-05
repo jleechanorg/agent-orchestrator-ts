@@ -10,7 +10,7 @@
  *
  * Fallback chain:
  *   codex exec -   (primary — Codex with OAuth / OPENAI_API_KEY; prompt via stdin)
- *   claude --dangerously-skip-permissions --print --no-input  (secondary — Claude Code OAuth, no proxy)
+ *   claude --dangerously-skip-permissions --print  (secondary — Claude Code OAuth, no proxy; prompt via stdin)
  *
  * The evaluated output must contain VERDICT: PASS or VERDICT: FAIL.
  * Missing VERDICT = fail-closed FAIL.
@@ -115,12 +115,16 @@ export async function tryClaudePrint(prompt: string): Promise<LlmEvalResult> {
   try {
     const result = execFileSync(
       "claude",
-      ["--dangerously-skip-permissions", "--print", "--no-input"],
+      ["--dangerously-skip-permissions", "--print"],
       {
         input: prompt,
         encoding: "utf-8",
         timeout: CLAUDE_TIMEOUT_MS,
         stdio: ["pipe", "pipe", "ignore"],
+        // Run from /tmp to prevent project-level CLAUDE.md hooks (e.g. mandatory
+        // git-header appended to every response) from polluting the output and
+        // hiding the VERDICT line from the regex check.
+        cwd: "/tmp",
       },
     );
     const output = result.trim();
