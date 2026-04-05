@@ -161,7 +161,7 @@ port: 3000
 
 defaults:
   runtime: tmux
-  agent: claude-code
+  agent: cursor
   workspace: worktree
   notifiers: [desktop]
 
