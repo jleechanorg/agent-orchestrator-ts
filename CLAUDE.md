@@ -119,7 +119,7 @@ Do not manually create worktrees, `cd` into directories, or run `claude` directl
 **Re-use chain:**
 - `llmEval(prompt, {model?})` → full fallback chain (Codex primary → Claude fallback)
 - `tryCodexPrint(prompt)` → codex `--print --no-input` only
-- `tryClaudePrint(prompt)` → claude `--print --no-input` only
+- `tryClaudePrint(prompt)` → claude `--dangerously-skip-permissions --print` only (stdin-pipe)
 - `resolveCodexBinary()` is imported from `@jleechanorg/ao-plugin-agent-codex` — do not re-implement path detection
 
 **Why:** `llm-eval.ts` centralizes timeout, error classification (ENOENT vs real failure), fail-closed VERDICT parsing, and cross-platform binary resolution. Scattering `execSync("codex ...")` strings across command handlers causes inconsistent error handling and hard-to-find bugs.
