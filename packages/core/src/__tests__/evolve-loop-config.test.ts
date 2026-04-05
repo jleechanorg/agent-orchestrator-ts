@@ -370,7 +370,7 @@ describe("generateEvolveLoopSection — enabled", () => {
     });
 
     expect(prompt).toContain("### Phase 7: RECAP");
-    expect(prompt).toContain("zero-touch rate");
+    expect(prompt).toContain("Summary: zero-touch rate");
     expect(prompt).toContain("Worker count");
     expect(prompt).toContain("Open PRs");
     expect(prompt).toContain("friction");

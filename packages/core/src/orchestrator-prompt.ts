@@ -157,7 +157,7 @@ Dispatch methods:
 ### Phase 7: RECAP (end of every cycle)
 
 - Output a brief cycle summary:
-  - Zero-touch rate (X%, N/M PRs autonomous in ${zeroTouchWindow})
+  - Summary: zero-touch rate (X%, N/M PRs autonomous in ${zeroTouchWindow})
   - Worker count (alive, dead, stuck)
   - Open PRs count
   - New friction points found
