@@ -241,7 +241,7 @@ export function generateConfigFromUrl(options: GenerateConfigOptions): Record<st
     port,
     defaults: {
       runtime: "tmux",
-      agent: "claude-code",
+      agent: "cursor",
       workspace: "worktree",
       notifiers: ["desktop"],
     },

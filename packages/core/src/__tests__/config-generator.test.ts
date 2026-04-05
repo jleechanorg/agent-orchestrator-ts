@@ -253,7 +253,7 @@ describe("generateConfigFromUrl", () => {
     expect(config.port).toBe(3000);
     expect(config.defaults).toEqual({
       runtime: "tmux",
-      agent: "claude-code",
+      agent: "cursor",
       workspace: "worktree",
       notifiers: ["desktop"],
     });
