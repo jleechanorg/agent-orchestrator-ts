@@ -336,7 +336,7 @@ describe("generateEvolveLoopSection — enabled", () => {
     expect(prompt).toContain("RECORD");
   });
 
-  it("includes all 6 phases in evolve loop section", () => {
+  it("includes all 8 phases in evolve loop section", () => {
     const config = makeConfig({
       evolveLoop: { enabled: true },
     });
@@ -354,6 +354,46 @@ describe("generateEvolveLoopSection — enabled", () => {
     expect(prompt).toContain("### Phase 4: PLAN");
     expect(prompt).toContain("### Phase 5: FIX");
     expect(prompt).toContain("### Phase 6: RECORD");
+    expect(prompt).toContain("### Phase 7: RECAP");
+    expect(prompt).toContain("### Phase 8: AUTO-CANCEL");
+  });
+
+  it("includes Phase 7 recap section with key summary elements", () => {
+    const config = makeConfig({
+      evolveLoop: { enabled: true },
+    });
+
+    const prompt = generateOrchestratorPrompt({
+      config,
+      projectId: "proj1",
+      project: config.projects.proj1,
+    });
+
+    expect(prompt).toContain("### Phase 7: RECAP");
+    expect(prompt).toContain("zero-touch rate");
+    expect(prompt).toContain("Worker count");
+    expect(prompt).toContain("Open PRs");
+    expect(prompt).toContain("friction");
+    expect(prompt).toContain("Fixes dispatched");
+    expect(prompt).toContain("Beads");
+  });
+
+  it("includes Phase 8 auto-cancel section with idle counter and cancel language", () => {
+    const config = makeConfig({
+      evolveLoop: { enabled: true },
+    });
+
+    const prompt = generateOrchestratorPrompt({
+      config,
+      projectId: "proj1",
+      project: config.projects.proj1,
+    });
+
+    expect(prompt).toContain("### Phase 8: AUTO-CANCEL");
+    expect(prompt).toContain("Idle-cycle counter");
+    expect(prompt).toContain("idle-counter");
+    expect(prompt).toContain("3 consecutive idle cycles");
+    expect(prompt).toContain("AUTO-CANCEL: 3 consecutive idle cycles — eloop pausing");
   });
 
   it("lists autonomousFixScopes allow-list in FIX phase", () => {

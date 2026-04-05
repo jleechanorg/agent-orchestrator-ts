@@ -61,7 +61,7 @@ export function generateEvolveLoopSection(project: ProjectConfig, projectId: str
   lines.push(`## Evolve Loop
 
 The manager runs a lightweight self-assessment loop every poll cycle to detect anomalies,
-measure effectiveness, and dispatch autonomous fixes. The loop follows 6 phases:
+measure effectiveness, and dispatch autonomous fixes. The loop follows 8 phases:
 
 ### Evolve Loop Overview
 
@@ -144,7 +144,7 @@ Dispatch methods:
 - Append finding to ${pathPosix.join(kbDir, `${projectId}.jsonl`)} (JSONL, one object per line):
   - \`ts\`: ISO8601 timestamp
   - \`manager\`: manager session name (e.g. \`ao-orchestrator\`)
-  - \`phase\`: OBSERVE | MEASURE | DIAGNOSE | PLAN | FIX | RECORD
+  - \`phase\`: OBSERVE | MEASURE | DIAGNOSE | PLAN | FIX | RECORD | RECAP | AUTO-CANCEL
   - \`finding\`: classification key (e.g. \`cold_prs\`, \`stuck_worker\`)
   - \`detail\`: structured finding data
   - \`bead\`: bead ID if created/tracked
@@ -152,7 +152,35 @@ Dispatch methods:
   - \`dispatch_method\`: claw | antig | config-edit
   - \`dispatched_to\`: target session or workspace
 - Create/update beads with \`br create\` or \`br update\`
-- Append to \`roadmap/evolve-loop-findings.md\``);
+- Append to \`roadmap/evolve-loop-findings.md\`
+
+### Phase 7: RECAP (end of every cycle)
+
+- Output a brief cycle summary:
+  - Zero-touch rate (X%, N/M PRs autonomous in ${zeroTouchWindow})
+  - Worker count (alive, dead, stuck)
+  - Open PRs count
+  - New friction points found
+  - Fixes dispatched
+  - Beads created/updated
+
+### Phase 8: AUTO-CANCEL (checked at end of every cycle)
+
+**Idle-cycle counter** — persists across cycles via a counter file at ${pathPosix.join(kbDir, "idle-counter")}:
+
+- Increment the idle counter when ALL of these are true:
+  - 0 open PRs across all monitored repos
+  - 0 new friction points found this cycle
+  - All workers are alive (no dead/stuck sessions)
+- Reset the idle counter to 0 when ANY of these are true:
+  - 1+ open PRs exist
+  - 1+ new friction points found
+  - 1+ dead or stuck workers detected
+- When idle counter reaches **3 consecutive idle cycles**:
+  - Print: \`AUTO-CANCEL: 3 consecutive idle cycles — eloop pausing\`
+  - Stop the loop (do not dispatch, do not schedule next cycle)
+  - Exit with status 0 (clean stop, not an error)
+`);
 
   return lines.join("\n");
 }
