@@ -77,7 +77,12 @@ measure effectiveness, and dispatch autonomous fixes. The loop follows 6 phases:
 - Check open PRs via \`gh api ... --method GET\` (always REST — never GraphQL)
 - Check for cold PRs (open >3h with no activity)
 - Check lifecycle log for recent reaction outcomes
-- **Fast path**: if nothing abnormal, output "all clear" and exit
+- **Healthy-cycle fast path**: if nothing abnormal, output ONE line like:
+  \`\u2713 Cycle N: all clear — N workers alive, N open PRs\`
+  Then **exit the loop immediately** — skip Phase 2 through Phase 6 entirely. Do not run MEASURE, DIAGNOSE, PLAN, FIX, or RECORD on a healthy cycle.
+- **Session budget**: After 6 hours or 36+ cycles in a single session, emit:
+  \`SESSION BUDGET: consider /clear + fresh eloop session with handoff\`
+  Write a handoff file at \`{kbDir}/{projectId}-handoff.md\` containing the last 5 findings (from the JSONL knowledge base) so the fresh session can resume without losing context.
 
 ### Phase 2: MEASURE (on anomaly detected)
 
