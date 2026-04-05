@@ -189,7 +189,7 @@ For long-running agent observability, Cursor's research on scaling autonomous co
 ### Evidence Gate strong proof — run `/pr-media` BEFORE first push
 The **Evidence Bundle v2** above is the canonical format. For non-unit claims (`integration`, `pipeline-e2e`, `pr-lifecycle-e2e`, `merge-gate`), CI also enforces these minimum strong-proof requirements:
 1. media artifact URL (screenshot/video — HTTPS, extension-suffixed or markdown image)
-2. execution artifact (fenced code block ` ``` ` or `~~~ `, or structured `**Terminal test output**:` line)
+2. execution artifact (a fenced code block with triple backticks, or a structured `**Terminal test output**:` line)
 3. self-validation language (`verified`, `confirmed`, `error case`, `reproduced`, etc. — a bare `**Self-validation**:` label is insufficient)
 
 **`docs/evidence/strong-evidence-standard.md`** is the quick-reference template; the Evidence Bundle v2 section above is the authoritative policy.
@@ -229,6 +229,7 @@ This fork diverges from `ComposioHQ/agent-orchestrator`. To minimize merge confl
 **These rules are enforced. Violations are trust violations.**
 
 ### File naming determines test tier
+
 | File pattern | Tier | Requirements |
 |---|---|---|
 | `*_e2e_*` or `*_e2e.py` or `*e2e*` | **E2E** | Must meet ALL criteria below |
@@ -277,7 +278,7 @@ The reaction system (`lifecycle-manager.ts`) fires actions when a lifecycle cond
 | `notify` | Yes (duplicate notifications are cheap) | None |
 | `auto-merge` | Yes (GitHub ignores duplicate merge attempts) | None |
 | `send-to-agent` | **NO** — each send consumes agent context window | `retries` cap + SHA dedup |
-| `spawn-worker` | **NO** — creates duplicate sessions | Session existence check |
+| `respawn-for-review` | **NO** — creates duplicate sessions | Session existence check |
 
 `escalate` is an internal outcome (reaction stops and emits `reaction.escalated` event) — it is not a configured action type.
 
@@ -446,10 +447,10 @@ A feature branch checked out in the main repo blocks ALL `git fetch --force` ope
 When seeing `lifecycle.backfill.claim_failed` with "refusing to fetch into branch", check IN ORDER:
 
 1. **Main repo on wrong branch?** `git -C <repoPath> branch --show-current` — fix: `git checkout main`
-2. **Ghost worktrees?** `git worktree list | grep -E '^-.*-(ao|jc|wa|cc|ra|wc)-[0-9]+ '` — fix: `git worktree remove --force --force <path>`
+2. **Ghost worktrees?** `git worktree list | grep -E '^-.*-(ao|jc|wa|cc|ra|wc)-[0-9]+ '` — fix: `git worktree remove --force <path>`
 3. **Both?** Fix main repo first, then ghost worktrees.
 
-The lifecycle-worker's `sweepOrphanWorktrees` runs every 5min (orphanSweepIntervalMs) and auto-cleans ghost worktrees immediately when both conditions hold: (1) no entry in the AO session DB, and (2) no live tmux session for that worktree's short ID. There is no TTL — cleanup is eager once both guards confirm orphan state. If you see claim failures, check the main repo branch first.
+The lifecycle-worker's `sweepOrphanWorktrees` runs every 5 minutes (orphanSweepIntervalMs) and auto-cleans ghost worktrees immediately when both conditions hold: (1) no entry in the AO session DB, and (2) no live tmux session for that worktree's short ID. There is no TTL — cleanup is eager once both guards confirm orphan state. If you see claim failures, check the main repo branch first.
 
 ## AO Infrastructure Operations
 
