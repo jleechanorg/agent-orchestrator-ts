@@ -78,9 +78,9 @@ esac\nexit 0`,
   it("runs the built-in smoke commands in smoke-only mode", () => {
     const tempRoot = mkdtempSync(join(tmpdir(), "ao-update-smoke-"));
     const fakeRepo = join(tempRoot, "repo");
-    mkdirSync(join(fakeRepo, "packages", "agent-orchestrator", "bin"), { recursive: true });
+    mkdirSync(join(fakeRepo, "packages", "cli", "dist"), { recursive: true });
     writeFileSync(
-      join(fakeRepo, "packages", "agent-orchestrator", "bin", "ao.js"),
+      join(fakeRepo, "packages", "cli", "dist", "index.js"),
       "#!/usr/bin/env node\n",
     );
 
@@ -108,15 +108,10 @@ exit 0`,
     rmSync(tempRoot, { recursive: true, force: true });
 
     expect(result.status).toBe(0);
-    expect(commands).toContain(
-      `node ${join(fakeRepo, "packages", "agent-orchestrator", "bin", "ao.js")} --version`,
-    );
-    expect(commands).toContain(
-      `node ${join(fakeRepo, "packages", "agent-orchestrator", "bin", "ao.js")} doctor --help`,
-    );
-    expect(commands).toContain(
-      `node ${join(fakeRepo, "packages", "agent-orchestrator", "bin", "ao.js")} update --help`,
-    );
+    const aoEntry = join(fakeRepo, "packages", "cli", "dist", "index.js");
+    expect(commands).toContain(`node ${aoEntry} --version`);
+    expect(commands).toContain(`node ${aoEntry} doctor --help`);
+    expect(commands).toContain(`node ${aoEntry} update --help`);
   });
 
   it("fails fast on a dirty install repo with an actionable message", () => {

@@ -58,9 +58,10 @@ run_cmd() {
 
 run_smoke_tests() {
   printf '\nRunning smoke tests...\n'
-  run_cmd node "$REPO_ROOT/packages/agent-orchestrator/bin/ao.js" --version
-  run_cmd node "$REPO_ROOT/packages/agent-orchestrator/bin/ao.js" doctor --help
-  run_cmd node "$REPO_ROOT/packages/agent-orchestrator/bin/ao.js" update --help
+  local ao_entry="$REPO_ROOT/packages/cli/dist/index.js"
+  run_cmd node "$ao_entry" --version
+  run_cmd node "$ao_entry" doctor --help
+  run_cmd node "$ao_entry" update --help
 }
 
 ensure_repo_clean() {
