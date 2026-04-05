@@ -118,7 +118,7 @@ Do not manually create worktrees, `cd` into directories, or run `claude` directl
 
 **Re-use chain:**
 - `llmEval(prompt, {model?})` → full fallback chain (Codex primary → Claude fallback)
-- `tryCodexPrint(prompt)` → codex `--print --no-input` only
+- `tryCodexPrint(prompt)` → codex `exec -` only (prompt via stdin)
 - `tryClaudePrint(prompt)` → claude `--dangerously-skip-permissions --print` only (stdin-pipe)
 - `resolveCodexBinary()` is imported from `@jleechanorg/ao-plugin-agent-codex` — do not re-implement path detection
 
