@@ -17,4 +17,14 @@ Before changing repo files, a copy of **`roadmap/`** was saved under **`~/Downlo
 ## Maintenance
 
 - Edit skills in **user scope** `SKILL.md` paths; avoid reintroducing loose `*.md` copies in the repo skills folder.
-- Archive remains at **`_archive/loose-md/`** for history.
+- Archive remains at **`~/.claude/skills/_archive/loose-md/`** for history (optional delete if you need space; see that folder’s `README.md`).
+
+## Optional follow-ups (done 2026-04-05)
+
+1. **Codex** — Replaced broken symlinks in **`~/.codex/skills/`** that pointed at removed **`~/.claude/skills/*.md`** paths:
+   - `harness-engineering.md` → **`~/.claude/skills/harness-engineering/SKILL.md`**
+   - `openclaw-diagnostics.md` → **`~/.claude/skills/openclaw-diagnostics/SKILL.md`**
+   - `skeptic-agent.md` → **`~/.claude/skills/skeptic-agent/SKILL.md`**
+   - `evolve_loop.md` (was a plain file) → symlink to **`~/.claude/skills/evolve-loop/SKILL.md`**; prior file saved as **`evolve_loop.md.bak-20260405`** in `~/.codex/skills/`.
+   - `nextsteps.md` was already valid (points at **`~/.openclaw/.claude/skills/nextsteps.md`**); left unchanged.
+2. **Archive README** — Updated **`~/.claude/skills/_archive/loose-md/README.md`** with canonical paths and retention note.
