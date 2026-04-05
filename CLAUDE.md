@@ -8,8 +8,8 @@ This file is read by Claude Code when working in this repository.
 
 **AO-specific forbidden patterns:**
 - Hardcoded intent/activity classifiers in plugin code (e.g., `if task.includes("fix")` to detect bug-fix tasks)
-- `detectActivity()` implementations using handcrafted regex routing for activity states — prefer model-based classification or simple process-state checks (is process running? is there recent output?)
-- Hardcoded lists of "coding task keywords" in routing logic (e.g., the `/claw` skill's `is_coding_task` Python function is a ZFC violation — flag for future migration to model call)
+- New `detectActivity()` implementations using handcrafted regex routing — prefer model-based classification or simple process-state checks (is process running? is there recent output?); existing implementations should be flagged for future migration
+- Hardcoded lists of "coding task keywords" in routing logic — flag existing such patterns for future migration to model call
 - AO config classifiers (stuck detection, PR state routing) using keyword heuristics instead of model calls
 
 **Correct pattern:** Pass the text/context to the model with a clear prompt, use the model's response as the decision. For activity detection, prefer simple process-state queries over semantic analysis.
