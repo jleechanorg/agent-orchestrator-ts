@@ -6,6 +6,7 @@ Design notes, audits, and rolling status for **jleechanorg/agent-orchestrator**.
 
 ### 2026-04-05
 
+- **Skill restoration (bd-pwku)** — Archived loose-md skills restored to **`~/.claude/skills/<name>/SKILL.md`**; repo **`.claude/skills/README.md`** + **`CLAUDE.md`** pointers; duplicate loose files removed. Details: [`skill-restoration.md`](./skill-restoration.md). Pre-change roadmap snapshot: **`~/Downloads/agent-orchestrator-roadmap-*`**.
 - **Session registry harness** — New initiative: align `ao session ls` / metadata **`[working]`** with **tmux + JSONL ground truth** so operators are not misled by idle panes. Doc: [`session-registry-harness.md`](./session-registry-harness.md). Bead: **bd-9gvm** (related: **bd-3h9**).
 - **Evolve loop & policy** — Landed: healthy-cycle fast path + session budget ([PR #380](https://github.com/jleechanorg/agent-orchestrator/pull/380)); Phase 7 recap + Phase 8 idle auto-cancel ([PR #381](https://github.com/jleechanorg/agent-orchestrator/pull/381)); Zero-Framework Cognition (ZFC) section in CLAUDE.md ([PR #382](https://github.com/jleechanorg/agent-orchestrator/pull/382)).
 - **Skeptic** — `claude --print` runs from `/tmp` to avoid project `CLAUDE.md` hooks skewing evaluation (commit `7a9890f9`).
@@ -18,6 +19,7 @@ See individual docs below; long-form evolve-loop cycles remain in [`evolve-loop-
 
 | Topic | File |
 |--------|------|
+| Skill restoration (user scope vs repo) | [skill-restoration.md](./skill-restoration.md) |
 | Session / CLI observability harness | [session-registry-harness.md](./session-registry-harness.md) |
 | Evolve loop history & metrics | [evolve-loop-findings.md](./evolve-loop-findings.md) |
 | Skeptic + AO worker architecture | [skeptic-ao-worker-architecture.md](./skeptic-ao-worker-architecture.md) |

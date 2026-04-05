@@ -177,6 +177,12 @@ pnpm test
 
 `jleechanorg/agent-orchestrator`. Never upstream `ComposioHQ` PR without explicit approval. Strip fork artifacts for upstream cherry-picks.
 
+## Skills (user scope + this repo)
+
+Long-form operational skills live under **`~/.claude/skills/<name>/SKILL.md`** (restored from archive; beads **bd-pwku**). Examples: `ao-session-monitor`, `auton`, `harness-engineering`, `nextsteps`, `evolve-loop`. **Do not** treat duplicate loose copies in random paths as canonical.
+
+**Repo index:** `.claude/skills/README.md` maps topics → user paths and fork **`roadmap/`** docs. Bundled in-repo: `.claude/skills/video-render/SKILL.md`.
+
 ---
 
 | Deep reference | `roadmap/claude-fork-reference.md` |
