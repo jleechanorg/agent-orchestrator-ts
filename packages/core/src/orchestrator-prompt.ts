@@ -82,7 +82,7 @@ measure effectiveness, and dispatch autonomous fixes. The loop follows 6 phases:
   Then **exit the loop immediately** — skip Phase 2 through Phase 6 entirely. Do not run MEASURE, DIAGNOSE, PLAN, FIX, or RECORD on a healthy cycle.
 - **Session budget**: After 6 hours or 36+ cycles in a single session, emit:
   \`SESSION BUDGET: consider /clear + fresh eloop session with handoff\`
-  Write a handoff file at \`{kbDir}/{projectId}-handoff.md\` containing the last 5 findings (from the JSONL knowledge base) so the fresh session can resume without losing context.
+  Write a handoff file at \`${pathPosix.join(kbDir, `${projectId}-handoff.md`)}\` containing the last 5 findings (from the JSONL knowledge base) so the fresh session can resume without losing context.
 
 ### Phase 2: MEASURE (on anomaly detected)
 

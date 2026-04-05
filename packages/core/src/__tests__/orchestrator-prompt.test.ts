@@ -128,7 +128,8 @@ describe("generateOrchestratorPrompt — healthy-cycle fast path (bd-l5ko)", () 
       project: cfg.projects["my-app"]!,
     });
 
-    expect(prompt).toContain("handoff.md");
+    // Assert the resolved path, not a literal placeholder
+    expect(prompt).toContain("/tmp/kb/my-app-handoff.md");
     expect(prompt).toContain("last 5 findings");
   });
 });
