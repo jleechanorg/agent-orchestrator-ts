@@ -31,12 +31,12 @@ This applies to ALL tasks involving code, files, or PRs — see SOUL.md "Agent D
 
 ## Execution Instructions
 
-When this command is invoked with `should be a slash command`:
+When this command is invoked with `$ARGUMENTS`:
 
 ### Step 0: Parse task
 
 ```bash
-TASK_DESCRIPTION="should be a slash command"
+TASK_DESCRIPTION="$ARGUMENTS"
 ```
 
 ### Step 1: Classify task type
@@ -337,7 +337,7 @@ fi
 #### Path B — Non-Coding Tasks: Gateway HTTP (original behavior)
 
 ```bash
-# === PATH B: Gateway HTTP (non-coding tasks) ===
+# === PATH B: Gateway HTTP (read-only / summarize tasks) ===
 echo "=== PATH B: Gateway HTTP (non-coding tasks) ==="
 
 # Verify gateway is running
