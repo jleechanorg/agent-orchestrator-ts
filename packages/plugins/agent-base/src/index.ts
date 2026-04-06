@@ -970,7 +970,7 @@ async function setupHookInWorkspace({
  * - url: http://127.0.0.1:8765/mcp/ (configurable via MCP_AGENT_MAIL_URL env var)
  * - headers: auth token (configurable via MCP_AGENT_MAIL_TOKEN env var)
  */
-async function setupMcpMailInWorkspace(
+export async function setupMcpMailInWorkspace(
   workspacePath: string,
   configDir: string,
 ): Promise<void> {
@@ -1030,6 +1030,9 @@ async function setupMcpMailInWorkspace(
   // Add mcp-agent-mail server configuration
   const serverConfig: Record<string, unknown> = {
     url: mcpMailUrl,
+    headers: {
+      Authorization: "Bearer ${MCP_AGENT_MAIL_TOKEN}",
+    },
   };
 
   mcpServers["mcp-agent-mail"] = serverConfig;

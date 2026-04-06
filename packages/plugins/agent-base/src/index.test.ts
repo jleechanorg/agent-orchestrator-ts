@@ -55,7 +55,7 @@ vi.mock("node:fs", () => ({
   existsSync: mockExistsSync,
 }));
 
-import { createAgentPlugin, toAgentProjectPath, METADATA_UPDATER_SCRIPT } from "./index.js";
+import { createAgentPlugin, toAgentProjectPath, METADATA_UPDATER_SCRIPT, setupMcpMailInWorkspace } from "./index.js";
 
 describe("agent-base exports", () => {
   it("should export createAgentPlugin", () => {
@@ -424,5 +424,42 @@ describe("METADATA_UPDATER_SCRIPT — [agento] prefix enforcement", () => {
   it("checks hook_event is PreToolUse before enforcing prefix", () => {
     // The prefix guard runs in PreToolUse only (not PostToolUse), matching the guard pattern.
     expect(METADATA_UPDATER_SCRIPT).toMatch(/"PreToolUse".*\$clean_command/);
+  });
+});
+
+describe("setupMcpMailInWorkspace", () => {
+  const workspacePath = "/mock/workspace";
+  const configDir = ".claude";
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    process.env.MCP_AGENT_MAIL_URL = "http://mock-mail-url/mcp/";
+    delete process.env.MCP_AGENT_MAIL_TOKEN;
+  });
+
+  it("should write settings.json with environment variable reference for authorization", async () => {
+    mockReadFile.mockRejectedValue({ code: "ENOENT" }); // settings.json doesn't exist
+    mockLstat.mockResolvedValue({ isSymbolicLink: () => false });
+
+    await setupMcpMailInWorkspace(workspacePath, configDir);
+
+    expect(mockWriteFile).toHaveBeenCalledWith(
+      expect.stringContaining("settings.json"),
+      expect.stringContaining('"Authorization": "Bearer ${MCP_AGENT_MAIL_TOKEN}"'),
+      "utf-8"
+    );
+  });
+
+  it("should not write actual token from environment if present", async () => {
+    process.env.MCP_AGENT_MAIL_TOKEN = "secret-token-123";
+    mockReadFile.mockRejectedValue({ code: "ENOENT" });
+    mockLstat.mockResolvedValue({ isSymbolicLink: () => false });
+
+    await setupMcpMailInWorkspace(workspacePath, configDir);
+
+    const callArgs = mockWriteFile.mock.calls[0];
+    const content = callArgs[1];
+    expect(content).not.toContain("secret-token-123");
+    expect(content).toContain('"Authorization": "Bearer ${MCP_AGENT_MAIL_TOKEN}"');
   });
 });
