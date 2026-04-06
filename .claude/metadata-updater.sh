@@ -196,17 +196,6 @@ if [[ "$clean_command" =~ ^git[[:space:]]+switch[[:space:]]+-c[[:space:]]+([^[:s
   fi
 fi
 
-# Detect: git checkout <branch> (without -b) or git switch <branch> (without -c)
-# Only update if the branch name looks like a feature branch (contains / or -)
-if [[ "$clean_command" =~ ^git[[:space:]]+checkout[[:space:]]+([^[:space:]-]+[/-][^[:space:]]+) ]]; then
-  branch="${BASH_REMATCH[1]}"
-  if [[ -n "$branch" && "$branch" != "HEAD" ]]; then
-    update_metadata_key "branch" "$branch"
-    echo '{"systemMessage": "Updated metadata: branch = '"$branch"'"}'
-    exit 0
-  fi
-fi
-
 if [[ "$clean_command" =~ ^git[[:space:]]+switch[[:space:]]+([^[:space:]-]+[/-][^[:space:]]+) ]]; then
   branch="${BASH_REMATCH[1]}"
   if [[ -n "$branch" && "$branch" != "HEAD" ]]; then
