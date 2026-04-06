@@ -29,6 +29,9 @@ jobs:
     if: github.event.pull_request.merged == false && github.event.action != 'closed'
     steps:
       - uses: actions/checkout@v4.1.1
+        with:
+          # bd-7s0d: full history so base..head diff for claim-floor is available
+          fetch-depth: 0
 
       - name: Write PR body to temp file
         env:
@@ -124,6 +127,44 @@ jobs:
 
           echo "Claim class: $CLAIM"
           echo "claim=$CLAIM" >> "$GITHUB_OUTPUT"
+
+      # bd-7s0d: If the PR changes programming-language sources, the declared claim class
+      # must be integration or higher (documentation-only / unit are too weak for code PRs).
+      # Escape hatch: **Claim floor override** in the Evidence section (human/skeptic review).
+      - name: Enforce claim class floor for code changes
+        if: steps.check.outputs.found == 'true'
+        run: |
+          BODY=$(cat "$RUNNER_TEMP/pr_body.txt")
+          CLAIM="${{ steps.claim.outputs.claim }}"
+          BASE_SHA="${{ github.event.pull_request.base.sha }}"
+          HEAD_SHA="${{ github.event.pull_request.head.sha }}"
+
+          if printf '%s' "$BODY" | grep -qiE '\*\*Claim floor override(\*\*)?:'; then
+            echo "Claim floor override present — skipping floor enforcement"
+            exit 0
+          fi
+
+          case "$CLAIM" in
+            documentation-only|unit) ;;
+            *)
+              echo "Claim class '$CLAIM' — floor rule does not apply (already integration+)"
+              exit 0
+              ;;
+          esac
+
+          DIFF_NAMES=$(git diff --name-only "${BASE_SHA}...${HEAD_SHA}" 2>/dev/null || true)
+          if [ -z "$DIFF_NAMES" ]; then
+            echo "WARN: empty diff for ${BASE_SHA}...${HEAD_SHA} — skipping floor (unexpected)"
+            exit 0
+          fi
+
+          if printf '%s\n' "$DIFF_NAMES" | grep -qiE '\.(ts|tsx|mts|cts|js|jsx|mjs|cjs|py|pyi|go|rs|java|kt|kts|rb|cs|php|swift|c|h|cc|cpp|hpp|hh|cxx|scala|vue|svelte)$'; then
+            echo "ERROR: Code files changed but **Claim class** is '$CLAIM'."
+            echo "Evidence policy (bd-7s0d): programming-language changes require at least **integration** (or add **Claim floor override** with justification)."
+            exit 1
+          fi
+
+          echo "Claim floor PASS: no programming-language file changes, or claim already integration+"
 
       - name: Validate PR-lifecycle-e2e required proofs
         if: steps.check.outputs.found == 'true'

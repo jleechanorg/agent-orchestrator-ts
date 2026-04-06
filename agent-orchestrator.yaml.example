@@ -34,6 +34,16 @@ defaults:
   #   agent: codex
   workspace: worktree     # worktree | clone | copy
   notifiers: [desktop, openclaw]    # desktop | slack | discord | webhook | email | openclaw
+  # bd-7s0d: Wire PR evidence media (user-scope skills) into every worker prompt.
+  # Uncomment to require tmux/terminal capture and smoke-test discipline before opening PRs
+  # with integration+ claim classes (Evidence Bundle v2 — see docs/evidence/README.md).
+  # agentRules: |
+  #   For PRs where **Claim class** is integration, pipeline-e2e, pr-lifecycle-e2e, or merge-gate:
+  #   before opening or updating the PR, run the user-scope `tmux-video-evidence` skill
+  #   (`~/.claude/skills/tmux-video-evidence/`) to capture **Terminal media** (HTTPS URL
+  #   to a cast, GIF, or screenshot with tmux/terminal context). Do not use N/A for terminal
+  #   media when the PR changes programming-language sources. For local smoke flows, follow
+  #   `smoke-test-local` (`~/.claude/skills/smoke-test-local/`) when applicable.
   # bd-n047: Centralized auto-merge control — applied to all projects unless overridden.
   # Set enabled: false here to disable auto-merge globally, then selectively re-enable per project.
   # Per-project overrides: set projects.<name>.autoMerge.enabled to override the global default.
@@ -102,6 +112,8 @@ projects:
     #   If graphql.remaining < 100, use REST fallback exclusively.
     #   If core.remaining < 500, defer non-critical reads.
     #   Before dispatching multiple workers, check `tmux list-sessions | wc -l` and do not spawn if active sessions > 20.
+    #   Evidence (bd-7s0d): For integration+ claim classes, run `tmux-video-evidence` before PR body; do not
+    #   write N/A for **Terminal media** when the PR touches source code files.
 
     # Path to a rules file (relative to project path)
     # agentRulesFile: .agent-rules.md
