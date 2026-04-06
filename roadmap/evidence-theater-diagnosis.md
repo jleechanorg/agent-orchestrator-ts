@@ -1,7 +1,7 @@
 # Evidence Theater Diagnosis
 
 **Date:** 2026-04-05
-**Status:** Actionable — fixes identified, implementation pending
+**Status:** In progress — Fix 1 implemented (bd-cam93); Fix 2 (bd-4ze23) and Fix 3 pending
 
 ## Problem
 
@@ -39,17 +39,11 @@ no caller is not automation.
 
 ## Proposed fixes (priority order)
 
-### Fix 1: Close Terminal media N/A bypass (quick win)
+### Fix 1: Close Terminal media N/A bypass ✅ IMPLEMENTED (bd-cam93)
 
-**File:** `.github/workflows/evidence-gate.yml` line 328
-**Change:** Guard N/A acceptance with claim class check:
-```bash
-# Before (accepts N/A for any claim):
-if printf '%s' "$TM_BLOCK" | grep -qiE 'N/A'; then
-
-# After (N/A only for unit):
-if [ "$CLAIM" = "unit" ] && printf '%s' "$TM_BLOCK" | grep -qiE 'N/A'; then
-```
+**File:** `.github/workflows/evidence-gate.yml`
+**Change:** N/A for Terminal media now only accepted when `CLAIM` is `unit` or
+`documentation-only`. `integration`+ claims must supply a real HTTPS URL.
 **Risk:** Low. Aligns evidence-gate with wholesome.yml behavior.
 
 ### Fix 2: Claim class floor rule (high impact)
@@ -79,6 +73,12 @@ enforcement proves insufficient.
 - **#388** — Missing `## Evidence` entirely. Gate cannot parse it. Should be closed
   (superseded by #389).
 - **#389** — Same issue. Needs evidence section added before it can pass the gate.
+
+## Beads
+
+- `bd-cam93` — evidence-gate: close N/A bypass (Fix 1, ✅ implemented)
+- `bd-4ze23` — evidence-gate: wire tmux-video-evidence + smoke-test-local as mandatory pre-push (Fix 3)
+- `bd-p2auf` — fix PRs #388 and #389: add ## Evidence sections
 
 ## Related
 
