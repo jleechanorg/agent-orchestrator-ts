@@ -19,7 +19,7 @@ If you are the **OpenClaw embedded agent** receiving this task from the gateway:
 
 **DO NOT run this task inline.** Inline execution has no worktree, no PR, no branch.
 
-**INSTEAD — follow the `dispatch-task` skill** (in this repo: `.claude/skills/dispatch-task/SKILL.md`):
+**INSTEAD — follow the `dispatch-task` skill** (resolve in order: `skills/dispatch-task/SKILL.md`, then `.claude/skills/dispatch-task/SKILL.md`, then `~/.claude/skills/dispatch-task/SKILL.md`):
 1. Create/claim a bead (`br create ...` or `br update ... --status in_progress`; see CLAUDE.md for `br` examples)
 2. Determine the ao project ID: `ao projects list`
 3. Spawn: `ao spawn ORCH-xxx -p <project-id>`
@@ -42,7 +42,7 @@ TASK_DESCRIPTION="$ARGUMENTS"
 ### Step 1: Classify task type
 
 Use your judgment to classify the task as **coding** or **read_only**:
-- **coding**: involves writing/modifying/fixing/creating code, PRs, tests, config, or deploys; working on a bead/issue that requires code changes; contains `ao spawn` or dispatch instructions; references a bead ID (e.g. `orch-sq2`, `wa-123`, `bd-cx01`)
+- **coding**: involves writing/modifying/fixing/creating code, PRs, tests, config, or deploys; working on a bead/issue that requires code changes; contains `ao spawn` or dispatch instructions; references a tracker issue id (examples: `orch-sq2`, `wa-123`, or any `prefix-token` your `br`/harness emits)
 - **read_only**: summarize, explain, analyze, check status, read-only queries — no code changes needed
 
 When in doubt, classify as **coding** (err toward spawning a session).
@@ -60,16 +60,15 @@ echo "Task classified as: $TASK_TYPE"
 if [ "$TASK_TYPE" = "coding" ]; then
   echo "=== PATH A: ao spawn (parallel coding sessions) ==="
 
-  # Step A1: Extract issue ID from task (e.g. "orch-sq2", "ORCH-sq2", "bd-cx01", "fix bd-cx01")
-  # Scan the task description for a bead/issue ID — pattern: prefix-alphanumeric
-  # Valid prefixes: orch, wa, ao, ra, cc, wc, mt, mm, bd (this repo uses br beads: bd-*)
-  # Use your judgment to identify the ID (case-insensitive). Set empty if none found.
-  ISSUE_ID=""  # e.g. "bd-cx01" — extracted by you from TASK_DESCRIPTION, lowercase, or empty
+  # Step A1: Extract issue ID from task (e.g. "orch-sq2", "fix orch-sq2", or ids from br create)
+  # Scan the task description for a bead/issue id — typically prefix-token (harness, br, etc.)
+  # Use your judgment (case-insensitive). Set empty if none found.
+  ISSUE_ID=""  # extracted by you from TASK_DESCRIPTION, lowercase, or empty
 
-  # Step A2: Resolve project from issue ID prefix or default to jleechanclaw
+  # Step A2: Map issue prefix → AO project id (example map — customize in ~/.claude/commands/claw.md if needed)
+  # If no branch matches, default project is jleechanclaw; ao may still infer project from cwd when -p omitted.
   case "$ISSUE_ID" in
     orch-*) PROJECT_ID="jleechanclaw" ;;
-    bd-*)   PROJECT_ID="agent-orchestrator" ;;  # br beads in this fork map to AO project
     wa-*)   PROJECT_ID="worldarchitect" ;;
     ao-*)   PROJECT_ID="agent-orchestrator" ;;
     ra-*)   PROJECT_ID="ralph" ;;
@@ -204,7 +203,7 @@ After completing all work and creating the PR, run /learn to capture any reusabl
     BEAD_TITLE=$(printf '%s' "$TASK_DESCRIPTION" | cut -c1-80)
     BEAD_OUTPUT=$(br create "$BEAD_TITLE" --type task --priority 2 2>&1)
     echo "Bead creation: $BEAD_OUTPUT"
-    # br emits ids like bd-xxxxx; also accept orch-* for harness compatibility
+    # Parse first bead/issue id from br output (common shapes: bd-*, orch-*; extend regex if your br uses other prefixes)
     ISSUE_ID=$(echo "$BEAD_OUTPUT" | python3 -c "import sys,re; t=sys.stdin.read(); m=re.search(r'\b((?:bd|orch)-[a-z0-9]+)\b', t, re.I); print(m.group(1).lower() if m else '')" 2>/dev/null)
     if [ -z "$ISSUE_ID" ]; then
       echo "ERROR: Failed to create bead from task"
@@ -536,7 +535,7 @@ echo "Kill: kill $CLAW_PID"
 | Pattern | Route |
 |---------|-------|
 | Contains `fix`, `implement`, `write code`, `create PR`, `refactor` | **ao spawn** (Path A) |
-| Contains issue ID like `orch-xxxx`, `wa-xxxx`, `bd-xxxx` | **ao spawn** (Path A) |
+| Contains issue ID like `orch-xxxx`, `wa-xxxx`, or other tracker ids | **ao spawn** (Path A) |
 | Contains PR reference like `PR #123` | **ao spawn** (Path A) |
 | Contains `summarize`, `explain`, `read-only`, `what is`, `list` | **Gateway HTTP** (Path B) |
 | No coding keywords detected | **Gateway HTTP** (Path B) |
@@ -552,4 +551,5 @@ echo "Kill: kill $CLAW_PID"
 - **Slash commands**: Resolved before dispatch in both paths (command definition inlined into task)
 - **Task file cleanup**: Temp task files are kept at `/tmp/openclaw/.claw-task-*.txt` for manual resend if needed
 - **Bead creation**: If no issue ID is detected in a coding task, a bead is created automatically via `br create`
-- **Beads**: `bd-*` (this repo) and `orch-*` (harness); orch-sq2 tracks parallel ao spawn routing
+- **Per-repo / per-machine overrides**: The prefix → `PROJECT_ID` map is **example data**. Do **not** fork this file for every repository — add a **`bd-*)` → your-project** arm (or change the default `*)`) in **user scope** `~/.claude/commands/claw.md`, or rely on **`ao spawn` from the repo root** so AO picks the project from config/cwd. Same for tmux session name prefix if your namespace differs from `bb5e6b7f8db3-`.
+- **Bead routing reference**: see bead **orch-sq2** (parallel `ao spawn` routing) in your tracker if used.
