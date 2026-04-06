@@ -124,6 +124,17 @@ projects:
     # autoMerge:
     #   enabled: false
 
+  # Fork: jleechanorg/agent-orchestrator — enable builtin AO evolve loop (manager eloop / bd-elcfg).
+  # Mirror this under projects.agent-orchestrator in ~/.openclaw/agent-orchestrator.yaml when self-hosting.
+  agent-orchestrator:
+    name: Agent Orchestrator
+    repo: jleechanorg/agent-orchestrator
+    path: ~/projects_reference/agent-orchestrator
+    defaultBranch: main
+    sessionPrefix: ao
+    evolveLoop:
+      enabled: true
+
 # Notification channels
 # notifiers:
 #   slack:
