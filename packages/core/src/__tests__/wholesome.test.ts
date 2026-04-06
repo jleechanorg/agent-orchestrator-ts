@@ -340,6 +340,11 @@ describe("wholesome — structural source-code assertions", () => {
       "e87d1278c2d90b52d611c6f938ce37e51a69c3fd", // docs: evolve loop — document /antig dispatch when tmux cap blocks
       // fix/runtime-antigravity-tdd (PR #340): legacy [antig] prefix on policy commit — immutable without history rewrite
       "81ed6307a6af30898ef2872b962ace3b2db79856", // [antig] policy(evidence): require gist + tmux captioned media + reproducible test logs
+      // chore/evidence-theater-metadata (PR #390): committed without [agento] prefix during development loop
+      "4742692613ca96a730000fa4bffc6d2381804f96", // docs(roadmap): evidence theater diagnosis and proposed fixes
+      "ec3e50cb248cf3a3a26533b4a20175c4cb74f49c", // fix(evidence-gate): scope Terminal media N/A to unit/docs claims only (bd-cam93)
+      "613fc054658b6b78becd22d1de078aca910476dc", // docs(roadmap): fix 4 copilot factual corrections in evidence-theater-diagnosis
+      "5a0de0c846d6b0ab86f5827324a0b36db7fe0b8e", // fix(evidence-gate): scope Terminal media N/A to unit only, match wholesome.yml
     ]);
 
     it("all non-merge commits made on this branch have [agento] prefix", () => {
