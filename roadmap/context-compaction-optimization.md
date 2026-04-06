@@ -106,7 +106,7 @@ See **bd-cx02** (MCP trim) and fork maintainer notes for the detailed server-by-
 
 ### Next Steps
 
-1. bd-cx05: Upgrade to v2.1.92 -- can only be validated by real interactive use
+1. bd-cx05: Upgrade to v2.1.92 -- **validation-only** for controlled interactive testing; do not yet update the default pin (v2.1.89) until compaction proves stable
 2. bd-cx02: Further MCP/skills trim (user commands consolidation: ~1.3K tokens)
 3. bd-cx03: File upstream bug with telemetry data
 4. Consider reducing ~300 skill count through consolidation (biggest remaining lever)
