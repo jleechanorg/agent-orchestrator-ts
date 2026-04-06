@@ -34,7 +34,8 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@jleechanorg/ao-core": "workspace:*"
+    "@jleechanorg/ao-core": "workspace:*",
+    "@jleechanorg/ao-plugin-agent-base": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^25.2.3",

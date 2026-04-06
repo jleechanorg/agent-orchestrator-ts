@@ -69,7 +69,7 @@ class McpMailClient {
     const url = `${base}/mcp`;
     const response = await fetch(url, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...(process.env.MCP_AGENT_MAIL_TOKEN ? { "Authorization": `Bearer ${process.env.MCP_AGENT_MAIL_TOKEN}` } : {}) },
       body: JSON.stringify({
         jsonrpc: "2.0",
         method: "tools/call",

@@ -1,3 +1,4 @@
+import { setupMcpMailInWorkspace } from "@jleechanorg/ao-plugin-agent-base";
 import {
   shellEscape,
   DEFAULT_READY_THRESHOLD_MS,
@@ -110,6 +111,14 @@ function createAiderAgent(): Agent {
     getEnvironment(config: AgentLaunchConfig): Record<string, string> {
       const env: Record<string, string> = {};
       env["AO_SESSION_ID"] = config.sessionId;
+
+      // Pass MCP mail configuration to the agent if available
+      if (process.env.MCP_AGENT_MAIL_URL) {
+        env["MCP_AGENT_MAIL_URL"] = process.env.MCP_AGENT_MAIL_URL;
+      }
+      if (process.env.MCP_AGENT_MAIL_TOKEN) {
+        env["MCP_AGENT_MAIL_TOKEN"] = process.env.MCP_AGENT_MAIL_TOKEN;
+      }
       // NOTE: AO_PROJECT_ID is the caller's responsibility (spawn.ts sets it)
       if (config.issueId) {
         env["AO_ISSUE_ID"] = config.issueId;
@@ -123,6 +132,9 @@ function createAiderAgent(): Agent {
       return "active";
     },
 
+    async setupWorkspaceHooks(workspacePath: string): Promise<void> {
+      await setupMcpMailInWorkspace(workspacePath, ".aider");
+    },
     async getActivityState(
       session: Session,
       readyThresholdMs?: number,

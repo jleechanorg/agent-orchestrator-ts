@@ -1150,7 +1150,11 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
     let handle: RuntimeHandle;
     try {
       const launchCommand = plugins.agent.getLaunchCommand(agentLaunchConfig);
-      const environment = plugins.agent.getEnvironment(agentLaunchConfig);
+      const environment = {
+      ...plugins.agent.getEnvironment(agentLaunchConfig),
+      ...(process.env.MCP_AGENT_MAIL_URL ? { MCP_AGENT_MAIL_URL: process.env.MCP_AGENT_MAIL_URL } : {}),
+      ...(process.env.MCP_AGENT_MAIL_TOKEN ? { MCP_AGENT_MAIL_TOKEN: process.env.MCP_AGENT_MAIL_TOKEN } : {}),
+    };
 
       handle = await plugins.runtime.create({
         sessionId: tmuxName ?? sessionId, // Use tmux name for runtime if available
@@ -1477,7 +1481,11 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
     };
 
     const launchCommand = plugins.agent.getLaunchCommand(agentLaunchConfig);
-    const environment = plugins.agent.getEnvironment(agentLaunchConfig);
+    const environment = {
+      ...plugins.agent.getEnvironment(agentLaunchConfig),
+      ...(process.env.MCP_AGENT_MAIL_URL ? { MCP_AGENT_MAIL_URL: process.env.MCP_AGENT_MAIL_URL } : {}),
+      ...(process.env.MCP_AGENT_MAIL_TOKEN ? { MCP_AGENT_MAIL_TOKEN: process.env.MCP_AGENT_MAIL_TOKEN } : {}),
+    };
 
     const handle = await plugins.runtime.create({
       sessionId: tmuxName ?? sessionId,
@@ -2800,7 +2808,20 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       launchCommand = plugins.agent.getLaunchCommand(agentLaunchConfig);
     }
 
-    const environment = plugins.agent.getEnvironment(agentLaunchConfig);
+    // Ensure workspace hooks and MCP config are set up before launching
+    if (plugins.agent.setupWorkspaceHooks) {
+      try {
+        await plugins.agent.setupWorkspaceHooks(workspacePath, { dataDir: sessionsDir });
+      } catch (err) {
+        console.warn(`[session-manager] hook setup failed for workspace=${workspacePath} agent=${selection.agentName}: ${err}`);
+      }
+    }
+
+    const environment = {
+      ...plugins.agent.getEnvironment(agentLaunchConfig),
+      ...(process.env.MCP_AGENT_MAIL_URL ? { MCP_AGENT_MAIL_URL: process.env.MCP_AGENT_MAIL_URL } : {}),
+      ...(process.env.MCP_AGENT_MAIL_TOKEN ? { MCP_AGENT_MAIL_TOKEN: process.env.MCP_AGENT_MAIL_TOKEN } : {}),
+    };
 
     // 8. Create runtime (reuse tmuxName from metadata)
     const tmuxName = raw["tmuxName"];

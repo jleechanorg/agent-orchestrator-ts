@@ -293,6 +293,9 @@ importers:
       '@jleechanorg/ao-core':
         specifier: workspace:*
         version: link:../../core
+      '@jleechanorg/ao-plugin-agent-base':
+        specifier: workspace:*
+        version: link:../agent-base
     devDependencies:
       '@types/node':
         specifier: ^25.2.3
@@ -344,6 +347,9 @@ importers:
       '@jleechanorg/ao-core':
         specifier: workspace:*
         version: link:../../core
+      '@jleechanorg/ao-plugin-agent-base':
+        specifier: workspace:*
+        version: link:../agent-base
     devDependencies:
       '@types/node':
         specifier: ^25.2.3
@@ -417,6 +423,9 @@ importers:
       '@jleechanorg/ao-core':
         specifier: workspace:*
         version: link:../../core
+      '@jleechanorg/ao-plugin-agent-base':
+        specifier: workspace:*
+        version: link:../agent-base
     devDependencies:
       '@types/node':
         specifier: ^25.2.3
