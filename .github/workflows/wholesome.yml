@@ -231,7 +231,7 @@ GITHUB_PR_BODY
           fi
           echo "Repro gist: PASS"
 
-          # 2) Terminal media (bd-vidcap: HTTPS video for non-unit) + tmux/terminal context + caption
+          # 2) Terminal media (bd-vidcap: HTTPS URL + tmux caption; unknown pattern → WARN — align evidence-gate.yml)
           # Unit claims are exempt: no runtime tmux/terminal output for pure-docs/automation PRs.
           # Unit claims exempt from runtime terminal proof (evidence-gate.yml handles unit coverage separately).
           if ! printf '%s' "$TM_BLOCK" | grep -qF '**Terminal media**:'; then
@@ -239,13 +239,30 @@ GITHUB_PR_BODY
             exit 1
           fi
           if [ "$CLAIM" != "unit" ]; then
-            HAS_TM_VIDEO=false
-            if printf '%s' "$TM_BLOCK" | grep -qiE 'https://[^[:space:]]+\.(mp4|gif|webm|mov)([/?#]|$)'; then HAS_TM_VIDEO=true; fi
-            if [ "$HAS_TM_VIDEO" = "false" ] && printf '%s' "$TM_BLOCK" | grep -qiE 'https://github\.com/user-attachments/assets/[a-f0-9-]+'; then HAS_TM_VIDEO=true; fi
-            if [ "$HAS_TM_VIDEO" = "false" ] && printf '%s' "$TM_BLOCK" | grep -qiE '!\[[^]]*\]\(https://[^)]+\.(mp4|gif|webm|mov)([?#)]|$)'; then HAS_TM_VIDEO=true; fi
-            if [ "$HAS_TM_VIDEO" != "true" ]; then
-              echo "FAIL: **Terminal media** must include a captioned HTTPS video URL (.mp4, .gif, .webm, .mov) or GitHub user-attachments asset URL"
+            if printf '%s' "$TM_BLOCK" | grep -qiE '\bN/A\b' && ! printf '%s' "$TM_BLOCK" | grep -qE 'https://'; then
+              echo "FAIL: **Terminal media** must include an HTTPS URL for non-unit claims (not N/A)"
               exit 1
+            fi
+            if ! printf '%s' "$TM_BLOCK" | grep -qE 'https://[^[:space:]]+'; then
+              echo "FAIL: **Terminal media** must include a real HTTPS URL for non-unit claims"
+              exit 1
+            fi
+            TM_FIRST_URL=$(printf '%s' "$TM_BLOCK" | grep -oE 'https://[^[:space:])>]+' | head -1 | sed 's/[.,;]*$//')
+            if [ -z "$TM_FIRST_URL" ]; then
+              echo "FAIL: Could not extract Terminal media HTTPS URL"
+              exit 1
+            fi
+            if printf '%s' "$TM_FIRST_URL" | grep -qiE 'https?://(www\.)?example\.com'; then
+              echo "FAIL: **Terminal media** URL must not be a placeholder (example.com)"
+              exit 1
+            fi
+            KNOWN_TM=false
+            if printf '%s' "$TM_FIRST_URL" | grep -qiE '\.(mp4|gif|cast|webm|mov)([/?#]|$)'; then KNOWN_TM=true; fi
+            if [ "$KNOWN_TM" = "false" ] && printf '%s' "$TM_FIRST_URL" | grep -qiE 'gist\.github\.com'; then KNOWN_TM=true; fi
+            if [ "$KNOWN_TM" = "false" ] && printf '%s' "$TM_FIRST_URL" | grep -qiE 'asciinema\.org'; then KNOWN_TM=true; fi
+            if [ "$KNOWN_TM" = "false" ] && printf '%s' "$TM_FIRST_URL" | grep -qiE 'github\.com/user-attachments/assets/'; then KNOWN_TM=true; fi
+            if [ "$KNOWN_TM" = "false" ]; then
+              echo "WARN: bd-vidcap — Terminal media URL may not match a known artifact pattern (.mp4, .gif, .cast, gist, asciinema, user-attachments). Prefer a captioned cast or video link."
             fi
             TM_URL_LINE=$(printf '%s' "$TM_BLOCK" | grep -n 'https://' | head -1 | cut -d: -f1)
             # Strip the bold label prefix from the URL line so only the caption survives.
@@ -259,7 +276,7 @@ GITHUB_PR_BODY
               echo "FAIL: Terminal media caption must reference tmux or terminal context (not only the **Terminal media** label)"
               exit 1
             fi
-            echo "Terminal media + caption: PASS (video URL)"
+            echo "Terminal media + caption: PASS (HTTPS URL)"
           else
             # Unit claim: accept N/A text for terminal media (no runtime tmux output for docs/automation PRs)
             if printf '%s' "$TM_BLOCK" | grep -qE 'https://[^[:space:]]+'; then

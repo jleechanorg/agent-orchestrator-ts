@@ -38,7 +38,7 @@ defaults:
   # Copy into your real agent-orchestrator.yaml (or merge into existing agentRules).
   agentRules: |
     Evidence / PR body (integration+ claim classes — integration, pipeline-e2e, pr-lifecycle-e2e, merge-gate, or higher):
-    - Before creating or updating a PR body, run the user-scope `tmux-video-evidence` skill at `~/.claude/skills/tmux-video-evidence/` to capture **Terminal media** as a captioned HTTPS video URL (.mp4/.gif/.webm/.mov, asciinema cast, or GitHub user-attachments) with tmux/terminal context in the caption (evidence-gate enforces video, not PNG-only screenshots, for integration+).
+    - Before creating or updating a PR body, run the user-scope `tmux-video-evidence` skill at `~/.claude/skills/tmux-video-evidence/` to capture **Terminal media** as a captioned HTTPS URL to a real artifact (prefer .mp4/.gif/.cast, gist.github.com, asciinema.org, or user-attachments); unknown URLs may still pass CI with a warning (bd-vidcap). Caption must mention tmux or terminal.
     - For integration+ claims, also run `smoke-test-local` at `~/.claude/skills/smoke-test-local/` when a local smoke flow applies.
     - Never write `N/A` for **Terminal media** on code-change PRs when the claim class is integration or higher.
   # bd-n047: Centralized auto-merge control — applied to all projects unless overridden.

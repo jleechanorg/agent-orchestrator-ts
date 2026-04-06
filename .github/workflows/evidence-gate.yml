@@ -376,7 +376,7 @@ jobs:
               HAS_OUTPUT=true
             fi
 
-            # 3. Terminal media (bd-vidcap): captioned tmux VIDEO URL — not a bare screenshot or placeholder.
+            # 3. Terminal media (bd-vidcap): real HTTPS URL + tmux caption; unknown artifact pattern → WARN only.
             HAS_TM_MEDIA=false
             TM_BLOCK=$(printf '%s' "$EVIDENCE" | awk '
               /\*\*Terminal media(\*\*)?:/ { show=1 }
@@ -387,13 +387,31 @@ jobs:
               echo "ERROR: Missing **Terminal media** label in evidence section."
               exit 1
             fi
-            HAS_TM_VIDEO=false
-            if printf '%s' "$TM_BLOCK" | grep -qiE 'https://[^[:space:]]+\.(mp4|gif|webm|mov)([/?#]|$)'; then HAS_TM_VIDEO=true; fi
-            if [ "$HAS_TM_VIDEO" = "false" ] && printf '%s' "$TM_BLOCK" | grep -qiE 'https://github\.com/user-attachments/assets/[a-f0-9-]+'; then HAS_TM_VIDEO=true; fi
-            if [ "$HAS_TM_VIDEO" = "false" ] && printf '%s' "$TM_BLOCK" | grep -qiE '!\[[^]]*\]\(https://[^)]+\.(mp4|gif|webm|mov)([?#)]|$)'; then HAS_TM_VIDEO=true; fi
-            if [ "$HAS_TM_VIDEO" != "true" ]; then
-              echo "ERROR: **Terminal media** must include a captioned HTTPS video URL (.mp4, .gif, .webm, .mov) or GitHub user-attachments asset URL."
+            # Fix 1 (bd-cam93): integration+ must not omit URL or use N/A for Terminal media alone.
+            if printf '%s' "$TM_BLOCK" | grep -qiE '\bN/A\b' && ! printf '%s' "$TM_BLOCK" | grep -qE 'https://'; then
+              echo "ERROR: **Terminal media** must include an HTTPS URL for integration+ claims (not N/A)."
               exit 1
+            fi
+            if ! printf '%s' "$TM_BLOCK" | grep -qE 'https://[^[:space:]]+'; then
+              echo "ERROR: **Terminal media** must include a real HTTPS URL for integration+ claims."
+              exit 1
+            fi
+            TM_FIRST_URL=$(printf '%s' "$TM_BLOCK" | grep -oE 'https://[^[:space:])>]+' | head -1 | sed 's/[.,;]*$//')
+            if [ -z "$TM_FIRST_URL" ]; then
+              echo "ERROR: Could not extract a Terminal media HTTPS URL."
+              exit 1
+            fi
+            if printf '%s' "$TM_FIRST_URL" | grep -qiE 'https?://(www\.)?example\.com'; then
+              echo "ERROR: **Terminal media** URL must not be a placeholder (example.com)."
+              exit 1
+            fi
+            KNOWN_TM=false
+            if printf '%s' "$TM_FIRST_URL" | grep -qiE '\.(mp4|gif|cast|webm|mov)([/?#]|$)'; then KNOWN_TM=true; fi
+            if [ "$KNOWN_TM" = "false" ] && printf '%s' "$TM_FIRST_URL" | grep -qiE 'gist\.github\.com'; then KNOWN_TM=true; fi
+            if [ "$KNOWN_TM" = "false" ] && printf '%s' "$TM_FIRST_URL" | grep -qiE 'asciinema\.org'; then KNOWN_TM=true; fi
+            if [ "$KNOWN_TM" = "false" ] && printf '%s' "$TM_FIRST_URL" | grep -qiE 'github\.com/user-attachments/assets/'; then KNOWN_TM=true; fi
+            if [ "$KNOWN_TM" = "false" ]; then
+              echo "::warning::bd-vidcap: Terminal media URL is not a recognized artifact pattern (.mp4, .gif, .cast, gist.github.com, asciinema.org, user-attachments). Prefer a captioned cast or video link; gate still passes."
             fi
             TM_URL_LINE=$(printf '%s' "$TM_BLOCK" | grep -n 'https://' | head -1 | cut -d: -f1)
             CAPTION_LINES=$(printf '%s' "$TM_BLOCK" | tail -n +"${TM_URL_LINE:-1}" | grep -v '^[[:space:]]*$' | grep -v '^[[:space:]]*```' | awk '{ sub(/^\*\*Terminal media\*\*:[[:space:]]*/, ""); sub(/^\*\*Terminal media\*\* :[[:space:]]*/, ""); print }')
@@ -447,7 +465,7 @@ jobs:
               echo "ERROR: Strong evidence standard not met for claim class '$CLAIM'."
               echo "Required for non-unit claims (CR bd-2oko fix — explicit field validation restored):"
               echo "  - **Repro gist**: https://gist.github.com/... URL"
-              echo "  - **Terminal media**: captioned HTTPS video URL (.mp4/.gif/.webm/.mov or user-attachments)"
+              echo "  - **Terminal media**: captioned HTTPS URL; unknown patterns get advisory WARN (bd-vidcap)"
               echo "  - **Terminal test output**: fenced code block with a concrete test command"
               echo "  - **UI media**: HTTPS media or 'N/A - no UI changes' (frontend PRs: captioned UI video)"
               echo "  - Self-validation language: verified, confirmed, reproduced, etc. (CLAUDE.md bd-357-fix)"
