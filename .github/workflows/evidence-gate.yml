@@ -11,7 +11,8 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
-  pull-requests: read  # needed to read merged status
+  pull-requests: read  # PR body, merged status, and gh api pulls/.../files (bd-vidcap frontend detection)
+  contents: read
 
 jobs:
   evidence-gate:
@@ -281,9 +282,22 @@ jobs:
 
       - name: Enforce strong artifact evidence for non-unit claims
         if: steps.check.outputs.found == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           BODY=$(cat "$RUNNER_TEMP/pr_body.txt")
           CLAIM="${{ steps.claim.outputs.claim }}"
+
+          # bd-vidcap: detect frontend-touched paths for UI video enforcement (deterministic paths, not LLM routing).
+          FRONTEND_TOUCH=false
+          if ! FILES="$(gh api "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files" --paginate --jq '.[].filename' 2>/dev/null)"; then
+            echo "ERROR: Could not list PR files (required for frontend UI media enforcement)."
+            exit 1
+          fi
+          if printf '%s' "$FILES" | grep -qiE '\.(tsx|jsx|vue|svelte)$'; then
+            FRONTEND_TOUCH=true
+          fi
+          echo "frontend_touch=$FRONTEND_TOUCH"
 
           # integration + higher claims require rich artifacts; unit can use terminal evidence only.
           # CR bd-2oko fix: integration was missing from this list (let it bypass strong proof).
@@ -362,42 +376,63 @@ jobs:
               HAS_OUTPUT=true
             fi
 
-            # 3. Terminal media: HTTPS URL OR N/A text.
-            # bd-cam93: N/A accepted only for unit claims — matches wholesome.yml behaviour
-            # (lines 244-250). This block only runs for integration+ claims, so unit is the
-            # only lower class that can appear here (e.g., a unit claim promoted by the claim
-            # floor rule in a future iteration). documentation-only never reaches this block.
+            # 3. Terminal media (bd-vidcap): captioned tmux VIDEO URL — not a bare screenshot or placeholder.
             HAS_TM_MEDIA=false
             TM_BLOCK=$(printf '%s' "$EVIDENCE" | awk '
               /\*\*Terminal media(\*\*)?:/ { show=1 }
               show && /\*\*Terminal test output(\*\*)?:/ { exit }
               show { print }
             ')
-            if [ "$CLAIM" = "unit" ] && printf '%s' "$TM_BLOCK" | grep -qiE 'N/A'; then
-              HAS_TM_MEDIA=true
+            if ! printf '%s' "$TM_BLOCK" | grep -qE '\*\*Terminal media(\*\*)?:'; then
+              echo "ERROR: Missing **Terminal media** label in evidence section."
+              exit 1
             fi
-            if [ "$HAS_TM_MEDIA" = "false" ] && printf '%s' "$TM_BLOCK" | grep -qE '\*\*Terminal media(\*\*)?:' && printf '%s' "$TM_BLOCK" | grep -qE 'https://[^[:space:]]+'; then
-              HAS_TM_MEDIA=true
+            HAS_TM_VIDEO=false
+            if printf '%s' "$TM_BLOCK" | grep -qiE 'https://[^[:space:]]+\.(mp4|gif|webm|mov)([/?#]|$)'; then HAS_TM_VIDEO=true; fi
+            if [ "$HAS_TM_VIDEO" = "false" ] && printf '%s' "$TM_BLOCK" | grep -qiE 'https://github\.com/user-attachments/assets/[a-f0-9-]+'; then HAS_TM_VIDEO=true; fi
+            if [ "$HAS_TM_VIDEO" = "false" ] && printf '%s' "$TM_BLOCK" | grep -qiE '!\[[^]]*\]\(https://[^)]+\.(mp4|gif|webm|mov)([?#)]|$)'; then HAS_TM_VIDEO=true; fi
+            if [ "$HAS_TM_VIDEO" != "true" ]; then
+              echo "ERROR: **Terminal media** must include a captioned HTTPS video URL (.mp4, .gif, .webm, .mov) or GitHub user-attachments asset URL."
+              exit 1
             fi
+            TM_URL_LINE=$(printf '%s' "$TM_BLOCK" | grep -n 'https://' | head -1 | cut -d: -f1)
+            CAPTION_LINES=$(printf '%s' "$TM_BLOCK" | tail -n +"${TM_URL_LINE:-1}" | grep -v '^[[:space:]]*$' | grep -v '^[[:space:]]*```' | awk '{ sub(/^\*\*Terminal media\*\*:[[:space:]]*/, ""); sub(/^\*\*Terminal media\*\* :[[:space:]]*/, ""); print }')
+            if [ -z "$CAPTION_LINES" ]; then
+              echo "ERROR: Terminal media must include caption text (inline or following lines)."
+              exit 1
+            fi
+            if ! printf '%s' "$CAPTION_LINES" | grep -qiE 'tmux|terminal'; then
+              echo "ERROR: Terminal media caption must reference tmux or terminal context (not only the **Terminal media** label)."
+              exit 1
+            fi
+            HAS_TM_MEDIA=true
 
-            # 4. UI media: HTTPS URL (extension-suffixed) or markdown image, OR exact N/A text.
+            # 4. UI media: OR exact N/A text; else HTTPS image/video per claim.
+            # bd-vidcap: frontend PRs require captioned UI video when UI is evidenced (ui-video-evidence).
             # Scope to UI_BLOCK (after **UI media** label) to avoid accepting Terminal media
             # URLs as satisfying the UI media requirement (copilot bd-2oko fix).
-            # FIX bd-2oko: remove "next" so the **UI media** line itself is included in UI_BLOCK,
-            # enabling the grep -qF '**UI media:' check (and inline "N/A - no UI changes" form) to work.
             HAS_UI_MEDIA=false
             UI_BLOCK=$(printf '%s' "$EVIDENCE" | awk '
               /\*\*UI media(\*\*)?:/ { show=1 }
               show && /^[[:space:]]*##[[:space:]]/ { exit }
               show { print }
             ')
-            # FIX bd-ao357: use grep -qF for fixed-string UI media label check.
             if printf '%s' "$UI_BLOCK" | grep -qE '\*\*UI media(\*\*)?:' && printf '%s' "$UI_BLOCK" | grep -qiE 'N/A.*no UI|N/A - no UI'; then
               HAS_UI_MEDIA=true
-            elif printf '%s' "$UI_BLOCK" | grep -qiE 'https://[^[:space:]]+\.(png|jpg|jpeg|gif|webp|mp4|webm|mov)'; then
-              HAS_UI_MEDIA=true
-            elif printf '%s' "$UI_BLOCK" | grep -qiE '!\[[^]]*\]\(https://[^)]+\.(png|jpg|jpeg|gif|webp|mp4|webm|mov)\)'; then
-              HAS_UI_MEDIA=true
+            elif [ "$FRONTEND_TOUCH" = "true" ]; then
+              HAS_UI_VIDEO=false
+              if printf '%s' "$UI_BLOCK" | grep -qiE 'https://[^[:space:]]+\.(mp4|gif|webm|mov)([/?#]|$)'; then HAS_UI_VIDEO=true; fi
+              if [ "$HAS_UI_VIDEO" = "false" ] && printf '%s' "$UI_BLOCK" | grep -qiE 'https://github\.com/user-attachments/assets/[a-f0-9-]+'; then HAS_UI_VIDEO=true; fi
+              if [ "$HAS_UI_VIDEO" = "false" ] && printf '%s' "$UI_BLOCK" | grep -qiE '!\[[^]]*\]\(https://[^)]+\.(mp4|gif|webm|mov)([?#)]|$)'; then HAS_UI_VIDEO=true; fi
+              if [ "$HAS_UI_VIDEO" = "true" ] && printf '%s' "$UI_BLOCK" | grep -qiE 'caption'; then
+                HAS_UI_MEDIA=true
+              fi
+            else
+              if printf '%s' "$UI_BLOCK" | grep -qiE 'https://[^[:space:]]+\.(png|jpg|jpeg|gif|webp|mp4|webm|mov)'; then
+                HAS_UI_MEDIA=true
+              elif printf '%s' "$UI_BLOCK" | grep -qiE '!\[[^]]*\]\(https://[^)]+\.(png|jpg|jpeg|gif|webp|mp4|webm|mov)\)'; then
+                HAS_UI_MEDIA=true
+              fi
             fi
 
             # CR bd-357-fix: add self-validation language check for non-unit claims.
@@ -412,9 +447,9 @@ jobs:
               echo "ERROR: Strong evidence standard not met for claim class '$CLAIM'."
               echo "Required for non-unit claims (CR bd-2oko fix — explicit field validation restored):"
               echo "  - **Repro gist**: https://gist.github.com/... URL"
-              echo "  - **Terminal media**: HTTPS screenshot/video URL or N/A"
+              echo "  - **Terminal media**: captioned HTTPS video URL (.mp4/.gif/.webm/.mov or user-attachments)"
               echo "  - **Terminal test output**: fenced code block with a concrete test command"
-              echo "  - **UI media**: HTTPS screenshot/video URL or 'N/A - no UI changes'"
+              echo "  - **UI media**: HTTPS media or 'N/A - no UI changes' (frontend PRs: captioned UI video)"
               echo "  - Self-validation language: verified, confirmed, reproduced, etc. (CLAUDE.md bd-357-fix)"
               echo "Detected: gist=$HAS_GIST tm_media=$HAS_TM_MEDIA test_output=$HAS_OUTPUT ui_media=$HAS_UI_MEDIA self_validation=$HAS_SELF_VALIDATION"
               exit 1
