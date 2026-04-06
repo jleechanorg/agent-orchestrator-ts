@@ -7,7 +7,7 @@ import {
 } from "@jleechanorg/ao-plugin-agent-base";
 import {
   DEFAULT_READY_THRESHOLD_MS,
-  readLastJsonlEntry,
+  readLastJsonlEntry, readLastJsonEntry,
   type Agent,
   type AgentLaunchConfig,
   type ActivityDetection,
@@ -106,25 +106,7 @@ const geminiConfig: AgentPluginConfig = {
  *   "error"  → error occurred               → blocked
  *   "info"   → informational                → active
  */
-async function readLastGeminiNativeEntry(
-  filePath: string,
-): Promise<{ lastType: string | null; modifiedAt: Date } | null> {
-  try {
-    const [content, fileStat] = await Promise.all([readFile(filePath, "utf-8"), stat(filePath)]);
-    const parsed: unknown = JSON.parse(content);
-    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return null;
 
-    const obj = parsed as Record<string, unknown>;
-    if (!Array.isArray(obj.messages) || obj.messages.length === 0) return null;
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const lastMsg = obj.messages[obj.messages.length - 1] as any;
-    const lastType = typeof lastMsg?.type === "string" ? lastMsg.type : null;
-    return { lastType, modifiedAt: fileStat.mtime };
-  } catch {
-    return null;
-  }
-}
 
 const geminiOverrides: Partial<Agent> = {
   async getRestoreCommand(_session: Session, _project: ProjectConfig): Promise<string | null> {
@@ -155,7 +137,7 @@ const geminiOverrides: Partial<Agent> = {
     if (!sessionFile) return null;
 
     // Try native Gemini JSON format first: { sessionId, messages: [...] }
-    const nativeEntry = await readLastGeminiNativeEntry(sessionFile);
+    const nativeEntry = await readLastJsonEntry(sessionFile);
     // Only use native entry if lastType is a known string; null means the entry
     // exists but has no string `type`, so fall through to JSONL rather than
     // mis-classifying via the `default` branch.

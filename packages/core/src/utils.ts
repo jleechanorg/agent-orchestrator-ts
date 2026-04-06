@@ -2,7 +2,7 @@
  * Shared utility functions for agent-orchestrator plugins.
  */
 
-import { open, stat } from "node:fs/promises";
+import { open, readFile, stat } from "node:fs/promises";
 import type { OrchestratorConfig } from "./types.js";
 
 /**
@@ -154,4 +154,29 @@ export function resolveProjectIdForSessionId(
     }
   }
   return undefined;
+}
+
+/**
+ * Read the last message type from a standard JSON session file (e.g. Gemini).
+ *
+ * Expected format: { messages: [{ type: string, ... }, ...] }
+ */
+export async function readLastJsonEntry(
+  filePath: string,
+): Promise<{ lastType: string | null; modifiedAt: Date } | null> {
+  try {
+    const [content, fileStat] = await Promise.all([readFile(filePath, "utf-8"), stat(filePath)]);
+    const parsed: unknown = JSON.parse(content);
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return null;
+
+    const obj = parsed as Record<string, unknown>;
+    if (!Array.isArray(obj.messages) || obj.messages.length === 0) return null;
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const lastMsg = obj.messages[obj.messages.length - 1] as any;
+    const lastType = typeof lastMsg?.type === "string" ? lastMsg.type : null;
+    return { lastType, modifiedAt: fileStat.mtime };
+  } catch {
+    return null;
+  }
 }

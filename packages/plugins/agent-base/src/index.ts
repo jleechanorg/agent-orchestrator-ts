@@ -1,6 +1,7 @@
 import {
   shellEscape,
   readLastJsonlEntry,
+  readLastJsonEntry,
   DEFAULT_READY_THRESHOLD_MS,
   type Agent,
   type AgentSessionInfo,
@@ -1191,7 +1192,7 @@ export function createAgentPlugin(config: AgentPluginConfig, overrides?: Partial
         return null;
       }
 
-      const entry = await readLastJsonlEntry(sessionFile);
+      const entry = config.sessionFileExtension === ".json" ? await readLastJsonEntry(sessionFile) : await readLastJsonlEntry(sessionFile);
       if (!entry) {
         // Empty file or read error — cannot determine activity
         return null;
