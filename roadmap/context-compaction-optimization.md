@@ -76,3 +76,37 @@ See **bd-cx02** (MCP trim) and fork maintainer notes for the detailed server-by-
 - **ArkNill/claude-code-cache-analysis** -- proxy-based analysis of compaction behavior
 - **Lydia Hallie (Anthropic)** -- acknowledged peak-hour context window tightening
 - **Medium: Context Recovery Hook** -- workaround using PostCompact hook to re-inject critical context
+
+## Session Findings (2026-04-06)
+
+### PreCompact Hook -- Partial Coverage
+
+- Hook fires on v2.1.77 (contradicts earlier "dead code" hypothesis)
+- But only intercepts ~2% of compactions: 1 block out of 54 compact_boundary events
+- Hook log showed 4 entries: 3 ALLOWED (AO workers), 1 BLOCKED (interactive)
+- Multiple compaction code paths exist; hook only covers one
+
+### Test Methodology -- tmux send-keys Does Not Reproduce
+
+- tmux send-keys driven sessions have 0 system-reminders (vs 22 in real session)
+- System-reminders contain ~15K of skill descriptions + hook context per turn
+- This per-turn overhead is what causes compaction in real sessions
+- Test sessions maxed at 18% context after 50+ prompts; main session hit 54 compactions
+- Valid A/B test requires real interactive use, not scripted tmux input
+
+### Optimizations Applied
+
+| Change | Status | Impact |
+|--------|--------|--------|
+| MCP trim (9 dead servers) | Done | Faster startup |
+| Marketplace plugin removal (165 skills) | Done | ~8-10K tokens/turn saved |
+| PreCompact hook installed | Done | Blocks ~2% of compactions |
+| Edit/Write permissions added | Done | No more permission dialogs |
+| CLAUDE_CODE_DISABLE_1M_CONTEXT removed | Done (prior session) | Enables 1M context |
+
+### Next Steps
+
+1. bd-cx05: Upgrade to v2.1.92 -- can only be validated by real interactive use
+2. bd-cx02: Further MCP/skills trim (user commands consolidation: ~1.3K tokens)
+3. bd-cx03: File upstream bug with telemetry data
+4. Consider reducing ~300 skill count through consolidation (biggest remaining lever)
