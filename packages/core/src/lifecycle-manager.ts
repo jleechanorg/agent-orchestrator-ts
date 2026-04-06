@@ -1926,8 +1926,9 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         agentDead,
       }, transitionReaction);
 
-      // Session exit reconciliation (bd-uxs.6): validate commits and emit proof on terminal states
-      if (TERMINAL_STATUSES.has(effectiveStatus) && !TERMINAL_STATUSES.has(oldStatus)) {
+      // Session exit reconciliation (bd-uxs.6): validate commits and emit proof on terminal states.
+      // Retried on every poll for terminal sessions that haven't been reaped yet (orch-v7oa).
+      if (TERMINAL_STATUSES.has(effectiveStatus)) {
         await validateAndEmitExitProof(session, effectiveStatus, {
           config,
           registry,
@@ -2603,13 +2604,9 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       // Do NOT pre-filter paused projects here: pause state may clear mid-cycle, and
       // excluded sessions can never be restored within the same poll tick.
       const sessionsToCheck = sessions.filter((s) => {
-        // Skip terminal statuses only if we've already seen and processed this session.
-        // If tracked is undefined (e.g., after lifecycle manager restart), allow it
-        // through once so exit proof and outcome can be emitted (bd-e4t).
-        if (TERMINAL_STATUSES.has(s.status)) {
-          const tracked = states.get(s.id);
-          return tracked === undefined || tracked !== s.status;
-        }
+        // Continue checking terminal sessions until they are reaped (removed from list).
+        // This ensures the kill() call is retried if it failed on the transition poll.
+        // Also allows exit proof and outcome to be emitted on first encounter (bd-e4t).
         return true;
       });
 
