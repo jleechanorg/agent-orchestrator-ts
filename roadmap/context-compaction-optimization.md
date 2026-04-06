@@ -4,6 +4,12 @@
 **Trigger**: Claude Code auto-compaction firing at 15% of 1M context window; effective usable context severely reduced
 **Related**: [claude-fork-reference.md](claude-fork-reference.md)
 
+## Status (2026-04-06)
+
+- **Roadmap merged**: [PR #387](https://github.com/jleechanorg/agent-orchestrator/pull/387) (this file + pointer from `claude-fork-reference.md`).
+- **Beads merged**: [PR #386](https://github.com/jleechanorg/agent-orchestrator/pull/386) (`.beads/issues.jsonl` — bd-cx03–bd-cx05, bd-tl9t closure, sync).
+- **bd-tl9t** — **Closed** (telemetry findings captured here and in issue history); ongoing work tracked under **bd-cx01–bd-cx05** (hooks, MCP trim, upstream bug, version path, upgrade benchmark).
+
 ## Problem Statement
 
 Claude Code's auto-compaction threshold (~150K tokens) does not scale with the 1M context window. It fires at 15% usage. Combined with heavy MCP/skills overhead (~100K+ per turn), effective usable context is severely reduced -- long sessions lose critical earlier context well before the window is meaningfully utilized.
@@ -38,7 +44,7 @@ Claude Code's auto-compaction threshold (~150K tokens) does not scale with the 1
 | bd-cx03 | P2 | File upstream bug with telemetry | open |
 | bd-cx04 | P2 | Version eval: v2.1.91 vs v2.1.77 | open |
 | bd-cx05 | P1 | Upgrade path after PreCompact hook benchmark (e.g. v2.1.92) | open |
-| bd-tl9t | P3 | Compaction telemetry (3.9x increase) | open |
+| bd-tl9t | P3 | Compaction telemetry (3.9× increase) | **closed** (2026-04-06; see Telemetry section) |
 
 ## Telemetry (bd-tl9t)
 

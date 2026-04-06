@@ -4,6 +4,14 @@ Design notes, audits, and rolling status for **jleechanorg/agent-orchestrator**.
 
 ## Recent activity (rolling)
 
+### 2026-04-06
+
+- **CLAUDE.md + fork reference** — Slim root `CLAUDE.md`, deep reference in [`claude-fork-reference.md`](./claude-fork-reference.md): [PR #383](https://github.com/jleechanorg/agent-orchestrator/pull/383).
+- **Docs + defaults** — `tryClaudePrint` flag docs aligned with implementation ([PR #384](https://github.com/jleechanorg/agent-orchestrator/pull/384)); default AO agent set to **cursor** ([PR #385](https://github.com/jleechanorg/agent-orchestrator/pull/385)).
+- **Compaction program** — Beads for telemetry + upstream follow-ups merged ([PR #386](https://github.com/jleechanorg/agent-orchestrator/pull/386)); long-form roadmap [`context-compaction-optimization.md`](./context-compaction-optimization.md) + fork cross-link ([PR #387](https://github.com/jleechanorg/agent-orchestrator/pull/387)). **bd-tl9t** (telemetry capture) **closed** — findings live in roadmap + JSONL.
+- **CLI** — `ao update` / smoke scripts resolve repo root and use CLI dist ([8682deff](https://github.com/jleechanorg/agent-orchestrator/commit/8682deff)).
+- **Branch hygiene** — Stale **`chore/claude-md-fork-reference`** removed after squash merges; active work tracks **`main`**.
+
 ### 2026-04-05
 
 - **Skill restoration (bd-pwku)** — Archived loose-md skills restored to **`~/.claude/skills/<name>/SKILL.md`**; repo **`.claude/skills/README.md`** + **`CLAUDE.md`** pointers; duplicate loose files removed. Details: [`skill-restoration.md`](./skill-restoration.md). Pre-change roadmap snapshot: **`~/Downloads/agent-orchestrator-roadmap-*`**.
@@ -20,6 +28,7 @@ See individual docs below; long-form evolve-loop cycles remain in [`evolve-loop-
 | Topic | File |
 |--------|------|
 | Skill restoration (user scope vs repo) | [skill-restoration.md](./skill-restoration.md) |
+| Claude Code context compaction (thresholds, beads bd-cx*) | [context-compaction-optimization.md](./context-compaction-optimization.md) |
 | Session / CLI observability harness | [session-registry-harness.md](./session-registry-harness.md) |
 | Evolve loop history & metrics | [evolve-loop-findings.md](./evolve-loop-findings.md) |
 | Skeptic + AO worker architecture | [skeptic-ao-worker-architecture.md](./skeptic-ao-worker-architecture.md) |
