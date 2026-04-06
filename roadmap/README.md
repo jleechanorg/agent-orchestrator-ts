@@ -2,7 +2,17 @@
 
 Design notes, audits, and rolling status for **jleechanorg/agent-orchestrator**. Upstream-facing docs live elsewhere; this folder is fork-first.
 
-## Recent activity (rolling)
+## Recent activity
+
+### 2026-04-06
+- PR #390 merged: evidence theater diagnosis + Fix 1 (bd-cam93, N/A scoping)
+- ao-3327 dispatched for Fix 2 (bd-4ze23, agentRules media wire) + Fix 3 (bd-7s0d, claim floor)
+- ao-3325 dispatched for PR #389 (conflicts + evidence section)
+- Epic bd-vide1 created: path to true video evidence (tmux + UI + captions)
+- **bd-elcfg / builtin eloop:** `evolveLoop` was already enabled in `~/.openclaw/agent-orchestrator.yaml`; added `antig-dispatch` to `autonomousFixScopes` (parity with jleechanclaw); `ai.agento.orchestrators` LaunchAgent restarted. Open: merge [PR #393](https://github.com/jleechanorg/agent-orchestrator/pull/393) for `agent-orchestrator.yaml.example` + close bd-elcfg.
+- **Beads / `br`:** Fixed invalid `updated_at` strings (`+00:00Z`) in `.beads/issues.jsonl` that broke `br import` / `br ready`; `br sync --rebuild` + flush — see commit `929fffb6`.
+- roadmap/video-evidence-roadmap.md created (rolling)
+- `fix(cli): register gemini agent plugin` — [`45ecdf2a`](https://github.com/jleechanorg/agent-orchestrator/commit/45ecdf2a) on `fix/gemini-plugin-registration`
 
 ### 2026-04-05
 
