@@ -11,5 +11,5 @@
 
 ## Related
 
-- Full routing (Path A `ao spawn` vs Path B gateway HTTP): **`.claude/commands/claw.md`** (or **`~/.claude/commands/claw.md`**)
+- Full routing (Path A `ao spawn` vs Path B gateway HTTP): **`~/.claude/commands/claw.md`** (user-scope canonical)
 - Optional fork policy (agent-orchestrator): root **`CLAUDE.md`**, **`roadmap/claude-fork-reference.md`**

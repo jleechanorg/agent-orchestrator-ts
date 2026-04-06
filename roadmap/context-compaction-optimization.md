@@ -104,9 +104,11 @@ See **bd-cx02** (MCP trim) and fork maintainer notes for the detailed server-by-
 | Edit/Write permissions added | Done | No more permission dialogs |
 | CLAUDE_CODE_DISABLE_1M_CONTEXT removed | Done (prior session) | Enables 1M context |
 
+| bd-cx05: Upgrade to v2.1.92 | Done | Makes real-session validation of compaction behavior/regression fixes possible |
+
 ### Next Steps
 
-1. bd-cx05: Upgrade to v2.1.92 -- **validation-only** for controlled interactive testing; do not yet update the default pin (v2.1.89) until compaction proves stable
+1. Validate v2.1.92 behavior in real interactive use, especially `--continue` context window handling and compaction frequency
 2. bd-cx02: Further MCP/skills trim (user commands consolidation: ~1.3K tokens)
 3. bd-cx03: File upstream bug with telemetry data
 4. Consider reducing ~300 skill count through consolidation (biggest remaining lever)
