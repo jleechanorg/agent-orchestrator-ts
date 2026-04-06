@@ -50,10 +50,12 @@ cat ~/.claude/compaction-guard.log | tail -20
 ### 6. Session compaction rate
 ```bash
 # Compare recent session compaction intensity
-for f in $(ls -t ~/.claude/projects/*/*.jsonl | head -5); do
+shopt -s nullglob
+files=(~/.claude/projects/*/*.jsonl)
+for f in "${files[@]:0:5}"; do
   c=$(grep -c compact_boundary "$f" 2>/dev/null || echo 0)
   l=$(wc -l < "$f")
-  echo "$(basename $f | cut -c1-8): ${c} compactions / ${l} lines"
+  echo "$(basename "$f" | cut -c1-8): ${c} compactions / ${l} lines"
 done
 ```
 
