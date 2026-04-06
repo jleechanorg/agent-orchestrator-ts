@@ -77,7 +77,7 @@ instruction-only enforcement proves insufficient.
 
 ## Open PRs
 
-- **#388** — Missing `## Evidence` entirely. Gate cannot parse it. Should be closed
+- **#388** — Missing `## Evidence` entirely. Gate cannot parse it. It should be closed
   (superseded by #389).
 - **#389** — Same issue. Needs evidence section added before it can pass the gate.
 
