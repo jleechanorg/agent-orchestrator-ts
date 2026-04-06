@@ -2,6 +2,8 @@
 
 Appendix for long workflows (skeptic verification, PR/CR, evidence, tests, reactions, worktrees). Read root `CLAUDE.md` first.
 
+**Claude Code context compaction** (thresholds, MCP overhead, version strategy, upstream issues, beads bd-cx01–bd-cx05 / bd-tl9t): [context-compaction-optimization.md](context-compaction-optimization.md).
+
 ## Skeptic Change Verification Protocol
 
 Before opening any skeptic-related PR, verify the full chain end-to-end locally. Skeptic infrastructure spans CLI code, GHA YAML, lifecycle-worker, and GitHub API — changes in one layer silently break others. Isolated unit tests pass while the integration chain fails (10+ broken PRs in 24h were caught this way).
