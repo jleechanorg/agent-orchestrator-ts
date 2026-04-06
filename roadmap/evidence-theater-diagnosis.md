@@ -48,9 +48,9 @@ automation completeness gap.
 **File:** `.github/workflows/evidence-gate.yml`
 **Change:** N/A for Terminal media now only accepted when `CLAIM` is `unit` or
 `documentation-only`. `integration`+ claims must supply a real HTTPS URL.
-**Risk:** Low. Matches wholesome.yml's `unit`-only N/A scoping (lines 244-250);
-intentionally more restrictive than the previous evidence-gate behaviour where N/A
-was accepted for all claim classes.
+**Risk:** Low. Intentionally slightly broader than `wholesome.yml` (which accepts
+N/A for `unit` only): `evidence-gate.yml` also allows N/A for `documentation-only`
+because that claim class has no artifact requirement by definition.
 
 ### Fix 2: Claim class floor rule (high impact)
 
@@ -89,6 +89,7 @@ instruction-only enforcement proves insufficient.
 
 ## Related
 
-- Global `~/.claude/CLAUDE.md`: "Automation completeness — scripts must have callers"
-- `.github/workflows/wholesome.yml`: Secondary evidence enforcement (has correct N/A scoping)
+- User-global `~/.claude/CLAUDE.md` (not the repo CLAUDE.md): section
+  "## Automation completeness — scripts must have callers"
+- `.github/workflows/wholesome.yml`: Secondary evidence enforcement (unit-only N/A scoping)
 - `.claude/skills/README.md`: Canonical index — operational skills live in user scope `~/.claude/skills/`
