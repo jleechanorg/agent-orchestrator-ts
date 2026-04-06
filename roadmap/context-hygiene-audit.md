@@ -14,7 +14,11 @@ Per-turn context overhead is the primary driver of premature compaction. It grow
 ```bash
 # Check most recent session JSONL for hook injection volume
 SESSION=$(ls -t ~/.claude/projects/*/b*.jsonl 2>/dev/null | head -1)
-grep -c "system-reminder\|hook_additional_context\|hook success" "$SESSION"
+if [ -n "$SESSION" ] && [ -f "$SESSION" ]; then
+  grep -c "system-reminder\|hook_additional_context\|hook success" "$SESSION"
+else
+  echo "No session JSONL found"
+fi
 # Baseline: <30 per session
 ```
 
@@ -28,7 +32,7 @@ diff ~/.claude/hooks/compose-commands.sh ~/worldarchitect.ai/.claude/hooks/compo
 
 ### 3. Skill count
 ```bash
-ls ~/.claude/commands/*.md 2>/dev/null | wc -l
+ls ~/.claude/skills/*/SKILL.md 2>/dev/null | wc -l
 # Baseline: ~200 after marketplace removal (2026-04-05)
 # Alert if >220 — check what was added
 ```

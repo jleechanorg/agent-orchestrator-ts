@@ -196,6 +196,11 @@ if [[ "$clean_command" =~ ^git[[:space:]]+switch[[:space:]]+-c[[:space:]]+([^[:s
   fi
 fi
 
+# NOTE: git checkout <branch> (without -b) detection was intentionally removed
+# because it fired during normal session setup (causing false branch metadata).
+# Only git switch is tracked for existing-branch switches. This asymmetry is
+# intentional — checkout is used in session init, not for agent branch navigation.
+
 if [[ "$clean_command" =~ ^git[[:space:]]+switch[[:space:]]+([^[:space:]-]+[/-][^[:space:]]+) ]]; then
   branch="${BASH_REMATCH[1]}"
   if [[ -n "$branch" && "$branch" != "HEAD" ]]; then
