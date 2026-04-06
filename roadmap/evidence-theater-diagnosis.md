@@ -10,8 +10,10 @@
 line is `N/A`. Every `**UI media**` line is `N/A - no UI changes`.
 
 Workers consistently self-select the lowest claim class that passes the gate:
-- `documentation-only` — no artifacts required
-- `unit` — only needs fenced test output + gist; N/A accepted for both media fields
+- `documentation-only` — no strong-artifact check required; Evidence Gate only
+  verifies a claim class and PASS verdict are present.
+- `unit` — strong-artifact check skipped; gate only verifies the section exists
+  with a PASS verdict. No gist or fenced test output is enforced at the gate level.
 
 The evidence gate exists and works correctly for the rules it enforces. The rules
 themselves have structural gaps.
@@ -22,20 +24,22 @@ themselves have structural gaps.
 
 Workers choose their own claim class. Nothing enforces a minimum based on what
 files actually changed. A PR touching `src/` code gets classified as `unit` and
-skips all strong-proof checks.
+skips all strong-proof checks (which only run for `integration`+).
 
 ### 2. Terminal media N/A bypass is unchecked
 
-`evidence-gate.yml` line 328 accepts `N/A` for Terminal media regardless of claim
-class. Compare to `wholesome.yml` lines 244-250 which correctly scope N/A to
-`unit` claims only. This is a bug — the two gates are inconsistent.
+`evidence-gate.yml` accepted `N/A` for Terminal media regardless of claim class
+(pre-Fix-1). Compare to `wholesome.yml` lines 244-250 which correctly scope N/A
+to `unit` claims only. This inconsistency allowed `integration`+ claim PRs to pass
+the Terminal media check with just `N/A`.
 
 ### 3. Media skills have no caller
 
-`tmux-video-evidence`, `ui-video-evidence`, and `smoke-test-local` exist as
-skill files on disk. Nothing in the PR workflow, agentRules, or pre-push hooks
-triggers them. Per CLAUDE.md automation completeness rule: a script on disk with
-no caller is not automation.
+`tmux-video-evidence`, `ui-video-evidence`, and `smoke-test-local` are user-scope
+skills (`~/.claude/skills/`) referenced in `~/.claude/skills/README.md`. Nothing
+in the PR workflow, `agentRules`, or pre-push hooks triggers them. Per the global
+CLAUDE.md policy ("a script on disk with no caller is not automation"), this is an
+automation completeness gap.
 
 ## Proposed fixes (priority order)
 
@@ -59,14 +63,15 @@ tests (e.g., fixing a typo in a string literal). Consider an escape hatch:
 
 ### Fix 3: agentRules media instruction (enforcement via instruction)
 
-**File:** `agent-orchestrator.yaml` agentRules section
-**Change:** Add rule: "For PRs with claim class `integration` or higher, you MUST
-run the `tmux-video-evidence` skill to capture terminal media before creating the
-PR body. Do not write `N/A` for Terminal media on code-change PRs."
+**File:** `agent-orchestrator.yaml` (local config, not committed; update
+`agent-orchestrator.yaml.example` for repo reference)
+**Change:** Add agentRules entry: "For PRs with claim class `integration` or
+higher, run the user-scope `tmux-video-evidence` skill (`~/.claude/skills/
+tmux-video-evidence/`) to capture terminal media before creating the PR body.
+Do not write `N/A` for Terminal media on code-change PRs."
 
-**Risk:** Low. Workers may still ignore instructions (they already ignore the
-existing evidence standard docs). Follow up with a hook if instruction-only
-enforcement proves insufficient.
+**Risk:** Low. Workers may still ignore instructions; follow up with a hook if
+instruction-only enforcement proves insufficient.
 
 ## Open PRs
 
@@ -82,6 +87,6 @@ enforcement proves insufficient.
 
 ## Related
 
-- CLAUDE.md: "Automation completeness — scripts must have callers"
-- `docs/evidence/strong-evidence-standard.md`: Bundle v2 spec
+- Global `~/.claude/CLAUDE.md`: "Automation completeness — scripts must have callers"
 - `.github/workflows/wholesome.yml`: Secondary evidence enforcement (has correct N/A scoping)
+- `.claude/skills/README.md`: Canonical index — operational skills live in user scope `~/.claude/skills/`
