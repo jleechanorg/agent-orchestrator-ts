@@ -48,7 +48,9 @@ automation completeness gap.
 **File:** `.github/workflows/evidence-gate.yml`
 **Change:** N/A for Terminal media now only accepted when `CLAIM` is `unit` or
 `documentation-only`. `integration`+ claims must supply a real HTTPS URL.
-**Risk:** Low. Aligns evidence-gate with wholesome.yml behavior.
+**Risk:** Low. Matches wholesome.yml's `unit`-only N/A scoping (lines 244-250);
+intentionally more restrictive than the previous evidence-gate behaviour where N/A
+was accepted for all claim classes.
 
 ### Fix 2: Claim class floor rule (high impact)
 

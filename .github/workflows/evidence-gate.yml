@@ -318,18 +318,18 @@ jobs:
             fi
 
             # 3. Terminal media: HTTPS URL OR N/A text.
-            # bd-cam93: N/A accepted only for unit/documentation-only claims — aligns with
-            # wholesome.yml behaviour. integration+ claims must provide a real URL.
+            # bd-cam93: N/A accepted only for unit claims — matches wholesome.yml behaviour
+            # (lines 244-250). This block only runs for integration+ claims, so unit is the
+            # only lower class that can appear here (e.g., a unit claim promoted by the claim
+            # floor rule in a future iteration). documentation-only never reaches this block.
             HAS_TM_MEDIA=false
             TM_BLOCK=$(printf '%s' "$EVIDENCE" | awk '
               /\*\*Terminal media(\*\*)?:/ { show=1 }
               show && /\*\*Terminal test output(\*\*)?:/ { exit }
               show { print }
             ')
-            if [ "$CLAIM" = "unit" ] || [ "$CLAIM" = "documentation-only" ]; then
-              if printf '%s' "$TM_BLOCK" | grep -qiE 'N/A'; then
-                HAS_TM_MEDIA=true
-              fi
+            if [ "$CLAIM" = "unit" ] && printf '%s' "$TM_BLOCK" | grep -qiE 'N/A'; then
+              HAS_TM_MEDIA=true
             fi
             if [ "$HAS_TM_MEDIA" = "false" ] && printf '%s' "$TM_BLOCK" | grep -qE '\*\*Terminal media(\*\*)?:' && printf '%s' "$TM_BLOCK" | grep -qE 'https://[^[:space:]]+'; then
               HAS_TM_MEDIA=true
