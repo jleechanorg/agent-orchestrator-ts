@@ -1,15 +1,15 @@
 # dispatch-task — OpenClaw / gateway → AO worker (orch-nkg)
 
-**Trigger:** OpenClaw embedded agent receives a **coding** task (files, PRs, beads) and must **not** execute inline.
+**Trigger:** OpenClaw embedded agent receives a **coding** task (files, PRs, tracker issues) and must **not** execute inline.
 
 ## Protocol
 
-1. **Claim work**: `br update <bd-id> --status in_progress` or `br create "…" --type task --priority …`
-2. **Project**: `ao projects list` → use **`agent-orchestrator`** for this repo’s `bd-*` beads unless the task names another project.
-3. **Spawn**: `ao spawn <bd-id> -p agent-orchestrator` (add `--runtime antigravity` only if the task requires it).
+1. **Claim work**: `br update <id> --status in_progress` or `br create "…" --type task --priority …` (or your tracker’s equivalent).
+2. **Project**: `ao projects list` → pick the project whose **`root`** matches the repo you are working in, or use the **`-p`** implied by your `/claw` prefix map / user override.
+3. **Spawn**: `ao spawn <issue-id> -p <project-id>` (add `--runtime antigravity` only if the task requires it).
 4. **Send**: write the full task (including resolved slash-command bodies) to a file; `ao send <session> --file <path>` — do **not** use `--no-wait` for the primary handoff.
 
 ## Related
 
-- Full routing (Path A `ao spawn` vs Path B gateway HTTP): **`.claude/commands/claw.md`**
-- Fork policy: root **`CLAUDE.md`**, **`roadmap/claude-fork-reference.md`**
+- Full routing (Path A `ao spawn` vs Path B gateway HTTP): **`.claude/commands/claw.md`** (or **`~/.claude/commands/claw.md`**)
+- Optional fork policy (agent-orchestrator): root **`CLAUDE.md`**, **`roadmap/claude-fork-reference.md`**
