@@ -8,7 +8,7 @@
 | Evidence / media | `~/.claude/skills/evidence-standards/SKILL.md`, `tmux-video-evidence`, `ui-video-evidence`, `streaming-evidence-standards` |
 | Skeptic / gates | `~/.claude/skills/skeptic-agent/SKILL.md`, `validation-gate`, `hook-refire-shortcircuit` |
 | Evolve / roadmap ops | `~/.claude/skills/evolve-loop/SKILL.md`, `nextsteps/SKILL.md` |
-| OpenClaw → AO dispatch | **`dispatch-task/SKILL.md`** (stub), **`.claude/commands/claw.md`** (`/claw`) |
+| OpenClaw → AO dispatch | **`dispatch-task/SKILL.md`** (stub); **`/claw`** → canonical **`~/.claude/commands/claw.md`** (symlink to **[user_scope](https://github.com/jleechanorg/user_scope)** `.claude/commands/claw.md`) |
 | Harness | `~/.claude/skills/harness-engineering/SKILL.md` |
 | Fork policy & 7-green | `CLAUDE.md` (root), `roadmap/claude-fork-reference.md`, `roadmap/session-registry-harness.md` |
 
