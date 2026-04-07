@@ -1,6 +1,6 @@
 name: Skeptic Cron
 
-# Runs every 20 minutes — evaluates 6-green-eligible PRs via AO worker dispatch,
+# Runs every 30 minutes — evaluates 6-green-eligible PRs via AO worker dispatch,
 # then merges when 7-green.
 #
 # LLM evaluation (ao skeptic verify) runs via AO worker on the local machine
@@ -13,7 +13,7 @@ name: Skeptic Cron
 #
 on:
   schedule:
-    - cron: "*/20 * * * *"
+    - cron: "*/30 * * * *"
   workflow_dispatch:
 
 jobs:
