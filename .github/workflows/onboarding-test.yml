@@ -13,10 +13,7 @@ on:
 jobs:
   onboarding-test:
     name: Test Fresh Onboarding
-    # Fork PRs use ubuntu-latest to avoid running untrusted code on self-hosted infrastructure.
-    runs-on: ${{ github.event.pull_request.head.repo.fork && github.event_name == 'pull_request'
-              && 'ubuntu-latest'
-              || fromJson(vars.SELF_HOSTED_RUNNER_LABELS || '["self-hosted","self-hosted-mikey"]') }}
+    runs-on: ubuntu-latest
     timeout-minutes: 15
 
     steps:
@@ -50,7 +47,6 @@ jobs:
       - name: Extract metrics
         if: always() && steps.docker-check.outputs.available == 'true'
         run: |
-          # Extract onboarding time from container logs
           docker logs ao-onboarding-test 2>&1 | grep "Total onboarding time" || echo "Metrics not available"
 
       - name: Cleanup
