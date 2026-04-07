@@ -49,9 +49,22 @@ echo "Rebuilding ao CLI from source..."
 cd "$REPO_ROOT"
 pnpm build 2>&1 | tail -1
 
-echo "Installing ao CLI globally..."
+echo "Linking ao CLI globally..."
 cd "$REPO_ROOT/packages/cli"
-npm install -g . 2>/dev/null || sudo npm install -g .
+# Try npm install -g first, then sudo fallback. This preserves the original
+# behavior while still providing clear error output when both fail.
+if ! npm install -g . 2>/dev/null; then
+  if command -v sudo >/dev/null 2>&1; then
+    sudo npm install -g .
+  else
+    echo "WARNING: npm install -g failed and sudo is unavailable." >&2
+    echo "         Ao CLI may not be available in PATH." >&2
+    # In CI (Docker), proceed anyway since the test may not need global CLI
+    if [ "${CI:-}" != "true" ]; then
+      exit 1
+    fi
+  fi
+fi
 cd "$REPO_ROOT"
 
 AO_VERSION=$(ao --version 2>/dev/null || echo "unknown")
