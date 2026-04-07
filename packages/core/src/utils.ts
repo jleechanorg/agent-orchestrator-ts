@@ -172,9 +172,12 @@ export async function readLastJsonEntry(
     const obj = parsed as Record<string, unknown>;
     if (!Array.isArray(obj.messages) || obj.messages.length === 0) return null;
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const lastMsg = obj.messages[obj.messages.length - 1] as any;
-    const lastType = typeof lastMsg?.type === "string" ? lastMsg.type : null;
+    const lastRaw: unknown = obj.messages[obj.messages.length - 1];
+    let lastType: string | null = null;
+    if (typeof lastRaw === "object" && lastRaw !== null && !Array.isArray(lastRaw)) {
+      const msg = lastRaw as Record<string, unknown>;
+      if (typeof msg.type === "string") lastType = msg.type;
+    }
     return { lastType, modifiedAt: fileStat.mtime };
   } catch {
     return null;
