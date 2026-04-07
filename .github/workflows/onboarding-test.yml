@@ -13,7 +13,7 @@ on:
 jobs:
   onboarding-test:
     name: Test Fresh Onboarding
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || fromJson(vars.SELF_HOSTED_RUNNER_LABELS || '["self-hosted","Linux","ARM64","agent-orchestrator"]') }}
     timeout-minutes: 15
 
     steps:
