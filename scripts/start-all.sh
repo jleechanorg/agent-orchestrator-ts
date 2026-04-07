@@ -69,11 +69,12 @@ for PROJECT in $SELECTED; do
     FIRST=false
   else
     echo "=== Starting $PROJECT (worker + orchestrator) ==="
-    # Idempotency: skip if a lifecycle-worker for this project is already running
+    # Idempotency: skip if a lifecycle-worker for this project is actually running
     if pgrep -f "ao lifecycle-worker ${PROJECT}$" > /dev/null 2>&1; then
       echo "  lifecycle-worker $PROJECT already running — skipping"
     else
-      nohup ao lifecycle-worker "$PROJECT" > "$LOG_DIR/ao-lifecycle-${PROJECT}.log" 2>&1 &
+      # Use --force to override any stale PID locks
+      nohup ao lifecycle-worker "$PROJECT" --force > "$LOG_DIR/ao-lifecycle-${PROJECT}.log" 2>&1 &
       disown
       echo "  lifecycle-worker $PROJECT started"
     fi
@@ -82,6 +83,16 @@ for PROJECT in $SELECTED; do
   fi
   echo ""
   sleep 2
+done
+
+# Post-start health check: verify workers are actually running
+echo "Verifying workers..."
+for PROJECT in $PROJECTS; do
+  if pgrep -f "ao lifecycle-worker ${PROJECT}$" > /dev/null 2>&1; then
+    : # running
+  else
+    echo "WARNING: lifecycle-worker $PROJECT failed to start"
+  fi
 done
 
 echo "All projects started."
