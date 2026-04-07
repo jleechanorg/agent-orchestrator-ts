@@ -87,7 +87,7 @@ done
 
 # Post-start health check: verify workers are actually running
 echo "Verifying workers..."
-for PROJECT in $PROJECTS; do
+for PROJECT in $SELECTED; do
   if pgrep -f "ao lifecycle-worker ${PROJECT}$" > /dev/null 2>&1; then
     : # running
   else
