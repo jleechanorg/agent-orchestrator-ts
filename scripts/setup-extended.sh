@@ -55,8 +55,9 @@ if ! npm link 2>/dev/null; then
   if command -v sudo >/dev/null 2>&1; then
     sudo npm link
   else
-    echo "  Retrying npm link..."
-    npm link || true
+    echo "ERROR: npm link failed and sudo is unavailable." >&2
+    echo "       Please fix npm global permissions/prefix and retry." >&2
+    exit 1
   fi
 fi
 cd "$REPO_ROOT"
