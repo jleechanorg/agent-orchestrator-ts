@@ -6,10 +6,9 @@ on:
       - 'packages/**'
       - 'scripts/setup.sh'
       - 'tests/integration/**'
-      - '.github/workflows/onboarding-test.yml'
+      - 'github/workflows/onboarding-test.yml'
   push:
-    branches:
-      - main
+    branches: [main]
 
 jobs:
   onboarding-test:
@@ -17,7 +16,7 @@ jobs:
     # Fork PRs use ubuntu-latest to avoid running untrusted code on self-hosted infrastructure.
     runs-on: ${{ github.event.pull_request.head.repo.fork && github.event_name == 'pull_request'
               && 'ubuntu-latest'
-              || fromJson(vars.SELF_HOSTED_RUNNER_LABELS || '["self-hosted","Linux","ARM64","agent-orchestrator"]') }}
+              || fromJson(vars.SELF_HOSTED_RUNNER_LABELS || '["self-hosted","self-hosted-mikey"]') }}
     timeout-minutes: 15
 
     steps:
@@ -31,7 +30,7 @@ jobs:
             echo "available=true" >> "$GITHUB_OUTPUT"
           else
             echo "available=false" >> "$GITHUB_OUTPUT"
-            echo "Docker not available on this runner — skipping onboarding test"
+            echo "Docker not available on this runner 💤 skipping onboarding test"
           fi
 
       - name: Set up Docker Buildx
@@ -45,10 +44,8 @@ jobs:
 
       - name: Run onboarding test
         if: steps.docker-check.outputs.available == 'true'
-        id: test
         working-directory: tests/integration
-        run: |
-          docker compose up --abort-on-container-exit --exit-code-from onboarding-test
+        run: docker compose up --abort-on-container-exit --exit-code-from onboarding-test
 
       - name: Extract metrics
         if: always() && steps.docker-check.outputs.available == 'true'
@@ -59,7 +56,7 @@ jobs:
       - name: Cleanup
         if: always() && steps.docker-check.outputs.available == 'true'
         working-directory: tests/integration
-        run: docker compose down -v
+        run: docker compose down
 
       - name: Upload test logs
         if: failure() && steps.docker-check.outputs.available == 'true'
@@ -69,3 +66,4 @@ jobs:
           path: |
             tests/integration/*.log
           retention-days: 7
+
