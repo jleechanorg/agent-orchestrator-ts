@@ -49,9 +49,16 @@ echo "Rebuilding ao CLI from source..."
 cd "$REPO_ROOT"
 pnpm build 2>&1 | tail -1
 
-echo "Installing ao CLI globally..."
+echo "Linking ao CLI globally..."
 cd "$REPO_ROOT/packages/cli"
-npm install -g . 2>/dev/null || sudo npm install -g .
+if ! npm link 2>/dev/null; then
+  if command -v sudo >/dev/null 2>&1; then
+    sudo npm link
+  else
+    echo "  Retrying npm link..."
+    npm link || true
+  fi
+fi
 cd "$REPO_ROOT"
 
 AO_VERSION=$(ao --version 2>/dev/null || echo "unknown")
