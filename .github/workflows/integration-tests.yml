@@ -17,7 +17,7 @@ jobs:
     # Fork PRs use ubuntu-latest to avoid running untrusted code on self-hosted infrastructure.
     runs-on: ${{ github.event.pull_request.head.repo.fork && github.event_name == 'pull_request'
               && 'ubuntu-latest'
-              || fromJson(vars.SELF_HOSTED_RUNNER_LABELS || '["self-hosted","Linux","ARM64","agent-orchestrator"]') }}
+              || fromJson(vars.SELF_HOSTED_RUNNER_LABELS || '["self-hosted","self-hosted-mikey"]') }}
     timeout-minutes: 20
 
     steps:
@@ -75,3 +75,4 @@ jobs:
           # this flag documents pip install outcome for CI logs and future conditional steps.
           AIDER_PIP_INSTALLED: ${{ steps.install-aider.outputs.aider_available }}
         run: pnpm test:integration
+
