@@ -52,9 +52,14 @@ async function apiPost(
 ): Promise<unknown> {
   const base = endpoint.replace(/\/+$/, "").replace(/\/mcp$/, "");
   const url = `${base}/mcp`;
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  const token = process.env.MCP_AGENT_MAIL_TOKEN;
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
   const response = await fetchFn(url, {
     method: "POST",
-    headers: { "Content-Type": "application/json", ...(process.env.MCP_AGENT_MAIL_TOKEN ? { "Authorization": `Bearer ${process.env.MCP_AGENT_MAIL_TOKEN}` } : {}) },
+    headers,
     body: JSON.stringify({
       jsonrpc: "2.0",
       method: "tools/call",

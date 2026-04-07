@@ -10,6 +10,7 @@ import {
   type PluginModule,
   type RuntimeHandle,
   type Session,
+  type WorkspaceHooksConfig,
 } from "@jleechanorg/ao-core";
 import { execFile, execFileSync } from "node:child_process";
 import { promisify } from "node:util";
@@ -132,7 +133,7 @@ function createAiderAgent(): Agent {
       return "active";
     },
 
-    async setupWorkspaceHooks(workspacePath: string): Promise<void> {
+    async setupWorkspaceHooks(workspacePath: string, _config: WorkspaceHooksConfig): Promise<void> {
       await setupMcpMailInWorkspace(workspacePath, ".aider");
     },
     async getActivityState(

@@ -61,6 +61,13 @@ vi.mock("node:os", () => ({
   homedir: mockHomedir,
 }));
 
+// setupMcpMailInWorkspace lives in agent-base and uses fs/promises; Vitest's fs/promises
+// mock may not apply across that package boundary. Stub MCP mail setup so these tests
+// only exercise Codex workspace hooks.
+vi.mock("@jleechanorg/ao-plugin-agent-base", () => ({
+  setupMcpMailInWorkspace: vi.fn().mockResolvedValue(undefined),
+}));
+
 import { Readable } from "node:stream";
 import { create, manifest, default as defaultExport, resolveCodexBinary, _resetSessionFileCache } from "./index.js";
 
