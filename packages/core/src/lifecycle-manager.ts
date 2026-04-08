@@ -2817,9 +2817,10 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       ? [[scopedProjectId, config.projects[scopedProjectId]]]
       : Object.entries(config.projects);
 
-    for (const [projectId, project] of projects) {
+    for (const [, project] of projects) {
       if (!project) continue;
-      const sessionsDir = getSessionsDir(config.configPath, project.path);
+      const projectPath = typeof project === "string" ? project : project.path;
+      const sessionsDir = getSessionsDir(config.configPath, projectPath);
       if (!existsSync(sessionsDir)) continue;
 
       for (const sessionId of listMetadata(sessionsDir)) {
