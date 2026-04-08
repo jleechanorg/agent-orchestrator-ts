@@ -85,6 +85,7 @@ const {
   ensureLifecycleWorker,
   writeLifecycleWorkerPid,
   clearLifecycleWorkerPid,
+  forceLifecycleLock,
   tryAcquireLifecycleLock,
   scanForRunningLifecycleWorker,
 } = await import("../../src/lib/lifecycle-service.js");
@@ -117,6 +118,13 @@ function mockPsResult(cmdline: string): void {
 function mockPsFailure(): void {
   mockExecFileSync.mockImplementationOnce(() => {
     throw new Error("No such process");
+  });
+}
+
+function mockPsNoSuchProcess(): void {
+  mockExecFileSync.mockImplementationOnce(() => {
+    const err = Object.assign(new Error("No such process"), { status: 1 });
+    throw err;
   });
 }
 
@@ -172,6 +180,22 @@ describe("getLifecycleWorkerStatus", () => {
     expect(status.running).toBe(false);
     expect(status.pid).toBeNull();
     expect(status.verified).toBe(false);
+  });
+
+  it("treats ps exit status=1 as stale/dead PID and clears pid file", () => {
+    const cfg = mockConfig({ "test-proj": "/repos/test-proj" });
+    const pf = pidFile("test-proj");
+
+    setExists(pf, true);
+    setReadFile(pf, "77777\n");
+    mockPsNoSuchProcess();
+
+    const status = getLifecycleWorkerStatus(cfg, "test-proj");
+
+    expect(status.running).toBe(false);
+    expect(status.pid).toBeNull();
+    expect(status.verified).toBe(false);
+    expect(MOCK_FS.store[`unlinkSync:${pf}`]).toBe(true);
   });
 
   it("prevents prefix false positive: api does not match api-v2", () => {
@@ -342,6 +366,24 @@ describe("tryAcquireLifecycleLock (orch-886k)", () => {
     if (release1) release1();
   });
 
+  it("reaps a stale lock when lock owner PID belongs to another command", () => {
+    const cfg = mockConfig({ "test-proj": "/repos/test-proj" });
+    const lockFile = `/tmp/ao-test/test-proj/lifecycle-worker.lock`;
+
+    // First acquire succeeds and simulates a crash/no release.
+    const release1 = tryAcquireLifecycleLock(cfg, "test-proj");
+    expect(release1).toBeTypeOf("function");
+    MOCK_FS.store[`readFileSync:${lockFile}`] = "88999\n";
+    // PID is alive, but not a lifecycle-worker for this project.
+    mockExecFileSync.mockReturnValueOnce(Buffer.from("/usr/bin/python long_running_job.py\n"));
+
+    // Second acquire should treat this as stale and succeed.
+    const release2 = tryAcquireLifecycleLock(cfg, "test-proj");
+    expect(release2).toBeTypeOf("function");
+    if (release2) release2();
+    if (release1) release1();
+  });
+
   it("reaps a stale lock when ps fails (process is gone)", () => {
     const cfg = mockConfig({ "test-proj": "/repos/test-proj" });
     const lockFile = `/tmp/ao-test/test-proj/lifecycle-worker.lock`;
@@ -380,6 +422,31 @@ describe("tryAcquireLifecycleLock (orch-886k)", () => {
     const release2 = tryAcquireLifecycleLock(cfg, "test-proj");
     expect(release2).toBeTypeOf("function");
     if (release2) release2();
+  });
+});
+
+describe("forceLifecycleLock (orch-886k)", () => {
+  it("returns null when lock owner is a live worker for the same project", () => {
+    const cfg = mockConfig({ "test-proj": "/repos/test-proj" });
+    const lockFile = `/tmp/ao-test/test-proj/lifecycle-worker.lock`;
+    MOCK_FS.store[`readFileSync:${lockFile}`] = "77777\n";
+    // Live matching worker => do not steal lock.
+    mockExecFileSync.mockReturnValueOnce(
+      Buffer.from("node /Users/jleechan/bin/ao lifecycle-worker test-proj\n"),
+    );
+    const release = forceLifecycleLock(cfg, "test-proj");
+    expect(release).toBeNull();
+  });
+
+  it("reclaims lock when owner PID belongs to another command", () => {
+    const cfg = mockConfig({ "test-proj": "/repos/test-proj" });
+    const lockFile = `/tmp/ao-test/test-proj/lifecycle-worker.lock`;
+    MOCK_FS.store[`readFileSync:${lockFile}`] = "77778\n";
+    // PID exists, but this is not our lifecycle-worker.
+    mockExecFileSync.mockReturnValueOnce(Buffer.from("/usr/bin/python stale_owner.py\n"));
+    const release = forceLifecycleLock(cfg, "test-proj");
+    expect(release).toBeTypeOf("function");
+    if (release) release();
   });
 });
 

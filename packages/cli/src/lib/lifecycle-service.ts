@@ -77,25 +77,19 @@ export function forceLifecycleLock(
 
   // Step 2: if we have an owner PID, confirm it's dead before clearing anything.
   if (ownerPid !== null && ownerPid !== process.pid) {
-    try {
-      const cmdline = execFileSync(
-        "ps",
-        ["-ww", "-p", String(ownerPid), "-o", "args="],
-        { timeout: 3_000, stdio: ["ignore", "pipe", "ignore"] },
-      )
-        .toString("utf-8")
-        .trim();
-      if (cmdline.length > 0) {
-        // Lock owner is alive — do not steal it.
-        return null;
-      }
-      // cmdline is empty → process is gone (ESRCH/exit-1). Fall through.
-    } catch {
-      // ps failed: process not found (exit-1), ps unavailable, EPERM, timeout,
-      // etc. Treat all failures as "process is gone" — if the process were
-      // alive, ps would return its command line and not throw. This matches
-      // the logic in _reapStaleLock. (orch-886k)
+    const ownerIsWorker = isLifecycleWorkerProcess(ownerPid, projectId);
+    if (ownerIsWorker === true) {
+      // Lock owner is a live lifecycle-worker for this exact project.
+      // Do not steal it.
+      return null;
     }
+
+    // ownerIsWorker === false: process is dead OR belongs to some other
+    // command/project. Both cases are stale for this project lock and safe
+    // to reap.
+    // ownerIsWorker === null: indeterminate (ps failure). Keep historical
+    // force behavior and continue, allowing operators to recover from stale
+    // lock deadlocks.
   }
 
   // Step 3: lock is absent or confirmed dead. Re-acquire atomically.
@@ -133,22 +127,15 @@ export function tryAcquireLifecycleLock(
     }
     if (!Number.isFinite(stalePid) || stalePid === process.pid) return false;
 
-    try {
-      // -ww: do not truncate the command column (avoids false negatives for
-      // long command lines on macOS/BSD).
-      // -p: select only the specific PID.
-      // -o args=: output only the command line, no header.
-      const cmdline = execFileSync("ps", ["-ww", "-p", String(stalePid), "-o", "args="], {
-        timeout: 3_000,
-        stdio: ["ignore", "pipe", "ignore"],
-      }).toString("utf-8").trim();
-
-      // Non-empty output means the process is still alive.
-      if (cmdline.length > 0) return false;
-    } catch {
-      // ps failed — process is gone (ESRCH, EPERM, etc.) or ps is unavailable.
-      // Treat as dead: the lock is stale and can be reaped.
+    const staleIsWorker = isLifecycleWorkerProcess(stalePid, projectId);
+    if (staleIsWorker === true) {
+      // Live worker for this project still owns the lock.
+      return false;
     }
+
+    // staleIsWorker === false: process is dead OR unrelated command/project.
+    // staleIsWorker === null: indeterminate (ps failure). Preserve prior
+    // behavior and attempt stale-lock reap.
 
     try {
       unlinkSync(lockFile);
@@ -298,10 +285,16 @@ function isLifecycleWorkerProcess(
     const markerEscaped = marker.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     const pattern = new RegExp(`(?:^|\\s)${markerEscaped}(?:\\s|$)`);
     return pattern.test(cmdline);
-  } catch {
-    // ps failed (process gone, permission denied, or timeout) — we cannot
-    // confirm identity. Return null so callers treat this as indeterminate
-    // rather than definitively clearing a potentially valid PID file.
+  } catch (err: unknown) {
+    // execFileSync("ps", ["-p", <pid>]) exits with status=1 when PID no longer
+    // exists. Treat that case as stale/dead (false), not indeterminate, so
+    // stale PID files do not block lifecycle-worker restarts forever.
+    const status = typeof err === "object" && err !== null && "status" in err
+      ? (err as { status?: unknown }).status
+      : undefined;
+    if (status === 1) return false;
+
+    // Other failures (timeout/permission/tooling issues) remain indeterminate.
     return null;
   }
 }

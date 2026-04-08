@@ -96,11 +96,12 @@ export function resolveAgentSelection(params: {
     role === "orchestrator"
       ? (roleAgentConfig.orchestratorModel ??
         roleAgentConfig.model ??
-        sharedConfig.orchestratorModel ??
         cliModelConfig.orchestratorModel ??
+        sharedConfig.orchestratorModel ??
+        cliModelConfig.model ??
         sharedConfig.model ??
-        cliModelConfig.model)
-      : (roleAgentConfig.model ?? sharedConfig.model ?? cliModelConfig.model);
+        undefined)
+      : (roleAgentConfig.model ?? cliModelConfig.model ?? sharedConfig.model);
 
   if (model !== undefined) {
     agentConfig.model = model;
