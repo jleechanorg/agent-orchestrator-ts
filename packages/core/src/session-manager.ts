@@ -2867,7 +2867,8 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       raw["pr"] &&
       plugins.scm?.resolvePR &&
       plugins.scm?.getPRState &&
-      restoredSession.runtimeHandle
+      restoredSession.runtimeHandle &&
+      !isOrchestratorSessionRecord(sessionId, raw)
     ) {
       try {
         const parsedPr = parsePrFromUrl(raw["pr"]);
