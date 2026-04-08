@@ -4576,6 +4576,71 @@ describe("restore", () => {
     expect(createCall.launchCommand).toBe("claude --resume abc123");
   });
 
+  it("re-sends the PR kickoff message when restoring a PR-tracked session", async () => {
+    const wsPath = join(tmpDir, "ws-app-restore-pr");
+    mkdirSync(wsPath, { recursive: true });
+
+    const mockSCM: SCM = {
+      name: "mock-scm",
+      detectPR: vi.fn(),
+      resolvePR: vi.fn().mockResolvedValue({
+        number: 99,
+        url: "https://github.com/org/my-app/pull/99",
+        title: "Fix login bug",
+        owner: "org",
+        repo: "my-app",
+        branch: "feat/login-fix",
+        baseBranch: "main",
+        isDraft: false,
+      }),
+      assignPRToCurrentUser: vi.fn().mockResolvedValue(undefined),
+      checkoutPR: vi.fn().mockResolvedValue(true),
+      getPRState: vi.fn().mockResolvedValue("open"),
+      getPRSummary: vi.fn(),
+      mergePR: vi.fn(),
+      closePR: vi.fn(),
+      getCIChecks: vi.fn(),
+      getCISummary: vi.fn(),
+      getReviews: vi.fn(),
+      getReviewDecision: vi.fn(),
+      getPendingComments: vi.fn(),
+      getAutomatedComments: vi.fn(),
+      getMergeability: vi.fn(),
+    };
+
+    const registryWithSCM: PluginRegistry = {
+      ...mockRegistry,
+      get: vi.fn().mockImplementation((slot: string, _name: string) => {
+        if (slot === "runtime") return mockRuntime;
+        if (slot === "agent") return mockAgent;
+        if (slot === "workspace") return mockWorkspace;
+        if (slot === "scm") return mockSCM;
+        return null;
+      }),
+    };
+
+    writeMetadata(sessionsDir, "app-1", {
+      worktree: wsPath,
+      branch: "feat/TEST-1",
+      status: "killed",
+      project: "my-app",
+      pr: "https://github.com/org/my-app/pull/99",
+      runtimeHandle: JSON.stringify(makeHandle("rt-old")),
+    });
+
+    const sm = createSessionManager({ config, registry: registryWithSCM });
+    await sm.restore("app-1");
+
+    expect(mockSCM.resolvePR).toHaveBeenCalledWith(
+      "https://github.com/org/my-app/pull/99",
+      config.projects["my-app"],
+    );
+    expect(mockRuntime.sendMessage).toHaveBeenCalledWith(
+      makeHandle("rt-1"),
+      expect.stringContaining("PR #99"),
+    );
+  });
+
   it("falls back to getLaunchCommand when getRestoreCommand returns null", async () => {
     const wsPath = join(tmpDir, "ws-app-1");
     mkdirSync(wsPath, { recursive: true });
@@ -5057,7 +5122,7 @@ describe("claimPR", () => {
     const sm = createSessionManager({ config, registry: registryWithSCM(mockSCM) });
 
     // Claim first PR
-    const result1 = await sm.claimPR("app-1", "42");
+    const result1 = await sm.claimPR("app-1", "42", { sendInitialMessage: false });
     expect(result1.pr.number).toBe(42);
     expect(result1.takenOverFrom).toEqual([]);
 
@@ -5065,7 +5130,7 @@ describe("claimPR", () => {
     expect(raw!["pr"]).toBe("https://github.com/org/my-app/pull/42");
 
     // Claim second PR (switches ownership, no rejection)
-    const result2 = await sm.claimPR("app-1", "99");
+    const result2 = await sm.claimPR("app-1", "99", { sendInitialMessage: false });
     expect(result2.pr.number).toBe(99);
     expect(result2.takenOverFrom).toEqual([]);
 
@@ -5267,7 +5332,7 @@ describe("claimPR sendInitialMessage", () => {
     expect(msg).toContain("@coderabbitai");
   });
 
-  it("does NOT send initial message when sendInitialMessage is omitted", async () => {
+  it("sends the initial message by default when sendInitialMessage is omitted", async () => {
     const mockSCM = makeSCMForInitial();
     writeMetadata(sessionsDir, "app-6", {
       worktree: "/tmp/ws-app-6",
@@ -5280,7 +5345,10 @@ describe("claimPR sendInitialMessage", () => {
     const sm = createSessionManager({ config, registry: registryWithSCMForInitial(mockSCM) });
     await sm.claimPR("app-6", "99");
 
-    expect(mockRuntime.sendMessage).not.toHaveBeenCalled();
+    expect(mockRuntime.sendMessage).toHaveBeenCalledOnce();
+    const msg: string = vi.mocked(mockRuntime.sendMessage).mock.calls[0]![1] as string;
+    expect(msg).toContain("PR #99");
+    expect(msg).toContain("gh pr view");
   });
 
   it("does NOT send initial message when sendInitialMessage is false", async () => {

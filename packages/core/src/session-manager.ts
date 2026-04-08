@@ -2559,7 +2559,8 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       }
     }
 
-    if (options?.sendInitialMessage) {
+    const shouldSendInitialMessage = options?.sendInitialMessage ?? true;
+    if (shouldSendInitialMessage) {
       try {
         await send(sessionId, buildInitialPRTaskMessage(pr));
       } catch {
@@ -2838,6 +2839,18 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
         }
       } catch {
         // Non-fatal — session is already running
+      }
+    }
+
+    if (raw["pr"] && plugins.scm?.resolvePR && restoredSession.runtimeHandle) {
+      try {
+        const pr = await plugins.scm.resolvePR(raw["pr"], project);
+        await plugins.runtime.sendMessage(
+          restoredSession.runtimeHandle,
+          buildInitialPRTaskMessage(pr),
+        );
+      } catch {
+        // Non-fatal — restored session is usable even if kickoff re-delivery fails
       }
     }
 
