@@ -177,11 +177,17 @@ install_watchdog_plist() {
   local plist_path="$LAUNCH_AGENTS_DIR/ai.agento.lw-watchdog.plist"
   local script="$REPO_ROOT/scripts/lw-watchdog.sh"
   local log_file="$BASE_LOG_DIR/lw-watchdog.log"
-  local config_path="${AO_CONFIG_PATH:-$HOME/.openclaw_prod/agent-orchestrator.yaml}"
+  local config_path
   local label="ai.agento.lw-watchdog"
 
-  if [ ! -f "$config_path" ] && [ -f "$HOME/.openclaw/agent-orchestrator.yaml" ]; then
+  if [ -n "${AO_CONFIG_PATH:-}" ]; then
+    config_path="$AO_CONFIG_PATH"
+  elif [ -f "$HOME/.openclaw_prod/agent-orchestrator.yaml" ]; then
+    config_path="$HOME/.openclaw_prod/agent-orchestrator.yaml"
+  elif [ -f "$HOME/.openclaw/agent-orchestrator.yaml" ]; then
     config_path="$HOME/.openclaw/agent-orchestrator.yaml"
+  else
+    config_path="$HOME/.openclaw_prod/agent-orchestrator.yaml"
   fi
 
   if [ ! -f "$template" ]; then

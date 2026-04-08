@@ -52,6 +52,7 @@ log() {
 }
 
 CONFIG_FILE="${AO_CONFIG_PATH:-$HOME/.openclaw/agent-orchestrator.yaml}"
+CONFIG_PARSE_FAILED=0
 
 list_configured_projects() {
   if [ ! -f "$CONFIG_FILE" ]; then
@@ -60,6 +61,7 @@ list_configured_projects() {
 
   if ! command -v python3 >/dev/null 2>&1; then
     log "WARN: python3 not available; unable to parse configured projects from $CONFIG_FILE"
+    CONFIG_PARSE_FAILED=1
     printf '__CONFIG_PARSE_FAILED__\n'
     return 0
   fi
@@ -75,9 +77,12 @@ for pid in cfg.get("projects", {}):
     print(pid)
 ' 2>/dev/null; then
     log "WARN: failed to parse configured projects from $CONFIG_FILE; continuing watchdog run"
+    CONFIG_PARSE_FAILED=1
     printf '__CONFIG_PARSE_FAILED__\n'
     return 0
   fi
+
+  CONFIG_PARSE_FAILED=0
 }
 
 list_missing_lifecycle_workers() {
@@ -87,7 +92,7 @@ list_missing_lifecycle_workers() {
 
   configured_projects="$(list_configured_projects)"
   if [ "$configured_projects" = "__CONFIG_PARSE_FAILED__" ]; then
-    printf '%s' "$configured_projects"
+    printf '%s' ""
     return 0
   fi
 
@@ -192,6 +197,10 @@ for i in "${!SERVICE_IDS[@]}"; do
 
   if [ "$SERVICE_ID" = "ai.agento.lifecycle-all" ] && [ "$STATE_CLASS" = "not_running" ]; then
     MISSING_WORKERS="$(list_missing_lifecycle_workers)"
+    if [ "$CONFIG_PARSE_FAILED" = "1" ]; then
+      log "WARN: $SERVICE_ID — configured project list unavailable; skipping kickstart to avoid false restart loop"
+      continue
+    fi
     if [ -z "$MISSING_WORKERS" ]; then
       log "HEALTHY_DORMANT: $SERVICE_ID — wrapper not running, all child lifecycle workers present"
       continue
