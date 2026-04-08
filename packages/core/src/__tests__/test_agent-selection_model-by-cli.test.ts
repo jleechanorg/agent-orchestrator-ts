@@ -125,6 +125,37 @@ describe("resolveAgentSelection — modelByCli", () => {
     expect(out.agentConfig.model).toBe("cli-model");
   });
 
+  it("prefers modelByCli over role-scoped worker model config", () => {
+    const out = resolveAgentSelection({
+      role: "worker",
+      project: {
+        ...baseProject,
+        worker: {
+          agentConfig: {
+            model: "project-worker-model",
+          },
+        },
+        modelByCli: {
+          codex: { model: "cli-model" },
+        },
+      },
+      defaults: {
+        runtime: "t",
+        agent: "codex",
+        workspace: "w",
+        notifiers: [],
+        worker: {
+          agentConfig: {
+            model: "default-worker-model",
+          },
+        },
+      },
+    });
+
+    expect(out.model).toBe("cli-model");
+    expect(out.agentConfig.model).toBe("cli-model");
+  });
+
   it("uses CLI-specific orchestrator model before generic shared orchestrator model", () => {
     const out = resolveAgentSelection({
       role: "orchestrator",
@@ -170,6 +201,39 @@ describe("resolveAgentSelection — modelByCli", () => {
         agent: "mock-agent",
         workspace: "w",
         notifiers: [],
+      },
+    });
+
+    expect(out.model).toBe("cli-model");
+    expect(out.agentConfig.model).toBe("cli-model");
+  });
+
+  it("prefers modelByCli over role-scoped orchestrator model config", () => {
+    const out = resolveAgentSelection({
+      role: "orchestrator",
+      project: {
+        ...baseProject,
+        orchestrator: {
+          agentConfig: {
+            orchestratorModel: "project-orchestrator-model",
+            model: "project-orchestrator-fallback",
+          },
+        },
+        modelByCli: {
+          codex: { model: "cli-model" },
+        },
+      },
+      defaults: {
+        runtime: "t",
+        agent: "codex",
+        workspace: "w",
+        notifiers: [],
+        orchestrator: {
+          agentConfig: {
+            orchestratorModel: "default-orchestrator-model",
+            model: "default-orchestrator-fallback",
+          },
+        },
       },
     });
 
