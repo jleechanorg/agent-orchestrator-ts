@@ -74,6 +74,7 @@ import {
   parsePauseUntil,
 } from "./global-pause.js";
 import { sessionFromMetadata } from "./utils/session-from-metadata.js";
+import { parsePrFromUrl } from "./utils/pr.js";
 import { safeJsonParse } from "./utils/validation.js";
 import { resolveAgentSelection, resolveSessionRole } from "./agent-selection.js";
 import { applySlashCommandRouting } from "./fork-slash-command-routing.js";
@@ -2559,6 +2560,13 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       }
     }
 
+    updateMetadata(sessionsDir, sessionId, {
+      pr: pr.url,
+      status: "pr_open",
+      branch: pr.branch,
+      prAutoDetect: "",
+    });
+
     const shouldSendInitialMessage = options?.sendInitialMessage ?? true;
     if (shouldSendInitialMessage) {
       try {
@@ -2567,13 +2575,6 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
         // Non-fatal: session may not be ready yet; lifecycle reactions will re-send context
       }
     }
-
-    updateMetadata(sessionsDir, sessionId, {
-      pr: pr.url,
-      status: "pr_open",
-      branch: pr.branch,
-      prAutoDetect: "",
-    });
 
     return {
       sessionId,
@@ -2844,11 +2845,10 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
 
     if (raw["pr"] && plugins.scm?.resolvePR && restoredSession.runtimeHandle) {
       try {
-        const pr = await plugins.scm.resolvePR(raw["pr"], project);
-        await plugins.runtime.sendMessage(
-          restoredSession.runtimeHandle,
-          buildInitialPRTaskMessage(pr),
-        );
+        const parsedPr = parsePrFromUrl(raw["pr"]);
+        const prRef = parsedPr ? String(parsedPr.number) : raw["pr"];
+        const pr = await plugins.scm.resolvePR(prRef, project);
+        await send(sessionId, buildInitialPRTaskMessage(pr));
       } catch {
         // Non-fatal — restored session is usable even if kickoff re-delivery fails
       }

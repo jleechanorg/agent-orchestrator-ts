@@ -4579,6 +4579,7 @@ describe("restore", () => {
   it("re-sends the PR kickoff message when restoring a PR-tracked session", async () => {
     const wsPath = join(tmpDir, "ws-app-restore-pr");
     mkdirSync(wsPath, { recursive: true });
+    vi.useFakeTimers();
 
     const mockSCM: SCM = {
       name: "mock-scm",
@@ -4608,10 +4609,19 @@ describe("restore", () => {
       getMergeability: vi.fn(),
     };
 
+    let runtimeOutput = "Press up to edit queued messages";
+    const runtimeWithQueuedOutput: Runtime = {
+      ...mockRuntime,
+      getOutput: vi.fn().mockImplementation(async () => runtimeOutput),
+      sendMessage: vi.fn().mockImplementation(async () => {
+        runtimeOutput = `${runtimeOutput}\nPR #99 kickoff delivered`;
+      }),
+    };
+
     const registryWithSCM: PluginRegistry = {
       ...mockRegistry,
       get: vi.fn().mockImplementation((slot: string, _name: string) => {
-        if (slot === "runtime") return mockRuntime;
+        if (slot === "runtime") return runtimeWithQueuedOutput;
         if (slot === "agent") return mockAgent;
         if (slot === "workspace") return mockWorkspace;
         if (slot === "scm") return mockSCM;
@@ -4629,16 +4639,22 @@ describe("restore", () => {
     });
 
     const sm = createSessionManager({ config, registry: registryWithSCM });
-    await sm.restore("app-1");
+    const restorePromise = sm.restore("app-1");
+    try {
+      await vi.advanceTimersByTimeAsync(2_000);
+      await restorePromise;
 
-    expect(mockSCM.resolvePR).toHaveBeenCalledWith(
-      "https://github.com/org/my-app/pull/99",
-      config.projects["my-app"],
-    );
-    expect(mockRuntime.sendMessage).toHaveBeenCalledWith(
-      makeHandle("rt-1"),
-      expect.stringContaining("PR #99"),
-    );
+      expect(mockSCM.resolvePR).toHaveBeenCalledWith(
+        "99",
+        config.projects["my-app"],
+      );
+      expect(runtimeWithQueuedOutput.sendMessage).toHaveBeenCalledWith(
+        makeHandle("rt-1"),
+        expect.stringContaining("PR #99"),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("falls back to getLaunchCommand when getRestoreCommand returns null", async () => {
@@ -5334,6 +5350,16 @@ describe("claimPR sendInitialMessage", () => {
 
   it("sends the initial message by default when sendInitialMessage is omitted", async () => {
     const mockSCM = makeSCMForInitial();
+    const runtimeWithMetadataCheck: Runtime = {
+      ...mockRuntime,
+      sendMessage: vi.fn().mockImplementation(async () => {
+        expect(readMetadataRaw(sessionsDir, "app-6")).toMatchObject({
+          pr: "https://github.com/org/my-app/pull/99",
+          status: "pr_open",
+          branch: "feat/old",
+        });
+      }),
+    };
     writeMetadata(sessionsDir, "app-6", {
       worktree: "/tmp/ws-app-6",
       branch: "feat/old",
@@ -5342,11 +5368,23 @@ describe("claimPR sendInitialMessage", () => {
       runtimeHandle: JSON.stringify(makeHandle("rt-6")),
     });
 
-    const sm = createSessionManager({ config, registry: registryWithSCMForInitial(mockSCM) });
+    const sm = createSessionManager({
+      config,
+      registry: {
+        ...mockRegistry,
+        get: vi.fn().mockImplementation((slot: string, _name: string) => {
+          if (slot === "runtime") return runtimeWithMetadataCheck;
+          if (slot === "agent") return mockAgent;
+          if (slot === "workspace") return mockWorkspace;
+          if (slot === "scm") return mockSCM;
+          return null;
+        }),
+      },
+    });
     await sm.claimPR("app-6", "99");
 
-    expect(mockRuntime.sendMessage).toHaveBeenCalledOnce();
-    const msg: string = vi.mocked(mockRuntime.sendMessage).mock.calls[0]![1] as string;
+    expect(runtimeWithMetadataCheck.sendMessage).toHaveBeenCalledOnce();
+    const msg: string = vi.mocked(runtimeWithMetadataCheck.sendMessage).mock.calls[0]![1] as string;
     expect(msg).toContain("PR #99");
     expect(msg).toContain("gh pr view");
   });
