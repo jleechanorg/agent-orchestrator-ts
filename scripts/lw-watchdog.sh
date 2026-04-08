@@ -47,6 +47,23 @@ log() {
   echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) $1" >> "$LOG_FILE"
 }
 
+# Parse full launchd state string (handles multi-word values like "not running").
+get_launchd_state() {
+  local service_id="$1"
+  local out state
+  out=$(launchctl print "gui/$UID_NUM/$service_id" 2>&1 || true)
+  if echo "$out" | grep -q "Could not find service"; then
+    printf '%s' "not_found"
+    return 0
+  fi
+  state=$(printf '%s\n' "$out" | sed -n 's/^[[:space:]]*state = //p' | head -1 | tr -d '\r')
+  if [ -z "$state" ]; then
+    printf '%s' "unknown"
+    return 0
+  fi
+  printf '%s' "$state"
+}
+
 # Keep log file under 1MB
 if [ -f "$LOG_FILE" ] && [ "$(wc -c < "$LOG_FILE")" -gt 1048576 ]; then
   tail -500 "$LOG_FILE" > "$LOG_FILE.tmp" && mv "$LOG_FILE.tmp" "$LOG_FILE"
@@ -80,8 +97,7 @@ for i in "${!SERVICE_IDS[@]}"; do
   # Use pre-defined pgrep pattern (includes 'ao' prefix for accurate matching)
   PGREP_PATTERN="${SERVICE_PGREP_PATTERNS[$i]}"
 
-  # Check launchd state (subshell + || guards against pipefail killing the loop)
-  STATE=$( (launchctl print "gui/$UID_NUM/$SERVICE_ID" 2>&1 | grep "state =" | awk '{print $3}') 2>/dev/null) || STATE="not_found"
+  STATE="$(get_launchd_state "$SERVICE_ID")"
 
   if [ "$STATE" = "running" ]; then
     # lifecycle-all launches start-all.sh which spawns child workers — MANAGED_PID is the
@@ -92,7 +108,7 @@ for i in "${!SERVICE_IDS[@]}"; do
     fi
 
     # Healthy — check for duplicate processes (orphans alongside launchd-managed)
-    MANAGED_PID=$( (launchctl print "gui/$UID_NUM/$SERVICE_ID" 2>&1 | grep "pid =" | awk '{print $3}') 2>/dev/null) || MANAGED_PID=""
+    MANAGED_PID=$( (launchctl print "gui/$UID_NUM/$SERVICE_ID" 2>&1 | sed -n 's/^[[:space:]]*pid = //p' | head -1) 2>/dev/null) || MANAGED_PID=""
     ALL_PIDS=$(pgrep -f "$PGREP_PATTERN" 2>/dev/null) || ALL_PIDS=""
 
     if [ -n "$MANAGED_PID" ] && [ -n "$ALL_PIDS" ]; then
@@ -113,7 +129,7 @@ for i in "${!SERVICE_IDS[@]}"; do
   fi
 
   # Service is not running — either deregistered or waiting to spawn
-  if echo "$STATE" | grep -q "not_found"; then
+  if [ "$STATE" = "not_found" ]; then
     log "DEREGISTERED: $SERVICE_ID — re-bootstrapping from $PLIST"
 
     # Kill any orphan processes first (with validation)
@@ -140,8 +156,18 @@ for i in "${!SERVICE_IDS[@]}"; do
 
     # Verify
     sleep 3
-    NEW_STATE=$( (launchctl print "gui/$UID_NUM/$SERVICE_ID" 2>&1 | grep "state =" | awk '{print $3}') 2>/dev/null) || NEW_STATE="unknown"
+    NEW_STATE="$(get_launchd_state "$SERVICE_ID")"
     log "VERIFY: $SERVICE_ID — state=$NEW_STATE after bootstrap"
+
+  elif [ "$STATE" = "not running" ]; then
+    log "RESTART_NEEDED: $SERVICE_ID — state=$STATE, attempting kickstart"
+    KICK_OUT=$(launchctl kickstart -k "gui/$UID_NUM/$SERVICE_ID" 2>&1 || true)
+    if [ -n "$KICK_OUT" ]; then
+      log "KICKSTART: $SERVICE_ID — $KICK_OUT"
+    fi
+    sleep 3
+    NEW_STATE="$(get_launchd_state "$SERVICE_ID")"
+    log "VERIFY: $SERVICE_ID — state=$NEW_STATE after kickstart"
 
   elif [ "$STATE" = "waiting" ] || echo "$STATE" | grep -q "spawn"; then
     log "PENDING: $SERVICE_ID — state=$STATE (launchd will handle)"
