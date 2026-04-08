@@ -137,7 +137,8 @@ resolve_config() {
     d="$(dirname "$d")"
   done
   # Home dir locations (canonical paths used by this repo)
-  for p in "$HOME/.openclaw/agent-orchestrator.yaml" \
+  for p in "$HOME/.openclaw_prod/agent-orchestrator.yaml" \
+           "$HOME/.openclaw/agent-orchestrator.yaml" \
            "$HOME/agent-orchestrator.yaml" \
            "$HOME/.agent-orchestrator.yaml"; do
     if [ -f "$p" ]; then

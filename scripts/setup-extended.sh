@@ -7,8 +7,24 @@
 
 set -e
 
+resolve_config_path() {
+  python3 - "$1" <<'PY'
+import os
+import sys
+print(os.path.abspath(os.path.expanduser(sys.argv[1])))
+PY
+}
+
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-CONFIG_FILE="${AO_CONFIG_PATH:-$HOME/.openclaw/agent-orchestrator.yaml}"
+if [ -n "${AO_CONFIG_PATH:-}" ]; then
+  CONFIG_FILE="$(resolve_config_path "$AO_CONFIG_PATH")"
+elif [ -f "$HOME/.openclaw_prod/agent-orchestrator.yaml" ]; then
+  CONFIG_FILE="$HOME/.openclaw_prod/agent-orchestrator.yaml"
+elif [ -f "$HOME/.openclaw/agent-orchestrator.yaml" ]; then
+  CONFIG_FILE="$HOME/.openclaw/agent-orchestrator.yaml"
+else
+  CONFIG_FILE="$HOME/.openclaw_prod/agent-orchestrator.yaml"
+fi
 
 echo ""
 echo "═══ Extended Setup (jleechanorg fork) ═══"
@@ -83,7 +99,7 @@ else
 
   START_ALL="$REPO_ROOT/scripts/start-all.sh"
   if [ -f "$START_ALL" ]; then
-    bash "$START_ALL"
+    AO_CONFIG_PATH="$CONFIG_FILE" bash "$START_ALL"
   else
     echo "  WARNING: scripts/start-all.sh not found. Run manually:"
     echo "    ao start <project-name>"
@@ -94,7 +110,7 @@ else
   if [ -x "$REPO_ROOT/scripts/setup-launchd.sh" ]; then
     echo ""
     echo "Installing launchd jobs from central installer..."
-    bash "$REPO_ROOT/scripts/setup-launchd.sh" all
+    AO_CONFIG_PATH="$CONFIG_FILE" bash "$REPO_ROOT/scripts/setup-launchd.sh" all
   else
     echo "  WARNING: scripts/setup-launchd.sh missing or not executable."
   fi
