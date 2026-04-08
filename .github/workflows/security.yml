@@ -18,7 +18,8 @@ jobs:
   gitleaks:
     name: Scan for Secrets
     # Fork PRs use ubuntu-latest to avoid running untrusted code on self-hosted infrastructure.
-    runs-on: ${{ github.event.pull_request.head.repo.fork && github.event_name == 'pull_request'
+    runs-on: ${{ vars.SELF_HOSTED_DISABLED == 'true' && 'ubuntu-latest'
+              || github.event.pull_request.head.repo.fork && github.event_name == 'pull_request'
               && 'ubuntu-latest'
               || fromJson(vars.SELF_HOSTED_RUNNER_LABELS || '["self-hosted","Linux","ARM64","agent-orchestrator"]') }}
     steps:
@@ -69,7 +70,8 @@ jobs:
   dependency-review:
     name: Dependency Review
     # Fork PRs use ubuntu-latest to avoid running untrusted code on self-hosted infrastructure.
-    runs-on: ${{ github.event.pull_request.head.repo.fork && github.event_name == 'pull_request'
+    runs-on: ${{ vars.SELF_HOSTED_DISABLED == 'true' && 'ubuntu-latest'
+              || github.event.pull_request.head.repo.fork && github.event_name == 'pull_request'
               && 'ubuntu-latest'
               || fromJson(vars.SELF_HOSTED_RUNNER_LABELS || '["self-hosted","Linux","ARM64","agent-orchestrator"]') }}
     if: github.event_name == 'pull_request'
@@ -86,7 +88,8 @@ jobs:
 
   npm-audit:
     name: NPM Audit
-    runs-on: ${{ github.event.pull_request.head.repo.fork && github.event_name == 'pull_request'
+    runs-on: ${{ vars.SELF_HOSTED_DISABLED == 'true' && 'ubuntu-latest'
+              || github.event.pull_request.head.repo.fork && github.event_name == 'pull_request'
               && 'ubuntu-latest'
               || fromJson(vars.SELF_HOSTED_RUNNER_LABELS || '["self-hosted","Linux","ARM64","agent-orchestrator"]') }}
     steps:
