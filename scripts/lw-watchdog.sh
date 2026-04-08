@@ -16,6 +16,10 @@
 
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/lib/launchd-service-state.sh"
+
 LOG_DIR="$HOME/.openclaw/logs"
 LOG_FILE="$LOG_DIR/lw-watchdog.log"
 mkdir -p "$LOG_DIR"
@@ -47,21 +51,38 @@ log() {
   echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) $1" >> "$LOG_FILE"
 }
 
-# Parse full launchd state string (handles multi-word values like "not running").
-get_launchd_state() {
-  local service_id="$1"
-  local out state
-  out=$(launchctl print "gui/$UID_NUM/$service_id" 2>&1 || true)
-  if echo "$out" | grep -q "Could not find service"; then
-    printf '%s' "not_found"
+CONFIG_FILE="${AO_CONFIG_PATH:-$HOME/.openclaw/agent-orchestrator.yaml}"
+
+list_configured_projects() {
+  if [ ! -f "$CONFIG_FILE" ]; then
     return 0
   fi
-  state=$(printf '%s\n' "$out" | sed -n 's/^[[:space:]]*state = //p' | head -1 | tr -d '\r')
-  if [ -z "$state" ]; then
-    printf '%s' "unknown"
-    return 0
-  fi
-  printf '%s' "$state"
+
+  python3 -c "
+import yaml
+with open('$CONFIG_FILE') as f:
+    cfg = yaml.safe_load(f) or {}
+for pid in cfg.get('projects', {}):
+    print(pid)
+" 2>/dev/null
+}
+
+list_missing_lifecycle_workers() {
+  local project
+  local missing=""
+
+  while IFS= read -r project; do
+    [ -n "$project" ] || continue
+    if ! pgrep -f "ao lifecycle-worker ${project}" >/dev/null 2>&1; then
+      if [ -n "$missing" ]; then
+        missing="${missing} ${project}"
+      else
+        missing="$project"
+      fi
+    fi
+  done < <(list_configured_projects)
+
+  printf '%s' "$missing"
 }
 
 # Keep log file under 1MB
@@ -97,9 +118,13 @@ for i in "${!SERVICE_IDS[@]}"; do
   # Use pre-defined pgrep pattern (includes 'ao' prefix for accurate matching)
   PGREP_PATTERN="${SERVICE_PGREP_PATTERNS[$i]}"
 
-  STATE="$(get_launchd_state "$SERVICE_ID")"
+  # Parse the full launchctl state string. `state = not running` must stay intact;
+  # tokenizing to the 3rd field misclassifies it as just `not`, which disables repair.
+  STATE_OUTPUT="$(launchctl print "gui/$UID_NUM/$SERVICE_ID" 2>&1 || true)"
+  STATE="$(extract_launchctl_state_from_output "$STATE_OUTPUT")"
+  STATE_CLASS="$(classify_launchctl_state "$STATE")"
 
-  if [ "$STATE" = "running" ]; then
+  if [ "$STATE_CLASS" = "running" ]; then
     # lifecycle-all launches start-all.sh which spawns child workers — MANAGED_PID is the
     # wrapper, not the workers. Skip orphan sweep for wrapper services to avoid killing
     # healthy child processes that have different PIDs than the wrapper.
@@ -128,8 +153,28 @@ for i in "${!SERVICE_IDS[@]}"; do
     continue
   fi
 
+  if [ "$SERVICE_ID" = "ai.agento.lifecycle-all" ] && [ "$STATE_CLASS" = "not_running" ]; then
+    MISSING_WORKERS="$(list_missing_lifecycle_workers)"
+    if [ -z "$MISSING_WORKERS" ]; then
+      log "HEALTHY_DORMANT: $SERVICE_ID — wrapper not running, all child lifecycle workers present"
+      continue
+    fi
+
+    log "RESTART_NEEDED: $SERVICE_ID — wrapper not running, missing lifecycle workers: $MISSING_WORKERS"
+    KICKSTART_OUT="$(launchctl kickstart -k "gui/$UID_NUM/$SERVICE_ID" 2>&1 || true)"
+    if [ -n "$KICKSTART_OUT" ]; then
+      log "KICKSTART: $SERVICE_ID — $KICKSTART_OUT"
+    fi
+
+    sleep 3
+    NEW_STATE_OUTPUT="$(launchctl print "gui/$UID_NUM/$SERVICE_ID" 2>&1 || true)"
+    NEW_STATE="$(extract_launchctl_state_from_output "$NEW_STATE_OUTPUT")"
+    log "VERIFY: $SERVICE_ID — state=$NEW_STATE after kickstart"
+    continue
+  fi
+
   # Service is not running — either deregistered or waiting to spawn
-  if [ "$STATE" = "not_found" ]; then
+  if [ "$STATE_CLASS" = "not_found" ]; then
     log "DEREGISTERED: $SERVICE_ID — re-bootstrapping from $PLIST"
 
     # Kill any orphan processes first (with validation)
@@ -156,20 +201,11 @@ for i in "${!SERVICE_IDS[@]}"; do
 
     # Verify
     sleep 3
-    NEW_STATE="$(get_launchd_state "$SERVICE_ID")"
+    NEW_STATE_OUTPUT="$(launchctl print "gui/$UID_NUM/$SERVICE_ID" 2>&1 || true)"
+    NEW_STATE="$(extract_launchctl_state_from_output "$NEW_STATE_OUTPUT")"
     log "VERIFY: $SERVICE_ID — state=$NEW_STATE after bootstrap"
 
-  elif [ "$STATE" = "not running" ]; then
-    log "RESTART_NEEDED: $SERVICE_ID — state=$STATE, attempting kickstart"
-    KICK_OUT=$(launchctl kickstart -k "gui/$UID_NUM/$SERVICE_ID" 2>&1 || true)
-    if [ -n "$KICK_OUT" ]; then
-      log "KICKSTART: $SERVICE_ID — $KICK_OUT"
-    fi
-    sleep 3
-    NEW_STATE="$(get_launchd_state "$SERVICE_ID")"
-    log "VERIFY: $SERVICE_ID — state=$NEW_STATE after kickstart"
-
-  elif [ "$STATE" = "waiting" ] || echo "$STATE" | grep -q "spawn"; then
+  elif [ "$STATE_CLASS" = "waiting" ] || [ "$STATE_CLASS" = "spawn_pending" ]; then
     log "PENDING: $SERVICE_ID — state=$STATE (launchd will handle)"
   else
     log "UNKNOWN: $SERVICE_ID — state=$STATE"

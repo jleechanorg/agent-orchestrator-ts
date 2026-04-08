@@ -111,6 +111,7 @@ if [ "${AO_START_STOP_FIRST:-0}" = "1" ]; then
   echo "Resetting stale AO runtime state (ao stop)..."
   ao stop >/dev/null 2>&1 || true
 fi
+START_FAILURES=0
 
 FIRST=true
 for PROJECT in $SELECTED; do
@@ -155,8 +156,14 @@ for PROJECT in $SELECTED; do
     : # running
   else
     echo "WARNING: lifecycle-worker $PROJECT failed to start"
+    START_FAILURES=1
   fi
 done
+
+if [ "$START_FAILURES" -ne 0 ]; then
+  echo "ERROR: one or more lifecycle-workers failed verification"
+  exit 1
+fi
 
 echo "All projects started."
 echo "  Dashboard: http://localhost:${AO_PORT:-3020}"
