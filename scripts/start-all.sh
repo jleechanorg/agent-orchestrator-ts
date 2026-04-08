@@ -97,6 +97,14 @@ LOG_DIR="${AO_LOG_DIR:-$HOME/.openclaw/logs}"
 mkdir -p "$LOG_DIR"
 START_DASHBOARD="${AO_START_DASHBOARD:-0}"
 
+# Match both direct "ao lifecycle-worker <project>" and node-wrapper command lines.
+is_lifecycle_worker_running() {
+  local project="$1"
+  local escaped_project
+  escaped_project="$(printf '%s' "$project" | sed 's/[][().*^$+?{}|\\]/\\&/g')"
+  pgrep -f "lifecycle-worker[[:space:]].*${escaped_project}([[:space:]]|$)" > /dev/null 2>&1
+}
+
 # Default to NO stop-first in automation loops.
 # Repeated ao stop/start cycles can kill healthy workers and create thrash.
 if [ "${AO_START_STOP_FIRST:-0}" = "1" ]; then
@@ -122,10 +130,10 @@ for PROJECT in $SELECTED; do
     echo "=== Starting $PROJECT lifecycle-worker (async) ==="
     # In no-dashboard mode, launch workers directly for every project.
     # Avoid ao start --no-dashboard keepalive wrappers that can mask missing workers.
-    if pgrep -f "ao lifecycle-worker ${PROJECT}" > /dev/null 2>&1; then
+    if is_lifecycle_worker_running "$PROJECT"; then
       echo "  lifecycle-worker $PROJECT already running — skipping"
     else
-      nohup ao lifecycle-worker "$PROJECT" --force > "$LOG_DIR/ao-lifecycle-${PROJECT}.log" 2>&1 &
+      nohup ao lifecycle-worker "$PROJECT" > "$LOG_DIR/ao-lifecycle-${PROJECT}.log" 2>&1 &
       START_PID=$!
       disown || true
       echo "  launched lifecycle-worker for $PROJECT (pid=$START_PID, log=$LOG_DIR/ao-lifecycle-${PROJECT}.log)"
@@ -143,7 +151,7 @@ for PROJECT in $SELECTED; do
   if ! echo "$PROJECTS" | grep -q "^${PROJECT}$"; then
     continue
   fi
-  if pgrep -f "ao lifecycle-worker ${PROJECT}" > /dev/null 2>&1; then
+  if is_lifecycle_worker_running "$PROJECT"; then
     : # running
   else
     echo "WARNING: lifecycle-worker $PROJECT failed to start"
