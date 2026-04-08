@@ -42,6 +42,8 @@ spawn_output='gui/501/ai.agento.lifecycle-all = {
 	state = spawn scheduled
 }'
 
+bad_request_output='Bad request.'
+
 missing_output='Bad request.
 Could not find service "ai.agento.lifecycle-all" in domain for user gui: 501'
 
@@ -59,6 +61,12 @@ assert_eq "extract waiting" \
 assert_eq "extract missing service" \
   "$(extract_launchctl_state_from_output "$missing_output")" \
   "not_found"
+assert_eq "extract spawn scheduled" \
+  "$(extract_launchctl_state_from_output "$spawn_output")" \
+  "spawn scheduled"
+assert_eq "extract bad request" \
+  "$(extract_launchctl_state_from_output "$bad_request_output")" \
+  "bad_request"
 
 echo ""
 echo "=== launchctl state classification ==="
@@ -74,6 +82,9 @@ assert_eq "classify waiting" \
 assert_eq "classify spawn scheduled" \
   "$(classify_launchctl_state "$(extract_launchctl_state_from_output "$spawn_output")")" \
   "spawn_pending"
+assert_eq "classify bad request" \
+  "$(classify_launchctl_state "$(extract_launchctl_state_from_output "$bad_request_output")")" \
+  "not_found"
 assert_eq "classify missing service" \
   "$(classify_launchctl_state "not_found")" \
   "not_found"

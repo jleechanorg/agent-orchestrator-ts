@@ -58,31 +58,68 @@ list_configured_projects() {
     return 0
   fi
 
-  python3 -c "
+  if ! command -v python3 >/dev/null 2>&1; then
+    log "WARN: python3 not available; unable to parse configured projects from $CONFIG_FILE"
+    printf '__CONFIG_PARSE_FAILED__\n'
+    return 0
+  fi
+
+  if ! CONFIG_FILE="$CONFIG_FILE" python3 -c '
+import os
 import yaml
-with open('$CONFIG_FILE') as f:
+
+with open(os.environ["CONFIG_FILE"]) as f:
     cfg = yaml.safe_load(f) or {}
-for pid in cfg.get('projects', {}):
+
+for pid in cfg.get("projects", {}):
     print(pid)
-" 2>/dev/null
+' 2>/dev/null; then
+    log "WARN: failed to parse configured projects from $CONFIG_FILE; continuing watchdog run"
+    printf '__CONFIG_PARSE_FAILED__\n'
+    return 0
+  fi
 }
 
 list_missing_lifecycle_workers() {
+  local configured_projects
   local project
   local missing=""
 
+  configured_projects="$(list_configured_projects)"
+  if [ "$configured_projects" = "__CONFIG_PARSE_FAILED__" ]; then
+    printf '%s' "$configured_projects"
+    return 0
+  fi
+
   while IFS= read -r project; do
     [ -n "$project" ] || continue
-    if ! pgrep -f "ao lifecycle-worker ${project}" >/dev/null 2>&1; then
+    if ! has_exact_lifecycle_worker_for_project "$project"; then
       if [ -n "$missing" ]; then
         missing="${missing} ${project}"
       else
         missing="$project"
       fi
     fi
-  done < <(list_configured_projects)
+  done <<EOF
+$configured_projects
+EOF
 
   printf '%s' "$missing"
+}
+
+has_exact_lifecycle_worker_for_project() {
+  local project="$1"
+  local process_line
+
+  while IFS= read -r process_line; do
+    case "$process_line" in
+      *"ao lifecycle-worker ${project}"|*"ao lifecycle-worker ${project} "*) return 0 ;;
+    esac
+  done <<EOF
+$(pgrep -af "ao lifecycle-worker" 2>/dev/null || true)
+EOF
+
+  return 1
 }
 
 # Keep log file under 1MB
