@@ -74,4 +74,57 @@ describe("resolveAgentSelection — modelByCli", () => {
     expect(out.agentConfig.model).toBe("project-model");
     expect(out.agentName).toBe("mock-agent");
   });
+
+  it("uses CLI-specific worker model before generic shared model", () => {
+    const out = resolveAgentSelection({
+      role: "worker",
+      project: {
+        ...baseProject,
+        agent: "codex",
+        agentConfig: {
+          model: "claude-sonnet-4-6",
+        },
+      },
+      defaults: {
+        runtime: "t",
+        agent: "codex",
+        workspace: "w",
+        notifiers: [],
+        modelByCli: {
+          codex: { model: "gpt-5-codex" },
+        },
+      },
+    });
+
+    expect(out.agentName).toBe("codex");
+    expect(out.model).toBe("gpt-5-codex");
+    expect(out.agentConfig.model).toBe("gpt-5-codex");
+  });
+
+  it("uses CLI-specific orchestrator model before generic shared orchestrator model", () => {
+    const out = resolveAgentSelection({
+      role: "orchestrator",
+      project: {
+        ...baseProject,
+        agent: "codex",
+        agentConfig: {
+          orchestratorModel: "claude-opus-4-20250514",
+          model: "claude-sonnet-4-6",
+        },
+      },
+      defaults: {
+        runtime: "t",
+        agent: "codex",
+        workspace: "w",
+        notifiers: [],
+        modelByCli: {
+          codex: { orchestratorModel: "gpt-5-codex" },
+        },
+      },
+    });
+
+    expect(out.agentName).toBe("codex");
+    expect(out.model).toBe("gpt-5-codex");
+    expect(out.agentConfig.model).toBe("gpt-5-codex");
+  });
 });
