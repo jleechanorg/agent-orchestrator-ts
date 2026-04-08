@@ -392,8 +392,8 @@ try:
     with open(sys.argv[1]) as f:
         cfg = yaml.safe_load(f)
     n = 0
-    for _, pobj in (cfg.get('projects', {}) or {}).items():
-        if isinstance(pobj, dict) and pobj.get('enabled', True) is False:
+    for _, pobj in (cfg.get("projects", {}) or {}).items():
+        if isinstance(pobj, dict) and pobj.get("enabled", True) is False:
             continue
         n += 1
     print(n)
@@ -402,7 +402,7 @@ except Exception:
 ' "$config_file" 2>/dev/null || echo 0)"
   if ! [[ "$configured_project_count" =~ ^[0-9]+$ ]]; then configured_project_count=0; fi
 
-  max_workers="${AO_DOCTOR_MAX_LIFECYCLE_WORKERS:-}"
+  local max_workers="${AO_DOCTOR_MAX_LIFECYCLE_WORKERS:-}"
   if ! [[ "$max_workers" =~ ^[0-9]+$ ]]; then
     max_workers=8
     if [ "$configured_project_count" -gt "$max_workers" ]; then
@@ -421,8 +421,8 @@ import yaml, sys
 try:
     with open(sys.argv[1]) as f:
         cfg = yaml.safe_load(f)
-    for pid, pobj in cfg.get('projects', {}).items():
-        if isinstance(pobj, dict) and pobj.get('enabled', True) is False:
+    for pid, pobj in cfg.get("projects", {}).items():
+        if isinstance(pobj, dict) and pobj.get("enabled", True) is False:
             continue
         print(pid)
 except Exception:

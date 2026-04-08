@@ -449,6 +449,19 @@ describe("forceLifecycleLock (orch-886k)", () => {
     expect(release).toBeTypeOf("function");
     if (release) release();
   });
+
+  it("proceeds with acquisition when ps fails (indeterminate owner)", () => {
+    const cfg = mockConfig({ "test-proj": "/repos/test-proj" });
+    const lockFile = `/tmp/ao-test/test-proj/lifecycle-worker.lock`;
+    MOCK_FS.store[`readFileSync:${lockFile}`] = "77779\n";
+    mockExecFileSync.mockImplementationOnce(() => {
+      throw new Error("ps timeout");
+    });
+
+    const release = forceLifecycleLock(cfg, "test-proj");
+    expect(release).toBeTypeOf("function");
+    if (release) release();
+  });
 });
 
 describe("scanForRunningLifecycleWorker (orch-886k)", () => {
