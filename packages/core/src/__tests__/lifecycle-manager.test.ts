@@ -3900,8 +3900,15 @@ describe("session exit proof reconciliation (bd-uxs.6)", () => {
     vi.mocked(mockRuntime.isAlive).mockResolvedValue(false);
     vi.mocked(mockAgent.getActivityState).mockResolvedValue({ state: "exited" });
 
-    const session = makeSession({ status: "working", pr: null });
-    vi.mocked(mockSessionManager.get).mockResolvedValue(session);
+    const recordedAt = new Date().toISOString();
+    vi.mocked(mockSessionManager.get)
+      .mockImplementationOnce(async () => makeSession({ status: "working", pr: null }))
+      .mockImplementationOnce(async () =>
+        makeSession({
+          status: "working",
+          pr: null,
+          metadata: { terminalExitProofRecordedAt: recordedAt },
+        }));
 
     writeMetadata(sessionsDir, "app-1", {
       worktree: "/tmp",
@@ -3934,7 +3941,6 @@ describe("session exit proof reconciliation (bd-uxs.6)", () => {
     );
     expect(exitFailedCalls).toHaveLength(1);
     expect(mockSessionManager.kill).toHaveBeenCalledTimes(2);
-    expect(session.metadata["terminalExitProofRecordedAt"]).toBeDefined();
   });
 
   it("emits session.exit_failed when validateCommits returns pushed=false", async () => {

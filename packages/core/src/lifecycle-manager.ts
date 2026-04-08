@@ -47,7 +47,7 @@ import {
   type PRState,
   type ProjectConfig as _ProjectConfig,
 } from "./types.js";
-import { readMetadataRaw, updateMetadata } from "./metadata.js";
+import { listMetadata, readMetadataRaw, updateMetadata } from "./metadata.js";
 import { getSessionsDir } from "./paths.js";
 import {
   clearProjectPause,
@@ -1540,6 +1540,18 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     // its rate-limit pause metadata, breaking the pause mechanism.
     if (!isOrchestratorSession(session)) {
       try {
+        if (exitStatus === "merged") {
+          // Reap co-workers before archiving the merged session. If the reap fails,
+          // leave the session record in place so a later poll can retry the merge cleanup.
+          await reapPostMergeCoWorkers(session, sessionManager, observer, {
+            config,
+            registry,
+            observer,
+            notifyHuman,
+            createEvent,
+          });
+        }
+
         await sessionManager.kill(session.id);
         // Only log session_kill after successful kill — a false entry for a
         // failed kill would misrepresent session state in the audit trail.
@@ -1559,18 +1571,6 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         // so a merge in one project does not reap sessions from other projects,
         // and active sessions that are simply old are not killed prematurely.
         // Non-fatal: reap failures are warning-only so they never block session cleanup.
-        if (exitStatus === "merged") {
-          // orch-s66: pass exit proof deps so reaped co-workers emit session.exited
-          // notifications. Without this, Slack thread terminal updates are skipped for
-          // co-workers cleaned up by the post-merge sweep.
-          await reapPostMergeCoWorkers(session, sessionManager, observer, {
-            config,
-            registry,
-            observer,
-            notifyHuman,
-            createEvent,
-          });
-        }
       } catch (killErr) {
         // kill() may fail if session is already partially cleaned up; reapPostMergeCoWorkers
         // may fail if the reaper is unreachable. Both are non-fatal — log and continue.
@@ -2479,7 +2479,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     polling = true;
 
     try {
-      const sessions = await sessionManager.list(scopedProjectId);
+      const sessions = await loadSessionsForPoll();
 
       const pausedProjects = new Map<string, Date>();
       for (const session of sessions) {
@@ -2807,6 +2807,31 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     } finally {
       polling = false;
     }
+  }
+
+  async function loadSessionsForPoll(): Promise<Session[]> {
+    const activeSessions = await sessionManager.list(scopedProjectId);
+    const sessionsById = new Map(activeSessions.map((session) => [session.id, session]));
+
+    const projects = scopedProjectId
+      ? [[scopedProjectId, config.projects[scopedProjectId]]]
+      : Object.entries(config.projects);
+
+    for (const [projectId, project] of projects) {
+      if (!project) continue;
+      const sessionsDir = getSessionsDir(config.configPath, project.path);
+      if (!existsSync(sessionsDir)) continue;
+
+      for (const sessionId of listMetadata(sessionsDir)) {
+        if (sessionsById.has(sessionId)) continue;
+        const session = await sessionManager.get(sessionId);
+        if (!session) continue;
+        if (!TERMINAL_STATUSES.has(session.status)) continue;
+        sessionsById.set(session.id, session);
+      }
+    }
+
+    return [...sessionsById.values()];
   }
 
   return {
