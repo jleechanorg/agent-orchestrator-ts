@@ -33,6 +33,7 @@ import {
   type Workspace,
   type Tracker,
   type SCM,
+  PR_STATE,
   type RuntimeHandle,
   type Session,
 } from "../types.js";
@@ -4648,6 +4649,9 @@ describe("restore", () => {
         "99",
         config.projects["my-app"],
       );
+      expect(mockSCM.getPRState).toHaveBeenCalledWith(
+        expect.objectContaining({ number: 99 }),
+      );
       expect(runtimeWithQueuedOutput.sendMessage).toHaveBeenCalledWith(
         makeHandle("rt-1"),
         expect.stringContaining("PR #99"),
@@ -4655,6 +4659,143 @@ describe("restore", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("skips PR kickoff re-delivery when restored PR is not open", async () => {
+    const wsPath = join(tmpDir, "ws-app-restore-pr-closed");
+    mkdirSync(wsPath, { recursive: true });
+
+    const mockSCM: SCM = {
+      name: "mock-scm",
+      detectPR: vi.fn(),
+      resolvePR: vi.fn().mockResolvedValue({
+        number: 99,
+        url: "https://github.com/org/my-app/pull/99",
+        title: "Fix login bug",
+        owner: "org",
+        repo: "my-app",
+        branch: "feat/login-fix",
+        baseBranch: "main",
+        isDraft: false,
+      }),
+      assignPRToCurrentUser: vi.fn().mockResolvedValue(undefined),
+      checkoutPR: vi.fn().mockResolvedValue(true),
+      getPRState: vi.fn().mockResolvedValue(PR_STATE.MERGED),
+      getPRSummary: vi.fn(),
+      mergePR: vi.fn(),
+      closePR: vi.fn(),
+      getCIChecks: vi.fn(),
+      getCISummary: vi.fn(),
+      getReviews: vi.fn(),
+      getReviewDecision: vi.fn(),
+      getPendingComments: vi.fn(),
+      getAutomatedComments: vi.fn(),
+      getMergeability: vi.fn(),
+    };
+
+    const runtimeWithSendSpy: Runtime = {
+      ...mockRuntime,
+      sendMessage: vi.fn().mockResolvedValue(undefined),
+    };
+
+    const registryWithSCM: PluginRegistry = {
+      ...mockRegistry,
+      get: vi.fn().mockImplementation((slot: string, _name: string) => {
+        if (slot === "runtime") return runtimeWithSendSpy;
+        if (slot === "agent") return mockAgent;
+        if (slot === "workspace") return mockWorkspace;
+        if (slot === "scm") return mockSCM;
+        return null;
+      }),
+    };
+
+    writeMetadata(sessionsDir, "app-1", {
+      worktree: wsPath,
+      branch: "feat/TEST-1",
+      status: "killed",
+      project: "my-app",
+      pr: "https://github.com/org/my-app/pull/99",
+      runtimeHandle: JSON.stringify(makeHandle("rt-old")),
+    });
+
+    const sm = createSessionManager({ config, registry: registryWithSCM });
+    await sm.restore("app-1");
+
+    expect(mockSCM.resolvePR).toHaveBeenCalledWith("99", config.projects["my-app"]);
+    expect(mockSCM.getPRState).toHaveBeenCalledWith(expect.objectContaining({ number: 99 }));
+    expect(runtimeWithSendSpy.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it("does not recursively restore while delivering restore kickoff", async () => {
+    const wsPath = join(tmpDir, "ws-app-restore-pr-dead-runtime");
+    mkdirSync(wsPath, { recursive: true });
+
+    const runtimeWithDeadProcess: Runtime = {
+      ...mockRuntime,
+      create: vi.fn().mockResolvedValue(makeHandle("rt-1")),
+      isAlive: vi.fn().mockResolvedValue(false),
+      sendMessage: vi.fn().mockResolvedValue(undefined),
+      getOutput: vi.fn().mockResolvedValue(""),
+    };
+
+    const agentWithDeadProcess: Agent = {
+      ...mockAgent,
+      isProcessRunning: vi.fn().mockResolvedValue(false),
+    };
+
+    const mockSCM: SCM = {
+      name: "mock-scm",
+      detectPR: vi.fn(),
+      resolvePR: vi.fn().mockResolvedValue({
+        number: 99,
+        url: "https://github.com/org/my-app/pull/99",
+        title: "Fix login bug",
+        owner: "org",
+        repo: "my-app",
+        branch: "feat/login-fix",
+        baseBranch: "main",
+        isDraft: false,
+      }),
+      assignPRToCurrentUser: vi.fn().mockResolvedValue(undefined),
+      checkoutPR: vi.fn().mockResolvedValue(true),
+      getPRState: vi.fn().mockResolvedValue(PR_STATE.OPEN),
+      getPRSummary: vi.fn(),
+      mergePR: vi.fn(),
+      closePR: vi.fn(),
+      getCIChecks: vi.fn(),
+      getCISummary: vi.fn(),
+      getReviews: vi.fn(),
+      getReviewDecision: vi.fn(),
+      getPendingComments: vi.fn(),
+      getAutomatedComments: vi.fn(),
+      getMergeability: vi.fn(),
+    };
+
+    const registryWithSCM: PluginRegistry = {
+      ...mockRegistry,
+      get: vi.fn().mockImplementation((slot: string, _name: string) => {
+        if (slot === "runtime") return runtimeWithDeadProcess;
+        if (slot === "agent") return agentWithDeadProcess;
+        if (slot === "workspace") return mockWorkspace;
+        if (slot === "scm") return mockSCM;
+        return null;
+      }),
+    };
+
+    writeMetadata(sessionsDir, "app-1", {
+      worktree: wsPath,
+      branch: "feat/TEST-1",
+      status: "killed",
+      project: "my-app",
+      pr: "https://github.com/org/my-app/pull/99",
+      runtimeHandle: JSON.stringify(makeHandle("rt-old")),
+    });
+
+    const sm = createSessionManager({ config, registry: registryWithSCM });
+    await sm.restore("app-1");
+
+    expect(runtimeWithDeadProcess.create).toHaveBeenCalledTimes(1);
+    expect(runtimeWithDeadProcess.sendMessage).toHaveBeenCalledTimes(1);
   });
 
   it("falls back to getLaunchCommand when getRestoreCommand returns null", async () => {
@@ -5350,16 +5491,7 @@ describe("claimPR sendInitialMessage", () => {
 
   it("sends the initial message by default when sendInitialMessage is omitted", async () => {
     const mockSCM = makeSCMForInitial();
-    const runtimeWithMetadataCheck: Runtime = {
-      ...mockRuntime,
-      sendMessage: vi.fn().mockImplementation(async () => {
-        expect(readMetadataRaw(sessionsDir, "app-6")).toMatchObject({
-          pr: "https://github.com/org/my-app/pull/99",
-          status: "pr_open",
-          branch: "feat/old",
-        });
-      }),
-    };
+    const runtimeWithMetadataCheck: Runtime = { ...mockRuntime, sendMessage: vi.fn() };
     writeMetadata(sessionsDir, "app-6", {
       worktree: "/tmp/ws-app-6",
       branch: "feat/old",
@@ -5383,6 +5515,11 @@ describe("claimPR sendInitialMessage", () => {
     });
     await sm.claimPR("app-6", "99");
 
+    expect(readMetadataRaw(sessionsDir, "app-6")).toMatchObject({
+      pr: "https://github.com/org/my-app/pull/99",
+      status: "pr_open",
+      branch: "feat/login-fix",
+    });
     expect(runtimeWithMetadataCheck.sendMessage).toHaveBeenCalledOnce();
     const msg: string = vi.mocked(runtimeWithMetadataCheck.sendMessage).mock.calls[0]![1] as string;
     expect(msg).toContain("PR #99");

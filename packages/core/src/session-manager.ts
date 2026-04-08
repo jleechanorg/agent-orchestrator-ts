@@ -2178,7 +2178,11 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
     return result;
   }
 
-  async function send(sessionId: SessionId, message: string): Promise<void> {
+  async function send(
+    sessionId: SessionId,
+    message: string,
+    options?: { skipRestore?: boolean },
+  ): Promise<void> {
     const { raw, sessionsDir, project } = requireSessionRecord(sessionId);
     const pause = getProjectPause(project);
     const orchestratorId = `${project.sessionPrefix}-orchestrator`;
@@ -2369,6 +2373,9 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       const normalized = current.runtimeHandle ? current : { ...current, runtimeHandle: handle };
 
       if (forceRestore || isRestorable(normalized)) {
+        if (options?.skipRestore) {
+          return normalized;
+        }
         return restoreForDelivery(
           forceRestore
             ? "session needed to be restarted before delivery"
@@ -2391,6 +2398,9 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       }
 
       if (!runtimeAlive || !processRunning) {
+        if (options?.skipRestore) {
+          return normalized;
+        }
         return restoreForDelivery(
           !runtimeAlive ? "runtime is not alive" : "agent process is not running",
           normalized,
@@ -2457,7 +2467,9 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       await sendWithConfirmation(prepared);
     } catch (err) {
       const shouldRetryWithRestore =
-        prepared.restoredAt === undefined && !NON_RESTORABLE_STATUSES.has(prepared.status);
+        !options?.skipRestore &&
+        prepared.restoredAt === undefined &&
+        !NON_RESTORABLE_STATUSES.has(prepared.status);
 
       if (!shouldRetryWithRestore) {
         if (err instanceof Error) {
@@ -2843,12 +2855,20 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       }
     }
 
-    if (raw["pr"] && plugins.scm?.resolvePR && restoredSession.runtimeHandle) {
+    if (
+      raw["pr"] &&
+      plugins.scm?.resolvePR &&
+      plugins.scm?.getPRState &&
+      restoredSession.runtimeHandle
+    ) {
       try {
         const parsedPr = parsePrFromUrl(raw["pr"]);
         const prRef = parsedPr ? String(parsedPr.number) : raw["pr"];
         const pr = await plugins.scm.resolvePR(prRef, project);
-        await send(sessionId, buildInitialPRTaskMessage(pr));
+        const prState = await plugins.scm.getPRState(pr);
+        if (prState === PR_STATE.OPEN) {
+          await send(sessionId, buildInitialPRTaskMessage(pr), { skipRestore: true });
+        }
       } catch {
         // Non-fatal — restored session is usable even if kickoff re-delivery fails
       }
