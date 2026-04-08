@@ -74,4 +74,78 @@ describe("resolveAgentSelection — modelByCli", () => {
     expect(out.agentConfig.model).toBe("project-model");
     expect(out.agentName).toBe("mock-agent");
   });
+
+  it("prefers modelByCli over shared agentConfig.model for worker sessions", () => {
+    const out = resolveAgentSelection({
+      role: "worker",
+      project: {
+        ...baseProject,
+        agentConfig: {
+          model: "shared-model",
+        },
+        modelByCli: {
+          "mock-agent": { model: "cli-model" },
+        },
+      },
+      defaults: {
+        runtime: "t",
+        agent: "mock-agent",
+        workspace: "w",
+        notifiers: [],
+      },
+    });
+
+    expect(out.model).toBe("cli-model");
+    expect(out.agentConfig.model).toBe("cli-model");
+  });
+
+  it("prefers cli orchestratorModel over shared orchestratorModel", () => {
+    const out = resolveAgentSelection({
+      role: "orchestrator",
+      project: {
+        ...baseProject,
+        agentConfig: {
+          orchestratorModel: "shared-orchestrator",
+          model: "shared-model",
+        },
+        modelByCli: {
+          "mock-agent": { orchestratorModel: "cli-orchestrator" },
+        },
+      },
+      defaults: {
+        runtime: "t",
+        agent: "mock-agent",
+        workspace: "w",
+        notifiers: [],
+      },
+    });
+
+    expect(out.model).toBe("cli-orchestrator");
+    expect(out.agentConfig.model).toBe("cli-orchestrator");
+  });
+
+  it("prefers cli model over shared orchestratorModel when cli orchestratorModel is absent", () => {
+    const out = resolveAgentSelection({
+      role: "orchestrator",
+      project: {
+        ...baseProject,
+        agentConfig: {
+          orchestratorModel: "shared-orchestrator",
+          model: "shared-model",
+        },
+        modelByCli: {
+          "mock-agent": { model: "cli-model" },
+        },
+      },
+      defaults: {
+        runtime: "t",
+        agent: "mock-agent",
+        workspace: "w",
+        notifiers: [],
+      },
+    });
+
+    expect(out.model).toBe("cli-model");
+    expect(out.agentConfig.model).toBe("cli-model");
+  });
 });
