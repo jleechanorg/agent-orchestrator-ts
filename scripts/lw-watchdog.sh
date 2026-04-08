@@ -121,7 +121,7 @@ has_exact_lifecycle_worker_for_project() {
       *"ao lifecycle-worker ${project}"|*"ao lifecycle-worker ${project} "*) return 0 ;;
     esac
   done <<EOF
-$(pgrep -af "ao lifecycle-worker" 2>/dev/null || true)
+$(pgrep -lf "ao lifecycle-worker" 2>/dev/null || true)
 EOF
 
   return 1
