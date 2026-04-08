@@ -128,14 +128,15 @@ export function tryAcquireLifecycleLock(
     if (!Number.isFinite(stalePid) || stalePid === process.pid) return false;
 
     const staleIsWorker = isLifecycleWorkerProcess(stalePid, projectId);
-    if (staleIsWorker === true) {
-      // Live worker for this project still owns the lock.
+    if (staleIsWorker !== false) {
+      // staleIsWorker === true: live worker for this project still owns the lock.
+      // staleIsWorker === null: process inspection failed (indeterminate).
+      // In non-forced acquisition, fail closed unless we can prove staleness.
       return false;
     }
 
     // staleIsWorker === false: process is dead OR unrelated command/project.
-    // staleIsWorker === null: indeterminate (ps failure). Preserve prior
-    // behavior and attempt stale-lock reap.
+    // Safe to reap and retry lock acquisition.
 
     try {
       unlinkSync(lockFile);

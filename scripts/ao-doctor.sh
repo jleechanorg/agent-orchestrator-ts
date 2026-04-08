@@ -386,10 +386,10 @@ check_lifecycle_workers() {
   # Default budget is dynamic: max(8, enabled project count), unless
   # AO_DOCTOR_MAX_LIFECYCLE_WORKERS explicitly overrides it.
   local configured_project_count
-  configured_project_count="$(python3 -c "
+  configured_project_count="$(python3 -c '
 import yaml, sys
 try:
-    with open('$config_file') as f:
+    with open(sys.argv[1]) as f:
         cfg = yaml.safe_load(f)
     n = 0
     for _, pobj in (cfg.get('projects', {}) or {}).items():
@@ -399,7 +399,7 @@ try:
     print(n)
 except Exception:
     print(0)
-" 2>/dev/null || echo 0)"
+' "$config_file" 2>/dev/null || echo 0)"
   if ! [[ "$configured_project_count" =~ ^[0-9]+$ ]]; then configured_project_count=0; fi
 
   max_workers="${AO_DOCTOR_MAX_LIFECYCLE_WORKERS:-}"
@@ -416,10 +416,10 @@ except Exception:
   fi
 
   local projects
-  projects="$(python3 -c "
+  projects="$(python3 -c '
 import yaml, sys
 try:
-    with open('$config_file') as f:
+    with open(sys.argv[1]) as f:
         cfg = yaml.safe_load(f)
     for pid, pobj in cfg.get('projects', {}).items():
         if isinstance(pobj, dict) and pobj.get('enabled', True) is False:
@@ -427,7 +427,7 @@ try:
         print(pid)
 except Exception:
     pass
-" 2>/dev/null || true)"
+' "$config_file" 2>/dev/null || true)"
 
   if [ -z "$projects" ]; then
     pass "no projects in config — per-project lifecycle-worker check skipped"

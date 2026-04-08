@@ -1,7 +1,7 @@
 #!/bin/bash
 # Start AO for all projects defined in agent-orchestrator.yaml.
-# First project: ao start (dashboard + lifecycle-worker + orchestrator)
-# Remaining projects: lifecycle-worker + orchestrator only (no duplicate dashboard)
+# First project: ao start (dashboard + lifecycle-worker + orchestrator) when AO_START_DASHBOARD=1
+# All selected projects: direct lifecycle-worker startup when AO_START_DASHBOARD!=1
 #
 # Idempotent: skips lifecycle-workers that are already running per project.
 # Pre-flight: validates YAML parses cleanly before attempting to start anything.

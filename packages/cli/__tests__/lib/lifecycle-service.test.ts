@@ -384,7 +384,7 @@ describe("tryAcquireLifecycleLock (orch-886k)", () => {
     if (release1) release1();
   });
 
-  it("reaps a stale lock when ps fails (process is gone)", () => {
+  it("returns null and preserves lock when ps fails (indeterminate owner)", () => {
     const cfg = mockConfig({ "test-proj": "/repos/test-proj" });
     const lockFile = `/tmp/ao-test/test-proj/lifecycle-worker.lock`;
 
@@ -398,10 +398,11 @@ describe("tryAcquireLifecycleLock (orch-886k)", () => {
       throw new Error("No such process");
     });
 
-    // Second acquire: ps failure means process is gone → stale lock reaped.
+    // Second acquire: ps failure is indeterminate -> fail closed and preserve lock.
     const release2 = tryAcquireLifecycleLock(cfg, "test-proj");
-    expect(release2).toBeTypeOf("function");
-    if (release2) release2();
+    expect(release2).toBeNull();
+    expect(MOCK_FS.lockHeld).toBe(true);
+    expect(MOCK_FS.store[`unlinkSync:${lockFile}`]).toBeUndefined();
     if (release1) release1();
   });
 
