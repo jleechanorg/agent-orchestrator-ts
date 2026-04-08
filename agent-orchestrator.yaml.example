@@ -124,6 +124,28 @@ projects:
     # autoMerge:
     #   enabled: false
 
+  # Fork: jleechanorg/agent-orchestrator — builtin manager evolve loop (bd-elcfg).
+  # Mirror under projects.agent-orchestrator in ~/.openclaw/agent-orchestrator.yaml when self-hosting.
+  # Template: see projects.jleechanclaw.evolveLoop in the same file for a fuller scope list (e.g. antig-dispatch).
+  agent-orchestrator:
+    name: Agent Orchestrator
+    repo: jleechanorg/agent-orchestrator
+    path: ~/projects_reference/agent-orchestrator
+    defaultBranch: main
+    sessionPrefix: ao
+    # evolveLoop — opt-in per project; injects evolve-loop instructions into the orchestrator prompt when enabled: true.
+    # Kill switch: EVOLVE_LOOP_ENABLED=false disables all projects. See docs/design/manager-evolve-loop-design.md
+    evolveLoop:
+      enabled: true
+      pollCadence: lightweight # lightweight | standard | fast
+      autonomousFixScopes:
+        - config-edit # agentRules / reaction YAML edits
+        - claw-dispatch # ao spawn for fixes
+        - bead-create # beads create/update via tracker
+      blockedScopes: [] # e.g. bead-delete — extra denials beyond global deny list
+      knowledgeBaseDir: ~/.ao-evolve-knowledge # expanded by config loader
+      zeroTouchWindow: 24h # anomaly window for MEASURE phase (e.g. 24h, 7d)
+
 # Notification channels
 # notifiers:
 #   slack:
