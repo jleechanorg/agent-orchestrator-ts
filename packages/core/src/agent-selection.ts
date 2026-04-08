@@ -97,8 +97,8 @@ export function resolveAgentSelection(params: {
       ? (roleAgentConfig.orchestratorModel ??
         roleAgentConfig.model ??
         cliModelConfig.orchestratorModel ??
-        sharedConfig.orchestratorModel ??
         cliModelConfig.model ??
+        sharedConfig.orchestratorModel ??
         sharedConfig.model ??
         undefined)
       : (roleAgentConfig.model ?? cliModelConfig.model ?? sharedConfig.model);

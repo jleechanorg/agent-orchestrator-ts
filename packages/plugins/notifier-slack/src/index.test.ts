@@ -63,6 +63,12 @@ describe("notifier-slack", () => {
         expect.stringContaining("unresolved template/placeholder"),
       );
     });
+
+    it("throws when webhookUrl is not a string", () => {
+      expect(() => create({ webhookUrl: 123 as unknown as string })).toThrow(
+        "webhookUrl must be a string",
+      );
+    });
   });
 
   describe("notify", () => {

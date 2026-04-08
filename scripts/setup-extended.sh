@@ -7,13 +7,23 @@
 
 set -e
 
+resolve_config_path() {
+  python3 - "$1" <<'PY'
+import os
+import sys
+print(os.path.abspath(os.path.expanduser(sys.argv[1])))
+PY
+}
+
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 if [ -n "${AO_CONFIG_PATH:-}" ]; then
-  CONFIG_FILE="$AO_CONFIG_PATH"
+  CONFIG_FILE="$(resolve_config_path "$AO_CONFIG_PATH")"
 elif [ -f "$HOME/.openclaw_prod/agent-orchestrator.yaml" ]; then
   CONFIG_FILE="$HOME/.openclaw_prod/agent-orchestrator.yaml"
-else
+elif [ -f "$HOME/.openclaw/agent-orchestrator.yaml" ]; then
   CONFIG_FILE="$HOME/.openclaw/agent-orchestrator.yaml"
+else
+  CONFIG_FILE="$HOME/.openclaw_prod/agent-orchestrator.yaml"
 fi
 
 echo ""

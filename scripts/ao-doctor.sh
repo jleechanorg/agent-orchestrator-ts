@@ -327,17 +327,17 @@ check_lifecycle_workers() {
   local config_file
   config_file="$(find_config 2>/dev/null || true)"
   if [ -z "$config_file" ] || [ ! -f "$config_file" ]; then
-    if [ -f "$HOME/.openclaw_prod/agent-orchestrator.yaml" ]; then
-      config_file="$HOME/.openclaw_prod/agent-orchestrator.yaml"
+    if [ -f "$DEFAULT_CONFIG_HOME/.openclaw_prod/agent-orchestrator.yaml" ]; then
+      config_file="$DEFAULT_CONFIG_HOME/.openclaw_prod/agent-orchestrator.yaml"
     else
-      config_file="$HOME/.openclaw/agent-orchestrator.yaml"
+      config_file="$DEFAULT_CONFIG_HOME/.openclaw/agent-orchestrator.yaml"
     fi
   fi
   # Resolve canonical ao binary from PATH at runtime rather than hardcoding a path.
   # Also resolve the real path (symlink target) so we match both launchd-spawned
   # workers (show as /path/to/ao) and node-spawned workers (show as node /real/path.js).
   local canonical_binary
-  canonical_binary="$(command -v ao 2>/dev/null || printf '%s' "$HOME/bin/ao")"
+  canonical_binary="$(command -v ao 2>/dev/null || printf '%s' "$DEFAULT_CONFIG_HOME/bin/ao")"
   local canonical_real
   canonical_real="$(realpath "$canonical_binary" 2>/dev/null || printf '%s' "$canonical_binary")"
 

@@ -123,4 +123,29 @@ describe("resolveAgentSelection — modelByCli", () => {
     expect(out.model).toBe("cli-orchestrator");
     expect(out.agentConfig.model).toBe("cli-orchestrator");
   });
+
+  it("prefers cli model over shared orchestratorModel when cli orchestratorModel is absent", () => {
+    const out = resolveAgentSelection({
+      role: "orchestrator",
+      project: {
+        ...baseProject,
+        agentConfig: {
+          orchestratorModel: "shared-orchestrator",
+          model: "shared-model",
+        },
+        modelByCli: {
+          "mock-agent": { model: "cli-model" },
+        },
+      },
+      defaults: {
+        runtime: "t",
+        agent: "mock-agent",
+        workspace: "w",
+        notifiers: [],
+      },
+    });
+
+    expect(out.model).toBe("cli-model");
+    expect(out.agentConfig.model).toBe("cli-model");
+  });
 });
