@@ -7,6 +7,7 @@ import {
 } from "@jleechanorg/ao-plugin-agent-base";
 import {
   DEFAULT_READY_THRESHOLD_MS,
+  readLastJsonEntry,
   readLastJsonlEntry,
   type Agent,
   type AgentLaunchConfig,
@@ -15,7 +16,6 @@ import {
   type ProjectConfig,
   type Session,
 } from "@jleechanorg/ao-core";
-import { readFile, stat } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -90,41 +90,9 @@ const geminiConfig: AgentPluginConfig = {
 // =============================================================================
 
 // =============================================================================
-// Gemini native JSON session reader (orch-cb3e: done-signal)
+// Gemini activity detection
 // =============================================================================
 
-/**
- * Read the last message type from a Gemini native session file.
- *
- * Gemini CLI stores sessions as a top-level JSON object:
- *   { sessionId, messages: [{ type, content, id, timestamp }, ...] }
- * The last entry in messages[] is the current agent state.
- *
- * Gemini message types (observed in production):
- *   "user"   → user prompt pending response → active
- *   "gemini" → agent completed its turn     → ready (done-signal)
- *   "error"  → error occurred               → blocked
- *   "info"   → informational                → active
- */
-async function readLastGeminiNativeEntry(
-  filePath: string,
-): Promise<{ lastType: string | null; modifiedAt: Date } | null> {
-  try {
-    const [content, fileStat] = await Promise.all([readFile(filePath, "utf-8"), stat(filePath)]);
-    const parsed: unknown = JSON.parse(content);
-    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return null;
-
-    const obj = parsed as Record<string, unknown>;
-    if (!Array.isArray(obj.messages) || obj.messages.length === 0) return null;
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const lastMsg = obj.messages[obj.messages.length - 1] as any;
-    const lastType = typeof lastMsg?.type === "string" ? lastMsg.type : null;
-    return { lastType, modifiedAt: fileStat.mtime };
-  } catch {
-    return null;
-  }
-}
 
 const geminiOverrides: Partial<Agent> = {
   async getRestoreCommand(_session: Session, _project: ProjectConfig): Promise<string | null> {
@@ -143,7 +111,9 @@ const geminiOverrides: Partial<Agent> = {
     // Check if process is running first
     const exitedAt = new Date();
     if (!session.runtimeHandle) return { state: "exited", timestamp: exitedAt };
-    const running = await this.isProcessRunning!(session.runtimeHandle);
+    const isProcessRunning = this.isProcessRunning;
+    if (!isProcessRunning) return null;
+    const running = await isProcessRunning(session.runtimeHandle);
     if (!running) return { state: "exited", timestamp: exitedAt };
 
     if (!session.workspacePath) return null;
@@ -154,8 +124,8 @@ const geminiOverrides: Partial<Agent> = {
     const sessionFile = await findLatestSessionFile(projectDir, ".json");
     if (!sessionFile) return null;
 
-    // Try native Gemini JSON format first: { sessionId, messages: [...] }
-    const nativeEntry = await readLastGeminiNativeEntry(sessionFile);
+    // Try Gemini's native JSON session format first.
+    const nativeEntry = await readLastJsonEntry(sessionFile);
     // Only use native entry if lastType is a known string; null means the entry
     // exists but has no string `type`, so fall through to JSONL rather than
     // mis-classifying via the `default` branch.
