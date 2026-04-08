@@ -3896,6 +3896,47 @@ describe("session exit proof reconciliation (bd-uxs.6)", () => {
     expect((call![0] as { type: string }).type).toBe("session.exit_validated");
   });
 
+  it("records terminal exit proof once and keeps retrying kill on later polls", async () => {
+    vi.mocked(mockRuntime.isAlive).mockResolvedValue(false);
+    vi.mocked(mockAgent.getActivityState).mockResolvedValue({ state: "exited" });
+
+    const session = makeSession({ status: "working", pr: null });
+    vi.mocked(mockSessionManager.get).mockResolvedValue(session);
+
+    writeMetadata(sessionsDir, "app-1", {
+      worktree: "/tmp",
+      branch: "main",
+      status: "working",
+      project: "my-app",
+    });
+
+    const registryWithNotifier: PluginRegistry = {
+      ...mockRegistry,
+      get: vi.fn().mockImplementation((slot: string, name?: string) => {
+        if (slot === "runtime") return mockRuntime;
+        if (slot === "agent") return mockAgent;
+        if (slot === "notifier" && name === "desktop") return mockNotifier;
+        return null;
+      }),
+    };
+
+    const lm = createLifecycleManager({
+      config,
+      registry: registryWithNotifier,
+      sessionManager: mockSessionManager,
+    });
+
+    await lm.check("app-1");
+    await lm.check("app-1");
+
+    const exitFailedCalls = vi.mocked(mockNotifier.notify).mock.calls.filter(
+      (c) => (c[0] as { type?: string } | undefined)?.type === "session.exit_failed",
+    );
+    expect(exitFailedCalls).toHaveLength(1);
+    expect(mockSessionManager.kill).toHaveBeenCalledTimes(2);
+    expect(session.metadata["terminalExitProofRecordedAt"]).toBeDefined();
+  });
+
   it("emits session.exit_failed when validateCommits returns pushed=false", async () => {
     // SCM mock with validateCommits that returns pushed=false (local commits not pushed)
     const mockSCM: SCM = {
