@@ -42,6 +42,18 @@ fi
 
 REPO_ROOT="${AO_REPO_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 
+canonical_config_path() {
+  if [ -n "${AO_CONFIG_PATH:-}" ]; then
+    printf '%s\n' "$AO_CONFIG_PATH"
+    return 0
+  fi
+  if [ -f "$HOME/.openclaw_prod/agent-orchestrator.yaml" ]; then
+    printf '%s\n' "$HOME/.openclaw_prod/agent-orchestrator.yaml"
+    return 0
+  fi
+  printf '%s\n' "$HOME/.openclaw/agent-orchestrator.yaml"
+}
+
 require_command() {
   local name="$1"
   local fix_hint="$2"
@@ -93,7 +105,8 @@ require_command node "install Node.js 20+"
 # reinstalling. We do this before rebuilding so the new binary is never
 # left in a state where an old worker is holding stale state.
 kill_existing_workers() {
-  local config_file="$HOME/.openclaw/agent-orchestrator.yaml"
+  local config_file
+  config_file="$(canonical_config_path)"
   if [ ! -f "$config_file" ]; then
     printf 'No canonical config at %s — skipping worker teardown.\n' "$config_file"
     return 0
@@ -171,7 +184,8 @@ except:
 }
 
 restart_workers() {
-  local config_file="$HOME/.openclaw/agent-orchestrator.yaml"
+  local config_file
+  config_file="$(canonical_config_path)"
   if [ ! -f "$config_file" ]; then
     printf 'No canonical config — skipping worker restart.\n'
     return 0
@@ -203,7 +217,7 @@ except Exception:
   printf '\nRestarting lifecycle-workers after update...\n'
   for proj in $projects; do
     printf '  -> Starting lifecycle-worker for project %s\n' "$proj"
-    "$ao_bin" lifecycle-worker "$proj" &
+    AO_CONFIG_PATH="$config_file" "$ao_bin" lifecycle-worker "$proj" &
   done
   printf 'Worker restart complete.\n'
 }

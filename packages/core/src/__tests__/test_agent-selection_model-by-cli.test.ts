@@ -101,6 +101,30 @@ describe("resolveAgentSelection — modelByCli", () => {
     expect(out.agentConfig.model).toBe("gpt-5-codex");
   });
 
+  it("prefers modelByCli over shared agentConfig.model for worker sessions", () => {
+    const out = resolveAgentSelection({
+      role: "worker",
+      project: {
+        ...baseProject,
+        agentConfig: {
+          model: "shared-model",
+        },
+        modelByCli: {
+          "mock-agent": { model: "cli-model" },
+        },
+      },
+      defaults: {
+        runtime: "t",
+        agent: "mock-agent",
+        workspace: "w",
+        notifiers: [],
+      },
+    });
+
+    expect(out.model).toBe("cli-model");
+    expect(out.agentConfig.model).toBe("cli-model");
+  });
+
   it("uses CLI-specific orchestrator model before generic shared orchestrator model", () => {
     const out = resolveAgentSelection({
       role: "orchestrator",
@@ -126,5 +150,30 @@ describe("resolveAgentSelection — modelByCli", () => {
     expect(out.agentName).toBe("codex");
     expect(out.model).toBe("gpt-5-codex");
     expect(out.agentConfig.model).toBe("gpt-5-codex");
+  });
+
+  it("prefers cli model over shared orchestratorModel when cli orchestratorModel is absent", () => {
+    const out = resolveAgentSelection({
+      role: "orchestrator",
+      project: {
+        ...baseProject,
+        agentConfig: {
+          orchestratorModel: "shared-orchestrator",
+          model: "shared-model",
+        },
+        modelByCli: {
+          "mock-agent": { model: "cli-model" },
+        },
+      },
+      defaults: {
+        runtime: "t",
+        agent: "mock-agent",
+        workspace: "w",
+        notifiers: [],
+      },
+    });
+
+    expect(out.model).toBe("cli-model");
+    expect(out.agentConfig.model).toBe("cli-model");
   });
 });
