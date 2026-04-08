@@ -2711,10 +2711,15 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       // backfillAllPRs: spawn sessions for open PRs that have no active session.
       // Replaces the old orchestrator-session-based PR discovery (bd-awq) with a
       // deterministic loop inside the lifecycle-worker itself.
+      //
+      // Default: enabled (opt-out). Any value other than explicit `false`
+      // activates backfill. Projects that opt out while still having open PRs
+      // emit a warn observation so silent misconfiguration is visible.
       let backfillSpawned = false;
       if (scopedProjectId) {
         const project = config.projects[scopedProjectId];
-        if (project?.backfillAllPRs) {
+        const backfillEnabled = project?.backfillAllPRs !== false;
+        if (project && backfillEnabled) {
           backfillSpawned = await backfillUncoveredPRs(
             { registry, sessionManager, observer },
             { projectId: scopedProjectId, project, activeSessions, correlationId, worktreeDir: (config as { worktreeDir?: string }).worktreeDir },
@@ -2722,6 +2727,27 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
           // If we just spawned a session, skip all_complete — more work exists.
           if (backfillSpawned) {
             allCompleteEmitted = false;
+          }
+        } else if (project && project.backfillAllPRs === false) {
+          // Explicit opt-out — surface open-PR leakage risk for operator visibility.
+          const scmPlugin = project.scm ? registry.get<SCM>("scm", project.scm.plugin) : null;
+          const listOpenPRs = scmPlugin?.listOpenPRs?.bind(scmPlugin);
+          if (listOpenPRs) {
+            try {
+              const openPRs = await listOpenPRs(project);
+              const nonDraftOpen = openPRs.filter((pr) => !pr.isDraft).length;
+              if (nonDraftOpen > 0) {
+                observer.recordOperation({
+                  metric: "lifecycle_poll",
+                  operation: "lifecycle.backfill.disabled_with_open_prs",
+                  outcome: "failure",
+                  correlationId,
+                  projectId: scopedProjectId,
+                  data: { nonDraftOpenPRs: nonDraftOpen },
+                  level: "warn",
+                });
+              }
+            } catch { /* fail-open: skip warning on list error */ }
           }
         }
       }
@@ -2732,7 +2758,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       // Fire-and-forget so a long-running LLM evaluation does not block the poll loop.
       if (scopedProjectId) {
         const skepticProject = config.projects[scopedProjectId];
-        if (skepticProject?.backfillAllPRs) {
+        if (skepticProject && skepticProject.backfillAllPRs !== false) {
           void runLocalSkepticCron(
             { registry, sessionManager, observer },
             { projectId: scopedProjectId, project: skepticProject, activeSessions, correlationId },
