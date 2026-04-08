@@ -5526,6 +5526,53 @@ describe("claimPR sendInitialMessage", () => {
     expect(msg).toContain("gh pr view");
   });
 
+  it("does not duplicate PR kickoff when claimPR restores a dead session before send", async () => {
+    const mockSCM = makeSCMForInitial();
+    const wsPath = join(tmpDir, "ws-app-restore-pr-claim");
+    mkdirSync(wsPath, { recursive: true });
+    let runtimeOutput = "";
+    const runtimeWithDeadProcess: Runtime = {
+      ...mockRuntime,
+      create: vi.fn().mockResolvedValue(makeHandle("rt-restored")),
+      isAlive: vi.fn().mockImplementation(async (handle: RuntimeHandle) => handle.id !== "rt-dead"),
+      sendMessage: vi.fn().mockImplementation(async () => {
+        runtimeOutput = `${runtimeOutput}\nPR #99 kickoff delivered`;
+      }),
+      getOutput: vi.fn().mockImplementation(async () => runtimeOutput),
+    };
+    const agentWithDeadProcess: Agent = {
+      ...mockAgent,
+      isProcessRunning: vi.fn().mockImplementation(async (handle: RuntimeHandle) => handle.id !== "rt-dead"),
+    };
+
+    writeMetadata(sessionsDir, "app-restore-pr", {
+      worktree: wsPath,
+      branch: "feat/old",
+      status: "killed",
+      project: "my-app",
+      runtimeHandle: JSON.stringify(makeHandle("rt-dead")),
+    });
+
+    const sm = createSessionManager({
+      config,
+      registry: {
+        ...mockRegistry,
+        get: vi.fn().mockImplementation((slot: string, _name: string) => {
+          if (slot === "runtime") return runtimeWithDeadProcess;
+          if (slot === "agent") return agentWithDeadProcess;
+          if (slot === "workspace") return mockWorkspace;
+          if (slot === "scm") return mockSCM;
+          return null;
+        }),
+      },
+    });
+
+    await sm.claimPR("app-restore-pr", "99", { sendInitialMessage: true });
+
+    expect(runtimeWithDeadProcess.create).toHaveBeenCalledTimes(1);
+    expect(runtimeWithDeadProcess.sendMessage).toHaveBeenCalledTimes(1);
+  });
+
   it("does NOT send initial message when sendInitialMessage is false", async () => {
     const mockSCM = makeSCMForInitial();
     writeMetadata(sessionsDir, "app-7", {

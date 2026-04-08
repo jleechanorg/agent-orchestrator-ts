@@ -2181,7 +2181,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
   async function send(
     sessionId: SessionId,
     message: string,
-    options?: { skipRestore?: boolean },
+    options?: { skipRestore?: boolean; skipRestorePrKickoff?: boolean },
   ): Promise<void> {
     const { raw, sessionsDir, project } = requireSessionRecord(sessionId);
     const pause = getProjectPause(project);
@@ -2346,7 +2346,9 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       }
 
       try {
-        const restored = await restore(sessionId);
+        const restored = await restore(sessionId, {
+          skipPrKickoff: options?.skipRestorePrKickoff,
+        });
         await waitForRestoredSession(restored);
         return restored;
       } catch (err) {
@@ -2582,7 +2584,9 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
     const shouldSendInitialMessage = options?.sendInitialMessage ?? true;
     if (shouldSendInitialMessage) {
       try {
-        await send(sessionId, buildInitialPRTaskMessage(pr));
+        await send(sessionId, buildInitialPRTaskMessage(pr), {
+          skipRestorePrKickoff: true,
+        });
       } catch {
         // Non-fatal: session may not be ready yet; lifecycle reactions will re-send context
       }
@@ -2624,7 +2628,10 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
     return discovered;
   }
 
-  async function restore(sessionId: SessionId): Promise<Session> {
+  async function restore(
+    sessionId: SessionId,
+    options?: { skipPrKickoff?: boolean },
+  ): Promise<Session> {
     // 1. Find session metadata across all projects (active first, then archive)
     let raw: Record<string, string> | null = null;
     let sessionsDir: string | null = null;
@@ -2856,6 +2863,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
     }
 
     if (
+      !options?.skipPrKickoff &&
       raw["pr"] &&
       plugins.scm?.resolvePR &&
       plugins.scm?.getPRState &&
