@@ -14,10 +14,11 @@ concurrency:
 jobs:
   integration:
     name: Integration Tests
-    # Fork PRs use ubuntu-latest to avoid running untrusted code on self-hosted infrastructure.
-    runs-on: ${{ github.event.pull_request.head.repo.fork && github.event_name == 'pull_request'
-              && 'ubuntu-latest'
-              || fromJson(vars.SELF_HOSTED_RUNNER_LABELS || '["self-hosted","Linux","ARM64","agent-orchestrator"]') }}
+    # SECURITY: Fork-aware runner selection — do not simplify. See PR #273.
+    runs-on: ${{ vars.SELF_HOSTED_DISABLED == 'true' && 'ubuntu-latest'
+              || (github.event.pull_request.head.repo.fork && github.event_name == 'pull_request'
+                  && 'ubuntu-latest'
+                  || fromJson(vars.SELF_HOSTED_RUNNER_LABELS || '["self-hosted","Linux","ARM64","agent-orchestrator"]')) }}
     timeout-minutes: 20
 
     steps:
@@ -67,11 +68,6 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
           LINEAR_TEAM_ID: ${{ secrets.LINEAR_TEAM_ID }}
-          # Note: COMPOSIO_API_KEY is intentionally not passed here.
-          # When both keys are set, the plugin prefers the Composio transport
-          # which requires @composio/core SDK installed. The direct LINEAR_API_KEY
-          # transport needs no extra dependencies.
-          # agent-aider integration tests use describe.skipIf when aider binary is missing;
-          # this flag documents pip install outcome for CI logs and future conditional steps.
           AIDER_PIP_INSTALLED: ${{ steps.install-aider.outputs.aider_available }}
         run: pnpm test:integration
+

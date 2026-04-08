@@ -5,7 +5,15 @@
 
 set -euo pipefail
 
-CONFIG_FILE="${1:-${AO_CONFIG_PATH:-$HOME/.openclaw/agent-orchestrator.yaml}}"
+if [ -n "${1:-}" ]; then
+  CONFIG_FILE="$1"
+elif [ -n "${AO_CONFIG_PATH:-}" ]; then
+  CONFIG_FILE="$AO_CONFIG_PATH"
+elif [ -f "$HOME/.openclaw_prod/agent-orchestrator.yaml" ]; then
+  CONFIG_FILE="$HOME/.openclaw_prod/agent-orchestrator.yaml"
+else
+  CONFIG_FILE="$HOME/.openclaw/agent-orchestrator.yaml"
+fi
 
 if [ ! -f "$CONFIG_FILE" ]; then
   echo "ERROR: Config not found at $CONFIG_FILE"
