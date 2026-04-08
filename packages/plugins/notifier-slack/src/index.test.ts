@@ -52,6 +52,23 @@ describe("notifier-slack", () => {
     it("throws on invalid URL scheme", () => {
       expect(() => create({ webhookUrl: "file:///etc/passwd" })).toThrow("must be http(s)");
     });
+
+    it("warns and disables notifications for unresolved template webhookUrl", () => {
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const notifier = create({
+        webhookUrl: "${SLACK_WEBHOOK_URL:-https://hooks.slack.com/services/PLACEHOLDER}",
+      });
+      expect(notifier.name).toBe("slack");
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining("unresolved template/placeholder"),
+      );
+    });
+
+    it("throws when webhookUrl is not a string", () => {
+      expect(() => create({ webhookUrl: 123 as unknown as string })).toThrow(
+        "webhookUrl must be a string",
+      );
+    });
   });
 
   describe("notify", () => {
@@ -59,6 +76,16 @@ describe("notifier-slack", () => {
       const fetchMock = mockFetchOk();
       vi.stubGlobal("fetch", fetchMock);
       const notifier = create();
+      await notifier.notify(makeEvent());
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it("does nothing when webhookUrl is unresolved template/placeholder", async () => {
+      const fetchMock = mockFetchOk();
+      vi.stubGlobal("fetch", fetchMock);
+      const notifier = create({
+        webhookUrl: "${SLACK_WEBHOOK_URL:-https://hooks.slack.com/services/PLACEHOLDER}",
+      });
       await notifier.notify(makeEvent());
       expect(fetchMock).not.toHaveBeenCalled();
     });

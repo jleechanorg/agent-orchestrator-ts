@@ -14,11 +14,19 @@
   <key>RunAtLoad</key>
   <true/>
 
+  <key>StartInterval</key>
+  <integer>300</integer>
+
   <key>KeepAlive</key>
   <dict>
     <key>SuccessfulExit</key>
     <false/>
   </dict>
+
+  <!-- start-all.sh intentionally forks lifecycle-workers and exits.
+       Prevent launchd from reaping child workers with the wrapper process. -->
+  <key>AbandonProcessGroup</key>
+  <true/>
 
   <key>WorkingDirectory</key>
   <string>@REPO_ROOT@</string>
@@ -29,6 +37,12 @@
     <string>@HOME@</string>
     <key>PATH</key>
     <string>@PATH@</string>
+    <key>AO_CONFIG_PATH</key>
+    <string>@AO_CONFIG_PATH@</string>
+    <key>AO_START_STOP_FIRST</key>
+    <string>0</string>
+    <key>AO_START_DASHBOARD</key>
+    <string>0</string>
   </dict>
 
   <key>StandardOutPath</key>
