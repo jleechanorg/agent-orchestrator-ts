@@ -1,11 +1,38 @@
 #!/bin/bash
 # Start AO for all projects defined in agent-orchestrator.yaml.
-# First project: ao start (dashboard + lifecycle-worker + orchestrator)
-# Remaining projects: lifecycle-worker + orchestrator only (no duplicate dashboard)
+# First project: ao start (dashboard + lifecycle-worker + orchestrator) when AO_START_DASHBOARD=1
+# All selected projects: direct lifecycle-worker startup when AO_START_DASHBOARD!=1
 #
 # Idempotent: skips lifecycle-workers that are already running per project.
 # Pre-flight: validates YAML parses cleanly before attempting to start anything.
 set -euo pipefail
+
+# Prevent overlapping lifecycle-all runs (launchd/manual retries can race).
+LOCKDIR="${AO_START_ALL_LOCKDIR:-/tmp/ao-start-all.lock}"
+LOCK_ACQUIRED=false
+cleanup_lock() { if $LOCK_ACQUIRED; then rmdir "$LOCKDIR" 2>/dev/null || true; fi; }
+trap cleanup_lock EXIT
+if ! mkdir "$LOCKDIR" 2>/dev/null; then
+  # Reap stale lock (e.g., crashed/terminated start-all run).
+  if [ -d "$LOCKDIR" ]; then
+    lock_mtime="$(stat -f %m "$LOCKDIR" 2>/dev/null || stat -c %Y "$LOCKDIR" 2>/dev/null || echo "0")"
+    lock_age=$(( $(date +%s) - lock_mtime ))
+    if [ "$lock_age" -gt 600 ]; then
+      rmdir "$LOCKDIR" 2>/dev/null || true
+      if ! mkdir "$LOCKDIR" 2>/dev/null; then
+        echo "SKIP: start-all already running (lock contested: $LOCKDIR)"
+        exit 0
+      fi
+    else
+      echo "SKIP: start-all already running (lock: $LOCKDIR)"
+      exit 0
+    fi
+  else
+    echo "SKIP: start-all already running (lock: $LOCKDIR)"
+    exit 0
+  fi
+fi
+LOCK_ACQUIRED=true
 
 # bd-8gld: Guard main repo branch invariant before doing anything.
 # AO agents work in git worktrees — the main clone must stay on main.
@@ -24,8 +51,21 @@ if [ -e "$MAIN_REPO/.git" ]; then
   fi
 fi
 
-export AO_CONFIG_PATH="${AO_CONFIG_PATH:-$HOME/.openclaw/agent-orchestrator.yaml}"
-CONFIG_FILE="$AO_CONFIG_PATH"
+# Canonical config path:
+# 1) explicit AO_CONFIG_PATH
+# 2) ~/.openclaw_prod/agent-orchestrator.yaml
+# 3) legacy ~/.openclaw/agent-orchestrator.yaml (compat fallback)
+if [ -n "${AO_CONFIG_PATH:-}" ]; then
+  CONFIG_FILE="$AO_CONFIG_PATH"
+elif [ -f "$HOME/.openclaw_prod/agent-orchestrator.yaml" ]; then
+  CONFIG_FILE="$HOME/.openclaw_prod/agent-orchestrator.yaml"
+elif [ -f "$HOME/.openclaw/agent-orchestrator.yaml" ]; then
+  CONFIG_FILE="$HOME/.openclaw/agent-orchestrator.yaml"
+  echo "WARNING: using legacy config path $CONFIG_FILE (prefer ~/.openclaw_prod/agent-orchestrator.yaml)"
+else
+  CONFIG_FILE="$HOME/.openclaw_prod/agent-orchestrator.yaml"
+fi
+export AO_CONFIG_PATH="$CONFIG_FILE"
 
 if [ ! -f "$CONFIG_FILE" ]; then
   echo "ERROR: Config not found at $CONFIG_FILE"
@@ -55,6 +95,22 @@ fi
 SELECTED="${@:-$PROJECTS}"
 LOG_DIR="${AO_LOG_DIR:-$HOME/.openclaw/logs}"
 mkdir -p "$LOG_DIR"
+START_DASHBOARD="${AO_START_DASHBOARD:-0}"
+
+# Match both direct "ao lifecycle-worker <project>" and node-wrapper command lines.
+is_lifecycle_worker_running() {
+  local project="$1"
+  local escaped_project
+  escaped_project="$(printf '%s' "$project" | sed 's/[][().*^$+?{}|\\]/\\&/g')"
+  pgrep -f "lifecycle-worker[[:space:]].*${escaped_project}([[:space:]]|$)" > /dev/null 2>&1
+}
+
+# Default to NO stop-first in automation loops.
+# Repeated ao stop/start cycles can kill healthy workers and create thrash.
+if [ "${AO_START_STOP_FIRST:-0}" = "1" ]; then
+  echo "Resetting stale AO runtime state (ao stop)..."
+  ao stop >/dev/null 2>&1 || true
+fi
 
 FIRST=true
 for PROJECT in $SELECTED; do
@@ -63,25 +119,43 @@ for PROJECT in $SELECTED; do
     continue
   fi
 
-  if [ "$FIRST" = true ]; then
-    echo "=== Starting $PROJECT (with dashboard) ==="
-    ao start "$PROJECT" 2>&1 | grep -E "✔|✓|Dashboard:|Lifecycle:|Orchestrator:|error" | head -6 || true
-    FIRST=false
+  START_LOG="$LOG_DIR/ao-start-${PROJECT}.log"
+  if [ "$FIRST" = true ] && [ "$START_DASHBOARD" = "1" ]; then
+    echo "=== Starting $PROJECT (with dashboard, async) ==="
+    nohup ao start "$PROJECT" > "$START_LOG" 2>&1 &
+    START_PID=$!
+    disown || true
+    echo "  launched ao start for $PROJECT (pid=$START_PID, log=$START_LOG)"
   else
-    echo "=== Starting $PROJECT (worker + orchestrator) ==="
-    # Idempotency: skip if a lifecycle-worker for this project is already running
-    if pgrep -f "ao lifecycle-worker ${PROJECT}$" > /dev/null 2>&1; then
+    echo "=== Starting $PROJECT lifecycle-worker (async) ==="
+    # In no-dashboard mode, launch workers directly for every project.
+    # Avoid ao start --no-dashboard keepalive wrappers that can mask missing workers.
+    if is_lifecycle_worker_running "$PROJECT"; then
       echo "  lifecycle-worker $PROJECT already running — skipping"
     else
       nohup ao lifecycle-worker "$PROJECT" > "$LOG_DIR/ao-lifecycle-${PROJECT}.log" 2>&1 &
-      disown
-      echo "  lifecycle-worker $PROJECT started"
+      START_PID=$!
+      disown || true
+      echo "  launched lifecycle-worker for $PROJECT (pid=$START_PID, log=$LOG_DIR/ao-lifecycle-${PROJECT}.log)"
     fi
-    # Start orchestrator if not already running
-    ao start --no-dashboard "$PROJECT" 2>&1 | grep -E "✔|✓|Orchestrator:|error" | head -3 || true
   fi
+  FIRST=false
   echo ""
-  sleep 2
+  sleep 1
+done
+
+# Post-start health check: verify workers are actually running
+echo "Verifying workers..."
+sleep 3
+for PROJECT in $SELECTED; do
+  if ! echo "$PROJECTS" | grep -q "^${PROJECT}$"; then
+    continue
+  fi
+  if is_lifecycle_worker_running "$PROJECT"; then
+    : # running
+  else
+    echo "WARNING: lifecycle-worker $PROJECT failed to start"
+  fi
 done
 
 echo "All projects started."

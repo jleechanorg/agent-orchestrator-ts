@@ -6,6 +6,7 @@
  * - NOT called when scopedProjectId is undefined
  * - skipped when backfillAllPRs is false
  * - called with correct deps/params when backfillAllPRs is true
+ * - called when backfillAllPRs is undefined (opt-out default)
  * - poll loop survives throw from runLocalSkepticCron
  *
  * @bd skp2
@@ -248,6 +249,32 @@ describe("runLocalSkepticCron integration (bd-skp2)", () => {
       expect(params.correlationId).toBeDefined();
       expect(deps.registry).toBe(mockRegistry);
       expect(deps.sessionManager).toBe(mockSessionManager);
+    } finally {
+      lm.stop();
+    }
+  });
+
+  it("runLocalSkepticCron is called when backfillAllPRs is undefined (opt-out default)", async () => {
+    // Regression guard for fix/backfill-default-opt-out: projects that omit
+    // backfillAllPRs entirely must still receive backfill + skeptic-cron so
+    // CHANGES_REQUESTED PRs do not silently leak from the dispatch queue.
+    vi.mocked(mockSessionManager.list).mockResolvedValue([]);
+    // Base `config.projects["my-app"]` intentionally has no backfillAllPRs set.
+    const lm = createLifecycleManager({
+      config,
+      registry: mockRegistry,
+      sessionManager: mockSessionManager,
+      projectId: "my-app",
+    });
+    try {
+      lm.start(60_000);
+      await vi.waitUntil(
+        () => vi.mocked(mockRunLocalSkepticCron).mock.calls.length > 0,
+        { timeout: 3000 },
+      );
+      expect(mockRunLocalSkepticCron).toHaveBeenCalledTimes(1);
+      const [, params] = vi.mocked(mockRunLocalSkepticCron).mock.calls[0]!;
+      expect(params.projectId).toBe("my-app");
     } finally {
       lm.stop();
     }
