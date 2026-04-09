@@ -11,6 +11,14 @@ Design notes, audits, and rolling status for **jleechanorg/agent-orchestrator**.
 - **Evolve loop & policy** — Landed: healthy-cycle fast path + session budget ([PR #380](https://github.com/jleechanorg/agent-orchestrator/pull/380)); Phase 7 recap + Phase 8 idle auto-cancel ([PR #381](https://github.com/jleechanorg/agent-orchestrator/pull/381)); Zero-Framework Cognition (ZFC) section in CLAUDE.md ([PR #382](https://github.com/jleechanorg/agent-orchestrator/pull/382)).
 - **Skeptic** — `claude --print` runs from `/tmp` to avoid project `CLAUDE.md` hooks skewing evaluation (commit `7a9890f9`).
 
+### 2026-04-08
+
+- **Repo boundary (AO vs WorldAI)** — Keep orchestration code, plugins, workflows, scripts, tests, and policy-tracked evidence under **`docs/evidence/`** in **this** repo. Keep WorldAI product/runtime, campaigns, MCP integrations, and WA-specific evidence in the **WorldAI** repo. Local agent state (`~/.claude/`, `~/roadmap/`, mem0 hooks) stays out of git. Tracking: **bd-9nvf**.
+
+### 2026-04-09
+
+- **Open PR sweep** — Reviewed **16** open PRs: **5** are **CONFLICTING** with `main` (need rebase before merge); several others have **Evidence Gate** or **Skeptic** red while **Test/Lint** are green—treat as PR-body / workflow alignment, not only code. **[PR #415](https://github.com/jleechanorg/agent-orchestrator/pull/415)** CI: fixed ESLint **`prefer-const`** in `config.find-config.test.ts` ([`f0be6528`](https://github.com/jleechanorg/agent-orchestrator/commit/f0be65286f729bd2077a5c22fd9177af26ad31d4)). **[PR #392](https://github.com/jleechanorg/agent-orchestrator/pull/392)** looks merge-ready vs overlapping evidence work. Tracking: **bd-qaiz**.
+
 ### Older entries
 
 See individual docs below; long-form evolve-loop cycles remain in [`evolve-loop-findings.md`](./evolve-loop-findings.md).
