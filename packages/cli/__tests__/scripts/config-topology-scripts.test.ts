@@ -53,11 +53,12 @@ describe("OpenClaw config topology scripts", () => {
       },
       encoding: "utf8",
     });
-
-    const productionContent = readFileSync(productionConfig, "utf8");
-    rmSync(tempRoot, { recursive: true, force: true });
-
-    expect(result.status).toBe(0);
-    expect(productionContent).toBe("projects: {}\n");
+    try {
+      expect(result.status, result.stderr || result.stdout).toBe(0);
+      expect(existsSync(productionConfig)).toBe(true);
+      expect(readFileSync(productionConfig, "utf8")).toBe("projects: {}\n");
+    } finally {
+      rmSync(tempRoot, { recursive: true, force: true });
+    }
   });
 });

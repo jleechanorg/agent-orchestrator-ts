@@ -51,6 +51,28 @@ describe("config-topology", () => {
     expect(findManagedConfigFile()).toBe(productionPath);
   });
 
+  it("accepts symlinked legacy aliases during managed discovery", async () => {
+    const { findManagedConfigFile, getManagedConfigPath, getLegacyConfigPaths } = await import(
+      "../src/config-topology.js"
+    );
+    const stagingPath = getManagedConfigPath("staging");
+    const productionPath = getManagedConfigPath("production");
+    const legacyPath = getLegacyConfigPaths()[0];
+    const sharedConfig = join(testDir, "shared-config.yaml");
+
+    mkdirSync(join(testDir, ".openclaw"), { recursive: true });
+    mkdirSync(join(testDir, ".openclaw_prod"), { recursive: true });
+    writeFileSync(stagingPath, "projects: {}\n");
+    writeFileSync(productionPath, "projects: {}\n");
+    writeFileSync(sharedConfig, "projects: {}\n");
+    symlinkSync(sharedConfig, legacyPath);
+
+    expect(findManagedConfigFile()).toBe(productionPath);
+    rmSync(productionPath, { force: true });
+    rmSync(stagingPath, { force: true });
+    expect(findManagedConfigFile()).toBe(legacyPath);
+  });
+
   it("reports when staging and prod point at the same file", async () => {
     const { getManagedConfigPath, validateManagedConfigTopology } = await import(
       "../src/config-topology.js"

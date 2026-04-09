@@ -16,7 +16,7 @@ import { homedir } from "node:os";
 import { parse as parseYaml } from "yaml";
 import { z } from "zod";
 import { ConfigNotFoundError, type OrchestratorConfig } from "./types.js";
-import { findManagedConfigFile } from "./config-topology.js";
+import { findManagedConfigFile, getPreferredConfigSearchPaths } from "./config-topology.js";
 import { generateSessionPrefix } from "./paths.js";
 import { getOpenClawLayoutHomeConfigPaths } from "./user-home-config-paths.js";
 
@@ -577,6 +577,7 @@ export function findConfigFile(startDir?: string): string | null {
   }
 
   // 5. Check home directory locations (legacy aliases)
+  const preferredPaths = new Set(getPreferredConfigSearchPaths());
   const homePaths = [
     ...getOpenClawLayoutHomeConfigPaths(),
     resolve(homedir(), ".agent-orchestrator.yaml"),
@@ -585,6 +586,9 @@ export function findConfigFile(startDir?: string): string | null {
   ];
 
   for (const path of homePaths) {
+    if (preferredPaths.has(path)) {
+      continue;
+    }
     if (existsSync(path)) {
       return path;
     }

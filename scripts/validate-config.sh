@@ -11,17 +11,21 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/lib/ao-config-topology.sh"
 
 CONFIG_FILE="${1:-}"
+VALIDATE_MANAGED_TOPOLOGY=false
 if [ -z "$CONFIG_FILE" ]; then
   if [ -n "${AO_CONFIG_PATH:-}" ]; then
     CONFIG_FILE="$AO_CONFIG_PATH"
   elif CONFIG_FILE="$(ao_find_config_path 2>/dev/null)"; then
-    :
+    VALIDATE_MANAGED_TOPOLOGY=true
   else
     CONFIG_FILE="$(ao_staging_config_path)"
+    VALIDATE_MANAGED_TOPOLOGY=true
   fi
 fi
 
-ao_validate_topology
+if [ "$VALIDATE_MANAGED_TOPOLOGY" = true ]; then
+  ao_validate_topology
+fi
 
 if [ ! -f "$CONFIG_FILE" ]; then
   echo "ERROR: Config not found at $CONFIG_FILE"

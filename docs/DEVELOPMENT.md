@@ -180,6 +180,8 @@ bash scripts/promote-openclaw-config.sh
 
 Do not symlink `~/.openclaw/agent-orchestrator.yaml` to production. If you still need legacy alias paths such as `~/.agent-orchestrator.yaml`, create them explicitly with `bash scripts/bootstrap-openclaw-config.sh --link-legacy-aliases staging`.
 
+Do not create repo-local or per-worktree `agent-orchestrator.yaml` shadow configs as part of normal setup. Keep the editable config in the managed staging path above and only use legacy alias links when an older tool still requires them.
+
 ---
 
 ## Code Conventions

@@ -10,6 +10,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, realpathSync
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import type { SessionManager } from "@jleechanorg/ao-core";
+import { stringify as yamlStringify } from "yaml";
 
 // ---------------------------------------------------------------------------
 // Hoisted mocks
@@ -78,7 +79,17 @@ vi.mock("@jleechanorg/ao-core", async (importOriginal) => {
   return {
     ...actual,
     normalizeOrchestratorSessionStrategy,
+    findConfigFile: () => {
+      if (process.env["AO_CONFIG_PATH"]) {
+        return process.env["AO_CONFIG_PATH"];
+      }
+      const mockConfigPath = mockConfigRef.current?.["configPath"];
+      return typeof mockConfigPath === "string" ? mockConfigPath : null;
+    },
     loadConfig: (path?: string) => {
+      if (path && path === mockConfigRef.current?.["configPath"]) {
+        return mockConfigRef.current;
+      }
       if (path) return actual.loadConfig(path);
       return mockConfigRef.current;
     },
@@ -173,6 +184,7 @@ let originalEnv: NodeJS.ProcessEnv;
 beforeEach(() => {
   tmpDir = mkdtempSync(join(tmpdir(), "ao-start-test-"));
   originalEnv = { ...process.env };
+  process.env["AO_CONFIG_PATH"] = join(tmpDir, "agent-orchestrator.yaml");
   process.env["AO_STAGING_CONFIG_PATH"] = join(tmpDir, ".openclaw", "agent-orchestrator.yaml");
   process.env["AO_PROD_CONFIG_PATH"] = join(tmpDir, ".openclaw_prod", "agent-orchestrator.yaml");
 
@@ -225,7 +237,7 @@ afterEach(() => {
 // ---------------------------------------------------------------------------
 
 function makeConfig(projects: Record<string, Record<string, unknown>>): Record<string, unknown> {
-  return {
+  const config = {
     configPath: join(tmpDir, "agent-orchestrator.yaml"),
     port: 3000,
     defaults: {
@@ -239,6 +251,9 @@ function makeConfig(projects: Record<string, Record<string, unknown>>): Record<s
     notificationRouting: {},
     reactions: {},
   };
+
+  writeFileSync(config.configPath, yamlStringify(config, { indent: 2 }));
+  return config;
 }
 
 function makeProject(overrides: Record<string, unknown> = {}): Record<string, unknown> {

@@ -1,4 +1,4 @@
-import { existsSync, lstatSync, realpathSync } from "node:fs";
+import { existsSync, statSync, lstatSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, resolve } from "node:path";
 
@@ -60,19 +60,22 @@ export function getPreferredConfigSearchPaths(): string[] {
 export function findManagedConfigFile(): string | null {
   for (const candidate of getPreferredConfigSearchPaths()) {
     try {
-      if (lstatSync(candidate).isFile()) {
+      if (statSync(candidate).isFile()) {
         return candidate;
       }
-    } catch {
-      // Path does not exist — continue to next candidate
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        "code" in error &&
+        (error.code === "ENOENT" || error.code === "ENOTDIR")
+      ) {
+        continue;
+      }
+
+      throw error;
     }
   }
   return null;
-}
-
-export function resolveExistingConfigPath(configPath: string): string {
-  const resolved = resolve(configPath);
-  return existsSync(resolved) ? resolved : configPath;
 }
 
 export type ManagedConfigTopologyIssue =

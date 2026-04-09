@@ -18,6 +18,7 @@ fi
 ao_validate_topology
 "$REPO_ROOT/scripts/validate-config.sh" "$SOURCE_CONFIG"
 
+mkdir -p "$(dirname "$TARGET_CONFIG")"
 SOURCE_REAL="$(ao_realpath "$SOURCE_CONFIG")"
 TARGET_REAL="$(ao_realpath "$TARGET_CONFIG")"
 if [ "$SOURCE_REAL" = "$TARGET_REAL" ]; then
@@ -25,11 +26,12 @@ if [ "$SOURCE_REAL" = "$TARGET_REAL" ]; then
   exit 1
 fi
 
-mkdir -p "$(dirname "$TARGET_CONFIG")"
 TMP_TARGET="${TARGET_CONFIG}.tmp.$$"
+trap 'rm -f "$TMP_TARGET"' EXIT
 cp "$SOURCE_CONFIG" "$TMP_TARGET"
 "$REPO_ROOT/scripts/validate-config.sh" "$TMP_TARGET"
 chmod 600 "$TMP_TARGET"
 mv "$TMP_TARGET" "$TARGET_CONFIG"
+trap - EXIT
 
 echo "Promoted validated config into production: $TARGET_CONFIG"

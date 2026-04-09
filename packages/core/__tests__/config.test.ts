@@ -29,6 +29,10 @@ describe("Config Loading", () => {
 
     // Isolate from developer/CI machine env so findConfigFile() exercises cwd search
     delete process.env["AO_CONFIG_PATH"];
+    delete process.env["AO_STAGING_CONFIG_PATH"];
+    delete process.env["AO_PROD_CONFIG_PATH"];
+    delete process.env["AO_CONFIG_STAGING_PATH"];
+    delete process.env["AO_PRODUCTION_CONFIG_PATH"];
 
     // Change to test directory
     process.chdir(testDir);

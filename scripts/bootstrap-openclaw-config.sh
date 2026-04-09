@@ -16,7 +16,11 @@ while [ $# -gt 0 ]; do
       FORCE=true
       ;;
     --link-legacy-aliases)
-      LINK_TARGET="${2:-}"
+      if [ $# -lt 2 ] || [ -z "${2:-}" ] || [[ "${2:-}" == -* ]]; then
+        printf 'Missing value for --link-legacy-aliases (expected staging|production)\n' >&2
+        exit 1
+      fi
+      LINK_TARGET="$2"
       shift
       ;;
     -h|--help)
@@ -42,9 +46,12 @@ PRODUCTION_CONFIG="$(ao_production_config_path)"
 mkdir -p "$(dirname "$STAGING_CONFIG")" "$(dirname "$PRODUCTION_CONFIG")"
 mkdir -p "${HOME}/.openclaw/logs" "${HOME}/.openclaw_prod/logs"
 
-ao_validate_topology
+if [ "$FORCE" != true ] && [ -f "$STAGING_CONFIG" ]; then
+  ao_validate_topology
+fi
 
 if [ ! -f "$STAGING_CONFIG" ] || [ "$FORCE" = true ]; then
+  rm -f "$STAGING_CONFIG"
   cat >"$STAGING_CONFIG" <<'EOF'
 # Managed staging configuration for Agent Orchestrator / OpenClaw.
 # This file is safe to edit locally. Promote validated changes into production
@@ -61,6 +68,7 @@ defaults:
 
 projects: {}
 EOF
+  chmod 600 "$STAGING_CONFIG"
   echo "Bootstrapped staging config: $STAGING_CONFIG"
 else
   echo "Staging config already present: $STAGING_CONFIG"
