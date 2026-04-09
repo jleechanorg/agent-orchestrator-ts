@@ -99,6 +99,22 @@ async function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/**
+ * Normalizes a raw GitHub `reviewDecision` value to a canonical `ReviewDecision` string.
+ * Fail-closed: null, undefined, and empty-string all resolve to "pending" since
+ * an unknown review state should not be treated as neutral "none".
+ */
+function normalizeReviewDecision(
+  raw: string | null | undefined,
+): "approved" | "changes_requested" | "pending" | "none" {
+  const d = (raw ?? "").toUpperCase();
+  if (d === "APPROVED") return "approved";
+  if (d === "CHANGES_REQUESTED") return "changes_requested";
+  if (d === "REVIEW_REQUIRED") return "pending";
+  if (raw === null || raw === undefined || raw === "") return "pending";
+  return "none";
+}
+
 /** Parsed `gh pr view ... --json a,b,c` for REST fallback synthesis. */
 type PrViewRestConversion = {
   repo: string;
@@ -2088,15 +2104,7 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
         "reviewDecision",
       ]);
       const data: { reviewDecision: string } = JSON.parse(raw);
-
-      const d = (data.reviewDecision ?? "").toUpperCase();
-      if (d === "APPROVED") return "approved";
-      if (d === "CHANGES_REQUESTED") return "changes_requested";
-      if (d === "REVIEW_REQUIRED") return "pending";
-      if (data.reviewDecision === null || data.reviewDecision === undefined || data.reviewDecision === "") {
-        return "pending";
-      }
-      return "none";
+      return normalizeReviewDecision(data.reviewDecision);
     },
 
     // bd-sm7: Combined PR state + review decision in a single gh CLI call
@@ -2138,13 +2146,7 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
 
       // Parse review decision — fail-closed: default to "pending" on unexpected values
       // (matches getReviewDecision behavior where non-rate-limit errors return "pending")
-      const d = (data.reviewDecision ?? "").toUpperCase();
-      let reviewDecision: ReviewDecision;
-      if (d === "APPROVED") reviewDecision = "approved";
-      else if (d === "CHANGES_REQUESTED") reviewDecision = "changes_requested";
-      else if (d === "REVIEW_REQUIRED") reviewDecision = "pending";
-      else if (data.reviewDecision === null || data.reviewDecision === undefined || data.reviewDecision === "") reviewDecision = "pending";
-      else reviewDecision = "none";
+      let reviewDecision: ReviewDecision = normalizeReviewDecision(data.reviewDecision);
 
       return { state, reviewDecision };
     },
@@ -2545,17 +2547,11 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
       }
 
       // Reviews
-      const reviewDecision = (data.reviewDecision ?? "").toUpperCase();
-      const approved = reviewDecision === "APPROVED";
-      if (reviewDecision === "CHANGES_REQUESTED") {
+      const normalized = normalizeReviewDecision(data.reviewDecision);
+      const approved = normalized === "approved";
+      if (normalized === "changes_requested") {
         blockers.push("Changes requested in review");
-      } else if (reviewDecision === "REVIEW_REQUIRED") {
-        blockers.push("Review required");
-      } else if (
-        data.reviewDecision === null ||
-        data.reviewDecision === undefined ||
-        data.reviewDecision === ""
-      ) {
+      } else if (normalized === "pending" || normalized === "none") {
         blockers.push("Review required");
       }
 
@@ -2656,13 +2652,7 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
       // Fail-closed: null/undefined reviewDecision → "pending" (not "none"), matching
       // normalizeMergePayloadFromRestShape behavior. "none" means reviews were explicitly
       // not required; null means we don't know → conservative.
-      const d = (data.reviewDecision ?? "").toUpperCase();
-      let reviewDecision: ReviewDecision;
-      if (d === "APPROVED") reviewDecision = "approved";
-      else if (d === "CHANGES_REQUESTED") reviewDecision = "changes_requested";
-      else if (d === "REVIEW_REQUIRED") reviewDecision = "pending";
-      else if (data.reviewDecision === null || data.reviewDecision === undefined || data.reviewDecision === "") reviewDecision = "pending";
-      else reviewDecision = "none";
+      let reviewDecision: ReviewDecision = normalizeReviewDecision(data.reviewDecision);
 
       // --- CI Status (from statusCheckRollup) ---
       const rollup = Array.isArray(data.statusCheckRollup) ? data.statusCheckRollup : [];
