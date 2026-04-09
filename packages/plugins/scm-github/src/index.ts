@@ -1398,10 +1398,17 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
         for (const line of dirty.split("\n")) {
           if (!line.trim()) continue;
           // Porcelain format: XY FILENAME (X=index, Y=working tree; space=no change).
-          // line[1] is the working-tree status char; line[0] is the index status.
           const filePath = line.slice(3).trimEnd();
           if (!CHECKOUT_AO_MANAGED.has(filePath)) continue;
+          const idx = line[0];
           const wt = line[1];
+
+          // Unstage any staged changes first (e.g. "M  file", "MM file", "A  file").
+          // git reset HEAD unstages the index entry without modifying the working tree.
+          if (idx !== " " && idx !== "?" && idx !== "!" && idx !== undefined) {
+            await git(["reset", "HEAD", "--", filePath], workspacePath).catch(() => {});
+          }
+
           if (wt === "?" || wt === "!") {
             // Untracked or ignored — remove from working tree
             await git(["clean", "-f", filePath], workspacePath).catch(() => {});
