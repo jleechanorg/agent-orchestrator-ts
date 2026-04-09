@@ -5,6 +5,10 @@
 set -e  # Exit on error
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+MONOREPO_ROOT="$(cd "$REPO_ROOT/../.." && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=./lib/ao-config-topology.sh
+source "$SCRIPT_DIR/lib/ao-config-topology.sh"
 
 echo "Agent Orchestrator Setup"
 echo ""
@@ -164,6 +168,12 @@ else
 fi
 
 # ─── Done ─────────────────────────────────────────────────────────────────────
+
+echo ""
+BOOTSTRAP_SCRIPT="$MONOREPO_ROOT/scripts/bootstrap-openclaw-config.sh"
+if [ -f "$BOOTSTRAP_SCRIPT" ]; then
+  bash "$BOOTSTRAP_SCRIPT"
+fi
 
 echo ""
 echo "Setup complete!"

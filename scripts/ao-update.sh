@@ -1,6 +1,10 @@
 #!/bin/bash
 
 set -euo pipefail
+REPO_ROOT="${AO_REPO_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=./lib/ao-config-topology.sh
+source "$SCRIPT_DIR/lib/ao-config-topology.sh"
 
 SKIP_SMOKE=false
 SMOKE_ONLY=false
@@ -39,20 +43,6 @@ if [ "$SKIP_SMOKE" = true ] && [ "$SMOKE_ONLY" = true ]; then
   printf 'Conflicting options: use either --skip-smoke or --smoke-only, not both.\n' >&2
   exit 1
 fi
-
-REPO_ROOT="${AO_REPO_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
-
-canonical_config_path() {
-  if [ -n "${AO_CONFIG_PATH:-}" ]; then
-    printf '%s\n' "$AO_CONFIG_PATH"
-    return 0
-  fi
-  if [ -f "$HOME/.openclaw_prod/agent-orchestrator.yaml" ]; then
-    printf '%s\n' "$HOME/.openclaw_prod/agent-orchestrator.yaml"
-    return 0
-  fi
-  printf '%s\n' "$HOME/.openclaw/agent-orchestrator.yaml"
-}
 
 require_command() {
   local name="$1"
@@ -105,8 +95,8 @@ require_command node "install Node.js 20+"
 # reinstalling. We do this before rebuilding so the new binary is never
 # left in a state where an old worker is holding stale state.
 kill_existing_workers() {
-  local config_file
-  config_file="$(canonical_config_path)"
+  local config_file="${AO_CONFIG_PATH:-$(ao_find_config_path 2>/dev/null || ao_staging_config_path)}"
+  ao_validate_topology || true
   if [ ! -f "$config_file" ]; then
     printf 'No canonical config at %s — skipping worker teardown.\n' "$config_file"
     return 0
@@ -184,8 +174,8 @@ except:
 }
 
 restart_workers() {
-  local config_file
-  config_file="$(canonical_config_path)"
+  local config_file="${AO_CONFIG_PATH:-$(ao_find_config_path 2>/dev/null || ao_staging_config_path)}"
+  ao_validate_topology || true
   if [ ! -f "$config_file" ]; then
     printf 'No canonical config — skipping worker restart.\n'
     return 0

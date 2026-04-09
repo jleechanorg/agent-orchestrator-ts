@@ -168,9 +168,13 @@ import { registerStart, registerStop } from "../../src/commands/start.js";
 let tmpDir: string;
 let program: Command;
 let cwdSpy: ReturnType<typeof vi.spyOn>;
+let originalEnv: NodeJS.ProcessEnv;
 
 beforeEach(() => {
   tmpDir = mkdtempSync(join(tmpdir(), "ao-start-test-"));
+  originalEnv = { ...process.env };
+  process.env["AO_STAGING_CONFIG_PATH"] = join(tmpDir, ".openclaw", "agent-orchestrator.yaml");
+  process.env["AO_PROD_CONFIG_PATH"] = join(tmpDir, ".openclaw_prod", "agent-orchestrator.yaml");
 
   program = new Command();
   program.exitOverride();
@@ -210,6 +214,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  process.env = originalEnv;
   if (cwdSpy) cwdSpy.mockRestore();
   rmSync(tmpDir, { recursive: true, force: true });
   vi.restoreAllMocks();
@@ -373,6 +378,7 @@ describe("start command — project resolution", () => {
 describe("start command — URL argument", () => {
   it("reuses existing clone and generates config", async () => {
     const repoDir = join(tmpDir, "DevOS");
+    const stagingConfigPath = join(tmpDir, ".openclaw", "agent-orchestrator.yaml");
     createFakeRepo(repoDir, "https://github.com/ComposioHQ/DevOS.git", {
       "package.json": "{}",
       "pnpm-lock.yaml": "",
@@ -388,8 +394,8 @@ describe("start command — URL argument", () => {
       "--no-orchestrator",
     ]);
 
-    // Config should have been generated
-    expect(existsSync(join(repoDir, "agent-orchestrator.yaml"))).toBe(true);
+    expect(existsSync(stagingConfigPath)).toBe(true);
+    expect(existsSync(join(repoDir, "agent-orchestrator.yaml"))).toBe(false);
 
     const output = vi
       .mocked(console.log)
@@ -490,6 +496,7 @@ describe("start command — URL argument", () => {
 
   it("uses existing config when repo already has agent-orchestrator.yaml", async () => {
     const repoDir = join(tmpDir, "configured-app");
+    const stagingConfigPath = join(tmpDir, ".openclaw", "agent-orchestrator.yaml");
     createFakeRepo(repoDir, "https://github.com/owner/configured-app.git");
     mockCwd(tmpDir);
 
@@ -525,12 +532,14 @@ describe("start command — URL argument", () => {
       .mocked(console.log)
       .mock.calls.map((c) => c.join(" "))
       .join("\n");
-    expect(output).toContain("Using existing config");
+    expect(output).toContain("Migrating repo-local config into staging");
     expect(output).toContain("Configured App");
+    expect(existsSync(stagingConfigPath)).toBe(true);
   });
 
   it("resolves correct project when existing config has multiple projects", async () => {
     const repoDir = join(tmpDir, "multi-proj");
+    const stagingConfigPath = join(tmpDir, ".openclaw", "agent-orchestrator.yaml");
     createFakeRepo(repoDir, "https://github.com/org/multi-proj.git");
     mockCwd(tmpDir);
 
@@ -575,6 +584,7 @@ describe("start command — URL argument", () => {
     // Should pick "Multi Proj" by matching repo field, not error with "Multiple projects"
     expect(output).toContain("Multi Proj");
     expect(output).toContain("Startup complete");
+    expect(existsSync(stagingConfigPath)).toBe(true);
   });
 
   it("fails on clone error with descriptive message", async () => {

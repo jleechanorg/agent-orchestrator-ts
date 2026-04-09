@@ -102,6 +102,8 @@ describe("scripts/ao-doctor.sh", () => {
         PATH: `${binDir}:/usr/bin:/bin`,
         AO_REPO_ROOT: fakeRepo,
         AO_CONFIG_PATH: configPath,
+        AO_STAGING_CONFIG_PATH: join(tempRoot, ".openclaw", "agent-orchestrator.yaml"),
+        AO_PROD_CONFIG_PATH: join(tempRoot, ".openclaw_prod", "agent-orchestrator.yaml"),
       },
       encoding: "utf8",
     });
@@ -154,6 +156,8 @@ describe("scripts/ao-doctor.sh", () => {
         PATH: `${binDir}:/usr/bin:/bin`,
         AO_REPO_ROOT: fakeRepo,
         AO_CONFIG_PATH: configPath,
+        AO_STAGING_CONFIG_PATH: join(tempRoot, ".openclaw", "agent-orchestrator.yaml"),
+        AO_PROD_CONFIG_PATH: join(tempRoot, ".openclaw_prod", "agent-orchestrator.yaml"),
         AO_DOCTOR_TMP_ROOT: tmpRoot,
       },
       encoding: "utf8",

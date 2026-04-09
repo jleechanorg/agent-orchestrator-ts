@@ -87,6 +87,11 @@ git clone https://github.com/jleechanorg/agent-orchestrator.git
 cd agent-orchestrator && bash scripts/setup.sh
 ```
 
+<<<<<<< HEAD
+The setup flow bootstraps a local staging config at `~/.openclaw/agent-orchestrator.yaml`.
+Production is separate at `~/.openclaw_prod/agent-orchestrator.yaml` and is only updated by
+running `bash scripts/promote-openclaw-config.sh` after validation passes.
+
 The source setup script also installs the repo-local AO usage skill into
 `~/.claude/skills/agent-orchestrator` and `~/.codex/skills/agent-orchestrator`.
 </details>
@@ -106,6 +111,11 @@ cd ~/your-project && ao start
 ```
 
 That's it. The dashboard opens at `http://localhost:3000` and the orchestrator agent starts managing your project.
+
+Config topology:
+- Staging config lives at `~/.openclaw/agent-orchestrator.yaml` and is the editable day-to-day config.
+- Production config lives at `~/.openclaw_prod/agent-orchestrator.yaml` and must stay a separate real file.
+- Legacy alias paths should only be symlinked intentionally via `bash scripts/bootstrap-openclaw-config.sh --link-legacy-aliases staging|production`.
 
 ### Add more projects
 

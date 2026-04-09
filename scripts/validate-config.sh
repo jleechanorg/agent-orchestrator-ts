@@ -5,15 +5,23 @@
 
 set -euo pipefail
 
-if [ -n "${1:-}" ]; then
-  CONFIG_FILE="$1"
-elif [ -n "${AO_CONFIG_PATH:-}" ]; then
-  CONFIG_FILE="$AO_CONFIG_PATH"
-elif [ -f "$HOME/.openclaw_prod/agent-orchestrator.yaml" ]; then
-  CONFIG_FILE="$HOME/.openclaw_prod/agent-orchestrator.yaml"
-else
-  CONFIG_FILE="$HOME/.openclaw/agent-orchestrator.yaml"
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=./lib/ao-config-topology.sh
+source "$SCRIPT_DIR/lib/ao-config-topology.sh"
+
+CONFIG_FILE="${1:-}"
+if [ -z "$CONFIG_FILE" ]; then
+  if [ -n "${AO_CONFIG_PATH:-}" ]; then
+    CONFIG_FILE="$AO_CONFIG_PATH"
+  elif CONFIG_FILE="$(ao_find_config_path 2>/dev/null)"; then
+    :
+  else
+    CONFIG_FILE="$(ao_staging_config_path)"
+  fi
 fi
+
+ao_validate_topology
 
 if [ ! -f "$CONFIG_FILE" ]; then
   echo "ERROR: Config not found at $CONFIG_FILE"

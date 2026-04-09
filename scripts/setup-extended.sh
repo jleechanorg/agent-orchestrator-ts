@@ -7,30 +7,19 @@
 
 set -e
 
-resolve_config_path() {
-  python3 - "$1" <<'PY'
-import os
-import sys
-print(os.path.abspath(os.path.expanduser(sys.argv[1])))
-PY
-}
-
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-if [ -n "${AO_CONFIG_PATH:-}" ]; then
-  CONFIG_FILE="$(resolve_config_path "$AO_CONFIG_PATH")"
-elif [ -f "$HOME/.openclaw_prod/agent-orchestrator.yaml" ]; then
-  CONFIG_FILE="$HOME/.openclaw_prod/agent-orchestrator.yaml"
-elif [ -f "$HOME/.openclaw/agent-orchestrator.yaml" ]; then
-  CONFIG_FILE="$HOME/.openclaw/agent-orchestrator.yaml"
-else
-  CONFIG_FILE="$HOME/.openclaw_prod/agent-orchestrator.yaml"
-fi
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=./lib/ao-config-topology.sh
+source "$SCRIPT_DIR/lib/ao-config-topology.sh"
+CONFIG_FILE="${AO_CONFIG_PATH:-$(ao_staging_config_path)}"
 
 echo ""
 echo "═══ Extended Setup (jleechanorg fork) ═══"
 echo ""
 
 # ─── Validate canonical config ─────────────────────────────────────────────
+
+ao_validate_topology
 
 if [ ! -f "$CONFIG_FILE" ]; then
   echo "WARNING: No config found at $CONFIG_FILE"
@@ -40,6 +29,8 @@ else
 fi
 
 # Check for duplicate configs that would create split namespaces
+STAGING_REAL="$(ao_realpath "$(ao_staging_config_path)")"
+PRODUCTION_REAL="$(ao_realpath "$(ao_production_config_path)")"
 DUPES=$(find "$HOME" -maxdepth 4 -name "agent-orchestrator.yaml" \
   -not -path "*/node_modules/*" \
   -not -path "*/.agent-orchestrator/*" \
@@ -47,14 +38,19 @@ DUPES=$(find "$HOME" -maxdepth 4 -name "agent-orchestrator.yaml" \
   -not -path "*/.worktrees/*" \
   -not -path "*/worktrees/*" \
   -not -path "*/backup/*" \
-  2>/dev/null | grep -v "$(realpath "$CONFIG_FILE" 2>/dev/null)" || true)
+  2>/dev/null | while read -r candidate; do
+    resolved="$(ao_realpath "$candidate")"
+    if [ "$resolved" != "$STAGING_REAL" ] && [ "$resolved" != "$PRODUCTION_REAL" ]; then
+      printf '%s\n' "$candidate"
+    fi
+  done || true)
 
 if [ -n "$DUPES" ]; then
   echo ""
   echo "WARNING: Found duplicate agent-orchestrator.yaml files (potential namespace split):"
   echo "$DUPES" | while read -r f; do echo "  $f"; done
   echo ""
-  echo "  Only $CONFIG_FILE should exist. Others create separate data namespaces."
+  echo "  Only the managed staging/prod configs should exist. Others create separate data namespaces."
   echo "  Remove duplicates or they will cause sessions to be invisible to the lifecycle-worker."
 fi
 
@@ -212,4 +208,4 @@ echo "═══ Extended setup complete ═══"
 echo ""
 echo "Lifecycle workers are running. Monitor with:"
 echo "  ao session ls"
-echo "  tail -f ~/.openclaw/logs/ao-lifecycle-*.log"
+echo "  tail -f ${HOME}/.openclaw/logs/ao-lifecycle-*.log"

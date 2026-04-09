@@ -8,6 +8,10 @@
 # Requires: Bash 4+ (for associative arrays), Node 20+, gh CLI, tmux
 
 set -uo pipefail
+REPO_ROOT="${AO_REPO_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=./lib/ao-config-topology.sh
+source "$SCRIPT_DIR/lib/ao-config-topology.sh"
 
 # Bash 4+ check (associative arrays used throughout)
 if [[ -z "${BASH_VERSION:-}" ]]; then
@@ -123,8 +127,10 @@ fail() {
 
 # Resolve the canonical config path
 resolve_config() {
-  if [ -n "$AO_CONFIG_PATH" ] && [ -f "$AO_CONFIG_PATH" ]; then
-    echo "$AO_CONFIG_PATH"
+  local managed_config=""
+  managed_config="$(ao_find_config_path 2>/dev/null || true)"
+  if [ -n "$managed_config" ]; then
+    echo "$managed_config"
     return 0
   fi
   # Walk up from CWD
@@ -136,21 +142,12 @@ resolve_config() {
     fi
     d="$(dirname "$d")"
   done
-  # Home dir locations (canonical paths used by this repo)
-  for p in "$HOME/.openclaw_prod/agent-orchestrator.yaml" \
-           "$HOME/.openclaw/agent-orchestrator.yaml" \
-           "$HOME/agent-orchestrator.yaml" \
-           "$HOME/.agent-orchestrator.yaml"; do
+  while IFS= read -r p; do
     if [ -f "$p" ]; then
-      # Resolve symlinks safely (no shell injection)
-      local resolved
-      resolved="$(python3 -c "import os, sys; print(os.path.realpath(sys.argv[1]))" "$p" 2>/dev/null \
-        || readlink -f "$p" 2>/dev/null \
-        || echo "$p")"
-      echo "$resolved"
+      echo "$(ao_realpath "$p")"
       return 0
     fi
-  done
+  done < <(ao_legacy_alias_paths)
   return 1
 }
 
@@ -233,7 +230,8 @@ check_rogue_configs() {
   # Check known dangerous locations
   local rogue_found=0
   for suspect in "$HOME/.agent-orchestrator/agent-orchestrator.yaml" \
-                 "$HOME/.agent-orchestrator/agent-orchestrator.yml"; do
+                 "$HOME/.agent-orchestrator/agent-orchestrator.yml" \
+                 "$HOME/agent-orchestrator.yaml"; do
     if [ -f "$suspect" ]; then
       local resolved
       resolved="$(python3 -c "import os, sys; print(os.path.realpath(sys.argv[1]))" "$suspect" 2>/dev/null || echo "$suspect")"

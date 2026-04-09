@@ -162,6 +162,24 @@ ao update
 
 If your branch has drift from `main`, update the install checkout first and then return to your feature worktree. That keeps CLI behavior and generated docs aligned with the version contributors are expected to run.
 
+## Managed config topology
+
+Bootstrap a new machine or new shell profile with:
+
+```bash
+bash scripts/bootstrap-openclaw-config.sh
+```
+
+That creates an editable staging config at `~/.openclaw/agent-orchestrator.yaml` and keeps production separate at `~/.openclaw_prod/agent-orchestrator.yaml`.
+
+Promote validated staging config into production with:
+
+```bash
+bash scripts/promote-openclaw-config.sh
+```
+
+Do not symlink `~/.openclaw/agent-orchestrator.yaml` to production. If you still need legacy alias paths such as `~/.agent-orchestrator.yaml`, create them explicitly with `bash scripts/bootstrap-openclaw-config.sh --link-legacy-aliases staging`.
+
 ---
 
 ## Code Conventions

@@ -24,6 +24,8 @@ function buildScriptEnv(binDir: string, fakeRepo: string, tempRoot: string): Nod
     AO_REPO_ROOT: fakeRepo,
     // Keep the script from reading or stopping the developer's real AO workers.
     AO_CONFIG_PATH: join(tempRoot, "missing-agent-orchestrator.yaml"),
+    AO_STAGING_CONFIG_PATH: join(tempRoot, ".openclaw", "agent-orchestrator.yaml"),
+    AO_PROD_CONFIG_PATH: join(tempRoot, ".openclaw_prod", "agent-orchestrator.yaml"),
   };
 }
 

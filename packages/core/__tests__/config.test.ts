@@ -75,6 +75,18 @@ describe("Config Loading", () => {
       expect(found).toBe(customConfig);
     });
 
+    it("should prefer managed staging config over repo-local shadow config", () => {
+      const stagingDir = join(testDir, ".openclaw");
+      mkdirSync(stagingDir, { recursive: true });
+      const stagingConfig = join(stagingDir, "agent-orchestrator.yaml");
+      const localConfig = join(testDir, "agent-orchestrator.yaml");
+      writeFileSync(stagingConfig, "port: 3001\nprojects: {}");
+      writeFileSync(localConfig, "port: 3002\nprojects: {}");
+
+      const found = findConfigFile();
+      expect(realpathSync(found!)).toBe(realpathSync(stagingConfig));
+    });
+
     it("should return null if no config found", () => {
       const found = findConfigFile();
       expect(found).toBeNull();
