@@ -2554,6 +2554,9 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
       } else if (normalized === "pending" || normalized === "none") {
         blockers.push("Review required");
       }
+      // Note: getBatchPRStatus (GraphQL batch path) treats "none" as a blocker due to
+      // normalizeReviewDecision mapping ambiguous non-empty values to "none". getMergeability
+      // (REST single-PR path) only blocks on "pending" — see line 2543.
 
       // Conflicts / merge state
       // GraphQL returns mergeable as string ("MERGEABLE"/"CONFLICTING"/"UNKNOWN")
@@ -2699,7 +2702,9 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
       // Reviews
       const approved = reviewDecision === "approved";
       if (reviewDecision === "changes_requested") blockers.push("Changes requested in review");
-      else if (reviewDecision === "pending" || reviewDecision === "none") blockers.push("Review required");
+      else if (reviewDecision === "pending") blockers.push("Review required");
+      // Note: "none" means reviews explicitly not required per GitHub API — acceptable here.
+      // getBatchPRStatus (GraphQL batch path) blocks "none" via normalizeReviewDecision mapping.
 
       // Conflicts / merge state
       let noConflicts: boolean;
