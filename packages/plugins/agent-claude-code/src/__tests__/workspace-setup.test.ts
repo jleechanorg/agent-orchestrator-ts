@@ -150,7 +150,7 @@ describe("setupWorkspaceHooks with MCP mail idempotency", () => {
 });
 
 describe("setupWorkspaceHooks symlink handling", () => {
-  it("warns (does not throw) when .claude dir is a symlink", async () => {
+  it("throws when .claude dir is a symlink (security: blocks writes through symlinks)", async () => {
     // Create a target directory outside the workspace (worktree shared .claude)
     const sharedDir = join(tmpDir, "shared-claude");
     mkdirSync(sharedDir, { recursive: true });
@@ -158,10 +158,9 @@ describe("setupWorkspaceHooks symlink handling", () => {
     // Replace .claude with a symlink (valid in worktree setups)
     symlinkSync(sharedDir, claudeDir);
 
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     const agent = create();
-    await expect(agent.setupWorkspaceHooks!(workspacePath, makeHookConfig())).resolves.not.toThrow();
-    expect(warnSpy).toHaveBeenCalledWith(expect.stringMatching(/symlink/i));
-    warnSpy.mockRestore();
+    await expect(agent.setupWorkspaceHooks!(workspacePath, makeHookConfig())).rejects.toThrow(
+      /refusing to write MCP settings through symlinked/,
+    );
   });
 });
