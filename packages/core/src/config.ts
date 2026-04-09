@@ -17,6 +17,7 @@ import { parse as parseYaml } from "yaml";
 import { z } from "zod";
 import { ConfigNotFoundError, type OrchestratorConfig } from "./types.js";
 import { generateSessionPrefix } from "./paths.js";
+import { getOpenClawLayoutHomeConfigPaths } from "./user-home-config-paths.js";
 
 function inferScmPlugin(project: {
   repo: string;
@@ -560,6 +561,7 @@ export function findConfigFile(startDir?: string): string | null {
 
   // 4. Check home directory locations
   const homePaths = [
+    ...getOpenClawLayoutHomeConfigPaths(),
     resolve(homedir(), ".agent-orchestrator.yaml"),
     resolve(homedir(), ".agent-orchestrator.yml"),
     resolve(homedir(), ".config", "agent-orchestrator", "config.yaml"),

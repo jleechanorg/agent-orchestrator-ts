@@ -11,6 +11,16 @@ Design notes, audits, and rolling status for **jleechanorg/agent-orchestrator**.
 - **Evolve loop & policy** — Landed: healthy-cycle fast path + session budget ([PR #380](https://github.com/jleechanorg/agent-orchestrator/pull/380)); Phase 7 recap + Phase 8 idle auto-cancel ([PR #381](https://github.com/jleechanorg/agent-orchestrator/pull/381)); Zero-Framework Cognition (ZFC) section in CLAUDE.md ([PR #382](https://github.com/jleechanorg/agent-orchestrator/pull/382)).
 - **Skeptic** — `claude --print` runs from `/tmp` to avoid project `CLAUDE.md` hooks skewing evaluation (commit `7a9890f9`).
 
+### 2026-04-08
+
+- **Repo boundary (AO vs WorldAI)** — Keep orchestration code, plugins, workflows, scripts, tests, and policy-tracked evidence under **`docs/evidence/`** in **this** repo. Keep WorldAI product/runtime, campaigns, MCP integrations, and WA-specific evidence in the **WorldAI** repo. Local agent state (`~/.claude/`, `~/roadmap/`, mem0 hooks) stays out of git. Tracking: **bd-9nvf**.
+
+### 2026-04-09
+
+- **Open PR sweep** — Reviewed **16** open PRs; several **Evidence/Skeptic** reds with green **Test/Lint**; conflicting branches need **rebase**. Tracking: **bd-qaiz**.
+- **Decisions (3)** — (1) **[#392](https://github.com/jleechanorg/agent-orchestrator/pull/392) merged** to `main` (evidence-gate Fix 2/3). (2) **[#415](https://github.com/jleechanorg/agent-orchestrator/pull/415)** squashed to one **`[agento]`** commit; OpenClaw paths moved to **`user-home-config-paths.ts`** so `config.ts` passes wholesome fork-isolation. (3) **Conflicts:** **[#409](https://github.com/jleechanorg/agent-orchestrator/pull/409) closed** (stale bot branch); **[#413](https://github.com/jleechanorg/agent-orchestrator/pull/413)** keep `config-topology` + bootstrap scripts — rebase with main-first on shell files (commented); **[#394](https://github.com/jleechanorg/agent-orchestrator/pull/394)** rebase vs **#392**; **[#389](https://github.com/jleechanorg/agent-orchestrator/pull/389)** doc rebase when ready; **[#395](https://github.com/jleechanorg/agent-orchestrator/pull/395)** defer to **[#399](https://github.com/jleechanorg/agent-orchestrator/pull/399)** for Gemini.
+- **Harness (/harness)** — Root issue: **policy gates** (Evidence, Skeptic 6-green) fail independently of **compile/test** CI, and **two workflows** reuse the same check name **Skeptic Gate** (`skeptic-gate.yml` vs `test.yml`), which looks like flaky CI. Mitigations: **`.github/pull_request_template.md`** preloads `## Evidence` + claim class (reduces Evidence Gate failures); follow-up: rename poll job / fix `test.yml` escaping, sync `skeptic-cron` jq. Bead: **bd-kkiq** (dedupe Skeptic check names + repair `test.yml`).
+
 ### Older entries
 
 See individual docs below; long-form evolve-loop cycles remain in [`evolve-loop-findings.md`](./evolve-loop-findings.md).
