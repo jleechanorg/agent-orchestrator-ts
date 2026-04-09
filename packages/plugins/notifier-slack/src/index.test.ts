@@ -49,6 +49,28 @@ describe("notifier-slack", () => {
       expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("No webhookUrl configured"));
     });
 
+    it("treats unresolved shell placeholders as not configured", () => {
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const notifier = create({
+        webhookUrl: "${SLACK_WEBHOOK_URL:-https://hooks.slack.com/services/PLACEHOLDER}",
+      });
+      expect(notifier.name).toBe("slack");
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining("Ignoring unresolved webhookUrl placeholder"),
+      );
+    });
+
+    it("treats placeholder webhook URLs as not configured", () => {
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const notifier = create({
+        webhookUrl: "https://hooks.slack.com/services/PLACEHOLDER",
+      });
+      expect(notifier.name).toBe("slack");
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining("Ignoring unresolved webhookUrl placeholder"),
+      );
+    });
+
     it("throws on invalid URL scheme", () => {
       expect(() => create({ webhookUrl: "file:///etc/passwd" })).toThrow("must be http(s)");
     });

@@ -26,6 +26,8 @@
     <string>@HOME@</string>
     <key>PATH</key>
     <string>@PATH@</string>
+    <key>AO_CONFIG_PATH</key>
+    <string>@AO_CONFIG_PATH@</string>
   </dict>
 
   <key>StandardOutPath</key>
