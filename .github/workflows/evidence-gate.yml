@@ -146,7 +146,15 @@ jobs:
               ;;
           esac
 
-          EVIDENCE_SECTION=$(printf '%s' "$BODY" | sed -n '/^[[:space:]]*##[[:space:]]*[Ee]vidence/,$p')
+          # Strip HTML comments before extracting claim floor override to avoid matching template placeholders
+          EVIDENCE_SECTION=$(printf '%s\n' "$BODY" | awk '
+            { gsub(/<!--[^>]*-->/, "") }
+            /^[[:space:]]*<!--/ && $0 !~ /<!--[^>]*-->/ { in_comment=1; next }
+            in_comment && /^[[:space:]]*-->/ { in_comment=0; next }
+            in_comment { next }
+            tolower($0) ~ /^[[:space:]]*##[[:space:]]+evidence([[:space:]]|$)/ { in_section=1; next }
+            in_section { print }
+          ')
 
           DIFF_NAMES=$(git diff --name-only "${BASE_SHA}...${HEAD_SHA}" 2>/dev/null || true)
           if [ -z "$DIFF_NAMES" ]; then
@@ -430,12 +438,19 @@ jobs:
         run: |
           BODY=$(cat "$RUNNER_TEMP/pr_body.txt")
 
+          # Strip HTML comments before checking verdict to avoid matching template placeholders.
           # Extract from "## Evidence" to EOF to avoid false matches from text that
           # appears before the Evidence section (e.g. "Previous PR's verdict: PASS"
           # in the Background or Goals sections). Extracting to EOF ensures that a
           # "## Verdict:" section header following ## Evidence is also captured.
-          EVIDENCE_SECTION=$(printf '%s' "$BODY" \
-            | sed -n '/^[[:space:]]*## [Ee]vidence/,$p')
+          EVIDENCE_SECTION=$(printf '%s\n' "$BODY" | awk '
+            { gsub(/<!--[^>]*-->/, "") }
+            /^[[:space:]]*<!--/ && $0 !~ /<!--[^>]*-->/ { in_comment=1; next }
+            in_comment && /^[[:space:]]*-->/ { in_comment=0; next }
+            in_comment { next }
+            tolower($0) ~ /^[[:space:]]*##[[:space:]]+evidence([[:space:]]|$)/ { in_section=1; next }
+            in_section { print }
+          ')
 
           # Fallback to full body if Evidence section could not be isolated
           if [ -z "$EVIDENCE_SECTION" ]; then
