@@ -320,7 +320,7 @@ describe("workspace.create()", () => {
     mockGitSuccess(""); // git worktree lock (success)
     mockGitSuccess(""); // checkout retry succeeds
 
-    const info = await ws.create(makeCreateConfig());
+    const info = await ws.create(makeCreateConfig({ sessionId: "wa-999" }));
 
     expect(info.branch).toBe("feat/TEST-1");
     // Verify stale worktree removal was attempted (from the walk-up in maybeRemoveStaleCheckedOutWorktree)
