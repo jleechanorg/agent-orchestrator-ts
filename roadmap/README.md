@@ -17,7 +17,8 @@ Design notes, audits, and rolling status for **jleechanorg/agent-orchestrator**.
 
 ### 2026-04-09
 
-- **Open PR sweep** — Reviewed **16** open PRs: **5** are **CONFLICTING** with `main` (need rebase before merge); several others have **Evidence Gate** or **Skeptic** red while **Test/Lint** are green—treat as PR-body / workflow alignment, not only code. **[PR #415](https://github.com/jleechanorg/agent-orchestrator/pull/415)** CI: fixed ESLint **`prefer-const`** in `config.find-config.test.ts` ([`f0be6528`](https://github.com/jleechanorg/agent-orchestrator/commit/f0be65286f729bd2077a5c22fd9177af26ad31d4)). **[PR #392](https://github.com/jleechanorg/agent-orchestrator/pull/392)** looks merge-ready vs overlapping evidence work. Tracking: **bd-qaiz**.
+- **Open PR sweep** — Reviewed **16** open PRs; several **Evidence/Skeptic** reds with green **Test/Lint**; conflicting branches need **rebase**. Tracking: **bd-qaiz**.
+- **Decisions (3)** — (1) **[#392](https://github.com/jleechanorg/agent-orchestrator/pull/392) merged** to `main` (evidence-gate Fix 2/3). (2) **[#415](https://github.com/jleechanorg/agent-orchestrator/pull/415)** squashed to one **`[agento]`** commit; OpenClaw paths moved to **`user-home-config-paths.ts`** so `config.ts` passes wholesome fork-isolation. (3) **Conflicts:** **[#409](https://github.com/jleechanorg/agent-orchestrator/pull/409) closed** (stale bot branch); **[#413](https://github.com/jleechanorg/agent-orchestrator/pull/413)** keep `config-topology` + bootstrap scripts — rebase with main-first on shell files (commented); **[#394](https://github.com/jleechanorg/agent-orchestrator/pull/394)** rebase vs **#392**; **[#389](https://github.com/jleechanorg/agent-orchestrator/pull/389)** doc rebase when ready; **[#395](https://github.com/jleechanorg/agent-orchestrator/pull/395)** defer to **[#399](https://github.com/jleechanorg/agent-orchestrator/pull/399)** for Gemini.
 
 ### Older entries
 
