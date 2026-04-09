@@ -411,7 +411,7 @@ jobs:
             if [ "$KNOWN_TM" = "false" ] && printf '%s' "$TM_FIRST_URL" | grep -qiE 'asciinema\.org'; then KNOWN_TM=true; fi
             if [ "$KNOWN_TM" = "false" ] && printf '%s' "$TM_FIRST_URL" | grep -qiE 'github\.com/user-attachments/assets/'; then KNOWN_TM=true; fi
             if [ "$KNOWN_TM" = "false" ]; then
-              echo "::warning::bd-vidcap: Terminal media URL is not a recognized artifact pattern (.mp4, .gif, .cast, gist.github.com, asciinema.org, user-attachments). Prefer a captioned cast or video link; gate still passes."
+              echo "::warning::bd-vidcap: Terminal media URL is not a recognized artifact pattern (.mp4, .gif, .webm, .mov, .cast, gist.github.com, asciinema.org, user-attachments). Prefer a captioned cast or video link; gate still passes."
             fi
             TM_URL_LINE=$(printf '%s' "$TM_BLOCK" | grep -n 'https://' | head -1 | cut -d: -f1)
             CAPTION_LINES=$(printf '%s' "$TM_BLOCK" | tail -n +"${TM_URL_LINE:-1}" | grep -v '^[[:space:]]*$' | grep -v '^[[:space:]]*```' | awk '{ sub(/^\*\*Terminal media\*\*:[[:space:]]*/, ""); sub(/^\*\*Terminal media\*\* :[[:space:]]*/, ""); print }')
