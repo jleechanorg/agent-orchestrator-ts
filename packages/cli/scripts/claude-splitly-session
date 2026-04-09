@@ -83,7 +83,7 @@ cmd_new() {
 
     # Create tmux session and start Claude (unset CLAUDECODE to avoid nested session detection)
     tmux new-session -d -s "$session_name" -c "$worktree_path" -e "SPLITLY_SESSION=$session_name" -e "DIRENV_LOG_FORMAT="
-    tmux send-keys -t "$session_name" "unset CLAUDECODE && claude --dangerously-skip-permissions" Enter
+    tmux send-keys -t "$session_name" "unset CLAUDECODE && claude --strict-mcp-config ~/.claude/mcp-strict.json --dangerously-skip-permissions" Enter
     
     # Create metadata file
     mkdir -p "$SESSION_DIR"
