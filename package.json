@@ -17,7 +17,6 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "typecheck": "pnpm -r typecheck",
-<<<<<<< HEAD
     "test": "pnpm run test:evidence-gate-patterns && pnpm -r --filter '!@jleechanorg/ao-web' test",
     "test:evidence-gate-patterns": "bash scripts/test-evidence-gate-patterns.sh",
     "test:integration": "pnpm --filter @jleechanorg/ao-integration-tests test:integration",

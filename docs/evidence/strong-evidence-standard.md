@@ -15,7 +15,7 @@ For claim classes `integration`, `pipeline-e2e`, `pr-lifecycle-e2e`, and `merge-
    - `**Repro gist**: https://gist.github.com/...` with clone-and-run steps
 2. **Terminal media** (required — CI enforces via evidence-gate.yml Evidence Bundle v2 step)
    - **HTTPS URL** to a real artifact (not `N/A` for integration+). Prefer recognizable patterns:
-     `.mp4`, `.gif`, `.cast`, links on `gist.github.com` or `asciinema.org`, or `github.com/user-attachments/assets/…`.
+     `.mp4`, `.gif`, `.webm`, `.mov`, `.cast`, links on `gist.github.com` or `asciinema.org`, or `github.com/user-attachments/assets/…`.
      Unknown HTTPS URLs still **pass** the gate but may surface a **CI warning** — use a known pattern when possible.
    - A **caption** that mentions `tmux` or `terminal` **outside** the label line
 3. **Terminal test output** (required — CI enforces via evidence-gate.yml)
