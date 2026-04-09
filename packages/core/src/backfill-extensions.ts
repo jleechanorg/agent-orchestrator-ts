@@ -45,6 +45,11 @@ export interface BackfillParams {
 let lastBackfillTime = 0;
 const BACKFILL_INTERVAL_MS = 5 * 60_000; // 5 minutes
 
+// bd-e15n: soft concurrency cap for in-flight backfill spawns across processes.
+// Guarded by a module-level counter so parallel lifecycle loops do not overwhelm
+// the workspace/session manager when many uncovered PRs exist at once.
+let inProgressSpawns = 0;
+
 /** Reset throttle state — exposed for testing only. */
 export function _resetBackfillTimer(): void {
   lastBackfillTime = 0;
@@ -92,6 +97,23 @@ export async function backfillUncoveredPRs(
   // Set throttle AFTER confirming SCM supports listOpenPRs — so missing
   // support doesn't block retries when a different SCM plugin is loaded.
   lastBackfillTime = now;
+
+  // bd-e15n: Concurrency cap — skip spawn when in-flight spawns are at/over limit.
+  // Default is 8 when no per-project backfill.maxConcurrentSpawns is provided.
+  const maxConcurrentSpawns = params.project.backfill?.maxConcurrentSpawns ?? 8;
+  if (inProgressSpawns >= maxConcurrentSpawns) {
+    observer.recordOperation({
+      metric: "lifecycle_poll",
+      operation: "lifecycle.backfill.skipped_concurrency_limit",
+      outcome: "success",
+      correlationId,
+      projectId,
+      data: { inProgressSpawns, maxConcurrentSpawns },
+      level: "info",
+    });
+    return false;
+  }
+
 
   // Reset per-cycle rate-limit counter.
   // Counter is scoped per backfill invocation (each invocation is one "cycle").
@@ -223,6 +245,8 @@ Implement only the repository changes listed above, commit with [agento], and pu
 
         // Don't pass branch to spawn — let claimPR handle checkout so
         // the workspace starts on the correct PR branch via SCM checkout.
+        inProgressSpawns++;
+        try {
         const session = await sessionManager.spawn({
           projectId,
           // Label the title as untrusted contributor input so the agent does not
@@ -578,6 +602,9 @@ Implement only the repository changes listed above, commit with [agento], and pu
           level: "info",
         });
         return true;
+        } finally {
+          inProgressSpawns--;
+        }
       } catch (spawnErr) {
         consecutiveSpawnFailures++;
         observer.recordOperation({

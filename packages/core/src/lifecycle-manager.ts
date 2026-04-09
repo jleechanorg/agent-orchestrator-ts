@@ -1517,6 +1517,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     // Use tracked state if available; otherwise use the persisted metadata status
     // (not session.status, which list() may have already overwritten for dead runtimes).
     // This ensures transitions are detected after a lifecycle manager restart.
+    // PR #420: lifecycle worker should restart on updated main to pick up checkoutPR fix.
     const tracked = states.get(session.id);
     const oldStatus =
       tracked ?? ((session.metadata?.["status"] as SessionStatus | undefined) || session.status);

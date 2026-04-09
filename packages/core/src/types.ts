@@ -1402,6 +1402,18 @@ export interface ProjectConfig {
   backfillAllPRs?: boolean;
 
   /**
+   * Backfill configuration.
+   *
+   * - `maxConcurrentSpawns` — soft cap on concurrent lifecycle backfill spawns
+   *   across processes. Backfill will skip spawning when the in-flight spawn
+   *   counter is at or above this limit. Default: 8.
+   */
+  backfill?: {
+    /** Maximum concurrent backfill spawns (default 8). */
+    maxConcurrentSpawns?: number;
+  };
+
+  /**
    * Configurable merge-gate: custom conditions for auto-merge beyond approved+CI-green.
    * Enables projects to define custom auto-merge conditions.
    */
