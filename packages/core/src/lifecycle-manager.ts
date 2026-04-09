@@ -1006,9 +1006,10 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         if (reactionConfig.message.includes("{{context}}")) {
           dedupContext = await buildReactionContext(reactionKey, session, projectId, config, registry);
         }
-        const finalMessage = dedupContext !== undefined
-          ? reactionConfig.message.replace(/\{\{context\}\}/g, () => dedupContext!)
-          : reactionConfig.message;
+        const finalMessage =
+          dedupContext === undefined
+            ? reactionConfig.message
+            : reactionConfig.message.replace(/\{\{context\}\}/g, dedupContext);
         const messageHash = await hashMessageContent(finalMessage);
 
         // bd-1178: SHA-based dedup — skip only when BOTH message hash AND SHA are unchanged.
@@ -1122,9 +1123,10 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
           try {
             // Inject context if message contains {{context}} placeholder.
             // dedupContext was built once at the top of this block — reuse it.
-            const finalMessage = dedupContext !== undefined
-              ? reactionConfig.message.replace(/\{\{context\}\}/g, () => dedupContext!)
-              : reactionConfig.message;
+            const finalMessage =
+              dedupContext === undefined
+                ? reactionConfig.message
+                : reactionConfig.message.replace(/\{\{context\}\}/g, dedupContext);
             await sessionManager.send(sessionId, finalMessage);
 
             // Record message content hash and SHA after successful send.
