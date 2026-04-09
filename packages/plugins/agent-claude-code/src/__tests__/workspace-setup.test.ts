@@ -6,7 +6,7 @@
  * metadata-updater.sh on every session setup, even when the content was
  * identical to what was already on disk.
  */
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, mkdirSync, statSync, utimesSync, rmSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
