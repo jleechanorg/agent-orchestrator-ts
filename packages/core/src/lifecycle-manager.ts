@@ -53,7 +53,7 @@ import {
   clearProjectPause,
   detectAndApplyRateLimitPause,
 } from "./fork-lifecycle-manager.js";
-import { createCorrelationId, createProjectObserver } from "./observability.js";
+import { createCorrelationId, createProjectObserver, type ProjectObserver } from "./observability.js";
 import { resolveAgentSelection, resolveSessionRole } from "./agent-selection.js";
 import type { OutcomeRecorder } from "./outcome-recorder.js";
 import {
@@ -2731,33 +2731,16 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
             allCompleteEmitted = false;
           }
         } else if (project && project.backfillAllPRs === false) {
-          // Explicit opt-out — surface open-PR leakage risk for operator visibility.
-          // Throttled to reduce SCM API load and alert noise.
-          const lastWarn = lastBackfillWarnTimeByProject.get(scopedProjectId) ?? 0;
-          if (nowMs - lastWarn >= BACKFILL_WARN_INTERVAL_MS) {
-            const scmPlugin = project.scm ? registry.get<SCM>("scm", project.scm.plugin) : null;
-            const listOpenPRs = scmPlugin?.listOpenPRs?.bind(scmPlugin);
-            if (listOpenPRs) {
-              try {
-                const openPRs = await listOpenPRs(project);
-                const nonDraftOpen = openPRs.filter((pr) => !pr.isDraft).length;
-                if (nonDraftOpen > 0) {
-                  observer.recordOperation({
-                    metric: "lifecycle_poll",
-                    operation: "lifecycle.backfill.disabled_with_open_prs",
-                    outcome: "failure",
-                    correlationId,
-                    projectId: scopedProjectId,
-                    data: { nonDraftOpenPRs: nonDraftOpen },
-                    level: "warn",
-                  });
-                }
-                lastBackfillWarnTimeByProject.set(scopedProjectId, nowMs);
-              } catch {
-                /* fail-open: skip warning on list error */
-              }
-            }
-          }
+          await maybeWarnBackfillDisabledWithOpenPRs({
+            projectId: scopedProjectId,
+            project,
+            nowMs,
+            correlationId,
+            observer,
+            registry,
+            lastBackfillWarnTimeByProject,
+            BACKFILL_WARN_INTERVAL_MS,
+          });
         }
       }
 
@@ -2985,6 +2968,59 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     _testing: {
       executeReaction,
       getReactionConfigForSession,
+      maybeWarnBackfillDisabledWithOpenPRs,
     },
-  } as LifecycleManager & { _testing: { executeReaction: typeof executeReaction; getReactionConfigForSession: typeof getReactionConfigForSession } };
+  } as LifecycleManager & {
+    _testing: {
+      executeReaction: typeof executeReaction;
+      getReactionConfigForSession: typeof getReactionConfigForSession;
+      maybeWarnBackfillDisabledWithOpenPRs: typeof maybeWarnBackfillDisabledWithOpenPRs;
+    };
+  };
+}
+
+/**
+ * maybeWarnBackfillDisabledWithOpenPRs — throttled warning when backfill is explicitly disabled.
+ * Surface open-PR leakage risk for operator visibility. Throttled to reduce SCM API load.
+ * (bd-bsu: requested by CodeRabbit review on #406)
+ */
+async function maybeWarnBackfillDisabledWithOpenPRs(args: {
+  projectId: string;
+  project: _ProjectConfig;
+  nowMs: number;
+  correlationId: string;
+  observer: ProjectObserver;
+  registry: PluginRegistry;
+  lastBackfillWarnTimeByProject: Map<string, number>;
+  BACKFILL_WARN_INTERVAL_MS: number;
+}): Promise<void> {
+  const lastWarn = args.lastBackfillWarnTimeByProject.get(args.projectId) ?? 0;
+  if (args.nowMs - lastWarn < args.BACKFILL_WARN_INTERVAL_MS) {
+    return;
+  }
+
+  const scmPlugin = args.project.scm ? args.registry.get<SCM>("scm", args.project.scm.plugin) : null;
+  const listOpenPRs = scmPlugin?.listOpenPRs?.bind(scmPlugin);
+  if (!listOpenPRs) return;
+
+  try {
+    const openPRs = await listOpenPRs(args.project);
+    const nonDraftOpen = openPRs.filter((pr) => !pr.isDraft).length;
+    if (nonDraftOpen > 0) {
+      args.observer.recordOperation({
+        metric: "lifecycle_poll",
+        operation: "lifecycle.backfill.disabled_with_open_prs",
+        outcome: "failure",
+        correlationId: args.correlationId,
+        projectId: args.projectId,
+        data: { nonDraftOpenPRs: nonDraftOpen },
+        level: "warn",
+      });
+    }
+  } catch {
+    /* fail-open: skip warning on list error */
+  } finally {
+    // Ensure throttle timestamp is set even on failure to avoid hammering the API.
+    args.lastBackfillWarnTimeByProject.set(args.projectId, Date.now());
+  }
 }
