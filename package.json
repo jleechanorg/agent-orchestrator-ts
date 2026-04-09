@@ -27,6 +27,11 @@
     "novel:daily": "node scripts/novel/generate-daily-entry.mjs --file novel/the-daily-lives-of-workers.md --days 1 --words 1000",
     "launchd:install": "bash scripts/setup-launchd.sh all"
   },
+  "pnpm": {
+    "overrides": {
+      "handlebars": ">=4.7.9"
+    }
+  },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@jleechanorg/ao-plugin-agent-cursor": "workspace:^",
