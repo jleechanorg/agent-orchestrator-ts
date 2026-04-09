@@ -1466,10 +1466,12 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
         }
       }
 
-      // Switch to the branch if not already there (the catch path may have done it)
+      // Switch to the branch if not already there (the catch path may have done it).
+      // Use -f so AO-managed bootstrap files (e.g. .claude/metadata-updater.sh) touched
+      // during worktree init cannot block checkout when claiming a PR.
       const currentAfterFetch = await git(["branch", "--show-current"], workspacePath);
       if (currentAfterFetch !== pr.branch) {
-        await git(["checkout", pr.branch], workspacePath);
+        await git(["checkout", "-f", pr.branch], workspacePath);
       }
 
       // Verify checkout succeeded
