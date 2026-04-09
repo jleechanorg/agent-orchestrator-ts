@@ -965,11 +965,11 @@ async function setupHookInWorkspace({
 /**
  * Configure MCP mail server in workspace settings.
  * This enables agents to send coordination messages via MCP mail.
- * 
+ *
  * MCP mail server config:
  * - name: mcp-agent-mail
  * - url: http://127.0.0.1:8765/mcp/ (configurable via MCP_AGENT_MAIL_URL env var)
- * - headers: auth token (configurable via MCP_AGENT_MAIL_TOKEN env var)
+ * - auth: provided via MCP_AGENT_MAIL_TOKEN env var at runtime (not stored in settings.json)
  */
 export async function setupMcpMailInWorkspace(
   workspacePath: string,
@@ -978,11 +978,13 @@ export async function setupMcpMailInWorkspace(
   const agentDir = join(workspacePath, configDir);
   const settingsPath = join(agentDir, "settings.json");
 
-  // Warn on symlinks — same guard as setupHookInWorkspace
+  // Block writes through symlinks — same guard as setupHookInWorkspace
   try {
     const s = await lstat(agentDir);
     if (s.isSymbolicLink()) {
-      console.warn(`[agent-base] config dir ${agentDir} is a symlink — writing through symlink`);
+      throw new Error(
+        `[agent-base] refusing to write MCP settings through symlinked config dir: ${agentDir}`,
+      );
     }
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;

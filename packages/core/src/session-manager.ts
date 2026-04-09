@@ -206,6 +206,18 @@ function getSessionNumber(sessionId: string, prefix: string): number | undefined
   return Number.isNaN(parsed) ? undefined : parsed;
 }
 
+/** Get MCP mail environment variables if configured. */
+function getMcpMailEnv(): Record<string, string> {
+  const env: Record<string, string> = {};
+  if (process.env.MCP_AGENT_MAIL_URL) {
+    env.MCP_AGENT_MAIL_URL = process.env.MCP_AGENT_MAIL_URL;
+  }
+  if (process.env.MCP_AGENT_MAIL_TOKEN) {
+    env.MCP_AGENT_MAIL_TOKEN = process.env.MCP_AGENT_MAIL_TOKEN;
+  }
+  return env;
+}
+
 const PR_TRACKING_STATUSES: ReadonlySet<string> = new Set([
   "pr_open",
   "ci_failed",
@@ -1151,10 +1163,9 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
     try {
       const launchCommand = plugins.agent.getLaunchCommand(agentLaunchConfig);
       const environment = {
-      ...plugins.agent.getEnvironment(agentLaunchConfig),
-      ...(process.env.MCP_AGENT_MAIL_URL ? { MCP_AGENT_MAIL_URL: process.env.MCP_AGENT_MAIL_URL } : {}),
-      ...(process.env.MCP_AGENT_MAIL_TOKEN ? { MCP_AGENT_MAIL_TOKEN: process.env.MCP_AGENT_MAIL_TOKEN } : {}),
-    };
+        ...plugins.agent.getEnvironment(agentLaunchConfig),
+        ...getMcpMailEnv(),
+      };
 
       handle = await plugins.runtime.create({
         sessionId: tmuxName ?? sessionId, // Use tmux name for runtime if available
@@ -1483,8 +1494,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
     const launchCommand = plugins.agent.getLaunchCommand(agentLaunchConfig);
     const environment = {
       ...plugins.agent.getEnvironment(agentLaunchConfig),
-      ...(process.env.MCP_AGENT_MAIL_URL ? { MCP_AGENT_MAIL_URL: process.env.MCP_AGENT_MAIL_URL } : {}),
-      ...(process.env.MCP_AGENT_MAIL_TOKEN ? { MCP_AGENT_MAIL_TOKEN: process.env.MCP_AGENT_MAIL_TOKEN } : {}),
+      ...getMcpMailEnv(),
     };
 
     const handle = await plugins.runtime.create({
@@ -2819,8 +2829,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
 
     const environment = {
       ...plugins.agent.getEnvironment(agentLaunchConfig),
-      ...(process.env.MCP_AGENT_MAIL_URL ? { MCP_AGENT_MAIL_URL: process.env.MCP_AGENT_MAIL_URL } : {}),
-      ...(process.env.MCP_AGENT_MAIL_TOKEN ? { MCP_AGENT_MAIL_TOKEN: process.env.MCP_AGENT_MAIL_TOKEN } : {}),
+      ...getMcpMailEnv(),
     };
 
     // 8. Create runtime (reuse tmuxName from metadata)
