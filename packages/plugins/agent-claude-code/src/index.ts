@@ -831,9 +831,10 @@ function createClaudeCodeAgent(): Agent {
       const permissionMode = normalizePermissionMode(config.permissions);
       if (permissionMode === "permissionless" || permissionMode === "auto-edit") {
         parts.push("--dangerously-skip-permissions");
-        // Use strict MCP config to avoid loading built-in MCPs (saves ~16k context tokens)
-        parts.push("--strict-mcp-config", shellEscape("~/.claude/mcp-strict.json"));
       }
+      // Use strict MCP config to avoid loading built-in MCPs (saves ~16k context tokens)
+      const mcpConfigPath = shellEscape(join(homedir(), ".claude", "mcp-strict.json"));
+      parts.push("--strict-mcp-config", mcpConfigPath);
 
       if (config.model) {
         parts.push("--model", shellEscape(config.model));
@@ -993,9 +994,10 @@ function createClaudeCodeAgent(): Agent {
       const permissionMode = normalizePermissionMode(project.agentConfig?.permissions);
       if (permissionMode === "permissionless" || permissionMode === "auto-edit") {
         parts.push("--dangerously-skip-permissions");
-        // Use strict MCP config to avoid loading built-in MCPs (saves ~16k context tokens)
-        parts.push("--strict-mcp-config", shellEscape("~/.claude/mcp-strict.json"));
       }
+      // Use strict MCP config to avoid loading built-in MCPs (saves ~16k context tokens)
+      const mcpConfigPath = shellEscape(join(homedir(), ".claude", "mcp-strict.json"));
+      parts.push("--strict-mcp-config", mcpConfigPath);
 
       if (project.agentConfig?.model) {
         parts.push("--model", shellEscape(project.agentConfig.model as string));
