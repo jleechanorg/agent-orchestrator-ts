@@ -30,6 +30,10 @@ Usage: scripts/bootstrap-openclaw-config.sh [--force] [--link-legacy-aliases sta
 Creates the managed OpenClaw/AO config directories, bootstraps a staging config
 at ~/.openclaw/agent-orchestrator.yaml when missing, and leaves production
 (~/.openclaw_prod/agent-orchestrator.yaml) untouched until an explicit promote.
+
+--force: Repair an existing staging config even if it looks valid (e.g. symlink
+         to production, or same-file topology). Use this to let the bootstrap
+         write path recreate a proper staging file.
 EOF
       exit 0
       ;;
@@ -46,8 +50,14 @@ PRODUCTION_CONFIG="$(ao_production_config_path)"
 mkdir -p "$(dirname "$STAGING_CONFIG")" "$(dirname "$PRODUCTION_CONFIG")"
 mkdir -p "${HOME}/.openclaw/logs" "${HOME}/.openclaw_prod/logs"
 
-if [ "$FORCE" != true ] && [ -f "$STAGING_CONFIG" ]; then
-  ao_validate_topology
+if [ -f "$STAGING_CONFIG" ]; then
+  if [ "$FORCE" = true ]; then
+    # --force means repair: remove any symlink/bad-state staging before writing
+    rm -f "$STAGING_CONFIG"
+  else
+    # Only validate when not forcing; --force itself is the repair trigger
+    ao_validate_topology
+  fi
 fi
 
 if [ ! -f "$STAGING_CONFIG" ] || [ "$FORCE" = true ]; then

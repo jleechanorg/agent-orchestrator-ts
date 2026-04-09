@@ -11,15 +11,12 @@ REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=./lib/ao-config-topology.sh
 source "$SCRIPT_DIR/lib/ao-config-topology.sh"
+# Gate managed-topology validation only when using auto-discovered config.
+# If AO_CONFIG_PATH is set explicitly, respect it without blocking on topology.
 CONFIG_FILE="${AO_CONFIG_PATH:-$(ao_staging_config_path)}"
-
-echo ""
-echo "═══ Extended Setup (jleechanorg fork) ═══"
-echo ""
-
-# ─── Validate canonical config ─────────────────────────────────────────────
-
-ao_validate_topology
+if [ -z "${AO_CONFIG_PATH:-}" ]; then
+  ao_validate_topology
+fi
 
 if [ ! -f "$CONFIG_FILE" ]; then
   echo "WARNING: No config found at $CONFIG_FILE"

@@ -59,20 +59,8 @@ export function getPreferredConfigSearchPaths(): string[] {
 
 export function findManagedConfigFile(): string | null {
   for (const candidate of getPreferredConfigSearchPaths()) {
-    try {
-      if (statSync(candidate).isFile()) {
-        return candidate;
-      }
-    } catch (error) {
-      if (
-        error instanceof Error &&
-        "code" in error &&
-        (error.code === "ENOENT" || error.code === "ENOTDIR")
-      ) {
-        continue;
-      }
-
-      throw error;
+    if (existsSync(candidate)) {
+      return candidate;
     }
   }
   return null;
