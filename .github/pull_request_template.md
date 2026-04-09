@@ -8,11 +8,21 @@
 
 **Claim class:** <!-- documentation-only | unit | integration | pipeline-e2e | pr-lifecycle-e2e | merge-gate -->
 
-| Field | Link / value |
-|--------|----------------|
-| **Repro / gist** | <!-- gist URL or N/A with reason --> |
-| **Tests run** | <!-- e.g. `pnpm --filter @jleechanorg/ao-core test` + fenced log snippet or CI job URL --> |
-| **Terminal media** | <!-- HTTPS URL to cast/GIF/screenshot, or N/A with justification per claim class --> |
-| **UI media** | <!-- or exact: N/A - no UI changes --> |
+<!-- If Claim class is unit or documentation-only but the diff touches .ts/.js/.py/.go/.sh/.json, add: -->
+<!-- **Claim floor override:** <one-line justification> -->
 
-**Verdict:** <!-- PASS / FAIL — merge gate uses this section; Skeptic may cross-check against 7-green. -->
+**Repro gist:** <!-- `https://gist.github.com/...` or N/A with reason (label must match this exact spelling for parsers) -->
+
+**Terminal test output:**
+
+<!-- Fenced log with a line like `$ pnpm ...` / `$ npm test` / `vitest` / etc. -->
+
+```text
+(paste command + output)
+```
+
+**Terminal media:** <!-- HTTPS URL, or N/A with justification (unit claim may use N/A per policy) -->
+
+**UI media:** <!-- HTTPS URL / image, or exact: N/A - no UI changes -->
+
+**Verdict:** <!-- PASS | INSUFFICIENT | FAIL — mandatory for Evidence Gate -->
