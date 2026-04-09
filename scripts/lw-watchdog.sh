@@ -52,7 +52,7 @@ log() {
 }
 
 CONFIG_FILE="${AO_CONFIG_PATH:-$HOME/.openclaw/agent-orchestrator.yaml}"
-CONFIG_PARSE_FAILED=0
+CONFIG_PARSE_FAILED_SENTINEL="__CONFIG_PARSE_FAILED__"
 
 list_configured_projects() {
   if [ ! -f "$CONFIG_FILE" ]; then
@@ -61,8 +61,7 @@ list_configured_projects() {
 
   if ! command -v python3 >/dev/null 2>&1; then
     log "WARN: python3 not available; unable to parse configured projects from $CONFIG_FILE"
-    CONFIG_PARSE_FAILED=1
-    printf '__CONFIG_PARSE_FAILED__\n'
+    printf '%s\n' "$CONFIG_PARSE_FAILED_SENTINEL"
     return 0
   fi
 
@@ -77,12 +76,9 @@ for pid in cfg.get("projects", {}):
     print(pid)
 ' 2>/dev/null; then
     log "WARN: failed to parse configured projects from $CONFIG_FILE; continuing watchdog run"
-    CONFIG_PARSE_FAILED=1
-    printf '__CONFIG_PARSE_FAILED__\n'
+    printf '%s\n' "$CONFIG_PARSE_FAILED_SENTINEL"
     return 0
   fi
-
-  CONFIG_PARSE_FAILED=0
 }
 
 list_missing_lifecycle_workers() {
@@ -91,8 +87,8 @@ list_missing_lifecycle_workers() {
   local missing=""
 
   configured_projects="$(list_configured_projects)"
-  if [ "$configured_projects" = "__CONFIG_PARSE_FAILED__" ]; then
-    printf '%s' ""
+  if [ "$configured_projects" = "$CONFIG_PARSE_FAILED_SENTINEL" ]; then
+    printf '%s' "$CONFIG_PARSE_FAILED_SENTINEL"
     return 0
   fi
 
@@ -197,7 +193,7 @@ for i in "${!SERVICE_IDS[@]}"; do
 
   if [ "$SERVICE_ID" = "ai.agento.lifecycle-all" ] && [ "$STATE_CLASS" = "not_running" ]; then
     MISSING_WORKERS="$(list_missing_lifecycle_workers)"
-    if [ "$CONFIG_PARSE_FAILED" = "1" ]; then
+    if [ "$MISSING_WORKERS" = "$CONFIG_PARSE_FAILED_SENTINEL" ]; then
       log "WARN: $SERVICE_ID — configured project list unavailable; skipping kickstart to avoid false restart loop"
       continue
     fi
