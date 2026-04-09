@@ -883,10 +883,12 @@ describe("scm-github plugin", () => {
 
     it("resets staged AO-managed file via git reset HEAD", async () => {
       // Simulates "M  .claude/settings.json" — staged change, clean working tree.
-      // The reset loop must unstage it via git reset HEAD before the dirty check passes.
+      // The reset loop must unstage it via git reset HEAD, then restore working tree
+      // via git checkout (since wt=' ' means working tree was clean relative to staged state).
       ghMock.mockResolvedValueOnce({ stdout: "main\n" }); // git branch --show-current
       ghMock.mockResolvedValueOnce({ stdout: "M  .claude/settings.json\n" }); // git status --porcelain (staged, clean wt)
       ghMock.mockResolvedValueOnce({ stdout: "" }); // git reset HEAD -- .claude/settings.json (unstage)
+      ghMock.mockResolvedValueOnce({ stdout: "" }); // git checkout -- .claude/settings.json (restore wt to HEAD)
       ghMock.mockResolvedValueOnce({ stdout: "" }); // git status --porcelain (clean after reset)
       ghMock.mockResolvedValueOnce({ stdout: "https://github.com/acme/repo.git\n" }); // git remote get-url origin
       ghMock.mockResolvedValueOnce({ stdout: "" }); // git fetch refs/pull/42/head:feat/my-feature

@@ -1407,6 +1407,17 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
           // git reset HEAD unstages the index entry without modifying the working tree.
           if (idx !== " " && idx !== "?" && idx !== "!" && idx !== undefined) {
             await git(["reset", "HEAD", "--", filePath], workspacePath).catch(() => {});
+            // After unstaging, the working tree may now differ from HEAD:
+            // - For staged modification (wt=' ', idx='M'): working tree was already clean
+            //   relative to the old staged state, so checkout restores it to HEAD cleanly.
+            // - For staged new file (wt=' ', idx='A'): file doesn't exist in HEAD,
+            //   so checkout would fail — clean the untracked file instead.
+            if (wt === " ") {
+              const restored = await git(["checkout", "--", filePath], workspacePath).catch(() => "failed");
+              if (restored === "failed") {
+                await git(["clean", "-f", "--", filePath], workspacePath).catch(() => {});
+              }
+            }
           }
 
           if (wt === "?" || wt === "!") {
