@@ -1491,8 +1491,9 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         createEvent,
       });
 
-      // Arm dedupe AFTER validateAndEmitExitProof succeeds — if emission threw,
+      // Arm in-memory dedupe AFTER validateAndEmitExitProof succeeds — if emission threw,
       // a later retry must re-emit rather than silently skipping the proof.
+      // Disk persistence deferred until after successful kill() to ensure retry on kill failure.
       session.metadata[TERMINAL_EXIT_PROOF_RECORDED_AT_KEY] = recordedAt;
 
       // Record outcome for strategy learning (bd-nig)
@@ -1519,16 +1520,6 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
             recordErr instanceof Error ? recordErr.message : String(recordErr),
           );
         }
-      }
-
-      try {
-        updateSessionMetadata(session, { [TERMINAL_EXIT_PROOF_RECORDED_AT_KEY]: recordedAt });
-      } catch (persistErr) {
-        console.warn(
-          `[lifecycle-manager] failed to persist ${TERMINAL_EXIT_PROOF_RECORDED_AT_KEY} ` +
-          `for session=${session.id} — best-effort, continuing: ` +
-          `${persistErr instanceof Error ? persistErr.message : String(persistErr)}`,
-        );
       }
     }
 
@@ -1568,6 +1559,21 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
           repo: session.pr ? `${session.pr.owner}/${session.pr.repo}` : undefined,
           reason: `terminal:${exitStatus}`,
         });
+
+        // Persist exit proof dedupe key only after successful kill — if kill failed,
+        // the session must be retried on next poll rather than filtered out.
+        const exitProofRecordedAt = session.metadata[TERMINAL_EXIT_PROOF_RECORDED_AT_KEY];
+        if (exitProofRecordedAt !== undefined) {
+          try {
+            updateSessionMetadata(session, { [TERMINAL_EXIT_PROOF_RECORDED_AT_KEY]: exitProofRecordedAt });
+          } catch (persistErr) {
+            console.warn(
+              `[lifecycle-manager] failed to persist ${TERMINAL_EXIT_PROOF_RECORDED_AT_KEY} ` +
+              `for session=${session.id} — best-effort, continuing: ` +
+              `${persistErr instanceof Error ? persistErr.message : String(persistErr)}`,
+            );
+          }
+        }
       } catch (killErr) {
         // kill() may fail if session is already partially cleaned up. Non-fatal —
         // log and continue; session will retry on next poll if still present.
