@@ -1256,9 +1256,14 @@ function normalizeMergePayloadFromRestShape(data: Record<string, unknown>): void
   if (typeof data["draft"] === "boolean" && data["isDraft"] === undefined) {
     data["isDraft"] = data["draft"];
   }
-  // reviewDecision can be null (no reviews requested) or undefined (not requested).
-  // Treat both as "REVIEW_REQUIRED" for conservative fail-closed behavior.
-  if (data["reviewDecision"] === null || data["reviewDecision"] === undefined) {
+  // reviewDecision can be null/undefined/malformed when GitHub omits or fails to
+  // populate the field. Treat empty string the same way so every unknown path
+  // stays fail-closed instead of drifting to "none".
+  if (
+    data["reviewDecision"] === null ||
+    data["reviewDecision"] === undefined ||
+    data["reviewDecision"] === ""
+  ) {
     data["reviewDecision"] = "REVIEW_REQUIRED";
   }
 }
@@ -2088,6 +2093,9 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
       if (d === "APPROVED") return "approved";
       if (d === "CHANGES_REQUESTED") return "changes_requested";
       if (d === "REVIEW_REQUIRED") return "pending";
+      if (data.reviewDecision === null || data.reviewDecision === undefined || data.reviewDecision === "") {
+        return "pending";
+      }
       return "none";
     },
 
@@ -2135,6 +2143,7 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
       if (d === "APPROVED") reviewDecision = "approved";
       else if (d === "CHANGES_REQUESTED") reviewDecision = "changes_requested";
       else if (d === "REVIEW_REQUIRED") reviewDecision = "pending";
+      else if (data.reviewDecision === null || data.reviewDecision === undefined || data.reviewDecision === "") reviewDecision = "pending";
       else reviewDecision = "none";
 
       return { state, reviewDecision };
@@ -2542,6 +2551,12 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
         blockers.push("Changes requested in review");
       } else if (reviewDecision === "REVIEW_REQUIRED") {
         blockers.push("Review required");
+      } else if (
+        data.reviewDecision === null ||
+        data.reviewDecision === undefined ||
+        data.reviewDecision === ""
+      ) {
+        blockers.push("Review required");
       }
 
       // Conflicts / merge state
@@ -2646,7 +2661,7 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
       if (d === "APPROVED") reviewDecision = "approved";
       else if (d === "CHANGES_REQUESTED") reviewDecision = "changes_requested";
       else if (d === "REVIEW_REQUIRED") reviewDecision = "pending";
-      else if (data.reviewDecision === null || data.reviewDecision === undefined) reviewDecision = "pending";
+      else if (data.reviewDecision === null || data.reviewDecision === undefined || data.reviewDecision === "") reviewDecision = "pending";
       else reviewDecision = "none";
 
       // --- CI Status (from statusCheckRollup) ---

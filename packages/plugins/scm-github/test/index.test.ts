@@ -1715,14 +1715,14 @@ describe("scm-github plugin", () => {
       expect(await scm.getReviewDecision(pr)).toBe(expected);
     });
 
-    it('returns "none" when reviewDecision is empty', async () => {
+    it('returns "pending" when reviewDecision is empty', async () => {
       mockGh({ reviewDecision: "" });
-      expect(await scm.getReviewDecision(pr)).toBe("none");
+      expect(await scm.getReviewDecision(pr)).toBe("pending");
     });
 
-    it('returns "none" when reviewDecision is null', async () => {
+    it('returns "pending" when reviewDecision is null', async () => {
       mockGh({ reviewDecision: null });
-      expect(await scm.getReviewDecision(pr)).toBe("none");
+      expect(await scm.getReviewDecision(pr)).toBe("pending");
     });
 
     it("throws on non-rate-limit gh failure (fail-closed)", async () => {
@@ -2307,6 +2307,21 @@ describe("scm-github plugin", () => {
       mockGh([]);
 
       const result = await scm.getMergeability(pr);
+      expect(result.blockers).toContain("Review required");
+    });
+
+    it("treats empty reviewDecision as review required", async () => {
+      mockGh({ state: "OPEN" }); // getPRState
+      mockGh({
+        mergeable: "MERGEABLE",
+        reviewDecision: "",
+        mergeStateStatus: "BLOCKED",
+        isDraft: false,
+      });
+      mockGh([]);
+
+      const result = await scm.getMergeability(pr);
+      expect(result.approved).toBe(false);
       expect(result.blockers).toContain("Review required");
     });
 
