@@ -965,13 +965,16 @@ async function setupHookInWorkspace({
 /**
  * Configure MCP mail server in workspace settings.
  * This enables agents to send coordination messages via MCP mail.
- * 
+ *
  * MCP mail server config:
  * - name: mcp-agent-mail
  * - url: http://127.0.0.1:8765/mcp/ (configurable via MCP_AGENT_MAIL_URL env var)
- * - headers: auth token (configurable via MCP_AGENT_MAIL_TOKEN env var)
+ * - headers: auth token - only added when MCP_AGENT_MAIL_TOKEN is set in environment.
+ *   Note: Token is written to settings.json at runtime (not as env var reference) because
+ *   Claude Code does not expand environment variables in MCP server config.
+ *   The token is also forwarded to spawned agent processes via getEnvironment().
  */
-async function setupMcpMailInWorkspace(
+export async function setupMcpMailInWorkspace(
   workspacePath: string,
   configDir: string,
 ): Promise<void> {
@@ -1029,9 +1032,22 @@ async function setupMcpMailInWorkspace(
   // in their shell environment when launching the agent instead.
 
   // Add mcp-agent-mail server configuration
+  // NOTE: Authorization header is NOT stored in worktree settings.json because
+  // Claude Code does not expand environment variables in MCP server config.
+  // The token should be passed via the shell environment when launching the agent.
+  // The getEnvironment() function already forwards MCP_AGENT_MAIL_TOKEN to spawned processes.
   const serverConfig: Record<string, unknown> = {
     url: mcpMailUrl,
   };
+
+  // Only add Authorization header if token is explicitly set in environment
+  // This avoids sending "Bearer undefined" or similar to the MCP server
+  const mcpMailToken = process.env.MCP_AGENT_MAIL_TOKEN;
+  if (mcpMailToken) {
+    serverConfig.headers = {
+      Authorization: `Bearer ${mcpMailToken}`,
+    };
+  }
 
   mcpServers["mcp-agent-mail"] = serverConfig;
   existingSettings["mcpServers"] = mcpServers;
