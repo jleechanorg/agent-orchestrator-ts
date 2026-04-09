@@ -128,18 +128,18 @@ done
 # Reads project IDs from config and verifies PID before sending signals.
 # Uses word-boundary grep to prevent "api" from matching "api-v2".
 if [ -f "$CONFIG_FILE" ] && [ -d "$HOME/.agent-orchestrator" ]; then
-  PROJECTS="$(node - "$CONFIG_FILE" <<'NODEEOF' 2>/dev/null || true
-const fs = require("node:fs");
-const YAML = require("yaml");
+  PROJECTS="$(python3 - "$CONFIG_FILE" <<'PYEOF' 2>/dev/null || true
+import sys
+import yaml
 
-try {
-  const path = process.argv[2];
-  const cfg = YAML.parse(fs.readFileSync(path, "utf8")) || {};
-  for (const projectId of Object.keys(cfg.projects || {})) {
-    console.log(projectId);
-  }
-} catch {}
-NODEEOF
+try:
+    with open(sys.argv[1]) as f:
+        cfg = yaml.safe_load(f) or {}
+    for pid in (cfg.get("projects") or {}):
+        print(pid)
+except:
+    pass
+PYEOF
 )"
   if [ -n "$PROJECTS" ]; then
     # Compute namespace hash: sha256(realpath(dirname(configPath)))[:12]
@@ -155,28 +155,27 @@ except:
     if [ -n "$PID_FILE_NS" ]; then
       for PROJECT in $PROJECTS; do
         # projectId = basename(project.path) — matches TypeScript generateProjectId()
-        PROJ_ID_FOR_PID="$(node - "$CONFIG_FILE" "$PROJECT" <<'NODEEOF' 2>/dev/null || echo ""
-const fs = require("node:fs");
-const path = require("node:path");
-const os = require("node:os");
-const YAML = require("yaml");
+        PROJ_ID_FOR_PID="$(python3 - "$CONFIG_FILE" "$PROJECT" <<'PYEOF' 2>/dev/null || echo ""
+import sys
+import os
+import yaml
 
-try {
-  const configPath = process.argv[2];
-  const projectId = process.argv[3];
-  const cfg = YAML.parse(fs.readFileSync(configPath, "utf8")) || {};
-  const project = cfg.projects?.[projectId] || {};
-  let projectPath = project.path || "";
-  if (projectPath) {
-    if (projectPath.startsWith("~")) {
-      projectPath = path.join(os.homedir(), projectPath.slice(1));
-    } else if (!path.isAbsolute(projectPath)) {
-      projectPath = path.normalize(path.join(path.dirname(configPath), projectPath));
-    }
-    console.log(path.basename(projectPath));
-  }
-} catch {}
-NODEEOF
+try:
+    config_path = sys.argv[1]
+    project_id = sys.argv[2]
+    with open(config_path) as f:
+        cfg = yaml.safe_load(f) or {}
+    proj_cfg = (cfg.get("projects") or {}).get(project_id, {})
+    project_path = proj_cfg.get("path", "") or ""
+    if project_path:
+        if project_path.startswith("~"):
+            project_path = os.path.join(os.path.expanduser("~"), project_path[1:])
+        elif not os.path.isabs(project_path):
+            project_path = os.path.normpath(os.path.join(os.path.dirname(config_path), project_path))
+        print(os.path.basename(project_path))
+except:
+    pass
+PYEOF
 )"
         PROJ_ID_FOR_PID="${PROJ_ID_FOR_PID:-$PROJECT}"
         LW_PID_FILE="$HOME/.agent-orchestrator/${PID_FILE_NS}-${PROJ_ID_FOR_PID}/lifecycle-worker.pid"

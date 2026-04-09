@@ -32,24 +32,17 @@ if [ ! -f "$CONFIG_FILE" ]; then
   exit 1
 fi
 
-node - "$CONFIG_FILE" <<'NODEEOF'
-const fs = require("node:fs");
-const YAML = require("yaml");
+python3 - "$CONFIG_FILE" <<'PYEOF'
+import sys
+import yaml
 
-const path = process.argv[2];
-
-try {
-  const doc = YAML.parseDocument(fs.readFileSync(path, "utf8"), {
-    uniqueKeys: true,
-  });
-  if (doc.errors.length > 0) {
-    const message = doc.errors.map((error) => error.message).join("\n");
-    console.error(`ERROR: ${path}\n${message}`);
-    process.exit(1);
-  }
-  console.log(`OK: ${path} is valid YAML`);
-} catch (error) {
-  console.error(`ERROR: ${path}\n${error instanceof Error ? error.message : String(error)}`);
-  process.exit(1);
-}
-NODEEOF
+path = sys.argv[1]
+try:
+    with open(path) as f:
+        yaml.safe_load(f)
+    print(f"OK: {path} is valid YAML")
+    sys.exit(0)
+except yaml.YAMLError as e:
+    print(f"ERROR: {path}\n{e}", file=sys.stderr)
+    sys.exit(1)
+PYEOF
