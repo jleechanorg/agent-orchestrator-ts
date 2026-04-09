@@ -78,7 +78,7 @@ function ensureStagingConfigPath(): string {
     return stagingPath;
   }
 
-  const problems = validateManagedConfigTopology({ requireProduction: true });
+  const problems = validateManagedConfigTopology();
   if (problems.length > 0) {
     const details = problems.map((p) => `  - ${p.issue}: ${p.detail}`).join("\n");
     throw new Error(
