@@ -88,13 +88,6 @@ export interface ManagedConfigTopologyProblem {
   detail: string;
 }
 
-function maybeRealpath(path: string): string {
-  if (!existsSync(path)) {
-    return resolve(path);
-  }
-  return realpathSync(path);
-}
-
 export function validateManagedConfigTopology(options?: {
   requireStaging?: boolean;
   requireProduction?: boolean;

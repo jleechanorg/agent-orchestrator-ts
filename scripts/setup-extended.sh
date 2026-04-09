@@ -128,16 +128,19 @@ done
 # Reads project IDs from config and verifies PID before sending signals.
 # Uses word-boundary grep to prevent "api" from matching "api-v2".
 if [ -f "$CONFIG_FILE" ] && [ -d "$HOME/.agent-orchestrator" ]; then
-  PROJECTS="$(python3 -c "
-import yaml, sys, os
-try:
-    with open('$CONFIG_FILE') as f:
-        cfg = yaml.safe_load(f)
-    for pid in cfg.get('projects', {}):
-        print(pid)
-except:
-    pass
-" 2>/dev/null || true)"
+  PROJECTS="$(node - "$CONFIG_FILE" <<'NODEEOF' 2>/dev/null || true
+const fs = require("node:fs");
+const YAML = require("yaml");
+
+try {
+  const path = process.argv[2];
+  const cfg = YAML.parse(fs.readFileSync(path, "utf8")) || {};
+  for (const projectId of Object.keys(cfg.projects || {})) {
+    console.log(projectId);
+  }
+} catch {}
+NODEEOF
+)"
   if [ -n "$PROJECTS" ]; then
     # Compute namespace hash: sha256(realpath(dirname(configPath)))[:12]
     PID_FILE_NS="$(python3 -c "
@@ -152,22 +155,29 @@ except:
     if [ -n "$PID_FILE_NS" ]; then
       for PROJECT in $PROJECTS; do
         # projectId = basename(project.path) — matches TypeScript generateProjectId()
-        PROJ_ID_FOR_PID="$(python3 -c "
-import yaml, os
-try:
-    with open('$CONFIG_FILE') as f:
-        cfg = yaml.safe_load(f)
-    proj_cfg = cfg.get('projects', {}).get('$PROJECT', {})
-    path = proj_cfg.get('path', '')
-    if path:
-        if path.startswith('~'):
-            path = os.path.expanduser(path)
-        elif not os.path.isabs(path):
-            path = os.path.normpath(os.path.join(os.path.dirname('$CONFIG_FILE'), path))
-        print(os.path.basename(path))
-except:
-    pass
-" 2>/dev/null || echo "")"
+        PROJ_ID_FOR_PID="$(node - "$CONFIG_FILE" "$PROJECT" <<'NODEEOF' 2>/dev/null || echo ""
+const fs = require("node:fs");
+const path = require("node:path");
+const os = require("node:os");
+const YAML = require("yaml");
+
+try {
+  const configPath = process.argv[2];
+  const projectId = process.argv[3];
+  const cfg = YAML.parse(fs.readFileSync(configPath, "utf8")) || {};
+  const project = cfg.projects?.[projectId] || {};
+  let projectPath = project.path || "";
+  if (projectPath) {
+    if (projectPath.startsWith("~")) {
+      projectPath = path.join(os.homedir(), projectPath.slice(1));
+    } else if (!path.isAbsolute(projectPath)) {
+      projectPath = path.normalize(path.join(path.dirname(configPath), projectPath));
+    }
+    console.log(path.basename(projectPath));
+  }
+} catch {}
+NODEEOF
+)"
         PROJ_ID_FOR_PID="${PROJ_ID_FOR_PID:-$PROJECT}"
         LW_PID_FILE="$HOME/.agent-orchestrator/${PID_FILE_NS}-${PROJ_ID_FOR_PID}/lifecycle-worker.pid"
         if [ -f "$LW_PID_FILE" ]; then
