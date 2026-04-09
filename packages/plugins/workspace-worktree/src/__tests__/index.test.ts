@@ -1194,3 +1194,38 @@ describe("restore() ambiguous-ref disambiguation", () => {
     expect(branchMCall).toBeUndefined();
   });
 });
+
+describe("create() with stale locked worktree", () => {
+  it("unlocks stale worktree entry before creating new worktree", async () => {
+    const ws = create();
+    const worktreePath = "/mock-home/.worktrees/myproject/wa-999";
+
+    // create() should try to unlock any stale entry before adding
+    mockGitImpl({
+      // fetch succeeds
+      [`git,fetch,origin,--quiet,(cwd=/repo/path)`]: { stdout: "" },
+      // disambiguateBaseRef: branch --list returns empty (no local conflict)
+      [`git,branch,--list,origin/main,(cwd=/repo/path)`]: { stdout: "" },
+      // worktree unlock is called FIRST to clean up stale lock (bd-206 fix)
+      [`git,worktree,unlock,${worktreePath},(cwd=/repo/path)`]: { stdout: "" },
+      // then worktree add succeeds
+      [`git,worktree,add,-b,session/wa-999,${worktreePath},origin/main,(cwd=/repo/path)`]: { stdout: "" },
+      // setupAoManagedExclude: rev-parse --git-common-dir
+      [`git,rev-parse,--path-format=absolute,--git-common-dir,(cwd=${worktreePath})`]: { stdout: "/repo/path/.git" },
+      // setupAoManagedExclude: readFile .git/info/exclude (doesn't exist)
+      [`git,rev-parse,--path-format=absolute,--git-dir,(cwd=${worktreePath})`]: { stdout: "/repo/path/.git" },
+      // git worktree lock
+      [`git,worktree,lock,--reason,AO session active,${worktreePath},(cwd=/repo/path)`]: { stdout: "" },
+    });
+
+    const cfg = makeCreateConfig({ sessionId: "wa-999", branch: "session/wa-999" });
+    const info = await ws.create(cfg);
+
+    // Verify unlock was attempted BEFORE worktree add
+    const unlockCalls = mockExecFileAsync.mock.calls.filter(
+      (call) => Array.isArray(call[1]) && call[1][0] === "worktree" && call[1][1] === "unlock",
+    );
+    expect(unlockCalls.length).toBeGreaterThan(0);
+    expect(info.path).toBe(worktreePath);
+  });
+});
