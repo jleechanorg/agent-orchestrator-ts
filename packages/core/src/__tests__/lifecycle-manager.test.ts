@@ -3900,15 +3900,23 @@ describe("session exit proof reconciliation (bd-uxs.6)", () => {
     vi.mocked(mockRuntime.isAlive).mockResolvedValue(false);
     vi.mocked(mockAgent.getActivityState).mockResolvedValue({ state: "exited" });
 
-    const recordedAt = new Date().toISOString();
     vi.mocked(mockSessionManager.get)
       .mockImplementationOnce(async () => makeSession({ status: "working", pr: null }))
-      .mockImplementationOnce(async () =>
-        makeSession({
-          status: "working",
-          pr: null,
-          metadata: { terminalExitProofRecordedAt: recordedAt },
-        }));
+      .mockImplementationOnce(async () => {
+        // Fresh read: pick up whatever was actually persisted to disk by the
+        // first check() call. This mirrors real behavior where sessionManager.get()
+        // loads from disk, preventing false positives when persistence is broken.
+        const meta = readMetadataRaw(sessionsDir, "app-1") ?? {};
+        return {
+          ...makeSession({ status: "working", pr: null }),
+          metadata: {
+            ...meta,
+            worktree: (meta["worktree"] as string | undefined) ?? "/tmp",
+            branch: (meta["branch"] as string | undefined) ?? "main",
+            project: (meta["project"] as string | undefined) ?? "my-app",
+          },
+        };
+      });
 
     writeMetadata(sessionsDir, "app-1", {
       worktree: "/tmp",

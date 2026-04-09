@@ -1476,7 +1476,6 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     const exitProofRecordedAt = session.metadata[TERMINAL_EXIT_PROOF_RECORDED_AT_KEY];
     if (exitProofRecordedAt === undefined) {
       const recordedAt = new Date().toISOString();
-      session.metadata[TERMINAL_EXIT_PROOF_RECORDED_AT_KEY] = recordedAt;
 
       // MCP mail: send session-end to global inbox before exit proof
       if (getMcpMailClientConfig()) {
@@ -1491,6 +1490,10 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         notifyHuman,
         createEvent,
       });
+
+      // Arm dedupe AFTER validateAndEmitExitProof succeeds — if emission threw,
+      // a later retry must re-emit rather than silently skipping the proof.
+      session.metadata[TERMINAL_EXIT_PROOF_RECORDED_AT_KEY] = recordedAt;
 
       // Record outcome for strategy learning (bd-nig)
       // Guarded: disk errors must not break session lifecycle checks
@@ -1541,8 +1544,10 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     if (!isOrchestratorSession(session)) {
       try {
         if (exitStatus === "merged") {
-          // Reap co-workers before archiving the merged session. If the reap fails,
-          // leave the session record in place so a later poll can retry the merge cleanup.
+          // Reap co-workers BEFORE archiving the merged session. If the reap fails,
+          // the session record stays in place so a later poll can retry.
+          // Calling this after kill() would make reap failures unretryable since
+          // the session is already archived out of list() by then.
           await reapPostMergeCoWorkers(session, sessionManager, observer, {
             config,
             registry,
@@ -1563,17 +1568,9 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
           repo: session.pr ? `${session.pr.owner}/${session.pr.repo}` : undefined,
           reason: `terminal:${exitStatus}`,
         });
-
-        // On PR merge, immediately reap co-workers that have no PR and have
-        // been idle for 5+ minutes — they finished their work and are waiting
-        // for direction that will never come.
-        // Fork companion (fork-lifecycle-postmerge.ts): project-scoped + idle-gated
-        // so a merge in one project does not reap sessions from other projects,
-        // and active sessions that are simply old are not killed prematurely.
-        // Non-fatal: reap failures are warning-only so they never block session cleanup.
       } catch (killErr) {
-        // kill() may fail if session is already partially cleaned up; reapPostMergeCoWorkers
-        // may fail if the reaper is unreachable. Both are non-fatal — log and continue.
+        // kill() may fail if session is already partially cleaned up. Non-fatal —
+        // log and continue; session will retry on next poll if still present.
         observer.recordOperation({
           metric: "lifecycle_poll",
           operation: "lifecycle.terminal_cleanup",
@@ -2506,10 +2503,17 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         everHadSessions = true;
       }
 
-      // Do not pre-filter the active session snapshot here. Terminal cleanup retries
-      // are handled inside `checkSession()`, and paused-project filtering happens per
-      // session just below so it can react to mid-cycle pause clears.
-      const sessionsToCheck = sessions;
+      // Filter sessions to check:
+      // - Non-terminal sessions: always poll (status checks, reactions, SHA changes)
+      // - Terminal sessions: poll only if exit proof has not yet been recorded.
+      //   Once exit proof is recorded, the session is awaiting kill() and should not
+      //   generate further runtime/SCM probes. loadSessionsForPoll() already excludes
+      //   "killed" and "merged" sessions, so the terminal path here handles the
+      //   other statuses (errored/done/terminated/cleanup) that may need retry.
+      const sessionsToCheck = sessions.filter((s) => {
+        if (!TERMINAL_STATUSES.has(s.status)) return true;
+        return s.metadata[TERMINAL_EXIT_PROOF_RECORDED_AT_KEY] === undefined;
+      });
 
       // bd-wse: Poll sessions sequentially instead of concurrently.
       // Concurrent polling (Promise.allSettled) fires N×4 GitHub API calls in parallel,
