@@ -856,6 +856,8 @@ describe("scm-github plugin", () => {
     it("throws when workspace has uncommitted changes", async () => {
       ghMock.mockResolvedValueOnce({ stdout: "main\n" }); // git branch --show-current
       ghMock.mockResolvedValueOnce({ stdout: "M  src/foo.ts\n" }); // git status --porcelain (dirty)
+      // Reset loop: src/foo.ts is not AO-managed — not reset
+      ghMock.mockResolvedValueOnce({ stdout: "M  src/foo.ts\n" }); // git status --porcelain (remaining dirty)
       // No checkout attempt
 
       await expect(scm.checkoutPR?.(pr, "/tmp/repo")).rejects.toThrow(
