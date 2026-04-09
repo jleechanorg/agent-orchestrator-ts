@@ -856,11 +856,48 @@ describe("scm-github plugin", () => {
     it("throws when workspace has uncommitted changes", async () => {
       ghMock.mockResolvedValueOnce({ stdout: "main\n" }); // git branch --show-current
       ghMock.mockResolvedValueOnce({ stdout: "M  src/foo.ts\n" }); // git status --porcelain (dirty)
+      // Reset loop: src/foo.ts is not AO-managed — not reset
+      ghMock.mockResolvedValueOnce({ stdout: "M  src/foo.ts\n" }); // git status --porcelain (remaining dirty)
       // No checkout attempt
 
       await expect(scm.checkoutPR?.(pr, "/tmp/repo")).rejects.toThrow(
         "Workspace has uncommitted changes",
       );
+    });
+
+    it("resets AO-managed file and succeeds when only AO-managed file is dirty", async () => {
+      ghMock.mockResolvedValueOnce({ stdout: "main\n" }); // git branch --show-current
+      ghMock.mockResolvedValueOnce({ stdout: " M .claude/settings.json\n" }); // git status --porcelain (dirty, AO-managed)
+      ghMock.mockResolvedValueOnce({ stdout: "" }); // git reset HEAD -- .claude/settings.json (unstage)
+      ghMock.mockResolvedValueOnce({ stdout: "" }); // git checkout -- .claude/settings.json (restore wt)
+      ghMock.mockResolvedValueOnce({ stdout: "" }); // git status --porcelain (clean after reset)
+      ghMock.mockResolvedValueOnce({ stdout: "https://github.com/acme/repo.git\n" }); // git remote get-url origin
+      ghMock.mockResolvedValueOnce({ stdout: "" }); // git fetch refs/pull/42/head:feat/my-feature
+      ghMock.mockResolvedValueOnce({ stdout: "main\n" }); // git branch --show-current (after fetch)
+      ghMock.mockResolvedValueOnce({ stdout: "" }); // git checkout feat/my-feature
+      ghMock.mockResolvedValueOnce({ stdout: "feat/my-feature\n" }); // git branch --show-current (verify)
+
+      const changed = await scm.checkoutPR?.(pr, "/tmp/repo");
+      expect(changed).toBe(true);
+    });
+
+    it("resets staged AO-managed file via git reset HEAD", async () => {
+      // Simulates "M  .claude/settings.json" — staged change, clean working tree.
+      // The reset loop must unstage it via git reset HEAD, then restore working tree
+      // via git checkout (since wt=' ' means working tree was clean relative to staged state).
+      ghMock.mockResolvedValueOnce({ stdout: "main\n" }); // git branch --show-current
+      ghMock.mockResolvedValueOnce({ stdout: "M  .claude/settings.json\n" }); // git status --porcelain (staged, clean wt)
+      ghMock.mockResolvedValueOnce({ stdout: "" }); // git reset HEAD -- .claude/settings.json (unstage)
+      ghMock.mockResolvedValueOnce({ stdout: "" }); // git checkout -- .claude/settings.json (restore wt to HEAD)
+      ghMock.mockResolvedValueOnce({ stdout: "" }); // git status --porcelain (clean after reset)
+      ghMock.mockResolvedValueOnce({ stdout: "https://github.com/acme/repo.git\n" }); // git remote get-url origin
+      ghMock.mockResolvedValueOnce({ stdout: "" }); // git fetch refs/pull/42/head:feat/my-feature
+      ghMock.mockResolvedValueOnce({ stdout: "main\n" }); // git branch --show-current (after fetch)
+      ghMock.mockResolvedValueOnce({ stdout: "" }); // git checkout feat/my-feature
+      ghMock.mockResolvedValueOnce({ stdout: "feat/my-feature\n" }); // git branch --show-current (verify)
+
+      const changed = await scm.checkoutPR?.(pr, "/tmp/repo");
+      expect(changed).toBe(true);
     });
   });
 
