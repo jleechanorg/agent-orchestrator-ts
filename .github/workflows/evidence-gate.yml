@@ -155,8 +155,8 @@ jobs:
             exit 0
           fi
 
-          if ! printf '%s\n' "$DIFF_NAMES" | grep -qiE '\.(ts|js|py|go|sh|json)$'; then
-            echo "Claim floor PASS: no .ts/.js/.py/.go/.sh/.json changes in diff"
+          if ! printf '%s\n' "$DIFF_NAMES" | grep -qiE '\.(ts|js|jsx|tsx|py|go|sh|json|cjs|mjs)$'; then
+            echo "Claim floor PASS: no code file changes in diff"
             exit 0
           fi
 
@@ -446,10 +446,12 @@ jobs:
                 HAS_UI_MEDIA=true
               fi
             else
+              # bd-vidcap CR fix: require caption text for non-frontend UI media too,
+              # for consistency with wholesome.yml and Evidence Bundle v2 docs.
               if printf '%s' "$UI_BLOCK" | grep -qiE 'https://[^[:space:]]+\.(png|jpg|jpeg|gif|webp|mp4|webm|mov)'; then
-                HAS_UI_MEDIA=true
+                if printf '%s' "$UI_BLOCK" | grep -qiE 'caption'; then HAS_UI_MEDIA=true; else HAS_UI_MEDIA=false; fi
               elif printf '%s' "$UI_BLOCK" | grep -qiE '!\[[^]]*\]\(https://[^)]+\.(png|jpg|jpeg|gif|webp|mp4|webm|mov)\)'; then
-                HAS_UI_MEDIA=true
+                if printf '%s' "$UI_BLOCK" | grep -qiE 'caption'; then HAS_UI_MEDIA=true; else HAS_UI_MEDIA=false; fi
               fi
             fi
 

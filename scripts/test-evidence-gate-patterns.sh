@@ -22,7 +22,15 @@ tm_first_url_known() {
 }
 
 has_tmux_caption() {
-  printf '%s' "$1" | grep -qiE 'tmux|terminal'
+  # Skip the first line (header) and check for tmux/terminal in the actual caption after the URL.
+  # This avoids false positives where **Terminal media**: itself contains "terminal".
+  local lines
+  read -d '' -r -a lines <<< "$(printf '%s\n' "$1")"
+  local remaining=""
+  for ((i=1; i<${#lines[@]}; i++)); do
+    remaining+="${lines[i]}"$'\n'
+  done
+  printf '%s' "$remaining" | grep -qiE 'tmux|terminal'
 }
 
 # --- mp4
