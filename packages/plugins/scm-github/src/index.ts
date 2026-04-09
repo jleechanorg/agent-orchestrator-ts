@@ -2146,7 +2146,7 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
 
       // Parse review decision — fail-closed: default to "pending" on unexpected values
       // (matches getReviewDecision behavior where non-rate-limit errors return "pending")
-      let reviewDecision: ReviewDecision = normalizeReviewDecision(data.reviewDecision);
+      const reviewDecision: ReviewDecision = normalizeReviewDecision(data.reviewDecision);
 
       return { state, reviewDecision };
     },
@@ -2652,7 +2652,7 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
       // Fail-closed: null/undefined reviewDecision → "pending" (not "none"), matching
       // normalizeMergePayloadFromRestShape behavior. "none" means reviews were explicitly
       // not required; null means we don't know → conservative.
-      let reviewDecision: ReviewDecision = normalizeReviewDecision(data.reviewDecision);
+      const reviewDecision: ReviewDecision = normalizeReviewDecision(data.reviewDecision);
 
       // --- CI Status (from statusCheckRollup) ---
       const rollup = Array.isArray(data.statusCheckRollup) ? data.statusCheckRollup : [];
@@ -2699,7 +2699,7 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
       // Reviews
       const approved = reviewDecision === "approved";
       if (reviewDecision === "changes_requested") blockers.push("Changes requested in review");
-      else if (reviewDecision === "pending") blockers.push("Review required");
+      else if (reviewDecision === "pending" || reviewDecision === "none") blockers.push("Review required");
 
       // Conflicts / merge state
       let noConflicts: boolean;
