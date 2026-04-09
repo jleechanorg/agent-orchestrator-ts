@@ -832,6 +832,9 @@ function createClaudeCodeAgent(): Agent {
       if (permissionMode === "permissionless" || permissionMode === "auto-edit") {
         parts.push("--dangerously-skip-permissions");
       }
+      // Use strict MCP config to avoid loading built-in MCPs (saves ~16k context tokens)
+      const mcpConfigPath = shellEscape(join(homedir(), ".claude", "mcp-strict.json"));
+      parts.push("--strict-mcp-config", mcpConfigPath);
 
       if (config.model) {
         parts.push("--model", shellEscape(config.model));
@@ -992,6 +995,9 @@ function createClaudeCodeAgent(): Agent {
       if (permissionMode === "permissionless" || permissionMode === "auto-edit") {
         parts.push("--dangerously-skip-permissions");
       }
+      // Use strict MCP config to avoid loading built-in MCPs (saves ~16k context tokens)
+      const mcpConfigPath = shellEscape(join(homedir(), ".claude", "mcp-strict.json"));
+      parts.push("--strict-mcp-config", mcpConfigPath);
 
       if (project.agentConfig?.model) {
         parts.push("--model", shellEscape(project.agentConfig.model as string));

@@ -303,6 +303,19 @@ export function create(config?: Record<string, unknown>): Workspace {
       // the remote-tracking ref, causing "ambiguous object name" error.
       await disambiguateBaseRef(repoPath, baseRef);
 
+      // bd-206: Clean up any stale locked worktree entry at this path before creating.
+      // This handles the case where the directory was deleted but git still holds
+      // a lock entry ("missing but locked worktree" error).
+      // Only attempt unlock when the path is missing — if it exists, the worktree
+      // is already functional and unlock would be unnecessary.
+      if (!existsSync(worktreePath)) {
+        try {
+          await git(repoPath, "worktree", "unlock", worktreePath);
+        } catch {
+          // Best-effort — entry may not exist or already be unlocked
+        }
+      }
+
       // Create worktree with a new branch
       try {
         await git(repoPath, "worktree", "add", "-b", cfg.branch, worktreePath, baseRef);

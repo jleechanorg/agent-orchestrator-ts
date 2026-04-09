@@ -128,8 +128,10 @@ beforeEach(() => {
     isFile: () => String(p).endsWith(".git") || String(p).endsWith(".git/info"),
     isDirectory: () => false,
   }));
-  // Needed so setupAoManagedExclude sees existsSync(".git/info") = true and skips mkdirSync
-  mockExistsSync.mockImplementation((p: string) => String(p).endsWith(".git/info"));
+  // Default: paths exist (return true). Tests that need the missing-path unlock path
+  // (bd-206 "stale locked worktree" scenario) should override this via
+  // mockExistsSync.mockReturnValueOnce(false) or mockImplementation.
+  mockExistsSync.mockReturnValue(true);
 });
 
 // ===========================================================================
@@ -290,14 +292,24 @@ describe("workspace.create()", () => {
 
   it("recovers checkout by removing stale checked-out worktree with no active tmux session", async () => {
     const ws = create();
+    const worktreePath = "/mock-home/.worktrees/myproject/wa-999";
+
+    // Mock existsSync to return false for the worktree path, triggering unlock (bd-206).
+    // The unlock call needs to be in the mock queue.
+    mockExistsSync.mockImplementation((p: string) => {
+      if (String(p).endsWith(".git/info")) return true;
+      if (String(p) === worktreePath) return false; // trigger unlock path
+      return true; // default: path exists
+    });
 
     // create() makes many git calls — provide enough mocks for all of them.
     // Mock values after the first 5 determine the stale-worktree-removal path.
     mockGitSuccess(""); // fetch
+    mockGitSuccess(""); // git worktree unlock (bd-206, path is missing)
     mockGitSuccess(""); // git branch --list origin/main — no local conflict
     mockGitError("already exists"); // worktree add -b fails
     mockGitSuccess(""); // worktree add (without -b)
-    mockGitError("fatal: 'feat/TEST-1' is already checked out at '/mock-home/.worktrees/myproject/ao-999'"); // checkout fails first time
+    mockGitError("already exists, already checked out at '/mock-home/.worktrees/myproject/ao-999'"); // checkout fails first time
     mockGitSuccess(""); // branch --show-current from stale worktree dir (caught)
     mockGitSuccess(""); // rev-parse from stale worktree dir (caught)
     mockGitSuccess(""); // git worktree list --porcelain from homedir (caught, returns empty)
@@ -308,7 +320,7 @@ describe("workspace.create()", () => {
     mockGitSuccess(""); // git worktree lock (success)
     mockGitSuccess(""); // checkout retry succeeds
 
-    const info = await ws.create(makeCreateConfig());
+    const info = await ws.create(makeCreateConfig({ sessionId: "wa-999" }));
 
     expect(info.branch).toBe("feat/TEST-1");
     // Verify stale worktree removal was attempted (from the walk-up in maybeRemoveStaleCheckedOutWorktree)
@@ -321,6 +333,9 @@ describe("workspace.create()", () => {
 
   it("still throws on checkout failure even if cleanup fails", async () => {
     const ws = create();
+
+    // Ensure existsSync returns true so unlock path is skipped
+    mockExistsSync.mockReturnValue(true);
 
     mockGitSuccess(""); // fetch
     mockGitSuccess(""); // git branch --list origin/main — no local conflict
@@ -1192,5 +1207,48 @@ describe("restore() ambiguous-ref disambiguation", () => {
         call[1][1] === "-m",
     );
     expect(branchMCall).toBeUndefined();
+  });
+});
+
+describe("create() with stale locked worktree", () => {
+  it("unlocks stale worktree entry before creating new worktree", async () => {
+    const ws = create();
+    const worktreePath = "/mock-home/.worktrees/myproject/wa-999";
+
+    // Path is missing (simulating stale lock scenario per bd-206)
+    mockExistsSync.mockImplementation((p: string) => String(p).endsWith(".git/info"));
+
+    // create() should try to unlock any stale entry before adding
+    mockGitImpl({
+      // fetch succeeds
+      [`git,fetch,origin,--quiet,(cwd=/repo/path)`]: { stdout: "" },
+      // disambiguateBaseRef: branch --list returns empty (no local conflict)
+      [`git,branch,--list,origin/main,(cwd=/repo/path)`]: { stdout: "" },
+      // worktree unlock is called FIRST to clean up stale lock (bd-206 fix)
+      [`git,worktree,unlock,${worktreePath},(cwd=/repo/path)`]: { stdout: "" },
+      // then worktree add succeeds
+      [`git,worktree,add,-b,session/wa-999,${worktreePath},origin/main,(cwd=/repo/path)`]: { stdout: "" },
+      // setupAoManagedExclude: rev-parse --git-common-dir
+      [`git,rev-parse,--path-format=absolute,--git-common-dir,(cwd=${worktreePath})`]: { stdout: "/repo/path/.git" },
+      // setupAoManagedExclude: readFile .git/info/exclude (doesn't exist)
+      [`git,rev-parse,--path-format=absolute,--git-dir,(cwd=${worktreePath})`]: { stdout: "/repo/path/.git" },
+      // git worktree lock
+      [`git,worktree,lock,--reason,AO session active,${worktreePath},(cwd=/repo/path)`]: { stdout: "" },
+    });
+
+    const cfg = makeCreateConfig({ sessionId: "wa-999", branch: "session/wa-999" });
+    const info = await ws.create(cfg);
+
+    // Verify unlock was attempted BEFORE worktree add
+    const allCalls = mockExecFileAsync.mock.calls;
+    const unlockIndex = allCalls.findIndex(
+      (call) => Array.isArray(call[1]) && call[1][0] === "worktree" && call[1][1] === "unlock",
+    );
+    const addIndex = allCalls.findIndex(
+      (call) => Array.isArray(call[1]) && call[1][0] === "worktree" && call[1][1] === "add",
+    );
+    expect(unlockIndex).toBeGreaterThan(-1);
+    expect(unlockIndex).toBeLessThan(addIndex);
+    expect(info.path).toBe(worktreePath);
   });
 });
