@@ -1394,7 +1394,7 @@ export interface ProjectConfig {
    *
    * **Default: enabled** (opt-out). Set to `false` explicitly to disable
    * for projects that manage dispatch by hand. Any value other than
-   * `false` — including `undefined`, `null`, or `true` — is treated as
+   * `false` — including `undefined` or `true` — is treated as
    * enabled. Projects with open PRs and `backfillAllPRs === false` will
    * emit a warn-level `lifecycle.backfill.disabled_with_open_prs`
    * observation so operators can spot the misconfiguration.

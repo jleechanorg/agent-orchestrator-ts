@@ -430,7 +430,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
   // regardless of the session lifecycle poll interval
   let inboxPollTimer: ReturnType<typeof setInterval> | null = null;
   const INBOX_POLL_INTERVAL_MS = 5 * 60_000; // every 5 minutes
-
+  const BACKFILL_WARN_INTERVAL_MS = 10 * 60_000; // warn about disabled backfill every 10 minutes
   // Productivity check state — separate 15-min interval for PR-level checks
   let productivityTimer: ReturnType<typeof setInterval> | null = null;
   let productivityRunning = false; // re-entrancy guard
@@ -525,6 +525,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
   // bd-qqm: track the last skeptic comment ID per session to detect new FAIL verdicts.
   // Initialized lazily (undefined = never fetched), compared against fetched comment IDs each poll.
   const lastSkepticCommentId = new Map<string, number>(); // sessionId → last known comment ID
+  const lastBackfillWarnTimeByProject = new Map<string, number>(); // projectId → last warn timestamp
   let pollTimer: ReturnType<typeof setInterval> | null = null;
   let polling = false; // re-entrancy guard
   let inboxPolling = false; // re-entrancy guard for concurrent inbox polls
@@ -2564,6 +2565,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
   async function pollAll(): Promise<void> {
     const correlationId = createCorrelationId("lifecycle-poll");
     const startedAt = Date.now();
+    const nowMs = startedAt;
     // Re-entrancy guard: skip if previous poll is still running
     if (polling) return;
     polling = true;
@@ -2730,24 +2732,31 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
           }
         } else if (project && project.backfillAllPRs === false) {
           // Explicit opt-out — surface open-PR leakage risk for operator visibility.
-          const scmPlugin = project.scm ? registry.get<SCM>("scm", project.scm.plugin) : null;
-          const listOpenPRs = scmPlugin?.listOpenPRs?.bind(scmPlugin);
-          if (listOpenPRs) {
-            try {
-              const openPRs = await listOpenPRs(project);
-              const nonDraftOpen = openPRs.filter((pr) => !pr.isDraft).length;
-              if (nonDraftOpen > 0) {
-                observer.recordOperation({
-                  metric: "lifecycle_poll",
-                  operation: "lifecycle.backfill.disabled_with_open_prs",
-                  outcome: "failure",
-                  correlationId,
-                  projectId: scopedProjectId,
-                  data: { nonDraftOpenPRs: nonDraftOpen },
-                  level: "warn",
-                });
+          // Throttled to reduce SCM API load and alert noise.
+          const lastWarn = lastBackfillWarnTimeByProject.get(scopedProjectId) ?? 0;
+          if (nowMs - lastWarn >= BACKFILL_WARN_INTERVAL_MS) {
+            const scmPlugin = project.scm ? registry.get<SCM>("scm", project.scm.plugin) : null;
+            const listOpenPRs = scmPlugin?.listOpenPRs?.bind(scmPlugin);
+            if (listOpenPRs) {
+              try {
+                const openPRs = await listOpenPRs(project);
+                const nonDraftOpen = openPRs.filter((pr) => !pr.isDraft).length;
+                if (nonDraftOpen > 0) {
+                  observer.recordOperation({
+                    metric: "lifecycle_poll",
+                    operation: "lifecycle.backfill.disabled_with_open_prs",
+                    outcome: "failure",
+                    correlationId,
+                    projectId: scopedProjectId,
+                    data: { nonDraftOpenPRs: nonDraftOpen },
+                    level: "warn",
+                  });
+                }
+                lastBackfillWarnTimeByProject.set(scopedProjectId, nowMs);
+              } catch {
+                /* fail-open: skip warning on list error */
               }
-            } catch { /* fail-open: skip warning on list error */ }
+            }
           }
         }
       }
@@ -2790,7 +2799,6 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       // {12-hex-hash}-{prefix}-{num} (where prefix ∈ project session prefixes)
       // that exist in tmux but have no AO DB record and are idle >orphanIdleThresholdMs
       // are killed. This unblocks the spawn gate (>20 sessions threshold).
-      const nowMs = Date.now();
       if (nowMs - lastSweepTime >= SWEEP_INTERVAL_MS) {
         lastSweepTime = nowMs;
         try {
