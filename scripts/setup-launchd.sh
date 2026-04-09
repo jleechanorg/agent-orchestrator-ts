@@ -58,7 +58,12 @@ install_lifecycle_plist() {
   local plist_path="$LAUNCH_AGENTS_DIR/ai.agento.lifecycle-all.plist"
   local script="$REPO_ROOT/scripts/start-all.sh"
   local log_file="$BASE_LOG_DIR/ao-lifecycle.log"
+  local config_path="${AO_CONFIG_PATH:-$HOME/.openclaw_prod/agent-orchestrator.yaml}"
   local label="ai.agento.lifecycle-all"
+
+  if [ ! -f "$config_path" ] && [ -f "$HOME/.openclaw/agent-orchestrator.yaml" ]; then
+    config_path="$HOME/.openclaw/agent-orchestrator.yaml"
+  fi
 
   if [ ! -f "$template" ]; then
     echo "ERROR: Missing template at $template"
@@ -91,6 +96,7 @@ install_lifecycle_plist() {
     -e "s|@REPO_ROOT@|$(escape_sed "$REPO_ROOT")|g" \
     -e "s|@START_ALL_SCRIPT@|$(escape_sed "$script")|g" \
     -e "s|@LOG_FILE@|$(escape_sed "$log_file")|g" \
+    -e "s|@AO_CONFIG_PATH@|$(escape_sed "$config_path")|g" \
     -e "s|@PATH@|$path_value|g" \
     "$template" > "$tmp_plist"
 
@@ -171,7 +177,18 @@ install_watchdog_plist() {
   local plist_path="$LAUNCH_AGENTS_DIR/ai.agento.lw-watchdog.plist"
   local script="$REPO_ROOT/scripts/lw-watchdog.sh"
   local log_file="$BASE_LOG_DIR/lw-watchdog.log"
+  local config_path
   local label="ai.agento.lw-watchdog"
+
+  if [ -n "${AO_CONFIG_PATH:-}" ]; then
+    config_path="$AO_CONFIG_PATH"
+  elif [ -f "$HOME/.openclaw_prod/agent-orchestrator.yaml" ]; then
+    config_path="$HOME/.openclaw_prod/agent-orchestrator.yaml"
+  elif [ -f "$HOME/.openclaw/agent-orchestrator.yaml" ]; then
+    config_path="$HOME/.openclaw/agent-orchestrator.yaml"
+  else
+    config_path="$HOME/.openclaw_prod/agent-orchestrator.yaml"
+  fi
 
   if [ ! -f "$template" ]; then
     echo "WARN: Missing watchdog template at $template — skipping"
@@ -197,6 +214,7 @@ install_watchdog_plist() {
     -e "s|@REPO_ROOT@|$(escape_sed "$REPO_ROOT")|g" \
     -e "s|@WATCHDOG_SCRIPT@|$(escape_sed "$script")|g" \
     -e "s|@LOG_FILE@|$(escape_sed "$log_file")|g" \
+    -e "s|@AO_CONFIG_PATH@|$(escape_sed "$config_path")|g" \
     -e "s|@PATH@|$path_value|g" \
     "$template" > "$tmp_plist"
 
@@ -219,6 +237,7 @@ case "$action_script" in
     ;;
   lifecycle)
     install_lifecycle_plist
+    install_watchdog_plist
     ;;
   novel)
     install_novel_plist

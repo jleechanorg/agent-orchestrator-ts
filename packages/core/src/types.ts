@@ -1387,9 +1387,17 @@ export interface ProjectConfig {
   autoMerge?: AutoMergeConfig;
 
   /**
-   * When true, the lifecycle-worker periodically lists open PRs and spawns
-   * sessions for any PR that has no active session.  This closes the gap
-   * where workers die and nobody restarts them.
+   * Controls whether the lifecycle-worker periodically lists open PRs and
+   * spawns sessions for any PR that has no active session. This closes the
+   * gap where workers die (or finish early) and nobody restarts them, so
+   * CI-green PRs blocked on CHANGES_REQUESTED do not leak from the queue.
+   *
+   * **Default: enabled** (opt-out). Set to `false` explicitly to disable
+   * for projects that manage dispatch by hand. Any value other than
+   * `false` — including `undefined`, `null`, or `true` — is treated as
+   * enabled. Projects with open PRs and `backfillAllPRs === false` will
+   * emit a warn-level `lifecycle.backfill.disabled_with_open_prs`
+   * observation so operators can spot the misconfiguration.
    */
   backfillAllPRs?: boolean;
 
@@ -1742,7 +1750,7 @@ export interface OpenCodeSessionManager extends SessionManager {
 export interface ClaimPROptions {
   assignOnGithub?: boolean;
   takeover?: boolean;
-  /** When true, send an initial task message to the agent after claiming the PR. */
+  /** When omitted, defaults to true and sends an initial task message after claiming the PR. */
   sendInitialMessage?: boolean;
 }
 

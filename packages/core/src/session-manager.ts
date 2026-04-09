@@ -74,6 +74,7 @@ import {
   parsePauseUntil,
 } from "./global-pause.js";
 import { sessionFromMetadata } from "./utils/session-from-metadata.js";
+import { parsePrFromUrl } from "./utils/pr.js";
 import { safeJsonParse } from "./utils/validation.js";
 import { resolveAgentSelection, resolveSessionRole } from "./agent-selection.js";
 import { applySlashCommandRouting } from "./fork-slash-command-routing.js";
@@ -2177,7 +2178,11 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
     return result;
   }
 
-  async function send(sessionId: SessionId, message: string): Promise<void> {
+  async function send(
+    sessionId: SessionId,
+    message: string,
+    options?: { skipRestore?: boolean; skipRestorePrKickoff?: boolean },
+  ): Promise<void> {
     const { raw, sessionsDir, project } = requireSessionRecord(sessionId);
     const pause = getProjectPause(project);
     const orchestratorId = `${project.sessionPrefix}-orchestrator`;
@@ -2341,7 +2346,9 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       }
 
       try {
-        const restored = await restore(sessionId);
+        const restored = await restore(sessionId, {
+          skipPrKickoff: options?.skipRestorePrKickoff,
+        });
         await waitForRestoredSession(restored);
         return restored;
       } catch (err) {
@@ -2368,6 +2375,9 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       const normalized = current.runtimeHandle ? current : { ...current, runtimeHandle: handle };
 
       if (forceRestore || isRestorable(normalized)) {
+        if (options?.skipRestore) {
+          return normalized;
+        }
         return restoreForDelivery(
           forceRestore
             ? "session needed to be restarted before delivery"
@@ -2390,6 +2400,9 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       }
 
       if (!runtimeAlive || !processRunning) {
+        if (options?.skipRestore) {
+          return normalized;
+        }
         return restoreForDelivery(
           !runtimeAlive ? "runtime is not alive" : "agent process is not running",
           normalized,
@@ -2456,7 +2469,9 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       await sendWithConfirmation(prepared);
     } catch (err) {
       const shouldRetryWithRestore =
-        prepared.restoredAt === undefined && !NON_RESTORABLE_STATUSES.has(prepared.status);
+        !options?.skipRestore &&
+        prepared.restoredAt === undefined &&
+        !NON_RESTORABLE_STATUSES.has(prepared.status);
 
       if (!shouldRetryWithRestore) {
         if (err instanceof Error) {
@@ -2559,20 +2574,23 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       }
     }
 
-    if (options?.sendInitialMessage) {
-      try {
-        await send(sessionId, buildInitialPRTaskMessage(pr));
-      } catch {
-        // Non-fatal: session may not be ready yet; lifecycle reactions will re-send context
-      }
-    }
-
     updateMetadata(sessionsDir, sessionId, {
       pr: pr.url,
       status: "pr_open",
       branch: pr.branch,
       prAutoDetect: "",
     });
+
+    const shouldSendInitialMessage = options?.sendInitialMessage ?? true;
+    if (shouldSendInitialMessage) {
+      try {
+        await send(sessionId, buildInitialPRTaskMessage(pr), {
+          skipRestorePrKickoff: true,
+        });
+      } catch {
+        // Non-fatal: session may not be ready yet; lifecycle reactions will re-send context
+      }
+    }
 
     return {
       sessionId,
@@ -2610,7 +2628,10 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
     return discovered;
   }
 
-  async function restore(sessionId: SessionId): Promise<Session> {
+  async function restore(
+    sessionId: SessionId,
+    options?: { skipPrKickoff?: boolean },
+  ): Promise<Session> {
     // 1. Find session metadata across all projects (active first, then archive)
     let raw: Record<string, string> | null = null;
     let sessionsDir: string | null = null;
@@ -2838,6 +2859,27 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
         }
       } catch {
         // Non-fatal — session is already running
+      }
+    }
+
+    if (
+      !options?.skipPrKickoff &&
+      raw["pr"] &&
+      plugins.scm?.resolvePR &&
+      plugins.scm?.getPRState &&
+      restoredSession.runtimeHandle &&
+      !isOrchestratorSessionRecord(sessionId, raw)
+    ) {
+      try {
+        const parsedPr = parsePrFromUrl(raw["pr"]);
+        const prRef = parsedPr ? String(parsedPr.number) : raw["pr"];
+        const pr = await plugins.scm.resolvePR(prRef, project);
+        const prState = await plugins.scm.getPRState(pr);
+        if (prState === PR_STATE.OPEN) {
+          await send(sessionId, buildInitialPRTaskMessage(pr), { skipRestore: true });
+        }
+      } catch {
+        // Non-fatal — restored session is usable even if kickoff re-delivery fails
       }
     }
 

@@ -145,16 +145,30 @@ export interface SlackNotifierConfig extends Record<string, unknown> {
   dedupTtlMs?: number;
 }
 
+function isUnresolvedWebhookTemplate(webhookUrl: string): boolean {
+  const normalized = webhookUrl.trim();
+  if (/\$\{[^}]+\}/.test(normalized)) return true;
+  return normalized.includes("hooks.slack.com/services/PLACEHOLDER");
+}
+
 export function create(config: SlackNotifierConfig = {}): Notifier {
-  const webhookUrl = config.webhookUrl;
+  const configuredWebhookUrl = config.webhookUrl;
   const defaultChannel = config.channel;
   const username = config.username ?? "Agent Orchestrator";
   const dedupTtlMs = config.dedupTtlMs ?? 60_000;
+  let webhookUrl: string | undefined;
 
-  if (!webhookUrl) {
+  if (!configuredWebhookUrl) {
     console.warn("[notifier-slack] No webhookUrl configured — notifications will be no-ops");
+  } else if (typeof configuredWebhookUrl !== "string") {
+    throw new Error("[notifier-slack] webhookUrl must be a string");
+  } else if (isUnresolvedWebhookTemplate(configuredWebhookUrl)) {
+    console.warn(
+      "[notifier-slack] Ignoring unresolved webhookUrl placeholder — webhookUrl contains unresolved template/placeholder — notifications will be no-ops",
+    );
   } else {
-    validateUrl(webhookUrl, "notifier-slack");
+    validateUrl(configuredWebhookUrl, "notifier-slack");
+    webhookUrl = configuredWebhookUrl;
   }
 
   /** Deduplication map — per notifier instance, survives process restarts via launchd. */
