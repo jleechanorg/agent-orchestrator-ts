@@ -37,7 +37,7 @@ Claude Code's auto-compaction threshold (~150K tokens) does not scale with the 1
 | bd-cx02 | P2 | Trim MCP servers (~27K savings) | open |
 | bd-cx03 | P2 | File upstream bug with telemetry | open |
 | bd-cx04 | P2 | Version eval: v2.1.91 vs v2.1.77 | open |
-| bd-cx05 | P1 | Upgrade path after PreCompact hook benchmark (e.g. v2.1.92) | open |
+| bd-cx05 | P1 | Upgrade path after PreCompact hook benchmark (e.g. v2.1.92) | closed |
 | bd-tl9t | P3 | Compaction telemetry (3.9x increase) | open |
 
 ## Telemetry (bd-tl9t)
@@ -104,7 +104,7 @@ See **bd-cx02** (MCP trim) and fork maintainer notes for the detailed server-by-
 | Edit/Write permissions added | Done | No more permission dialogs |
 | CLAUDE_CODE_DISABLE_1M_CONTEXT removed | Done (prior session) | Enables 1M context |
 
-| bd-cx05: Upgrade to v2.1.92 | Done | Makes real-session validation of compaction behavior/regression fixes possible |
+| bd-cx05: Upgrade to v2.1.92 | Done | Makes real-session validation of compaction behavior possible. **Note**: this is for controlled/interactive validation only and should not replace the current default pin (v2.1.89) yet. |
 
 ### Next Steps
 
