@@ -29,6 +29,9 @@ jobs:
     if: github.event.pull_request.merged == false && github.event.action != 'closed'
     steps:
       - uses: actions/checkout@v4.1.1
+        with:
+          # Fix 3 (bd-7s0d): full history so base...head diff for claim-floor is available
+          fetch-depth: 0
 
       - name: Write PR body to temp file
         env:
@@ -124,6 +127,48 @@ jobs:
 
           echo "Claim class: $CLAIM"
           echo "claim=$CLAIM" >> "$GITHUB_OUTPUT"
+
+      # Fix 3 (bd-7s0d): claim class floor — .ts/.js/.py/.go/.sh/.json changes cannot use
+      # documentation-only or unit unless **Claim floor override** carries a non-empty justification.
+      - name: Enforce claim class floor for code changes
+        if: steps.check.outputs.found == 'true'
+        run: |
+          BODY=$(cat "$RUNNER_TEMP/pr_body.txt")
+          CLAIM="${{ steps.claim.outputs.claim }}"
+          BASE_SHA="${{ github.event.pull_request.base.sha }}"
+          HEAD_SHA="${{ github.event.pull_request.head.sha }}"
+
+          case "$CLAIM" in
+            documentation-only|unit) ;;
+            *)
+              echo "Claim class '$CLAIM' — claim floor not applicable (not unit/documentation-only)"
+              exit 0
+              ;;
+          esac
+
+          EVIDENCE_SECTION=$(printf '%s' "$BODY" | sed -n '/^[[:space:]]*##[[:space:]]*[Ee]vidence/,$p')
+
+          DIFF_NAMES=$(git diff --name-only "${BASE_SHA}...${HEAD_SHA}" 2>/dev/null || true)
+          if [ -z "$DIFF_NAMES" ]; then
+            echo "WARN: empty diff for ${BASE_SHA}...${HEAD_SHA} — skipping claim floor"
+            exit 0
+          fi
+
+          if ! printf '%s\n' "$DIFF_NAMES" | grep -qiE '\.(ts|js|py|go|sh|json)$'; then
+            echo "Claim floor PASS: no .ts/.js/.py/.go/.sh/.json changes in diff"
+            exit 0
+          fi
+
+          LINE=$(printf '%s' "$EVIDENCE_SECTION" | grep -i 'Claim floor override' | head -1 || true)
+          JUST=$(printf '%s' "$LINE" | sed 's/.*[Cc]laim floor override[^:]*:[[:space:]]*//' | tr -d '*')
+          JUST=$(printf '%s' "$JUST" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+          if [ -n "$JUST" ]; then
+            echo "Claim floor override present with non-empty justification — PASS"
+            exit 0
+          fi
+
+          echo "ERROR: Code files changed but claim class is unit/documentation-only. Add **Claim floor override**: <justification> or upgrade claim class to integration+"
+          exit 1
 
       - name: Validate PR-lifecycle-e2e required proofs
         if: steps.check.outputs.found == 'true'
