@@ -11,7 +11,7 @@
  *   - markdown-bold:  **VERDICT: FAIL**       (LLM output with bold)
  *   - markdown-hdr:   ## VERDICT: FAIL        (LLM output with ATX headers — bd-qcwl) */
 export const VERDICT_LINE_RE =
-  /^[ \t]*(?:> ?)?(?:#{1,6}[ \t]*)?(?:\*{1,2})?VERDICT:[ \t]*(PASS|FAIL|SKIPPED)(?:\*{1,2})?[ \t]*$/im;
+  /^[ \t]*(?:> ?)?(?:#{1,6}[ \t]*)?(?:\*{1,2})?VERDICT:[ \t]*(PASS|FAIL|SKIPPED)(?:\*{1,2})?[ \t]*(?:[-—:].*)?$/im;
 
 export type Verdict = "PASS" | "FAIL" | "SKIPPED";
 

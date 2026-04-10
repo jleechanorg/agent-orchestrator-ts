@@ -76,7 +76,7 @@ function resolveClaudeBinary(): string {
  * VERDICT: FAIL (fail-closed). This regex intentionally rejects SKIPPED —
  * infra failures must block merges. */
 const STRICT_VERDICT_RE =
-  /^[ \t]*(?:> ?)?(?:#{1,6}[ \t]*)?(?:\*{1,2})?VERDICT:[ \t]*(PASS|FAIL)(?:\*{1,2})?[ \t]*$/im;
+  /^[ \t]*(?:> ?)?(?:#{1,6}[ \t]*)?(?:\*{1,2})?VERDICT:[ \t]*(PASS|FAIL)(?:\*{1,2})?[ \t]*(?:[-—:].*)?$/im;
 
 export interface LlmEvalResult {
   /** Whether a valid VERDICT line was obtained from the tool.
