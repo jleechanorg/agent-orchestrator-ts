@@ -826,8 +826,11 @@ function createClaudeCodeAgent(): Agent {
 
     getLaunchCommand(config: AgentLaunchConfig): string {
       // Note: CLAUDECODE is unset via getEnvironment() (set to ""), not here.
-      // This command must be safe for both shell and execFile contexts.
-      const parts: string[] = ["claude"];
+      // ANTHROPIC_BASE_URL is explicitly unset here (not just cleared in getEnvironment)
+      // because the user's ~/.bashrc may re-export it after tmux sources the shell profile,
+      // overriding the tmux -e flag. Prepending `env -u ANTHROPIC_BASE_URL` ensures the
+      // claude binary always uses Anthropic OAuth, even in MiniMax-configured shells.
+      const parts: string[] = ["env", "-u", "ANTHROPIC_BASE_URL", "claude"];
 
       const permissionMode = normalizePermissionMode(config.permissions);
       if (permissionMode === "permissionless" || permissionMode === "auto-edit") {
