@@ -229,6 +229,16 @@ prefix_agento_pr_title_args() {
         ((i++))
         continue
         ;;
+      -t=*)
+        local title="\${arg#-t=}"
+        if [[ "\$title" != "[agento] "* ]]; then
+          prefixed_args+=("-t=[agento] \$title")
+        else
+          prefixed_args+=("\$arg")
+        fi
+        ((i++))
+        continue
+        ;;
       -t*)
         local title="\${arg#-t}"
         if [[ -n "\$title" && "\$title" != "[agento] "* ]]; then

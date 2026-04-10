@@ -1715,6 +1715,16 @@ describe("shell wrapper content", () => {
           "-t",
           "[agento] already good",
         ]);
+        expect(runWrapper(["pr", "create", "-t=ship it"])).toEqual([
+          "pr",
+          "create",
+          "-t=[agento] ship it",
+        ]);
+        expect(runWrapper(["pr", "create", "-t=[agento] already good"])).toEqual([
+          "pr",
+          "create",
+          "-t=[agento] already good",
+        ]);
         expect(runWrapper(["pr", "create", "-tcompact"])).toEqual([
           "pr",
           "create",
