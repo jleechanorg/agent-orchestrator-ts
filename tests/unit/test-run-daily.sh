@@ -75,7 +75,17 @@ EOF
   cat >"$bin_dir/gh" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
-exit 0
+
+case "$*" in
+  "pr list --state open --json number,title,updatedAt --limit 10 --jq .[] | \"#\\(.number): \\(.title)\""|"pr list --state merged --json number,title,mergedAt --limit 10 --jq .[] | \"#\\(.number): \\(.title)\""|"run list --limit 10 --json name,status,conclusion,workflowName --jq .[] | \"\\(.workflowName): \\(.conclusion || .status)\"")
+    printf '%s\n' "${FAKE_GH_STDOUT:-}"
+    exit 0
+    ;;
+  *)
+    echo "unexpected gh args: $*" >&2
+    exit 1
+    ;;
+esac
 EOF
 
   cat >"$bin_dir/ao" <<'EOF'
@@ -183,6 +193,14 @@ run_case() {
       PASS=$((PASS + 1))
     else
       printf "  FAIL  %s\n        unexpected ao spawn invocation\n" "$label no spawn"
+      FAIL=$((FAIL + 1))
+    fi
+  else
+    if [[ -e "$spawn_marker" ]]; then
+      printf "  PASS  %s\n" "$label spawn invoked"
+      PASS=$((PASS + 1))
+    else
+      printf "  FAIL  %s\n        expected ao spawn invocation\n" "$label spawn invoked"
       FAIL=$((FAIL + 1))
     fi
   fi
