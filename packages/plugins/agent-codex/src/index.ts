@@ -186,14 +186,16 @@ prefix_agento_pr_title_args() {
   local input_args=("\$@")
   local prefixed_args=()
   local i=0
+  local title_seen=0
 
   while [[ \$i -lt \${#input_args[@]} ]]; do
     local arg="\${input_args[\$i]}"
 
     case "\$arg" in
       --title)
-        prefixed_args+=("\$arg")
         if [[ \$((i + 1)) -lt \${#input_args[@]} ]]; then
+          title_seen=1
+          prefixed_args+=("\$arg")
           local title="\${input_args[\$((i + 1))]}"
           if [[ "\$title" != "[agento] "* ]]; then
             title="[agento] \$title"
@@ -202,10 +204,11 @@ prefix_agento_pr_title_args() {
           ((i+=2))
           continue
         fi
-        ((i++))
-        continue
+        echo "ao policy: gh pr create must include --title (or -t) so [agento] prefix can be applied." >&2
+        return 2
         ;;
       --title=*)
+        title_seen=1
         local title="\${arg#--title=}"
         if [[ "\$title" != "[agento] "* ]]; then
           prefixed_args+=("--title=[agento] \$title")
@@ -216,8 +219,9 @@ prefix_agento_pr_title_args() {
         continue
         ;;
       -t)
-        prefixed_args+=("\$arg")
         if [[ \$((i + 1)) -lt \${#input_args[@]} ]]; then
+          title_seen=1
+          prefixed_args+=("\$arg")
           local title="\${input_args[\$((i + 1))]}"
           if [[ "\$title" != "[agento] "* ]]; then
             title="[agento] \$title"
@@ -226,10 +230,11 @@ prefix_agento_pr_title_args() {
           ((i+=2))
           continue
         fi
-        ((i++))
-        continue
+        echo "ao policy: gh pr create must include --title (or -t) so [agento] prefix can be applied." >&2
+        return 2
         ;;
       -t=*)
+        title_seen=1
         local title="\${arg#-t=}"
         if [[ "\$title" != "[agento] "* ]]; then
           prefixed_args+=("-t=[agento] \$title")
@@ -240,6 +245,7 @@ prefix_agento_pr_title_args() {
         continue
         ;;
       -t*)
+        title_seen=1
         local title="\${arg#-t}"
         if [[ -n "\$title" && "\$title" != "[agento] "* ]]; then
           prefixed_args+=("-t[agento] \$title")
@@ -254,6 +260,11 @@ prefix_agento_pr_title_args() {
     prefixed_args+=("\$arg")
     ((i++))
   done
+
+  if [[ \$title_seen -eq 0 ]]; then
+    echo "ao policy: gh pr create must include --title (or -t) so [agento] prefix can be applied." >&2
+    return 2
+  fi
 
   printf '%s\\0' "\${prefixed_args[@]}"
 }
@@ -281,12 +292,19 @@ case "\$1/\$2" in
     ;;
   pr/create)
     tmpout="\$(mktemp)"
-    trap 'rm -f "\$tmpout"' EXIT
+    prefixed_args_file="\$(mktemp)"
+    trap 'rm -f "\$tmpout" "\$prefixed_args_file"' EXIT
 
     prefixed_args=()
+    if prefix_agento_pr_title_args "\$@" > "\$prefixed_args_file"; then
+      :
+    else
+      exit_code=\$?
+      exit \$exit_code
+    fi
     while IFS= read -r -d '' arg; do
       prefixed_args+=("\$arg")
-    done < <(prefix_agento_pr_title_args "\$@")
+    done < "\$prefixed_args_file"
 
     "\$real_gh" "\${prefixed_args[@]}" 2>&1 | tee "\$tmpout"
     exit_code=\${PIPESTATUS[0]}

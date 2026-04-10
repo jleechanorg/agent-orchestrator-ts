@@ -1674,6 +1674,8 @@ describe("shell wrapper content", () => {
           .filter((line) => line.startsWith("ARG:"))
           .map((line) => line.slice(4));
       };
+      const runWrapperFailure = (args: string[]) =>
+        realChildProcess.spawnSync(wrapperPath, args, { env, encoding: "utf-8" });
 
       try {
         realFs.mkdirSync(aoBinDir, { recursive: true });
@@ -1730,16 +1732,21 @@ describe("shell wrapper content", () => {
           "create",
           "-t[agento] compact",
         ]);
-        expect(runWrapper(["pr", "create", "--title"])).toEqual([
-          "pr",
-          "create",
-          "--title",
-        ]);
-        expect(runWrapper(["pr", "create", "-t"])).toEqual([
-          "pr",
-          "create",
-          "-t",
-        ]);
+        const bareLongTitle = runWrapperFailure(["pr", "create", "--title"]);
+        expect(bareLongTitle.status).toBe(2);
+        expect(bareLongTitle.stderr).toContain(
+          "ao policy: gh pr create must include --title (or -t) so [agento] prefix can be applied.",
+        );
+        const bareShortTitle = runWrapperFailure(["pr", "create", "-t"]);
+        expect(bareShortTitle.status).toBe(2);
+        expect(bareShortTitle.stderr).toContain(
+          "ao policy: gh pr create must include --title (or -t) so [agento] prefix can be applied.",
+        );
+        const fillOnly = runWrapperFailure(["pr", "create", "--fill"]);
+        expect(fillOnly.status).toBe(2);
+        expect(fillOnly.stderr).toContain(
+          "ao policy: gh pr create must include --title (or -t) so [agento] prefix can be applied.",
+        );
       } finally {
         realFs.rmSync(tempDir, { recursive: true, force: true });
       }
