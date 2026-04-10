@@ -1062,6 +1062,30 @@ export async function setupMcpMailInWorkspace(
   }
 }
 
+async function readSessionEntry(
+  sessionFile: string,
+  sessionFileExtension: string,
+): Promise<{ lastType: string | null; modifiedAt: Date } | null> {
+  if (sessionFileExtension !== ".json") {
+    return readLastJsonlEntry(sessionFile);
+  }
+
+  const nativeEntry = await readLastJsonEntry(sessionFile);
+  if (nativeEntry !== null) {
+    return nativeEntry;
+  }
+
+  // Only fall back to JSONL when the file is not valid JSON at all.
+  // Valid JSON files with empty or missing messages should remain "unknown"
+  // rather than being classified by JSONL heuristics.
+  try {
+    JSON.parse(await readFile(sessionFile, "utf-8"));
+    return null;
+  } catch {
+    return readLastJsonlEntry(sessionFile);
+  }
+}
+
 // =============================================================================
 // Agent Factory
 // =============================================================================
@@ -1204,13 +1228,7 @@ export function createAgentPlugin(config: AgentPluginConfig, overrides?: Partial
         return null;
       }
 
-      const entry =
-        config.sessionFileExtension === ".json"
-          ? await (async () => {
-            const nativeEntry = await readLastJsonEntry(sessionFile);
-            return nativeEntry ?? readLastJsonlEntry(sessionFile);
-          })()
-          : await readLastJsonlEntry(sessionFile);
+      const entry = await readSessionEntry(sessionFile, config.sessionFileExtension ?? ".jsonl");
       if (!entry) {
         // Empty file or read error — cannot determine activity
         return null;

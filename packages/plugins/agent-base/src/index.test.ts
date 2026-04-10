@@ -329,6 +329,43 @@ describe("createAgentPlugin factory", () => {
     expect(activity).toMatchObject({ state: "active", timestamp: modifiedAt });
   });
 
+  it("returns null for valid JSON session files with empty messages", async () => {
+    const sessionFile = "/custom/sessions/path/session.json";
+    const modifiedAt = new Date();
+    const config = {
+      name: "test-agent",
+      description: "Test agent plugin",
+      processName: "test-process",
+      command: "test",
+      configDir: ".test",
+      permissionlessFlag: "--flag",
+      getSessionDir: (_workspacePath: string) => "/custom/sessions/path",
+      sessionFileExtension: ".json",
+    };
+
+    mockReaddir.mockResolvedValue(["session.json"]);
+    mockStat.mockImplementation(async (path: string) => {
+      if (path === sessionFile) {
+        return { mtimeMs: modifiedAt.getTime(), mtime: modifiedAt } as Stats;
+      }
+      throw new Error(`Unexpected stat path: ${path}`);
+    });
+    mockReadFile.mockResolvedValue(JSON.stringify({ messages: [] }));
+
+    const agent = createAgentPlugin(config);
+    vi.spyOn(agent, "isProcessRunning").mockResolvedValue(true);
+
+    const activity = await agent.getActivityState(
+      {
+        runtimeHandle: { pid: 1234 },
+        workspacePath: "/workspace/test",
+      } as Session,
+      60_000,
+    );
+
+    expect(activity).toBeNull();
+  });
+
 });
 
 // ---------------------------------------------------------------------------
