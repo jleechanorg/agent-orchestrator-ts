@@ -106,16 +106,18 @@ async function sleep(ms: number): Promise<void> {
  * "none".
  */
 function normalizeReviewDecision(
-  raw: string | null | undefined,
+  raw: unknown,
 ): "approved" | "changes_requested" | "pending" | "none" {
-  const trimmed = (raw ?? "").trim();
+  if (raw === null || raw === undefined) return "pending";
+  if (typeof raw !== "string") return "pending";
+  const trimmed = raw.trim();
   const d = trimmed.toUpperCase();
   if (d === "APPROVED") return "approved";
   if (d === "CHANGES_REQUESTED") return "changes_requested";
   if (d === "PENDING") return "pending";
   if (d === "NONE") return "none";
   if (d === "REVIEW_REQUIRED") return "pending";
-  if (raw === null || raw === undefined || trimmed === "") return "pending";
+  if (trimmed === "") return "pending";
   return "none";
 }
 

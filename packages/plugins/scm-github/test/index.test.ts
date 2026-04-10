@@ -1734,6 +1734,19 @@ describe("scm-github plugin", () => {
       expect(await scm.getReviewDecision(pr)).toBe("pending");
     });
 
+    it.each([0, false, {}, []])(
+      'returns "pending" when reviewDecision is a non-string payload: %p',
+      async (input) => {
+        mockGh({ reviewDecision: input });
+        expect(await scm.getReviewDecision(pr)).toBe("pending");
+      },
+    );
+
+    it('returns "none" for unknown non-empty reviewDecision strings', async () => {
+      mockGh({ reviewDecision: "SOMETHING_NEW" });
+      expect(await scm.getReviewDecision(pr)).toBe("none");
+    });
+
     it("throws on non-rate-limit gh failure (fail-closed)", async () => {
       mockGhError("gh crashed");
       await expect(scm.getReviewDecision(pr)).rejects.toThrow("gh crashed");
