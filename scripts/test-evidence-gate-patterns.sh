@@ -22,13 +22,13 @@ tm_first_url_known() {
 }
 
 has_tmux_caption() {
-  # Skip the first line (header) and check for tmux/terminal in the actual caption after the URL.
-  # This avoids false positives where **Terminal media**: itself contains "terminal".
+  # Start at the URL line so inline captions on the same line as the URL are accepted,
+  # matching the workflow logic in evidence-gate.yml and wholesome.yml.
   local b="$1"
   local url_line
   url_line=$(printf '%s' "$b" | grep -n 'https://' | head -1 | cut -d: -f1)
   printf '%s' "$b" \
-    | tail -n +"$((${url_line:-1} + 1))" \
+    | tail -n +"${url_line:-1}" \
     | grep -v '^[[:space:]]*$' \
     | grep -v '^[[:space:]]*```' \
     | awk '{ sub(/^\*\*Terminal media\*\*:[[:space:]]*/, ""); sub(/^\*\*Terminal media\*\* :[[:space:]]*/, ""); print }' \
@@ -79,5 +79,12 @@ tmux pane'
 u=$(extract_first_https "$b")
 tm_first_url_known "$u" || fail "markdown mp4"
 pass "markdown image mp4"
+
+# --- inline URL + caption on same line
+b='**Terminal media**: https://cdn.example.com/inline.mp4 tmux pane capture'
+u=$(extract_first_https "$b")
+tm_first_url_known "$u" || fail "inline mp4"
+has_tmux_caption "$b" || fail "inline caption"
+pass "inline URL caption"
 
 echo "All evidence-gate pattern tests passed."
