@@ -17,6 +17,8 @@
  */
 
 import { resolveCodexBinary } from "@jleechanorg/ao-plugin-agent-codex";
+import { execFileSync as execFileSyncSync } from "node:child_process";
+import { existsSync } from "node:fs";
 
 const CODEX_TIMEOUT_MS = 300_000;
 const CLAUDE_TIMEOUT_MS = 300_000;
@@ -44,14 +46,12 @@ const CLAUDE_BINARY_CANDIDATES = [
 
 /** Resolve the claude binary path, trying known locations in order. */
 function resolveClaudeBinary(): string {
-  const { execFileSync } = require("node:child_process") as typeof import("node:child_process");
-  const fs = require("node:fs") as typeof import("node:fs");
   for (const candidate of CLAUDE_BINARY_CANDIDATES) {
     if (!candidate) continue;
     if (candidate === "claude") {
       // PATH-based lookup
       try {
-        const found = execFileSync("which", ["claude"], {
+        const found = execFileSyncSync("which", ["claude"], {
           encoding: "utf-8",
           timeout: 5_000,
           stdio: ["ignore", "pipe", "ignore"],
@@ -63,7 +63,7 @@ function resolveClaudeBinary(): string {
       continue;
     }
     try {
-      if (fs.existsSync(candidate)) return candidate;
+      if (existsSync(candidate)) return candidate;
     } catch {
       // ignore
     }
