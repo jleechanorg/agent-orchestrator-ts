@@ -101,17 +101,18 @@ async function sleep(ms: number): Promise<void> {
 
 /**
  * Normalizes a raw GitHub `reviewDecision` value to a canonical `ReviewDecision` string.
- * Fail-closed: null, undefined, and empty-string all resolve to "pending" since
+ * Fail-closed: null, undefined, and blank values all resolve to "pending" since
  * an unknown review state should not be treated as neutral "none".
  */
 function normalizeReviewDecision(
   raw: string | null | undefined,
 ): "approved" | "changes_requested" | "pending" | "none" {
-  const d = (raw ?? "").toUpperCase();
+  const trimmed = (raw ?? "").trim();
+  const d = trimmed.toUpperCase();
   if (d === "APPROVED") return "approved";
   if (d === "CHANGES_REQUESTED") return "changes_requested";
   if (d === "REVIEW_REQUIRED") return "pending";
-  if (raw === null || raw === undefined || raw === "") return "pending";
+  if (raw === null || raw === undefined || trimmed === "") return "pending";
   return "none";
 }
 
@@ -1273,12 +1274,13 @@ function normalizeMergePayloadFromRestShape(data: Record<string, unknown>): void
     data["isDraft"] = data["draft"];
   }
   // reviewDecision can be null/undefined/malformed when GitHub omits or fails to
-  // populate the field. Treat empty string the same way so every unknown path
+  // populate the field. Treat blank strings the same way so every unknown path
   // stays fail-closed instead of drifting to "none".
+  const rawReviewDecision = data["reviewDecision"];
   if (
-    data["reviewDecision"] === null ||
-    data["reviewDecision"] === undefined ||
-    data["reviewDecision"] === ""
+    rawReviewDecision === null ||
+    rawReviewDecision === undefined ||
+    (typeof rawReviewDecision === "string" && rawReviewDecision.trim() === "")
   ) {
     data["reviewDecision"] = "REVIEW_REQUIRED";
   }
@@ -2551,12 +2553,11 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
       const approved = normalized === "approved";
       if (normalized === "changes_requested") {
         blockers.push("Changes requested in review");
-      } else if (normalized === "pending" || normalized === "none") {
+      } else if (normalized === "pending") {
         blockers.push("Review required");
       }
-      // Note: getBatchPRStatus (GraphQL batch path) treats "none" as a blocker due to
-      // normalizeReviewDecision mapping ambiguous non-empty values to "none". getMergeability
-      // (REST single-PR path) only blocks on "pending" — see line 2543.
+      // Note: "none" is neutral here. Only absent/blank review states normalize to
+      // "pending" and block merge readiness.
 
       // Conflicts / merge state
       // GraphQL returns mergeable as string ("MERGEABLE"/"CONFLICTING"/"UNKNOWN")
@@ -2704,7 +2705,6 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
       if (reviewDecision === "changes_requested") blockers.push("Changes requested in review");
       else if (reviewDecision === "pending") blockers.push("Review required");
       // Note: "none" means reviews explicitly not required per GitHub API — acceptable here.
-      // getBatchPRStatus (GraphQL batch path) blocks "none" via normalizeReviewDecision mapping.
 
       // Conflicts / merge state
       let noConflicts: boolean;

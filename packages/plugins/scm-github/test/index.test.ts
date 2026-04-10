@@ -1725,6 +1725,11 @@ describe("scm-github plugin", () => {
       expect(await scm.getReviewDecision(pr)).toBe("pending");
     });
 
+    it('returns "pending" when reviewDecision is whitespace-only', async () => {
+      mockGh({ reviewDecision: "   " });
+      expect(await scm.getReviewDecision(pr)).toBe("pending");
+    });
+
     it("throws on non-rate-limit gh failure (fail-closed)", async () => {
       mockGhError("gh crashed");
       await expect(scm.getReviewDecision(pr)).rejects.toThrow("gh crashed");
@@ -2325,6 +2330,22 @@ describe("scm-github plugin", () => {
       expect(result.blockers).toContain("Review required");
     });
 
+    it('treats unknown non-empty reviewDecision as neutral "none"', async () => {
+      mockGh({ state: "OPEN" }); // getPRState
+      mockGh({
+        mergeable: "MERGEABLE",
+        reviewDecision: "SOMETHING_NEW",
+        mergeStateStatus: "CLEAN",
+        isDraft: false,
+      });
+      mockGh([{ name: "build", state: "SUCCESS" }]);
+
+      const result = await scm.getMergeability(pr);
+      expect(result.approved).toBe(false);
+      expect(result.blockers).not.toContain("Review required");
+      expect(result.mergeable).toBe(true);
+    });
+
     it("reports merge conflicts as blockers", async () => {
       mockGh({ state: "OPEN" }); // getPRState
       mockGh({
@@ -2416,6 +2437,40 @@ describe("scm-github plugin", () => {
       const result = await scm.getMergeability(pr);
       expect(result.noConflicts).toBe(false);
       expect(result.blockers).toContain("Merge conflicts");
+    });
+  });
+
+  describe("getBatchPRStatus", () => {
+    it('treats whitespace-only reviewDecision as review required', async () => {
+      mockGh({
+        state: "OPEN",
+        mergeable: "MERGEABLE",
+        reviewDecision: "   ",
+        mergeStateStatus: "CLEAN",
+        isDraft: false,
+        statusCheckRollup: [{ name: "build", conclusion: "success" }],
+      });
+
+      const result = await scm.getBatchPRStatus(pr);
+      expect(result.reviewDecision).toBe("pending");
+      expect(result.mergeReadiness.mergeable).toBe(false);
+      expect(result.mergeReadiness.blockers).toContain("Review required");
+    });
+
+    it('treats unknown non-empty reviewDecision as neutral "none"', async () => {
+      mockGh({
+        state: "OPEN",
+        mergeable: "MERGEABLE",
+        reviewDecision: "SOMETHING_NEW",
+        mergeStateStatus: "CLEAN",
+        isDraft: false,
+        statusCheckRollup: [{ name: "build", conclusion: "success" }],
+      });
+
+      const result = await scm.getBatchPRStatus(pr);
+      expect(result.reviewDecision).toBe("none");
+      expect(result.mergeReadiness.blockers).not.toContain("Review required");
+      expect(result.mergeReadiness.mergeable).toBe(true);
     });
   });
 
