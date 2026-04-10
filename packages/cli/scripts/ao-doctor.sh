@@ -368,7 +368,7 @@ check_lifecycle_workers() {
   fi
 
   # --- Check 2: total worker count sanity (configurable cap) ---
-  max_workers="${AO_DOCTOR_MAX_LIFECYCLE_WORKERS:-8}"
+  max_workers="${AO_DOCTOR_MAX_LIFECYCLE_WORKERS:-20}"
   if [ "$total_count" -gt "$max_workers" ]; then
     warn "unusually high lifecycle-worker count: $total_count (expected ≤$max_workers). Set AO_DOCTOR_MAX_LIFECYCLE_WORKERS to raise this budget. High counts drain GraphQL quota rapidly."
   elif [ "$total_count" -gt 0 ]; then

@@ -86,6 +86,9 @@ To install from source (for contributors):
 git clone https://github.com/jleechanorg/agent-orchestrator.git
 cd agent-orchestrator && bash scripts/setup.sh
 ```
+
+The source setup script also installs the repo-local AO usage skill into
+`~/.claude/skills/agent-orchestrator` and `~/.codex/skills/agent-orchestrator`.
 </details>
 
 ### Start
@@ -251,7 +254,7 @@ ao config-help           # Show config schema reference
 ao doctor                # Run diagnostics
 ```
 
-Run `ao --help` for full command list.
+Run `ao --help` for full command list and concrete workflow examples.
 
 ## Development
 
@@ -270,4 +273,3 @@ Contributions welcome. The plugin system makes it straightforward to add support
 ## License
 
 MIT
-

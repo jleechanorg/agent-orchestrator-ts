@@ -832,6 +832,27 @@ describe("scm-github plugin", () => {
       await expect(scm.checkoutPR?.(pr, "/tmp/repo")).rejects.toThrow("Authentication failed");
     });
 
+    it("removes a stale AO worktree and retries fetch when target branch is checked out elsewhere", async () => {
+      ghMock.mockResolvedValueOnce({ stdout: "main\n" }); // git branch --show-current (before)
+      ghMock.mockResolvedValueOnce({ stdout: "" }); // git status --porcelain (clean)
+      ghMock.mockResolvedValueOnce({ stdout: "https://github.com/acme/repo.git\n" }); // git remote get-url origin
+      ghMock.mockRejectedValueOnce(
+        new Error(
+          "fatal: refusing to fetch into branch 'refs/heads/feat/my-feature' checked out at '/Users/jleechan/.worktrees/acme/ao-9999'\n",
+        ),
+      ); // initial fetch blocked by stale worktree
+      ghMock.mockResolvedValueOnce({ stdout: "detached-ghost\nanother-live-session\n" }); // tmux list-sessions (stale ao-9999 is dead)
+      ghMock.mockResolvedValueOnce({ stdout: "" }); // git worktree remove --force --force
+      ghMock.mockResolvedValueOnce({ stdout: "" }); // git worktree list --porcelain (stale entry gone)
+      ghMock.mockResolvedValueOnce({ stdout: "" }); // retried git fetch succeeds
+      ghMock.mockResolvedValueOnce({ stdout: "main\n" }); // git branch --show-current (after fetch)
+      ghMock.mockResolvedValueOnce({ stdout: "" }); // git checkout -f feat/my-feature
+      ghMock.mockResolvedValueOnce({ stdout: "feat/my-feature\n" }); // git branch --show-current (verify)
+
+      const changed = await scm.checkoutPR?.(pr, "/tmp/repo");
+      expect(changed).toBe(true);
+    });
+
     it("returns true when git fetch + checkout succeeds (already on branch after fetch)", async () => {
       ghMock.mockResolvedValueOnce({ stdout: "main\n" }); // git branch --show-current (before)
       ghMock.mockResolvedValueOnce({ stdout: "" }); // git status --porcelain (clean)
@@ -865,39 +886,46 @@ describe("scm-github plugin", () => {
       );
     });
 
-    it("resets AO-managed file and succeeds when only AO-managed file is dirty", async () => {
+    it("restores AO-managed tracked files from HEAD before switching branches", async () => {
       ghMock.mockResolvedValueOnce({ stdout: "main\n" }); // git branch --show-current
-      ghMock.mockResolvedValueOnce({ stdout: " M .claude/settings.json\n" }); // git status --porcelain (dirty, AO-managed)
-      ghMock.mockResolvedValueOnce({ stdout: "" }); // git reset HEAD -- .claude/settings.json (unstage)
-      ghMock.mockResolvedValueOnce({ stdout: "" }); // git checkout -- .claude/settings.json (restore wt)
-      ghMock.mockResolvedValueOnce({ stdout: "" }); // git status --porcelain (clean after reset)
+      ghMock.mockResolvedValueOnce({ stdout: " M AGENTS.md\n" }); // git status --porcelain (dirty)
+      ghMock.mockResolvedValueOnce({ stdout: "" }); // git restore --source=HEAD --staged --worktree -- AGENTS.md
+      ghMock.mockResolvedValueOnce({ stdout: "" }); // git status --porcelain (remaining dirty = clean)
+      ghMock.mockResolvedValueOnce({ stdout: "https://github.com/acme/repo.git\n" }); // git remote get-url origin
+      ghMock.mockResolvedValueOnce({ stdout: "" }); // git fetch refs/pull/42/head:feat/my-feature
+      ghMock.mockResolvedValueOnce({ stdout: "feat/my-feature\n" }); // git branch --show-current (after fetch)
+      ghMock.mockResolvedValueOnce({ stdout: "feat/my-feature\n" }); // git branch --show-current (verify)
+
+      const changed = await scm.checkoutPR?.(pr, "/tmp/repo");
+      expect(changed).toBe(true);
+      expect(ghMock).toHaveBeenCalledWith(
+        "git",
+        ["restore", "--source=HEAD", "--staged", "--worktree", "--", "AGENTS.md"],
+        expect.any(Object),
+      );
+    });
+
+    it("restores staged AO-managed dirt before switching branches", async () => {
+      ghMock.mockResolvedValueOnce({ stdout: "main\n" }); // git branch --show-current
+      ghMock.mockResolvedValueOnce({ stdout: "M  AGENTS.md\n" }); // git status --porcelain (dirty)
+      ghMock.mockResolvedValueOnce({ stdout: "" }); // git restore --source=HEAD --staged --worktree -- AGENTS.md
+      ghMock.mockResolvedValueOnce({ stdout: "" }); // git status --porcelain (remaining dirty = clean)
       ghMock.mockResolvedValueOnce({ stdout: "https://github.com/acme/repo.git\n" }); // git remote get-url origin
       ghMock.mockResolvedValueOnce({ stdout: "" }); // git fetch refs/pull/42/head:feat/my-feature
       ghMock.mockResolvedValueOnce({ stdout: "main\n" }); // git branch --show-current (after fetch)
-      ghMock.mockResolvedValueOnce({ stdout: "" }); // git checkout feat/my-feature
+      ghMock.mockResolvedValueOnce({ stdout: "" }); // git checkout -f feat/my-feature
       ghMock.mockResolvedValueOnce({ stdout: "feat/my-feature\n" }); // git branch --show-current (verify)
 
       const changed = await scm.checkoutPR?.(pr, "/tmp/repo");
       expect(changed).toBe(true);
     });
 
-    it("resets staged AO-managed file via git reset HEAD", async () => {
-      // Simulates "M  .claude/settings.json" — staged change, clean working tree.
-      // The reset loop must unstage it via git reset HEAD, then restore working tree
-      // via git checkout (since wt=' ' means working tree was clean relative to staged state).
+    it("fails loudly when restoring AO-managed files fails", async () => {
       ghMock.mockResolvedValueOnce({ stdout: "main\n" }); // git branch --show-current
-      ghMock.mockResolvedValueOnce({ stdout: "M  .claude/settings.json\n" }); // git status --porcelain (staged, clean wt)
-      ghMock.mockResolvedValueOnce({ stdout: "" }); // git reset HEAD -- .claude/settings.json (unstage)
-      ghMock.mockResolvedValueOnce({ stdout: "" }); // git checkout -- .claude/settings.json (restore wt to HEAD)
-      ghMock.mockResolvedValueOnce({ stdout: "" }); // git status --porcelain (clean after reset)
-      ghMock.mockResolvedValueOnce({ stdout: "https://github.com/acme/repo.git\n" }); // git remote get-url origin
-      ghMock.mockResolvedValueOnce({ stdout: "" }); // git fetch refs/pull/42/head:feat/my-feature
-      ghMock.mockResolvedValueOnce({ stdout: "main\n" }); // git branch --show-current (after fetch)
-      ghMock.mockResolvedValueOnce({ stdout: "" }); // git checkout feat/my-feature
-      ghMock.mockResolvedValueOnce({ stdout: "feat/my-feature\n" }); // git branch --show-current (verify)
+      ghMock.mockResolvedValueOnce({ stdout: " M AGENTS.md\n" }); // git status --porcelain (dirty)
+      ghMock.mockRejectedValueOnce(new Error("restore failed")); // git restore --source=HEAD --staged --worktree -- AGENTS.md
 
-      const changed = await scm.checkoutPR?.(pr, "/tmp/repo");
-      expect(changed).toBe(true);
+      await expect(scm.checkoutPR?.(pr, "/tmp/repo")).rejects.toThrow("restore failed");
     });
   });
 

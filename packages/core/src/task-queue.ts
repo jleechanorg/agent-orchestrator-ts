@@ -31,6 +31,7 @@ import {
 import type { ProjectObserver } from "./observability.js";
 import { updateMetadata } from "./metadata.js";
 import { getSessionsDir } from "./paths.js";
+import { resolveSpawnQueueConfig } from "./spawn-queue.js";
 
 // ---- module-level throttle state (keyed by projectId) ----
 const lastDrainTimeByProject = new Map<string, number>();
@@ -155,6 +156,21 @@ export async function drainTaskQueue(
     return 0;
   }
   lastDrainTimeByProject.set(projectId, now);
+
+  const spawnQueue = resolveSpawnQueueConfig(project);
+  const activeCount = activeSessions.length;
+  if (spawnQueue.enabled && activeCount >= spawnQueue.maxActiveSessions) {
+    observer.recordOperation({
+      metric: "lifecycle_poll",
+      operation: "lifecycle.task_queue.at_capacity",
+      outcome: "success",
+      correlationId,
+      projectId,
+      data: { activeCount, maxActiveSessions: spawnQueue.maxActiveSessions },
+      level: "debug",
+    });
+    return 0;
+  }
 
   // Count active queue-spawned sessions (those with queuedBeadId in metadata)
   const queueSlotsUsed = activeSessions.filter(

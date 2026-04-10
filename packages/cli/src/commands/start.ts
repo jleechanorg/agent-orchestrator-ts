@@ -52,7 +52,6 @@ import { preflight } from "../lib/preflight.js";
 import { register, unregister, isAlreadyRunning, getRunning, waitForExit } from "../lib/running-state.js";
 import { isHumanCaller } from "../lib/caller-context.js";
 import { detectEnvironment } from "../lib/detect-env.js";
-import { detectAgentRuntime } from "../lib/detect-agent.js";
 import { detectDefaultBranch } from "../lib/git-utils.js";
 import {
   detectProjectType,
@@ -295,8 +294,7 @@ async function autoCreateConfig(workingDir: string): Promise<OrchestratorConfig>
   const path = env.isGitRepo ? workingDir : `~/${projectId}`;
   const defaultBranch = env.defaultBranch || "main";
 
-  // Detect available agent runtimes via plugin registry
-  const agent = await detectAgentRuntime();
+  const agent = "codex";
   console.log(chalk.green(`  ✓ Agent runtime: ${agent}`));
 
   const port = await findFreePort(DEFAULT_PORT);
@@ -312,7 +310,7 @@ async function autoCreateConfig(workingDir: string): Promise<OrchestratorConfig>
       workspace: "worktree",
       notifiers: ["desktop"],
       modelByCli: {
-        [agent]: { model: "claude-sonnet-4-20250514" },
+        codex: { model: "gpt-5.4" },
       },
     },
     projects: {
@@ -781,8 +779,23 @@ async function stopDashboard(port: number): Promise<void> {
 export function registerStart(program: Command): void {
   program
     .command("start [project]")
-    .description(
+    .summary(
       "Start orchestrator agent and dashboard (auto-creates config on first run, adds projects by path/URL)",
+    )
+    .description(
+      [
+        "Start orchestrator agent and dashboard.",
+        "",
+        "Examples:",
+        "  ao start",
+        "  ao start ~/path/to/repo",
+        "  ao start https://github.com/owner/repo",
+        "  ao start --no-dashboard",
+        "",
+        "Tips:",
+        "  - Run from inside a repo to auto-detect the project path.",
+        "  - Use this before ao spawn on a new machine or fresh checkout.",
+      ].join("\n"),
     )
     .option("--no-dashboard", "Skip starting the dashboard server")
     .option("--no-orchestrator", "Skip starting the orchestrator agent")

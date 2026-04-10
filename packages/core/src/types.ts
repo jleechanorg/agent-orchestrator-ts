@@ -1413,6 +1413,12 @@ export interface ProjectConfig {
    */
   worktreeDir?: string;
 
+  /**
+   * Persistent spawn queue and active-session cap for this project.
+   * When enabled, AO queues new spawn requests instead of spawning past the cap.
+   */
+  spawnQueue?: SpawnQueueConfig;
+
   // =============================================================================
   // TASK QUEUE — bd-bsu
   // =============================================================================
@@ -1553,6 +1559,15 @@ export interface TaskQueueConfig {
 
   /** Optional template for the task description sent to each session */
   taskTemplate?: string;
+}
+
+/** Persistent spawn queue configuration for bounded AO worker admission. */
+export interface SpawnQueueConfig {
+  /** Enable queueing instead of immediate spawn failure when at capacity. */
+  enabled: boolean;
+
+  /** Max active sessions allowed before new spawn requests are queued. */
+  maxActiveSessions: number;
 }
 
 export interface TrackerConfig {

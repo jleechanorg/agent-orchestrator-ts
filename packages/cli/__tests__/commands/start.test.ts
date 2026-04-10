@@ -270,6 +270,14 @@ function createFakeRepo(dir: string, remoteUrl: string, files?: Record<string, s
 // ---------------------------------------------------------------------------
 
 describe("start command — project resolution", () => {
+  it("includes workflow examples in start help", () => {
+    const help = program.commands.find((cmd) => cmd.name() === "start")?.helpInformation() ?? "";
+
+    expect(help).toContain("ao start ~/path/to/repo");
+    expect(help).toContain("ao start https://github.com/owner/repo");
+    expect(help).toContain("Use this before ao spawn");
+  });
+
   it("uses single project when no arg given", async () => {
     mockConfigRef.current = makeConfig({ "my-app": makeProject() });
 

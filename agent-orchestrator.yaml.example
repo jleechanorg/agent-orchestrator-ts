@@ -124,6 +124,11 @@ projects:
     # reactions:
     #   approved-and-green:
     #     auto: true         # enable auto-merge for this project
+    #   worker-signals-completion:
+    #     auto: true
+    #     action: skeptic-review
+    #     skepticModel: codex
+    #     skepticPostComment: true
 
     # bd-n047: Per-project auto-merge override — set enabled: false to disable
     # for this project while keeping it enabled globally, or set enabled: true

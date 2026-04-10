@@ -9,6 +9,8 @@ import {
   getSiblings,
   formatPlanTree,
   TERMINAL_STATUSES,
+  enqueueSpawnRequest,
+  resolveSpawnQueueConfig,
   expandHome,
   type OrchestratorConfig,
   type DecomposerConfig,
@@ -115,6 +117,27 @@ async function spawnSession(
 
   try {
     const sm = await getSessionManager(config);
+
+    const activeSessions = (await sm.list(projectId)).filter((session) => !TERMINAL_STATUSES.has(session.status));
+    const queueConfig = resolveSpawnQueueConfig(config.projects[projectId]);
+    if (queueConfig.enabled && activeSessions.length >= queueConfig.maxActiveSessions) {
+      const queued = enqueueSpawnRequest(config.configPath, projectId, {
+        issueId,
+        agent,
+        runtimeOverride: runtime,
+        claimPr: claimOptions?.claimPr,
+        assignOnGithub: claimOptions?.assignOnGithub,
+      });
+
+      spinner.succeed(`Session request queued at position ${queued.position}`);
+      console.log(`  Reason:   ${chalk.dim(`${activeSessions.length} active sessions >= cap ${queueConfig.maxActiveSessions}`)}`);
+      console.log(`  Request:  ${chalk.dim(queued.requestId)}`);
+      if (claimOptions?.claimPr) console.log(`  PR:       ${chalk.dim(claimOptions.claimPr)}`);
+      console.log();
+      console.log(`REQUEST=${queued.requestId}`);
+      return queued.requestId;
+    }
+
     spinner.text = "Spawning session via core";
 
     const session = await sm.spawn({
@@ -180,7 +203,23 @@ async function spawnSession(
 export function registerSpawn(program: Command): void {
   program
     .command("spawn")
-    .description("Spawn a single agent session")
+    .summary("Spawn a single agent session")
+    .description(
+      [
+        "Spawn a single agent session.",
+        "",
+        "Examples:",
+        '  ao spawn "fix the flaky retry path"',
+        "  ao spawn 123",
+        "  ao spawn -p agent-orchestrator bd-1234",
+        "  ao spawn --project agent-orchestrator --claim-pr 456",
+        '  ao spawn --agent codex "investigate the failing integration test"',
+        "",
+        "Project resolution:",
+        "  - If only one project is configured, AO uses it automatically.",
+        "  - Otherwise AO matches cwd, then AO_PROJECT_ID, then requires -p/--project.",
+      ].join("\n"),
+    )
     .argument("[first]", "Issue identifier (project is auto-detected)")
     .argument("[second]", "", /* hidden second arg to catch old two-arg usage */)
     .option("--open", "Open session in terminal tab")
@@ -385,17 +424,32 @@ export function registerBatchSpawn(program: Command): void {
         }
 
         // Check existing sessions (pre-loaded before loop)
-        const existingSessionId = existingIssueMap.get(issue.toLowerCase());
-        if (existingSessionId) {
-          console.log(chalk.yellow(`  Skip ${issue} — already has session ${existingSessionId}`));
-          skipped.push({ issue, existing: existingSessionId });
+      const existingSessionId = existingIssueMap.get(issue.toLowerCase());
+      if (existingSessionId) {
+        console.log(chalk.yellow(`  Skip ${issue} — already has session ${existingSessionId}`));
+        skipped.push({ issue, existing: existingSessionId });
+        continue;
+      }
+
+      try {
+        const activeSessions = (await sm.list(projectId)).filter(
+          (session) => !TERMINAL_STATUSES.has(session.status),
+        );
+        const queueConfig = resolveSpawnQueueConfig(config.projects[projectId]);
+        if (queueConfig.enabled && activeSessions.length >= queueConfig.maxActiveSessions) {
+          const queued = enqueueSpawnRequest(config.configPath, projectId, { issueId: issue });
+          console.log(
+            chalk.yellow(
+              `  Queue ${issue} — active sessions ${activeSessions.length}/${queueConfig.maxActiveSessions}, request ${queued.requestId}`,
+            ),
+          );
+          skipped.push({ issue, existing: queued.requestId });
           continue;
         }
 
-        try {
-          const session = await sm.spawn({ projectId, issueId: issue });
-          created.push({ session: session.id, issue });
-          spawnedIssues.add(issue.toLowerCase());
+        const session = await sm.spawn({ projectId, issueId: issue });
+        created.push({ session: session.id, issue });
+        spawnedIssues.add(issue.toLowerCase());
           console.log(chalk.green(`  Created ${session.id} for ${issue}`));
 
           if (opts.open) {

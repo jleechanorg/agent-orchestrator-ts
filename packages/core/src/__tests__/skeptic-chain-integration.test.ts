@@ -366,6 +366,7 @@ describe("skeptic chain integration", () => {
             "",
             `_Posted by ${botAuthor} · ${new Date().toISOString()}_`,
             triggerSha ? `<!-- skeptic-gate-trigger-${triggerSha} -->` : "",
+            triggerSha ? `<!-- skeptic-cron-trigger-${triggerSha} -->` : "",
           ].join("\n");
         },
       ),
@@ -385,6 +386,7 @@ describe("skeptic chain integration", () => {
       expect(capturedBody.current!).toContain("<!-- skeptic-agent-verdict -->");
       expect(capturedBody.current!).toContain("VERDICT: PASS");
       expect(capturedBody.current!).toContain(`skeptic-gate-trigger-${TRIGGER_SHA}`);
+      expect(capturedBody.current!).toContain(`skeptic-cron-trigger-${TRIGGER_SHA}`);
       // ISO timestamp: YYYY-MM-DDTHH:mm:ssZ
       expect(capturedBody.current!).toMatch(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/);
       // bot author attribution

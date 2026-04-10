@@ -16,6 +16,7 @@ import { join, resolve } from "node:path";
 import { existsSync, readdirSync, rmSync } from "node:fs";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { resolveSpawnQueueConfig } from "./spawn-queue.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -92,6 +93,21 @@ export async function backfillUncoveredPRs(
   // Set throttle AFTER confirming SCM supports listOpenPRs — so missing
   // support doesn't block retries when a different SCM plugin is loaded.
   lastBackfillTime = now;
+
+  const spawnQueue = resolveSpawnQueueConfig(project);
+  const activeCount = activeSessions.length;
+  if (spawnQueue.enabled && activeCount >= spawnQueue.maxActiveSessions) {
+    observer.recordOperation({
+      metric: "lifecycle_poll",
+      operation: "lifecycle.backfill.at_capacity",
+      outcome: "success",
+      correlationId,
+      projectId,
+      data: { activeCount, maxActiveSessions: spawnQueue.maxActiveSessions },
+      level: "debug",
+    });
+    return false;
+  }
 
   // Reset per-cycle rate-limit counter.
   // Counter is scoped per backfill invocation (each invocation is one "cycle").

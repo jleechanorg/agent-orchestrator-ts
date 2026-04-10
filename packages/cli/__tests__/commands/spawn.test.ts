@@ -135,6 +135,14 @@ afterEach(() => {
 });
 
 describe("spawn command", () => {
+  it("includes workflow examples in spawn help", () => {
+    const help = program.commands.find((cmd) => cmd.name() === "spawn")?.helpInformation() ?? "";
+
+    expect(help).toContain('ao spawn "fix the flaky retry path"');
+    expect(help).toContain("ao spawn --project agent-orchestrator --claim-pr 456");
+    expect(help).toContain("Project resolution:");
+  });
+
   it("delegates to sessionManager.spawn() with auto-detected project", async () => {
     const fakeSession: Session = {
       id: "app-7",

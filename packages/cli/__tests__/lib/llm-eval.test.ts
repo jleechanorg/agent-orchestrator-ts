@@ -30,8 +30,19 @@ describe("tryCodexPrint", () => {
     expect(result.output).toBe(PASS_VERDICT);
     expect(mockExecFileSync).toHaveBeenCalledWith(
       "/usr/local/bin/codex",
-      ["exec", "-"],
+      ["exec", "--model", "gpt-5.4", "-"],
       expect.objectContaining({ input: "evaluate this" }),
+    );
+  });
+
+  it("uses the explicit gpt-5.4 codex model by default", async () => {
+    mockResolveCodexBinary.mockResolvedValue("/usr/local/bin/codex");
+    mockExecFileSync.mockReturnValue(PASS_VERDICT);
+    await tryCodexPrint("evaluate this");
+    expect(mockExecFileSync).toHaveBeenCalledWith(
+      "/usr/local/bin/codex",
+      ["exec", "--model", "gpt-5.4", "-"],
+      expect.any(Object),
     );
   });
 

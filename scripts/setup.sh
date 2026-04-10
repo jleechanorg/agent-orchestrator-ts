@@ -148,6 +148,10 @@ else
 fi
 cd "$REPO_ROOT"
 
+echo ""
+echo "Installing repo AO skill into user skill directories..."
+bash "$REPO_ROOT/scripts/install-repo-skills.sh"
+
 # ─── Verify ao is in PATH ────────────────────────────────────────────────────
 
 echo ""
@@ -191,6 +195,7 @@ echo "  Navigate to your project directory and start:"
 echo ""
 echo "    cd ~/your-project"
 echo "    ao start            # auto-detects, creates config, launches dashboard"
+echo "    ao --help           # detailed CLI examples"
 echo ""
 echo "  Want to add more projects later?"
 echo ""

@@ -7,9 +7,9 @@
 import { execFile } from "node:child_process";
 import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import { promisify } from "node:util";
-import { writeFileSync, unlinkSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { existsSync, writeFileSync, unlinkSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
+import { basename, join, resolve } from "node:path";
 import {
   CI_STATUS,
   type PluginModule,
@@ -589,6 +589,22 @@ async function execCli(bin: ExecCommand, args: string[], cwd?: string, env?: Rec
   }
 }
 
+async function execCliRaw(bin: ExecCommand, args: string[], cwd?: string, env?: Record<string, string>): Promise<string> {
+  try {
+    const { stdout } = await execFileAsync(bin, args, {
+      ...(cwd ? { cwd } : {}),
+      ...(env ? { env: { ...process.env, ...env } } : {}),
+      maxBuffer: 10 * 1024 * 1024,
+      timeout: 30_000,
+    });
+    return stdout.replace(/[\r\n]+$/, "");
+  } catch (err) {
+    throw new Error(`${bin} ${args.slice(0, 3).join(" ")} failed: ${(err as Error).message}`, {
+      cause: err,
+    });
+  }
+}
+
 /**
  * Build env override for PR mutation operations (close, merge, comment).
  * When AO_BOT_GH_TOKEN is set, mutations are attributed to the bot account
@@ -634,6 +650,10 @@ const CHECKOUT_AO_MANAGED = new Set([
   ".gemini/settings.json",
   "AGENTS.md",
 ]);
+
+async function gitRaw(args: string[], cwd: string): Promise<string> {
+  return execCliRaw("git", args, cwd);
+}
 
 /**
  * Retrieve the GitHub token via `gh auth token` as a fallback when no
@@ -755,6 +775,85 @@ function mapRawCheckStateToStatus(rawState: string | undefined): CICheck["status
   }
 
   return "skipped";
+}
+
+function expandPath(p: string): string {
+  if (p.startsWith("~/")) {
+    return join(homedir(), p.slice(2));
+  }
+  return p;
+}
+
+function extractCheckedOutWorktreePath(errorMessage: string): string | null {
+  const singleQuote = errorMessage.match(/checked out at '([^']+)'/);
+  if (singleQuote?.[1]) return singleQuote[1];
+
+  const doubleQuote = errorMessage.match(/checked out at "([^"]+)"/);
+  if (doubleQuote?.[1]) return doubleQuote[1];
+
+  return null;
+}
+
+async function listTmuxSessionNames(cwd?: string): Promise<string[] | null> {
+  try {
+    const { stdout } = await execFileAsync("tmux", ["list-sessions", "-F", "#{session_name}"], {
+      ...(cwd ? { cwd } : {}),
+      maxBuffer: 10 * 1024 * 1024,
+      timeout: 30_000,
+    });
+    const raw = stdout.trim();
+    return raw
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean);
+  } catch {
+    return null;
+  }
+}
+
+async function hasActiveTmuxSessionForWorktreeName(worktreePath: string, cwd?: string): Promise<boolean> {
+  const sessionName = basename(worktreePath);
+  if (!sessionName) return false;
+  const tmuxSessions = await listTmuxSessionNames(cwd);
+  if (tmuxSessions === null) return true;
+  return tmuxSessions.some((tmuxSession) => tmuxSession === sessionName || tmuxSession.endsWith(`-${sessionName}`));
+}
+
+async function maybeRemoveStaleCheckedOutWorktree(
+  repoPath: string,
+  checkoutErrorMessage: string,
+  worktreeBaseDir: string,
+): Promise<boolean> {
+  const stalePath = extractCheckedOutWorktreePath(checkoutErrorMessage);
+  if (!stalePath) return false;
+
+  const resolvedStale = resolve(stalePath);
+  const resolvedBase = resolve(worktreeBaseDir);
+  if (!resolvedStale.startsWith(`${resolvedBase}/`)) return false;
+
+  const hasActiveTmux = await hasActiveTmuxSessionForWorktreeName(stalePath, repoPath);
+  if (hasActiveTmux) return false;
+
+  try {
+    await git(["worktree", "remove", "--force", "--force", stalePath], repoPath);
+  } catch {
+    // Best-effort cleanup; verify below before claiming success.
+  }
+
+  try {
+    const list = await git(["worktree", "list", "--porcelain"], repoPath);
+    const stillPresent = list
+      .split("\n\n")
+      .some((block) =>
+        block
+          .trim()
+          .split("\n")
+          .some((line) => line.startsWith("worktree ") && line.slice("worktree ".length) === stalePath),
+      );
+    return !stillPresent && !existsSync(resolvedStale);
+  } catch {
+    return !existsSync(resolvedStale);
+  }
 }
 
 /**
@@ -1141,6 +1240,9 @@ function normalizeMergePayloadFromRestShape(data: Record<string, unknown>): void
 
 function createGitHubSCM(config?: Record<string, unknown>): SCM {
   const BOT_AUTHORS = buildBotAuthors(config);
+  const worktreeBaseDir = config?.worktreeDir
+    ? expandPath(config.worktreeDir as string)
+    : join(homedir(), ".worktrees");
 
   // Trusted authors for skeptic verdict detection.
   // Defaults to github-actions[bot] (CI workflows) and jleechan-agent[bot] (agent CLI).
@@ -1390,47 +1492,33 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
       const currentBranch = await git(["branch", "--show-current"], workspacePath);
       if (currentBranch === pr.branch) return false;
 
-      const dirty = (await git(["status", "--porcelain"], workspacePath)).trim();
+      const dirty = await gitRaw(["status", "--porcelain"], workspacePath);
       if (dirty) {
         // Reset AO-managed files FIRST, then re-check dirty state.
         // This ensures that if a non-AO-managed file is the only remaining change,
         // we throw the correct error rather than failing before reaching cleanup.
         for (const line of dirty.split("\n")) {
           if (!line.trim()) continue;
+
           // Porcelain format: XY FILENAME (X=index, Y=working tree; space=no change).
-          const filePath = line.slice(3).trimEnd();
+          const status = line.slice(0, 2);
+          const filePath = line.slice(3).trim();
           if (!CHECKOUT_AO_MANAGED.has(filePath)) continue;
-          const idx = line[0];
-          const wt = line[1];
-
-          // Unstage any staged changes first (e.g. "M  file", "MM file", "A  file").
-          // git reset HEAD unstages the index entry without modifying the working tree.
-          if (idx !== " " && idx !== "?" && idx !== "!" && idx !== undefined) {
-            await git(["reset", "HEAD", "--", filePath], workspacePath).catch(() => {});
-            // After unstaging, the working tree may now differ from HEAD:
-            // - For staged modification (wt=' ', idx='M'): working tree was already clean
-            //   relative to the old staged state, so checkout restores it to HEAD cleanly.
-            // - For staged new file (wt=' ', idx='A'): file doesn't exist in HEAD,
-            //   so checkout would fail — clean the untracked file instead.
-            if (wt === " ") {
-              const restored = await git(["checkout", "--", filePath], workspacePath).catch(() => "failed");
-              if (restored === "failed") {
-                await git(["clean", "-f", "--", filePath], workspacePath).catch(() => {});
-              }
-            }
-          }
-
-          if (wt === "?" || wt === "!") {
+          const [indexStatus, worktreeStatus] = status.split("");
+          if (indexStatus === "?" || worktreeStatus === "?" || indexStatus === "!" || worktreeStatus === "!") {
             // Untracked or ignored — remove from working tree
-            await git(["clean", "-f", filePath], workspacePath).catch(() => {});
-          } else if (wt !== " " && wt !== undefined) {
-            // Working-tree change (e.g. " M", "MD") — restore working tree from index
-            await git(["checkout", "--", filePath], workspacePath).catch(() => {});
+            await git(["clean", "-f", "--", filePath], workspacePath);
+            continue;
           }
+
+          // Restore tracked AO-managed files from HEAD in both index and worktree.
+          // This covers plain working-tree dirt (" M AGENTS.md") and staged/index
+          // dirt ("M  AGENTS.md") without relying on the current index contents.
+          await git(["restore", "--source=HEAD", "--staged", "--worktree", "--", filePath], workspacePath);
         }
 
         // Re-check dirty state after reset attempt
-        const remainingDirty = (await git(["status", "--porcelain"], workspacePath)).trim();
+        const remainingDirty = await gitRaw(["status", "--porcelain"], workspacePath);
         if (remainingDirty) {
           throw new Error(
             `Workspace has uncommitted changes; cannot switch to PR branch "${pr.branch}" safely`,
@@ -1460,11 +1548,34 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
 
       const prRef = `refs/pull/${pr.number}/head`;
 
+      const fetchWithSelfHeal = async (refspec: string): Promise<void> => {
+        try {
+          await git(["fetch", "--force", remote, refspec], workspacePath);
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          if (
+            !msg.includes("refusing to fetch into branch") ||
+            !msg.includes("checked out at")
+          ) {
+            throw err;
+          }
+
+          const removedStale = await maybeRemoveStaleCheckedOutWorktree(
+            workspacePath,
+            msg,
+            worktreeBaseDir,
+          );
+          if (!removedStale) throw err;
+
+          await git(["fetch", "--force", remote, refspec], workspacePath);
+        }
+      };
+
       let fetchErr: Error | undefined;
       try {
         // Primary: fetch via GitHub's pull-request ref (works for fork and regular PRs).
         // Use +src:dst refspec with --force so fetch updates an existing branch.
-        await git(["fetch", "--force", remote, `+${prRef}:${pr.branch}`], workspacePath);
+        await fetchWithSelfHeal(`+${prRef}:${pr.branch}`);
       } catch (err) {
         // Only handle "ref not found" — let auth/network errors propagate
         const msg = err instanceof Error ? err.message : String(err);
@@ -1476,7 +1587,7 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
         // Fallback: fetch the branch directly (works when the branch is on the base repo).
         // Use +src:dst with --force to handle the case where the local branch already exists.
         try {
-          await git(["fetch", "--force", remote, `+${pr.branch}:${pr.branch}`], workspacePath);
+          await fetchWithSelfHeal(`+${pr.branch}:${pr.branch}`);
         } catch {
           // Both refs failed — surface the more informative original error
           throw fetchErr;

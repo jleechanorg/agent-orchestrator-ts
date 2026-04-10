@@ -123,6 +123,7 @@ describe("postVerdict", () => {
     );
 
     expect(state.calls[0]!.body).toContain("<!-- skeptic-gate-trigger-a1b2c3d4 -->");
+    expect(state.calls[0]!.body).toContain("<!-- skeptic-cron-trigger-a1b2c3d4 -->");
   });
 
   it("omits trigger SHA marker when triggerSha is undefined", async () => {
@@ -138,6 +139,7 @@ describe("postVerdict", () => {
     );
 
     expect(state.calls[0]!.body).not.toContain("skeptic-gate-trigger-");
+    expect(state.calls[0]!.body).not.toContain("skeptic-cron-trigger-");
   });
 
   it("includes HTML comment marker for idempotent lookup", async () => {
