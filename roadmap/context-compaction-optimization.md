@@ -103,7 +103,6 @@ See **bd-cx02** (MCP trim) and fork maintainer notes for the detailed server-by-
 | PreCompact hook installed | Done | Blocks ~2% of compactions |
 | Edit/Write permissions added | Done | No more permission dialogs |
 | CLAUDE_CODE_DISABLE_1M_CONTEXT removed | Done (prior session) | Enables 1M context |
-
 | bd-cx05: Upgrade to v2.1.92 | Done | Makes real-session validation of compaction behavior possible. **Note**: this is for controlled/interactive validation only and should not replace the current default pin (v2.1.89) yet. |
 
 ### Next Steps
