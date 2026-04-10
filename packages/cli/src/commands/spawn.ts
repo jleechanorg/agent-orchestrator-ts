@@ -118,7 +118,7 @@ async function spawnSession(
   try {
     const sm = await getSessionManager(config);
 
-    const listedSessions = (await sm.list(projectId)) ?? [];
+    const listedSessions = await sm.list(projectId);
     const activeSessions = listedSessions.filter((session) => !TERMINAL_STATUSES.has(session.status));
     const queueConfig = resolveSpawnQueueConfig(config.projects[projectId]);
     if (queueConfig.enabled && activeSessions.length >= queueConfig.maxActiveSessions) {
@@ -409,7 +409,7 @@ export function registerBatchSpawn(program: Command): void {
       // Load existing sessions once before the loop to avoid repeated reads + enrichment.
       // Exclude terminal sessions so completed/merged sessions don't block respawning
       // (e.g. when an issue is reopened after its PR was merged).
-      const existingSessions = (await sm.list(projectId)) ?? [];
+      const existingSessions = await sm.list(projectId);
       const existingIssueMap = new Map(
         existingSessions
           .filter((s) => s.issueId && !TERMINAL_STATUSES.has(s.status))
@@ -433,7 +433,7 @@ export function registerBatchSpawn(program: Command): void {
       }
 
       try {
-        const activeSessions = ((await sm.list(projectId)) ?? []).filter(
+        const activeSessions = (await sm.list(projectId)).filter(
           (session) => !TERMINAL_STATUSES.has(session.status),
         );
         const queueConfig = resolveSpawnQueueConfig(config.projects[projectId]);

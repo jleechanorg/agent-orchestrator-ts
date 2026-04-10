@@ -3968,6 +3968,62 @@ describe("session exit proof reconciliation (bd-uxs.6)", () => {
     expect(logAoAction).toHaveBeenCalledTimes(1);
   });
 
+  it("pollAll rediscovers terminal sessions from metadata and retries cleanup", async () => {
+    vi.mocked(mockSessionManager.list).mockResolvedValue([]);
+    vi.mocked(mockRuntime.isAlive).mockResolvedValue(false);
+    vi.mocked(mockAgent.getActivityState).mockResolvedValue({ state: "exited" });
+    vi.mocked(mockSessionManager.kill)
+      .mockRejectedValueOnce(new Error("kill failed"))
+      .mockResolvedValueOnce(undefined);
+
+    writeMetadata(sessionsDir, "app-1", {
+      worktree: "/tmp",
+      branch: "main",
+      status: "killed",
+      project: "my-app",
+    });
+
+    vi.mocked(mockSessionManager.get).mockImplementation(async (sessionId) => {
+      if (sessionId !== "app-1") {
+        return null;
+      }
+      const meta = readMetadataRaw(sessionsDir, "app-1") ?? {};
+      return {
+        ...makeSession({ id: "app-1", status: "killed", pr: null }),
+        metadata: {
+          ...meta,
+          worktree: (meta["worktree"] as string | undefined) ?? "/tmp",
+          branch: (meta["branch"] as string | undefined) ?? "main",
+          project: (meta["project"] as string | undefined) ?? "my-app",
+        },
+      };
+    });
+
+    const validateSpy = vi
+      .spyOn(sessionExitProof, "validateAndEmitExitProof")
+      .mockResolvedValue(undefined);
+
+    const lm = createLifecycleManager({
+      config,
+      registry: mockRegistry,
+      sessionManager: mockSessionManager,
+    });
+
+    try {
+      lm.start(25);
+
+      await vi.waitUntil(() => vi.mocked(mockSessionManager.kill).mock.calls.length >= 2, { timeout: 5000 });
+
+      expect(vi.mocked(mockSessionManager.list)).toHaveBeenCalled();
+      expect(vi.mocked(mockSessionManager.get)).toHaveBeenCalledWith("app-1");
+      expect(readMetadataRaw(sessionsDir, "app-1")?.["terminalExitProofRecordedAt"]).toBeDefined();
+      expect(logAoAction).toHaveBeenCalledTimes(1);
+    } finally {
+      validateSpy.mockRestore();
+      lm.stop();
+    }
+  });
+
   it("retries exit proof on a later poll instead of killing immediately when validation throws", async () => {
     const validateSpy = vi
       .spyOn(sessionExitProof, "validateAndEmitExitProof")
