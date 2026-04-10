@@ -1,5 +1,6 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  serverExternalPackages: ["@jleechanorg/ao-core"],
   transpilePackages: [
     "@jleechanorg/ao-core",
     "@jleechanorg/ao-plugin-agent-claude-code",
