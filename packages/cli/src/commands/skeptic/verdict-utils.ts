@@ -10,7 +10,7 @@
  *   - blockquote:     > **VERDICT: SKIPPED**  (skeptic-gate.yml SKIPPED fallback)
  *   - markdown-bold:  **VERDICT: FAIL**       (LLM output with bold)
  *   - markdown-hdr:   ## VERDICT: FAIL        (LLM output with ATX headers — bd-qcwl) */
-export const VERDICT_LINE_RE = /^(?:> ?)?(?:#{1,6}\s*)?\*?\*?VERDICT:\s*(PASS|FAIL|SKIPPED)\b/im;
+export const VERDICT_LINE_RE = /^[ \t]*(?:> ?)?(?:#{1,6}\s*)?\*?\*?VERDICT:\s*(PASS|FAIL|SKIPPED)\b/im;
 
 export type Verdict = "PASS" | "FAIL" | "SKIPPED";
 

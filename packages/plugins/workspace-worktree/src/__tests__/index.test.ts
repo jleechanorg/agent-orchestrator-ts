@@ -381,7 +381,7 @@ describe("workspace.create()", () => {
     // Verify stale worktree removal was attempted (from the walk-up in maybeRemoveStaleCheckedOutWorktree)
     expect(mockExecFileAsync).toHaveBeenCalledWith(
       "git",
-      ["worktree", "remove", "--force", "--force", staleWorktreePath],
+      ["worktree", "remove", "--force", "--force", staleCheckedOutPath],
       { cwd: "/repo/path" },
     );
   });
