@@ -31,7 +31,7 @@ has_tmux_caption() {
     | tail -n +"${url_line:-1}" \
     | grep -v '^[[:space:]]*$' \
     | grep -v '^[[:space:]]*```' \
-    | awk '{ sub(/^\*\*Terminal media\*\*:[[:space:]]*/, ""); sub(/^\*\*Terminal media\*\* :[[:space:]]*/, ""); print }' \
+    | awk '{ sub(/^\*\*Terminal media\*\*:[[:space:]]*/, ""); print }' \
     | grep -qiE 'tmux|terminal'
 }
 

@@ -272,7 +272,7 @@ GITHUB_PR_BODY
             TM_URL_LINE=$(printf '%s' "$TM_BLOCK" | grep -n 'https://' | head -1 | cut -d: -f1)
             # Strip the bold label prefix from the URL line so only the caption survives.
             # awk strips "**Terminal media**: " from inline label+URL+caption lines.
-            CAPTION_LINES=$(printf '%s' "$TM_BLOCK" | tail -n +"${TM_URL_LINE:-1}" | grep -v '^[[:space:]]*$' | grep -v '^[[:space:]]*```' | awk '{ sub(/^\*\*Terminal media\*\*:[[:space:]]*/, ""); sub(/^\*\*Terminal media\*\* :[[:space:]]*/, ""); print }')
+            CAPTION_LINES=$(printf '%s' "$TM_BLOCK" | tail -n +"${TM_URL_LINE:-1}" | grep -v '^[[:space:]]*$' | grep -v '^[[:space:]]*```' | awk '{ sub(/^\*\*Terminal media\*\*:[[:space:]]*/, ""); print }')
             if [ -z "$CAPTION_LINES" ]; then
               echo "FAIL: Terminal media must include caption text (inline or following lines)"
               exit 1
