@@ -160,7 +160,22 @@ PY
   normalize_prefixed_command_status=${BASH_NORMALIZE_PREFIX_STATUS}
   normalize_prefixed_command_payload=${BASH_NORMALIZE_PREFIX_PAYLOAD}
   if [[ "$normalize_prefixed_command_status" == "deny" && "$hook_event" == "PreToolUse" ]]; then
-    printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"%s"}}\n' "$normalize_prefixed_command_payload"
+    python3 - "$normalize_prefixed_command_payload" <<'PY'
+import json
+import sys
+
+print(
+    json.dumps(
+        {
+            "hookSpecificOutput": {
+                "hookEventName": "PreToolUse",
+                "permissionDecision": "deny",
+                "permissionDecisionReason": sys.argv[1],
+            }
+        }
+    )
+)
+PY
     exit 0
   fi
   if [[ "$normalize_prefixed_command_status" == "safe" ]]; then

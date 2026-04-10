@@ -1,5 +1,5 @@
 import { beforeAll, afterAll } from "vitest";
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { accessSync, constants, mkdtempSync, writeFileSync, readFileSync, rmSync, mkdirSync, symlinkSync } from "node:fs";
 import { delimiter, join } from "node:path";
 import { tmpdir } from "node:os";
@@ -107,7 +107,7 @@ export function setupHookScriptIntegrationTest() {
 
     let stdout: string;
     try {
-      stdout = execSync(`/bin/bash "${hookScriptPath}"`, {
+      stdout = execFileSync("/bin/bash", [hookScriptPath], {
         input,
         env: {
           ...process.env,
@@ -122,8 +122,8 @@ export function setupHookScriptIntegrationTest() {
         timeout: 5000,
       });
     } catch (err: unknown) {
-      const e = err as { stdout?: string };
-      stdout = e.stdout ?? "";
+      const e = err as { stdout?: string | Buffer };
+      stdout = typeof e.stdout === "string" ? e.stdout : e.stdout?.toString("utf-8") ?? "";
     }
 
     let metadata: string;
