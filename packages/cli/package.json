@@ -27,6 +27,7 @@
   "scripts": {
     "build": "tsc && node scripts/copy-templates.mjs src/templates dist/templates",
     "dev": "tsx src/index.ts",
+    "pretest": "pnpm --filter @jleechanorg/ao-core build && pnpm -r --filter '@jleechanorg/ao-plugin-*' build",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
