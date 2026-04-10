@@ -292,35 +292,74 @@ describe("workspace.create()", () => {
 
   it("recovers checkout by removing stale checked-out worktree with no active tmux session", async () => {
     const ws = create();
-    const worktreePath = "/mock-home/.worktrees/myproject/wa-999";
-
-    // Mock existsSync to return false for the worktree path, triggering unlock (bd-206).
-    // The unlock call needs to be in the mock queue.
+    // The stale worktree path must appear absent from the filesystem so
+    // maybeRemoveStaleCheckedOutWorktree() returns true after removing it.
+    const stalePath = "/mock-home/.worktrees/myproject/ao-999";
     mockExistsSync.mockImplementation((p: string) => {
       if (String(p).endsWith(".git/info")) return true;
-      if (String(p) === worktreePath) return false; // trigger unlock path
-      return true; // default: path exists
+      if (String(p) === stalePath) return false; // stale path is gone after removal
+      return true;
+    });
+    let checkoutAttempts = 0;
+    mockExecFileAsync.mockImplementation((cmd: string, args: string[], opts?: { cwd?: string }) => {
+      if (cmd === "tmux") {
+        return Promise.resolve({ stdout: "\n", stderr: "" });
+      }
+
+      if (cmd !== "git") {
+        return Promise.resolve({ stdout: "\n", stderr: "" });
+      }
+
+      const key = [cmd, ...args, opts?.cwd ? `(cwd=${opts.cwd})` : ""].join(",");
+      if (key === "git,fetch,origin,--quiet,(cwd=/repo/path)") {
+        return Promise.resolve({ stdout: "\n", stderr: "" });
+      }
+      if (key === "git,branch,--list,origin/main,(cwd=/repo/path)") {
+        return Promise.resolve({ stdout: "\n", stderr: "" });
+      }
+      if (
+        key ===
+        "git,worktree,add,-b,feat/TEST-1,/mock-home/.worktrees/myproject/session-1,origin/main,(cwd=/repo/path)"
+      ) {
+        return Promise.reject(new Error("already exists"));
+      }
+      if (
+        key ===
+        "git,worktree,add,/mock-home/.worktrees/myproject/session-1,origin/main,(cwd=/repo/path)"
+      ) {
+        return Promise.resolve({ stdout: "\n", stderr: "" });
+      }
+      if (key === "git,checkout,feat/TEST-1,(cwd=/mock-home/.worktrees/myproject/session-1)") {
+        if (checkoutAttempts === 0) {
+          checkoutAttempts += 1;
+          return Promise.reject(
+            new Error(
+              "fatal: 'feat/TEST-1' is already checked out at '/mock-home/.worktrees/myproject/ao-999'",
+            ),
+          );
+        }
+        return Promise.resolve({ stdout: "\n", stderr: "" });
+      }
+      if (
+        key ===
+        "git,worktree,remove,--force,--force,/mock-home/.worktrees/myproject/ao-999,(cwd=/repo/path)"
+      ) {
+        return Promise.resolve({ stdout: "\n", stderr: "" });
+      }
+      if (key === "git,worktree,list,--porcelain,(cwd=/repo/path)") {
+        return Promise.resolve({ stdout: "\n", stderr: "" });
+      }
+      if (
+        key ===
+        "git,worktree,lock,--reason,AO session active,/mock-home/.worktrees/myproject/session-1,(cwd=/repo/path)"
+      ) {
+        return Promise.resolve({ stdout: "\n", stderr: "" });
+      }
+
+      return Promise.resolve({ stdout: "\n", stderr: "" });
     });
 
-    // create() makes many git calls — provide enough mocks for all of them.
-    // Mock values after the first 5 determine the stale-worktree-removal path.
-    mockGitSuccess(""); // fetch
-    mockGitSuccess(""); // git worktree unlock (bd-206, path is missing)
-    mockGitSuccess(""); // git branch --list origin/main — no local conflict
-    mockGitError("already exists"); // worktree add -b fails
-    mockGitSuccess(""); // worktree add (without -b)
-    mockGitError("already exists, already checked out at '/mock-home/.worktrees/myproject/ao-999'"); // checkout fails first time
-    mockGitSuccess(""); // branch --show-current from stale worktree dir (caught)
-    mockGitSuccess(""); // rev-parse from stale worktree dir (caught)
-    mockGitSuccess(""); // git worktree list --porcelain from homedir (caught, returns empty)
-    mockGitSuccess(""); // git worktree remove of stale (caught)
-    mockGitSuccess(""); // git worktree remove --force --force of worktree
-    mockGitSuccess(""); // setupAoManagedExclude readFile (ENOENT caught)
-    mockGitSuccess(""); // setupAoManagedExclude writeFile (success)
-    mockGitSuccess(""); // git worktree lock (success)
-    mockGitSuccess(""); // checkout retry succeeds
-
-    const info = await ws.create(makeCreateConfig({ sessionId: "wa-999" }));
+    const info = await ws.create(makeCreateConfig());
 
     expect(info.branch).toBe("feat/TEST-1");
     // Verify stale worktree removal was attempted (from the walk-up in maybeRemoveStaleCheckedOutWorktree)

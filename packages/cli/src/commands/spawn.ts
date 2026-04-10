@@ -118,7 +118,8 @@ async function spawnSession(
   try {
     const sm = await getSessionManager(config);
 
-    const activeSessions = (await sm.list(projectId)).filter((session) => !TERMINAL_STATUSES.has(session.status));
+    const listedSessions = await sm.list(projectId);
+    const activeSessions = listedSessions.filter((session) => !TERMINAL_STATUSES.has(session.status));
     const queueConfig = resolveSpawnQueueConfig(config.projects[projectId]);
     if (queueConfig.enabled && activeSessions.length >= queueConfig.maxActiveSessions) {
       const queued = enqueueSpawnRequest(config.configPath, projectId, {

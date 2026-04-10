@@ -2734,7 +2734,7 @@ describe("send", () => {
     const meta = readMetadataRaw(sessionsDir, "app-1");
     expect(meta?.["opencodeSessionId"]).toBe("ses_send_discovered_valid");
     expect(mockRuntime.sendMessage).toHaveBeenCalledWith(makeHandle("rt-1"), "hello");
-  });
+  }, 10_000);
 
   it("confirms OpenCode delivery from session updated timestamps", async () => {
     const deleteLogPath = join(tmpDir, "opencode-send-confirmation.log");

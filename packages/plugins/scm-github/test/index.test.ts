@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { homedir } from "node:os";
 
 // ---------------------------------------------------------------------------
 // Mock node:child_process — gh CLI calls go through execFileAsync = promisify(execFile)
@@ -833,12 +834,14 @@ describe("scm-github plugin", () => {
     });
 
     it("removes a stale AO worktree and retries fetch when target branch is checked out elsewhere", async () => {
+      const staleWorktreePath = `${homedir()}/.worktrees/acme/ao-9999`;
+
       ghMock.mockResolvedValueOnce({ stdout: "main\n" }); // git branch --show-current (before)
       ghMock.mockResolvedValueOnce({ stdout: "" }); // git status --porcelain (clean)
       ghMock.mockResolvedValueOnce({ stdout: "https://github.com/acme/repo.git\n" }); // git remote get-url origin
       ghMock.mockRejectedValueOnce(
         new Error(
-          "fatal: refusing to fetch into branch 'refs/heads/feat/my-feature' checked out at '/Users/jleechan/.worktrees/acme/ao-9999'\n",
+          `fatal: refusing to fetch into branch 'refs/heads/feat/my-feature' checked out at '${staleWorktreePath}'\n`,
         ),
       ); // initial fetch blocked by stale worktree
       ghMock.mockResolvedValueOnce({ stdout: "detached-ghost\nanother-live-session\n" }); // tmux list-sessions (stale ao-9999 is dead)

@@ -7,6 +7,8 @@ import { randomUUID } from "node:crypto";
 import { createLifecycleManager } from "../lifecycle-manager.js";
 import { createSessionManager } from "../session-manager.js";
 import * as reviewBacklog from "../review-backlog.js";
+import * as sessionExitProof from "../session-exit-proof.js";
+import * as forkUtils from "../fork-utils.js";
 import { writeMetadata, readMetadataRaw } from "../metadata.js";
 import { getSessionsDir, getProjectBaseDir } from "../paths.js";
 import { clearLastSentHeadSha, clearAllMessageHashesForSession } from "../dedup-head-sha-store.js";
@@ -3896,6 +3898,327 @@ describe("session exit proof reconciliation (bd-uxs.6)", () => {
     expect((call![0] as { type: string }).type).toBe("session.exit_validated");
   });
 
+  it("records terminal exit proof once and keeps retrying kill on later polls", async () => {
+    vi.mocked(mockRuntime.isAlive).mockResolvedValue(false);
+    vi.mocked(mockAgent.getActivityState).mockResolvedValue({ state: "exited" });
+    vi.mocked(mockSessionManager.kill)
+      .mockRejectedValueOnce(new Error("kill failed"))
+      .mockResolvedValueOnce(undefined);
+
+    vi.mocked(mockSessionManager.get).mockImplementationOnce(async () =>
+      makeSession({ status: "working", pr: null }),
+    );
+
+    writeMetadata(sessionsDir, "app-1", {
+      worktree: "/tmp",
+      branch: "main",
+      status: "working",
+      project: "my-app",
+    });
+
+    const registryWithNotifier: PluginRegistry = {
+      ...mockRegistry,
+      get: vi.fn().mockImplementation((slot: string, name?: string) => {
+        if (slot === "runtime") return mockRuntime;
+        if (slot === "agent") return mockAgent;
+        if (slot === "notifier" && name === "desktop") return mockNotifier;
+        return null;
+      }),
+    };
+
+    const lm = createLifecycleManager({
+      config,
+      registry: registryWithNotifier,
+      sessionManager: mockSessionManager,
+    });
+
+    await lm.check("app-1");
+
+    const persisted = readMetadataRaw(sessionsDir, "app-1");
+    expect(persisted?.["terminalExitProofRecordedAt"]).toBeDefined();
+
+    vi.mocked(mockSessionManager.get).mockImplementationOnce(async () => {
+      const meta = readMetadataRaw(sessionsDir, "app-1") ?? {};
+      const status = (typeof meta["status"] === "string" ? meta["status"] : "working") as Session["status"];
+      return {
+        ...makeSession({ status, pr: null }),
+        metadata: {
+          ...meta,
+          worktree: (meta["worktree"] as string | undefined) ?? "/tmp",
+          branch: (meta["branch"] as string | undefined) ?? "main",
+          project: (meta["project"] as string | undefined) ?? "my-app",
+        },
+      };
+    });
+
+    const retryLm = createLifecycleManager({
+      config,
+      registry: registryWithNotifier,
+      sessionManager: mockSessionManager,
+    });
+
+    await retryLm.check("app-1");
+
+    const exitProofFailureCalls = vi.mocked(mockNotifier.notify).mock.calls.filter(
+      (c) => (c[0] as { type?: string } | undefined)?.type === "session.exit_failed",
+    );
+    expect(exitProofFailureCalls).toHaveLength(1);
+    expect(mockSessionManager.kill).toHaveBeenCalledTimes(2);
+    expect(mockRuntime.isAlive).toHaveBeenCalledTimes(1);
+    expect(logAoAction).toHaveBeenCalledTimes(1);
+  });
+
+  it("pollAll rediscovers terminal sessions from metadata and retries cleanup", async () => {
+    vi.mocked(mockSessionManager.list).mockResolvedValue([]);
+    vi.mocked(mockRuntime.isAlive).mockResolvedValue(false);
+    vi.mocked(mockAgent.getActivityState).mockResolvedValue({ state: "exited" });
+    vi.mocked(mockSessionManager.kill)
+      .mockRejectedValueOnce(new Error("kill failed"))
+      .mockResolvedValueOnce(undefined);
+
+    writeMetadata(sessionsDir, "app-1", {
+      worktree: "/tmp",
+      branch: "main",
+      status: "killed",
+      project: "my-app",
+    });
+
+    vi.mocked(mockSessionManager.get).mockImplementation(async (sessionId) => {
+      if (sessionId !== "app-1") {
+        return null;
+      }
+      const meta = readMetadataRaw(sessionsDir, "app-1") ?? {};
+      return {
+        ...makeSession({ id: "app-1", status: "killed", pr: null }),
+        metadata: {
+          ...meta,
+          worktree: (meta["worktree"] as string | undefined) ?? "/tmp",
+          branch: (meta["branch"] as string | undefined) ?? "main",
+          project: (meta["project"] as string | undefined) ?? "my-app",
+        },
+      };
+    });
+
+    const validateSpy = vi
+      .spyOn(sessionExitProof, "validateAndEmitExitProof")
+      .mockResolvedValue(undefined);
+
+    const lm = createLifecycleManager({
+      config,
+      registry: mockRegistry,
+      sessionManager: mockSessionManager,
+    });
+
+    try {
+      lm.start(25);
+
+      await vi.waitUntil(() => vi.mocked(mockSessionManager.kill).mock.calls.length >= 2, { timeout: 5000 });
+
+      expect(validateSpy).toHaveBeenCalledTimes(1);
+      expect(vi.mocked(mockSessionManager.list)).toHaveBeenCalled();
+      expect(vi.mocked(mockSessionManager.get)).toHaveBeenCalledWith("app-1");
+      expect(readMetadataRaw(sessionsDir, "app-1")?.["terminalExitProofRecordedAt"]).toBeDefined();
+      expect(logAoAction.mock.calls.length).toBeGreaterThanOrEqual(1);
+    } finally {
+      validateSpy.mockRestore();
+      lm.stop();
+    }
+  });
+
+  it("retries exit proof on a later poll instead of killing immediately when validation throws", async () => {
+    const validateSpy = vi
+      .spyOn(sessionExitProof, "validateAndEmitExitProof")
+      .mockRejectedValueOnce(new Error("scm unavailable"))
+      .mockResolvedValueOnce(undefined);
+
+    vi.mocked(mockRuntime.isAlive).mockResolvedValue(false);
+    vi.mocked(mockAgent.getActivityState).mockResolvedValue({ state: "exited" });
+    vi.mocked(mockSessionManager.get).mockImplementation(async () => {
+      const meta = readMetadataRaw(sessionsDir, "app-1") ?? {};
+      const status = (typeof meta["status"] === "string" ? meta["status"] : "working") as Session["status"];
+      return {
+        ...makeSession({ status, pr: null }),
+        metadata: {
+          ...meta,
+          worktree: (meta["worktree"] as string | undefined) ?? "/tmp",
+          branch: (meta["branch"] as string | undefined) ?? "main",
+          project: (meta["project"] as string | undefined) ?? "my-app",
+        },
+      };
+    });
+
+    writeMetadata(sessionsDir, "app-1", {
+      worktree: "/tmp",
+      branch: "main",
+      status: "working",
+      project: "my-app",
+    });
+
+    const lm = createLifecycleManager({
+      config,
+      registry: mockRegistry,
+      sessionManager: mockSessionManager,
+    });
+
+    try {
+      await lm.check("app-1");
+
+      expect(validateSpy).toHaveBeenCalledTimes(1);
+      expect(mockSessionManager.kill).not.toHaveBeenCalled();
+      expect(readMetadataRaw(sessionsDir, "app-1")?.["terminalExitProofRecordedAt"]).toBeUndefined();
+
+      await lm.check("app-1");
+
+      expect(validateSpy).toHaveBeenCalledTimes(2);
+      expect(mockSessionManager.kill).toHaveBeenCalledTimes(1);
+      expect(readMetadataRaw(sessionsDir, "app-1")?.["terminalExitProofRecordedAt"]).toBeDefined();
+    } finally {
+      validateSpy.mockRestore();
+    }
+  });
+
+  it("defers cleanup until the exit-proof dedupe marker is durably persisted", async () => {
+    const originalUpdateSessionMetadataHelper = forkUtils.updateSessionMetadataHelper;
+    let persistSpyRestored = false;
+    const persistSpy = vi
+      .spyOn(forkUtils, "updateSessionMetadataHelper")
+      .mockImplementation((session, updates, nextConfig) => {
+        if (updates["terminalExitProofRecordedAt"] !== undefined) {
+          throw new Error("metadata locked");
+        }
+        originalUpdateSessionMetadataHelper(session, updates, nextConfig);
+      });
+
+    const validateSpy = vi
+      .spyOn(sessionExitProof, "validateAndEmitExitProof")
+      .mockResolvedValue(undefined);
+
+    vi.mocked(mockRuntime.isAlive).mockResolvedValue(false);
+    vi.mocked(mockAgent.getActivityState).mockResolvedValue({ state: "exited" });
+    vi.mocked(mockSessionManager.get).mockImplementation(async () => {
+      const meta = readMetadataRaw(sessionsDir, "app-1") ?? {};
+      const status = (typeof meta["status"] === "string" ? meta["status"] : "working") as Session["status"];
+      return {
+        ...makeSession({ status, pr: null }),
+        metadata: {
+          ...meta,
+          worktree: (meta["worktree"] as string | undefined) ?? "/tmp",
+          branch: (meta["branch"] as string | undefined) ?? "main",
+          project: (meta["project"] as string | undefined) ?? "my-app",
+        },
+      };
+    });
+
+    writeMetadata(sessionsDir, "app-1", {
+      worktree: "/tmp",
+      branch: "main",
+      status: "working",
+      project: "my-app",
+    });
+
+    const lm = createLifecycleManager({
+      config,
+      registry: mockRegistry,
+      sessionManager: mockSessionManager,
+    });
+
+    try {
+      await lm.check("app-1");
+
+      expect(validateSpy).toHaveBeenCalledTimes(1);
+      expect(mockSessionManager.kill).not.toHaveBeenCalled();
+      expect(readMetadataRaw(sessionsDir, "app-1")?.["terminalExitProofRecordedAt"]).toBeUndefined();
+
+      persistSpy.mockRestore();
+      persistSpyRestored = true;
+
+      await lm.check("app-1");
+
+      expect(validateSpy).toHaveBeenCalledTimes(1);
+      expect(mockSessionManager.kill).toHaveBeenCalledTimes(1);
+      expect(readMetadataRaw(sessionsDir, "app-1")?.["terminalExitProofRecordedAt"]).toBeDefined();
+    } finally {
+      validateSpy.mockRestore();
+      if (!persistSpyRestored) {
+        persistSpy.mockRestore();
+      }
+    }
+  });
+
+  it("persists pending exit-proof dedupe across lifecycle-manager restarts", async () => {
+    const originalUpdateSessionMetadataHelper = forkUtils.updateSessionMetadataHelper;
+    let persistSpyRestored = false;
+    const persistSpy = vi
+      .spyOn(forkUtils, "updateSessionMetadataHelper")
+      .mockImplementation((session, updates, nextConfig) => {
+        if (updates["terminalExitProofRecordedAt"] !== undefined) {
+          throw new Error("metadata locked");
+        }
+        originalUpdateSessionMetadataHelper(session, updates, nextConfig);
+      });
+
+    const validateSpy = vi
+      .spyOn(sessionExitProof, "validateAndEmitExitProof")
+      .mockResolvedValue(undefined);
+
+    vi.mocked(mockRuntime.isAlive).mockResolvedValue(false);
+    vi.mocked(mockAgent.getActivityState).mockResolvedValue({ state: "exited" });
+    vi.mocked(mockSessionManager.get).mockImplementation(async () => {
+      const meta = readMetadataRaw(sessionsDir, "app-1") ?? {};
+      const status = (typeof meta["status"] === "string" ? meta["status"] : "working") as Session["status"];
+      return {
+        ...makeSession({ status, pr: null }),
+        metadata: {
+          ...meta,
+          worktree: (meta["worktree"] as string | undefined) ?? "/tmp",
+          branch: (meta["branch"] as string | undefined) ?? "main",
+          project: (meta["project"] as string | undefined) ?? "my-app",
+        },
+      };
+    });
+
+    writeMetadata(sessionsDir, "app-1", {
+      worktree: "/tmp",
+      branch: "main",
+      status: "working",
+      project: "my-app",
+    });
+
+    const firstLm = createLifecycleManager({
+      config,
+      registry: mockRegistry,
+      sessionManager: mockSessionManager,
+    });
+
+    try {
+      await firstLm.check("app-1");
+
+      expect(validateSpy).toHaveBeenCalledTimes(1);
+      expect(mockSessionManager.kill).not.toHaveBeenCalled();
+      expect(readMetadataRaw(sessionsDir, "app-1")?.["terminalExitProofRecordedAt"]).toBeUndefined();
+
+      persistSpy.mockRestore();
+      persistSpyRestored = true;
+
+      const restartedLm = createLifecycleManager({
+        config,
+        registry: mockRegistry,
+        sessionManager: mockSessionManager,
+      });
+
+      await restartedLm.check("app-1");
+
+      expect(validateSpy).toHaveBeenCalledTimes(1);
+      expect(mockSessionManager.kill).toHaveBeenCalledTimes(1);
+      expect(readMetadataRaw(sessionsDir, "app-1")?.["terminalExitProofRecordedAt"]).toBeDefined();
+    } finally {
+      validateSpy.mockRestore();
+      if (!persistSpyRestored) {
+        persistSpy.mockRestore();
+      }
+    }
+  });
+
   it("emits session.exit_failed when validateCommits returns pushed=false", async () => {
     // SCM mock with validateCommits that returns pushed=false (local commits not pushed)
     const mockSCM: SCM = {
@@ -4988,7 +5311,7 @@ describe("post-merge reap: reapPostMergeCoWorkers is called on merged transition
     expect(reapPostMergeCoWorkers).not.toHaveBeenCalled();
   });
 
-  it("reapPostMergeCoWorkers errors do not crash check() — failure is warning-only", async () => {
+  it("retries merged cleanup on a later poll when reapPostMergeCoWorkers fails", async () => {
     vi.mocked(reapPostMergeCoWorkers).mockRejectedValueOnce(
       new Error("reaper unreachable"),
     );
@@ -4998,6 +5321,12 @@ describe("post-merge reap: reapPostMergeCoWorkers is called on merged transition
     // check() completes without throwing even though reapPostMergeCoWorkers failed
     expect(lm.getStates().get("app-1")).toBe("merged");
     expect(reapPostMergeCoWorkers).toHaveBeenCalledTimes(1);
+    expect(mockSessionManager.kill).not.toHaveBeenCalled();
+
+    await lm.check("app-1");
+
+    expect(reapPostMergeCoWorkers).toHaveBeenCalledTimes(2);
+    expect(mockSessionManager.kill).toHaveBeenCalledTimes(1);
   });
 });
 
