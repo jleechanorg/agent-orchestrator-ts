@@ -1067,13 +1067,9 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       }
     }
 
-    // Skip all subprocess/IO work for sessions already known to be terminal.
-    if (TERMINAL_SESSION_STATUSES.has(session.status)) {
-      session.activity = "exited";
-      return;
-    }
-
-    // Check runtime liveness — but only if the handle came from metadata.
+    // Check runtime liveness first — regardless of session status.
+    // This fixes #1081: terminal statuses (merged, done, etc.) should not force
+    // activity to "exited" if the agent process is still alive.
     // Fabricated handles (constructed as fallback for external sessions) should
     // NOT override status to "killed" — we don't know if the session ever had
     // a tmux session, and we'd clobber meaningful statuses like "pr_open".
@@ -1093,14 +1089,19 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
           // on future polls). A second false result confirms the session is gone.
           const confirmedAlive = await aliveRuntime.isAlive(session.runtimeHandle).catch(() => false);
           if (confirmedAlive) return; // Transient false negative — skip this cycle
-          session.status = "killed";
+          // Process is confirmed dead — set activity to exited.
+          // Only update status to "killed" if not already in a terminal state.
+          if (!TERMINAL_SESSION_STATUSES.has(session.status)) {
+            session.status = "killed";
+          }
           session.activity = "exited";
           if (sessionsDir) {
             try {
-              updateMetadata(sessionsDir, session.id, {
-                status: "killed",
-                activity: "exited"
-              });
+              const metaUpdates: Record<string, string> = { activity: "exited" };
+              if (!TERMINAL_SESSION_STATUSES.has(session.status) || session.status === "killed") {
+                metaUpdates.status = "killed";
+              }
+              updateMetadata(sessionsDir, session.id, metaUpdates);
             } catch {
               // ignore write error
             }
@@ -1122,10 +1123,12 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       }
     }
 
-    // Detect activity independently of runtime handle.
+    // Detect activity independently of runtime handle and session status.
     // Activity detection reads JSONL files on disk — it only needs workspacePath,
     // not a runtime handle. Gating on runtimeHandle caused sessions created by
     // external scripts (which don't store runtimeHandle) to always show "unknown".
+    // This now runs for ALL sessions, including terminal statuses, so a merged
+    // session with a live agent shows accurate activity (ready/idle/waiting_input).
     if (plugins.agent) {
       try {
         const detected = await plugins.agent.getActivityState(session, config.readyThresholdMs);
