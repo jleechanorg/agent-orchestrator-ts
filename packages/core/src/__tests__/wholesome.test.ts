@@ -325,7 +325,19 @@ describe("wholesome — structural source-code assertions", () => {
   });
 
   // -------------------------------------------------------------------------
-  // 5. Commit message prefix
+  // 5. Prefix-aware lifecycle orchestrator checks
+  // -------------------------------------------------------------------------
+  describe("lifecycle-manager uses prefix-aware orchestrator classification", () => {
+    it("does not call the prefix-unaware isOrchestratorSession helper", () => {
+      const source = readFileSync(join(REPO_ROOT, "packages/core/src/lifecycle-manager.ts"), "utf-8");
+
+      expect(source).not.toContain("isOrchestratorSession(");
+      expect(source).toContain("isLifecycleOrchestratorSession(");
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // 6. Commit message prefix
   // -------------------------------------------------------------------------
   describe("commit message follows [agento] convention", () => {
     /**

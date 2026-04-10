@@ -27,7 +27,6 @@ import {
   PR_STATE,
   CI_STATUS,
   TERMINAL_STATUSES,
-  isOrchestratorSession,
   type LifecycleManager,
   type SessionManager,
   type SessionId,
@@ -71,7 +70,7 @@ import { isPRMerged } from "./fork-lifecycle-kki-override.js";
 import { handleRequestMerge, handleParallelRetry } from "./fork-reaction-handlers.js";
 import { handleRespawnForReview } from "./fork-reaction-rfr.js";
 import { maybeDispatchReviewBacklog } from "./review-backlog.js";
-import { getAllSessionPrefixes } from "./session-prefixes.js";
+import { getAllSessionPrefixes, isOrchestratorSessionForPrefix } from "./session-prefixes.js";
 import { updateSessionMetadataHelper } from "./fork-utils.js";
 import { checkMergeGate, type MergeGateResult } from "./merge-gate.js";
 import { GLOBAL_PAUSE_UNTIL_KEY, GLOBAL_PAUSE_REASON_KEY, parsePauseUntil } from "./global-pause.js";
@@ -443,6 +442,11 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
   const TERMINAL_EXIT_PROOF_RECORDED_AT_KEY = "terminalExitProofRecordedAt";
   const pendingTerminalExitProofRecordedAt = new Map<string, string>();
 
+  function isLifecycleOrchestratorSession(session: Pick<Session, "id" | "metadata" | "projectId">): boolean {
+    const project = config.projects[session.projectId];
+    return isOrchestratorSessionForPrefix(session, project?.sessionPrefix);
+  }
+
   /** Run all productivity checks for active sessions. */
   async function runProductivityCycle(): Promise<void> {
     if (productivityRunning) return;
@@ -454,7 +458,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       // productivity checks skip paused sessions (bd-nk7).
       const pausedProjects = new Map<string, Date>();
       for (const session of sessions) {
-        if (!isOrchestratorSession(session)) continue;
+        if (!isLifecycleOrchestratorSession(session)) continue;
         const until = parsePauseUntil(session.metadata[GLOBAL_PAUSE_UNTIL_KEY]);
         if (!until) continue;
         if (until.getTime() <= Date.now()) {
@@ -1610,7 +1614,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       }
     }
 
-    if (!isOrchestratorSession(session)) {
+    if (!isLifecycleOrchestratorSession(session)) {
       if (exitStatus === "merged") {
         try {
           await reapPostMergeCoWorkers(session, sessionManager, observer, {
@@ -2492,7 +2496,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       // this deep pane inspection catches false-liveness. (bd-stuck-probe)
       if (
         !TERMINAL_STATUSES.has(newStatus) &&
-        !isOrchestratorSession(session) &&
+        !isLifecycleOrchestratorSession(session) &&
         session.runtimeHandle
       ) {
         try {
@@ -2581,7 +2585,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
 
       const pausedProjects = new Map<string, Date>();
       for (const session of sessions) {
-        if (!isOrchestratorSession(session)) continue;
+        if (!isLifecycleOrchestratorSession(session)) continue;
         const until = parsePauseUntil(session.metadata[GLOBAL_PAUSE_UNTIL_KEY]);
         if (!until) continue;
         if (until.getTime() <= Date.now()) {
@@ -2630,7 +2634,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         // Skip non-orchestrator sessions if project is currently paused.
         // Terminal sessions bypass so exit proof, outcome recording, and cleanup
         // are not delayed (bd-e4t).
-        if (pausedProjects.has(s.projectId) && !isOrchestratorSession(s) && !TERMINAL_STATUSES.has(s.status)) {
+        if (pausedProjects.has(s.projectId) && !isLifecycleOrchestratorSession(s) && !TERMINAL_STATUSES.has(s.status)) {
           continue;
         }
         await checkSession(s).catch((err) => {
