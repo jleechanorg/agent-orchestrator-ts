@@ -156,9 +156,12 @@ export async function tryCodexPrint(prompt: string): Promise<LlmEvalResult> {
     if (errno.code === "ENOENT" || isUnavailable(msg)) {
       return { validVerdict: false, output: "", error: undefined }; // → try next
     }
-    // All other errors (timeout, Command failed without auth issue, etc.) are real failures
-    // — fail-closed: do NOT fall through to next tool
-    return { validVerdict: false, output: "", error: msg };
+    // Truncate to first line only — Codex echoes the full prompt in its session log,
+    // which contains "VERDICT: PASS" as template example text. If we embed the full
+    // error message in the verdict comment, skeptic-gate.yml's grep finds the template
+    // text and incorrectly reports PASS. First line is always "Command failed: <cmd>".
+    const shortMsg = msg.split("\n")[0]?.slice(0, 300) ?? msg.slice(0, 300);
+    return { validVerdict: false, output: "", error: shortMsg };
   }
 }
 
