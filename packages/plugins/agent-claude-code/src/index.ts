@@ -52,6 +52,7 @@ const AO_DATA_DIR_LINE =
 // MUST use ${array[index]} (not "$array[index]") for bash array access.
 const BASH_REMATCH1 = '"${BASH_REMATCH[1]}"';
 const BASH_REMATCH2 = '"${BASH_REMATCH[2]}"';
+const BASH_REMATCH3 = '"${BASH_REMATCH[3]}"';
 // Result: "${BASH_REMATCH[1]}" and "${BASH_REMATCH[2]}" as literal bash array access
 
 // Bash parameter expansions — expressed as single-quoted JS strings (no JS interpretation)
@@ -114,47 +115,85 @@ fi
 # are correctly detected. Agents frequently cd into a worktree first.
 # Store the regex pattern in a variable for clarity (avoids shell quoting confusion).
 # Uses space-padded (&&|;) to avoid breaking on paths containing & or ; chars.
-cd_prefix_pattern='^[[:space:]]*cd[[:space:]]+.*[[:space:]]+(&&|;)[[:space:]]+(.*)'
+env_prefix_pattern='^([[:space:]]*[A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+)(.+)$'
+cd_prefix_pattern='^([[:space:]]*cd[[:space:]]+.*[[:space:]]+(&&|;)[[:space:]]+)(.*)$'
 clean_command="$command"
+command_prefix=""
 while true; do
   # Strip leading env assignments: FOO=bar BAZ=qux gh pr create ...
   # [^[:space:]]* for the value allows embedded = (e.g. FOO=a=b gh pr create).
   # Trailing space required so bare "FOO=bar" (no cmd) avoids infinite loop.
-  if [[ "$clean_command" =~ ^[[:space:]]*[A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+(.+)$ ]]; then
-    clean_command=${BASH_REMATCH1}
+  if [[ "$clean_command" =~ $env_prefix_pattern ]]; then
+    command_prefix+="${BASH_REMATCH1}"
+    clean_command=${BASH_REMATCH2}
   # Strip leading cd prefixes: cd /path && gh pr create ...
   elif [[ "$clean_command" =~ $cd_prefix_pattern ]]; then
-    clean_command=${BASH_REMATCH2}
+    command_prefix+="${BASH_REMATCH1}"
+    clean_command=${BASH_REMATCH3}
   else
     break
   fi
 done
 
-# Guardrail: enforce [agento] prefix on gh pr create titles (PreToolUse only).
+# Guardrail: rewrite gh pr create titles to include [agento] prefix (PreToolUse only).
 # PostToolUse falls through to metadata update — no need to re-check there.
 pr_create_pattern='^[[:space:]]*([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]+[[:space:]]+)*gh[[:space:]]+pr[[:space:]]+create([[:space:]]|$)'
 if [[ "$hook_event" == "PreToolUse" && "$clean_command" =~ $pr_create_pattern ]]; then
-  # Parse --title or -t as proper argv tokens (not substring in --body etc.).
-  # Python shlex correctly handles quoted strings containing literal "--title".
-  first_title=$(python3 -c "
-import shlex, sys
-args = shlex.split(sys.argv[1])
-for i, arg in enumerate(args):
-    if arg == '--title':
-        print(args[i+1], end='')
+  # Parse --title or -t as proper argv tokens (not substring in --body etc.)
+  # and rewrite the command when the title needs the required prefix.
+  rewrite_result=$(python3 -c "
+import json, shlex, sys
+
+prefix = sys.argv[1]
+command = sys.argv[2]
+
+try:
+    args = shlex.split(command)
+except Exception:
+    sys.exit(0)
+
+updated = False
+i = 0
+while i < len(args):
+    arg = args[i]
+    if arg == '--title' and i + 1 < len(args):
+        title = args[i + 1]
+        if not title.startswith('[agento]'):
+            args[i + 1] = '[agento] ' + title
+            updated = True
         break
     if arg.startswith('--title='):
-        print(arg[len('--title='):], end='')
+        title = arg[len('--title='):]
+        if not title.startswith('[agento]'):
+            args[i] = '--title=' + '[agento] ' + title
+            updated = True
         break
-    if arg == '-t':
-        print(args[i+1], end='')
+    if arg == '-t' and i + 1 < len(args):
+        title = args[i + 1]
+        if not title.startswith('[agento]'):
+            args[i + 1] = '[agento] ' + title
+            updated = True
         break
-    if arg.startswith('-t'):
-        print(arg[2:], end='')
+    if arg.startswith('-t') and len(arg) > 2:
+        title = arg[2:]
+        if not title.startswith('[agento]'):
+            args[i] = '-t' + '[agento] ' + title
+            updated = True
         break
-" "$clean_command" 2>/dev/null || true)
-  if [[ -z "$first_title" || "$first_title" != \[agento\]* ]]; then
-    echo "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"Blocked by AO policy: gh pr create titles must start with [agento]. Prefix your title with [agento] and retry.\"}}"
+    i += 1
+
+if updated:
+    print(json.dumps({
+        'hookSpecificOutput': {
+            'hookEventName': 'PreToolUse',
+            'permissionDecision': 'allow',
+            'permissionDecisionReason': 'Prepended required [agento] prefix to PR title.',
+            'updatedInput': {'command': prefix + shlex.join(args)},
+        }
+    }, separators=(',', ':')))
+" "$command_prefix" "$clean_command" 2>/dev/null || true)
+  if [[ -n "$rewrite_result" ]]; then
+    echo "$rewrite_result"
     exit 0
   fi
   # Prefix check passed — title is valid, allow the tool.

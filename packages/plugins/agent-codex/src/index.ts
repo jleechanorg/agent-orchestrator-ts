@@ -182,6 +182,68 @@ fi
 # Source the metadata helper
 source "\$ao_bin_dir/ao-metadata-helper.sh" 2>/dev/null || true
 
+prefix_agento_pr_title_args() {
+  local input_args=("\$@")
+  local prefixed_args=()
+  local i=0
+
+  while [[ \$i -lt \${#input_args[@]} ]]; do
+    local arg="\${input_args[\$i]}"
+
+    case "\$arg" in
+      --title)
+        prefixed_args+=("\$arg")
+        if [[ \$((i + 1)) -lt \${#input_args[@]} ]]; then
+          local title="\${input_args[\$((i + 1))]}"
+          if [[ "\$title" != \[agento\]* ]]; then
+            title="[agento] \$title"
+          fi
+          prefixed_args+=("\$title")
+          ((i+=2))
+          continue
+        fi
+        ;;
+      --title=*)
+        local title="\${arg#--title=}"
+        if [[ "\$title" != \[agento\]* ]]; then
+          prefixed_args+=("--title=[agento] \$title")
+        else
+          prefixed_args+=("\$arg")
+        fi
+        ((i++))
+        continue
+        ;;
+      -t)
+        prefixed_args+=("\$arg")
+        if [[ \$((i + 1)) -lt \${#input_args[@]} ]]; then
+          local title="\${input_args[\$((i + 1))]}"
+          if [[ "\$title" != \[agento\]* ]]; then
+            title="[agento] \$title"
+          fi
+          prefixed_args+=("\$title")
+          ((i+=2))
+          continue
+        fi
+        ;;
+      -t*)
+        local title="\${arg#-t}"
+        if [[ -n "\$title" && "\$title" != \[agento\]* ]]; then
+          prefixed_args+=("-t[agento] \$title")
+        else
+          prefixed_args+=("\$arg")
+        fi
+        ((i++))
+        continue
+        ;;
+    esac
+
+    prefixed_args+=("\$arg")
+    ((i++))
+  done
+
+  printf '%s\0' "\${prefixed_args[@]}"
+}
+
 # Only capture output for commands we need to parse (pr/create, pr/merge).
 # All other commands pass through transparently without stream merging.
 case "\$1/\$2" in
@@ -207,7 +269,12 @@ case "\$1/\$2" in
     tmpout="\$(mktemp)"
     trap 'rm -f "\$tmpout"' EXIT
 
-    "\$real_gh" "\$@" 2>&1 | tee "\$tmpout"
+    prefixed_args=()
+    while IFS= read -r -d '' arg; do
+      prefixed_args+=("\$arg")
+    done < <(prefix_agento_pr_title_args "\$@")
+
+    "\$real_gh" "\${prefixed_args[@]}" 2>&1 | tee "\$tmpout"
     exit_code=\${PIPESTATUS[0]}
 
     if [[ \$exit_code -eq 0 ]]; then

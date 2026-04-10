@@ -825,21 +825,17 @@ describe("METADATA_UPDATER_SCRIPT content", () => {
   });
 
   // [agento] prefix enforcement
-  it("denies gh pr create when title lacks [agento] prefix in PreToolUse", () => {
-    expect(METADATA_UPDATER_SCRIPT).toMatch(
-      /deny.*gh pr create titles must start with \[agento\]/,
-    );
+  it("rewrites gh pr create when title lacks [agento] prefix in PreToolUse", () => {
+    expect(METADATA_UPDATER_SCRIPT).toContain("'permissionDecision': 'allow'");
+    expect(METADATA_UPDATER_SCRIPT).toContain("'updatedInput': {'command':");
+    expect(METADATA_UPDATER_SCRIPT).toContain("[agento] ");
   });
 
-  it("uses Python shlex to parse --title argv value (not substring regex)", () => {
-    // Uses Python shlex to correctly parse --title as an argv token, avoiding
-    // false matches when --title appears as literal text inside --body values.
+  it("uses Python shlex to parse and rewrite --title argv value", () => {
     expect(METADATA_UPDATER_SCRIPT).toMatch(/python3.*shlex.split/s);
     expect(METADATA_UPDATER_SCRIPT).toMatch(/if arg == '--title'/);
-    // Check the guard is present using .toContain() — avoids regex-escaping issues
-    // The compiled script has: if [[ -z "$first_title" || "$first_title" != \[agento\]*
-    // String representation in TypeScript: '\\[' = backslash + '[' (one backslash char)
-    expect(METADATA_UPDATER_SCRIPT).toContain('!= ' + '\\[agento\\]*');
+    expect(METADATA_UPDATER_SCRIPT).toContain("args[i + 1] = '[agento] ' + title");
+    expect(METADATA_UPDATER_SCRIPT).toContain("shlex.join(args)");
   });
 
   it("checks hook_event is PreToolUse before enforcing prefix", () => {

@@ -1646,6 +1646,14 @@ describe("shell wrapper content", () => {
       expect(content).toContain("update_ao_metadata pr");
     });
 
+    it("rewrites unprefixed gh pr create titles before executing gh", async () => {
+      const content = await getWrapperContent("gh");
+      expect(content).toContain("prefixed_args");
+      expect(content).toContain("[agento] ");
+      expect(content).toContain("case \"$arg\" in");
+      expect(content).toContain("--title=*)");
+    });
+
     it("blocks gh pr merge at wrapper level", async () => {
       const content = await getWrapperContent("gh");
       expect(content).toContain('pr/merge)');
@@ -1696,4 +1704,3 @@ describe("shell wrapper content", () => {
     });
   });
 });
-

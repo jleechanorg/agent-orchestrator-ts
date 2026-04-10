@@ -65,7 +65,7 @@ function runHook(opts: {
         HOME: testDir,
       },
       encoding: "utf-8",
-      timeout: 15000,
+      timeout: 5000,
     });
   } catch (err: unknown) {
     const e = err as { stdout?: string };
@@ -156,14 +156,15 @@ describe("hook script: gh pr create", () => {
 // [agento] prefix enforcement via PreToolUse guard
 // =========================================================================
 describe("hook script: [agento] prefix enforcement", () => {
-  it("denies gh pr create with title missing [agento] prefix in PreToolUse", () => {
+  it("rewrites gh pr create with title missing [agento] prefix in PreToolUse", () => {
     const { stdout } = runHook({
       command: 'gh pr create --title "fix: bug" --body "test"',
       hookEvent: "PreToolUse",
     });
-    expect(stdout).toContain('"permissionDecision":"deny"');
-    expect(stdout).toContain("gh pr create titles must start with [agento]");
-  }, 10_000);
+    expect(stdout).toContain('"permissionDecision":"allow"');
+    expect(stdout).toContain('"updatedInput":{"command":"gh pr create --title');
+    expect(stdout).toContain("[agento] fix: bug");
+  });
 
   it("allows gh pr create with [agento] prefix in PreToolUse (exits silently)", () => {
     const { stdout } = runHook({
@@ -198,13 +199,14 @@ describe("hook script: [agento] prefix enforcement", () => {
     expect(stdout.trim()).toBe("{}");
   });
 
-  it("denies gh pr create with env prefix but missing [agento] in PreToolUse", () => {
+  it("rewrites gh pr create with env prefix but missing [agento] in PreToolUse", () => {
     const { stdout } = runHook({
       command: "GH_TOKEN=ghs_xxxx gh pr create --title \"fix: bug\" --body \"test\"",
       hookEvent: "PreToolUse",
     });
-    expect(stdout).toContain('"permissionDecision":"deny"');
-    expect(stdout).toContain("gh pr create titles must start with [agento]");
+    expect(stdout).toContain('"permissionDecision":"allow"');
+    expect(stdout).toContain("GH_TOKEN=ghs_xxxx");
+    expect(stdout).toContain("[agento] fix: bug");
   });
 
   it("allows gh pr create with env prefix and [agento] title in PreToolUse", () => {
@@ -215,13 +217,14 @@ describe("hook script: [agento] prefix enforcement", () => {
     expect(stdout.trim()).toBe("{}");
   });
 
-  it("denies gh pr create with env value containing equals and missing [agento] prefix", () => {
+  it("rewrites gh pr create with env value containing equals and missing [agento] prefix", () => {
     const { stdout } = runHook({
       command: "TOKEN=a=b gh pr create --title \"fix: bug\"",
       hookEvent: "PreToolUse",
     });
-    expect(stdout).toContain('"permissionDecision":"deny"');
-    expect(stdout).toContain("gh pr create titles must start with [agento]");
+    expect(stdout).toContain('"permissionDecision":"allow"');
+    expect(stdout).toContain("TOKEN=a=b");
+    expect(stdout).toContain("[agento] fix: bug");
   });
 
   it("allows gh pr create with env value containing equals and [agento] prefix in PreToolUse", () => {
@@ -241,13 +244,15 @@ describe("hook script: [agento] prefix enforcement", () => {
     expect(metadata).toContain("status=pr_open");
   });
 
-  it("denies when --body contains literal --title with [agento] but actual title is unprefixed", () => {
+  it("rewrites only the actual --title when --body contains literal [agento]", () => {
     // Regression: --title inside --body must not be mistaken for the actual --title flag.
     const { stdout } = runHook({
       command: 'gh pr create --title "fix: bug" --body "Try: gh pr create --title [agento] your title"',
       hookEvent: "PreToolUse",
     });
-    expect(stdout).toContain('"permissionDecision":"deny"');
+    expect(stdout).toContain('"permissionDecision":"allow"');
+    expect(stdout).toContain('[agento] fix: bug');
+    expect(stdout).toContain('Try: gh pr create --title [agento] your title');
   });
 
   it("allows when actual --title has [agento] even if --body contains literal [agento]", () => {
