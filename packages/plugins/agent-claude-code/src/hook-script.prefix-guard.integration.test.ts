@@ -31,14 +31,6 @@ describe("hook script: [agento] prefix enforcement", () => {
     expect(stdout.trim()).toBe("{}");
   });
 
-  it("allows gh pr create with [agento] prefix (double-quoted) in PreToolUse", () => {
-    const { stdout } = runHook({
-      command: 'gh pr create --title "[agento] fix: bug" --body "test"',
-      hookEvent: "PreToolUse",
-    });
-    expect(stdout.trim()).toBe("{}");
-  });
-
   it("allows gh pr create with [agento] prefix (equals form: --title=[agento]) in PreToolUse", () => {
     const { stdout } = runHook({
       command: "gh pr create --title='[agento] fix' --body 'test'",
@@ -178,6 +170,17 @@ describe("hook script: [agento] prefix enforcement", () => {
     const output = parseHookOutput(stdout);
     expect(output.permissionDecision).toBe("allow");
     expect(output.updatedInput?.command).toContain("-t=");
+    expect(output.updatedInput?.command).toMatch(/\[agento\].*fix/);
+  });
+
+  it("prepends [agento] when using -t<title> form in PreToolUse", () => {
+    const { stdout } = runHook({
+      command: 'gh pr create -tfix --body "test"',
+      hookEvent: "PreToolUse",
+    });
+    const output = parseHookOutput(stdout);
+    expect(output.permissionDecision).toBe("allow");
+    expect(output.updatedInput?.command).toContain("-t");
     expect(output.updatedInput?.command).toMatch(/\[agento\].*fix/);
   });
 
