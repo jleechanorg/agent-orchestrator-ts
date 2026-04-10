@@ -18,6 +18,12 @@ vi.mock("../metadata.js", () => ({
   updateMetadata: vi.fn(),
 }));
 
+vi.mock("node:child_process", () => ({
+  execFileSync: vi.fn(() => {
+    throw new Error("br unavailable");
+  }),
+}));
+
 vi.mock("node:fs", () => ({
   existsSync: vi.fn(() => false),
   readFileSync: vi.fn(() => JSON.stringify(mockFsState)),

@@ -26,12 +26,9 @@ import { execFileSync } from "node:child_process";
 /** The base branch for diff comparison.
  *  Validated to prevent shell injection — only safe git-ref characters allowed.
  *
- *  In CI: GITHUB_BASE_REF is always set for PR events. The base branch is checked
- *  out as a local ref (refs/heads/main), so a bare name like "main" IS resolvable.
- *  GitHub guarantees GITHUB_BASE_REF for every pull_request event.
- *
- *  Locally: origin/HEAD is the guaranteed remote tracking ref for the default branch.
- *  It is maintained by GitHub for all repos and never stale. */
+ *  In CI pull_request jobs: GITHUB_BASE_REF is set and resolves as a local branch.
+ *  In other environments, fall back through common default-branch refs because
+ *  origin/HEAD is not guaranteed to exist in every checkout (notably some CI clones). */
 const BASE_BRANCH = (() => {
   const raw = process.env.GITHUB_BASE_REF;
   if (raw !== undefined && raw !== "") {
@@ -43,8 +40,18 @@ const BASE_BRANCH = (() => {
     // Use bare name so git resolves it as a local branch ref, not a remote-tracking ref.
     return raw;
   }
-  // Local fallback: origin/HEAD is the remote default branch (never stale)
-  return "origin/HEAD";
+  for (const ref of ["origin/HEAD", "origin/main", "main", "origin/master", "master"]) {
+    try {
+      execFileSync("git", ["rev-parse", "--verify", "--quiet", ref], {
+        cwd: process.cwd(),
+        stdio: "ignore",
+      });
+      return ref;
+    } catch {
+      // Try the next likely default-branch ref.
+    }
+  }
+  return "HEAD";
 })();
 
 /** Recursively collect all .ts/.tsx files under a directory. */
@@ -171,6 +178,11 @@ function getPRTitle(): string {
   return git("rev-parse --abbrev-ref HEAD", REPO_ROOT, true);
 }
 
+function shouldEnforcePRTitlePrefix(title: string): boolean {
+  if (process.env.GITHUB_HEAD_REF) return true;
+  return !["main", "master", "HEAD"].includes(title);
+}
+
 // ---------------------------------------------------------------------------
 // Test suite
 // ---------------------------------------------------------------------------
@@ -183,11 +195,13 @@ describe("wholesome — structural source-code assertions", () => {
   describe("PR title has [agento] prefix", () => {
     it("PR title starts with [agento]", () => {
       const title = getPRTitle();
+      if (!shouldEnforcePRTitlePrefix(title)) return;
       expect(title).toMatch(/^\[agento\]/);
     });
 
     it("PR title has correct format: [agento] <type>: <description>", () => {
       const title = getPRTitle();
+      if (!shouldEnforcePRTitlePrefix(title)) return;
       // "[agento] " followed by conventional-commit type + optional scope + colon
       // Scope format: (scope-name) — supports issue refs like (skeptic-cron)
       expect(title).toMatch(/^\[agento\] [a-z]+(\([^)]+\))?: /);
