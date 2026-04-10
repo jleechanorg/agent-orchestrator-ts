@@ -34,13 +34,14 @@ describe("tryClaudePrint", () => {
     expect(result.validVerdict).toBe(true);
     expect(result.output).toBe(PASS_VERDICT);
     expect(mockExecFileSync).toHaveBeenCalledWith(
-      "claude",
-      ["--dangerously-skip-permissions", "--print"],
+      expect.stringMatching(/(^|\/)claude$/),
+      ["--dangerously-skip-permissions", "--print", "--model", "claude-sonnet-4-6"],
       expect.objectContaining({
         input: "evaluate this",
         cwd: "/tmp",
         encoding: "utf-8",
         stdio: ["pipe", "pipe", "ignore"],
+        timeout: 300_000,
       }),
     );
   });

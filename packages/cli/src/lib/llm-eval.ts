@@ -19,6 +19,7 @@
 import { resolveCodexBinary } from "@jleechanorg/ao-plugin-agent-codex";
 import { execFileSync as execFileSyncSync } from "node:child_process";
 import { existsSync } from "node:fs";
+import { buildVerdictLineRe } from "../commands/skeptic/verdict-utils.js";
 
 const LLM_EVAL_TIMEOUT_MS = 300_000;
 const DEFAULT_CODEX_MODEL = process.env["AO_LLM_EVAL_CODEX_MODEL"] ?? "gpt-5.4";
@@ -75,8 +76,7 @@ function resolveClaudeBinary(): string {
  * SKIPPED was the old infra-unavailable sentinel; it has been replaced by
  * VERDICT: FAIL (fail-closed). This regex intentionally rejects SKIPPED —
  * infra failures must block merges. */
-const STRICT_VERDICT_RE =
-  /^[ \t]*(?:> ?)?(?:#{1,6}[ \t]*)?(?:\*{1,2})?VERDICT:[ \t]*(PASS|FAIL)(?:\*{1,2})?[ \t]*(?:[-—:].*)?$/im;
+const STRICT_VERDICT_RE = buildVerdictLineRe(["PASS", "FAIL"]);
 
 export interface LlmEvalResult {
   /** Whether a valid VERDICT line was obtained from the tool.

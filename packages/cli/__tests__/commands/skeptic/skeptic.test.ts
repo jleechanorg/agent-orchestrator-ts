@@ -5,7 +5,10 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { VERDICT_LINE_RE } from "../../../src/commands/skeptic/verdict-utils.js";
+import {
+  buildVerdictLineRe,
+  VERDICT_LINE_RE,
+} from "../../../src/commands/skeptic/verdict-utils.js";
 
 // ---------------------------------------------------------------------------
 // Docs-only gate — mirrors the jq regex from skeptic-cron.yml.
@@ -122,6 +125,21 @@ describe("VERDICT_LINE_RE — SKIPPED path", () => {
   it("does not match verdict tokens with trailing prose on the same line", () => {
     const m = "VERDICT: PASS because reasons follow".match(VERDICT_LINE_RE);
     expect(m).toBeNull();
+  });
+});
+
+describe("buildVerdictLineRe", () => {
+  it("builds the same line-anchored prefix for strict PASS/FAIL parsing", () => {
+    const strictVerdictRe = buildVerdictLineRe(["PASS", "FAIL"]);
+
+    expect("  VERDICT: PASS".match(strictVerdictRe)?.[1]).toBe("PASS");
+    expect("The criteria for VERDICT: PASS are not met.\nVERDICT: FAIL".match(strictVerdictRe)?.[1]).toBe("FAIL");
+  });
+
+  it("keeps SKIPPED out of strict PASS/FAIL parsing", () => {
+    const strictVerdictRe = buildVerdictLineRe(["PASS", "FAIL"]);
+
+    expect("VERDICT: SKIPPED".match(strictVerdictRe)).toBeNull();
   });
 });
 

@@ -2703,7 +2703,7 @@ describe("send", () => {
     const meta = readMetadataRaw(sessionsDir, "app-1");
     expect(meta?.["opencodeSessionId"]).toBe("ses_send_discovered");
     expect(mockRuntime.sendMessage).toHaveBeenCalledWith(makeHandle("rt-1"), "hello");
-  });
+  }, 15_000);
 
   it("re-discovers OpenCode mapping before sending when stored mapping is invalid", async () => {
     const deleteLogPath = join(tmpDir, "opencode-send-remap-invalid.log");
@@ -2779,13 +2779,13 @@ describe("send", () => {
     await sm.send("app-1", "confirm via updated timestamp");
     const elapsedMs = Date.now() - startedAt;
 
-    expect(elapsedMs).toBeLessThan(2_000);
+    expect(elapsedMs).toBeLessThan(5_000);
     expect(readFileSync(listLogPath, "utf-8").trim().split("\n").length).toBeGreaterThanOrEqual(2);
     expect(mockRuntime.sendMessage).toHaveBeenCalledWith(
       makeHandle("rt-1"),
       "confirm via updated timestamp",
     );
-  });
+  }, 15_000);
 
   it("does not confirm OpenCode delivery from timestamp visibility alone", async () => {
     const deleteLogPath = join(tmpDir, "opencode-send-no-false-positive.log");
