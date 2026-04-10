@@ -230,6 +230,59 @@ exit 0`,
     expect(result.stderr).toContain("Conflicting options");
   });
 
+  it("does not validate broken managed topology when operating on an explicit custom config", () => {
+    const tempRoot = mkdtempSync(join(tmpdir(), "ao-update-custom-config-"));
+    const fakeRepo = join(tempRoot, "repo");
+    mkdirSync(join(fakeRepo, "packages", "cli"), { recursive: true });
+
+    const binDir = join(tempRoot, "bin");
+    mkdirSync(binDir, { recursive: true });
+    const commandLog = join(tempRoot, "commands.log");
+    const customConfig = join(tempRoot, "custom-agent-orchestrator.yaml");
+    const stagingConfig = join(tempRoot, ".openclaw", "agent-orchestrator.yaml");
+    const productionConfig = join(tempRoot, ".openclaw_prod", "agent-orchestrator.yaml");
+
+    writeFileSync(customConfig, "projects: {}\n");
+    mkdirSync(stagingConfig, { recursive: true });
+
+    createFakeBinary(
+      binDir,
+      "git",
+      `printf 'git %s\\n' "$*" >> ${JSON.stringify(commandLog)}\ncase "$*" in\n  "rev-parse --is-inside-work-tree") printf 'true\\n' ;;\n  "status --porcelain") ;;\n  "branch --show-current") printf 'main\\n' ;;\n  "fetch origin main") ;;\n  "pull --ff-only origin main") ;;\n  *) ;;\nesac\nexit 0`,
+    );
+    createFakeBinary(
+      binDir,
+      "pnpm",
+      `printf 'pnpm %s\\n' "$*" >> ${JSON.stringify(commandLog)}\nif [ "$1" = "--version" ]; then\n  printf '9.15.4\\n'\nfi\nexit 0`,
+    );
+    createFakeBinary(
+      binDir,
+      "npm",
+      `printf 'npm %s\\n' "$*" >> ${JSON.stringify(commandLog)}\nexit 0`,
+    );
+    createFakeBinary(
+      binDir,
+      "node",
+      `printf 'node %s\\n' "$*" >> ${JSON.stringify(commandLog)}\nif [ "$1" = "--version" ]; then\n  printf 'v20.11.1\\n'\nfi\nexit 0`,
+    );
+
+    const result = spawnSync("bash", [scriptPath, "--skip-smoke"], {
+      env: {
+        ...process.env,
+        PATH: `${binDir}:${process.env.PATH || ""}`,
+        AO_REPO_ROOT: fakeRepo,
+        AO_CONFIG_PATH: customConfig,
+        AO_STAGING_CONFIG_PATH: stagingConfig,
+        AO_PROD_CONFIG_PATH: productionConfig,
+      },
+      encoding: "utf8",
+    });
+
+    rmSync(tempRoot, { recursive: true, force: true });
+
+    expect(result.status).toBe(0);
+  });
+
   it("reports when the update itself dirties the checkout", () => {
     const tempRoot = mkdtempSync(join(tmpdir(), "ao-update-post-dirty-"));
     const fakeRepo = join(tempRoot, "repo");

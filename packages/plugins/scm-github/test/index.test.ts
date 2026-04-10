@@ -909,6 +909,55 @@ describe("scm-github plugin", () => {
       );
     });
 
+    it("resets AO-managed file and succeeds when only AO-managed file is dirty", async () => {
+      let currentBranch = "main";
+      let statusChecks = 0;
+
+      ghMock.mockImplementation(async (bin: string, args: string[]) => {
+        expect(bin).toBe("git");
+
+        if (args[0] === "branch" && args[1] === "--show-current") {
+          return { stdout: `${currentBranch}\n` };
+        }
+
+        if (args[0] === "status" && args[1] === "--porcelain") {
+          statusChecks += 1;
+          return {
+            stdout: statusChecks === 1 ? " M .claude/settings.json\n" : "",
+          };
+        }
+
+        if (
+          args[0] === "restore" &&
+          args[1] === "--source=HEAD" &&
+          args[2] === "--staged" &&
+          args[3] === "--worktree" &&
+          args[4] === "--" &&
+          args[5] === ".claude/settings.json"
+        ) {
+          return { stdout: "" };
+        }
+
+        if (args[0] === "remote" && args[1] === "get-url" && args[2] === "origin") {
+          return { stdout: "https://github.com/acme/repo.git\n" };
+        }
+
+        if (args[0] === "fetch" && args[1] === "--force") {
+          return { stdout: "" };
+        }
+
+        if (args[0] === "checkout" && args[1] === "-f" && args[2] === pr.branch) {
+          currentBranch = pr.branch;
+          return { stdout: "" };
+        }
+
+        throw new Error(`Unexpected git command: ${args.join(" ")}`);
+      });
+
+      const changed = await scm.checkoutPR?.(pr, "/tmp/repo");
+      expect(changed).toBe(true);
+    });
+
     it("restores staged AO-managed dirt before switching branches", async () => {
       ghMock.mockResolvedValueOnce({ stdout: "main\n" }); // git branch --show-current
       ghMock.mockResolvedValueOnce({ stdout: "M  AGENTS.md\n" }); // git status --porcelain (dirty)
