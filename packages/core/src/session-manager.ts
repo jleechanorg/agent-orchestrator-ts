@@ -77,7 +77,10 @@ import { sessionFromMetadata } from "./utils/session-from-metadata.js";
 import { parsePrFromUrl } from "./utils/pr.js";
 import { safeJsonParse } from "./utils/validation.js";
 import { resolveAgentSelection, resolveSessionRole } from "./agent-selection.js";
-import { getAllSessionPrefixes } from "./session-prefixes.js";
+import {
+  getAllSessionPrefixes,
+  getAoManagedSessionWorktreePattern,
+} from "./session-prefixes.js";
 import { applySlashCommandRouting } from "./fork-slash-command-routing.js";
 
 const _execFileAsync = promisify(execFile);
@@ -805,12 +808,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
     metadata: Record<string, string>,
   ) {
     return resolveAgentSelection({
-      role: resolveSessionRole(
-        sessionId,
-        metadata,
-        project.sessionPrefix,
-        allSessionPrefixes,
-      ),
+      role: resolveSessionRole(sessionId, metadata, project.sessionPrefix),
       project,
       defaults: config.defaults,
       persistedAgent: metadata["agent"],
@@ -1740,7 +1738,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
     // Only touch worktrees whose names match the AO session naming pattern:
     // {prefix}-{num} where prefix is one of the standard AO prefixes.
     // This guards against accidental deletion of human-created worktrees.
-    const AO_SESSION_WORKTREE_PATTERN = /^(ao|jc|wa|cc|ra|wc)-\d+$/;
+    const aoSessionWorktreePattern = getAoManagedSessionWorktreePattern(allSessionPrefixes);
 
     // ─── Pass 1: ~/.worktrees/{projectId}/{sessionId}/ ───────────────────────
     // Skip entirely when ~/.worktrees/ does not exist (fresh installs, custom-only setups).
@@ -1763,7 +1761,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
         const worktreeName = entry.name;
 
         // Only process AO-managed session worktrees matching the naming pattern
-        if (!AO_SESSION_WORKTREE_PATTERN.test(worktreeName)) continue;
+        if (!aoSessionWorktreePattern.test(worktreeName)) continue;
 
         // Derive prefix and number from worktree name (e.g. "ao-748" → prefix="ao", num=748)
         const nameMatch = worktreeName.match(/^([a-zA-Z0-9_-]+)-(\d+)$/);

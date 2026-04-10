@@ -17,28 +17,22 @@ export function getAllSessionPrefixes(projects: Record<string, ProjectConfig>): 
 export function isOrchestratorSessionForPrefix(
   session: { id: string; metadata?: Record<string, string> },
   sessionPrefix?: string,
-  allSessionPrefixes?: string[],
 ): boolean {
-  if (session.metadata?.["role"] === "orchestrator" || session.id.endsWith("-orchestrator")) {
+  if (session.metadata?.["role"] === "orchestrator") {
     return true;
   }
-  if (!sessionPrefix) {
-    return false;
+
+  if (sessionPrefix) {
+    return session.id === `${sessionPrefix}-orchestrator`;
   }
 
-  const escapedPrefix = escapeRegExp(sessionPrefix);
-  if (!new RegExp(`^${escapedPrefix}-orchestrator-\\d+$`).test(session.id)) {
-    return false;
-  }
+  return session.id.endsWith("-orchestrator");
+}
 
-  if (allSessionPrefixes) {
-    for (const prefix of allSessionPrefixes) {
-      if (prefix === sessionPrefix) continue;
-      if (new RegExp(`^${escapeRegExp(prefix)}-\\d+$`).test(session.id)) {
-        return false;
-      }
-    }
-  }
+export function getAoManagedSessionWorktreePattern(sessionPrefixes?: string[]): RegExp {
+  const escapedPrefixes = [...new Set(["ao", "jc", "wa", "cc", "ra", "wc", ...(sessionPrefixes ?? [])])]
+    .filter((prefix) => prefix.length > 0)
+    .map(escapeRegExp);
 
-  return true;
+  return new RegExp(`^(?:${escapedPrefixes.join("|")})-\\d+$`);
 }

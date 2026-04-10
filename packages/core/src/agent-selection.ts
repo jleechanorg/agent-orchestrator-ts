@@ -44,13 +44,8 @@ export function resolveSessionRole(
   sessionId: string,
   metadata?: Record<string, string>,
   sessionPrefix?: string,
-  allSessionPrefixes?: string[],
 ): SessionRole {
-  return isOrchestratorSessionForPrefix(
-    { id: sessionId, metadata },
-    sessionPrefix,
-    allSessionPrefixes,
-  )
+  return isOrchestratorSessionForPrefix({ id: sessionId, metadata }, sessionPrefix)
     ? "orchestrator"
     : "worker";
 }
