@@ -253,9 +253,12 @@ describe("generateConfigFromUrl", () => {
     expect(config.port).toBe(3000);
     expect(config.defaults).toEqual({
       runtime: "tmux",
-      agent: "cursor",
+      agent: "codex",
       workspace: "worktree",
       notifiers: ["desktop"],
+      modelByCli: {
+        codex: { model: "gpt-5.4" },
+      },
     });
 
     // Check project config
@@ -507,4 +510,3 @@ describe("resolveCloneTarget", () => {
     expect(result).toBe(join(tmpDir, "my-app"));
   });
 });
-

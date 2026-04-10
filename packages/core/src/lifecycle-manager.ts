@@ -1491,11 +1491,6 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         createEvent,
       });
 
-      // Arm in-memory dedupe AFTER validateAndEmitExitProof succeeds — if emission threw,
-      // a later retry must re-emit rather than silently skipping the proof.
-      // Disk persistence deferred until after successful kill() to ensure retry on kill failure.
-      session.metadata[TERMINAL_EXIT_PROOF_RECORDED_AT_KEY] = recordedAt;
-
       // Record outcome for strategy learning (bd-nig)
       // Guarded: disk errors must not break session lifecycle checks
       if (outcomeRecorder) {
@@ -1520,6 +1515,19 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
             recordErr instanceof Error ? recordErr.message : String(recordErr),
           );
         }
+      }
+
+      // Arm dedupe only after proof + outcome recording succeed. Persist before kill()
+      // so later polls do not re-emit proof/outcome when kill retries are needed.
+      session.metadata[TERMINAL_EXIT_PROOF_RECORDED_AT_KEY] = recordedAt;
+      try {
+        updateSessionMetadata(session, { [TERMINAL_EXIT_PROOF_RECORDED_AT_KEY]: recordedAt });
+      } catch (persistErr) {
+        console.warn(
+          `[lifecycle-manager] failed to persist ${TERMINAL_EXIT_PROOF_RECORDED_AT_KEY} ` +
+          `for session=${session.id} — best-effort, continuing: ` +
+          `${persistErr instanceof Error ? persistErr.message : String(persistErr)}`,
+        );
       }
     }
 
@@ -1559,21 +1567,6 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
           repo: session.pr ? `${session.pr.owner}/${session.pr.repo}` : undefined,
           reason: `terminal:${exitStatus}`,
         });
-
-        // Persist exit proof dedupe key only after successful kill — if kill failed,
-        // the session must be retried on next poll rather than filtered out.
-        const exitProofRecordedAt = session.metadata[TERMINAL_EXIT_PROOF_RECORDED_AT_KEY];
-        if (exitProofRecordedAt !== undefined) {
-          try {
-            updateSessionMetadata(session, { [TERMINAL_EXIT_PROOF_RECORDED_AT_KEY]: exitProofRecordedAt });
-          } catch (persistErr) {
-            console.warn(
-              `[lifecycle-manager] failed to persist ${TERMINAL_EXIT_PROOF_RECORDED_AT_KEY} ` +
-              `for session=${session.id} — best-effort, continuing: ` +
-              `${persistErr instanceof Error ? persistErr.message : String(persistErr)}`,
-            );
-          }
-        }
       } catch (killErr) {
         // kill() may fail if session is already partially cleaned up. Non-fatal —
         // log and continue; session will retry on next poll if still present.
@@ -1647,6 +1640,27 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     const tracked = states.get(session.id);
     const oldStatus =
       tracked ?? ((session.metadata?.["status"] as SessionStatus | undefined) || session.status);
+
+    if (TERMINAL_STATUSES.has(oldStatus)) {
+      let terminalStatus = oldStatus;
+      if (session.pr && oldStatus !== "merged") {
+        try {
+          if (await isPRMerged(session, config, registry)) {
+            terminalStatus = "merged";
+          }
+        } catch {
+          // Best-effort only: terminal cleanup retries must continue even when SCM is unavailable.
+        }
+      }
+
+      states.set(session.id, terminalStatus);
+      if (terminalStatus !== oldStatus) {
+        updateSessionMetadata(session, { status: terminalStatus });
+      }
+      await reconcileTerminalSessionExit(session, terminalStatus);
+      return;
+    }
+
     const { status: determinedStatus, agentDead } = await determineStatus(session);
     let newStatus: SessionStatus = determinedStatus;
     let transitionReaction: { key: string; result: ReactionResult | null } | undefined;
@@ -2509,25 +2523,13 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         everHadSessions = true;
       }
 
-      // Filter sessions to check:
-      // - Non-terminal sessions: always poll (status checks, reactions, SHA changes)
-      // - Terminal sessions: poll only if exit proof has not yet been recorded.
-      //   Once exit proof is recorded, the session is awaiting kill() and should not
-      //   generate further runtime/SCM probes. loadSessionsForPoll() already excludes
-      //   "killed" and "merged" sessions, so the terminal path here handles the
-      //   other statuses (errored/done/terminated/cleanup) that may need retry.
-      const sessionsToCheck = sessions.filter((s) => {
-        if (!TERMINAL_STATUSES.has(s.status)) return true;
-        return s.metadata[TERMINAL_EXIT_PROOF_RECORDED_AT_KEY] === undefined;
-      });
-
       // bd-wse: Poll sessions sequentially instead of concurrently.
       // Concurrent polling (Promise.allSettled) fires N×4 GitHub API calls in parallel,
       // exhausting the 5000/hr GraphQL rate limit when many sessions exist.
       // Sequential checks run back-to-back within one poll cycle (no pacing between
       // sessions). With many sessions, the cycle can exceed the configured interval;
       // the re-entrancy guard above then skips overlapping ticks until the cycle finishes.
-      for (const s of sessionsToCheck) {
+      for (const s of sessions) {
         // Pre-refresh: reload pause state from disk at the top of each iteration so
         // this session sees pauses set OR cleared by orchestrators or earlier sessions
         // in the same cycle. This ensures a mid-cycle pause clear immediately unblocks

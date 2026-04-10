@@ -241,9 +241,12 @@ export function generateConfigFromUrl(options: GenerateConfigOptions): Record<st
     port,
     defaults: {
       runtime: "tmux",
-      agent: "cursor",
+      agent: "codex",
       workspace: "worktree",
       notifiers: ["desktop"],
+      modelByCli: {
+        codex: { model: "gpt-5.4" },
+      },
     },
     projects: {
       [projectId]: projectConfig,

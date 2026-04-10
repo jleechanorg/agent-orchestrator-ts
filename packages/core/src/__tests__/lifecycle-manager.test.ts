@@ -3899,24 +3899,13 @@ describe("session exit proof reconciliation (bd-uxs.6)", () => {
   it("records terminal exit proof once and keeps retrying kill on later polls", async () => {
     vi.mocked(mockRuntime.isAlive).mockResolvedValue(false);
     vi.mocked(mockAgent.getActivityState).mockResolvedValue({ state: "exited" });
+    vi.mocked(mockSessionManager.kill)
+      .mockRejectedValueOnce(new Error("kill failed"))
+      .mockResolvedValueOnce(undefined);
 
-    vi.mocked(mockSessionManager.get)
-      .mockImplementationOnce(async () => makeSession({ status: "working", pr: null }))
-      .mockImplementationOnce(async () => {
-        // Fresh read: pick up whatever was actually persisted to disk by the
-        // first check() call. This mirrors real behavior where sessionManager.get()
-        // loads from disk, preventing false positives when persistence is broken.
-        const meta = readMetadataRaw(sessionsDir, "app-1") ?? {};
-        return {
-          ...makeSession({ status: "working", pr: null }),
-          metadata: {
-            ...meta,
-            worktree: (meta["worktree"] as string | undefined) ?? "/tmp",
-            branch: (meta["branch"] as string | undefined) ?? "main",
-            project: (meta["project"] as string | undefined) ?? "my-app",
-          },
-        };
-      });
+    vi.mocked(mockSessionManager.get).mockImplementationOnce(async () =>
+      makeSession({ status: "working", pr: null }),
+    );
 
     writeMetadata(sessionsDir, "app-1", {
       worktree: "/tmp",
@@ -3942,17 +3931,39 @@ describe("session exit proof reconciliation (bd-uxs.6)", () => {
     });
 
     await lm.check("app-1");
-    await lm.check("app-1");
 
-    const exitFailedCalls = vi.mocked(mockNotifier.notify).mock.calls.filter(
-      (c) => (c[0] as { type?: string } | undefined)?.type === "session.exit_failed",
-    );
-    expect(exitFailedCalls).toHaveLength(1);
-    expect(mockSessionManager.kill).toHaveBeenCalledTimes(2);
-
-    // Verify that terminalExitProofRecordedAt was actually persisted to disk
     const persisted = readMetadataRaw(sessionsDir, "app-1");
     expect(persisted?.["terminalExitProofRecordedAt"]).toBeDefined();
+
+    vi.mocked(mockSessionManager.get).mockImplementationOnce(async () => {
+      const meta = readMetadataRaw(sessionsDir, "app-1") ?? {};
+      const status = (typeof meta["status"] === "string" ? meta["status"] : "working") as Session["status"];
+      return {
+        ...makeSession({ status, pr: null }),
+        metadata: {
+          ...meta,
+          worktree: (meta["worktree"] as string | undefined) ?? "/tmp",
+          branch: (meta["branch"] as string | undefined) ?? "main",
+          project: (meta["project"] as string | undefined) ?? "my-app",
+        },
+      };
+    });
+
+    const retryLm = createLifecycleManager({
+      config,
+      registry: registryWithNotifier,
+      sessionManager: mockSessionManager,
+    });
+
+    await retryLm.check("app-1");
+
+    const exitProofFailureCalls = vi.mocked(mockNotifier.notify).mock.calls.filter(
+      (c) => (c[0] as { type?: string } | undefined)?.type === "session.exit_failed",
+    );
+    expect(exitProofFailureCalls).toHaveLength(1);
+    expect(mockSessionManager.kill).toHaveBeenCalledTimes(2);
+    expect(mockRuntime.isAlive).toHaveBeenCalledTimes(1);
+    expect(logAoAction).toHaveBeenCalledTimes(1);
   });
 
   it("emits session.exit_failed when validateCommits returns pushed=false", async () => {
