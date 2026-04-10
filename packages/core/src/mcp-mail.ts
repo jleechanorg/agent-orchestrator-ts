@@ -67,9 +67,14 @@ class McpMailClient {
   private async _apiPost(toolName: string, params: Record<string, unknown>): Promise<unknown> {
     const base = this.config.endpoint.replace(/\/+$/, "").replace(/\/mcp$/, "");
     const url = `${base}/mcp`;
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    const token = process.env.MCP_AGENT_MAIL_TOKEN;
+    if (token) {
+      headers["Authorization"] = `Bearer ${token}`;
+    }
     const response = await fetch(url, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers,
       body: JSON.stringify({
         jsonrpc: "2.0",
         method: "tools/call",

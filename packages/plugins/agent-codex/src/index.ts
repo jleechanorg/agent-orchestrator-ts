@@ -1,3 +1,4 @@
+import { setupMcpMailInWorkspace } from "@jleechanorg/ao-plugin-agent-base";
 import {
   DEFAULT_READY_THRESHOLD_MS,
   shellEscape,
@@ -699,6 +700,14 @@ function createCodexAgent(): Agent {
     getEnvironment(config: AgentLaunchConfig): Record<string, string> {
       const env: Record<string, string> = {};
       env["AO_SESSION_ID"] = config.sessionId;
+
+      // Pass MCP mail configuration to the agent if available
+      if (process.env.MCP_AGENT_MAIL_URL) {
+        env["MCP_AGENT_MAIL_URL"] = process.env.MCP_AGENT_MAIL_URL;
+      }
+      if (process.env.MCP_AGENT_MAIL_TOKEN) {
+        env["MCP_AGENT_MAIL_TOKEN"] = process.env.MCP_AGENT_MAIL_TOKEN;
+      }
       // NOTE: AO_PROJECT_ID is the caller's responsibility (spawn.ts sets it)
       if (config.issueId) {
         env["AO_ISSUE_ID"] = config.issueId;
@@ -881,6 +890,9 @@ function createCodexAgent(): Agent {
 
     async setupWorkspaceHooks(workspacePath: string, _config: WorkspaceHooksConfig): Promise<void> {
       await setupCodexWorkspace(workspacePath);
+
+      // Also configure MCP mail server for agent coordination
+      await setupMcpMailInWorkspace(workspacePath, ".codex");
     },
 
     async postLaunchSetup(session: Session): Promise<void> {
@@ -898,6 +910,9 @@ function createCodexAgent(): Agent {
       }
       if (!session.workspacePath) return;
       await setupCodexWorkspace(session.workspacePath);
+
+      // Also configure MCP mail server for agent coordination
+      await setupMcpMailInWorkspace(session.workspacePath, ".codex");
     },
   };
 }
