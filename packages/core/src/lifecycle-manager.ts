@@ -78,6 +78,7 @@ import { isGhRateLimitError } from "./gh-rate-limit.js";
 import { backfillUncoveredPRs } from "./backfill-extensions.js";
 import { sweepOrphanTmuxSessions, DEFAULT_TMUX_SWEEPER_CONFIG } from "./tmux-session-sweeper.js";
 import { drainTaskQueue } from "./task-queue.js";
+import { drainSpawnQueue } from "./spawn-queue.js";
 import { applyDeadAgentOverride } from "./fork-dead-agent.js";
 import {
   initMcpMailClient,
@@ -2621,6 +2622,20 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
 
       const activeSessions = sessions.filter((s) => !TERMINAL_STATUSES.has(s.status));
 
+      let queuedSpawned = 0;
+      if (scopedProjectId) {
+        const project = config.projects[scopedProjectId];
+        if (project) {
+          queuedSpawned = await drainSpawnQueue(
+            { sessionManager, observer },
+            { projectId: scopedProjectId, project, configPath: config.configPath ?? "", activeSessions, correlationId },
+          );
+          if (queuedSpawned > 0) {
+            allCompleteEmitted = false;
+          }
+        }
+      }
+
       // backfillAllPRs: spawn sessions for open PRs that have no active session.
       // Replaces the old orchestrator-session-based PR discovery (bd-awq) with a
       // deterministic loop inside the lifecycle-worker itself.
@@ -2629,7 +2644,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       // activates backfill. Projects that opt out while still having open PRs
       // emit a warn observation so silent misconfiguration is visible.
       let backfillSpawned = false;
-      if (scopedProjectId) {
+      if (scopedProjectId && queuedSpawned === 0) {
         const project = config.projects[scopedProjectId];
         const backfillEnabled = project?.backfillAllPRs !== false;
         if (project && backfillEnabled) {
@@ -2685,7 +2700,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
 
       // bd-bsu: Task queue drainer — spawns sessions for queued beads up to maxConcurrent.
       // Runs independently of backfillAllPRs; both can co-exist.
-      if (scopedProjectId) {
+      if (scopedProjectId && queuedSpawned === 0) {
         const project = config.projects[scopedProjectId];
         if (project?.taskQueue?.enabled) {
           const tqSpawned = await drainTaskQueue(

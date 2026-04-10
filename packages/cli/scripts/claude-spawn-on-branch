@@ -45,7 +45,7 @@ if [ -n "$EXISTING_WORKTREE" ]; then
     SESSION="${OWNER_SESSION}-$((MAX_SUB + 1))"
 
     tmux new-session -d -s "$SESSION" -c "$EXISTING_WORKTREE"
-    tmux send-keys -t "$SESSION" "claude --dangerously-skip-permissions" Enter
+    tmux send-keys -t "$SESSION" "claude --strict-mcp-config ~/.claude/mcp-strict.json --dangerously-skip-permissions" Enter
 
     echo "Reusing worktree: $EXISTING_WORKTREE"
 else

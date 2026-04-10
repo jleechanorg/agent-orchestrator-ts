@@ -164,7 +164,7 @@ export function create(config: SlackNotifierConfig = {}): Notifier {
     throw new Error("[notifier-slack] webhookUrl must be a string");
   } else if (isUnresolvedWebhookTemplate(configuredWebhookUrl)) {
     console.warn(
-      "[notifier-slack] webhookUrl contains unresolved template/placeholder — notifications will be no-ops",
+      "[notifier-slack] Ignoring unresolved webhookUrl placeholder — webhookUrl contains unresolved template/placeholder — notifications will be no-ops",
     );
   } else {
     validateUrl(configuredWebhookUrl, "notifier-slack");

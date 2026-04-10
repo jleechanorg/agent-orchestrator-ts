@@ -1,3 +1,4 @@
+import { setupMcpMailInWorkspace } from "@jleechanorg/ao-plugin-agent-base";
 import {
   shellEscape,
   readLastJsonlEntry,
@@ -832,6 +833,9 @@ function createClaudeCodeAgent(): Agent {
       if (permissionMode === "permissionless" || permissionMode === "auto-edit") {
         parts.push("--dangerously-skip-permissions");
       }
+      // Use strict MCP config to avoid loading built-in MCPs (saves ~16k context tokens)
+      const mcpConfigPath = shellEscape(join(homedir(), ".claude", "mcp-strict.json"));
+      parts.push("--strict-mcp-config", mcpConfigPath);
 
       if (config.model) {
         parts.push("--model", shellEscape(config.model));
@@ -861,6 +865,15 @@ function createClaudeCodeAgent(): Agent {
 
       // Set session info for introspection
       env["AO_SESSION_ID"] = config.sessionId;
+
+      // Pass MCP mail configuration to the agent if available
+      // These enable the agent to send coordination messages via MCP mail
+      if (process.env.MCP_AGENT_MAIL_URL) {
+        env["MCP_AGENT_MAIL_URL"] = process.env.MCP_AGENT_MAIL_URL;
+      }
+      if (process.env.MCP_AGENT_MAIL_TOKEN) {
+        env["MCP_AGENT_MAIL_TOKEN"] = process.env.MCP_AGENT_MAIL_TOKEN;
+      }
 
       // NOTE: AO_PROJECT_ID is NOT set here - it's the caller's responsibility
       // to set it based on their metadata path scheme:
@@ -992,6 +1005,9 @@ function createClaudeCodeAgent(): Agent {
       if (permissionMode === "permissionless" || permissionMode === "auto-edit") {
         parts.push("--dangerously-skip-permissions");
       }
+      // Use strict MCP config to avoid loading built-in MCPs (saves ~16k context tokens)
+      const mcpConfigPath = shellEscape(join(homedir(), ".claude", "mcp-strict.json"));
+      parts.push("--strict-mcp-config", mcpConfigPath);
 
       if (project.agentConfig?.model) {
         parts.push("--model", shellEscape(project.agentConfig.model as string));
@@ -1004,12 +1020,18 @@ function createClaudeCodeAgent(): Agent {
       // Relative command so that symlinked .claude/ dirs across worktrees
       // all produce the same settings.json (last writer doesn't clobber).
       await setupHookInWorkspace(workspacePath);
+
+      // Also configure MCP mail server for agent coordination
+      await setupMcpMailInWorkspace(workspacePath, ".claude");
     },
 
     async postLaunchSetup(session: Session): Promise<void> {
       if (!session.workspacePath) return;
 
       await setupHookInWorkspace(session.workspacePath);
+
+      // Also configure MCP mail server for agent coordination
+      await setupMcpMailInWorkspace(session.workspacePath, ".claude");
     },
   };
 }

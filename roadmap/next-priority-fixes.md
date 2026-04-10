@@ -23,6 +23,7 @@ After hardening PR checkout (GraphQL burn), merge logging, and curl token handli
 | Theme | Beads | Notes |
 |--------|--------|--------|
 | **Canonical config / data dir** | **bd-oji**, **bd-e4t**, **bd-4n8**, **bd-6rh** | CWD-derived config discovery → wrong `~/.agent-orchestrator/{hash}` namespace; lifecycle-worker sees zero sessions. Align launchd/`AO_CONFIG_PATH` and add harness checks. |
+| **Session truth / blocked-state recovery** | **bd-9gvm**, **bd-8fhc**, **bd-alif**, **bd-ybkv**, **bd-5st6**, **bd-22a6** | Assigned workers were stuck on approval prompts, context-limit loops, unsupported-model panes, stale PR inference, and baked-idle prompts. Fix runtime classifiers, recovery policy, status authority, install/build parity, and Codex model routing. |
 
 ## Tier 3 — Process, API budget, evidence
 
@@ -45,9 +46,11 @@ After hardening PR checkout (GraphQL burn), merge logging, and curl token handli
 2. **bd-qhf** / **bd-0gb** — confirm fork parity with upstream #373; reduces false “idle” from swallowed Enter.
 3. **bd-tln** — dead-agent detection + `getRestartCommand()` (unblocks review-check / ao send).
 4. **bd-oji** + **bd-e4t** + **bd-4n8** — deterministic config path; fail loudly on mismatch.
-5. **bd-u8p** — merge policy (config + enforcement).
-6. Re-verify **bd-s4t** / **bd-s4t.1** / **bd-ara.3** against current `main`; close beads if already implemented.
-7. **bd-77b**, **bd-gim**, **bd-7ay** in parallel as bandwidth allows.
+5. **bd-9gvm** + **bd-8fhc** + **bd-ybkv** — tmux/JSONL ground truth beat stale `[working]` and wrong PR inference.
+6. **bd-alif** + **bd-22a6** + **bd-5st6** — recover from context/model blockers and ensure installed `ao` contains merged `modelByCli` fixes.
+7. **bd-u8p** — merge policy (config + enforcement).
+8. Re-verify **bd-s4t** / **bd-s4t.1** / **bd-ara.3** against current `main`; close beads if already implemented.
+9. **bd-77b**, **bd-gim**, **bd-7ay** in parallel as bandwidth allows.
 
 ## Beads graph notes
 

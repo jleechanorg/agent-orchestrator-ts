@@ -55,6 +55,22 @@ export type { LifecycleManagerDeps } from "./lifecycle-manager.js";
 export { FailureBudgetTracker, routeExhaustedBudget } from "./failure-budget.js";
 export type { BudgetExhaustedDeps } from "./failure-budget.js";
 
+// Spawn queue — persistent admission control for bounded worker spawns
+export {
+  drainSpawnQueue,
+  enqueueSpawnRequest,
+  resolveSpawnQueueConfig,
+  hasSpawnCapacity,
+  countActiveSessions,
+  _resetSpawnQueueTimer,
+} from "./spawn-queue.js";
+export type {
+  DrainSpawnQueueDeps,
+  DrainSpawnQueueParams,
+  EnqueueSpawnRequestInput,
+  SpawnQueueConfigResolved,
+} from "./spawn-queue.js";
+
 // Poller manager — outer initiation loop (bd-uxs.2)
 export { createPollerManager } from "./poller-manager.js";
 export type { PollerManagerDeps } from "./poller-manager.js";
@@ -103,6 +119,7 @@ export {
   isRetryableHttpStatus,
   normalizeRetryConfig,
   readLastJsonlEntry,
+  readLastJsonEntry,
   resolveProjectIdForSessionId,
 } from "./utils.js";
 export {

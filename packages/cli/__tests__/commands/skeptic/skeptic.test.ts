@@ -223,7 +223,7 @@ describe("findExistingVerdict — trigger-SHA scoped reuse", () => {
   const SHA_X = "abc1234def5678";
   const SHA_Y = "ffff0000aaaa1111";
   const verdictWithSha = (sha: string) =>
-    `<!-- skeptic-agent-verdict -->\nVERDICT: PASS\n\n<!-- skeptic-gate-trigger-${sha} -->`;
+    `<!-- skeptic-agent-verdict -->\nVERDICT: PASS\n\n<!-- skeptic-gate-trigger-${sha} -->\n<!-- skeptic-cron-trigger-${sha} -->`;
 
   it("reuses verdict when triggerSha matches the comment SHA marker", async () => {
     mockFetchComments.mockResolvedValue([

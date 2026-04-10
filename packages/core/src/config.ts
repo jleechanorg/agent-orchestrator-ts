@@ -17,6 +17,7 @@ import { parse as parseYaml } from "yaml";
 import { z } from "zod";
 import { ConfigNotFoundError, type OrchestratorConfig } from "./types.js";
 import { generateSessionPrefix } from "./paths.js";
+import { getOpenClawLayoutHomeConfigPaths } from "./user-home-config-paths.js";
 
 function inferScmPlugin(project: {
   repo: string;
@@ -199,6 +200,11 @@ const TaskQueueConfigSchema = z.object({
   taskTemplate: z.string().optional(),
 }).optional();
 
+const SpawnQueueConfigSchema = z.object({
+  enabled: z.boolean().default(true),
+  maxActiveSessions: z.number().int().min(1).max(200).default(20),
+}).default({});
+
 // bd-jhv1: Manager evolve loop config schema
 const EvolveLoopConfigSchema = z.object({
   enabled: z.boolean().optional(),
@@ -266,6 +272,9 @@ const ProjectConfigSchema = z.object({
   // Override the global worktree base directory for this project.
   worktreeDir: z.string().optional(),
 
+  // Persistent spawn queue + active session cap.
+  spawnQueue: SpawnQueueConfigSchema.optional(),
+
   // bd-bsu: Config-driven bead task queue with maxConcurrent concurrency limit.
   taskQueue: TaskQueueConfigSchema,
 
@@ -275,7 +284,7 @@ const ProjectConfigSchema = z.object({
 
 const DefaultPluginsSchema = z.object({
   runtime: z.string().default("tmux"),
-  agent: z.string().default("cursor"),
+  agent: z.string().default("codex"),
   workspace: z.string().default("worktree"),
   notifiers: z.array(z.string()).default(["composio", "desktop"]),
   agentConfig: AgentSpecificConfigSchema.optional(),
@@ -560,6 +569,7 @@ export function findConfigFile(startDir?: string): string | null {
 
   // 4. Check home directory locations
   const homePaths = [
+    ...getOpenClawLayoutHomeConfigPaths(),
     resolve(homedir(), ".agent-orchestrator.yaml"),
     resolve(homedir(), ".agent-orchestrator.yml"),
     resolve(homedir(), ".config", "agent-orchestrator", "config.yaml"),

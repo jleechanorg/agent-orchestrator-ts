@@ -20,6 +20,7 @@ import { resolveCodexBinary } from "@jleechanorg/ao-plugin-agent-codex";
 
 const CODEX_TIMEOUT_MS = 300_000;
 const CLAUDE_TIMEOUT_MS = 300_000;
+const DEFAULT_CODEX_MODEL = process.env["AO_LLM_EVAL_CODEX_MODEL"] ?? "gpt-5.4";
 
 /** Strict VERDICT matcher for tool output validation — PASS or FAIL only.
  * SKIPPED was the old infra-unavailable sentinel; it has been replaced by
@@ -73,7 +74,7 @@ export async function tryCodexPrint(prompt: string): Promise<LlmEvalResult> {
   try {
     const result = execFileSync(
       binary,
-      ["exec", "-"],
+      ["exec", "--model", DEFAULT_CODEX_MODEL, "-"],
       {
         input: prompt,
         encoding: "utf-8",

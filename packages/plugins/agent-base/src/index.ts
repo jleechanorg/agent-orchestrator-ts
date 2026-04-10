@@ -1,6 +1,7 @@
 import {
   shellEscape,
   readLastJsonlEntry,
+  readLastJsonEntry,
   DEFAULT_READY_THRESHOLD_MS,
   type Agent,
   type AgentSessionInfo,
@@ -964,24 +965,26 @@ async function setupHookInWorkspace({
 /**
  * Configure MCP mail server in workspace settings.
  * This enables agents to send coordination messages via MCP mail.
- * 
+ *
  * MCP mail server config:
  * - name: mcp-agent-mail
  * - url: http://127.0.0.1:8765/mcp/ (configurable via MCP_AGENT_MAIL_URL env var)
- * - headers: auth token (configurable via MCP_AGENT_MAIL_TOKEN env var)
+ * - auth: provided via MCP_AGENT_MAIL_TOKEN env var at runtime (not stored in settings.json)
  */
-async function setupMcpMailInWorkspace(
+export async function setupMcpMailInWorkspace(
   workspacePath: string,
   configDir: string,
 ): Promise<void> {
   const agentDir = join(workspacePath, configDir);
   const settingsPath = join(agentDir, "settings.json");
 
-  // Reject symlinks — same guard as setupHookInWorkspace
+  // Block writes through symlinks — same guard as setupHookInWorkspace
   try {
     const s = await lstat(agentDir);
     if (s.isSymbolicLink()) {
-      throw new Error(`symlink detected at config dir ${agentDir} — aborting to prevent symlink traversal`);
+      throw new Error(
+        `[agent-base] refusing to write MCP settings through symlinked config dir: ${agentDir}`,
+      );
     }
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
@@ -1191,7 +1194,7 @@ export function createAgentPlugin(config: AgentPluginConfig, overrides?: Partial
         return null;
       }
 
-      const entry = await readLastJsonlEntry(sessionFile);
+      const entry = config.sessionFileExtension === ".json" ? await readLastJsonEntry(sessionFile) : await readLastJsonlEntry(sessionFile);
       if (!entry) {
         // Empty file or read error — cannot determine activity
         return null;

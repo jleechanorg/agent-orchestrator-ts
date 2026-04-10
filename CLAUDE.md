@@ -86,6 +86,11 @@ ao spawn --project agent-orchestrator --no-worktree "run the evolve loop"
 
 Do not manually create worktrees, `cd` into directories, or run `claude` directly for tasks that belong to an AO worker.
 
+**AO usage skill:** `skills/agent-orchestrator/SKILL.md`
+
+- `bash scripts/setup.sh` installs this repo skill into `~/.claude/skills/agent-orchestrator` and `~/.codex/skills/agent-orchestrator`.
+- When you need the operational AO workflow, read that skill before inventing an ad hoc spawn/status/send pattern.
+
 ## Skeptic Architecture — SETTLED DECISION (do not revisit)
 
 **Skeptic evaluations run via AO worker (local API keys), NOT in GHA. Do NOT add API keys to CI.**
@@ -180,6 +185,8 @@ pnpm test
 ## Skills (user scope + this repo)
 
 Long-form operational skills live under **`~/.claude/skills/<name>/SKILL.md`** (restored from archive; beads **bd-pwku**). Examples: `ao-session-monitor`, `auton`, `harness-engineering`, `nextsteps`, `evolve-loop`. **Do not** treat duplicate loose copies in random paths as canonical.
+
+This repo also ships **`skills/agent-orchestrator/SKILL.md`** and installs it into user scope during setup so AO usage guidance stays aligned with the repo.
 
 **Repo index:** `.claude/skills/README.md` maps topics → user paths and fork **`roadmap/`** docs. Bundled in-repo: `.claude/skills/video-render/SKILL.md`.
 

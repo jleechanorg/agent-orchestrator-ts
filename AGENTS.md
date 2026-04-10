@@ -24,6 +24,11 @@ ao spawn --project agent-orchestrator --bead bd-xxx
 
 AO workers are general-purpose. They are not limited to claiming PRs — a worker can do any task. Only fall back to direct CLI (`claude -p`, `claude --print`) for quick one-liners, diagnostics, or when AO is genuinely unavailable.
 
+**AO usage skill:** `skills/agent-orchestrator/SKILL.md`
+
+- `bash scripts/setup.sh` installs this repo skill into `~/.claude/skills/agent-orchestrator` and `~/.codex/skills/agent-orchestrator`.
+- Read it when you need the concrete AO command workflow instead of improvising session management.
+
 ### 2. Use Config First
 Check whether `agent-orchestrator.yaml` already supports what you need:
 - `reactions` — add/override event reactions (ci-failed, changes-requested, agent-stuck, etc.)
@@ -240,4 +245,3 @@ Before opening a PR, verify:
 - [ ] Config-first hierarchy followed (AGENTS.md §Development Hierarchy)
 - [ ] No secrets or tokens committed
 - [ ] Conventional commit messages
-

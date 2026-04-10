@@ -383,7 +383,7 @@ check_lifecycle_workers() {
   fi
 
   # --- Check 2: total worker count sanity ---
-  # Default budget is dynamic: max(8, enabled project count), unless
+  # Default budget is dynamic: max(20, enabled project count), unless
   # AO_DOCTOR_MAX_LIFECYCLE_WORKERS explicitly overrides it.
   local configured_project_count
   configured_project_count="$(python3 -c '
@@ -404,7 +404,7 @@ except Exception:
 
   local max_workers="${AO_DOCTOR_MAX_LIFECYCLE_WORKERS:-}"
   if ! [[ "$max_workers" =~ ^[0-9]+$ ]]; then
-    max_workers=8
+    max_workers=20
     if [ "$configured_project_count" -gt "$max_workers" ]; then
       max_workers="$configured_project_count"
     fi

@@ -34,6 +34,13 @@ defaults:
   #   agent: codex
   workspace: worktree     # worktree | clone | copy
   notifiers: [desktop, openclaw]    # desktop | slack | discord | webhook | email | openclaw
+  # Fix 2 (bd-4ze23): PR evidence media — user-scope skills (live under ~/.claude/skills/, not this repo).
+  # Copy into your real agent-orchestrator.yaml (or merge into existing agentRules).
+  agentRules: |
+    Evidence / PR body (integration+ claim classes — integration, pipeline-e2e, pr-lifecycle-e2e, merge-gate, or higher):
+    - Before creating or updating a PR body, run the user-scope `tmux-video-evidence` skill at `~/.claude/skills/tmux-video-evidence/` to capture **Terminal media** (HTTPS URL to cast, GIF, or captioned screenshot with tmux/terminal context).
+    - For integration+ claims, also run `smoke-test-local` at `~/.claude/skills/smoke-test-local/` when a local smoke flow applies.
+    - Never write `N/A` for **Terminal media** on code-change PRs when the claim class is integration or higher.
   # bd-n047: Centralized auto-merge control — applied to all projects unless overridden.
   # Set enabled: false here to disable auto-merge globally, then selectively re-enable per project.
   # Per-project overrides: set projects.<name>.autoMerge.enabled to override the global default.
@@ -117,6 +124,11 @@ projects:
     # reactions:
     #   approved-and-green:
     #     auto: true         # enable auto-merge for this project
+    #   worker-signals-completion:
+    #     auto: true
+    #     action: skeptic-review
+    #     skepticModel: codex
+    #     skepticPostComment: true
 
     # bd-n047: Per-project auto-merge override — set enabled: false to disable
     # for this project while keeping it enabled globally, or set enabled: true
