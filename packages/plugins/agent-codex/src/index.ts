@@ -195,7 +195,7 @@ prefix_agento_pr_title_args() {
         prefixed_args+=("\$arg")
         if [[ \$((i + 1)) -lt \${#input_args[@]} ]]; then
           local title="\${input_args[\$((i + 1))]}"
-          if [[ "\$title" != \[agento\]* ]]; then
+          if [[ "\$title" != "[agento] "* ]]; then
             title="[agento] \$title"
           fi
           prefixed_args+=("\$title")
@@ -207,7 +207,7 @@ prefix_agento_pr_title_args() {
         ;;
       --title=*)
         local title="\${arg#--title=}"
-        if [[ "\$title" != \[agento\]* ]]; then
+        if [[ "\$title" != "[agento] "* ]]; then
           prefixed_args+=("--title=[agento] \$title")
         else
           prefixed_args+=("\$arg")
@@ -219,7 +219,7 @@ prefix_agento_pr_title_args() {
         prefixed_args+=("\$arg")
         if [[ \$((i + 1)) -lt \${#input_args[@]} ]]; then
           local title="\${input_args[\$((i + 1))]}"
-          if [[ "\$title" != \[agento\]* ]]; then
+          if [[ "\$title" != "[agento] "* ]]; then
             title="[agento] \$title"
           fi
           prefixed_args+=("\$title")
@@ -231,7 +231,7 @@ prefix_agento_pr_title_args() {
         ;;
       -t*)
         local title="\${arg#-t}"
-        if [[ -n "\$title" && "\$title" != \[agento\]* ]]; then
+        if [[ -n "\$title" && "\$title" != "[agento] "* ]]; then
           prefixed_args+=("-t[agento] \$title")
         else
           prefixed_args+=("\$arg")
