@@ -76,7 +76,14 @@ def is_assignment(word):
         ch.isalnum() or ch == "_" for ch in name[1:]
     )
 
+def strip_assignments(words):
+    index = 0
+    while index < len(words) and is_assignment(words[index]):
+        index += 1
+    return words[index:]
+
 def is_guarded_segment(words):
+    words = strip_assignments(words)
     return (
         len(words) >= 3 and words[0] == "gh" and words[1] == "pr" and words[2] in {"create", "merge"}
     )
@@ -128,6 +135,8 @@ while index < len(tokens):
             print(source)
             raise SystemExit(0)
         index = segment_end + 1
+        while index < len(tokens) and tokens[index][0] == "word" and is_assignment(tokens[index][1]):
+            index += 1
         continue
 
     if next_op is not None:

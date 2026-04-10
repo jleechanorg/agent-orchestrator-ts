@@ -67,6 +67,15 @@ describe("hook script: gh pr create", () => {
     expect(metadata).toContain("status=pr_open");
   });
 
+  it("detects gh pr create with cd and env prefixes before the guarded command", () => {
+    const { metadata } = runHook({
+      command: 'cd ~/.worktrees/mercury/cleanup && GH_TOKEN=ghs_xxxx gh pr create --title "[agento] fix" --base master',
+      output: PR_URL,
+    });
+    expect(metadata).toContain(`pr=${PR_URL}`);
+    expect(metadata).toContain("status=pr_open");
+  });
+
   it("does NOT update metadata when PR URL is missing from output", () => {
     const { metadata } = runHook({
       command: 'gh pr create --title "fix"',

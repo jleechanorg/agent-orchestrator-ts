@@ -58,6 +58,17 @@ describe("hook script: [agento] prefix enforcement", () => {
     expect(output.updatedInput?.command).toContain("[agento] fix: bug");
   });
 
+  it("rewrites gh pr create with cd and env prefixes before the guarded command", () => {
+    const { stdout } = runHook({
+      command: 'cd ~/.worktrees/project && GH_TOKEN=ghs_xxxx gh pr create --title "fix: bug" --body "test"',
+      hookEvent: "PreToolUse",
+    });
+    const output = parseHookOutput(stdout);
+    expect(output.permissionDecision).toBe("allow");
+    expect(output.updatedInput?.command).toContain("cd ~/.worktrees/project && GH_TOKEN=ghs_xxxx gh pr create --title");
+    expect(output.updatedInput?.command).toContain("[agento] fix: bug");
+  });
+
   it("allows gh pr create with env prefix and [agento] title in PreToolUse", () => {
     const { stdout } = runHook({
       command: 'GH_TOKEN=ghs_xxxx gh pr create --title "[agento] fix: bug" --body "test"',
