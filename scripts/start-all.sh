@@ -55,12 +55,12 @@ if [ -e "$MAIN_REPO/.git" ]; then
   fi
 fi
 
-export AO_CONFIG_PATH="${AO_CONFIG_PATH:-$(ao_find_config_path 2>/dev/null || ao_staging_config_path)}"
-CONFIG_FILE="$AO_CONFIG_PATH"
-
 if [ -z "${AO_CONFIG_PATH:-}" ]; then
   ao_validate_topology
 fi
+
+CONFIG_FILE="${AO_CONFIG_PATH:-$(ao_find_config_path 2>/dev/null || ao_staging_config_path)}"
+export AO_CONFIG_PATH="$CONFIG_FILE"
 
 if [ ! -f "$CONFIG_FILE" ]; then
   echo "ERROR: Config not found at $CONFIG_FILE"
