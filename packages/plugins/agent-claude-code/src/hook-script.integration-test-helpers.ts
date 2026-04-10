@@ -53,7 +53,7 @@ export function setupHookScriptIntegrationTest() {
     writeFileSync(hookScriptPath, METADATA_UPDATER_SCRIPT, { mode: 0o755 });
     noPythonBinDir = join(testDir, "bin-without-python");
     mkdirSync(noPythonBinDir, { recursive: true });
-    symlinkAvailableCommands(["cat", "grep", "cut", "jq"], noPythonBinDir);
+    symlinkAvailableCommands(["cat", "grep", "cut", "jq", "head", "sed", "cp", "mv"], noPythonBinDir);
   });
 
   afterAll(() => {

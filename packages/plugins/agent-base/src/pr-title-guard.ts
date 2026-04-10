@@ -3,6 +3,8 @@ const _ = String.raw;
 export const PR_TITLE_PREFIX = "[agento] ";
 const BASH_NORMALIZE_PREFIX_STATUS = '${normalize_prefixed_command_out%%$\'\\n\'*}';
 const BASH_NORMALIZE_PREFIX_PAYLOAD = '${normalize_prefixed_command_out#*$\'\\n\'}';
+const BASH_REMATCH_CAPTURE_1 = '"${BASH_REMATCH[1]}"';
+const BASH_REMATCH_CAPTURE_2 = '"${BASH_REMATCH[2]}"';
 
 export const NORMALIZE_SHELL_COMMAND_PREFIX_BLOCK = _`
 clean_command="$command"
@@ -155,6 +157,17 @@ PY
   if [[ "$normalize_prefixed_command_status" == "safe" ]]; then
     clean_command="$normalize_prefixed_command_payload"
   fi
+else
+  cd_prefix_pattern='^[[:space:]]*cd[[:space:]]+.*[[:space:]]+(&&|;)[[:space:]]+(.*)'
+  while true; do
+    if [[ "$clean_command" =~ ^[[:space:]]*[A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+(.+)$ ]]; then
+      clean_command=${BASH_REMATCH_CAPTURE_1}
+    elif [[ "$clean_command" =~ $cd_prefix_pattern ]]; then
+      clean_command=${BASH_REMATCH_CAPTURE_2}
+    else
+      break
+    fi
+  done
 fi
 `;
 

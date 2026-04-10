@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { setupHookScriptIntegrationTest } from "./hook-script.integration-test-helpers.js";
 
-const { runHook, parseHookOutput } = setupHookScriptIntegrationTest();
+const { runHook, parseHookOutput, getNoPythonBinDir } = setupHookScriptIntegrationTest();
 
 describe("hook script: gh pr merge", () => {
   it("blocks plain gh pr merge via PreToolUse policy output", () => {
@@ -65,6 +65,16 @@ describe("hook script: gh pr merge", () => {
       command: "cd /project ; gh pr merge --rebase",
       allowMerge: true,
       hookEvent: "PostToolUse",
+    });
+    expect(metadata).toContain("status=merged");
+  });
+
+  it("detects gh pr merge with cd && prefix when python3 is unavailable", () => {
+    const { metadata } = runHook({
+      command: "cd ~/.worktrees/project && gh pr merge 42 --squash",
+      allowMerge: true,
+      hookEvent: "PostToolUse",
+      path: getNoPythonBinDir(),
     });
     expect(metadata).toContain("status=merged");
   });
