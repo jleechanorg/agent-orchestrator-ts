@@ -8,7 +8,7 @@ import { execFile } from "node:child_process";
 import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import { promisify } from "node:util";
 import { existsSync, writeFileSync, unlinkSync } from "node:fs";
-import { homedir, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 import { basename, join, resolve } from "node:path";
 import {
   CI_STATUS,
@@ -777,13 +777,6 @@ function mapRawCheckStateToStatus(rawState: string | undefined): CICheck["status
   return "skipped";
 }
 
-function expandPath(p: string): string {
-  if (p.startsWith("~/")) {
-    return join(homedir(), p.slice(2));
-  }
-  return p;
-}
-
 const AO_SESSION_WORKTREE_PATTERN = /^(ao|jc|wa|cc|ra|wc)-\d+$/;
 
 function extractCheckedOutWorktreePath(errorMessage: string): string | null {
@@ -1243,9 +1236,6 @@ function normalizeMergePayloadFromRestShape(data: Record<string, unknown>): void
 
 function createGitHubSCM(config?: Record<string, unknown>): SCM {
   const BOT_AUTHORS = buildBotAuthors(config);
-  const worktreeBaseDir = config?.worktreeDir
-    ? expandPath(config.worktreeDir as string)
-    : join(homedir(), ".worktrees");
 
   // Trusted authors for skeptic verdict detection.
   // Defaults to github-actions[bot] (CI workflows) and jleechan-agent[bot] (agent CLI).
