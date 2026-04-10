@@ -169,7 +169,7 @@ describe("getLaunchCommand", () => {
 
   it("generates base command without shell syntax", () => {
     const cmd = agent.getLaunchCommand(makeLaunchConfig({ permissions: "default" }));
-    expect(cmd).toBe("claude");
+    expect(cmd).toBe("claude --strict-mcp-config '/mock/home/.claude/mcp-strict.json'");
     // Must not contain shell operators (execFile-safe)
     expect(cmd).not.toContain("&&");
     expect(cmd).not.toContain("unset");
@@ -214,7 +214,9 @@ describe("getLaunchCommand", () => {
     const cmd = agent.getLaunchCommand(
       makeLaunchConfig({ permissions: "permissionless", model: "opus", prompt: "Hello" }),
     );
-    expect(cmd).toBe("claude --dangerously-skip-permissions --model 'opus'");
+    expect(cmd).toBe(
+      "claude --dangerously-skip-permissions --strict-mcp-config '/mock/home/.claude/mcp-strict.json' --model 'opus'",
+    );
   });
 
   it("omits --dangerously-skip-permissions when permissions=default", () => {

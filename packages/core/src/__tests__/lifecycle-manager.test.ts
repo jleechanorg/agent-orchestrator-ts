@@ -7,6 +7,7 @@ import { randomUUID } from "node:crypto";
 import { createLifecycleManager } from "../lifecycle-manager.js";
 import { createSessionManager } from "../session-manager.js";
 import * as reviewBacklog from "../review-backlog.js";
+import * as sessionExitProof from "../session-exit-proof.js";
 import { writeMetadata, readMetadataRaw } from "../metadata.js";
 import { getSessionsDir, getProjectBaseDir } from "../paths.js";
 import { clearLastSentHeadSha, clearAllMessageHashesForSession } from "../dedup-head-sha-store.js";
@@ -3966,6 +3967,39 @@ describe("session exit proof reconciliation (bd-uxs.6)", () => {
     expect(logAoAction).toHaveBeenCalledTimes(1);
   });
 
+  it("still kills the session when exit proof validation throws", async () => {
+    const validateSpy = vi
+      .spyOn(sessionExitProof, "validateAndEmitExitProof")
+      .mockRejectedValueOnce(new Error("scm unavailable"));
+
+    vi.mocked(mockRuntime.isAlive).mockResolvedValue(false);
+    vi.mocked(mockAgent.getActivityState).mockResolvedValue({ state: "exited" });
+    vi.mocked(mockSessionManager.get).mockResolvedValue(
+      makeSession({ status: "working", pr: null }),
+    );
+
+    writeMetadata(sessionsDir, "app-1", {
+      worktree: "/tmp",
+      branch: "main",
+      status: "working",
+      project: "my-app",
+    });
+
+    const lm = createLifecycleManager({
+      config,
+      registry: mockRegistry,
+      sessionManager: mockSessionManager,
+    });
+
+    await lm.check("app-1");
+
+    expect(validateSpy).toHaveBeenCalledTimes(1);
+    expect(mockSessionManager.kill).toHaveBeenCalledTimes(1);
+    expect(readMetadataRaw(sessionsDir, "app-1")?.["terminalExitProofRecordedAt"]).toBeUndefined();
+
+    validateSpy.mockRestore();
+  });
+
   it("emits session.exit_failed when validateCommits returns pushed=false", async () => {
     // SCM mock with validateCommits that returns pushed=false (local commits not pushed)
     const mockSCM: SCM = {
@@ -5068,6 +5102,7 @@ describe("post-merge reap: reapPostMergeCoWorkers is called on merged transition
     // check() completes without throwing even though reapPostMergeCoWorkers failed
     expect(lm.getStates().get("app-1")).toBe("merged");
     expect(reapPostMergeCoWorkers).toHaveBeenCalledTimes(1);
+    expect(mockSessionManager.kill).toHaveBeenCalledTimes(1);
   });
 });
 

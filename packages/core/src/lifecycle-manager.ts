@@ -1484,51 +1484,68 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         await sendMcpMailSessionEnd(doneTask).catch(() => {/* non-fatal */});
       }
 
-      await validateAndEmitExitProof(session, exitStatus, {
-        config,
-        registry,
-        observer,
-        notifyHuman,
-        createEvent,
-      });
-
-      // Record outcome for strategy learning (bd-nig)
-      // Guarded: disk errors must not break session lifecycle checks
-      if (outcomeRecorder) {
-        try {
-          const success = exitStatus === "merged";
-          outcomeRecorder.record({
-            sessionId: session.id,
-            projectId: session.projectId,
-            trigger: session.metadata["trigger"] ?? "unknown",
-            action: session.metadata["action"] ?? "unknown",
-            strategy: session.metadata["strategy"],
-            errorClass: session.metadata["errorClass"],
-            success,
-            durationMs: Date.now() - new Date(session.createdAt).getTime(),
-            error: !success ? `Session ended with status: ${exitStatus}` : undefined,
-            prNumber: session.pr?.number,
-            recordedAt: new Date().toISOString(),
-          });
-        } catch (recordErr) {
-          console.warn(
-            `Failed to record outcome for session ${session.id}:`,
-            recordErr instanceof Error ? recordErr.message : String(recordErr),
-          );
-        }
+      let exitProofSucceeded = true;
+      try {
+        await validateAndEmitExitProof(session, exitStatus, {
+          config,
+          registry,
+          observer,
+          notifyHuman,
+          createEvent,
+        });
+      } catch (exitProofErr) {
+        exitProofSucceeded = false;
+        observer.recordOperation({
+          metric: "lifecycle_exit_proof",
+          operation: "lifecycle.exit_proof",
+          outcome: "failure",
+          correlationId: createCorrelationId("lifecycle-exit-proof"),
+          projectId: session.projectId,
+          sessionId: session.id,
+          data: { error: exitProofErr instanceof Error ? exitProofErr.message : String(exitProofErr) },
+          level: "warn",
+        });
       }
 
-      // Arm dedupe only after proof + outcome recording succeed. Persist before kill()
-      // so later polls do not re-emit proof/outcome when kill retries are needed.
-      session.metadata[TERMINAL_EXIT_PROOF_RECORDED_AT_KEY] = recordedAt;
-      try {
-        updateSessionMetadata(session, { [TERMINAL_EXIT_PROOF_RECORDED_AT_KEY]: recordedAt });
-      } catch (persistErr) {
-        console.warn(
-          `[lifecycle-manager] failed to persist ${TERMINAL_EXIT_PROOF_RECORDED_AT_KEY} ` +
-          `for session=${session.id} — best-effort, continuing: ` +
-          `${persistErr instanceof Error ? persistErr.message : String(persistErr)}`,
-        );
+      if (exitProofSucceeded) {
+        // Record outcome for strategy learning (bd-nig)
+        // Guarded: disk errors must not break session lifecycle checks
+        if (outcomeRecorder) {
+          try {
+            const success = exitStatus === "merged";
+            outcomeRecorder.record({
+              sessionId: session.id,
+              projectId: session.projectId,
+              trigger: session.metadata["trigger"] ?? "unknown",
+              action: session.metadata["action"] ?? "unknown",
+              strategy: session.metadata["strategy"],
+              errorClass: session.metadata["errorClass"],
+              success,
+              durationMs: Date.now() - new Date(session.createdAt).getTime(),
+              error: !success ? `Session ended with status: ${exitStatus}` : undefined,
+              prNumber: session.pr?.number,
+              recordedAt: new Date().toISOString(),
+            });
+          } catch (recordErr) {
+            console.warn(
+              `Failed to record outcome for session ${session.id}:`,
+              recordErr instanceof Error ? recordErr.message : String(recordErr),
+            );
+          }
+        }
+
+        // Persist the dedupe marker before kill() so later polls retry cleanup
+        // without re-emitting exit proof when validation already succeeded.
+        session.metadata[TERMINAL_EXIT_PROOF_RECORDED_AT_KEY] = recordedAt;
+        try {
+          updateSessionMetadata(session, { [TERMINAL_EXIT_PROOF_RECORDED_AT_KEY]: recordedAt });
+        } catch (persistErr) {
+          console.warn(
+            `[lifecycle-manager] failed to persist ${TERMINAL_EXIT_PROOF_RECORDED_AT_KEY} ` +
+            `for session=${session.id} — best-effort, continuing: ` +
+            `${persistErr instanceof Error ? persistErr.message : String(persistErr)}`,
+          );
+        }
       }
     }
 
@@ -1542,12 +1559,8 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     // Orchestrator sessions are excluded: killing the orchestrator would clear
     // its rate-limit pause metadata, breaking the pause mechanism.
     if (!isOrchestratorSession(session)) {
-      try {
-        if (exitStatus === "merged") {
-          // Reap co-workers BEFORE archiving the merged session. If the reap fails,
-          // the session record stays in place so a later poll can retry.
-          // Calling this after kill() would make reap failures unretryable since
-          // the session is already archived out of list() by then.
+      if (exitStatus === "merged") {
+        try {
           await reapPostMergeCoWorkers(session, sessionManager, observer, {
             config,
             registry,
@@ -1555,8 +1568,21 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
             notifyHuman,
             createEvent,
           });
+        } catch (reapErr) {
+          observer.recordOperation({
+            metric: "lifecycle_poll",
+            operation: "lifecycle.post_merge_reap",
+            outcome: "failure",
+            correlationId: createCorrelationId("lifecycle-post-merge-reap"),
+            projectId: session.projectId,
+            sessionId: session.id,
+            data: { error: reapErr instanceof Error ? reapErr.message : String(reapErr) },
+            level: "warn",
+          });
         }
+      }
 
+      try {
         await sessionManager.kill(session.id);
         // Only log session_kill after successful kill — a false entry for a
         // failed kill would misrepresent session state in the audit trail.
