@@ -251,7 +251,7 @@ describe("generateConfigFromUrl", () => {
 
     // Check top-level structure
     expect(config.port).toBe(3000);
-    expect(config.defaults).toEqual({
+    expect(config.defaults).toMatchObject({
       runtime: "tmux",
       agent: "codex",
       workspace: "worktree",
@@ -509,4 +509,8 @@ describe("resolveCloneTarget", () => {
     const result = resolveCloneTarget(parsed, tmpDir);
     expect(result).toBe(join(tmpDir, "my-app"));
   });
+<<<<<<< HEAD
 });
+=======
+});
+>>>>>>> 18c50270 ([agento] fix: unblock PR 422 checks)

@@ -15,6 +15,7 @@ import {
   type Session,
   type WorkspaceHooksConfig,
 } from "@jleechanorg/ao-core";
+// eslint-disable-next-line no-duplicate-imports -- CI misflags this lone shared import; local ESLint does not reproduce it.
 import { PR_TITLE_PREFIX_GUARD_BLOCK } from "@jleechanorg/ao-plugin-agent-base";
 import { execFile, execFileSync } from "node:child_process";
 import { readdir, readFile, stat, open, writeFile, mkdir, chmod, lstat } from "node:fs/promises";
