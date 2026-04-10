@@ -4014,6 +4014,7 @@ describe("session exit proof reconciliation (bd-uxs.6)", () => {
 
       await vi.waitUntil(() => vi.mocked(mockSessionManager.kill).mock.calls.length >= 2, { timeout: 5000 });
 
+      expect(validateSpy).toHaveBeenCalledTimes(1);
       expect(vi.mocked(mockSessionManager.list)).toHaveBeenCalled();
       expect(vi.mocked(mockSessionManager.get)).toHaveBeenCalledWith("app-1");
       expect(readMetadataRaw(sessionsDir, "app-1")?.["terminalExitProofRecordedAt"]).toBeDefined();

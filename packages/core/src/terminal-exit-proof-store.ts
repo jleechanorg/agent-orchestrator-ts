@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, unlinkSync } from "node:fs";
+import { mkdirSync, readFileSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { atomicWriteFileSync } from "./atomic-write.js";
 import { getProjectBaseDir } from "./paths.js";
@@ -26,11 +26,15 @@ export function readPendingTerminalExitProofRecordedAt(
   sessionId: string,
 ): string | undefined {
   const path = pendingExitProofPath(configPath, projectPath, sessionId);
-  if (!existsSync(path)) {
-    return undefined;
+  try {
+    const value = readFileSync(path, "utf8").trim();
+    return value === "" ? undefined : value;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return undefined;
+    }
+    throw error;
   }
-  const value = readFileSync(path, "utf8").trim();
-  return value === "" ? undefined : value;
 }
 
 export function writePendingTerminalExitProofRecordedAt(
@@ -50,8 +54,11 @@ export function deletePendingTerminalExitProofRecordedAt(
   sessionId: string,
 ): void {
   const path = pendingExitProofPath(configPath, projectPath, sessionId);
-  if (!existsSync(path)) {
-    return;
+  try {
+    unlinkSync(path);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+      throw error;
+    }
   }
-  unlinkSync(path);
 }
