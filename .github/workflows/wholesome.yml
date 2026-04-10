@@ -267,9 +267,8 @@ jobs:
               echo "WARN: bd-vidcap — Terminal media URL may not match a known artifact pattern (.mp4, .gif, .cast, .webm, .mov, gist.github.com, asciinema.org, user-attachments). Prefer a captioned cast or video link."
             fi
             TM_URL_LINE=$(printf '%s' "$TM_BLOCK" | grep -n 'https://' | head -1 | cut -d: -f1)
-            # Strip the bold label prefix from the URL line so only the caption survives.
-            # awk strips "**Terminal media**: " from inline label+URL+caption lines.
-            CAPTION_LINES=$(printf '%s' "$TM_BLOCK" | tail -n +"${TM_URL_LINE:-1}" | grep -v '^[[:space:]]*$' | grep -v '^[[:space:]]*```' | awk '{ sub(/^\*\*Terminal media\*\*:[[:space:]]*/, ""); print }')
+            # Strip the bold label prefix and URL text so only the caption survives.
+            CAPTION_LINES=$(printf '%s' "$TM_BLOCK" | tail -n +"${TM_URL_LINE:-1}" | grep -v '^[[:space:]]*$' | grep -v '^[[:space:]]*```' | awk '{ sub(/^\*\*Terminal media\*\*:[[:space:]]*/, ""); gsub(/https:\/\/[^[:space:])>]+/, ""); print }')
             if [ -z "$CAPTION_LINES" ]; then
               echo "FAIL: Terminal media must include caption text (inline or following lines)"
               exit 1

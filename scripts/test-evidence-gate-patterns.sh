@@ -31,7 +31,7 @@ has_tmux_caption() {
     | tail -n +"${url_line:-1}" \
     | grep -v '^[[:space:]]*$' \
     | grep -v '^[[:space:]]*```' \
-    | awk '{ sub(/^\*\*Terminal media\*\*:[[:space:]]*/, ""); print }' \
+    | awk '{ sub(/^\*\*Terminal media\*\*:[[:space:]]*/, ""); gsub(/https:\/\/[^[:space:])>]+/, ""); print }' \
     | grep -qiE 'tmux|terminal'
 }
 
@@ -109,6 +109,11 @@ u=$(extract_first_https "$b")
 tm_first_url_known "$u" || fail "inline mp4"
 has_tmux_caption "$b" || fail "inline caption"
 pass "inline URL caption"
+
+# --- URL text alone must not satisfy the caption keyword check
+b='**Terminal media**: https://terminal-recorder.example.com/vid.mp4'
+if has_tmux_caption "$b"; then fail "terminal in URL should not count as caption"; fi
+pass "terminal caption ignores URL text"
 
 # --- frontend UI video with caption
 b='**UI media**: https://cdn.example.com/flow.webm?download=1
