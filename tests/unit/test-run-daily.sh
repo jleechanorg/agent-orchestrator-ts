@@ -90,6 +90,9 @@ if [[ "${1:-}" == "spawn" ]]; then
   if [[ -n "${FAKE_SPAWN_PROMPT_FILE:-}" ]]; then
     printf '%s\n' "${6}" >"$FAKE_SPAWN_PROMPT_FILE"
   fi
+  if [[ -n "${FAKE_SPAWN_MARKER:-}" ]]; then
+    : >"$FAKE_SPAWN_MARKER"
+  fi
   printf 'Creating session...\n' >&2
   printf 'SESSION=fake-session\n'
   exit 0
@@ -110,12 +113,21 @@ echo "unexpected ao args: $*" >&2
 exit 1
 EOF
 
-  chmod +x "$bin_dir/git" "$bin_dir/gh" "$bin_dir/ao"
+  cat >"$bin_dir/jq" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+cat >/dev/null || true
+printf '%s\n' "${FAKE_SESSION_STATUS:?}"
+EOF
+
+  chmod +x "$bin_dir/git" "$bin_dir/gh" "$bin_dir/ao" "$bin_dir/jq"
 }
 
 run_case() {
   local label="$1" status="$2" write_daily="$3" write_workers="$4" expected_exit="$5" expected_text="$6"
-  local tmp_dir repo_root bin_dir today today_header daily_file workers_file output rc
+  local precreate_artifacts="${7:-0}" expect_spawn="${8:-1}"
+  local tmp_dir repo_root bin_dir today today_header daily_file workers_file spawn_marker output rc
 
   tmp_dir="$(mktemp -d)"
   repo_root="$tmp_dir/repo"
@@ -129,7 +141,13 @@ run_case() {
   today_header="## Daily ${today}"
   daily_file="$repo_root/novel/workers/${today}.md"
   workers_file="$repo_root/novel/the-daily-lives-of-workers.md"
+  spawn_marker="$tmp_dir/spawned"
   : >"$workers_file"
+
+  if [[ "$precreate_artifacts" == "1" ]]; then
+    printf 'existing daily entry\n' >"$daily_file"
+    printf '%s\nexisting worker prose\n' "$today_header" >"$workers_file"
+  fi
 
   set +e
   output="$(
@@ -141,6 +159,7 @@ run_case() {
     FAKE_DAILY_FILE="$daily_file" \
     FAKE_WORKERS_FILE="$workers_file" \
     FAKE_TODAY_HEADER="$today_header" \
+    FAKE_SPAWN_MARKER="$spawn_marker" \
     bash "$repo_root/scripts/novel/run-daily.sh" 2>&1
   )"
   rc=$?
@@ -148,6 +167,15 @@ run_case() {
 
   assert_exit "$label exit" "$rc" "$expected_exit"
   assert_contains "$label output" "$output" "$expected_text"
+  if [[ "$expect_spawn" == "0" ]]; then
+    if [[ ! -e "$spawn_marker" ]]; then
+      printf "  PASS  %s\n" "$label no spawn"
+      PASS=$((PASS + 1))
+    else
+      printf "  FAIL  %s\n        unexpected ao spawn invocation\n" "$label no spawn"
+      FAIL=$((FAIL + 1))
+    fi
+  fi
 
   rm -rf "$tmp_dir"
 }
@@ -175,6 +203,15 @@ run_case \
   "0" \
   "1" \
   "Workers file"
+run_case \
+  "idempotent no-op when artifacts exist" \
+  "cleanup" \
+  "0" \
+  "0" \
+  "0" \
+  "already exists; nothing to do." \
+  "1" \
+  "0"
 
 echo ""
 echo "Results: PASS=$PASS FAIL=$FAIL"
