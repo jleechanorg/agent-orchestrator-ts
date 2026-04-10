@@ -101,8 +101,9 @@ async function sleep(ms: number): Promise<void> {
 
 /**
  * Normalizes a raw GitHub `reviewDecision` value to a canonical `ReviewDecision` string.
- * Fail-closed: null, undefined, and blank values all resolve to "pending" since
- * an unknown review state should not be treated as neutral "none".
+ * Fail-closed: null, undefined, blank, and whitespace-only values all resolve
+ * to "pending" since an unknown review state should not be treated as neutral
+ * "none".
  */
 function normalizeReviewDecision(
   raw: string | null | undefined,
