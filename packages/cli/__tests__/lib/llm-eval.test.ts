@@ -2,9 +2,21 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const mockExecFileSync = vi.hoisted(() => vi.fn());
 const mockResolveCodexBinary = vi.hoisted(() => vi.fn());
+const mockExistsSync = vi.hoisted(() => vi.fn());
+
+// Set CLAUDE_BINARY before module load so CLAUDE_BINARY_CANDIDATES[0] = "/mock/claude"
+// This makes resolveClaudeBinary() return "/mock/claude" without calling `which`,
+// preventing extra execFileSync calls that would consume mock slots unexpectedly.
+vi.hoisted(() => {
+  process.env["CLAUDE_BINARY"] = "/mock/claude";
+});
 
 vi.mock("node:child_process", () => ({
   execFileSync: mockExecFileSync,
+}));
+
+vi.mock("node:fs", () => ({
+  existsSync: mockExistsSync,
 }));
 
 vi.mock("@jleechanorg/ao-plugin-agent-codex", () => ({
@@ -16,9 +28,13 @@ import { tryCodexPrint, tryClaudePrint, llmEval } from "../../src/lib/llm-eval.j
 const PASS_VERDICT = "VERDICT: PASS";
 const FAIL_VERDICT = "VERDICT: FAIL";
 const SKIPPED_VERDICT = "VERDICT: SKIPPED";
+const MOCK_CLAUDE_BINARY = "/mock/claude";
+const MOCK_CLAUDE_MODEL = "claude-sonnet-4-6";
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // "/mock/claude" exists — so resolveClaudeBinary() returns it directly (no `which` call)
+  mockExistsSync.mockReturnValue(true);
 });
 
 describe("tryCodexPrint", () => {
@@ -149,8 +165,8 @@ describe("tryClaudePrint", () => {
     expect(result.validVerdict).toBe(true);
     expect(result.output).toBe(PASS_VERDICT);
     expect(mockExecFileSync).toHaveBeenCalledWith(
-      "claude",
-      ["--dangerously-skip-permissions", "--print"],
+      MOCK_CLAUDE_BINARY,
+      ["--dangerously-skip-permissions", "--print", "--model", MOCK_CLAUDE_MODEL],
       expect.objectContaining({
         input: "evaluate this",
         cwd: "/tmp",
