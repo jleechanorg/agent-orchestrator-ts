@@ -2,9 +2,18 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockExecFileSync = vi.hoisted(() => vi.fn());
 const mockResolveCodexBinary = vi.hoisted(() => vi.fn());
+const mockExistsSync = vi.hoisted(() => vi.fn());
+
+vi.hoisted(() => {
+  process.env["CLAUDE_BINARY"] = "/mock/claude";
+});
 
 vi.mock("node:child_process", () => ({
   execFileSync: mockExecFileSync,
+}));
+
+vi.mock("node:fs", () => ({
+  existsSync: mockExistsSync,
 }));
 
 vi.mock("@jleechanorg/ao-plugin-agent-codex", () => ({
@@ -19,6 +28,7 @@ const SKIPPED_VERDICT = "VERDICT: SKIPPED";
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mockExistsSync.mockReturnValue(true);
 });
 
 function makeErrnoError(message: string, code?: string): NodeJS.ErrnoException {
