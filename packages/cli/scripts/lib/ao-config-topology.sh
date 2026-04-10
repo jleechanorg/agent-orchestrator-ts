@@ -62,7 +62,7 @@ ao_find_config_path() {
   fi
 
   local candidate
-  for candidate in "$(ao_production_config_path)" "$(ao_staging_config_path)"; do
+  for candidate in "$(ao_staging_config_path)" "$(ao_production_config_path)"; do
     if [ -f "$candidate" ]; then
       printf '%s\n' "$candidate"
       return 0

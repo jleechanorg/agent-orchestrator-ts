@@ -16,9 +16,8 @@ import { homedir } from "node:os";
 import { parse as parseYaml } from "yaml";
 import { z } from "zod";
 import { ConfigNotFoundError, type OrchestratorConfig } from "./types.js";
-import { findManagedConfigFile, getPreferredConfigSearchPaths } from "./config-topology.js";
+import { findManagedConfigFile, getLegacyConfigPaths } from "./config-topology.js";
 import { generateSessionPrefix } from "./paths.js";
-import { getOpenClawLayoutHomeConfigPaths } from "./user-home-config-paths.js";
 
 function inferScmPlugin(project: {
   repo: string;
@@ -578,18 +577,7 @@ export function findConfigFile(startDir?: string): string | null {
   }
 
   // 5. Check home directory locations (legacy aliases)
-  const preferredPaths = new Set(getPreferredConfigSearchPaths());
-  const homePaths = [
-    ...getOpenClawLayoutHomeConfigPaths(),
-    resolve(homedir(), ".agent-orchestrator.yaml"),
-    resolve(homedir(), ".agent-orchestrator.yml"),
-    resolve(homedir(), ".config", "agent-orchestrator", "config.yaml"),
-  ];
-
-  for (const path of homePaths) {
-    if (preferredPaths.has(path)) {
-      continue;
-    }
+  for (const path of getLegacyConfigPaths()) {
     if (existsSync(path)) {
       return path;
     }

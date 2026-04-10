@@ -45,6 +45,39 @@ describe("OpenClaw config topology scripts", () => {
     expect(stagingContent).toContain("projects: {}");
   });
 
+  it("prefers staging over production during shell config discovery", () => {
+    const tempRoot = mkdtempSync(join(tmpdir(), "ao-config-discovery-"));
+    const stagingConfig = join(tempRoot, ".openclaw", "agent-orchestrator.yaml");
+    const productionConfig = join(tempRoot, ".openclaw_prod", "agent-orchestrator.yaml");
+    const topologyLib = join(repoRoot, "scripts", "lib", "ao-config-topology.sh");
+
+    mkdirSync(dirname(stagingConfig), { recursive: true });
+    mkdirSync(dirname(productionConfig), { recursive: true });
+    writeFileSync(stagingConfig, "projects:\n  staging: {}\n");
+    writeFileSync(productionConfig, "projects:\n  production: {}\n");
+
+    const result = spawnSync(
+      "bash",
+      [
+        "-c",
+        [
+          `export HOME="${tempRoot}"`,
+          "unset AO_CONFIG_PATH",
+          `export AO_STAGING_CONFIG_PATH="${stagingConfig}"`,
+          `export AO_PROD_CONFIG_PATH="${productionConfig}"`,
+          `. "${topologyLib}"`,
+          "ao_find_config_path",
+        ].join("; "),
+      ],
+      { env: process.env, encoding: "utf8" },
+    );
+
+    rmSync(tempRoot, { recursive: true, force: true });
+
+    expect(result.status, result.stderr || result.stdout).toBe(0);
+    expect(result.stdout.trim()).toBe(stagingConfig);
+  });
+
   it("repairs a symlinked staging config when bootstrapping with --force", () => {
     const tempRoot = mkdtempSync(join(tmpdir(), "ao-config-bootstrap-force-"));
     const stagingConfig = join(tempRoot, ".openclaw", "agent-orchestrator.yaml");

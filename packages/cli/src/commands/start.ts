@@ -71,14 +71,24 @@ function ensureConfigDirectory(configPath: string): void {
   mkdirSync(dirname(configPath), { recursive: true });
 }
 
+function formatTopologyProblems(problems: ReturnType<typeof validateManagedConfigTopology>): string {
+  return problems.map((p) => `  - ${p.issue}: ${p.detail}`).join("\n");
+}
+
 function prepareStagingConfigPath(): string {
   const stagingPath = getManagedConfigPath("staging");
   const problems = validateManagedConfigTopology();
-  if (problems.length > 0) {
-    const details = problems.map((p) => `  - ${p.issue}: ${p.detail}`).join("\n");
+  const repairableIssues = new Set(["staging_symlinked", "staging_prod_same_target"]);
+  const blockingProblems = problems.filter((problem) => !repairableIssues.has(problem.issue));
+  if (blockingProblems.length > 0) {
     throw new Error(
-      `Invalid managed config topology — cannot seed staging config:\n${details}`,
+      `Invalid managed config topology — cannot seed staging config:\n${formatTopologyProblems(blockingProblems)}`,
     );
+  }
+
+  if (problems.length > 0 && existsSync(stagingPath)) {
+    rmSync(stagingPath, { force: true });
+    console.log(chalk.yellow(`  Repaired invalid staging config: ${stagingPath}`));
   }
 
   ensureConfigDirectory(stagingPath);

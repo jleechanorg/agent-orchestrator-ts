@@ -40,8 +40,8 @@ export function getLegacyConfigPaths(): string[] {
 
 export function getPreferredConfigSearchPaths(): string[] {
   return [
-    getManagedConfigPath("production"),
     getManagedConfigPath("staging"),
+    getManagedConfigPath("production"),
   ];
 }
 
