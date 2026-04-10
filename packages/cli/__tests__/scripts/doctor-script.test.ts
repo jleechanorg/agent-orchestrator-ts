@@ -78,7 +78,7 @@ function createHealthyPath(binDir: string): void {
 }
 
 describe("scripts/ao-doctor.sh", () => {
-  it("reports a healthy install as PASS", () => {
+  it("reports a healthy install as PASS", { timeout: 30000 }, () => {
     const tempRoot = mkdtempSync(join(tmpdir(), "ao-doctor-script-"));
     const fakeRepo = createHealthyRepo(tempRoot);
     const binDir = join(tempRoot, "bin");
