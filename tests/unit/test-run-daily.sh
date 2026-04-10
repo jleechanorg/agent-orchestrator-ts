@@ -117,7 +117,17 @@ EOF
 #!/usr/bin/env bash
 set -euo pipefail
 
-cat >/dev/null || true
+if [[ "${1:-}" != "-r" || "${2:-}" != *'select(.name == "fake-session") | .status'* ]]; then
+  echo "unexpected jq args: $*" >&2
+  exit 1
+fi
+
+input="$(cat)"
+if [[ "$input" != *'"name":"fake-session"'* || "$input" != *'"status":"'${FAKE_SESSION_STATUS:?}'"'* ]]; then
+  echo "unexpected jq input: $input" >&2
+  exit 1
+fi
+
 printf '%s\n' "${FAKE_SESSION_STATUS:?}"
 EOF
 
@@ -196,6 +206,13 @@ run_case \
   "0" \
   "1" \
   "failed with status: killed"
+run_case \
+  "errored status fails fast" \
+  "errored" \
+  "0" \
+  "0" \
+  "1" \
+  "failed with status: errored"
 run_case \
   "final validation requires workers header" \
   "cleanup" \
