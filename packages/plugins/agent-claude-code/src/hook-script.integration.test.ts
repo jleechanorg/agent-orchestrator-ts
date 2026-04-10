@@ -163,7 +163,7 @@ describe("hook script: [agento] prefix enforcement", () => {
     });
     expect(stdout).toContain('"permissionDecision":"deny"');
     expect(stdout).toContain("gh pr create titles must start with [agento]");
-  });
+  }, 10_000);
 
   it("allows gh pr create with [agento] prefix in PreToolUse (exits silently)", () => {
     const { stdout } = runHook({

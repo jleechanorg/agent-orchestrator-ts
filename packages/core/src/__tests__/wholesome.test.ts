@@ -366,17 +366,21 @@ describe("wholesome — structural source-code assertions", () => {
       // Exclude merge commits (2nd parent = GitHub merge commit from squash/rebase).
       // Using --no-merges: only non-merge commits
       // Using --first-parent: only commits whose first parent is on the mainline
-      const raw = git(`log --format=%H --first-parent --no-merges ${BASE_BRANCH}..HEAD`, REPO_ROOT, true);
+      const raw = git(
+        `log --format=%H%x09%s --first-parent --no-merges ${BASE_BRANCH}..HEAD`,
+        REPO_ROOT,
+        true,
+      );
       if (!raw) return; // no non-merge commits made on this branch — nothing to check
 
       const violations: string[] = [];
-      for (const sha of raw.split("\n")) {
+      for (const entry of raw.split("\n")) {
+        if (!entry) continue;
+        const [sha, subject = ""] = entry.split("\t");
         if (!sha) continue;
         if (SKIP_SHAS.has(sha)) continue; // known pre-fix commits (see SKIP_SHAS above)
-        const msg = git(`log -1 --format=%B ${sha}`, REPO_ROOT);
-        const firstLine = msg.split("\n")[0];
-        if (!firstLine?.startsWith("[agento]")) {
-          violations.push(`${sha.slice(0, 7)}: ${firstLine}`);
+        if (!subject.startsWith("[agento]")) {
+          violations.push(`${sha.slice(0, 7)}: ${subject}`);
         }
       }
 
