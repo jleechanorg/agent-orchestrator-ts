@@ -509,8 +509,4 @@ describe("resolveCloneTarget", () => {
     const result = resolveCloneTarget(parsed, tmpDir);
     expect(result).toBe(join(tmpDir, "my-app"));
   });
-<<<<<<< HEAD
 });
-=======
-});
->>>>>>> 18c50270 ([agento] fix: unblock PR 422 checks)
