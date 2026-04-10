@@ -71,6 +71,7 @@ import { isPRMerged } from "./fork-lifecycle-kki-override.js";
 import { handleRequestMerge, handleParallelRetry } from "./fork-reaction-handlers.js";
 import { handleRespawnForReview } from "./fork-reaction-rfr.js";
 import { maybeDispatchReviewBacklog } from "./review-backlog.js";
+import { getAllSessionPrefixes } from "./session-prefixes.js";
 import { updateSessionMetadataHelper } from "./fork-utils.js";
 import { checkMergeGate, type MergeGateResult } from "./merge-gate.js";
 import { GLOBAL_PAUSE_UNTIL_KEY, GLOBAL_PAUSE_REASON_KEY, parsePauseUntil } from "./global-pause.js";
@@ -408,6 +409,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     outcomeRecorder,
     mcpMailConfig: providedMcpMailConfig,
   } = deps;
+  const allSessionPrefixes = getAllSessionPrefixes(config.projects);
   const observer = createProjectObserver(config, "lifecycle-manager");
 
   // Initialize MCP mail client — prefer caller-supplied config, fall back to env var
@@ -565,7 +567,12 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     if (!project) return { status: session.status, agentDead: false };
 
     const agentName = resolveAgentSelection({
-      role: resolveSessionRole(session.id, session.metadata),
+      role: resolveSessionRole(
+        session.id,
+        session.metadata,
+        project.sessionPrefix,
+        allSessionPrefixes,
+      ),
       project,
       defaults: config.defaults,
       persistedAgent: session.metadata["agent"],
@@ -2791,11 +2798,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         try {
           // Collect all unique session prefixes from configured projects so the
           // sweeper can identify orphaned sessions regardless of which project they belong to
-          const projectPrefixes = new Set(
-            Object.values(config.projects)
-              .map((p) => p.sessionPrefix)
-              .filter(Boolean),
-          );
+          const projectPrefixes = new Set(allSessionPrefixes);
           const sweepConfig = {
             ...DEFAULT_TMUX_SWEEPER_CONFIG,
             aoSessionPrefixes: projectPrefixes.size > 0 ? projectPrefixes : DEFAULT_TMUX_SWEEPER_CONFIG.aoSessionPrefixes,

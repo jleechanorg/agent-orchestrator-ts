@@ -20,6 +20,7 @@ import {
   type RecoveryConfig,
 } from "./types.js";
 import { resolveAgentSelection, resolveSessionRole } from "../agent-selection.js";
+import { getAllSessionPrefixes } from "../session-prefixes.js";
 
 export async function validateSession(
   scanned: ScannedSession,
@@ -28,10 +29,16 @@ export async function validateSession(
   recoveryConfigInput?: Partial<RecoveryConfig>,
 ): Promise<RecoveryAssessment> {
   const { sessionId, projectId, project, rawMetadata } = scanned;
+  const allSessionPrefixes = getAllSessionPrefixes(config.projects);
 
   const runtimeName = project.runtime ?? config.defaults.runtime;
   const agentName = resolveAgentSelection({
-    role: resolveSessionRole(sessionId, rawMetadata),
+    role: resolveSessionRole(
+      sessionId,
+      rawMetadata,
+      project.sessionPrefix,
+      allSessionPrefixes,
+    ),
     project,
     defaults: config.defaults,
     persistedAgent: rawMetadata["agent"],

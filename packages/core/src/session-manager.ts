@@ -77,6 +77,7 @@ import { sessionFromMetadata } from "./utils/session-from-metadata.js";
 import { parsePrFromUrl } from "./utils/pr.js";
 import { safeJsonParse } from "./utils/validation.js";
 import { resolveAgentSelection, resolveSessionRole } from "./agent-selection.js";
+import { getAllSessionPrefixes } from "./session-prefixes.js";
 import { applySlashCommandRouting } from "./fork-slash-command-routing.js";
 
 const _execFileAsync = promisify(execFile);
@@ -333,6 +334,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
   const readMeta = injectedReadMeta ?? _readMetadataRaw;
   // Shadow listMetadata when injected (for test isolation)
   const sessionListMetadata = injectedListMetadata ?? listMetadata;
+  const allSessionPrefixes = getAllSessionPrefixes(config.projects);
 
   interface LocatedSession {
     raw: Record<string, string>;
@@ -803,7 +805,12 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
     metadata: Record<string, string>,
   ) {
     return resolveAgentSelection({
-      role: resolveSessionRole(sessionId, metadata),
+      role: resolveSessionRole(
+        sessionId,
+        metadata,
+        project.sessionPrefix,
+        allSessionPrefixes,
+      ),
       project,
       defaults: config.defaults,
       persistedAgent: metadata["agent"],
