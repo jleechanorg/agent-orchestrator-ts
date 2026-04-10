@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { homedir } from "node:os";
+import { join } from "node:path";
 
 // ---------------------------------------------------------------------------
 // Mock node:child_process — gh CLI calls go through execFileAsync = promisify(execFile)
@@ -847,8 +848,7 @@ describe("scm-github plugin", () => {
     });
 
     it("removes a stale AO worktree and retries fetch when target branch is checked out elsewhere", async () => {
-      const staleWorktreePath = `${configuredWorktreeDir}/acme/ao-9999`;
-
+      const staleWorktreePath = join(homedir(), ".worktrees", "acme", "ao-9999");
       ghMock.mockResolvedValueOnce({ stdout: "main\n" }); // git branch --show-current (before)
       ghMock.mockResolvedValueOnce({ stdout: "" }); // git status --porcelain (clean)
       ghMock.mockResolvedValueOnce({ stdout: "https://github.com/acme/repo.git\n" }); // git remote get-url origin
