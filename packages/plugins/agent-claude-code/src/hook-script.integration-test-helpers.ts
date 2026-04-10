@@ -19,6 +19,29 @@ type HookOutputEnvelope = {
 
 export const PR_URL = "https://github.com/owner/repo/pull/42";
 
+export function symlinkAvailableCommands(
+  commands: string[],
+  binDir: string,
+  deps: {
+    lookupCommand?: (command: string) => string;
+    symlink?: (target: string, path: string) => void;
+  } = {},
+) {
+  const lookupCommand = deps.lookupCommand ?? ((command: string) => execSync(`command -v ${command}`, { encoding: "utf-8" }).trim());
+  const createSymlink = deps.symlink ?? symlinkSync;
+
+  for (const command of commands) {
+    try {
+      const commandPath = lookupCommand(command);
+      if (commandPath) {
+        createSymlink(commandPath, join(binDir, command));
+      }
+    } catch {
+      // Optional in the integration harness: the script already has tool fallbacks.
+    }
+  }
+}
+
 export function setupHookScriptIntegrationTest() {
   let testDir = "";
   let hookScriptPath = "";
@@ -30,10 +53,7 @@ export function setupHookScriptIntegrationTest() {
     writeFileSync(hookScriptPath, METADATA_UPDATER_SCRIPT, { mode: 0o755 });
     noPythonBinDir = join(testDir, "bin-without-python");
     mkdirSync(noPythonBinDir, { recursive: true });
-    for (const command of ["cat", "jq", "grep", "cut"]) {
-      const commandPath = execSync(`command -v ${command}`, { encoding: "utf-8" }).trim();
-      symlinkSync(commandPath, join(noPythonBinDir, command));
-    }
+    symlinkAvailableCommands(["cat", "grep", "cut", "jq"], noPythonBinDir);
   });
 
   afterAll(() => {
