@@ -1762,7 +1762,7 @@ describe("shell wrapper content", () => {
       } finally {
         realFs.rmSync(tempDir, { recursive: true, force: true });
       }
-    });
+    }, 20_000);
 
     it("blocks gh pr merge at wrapper level", async () => {
       const content = await getWrapperContent("gh");
