@@ -8,6 +8,7 @@ import { createLifecycleManager } from "../lifecycle-manager.js";
 import { createSessionManager } from "../session-manager.js";
 import * as reviewBacklog from "../review-backlog.js";
 import * as sessionExitProof from "../session-exit-proof.js";
+import * as forkUtils from "../fork-utils.js";
 import { writeMetadata, readMetadataRaw } from "../metadata.js";
 import { getSessionsDir, getProjectBaseDir } from "../paths.js";
 import { clearLastSentHeadSha, clearAllMessageHashesForSession } from "../dedup-head-sha-store.js";
@@ -4002,19 +4003,89 @@ describe("session exit proof reconciliation (bd-uxs.6)", () => {
       sessionManager: mockSessionManager,
     });
 
-    await lm.check("app-1");
+    try {
+      await lm.check("app-1");
 
-    expect(validateSpy).toHaveBeenCalledTimes(1);
-    expect(mockSessionManager.kill).not.toHaveBeenCalled();
-    expect(readMetadataRaw(sessionsDir, "app-1")?.["terminalExitProofRecordedAt"]).toBeUndefined();
+      expect(validateSpy).toHaveBeenCalledTimes(1);
+      expect(mockSessionManager.kill).not.toHaveBeenCalled();
+      expect(readMetadataRaw(sessionsDir, "app-1")?.["terminalExitProofRecordedAt"]).toBeUndefined();
 
-    await lm.check("app-1");
+      await lm.check("app-1");
 
-    expect(validateSpy).toHaveBeenCalledTimes(2);
-    expect(mockSessionManager.kill).toHaveBeenCalledTimes(1);
-    expect(readMetadataRaw(sessionsDir, "app-1")?.["terminalExitProofRecordedAt"]).toBeDefined();
+      expect(validateSpy).toHaveBeenCalledTimes(2);
+      expect(mockSessionManager.kill).toHaveBeenCalledTimes(1);
+      expect(readMetadataRaw(sessionsDir, "app-1")?.["terminalExitProofRecordedAt"]).toBeDefined();
+    } finally {
+      validateSpy.mockRestore();
+    }
+  });
 
-    validateSpy.mockRestore();
+  it("defers cleanup until the exit-proof dedupe marker is durably persisted", async () => {
+    const originalUpdateSessionMetadataHelper = forkUtils.updateSessionMetadataHelper;
+    let persistSpyRestored = false;
+    const persistSpy = vi
+      .spyOn(forkUtils, "updateSessionMetadataHelper")
+      .mockImplementation((session, updates, nextConfig) => {
+        if (updates["terminalExitProofRecordedAt"] !== undefined) {
+          throw new Error("metadata locked");
+        }
+        originalUpdateSessionMetadataHelper(session, updates, nextConfig);
+      });
+
+    const validateSpy = vi
+      .spyOn(sessionExitProof, "validateAndEmitExitProof")
+      .mockResolvedValue(undefined);
+
+    vi.mocked(mockRuntime.isAlive).mockResolvedValue(false);
+    vi.mocked(mockAgent.getActivityState).mockResolvedValue({ state: "exited" });
+    vi.mocked(mockSessionManager.get).mockImplementation(async () => {
+      const meta = readMetadataRaw(sessionsDir, "app-1") ?? {};
+      const status = (typeof meta["status"] === "string" ? meta["status"] : "working") as Session["status"];
+      return {
+        ...makeSession({ status, pr: null }),
+        metadata: {
+          ...meta,
+          worktree: (meta["worktree"] as string | undefined) ?? "/tmp",
+          branch: (meta["branch"] as string | undefined) ?? "main",
+          project: (meta["project"] as string | undefined) ?? "my-app",
+        },
+      };
+    });
+
+    writeMetadata(sessionsDir, "app-1", {
+      worktree: "/tmp",
+      branch: "main",
+      status: "working",
+      project: "my-app",
+    });
+
+    const lm = createLifecycleManager({
+      config,
+      registry: mockRegistry,
+      sessionManager: mockSessionManager,
+    });
+
+    try {
+      await lm.check("app-1");
+
+      expect(validateSpy).toHaveBeenCalledTimes(1);
+      expect(mockSessionManager.kill).not.toHaveBeenCalled();
+      expect(readMetadataRaw(sessionsDir, "app-1")?.["terminalExitProofRecordedAt"]).toBeUndefined();
+
+      persistSpy.mockRestore();
+      persistSpyRestored = true;
+
+      await lm.check("app-1");
+
+      expect(validateSpy).toHaveBeenCalledTimes(1);
+      expect(mockSessionManager.kill).toHaveBeenCalledTimes(1);
+      expect(readMetadataRaw(sessionsDir, "app-1")?.["terminalExitProofRecordedAt"]).toBeDefined();
+    } finally {
+      validateSpy.mockRestore();
+      if (!persistSpyRestored) {
+        persistSpy.mockRestore();
+      }
+    }
   });
 
   it("emits session.exit_failed when validateCommits returns pushed=false", async () => {
@@ -5109,7 +5180,7 @@ describe("post-merge reap: reapPostMergeCoWorkers is called on merged transition
     expect(reapPostMergeCoWorkers).not.toHaveBeenCalled();
   });
 
-  it("reapPostMergeCoWorkers errors do not crash check() — failure is warning-only", async () => {
+  it("retries merged cleanup on a later poll when reapPostMergeCoWorkers fails", async () => {
     vi.mocked(reapPostMergeCoWorkers).mockRejectedValueOnce(
       new Error("reaper unreachable"),
     );
@@ -5119,6 +5190,11 @@ describe("post-merge reap: reapPostMergeCoWorkers is called on merged transition
     // check() completes without throwing even though reapPostMergeCoWorkers failed
     expect(lm.getStates().get("app-1")).toBe("merged");
     expect(reapPostMergeCoWorkers).toHaveBeenCalledTimes(1);
+    expect(mockSessionManager.kill).not.toHaveBeenCalled();
+
+    await lm.check("app-1");
+
+    expect(reapPostMergeCoWorkers).toHaveBeenCalledTimes(2);
     expect(mockSessionManager.kill).toHaveBeenCalledTimes(1);
   });
 });

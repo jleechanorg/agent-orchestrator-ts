@@ -434,6 +434,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
   /** Track current task per session (for heartbeat messaging). */
   const sessionCurrentTask = new Map<string, string>();
   const TERMINAL_EXIT_PROOF_RECORDED_AT_KEY = "terminalExitProofRecordedAt";
+  const pendingTerminalExitProofRecordedAt = new Map<string, string>();
 
   /** Run all productivity checks for active sessions. */
   async function runProductivityCycle(): Promise<void> {
@@ -1476,15 +1477,17 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
 
     let exitProofReadyForCleanup =
       session.metadata[TERMINAL_EXIT_PROOF_RECORDED_AT_KEY] !== undefined;
-
-    const exitProofRecordedAt = session.metadata[TERMINAL_EXIT_PROOF_RECORDED_AT_KEY];
+    const exitProofRecordedAt =
+      session.metadata[TERMINAL_EXIT_PROOF_RECORDED_AT_KEY] ??
+      pendingTerminalExitProofRecordedAt.get(session.id);
     if (exitProofRecordedAt === undefined) {
-      const recordedAt = new Date().toISOString();
-
-      // MCP mail: send session-end to global inbox before exit proof
-      if (getMcpMailClientConfig()) {
-        const doneTask = sessionCurrentTask.get(session.id);
-        await sendMcpMailSessionEnd(doneTask).catch(() => {/* non-fatal */});
+      const doneTask = sessionCurrentTask.get(session.id);
+      if (doneTask !== undefined) {
+        sessionCurrentTask.delete(session.id);
+        // MCP mail: send session-end to global inbox before exit proof.
+        if (getMcpMailClientConfig()) {
+          await sendMcpMailSessionEnd(doneTask).catch(() => {/* non-fatal */});
+        }
       }
 
       let exitProofSucceeded = true;
@@ -1511,7 +1514,8 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       }
 
       if (exitProofSucceeded) {
-        exitProofReadyForCleanup = true;
+        const recordedAt = new Date().toISOString();
+        pendingTerminalExitProofRecordedAt.set(session.id, recordedAt);
         // Record outcome for strategy learning (bd-nig)
         // Guarded: disk errors must not break session lifecycle checks
         if (outcomeRecorder) {
@@ -1537,24 +1541,9 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
             );
           }
         }
-
-        // Persist the dedupe marker before kill() so later polls retry cleanup
-        // without re-emitting exit proof when validation already succeeded.
-        session.metadata[TERMINAL_EXIT_PROOF_RECORDED_AT_KEY] = recordedAt;
-        try {
-          updateSessionMetadata(session, { [TERMINAL_EXIT_PROOF_RECORDED_AT_KEY]: recordedAt });
-        } catch (persistErr) {
-          console.warn(
-            `[lifecycle-manager] failed to persist ${TERMINAL_EXIT_PROOF_RECORDED_AT_KEY} ` +
-            `for session=${session.id} — best-effort, continuing: ` +
-            `${persistErr instanceof Error ? persistErr.message : String(persistErr)}`,
-          );
-        }
       }
     }
 
-    // Keep the in-memory task from leaking across later polls. The mail event
-    // is only emitted once; the task cache is cleared on every terminal poll.
     sessionCurrentTask.delete(session.id);
 
     // bd-s4t.1 + bd-e4t + bd-kki: when a session reaches ANY terminal state,
@@ -1562,6 +1551,26 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     // leave orphaned worktrees that lock branches and block future spawns.
     // Orchestrator sessions are excluded: killing the orchestrator would clear
     // its rate-limit pause metadata, breaking the pause mechanism.
+    if (!exitProofReadyForCleanup) {
+      const pendingRecordedAt = pendingTerminalExitProofRecordedAt.get(session.id);
+      if (pendingRecordedAt === undefined) {
+        return;
+      }
+
+      try {
+        updateSessionMetadata(session, { [TERMINAL_EXIT_PROOF_RECORDED_AT_KEY]: pendingRecordedAt });
+        pendingTerminalExitProofRecordedAt.delete(session.id);
+        exitProofReadyForCleanup = true;
+      } catch (persistErr) {
+        console.warn(
+          `[lifecycle-manager] failed to persist ${TERMINAL_EXIT_PROOF_RECORDED_AT_KEY} ` +
+          `for session=${session.id} — cleanup deferred until durable: ` +
+          `${persistErr instanceof Error ? persistErr.message : String(persistErr)}`,
+        );
+        return;
+      }
+    }
+
     if (!exitProofReadyForCleanup) {
       return;
     }
@@ -1587,6 +1596,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
             data: { error: reapErr instanceof Error ? reapErr.message : String(reapErr) },
             level: "warn",
           });
+          return;
         }
       }
 
