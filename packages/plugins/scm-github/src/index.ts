@@ -9,7 +9,7 @@ import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import { promisify } from "node:util";
 import { existsSync, writeFileSync, unlinkSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
-import { basename, isAbsolute, join, relative, resolve } from "node:path";
+import { basename, join, resolve } from "node:path";
 import {
   CI_STATUS,
   type PluginModule,
@@ -97,28 +97,6 @@ function isRateLimitError(error: unknown): boolean {
 
 async function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-/**
- * Normalizes a raw GitHub `reviewDecision` value to a canonical `ReviewDecision` string.
- * Fail-closed: null, undefined, blank, and whitespace-only values all resolve
- * to "pending" since an unknown review state should not be treated as neutral
- * "none".
- */
-function normalizeReviewDecision(
-  raw: unknown,
-): "approved" | "changes_requested" | "pending" | "none" {
-  if (raw === null || raw === undefined) return "pending";
-  if (typeof raw !== "string") return "pending";
-  const trimmed = raw.trim();
-  const d = trimmed.toUpperCase();
-  if (d === "APPROVED") return "approved";
-  if (d === "CHANGES_REQUESTED") return "changes_requested";
-  if (d === "PENDING") return "pending";
-  if (d === "NONE") return "none";
-  if (d === "REVIEW_REQUIRED") return "pending";
-  if (trimmed === "") return "pending";
-  return "none";
 }
 
 /** Parsed `gh pr view ... --json a,b,c` for REST fallback synthesis. */
@@ -799,7 +777,12 @@ function mapRawCheckStateToStatus(rawState: string | undefined): CICheck["status
   return "skipped";
 }
 
-const AO_SESSION_WORKTREE_PATTERN = /^(ao|jc|wa|cc|ra|wc)-\d+$/;
+function expandPath(p: string): string {
+  if (p.startsWith("~/")) {
+    return join(homedir(), p.slice(2));
+  }
+  return p;
+}
 
 function extractCheckedOutWorktreePath(errorMessage: string): string | null {
   const singleQuote = errorMessage.match(/checked out at '([^']+)'/);
@@ -836,47 +819,6 @@ async function hasActiveTmuxSessionForWorktreeName(worktreePath: string, cwd?: s
   return tmuxSessions.some((tmuxSession) => tmuxSession === sessionName || tmuxSession.endsWith(`-${sessionName}`));
 }
 
-function isAoManagedWorktreePath(worktreePath: string): boolean {
-  return AO_SESSION_WORKTREE_PATTERN.test(basename(resolve(worktreePath)));
-}
-
-function expandUserPath(input: string): string {
-  if (input === "~") return homedir();
-  if (input.startsWith("~/")) return join(homedir(), input.slice(2));
-  return input;
-}
-
-function getWorktreeBaseDir(config?: Record<string, unknown>): string {
-  if (typeof config?.worktreeDir === "string" && config.worktreeDir.length > 0) {
-    return resolve(expandUserPath(config.worktreeDir));
-  }
-  return resolve(join(homedir(), ".worktrees"));
-}
-
-function isDescendantPath(pathToCheck: string, baseDir: string): boolean {
-  const rel = relative(resolve(baseDir), resolve(pathToCheck));
-  return rel.length > 0 && !rel.startsWith("..") && !isAbsolute(rel);
-}
-
-async function listRegisteredWorktreePaths(repoPath: string): Promise<Set<string> | null> {
-  try {
-    const list = await git(["worktree", "list", "--porcelain"], repoPath);
-    return new Set(
-      list
-        .split("\n\n")
-        .flatMap((block) =>
-          block
-            .trim()
-            .split("\n")
-            .filter((line) => line.startsWith("worktree "))
-            .map((line) => resolve(line.slice("worktree ".length))),
-        ),
-    );
-  } catch {
-    return null;
-  }
-}
-
 async function maybeRemoveStaleCheckedOutWorktree(
   repoPath: string,
   checkoutErrorMessage: string,
@@ -884,11 +826,10 @@ async function maybeRemoveStaleCheckedOutWorktree(
 ): Promise<boolean> {
   const stalePath = extractCheckedOutWorktreePath(checkoutErrorMessage);
   if (!stalePath) return false;
-  if (!isAoManagedWorktreePath(stalePath)) return false;
+
   const resolvedStale = resolve(stalePath);
-  if (!isDescendantPath(resolvedStale, worktreeBaseDir)) return false;
-  const registeredWorktrees = await listRegisteredWorktreePaths(repoPath);
-  if (registeredWorktrees === null || !registeredWorktrees.has(resolvedStale)) return false;
+  const resolvedBase = resolve(worktreeBaseDir);
+  if (!resolvedStale.startsWith(`${resolvedBase}/`)) return false;
 
   const hasActiveTmux = await hasActiveTmuxSessionForWorktreeName(stalePath, repoPath);
   if (hasActiveTmux) return false;
@@ -1280,15 +1221,9 @@ function normalizeMergePayloadFromRestShape(data: Record<string, unknown>): void
   if (typeof data["draft"] === "boolean" && data["isDraft"] === undefined) {
     data["isDraft"] = data["draft"];
   }
-  // reviewDecision can be null/undefined/malformed when GitHub omits or fails to
-  // populate the field. Treat blank strings the same way so every unknown path
-  // stays fail-closed instead of drifting to "none".
-  const rawReviewDecision = data["reviewDecision"];
-  if (
-    rawReviewDecision === null ||
-    rawReviewDecision === undefined ||
-    (typeof rawReviewDecision === "string" && rawReviewDecision.trim() === "")
-  ) {
+  // reviewDecision can be null (no reviews requested) or undefined (not requested).
+  // Treat both as "REVIEW_REQUIRED" for conservative fail-closed behavior.
+  if (data["reviewDecision"] === null || data["reviewDecision"] === undefined) {
     data["reviewDecision"] = "REVIEW_REQUIRED";
   }
 }
@@ -1299,7 +1234,9 @@ function normalizeMergePayloadFromRestShape(data: Record<string, unknown>): void
 
 function createGitHubSCM(config?: Record<string, unknown>): SCM {
   const BOT_AUTHORS = buildBotAuthors(config);
-  const worktreeBaseDir = getWorktreeBaseDir(config);
+  const worktreeBaseDir = config?.worktreeDir
+    ? expandPath(config.worktreeDir as string)
+    : join(homedir(), ".worktrees");
 
   // Trusted authors for skeptic verdict detection.
   // Defaults to github-actions[bot] (CI workflows) and jleechan-agent[bot] (agent CLI).
@@ -1562,12 +1499,7 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
           const filePath = line.slice(3).trim();
           if (!CHECKOUT_AO_MANAGED.has(filePath)) continue;
           const [indexStatus, worktreeStatus] = status.split("");
-          if (
-            indexStatus === "?" ||
-            worktreeStatus === "?" ||
-            indexStatus === "!" ||
-            worktreeStatus === "!"
-          ) {
+          if (indexStatus === "?" || worktreeStatus === "?" || indexStatus === "!" || worktreeStatus === "!") {
             // Untracked or ignored — remove from working tree
             await git(["clean", "-f", "--", filePath], workspacePath);
             continue;
@@ -2113,7 +2045,12 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
         "reviewDecision",
       ]);
       const data: { reviewDecision: string } = JSON.parse(raw);
-      return normalizeReviewDecision(data.reviewDecision);
+
+      const d = (data.reviewDecision ?? "").toUpperCase();
+      if (d === "APPROVED") return "approved";
+      if (d === "CHANGES_REQUESTED") return "changes_requested";
+      if (d === "REVIEW_REQUIRED") return "pending";
+      return "none";
     },
 
     // bd-sm7: Combined PR state + review decision in a single gh CLI call
@@ -2155,7 +2092,12 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
 
       // Parse review decision — fail-closed: default to "pending" on unexpected values
       // (matches getReviewDecision behavior where non-rate-limit errors return "pending")
-      const reviewDecision: ReviewDecision = normalizeReviewDecision(data.reviewDecision);
+      const d = (data.reviewDecision ?? "").toUpperCase();
+      let reviewDecision: ReviewDecision;
+      if (d === "APPROVED") reviewDecision = "approved";
+      else if (d === "CHANGES_REQUESTED") reviewDecision = "changes_requested";
+      else if (d === "REVIEW_REQUIRED") reviewDecision = "pending";
+      else reviewDecision = "none";
 
       return { state, reviewDecision };
     },
@@ -2556,15 +2498,13 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
       }
 
       // Reviews
-      const normalized = normalizeReviewDecision(data.reviewDecision);
-      const approved = normalized === "approved";
-      if (normalized === "changes_requested") {
+      const reviewDecision = (data.reviewDecision ?? "").toUpperCase();
+      const approved = reviewDecision === "APPROVED";
+      if (reviewDecision === "CHANGES_REQUESTED") {
         blockers.push("Changes requested in review");
-      } else if (normalized === "pending") {
+      } else if (reviewDecision === "REVIEW_REQUIRED") {
         blockers.push("Review required");
       }
-      // Note: "none" is neutral here. Only absent/blank review states normalize to
-      // "pending" and block merge readiness.
 
       // Conflicts / merge state
       // GraphQL returns mergeable as string ("MERGEABLE"/"CONFLICTING"/"UNKNOWN")
@@ -2663,7 +2603,13 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
       // Fail-closed: null/undefined reviewDecision → "pending" (not "none"), matching
       // normalizeMergePayloadFromRestShape behavior. "none" means reviews were explicitly
       // not required; null means we don't know → conservative.
-      const reviewDecision: ReviewDecision = normalizeReviewDecision(data.reviewDecision);
+      const d = (data.reviewDecision ?? "").toUpperCase();
+      let reviewDecision: ReviewDecision;
+      if (d === "APPROVED") reviewDecision = "approved";
+      else if (d === "CHANGES_REQUESTED") reviewDecision = "changes_requested";
+      else if (d === "REVIEW_REQUIRED") reviewDecision = "pending";
+      else if (data.reviewDecision === null || data.reviewDecision === undefined) reviewDecision = "pending";
+      else reviewDecision = "none";
 
       // --- CI Status (from statusCheckRollup) ---
       const rollup = Array.isArray(data.statusCheckRollup) ? data.statusCheckRollup : [];
@@ -2711,7 +2657,6 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
       const approved = reviewDecision === "approved";
       if (reviewDecision === "changes_requested") blockers.push("Changes requested in review");
       else if (reviewDecision === "pending") blockers.push("Review required");
-      // Note: "none" means reviews explicitly not required per GitHub API — acceptable here.
 
       // Conflicts / merge state
       let noConflicts: boolean;
