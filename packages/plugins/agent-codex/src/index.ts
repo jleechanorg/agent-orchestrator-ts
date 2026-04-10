@@ -202,6 +202,8 @@ prefix_agento_pr_title_args() {
           ((i+=2))
           continue
         fi
+        ((i++))
+        continue
         ;;
       --title=*)
         local title="\${arg#--title=}"
@@ -224,6 +226,8 @@ prefix_agento_pr_title_args() {
           ((i+=2))
           continue
         fi
+        ((i++))
+        continue
         ;;
       -t*)
         local title="\${arg#-t}"
@@ -241,7 +245,7 @@ prefix_agento_pr_title_args() {
     ((i++))
   done
 
-  printf '%s\0' "\${prefixed_args[@]}"
+  printf '%s\\0' "\${prefixed_args[@]}"
 }
 
 # Only capture output for commands we need to parse (pr/create, pr/merge).

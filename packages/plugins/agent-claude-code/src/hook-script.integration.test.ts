@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { execSync } from "node:child_process";
-import { mkdtempSync, writeFileSync, readFileSync, rmSync, mkdirSync } from "node:fs";
+import { mkdtempSync, writeFileSync, readFileSync, rmSync, mkdirSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { METADATA_UPDATER_SCRIPT } from "./index.js";
@@ -13,11 +13,18 @@ import { METADATA_UPDATER_SCRIPT } from "./index.js";
 
 let testDir: string;
 let hookScriptPath: string;
+let noPythonBinDir: string;
 
 beforeAll(() => {
   testDir = mkdtempSync(join(tmpdir(), "ao-hook-test-"));
   hookScriptPath = join(testDir, "metadata-updater.sh");
   writeFileSync(hookScriptPath, METADATA_UPDATER_SCRIPT, { mode: 0o755 });
+  noPythonBinDir = join(testDir, "bin-without-python");
+  mkdirSync(noPythonBinDir, { recursive: true });
+  for (const command of ["cat", "jq", "grep", "cut"]) {
+    const commandPath = execSync(`command -v ${command}`, { encoding: "utf-8" }).trim();
+    symlinkSync(commandPath, join(noPythonBinDir, command));
+  }
 });
 
 afterAll(() => {
@@ -36,6 +43,7 @@ function runHook(opts: {
   metadataContent?: string;
   allowMerge?: boolean;
   hookEvent?: string;
+  path?: string;
 }): { stdout: string; metadata: string } {
   const sessionId = `test-session-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const sessionsDir = join(testDir, "sessions");
@@ -54,7 +62,7 @@ function runHook(opts: {
 
   let stdout: string;
   try {
-    stdout = execSync(`bash "${hookScriptPath}"`, {
+    stdout = execSync(`/bin/bash "${hookScriptPath}"`, {
       input,
       env: {
         ...process.env,
@@ -63,6 +71,7 @@ function runHook(opts: {
         AO_ALLOW_GH_PR_MERGE: opts.allowMerge ? "1" : undefined,
         AO_HOOK_EVENT_NAME: opts.hookEvent ?? "PostToolUse",
         HOME: testDir,
+        PATH: opts.path ?? process.env.PATH,
       },
       encoding: "utf-8",
       timeout: 5000,
@@ -161,8 +170,8 @@ describe("hook script: [agento] prefix enforcement", () => {
       command: 'gh pr create --title "fix: bug" --body "test"',
       hookEvent: "PreToolUse",
     });
-    expect(stdout).toContain('"permissionDecision":"allow"');
-    expect(stdout).toContain('"updatedInput":{"command":"gh pr create --title');
+    expect(stdout).toContain('"permissionDecision": "allow"');
+    expect(stdout).toContain('"updatedInput": {"command": "gh pr create --title');
     expect(stdout).toContain("[agento] fix: bug");
   });
 
@@ -193,7 +202,7 @@ describe("hook script: [agento] prefix enforcement", () => {
 
   it("allows gh pr create with [agento] prefix (equals form: --title=[agento]) in PreToolUse", () => {
     const { stdout } = runHook({
-      command: "gh pr create --title=[agento] fix --body 'test'",
+      command: "gh pr create --title='[agento] fix' --body 'test'",
       hookEvent: "PreToolUse",
     });
     expect(stdout.trim()).toBe("{}");
@@ -204,7 +213,7 @@ describe("hook script: [agento] prefix enforcement", () => {
       command: "GH_TOKEN=ghs_xxxx gh pr create --title \"fix: bug\" --body \"test\"",
       hookEvent: "PreToolUse",
     });
-    expect(stdout).toContain('"permissionDecision":"allow"');
+    expect(stdout).toContain('"permissionDecision": "allow"');
     expect(stdout).toContain("GH_TOKEN=ghs_xxxx");
     expect(stdout).toContain("[agento] fix: bug");
   });
@@ -222,7 +231,7 @@ describe("hook script: [agento] prefix enforcement", () => {
       command: "TOKEN=a=b gh pr create --title \"fix: bug\"",
       hookEvent: "PreToolUse",
     });
-    expect(stdout).toContain('"permissionDecision":"allow"');
+    expect(stdout).toContain('"permissionDecision": "allow"');
     expect(stdout).toContain("TOKEN=a=b");
     expect(stdout).toContain("[agento] fix: bug");
   });
@@ -233,6 +242,16 @@ describe("hook script: [agento] prefix enforcement", () => {
       hookEvent: "PreToolUse",
     });
     expect(stdout.trim()).toBe("{}");
+  });
+
+  it("denies gh pr create without an explicit title flag", () => {
+    const { stdout } = runHook({
+      command: "gh pr create --fill",
+      hookEvent: "PreToolUse",
+    });
+    expect(stdout).toContain("permissionDecision");
+    expect(stdout).toContain("deny");
+    expect(stdout).toContain("must include --title");
   });
 
   it("PostToolUse: detects gh pr create with env prefix containing embedded equals", () => {
@@ -250,7 +269,7 @@ describe("hook script: [agento] prefix enforcement", () => {
       command: 'gh pr create --title "fix: bug" --body "Try: gh pr create --title [agento] your title"',
       hookEvent: "PreToolUse",
     });
-    expect(stdout).toContain('"permissionDecision":"allow"');
+    expect(stdout).toContain('"permissionDecision": "allow"');
     expect(stdout).toContain('[agento] fix: bug');
     expect(stdout).toContain('Try: gh pr create --title [agento] your title');
   });
@@ -283,6 +302,27 @@ describe("hook script: [agento] prefix enforcement", () => {
     });
     expect(stdout.trim()).toBe("{}");
     expect(metadata).toBe("status=spawning\n");
+  });
+
+  it("prepends [agento] when using -t=<title> form in PreToolUse", () => {
+    const { stdout } = runHook({
+      command: 'gh pr create -t=fix --body "test"',
+      hookEvent: "PreToolUse",
+    });
+    expect(stdout).toContain("permissionDecision");
+    expect(stdout).toContain("allow");
+    expect(stdout).toContain(`-t='[agento] 'fix`);
+  });
+
+  it("fails closed when python3 is unavailable for title rewriting", () => {
+    const { stdout } = runHook({
+      command: 'gh pr create --title "fix: bug" --body "test"',
+      hookEvent: "PreToolUse",
+      path: noPythonBinDir,
+    });
+    expect(stdout).toContain("permissionDecision");
+    expect(stdout).toContain("deny");
+    expect(stdout).toContain("python3 is required");
   });
 
   it("PostToolUse: detects gh pr create with env prefix and extracts PR URL", () => {
