@@ -37,7 +37,7 @@ has_tmux_caption() {
 
 ui_video_url_allowed() {
   local b="$1"
-  if printf '%s' "$b" | grep -qiE 'https://[^[:space:]]+\.(mp4|gif|webm|mov)([/?#]|$)'; then return 0; fi
+  if printf '%s' "$b" | grep -qiE 'https://[^[:space:]]+\.(mp4|gif|webm|mov)([[:space:]/?#]|$)'; then return 0; fi
   if printf '%s' "$b" | grep -qiE 'https://github\.com/user-attachments/assets/[a-f0-9-]+'; then return 0; fi
   if printf '%s' "$b" | grep -qiE '!\[[^]]*\]\(https://[^)]+\.(mp4|gif|webm|mov)([?#)]|$)'; then return 0; fi
   return 1
@@ -45,7 +45,7 @@ ui_video_url_allowed() {
 
 ui_media_url_allowed() {
   local b="$1"
-  if printf '%s' "$b" | grep -qiE 'https://[^[:space:]]+\.(png|jpg|jpeg|gif|webp|mp4|webm|mov)([/?#]|$)'; then return 0; fi
+  if printf '%s' "$b" | grep -qiE 'https://[^[:space:]]+\.(png|jpg|jpeg|gif|webp|mp4|webm|mov)([[:space:]/?#]|$)'; then return 0; fi
   if printf '%s' "$b" | grep -qiE '!\[[^]]*\]\(https://[^)]+\.(png|jpg|jpeg|gif|webp|mp4|webm|mov)([?#)]|$)'; then return 0; fi
   return 1
 }
@@ -117,6 +117,12 @@ ui_video_url_allowed "$b" || fail "frontend webm video"
 has_caption_marker "$b" || fail "frontend caption marker"
 pass "frontend UI video + caption"
 
+# --- frontend inline UI video with caption on same line
+b='**UI media**: https://cdn.example.com/flow.mp4 Caption: inline video of the updated React flow'
+ui_video_url_allowed "$b" || fail "frontend inline mp4 video"
+has_caption_marker "$b" || fail "frontend inline caption marker"
+pass "frontend inline UI video + caption"
+
 # --- frontend UI png should be rejected
 b='**UI media**: https://cdn.example.com/flow.png
 Caption: screenshot only'
@@ -129,6 +135,12 @@ Caption: screenshot of CLI settings page'
 ui_media_url_allowed "$b" || fail "non-frontend screenshot fallback"
 has_caption_marker "$b" || fail "non-frontend caption marker"
 pass "non-frontend screenshot + caption"
+
+# --- non-frontend inline screenshot with caption on same line
+b='**UI media**: https://cdn.example.com/flow.jpg Caption: inline screenshot of CLI settings page'
+ui_media_url_allowed "$b" || fail "non-frontend inline screenshot fallback"
+has_caption_marker "$b" || fail "non-frontend inline caption marker"
+pass "non-frontend inline screenshot + caption"
 
 # --- non-frontend media extension must be exact
 b='**UI media**: https://cdn.example.com/flow.pngs

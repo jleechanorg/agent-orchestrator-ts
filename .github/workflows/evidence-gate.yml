@@ -446,7 +446,7 @@ jobs:
               HAS_UI_MEDIA=true
             elif [ "$FRONTEND_TOUCH" = "true" ]; then
               HAS_UI_VIDEO=false
-              if printf '%s' "$UI_BLOCK" | grep -qiE 'https://[^[:space:]]+\.(mp4|gif|webm|mov)([/?#]|$)'; then HAS_UI_VIDEO=true; fi
+              if printf '%s' "$UI_BLOCK" | grep -qiE 'https://[^[:space:]]+\.(mp4|gif|webm|mov)([[:space:]/?#]|$)'; then HAS_UI_VIDEO=true; fi
               if [ "$HAS_UI_VIDEO" = "false" ] && printf '%s' "$UI_BLOCK" | grep -qiE 'https://github\.com/user-attachments/assets/[a-f0-9-]+'; then HAS_UI_VIDEO=true; fi
               if [ "$HAS_UI_VIDEO" = "false" ] && printf '%s' "$UI_BLOCK" | grep -qiE '!\[[^]]*\]\(https://[^)]+\.(mp4|gif|webm|mov)([?#)]|$)'; then HAS_UI_VIDEO=true; fi
               if [ "$HAS_UI_VIDEO" != "true" ]; then
@@ -461,7 +461,7 @@ jobs:
             else
               # bd-vidcap CR fix: require caption text for non-frontend UI media too,
               # for consistency with wholesome.yml and Evidence Bundle v2 docs.
-              if printf '%s' "$UI_BLOCK" | grep -qiE 'https://[^[:space:]]+\.(png|jpg|jpeg|gif|webp|mp4|webm|mov)([/?#]|$)'; then
+              if printf '%s' "$UI_BLOCK" | grep -qiE 'https://[^[:space:]]+\.(png|jpg|jpeg|gif|webp|mp4|webm|mov)([[:space:]/?#]|$)'; then
                 if ! printf '%s' "$UI_BLOCK" | grep -qiE 'caption'; then
                   echo "ERROR: Non-frontend UI media must include caption text."
                   exit 1
