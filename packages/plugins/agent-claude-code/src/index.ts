@@ -863,6 +863,11 @@ function createClaudeCodeAgent(): Agent {
       // Unset CLAUDECODE to avoid nested agent conflicts
       env["CLAUDECODE"] = "";
 
+      // Clear ANTHROPIC_BASE_URL so claude-code workers always hit the real
+      // Anthropic API via OAuth, not a MiniMax/proxy endpoint that may be set
+      // in the user's shell environment (e.g. ~/.bashrc for MiniMax workflows).
+      env["ANTHROPIC_BASE_URL"] = "";
+
       // Set session info for introspection
       env["AO_SESSION_ID"] = config.sessionId;
 
