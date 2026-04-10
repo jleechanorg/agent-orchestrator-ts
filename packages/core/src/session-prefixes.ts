@@ -1,4 +1,5 @@
 import type { ProjectConfig } from "./types.js";
+import { DEFAULT_AO_SESSION_PREFIXES } from "./tmux-session-sweeper.js";
 
 function escapeRegExp(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -30,7 +31,7 @@ export function isOrchestratorSessionForPrefix(
 }
 
 export function getAoManagedSessionWorktreePattern(sessionPrefixes?: string[]): RegExp {
-  const escapedPrefixes = [...new Set(["ao", "jc", "wa", "cc", "ra", "wc", ...(sessionPrefixes ?? [])])]
+  const escapedPrefixes = [...new Set([...DEFAULT_AO_SESSION_PREFIXES, ...(sessionPrefixes ?? [])])]
     .filter((prefix) => prefix.length > 0)
     .map(escapeRegExp);
 
