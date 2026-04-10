@@ -21,6 +21,56 @@ import { resolveCodexBinary } from "@jleechanorg/ao-plugin-agent-codex";
 const CODEX_TIMEOUT_MS = 300_000;
 const CLAUDE_TIMEOUT_MS = 300_000;
 const DEFAULT_CODEX_MODEL = process.env["AO_LLM_EVAL_CODEX_MODEL"] ?? "gpt-5.4";
+const DEFAULT_CLAUDE_MODEL =
+  process.env["AO_LLM_EVAL_CLAUDE_MODEL"] ?? "claude-sonnet-4-6";
+
+/** Known claude binary locations, tried in order. */
+const CLAUDE_BINARY_CANDIDATES = [
+  process.env["CLAUDE_BINARY"] ?? "",
+  // cmux DEV app (macOS)
+  "/Applications/cmux DEV.app/Contents/Resources/bin/claude",
+  // cmux release app (macOS)
+  "/Applications/cmux.app/Contents/Resources/bin/claude",
+  // Claude Code standalone (macOS)
+  "/Applications/Claude Code.app/Contents/Resources/bin/claude",
+  // Homebrew / user-local
+  "/usr/local/bin/claude",
+  "/opt/homebrew/bin/claude",
+  // nvm-style user-local
+  `${process.env["HOME"] ?? ""}/.local/bin/claude`,
+  // PATH lookup (last resort — may not be available in launchd env)
+  "claude",
+].filter(Boolean);
+
+/** Resolve the claude binary path, trying known locations in order. */
+function resolveClaudeBinary(): string {
+  const { execFileSync } = require("node:child_process") as typeof import("node:child_process");
+  const fs = require("node:fs") as typeof import("node:fs");
+  for (const candidate of CLAUDE_BINARY_CANDIDATES) {
+    if (!candidate) continue;
+    if (candidate === "claude") {
+      // PATH-based lookup
+      try {
+        const found = execFileSync("which", ["claude"], {
+          encoding: "utf-8",
+          timeout: 5_000,
+          stdio: ["ignore", "pipe", "ignore"],
+        }).trim();
+        if (found) return found;
+      } catch {
+        // not in PATH
+      }
+      continue;
+    }
+    try {
+      if (fs.existsSync(candidate)) return candidate;
+    } catch {
+      // ignore
+    }
+  }
+  // Fall back to bare name — execFileSync will throw ENOENT if not found
+  return "claude";
+}
 
 /** Strict VERDICT matcher for tool output validation — PASS or FAIL only.
  * SKIPPED was the old infra-unavailable sentinel; it has been replaced by
@@ -52,8 +102,14 @@ export function isUnavailable(errMsg: string): boolean {
     // \b matches word boundary — so "401 " matches but "4012" does not
     /\b401\b/i.test(errMsg) ||
     /\b403\b/i.test(errMsg) ||
+    /\b429\b/i.test(errMsg) ||
     lower.includes("unauthorized") ||
-    lower.includes("forbidden")
+    lower.includes("forbidden") ||
+    lower.includes("quota") ||
+    lower.includes("rate limit") ||
+    lower.includes("rate_limit") ||
+    lower.includes("resource_exhausted") ||
+    lower.includes("insufficient_quota")
   );
 }
 
@@ -112,11 +168,12 @@ export async function tryCodexPrint(prompt: string): Promise<LlmEvalResult> {
  */
 export async function tryClaudePrint(prompt: string): Promise<LlmEvalResult> {
   const { execFileSync } = await import("node:child_process");
+  const claudeBinary = resolveClaudeBinary();
 
   try {
     const result = execFileSync(
-      "claude",
-      ["--dangerously-skip-permissions", "--print"],
+      claudeBinary,
+      ["--dangerously-skip-permissions", "--print", "--model", DEFAULT_CLAUDE_MODEL],
       {
         input: prompt,
         encoding: "utf-8",
