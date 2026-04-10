@@ -440,6 +440,20 @@ describe("llmEval — explicit model=gemini", () => {
     expect(mockExecFileSync).toHaveBeenCalledTimes(2);
   });
 
+  it("falls back to codex when gemini has an infra error", async () => {
+    mockResolveCodexBinary.mockResolvedValue("/usr/local/bin/codex");
+    const etimeout = makeErrnoError("ETIMEDOUT", "ETIMEDOUT");
+    mockExecFileSync
+      .mockImplementationOnce(() => {
+        throw etimeout;
+      })
+      .mockReturnValueOnce(PASS_VERDICT);
+    const result = await llmEval("evaluate this", { model: "gemini" });
+    expect(result).toBe(PASS_VERDICT);
+    expect(mockResolveCodexBinary).toHaveBeenCalled();
+    expect(mockExecFileSync).toHaveBeenCalledTimes(2);
+  });
+
   it("fails closed when gemini omits a verdict", async () => {
     mockExecFileSync.mockReturnValue("Gemini analysis with no verdict");
     const result = await llmEval("evaluate this", { model: "gemini" });
