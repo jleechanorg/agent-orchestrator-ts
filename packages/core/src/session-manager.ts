@@ -431,8 +431,12 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
   function isOrchestratorSessionRecord(
     sessionId: string,
     raw: Record<string, string> | null | undefined,
+    project?: ProjectConfig,
   ): boolean {
     if (!raw) return false;
+    if (project?.sessionPrefix) {
+      return sessionId === `${project.sessionPrefix}-orchestrator`;
+    }
     return raw["role"] === "orchestrator" || sessionId.endsWith("-orchestrator");
   }
 
@@ -495,9 +499,10 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
   function repairSingleSessionMetadataOnRead(
     sessionsDir: string,
     record: ActiveSessionRecord,
+    project: ProjectConfig,
   ): ActiveSessionRecord {
     const repaired = { ...record, raw: { ...record.raw } };
-    if (!isOrchestratorSessionRecord(repaired.sessionName, repaired.raw)) {
+    if (!isOrchestratorSessionRecord(repaired.sessionName, repaired.raw, project)) {
       return repaired;
     }
 
@@ -537,13 +542,14 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
   function repairSessionMetadataOnRead(
     sessionsDir: string,
     records: ActiveSessionRecord[],
+    project: ProjectConfig,
   ): ActiveSessionRecord[] {
     const repaired = records.map((record) => ({ ...record, raw: { ...record.raw } }));
     const duplicatePRAttachments = new Map<string, ActiveSessionRecord[]>();
 
     for (const record of repaired) {
-      if (isOrchestratorSessionRecord(record.sessionName, record.raw)) {
-        record.raw = repairSingleSessionMetadataOnRead(sessionsDir, record).raw;
+      if (isOrchestratorSessionRecord(record.sessionName, record.raw, project)) {
+        record.raw = repairSingleSessionMetadataOnRead(sessionsDir, record, project).raw;
         continue;
       }
 
@@ -604,7 +610,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       return [{ sessionName, raw, modifiedAt } satisfies ActiveSessionRecord];
     });
 
-    const repaired = repairSessionMetadataOnRead(sessionsDir, records);
+    const repaired = repairSessionMetadataOnRead(sessionsDir, records, project);
     // Filter out killed/merged sessions to keep the active session list clean.
     // Check the pre-repair (original) status because repair can promote a
     // merged orchestrator session to "working" — we must still exclude it.
@@ -849,11 +855,15 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
         modifiedAt = undefined;
       }
 
-      const repaired = repairSingleSessionMetadataOnRead(sessionsDir, {
-        sessionName: sessionId,
-        raw,
-        modifiedAt,
-      });
+      const repaired = repairSingleSessionMetadataOnRead(
+        sessionsDir,
+        {
+          sessionName: sessionId,
+          raw,
+          modifiedAt,
+        },
+        project,
+      );
 
       return { raw: repaired.raw, sessionsDir, project, projectId };
     }
@@ -1678,11 +1688,15 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
         // If stat fails, timestamps will fall back to current time
       }
 
-      const repaired = repairSingleSessionMetadataOnRead(sessionsDir, {
-        sessionName: sessionId,
-        raw,
-        modifiedAt,
-      });
+      const repaired = repairSingleSessionMetadataOnRead(
+        sessionsDir,
+        {
+          sessionName: sessionId,
+          raw,
+          modifiedAt,
+        },
+        project,
+      );
 
       const session = metadataToSession(sessionId, repaired.raw, projectId, createdAt, modifiedAt);
 
@@ -2524,7 +2538,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
     if (!reference) throw new Error("PR reference is required");
 
     const { raw, sessionsDir, project, projectId } = requireSessionRecord(sessionId);
-    if (isOrchestratorSessionRecord(sessionId, raw)) {
+    if (isOrchestratorSessionRecord(sessionId, raw, project)) {
       throw new Error(`Session ${sessionId} is an orchestrator session and cannot claim PRs`);
     }
 
@@ -2551,7 +2565,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
     );
 
     for (const { sessionName, raw: otherRaw } of activeRecords) {
-      if (!otherRaw || isOrchestratorSessionRecord(sessionName, otherRaw)) continue;
+      if (!otherRaw || isOrchestratorSessionRecord(sessionName, otherRaw, project)) continue;
 
       const samePr = otherRaw["pr"] === pr.url;
       const sameBranch =
@@ -2903,7 +2917,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       plugins.scm?.resolvePR &&
       plugins.scm?.getPRState &&
       restoredSession.runtimeHandle &&
-      !isOrchestratorSessionRecord(sessionId, raw)
+      !isOrchestratorSessionRecord(sessionId, raw, project)
     ) {
       try {
         const parsedPr = parsePrFromUrl(raw["pr"]);

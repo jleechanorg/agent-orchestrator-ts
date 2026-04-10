@@ -201,7 +201,16 @@ async function maybeRemoveStaleCheckedOutWorktree(
     const list = await git(repoPath, "worktree", "list", "--porcelain");
     const stillPresent = list
       .split("\n\n")
-      .some((block) => block.trim().split("\n").some((l) => l.startsWith("worktree ") && l.slice("worktree ".length) === stalePath));
+      .some((block) =>
+        block
+          .trim()
+          .split("\n")
+          .some(
+            (line) =>
+              line.startsWith("worktree ") &&
+              resolve(line.slice("worktree ".length)) === resolvedStale,
+          ),
+      );
     return !stillPresent;
   } catch {
     // If git worktree list fails, fall back to filesystem check.
