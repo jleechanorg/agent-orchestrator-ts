@@ -114,7 +114,6 @@ beforeEach(() => {
 
   mockSessionManager.spawn.mockReset();
   mockSessionManager.list.mockReset();
-  mockSessionManager.list.mockResolvedValue([]);
   mockSessionManager.claimPR.mockReset();
   mockExec.mockReset();
   mockEnsureLifecycleWorker.mockReset();
