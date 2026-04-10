@@ -32,9 +32,27 @@ ao_legacy_alias_paths() {
 }
 
 ao_realpath() {
-  python3 -c "import os, sys; print(os.path.realpath(sys.argv[1]))" "$1" 2>/dev/null \
-    || readlink -f "$1" 2>/dev/null \
-    || printf '%s\n' "$1"
+  if command -v python3 >/dev/null 2>&1; then
+    python3 -c "import os, sys; print(os.path.realpath(sys.argv[1]))" "$1" 2>/dev/null && return 0
+  fi
+  if command -v node >/dev/null 2>&1; then
+    node -e 'const fs = require("node:fs"); console.log(fs.realpathSync(process.argv[1]));' "$1" 2>/dev/null && return 0
+  fi
+  if command -v readlink >/dev/null 2>&1; then
+    readlink -f "$1" 2>/dev/null && return 0
+  fi
+
+  local dir base
+  dir="$(dirname "$1")"
+  base="$(basename "$1")"
+  if [ -d "$dir" ]; then
+    (
+      cd "$dir" >/dev/null 2>&1 &&
+      printf '%s/%s\n' "$(pwd -P)" "$base"
+    ) && return 0
+  fi
+
+  printf '%s\n' "$1"
 }
 
 ao_find_config_path() {

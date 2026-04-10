@@ -11,6 +11,13 @@ const promoteScript = join(repoRoot, "scripts", "promote-openclaw-config.sh");
 const validateScript = join(repoRoot, "scripts", "validate-config.sh");
 
 describe("OpenClaw config topology scripts", () => {
+  it("keeps the packaged topology helper byte-identical to the repo script", () => {
+    const repoScript = join(repoRoot, "scripts", "lib", "ao-config-topology.sh");
+    const packagedScript = join(repoRoot, "packages", "cli", "scripts", "lib", "ao-config-topology.sh");
+
+    expect(readFileSync(packagedScript, "utf8")).toBe(readFileSync(repoScript, "utf8"));
+  });
+
   it("bootstraps staging without creating production", () => {
     const tempRoot = mkdtempSync(join(tmpdir(), "ao-config-bootstrap-"));
     const stagingConfig = join(tempRoot, ".openclaw", "agent-orchestrator.yaml");

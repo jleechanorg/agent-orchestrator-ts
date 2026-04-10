@@ -71,7 +71,7 @@ function ensureConfigDirectory(configPath: string): void {
   mkdirSync(dirname(configPath), { recursive: true });
 }
 
-function ensureStagingConfigPath(): string {
+function prepareStagingConfigPath(): string {
   const stagingPath = getManagedConfigPath("staging");
   const problems = validateManagedConfigTopology();
   if (problems.length > 0) {
@@ -80,6 +80,8 @@ function ensureStagingConfigPath(): string {
       `Invalid managed config topology — cannot seed staging config:\n${details}`,
     );
   }
+
+  ensureConfigDirectory(stagingPath);
 
   if (existsSync(stagingPath)) {
     return stagingPath;
@@ -275,7 +277,7 @@ async function handleUrlStart(
     }
   }
 
-  const stagingConfigPath = ensureStagingConfigPath();
+  const stagingConfigPath = prepareStagingConfigPath();
 
   if (existsSync(stagingConfigPath)) {
     const config = loadConfig(stagingConfigPath);
@@ -405,7 +407,7 @@ async function autoCreateConfig(workingDir: string): Promise<OrchestratorConfig>
     },
   };
 
-  const outputPath = ensureStagingConfigPath();
+  const outputPath = prepareStagingConfigPath();
   if (existsSync(outputPath)) {
     console.log(chalk.yellow(`⚠ Config already exists: ${outputPath}`));
     console.log(chalk.dim("  Use 'ao start' to start with the existing config.\n"));
@@ -918,7 +920,7 @@ export function registerStart(program: Command): void {
             let configPath: string | undefined = findConfigFile() ?? undefined;
 
             if (!configPath) {
-              const stagingConfigPath = ensureStagingConfigPath();
+              const stagingConfigPath = prepareStagingConfigPath();
               if (existsSync(stagingConfigPath)) {
                 configPath = stagingConfigPath;
               }
