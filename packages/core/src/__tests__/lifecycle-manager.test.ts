@@ -3949,6 +3949,10 @@ describe("session exit proof reconciliation (bd-uxs.6)", () => {
     );
     expect(exitFailedCalls).toHaveLength(1);
     expect(mockSessionManager.kill).toHaveBeenCalledTimes(2);
+
+    // Verify that terminalExitProofRecordedAt was actually persisted to disk
+    const persisted = readMetadataRaw(sessionsDir, "app-1");
+    expect(persisted?.["terminalExitProofRecordedAt"]).toBeDefined();
   });
 
   it("emits session.exit_failed when validateCommits returns pushed=false", async () => {
