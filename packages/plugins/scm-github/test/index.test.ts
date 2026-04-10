@@ -1712,6 +1712,8 @@ describe("scm-github plugin", () => {
       ["APPROVED", "approved"],
       ["CHANGES_REQUESTED", "changes_requested"],
       ["REVIEW_REQUIRED", "pending"],
+      ["PENDING", "pending"],
+      ["NONE", "none"],
     ] as const)('maps %s to "%s"', async (input, expected) => {
       mockGh({ reviewDecision: input });
       expect(await scm.getReviewDecision(pr)).toBe(expected);
@@ -2348,6 +2350,21 @@ describe("scm-github plugin", () => {
       expect(result.mergeable).toBe(true);
     });
 
+    it('preserves canonical "PENDING" reviewDecision as review required', async () => {
+      mockGh({ state: "OPEN" }); // getPRState
+      mockGh({
+        mergeable: "MERGEABLE",
+        reviewDecision: "PENDING",
+        mergeStateStatus: "BLOCKED",
+        isDraft: false,
+      });
+      mockGh([]);
+
+      const result = await scm.getMergeability(pr);
+      expect(result.approved).toBe(false);
+      expect(result.blockers).toContain("Review required");
+    });
+
     it("reports merge conflicts as blockers", async () => {
       mockGh({ state: "OPEN" }); // getPRState
       mockGh({
@@ -2464,6 +2481,22 @@ describe("scm-github plugin", () => {
         state: "OPEN",
         mergeable: "MERGEABLE",
         reviewDecision: "SOMETHING_NEW",
+        mergeStateStatus: "CLEAN",
+        isDraft: false,
+        statusCheckRollup: [{ name: "build", conclusion: "success" }],
+      });
+
+      const result = await scm.getBatchPRStatus(pr);
+      expect(result.reviewDecision).toBe("none");
+      expect(result.mergeReadiness.blockers).not.toContain("Review required");
+      expect(result.mergeReadiness.mergeable).toBe(true);
+    });
+
+    it('preserves canonical "NONE" reviewDecision as neutral "none"', async () => {
+      mockGh({
+        state: "OPEN",
+        mergeable: "MERGEABLE",
+        reviewDecision: "NONE",
         mergeStateStatus: "CLEAN",
         isDraft: false,
         statusCheckRollup: [{ name: "build", conclusion: "success" }],

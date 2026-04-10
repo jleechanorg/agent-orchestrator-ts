@@ -112,6 +112,8 @@ function normalizeReviewDecision(
   const d = trimmed.toUpperCase();
   if (d === "APPROVED") return "approved";
   if (d === "CHANGES_REQUESTED") return "changes_requested";
+  if (d === "PENDING") return "pending";
+  if (d === "NONE") return "none";
   if (d === "REVIEW_REQUIRED") return "pending";
   if (raw === null || raw === undefined || trimmed === "") return "pending";
   return "none";
