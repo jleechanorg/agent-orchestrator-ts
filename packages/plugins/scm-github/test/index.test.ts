@@ -70,6 +70,17 @@ function mockGhError(msg = "Command failed") {
   ghMock.mockRejectedValueOnce(new Error(msg));
 }
 
+function assertNoGitWorktreeRemoveCalls() {
+  const removeCalls = ghMock.mock.calls.filter(
+    ([bin, args]) =>
+      bin === "git" &&
+      Array.isArray(args) &&
+      args[0] === "worktree" &&
+      args[1] === "remove",
+  );
+  expect(removeCalls).toHaveLength(0);
+}
+
 function makeWebhookRequest(overrides: Partial<SCMWebhookRequest> = {}): SCMWebhookRequest {
   return {
     method: "POST",
@@ -876,11 +887,7 @@ describe("scm-github plugin", () => {
       await expect(scm.checkoutPR?.(pr, "/tmp/repo")).rejects.toThrow(
         "refusing to fetch into branch",
       );
-      expect(ghMock).not.toHaveBeenCalledWith(
-        "git",
-        ["worktree", "remove", "--force", "--force", "/mock-home/.worktrees/acme/feature-research"],
-        expect.any(Object),
-      );
+      assertNoGitWorktreeRemoveCalls();
     });
 
     it("does not remove AO-named paths that are not registered worktrees for the repo", async () => {
@@ -899,11 +906,7 @@ describe("scm-github plugin", () => {
       await expect(scm.checkoutPR?.(pr, "/tmp/repo")).rejects.toThrow(
         "refusing to fetch into branch",
       );
-      expect(ghMock).not.toHaveBeenCalledWith(
-        "git",
-        ["worktree", "remove", "--force", "--force", "/mock-home/.worktrees/acme/ao-9999"],
-        expect.any(Object),
-      );
+      assertNoGitWorktreeRemoveCalls();
     });
 
     it("does not remove registered AO worktrees outside the configured base directory", async () => {
@@ -924,11 +927,7 @@ describe("scm-github plugin", () => {
       await expect(scm.checkoutPR?.(pr, "/tmp/repo")).rejects.toThrow(
         "refusing to fetch into branch",
       );
-      expect(ghMock).not.toHaveBeenCalledWith(
-        "git",
-        ["worktree", "remove", "--force", "--force", "/tmp/ao-9999"],
-        expect.any(Object),
-      );
+      assertNoGitWorktreeRemoveCalls();
     });
 
     it("returns true when git fetch + checkout succeeds (already on branch after fetch)", async () => {
