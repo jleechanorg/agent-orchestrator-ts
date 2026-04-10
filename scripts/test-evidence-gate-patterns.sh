@@ -35,6 +35,25 @@ has_tmux_caption() {
     | grep -qiE 'tmux|terminal'
 }
 
+ui_video_url_allowed() {
+  local b="$1"
+  if printf '%s' "$b" | grep -qiE 'https://[^[:space:]]+\.(mp4|gif|webm|mov)([/?#]|$)'; then return 0; fi
+  if printf '%s' "$b" | grep -qiE 'https://github\.com/user-attachments/assets/[a-f0-9-]+'; then return 0; fi
+  if printf '%s' "$b" | grep -qiE '!\[[^]]*\]\(https://[^)]+\.(mp4|gif|webm|mov)([?#)]|$)'; then return 0; fi
+  return 1
+}
+
+ui_media_url_allowed() {
+  local b="$1"
+  if printf '%s' "$b" | grep -qiE 'https://[^[:space:]]+\.(png|jpg|jpeg|gif|webp|mp4|webm|mov)([/?#]|$)'; then return 0; fi
+  if printf '%s' "$b" | grep -qiE '!\[[^]]*\]\(https://[^)]+\.(png|jpg|jpeg|gif|webp|mp4|webm|mov)([?#)]|$)'; then return 0; fi
+  return 1
+}
+
+has_caption_marker() {
+  printf '%s' "$1" | grep -qiE 'caption'
+}
+
 # --- mp4
 b='**Terminal media**: https://cdn.example.com/clip.mp4
 tmux session proof'
@@ -86,5 +105,31 @@ u=$(extract_first_https "$b")
 tm_first_url_known "$u" || fail "inline mp4"
 has_tmux_caption "$b" || fail "inline caption"
 pass "inline URL caption"
+
+# --- frontend UI video with caption
+b='**UI media**: https://cdn.example.com/flow.webm?download=1
+Caption: video of the updated React flow'
+ui_video_url_allowed "$b" || fail "frontend webm video"
+has_caption_marker "$b" || fail "frontend caption marker"
+pass "frontend UI video + caption"
+
+# --- frontend UI png should be rejected
+b='**UI media**: https://cdn.example.com/flow.png
+Caption: screenshot only'
+if ui_video_url_allowed "$b"; then fail "frontend png should not satisfy UI video rule"; fi
+pass "frontend UI png rejected"
+
+# --- non-frontend screenshot fallback with caption
+b='**UI media**: https://cdn.example.com/flow.png
+Caption: screenshot of CLI settings page'
+ui_media_url_allowed "$b" || fail "non-frontend screenshot fallback"
+has_caption_marker "$b" || fail "non-frontend caption marker"
+pass "non-frontend screenshot + caption"
+
+# --- non-frontend media without caption stays incomplete
+b='**UI media**: https://cdn.example.com/flow.mov'
+ui_media_url_allowed "$b" || fail "non-frontend mov fallback"
+if has_caption_marker "$b"; then fail "caption should be required for UI media"; fi
+pass "UI media still requires caption"
 
 echo "All evidence-gate pattern tests passed."

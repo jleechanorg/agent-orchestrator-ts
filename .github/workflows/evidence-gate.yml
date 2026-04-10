@@ -287,21 +287,28 @@ jobs:
         run: |
           BODY=$(cat "$RUNNER_TEMP/pr_body.txt")
           CLAIM="${{ steps.claim.outputs.claim }}"
+          REQUIRES_STRONG_ARTIFACTS=false
+          case "$CLAIM" in
+            integration|pipeline-e2e|pr-lifecycle-e2e|merge-gate) REQUIRES_STRONG_ARTIFACTS=true ;;
+          esac
+          echo "requires_strong_artifacts=$REQUIRES_STRONG_ARTIFACTS"
 
           # bd-vidcap: detect frontend-touched paths for UI video enforcement (deterministic paths, not LLM routing).
           FRONTEND_TOUCH=false
-          if ! FILES="$(gh api "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files" --paginate --jq '.[].filename' 2>/dev/null)"; then
-            echo "ERROR: Could not list PR files (required for frontend UI media enforcement)."
-            exit 1
-          fi
-          if printf '%s' "$FILES" | grep -qiE '\.(tsx|jsx|vue|svelte)$'; then
-            FRONTEND_TOUCH=true
+          if [ "$REQUIRES_STRONG_ARTIFACTS" = "true" ]; then
+            if ! FILES="$(gh api "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files" --paginate --jq '.[].filename' 2>/dev/null)"; then
+              echo "ERROR: Could not list PR files (required for frontend UI media enforcement on integration+ claims)."
+              exit 1
+            fi
+            if printf '%s' "$FILES" | grep -qiE '\.(tsx|jsx|vue|svelte)$'; then
+              FRONTEND_TOUCH=true
+            fi
           fi
           echo "frontend_touch=$FRONTEND_TOUCH"
 
           # integration + higher claims require rich artifacts; unit can use terminal evidence only.
           # CR bd-2oko fix: integration was missing from this list (let it bypass strong proof).
-          if [ "$CLAIM" = "integration" ] || [ "$CLAIM" = "pipeline-e2e" ] || [ "$CLAIM" = "pr-lifecycle-e2e" ] || [ "$CLAIM" = "merge-gate" ]; then
+          if [ "$REQUIRES_STRONG_ARTIFACTS" = "true" ]; then
             # bd-ara.2: strip HTML comments before scanning for Evidence section.
             # CURSOR_SUMMARY and other bot comments appear after ## Evidence and would
             # otherwise pollute the EVIDENCE extraction (causing false failures on the
@@ -442,16 +449,30 @@ jobs:
               if printf '%s' "$UI_BLOCK" | grep -qiE 'https://[^[:space:]]+\.(mp4|gif|webm|mov)([/?#]|$)'; then HAS_UI_VIDEO=true; fi
               if [ "$HAS_UI_VIDEO" = "false" ] && printf '%s' "$UI_BLOCK" | grep -qiE 'https://github\.com/user-attachments/assets/[a-f0-9-]+'; then HAS_UI_VIDEO=true; fi
               if [ "$HAS_UI_VIDEO" = "false" ] && printf '%s' "$UI_BLOCK" | grep -qiE '!\[[^]]*\]\(https://[^)]+\.(mp4|gif|webm|mov)([?#)]|$)'; then HAS_UI_VIDEO=true; fi
-              if [ "$HAS_UI_VIDEO" = "true" ] && printf '%s' "$UI_BLOCK" | grep -qiE 'caption'; then
-                HAS_UI_MEDIA=true
+              if [ "$HAS_UI_VIDEO" != "true" ]; then
+                echo "ERROR: Frontend-touch PRs require **UI media** captioned video URL (.mp4, .gif, .webm, .mov) or GitHub user-attachments, or exact N/A - no UI changes."
+                exit 1
               fi
+              if ! printf '%s' "$UI_BLOCK" | grep -qiE 'caption'; then
+                echo "ERROR: Frontend-touch PR UI media must include caption text."
+                exit 1
+              fi
+              HAS_UI_MEDIA=true
             else
               # bd-vidcap CR fix: require caption text for non-frontend UI media too,
               # for consistency with wholesome.yml and Evidence Bundle v2 docs.
               if printf '%s' "$UI_BLOCK" | grep -qiE 'https://[^[:space:]]+\.(png|jpg|jpeg|gif|webp|mp4|webm|mov)'; then
-                if printf '%s' "$UI_BLOCK" | grep -qiE 'caption'; then HAS_UI_MEDIA=true; else HAS_UI_MEDIA=false; fi
+                if ! printf '%s' "$UI_BLOCK" | grep -qiE 'caption'; then
+                  echo "ERROR: Non-frontend UI media must include caption text."
+                  exit 1
+                fi
+                HAS_UI_MEDIA=true
               elif printf '%s' "$UI_BLOCK" | grep -qiE '!\[[^]]*\]\(https://[^)]+\.(png|jpg|jpeg|gif|webp|mp4|webm|mov)\)'; then
-                if printf '%s' "$UI_BLOCK" | grep -qiE 'caption'; then HAS_UI_MEDIA=true; else HAS_UI_MEDIA=false; fi
+                if ! printf '%s' "$UI_BLOCK" | grep -qiE 'caption'; then
+                  echo "ERROR: Non-frontend UI media must include caption text."
+                  exit 1
+                fi
+                HAS_UI_MEDIA=true
               fi
             fi
 
