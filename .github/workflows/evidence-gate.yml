@@ -155,7 +155,7 @@ jobs:
             exit 0
           fi
 
-          if ! printf '%s\n' "$DIFF_NAMES" | grep -qiE '\.(ts|js|jsx|tsx|py|go|sh|json|cjs|mjs)$'; then
+          if ! printf '%s\n' "$DIFF_NAMES" | grep -qiE '\.(ts|js|jsx|tsx|py|go|sh|json|cjs|mjs|vue|svelte)$'; then
             echo "Claim floor PASS: no code file changes in diff"
             exit 0
           fi

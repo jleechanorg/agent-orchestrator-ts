@@ -50,6 +50,10 @@ ui_media_url_allowed() {
   return 1
 }
 
+claim_floor_matches_code_change() {
+  printf '%s\n' "$1" | grep -qiE '\.(ts|js|jsx|tsx|py|go|sh|json|cjs|mjs|vue|svelte)$'
+}
+
 has_caption_marker() {
   printf '%s' "$1" | grep -qiE 'caption'
 }
@@ -131,5 +135,13 @@ b='**UI media**: https://cdn.example.com/flow.mov'
 ui_media_url_allowed "$b" || fail "non-frontend mov fallback"
 if has_caption_marker "$b"; then fail "caption should be required for UI media"; fi
 pass "UI media still requires caption"
+
+# --- claim floor treats frontend source files as code changes
+claim_floor_matches_code_change $'src/app.tsx\nsrc/ui/Widget.vue\nsrc/ui/Panel.svelte' || fail "claim floor should match frontend source extensions"
+pass "claim floor matches frontend source extensions"
+
+# --- claim floor ignores docs-only diffs
+if claim_floor_matches_code_change $'docs/guide.md\nassets/mockup.png'; then fail "claim floor should ignore docs-only diffs"; fi
+pass "claim floor ignores docs-only diffs"
 
 echo "All evidence-gate pattern tests passed."
