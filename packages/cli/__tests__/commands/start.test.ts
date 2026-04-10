@@ -79,12 +79,16 @@ vi.mock("@jleechanorg/ao-core", async (importOriginal) => {
   return {
     ...actual,
     normalizeOrchestratorSessionStrategy,
-    findConfigFile: () => {
-      if (process.env["AO_CONFIG_PATH"]) {
-        return process.env["AO_CONFIG_PATH"];
+    findConfigFile: (startDir?: string) => {
+      const envConfigPath = process.env["AO_CONFIG_PATH"];
+      if (envConfigPath && existsSync(envConfigPath)) {
+        return envConfigPath;
       }
       const mockConfigPath = mockConfigRef.current?.["configPath"];
-      return typeof mockConfigPath === "string" ? mockConfigPath : null;
+      if (typeof mockConfigPath === "string" && existsSync(mockConfigPath)) {
+        return mockConfigPath;
+      }
+      return actual.findConfigFile(startDir);
     },
     loadConfig: (path?: string) => {
       if (path && path === mockConfigRef.current?.["configPath"]) {
@@ -383,6 +387,36 @@ describe("start command — project resolution", () => {
       .mock.calls.map((c) => c.join(" "))
       .join("\n");
     expect(errors).toContain("No projects configured");
+  });
+
+  it("falls back to managed staging config when AO_CONFIG_PATH points to a missing file", async () => {
+    const stagingConfigPath = join(tmpDir, ".openclaw", "agent-orchestrator.yaml");
+    mkdirSync(join(tmpDir, ".openclaw"), { recursive: true });
+    writeFileSync(
+      stagingConfigPath,
+      yamlStringify({
+        port: 3000,
+        defaults: {
+          runtime: "tmux",
+          agent: "claude-code",
+          workspace: "worktree",
+          notifiers: ["desktop"],
+        },
+        projects: {
+          "my-app": makeProject(),
+        },
+      }, { indent: 2 }),
+    );
+    mockConfigRef.current = null;
+
+    await program.parseAsync(["node", "test", "start", "--no-dashboard", "--no-orchestrator"]);
+
+    const output = vi
+      .mocked(console.log)
+      .mock.calls.map((c) => c.join(" "))
+      .join("\n");
+    expect(output).toContain("My App");
+    expect(output).toContain("Startup complete");
   });
 });
 

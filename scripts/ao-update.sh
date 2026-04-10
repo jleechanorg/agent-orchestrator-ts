@@ -96,7 +96,9 @@ require_command node "install Node.js 20+"
 # left in a state where an old worker is holding stale state.
 kill_existing_workers() {
   local config_file="${AO_CONFIG_PATH:-$(ao_find_config_path 2>/dev/null || ao_staging_config_path)}"
-  ao_validate_topology
+  if [ -z "${AO_CONFIG_PATH:-}" ]; then
+    ao_validate_topology
+  fi
   if [ ! -f "$config_file" ]; then
     printf 'No canonical config at %s — skipping worker teardown.\n' "$config_file"
     return 0
@@ -175,7 +177,9 @@ except:
 
 restart_workers() {
   local config_file="${AO_CONFIG_PATH:-$(ao_find_config_path 2>/dev/null || ao_staging_config_path)}"
-  ao_validate_topology
+  if [ -z "${AO_CONFIG_PATH:-}" ]; then
+    ao_validate_topology
+  fi
   if [ ! -f "$config_file" ]; then
     printf 'No canonical config — skipping worker restart.\n'
     return 0

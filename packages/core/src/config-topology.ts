@@ -1,6 +1,6 @@
 import { existsSync, lstatSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, resolve } from "node:path";
+import { resolve } from "node:path";
 
 export type ManagedConfigEnvironment = "staging" | "production";
 
@@ -28,17 +28,6 @@ export function getManagedConfigPath(env: ManagedConfigEnvironment = "staging"):
     getPathOverride("AO_PRODUCTION_CONFIG_PATH") ??
     resolve(homedir(), ".openclaw_prod", CONFIG_FILENAME)
   );
-}
-
-export function getManagedConfigPaths(): Record<ManagedConfigEnvironment, string> {
-  return {
-    staging: getManagedConfigPath("staging"),
-    production: getManagedConfigPath("production"),
-  };
-}
-
-export function getManagedConfigDir(env: ManagedConfigEnvironment = "staging"): string {
-  return dirname(getManagedConfigPath(env));
 }
 
 export function getLegacyConfigPaths(): string[] {

@@ -166,7 +166,7 @@ try:
     project_path = proj_cfg.get("path", "") or ""
     if project_path:
         if project_path.startswith("~"):
-            project_path = os.path.join(os.path.expanduser("~"), project_path[1:])
+            project_path = os.path.expanduser(project_path)
         elif not os.path.isabs(project_path):
             project_path = os.path.normpath(os.path.join(os.path.dirname(config_path), project_path))
         print(os.path.basename(project_path))

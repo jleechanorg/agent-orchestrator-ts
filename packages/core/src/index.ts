@@ -19,9 +19,7 @@ export {
 } from "./config.js";
 export {
   findManagedConfigFile,
-  getManagedConfigDir,
   getManagedConfigPath,
-  getManagedConfigPaths,
   getLegacyConfigPaths,
   getPreferredConfigSearchPaths,
   validateManagedConfigTopology,

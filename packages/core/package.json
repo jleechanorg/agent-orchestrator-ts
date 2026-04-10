@@ -52,7 +52,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.52.0",
-    "yaml": "^2.7.0",
+    "yaml": "^2.8.3",
     "zod": "^3.24.0"
   },
   "devDependencies": {

@@ -166,10 +166,11 @@ describe("plugin manifest & exports", () => {
 // ==================================================================
 describe("getLaunchCommand", () => {
   const agent = create();
+  const strictMcpConfigArg = "--strict-mcp-config '/mock/home/.claude/mcp-strict.json'";
 
   it("generates base command without shell syntax", () => {
     const cmd = agent.getLaunchCommand(makeLaunchConfig({ permissions: "default" }));
-    expect(cmd).toBe("env -u ANTHROPIC_BASE_URL claude --strict-mcp-config '/mock/home/.claude/mcp-strict.json'");
+    expect(cmd).toBe(`env -u ANTHROPIC_BASE_URL claude ${strictMcpConfigArg}`);
     // Must not contain shell operators (execFile-safe)
     expect(cmd).not.toContain("&&");
     expect(cmd).not.toContain("unset");
@@ -220,7 +221,7 @@ describe("getLaunchCommand", () => {
       makeLaunchConfig({ permissions: "permissionless", model: "opus", prompt: "Hello" }),
     );
     expect(cmd).toBe(
-      "env -u ANTHROPIC_BASE_URL claude --dangerously-skip-permissions --strict-mcp-config '/mock/home/.claude/mcp-strict.json' --model 'opus'",
+      `env -u ANTHROPIC_BASE_URL claude --dangerously-skip-permissions ${strictMcpConfigArg} --model 'opus'`,
     );
   });
 
