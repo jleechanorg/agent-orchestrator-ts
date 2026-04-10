@@ -49,6 +49,10 @@ else
   cwd="$PWD"
 fi
 
+if [[ -n "${FAKE_GIT_LOG_FILE:-}" ]]; then
+  printf '%s\n' "$*" >>"$FAKE_GIT_LOG_FILE"
+fi
+
 case "$*" in
   "rev-parse --abbrev-ref HEAD")
     echo "main"
@@ -93,7 +97,7 @@ EOF
 set -euo pipefail
 
 if [[ "${1:-}" == "spawn" ]]; then
-  if [[ "${2:-}" != "-p" || "${3:-}" != "agent-orchestrator" || "${4:-}" != "--runtime" || "${5:-}" != "tmux" || -z "${6:-}" ]]; then
+  if [[ "$#" -ne 6 || "${2:-}" != "-p" || "${3:-}" != "agent-orchestrator" || "${4:-}" != "--runtime" || "${5:-}" != "tmux" || -z "${6:-}" ]]; then
     echo "unexpected ao spawn args: $*" >&2
     exit 1
   fi
@@ -141,13 +145,25 @@ fi
 printf '%s\n' "${FAKE_SESSION_STATUS:?}"
 EOF
 
-  chmod +x "$bin_dir/git" "$bin_dir/gh" "$bin_dir/ao" "$bin_dir/jq"
+  cat >"$bin_dir/date" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ "${1:-}" == "+%Y-%m-%d" ]]; then
+  printf '%s\n' "${FAKE_TODAY:?}"
+  exit 0
+fi
+
+exec /bin/date "$@"
+EOF
+
+  chmod +x "$bin_dir/git" "$bin_dir/gh" "$bin_dir/ao" "$bin_dir/jq" "$bin_dir/date"
 }
 
 run_case() {
   local label="$1" status="$2" write_daily="$3" write_workers="$4" expected_exit="$5" expected_text="$6"
   local precreate_artifacts="${7:-0}" expect_spawn="${8:-1}"
-  local tmp_dir repo_root bin_dir today today_header daily_file workers_file spawn_marker output rc
+  local tmp_dir repo_root bin_dir today today_header daily_file workers_file spawn_marker git_log_file git_log output rc
 
   tmp_dir="$(mktemp -d)"
   repo_root="$tmp_dir/repo"
@@ -157,11 +173,12 @@ run_case() {
   chmod +x "$repo_root/scripts/novel/run-daily.sh"
   make_fake_bin_dir "$bin_dir"
 
-  today="$(date '+%Y-%m-%d')"
+  today="2026-04-10"
   today_header="## Daily ${today}"
   daily_file="$repo_root/novel/workers/${today}.md"
   workers_file="$repo_root/novel/the-daily-lives-of-workers.md"
   spawn_marker="$tmp_dir/spawned"
+  git_log_file="$tmp_dir/git.log"
   : >"$workers_file"
 
   if [[ "$precreate_artifacts" == "1" ]]; then
@@ -179,6 +196,8 @@ run_case() {
     FAKE_DAILY_FILE="$daily_file" \
     FAKE_WORKERS_FILE="$workers_file" \
     FAKE_TODAY_HEADER="$today_header" \
+    FAKE_TODAY="$today" \
+    FAKE_GIT_LOG_FILE="$git_log_file" \
     FAKE_SPAWN_MARKER="$spawn_marker" \
     bash "$repo_root/scripts/novel/run-daily.sh" 2>&1
   )"
@@ -203,6 +222,11 @@ run_case() {
       printf "  FAIL  %s\n        expected ao spawn invocation\n" "$label spawn invoked"
       FAIL=$((FAIL + 1))
     fi
+  fi
+  if [[ "$expect_spawn" == "0" ]]; then
+    git_log="$(cat "$git_log_file" 2>/dev/null || true)"
+    assert_contains "$label sync fetch" "$git_log" "fetch origin main"
+    assert_contains "$label sync merge" "$git_log" "merge --ff-only origin/main"
   fi
 
   rm -rf "$tmp_dir"
