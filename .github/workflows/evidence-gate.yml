@@ -467,6 +467,12 @@ jobs:
                   exit 1
                 fi
                 HAS_UI_MEDIA=true
+              elif printf '%s' "$UI_BLOCK" | grep -qiE 'https://github\.com/user-attachments/assets/[a-f0-9-]+'; then
+                if ! printf '%s' "$UI_BLOCK" | grep -qiE 'caption'; then
+                  echo "ERROR: Non-frontend UI media must include caption text."
+                  exit 1
+                fi
+                HAS_UI_MEDIA=true
               elif printf '%s' "$UI_BLOCK" | grep -qiE '!\[[^]]*\]\(https://[^)]+\.(png|jpg|jpeg|gif|webp|mp4|webm|mov)([?#)]|$)'; then
                 if ! printf '%s' "$UI_BLOCK" | grep -qiE 'caption'; then
                   echo "ERROR: Non-frontend UI media must include caption text."

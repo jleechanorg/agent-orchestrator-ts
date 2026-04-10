@@ -46,6 +46,7 @@ ui_video_url_allowed() {
 ui_media_url_allowed() {
   local b="$1"
   if printf '%s' "$b" | grep -qiE 'https://[^[:space:]]+\.(png|jpg|jpeg|gif|webp|mp4|webm|mov)([[:space:]/?#]|$)'; then return 0; fi
+  if printf '%s' "$b" | grep -qiE 'https://github\.com/user-attachments/assets/[a-f0-9-]+'; then return 0; fi
   if printf '%s' "$b" | grep -qiE '!\[[^]]*\]\(https://[^)]+\.(png|jpg|jpeg|gif|webp|mp4|webm|mov)([?#)]|$)'; then return 0; fi
   return 1
 }
@@ -146,6 +147,13 @@ b='**UI media**: https://cdn.example.com/flow.jpg Caption: inline screenshot of 
 ui_media_url_allowed "$b" || fail "non-frontend inline screenshot fallback"
 has_caption_marker "$b" || fail "non-frontend inline caption marker"
 pass "non-frontend inline screenshot + caption"
+
+# --- non-frontend GitHub user-attachments fallback with caption
+b='**UI media**: https://github.com/user-attachments/assets/abcd-ef12-3456-7890abcdef12
+Caption: screenshot uploaded through GitHub attachments'
+ui_media_url_allowed "$b" || fail "non-frontend user-attachments fallback"
+has_caption_marker "$b" || fail "non-frontend user-attachments caption marker"
+pass "non-frontend user-attachments + caption"
 
 # --- non-frontend media extension must be exact
 b='**UI media**: https://cdn.example.com/flow.pngs
