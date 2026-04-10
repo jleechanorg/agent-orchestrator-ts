@@ -346,7 +346,7 @@ jobs:
             # FIX bd-ao357+bd-ao357r2: scope to the specific label line to avoid false matches
             # from unrelated gist URLs elsewhere in the evidence section.
             HAS_GIST=false
-            REPRO_LINE=$(printf '%s' "$EVIDENCE" | grep -iE '\*\*Repro gist(\*\*)?:' | head -1)
+            REPRO_LINE=$(printf '%s' "$EVIDENCE" | grep -iF '**Repro gist**:' | head -1)
             if [ -n "$REPRO_LINE" ] && printf '%s' "$REPRO_LINE" | grep -qE 'https://gist\.github\.com/[^[:space:]]+'; then
               HAS_GIST=true
             fi
@@ -359,8 +359,8 @@ jobs:
             # scripts). Previously scanned entire EVIDENCE for fenced blocks, which could false-positive
             # on repro gist code snippets; scoping prevents that.
             TTO_BLOCK=$(printf '%s' "$EVIDENCE" | awk '
-              /\*\*Terminal test output(\*\*)?:/ { show=1 }
-              show && /\*\*UI media(\*\*)?:/ { exit }
+              /\*\*Terminal test output\*\*:/ { show=1 }
+              show && /\*\*UI media\*\*:/ { exit }
               show { print }
             ')
             if printf '%s' "$TTO_BLOCK" | grep -q '```'; then
@@ -379,18 +379,18 @@ jobs:
             fi
             # Also accept structured **Terminal test output**: label with an immediate URL/artifact
             # FIX bd-ao357: use grep -qF for fixed-string label checks.
-            if [ "$HAS_OUTPUT" = "false" ] && printf '%s' "$TTO_BLOCK" | grep -qE '\*\*Terminal test output(\*\*)?:' && printf '%s' "$TTO_BLOCK" | grep -qE 'https://[^[:space:]]+'; then
+            if [ "$HAS_OUTPUT" = "false" ] && printf '%s' "$TTO_BLOCK" | grep -qF '**Terminal test output**:' && printf '%s' "$TTO_BLOCK" | grep -qE 'https://[^[:space:]]+'; then
               HAS_OUTPUT=true
             fi
 
             # 3. Terminal media (bd-vidcap): real HTTPS URL + tmux caption; unknown artifact pattern → WARN only.
             HAS_TM_MEDIA=false
             TM_BLOCK=$(printf '%s' "$EVIDENCE" | awk '
-              /\*\*Terminal media(\*\*)?:/ { show=1 }
-              show && /\*\*Terminal test output(\*\*)?:/ { exit }
+              /\*\*Terminal media\*\*:/ { show=1 }
+              show && /\*\*Terminal test output\*\*:/ { exit }
               show { print }
             ')
-            if ! printf '%s' "$TM_BLOCK" | grep -qE '\*\*Terminal media(\*\*)?:'; then
+            if ! printf '%s' "$TM_BLOCK" | grep -qF '**Terminal media**:'; then
               echo "ERROR: Missing **Terminal media** label in evidence section."
               exit 1
             fi
@@ -438,11 +438,11 @@ jobs:
             # URLs as satisfying the UI media requirement (copilot bd-2oko fix).
             HAS_UI_MEDIA=false
             UI_BLOCK=$(printf '%s' "$EVIDENCE" | awk '
-              /\*\*UI media(\*\*)?:/ { show=1 }
+              /\*\*UI media\*\*:/ { show=1 }
               show && /^[[:space:]]*##[[:space:]]/ { exit }
               show { print }
             ')
-            if printf '%s' "$UI_BLOCK" | grep -qE '\*\*UI media(\*\*)?:' && printf '%s' "$UI_BLOCK" | grep -qiE 'N/A.*no UI|N/A - no UI'; then
+            if printf '%s' "$UI_BLOCK" | grep -qF '**UI media**:' && printf '%s' "$UI_BLOCK" | grep -qiE 'N/A.*no UI|N/A - no UI'; then
               HAS_UI_MEDIA=true
             elif [ "$FRONTEND_TOUCH" = "true" ]; then
               HAS_UI_VIDEO=false
