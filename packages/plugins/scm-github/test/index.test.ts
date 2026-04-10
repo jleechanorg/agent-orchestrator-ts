@@ -20,7 +20,6 @@ vi.mock("node:child_process", () => {
 import { create, manifest, ghRestFallback } from "../src/index.js";
 import { _resetGhCache } from "../src/gh-cache.js";
 import type { PRInfo, SCMWebhookRequest, Session, ProjectConfig } from "@jleechanorg/ao-core";
-import { homedir } from "node:os";
 import { join } from "node:path";
 
 // ---------------------------------------------------------------------------
