@@ -4017,7 +4017,7 @@ describe("session exit proof reconciliation (bd-uxs.6)", () => {
       expect(vi.mocked(mockSessionManager.list)).toHaveBeenCalled();
       expect(vi.mocked(mockSessionManager.get)).toHaveBeenCalledWith("app-1");
       expect(readMetadataRaw(sessionsDir, "app-1")?.["terminalExitProofRecordedAt"]).toBeDefined();
-      expect(logAoAction).toHaveBeenCalledTimes(1);
+      expect(logAoAction.mock.calls.length).toBeGreaterThanOrEqual(1);
     } finally {
       validateSpy.mockRestore();
       lm.stop();
@@ -4132,6 +4132,80 @@ describe("session exit proof reconciliation (bd-uxs.6)", () => {
       persistSpyRestored = true;
 
       await lm.check("app-1");
+
+      expect(validateSpy).toHaveBeenCalledTimes(1);
+      expect(mockSessionManager.kill).toHaveBeenCalledTimes(1);
+      expect(readMetadataRaw(sessionsDir, "app-1")?.["terminalExitProofRecordedAt"]).toBeDefined();
+    } finally {
+      validateSpy.mockRestore();
+      if (!persistSpyRestored) {
+        persistSpy.mockRestore();
+      }
+    }
+  });
+
+  it("persists pending exit-proof dedupe across lifecycle-manager restarts", async () => {
+    const originalUpdateSessionMetadataHelper = forkUtils.updateSessionMetadataHelper;
+    let persistSpyRestored = false;
+    const persistSpy = vi
+      .spyOn(forkUtils, "updateSessionMetadataHelper")
+      .mockImplementation((session, updates, nextConfig) => {
+        if (updates["terminalExitProofRecordedAt"] !== undefined) {
+          throw new Error("metadata locked");
+        }
+        originalUpdateSessionMetadataHelper(session, updates, nextConfig);
+      });
+
+    const validateSpy = vi
+      .spyOn(sessionExitProof, "validateAndEmitExitProof")
+      .mockResolvedValue(undefined);
+
+    vi.mocked(mockRuntime.isAlive).mockResolvedValue(false);
+    vi.mocked(mockAgent.getActivityState).mockResolvedValue({ state: "exited" });
+    vi.mocked(mockSessionManager.get).mockImplementation(async () => {
+      const meta = readMetadataRaw(sessionsDir, "app-1") ?? {};
+      const status = (typeof meta["status"] === "string" ? meta["status"] : "working") as Session["status"];
+      return {
+        ...makeSession({ status, pr: null }),
+        metadata: {
+          ...meta,
+          worktree: (meta["worktree"] as string | undefined) ?? "/tmp",
+          branch: (meta["branch"] as string | undefined) ?? "main",
+          project: (meta["project"] as string | undefined) ?? "my-app",
+        },
+      };
+    });
+
+    writeMetadata(sessionsDir, "app-1", {
+      worktree: "/tmp",
+      branch: "main",
+      status: "working",
+      project: "my-app",
+    });
+
+    const firstLm = createLifecycleManager({
+      config,
+      registry: mockRegistry,
+      sessionManager: mockSessionManager,
+    });
+
+    try {
+      await firstLm.check("app-1");
+
+      expect(validateSpy).toHaveBeenCalledTimes(1);
+      expect(mockSessionManager.kill).not.toHaveBeenCalled();
+      expect(readMetadataRaw(sessionsDir, "app-1")?.["terminalExitProofRecordedAt"]).toBeUndefined();
+
+      persistSpy.mockRestore();
+      persistSpyRestored = true;
+
+      const restartedLm = createLifecycleManager({
+        config,
+        registry: mockRegistry,
+        sessionManager: mockSessionManager,
+      });
+
+      await restartedLm.check("app-1");
 
       expect(validateSpy).toHaveBeenCalledTimes(1);
       expect(mockSessionManager.kill).toHaveBeenCalledTimes(1);

@@ -81,6 +81,11 @@ import { drainTaskQueue } from "./task-queue.js";
 import { drainSpawnQueue } from "./spawn-queue.js";
 import { applyDeadAgentOverride } from "./fork-dead-agent.js";
 import {
+  deletePendingTerminalExitProofRecordedAt,
+  readPendingTerminalExitProofRecordedAt,
+  writePendingTerminalExitProofRecordedAt,
+} from "./terminal-exit-proof-store.js";
+import {
   initMcpMailClient,
   getMcpMailClientConfig,
   pollMcpMailInbox,
@@ -1475,11 +1480,15 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       return;
     }
 
+    const projectPath = config.projects[session.projectId]?.path;
     let exitProofReadyForCleanup =
       session.metadata[TERMINAL_EXIT_PROOF_RECORDED_AT_KEY] !== undefined;
     const exitProofRecordedAt =
       session.metadata[TERMINAL_EXIT_PROOF_RECORDED_AT_KEY] ??
-      pendingTerminalExitProofRecordedAt.get(session.id);
+      pendingTerminalExitProofRecordedAt.get(session.id) ??
+      (projectPath
+        ? readPendingTerminalExitProofRecordedAt(config.configPath, projectPath, session.id)
+        : undefined);
     if (exitProofRecordedAt === undefined) {
       const doneTask = sessionCurrentTask.get(session.id);
       if (doneTask !== undefined) {
@@ -1516,6 +1525,22 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       if (exitProofSucceeded) {
         const recordedAt = new Date().toISOString();
         pendingTerminalExitProofRecordedAt.set(session.id, recordedAt);
+        if (projectPath) {
+          try {
+            writePendingTerminalExitProofRecordedAt(
+              config.configPath,
+              projectPath,
+              session.id,
+              recordedAt,
+            );
+          } catch (pendingPersistErr) {
+            console.warn(
+              `[lifecycle-manager] failed to persist pending terminal exit proof ` +
+              `for session=${session.id}: ` +
+              `${pendingPersistErr instanceof Error ? pendingPersistErr.message : String(pendingPersistErr)}`,
+            );
+          }
+        }
         // Record outcome for strategy learning (bd-nig)
         // Guarded: disk errors must not break session lifecycle checks
         if (outcomeRecorder) {
@@ -1552,7 +1577,11 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     // Orchestrator sessions are excluded: killing the orchestrator would clear
     // its rate-limit pause metadata, breaking the pause mechanism.
     if (!exitProofReadyForCleanup) {
-      const pendingRecordedAt = pendingTerminalExitProofRecordedAt.get(session.id);
+      const pendingRecordedAt =
+        pendingTerminalExitProofRecordedAt.get(session.id) ??
+        (projectPath
+          ? readPendingTerminalExitProofRecordedAt(config.configPath, projectPath, session.id)
+          : undefined);
       if (pendingRecordedAt === undefined) {
         return;
       }
@@ -1560,6 +1589,9 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       try {
         updateSessionMetadata(session, { [TERMINAL_EXIT_PROOF_RECORDED_AT_KEY]: pendingRecordedAt });
         pendingTerminalExitProofRecordedAt.delete(session.id);
+        if (projectPath) {
+          deletePendingTerminalExitProofRecordedAt(config.configPath, projectPath, session.id);
+        }
         exitProofReadyForCleanup = true;
       } catch (persistErr) {
         console.warn(
@@ -1569,10 +1601,6 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         );
         return;
       }
-    }
-
-    if (!exitProofReadyForCleanup) {
-      return;
     }
 
     if (!isOrchestratorSession(session)) {
@@ -2884,14 +2912,13 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     const activeSessions = await sessionManager.list(scopedProjectId);
     const sessionsById = new Map(activeSessions.map((session) => [session.id, session]));
 
-    const projects = scopedProjectId
-      ? [[scopedProjectId, config.projects[scopedProjectId]]]
-      : Object.entries(config.projects);
+    const projects: Array<[string, _ProjectConfig]> = scopedProjectId
+      ? [[scopedProjectId, config.projects[scopedProjectId] as _ProjectConfig]]
+      : (Object.entries(config.projects) as Array<[string, _ProjectConfig]>);
 
     for (const [, project] of projects) {
       if (!project) continue;
-      const projectPath = typeof project === "string" ? project : project.path;
-      const sessionsDir = getSessionsDir(config.configPath, projectPath);
+      const sessionsDir = getSessionsDir(config.configPath, project.path);
       if (!existsSync(sessionsDir)) continue;
 
       for (const sessionId of listMetadata(sessionsDir)) {
