@@ -42,7 +42,6 @@ export function getPreferredConfigSearchPaths(): string[] {
   return [
     getManagedConfigPath("production"),
     getManagedConfigPath("staging"),
-    ...getLegacyConfigPaths(),
   ];
 }
 

@@ -91,6 +91,28 @@ describe("Config Loading", () => {
       expect(realpathSync(found!)).toBe(realpathSync(stagingConfig));
     });
 
+    it("should prefer repo-local config over legacy home aliases", () => {
+      const legacyDir = join(testDir, ".config", "agent-orchestrator");
+      mkdirSync(legacyDir, { recursive: true });
+      const legacyConfig = join(legacyDir, "config.yaml");
+      const localConfig = join(testDir, "agent-orchestrator.yaml");
+      writeFileSync(legacyConfig, "port: 3001\nprojects: {}");
+      writeFileSync(localConfig, "port: 3002\nprojects: {}");
+
+      const found = findConfigFile();
+      expect(realpathSync(found!)).toBe(realpathSync(localConfig));
+    });
+
+    it("should fall back to legacy home aliases when no managed or repo-local config exists", () => {
+      const legacyDir = join(testDir, ".config", "agent-orchestrator");
+      mkdirSync(legacyDir, { recursive: true });
+      const legacyConfig = join(legacyDir, "config.yaml");
+      writeFileSync(legacyConfig, "projects: {}");
+
+      const found = findConfigFile();
+      expect(realpathSync(found!)).toBe(realpathSync(legacyConfig));
+    });
+
     it("should return null if no config found", () => {
       const found = findConfigFile();
       expect(found).toBeNull();

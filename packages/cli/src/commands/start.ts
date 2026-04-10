@@ -119,6 +119,20 @@ function writeYamlConfig(configPath: string, yamlContent: string): OrchestratorC
   return loadConfig(configPath);
 }
 
+function resolveLocalPathConfigPath(): string | undefined {
+  const explicitConfigPath = process.env["AO_CONFIG_PATH"];
+  if (explicitConfigPath && existsSync(explicitConfigPath)) {
+    return explicitConfigPath;
+  }
+
+  const stagingConfigPath = prepareStagingConfigPath();
+  if (existsSync(stagingConfigPath)) {
+    return stagingConfigPath;
+  }
+
+  return undefined;
+}
+
 /**
  * Resolve project from config.
  * If projectArg is provided, use it. If only one project exists, use that.
@@ -916,15 +930,9 @@ export function registerStart(program: Command): void {
             }
             guardMainRepo(resolvedPathForGuard, mainRepoPath);
 
-            // Try to load existing config
-            let configPath: string | undefined = findConfigFile() ?? undefined;
-
-            if (!configPath) {
-              const stagingConfigPath = prepareStagingConfigPath();
-              if (existsSync(stagingConfigPath)) {
-                configPath = stagingConfigPath;
-              }
-            }
+            // Local-path onboarding always targets staging unless the user has
+            // explicitly pointed AO_CONFIG_PATH at a different real file.
+            const configPath = resolveLocalPathConfigPath();
 
             if (!configPath) {
               // No staging config yet — auto-create there, then add the path as project

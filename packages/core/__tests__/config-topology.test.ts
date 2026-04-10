@@ -33,7 +33,7 @@ describe("config-topology", () => {
     rmSync(testDir, { recursive: true, force: true });
   });
 
-  it("prefers production over staging and legacy aliases", async () => {
+  it("prefers production over staging during managed discovery", async () => {
     const { findManagedConfigFile, getManagedConfigPath, getLegacyConfigPaths } = await import(
       "../src/config-topology.js"
     );
@@ -51,7 +51,7 @@ describe("config-topology", () => {
     expect(findManagedConfigFile()).toBe(productionPath);
   });
 
-  it("accepts symlinked legacy aliases during managed discovery", async () => {
+  it("does not treat legacy aliases as managed configs", async () => {
     const { findManagedConfigFile, getManagedConfigPath, getLegacyConfigPaths } = await import(
       "../src/config-topology.js"
     );
@@ -70,7 +70,7 @@ describe("config-topology", () => {
     expect(findManagedConfigFile()).toBe(productionPath);
     rmSync(productionPath, { force: true });
     rmSync(stagingPath, { force: true });
-    expect(findManagedConfigFile()).toBe(legacyPath);
+    expect(findManagedConfigFile()).toBeNull();
   });
 
   it("reports when staging and prod point at the same file", async () => {

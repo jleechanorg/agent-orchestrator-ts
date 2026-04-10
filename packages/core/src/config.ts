@@ -518,9 +518,10 @@ function applyDefaultReactions(config: OrchestratorConfig): OrchestratorConfig {
  *
  * Search order:
  * 1. AO_CONFIG_PATH environment variable (if set)
- * 2. Search up directory tree from CWD (like git)
- * 3. Explicit startDir (if provided)
- * 4. Home directory locations
+ * 2. Managed staging/production config locations
+ * 3. Search up directory tree from CWD (like git)
+ * 4. Explicit startDir (if provided)
+ * 5. Legacy home-directory aliases
  */
 export function findConfigFile(startDir?: string): string | null {
   // 1. Check environment variable override
