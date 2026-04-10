@@ -43,6 +43,8 @@ const project: ProjectConfig = {
   sessionPrefix: "test",
 };
 
+const configuredWorktreeDir = `${homedir()}/.worktrees`;
+
 function makeSession(overrides: Partial<Session> = {}): Session {
   return {
     id: "test-1",
@@ -113,7 +115,7 @@ describe("scm-github plugin", () => {
     vi.clearAllMocks();
     ghMock.mockReset(); // clear queue + stale mockResolvedValue from previous test
     ghMock.mockResolvedValue({ stdout: "" }); // neutral base: no output for unexpected gh calls
-    scm = create({ worktreeDir: "/mock-home/.worktrees" });
+    scm = create({ worktreeDir: configuredWorktreeDir });
     delete process.env["GITHUB_WEBHOOK_SECRET"];
   });
 
@@ -845,7 +847,7 @@ describe("scm-github plugin", () => {
     });
 
     it("removes a stale AO worktree and retries fetch when target branch is checked out elsewhere", async () => {
-      const staleWorktreePath = `${homedir()}/.worktrees/acme/ao-9999`;
+      const staleWorktreePath = `${configuredWorktreeDir}/acme/ao-9999`;
 
       ghMock.mockResolvedValueOnce({ stdout: "main\n" }); // git branch --show-current (before)
       ghMock.mockResolvedValueOnce({ stdout: "" }); // git status --porcelain (clean)
@@ -858,7 +860,7 @@ describe("scm-github plugin", () => {
       ghMock.mockResolvedValueOnce({
         stdout:
           "worktree /tmp/repo\nHEAD deadbeef\nbranch refs/heads/main\n\n" +
-          "worktree /mock-home/.worktrees/acme/ao-9999\nHEAD cafe1234\nbranch refs/heads/feat/my-feature\n",
+          `worktree ${staleWorktreePath}\nHEAD cafe1234\nbranch refs/heads/feat/my-feature\n`,
       }); // git worktree list --porcelain (stale worktree is registered)
       ghMock.mockResolvedValueOnce({ stdout: "detached-ghost\nanother-live-session\n" }); // tmux list-sessions (stale ao-9999 is dead)
       ghMock.mockResolvedValueOnce({ stdout: "" }); // git worktree remove --force --force
@@ -880,7 +882,7 @@ describe("scm-github plugin", () => {
       ghMock.mockResolvedValueOnce({ stdout: "https://github.com/acme/repo.git\n" }); // git remote get-url origin
       ghMock.mockRejectedValueOnce(
         new Error(
-          "fatal: refusing to fetch into branch 'refs/heads/feat/my-feature' checked out at '/mock-home/.worktrees/acme/feature-research'\n",
+          `fatal: refusing to fetch into branch 'refs/heads/feat/my-feature' checked out at '${configuredWorktreeDir}/acme/feature-research'\n`,
         ),
       ); // branch blocked by non-AO worktree
 
@@ -896,7 +898,7 @@ describe("scm-github plugin", () => {
       ghMock.mockResolvedValueOnce({ stdout: "https://github.com/acme/repo.git\n" }); // git remote get-url origin
       ghMock.mockRejectedValueOnce(
         new Error(
-          "fatal: refusing to fetch into branch 'refs/heads/feat/my-feature' checked out at '/mock-home/.worktrees/acme/ao-9999'\n",
+          `fatal: refusing to fetch into branch 'refs/heads/feat/my-feature' checked out at '${configuredWorktreeDir}/acme/ao-9999'\n`,
         ),
       ); // AO-looking path that is not actually registered for this repo
       ghMock.mockResolvedValueOnce({
@@ -917,7 +919,7 @@ describe("scm-github plugin", () => {
         new Error(
           "fatal: refusing to fetch into branch 'refs/heads/feat/my-feature' checked out at '/tmp/ao-9999'\n",
         ),
-      ); // AO-looking path registered for this repo, but outside /mock-home/.worktrees
+      ); // AO-looking path registered for this repo, but outside the configured worktree base dir
       ghMock.mockResolvedValueOnce({
         stdout:
           "worktree /tmp/repo\nHEAD deadbeef\nbranch refs/heads/main\n\n" +

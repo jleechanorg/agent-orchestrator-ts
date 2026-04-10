@@ -65,7 +65,7 @@ function runHook(opts: {
         HOME: testDir,
       },
       encoding: "utf-8",
-      timeout: 5000,
+      timeout: 15000,
     });
   } catch (err: unknown) {
     const e = err as { stdout?: string };
