@@ -1,7 +1,7 @@
 import { beforeAll, afterAll } from "vitest";
 import { execSync } from "node:child_process";
-import { mkdtempSync, writeFileSync, readFileSync, rmSync, mkdirSync, symlinkSync } from "node:fs";
-import { join } from "node:path";
+import { accessSync, constants, mkdtempSync, writeFileSync, readFileSync, rmSync, mkdirSync, symlinkSync } from "node:fs";
+import { delimiter, join } from "node:path";
 import { tmpdir } from "node:os";
 import { METADATA_UPDATER_SCRIPT } from "./index.js";
 
@@ -19,6 +19,26 @@ type HookOutputEnvelope = {
 
 export const PR_URL = "https://github.com/owner/repo/pull/42";
 
+function lookupCommandOnPath(command: string): string {
+  const pathValue = process.env.PATH ?? "";
+
+  for (const dir of pathValue.split(delimiter)) {
+    if (!dir) {
+      continue;
+    }
+
+    const candidate = join(dir, command);
+    try {
+      accessSync(candidate, constants.X_OK);
+      return candidate;
+    } catch {
+      // Keep scanning PATH entries until we find an executable match.
+    }
+  }
+
+  throw new Error(`${command} missing`);
+}
+
 export function symlinkAvailableCommands(
   commands: string[],
   binDir: string,
@@ -27,7 +47,7 @@ export function symlinkAvailableCommands(
     symlink?: (target: string, path: string) => void;
   } = {},
 ) {
-  const lookupCommand = deps.lookupCommand ?? ((command: string) => execSync(`command -v ${command}`, { encoding: "utf-8" }).trim());
+  const lookupCommand = deps.lookupCommand ?? lookupCommandOnPath;
   const createSymlink = deps.symlink ?? symlinkSync;
 
   for (const command of commands) {
