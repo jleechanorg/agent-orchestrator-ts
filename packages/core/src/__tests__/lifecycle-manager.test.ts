@@ -3967,16 +3967,27 @@ describe("session exit proof reconciliation (bd-uxs.6)", () => {
     expect(logAoAction).toHaveBeenCalledTimes(1);
   });
 
-  it("still kills the session when exit proof validation throws", async () => {
+  it("retries exit proof on a later poll instead of killing immediately when validation throws", async () => {
     const validateSpy = vi
       .spyOn(sessionExitProof, "validateAndEmitExitProof")
-      .mockRejectedValueOnce(new Error("scm unavailable"));
+      .mockRejectedValueOnce(new Error("scm unavailable"))
+      .mockResolvedValueOnce(undefined);
 
     vi.mocked(mockRuntime.isAlive).mockResolvedValue(false);
     vi.mocked(mockAgent.getActivityState).mockResolvedValue({ state: "exited" });
-    vi.mocked(mockSessionManager.get).mockResolvedValue(
-      makeSession({ status: "working", pr: null }),
-    );
+    vi.mocked(mockSessionManager.get).mockImplementation(async () => {
+      const meta = readMetadataRaw(sessionsDir, "app-1") ?? {};
+      const status = (typeof meta["status"] === "string" ? meta["status"] : "working") as Session["status"];
+      return {
+        ...makeSession({ status, pr: null }),
+        metadata: {
+          ...meta,
+          worktree: (meta["worktree"] as string | undefined) ?? "/tmp",
+          branch: (meta["branch"] as string | undefined) ?? "main",
+          project: (meta["project"] as string | undefined) ?? "my-app",
+        },
+      };
+    });
 
     writeMetadata(sessionsDir, "app-1", {
       worktree: "/tmp",
@@ -3994,8 +4005,14 @@ describe("session exit proof reconciliation (bd-uxs.6)", () => {
     await lm.check("app-1");
 
     expect(validateSpy).toHaveBeenCalledTimes(1);
-    expect(mockSessionManager.kill).toHaveBeenCalledTimes(1);
+    expect(mockSessionManager.kill).not.toHaveBeenCalled();
     expect(readMetadataRaw(sessionsDir, "app-1")?.["terminalExitProofRecordedAt"]).toBeUndefined();
+
+    await lm.check("app-1");
+
+    expect(validateSpy).toHaveBeenCalledTimes(2);
+    expect(mockSessionManager.kill).toHaveBeenCalledTimes(1);
+    expect(readMetadataRaw(sessionsDir, "app-1")?.["terminalExitProofRecordedAt"]).toBeDefined();
 
     validateSpy.mockRestore();
   });

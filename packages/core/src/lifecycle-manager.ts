@@ -1474,6 +1474,9 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       return;
     }
 
+    let exitProofReadyForCleanup =
+      session.metadata[TERMINAL_EXIT_PROOF_RECORDED_AT_KEY] !== undefined;
+
     const exitProofRecordedAt = session.metadata[TERMINAL_EXIT_PROOF_RECORDED_AT_KEY];
     if (exitProofRecordedAt === undefined) {
       const recordedAt = new Date().toISOString();
@@ -1508,6 +1511,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       }
 
       if (exitProofSucceeded) {
+        exitProofReadyForCleanup = true;
         // Record outcome for strategy learning (bd-nig)
         // Guarded: disk errors must not break session lifecycle checks
         if (outcomeRecorder) {
@@ -1558,6 +1562,10 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     // leave orphaned worktrees that lock branches and block future spawns.
     // Orchestrator sessions are excluded: killing the orchestrator would clear
     // its rate-limit pause metadata, breaking the pause mechanism.
+    if (!exitProofReadyForCleanup) {
+      return;
+    }
+
     if (!isOrchestratorSession(session)) {
       if (exitStatus === "merged") {
         try {
