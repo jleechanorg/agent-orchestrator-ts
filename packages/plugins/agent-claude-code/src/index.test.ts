@@ -204,6 +204,11 @@ describe("getLaunchCommand", () => {
     expect(cmd).toContain("--model 'claude-opus-4-6'");
   });
 
+  it("includes the strict MCP config path by default", () => {
+    const cmd = agent.getLaunchCommand(makeLaunchConfig());
+    expect(cmd).toContain("--strict-mcp-config '/mock/home/.claude/mcp-strict.json'");
+  });
+
   it("does not include -p flag (prompt delivered post-launch)", () => {
     const cmd = agent.getLaunchCommand(makeLaunchConfig({ prompt: "Fix the bug" }));
     expect(cmd).not.toContain("-p");

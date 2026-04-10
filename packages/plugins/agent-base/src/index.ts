@@ -1,7 +1,7 @@
 import {
   shellEscape,
-  readLastJsonlEntry,
   readLastJsonEntry,
+  readLastJsonlEntry,
   DEFAULT_READY_THRESHOLD_MS,
   type Agent,
   type AgentSessionInfo,
@@ -969,7 +969,10 @@ async function setupHookInWorkspace({
  * MCP mail server config:
  * - name: mcp-agent-mail
  * - url: http://127.0.0.1:8765/mcp/ (configurable via MCP_AGENT_MAIL_URL env var)
- * - auth: provided via MCP_AGENT_MAIL_TOKEN env var at runtime (not stored in settings.json)
+ * - headers: auth token - only added when MCP_AGENT_MAIL_TOKEN is set in environment.
+ *   Claude Code reads MCP headers from settings.json literally, so when present the
+ *   bearer token is serialized into the worktree for compatibility.
+ * @internal Exported so the settings writer can be covered directly in unit tests.
  */
 export async function setupMcpMailInWorkspace(
   workspacePath: string,
@@ -1025,15 +1028,22 @@ export async function setupMcpMailInWorkspace(
       ? (rawMcpServers as Record<string, unknown>)
       : {};
 
-  // Always configure/update mcp-agent-mail to support token rotation and URL changes
-  // NOTE: Auth token is NOT stored in worktree settings.json to avoid
-  // accidentally committing secrets. Users should set MCP_AGENT_MAIL_TOKEN
-  // in their shell environment when launching the agent instead.
+  // Always configure/update mcp-agent-mail to support token rotation and URL changes.
+  // Claude Code does not expand env vars in MCP headers from settings.json, so the
+  // configured bearer token must be written literally when one is provided.
 
   // Add mcp-agent-mail server configuration
   const serverConfig: Record<string, unknown> = {
     url: mcpMailUrl,
   };
+
+  // Only add Authorization header if token is explicitly set in environment
+  const mcpMailToken = process.env.MCP_AGENT_MAIL_TOKEN;
+  if (mcpMailToken) {
+    serverConfig.headers = {
+      Authorization: `Bearer ${mcpMailToken}`,
+    };
+  }
 
   mcpServers["mcp-agent-mail"] = serverConfig;
   existingSettings["mcpServers"] = mcpServers;
@@ -1178,7 +1188,7 @@ export function createAgentPlugin(config: AgentPluginConfig, overrides?: Partial
       const running = await this.isProcessRunning(session.runtimeHandle);
       if (!running) return { state: "exited", timestamp: exitedAt };
 
-      // Process is running - check JSONL session file for activity
+      // Process is running - check the session file for activity
       if (!session.workspacePath) {
         // No workspace path — cannot determine activity without it
         return null;
@@ -1194,7 +1204,13 @@ export function createAgentPlugin(config: AgentPluginConfig, overrides?: Partial
         return null;
       }
 
-      const entry = config.sessionFileExtension === ".json" ? await readLastJsonEntry(sessionFile) : await readLastJsonlEntry(sessionFile);
+      const entry =
+        config.sessionFileExtension === ".json"
+          ? await (async () => {
+            const nativeEntry = await readLastJsonEntry(sessionFile);
+            return nativeEntry ?? readLastJsonlEntry(sessionFile);
+          })()
+          : await readLastJsonlEntry(sessionFile);
       if (!entry) {
         // Empty file or read error — cannot determine activity
         return null;
