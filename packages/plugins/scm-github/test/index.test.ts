@@ -844,9 +844,16 @@ describe("scm-github plugin", () => {
           `fatal: refusing to fetch into branch 'refs/heads/feat/my-feature' checked out at '${staleWorktreePath}'\n`,
         ),
       ); // initial fetch blocked by stale worktree
+      ghMock.mockResolvedValueOnce({
+        stdout:
+          "worktree /tmp/repo\nHEAD deadbeef\nbranch refs/heads/main\n\n" +
+          "worktree /Users/jleechan/.worktrees/acme/ao-9999\nHEAD cafe1234\nbranch refs/heads/feat/my-feature\n",
+      }); // git worktree list --porcelain (stale worktree is registered)
       ghMock.mockResolvedValueOnce({ stdout: "detached-ghost\nanother-live-session\n" }); // tmux list-sessions (stale ao-9999 is dead)
       ghMock.mockResolvedValueOnce({ stdout: "" }); // git worktree remove --force --force
-      ghMock.mockResolvedValueOnce({ stdout: "" }); // git worktree list --porcelain (stale entry gone)
+      ghMock.mockResolvedValueOnce({
+        stdout: "worktree /tmp/repo\nHEAD deadbeef\nbranch refs/heads/main\n",
+      }); // git worktree list --porcelain (stale entry gone)
       ghMock.mockResolvedValueOnce({ stdout: "" }); // retried git fetch succeeds
       ghMock.mockResolvedValueOnce({ stdout: "main\n" }); // git branch --show-current (after fetch)
       ghMock.mockResolvedValueOnce({ stdout: "" }); // git checkout -f feat/my-feature
@@ -872,6 +879,29 @@ describe("scm-github plugin", () => {
       expect(ghMock).not.toHaveBeenCalledWith(
         "git",
         ["worktree", "remove", "--force", "--force", "/Users/jleechan/.worktrees/acme/feature-research"],
+        expect.any(Object),
+      );
+    });
+
+    it("does not remove AO-named paths that are not registered worktrees for the repo", async () => {
+      ghMock.mockResolvedValueOnce({ stdout: "main\n" }); // git branch --show-current (before)
+      ghMock.mockResolvedValueOnce({ stdout: "" }); // git status --porcelain (clean)
+      ghMock.mockResolvedValueOnce({ stdout: "https://github.com/acme/repo.git\n" }); // git remote get-url origin
+      ghMock.mockRejectedValueOnce(
+        new Error(
+          "fatal: refusing to fetch into branch 'refs/heads/feat/my-feature' checked out at '/Users/jleechan/.worktrees/acme/ao-9999'\n",
+        ),
+      ); // AO-looking path that is not actually registered for this repo
+      ghMock.mockResolvedValueOnce({
+        stdout: "worktree /tmp/repo\nHEAD deadbeef\nbranch refs/heads/main\n",
+      }); // git worktree list --porcelain (no stale ao-9999 entry)
+
+      await expect(scm.checkoutPR?.(pr, "/tmp/repo")).rejects.toThrow(
+        "refusing to fetch into branch",
+      );
+      expect(ghMock).not.toHaveBeenCalledWith(
+        "git",
+        ["worktree", "remove", "--force", "--force", "/Users/jleechan/.worktrees/acme/ao-9999"],
         expect.any(Object),
       );
     });

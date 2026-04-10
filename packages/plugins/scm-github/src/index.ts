@@ -818,6 +818,25 @@ function isAoManagedWorktreePath(worktreePath: string): boolean {
   return AO_SESSION_WORKTREE_PATTERN.test(basename(resolve(worktreePath)));
 }
 
+async function listRegisteredWorktreePaths(repoPath: string): Promise<Set<string> | null> {
+  try {
+    const list = await git(["worktree", "list", "--porcelain"], repoPath);
+    return new Set(
+      list
+        .split("\n\n")
+        .flatMap((block) =>
+          block
+            .trim()
+            .split("\n")
+            .filter((line) => line.startsWith("worktree "))
+            .map((line) => resolve(line.slice("worktree ".length))),
+        ),
+    );
+  } catch {
+    return null;
+  }
+}
+
 async function maybeRemoveStaleCheckedOutWorktree(
   repoPath: string,
   checkoutErrorMessage: string,
@@ -826,6 +845,8 @@ async function maybeRemoveStaleCheckedOutWorktree(
   if (!stalePath) return false;
   if (!isAoManagedWorktreePath(stalePath)) return false;
   const resolvedStale = resolve(stalePath);
+  const registeredWorktrees = await listRegisteredWorktreePaths(repoPath);
+  if (registeredWorktrees === null || !registeredWorktrees.has(resolvedStale)) return false;
 
   const hasActiveTmux = await hasActiveTmuxSessionForWorktreeName(stalePath, repoPath);
   if (hasActiveTmux) return false;
@@ -837,16 +858,8 @@ async function maybeRemoveStaleCheckedOutWorktree(
   }
 
   try {
-    const list = await git(["worktree", "list", "--porcelain"], repoPath);
-    const stillPresent = list
-      .split("\n\n")
-      .some((block) =>
-        block
-          .trim()
-          .split("\n")
-          .some((line) => line.startsWith("worktree ") && line.slice("worktree ".length) === stalePath),
-      );
-    return !stillPresent && !existsSync(resolvedStale);
+    const remainingWorktrees = await listRegisteredWorktreePaths(repoPath);
+    return !remainingWorktrees?.has(resolvedStale) && !existsSync(resolvedStale);
   } catch {
     return !existsSync(resolvedStale);
   }
