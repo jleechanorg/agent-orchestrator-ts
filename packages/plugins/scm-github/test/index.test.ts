@@ -856,6 +856,26 @@ describe("scm-github plugin", () => {
       expect(changed).toBe(true);
     });
 
+    it("does not remove non-AO worktrees when fetch fails because another branch is checked out", async () => {
+      ghMock.mockResolvedValueOnce({ stdout: "main\n" }); // git branch --show-current (before)
+      ghMock.mockResolvedValueOnce({ stdout: "" }); // git status --porcelain (clean)
+      ghMock.mockResolvedValueOnce({ stdout: "https://github.com/acme/repo.git\n" }); // git remote get-url origin
+      ghMock.mockRejectedValueOnce(
+        new Error(
+          "fatal: refusing to fetch into branch 'refs/heads/feat/my-feature' checked out at '/Users/jleechan/.worktrees/acme/feature-research'\n",
+        ),
+      ); // branch blocked by non-AO worktree
+
+      await expect(scm.checkoutPR?.(pr, "/tmp/repo")).rejects.toThrow(
+        "refusing to fetch into branch",
+      );
+      expect(ghMock).not.toHaveBeenCalledWith(
+        "git",
+        ["worktree", "remove", "--force", "--force", "/Users/jleechan/.worktrees/acme/feature-research"],
+        expect.any(Object),
+      );
+    });
+
     it("returns true when git fetch + checkout succeeds (already on branch after fetch)", async () => {
       ghMock.mockResolvedValueOnce({ stdout: "main\n" }); // git branch --show-current (before)
       ghMock.mockResolvedValueOnce({ stdout: "" }); // git status --porcelain (clean)

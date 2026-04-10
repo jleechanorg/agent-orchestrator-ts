@@ -784,6 +784,8 @@ function expandPath(p: string): string {
   return p;
 }
 
+const AO_SESSION_WORKTREE_PATTERN = /^(ao|jc|wa|cc|ra|wc)-\d+$/;
+
 function extractCheckedOutWorktreePath(errorMessage: string): string | null {
   const singleQuote = errorMessage.match(/checked out at '([^']+)'/);
   if (singleQuote?.[1]) return singleQuote[1];
@@ -819,17 +821,18 @@ async function hasActiveTmuxSessionForWorktreeName(worktreePath: string, cwd?: s
   return tmuxSessions.some((tmuxSession) => tmuxSession === sessionName || tmuxSession.endsWith(`-${sessionName}`));
 }
 
+function isAoManagedWorktreePath(worktreePath: string): boolean {
+  return AO_SESSION_WORKTREE_PATTERN.test(basename(resolve(worktreePath)));
+}
+
 async function maybeRemoveStaleCheckedOutWorktree(
   repoPath: string,
   checkoutErrorMessage: string,
-  worktreeBaseDir: string,
 ): Promise<boolean> {
   const stalePath = extractCheckedOutWorktreePath(checkoutErrorMessage);
   if (!stalePath) return false;
-
+  if (!isAoManagedWorktreePath(stalePath)) return false;
   const resolvedStale = resolve(stalePath);
-  const resolvedBase = resolve(worktreeBaseDir);
-  if (!resolvedStale.startsWith(`${resolvedBase}/`)) return false;
 
   const hasActiveTmux = await hasActiveTmuxSessionForWorktreeName(stalePath, repoPath);
   if (hasActiveTmux) return false;
@@ -1563,7 +1566,6 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
           const removedStale = await maybeRemoveStaleCheckedOutWorktree(
             workspacePath,
             msg,
-            worktreeBaseDir,
           );
           if (!removedStale) throw err;
 
