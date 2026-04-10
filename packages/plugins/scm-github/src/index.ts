@@ -8,8 +8,8 @@ import { execFile } from "node:child_process";
 import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import { promisify } from "node:util";
 import { existsSync, writeFileSync, unlinkSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { basename, join, resolve } from "node:path";
+import { homedir, tmpdir } from "node:os";
+import { basename, isAbsolute, join, relative, resolve } from "node:path";
 import {
   CI_STATUS,
   type PluginModule,
@@ -818,6 +818,24 @@ function isAoManagedWorktreePath(worktreePath: string): boolean {
   return AO_SESSION_WORKTREE_PATTERN.test(basename(resolve(worktreePath)));
 }
 
+function expandUserPath(input: string): string {
+  if (input === "~") return homedir();
+  if (input.startsWith("~/")) return join(homedir(), input.slice(2));
+  return input;
+}
+
+function getWorktreeBaseDir(config?: Record<string, unknown>): string {
+  if (typeof config?.worktreeDir === "string" && config.worktreeDir.length > 0) {
+    return resolve(expandUserPath(config.worktreeDir));
+  }
+  return resolve(join(homedir(), ".worktrees"));
+}
+
+function isDescendantPath(pathToCheck: string, baseDir: string): boolean {
+  const rel = relative(resolve(baseDir), resolve(pathToCheck));
+  return rel.length > 0 && !rel.startsWith("..") && !isAbsolute(rel);
+}
+
 async function listRegisteredWorktreePaths(repoPath: string): Promise<Set<string> | null> {
   try {
     const list = await git(["worktree", "list", "--porcelain"], repoPath);
@@ -840,11 +858,13 @@ async function listRegisteredWorktreePaths(repoPath: string): Promise<Set<string
 async function maybeRemoveStaleCheckedOutWorktree(
   repoPath: string,
   checkoutErrorMessage: string,
+  worktreeBaseDir: string,
 ): Promise<boolean> {
   const stalePath = extractCheckedOutWorktreePath(checkoutErrorMessage);
   if (!stalePath) return false;
   if (!isAoManagedWorktreePath(stalePath)) return false;
   const resolvedStale = resolve(stalePath);
+  if (!isDescendantPath(resolvedStale, worktreeBaseDir)) return false;
   const registeredWorktrees = await listRegisteredWorktreePaths(repoPath);
   if (registeredWorktrees === null || !registeredWorktrees.has(resolvedStale)) return false;
 
@@ -1249,6 +1269,7 @@ function normalizeMergePayloadFromRestShape(data: Record<string, unknown>): void
 
 function createGitHubSCM(config?: Record<string, unknown>): SCM {
   const BOT_AUTHORS = buildBotAuthors(config);
+  const worktreeBaseDir = getWorktreeBaseDir(config);
 
   // Trusted authors for skeptic verdict detection.
   // Defaults to github-actions[bot] (CI workflows) and jleechan-agent[bot] (agent CLI).
@@ -1569,6 +1590,7 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
           const removedStale = await maybeRemoveStaleCheckedOutWorktree(
             workspacePath,
             msg,
+            worktreeBaseDir,
           );
           if (!removedStale) throw err;
 
