@@ -461,13 +461,13 @@ jobs:
             else
               # bd-vidcap CR fix: require caption text for non-frontend UI media too,
               # for consistency with wholesome.yml and Evidence Bundle v2 docs.
-              if printf '%s' "$UI_BLOCK" | grep -qiE 'https://[^[:space:]]+\.(png|jpg|jpeg|gif|webp|mp4|webm|mov)'; then
+              if printf '%s' "$UI_BLOCK" | grep -qiE 'https://[^[:space:]]+\.(png|jpg|jpeg|gif|webp|mp4|webm|mov)([/?#]|$)'; then
                 if ! printf '%s' "$UI_BLOCK" | grep -qiE 'caption'; then
                   echo "ERROR: Non-frontend UI media must include caption text."
                   exit 1
                 fi
                 HAS_UI_MEDIA=true
-              elif printf '%s' "$UI_BLOCK" | grep -qiE '!\[[^]]*\]\(https://[^)]+\.(png|jpg|jpeg|gif|webp|mp4|webm|mov)\)'; then
+              elif printf '%s' "$UI_BLOCK" | grep -qiE '!\[[^]]*\]\(https://[^)]+\.(png|jpg|jpeg|gif|webp|mp4|webm|mov)([?#)]|$)'; then
                 if ! printf '%s' "$UI_BLOCK" | grep -qiE 'caption'; then
                   echo "ERROR: Non-frontend UI media must include caption text."
                   exit 1

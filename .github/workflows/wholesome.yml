@@ -365,9 +365,9 @@ GITHUB_PR_BODY
             if [ "$HAS_UI_MEDIA" = "false" ] && printf '%s' "$UI_BLOCK" | grep -qiE 'https://github\.com/user-attachments/assets/[a-f0-9-]+'; then HAS_UI_MEDIA=true; fi
             if [ "$HAS_UI_MEDIA" = "false" ] && printf '%s' "$UI_BLOCK" | grep -qiE '!\[[^]]*\]\(https://[^)]+\.(mp4|gif|webm|mov)([?#)]|$)'; then HAS_UI_MEDIA=true; fi
           else
-            if printf '%s' "$UI_BLOCK" | grep -qiE 'https://[^[:space:]]+\.(png|jpg|jpeg|gif|webp|mp4|webm|mov)'; then
+            if printf '%s' "$UI_BLOCK" | grep -qiE 'https://[^[:space:]]+\.(png|jpg|jpeg|gif|webp|mp4|webm|mov)([/?#]|$)'; then
               HAS_UI_MEDIA=true
-            elif printf '%s' "$UI_BLOCK" | grep -qiE '!\[[^]]*\]\(https://[^)]+\.(png|jpg|jpeg|gif|webp|mp4|webm|mov)\)'; then
+            elif printf '%s' "$UI_BLOCK" | grep -qiE '!\[[^]]*\]\(https://[^)]+\.(png|jpg|jpeg|gif|webp|mp4|webm|mov)([?#)]|$)'; then
               HAS_UI_MEDIA=true
             fi
           fi

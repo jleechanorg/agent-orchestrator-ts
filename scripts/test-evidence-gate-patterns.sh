@@ -130,6 +130,12 @@ ui_media_url_allowed "$b" || fail "non-frontend screenshot fallback"
 has_caption_marker "$b" || fail "non-frontend caption marker"
 pass "non-frontend screenshot + caption"
 
+# --- non-frontend media extension must be exact
+b='**UI media**: https://cdn.example.com/flow.pngs
+Caption: typo extension should not match'
+if ui_media_url_allowed "$b"; then fail "non-frontend .pngs should not satisfy UI media rule"; fi
+pass "non-frontend UI extension false positive rejected"
+
 # --- non-frontend media without caption stays incomplete
 b='**UI media**: https://cdn.example.com/flow.mov'
 ui_media_url_allowed "$b" || fail "non-frontend mov fallback"
