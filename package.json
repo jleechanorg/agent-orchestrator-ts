@@ -8,11 +8,6 @@
     "node": ">=22.0.0"
   },
   "packageManager": "pnpm@9.15.4",
-  "pnpm": {
-    "overrides": {
-      "axios": "1.15.0"
-    }
-  },
   "type": "module",
   "scripts": {
     "build": "pnpm -r build",
@@ -55,7 +50,7 @@
   },
   "pnpm": {
     "overrides": {
-      "axios": "^1.15.0",
+      "axios": "1.15.0",
       "next": "^15.5.14",
       "tmp": "^0.2.4",
       "yaml": "^2.8.3"
