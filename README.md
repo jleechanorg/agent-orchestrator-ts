@@ -87,7 +87,6 @@ git clone https://github.com/jleechanorg/agent-orchestrator.git
 cd agent-orchestrator && bash scripts/setup.sh
 ```
 
-<<<<<<< HEAD
 The setup flow bootstraps a local staging config at `~/.openclaw/agent-orchestrator.yaml`.
 Production is separate at `~/.openclaw_prod/agent-orchestrator.yaml` and is only updated by
 running `bash scripts/promote-openclaw-config.sh` after validation passes.
