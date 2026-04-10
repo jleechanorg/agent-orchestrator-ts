@@ -1532,7 +1532,12 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
           const filePath = line.slice(3).trim();
           if (!CHECKOUT_AO_MANAGED.has(filePath)) continue;
           const [indexStatus, worktreeStatus] = status.split("");
-          if (indexStatus === "?" || worktreeStatus === "?" || indexStatus === "!" || worktreeStatus === "!") {
+          if (
+            indexStatus === "?" ||
+            worktreeStatus === "?" ||
+            indexStatus === "!" ||
+            worktreeStatus === "!"
+          ) {
             // Untracked or ignored — remove from working tree
             await git(["clean", "-f", "--", filePath], workspacePath);
             continue;

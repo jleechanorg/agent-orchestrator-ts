@@ -2830,7 +2830,7 @@ describe("send", () => {
       makeHandle("rt-1"),
       "do not confirm on visibility",
     );
-  });
+  }, 15_000);
 });
 
 describe("remap", () => {

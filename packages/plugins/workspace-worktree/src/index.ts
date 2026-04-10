@@ -202,7 +202,7 @@ async function maybeRemoveStaleCheckedOutWorktree(
     const stillPresent = list
       .split("\n\n")
       .some((block) => block.trim().split("\n").some((l) => l.startsWith("worktree ") && l.slice("worktree ".length) === stalePath));
-    return !stillPresent && !existsSync(resolvedStale);
+    return !stillPresent;
   } catch {
     // If git worktree list fails, fall back to filesystem check.
     return !existsSync(resolvedStale);
