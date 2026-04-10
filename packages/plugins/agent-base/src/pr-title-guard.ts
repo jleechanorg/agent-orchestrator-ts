@@ -1,6 +1,162 @@
 const _ = String.raw;
 
 export const PR_TITLE_PREFIX = "[agento] ";
+const BASH_NORMALIZE_PREFIX_STATUS = '${normalize_prefixed_command_out%%$\'\\n\'*}';
+const BASH_NORMALIZE_PREFIX_PAYLOAD = '${normalize_prefixed_command_out#*$\'\\n\'}';
+
+export const NORMALIZE_SHELL_COMMAND_PREFIX_BLOCK = _`
+clean_command="$command"
+if command -v python3 >/dev/null 2>&1; then
+  normalize_prefixed_command_out=$(python3 - "$command" <<'PY'
+import sys
+
+def tokenize(source):
+    tokens = []
+    i = 0
+    length = len(source)
+    while i < length:
+        while i < length and source[i].isspace():
+            i += 1
+        if i >= length:
+            break
+        if source.startswith("&&", i):
+            tokens.append(("op", "&&", i, i + 2))
+            i += 2
+            continue
+        if source[i] == ";":
+            tokens.append(("op", ";", i, i + 1))
+            i += 1
+            continue
+
+        start = i
+        while i < length:
+            if source.startswith("&&", i) or source[i] == ";" or source[i].isspace():
+                break
+            char = source[i]
+            if char == "'":
+                i += 1
+                while i < length and source[i] != "'":
+                    i += 1
+                if i >= length:
+                    raise ValueError("unterminated single quote")
+                i += 1
+                continue
+            if char == '"':
+                i += 1
+                while i < length:
+                    inner = source[i]
+                    if inner == "\\":
+                        i += 2
+                        continue
+                    if inner == '"':
+                        i += 1
+                        break
+                    i += 1
+                else:
+                    raise ValueError("unterminated double quote")
+                continue
+            if char == "\\":
+                if i + 1 >= length:
+                    raise ValueError("unterminated escape")
+                i += 2
+                continue
+            if char in "|&<>(){}":
+                raise ValueError("unsupported shell operator")
+            i += 1
+        tokens.append(("word", source[start:i], start, i))
+    return tokens
+
+def is_assignment(word):
+    if "=" not in word:
+        return False
+    name, _value = word.split("=", 1)
+    return bool(name) and (name[0].isalpha() or name[0] == "_") and all(
+        ch.isalnum() or ch == "_" for ch in name[1:]
+    )
+
+def is_guarded_segment(words):
+    return (
+        len(words) >= 3 and words[0] == "gh" and words[1] == "pr" and words[2] in {"create", "merge"}
+    )
+
+def remaining_segments_contain_guarded(tokens, start_index):
+    index = start_index
+    while index < len(tokens):
+        if tokens[index][0] != "word":
+            index += 1
+            continue
+        segment_end = index
+        while segment_end < len(tokens) and tokens[segment_end][0] == "word":
+            segment_end += 1
+        words = [token[1] for token in tokens[index:segment_end]]
+        if is_guarded_segment(words):
+            return True
+        index = segment_end + 1
+    return False
+
+source = sys.argv[1]
+
+try:
+    tokens = tokenize(source)
+except ValueError:
+    print("raw")
+    print(source)
+    raise SystemExit(0)
+
+index = 0
+while index < len(tokens) and tokens[index][0] == "word" and is_assignment(tokens[index][1]):
+    index += 1
+
+while index < len(tokens):
+    if tokens[index][0] != "word":
+        print("raw")
+        print(source)
+        raise SystemExit(0)
+
+    segment_end = index
+    while segment_end < len(tokens) and tokens[segment_end][0] == "word":
+        segment_end += 1
+
+    words = [token[1] for token in tokens[index:segment_end]]
+    next_op = tokens[segment_end][1] if segment_end < len(tokens) else None
+
+    if words and words[0] == "cd":
+        if len(words) != 2 or next_op not in {"&&", ";"}:
+            print("raw")
+            print(source)
+            raise SystemExit(0)
+        index = segment_end + 1
+        continue
+
+    if next_op is not None:
+        if is_guarded_segment(words) or remaining_segments_contain_guarded(tokens, segment_end + 1):
+            print("deny")
+            print("Blocked by AO policy: cannot safely analyze chained shell commands before gh pr create or gh pr merge. Run the guarded command directly after any env assignments or cd prefixes.")
+            raise SystemExit(0)
+        print("raw")
+        print(source)
+        raise SystemExit(0)
+
+    print("safe")
+    print(source[tokens[index][2]:])
+    raise SystemExit(0)
+
+print("raw")
+print(source)
+PY
+)
+
+  normalize_prefixed_command_status=${BASH_NORMALIZE_PREFIX_STATUS}
+  normalize_prefixed_command_payload=${BASH_NORMALIZE_PREFIX_PAYLOAD}
+  if [[ "$normalize_prefixed_command_status" == "deny" && "$hook_event" == "PreToolUse" ]]; then
+    printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"%s"}}\n' "$normalize_prefixed_command_payload"
+    exit 0
+  fi
+  if [[ "$normalize_prefixed_command_status" == "safe" ]]; then
+    clean_command="$normalize_prefixed_command_payload"
+  fi
+fi
+`;
 
 export const PR_TITLE_PREFIX_GUARD_BLOCK = _`
 # Guardrail: ensure [agento] prefix on gh pr create titles (PreToolUse only).

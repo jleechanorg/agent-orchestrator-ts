@@ -1700,6 +1700,18 @@ describe("shell wrapper content", () => {
           "create",
           "--title=[agento] add feature",
         ]);
+        expect(runWrapper(["pr", "create", "--title", "fix me"])).toEqual([
+          "pr",
+          "create",
+          "--title",
+          "[agento] fix me",
+        ]);
+        expect(runWrapper(["pr", "create", "--title", "[agento] already good"])).toEqual([
+          "pr",
+          "create",
+          "--title",
+          "[agento] already good",
+        ]);
         expect(runWrapper(["pr", "create", "--title=[agento] already good"])).toEqual([
           "pr",
           "create",

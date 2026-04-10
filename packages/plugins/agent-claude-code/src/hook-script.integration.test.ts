@@ -142,6 +142,15 @@ describe("hook script: gh pr create", () => {
     expect(metadata).toContain("status=pr_open");
   });
 
+  it("detects gh pr create with quoted env values that contain spaces", () => {
+    const { metadata } = runHook({
+      command: 'FOO="a b" BAR=\'c d\' gh pr create --title "[agento] fix"',
+      output: prUrl,
+    });
+    expect(metadata).toContain(`pr=${prUrl}`);
+    expect(metadata).toContain("status=pr_open");
+  });
+
   it("detects gh pr create with multiple chained cd prefixes", () => {
     const { metadata } = runHook({
       command: `cd /tmp && cd ~/.worktrees/mercury && gh pr create --title "fix" --base master`,
@@ -244,6 +253,14 @@ describe("hook script: [agento] prefix enforcement", () => {
     expect(stdout.trim()).toBe("{}");
   });
 
+  it("allows gh pr create with quoted env values and [agento] prefix in PreToolUse", () => {
+    const { stdout } = runHook({
+      command: 'FOO="a b" BAR=\'c d\' gh pr create --title "[agento] fix: bug"',
+      hookEvent: "PreToolUse",
+    });
+    expect(stdout.trim()).toBe("{}");
+  });
+
   it("denies gh pr create without an explicit title flag", () => {
     const { stdout } = runHook({
       command: "gh pr create --fill",
@@ -252,6 +269,16 @@ describe("hook script: [agento] prefix enforcement", () => {
     expect(stdout).toContain("permissionDecision");
     expect(stdout).toContain("deny");
     expect(stdout).toContain("must include --title");
+  });
+
+  it("denies chained commands before gh pr create in PreToolUse", () => {
+    const { stdout } = runHook({
+      command: 'cd /tmp && echo unsafe && gh pr create --title "fix"',
+      hookEvent: "PreToolUse",
+    });
+    expect(stdout).toContain("permissionDecision");
+    expect(stdout).toContain("deny");
+    expect(stdout).toContain("cannot safely analyze chained shell commands");
   });
 
   it("PostToolUse: detects gh pr create with env prefix containing embedded equals", () => {

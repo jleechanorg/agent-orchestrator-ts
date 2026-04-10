@@ -1,4 +1,8 @@
-import { setupMcpMailInWorkspace } from "@jleechanorg/ao-plugin-agent-base";
+import {
+  NORMALIZE_SHELL_COMMAND_PREFIX_BLOCK,
+  PR_TITLE_PREFIX_GUARD_BLOCK,
+  setupMcpMailInWorkspace,
+} from "@jleechanorg/ao-plugin-agent-base";
 import {
   shellEscape,
   readLastJsonlEntry,
@@ -21,8 +25,6 @@ import { existsSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
 import { promisify } from "node:util";
-import { PR_TITLE_PREFIX_GUARD_BLOCK } from "./pr-title-guard.js";
-
 const execFileAsync = promisify(execFile);
 
 function normalizePermissionMode(mode: string | undefined): "permissionless" | "default" | "auto-edit" | "suggest" | undefined {
@@ -52,9 +54,7 @@ const AO_DATA_DIR_LINE =
 // expression parsing. The dollar sign must survive JS and expand in bash.
 // MUST use ${array[index]} (not "$array[index]") for bash array access.
 const BASH_REMATCH1 = '"${BASH_REMATCH[1]}"';
-const BASH_REMATCH2 = '"${BASH_REMATCH[2]}"';
-const BASH_REMATCH3 = '"${BASH_REMATCH[3]}"';
-// Result: "${BASH_REMATCH[1]}" and "${BASH_REMATCH[2]}" as literal bash array access
+// Result: "${BASH_REMATCH[1]}" as literal bash array access
 
 // Bash parameter expansions — expressed as single-quoted JS strings (no JS interpretation)
 // so they survive TypeScript compilation and expand correctly in bash.
@@ -110,28 +110,7 @@ fi
 # Command Detection and Parsing
 # ============================================================================
 
-# Strip leading prefixes so commands like
-#   cd ~/.worktrees/project && gh pr create ...
-#   FOO=bar gh pr create ...
-# are correctly detected. Agents frequently cd into a worktree first.
-# Store the regex pattern in a variable for clarity (avoids shell quoting confusion).
-# Uses space-padded (&&|;) to avoid breaking on paths containing & or ; chars.
-env_prefix_pattern='^([[:space:]]*[A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+)(.+)$'
-cd_prefix_pattern='^([[:space:]]*cd[[:space:]]+.*[[:space:]]+(&&|;)[[:space:]]+)(.*)$'
-clean_command="$command"
-while true; do
-  # Strip leading env assignments: FOO=bar BAZ=qux gh pr create ...
-  # [^[:space:]]* for the value allows embedded = (e.g. FOO=a=b gh pr create).
-  # Trailing space required so bare "FOO=bar" (no cmd) avoids infinite loop.
-  if [[ "$clean_command" =~ $env_prefix_pattern ]]; then
-    clean_command=${BASH_REMATCH2}
-  # Strip leading cd prefixes: cd /path && gh pr create ...
-  elif [[ "$clean_command" =~ $cd_prefix_pattern ]]; then
-    clean_command=${BASH_REMATCH3}
-  else
-    break
-  fi
-done
+${NORMALIZE_SHELL_COMMAND_PREFIX_BLOCK}
 
 ${PR_TITLE_PREFIX_GUARD_BLOCK}
 

@@ -2703,7 +2703,7 @@ describe("send", () => {
     const meta = readMetadataRaw(sessionsDir, "app-1");
     expect(meta?.["opencodeSessionId"]).toBe("ses_send_discovered");
     expect(mockRuntime.sendMessage).toHaveBeenCalledWith(makeHandle("rt-1"), "hello");
-  }, 15_000);
+  });
 
   it("re-discovers OpenCode mapping before sending when stored mapping is invalid", async () => {
     const deleteLogPath = join(tmpDir, "opencode-send-remap-invalid.log");
@@ -2779,13 +2779,13 @@ describe("send", () => {
     await sm.send("app-1", "confirm via updated timestamp");
     const elapsedMs = Date.now() - startedAt;
 
-    expect(elapsedMs).toBeLessThan(5_000);
+    expect(elapsedMs).toBeLessThan(2_000);
     expect(readFileSync(listLogPath, "utf-8").trim().split("\n").length).toBeGreaterThanOrEqual(2);
     expect(mockRuntime.sendMessage).toHaveBeenCalledWith(
       makeHandle("rt-1"),
       "confirm via updated timestamp",
     );
-  }, 15_000);
+  });
 
   it("does not confirm OpenCode delivery from timestamp visibility alone", async () => {
     const deleteLogPath = join(tmpDir, "opencode-send-no-false-positive.log");
@@ -2830,7 +2830,7 @@ describe("send", () => {
       makeHandle("rt-1"),
       "do not confirm on visibility",
     );
-  }, 15_000);
+  }, 10_000);
 });
 
 describe("remap", () => {
@@ -5014,40 +5014,36 @@ describe("claimPR", () => {
     expect(raw!["prAutoDetect"]).toBeUndefined();
   });
 
-  it(
-    "consolidates ownership by disabling PR auto-detect on the previous session",
-    async () => {
-      const mockSCM = makeSCM();
+  it("consolidates ownership by disabling PR auto-detect on the previous session", async () => {
+    const mockSCM = makeSCM();
 
-      writeMetadata(sessionsDir, "app-1", {
-        worktree: "/tmp/ws-app-1",
-        branch: "feat/existing-pr",
-        status: "review_pending",
-        project: "my-app",
-        pr: "https://github.com/org/my-app/pull/42",
-        runtimeHandle: JSON.stringify(makeHandle("rt-1")),
-      });
+    writeMetadata(sessionsDir, "app-1", {
+      worktree: "/tmp/ws-app-1",
+      branch: "feat/existing-pr",
+      status: "review_pending",
+      project: "my-app",
+      pr: "https://github.com/org/my-app/pull/42",
+      runtimeHandle: JSON.stringify(makeHandle("rt-1")),
+    });
 
-      writeMetadata(sessionsDir, "app-2", {
-        worktree: "/tmp/ws-app-2",
-        branch: "feat/other-work",
-        status: "working",
-        project: "my-app",
-        runtimeHandle: JSON.stringify(makeHandle("rt-2")),
-      });
+    writeMetadata(sessionsDir, "app-2", {
+      worktree: "/tmp/ws-app-2",
+      branch: "feat/other-work",
+      status: "working",
+      project: "my-app",
+      runtimeHandle: JSON.stringify(makeHandle("rt-2")),
+    });
 
-      const sm = createSessionManager({ config, registry: registryWithSCM(mockSCM) });
-      const result = await sm.claimPR("app-2", "42");
+    const sm = createSessionManager({ config, registry: registryWithSCM(mockSCM) });
+    const result = await sm.claimPR("app-2", "42");
 
-      expect(result.takenOverFrom).toEqual(["app-1"]);
+    expect(result.takenOverFrom).toEqual(["app-1"]);
 
-      const previous = readMetadataRaw(sessionsDir, "app-1");
-      expect(previous!["pr"]).toBeUndefined();
-      expect(previous!["prAutoDetect"]).toBe("off");
-      expect(previous!["status"]).toBe("working");
-    },
-    15_000,
-  );
+    const previous = readMetadataRaw(sessionsDir, "app-1");
+    expect(previous!["pr"]).toBeUndefined();
+    expect(previous!["prAutoDetect"]).toBe("off");
+    expect(previous!["status"]).toBe("working");
+  });
 
   it("ignores legacy orchestrator metadata when claiming a PR", async () => {
     const mockSCM = makeSCM();
