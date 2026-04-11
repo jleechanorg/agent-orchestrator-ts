@@ -204,7 +204,7 @@ test("Non-heavy tools (Bash, Read) preserved unchanged", () => {
     ],
   };
 
-  const { modified, stubbedTools } = applyStubToolFilter(body);
+  const { modified } = applyStubToolFilter(body);
 
   if (modified.tools.length !== 2) throw new Error("Tools changed count");
   if (modified.tools[0].description !== "Run bash command") throw new Error("Bash modified");
@@ -217,7 +217,7 @@ test("Non-heavy tools (Bash, Read) preserved unchanged", () => {
 // Test 5: Empty tools array passes through
 test("Empty tools array passes through unmodified", () => {
   const body = { tools: [], messages: [] };
-  const { modified, stubbedTools } = applyStubToolFilter(body);
+  const { modified } = applyStubToolFilter(body);
   if (modified.tools.length !== 0) throw new Error("Tools should be empty");
   return true;
 });
@@ -228,7 +228,7 @@ for (const name of HEAVY_TOOL_NAMES) {
     const body = {
       tools: [{ name, description: "should be replaced", input_schema: { type: "object" } }],
     };
-    const { modified, stubbedTools } = applyStubToolFilter(body);
+    const { modified } = applyStubToolFilter(body);
     const tool = modified.tools.find((t) => t.name === name);
     if (!tool) throw new Error(`${name} missing from tools`);
     if (tool.description.includes("should be replaced")) {
