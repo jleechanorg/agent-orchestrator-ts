@@ -290,7 +290,7 @@ describe("resolveBead", () => {
   });
 
   it("parses title and description from br output", () => {
-    execFileSyncMock.mockReturnValueOnce("Fix login bug\n\nRepro steps and context\n");
+    vi.mocked(execFileSync).mockReturnValueOnce("Fix login bug\n\nRepro steps and context\n");
 
     const result = resolveBead("wc-xyz");
 
