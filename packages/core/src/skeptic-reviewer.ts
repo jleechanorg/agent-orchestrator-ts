@@ -28,6 +28,22 @@ const execFileAsync = promisify(execFile);
 /** Line-anchored VERDICT matcher — accepts VERDICT: PASS, VERDICT: FAIL, or VERDICT: SKIPPED. */
 const VERDICT_LINE_RE = /^VERDICT:\s*(PASS|FAIL|SKIPPED)\b/im;
 
+/**
+ * Extract the LAST verdict from a string of CLI output.
+ *
+ * Using the last match instead of the first prevents an early "VERDICT: PASS"
+ * line (e.g. from an echoed prompt template) from overriding the actual terminal
+ * verdict that the model emits at the end of its output.
+ */
+function lastVerdictIn(text: string): "PASS" | "FAIL" | "SKIPPED" | null {
+  const lines = text.split("\n");
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const m = lines[i].match(VERDICT_LINE_RE);
+    if (m) return m[1].toUpperCase() as "PASS" | "FAIL" | "SKIPPED";
+  }
+  return null;
+}
+
 export interface SkepticReviewResult {
   verdict: "PASS" | "FAIL" | "SKIPPED";
   details: string;
@@ -37,67 +53,80 @@ export interface SkepticReviewResult {
   reportWritten?: boolean;
 }
 
+/** Ordered fallback chain for skeptic LLM evaluation (bd-skp3). */
+const FALLBACK_CHAIN: Array<"codex" | "claude" | "gemini"> = ["codex", "claude", "gemini"];
+
 /**
- * Run the skeptic evaluation for a completed worker session.
+ * Determine whether a CLI error is an infrastructure failure (ENOBUFS, spawn errors)
+ * that warrants fallback to the next model, vs. a legitimate verdict-bearing exit.
  *
- * Uses `ao skeptic --pr N --repo owner/repo` which internally:
- * - Calls modelRunner (Codex primary, Claude fallback)
- * - Posts a VERDICT comment on the PR
- * - Writes specs/skeptic-report.json in the worker's workspace
- *
- * @param session - The worker session that signaled completion
- * @param options - Override options (model to use, whether to post comment)
+ * Returns true if the error produced a VERDICT line in the LAST 20 lines of stdout
+ * only (not combined stdout+stderr). Restricting to stdout tail prevents false matches
+ * when the CLI echoes prompt templates that contain "VERDICT: PASS" boilerplate.
+ * Infrastructure crashes never produce a clean terminal VERDICT line.
  */
-export async function runSkepticReview(
+function hasVerdictInError(err: unknown): boolean {
+  if (err && typeof err === "object" && "stdout" in err) {
+    const e = err as { stdout?: string };
+    const stdout = e.stdout ?? "";
+    // Check only the last 20 lines of stdout. This prevents prompt templates
+    // echoed at the START of output from being misread as real verdicts.
+    // Infrastructure crashes never produce a clean terminal VERDICT line.
+    const tail = stdout.split("\n").slice(-20).join("\n");
+    return lastVerdictIn(tail) !== null;
+  }
+  return false;
+}
+
+/**
+ * Extract verdict result from a CLI error that has a VERDICT in its output.
+ * Only called when hasVerdictInError() returns true.
+ *
+ * Uses last-20-lines of stdout + lastVerdictIn for consistency with
+ * hasVerdictInError: restricts to tail to skip prompt echo, then takes the
+ * last matching verdict within the tail to handle multiple verdict lines.
+ */
+function extractVerdictFromError(
+  err: unknown,
+  model: string,
+): SkepticReviewResult {
+  const e = err as { stdout?: string; stderr?: string; code?: number };
+  const stdout = e.stdout ?? "";
+  const tail = stdout.split("\n").slice(-20).join("\n");
+  const verdict: "PASS" | "FAIL" | "SKIPPED" = lastVerdictIn(tail) ?? "FAIL";
+  return {
+    verdict,
+    details: `CLI exited with code ${e.code} but produced verdict: ${stdout.slice(0, 300)}`,
+    modelUsed: model,
+    reportWritten: false,
+  };
+}
+
+/**
+ * Run a single skeptic evaluation attempt with one specific model.
+ *
+ * Returns {result, infraFailure} where:
+ * - result is the SkepticReviewResult if a verdict was obtained (even from a crashing CLI)
+ * - infraFailure is the error message if the model completely failed (no verdict produced)
+ *
+ * This separation enables the caller to decide whether to fallback to the next model.
+ *
+ * @param triggerSha - The PR head SHA frozen at the start of this review run. Passing
+ *   the same SHA for all attempts ensures all fallbacks evaluate the same commit even
+ *   if the PR is force-pushed mid-chain.
+ */
+async function tryModel(
   session: Session,
-  options: {
-    /** Alternate model for skeptic evaluation */
-    model?: "codex" | "claude" | "gemini";
-    /** Whether to post the VERDICT comment on the PR (default: true) */
-    postComment?: boolean;
-  } = {},
-): Promise<SkepticReviewResult> {
-  const { model = "codex", postComment = true } = options;
+  model: "codex" | "claude" | "gemini",
+  postComment: boolean,
+  triggerSha: string | undefined,
+): Promise<
+  | { result: SkepticReviewResult; infraFailure?: undefined }
+  | { result?: undefined; infraFailure: string }
+> {
+  const prNumber = session.pr!.number;
+  const repo = `${session.pr!.owner}/${session.pr!.repo}`;
 
-  if (!session.pr) {
-    return {
-      verdict: "SKIPPED",
-      details: "No PR associated with session — cannot run skeptic evaluation",
-      modelUsed: model,
-    };
-  }
-
-  // workspacePath is optional — the ao skeptic verify CLI only needs GitHub API access.
-  // If not set, cwd falls back to process.cwd() or AO_REPO_ROOT.
-  // The workspace is only used for writing specs/skeptic-report.json (non-critical).
-
-  const prNumber = session.pr.number;
-  const repo = `${session.pr.owner}/${session.pr.repo}`;
-
-  // Fetch the current PR head SHA so the VERDICT comment can be matched by the
-  // skeptic-gate workflow. This enables the workflow to bind verdicts to the
-  // exact evaluation window and reject stale verdicts from cancelled runs.
-  let triggerSha: string | undefined;
-  try {
-    const ghResult = await execFileAsync(
-      "gh",
-      ["api", `repos/${repo}/pulls/${prNumber}`, "--jq", ".head.sha"],
-      { timeout: 10_000 },
-    );
-    const candidate = (ghResult.stdout ?? "").trim();
-    // Validate SHA-1 hex pattern before accepting — guards against non-SHA diagnostic
-    // strings from stderr bleed-through or unexpected API output
-    if (/^[0-9a-f]{40}$/i.test(candidate)) {
-      triggerSha = candidate;
-    }
-  } catch {
-    // Non-fatal: triggerSha is best-effort; workflow still has timestamp filter
-  }
-
-  // Run `ao skeptic verify --pr N --repo owner/repo` — the CLI handles all GitHub
-  // API calls, model invocation, and posting the VERDICT comment.
-  // AO_CLI_PATH env var overrides the CLI binary (for testing or custom installs).
-  // AO_REPO_ROOT env var overrides the working directory.
   const aoBinary = process.env["AO_CLI_PATH"] ?? "ao";
   const args: string[] = [
     "skeptic",
@@ -113,70 +142,141 @@ export async function runSkepticReview(
 
   let output: string;
   try {
-    const result = await execFileAsync(aoBinary, args, {
+    const execResult = await execFileAsync(aoBinary, args, {
       timeout: 120_000,
       cwd: session.workspacePath ?? process.env["AO_REPO_ROOT"] ?? process.cwd(),
     });
-    output = result.stdout + (result.stderr || "");
+    output = execResult.stdout + (execResult.stderr || "");
   } catch (err: unknown) {
-    if (err && typeof err === "object" && "stdout" in err) {
-      const e = err as { stdout?: string; stderr?: string; code?: number };
-      output = (e.stdout ?? "") + (e.stderr ?? "");
-      return {
-        verdict: "FAIL",
-        details: `Skeptic CLI exited with code ${e.code}: ${output.slice(0, 300)}`,
-        modelUsed: model,
-        reportWritten: false,
-      };
+    // CLI crashed — check if it still managed to produce a verdict
+    if (hasVerdictInError(err)) {
+      return { result: extractVerdictFromError(err, model) };
     }
+    // No verdict in output → infrastructure failure, eligible for fallback
     const msg = err instanceof Error ? err.message : String(err);
-    return {
-      verdict: "FAIL",
-      details: `Skeptic CLI failed to run: ${msg}`,
+    return { infraFailure: `[${model}] ${msg}` };
+  }
+
+  // Parse VERDICT from output — use last occurrence (fail-closed: no VERDICT = FAIL).
+  // Last-match ensures the model's terminal verdict wins over any earlier noise lines.
+  const verdict: "PASS" | "FAIL" | "SKIPPED" = lastVerdictIn(output) ?? "FAIL";
+
+  return {
+    result: {
+      verdict,
+      details: output.slice(0, 500),
       modelUsed: model,
+    },
+  };
+}
+
+/**
+ * Run the skeptic evaluation for a completed worker session.
+ *
+ * Uses `ao skeptic --pr N --repo owner/repo` with a fallback chain (bd-skp3):
+ *   codex → claude → gemini → SKIPPED
+ *
+ * Each model is tried in order. If a model produces a VERDICT (even FAIL), that
+ * verdict is accepted immediately. Only infrastructure failures (ENOBUFS, spawn
+ * errors, missing binaries) trigger fallback to the next model.
+ *
+ * When ALL models fail with infrastructure errors, returns VERDICT: SKIPPED
+ * (not FAIL) so the gate doesn't permanently block the PR.
+ *
+ * @param session - The worker session that signaled completion
+ * @param options - Override options (model to use, whether to post comment)
+ */
+export async function runSkepticReview(
+  session: Session,
+  options: {
+    /** Alternate model for skeptic evaluation */
+    model?: "codex" | "claude" | "gemini";
+    /** Whether to post the VERDICT comment on the PR (default: true) */
+    postComment?: boolean;
+  } = {},
+): Promise<SkepticReviewResult> {
+  const { model, postComment = true } = options;
+
+  if (!session.pr) {
+    return {
+      verdict: "SKIPPED",
+      details: "No PR associated with session — cannot run skeptic evaluation",
+      modelUsed: model ?? "codex",
     };
   }
 
-  // Parse VERDICT from output — fail-closed: no VERDICT = FAIL
-  // SKIPPED (infra unavailable) is surfaced as a distinct verdict, not FAIL.
-  const verdictMatch = output.match(VERDICT_LINE_RE);
-  const verdict: "PASS" | "FAIL" | "SKIPPED" = verdictMatch
-    ? (verdictMatch[1].toUpperCase() as "PASS" | "FAIL" | "SKIPPED")
-    : "FAIL";
-
-  // Write skeptic-report.json to the worker's workspace
-  let reportWritten = false;
+  // Freeze the PR head SHA once — all fallback attempts must evaluate the same
+  // commit. Re-fetching inside tryModel could return a different SHA if the PR
+  // is force-pushed while earlier models are failing over.
+  const prNumber = session.pr.number;
+  const repo = `${session.pr.owner}/${session.pr.repo}`;
+  let triggerSha: string | undefined;
   try {
-    if (!session.workspacePath) throw new Error("workspacePath not set");
-    const reportDir = join(session.workspacePath, "specs");
-    await mkdir(reportDir, { recursive: true });
-    await writeFile(
-      join(reportDir, "skeptic-report.json"),
-      JSON.stringify(
-        {
-          timestamp: new Date().toISOString(),
-          sessionId: session.id,
-          prNumber,
-          repo,
-          verdict,
-          details: output.slice(0, 2000),
-          modelUsed: model,
-          rawOutput: output,
-        },
-        null,
-        2,
-      ),
-      "utf-8",
+    const ghResult = await execFileAsync(
+      "gh",
+      ["api", `repos/${repo}/pulls/${prNumber}`, "--jq", ".head.sha"],
+      { timeout: 10_000 },
     );
-    reportWritten = true;
+    const candidate = (ghResult.stdout ?? "").trim();
+    if (/^[0-9a-f]{40}$/i.test(candidate)) {
+      triggerSha = candidate;
+    }
   } catch {
-    // Non-fatal — don't fail the reaction if report write fails
+    // Non-fatal: triggerSha is best-effort
   }
 
+  // Build the model chain: if a specific model is requested, start from that
+  // model's position in the chain. Default starts from codex (index 0).
+  const startIdx = model ? FALLBACK_CHAIN.indexOf(model) : 0;
+  const chain = FALLBACK_CHAIN.slice(startIdx >= 0 ? startIdx : 0);
+
+  const infraErrors: string[] = [];
+
+  for (const currentModel of chain) {
+    const attempt = await tryModel(session, currentModel, postComment, triggerSha);
+
+    if (attempt.result) {
+      // Got a verdict — write report and return
+      const result = attempt.result;
+      let reportWritten = false;
+      try {
+        if (!session.workspacePath) throw new Error("workspacePath not set");
+        const reportDir = join(session.workspacePath, "specs");
+        await mkdir(reportDir, { recursive: true });
+        await writeFile(
+          join(reportDir, "skeptic-report.json"),
+          JSON.stringify(
+            {
+              timestamp: new Date().toISOString(),
+              sessionId: session.id,
+              prNumber: session.pr.number,
+              repo: `${session.pr.owner}/${session.pr.repo}`,
+              verdict: result.verdict,
+              details: result.details,
+              modelUsed: result.modelUsed,
+              fallbacksAttempted: infraErrors.length,
+            },
+            null,
+            2,
+          ),
+          "utf-8",
+        );
+        reportWritten = true;
+      } catch {
+        // Non-fatal — don't fail the reaction if report write fails
+      }
+
+      return { ...result, reportWritten };
+    }
+
+    // Infrastructure failure — log and try next model
+    infraErrors.push(attempt.infraFailure);
+  }
+
+  // All models in the chain failed with infra errors → SKIPPED (not FAIL)
   return {
-    verdict,
-    details: output.slice(0, 500),
-    modelUsed: model,
-    reportWritten,
+    verdict: "SKIPPED",
+    details: `All models failed with infrastructure errors: ${infraErrors.join("; ").slice(0, 400)}`,
+    modelUsed: chain.join(","),
   };
 }

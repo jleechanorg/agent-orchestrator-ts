@@ -79,11 +79,13 @@ describe("runSkepticReviewReaction", () => {
     expect(result.message).toContain("PASS");
   });
 
-  it("maps SKIPPED verdict to success=true", async () => {
+  it("maps SKIPPED verdict to success=false (infra failure, not a pass)", async () => {
+    // SKIPPED means all models failed with infra errors — not a green light.
+    // Changed from success=true to success=false so orchestrator can surface/retry.
     mockedRunSkepticReview.mockResolvedValueOnce({
       verdict: "SKIPPED",
-      details: "No PR associated with session.",
-      modelUsed: "codex",
+      details: "All models failed with infrastructure errors.",
+      modelUsed: "codex,claude,gemini",
     });
 
     const session = makeSession({ pr: undefined });
@@ -95,7 +97,7 @@ describe("runSkepticReviewReaction", () => {
       session,
     });
 
-    expect(result.success).toBe(true);
+    expect(result.success).toBe(false);
     expect(result.message).toContain("SKIPPED");
   });
 
