@@ -55,10 +55,7 @@ interface DiscordEmbed {
 
 function buildEmbed(event: OrchestratorEvent, actions?: NotifyAction[]): DiscordEmbed {
   const emoji = PRIORITY_EMOJI[event.priority];
-  const description =
-    event.message.length > EMBED_DESCRIPTION_MAX
-      ? event.message.slice(0, EMBED_DESCRIPTION_MAX - 1) + "\u2026"
-      : event.message;
+  const description = truncate(event.message, EMBED_DESCRIPTION_MAX);
   const embed: DiscordEmbed = {
     title: truncate(`${emoji} ${event.type} — ${event.sessionId}`, EMBED_TITLE_MAX),
     description,
@@ -195,14 +192,33 @@ async function postWithRetry(
 }
 
 export function create(config?: Record<string, unknown>): Notifier {
-  const webhookUrl = config?.webhookUrl as string | undefined;
-  const username = (config?.username as string) ?? "Agent Orchestrator";
-  const avatarUrl = config?.avatarUrl as string | undefined;
-  const threadId = config?.threadId as string | undefined;
+  if (config?.webhookUrl !== undefined && typeof config.webhookUrl !== "string") {
+    throw new Error("[notifier-discord] webhookUrl must be a string");
+  }
+  if (config?.username !== undefined && typeof config.username !== "string") {
+    throw new Error("[notifier-discord] username must be a string");
+  }
+  if (config?.avatarUrl !== undefined && typeof config.avatarUrl !== "string") {
+    throw new Error("[notifier-discord] avatarUrl must be a string");
+  }
+  if (config?.threadId !== undefined && typeof config.threadId !== "string") {
+    throw new Error("[notifier-discord] threadId must be a string");
+  }
+
+  const webhookUrl = typeof config?.webhookUrl === "string" ? config.webhookUrl : undefined;
+  const username = typeof config?.username === "string" ? config.username : "Agent Orchestrator";
+  const avatarUrl = typeof config?.avatarUrl === "string" ? config.avatarUrl : undefined;
+  const threadId = typeof config?.threadId === "string" ? config.threadId : undefined;
 
   const { retries, retryDelayMs } = normalizeRetryConfig(config);
-  const timeoutMs =
-    typeof config?.timeoutMs === "number" ? config.timeoutMs : DEFAULT_TIMEOUT_MS;
+  const rawTimeoutMs = config?.timeoutMs;
+  if (
+    rawTimeoutMs !== undefined &&
+    (typeof rawTimeoutMs !== "number" || !Number.isFinite(rawTimeoutMs) || rawTimeoutMs <= 0)
+  ) {
+    throw new Error("[notifier-discord] timeoutMs must be a positive finite number");
+  }
+  const timeoutMs = typeof rawTimeoutMs === "number" ? rawTimeoutMs : DEFAULT_TIMEOUT_MS;
 
   if (!webhookUrl) {
     console.warn(
