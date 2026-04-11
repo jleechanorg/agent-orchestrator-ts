@@ -1,20 +1,136 @@
 # Upstream Sync Review: ComposioHQ/agent-orchestrator
 
-**Date**: 2026-03-28 (updated 2026-03-29)
+**Date**: 2026-03-28 (updated 2026-04-09)
 **Fork**: jleechanorg/agent-orchestrator
 **Branch**: `feat/upstream-sync-review-1274` (worktree: `ao-1274`)
-**Upstream SHA**: `b1b32adb0f86134518ed04d74e589ad53da6049e`
-**Origin SHA**: `b3d59e09d2385c4b556bb3ec5a0f09590d3e9beb`
+**Upstream SHA**: `upstream/main` as of 2026-04-09
+**Origin SHA**: `origin/main` as of 2026-04-09
 
 ## Divergence Summary
 
 | Direction | Commits |
 |---|---|
-| Upstream (ComposioHQ) ahead of origin | 477 (total); upstream advances daily — see current git rev-list counts |
-| Origin (jleechanorg) ahead of upstream | 10 commits (fork-specific, verified 2026-03-29 via git rev-list upstream/main..origin/main) |
-| Origin commits (last 30d) | 11 |
+| Current worktree `HEAD` ahead of upstream | 780 (verified 2026-04-09 via `git rev-list --left-right --count HEAD...upstream/main`) |
+| Upstream (ComposioHQ) ahead of current worktree `HEAD` | 307 (verified 2026-04-09 via `git rev-list --left-right --count HEAD...upstream/main`) |
+| Previous snapshot | 477 upstream ahead / 10 origin ahead on 2026-03-29 |
 
-**The fork has ~200 commits from upstream that it does not have.** The fork diverged significantly months ago and has been developing independently.
+**The fork divergence is now structural, not incremental.** This is no longer a case where "safe cherry-picks" can be assumed from commit subjects alone. Every candidate in the current replay batch must be tested against the fork directly.
+
+---
+
+## 2026-04-09 Consolidation Update
+
+This document is the canonical upstream-sync inventory. Do not create a new parallel memo unless the evaluation scope changes materially.
+
+### Existing upstream-related PRs
+
+| PR | Status | Branch | Classification | Notes |
+|---|---|---|---|---|
+| [PR 263](https://github.com/jleechanorg/agent-orchestrator/pull/263) | merged 2026-03-29 | `feat/bd-1274-upstream-sync-review` | canonical merged review | Landed the prior upstream review plus the security/gitleaks carryover |
+| [PR 262](https://github.com/jleechanorg/agent-orchestrator/pull/262) | closed unmerged | `feat/upstream-sync-review-1274` | superseded | Earlier narrower variant, replaced by PR 263 |
+| [PR 107](https://github.com/jleechanorg/agent-orchestrator/pull/107) | merged 2026-03-23 | `chore/upstream-cwd-matching` | merged topic | Upstream-derived cwd matching was already integrated; the branch head still exists but should not drive current upstream work |
+| [PR 15](https://github.com/jleechanorg/agent-orchestrator/pull/15) | merged 2026-03-16 | `chore/upstream-pr-guidelines` | merged topic | Documentation-only upstream strip-list rules already landed |
+| [PR 14](https://github.com/jleechanorg/agent-orchestrator/pull/14) | closed unmerged | `feat/sync-fork-to-upstream` | stale / no reuse value | Old sync attempt; do not revive as a merge base |
+| [PR 187](https://github.com/jleechanorg/agent-orchestrator/pull/187) | merged 2026-03-25 | `feat/novel-upstream-consolidation` | unrelated to code sync | Novel consolidation only; not actionable for repo merge work |
+
+### Remote branches still ahead of `origin/main`
+
+These branches still have commits not reachable from `origin/main`, but that does **not** mean they are active upstream-sync work.
+
+| Branch | Ahead of `origin/main` | Classification | Notes |
+|---|---|---|---|
+| `origin/feat/upstream-sync-review-1274` | 11 commits | stale mixed branch | Includes superseded upstream-review work plus later skeptic/openclaw fixes; do not treat as a clean upstream-sync branch |
+| `origin/chore/upstream-cwd-matching` | 5 commits | stale merged topic branch | The topic merged via PR 107; remaining branch head is not a clean queue of pending upstream work |
+| `origin/chore/upstream-pr-guidelines` | 1 commit | stale merged topic branch | The docs intent already landed via PR 15 |
+| `origin/feat/sync-fork-to-upstream` | 1 commit | stale unmerged attempt | No current reuse value |
+| `origin/feat/novel-upstream-consolidation` | 1 commit | unrelated | Do not include in upstream code-import planning |
+
+### Replay-tested upstream candidates
+
+The 2026-04-09 evaluation corrected an earlier bad assumption: a patch-level `git apply --check` result is not sufficient evidence that a commit is non-conflicting for this fork.
+
+### Execution-threshold update
+
+The cumulative replay against current worktree `HEAD` (`417c09eb`) found:
+
+| Bucket | Count | Meaning |
+|---|---|---|
+| Upstream-only commits | 307 | All commits reachable from `upstream/main` and not from current `HEAD` |
+| Cumulative clean cherry-picks | 31 | Apply oldest→newest without merge conflicts in an isolated replay worktree |
+| Unique clean commits | 29 | Two of the 31 are duplicate patches |
+| Worth carrying on this fork | 17 | Clean **and** coherent with the fork's current architecture |
+| Direct cherry-pick candidates | 15 | Can be imported directly with no fork-translation step |
+| Port-only candidates | 2 | Useful, but require `@jleechanorg/*` adaptation rather than raw replay |
+
+This is the planning threshold for actual execution. "31 clean" is a replay statistic, not an import plan.
+
+#### Excluded from the execution set
+
+- **CLI gitlink experiment (7 commits)**: `71d7411a`, `8da1c2e5`, `b8334740`, `3860a424`, `db7a7039`, `e03d2287`, `b010e322`
+  These repeatedly add/remove gitlinks such as `packages/cli/Codequest` and do not describe a stable fork-compatible improvement. They should not be imported.
+- **Mux-only mini-stack (4 commits)**: `2e5ee30f`, `5e39b554`, `faa1bfa8`, `5cb17c08`
+  These are syntactically clean but depend on mux files and a terminal path that the fork does not currently use. The fork is still centered on `DirectTerminal.tsx` and `useSessionEvents.ts`.
+- **Duplicate patches (2 commits)**: `ab8250fe`, `fb11b60b`
+  These duplicate `1d307312` and `129149e1` respectively.
+- **Temporary CI helper (1 commit)**: `1c1e7e08`
+  Not worth importing into the fork.
+
+#### Port-only candidates
+
+These should be treated as fork-aware ports, not direct cherry-picks:
+
+- `1d307312` — isolated-workspace Vitest stabilization for CLI/web, but upstream hardcodes `@composio/*` package names and filters.
+- `129149e1` — additional Vitest subpath aliases for `ao-core`, same fork-translation issue.
+
+#### Direct-import execution goal
+
+The execution goal from this point is:
+
+1. Cherry-pick the **15** direct-fit commits that still make sense on this fork.
+2. Manually port the **2** fork-translation commits where beneficial.
+3. Refactor hot fork surfaces so future upstream imports hit companion modules instead of large patched upstream files.
+
+Tracking bead: **bd-ep6n**.
+
+#### Manual-port candidates
+
+These are still reasonable to study and port by hand, but they are **not** direct cherry-picks.
+As of 2026-04-09, the behaviors from these five commits were manually ported into the current worktree; their upstream commits still conflict if replayed directly.
+
+| SHA | Area | Why still worth considering | Replay result |
+|---|---|---|---|
+| `1531a914` | core session-role classification | Small bug fix for prefix misclassification across projects | cherry-pick conflicts in 4 hot core files |
+| `44acb6d1` | web terminal | Re-send terminal dimensions after reconnect | cherry-pick conflicts in `DirectTerminal.tsx` |
+| `469382cc` | web terminal | Stop fullscreen resize effect churn on mux status transitions | cherry-pick conflicts |
+| `2da6906b` | web session events | Prevent refresh loss on abort / mux snapshot churn | cherry-pick conflicts |
+| `1f9fd030` | web session events | Handle empty mux session array as removal signal | cherry-pick conflicts |
+
+#### Conflicting / defer for now
+
+These conflict directly and also depend on surrounding upstream structures that this fork does not currently share.
+
+| SHA | Area | Reason to defer |
+|---|---|---|
+| `f65e7d95` | lifecycle + SCM GitHub | Cross-cuts lifecycle and GraphQL batching; conflicts in current fork |
+| `87c66133` | web mux websocket | Depends on newer mux/websocket test and provider shape |
+| `5e39b554` | web mux websocket | Depends on shared mux protocol typing introduced upstream |
+| `a9ee9eac` | web mux websocket | Same newer mux architecture dependency |
+| `78e57125` | web mux websocket/provider | Same newer mux architecture dependency |
+| `5cb66a9b` | web dashboard page data | Depends on newer terminal PR inference path |
+| `074b7f2e` | web orchestrator utilities | Depends on newer orchestrator listing/session filtering flow |
+| `9c0245a3` | cli + web orchestrator pages | Crosses CLI and newer web orchestration utilities |
+
+### Current rule
+
+For the current upstream batch, the correct categorization is:
+
+- **Replay statistic:** 31 cumulative clean cherry-picks
+- **Execution number:** 17 worth carrying, of which 15 are direct cherry-picks
+- **Manual-port candidates:** the five small commits above, implemented via manual ports rather than replayed commits
+- **Port-only candidates:** `1d307312`, `129149e1`
+- **Conflicting / defer:** the remaining tested batch plus the excluded mux stack
+- **Merged historical upstream work:** PRs 263, 107, and 15
+- **Superseded / stale branches:** the branches listed above
 
 ---
 
@@ -231,7 +347,7 @@ These are the jleechanorg fork's unique contributions:
 
 ## Cherry-Pick Action Plan
 
-> **Status (2026-03-28):** origin/main is 12 commits AHEAD of upstream/main. The fork diverged months ago and has been developing independently. Cherry-picking upstream commits causes conflicts because both sides modified the same files. Key patches were **manually applied** as described below.
+> **Status (updated 2026-04-09):** The fork is 781 commits ahead of upstream and 300 commits behind. The branch gap is structural, and replay-testing is required. Treat the "Applied patches" list below as historical work already reviewed, not as evidence that current upstream commits will cherry-pick cleanly.
 
 ### Applied patches (2026-03-28)
 
@@ -278,8 +394,8 @@ The following fork innovations have no upstream equivalent (differential advanta
 
 ## Notes
 
-- **Fork divergence is structural.** origin/main is 12 commits AHEAD of upstream/main. The fork diverged months ago and has been developing independently. Do NOT attempt broad cherry-picks — conflicts are expected.
+- **Fork divergence is structural.** As of 2026-04-09, origin/main is 781 commits ahead of upstream/main and 300 commits behind it. Do NOT attempt broad cherry-picks — conflicts are expected.
 - Cherry-pick strategy: identify specific commits, read their diffs, manually apply the relevant code patterns.
 - The `roadmap/`, `.beads/`, `CLAUDE.md`, `AGENTS.md`, `.claude/` directories are fork-only — do NOT cherry-pick upstream versions.
-- `packages/web/` (Next.js dashboard) and `packages/mobile/` (React Native) are completely out of scope for this fork.
+- `packages/mobile/` remains out of scope. `packages/web/` is maintained in this fork, but only targeted behavior ports are in scope here; broad dashboard redesign carryovers are not.
 - The gitleaks SHA256 checksum (`b46b083...`) was copied from upstream PR #721 for gitleaks 8.21.1 Linux x64 — verify against the official release page if needed.
