@@ -69,6 +69,18 @@ export interface ActivityDetection {
   timestamp?: Date;
 }
 
+/** JSONL activity log entry written by agents without native logging. */
+export interface ActivityLogEntry {
+  /** ISO 8601 timestamp */
+  ts: string;
+  /** Activity state derived from terminal output or agent-native data */
+  state: ActivityState;
+  /** What triggered this state classification */
+  source: "terminal" | "native";
+  /** Raw terminal snippet that caused waiting_input/blocked (for debugging) */
+  trigger?: string;
+}
+
 /** Default threshold (ms) before a "ready" session becomes "idle". */
 export const DEFAULT_READY_THRESHOLD_MS = 300_000; // 5 minutes
 
