@@ -44,9 +44,12 @@ export async function fetchDesignDoc(
       }
       return null;
     } catch (err: unknown) {
+      const error = err as { stdout?: string; stderr?: string };
+      const combined = (error.stdout ?? "") + (error.stderr ?? "");
       // 404 → file doesn't exist yet (design doc not written yet for this PR)
-      const status = (err as { status?: number }).status;
-      if (status === 404) return null;
+      if (combined.includes('"status": "404"') || combined.includes("HTTP 404")) {
+        return null;
+      }
       // Re-throw other errors (auth, network, rate-limit) — do not silently fall back
       // to local checkout, which would reintroduce cwd-dependence and could return
       // content from the wrong repo when the lifecycle-worker runs from AO repo root.

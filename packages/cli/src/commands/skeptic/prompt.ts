@@ -110,7 +110,7 @@ export function buildSkepticPrompt(
           `[${r.submittedAt.slice(0, 16)}] ${r.author?.login} (${r.state}): ${(r.body ?? "(no body)").slice(0, MAX_REVIEW_BODY_CHARS)}`,
       ),
     "",
-    "--- DIFF (first 30000 chars; all files included if diff fits) ---",
+    `--- DIFF (first ${MAX_DIFF_CHARS} chars; all files included if diff fits) ---`,
     diff.slice(0, MAX_DIFF_CHARS),
   ].join("\n");
 

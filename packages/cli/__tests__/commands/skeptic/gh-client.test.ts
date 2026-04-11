@@ -83,6 +83,76 @@ describe("fetchDesignDoc", () => {
       chmodSync(filePath, 0o644);
     }
   });
+
+  it("returns decoded content from GitHub API when owner/repo are provided", async () => {
+    const owner = "owner";
+    const repo = "repo";
+    const prNum = 123;
+    const body = Buffer.from("# API doc\n", "utf8").toString("base64");
+    mockExec.mockResolvedValueOnce({
+      stdout: JSON.stringify({ content: body, encoding: "base64" }),
+      stderr: "",
+    });
+
+    const result = await fetchDesignDoc(owner, repo, prNum);
+    expect(result).toBe("# API doc\n");
+    expect(mockExec).toHaveBeenCalledWith(
+      "gh",
+      expect.arrayContaining([
+        "api",
+        `repos/${owner}/${repo}/contents/docs/design/pr-designs/pr-${prNum}.md`,
+      ])
+    );
+  });
+
+  it("includes ref in GitHub API endpoint when provided", async () => {
+    const owner = "owner";
+    const repo = "repo";
+    const prNum = 123;
+    const ref = "abc123";
+    const body = Buffer.from("# Ref doc\n", "utf8").toString("base64");
+    mockExec.mockResolvedValueOnce({
+      stdout: JSON.stringify({ content: body, encoding: "base64" }),
+      stderr: "",
+    });
+
+    const result = await fetchDesignDoc(owner, repo, prNum, ref);
+    expect(result).toBe("# Ref doc\n");
+    expect(mockExec).toHaveBeenCalledWith(
+      "gh",
+      expect.arrayContaining([
+        "api",
+        `repos/${owner}/${repo}/contents/docs/design/pr-designs/pr-${prNum}.md?ref=${ref}`,
+      ])
+    );
+  });
+
+  it("returns null when GitHub API returns 404", async () => {
+    const owner = "owner";
+    const repo = "repo";
+    const prNum = 123;
+    const error = new Error("gh api failed");
+    (error as any).stdout = JSON.stringify({ message: "Not Found", status: "404" });
+    (error as any).stderr = "gh: Not Found (HTTP 404)";
+    mockExec.mockRejectedValueOnce(error);
+
+    const result = await fetchDesignDoc(owner, repo, prNum);
+    expect(result).toBe(null);
+  });
+
+  it("throws other GitHub API errors", async () => {
+    const owner = "owner";
+    const repo = "repo";
+    const prNum = 123;
+    const error = new Error("gh api failed: 401 Unauthorized");
+    (error as any).stdout = "";
+    (error as any).stderr = "gh: 401 Unauthorized";
+    mockExec.mockRejectedValueOnce(error);
+
+    await expect(fetchDesignDoc(owner, repo, prNum)).rejects.toThrow(
+      "gh api failed: 401 Unauthorized"
+    );
+  });
 });
 
 describe("ghJsonPaginate", () => {

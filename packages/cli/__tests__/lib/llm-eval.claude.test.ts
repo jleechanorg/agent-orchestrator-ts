@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockExecFileSync = vi.hoisted(() => vi.fn());
 const mockResolveCodexBinary = vi.hoisted(() => vi.fn());
-const mockExistsSync = vi.hoisted(() => vi.fn());
+const mockAccessSync = vi.hoisted(() => vi.fn());
 
 vi.hoisted(() => {
   process.env["CLAUDE_BINARY"] = "/mock/claude";
@@ -13,7 +13,8 @@ vi.mock("node:child_process", () => ({
 }));
 
 vi.mock("node:fs", () => ({
-  existsSync: mockExistsSync,
+  accessSync: mockAccessSync,
+  constants: { X_OK: 1 },
 }));
 
 vi.mock("@jleechanorg/ao-plugin-agent-codex", () => ({
@@ -25,10 +26,23 @@ import { llmEval, tryClaudePrint } from "../../src/lib/llm-eval.js";
 const PASS_VERDICT = "VERDICT: PASS";
 const FAIL_VERDICT = "VERDICT: FAIL";
 const SKIPPED_VERDICT = "VERDICT: SKIPPED";
+const MOCK_CLAUDE_BINARY = "/mock/claude";
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mockExistsSync.mockReturnValue(true);
+  mockExecFileSync.mockReset();
+  mockResolveCodexBinary.mockReset();
+  // "/mock/claude" is executable
+  mockAccessSync.mockImplementation((path) => {
+    if (path === MOCK_CLAUDE_BINARY || path === "claude") return undefined;
+    throw new Error("ENOENT");
+  });
+  // Default behavior: throw ENOENT
+  mockExecFileSync.mockImplementation(() => {
+    const err = new Error("ENOENT") as NodeJS.ErrnoException;
+    err.code = "ENOENT";
+    throw err;
+  });
 });
 
 function makeErrnoError(message: string, code?: string): NodeJS.ErrnoException {
@@ -128,13 +142,17 @@ describe("llmEval — explicit model=claude", () => {
     const enoent = makeErrnoError("ENOENT", "ENOENT");
     mockExecFileSync
       .mockImplementationOnce(() => {
-        throw enoent;
+        throw enoent; // 1st claude candidate fails
       })
-      .mockReturnValueOnce(PASS_VERDICT);
+      .mockImplementationOnce(() => {
+        throw enoent; // last claude candidate fails
+      })
+      .mockReturnValueOnce(PASS_VERDICT); // codex succeeds
     const result = await llmEval("evaluate this", { model: "claude" });
     expect(result).toBe(PASS_VERDICT);
     expect(mockResolveCodexBinary).toHaveBeenCalled();
-    expect(mockExecFileSync).toHaveBeenCalledTimes(2);
+    // 2 claude candidates + 1 codex
+    expect(mockExecFileSync).toHaveBeenCalledTimes(3);
   });
 
   it("returns FAIL and tries codex fallback when claude has infra error", async () => {
@@ -143,15 +161,19 @@ describe("llmEval — explicit model=claude", () => {
     const enoent = makeErrnoError("ENOENT", "ENOENT");
     mockExecFileSync
       .mockImplementationOnce(() => {
-        throw etimeout;
+        throw etimeout; // 1st claude candidate fails
       })
       .mockImplementationOnce(() => {
-        throw enoent;
+        throw enoent; // last claude candidate fails
+      })
+      .mockImplementationOnce(() => {
+        throw enoent; // codex also fails
       });
     const result = await llmEval("evaluate this", { model: "claude" });
     expect(result).toContain("VERDICT: FAIL");
     expect(result).toContain("Claude failed:");
     expect(mockResolveCodexBinary).toHaveBeenCalled();
-    expect(mockExecFileSync).toHaveBeenCalledTimes(2);
+    // 2 claude candidates + 1 codex
+    expect(mockExecFileSync).toHaveBeenCalledTimes(3);
   });
 });
