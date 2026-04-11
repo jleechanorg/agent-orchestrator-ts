@@ -62,7 +62,7 @@ const BASH_AO_ALLOW_GH_PR_MERGE = '${AO_ALLOW_GH_PR_MERGE:-_}';
 const BASH_AO_SESSION = '${AO_SESSION:-}';
 // Result: ${AO_ALLOW_GH_PR_MERGE:-} and ${AO_SESSION:-} as literal bash parameter expansion
 
-export const METADATA_UPDATER_SCRIPT = _`#!/usr/bin/env bash
+export const METADATA_UPDATER_SCRIPT = `#!/usr/bin/env bash
 # Metadata Updater Hook for Agent Orchestrator
 #
 # This PostToolUse hook automatically updates session metadata when:
@@ -155,10 +155,10 @@ update_metadata_key() {
   local value="$2"
 
   # Create temp file
-  local temp_file="${'$'}{metadata_file}.tmp"
+  local temp_file="\${metadata_file}.tmp"
 
-  # Escape special sed characters in value (& and \ — not | or / in BRE)
-  local escaped_value=$(echo "$value" | sed 's/[&\\]/\\&/g')
+  # Escape special sed characters in value (& and \\ — not | or / in BRE)
+  local escaped_value=$(echo "$value" | sed 's/[&\\\\]/\\\\&/g')
 
   # Check if key already exists
   if grep -q "^$key=" "$metadata_file" 2>/dev/null; then
@@ -765,6 +765,13 @@ async function setupHookInWorkspace(workspacePath: string): Promise<void> {
   }
 }
 
+const DEFAULT_MINIMAX_ANTHROPIC_BASE_URL = "https://api.minimax.io/anthropic";
+
+/** Check if the model is a MiniMax model (identified by "MiniMax-" prefix) */
+function isMinimaxModel(model?: string): boolean {
+  return model?.startsWith("MiniMax-") ?? false;
+}
+
 // =============================================================================
 // Agent Implementation
 // =============================================================================
@@ -777,11 +784,15 @@ function createClaudeCodeAgent(): Agent {
 
     getLaunchCommand(config: AgentLaunchConfig): string {
       // Note: CLAUDECODE is unset via getEnvironment() (set to ""), not here.
-      // ANTHROPIC_BASE_URL is explicitly unset here (not just cleared in getEnvironment)
-      // because the user's ~/.bashrc may re-export it after tmux sources the shell profile,
-      // overriding the tmux -e flag. Prepending `env -u ANTHROPIC_BASE_URL` ensures the
-      // claude binary always uses Anthropic OAuth, even in MiniMax-configured shells.
-      const parts: string[] = ["env", "-u", "ANTHROPIC_BASE_URL", "claude"];
+      // For MiniMax models (identified by "MiniMax-" prefix), the binary routes to
+      // the MiniMax Anthropic-compatible endpoint via ANTHROPIC_BASE_URL set in
+      // getEnvironment(). For all other models, ANTHROPIC_BASE_URL is explicitly
+      // unset here — prepending `env -u` ensures Anthropic OAuth is used even when
+      // the user's ~/.bashrc sets ANTHROPIC_BASE_URL for MiniMax workflows.
+      const minimax = isMinimaxModel(config.model);
+      const parts: string[] = minimax
+        ? ["claude"]
+        : ["env", "-u", "ANTHROPIC_BASE_URL", "claude"];
 
       const permissionMode = normalizePermissionMode(config.permissions);
       if (permissionMode === "permissionless" || permissionMode === "auto-edit") {
@@ -817,10 +828,23 @@ function createClaudeCodeAgent(): Agent {
       // Unset CLAUDECODE to avoid nested agent conflicts
       env["CLAUDECODE"] = "";
 
-      // Clear ANTHROPIC_BASE_URL so claude-code workers always hit the real
-      // Anthropic API via OAuth, not a MiniMax/proxy endpoint that may be set
-      // in the user's shell environment (e.g. ~/.bashrc for MiniMax workflows).
-      env["ANTHROPIC_BASE_URL"] = "";
+      // Route to the appropriate API endpoint based on model.
+      // MiniMax models use the Anthropic-compatible MiniMax endpoint;
+      // all other models clear ANTHROPIC_BASE_URL so claude uses Anthropic OAuth.
+      if (isMinimaxModel(config.model)) {
+        env["ANTHROPIC_BASE_URL"] = DEFAULT_MINIMAX_ANTHROPIC_BASE_URL;
+        const minimaxKey = process.env["MINIMAX_API_KEY"];
+        if (minimaxKey) {
+          env["ANTHROPIC_AUTH_TOKEN"] = minimaxKey;
+          env["ANTHROPIC_API_KEY"] = minimaxKey; // auth parity with agent-minimax
+        } else {
+          console.warn(
+            "[ao-plugin-agent-claude-code] MINIMAX_API_KEY is not set — Claude Code may fail to authenticate with the MiniMax API.",
+          );
+        }
+      } else {
+        env["ANTHROPIC_BASE_URL"] = "";
+      }
 
       // Set session info for introspection
       env["AO_SESSION_ID"] = config.sessionId;

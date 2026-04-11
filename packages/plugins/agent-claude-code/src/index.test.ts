@@ -273,6 +273,19 @@ describe("getLaunchCommand", () => {
     expect(cmd).not.toMatch(/\s-p\s/);
     expect(cmd).not.toContain("Do the task");
   });
+
+  describe("MiniMax routing", () => {
+    it("omits env -u ANTHROPIC_BASE_URL when using a MiniMax model", () => {
+      const cmd = agent.getLaunchCommand(makeLaunchConfig({ model: "MiniMax-M2.7" }));
+      expect(cmd).toBe("claude --strict-mcp-config '/mock/home/.claude/mcp-strict.json' --model 'MiniMax-M2.7'");
+      expect(cmd).not.toContain("env -u ANTHROPIC_BASE_URL");
+    });
+
+    it("includes env -u ANTHROPIC_BASE_URL when using a standard model", () => {
+      const cmd = agent.getLaunchCommand(makeLaunchConfig({ model: "claude-3-7-sonnet" }));
+      expect(cmd).toContain("env -u ANTHROPIC_BASE_URL");
+    });
+  });
 });
 
 // ==================================================================
@@ -289,6 +302,38 @@ describe("getEnvironment", () => {
   it("sets ANTHROPIC_BASE_URL to empty string (command also unsets it after shell startup)", () => {
     const env = agent.getEnvironment(makeLaunchConfig());
     expect(env["ANTHROPIC_BASE_URL"]).toBe("");
+  });
+
+  describe("MiniMax routing", () => {
+    const originalEnv = process.env;
+
+    beforeEach(() => {
+      process.env = { ...originalEnv };
+    });
+
+    it("sets ANTHROPIC_BASE_URL and auth tokens when using a MiniMax model", () => {
+      process.env.MINIMAX_API_KEY = "test-key";
+      const env = agent.getEnvironment(makeLaunchConfig({ model: "MiniMax-M2.7" }));
+      expect(env["ANTHROPIC_BASE_URL"]).toBe("https://api.minimax.io/anthropic");
+      expect(env["ANTHROPIC_AUTH_TOKEN"]).toBe("test-key");
+      expect(env["ANTHROPIC_API_KEY"]).toBe("test-key");
+    });
+
+    it("clears ANTHROPIC_BASE_URL when using a standard model", () => {
+      const env = agent.getEnvironment(makeLaunchConfig({ model: "claude-3-7-sonnet" }));
+      expect(env["ANTHROPIC_BASE_URL"]).toBe("");
+      expect(env["ANTHROPIC_AUTH_TOKEN"]).toBeUndefined();
+    });
+
+    it("warns when MINIMAX_API_KEY is missing for MiniMax model", () => {
+      delete process.env.MINIMAX_API_KEY;
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const env = agent.getEnvironment(makeLaunchConfig({ model: "MiniMax-M2.7" }));
+      expect(env["ANTHROPIC_BASE_URL"]).toBe("https://api.minimax.io/anthropic");
+      expect(env["ANTHROPIC_AUTH_TOKEN"]).toBeUndefined();
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringMatching(/MINIMAX_API_KEY is not set/));
+      warnSpy.mockRestore();
+    });
   });
 
   it("sets AO_SESSION_ID but not AO_PROJECT_ID (caller's responsibility)", () => {
