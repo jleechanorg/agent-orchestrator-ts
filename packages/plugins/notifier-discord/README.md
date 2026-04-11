@@ -17,8 +17,10 @@ defaults:
 notifiers:
   discord:
     plugin: discord
-    webhookUrl: https://discord.com/api/webhooks/YOUR_WEBHOOK_ID/YOUR_WEBHOOK_TOKEN
+    webhookUrl: ${DISCORD_WEBHOOK_URL}
 ```
+
+> **Security:** Treat `webhookUrl` as a secret — do not commit a real Discord webhook token to source control. Use an environment variable (e.g. `${DISCORD_WEBHOOK_URL}`) or your runtime's secret manager. If a token was accidentally committed, rotate it immediately in Discord Server Settings > Integrations > Webhooks.
 
 ## Config options
 

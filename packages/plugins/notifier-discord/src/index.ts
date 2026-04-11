@@ -36,6 +36,13 @@ const DISCORD_WEBHOOK_URL_RE =
   /^https:\/\/(?:discord\.com|discordapp\.com)\/api\/webhooks\//;
 
 const EMBED_DESCRIPTION_MAX = 4096;
+const EMBED_TITLE_MAX = 256;
+const EMBED_FIELD_VALUE_MAX = 1024;
+const POST_CONTENT_MAX = 2000;
+
+function truncate(text: string, maxLen: number): string {
+  return text.length > maxLen ? text.slice(0, maxLen - 1) + "\u2026" : text;
+}
 
 interface DiscordEmbed {
   title: string;
@@ -53,11 +60,11 @@ function buildEmbed(event: OrchestratorEvent, actions?: NotifyAction[]): Discord
       ? event.message.slice(0, EMBED_DESCRIPTION_MAX - 1) + "\u2026"
       : event.message;
   const embed: DiscordEmbed = {
-    title: `${emoji} ${event.type} — ${event.sessionId}`,
+    title: truncate(`${emoji} ${event.type} — ${event.sessionId}`, EMBED_TITLE_MAX),
     description,
     color: PRIORITY_COLOR[event.priority],
     fields: [
-      { name: "Project", value: event.projectId, inline: true },
+      { name: "Project", value: truncate(event.projectId, EMBED_FIELD_VALUE_MAX), inline: true },
       { name: "Priority", value: event.priority, inline: true },
     ],
     timestamp: event.timestamp.toISOString(),
@@ -67,7 +74,7 @@ function buildEmbed(event: OrchestratorEvent, actions?: NotifyAction[]): Discord
   // Add PR link if available
   const prUrl = typeof event.data.prUrl === "string" ? event.data.prUrl : undefined;
   if (prUrl) {
-    embed.fields!.push({ name: "Pull Request", value: `[View PR](${prUrl})`, inline: false });
+    embed.fields!.push({ name: "Pull Request", value: truncate(`[View PR](${prUrl})`, EMBED_FIELD_VALUE_MAX), inline: false });
   }
 
   // Add CI status if available
@@ -83,7 +90,7 @@ function buildEmbed(event: OrchestratorEvent, actions?: NotifyAction[]): Discord
       if (a.url) return `[${a.label}](${a.url})`;
       return `\`${a.label}\``;
     });
-    embed.fields!.push({ name: "Actions", value: actionLinks.join(" | "), inline: false });
+    embed.fields!.push({ name: "Actions", value: truncate(actionLinks.join(" | "), EMBED_FIELD_VALUE_MAX), inline: false });
   }
 
   return embed;
@@ -172,9 +179,8 @@ export function create(config?: Record<string, unknown>): Notifier {
   } else {
     validateUrl(webhookUrl, "notifier-discord");
     if (!DISCORD_WEBHOOK_URL_RE.test(webhookUrl)) {
-      console.warn(
-        "[notifier-discord] webhookUrl does not match expected Discord webhook format.\n" +
-        "  Expected: https://discord.com/api/webhooks/... or https://discordapp.com/api/webhooks/...",
+      throw new Error(
+        "[notifier-discord] webhookUrl must match https://discord.com/api/webhooks/... or https://discordapp.com/api/webhooks/...",
       );
     }
   }
@@ -207,7 +213,7 @@ export function create(config?: Record<string, unknown>): Notifier {
 
     async post(message: string, _context?: NotifyContext): Promise<string | null> {
       if (!effectiveUrl) return null;
-      const payload: Record<string, unknown> = { username, content: message };
+      const payload: Record<string, unknown> = { username, content: truncate(message, POST_CONTENT_MAX) };
       if (avatarUrl) payload.avatar_url = avatarUrl;
       // thread_id is already passed as a URL query param via effectiveUrl
       await postWithRetry(effectiveUrl, payload, retries, retryDelayMs);

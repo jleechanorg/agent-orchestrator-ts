@@ -22,6 +22,7 @@ describe("notifier-discord", () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     vi.unstubAllGlobals();
   });
 
@@ -240,5 +241,69 @@ describe("notifier-discord", () => {
     });
     await expect(notifier.notify(makeEvent())).rejects.toThrow("Discord webhook failed (401)");
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("throws on non-Discord webhookUrl", () => {
+    expect(() => create({ webhookUrl: "https://example.com/hook" })).toThrow(
+      "[notifier-discord] webhookUrl must match",
+    );
+  });
+
+  it("retries on 429 rate-limit with Retry-After header", async () => {
+    vi.useFakeTimers();
+    const retryAfterHeaders = new Map([["retry-after", "1"]]);
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 429,
+        headers: { get: (h: string) => retryAfterHeaders.get(h.toLowerCase()) ?? null },
+        text: () => Promise.resolve("rate limited"),
+      })
+      .mockResolvedValueOnce({ ok: true, status: 200 });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const notifier = create({
+      webhookUrl: "https://discord.com/api/webhooks/123/abc",
+      retries: 1,
+      retryDelayMs: 50,
+    });
+    const promise = notifier.notify(makeEvent());
+
+    // First call happens immediately
+    await vi.advanceTimersByTimeAsync(0);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    // Advance past the Retry-After delay (1 second)
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    await promise;
+  });
+
+  it("truncates title to 256 chars", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const longSessionId = "a".repeat(300);
+    const notifier = create({ webhookUrl: "https://discord.com/api/webhooks/123/abc" });
+    await notifier.notify(makeEvent({ sessionId: longSessionId }));
+
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(body.embeds[0].title.length).toBeLessThanOrEqual(256);
+    expect(body.embeds[0].title.endsWith("…")).toBe(true);
+  });
+
+  it("truncates post content to 2000 chars", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const longMsg = "x".repeat(2500);
+    const notifier = create({ webhookUrl: "https://discord.com/api/webhooks/123/abc" });
+    await notifier.post!(longMsg);
+
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(body.content.length).toBeLessThanOrEqual(2000);
+    expect(body.content.endsWith("…")).toBe(true);
   });
 });
