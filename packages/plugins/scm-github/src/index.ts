@@ -901,7 +901,9 @@ async function maybeRemoveStaleCheckedOutWorktree(
 
   try {
     const remainingWorktrees = await listRegisteredWorktreePaths(repoPath);
-    return !remainingWorktrees?.has(resolvedStale) && !existsSync(resolvedStale);
+    // Git's "refusing to fetch" error is based on registered worktrees, not directory
+    // existence. Once unregistered, the fetch will succeed even if the directory lingers.
+    return !remainingWorktrees?.has(resolvedStale);
   } catch {
     return !existsSync(resolvedStale);
   }
