@@ -23,6 +23,7 @@ This fork adds **agentic CI infrastructure** on top of the upstream agent-orches
 | CodeRabbit reviews | ❌ None | ✅ Per-PR reviews on every PR |
 | Cursor Bugbot | ⚠️ Skipped | ✅ Runs on every PR |
 | Session recovery | ✅ recovery/ scanner + manager | ✅ + stalled-worker-auditor, no-delta-watchdog |
+| Spawn queue | ❌ None | ✅ File-backed admission control, 20-session cap, 30s drain, per-project queues |
 | OpenClaw notifier | ❌ None | ✅ Wired for Slack notifications |
 | Beads issue tracker | ❌ None | ✅ SQLite-based local tracker plugin |
 | llm_inspector | ❌ None | ✅ Context overhead analysis + lean mode (-20K tokens/turn) |
@@ -261,7 +262,7 @@ The `ao` CLI provides these commands:
 ```bash
 ao start [project|url]    # Start orchestrator with project config or clone repo
 ao stop                   # Stop running orchestrator
-ao spawn <prompt>         # Spawn new agent session
+ao spawn <prompt>         # Spawn new agent session (queued if at 20-session cap)
 ao status                 # Show session status
 ao dashboard              # Open web dashboard
 ao config-help            # Show config schema reference
