@@ -342,8 +342,23 @@ jobs:
             RESULT_LINE="**Result: FAIL** — gates ${FAILED_GATES} failed"
           fi
 
+          # Determine check run conclusion
+          # Gate 6 is advisory (WARN/FAIL don't add to FAILED_GATES)
+          # We need to reflect Gate 6 status in the conclusion
+          if [ "$OVERALL" = "PASS" ]; then
+            if [ "$GATE6" = "WARN" ] || [ "$GATE6" = "FAIL" ]; then
+              CHECK_CONCLUSION="action_required"
+            else
+              CHECK_CONCLUSION="success"
+            fi
+          else
+            CHECK_CONCLUSION="failure"
+          fi
+
           echo "overall=$OVERALL" >> "$GITHUB_OUTPUT"
           echo "head_sha=$HEAD_SHA" >> "$GITHUB_OUTPUT"
+          echo "check_conclusion=$CHECK_CONCLUSION" >> "$GITHUB_OUTPUT"
+          echo "gate6=$GATE6" >> "$GITHUB_OUTPUT"
 
           # Build the comment body
           COMMENT_BODY="## Green Gate — Deterministic 6-Green Check
@@ -405,15 +420,64 @@ jobs:
             --jq '.id' > /dev/null 2>&1
           echo "Posted gate results comment on PR #$PR_NUM"
 
-      - name: Set check result
+      - name: Create Green Gate check run
         if: always()
         env:
-          OVERALL: ${{ steps.gates.outputs.overall }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HEAD_SHA: ${{ steps.gates.outputs.head_sha }}
+          CHECK_CONCLUSION: ${{ steps.gates.outputs.check_conclusion }}
+          COMMENT_BODY: ${{ steps.gates.outputs.comment_body }}
         run: |
-          if [ "$OVERALL" = "PASS" ]; then
-            echo "Green Gate: PASS"
+          # Determine title and summary based on conclusion
+          if [ "$CHECK_CONCLUSION" = "success" ]; then
+            TITLE="Green Gate: PASS"
+            SUMMARY="All 6 gates passed. PR is ready to merge."
+          elif [ "$CHECK_CONCLUSION" = "failure" ]; then
+            TITLE="Green Gate: FAIL"
+            SUMMARY="One or more gates failed. Review the gate results below."
+          else
+            TITLE="Green Gate: WARN"
+            SUMMARY="Advisory gate (Gate 6) requires attention. Review the gate results below."
+          fi
+
+          # Create JSON payload using Python for proper escaping
+          # Use env vars passed through - they are available to Python's os.environ
+          PAYLOAD_FILE=/tmp/check_run_payload.json
+          CHECK_CONCLUSION="$CHECK_CONCLUSION" \
+          HEAD_SHA="$HEAD_SHA" \
+          TITLE="$TITLE" \
+          SUMMARY="$SUMMARY" \
+          COMMENT_BODY="$COMMENT_BODY" \
+          python3 -c '
+import json
+import os
+
+payload = {
+    "name": "Green Gate",
+    "head_sha": os.environ["HEAD_SHA"],
+    "status": "completed",
+    "conclusion": os.environ["CHECK_CONCLUSION"],
+    "output": {
+        "title": os.environ["TITLE"],
+        "summary": os.environ["SUMMARY"],
+        "text": os.environ["COMMENT_BODY"]
+    }
+}
+
+with open("/tmp/check_run_payload.json", "w") as f:
+    json.dump(payload, f)
+'
+
+          gh api repos/${{ github.repository }}/check-runs --method POST --input /tmp/check_run_payload.json
+
+          echo "Created Green Gate check run with conclusion: $CHECK_CONCLUSION"
+
+          # Clean up temp file
+          rm -f /tmp/check_run_payload.json
+
+          # Set exit code based on result
+          if [ "$CHECK_CONCLUSION" = "success" ]; then
             exit 0
           else
-            echo "Green Gate: FAIL"
             exit 1
           fi
