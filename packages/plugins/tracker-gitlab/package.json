@@ -30,6 +30,7 @@
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit",
+    "pretest": "pnpm --filter @jleechanorg/ao-plugin-scm-gitlab build",
     "test": "vitest run",
     "clean": "rm -rf dist"
   },

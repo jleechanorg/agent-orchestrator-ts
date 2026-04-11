@@ -17,6 +17,16 @@ function createFakeBinary(binDir: string, name: string, body: string): void {
   writeExecutable(join(binDir, name), `#!/bin/bash\nset -e\n${body}\n`);
 }
 
+function buildScriptEnv(binDir: string, fakeRepo: string, tempRoot: string): NodeJS.ProcessEnv {
+  return {
+    ...process.env,
+    PATH: `${binDir}:${process.env.PATH || ""}`,
+    AO_REPO_ROOT: fakeRepo,
+    // Keep the script from reading or stopping the developer's real AO workers.
+    AO_CONFIG_PATH: join(tempRoot, "missing-agent-orchestrator.yaml"),
+  };
+}
+
 describe("scripts/ao-update.sh", () => {
   it("runs the expected fetch, rebuild, and launcher refresh flow", () => {
     const tempRoot = mkdtempSync(join(tmpdir(), "ao-update-script-"));
@@ -55,11 +65,7 @@ esac\nexit 0`,
     );
 
     const result = spawnSync("bash", [scriptPath, "--skip-smoke"], {
-      env: {
-        ...process.env,
-        PATH: `${binDir}:${process.env.PATH || ""}`,
-        AO_REPO_ROOT: fakeRepo,
-      },
+      env: buildScriptEnv(binDir, fakeRepo, tempRoot),
       encoding: "utf8",
     });
 
@@ -96,11 +102,7 @@ exit 0`,
     );
 
     const result = spawnSync("bash", [scriptPath, "--smoke-only"], {
-      env: {
-        ...process.env,
-        PATH: `${binDir}:${process.env.PATH || ""}`,
-        AO_REPO_ROOT: fakeRepo,
-      },
+      env: buildScriptEnv(binDir, fakeRepo, tempRoot),
       encoding: "utf8",
     });
 
@@ -145,11 +147,7 @@ exit 0`,
     );
 
     const result = spawnSync("bash", [scriptPath], {
-      env: {
-        ...process.env,
-        PATH: `${binDir}:${process.env.PATH || ""}`,
-        AO_REPO_ROOT: fakeRepo,
-      },
+      env: buildScriptEnv(binDir, fakeRepo, tempRoot),
       encoding: "utf8",
     });
 
@@ -205,11 +203,7 @@ exit 0`,
     );
 
     const result = spawnSync("bash", [scriptPath, "--skip-smoke"], {
-      env: {
-        ...process.env,
-        PATH: `${binDir}:${process.env.PATH || ""}`,
-        AO_REPO_ROOT: fakeRepo,
-      },
+      env: buildScriptEnv(binDir, fakeRepo, tempRoot),
       encoding: "utf8",
     });
 
