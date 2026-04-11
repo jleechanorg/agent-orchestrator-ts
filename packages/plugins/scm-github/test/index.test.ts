@@ -1189,9 +1189,10 @@ describe("scm-github plugin", () => {
       ghMock.mockResolvedValueOnce({ stdout: "deadbeef\n" }); // git rev-parse refs/heads/feat/my-feature (reset target SHA)
       ghMock.mockResolvedValueOnce({ stdout: "" }); // git reset --hard deadbeef
       ghMock.mockResolvedValueOnce({ stdout: "session/abc123\n" }); // git branch --show-current (get session branch for config)
-      // push tracking config calls — order: remote, merge, push.default
+      // push tracking config calls — order: remote, merge, pushDefault, push.default
       ghMock.mockResolvedValueOnce({ stdout: "" }); // git config branch.session/abc123.remote origin
       ghMock.mockResolvedValueOnce({ stdout: "" }); // git config branch.session/abc123.merge refs/heads/feat/my-feature
+      ghMock.mockResolvedValueOnce({ stdout: "" }); // git config branch.session/abc123.pushDefault origin
       ghMock.mockResolvedValueOnce({ stdout: "" }); // git config push.default upstream
       ghMock.mockResolvedValueOnce({ stdout: "deadbeef\n" }); // git rev-parse HEAD (verify)
       ghMock.mockResolvedValueOnce({ stdout: "deadbeef\n" }); // git rev-parse refs/heads/feat/my-feature (verify)
@@ -1209,6 +1210,12 @@ describe("scm-github plugin", () => {
       expect(ghMock).toHaveBeenCalledWith(
         "git",
         ["config", "branch.session/abc123.merge", "refs/heads/feat/my-feature"],
+        expect.any(Object),
+      );
+      // pushDefault must also be set per-branch to the remote name
+      expect(ghMock).toHaveBeenCalledWith(
+        "git",
+        ["config", "branch.session/abc123.pushDefault", "origin"],
         expect.any(Object),
       );
       // push.default must be set to upstream so push works when local ≠ upstream name
