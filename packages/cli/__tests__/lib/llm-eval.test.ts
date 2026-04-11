@@ -39,7 +39,9 @@ beforeEach(() => {
   // "/mock/claude" is executable — accessSync doesn't throw
   mockAccessSync.mockImplementation((path) => {
     if (path === MOCK_CLAUDE_BINARY || path === "claude") return undefined;
-    throw new Error("ENOENT");
+    const err = new Error("ENOENT: no such file or directory") as NodeJS.ErrnoException;
+    err.code = "ENOENT";
+    throw err;
   });
   // Default: throw ENOENT for unexpected calls to avoid accidentally returning a previous test's value
   mockExecFileSync.mockImplementation(() => {
@@ -218,6 +220,26 @@ describe("tryClaudePrint", () => {
     expect(result.validVerdict).toBe(false);
     expect(result.error).toContain("ETIMEDOUT");
     expect(result.error).toBeDefined();
+  });
+
+  it("treats EACCES from accessSync as infra error (not missing binary)", async () => {
+    // Simulate: binary exists but is not executable (EACCES)
+    mockAccessSync.mockImplementation((path) => {
+      if (path === MOCK_CLAUDE_BINARY) {
+        const err = new Error("EACCES: permission denied") as NodeJS.ErrnoException;
+        err.code = "EACCES";
+        throw err;
+      }
+      // All other candidates: ENOENT (not installed)
+      const err = new Error("ENOENT: no such file or directory") as NodeJS.ErrnoException;
+      err.code = "ENOENT";
+      throw err;
+    });
+    const result = await tryClaudePrint("evaluate this");
+    expect(result.validVerdict).toBe(false);
+    // EACCES should produce an infrastructure error message, not undefined
+    expect(result.error).toBeDefined();
+    expect(result.error).toContain("EACCES");
   });
 
   it("returns validVerdict=true for markdown-prefixed ## VERDICT: PASS (claude)", async () => {

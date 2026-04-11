@@ -194,8 +194,17 @@ export async function tryClaudePrint(prompt: string): Promise<LlmEvalResult> {
     if (candidate !== "claude") {
       try {
         accessSync(candidate, fsConstants.X_OK);
-      } catch {
-        continue; // Try next candidate
+      } catch (err: unknown) {
+        const code = (err as NodeJS.ErrnoException).code;
+        if (code === "ENOENT") {
+          continue; // Binary not installed — try next candidate
+        }
+        // EACCES/EPERM or other: binary exists but is not executable — treat as infra error
+        allMissing = false;
+        if (!firstInfraError) {
+          firstInfraError = err instanceof Error ? err.message : String(err);
+        }
+        continue;
       }
     }
 
