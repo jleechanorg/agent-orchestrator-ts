@@ -88,6 +88,21 @@ export default tseslint.config(
     },
   },
 
+  // Evidence artifacts — Node.js test scripts that use console for output
+  {
+    files: ["docs/evidence/**/*.mjs"],
+    languageOptions: {
+      globals: {
+        console: "readonly",
+        process: "readonly",
+        Buffer: "readonly",
+      },
+    },
+    rules: {
+      "no-console": "off",
+    },
+  },
+
   // Scripts directory - Node.js environment
   {
     files: ["scripts/**/*.js", "scripts/**/*.mjs", "packages/*/scripts/**/*.js", "packages/*/scripts/**/*.mjs"],
