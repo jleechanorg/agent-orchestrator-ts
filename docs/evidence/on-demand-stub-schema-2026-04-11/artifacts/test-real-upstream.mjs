@@ -13,12 +13,19 @@
 import { createServer } from "node:http";
 import { spawn, execSync } from "node:child_process";
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
-import { join } from "node:path";
+import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 
 const PROXY_PORT = 19999;
 const UPSTREAM_PORT = 19998;
-const CLI = "/Users/jleechan/project_agento/worktree_compaction/llm_inspector/dist/cli.js";
-const OUT_DIR = "/Users/jleechan/project_agento/worktree_compaction/docs/evidence/on-demand-stub-schema-2026-04-11";
+
+// Derive repo root from this script's location (artifacts/ → repo root via 4 parent dirs).
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+const REPO_ROOT = join(__dirname, "..", "..", "..");
+const CLI = join(REPO_ROOT, "llm_inspector", "dist", "cli.js");
+const OUT_DIR = join(__dirname);
+const ARTIFACTS_DIR = OUT_DIR;
 const ITERATIONS = 10;
 
 // Realistic Claude Code Agent tool schema — 1368 bytes
@@ -332,8 +339,8 @@ const timestamp = new Date().toISOString();
 let gitHead = "";
 let gitBranch = "";
 try {
-  gitHead = execSync("cd /Users/jleechan/project_agento/worktree_compaction && git rev-parse HEAD").toString().trim();
-  gitBranch = execSync("cd /Users/jleechan/project_agento/worktree_compaction && git branch --show-current").toString().trim();
+  gitHead = execSync("git rev-parse HEAD", { cwd: REPO_ROOT }).toString().trim();
+  gitBranch = execSync("git branch --show-current", { cwd: REPO_ROOT }).toString().trim();
 } catch {}
 
 const metadata = {
@@ -352,9 +359,9 @@ const metadata = {
   tool_mode_test: "on-demand stub-schema real integration test",
 };
 
-writeFileSync(join(OUT_DIR, "run.json"), JSON.stringify(runJson, null, 2));
-writeFileSync(join(OUT_DIR, "evidence.md"), evidenceMd);
-writeFileSync(join(OUT_DIR, "metadata.json"), JSON.stringify(metadata, null, 2));
+writeFileSync(join(ARTIFACTS_DIR, "run.json"), JSON.stringify(runJson, null, 2));
+writeFileSync(join(ARTIFACTS_DIR, "evidence.md"), evidenceMd);
+writeFileSync(join(ARTIFACTS_DIR, "metadata.json"), JSON.stringify(metadata, null, 2));
 
 const { createHash } = await import("node:crypto");
 function sha256OfFile(path) {
@@ -362,9 +369,9 @@ function sha256OfFile(path) {
   return createHash("sha256").update(content, "utf-8").digest("hex");
 }
 try {
-  writeFileSync(join(OUT_DIR, "evidence.md.sha256"), sha256OfFile(join(OUT_DIR, "evidence.md")) + "\n");
-  writeFileSync(join(OUT_DIR, "metadata.json.sha256"), sha256OfFile(join(OUT_DIR, "metadata.json")) + "\n");
+  writeFileSync(join(ARTIFACTS_DIR, "evidence.md.sha256"), sha256OfFile(join(ARTIFACTS_DIR, "evidence.md")) + "\n");
+  writeFileSync(join(ARTIFACTS_DIR, "metadata.json.sha256"), sha256OfFile(join(ARTIFACTS_DIR, "metadata.json")) + "\n");
 } catch {}
 
-console.log(`\nEvidence written to ${OUT_DIR}/`);
+console.log(`\nEvidence written to ${ARTIFACTS_DIR}/`);
 process.exit(allPass ? 0 : 1);

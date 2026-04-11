@@ -37,7 +37,7 @@
   Reduction: mean=84.9%, stddev=0.0%, min=84.9%, max=84.9%
   Overall: ✅ ALL PASS
 
-Evidence written to /Users/jleechan/project_agento/worktree_compaction/llm_inspector/docs/evidence/on-demand-stub-schema-2026-04-11/
+Evidence written to docs/evidence/on-demand-stub-schema-2026-04-11/artifacts/
 
 ## Timestamp
 

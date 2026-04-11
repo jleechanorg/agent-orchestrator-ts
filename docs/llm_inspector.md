@@ -10,7 +10,7 @@ Lightweight Node.js capture proxy for analyzing LLM API request payloads. Unders
 |---------|--------|---------|
 | Capture mode (`start`) | ✅ Stable | Visibility |
 | `--tool-mode lean` | ✅ Stable | ~20K tokens/turn |
-| `--tool-mode on-demand` (stub + re-issue) | ✅ Stable | ~97% upfront on heavy tools |
+| `--tool-mode on-demand` (stub + re-issue) | ✅ Stable | ~84.9% upfront on heavy tools |
 
 See full evidence: [`docs/evidence/on-demand-stub-schema-2026-04-11/`](evidence/on-demand-stub-schema-2026-04-11/) (N=10 run, mean 84.9% Agent schema reduction, PASS).
 

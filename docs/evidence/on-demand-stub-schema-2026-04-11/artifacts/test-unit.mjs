@@ -5,10 +5,15 @@
  */
 
 import { writeFileSync, mkdirSync } from "node:fs";
-import { join } from "node:path";
+import { join, dirname } from "node:path";
 import { execSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 
-const OUT_DIR = "/Users/jleechan/project_agento/worktree_compaction/docs/evidence/on-demand-stub-schema-2026-04-11";
+// Derive repo root from this script's location (artifacts/ → repo root via 3 parent dirs).
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+const REPO_ROOT = join(__dirname, "..", "..", "..");
+const OUT_DIR = join(__dirname);
 
 // ── Inline the actual implementation (same as proxy.ts) ─────────────────────
 const HEAVY_TOOL_NAMES = [
@@ -279,7 +284,7 @@ const evidenceMd = [
     ? "- All 17 heavy tools have valid stub schemas with correct descriptions"
         + "\n- Stub schema uses `input_schema` at top level (Claude API native format)"
         + "\n- Stub has ≥1 property in input_schema (required by Anthropic API)"
-        + "\n- Agent replaced with stub (97% size reduction: " + (evidence[0] ? `${evidence[0].reduction_percent}%` : "N/A") + ")"
+        + "\n- Agent replaced with stub (size reduction: " + (evidence[0] ? `${evidence[0].reduction_percent}%` : "N/A") + ")"
         + "\n- Non-heavy tools (Bash, Read) preserved unchanged"
         + "\n- StubbedTools map correctly tracks original schemas for re-issue"
       : "- Some tests failed — see results above",
@@ -297,8 +302,8 @@ writeFileSync(join(OUT_DIR, "evidence.md"), evidenceMd);
 try {
   writeFileSync(join(OUT_DIR, "metadata.json"), JSON.stringify({
     provenance: {
-      git_head: execSync("cd /Users/jleechan/project_agento/worktree_compaction && git rev-parse HEAD").toString().trim(),
-      git_branch: execSync("cd /Users/jleechan/project_agento/worktree_compaction && git branch --show-current").toString().trim(),
+      git_head: execSync("git rev-parse HEAD", { cwd: REPO_ROOT }).toString().trim(),
+      git_branch: execSync("git branch --show-current", { cwd: REPO_ROOT }).toString().trim(),
     },
     timestamp_utc: new Date().toISOString(),
     tool_mode_test: "on-demand stub-schema unit test",
