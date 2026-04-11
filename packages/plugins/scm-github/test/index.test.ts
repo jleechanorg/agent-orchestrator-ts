@@ -833,7 +833,8 @@ describe("scm-github plugin", () => {
       ghMock.mockResolvedValueOnce({ stdout: "" }); // git fetch refs/pull/42/head:feat/my-feature (primary succeeds)
       ghMock.mockResolvedValueOnce({ stdout: "main\n" }); // git branch --show-current (after fetch — still on main)
       ghMock.mockResolvedValueOnce({ stdout: "" }); // git checkout feat/my-feature
-      ghMock.mockResolvedValueOnce({ stdout: "feat/my-feature\n" }); // git branch --show-current (verify)
+      ghMock.mockResolvedValueOnce({ stdout: "deadbeef\n" }); // git rev-parse HEAD (verify)
+      ghMock.mockResolvedValueOnce({ stdout: "deadbeef\n" }); // git rev-parse refs/heads/feat/my-feature (verify)
 
       const changed = await scm.checkoutPR?.(pr, "/tmp/repo");
       expect(changed).toBe(true);
@@ -872,7 +873,8 @@ describe("scm-github plugin", () => {
       ghMock.mockResolvedValueOnce({ stdout: "" }); // retried git fetch succeeds
       ghMock.mockResolvedValueOnce({ stdout: "main\n" }); // git branch --show-current (after fetch)
       ghMock.mockResolvedValueOnce({ stdout: "" }); // git checkout -f feat/my-feature
-      ghMock.mockResolvedValueOnce({ stdout: "feat/my-feature\n" }); // git branch --show-current (verify)
+      ghMock.mockResolvedValueOnce({ stdout: "deadbeef\n" }); // git rev-parse HEAD (verify)
+      ghMock.mockResolvedValueOnce({ stdout: "deadbeef\n" }); // git rev-parse refs/heads/feat/my-feature (verify)
 
       const changed = await scm.checkoutPR?.(pr, "/tmp/repo");
       expect(changed).toBe(true);
@@ -886,11 +888,13 @@ describe("scm-github plugin", () => {
         new Error(
           `fatal: refusing to fetch into branch 'refs/heads/feat/my-feature' checked out at '${configuredWorktreeDir}/acme/feature-research'\n`,
         ),
-      ); // branch blocked by non-AO worktree
+      ); // branch blocked by non-AO worktree — recovery path takes over (no worktree removal)
+      // recovery: fetch to temp branch, update-ref, cleanup, checkout, verify
+      ghMock.mockResolvedValueOnce({ stdout: "deadbeef\n" }); // git rev-parse HEAD (verify)
+      ghMock.mockResolvedValueOnce({ stdout: "deadbeef\n" }); // git rev-parse refs/heads/feat/my-feature (verify)
 
-      await expect(scm.checkoutPR?.(pr, "/tmp/repo")).rejects.toThrow(
-        "refusing to fetch into branch",
-      );
+      const changed = await scm.checkoutPR?.(pr, "/tmp/repo");
+      expect(changed).toBe(true);
       assertNoGitWorktreeRemoveCalls();
     });
 
@@ -905,11 +909,13 @@ describe("scm-github plugin", () => {
       ); // AO-looking path that is not actually registered for this repo
       ghMock.mockResolvedValueOnce({
         stdout: "worktree /tmp/repo\nHEAD deadbeef\nbranch refs/heads/main\n",
-      }); // git worktree list --porcelain (no stale ao-9999 entry)
+      }); // git worktree list --porcelain (no stale ao-9999 entry) — recovery path takes over
+      // recovery: fetch to temp branch, update-ref, cleanup, checkout, verify
+      ghMock.mockResolvedValueOnce({ stdout: "deadbeef\n" }); // git rev-parse HEAD (verify)
+      ghMock.mockResolvedValueOnce({ stdout: "deadbeef\n" }); // git rev-parse refs/heads/feat/my-feature (verify)
 
-      await expect(scm.checkoutPR?.(pr, "/tmp/repo")).rejects.toThrow(
-        "refusing to fetch into branch",
-      );
+      const changed = await scm.checkoutPR?.(pr, "/tmp/repo");
+      expect(changed).toBe(true);
       assertNoGitWorktreeRemoveCalls();
     });
 
@@ -926,11 +932,13 @@ describe("scm-github plugin", () => {
         stdout:
           "worktree /tmp/repo\nHEAD deadbeef\nbranch refs/heads/main\n\n" +
           "worktree /tmp/ao-9999\nHEAD cafe1234\nbranch refs/heads/feat/my-feature\n",
-      }); // git worktree list --porcelain (registered, but outside configured base dir)
+      }); // git worktree list --porcelain (registered, but outside configured base dir) — recovery path takes over
+      // recovery: fetch to temp branch, update-ref, cleanup, checkout, verify
+      ghMock.mockResolvedValueOnce({ stdout: "deadbeef\n" }); // git rev-parse HEAD (verify)
+      ghMock.mockResolvedValueOnce({ stdout: "deadbeef\n" }); // git rev-parse refs/heads/feat/my-feature (verify)
 
-      await expect(scm.checkoutPR?.(pr, "/tmp/repo")).rejects.toThrow(
-        "refusing to fetch into branch",
-      );
+      const changed = await scm.checkoutPR?.(pr, "/tmp/repo");
+      expect(changed).toBe(true);
       assertNoGitWorktreeRemoveCalls();
     });
 
@@ -956,7 +964,8 @@ describe("scm-github plugin", () => {
         ghMock.mockResolvedValueOnce({ stdout: "" }); // retried git fetch succeeds
         ghMock.mockResolvedValueOnce({ stdout: "main\n" }); // git branch --show-current (after fetch)
         ghMock.mockResolvedValueOnce({ stdout: "" }); // git checkout -f feat/my-feature
-        ghMock.mockResolvedValueOnce({ stdout: "feat/my-feature\n" }); // git branch --show-current (verify)
+        ghMock.mockResolvedValueOnce({ stdout: "deadbeef\n" }); // git rev-parse HEAD (verify)
+        ghMock.mockResolvedValueOnce({ stdout: "deadbeef\n" }); // git rev-parse refs/heads/feat/my-feature (verify)
 
         const changed = await scmWithCustomWorktreeDir.checkoutPR?.(pr, "/tmp/repo");
         expect(changed).toBe(true);
@@ -972,7 +981,8 @@ describe("scm-github plugin", () => {
       ghMock.mockResolvedValueOnce({ stdout: "" }); // git fetch refs/pull/42/head:feat/my-feature (primary succeeds)
       ghMock.mockResolvedValueOnce({ stdout: "main\n" }); // git branch --show-current (after fetch — still on main, needs checkout)
       ghMock.mockResolvedValueOnce({ stdout: "" }); // git checkout feat/my-feature
-      ghMock.mockResolvedValueOnce({ stdout: "feat/my-feature\n" }); // git branch --show-current (verify)
+      ghMock.mockResolvedValueOnce({ stdout: "deadbeef\n" }); // git rev-parse HEAD (verify)
+      ghMock.mockResolvedValueOnce({ stdout: "deadbeef\n" }); // git rev-parse refs/heads/feat/my-feature (verify)
 
       const changed = await scm.checkoutPR?.(pr, "/tmp/repo");
       expect(changed).toBe(true);
@@ -1075,6 +1085,10 @@ describe("scm-github plugin", () => {
           return { stdout: "" };
         }
 
+        if (args[0] === "rev-parse") {
+          return { stdout: "deadbeef\n" };
+        }
+
         throw new Error(`Unexpected git command: ${args.join(" ")}`);
       });
 
@@ -1126,6 +1140,83 @@ describe("scm-github plugin", () => {
       ghMock.mockRejectedValueOnce(new Error("restore failed")); // git restore --source=HEAD --staged --worktree -- AGENTS.md
 
       await expect(scm.checkoutPR?.(pr, "/tmp/repo")).rejects.toThrow("restore failed");
+    });
+
+    it("uses pr.branch (not prRef) as recovery source when branch-name fallback is active", async () => {
+      // When prRef (refs/pull/42/head) fails with "ref not found", the fallback fetch
+      // uses pr.branch. If non-AO worktree holds it, recoveryRef must be pr.branch
+      // (not prRef which already failed). This test verifies that recoveryRef is threaded
+      // through correctly so the recovery fetch doesn't retry the already-failed prRef.
+      ghMock.mockResolvedValueOnce({ stdout: "main\n" }); // git branch --show-current (before)
+      ghMock.mockResolvedValueOnce({ stdout: "" }); // git status --porcelain (clean)
+      ghMock.mockResolvedValueOnce({ stdout: "https://github.com/acme/repo.git\n" }); // git remote get-url origin
+      ghMock.mockRejectedValueOnce(new Error("couldn't find remote ref refs/pull/42/head")); // primary prRef fetch fails
+      ghMock.mockRejectedValueOnce( // fallback branch fetch blocked by non-AO worktree
+        new Error(
+          `fatal: refusing to fetch into branch 'refs/heads/feat/my-feature' checked out at '${configuredWorktreeDir}/acme/feature-research'\n`,
+        ),
+      );
+      // recovery path: fetches pr.branch (not prRef) to temp branch
+      // remaining calls use default mock (empty stdout)
+      ghMock.mockResolvedValueOnce({ stdout: "deadbeef\n" }); // git rev-parse HEAD (verify)
+      ghMock.mockResolvedValueOnce({ stdout: "deadbeef\n" }); // git rev-parse refs/heads/feat/my-feature (verify)
+
+      const changed = await scm.checkoutPR?.(pr, "/tmp/repo");
+      expect(changed).toBe(true);
+      // Verify recovery fetched pr.branch (not refs/pull/42/head) as the source
+      const fetchCalls = (ghMock as ReturnType<typeof vi.fn>).mock.calls.filter(
+        (c: string[]) => c[1]?.[0] === "fetch",
+      );
+      // At least one fetch call should use pr.branch (not prRef) in recovery
+      const recoveryFetch = fetchCalls.find(
+        (c: string[]) => c[1]?.some((a: string) => a.includes("feat/my-feature") && a.includes("tmp-fetch")),
+      );
+      expect(recoveryFetch).toBeDefined();
+    });
+
+    it("configures branch.<session>.remote with remote name 'origin' (not URL) and push.default=upstream", async () => {
+      // When a non-AO worktree holds pr.branch, checkout stays on session branch.
+      // push tracking must use remote NAME "origin", not the URL, and set push.default=upstream
+      // so plain `git push` works with push.default=simple (git default since 2.0).
+      ghMock.mockResolvedValueOnce({ stdout: "session/abc123\n" }); // git branch --show-current (before) — on session branch
+      ghMock.mockResolvedValueOnce({ stdout: "" }); // git status --porcelain (clean)
+      ghMock.mockResolvedValueOnce({ stdout: "https://github.com/acme/repo.git\n" }); // git remote get-url origin
+      ghMock.mockResolvedValueOnce({ stdout: "" }); // git fetch +refs/pull/42/head:feat/my-feature (succeeds)
+      ghMock.mockResolvedValueOnce({ stdout: "session/abc123\n" }); // git branch --show-current (after fetch — still session branch)
+      ghMock.mockRejectedValueOnce( // git checkout -f feat/my-feature — locked by non-AO worktree
+        new Error("fatal: 'feat/my-feature' is already checked out at '/opt/other-worktree'"),
+      );
+      ghMock.mockResolvedValueOnce({ stdout: "deadbeef\n" }); // git rev-parse refs/heads/feat/my-feature (reset target SHA)
+      ghMock.mockResolvedValueOnce({ stdout: "" }); // git reset --hard deadbeef
+      ghMock.mockResolvedValueOnce({ stdout: "session/abc123\n" }); // git branch --show-current (get session branch for config)
+      // push tracking config calls — order: remote, merge, push.default
+      ghMock.mockResolvedValueOnce({ stdout: "" }); // git config branch.session/abc123.remote origin
+      ghMock.mockResolvedValueOnce({ stdout: "" }); // git config branch.session/abc123.merge refs/heads/feat/my-feature
+      ghMock.mockResolvedValueOnce({ stdout: "" }); // git config push.default upstream
+      ghMock.mockResolvedValueOnce({ stdout: "deadbeef\n" }); // git rev-parse HEAD (verify)
+      ghMock.mockResolvedValueOnce({ stdout: "deadbeef\n" }); // git rev-parse refs/heads/feat/my-feature (verify)
+
+      const changed = await scm.checkoutPR?.(pr, "/tmp/repo");
+      expect(changed).toBe(true);
+
+      // branch.<session>.remote must be the remote NAME "origin", not a URL
+      expect(ghMock).toHaveBeenCalledWith(
+        "git",
+        ["config", "branch.session/abc123.remote", "origin"],
+        expect.any(Object),
+      );
+      // merge ref must point to pr.branch
+      expect(ghMock).toHaveBeenCalledWith(
+        "git",
+        ["config", "branch.session/abc123.merge", "refs/heads/feat/my-feature"],
+        expect.any(Object),
+      );
+      // push.default must be set to upstream so push works when local ≠ upstream name
+      expect(ghMock).toHaveBeenCalledWith(
+        "git",
+        ["config", "push.default", "upstream"],
+        expect.any(Object),
+      );
     });
   });
 

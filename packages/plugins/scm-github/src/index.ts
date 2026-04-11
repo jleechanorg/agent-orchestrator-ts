@@ -1596,9 +1596,10 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
 
       // Discover the actual remote URL from the workspace rather than hardcoding.
       // This respects SSH / HTTPS / GHE configurations configured in the workspace.
+      const remoteName = "origin";
       let remote: string;
       try {
-        remote = (await git(["remote", "get-url", "origin"], workspacePath)).trim();
+        remote = (await git(["remote", "get-url", remoteName], workspacePath)).trim();
       } catch {
         // Fall back to the well-known GitHub HTTPS URL only when origin is missing
         remote = `https://github.com/${repoFlag(pr)}.git`;
@@ -1702,7 +1703,7 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
             );
             if (sessionBranch && sessionBranch !== pr.branch) {
               await git(
-                ["config", `branch.${sessionBranch}.remote`, "origin"],
+                ["config", `branch.${sessionBranch}.remote`, remoteName],
                 workspacePath,
               ).catch(() => {});
               await git(
@@ -1710,10 +1711,16 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
                 workspacePath,
               ).catch(() => {});
               await git(
-                ["config", `branch.${sessionBranch}.pushDefault`, "origin"],
+                ["config", `branch.${sessionBranch}.pushDefault`, remoteName],
                 workspacePath,
               ).catch(() => {});
-              await git(["config", "push.default", "upstream"], workspacePath).catch(() => {});
+              // push.default=simple refuses to push when local branch name ≠ upstream
+              // branch name (which is always the case here: session/<id> → pr.branch).
+              // Set upstream so plain `git push` targets pr.branch, not session branch.
+              await git(
+                ["config", "push.default", "upstream"],
+                workspacePath,
+              ).catch(() => {});
             }
           } else {
             throw checkoutErr;
