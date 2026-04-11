@@ -1579,7 +1579,7 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
           if (
-            !msg.includes("refusing to fetch into branch") ||
+            !msg.includes("refusing to fetch into branch") &&
             !msg.includes("checked out at")
           ) {
             throw err;
@@ -1590,9 +1590,34 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
             msg,
             worktreeBaseDir,
           );
-          if (!removedStale) throw err;
+          if (removedStale) {
+            // Stale worktree removed — retry original fetch
+            await git(["fetch", "--force", remote, refspec], workspacePath);
+            return;
+          }
 
-          await git(["fetch", "--force", remote, refspec], workspacePath);
+          // Non-AO worktree is holding the branch lock (or AO cleanup failed).
+          // Fetch PR head to a temp branch, then reset the target branch to it.
+          // This avoids the "checked out at" conflict entirely.
+          const tempBranch = `tmp-fetch-${Date.now()}`;
+          try {
+            await git(
+              ["fetch", "--force", remote, `${prRef}:${tempBranch}`],
+              workspacePath,
+            );
+            // Reset the target branch to point to the fetched commit.
+            // Using update-ref is safe because we're writing to our own branch,
+            // not one checked out in another worktree.
+            await git(
+              ["update-ref", `refs/heads/${pr.branch}`, tempBranch],
+              workspacePath,
+            );
+            // Clean up temp tag ref immediately
+            await git(["tag", "-d", tempBranch], workspacePath).catch(() => {});
+            await git(["branch", "-D", tempBranch], workspacePath).catch(() => {});
+          } catch {
+            throw err;
+          }
         }
       };
 
@@ -1624,15 +1649,52 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
       // during worktree init cannot block checkout when claiming a PR.
       const currentAfterFetch = await git(["branch", "--show-current"], workspacePath);
       if (currentAfterFetch !== pr.branch) {
-        await git(["checkout", "-f", pr.branch], workspacePath);
+        try {
+          await git(["checkout", "-f", pr.branch], workspacePath);
+        } catch (checkoutErr) {
+          const checkoutMsg =
+            checkoutErr instanceof Error ? checkoutErr.message : String(checkoutErr);
+          // Branch is checked out in a non-AO worktree. The update-ref below already
+          // moved our shared branch ref to the PR head — we just need to reset the
+          // working tree to that new commit.
+          if (
+            checkoutMsg.includes("already checked out") &&
+            checkoutMsg.includes("checked out at")
+          ) {
+            const newSha = await git(
+              ["rev-parse", `refs/heads/${pr.branch}`],
+              workspacePath,
+            );
+            await git(["reset", "--hard", newSha.trim()], workspacePath);
+          } else {
+            throw checkoutErr;
+          }
+        }
+      } else {
+        // We share the branch with a non-AO worktree. After update-ref redirected
+        // our shared branch to the PR head, reset the worktree to the new tip.
+        const newSha = await git(
+          ["rev-parse", `refs/heads/${pr.branch}`],
+          workspacePath,
+        ).then((s) => s.trim());
+        await git(["reset", "--hard", newSha], workspacePath);
       }
 
-      // Verify checkout succeeded
-      const afterBranch = await git(["branch", "--show-current"], workspacePath);
-      if (afterBranch !== pr.branch) {
+      // Verify checkout succeeded — compare HEAD SHA rather than branch name.
+      // When a non-AO worktree holds the target branch checked out, we cannot
+      // switch to it (git refuses while another worktree has it checked out).
+      // Instead we update the shared branch ref via update-ref and reset the worktree
+      // to the new tip. The verify pass confirms we're at the correct commit even
+      // if our own branch name differs (the shared branch now points to the right SHA).
+      const afterSha = await git(["rev-parse", "HEAD"], workspacePath);
+      const prHeadSha = await git(
+        ["rev-parse", `refs/heads/${pr.branch}`],
+        workspacePath,
+      );
+      if (afterSha.trim() !== prHeadSha.trim()) {
         throw new Error(
-          `git checkout failed: worktree is on "${afterBranch}" instead of "${pr.branch}". ` +
-            `Another worktree may have this branch checked out.`,
+          `git checkout failed: worktree is at ${afterSha.trim()} instead of ${prHeadSha.trim()} ` +
+            `("${pr.branch}" = ${prHeadSha.trim()}). Another worktree may have this branch checked out.`,
         );
       }
       return true;

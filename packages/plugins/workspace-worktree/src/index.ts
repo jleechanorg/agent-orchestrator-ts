@@ -356,6 +356,9 @@ export function create(config?: Record<string, unknown>): Workspace {
                 await git(worktreePath, "checkout", cfg.branch);
                 checkoutSucceeded = true;
               }
+              // else: Non-AO worktree holds the branch lock — let the error propagate.
+              // The scm-github checkoutPR call will handle this via its own ref-based
+              // fallback once workspace.create() returns.
             } catch {
               // Fall through to original error path.
             }
