@@ -454,6 +454,8 @@ describe("wholesome — structural source-code assertions", () => {
       "generate-pr-design-docs.yml",
       // Skeptic gate is an LLM evaluation gate, not a code execution gate
       "skeptic-gate.yml",
+      // Green gate replaced skeptic-gate.yml — same polling/gate nature, no code execution
+      "green-gate.yml",
       // test.yml is the skeptic gate (alternate filename) — LLM evaluation only
       "test.yml",
     ];

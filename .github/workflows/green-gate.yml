@@ -1,4 +1,4 @@
-name: Skeptic Gate
+name: Green Gate
 
 # Deterministic 6-green check. No polling, no LLM evaluation.
 # Checks gates 1-6 and posts a result comment on every run.
@@ -22,8 +22,8 @@ concurrency:
   cancel-in-progress: false  # Never cancel in-progress gate runs; multiple runs for same SHA are harmless
 
 jobs:
-  skeptic_gate:
-    name: Skeptic Gate
+  green_gate:
+    name: Green Gate
     runs-on: ubuntu-latest
     permissions:
       pull-requests: write
@@ -346,7 +346,7 @@ jobs:
           echo "head_sha=$HEAD_SHA" >> "$GITHUB_OUTPUT"
 
           # Build the comment body
-          COMMENT_BODY="## Skeptic Gate — Deterministic 6-Green Check
+          COMMENT_BODY="## Green Gate — Deterministic 6-Green Check
 
           | Gate | Result | Detail |
           |------|--------|--------|
@@ -355,7 +355,7 @@ jobs:
           ${RESULT_LINE}
 
           VERDICT: ${OVERALL}
-          <!-- skeptic-gate-result-${HEAD_SHA} -->"
+          <!-- green-gate-result-${HEAD_SHA} -->"
 
           # Add actionable guidance when evidence gate fails
           if [ "$GATE6" = "FAIL" ]; then
@@ -390,10 +390,10 @@ jobs:
           HEAD_SHA: ${{ steps.gates.outputs.head_sha }}
           COMMENT_BODY: ${{ steps.gates.outputs.comment_body }}
         run: |
-          # Delete previous skeptic-gate-result comments to avoid clutter
+          # Delete previous green-gate-result comments to avoid clutter
           PREV_COMMENTS=$(gh api repos/${{ github.repository }}/issues/"$PR_NUM"/comments \
             --paginate \
-            --jq '[.[] | select(.user.login == "github-actions[bot]" and (.body | test("skeptic-gate-result-"))) | .id]' 2>/dev/null || echo "[]")
+            --jq '[.[] | select(.user.login == "github-actions[bot]" and (.body | test("green-gate-result-"))) | .id]' 2>/dev/null || echo "[]")
 
           for CID in $(echo "$PREV_COMMENTS" | jq -r '.[]' 2>/dev/null); do
             gh api repos/${{ github.repository }}/issues/comments/"$CID" --method DELETE 2>/dev/null || true
@@ -411,9 +411,9 @@ jobs:
           OVERALL: ${{ steps.gates.outputs.overall }}
         run: |
           if [ "$OVERALL" = "PASS" ]; then
-            echo "Skeptic Gate: PASS"
+            echo "Green Gate: PASS"
             exit 0
           else
-            echo "Skeptic Gate: FAIL"
+            echo "Green Gate: FAIL"
             exit 1
           fi
