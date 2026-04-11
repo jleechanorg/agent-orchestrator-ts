@@ -252,6 +252,12 @@ describe("runSkepticReview", () => {
       const result = await runSkepticReview(session);
       expect(result.verdict).toBe("PASS");
       expect(result.modelUsed).toBe("claude");
+      // Regression: triggerSha must be fetched exactly once (not once per model)
+      expect(execFileMock.mock.calls.filter((c) => c[0] === "gh")).toHaveLength(1);
+      const aoModels = execFileMock.mock.calls
+        .filter((c) => c[0] === "ao")
+        .map((c) => c[1][c[1].indexOf("--model") + 1]);
+      expect(aoModels).toEqual(["codex", "claude"]);
     });
 
     it("falls back to gemini when both codex and claude fail", async () => {

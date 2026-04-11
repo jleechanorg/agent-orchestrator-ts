@@ -28,6 +28,22 @@ const execFileAsync = promisify(execFile);
 /** Line-anchored VERDICT matcher — accepts VERDICT: PASS, VERDICT: FAIL, or VERDICT: SKIPPED. */
 const VERDICT_LINE_RE = /^VERDICT:\s*(PASS|FAIL|SKIPPED)\b/im;
 
+/**
+ * Extract the LAST verdict from a string of CLI output.
+ *
+ * Using the last match instead of the first prevents an early "VERDICT: PASS"
+ * line (e.g. from an echoed prompt template) from overriding the actual terminal
+ * verdict that the model emits at the end of its output.
+ */
+function lastVerdictIn(text: string): "PASS" | "FAIL" | "SKIPPED" | null {
+  const lines = text.split("\n");
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const m = lines[i].match(VERDICT_LINE_RE);
+    if (m) return m[1].toUpperCase() as "PASS" | "FAIL" | "SKIPPED";
+  }
+  return null;
+}
+
 export interface SkepticReviewResult {
   verdict: "PASS" | "FAIL" | "SKIPPED";
   details: string;
@@ -53,9 +69,11 @@ function hasVerdictInError(err: unknown): boolean {
   if (err && typeof err === "object" && "stdout" in err) {
     const e = err as { stdout?: string };
     const stdout = e.stdout ?? "";
-    // Check only the last 20 lines of stdout to avoid matching prompt echo
+    // Check only the last 20 lines of stdout. This prevents prompt templates
+    // echoed at the START of output from being misread as real verdicts.
+    // Infrastructure crashes never produce a clean terminal VERDICT line.
     const tail = stdout.split("\n").slice(-20).join("\n");
-    return VERDICT_LINE_RE.test(tail);
+    return lastVerdictIn(tail) !== null;
   }
   return false;
 }
@@ -63,7 +81,10 @@ function hasVerdictInError(err: unknown): boolean {
 /**
  * Extract verdict result from a CLI error that has a VERDICT in its output.
  * Only called when hasVerdictInError() returns true.
- * Uses stdout tail (same scope as hasVerdictInError) for consistency.
+ *
+ * Uses last-20-lines of stdout + lastVerdictIn for consistency with
+ * hasVerdictInError: restricts to tail to skip prompt echo, then takes the
+ * last matching verdict within the tail to handle multiple verdict lines.
  */
 function extractVerdictFromError(
   err: unknown,
@@ -72,10 +93,7 @@ function extractVerdictFromError(
   const e = err as { stdout?: string; stderr?: string; code?: number };
   const stdout = e.stdout ?? "";
   const tail = stdout.split("\n").slice(-20).join("\n");
-  const verdictMatch = tail.match(VERDICT_LINE_RE);
-  const verdict: "PASS" | "FAIL" | "SKIPPED" = verdictMatch
-    ? (verdictMatch[1].toUpperCase() as "PASS" | "FAIL" | "SKIPPED")
-    : "FAIL";
+  const verdict: "PASS" | "FAIL" | "SKIPPED" = lastVerdictIn(tail) ?? "FAIL";
   return {
     verdict,
     details: `CLI exited with code ${e.code} but produced verdict: ${stdout.slice(0, 300)}`,
@@ -139,11 +157,9 @@ async function tryModel(
     return { infraFailure: `[${model}] ${msg}` };
   }
 
-  // Parse VERDICT from output — fail-closed: no VERDICT = FAIL
-  const verdictMatch = output.match(VERDICT_LINE_RE);
-  const verdict: "PASS" | "FAIL" | "SKIPPED" = verdictMatch
-    ? (verdictMatch[1].toUpperCase() as "PASS" | "FAIL" | "SKIPPED")
-    : "FAIL";
+  // Parse VERDICT from output — use last occurrence (fail-closed: no VERDICT = FAIL).
+  // Last-match ensures the model's terminal verdict wins over any earlier noise lines.
+  const verdict: "PASS" | "FAIL" | "SKIPPED" = lastVerdictIn(output) ?? "FAIL";
 
   return {
     result: {
