@@ -36,8 +36,8 @@ if [[ "$exit_code" -ne 0 ]]; then
   exit 0
 fi
 
-# Only process Bash tool calls
-if [[ "$tool_name" != "Bash" ]]; then
+# Only process shell tool calls (Claude uses "Bash"; Gemini CLI uses "run_shell_command")
+if [[ "$tool_name" != "Bash" && "$tool_name" != "run_shell_command" ]]; then
   echo '{}' # Empty JSON output
   exit 0
 fi
