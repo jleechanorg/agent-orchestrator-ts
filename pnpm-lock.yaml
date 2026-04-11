@@ -108,6 +108,9 @@ importers:
       '@jleechanorg/ao-plugin-notifier-desktop':
         specifier: workspace:*
         version: link:../plugins/notifier-desktop
+      '@jleechanorg/ao-plugin-notifier-discord':
+        specifier: workspace:*
+        version: link:../plugins/notifier-discord
       '@jleechanorg/ao-plugin-notifier-mcp-mail':
         specifier: workspace:*
         version: link:../plugins/notifier-mcp-mail
