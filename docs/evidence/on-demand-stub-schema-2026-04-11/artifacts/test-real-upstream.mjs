@@ -94,10 +94,12 @@ const SYNTHETIC_AGENT_SCHEMA = {
 
 async function cleanup(proxyPid) {
   if (proxyPid) {
+    // eslint-disable-next-line no-empty
     try { process.kill(proxyPid, "SIGTERM"); } catch {}
   }
   try {
     execSync(`lsof -ti:${UPSTREAM_PORT} 2>/dev/null | xargs kill -15 2>/dev/null || true`, { stdio: "pipe", timeout: 2000 });
+  // eslint-disable-next-line no-empty
   } catch {}
 }
 
@@ -240,6 +242,7 @@ async function runTest() {
 
   // Compute statistics (guard against empty allEvidence)
   const reductions = allEvidence.map((e) => parseFloat(e.reduction_percent));
+  // eslint-disable-next-line no-useless-assignment
   let mean = 0, variance = 0, stddev = 0, min = 0, max = 0;
   if (reductions.length > 0) {
     mean = reductions.reduce((a, b) => a + b, 0) / reductions.length;
