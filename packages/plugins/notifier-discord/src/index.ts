@@ -80,8 +80,15 @@ function buildEmbed(event: OrchestratorEvent, actions?: NotifyAction[]): Discord
   // Add CI status if available
   const ciStatus = typeof event.data.ciStatus === "string" ? event.data.ciStatus : undefined;
   if (ciStatus) {
-    const ciEmoji = ciStatus === CI_STATUS.PASSING ? "\u{2705}" : "\u{274C}";
-    embed.fields!.push({ name: "CI", value: `${ciEmoji} ${ciStatus}`, inline: true });
+    const ciEmoji =
+      ciStatus === CI_STATUS.PASSING
+        ? "\u{2705}"
+        : ciStatus === CI_STATUS.PENDING
+          ? "\u{23F3}"
+          : ciStatus === CI_STATUS.NONE
+            ? "\u{2B55}"
+            : "\u{274C}"; // FAILING or unknown
+    embed.fields!.push({ name: "CI", value: truncate(`${ciEmoji} ${ciStatus}`, EMBED_FIELD_VALUE_MAX), inline: true });
   }
 
   // Add actions as a field
@@ -93,16 +100,41 @@ function buildEmbed(event: OrchestratorEvent, actions?: NotifyAction[]): Discord
     embed.fields!.push({ name: "Actions", value: truncate(actionLinks.join(" | "), EMBED_FIELD_VALUE_MAX), inline: false });
   }
 
-  return embed;
+  return capEmbedTotalChars(embed);
 }
 
 const DEFAULT_TIMEOUT_MS = 10_000;
+const EMBED_TOTAL_CHARS_MAX = 6000;
+
+function capEmbedTotalChars(embed: DiscordEmbed): DiscordEmbed {
+  const count = (s: string | undefined) => s?.length ?? 0;
+  const fieldChars = (embed.fields ?? []).reduce(
+    (acc, f) => acc + f.name.length + f.value.length,
+    0,
+  );
+  const total =
+    count(embed.title) +
+    count(embed.description) +
+    fieldChars +
+    count(embed.footer?.text);
+  if (total <= EMBED_TOTAL_CHARS_MAX) return embed;
+  // Trim description to bring total within limit
+  const overhead = total - count(embed.description);
+  const maxDesc = Math.max(0, EMBED_TOTAL_CHARS_MAX - overhead - 1);
+  return {
+    ...embed,
+    description: embed.description
+      ? embed.description.slice(0, maxDesc) + "\u2026"
+      : embed.description,
+  };
+}
 
 async function postWithRetry(
   webhookUrl: string,
   payload: Record<string, unknown>,
   retries: number,
   retryDelayMs: number,
+  timeoutMs: number = DEFAULT_TIMEOUT_MS,
 ): Promise<void> {
   let lastError: Error | undefined;
   // Separate counter for 429 Retry-After waits so they don't consume the error
@@ -111,7 +143,7 @@ async function postWithRetry(
 
   for (let attempt = 0; attempt <= retries; attempt++) {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS);
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
       const response = await fetch(webhookUrl, {
         method: "POST",
@@ -169,6 +201,8 @@ export function create(config?: Record<string, unknown>): Notifier {
   const threadId = config?.threadId as string | undefined;
 
   const { retries, retryDelayMs } = normalizeRetryConfig(config);
+  const timeoutMs =
+    typeof config?.timeoutMs === "number" ? config.timeoutMs : DEFAULT_TIMEOUT_MS;
 
   if (!webhookUrl) {
     console.warn(
@@ -202,13 +236,13 @@ export function create(config?: Record<string, unknown>): Notifier {
     async notify(event: OrchestratorEvent): Promise<void> {
       if (!effectiveUrl) return;
       const payload = buildPayload([buildEmbed(event)]);
-      await postWithRetry(effectiveUrl, payload, retries, retryDelayMs);
+      await postWithRetry(effectiveUrl, payload, retries, retryDelayMs, timeoutMs);
     },
 
     async notifyWithActions(event: OrchestratorEvent, actions: NotifyAction[]): Promise<void> {
       if (!effectiveUrl) return;
       const payload = buildPayload([buildEmbed(event, actions)]);
-      await postWithRetry(effectiveUrl, payload, retries, retryDelayMs);
+      await postWithRetry(effectiveUrl, payload, retries, retryDelayMs, timeoutMs);
     },
 
     async post(message: string, _context?: NotifyContext): Promise<string | null> {
@@ -216,7 +250,7 @@ export function create(config?: Record<string, unknown>): Notifier {
       const payload: Record<string, unknown> = { username, content: truncate(message, POST_CONTENT_MAX) };
       if (avatarUrl) payload.avatar_url = avatarUrl;
       // thread_id is already passed as a URL query param via effectiveUrl
-      await postWithRetry(effectiveUrl, payload, retries, retryDelayMs);
+      await postWithRetry(effectiveUrl, payload, retries, retryDelayMs, timeoutMs);
       return null;
     },
   };
