@@ -34,7 +34,7 @@ export function isEvidenceAuthentic(body: string): boolean {
 // Truncation limits for content included in the skeptic prompt
 const MAX_DESIGN_DOC_CHARS = 6_000;
 const MAX_PR_DESCRIPTION_CHARS = 4_000;
-const MAX_DIFF_CHARS = 12_000;
+const MAX_DIFF_CHARS = 30_000;
 const MAX_REVIEW_BODY_CHARS = 200;
 const MAX_REVIEWS_TO_SHOW = 8;
 
@@ -98,9 +98,9 @@ export function buildSkepticPrompt(
     `  6. Evidence review:    ${evidenceLabel}`,
     `  7. Skeptic verdict:     ${state.skepticVerdict ?? "not posted yet"}`,
     "",
-    "--- RECENT REVIEWS (chronological) ---",
+    "--- RECENT REVIEWS (chronological, most recent shown) ---",
     ...reviews
-      .slice(0, MAX_REVIEWS_TO_SHOW)
+      .slice(-MAX_REVIEWS_TO_SHOW)
       .sort(
         (a, b) =>
           new Date(a.submittedAt).getTime() - new Date(b.submittedAt).getTime(),
@@ -110,7 +110,7 @@ export function buildSkepticPrompt(
           `[${r.submittedAt.slice(0, 16)}] ${r.author?.login} (${r.state}): ${(r.body ?? "(no body)").slice(0, MAX_REVIEW_BODY_CHARS)}`,
       ),
     "",
-    "--- DIFF (first 300 lines) ---",
+    "--- DIFF (first 30000 chars; all files included if diff fits) ---",
     diff.slice(0, MAX_DIFF_CHARS),
   ].join("\n");
 

@@ -29,17 +29,17 @@ const DEFAULT_CLAUDE_MODEL =
 /** Known claude binary locations, tried in order. */
 const CLAUDE_BINARY_CANDIDATES = [
   process.env["CLAUDE_BINARY"] ?? "",
-  // cmux DEV app (macOS)
-  "/Applications/cmux DEV.app/Contents/Resources/bin/claude",
-  // cmux release app (macOS)
-  "/Applications/cmux.app/Contents/Resources/bin/claude",
-  // Claude Code standalone (macOS)
-  "/Applications/Claude Code.app/Contents/Resources/bin/claude",
+  // nvm-style user-local (preferred — headless-compatible CLI)
+  `${process.env["HOME"] ?? ""}/.local/bin/claude`,
   // Homebrew / user-local
   "/usr/local/bin/claude",
   "/opt/homebrew/bin/claude",
-  // nvm-style user-local
-  `${process.env["HOME"] ?? ""}/.local/bin/claude`,
+  // Claude Code standalone (macOS)
+  "/Applications/Claude Code.app/Contents/Resources/bin/claude",
+  // cmux release app (macOS) — GUI app, may ETIMEDOUT in launchd context
+  "/Applications/cmux.app/Contents/Resources/bin/claude",
+  // cmux DEV app (macOS) — GUI app, typically ETIMEDOUT in headless context
+  "/Applications/cmux DEV.app/Contents/Resources/bin/claude",
   // PATH lookup (last resort — may not be available in launchd env)
   "claude",
 ].filter(Boolean);

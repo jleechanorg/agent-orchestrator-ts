@@ -37,7 +37,8 @@ describe("fetchDesignDoc", () => {
 
     mockExec.mockResolvedValueOnce({ stdout: tmp + "\n", stderr: "" });
 
-    const result = await fetchDesignDoc(prNum);
+    // Pass null owner/repo to exercise the local filesystem fallback path
+    const result = await fetchDesignDoc(null, null, prNum);
 
     expect(mockExec).toHaveBeenCalledWith("git", ["rev-parse", "--show-toplevel"]);
     expect(result).toBe(content);
@@ -47,7 +48,7 @@ describe("fetchDesignDoc", () => {
     // Don't create the file — readFileSync will throw ENOENT
     mockExec.mockResolvedValueOnce({ stdout: tmp + "\n", stderr: "" });
 
-    const result = await fetchDesignDoc(456);
+    const result = await fetchDesignDoc(null, null, 456);
 
     expect(result).toBe(null);
   });
@@ -55,7 +56,7 @@ describe("fetchDesignDoc", () => {
   it("throws when git rev-parse fails (not a git repo)", async () => {
     mockExec.mockRejectedValueOnce(new Error("fatal: not a git repository"));
 
-    await expect(fetchDesignDoc(789)).rejects.toThrow(
+    await expect(fetchDesignDoc(null, null, 789)).rejects.toThrow(
       "fatal: not a git repository"
     );
   });
@@ -76,7 +77,7 @@ describe("fetchDesignDoc", () => {
     mockExec.mockResolvedValueOnce({ stdout: tmp + "\n", stderr: "" });
 
     try {
-      await expect(fetchDesignDoc(999)).rejects.toThrow();
+      await expect(fetchDesignDoc(null, null, 999)).rejects.toThrow();
     } finally {
       // Restore permissions so rmSync can clean up
       chmodSync(filePath, 0o644);
