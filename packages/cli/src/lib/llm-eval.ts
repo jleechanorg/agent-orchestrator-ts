@@ -30,7 +30,7 @@ const DEFAULT_CLAUDE_MODEL =
 const CLAUDE_BINARY_CANDIDATES = [
   process.env["CLAUDE_BINARY"] ?? "",
   // nvm-style user-local (preferred — headless-compatible CLI)
-  `${process.env["HOME"] ?? ""}/.local/bin/claude`,
+  process.env["HOME"] ? `${process.env["HOME"]}/.local/bin/claude` : "",
   // Homebrew / user-local
   "/usr/local/bin/claude",
   "/opt/homebrew/bin/claude",

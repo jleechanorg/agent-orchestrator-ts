@@ -42,11 +42,13 @@ export async function fetchDesignDoc(
       }
       return null;
     } catch {
-      // Fall through to local-filesystem fallback
+      // API call failed with owner/repo provided — do not fall back to local checkout.
+      // Local checkout is cwd-dependent and would reintroduce the problem we're fixing.
+      return null;
     }
   }
 
-  // Fallback: local checkout (keeps existing callers and tests working)
+  // Fallback: local checkout (only reached when owner/repo are null)
   try {
     const { stdout: repoRoot } = await exec("git", ["rev-parse", "--show-toplevel"]);
     const root = repoRoot.trim();
