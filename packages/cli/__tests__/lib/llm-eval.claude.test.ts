@@ -35,7 +35,9 @@ beforeEach(() => {
   // "/mock/claude" is executable
   mockAccessSync.mockImplementation((path) => {
     if (path === MOCK_CLAUDE_BINARY || path === "claude") return undefined;
-    throw new Error("ENOENT");
+    const err = new Error("ENOENT: no such file or directory") as NodeJS.ErrnoException;
+    err.code = "ENOENT";
+    throw err;
   });
   // Default behavior: throw ENOENT
   mockExecFileSync.mockImplementation(() => {
