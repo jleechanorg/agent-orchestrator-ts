@@ -848,19 +848,20 @@ describe("scm-github plugin", () => {
     });
 
     it("removes a stale AO worktree and retries fetch when target branch is checked out elsewhere", async () => {
-      const staleWorktreePath = join(homedir(), ".worktrees", "acme", "ao-9999");
+      const staleWorktree = join(homedir(), ".worktrees", "acme", "ao-9999");
+
       ghMock.mockResolvedValueOnce({ stdout: "main\n" }); // git branch --show-current (before)
       ghMock.mockResolvedValueOnce({ stdout: "" }); // git status --porcelain (clean)
       ghMock.mockResolvedValueOnce({ stdout: "https://github.com/acme/repo.git\n" }); // git remote get-url origin
       ghMock.mockRejectedValueOnce(
         new Error(
-          `fatal: refusing to fetch into branch 'refs/heads/feat/my-feature' checked out at '${staleWorktreePath}'\n`,
+          `fatal: refusing to fetch into branch 'refs/heads/feat/my-feature' checked out at '${staleWorktree}'\n`,
         ),
       ); // initial fetch blocked by stale worktree
       ghMock.mockResolvedValueOnce({
         stdout:
           "worktree /tmp/repo\nHEAD deadbeef\nbranch refs/heads/main\n\n" +
-          `worktree ${staleWorktreePath}\nHEAD cafe1234\nbranch refs/heads/feat/my-feature\n`,
+          `worktree ${staleWorktree}\nHEAD cafe1234\nbranch refs/heads/feat/my-feature\n`,
       }); // git worktree list --porcelain (stale worktree is registered)
       ghMock.mockResolvedValueOnce({ stdout: "detached-ghost\nanother-live-session\n" }); // tmux list-sessions (stale ao-9999 is dead)
       ghMock.mockResolvedValueOnce({ stdout: "" }); // git worktree remove --force --force

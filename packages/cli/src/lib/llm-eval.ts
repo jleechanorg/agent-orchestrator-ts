@@ -19,9 +19,9 @@
 import { resolveCodexBinary } from "@jleechanorg/ao-plugin-agent-codex";
 import { execFileSync as execFileSyncSync } from "node:child_process";
 import { existsSync } from "node:fs";
+import { buildVerdictLineRe } from "../commands/skeptic/verdict-utils.js";
 
-const CODEX_TIMEOUT_MS = 300_000;
-const CLAUDE_TIMEOUT_MS = 300_000;
+const LLM_EVAL_TIMEOUT_MS = 300_000;
 const DEFAULT_CODEX_MODEL = process.env["AO_LLM_EVAL_CODEX_MODEL"] ?? "gpt-5.4";
 const DEFAULT_CLAUDE_MODEL =
   process.env["AO_LLM_EVAL_CLAUDE_MODEL"] ?? "claude-sonnet-4-6";
@@ -76,7 +76,7 @@ function resolveClaudeBinary(): string {
  * SKIPPED was the old infra-unavailable sentinel; it has been replaced by
  * VERDICT: FAIL (fail-closed). This regex intentionally rejects SKIPPED —
  * infra failures must block merges. */
-const STRICT_VERDICT_RE = /^(?:#{1,3}\s*|\*{1,2})?VERDICT:\s*(PASS|FAIL)\b/im;
+const STRICT_VERDICT_RE = buildVerdictLineRe(["PASS", "FAIL"]);
 
 export interface LlmEvalResult {
   /** Whether a valid VERDICT line was obtained from the tool.
@@ -134,7 +134,7 @@ export async function tryCodexPrint(prompt: string): Promise<LlmEvalResult> {
       {
         input: prompt,
         encoding: "utf-8",
-        timeout: CODEX_TIMEOUT_MS,
+        timeout: LLM_EVAL_TIMEOUT_MS,
         maxBuffer: 1 << 20, // 1 MB — prevent stderr maxBuffer overflow
         stdio: ["pipe", "pipe", "pipe"],
       },
@@ -166,6 +166,47 @@ export async function tryCodexPrint(prompt: string): Promise<LlmEvalResult> {
 }
 
 /**
+ * Run gemini (stdin) for headless evaluation.
+ * Fail-closed: missing VERDICT = failure.
+ *
+ * Prompt is passed via stdin to avoid exposing contents in process listings
+ * and to prevent OS argv length overflows on large skeptic prompts.
+ */
+export async function tryGeminiPrint(prompt: string): Promise<LlmEvalResult> {
+  const { execFileSync } = await import("node:child_process");
+
+  try {
+    const result = execFileSync(
+      "gemini",
+      [],
+      {
+        input: prompt,
+        encoding: "utf-8",
+        timeout: LLM_EVAL_TIMEOUT_MS,
+        stdio: ["pipe", "pipe", "ignore"],
+        cwd: "/tmp",
+      },
+    );
+    const output = result.trim();
+    if (!STRICT_VERDICT_RE.test(output)) {
+      return {
+        validVerdict: false,
+        output,
+        error: `Gemini output missing VERDICT line (got ${output.slice(0, 100)}...)`,
+      };
+    }
+    return { validVerdict: true, output };
+  } catch (err: unknown) {
+    const errno = (err as NodeJS.ErrnoException).code;
+    const msg = err instanceof Error ? err.message : String(err);
+    if (errno === "ENOENT" || isUnavailable(msg)) {
+      return { validVerdict: false, output: "", error: undefined };
+    }
+    return { validVerdict: false, output: "", error: msg };
+  }
+}
+
+/**
  * Run claude --print for headless evaluation.
  * Fail-closed: missing VERDICT = failure.
  */
@@ -180,7 +221,7 @@ export async function tryClaudePrint(prompt: string): Promise<LlmEvalResult> {
       {
         input: prompt,
         encoding: "utf-8",
-        timeout: CLAUDE_TIMEOUT_MS,
+        timeout: LLM_EVAL_TIMEOUT_MS,
         stdio: ["pipe", "pipe", "ignore"],
         // Run from /tmp to prevent project-level CLAUDE.md hooks (e.g. mandatory
         // git-header appended to every response) from polluting the output and
@@ -214,11 +255,11 @@ export async function tryClaudePrint(prompt: string): Promise<LlmEvalResult> {
  * Run a skeptic-style LLM evaluation and return the raw output.
  *
  * @param prompt - The evaluation prompt (must contain VERDICT: PASS/FAIL criteria)
- * @param options.model - Prefer this model ("codex" | "claude"); default "codex"
+ * @param options.model - Prefer this model ("codex" | "claude" | "gemini"); default "codex"
  */
 export async function llmEval(
   prompt: string,
-  options: { model?: "codex" | "claude" } = {},
+  options: { model?: "codex" | "claude" | "gemini" } = {},
 ): Promise<string> {
   const model = options.model ?? "codex";
 
@@ -226,7 +267,23 @@ export async function llmEval(
   const isMissingVerdict = (err?: string) =>
     err !== undefined && /missing VERDICT/i.test(err);
 
-  // If user explicitly chose claude, try it first and skip codex
+  // If user explicitly chose gemini, try it first and fall back to codex.
+  if (model === "gemini") {
+    const result = await tryGeminiPrint(prompt);
+    if (result.validVerdict) return result.output;
+    if (isMissingVerdict(result.error)) {
+      return `VERDICT: FAIL — gemini: ${result.error}`;
+    }
+    if (result.error) {
+      const codexResult = await tryCodexPrint(prompt);
+      if (codexResult.validVerdict) return codexResult.output;
+      return `VERDICT: FAIL — infra: Gemini failed: ${result.error}. Codex: ${codexResult.error ?? "not available"}.`;
+    }
+    const codexResult = await tryCodexPrint(prompt);
+    if (codexResult.validVerdict) return codexResult.output;
+    return `VERDICT: FAIL — infra: Neither Gemini nor Codex available. Gemini: ${result.error ?? "not available"}. Codex: ${codexResult.error ?? "not available"}.`;
+  }
+
   if (model === "claude") {
     const result = await tryClaudePrint(prompt);
     if (result.validVerdict) return result.output;
