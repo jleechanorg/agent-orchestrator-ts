@@ -93,6 +93,9 @@ running `bash scripts/promote-openclaw-config.sh` after validation passes.
 
 The source setup script also installs the repo-local AO usage skill into
 `~/.claude/skills/agent-orchestrator` and `~/.codex/skills/agent-orchestrator`.
+The setup flow bootstraps a local staging config at `~/.openclaw/agent-orchestrator.yaml`.
+Production is separate at `~/.openclaw_prod/agent-orchestrator.yaml` and is only updated by
+running `bash scripts/promote-openclaw-config.sh` after validation passes.
 </details>
 
 ### Start

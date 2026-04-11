@@ -115,6 +115,8 @@ beforeEach(() => {
     throw new Error(`process.exit(${code})`);
   });
 
+  mockSessionManager.list.mockReset();
+  mockSessionManager.list.mockResolvedValue([]);
   mockSessionManager.spawn.mockReset();
   mockSessionManager.list.mockReset();
   mockSessionManager.claimPR.mockReset();
