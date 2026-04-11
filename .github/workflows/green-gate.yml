@@ -390,7 +390,7 @@ jobs:
           HEAD_SHA: ${{ steps.gates.outputs.head_sha }}
           COMMENT_BODY: ${{ steps.gates.outputs.comment_body }}
         run: |
-          # Delete previous skeptic-gate-result comments to avoid clutter
+          # Delete previous green-gate-result comments to avoid clutter
           PREV_COMMENTS=$(gh api repos/${{ github.repository }}/issues/"$PR_NUM"/comments \
             --paginate \
             --jq '[.[] | select(.user.login == "github-actions[bot]" and (.body | test("green-gate-result-"))) | .id]' 2>/dev/null || echo "[]")

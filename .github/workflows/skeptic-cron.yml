@@ -74,11 +74,11 @@ jobs:
             echo "=== Evaluating PR #${PR_NUM}: ${PR_TITLE} ==="
 
             # ----------------------------------------------------------------
-            # Pre-check: Verify Skeptic Gate CI check passed for current SHA.
-            # Look for the skeptic-gate-result comment marker OR the Skeptic Gate
+            # Pre-check: Verify Green Gate CI check passed for current SHA.
+            # Look for the green-gate-result comment marker OR the Skeptic Gate
             # check run conclusion. If not passed, skip LLM trigger.
             # ----------------------------------------------------------------
-            GATE_MARKER="skeptic-gate-result-${PR_SHA}"
+            GATE_MARKER="green-gate-result-${PR_SHA}"
             GATE_COMMENT=$(gh api repos/${{ github.repository }}/issues/"$PR_NUM"/comments \
               --paginate 2>/dev/null | jq -sr --arg marker "$GATE_MARKER" \
               '[.[][] | select(.user.login == "github-actions[bot]" and (.body | contains($marker)))] | sort_by(.created_at) | last // empty' || echo "")
