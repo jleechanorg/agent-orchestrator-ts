@@ -11,14 +11,6 @@
  */
 
 /* eslint-disable no-undef, no-unused-vars */
- * Runs 10 iterations to satisfy statistical adequacy requirements (N>=10).
- *
- * Proves ACTUAL stub substitution by:
- * 1. Starting a mock upstream server that logs exact bytes received
- * 2. Starting the proxy with --tool-mode on-demand pointing to the mock
- * 3. Sending a request with a realistic heavy tool schema (1368 bytes)
- * 4. Repeating 10 times and computing mean/variance of reduction
- */
 
 import { createServer } from "node:http";
 import { spawn, execSync } from "node:child_process";
@@ -30,10 +22,10 @@ const PROXY_PORT = 19999;
 const UPSTREAM_PORT = 19998;
 
 // Derive repo root from this script's location (artifacts/ → docs/ → repo root, 3 parent dirs).
-// Note: CLI path is not used in this test (mock server only); kept for reference.
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const REPO_ROOT = join(__dirname, "..", "..", "..");
+const CLI = join(REPO_ROOT, "cli.mjs");
 const OUT_DIR = join(__dirname);
 const ARTIFACTS_DIR = OUT_DIR;
 const ITERATIONS = 10;
