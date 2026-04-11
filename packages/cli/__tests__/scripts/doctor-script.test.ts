@@ -113,7 +113,7 @@ describe("scripts/ao-doctor.sh", () => {
     expect(result.status).toBe(0);
     expect(result.stdout).toContain("PASS");
     expect(result.stdout).toContain("Environment looks healthy");
-  }, 30_000);
+  });
 
   it("applies safe fixes for missing launcher, missing dirs, and stale temp files", () => {
     const tempRoot = mkdtempSync(join(tmpdir(), "ao-doctor-fix-"));
