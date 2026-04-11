@@ -108,6 +108,7 @@ export const BUILTIN_PLUGINS: ReadonlyArray<{ slot: PluginSlot; name: string; pk
   // Notifiers
   { slot: "notifier", name: "composio", pkg: "@jleechanorg/ao-plugin-notifier-composio" },
   { slot: "notifier", name: "desktop", pkg: "@jleechanorg/ao-plugin-notifier-desktop" },
+  { slot: "notifier", name: "discord", pkg: "@jleechanorg/ao-plugin-notifier-discord" },
   { slot: "notifier", name: "mcp-mail", pkg: "@jleechanorg/ao-plugin-notifier-mcp-mail" },
   { slot: "notifier", name: "openclaw", pkg: "@jleechanorg/ao-plugin-notifier-openclaw" },
   { slot: "notifier", name: "slack", pkg: "@jleechanorg/ao-plugin-notifier-slack" },
