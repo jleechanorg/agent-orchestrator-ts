@@ -1573,7 +1573,10 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
 
       const prRef = `refs/pull/${pr.number}/head`;
 
-      const fetchWithSelfHeal = async (refspec: string): Promise<void> => {
+      const fetchWithSelfHeal = async (
+        refspec: string,
+        recoveryRef?: string,
+      ): Promise<void> => {
         try {
           await git(["fetch", "--force", remote, refspec], workspacePath);
         } catch (err) {
@@ -1599,10 +1602,13 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
           // Non-AO worktree is holding the branch lock (or AO cleanup failed).
           // Fetch PR head to a temp branch, then reset the target branch to it.
           // This avoids the "checked out at" conflict entirely.
+          // Use the caller-supplied recoveryRef (e.g. pr.branch when prRef is
+          // unavailable) so we don't retry a source that already failed.
+          const fetchRef = recoveryRef ?? prRef;
           const tempBranch = `tmp-fetch-${Date.now()}`;
           try {
             await git(
-              ["fetch", "--force", remote, `${prRef}:${tempBranch}`],
+              ["fetch", "--force", remote, `${fetchRef}:${tempBranch}`],
               workspacePath,
             );
             // Reset the target branch to point to the fetched commit.
@@ -1625,7 +1631,7 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
       try {
         // Primary: fetch via GitHub's pull-request ref (works for fork and regular PRs).
         // Use +src:dst refspec with --force so fetch updates an existing branch.
-        await fetchWithSelfHeal(`+${prRef}:${pr.branch}`);
+        await fetchWithSelfHeal(`+${prRef}:${pr.branch}`, prRef);
       } catch (err) {
         // Only handle "ref not found" — let auth/network errors propagate
         const msg = err instanceof Error ? err.message : String(err);
@@ -1636,8 +1642,10 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
 
         // Fallback: fetch the branch directly (works when the branch is on the base repo).
         // Use +src:dst with --force to handle the case where the local branch already exists.
+        // Pass pr.branch as recoveryRef so the non-AO worktree recovery path uses
+        // pr.branch instead of prRef (which already failed with "ref not found").
         try {
-          await fetchWithSelfHeal(`+${pr.branch}:${pr.branch}`);
+          await fetchWithSelfHeal(`+${pr.branch}:${pr.branch}`, pr.branch);
         } catch {
           // Both refs failed — surface the more informative original error
           throw fetchErr;
@@ -1666,6 +1674,29 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
               workspacePath,
             );
             await git(["reset", "--hard", newSha.trim()], workspacePath);
+            // pr.branch is locked in a non-AO worktree so we cannot switch to
+            // it. The session stays on its current branch (e.g. session/<id>)
+            // at the correct SHA. Configure push tracking so that 'git push'
+            // from this session branch targets pr.branch on the remote, not
+            // the session branch name.
+            const sessionBranch = await git(
+              ["branch", "--show-current"],
+              workspacePath,
+            ).catch(() => "");
+            if (sessionBranch && sessionBranch !== pr.branch) {
+              await git(
+                ["config", `branch.${sessionBranch}.remote`, remote],
+                workspacePath,
+              ).catch(() => {});
+              await git(
+                [
+                  "config",
+                  `branch.${sessionBranch}.merge`,
+                  `refs/heads/${pr.branch}`,
+                ],
+                workspacePath,
+              ).catch(() => {});
+            }
           } else {
             throw checkoutErr;
           }
