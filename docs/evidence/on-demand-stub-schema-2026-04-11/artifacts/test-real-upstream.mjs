@@ -10,7 +10,7 @@
  * 4. Repeating 10 times and computing mean/variance of reduction
  */
 
-/* eslint-disable no-undef, no-unused-vars */
+/* eslint-disable no-undef */
 
 import { createServer } from "node:http";
 import { spawn, execSync } from "node:child_process";
