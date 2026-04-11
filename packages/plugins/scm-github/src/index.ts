@@ -2049,7 +2049,7 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
       const d = (data.reviewDecision ?? "").toUpperCase();
       if (d === "APPROVED") return "approved";
       if (d === "CHANGES_REQUESTED") return "changes_requested";
-      if (d === "REVIEW_REQUIRED") return "pending";
+      if (d === "" || d === "REVIEW_REQUIRED") return "pending";
       return "none";
     },
 
