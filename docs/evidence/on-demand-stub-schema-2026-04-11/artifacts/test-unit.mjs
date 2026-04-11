@@ -284,7 +284,7 @@ const evidenceMd = [
     ? "- All 17 heavy tools have valid stub schemas with correct descriptions"
         + "\n- Stub schema uses `input_schema` at top level (Claude API native format)"
         + "\n- Stub has ≥1 property in input_schema (required by Anthropic API)"
-        + "\n- Agent replaced with stub (size reduction: " + (evidence[0] ? `${evidence[0].reduction_percent}%` : "N/A") + ")"
+        + "\n- Agent replaced with stub (" + (evidence[0] ? `${evidence[0].reduction_percent}% size reduction` : "size reduction N/A") + ")"
         + "\n- Non-heavy tools (Bash, Read) preserved unchanged"
         + "\n- StubbedTools map correctly tracks original schemas for re-issue"
       : "- Some tests failed — see results above",
@@ -308,11 +308,13 @@ try {
     timestamp_utc: new Date().toISOString(),
     tool_mode_test: "on-demand stub-schema unit test",
   }, null, 2));
-} catch {
+} catch (err) {
+  console.error(`metadata write failed: ${err.message}`);
   writeFileSync(join(OUT_DIR, "metadata.json"), JSON.stringify({
     provenance: {},
     timestamp_utc: new Date().toISOString(),
     tool_mode_test: "on-demand stub-schema unit test",
+    error: err.message,
   }, null, 2));
 }
 

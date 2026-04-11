@@ -156,7 +156,7 @@ async function runSingleIteration(iter) {
           headers: { "Content-Type": "application/json", "x-api-key": "test-key" },
           body: JSON.stringify(fullRequestBody),
         });
-      } catch {}
+      } catch (err) { console.error(`[iteration ${iter}] fetch failed: ${err.message}`); }
 
       await sleep(500);
 
@@ -192,7 +192,7 @@ async function runSingleIteration(iter) {
               total_reduction_percent: ((1 - upstreamBytes / totalOriginalSize) * 100).toFixed(1),
             };
           }
-        } catch {}
+        } catch (err) { console.error(`[iteration ${iter}] JSON parse of upstream bytes failed: ${err.message}`); }
       }
 
       proxy.kill();
@@ -341,7 +341,9 @@ let gitBranch = "";
 try {
   gitHead = execSync("git rev-parse HEAD", { cwd: REPO_ROOT }).toString().trim();
   gitBranch = execSync("git branch --show-current", { cwd: REPO_ROOT }).toString().trim();
-} catch {}
+} catch (err) {
+	  console.error(`git provenance failed: ${err.message}`);
+	}
 
 const metadata = {
   bundle_version: "1.0",
@@ -371,7 +373,9 @@ function sha256OfFile(path) {
 try {
   writeFileSync(join(ARTIFACTS_DIR, "evidence.md.sha256"), sha256OfFile(join(ARTIFACTS_DIR, "evidence.md")) + "\n");
   writeFileSync(join(ARTIFACTS_DIR, "metadata.json.sha256"), sha256OfFile(join(ARTIFACTS_DIR, "metadata.json")) + "\n");
-} catch {}
+} catch (err) {
+	  console.error(`sha256 write failed: ${err.message}`);
+	}
 
 console.log(`\nEvidence written to ${ARTIFACTS_DIR}/`);
 process.exit(allPass ? 0 : 1);
