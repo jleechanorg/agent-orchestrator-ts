@@ -63,6 +63,18 @@ function git(args: string, cwd: string, strict = false): string {
   }
 }
 
+function gitExec(args: string[], cwd: string, strict = false): string {
+  try {
+    return execFileSync("git", args, { cwd, encoding: "utf-8" }).trim();
+  } catch (err: unknown) {
+    if (strict) {
+      const msg = err instanceof Error ? err.message : String(err);
+      throw new Error(`git ${args.join(" ")} failed: ${msg}`, { cause: err });
+    }
+    return "";
+  }
+}
+
 // import.meta.dirname is the directory of this test file:
 //   packages/core/src/__tests__/wholesome.test.ts
 // Going up 4 levels reaches the git worktree root (where .git lives).
@@ -118,8 +130,17 @@ function resolveBaseBranch(cwd: string): string {
 const BASE_BRANCH = resolveBaseBranch(REPO_ROOT);
 
 /** Return diff lines (with file path) that ADD a given pattern in .ts files. */
-function getAddedLinesMatching(cwd: string, pattern: RegExp): Array<{file: string; line: string}> {
-  const raw = git(`diff --diff-filter=AM ${BASE_BRANCH}...HEAD`, cwd, true);
+function getAddedLinesMatching(
+  cwd: string,
+  pattern: RegExp,
+  gitPickaxePattern?: string,
+): Array<{file: string; line: string}> {
+  const args = ["diff", "--diff-filter=AM", "-U0"];
+  if (gitPickaxePattern) {
+    args.push("-G", gitPickaxePattern);
+  }
+  args.push(`${BASE_BRANCH}...HEAD`, "--", "*.ts", "*.tsx");
+  const raw = gitExec(args, cwd, true);
   if (!raw) return [];
   const results: Array<{file: string; line: string}> = [];
   let currentFile = "";
@@ -262,7 +283,11 @@ describe("wholesome — structural source-code assertions", () => {
       // doesn't match string literals or prose that merely mention eslint-disable.
       // Matches: // eslint-disable, // eslint-disable-next-line, /* eslint-disable */, etc.
       const directive = /^\s*(\/\/|\/\*)\s*\beslint-disable(?:-next-line|-line)?\b/;
-      const violations = getAddedLinesMatching(REPO_ROOT, directive)
+      const violations = getAddedLinesMatching(
+        REPO_ROOT,
+        directive,
+        "^\\s*(//|/\\*)\\s*eslint-disable",
+      )
         // Exclude this test file: its section headers, describe calls, and
         // comments document the check without being actual directives.
         .filter(v => !v.file.includes("wholesome.test.ts"));

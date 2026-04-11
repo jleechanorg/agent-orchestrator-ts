@@ -7,6 +7,7 @@ RUN apt-get update && apt-get install -y \
     tmux \
     curl \
     jq \
+    python3-yaml \
     && rm -rf /var/lib/apt/lists/*
 
 # Install pnpm globally (typically installed by developer)

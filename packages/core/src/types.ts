@@ -1895,7 +1895,7 @@ export class SessionNotFoundError extends Error {
 /** Thrown when no agent-orchestrator.yaml config file can be found. */
 export class ConfigNotFoundError extends Error {
   constructor(message?: string) {
-    super(message ?? "No agent-orchestrator.yaml found. Run `ao start` to create one.");
+    super(message ?? "No agent-orchestrator.yaml found. Run `ao start` to bootstrap a config.");
     this.name = "ConfigNotFoundError";
   }
 }

@@ -9,8 +9,13 @@ import type { ProjectObserver } from "../observability.js";
 
 // ---- Mock state (shared across tests) ----
 const mockFsState = vi.hoisted(() => ({ dispatched: [] as string[], failed: {} as Record<string, number> }));
+const execFileSyncMock = vi.hoisted(() => vi.fn());
 
 // ---- Mock the entire task-queue module so we can spy/mocks its dependencies ----
+vi.mock("node:child_process", () => ({
+  execFileSync: execFileSyncMock,
+}));
+
 vi.mock("../paths.js", () => ({
   getSessionsDir: vi.fn(() => "/tmp/test-sessions"),
 }));
@@ -92,9 +97,13 @@ describe("drainTaskQueue", () => {
   let deps: TaskQueueDeps;
 
   beforeEach(() => {
+    vi.useRealTimers();
     _resetDrainTimer();
     mockFsState.dispatched = [];
     mockFsState.failed = {};
+    execFileSyncMock.mockReset().mockImplementation(() => {
+      throw new Error("br unavailable");
+    });
     spawnMock.mockReset().mockResolvedValue(makeSession({ id: "s-new" }));
     recordOperationMock.mockReset();
 
@@ -278,5 +287,16 @@ describe("resolveBead", () => {
     const result = resolveBead("wc-xyz");
     expect(result.title).toBe("wc-xyz");
     expect(result.description).toBe("Bead wc-xyz");
+  });
+
+  it("parses title and description from br output", () => {
+    vi.mocked(execFileSync).mockReturnValueOnce("Fix login bug\n\nRepro steps and context\n");
+
+    const result = resolveBead("wc-xyz");
+
+    expect(result).toEqual({
+      title: "Fix login bug",
+      description: "Repro steps and context",
+    });
   });
 });

@@ -6,6 +6,10 @@
 # Idempotent: skips lifecycle-workers that are already running per project.
 # Pre-flight: validates YAML parses cleanly before attempting to start anything.
 set -euo pipefail
+REPO_ROOT="${AO_REPO_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=./lib/ao-config-topology.sh
+source "$SCRIPT_DIR/lib/ao-config-topology.sh"
 
 # Prevent overlapping lifecycle-all runs (launchd/manual retries can race).
 LOCKDIR="${AO_START_ALL_LOCKDIR:-/tmp/ao-start-all.lock}"
@@ -51,20 +55,11 @@ if [ -e "$MAIN_REPO/.git" ]; then
   fi
 fi
 
-# Canonical config path:
-# 1) explicit AO_CONFIG_PATH
-# 2) ~/.openclaw_prod/agent-orchestrator.yaml
-# 3) legacy ~/.openclaw/agent-orchestrator.yaml (compat fallback)
-if [ -n "${AO_CONFIG_PATH:-}" ]; then
-  CONFIG_FILE="$AO_CONFIG_PATH"
-elif [ -f "$HOME/.openclaw_prod/agent-orchestrator.yaml" ]; then
-  CONFIG_FILE="$HOME/.openclaw_prod/agent-orchestrator.yaml"
-elif [ -f "$HOME/.openclaw/agent-orchestrator.yaml" ]; then
-  CONFIG_FILE="$HOME/.openclaw/agent-orchestrator.yaml"
-  echo "WARNING: using legacy config path $CONFIG_FILE (prefer ~/.openclaw_prod/agent-orchestrator.yaml)"
-else
-  CONFIG_FILE="$HOME/.openclaw_prod/agent-orchestrator.yaml"
+if [ -z "${AO_CONFIG_PATH:-}" ]; then
+  ao_validate_topology
 fi
+
+CONFIG_FILE="${AO_CONFIG_PATH:-$(ao_find_config_path 2>/dev/null || ao_staging_config_path)}"
 export AO_CONFIG_PATH="$CONFIG_FILE"
 
 if [ ! -f "$CONFIG_FILE" ]; then
@@ -93,7 +88,7 @@ if [ -z "$PROJECTS" ]; then
 fi
 
 SELECTED="${@:-$PROJECTS}"
-LOG_DIR="${AO_LOG_DIR:-$HOME/.openclaw/logs}"
+LOG_DIR="${AO_LOG_DIR:-${HOME}/.openclaw/logs}"
 mkdir -p "$LOG_DIR"
 START_DASHBOARD="${AO_START_DASHBOARD:-0}"
 

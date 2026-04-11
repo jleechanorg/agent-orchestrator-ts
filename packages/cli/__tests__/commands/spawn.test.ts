@@ -48,6 +48,9 @@ vi.mock("@jleechanorg/ao-core", async (importOriginal) => {
   return {
     ...actual,
     loadConfig: () => mockConfigRef.current,
+    resolveSpawnQueueConfig:
+      actual.resolveSpawnQueueConfig ??
+      (() => ({ enabled: false, maxActiveSessions: Number.POSITIVE_INFINITY })),
   };
 });
 

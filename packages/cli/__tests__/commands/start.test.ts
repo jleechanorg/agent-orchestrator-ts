@@ -6,10 +6,21 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, realpathSync } from "node:fs";
+import {
+  mkdtempSync,
+  mkdirSync,
+  writeFileSync,
+  readFileSync,
+  rmSync,
+  existsSync,
+  realpathSync,
+  lstatSync,
+  symlinkSync,
+} from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import type { SessionManager } from "@jleechanorg/ao-core";
+import { stringify as yamlStringify } from "yaml";
 
 // ---------------------------------------------------------------------------
 // Hoisted mocks
@@ -78,7 +89,21 @@ vi.mock("@jleechanorg/ao-core", async (importOriginal) => {
   return {
     ...actual,
     normalizeOrchestratorSessionStrategy,
+    findConfigFile: (startDir?: string) => {
+      const envConfigPath = process.env["AO_CONFIG_PATH"];
+      if (envConfigPath && existsSync(envConfigPath)) {
+        return envConfigPath;
+      }
+      const mockConfigPath = mockConfigRef.current?.["configPath"];
+      if (typeof mockConfigPath === "string" && existsSync(mockConfigPath)) {
+        return mockConfigPath;
+      }
+      return actual.findConfigFile(startDir);
+    },
     loadConfig: (path?: string) => {
+      if (path && path === mockConfigRef.current?.["configPath"]) {
+        return mockConfigRef.current;
+      }
       if (path) return actual.loadConfig(path);
       return mockConfigRef.current;
     },
@@ -168,9 +193,14 @@ import { registerStart, registerStop } from "../../src/commands/start.js";
 let tmpDir: string;
 let program: Command;
 let cwdSpy: ReturnType<typeof vi.spyOn>;
+let originalEnv: NodeJS.ProcessEnv;
 
 beforeEach(() => {
   tmpDir = mkdtempSync(join(tmpdir(), "ao-start-test-"));
+  originalEnv = { ...process.env };
+  process.env["AO_CONFIG_PATH"] = join(tmpDir, "agent-orchestrator.yaml");
+  process.env["AO_STAGING_CONFIG_PATH"] = join(tmpDir, ".openclaw", "agent-orchestrator.yaml");
+  process.env["AO_PROD_CONFIG_PATH"] = join(tmpDir, ".openclaw_prod", "agent-orchestrator.yaml");
 
   program = new Command();
   program.exitOverride();
@@ -210,6 +240,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  process.env = originalEnv;
   if (cwdSpy) cwdSpy.mockRestore();
   rmSync(tmpDir, { recursive: true, force: true });
   vi.restoreAllMocks();
@@ -220,7 +251,7 @@ afterEach(() => {
 // ---------------------------------------------------------------------------
 
 function makeConfig(projects: Record<string, Record<string, unknown>>): Record<string, unknown> {
-  return {
+  const config = {
     configPath: join(tmpDir, "agent-orchestrator.yaml"),
     port: 3000,
     defaults: {
@@ -234,6 +265,9 @@ function makeConfig(projects: Record<string, Record<string, unknown>>): Record<s
     notificationRouting: {},
     reactions: {},
   };
+
+  writeFileSync(config.configPath, yamlStringify(config, { indent: 2 }));
+  return config;
 }
 
 function makeProject(overrides: Record<string, unknown> = {}): Record<string, unknown> {
@@ -364,6 +398,36 @@ describe("start command — project resolution", () => {
       .join("\n");
     expect(errors).toContain("No projects configured");
   });
+
+  it("falls back to managed staging config when AO_CONFIG_PATH points to a missing file", async () => {
+    const stagingConfigPath = join(tmpDir, ".openclaw", "agent-orchestrator.yaml");
+    mkdirSync(join(tmpDir, ".openclaw"), { recursive: true });
+    writeFileSync(
+      stagingConfigPath,
+      yamlStringify({
+        port: 3000,
+        defaults: {
+          runtime: "tmux",
+          agent: "claude-code",
+          workspace: "worktree",
+          notifiers: ["desktop"],
+        },
+        projects: {
+          "my-app": makeProject(),
+        },
+      }, { indent: 2 }),
+    );
+    mockConfigRef.current = null;
+
+    await program.parseAsync(["node", "test", "start", "--no-dashboard", "--no-orchestrator"]);
+
+    const output = vi
+      .mocked(console.log)
+      .mock.calls.map((c) => c.join(" "))
+      .join("\n");
+    expect(output).toContain("My App");
+    expect(output).toContain("Startup complete");
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -373,6 +437,7 @@ describe("start command — project resolution", () => {
 describe("start command — URL argument", () => {
   it("reuses existing clone and generates config", async () => {
     const repoDir = join(tmpDir, "DevOS");
+    const stagingConfigPath = join(tmpDir, ".openclaw", "agent-orchestrator.yaml");
     createFakeRepo(repoDir, "https://github.com/ComposioHQ/DevOS.git", {
       "package.json": "{}",
       "pnpm-lock.yaml": "",
@@ -388,8 +453,8 @@ describe("start command — URL argument", () => {
       "--no-orchestrator",
     ]);
 
-    // Config should have been generated
-    expect(existsSync(join(repoDir, "agent-orchestrator.yaml"))).toBe(true);
+    expect(existsSync(stagingConfigPath)).toBe(true);
+    expect(existsSync(join(repoDir, "agent-orchestrator.yaml"))).toBe(false);
 
     const output = vi
       .mocked(console.log)
@@ -490,6 +555,7 @@ describe("start command — URL argument", () => {
 
   it("uses existing config when repo already has agent-orchestrator.yaml", async () => {
     const repoDir = join(tmpDir, "configured-app");
+    const stagingConfigPath = join(tmpDir, ".openclaw", "agent-orchestrator.yaml");
     createFakeRepo(repoDir, "https://github.com/owner/configured-app.git");
     mockCwd(tmpDir);
 
@@ -525,12 +591,14 @@ describe("start command — URL argument", () => {
       .mocked(console.log)
       .mock.calls.map((c) => c.join(" "))
       .join("\n");
-    expect(output).toContain("Using existing config");
+    expect(output).toContain("Migrating repo-local config into staging");
     expect(output).toContain("Configured App");
+    expect(existsSync(stagingConfigPath)).toBe(true);
   });
 
   it("resolves correct project when existing config has multiple projects", async () => {
     const repoDir = join(tmpDir, "multi-proj");
+    const stagingConfigPath = join(tmpDir, ".openclaw", "agent-orchestrator.yaml");
     createFakeRepo(repoDir, "https://github.com/org/multi-proj.git");
     mockCwd(tmpDir);
 
@@ -575,6 +643,7 @@ describe("start command — URL argument", () => {
     // Should pick "Multi Proj" by matching repo field, not error with "Multiple projects"
     expect(output).toContain("Multi Proj");
     expect(output).toContain("Startup complete");
+    expect(existsSync(stagingConfigPath)).toBe(true);
   });
 
   it("fails on clone error with descriptive message", async () => {
@@ -597,6 +666,129 @@ describe("start command — URL argument", () => {
       .mock.calls.map((c) => c.join(" "))
       .join("\n");
     expect(errors).toContain("Failed to clone");
+  });
+});
+
+describe("start command — local path argument", () => {
+  it("adds new local-path projects to staging instead of production", async () => {
+    const repoDir = join(tmpDir, "local-app");
+    const stagingConfigPath = join(tmpDir, ".openclaw", "agent-orchestrator.yaml");
+    const productionConfigPath = join(tmpDir, ".openclaw_prod", "agent-orchestrator.yaml");
+    const existingProjectPath = join(tmpDir, "existing");
+    const baseConfig = {
+      port: 3000,
+      defaults: {
+        runtime: "tmux",
+        agent: "claude-code",
+        workspace: "worktree",
+        notifiers: ["desktop"],
+      },
+      projects: {
+        existing: {
+          name: "Existing",
+          repo: "org/existing",
+          path: existingProjectPath,
+          defaultBranch: "main",
+          sessionPrefix: "ex",
+        },
+      },
+    };
+    const { detectProjectType, formatProjectTypeForDisplay } = await import(
+      "../../src/lib/project-detection.js"
+    );
+
+    createFakeRepo(repoDir, "https://github.com/owner/local-app.git", {
+      "package.json": "{}",
+    });
+    mkdirSync(join(tmpDir, ".openclaw"), { recursive: true });
+    mkdirSync(join(tmpDir, ".openclaw_prod"), { recursive: true });
+    writeFileSync(stagingConfigPath, yamlStringify(baseConfig, { indent: 2 }));
+    writeFileSync(productionConfigPath, yamlStringify(baseConfig, { indent: 2 }));
+    process.env["AO_CONFIG_PATH"] = join(tmpDir, "missing-config.yaml");
+    mockConfigRef.current = null;
+    vi.mocked(detectProjectType).mockReturnValue({
+      languages: ["javascript"],
+      frameworks: [],
+      tools: [],
+      packageManager: "npm",
+    });
+    vi.mocked(formatProjectTypeForDisplay).mockReturnValue("");
+
+    await program.parseAsync([
+      "node",
+      "test",
+      "start",
+      repoDir,
+      "--no-dashboard",
+      "--no-orchestrator",
+    ]);
+
+    const stagingYaml = readFileSync(stagingConfigPath, "utf-8");
+    const productionYaml = readFileSync(productionConfigPath, "utf-8");
+
+    expect(stagingYaml).toContain(repoDir);
+    expect(productionYaml).not.toContain(repoDir);
+  });
+
+  it("repairs an invalid staging symlink before onboarding a local path", async () => {
+    const repoDir = join(tmpDir, "local-app");
+    const stagingConfigPath = join(tmpDir, ".openclaw", "agent-orchestrator.yaml");
+    const productionConfigPath = join(tmpDir, ".openclaw_prod", "agent-orchestrator.yaml");
+    const existingProjectPath = join(tmpDir, "existing");
+    const baseConfig = {
+      port: 3000,
+      defaults: {
+        runtime: "tmux",
+        agent: "claude-code",
+        workspace: "worktree",
+        notifiers: ["desktop"],
+      },
+      projects: {
+        existing: {
+          name: "Existing",
+          repo: "org/existing",
+          path: existingProjectPath,
+          defaultBranch: "main",
+          sessionPrefix: "ex",
+        },
+      },
+    };
+    const { detectProjectType, formatProjectTypeForDisplay } = await import(
+      "../../src/lib/project-detection.js"
+    );
+
+    createFakeRepo(repoDir, "https://github.com/owner/local-app.git", {
+      "package.json": "{}",
+    });
+    mkdirSync(join(tmpDir, ".openclaw"), { recursive: true });
+    mkdirSync(join(tmpDir, ".openclaw_prod"), { recursive: true });
+    writeFileSync(productionConfigPath, yamlStringify(baseConfig, { indent: 2 }));
+    symlinkSync(productionConfigPath, stagingConfigPath);
+    process.env["AO_CONFIG_PATH"] = join(tmpDir, "missing-config.yaml");
+    mockConfigRef.current = null;
+    vi.mocked(detectProjectType).mockReturnValue({
+      languages: ["javascript"],
+      frameworks: [],
+      tools: [],
+      packageManager: "npm",
+    });
+    vi.mocked(formatProjectTypeForDisplay).mockReturnValue("");
+
+    await program.parseAsync([
+      "node",
+      "test",
+      "start",
+      repoDir,
+      "--no-dashboard",
+      "--no-orchestrator",
+    ]);
+
+    const stagingYaml = readFileSync(stagingConfigPath, "utf-8");
+    const productionYaml = readFileSync(productionConfigPath, "utf-8");
+
+    expect(lstatSync(stagingConfigPath).isSymbolicLink()).toBe(false);
+    expect(stagingYaml).toContain(repoDir);
+    expect(productionYaml).not.toContain(repoDir);
   });
 });
 
