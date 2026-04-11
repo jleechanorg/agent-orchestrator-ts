@@ -337,7 +337,12 @@ async function fetchPrViewFallbackAsJson(
  * Execute gh CLI with rate limit retry and fallback to REST API.
  * Uses exponential backoff for rate limit errors, then falls back to curl-based REST calls.
  */
-async function ghWithRetry(args: string[], cwd?: string, maxRetries = 3, env?: Record<string, string>): Promise<string> {
+async function ghWithRetry(
+  args: string[],
+  cwd?: string,
+  maxRetries = 3,
+  env?: Record<string, string>,
+): Promise<string> {
   let lastError: unknown;
 
   for (let attempt = 0; attempt < maxRetries; attempt++) {
@@ -573,7 +578,12 @@ export async function ghRestFallback(args: string[]): Promise<string> {
 
 type ExecCommand = "gh" | "git";
 
-async function execCli(bin: ExecCommand, args: string[], cwd?: string, env?: Record<string, string>): Promise<string> {
+async function execCli(
+  bin: ExecCommand,
+  args: string[],
+  cwd?: string,
+  env?: Record<string, string>,
+): Promise<string> {
   try {
     const { stdout } = await execFileAsync(bin, args, {
       ...(cwd ? { cwd } : {}),
@@ -589,7 +599,12 @@ async function execCli(bin: ExecCommand, args: string[], cwd?: string, env?: Rec
   }
 }
 
-async function execCliRaw(bin: ExecCommand, args: string[], cwd?: string, env?: Record<string, string>): Promise<string> {
+async function execCliRaw(
+  bin: ExecCommand,
+  args: string[],
+  cwd?: string,
+  env?: Record<string, string>,
+): Promise<string> {
   try {
     const { stdout } = await execFileAsync(bin, args, {
       ...(cwd ? { cwd } : {}),
@@ -631,7 +646,6 @@ async function gh(args: string[]): Promise<string> {
 async function ghBot(args: string[]): Promise<string> {
   return ghWithRetry(args, undefined, 3, botTokenEnv());
 }
-
 
 async function git(args: string[], cwd: string): Promise<string> {
   return execCli("git", args, cwd);
@@ -675,10 +689,7 @@ async function getGhToken(): Promise<string | undefined> {
  * Map REST check-run conclusion/status to the GraphQL-style state string
  * used in `statusCheckRollup` entries.
  */
-function mapCheckRunConclusionToState(
-  conclusion: unknown,
-  status: unknown,
-): string {
+function mapCheckRunConclusionToState(conclusion: unknown, status: unknown): string {
   if (typeof conclusion === "string" && conclusion) {
     const c = conclusion.toUpperCase();
     if (c === "SUCCESS") return "SUCCESS";
@@ -811,12 +822,17 @@ async function listTmuxSessionNames(cwd?: string): Promise<string[] | null> {
   }
 }
 
-async function hasActiveTmuxSessionForWorktreeName(worktreePath: string, cwd?: string): Promise<boolean> {
+async function hasActiveTmuxSessionForWorktreeName(
+  worktreePath: string,
+  cwd?: string,
+): Promise<boolean> {
   const sessionName = basename(worktreePath);
   if (!sessionName) return false;
   const tmuxSessions = await listTmuxSessionNames(cwd);
   if (tmuxSessions === null) return true;
-  return tmuxSessions.some((tmuxSession) => tmuxSession === sessionName || tmuxSession.endsWith(`-${sessionName}`));
+  return tmuxSessions.some(
+    (tmuxSession) => tmuxSession === sessionName || tmuxSession.endsWith(`-${sessionName}`),
+  );
 }
 
 const AO_SESSION_WORKTREE_PATTERN = /^(ao|jc|wa|cc|ra|wc)-\d+$/;
@@ -834,15 +850,13 @@ async function listRegisteredWorktreePaths(repoPath: string): Promise<Set<string
   try {
     const list = await git(["worktree", "list", "--porcelain"], repoPath);
     return new Set(
-      list
-        .split("\n\n")
-        .flatMap((block) =>
-          block
-            .trim()
-            .split("\n")
-            .filter((line) => line.startsWith("worktree "))
-            .map((line) => resolve(line.slice("worktree ".length))),
-        ),
+      list.split("\n\n").flatMap((block) =>
+        block
+          .trim()
+          .split("\n")
+          .filter((line) => line.startsWith("worktree "))
+          .map((line) => resolve(line.slice("worktree ".length))),
+      ),
     );
   } catch {
     return null;
@@ -1412,7 +1426,10 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
         }> = JSON.parse(listRaw);
 
         if (listPrs.length > 0) {
-          return prInfoFromView({ ...listPrs[0]!, author: listPrs[0].author?.login ?? undefined }, project.repo);
+          return prInfoFromView(
+            { ...listPrs[0]!, author: listPrs[0].author?.login ?? undefined },
+            project.repo,
+          );
         }
 
         // GraphQL succeeded but no PR found — skip REST fallback since it is
@@ -1493,7 +1510,15 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
 
     async assignPRToCurrentUser(pr: PRInfo): Promise<void> {
       try {
-        await gh(["pr", "edit", String(pr.number), "--repo", repoFlag(pr), "--add-assignee", "@me"]);
+        await gh([
+          "pr",
+          "edit",
+          String(pr.number),
+          "--repo",
+          repoFlag(pr),
+          "--add-assignee",
+          "@me",
+        ]);
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         // GraphQL rate limit — fall back to REST API
@@ -1530,7 +1555,12 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
           const filePath = line.slice(3).trim();
           if (!CHECKOUT_AO_MANAGED.has(filePath)) continue;
           const [indexStatus, worktreeStatus] = status.split("");
-          if (indexStatus === "?" || worktreeStatus === "?" || indexStatus === "!" || worktreeStatus === "!") {
+          if (
+            indexStatus === "?" ||
+            worktreeStatus === "?" ||
+            indexStatus === "!" ||
+            worktreeStatus === "!"
+          ) {
             // Untracked or ignored — remove from working tree
             await git(["clean", "-f", "--", filePath], workspacePath);
             continue;
@@ -1539,7 +1569,10 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
           // Restore tracked AO-managed files from HEAD in both index and worktree.
           // This covers plain working-tree dirt (" M AGENTS.md") and staged/index
           // dirt ("M  AGENTS.md") without relying on the current index contents.
-          await git(["restore", "--source=HEAD", "--staged", "--worktree", "--", filePath], workspacePath);
+          await git(
+            ["restore", "--source=HEAD", "--staged", "--worktree", "--", filePath],
+            workspacePath,
+          );
         }
 
         // Re-check dirty state after reset attempt
@@ -1573,18 +1606,12 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
 
       const prRef = `refs/pull/${pr.number}/head`;
 
-      const fetchWithSelfHeal = async (
-        refspec: string,
-        recoveryRef?: string,
-      ): Promise<void> => {
+      const fetchWithSelfHeal = async (refspec: string, recoveryRef?: string): Promise<void> => {
         try {
           await git(["fetch", "--force", remote, refspec], workspacePath);
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
-          if (
-            !msg.includes("refusing to fetch into branch") &&
-            !msg.includes("checked out at")
-          ) {
+          if (!msg.includes("refusing to fetch into branch") && !msg.includes("checked out at")) {
             throw err;
           }
 
@@ -1607,17 +1634,11 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
           const fetchRef = recoveryRef ?? prRef;
           const tempBranch = `tmp-fetch-${Date.now()}`;
           try {
-            await git(
-              ["fetch", "--force", remote, `${fetchRef}:${tempBranch}`],
-              workspacePath,
-            );
+            await git(["fetch", "--force", remote, `${fetchRef}:${tempBranch}`], workspacePath);
             // Reset the target branch to point to the fetched commit.
             // Using update-ref is safe because we're writing to our own branch,
             // not one checked out in another worktree.
-            await git(
-              ["update-ref", `refs/heads/${pr.branch}`, tempBranch],
-              workspacePath,
-            );
+            await git(["update-ref", `refs/heads/${pr.branch}`, tempBranch], workspacePath);
             // Clean up temp tag ref immediately
             await git(["tag", "-d", tempBranch], workspacePath).catch(() => {});
             await git(["branch", "-D", tempBranch], workspacePath).catch(() => {});
@@ -1669,33 +1690,30 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
             checkoutMsg.includes("already checked out") &&
             checkoutMsg.includes("checked out at")
           ) {
-            const newSha = await git(
-              ["rev-parse", `refs/heads/${pr.branch}`],
-              workspacePath,
-            );
+            const newSha = await git(["rev-parse", `refs/heads/${pr.branch}`], workspacePath);
             await git(["reset", "--hard", newSha.trim()], workspacePath);
             // pr.branch is locked in a non-AO worktree so we cannot switch to
             // it. The session stays on its current branch (e.g. session/<id>)
             // at the correct SHA. Configure push tracking so that 'git push'
             // from this session branch targets pr.branch on the remote, not
             // the session branch name.
-            const sessionBranch = await git(
-              ["branch", "--show-current"],
-              workspacePath,
-            ).catch(() => "");
+            const sessionBranch = await git(["branch", "--show-current"], workspacePath).catch(
+              () => "",
+            );
             if (sessionBranch && sessionBranch !== pr.branch) {
               await git(
-                ["config", `branch.${sessionBranch}.remote`, remote],
+                ["config", `branch.${sessionBranch}.remote`, "origin"],
                 workspacePath,
               ).catch(() => {});
               await git(
-                [
-                  "config",
-                  `branch.${sessionBranch}.merge`,
-                  `refs/heads/${pr.branch}`,
-                ],
+                ["config", `branch.${sessionBranch}.merge`, `refs/heads/${pr.branch}`],
                 workspacePath,
               ).catch(() => {});
+              await git(
+                ["config", `branch.${sessionBranch}.pushDefault`, "origin"],
+                workspacePath,
+              ).catch(() => {});
+              await git(["config", "push.default", "upstream"], workspacePath).catch(() => {});
             }
           } else {
             throw checkoutErr;
@@ -1704,10 +1722,9 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
       } else {
         // We share the branch with a non-AO worktree. After update-ref redirected
         // our shared branch to the PR head, reset the worktree to the new tip.
-        const newSha = await git(
-          ["rev-parse", `refs/heads/${pr.branch}`],
-          workspacePath,
-        ).then((s) => s.trim());
+        const newSha = await git(["rev-parse", `refs/heads/${pr.branch}`], workspacePath).then(
+          (s) => s.trim(),
+        );
         await git(["reset", "--hard", newSha], workspacePath);
       }
 
@@ -1718,10 +1735,7 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
       // to the new tip. The verify pass confirms we're at the correct commit even
       // if our own branch name differs (the shared branch now points to the right SHA).
       const afterSha = await git(["rev-parse", "HEAD"], workspacePath);
-      const prHeadSha = await git(
-        ["rev-parse", `refs/heads/${pr.branch}`],
-        workspacePath,
-      );
+      const prHeadSha = await git(["rev-parse", `refs/heads/${pr.branch}`], workspacePath);
       if (afterSha.trim() !== prHeadSha.trim()) {
         throw new Error(
           `git checkout failed: worktree is at ${afterSha.trim()} instead of ${prHeadSha.trim()} ` +
@@ -1800,7 +1814,11 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
     // When autoWaitSeconds > 0, uses GitHub's native auto-merge (--auto flag) which
     // waits for required status checks to pass before completing the merge. This handles
     // the race where the PR transitions to mergeable while CI is still completing.
-    async mergePR(pr: PRInfo, method: MergeMethod = "squash", autoWaitSeconds?: number): Promise<void> {
+    async mergePR(
+      pr: PRInfo,
+      method: MergeMethod = "squash",
+      autoWaitSeconds?: number,
+    ): Promise<void> {
       const flag = method === "rebase" ? "--rebase" : method === "merge" ? "--merge" : "--squash";
       const useAuto = autoWaitSeconds !== undefined && autoWaitSeconds > 0;
       try {
@@ -1816,12 +1834,14 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
         // the REST API merge endpoint does not support the head_branch field needed
         // to enable GitHub's native auto-merge (that requires enablePullRequestAutoMerge).
         if (useAuto) {
-          console.warn("[scm-github] mergePR: gh rate-limited with --auto — attempting GraphQL enablePullRequestAutoMerge");
+          console.warn(
+            "[scm-github] mergePR: gh rate-limited with --auto — attempting GraphQL enablePullRequestAutoMerge",
+          );
           const gqlToken =
             (process.env.AO_BOT_GH_TOKEN?.trim() || undefined) ??
             process.env.GITHUB_TOKEN ??
             process.env.GH_TOKEN ??
-            await getGhToken();
+            (await getGhToken());
           if (gqlToken) {
             // Note: GitHub GraphQL requires a pull request node ID, not a number.
             // First look up the PR node ID from the PR number, then enable auto-merge.
@@ -1840,13 +1860,20 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
                 "curl",
                 [
                   "-sS",
-                  "-X", "POST",
-                  "--config", gqlConfigPath,
-                  "-H", "Accept: application/vnd.github+json",
-                  "-H", "X-GitHub-Api-Version: 2022-11-28",
-                  "-H", "Content-Type: application/json",
-                  "-d", lookupQuery,
-                  "-w", "\n%{http_code}",
+                  "-X",
+                  "POST",
+                  "--config",
+                  gqlConfigPath,
+                  "-H",
+                  "Accept: application/vnd.github+json",
+                  "-H",
+                  "X-GitHub-Api-Version: 2022-11-28",
+                  "-H",
+                  "Content-Type: application/json",
+                  "-d",
+                  lookupQuery,
+                  "-w",
+                  "\n%{http_code}",
                   gqlUrl,
                 ],
                 { maxBuffer: 10 * 1024 * 1024, timeout: 30_000 },
@@ -1854,7 +1881,9 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
               const lookupLines = rawLookup.stdout.trim().split("\n");
               const lookupStatus = parseInt(lookupLines[lookupLines.length - 1] ?? "", 10);
               if (lookupStatus !== 200) {
-                console.warn(`[scm-github] mergePR: GraphQL PR lookup failed (HTTP ${lookupStatus}) — falling back to REST`);
+                console.warn(
+                  `[scm-github] mergePR: GraphQL PR lookup failed (HTTP ${lookupStatus}) — falling back to REST`,
+                );
               } else {
                 const lookupBody = lookupLines.slice(0, -1).join("\n");
                 let prNodeId: string | undefined;
@@ -1881,13 +1910,20 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
                     "curl",
                     [
                       "-sS",
-                      "-X", "POST",
-                      "--config", gqlConfigPath,
-                      "-H", "Accept: application/vnd.github+json",
-                      "-H", "X-GitHub-Api-Version: 2022-11-28",
-                      "-H", "Content-Type: application/json",
-                      "-d", mergeQuery,
-                      "-w", "\n%{http_code}",
+                      "-X",
+                      "POST",
+                      "--config",
+                      gqlConfigPath,
+                      "-H",
+                      "Accept: application/vnd.github+json",
+                      "-H",
+                      "X-GitHub-Api-Version: 2022-11-28",
+                      "-H",
+                      "Content-Type: application/json",
+                      "-d",
+                      mergeQuery,
+                      "-w",
+                      "\n%{http_code}",
                       gqlUrl,
                     ],
                     { maxBuffer: 10 * 1024 * 1024, timeout: 30_000 },
@@ -1907,19 +1943,24 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
                       // explicit null are treated as failure (REST fallback). === null is the
                       // canonical check; the ?? is an eqeqeq bypass required to avoid
                       // "undefined !== null is true" incorrectly succeeding on missing fields.
-                       
-                      gqlSuccess = (mergeJson?.data?.enablePullRequestAutoMerge ?? null) === null
-                        ? false
-                        : true;
+
+                      gqlSuccess =
+                        (mergeJson?.data?.enablePullRequestAutoMerge ?? null) === null
+                          ? false
+                          : true;
                     } catch {
                       // parse error — treat as failure
                     }
                   }
                   if (gqlSuccess) {
-                    console.warn("[scm-github] mergePR: auto-merge enabled via GraphQL — GitHub will wait for CI");
+                    console.warn(
+                      "[scm-github] mergePR: auto-merge enabled via GraphQL — GitHub will wait for CI",
+                    );
                     return;
                   }
-                  console.warn(`[scm-github] mergePR: GraphQL enablePullRequestAutoMerge failed — falling back to REST`);
+                  console.warn(
+                    `[scm-github] mergePR: GraphQL enablePullRequestAutoMerge failed — falling back to REST`,
+                  );
                 }
               }
             } finally {
@@ -1937,7 +1978,7 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
           (process.env.AO_BOT_GH_TOKEN?.trim() || undefined) ??
           process.env.GITHUB_TOKEN ??
           process.env.GH_TOKEN ??
-          await getGhToken();
+          (await getGhToken());
         if (!token) {
           throw new Error(
             "mergePR: rate limit hit and no GitHub token found in GITHUB_TOKEN, GH_TOKEN, or gh auth token for REST fallback",
@@ -1957,13 +1998,20 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
             "curl",
             [
               "-sS",
-              "-X", "PUT",
-              "--config", curlConfigPath,
-              "-H", "Accept: application/vnd.github+json",
-              "-H", "X-GitHub-Api-Version: 2022-11-28",
-              "-H", "Content-Type: application/json",
-              "-d", body,
-              "-w", "\n%{http_code}",
+              "-X",
+              "PUT",
+              "--config",
+              curlConfigPath,
+              "-H",
+              "Accept: application/vnd.github+json",
+              "-H",
+              "X-GitHub-Api-Version: 2022-11-28",
+              "-H",
+              "Content-Type: application/json",
+              "-d",
+              body,
+              "-w",
+              "\n%{http_code}",
               url,
             ],
             { maxBuffer: 10 * 1024 * 1024, timeout: 30_000 },
@@ -1994,7 +2042,12 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
         // use slashes (e.g. feat/bd-pjh → feat%2Fbd-pjh → feat/bd-pjh).
         const encodedBranch = encodeURIComponent(pr.branch).replace(/%2F/g, "/");
         try {
-          await ghBot(["api", `repos/${pr.owner}/${pr.repo}/git/refs/heads/${encodedBranch}`, "--method", "DELETE"]);
+          await ghBot([
+            "api",
+            `repos/${pr.owner}/${pr.repo}/git/refs/heads/${encodedBranch}`,
+            "--method",
+            "DELETE",
+          ]);
         } catch {
           // Non-fatal: best-effort branch cleanup. Log and continue.
           console.warn(
@@ -2028,7 +2081,6 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
           "name,state,link,startedAt,completedAt",
         ]);
 
-         
         const checks: Array<{
           name: string;
           state: string;
@@ -2182,7 +2234,9 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
     },
 
     // bd-sm7: Combined PR state + review decision in a single gh CLI call
-    async getPRStateAndReview(pr: PRInfo): Promise<{ state: PRState; reviewDecision: ReviewDecision }> {
+    async getPRStateAndReview(
+      pr: PRInfo,
+    ): Promise<{ state: PRState; reviewDecision: ReviewDecision }> {
       let raw: string;
       try {
         raw = await gh([
@@ -2201,7 +2255,10 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
         // fail-closed handling. If the fallback itself hits a rate limit, rethrow so
         // the outer retry logic runs. Otherwise, return fail-closed values.
         try {
-          const [state, reviewDecision] = await Promise.all([this.getPRState(pr), this.getReviewDecision(pr)]);
+          const [state, reviewDecision] = await Promise.all([
+            this.getPRState(pr),
+            this.getReviewDecision(pr),
+          ]);
           return { state, reviewDecision };
         } catch (fallbackErr) {
           if (isRateLimitError(fallbackErr)) throw fallbackErr;
@@ -2540,7 +2597,9 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
 
     // bd-qqm: skeptic-advice reaction — fetch all skeptic agent comments for a PR.
     // Used by lifecycle-manager to detect new FAIL verdicts and extract structured guidance.
-    async getSkepticComments(pr: PRInfo): Promise<Array<{ id: number; body: string; user: { login: string } }>> {
+    async getSkepticComments(
+      pr: PRInfo,
+    ): Promise<Array<{ id: number; body: string; user: { login: string } }>> {
       try {
         const perPage = 100;
         const result: Array<{ id: number; body: string; user: { login: string } }> = [];
@@ -2631,7 +2690,11 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
       const approved = reviewDecision === "APPROVED";
       if (reviewDecision === "CHANGES_REQUESTED") {
         blockers.push("Changes requested in review");
-      } else if (reviewDecision === "" || reviewDecision === "REVIEW_REQUIRED" || reviewDecision === "PENDING") {
+      } else if (
+        reviewDecision === "" ||
+        reviewDecision === "REVIEW_REQUIRED" ||
+        reviewDecision === "PENDING"
+      ) {
         blockers.push("Review required");
       }
 
