@@ -58,8 +58,9 @@ function hasUnresolvedDismissedReview(reviews: ReviewInfo[]): boolean {
   if (crReviews.length === 0) return false;
   const sorted = [...crReviews].sort(sortReviewsNewestFirst);
   for (const review of sorted) {
-    if ((review.state ?? "").toUpperCase() === "DISMISSED") return true;
-    if (review.state === "approved") return false;
+    const stateLower = (review.state ?? "").toLowerCase();
+    if (stateLower === "dismissed") return true;
+    if (stateLower === "approved") return false;
   }
   return false;
 }
@@ -73,7 +74,8 @@ function getLatestDecisiveReview(reviews: ReviewInfo[]): ReviewInfo | null {
       .filter(
         (r) =>
           r.author?.login === CR_BOT &&
-          (r.state === "approved" || r.state === "changes_requested"),
+          ((r.state ?? "").toLowerCase() === "approved" ||
+            (r.state ?? "").toLowerCase() === "changes_requested"),
       )
       .sort(sortReviewsNewestFirst)[0] ?? null
   );
@@ -142,7 +144,7 @@ export async function fetchMergeGateState(
   let crState = "none";
   if (latestCR) {
     crState = latestCR.state;
-    crApproved = latestCR.state === "approved" && !crDismissedWithoutApproval;
+    crApproved = (latestCR.state ?? "").toLowerCase() === "approved" && !crDismissedWithoutApproval;
   }
 
   // 3. Review threads — nit-filtered unresolved counts (matches checkMergeGate)
