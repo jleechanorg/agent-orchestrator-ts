@@ -17,6 +17,18 @@ export {
   findConfig,
   findConfigFile,
 } from "./config.js";
+export {
+  findManagedConfigFile,
+  getManagedConfigPath,
+  getLegacyConfigPaths,
+  getPreferredConfigSearchPaths,
+  validateManagedConfigTopology,
+} from "./config-topology.js";
+export type {
+  ManagedConfigEnvironment,
+  ManagedConfigTopologyIssue,
+  ManagedConfigTopologyProblem,
+} from "./config-topology.js";
 
 // Plugin registry
 export { createPluginRegistry, BUILTIN_PLUGINS } from "./plugin-registry.js";
@@ -54,6 +66,22 @@ export type { LifecycleManagerDeps } from "./lifecycle-manager.js";
 // Failure budget tracker — tracks retry attempts and routes on exhaustion
 export { FailureBudgetTracker, routeExhaustedBudget } from "./failure-budget.js";
 export type { BudgetExhaustedDeps } from "./failure-budget.js";
+
+// Spawn queue — persistent admission control for bounded worker spawns
+export {
+  drainSpawnQueue,
+  enqueueSpawnRequest,
+  resolveSpawnQueueConfig,
+  hasSpawnCapacity,
+  countActiveSessions,
+  _resetSpawnQueueTimer,
+} from "./spawn-queue.js";
+export type {
+  DrainSpawnQueueDeps,
+  DrainSpawnQueueParams,
+  EnqueueSpawnRequestInput,
+  SpawnQueueConfigResolved,
+} from "./spawn-queue.js";
 
 // Poller manager — outer initiation loop (bd-uxs.2)
 export { createPollerManager } from "./poller-manager.js";
@@ -103,6 +131,7 @@ export {
   isRetryableHttpStatus,
   normalizeRetryConfig,
   readLastJsonlEntry,
+  readLastJsonEntry,
   resolveProjectIdForSessionId,
 } from "./utils.js";
 export {

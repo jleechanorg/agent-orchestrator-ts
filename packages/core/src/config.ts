@@ -16,6 +16,7 @@ import { homedir } from "node:os";
 import { parse as parseYaml } from "yaml";
 import { z } from "zod";
 import { ConfigNotFoundError, type OrchestratorConfig } from "./types.js";
+import { findManagedConfigFile, getLegacyConfigPaths } from "./config-topology.js";
 import { generateSessionPrefix } from "./paths.js";
 
 function inferScmPlugin(project: {
@@ -199,6 +200,11 @@ const TaskQueueConfigSchema = z.object({
   taskTemplate: z.string().optional(),
 }).optional();
 
+const SpawnQueueConfigSchema = z.object({
+  enabled: z.boolean().default(true),
+  maxActiveSessions: z.number().int().min(1).max(200).default(20),
+}).default({});
+
 // bd-jhv1: Manager evolve loop config schema
 const EvolveLoopConfigSchema = z.object({
   enabled: z.boolean().optional(),
@@ -266,6 +272,9 @@ const ProjectConfigSchema = z.object({
   // Override the global worktree base directory for this project.
   worktreeDir: z.string().optional(),
 
+  // Persistent spawn queue + active session cap.
+  spawnQueue: SpawnQueueConfigSchema.optional(),
+
   // bd-bsu: Config-driven bead task queue with maxConcurrent concurrency limit.
   taskQueue: TaskQueueConfigSchema,
 
@@ -275,7 +284,7 @@ const ProjectConfigSchema = z.object({
 
 const DefaultPluginsSchema = z.object({
   runtime: z.string().default("tmux"),
-  agent: z.string().default("cursor"),
+  agent: z.string().default("codex"),
   workspace: z.string().default("worktree"),
   notifiers: z.array(z.string()).default(["composio", "desktop"]),
   agentConfig: AgentSpecificConfigSchema.optional(),
@@ -508,9 +517,10 @@ function applyDefaultReactions(config: OrchestratorConfig): OrchestratorConfig {
  *
  * Search order:
  * 1. AO_CONFIG_PATH environment variable (if set)
- * 2. Search up directory tree from CWD (like git)
- * 3. Explicit startDir (if provided)
- * 4. Home directory locations
+ * 2. Managed staging/production config locations
+ * 3. Search up directory tree from CWD (like git)
+ * 4. Explicit startDir (if provided)
+ * 5. Legacy home-directory aliases
  */
 export function findConfigFile(startDir?: string): string | null {
   // 1. Check environment variable override
@@ -521,7 +531,15 @@ export function findConfigFile(startDir?: string): string | null {
     }
   }
 
-  // 2. Search up directory tree from CWD (like git)
+  // 2. Prefer managed staging/prod config locations before searching for
+  // repo-local shadow configs. This keeps AO anchored to the user-level
+  // topology unless the caller explicitly opts into another path.
+  const managedConfig = findManagedConfigFile();
+  if (managedConfig) {
+    return managedConfig;
+  }
+
+  // 3. Search up directory tree from CWD (like git)
   const searchUpTree = (dir: string): string | null => {
     const configFiles = ["agent-orchestrator.yaml", "agent-orchestrator.yml"];
 
@@ -547,7 +565,7 @@ export function findConfigFile(startDir?: string): string | null {
     return foundInTree;
   }
 
-  // 3. Check explicit startDir if provided
+  // 4. Check explicit startDir if provided
   if (startDir) {
     const files = ["agent-orchestrator.yaml", "agent-orchestrator.yml"];
     for (const filename of files) {
@@ -558,14 +576,8 @@ export function findConfigFile(startDir?: string): string | null {
     }
   }
 
-  // 4. Check home directory locations
-  const homePaths = [
-    resolve(homedir(), ".agent-orchestrator.yaml"),
-    resolve(homedir(), ".agent-orchestrator.yml"),
-    resolve(homedir(), ".config", "agent-orchestrator", "config.yaml"),
-  ];
-
-  for (const path of homePaths) {
+  // 5. Check home directory locations (legacy aliases)
+  for (const path of getLegacyConfigPaths()) {
     if (existsSync(path)) {
       return path;
     }

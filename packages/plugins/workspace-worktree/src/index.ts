@@ -201,8 +201,17 @@ async function maybeRemoveStaleCheckedOutWorktree(
     const list = await git(repoPath, "worktree", "list", "--porcelain");
     const stillPresent = list
       .split("\n\n")
-      .some((block) => block.trim().split("\n").some((l) => l.startsWith("worktree ") && l.slice("worktree ".length) === stalePath));
-    return !stillPresent && !existsSync(resolvedStale);
+      .some((block) =>
+        block
+          .trim()
+          .split("\n")
+          .some(
+            (line) =>
+              line.startsWith("worktree ") &&
+              resolve(line.slice("worktree ".length)) === resolvedStale,
+          ),
+      );
+    return !stillPresent;
   } catch {
     // If git worktree list fails, fall back to filesystem check.
     return !existsSync(resolvedStale);
@@ -303,6 +312,19 @@ export function create(config?: Record<string, unknown>): Workspace {
       // the remote-tracking ref, causing "ambiguous object name" error.
       await disambiguateBaseRef(repoPath, baseRef);
 
+      // bd-206: Clean up any stale locked worktree entry at this path before creating.
+      // This handles the case where the directory was deleted but git still holds
+      // a lock entry ("missing but locked worktree" error).
+      // Only attempt unlock when the path is missing — if it exists, the worktree
+      // is already functional and unlock would be unnecessary.
+      if (!existsSync(worktreePath)) {
+        try {
+          await git(repoPath, "worktree", "unlock", worktreePath);
+        } catch {
+          // Best-effort — entry may not exist or already be unlocked
+        }
+      }
+
       // Create worktree with a new branch
       try {
         await git(repoPath, "worktree", "add", "-b", cfg.branch, worktreePath, baseRef);
@@ -334,6 +356,9 @@ export function create(config?: Record<string, unknown>): Workspace {
                 await git(worktreePath, "checkout", cfg.branch);
                 checkoutSucceeded = true;
               }
+              // else: Non-AO worktree holds the branch lock — let the error propagate.
+              // The scm-github checkoutPR call will handle this via its own ref-based
+              // fallback once workspace.create() returns.
             } catch {
               // Fall through to original error path.
             }

@@ -5,12 +5,10 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-
-// CR: import the real VERDICT_LINE_RE from production to avoid duplication.
-// NOTE: vitest's resolvePackageEntry limitation prevents direct import from
-// src/commands/skeptic.js; we verify alignment via an integration test below.
-// The local definition must be kept in sync with verdict-utils.ts:VERDICT_LINE_RE.
-const VERDICT_LINE_RE = /^(?:> ?\*\*)?VERDICT:\s*(PASS|FAIL|SKIPPED)\b/im;
+import {
+  buildVerdictLineRe,
+  VERDICT_LINE_RE,
+} from "../../../src/commands/skeptic/verdict-utils.js";
 
 // ---------------------------------------------------------------------------
 // Docs-only gate — mirrors the jq regex from skeptic-cron.yml.
@@ -116,6 +114,32 @@ describe("VERDICT_LINE_RE — SKIPPED path", () => {
     const m = "VERDICT: FAIL".match(VERDICT_LINE_RE);
     expect(m).not.toBeNull();
     expect(m![1]).toBe("FAIL");
+  });
+
+  it("does not match inline mentions inside reasoning", () => {
+    const m = "The criteria for VERDICT: PASS are not met.\nVERDICT: FAIL".match(VERDICT_LINE_RE);
+    expect(m).not.toBeNull();
+    expect(m![1]).toBe("FAIL");
+  });
+
+  it("does not match verdict tokens with trailing prose on the same line", () => {
+    const m = "VERDICT: PASS because reasons follow".match(VERDICT_LINE_RE);
+    expect(m).toBeNull();
+  });
+});
+
+describe("buildVerdictLineRe", () => {
+  it("builds the same line-anchored prefix for strict PASS/FAIL parsing", () => {
+    const strictVerdictRe = buildVerdictLineRe(["PASS", "FAIL"]);
+
+    expect("  VERDICT: PASS".match(strictVerdictRe)?.[1]).toBe("PASS");
+    expect("The criteria for VERDICT: PASS are not met.\nVERDICT: FAIL".match(strictVerdictRe)?.[1]).toBe("FAIL");
+  });
+
+  it("keeps SKIPPED out of strict PASS/FAIL parsing", () => {
+    const strictVerdictRe = buildVerdictLineRe(["PASS", "FAIL"]);
+
+    expect("VERDICT: SKIPPED".match(strictVerdictRe)).toBeNull();
   });
 });
 
@@ -223,7 +247,7 @@ describe("findExistingVerdict — trigger-SHA scoped reuse", () => {
   const SHA_X = "abc1234def5678";
   const SHA_Y = "ffff0000aaaa1111";
   const verdictWithSha = (sha: string) =>
-    `<!-- skeptic-agent-verdict -->\nVERDICT: PASS\n\n<!-- skeptic-gate-trigger-${sha} -->`;
+    `<!-- skeptic-agent-verdict -->\nVERDICT: PASS\n\n<!-- skeptic-gate-trigger-${sha} -->\n<!-- skeptic-cron-trigger-${sha} -->`;
 
   it("reuses verdict when triggerSha matches the comment SHA marker", async () => {
     mockFetchComments.mockResolvedValue([

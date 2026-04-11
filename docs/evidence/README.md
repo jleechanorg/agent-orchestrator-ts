@@ -17,7 +17,7 @@ See **`reviewer-checklist.md`** for a short pass/fail list.
 
 | Layer | Role |
 |--------|------|
-| **Evidence Gate + Wholesome (`evidence-gate.yml`, `wholesome.yml`)** | Deterministic checks: `## Evidence`, repro gist URL, terminal media + caption (tmux/terminal context), fenced terminal test output, UI media or exact `N/A - no UI changes`, anti-placeholder rules. Fails closed in CI. |
+| **Evidence Gate + Wholesome (`evidence-gate.yml`, `wholesome.yml`)** | Deterministic checks: `## Evidence`, repro gist URL, terminal media (HTTPS URL + tmux caption; known artifact patterns in `roadmap/video-evidence-roadmap.md`; unknown URL → CI warning), fenced terminal test output, UI media or exact `N/A - no UI changes`, anti-placeholder rules. Fails closed in CI. |
 | **`/er` (evidence review)** | **Merge-gate step 6** in `CLAUDE.md` (7-green). Human or agent uses the reviewer checklist + claim-class matrix to decide if evidence matches the **claimed** class. `/er` is **not** a substitute for CI: it validates *substance* and mapping, not YAML syntax. |
 | **Skeptic Gate** | Independent LLM pass over merge readiness (including evidence plausibility vs 7-green). Complements `/er`; does not remove the need for real artifacts. If Skeptic is SKIPPED in CI, follow fork policy in `CLAUDE.md` (local `ao skeptic verify` for a real VERDICT when required). |
 
@@ -26,5 +26,6 @@ See **`reviewer-checklist.md`** for a short pass/fail list.
 ## Pointers
 
 - Policy: `CLAUDE.md` — **Evidence Bundle v2**, **Evidence claim-class matrix**, **7-green**
+- Terminal media rollout: `roadmap/video-evidence-roadmap.md`
 - Local preflight: `.claude/commands/evidence-check.md`
 - Extended testing norms (other products): `.claude/skills/evidence-standards.md` (fork-specific PR rules are authoritative in `CLAUDE.md`)

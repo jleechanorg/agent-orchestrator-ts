@@ -69,6 +69,18 @@ export interface ActivityDetection {
   timestamp?: Date;
 }
 
+/** JSONL activity log entry written by agents without native logging. */
+export interface ActivityLogEntry {
+  /** ISO 8601 timestamp */
+  ts: string;
+  /** Activity state derived from terminal output or agent-native data */
+  state: ActivityState;
+  /** What triggered this state classification */
+  source: "terminal" | "native";
+  /** Raw terminal snippet that caused waiting_input/blocked (for debugging) */
+  trigger?: string;
+}
+
 /** Default threshold (ms) before a "ready" session becomes "idle". */
 export const DEFAULT_READY_THRESHOLD_MS = 300_000; // 5 minutes
 
@@ -1387,9 +1399,17 @@ export interface ProjectConfig {
   autoMerge?: AutoMergeConfig;
 
   /**
-   * When true, the lifecycle-worker periodically lists open PRs and spawns
-   * sessions for any PR that has no active session.  This closes the gap
-   * where workers die and nobody restarts them.
+   * Controls whether the lifecycle-worker periodically lists open PRs and
+   * spawns sessions for any PR that has no active session. This closes the
+   * gap where workers die (or finish early) and nobody restarts them, so
+   * CI-green PRs blocked on CHANGES_REQUESTED do not leak from the queue.
+   *
+   * **Default: enabled** (opt-out). Set to `false` explicitly to disable
+   * for projects that manage dispatch by hand. Any value other than
+   * `false` — including `undefined` or `true` — is treated as
+   * enabled. Projects with open PRs and `backfillAllPRs === false` will
+   * emit a warn-level `lifecycle.backfill.disabled_with_open_prs`
+   * observation so operators can spot the misconfiguration.
    */
   backfillAllPRs?: boolean;
 
@@ -1404,6 +1424,12 @@ export interface ProjectConfig {
    * The lifecycle-worker's orphan sweep uses this to locate worktrees.
    */
   worktreeDir?: string;
+
+  /**
+   * Persistent spawn queue and active-session cap for this project.
+   * When enabled, AO queues new spawn requests instead of spawning past the cap.
+   */
+  spawnQueue?: SpawnQueueConfig;
 
   // =============================================================================
   // TASK QUEUE — bd-bsu
@@ -1545,6 +1571,15 @@ export interface TaskQueueConfig {
 
   /** Optional template for the task description sent to each session */
   taskTemplate?: string;
+}
+
+/** Persistent spawn queue configuration for bounded AO worker admission. */
+export interface SpawnQueueConfig {
+  /** Enable queueing instead of immediate spawn failure when at capacity. */
+  enabled: boolean;
+
+  /** Max active sessions allowed before new spawn requests are queued. */
+  maxActiveSessions: number;
 }
 
 export interface TrackerConfig {
@@ -1742,7 +1777,7 @@ export interface OpenCodeSessionManager extends SessionManager {
 export interface ClaimPROptions {
   assignOnGithub?: boolean;
   takeover?: boolean;
-  /** When true, send an initial task message to the agent after claiming the PR. */
+  /** When omitted, defaults to true and sends an initial task message after claiming the PR. */
   sendInitialMessage?: boolean;
 }
 
@@ -1872,7 +1907,7 @@ export class SessionNotFoundError extends Error {
 /** Thrown when no agent-orchestrator.yaml config file can be found. */
 export class ConfigNotFoundError extends Error {
   constructor(message?: string) {
-    super(message ?? "No agent-orchestrator.yaml found. Run `ao start` to create one.");
+    super(message ?? "No agent-orchestrator.yaml found. Run `ao start` to bootstrap a config.");
     this.name = "ConfigNotFoundError";
   }
 }

@@ -8,7 +8,20 @@
     "node": ">=22.0.0"
   },
   "packageManager": "pnpm@9.15.4",
+  "pnpm": {
+    "overrides": {
+      "axios": "1.15.0"
+    }
+  },
   "type": "module",
+  "pnpm": {
+    "overrides": {
+      "axios": "^1.15.0",
+      "next": "^15.5.14",
+      "tmp": "^0.2.4",
+      "yaml": "^2.8.3"
+    }
+  },
   "scripts": {
     "build": "pnpm -r build",
     "dev": "pnpm --filter @jleechanorg/ao-web dev",
@@ -17,7 +30,9 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "typecheck": "pnpm -r typecheck",
-    "test": "pnpm -r --filter '!@jleechanorg/ao-web' test",
+    "test": "pnpm run test:shell && pnpm run test:evidence-gate-patterns && pnpm -r --filter '!@jleechanorg/ao-web' test",
+    "test:shell": "bash tests/unit/test-doctor-expand-home.sh && bash tests/unit/test-lw-watchdog-state.sh && bash tests/unit/test-lw-watchdog-config-parse.sh && bash tests/unit/test-run-daily.sh",
+    "test:evidence-gate-patterns": "bash scripts/test-evidence-gate-patterns.sh",
     "test:integration": "pnpm --filter @jleechanorg/ao-integration-tests test:integration",
     "clean": "pnpm -r clean",
     "prepare": "husky",
@@ -45,5 +60,14 @@
     "prettier": "^3.8.1",
     "semantic-release": "^25.0.3",
     "typescript-eslint": "^8.55.0"
+  },
+  "pnpm": {
+    "overrides": {
+      "axios": "1.15.0",
+      "handlebars": ">=4.7.9",
+      "next": "^15.5.15",
+      "tmp": "^0.2.4",
+      "yaml": "^2.8.3"
+    }
   }
 }

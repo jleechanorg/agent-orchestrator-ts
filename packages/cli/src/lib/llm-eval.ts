@@ -17,15 +17,37 @@
  */
 
 import { resolveCodexBinary } from "@jleechanorg/ao-plugin-agent-codex";
+import { accessSync, constants as fsConstants } from "node:fs";
+import { buildVerdictLineRe } from "../commands/skeptic/verdict-utils.js";
 
-const CODEX_TIMEOUT_MS = 300_000;
-const CLAUDE_TIMEOUT_MS = 300_000;
+const LLM_EVAL_TIMEOUT_MS = 300_000;
+const DEFAULT_CODEX_MODEL = process.env["AO_LLM_EVAL_CODEX_MODEL"] ?? "gpt-5.4";
+const DEFAULT_CLAUDE_MODEL =
+  process.env["AO_LLM_EVAL_CLAUDE_MODEL"] ?? "claude-sonnet-4-6";
+
+/** Known claude binary locations, tried in order. */
+const CLAUDE_BINARY_CANDIDATES = [
+  process.env["CLAUDE_BINARY"] ?? "",
+  // nvm-style user-local (preferred — headless-compatible CLI)
+  process.env["HOME"] ? `${process.env["HOME"]}/.local/bin/claude` : "",
+  // Homebrew / user-local
+  "/usr/local/bin/claude",
+  "/opt/homebrew/bin/claude",
+  // Claude Code standalone (macOS)
+  "/Applications/Claude Code.app/Contents/Resources/bin/claude",
+  // cmux release app (macOS) — GUI app, may ETIMEDOUT in launchd context
+  "/Applications/cmux.app/Contents/Resources/bin/claude",
+  // cmux DEV app (macOS) — GUI app, typically ETIMEDOUT in headless context
+  "/Applications/cmux DEV.app/Contents/Resources/bin/claude",
+  // PATH lookup (last resort — may not be available in launchd env)
+  "claude",
+].filter(Boolean);
 
 /** Strict VERDICT matcher for tool output validation — PASS or FAIL only.
  * SKIPPED was the old infra-unavailable sentinel; it has been replaced by
  * VERDICT: FAIL (fail-closed). This regex intentionally rejects SKIPPED —
  * infra failures must block merges. */
-const STRICT_VERDICT_RE = /^(?:#{1,3}\s*|\*{1,2})?VERDICT:\s*(PASS|FAIL)\b/im;
+const STRICT_VERDICT_RE = buildVerdictLineRe(["PASS", "FAIL"]);
 
 export interface LlmEvalResult {
   /** Whether a valid VERDICT line was obtained from the tool.
@@ -51,8 +73,14 @@ export function isUnavailable(errMsg: string): boolean {
     // \b matches word boundary — so "401 " matches but "4012" does not
     /\b401\b/i.test(errMsg) ||
     /\b403\b/i.test(errMsg) ||
+    /\b429\b/i.test(errMsg) ||
     lower.includes("unauthorized") ||
-    lower.includes("forbidden")
+    lower.includes("forbidden") ||
+    lower.includes("quota") ||
+    lower.includes("rate limit") ||
+    lower.includes("rate_limit") ||
+    lower.includes("resource_exhausted") ||
+    lower.includes("insufficient_quota")
   );
 }
 
@@ -73,11 +101,11 @@ export async function tryCodexPrint(prompt: string): Promise<LlmEvalResult> {
   try {
     const result = execFileSync(
       binary,
-      ["exec", "-"],
+      ["exec", "--model", DEFAULT_CODEX_MODEL, "-"],
       {
         input: prompt,
         encoding: "utf-8",
-        timeout: CODEX_TIMEOUT_MS,
+        timeout: LLM_EVAL_TIMEOUT_MS,
         maxBuffer: 1 << 20, // 1 MB — prevent stderr maxBuffer overflow
         stdio: ["pipe", "pipe", "pipe"],
       },
@@ -99,8 +127,52 @@ export async function tryCodexPrint(prompt: string): Promise<LlmEvalResult> {
     if (errno.code === "ENOENT" || isUnavailable(msg)) {
       return { validVerdict: false, output: "", error: undefined }; // → try next
     }
-    // All other errors (timeout, Command failed without auth issue, etc.) are real failures
-    // — fail-closed: do NOT fall through to next tool
+    // Truncate to first line only — Codex echoes the full prompt in its session log,
+    // which contains "VERDICT: PASS" as template example text. If we embed the full
+    // error message in the verdict comment, skeptic-gate.yml's grep finds the template
+    // text and incorrectly reports PASS. First line is always "Command failed: <cmd>".
+    const shortMsg = msg.split("\n")[0]?.slice(0, 300) ?? msg.slice(0, 300);
+    return { validVerdict: false, output: "", error: shortMsg };
+  }
+}
+
+/**
+ * Run gemini (stdin) for headless evaluation.
+ * Fail-closed: missing VERDICT = failure.
+ *
+ * Prompt is passed via stdin to avoid exposing contents in process listings
+ * and to prevent OS argv length overflows on large skeptic prompts.
+ */
+export async function tryGeminiPrint(prompt: string): Promise<LlmEvalResult> {
+  const { execFileSync } = await import("node:child_process");
+
+  try {
+    const result = execFileSync(
+      "gemini",
+      [],
+      {
+        input: prompt,
+        encoding: "utf-8",
+        timeout: LLM_EVAL_TIMEOUT_MS,
+        stdio: ["pipe", "pipe", "ignore"],
+        cwd: "/tmp",
+      },
+    );
+    const output = result.trim();
+    if (!STRICT_VERDICT_RE.test(output)) {
+      return {
+        validVerdict: false,
+        output,
+        error: `Gemini output missing VERDICT line (got ${output.slice(0, 100)}...)`,
+      };
+    }
+    return { validVerdict: true, output };
+  } catch (err: unknown) {
+    const errno = (err as NodeJS.ErrnoException).code;
+    const msg = err instanceof Error ? err.message : String(err);
+    if (errno === "ENOENT" || isUnavailable(msg)) {
+      return { validVerdict: false, output: "", error: undefined };
+    }
     return { validVerdict: false, output: "", error: msg };
   }
 }
@@ -112,52 +184,95 @@ export async function tryCodexPrint(prompt: string): Promise<LlmEvalResult> {
 export async function tryClaudePrint(prompt: string): Promise<LlmEvalResult> {
   const { execFileSync } = await import("node:child_process");
 
-  try {
-    const result = execFileSync(
-      "claude",
-      ["--dangerously-skip-permissions", "--print"],
-      {
-        input: prompt,
-        encoding: "utf-8",
-        timeout: CLAUDE_TIMEOUT_MS,
-        stdio: ["pipe", "pipe", "ignore"],
-        // Run from /tmp to prevent project-level CLAUDE.md hooks (e.g. mandatory
-        // git-header appended to every response) from polluting the output and
-        // hiding the VERDICT line from the regex check.
-        cwd: "/tmp",
-      },
-    );
-    const output = result.trim();
-    if (!STRICT_VERDICT_RE.test(output)) {
-      return {
-        validVerdict: false,
-        output,
-        error: `Claude output missing VERDICT line (got ${output.slice(0, 100)}...)`,
-      };
+  let firstInfraError: string | undefined;
+  let allMissing = true;
+
+  for (const candidate of CLAUDE_BINARY_CANDIDATES) {
+    if (!candidate) continue;
+
+    // Validate executability before attempting to run
+    if (candidate !== "claude") {
+      try {
+        accessSync(candidate, fsConstants.X_OK);
+      } catch (err: unknown) {
+        const code = (err as NodeJS.ErrnoException).code;
+        if (code === "ENOENT") {
+          continue; // Binary not installed — try next candidate
+        }
+        // EACCES/EPERM or other: binary exists but is not executable — treat as infra error
+        allMissing = false;
+        if (!firstInfraError) {
+          firstInfraError = err instanceof Error ? err.message : String(err);
+        }
+        continue;
+      }
     }
-    return { validVerdict: true, output };
-  } catch (err: unknown) {
-    const errno = (err as NodeJS.ErrnoException).code;
-    const msg = err instanceof Error ? err.message : String(err);
-    // ENOENT = binary not installed — treat as unavailable so caller can fall through
-    // Any other non-zero exit (auth failed, token invalid, etc.) = also unavailable;
-    // the fallback chain handles credential gaps. Only fatal/ENOENT stops the chain.
-    if (errno === "ENOENT" || isUnavailable(msg)) {
-      return { validVerdict: false, output: "", error: undefined }; // → caller skips this tool
+
+    try {
+      const result = execFileSync(
+        candidate,
+        ["--dangerously-skip-permissions", "--print", "--model", DEFAULT_CLAUDE_MODEL],
+        {
+          input: prompt,
+          encoding: "utf-8",
+          timeout: LLM_EVAL_TIMEOUT_MS,
+          stdio: ["pipe", "pipe", "ignore"],
+          // Run from /tmp to prevent project-level CLAUDE.md hooks (e.g. mandatory
+          // git-header appended to every response) from polluting the output and
+          // hiding the VERDICT line from the regex check.
+          cwd: "/tmp",
+        },
+      );
+      const output = result.trim();
+      if (!STRICT_VERDICT_RE.test(output)) {
+        return {
+          validVerdict: false,
+          output,
+          error: `Claude output missing VERDICT line (got ${output.slice(0, 100)}...)`,
+        };
+      }
+      return { validVerdict: true, output };
+    } catch (err: unknown) {
+      const errno = (err as NodeJS.ErrnoException).code;
+      const msg = err instanceof Error ? err.message : String(err);
+
+      // ENOENT = binary not installed — try next candidate
+      if (errno === "ENOENT") {
+        continue;
+      }
+
+      // 401/403/429 = credentials / quota — treat as "tool unavailable" globally;
+      // trying another binary won't help if they use the same global config.
+      if (isUnavailable(msg)) {
+        return { validVerdict: false, output: "", error: undefined }; // → caller skips this tool
+      }
+
+      // Found a binary but it failed with an infra error (e.g. timeout, dynamic link error)
+      allMissing = false;
+      if (!firstInfraError) firstInfraError = msg;
+
+      // Try next candidate in case another one is working
+      continue;
     }
-    return { validVerdict: false, output: "", error: msg };
   }
+
+  if (allMissing) {
+    return { validVerdict: false, output: "", error: undefined };
+  }
+
+  // At least one binary was found but all failed with infra errors
+  return { validVerdict: false, output: "", error: firstInfraError };
 }
 
 /**
  * Run a skeptic-style LLM evaluation and return the raw output.
  *
  * @param prompt - The evaluation prompt (must contain VERDICT: PASS/FAIL criteria)
- * @param options.model - Prefer this model ("codex" | "claude"); default "codex"
+ * @param options.model - Prefer this model ("codex" | "claude" | "gemini"); default "codex"
  */
 export async function llmEval(
   prompt: string,
-  options: { model?: "codex" | "claude" } = {},
+  options: { model?: "codex" | "claude" | "gemini" } = {},
 ): Promise<string> {
   const model = options.model ?? "codex";
 
@@ -165,7 +280,23 @@ export async function llmEval(
   const isMissingVerdict = (err?: string) =>
     err !== undefined && /missing VERDICT/i.test(err);
 
-  // If user explicitly chose claude, try it first and skip codex
+  // If user explicitly chose gemini, try it first and fall back to codex.
+  if (model === "gemini") {
+    const result = await tryGeminiPrint(prompt);
+    if (result.validVerdict) return result.output;
+    if (isMissingVerdict(result.error)) {
+      return `VERDICT: FAIL — gemini: ${result.error}`;
+    }
+    if (result.error) {
+      const codexResult = await tryCodexPrint(prompt);
+      if (codexResult.validVerdict) return codexResult.output;
+      return `VERDICT: FAIL — infra: Gemini failed: ${result.error}. Codex: ${codexResult.error ?? "not available"}.`;
+    }
+    const codexResult = await tryCodexPrint(prompt);
+    if (codexResult.validVerdict) return codexResult.output;
+    return `VERDICT: FAIL — infra: Neither Gemini nor Codex available. Gemini: ${result.error ?? "not available"}. Codex: ${codexResult.error ?? "not available"}.`;
+  }
+
   if (model === "claude") {
     const result = await tryClaudePrint(prompt);
     if (result.validVerdict) return result.output;

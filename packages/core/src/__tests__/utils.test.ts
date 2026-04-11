@@ -1,8 +1,8 @@
 import { describe, it, expect, afterEach } from "vitest";
-import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { mkdtempSync, writeFileSync, rmSync, utimesSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { isRetryableHttpStatus, normalizeRetryConfig, readLastJsonlEntry } from "../utils.js";
+import { isRetryableHttpStatus, normalizeRetryConfig, readLastJsonlEntry, readLastJsonEntry } from "../utils.js";
 import { parsePrFromUrl } from "../utils/pr.js";
 
 describe("readLastJsonlEntry", () => {
@@ -12,10 +12,11 @@ describe("readLastJsonlEntry", () => {
     if (tmpDir) rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  function setup(content: string): string {
+  function setup(content: string, filename = "test.jsonl", mtime = new Date(1700000000000)): string {
     tmpDir = mkdtempSync(join(tmpdir(), "ao-utils-test-"));
-    const filePath = join(tmpDir, "test.jsonl");
+    const filePath = join(tmpDir, filename);
     writeFileSync(filePath, content, "utf-8");
+    utimesSync(filePath, mtime, mtime);
     return filePath;
   }
 
@@ -84,6 +85,76 @@ describe("readLastJsonlEntry", () => {
     const path = setup('{"type":"test"}\n');
     const result = await readLastJsonlEntry(path);
     expect(result!.modifiedAt).toBeInstanceOf(Date);
+  });
+});
+
+describe("readLastJsonEntry", () => {
+  let tmpDir: string;
+
+  afterEach(() => {
+    if (tmpDir) rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  function setup(content: string, filename = "test.json", mtime = new Date(1700000000000)): string {
+    tmpDir = mkdtempSync(join(tmpdir(), "ao-utils-test-"));
+    const filePath = join(tmpDir, filename);
+    writeFileSync(filePath, content, "utf-8");
+    utimesSync(filePath, mtime, mtime);
+    return filePath;
+  }
+
+  it("returns null for empty file", async () => {
+    const path = setup("");
+    expect(await readLastJsonEntry(path)).toBeNull();
+  });
+
+  it("returns null for nonexistent file", async () => {
+    expect(await readLastJsonEntry("/tmp/nonexistent-ao-test.json")).toBeNull();
+  });
+
+  it("reads last entry type from Gemini-style JSON session files", async () => {
+    const mtime = new Date(1700000001000);
+    const path = setup(
+      JSON.stringify({
+        sessionId: "sess-1",
+        messages: [
+          { type: "user", content: "start" },
+          { type: "gemini", content: "done" },
+        ],
+      }),
+      "test.json",
+      mtime,
+    );
+    const result = await readLastJsonEntry(path);
+    expect(result).not.toBeNull();
+    expect(result!.lastType).toBe("gemini");
+    expect(result!.modifiedAt.getTime()).toBe(mtime.getTime());
+  });
+
+  it("returns null for an empty messages array", async () => {
+    const path = setup(JSON.stringify({ messages: [] }));
+    expect(await readLastJsonEntry(path)).toBeNull();
+  });
+
+  it("returns null when the messages field is missing", async () => {
+    const path = setup(JSON.stringify({ sessionId: "sess-1" }));
+    expect(await readLastJsonEntry(path)).toBeNull();
+  });
+
+  it("returns lastType null when the last message has no string type", async () => {
+    const path = setup(
+      JSON.stringify({
+        messages: [{ type: "user" }, { content: "missing type" }],
+      }),
+    );
+    const result = await readLastJsonEntry(path);
+    expect(result).not.toBeNull();
+    expect(result!.lastType).toBeNull();
+  });
+
+  it("returns null for invalid JSON", async () => {
+    const path = setup("{not valid json");
+    expect(await readLastJsonEntry(path)).toBeNull();
   });
 });
 

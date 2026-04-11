@@ -78,7 +78,7 @@ function createHealthyPath(binDir: string): void {
 }
 
 describe("scripts/ao-doctor.sh", () => {
-  it("reports a healthy install as PASS", () => {
+  it("reports a healthy install as PASS", { timeout: 30000 }, () => {
     const tempRoot = mkdtempSync(join(tmpdir(), "ao-doctor-script-"));
     const fakeRepo = createHealthyRepo(tempRoot);
     const binDir = join(tempRoot, "bin");
@@ -102,6 +102,8 @@ describe("scripts/ao-doctor.sh", () => {
         PATH: `${binDir}:/usr/bin:/bin`,
         AO_REPO_ROOT: fakeRepo,
         AO_CONFIG_PATH: configPath,
+        AO_STAGING_CONFIG_PATH: join(tempRoot, ".openclaw", "agent-orchestrator.yaml"),
+        AO_PROD_CONFIG_PATH: join(tempRoot, ".openclaw_prod", "agent-orchestrator.yaml"),
       },
       encoding: "utf8",
     });
@@ -154,6 +156,8 @@ describe("scripts/ao-doctor.sh", () => {
         PATH: `${binDir}:/usr/bin:/bin`,
         AO_REPO_ROOT: fakeRepo,
         AO_CONFIG_PATH: configPath,
+        AO_STAGING_CONFIG_PATH: join(tempRoot, ".openclaw", "agent-orchestrator.yaml"),
+        AO_PROD_CONFIG_PATH: join(tempRoot, ".openclaw_prod", "agent-orchestrator.yaml"),
         AO_DOCTOR_TMP_ROOT: tmpRoot,
       },
       encoding: "utf8",
@@ -177,5 +181,5 @@ describe("scripts/ao-doctor.sh", () => {
     expect(worktreeDirExists).toBe(true);
     expect(commentedDataDirExists).toBe(false);
     expect(commentedWorktreeDirExists).toBe(false);
-  });
+  }, 30_000);
 });

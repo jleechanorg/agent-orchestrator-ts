@@ -8,13 +8,15 @@
 set -e
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-CONFIG_FILE="${AO_CONFIG_PATH:-$HOME/.openclaw/agent-orchestrator.yaml}"
-
-echo ""
-echo "═══ Extended Setup (jleechanorg fork) ═══"
-echo ""
-
-# ─── Validate canonical config ─────────────────────────────────────────────
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=./lib/ao-config-topology.sh
+source "$SCRIPT_DIR/lib/ao-config-topology.sh"
+# Gate managed-topology validation only when using auto-discovered config.
+# If AO_CONFIG_PATH is set explicitly, respect it without blocking on topology.
+CONFIG_FILE="${AO_CONFIG_PATH:-$(ao_staging_config_path)}"
+if [ -z "${AO_CONFIG_PATH:-}" ]; then
+  ao_validate_topology
+fi
 
 if [ ! -f "$CONFIG_FILE" ]; then
   echo "WARNING: No config found at $CONFIG_FILE"
@@ -24,6 +26,8 @@ else
 fi
 
 # Check for duplicate configs that would create split namespaces
+STAGING_REAL="$(ao_realpath "$(ao_staging_config_path)")"
+PRODUCTION_REAL="$(ao_realpath "$(ao_production_config_path)")"
 DUPES=$(find "$HOME" -maxdepth 4 -name "agent-orchestrator.yaml" \
   -not -path "*/node_modules/*" \
   -not -path "*/.agent-orchestrator/*" \
@@ -31,14 +35,19 @@ DUPES=$(find "$HOME" -maxdepth 4 -name "agent-orchestrator.yaml" \
   -not -path "*/.worktrees/*" \
   -not -path "*/worktrees/*" \
   -not -path "*/backup/*" \
-  2>/dev/null | grep -v "$(realpath "$CONFIG_FILE" 2>/dev/null)" || true)
+  2>/dev/null | while read -r candidate; do
+    resolved="$(ao_realpath "$candidate")"
+    if [ "$resolved" != "$STAGING_REAL" ] && [ "$resolved" != "$PRODUCTION_REAL" ]; then
+      printf '%s\n' "$candidate"
+    fi
+  done || true)
 
 if [ -n "$DUPES" ]; then
   echo ""
   echo "WARNING: Found duplicate agent-orchestrator.yaml files (potential namespace split):"
   echo "$DUPES" | while read -r f; do echo "  $f"; done
   echo ""
-  echo "  Only $CONFIG_FILE should exist. Others create separate data namespaces."
+  echo "  Only the managed staging/prod configs should exist. Others create separate data namespaces."
   echo "  Remove duplicates or they will cause sessions to be invisible to the lifecycle-worker."
 fi
 
@@ -49,9 +58,22 @@ echo "Rebuilding ao CLI from source..."
 cd "$REPO_ROOT"
 pnpm build 2>&1 | tail -1
 
-echo "Installing ao CLI globally..."
+echo "Linking ao CLI globally..."
 cd "$REPO_ROOT/packages/cli"
-npm install -g . 2>/dev/null || sudo npm install -g .
+# Try npm install -g first, then sudo fallback. This preserves the original
+# behavior while still providing clear error output when both fail.
+if ! npm install -g . 2>/dev/null; then
+  if command -v sudo >/dev/null 2>&1; then
+    sudo npm install -g .
+  else
+    echo "WARNING: npm install -g failed and sudo is unavailable." >&2
+    echo "         Ao CLI may not be available in PATH." >&2
+    # In CI (Docker), proceed anyway since the test may not need global CLI
+    if [ "${CI:-}" != "true" ]; then
+      exit 1
+    fi
+  fi
+fi
 cd "$REPO_ROOT"
 
 AO_VERSION=$(ao --version 2>/dev/null || echo "unknown")
@@ -70,7 +92,7 @@ else
 
   START_ALL="$REPO_ROOT/scripts/start-all.sh"
   if [ -f "$START_ALL" ]; then
-    bash "$START_ALL"
+    AO_CONFIG_PATH="$CONFIG_FILE" bash "$START_ALL"
   else
     echo "  WARNING: scripts/start-all.sh not found. Run manually:"
     echo "    ao start <project-name>"
@@ -81,7 +103,7 @@ else
   if [ -x "$REPO_ROOT/scripts/setup-launchd.sh" ]; then
     echo ""
     echo "Installing launchd jobs from central installer..."
-    bash "$REPO_ROOT/scripts/setup-launchd.sh" all
+    AO_CONFIG_PATH="$CONFIG_FILE" bash "$REPO_ROOT/scripts/setup-launchd.sh" all
   else
     echo "  WARNING: scripts/setup-launchd.sh missing or not executable."
   fi
@@ -103,16 +125,19 @@ done
 # Reads project IDs from config and verifies PID before sending signals.
 # Uses word-boundary grep to prevent "api" from matching "api-v2".
 if [ -f "$CONFIG_FILE" ] && [ -d "$HOME/.agent-orchestrator" ]; then
-  PROJECTS="$(python3 -c "
-import yaml, sys, os
+  PROJECTS="$(python3 - "$CONFIG_FILE" <<'PYEOF' 2>/dev/null || true
+import sys
+import yaml
+
 try:
-    with open('$CONFIG_FILE') as f:
-        cfg = yaml.safe_load(f)
-    for pid in cfg.get('projects', {}):
+    with open(sys.argv[1]) as f:
+        cfg = yaml.safe_load(f) or {}
+    for pid in (cfg.get("projects") or {}):
         print(pid)
 except:
     pass
-" 2>/dev/null || true)"
+PYEOF
+)"
   if [ -n "$PROJECTS" ]; then
     # Compute namespace hash: sha256(realpath(dirname(configPath)))[:12]
     PID_FILE_NS="$(python3 -c "
@@ -127,22 +152,28 @@ except:
     if [ -n "$PID_FILE_NS" ]; then
       for PROJECT in $PROJECTS; do
         # projectId = basename(project.path) — matches TypeScript generateProjectId()
-        PROJ_ID_FOR_PID="$(python3 -c "
-import yaml, os
+        PROJ_ID_FOR_PID="$(python3 - "$CONFIG_FILE" "$PROJECT" <<'PYEOF' 2>/dev/null || echo ""
+import sys
+import os
+import yaml
+
 try:
-    with open('$CONFIG_FILE') as f:
-        cfg = yaml.safe_load(f)
-    proj_cfg = cfg.get('projects', {}).get('$PROJECT', {})
-    path = proj_cfg.get('path', '')
-    if path:
-        if path.startswith('~'):
-            path = os.path.expanduser(path)
-        elif not os.path.isabs(path):
-            path = os.path.normpath(os.path.join(os.path.dirname('$CONFIG_FILE'), path))
-        print(os.path.basename(path))
+    config_path = sys.argv[1]
+    project_id = sys.argv[2]
+    with open(config_path) as f:
+        cfg = yaml.safe_load(f) or {}
+    proj_cfg = (cfg.get("projects") or {}).get(project_id, {})
+    project_path = proj_cfg.get("path", "") or ""
+    if project_path:
+        if project_path.startswith("~"):
+            project_path = os.path.expanduser(project_path)
+        elif not os.path.isabs(project_path):
+            project_path = os.path.normpath(os.path.join(os.path.dirname(config_path), project_path))
+        print(os.path.basename(project_path))
 except:
     pass
-" 2>/dev/null || echo "")"
+PYEOF
+)"
         PROJ_ID_FOR_PID="${PROJ_ID_FOR_PID:-$PROJECT}"
         LW_PID_FILE="$HOME/.agent-orchestrator/${PID_FILE_NS}-${PROJ_ID_FOR_PID}/lifecycle-worker.pid"
         if [ -f "$LW_PID_FILE" ]; then
@@ -183,4 +214,4 @@ echo "═══ Extended setup complete ═══"
 echo ""
 echo "Lifecycle workers are running. Monitor with:"
 echo "  ao session ls"
-echo "  tail -f ~/.openclaw/logs/ao-lifecycle-*.log"
+echo "  tail -f ${HOME}/.openclaw/logs/ao-lifecycle-*.log"

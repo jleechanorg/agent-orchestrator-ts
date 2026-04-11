@@ -47,9 +47,11 @@ export async function runSkepticReviewReaction(params: {
     postComment: skepticPostComment,
   });
 
+  // SKIPPED (all-infra-fail) must not be treated as PASS — it is a non-success
+  // state that the orchestrator should surface and retry. Only PASS is success.
   return {
     reactionType: reactionKey,
-    success: result.verdict !== "FAIL",
+    success: result.verdict === "PASS",
     action: "skeptic-review",
     message: `Skeptic ${result.verdict}: ${result.details.slice(0, 200)}`,
     escalated: false,

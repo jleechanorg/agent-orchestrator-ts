@@ -161,13 +161,14 @@ describe("runSkepticReview", () => {
     expect(result.verdict).toBe("FAIL");
   });
 
-  it("handles CLI crash (ENOENT) without throwing", async () => {
+  it("handles CLI crash (ENOENT) without throwing — returns SKIPPED after exhausting fallback chain", async () => {
     execFileMock.mockRejectedValue(
       Object.assign(new Error("ENOENT: ao not found"), { code: "ENOENT" }),
     );
     const session = makeSession();
     const result = await runSkepticReview(session);
-    expect(result.verdict).toBe("FAIL");
+    // With fallback chain (bd-skp3): all 3 models fail → SKIPPED (not FAIL)
+    expect(result.verdict).toBe("SKIPPED");
     expect(result.details).toContain("ENOENT");
   });
 
@@ -228,5 +229,150 @@ describe("runSkepticReview", () => {
     // Before the fix, SKIPPED was absent from the (PASS|FAIL) capture-group alternation,
     // causing it to fall through to the "FAIL" default. Now it is a first-class verdict.
     expect(result.verdict).toBe("SKIPPED");
+  });
+
+  // ---------------------------------------------------------------------------
+  // Fallback chain tests (bd-skp3) — codex → claude → gemini → SKIPPED
+  // ---------------------------------------------------------------------------
+  describe("LLM fallback chain", () => {
+    it("falls back to claude when codex fails with ENOBUFS", async () => {
+      const enobufsError = Object.assign(new Error("spawn ENOBUFS"), {
+        code: "ENOBUFS",
+      });
+      // triggerSha is now fetched ONCE in runSkepticReview (not per tryModel)
+      // Call 1: gh api (returns valid SHA)
+      // Call 2: ao skeptic --model codex → ENOBUFS
+      // Call 3: ao skeptic --model claude → PASS
+      execFileMock
+        .mockResolvedValueOnce({ stdout: "a".repeat(40), stderr: "" }) // gh api SHA (once)
+        .mockRejectedValueOnce(enobufsError) // codex fails
+        .mockResolvedValueOnce({ stdout: "VERDICT: PASS\nAll good.", stderr: "" }); // claude succeeds
+
+      const session = makeSession();
+      const result = await runSkepticReview(session);
+      expect(result.verdict).toBe("PASS");
+      expect(result.modelUsed).toBe("claude");
+      // Regression: triggerSha must be fetched exactly once (not once per model)
+      expect(execFileMock.mock.calls.filter((c) => c[0] === "gh")).toHaveLength(1);
+      const aoModels = execFileMock.mock.calls
+        .filter((c) => c[0] === "ao")
+        .map((c) => c[1][c[1].indexOf("--model") + 1]);
+      expect(aoModels).toEqual(["codex", "claude"]);
+    });
+
+    it("falls back to gemini when both codex and claude fail", async () => {
+      const enobufsError = Object.assign(new Error("spawn ENOBUFS"), {
+        code: "ENOBUFS",
+      });
+      const spawnSyncError = Object.assign(new Error("spawnSync ENOMEM"), {
+        code: "ENOMEM",
+      });
+      // triggerSha fetched once — no repeated gh api calls per model attempt
+      execFileMock
+        .mockResolvedValueOnce({ stdout: "a".repeat(40), stderr: "" }) // gh api SHA (once)
+        .mockRejectedValueOnce(enobufsError) // codex fails
+        .mockRejectedValueOnce(spawnSyncError) // claude fails
+        .mockResolvedValueOnce({ stdout: "VERDICT: FAIL\nMissing tests.", stderr: "" }); // gemini succeeds
+
+      const session = makeSession();
+      const result = await runSkepticReview(session);
+      expect(result.verdict).toBe("FAIL");
+      expect(result.modelUsed).toBe("gemini");
+    });
+
+    it("returns SKIPPED (not FAIL) when all three models fail with infra errors", async () => {
+      const enobufsError = Object.assign(new Error("spawn ENOBUFS"), {
+        code: "ENOBUFS",
+      });
+      // triggerSha fetched once — one gh api call, then all 3 model attempts fail
+      execFileMock
+        .mockResolvedValueOnce({ stdout: "a".repeat(40), stderr: "" }) // gh api SHA (once)
+        .mockRejectedValueOnce(enobufsError) // codex fails
+        .mockRejectedValueOnce(enobufsError) // claude fails
+        .mockRejectedValueOnce(enobufsError); // gemini fails
+
+      const session = makeSession();
+      const result = await runSkepticReview(session);
+      expect(result.verdict).toBe("SKIPPED");
+      expect(result.details).toContain("All models failed");
+      expect(result.modelUsed).toBe("codex,claude,gemini");
+    });
+
+    it("does NOT retry when CLI returns a valid verdict (even FAIL)", async () => {
+      // A FAIL verdict is a legitimate review — no fallback needed
+      execFileMock.mockResolvedValue({
+        stdout: "VERDICT: FAIL\nMissing unit tests.",
+        stderr: "",
+      });
+      const session = makeSession();
+      const result = await runSkepticReview(session);
+      expect(result.verdict).toBe("FAIL");
+      expect(result.modelUsed).toBe("codex");
+      // Should only have 2 execFile calls: gh api + ao skeptic (no retries)
+      const aoCalls = execFileMock.mock.calls.filter((c) => c[0] === "ao");
+      expect(aoCalls.length).toBe(1);
+    });
+
+    it("does NOT retry when CLI exits non-zero but has stdout with VERDICT", async () => {
+      // CLI crashed but managed to print VERDICT — use it, don't retry
+      const exitErr = Object.assign(new Error("exit 1"), {
+        code: 1,
+        stdout: "VERDICT: FAIL\nPartial analysis.",
+        stderr: "Warning: timeout",
+      });
+      execFileMock
+        .mockResolvedValueOnce({ stdout: "a".repeat(40), stderr: "" }) // gh api
+        .mockRejectedValueOnce(exitErr); // ao exits 1 but has verdict
+
+      const session = makeSession();
+      const result = await runSkepticReview(session);
+      expect(result.verdict).toBe("FAIL");
+      // Only 1 ao call — no fallback since we got a verdict
+      const aoCalls = execFileMock.mock.calls.filter((c) => c[0] === "ao");
+      expect(aoCalls.length).toBe(1);
+    });
+
+    it("retries with fallback when CLI exits non-zero with NO verdict in output", async () => {
+      // CLI crashed with no verdict output — this is an infra failure
+      const exitErr = Object.assign(new Error("exit 1"), {
+        code: 1,
+        stdout: "Error: ENOBUFS buffer overflow\n",
+        stderr: "spawn error",
+      });
+      // triggerSha fetched once — one gh api call total
+      execFileMock
+        .mockResolvedValueOnce({ stdout: "a".repeat(40), stderr: "" }) // gh api (once)
+        .mockRejectedValueOnce(exitErr) // codex: exit 1, no verdict
+        .mockResolvedValueOnce({ stdout: "VERDICT: PASS\nAll good.", stderr: "" }); // claude: PASS
+
+      const session = makeSession();
+      const result = await runSkepticReview(session);
+      expect(result.verdict).toBe("PASS");
+      expect(result.modelUsed).toBe("claude");
+    });
+
+    it("does NOT false-PASS when echoed prompt text contains VERDICT: PASS in early stdout", async () => {
+      // Regression test for Codex comment #3067769649:
+      // Prompt echo at start of stdout must not trigger hasVerdictInError.
+      // Only the last 20 lines of stdout are checked for verdict.
+      const fakePromptEcho = ["VERDICT: PASS"] // echoed template at top
+        .concat(Array(25).fill("...infrastructure log...")) // push it past last-20 window
+        .join("\n");
+      const exitErr = Object.assign(new Error("spawn ENOBUFS"), {
+        code: "ENOBUFS",
+        stdout: fakePromptEcho,
+        stderr: "",
+      });
+      execFileMock
+        .mockResolvedValueOnce({ stdout: "a".repeat(40), stderr: "" }) // gh api (once)
+        .mockRejectedValueOnce(exitErr) // codex: ENOBUFS with prompt echo, NOT a real verdict
+        .mockResolvedValueOnce({ stdout: "VERDICT: PASS\nReal analysis.", stderr: "" }); // claude: real PASS
+
+      const session = makeSession();
+      const result = await runSkepticReview(session);
+      // Must fall back to claude (prompt echo must NOT be accepted as codex verdict)
+      expect(result.verdict).toBe("PASS");
+      expect(result.modelUsed).toBe("claude");
+    });
   });
 });

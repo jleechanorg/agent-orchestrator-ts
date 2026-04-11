@@ -13,6 +13,7 @@ set -euo pipefail
 REPO="jleechanorg/agent-orchestrator"
 PROJECT="agent-orchestrator"
 STALE_HOURS="${STALE_HOURS:-3}"
+LIFECYCLE_LOG="${LIFECYCLE_LOG:-$HOME/.openclaw/logs/ao-lifecycle-${PROJECT}.log}"
 # Guardrail: reject non-numeric values before they can cause false-stale/false-fresh
 if ! [[ "$STALE_HOURS" =~ ^([0-9]+([.][0-9]+)?|[.][0-9]+)$ ]]; then
   echo "ERROR: STALE_HOURS must be a positive number (got: '$STALE_HOURS')" >&2
@@ -41,6 +42,42 @@ except Exception:
 PY
 }
 
+_latest_claim_failure_for_pr() {
+  local pr_number="$1"
+  python3 - "$LIFECYCLE_LOG" "$pr_number" 2>/dev/null <<'PY' || true
+import json
+import pathlib
+import sys
+
+log_path = pathlib.Path(sys.argv[1])
+target_pr = int(sys.argv[2])
+latest = ""
+
+if not log_path.exists():
+    raise SystemExit(0)
+
+for raw in log_path.read_text(errors="ignore").splitlines():
+    if "lifecycle.backfill.claim_failed" not in raw:
+        continue
+    try:
+        payload = json.loads(raw)
+    except Exception:
+        continue
+    if payload.get("operation") != "lifecycle.backfill.claim_failed":
+        continue
+    data = payload.get("data") or {}
+    if data.get("prNumber") != target_pr:
+        continue
+    err = " ".join(str(data.get("error", "")).split())
+    latest = err
+
+if latest:
+    if len(latest) > 220:
+        latest = latest[:217] + "..."
+    print(latest)
+PY
+}
+
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
@@ -60,6 +97,17 @@ while IFS= read -r line; do
     sid="${BASH_REMATCH[1]}"
     branch="${BASH_REMATCH[2]}"
     session_map["$branch"]="$sid"
+  fi
+done <<< "$session_output"
+
+# Also extract session→PR mappings when `ao session ls` includes a GitHub API URL.
+# Current output typically uses `.../pulls/<num>`.
+declare -A session_pr_map  # key=PR number, value=session id
+while IFS= read -r line; do
+  if [[ $line =~ ^[[:space:]]+([a-z]+-[0-9]+).*/pulls/([0-9]+)([[:space:]]|$) ]]; then
+    sid="${BASH_REMATCH[1]}"
+    pr_number="${BASH_REMATCH[2]}"
+    session_pr_map["$pr_number"]="$sid"
   fi
 done <<< "$session_output"
 
@@ -101,6 +149,7 @@ age_hours=""
 age_str=""
 is_stale=0
 coverage_status=""
+claim_failure=""
 
 while IFS= read -r pr_line || [[ -n "$pr_line" ]]; do
   [[ -z "$pr_line" ]] && continue
@@ -133,19 +182,33 @@ PY
 
   # Check if any active session is working on this branch
   coverage_status=""
+  claim_failure=""
   if [[ -v session_map["$pr_branch"] ]]; then
     coverage_status="covered by session ${session_map[$pr_branch]}"
+  elif [[ -v session_pr_map["$pr_number"] ]]; then
+    coverage_status="covered by session ${session_pr_map[$pr_number]}"
   else
+    claim_failure="$(_latest_claim_failure_for_pr "$pr_number")"
     if [[ "$is_stale" == "1" ]]; then
       echo "  PR #$pr_number [$pr_branch]: age=${age_str} [STALE] [UNCOVERED] ***"
-      echo "    -> no active session; age ≥${STALE_HOURS}h threshold"
-      uncovered+=("PR #$pr_number [STALE age=${age_str}]")
+      if [[ -n "$claim_failure" ]]; then
+        echo "    -> BLOCKED recent claim_failed: $claim_failure"
+        uncovered+=("PR #$pr_number [BLOCKED STALE age=${age_str}]")
+      else
+        echo "    -> no active session; age ≥${STALE_HOURS}h threshold"
+        uncovered+=("PR #$pr_number [STALE age=${age_str}]")
+      fi
       stale_uncovered=$((stale_uncovered + 1))
       continue
     else
       echo "  PR #$pr_number [$pr_branch]: age=${age_str}"
-      echo "    -> UNCOVERED (no active session)"
-      uncovered+=("PR #$pr_number [age=${age_str}]")
+      if [[ -n "$claim_failure" ]]; then
+        echo "    -> BLOCKED recent claim_failed: $claim_failure"
+        uncovered+=("PR #$pr_number [BLOCKED age=${age_str}]")
+      else
+        echo "    -> UNCOVERED (no active session)"
+        uncovered+=("PR #$pr_number [age=${age_str}]")
+      fi
       continue
     fi
   fi

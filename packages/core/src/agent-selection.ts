@@ -1,12 +1,12 @@
 import {
   normalizeAgentPermissionMode,
-  isOrchestratorSession,
   type AgentPermissionMode,
   type AgentSpecificConfig,
   type CliModelDefaults,
   type DefaultPlugins,
   type ProjectConfig,
 } from "./types.js";
+import { isOrchestratorSessionForPrefix } from "./session-prefixes.js";
 
 export type SessionRole = "orchestrator" | "worker";
 
@@ -43,8 +43,16 @@ export interface ResolvedAgentSelection {
 export function resolveSessionRole(
   sessionId: string,
   metadata?: Record<string, string>,
+  sessionPrefix?: string,
+  allSessionPrefixes?: string[],
 ): SessionRole {
-  return isOrchestratorSession({ id: sessionId, metadata }) ? "orchestrator" : "worker";
+  return isOrchestratorSessionForPrefix(
+    { id: sessionId, metadata },
+    sessionPrefix,
+    allSessionPrefixes,
+  )
+    ? "orchestrator"
+    : "worker";
 }
 
 export function resolveAgentSelection(params: {
@@ -94,13 +102,13 @@ export function resolveAgentSelection(params: {
 
   const model =
     role === "orchestrator"
-      ? (roleAgentConfig.orchestratorModel ??
+      ? (cliModelConfig.orchestratorModel ??
+        cliModelConfig.model ??
+        roleAgentConfig.orchestratorModel ??
         roleAgentConfig.model ??
         sharedConfig.orchestratorModel ??
-        cliModelConfig.orchestratorModel ??
-        sharedConfig.model ??
-        cliModelConfig.model)
-      : (roleAgentConfig.model ?? sharedConfig.model ?? cliModelConfig.model);
+        sharedConfig.model)
+      : (cliModelConfig.model ?? roleAgentConfig.model ?? sharedConfig.model);
 
   if (model !== undefined) {
     agentConfig.model = model;

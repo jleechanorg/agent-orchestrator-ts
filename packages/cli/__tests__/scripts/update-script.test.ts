@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { chmodSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { spawnSync } from "node:child_process";
@@ -15,6 +15,18 @@ function writeExecutable(path: string, content: string): void {
 
 function createFakeBinary(binDir: string, name: string, body: string): void {
   writeExecutable(join(binDir, name), `#!/bin/bash\nset -e\n${body}\n`);
+}
+
+function buildScriptEnv(binDir: string, fakeRepo: string, tempRoot: string): NodeJS.ProcessEnv {
+  return {
+    ...process.env,
+    PATH: `${binDir}:${process.env.PATH || ""}`,
+    AO_REPO_ROOT: fakeRepo,
+    // Keep the script from reading or stopping the developer's real AO workers.
+    AO_CONFIG_PATH: join(tempRoot, "missing-agent-orchestrator.yaml"),
+    AO_STAGING_CONFIG_PATH: join(tempRoot, ".openclaw", "agent-orchestrator.yaml"),
+    AO_PROD_CONFIG_PATH: join(tempRoot, ".openclaw_prod", "agent-orchestrator.yaml"),
+  };
 }
 
 describe("scripts/ao-update.sh", () => {
@@ -55,11 +67,7 @@ esac\nexit 0`,
     );
 
     const result = spawnSync("bash", [scriptPath, "--skip-smoke"], {
-      env: {
-        ...process.env,
-        PATH: `${binDir}:${process.env.PATH || ""}`,
-        AO_REPO_ROOT: fakeRepo,
-      },
+      env: buildScriptEnv(binDir, fakeRepo, tempRoot),
       encoding: "utf8",
     });
 
@@ -96,11 +104,7 @@ exit 0`,
     );
 
     const result = spawnSync("bash", [scriptPath, "--smoke-only"], {
-      env: {
-        ...process.env,
-        PATH: `${binDir}:${process.env.PATH || ""}`,
-        AO_REPO_ROOT: fakeRepo,
-      },
+      env: buildScriptEnv(binDir, fakeRepo, tempRoot),
       encoding: "utf8",
     });
 
@@ -112,6 +116,67 @@ exit 0`,
     expect(commands).toContain(`node ${aoEntry} --version`);
     expect(commands).toContain(`node ${aoEntry} doctor --help`);
     expect(commands).toContain(`node ${aoEntry} update --help`);
+  });
+
+  it("skips topology validation when AO_CONFIG_PATH is set explicitly", () => {
+    const tempRoot = mkdtempSync(join(tmpdir(), "ao-update-explicit-config-"));
+    const fakeRepo = join(tempRoot, "repo");
+    const explicitConfig = join(tempRoot, "custom-config.yaml");
+    const stagingConfig = join(tempRoot, ".openclaw", "agent-orchestrator.yaml");
+    const productionConfig = join(tempRoot, ".openclaw_prod", "agent-orchestrator.yaml");
+    mkdirSync(join(fakeRepo, "packages", "cli"), { recursive: true });
+    mkdirSync(dirname(explicitConfig), { recursive: true });
+    mkdirSync(dirname(stagingConfig), { recursive: true });
+    mkdirSync(dirname(productionConfig), { recursive: true });
+    writeFileSync(explicitConfig, "projects: {}\n");
+    writeFileSync(productionConfig, "projects: {}\n");
+    symlinkSync(productionConfig, stagingConfig);
+
+    const binDir = join(tempRoot, "bin");
+    mkdirSync(binDir, { recursive: true });
+    const commandLog = join(tempRoot, "commands.log");
+
+    createFakeBinary(
+      binDir,
+      "git",
+      `printf 'git %s\\n' "$*" >> ${JSON.stringify(commandLog)}\ncase "$*" in\n  "rev-parse --is-inside-work-tree") printf 'true\\n' ;;
+  "status --porcelain") ;;
+  "branch --show-current") printf 'main\\n' ;;
+  "fetch origin main") ;;
+  "pull --ff-only origin main") ;;
+  *) ;;
+esac\nexit 0`,
+    );
+    createFakeBinary(
+      binDir,
+      "pnpm",
+      `printf 'pnpm %s\\n' "$*" >> ${JSON.stringify(commandLog)}\nif [ "$1" = "--version" ]; then\n  printf '9.15.4\\n'\nfi\nexit 0`,
+    );
+    createFakeBinary(binDir, "npm", `printf 'npm %s\\n' "$*" >> ${JSON.stringify(commandLog)}\nexit 0`);
+    createFakeBinary(
+      binDir,
+      "node",
+      `printf 'node %s\\n' "$*" >> ${JSON.stringify(commandLog)}\nif [ "$1" = "--version" ]; then\n  printf 'v20.11.1\\n'\nfi\nexit 0`,
+    );
+
+    const result = spawnSync("bash", [scriptPath, "--skip-smoke"], {
+      env: {
+        ...process.env,
+        PATH: `${binDir}:${process.env.PATH || ""}`,
+        AO_REPO_ROOT: fakeRepo,
+        AO_CONFIG_PATH: explicitConfig,
+        AO_STAGING_CONFIG_PATH: stagingConfig,
+        AO_PROD_CONFIG_PATH: productionConfig,
+      },
+      encoding: "utf8",
+    });
+
+    const commands = readFileSync(commandLog, "utf8");
+    rmSync(tempRoot, { recursive: true, force: true });
+
+    expect(result.status, result.stderr || result.stdout).toBe(0);
+    expect(commands).toContain("git fetch origin main");
+    expect(result.stderr).not.toContain("staging config must be a real file");
   });
 
   it("fails fast on a dirty install repo with an actionable message", () => {
@@ -145,11 +210,7 @@ exit 0`,
     );
 
     const result = spawnSync("bash", [scriptPath], {
-      env: {
-        ...process.env,
-        PATH: `${binDir}:${process.env.PATH || ""}`,
-        AO_REPO_ROOT: fakeRepo,
-      },
+      env: buildScriptEnv(binDir, fakeRepo, tempRoot),
       encoding: "utf8",
     });
 
@@ -167,6 +228,59 @@ exit 0`,
 
     expect(result.status).toBe(1);
     expect(result.stderr).toContain("Conflicting options");
+  });
+
+  it("does not validate broken managed topology when operating on an explicit custom config", () => {
+    const tempRoot = mkdtempSync(join(tmpdir(), "ao-update-custom-config-"));
+    const fakeRepo = join(tempRoot, "repo");
+    mkdirSync(join(fakeRepo, "packages", "cli"), { recursive: true });
+
+    const binDir = join(tempRoot, "bin");
+    mkdirSync(binDir, { recursive: true });
+    const commandLog = join(tempRoot, "commands.log");
+    const customConfig = join(tempRoot, "custom-agent-orchestrator.yaml");
+    const stagingConfig = join(tempRoot, ".openclaw", "agent-orchestrator.yaml");
+    const productionConfig = join(tempRoot, ".openclaw_prod", "agent-orchestrator.yaml");
+
+    writeFileSync(customConfig, "projects: {}\n");
+    mkdirSync(stagingConfig, { recursive: true });
+
+    createFakeBinary(
+      binDir,
+      "git",
+      `printf 'git %s\\n' "$*" >> ${JSON.stringify(commandLog)}\ncase "$*" in\n  "rev-parse --is-inside-work-tree") printf 'true\\n' ;;\n  "status --porcelain") ;;\n  "branch --show-current") printf 'main\\n' ;;\n  "fetch origin main") ;;\n  "pull --ff-only origin main") ;;\n  *) ;;\nesac\nexit 0`,
+    );
+    createFakeBinary(
+      binDir,
+      "pnpm",
+      `printf 'pnpm %s\\n' "$*" >> ${JSON.stringify(commandLog)}\nif [ "$1" = "--version" ]; then\n  printf '9.15.4\\n'\nfi\nexit 0`,
+    );
+    createFakeBinary(
+      binDir,
+      "npm",
+      `printf 'npm %s\\n' "$*" >> ${JSON.stringify(commandLog)}\nexit 0`,
+    );
+    createFakeBinary(
+      binDir,
+      "node",
+      `printf 'node %s\\n' "$*" >> ${JSON.stringify(commandLog)}\nif [ "$1" = "--version" ]; then\n  printf 'v20.11.1\\n'\nfi\nexit 0`,
+    );
+
+    const result = spawnSync("bash", [scriptPath, "--skip-smoke"], {
+      env: {
+        ...process.env,
+        PATH: `${binDir}:${process.env.PATH || ""}`,
+        AO_REPO_ROOT: fakeRepo,
+        AO_CONFIG_PATH: customConfig,
+        AO_STAGING_CONFIG_PATH: stagingConfig,
+        AO_PROD_CONFIG_PATH: productionConfig,
+      },
+      encoding: "utf8",
+    });
+
+    rmSync(tempRoot, { recursive: true, force: true });
+
+    expect(result.status).toBe(0);
   });
 
   it("reports when the update itself dirties the checkout", () => {
@@ -205,11 +319,7 @@ exit 0`,
     );
 
     const result = spawnSync("bash", [scriptPath, "--skip-smoke"], {
-      env: {
-        ...process.env,
-        PATH: `${binDir}:${process.env.PATH || ""}`,
-        AO_REPO_ROOT: fakeRepo,
-      },
+      env: buildScriptEnv(binDir, fakeRepo, tempRoot),
       encoding: "utf8",
     });
 

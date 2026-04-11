@@ -1,5 +1,6 @@
 import {
   shellEscape,
+  readLastJsonEntry,
   readLastJsonlEntry,
   DEFAULT_READY_THRESHOLD_MS,
   type Agent,
@@ -19,8 +20,18 @@ import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
 import { promisify } from "node:util";
+import {
+  NORMALIZE_SHELL_COMMAND_PREFIX_BLOCK,
+  PR_TITLE_PREFIX_GUARD_BLOCK,
+} from "./pr-title-guard.js";
 
 const execFileAsync = promisify(execFile);
+
+export {
+  NORMALIZE_SHELL_COMMAND_PREFIX_BLOCK,
+  PR_TITLE_PREFIX,
+  PR_TITLE_PREFIX_GUARD_BLOCK,
+} from "./pr-title-guard.js";
 
 // =============================================================================
 // Plugin Config
@@ -113,8 +124,7 @@ const _ = String.raw;
 // expression parsing. The dollar sign must survive JS and expand in bash.
 // MUST use ${array[index]} (not "$array[index]") for bash array access.
 const BASH_REMATCH1 = '"${BASH_REMATCH[1]}"';
-const BASH_REMATCH2 = '"${BASH_REMATCH[2]}"';
-// Result: "${BASH_REMATCH[1]}" and "${BASH_REMATCH[2]}" as literal bash array access
+// Result: "${BASH_REMATCH[1]}" as literal bash array access
 
 // Bash parameter expansions — expressed as single-quoted JS strings (no JS interpretation)
 // so they survive TypeScript compilation and expand correctly in bash.
@@ -180,62 +190,9 @@ fi
 # Command Detection and Parsing
 # ============================================================================
 
-# Strip leading prefixes so commands like
-#   cd ~/.worktrees/project && gh pr create ...
-#   FOO=bar gh pr create ...
-# are still detected.
-cd_prefix_pattern='^[[:space:]]*cd[[:space:]]+.*[[:space:]]+(&&|;)[[:space:]]+(.*)'
-clean_command="$command"
-while true; do
-  # Strip leading env assignments: FOO=bar BAZ=qux gh pr create ...
-  # [^[:space:]]* for the value allows embedded = (e.g. FOO=a=b gh pr create).
-  # Trailing space required so bare "FOO=bar" (no cmd) avoids infinite loop.
-  if [[ "$clean_command" =~ ^[[:space:]]*[A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+(.+)$ ]]; then
-    clean_command=${BASH_REMATCH1}
-  # Strip leading cd prefixes: cd /path && gh pr create ...
-  elif [[ "$clean_command" =~ $cd_prefix_pattern ]]; then
-    clean_command=${BASH_REMATCH2}
-  else
-    break
-  fi
-done
+${NORMALIZE_SHELL_COMMAND_PREFIX_BLOCK}
 
-# Guardrail: enforce [agento] prefix on gh pr create titles (PreToolUse only).
-# PostToolUse falls through to metadata update — no need to re-check there.
-pr_create_pattern='^[[:space:]]*([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]+[[:space:]]+)*gh[[:space:]]+pr[[:space:]]+create([[:space:]]|$)'
-if [[ "$hook_event" == "PreToolUse" && "$clean_command" =~ $pr_create_pattern ]]; then
-  # Parse --title or -t as proper argv tokens (not substring in --body etc.).
-  # Python shlex correctly handles quoted strings containing literal "--title".
-  first_title=$(python3 -c "
-import shlex, sys
-args = shlex.split(sys.argv[1])
-for i, arg in enumerate(args):
-    if arg == '--title':
-        print(args[i+1], end='')
-        break
-    if arg.startswith('--title='):
-        print(arg[len('--title='):], end='')
-        break
-    if arg == '-t':
-        print(args[i+1], end='')
-        break
-    if arg.startswith('-t'):
-        print(arg[2:], end='')
-        break
-" "$clean_command" 2>/dev/null || true)
-  # Deny if title is missing or doesn't start with [agento].
-  # Note: hardcodes PreToolUse in deny JSON — correct for Claude Code.
-  # AO_HOOK_EVENT_NAME is used in setupWorkspaceHooks but the deny JSON
-  # output is for Claude Code's hook protocol which always uses PreToolUse.
-  if [[ -z "$first_title" || "$first_title" != \[agento\]* ]]; then
-    echo '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"Blocked by AO policy: gh pr create titles must start with [agento]. Prefix your title with [agento] and retry."}}'
-    exit 0
-  fi
-  # Prefix check passed — title is valid, allow the tool.
-  # Exit here so PreToolUse does NOT fall through to metadata writers below.
-  echo '{}'
-  exit 0
-fi
+${PR_TITLE_PREFIX_GUARD_BLOCK}
 
 # All metadata writers run in PostToolUse only.
 # Allow PreToolUse (hook_event empty or "PreToolUse") to fall through to guards above.
@@ -964,24 +921,29 @@ async function setupHookInWorkspace({
 /**
  * Configure MCP mail server in workspace settings.
  * This enables agents to send coordination messages via MCP mail.
- * 
+ *
  * MCP mail server config:
  * - name: mcp-agent-mail
  * - url: http://127.0.0.1:8765/mcp/ (configurable via MCP_AGENT_MAIL_URL env var)
- * - headers: auth token (configurable via MCP_AGENT_MAIL_TOKEN env var)
+ * - headers: auth token - only added when MCP_AGENT_MAIL_TOKEN is set in environment.
+ *   Claude Code reads MCP headers from settings.json literally, so when present the
+ *   bearer token is serialized into the worktree for compatibility.
+ * @internal Exported so the settings writer can be covered directly in unit tests.
  */
-async function setupMcpMailInWorkspace(
+export async function setupMcpMailInWorkspace(
   workspacePath: string,
   configDir: string,
 ): Promise<void> {
   const agentDir = join(workspacePath, configDir);
   const settingsPath = join(agentDir, "settings.json");
 
-  // Reject symlinks — same guard as setupHookInWorkspace
+  // Block writes through symlinks — same guard as setupHookInWorkspace
   try {
     const s = await lstat(agentDir);
     if (s.isSymbolicLink()) {
-      throw new Error(`symlink detected at config dir ${agentDir} — aborting to prevent symlink traversal`);
+      throw new Error(
+        `[agent-base] refusing to write MCP settings through symlinked config dir: ${agentDir}`,
+      );
     }
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
@@ -1022,15 +984,22 @@ async function setupMcpMailInWorkspace(
       ? (rawMcpServers as Record<string, unknown>)
       : {};
 
-  // Always configure/update mcp-agent-mail to support token rotation and URL changes
-  // NOTE: Auth token is NOT stored in worktree settings.json to avoid
-  // accidentally committing secrets. Users should set MCP_AGENT_MAIL_TOKEN
-  // in their shell environment when launching the agent instead.
+  // Always configure/update mcp-agent-mail to support token rotation and URL changes.
+  // Claude Code does not expand env vars in MCP headers from settings.json, so the
+  // configured bearer token must be written literally when one is provided.
 
   // Add mcp-agent-mail server configuration
   const serverConfig: Record<string, unknown> = {
     url: mcpMailUrl,
   };
+
+  // Only add Authorization header if token is explicitly set in environment
+  const mcpMailToken = process.env.MCP_AGENT_MAIL_TOKEN;
+  if (mcpMailToken) {
+    serverConfig.headers = {
+      Authorization: `Bearer ${mcpMailToken}`,
+    };
+  }
 
   mcpServers["mcp-agent-mail"] = serverConfig;
   existingSettings["mcpServers"] = mcpServers;
@@ -1046,6 +1015,30 @@ async function setupMcpMailInWorkspace(
   }
   if (currentContent !== newContent) {
     await writeFile(settingsPath, newContent, "utf-8");
+  }
+}
+
+async function readSessionEntry(
+  sessionFile: string,
+  sessionFileExtension: string,
+): Promise<{ lastType: string | null; modifiedAt: Date } | null> {
+  if (sessionFileExtension !== ".json") {
+    return readLastJsonlEntry(sessionFile);
+  }
+
+  const nativeEntry = await readLastJsonEntry(sessionFile);
+  if (nativeEntry !== null) {
+    return nativeEntry;
+  }
+
+  // Only fall back to JSONL when the file is not valid JSON at all.
+  // Valid JSON files with empty or missing messages should remain "unknown"
+  // rather than being classified by JSONL heuristics.
+  try {
+    JSON.parse(await readFile(sessionFile, "utf-8"));
+    return null;
+  } catch {
+    return readLastJsonlEntry(sessionFile);
   }
 }
 
@@ -1175,7 +1168,7 @@ export function createAgentPlugin(config: AgentPluginConfig, overrides?: Partial
       const running = await this.isProcessRunning(session.runtimeHandle);
       if (!running) return { state: "exited", timestamp: exitedAt };
 
-      // Process is running - check JSONL session file for activity
+      // Process is running - check the session file for activity
       if (!session.workspacePath) {
         // No workspace path — cannot determine activity without it
         return null;
@@ -1191,7 +1184,7 @@ export function createAgentPlugin(config: AgentPluginConfig, overrides?: Partial
         return null;
       }
 
-      const entry = await readLastJsonlEntry(sessionFile);
+      const entry = await readSessionEntry(sessionFile, config.sessionFileExtension ?? ".jsonl");
       if (!entry) {
         // Empty file or read error — cannot determine activity
         return null;

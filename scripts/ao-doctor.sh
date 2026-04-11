@@ -1,6 +1,9 @@
 #!/bin/bash
 
 REPO_ROOT="${AO_REPO_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=./lib/ao-config-topology.sh
+source "$SCRIPT_DIR/lib/ao-config-topology.sh"
 DEFAULT_CONFIG_HOME="${HOME:-$REPO_ROOT}"
 PASS_COUNT=0
 WARN_COUNT=0
@@ -39,8 +42,10 @@ expand_home() {
 }
 
 find_config() {
-  if [ -n "${AO_CONFIG_PATH:-}" ] && [ -f "$AO_CONFIG_PATH" ]; then
-    printf '%s\n' "$AO_CONFIG_PATH"
+  local managed_config=""
+  managed_config="$(ao_find_config_path 2>/dev/null || true)"
+  if [ -n "$managed_config" ]; then
+    printf '%s\n' "$managed_config"
     return 0
   fi
 
@@ -64,6 +69,16 @@ find_config() {
 
   if [ -f "$DEFAULT_CONFIG_HOME/.agent-orchestrator.yaml" ]; then
     printf '%s\n' "$DEFAULT_CONFIG_HOME/.agent-orchestrator.yaml"
+    return 0
+  fi
+
+  if [ -f "$DEFAULT_CONFIG_HOME/.openclaw_prod/agent-orchestrator.yaml" ]; then
+    printf '%s\n' "$DEFAULT_CONFIG_HOME/.openclaw_prod/agent-orchestrator.yaml"
+    return 0
+  fi
+
+  if [ -f "$DEFAULT_CONFIG_HOME/.openclaw/agent-orchestrator.yaml" ]; then
+    printf '%s\n' "$DEFAULT_CONFIG_HOME/.openclaw/agent-orchestrator.yaml"
     return 0
   fi
 
@@ -285,6 +300,15 @@ check_config_dirs() {
   ensure_dir "$worktree_dir" "worktree directory" "mkdir -p $worktree_dir"
 }
 
+check_managed_config_topology() {
+  if ao_validate_topology >/dev/null 2>&1; then
+    pass "managed staging/prod config topology is split correctly"
+    return
+  fi
+
+  fail "managed staging/prod config topology is invalid. Fix: run scripts/bootstrap-openclaw-config.sh and keep staging/prod as separate real files"
+}
+
 check_stale_temp_files() {
   local temp_root stale_count deleted_count
   temp_root="${AO_DOCTOR_TMP_ROOT:-${TMPDIR:-/tmp}/agent-orchestrator}"
@@ -314,12 +338,13 @@ check_stale_temp_files() {
 
 check_lifecycle_workers() {
   # Count lifecycle-worker processes per project via launchd and ps
-  local config_file="$HOME/.openclaw/agent-orchestrator.yaml"
+  local config_file
+  config_file="$(ao_find_config_path 2>/dev/null || ao_staging_config_path)"
   # Resolve canonical ao binary from PATH at runtime rather than hardcoding a path.
   # Also resolve the real path (symlink target) so we match both launchd-spawned
   # workers (show as /path/to/ao) and node-spawned workers (show as node /real/path.js).
   local canonical_binary
-  canonical_binary="$(command -v ao 2>/dev/null || printf '%s' "$HOME/bin/ao")"
+  canonical_binary="$(command -v ao 2>/dev/null || printf '%s' "$DEFAULT_CONFIG_HOME/bin/ao")"
   local canonical_real
   canonical_real="$(realpath "$canonical_binary" 2>/dev/null || printf '%s' "$canonical_binary")"
 
@@ -365,9 +390,32 @@ check_lifecycle_workers() {
   fi
 
   # --- Check 2: total worker count sanity ---
-  # Default max 8: multi-project setups commonly run one worker per active project.
-  max_workers="${AO_DOCTOR_MAX_LIFECYCLE_WORKERS:-8}"
-  if ! [[ "$max_workers" =~ ^[0-9]+$ ]]; then max_workers=8; fi
+  # Default budget is dynamic: max(20, enabled project count), unless
+  # AO_DOCTOR_MAX_LIFECYCLE_WORKERS explicitly overrides it.
+  local configured_project_count
+  configured_project_count="$(python3 -c '
+import yaml, sys
+try:
+    with open(sys.argv[1]) as f:
+        cfg = yaml.safe_load(f)
+    n = 0
+    for _, pobj in (cfg.get("projects", {}) or {}).items():
+        if isinstance(pobj, dict) and pobj.get("enabled", True) is False:
+            continue
+        n += 1
+    print(n)
+except Exception:
+    print(0)
+' "$config_file" 2>/dev/null || echo 0)"
+  if ! [[ "$configured_project_count" =~ ^[0-9]+$ ]]; then configured_project_count=0; fi
+
+  local max_workers="${AO_DOCTOR_MAX_LIFECYCLE_WORKERS:-}"
+  if ! [[ "$max_workers" =~ ^[0-9]+$ ]]; then
+    max_workers=20
+    if [ "$configured_project_count" -gt "$max_workers" ]; then
+      max_workers="$configured_project_count"
+    fi
+  fi
   if [ "$total_count" -gt "$max_workers" ]; then
     warn "unusually high lifecycle-worker count: $total_count (expected ≤$max_workers). Set AO_DOCTOR_MAX_LIFECYCLE_WORKERS to raise this budget. High counts drain GraphQL quota rapidly."
   elif [ "$total_count" -gt 0 ]; then
@@ -375,18 +423,18 @@ check_lifecycle_workers() {
   fi
 
   local projects
-  projects="$(python3 -c "
+  projects="$(python3 -c '
 import yaml, sys
 try:
-    with open('$config_file') as f:
+    with open(sys.argv[1]) as f:
         cfg = yaml.safe_load(f)
-    for pid, pobj in cfg.get('projects', {}).items():
-        if isinstance(pobj, dict) and pobj.get('enabled', True) is False:
+    for pid, pobj in cfg.get("projects", {}).items():
+        if isinstance(pobj, dict) and pobj.get("enabled", True) is False:
             continue
         print(pid)
 except Exception:
     pass
-" 2>/dev/null || true)"
+' "$config_file" 2>/dev/null || true)"
 
   if [ -z "$projects" ]; then
     pass "no projects in config — per-project lifecycle-worker check skipped"
@@ -462,6 +510,7 @@ check_launcher
 check_tmux
 check_gh
 check_config_dirs
+check_managed_config_topology
 check_stale_temp_files
 check_install_layout
 check_runtime_sanity

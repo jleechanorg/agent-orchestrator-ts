@@ -8,31 +8,64 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 /**
- * Read the design doc for a PR from the local checkout.
- * Works both in CI (file is checked out) and locally (agent has repo).
- * Returns null if the design doc does not exist yet.
+ * Fetch the design doc for a PR via GitHub API, falling back to local filesystem.
  *
- * Uses `git rev-parse --show-toplevel` to resolve the repo root explicitly,
- * so this works even when the CLI is invoked from a subdirectory or with
- * a `--repo` flag that doesn't match the current working directory.
- * Only ENOENT is treated as "doc not found" — all other errors are re-thrown.
+ * GitHub API is tried first (when owner+repo provided) so this works regardless
+ * of cwd — lifecycle-manager and CI runners invoke `ao` from a different repo root.
+ * On 404 the doc doesn't exist yet — returns null.  Other API errors are re-thrown
+ * so the caller decides whether to skip or abort (no silent local-checkout fallback
+ * when owner/repo are provided, which would return stale content from the wrong repo).
+ * The local-filesystem fallback is only used when owner/repo are null (unit tests).
+ *
+ * @param owner     GitHub owner (e.g. "jleechanorg"); null falls through to filesystem
+ * @param repo      GitHub repo  (e.g. "worldarchitect.ai"); null falls through to filesystem
+ * @param prNumber  PR number used to construct the doc path
+ * @param ref       Git ref (branch name or SHA) to read from; defaults to repo default branch
  */
-export async function fetchDesignDoc(prNumber: number): Promise<string | null> {
+export async function fetchDesignDoc(
+  owner: string | null,
+  repo: string | null,
+  prNumber: number,
+  ref?: string,
+): Promise<string | null> {
+  const docPath = `docs/design/pr-designs/pr-${prNumber}.md`;
+
+  // Primary: GitHub API (cwd-agnostic; works from any repo or CI runner)
+  if (owner && repo) {
+    try {
+      const refSuffix = ref ? `?ref=${encodeURIComponent(ref)}` : "";
+      const endpoint = `repos/${owner}/${repo}/contents/${docPath}${refSuffix}`;
+      const data = (await ghJson(endpoint)) as {
+        content?: string;
+        encoding?: string;
+      } | null;
+      if (data?.content && data?.encoding === "base64") {
+        return Buffer.from(data.content.replace(/\n/g, ""), "base64").toString("utf8");
+      }
+      return null;
+    } catch (err: unknown) {
+      const error = err as { stdout?: string; stderr?: string };
+      const combined = (error.stdout ?? "") + (error.stderr ?? "");
+      // 404 → file doesn't exist yet (design doc not written yet for this PR)
+      if (combined.includes('"status": "404"') || combined.includes("HTTP 404")) {
+        return null;
+      }
+      // Re-throw other errors (auth, network, rate-limit) — do not silently fall back
+      // to local checkout, which would reintroduce cwd-dependence and could return
+      // content from the wrong repo when the lifecycle-worker runs from AO repo root.
+      throw err;
+    }
+  }
+
+  // Fallback: local checkout (only reached when owner/repo are null)
   try {
-    // Resolve the repo root so we always find docs/design/pr-designs/
-    // regardless of the current working directory.
     const { stdout: repoRoot } = await exec("git", ["rev-parse", "--show-toplevel"]);
     const root = repoRoot.trim();
-    const designDocPath = join(root, "docs", "design", "pr-designs", `pr-${prNumber}.md`);
-    const content = readFileSync(designDocPath, "utf8");
-    return content;
+    const designDocPath = join(root, docPath);
+    return readFileSync(designDocPath, "utf8");
   } catch (err: unknown) {
-    // Only swallow "file not found" — re-throw any other error (permissions, invalid cwd, etc.)
     const code = (err as { code?: string }).code;
-    if (code === "ENOENT") {
-      // Design doc does not exist yet — this is a gap the skeptic should flag
-      return null;
-    }
+    if (code === "ENOENT") return null;
     throw err;
   }
 }

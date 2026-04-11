@@ -27,6 +27,7 @@
   "scripts": {
     "build": "tsc && node scripts/copy-templates.mjs src/templates dist/templates",
     "dev": "tsx src/index.ts",
+    "pretest": "pnpm --filter @jleechanorg/ao-core build && pnpm -r --filter '@jleechanorg/ao-plugin-*' build",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
@@ -47,6 +48,7 @@
     "@jleechanorg/ao-plugin-tracker-gitlab": "workspace:*",
     "@jleechanorg/ao-plugin-notifier-composio": "workspace:*",
     "@jleechanorg/ao-plugin-notifier-desktop": "workspace:*",
+    "@jleechanorg/ao-plugin-notifier-discord": "workspace:*",
     "@jleechanorg/ao-plugin-notifier-mcp-mail": "workspace:*",
     "@jleechanorg/ao-plugin-notifier-openclaw": "workspace:*",
     "@jleechanorg/ao-plugin-notifier-slack": "workspace:*",
@@ -66,7 +68,7 @@
     "chalk": "^5.4.0",
     "commander": "^13.0.0",
     "ora": "^8.1.0",
-    "yaml": "^2.7.0"
+    "yaml": "^2.8.3"
   },
   "devDependencies": {
     "@vitest/coverage-v8": "^3.0.0",

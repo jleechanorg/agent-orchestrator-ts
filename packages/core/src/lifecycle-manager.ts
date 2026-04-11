@@ -27,7 +27,6 @@ import {
   PR_STATE,
   CI_STATUS,
   TERMINAL_STATUSES,
-  isOrchestratorSession,
   type LifecycleManager,
   type SessionManager,
   type SessionId,
@@ -47,13 +46,13 @@ import {
   type PRState,
   type ProjectConfig as _ProjectConfig,
 } from "./types.js";
-import { readMetadataRaw, updateMetadata } from "./metadata.js";
+import { listMetadata, readMetadataRaw, updateMetadata } from "./metadata.js";
 import { getSessionsDir } from "./paths.js";
 import {
   clearProjectPause,
   detectAndApplyRateLimitPause,
 } from "./fork-lifecycle-manager.js";
-import { createCorrelationId, createProjectObserver } from "./observability.js";
+import { createCorrelationId, createProjectObserver, type ProjectObserver } from "./observability.js";
 import { resolveAgentSelection, resolveSessionRole } from "./agent-selection.js";
 import type { OutcomeRecorder } from "./outcome-recorder.js";
 import {
@@ -71,6 +70,7 @@ import { isPRMerged } from "./fork-lifecycle-kki-override.js";
 import { handleRequestMerge, handleParallelRetry } from "./fork-reaction-handlers.js";
 import { handleRespawnForReview } from "./fork-reaction-rfr.js";
 import { maybeDispatchReviewBacklog } from "./review-backlog.js";
+import { getAllSessionPrefixes, isOrchestratorSessionForPrefix } from "./session-prefixes.js";
 import { updateSessionMetadataHelper } from "./fork-utils.js";
 import { checkMergeGate, type MergeGateResult } from "./merge-gate.js";
 import { GLOBAL_PAUSE_UNTIL_KEY, GLOBAL_PAUSE_REASON_KEY, parsePauseUntil } from "./global-pause.js";
@@ -78,7 +78,13 @@ import { isGhRateLimitError } from "./gh-rate-limit.js";
 import { backfillUncoveredPRs } from "./backfill-extensions.js";
 import { sweepOrphanTmuxSessions, DEFAULT_TMUX_SWEEPER_CONFIG } from "./tmux-session-sweeper.js";
 import { drainTaskQueue } from "./task-queue.js";
+import { drainSpawnQueue } from "./spawn-queue.js";
 import { applyDeadAgentOverride } from "./fork-dead-agent.js";
+import {
+  deletePendingTerminalExitProofRecordedAt,
+  readPendingTerminalExitProofRecordedAt,
+  writePendingTerminalExitProofRecordedAt,
+} from "./terminal-exit-proof-store.js";
 import {
   initMcpMailClient,
   getMcpMailClientConfig,
@@ -402,6 +408,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     outcomeRecorder,
     mcpMailConfig: providedMcpMailConfig,
   } = deps;
+  const allSessionPrefixes = getAllSessionPrefixes(config.projects);
   const observer = createProjectObserver(config, "lifecycle-manager");
 
   // Initialize MCP mail client — prefer caller-supplied config, fall back to env var
@@ -424,7 +431,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
   // regardless of the session lifecycle poll interval
   let inboxPollTimer: ReturnType<typeof setInterval> | null = null;
   const INBOX_POLL_INTERVAL_MS = 5 * 60_000; // every 5 minutes
-
+  const BACKFILL_WARN_INTERVAL_MS = 10 * 60_000; // warn about disabled backfill every 10 minutes
   // Productivity check state — separate 15-min interval for PR-level checks
   let productivityTimer: ReturnType<typeof setInterval> | null = null;
   let productivityRunning = false; // re-entrancy guard
@@ -432,6 +439,13 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
 
   /** Track current task per session (for heartbeat messaging). */
   const sessionCurrentTask = new Map<string, string>();
+  const TERMINAL_EXIT_PROOF_RECORDED_AT_KEY = "terminalExitProofRecordedAt";
+  const pendingTerminalExitProofRecordedAt = new Map<string, string>();
+
+  function isLifecycleOrchestratorSession(session: Pick<Session, "id" | "metadata" | "projectId">): boolean {
+    const project = config.projects[session.projectId];
+    return isOrchestratorSessionForPrefix(session, project?.sessionPrefix, allSessionPrefixes);
+  }
 
   /** Run all productivity checks for active sessions. */
   async function runProductivityCycle(): Promise<void> {
@@ -444,7 +458,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       // productivity checks skip paused sessions (bd-nk7).
       const pausedProjects = new Map<string, Date>();
       for (const session of sessions) {
-        if (!isOrchestratorSession(session)) continue;
+        if (!isLifecycleOrchestratorSession(session)) continue;
         const until = parsePauseUntil(session.metadata[GLOBAL_PAUSE_UNTIL_KEY]);
         if (!until) continue;
         if (until.getTime() <= Date.now()) {
@@ -517,6 +531,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
   // bd-qqm: track the last skeptic comment ID per session to detect new FAIL verdicts.
   // Initialized lazily (undefined = never fetched), compared against fetched comment IDs each poll.
   const lastSkepticCommentId = new Map<string, number>(); // sessionId → last known comment ID
+  const lastBackfillWarnTimeByProject = new Map<string, number>(); // projectId → last warn timestamp
   let pollTimer: ReturnType<typeof setInterval> | null = null;
   let polling = false; // re-entrancy guard
   let inboxPolling = false; // re-entrancy guard for concurrent inbox polls
@@ -556,7 +571,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     if (!project) return { status: session.status, agentDead: false };
 
     const agentName = resolveAgentSelection({
-      role: resolveSessionRole(session.id, session.metadata),
+      role: resolveSessionRole(session.id, session.metadata, project.sessionPrefix, allSessionPrefixes),
       project,
       defaults: config.defaults,
       persistedAgent: session.metadata["agent"],
@@ -681,8 +696,8 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       scm &&
       session.branch &&
       session.metadata["prAutoDetect"] !== "off" &&
-      session.metadata["role"] !== "orchestrator" &&
-      !session.id.endsWith("-orchestrator")
+      (session.metadata["role"] === "worker" ||
+        !isOrchestratorSessionForPrefix(session, project?.sessionPrefix))
     ) {
       try {
         const detectedPR = await scm.detectPR(session, project);
@@ -997,9 +1012,11 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         if (reactionConfig.message.includes("{{context}}")) {
           dedupContext = await buildReactionContext(reactionKey, session, projectId, config, registry);
         }
-        const finalMessage = dedupContext !== undefined
-          ? reactionConfig.message.replace(/\{\{context\}\}/g, () => dedupContext!)
-          : reactionConfig.message;
+        let finalMessage = reactionConfig.message;
+        if (dedupContext !== undefined) {
+          const context = dedupContext;
+          finalMessage = reactionConfig.message.replace(/\{\{context\}\}/g, () => context);
+        }
         const messageHash = await hashMessageContent(finalMessage);
 
         // bd-1178: SHA-based dedup — skip only when BOTH message hash AND SHA are unchanged.
@@ -1113,9 +1130,11 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
           try {
             // Inject context if message contains {{context}} placeholder.
             // dedupContext was built once at the top of this block — reuse it.
-            const finalMessage = dedupContext !== undefined
-              ? reactionConfig.message.replace(/\{\{context\}\}/g, () => dedupContext!)
-              : reactionConfig.message;
+            let finalMessage = reactionConfig.message;
+            if (dedupContext !== undefined) {
+              const context = dedupContext;
+              finalMessage = reactionConfig.message.replace(/\{\{context\}\}/g, () => context);
+            }
             await sessionManager.send(sessionId, finalMessage);
 
             // Record message content hash and SHA after successful send.
@@ -1464,6 +1483,191 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     updateSessionMetadataHelper(session, updates, config);
   }
 
+  async function reconcileTerminalSessionExit(
+    session: Session,
+    exitStatus: SessionStatus,
+  ): Promise<void> {
+    if (!TERMINAL_STATUSES.has(exitStatus)) {
+      return;
+    }
+
+    const projectPath = config.projects[session.projectId]?.path;
+    let exitProofReadyForCleanup =
+      session.metadata[TERMINAL_EXIT_PROOF_RECORDED_AT_KEY] !== undefined;
+    const exitProofRecordedAt =
+      session.metadata[TERMINAL_EXIT_PROOF_RECORDED_AT_KEY] ??
+      pendingTerminalExitProofRecordedAt.get(session.id) ??
+      (projectPath
+        ? readPendingTerminalExitProofRecordedAt(config.configPath, projectPath, session.id)
+        : undefined);
+    if (exitProofRecordedAt === undefined) {
+      const doneTask = sessionCurrentTask.get(session.id);
+      if (doneTask !== undefined) {
+        sessionCurrentTask.delete(session.id);
+        // MCP mail: send session-end to global inbox before exit proof.
+        if (getMcpMailClientConfig()) {
+          await sendMcpMailSessionEnd(doneTask).catch(() => {/* non-fatal */});
+        }
+      }
+
+      let exitProofSucceeded = true;
+      try {
+        await validateAndEmitExitProof(session, exitStatus, {
+          config,
+          registry,
+          observer,
+          notifyHuman,
+          createEvent,
+        });
+      } catch (exitProofErr) {
+        exitProofSucceeded = false;
+        observer.recordOperation({
+          metric: "lifecycle_exit_proof",
+          operation: "lifecycle.exit_proof",
+          outcome: "failure",
+          correlationId: createCorrelationId("lifecycle-exit-proof"),
+          projectId: session.projectId,
+          sessionId: session.id,
+          data: { error: exitProofErr instanceof Error ? exitProofErr.message : String(exitProofErr) },
+          level: "warn",
+        });
+      }
+
+      if (exitProofSucceeded) {
+        const recordedAt = new Date().toISOString();
+        pendingTerminalExitProofRecordedAt.set(session.id, recordedAt);
+        if (projectPath) {
+          try {
+            writePendingTerminalExitProofRecordedAt(
+              config.configPath,
+              projectPath,
+              session.id,
+              recordedAt,
+            );
+          } catch (pendingPersistErr) {
+            console.warn(
+              `[lifecycle-manager] failed to persist pending terminal exit proof ` +
+              `for session=${session.id}: ` +
+              `${pendingPersistErr instanceof Error ? pendingPersistErr.message : String(pendingPersistErr)}`,
+            );
+          }
+        }
+        // Record outcome for strategy learning (bd-nig)
+        // Guarded: disk errors must not break session lifecycle checks
+        if (outcomeRecorder) {
+          try {
+            const success = exitStatus === "merged";
+            outcomeRecorder.record({
+              sessionId: session.id,
+              projectId: session.projectId,
+              trigger: session.metadata["trigger"] ?? "unknown",
+              action: session.metadata["action"] ?? "unknown",
+              strategy: session.metadata["strategy"],
+              errorClass: session.metadata["errorClass"],
+              success,
+              durationMs: Date.now() - new Date(session.createdAt).getTime(),
+              error: !success ? `Session ended with status: ${exitStatus}` : undefined,
+              prNumber: session.pr?.number,
+              recordedAt: new Date().toISOString(),
+            });
+          } catch (recordErr) {
+            console.warn(
+              `Failed to record outcome for session ${session.id}:`,
+              recordErr instanceof Error ? recordErr.message : String(recordErr),
+            );
+          }
+        }
+      }
+    }
+
+    sessionCurrentTask.delete(session.id);
+
+    // bd-s4t.1 + bd-e4t + bd-kki: when a session reaches ANY terminal state,
+    // proactively clean up runtime and worktree. Without this, dead sessions
+    // leave orphaned worktrees that lock branches and block future spawns.
+    // Orchestrator sessions are excluded: killing the orchestrator would clear
+    // its rate-limit pause metadata, breaking the pause mechanism.
+    if (!exitProofReadyForCleanup) {
+      const pendingRecordedAt =
+        pendingTerminalExitProofRecordedAt.get(session.id) ??
+        (projectPath
+          ? readPendingTerminalExitProofRecordedAt(config.configPath, projectPath, session.id)
+          : undefined);
+      if (pendingRecordedAt === undefined) {
+        return;
+      }
+
+      try {
+        updateSessionMetadata(session, { [TERMINAL_EXIT_PROOF_RECORDED_AT_KEY]: pendingRecordedAt });
+        pendingTerminalExitProofRecordedAt.delete(session.id);
+        if (projectPath) {
+          deletePendingTerminalExitProofRecordedAt(config.configPath, projectPath, session.id);
+        }
+        exitProofReadyForCleanup = true;
+      } catch (persistErr) {
+        console.warn(
+          `[lifecycle-manager] failed to persist ${TERMINAL_EXIT_PROOF_RECORDED_AT_KEY} ` +
+          `for session=${session.id} — cleanup deferred until durable: ` +
+          `${persistErr instanceof Error ? persistErr.message : String(persistErr)}`,
+        );
+        return;
+      }
+    }
+
+    if (!isLifecycleOrchestratorSession(session)) {
+      if (exitStatus === "merged") {
+        try {
+          await reapPostMergeCoWorkers(session, sessionManager, observer, {
+            config,
+            registry,
+            observer,
+            notifyHuman,
+            createEvent,
+          });
+        } catch (reapErr) {
+          observer.recordOperation({
+            metric: "lifecycle_poll",
+            operation: "lifecycle.post_merge_reap",
+            outcome: "failure",
+            correlationId: createCorrelationId("lifecycle-post-merge-reap"),
+            projectId: session.projectId,
+            sessionId: session.id,
+            data: { error: reapErr instanceof Error ? reapErr.message : String(reapErr) },
+            level: "warn",
+          });
+          return;
+        }
+      }
+
+      try {
+        await sessionManager.kill(session.id);
+        // Only log session_kill after successful kill — a false entry for a
+        // failed kill would misrepresent session state in the audit trail.
+        logAoAction({
+          ts: new Date().toISOString(),
+          session: session.id,
+          action: "session_kill",
+          pr: session.pr?.number,
+          repo: session.pr ? `${session.pr.owner}/${session.pr.repo}` : undefined,
+          reason: `terminal:${exitStatus}`,
+        });
+      } catch (killErr) {
+        // kill() may fail if session is already partially cleaned up. Non-fatal —
+        // log and continue; session will retry on next poll if still present.
+        observer.recordOperation({
+          metric: "lifecycle_poll",
+          operation: "lifecycle.terminal_cleanup",
+          outcome: "failure",
+          correlationId: createCorrelationId("lifecycle-cleanup"),
+          projectId: session.projectId,
+          sessionId: session.id,
+          data: { error: killErr instanceof Error ? killErr.message : String(killErr) },
+          level: "warn",
+        });
+      }
+    }
+  }
+
   /**
    * Persist GitHub PR state to the session metadata file + in-memory session object.
    * Owns its own best-effort try/catch and warn-level logging so callers stay
@@ -1520,6 +1724,27 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     const tracked = states.get(session.id);
     const oldStatus =
       tracked ?? ((session.metadata?.["status"] as SessionStatus | undefined) || session.status);
+
+    if (TERMINAL_STATUSES.has(oldStatus)) {
+      let terminalStatus = oldStatus;
+      if (session.pr && oldStatus !== "merged") {
+        try {
+          if (await isPRMerged(session, config, registry)) {
+            terminalStatus = "merged";
+          }
+        } catch {
+          // Best-effort only: terminal cleanup retries must continue even when SCM is unavailable.
+        }
+      }
+
+      states.set(session.id, terminalStatus);
+      if (terminalStatus !== oldStatus) {
+        updateSessionMetadata(session, { status: terminalStatus });
+      }
+      await reconcileTerminalSessionExit(session, terminalStatus);
+      return;
+    }
+
     const { status: determinedStatus, agentDead } = await determineStatus(session);
     let newStatus: SessionStatus = determinedStatus;
     let transitionReaction: { key: string; result: ReactionResult | null } | undefined;
@@ -1585,9 +1810,6 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       // in determineStatus may have fired before the SCM PR-state check.  If SCM is
       // unreachable, skip persisting so the next poll can retry.
       let effectiveStatus = newStatus;
-      // mergedConfirmed is set by the SCM check below and reused in the terminal-block
-      // belt-and-suspenders section to avoid a second getPRState() call.
-      let mergedConfirmed = false;
       if (
         newStatus === "killed" &&
         session.pr &&
@@ -1598,7 +1820,6 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         if (scm) {
           try {
             const prState = await scm.getPRState(session.pr);
-            mergedConfirmed = prState === PR_STATE.MERGED;
             if (prState === PR_STATE.OPEN) {
               // PR still open — agent died but PR is alive; skip persisting
               // killed so next poll can re-check PR state for auto-merge.
@@ -1925,127 +2146,6 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         executeReaction,
         agentDead,
       }, transitionReaction);
-
-      // Session exit reconciliation (bd-uxs.6): validate commits and emit proof on terminal states
-      if (TERMINAL_STATUSES.has(effectiveStatus) && !TERMINAL_STATUSES.has(oldStatus)) {
-        await validateAndEmitExitProof(session, effectiveStatus, {
-          config,
-          registry,
-          observer,
-          notifyHuman,
-          createEvent,
-        });
-
-        // Record outcome for strategy learning (bd-nig)
-        // Guarded: disk errors must not break session lifecycle checks
-        if (outcomeRecorder) {
-          try {
-            const success = effectiveStatus === "merged";
-            outcomeRecorder.record({
-              sessionId: session.id,
-              projectId: session.projectId,
-              trigger: session.metadata["trigger"] ?? "unknown",
-              action: session.metadata["action"] ?? "unknown",
-              strategy: session.metadata["strategy"],
-              errorClass: session.metadata["errorClass"],
-              success,
-              durationMs: Date.now() - new Date(session.createdAt).getTime(),
-              error: !success ? `Session ended with status: ${effectiveStatus}` : undefined,
-              prNumber: session.pr?.number,
-              recordedAt: new Date().toISOString(),
-            });
-          } catch (recordErr) {
-            console.warn(
-              `Failed to record outcome for session ${session.id}:`,
-              recordErr instanceof Error ? recordErr.message : String(recordErr),
-            );
-          }
-        }
-
-        // bd-s4t.1 + bd-e4t + bd-kki: when a session reaches ANY terminal state,
-        // proactively clean up runtime and worktree. Without this, dead sessions
-        // leave orphaned worktrees that lock branches and block future spawns.
-        // Orchestrator sessions are excluded: killing the orchestrator would clear
-        // its rate-limit pause metadata, breaking the pause mechanism.
-        if (TERMINAL_STATUSES.has(effectiveStatus) && !isOrchestratorSession(session)) {
-          try {
-            await sessionManager.kill(session.id);
-            // Only log session_kill after successful kill — a false entry for a
-            // failed kill would misrepresent session state in the audit trail.
-            logAoAction({
-              ts: new Date().toISOString(),
-              session: session.id,
-              action: "session_kill",
-              pr: session.pr?.number,
-              repo: session.pr ? `${session.pr.owner}/${session.pr.repo}` : undefined,
-              reason: `terminal:${effectiveStatus}`,
-            });
-          } catch (killErr) {
-            observer.recordOperation({
-              metric: "lifecycle_poll",
-              operation: "lifecycle.terminal_cleanup",
-              outcome: "failure",
-              correlationId: createCorrelationId("lifecycle-cleanup"),
-              projectId: session.projectId,
-              sessionId: session.id,
-              data: { error: killErr instanceof Error ? killErr.message : String(killErr) },
-              level: "warn",
-            });
-          }
-        }
-
-      }
-
-      // bd-kki: belt-and-suspenders. When the first absorb check ran (non-terminal
-      // oldStatus) and confirmed merged=true, mergedConfirmed is already set so no
-      // second SCM call is needed.  When oldStatus was already terminal the absorb
-      // check did not run — re-check SCM once and call kill() if merged.
-      // Placed OUTSIDE the !TERMINAL_STATUSES.has(oldStatus) guard so it can fire
-      // for terminal→killed transitions (e.g. errored→killed).
-      if (effectiveStatus === "killed" && session.pr) {
-        if (mergedConfirmed) {
-          // Absorb check confirmed merged — kill using cached result
-          await sessionManager.kill(session.id);
-        } else if (TERMINAL_STATUSES.has(oldStatus)) {
-          // Terminal→killed transition: re-check SCM once to catch merged PRs
-          const project = config.projects[session.projectId];
-          const scm = project?.scm ? registry.get<SCM>("scm", project.scm.plugin) : null;
-          if (scm) {
-            try {
-              if ((await scm.getPRState(session.pr)) === PR_STATE.MERGED) {
-                await sessionManager.kill(session.id);
-              }
-            } catch {
-              // SCM unreachable — skip kill; next poll will retry if status changes
-            }
-          }
-        }
-      }
-
-      // bd-kki: early isPRMerged can upgrade killed→merged while oldStatus is already
-      // terminal (e.g. errored + missing workspace). The block above only runs exit proof +
-      // kill when !TERMINAL_STATUSES.has(oldStatus), so merge cleanup would be skipped.
-      if (
-        effectiveStatus === "merged" &&
-        TERMINAL_STATUSES.has(oldStatus) &&
-        oldStatus !== "merged" &&
-        !isOrchestratorSession(session)
-      ) {
-        try {
-          await sessionManager.kill(session.id);
-        } catch (killErr) {
-          observer.recordOperation({
-            metric: "lifecycle_poll",
-            operation: "lifecycle.terminal_cleanup",
-            outcome: "failure",
-            correlationId: createCorrelationId("lifecycle-cleanup"),
-            projectId: session.projectId,
-            sessionId: session.id,
-            data: { error: killErr instanceof Error ? killErr.message : String(killErr) },
-            level: "warn",
-          });
-        }
-      }
     } else {
       // No transition but track current state
       states.set(session.id, newStatus);
@@ -2396,7 +2496,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       // this deep pane inspection catches false-liveness. (bd-stuck-probe)
       if (
         !TERMINAL_STATUSES.has(newStatus) &&
-        !isOrchestratorSession(session) &&
+        !isLifecycleOrchestratorSession(session) &&
         session.runtimeHandle
       ) {
         try {
@@ -2468,113 +2568,24 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       await sendMcpMailSessionEnd(blockedTask, "human input").catch(() => {/* non-fatal */});
     }
 
-    // Session exit reconciliation (bd-uxs.6): validate commits and emit proof on terminal states
-    if (TERMINAL_STATUSES.has(newStatus) && !TERMINAL_STATUSES.has(oldStatus)) {
-      // MCP mail: send session-end to global inbox before exit proof
-      if (getMcpMailClientConfig()) {
-        const doneTask = sessionCurrentTask.get(session.id);
-        await sendMcpMailSessionEnd(doneTask).catch(() => {/* non-fatal */});
-        sessionCurrentTask.delete(session.id);
-      }
-
-      await validateAndEmitExitProof(session, newStatus, {
-        config,
-        registry,
-        observer,
-        notifyHuman,
-        createEvent,
-      });
-
-      // Record outcome for strategy learning (bd-nig)
-      // Guarded: disk errors must not break session lifecycle checks
-      if (outcomeRecorder) {
-        try {
-          const success = newStatus === "merged";
-          outcomeRecorder.record({
-            sessionId: session.id,
-            projectId: session.projectId,
-            trigger: session.metadata["trigger"] ?? "unknown",
-            action: session.metadata["action"] ?? "unknown",
-            strategy: session.metadata["strategy"],
-            errorClass: session.metadata["errorClass"],
-            success,
-            durationMs: Date.now() - new Date(session.createdAt).getTime(),
-            error: !success ? `Session ended with status: ${newStatus}` : undefined,
-            prNumber: session.pr?.number,
-            recordedAt: new Date().toISOString(),
-          });
-        } catch (recordErr) {
-          console.warn(
-            `Failed to record outcome for session ${session.id}:`,
-            recordErr instanceof Error ? recordErr.message : String(recordErr),
-          );
-        }
-      }
-
-      // bd-s4t.1 + bd-e4t: when a session reaches ANY terminal state (merged,
-      // killed, etc.), proactively clean up runtime and worktree. Without this,
-      // dead sessions leave orphaned worktrees that lock branches and block
-      // future `ao spawn --claim-pr` calls (git refuses to checkout a branch
-      // already checked out in another worktree). Placed after exit proof
-      // validation and outcome recording so the worktree is still available
-      // for commit validation in validateAndEmitExitProof.
-      // Orchestrator sessions are excluded: killing the orchestrator would clear
-      // its rate-limit pause metadata, breaking the pause mechanism.
-      if (TERMINAL_STATUSES.has(newStatus) && !isOrchestratorSession(session)) {
-        try {
-          await sessionManager.kill(session.id);
-          // On PR merge, immediately reap co-workers that have no PR and have
-          // been idle for 5+ minutes — they finished their work and are waiting
-          // for direction that will never come.
-          // Fork companion (fork-lifecycle-postmerge.ts): project-scoped + idle-gated
-          // so a merge in one project does not reap sessions from other projects,
-          // and active sessions that are simply old are not killed prematurely.
-          // Non-fatal: reap failures are warning-only so they never block session cleanup.
-          if (newStatus === "merged") {
-            // orch-s66: pass exit proof deps so reaped co-workers emit session.exited
-            // notifications. Without this, Slack thread terminal updates are skipped for
-            // co-workers cleaned up by the post-merge sweep.
-            await reapPostMergeCoWorkers(session, sessionManager, observer, {
-              config,
-              registry,
-              observer,
-              notifyHuman,
-              createEvent,
-            });
-          }
-        } catch (killErr) {
-          // kill() may fail if session is already partially cleaned up; reapPostMergeCoWorkers
-          // may fail if the reaper is unreachable. Both are non-fatal — log and continue.
-          observer.recordOperation({
-            metric: "lifecycle_poll",
-            operation: "lifecycle.terminal_cleanup",
-            outcome: "failure",
-            correlationId: createCorrelationId("lifecycle-cleanup"),
-            projectId: session.projectId,
-            sessionId: session.id,
-            data: { error: killErr instanceof Error ? killErr.message : String(killErr) },
-            level: "warn",
-          });
-        }
-      }
-
-    }
+    await reconcileTerminalSessionExit(session, newStatus);
   }
 
   /** Run one polling cycle across all sessions. */
   async function pollAll(): Promise<void> {
     const correlationId = createCorrelationId("lifecycle-poll");
     const startedAt = Date.now();
+    const nowMs = startedAt;
     // Re-entrancy guard: skip if previous poll is still running
     if (polling) return;
     polling = true;
 
     try {
-      const sessions = await sessionManager.list(scopedProjectId);
+      const sessions = await loadSessionsForPoll();
 
       const pausedProjects = new Map<string, Date>();
       for (const session of sessions) {
-        if (!isOrchestratorSession(session)) continue;
+        if (!isLifecycleOrchestratorSession(session)) continue;
         const until = parsePauseUntil(session.metadata[GLOBAL_PAUSE_UNTIL_KEY]);
         if (!until) continue;
         if (until.getTime() <= Date.now()) {
@@ -2597,29 +2608,13 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         everHadSessions = true;
       }
 
-      // Include sessions that are active OR whose status changed from what we last saw
-      // (e.g., list() detected a dead runtime and marked it "killed" — we need to
-      // process that transition even though the new status is terminal).
-      // Do NOT pre-filter paused projects here: pause state may clear mid-cycle, and
-      // excluded sessions can never be restored within the same poll tick.
-      const sessionsToCheck = sessions.filter((s) => {
-        // Skip terminal statuses only if we've already seen and processed this session.
-        // If tracked is undefined (e.g., after lifecycle manager restart), allow it
-        // through once so exit proof and outcome can be emitted (bd-e4t).
-        if (TERMINAL_STATUSES.has(s.status)) {
-          const tracked = states.get(s.id);
-          return tracked === undefined || tracked !== s.status;
-        }
-        return true;
-      });
-
       // bd-wse: Poll sessions sequentially instead of concurrently.
       // Concurrent polling (Promise.allSettled) fires N×4 GitHub API calls in parallel,
       // exhausting the 5000/hr GraphQL rate limit when many sessions exist.
       // Sequential checks run back-to-back within one poll cycle (no pacing between
       // sessions). With many sessions, the cycle can exceed the configured interval;
       // the re-entrancy guard above then skips overlapping ticks until the cycle finishes.
-      for (const s of sessionsToCheck) {
+      for (const s of sessions) {
         // Pre-refresh: reload pause state from disk at the top of each iteration so
         // this session sees pauses set OR cleared by orchestrators or earlier sessions
         // in the same cycle. This ensures a mid-cycle pause clear immediately unblocks
@@ -2639,7 +2634,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         // Skip non-orchestrator sessions if project is currently paused.
         // Terminal sessions bypass so exit proof, outcome recording, and cleanup
         // are not delayed (bd-e4t).
-        if (pausedProjects.has(s.projectId) && !isOrchestratorSession(s) && !TERMINAL_STATUSES.has(s.status)) {
+        if (pausedProjects.has(s.projectId) && !isLifecycleOrchestratorSession(s) && !TERMINAL_STATUSES.has(s.status)) {
           continue;
         }
         await checkSession(s).catch((err) => {
@@ -2711,13 +2706,32 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
 
       const activeSessions = sessions.filter((s) => !TERMINAL_STATUSES.has(s.status));
 
+      let queuedSpawned = 0;
+      if (scopedProjectId) {
+        const project = config.projects[scopedProjectId];
+        if (project) {
+          queuedSpawned = await drainSpawnQueue(
+            { sessionManager, observer },
+            { projectId: scopedProjectId, project, configPath: config.configPath ?? "", activeSessions, correlationId },
+          );
+          if (queuedSpawned > 0) {
+            allCompleteEmitted = false;
+          }
+        }
+      }
+
       // backfillAllPRs: spawn sessions for open PRs that have no active session.
       // Replaces the old orchestrator-session-based PR discovery (bd-awq) with a
       // deterministic loop inside the lifecycle-worker itself.
+      //
+      // Default: enabled (opt-out). Any value other than explicit `false`
+      // activates backfill. Projects that opt out while still having open PRs
+      // emit a warn observation so silent misconfiguration is visible.
       let backfillSpawned = false;
-      if (scopedProjectId) {
+      if (scopedProjectId && queuedSpawned === 0) {
         const project = config.projects[scopedProjectId];
-        if (project?.backfillAllPRs) {
+        const backfillEnabled = project?.backfillAllPRs !== false;
+        if (project && backfillEnabled) {
           backfillSpawned = await backfillUncoveredPRs(
             { registry, sessionManager, observer },
             { projectId: scopedProjectId, project, activeSessions, correlationId, worktreeDir: (config as { worktreeDir?: string }).worktreeDir },
@@ -2726,6 +2740,17 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
           if (backfillSpawned) {
             allCompleteEmitted = false;
           }
+        } else if (project && project.backfillAllPRs === false) {
+          await maybeWarnBackfillDisabledWithOpenPRs({
+            projectId: scopedProjectId,
+            project,
+            nowMs,
+            correlationId,
+            observer,
+            registry,
+            lastBackfillWarnTimeByProject,
+            BACKFILL_WARN_INTERVAL_MS,
+          });
         }
       }
 
@@ -2735,7 +2760,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       // Fire-and-forget so a long-running LLM evaluation does not block the poll loop.
       if (scopedProjectId) {
         const skepticProject = config.projects[scopedProjectId];
-        if (skepticProject?.backfillAllPRs) {
+        if (skepticProject && skepticProject.backfillAllPRs !== false) {
           void runLocalSkepticCron(
             { registry, sessionManager, observer },
             { projectId: scopedProjectId, project: skepticProject, activeSessions, correlationId },
@@ -2749,7 +2774,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
 
       // bd-bsu: Task queue drainer — spawns sessions for queued beads up to maxConcurrent.
       // Runs independently of backfillAllPRs; both can co-exist.
-      if (scopedProjectId) {
+      if (scopedProjectId && queuedSpawned === 0) {
         const project = config.projects[scopedProjectId];
         if (project?.taskQueue?.enabled) {
           const tqSpawned = await drainTaskQueue(
@@ -2767,17 +2792,12 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       // {12-hex-hash}-{prefix}-{num} (where prefix ∈ project session prefixes)
       // that exist in tmux but have no AO DB record and are idle >orphanIdleThresholdMs
       // are killed. This unblocks the spawn gate (>20 sessions threshold).
-      const nowMs = Date.now();
       if (nowMs - lastSweepTime >= SWEEP_INTERVAL_MS) {
         lastSweepTime = nowMs;
         try {
           // Collect all unique session prefixes from configured projects so the
           // sweeper can identify orphaned sessions regardless of which project they belong to
-          const projectPrefixes = new Set(
-            Object.values(config.projects)
-              .map((p) => p.sessionPrefix)
-              .filter(Boolean),
-          );
+          const projectPrefixes = new Set(allSessionPrefixes);
           const sweepConfig = {
             ...DEFAULT_TMUX_SWEEPER_CONFIG,
             aoSessionPrefixes: projectPrefixes.size > 0 ? projectPrefixes : DEFAULT_TMUX_SWEEPER_CONFIG.aoSessionPrefixes,
@@ -2885,6 +2905,31 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     }
   }
 
+  async function loadSessionsForPoll(): Promise<Session[]> {
+    const activeSessions = await sessionManager.list(scopedProjectId);
+    const sessionsById = new Map(activeSessions.map((session) => [session.id, session]));
+
+    const projects: Array<[string, _ProjectConfig]> = scopedProjectId
+      ? [[scopedProjectId, config.projects[scopedProjectId] as _ProjectConfig]]
+      : (Object.entries(config.projects) as Array<[string, _ProjectConfig]>);
+
+    for (const [, project] of projects) {
+      if (!project) continue;
+      const sessionsDir = getSessionsDir(config.configPath, project.path);
+      if (!existsSync(sessionsDir)) continue;
+
+      for (const sessionId of listMetadata(sessionsDir)) {
+        if (sessionsById.has(sessionId)) continue;
+        const session = await sessionManager.get(sessionId);
+        if (!session) continue;
+        if (!TERMINAL_STATUSES.has(session.status)) continue;
+        sessionsById.set(session.id, session);
+      }
+    }
+
+    return [...sessionsById.values()];
+  }
+
   return {
     start(intervalMs = 30_000): void {
       if (pollTimer) return; // Already running
@@ -2929,6 +2974,59 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     _testing: {
       executeReaction,
       getReactionConfigForSession,
+      maybeWarnBackfillDisabledWithOpenPRs,
     },
-  } as LifecycleManager & { _testing: { executeReaction: typeof executeReaction; getReactionConfigForSession: typeof getReactionConfigForSession } };
+  } as LifecycleManager & {
+    _testing: {
+      executeReaction: typeof executeReaction;
+      getReactionConfigForSession: typeof getReactionConfigForSession;
+      maybeWarnBackfillDisabledWithOpenPRs: typeof maybeWarnBackfillDisabledWithOpenPRs;
+    };
+  };
+}
+
+/**
+ * maybeWarnBackfillDisabledWithOpenPRs — throttled warning when backfill is explicitly disabled.
+ * Surface open-PR leakage risk for operator visibility. Throttled to reduce SCM API load.
+ * (bd-bsu: requested by CodeRabbit review on #406)
+ */
+async function maybeWarnBackfillDisabledWithOpenPRs(args: {
+  projectId: string;
+  project: _ProjectConfig;
+  nowMs: number;
+  correlationId: string;
+  observer: ProjectObserver;
+  registry: PluginRegistry;
+  lastBackfillWarnTimeByProject: Map<string, number>;
+  BACKFILL_WARN_INTERVAL_MS: number;
+}): Promise<void> {
+  const lastWarn = args.lastBackfillWarnTimeByProject.get(args.projectId) ?? 0;
+  if (args.nowMs - lastWarn < args.BACKFILL_WARN_INTERVAL_MS) {
+    return;
+  }
+
+  const scmPlugin = args.project.scm ? args.registry.get<SCM>("scm", args.project.scm.plugin) : null;
+  const listOpenPRs = scmPlugin?.listOpenPRs?.bind(scmPlugin);
+  if (!listOpenPRs) return;
+
+  try {
+    const openPRs = await listOpenPRs(args.project);
+    const nonDraftOpen = openPRs.filter((pr) => !pr.isDraft).length;
+    if (nonDraftOpen > 0) {
+      args.observer.recordOperation({
+        metric: "lifecycle_poll",
+        operation: "lifecycle.backfill.disabled_with_open_prs",
+        outcome: "failure",
+        correlationId: args.correlationId,
+        projectId: args.projectId,
+        data: { nonDraftOpenPRs: nonDraftOpen },
+        level: "warn",
+      });
+    }
+  } catch {
+    /* fail-open: skip warning on list error */
+  } finally {
+    // Ensure throttle timestamp is set even on failure to avoid hammering the API.
+    args.lastBackfillWarnTimeByProject.set(args.projectId, Date.now());
+  }
 }

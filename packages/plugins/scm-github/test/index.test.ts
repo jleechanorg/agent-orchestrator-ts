@@ -1,4 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
+import { join } from "node:path";
 
 // ---------------------------------------------------------------------------
 // Mock node:child_process — gh CLI calls go through execFileAsync = promisify(execFile)
@@ -42,6 +45,8 @@ const project: ProjectConfig = {
   sessionPrefix: "test",
 };
 
+const configuredWorktreeDir = `${homedir()}/.worktrees`;
+
 function makeSession(overrides: Partial<Session> = {}): Session {
   return {
     id: "test-1",
@@ -67,6 +72,17 @@ function mockGh(result: unknown) {
 
 function mockGhError(msg = "Command failed") {
   ghMock.mockRejectedValueOnce(new Error(msg));
+}
+
+function assertNoGitWorktreeRemoveCalls() {
+  const removeCalls = ghMock.mock.calls.filter(
+    ([bin, args]) =>
+      bin === "git" &&
+      Array.isArray(args) &&
+      args[0] === "worktree" &&
+      args[1] === "remove",
+  );
+  expect(removeCalls).toHaveLength(0);
 }
 
 function makeWebhookRequest(overrides: Partial<SCMWebhookRequest> = {}): SCMWebhookRequest {
@@ -101,7 +117,7 @@ describe("scm-github plugin", () => {
     vi.clearAllMocks();
     ghMock.mockReset(); // clear queue + stale mockResolvedValue from previous test
     ghMock.mockResolvedValue({ stdout: "" }); // neutral base: no output for unexpected gh calls
-    scm = create();
+    scm = create({ worktreeDir: configuredWorktreeDir });
     delete process.env["GITHUB_WEBHOOK_SECRET"];
   });
 
@@ -817,7 +833,8 @@ describe("scm-github plugin", () => {
       ghMock.mockResolvedValueOnce({ stdout: "" }); // git fetch refs/pull/42/head:feat/my-feature (primary succeeds)
       ghMock.mockResolvedValueOnce({ stdout: "main\n" }); // git branch --show-current (after fetch — still on main)
       ghMock.mockResolvedValueOnce({ stdout: "" }); // git checkout feat/my-feature
-      ghMock.mockResolvedValueOnce({ stdout: "feat/my-feature\n" }); // git branch --show-current (verify)
+      ghMock.mockResolvedValueOnce({ stdout: "deadbeef\n" }); // git rev-parse HEAD (verify)
+      ghMock.mockResolvedValueOnce({ stdout: "deadbeef\n" }); // git rev-parse refs/heads/feat/my-feature (verify)
 
       const changed = await scm.checkoutPR?.(pr, "/tmp/repo");
       expect(changed).toBe(true);
@@ -832,6 +849,131 @@ describe("scm-github plugin", () => {
       await expect(scm.checkoutPR?.(pr, "/tmp/repo")).rejects.toThrow("Authentication failed");
     });
 
+    it("removes a stale AO worktree and retries fetch when target branch is checked out elsewhere", async () => {
+      const staleWorktree = join(homedir(), ".worktrees", "acme", "ao-9999");
+
+      ghMock.mockResolvedValueOnce({ stdout: "main\n" }); // git branch --show-current (before)
+      ghMock.mockResolvedValueOnce({ stdout: "" }); // git status --porcelain (clean)
+      ghMock.mockResolvedValueOnce({ stdout: "https://github.com/acme/repo.git\n" }); // git remote get-url origin
+      ghMock.mockRejectedValueOnce(
+        new Error(
+          `fatal: refusing to fetch into branch 'refs/heads/feat/my-feature' checked out at '${staleWorktree}'\n`,
+        ),
+      ); // initial fetch blocked by stale worktree
+      ghMock.mockResolvedValueOnce({
+        stdout:
+          "worktree /tmp/repo\nHEAD deadbeef\nbranch refs/heads/main\n\n" +
+          `worktree ${staleWorktree}\nHEAD cafe1234\nbranch refs/heads/feat/my-feature\n`,
+      }); // git worktree list --porcelain (stale worktree is registered)
+      ghMock.mockResolvedValueOnce({ stdout: "detached-ghost\nanother-live-session\n" }); // tmux list-sessions (stale ao-9999 is dead)
+      ghMock.mockResolvedValueOnce({ stdout: "" }); // git worktree remove --force --force
+      ghMock.mockResolvedValueOnce({
+        stdout: "worktree /tmp/repo\nHEAD deadbeef\nbranch refs/heads/main\n",
+      }); // git worktree list --porcelain (stale entry gone)
+      ghMock.mockResolvedValueOnce({ stdout: "" }); // retried git fetch succeeds
+      ghMock.mockResolvedValueOnce({ stdout: "main\n" }); // git branch --show-current (after fetch)
+      ghMock.mockResolvedValueOnce({ stdout: "" }); // git checkout -f feat/my-feature
+      ghMock.mockResolvedValueOnce({ stdout: "deadbeef\n" }); // git rev-parse HEAD (verify)
+      ghMock.mockResolvedValueOnce({ stdout: "deadbeef\n" }); // git rev-parse refs/heads/feat/my-feature (verify)
+
+      const changed = await scm.checkoutPR?.(pr, "/tmp/repo");
+      expect(changed).toBe(true);
+    });
+
+    it("does not remove non-AO worktrees when fetch fails because another branch is checked out", async () => {
+      ghMock.mockResolvedValueOnce({ stdout: "main\n" }); // git branch --show-current (before)
+      ghMock.mockResolvedValueOnce({ stdout: "" }); // git status --porcelain (clean)
+      ghMock.mockResolvedValueOnce({ stdout: "https://github.com/acme/repo.git\n" }); // git remote get-url origin
+      ghMock.mockRejectedValueOnce(
+        new Error(
+          `fatal: refusing to fetch into branch 'refs/heads/feat/my-feature' checked out at '${configuredWorktreeDir}/acme/feature-research'\n`,
+        ),
+      ); // branch blocked by non-AO worktree — recovery path takes over (no worktree removal)
+      // recovery: fetch to temp branch, update-ref, cleanup, checkout, verify
+      ghMock.mockResolvedValueOnce({ stdout: "deadbeef\n" }); // git rev-parse HEAD (verify)
+      ghMock.mockResolvedValueOnce({ stdout: "deadbeef\n" }); // git rev-parse refs/heads/feat/my-feature (verify)
+
+      const changed = await scm.checkoutPR?.(pr, "/tmp/repo");
+      expect(changed).toBe(true);
+      assertNoGitWorktreeRemoveCalls();
+    });
+
+    it("does not remove AO-named paths that are not registered worktrees for the repo", async () => {
+      ghMock.mockResolvedValueOnce({ stdout: "main\n" }); // git branch --show-current (before)
+      ghMock.mockResolvedValueOnce({ stdout: "" }); // git status --porcelain (clean)
+      ghMock.mockResolvedValueOnce({ stdout: "https://github.com/acme/repo.git\n" }); // git remote get-url origin
+      ghMock.mockRejectedValueOnce(
+        new Error(
+          `fatal: refusing to fetch into branch 'refs/heads/feat/my-feature' checked out at '${configuredWorktreeDir}/acme/ao-9999'\n`,
+        ),
+      ); // AO-looking path that is not actually registered for this repo
+      ghMock.mockResolvedValueOnce({
+        stdout: "worktree /tmp/repo\nHEAD deadbeef\nbranch refs/heads/main\n",
+      }); // git worktree list --porcelain (no stale ao-9999 entry) — recovery path takes over
+      // recovery: fetch to temp branch, update-ref, cleanup, checkout, verify
+      ghMock.mockResolvedValueOnce({ stdout: "deadbeef\n" }); // git rev-parse HEAD (verify)
+      ghMock.mockResolvedValueOnce({ stdout: "deadbeef\n" }); // git rev-parse refs/heads/feat/my-feature (verify)
+
+      const changed = await scm.checkoutPR?.(pr, "/tmp/repo");
+      expect(changed).toBe(true);
+      assertNoGitWorktreeRemoveCalls();
+    });
+
+    it("does not remove registered AO worktrees outside the configured base directory", async () => {
+      ghMock.mockResolvedValueOnce({ stdout: "main\n" }); // git branch --show-current (before)
+      ghMock.mockResolvedValueOnce({ stdout: "" }); // git status --porcelain (clean)
+      ghMock.mockResolvedValueOnce({ stdout: "https://github.com/acme/repo.git\n" }); // git remote get-url origin
+      ghMock.mockRejectedValueOnce(
+        new Error(
+          "fatal: refusing to fetch into branch 'refs/heads/feat/my-feature' checked out at '/tmp/ao-9999'\n",
+        ),
+      ); // AO-looking path registered for this repo, but outside the configured worktree base dir
+      ghMock.mockResolvedValueOnce({
+        stdout:
+          "worktree /tmp/repo\nHEAD deadbeef\nbranch refs/heads/main\n\n" +
+          "worktree /tmp/ao-9999\nHEAD cafe1234\nbranch refs/heads/feat/my-feature\n",
+      }); // git worktree list --porcelain (registered, but outside configured base dir) — recovery path takes over
+      // recovery: fetch to temp branch, update-ref, cleanup, checkout, verify
+      ghMock.mockResolvedValueOnce({ stdout: "deadbeef\n" }); // git rev-parse HEAD (verify)
+      ghMock.mockResolvedValueOnce({ stdout: "deadbeef\n" }); // git rev-parse refs/heads/feat/my-feature (verify)
+
+      const changed = await scm.checkoutPR?.(pr, "/tmp/repo");
+      expect(changed).toBe(true);
+      assertNoGitWorktreeRemoveCalls();
+    });
+
+    it("retries fetch after git removes a stale worktree entry even if the directory still exists", async () => {
+      const worktreeBaseDir = mkdtempSync(join(tmpdir(), "scm-github-worktrees-"));
+      const stalePath = join(worktreeBaseDir, "acme", "ao-9999");
+      mkdirSync(stalePath, { recursive: true });
+      const scmWithCustomWorktreeDir = create({ worktreeDir: worktreeBaseDir });
+
+      try {
+        ghMock.mockResolvedValueOnce({ stdout: "main\n" }); // git branch --show-current (before)
+        ghMock.mockResolvedValueOnce({ stdout: "" }); // git status --porcelain (clean)
+        ghMock.mockResolvedValueOnce({ stdout: "https://github.com/acme/repo.git\n" }); // git remote get-url origin
+        ghMock.mockRejectedValueOnce(
+          new Error(
+            `fatal: refusing to fetch into branch 'refs/heads/feat/my-feature' checked out at '${stalePath}'\n`,
+          ),
+        ); // initial fetch blocked by stale worktree
+        ghMock.mockResolvedValueOnce({ stdout: `worktree ${stalePath}\nHEAD abc123\nbranch refs/heads/feat/my-feature\n\n` }); // git worktree list --porcelain (stale entry present)
+        ghMock.mockResolvedValueOnce({ stdout: "detached-ghost\nanother-live-session\n" }); // tmux list-sessions (stale ao-9999 is dead)
+        ghMock.mockResolvedValueOnce({ stdout: "" }); // git worktree remove --force --force
+        ghMock.mockResolvedValueOnce({ stdout: "" }); // git worktree list --porcelain (stale entry gone, dir still lingers)
+        ghMock.mockResolvedValueOnce({ stdout: "" }); // retried git fetch succeeds
+        ghMock.mockResolvedValueOnce({ stdout: "main\n" }); // git branch --show-current (after fetch)
+        ghMock.mockResolvedValueOnce({ stdout: "" }); // git checkout -f feat/my-feature
+        ghMock.mockResolvedValueOnce({ stdout: "deadbeef\n" }); // git rev-parse HEAD (verify)
+        ghMock.mockResolvedValueOnce({ stdout: "deadbeef\n" }); // git rev-parse refs/heads/feat/my-feature (verify)
+
+        const changed = await scmWithCustomWorktreeDir.checkoutPR?.(pr, "/tmp/repo");
+        expect(changed).toBe(true);
+      } finally {
+        rmSync(worktreeBaseDir, { recursive: true, force: true });
+      }
+    });
+
     it("returns true when git fetch + checkout succeeds (already on branch after fetch)", async () => {
       ghMock.mockResolvedValueOnce({ stdout: "main\n" }); // git branch --show-current (before)
       ghMock.mockResolvedValueOnce({ stdout: "" }); // git status --porcelain (clean)
@@ -839,7 +981,8 @@ describe("scm-github plugin", () => {
       ghMock.mockResolvedValueOnce({ stdout: "" }); // git fetch refs/pull/42/head:feat/my-feature (primary succeeds)
       ghMock.mockResolvedValueOnce({ stdout: "main\n" }); // git branch --show-current (after fetch — still on main, needs checkout)
       ghMock.mockResolvedValueOnce({ stdout: "" }); // git checkout feat/my-feature
-      ghMock.mockResolvedValueOnce({ stdout: "feat/my-feature\n" }); // git branch --show-current (verify)
+      ghMock.mockResolvedValueOnce({ stdout: "deadbeef\n" }); // git rev-parse HEAD (verify)
+      ghMock.mockResolvedValueOnce({ stdout: "deadbeef\n" }); // git rev-parse refs/heads/feat/my-feature (verify)
 
       const changed = await scm.checkoutPR?.(pr, "/tmp/repo");
       expect(changed).toBe(true);
@@ -856,10 +999,230 @@ describe("scm-github plugin", () => {
     it("throws when workspace has uncommitted changes", async () => {
       ghMock.mockResolvedValueOnce({ stdout: "main\n" }); // git branch --show-current
       ghMock.mockResolvedValueOnce({ stdout: "M  src/foo.ts\n" }); // git status --porcelain (dirty)
+      // Reset loop: src/foo.ts is not AO-managed — not reset
+      ghMock.mockResolvedValueOnce({ stdout: "M  src/foo.ts\n" }); // git status --porcelain (remaining dirty)
       // No checkout attempt
 
       await expect(scm.checkoutPR?.(pr, "/tmp/repo")).rejects.toThrow(
         "Workspace has uncommitted changes",
+      );
+    });
+
+    it("restores AO-managed tracked files from HEAD before switching branches", async () => {
+      let currentBranch = "main";
+      let cleaned = false;
+      ghMock.mockImplementation(async (_bin: string, args: string[]) => {
+        const command = args.join(" ");
+        if (command === "branch --show-current") {
+          return { stdout: `${currentBranch}\n` };
+        }
+        if (command === "status --porcelain") {
+          return { stdout: cleaned ? "" : " M AGENTS.md\n" };
+        }
+        if (command === "restore --source=HEAD --staged --worktree -- AGENTS.md") {
+          cleaned = true;
+          return { stdout: "" };
+        }
+        if (command === "remote get-url origin") {
+          return { stdout: "https://github.com/acme/repo.git\n" };
+        }
+        if (command === "fetch --force https://github.com/acme/repo.git +refs/pull/42/head:feat/my-feature") {
+          currentBranch = "feat/my-feature";
+          return { stdout: "" };
+        }
+        return { stdout: `${currentBranch}\n` };
+      });
+
+      const changed = await scm.checkoutPR?.(pr, "/tmp/repo");
+      expect(changed).toBe(true);
+      expect(cleaned).toBe(true);
+      expect(ghMock).toHaveBeenCalledWith(
+        "git",
+        ["restore", "--source=HEAD", "--staged", "--worktree", "--", "AGENTS.md"],
+        expect.any(Object),
+      );
+    });
+
+    it("resets AO-managed file and succeeds when only AO-managed file is dirty", async () => {
+      let currentBranch = "main";
+      let statusChecks = 0;
+
+      ghMock.mockImplementation(async (bin: string, args: string[]) => {
+        expect(bin).toBe("git");
+
+        if (args[0] === "branch" && args[1] === "--show-current") {
+          return { stdout: `${currentBranch}\n` };
+        }
+
+        if (args[0] === "status" && args[1] === "--porcelain") {
+          statusChecks += 1;
+          return {
+            stdout: statusChecks === 1 ? " M .claude/settings.json\n" : "",
+          };
+        }
+
+        if (
+          args[0] === "restore" &&
+          args[1] === "--source=HEAD" &&
+          args[2] === "--staged" &&
+          args[3] === "--worktree" &&
+          args[4] === "--" &&
+          args[5] === ".claude/settings.json"
+        ) {
+          return { stdout: "" };
+        }
+
+        if (args[0] === "remote" && args[1] === "get-url" && args[2] === "origin") {
+          return { stdout: "https://github.com/acme/repo.git\n" };
+        }
+
+        if (args[0] === "fetch" && args[1] === "--force") {
+          return { stdout: "" };
+        }
+
+        if (args[0] === "checkout" && args[1] === "-f" && args[2] === pr.branch) {
+          currentBranch = pr.branch;
+          return { stdout: "" };
+        }
+
+        if (args[0] === "rev-parse") {
+          return { stdout: "deadbeef\n" };
+        }
+
+        throw new Error(`Unexpected git command: ${args.join(" ")}`);
+      });
+
+      const changed = await scm.checkoutPR?.(pr, "/tmp/repo");
+      expect(changed).toBe(true);
+    });
+
+    it("restores staged AO-managed dirt before switching branches", async () => {
+      let currentBranch = "main";
+      let cleaned = false;
+      ghMock.mockImplementation(async (_bin: string, args: string[]) => {
+        const command = args.join(" ");
+        if (command === "branch --show-current") {
+          return { stdout: `${currentBranch}\n` };
+        }
+        if (command === "status --porcelain") {
+          return { stdout: cleaned ? "" : "M  AGENTS.md\n" };
+        }
+        if (command === "restore --source=HEAD --staged --worktree -- AGENTS.md") {
+          cleaned = true;
+          return { stdout: "" };
+        }
+        if (command === "remote get-url origin") {
+          return { stdout: "https://github.com/acme/repo.git\n" };
+        }
+        if (command === "fetch --force https://github.com/acme/repo.git +refs/pull/42/head:feat/my-feature") {
+          return { stdout: "" };
+        }
+        if (command === "checkout -f feat/my-feature") {
+          currentBranch = "feat/my-feature";
+          return { stdout: "" };
+        }
+        return { stdout: `${currentBranch}\n` };
+      });
+
+      const changed = await scm.checkoutPR?.(pr, "/tmp/repo");
+      expect(changed).toBe(true);
+      expect(cleaned).toBe(true);
+      expect(ghMock).toHaveBeenCalledWith(
+        "git",
+        ["restore", "--source=HEAD", "--staged", "--worktree", "--", "AGENTS.md"],
+        expect.any(Object),
+      );
+    });
+
+    it("fails loudly when restoring AO-managed files fails", async () => {
+      ghMock.mockResolvedValueOnce({ stdout: "main\n" }); // git branch --show-current
+      ghMock.mockResolvedValueOnce({ stdout: " M AGENTS.md\n" }); // git status --porcelain (dirty)
+      ghMock.mockRejectedValueOnce(new Error("restore failed")); // git restore --source=HEAD --staged --worktree -- AGENTS.md
+
+      await expect(scm.checkoutPR?.(pr, "/tmp/repo")).rejects.toThrow("restore failed");
+    });
+
+    it("uses pr.branch (not prRef) as recovery source when branch-name fallback is active", async () => {
+      // When prRef (refs/pull/42/head) fails with "ref not found", the fallback fetch
+      // uses pr.branch. If non-AO worktree holds it, recoveryRef must be pr.branch
+      // (not prRef which already failed). This test verifies that recoveryRef is threaded
+      // through correctly so the recovery fetch doesn't retry the already-failed prRef.
+      ghMock.mockResolvedValueOnce({ stdout: "main\n" }); // git branch --show-current (before)
+      ghMock.mockResolvedValueOnce({ stdout: "" }); // git status --porcelain (clean)
+      ghMock.mockResolvedValueOnce({ stdout: "https://github.com/acme/repo.git\n" }); // git remote get-url origin
+      ghMock.mockRejectedValueOnce(new Error("couldn't find remote ref refs/pull/42/head")); // primary prRef fetch fails
+      ghMock.mockRejectedValueOnce( // fallback branch fetch blocked by non-AO worktree
+        new Error(
+          `fatal: refusing to fetch into branch 'refs/heads/feat/my-feature' checked out at '${configuredWorktreeDir}/acme/feature-research'\n`,
+        ),
+      );
+      // recovery path: fetches pr.branch (not prRef) to temp branch
+      // remaining calls use default mock (empty stdout)
+      ghMock.mockResolvedValueOnce({ stdout: "deadbeef\n" }); // git rev-parse HEAD (verify)
+      ghMock.mockResolvedValueOnce({ stdout: "deadbeef\n" }); // git rev-parse refs/heads/feat/my-feature (verify)
+
+      const changed = await scm.checkoutPR?.(pr, "/tmp/repo");
+      expect(changed).toBe(true);
+      // Verify recovery fetched pr.branch (not refs/pull/42/head) as the source
+      const fetchCalls = (ghMock as ReturnType<typeof vi.fn>).mock.calls.filter(
+        (c: string[]) => c[1]?.[0] === "fetch",
+      );
+      // At least one fetch call should use pr.branch (not prRef) in recovery
+      const recoveryFetch = fetchCalls.find(
+        (c: string[]) => c[1]?.some((a: string) => a.includes("feat/my-feature") && a.includes("tmp-fetch")),
+      );
+      expect(recoveryFetch).toBeDefined();
+    });
+
+    it("configures branch.<session>.remote with remote name 'origin' (not URL) and pushRemote", async () => {
+      // When a non-AO worktree holds pr.branch, checkout stays on session branch.
+      // push tracking must use remote NAME "origin", not the URL, and set pushRemote
+      // per-branch (not the repo-wide push.default) to avoid affecting other worktrees.
+      ghMock.mockResolvedValueOnce({ stdout: "session/abc123\n" }); // git branch --show-current (before) — on session branch
+      ghMock.mockResolvedValueOnce({ stdout: "" }); // git status --porcelain (clean)
+      ghMock.mockResolvedValueOnce({ stdout: "https://github.com/acme/repo.git\n" }); // git remote get-url origin
+      ghMock.mockResolvedValueOnce({ stdout: "" }); // git fetch +refs/pull/42/head:feat/my-feature (succeeds)
+      ghMock.mockResolvedValueOnce({ stdout: "session/abc123\n" }); // git branch --show-current (after fetch — still session branch)
+      ghMock.mockRejectedValueOnce( // git checkout -f feat/my-feature — locked by non-AO worktree
+        new Error("fatal: 'feat/my-feature' is already checked out at '/opt/other-worktree'"),
+      );
+      ghMock.mockResolvedValueOnce({ stdout: "deadbeef\n" }); // git rev-parse refs/heads/feat/my-feature (reset target SHA)
+      ghMock.mockResolvedValueOnce({ stdout: "" }); // git reset --hard deadbeef
+      ghMock.mockResolvedValueOnce({ stdout: "session/abc123\n" }); // git branch --show-current (get session branch for config)
+      // push tracking config calls — order: remote, merge, pushRemote
+      ghMock.mockResolvedValueOnce({ stdout: "" }); // git config branch.session/abc123.remote origin
+      ghMock.mockResolvedValueOnce({ stdout: "" }); // git config branch.session/abc123.merge refs/heads/feat/my-feature
+      ghMock.mockResolvedValueOnce({ stdout: "" }); // git config branch.session/abc123.pushRemote origin
+      ghMock.mockResolvedValueOnce({ stdout: "deadbeef\n" }); // git rev-parse HEAD (verify)
+      ghMock.mockResolvedValueOnce({ stdout: "deadbeef\n" }); // git rev-parse refs/heads/feat/my-feature (verify)
+
+      const changed = await scm.checkoutPR?.(pr, "/tmp/repo");
+      expect(changed).toBe(true);
+
+      // branch.<session>.remote must be the remote NAME "origin", not a URL
+      expect(ghMock).toHaveBeenCalledWith(
+        "git",
+        ["config", "branch.session/abc123.remote", "origin"],
+        expect.any(Object),
+      );
+      // merge ref must point to pr.branch
+      expect(ghMock).toHaveBeenCalledWith(
+        "git",
+        ["config", "branch.session/abc123.merge", "refs/heads/feat/my-feature"],
+        expect.any(Object),
+      );
+      // pushRemote must be set per-branch (not repo-wide push.default) to avoid
+      // changing push behavior for other worktrees sharing the same git repo
+      expect(ghMock).toHaveBeenCalledWith(
+        "git",
+        ["config", "branch.session/abc123.pushRemote", "origin"],
+        expect.any(Object),
+      );
+      // push.default must NOT be changed repo-wide
+      expect(ghMock).not.toHaveBeenCalledWith(
+        "git",
+        ["config", "push.default", expect.any(String)],
+        expect.any(Object),
       );
     });
   });
@@ -1495,18 +1858,38 @@ describe("scm-github plugin", () => {
       ["APPROVED", "approved"],
       ["CHANGES_REQUESTED", "changes_requested"],
       ["REVIEW_REQUIRED", "pending"],
+      ["PENDING", "pending"],
+      ["NONE", "none"],
     ] as const)('maps %s to "%s"', async (input, expected) => {
       mockGh({ reviewDecision: input });
       expect(await scm.getReviewDecision(pr)).toBe(expected);
     });
 
-    it('returns "none" when reviewDecision is empty', async () => {
+    it('returns "pending" when reviewDecision is empty', async () => {
       mockGh({ reviewDecision: "" });
-      expect(await scm.getReviewDecision(pr)).toBe("none");
+      expect(await scm.getReviewDecision(pr)).toBe("pending");
     });
 
-    it('returns "none" when reviewDecision is null', async () => {
+    it('returns "pending" when reviewDecision is null', async () => {
       mockGh({ reviewDecision: null });
+      expect(await scm.getReviewDecision(pr)).toBe("pending");
+    });
+
+    it('returns "pending" when reviewDecision is whitespace-only', async () => {
+      mockGh({ reviewDecision: "   " });
+      expect(await scm.getReviewDecision(pr)).toBe("pending");
+    });
+
+    it.each([0, false, {}, []])(
+      'returns "pending" when reviewDecision is a non-string payload: %p',
+      async (input) => {
+        mockGh({ reviewDecision: input });
+        expect(await scm.getReviewDecision(pr)).toBe("pending");
+      },
+    );
+
+    it('returns "none" for unknown non-empty reviewDecision strings', async () => {
+      mockGh({ reviewDecision: "SOMETHING_NEW" });
       expect(await scm.getReviewDecision(pr)).toBe("none");
     });
 
@@ -2095,6 +2478,52 @@ describe("scm-github plugin", () => {
       expect(result.blockers).toContain("Review required");
     });
 
+    it("treats empty reviewDecision as review required", async () => {
+      mockGh({ state: "OPEN" }); // getPRState
+      mockGh({
+        mergeable: "MERGEABLE",
+        reviewDecision: "",
+        mergeStateStatus: "BLOCKED",
+        isDraft: false,
+      });
+      mockGh([]);
+
+      const result = await scm.getMergeability(pr);
+      expect(result.approved).toBe(false);
+      expect(result.blockers).toContain("Review required");
+    });
+
+    it('treats unknown non-empty reviewDecision as neutral "none"', async () => {
+      mockGh({ state: "OPEN" }); // getPRState
+      mockGh({
+        mergeable: "MERGEABLE",
+        reviewDecision: "SOMETHING_NEW",
+        mergeStateStatus: "CLEAN",
+        isDraft: false,
+      });
+      mockGh([{ name: "build", state: "SUCCESS" }]);
+
+      const result = await scm.getMergeability(pr);
+      expect(result.approved).toBe(false);
+      expect(result.blockers).not.toContain("Review required");
+      expect(result.mergeable).toBe(true);
+    });
+
+    it('preserves canonical "PENDING" reviewDecision as review required', async () => {
+      mockGh({ state: "OPEN" }); // getPRState
+      mockGh({
+        mergeable: "MERGEABLE",
+        reviewDecision: "PENDING",
+        mergeStateStatus: "BLOCKED",
+        isDraft: false,
+      });
+      mockGh([]);
+
+      const result = await scm.getMergeability(pr);
+      expect(result.approved).toBe(false);
+      expect(result.blockers).toContain("Review required");
+    });
+
     it("reports merge conflicts as blockers", async () => {
       mockGh({ state: "OPEN" }); // getPRState
       mockGh({
@@ -2186,6 +2615,56 @@ describe("scm-github plugin", () => {
       const result = await scm.getMergeability(pr);
       expect(result.noConflicts).toBe(false);
       expect(result.blockers).toContain("Merge conflicts");
+    });
+  });
+
+  describe("getBatchPRStatus", () => {
+    it('treats whitespace-only reviewDecision as review required', async () => {
+      mockGh({
+        state: "OPEN",
+        mergeable: "MERGEABLE",
+        reviewDecision: "   ",
+        mergeStateStatus: "CLEAN",
+        isDraft: false,
+        statusCheckRollup: [{ name: "build", conclusion: "success" }],
+      });
+
+      const result = await scm.getBatchPRStatus(pr);
+      expect(result.reviewDecision).toBe("pending");
+      expect(result.mergeReadiness.mergeable).toBe(false);
+      expect(result.mergeReadiness.blockers).toContain("Review required");
+    });
+
+    it('treats unknown non-empty reviewDecision as neutral "none"', async () => {
+      mockGh({
+        state: "OPEN",
+        mergeable: "MERGEABLE",
+        reviewDecision: "SOMETHING_NEW",
+        mergeStateStatus: "CLEAN",
+        isDraft: false,
+        statusCheckRollup: [{ name: "build", conclusion: "success" }],
+      });
+
+      const result = await scm.getBatchPRStatus(pr);
+      expect(result.reviewDecision).toBe("none");
+      expect(result.mergeReadiness.blockers).not.toContain("Review required");
+      expect(result.mergeReadiness.mergeable).toBe(true);
+    });
+
+    it('preserves canonical "NONE" reviewDecision as neutral "none"', async () => {
+      mockGh({
+        state: "OPEN",
+        mergeable: "MERGEABLE",
+        reviewDecision: "NONE",
+        mergeStateStatus: "CLEAN",
+        isDraft: false,
+        statusCheckRollup: [{ name: "build", conclusion: "success" }],
+      });
+
+      const result = await scm.getBatchPRStatus(pr);
+      expect(result.reviewDecision).toBe("none");
+      expect(result.mergeReadiness.blockers).not.toContain("Review required");
+      expect(result.mergeReadiness.mergeable).toBe(true);
     });
   });
 
@@ -2313,6 +2792,16 @@ describe("scm-github plugin", () => {
       expect(curlCalls).toHaveLength(1);
       expect(curlCalls[0][1]).toContain("-X");
       expect(curlCalls[0][1]).toContain("GET");
+    });
+
+    it("matches execCli trimming semantics for REST fallback output", async () => {
+      ghMock
+        .mockRejectedValueOnce(new Error("not authenticated"))
+        .mockResolvedValueOnce({ stdout: '  {"test": true}\n' });
+
+      await expect(ghRestFallback(["api", "repos/owner/repo/pulls"])).resolves.toBe(
+        '{"test": true}',
+      );
     });
 
     it("finds endpoint when --method GET precedes the path", async () => {

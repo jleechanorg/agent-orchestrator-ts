@@ -269,6 +269,12 @@ export function DirectTerminal({
           proxyWsPath: process.env.NEXT_PUBLIC_TERMINAL_WS_PATH,
           directTerminalPort: process.env.NEXT_PUBLIC_DIRECT_TERMINAL_PORT,
         });
+        const buildResizeMessage = (cols: number, rows: number): string =>
+          JSON.stringify({ type: "resize", cols, rows });
+
+        const sendTerminalSize = (socket: WebSocket) => {
+          socket.send(buildResizeMessage(terminal.cols, terminal.rows));
+        };
 
         // ── Preserve selection while terminal receives output ────────
         // xterm.js clears the selection on every terminal.write(). We
@@ -334,13 +340,7 @@ export function DirectTerminal({
           const currentWs = ws.current;
           if (fit && currentWs?.readyState === WebSocket.OPEN) {
             fit.fit();
-            currentWs.send(
-              JSON.stringify({
-                type: "resize",
-                cols: terminal.cols,
-                rows: terminal.rows,
-              }),
-            );
+            sendTerminalSize(currentWs);
           }
         };
 
@@ -363,18 +363,17 @@ export function DirectTerminal({
 
           websocket.onopen = () => {
             console.log("[DirectTerminal] WebSocket connected");
+            const wasReconnecting = reconnectAttemptRef.current > 0;
             reconnectAttemptRef.current = 0;
             setStatus("connected");
             setError(null);
 
-            // Send initial size
-            websocket.send(
-              JSON.stringify({
-                type: "resize",
-                cols: terminal.cols,
-                rows: terminal.rows,
-              }),
-            );
+            // Re-fit after reconnect so the server-side PTY keeps the current browser size.
+            if (wasReconnecting) {
+              fit.fit();
+            }
+
+            sendTerminalSize(websocket);
           };
 
           websocket.onmessage = (event) => {
@@ -497,13 +496,7 @@ export function DirectTerminal({
       // Send new size to server (use ws.current in case WebSocket reconnected)
       const currentWs = ws.current;
       if (currentWs?.readyState === WebSocket.OPEN) {
-        currentWs.send(
-          JSON.stringify({
-            type: "resize",
-            cols: terminal.cols,
-            rows: terminal.rows,
-          }),
-        );
+        currentWs.send(buildResizeMessage(terminal.cols, terminal.rows));
       }
     };
 

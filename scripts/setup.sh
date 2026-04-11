@@ -5,6 +5,9 @@
 set -e  # Exit on error
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=./lib/ao-config-topology.sh
+source "$SCRIPT_DIR/lib/ao-config-topology.sh"
 
 echo "Agent Orchestrator Setup"
 echo ""
@@ -148,6 +151,10 @@ else
 fi
 cd "$REPO_ROOT"
 
+echo ""
+echo "Installing repo AO skill into user skill directories..."
+bash "$REPO_ROOT/scripts/install-repo-skills.sh"
+
 # ─── Verify ao is in PATH ────────────────────────────────────────────────────
 
 echo ""
@@ -168,12 +175,17 @@ fi
 echo ""
 echo "Base setup complete!"
 
+BOOTSTRAP_SCRIPT="$REPO_ROOT/scripts/bootstrap-openclaw-config.sh"
+if [ -f "$BOOTSTRAP_SCRIPT" ]; then
+  bash "$BOOTSTRAP_SCRIPT"
+fi
+
 # ─── Fork-specific extended setup ───────────────────────────────────────────
 
 EXTENDED_SCRIPT="$REPO_ROOT/scripts/setup-extended.sh"
-CONFIG_FILE="${AO_CONFIG_PATH:-$HOME/.openclaw/agent-orchestrator.yaml}"
+CONFIG_FILE="${AO_CONFIG_PATH:-$(ao_staging_config_path)}"
 if [ -f "$EXTENDED_SCRIPT" ] && [ -f "$CONFIG_FILE" ]; then
-  bash "$EXTENDED_SCRIPT"
+  AO_CONFIG_PATH="$CONFIG_FILE" bash "$EXTENDED_SCRIPT"
 elif [ -f "$EXTENDED_SCRIPT" ]; then
   echo "  Skipping extended setup (no config at $CONFIG_FILE — run 'ao start' to create one)"
 fi
@@ -185,6 +197,7 @@ echo "  Navigate to your project directory and start:"
 echo ""
 echo "    cd ~/your-project"
 echo "    ao start            # auto-detects, creates config, launches dashboard"
+echo "    ao --help           # detailed CLI examples"
 echo ""
 echo "  Want to add more projects later?"
 echo ""

@@ -36,6 +36,7 @@ export async function postVerdict(
     "",
     `_Posted by ${botAuthor} · ${new Date().toISOString()}_`,
     triggerSha ? `<!-- skeptic-gate-trigger-${triggerSha} -->` : "",
+    triggerSha ? `<!-- skeptic-cron-trigger-${triggerSha} -->` : "",
   ]
     .filter((line): line is string => line !== null)
     .join("\n");

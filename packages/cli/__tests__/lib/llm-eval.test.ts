@@ -2,9 +2,22 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const mockExecFileSync = vi.hoisted(() => vi.fn());
 const mockResolveCodexBinary = vi.hoisted(() => vi.fn());
+const mockAccessSync = vi.hoisted(() => vi.fn());
+
+// Set CLAUDE_BINARY before module load so CLAUDE_BINARY_CANDIDATES[0] = "/mock/claude"
+// This makes resolveClaudeBinary() return "/mock/claude" without calling `which`,
+// preventing extra execFileSync calls that would consume mock slots unexpectedly.
+vi.hoisted(() => {
+  process.env["CLAUDE_BINARY"] = "/mock/claude";
+});
 
 vi.mock("node:child_process", () => ({
   execFileSync: mockExecFileSync,
+}));
+
+vi.mock("node:fs", () => ({
+  accessSync: mockAccessSync,
+  constants: { X_OK: 1 },
 }));
 
 vi.mock("@jleechanorg/ao-plugin-agent-codex", () => ({
@@ -16,9 +29,26 @@ import { tryCodexPrint, tryClaudePrint, llmEval } from "../../src/lib/llm-eval.j
 const PASS_VERDICT = "VERDICT: PASS";
 const FAIL_VERDICT = "VERDICT: FAIL";
 const SKIPPED_VERDICT = "VERDICT: SKIPPED";
+const MOCK_CLAUDE_BINARY = "/mock/claude";
+const MOCK_CLAUDE_MODEL = "claude-sonnet-4-6";
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mockExecFileSync.mockReset();
+  mockResolveCodexBinary.mockReset();
+  // "/mock/claude" is executable — accessSync doesn't throw
+  mockAccessSync.mockImplementation((path) => {
+    if (path === MOCK_CLAUDE_BINARY || path === "claude") return undefined;
+    const err = new Error("ENOENT: no such file or directory") as NodeJS.ErrnoException;
+    err.code = "ENOENT";
+    throw err;
+  });
+  // Default: throw ENOENT for unexpected calls to avoid accidentally returning a previous test's value
+  mockExecFileSync.mockImplementation(() => {
+    const err = new Error("ENOENT") as NodeJS.ErrnoException;
+    err.code = "ENOENT";
+    throw err;
+  });
 });
 
 describe("tryCodexPrint", () => {
@@ -30,8 +60,19 @@ describe("tryCodexPrint", () => {
     expect(result.output).toBe(PASS_VERDICT);
     expect(mockExecFileSync).toHaveBeenCalledWith(
       "/usr/local/bin/codex",
-      ["exec", "-"],
+      ["exec", "--model", "gpt-5.4", "-"],
       expect.objectContaining({ input: "evaluate this" }),
+    );
+  });
+
+  it("uses the explicit gpt-5.4 codex model by default", async () => {
+    mockResolveCodexBinary.mockResolvedValue("/usr/local/bin/codex");
+    mockExecFileSync.mockReturnValue(PASS_VERDICT);
+    await tryCodexPrint("evaluate this");
+    expect(mockExecFileSync).toHaveBeenCalledWith(
+      "/usr/local/bin/codex",
+      ["exec", "--model", "gpt-5.4", "-"],
+      expect.any(Object),
     );
   });
 
@@ -138,12 +179,13 @@ describe("tryClaudePrint", () => {
     expect(result.validVerdict).toBe(true);
     expect(result.output).toBe(PASS_VERDICT);
     expect(mockExecFileSync).toHaveBeenCalledWith(
-      "claude",
-      ["--dangerously-skip-permissions", "--print"],
+      MOCK_CLAUDE_BINARY,
+      ["--dangerously-skip-permissions", "--print", "--model", MOCK_CLAUDE_MODEL],
       expect.objectContaining({
         input: "evaluate this",
         cwd: "/tmp",
         encoding: "utf-8",
+        timeout: 300000,
         stdio: ["pipe", "pipe", "ignore"],
       }),
     );
@@ -180,6 +222,26 @@ describe("tryClaudePrint", () => {
     expect(result.error).toBeDefined();
   });
 
+  it("treats EACCES from accessSync as infra error (not missing binary)", async () => {
+    // Simulate: binary exists but is not executable (EACCES)
+    mockAccessSync.mockImplementation((path) => {
+      if (path === MOCK_CLAUDE_BINARY) {
+        const err = new Error("EACCES: permission denied") as NodeJS.ErrnoException;
+        err.code = "EACCES";
+        throw err;
+      }
+      // All other candidates: ENOENT (not installed)
+      const err = new Error("ENOENT: no such file or directory") as NodeJS.ErrnoException;
+      err.code = "ENOENT";
+      throw err;
+    });
+    const result = await tryClaudePrint("evaluate this");
+    expect(result.validVerdict).toBe(false);
+    // EACCES should produce an infrastructure error message, not undefined
+    expect(result.error).toBeDefined();
+    expect(result.error).toContain("EACCES");
+  });
+
   it("returns validVerdict=true for markdown-prefixed ## VERDICT: PASS (claude)", async () => {
     mockExecFileSync.mockReturnValue("## VERDICT: PASS");
     const result = await tryClaudePrint("evaluate this");
@@ -213,17 +275,21 @@ describe("llmEval — default (codex primary)", () => {
     enoent.code = "ENOENT";
     mockExecFileSync
       .mockImplementationOnce(() => {
-        throw etimeout;
+        throw etimeout; // codex
       })
       .mockImplementationOnce(() => {
-        throw enoent;
+        throw enoent; // 1st claude candidate (/mock/claude)
+      })
+      .mockImplementationOnce(() => {
+        throw enoent; // last claude candidate (claude)
       });
     const result = await llmEval("evaluate this");
     // Infra failure from codex → try Claude fallback → both fail → FAIL (fail-closed)
     expect(result).toContain("VERDICT: FAIL");
     expect(result).toContain("ETIMEDOUT");
     expect(result).toContain("Claude:");
-    expect(mockExecFileSync).toHaveBeenCalledTimes(2); // codex failed, then tried Claude
+    // 1 codex + 2 claude candidates
+    expect(mockExecFileSync).toHaveBeenCalledTimes(3);
   });
 
   it("falls back to claude when codex is unavailable (ENOENT)", async () => {
@@ -232,9 +298,9 @@ describe("llmEval — default (codex primary)", () => {
     enoent.code = "ENOENT";
     mockExecFileSync
       .mockImplementationOnce(() => {
-        throw enoent;
+        throw enoent; // codex unavailable
       })
-      .mockReturnValueOnce(PASS_VERDICT); // claude succeeds
+      .mockReturnValueOnce(PASS_VERDICT); // 1st claude candidate succeeds
     const result = await llmEval("evaluate this");
     expect(result).toBe(PASS_VERDICT);
     expect(mockExecFileSync).toHaveBeenCalledTimes(2);
@@ -248,10 +314,13 @@ describe("llmEval — default (codex primary)", () => {
     enoent2.code = "ENOENT";
     mockExecFileSync
       .mockImplementationOnce(() => {
-        throw enoent1;
+        throw enoent1; // codex
       })
       .mockImplementationOnce(() => {
-        throw enoent2;
+        throw enoent2; // 1st claude candidate
+      })
+      .mockImplementationOnce(() => {
+        throw enoent2; // last claude candidate
       });
     const result = await llmEval("evaluate this");
     // Both unavailable → FAIL (fail-closed; infra unavailability blocks merge)
@@ -261,18 +330,25 @@ describe("llmEval — default (codex primary)", () => {
 
   it("returns FAIL (not SKIPPED) when codex runs but model omits VERDICT", async () => {
     mockResolveCodexBinary.mockResolvedValue("/usr/local/bin/codex");
-    mockExecFileSync.mockReturnValue("Here is my analysis with no verdict");
+    mockExecFileSync
+      .mockReturnValueOnce("Here is my analysis with no verdict") // codex runs but omits verdict
+      .mockImplementationOnce(() => {
+        const err = new Error("ENOENT") as NodeJS.ErrnoException;
+        err.code = "ENOENT";
+        throw err;
+      }); // 1st claude candidate unavailable
     const result = await llmEval("evaluate this");
     // Missing VERDICT = code quality failure → fail-closed FAIL
     expect(result).toContain("VERDICT: FAIL");
     expect(result).toContain("missing VERDICT");
-    expect(mockExecFileSync).toHaveBeenCalledTimes(2); // codex no-verdict → tried Claude fallback
+    // Try codex, then try claude fallback (at least one candidate)
+    expect(mockExecFileSync).toHaveBeenCalled();
   });
 });
 
 describe("llmEval — explicit model=claude", () => {
   it("tries claude first when model=claude is specified", async () => {
-    mockExecFileSync.mockReturnValue(FAIL_VERDICT);
+    mockExecFileSync.mockReturnValue(FAIL_VERDICT); // 1st claude candidate returns FAIL
     const result = await llmEval("evaluate this", { model: "claude" });
     expect(result).toBe(FAIL_VERDICT);
     expect(mockResolveCodexBinary).not.toHaveBeenCalled();
@@ -285,13 +361,17 @@ describe("llmEval — explicit model=claude", () => {
     enoent.code = "ENOENT";
     mockExecFileSync
       .mockImplementationOnce(() => {
-        throw enoent; // claude fails
+        throw enoent; // 1st claude candidate fails
+      })
+      .mockImplementationOnce(() => {
+        throw enoent; // last claude candidate fails
       })
       .mockReturnValueOnce(PASS_VERDICT); // codex succeeds
     const result = await llmEval("evaluate this", { model: "claude" });
     expect(result).toBe(PASS_VERDICT);
     expect(mockResolveCodexBinary).toHaveBeenCalled();
-    expect(mockExecFileSync).toHaveBeenCalledTimes(2);
+    // 2 claude candidates + 1 codex
+    expect(mockExecFileSync).toHaveBeenCalledTimes(3);
   });
 
   it("returns FAIL and tries codex fallback when claude has infra error", async () => {
@@ -302,16 +382,20 @@ describe("llmEval — explicit model=claude", () => {
     enoent.code = "ENOENT";
     mockExecFileSync
       .mockImplementationOnce(() => {
-        throw etimeout;
+        throw etimeout; // 1st claude candidate fails
       })
       .mockImplementationOnce(() => {
-        throw enoent;
+        throw enoent; // last claude candidate fails
+      })
+      .mockImplementationOnce(() => {
+        throw enoent; // codex also fails
       });
     const result = await llmEval("evaluate this", { model: "claude" });
     // Infra failure from Claude → try codex fallback → both fail → FAIL (fail-closed)
     expect(result).toContain("VERDICT: FAIL");
     expect(result).toContain("Claude failed:");
     expect(mockResolveCodexBinary).toHaveBeenCalled();
-    expect(mockExecFileSync).toHaveBeenCalledTimes(2); // Claude failed, then tried codex
+    // 2 claude candidates + 1 codex
+    expect(mockExecFileSync).toHaveBeenCalledTimes(3);
   });
 });

@@ -61,6 +61,13 @@ vi.mock("node:os", () => ({
   homedir: mockHomedir,
 }));
 
+// setupMcpMailInWorkspace lives in agent-base and uses fs/promises; Vitest's fs/promises
+// mock may not apply across that package boundary. Stub MCP mail setup so these tests
+// only exercise Codex workspace hooks.
+vi.mock("@jleechanorg/ao-plugin-agent-base", () => ({
+  setupMcpMailInWorkspace: vi.fn().mockResolvedValue(undefined),
+}));
+
 import { Readable } from "node:stream";
 import { create, manifest, default as defaultExport, resolveCodexBinary, _resetSessionFileCache } from "./index.js";
 
@@ -1639,6 +1646,124 @@ describe("shell wrapper content", () => {
       expect(content).toContain("update_ao_metadata pr");
     });
 
+    it("rewrites gh pr create title args before executing real gh", async () => {
+      const wrapperContent = await getWrapperContent("gh");
+      const helperContent = await getWrapperContent("ao-metadata-helper.sh");
+      const realChildProcess = await vi.importActual<typeof import("node:child_process")>("node:child_process");
+      const realFs = await vi.importActual<typeof import("node:fs")>("node:fs");
+      const realOs = await vi.importActual<typeof import("node:os")>("node:os");
+      const realPath = await vi.importActual<typeof import("node:path")>("node:path");
+
+      const tempDir = realFs.mkdtempSync(realPath.join(realOs.tmpdir(), "ao-gh-wrapper-"));
+      const aoBinDir = realPath.join(tempDir, "ao-bin");
+      const realGhDir = realPath.join(tempDir, "real-gh");
+      const wrapperPath = realPath.join(aoBinDir, "gh");
+      const helperPath = realPath.join(aoBinDir, "ao-metadata-helper.sh");
+      const realGhPath = realPath.join(realGhDir, "gh");
+
+      const env = {
+        ...process.env,
+        GH_PATH: realGhPath,
+        PATH: `${aoBinDir}:${realGhDir}:${process.env.PATH ?? ""}`,
+      };
+
+      const runWrapper = (args: string[]): string[] => {
+        const output = realChildProcess.execFileSync(wrapperPath, args, { env, encoding: "utf-8" });
+        return output
+          .split("\n")
+          .filter((line) => line.startsWith("ARG:"))
+          .map((line) => line.slice(4));
+      };
+      const runWrapperFailure = (args: string[]) =>
+        realChildProcess.spawnSync(wrapperPath, args, { env, encoding: "utf-8" });
+
+      try {
+        realFs.mkdirSync(aoBinDir, { recursive: true });
+        realFs.mkdirSync(realGhDir, { recursive: true });
+        realFs.writeFileSync(helperPath, helperContent);
+        realFs.writeFileSync(wrapperPath, wrapperContent);
+        realFs.writeFileSync(
+          realGhPath,
+          "#!/usr/bin/env bash\nprintf 'ARG:%s\\n' \"$@\"\nprintf '%s\\n' 'https://github.com/owner/repo/pull/1'\n",
+        );
+        realFs.chmodSync(helperPath, 0o755);
+        realFs.chmodSync(wrapperPath, 0o755);
+        realFs.chmodSync(realGhPath, 0o755);
+
+        expect(runWrapper(["pr", "create", "--title=fix me"])).toEqual([
+          "pr",
+          "create",
+          "--title=[agento] fix me",
+        ]);
+        expect(runWrapper(["pr", "create", "--title=add feature"])).toEqual([
+          "pr",
+          "create",
+          "--title=[agento] add feature",
+        ]);
+        expect(runWrapper(["pr", "create", "--title", "fix me"])).toEqual([
+          "pr",
+          "create",
+          "--title",
+          "[agento] fix me",
+        ]);
+        expect(runWrapper(["pr", "create", "--title", "[agento] already good"])).toEqual([
+          "pr",
+          "create",
+          "--title",
+          "[agento] already good",
+        ]);
+        expect(runWrapper(["pr", "create", "--title=[agento] already good"])).toEqual([
+          "pr",
+          "create",
+          "--title=[agento] already good",
+        ]);
+        expect(runWrapper(["pr", "create", "-t", "ship it"])).toEqual([
+          "pr",
+          "create",
+          "-t",
+          "[agento] ship it",
+        ]);
+        expect(runWrapper(["pr", "create", "-t", "[agento] already good"])).toEqual([
+          "pr",
+          "create",
+          "-t",
+          "[agento] already good",
+        ]);
+        expect(runWrapper(["pr", "create", "-t=ship it"])).toEqual([
+          "pr",
+          "create",
+          "-t=[agento] ship it",
+        ]);
+        expect(runWrapper(["pr", "create", "-t=[agento] already good"])).toEqual([
+          "pr",
+          "create",
+          "-t=[agento] already good",
+        ]);
+        expect(runWrapper(["pr", "create", "-tcompact"])).toEqual([
+          "pr",
+          "create",
+          "-t[agento] compact",
+        ]);
+        const bareLongTitle = runWrapperFailure(["pr", "create", "--title"]);
+        expect(bareLongTitle.status).toBe(2);
+        expect(bareLongTitle.stderr).toContain(
+          "ao policy: gh pr create must include --title (or -t) so [agento] prefix can be applied.",
+        );
+        const bareShortTitle = runWrapperFailure(["pr", "create", "-t"]);
+        expect(bareShortTitle.status).toBe(2);
+        expect(bareShortTitle.stderr).toContain(
+          "ao policy: gh pr create must include --title (or -t) so [agento] prefix can be applied.",
+        );
+        const fillOnly = runWrapperFailure(["pr", "create", "--fill"]);
+        expect(fillOnly.status).toBe(2);
+        expect(fillOnly.stderr).toContain(
+          "ao policy: gh pr create must include --title (or -t) so [agento] prefix can be applied.",
+        );
+      } finally {
+        realFs.rmSync(tempDir, { recursive: true, force: true });
+      }
+    }, 20_000);
+
     it("blocks gh pr merge at wrapper level", async () => {
       const content = await getWrapperContent("gh");
       expect(content).toContain('pr/merge)');
@@ -1689,4 +1814,3 @@ describe("shell wrapper content", () => {
     });
   });
 });
-

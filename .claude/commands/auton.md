@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Diagnose WHY the jleechanclaw + AO system is NOT autonomously driving PRs to 6 green and merged. The system is supposed to do this without human intervention — if it isn't, something is broken.
+Diagnose WHY the jleechanclaw + AO system is NOT autonomously driving PRs to N-green and merged. The system is supposed to do this without human intervention — if it isn't, something is broken.
 
 **Skill reference**: `.claude/skills/auton.md`
 **Session monitor skill**: `.claude/skills/ao-session-monitor.md`
@@ -96,6 +96,36 @@ done
 
 # A4. Stray worktrees blocking spawns?
 git -C "$(git rev-parse --show-toplevel 2>/dev/null || echo .)" worktree list 2>/dev/null | grep "locked" || echo "No locked worktrees"
+
+# A5. Recent backfill claim failures (surface blocker reason, not just uncovered)
+python3 - <<'PY'
+import json, pathlib
+log = pathlib.Path.home() / ".openclaw" / "logs" / "ao-lifecycle-agent-orchestrator.log"
+if not log.exists():
+    print("No lifecycle log found for claim-failure scan")
+    raise SystemExit(0)
+seen = {}
+for raw in log.read_text(errors="ignore").splitlines():
+    if "lifecycle.backfill.claim_failed" not in raw:
+        continue
+    try:
+        payload = json.loads(raw)
+    except Exception:
+        continue
+    if payload.get("operation") != "lifecycle.backfill.claim_failed":
+        continue
+    data = payload.get("data") or {}
+    pr = data.get("prNumber")
+    err = " ".join(str(data.get("error", "")).split())
+    if isinstance(pr, int):
+        seen[pr] = err
+if not seen:
+    print("No recent claim_failed blockers")
+else:
+    print("Recent claim_failed blockers:")
+    for pr in sorted(seen):
+        print(f"  PR #{pr}: {seen[pr][:220]}")
+PY
 ```
 
 #### Group B — GitHub & Rate Limits
@@ -108,6 +138,13 @@ gh api rate_limit --jq '.resources | {core: .core.remaining, graphql: .graphql.r
 
 # B2. Open PRs with status (REST — works when GraphQL=0)
 gh api "repos/jleechanorg/agent-orchestrator/pulls?state=open" --jq '.[] | {number, title: .title[0:60], mergeable_state, branch: .head.ref}' 2>/dev/null
+
+# B2c. Verify local skeptic-review hook wiring (not legacy auto-merge)
+python3 - <<'PY'
+import yaml
+cfg = yaml.safe_load(open("/Users/jleechan/.openclaw/agent-orchestrator.yaml"))
+print({"worker-signals-completion": (cfg.get("reactions") or {}).get("worker-signals-completion")})
+PY
 
 # B2b. Review states for each open PR (per-reviewer, not just global last)
 for pr in $(gh api "repos/jleechanorg/agent-orchestrator/pulls?state=open" --jq '.[].number' 2>/dev/null); do
@@ -127,6 +164,13 @@ for pr in $(gh api "repos/jleechanorg/agent-orchestrator/pulls?state=open" --jq 
   ' 2>/dev/null)
   echo "PR #$pr reviews=[$reviews] blocking=$blocking"
 done
+
+# B3. skeptic-cron workflow health
+gh run list --repo jleechanorg/agent-orchestrator --workflow skeptic-cron.yml --limit 3 --json databaseId,status,conclusion,createdAt,updatedAt,url
+
+# B4. Latest skeptic-cron log tail (gate-by-gate failures and merge decisions)
+run_id=$(gh run list --repo jleechanorg/agent-orchestrator --workflow skeptic-cron.yml --limit 1 --json databaseId --jq '.[0].databaseId' 2>/dev/null)
+[ -n "$run_id" ] && gh run view "$run_id" --repo jleechanorg/agent-orchestrator --log | tail -120
 ```
 
 ### Step 3: Cross-reference — CHANGES_REQUESTED gap detection
@@ -184,35 +228,34 @@ for pr in $(gh api "repos/jleechanorg/agent-orchestrator/pulls?state=open" --jq 
 done
 ```
 
-### Step 3c: 6-Green Rate — Zero-Touch PR Measurement
+### Step 3c: Zero-Touch Rate — Skeptic-Cron Auto-Merge Measurement
 
-Measure how many merged PRs went to 6-green without human intervention. A PR is "zero-touch" if ALL commits have the `[agento]` prefix (no human commits).
+Measure how many merged PRs were truly autonomous. A PR is "zero-touch" ONLY if `merged_by` is `github-actions[bot]` via skeptic-cron. Commit prefixes alone are insufficient.
 
 ```bash
-# 6-Green rate — last 7 days
-echo "=== 6-GREEN RATE (last 7 days) ==="
+# Merge quality — last 7 days
+echo "=== MERGE QUALITY (last 7 days) ==="
 cutoff=$(date -u -v-7d +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -d "7 days ago" +%Y-%m-%dT%H:%M:%SZ)
-zero=0; human=0; total=0
+auto=0; manual=0; total=0
 for pr_json in $(gh api "repos/jleechanorg/agent-orchestrator/pulls?state=closed&sort=updated&direction=desc&per_page=50" --jq "[.[] | select(.merged_at != null) | select(.merged_at > \"$cutoff\")] | .[] | @base64" 2>/dev/null); do
   pr=$(echo "$pr_json" | base64 -D 2>/dev/null || echo "$pr_json" | base64 -d 2>/dev/null)
   number=$(echo "$pr" | jq -r '.number')
   title=$(echo "$pr" | jq -r '.title[0:50]')
-  commits=$(gh api "repos/jleechanorg/agent-orchestrator/pulls/$number/commits" --jq '[.[] | .commit.message[0:50]]' 2>/dev/null)
-  human_commits=$(echo "$commits" | jq '[.[] | select(test("^\\[agento\\]") | not)] | length')
-  total_commits=$(echo "$commits" | jq 'length')
+  merged_by=$(gh api "repos/jleechanorg/agent-orchestrator/pulls/$number" --jq '.merged_by.login // "unknown"' 2>/dev/null || echo "unknown")
   total=$((total + 1))
-  if [ "$human_commits" -eq 0 ]; then
-    zero=$((zero + 1))
-    echo "  ZERO-TOUCH #$number ($total_commits commits) $title"
+  if [ "$merged_by" = "github-actions[bot]" ]; then
+    auto=$((auto + 1))
+    echo "  AUTO-MERGED #$number (by $merged_by) $title"
   else
-    human=$((human + 1))
+    manual=$((manual + 1))
+    echo "  MANUAL #$number (by $merged_by) $title"
   fi
 done
 echo ""
-echo "TOTAL MERGED: $total | ZERO-TOUCH: $zero | HUMAN-TOUCH: $human"
+echo "TOTAL MERGED: $total | AUTO (skeptic-cron): $auto | MANUAL: $manual"
 if [ "$total" -gt 0 ]; then
-  rate=$((zero * 100 / total))
-  echo "6-GREEN RATE: ${rate}% ($zero/$total zero-touch)"
+  rate=$((auto * 100 / total))
+  echo "ZERO-TOUCH RATE: ${rate}% ($auto/$total auto-merged by skeptic-cron)"
 fi
 ```
 
@@ -224,6 +267,8 @@ fi
 ### System health
 - AO lifecycle-worker: RUNNING / STOPPED (count: N)
 - Orchestrator session: SPAWNING / IDLE / STUCK / NOT FOUND
+- Skeptic-review hook: configured / missing / wrong action
+- Skeptic-cron workflow: healthy / failing / missing
 - Active worker sessions: N (M working, K idle, J completed)
 - Rate limits: core=N, graphql=N
 - Open PRs: N total, N non-green
@@ -235,6 +280,10 @@ fi
 | PR | Non-green reason | Session | Session state | Activity |
 |---|---|---|---|---|
 | #NNN | <reason> | ao-NNN / none | WORKING/IDLE/COMPLETED/QUEUED | <indicator or "—"> |
+
+### Claim-failure blockers
+<List PRs with recent `lifecycle.backfill.claim_failed` entries from the lifecycle log.>
+<If a PR has no active worker but does have a recent claim_failed entry, classify it as BLOCKED, not merely UNCOVERED.>
 
 ### CHANGES_REQUESTED gaps
 <List PRs with CR CHANGES_REQUESTED that have NO active session>
@@ -257,13 +306,13 @@ fi
 ### Lifecycle-worker duplicate check
 <Count per project — only flag if SAME PROJECT has >1 worker>
 
-### 6-Green Rate (last 7 days)
+### Zero-Touch Rate (last 7 days)
 | Metric | Value |
 |---|---|
 | Total merged | N |
-| Zero-touch (all [agento] commits) | N (NN%) |
-| Human-touch (had human commits) | N (NN%) |
-<List zero-touch PRs by number>
+| Auto-merged by skeptic-cron | N (NN%) |
+| Manual merges | N (NN%) |
+<List auto-merged PRs by number>
 
 ### Root cause
 <Primary reason the system is not progressing PRs autonomously>

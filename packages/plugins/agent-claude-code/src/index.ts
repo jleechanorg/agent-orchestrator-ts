@@ -1,4 +1,9 @@
 import {
+  NORMALIZE_SHELL_COMMAND_PREFIX_BLOCK,
+  PR_TITLE_PREFIX_GUARD_BLOCK,
+  setupMcpMailInWorkspace,
+} from "@jleechanorg/ao-plugin-agent-base";
+import {
   shellEscape,
   readLastJsonlEntry,
   DEFAULT_READY_THRESHOLD_MS,
@@ -20,7 +25,6 @@ import { existsSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
 import { promisify } from "node:util";
-
 const execFileAsync = promisify(execFile);
 
 function normalizePermissionMode(mode: string | undefined): "permissionless" | "default" | "auto-edit" | "suggest" | undefined {
@@ -50,8 +54,7 @@ const AO_DATA_DIR_LINE =
 // expression parsing. The dollar sign must survive JS and expand in bash.
 // MUST use ${array[index]} (not "$array[index]") for bash array access.
 const BASH_REMATCH1 = '"${BASH_REMATCH[1]}"';
-const BASH_REMATCH2 = '"${BASH_REMATCH[2]}"';
-// Result: "${BASH_REMATCH[1]}" and "${BASH_REMATCH[2]}" as literal bash array access
+// Result: "${BASH_REMATCH[1]}" as literal bash array access
 
 // Bash parameter expansions — expressed as single-quoted JS strings (no JS interpretation)
 // so they survive TypeScript compilation and expand correctly in bash.
@@ -59,7 +62,7 @@ const BASH_AO_ALLOW_GH_PR_MERGE = '${AO_ALLOW_GH_PR_MERGE:-_}';
 const BASH_AO_SESSION = '${AO_SESSION:-}';
 // Result: ${AO_ALLOW_GH_PR_MERGE:-} and ${AO_SESSION:-} as literal bash parameter expansion
 
-export const METADATA_UPDATER_SCRIPT = _`#!/usr/bin/env bash
+export const METADATA_UPDATER_SCRIPT = `#!/usr/bin/env bash
 # Metadata Updater Hook for Agent Orchestrator
 #
 # This PostToolUse hook automatically updates session metadata when:
@@ -107,60 +110,9 @@ fi
 # Command Detection and Parsing
 # ============================================================================
 
-# Strip leading prefixes so commands like
-#   cd ~/.worktrees/project && gh pr create ...
-#   FOO=bar gh pr create ...
-# are correctly detected. Agents frequently cd into a worktree first.
-# Store the regex pattern in a variable for clarity (avoids shell quoting confusion).
-# Uses space-padded (&&|;) to avoid breaking on paths containing & or ; chars.
-cd_prefix_pattern='^[[:space:]]*cd[[:space:]]+.*[[:space:]]+(&&|;)[[:space:]]+(.*)'
-clean_command="$command"
-while true; do
-  # Strip leading env assignments: FOO=bar BAZ=qux gh pr create ...
-  # [^[:space:]]* for the value allows embedded = (e.g. FOO=a=b gh pr create).
-  # Trailing space required so bare "FOO=bar" (no cmd) avoids infinite loop.
-  if [[ "$clean_command" =~ ^[[:space:]]*[A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+(.+)$ ]]; then
-    clean_command=${BASH_REMATCH1}
-  # Strip leading cd prefixes: cd /path && gh pr create ...
-  elif [[ "$clean_command" =~ $cd_prefix_pattern ]]; then
-    clean_command=${BASH_REMATCH2}
-  else
-    break
-  fi
-done
+${NORMALIZE_SHELL_COMMAND_PREFIX_BLOCK}
 
-# Guardrail: enforce [agento] prefix on gh pr create titles (PreToolUse only).
-# PostToolUse falls through to metadata update — no need to re-check there.
-pr_create_pattern='^[[:space:]]*([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]+[[:space:]]+)*gh[[:space:]]+pr[[:space:]]+create([[:space:]]|$)'
-if [[ "$hook_event" == "PreToolUse" && "$clean_command" =~ $pr_create_pattern ]]; then
-  # Parse --title or -t as proper argv tokens (not substring in --body etc.).
-  # Python shlex correctly handles quoted strings containing literal "--title".
-  first_title=$(python3 -c "
-import shlex, sys
-args = shlex.split(sys.argv[1])
-for i, arg in enumerate(args):
-    if arg == '--title':
-        print(args[i+1], end='')
-        break
-    if arg.startswith('--title='):
-        print(arg[len('--title='):], end='')
-        break
-    if arg == '-t':
-        print(args[i+1], end='')
-        break
-    if arg.startswith('-t'):
-        print(arg[2:], end='')
-        break
-" "$clean_command" 2>/dev/null || true)
-  if [[ -z "$first_title" || "$first_title" != \[agento\]* ]]; then
-    echo "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"Blocked by AO policy: gh pr create titles must start with [agento]. Prefix your title with [agento] and retry.\"}}"
-    exit 0
-  fi
-  # Prefix check passed — title is valid, allow the tool.
-  # Exit here so PreToolUse does NOT fall through to metadata writers below.
-  echo '{}'
-  exit 0
-fi
+${PR_TITLE_PREFIX_GUARD_BLOCK}
 
 # Hard guardrail: block agent-triggered gh pr merge by default.
 # Placed BEFORE the PostToolUse-only guard so PreToolUse denials fire correctly.
@@ -203,10 +155,10 @@ update_metadata_key() {
   local value="$2"
 
   # Create temp file
-  local temp_file="${'$'}{metadata_file}.tmp"
+  local temp_file="\${metadata_file}.tmp"
 
-  # Escape special sed characters in value (& and \ — not | or / in BRE)
-  local escaped_value=$(echo "$value" | sed 's/[&\\]/\\&/g')
+  # Escape special sed characters in value (& and \\ — not | or / in BRE)
+  local escaped_value=$(echo "$value" | sed 's/[&\\\\]/\\\\&/g')
 
   # Check if key already exists
   if grep -q "^$key=" "$metadata_file" 2>/dev/null; then
@@ -813,6 +765,13 @@ async function setupHookInWorkspace(workspacePath: string): Promise<void> {
   }
 }
 
+const DEFAULT_MINIMAX_ANTHROPIC_BASE_URL = "https://api.minimax.io/anthropic";
+
+/** Check if the model is a MiniMax model (identified by "MiniMax-" prefix) */
+function isMinimaxModel(model?: string): boolean {
+  return model?.startsWith("MiniMax-") ?? false;
+}
+
 // =============================================================================
 // Agent Implementation
 // =============================================================================
@@ -825,13 +784,23 @@ function createClaudeCodeAgent(): Agent {
 
     getLaunchCommand(config: AgentLaunchConfig): string {
       // Note: CLAUDECODE is unset via getEnvironment() (set to ""), not here.
-      // This command must be safe for both shell and execFile contexts.
-      const parts: string[] = ["claude"];
+      // For MiniMax models (identified by "MiniMax-" prefix), the binary routes to
+      // the MiniMax Anthropic-compatible endpoint via ANTHROPIC_BASE_URL set in
+      // getEnvironment(). For all other models, ANTHROPIC_BASE_URL is explicitly
+      // unset here — prepending `env -u` ensures Anthropic OAuth is used even when
+      // the user's ~/.bashrc sets ANTHROPIC_BASE_URL for MiniMax workflows.
+      const minimax = isMinimaxModel(config.model);
+      const parts: string[] = minimax
+        ? ["claude"]
+        : ["env", "-u", "ANTHROPIC_BASE_URL", "claude"];
 
       const permissionMode = normalizePermissionMode(config.permissions);
       if (permissionMode === "permissionless" || permissionMode === "auto-edit") {
         parts.push("--dangerously-skip-permissions");
       }
+      // Use strict MCP config to avoid loading built-in MCPs (saves ~16k context tokens)
+      const mcpConfigPath = shellEscape(join(homedir(), ".claude", "mcp-strict.json"));
+      parts.push("--strict-mcp-config", mcpConfigPath);
 
       if (config.model) {
         parts.push("--model", shellEscape(config.model));
@@ -859,8 +828,35 @@ function createClaudeCodeAgent(): Agent {
       // Unset CLAUDECODE to avoid nested agent conflicts
       env["CLAUDECODE"] = "";
 
+      // Route to the appropriate API endpoint based on model.
+      // MiniMax models use the Anthropic-compatible MiniMax endpoint;
+      // all other models clear ANTHROPIC_BASE_URL so claude uses Anthropic OAuth.
+      if (isMinimaxModel(config.model)) {
+        env["ANTHROPIC_BASE_URL"] = DEFAULT_MINIMAX_ANTHROPIC_BASE_URL;
+        const minimaxKey = process.env["MINIMAX_API_KEY"];
+        if (minimaxKey) {
+          env["ANTHROPIC_AUTH_TOKEN"] = minimaxKey;
+          env["ANTHROPIC_API_KEY"] = minimaxKey; // auth parity with agent-minimax
+        } else {
+          console.warn(
+            "[ao-plugin-agent-claude-code] MINIMAX_API_KEY is not set — Claude Code may fail to authenticate with the MiniMax API.",
+          );
+        }
+      } else {
+        env["ANTHROPIC_BASE_URL"] = "";
+      }
+
       // Set session info for introspection
       env["AO_SESSION_ID"] = config.sessionId;
+
+      // Pass MCP mail configuration to the agent if available
+      // These enable the agent to send coordination messages via MCP mail
+      if (process.env.MCP_AGENT_MAIL_URL) {
+        env["MCP_AGENT_MAIL_URL"] = process.env.MCP_AGENT_MAIL_URL;
+      }
+      if (process.env.MCP_AGENT_MAIL_TOKEN) {
+        env["MCP_AGENT_MAIL_TOKEN"] = process.env.MCP_AGENT_MAIL_TOKEN;
+      }
 
       // NOTE: AO_PROJECT_ID is NOT set here - it's the caller's responsibility
       // to set it based on their metadata path scheme:
@@ -992,6 +988,9 @@ function createClaudeCodeAgent(): Agent {
       if (permissionMode === "permissionless" || permissionMode === "auto-edit") {
         parts.push("--dangerously-skip-permissions");
       }
+      // Use strict MCP config to avoid loading built-in MCPs (saves ~16k context tokens)
+      const mcpConfigPath = shellEscape(join(homedir(), ".claude", "mcp-strict.json"));
+      parts.push("--strict-mcp-config", mcpConfigPath);
 
       if (project.agentConfig?.model) {
         parts.push("--model", shellEscape(project.agentConfig.model as string));
@@ -1004,12 +1003,18 @@ function createClaudeCodeAgent(): Agent {
       // Relative command so that symlinked .claude/ dirs across worktrees
       // all produce the same settings.json (last writer doesn't clobber).
       await setupHookInWorkspace(workspacePath);
+
+      // Also configure MCP mail server for agent coordination
+      await setupMcpMailInWorkspace(workspacePath, ".claude");
     },
 
     async postLaunchSetup(session: Session): Promise<void> {
       if (!session.workspacePath) return;
 
       await setupHookInWorkspace(session.workspacePath);
+
+      // Also configure MCP mail server for agent coordination
+      await setupMcpMailInWorkspace(session.workspacePath, ".claude");
     },
   };
 }

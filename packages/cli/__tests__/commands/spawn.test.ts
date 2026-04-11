@@ -48,6 +48,9 @@ vi.mock("@jleechanorg/ao-core", async (importOriginal) => {
   return {
     ...actual,
     loadConfig: () => mockConfigRef.current,
+    resolveSpawnQueueConfig:
+      actual.resolveSpawnQueueConfig ??
+      (() => ({ enabled: false, maxActiveSessions: Number.POSITIVE_INFINITY })),
   };
 });
 
@@ -112,10 +115,15 @@ beforeEach(() => {
     throw new Error(`process.exit(${code})`);
   });
 
+  mockSessionManager.list.mockReset();
+  mockSessionManager.list.mockResolvedValue([]);
   mockSessionManager.spawn.mockReset();
+  mockSessionManager.list.mockReset();
   mockSessionManager.claimPR.mockReset();
+  mockSessionManager.list.mockReset();
   mockExec.mockReset();
   mockEnsureLifecycleWorker.mockReset();
+  mockSessionManager.list.mockResolvedValue([]);
   mockEnsureLifecycleWorker.mockResolvedValue({
     running: true,
     started: true,
@@ -135,6 +143,14 @@ afterEach(() => {
 });
 
 describe("spawn command", () => {
+  it("includes workflow examples in spawn help", () => {
+    const help = program.commands.find((cmd) => cmd.name() === "spawn")?.helpInformation() ?? "";
+
+    expect(help).toContain('ao spawn "fix the flaky retry path"');
+    expect(help).toContain("ao spawn --project agent-orchestrator --claim-pr 456");
+    expect(help).toContain("Project resolution:");
+  });
+
   it("delegates to sessionManager.spawn() with auto-detected project", async () => {
     const fakeSession: Session = {
       id: "app-7",
