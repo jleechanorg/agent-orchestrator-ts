@@ -37,7 +37,7 @@ Claude Code's auto-compaction threshold (~150K tokens) does not scale with the 1
 | bd-cx02 | P2 | Trim MCP servers (~27K savings) | open |
 | bd-cx03 | P2 | File upstream bug with telemetry | open |
 | bd-cx04 | P2 | Version eval: v2.1.91 vs v2.1.77 | open |
-| bd-cx05 | P1 | Upgrade path after PreCompact hook benchmark (e.g. v2.1.92) | open |
+| bd-cx05 | P1 | Upgrade path after PreCompact hook benchmark (e.g. v2.1.92) | closed |
 | bd-tl9t | P3 | Compaction telemetry (3.9x increase) | open |
 
 ## Telemetry (bd-tl9t)
@@ -76,3 +76,38 @@ See **bd-cx02** (MCP trim) and fork maintainer notes for the detailed server-by-
 - **ArkNill/claude-code-cache-analysis** -- proxy-based analysis of compaction behavior
 - **Lydia Hallie (Anthropic)** -- acknowledged peak-hour context window tightening
 - **Medium: Context Recovery Hook** -- workaround using PostCompact hook to re-inject critical context
+
+## Session Findings (2026-04-06)
+
+### PreCompact Hook -- Partial Coverage
+
+- Hook fires on v2.1.77 (contradicts earlier "dead code" hypothesis)
+- But only intercepts ~2% of compactions: 1 block out of 54 compact_boundary events
+- Hook log showed 4 entries: 3 ALLOWED (AO workers), 1 BLOCKED (interactive)
+- Multiple compaction code paths exist; hook only covers one
+
+### Test Methodology -- tmux send-keys Does Not Reproduce
+
+- tmux send-keys driven sessions have 0 system-reminders (vs 22 in real session)
+- System-reminders contain ~15K of skill descriptions + hook context per turn
+- This per-turn overhead is what causes compaction in real sessions
+- Test sessions maxed at 18% context after 50+ prompts; main session hit 54 compactions
+- Valid A/B test requires real interactive use, not scripted tmux input
+
+### Optimizations Applied
+
+| Change | Status | Impact |
+|--------|--------|--------|
+| MCP trim (9 dead servers) | Done | Faster startup |
+| Marketplace plugin removal (165 skills) | Done | ~8-10K tokens/turn saved |
+| PreCompact hook installed | Done | Blocks ~2% of compactions |
+| Edit/Write permissions added | Done | No more permission dialogs |
+| CLAUDE_CODE_DISABLE_1M_CONTEXT removed | Done (prior session) | Enables 1M context |
+| bd-cx05: Upgrade to v2.1.92 | Done | Makes real-session validation of compaction behavior possible. **Note**: this is for controlled/interactive validation only and should not replace the current default pin (v2.1.89) yet. |
+
+### Next Steps
+
+1. Validate v2.1.92 behavior in real interactive use, especially `--continue` context window handling and compaction frequency
+2. bd-cx02: Further MCP/skills trim (user commands consolidation: ~1.3K tokens)
+3. bd-cx03: File upstream bug with telemetry data
+4. Consider reducing ~300 skill count through consolidation (biggest remaining lever)

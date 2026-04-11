@@ -5,8 +5,9 @@
  * and selected filesystem-related behavior of the createAgentPlugin factory.
  */
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import type { AgentLaunchConfig } from "@jleechanorg/ao-core";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import type { AgentLaunchConfig, Session } from "@jleechanorg/ao-core";
+import type { Stats } from "node:fs";
 
 // Hoisted mocks — available inside vi.mock factories
 const {
@@ -55,7 +56,7 @@ vi.mock("node:fs", () => ({
   existsSync: mockExistsSync,
 }));
 
-import { createAgentPlugin, toAgentProjectPath, METADATA_UPDATER_SCRIPT } from "./index.js";
+import { createAgentPlugin, toAgentProjectPath, METADATA_UPDATER_SCRIPT, setupMcpMailInWorkspace } from "./index.js";
 
 describe("agent-base exports", () => {
   it("should export createAgentPlugin", () => {
@@ -246,6 +247,125 @@ describe("createAgentPlugin factory", () => {
     expect(result).toBe(customDir);
   });
 
+  it("reads native JSON session files when sessionFileExtension is .json", async () => {
+    const sessionFile = "/custom/sessions/path/session.json";
+    const modifiedAt = new Date();
+    const config = {
+      name: "test-agent",
+      description: "Test agent plugin",
+      processName: "test-process",
+      command: "test",
+      configDir: ".test",
+      permissionlessFlag: "--flag",
+      getSessionDir: (_workspacePath: string) => "/custom/sessions/path",
+      sessionFileExtension: ".json",
+    };
+
+    mockReaddir.mockResolvedValue(["session.json"]);
+    mockStat.mockImplementation(async (path: string) => {
+      if (path === sessionFile) {
+        return { mtimeMs: modifiedAt.getTime(), mtime: modifiedAt } as Stats;
+      }
+      throw new Error(`Unexpected stat path: ${path}`);
+    });
+    mockReadFile.mockResolvedValue(
+      JSON.stringify({
+        messages: [{ type: "assistant" }],
+      }),
+    );
+
+    const agent = createAgentPlugin(config);
+    vi.spyOn(agent, "isProcessRunning").mockResolvedValue(true);
+
+    const activity = await agent.getActivityState(
+      {
+        runtimeHandle: { pid: 1234 },
+        workspacePath: "/workspace/test",
+      } as Session,
+      60_000,
+    );
+
+    expect(activity).toMatchObject({ state: "ready", timestamp: modifiedAt });
+  });
+
+  it("keeps valid JSON activity when the last message has no type", async () => {
+    const sessionFile = "/custom/sessions/path/session.json";
+    const modifiedAt = new Date();
+    const config = {
+      name: "test-agent",
+      description: "Test agent plugin",
+      processName: "test-process",
+      command: "test",
+      configDir: ".test",
+      permissionlessFlag: "--flag",
+      getSessionDir: (_workspacePath: string) => "/custom/sessions/path",
+      sessionFileExtension: ".json",
+    };
+
+    mockReaddir.mockResolvedValue(["session.json"]);
+    mockStat.mockImplementation(async (path: string) => {
+      if (path === sessionFile) {
+        return { mtimeMs: modifiedAt.getTime(), mtime: modifiedAt } as Stats;
+      }
+      throw new Error(`Unexpected stat path: ${path}`);
+    });
+    mockReadFile.mockResolvedValue(
+      JSON.stringify({
+        messages: [{ content: "missing explicit type" }],
+      }),
+    );
+
+    const agent = createAgentPlugin(config);
+    vi.spyOn(agent, "isProcessRunning").mockResolvedValue(true);
+
+    const activity = await agent.getActivityState(
+      {
+        runtimeHandle: { pid: 1234 },
+        workspacePath: "/workspace/test",
+      } as Session,
+      60_000,
+    );
+
+    expect(activity).toMatchObject({ state: "active", timestamp: modifiedAt });
+  });
+
+  it("returns null for valid JSON session files with empty messages", async () => {
+    const sessionFile = "/custom/sessions/path/session.json";
+    const modifiedAt = new Date();
+    const config = {
+      name: "test-agent",
+      description: "Test agent plugin",
+      processName: "test-process",
+      command: "test",
+      configDir: ".test",
+      permissionlessFlag: "--flag",
+      getSessionDir: (_workspacePath: string) => "/custom/sessions/path",
+      sessionFileExtension: ".json",
+    };
+
+    mockReaddir.mockResolvedValue(["session.json"]);
+    mockStat.mockImplementation(async (path: string) => {
+      if (path === sessionFile) {
+        return { mtimeMs: modifiedAt.getTime(), mtime: modifiedAt } as Stats;
+      }
+      throw new Error(`Unexpected stat path: ${path}`);
+    });
+    mockReadFile.mockResolvedValue(JSON.stringify({ messages: [] }));
+
+    const agent = createAgentPlugin(config);
+    vi.spyOn(agent, "isProcessRunning").mockResolvedValue(true);
+
+    const activity = await agent.getActivityState(
+      {
+        runtimeHandle: { pid: 1234 },
+        workspacePath: "/workspace/test",
+      } as Session,
+      60_000,
+    );
+
+    expect(activity).toBeNull();
+  });
+
 });
 
 // ---------------------------------------------------------------------------
@@ -406,23 +526,90 @@ describe("detectActivity — classifyTerminalOutput", () => {
 // METADATA_UPDATER_SCRIPT — [agento] prefix enforcement
 // ==================================================================
 describe("METADATA_UPDATER_SCRIPT — [agento] prefix enforcement", () => {
-  it("denies gh pr create when title lacks [agento] prefix in PreToolUse", () => {
-    // The PreToolUse block must deny commands with titles that don't start with [agento]
-    expect(METADATA_UPDATER_SCRIPT).toMatch(/deny.*gh pr create titles must start with \[agento\]/);
+  it("rewrites gh pr create when title lacks [agento] prefix in PreToolUse", () => {
+    expect(METADATA_UPDATER_SCRIPT).toContain('"permissionDecision": "allow"');
+    expect(METADATA_UPDATER_SCRIPT).toContain('"updatedInput": {"command":');
+    expect(METADATA_UPDATER_SCRIPT).toContain("[agento] ");
   });
 
-  it("uses Python shlex to parse --title argv value (not substring regex)", () => {
-    // Uses Python shlex to correctly parse --title as an argv token, avoiding
-    // false matches when --title appears as literal text inside --body values.
-    // /s flag needed because the Python code spans multiple lines in the JS string.
-    expect(METADATA_UPDATER_SCRIPT).toMatch(/python3.*shlex.split/s);
-    expect(METADATA_UPDATER_SCRIPT).toMatch(/if arg == '--title'/);
-    // Check the guard is present — use .toContain() to avoid regex-escaping ambiguity.
-    expect(METADATA_UPDATER_SCRIPT).toContain('!= ' + '\\[agento\\]*');
+  it("uses the shared Python guard block to preserve quoting while rewriting titles", () => {
+    expect(METADATA_UPDATER_SCRIPT).toContain("shell_word_spans");
+    expect(METADATA_UPDATER_SCRIPT).toContain("get_title_mode");
+    expect(METADATA_UPDATER_SCRIPT).toContain(`python3 - "$clean_command" "$command" <<'PY'`);
   });
 
   it("checks hook_event is PreToolUse before enforcing prefix", () => {
     // The prefix guard runs in PreToolUse only (not PostToolUse), matching the guard pattern.
     expect(METADATA_UPDATER_SCRIPT).toMatch(/"PreToolUse".*\$clean_command/);
+  });
+});
+
+describe("setupMcpMailInWorkspace", () => {
+  const workspacePath = "/mock/workspace";
+  const configDir = ".claude";
+
+  // Save original env values before any modification
+  const originalMcpMailUrl = process.env.MCP_AGENT_MAIL_URL;
+  const originalMcpMailToken = process.env.MCP_AGENT_MAIL_TOKEN;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    process.env.MCP_AGENT_MAIL_URL = "http://mock-mail-url/mcp/";
+    delete process.env.MCP_AGENT_MAIL_TOKEN;
+  });
+
+  afterEach(() => {
+    // Restore original environment values to avoid leaking state to other tests
+    if (originalMcpMailUrl === undefined) {
+      delete process.env.MCP_AGENT_MAIL_URL;
+    } else {
+      process.env.MCP_AGENT_MAIL_URL = originalMcpMailUrl;
+    }
+    if (originalMcpMailToken === undefined) {
+      delete process.env.MCP_AGENT_MAIL_TOKEN;
+    } else {
+      process.env.MCP_AGENT_MAIL_TOKEN = originalMcpMailToken;
+    }
+  });
+
+  it("should write settings.json with mcp-agent-mail server config", async () => {
+    mockReadFile.mockRejectedValue(Object.assign(new Error("ENOENT"), { code: "ENOENT" })); // settings.json doesn't exist
+    mockLstat.mockResolvedValue({ isSymbolicLink: () => false } as unknown as Stats);
+
+    await setupMcpMailInWorkspace(workspacePath, configDir);
+
+    expect(mockWriteFile).toHaveBeenCalledWith(
+      expect.stringContaining("settings.json"),
+      expect.stringContaining('"mcp-agent-mail"'),
+      "utf-8"
+    );
+  });
+
+  it("should include Authorization header with the runtime token when token is present in environment", async () => {
+    process.env.MCP_AGENT_MAIL_TOKEN = "secret-token-123";
+    mockReadFile.mockRejectedValue(Object.assign(new Error("ENOENT"), { code: "ENOENT" }));
+    mockLstat.mockResolvedValue({ isSymbolicLink: () => false } as unknown as Stats);
+
+    await setupMcpMailInWorkspace(workspacePath, configDir);
+
+    const callArgs = mockWriteFile.mock.calls[0];
+    const content = callArgs[1];
+    expect(content).toContain("mcp-agent-mail");
+    expect(content).toContain("Authorization");
+    expect(content).toContain("Bearer secret-token-123");
+    expect(content).not.toContain("${MCP_AGENT_MAIL_TOKEN}");
+  });
+
+  it("should not include Authorization header when token is absent", async () => {
+    delete process.env.MCP_AGENT_MAIL_TOKEN;
+    mockReadFile.mockRejectedValue(Object.assign(new Error("ENOENT"), { code: "ENOENT" }));
+    mockLstat.mockResolvedValue({ isSymbolicLink: () => false } as unknown as Stats);
+
+    await setupMcpMailInWorkspace(workspacePath, configDir);
+
+    const callArgs = mockWriteFile.mock.calls[0];
+    const content = callArgs[1];
+    expect(content).toContain("mcp-agent-mail");
+    expect(content).not.toContain("Authorization");
   });
 });

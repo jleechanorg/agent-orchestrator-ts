@@ -102,7 +102,7 @@ end_step "Step 6: Configuration validated"
 # Step 7: Start orchestrator (in background)
 start_step "Step 7: Start orchestrator"
 # Start in background and capture PID
-ao start --no-orchestrator &  # Only start dashboard, not the orchestrator session
+AO_CONFIG_PATH="$PWD/agent-orchestrator.yaml" ao start --no-orchestrator &  # Only start dashboard, not the orchestrator session
 DASHBOARD_PID=$!
 
 # Wait for dashboard to be ready (max 30 seconds)

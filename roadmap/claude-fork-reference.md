@@ -460,9 +460,11 @@ The lifecycle-worker's `sweepOrphanWorktrees` runs every 5 minutes (orphanSweepI
 
 AO uses `SHA256(dirname(configPath))` to create isolated data directories under `~/.agent-orchestrator/{hash}-{projectId}/`. The hash is derived from the **directory containing `agent-orchestrator.yaml`**, not the file itself.
 
-**Canonical config**: `~/.openclaw/agent-orchestrator.yaml` (hash: `bb5e6b7f8db3`)
+**Canonical staging config**: `~/.openclaw/agent-orchestrator.yaml` (editable)
 
-**NEVER create a second `agent-orchestrator.yaml`** in another directory. Running `ao` from a directory that contains its own `agent-orchestrator.yaml` creates a shadow namespace — sessions, PID files, and logs go to a different data dir, invisible to the lifecycle-worker.
+**Canonical production config**: `~/.openclaw_prod/agent-orchestrator.yaml` (promoted only after validation)
+
+**NEVER symlink staging onto production** and **NEVER create a second unmanaged `agent-orchestrator.yaml`** in another directory. Running `ao` from a directory that contains its own `agent-orchestrator.yaml` creates a shadow namespace — sessions, PID files, and logs go to a different data dir, invisible to the lifecycle-worker.
 
 ### Decommissioning an AO config path or project directory
 

@@ -165,6 +165,38 @@ describe("pruneStaleWorktrees", () => {
     expect(existsSync(liveWorktree)).toBe(true);
   });
 
+  it("prunes AO-managed worktrees for custom configured prefixes", async () => {
+    config.projects["my-app"] = {
+      ...config.projects["my-app"]!,
+      sessionPrefix: "app-orchestrator",
+    };
+
+    const worktreesDir = join(homedir(), ".worktrees", "my-app");
+    mkdirSync(worktreesDir, { recursive: true });
+
+    const staleWorktree = join(worktreesDir, "app-orchestrator-999");
+    mkdirSync(staleWorktree, { recursive: true });
+    mkdirSync(config.projects["my-app"]!.path, { recursive: true });
+
+    mockExecFile = async (cmd: string, args?: readonly string[]) => {
+      if (cmd === "tmux" && args?.[0] === "has-session") {
+        return Promise.reject(new Error("no server"));
+      }
+      if (cmd === "git" && args?.[0] === "-C") {
+        return Promise.resolve({ stdout: config.projects["my-app"]!.path, stderr: "" });
+      }
+      if (cmd === "git" && args?.[0] === "worktree") {
+        return Promise.reject(new Error("path not found"));
+      }
+      return Promise.resolve({ stdout: "", stderr: "" });
+    };
+
+    const sm = createSessionManager({ config, registry: mockRegistry, execFileAsync: mockExecFile });
+    await sm.pruneStaleWorktrees();
+
+    expect(existsSync(staleWorktree)).toBe(false);
+  });
+
   it("skips non-AO worktrees (human-created, wrong naming pattern)", async () => {
     const worktreesDir = join(homedir(), ".worktrees", "my-app");
     mkdirSync(worktreesDir, { recursive: true });

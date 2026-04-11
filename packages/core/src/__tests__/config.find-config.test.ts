@@ -27,7 +27,7 @@ function createYaml(path: string): void {
 }
 
 describe("findConfigFile home fallback order", () => {
-  it("prefers ~/.openclaw_prod/agent-orchestrator.yaml over ~/.openclaw/agent-orchestrator.yaml", () => {
+  it("prefers ~/.openclaw/agent-orchestrator.yaml over ~/.openclaw_prod/agent-orchestrator.yaml", () => {
     const home = mkdtempSync(join(tmpdir(), "ao-config-home-"));
     const work = mkdtempSync(join(tmpdir(), "ao-config-cwd-"));
     tempDirs.push(home, work);
@@ -43,7 +43,7 @@ describe("findConfigFile home fallback order", () => {
     delete process.env["AO_CONFIG_PATH"];
     process.chdir(work);
 
-    expect(findConfigFile()).toBe(prod);
+    expect(findConfigFile()).toBe(legacy);
   });
 
   it("falls back to ~/.openclaw/agent-orchestrator.yaml when prod config is absent", () => {

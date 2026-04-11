@@ -1394,7 +1394,7 @@ export interface ProjectConfig {
    *
    * **Default: enabled** (opt-out). Set to `false` explicitly to disable
    * for projects that manage dispatch by hand. Any value other than
-   * `false` — including `undefined`, `null`, or `true` — is treated as
+   * `false` — including `undefined` or `true` — is treated as
    * enabled. Projects with open PRs and `backfillAllPRs === false` will
    * emit a warn-level `lifecycle.backfill.disabled_with_open_prs`
    * observation so operators can spot the misconfiguration.
@@ -1895,7 +1895,7 @@ export class SessionNotFoundError extends Error {
 /** Thrown when no agent-orchestrator.yaml config file can be found. */
 export class ConfigNotFoundError extends Error {
   constructor(message?: string) {
-    super(message ?? "No agent-orchestrator.yaml found. Run `ao start` to create one.");
+    super(message ?? "No agent-orchestrator.yaml found. Run `ao start` to bootstrap a config.");
     this.name = "ConfigNotFoundError";
   }
 }

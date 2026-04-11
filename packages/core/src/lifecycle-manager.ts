@@ -27,7 +27,6 @@ import {
   PR_STATE,
   CI_STATUS,
   TERMINAL_STATUSES,
-  isOrchestratorSession,
   type LifecycleManager,
   type SessionManager,
   type SessionId,
@@ -53,7 +52,7 @@ import {
   clearProjectPause,
   detectAndApplyRateLimitPause,
 } from "./fork-lifecycle-manager.js";
-import { createCorrelationId, createProjectObserver } from "./observability.js";
+import { createCorrelationId, createProjectObserver, type ProjectObserver } from "./observability.js";
 import { resolveAgentSelection, resolveSessionRole } from "./agent-selection.js";
 import type { OutcomeRecorder } from "./outcome-recorder.js";
 import {
@@ -71,6 +70,7 @@ import { isPRMerged } from "./fork-lifecycle-kki-override.js";
 import { handleRequestMerge, handleParallelRetry } from "./fork-reaction-handlers.js";
 import { handleRespawnForReview } from "./fork-reaction-rfr.js";
 import { maybeDispatchReviewBacklog } from "./review-backlog.js";
+import { getAllSessionPrefixes, isOrchestratorSessionForPrefix } from "./session-prefixes.js";
 import { updateSessionMetadataHelper } from "./fork-utils.js";
 import { checkMergeGate, type MergeGateResult } from "./merge-gate.js";
 import { GLOBAL_PAUSE_UNTIL_KEY, GLOBAL_PAUSE_REASON_KEY, parsePauseUntil } from "./global-pause.js";
@@ -408,6 +408,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     outcomeRecorder,
     mcpMailConfig: providedMcpMailConfig,
   } = deps;
+  const allSessionPrefixes = getAllSessionPrefixes(config.projects);
   const observer = createProjectObserver(config, "lifecycle-manager");
 
   // Initialize MCP mail client — prefer caller-supplied config, fall back to env var
@@ -430,7 +431,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
   // regardless of the session lifecycle poll interval
   let inboxPollTimer: ReturnType<typeof setInterval> | null = null;
   const INBOX_POLL_INTERVAL_MS = 5 * 60_000; // every 5 minutes
-
+  const BACKFILL_WARN_INTERVAL_MS = 10 * 60_000; // warn about disabled backfill every 10 minutes
   // Productivity check state — separate 15-min interval for PR-level checks
   let productivityTimer: ReturnType<typeof setInterval> | null = null;
   let productivityRunning = false; // re-entrancy guard
@@ -440,6 +441,11 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
   const sessionCurrentTask = new Map<string, string>();
   const TERMINAL_EXIT_PROOF_RECORDED_AT_KEY = "terminalExitProofRecordedAt";
   const pendingTerminalExitProofRecordedAt = new Map<string, string>();
+
+  function isLifecycleOrchestratorSession(session: Pick<Session, "id" | "metadata" | "projectId">): boolean {
+    const project = config.projects[session.projectId];
+    return isOrchestratorSessionForPrefix(session, project?.sessionPrefix);
+  }
 
   /** Run all productivity checks for active sessions. */
   async function runProductivityCycle(): Promise<void> {
@@ -452,7 +458,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       // productivity checks skip paused sessions (bd-nk7).
       const pausedProjects = new Map<string, Date>();
       for (const session of sessions) {
-        if (!isOrchestratorSession(session)) continue;
+        if (!isLifecycleOrchestratorSession(session)) continue;
         const until = parsePauseUntil(session.metadata[GLOBAL_PAUSE_UNTIL_KEY]);
         if (!until) continue;
         if (until.getTime() <= Date.now()) {
@@ -525,6 +531,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
   // bd-qqm: track the last skeptic comment ID per session to detect new FAIL verdicts.
   // Initialized lazily (undefined = never fetched), compared against fetched comment IDs each poll.
   const lastSkepticCommentId = new Map<string, number>(); // sessionId → last known comment ID
+  const lastBackfillWarnTimeByProject = new Map<string, number>(); // projectId → last warn timestamp
   let pollTimer: ReturnType<typeof setInterval> | null = null;
   let polling = false; // re-entrancy guard
   let inboxPolling = false; // re-entrancy guard for concurrent inbox polls
@@ -564,7 +571,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     if (!project) return { status: session.status, agentDead: false };
 
     const agentName = resolveAgentSelection({
-      role: resolveSessionRole(session.id, session.metadata),
+      role: resolveSessionRole(session.id, session.metadata, project.sessionPrefix),
       project,
       defaults: config.defaults,
       persistedAgent: session.metadata["agent"],
@@ -689,8 +696,8 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       scm &&
       session.branch &&
       session.metadata["prAutoDetect"] !== "off" &&
-      session.metadata["role"] !== "orchestrator" &&
-      !session.id.endsWith("-orchestrator")
+      (session.metadata["role"] === "worker" ||
+        !isOrchestratorSessionForPrefix(session, project?.sessionPrefix))
     ) {
       try {
         const detectedPR = await scm.detectPR(session, project);
@@ -1005,9 +1012,11 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         if (reactionConfig.message.includes("{{context}}")) {
           dedupContext = await buildReactionContext(reactionKey, session, projectId, config, registry);
         }
-        const finalMessage = dedupContext !== undefined
-          ? reactionConfig.message.replace(/\{\{context\}\}/g, () => dedupContext!)
-          : reactionConfig.message;
+        let finalMessage = reactionConfig.message;
+        if (dedupContext !== undefined) {
+          const context = dedupContext;
+          finalMessage = reactionConfig.message.replace(/\{\{context\}\}/g, () => context);
+        }
         const messageHash = await hashMessageContent(finalMessage);
 
         // bd-1178: SHA-based dedup — skip only when BOTH message hash AND SHA are unchanged.
@@ -1121,9 +1130,11 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
           try {
             // Inject context if message contains {{context}} placeholder.
             // dedupContext was built once at the top of this block — reuse it.
-            const finalMessage = dedupContext !== undefined
-              ? reactionConfig.message.replace(/\{\{context\}\}/g, () => dedupContext!)
-              : reactionConfig.message;
+            let finalMessage = reactionConfig.message;
+            if (dedupContext !== undefined) {
+              const context = dedupContext;
+              finalMessage = reactionConfig.message.replace(/\{\{context\}\}/g, () => context);
+            }
             await sessionManager.send(sessionId, finalMessage);
 
             // Record message content hash and SHA after successful send.
@@ -1603,7 +1614,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       }
     }
 
-    if (!isOrchestratorSession(session)) {
+    if (!isLifecycleOrchestratorSession(session)) {
       if (exitStatus === "merged") {
         try {
           await reapPostMergeCoWorkers(session, sessionManager, observer, {
@@ -2485,7 +2496,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       // this deep pane inspection catches false-liveness. (bd-stuck-probe)
       if (
         !TERMINAL_STATUSES.has(newStatus) &&
-        !isOrchestratorSession(session) &&
+        !isLifecycleOrchestratorSession(session) &&
         session.runtimeHandle
       ) {
         try {
@@ -2564,6 +2575,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
   async function pollAll(): Promise<void> {
     const correlationId = createCorrelationId("lifecycle-poll");
     const startedAt = Date.now();
+    const nowMs = startedAt;
     // Re-entrancy guard: skip if previous poll is still running
     if (polling) return;
     polling = true;
@@ -2573,7 +2585,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
 
       const pausedProjects = new Map<string, Date>();
       for (const session of sessions) {
-        if (!isOrchestratorSession(session)) continue;
+        if (!isLifecycleOrchestratorSession(session)) continue;
         const until = parsePauseUntil(session.metadata[GLOBAL_PAUSE_UNTIL_KEY]);
         if (!until) continue;
         if (until.getTime() <= Date.now()) {
@@ -2622,7 +2634,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         // Skip non-orchestrator sessions if project is currently paused.
         // Terminal sessions bypass so exit proof, outcome recording, and cleanup
         // are not delayed (bd-e4t).
-        if (pausedProjects.has(s.projectId) && !isOrchestratorSession(s) && !TERMINAL_STATUSES.has(s.status)) {
+        if (pausedProjects.has(s.projectId) && !isLifecycleOrchestratorSession(s) && !TERMINAL_STATUSES.has(s.status)) {
           continue;
         }
         await checkSession(s).catch((err) => {
@@ -2729,26 +2741,16 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
             allCompleteEmitted = false;
           }
         } else if (project && project.backfillAllPRs === false) {
-          // Explicit opt-out — surface open-PR leakage risk for operator visibility.
-          const scmPlugin = project.scm ? registry.get<SCM>("scm", project.scm.plugin) : null;
-          const listOpenPRs = scmPlugin?.listOpenPRs?.bind(scmPlugin);
-          if (listOpenPRs) {
-            try {
-              const openPRs = await listOpenPRs(project);
-              const nonDraftOpen = openPRs.filter((pr) => !pr.isDraft).length;
-              if (nonDraftOpen > 0) {
-                observer.recordOperation({
-                  metric: "lifecycle_poll",
-                  operation: "lifecycle.backfill.disabled_with_open_prs",
-                  outcome: "failure",
-                  correlationId,
-                  projectId: scopedProjectId,
-                  data: { nonDraftOpenPRs: nonDraftOpen },
-                  level: "warn",
-                });
-              }
-            } catch { /* fail-open: skip warning on list error */ }
-          }
+          await maybeWarnBackfillDisabledWithOpenPRs({
+            projectId: scopedProjectId,
+            project,
+            nowMs,
+            correlationId,
+            observer,
+            registry,
+            lastBackfillWarnTimeByProject,
+            BACKFILL_WARN_INTERVAL_MS,
+          });
         }
       }
 
@@ -2790,17 +2792,12 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       // {12-hex-hash}-{prefix}-{num} (where prefix ∈ project session prefixes)
       // that exist in tmux but have no AO DB record and are idle >orphanIdleThresholdMs
       // are killed. This unblocks the spawn gate (>20 sessions threshold).
-      const nowMs = Date.now();
       if (nowMs - lastSweepTime >= SWEEP_INTERVAL_MS) {
         lastSweepTime = nowMs;
         try {
           // Collect all unique session prefixes from configured projects so the
           // sweeper can identify orphaned sessions regardless of which project they belong to
-          const projectPrefixes = new Set(
-            Object.values(config.projects)
-              .map((p) => p.sessionPrefix)
-              .filter(Boolean),
-          );
+          const projectPrefixes = new Set(allSessionPrefixes);
           const sweepConfig = {
             ...DEFAULT_TMUX_SWEEPER_CONFIG,
             aoSessionPrefixes: projectPrefixes.size > 0 ? projectPrefixes : DEFAULT_TMUX_SWEEPER_CONFIG.aoSessionPrefixes,
@@ -2977,6 +2974,59 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     _testing: {
       executeReaction,
       getReactionConfigForSession,
+      maybeWarnBackfillDisabledWithOpenPRs,
     },
-  } as LifecycleManager & { _testing: { executeReaction: typeof executeReaction; getReactionConfigForSession: typeof getReactionConfigForSession } };
+  } as LifecycleManager & {
+    _testing: {
+      executeReaction: typeof executeReaction;
+      getReactionConfigForSession: typeof getReactionConfigForSession;
+      maybeWarnBackfillDisabledWithOpenPRs: typeof maybeWarnBackfillDisabledWithOpenPRs;
+    };
+  };
+}
+
+/**
+ * maybeWarnBackfillDisabledWithOpenPRs — throttled warning when backfill is explicitly disabled.
+ * Surface open-PR leakage risk for operator visibility. Throttled to reduce SCM API load.
+ * (bd-bsu: requested by CodeRabbit review on #406)
+ */
+async function maybeWarnBackfillDisabledWithOpenPRs(args: {
+  projectId: string;
+  project: _ProjectConfig;
+  nowMs: number;
+  correlationId: string;
+  observer: ProjectObserver;
+  registry: PluginRegistry;
+  lastBackfillWarnTimeByProject: Map<string, number>;
+  BACKFILL_WARN_INTERVAL_MS: number;
+}): Promise<void> {
+  const lastWarn = args.lastBackfillWarnTimeByProject.get(args.projectId) ?? 0;
+  if (args.nowMs - lastWarn < args.BACKFILL_WARN_INTERVAL_MS) {
+    return;
+  }
+
+  const scmPlugin = args.project.scm ? args.registry.get<SCM>("scm", args.project.scm.plugin) : null;
+  const listOpenPRs = scmPlugin?.listOpenPRs?.bind(scmPlugin);
+  if (!listOpenPRs) return;
+
+  try {
+    const openPRs = await listOpenPRs(args.project);
+    const nonDraftOpen = openPRs.filter((pr) => !pr.isDraft).length;
+    if (nonDraftOpen > 0) {
+      args.observer.recordOperation({
+        metric: "lifecycle_poll",
+        operation: "lifecycle.backfill.disabled_with_open_prs",
+        outcome: "failure",
+        correlationId: args.correlationId,
+        projectId: args.projectId,
+        data: { nonDraftOpenPRs: nonDraftOpen },
+        level: "warn",
+      });
+    }
+  } catch {
+    /* fail-open: skip warning on list error */
+  } finally {
+    // Ensure throttle timestamp is set even on failure to avoid hammering the API.
+    args.lastBackfillWarnTimeByProject.set(args.projectId, Date.now());
+  }
 }

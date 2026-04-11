@@ -292,80 +292,51 @@ describe("workspace.create()", () => {
 
   it("recovers checkout by removing stale checked-out worktree with no active tmux session", async () => {
     const ws = create();
-    // The stale worktree path must appear absent from the filesystem so
-    // maybeRemoveStaleCheckedOutWorktree() returns true after removing it.
-    const stalePath = "/mock-home/.worktrees/myproject/ao-999";
+    const worktreePath = "/mock-home/.worktrees/myproject/wa-999";
+    const staleWorktreePath = "/mock-home/.worktrees/myproject/ao-999";
+    const callResults: Record<string, GitCallResult> = {
+      [`git,fetch,origin,--quiet,(cwd=/repo/path)`]: { stdout: "" },
+      [`git,branch,--list,origin/main,(cwd=/repo/path)`]: { stdout: "" },
+      [`git,worktree,add,-b,feat/TEST-1,${worktreePath},origin/main,(cwd=/repo/path)`]:
+        new Error("already exists"),
+      [`git,worktree,add,${worktreePath},origin/main,(cwd=/repo/path)`]: { stdout: "" },
+      "tmux,list-sessions,-F,#{session_name},": { stdout: "" },
+      [`git,worktree,remove,--force,--force,${staleWorktreePath},(cwd=/repo/path)`]: { stdout: "" },
+      [`git,worktree,list,--porcelain,(cwd=/repo/path)`]: { stdout: "" },
+      [`git,rev-parse,--path-format=absolute,--git-common-dir,(cwd=${worktreePath})`]: { stdout: "/repo/path/.git" },
+      [`git,worktree,lock,--reason,AO session active,${worktreePath},(cwd=/repo/path)`]: { stdout: "" },
+    };
+
     mockExistsSync.mockImplementation((p: string) => {
       if (String(p).endsWith(".git/info")) return true;
-      if (String(p) === stalePath) return false; // stale path is gone after removal
+      if (String(p) === staleWorktreePath) return false;
       return true;
     });
-    let checkoutAttempts = 0;
-    mockExecFileAsync.mockImplementation((cmd: string, args: string[], opts?: { cwd?: string }) => {
-      if (cmd === "tmux") {
-        return Promise.resolve({ stdout: "\n", stderr: "" });
-      }
 
-      if (cmd !== "git") {
+    let checkoutAttempts = 0;
+    mockExecFileAsync.mockImplementation((cmd: string, args: string[], opts?: { cwd?: string; timeout?: number }) => {
+      if (cmd === "git" && args[0] === "checkout" && args[1] === "feat/TEST-1" && opts?.cwd === worktreePath) {
+        checkoutAttempts += 1;
+        if (checkoutAttempts === 1) {
+          return Promise.reject(new Error(`already exists, already checked out at '${staleWorktreePath}'`));
+        }
         return Promise.resolve({ stdout: "\n", stderr: "" });
       }
 
       const key = [cmd, ...args, opts?.cwd ? `(cwd=${opts.cwd})` : ""].join(",");
-      if (key === "git,fetch,origin,--quiet,(cwd=/repo/path)") {
-        return Promise.resolve({ stdout: "\n", stderr: "" });
-      }
-      if (key === "git,branch,--list,origin/main,(cwd=/repo/path)") {
-        return Promise.resolve({ stdout: "\n", stderr: "" });
-      }
-      if (
-        key ===
-        "git,worktree,add,-b,feat/TEST-1,/mock-home/.worktrees/myproject/session-1,origin/main,(cwd=/repo/path)"
-      ) {
-        return Promise.reject(new Error("already exists"));
-      }
-      if (
-        key ===
-        "git,worktree,add,/mock-home/.worktrees/myproject/session-1,origin/main,(cwd=/repo/path)"
-      ) {
-        return Promise.resolve({ stdout: "\n", stderr: "" });
-      }
-      if (key === "git,checkout,feat/TEST-1,(cwd=/mock-home/.worktrees/myproject/session-1)") {
-        if (checkoutAttempts === 0) {
-          checkoutAttempts += 1;
-          return Promise.reject(
-            new Error(
-              "fatal: 'feat/TEST-1' is already checked out at '/mock-home/.worktrees/myproject/ao-999'",
-            ),
-          );
-        }
-        return Promise.resolve({ stdout: "\n", stderr: "" });
-      }
-      if (
-        key ===
-        "git,worktree,remove,--force,--force,/mock-home/.worktrees/myproject/ao-999,(cwd=/repo/path)"
-      ) {
-        return Promise.resolve({ stdout: "\n", stderr: "" });
-      }
-      if (key === "git,worktree,list,--porcelain,(cwd=/repo/path)") {
-        return Promise.resolve({ stdout: "\n", stderr: "" });
-      }
-      if (
-        key ===
-        "git,worktree,lock,--reason,AO session active,/mock-home/.worktrees/myproject/session-1,(cwd=/repo/path)"
-      ) {
-        return Promise.resolve({ stdout: "\n", stderr: "" });
-      }
+      const result = callResults[key];
 
-      return Promise.resolve({ stdout: "\n", stderr: "" });
+      if (result instanceof Error) return Promise.reject(result);
+      return Promise.resolve({ stdout: (result?.stdout ?? "") + "\n", stderr: result?.stderr ?? "" });
     });
 
-    const info = await ws.create(makeCreateConfig());
+    const info = await ws.create(makeCreateConfig({ sessionId: "wa-999" }));
 
     expect(info.branch).toBe("feat/TEST-1");
-    // Verify stale worktree removal was attempted (from the walk-up in maybeRemoveStaleCheckedOutWorktree)
+    expect(checkoutAttempts).toBe(2);
     expect(mockExecFileAsync).toHaveBeenCalledWith(
       "git",
-      ["worktree", "remove", "--force", "--force", "/mock-home/.worktrees/myproject/ao-999"],
+      ["worktree", "remove", "--force", "--force", staleWorktreePath],
       { cwd: "/repo/path" },
     );
   });

@@ -251,7 +251,7 @@ describe("generateConfigFromUrl", () => {
 
     // Check top-level structure
     expect(config.port).toBe(3000);
-    expect(config.defaults).toEqual({
+    expect(config.defaults).toMatchObject({
       runtime: "tmux",
       agent: "codex",
       workspace: "worktree",

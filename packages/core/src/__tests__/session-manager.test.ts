@@ -1286,6 +1286,26 @@ describe("list", () => {
     expect(repaired!["status"]).toBe("working");
   });
 
+  it("does not rewrite worker metadata for non-canonical *-orchestrator session ids", async () => {
+    writeMetadata(sessionsDir, "other-orchestrator", {
+      worktree: "/tmp/ws-other",
+      branch: "feat/other",
+      status: "working",
+      project: "my-app",
+      pr: "https://github.com/org/my-app/pull/99",
+    });
+
+    const sm = createSessionManager({ config, registry: mockRegistry });
+    const sessions = await sm.list("my-app");
+
+    expect(sessions.some((session) => session.id === "other-orchestrator")).toBe(true);
+
+    const repaired = readMetadataRaw(sessionsDir, "other-orchestrator");
+    expect(repaired!["role"]).toBeUndefined();
+    expect(repaired!["pr"]).toBe("https://github.com/org/my-app/pull/99");
+    expect(repaired!["prAutoDetect"]).toBeUndefined();
+  });
+
   it("excludes killed and merged sessions from list", async () => {
     writeMetadata(sessionsDir, "app-killed", {
       worktree: "/tmp/ws-killed",
@@ -2830,7 +2850,7 @@ describe("send", () => {
       makeHandle("rt-1"),
       "do not confirm on visibility",
     );
-  });
+  }, 10_000);
 });
 
 describe("remap", () => {

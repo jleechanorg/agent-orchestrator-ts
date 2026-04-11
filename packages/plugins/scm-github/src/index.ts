@@ -9,7 +9,7 @@ import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import { promisify } from "node:util";
 import { existsSync, writeFileSync, unlinkSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
-import { basename, join, resolve } from "node:path";
+import { basename, isAbsolute, join, relative, resolve } from "node:path";
 import {
   CI_STATUS,
   type PluginModule,
@@ -819,6 +819,36 @@ async function hasActiveTmuxSessionForWorktreeName(worktreePath: string, cwd?: s
   return tmuxSessions.some((tmuxSession) => tmuxSession === sessionName || tmuxSession.endsWith(`-${sessionName}`));
 }
 
+const AO_SESSION_WORKTREE_PATTERN = /^(ao|jc|wa|cc|ra|wc)-\d+$/;
+
+function isAoManagedWorktreePath(worktreePath: string): boolean {
+  return AO_SESSION_WORKTREE_PATTERN.test(basename(resolve(worktreePath)));
+}
+
+function isDescendantPath(pathToCheck: string, baseDir: string): boolean {
+  const rel = relative(resolve(baseDir), resolve(pathToCheck));
+  return rel.length > 0 && !rel.startsWith("..") && !isAbsolute(rel);
+}
+
+async function listRegisteredWorktreePaths(repoPath: string): Promise<Set<string> | null> {
+  try {
+    const list = await git(["worktree", "list", "--porcelain"], repoPath);
+    return new Set(
+      list
+        .split("\n\n")
+        .flatMap((block) =>
+          block
+            .trim()
+            .split("\n")
+            .filter((line) => line.startsWith("worktree "))
+            .map((line) => resolve(line.slice("worktree ".length))),
+        ),
+    );
+  } catch {
+    return null;
+  }
+}
+
 async function maybeRemoveStaleCheckedOutWorktree(
   repoPath: string,
   checkoutErrorMessage: string,
@@ -826,10 +856,11 @@ async function maybeRemoveStaleCheckedOutWorktree(
 ): Promise<boolean> {
   const stalePath = extractCheckedOutWorktreePath(checkoutErrorMessage);
   if (!stalePath) return false;
-
+  if (!isAoManagedWorktreePath(stalePath)) return false;
   const resolvedStale = resolve(stalePath);
-  const resolvedBase = resolve(worktreeBaseDir);
-  if (!resolvedStale.startsWith(`${resolvedBase}/`)) return false;
+  if (!isDescendantPath(resolvedStale, worktreeBaseDir)) return false;
+  const registeredWorktrees = await listRegisteredWorktreePaths(repoPath);
+  if (registeredWorktrees === null || !registeredWorktrees.has(resolvedStale)) return false;
 
   const hasActiveTmux = await hasActiveTmuxSessionForWorktreeName(stalePath, repoPath);
   if (hasActiveTmux) return false;
@@ -841,16 +872,10 @@ async function maybeRemoveStaleCheckedOutWorktree(
   }
 
   try {
-    const list = await git(["worktree", "list", "--porcelain"], repoPath);
-    const stillPresent = list
-      .split("\n\n")
-      .some((block) =>
-        block
-          .trim()
-          .split("\n")
-          .some((line) => line.startsWith("worktree ") && line.slice("worktree ".length) === stalePath),
-      );
-    return !stillPresent && !existsSync(resolvedStale);
+    const remainingWorktrees = await listRegisteredWorktreePaths(repoPath);
+    // Git's "refusing to fetch" error is based on registered worktrees, not directory
+    // existence. Once unregistered, the fetch will succeed even if the directory lingers.
+    return !remainingWorktrees?.has(resolvedStale);
   } catch {
     return !existsSync(resolvedStale);
   }
@@ -2052,10 +2077,14 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
       ]);
       const data: { reviewDecision: string } = JSON.parse(raw);
 
-      const d = (data.reviewDecision ?? "").toUpperCase();
+      // Treat non-string, null, undefined, or whitespace-only as pending (fail-closed). bd-sm7
+      const raw_d = data.reviewDecision;
+      if (typeof raw_d !== "string") return "pending";
+      const d = raw_d.trim().toUpperCase();
       if (d === "APPROVED") return "approved";
       if (d === "CHANGES_REQUESTED") return "changes_requested";
-      if (d === "REVIEW_REQUIRED") return "pending";
+      // Empty string, REVIEW_REQUIRED, or PENDING mean no approval yet — treat as pending.
+      if (d === "" || d === "REVIEW_REQUIRED" || d === "PENDING") return "pending";
       return "none";
     },
 
@@ -2503,12 +2532,13 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
         blockers.push(`CI is ${ciStatus}`);
       }
 
-      // Reviews
-      const reviewDecision = (data.reviewDecision ?? "").toUpperCase();
+      // Reviews — treat non-string, null, undefined, whitespace-only, PENDING as review required (fail-closed). bd-sm7
+      const rawRd = data.reviewDecision;
+      const reviewDecision = typeof rawRd === "string" ? rawRd.trim().toUpperCase() : "";
       const approved = reviewDecision === "APPROVED";
       if (reviewDecision === "CHANGES_REQUESTED") {
         blockers.push("Changes requested in review");
-      } else if (reviewDecision === "REVIEW_REQUIRED") {
+      } else if (reviewDecision === "" || reviewDecision === "REVIEW_REQUIRED" || reviewDecision === "PENDING") {
         blockers.push("Review required");
       }
 
@@ -2606,15 +2636,13 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
       normalizeMergePayloadFromRestShape(data as Record<string, unknown>);
 
       // --- Review Decision ---
-      // Fail-closed: null/undefined reviewDecision → "pending" (not "none"), matching
-      // normalizeMergePayloadFromRestShape behavior. "none" means reviews were explicitly
-      // not required; null means we don't know → conservative.
-      const d = (data.reviewDecision ?? "").toUpperCase();
+      // Fail-closed: null/undefined/non-string/whitespace/PENDING → "pending" (not "none"). bd-sm7
+      const rawD = data.reviewDecision;
+      const d = typeof rawD === "string" ? rawD.trim().toUpperCase() : "";
       let reviewDecision: ReviewDecision;
       if (d === "APPROVED") reviewDecision = "approved";
       else if (d === "CHANGES_REQUESTED") reviewDecision = "changes_requested";
-      else if (d === "REVIEW_REQUIRED") reviewDecision = "pending";
-      else if (data.reviewDecision === null || data.reviewDecision === undefined) reviewDecision = "pending";
+      else if (d === "" || d === "REVIEW_REQUIRED" || d === "PENDING") reviewDecision = "pending";
       else reviewDecision = "none";
 
       // --- CI Status (from statusCheckRollup) ---

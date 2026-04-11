@@ -1,6 +1,9 @@
 #!/bin/bash
 
 REPO_ROOT="${AO_REPO_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=./lib/ao-config-topology.sh
+source "$SCRIPT_DIR/lib/ao-config-topology.sh"
 DEFAULT_CONFIG_HOME="${HOME:-$REPO_ROOT}"
 PASS_COUNT=0
 WARN_COUNT=0
@@ -39,8 +42,10 @@ expand_home() {
 }
 
 find_config() {
-  if [ -n "${AO_CONFIG_PATH:-}" ] && [ -f "$AO_CONFIG_PATH" ]; then
-    printf '%s\n' "$AO_CONFIG_PATH"
+  local managed_config=""
+  managed_config="$(ao_find_config_path 2>/dev/null || true)"
+  if [ -n "$managed_config" ]; then
+    printf '%s\n' "$managed_config"
     return 0
   fi
 
@@ -295,6 +300,15 @@ check_config_dirs() {
   ensure_dir "$worktree_dir" "worktree directory" "mkdir -p $worktree_dir"
 }
 
+check_managed_config_topology() {
+  if ao_validate_topology >/dev/null 2>&1; then
+    pass "managed staging/prod config topology is split correctly"
+    return
+  fi
+
+  fail "managed staging/prod config topology is invalid. Fix: run scripts/bootstrap-openclaw-config.sh and keep staging/prod as separate real files"
+}
+
 check_stale_temp_files() {
   local temp_root stale_count deleted_count
   temp_root="${AO_DOCTOR_TMP_ROOT:-${TMPDIR:-/tmp}/agent-orchestrator}"
@@ -325,14 +339,7 @@ check_stale_temp_files() {
 check_lifecycle_workers() {
   # Count lifecycle-worker processes per project via launchd and ps
   local config_file
-  config_file="$(find_config 2>/dev/null || true)"
-  if [ -z "$config_file" ] || [ ! -f "$config_file" ]; then
-    if [ -f "$DEFAULT_CONFIG_HOME/.openclaw_prod/agent-orchestrator.yaml" ]; then
-      config_file="$DEFAULT_CONFIG_HOME/.openclaw_prod/agent-orchestrator.yaml"
-    else
-      config_file="$DEFAULT_CONFIG_HOME/.openclaw/agent-orchestrator.yaml"
-    fi
-  fi
+  config_file="$(ao_find_config_path 2>/dev/null || ao_staging_config_path)"
   # Resolve canonical ao binary from PATH at runtime rather than hardcoding a path.
   # Also resolve the real path (symlink target) so we match both launchd-spawned
   # workers (show as /path/to/ao) and node-spawned workers (show as node /real/path.js).
@@ -503,6 +510,7 @@ check_launcher
 check_tmux
 check_gh
 check_config_dirs
+check_managed_config_topology
 check_stale_temp_files
 check_install_layout
 check_runtime_sanity

@@ -172,6 +172,7 @@ describe("tryClaudePrint", () => {
         input: "evaluate this",
         cwd: "/tmp",
         encoding: "utf-8",
+        timeout: 300000,
         stdio: ["pipe", "pipe", "ignore"],
       }),
     );

@@ -17,6 +17,18 @@ export {
   findConfig,
   findConfigFile,
 } from "./config.js";
+export {
+  findManagedConfigFile,
+  getManagedConfigPath,
+  getLegacyConfigPaths,
+  getPreferredConfigSearchPaths,
+  validateManagedConfigTopology,
+} from "./config-topology.js";
+export type {
+  ManagedConfigEnvironment,
+  ManagedConfigTopologyIssue,
+  ManagedConfigTopologyProblem,
+} from "./config-topology.js";
 
 // Plugin registry
 export { createPluginRegistry, BUILTIN_PLUGINS } from "./plugin-registry.js";

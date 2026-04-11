@@ -5,6 +5,7 @@ import cursorPlugin from "@jleechanorg/ao-plugin-agent-cursor";
 import aiderPlugin from "@jleechanorg/ao-plugin-agent-aider";
 import opencodePlugin from "@jleechanorg/ao-plugin-agent-opencode";
 import minimaxPlugin from "@jleechanorg/ao-plugin-agent-minimax";
+import geminiPlugin from "@jleechanorg/ao-plugin-agent-gemini";
 import githubSCMPlugin from "@jleechanorg/ao-plugin-scm-github";
 
 const agentPlugins: Record<string, { create(): Agent }> = {
@@ -14,6 +15,7 @@ const agentPlugins: Record<string, { create(): Agent }> = {
   aider: aiderPlugin,
   opencode: opencodePlugin,
   minimax: minimaxPlugin,
+  gemini: geminiPlugin,
 };
 
 const scmPlugins: Record<string, { create(config?: Record<string, unknown>): SCM }> = {

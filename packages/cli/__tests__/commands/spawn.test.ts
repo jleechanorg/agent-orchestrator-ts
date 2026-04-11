@@ -48,6 +48,9 @@ vi.mock("@jleechanorg/ao-core", async (importOriginal) => {
   return {
     ...actual,
     loadConfig: () => mockConfigRef.current,
+    resolveSpawnQueueConfig:
+      actual.resolveSpawnQueueConfig ??
+      (() => ({ enabled: false, maxActiveSessions: Number.POSITIVE_INFINITY })),
   };
 });
 
@@ -112,12 +115,15 @@ beforeEach(() => {
     throw new Error(`process.exit(${code})`);
   });
 
-  mockSessionManager.spawn.mockReset();
   mockSessionManager.list.mockReset();
   mockSessionManager.list.mockResolvedValue([]);
+  mockSessionManager.spawn.mockReset();
+  mockSessionManager.list.mockReset();
   mockSessionManager.claimPR.mockReset();
+  mockSessionManager.list.mockReset();
   mockExec.mockReset();
   mockEnsureLifecycleWorker.mockReset();
+  mockSessionManager.list.mockResolvedValue([]);
   mockEnsureLifecycleWorker.mockResolvedValue({
     running: true,
     started: true,
