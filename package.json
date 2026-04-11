@@ -18,7 +18,7 @@
     "format:check": "prettier --check .",
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm run test:shell && pnpm run test:evidence-gate-patterns && pnpm -r --filter '!@jleechanorg/ao-web' test",
-    "test:shell": "bash tests/unit/test-doctor-expand-home.sh && bash tests/unit/test-lw-watchdog-state.sh && bash tests/unit/test-lw-watchdog-config-parse.sh",
+    "test:shell": "bash tests/unit/test-doctor-expand-home.sh && bash tests/unit/test-lw-watchdog-state.sh && bash tests/unit/test-lw-watchdog-config-parse.sh && bash tests/unit/test-run-daily.sh",
     "test:evidence-gate-patterns": "bash scripts/test-evidence-gate-patterns.sh",
     "test:integration": "pnpm --filter @jleechanorg/ao-integration-tests test:integration",
     "clean": "pnpm -r clean",
@@ -50,7 +50,7 @@
   },
   "pnpm": {
     "overrides": {
-      "axios": "^1.15.0",
+      "axios": "1.15.0",
       "next": "^15.5.14",
       "tmp": "^0.2.4",
       "yaml": "^2.8.3"
