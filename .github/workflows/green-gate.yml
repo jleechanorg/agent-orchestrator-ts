@@ -344,11 +344,10 @@ jobs:
 
           # Determine check run conclusion
           # Gate 6 is advisory (WARN/FAIL don't add to FAILED_GATES)
-          # We need to reflect Gate 6 status in the conclusion
+          # GATE6=FAIL: fabricated/placeholder content → action_required
+          # GATE6=WARN or GATE6=PASS: advisory only → success (Gate 6 never blocks)
           if [ "$OVERALL" = "PASS" ]; then
             if [ "$GATE6" = "FAIL" ]; then
-              CHECK_CONCLUSION="action_required"
-            elif [ "$GATE6" = "WARN" ]; then
               CHECK_CONCLUSION="action_required"
             else
               CHECK_CONCLUSION="success"
