@@ -10,6 +10,16 @@
  * 4. Repeating 10 times and computing mean/variance of reduction
  */
 
+/* eslint-disable no-undef, no-unused-vars */
+ * Runs 10 iterations to satisfy statistical adequacy requirements (N>=10).
+ *
+ * Proves ACTUAL stub substitution by:
+ * 1. Starting a mock upstream server that logs exact bytes received
+ * 2. Starting the proxy with --tool-mode on-demand pointing to the mock
+ * 3. Sending a request with a realistic heavy tool schema (1368 bytes)
+ * 4. Repeating 10 times and computing mean/variance of reduction
+ */
+
 import { createServer } from "node:http";
 import { spawn, execSync } from "node:child_process";
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";

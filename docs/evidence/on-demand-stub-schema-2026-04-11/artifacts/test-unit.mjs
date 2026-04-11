@@ -4,6 +4,8 @@
  * Directly tests applyStubToolFilter and the stub schema format.
  */
 
+/* eslint-disable no-undef, no-unused-vars */
+
 import { writeFileSync, mkdirSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { execSync } from "node:child_process";
