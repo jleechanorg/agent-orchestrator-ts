@@ -473,6 +473,114 @@ describe("useSessionEvents", () => {
       expect(fetch).toHaveBeenCalledWith("/api/sessions", { signal: expect.any(AbortSignal) });
     });
 
+    it("refreshes when a snapshot is empty so removals are not dropped", async () => {
+      vi.useFakeTimers();
+      const initialSessions = makeSessions(2);
+
+      vi.mocked(fetch).mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          sessions: [],
+          globalPause: null,
+        }),
+      } as Response);
+
+      renderHook(() => useSessionEvents(initialSessions, null));
+
+      await act(async () => {
+        eventSourceMock!.onmessage!.call(eventSourceMock, {
+          data: JSON.stringify({
+            type: "snapshot",
+            sessions: [],
+          }),
+        } as MessageEvent);
+        await vi.advanceTimersByTimeAsync(120);
+      });
+
+      expect(fetch).toHaveBeenCalledTimes(1);
+      expect(fetch).toHaveBeenCalledWith("/api/sessions", { signal: expect.any(AbortSignal) });
+    });
+
+    it("reschedules a refresh when a newer snapshot aborts the in-flight fetch", async () => {
+      vi.useFakeTimers();
+      const initialSessions = makeSessions(1);
+      let abortCount = 0;
+
+      vi.mocked(fetch).mockImplementation((_input, init) => {
+        const signal = init?.signal as AbortSignal | undefined;
+        return new Promise<Response>((resolve, reject) => {
+          signal?.addEventListener(
+            "abort",
+            () => {
+              abortCount += 1;
+              reject(new DOMException("Aborted", "AbortError"));
+            },
+            { once: true },
+          );
+          // Keep the fetch pending until it is aborted.
+          void resolve;
+        });
+      });
+
+      renderHook(() => useSessionEvents(initialSessions, null));
+
+      await act(async () => {
+        eventSourceMock!.onmessage!.call(eventSourceMock, {
+          data: JSON.stringify({
+            type: "snapshot",
+            sessions: [
+              {
+                id: "session-0",
+                status: "working",
+                activity: "active",
+                lastActivityAt: new Date().toISOString(),
+              },
+              {
+                id: "session-1",
+                status: "working",
+                activity: "active",
+                lastActivityAt: new Date().toISOString(),
+              },
+            ],
+          }),
+        } as MessageEvent);
+        await vi.advanceTimersByTimeAsync(120);
+      });
+
+      expect(fetch).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        eventSourceMock!.onmessage!.call(eventSourceMock, {
+          data: JSON.stringify({
+            type: "snapshot",
+            sessions: [
+              {
+                id: "session-0",
+                status: "working",
+                activity: "active",
+                lastActivityAt: new Date().toISOString(),
+              },
+              {
+                id: "session-2",
+                status: "working",
+                activity: "active",
+                lastActivityAt: new Date().toISOString(),
+              },
+            ],
+          }),
+        } as MessageEvent);
+        await Promise.resolve();
+        await vi.advanceTimersByTimeAsync(120);
+        await Promise.resolve();
+      });
+
+      expect(abortCount).toBe(1);
+      expect(fetch).toHaveBeenCalledTimes(2);
+      expect(fetch).toHaveBeenNthCalledWith(2, "/api/sessions", {
+        signal: expect.any(AbortSignal),
+      });
+    });
+
     it("ignores stale refresh completions after project changes", async () => {
       vi.useFakeTimers();
       const alphaSessions = [makeSession({ id: "alpha-0", projectId: "alpha" })];

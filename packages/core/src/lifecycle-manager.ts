@@ -444,7 +444,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
 
   function isLifecycleOrchestratorSession(session: Pick<Session, "id" | "metadata" | "projectId">): boolean {
     const project = config.projects[session.projectId];
-    return isOrchestratorSessionForPrefix(session, project?.sessionPrefix);
+    return isOrchestratorSessionForPrefix(session, project?.sessionPrefix, allSessionPrefixes);
   }
 
   /** Run all productivity checks for active sessions. */
@@ -571,7 +571,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     if (!project) return { status: session.status, agentDead: false };
 
     const agentName = resolveAgentSelection({
-      role: resolveSessionRole(session.id, session.metadata, project.sessionPrefix),
+      role: resolveSessionRole(session.id, session.metadata, project.sessionPrefix, allSessionPrefixes),
       project,
       defaults: config.defaults,
       persistedAgent: session.metadata["agent"],

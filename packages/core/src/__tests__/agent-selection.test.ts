@@ -32,12 +32,12 @@ describe("resolveAgentSelection", () => {
 
   it("does not treat a numbered worker from a longer prefix as an orchestrator", () => {
     expect(
-      resolveSessionRole("app-orchestrator-1", undefined, "app"),
+      resolveSessionRole("app-orchestrator-1", undefined, "app", ["app", "app-orchestrator"]),
     ).toBe("worker");
   });
 
   it("only treats the exact project orchestrator id as an orchestrator", () => {
-    expect(resolveSessionRole("app-orchestrator", undefined, "app")).toBe("orchestrator");
-    expect(resolveSessionRole("other-orchestrator", undefined, "app")).toBe("worker");
+    expect(resolveSessionRole("app-orchestrator", undefined, "app", ["app"])).toBe("orchestrator");
+    expect(resolveSessionRole("other-orchestrator", undefined, "app", ["app", "other"])).toBe("worker");
   });
 });

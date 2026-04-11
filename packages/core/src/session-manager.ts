@@ -816,7 +816,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
     metadata: Record<string, string>,
   ) {
     return resolveAgentSelection({
-      role: resolveSessionRole(sessionId, metadata, project.sessionPrefix),
+      role: resolveSessionRole(sessionId, metadata, project.sessionPrefix, allSessionPrefixes),
       project,
       defaults: config.defaults,
       persistedAgent: metadata["agent"],

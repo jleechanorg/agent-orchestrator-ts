@@ -68,6 +68,8 @@ export function useSessionEvents(
   const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingMembershipKeyRef = useRef<string | null>(null);
   const lastRefreshAtRef = useRef(Date.now());
+  const activeRefreshControllerRef = useRef<AbortController | null>(null);
+  const inFlightMembershipKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
     sessionsRef.current = state.sessions;
@@ -81,12 +83,21 @@ export function useSessionEvents(
     const url = project ? `/api/events?project=${encodeURIComponent(project)}` : "/api/events";
     const es = new EventSource(url);
     let disposed = false;
-    let activeRefreshController: AbortController | null = null;
 
     const clearRefreshTimer = () => {
       if (refreshTimerRef.current) {
         clearTimeout(refreshTimerRef.current);
         refreshTimerRef.current = null;
+      }
+    };
+
+    const abortActiveRefresh = () => {
+      activeRefreshControllerRef.current?.abort();
+    };
+
+    const reschedulePendingRefresh = () => {
+      if (!disposed && pendingMembershipKeyRef.current !== null) {
+        scheduleRefresh();
       }
     };
 
@@ -98,8 +109,9 @@ export function useSessionEvents(
         refreshTimerRef.current = null;
         refreshingRef.current = true;
         const requestedMembershipKey = pendingMembershipKeyRef.current;
+        inFlightMembershipKeyRef.current = requestedMembershipKey;
         const refreshController = new AbortController();
-        activeRefreshController = refreshController;
+        activeRefreshControllerRef.current = refreshController;
 
         const sessionsUrl = project
           ? `/api/sessions?project=${encodeURIComponent(project)}`
@@ -121,11 +133,13 @@ export function useSessionEvents(
           )
           .catch(() => undefined)
           .finally(() => {
-            if (activeRefreshController === refreshController) {
-              activeRefreshController = null;
+            if (activeRefreshControllerRef.current === refreshController) {
+              activeRefreshControllerRef.current = null;
             }
+            inFlightMembershipKeyRef.current = null;
             if (disposed || refreshController.signal.aborted) {
               refreshingRef.current = false;
+              reschedulePendingRefresh();
               return;
             }
 
@@ -151,10 +165,15 @@ export function useSessionEvents(
           const snapshot = data as SSESnapshotEvent;
           dispatch({ type: "snapshot", patches: snapshot.sessions });
 
-          const currentMembershipKey = createMembershipKey(sessionsRef.current);
           const snapshotMembershipKey = createMembershipKey(snapshot.sessions);
 
-          if (currentMembershipKey !== snapshotMembershipKey) {
+          // Only abort when the snapshot differs from the IN-FLIGHT membership
+          // (not the rendered one, which may be stale during an in-flight refresh).
+          // This prevents bursty SSE duplicates from starving the refresh loop.
+          if (snapshotMembershipKey !== inFlightMembershipKeyRef.current) {
+            if (refreshingRef.current) {
+              abortActiveRefresh();
+            }
             pendingMembershipKeyRef.current = snapshotMembershipKey;
             scheduleRefresh();
             return;
@@ -173,10 +192,11 @@ export function useSessionEvents(
 
     return () => {
       disposed = true;
-      activeRefreshController?.abort();
-      activeRefreshController = null;
+      abortActiveRefresh();
+      activeRefreshControllerRef.current = null;
       refreshingRef.current = false;
       pendingMembershipKeyRef.current = null;
+      inFlightMembershipKeyRef.current = null;
       clearRefreshTimer();
       es.close();
     };
