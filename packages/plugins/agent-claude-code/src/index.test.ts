@@ -286,6 +286,11 @@ describe("getEnvironment", () => {
     expect(env["CLAUDECODE"]).toBe("");
   });
 
+  it("sets ANTHROPIC_BASE_URL to empty string (command also unsets it after shell startup)", () => {
+    const env = agent.getEnvironment(makeLaunchConfig());
+    expect(env["ANTHROPIC_BASE_URL"]).toBe("");
+  });
+
   it("sets AO_SESSION_ID but not AO_PROJECT_ID (caller's responsibility)", () => {
     const env = agent.getEnvironment(makeLaunchConfig());
     expect(env["AO_SESSION_ID"]).toBe("sess-1");

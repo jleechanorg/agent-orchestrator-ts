@@ -4,6 +4,9 @@ const mockExecFileSync = vi.hoisted(() => vi.fn());
 const mockResolveCodexBinary = vi.hoisted(() => vi.fn());
 const mockExistsSync = vi.hoisted(() => vi.fn());
 
+// Set CLAUDE_BINARY before module load so CLAUDE_BINARY_CANDIDATES[0] = "/mock/claude"
+// This makes resolveClaudeBinary() return "/mock/claude" without calling `which`,
+// preventing extra execFileSync calls that would consume mock slots unexpectedly.
 vi.hoisted(() => {
   process.env["CLAUDE_BINARY"] = "/mock/claude";
 });
@@ -20,22 +23,19 @@ vi.mock("@jleechanorg/ao-plugin-agent-codex", () => ({
   resolveCodexBinary: mockResolveCodexBinary,
 }));
 
-import { llmEval, tryCodexPrint } from "../../src/lib/llm-eval.js";
+import { tryCodexPrint, tryClaudePrint, llmEval } from "../../src/lib/llm-eval.js";
 
 const PASS_VERDICT = "VERDICT: PASS";
 const FAIL_VERDICT = "VERDICT: FAIL";
 const SKIPPED_VERDICT = "VERDICT: SKIPPED";
+const MOCK_CLAUDE_BINARY = "/mock/claude";
+const MOCK_CLAUDE_MODEL = "claude-sonnet-4-6";
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // "/mock/claude" exists — so resolveClaudeBinary() returns it directly (no `which` call)
   mockExistsSync.mockReturnValue(true);
 });
-
-function makeErrnoError(message: string, code?: string): NodeJS.ErrnoException {
-  const err = new Error(message) as NodeJS.ErrnoException;
-  err.code = code;
-  return err;
-}
 
 describe("tryCodexPrint", () => {
   it("returns validVerdict=true for output containing VERDICT: PASS", async () => {
@@ -81,7 +81,8 @@ describe("tryCodexPrint", () => {
 
   it("returns error=undefined (try next) when binary is not found (ENOENT)", async () => {
     mockResolveCodexBinary.mockResolvedValue("/usr/local/bin/codex");
-    const err = makeErrnoError("ENOENT: not found", "ENOENT");
+    const err = new Error("ENOENT: not found") as NodeJS.ErrnoException;
+    err.code = "ENOENT";
     mockExecFileSync.mockImplementation(() => {
       throw err;
     });
@@ -92,7 +93,8 @@ describe("tryCodexPrint", () => {
 
   it("returns validVerdict=false with error message for timeout", async () => {
     mockResolveCodexBinary.mockResolvedValue("/usr/local/bin/codex");
-    const err = makeErrnoError("ETIMEDOUT", "ETIMEDOUT");
+    const err = new Error("ETIMEDOUT") as NodeJS.ErrnoException;
+    err.code = "ETIMEDOUT";
     mockExecFileSync.mockImplementation(() => {
       throw err;
     });
@@ -105,7 +107,8 @@ describe("tryCodexPrint", () => {
   it("returns error=undefined (try next) when binary exits with auth/unavailable error", async () => {
     mockResolveCodexBinary.mockResolvedValue("/usr/local/bin/codex");
     // "unauthorized" is classified as unavailable → fallback chain continues
-    const err = makeErrnoError("Command failed: unauthorized");
+    const err = new Error("Command failed: unauthorized") as NodeJS.ErrnoException;
+    err.code = undefined;
     mockExecFileSync.mockImplementation(() => {
       throw err;
     });
@@ -153,21 +156,70 @@ describe("tryCodexPrint", () => {
     expect(result.validVerdict).toBe(false);
     expect(result.error).toContain("missing VERDICT line");
   });
+});
 
-  it("rejects embedded mid-sentence verdicts", async () => {
-    mockResolveCodexBinary.mockResolvedValue("/usr/local/bin/codex");
-    mockExecFileSync.mockReturnValue("Processing complete. VERDICT: PASS");
-    const result = await tryCodexPrint("evaluate this");
-    expect(result.validVerdict).toBe(false);
-    expect(result.error).toContain("missing VERDICT line");
+describe("tryClaudePrint", () => {
+  it("returns validVerdict=true for output containing VERDICT: PASS", async () => {
+    mockExecFileSync.mockReturnValue(PASS_VERDICT);
+    const result = await tryClaudePrint("evaluate this");
+    expect(result.validVerdict).toBe(true);
+    expect(result.output).toBe(PASS_VERDICT);
+    expect(mockExecFileSync).toHaveBeenCalledWith(
+      MOCK_CLAUDE_BINARY,
+      ["--dangerously-skip-permissions", "--print", "--model", MOCK_CLAUDE_MODEL],
+      expect.objectContaining({
+        input: "evaluate this",
+        cwd: "/tmp",
+        encoding: "utf-8",
+        timeout: 300000,
+        stdio: ["pipe", "pipe", "ignore"],
+      }),
+    );
   });
 
-  it("accepts indented verdict lines", async () => {
-    mockResolveCodexBinary.mockResolvedValue("/usr/local/bin/codex");
-    mockExecFileSync.mockReturnValue("  VERDICT: PASS");
-    const result = await tryCodexPrint("evaluate this");
+  it("returns validVerdict=false with error string when VERDICT is missing", async () => {
+    mockExecFileSync.mockReturnValue("Some analysis without verdict");
+    const result = await tryClaudePrint("evaluate this");
+    expect(result.validVerdict).toBe(false);
+    expect(result.error).toContain("missing VERDICT line");
+    expect(result.error).toBeDefined();
+  });
+
+  it("returns error=undefined when binary is not found", async () => {
+    const err = new Error("ENOENT: not found") as NodeJS.ErrnoException;
+    err.code = "ENOENT";
+    mockExecFileSync.mockImplementation(() => {
+      throw err;
+    });
+    const result = await tryClaudePrint("evaluate this");
+    expect(result.validVerdict).toBe(false);
+    expect(result.error).toBeUndefined();
+  });
+
+  it("returns validVerdict=false for other execFileSync errors", async () => {
+    const err = new Error("ETIMEDOUT") as NodeJS.ErrnoException;
+    err.code = "ETIMEDOUT";
+    mockExecFileSync.mockImplementation(() => {
+      throw err;
+    });
+    const result = await tryClaudePrint("evaluate this");
+    expect(result.validVerdict).toBe(false);
+    expect(result.error).toContain("ETIMEDOUT");
+    expect(result.error).toBeDefined();
+  });
+
+  it("returns validVerdict=true for markdown-prefixed ## VERDICT: PASS (claude)", async () => {
+    mockExecFileSync.mockReturnValue("## VERDICT: PASS");
+    const result = await tryClaudePrint("evaluate this");
     expect(result.validVerdict).toBe(true);
-    expect(result.output).toBe("VERDICT: PASS");
+    expect(result.output).toBe("## VERDICT: PASS");
+  });
+
+  it("returns validVerdict=false for VERDICT: SKIPPED (not a valid merge-gate verdict)", async () => {
+    mockExecFileSync.mockReturnValue(SKIPPED_VERDICT);
+    const result = await tryClaudePrint("evaluate this");
+    expect(result.validVerdict).toBe(false);
+    expect(result.error).toContain("missing VERDICT line");
   });
 });
 
@@ -183,8 +235,10 @@ describe("llmEval — default (codex primary)", () => {
 
   it("returns FAIL and tries Claude fallback when codex fails with infra error", async () => {
     mockResolveCodexBinary.mockResolvedValue("/usr/local/bin/codex");
-    const etimeout = makeErrnoError("ETIMEDOUT", "ETIMEDOUT");
-    const enoent = makeErrnoError("ENOENT", "ENOENT");
+    const etimeout = new Error("ETIMEDOUT") as NodeJS.ErrnoException;
+    etimeout.code = "ETIMEDOUT";
+    const enoent = new Error("ENOENT") as NodeJS.ErrnoException;
+    enoent.code = "ENOENT";
     mockExecFileSync
       .mockImplementationOnce(() => {
         throw etimeout;
@@ -202,7 +256,8 @@ describe("llmEval — default (codex primary)", () => {
 
   it("falls back to claude when codex is unavailable (ENOENT)", async () => {
     mockResolveCodexBinary.mockResolvedValue("/usr/local/bin/codex");
-    const enoent = makeErrnoError("ENOENT", "ENOENT");
+    const enoent = new Error("ENOENT") as NodeJS.ErrnoException;
+    enoent.code = "ENOENT";
     mockExecFileSync
       .mockImplementationOnce(() => {
         throw enoent;
@@ -215,8 +270,10 @@ describe("llmEval — default (codex primary)", () => {
 
   it("returns FAIL when both codex unavailable (ENOENT) and claude also fails (ENOENT)", async () => {
     mockResolveCodexBinary.mockResolvedValue("/usr/local/bin/codex");
-    const enoent1 = makeErrnoError("ENOENT", "ENOENT");
-    const enoent2 = makeErrnoError("ENOENT", "ENOENT");
+    const enoent1 = new Error("ENOENT") as NodeJS.ErrnoException;
+    enoent1.code = "ENOENT";
+    const enoent2 = new Error("ENOENT") as NodeJS.ErrnoException;
+    enoent2.code = "ENOENT";
     mockExecFileSync
       .mockImplementationOnce(() => {
         throw enoent1;
@@ -238,5 +295,51 @@ describe("llmEval — default (codex primary)", () => {
     expect(result).toContain("VERDICT: FAIL");
     expect(result).toContain("missing VERDICT");
     expect(mockExecFileSync).toHaveBeenCalledTimes(2); // codex no-verdict → tried Claude fallback
+  });
+});
+
+describe("llmEval — explicit model=claude", () => {
+  it("tries claude first when model=claude is specified", async () => {
+    mockExecFileSync.mockReturnValue(FAIL_VERDICT);
+    const result = await llmEval("evaluate this", { model: "claude" });
+    expect(result).toBe(FAIL_VERDICT);
+    expect(mockResolveCodexBinary).not.toHaveBeenCalled();
+    expect(mockExecFileSync).toHaveBeenCalledTimes(1);
+  });
+
+  it("falls back to codex when claude is unavailable", async () => {
+    mockResolveCodexBinary.mockResolvedValue("/usr/local/bin/codex");
+    const enoent = new Error("ENOENT") as NodeJS.ErrnoException;
+    enoent.code = "ENOENT";
+    mockExecFileSync
+      .mockImplementationOnce(() => {
+        throw enoent; // claude fails
+      })
+      .mockReturnValueOnce(PASS_VERDICT); // codex succeeds
+    const result = await llmEval("evaluate this", { model: "claude" });
+    expect(result).toBe(PASS_VERDICT);
+    expect(mockResolveCodexBinary).toHaveBeenCalled();
+    expect(mockExecFileSync).toHaveBeenCalledTimes(2);
+  });
+
+  it("returns FAIL and tries codex fallback when claude has infra error", async () => {
+    mockResolveCodexBinary.mockResolvedValue("/usr/local/bin/codex");
+    const etimeout = new Error("ETIMEDOUT") as NodeJS.ErrnoException;
+    etimeout.code = "ETIMEDOUT";
+    const enoent = new Error("ENOENT") as NodeJS.ErrnoException;
+    enoent.code = "ENOENT";
+    mockExecFileSync
+      .mockImplementationOnce(() => {
+        throw etimeout;
+      })
+      .mockImplementationOnce(() => {
+        throw enoent;
+      });
+    const result = await llmEval("evaluate this", { model: "claude" });
+    // Infra failure from Claude → try codex fallback → both fail → FAIL (fail-closed)
+    expect(result).toContain("VERDICT: FAIL");
+    expect(result).toContain("Claude failed:");
+    expect(mockResolveCodexBinary).toHaveBeenCalled();
+    expect(mockExecFileSync).toHaveBeenCalledTimes(2); // Claude failed, then tried codex
   });
 });
