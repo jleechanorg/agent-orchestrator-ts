@@ -6,6 +6,9 @@
   "provenance": {
     "git_head": "2e4efadb6de43b7cdcd49e04123d672cb9a4438b",
     "git_branch": "worktree_compaction",
+    "source_repo": "https://github.com/jleechanorg/agent-orchestrator (worktree: ao-3783)",
+    "source_commit": "2e4efadb6de43b7cdcd49e04123d672cb9a4438b",
+    "synced_from": "worktree",
     "merge_base": "2e4efadb6de43b7cdcd49e04123d672cb9a4438b",
     "commits_ahead_of_main": 0,
     "diff_stat_vs_main": "(no diff — branch at same commit as main)"

@@ -171,7 +171,7 @@ Config lives at `~/.ccproxy/config.yaml`. The default model entry should have `a
 ## Upstream
 
 **Source:** [github.com/jleechanorg/llm_inspector](https://github.com/jleechanorg/llm_inspector) (public)  
-**Evidence bundle:** [llm_inspector/docs/evidence/](llm_inspector/docs/evidence/) in the source repo  
-**Design doc:** [`roadmap/on-demand-tool-profiles.md`](roadmap/on-demand-tool-profiles.md)
+**Evidence bundle:** [llm_inspector/docs/evidence/](https://github.com/jleechanorg/llm_inspector/tree/main/docs/evidence) in the source repo
+**Design doc:** [`roadmap/on-demand-tool-profiles.md`](https://github.com/jleechanorg/agent-orchestrator/blob/main/roadmap/on-demand-tool-profiles.md)
 
 Changes to `llm_inspector/` in this fork should be submitted as PRs to the source repo first.

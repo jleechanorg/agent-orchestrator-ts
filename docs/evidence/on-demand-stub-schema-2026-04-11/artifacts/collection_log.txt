@@ -2,7 +2,7 @@
 
 ## Collection Steps
 
-1. Run: `node docs/evidence/on-demand-stub-schema-2026-04-11/test-real-upstream.mjs` (10 iterations)
+1. Run: `node docs/evidence/on-demand-stub-schema-2026-04-11/artifacts/test-real-upstream.mjs` (10 iterations)
 2. For each iteration: started mock upstream TCP server on port 19998
 3. Started proxy on port 19999 with --tool-mode on-demand
 4. Sent HTTP POST with realistic Agent schema (1368 bytes) through proxy
