@@ -34,20 +34,16 @@ defaults:
   #   agent: codex
   workspace: worktree     # worktree | clone | copy
   notifiers: [desktop, openclaw]    # desktop | slack | discord | webhook | email | openclaw
-  # Fix 2 (bd-4ze23): PR evidence media — user-scope skills (live under ~/.claude/skills/, not this repo).
-  # Copy into your real agent-orchestrator.yaml (or merge into existing agentRules).
-  agentRules: |
-    Evidence / PR body (integration+ claim classes — integration, pipeline-e2e, pr-lifecycle-e2e, merge-gate, or higher):
-    - Before creating or updating a PR body, run the user-scope `tmux-video-evidence` skill at `~/.claude/skills/tmux-video-evidence/` to capture **Terminal media** (HTTPS URL to cast, GIF, or captioned screenshot with tmux/terminal context).
-    - For integration+ claims, also run `smoke-test-local` at `~/.claude/skills/smoke-test-local/` when a local smoke flow applies.
-    - Never write `N/A` for **Terminal media** on code-change PRs when the claim class is integration or higher.
-  # bd-n047: Centralized auto-merge control — applied to all projects unless overridden.
-  # Set enabled: false here to disable auto-merge globally, then selectively re-enable per project.
-  # Per-project overrides: set projects.<name>.autoMerge.enabled to override the global default.
-  # autoMerge:
-  #   enabled: true          # set to false to globally disable auto-merge
-  #   waitSeconds: 300      # default wait time for GitHub's native auto-merge
-  #   mergeMethod: squash   # default merge method (merge | squash | rebase)
+
+# NOTE: agentRules is only supported under projects.<name>.agentRules (not under defaults).
+# The evidence guidance below is shown in the supported project-scoped location.
+# bd-n047: Centralized auto-merge control — applied to all projects unless overridden.
+# Set enabled: false here to disable auto-merge globally, then selectively re-enable per project.
+# Per-project overrides: set projects.<name>.autoMerge.enabled to override the global default.
+# autoMerge:
+#   enabled: true          # set to false to globally disable auto-merge
+#   waitSeconds: 300      # default wait time for GitHub's native auto-merge
+#   mergeMethod: squash   # default merge method (merge | squash | rebase)
 
 # Projects — at minimum, specify repo and path
 projects:
@@ -57,6 +53,14 @@ projects:
     path: ~/my-app
     defaultBranch: main
     sessionPrefix: app
+
+    # Fix 2 (bd-4ze23): PR evidence media — user-scope skills (live under ~/.claude/skills/, not this repo).
+    agentRules: |
+      Evidence / PR body (integration+ claim classes — integration, pipeline-e2e, pr-lifecycle-e2e, merge-gate, or higher):
+      - Before creating or updating a PR body, run the user-scope `tmux-video-evidence` skill at `~/.claude/skills/tmux-video-evidence/` to capture **Terminal media** as a captioned HTTPS URL to a real artifact (prefer .mp4/.gif/.webm/.mov/.cast, gist.github.com, asciinema.org, or user-attachments); unknown URLs may still pass CI with a warning (bd-vidcap). Caption must mention tmux or terminal.
+      - If the PR changes `.tsx`, `.jsx`, `.vue`, or `.svelte`, include **UI media** as a captioned HTTPS video URL (.mp4/.gif/.webm/.mov or GitHub user-attachments), or exact `N/A - no UI changes`.
+      - For integration+ claims, also run `smoke-test-local` at `~/.claude/skills/smoke-test-local/` when a local smoke flow applies.
+      - Never write `N/A` for **Terminal media** on code-change PRs when the claim class is integration or higher.
 
     # Issue tracker (defaults to github issues)
     # tracker:

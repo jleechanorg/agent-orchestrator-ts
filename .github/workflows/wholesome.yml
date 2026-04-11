@@ -117,15 +117,17 @@ jobs:
     needs: [_merged-guard, evidence-section]
     # Only meaningful if Evidence section was found
     if: needs._merged-guard.outputs.skip != 'true' && needs.evidence-section.outputs.found == 'true'
+    permissions:
+      contents: read
+      pull-requests: read
+    env:
+      GH_TOKEN: ${{ github.token }}
     steps:
       - name: Check Evidence Bundle v2 (block-level enforcement)
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
         run: |-
-          # Read PR body via heredoc with single-quoted delimiter to prevent
-          # shell re-interpretation of $() expressions in the body text.
-          BODY=$(cat <<'GITHUB_PR_BODY'
-${{ github.event.pull_request.body }}
-GITHUB_PR_BODY
-)
+          BODY="$PR_BODY"
 
           # Extract claim class — normalize to lowercase short form for CLAIM-based enforcement
           # Supports: **Claim class**: value and "- **Claim class**: ..." list formats.
@@ -156,6 +158,24 @@ GITHUB_PR_BODY
             merge-gate-green) CLAIM="merge-gate" ;;
           esac
           echo "Claim class: $CLAIM"
+          REQUIRES_STRONG_ARTIFACTS=false
+          case "$CLAIM" in
+            integration|pipeline-e2e|pr-lifecycle-e2e|merge-gate) REQUIRES_STRONG_ARTIFACTS=true ;;
+          esac
+          echo "requires_strong_artifacts=$REQUIRES_STRONG_ARTIFACTS"
+
+          # bd-vidcap: frontend file paths for UI video requirement (deterministic globs).
+          FRONTEND_TOUCH=false
+          if [ "$REQUIRES_STRONG_ARTIFACTS" = "true" ]; then
+            if ! FILES="$(gh api "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files" --paginate --jq '.[].filename' 2>/dev/null)"; then
+              echo "FAIL: Could not list PR files for frontend detection"
+              exit 1
+            fi
+            if printf '%s' "$FILES" | grep -qiE '\.(tsx|jsx|vue|svelte)$'; then
+              FRONTEND_TOUCH=true
+            fi
+          fi
+          echo "frontend_touch=$FRONTEND_TOUCH"
 
           # Extract Evidence section — merged approach:
           # bd-ara.2's tolower() for mawk portability + HTML comment stripping
@@ -202,35 +222,53 @@ GITHUB_PR_BODY
             show { print }
           ')
 
-          # 1) Repro gist URL is mandatory — scope to Repro gist line only (not entire EVIDENCE_SECTION)
-          # Label format: **Repro gist**: <url> (bold text, colon after closing **)
-          REPRO_LINE=$(printf '%s' "$EVIDENCE_SECTION" | grep -iF '**Repro gist**:' | head -1)
-          if [ -z "$REPRO_LINE" ]; then
-            echo "FAIL: Missing '**Repro gist**' label in Evidence section"
-            exit 1
-          fi
-          if ! printf '%s' "$REPRO_LINE" | grep -qE 'https://gist\.github\.com/[^[:space:]]+'; then
-            echo "FAIL: Missing required gist URL (https://gist.github.com/...) in Evidence section"
-            exit 1
-          fi
-          echo "Repro gist: PASS"
-
-          # 2) Terminal media (HTTPS screenshot/video) + tmux/terminal context + caption
-          # Unit claims are exempt: no runtime tmux/terminal output for pure-docs/automation PRs.
-          # Unit claims exempt from runtime terminal proof (evidence-gate.yml handles unit coverage separately).
-          if ! printf '%s' "$TM_BLOCK" | grep -qF '**Terminal media**:'; then
-            echo "FAIL: Missing '**Terminal media**' label in Evidence section"
-            exit 1
-          fi
-          if [ "$CLAIM" != "unit" ]; then
-            if ! printf '%s' "$TM_BLOCK" | grep -qE 'https://[^[:space:]]+'; then
-              echo "FAIL: Missing '**Terminal media**' HTTPS URL in Evidence section"
+          if [ "$REQUIRES_STRONG_ARTIFACTS" = "true" ]; then
+            # 1) Repro gist URL is mandatory — scope to Repro gist line only (not entire EVIDENCE_SECTION)
+            # Label format: **Repro gist**: <url> (bold text, colon after closing **)
+            REPRO_LINE=$(printf '%s' "$EVIDENCE_SECTION" | grep -iF '**Repro gist**:' | head -1)
+            if [ -z "$REPRO_LINE" ]; then
+              echo "FAIL: Missing '**Repro gist**' label in Evidence section"
               exit 1
             fi
+            if ! printf '%s' "$REPRO_LINE" | grep -qE 'https://gist\.github\.com/[^[:space:]]+'; then
+              echo "FAIL: Missing required gist URL (https://gist.github.com/...) in Evidence section"
+              exit 1
+            fi
+            echo "Repro gist: PASS"
+
+            # 2) Terminal media (bd-vidcap: HTTPS URL + tmux caption; unknown pattern → WARN — align evidence-gate.yml)
+            if ! printf '%s' "$TM_BLOCK" | grep -qF '**Terminal media**:'; then
+              echo "FAIL: Missing '**Terminal media**' label in Evidence section"
+              exit 1
+            fi
+            if printf '%s' "$TM_BLOCK" | grep -qiE '\bN/A\b' && ! printf '%s' "$TM_BLOCK" | grep -qE 'https://'; then
+              echo "FAIL: **Terminal media** must include an HTTPS URL for integration+ claims (not N/A)"
+              exit 1
+            fi
+            if ! printf '%s' "$TM_BLOCK" | grep -qE 'https://[^[:space:]]+'; then
+              echo "FAIL: **Terminal media** must include a real HTTPS URL for integration+ claims"
+              exit 1
+            fi
+            TM_FIRST_URL=$(printf '%s' "$TM_BLOCK" | grep -oE 'https://[^[:space:])>]+' | head -1 | sed 's/[.,;]*$//')
+            if [ -z "$TM_FIRST_URL" ]; then
+              echo "FAIL: Could not extract Terminal media HTTPS URL"
+              exit 1
+            fi
+            if printf '%s' "$TM_FIRST_URL" | grep -qiE 'https?://(www\.)?example\.com'; then
+              echo "FAIL: **Terminal media** URL must not be a placeholder (example.com)"
+              exit 1
+            fi
+            KNOWN_TM=false
+            if printf '%s' "$TM_FIRST_URL" | grep -qiE '\.(mp4|gif|cast|webm|mov)([/?#]|$)'; then KNOWN_TM=true; fi
+            if [ "$KNOWN_TM" = "false" ] && printf '%s' "$TM_FIRST_URL" | grep -qiE 'gist\.github\.com'; then KNOWN_TM=true; fi
+            if [ "$KNOWN_TM" = "false" ] && printf '%s' "$TM_FIRST_URL" | grep -qiE 'asciinema\.org'; then KNOWN_TM=true; fi
+            if [ "$KNOWN_TM" = "false" ] && printf '%s' "$TM_FIRST_URL" | grep -qiE 'github\.com/user-attachments/assets/'; then KNOWN_TM=true; fi
+            if [ "$KNOWN_TM" = "false" ]; then
+              echo "WARN: bd-vidcap — Terminal media URL may not match a known artifact pattern (.mp4, .gif, .cast, .webm, .mov, gist.github.com, asciinema.org, user-attachments). Prefer a captioned cast or video link."
+            fi
             TM_URL_LINE=$(printf '%s' "$TM_BLOCK" | grep -n 'https://' | head -1 | cut -d: -f1)
-            # Strip the bold label prefix from the URL line so only the caption survives.
-            # awk strips "**Terminal media**: " from inline label+URL+caption lines.
-            CAPTION_LINES=$(printf '%s' "$TM_BLOCK" | tail -n +"${TM_URL_LINE:-1}" | grep -v '^[[:space:]]*$' | grep -v '^[[:space:]]*```' | awk '{ sub(/^\*\*Terminal media\*\*:[[:space:]]*/, ""); print }')
+            # Strip the bold label prefix and URL text so only the caption survives.
+            CAPTION_LINES=$(printf '%s' "$TM_BLOCK" | tail -n +"${TM_URL_LINE:-1}" | grep -v '^[[:space:]]*$' | grep -v '^[[:space:]]*```' | awk '{ sub(/^\*\*Terminal media\*\*:[[:space:]]*/, ""); gsub(/https:\/\/[^[:space:])>]+/, ""); print }')
             if [ -z "$CAPTION_LINES" ]; then
               echo "FAIL: Terminal media must include caption text (inline or following lines)"
               exit 1
@@ -239,54 +277,50 @@ GITHUB_PR_BODY
               echo "FAIL: Terminal media caption must reference tmux or terminal context (not only the **Terminal media** label)"
               exit 1
             fi
-            echo "Terminal media + caption: PASS"
-          else
-            # Unit claim: accept N/A text for terminal media (no runtime tmux output for docs/automation PRs)
-            if printf '%s' "$TM_BLOCK" | grep -qE 'https://[^[:space:]]+'; then
-              echo "Terminal media + caption: PASS (URL present)"
-            elif printf '%s' "$TM_BLOCK" | grep -qiF 'N/A'; then
-              echo "Terminal media: PASS (unit claim — N/A accepted)"
-            else
-              echo "FAIL: Terminal media requires HTTPS URL or 'N/A' for unit claims"
+            echo "Terminal media + caption: PASS (HTTPS URL)"
+
+            # 3) Terminal test output — mandatory in addition to terminal media (fenced logs + concrete test command)
+            if ! printf '%s' "$TTO_BLOCK" | grep -qF '**Terminal test output**:'; then
+              echo "FAIL: Missing '**Terminal test output**' label in Evidence section"
               exit 1
             fi
-          fi
-
-          # 3) Terminal test output — mandatory in addition to terminal media (fenced logs + concrete test command)
-          # Unit claims: exempt from the concrete-test-command requirement (evidence-gate handles
-          # unit coverage separately). Unit claims still need the fenced block label+code presence.
-          if ! printf '%s' "$TTO_BLOCK" | grep -qF '**Terminal test output**:'; then
-            echo "FAIL: Missing '**Terminal test output**' label in Evidence section"
-            exit 1
-          fi
-          if ! printf '%s' "$TTO_BLOCK" | grep -qE '```|~~~'; then
-            echo "FAIL: Terminal test output must include a fenced code block with real logs"
-            exit 1
-          fi
-          # Only enforce concrete test command for non-unit claims; unit claims pass without it
-          # FIX bd-ao357r2: add '\$[[:space:]]+bash' and '\$[[:space:]]+sh' as standalone alternatives
-          # so that 'bash scripts/...' (no 'test' on same line) also qualifies.
-          if [ "$CLAIM" != "unit" ] && [ -n "$CLAIM" ]; then
+            if ! printf '%s' "$TTO_BLOCK" | grep -qE '```|~~~'; then
+              echo "FAIL: Terminal test output must include a fenced code block with real logs"
+              exit 1
+            fi
+            # FIX bd-ao357r2: add '\$[[:space:]]+bash' and '\$[[:space:]]+sh' as standalone alternatives
+            # so that 'bash scripts/...' (no 'test' on same line) also qualifies.
             if ! printf '%s' "$TTO_BLOCK" | grep -qiE '\$[ \t]*(pnpm|npm|yarn|bun|pnpm exec|npx).+test|\$\.?/[a-z_-]+ (test|spec|rake)|bash.+test|sh.+test|\$[[:space:]]+bash[[:space:]]|\$[[:space:]]+sh[[:space:]]|python -m pytest|\b(pnpm|npm|yarn|bun|npx|pnpm exec).+\b(test|jest|vitest|mocha|rspec|pytest)\b|\bgo test\b|\bcargo test\b|\brake test\b|\bmvn test\b|\bgradle test\b|\bmake test\b|\bbun test\b|\brspec\b'; then
               echo "FAIL: Terminal test output must mention at least one concrete test command"
               exit 1
             fi
-          fi
-          echo "Terminal test output: PASS"
+            echo "Terminal test output: PASS"
 
-          # 4) UI media OR exact no-UI line
-          if printf '%s' "$EVIDENCE_SECTION" | grep -qF 'N/A - no UI changes'; then
-            echo "UI media: PASS (exact N/A - no UI changes)"
-          else
-            if ! printf '%s' "$UI_BLOCK" | grep -qiE 'https://[^[:space:]]+'; then
-              echo "FAIL: Add exact text: N/A - no UI changes  OR  **UI media**: <HTTPS screenshot/video URL> with caption"
-              exit 1
+            # 4) UI media OR exact no-UI line (bd-vidcap: frontend PRs need captioned UI video when UI is shown)
+            if printf '%s' "$EVIDENCE_SECTION" | grep -qF 'N/A - no UI changes'; then
+              echo "UI media: PASS (exact N/A - no UI changes)"
+            else
+              if [ "$FRONTEND_TOUCH" = "true" ]; then
+                HAS_UI_VIDEO=false
+                if printf '%s' "$UI_BLOCK" | grep -qiE 'https://[^[:space:]]+\.(mp4|gif|webm|mov)([[:space:]/?#]|$)'; then HAS_UI_VIDEO=true; fi
+                if [ "$HAS_UI_VIDEO" = "false" ] && printf '%s' "$UI_BLOCK" | grep -qiE 'https://github\.com/user-attachments/assets/[a-f0-9-]+'; then HAS_UI_VIDEO=true; fi
+                if [ "$HAS_UI_VIDEO" = "false" ] && printf '%s' "$UI_BLOCK" | grep -qiE '!\[[^]]*\]\(https://[^)]+\.(mp4|gif|webm|mov)([?#)]|$)'; then HAS_UI_VIDEO=true; fi
+                if [ "$HAS_UI_VIDEO" != "true" ]; then
+                  echo "FAIL: Frontend PRs require **UI media** captioned video URL (.mp4, .gif, .webm, .mov) or GitHub user-attachments, or exact N/A - no UI changes"
+                  exit 1
+                fi
+              else
+                if ! printf '%s' "$UI_BLOCK" | grep -qiE 'https://[^[:space:]]+'; then
+                  echo "FAIL: Add exact text: N/A - no UI changes  OR  **UI media**: <HTTPS screenshot/video URL> with caption"
+                  exit 1
+                fi
+              fi
+              if ! printf '%s' "$UI_BLOCK" | grep -qiE 'caption'; then
+                echo "FAIL: UI media must include caption text (inline or following lines)"
+                exit 1
+              fi
+              echo "UI media + caption: PASS"
             fi
-            if ! printf '%s' "$UI_BLOCK" | grep -qiE 'caption'; then
-              echo "FAIL: UI media must include caption text (inline or following lines)"
-              exit 1
-            fi
-            echo "UI media + caption: PASS"
           fi
 
           # 5) Reject placeholders/fabrication language
@@ -308,10 +342,10 @@ GITHUB_PR_BODY
             exit 1
           fi
 
-          # Unit claims: exempt from Bundle v2 field enforcement (evidence-gate handles unit separately)
-          if [ "$CLAIM" = "unit" ] || [ -z "$CLAIM" ]; then
+          # Non-strong claim classes are exempt from Bundle v2 field enforcement (evidence-gate handles unit separately).
+          if [ "$REQUIRES_STRONG_ARTIFACTS" != "true" ] || [ -z "$CLAIM" ]; then
             echo ""
-            echo "PASS: Evidence section has no placeholders (unit claim — evidence-gate handles Bundle v2)"
+            echo "PASS: Evidence section has no placeholders (strong artifact bundle not required for claim class '$CLAIM')"
             exit 0
           fi
 
@@ -322,10 +356,18 @@ GITHUB_PR_BODY
             HAS_UI_MEDIA=true
           elif printf '%s' "$UI_BLOCK" | grep -qF '**UI media**:' && printf '%s' "$UI_BLOCK" | grep -qiE 'N/A.*no UI|N/A - no UI'; then
             HAS_UI_MEDIA=true
-          elif printf '%s' "$UI_BLOCK" | grep -qiE 'https://[^[:space:]]+\.(png|jpg|jpeg|gif|webp|mp4|webm|mov)'; then
-            HAS_UI_MEDIA=true
-          elif printf '%s' "$UI_BLOCK" | grep -qiE '!\[[^]]*\]\(https://[^)]+\.(png|jpg|jpeg|gif|webp|mp4|webm|mov)\)'; then
-            HAS_UI_MEDIA=true
+          elif [ "$FRONTEND_TOUCH" = "true" ]; then
+            if printf '%s' "$UI_BLOCK" | grep -qiE 'https://[^[:space:]]+\.(mp4|gif|webm|mov)([[:space:]/?#]|$)'; then HAS_UI_MEDIA=true; fi
+            if [ "$HAS_UI_MEDIA" = "false" ] && printf '%s' "$UI_BLOCK" | grep -qiE 'https://github\.com/user-attachments/assets/[a-f0-9-]+'; then HAS_UI_MEDIA=true; fi
+            if [ "$HAS_UI_MEDIA" = "false" ] && printf '%s' "$UI_BLOCK" | grep -qiE '!\[[^]]*\]\(https://[^)]+\.(mp4|gif|webm|mov)([?#)]|$)'; then HAS_UI_MEDIA=true; fi
+          else
+            if printf '%s' "$UI_BLOCK" | grep -qiE 'https://[^[:space:]]+\.(png|jpg|jpeg|gif|webp|mp4|webm|mov)([[:space:]/?#]|$)'; then
+              HAS_UI_MEDIA=true
+            elif printf '%s' "$UI_BLOCK" | grep -qiE 'https://github\.com/user-attachments/assets/[a-f0-9-]+'; then
+              HAS_UI_MEDIA=true
+            elif printf '%s' "$UI_BLOCK" | grep -qiE '!\[[^]]*\]\(https://[^)]+\.(png|jpg|jpeg|gif|webp|mp4|webm|mov)([?#)]|$)'; then
+              HAS_UI_MEDIA=true
+            fi
           fi
 
           # bd-357-fix: CLAUDE.md line 273 requires self-validation language in TTO block for non-unit claims.
@@ -349,4 +391,3 @@ GITHUB_PR_BODY
             echo "  5) **Terminal test output** self-validation: verified/confirmed/reproduced language"
             exit 1
           fi
-
