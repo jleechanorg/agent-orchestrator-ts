@@ -844,6 +844,7 @@ describe("scm-github plugin", () => {
           `fatal: refusing to fetch into branch 'refs/heads/feat/my-feature' checked out at '${staleWorktree}'\n`,
         ),
       ); // initial fetch blocked by stale worktree
+      ghMock.mockResolvedValueOnce({ stdout: `worktree ${staleWorktree}\nHEAD abc123\nbranch refs/heads/feat/my-feature\n\n` }); // git worktree list --porcelain (stale entry present)
       ghMock.mockResolvedValueOnce({ stdout: "detached-ghost\nanother-live-session\n" }); // tmux list-sessions (stale ao-9999 is dead)
       ghMock.mockResolvedValueOnce({ stdout: "" }); // git worktree remove --force --force
       ghMock.mockResolvedValueOnce({ stdout: "" }); // git worktree list --porcelain (stale entry gone)
@@ -1568,14 +1569,14 @@ describe("scm-github plugin", () => {
       expect(await scm.getReviewDecision(pr)).toBe(expected);
     });
 
-    it('returns "none" when reviewDecision is empty', async () => {
+    it('returns "pending" when reviewDecision is empty (fail-closed)', async () => {
       mockGh({ reviewDecision: "" });
-      expect(await scm.getReviewDecision(pr)).toBe("none");
+      expect(await scm.getReviewDecision(pr)).toBe("pending");
     });
 
-    it('returns "none" when reviewDecision is null', async () => {
+    it('returns "pending" when reviewDecision is null (fail-closed)', async () => {
       mockGh({ reviewDecision: null });
-      expect(await scm.getReviewDecision(pr)).toBe("none");
+      expect(await scm.getReviewDecision(pr)).toBe("pending");
     });
 
     it("throws on non-rate-limit gh failure (fail-closed)", async () => {
