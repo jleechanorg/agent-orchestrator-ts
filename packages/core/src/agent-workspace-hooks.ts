@@ -235,10 +235,10 @@ exit_code=$?
 # Only update metadata on success
 if [[ $exit_code -eq 0 ]]; then
   case "$1/$2" in
-    checkout/-b)
+    checkout/-b|checkout/-B)
       update_ao_metadata branch "$3"
       ;;
-    switch/-c)
+    switch/-c|switch/-C|switch/--create)
       update_ao_metadata branch "$3"
       ;;
     checkout/*|switch/*)
