@@ -17,19 +17,19 @@ This fork adds **agentic CI infrastructure** on top of the upstream agent-orches
 
 | Feature | ComposioHQ/agent-orchestrator | jleechanorg/agent-orchestrator (this fork) |
 |---------|-------------------------------|------------------------------------------|
-| Auto-merge | ⚠️ Config flag (`auto: true`), manual ops | ✅ AO orchestrator + evolve loop, zero-touch metrics |
-| Skeptic agent | ❌ None | ✅ 7th merge gate (independent LLM verifier, local keys) |
-| Evidence Gate | ❌ None | ✅ CI validates PR evidence bundle + claim class |
-| CodeRabbit reviews | ❌ None | ✅ Per-PR reviews on every PR |
-| Cursor Bugbot | ⚠️ Skipped | ✅ Runs on every PR |
-| Session recovery | ✅ recovery/ scanner + manager | ✅ + stalled-worker-auditor, no-delta-watchdog |
-| OpenClaw notifier | ❌ None | ✅ Wired for Slack notifications |
-| Beads issue tracker | ❌ None | ✅ SQLite-based local tracker plugin |
-| llm_inspector | ❌ None | ✅ Context overhead analysis + lean mode (-20K tokens/turn) |
-| Self-hosted runners | ❌ | ✅ |
+| Auto-merge | Config flag (`auto: true`) | AO orchestrator + evolve loop, zero-touch metrics |
+| Skeptic agent | None | 7th merge gate (independent LLM verifier, local keys) |
+| Evidence Gate | None | CI validates PR evidence bundle + claim class |
+| CodeRabbit reviews | None | Per-PR reviews on every PR |
+| Cursor Bugbot | Skipped | Runs on every PR |
+| Session recovery | recovery/ scanner + manager | + stalled-worker-auditor, no-delta-watchdog |
+| OpenClaw notifier | ✅ (PR #832) | Wired for Slack notifications |
+| Hermes event bus | ✅ (de86054) | In-process pub/sub with JSONL persistence |
+| Beads issue tracker | None | SQLite-based local tracker plugin |
+| llm_inspector | None | Context overhead analysis + lean mode (-20K tokens/turn) |
 | Node.js requirement | 20+ | 22+ |
 | CI jobs | lint, typecheck, test, test-web | same + evidence-gate, skeptic-gate |
-| GitHub workflows | 7 | 13 (+coderabbit-ping, cr-loop-health, evidence-gate, skeptic-cron, skeptic-gate, wholesome-checks) |
+| GitHub workflows | 7 | 13 (+evidence-gate, skeptic-gate, etc.) |
 | Core TS files | ~63 | ~158 (~2.5× test coverage) |
 
 This fork's goal is **fully autonomous, zero-touch PR merging** for its own codebase. The upstream goal is a general-purpose orchestration tool.
@@ -222,7 +222,9 @@ Running one AI agent in a terminal is easy. Running 30 across different issues, 
 
 ## Context Overhead Tooling
 
-The [`docs/llm_inspector.md`](docs/llm_inspector.md) guide covers the capture proxy, `--tool-mode lean` (strips 17 heavy built-in tools, ~20K tokens/turn), and `--tool-mode on-demand` (stub + re-issue, ~97% upfront reduction on heavy tools).
+The [`docs/llm_inspector.md`](docs/llm_inspector.md) guide covers the capture proxy, `--tool-mode lean` (strips 17 heavy built-in tools, ~20K tokens/turn), and `--tool-mode on-demand` (stub + re-issue, ~84.9% reduction on heavy tools).
+
+Install llm_inspector: `curl -fsSL https://raw.githubusercontent.com/jleechanorg/agent-orchestrator/main/llm_inspector/install.sh | bash`
 
 | Overhead source | % of tokens/turn |
 |---|---|
