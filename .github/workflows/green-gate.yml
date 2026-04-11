@@ -437,37 +437,20 @@ jobs:
             TITLE="Green Gate: FAIL"
             SUMMARY="One or more gates failed. Review the gate results below."
           else
-            TITLE="Green Gate: WARN"
-            SUMMARY="Advisory gate (Gate 6) requires attention. Review the gate results below."
+            TITLE="Green Gate: ACTION REQUIRED"
+            SUMMARY="Gate 6 (evidence) detected fabricated/placeholder content. Remove placeholder text from the Evidence section."
           fi
 
-          # Create JSON payload using Python for proper escaping
-          # Use env vars passed through - they are available to Python's os.environ
+          # Create JSON payload using jq for proper escaping (avoids heredoc/YAML indentation issues)
           PAYLOAD_FILE=/tmp/check_run_payload.json
-          CHECK_CONCLUSION="$CHECK_CONCLUSION" \
-          HEAD_SHA="$HEAD_SHA" \
-          TITLE="$TITLE" \
-          SUMMARY="$SUMMARY" \
-          COMMENT_BODY="$COMMENT_BODY" \
-          python3 -c '
-import json
-import os
-
-payload = {
-    "name": "Green Gate",
-    "head_sha": os.environ["HEAD_SHA"],
-    "status": "completed",
-    "conclusion": os.environ["CHECK_CONCLUSION"],
-    "output": {
-        "title": os.environ["TITLE"],
-        "summary": os.environ["SUMMARY"],
-        "text": os.environ["COMMENT_BODY"]
-    }
-}
-
-with open("/tmp/check_run_payload.json", "w") as f:
-    json.dump(payload, f)
-'
+          jq -n \
+            --arg head_sha "$HEAD_SHA" \
+            --arg conclusion "$CHECK_CONCLUSION" \
+            --arg title "$TITLE" \
+            --arg summary "$SUMMARY" \
+            --arg body "$COMMENT_BODY" \
+            '{"name":"Green Gate","head_sha":$head_sha,"status":"completed","conclusion":$conclusion,"output":{"title":$title,"summary":$summary,"text":$body}}' \
+            > "$PAYLOAD_FILE"
 
           gh api repos/${{ github.repository }}/check-runs --method POST --input /tmp/check_run_payload.json
 
