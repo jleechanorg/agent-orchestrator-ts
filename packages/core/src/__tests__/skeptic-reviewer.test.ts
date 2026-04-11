@@ -239,13 +239,13 @@ describe("runSkepticReview", () => {
       const enobufsError = Object.assign(new Error("spawn ENOBUFS"), {
         code: "ENOBUFS",
       });
+      // triggerSha is now fetched ONCE in runSkepticReview (not per tryModel)
       // Call 1: gh api (returns valid SHA)
       // Call 2: ao skeptic --model codex → ENOBUFS
       // Call 3: ao skeptic --model claude → PASS
       execFileMock
-        .mockResolvedValueOnce({ stdout: "a".repeat(40), stderr: "" }) // gh api SHA
+        .mockResolvedValueOnce({ stdout: "a".repeat(40), stderr: "" }) // gh api SHA (once)
         .mockRejectedValueOnce(enobufsError) // codex fails
-        .mockResolvedValueOnce({ stdout: "a".repeat(40), stderr: "" }) // gh api SHA (claude retry)
         .mockResolvedValueOnce({ stdout: "VERDICT: PASS\nAll good.", stderr: "" }); // claude succeeds
 
       const session = makeSession();
@@ -261,12 +261,11 @@ describe("runSkepticReview", () => {
       const spawnSyncError = Object.assign(new Error("spawnSync ENOMEM"), {
         code: "ENOMEM",
       });
+      // triggerSha fetched once — no repeated gh api calls per model attempt
       execFileMock
-        .mockResolvedValueOnce({ stdout: "a".repeat(40), stderr: "" }) // gh api SHA
+        .mockResolvedValueOnce({ stdout: "a".repeat(40), stderr: "" }) // gh api SHA (once)
         .mockRejectedValueOnce(enobufsError) // codex fails
-        .mockResolvedValueOnce({ stdout: "a".repeat(40), stderr: "" }) // gh api SHA
         .mockRejectedValueOnce(spawnSyncError) // claude fails
-        .mockResolvedValueOnce({ stdout: "a".repeat(40), stderr: "" }) // gh api SHA
         .mockResolvedValueOnce({ stdout: "VERDICT: FAIL\nMissing tests.", stderr: "" }); // gemini succeeds
 
       const session = makeSession();
@@ -279,12 +278,11 @@ describe("runSkepticReview", () => {
       const enobufsError = Object.assign(new Error("spawn ENOBUFS"), {
         code: "ENOBUFS",
       });
+      // triggerSha fetched once — one gh api call, then all 3 model attempts fail
       execFileMock
-        .mockResolvedValueOnce({ stdout: "a".repeat(40), stderr: "" }) // gh api SHA
+        .mockResolvedValueOnce({ stdout: "a".repeat(40), stderr: "" }) // gh api SHA (once)
         .mockRejectedValueOnce(enobufsError) // codex fails
-        .mockResolvedValueOnce({ stdout: "a".repeat(40), stderr: "" }) // gh api SHA
         .mockRejectedValueOnce(enobufsError) // claude fails
-        .mockResolvedValueOnce({ stdout: "a".repeat(40), stderr: "" }) // gh api SHA
         .mockRejectedValueOnce(enobufsError); // gemini fails
 
       const session = makeSession();
@@ -335,14 +333,38 @@ describe("runSkepticReview", () => {
         stdout: "Error: ENOBUFS buffer overflow\n",
         stderr: "spawn error",
       });
+      // triggerSha fetched once — one gh api call total
       execFileMock
-        .mockResolvedValueOnce({ stdout: "a".repeat(40), stderr: "" }) // gh api
+        .mockResolvedValueOnce({ stdout: "a".repeat(40), stderr: "" }) // gh api (once)
         .mockRejectedValueOnce(exitErr) // codex: exit 1, no verdict
-        .mockResolvedValueOnce({ stdout: "a".repeat(40), stderr: "" }) // gh api
         .mockResolvedValueOnce({ stdout: "VERDICT: PASS\nAll good.", stderr: "" }); // claude: PASS
 
       const session = makeSession();
       const result = await runSkepticReview(session);
+      expect(result.verdict).toBe("PASS");
+      expect(result.modelUsed).toBe("claude");
+    });
+
+    it("does NOT false-PASS when echoed prompt text contains VERDICT: PASS in early stdout", async () => {
+      // Regression test for Codex comment #3067769649:
+      // Prompt echo at start of stdout must not trigger hasVerdictInError.
+      // Only the last 20 lines of stdout are checked for verdict.
+      const fakePromptEcho = ["VERDICT: PASS"] // echoed template at top
+        .concat(Array(25).fill("...infrastructure log...")) // push it past last-20 window
+        .join("\n");
+      const exitErr = Object.assign(new Error("spawn ENOBUFS"), {
+        code: "ENOBUFS",
+        stdout: fakePromptEcho,
+        stderr: "",
+      });
+      execFileMock
+        .mockResolvedValueOnce({ stdout: "a".repeat(40), stderr: "" }) // gh api (once)
+        .mockRejectedValueOnce(exitErr) // codex: ENOBUFS with prompt echo, NOT a real verdict
+        .mockResolvedValueOnce({ stdout: "VERDICT: PASS\nReal analysis.", stderr: "" }); // claude: real PASS
+
+      const session = makeSession();
+      const result = await runSkepticReview(session);
+      // Must fall back to claude (prompt echo must NOT be accepted as codex verdict)
       expect(result.verdict).toBe("PASS");
       expect(result.modelUsed).toBe("claude");
     });

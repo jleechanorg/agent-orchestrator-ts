@@ -44,14 +44,18 @@ const FALLBACK_CHAIN: Array<"codex" | "claude" | "gemini"> = ["codex", "claude",
  * Determine whether a CLI error is an infrastructure failure (ENOBUFS, spawn errors)
  * that warrants fallback to the next model, vs. a legitimate verdict-bearing exit.
  *
- * Returns true if the error produced a VERDICT line in stdout — meaning the model
- * DID run and gave an opinion, even if the process exited non-zero.
+ * Returns true if the error produced a VERDICT line in the LAST 20 lines of stdout
+ * only (not combined stdout+stderr). Restricting to stdout tail prevents false matches
+ * when the CLI echoes prompt templates that contain "VERDICT: PASS" boilerplate.
+ * Infrastructure crashes never produce a clean terminal VERDICT line.
  */
 function hasVerdictInError(err: unknown): boolean {
   if (err && typeof err === "object" && "stdout" in err) {
-    const e = err as { stdout?: string; stderr?: string };
-    const combined = (e.stdout ?? "") + (e.stderr ?? "");
-    return VERDICT_LINE_RE.test(combined);
+    const e = err as { stdout?: string };
+    const stdout = e.stdout ?? "";
+    // Check only the last 20 lines of stdout to avoid matching prompt echo
+    const tail = stdout.split("\n").slice(-20).join("\n");
+    return VERDICT_LINE_RE.test(tail);
   }
   return false;
 }
@@ -59,20 +63,22 @@ function hasVerdictInError(err: unknown): boolean {
 /**
  * Extract verdict result from a CLI error that has a VERDICT in its output.
  * Only called when hasVerdictInError() returns true.
+ * Uses stdout tail (same scope as hasVerdictInError) for consistency.
  */
 function extractVerdictFromError(
   err: unknown,
   model: string,
 ): SkepticReviewResult {
   const e = err as { stdout?: string; stderr?: string; code?: number };
-  const output = (e.stdout ?? "") + (e.stderr ?? "");
-  const verdictMatch = output.match(VERDICT_LINE_RE);
+  const stdout = e.stdout ?? "";
+  const tail = stdout.split("\n").slice(-20).join("\n");
+  const verdictMatch = tail.match(VERDICT_LINE_RE);
   const verdict: "PASS" | "FAIL" | "SKIPPED" = verdictMatch
     ? (verdictMatch[1].toUpperCase() as "PASS" | "FAIL" | "SKIPPED")
     : "FAIL";
   return {
     verdict,
-    details: `CLI exited with code ${e.code} but produced verdict: ${output.slice(0, 300)}`,
+    details: `CLI exited with code ${e.code} but produced verdict: ${stdout.slice(0, 300)}`,
     modelUsed: model,
     reportWritten: false,
   };
@@ -86,33 +92,22 @@ function extractVerdictFromError(
  * - infraFailure is the error message if the model completely failed (no verdict produced)
  *
  * This separation enables the caller to decide whether to fallback to the next model.
+ *
+ * @param triggerSha - The PR head SHA frozen at the start of this review run. Passing
+ *   the same SHA for all attempts ensures all fallbacks evaluate the same commit even
+ *   if the PR is force-pushed mid-chain.
  */
 async function tryModel(
   session: Session,
   model: "codex" | "claude" | "gemini",
   postComment: boolean,
+  triggerSha: string | undefined,
 ): Promise<
   | { result: SkepticReviewResult; infraFailure?: undefined }
   | { result?: undefined; infraFailure: string }
 > {
   const prNumber = session.pr!.number;
   const repo = `${session.pr!.owner}/${session.pr!.repo}`;
-
-  // Fetch the current PR head SHA for verdict matching
-  let triggerSha: string | undefined;
-  try {
-    const ghResult = await execFileAsync(
-      "gh",
-      ["api", `repos/${repo}/pulls/${prNumber}`, "--jq", ".head.sha"],
-      { timeout: 10_000 },
-    );
-    const candidate = (ghResult.stdout ?? "").trim();
-    if (/^[0-9a-f]{40}$/i.test(candidate)) {
-      triggerSha = candidate;
-    }
-  } catch {
-    // Non-fatal: triggerSha is best-effort
-  }
 
   const aoBinary = process.env["AO_CLI_PATH"] ?? "ao";
   const args: string[] = [
@@ -194,6 +189,26 @@ export async function runSkepticReview(
     };
   }
 
+  // Freeze the PR head SHA once — all fallback attempts must evaluate the same
+  // commit. Re-fetching inside tryModel could return a different SHA if the PR
+  // is force-pushed while earlier models are failing over.
+  const prNumber = session.pr.number;
+  const repo = `${session.pr.owner}/${session.pr.repo}`;
+  let triggerSha: string | undefined;
+  try {
+    const ghResult = await execFileAsync(
+      "gh",
+      ["api", `repos/${repo}/pulls/${prNumber}`, "--jq", ".head.sha"],
+      { timeout: 10_000 },
+    );
+    const candidate = (ghResult.stdout ?? "").trim();
+    if (/^[0-9a-f]{40}$/i.test(candidate)) {
+      triggerSha = candidate;
+    }
+  } catch {
+    // Non-fatal: triggerSha is best-effort
+  }
+
   // Build the model chain: if a specific model is requested, start from that
   // model's position in the chain. Default starts from codex (index 0).
   const startIdx = model ? FALLBACK_CHAIN.indexOf(model) : 0;
@@ -202,7 +217,7 @@ export async function runSkepticReview(
   const infraErrors: string[] = [];
 
   for (const currentModel of chain) {
-    const attempt = await tryModel(session, currentModel, postComment);
+    const attempt = await tryModel(session, currentModel, postComment, triggerSha);
 
     if (attempt.result) {
       // Got a verdict — write report and return
