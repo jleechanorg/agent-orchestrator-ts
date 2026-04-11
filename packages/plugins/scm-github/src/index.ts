@@ -99,6 +99,28 @@ async function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/**
+ * Normalizes a raw GitHub `reviewDecision` value to a canonical `ReviewDecision` string.
+ * Fail-closed: null, undefined, blank, and whitespace-only values all resolve
+ * to "pending" since an unknown review state should not be treated as neutral
+ * "none".
+ */
+function normalizeReviewDecision(
+  raw: unknown,
+): "approved" | "changes_requested" | "pending" | "none" {
+  if (raw === null || raw === undefined) return "pending";
+  if (typeof raw !== "string") return "pending";
+  const trimmed = raw.trim();
+  const d = trimmed.toUpperCase();
+  if (d === "APPROVED") return "approved";
+  if (d === "CHANGES_REQUESTED") return "changes_requested";
+  if (d === "PENDING") return "pending";
+  if (d === "NONE") return "none";
+  if (d === "REVIEW_REQUIRED") return "pending";
+  if (trimmed === "") return "pending";
+  return "none";
+}
+
 /** Parsed `gh pr view ... --json a,b,c` for REST fallback synthesis. */
 type PrViewRestConversion = {
   repo: string;
@@ -1256,9 +1278,15 @@ function normalizeMergePayloadFromRestShape(data: Record<string, unknown>): void
   if (typeof data["draft"] === "boolean" && data["isDraft"] === undefined) {
     data["isDraft"] = data["draft"];
   }
-  // reviewDecision can be null (no reviews requested) or undefined (not requested).
-  // Treat both as "REVIEW_REQUIRED" for conservative fail-closed behavior.
-  if (data["reviewDecision"] === null || data["reviewDecision"] === undefined) {
+  // reviewDecision can be null/undefined/malformed when GitHub omits or fails to
+  // populate the field. Treat blank strings the same way so every unknown path
+  // stays fail-closed instead of drifting to "none".
+  const rawReviewDecision = data["reviewDecision"];
+  if (
+    rawReviewDecision === null ||
+    rawReviewDecision === undefined ||
+    (typeof rawReviewDecision === "string" && rawReviewDecision.trim() === "")
+  ) {
     data["reviewDecision"] = "REVIEW_REQUIRED";
   }
 }
@@ -2083,12 +2111,7 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
         "reviewDecision",
       ]);
       const data: { reviewDecision: string } = JSON.parse(raw);
-
-      const d = (data.reviewDecision ?? "").toUpperCase();
-      if (d === "APPROVED") return "approved";
-      if (d === "CHANGES_REQUESTED") return "changes_requested";
-      if (d === "REVIEW_REQUIRED") return "pending";
-      return "none";
+      return normalizeReviewDecision(data.reviewDecision);
     },
 
     // bd-sm7: Combined PR state + review decision in a single gh CLI call
@@ -2130,12 +2153,7 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
 
       // Parse review decision — fail-closed: default to "pending" on unexpected values
       // (matches getReviewDecision behavior where non-rate-limit errors return "pending")
-      const d = (data.reviewDecision ?? "").toUpperCase();
-      let reviewDecision: ReviewDecision;
-      if (d === "APPROVED") reviewDecision = "approved";
-      else if (d === "CHANGES_REQUESTED") reviewDecision = "changes_requested";
-      else if (d === "REVIEW_REQUIRED") reviewDecision = "pending";
-      else reviewDecision = "none";
+      const reviewDecision: ReviewDecision = normalizeReviewDecision(data.reviewDecision);
 
       return { state, reviewDecision };
     },
@@ -2536,13 +2554,15 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
       }
 
       // Reviews
-      const reviewDecision = (data.reviewDecision ?? "").toUpperCase();
-      const approved = reviewDecision === "APPROVED";
-      if (reviewDecision === "CHANGES_REQUESTED") {
+      const normalized = normalizeReviewDecision(data.reviewDecision);
+      const approved = normalized === "approved";
+      if (normalized === "changes_requested") {
         blockers.push("Changes requested in review");
-      } else if (reviewDecision === "REVIEW_REQUIRED") {
+      } else if (normalized === "pending") {
         blockers.push("Review required");
       }
+      // Note: "none" is neutral here. Only absent/blank review states normalize to
+      // "pending" and block merge readiness.
 
       // Conflicts / merge state
       // GraphQL returns mergeable as string ("MERGEABLE"/"CONFLICTING"/"UNKNOWN")
@@ -2641,13 +2661,7 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
       // Fail-closed: null/undefined reviewDecision → "pending" (not "none"), matching
       // normalizeMergePayloadFromRestShape behavior. "none" means reviews were explicitly
       // not required; null means we don't know → conservative.
-      const d = (data.reviewDecision ?? "").toUpperCase();
-      let reviewDecision: ReviewDecision;
-      if (d === "APPROVED") reviewDecision = "approved";
-      else if (d === "CHANGES_REQUESTED") reviewDecision = "changes_requested";
-      else if (d === "REVIEW_REQUIRED") reviewDecision = "pending";
-      else if (data.reviewDecision === null || data.reviewDecision === undefined) reviewDecision = "pending";
-      else reviewDecision = "none";
+      const reviewDecision: ReviewDecision = normalizeReviewDecision(data.reviewDecision);
 
       // --- CI Status (from statusCheckRollup) ---
       const rollup = Array.isArray(data.statusCheckRollup) ? data.statusCheckRollup : [];
@@ -2695,6 +2709,7 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
       const approved = reviewDecision === "approved";
       if (reviewDecision === "changes_requested") blockers.push("Changes requested in review");
       else if (reviewDecision === "pending") blockers.push("Review required");
+      // Note: "none" means reviews explicitly not required per GitHub API — acceptable here.
 
       // Conflicts / merge state
       let noConflicts: boolean;

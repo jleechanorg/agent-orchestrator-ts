@@ -23,37 +23,6 @@ import { execFileSync } from "node:child_process";
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** The base branch for diff comparison.
- *  Validated to prevent shell injection — only safe git-ref characters allowed.
- *
- *  In CI pull_request jobs: GITHUB_BASE_REF is set and resolves as a local branch.
- *  In other environments, fall back through common default-branch refs because
- *  origin/HEAD is not guaranteed to exist in every checkout (notably some CI clones). */
-const BASE_BRANCH = (() => {
-  const raw = process.env.GITHUB_BASE_REF;
-  if (raw !== undefined && raw !== "") {
-    if (!/^[a-zA-Z0-9/._-]+$/.test(raw) || raw.includes("..")) {
-      throw new Error(`Invalid GITHUB_BASE_REF (possible injection): ${raw}`);
-    }
-    // GITHUB_BASE_REF is the bare branch name (e.g. "main"). The workflow's
-    // "Ensure base branch ref is available" step fetches it as a local ref.
-    // Use bare name so git resolves it as a local branch ref, not a remote-tracking ref.
-    return raw;
-  }
-  for (const ref of ["origin/HEAD", "origin/main", "main", "origin/master", "master"]) {
-    try {
-      execFileSync("git", ["rev-parse", "--verify", "--quiet", ref], {
-        cwd: process.cwd(),
-        stdio: "ignore",
-      });
-      return ref;
-    } catch {
-      // Try the next likely default-branch ref.
-    }
-  }
-  return "HEAD";
-})();
-
 /** Recursively collect all .ts/.tsx files under a directory. */
 function collectTsFiles(root: string, prefix = ""): string[] {
   const results: string[] = [];
@@ -110,6 +79,44 @@ function computeRepoRoot(): string {
 }
 const REPO_ROOT = computeRepoRoot();
 
+function validateGitRef(raw: string, envVar: string): string {
+  if (!/^[a-zA-Z0-9/._^~-]+$/.test(raw) || raw.includes("..")) {
+    throw new Error(`Invalid ${envVar} (possible injection): ${raw}`);
+  }
+  return raw;
+}
+
+function gitRefExists(ref: string, cwd: string): boolean {
+  try {
+    execFileSync("git", ["rev-parse", "--verify", ref], {
+      cwd,
+      encoding: "utf-8",
+      stdio: "ignore",
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Pick a stable diff base across PR CI, main-branch CI, and local runs. */
+function resolveBaseBranch(cwd: string): string {
+  const raw = process.env.GITHUB_BASE_REF;
+  if (raw !== undefined && raw !== "") {
+    return validateGitRef(raw, "GITHUB_BASE_REF");
+  }
+
+  for (const candidate of ["origin/HEAD", "origin/main", "main", "HEAD^"]) {
+    if (gitRefExists(candidate, cwd)) {
+      return candidate;
+    }
+  }
+
+  return "HEAD";
+}
+
+const BASE_BRANCH = resolveBaseBranch(REPO_ROOT);
+
 /** Return diff lines (with file path) that ADD a given pattern in .ts files. */
 function getAddedLinesMatching(cwd: string, pattern: RegExp): Array<{file: string; line: string}> {
   const raw = git(`diff --diff-filter=AM ${BASE_BRANCH}...HEAD`, cwd, true);
@@ -161,6 +168,11 @@ function getPRTitle(): string {
       const msg = err instanceof Error ? err.message : String(err);
       throw new Error(`gh pr view failed in CI context: ${msg}`, { cause: err });
     }
+  }
+  // Push builds on main do not have PR context. Use the commit subject instead of
+  // the branch name so [agento] policy checks still validate the merged change.
+  if (process.env.GITHUB_ACTIONS) {
+    return git("log -1 --format=%s", REPO_ROOT, true);
   }
   // Local: current branch may have an open PR with a proper [agento] title.
   try {
