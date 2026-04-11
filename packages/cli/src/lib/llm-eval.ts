@@ -18,7 +18,7 @@
 
 import { resolveCodexBinary } from "@jleechanorg/ao-plugin-agent-codex";
 import { execFileSync as execFileSyncSync } from "node:child_process";
-import { existsSync } from "node:fs";
+import { accessSync, constants as fsConstants } from "node:fs";
 
 const CODEX_TIMEOUT_MS = 300_000;
 const CLAUDE_TIMEOUT_MS = 300_000;
@@ -63,9 +63,10 @@ function resolveClaudeBinary(): string {
       continue;
     }
     try {
-      if (existsSync(candidate)) return candidate;
+      accessSync(candidate, fsConstants.X_OK);
+      return candidate;
     } catch {
-      // ignore
+      // not executable or doesn't exist — try next candidate
     }
   }
   // Fall back to bare name — execFileSync will throw ENOENT if not found

@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const mockExecFileSync = vi.hoisted(() => vi.fn());
 const mockResolveCodexBinary = vi.hoisted(() => vi.fn());
-const mockExistsSync = vi.hoisted(() => vi.fn());
+const mockAccessSync = vi.hoisted(() => vi.fn());
 
 // Set CLAUDE_BINARY before module load so CLAUDE_BINARY_CANDIDATES[0] = "/mock/claude"
 // This makes resolveClaudeBinary() return "/mock/claude" without calling `which`,
@@ -16,7 +16,8 @@ vi.mock("node:child_process", () => ({
 }));
 
 vi.mock("node:fs", () => ({
-  existsSync: mockExistsSync,
+  accessSync: mockAccessSync,
+  constants: { X_OK: 1 },
 }));
 
 vi.mock("@jleechanorg/ao-plugin-agent-codex", () => ({
@@ -33,8 +34,8 @@ const MOCK_CLAUDE_MODEL = "claude-sonnet-4-6";
 
 beforeEach(() => {
   vi.clearAllMocks();
-  // "/mock/claude" exists — so resolveClaudeBinary() returns it directly (no `which` call)
-  mockExistsSync.mockReturnValue(true);
+  // "/mock/claude" is executable — accessSync doesn't throw, so resolveClaudeBinary() returns it directly
+  mockAccessSync.mockImplementation(() => undefined);
 });
 
 describe("tryCodexPrint", () => {

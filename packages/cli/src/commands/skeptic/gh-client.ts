@@ -10,10 +10,12 @@ import { join } from "node:path";
 /**
  * Fetch the design doc for a PR via GitHub API, falling back to local filesystem.
  *
- * GitHub API is tried first so this works regardless of the current working
- * directory — the lifecycle-manager and CI runners may invoke `ao` from a
- * different repo root than the target repo.  The local-filesystem fallback
- * remains for backward compatibility (e.g. unit tests without owner/repo).
+ * GitHub API is tried first (when owner+repo provided) so this works regardless
+ * of cwd — lifecycle-manager and CI runners invoke `ao` from a different repo root.
+ * On 404 the doc doesn't exist yet — returns null.  Other API errors are re-thrown
+ * so the caller decides whether to skip or abort (no silent local-checkout fallback
+ * when owner/repo are provided, which would return stale content from the wrong repo).
+ * The local-filesystem fallback is only used when owner/repo are null (unit tests).
  *
  * @param owner     GitHub owner (e.g. "jleechanorg"); null falls through to filesystem
  * @param repo      GitHub repo  (e.g. "worldarchitect.ai"); null falls through to filesystem
@@ -41,10 +43,14 @@ export async function fetchDesignDoc(
         return Buffer.from(data.content.replace(/\n/g, ""), "base64").toString("utf8");
       }
       return null;
-    } catch {
-      // API call failed with owner/repo provided — do not fall back to local checkout.
-      // Local checkout is cwd-dependent and would reintroduce the problem we're fixing.
-      return null;
+    } catch (err: unknown) {
+      // 404 → file doesn't exist yet (design doc not written yet for this PR)
+      const status = (err as { status?: number }).status;
+      if (status === 404) return null;
+      // Re-throw other errors (auth, network, rate-limit) — do not silently fall back
+      // to local checkout, which would reintroduce cwd-dependence and could return
+      // content from the wrong repo when the lifecycle-worker runs from AO repo root.
+      throw err;
     }
   }
 
