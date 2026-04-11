@@ -9,7 +9,7 @@ import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import { promisify } from "node:util";
 import { existsSync, writeFileSync, unlinkSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
-import { basename, join, resolve } from "node:path";
+import { basename, isAbsolute, join, relative, resolve } from "node:path";
 import {
   CI_STATUS,
   type PluginModule,
@@ -777,12 +777,7 @@ function mapRawCheckStateToStatus(rawState: string | undefined): CICheck["status
   return "skipped";
 }
 
-function expandPath(p: string): string {
-  if (p.startsWith("~/")) {
-    return join(homedir(), p.slice(2));
-  }
-  return p;
-}
+const AO_SESSION_WORKTREE_PATTERN = /^(ao|jc|wa|cc|ra|wc)-\d+$/;
 
 function extractCheckedOutWorktreePath(errorMessage: string): string | null {
   const singleQuote = errorMessage.match(/checked out at '([^']+)'/);
@@ -819,6 +814,47 @@ async function hasActiveTmuxSessionForWorktreeName(worktreePath: string, cwd?: s
   return tmuxSessions.some((tmuxSession) => tmuxSession === sessionName || tmuxSession.endsWith(`-${sessionName}`));
 }
 
+function isAoManagedWorktreePath(worktreePath: string): boolean {
+  return AO_SESSION_WORKTREE_PATTERN.test(basename(resolve(worktreePath)));
+}
+
+function expandUserPath(input: string): string {
+  if (input === "~") return homedir();
+  if (input.startsWith("~/")) return join(homedir(), input.slice(2));
+  return input;
+}
+
+function getWorktreeBaseDir(config?: Record<string, unknown>): string {
+  if (typeof config?.worktreeDir === "string" && config.worktreeDir.length > 0) {
+    return resolve(expandUserPath(config.worktreeDir));
+  }
+  return resolve(join(homedir(), ".worktrees"));
+}
+
+function isDescendantPath(pathToCheck: string, baseDir: string): boolean {
+  const rel = relative(resolve(baseDir), resolve(pathToCheck));
+  return rel.length > 0 && !rel.startsWith("..") && !isAbsolute(rel);
+}
+
+async function listRegisteredWorktreePaths(repoPath: string): Promise<Set<string> | null> {
+  try {
+    const list = await git(["worktree", "list", "--porcelain"], repoPath);
+    return new Set(
+      list
+        .split("\n\n")
+        .flatMap((block) =>
+          block
+            .trim()
+            .split("\n")
+            .filter((line) => line.startsWith("worktree "))
+            .map((line) => resolve(line.slice("worktree ".length))),
+        ),
+    );
+  } catch {
+    return null;
+  }
+}
+
 async function maybeRemoveStaleCheckedOutWorktree(
   repoPath: string,
   checkoutErrorMessage: string,
@@ -826,10 +862,11 @@ async function maybeRemoveStaleCheckedOutWorktree(
 ): Promise<boolean> {
   const stalePath = extractCheckedOutWorktreePath(checkoutErrorMessage);
   if (!stalePath) return false;
-
+  if (!isAoManagedWorktreePath(stalePath)) return false;
   const resolvedStale = resolve(stalePath);
-  const resolvedBase = resolve(worktreeBaseDir);
-  if (!resolvedStale.startsWith(`${resolvedBase}/`)) return false;
+  if (!isDescendantPath(resolvedStale, worktreeBaseDir)) return false;
+  const registeredWorktrees = await listRegisteredWorktreePaths(repoPath);
+  if (registeredWorktrees === null || !registeredWorktrees.has(resolvedStale)) return false;
 
   const hasActiveTmux = await hasActiveTmuxSessionForWorktreeName(stalePath, repoPath);
   if (hasActiveTmux) return false;
@@ -841,16 +878,8 @@ async function maybeRemoveStaleCheckedOutWorktree(
   }
 
   try {
-    const list = await git(["worktree", "list", "--porcelain"], repoPath);
-    const stillPresent = list
-      .split("\n\n")
-      .some((block) =>
-        block
-          .trim()
-          .split("\n")
-          .some((line) => line.startsWith("worktree ") && line.slice("worktree ".length) === stalePath),
-      );
-    return !stillPresent && !existsSync(resolvedStale);
+    const remainingWorktrees = await listRegisteredWorktreePaths(repoPath);
+    return !remainingWorktrees?.has(resolvedStale) && !existsSync(resolvedStale);
   } catch {
     return !existsSync(resolvedStale);
   }
@@ -1240,9 +1269,7 @@ function normalizeMergePayloadFromRestShape(data: Record<string, unknown>): void
 
 function createGitHubSCM(config?: Record<string, unknown>): SCM {
   const BOT_AUTHORS = buildBotAuthors(config);
-  const worktreeBaseDir = config?.worktreeDir
-    ? expandPath(config.worktreeDir as string)
-    : join(homedir(), ".worktrees");
+  const worktreeBaseDir = getWorktreeBaseDir(config);
 
   // Trusted authors for skeptic verdict detection.
   // Defaults to github-actions[bot] (CI workflows) and jleechan-agent[bot] (agent CLI).

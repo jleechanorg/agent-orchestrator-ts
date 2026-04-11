@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
+import { execFileSync } from "node:child_process";
 import type {
   Session,
   ProjectConfig,
@@ -16,6 +17,12 @@ vi.mock("../paths.js", () => ({
 
 vi.mock("../metadata.js", () => ({
   updateMetadata: vi.fn(),
+}));
+
+vi.mock("node:child_process", () => ({
+  execFileSync: vi.fn(() => {
+    throw new Error("br unavailable");
+  }),
 }));
 
 vi.mock("node:fs", () => ({
@@ -258,6 +265,15 @@ describe("drainTaskQueue", () => {
 });
 
 describe("resolveBead", () => {
+  it("parses title and description when br returns output", () => {
+    vi.mocked(execFileSync).mockReturnValueOnce("My bead title\n\nLine one\nLine two");
+
+    const result = resolveBead("wc-xyz");
+
+    expect(result.title).toBe("My bead title");
+    expect(result.description).toBe("Line one Line two");
+  });
+
   it("returns beadId as title and description when br is unavailable", () => {
     const result = resolveBead("wc-xyz");
     expect(result.title).toBe("wc-xyz");

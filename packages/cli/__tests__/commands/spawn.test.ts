@@ -118,6 +118,7 @@ beforeEach(() => {
   mockSessionManager.claimPR.mockReset();
   mockExec.mockReset();
   mockEnsureLifecycleWorker.mockReset();
+  mockSessionManager.list.mockResolvedValue([]);
   mockEnsureLifecycleWorker.mockResolvedValue({
     running: true,
     started: true,

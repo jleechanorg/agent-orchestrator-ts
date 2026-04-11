@@ -172,6 +172,7 @@ describe("tryClaudePrint", () => {
         cwd: "/tmp",
         encoding: "utf-8",
         stdio: ["pipe", "pipe", "ignore"],
+        timeout: 300000,
       }),
     );
   });

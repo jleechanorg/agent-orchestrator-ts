@@ -43,6 +43,8 @@ const project: ProjectConfig = {
   sessionPrefix: "test",
 };
 
+const configuredWorktreeDir = `${homedir()}/.worktrees`;
+
 function makeSession(overrides: Partial<Session> = {}): Session {
   return {
     id: "test-1",
@@ -68,6 +70,17 @@ function mockGh(result: unknown) {
 
 function mockGhError(msg = "Command failed") {
   ghMock.mockRejectedValueOnce(new Error(msg));
+}
+
+function assertNoGitWorktreeRemoveCalls() {
+  const removeCalls = ghMock.mock.calls.filter(
+    ([bin, args]) =>
+      bin === "git" &&
+      Array.isArray(args) &&
+      args[0] === "worktree" &&
+      args[1] === "remove",
+  );
+  expect(removeCalls).toHaveLength(0);
 }
 
 function makeWebhookRequest(overrides: Partial<SCMWebhookRequest> = {}): SCMWebhookRequest {
@@ -102,7 +115,7 @@ describe("scm-github plugin", () => {
     vi.clearAllMocks();
     ghMock.mockReset(); // clear queue + stale mockResolvedValue from previous test
     ghMock.mockResolvedValue({ stdout: "" }); // neutral base: no output for unexpected gh calls
-    scm = create();
+    scm = create({ worktreeDir: configuredWorktreeDir });
     delete process.env["GITHUB_WEBHOOK_SECRET"];
   });
 
@@ -834,7 +847,7 @@ describe("scm-github plugin", () => {
     });
 
     it("removes a stale AO worktree and retries fetch when target branch is checked out elsewhere", async () => {
-      const staleWorktreePath = `${homedir()}/.worktrees/acme/ao-9999`;
+      const staleWorktreePath = `${configuredWorktreeDir}/acme/ao-9999`;
 
       ghMock.mockResolvedValueOnce({ stdout: "main\n" }); // git branch --show-current (before)
       ghMock.mockResolvedValueOnce({ stdout: "" }); // git status --porcelain (clean)
@@ -844,9 +857,16 @@ describe("scm-github plugin", () => {
           `fatal: refusing to fetch into branch 'refs/heads/feat/my-feature' checked out at '${staleWorktreePath}'\n`,
         ),
       ); // initial fetch blocked by stale worktree
+      ghMock.mockResolvedValueOnce({
+        stdout:
+          "worktree /tmp/repo\nHEAD deadbeef\nbranch refs/heads/main\n\n" +
+          `worktree ${staleWorktreePath}\nHEAD cafe1234\nbranch refs/heads/feat/my-feature\n`,
+      }); // git worktree list --porcelain (stale worktree is registered)
       ghMock.mockResolvedValueOnce({ stdout: "detached-ghost\nanother-live-session\n" }); // tmux list-sessions (stale ao-9999 is dead)
       ghMock.mockResolvedValueOnce({ stdout: "" }); // git worktree remove --force --force
-      ghMock.mockResolvedValueOnce({ stdout: "" }); // git worktree list --porcelain (stale entry gone)
+      ghMock.mockResolvedValueOnce({
+        stdout: "worktree /tmp/repo\nHEAD deadbeef\nbranch refs/heads/main\n",
+      }); // git worktree list --porcelain (stale entry gone)
       ghMock.mockResolvedValueOnce({ stdout: "" }); // retried git fetch succeeds
       ghMock.mockResolvedValueOnce({ stdout: "main\n" }); // git branch --show-current (after fetch)
       ghMock.mockResolvedValueOnce({ stdout: "" }); // git checkout -f feat/my-feature
@@ -854,6 +874,62 @@ describe("scm-github plugin", () => {
 
       const changed = await scm.checkoutPR?.(pr, "/tmp/repo");
       expect(changed).toBe(true);
+    });
+
+    it("does not remove non-AO worktrees when fetch fails because another branch is checked out", async () => {
+      ghMock.mockResolvedValueOnce({ stdout: "main\n" }); // git branch --show-current (before)
+      ghMock.mockResolvedValueOnce({ stdout: "" }); // git status --porcelain (clean)
+      ghMock.mockResolvedValueOnce({ stdout: "https://github.com/acme/repo.git\n" }); // git remote get-url origin
+      ghMock.mockRejectedValueOnce(
+        new Error(
+          `fatal: refusing to fetch into branch 'refs/heads/feat/my-feature' checked out at '${configuredWorktreeDir}/acme/feature-research'\n`,
+        ),
+      ); // branch blocked by non-AO worktree
+
+      await expect(scm.checkoutPR?.(pr, "/tmp/repo")).rejects.toThrow(
+        "refusing to fetch into branch",
+      );
+      assertNoGitWorktreeRemoveCalls();
+    });
+
+    it("does not remove AO-named paths that are not registered worktrees for the repo", async () => {
+      ghMock.mockResolvedValueOnce({ stdout: "main\n" }); // git branch --show-current (before)
+      ghMock.mockResolvedValueOnce({ stdout: "" }); // git status --porcelain (clean)
+      ghMock.mockResolvedValueOnce({ stdout: "https://github.com/acme/repo.git\n" }); // git remote get-url origin
+      ghMock.mockRejectedValueOnce(
+        new Error(
+          `fatal: refusing to fetch into branch 'refs/heads/feat/my-feature' checked out at '${configuredWorktreeDir}/acme/ao-9999'\n`,
+        ),
+      ); // AO-looking path that is not actually registered for this repo
+      ghMock.mockResolvedValueOnce({
+        stdout: "worktree /tmp/repo\nHEAD deadbeef\nbranch refs/heads/main\n",
+      }); // git worktree list --porcelain (no stale ao-9999 entry)
+
+      await expect(scm.checkoutPR?.(pr, "/tmp/repo")).rejects.toThrow(
+        "refusing to fetch into branch",
+      );
+      assertNoGitWorktreeRemoveCalls();
+    });
+
+    it("does not remove registered AO worktrees outside the configured base directory", async () => {
+      ghMock.mockResolvedValueOnce({ stdout: "main\n" }); // git branch --show-current (before)
+      ghMock.mockResolvedValueOnce({ stdout: "" }); // git status --porcelain (clean)
+      ghMock.mockResolvedValueOnce({ stdout: "https://github.com/acme/repo.git\n" }); // git remote get-url origin
+      ghMock.mockRejectedValueOnce(
+        new Error(
+          "fatal: refusing to fetch into branch 'refs/heads/feat/my-feature' checked out at '/tmp/ao-9999'\n",
+        ),
+      ); // AO-looking path registered for this repo, but outside the configured worktree base dir
+      ghMock.mockResolvedValueOnce({
+        stdout:
+          "worktree /tmp/repo\nHEAD deadbeef\nbranch refs/heads/main\n\n" +
+          "worktree /tmp/ao-9999\nHEAD cafe1234\nbranch refs/heads/feat/my-feature\n",
+      }); // git worktree list --porcelain (registered, but outside configured base dir)
+
+      await expect(scm.checkoutPR?.(pr, "/tmp/repo")).rejects.toThrow(
+        "refusing to fetch into branch",
+      );
+      assertNoGitWorktreeRemoveCalls();
     });
 
     it("returns true when git fetch + checkout succeeds (already on branch after fetch)", async () => {
