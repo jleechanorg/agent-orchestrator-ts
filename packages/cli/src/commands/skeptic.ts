@@ -114,8 +114,8 @@ export function registerSkeptic(program: Command): Command {
       const [owner, repo] = await resolveRepo(options);
       const spinner = ora(`Fetching PR #${prNumber} state…`).start();
 
-      // Fetch all needed data in parallel (including design doc from local checkout)
-      const [pr, diff, reviews, existing, designDoc] = await Promise.all([
+      // Fetch PR meta + diff + reviews in parallel; design doc needs PR head ref so fetch after.
+      const [pr, diff, reviews, existing] = await Promise.all([
         fetchPRMeta(owner, repo, prNumber).catch((err) => {
           spinner.fail(chalk.red("Failed to fetch PR: " + err));
           process.exit(1);
@@ -124,8 +124,9 @@ export function registerSkeptic(program: Command): Command {
         fetchDiff(owner, repo, prNumber),
         fetchReviews(owner, repo, prNumber).catch(() => []),
         findExistingVerdict(owner, repo, prNumber, options.triggerSha).catch(() => null),
-        fetchDesignDoc(prNumber).catch(() => null),
       ]);
+      // Design doc fetch uses GitHub API with the PR's head ref so it works regardless of cwd.
+      const designDoc = await fetchDesignDoc(owner, repo, prNumber, pr.headRefOid).catch(() => null);
 
       spinner.succeed(chalk.green(`Fetched PR #${prNumber}: "${pr.title}"`));
 

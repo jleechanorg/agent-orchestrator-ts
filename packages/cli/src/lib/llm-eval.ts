@@ -17,8 +17,7 @@
  */
 
 import { resolveCodexBinary } from "@jleechanorg/ao-plugin-agent-codex";
-import { execFileSync as execFileSyncSync } from "node:child_process";
-import { existsSync } from "node:fs";
+import { accessSync, constants as fsConstants } from "node:fs";
 import { buildVerdictLineRe } from "../commands/skeptic/verdict-utils.js";
 
 const LLM_EVAL_TIMEOUT_MS = 300_000;
@@ -29,48 +28,20 @@ const DEFAULT_CLAUDE_MODEL =
 /** Known claude binary locations, tried in order. */
 const CLAUDE_BINARY_CANDIDATES = [
   process.env["CLAUDE_BINARY"] ?? "",
-  // cmux DEV app (macOS)
-  "/Applications/cmux DEV.app/Contents/Resources/bin/claude",
-  // cmux release app (macOS)
-  "/Applications/cmux.app/Contents/Resources/bin/claude",
-  // Claude Code standalone (macOS)
-  "/Applications/Claude Code.app/Contents/Resources/bin/claude",
+  // nvm-style user-local (preferred — headless-compatible CLI)
+  process.env["HOME"] ? `${process.env["HOME"]}/.local/bin/claude` : "",
   // Homebrew / user-local
   "/usr/local/bin/claude",
   "/opt/homebrew/bin/claude",
-  // nvm-style user-local
-  `${process.env["HOME"] ?? ""}/.local/bin/claude`,
+  // Claude Code standalone (macOS)
+  "/Applications/Claude Code.app/Contents/Resources/bin/claude",
+  // cmux release app (macOS) — GUI app, may ETIMEDOUT in launchd context
+  "/Applications/cmux.app/Contents/Resources/bin/claude",
+  // cmux DEV app (macOS) — GUI app, typically ETIMEDOUT in headless context
+  "/Applications/cmux DEV.app/Contents/Resources/bin/claude",
   // PATH lookup (last resort — may not be available in launchd env)
   "claude",
 ].filter(Boolean);
-
-/** Resolve the claude binary path, trying known locations in order. */
-function resolveClaudeBinary(): string {
-  for (const candidate of CLAUDE_BINARY_CANDIDATES) {
-    if (!candidate) continue;
-    if (candidate === "claude") {
-      // PATH-based lookup
-      try {
-        const found = execFileSyncSync("which", ["claude"], {
-          encoding: "utf-8",
-          timeout: 5_000,
-          stdio: ["ignore", "pipe", "ignore"],
-        }).trim();
-        if (found) return found;
-      } catch {
-        // not in PATH
-      }
-      continue;
-    }
-    try {
-      if (existsSync(candidate)) return candidate;
-    } catch {
-      // ignore
-    }
-  }
-  // Fall back to bare name — execFileSync will throw ENOENT if not found
-  return "claude";
-}
 
 /** Strict VERDICT matcher for tool output validation — PASS or FAIL only.
  * SKIPPED was the old infra-unavailable sentinel; it has been replaced by
@@ -212,43 +183,85 @@ export async function tryGeminiPrint(prompt: string): Promise<LlmEvalResult> {
  */
 export async function tryClaudePrint(prompt: string): Promise<LlmEvalResult> {
   const { execFileSync } = await import("node:child_process");
-  const claudeBinary = resolveClaudeBinary();
 
-  try {
-    const result = execFileSync(
-      claudeBinary,
-      ["--dangerously-skip-permissions", "--print", "--model", DEFAULT_CLAUDE_MODEL],
-      {
-        input: prompt,
-        encoding: "utf-8",
-        timeout: LLM_EVAL_TIMEOUT_MS,
-        stdio: ["pipe", "pipe", "ignore"],
-        // Run from /tmp to prevent project-level CLAUDE.md hooks (e.g. mandatory
-        // git-header appended to every response) from polluting the output and
-        // hiding the VERDICT line from the regex check.
-        cwd: "/tmp",
-      },
-    );
-    const output = result.trim();
-    if (!STRICT_VERDICT_RE.test(output)) {
-      return {
-        validVerdict: false,
-        output,
-        error: `Claude output missing VERDICT line (got ${output.slice(0, 100)}...)`,
-      };
+  let firstInfraError: string | undefined;
+  let allMissing = true;
+
+  for (const candidate of CLAUDE_BINARY_CANDIDATES) {
+    if (!candidate) continue;
+
+    // Validate executability before attempting to run
+    if (candidate !== "claude") {
+      try {
+        accessSync(candidate, fsConstants.X_OK);
+      } catch (err: unknown) {
+        const code = (err as NodeJS.ErrnoException).code;
+        if (code === "ENOENT") {
+          continue; // Binary not installed — try next candidate
+        }
+        // EACCES/EPERM or other: binary exists but is not executable — treat as infra error
+        allMissing = false;
+        if (!firstInfraError) {
+          firstInfraError = err instanceof Error ? err.message : String(err);
+        }
+        continue;
+      }
     }
-    return { validVerdict: true, output };
-  } catch (err: unknown) {
-    const errno = (err as NodeJS.ErrnoException).code;
-    const msg = err instanceof Error ? err.message : String(err);
-    // ENOENT = binary not installed — treat as unavailable so caller can fall through
-    // Any other non-zero exit (auth failed, token invalid, etc.) = also unavailable;
-    // the fallback chain handles credential gaps. Only fatal/ENOENT stops the chain.
-    if (errno === "ENOENT" || isUnavailable(msg)) {
-      return { validVerdict: false, output: "", error: undefined }; // → caller skips this tool
+
+    try {
+      const result = execFileSync(
+        candidate,
+        ["--dangerously-skip-permissions", "--print", "--model", DEFAULT_CLAUDE_MODEL],
+        {
+          input: prompt,
+          encoding: "utf-8",
+          timeout: LLM_EVAL_TIMEOUT_MS,
+          stdio: ["pipe", "pipe", "ignore"],
+          // Run from /tmp to prevent project-level CLAUDE.md hooks (e.g. mandatory
+          // git-header appended to every response) from polluting the output and
+          // hiding the VERDICT line from the regex check.
+          cwd: "/tmp",
+        },
+      );
+      const output = result.trim();
+      if (!STRICT_VERDICT_RE.test(output)) {
+        return {
+          validVerdict: false,
+          output,
+          error: `Claude output missing VERDICT line (got ${output.slice(0, 100)}...)`,
+        };
+      }
+      return { validVerdict: true, output };
+    } catch (err: unknown) {
+      const errno = (err as NodeJS.ErrnoException).code;
+      const msg = err instanceof Error ? err.message : String(err);
+
+      // ENOENT = binary not installed — try next candidate
+      if (errno === "ENOENT") {
+        continue;
+      }
+
+      // 401/403/429 = credentials / quota — treat as "tool unavailable" globally;
+      // trying another binary won't help if they use the same global config.
+      if (isUnavailable(msg)) {
+        return { validVerdict: false, output: "", error: undefined }; // → caller skips this tool
+      }
+
+      // Found a binary but it failed with an infra error (e.g. timeout, dynamic link error)
+      allMissing = false;
+      if (!firstInfraError) firstInfraError = msg;
+
+      // Try next candidate in case another one is working
+      continue;
     }
-    return { validVerdict: false, output: "", error: msg };
   }
+
+  if (allMissing) {
+    return { validVerdict: false, output: "", error: undefined };
+  }
+
+  // At least one binary was found but all failed with infra errors
+  return { validVerdict: false, output: "", error: firstInfraError };
 }
 
 /**
