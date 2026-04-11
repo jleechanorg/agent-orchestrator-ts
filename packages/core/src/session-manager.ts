@@ -434,6 +434,8 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
     project?: ProjectConfig,
   ): boolean {
     if (!raw) return false;
+    // Metadata role takes precedence: explicit "worker" role overrides ID-based inference.
+    if (raw["role"] === "worker") return false;
     if (project?.sessionPrefix) {
       return sessionId === `${project.sessionPrefix}-orchestrator`;
     }
