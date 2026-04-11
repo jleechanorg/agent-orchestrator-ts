@@ -428,6 +428,7 @@ jobs:
           HEAD_SHA: ${{ steps.gates.outputs.head_sha }}
           CHECK_CONCLUSION: ${{ steps.gates.outputs.check_conclusion }}
           COMMENT_BODY: ${{ steps.gates.outputs.comment_body }}
+          GH_REPO: ${{ github.repository }}
         run: |
           # Determine title and summary based on conclusion
           if [ "$CHECK_CONCLUSION" = "success" ]; then
@@ -452,7 +453,7 @@ jobs:
             '{"name":"Green Gate","head_sha":$head_sha,"status":"completed","conclusion":$conclusion,"output":{"title":$title,"summary":$summary,"text":$body}}' \
             > "$PAYLOAD_FILE"
 
-          gh api repos/${{ github.repository }}/check-runs --method POST --input /tmp/check_run_payload.json
+          gh api "repos/${GH_REPO}/check-runs" --method POST --input /tmp/check_run_payload.json
 
           echo "Created Green Gate check run with conclusion: $CHECK_CONCLUSION"
 
