@@ -17,16 +17,20 @@ This fork adds **agentic CI infrastructure** on top of the upstream agent-orches
 
 | Feature | ComposioHQ/agent-orchestrator | jleechanorg/agent-orchestrator (this fork) |
 |---------|-------------------------------|------------------------------------------|
-| Auto-merge | ❌ None | ✅ AO orchestrator + evolve loop |
-| Skeptic agent | ❌ None | ✅ 7th merge gate (independent LLM verifier) |
+| Auto-merge | ⚠️ Config flag (`auto: true`), manual ops | ✅ AO orchestrator + evolve loop, zero-touch metrics |
+| Skeptic agent | ❌ None | ✅ 7th merge gate (independent LLM verifier, local keys) |
 | Evidence Gate | ❌ None | ✅ CI validates PR evidence bundle + claim class |
 | CodeRabbit reviews | ❌ None | ✅ Per-PR reviews on every PR |
 | Cursor Bugbot | ⚠️ Skipped | ✅ Runs on every PR |
-| REST fallback | ❌ None | ✅ GH rate limit → REST fallback |
+| Session recovery | ✅ recovery/ scanner + manager | ✅ + stalled-worker-auditor, no-delta-watchdog |
 | OpenClaw notifier | ❌ None | ✅ Wired for Slack notifications |
+| Beads issue tracker | ❌ None | ✅ SQLite-based local tracker plugin |
+| llm_inspector | ❌ None | ✅ Context overhead analysis + lean mode (-20K tokens/turn) |
 | Self-hosted runners | ❌ | ✅ |
+| Node.js requirement | 20+ | 22+ |
 | CI jobs | lint, typecheck, test, test-web | same + evidence-gate, skeptic-gate |
-| Workflows | 5 | 6 (+ skeptic-cron.yml) |
+| GitHub workflows | 7 | 13 (+coderabbit-ping, cr-loop-health, evidence-gate, skeptic-cron, skeptic-gate, wholesome-checks) |
+| Core TS files | ~63 | ~158 (~2.5× test coverage) |
 
 This fork's goal is **fully autonomous, zero-touch PR merging** for its own codebase. The upstream goal is a general-purpose orchestration tool.
 
@@ -45,7 +49,7 @@ Spawn parallel AI coding agents, each in its own git worktree. Agents autonomous
 
 Agent Orchestrator manages fleets of AI coding agents working in parallel on your codebase. Each agent gets its own git worktree, its own branch, and its own PR. When CI fails, the agent fixes it. When reviewers leave comments, the agent addresses them. You only get pulled in when human judgment is needed.
 
-**Agent-agnostic** (Claude Code, Codex, Cursor, Gemini, Aider, OpenCode) · **Runtime-agnostic** (tmux, process) · **Tracker-agnostic** (GitHub, GitLab, Linear)
+**Agent-agnostic** (Claude Code, Codex, Cursor, Gemini, Aider, OpenCode, MiniMax) · **Runtime-agnostic** (tmux, process, Antigravity *(fork)*) · **Tracker-agnostic** (GitHub, GitLab, Linear, Beads *(fork)*)
 
 <div align="center">
 
@@ -67,7 +71,7 @@ Agent Orchestrator manages fleets of AI coding agents working in parallel on you
 
 ## Quick Start
 
-> **Prerequisites:** [Node.js 20+](https://nodejs.org), [Git 2.25+](https://git-scm.com), [tmux](https://github.com/tmux/tmux/wiki/Installing), [`gh` CLI](https://cli.github.com). Install tmux via `brew install tmux` (macOS) or `sudo apt install tmux` (Linux).
+> **Prerequisites:** [Node.js 22+](https://nodejs.org), [Git 2.25+](https://git-scm.com), [tmux](https://github.com/tmux/tmux/wiki/Installing), [`gh` CLI](https://cli.github.com). Install tmux via `brew install tmux` (macOS) or `sudo apt install tmux` (Linux).
 
 ### Install
 
@@ -196,12 +200,12 @@ Eight slots. Every abstraction is swappable.
 
 | Slot      | Default     | Alternatives                 |
 | --------- | ----------- | ---------------------------- |
-| Runtime   | tmux        | process                      |
-| Agent     | claude-code | codex, cursor, gemini, aider, opencode |
+| Runtime   | tmux        | process, antigravity *(fork)* |
+| Agent     | claude-code | codex, cursor, gemini, aider, opencode, minimax *(fork)* |
 | Workspace | worktree    | clone                        |
-| Tracker   | github      | gitlab, linear               |
+| Tracker   | github      | gitlab, linear, beads *(fork)* |
 | SCM       | github      | gitlab                       |
-| Notifier  | desktop     | slack, composio, webhook, openclaw |
+| Notifier  | desktop     | slack, composio, webhook, openclaw, mcp-mail *(fork)* |
 | Terminal  | iterm2      | web                          |
 | Lifecycle | core        | —                            |
 
@@ -215,6 +219,19 @@ Running one AI agent in a terminal is easy. Running 30 across different issues, 
 
 **With Agent Orchestrator**, you: `ao start` and walk away. The system handles isolation, feedback routing, and status tracking. You review PRs and make decisions — the rest is automated.
 
+
+## Context Overhead Tooling
+
+The [`docs/llm_inspector.md`](docs/llm_inspector.md) guide covers the capture proxy, `--tool-mode lean` (strips 17 heavy built-in tools, ~20K tokens/turn), and `--tool-mode on-demand` (stub + re-issue, ~97% upfront reduction on heavy tools).
+
+| Overhead source | % of tokens/turn |
+|---|---|
+| Built-in tool definitions | ~49% |
+| System prompt | ~15% |
+| MCP tool definitions | ~15% |
+| CLAUDE.md / instructions | ~16% |
+
+Evidence bundle: [`docs/evidence/on-demand-stub-schema-2026-04-11/`](docs/evidence/on-demand-stub-schema-2026-04-11/) (N=10, mean 84.9% Agent stub reduction, PASS).
 
 ## Zero-Touch Policy (Canonical Reference)
 
@@ -244,11 +261,14 @@ The `ao` CLI provides these commands:
 ```bash
 ao start [project|url]    # Start orchestrator with project config or clone repo
 ao stop                   # Stop running orchestrator
-ao spawn <prompt>        # Spawn new agent session
+ao spawn <prompt>         # Spawn new agent session
 ao status                 # Show session status
-ao dashboard             # Open web dashboard
-ao config-help           # Show config schema reference
-ao doctor                # Run diagnostics
+ao dashboard              # Open web dashboard
+ao config-help            # Show config schema reference
+ao doctor                 # Run diagnostics
+ao skeptic verify -n <PR> # Run LLM skeptic evaluation on a PR (fork-only)
+ao orphan-sweep           # Clean up stale sessions (fork-only)
+ao send <session> <msg>   # Send message to running agent (fork-only)
 ```
 
 Run `ao --help` for full command list.

@@ -1,0 +1,44 @@
+# Collection Log — on-demand-stub-schema real integration test
+
+## Collection Steps
+
+1. Run: `node docs/evidence/on-demand-stub-schema-2026-04-11/test-real-upstream.mjs` (10 iterations)
+2. For each iteration: started mock upstream TCP server on port 19998
+3. Started proxy on port 19999 with --tool-mode on-demand
+4. Sent HTTP POST with realistic Agent schema (1368 bytes) through proxy
+5. Mock upstream logged received bytes (proxy stubbed the Agent tool)
+6. Parsed upstream bytes and verified stub substitution
+7. Repeated 10 times; computed mean/stddev/min/max reduction
+8. Output written: run.json (N=10 evidence entries + stats), evidence.md, metadata.json
+
+## Artifacts Captured
+
+- test-real-upstream.mjs — Test script (runs 10 iterations)
+- run.json              — Machine-readable: 10 evidence entries + statistics
+- collection_log.txt    — This log
+
+## Test Output (captured from 10-run run)
+
+=== Real Integration Test: on-demand stub-schema (10 runs) ===
+
+  Run 1/10... ✅ stubbed (84.9%)
+  Run 2/10... ✅ stubbed (84.9%)
+  Run 3/10... ✅ stubbed (84.9%)
+  Run 4/10... ✅ stubbed (84.9%)
+  Run 5/10... ✅ stubbed (84.9%)
+  Run 6/10... ✅ stubbed (84.9%)
+  Run 7/10... ✅ stubbed (84.9%)
+  Run 8/10... ✅ stubbed (84.9%)
+  Run 9/10... ✅ stubbed (84.9%)
+  Run 10/10... ✅ stubbed (84.9%)
+
+=== Summary (N=10) ===
+  Stub rate: 10/10
+  Reduction: mean=84.9%, stddev=0.0%, min=84.9%, max=84.9%
+  Overall: ✅ ALL PASS
+
+Evidence written to /Users/jleechan/project_agento/worktree_compaction/llm_inspector/docs/evidence/on-demand-stub-schema-2026-04-11/
+
+## Timestamp
+
+Test run: 2026-04-11T19:33:00.000Z

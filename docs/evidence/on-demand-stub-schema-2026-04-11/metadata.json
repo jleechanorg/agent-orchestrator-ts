@@ -1,0 +1,15 @@
+{
+  "bundle_version": "1.0",
+  "run_id": "on-demand-stub-schema-2026-04-11",
+  "iteration": 1,
+  "bundle_timestamp": "2026-04-11T19:12:35.551Z",
+  "provenance": {
+    "git_head": "2e4efadb6de43b7cdcd49e04123d672cb9a4438b",
+    "git_branch": "worktree_compaction",
+    "merge_base": "2e4efadb6de43b7cdcd49e04123d672cb9a4438b",
+    "commits_ahead_of_main": 0,
+    "diff_stat_vs_main": "(no diff — branch at same commit as main)"
+  },
+  "timestamp_utc": "2026-04-11T19:12:35.551Z",
+  "tool_mode_test": "on-demand stub-schema real integration test"
+}
