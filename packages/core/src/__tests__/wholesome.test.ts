@@ -265,9 +265,7 @@ describe("wholesome — structural source-code assertions", () => {
       const violations = getAddedLinesMatching(REPO_ROOT, directive)
         // Exclude this test file: its section headers, describe calls, and
         // comments document the check without being actual directives.
-        .filter(v => !v.file.includes("wholesome.test.ts"))
-        // Allow legitimate bash template string disable comments
-        .filter(v => v.line.trim() !== "// eslint-disable-next-line no-template-curly-in-string");
+        .filter(v => !v.file.includes("wholesome.test.ts"));
       expect(violations, "eslint-disable directive added in this branch:\n" +
         violations.map(v => `${v.file}: ${v.line}`).join("\n")).toHaveLength(0);
     });
