@@ -13,7 +13,7 @@ import { fileURLToPath } from "node:url";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const REPO_ROOT = join(__dirname, "..", "..", "..");
-const OUT_DIR = join(__dirname);
+const OUT_DIR = join(__dirname, "unit-artifacts");
 
 // ── Inline the actual implementation (same as proxy.ts) ─────────────────────
 const HEAVY_TOOL_NAMES = [
@@ -148,6 +148,16 @@ test("Agent tool replaced with stub (mock: 212B→206B = 2.8%; real 18.5KB→206
   };
 
   const { modified, stubbedTools } = applyStubToolFilter(body);
+
+  // Assert stubbedTools preserves original schema (CR feedback)
+  const stubbedAgent = stubbedTools.get("Agent");
+  if (!stubbedAgent) throw new Error("stubbedTools missing Agent key");
+  if (stubbedAgent.description !== fullAgentTool.description) {
+    throw new Error(`stubbedTools Agent description mismatch: ${stubbedAgent.description} !== ${fullAgentTool.description}`);
+  }
+  if (JSON.stringify(stubbedAgent.input_schema) !== JSON.stringify(fullAgentTool.input_schema)) {
+    throw new Error("stubbedTools Agent input_schema mismatch");
+  }
 
   // Check stub replaced Agent
   const agentTool = modified.tools.find((t) => t.name === "Agent");
