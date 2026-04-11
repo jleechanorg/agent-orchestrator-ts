@@ -20,8 +20,18 @@ import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
 import { promisify } from "node:util";
+import {
+  NORMALIZE_SHELL_COMMAND_PREFIX_BLOCK,
+  PR_TITLE_PREFIX_GUARD_BLOCK,
+} from "./pr-title-guard.js";
 
 const execFileAsync = promisify(execFile);
+
+export {
+  NORMALIZE_SHELL_COMMAND_PREFIX_BLOCK,
+  PR_TITLE_PREFIX,
+  PR_TITLE_PREFIX_GUARD_BLOCK,
+} from "./pr-title-guard.js";
 
 // =============================================================================
 // Plugin Config
@@ -114,8 +124,7 @@ const _ = String.raw;
 // expression parsing. The dollar sign must survive JS and expand in bash.
 // MUST use ${array[index]} (not "$array[index]") for bash array access.
 const BASH_REMATCH1 = '"${BASH_REMATCH[1]}"';
-const BASH_REMATCH2 = '"${BASH_REMATCH[2]}"';
-// Result: "${BASH_REMATCH[1]}" and "${BASH_REMATCH[2]}" as literal bash array access
+// Result: "${BASH_REMATCH[1]}" as literal bash array access
 
 // Bash parameter expansions — expressed as single-quoted JS strings (no JS interpretation)
 // so they survive TypeScript compilation and expand correctly in bash.
@@ -181,62 +190,9 @@ fi
 # Command Detection and Parsing
 # ============================================================================
 
-# Strip leading prefixes so commands like
-#   cd ~/.worktrees/project && gh pr create ...
-#   FOO=bar gh pr create ...
-# are still detected.
-cd_prefix_pattern='^[[:space:]]*cd[[:space:]]+.*[[:space:]]+(&&|;)[[:space:]]+(.*)'
-clean_command="$command"
-while true; do
-  # Strip leading env assignments: FOO=bar BAZ=qux gh pr create ...
-  # [^[:space:]]* for the value allows embedded = (e.g. FOO=a=b gh pr create).
-  # Trailing space required so bare "FOO=bar" (no cmd) avoids infinite loop.
-  if [[ "$clean_command" =~ ^[[:space:]]*[A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+(.+)$ ]]; then
-    clean_command=${BASH_REMATCH1}
-  # Strip leading cd prefixes: cd /path && gh pr create ...
-  elif [[ "$clean_command" =~ $cd_prefix_pattern ]]; then
-    clean_command=${BASH_REMATCH2}
-  else
-    break
-  fi
-done
+${NORMALIZE_SHELL_COMMAND_PREFIX_BLOCK}
 
-# Guardrail: enforce [agento] prefix on gh pr create titles (PreToolUse only).
-# PostToolUse falls through to metadata update — no need to re-check there.
-pr_create_pattern='^[[:space:]]*([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]+[[:space:]]+)*gh[[:space:]]+pr[[:space:]]+create([[:space:]]|$)'
-if [[ "$hook_event" == "PreToolUse" && "$clean_command" =~ $pr_create_pattern ]]; then
-  # Parse --title or -t as proper argv tokens (not substring in --body etc.).
-  # Python shlex correctly handles quoted strings containing literal "--title".
-  first_title=$(python3 -c "
-import shlex, sys
-args = shlex.split(sys.argv[1])
-for i, arg in enumerate(args):
-    if arg == '--title':
-        print(args[i+1], end='')
-        break
-    if arg.startswith('--title='):
-        print(arg[len('--title='):], end='')
-        break
-    if arg == '-t':
-        print(args[i+1], end='')
-        break
-    if arg.startswith('-t'):
-        print(arg[2:], end='')
-        break
-" "$clean_command" 2>/dev/null || true)
-  # Deny if title is missing or doesn't start with [agento].
-  # Note: hardcodes PreToolUse in deny JSON — correct for Claude Code.
-  # AO_HOOK_EVENT_NAME is used in setupWorkspaceHooks but the deny JSON
-  # output is for Claude Code's hook protocol which always uses PreToolUse.
-  if [[ -z "$first_title" || "$first_title" != \[agento\]* ]]; then
-    echo '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"Blocked by AO policy: gh pr create titles must start with [agento]. Prefix your title with [agento] and retry."}}'
-    exit 0
-  fi
-  # Prefix check passed — title is valid, allow the tool.
-  # Exit here so PreToolUse does NOT fall through to metadata writers below.
-  echo '{}'
-  exit 0
-fi
+${PR_TITLE_PREFIX_GUARD_BLOCK}
 
 # All metadata writers run in PostToolUse only.
 # Allow PreToolUse (hook_event empty or "PreToolUse") to fall through to guards above.

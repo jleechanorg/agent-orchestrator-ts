@@ -78,15 +78,10 @@ function mockGitError(message: string) {
  * git() is called with a cwd option (it always is for repo-path git calls).
  */
 type GitCallResult = { stdout?: string; stderr?: string } | Error;
-type GitCallSequence = GitCallResult | GitCallResult[];
-
-function mockGitImpl(calls: Record<string, GitCallSequence>): void {
+function mockGitImpl(calls: Record<string, GitCallResult>): void {
   mockExecFileAsync.mockImplementation((cmd: string, args: string[], opts?: { cwd?: string }) => {
-    const keyParts = [cmd, ...args];
-    if (opts?.cwd) keyParts.push(`(cwd=${opts.cwd})`);
-    const key = keyParts.join(",");
-    const configured = calls[key];
-    const result = Array.isArray(configured) ? configured.shift() : configured;
+    const key = [cmd, ...args, opts?.cwd ? `(cwd=${opts.cwd})` : ""].join(",");
+    const result = calls[key];
     if (result instanceof Error) return Promise.reject(result);
     return Promise.resolve({ stdout: (result?.stdout ?? "") + "\n", stderr: result?.stderr ?? "" });
   });
@@ -299,38 +294,46 @@ describe("workspace.create()", () => {
     const ws = create();
     const worktreePath = "/mock-home/.worktrees/myproject/wa-999";
     const staleWorktreePath = "/mock-home/.worktrees/myproject/ao-999";
-
-    // Trigger the stale-lock unlock path for the missing target worktree,
-    // while still treating .git/info as present for exclude-file setup.
-    mockExistsSync.mockImplementation((p: string) => {
-      if (String(p).endsWith(".git/info")) return true;
-      if (String(p) === worktreePath) return false; // trigger unlock path
-      if (String(p) === staleWorktreePath) return false; // stale path disappears after removal
-      return true; // default: path exists
-    });
-
-    mockGitImpl({
-      "git,fetch,origin,--quiet,(cwd=/repo/path)": { stdout: "" },
-      [`git,worktree,unlock,${worktreePath},(cwd=/repo/path)`]: { stdout: "" },
-      "git,branch,--list,origin/main,(cwd=/repo/path)": { stdout: "" },
+    const callResults: Record<string, GitCallResult> = {
+      [`git,fetch,origin,--quiet,(cwd=/repo/path)`]: { stdout: "" },
+      [`git,branch,--list,origin/main,(cwd=/repo/path)`]: { stdout: "" },
       [`git,worktree,add,-b,feat/TEST-1,${worktreePath},origin/main,(cwd=/repo/path)`]:
         new Error("already exists"),
       [`git,worktree,add,${worktreePath},origin/main,(cwd=/repo/path)`]: { stdout: "" },
-      [`git,checkout,feat/TEST-1,(cwd=${worktreePath})`]: [
-        new Error(`fatal: 'feat/TEST-1' is already checked out at '${staleWorktreePath}'`),
-        { stdout: "" },
-      ],
-      "tmux,list-sessions,-F,#{session_name}": { stdout: "" },
+      "tmux,list-sessions,-F,#{session_name},": { stdout: "" },
       [`git,worktree,remove,--force,--force,${staleWorktreePath},(cwd=/repo/path)`]: { stdout: "" },
-      "git,worktree,list,--porcelain,(cwd=/repo/path)": { stdout: "" },
+      [`git,worktree,list,--porcelain,(cwd=/repo/path)`]: { stdout: "" },
+      [`git,rev-parse,--path-format=absolute,--git-common-dir,(cwd=${worktreePath})`]: { stdout: "/repo/path/.git" },
       [`git,worktree,lock,--reason,AO session active,${worktreePath},(cwd=/repo/path)`]: { stdout: "" },
+    };
+
+    mockExistsSync.mockImplementation((p: string) => {
+      if (String(p).endsWith(".git/info")) return true;
+      if (String(p) === staleWorktreePath) return false;
+      return true;
     });
 
+    let checkoutAttempts = 0;
+    mockExecFileAsync.mockImplementation((cmd: string, args: string[], opts?: { cwd?: string; timeout?: number }) => {
+      if (cmd === "git" && args[0] === "checkout" && args[1] === "feat/TEST-1" && opts?.cwd === worktreePath) {
+        checkoutAttempts += 1;
+        if (checkoutAttempts === 1) {
+          return Promise.reject(new Error(`already exists, already checked out at '${staleWorktreePath}'`));
+        }
+        return Promise.resolve({ stdout: "\n", stderr: "" });
+      }
+
+      const key = [cmd, ...args, opts?.cwd ? `(cwd=${opts.cwd})` : ""].join(",");
+      const result = callResults[key];
+
+      if (result instanceof Error) return Promise.reject(result);
+      return Promise.resolve({ stdout: (result?.stdout ?? "") + "\n", stderr: result?.stderr ?? "" });
+    });
 
     const info = await ws.create(makeCreateConfig({ sessionId: "wa-999" }));
 
     expect(info.branch).toBe("feat/TEST-1");
-    // Verify stale worktree removal was attempted (from the walk-up in maybeRemoveStaleCheckedOutWorktree)
+    expect(checkoutAttempts).toBe(2);
     expect(mockExecFileAsync).toHaveBeenCalledWith(
       "git",
       ["worktree", "remove", "--force", "--force", staleWorktreePath],

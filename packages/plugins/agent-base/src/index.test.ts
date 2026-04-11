@@ -526,19 +526,16 @@ describe("detectActivity — classifyTerminalOutput", () => {
 // METADATA_UPDATER_SCRIPT — [agento] prefix enforcement
 // ==================================================================
 describe("METADATA_UPDATER_SCRIPT — [agento] prefix enforcement", () => {
-  it("denies gh pr create when title lacks [agento] prefix in PreToolUse", () => {
-    // The PreToolUse block must deny commands with titles that don't start with [agento]
-    expect(METADATA_UPDATER_SCRIPT).toMatch(/deny.*gh pr create titles must start with \[agento\]/);
+  it("rewrites gh pr create when title lacks [agento] prefix in PreToolUse", () => {
+    expect(METADATA_UPDATER_SCRIPT).toContain('"permissionDecision": "allow"');
+    expect(METADATA_UPDATER_SCRIPT).toContain('"updatedInput": {"command":');
+    expect(METADATA_UPDATER_SCRIPT).toContain("[agento] ");
   });
 
-  it("uses Python shlex to parse --title argv value (not substring regex)", () => {
-    // Uses Python shlex to correctly parse --title as an argv token, avoiding
-    // false matches when --title appears as literal text inside --body values.
-    // /s flag needed because the Python code spans multiple lines in the JS string.
-    expect(METADATA_UPDATER_SCRIPT).toMatch(/python3.*shlex.split/s);
-    expect(METADATA_UPDATER_SCRIPT).toMatch(/if arg == '--title'/);
-    // Check the guard is present — use .toContain() to avoid regex-escaping ambiguity.
-    expect(METADATA_UPDATER_SCRIPT).toContain('!= ' + '\\[agento\\]*');
+  it("uses the shared Python guard block to preserve quoting while rewriting titles", () => {
+    expect(METADATA_UPDATER_SCRIPT).toContain("shell_word_spans");
+    expect(METADATA_UPDATER_SCRIPT).toContain("get_title_mode");
+    expect(METADATA_UPDATER_SCRIPT).toContain(`python3 - "$clean_command" "$command" <<'PY'`);
   });
 
   it("checks hook_event is PreToolUse before enforcing prefix", () => {

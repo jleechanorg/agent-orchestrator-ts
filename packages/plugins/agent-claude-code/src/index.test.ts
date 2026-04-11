@@ -763,18 +763,19 @@ describe("getSessionInfo", () => {
 // METADATA_UPDATER_SCRIPT — content verification (unit tests)
 // ==================================================================
 describe("METADATA_UPDATER_SCRIPT content", () => {
-  it("contains clean_command stripping logic for cd prefixes", () => {
+  it("initializes clean_command and normalizes safe shell prefixes via Python", () => {
     expect(METADATA_UPDATER_SCRIPT).toContain('clean_command="$command"');
-    expect(METADATA_UPDATER_SCRIPT).toMatch(/while.*clean_command.*cd/s);
+    expect(METADATA_UPDATER_SCRIPT).toContain("normalize_prefixed_command_out");
+    expect(METADATA_UPDATER_SCRIPT).toContain("def tokenize(source):");
   });
 
   it("uses $clean_command (not $command) for all regex-based command detection", () => {
     const lines = METADATA_UPDATER_SCRIPT.split("\n");
     for (const line of lines) {
-      // Skip comment lines, the initial assignment, and the stripping logic itself
+      // Skip comment lines, the initial assignment, and the normalizer plumbing.
       if (line.trim().startsWith("#")) continue;
       if (line.includes('clean_command="$command"')) continue;
-      if (line.includes("while") && line.includes("clean_command")) continue;
+      if (line.includes("normalize_prefixed_command")) continue;
 
       // Any regex match line (=~) should use $clean_command, NOT $command
       if (line.includes("=~") && line.includes("command")) {
@@ -785,8 +786,6 @@ describe("METADATA_UPDATER_SCRIPT content", () => {
   });
 
   it("does NOT use ^-anchored regexes directly on $command for gh/git detection", () => {
-    // The old buggy patterns matched $command with ^ anchor.
-    // After the fix, ^ is still used but on $clean_command (which has cd stripped).
     expect(METADATA_UPDATER_SCRIPT).not.toMatch(
       /"\$command"\s*=~\s*\^gh/,
     );
@@ -795,16 +794,17 @@ describe("METADATA_UPDATER_SCRIPT content", () => {
     );
   });
 
-  it("strips cd prefixes with both && and ; delimiters", () => {
-    expect(METADATA_UPDATER_SCRIPT).toMatch(/&&\|;/);
+  it("allows only env assignments and cd prefixes before the guarded command", () => {
+    expect(METADATA_UPDATER_SCRIPT).toContain('if words and words[0] == "cd":');
+    expect(METADATA_UPDATER_SCRIPT).toContain("cannot safely analyze chained shell commands");
   });
 
-  it("handles multiple chained cd commands via while loop", () => {
-    expect(METADATA_UPDATER_SCRIPT).toMatch(/while.*clean_command/s);
+  it("keeps command detection anchored on clean_command after normalization", () => {
+    expect(METADATA_UPDATER_SCRIPT).toContain('"$clean_command" =~ $pr_create_pattern');
+    expect(METADATA_UPDATER_SCRIPT).toContain('"$clean_command" =~ $merge_pattern');
   });
 
   it("detects gh pr create on clean_command via pr_create_pattern", () => {
-    // Uses shared pr_create_pattern (env-prefix tolerant), not bare ^gh anchor
     expect(METADATA_UPDATER_SCRIPT).toMatch(
       /pr_create_pattern.*=.*\^.*gh.*pr.*create/,
     );
@@ -825,25 +825,19 @@ describe("METADATA_UPDATER_SCRIPT content", () => {
   });
 
   // [agento] prefix enforcement
-  it("denies gh pr create when title lacks [agento] prefix in PreToolUse", () => {
-    expect(METADATA_UPDATER_SCRIPT).toMatch(
-      /deny.*gh pr create titles must start with \[agento\]/,
-    );
+  it("rewrites gh pr create when title lacks [agento] prefix in PreToolUse", () => {
+    expect(METADATA_UPDATER_SCRIPT).toContain('"permissionDecision": "allow"');
+    expect(METADATA_UPDATER_SCRIPT).toContain('"updatedInput": {"command":');
+    expect(METADATA_UPDATER_SCRIPT).toContain("[agento] ");
   });
 
-  it("uses Python shlex to parse --title argv value (not substring regex)", () => {
-    // Uses Python shlex to correctly parse --title as an argv token, avoiding
-    // false matches when --title appears as literal text inside --body values.
-    expect(METADATA_UPDATER_SCRIPT).toMatch(/python3.*shlex.split/s);
-    expect(METADATA_UPDATER_SCRIPT).toMatch(/if arg == '--title'/);
-    // Check the guard is present using .toContain() — avoids regex-escaping issues
-    // The compiled script has: if [[ -z "$first_title" || "$first_title" != \[agento\]*
-    // String representation in TypeScript: '\\[' = backslash + '[' (one backslash char)
-    expect(METADATA_UPDATER_SCRIPT).toContain('!= ' + '\\[agento\\]*');
+  it("uses the shared Python guard block to preserve quoting while rewriting titles", () => {
+    expect(METADATA_UPDATER_SCRIPT).toContain("shell_word_spans");
+    expect(METADATA_UPDATER_SCRIPT).toContain("get_title_mode");
+    expect(METADATA_UPDATER_SCRIPT).toContain(`python3 - "$clean_command" "$command" <<'PY'`);
   });
 
   it("checks hook_event is PreToolUse before enforcing prefix", () => {
-    // Prefix guard fires only in PreToolUse; PostToolUse falls through to metadata update
     expect(METADATA_UPDATER_SCRIPT).toMatch(/"PreToolUse".*\$pr_create_pattern/);
   });
 });
