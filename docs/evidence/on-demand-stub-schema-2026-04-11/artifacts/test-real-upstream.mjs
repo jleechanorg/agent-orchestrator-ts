@@ -175,7 +175,9 @@ async function runSingleIteration(iter) {
           const tools = upstreamParsed.tools || [];
           const agent = tools.find((t) => t && t.name === "Agent");
           const bash = tools.find((t) => t && t.name === "Bash");
-          const hasCorrectStubShape = !!agent?.input_schema?.properties?.task;
+          const hasTaskProperty = !!agent?.input_schema?.properties?.task;
+          const requiresTask = Array.isArray(agent?.input_schema?.required) && agent.input_schema.required.includes("task");
+          const hasCorrectStubShape = hasTaskProperty && requiresTask;
           const isStubbed = agent &&
             agent.description === "Spawn an autonomous sub-agent to handle a task." &&
             !agent.description.includes("sub-agent operates independently") &&
@@ -192,7 +194,8 @@ async function runSingleIteration(iter) {
               stubbed_agent_bytes: stubbedAgentSize,
               reduction_percent: reduction.toFixed(1),
               stub_description: agent.description,
-              agent_stub_has_task_property: !!agent.input_schema?.properties?.task,
+              agent_stub_has_task_property: hasTaskProperty,
+              agent_stub_requires_task: requiresTask,
               bash_preserved: !!bash,
               total_upstream_bytes: upstreamBytes,
               total_original_bytes: totalOriginalSize,
@@ -371,6 +374,7 @@ const evidenceMd = [
 
 const timestamp = new Date().toISOString();
 let gitHead = "", gitBranch = "", mergeBase = "", commitsAhead = "0", diffStat = "";
+let sourceRepo = "", sourceCommit = "", syncedFrom = "worktree";
 try {
   gitHead = execSync("git rev-parse HEAD", { cwd: REPO_ROOT }).toString().trim();
   gitBranch = execSync("git branch --show-current", { cwd: REPO_ROOT }).toString().trim() || "detached";
@@ -378,6 +382,8 @@ try {
   const aheadStr = execSync("git rev-list --count HEAD ^origin/main 2>/dev/null || echo 0", { cwd: REPO_ROOT }).toString().trim();
   commitsAhead = aheadStr || "0";
   diffStat = execSync("git diff --stat origin/main HEAD 2>/dev/null | tail -1 || echo ''", { cwd: REPO_ROOT }).toString().trim();
+  sourceRepo = execSync("git remote get-url origin 2>/dev/null || echo ''", { cwd: REPO_ROOT }).toString().trim();
+  sourceCommit = gitHead;
 } catch (err) {
   console.error(`git provenance failed: ${err.message}`);
 }
@@ -390,6 +396,9 @@ const metadata = {
   provenance: {
     git_head: gitHead,
     git_branch: gitBranch,
+    source_repo: sourceRepo,
+    source_commit: sourceCommit,
+    synced_from: syncedFrom,
     merge_base: mergeBase,
     commits_ahead_of_main: commitsAhead,
     diff_stat_vs_main: diffStat || "(unable to compute diff stat)",
