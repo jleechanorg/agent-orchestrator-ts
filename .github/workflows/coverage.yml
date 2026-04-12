@@ -79,13 +79,7 @@ jobs:
 
       - name: Check diff coverage (80% on changed lines)
         run: |
-          # Skip if base branch has no prior coverage data (lcov.info is generated at test time, not committed)
-          if git fetch origin ${{ github.base_ref }} --depth=1 2>/dev/null && \
-             git show origin/${{ github.base_ref }}:packages/core/coverage/lcov.info >/dev/null 2>&1; then
-            diff-cover combined-coverage/lcov.info \
-              --compare-branch=origin/${{ github.base_ref }} \
-              --fail-under=80 \
-              --diff-range-notation='...'
-          else
-            echo "Skipping diff coverage — no baseline coverage data on base branch"
-          fi
+          diff-cover combined-coverage/lcov.info \
+            --compare-branch=origin/${{ github.base_ref }} \
+            --fail-under=80 \
+            --diff-range-notation='...'
