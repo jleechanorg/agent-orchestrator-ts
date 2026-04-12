@@ -105,7 +105,6 @@ describe("llmEval — explicit model=gemini", () => {
   it("falls back to codex when gemini has an infra error", async () => {
     mockResolveCodexBinary.mockResolvedValue("/usr/local/bin/codex");
     const etimeout = makeErrnoError("ETIMEDOUT", "ETIMEDOUT");
-    const enoent = makeErrnoError("ENOENT", "ENOENT");
     let callCount = 0;
     mockExecFileSync.mockImplementation(() => {
       callCount++;
