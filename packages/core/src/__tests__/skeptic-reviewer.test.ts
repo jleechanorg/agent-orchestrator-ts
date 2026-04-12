@@ -280,22 +280,23 @@ describe("runSkepticReview", () => {
       expect(result.modelUsed).toBe("gemini");
     });
 
-    it("returns SKIPPED (not FAIL) when all three models fail with infra errors", async () => {
+    it("returns SKIPPED (not FAIL) when all four models fail with infra errors", async () => {
       const enobufsError = Object.assign(new Error("spawn ENOBUFS"), {
         code: "ENOBUFS",
       });
-      // triggerSha fetched once — one gh api call, then all 3 model attempts fail
+      // triggerSha fetched once — one gh api call, then all 4 model attempts fail
       execFileMock
         .mockResolvedValueOnce({ stdout: "a".repeat(40), stderr: "" }) // gh api SHA (once)
         .mockRejectedValueOnce(enobufsError) // codex fails
         .mockRejectedValueOnce(enobufsError) // claude fails
-        .mockRejectedValueOnce(enobufsError); // gemini fails
+        .mockRejectedValueOnce(enobufsError) // gemini fails
+        .mockRejectedValueOnce(enobufsError); // cursor fails
 
       const session = makeSession();
       const result = await runSkepticReview(session);
       expect(result.verdict).toBe("SKIPPED");
       expect(result.details).toContain("All models failed");
-      expect(result.modelUsed).toBe("codex,claude,gemini");
+      expect(result.modelUsed).toBe("codex,claude,gemini,cursor");
     });
 
     it("does NOT retry when CLI returns a valid verdict (even FAIL)", async () => {
