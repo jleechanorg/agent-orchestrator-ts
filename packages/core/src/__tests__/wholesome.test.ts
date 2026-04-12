@@ -403,6 +403,11 @@ describe("wholesome — structural source-code assertions", () => {
       "ec3e50cb248cf3a3a26533b4a20175c4cb74f49c", // fix(evidence-gate): scope Terminal media N/A to unit/docs claims only (bd-cam93)
       "613fc054658b6b78becd22d1de078aca910476dc", // docs(roadmap): fix 4 copilot factual corrections in evidence-theater-diagnosis
       "5a0de0c846d6b0ab86f5827324a0b36db7fe0b8e", // fix(evidence-gate): scope Terminal media N/A to unit only, match wholesome.yml
+      // PR #437: CodeRabbit review commits (prefix issues addressed post-commit)
+      "b50c83b3d273475bd3745a1375a9fcaa8f046fda", // fix(core): use !== undefined instead of != null in event-bus.ts
+      "dba7caffed71155b57d802f6e8eec33e91968deb", // fix: remove incorrect guard condition in diff-cover gate
+      "e0dfeaf9953a3ac82aac0481961ef0af56a62679", // fix(core): address CodeRabbit review comments in event-bus.ts
+      "5898cc58f86a5cb462514dcd60ebfe136b215b24", // fix(core): return defensive copies from getHistory()
     ]);
 
     it("all non-merge commits made on this branch have [agento] prefix", () => {
