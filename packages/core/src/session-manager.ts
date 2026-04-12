@@ -2757,6 +2757,8 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
         createdAt: raw["createdAt"],
         runtimeHandle: raw["runtimeHandle"],
         opencodeSessionId: raw["opencodeSessionId"],
+        pinnedSummary: raw["pinnedSummary"],
+        userPrompt: raw["userPrompt"],
       });
     }
 

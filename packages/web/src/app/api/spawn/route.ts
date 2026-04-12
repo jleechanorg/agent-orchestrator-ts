@@ -28,9 +28,26 @@ export async function POST(request: NextRequest) {
   try {
     const { config, sessionManager } = await getServices();
 
-    // Strip newlines from prompt to prevent metadata injection (key=value format uses \n as delimiter)
-    const rawPrompt = (body.prompt as string) ?? undefined;
-    const prompt = rawPrompt ? rawPrompt.replace(/[\r\n]/g, " ").trim() : undefined;
+    // Validate and sanitize prompt: must be string (not object/array/number), stripped of newlines, capped at 4096 chars
+    if (body.prompt !== undefined && typeof body.prompt !== "string") {
+      return jsonWithCorrelation(
+        { error: "prompt must be a string" },
+        { status: 400 },
+        correlationId,
+      );
+    }
+    const rawPrompt = body.prompt as string | undefined;
+    let prompt = rawPrompt ? rawPrompt.replace(/[\r\n]/g, " ").trim() : undefined;
+    if (prompt && prompt.length > 4096) {
+      return jsonWithCorrelation(
+        { error: "Prompt must be at most 4096 characters" },
+        { status: 400 },
+        correlationId,
+      );
+    }
+    if (prompt && prompt.length === 0) {
+      prompt = undefined;
+    }
 
     const session = await sessionManager.spawn({
       projectId: body.projectId as string,

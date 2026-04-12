@@ -31,6 +31,7 @@ interface QueuedSpawnRequest {
   runtimeOverride?: string;
   claimPr?: string;
   assignOnGithub?: boolean;
+  prompt?: string;
   queuedAt: string;
   attempts: number;
 }
@@ -50,6 +51,7 @@ export interface EnqueueSpawnRequestInput {
   runtimeOverride?: string;
   claimPr?: string;
   assignOnGithub?: boolean;
+  prompt?: string;
 }
 
 export interface DrainSpawnQueueDeps {
@@ -139,6 +141,7 @@ export function enqueueSpawnRequest(
     runtimeOverride: input.runtimeOverride,
     claimPr: input.claimPr,
     assignOnGithub: input.assignOnGithub,
+    prompt: input.prompt,
     queuedAt: new Date().toISOString(),
     attempts: 0,
   });
@@ -191,6 +194,7 @@ export async function drainSpawnQueue(
       issueId: nextRequest.issueId,
       agent: nextRequest.agent,
       runtimeOverride: nextRequest.runtimeOverride,
+      prompt: nextRequest.prompt,
     });
 
     if (nextRequest.claimPr) {
