@@ -225,7 +225,7 @@ Running one AI agent in a terminal is easy. Running 30 across different issues, 
 
 The [`docs/llm_inspector.md`](docs/llm_inspector.md) guide covers the capture proxy, `--tool-mode lean` (strips 17 heavy built-in tools, ~20K tokens/turn), and `--tool-mode on-demand` (stub + re-issue, ~84.9% reduction on heavy tools).
 
-Install llm_inspector: `curl -fsSL https://raw.githubusercontent.com/jleechanorg/agent-orchestrator/main/llm_inspector/install.sh | bash`
+Install llm_inspector: `curl -fsSL https://raw.githubusercontent.com/jleechanorg/llm_inspector/main/install.sh | bash`
 
 | Overhead source | % of tokens/turn |
 |---|---|
