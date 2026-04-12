@@ -14,6 +14,7 @@ import type {
   PluginRegistry,
   OrchestratorConfig,
 } from "./types.js";
+export { isPackageResolutionFailure, tryMonorepoFallback } from "./plugin-registry-fallback.js";
 import { isPackageResolutionFailure, tryMonorepoFallback } from "./plugin-registry-fallback.js";
 import { applyForkExtensions } from "./plugin-registry-extensions.js";
 
