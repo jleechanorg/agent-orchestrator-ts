@@ -27,9 +27,15 @@ export async function POST(request: NextRequest) {
 
   try {
     const { config, sessionManager } = await getServices();
+
+    // Strip newlines from prompt to prevent metadata injection (key=value format uses \n as delimiter)
+    const rawPrompt = (body.prompt as string) ?? undefined;
+    const prompt = rawPrompt ? rawPrompt.replace(/[\r\n]/g, " ").trim() : undefined;
+
     const session = await sessionManager.spawn({
       projectId: body.projectId as string,
       issueId: (body.issueId as string) ?? undefined,
+      prompt: prompt || undefined,
     });
 
     recordApiObservation({
