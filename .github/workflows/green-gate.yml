@@ -23,7 +23,7 @@ concurrency:
 
 jobs:
   green_gate:
-    name: Green Gate
+    name: Green Gate Orchestrator
     runs-on: ubuntu-latest
     permissions:
       pull-requests: write
@@ -303,13 +303,13 @@ jobs:
                 GATE6_DETAIL="placeholder_template_detected"
               # Require real media (image with HTTPS, code block, or structured output)
               elif printf '%s' "$EVIDENCE_GATE6" | grep -qiE '!\[[^]]*\]\(https://[^)]+\)'; then
-                GATE6="WARN"
+                GATE6="PASS"
                 GATE6_DETAIL="image_found_(advisory)"
               elif printf '%s' "$EVIDENCE_GATE6" | grep -qiE '\*\*(Test|Terminal)\s*output\*\*:[[:space:]]+\S'; then
-                GATE6="WARN"
+                GATE6="PASS"
                 GATE6_DETAIL="structured_output_found_(advisory)"
               elif printf '%s' "$EVIDENCE_GATE6" | grep -q '```'; then
-                GATE6="WARN"
+                GATE6="PASS"
                 GATE6_DETAIL="code_block_found_(advisory)"
               else
                 GATE6="WARN"
@@ -342,8 +342,24 @@ jobs:
             RESULT_LINE="**Result: FAIL** — gates ${FAILED_GATES} failed"
           fi
 
+          # Determine check run conclusion
+          # Gate 6 does not affect FAILED_GATES / OVERALL directly.
+          # GATE6=FAIL: fabricated/placeholder content → action_required (blocking)
+          # GATE6=WARN or GATE6=PASS: non-blocking → success
+          if [ "$OVERALL" = "PASS" ]; then
+            if [ "$GATE6" = "FAIL" ]; then
+              CHECK_CONCLUSION="action_required"
+            else
+              CHECK_CONCLUSION="success"
+            fi
+          else
+            CHECK_CONCLUSION="failure"
+          fi
+
           echo "overall=$OVERALL" >> "$GITHUB_OUTPUT"
           echo "head_sha=$HEAD_SHA" >> "$GITHUB_OUTPUT"
+          echo "check_conclusion=$CHECK_CONCLUSION" >> "$GITHUB_OUTPUT"
+          echo "gate6=$GATE6" >> "$GITHUB_OUTPUT"
 
           # Build the comment body
           COMMENT_BODY="## Green Gate — Deterministic 6-Green Check
@@ -405,15 +421,48 @@ jobs:
             --jq '.id' > /dev/null 2>&1
           echo "Posted gate results comment on PR #$PR_NUM"
 
-      - name: Set check result
+      - name: Create Green Gate check run
         if: always()
         env:
-          OVERALL: ${{ steps.gates.outputs.overall }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HEAD_SHA: ${{ steps.gates.outputs.head_sha }}
+          CHECK_CONCLUSION: ${{ steps.gates.outputs.check_conclusion }}
+          COMMENT_BODY: ${{ steps.gates.outputs.comment_body }}
+          GH_REPO: ${{ github.repository }}
         run: |
-          if [ "$OVERALL" = "PASS" ]; then
-            echo "Green Gate: PASS"
+          # Determine title and summary based on conclusion
+          if [ "$CHECK_CONCLUSION" = "success" ]; then
+            TITLE="Green Gate: PASS"
+            SUMMARY="All 6 gates passed. PR is ready to merge."
+          elif [ "$CHECK_CONCLUSION" = "failure" ]; then
+            TITLE="Green Gate: FAIL"
+            SUMMARY="One or more gates failed. Review the gate results below."
+          else
+            TITLE="Green Gate: ACTION REQUIRED"
+            SUMMARY="Gate 6 (evidence) detected fabricated/placeholder content. Remove placeholder text from the Evidence section."
+          fi
+
+          # Create JSON payload using jq for proper escaping (avoids heredoc/YAML indentation issues)
+          PAYLOAD_FILE=/tmp/check_run_payload.json
+          jq -n \
+            --arg head_sha "$HEAD_SHA" \
+            --arg conclusion "$CHECK_CONCLUSION" \
+            --arg title "$TITLE" \
+            --arg summary "$SUMMARY" \
+            --arg body "$COMMENT_BODY" \
+            '{"name":"Green Gate","head_sha":$head_sha,"status":"completed","conclusion":$conclusion,"output":{"title":$title,"summary":$summary,"text":$body}}' \
+            > "$PAYLOAD_FILE"
+
+          gh api "repos/${GH_REPO}/check-runs" --method POST --input "$PAYLOAD_FILE"
+
+          echo "Created Green Gate check run with conclusion: $CHECK_CONCLUSION"
+
+          # Clean up temp file
+          rm -f /tmp/check_run_payload.json
+
+          # Set exit code based on result
+          if [ "$CHECK_CONCLUSION" = "success" ]; then
             exit 0
           else
-            echo "Green Gate: FAIL"
             exit 1
           fi
