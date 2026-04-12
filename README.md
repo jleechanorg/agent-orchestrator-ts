@@ -223,7 +223,9 @@ Running one AI agent in a terminal is easy. Running 30 across different issues, 
 
 ## Context Overhead Tooling (Fork-Only)
 
-The `llm_inspector/` directory contains a lightweight Node.js proxy that captures raw LLM API payloads for analysis. Findings from this tooling shaped the fork's context optimization strategy:
+The [`docs/llm_inspector.md`](docs/llm_inspector.md) guide covers the capture proxy, `--tool-mode lean` (strips 17 heavy built-in tools, ~20K tokens/turn), and `--tool-mode on-demand` (stub + re-issue, ~84.9% reduction on heavy tools).
+
+Install llm_inspector: `curl -fsSL https://raw.githubusercontent.com/jleechanorg/agent-orchestrator/main/llm_inspector/install.sh | bash`
 
 | Overhead source | % of tokens/turn |
 |---|---|
@@ -233,6 +235,8 @@ The `llm_inspector/` directory contains a lightweight Node.js proxy that capture
 | CLAUDE.md / instructions | ~16% |
 
 `--tool-mode lean` removes 17 heavy built-in tools (~20K tokens/turn). On-demand tool profiles via MCP toggle reduce per-turn overhead further for long sessions.
+
+Evidence bundle: [`docs/evidence/on-demand-stub-schema-2026-04-11/`](docs/evidence/on-demand-stub-schema-2026-04-11/) (N=10, mean 84.9% Agent stub reduction, PASS).
 
 ## Zero-Touch Policy (Canonical Reference)
 
