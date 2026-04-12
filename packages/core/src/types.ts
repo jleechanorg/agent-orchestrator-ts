@@ -1762,6 +1762,10 @@ export interface SessionMetadata {
   opencodeSessionId?: string;
   /** Owning repo path — populated by workspace-worktree so destroy() can use it directly. */
   repoPath?: string;
+  /** Pinned summary string for context compaction reference (bd-cx04) */
+  pinnedSummary?: string;
+  /** User-supplied prompt injected into session context (bd-cx04) */
+  userPrompt?: string;
 }
 
 // =============================================================================
