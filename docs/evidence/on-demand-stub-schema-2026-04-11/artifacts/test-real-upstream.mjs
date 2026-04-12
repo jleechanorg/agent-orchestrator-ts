@@ -374,7 +374,8 @@ const evidenceMd = [
 
 const timestamp = new Date().toISOString();
 let gitHead = "", gitBranch = "", mergeBase = "", commitsAhead = "0", diffStat = "";
-let sourceRepo = "", sourceCommit = "", syncedFrom = "worktree";
+let sourceRepo = "", sourceCommit = "";
+const syncedFrom = "worktree";
 try {
   gitHead = execSync("git rev-parse HEAD", { cwd: REPO_ROOT }).toString().trim();
   gitBranch = execSync("git branch --show-current", { cwd: REPO_ROOT }).toString().trim() || "detached";
