@@ -71,6 +71,7 @@ function serializeEvent(event: OrchestratorEvent): string {
 
 /** Deserialize an event from JSONL. */
 function deserializeEvent(line: string): OrchestratorEvent | null {
+  if (!line?.trim()) return null;
   try {
     const raw = JSON.parse(line) as Record<string, unknown>;
     return {
@@ -182,7 +183,7 @@ export function createEventBus(logPath: string | null): EventBus {
           const since = filter.since;
           result = result.filter((e) => e.timestamp >= since);
         }
-        if (filter.limit) {
+        if (filter.limit != null) {
           result = result.slice(-filter.limit);
         }
       }
