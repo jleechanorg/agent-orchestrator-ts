@@ -22,5 +22,11 @@ export default defineConfig({
       "@jleechanorg/ao-core/utils": resolve(__dirname, "src/utils.ts"),
       "@jleechanorg/ao-core": resolve(__dirname, "src/index.ts"),
     },
+    coverage: {
+      provider: "v8",
+      reporter: ["lcov"],
+      include: ["src/**/*.ts"],
+      exclude: ["src/__tests__/**", "src/index.ts", "src/recovery/index.ts"],
+    },
   },
 });

@@ -137,6 +137,47 @@ export async function tryCodexPrint(prompt: string): Promise<LlmEvalResult> {
 }
 
 /**
+ * Run cursor-agent (stdin) for headless evaluation via Cursor's CLI.
+ * Fail-closed: missing VERDICT = failure.
+ *
+ * Prompt is passed via stdin to avoid exposing contents in process listings
+ * and to prevent OS argv length overflows on large skeptic prompts.
+ */
+export async function tryCursorAgentPrint(prompt: string): Promise<LlmEvalResult> {
+  const { execFileSync } = await import("node:child_process");
+
+  try {
+    const result = execFileSync(
+      "cursor-agent",
+      ["--print"],
+      {
+        input: prompt,
+        encoding: "utf-8",
+        timeout: LLM_EVAL_TIMEOUT_MS,
+        stdio: ["pipe", "pipe", "ignore"],
+        cwd: "/tmp",
+      },
+    );
+    const output = result.trim();
+    if (!STRICT_VERDICT_RE.test(output)) {
+      return {
+        validVerdict: false,
+        output,
+        error: `Cursor Agent output missing VERDICT line (got ${output.slice(0, 100)}...)`,
+      };
+    }
+    return { validVerdict: true, output };
+  } catch (err: unknown) {
+    const errno = (err as NodeJS.ErrnoException).code;
+    const msg = err instanceof Error ? err.message : String(err);
+    if (errno === "ENOENT" || isUnavailable(msg)) {
+      return { validVerdict: false, output: "", error: undefined };
+    }
+    return { validVerdict: false, output: "", error: msg };
+  }
+}
+
+/**
  * Run gemini (stdin) for headless evaluation.
  * Fail-closed: missing VERDICT = failure.
  *
@@ -268,76 +309,66 @@ export async function tryClaudePrint(prompt: string): Promise<LlmEvalResult> {
  * Run a skeptic-style LLM evaluation and return the raw output.
  *
  * @param prompt - The evaluation prompt (must contain VERDICT: PASS/FAIL criteria)
- * @param options.model - Prefer this model ("codex" | "claude" | "gemini"); default "codex"
+ * @param options.model - Prefer this model ("codex" | "claude" | "gemini" | "cursor"); default "codex"
+ *
+ * Unified fallback chain (no API keys used — all use OAuth/binary auth):
+ *   codex → claude → gemini → cursor
+ *
+ * If a preferred model is specified, it is tried first, then all remaining models follow.
+ * All tools use OAuth/binary-level auth — no API key configuration required.
  */
 export async function llmEval(
   prompt: string,
-  options: { model?: "codex" | "claude" | "gemini" } = {},
+  options: { model?: "codex" | "claude" | "gemini" | "cursor" } = {},
 ): Promise<string> {
-  const model = options.model ?? "codex";
+  const preferred = options.model ?? "codex";
 
-  // Helper: check if error means "tool ran but model omitted VERDICT" (fail-closed)
   const isMissingVerdict = (err?: string) =>
     err !== undefined && /missing VERDICT/i.test(err);
 
-  // If user explicitly chose gemini, try it first and fall back to codex.
-  if (model === "gemini") {
-    const result = await tryGeminiPrint(prompt);
+  // Unified fallback chain: all models tried in order regardless of preferred start
+  const chain: Array<"codex" | "claude" | "gemini" | "cursor"> = ["codex", "claude", "gemini", "cursor"];
+
+  // Rotate so preferred model comes first, followed by all others
+  const startIdx = Math.max(0, chain.indexOf(preferred));
+  const ordered = [...chain.slice(startIdx), ...chain.slice(0, startIdx)];
+
+  let lastError = "";
+
+  for (const model of ordered) {
+    let result: LlmEvalResult;
+
+    switch (model) {
+      case "codex":
+        result = await tryCodexPrint(prompt);
+        break;
+      case "claude":
+        result = await tryClaudePrint(prompt);
+        break;
+      case "gemini":
+        result = await tryGeminiPrint(prompt);
+        break;
+      case "cursor":
+        result = await tryCursorAgentPrint(prompt);
+        break;
+    }
+
     if (result.validVerdict) return result.output;
+
     if (isMissingVerdict(result.error)) {
-      return `VERDICT: FAIL — gemini: ${result.error}`;
+      return `VERDICT: FAIL — ${model}: ${result.error}`;
     }
+
     if (result.error) {
-      const codexResult = await tryCodexPrint(prompt);
-      if (codexResult.validVerdict) return codexResult.output;
-      return `VERDICT: FAIL — infra: Gemini failed: ${result.error}. Codex: ${codexResult.error ?? "not available"}.`;
+      lastError = result.error;
+      // Infra failure — continue to next model in chain
+      continue;
     }
-    const codexResult = await tryCodexPrint(prompt);
-    if (codexResult.validVerdict) return codexResult.output;
-    return `VERDICT: FAIL — infra: Neither Gemini nor Codex available. Gemini: ${result.error ?? "not available"}. Codex: ${codexResult.error ?? "not available"}.`;
+
+    // Tool unavailable (ENOENT / 401 / 403 / 429) — try next model
+    lastError = `${model}: not available`;
   }
 
-  if (model === "claude") {
-    const result = await tryClaudePrint(prompt);
-    if (result.validVerdict) return result.output;
-    if (isMissingVerdict(result.error)) {
-      // Tool ran but model produced no VERDICT — fail closed (block merge rather than skip)
-      return `VERDICT: FAIL — claude: ${result.error}`;
-    }
-    if (result.error) {
-      // Infra failure — try codex as fallback before returning FAIL
-      const codexResult = await tryCodexPrint(prompt);
-      if (codexResult.validVerdict) return codexResult.output;
-      return `VERDICT: FAIL — infra: Claude failed: ${result.error}. Codex: ${codexResult.error ?? "not available"}.`;
-    }
-    // Claude unavailable (ENOENT) — try codex as last resort
-    const codexResult = await tryCodexPrint(prompt);
-    if (codexResult.validVerdict) return codexResult.output;
-    return `VERDICT: FAIL — infra: Neither Claude nor Codex available. Claude: ${result.error ?? "not available"}. Codex: ${codexResult.error ?? "not available"}.`;
-  }
-
-  // Default: codex primary
-  const codexResult = await tryCodexPrint(prompt);
-  if (codexResult.validVerdict) return codexResult.output;
-  if (isMissingVerdict(codexResult.error)) {
-    // Tool ran but model produced no VERDICT — fail closed; try Claude before giving up
-    const claudeResult = await tryClaudePrint(prompt);
-    if (claudeResult.validVerdict) return claudeResult.output;
-    return `VERDICT: FAIL — codex: ${codexResult.error}. Claude: ${claudeResult.error ?? "not available"}.`;
-  }
-  if (codexResult.error) {
-    // Infra failure — try Claude as fallback before returning FAIL
-    const claudeResult = await tryClaudePrint(prompt);
-    if (claudeResult.validVerdict) return claudeResult.output;
-    return `VERDICT: FAIL — infra: Codex failed: ${codexResult.error}. Claude: ${claudeResult.error ?? "not available"}.`;
-  }
-
-  // Codex not available (ENOENT) — try Claude as fallback
-  const claudeResult = await tryClaudePrint(prompt);
-  if (claudeResult.validVerdict) return claudeResult.output;
-  if (claudeResult.error) {
-    return `VERDICT: FAIL — infra: Both Codex and Claude evaluation failed. Codex: ${codexResult.error ?? "not available"}. Claude: ${claudeResult.error}`;
-  }
-
-  return "VERDICT: FAIL — infra: Neither Codex nor Claude CLI available for skeptic evaluation";
+  // All models exhausted
+  return `VERDICT: FAIL — infra: All LLM tools exhausted. Tried: ${ordered.join(" → ")}. Last error: ${lastError}`;
 }

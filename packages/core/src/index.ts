@@ -55,6 +55,9 @@ export {
   getPaneTTY as getTmuxPaneTTY,
 } from "./tmux.js";
 
+// Event bus — in-process pub/sub with JSONL persistence (upstream de86054)
+export { createEventBus, createEvent } from "./event-bus.js";
+
 // Session manager — session CRUD
 export { createSessionManager } from "./session-manager.js";
 export type { SessionManagerDeps } from "./session-manager.js";
