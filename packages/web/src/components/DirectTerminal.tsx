@@ -473,6 +473,9 @@ export function DirectTerminal({
     let rafId = 0;
     let lastHeight = -1;
 
+    const buildResizeMessage = (cols: number, rows: number): string =>
+      JSON.stringify({ type: "resize", cols, rows });
+
     const resizeTerminal = () => {
       if (cancelled) return;
       resizeAttempts++;
