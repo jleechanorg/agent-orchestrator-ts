@@ -9,7 +9,7 @@
  */
 
 import { appendFileSync, readFileSync, existsSync, mkdirSync } from "node:fs";
-import { join, dirname } from "node:path";
+import { dirname } from "node:path";
 import { randomUUID } from "node:crypto";
 import type {
   EventBus,
