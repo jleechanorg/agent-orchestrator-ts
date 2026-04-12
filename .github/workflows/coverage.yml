@@ -53,7 +53,9 @@ jobs:
       - run: pnpm -r build
 
       - name: Ensure base branch ref is available
-        run: git fetch origin ${{ github.base_ref }}:${{ github.base_ref }}
+        run: |
+          git fetch origin ${{ github.base_ref }}:${{ github.base_ref }}
+          git branch main origin/main || true
 
       - name: Core tests with coverage
         if: needs.detect-changes.outputs.core == 'true'
