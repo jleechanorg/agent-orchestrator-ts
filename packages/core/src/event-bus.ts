@@ -187,7 +187,7 @@ export function createEventBus(logPath: string | null): EventBus {
         }
       }
 
-      return result;
+      return result.map((event) => ({ ...event }));
     },
   };
 }
