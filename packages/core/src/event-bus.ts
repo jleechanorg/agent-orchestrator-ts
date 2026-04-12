@@ -183,7 +183,7 @@ export function createEventBus(logPath: string | null): EventBus {
           const since = filter.since;
           result = result.filter((e) => e.timestamp >= since);
         }
-        if (filter.limit != null) {
+        if (filter.limit !== undefined) {
           result = result.slice(-filter.limit);
         }
       }
