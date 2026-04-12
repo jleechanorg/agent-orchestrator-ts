@@ -11,12 +11,12 @@
 
 import { llmEval } from "../../lib/llm-eval.js";
 
-const SUPPORTED_MODELS = ["codex", "claude", "gemini"] as const;
+const SUPPORTED_MODELS = ["codex", "claude", "gemini", "cursor"] as const;
 type SupportedModel = (typeof SUPPORTED_MODELS)[number];
 
 export async function runSkepticEvaluation(
   prompt: string,
-  options: { model?: "codex" | "claude" | "gemini" } = {},
+  options: { model?: "codex" | "claude" | "gemini" | "cursor" } = {},
 ): Promise<string> {
 
   if (options.model !== undefined && !SUPPORTED_MODELS.includes(options.model as SupportedModel)) {

@@ -54,7 +54,7 @@ export interface SkepticReviewResult {
 }
 
 /** Ordered fallback chain for skeptic LLM evaluation (bd-skp3). */
-const FALLBACK_CHAIN: Array<"codex" | "claude" | "gemini"> = ["codex", "claude", "gemini"];
+const FALLBACK_CHAIN: Array<"codex" | "claude" | "gemini" | "cursor"> = ["codex", "claude", "gemini", "cursor"];
 
 /**
  * Determine whether a CLI error is an infrastructure failure (ENOBUFS, spawn errors)
@@ -117,7 +117,7 @@ function extractVerdictFromError(
  */
 async function tryModel(
   session: Session,
-  model: "codex" | "claude" | "gemini",
+  model: "codex" | "claude" | "gemini" | "cursor",
   postComment: boolean,
   triggerSha: string | undefined,
 ): Promise<
