@@ -192,6 +192,10 @@ function getPRTitle(): string {
 
 function shouldEnforcePRTitlePrefix(title: string): boolean {
   if (process.env.GITHUB_HEAD_REF) return true;
+  // For push events (no GITHUB_HEAD_REF), check if we're on main via GITHUB_REF
+  // GITHUB_REF is set for push events (e.g. "refs/heads/main") and absent for PRs
+  const githubRef = process.env.GITHUB_REF ?? "";
+  if (/^refs\/heads\/(main|master)$/.test(githubRef)) return false;
   return !["main", "master", "HEAD"].includes(title);
 }
 
