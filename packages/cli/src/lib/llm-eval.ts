@@ -284,11 +284,11 @@ export async function tryClaudePrint(prompt: string): Promise<LlmEvalResult> {
         continue;
       }
 
-      // ETIMEDOUT = connection timeout — try next binary candidate; a different
-      // binary (or the same one on retry) may succeed. 401/403/429 = credentials /
-      // quota — treat as "tool unavailable" globally since another binary will hit
-      // the same auth issue.
-      if (isUnavailable(msg, errno as string | undefined) && errno !== "ETIMEDOUT") {
+      // ETIMEDOUT, 401/403/429, ENOENT — all "unavailable", try next binary
+      // candidate. Another binary (or the same one on retry) may succeed.
+      // Auth errors (401/403/429) are treated as "tool unavailable" globally
+      // since another binary will hit the same auth issue.
+      if (isUnavailable(msg, errno as string | undefined)) {
         return { validVerdict: false, output: "", error: undefined }; // → caller skips this tool
       }
 

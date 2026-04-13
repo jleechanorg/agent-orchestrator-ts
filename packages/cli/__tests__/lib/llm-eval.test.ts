@@ -210,7 +210,7 @@ describe("tryClaudePrint", () => {
     expect(result.error).toBeUndefined();
   });
 
-  it("returns error='ETIMEDOUT' (infra error, not unavailable) when all candidates fail with ETIMEDOUT", async () => {
+  it("returns error=undefined for ETIMEDOUT (unavailable) on first candidate", async () => {
     const err = new Error("ETIMEDOUT") as NodeJS.ErrnoException;
     err.code = "ETIMEDOUT";
     mockExecFileSync.mockImplementation(() => {
@@ -218,8 +218,8 @@ describe("tryClaudePrint", () => {
     });
     const result = await tryClaudePrint("evaluate this");
     expect(result.validVerdict).toBe(false);
-    // ETIMEDOUT is treated as infra error (not unavailable) — binary was found but failed
-    expect(result.error).toBe("ETIMEDOUT");
+    // ETIMEDOUT is "unavailable" — try next binary candidate
+    expect(result.error).toBeUndefined();
   });
 
   it("treats EACCES from accessSync as infra error (not missing binary)", async () => {
@@ -419,11 +419,11 @@ describe("llmEval — explicit model=claude", () => {
         throw enoent; // codex (not installed via resolveCodexBinary)
       });
     const result = await llmEval("evaluate this", { model: "claude" });
-    // ETIMEDOUT from Claude → infra error → tries next Claude candidate → all fail → FAIL (fail-closed)
+    // ETIMEDOUT from Claude → unavailable → tries next Claude candidate → all fail → FAIL (fail-closed)
     expect(result).toContain("VERDICT: FAIL");
     expect(result).toContain("All LLM tools exhausted");
     expect(mockResolveCodexBinary).toHaveBeenCalled();
-    // 2 claude + gemini + cursor + codex (all 5 tried)
-    expect(mockExecFileSync).toHaveBeenCalledTimes(5);
+    // 1 ETIMEDOUT + 3 ENOENT = 4 calls (all become "unavailable")
+    expect(mockExecFileSync).toHaveBeenCalledTimes(4);
   });
 });
