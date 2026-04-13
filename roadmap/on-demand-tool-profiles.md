@@ -109,9 +109,6 @@ Saves ~20K tokens/turn vs current default.
 ```json
 // ~/.claude/settings.json additions
 {
-  "env": {
-    "CLAUDE_CODE_DEFAULT_TOOLS": "Bash,Read,Write,Edit,Glob,Grep,WebFetch,WebSearch,AskUserQuestion,EnterPlanMode,ExitPlanMode,NotebookEdit"
-  },
   "mcpServers": {
     "ao-agent-proxy": {
       "type": "http",
@@ -119,7 +116,7 @@ Saves ~20K tokens/turn vs current default.
       "disabled": true
     },
     "ao-team-proxy": {
-      "type": "http", 
+      "type": "http",
       "url": "http://127.0.0.1:8011/mcp",
       "disabled": true
     }
@@ -127,8 +124,20 @@ Saves ~20K tokens/turn vs current default.
 }
 ```
 
-> Note: `CLAUDE_CODE_DEFAULT_TOOLS` env var is **not confirmed to exist** — the `--tools` flag
-> is session-start only. This may need a wrapper alias/function instead. Verify in binary.
+### Experimental / Unconfirmed
+
+> ⚠️ The following env var is **not confirmed to exist** — the `--tools` flag is
+> session-start only. This may need a wrapper alias/function instead. Verify in binary
+> before relying on it.
+
+```json
+// Experimental — unconfirmed env var. Do not copy into production settings.
+{
+  "env": {
+    "CLAUDE_CODE_DEFAULT_TOOLS": "Bash,Read,Write,Edit,Glob,Grep,WebFetch,WebSearch,AskUserQuestion,EnterPlanMode,ExitPlanMode,NotebookEdit"
+  }
+}
+```
 
 ## Shell Alias Pattern (confirmed working today)
 
