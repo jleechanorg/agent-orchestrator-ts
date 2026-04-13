@@ -46,14 +46,17 @@ describe("scripts/start-all.sh", () => {
     mkdirSync(binDir, { recursive: true });
     createFakeBinary(binDir, "pgrep", "exit 0");
 
+    const pythonBinDir = process.env.PYTHON_BIN ? resolve(dirname(process.env.PYTHON_BIN)) : "";
+    const testBinDir = `${binDir}${pythonBinDir ? `:${pythonBinDir}` : ""}`;
     const result = spawnSync("bash", [scriptPath], {
       env: {
         ...process.env,
-        PATH: `${binDir}:/usr/bin:/bin`,
+        PATH: `${testBinDir}:/usr/bin:/bin`,
         AO_CONFIG_PATH: explicitConfig,
         AO_STAGING_CONFIG_PATH: stagingConfig,
         AO_PROD_CONFIG_PATH: productionConfig,
         AO_MAIN_REPO: join(tempRoot, "missing-main-repo"),
+        AO_START_ALL_LOCKDIR: join(tempRoot, "ao-start-all.lock"),
       },
       encoding: "utf8",
     });
@@ -73,14 +76,16 @@ describe("scripts/start-all.sh", () => {
     mkdirSync(dirname(stagingConfig), { recursive: true });
     symlinkSync(productionConfig, stagingConfig);
 
+    const pythonBinDir = process.env.PYTHON_BIN ? resolve(dirname(process.env.PYTHON_BIN)) : "";
     const result = spawnSync("bash", [scriptPath], {
       env: {
         ...process.env,
-        PATH: `/usr/bin:/bin`,
+        PATH: pythonBinDir ? `${pythonBinDir}:/usr/bin:/bin` : `/usr/bin:/bin`,
         AO_CONFIG_PATH: "",
         AO_STAGING_CONFIG_PATH: stagingConfig,
         AO_PROD_CONFIG_PATH: productionConfig,
         AO_MAIN_REPO: join(tempRoot, "missing-main-repo"),
+        AO_START_ALL_LOCKDIR: join(tempRoot, "ao-start-all.lock"),
       },
       encoding: "utf8",
     });

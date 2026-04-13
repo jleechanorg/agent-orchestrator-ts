@@ -123,10 +123,10 @@ export async function tryCodexPrint(prompt: string): Promise<LlmEvalResult> {
     }
     return { validVerdict: true, output };
   } catch (err: unknown) {
-    const errno = err as NodeJS.ErrnoException;
+    const errnoException = err as NodeJS.ErrnoException;
     const msg = err instanceof Error ? err.message : String(err);
     // Unavailable: binary not installed OR auth failure — try next tool
-    if (errno.code === "ENOENT" || isUnavailable(msg, errno.code as string)) {
+    if (errnoException.code === "ENOENT" || isUnavailable(msg, errnoException.code as string)) {
       return { validVerdict: false, output: "", error: undefined }; // → try next
     }
     // Truncate to first line only — Codex echoes the full prompt in its session log,
@@ -284,8 +284,10 @@ export async function tryClaudePrint(prompt: string): Promise<LlmEvalResult> {
         continue;
       }
 
-      // 401/403/429 = credentials / quota — treat as "tool unavailable" globally;
-      // trying another binary won't help if they use the same global config.
+      // ETIMEDOUT, 401/403/429, ENOENT — all "unavailable", try next binary
+      // candidate. Another binary (or the same one on retry) may succeed.
+      // Auth errors (401/403/429) are treated as "tool unavailable" globally
+      // since another binary will hit the same auth issue.
       if (isUnavailable(msg, errno as string | undefined)) {
         return { validVerdict: false, output: "", error: undefined }; // → caller skips this tool
       }
@@ -368,7 +370,13 @@ export async function llmEval(
     }
 
     // Tool unavailable (ENOENT / 401 / 403 / 429) — try next model
-    lastError = `${model}: not available`;
+    // Only set "not available" if we haven't recorded an error yet.
+    // Infra errors (set above) are preserved since they're more informative
+    // (tool IS installed but something went wrong); "not available" is a
+    // fallback when no infra error has been encountered in the chain.
+    if (!lastError) {
+      lastError = `${model}: not available`;
+    }
   }
 
   // All models exhausted

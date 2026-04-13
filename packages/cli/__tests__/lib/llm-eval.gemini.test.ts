@@ -88,29 +88,42 @@ describe("llmEval — explicit model=gemini", () => {
   it("falls back to codex when gemini is unavailable", async () => {
     mockResolveCodexBinary.mockResolvedValue("/usr/local/bin/codex");
     const enoent = makeErrnoError("ENOENT", "ENOENT");
+    // Chain: gemini → cursor → codex → claude (4 models)
+    // Mock all 4: gemini ENOENT, cursor ENOENT, codex PASS, claude not called
     mockExecFileSync
       .mockImplementationOnce(() => {
-        throw enoent;
+        throw enoent; // gemini (not installed)
       })
-      .mockReturnValueOnce(PASS_VERDICT);
+      .mockImplementationOnce(() => {
+        throw enoent; // cursor (not installed)
+      })
+      .mockReturnValueOnce(PASS_VERDICT); // codex succeeds (3rd call)
     const result = await llmEval("evaluate this", { model: "gemini" });
     expect(result).toBe(PASS_VERDICT);
     expect(mockResolveCodexBinary).toHaveBeenCalled();
-    expect(mockExecFileSync).toHaveBeenCalledTimes(2);
+    // gemini + cursor + codex
+    expect(mockExecFileSync).toHaveBeenCalledTimes(3);
   });
 
   it("falls back to codex when gemini has an infra error", async () => {
     mockResolveCodexBinary.mockResolvedValue("/usr/local/bin/codex");
     const etimeout = makeErrnoError("ETIMEDOUT", "ETIMEDOUT");
+    const enoent = makeErrnoError("ENOENT", "ENOENT");
+    // Chain: gemini → cursor → codex → claude (4 models)
+    // Mock all 4: gemini ETIMEDOUT, cursor ENOENT, codex PASS, claude not called
     mockExecFileSync
       .mockImplementationOnce(() => {
-        throw etimeout;
+        throw etimeout; // gemini (infra error)
       })
-      .mockReturnValueOnce(PASS_VERDICT);
+      .mockImplementationOnce(() => {
+        throw enoent; // cursor (not installed)
+      })
+      .mockReturnValueOnce(PASS_VERDICT); // codex succeeds (3rd call)
     const result = await llmEval("evaluate this", { model: "gemini" });
     expect(result).toBe(PASS_VERDICT);
     expect(mockResolveCodexBinary).toHaveBeenCalled();
-    expect(mockExecFileSync).toHaveBeenCalledTimes(2);
+    // gemini + cursor + codex
+    expect(mockExecFileSync).toHaveBeenCalledTimes(3);
   });
 
   it("fails closed when gemini omits a verdict", async () => {
