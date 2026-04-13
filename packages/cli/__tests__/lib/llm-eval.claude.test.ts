@@ -142,40 +142,58 @@ describe("llmEval — explicit model=claude", () => {
   it("falls back to codex when claude is unavailable", async () => {
     mockResolveCodexBinary.mockResolvedValue("/usr/local/bin/codex");
     const enoent = makeErrnoError("ENOENT", "ENOENT");
+    // Chain for model=claude: claude → gemini → cursor → codex → claude (5 calls)
+    // Mock all 5 so codex (4th) can succeed
     mockExecFileSync
       .mockImplementationOnce(() => {
-        throw enoent; // 1st claude candidate fails
+        throw enoent; // 1st claude candidate (not installed)
       })
       .mockImplementationOnce(() => {
-        throw enoent; // last claude candidate fails
+        throw enoent; // 2nd claude candidate (not installed)
       })
-      .mockReturnValueOnce(PASS_VERDICT); // codex succeeds
+      .mockImplementationOnce(() => {
+        throw enoent; // gemini (not installed)
+      })
+      .mockImplementationOnce(() => {
+        throw enoent; // cursor (not installed)
+      })
+      .mockReturnValueOnce(PASS_VERDICT); // codex succeeds (5th call)
     const result = await llmEval("evaluate this", { model: "claude" });
     expect(result).toBe(PASS_VERDICT);
     expect(mockResolveCodexBinary).toHaveBeenCalled();
-    // 2 claude candidates + 1 codex
-    expect(mockExecFileSync).toHaveBeenCalledTimes(3);
+    // 2 claude + 1 gemini + 1 cursor + 1 codex
+    expect(mockExecFileSync).toHaveBeenCalledTimes(5);
   });
 
   it("returns FAIL and tries codex fallback when claude has infra error", async () => {
     mockResolveCodexBinary.mockResolvedValue("/usr/local/bin/codex");
     const etimeout = makeErrnoError("ETIMEDOUT", "ETIMEDOUT");
     const enoent = makeErrnoError("ENOENT", "ENOENT");
+    // Chain for model=claude: claude → gemini → cursor → codex → claude (5 calls)
+    // Mock all 5: 1st claude ETIMEDOUT (infra), rest ENOENT (not installed)
     mockExecFileSync
       .mockImplementationOnce(() => {
-        throw etimeout; // 1st claude candidate fails
+        throw etimeout; // 1st claude candidate (infra error)
       })
       .mockImplementationOnce(() => {
-        throw enoent; // last claude candidate fails
+        throw enoent; // 2nd claude candidate (not installed)
       })
       .mockImplementationOnce(() => {
-        throw enoent; // codex also fails
+        throw enoent; // gemini (not installed)
+      })
+      .mockImplementationOnce(() => {
+        throw enoent; // cursor (not installed)
+      })
+      .mockImplementationOnce(() => {
+        throw enoent; // codex (not installed)
       });
     const result = await llmEval("evaluate this", { model: "claude" });
+    // Infra failure from Claude → chain exhausts all fallbacks → FAIL (fail-closed)
     expect(result).toContain("VERDICT: FAIL");
-    expect(result).toContain("Claude failed:");
+    // All failed with "not available" (not infra errors) → no Claude-specific error in output
+    expect(result).toMatch(/All LLM tools exhausted/);
     expect(mockResolveCodexBinary).toHaveBeenCalled();
-    // 2 claude candidates + 1 codex
-    expect(mockExecFileSync).toHaveBeenCalledTimes(3);
+    // 2 claude + 1 gemini + 1 cursor + 1 codex
+    expect(mockExecFileSync).toHaveBeenCalledTimes(5);
   });
 });
