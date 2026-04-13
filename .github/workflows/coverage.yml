@@ -47,7 +47,7 @@ jobs:
           python-version: "3.x"
 
       - name: Install diff-cover
-        run: python3 -m pip install diff-cover pyyaml
+        run: python3 -m pip install --break-system-packages diff-cover pyyaml
 
       - run: pnpm install --frozen-lockfile
       - run: pnpm -r build
