@@ -219,12 +219,13 @@ export async function aoSessionInfo(session: string): Promise<CliResult> {
   const result = await execAo(["session", "ls"]);
 
   if (result.success && session) {
-    // Filter output to only show lines where the session name appears as a
-    // distinct token (anchored match to avoid "abc" matching "abc-2")
-    const escaped = session.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const lines = result.stdout
-      .split("\n")
-      .filter((line) => new RegExp(`\\b${escaped}\\b`).test(line));
+    // Filter output to only show lines containing the exact session name.
+    // Output is whitespace-delimited so session names (which may contain hyphens)
+    // appear as distinct tokens that won't partially match other session names.
+    const lines = result.stdout.split("\n").filter((line) => {
+      const tokens = line.split(/\s+/);
+      return tokens.includes(session);
+    });
     return {
       ...result,
       stdout: lines.join("\n"),
