@@ -123,10 +123,10 @@ export async function tryCodexPrint(prompt: string): Promise<LlmEvalResult> {
     }
     return { validVerdict: true, output };
   } catch (err: unknown) {
-    const errno = err as NodeJS.ErrnoException;
+    const errnoException = err as NodeJS.ErrnoException;
     const msg = err instanceof Error ? err.message : String(err);
     // Unavailable: binary not installed OR auth failure — try next tool
-    if (errno.code === "ENOENT" || isUnavailable(msg, errno.code as string)) {
+    if (errnoException.code === "ENOENT" || isUnavailable(msg, errnoException.code as string)) {
       return { validVerdict: false, output: "", error: undefined }; // → try next
     }
     // Truncate to first line only — Codex echoes the full prompt in its session log,

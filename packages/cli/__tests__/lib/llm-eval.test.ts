@@ -332,7 +332,10 @@ describe("llmEval — default (codex primary)", () => {
         throw enoent; // last claude candidate
       })
       .mockImplementationOnce(() => {
-        throw enoent; // gemini (4th model in chain)
+        throw enoent; // gemini (3rd model in chain)
+      })
+      .mockImplementationOnce(() => {
+        throw enoent; // cursor (4th model in chain, hits default ENOENT mock)
       });
     const result = await llmEval("evaluate this");
     // All unavailable → FAIL (fail-closed; infra unavailability blocks merge)
