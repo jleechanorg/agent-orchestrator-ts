@@ -404,9 +404,10 @@ describe("llmEval — explicit model=claude", () => {
     const enoent = new Error("ENOENT") as NodeJS.ErrnoException;
     enoent.code = "ENOENT";
     // Chain for model=claude: claude → gemini → cursor → codex (4 models)
-    // Only 4 mocks consumed: ETIMEDOUT on 1st claude candidate sets allMissing=false,
-    // then ENOENT on each subsequent model returns error=undefined (unavailable) and
-    // chain exits after codex; codex (5th mock) is never called.
+    // Claude binary candidates: 1st gets ETIMEDOUT (allMissing=false, exits infra path),
+    // 2nd/3rd/4th get ENOENT (return error=undefined, continue). Then gemini, cursor, codex
+    // all get ENOENT (return error=undefined, continue). Only 4 calls total — ETIMEDOUT
+    // short-circuits before codex is reached.
     mockExecFileSync
       .mockImplementationOnce(() => {
         throw etimeout; // 1st claude candidate (infra error)
@@ -419,9 +420,6 @@ describe("llmEval — explicit model=claude", () => {
       })
       .mockImplementationOnce(() => {
         throw enoent; // cursor (not installed)
-      })
-      .mockImplementationOnce(() => {
-        throw enoent; // codex (never reached — allMissing=false causes early exit)
       });
     const result = await llmEval("evaluate this", { model: "claude" });
     // ETIMEDOUT from Claude → unavailable → tries next Claude candidate → all fail → FAIL (fail-closed)
