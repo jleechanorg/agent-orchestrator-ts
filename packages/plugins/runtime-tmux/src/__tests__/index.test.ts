@@ -600,6 +600,76 @@ describe("runtime.sendMessage()", () => {
       expectedTmuxOptions,
     );
   });
+
+  it("skips C-u clear for gemini agents (gemini CLI doesn't handle input clearing)", async () => {
+    const runtime = create();
+    // Create handle with gemini launch command to trigger gemini codepath
+    const handle = makeHandle("msg-gemini", 1000, "gemini --yolo --model gemini-3-flash-preview");
+
+    // Pre-flight isAgentAliveInPane → agent alive (✻ matches agent pattern)
+    mockTmuxSuccess("✻ Thinking...");
+    // NO C-u for gemini!
+    // Direct send-keys -l (not paste-buffer for short message)
+    mockTmuxSuccess();
+    // Enter
+    mockTmuxSuccess();
+    // Post-send isAgentAliveInPane → still alive (● Running tool matches)
+    mockTmuxSuccess("● Running tool");
+
+    await runtime.sendMessage(handle, "continue with the task");
+
+    const calls = mockExecFileCustom.mock.calls;
+    const callArgs = calls.map((c) => c[1]);
+
+    // Verify NO C-u was sent (no call with "C-u" argument)
+    const cuCalls = callArgs.filter((args) => args.includes("C-u"));
+    expect(cuCalls).toHaveLength(0);
+
+    // Verify send-keys -l was called with the message
+    const sendKeysCalls = callArgs.filter(
+      (args) => args[0] === "send-keys" && args.includes("-l"),
+    );
+    expect(sendKeysCalls.length).toBe(1);
+    expect(sendKeysCalls[0][4]).toBe("continue with the task");
+  });
+
+  it("uses send-keys -l (not paste-buffer) for long gemini messages", async () => {
+    const runtime = create();
+    // Create handle with gemini launch command
+    const handle = makeHandle("msg-gemini-long", 1000, "gemini --yolo");
+    const longText = "y".repeat(250);
+
+    // Pre-flight isAgentAliveInPane → ✻ Thinking... matches agent pattern
+    mockTmuxSuccess("✻ Thinking...");
+    // NO C-u for gemini
+    // send-keys -l directly (not paste-buffer)
+    mockTmuxSuccess();
+    // Enter
+    mockTmuxSuccess();
+    // Enter retry loop: capture-pane after Enter → ● Running tool matches → agent started
+    mockTmuxSuccess("● Running tool");
+    // Post-send isAgentAliveInPane → still alive
+    mockTmuxSuccess("✻ working");
+
+    await runtime.sendMessage(handle, longText);
+
+    const calls = mockExecFileCustom.mock.calls;
+    const callArgs = calls.map((c) => c[1]);
+
+    // Verify NO C-u was sent
+    const cuCalls = callArgs.filter((args) => args.includes("C-u"));
+    expect(cuCalls).toHaveLength(0);
+
+    // Verify NO load-buffer was called (gemini uses direct send-keys)
+    const loadBufferCalls = callArgs.filter((args) => args.includes("load-buffer"));
+    expect(loadBufferCalls).toHaveLength(0);
+
+    // Verify send-keys -l was called with the long text
+    const sendKeysCalls = callArgs.filter(
+      (args) => args[0] === "send-keys" && args.includes("-l"),
+    );
+    expect(sendKeysCalls.length).toBe(1);
+  });
 });
 
 describe("runtime.getOutput()", () => {

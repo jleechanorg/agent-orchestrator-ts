@@ -39,10 +39,31 @@ function assertValidSessionId(id: string): void {
 }
 
 /**
+ * Detect if the agent is Gemini CLI by inspecting the launch command.
+ * Gemini doesn't handle C-u clear or paste-buffer well — needs direct send-keys.
+ */
+function isGeminiAgent(handle: RuntimeHandle): boolean {
+  const launchCommand =
+    typeof handle.data?.launchCommand === "string" ? handle.data.launchCommand : "";
+  return launchCommand.includes("gemini");
+}
+
+/**
  * Send content into a tmux pane using load-buffer/paste-buffer (for long text)
  * or send-keys -l (for short literal text).
+ *
+ * For Gemini agents: always use send-keys -l directly, even for long messages,
+ * to avoid C-u/paste-buffer issues that cause Gemini to not process prompts.
  */
-async function sendContent(sessionId: string, content: string): Promise<void> {
+async function sendContent(sessionId: string, content: string, forGemini = false): Promise<void> {
+  // Gemini: always use send-keys -l directly (C-u is skipped in caller for gemini)
+  if (forGemini) {
+    // Gemini CLI handles multiline better with multiple send-keys calls per line
+    // But simplest approach: send the whole thing as -l literal
+    await tmux("send-keys", "-t", sessionId, "-l", content);
+    return;
+  }
+
   if (content.includes("\n") || content.length > 200) {
     const bufferName = `ao-${randomUUID()}`;
     const tmpPath = join(tmpdir(), `ao-send-${randomUUID()}.txt`);
@@ -74,23 +95,33 @@ async function sendContent(sessionId: string, content: string): Promise<void> {
  * - Adaptive delay before Enter (scales with UTF-8 byte size of message)
  * - Enter retry loop for long messages: checks pane for agent response
  *   and retries Enter up to 3 times if the paste appears to have been swallowed.
+ * - For Gemini agents: skip C-u clear and use direct send-keys (no paste-buffer)
+ *   as Gemini CLI doesn't handle input clearing/paste reliably.
  *
  * Fork-only logic (bd-orch2v3, bd-qhf).
  */
 async function doSendWithRetry(handle: RuntimeHandle, message: string): Promise<void> {
-  // Clear any partial input
-  await tmux("send-keys", "-t", handle.id, "C-u");
+  const forGemini = isGeminiAgent(handle);
+
+  // Clear any partial input — but NOT for Gemini (C-u interferes with prompt delivery)
+  if (!forGemini) {
+    await tmux("send-keys", "-t", handle.id, "C-u");
+  }
 
   const isLong = message.includes("\n") || message.length > 200;
-  await sendContent(handle.id, message);
+  await sendContent(handle.id, message, forGemini);
 
   // Adaptive delay (bd-orch2v3, bd-qhf): long messages need more time for
   // tmux to render the paste before Enter arrives. Flat 300ms was insufficient
   // for messages >~8KB — Enter arrived before paste completed, causing 8 sessions
   // (ao-411 through ao-420) to require manual Enter.
   // Formula: base 1000ms + 200ms per KB (UTF-8 bytes), capped at 2000ms.
+  // Gemini: use longer delay since it processes slower
   const byteLen = Buffer.byteLength(message, "utf8");
-  const delayMs = isLong ? Math.min(1000 + Math.ceil(byteLen / 1000) * 200, 2000) : 300;
+  const baseDelay = forGemini ? 2000 : 300;
+  const delayMs = isLong
+    ? Math.min(1000 + Math.ceil(byteLen / 1000) * 200, 2000)
+    : baseDelay;
   await sleep(delayMs);
   await tmux("send-keys", "-t", handle.id, "Enter");
 
