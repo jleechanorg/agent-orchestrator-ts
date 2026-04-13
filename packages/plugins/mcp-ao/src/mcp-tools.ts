@@ -21,6 +21,14 @@ function textResult(text: string, isError = false): McpToolResult {
   return { content: [{ type: "text", text }], isError };
 }
 
+function str(val: unknown): string | undefined {
+  return typeof val === "string" ? val : undefined;
+}
+
+function bool(val: unknown): boolean | undefined {
+  return typeof val === "boolean" ? val : undefined;
+}
+
 /**
  * Create all AO MCP tool definitions.
  */
@@ -68,13 +76,13 @@ export function createMcpTools(): McpToolDefinition[] {
       async handler(args) {
         try {
           const result = await cli.aoSpawn({
-            task: args.task as string | undefined,
-            issue: args.issue as string | undefined,
-            project: args.project as string | undefined,
-            agent: args.agent as string | undefined,
-            runtime: args.runtime as string | undefined,
-            open: args.open as boolean | undefined,
-            claimPr: args.claim_pr as string | undefined,
+            task: str(args.task),
+            issue: str(args.issue),
+            project: str(args.project),
+            agent: str(args.agent),
+            runtime: str(args.runtime),
+            open: bool(args.open),
+            claimPr: str(args.claim_pr),
           });
 
           if (result.success) {
@@ -121,11 +129,11 @@ export function createMcpTools(): McpToolDefinition[] {
       async handler(args) {
         try {
           const result = await cli.aoSend({
-            session: args.session as string,
-            message: args.message as string,
-            file: args.file as string | undefined,
+            session: str(args.session) ?? "",
+            message: str(args.message) ?? "",
+            file: str(args.file),
             wait: args.no_wait !== true,
-            timeout: args.timeout as number | undefined,
+            timeout: typeof args.timeout === "number" ? args.timeout : undefined,
           });
 
           if (result.success) {
@@ -154,7 +162,7 @@ export function createMcpTools(): McpToolDefinition[] {
       async handler(args) {
         try {
           const result = await cli.aoSessionList({
-            project: args.project as string | undefined,
+            project: str(args.project),
           });
 
           if (result.success) {
@@ -194,9 +202,9 @@ export function createMcpTools(): McpToolDefinition[] {
       async handler(args) {
         try {
           const result = await cli.aoSessionKill({
-            session: args.session as string,
-            keepSession: args.keep_session as boolean | undefined,
-            purgeSession: args.purge_session as boolean | undefined,
+            session: str(args.session) ?? "",
+            keepSession: bool(args.keep_session),
+            purgeSession: bool(args.purge_session),
           });
 
           if (result.success) {
