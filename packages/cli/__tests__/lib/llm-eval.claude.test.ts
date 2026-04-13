@@ -90,14 +90,16 @@ describe("tryClaudePrint", () => {
     expect(result.error).toBeUndefined();
   });
 
-  it("returns error=undefined (try next) for ETIMEDOUT", async () => {
+  it("returns infra error after trying all candidates for ETIMEDOUT", async () => {
     const err = makeErrnoError("ETIMEDOUT", "ETIMEDOUT");
     mockExecFileSync.mockImplementation(() => {
       throw err;
     });
     const result = await tryClaudePrint("evaluate this");
     expect(result.validVerdict).toBe(false);
-    expect(result.error).toBeUndefined(); // ETIMEDOUT → unavailable → try next tool
+    // ETIMEDOUT is NOT "unavailable" — it tries next binary candidate.
+    // After all candidates fail, returns the infra error (not undefined).
+    expect(result.error).toBe("ETIMEDOUT");
   });
 
   it("returns validVerdict=true for markdown-prefixed ## VERDICT: PASS", async () => {
@@ -190,7 +192,7 @@ describe("llmEval — explicit model=claude", () => {
     expect(result).toContain("VERDICT: FAIL");
     expect(result).toContain("All LLM tools exhausted");
     expect(mockResolveCodexBinary).toHaveBeenCalled();
-    // 2 claude + gemini + cursor + codex (all 4 models tried)
-    expect(mockExecFileSync).toHaveBeenCalledTimes(4);
+    // 2 claude + gemini + cursor + codex (all 5 tried)
+    expect(mockExecFileSync).toHaveBeenCalledTimes(5);
   });
 });

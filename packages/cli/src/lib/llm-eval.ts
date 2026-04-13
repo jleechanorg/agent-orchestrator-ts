@@ -284,9 +284,11 @@ export async function tryClaudePrint(prompt: string): Promise<LlmEvalResult> {
         continue;
       }
 
-      // 401/403/429 = credentials / quota — treat as "tool unavailable" globally;
-      // trying another binary won't help if they use the same global config.
-      if (isUnavailable(msg, errno as string | undefined)) {
+      // ETIMEDOUT = connection timeout — try next binary candidate; a different
+      // binary (or the same one on retry) may succeed. 401/403/429 = credentials /
+      // quota — treat as "tool unavailable" globally since another binary will hit
+      // the same auth issue.
+      if (isUnavailable(msg, errno as string | undefined) && errno !== "ETIMEDOUT") {
         return { validVerdict: false, output: "", error: undefined }; // → caller skips this tool
       }
 
