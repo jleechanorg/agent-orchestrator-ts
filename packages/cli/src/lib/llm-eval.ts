@@ -368,7 +368,11 @@ export async function llmEval(
     }
 
     // Tool unavailable (ENOENT / 401 / 403 / 429) — try next model
-    lastError = `${model}: not available`;
+    // Only set "not available" if we haven't recorded an infra error yet
+    // Infra errors are more informative (tool IS installed but something went wrong)
+    if (!lastError) {
+      lastError = `${model}: not available`;
+    }
   }
 
   // All models exhausted
