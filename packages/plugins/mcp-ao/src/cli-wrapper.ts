@@ -44,11 +44,7 @@ export interface CliResult {
  * Execute an ao CLI command and return the result.
  * Default timeout of 30 seconds to avoid hanging MCP tool calls.
  */
-export async function execAo(
-  args: string[],
-  cwd?: string,
-  timeoutMs = 30000,
-): Promise<CliResult> {
+export async function execAo(args: string[], cwd?: string, timeoutMs = 30000): Promise<CliResult> {
   return new Promise((resolve) => {
     let settled = false;
 
@@ -64,16 +60,24 @@ export async function execAo(
     let killTimer: NodeJS.Timeout | undefined;
 
     const timer = setTimeout(() => {
-      cleanup();
-      proc.kill("SIGTERM");
-      // Fallback SIGKILL if process doesn't exit within 500ms
-      killTimer = setTimeout(() => {
-        try {
-          proc.kill("SIGKILL");
-        } catch {
-          // Process may have already exited
-        }
-      }, 500);
+      if (!settled) {
+        cleanup();
+        resolve({
+          success: false,
+          stdout,
+          stderr: `Command timed out after ${timeoutMs}ms`,
+          exitCode: 124,
+        });
+        proc.kill("SIGTERM");
+        // Fallback SIGKILL if process doesn't exit within 500ms
+        killTimer = setTimeout(() => {
+          try {
+            proc.kill("SIGKILL");
+          } catch {
+            // Process may have already exited
+          }
+        }, 500);
+      }
     }, timeoutMs);
 
     const proc = spawn("ao", args, {
@@ -169,9 +173,7 @@ export async function aoSend(options: SendOptions): Promise<CliResult> {
 
   // Convert CLI timeout (seconds) to execAo timeout (milliseconds)
   // Add 10s buffer for CLI overhead
-  const timeoutMs = options.timeout !== undefined 
-    ? (options.timeout + 10) * 1000 
-    : 610000; // 600s default + 10s buffer
+  const timeoutMs = options.timeout !== undefined ? (options.timeout + 10) * 1000 : 610000; // 600s default + 10s buffer
 
   return execAo(args, undefined, timeoutMs);
 }
@@ -179,9 +181,7 @@ export async function aoSend(options: SendOptions): Promise<CliResult> {
 /**
  * List AO sessions.
  */
-export async function aoSessionList(
-  options: SessionListOptions = {},
-): Promise<CliResult> {
+export async function aoSessionList(options: SessionListOptions = {}): Promise<CliResult> {
   const args: string[] = ["session", "ls"];
 
   if (options.project) {
@@ -194,9 +194,7 @@ export async function aoSessionList(
 /**
  * Kill an AO session.
  */
-export async function aoSessionKill(
-  options: SessionKillOptions,
-): Promise<CliResult> {
+export async function aoSessionKill(options: SessionKillOptions): Promise<CliResult> {
   const args: string[] = ["session", "kill", options.session];
 
   if (options.keepSession) {
@@ -221,9 +219,9 @@ export async function aoSessionInfo(session: string): Promise<CliResult> {
     // Filter output to only show lines where the session name appears as a
     // distinct token (anchored match to avoid "abc" matching "abc-2")
     const escaped = session.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const lines = result.stdout.split("\n").filter(
-      (line) => new RegExp(`\\b${escaped}\\b`).test(line),
-    );
+    const lines = result.stdout
+      .split("\n")
+      .filter((line) => new RegExp(`\\b${escaped}\\b`).test(line));
     return {
       ...result,
       stdout: lines.join("\n"),
