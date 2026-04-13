@@ -34,11 +34,13 @@ export function createMcpTools(): McpToolDefinition[] {
         properties: {
           task: {
             type: "string",
-            description: "Task description / prompt for the spawned session",
+            description:
+              "Task description / prompt for the spawned session (mutually exclusive with 'issue'; if both are provided, 'task' takes precedence)",
           },
           issue: {
             type: "string",
-            description: "Issue identifier (bead ID or issue number)",
+            description:
+              "Issue identifier (bead ID or issue number) (mutually exclusive with 'task'; 'task' takes precedence if both are provided)",
           },
           project: {
             type: "string",
@@ -78,10 +80,7 @@ export function createMcpTools(): McpToolDefinition[] {
           if (result.success) {
             return textResult(result.stdout || "Session spawned successfully");
           } else {
-            return textResult(
-              result.stderr || result.stdout || "Spawn failed",
-              true,
-            );
+            return textResult(result.stderr || result.stdout || "Spawn failed", true);
           }
         } catch (err: unknown) {
           const msg = err instanceof Error ? err.message : String(err);
@@ -132,10 +131,7 @@ export function createMcpTools(): McpToolDefinition[] {
           if (result.success) {
             return textResult(result.stdout || "Message sent successfully");
           } else {
-            return textResult(
-              result.stderr || result.stdout || "Send failed",
-              true,
-            );
+            return textResult(result.stderr || result.stdout || "Send failed", true);
           }
         } catch (err: unknown) {
           const msg = err instanceof Error ? err.message : String(err);
@@ -164,10 +160,7 @@ export function createMcpTools(): McpToolDefinition[] {
           if (result.success) {
             return textResult(result.stdout || "No sessions found");
           } else {
-            return textResult(
-              result.stderr || result.stdout || "Failed to list sessions",
-              true,
-            );
+            return textResult(result.stderr || result.stdout || "Failed to list sessions", true);
           }
         } catch (err: unknown) {
           const msg = err instanceof Error ? err.message : String(err);
@@ -209,10 +202,7 @@ export function createMcpTools(): McpToolDefinition[] {
           if (result.success) {
             return textResult(result.stdout || "Session killed");
           } else {
-            return textResult(
-              result.stderr || result.stdout || "Kill failed",
-              true,
-            );
+            return textResult(result.stderr || result.stdout || "Kill failed", true);
           }
         } catch (err: unknown) {
           const msg = err instanceof Error ? err.message : String(err);
@@ -233,10 +223,7 @@ export function createMcpTools(): McpToolDefinition[] {
           if (result.success) {
             return textResult(result.stdout || "AO is running");
           } else {
-            return textResult(
-              result.stderr || result.stdout || "Status check failed",
-              true,
-            );
+            return textResult(result.stderr || result.stdout || "Status check failed", true);
           }
         } catch (err: unknown) {
           const msg = err instanceof Error ? err.message : String(err);
@@ -246,4 +233,3 @@ export function createMcpTools(): McpToolDefinition[] {
     },
   ];
 }
-

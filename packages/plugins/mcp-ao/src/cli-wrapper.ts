@@ -87,10 +87,11 @@ export async function execAo(args: string[], cwd?: string): Promise<CliResult> {
 export async function aoSpawn(options: SpawnOptions): Promise<CliResult> {
   const args: string[] = ["spawn"];
 
+  // task and issue are mutually exclusive - both fill the same [first] positional arg
+  // task takes precedence as it's more general (can be a task description or issue ID)
   if (options.task) {
     args.push(options.task);
-  }
-  if (options.issue) {
+  } else if (options.issue) {
     args.push(options.issue);
   }
   if (options.project) {
