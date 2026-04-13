@@ -52,8 +52,8 @@ When team coordination needed:
 
 ### ao-agent-proxy (replaces `Agent` built-in)
 
-**Tool**: `spawn_agent(task: string, agent_type?: string, worktree?: boolean)`  
-**Implementation**: shells out to `ao spawn "<task>"` or `ao spawn --claim-pr N`  
+**Tool**: `spawn_agent(task: string, pr?: number, bead?: string)`  
+**Implementation**: shells out to `ao spawn "<task>"`, `ao spawn --claim-pr N`, or `ao spawn --bead <id>`  
 **Description size**: ~500 bytes vs Agent's 18.5KB — **97% smaller**  
 **Location**: `~/.config/mcp-daemon/proxies/ao-agent-proxy.js` (or Python)  
 **Port**: 8010 (new daemon slot)
