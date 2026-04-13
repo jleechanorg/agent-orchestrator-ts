@@ -21,26 +21,26 @@ export function createMinimalRuntime(): Runtime {
       };
     },
     async destroy(handle: RuntimeHandle): Promise<void> {
-      const sessionId = handle.data?.sessionId;
+      const sessionId = handle.id;
       if (!sessionId) throw new Error("No session ID in runtime handle");
       const result = await aoSessionKill({ session: sessionId });
       if (!result.success) throw new Error(`Failed to destroy session: ${result.stderr}`);
     },
     async sendMessage(handle: RuntimeHandle, message: string): Promise<void> {
-      const sessionId = handle.data?.sessionId;
+      const sessionId = handle.id;
       if (!sessionId) throw new Error("No session ID in runtime handle");
       const result = await aoSend({ session: sessionId, message });
       if (!result.success) throw new Error(`Failed to send message: ${result.stderr}`);
     },
     async getOutput(handle: RuntimeHandle, _lines?: number): Promise<string> {
-      const sessionId = handle.data?.sessionId;
+      const sessionId = handle.id;
       if (!sessionId) throw new Error("No session ID in runtime handle");
       const result = await aoSessionInfo(sessionId);
       if (!result.success) throw new Error(`Failed to get output: ${result.stderr}`);
       return result.stdout;
     },
     async isAlive(handle: RuntimeHandle): Promise<boolean> {
-      const sessionId = handle.data?.sessionId;
+      const sessionId = handle.id;
       if (!sessionId) return false;
       const result = await aoSessionInfo(sessionId);
       return result.success && result.stdout.includes(sessionId);
