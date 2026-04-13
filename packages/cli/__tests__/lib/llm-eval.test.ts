@@ -210,7 +210,7 @@ describe("tryClaudePrint", () => {
     expect(result.error).toBeUndefined();
   });
 
-  it("returns infra error after trying all candidates for ETIMEDOUT", async () => {
+  it("returns error='ETIMEDOUT' (infra error, not unavailable) when all candidates fail with ETIMEDOUT", async () => {
     const err = new Error("ETIMEDOUT") as NodeJS.ErrnoException;
     err.code = "ETIMEDOUT";
     mockExecFileSync.mockImplementation(() => {
@@ -218,8 +218,8 @@ describe("tryClaudePrint", () => {
     });
     const result = await tryClaudePrint("evaluate this");
     expect(result.validVerdict).toBe(false);
-    // ETIMEDOUT matches isUnavailable → infra error, not a fail-closed error
-    expect(result.error).toBeUndefined();
+    // ETIMEDOUT is treated as infra error (not unavailable) — binary was found but failed
+    expect(result.error).toBe("ETIMEDOUT");
   });
 
   it("treats EACCES from accessSync as infra error (not missing binary)", async () => {
