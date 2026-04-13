@@ -32,7 +32,7 @@ definitions from `~/.claude/agents/` at runtime.
 
 ```text
 Session start (lean):
-  --tools "Bash,Read,Write,Edit,Glob,Grep,WebFetch,WebSearch"
+  --tools "Bash,Read,Write,Edit,Glob,Grep"
   MCP: mcp-strict.json (7 core servers, all ENABLED)
   Heavy MCP proxies: DISABLED in settings (ao-agent-proxy, ao-team-proxy)
   Baseline: ~6K tokens built-in tools + ~7K MCP = ~13K overhead/turn
@@ -250,7 +250,7 @@ Subsequent turns: unmodified (real schema in context)
 | 1 | bd-rk90 | Build ao-agent-proxy MCP server (minimal, ~50 LOC) | -3.5K tokens when Agent needed | pending |
 | 2 | bd-h5ye | Add to mcp-daemon start script + settings as disabled-by-default | Structural | pending |
 | 3 | bd-cx02 | Combine: MCP trim + disable ao-team-proxy + ao-agent-proxy active | -20K tokens/turn total | pending |
-| 4 | — | Shell alias `cl` for lean default; `cl-full` escape hatch | UX | pending |
+| 4 | — | Shell alias `cl` for standard profile; `cl-full` escape hatch | UX | pending |
 | 5 | — | Explore `CLAUDE_CODE_DEFAULT_TOOLS` env var (unconfirmed) | May enable persistent lean default | research |
 
 ## Open Questions
