@@ -12,7 +12,7 @@ request regardless of whether they are used. Measured overhead:
 | Profile | Tokens/turn (tool defs only) | % of 200K window |
 |---------|------------------------------|-----------------|
 | Default (all 57 tools) | ~29K tokens | 14.5% |
-| Lean (8 tools) | ~6K tokens | 3.0% |
+| Lean (6 tools) | ~6K tokens | 3.0% |
 | **Savings** | **~23K tokens/turn** | **11.5%** |
 
 The `Agent` tool alone costs **~4.6K tokens/turn** because it embeds all 33 custom agent
@@ -262,6 +262,6 @@ Subsequent turns: unmodified (real schema in context)
 
 ## Related Docs
 
-- `llm_inspector/docs/claude-code-context-growth-2025.md` — benchmark data
+- `../llm_inspector/docs/claude-code-context-growth-2025.md` — benchmark data
 - `roadmap/context-compaction-optimization.md` — compaction fix track
 - `~/.claude/mcp-strict.json` — AO worker lean MCP config (7 servers)
