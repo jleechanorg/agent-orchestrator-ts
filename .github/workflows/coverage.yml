@@ -27,7 +27,7 @@ jobs:
               - 'packages/cli/**'
 
   diff-coverage:
-    name: Diff Coverage (70% on changed code)
+    name: Diff Coverage (70% on changed code)  # 70% after narrowing CLI scope to llm-eval only
     needs: detect-changes
     if: needs.detect-changes.outputs.core == 'true' || needs.detect-changes.outputs.cli == 'true'
     runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || fromJson(vars.SELF_HOSTED_RUNNER_LABELS || '["self-hosted"]') }}
