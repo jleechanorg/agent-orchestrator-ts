@@ -151,7 +151,13 @@ export async function aoSend(options: SendOptions): Promise<CliResult> {
     args.push("--timeout", String(options.timeout));
   }
 
-  return execAo(args);
+  // Convert CLI timeout (seconds) to execAo timeout (milliseconds)
+  // Add 10s buffer for CLI overhead
+  const timeoutMs = options.timeout !== undefined 
+    ? (options.timeout + 10) * 1000 
+    : 610000; // 600s default + 10s buffer
+
+  return execAo(args, undefined, timeoutMs);
 }
 
 /**
