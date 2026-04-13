@@ -15,9 +15,9 @@ export function createMinimalRuntime(): Runtime {
     name: "mcp-ao",
     async create(_opts: RuntimeCreateConfig): Promise<RuntimeHandle> {
       return {
-        id: `mcp-ao-${Date.now()}`,
+        id: _opts.sessionId,
         runtimeName: "mcp-ao",
-        data: { sessionId: _opts.sessionId },
+        data: {},
       };
     },
     async destroy(handle: RuntimeHandle): Promise<void> {
