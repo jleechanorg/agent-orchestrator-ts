@@ -38,6 +38,11 @@ const MAX_DIFF_CHARS = 30_000;
 const MAX_REVIEW_BODY_CHARS = 200;
 const MAX_REVIEWS_TO_SHOW = 8;
 
+/** Sort reviews newest-first, tolerating missing timestamps. */
+function sortReviewsNewestFirst(a: ReviewInfo, b: ReviewInfo): number {
+  return (new Date(b.submittedAt).getTime() || 0) - (new Date(a.submittedAt).getTime() || 0);
+}
+
 export function buildSkepticPrompt(
   pr: PRInfo,
   state: MergeGateState,
@@ -48,6 +53,23 @@ export function buildSkepticPrompt(
   const crDetail = state.crDismissedWithoutApproval
     ? `${state.crState} + DISMISSED_WITHOUT_APPROVAL`
     : state.crState;
+
+  // Detect CR APPROVED with body_len=0 explicitly so the model cannot miss it.
+  // GraphQL may return reviews with null/empty bodies; the model must not mistake
+  // an empty-body APPROVED for "no review". Pre-compute here so it's surfaced in
+  // the 7-green status and Rule 2 even if the model miscounts the reviews list.
+  const latestCRDecisive = reviews
+    .filter(
+      (r) =>
+        r.author?.login === "coderabbitai" &&
+        ((r.state ?? "").toLowerCase() === "approved" ||
+          (r.state ?? "").toLowerCase() === "changes_requested"),
+    )
+    .sort(sortReviewsNewestFirst)[0] ?? null;
+  const crEmptyBodyApproved =
+    latestCRDecisive !== null &&
+    (latestCRDecisive.state ?? "").toLowerCase() === "approved" &&
+    ((latestCRDecisive.body?.length ?? 0) === 0);
 
   const unresolvedLabel =
     state.unresolvedBlockingComments > 0
@@ -92,7 +114,7 @@ export function buildSkepticPrompt(
     "--- 7-GREEN STATUS ---",
     `  1. CI green:            ${state.ciPassing ? "PASS" : "FAIL"}`,
     `  2. No merge conflicts:  ${state.noConflicts ? "PASS" : "FAIL"}`,
-    `  3. CR APPROVED:         ${state.crApproved ? "PASS" : "FAIL"} (state: ${crDetail})`,
+    `  3. CR APPROVED:         ${state.crApproved ? "PASS" : "FAIL"} (state: ${crDetail})${crEmptyBodyApproved ? " [EMPTY BODY APPROVED — valid per Rule 2]" : ""}`,
     `  4. Bugbot clean:        ${state.bugbotErrors === 0 ? "PASS" : "FAIL"} (errors: ${state.bugbotErrors})`,
     `  5. Comments resolved:   ${unresolvedLabel} (nitpick comments excluded, per checkMergeGate)`,
     `  6. Evidence review:    ${evidenceLabel}`,
@@ -121,7 +143,7 @@ export function buildSkepticPrompt(
     "",
     "RULES:",
     "1. Verify each of the 7-green conditions independently — do not trust the status summary alone.",
-    "2. CR APPROVED means review state=APPROVED with body_len>0, OR body_len=0 with CR posting 'all good'/'✅'/'No actionable comments' AFTER the APPROVED.",
+    "2. CR APPROVED means review state=APPROVED with body_len>0, OR body_len=0 with CR posting 'all good'/'✅'/'No actionable comments' AFTER the APPROVED. IMPORTANT: An APPROVED review with an empty body (body_len=0) is still a valid APPROVED — the empty body does NOT invalidate the approval state.",
     "3. CR COMMENTED is NOT approval. CR CHANGES_REQUESTED is NOT approval.",
     "4. A dismissed CR review without a subsequent real APPROVED review is a blocker.",
     "5. Bugbot errors always block merge.",
