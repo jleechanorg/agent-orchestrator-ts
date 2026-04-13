@@ -60,8 +60,3 @@ export function createMinimalRuntime(): Runtime {
     },
   };
 }
-
-/** Register a real AO session name for a runtime handle ID */
-export function registerSession(handleId: string, sessionName: string): void {
-  sessionRegistry.set(handleId, sessionName);
-}
