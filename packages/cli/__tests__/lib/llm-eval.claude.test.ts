@@ -90,15 +90,16 @@ describe("tryClaudePrint", () => {
     expect(result.error).toBeUndefined();
   });
 
-  it("returns validVerdict=false for other execFileSync errors", async () => {
+  it("returns error=undefined (try next) when ETIMEDOUT occurs", async () => {
+    // ETIMEDOUT is classified as unavailable → continue through Claude binary candidates
     const err = makeErrnoError("ETIMEDOUT", "ETIMEDOUT");
     mockExecFileSync.mockImplementation(() => {
       throw err;
     });
     const result = await tryClaudePrint("evaluate this");
     expect(result.validVerdict).toBe(false);
-    expect(result.error).toContain("ETIMEDOUT");
-    expect(result.error).toBeDefined();
+    // ETIMEDOUT is unavailable → error: undefined (try next model)
+    expect(result.error).toBeUndefined();
   });
 
   it("returns validVerdict=true for markdown-prefixed ## VERDICT: PASS", async () => {
@@ -165,11 +166,12 @@ describe("llmEval — explicit model=claude", () => {
 
   it("returns FAIL and tries codex fallback when claude has infra error", async () => {
     mockResolveCodexBinary.mockResolvedValue("/usr/local/bin/codex");
-    const etimeout = makeErrnoError("ETIMEDOUT", "ETIMEDOUT");
+    // ECONNREFUSED is a real infra error (not "unavailable") — sets firstInfraError, allMissing=false, loop continues
+    const econnrefused = makeErrnoError("ECONNREFUSED", "ECONNREFUSED");
     const enoent = makeErrnoError("ENOENT", "ENOENT");
     mockExecFileSync
       .mockImplementationOnce(() => {
-        throw etimeout; // 1st claude candidate fails
+        throw econnrefused; // 1st claude candidate fails (real infra error → continue)
       })
       .mockImplementationOnce(() => {
         throw enoent; // last claude candidate fails

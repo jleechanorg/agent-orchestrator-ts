@@ -105,7 +105,7 @@ describe("tryCodexPrint", () => {
     expect(result.error).toBeUndefined(); // signal: try next tool
   });
 
-  it("returns validVerdict=false with error message for timeout", async () => {
+  it("returns error=undefined (try next) when ETIMEDOUT occurs", async () => {
     mockResolveCodexBinary.mockResolvedValue("/usr/local/bin/codex");
     const err = new Error("ETIMEDOUT") as NodeJS.ErrnoException;
     err.code = "ETIMEDOUT";
@@ -114,8 +114,8 @@ describe("tryCodexPrint", () => {
     });
     const result = await tryCodexPrint("evaluate this");
     expect(result.validVerdict).toBe(false);
-    expect(result.error).toContain("ETIMEDOUT");
-    expect(result.error).toBeDefined(); // NOT undefined → fail closed
+    // ETIMEDOUT is classified as unavailable → error: undefined (try next model in chain)
+    expect(result.error).toBeUndefined();
   });
 
   it("returns error=undefined (try next) when binary exits with auth/unavailable error", async () => {
@@ -210,7 +210,8 @@ describe("tryClaudePrint", () => {
     expect(result.error).toBeUndefined();
   });
 
-  it("returns validVerdict=false for other execFileSync errors", async () => {
+  it("returns error=undefined (try next) when ETIMEDOUT occurs", async () => {
+    // ETIMEDOUT is classified as unavailable → continue through Claude binary candidates
     const err = new Error("ETIMEDOUT") as NodeJS.ErrnoException;
     err.code = "ETIMEDOUT";
     mockExecFileSync.mockImplementation(() => {
@@ -218,8 +219,8 @@ describe("tryClaudePrint", () => {
     });
     const result = await tryClaudePrint("evaluate this");
     expect(result.validVerdict).toBe(false);
-    expect(result.error).toContain("ETIMEDOUT");
-    expect(result.error).toBeDefined();
+    // ETIMEDOUT is unavailable → error: undefined (try next model)
+    expect(result.error).toBeUndefined();
   });
 
   it("treats EACCES from accessSync as infra error (not missing binary)", async () => {
@@ -390,22 +391,22 @@ describe("llmEval — explicit model=claude", () => {
 
   it("returns FAIL and tries codex fallback when claude has infra error", async () => {
     mockResolveCodexBinary.mockResolvedValue("/usr/local/bin/codex");
-    const etimeout = new Error("ETIMEDOUT") as NodeJS.ErrnoException;
-    etimeout.code = "ETIMEDOUT";
     const enoent = new Error("ENOENT") as NodeJS.ErrnoException;
     enoent.code = "ENOENT";
+    const econnrefused = new Error("ECONNREFUSED") as NodeJS.ErrnoException;
+    econnrefused.code = "ECONNREFUSED";
     mockExecFileSync
       .mockImplementationOnce(() => {
-        throw etimeout; // 1st claude candidate fails
+        throw enoent; // 1st claude candidate fails (ENOENT = not installed → try next)
       })
       .mockImplementationOnce(() => {
-        throw enoent; // last claude candidate fails
+        throw econnrefused; // last claude candidate fails with infra error (not unavailable → set firstInfraError, continue)
       })
       .mockImplementationOnce(() => {
-        throw enoent; // gemini fails
+        throw enoent; // gemini unavailable
       })
       .mockImplementationOnce(() => {
-        throw enoent; // cursor fails
+        throw enoent; // cursor unavailable
       })
       .mockImplementationOnce(() => {
         throw enoent; // codex also fails
