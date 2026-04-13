@@ -128,9 +128,6 @@ async function spawnSession(
     if (sanitizedPrompt && sanitizedPrompt.length > 4096) {
       throw new Error("Prompt must be at most 4096 characters");
     }
-    if (sanitizedPrompt && sanitizedPrompt.length === 0) {
-      sanitizedPrompt = undefined;
-    }
 
     if (queueConfig.enabled && activeSessions.length >= queueConfig.maxActiveSessions) {
       const queued = enqueueSpawnRequest(config.configPath, projectId, {
