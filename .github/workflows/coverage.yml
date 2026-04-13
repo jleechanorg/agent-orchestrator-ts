@@ -43,11 +43,17 @@ jobs:
           cache: pnpm
 
       - uses: actions/setup-python@v5
+        id: setup-python
         with:
           python-version: "3.x"
 
       - name: Install diff-cover
-        run: python3 -m pip install --break-system-packages diff-cover pyyaml
+        run: |
+          PYTHON_PATH="${{ steps.setup-python.outputs.pythonLocation }}"
+          if [ -z "$PYTHON_PATH" ]; then
+            PYTHON_PATH="$(which python3)"
+          fi
+          "$PYTHON_PATH" -m pip install --break-system-packages diff-cover pyyaml
 
       - run: pnpm install --frozen-lockfile
       - run: pnpm -r build
