@@ -198,6 +198,9 @@ function getPRTitle(): string {
 }
 
 function shouldEnforcePRTitlePrefix(title: string): boolean {
+  // Empty title means we couldn't retrieve the PR title (e.g., GITHUB_TOKEN
+  // absent in a coverage job) — skip enforcement rather than false-failing.
+  if (!title) return false;
   if (process.env.GITHUB_HEAD_REF) return true;
   // For push events (no GITHUB_HEAD_REF), check if we're on main via GITHUB_REF
   // GITHUB_REF is set for push events (e.g. "refs/heads/main") and absent for PRs
