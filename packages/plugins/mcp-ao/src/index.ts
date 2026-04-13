@@ -4,10 +4,10 @@
  * Exposes AO CLI operations as MCP tools callable from any MCP client.
  */
 
-import type { PluginModule } from "@jleechanorg/ao-core";
-import { createMcpTools } from "./mcp-tools.js";
+import type { PluginModule, Runtime } from "@jleechanorg/ao-core";
+import { createMinimalRuntime } from "./runtime.js";
 
-export { createMcpTools };
+export { createMcpTools } from "./mcp-tools.js";
 export type { McpToolDefinition, McpToolResult } from "./mcp-tools.js";
 
 export const manifest = {
@@ -18,13 +18,8 @@ export const manifest = {
   version: "0.1.0",
 };
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export function create(_options?: unknown): any {
-  return {
-    manifest,
-    createMcpTools,
-  };
+export function create(_options?: unknown): Runtime {
+  return createMinimalRuntime();
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export default { manifest, create } satisfies PluginModule<any>;
+export default { manifest, create } satisfies PluginModule<Runtime>;
