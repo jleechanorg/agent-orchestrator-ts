@@ -5,7 +5,7 @@
  * This file is fork-specific — upstream uses a different package resolution strategy.
  */
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect } from "vitest";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import {

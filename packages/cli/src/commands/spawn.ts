@@ -124,7 +124,7 @@ async function spawnSession(
     const queueConfig = resolveSpawnQueueConfig(config.projects[projectId]);
 
     // Validate and sanitize prompt before any branch (strip newlines to prevent metadata injection)
-    let sanitizedPrompt = prompt?.replace(/[\r\n]/g, " ").trim() || undefined;
+    const sanitizedPrompt = prompt?.replace(/[\r\n]/g, " ").trim() || undefined;
     if (sanitizedPrompt && sanitizedPrompt.length > 4096) {
       throw new Error("Prompt must be at most 4096 characters");
     }
