@@ -42,9 +42,24 @@ export interface CliResult {
 
 /**
  * Execute an ao CLI command and return the result.
+ * Default timeout of 30 seconds to avoid hanging MCP tool calls.
  */
-export async function execAo(args: string[], cwd?: string): Promise<CliResult> {
+export async function execAo(
+  args: string[],
+  cwd?: string,
+  timeoutMs = 30000,
+): Promise<CliResult> {
   return new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      proc.kill("SIGTERM");
+      resolve({
+        success: false,
+        stdout: "",
+        stderr: `Command timed out after ${timeoutMs}ms`,
+        exitCode: 124,
+      });
+    }, timeoutMs);
+
     const proc = spawn("ao", args, {
       cwd: cwd ?? process.cwd(),
       env: { ...process.env },
@@ -62,6 +77,7 @@ export async function execAo(args: string[], cwd?: string): Promise<CliResult> {
     });
 
     proc.on("close", (code) => {
+      clearTimeout(timer);
       resolve({
         success: code === 0,
         stdout,
@@ -71,6 +87,7 @@ export async function execAo(args: string[], cwd?: string): Promise<CliResult> {
     });
 
     proc.on("error", (err) => {
+      clearTimeout(timer);
       resolve({
         success: false,
         stdout,
@@ -115,10 +132,15 @@ export async function aoSpawn(options: SpawnOptions): Promise<CliResult> {
 
 /**
  * Send a message to an AO session.
+ * The ao CLI expects message parts after "--" to be joined with spaces.
  */
 export async function aoSend(options: SendOptions): Promise<CliResult> {
   const args: string[] = ["send", options.session];
 
+  if (options.message) {
+    // Pass message as a single argument after "--" so spaces are preserved
+    args.push("--", options.message);
+  }
   if (options.file) {
     args.push("--file", options.file);
   }
@@ -128,9 +150,6 @@ export async function aoSend(options: SendOptions): Promise<CliResult> {
   if (options.timeout !== undefined) {
     args.push("--timeout", String(options.timeout));
   }
-  if (options.message) {
-    args.push("--", ...options.message.split(" "));
-  }
 
   return execAo(args);
 }
@@ -138,7 +157,9 @@ export async function aoSend(options: SendOptions): Promise<CliResult> {
 /**
  * List AO sessions.
  */
-export async function aoSessionList(options: SessionListOptions = {}): Promise<CliResult> {
+export async function aoSessionList(
+  options: SessionListOptions = {},
+): Promise<CliResult> {
   const args: string[] = ["session", "ls"];
 
   if (options.project) {
@@ -151,7 +172,9 @@ export async function aoSessionList(options: SessionListOptions = {}): Promise<C
 /**
  * Kill an AO session.
  */
-export async function aoSessionKill(options: SessionKillOptions): Promise<CliResult> {
+export async function aoSessionKill(
+  options: SessionKillOptions,
+): Promise<CliResult> {
   const args: string[] = ["session", "kill", options.session];
 
   if (options.keepSession) {
@@ -165,8 +188,23 @@ export async function aoSessionKill(options: SessionKillOptions): Promise<CliRes
 }
 
 /**
- * Get session status/attach info.
+ * Get session status for a specific session.
+ * Note: ao session ls does not filter by individual session,
+ * so this returns the full list filtered in the result.
  */
 export async function aoSessionInfo(session: string): Promise<CliResult> {
-  return execAo(["session", "ls"]);
+  const result = await execAo(["session", "ls"]);
+
+  if (result.success && session) {
+    // Filter output to only show lines containing the session name
+    const lines = result.stdout.split("\n").filter(
+      (line) => line.includes(session),
+    );
+    return {
+      ...result,
+      stdout: lines.join("\n"),
+    };
+  }
+
+  return result;
 }
