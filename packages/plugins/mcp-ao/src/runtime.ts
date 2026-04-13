@@ -3,11 +3,12 @@
  *
  * Note: This runtime wraps CLI operations, so failures are surfaced
  * through the CLI exit codes rather than through runtime methods.
- * The runtime lifecycle methods (destroy, sendMessage, etc.) delegate
- * to the CLI, which handles error reporting.
+ * The runtime lifecycle methods delegate to the CLI, which handles
+ * error reporting.
  */
 
 import type { Runtime, RuntimeHandle, RuntimeCreateConfig } from "@jleechanorg/ao-core";
+import { aoSessionKill, aoSend, aoSessionInfo } from "./cli-wrapper.js";
 
 export function createMinimalRuntime(): Runtime {
   return {
@@ -19,23 +20,30 @@ export function createMinimalRuntime(): Runtime {
         data: { sessionId: _opts.sessionId },
       };
     },
-    async destroy(_handle: RuntimeHandle): Promise<void> {
-      // Destruction is handled via ao session kill CLI
-      // Errors are surfaced through CLI exit codes
+    async destroy(handle: RuntimeHandle): Promise<void> {
+      const sessionId = handle.data?.sessionId;
+      if (!sessionId) throw new Error("No session ID in runtime handle");
+      const result = await aoSessionKill({ session: sessionId });
+      if (!result.success) throw new Error(`Failed to destroy session: ${result.stderr}`);
     },
-    async sendMessage(_handle: RuntimeHandle, _message: string): Promise<void> {
-      // Messages are sent via ao send CLI
-      // Errors are surfaced through CLI exit codes
+    async sendMessage(handle: RuntimeHandle, message: string): Promise<void> {
+      const sessionId = handle.data?.sessionId;
+      if (!sessionId) throw new Error("No session ID in runtime handle");
+      const result = await aoSend({ session: sessionId, message });
+      if (!result.success) throw new Error(`Failed to send message: ${result.stderr}`);
     },
-    async getOutput(_handle: RuntimeHandle, _lines?: number): Promise<string> {
-      // Output retrieval is handled via ao session CLI
-      // Return empty string - actual output handled through CLI
-      return "";
+    async getOutput(handle: RuntimeHandle, _lines?: number): Promise<string> {
+      const sessionId = handle.data?.sessionId;
+      if (!sessionId) throw new Error("No session ID in runtime handle");
+      const result = await aoSessionInfo(sessionId);
+      if (!result.success) throw new Error(`Failed to get output: ${result.stderr}`);
+      return result.stdout;
     },
-    async isAlive(_handle: RuntimeHandle): Promise<boolean> {
-      // Liveness check is handled via ao session ls CLI
-      // Return true - actual liveness check delegated to CLI
-      return true;
+    async isAlive(handle: RuntimeHandle): Promise<boolean> {
+      const sessionId = handle.data?.sessionId;
+      if (!sessionId) return false;
+      const result = await aoSessionInfo(sessionId);
+      return result.success && result.stdout.includes(sessionId);
     },
   };
 }
