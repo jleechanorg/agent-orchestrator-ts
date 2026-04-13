@@ -118,9 +118,6 @@ export async function aoSpawn(options: SpawnOptions): Promise<CliResult> {
 export async function aoSend(options: SendOptions): Promise<CliResult> {
   const args: string[] = ["send", options.session];
 
-  if (options.message) {
-    args.push("--", ...options.message.split(" "));
-  }
   if (options.file) {
     args.push("--file", options.file);
   }
@@ -129,6 +126,9 @@ export async function aoSend(options: SendOptions): Promise<CliResult> {
   }
   if (options.timeout !== undefined) {
     args.push("--timeout", String(options.timeout));
+  }
+  if (options.message) {
+    args.push("--", ...options.message.split(" "));
   }
 
   return execAo(args);
