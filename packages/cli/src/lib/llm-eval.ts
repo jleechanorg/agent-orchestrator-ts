@@ -63,13 +63,15 @@ export interface LlmEvalResult {
 
 /** Errors that mean the tool is unavailable and the caller should try the next one. */
 // Exported for unit testing; production callers use the public functions only.
-export function isUnavailable(errMsg: string): boolean {
+export function isUnavailable(errMsg: string, errCode?: string): boolean {
   // ENOENT = binary not installed
+  // ETIMEDOUT = network/connection timeout — infrastructure unavailable, try next
   // 401/403 = credentials missing or invalid — treat as "unavailable" so fallback chain continues
   // Use word-boundary-aware regex to avoid false positives on strings like "took 4030ms"
   const lower = errMsg.toLowerCase();
   return (
     lower.includes("enoent") ||
+    errCode === "ETIMEDOUT" ||
     // \b matches word boundary — so "401 " matches but "4012" does not
     /\b401\b/i.test(errMsg) ||
     /\b403\b/i.test(errMsg) ||
@@ -124,7 +126,7 @@ export async function tryCodexPrint(prompt: string): Promise<LlmEvalResult> {
     const errno = err as NodeJS.ErrnoException;
     const msg = err instanceof Error ? err.message : String(err);
     // Unavailable: binary not installed OR auth failure — try next tool
-    if (errno.code === "ENOENT" || isUnavailable(msg)) {
+    if (errno.code === "ENOENT" || isUnavailable(msg, errno.code as string)) {
       return { validVerdict: false, output: "", error: undefined }; // → try next
     }
     // Truncate to first line only — Codex echoes the full prompt in its session log,
@@ -170,7 +172,7 @@ export async function tryCursorAgentPrint(prompt: string): Promise<LlmEvalResult
   } catch (err: unknown) {
     const errno = (err as NodeJS.ErrnoException).code;
     const msg = err instanceof Error ? err.message : String(err);
-    if (errno === "ENOENT" || isUnavailable(msg)) {
+    if (errno === "ENOENT" || isUnavailable(msg, errno as string | undefined)) {
       return { validVerdict: false, output: "", error: undefined };
     }
     return { validVerdict: false, output: "", error: msg };
@@ -211,7 +213,7 @@ export async function tryGeminiPrint(prompt: string): Promise<LlmEvalResult> {
   } catch (err: unknown) {
     const errno = (err as NodeJS.ErrnoException).code;
     const msg = err instanceof Error ? err.message : String(err);
-    if (errno === "ENOENT" || isUnavailable(msg)) {
+    if (errno === "ENOENT" || isUnavailable(msg, errno as string | undefined)) {
       return { validVerdict: false, output: "", error: undefined };
     }
     return { validVerdict: false, output: "", error: msg };
@@ -284,7 +286,7 @@ export async function tryClaudePrint(prompt: string): Promise<LlmEvalResult> {
 
       // 401/403/429 = credentials / quota — treat as "tool unavailable" globally;
       // trying another binary won't help if they use the same global config.
-      if (isUnavailable(msg)) {
+      if (isUnavailable(msg, errno as string | undefined)) {
         return { validVerdict: false, output: "", error: undefined }; // → caller skips this tool
       }
 
