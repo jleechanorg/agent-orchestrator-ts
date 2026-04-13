@@ -102,6 +102,9 @@ importers:
       '@jleechanorg/ao-plugin-agent-opencode':
         specifier: workspace:*
         version: link:../plugins/agent-opencode
+      '@jleechanorg/ao-plugin-mcp-ao':
+        specifier: workspace:*
+        version: link:../plugins/mcp-ao
       '@jleechanorg/ao-plugin-notifier-composio':
         specifier: workspace:*
         version: link:../plugins/notifier-composio

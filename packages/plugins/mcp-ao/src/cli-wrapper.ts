@@ -50,14 +50,30 @@ export async function execAo(
   timeoutMs = 30000,
 ): Promise<CliResult> {
   return new Promise((resolve) => {
+    let settled = false;
+
+    const cleanup = () => {
+      if (!settled) {
+        settled = true;
+        proc.removeAllListeners();
+        clearTimeout(timer);
+        clearTimeout(killTimer);
+      }
+    };
+
+    let killTimer: NodeJS.Timeout | undefined;
+
     const timer = setTimeout(() => {
+      cleanup();
       proc.kill("SIGTERM");
-      resolve({
-        success: false,
-        stdout: "",
-        stderr: `Command timed out after ${timeoutMs}ms`,
-        exitCode: 124,
-      });
+      // Fallback SIGKILL if process doesn't exit within 500ms
+      killTimer = setTimeout(() => {
+        try {
+          proc.kill("SIGKILL");
+        } catch {
+          // Process may have already exited
+        }
+      }, 500);
     }, timeoutMs);
 
     const proc = spawn("ao", args, {
@@ -77,7 +93,7 @@ export async function execAo(
     });
 
     proc.on("close", (code) => {
-      clearTimeout(timer);
+      cleanup();
       resolve({
         success: code === 0,
         stdout,
@@ -87,7 +103,7 @@ export async function execAo(
     });
 
     proc.on("error", (err) => {
-      clearTimeout(timer);
+      cleanup();
       resolve({
         success: false,
         stdout,
@@ -202,9 +218,11 @@ export async function aoSessionInfo(session: string): Promise<CliResult> {
   const result = await execAo(["session", "ls"]);
 
   if (result.success && session) {
-    // Filter output to only show lines containing the session name
+    // Filter output to only show lines where the session name appears as a
+    // distinct token (anchored match to avoid "abc" matching "abc-2")
+    const escaped = session.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     const lines = result.stdout.split("\n").filter(
-      (line) => line.includes(session),
+      (line) => new RegExp(`\\b${escaped}\\b`).test(line),
     );
     return {
       ...result,
