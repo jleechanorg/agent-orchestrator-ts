@@ -168,6 +168,9 @@ export async function aoSend(options: SendOptions): Promise<CliResult> {
     args.push("--no-wait");
   }
   if (options.timeout !== undefined) {
+    if (!Number.isFinite(options.timeout) || options.timeout <= 0) {
+      throw new Error(`Invalid timeout value: ${options.timeout}. Must be a positive number.`);
+    }
     args.push("--timeout", String(options.timeout));
   }
 
