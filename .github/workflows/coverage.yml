@@ -57,6 +57,9 @@ jobs:
           git fetch origin ${{ github.base_ref }}:${{ github.base_ref }}
           git branch main origin/main || true
 
+      - name: Clean up stale lock files
+        run: rm -f /tmp/ao-start-all.lock /tmp/ao-start-all-*.lock
+
       - name: Core tests with coverage
         if: needs.detect-changes.outputs.core == 'true'
         run: pnpm --filter @jleechanorg/ao-core exec vitest run --coverage --coverage.reporter=lcov --coverage.include='src/**/*.ts' --coverage.exclude='src/__tests__/**,src/index.ts,src/recovery/index.ts'
