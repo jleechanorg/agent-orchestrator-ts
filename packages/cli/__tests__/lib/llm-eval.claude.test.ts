@@ -149,15 +149,21 @@ describe("llmEval — explicit model=claude", () => {
       .mockImplementationOnce(() => {
         throw enoent; // last claude candidate fails
       })
+      .mockImplementationOnce(() => {
+        throw enoent; // gemini fails
+      })
+      .mockImplementationOnce(() => {
+        throw enoent; // cursor fails
+      })
       .mockReturnValueOnce(PASS_VERDICT); // codex succeeds
     const result = await llmEval("evaluate this", { model: "claude" });
     expect(result).toBe(PASS_VERDICT);
     expect(mockResolveCodexBinary).toHaveBeenCalled();
-    // 2 claude candidates + 1 codex
-    expect(mockExecFileSync).toHaveBeenCalledTimes(3);
+    // 2 claude candidates + gemini + cursor + codex
+    expect(mockExecFileSync).toHaveBeenCalledTimes(5);
   });
 
-  it("returns FAIL and tries codex fallback when claude has infra error", async () => {
+  it("returns FAIL when claude has infra error and all fallbacks also fail", async () => {
     mockResolveCodexBinary.mockResolvedValue("/usr/local/bin/codex");
     const etimeout = makeErrnoError("ETIMEDOUT", "ETIMEDOUT");
     const enoent = makeErrnoError("ENOENT", "ENOENT");
@@ -169,13 +175,19 @@ describe("llmEval — explicit model=claude", () => {
         throw enoent; // last claude candidate fails
       })
       .mockImplementationOnce(() => {
+        throw enoent; // gemini fails
+      })
+      .mockImplementationOnce(() => {
+        throw enoent; // cursor fails
+      })
+      .mockImplementationOnce(() => {
         throw enoent; // codex also fails
       });
     const result = await llmEval("evaluate this", { model: "claude" });
     expect(result).toContain("VERDICT: FAIL");
-    expect(result).toContain("Claude failed:");
+    expect(result).toContain("All LLM tools exhausted");
     expect(mockResolveCodexBinary).toHaveBeenCalled();
-    // 2 claude candidates + 1 codex
-    expect(mockExecFileSync).toHaveBeenCalledTimes(3);
+    // 2 claude candidates + gemini + cursor + codex
+    expect(mockExecFileSync).toHaveBeenCalledTimes(5);
   });
 });

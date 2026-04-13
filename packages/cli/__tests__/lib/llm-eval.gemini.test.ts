@@ -90,27 +90,36 @@ describe("llmEval — explicit model=gemini", () => {
     const enoent = makeErrnoError("ENOENT", "ENOENT");
     mockExecFileSync
       .mockImplementationOnce(() => {
-        throw enoent;
+        throw enoent; // gemini fails
       })
-      .mockReturnValueOnce(PASS_VERDICT);
+      .mockImplementationOnce(() => {
+        throw enoent; // cursor fails
+      })
+      .mockReturnValueOnce(PASS_VERDICT); // codex succeeds
     const result = await llmEval("evaluate this", { model: "gemini" });
     expect(result).toBe(PASS_VERDICT);
     expect(mockResolveCodexBinary).toHaveBeenCalled();
-    expect(mockExecFileSync).toHaveBeenCalledTimes(2);
+    // gemini + cursor + codex
+    expect(mockExecFileSync).toHaveBeenCalledTimes(3);
   });
 
   it("falls back to codex when gemini has an infra error", async () => {
     mockResolveCodexBinary.mockResolvedValue("/usr/local/bin/codex");
     const etimeout = makeErrnoError("ETIMEDOUT", "ETIMEDOUT");
+    const enoent = makeErrnoError("ENOENT", "ENOENT");
     mockExecFileSync
       .mockImplementationOnce(() => {
-        throw etimeout;
+        throw etimeout; // gemini fails
       })
-      .mockReturnValueOnce(PASS_VERDICT);
+      .mockImplementationOnce(() => {
+        throw enoent; // cursor fails
+      })
+      .mockReturnValueOnce(PASS_VERDICT); // codex succeeds
     const result = await llmEval("evaluate this", { model: "gemini" });
     expect(result).toBe(PASS_VERDICT);
     expect(mockResolveCodexBinary).toHaveBeenCalled();
-    expect(mockExecFileSync).toHaveBeenCalledTimes(2);
+    // gemini + cursor + codex
+    expect(mockExecFileSync).toHaveBeenCalledTimes(3);
   });
 
   it("fails closed when gemini omits a verdict", async () => {
