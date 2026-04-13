@@ -49,11 +49,9 @@ jobs:
 
       - name: Install diff-cover
         run: |
-          PYTHON_PATH="${{ steps.setup-python.outputs.pythonLocation }}"
-          if [ -z "$PYTHON_PATH" ]; then
-            PYTHON_PATH="$(which python3)"
-          fi
-          "$PYTHON_PATH" -m pip install --break-system-packages diff-cover pyyaml
+          python3 -m pip install --break-system-packages --upgrade pip setuptools wheel
+          python3 -m pip install --break-system-packages diff-cover pyyaml
+          python3 -c "import yaml; print('pyyaml version:', yaml.__version__)"
 
       - run: pnpm install --frozen-lockfile
       - run: pnpm -r build
