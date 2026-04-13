@@ -30,7 +30,7 @@ definitions from `~/.claude/agents/` at runtime.
 
 ## Architecture: On-Demand Tool Profiles
 
-```
+```text
 Session start (lean):
   --tools "Bash,Read,Write,Edit,Glob,Grep,WebFetch,WebSearch"
   MCP: mcp-strict.json (7 core servers, all ENABLED)
@@ -52,7 +52,7 @@ When team coordination needed:
 
 ### ao-agent-proxy (replaces `Agent` built-in)
 
-**Tool**: `spawn_agent(task: string, agent_type?: string, worktree?: bool)`  
+**Tool**: `spawn_agent(task: string, agent_type?: string, worktree?: boolean)`  
 **Implementation**: shells out to `ao spawn "<task>"` or `ao spawn --claim-pr N`  
 **Description size**: ~500 bytes vs Agent's 18.5KB — **97% smaller**  
 **Location**: `~/.config/mcp-daemon/proxies/ao-agent-proxy.js` (or Python)  
@@ -77,11 +77,19 @@ When team coordination needed:
 
 **Handler**:
 ```javascript
-case "spawn_agent":
+case "spawn_agent": {
+  const { spawnSync } = require("node:child_process");
   const { task, pr, bead } = args;
-  let cmd = pr ? `ao spawn --claim-pr ${pr}` : bead ? `ao spawn --bead ${bead}` : `ao spawn "${task}"`;
-  const result = execSync(cmd, { encoding: 'utf8' });
-  return { content: [{ type: "text", text: result }] };
+  const base = ["spawn"];
+  const argv = pr != null
+    ? [...base, "--claim-pr", String(pr)]
+    : bead != null
+      ? [...base, "--bead", String(bead)]
+      : [...base, String(task)];
+  const child = spawnSync("ao", argv, { encoding: "utf8" });
+  if (child.status !== 0) throw new Error(child.stderr || "ao spawn failed");
+  return { content: [{ type: "text", text: child.stdout }] };
+}
 ```
 
 ### ao-team-proxy (replaces TeamCreate/SendMessage/TeamDelete)
@@ -167,13 +175,13 @@ LLM_INSPECTOR_TOOL_MODE=lean llm-inspector start
 1. Schema-absence → stubs preserve callability (model sees tool name + description, generates `tool_use`)
 2. SSE buffering → one-time buffer on first heavy-tool call; subsequent turns are unmodified
 
-## llm-inspector proxy-rewrite stub-schema mode (PENDING — bd-hoyn)
+## llm-inspector proxy-rewrite stub-schema mode (✅ DONE — bd-hoyn)
 
 `--tool-mode on-demand` (stub) replaces heavy tool schemas with minimal stubs, buffers SSE on first use, re-issues with real schema.
 
 ### How it works
 
-```
+```text
 Request (outgoing):
   Agent tool schema: 18.5KB
   → Proxy replaces with stub: ~100 bytes
