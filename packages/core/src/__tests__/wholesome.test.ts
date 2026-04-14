@@ -497,6 +497,11 @@ describe("wholesome — structural source-code assertions", () => {
       "green-gate.yml",
       // test.yml is the skeptic gate (alternate filename) — LLM evaluation only
       "test.yml",
+      // Reusable skeptic gate — workflow_call only, no direct pull_request trigger;
+      // fork-aware runner selection is delegated to the caller workflow
+      "skeptic-gate-reusable.yml",
+      // Reusable skeptic cron — workflow_call only, same rationale as above
+      "skeptic-cron-reusable.yml",
     ];
 
     /** Jobs that are inherently safe on ubuntu-latest (no secrets, no self-hosted need).
