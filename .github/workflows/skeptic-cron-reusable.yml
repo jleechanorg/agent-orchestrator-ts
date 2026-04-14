@@ -1,0 +1,152 @@
+name: Skeptic Cron (Reusable)
+
+# Reusable version of the Skeptic Cron workflow.
+# Single source of truth — callers in any repo replace their full copy with:
+#
+#   jobs:
+#     skeptic_cron:
+#       uses: jleechanorg/agent-orchestrator/.github/workflows/skeptic-cron-reusable.yml@main
+#       with:
+#         runner_labels: ${{ vars.SELF_HOSTED_RUNNER_LABELS || '["self-hosted","self-hosted-mikey"]' }}
+#       secrets: inherit
+
+on:
+  workflow_call:
+    inputs:
+      runner_labels:
+        description: "JSON array of runner labels"
+        type: string
+        required: false
+        default: '["ubuntu-latest"]'
+      stale_hours:
+        description: "Hours before a PR is considered stale"
+        type: string
+        required: false
+        default: "3"
+      auto_merge:
+        description: "Whether to auto-merge 7-green PRs"
+        type: string
+        required: false
+        default: "true"
+
+jobs:
+  skeptic_cron:
+    name: Skeptic Cron
+    runs-on: ${{ fromJson(inputs.runner_labels) }}
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      statuses: read
+      checks: read
+    steps:
+      # ----------------------------------------------------------------
+      # Step 1: List open non-draft PRs
+      # ----------------------------------------------------------------
+      - name: List open PRs
+        id: list_prs
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PR_JSON=$(gh api repos/${{ github.repository }}/pulls \
+            --paginate 2>/dev/null \
+            | jq -s '[add[] | select(.draft == false) | {number, title, user: {login: .user.login}, head: {ref: .head.ref, sha: .head.sha}, base: {ref: .base.ref}, mergeable}]' 2>/dev/null || echo "[]")
+
+          echo "pr_numbers=$(echo "$PR_JSON" | jq -c '.')" >> "$GITHUB_OUTPUT"
+          echo "pr_count=$(echo "$PR_JSON" | jq 'length')" >> "$GITHUB_OUTPUT"
+
+      # ----------------------------------------------------------------
+      # Step 2: Checkout agent-orchestrator to get the evaluation script.
+      # This ensures we use the version of the script matching the workflow logic.
+      # ----------------------------------------------------------------
+      - name: Checkout agent-orchestrator (infra)
+        uses: actions/checkout@v4
+        with:
+          repository: jleechanorg/agent-orchestrator
+          path: .agent-orchestrator-infra
+
+      # ----------------------------------------------------------------
+      # Step 3: Checkout calling repository (local scripts if any)
+      # Some repos might still have local scripts or we need the path for compare.
+      # ----------------------------------------------------------------
+      - name: Checkout caller repo
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      # ----------------------------------------------------------------
+      # Step 4: Post skeptic triggers for 6-green eligible PRs
+      # ----------------------------------------------------------------
+      - name: Post skeptic triggers for 6-green eligible PRs
+        id: post_triggers
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_JSON: ${{ steps.list_prs.outputs.pr_numbers }}
+        run: |
+          TRIGGERED=0; SKIPPED_DOCS=0; SKIPPED_NOT_6GREEN=0
+
+          for PR in $(echo "$PR_JSON" | jq -r '.[] | @base64'); do
+            PR_DATA=$(echo "$PR" | base64 -d)
+            PR_NUM=$(echo "$PR_DATA" | jq -r '.number')
+            PR_SHA=$(echo "$PR_DATA" | jq -r '.head.sha')
+            PR_BASE_REF=$(echo "$PR_DATA" | jq -r '.base.ref')
+
+            # Docs-only skip
+            DIFF_FILES=$(gh api repos/${{ github.repository }}/compare/"${PR_BASE_REF}...${PR_SHA}" \
+              --jq '[.files[].filename] | map(select(test("\\.(js|ts|jsx|tsx|py|rs|go|java|cs|cpp|h|c|mk|toml|yaml|yml|json|xml|sh|bash|ps1|rb|php|swift|kt|gradle)$"; "i") | not))' \
+              2>/dev/null | jq 'length' || echo 0)
+            TOTAL_FILES=$(gh api repos/${{ github.repository }}/compare/"${PR_BASE_REF}...${PR_SHA}" \
+              --jq '.files | length' 2>/dev/null || echo 0)
+            if [ "${DIFF_FILES:-0}" -eq "${TOTAL_FILES:-0}" ] && [ "${TOTAL_FILES:-0}" -gt 0 ]; then
+              SKIPPED_DOCS=$((SKIPPED_DOCS + 1)); continue
+            fi
+
+            # Gate 1: CI green
+            CI_STATUS=$(gh api repos/${{ github.repository }}/commits/"$PR_SHA"/status --jq '.state' 2>/dev/null || echo "error")
+            if [ "$CI_STATUS" != "success" ]; then SKIPPED_NOT_6GREEN=$((SKIPPED_NOT_6GREEN + 1)); continue; fi
+
+            # Gate 2: No merge conflicts
+            PR_META=$(gh api repos/${{ github.repository }}/pulls/"$PR_NUM" --jq '{mergeable: .mergeable}' 2>/dev/null)
+            if [ "$(echo "$PR_META" | jq -r '.mergeable')" != "true" ]; then SKIPPED_NOT_6GREEN=$((SKIPPED_NOT_6GREEN + 1)); continue; fi
+
+            # Gate 3: CR APPROVED
+            LATEST_CR=$(gh api repos/${{ github.repository }}/pulls/"$PR_NUM"/reviews --paginate 2>/dev/null | jq -rs 'add | [.[] | select((.user.login == "coderabbitai[bot]" or .user.login == "coderabbitai") and .state != "COMMENTED")] | sort_by(.submitted_at) | last | .state // "none"' 2>/dev/null)
+            if [ "$LATEST_CR" != "APPROVED" ]; then
+                # fallback check
+                CR_STATUS=$(gh api repos/${{ github.repository }}/commits/"$PR_SHA"/status --jq '.statuses | map(select(.context == "CodeRabbit" and .state == "success")) | length' 2>/dev/null || echo 0)
+                CR_COMMENT=$(gh api repos/${{ github.repository }}/issues/"$PR_NUM"/comments --paginate 2>/dev/null | jq -rs --arg sha "$PR_SHA" 'add | map(select((.user.login == "coderabbitai[bot]" or .user.login == "coderabbitai") and (.body | test("^\\s*\\[approve\\]\\s*$"; "i")))) | length' 2>/dev/null || echo 0)
+                if [ "$CR_STATUS" -eq 0 ] || [ "$CR_COMMENT" -eq 0 ]; then SKIPPED_NOT_6GREEN=$((SKIPPED_NOT_6GREEN + 1)); continue; fi
+            fi
+
+            # Gate 4: Bugbot
+            BUGBOT=$(gh api repos/${{ github.repository }}/commits/"$PR_SHA"/check-runs --paginate 2>/dev/null | jq -rs '[.[] | .check_runs[]?] | map(select(.name | test("Cursor Bugbot"; "i"))) | sort_by(.completed_at) | last | .conclusion // "none"' 2>/dev/null)
+            if [[ ! "$BUGBOT" =~ ^(success|neutral|skipped)$ ]]; then SKIPPED_NOT_6GREEN=$((SKIPPED_NOT_6GREEN + 1)); continue; fi
+
+            # Gate 5: Comments (Simplified GQL check for the loop)
+            # (Note: full GQL check is handled in skeptic-evaluate.sh, this is just for triggering)
+            
+            # Post trigger
+            BODY=$(printf '%s\n%s' "SKEPTIC_CRON_TRIGGER" "<!-- skeptic-cron-trigger-${PR_SHA} -->")
+            gh api repos/${{ github.repository }}/issues/"$PR_NUM"/comments --field body="$BODY" > /dev/null 2>&1
+            TRIGGERED=$((TRIGGERED + 1))
+          done
+
+      # ----------------------------------------------------------------
+      # Step 5: Check 7-green and merge
+      # ----------------------------------------------------------------
+      - name: Check 7-green and merge
+        id: merge_prs
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_REPOSITORY_OWNER: ${{ github.repository_owner }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+          PR_JSON: ${{ steps.list_prs.outputs.pr_numbers }}
+          STALE_HOURS: ${{ inputs.stale_hours }}
+          SKEPTIC_BOT_AUTHOR: ${{ vars.SKEPTIC_BOT_AUTHOR || 'github-actions[bot]' }}
+          SKEPTIC_CRON_AUTO_MERGE: ${{ inputs.auto_merge }}
+          SKEPTIC_MERGE_DENYLIST: ${{ vars.SKEPTIC_MERGE_DENYLIST || '' }}
+        run: |
+          SCRIPT_PATH=".agent-orchestrator-infra/.github/scripts/skeptic-evaluate.sh"
+          chmod +x "$SCRIPT_PATH"
+          "$SCRIPT_PATH"
