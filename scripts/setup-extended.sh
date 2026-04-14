@@ -56,22 +56,31 @@ fi
 echo ""
 echo "Rebuilding ao CLI from source..."
 cd "$REPO_ROOT"
-pnpm build 2>&1 | tail -1
+# Build only the CLI package — building all packages hits a Next.js SIGABRT crash
+# in packages/web that is unrelated to the CLI. The webhook server (packages/web)
+# is built and run separately via pnpm next dev.
+pnpm --filter @jleechanorg/ao-cli build 2>&1 | tail -1
 
 echo "Linking ao CLI globally..."
 cd "$REPO_ROOT/packages/cli"
-# Try npm install -g first, then sudo fallback. This preserves the original
-# behavior while still providing clear error output when both fail.
-if ! npm install -g . 2>/dev/null; then
-  if command -v sudo >/dev/null 2>&1; then
-    sudo npm install -g .
+# Use pnpm install -g for pnpm monorepos (npm install -g fails on workspace:* deps).
+# Set PNPM_HOME to a dir in PATH so pnpm can find the global bin.
+export PNPM_HOME="${PNPM_HOME:-$HOME/.local/share/pnpm}"
+export PATH="$PNPM_HOME:$PATH"
+if ! mkdir -p "$PNPM_HOME" 2>/dev/null; then
+  # Fallback: use npm link if pnpm global dir is not writable
+  if npm link 2>/dev/null; then
+    echo "[ok] ao CLI linked via npm"
   else
-    echo "WARNING: npm install -g failed and sudo is unavailable." >&2
-    echo "         Ao CLI may not be available in PATH." >&2
-    # In CI (Docker), proceed anyway since the test may not need global CLI
-    if [ "${CI:-}" != "true" ]; then
-      exit 1
-    fi
+    echo "WARNING: Could not link ao CLI globally." >&2
+    echo "  Try manually: cd packages/cli && npm link"
+  fi
+else
+  if pnpm install -g . 2>/dev/null; then
+    echo "[ok] ao CLI installed globally via pnpm"
+  else
+    echo "WARNING: pnpm install -g failed." >&2
+    echo "  Try manually: cd packages/cli && pnpm install -g ."
   fi
 fi
 cd "$REPO_ROOT"
