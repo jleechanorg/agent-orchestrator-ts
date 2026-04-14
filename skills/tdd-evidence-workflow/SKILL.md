@@ -52,6 +52,6 @@ Screenshots are point-in-time snapshots that can be easily faked or misinterpret
 
 ## Linkage to Other Skills
 
-- [Evidence Standards](file:///Users/jleechan/project_agento/worktree-evidence-enforcement/skills/evidence-standards/SKILL.md) - Artifact requirements.
-- [UI Video Evidence](file:///Users/jleechan/project_agento/worktree-evidence-enforcement/skills/ui-video-evidence/SKILL.md) - How to capture UI video.
-- [Tmux Video Evidence](file:///Users/jleechan/project_agento/worktree-evidence-enforcement/skills/tmux-video-evidence/SKILL.md) - How to capture terminal video.
+- [Evidence Standards](../evidence-standards/SKILL.md) - Artifact requirements.
+- [UI Video Evidence](../ui-video-evidence/SKILL.md) - How to capture UI video.
+- [Tmux Video Evidence](../tmux-video-evidence/SKILL.md) - How to capture terminal video.
