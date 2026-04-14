@@ -173,8 +173,16 @@ jobs:
                 if [ -n "$HEAD_COMMITTED_AT" ]; then
                   CR_APPROVE_COMMENT=$(gh api repos/${{ github.repository }}/issues/"$PR_NUM"/comments \
                     --paginate 2>/dev/null \
-                    | jq -rs --arg since "$HEAD_COMMITTED_AT" 'add | [.[] | select((.user.login == "coderabbitai[bot]" or .user.login == "coderabbitai") and .created_at >= $since and (.body | test("(?m)^\\s*\\[approve\\]\\s*$"; "i")))] | sort_by(.created_at) | last | if . then "APPROVED" else "none" end' \
-                    2>/dev/null || echo "none")
+                    | jq -rs --arg since "$HEAD_COMMITTED_AT" 'add | [.[] | select((.user.login == "coderabbitai[bot]" or .user.login == "coderabbitai") and .created_at >= $since and (.body | test("^\\s*\\[approve\\]\\s*$"; "i")))] | sort_by(.created_at) | last | if . then "APPROVED" else "none" end' \
+                    2>&1)
+                  CR_APPROVE_COMMENT_EXIT=$?
+                  if [ $CR_APPROVE_COMMENT_EXIT -ne 0 ]; then
+                    echo "  [SKIP] Gate-3 FAIL: CR approve comment lookup failed (exit=$CR_APPROVE_COMMENT_EXIT)"
+                    SKIPPED_NOT_6GREEN=$((SKIPPED_NOT_6GREEN + 1))
+                    CR_APPROVE_COMMENT="lookup_error"
+                  else
+                    CR_APPROVE_COMMENT="${CR_APPROVE_COMMENT%$'\n'}"
+                  fi
                 fi
                 if [ "$CR_STATUS" = "success" ] && [ "$CR_APPROVE_COMMENT" = "APPROVED" ]; then
                   echo "  [GATE-3] CR=APPROVED(status+comment)"
@@ -359,8 +367,16 @@ jobs:
                 if [ -n "$HEAD_COMMITTED_AT" ]; then
                   CR_APPROVE_COMMENT=$(gh api repos/${{ github.repository }}/issues/"$PR_NUM"/comments \
                     --paginate 2>/dev/null \
-                    | jq -rs --arg since "$HEAD_COMMITTED_AT" 'add | [.[] | select((.user.login == "coderabbitai[bot]" or .user.login == "coderabbitai") and .created_at >= $since and (.body | test("(?m)^\\s*\\[approve\\]\\s*$"; "i")))] | sort_by(.created_at) | last | if . then "APPROVED" else "none" end' \
-                    2>/dev/null || echo "none")
+                    | jq -rs --arg since "$HEAD_COMMITTED_AT" 'add | [.[] | select((.user.login == "coderabbitai[bot]" or .user.login == "coderabbitai") and .created_at >= $since and (.body | test("^\\s*\\[approve\\]\\s*$"; "i")))] | sort_by(.created_at) | last | if . then "APPROVED" else "none" end' \
+                    2>&1)
+                  CR_APPROVE_COMMENT_EXIT=$?
+                  if [ $CR_APPROVE_COMMENT_EXIT -ne 0 ]; then
+                    echo "  [SKIP] Gate-3 FAIL: CR approve comment lookup failed (exit=$CR_APPROVE_COMMENT_EXIT)"
+                    SKIPPED_NOT_6GREEN=$((SKIPPED_NOT_6GREEN + 1))
+                    CR_APPROVE_COMMENT="lookup_error"
+                  else
+                    CR_APPROVE_COMMENT="${CR_APPROVE_COMMENT%$'\n'}"
+                  fi
                 fi
                 if [ "$CR_STATUS" = "success" ] && [ "$CR_APPROVE_COMMENT" = "APPROVED" ]; then
                   CR_APPROVED="PASS"
