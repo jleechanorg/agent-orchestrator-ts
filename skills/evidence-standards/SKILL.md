@@ -173,27 +173,17 @@ results = {
 
 ### Evidence Integrity (Checksums)
 
-**ALL evidence files MUST have separate checksum files:**
+**ALL evidence files MUST have separate checksum files.**
 
 ```bash
 # Generate checksums AFTER finalizing content
 sha256sum run.json > run.json.sha256
 sha256sum metadata.json > metadata.json.sha256
-
-# Verify checksums
-sha256sum -c run.json.sha256
 ```
 
-**Anti-pattern:** Embedding checksums inside JSON files (self-invalidating).
-
-**Checksum usability requirement:** `.sha256` files must reference the **local basename**
-(e.g., `run.json`), not a nested path like `artifacts/run_.../run.json`.
-This ensures `sha256sum -c` works when run from the evidence directory.
-
-**ALL evidence files require checksums, including:**
-- Individual test result files (PASS_*.json, FAIL_*.json)
-- Aggregated files (request_responses.jsonl)
-- Server logs (artifacts/server.log)
+**Requirements:**
+- `.sha256` files must reference the **local basename** (e.g., `run.json`).
+- Required for: test result files, aggregated logs (`request_responses.jsonl`), and server logs.
 
 ```python
 def _write_checksum_for_file(filepath: Path) -> None:
@@ -1194,7 +1184,7 @@ If your work has no UI component, tmux video alone is acceptable. If your work h
 
 ### Tmux / Terminal Video — Quick Checklist
 
-Full template: `~/.claude/skills/tmux-video-evidence.md`
+Full template: `skills/tmux-video-evidence/SKILL.md`
 
 **Tool**: `asciinema` + `agg` (`.cast` → `.gif`)
 
@@ -1219,7 +1209,7 @@ Full template: `~/.claude/skills/tmux-video-evidence.md`
 
 ### UI / Browser Video — Quick Checklist
 
-Full template: `~/.claude/skills/ui-video-evidence.md`
+Full template: `skills/ui-video-evidence/SKILL.md`
 
 **Tool**: `mcp__claude-in-chrome__gif_creator` (agent sessions) or Kap (manual)
 
