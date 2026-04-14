@@ -163,6 +163,8 @@ All seven must hold: CI green; mergeable; CodeRabbit APPROVED; Bugbot clean; inl
 
 **Full detail:** CR loop, evidence bundle, GraphQL gate-5, spawn gates, worktrees, lifecycle triage → `roadmap/claude-fork-reference.md`.
 
+**Evidence Requirement**: Video evidence (.mp4, .gif, .cast) properly captioned and tied to a commit SHA is explicitly REQUIRED for UI and interactive terminal workflows. Static screenshots are insufficient. Direct all agents to follow the repository standards in [skills/evidence-standards/SKILL.md](file:///Users/jleechan/project_agento/worktree-evidence-enforcement/skills/evidence-standards/SKILL.md).
+
 ## Fork isolation
 
 New files for new features; additive upstream edits; plugin-first; minimal core diff (`*-extensions.ts`); fork exports grouped in `index.ts`. **Risky:** `lifecycle-manager.ts`, `types.ts`, `config.ts`, `spawn.ts`. **Safe:** `packages/plugins/**`, `roadmap/`.
