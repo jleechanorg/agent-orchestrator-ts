@@ -350,7 +350,7 @@ GitHub → TailScale Funnel (public URL) → Next.js webhook route → lifecycle
 # After running setup.sh, the webhook server is started automatically
 # if TailScale is running. To manually start:
 
-cd ~/project_agento/agent-orchestrator/packages/web
+cd ~/path/to/agent-orchestrator/packages/web
 tailscale funnel --bg 3030          # expose port publicly
 pnpm next dev --port 3030 &        # start webhook server
 
@@ -371,7 +371,7 @@ Add to `~/.bashrc` to reserve port 3030 for the webhook server:
 ```bash
 # Port 3030: AO Webhook Server (Next.js)
 #   - Do NOT start other services on this port
-#   - Webhook server: cd ~/project_agento/agent-orchestrator/packages/web && pnpm next dev --port 3030
+#   - Webhook server: cd ~/path/to/agent-orchestrator/packages/web && pnpm next dev --port 3030
 ```
 
 **Troubleshooting:**
