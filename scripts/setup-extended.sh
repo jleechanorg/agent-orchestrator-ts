@@ -240,7 +240,7 @@ if command -v tailscale &>/dev/null; then
   TS_STATUS=$(tailscale status --json 2>/dev/null | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('BackendState',''))" 2>/dev/null || echo "unknown")
   if [ "$TS_STATUS" = "Running" ]; then
     # Verify Funnel is open on the webhook port
-    TS_FUNNEL=$(tailscale funnel status 2>/dev/null | grep -E "^8030" | awk '{print $2}' || echo "off")
+    TS_FUNNEL=$(tailscale funnel status 2>/dev/null | grep -E "^${WEBHOOK_PORT}" | awk '{print $2}' || echo "off")
     if [ "$TS_FUNNEL" != "$WEBHOOK_PORT" ]; then
       echo "[tail] Opening TailScale Funnel on port $WEBHOOK_PORT..."
       # Reset and reconfigure funnel on webhook port only
