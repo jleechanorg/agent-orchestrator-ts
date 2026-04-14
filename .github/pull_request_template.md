@@ -21,8 +21,8 @@
 (paste command + output)
 ```
 
-**Terminal media (Video GIF/MP4/CAST):** <!-- HTTPS URL to .gif/.mp4/.cast with caption/SHA, or exact: N/A with justification (unit claim may use N/A per policy) -->
+**Terminal media:** <!-- HTTPS URL, or N/A with justification (unit claim may use N/A per policy) -->
 
-**UI media (Video GIF/MP4):** <!-- HTTPS URL to .gif/.mp4 with caption/SHA, or exact: N/A - no UI changes -->
+**UI media:** <!-- HTTPS URL / image, or exact: N/A - no UI changes -->
 
 **Verdict:** <!-- PASS | INSUFFICIENT | FAIL — mandatory for Evidence Gate -->
