@@ -56,22 +56,31 @@ fi
 echo ""
 echo "Rebuilding ao CLI from source..."
 cd "$REPO_ROOT"
-pnpm build 2>&1 | tail -1
+# Build only the CLI package — building all packages hits a Next.js SIGABRT crash
+# in packages/web that is unrelated to the CLI. The webhook server (packages/web)
+# is built and run separately via pnpm next dev.
+pnpm --filter @jleechanorg/ao-cli build 2>&1 | tail -1
 
 echo "Linking ao CLI globally..."
 cd "$REPO_ROOT/packages/cli"
-# Try npm install -g first, then sudo fallback. This preserves the original
-# behavior while still providing clear error output when both fail.
-if ! npm install -g . 2>/dev/null; then
-  if command -v sudo >/dev/null 2>&1; then
-    sudo npm install -g .
+# Use pnpm install -g for pnpm monorepos (npm install -g fails on workspace:* deps).
+# Set PNPM_HOME to a dir in PATH so pnpm can find the global bin.
+export PNPM_HOME="${PNPM_HOME:-$HOME/.local/share/pnpm}"
+export PATH="$PNPM_HOME:$PATH"
+if ! mkdir -p "$PNPM_HOME" 2>/dev/null; then
+  # Fallback: use npm link if pnpm global dir is not writable
+  if npm link 2>/dev/null; then
+    echo "[ok] ao CLI linked via npm"
   else
-    echo "WARNING: npm install -g failed and sudo is unavailable." >&2
-    echo "         Ao CLI may not be available in PATH." >&2
-    # In CI (Docker), proceed anyway since the test may not need global CLI
-    if [ "${CI:-}" != "true" ]; then
-      exit 1
-    fi
+    echo "WARNING: Could not link ao CLI globally." >&2
+    echo "  Try manually: cd packages/cli && npm link"
+  fi
+else
+  if pnpm install -g . 2>/dev/null; then
+    echo "[ok] ao CLI installed globally via pnpm"
+  else
+    echo "WARNING: pnpm install -g failed." >&2
+    echo "  Try manually: cd packages/cli && pnpm install -g ."
   fi
 fi
 cd "$REPO_ROOT"
@@ -206,6 +215,171 @@ for pidfile in $(find "$HOME/.agent-orchestrator" -name "lifecycle-worker.pid" 2
   fi
 done
 echo "  Cleaned $CLEANED stale PID files"
+
+# ─── GitHub Webhook Server ─────────────────────────────────────────────────
+# The webhook server receives push/PR events from GitHub and triggers
+# lifecycle checks without polling. Requires TailScale for public URL.
+#
+# Prerequisites:
+#   - TailScale installed and authenticated: https://tailscale.com/download
+#   - AO_GITHUB_WEBHOOK_SECRET generated and stored in .env.local
+#   - GitHub webhooks registered for each repo (auto-done by ao webhook install)
+
+WEBHOOK_ENV="$REPO_ROOT/packages/web/.env.local"
+WEBHOOK_SECRET_VAR="AO_GITHUB_WEBHOOK_SECRET"
+WEBHOOK_PORT="${AO_WEBHOOK_PORT:-3030}"
+
+# Generate webhook secret if not present
+if [ -f "$WEBHOOK_ENV" ]; then
+  if ! grep -q "$WEBHOOK_SECRET_VAR" "$WEBHOOK_ENV" 2>/dev/null; then
+    SECRET=$(python3 -c "import secrets; print(secrets.token_hex(32))")
+    echo "$WEBHOOK_SECRET_VAR=$SECRET" >> "$WEBHOOK_ENV"
+    echo "[ok] Generated $WEBHOOK_SECRET_VAR in packages/web/.env.local"
+  else
+    echo "[ok] $WEBHOOK_SECRET_VAR already present"
+  fi
+else
+  SECRET=$(python3 -c "import secrets; print(secrets.token_hex(32))")
+  echo "$WEBHOOK_SECRET_VAR=$SECRET" > "$WEBHOOK_ENV"
+  echo "[ok] Created packages/web/.env.local with $WEBHOOK_SECRET_VAR"
+fi
+
+# TailScale Funnel: expose webhook port publicly (no firewall config needed)
+if command -v tailscale &>/dev/null; then
+  TS_STATUS=$(tailscale status --json 2>/dev/null | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('BackendState',''))" 2>/dev/null || echo "unknown")
+  if [ "$TS_STATUS" = "Running" ]; then
+    # Verify Funnel is open on the webhook port
+    TS_FUNNEL=$(tailscale funnel status 2>/dev/null | grep -E "^${WEBHOOK_PORT}" | awk '{print $2}' || echo "off")
+    if [ "$TS_FUNNEL" != "$WEBHOOK_PORT" ]; then
+      echo "[tail] Opening TailScale Funnel on port $WEBHOOK_PORT..."
+      # Reset and reconfigure funnel on webhook port only
+      tailscale funnel --bg "$WEBHOOK_PORT" 2>/dev/null || \
+        tailscale funnel reset 2>/dev/null && tailscale funnel --bg "$WEBHOOK_PORT" 2>/dev/null || \
+        echo "  WARNING: Could not configure Funnel. Run manually: tailscale funnel --bg $WEBHOOK_PORT"
+    fi
+    FUNNEL_URL=$(tailscale funnel status 2>/dev/null | grep -E "^${WEBHOOK_PORT}" | awk '{print $3}' || echo "")
+    if [ -n "$FUNNEL_URL" ]; then
+      echo "[ok] TailScale Funnel active: $FUNNEL_URL"
+    else
+      echo "[ok] TailScale running (Funnel status: see 'tailscale funnel status')"
+    fi
+  else
+    echo "[skip] TailScale not logged in (status: $TS_STATUS). Run 'tailscale login' to enable webhooks."
+  fi
+else
+  echo "[skip] TailScale not installed. Install from https://tailscale.com/download to enable webhook server."
+fi
+
+# Check if webhook server is running on the port
+WEBHOOK_PID=$(lsof -ti :"$WEBHOOK_PORT" 2>/dev/null | head -1 || true)
+if [ -z "$WEBHOOK_PID" ]; then
+  echo "[tail] Starting webhook server on port $WEBHOOK_PORT..."
+  cd "$REPO_ROOT/packages/web"
+  # Start next dev server in background, tagged so it can be found
+  pnpm next dev --port "$WEBHOOK_PORT" >> ~/.agent-orchestrator/webhook-server.log 2>&1 &
+  WEBHOOK_BG_PID=$!
+  sleep 3
+  if kill -0 "$WEBHOOK_BG_PID" 2>/dev/null; then
+    echo "[ok] Webhook server started (PID $WEBHOOK_BG_PID) on port $WEBHOOK_PORT"
+    echo "$WEBHOOK_BG_PID" > ~/.agent-orchestrator/webhook-server.pid
+  else
+    echo "  WARNING: Webhook server failed to start. Check ~/.agent-orchestrator/webhook-server.log"
+  fi
+else
+  echo "[ok] Webhook server already running on port $WEBHOOK_PORT (PID $WEBHOOK_PID)"
+fi
+
+# Register GitHub webhooks for all configured repos
+echo ""
+echo "Registering GitHub webhooks for configured repos..."
+CONFIG_FILE="${AO_CONFIG_PATH:-$(ao_staging_config_path)}"
+if [ -f "$CONFIG_FILE" ]; then
+  # Collect webhook URL from TailScale Funnel or use localhost
+  if command -v tailscale &>/dev/null && [ "$(tailscale status --json 2>/dev/null | python3 -c 'import sys,json; d=json.load(sys.stdin); print(d.get("BackendState",""))' 2>/dev/null)" = "Running" ]; then
+    WEBHOOK_BASE_URL=$(tailscale funnel status 2>/dev/null | grep -E "^${WEBHOOK_PORT}" | awk '{print $3}' | sed 's|/+$||' || echo "")
+  fi
+  WEBHOOK_BASE_URL="${WEBHOOK_BASE_URL:-http://localhost:${WEBHOOK_PORT}}"
+  WEBHOOK_API_PATH="/api/webhooks/github"
+  SECRET=$(python3 -c "import secrets; print(secrets.token_hex(32))" 2>/dev/null || echo "")
+
+  # Read secret from .env.local if available
+  if [ -f "$WEBHOOK_ENV" ]; then
+    SECRET=$(grep "^$WEBHOOK_SECRET_VAR=" "$WEBHOOK_ENV" 2>/dev/null | cut -d= -f2 || echo "$SECRET")
+  fi
+
+  if [ -z "$SECRET" ] || [ "$SECRET" = "$WEBHOOK_SECRET_VAR" ]; then
+    SECRET=$(python3 -c "import secrets; print(secrets.token_hex(32))")
+  fi
+
+  python3 - "$CONFIG_FILE" "$WEBHOOK_BASE_URL" "$WEBHOOK_API_PATH" "$SECRET" << 'PYEOF' 2>/dev/null || true
+import sys, json, subprocess, urllib.request, urllib.error, os, hmac, hashlib
+
+config_path, base_url, api_path, secret = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
+full_url = f"{base_url}{api_path}"
+
+try:
+    import yaml
+    with open(config_path) as f:
+        cfg = yaml.safe_load(f) or {}
+except:
+    print("  WARNING: Could not parse config for webhook registration")
+    sys.exit(0)
+
+token = os.environ.get('GITHUB_TOKEN') or subprocess.check_output(['gh', 'auth', 'token']).strip().decode()
+
+payload = json.dumps({
+    'name': 'web',
+    'active': True,
+    'events': ['push', 'pull_request'],
+    'config': {
+        'url': full_url,
+        'content_type': 'json',
+        'secret': secret,
+        'insecure_ssl': '0'
+    }
+}).encode()
+
+headers = {
+    'Authorization': 'Bearer ' + token,
+    'Accept': 'application/vnd.github+json',
+    'X-GitHub-Api-Version': '2022-11-28'
+}
+
+for project_id, proj_cfg in (cfg.get('projects') or {}).items():
+    repo = proj_cfg.get('repo', '')
+    scm_cfg = proj_cfg.get('scm', {})
+    webhook_cfg = scm_cfg.get('webhook', {})
+    if not repo:
+        continue
+    # Skip if webhook already enabled in config (already handled)
+    if webhook_cfg.get('enabled'):
+        continue
+    # Only register for repos that have scm.plugin: github
+    if scm_cfg.get('plugin') != 'github':
+        continue
+
+    req = urllib.request.Request(
+        f'https://api.github.com/repos/{repo}/hooks',
+        data=payload,
+        headers=headers,
+        method='POST'
+    )
+    try:
+        with urllib.request.urlopen(req) as resp:
+            result = json.loads(resp.read())
+            print(f"  ✓ {repo}: hook {result.get('id')}")
+    except urllib.error.HTTPError as e:
+        body = json.loads(e.read())
+        msg = body.get('message', 'error')
+        # 422 = already exists, 404 = repo not found
+        print(f"  ~ {repo}: {e.code} {msg}")
+    except Exception as e:
+        print(f"  ~ {repo}: {e}")
+
+PYEOF
+else
+  echo "  Skipping webhook registration (no config found)"
+fi
 
 # ─── Done ───────────────────────────────────────────────────────────────────
 

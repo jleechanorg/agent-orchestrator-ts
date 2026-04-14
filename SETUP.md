@@ -325,7 +325,73 @@ With no flags, the script installs both workflows; use `--gate` or `--cron` to i
 
 Then commit `.github/workflows/skeptic-gate.yml` and `.github/workflows/skeptic-cron.yml`, push, and keep **lifecycle-manager** running with `gh` authenticated as the GitHub user that will post `VERDICT` comments. In each repo, set the Actions **repository variable** `SKEPTIC_BOT_AUTHOR` (Settings → Secrets and variables → Actions → Variables) to that user’s **GitHub login** — the same account `gh auth login` uses where lifecycle-manager runs `ao skeptic verify`. In `skeptic-gate.yml`, the **Poll for skeptic VERDICT** step exports `SKEPTIC_BOT_AUTHOR` from `vars.SKEPTIC_BOT_AUTHOR` (default `github-actions[bot]`) and the comment filter accepts VERDICT comments authored by **either** that login **or** `github-actions[bot]` (so local lifecycle posts and in-GHA posts can both match).
 
-### GitHub Issues
+#### GitHub Webhooks (Event-Driven Lifecycle)
+
+GitHub webhooks replace polling with immediate event delivery. When a push or pull request event fires on any configured repo, the webhook server receives it and triggers lifecycle checks on active AO sessions within seconds — no polling delay.
+
+**What this enables:**
+- AO reacts to push/PR events in real-time instead of waiting ~5 min for the next poll cycle
+- Clean session termination when PRs merge (no zombie sessions)
+- Zero API cost when nothing is happening
+
+**Architecture:**
+```
+GitHub → TailScale Funnel (public URL) → Next.js webhook route → lifecycleManager.check()
+```
+
+**Requirements:**
+1. **TailScale** installed and authenticated — provides the public HTTPS URL without firewall config
+2. **Webhook server** running on a dedicated port (default 3030)
+3. **GitHub webhooks** registered per-repo via the GitHub API
+
+**Setup:**
+
+```bash
+# After running setup.sh, the webhook server is started automatically
+# if TailScale is running. To manually start:
+
+cd ~/project_agento/agent-orchestrator/packages/web
+tailscale funnel --bg 3030          # expose port publicly
+pnpm next dev --port 3030 &        # start webhook server
+
+# Register webhooks for all configured repos (run once per new repo):
+bash scripts/setup-extended.sh
+```
+
+**How it works:**
+- `setup-extended.sh` generates `AO_GITHUB_WEBHOOK_SECRET` in `packages/web/.env.local`
+- `tailscale funnel --bg 3030` creates a public HTTPS URL (e.g. `https://your-machine.tail5eb762.ts.net/`)
+- The webhook URL is registered with GitHub for each repo in the config
+- When GitHub sends a push/PR event, the route verifies the HMAC-SHA256 signature, matches the repo to the project config, and calls `lifecycle.check()` on any active sessions for that project
+
+**Port reservation (macOS/bashrc):**
+
+Add to `~/.bashrc` to reserve port 3030 for the webhook server:
+
+```bash
+# Port 3030: AO Webhook Server (Next.js)
+#   - Do NOT start other services on this port
+#   - Webhook server: cd ~/project_agento/agent-orchestrator/packages/web && pnpm next dev --port 3030
+```
+
+**Troubleshooting:**
+
+```bash
+# Check if webhook server is running
+lsof -i :3030
+
+# Check TailScale Funnel status
+tailscale funnel status
+
+# Test webhook locally
+curl -X POST http://localhost:3030/api/webhooks/github \
+  -H "Content-Type: application/json" \
+  -H "x-github-event: push" \
+  -H "x-github-delivery: test-001" \
+  -d '{"ref":"refs/heads/main","repository":{"name":"my-repo","full_name":"owner/my-repo","owner":{"login":"owner"}},"sender":{"login":"owner"}}'
+```
+
+## GitHub Issues
 
 **Authentication:**
 

@@ -88,39 +88,42 @@ describe("llmEval — explicit model=gemini", () => {
   it("falls back to codex when gemini is unavailable", async () => {
     mockResolveCodexBinary.mockResolvedValue("/usr/local/bin/codex");
     const enoent = makeErrnoError("ENOENT", "ENOENT");
-    // Ordered chain for model=gemini: gemini → cursor → codex → claude
+    // Chain: gemini → cursor → codex → claude (4 models)
+    // Mock all 4: gemini ENOENT, cursor ENOENT, codex PASS, claude not called
     mockExecFileSync
       .mockImplementationOnce(() => {
-        throw enoent; // gemini
+        throw enoent; // gemini (not installed)
       })
       .mockImplementationOnce(() => {
-        throw enoent; // cursor
+        throw enoent; // cursor (not installed)
       })
-      .mockReturnValueOnce(PASS_VERDICT); // codex succeeds
-    // 4th (claude) never reached since rotation stops at codex success
+      .mockReturnValueOnce(PASS_VERDICT); // codex succeeds (3rd call)
     const result = await llmEval("evaluate this", { model: "gemini" });
     expect(result).toBe(PASS_VERDICT);
-    // codex is reached but mockResolveCodexBinary spy may show 0 due to cross-test mock state
-    expect(mockExecFileSync).toHaveBeenCalled();
+    expect(mockResolveCodexBinary).toHaveBeenCalled();
+    // gemini + cursor + codex
+    expect(mockExecFileSync).toHaveBeenCalledTimes(3);
   });
 
   it("falls back to codex when gemini has an infra error", async () => {
     mockResolveCodexBinary.mockResolvedValue("/usr/local/bin/codex");
     const etimeout = makeErrnoError("ETIMEDOUT", "ETIMEDOUT");
-    // Ordered chain for model=gemini: gemini → cursor → codex → claude
+    const enoent = makeErrnoError("ENOENT", "ENOENT");
+    // Chain: gemini → cursor → codex → claude (4 models)
+    // Mock all 4: gemini ETIMEDOUT, cursor ENOENT, codex PASS, claude not called
     mockExecFileSync
       .mockImplementationOnce(() => {
-        throw etimeout; // gemini infra error
+        throw etimeout; // gemini (infra error)
       })
       .mockImplementationOnce(() => {
-        throw etimeout; // cursor infra error
+        throw enoent; // cursor (not installed)
       })
-      .mockReturnValueOnce(PASS_VERDICT); // codex succeeds
-    // 4th (claude) never reached since rotation stops at codex success
+      .mockReturnValueOnce(PASS_VERDICT); // codex succeeds (3rd call)
     const result = await llmEval("evaluate this", { model: "gemini" });
     expect(result).toBe(PASS_VERDICT);
-    // codex is reached but mockResolveCodexBinary spy may show 0 due to cross-test mock state
-    expect(mockExecFileSync).toHaveBeenCalled();
+    expect(mockResolveCodexBinary).toHaveBeenCalled();
+    // gemini + cursor + codex
+    expect(mockExecFileSync).toHaveBeenCalledTimes(3);
   });
 
   it("fails closed when gemini omits a verdict", async () => {
