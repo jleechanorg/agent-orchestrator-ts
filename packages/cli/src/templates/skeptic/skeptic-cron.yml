@@ -111,17 +111,49 @@ jobs:
             echo "  [GATE-2] No conflicts"
 
             # ----------------------------------------------------------------
-            # Gate 3: CR APPROVED
+            # Gate 3: CR APPROVED. Prefer formal CodeRabbit review state, but
+            # fall back to CodeRabbit's current-head status plus its explicit
+            # "[approve]" bot comment because some repos receive comments/statuses
+            # without a PR review object even with auto_approve enabled.
             # ----------------------------------------------------------------
-            LATEST_CR=$(gh api repos/${{ github.repository }}/pulls/"$PR_NUM"/reviews \
-              --jq '[.[] | select(.user.login == "coderabbitai[bot]" and .state == "APPROVED")] | sort_by(.submitted_at) | reverse | .[0].state // "none"' \
-              2>/dev/null || echo "none")
-            if [ "$LATEST_CR" != "APPROVED" ]; then
-              echo "  [SKIP] Gate-3 FAIL: CR=$LATEST_CR"
+            LATEST_CR_PIPELINE=$(set -o pipefail; gh api repos/${{ github.repository }}/pulls/"$PR_NUM"/reviews \
+              --paginate 2>/dev/null \
+              | jq -rs 'add | [.[] | select((.user.login == "coderabbitai[bot]" or .user.login == "coderabbitai") and .state != "COMMENTED")] | sort_by(.submitted_at) | last | .state // "none"' 2>&1)
+            LATEST_CR_EXIT=$?
+            if [ $LATEST_CR_EXIT -ne 0 ]; then
+              echo "  [SKIP] Gate-3 FAIL: CR review lookup failed (jq exit=$LATEST_CR_EXIT)"
               SKIPPED_NOT_6GREEN=$((SKIPPED_NOT_6GREEN + 1))
               continue
+            else
+              LATEST_CR="${LATEST_CR_PIPELINE%$'\n'}"
+              if [ "$LATEST_CR" = "APPROVED" ]; then
+                echo "  [GATE-3] CR=APPROVED"
+              elif [ "$LATEST_CR" != "none" ]; then
+                echo "  [SKIP] Gate-3 FAIL: CR=$LATEST_CR"
+                SKIPPED_NOT_6GREEN=$((SKIPPED_NOT_6GREEN + 1))
+                continue
+              else
+                HEAD_COMMITTED_AT=$(gh api repos/${{ github.repository }}/commits/"$PR_SHA" \
+                  --jq '.commit.committer.date // ""' 2>/dev/null || echo "")
+                CR_STATUS=$(gh api repos/${{ github.repository }}/commits/"$PR_SHA"/status \
+                  --jq '.statuses | map(select(.context == "CodeRabbit" and .state == "success")) | sort_by(.updated_at) | last | .state // "none"' \
+                  2>/dev/null || echo "none")
+                CR_APPROVE_COMMENT="none"
+                if [ -n "$HEAD_COMMITTED_AT" ]; then
+                  CR_APPROVE_COMMENT=$(gh api repos/${{ github.repository }}/issues/"$PR_NUM"/comments \
+                    --paginate 2>/dev/null \
+                    | jq -rs --arg since "$HEAD_COMMITTED_AT" 'add | [.[] | select((.user.login == "coderabbitai[bot]" or .user.login == "coderabbitai") and .created_at >= $since and (.body | test("(?m)^\\s*\\[approve\\]\\s*$"; "i")))] | sort_by(.created_at) | last | if . then "APPROVED" else "none" end' \
+                    2>/dev/null || echo "none")
+                fi
+                if [ "$CR_STATUS" = "success" ] && [ "$CR_APPROVE_COMMENT" = "APPROVED" ]; then
+                  echo "  [GATE-3] CR=APPROVED(status+comment)"
+                else
+                  echo "  [SKIP] Gate-3 FAIL: CR=$LATEST_CR status=$CR_STATUS comment=$CR_APPROVE_COMMENT"
+                  SKIPPED_NOT_6GREEN=$((SKIPPED_NOT_6GREEN + 1))
+                  continue
+                fi
+              fi
             fi
-            echo "  [GATE-3] CR=APPROVED"
 
             # ----------------------------------------------------------------
             # Gate 4: Bugbot clean
@@ -266,10 +298,38 @@ jobs:
             echo "  [2] No merge conflicts: $MERGE_CONFLICT"
 
             # 3. CR APPROVED
-            LATEST_CR=$(gh api repos/${{ github.repository }}/pulls/"$PR_NUM"/reviews \
-              --jq '[.[] | select(.user.login == "coderabbitai[bot]" and (.state == "APPROVED" or .state == "CHANGES_REQUESTED"))] | sort_by(.submitted_at) | reverse | .[0].state' 2>/dev/null || echo "none")
-            CR_STATE="${LATEST_CR:-none}"
-            CR_APPROVED=$([ "$CR_STATE" = "APPROVED" ] && echo "PASS" || echo "FAIL (state=$CR_STATE)")
+            LATEST_CR_PIPELINE=$(set -o pipefail; gh api repos/${{ github.repository }}/pulls/"$PR_NUM"/reviews \
+              --paginate 2>/dev/null \
+              | jq -rs 'add | [.[] | select((.user.login == "coderabbitai[bot]" or .user.login == "coderabbitai") and .state != "COMMENTED")] | sort_by(.submitted_at) | last | .state // "none"' 2>&1)
+            LATEST_CR_EXIT=$?
+            if [ $LATEST_CR_EXIT -ne 0 ]; then
+              CR_APPROVED="FAIL (jq exit=$LATEST_CR_EXIT)"
+            else
+              LATEST_CR="${LATEST_CR_PIPELINE%$'\n'}"
+              if [ "$LATEST_CR" = "APPROVED" ]; then
+                CR_APPROVED="PASS"
+              elif [ "$LATEST_CR" != "none" ]; then
+                CR_APPROVED="FAIL (state=$LATEST_CR)"
+              else
+                HEAD_COMMITTED_AT=$(gh api repos/${{ github.repository }}/commits/"$PR_SHA" \
+                  --jq '.commit.committer.date // ""' 2>/dev/null || echo "")
+                CR_STATUS=$(gh api repos/${{ github.repository }}/commits/"$PR_SHA"/status \
+                  --jq '.statuses | map(select(.context == "CodeRabbit" and .state == "success")) | sort_by(.updated_at) | last | .state // "none"' \
+                  2>/dev/null || echo "none")
+                CR_APPROVE_COMMENT="none"
+                if [ -n "$HEAD_COMMITTED_AT" ]; then
+                  CR_APPROVE_COMMENT=$(gh api repos/${{ github.repository }}/issues/"$PR_NUM"/comments \
+                    --paginate 2>/dev/null \
+                    | jq -rs --arg since "$HEAD_COMMITTED_AT" 'add | [.[] | select((.user.login == "coderabbitai[bot]" or .user.login == "coderabbitai") and .created_at >= $since and (.body | test("(?m)^\\s*\\[approve\\]\\s*$"; "i")))] | sort_by(.created_at) | last | if . then "APPROVED" else "none" end' \
+                    2>/dev/null || echo "none")
+                fi
+                if [ "$CR_STATUS" = "success" ] && [ "$CR_APPROVE_COMMENT" = "APPROVED" ]; then
+                  CR_APPROVED="PASS"
+                else
+                  CR_APPROVED="FAIL (state=$LATEST_CR status=$CR_STATUS comment=$CR_APPROVE_COMMENT)"
+                fi
+              fi
+            fi
             echo "  [3] CR APPROVED:        $CR_APPROVED"
 
             # 4. Bugbot clean
