@@ -111,6 +111,7 @@ async function spawnSession(
   openTab?: boolean,
   agent?: string,
   claimOptions?: SpawnClaimOptions,
+  prompt?: string,
 ): Promise<string> {
   const runtime = claimOptions?.runtime;
   const spinner = ora("Creating session").start();
@@ -121,11 +122,19 @@ async function spawnSession(
     const listedSessions = await sm.list(projectId);
     const activeSessions = listedSessions.filter((session) => !TERMINAL_STATUSES.has(session.status));
     const queueConfig = resolveSpawnQueueConfig(config.projects[projectId]);
+
+    // Validate and sanitize prompt before any branch (strip newlines to prevent metadata injection)
+    const sanitizedPrompt = prompt?.replace(/[\r\n]/g, " ").trim() || undefined;
+    if (sanitizedPrompt && sanitizedPrompt.length > 4096) {
+      throw new Error("Prompt must be at most 4096 characters");
+    }
+
     if (queueConfig.enabled && activeSessions.length >= queueConfig.maxActiveSessions) {
       const queued = enqueueSpawnRequest(config.configPath, projectId, {
         issueId,
         agent,
         runtimeOverride: runtime,
+        prompt: sanitizedPrompt,
         claimPr: claimOptions?.claimPr,
         assignOnGithub: claimOptions?.assignOnGithub,
       });
@@ -146,6 +155,7 @@ async function spawnSession(
       issueId,
       agent,
       runtimeOverride: runtime,
+      prompt: sanitizedPrompt,
     });
 
     let branchStr = session.branch ?? "";

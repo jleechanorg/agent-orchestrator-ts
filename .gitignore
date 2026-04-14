@@ -5,6 +5,7 @@ dist-server/
 .next/
 *.tsbuildinfo
 coverage/
+.logs/
 *.patch
 *-context.md
 packages/web/screenshots/

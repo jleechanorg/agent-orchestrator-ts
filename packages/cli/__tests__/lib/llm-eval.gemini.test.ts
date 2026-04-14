@@ -108,7 +108,6 @@ describe("llmEval — explicit model=gemini", () => {
   it("falls back to codex when gemini has an infra error", async () => {
     mockResolveCodexBinary.mockResolvedValue("/usr/local/bin/codex");
     const etimeout = makeErrnoError("ETIMEDOUT", "ETIMEDOUT");
-    const enoent = makeErrnoError("ENOENT", "ENOENT");
     // Chain: gemini → cursor → codex → claude (4 models)
     // Mock all 4: gemini ETIMEDOUT, cursor ENOENT, codex PASS, claude not called
     mockExecFileSync
@@ -116,7 +115,7 @@ describe("llmEval — explicit model=gemini", () => {
         throw etimeout; // gemini (infra error)
       })
       .mockImplementationOnce(() => {
-        throw enoent; // cursor (not installed)
+        throw makeErrnoError("ENOENT", "ENOENT"); // cursor (not installed)
       })
       .mockReturnValueOnce(PASS_VERDICT); // codex succeeds (3rd call)
     const result = await llmEval("evaluate this", { model: "gemini" });

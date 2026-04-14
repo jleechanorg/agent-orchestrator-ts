@@ -169,6 +169,13 @@ function getPRTitle(): string {
       throw new Error(`gh pr view failed in CI context: ${msg}`, { cause: err });
     }
   }
+  // GITHUB_HEAD_REF is set but GITHUB_TOKEN is not — we are in a PR checkout
+  // (diff-coverage job) but cannot call the gh API to get the real PR title.
+  // Returning "" skips enforcement rather than falling back to the merge commit
+  // subject, which would cause spurious failures in coverage jobs.
+  if (process.env.GITHUB_HEAD_REF && !process.env.GITHUB_TOKEN) {
+    return "";
+  }
   // Push builds on main do not have PR context. Use the commit subject instead of
   // the branch name so [agento] policy checks still validate the merged change.
   if (process.env.GITHUB_ACTIONS) {
@@ -191,6 +198,9 @@ function getPRTitle(): string {
 }
 
 function shouldEnforcePRTitlePrefix(title: string): boolean {
+  // Empty title means we couldn't retrieve the PR title (e.g., GITHUB_TOKEN
+  // absent in a coverage job) — skip enforcement rather than false-failing.
+  if (!title) return false;
   if (process.env.GITHUB_HEAD_REF) return true;
   // For push events (no GITHUB_HEAD_REF), check if we're on main via GITHUB_REF
   // GITHUB_REF is set for push events (e.g. "refs/heads/main") and absent for PRs
