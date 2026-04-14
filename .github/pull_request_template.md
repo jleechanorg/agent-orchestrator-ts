@@ -21,8 +21,8 @@
 (paste command + output)
 ```
 
-**Terminal media:** <!-- HTTPS URL, or N/A with justification (unit claim may use N/A per policy) -->
+**Terminal media:** <!-- Video GIF/MP4/CAST (HTTPS URL) or N/A with reason. Must be captioned with commit SHA. -->
 
-**UI media:** <!-- HTTPS URL / image, or exact: N/A - no UI changes -->
+**UI media:** <!-- Video GIF/MP4 (HTTPS URL) or N/A - no UI changes. Must be captioned with commit SHA. -->
 
 **Verdict:** <!-- PASS | INSUFFICIENT | FAIL — mandatory for Evidence Gate -->
