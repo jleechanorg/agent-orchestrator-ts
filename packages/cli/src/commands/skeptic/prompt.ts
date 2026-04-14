@@ -32,9 +32,9 @@ export function isEvidenceAuthentic(body: string): boolean {
 }
 
 // Truncation limits for content included in the skeptic prompt
-const MAX_DESIGN_DOC_CHARS = 6_000;
-const MAX_PR_DESCRIPTION_CHARS = 4_000;
-const MAX_DIFF_CHARS = 30_000;
+const MAX_DESIGN_DOC_CHARS = 15_000;
+const MAX_PR_DESCRIPTION_CHARS = 15_000;
+const MAX_DIFF_CHARS = 150_000;
 const MAX_REVIEW_BODY_CHARS = 200;
 const MAX_REVIEWS_TO_SHOW = 8;
 
