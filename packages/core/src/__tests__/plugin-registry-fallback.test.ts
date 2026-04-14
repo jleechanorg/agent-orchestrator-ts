@@ -6,7 +6,7 @@
  */
 
 import { describe, it, expect } from "vitest";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { dirname, join } from "node:path";
 import {
   isPackageResolutionFailure,
@@ -83,7 +83,7 @@ describe("isPackageResolutionFailure", () => {
 
 describe("tryMonorepoFallback", () => {
   // Use the current file's URL as modUrl — a real file URL inside packages/core/dist/
-  const distModUrl = join(__dirname, "../../dist/plugin-registry.js");
+  const distModUrl = pathToFileURL(join(__dirname, "../../dist/plugin-registry.js")).href;
 
   it("returns null for non-jleechanorg packages", async () => {
     const result = await tryMonorepoFallback("some-random-package", distModUrl);

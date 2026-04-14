@@ -45,9 +45,6 @@ export async function POST(request: NextRequest) {
         correlationId,
       );
     }
-    if (prompt && prompt.length === 0) {
-      prompt = undefined;
-    }
 
     const session = await sessionManager.spawn({
       projectId: body.projectId as string,
