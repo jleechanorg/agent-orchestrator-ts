@@ -85,10 +85,12 @@ jobs:
           # "[approve]" bot comment because some repos receive comments/statuses
           # without a PR review object even with auto_approve enabled.
           # ----------------------------------------------------------------
+          set +e
           LATEST_CR_PIPELINE=$(set -o pipefail; gh api repos/${{ github.repository }}/pulls/"$PR_NUM"/reviews \
             --paginate 2>/dev/null \
             | jq -rs 'add | [.[] | select((.user.login == "coderabbitai[bot]" or .user.login == "coderabbitai") and .state != "COMMENTED")] | sort_by(.submitted_at) | last | .state // "none"' 2>&1)
           LATEST_CR_EXIT=$?
+          set -e
           if [ $LATEST_CR_EXIT -ne 0 ]; then
             echo "GATE-3 FAIL: CR review lookup failed (jq exit=$LATEST_CR_EXIT)"
             ELIGIBLE=false
@@ -107,11 +109,13 @@ jobs:
                 2>/dev/null || echo "none")
               CR_APPROVE_COMMENT="none"
               if [ -n "$HEAD_COMMITTED_AT" ]; then
+                set +e
                 CR_APPROVE_COMMENT=$(set -o pipefail; gh api repos/${{ github.repository }}/issues/"$PR_NUM"/comments \
                   --paginate 2>/dev/null \
                   | jq -rs --arg since "$HEAD_COMMITTED_AT" 'add | [.[] | select((.user.login == "coderabbitai[bot]" or .user.login == "coderabbitai") and .created_at >= $since and (.body | test("^\\s*\\[approve\\]\\s*$"; "i")))] | sort_by(.created_at) | last | if . then "APPROVED" else "none" end' \
                   2>&1)
                 CR_APPROVE_COMMENT_EXIT=$?
+                set -e
                 if [ $CR_APPROVE_COMMENT_EXIT -ne 0 ]; then
                   echo "  [SKIP] Gate-3 FAIL: CR approve comment lookup failed (exit=$CR_APPROVE_COMMENT_EXIT)"
                   ELIGIBLE=false
