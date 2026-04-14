@@ -4,33 +4,39 @@
 set -euo pipefail
 
 REPO_ROOT="${AO_REPO_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
-SOURCE_SKILL_DIR="$REPO_ROOT/skills/agent-orchestrator"
+SOURCE_SKILLS_DIR="$REPO_ROOT/skills"
 
-if [ ! -d "$SOURCE_SKILL_DIR" ]; then
-  echo "WARNING: Repo skill not found at $SOURCE_SKILL_DIR"
+if [ ! -d "$SOURCE_SKILLS_DIR" ]; then
+  echo "WARNING: Repo skills directory not found at $SOURCE_SKILLS_DIR"
   exit 0
 fi
 
-install_skill_link() {
+install_skill_links() {
   local target_root="$1"
-  local target="$target_root/agent-orchestrator"
-
   mkdir -p "$target_root"
 
-  if [ -L "$target" ]; then
-    ln -sfn "$SOURCE_SKILL_DIR" "$target"
-    echo "[ok] Updated skill link: $target"
-    return
-  fi
+  # Loop over all subdirectories in skills/
+  for skill_path in "$SOURCE_SKILLS_DIR"/*/; do
+    [ -d "$skill_path" ] || continue
+    local skill_name
+    skill_name=$(basename "$skill_path")
+    local target="$target_root/$skill_name"
 
-  if [ -e "$target" ]; then
-    echo "WARNING: Skipping existing non-symlink skill path: $target"
-    return
-  fi
+    if [ -L "$target" ]; then
+      ln -sfn "$skill_path" "$target"
+      echo "[ok] Updated skill link: $target"
+      continue
+    fi
 
-  ln -s "$SOURCE_SKILL_DIR" "$target"
-  echo "[ok] Installed skill: $target"
+    if [ -e "$target" ]; then
+      echo "WARNING: Skipping existing non-symlink skill path: $target"
+      continue
+    fi
+
+    ln -s "$skill_path" "$target"
+    echo "[ok] Installed skill: $target"
+  done
 }
 
-install_skill_link "$HOME/.claude/skills"
-install_skill_link "$HOME/.codex/skills"
+install_skill_links "$HOME/.claude/skills"
+install_skill_links "$HOME/.codex/skills"
