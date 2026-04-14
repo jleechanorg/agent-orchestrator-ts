@@ -37,7 +37,7 @@ export async function POST(request: NextRequest) {
       );
     }
     const rawPrompt = body.prompt as string | undefined;
-    let prompt = rawPrompt ? rawPrompt.replace(/[\r\n]/g, " ").trim() : undefined;
+    const prompt = rawPrompt ? rawPrompt.replace(/[\r\n]/g, " ").trim() : undefined;
     if (prompt && prompt.length > 4096) {
       return jsonWithCorrelation(
         { error: "Prompt must be at most 4096 characters" },
