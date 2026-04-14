@@ -342,11 +342,14 @@ for project_id, proj_cfg in (cfg.get('projects') or {}).items():
     webhook_cfg = scm_cfg.get('webhook', {})
     if not repo:
         continue
-    # Skip if webhook already enabled in config (already handled)
-    if webhook_cfg.get('enabled'):
-        continue
     # Only register for repos that have scm.plugin: github
     if scm_cfg.get('plugin') != 'github':
+        continue
+    # Skip if webhook config is missing (server won't route these)
+    if not webhook_cfg:
+        continue
+    # Skip if webhook already enabled in config (already handled)
+    if webhook_cfg.get('enabled'):
         continue
 
     req = urllib.request.Request(
