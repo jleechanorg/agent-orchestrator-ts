@@ -28,7 +28,11 @@ on:
         required: false
         default: ""
       runner_labels:
-        description: "JSON array of runner labels, e.g. '[\"self-hosted\",\"claude\"]'"
+        description: >
+          JSON array of runner labels, e.g. '["self-hosted","claude"]'.
+          Callers MUST handle fork-awareness: forked PRs cannot access self-hosted
+          runners and must pass '["ubuntu-latest"]' instead. Example caller pattern:
+          runner_labels: ${{ github.event.pull_request.head.repo.fork && '["ubuntu-latest"]' || vars.SELF_HOSTED_RUNNER_LABELS || '["self-hosted","claude"]' }}
         type: string
         required: false
         default: '["ubuntu-latest"]'

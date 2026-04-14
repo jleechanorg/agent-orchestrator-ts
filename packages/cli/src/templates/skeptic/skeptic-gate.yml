@@ -29,4 +29,5 @@ jobs:
       head_sha: ${{ inputs.head_sha || github.event.pull_request.head.sha }}
       # Default: use self-hosted 'claude' runner for gate polling.
       runner_labels: ${{ vars.SELF_HOSTED_RUNNER_LABELS || '["self-hosted","claude"]' }}
-    secrets: inherit
+    secrets:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -80,16 +80,16 @@ jobs:
             PR_SHA=$(echo "$PR_DATA" | jq -r '.head.sha')
             PR_BASE_REF=$(echo "$PR_DATA" | jq -r '.base.ref')
 
-            # Docs-only skip: PRs where ALL changed files are non-code (e.g. .md, .txt,
-            # images) are excluded from LLM skeptic evaluation — they need no code review.
-            # Intentional new behaviour in this reusable version: the old skeptic-cron.yml
-            # on main had no file-type filter; this adds one to avoid wasting LLM tokens.
-            DIFF_FILES=$(gh api repos/${{ github.repository }}/compare/"${PR_BASE_REF}...${PR_SHA}" \
-              --jq '[.files[].filename] | map(select(test("\\.(js|ts|jsx|tsx|py|rs|go|java|cs|cpp|h|c|mk|toml|yaml|yml|json|xml|sh|bash|ps1|rb|php|swift|kt|gradle)$"; "i") | not))' \
-              2>/dev/null | jq 'length' || echo 0)
+            # Docs-only skip: if ALL changed files are docs or static assets
+            # (.md, .txt, .png, .svg, etc.) skip LLM evaluation — no code to review.
+            # Uses an explicit ignore-list rather than a code-extension allowlist to
+            # avoid false-negatives when new code extensions are introduced.
             TOTAL_FILES=$(gh api repos/${{ github.repository }}/compare/"${PR_BASE_REF}...${PR_SHA}" \
               --jq '.files | length' 2>/dev/null || echo 0)
-            if [ "${DIFF_FILES:-0}" -eq "${TOTAL_FILES:-0}" ] && [ "${TOTAL_FILES:-0}" -gt 0 ]; then
+            NON_DOC_FILES=$(gh api repos/${{ github.repository }}/compare/"${PR_BASE_REF}...${PR_SHA}" \
+              --jq '[.files[].filename] | map(select(test("\\.(md|mdx|txt|rst|adoc|png|svg|jpg|jpeg|gif|webp|ico|pdf|docx?)$"; "i") | not)) | length' \
+              2>/dev/null || echo 1)
+            if [ "${NON_DOC_FILES:-1}" -eq 0 ] && [ "${TOTAL_FILES:-0}" -gt 0 ]; then
               SKIPPED_DOCS=$((SKIPPED_DOCS + 1)); continue
             fi
 
@@ -98,15 +98,33 @@ jobs:
             if [ "$CI_STATUS" != "success" ]; then SKIPPED_NOT_6GREEN=$((SKIPPED_NOT_6GREEN + 1)); continue; fi
 
             # Gate 2: No merge conflicts
-            PR_META=$(gh api repos/${{ github.repository }}/pulls/"$PR_NUM" --jq '{mergeable: .mergeable}' 2>/dev/null)
+            # set +e so pipeline failures don't abort the loop iteration
+            set +e
+            PR_META=$(gh api repos/${{ github.repository }}/pulls/"$PR_NUM" --jq '{mergeable: .mergeable}' 2>/dev/null || echo '{"mergeable":"unknown"}')
+            set -e
             if [ "$(echo "$PR_META" | jq -r '.mergeable')" != "true" ]; then SKIPPED_NOT_6GREEN=$((SKIPPED_NOT_6GREEN + 1)); continue; fi
 
             # Gate 3: CR APPROVED
-            LATEST_CR=$(gh api repos/${{ github.repository }}/pulls/"$PR_NUM"/reviews --paginate 2>/dev/null | jq -rs 'add | [.[] | select((.user.login == "coderabbitai[bot]" or .user.login == "coderabbitai") and .state != "COMMENTED")] | sort_by(.submitted_at) | last | .state // "none"' 2>/dev/null)
+            set +e
+            LATEST_CR=$(gh api repos/${{ github.repository }}/pulls/"$PR_NUM"/reviews --paginate 2>/dev/null | jq -rs 'add | [.[] | select((.user.login == "coderabbitai[bot]" or .user.login == "coderabbitai") and .state != "COMMENTED")] | sort_by(.submitted_at) | last | .state // "none"' 2>/dev/null || echo "none")
+            set -e
             if [ "$LATEST_CR" != "APPROVED" ]; then
-                # fallback check
-                CR_STATUS=$(gh api repos/${{ github.repository }}/commits/"$PR_SHA"/status --jq '.statuses | map(select(.context == "CodeRabbit" and .state == "success")) | length' 2>/dev/null || echo 0)
-                CR_COMMENT=$(gh api repos/${{ github.repository }}/issues/"$PR_NUM"/comments --paginate 2>/dev/null | jq -rs --arg sha "$PR_SHA" 'add | map(select((.user.login == "coderabbitai[bot]" or .user.login == "coderabbitai") and (.body | test("^\\s*\\[approve\\]\\s*$"; "i")))) | length' 2>/dev/null || echo 0)
+                # Fallback: check status API + [approve] comment scoped to current head.
+                # Fetch commit date first so approval comments are scoped after this SHA was pushed.
+                PR_SHA_DATE=$(gh api repos/${{ github.repository }}/commits/"$PR_SHA" \
+                  --jq '.commit.committer.date // ""' 2>/dev/null || echo "")
+                CR_STATUS=$(gh api repos/${{ github.repository }}/commits/"$PR_SHA"/status \
+                  --jq '.statuses | map(select(.context == "CodeRabbit" and .state == "success")) | length' \
+                  2>/dev/null || echo 0)
+                CR_COMMENT=0
+                if [ -n "$PR_SHA_DATE" ]; then
+                  CR_COMMENT=$(gh api repos/${{ github.repository }}/issues/"$PR_NUM"/comments --paginate 2>/dev/null \
+                    | jq -rs --arg since "$PR_SHA_DATE" 'add | map(select(
+                        (.user.login == "coderabbitai[bot]" or .user.login == "coderabbitai") and
+                        .created_at >= $since and
+                        (.body | test("^\\s*\\[approve\\]\\s*$"; "i"))
+                      )) | length' 2>/dev/null || echo 0)
+                fi
                 if [ "$CR_STATUS" -eq 0 ] || [ "$CR_COMMENT" -eq 0 ]; then SKIPPED_NOT_6GREEN=$((SKIPPED_NOT_6GREEN + 1)); continue; fi
             fi
 
