@@ -76,7 +76,7 @@ Why: `mergeable_state` returns `unknown` for merged PRs (identical to its transi
 
 ## PR Freeze Discipline
 
-**Pre-push commit count check**: Before pushing a PR branch, run `git log origin/main..HEAD | wc -l`. If > 5 commits, warn: "N commits — squash before final review to avoid CR incremental stall and merge conflicts."
+**Pre-push commit count check**: Before pushing a PR branch, run COMMITS=$(git rev-list --count origin/main..HEAD). If > 5 commits, warn: "N commits — squash before final review to avoid CR incremental stall and merge conflicts."
 
 **Squash before final merge**: When all 7-green conditions are met (or CR has verbally approved in comments), squash all commits into ONE before pushing:
 
