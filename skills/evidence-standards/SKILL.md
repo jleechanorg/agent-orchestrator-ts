@@ -41,8 +41,8 @@ def capture_provenance():
         ["git", "rev-list", "--count", "origin/main..HEAD"], text=True).strip())
     provenance["diff_stat_vs_main"] = subprocess.check_output(
         ["git", "diff", "--stat", "origin/main...HEAD"], text=True).strip()
-    # For projects without a remote or where main is not "origin/main":
-    # adapt the remote/branch names to match your VCS setup
+    # Note for forks: ensure current main is tracked (usually origin/main for personal forks).
+    # If using an upstream remote, adapt the branch names to match (e.g., upstream/main).
 
     # === SERVER RUNTIME (MANDATORY for server tests) ===
     port = BASE_URL.split(":")[-1].rstrip("/")
@@ -173,17 +173,10 @@ results = {
 
 ### Evidence Integrity (Checksums)
 
-**ALL evidence files MUST have separate checksum files.**
-
-```bash
-# Generate checksums AFTER finalizing content
-sha256sum run.json > run.json.sha256
-sha256sum metadata.json > metadata.json.sha256
-```
-
 **Requirements:**
-- `.sha256` files must reference the **local basename** (e.g., `run.json`).
-- Required for: test result files, aggregated logs (`request_responses.jsonl`), and server logs.
+- Every evidence file (logs, JSON, artifacts) MUST have a `.sha256` checksum file.
+- Checksums must reference the **local basename** (e.g., `run.json`).
+- Generate using: `sha256sum <file> > <file>.sha256`.
 
 ```python
 def _write_checksum_for_file(filepath: Path) -> None:
@@ -1175,8 +1168,8 @@ done
 
 | Type | Proves | Required when |
 |------|--------|---------------|
-| **Tmux/terminal video** | Code ran against a specific commit, tests passed, no tampering | Any code change, test run, deploy, agent session |
-| **UI/browser video** | Visual behavior and click flows occurred as claimed | Any claim touching rendered UI, user flows, or browser behavior |
+| **Tmux/terminal video** | CLI/Test execution provenance | MANDATORY for all code changes, test runs, and agent-driven work. |
+| **UI/browser video** | Visual/flow correctness | MANDATORY for any change touching rendered UI, user flows, or browser behavior. |
 
 If your work has no UI component, tmux video alone is acceptable. If your work has both terminal and UI steps, both are required.
 
