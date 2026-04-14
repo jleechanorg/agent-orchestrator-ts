@@ -179,7 +179,7 @@ jobs:
                   if [ $CR_APPROVE_COMMENT_EXIT -ne 0 ]; then
                     echo "  [SKIP] Gate-3 FAIL: CR approve comment lookup failed (exit=$CR_APPROVE_COMMENT_EXIT)"
                     SKIPPED_NOT_6GREEN=$((SKIPPED_NOT_6GREEN + 1))
-                    CR_APPROVE_COMMENT="lookup_error"
+                    continue
                   else
                     CR_APPROVE_COMMENT="${CR_APPROVE_COMMENT%$'\n'}"
                   fi
@@ -371,8 +371,6 @@ jobs:
                     2>&1)
                   CR_APPROVE_COMMENT_EXIT=$?
                   if [ $CR_APPROVE_COMMENT_EXIT -ne 0 ]; then
-                    echo "  [SKIP] Gate-3 FAIL: CR approve comment lookup failed (exit=$CR_APPROVE_COMMENT_EXIT)"
-                    SKIPPED_NOT_6GREEN=$((SKIPPED_NOT_6GREEN + 1))
                     CR_APPROVE_COMMENT="lookup_error"
                   else
                     CR_APPROVE_COMMENT="${CR_APPROVE_COMMENT%$'\n'}"
