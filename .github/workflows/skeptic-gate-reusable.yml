@@ -155,15 +155,21 @@ jobs:
           fi
 
           # Gate 4: Bugbot clean — CI check-run conclusion scoped to HEAD SHA.
-          BUGBOT_CONCLUSION=$(gh api repos/${{ github.repository }}/commits/"$HEAD_SHA"/check-runs \
-            --paginate 2>/dev/null \
-            | jq -rs '[.[] | .check_runs[]?] | map(select(.name | test("Cursor Bugbot"; "i"))) | sort_by(.completed_at) | last | .conclusion // "none"' \
-            2>/dev/null || echo "error")
-          if [ "$BUGBOT_CONCLUSION" = "success" ] || [ "$BUGBOT_CONCLUSION" = "neutral" ] || [ "$BUGBOT_CONCLUSION" = "skipped" ]; then
-            echo "GATE-4 PASS: Bugbot=$BUGBOT_CONCLUSION (clean)"
-          else
-            echo "GATE-4 FAIL: Bugbot=$BUGBOT_CONCLUSION"
+          # Guard: skip if HEAD_SHA is empty to prevent malformed API calls.
+          if [ -z "$HEAD_SHA" ]; then
+            echo "GATE-4 SKIP: HEAD_SHA empty — ineligible from Gate 1"
             ELIGIBLE=false
+          else
+            BUGBOT_CONCLUSION=$(gh api repos/${{ github.repository }}/commits/"$HEAD_SHA"/check-runs \
+              --paginate 2>/dev/null \
+              | jq -rs '[.[] | .check_runs[]?] | map(select(.name | test("Cursor Bugbot"; "i"))) | sort_by(.completed_at) | last | .conclusion // "none"' \
+              2>/dev/null || echo "error")
+            if [ "$BUGBOT_CONCLUSION" = "success" ] || [ "$BUGBOT_CONCLUSION" = "neutral" ] || [ "$BUGBOT_CONCLUSION" = "skipped" ]; then
+              echo "GATE-4 PASS: Bugbot=$BUGBOT_CONCLUSION (clean)"
+            else
+              echo "GATE-4 FAIL: Bugbot=$BUGBOT_CONCLUSION"
+              ELIGIBLE=false
+            fi
           fi
 
           # Gate 5: Inline comments resolved (GraphQL — REST lacks isResolved).
@@ -424,5 +430,5 @@ jobs:
 
           echo "TIMEOUT: No fresh VERDICT after $((MAX_ATTEMPTS * INTERVAL / 60)) minutes"
           echo "verdict=TIMEOUT" >> "$GITHUB_OUTPUT"
-          echo "::warning::Skeptic Gate timed out waiting for VERDICT — external worker may be offline; merge is not blocked by timeout alone"
-          exit 0
+          echo "::error::Skeptic Gate timed out waiting for VERDICT — AO worker may be offline; gate fails closed to prevent silent bypass"
+          exit 1
