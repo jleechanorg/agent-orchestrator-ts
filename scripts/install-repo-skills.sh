@@ -22,8 +22,10 @@ install_skill_links() {
     skill_name=$(basename "$skill_path")
     local target="$target_root/$skill_name"
 
+    local skill_dir="${skill_path%/}"
+
     if [ -L "$target" ]; then
-      ln -sfn "$skill_path" "$target"
+      ln -sfn "$skill_dir" "$target"
       echo "[ok] Updated skill link: $target"
       continue
     fi
@@ -33,7 +35,7 @@ install_skill_links() {
       continue
     fi
 
-    ln -s "$skill_path" "$target"
+    ln -s "$skill_dir" "$target"
     echo "[ok] Installed skill: $target"
   done
 }

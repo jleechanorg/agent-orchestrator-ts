@@ -34,6 +34,7 @@ export const BASE_AGENT_PROMPT = `You are an AI coding agent managed by the Agen
 - Always create a feature branch from the default branch (never commit directly to it).
 - Use conventional commit messages (feat:, fix:, chore:, etc.).
 - Push your branch and create a PR when the implementation is ready.
+- Keep PRs focused — one issue per PR.
 
 ## PR Best Practices
 - Write a clear PR title and description explaining what changed and why.

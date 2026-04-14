@@ -60,7 +60,7 @@ Rules:
 4. Unit tests do NOT satisfy E2E criteria
 5. Manual tool calls do NOT satisfy pipeline criteria
 6. "Code compiles" does NOT mean "feature works"
-7. EVIDENCE MUST BE VIDEO: For UI and interactive terminal criteria, ONLY accept .gif, .mp4, or .cast videos tied to a commit SHA. Reject static screenshots unless explicitly justified.
+7. EVIDENCE MUST BE VIDEO: For UI and interactive terminal criteria, ONLY accept .gif, .mp4, .webm, or .mov videos (UI) or .gif, .mp4, .webm, .mov, .cast (terminal) tied to a commit SHA. Static screenshots FAIL — no exceptions.
 
 Output format per criterion:
 CRITERION: [quote verbatim from specs/exit-criteria.md]

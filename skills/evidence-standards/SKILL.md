@@ -174,9 +174,9 @@ results = {
 ### Evidence Integrity (Checksums)
 
 **Requirements:**
-- Every evidence file (logs, JSON, artifacts) MUST have a `.sha256` checksum file.
-- Checksums must reference the **local basename** (e.g., `run.json`).
-- Generate using: `sha256sum <file> > <file>.sha256`.
+- Every evidence bundle MUST have checksum coverage: either per-file `.sha256` files or a root `checksums.sha256` (see "Single Checksum Layer" section for which to use). Never both.
+- Per-file checksums must reference the **local basename** (e.g., `run.json`).
+- Generate per-file using: `sha256sum <file> > <file>.sha256`.
 
 ```python
 def _write_checksum_for_file(filepath: Path) -> None:
@@ -1230,5 +1230,5 @@ Full template: `skills/ui-video-evidence/SKILL.md`
 - `generatetest.toml` - Mock mode prohibition (lines 433-441)
 - `end2end-testing.md` - Test mode commands (/teste, /tester, /testerc)
 - `browser-testing-ocr-validation.md` - OCR evidence for visual claims
-- `tmux-video-evidence.md` - Full tmux/asciinema recording template
-- `ui-video-evidence.md` - Full UI/browser GIF recording template
+- `skills/tmux-video-evidence/SKILL.md` - Full tmux/asciinema recording template
+- `skills/ui-video-evidence/SKILL.md` - Full UI/browser GIF recording template
