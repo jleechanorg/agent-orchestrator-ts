@@ -17,4 +17,5 @@ jobs:
     with:
       # Default: use self-hosted 'mikey' runner for cron/eval.
       runner_labels: ${{ vars.SELF_HOSTED_RUNNER_LABELS || '["self-hosted","self-hosted-mikey"]' }}
-    secrets: inherit
+    secrets:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
