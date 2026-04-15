@@ -12,7 +12,7 @@ The agent-orchestrator fork currently merges PRs based on CI green + CodeRabbit 
 
 1. **Evidence quality is unverified** — PRs may claim tests passed without reproducible artifacts
 2. **No semantic review** — CodeRabbit checks style/naming, not correctness or security implications
-3. **Merge gates are fragile** — single-point failures (e.g., SKIPPED=success bug in skeptic gate)
+3. **Merge gates are fragile** — single-point failures (e.g., the historical SKIPPED=success bug in skeptic gate, now fixed via `skepticPassed = verdict === "PASS"` in `packages/core/src/merge-gate.ts` per bd-0cfv)
 4. **No escalation path** — stuck/broken agents have no human override mechanism
 5. **Zero-touch is aspirational** — current zero-touch metrics (`max_inactivity_gap <= 60 min`) are not enforced
 
@@ -34,7 +34,7 @@ A governance layer is needed to enforce semantic quality gates before autonomous
 
 ## Architecture
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────────┐
 │                     Governance Layer                            │
 ├──────────────┬──────────────┬──────────────┬──────────────────┤
@@ -61,6 +61,7 @@ Verifies that PR evidence bundles meet quality standards before merge.
 - Test logs attached (not just "tests passed" claim)
 - Claim class declared (`bugfix`, `feature`, `chore`, `refactor`, etc.)
 - Evidence reproducibility (can steps be followed by a human reviewer?)
+- **Claim-class validation**: cross-checks declared claim class against changed file paths (e.g., `docs/**` for `docs` claims, `src/**` for `feature`/`bugfix`). See `evidence-gate.yml` claim-class floor rule (Fix 2) which enforces minimum claim class based on changed files. This prevents mislabeling code changes as `chore`/`docs` to bypass review.
 
 **Output:** `EVIDENCE_VALID: PASS|FAIL` comment on PR
 
@@ -70,7 +71,7 @@ Replaces naive "CI green + CR approved" with multi-gate evaluation.
 
 **Gates (all must pass):**
 1. CI status = success
-2. CodeRabbit review = APPROVED (or `chore`/`docs` claim class exempts this)
+2. CodeRabbit review = APPROVED (or `chore`/`docs` claim class exempts this, subject to claim-class validation — see Evidence Validator below)
 3. Skeptic verdict = PASS (or `SKIPPED` treated as FAIL, per bd-0cfv)
 4. Evidence validation = PASS
 5. Policy checks = PASS
@@ -114,7 +115,7 @@ projects:
     governance:
       requiredLabels: [owned-by-ai]
       blockingLabels: [security-change, breaking-change]
-      requiredReviewers: [@jleechan]
+      requiredReviewers: [jleechan]
 ```
 
 ## Implementation Plan
@@ -168,13 +169,22 @@ export interface GovernancePlugin extends PluginModule {
 type GateStatus = "UNLOCKED" | "BLOCKED" | "PENDING";
 type EscalationReason = "inactivity" | "ci_repeated_failure" | "human_requested";
 
+type GovernanceReason =
+  | "ci_failure"
+  | "coderabbit_not_approved"
+  | "skeptic_failed"
+  | "evidence_missing"
+  | "policy_violation"
+  | "escalation_required";
+
 interface GovernanceDecision {
   gate: GateStatus;
   evidence: ValidationResult;
   policy: PolicyResult;
   escalation: EscalationResult | null;
   timestamp: string;
-  reason: string;  // human-readable explanation
+  reason: GovernanceReason;       // structured reason code
+  detail?: string;                 // optional human-readable explanation
 }
 ```
 
@@ -189,7 +199,7 @@ interface GovernanceDecision {
 
 ## Open Questions
 
-1. Should governance run before or after CodeRabbit? (proposed: before, to save CI compute)
+1. Should governance run before or after CodeRabbit? The Evidence Validator component may run before CodeRabbit to pre-filter low-quality submissions early. However, the full Governance Layer (Merge Gate Enforcer) must run after CodeRabbit when evaluating Gate `#2` (CodeRabbit approval), since it depends on that status. The "save CI compute" rationale is not applicable — CodeRabbit runs independently of CI. Timing should be determined by whether the governance step needs the CodeRabbit approval status.
 2. Should `chore`/`docs` PRs be exempt from evidence requirements?
 3. Should escalation auto-close PRs after N days with no human action?
 
@@ -197,7 +207,7 @@ interface GovernanceDecision {
 
 | Bead | Title |
 |------|-------|
-| bd-0cfv | SKIPPED = success (should be fail-closed) |
+| bd-0cfv | SKIPPED skeptic verdict treated as success (should be fail-closed) |
 | bd-1lni | Skeptic Gate infrastructure broken |
 | bd-kvvx | Skeptic false-positive on PRs missing CR APPROVED |
 | bd-io8q | Zero branch protection on main |
