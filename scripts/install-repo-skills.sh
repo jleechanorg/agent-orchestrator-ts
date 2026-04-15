@@ -15,7 +15,7 @@ install_skill_link() {
   local source_dir="$1"
   local target_root="$2"
   local skill_name
-  skill_name="$(basename "$source_dir")"
+  skill_name="$(basename "${source_dir%/}")"
   local target="$target_root/$skill_name"
 
   mkdir -p "$target_root"
@@ -37,10 +37,14 @@ install_skill_link() {
 
 # Install all skills from the repo's skills/ directory into user skill dirs
 for skill_dir in "$SOURCE_SKILLS_DIR"/*/; do
-  [ -d "$skill_dir" ] && install_skill_link "$skill_dir" "$HOME/.claude/skills"
+  if [ -d "$skill_dir" ]; then
+    install_skill_link "$skill_dir" "$HOME/.claude/skills"
+  fi
 done
 
 # Also install into Codex user skills directory
 for skill_dir in "$SOURCE_SKILLS_DIR"/*/; do
-  [ -d "$skill_dir" ] && install_skill_link "$skill_dir" "$HOME/.codex/skills"
+  if [ -d "$skill_dir" ]; then
+    install_skill_link "$skill_dir" "$HOME/.codex/skills"
+  fi
 done
