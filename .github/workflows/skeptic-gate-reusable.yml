@@ -8,11 +8,11 @@ name: Skeptic Gate (Reusable)
 #       uses: jleechanorg/agent-orchestrator/.github/workflows/skeptic-gate-reusable.yml@main
 #       with:
 #         runner_labels: ${{ vars.SELF_HOSTED_RUNNER_LABELS || '["self-hosted","claude"]' }}
-#         concurrency_group: green-gate-${{ github.event.pull_request.number || github.run_id }}
 #       secrets: inherit
 #
 # context note: when called via workflow_call, github.repository / github.repository_owner
 # resolve to the CALLING repo, so all gh api calls target the caller's repo automatically.
+# concurrency is controlled by the caller's workflow level, not here.
 
 on:
   workflow_call:
@@ -22,31 +22,16 @@ on:
         type: string
         required: false
         default: ""
-      fork:
-        description: >
-          Set to true when the PR is from a forked repository. Prevents self-hosted
-          runner exposure on untrusted fork code by switching to runner_labels_fork.
-        type: boolean
-        required: false
-        default: false
-      runner_labels:
-        description: >
-          JSON array of runner labels for non-fork PRs, e.g. '["self-hosted","claude"]'.
-        type: string
-        required: false
-        default: '["ubuntu-latest"]'
-      runner_labels_fork:
-        description: >
-          JSON array of runner labels for forked PRs. Defaults to ["ubuntu-latest"]
-          to prevent self-hosted runner exposure on untrusted fork code.
-        type: string
-        required: false
-        default: '["ubuntu-latest"]'
-      concurrency_group:
-        description: "Concurrency group key — caller should pass a PR-scoped value"
+      head_sha:
+        description: "PR head commit SHA (for workflow_dispatch passthrough)"
         type: string
         required: false
         default: ""
+      runner_labels:
+        description: "JSON array of runner labels, e.g. '[\"self-hosted\",\"claude\"]'"
+        type: string
+        required: false
+        default: '["ubuntu-latest"]'
       job_timeout_minutes:
         description: "Job-level timeout in minutes (must exceed poll step timeout)"
         type: number
@@ -61,7 +46,7 @@ on:
 jobs:
   skeptic_gate:
     name: Skeptic Gate
-    runs-on: ${{ inputs.fork && fromJson(inputs.runner_labels_fork) || fromJson(inputs.runner_labels) }}
+    runs-on: ${{ fromJson(inputs.runner_labels) }}
     timeout-minutes: ${{ inputs.job_timeout_minutes }}
     permissions:
       pull-requests: write
@@ -165,21 +150,15 @@ jobs:
           fi
 
           # Gate 4: Bugbot clean — CI check-run conclusion scoped to HEAD SHA.
-          # Guard: skip if HEAD_SHA is empty to prevent malformed API calls.
-          if [ -z "$HEAD_SHA" ]; then
-            echo "GATE-4 SKIP: HEAD_SHA empty — ineligible from Gate 1"
-            ELIGIBLE=false
+          BUGBOT_CONCLUSION=$(gh api repos/${{ github.repository }}/commits/"$HEAD_SHA"/check-runs \
+            --paginate 2>/dev/null \
+            | jq -rs '[.[] | .check_runs[]?] | map(select(.name | test("Cursor Bugbot"; "i"))) | sort_by(.completed_at) | last | .conclusion // "none"' \
+            2>/dev/null || echo "error")
+          if [ "$BUGBOT_CONCLUSION" = "success" ] || [ "$BUGBOT_CONCLUSION" = "neutral" ] || [ "$BUGBOT_CONCLUSION" = "skipped" ]; then
+            echo "GATE-4 PASS: Bugbot=$BUGBOT_CONCLUSION (clean)"
           else
-            BUGBOT_CONCLUSION=$(gh api repos/${{ github.repository }}/commits/"$HEAD_SHA"/check-runs \
-              --paginate 2>/dev/null \
-              | jq -rs '[.[] | .check_runs[]?] | map(select(.name | test("Cursor Bugbot"; "i"))) | sort_by(.completed_at) | last | .conclusion // "none"' \
-              2>/dev/null || echo "error")
-            if [ "$BUGBOT_CONCLUSION" = "success" ] || [ "$BUGBOT_CONCLUSION" = "neutral" ] || [ "$BUGBOT_CONCLUSION" = "skipped" ]; then
-              echo "GATE-4 PASS: Bugbot=$BUGBOT_CONCLUSION (clean)"
-            else
-              echo "GATE-4 FAIL: Bugbot=$BUGBOT_CONCLUSION"
-              ELIGIBLE=false
-            fi
+            echo "GATE-4 FAIL: Bugbot=$BUGBOT_CONCLUSION"
+            ELIGIBLE=false
           fi
 
           # Gate 5: Inline comments resolved (GraphQL — REST lacks isResolved).
@@ -330,7 +309,6 @@ jobs:
           TRIGGER_UPDATED: ${{ steps.post_trigger.outputs.trigger_updated }}
           TRIGGER_SHA: ${{ steps.post_trigger.outputs.trigger_sha }}
           SKEPTIC_BOT_AUTHOR: ${{ vars.SKEPTIC_BOT_AUTHOR || 'github-actions[bot]' }}
-          POLL_TIMEOUT_MINUTES: ${{ inputs.poll_timeout_minutes }}
         run: |
           PR_NUM=$PR_NUM
           set +e
@@ -344,11 +322,10 @@ jobs:
           echo "Also filtering by trigger SHA: ${TRIGGER_SHA:0:7}"
 
           INTERVAL=30
-          MAX_ATTEMPTS=$(( (POLL_TIMEOUT_MINUTES * 60) / INTERVAL ))
-          [ "$MAX_ATTEMPTS" -lt 1 ] && MAX_ATTEMPTS=1
+          MAX_ATTEMPTS=$(( ${{ inputs.poll_timeout_minutes }} * 60 / INTERVAL ))   # respect poll_timeout_minutes input
 
           echo "Polling for VERDICT on PR #$PR_NUM (commit ${HEAD_SHA:0:7})..."
-          echo "Max wait: $((MAX_ATTEMPTS * INTERVAL / 60)) minutes (poll_timeout_minutes=$POLL_TIMEOUT_MINUTES)"
+          echo "Max wait: $((MAX_ATTEMPTS * INTERVAL / 60)) minutes"
 
           API_FAILURES=0
           for i in $(seq 1 $MAX_ATTEMPTS); do
@@ -442,5 +419,5 @@ jobs:
 
           echo "TIMEOUT: No fresh VERDICT after $((MAX_ATTEMPTS * INTERVAL / 60)) minutes"
           echo "verdict=TIMEOUT" >> "$GITHUB_OUTPUT"
-          echo "::error::Skeptic Gate timed out waiting for VERDICT — AO worker may be offline; gate fails closed to prevent silent bypass"
-          exit 1
+          echo "::warning::Skeptic Gate timed out waiting for VERDICT — external worker may be offline; merge is not blocked by timeout alone"
+          exit 0

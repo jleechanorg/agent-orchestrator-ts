@@ -7,24 +7,14 @@ on:
   schedule:
     - cron: "*/30 * * * *"
   workflow_dispatch:
-  # push trigger present so this workflow appears in the Actions tab for
-  # manual workflow_dispatch invocation; branches-ignore: "**" disables
-  # it for all actual push events (intentionally a no-op for pushes).
   push:
     branches-ignore:
       - "**"
 
 jobs:
   skeptic_cron:
-    permissions:
-      contents: write
-      pull-requests: write
-      issues: write
-      statuses: read
-      checks: read
     uses: jleechanorg/agent-orchestrator/.github/workflows/skeptic-cron-reusable.yml@main
     with:
       # Default: use self-hosted 'mikey' runner for cron/eval.
       runner_labels: ${{ vars.SELF_HOSTED_RUNNER_LABELS || '["self-hosted","self-hosted-mikey"]' }}
-    secrets:
-      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    secrets: inherit
