@@ -27,7 +27,9 @@ describe("scripts/install-repo-skills.sh", () => {
     expect(result.status).toBe(0);
 
     // All skills in the repo's skills/ dir should be symlinked
-    const repoSkills = readdirSync(join(repoRoot, "skills"));
+    const repoSkills = readdirSync(join(repoRoot, "skills"), { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name);
     for (const skill of repoSkills) {
       const expectedTarget = join(repoRoot, "skills", skill);
       const claudeTarget = join(fakeHome, ".claude", "skills", skill);
