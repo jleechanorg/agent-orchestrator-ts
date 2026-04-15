@@ -18,7 +18,7 @@ Use this for **`/er`**, CodeRabbit follow-ups, or human review. **Fail closed**:
 
 | Check | Pass criteria |
 |--------|----------------|
-| **UI proof** | **Video MANDATORY** (.mp4/.gif) for all primary flows; screenshots alone are INSUFFICIENT for interactive behavior. Show **before** and **after** states. |
+| **UI proof** | **Video MANDATORY** (.mp4/.gif/.webm/.mov) for all primary flows; `.cast` is terminal-only and **not valid** for UI media; screenshots alone are INSUFFICIENT for interactive behavior. Show **before** and **after** states. |
 | **N/A honesty** | `N/A - no UI changes` only if **no** user-visible or interactive behavior changed |
 
 ## C. Risk-sensitive behavior (auth, merge, payments, destructive ops)

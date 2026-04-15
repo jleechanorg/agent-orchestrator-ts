@@ -23,7 +23,8 @@ Read the repo-local standards:
 
 ### Step 2: Review Protocol
 Use an agent to evaluate the current Evidence section:
-1. **Video Check**: For UI or Terminal claims, verify that a `.mp4`, `.gif`, or `.cast` URL is present. Reject static screenshots.
+1. **Video Check (Terminal)**: For terminal/tmux claims, verify a `.mp4`, `.gif`, `.webm`, `.mov`, or `.cast` URL is present. Reject static screenshots.
+2. **Video Check (UI)**: For UI/browser claims, verify a `.mp4`, `.gif`, `.webm`, or `.mov` URL is present. `.cast` is **Terminal-only** and is **not valid** for UI media. Reject screenshots alone.
 2. **SHA Linkage**: Verify that media is captioned with the current commit SHA.
 3. **Log Sanitization**: Verify that terminal logs are sanitized (no absolute machine paths).
 
