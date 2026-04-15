@@ -27,8 +27,18 @@ on:
         type: string
         required: false
         default: ""
+      fork:
+        description: "Whether the PR is from a fork"
+        type: boolean
+        required: false
+        default: false
       runner_labels:
         description: "JSON array of runner labels, e.g. '[\"self-hosted\",\"claude\"]'"
+        type: string
+        required: false
+        default: '["ubuntu-latest"]'
+      runner_labels_fork:
+        description: "JSON array of runner labels for forked PRs, e.g. '[\"ubuntu-latest\"]'"
         type: string
         required: false
         default: '["ubuntu-latest"]'
@@ -46,7 +56,7 @@ on:
 jobs:
   skeptic_gate:
     name: Skeptic Gate
-    runs-on: ${{ fromJson(inputs.runner_labels) }}
+    runs-on: ${{ fromJson(inputs.fork && inputs.runner_labels_fork || inputs.runner_labels) }}
     timeout-minutes: ${{ inputs.job_timeout_minutes }}
     permissions:
       pull-requests: write
@@ -419,5 +429,5 @@ jobs:
 
           echo "TIMEOUT: No fresh VERDICT after $((MAX_ATTEMPTS * INTERVAL / 60)) minutes"
           echo "verdict=TIMEOUT" >> "$GITHUB_OUTPUT"
-          echo "::warning::Skeptic Gate timed out waiting for VERDICT — external worker may be offline; merge is not blocked by timeout alone"
-          exit 0
+          echo "::error::Skeptic Gate timed out waiting for VERDICT — external worker may be offline; blocking merge (fail-closed)"
+          exit 1
