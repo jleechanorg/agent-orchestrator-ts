@@ -252,7 +252,7 @@ describe("skeptic structured output", () => {
         null,
       );
       expect(prompt).toContain("real command output");
-      expect(prompt).toContain("real screenshots with non-placeholder URLs");
+      expect(prompt).toContain("real authentic video evidence");
     });
   });
 

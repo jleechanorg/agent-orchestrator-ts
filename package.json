@@ -7,21 +7,17 @@
   "engines": {
     "node": ">=22.0.0"
   },
-  "packageManager": "pnpm@9.15.4",
+  "packageManager": "pnpm@9.15.9",
   "pnpm": {
     "overrides": {
-      "axios": "1.15.0"
-    }
-  },
-  "type": "module",
-  "pnpm": {
-    "overrides": {
-      "axios": "^1.15.0",
-      "next": "^15.5.14",
+      "axios": "1.15.0",
+      "handlebars": ">=4.7.9",
+      "next": "^15.5.15",
       "tmp": "^0.2.4",
       "yaml": "^2.8.3"
     }
   },
+  "type": "module",
   "scripts": {
     "build": "pnpm -r build",
     "dev": "pnpm --filter @jleechanorg/ao-web dev",
@@ -60,14 +56,5 @@
     "prettier": "^3.8.1",
     "semantic-release": "^25.0.3",
     "typescript-eslint": "^8.55.0"
-  },
-  "pnpm": {
-    "overrides": {
-      "axios": "1.15.0",
-      "handlebars": ">=4.7.9",
-      "next": "^15.5.15",
-      "tmp": "^0.2.4",
-      "yaml": "^2.8.3"
-    }
   }
 }

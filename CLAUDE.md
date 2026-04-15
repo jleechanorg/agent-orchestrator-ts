@@ -163,13 +163,17 @@ All seven must hold: CI green; mergeable; CodeRabbit APPROVED; Bugbot clean; inl
 
 **Full detail:** CR loop, evidence bundle, GraphQL gate-5, spawn gates, worktrees, lifecycle triage → `roadmap/claude-fork-reference.md`.
 
+**Evidence Requirement**: Every pull request MUST include a `## Evidence` section with links to authoritative gists. UI/Terminal claims MUST be supported by video evidence (.mp4, .gif, or .cast) and MUST show the TDD Red-Green cycle. Capture the failure first. See [evidence-standards](skills/evidence-standards/SKILL.md) and [tdd-evidence-workflow](skills/tdd-evidence-workflow/SKILL.md).
+
 ## Fork isolation
 
 New files for new features; additive upstream edits; plugin-first; minimal core diff (`*-extensions.ts`); fork exports grouped in `index.ts`. **Risky:** `lifecycle-manager.ts`, `types.ts`, `config.ts`, `spawn.ts`. **Safe:** `packages/plugins/**`, `roadmap/`.
 
 ## Coding standards
 
-TDD; strict TS; conventional commits; never push `main`; `--force-with-lease` only on your branches; never `git add -A`; ~300 LOC/file.
+TDD (Red-Green-Evidence cycle); strict TS; conventional commits; never push `main`; `--force-with-lease` only on your branches; never `git add -A`; ~300 LOC/file.
+
+TDD is MANDATORY for all bug fixes and features. You MUST capture the "Red" phase (initial failure) as part of your evidence bundle to prove the existence of the issue before the fix.
 
 ## Tests
 

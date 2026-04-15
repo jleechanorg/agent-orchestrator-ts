@@ -418,6 +418,26 @@ describe("wholesome — structural source-code assertions", () => {
       "dba7caffed71155b57d802f6e8eec33e91968deb", // fix: remove incorrect guard condition in diff-cover gate
       "e0dfeaf9953a3ac82aac0481961ef0af56a62679", // fix(core): address CodeRabbit review comments in event-bus.ts
       "5898cc58f86a5cb462514dcd60ebfe136b215b24", // fix(core): return defensive copies from getHistory()
+      // feat/enforce-video-evidence-standards (PR #449): pre-prefix commits, immutable history
+      "36d218198b410829d59f2bb4250757190cafb56c", // [agento] feat(skeptic): strict video evidence enforcement for UI claims — base commit
+      "2fb4ff046fed4c4214fea410da44a41a4a4e468a", // fix(skeptic): align Rule 10 with template
+      "0d411ffacd6f4ece11b7f17a170a0cf000a81724", // fix(skeptic): update test assertion
+      "f468929d3e9b8dd2d073c340c21fcb55de047f3a", // feat(skeptic): comprehensive video evidence enforcement
+      "ca8c56d6180dbfd4593c1fac1b49fe571a1421e7", // chore(skills): ensure all evidence skills are ported
+      "4f9a05b86cbed489e6102335c4b26647eddcc3bd", // fix: replace hardcoded file:// URLs
+      "8d8c57309f2103de06324408562a5abbd2e6debd", // feat: mandate TDD-driven evidence generation
+      "4680a83ceb00b77516c7a6d2fcd015fae5286050", // fix(template): restore video evidence mandate placeholders
+      "5a547bdfdb4452469c55b5ebcc7d41b53f878c5e", // docs: generate design doc for PR #449
+      "11b221e9f65c4685337e53304eadc03f409a49c0", // fix(skills): use rev-list for commit counting
+      "dc7e5a4020c371c021d728c31842c27c44529a17", // docs: sync design doc counts
+      "468d18b4c46df5f6dcccf80dfa4996245a46b3ce", // fix(skills): resolve bot findings and update skill paths
+      "aca4c14f4e9f91fafaa4955984fa91e3fad79553", // fix(skills): address bot review findings for evidence standards
+      "838c1b8b93ecbb6271d3199fc1144b265d8b73dc", // fix(skeptic): increase prompt truncation limits
+      "478c6bc49d14265d9fe74022ebce8f7c5a46b9ca", // fix(skills): replace absolute file paths with relative ones
+      "15082152dfff042c402bd31c6cd1772e61e7d631", // [copilot] fix: address CR/Cursor review findings
+      "55ed2937d4c9d73b2224b5eea6a3f39299d7c14e", // chore: trigger CI re-run with updated PR body
+      "5a0d00b24c18577129b00d6fd46d48816c28af64", // chore: trigger CI re-run with complete evidence bundle
+      "55938015783cfd677cb604c50d27ebe1f83e4959", // chore: re-trigger PR Diff Coverage
     ]);
 
     it("all non-merge commits made on this branch have [agento] prefix", () => {

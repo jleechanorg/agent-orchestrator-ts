@@ -78,7 +78,7 @@ roadmap/               # Design docs and decision records — first-class, commi
 
 ## Coding Standards
 
-- **TDD**: write failing tests first, then implement. No code without tests.
+- **TDD**: write failing tests first, then implement. Capture the "Red" phase failure as part of your evidence bundle to prove authenticity. See [tdd-evidence-workflow](skills/tdd-evidence-workflow/SKILL.md).
 - **TypeScript strict**: full type coverage, no `any`, no `// @ts-ignore`.
 - **No `**kwargs` equivalents**: explicit named parameters only.
 - **Files under ~300 LOC**: split when it aids clarity.
@@ -89,7 +89,7 @@ roadmap/               # Design docs and decision records — first-class, commi
 ## PR evidence (AO workers) — proof artifacts, not claims
 - **Agent claims are insufficient without artifacts.** Substantive implementation work needs a **reproducible, human-verifiable** bundle in `## Evidence` (**Evidence Bundle v2** in `CLAUDE.md`).
 - **Minimum CI shape:** repro gist, terminal media (tmux/terminal context) + **separate** fenced test logs, UI media or exact `N/A - no UI changes`.
-- **Bar-raising (UI / interactive):** Prefer **video** of key flows + **before/after** screenshots for critical states; map claims to gist steps / logs / media (`docs/evidence/reviewer-checklist.md`).
+- **Bar-raising (UI / interactive):** MUST provide **video evidence (.mp4/.gif/.cast)** of key flows + **before/after** states. Screenshots alone are INSUFFICIENT. Evidence MUST demonstrate the TDD Red-Green cycle (capture the failure first). Direct all agents to follow repository standards in [skills/ui-video-evidence/SKILL.md](skills/ui-video-evidence/SKILL.md), [skills/tmux-video-evidence/SKILL.md](skills/tmux-video-evidence/SKILL.md), and [skills/tdd-evidence-workflow/SKILL.md](skills/tdd-evidence-workflow/SKILL.md). Map claims to gist steps / logs / media (`docs/evidence/reviewer-checklist.md`).
 - **Self-validation:** Clean/isolated reruns where practical; **negative paths** when risk warrants; **revert** temp toggles before merge.
 - **Review stack:** CI Evidence Gate → `/er` (evidence review) → Skeptic — see `docs/evidence/README.md`.
 - Cursor alignment: [Cursor agents can now control their own computers](https://cursor.com/blog/agent-computer-use) (artifacts for merge confidence).

@@ -32,9 +32,9 @@ export function isEvidenceAuthentic(body: string): boolean {
 }
 
 // Truncation limits for content included in the skeptic prompt
-const MAX_DESIGN_DOC_CHARS = 6_000;
-const MAX_PR_DESCRIPTION_CHARS = 4_000;
-const MAX_DIFF_CHARS = 30_000;
+const MAX_DESIGN_DOC_CHARS = 15_000;
+const MAX_PR_DESCRIPTION_CHARS = 15_000;
+const MAX_DIFF_CHARS = 150_000;
 const MAX_REVIEW_BODY_CHARS = 200;
 const MAX_REVIEWS_TO_SHOW = 8;
 
@@ -155,7 +155,11 @@ export function buildSkepticPrompt(
     "    - FAIL if evidence contains 'simulated', 'example.com', '<screenshot path>', '<value>', 'TODO', 'TBD'",
     "    - FAIL if a coverage claim (unit test coverage) has no percentage numbers (e.g. '97%', '85%')",
     "    - FAIL if the evidence section is empty or contains only template placeholders",
-    "    - PASS if evidence shows real command output, real test results, or real screenshots with non-placeholder URLs",
+    "    - FAIL if evidence for a fix or feature does not show the TDD Red-Green cycle (must show the initial failure logs/media followed by passing ones, per repo skill: skills/tdd-evidence-workflow/SKILL.md).",
+    "    - FAIL if Terminal media is provided but the URL is not HTTPS or does not point to a .mp4, .gif, .webm, .mov, or .cast file (must be video evidence per repo skill: skills/tmux-video-evidence/SKILL.md).",
+    "    - FAIL if UI media is provided but the URL is not HTTPS or does not point to a .mp4, .gif, .webm, or .mov file (screenshots alone are insufficient; .cast is terminal-only, not valid for UI media; per repo skill: skills/ui-video-evidence/SKILL.md).",
+    "    - FAIL if media is provided but lacks a caption or description tying it to the commit SHA.",
+    "    - PASS if evidence shows real command output, real test results, or real authentic video evidence showing the TDD cycle with HTTPS non-placeholder URLs and required caption/SHA linkage as specified in skills/evidence-standards/SKILL.md.",
     "    - NOTE: Gate 6 (evidence-review-bot) is a separate pass/fail gate from your authenticity check. Gate 6 may be skipped depending on project configuration.",
     "",
     "--- DESIGN ALIGNMENT CHECK (Rule 11) ---",

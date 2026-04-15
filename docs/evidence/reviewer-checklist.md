@@ -8,7 +8,7 @@ Use this for **`/er`**, CodeRabbit follow-ups, or human review. **Fail closed**:
 |--------|----------------|
 | **Evidence section** | `## Evidence` present; **Claim class** matches actual work; **Verdict** stated |
 | **Repro gist** | HTTPS gist with steps to fetch branch, install, run tests / repro |
-| **Terminal media** | Screenshot or **video** URL + caption; caption shows **tmux or terminal** context (not satisfied by the label alone) |
+| **Terminal media** | **Video MANDATORY** (.mp4/.gif/.webm/.mov/.cast) HTTPS URL + caption; screenshots alone FAIL. Caption shows **tmux or terminal** context (not satisfied by the label alone) |
 | **Terminal test output** | Fenced logs **in addition to** media; shows real command(s) (e.g. `pnpm`/`vitest`/…) |
 | **Claim → artifact** | For each major claim in the PR description, you can point to **gist step**, **log line**, or **media** — add a short **Claim → artifact map** bullet list in Evidence if crowded |
 | **No placeholders** | No `TODO`, `<path>`, `example.com`, or `simulated` in Evidence |
@@ -18,7 +18,7 @@ Use this for **`/er`**, CodeRabbit follow-ups, or human review. **Fail closed**:
 
 | Check | Pass criteria |
 |--------|----------------|
-| **UI proof** | **Video** preferred for primary flows; at least **before** and **after** **screenshots** for critical visual deltas (same framing if comparing) |
+| **UI proof** | **Video MANDATORY** (.mp4/.gif/.webm/.mov) for all primary flows; `.cast` is terminal-only and **not valid** for UI media; screenshots alone are INSUFFICIENT for interactive behavior. Show **before** and **after** states. |
 | **N/A honesty** | `N/A - no UI changes` only if **no** user-visible or interactive behavior changed |
 
 ## C. Risk-sensitive behavior (auth, merge, payments, destructive ops)
