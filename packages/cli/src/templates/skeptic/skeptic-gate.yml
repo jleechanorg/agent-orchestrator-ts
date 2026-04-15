@@ -27,7 +27,7 @@ jobs:
     with:
       pr_number: ${{ inputs.pr_number || github.event.pull_request.number }}
       # Fork-aware runner: use ubuntu-latest for forked PRs to avoid self-hosted exposure.
-      fork: ${{ github.event.pull_request.head.repo.fork }}
+      fork: ${{ github.event.pull_request.head.repo.fork == true }}
       runner_labels: ${{ vars.SELF_HOSTED_RUNNER_LABELS || '["self-hosted","claude"]' }}
       runner_labels_fork: '["ubuntu-latest"]'
     secrets:
