@@ -140,7 +140,10 @@ jobs:
             # Post trigger with timestamp so verdict selector can filter by freshness
             TRIGGER_TS=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
             BODY=$(printf '%s\n%s\n%s' "SKEPTIC_CRON_TRIGGER" "<!-- skeptic-cron-trigger-${PR_SHA} ts=${TRIGGER_TS} -->")
-            gh api repos/${{ github.repository }}/issues/"$PR_NUM"/comments --field body="$BODY" > /dev/null 2>&1
+            if ! gh api repos/${{ github.repository }}/issues/"$PR_NUM"/comments --field body="$BODY" > /dev/null 2>&1; then
+              echo "WARNING: Failed to post trigger comment for PR #$PR_NUM — skipping this PR"
+              continue
+            fi
             TRIGGERED=$((TRIGGERED + 1))
           done
 
