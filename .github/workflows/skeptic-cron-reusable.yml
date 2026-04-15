@@ -178,7 +178,7 @@ jobs:
             fi
             if [ -z "$HEAD_SHA" ]; then
               echo "  [SKIP] Cannot determine HEAD SHA for PR #$PR_NUM"
-              continue
+              exit 0
             fi
             CI_STATUS=$(gh api repos/$GITHUB_REPOSITORY/commits/"$HEAD_SHA"/status \
               --jq '.state' 2>/dev/null || echo "error")
@@ -463,7 +463,7 @@ jobs:
                   CURRENT_HEAD=$(gh api repos/$GITHUB_REPOSITORY/pulls/"$PR_NUM" --jq '.head.sha' 2>/dev/null || echo "")
                   if [ "$CURRENT_HEAD" != "$HEAD_SHA" ]; then
                     echo "Head changed from ${HEAD_SHA:0:7} to ${CURRENT_HEAD:0:7} — skipping merge (verdict may be stale)"
-                    continue
+                    exit 0
                   fi
                   MERGE_RESULT=$(gh pr merge "$PR_NUM" \
                     --repo $GITHUB_REPOSITORY \
