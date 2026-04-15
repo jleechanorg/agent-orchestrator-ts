@@ -108,32 +108,38 @@ jobs:
             set +e
             LATEST_CR=$(gh api repos/${{ github.repository }}/pulls/"$PR_NUM"/reviews --paginate 2>/dev/null | jq -rs 'add | [.[] | select((.user.login == "coderabbitai[bot]" or .user.login == "coderabbitai") and .state != "COMMENTED")] | sort_by(.submitted_at) | last | .state // "none"' 2>/dev/null || echo "none")
             set -e
-            if [ "$LATEST_CR" != "APPROVED" ]; then
-                # Fallback: check status API + [approve] comment scoped to current head.
-                # Fetch commit date first so approval comments are scoped after this SHA was pushed.
-                PR_SHA_DATE=$(gh api repos/${{ github.repository }}/commits/"$PR_SHA" \
-                  --jq '.commit.committer.date // ""' 2>/dev/null || echo "")
-                CR_STATUS=$(gh api repos/${{ github.repository }}/commits/"$PR_SHA"/status \
-                  --jq '.statuses | map(select(.context == "CodeRabbit" and .state == "success")) | length' \
-                  2>/dev/null || echo 0)
-                CR_COMMENT=0
-                if [ -n "$PR_SHA_DATE" ]; then
-                  CR_COMMENT=$(gh api repos/${{ github.repository }}/issues/"$PR_NUM"/comments --paginate 2>/dev/null \
-                    | jq -rs --arg since "$PR_SHA_DATE" 'add | map(select(
-                        (.user.login == "coderabbitai[bot]" or .user.login == "coderabbitai") and
-                        .created_at >= $since and
-                        (.body | test("^\\s*\\[approve\\]\\s*$"; "i"))
-                      )) | length' 2>/dev/null || echo 0)
-                fi
-                if [ "$CR_STATUS" -eq 0 ] || [ "$CR_COMMENT" -eq 0 ]; then SKIPPED_NOT_6GREEN=$((SKIPPED_NOT_6GREEN + 1)); continue; fi
+            if [ "$LATEST_CR" = "APPROVED" ]; then
+              : # Gate 3 passed — formal CR approval
+            elif [ "$LATEST_CR" != "none" ]; then
+              # CHANGES_REQUESTED or other non-approved, non-none state — reject immediately
+              SKIPPED_NOT_6GREEN=$((SKIPPED_NOT_6GREEN + 1)); continue
+            else
+              # Fallback: check status API + [approve] comment scoped to current head.
+              # Fetch commit date first so approval comments are scoped after this SHA was pushed.
+              PR_SHA_DATE=$(gh api repos/${{ github.repository }}/commits/"$PR_SHA" \
+                --jq '.commit.committer.date // ""' 2>/dev/null || echo "")
+              CR_STATUS=$(gh api repos/${{ github.repository }}/commits/"$PR_SHA"/status \
+                --jq '.statuses | map(select(.context == "CodeRabbit" and .state == "success")) | length' \
+                2>/dev/null || echo 0)
+              CR_COMMENT=0
+              if [ -n "$PR_SHA_DATE" ]; then
+                CR_COMMENT=$(gh api repos/${{ github.repository }}/issues/"$PR_NUM"/comments --paginate 2>/dev/null \
+                  | jq -rs --arg since "$PR_SHA_DATE" 'add | map(select(
+                      (.user.login == "coderabbitai[bot]" or .user.login == "coderabbitai") and
+                      .created_at >= $since and
+                      (.body | test("^\\s*\\[approve\\]\\s*$"; "i"))
+                    )) | length' 2>/dev/null || echo 0)
+              fi
+              if [ "$CR_STATUS" -eq 0 ] || [ "$CR_COMMENT" -eq 0 ]; then SKIPPED_NOT_6GREEN=$((SKIPPED_NOT_6GREEN + 1)); continue; fi
             fi
 
             # Gate 4: Bugbot
-            BUGBOT=$(gh api repos/${{ github.repository }}/commits/"$PR_SHA"/check-runs --paginate 2>/dev/null | jq -rs '[.[] | .check_runs[]?] | map(select(.name | test("Cursor Bugbot"; "i"))) | sort_by(.completed_at) | last | .conclusion // "none"' 2>/dev/null)
+            BUGBOT=$(gh api repos/${{ github.repository }}/commits/"$PR_SHA"/check-runs --paginate 2>/dev/null | jq -rs '[.[] | .check_runs[]?] | map(select(.name | test("Cursor Bugbot"; "i"))) | sort_by(.completed_at) | last | .conclusion // "none"' 2>/dev/null || echo "none")
             if [[ ! "$BUGBOT" =~ ^(success|neutral|skipped)$ ]]; then SKIPPED_NOT_6GREEN=$((SKIPPED_NOT_6GREEN + 1)); continue; fi
 
-            # Post trigger
-            BODY=$(printf '%s\n%s' "SKEPTIC_CRON_TRIGGER" "<!-- skeptic-cron-trigger-${PR_SHA} -->")
+            # Post trigger with timestamp so verdict selector can filter by freshness
+            TRIGGER_TS=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+            BODY=$(printf '%s\n%s\n%s' "SKEPTIC_CRON_TRIGGER" "<!-- skeptic-cron-trigger-${PR_SHA} ts=${TRIGGER_TS} -->")
             gh api repos/${{ github.repository }}/issues/"$PR_NUM"/comments --field body="$BODY" > /dev/null 2>&1
             TRIGGERED=$((TRIGGERED + 1))
           done
@@ -207,10 +213,17 @@ jobs:
             echo "  [1] CI green:          $CI_RESULT"
 
             # 2. No merge conflicts
+            set +e -o pipefail
             PR_DATA2=$(gh api repos/$GITHUB_REPOSITORY/pulls/"$PR_NUM" \
               --jq '{mergeable: .mergeable, merged: .merged}' 2>/dev/null)
-            MERGEABLE=$(echo "$PR_DATA2" | jq -r '.mergeable // "unknown"')
-            MERGED_FLAG=$(echo "$PR_DATA2" | jq -r '.merged // false')
+            PR_DATA2_EXIT=$?
+            set -e +o pipefail
+            if [ $PR_DATA2_EXIT -ne 0 ] || [ -z "$PR_DATA2" ]; then
+              MERGEABLE="unknown"; MERGED_FLAG="false"
+            else
+              MERGEABLE=$(echo "$PR_DATA2" | jq -r '.mergeable // "unknown"')
+              MERGED_FLAG=$(echo "$PR_DATA2" | jq -r '.merged // false')
+            fi
             MERGE_CONFLICT=$(if [ "$MERGEABLE" = "true" ] || [ "$MERGED_FLAG" = "true" ]; then echo "PASS"; else echo "FAIL (mergeable=$MERGEABLE)"; fi)
             echo "  [2] No merge conflicts: $MERGE_CONFLICT"
 
@@ -274,6 +287,7 @@ jobs:
               while true; do
                 PAGE_COUNT=$((PAGE_COUNT + 1))
                 if [ "$PAGE_COUNT" -gt "$MAX_PAGES" ]; then GQL_ERROR=1; break; fi
+                set +e -o pipefail
                 if [ -z "$CURSOR" ]; then
                   GQL_RESULT=$(gh api graphql -f query='
                     query($owner: String!, $name: String!, $number: Int!) {
@@ -313,10 +327,15 @@ jobs:
                     }
                   ' -f owner="$GITHUB_REPOSITORY_OWNER" -f name="$REPO_NAME" -F number="$PR_NUM" -f cursor="$CURSOR" 2>/dev/null)
                 fi
-                if [ -z "$GQL_RESULT" ] || ! echo "$GQL_RESULT" | jq -e '
+                GQL_EXIT=$?
+                set -e +o pipefail
+                if [ $GQL_EXIT -ne 0 ] || [ -z "$GQL_RESULT" ]; then
+                  GQL_ERROR=1; break
+                fi
+                if ! echo "$GQL_RESULT" | jq -e '
                   (.errors | not) and
                   (.data.repository.pullRequest.reviewThreads.pageInfo != null)
-                ' >/dev/null; then
+                ' >/dev/null 2>&1; then
                   GQL_ERROR=1; break
                 fi
                 if [ "$(echo "$GQL_RESULT" | jq -r '[.data.repository.pullRequest.reviewThreads.nodes[].comments.pageInfo.hasNextPage | select(. == true)] | length')" -gt 0 ]; then
@@ -428,17 +447,43 @@ jobs:
               fi
             fi
 
-            # 7. Skeptic verdict
-            SKEPTIC_RAW=$(gh api repos/$GITHUB_REPOSITORY/issues/"$PR_NUM"/comments \
+            # 7. Skeptic verdict — scoped to trigger timestamp to prevent stale verdict reuse
+            # Extract the timestamp from the trigger comment for this PR+SHA
+            TRIGGER_COMMENT_RAW=$(gh api repos/$GITHUB_REPOSITORY/issues/"$PR_NUM"/comments \
               --paginate 2>/dev/null || echo "[]")
-            SKEPTIC_VERDICT=$(echo "$SKEPTIC_RAW" | jq -s \
-              --arg author "$SKEPTIC_BOT_AUTHOR" \
+            TRIGGER_TS=$(echo "$TRIGGER_COMMENT_RAW" | jq -s \
               --arg sha "$HEAD_SHA" \
               'add | map(select(
-                (.user.login == $author or .user.login == "github-actions[bot]")
-                and (.body | test("VERDICT:"; "i"))
-                and (.body | test("skeptic-(cron|gate)-trigger-" + $sha; "i"))
-              )) | last.body // empty' 2>/dev/null || echo "")
+                (.user.login == "github-actions[bot]")
+                and (.body | test("skeptic-cron-trigger-" + $sha; "i"))
+              )) | last.body // empty' \
+              2>/dev/null | grep -oP 'ts=\K[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z' \
+              2>/dev/null || echo "")
+
+            SKEPTIC_RAW=$(gh api repos/$GITHUB_REPOSITORY/issues/"$PR_NUM"/comments \
+              --paginate 2>/dev/null || echo "[]")
+            if [ -n "$TRIGGER_TS" ]; then
+              SKEPTIC_VERDICT=$(echo "$SKEPTIC_RAW" | jq -s \
+                --arg author "$SKEPTIC_BOT_AUTHOR" \
+                --arg sha "$HEAD_SHA" \
+                --arg ts "$TRIGGER_TS" \
+                'add | map(select(
+                  (.user.login == $author or .user.login == "github-actions[bot]")
+                  and (.body | test("VERDICT:"; "i"))
+                  and (.body | test("skeptic-(cron|gate)-trigger-" + $sha; "i"))
+                  and (.created_at | sub("\\.[0-9]+Z$"; "Z") >= $ts)
+                )) | last.body // empty' 2>/dev/null || echo "")
+            else
+              # Fallback to SHA-only filter if trigger comment was not found
+              SKEPTIC_VERDICT=$(echo "$SKEPTIC_RAW" | jq -s \
+                --arg author "$SKEPTIC_BOT_AUTHOR" \
+                --arg sha "$HEAD_SHA" \
+                'add | map(select(
+                  (.user.login == $author or .user.login == "github-actions[bot]")
+                  and (.body | test("VERDICT:"; "i"))
+                  and (.body | test("skeptic-(cron|gate)-trigger-" + $sha; "i"))
+                )) | last.body // empty' 2>/dev/null || echo "")
+            fi
             if echo "$SKEPTIC_VERDICT" | grep -qi "VERDICT: PASS"; then
               SKEPTIC_STATUS="PASS"
             elif echo "$SKEPTIC_VERDICT" | grep -qi "VERDICT: FAIL"; then

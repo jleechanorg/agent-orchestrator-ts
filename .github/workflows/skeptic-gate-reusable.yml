@@ -22,17 +22,23 @@ on:
         type: string
         required: false
         default: ""
-      head_sha:
-        description: "PR head commit SHA (for workflow_dispatch passthrough)"
-        type: string
+      fork:
+        description: >
+          Set to true when the PR is from a forked repository. Prevents self-hosted
+          runner exposure on untrusted fork code by switching to runner_labels_fork.
+        type: boolean
         required: false
-        default: ""
+        default: false
       runner_labels:
         description: >
-          JSON array of runner labels, e.g. '["self-hosted","claude"]'.
-          Callers MUST handle fork-awareness: forked PRs cannot access self-hosted
-          runners and must pass '["ubuntu-latest"]' instead. Example caller pattern:
-          runner_labels: ${{ github.event.pull_request.head.repo.fork && '["ubuntu-latest"]' || vars.SELF_HOSTED_RUNNER_LABELS || '["self-hosted","claude"]' }}
+          JSON array of runner labels for non-fork PRs, e.g. '["self-hosted","claude"]'.
+        type: string
+        required: false
+        default: '["ubuntu-latest"]'
+      runner_labels_fork:
+        description: >
+          JSON array of runner labels for forked PRs. Defaults to ["ubuntu-latest"]
+          to prevent self-hosted runner exposure on untrusted fork code.
         type: string
         required: false
         default: '["ubuntu-latest"]'
@@ -55,7 +61,7 @@ on:
 jobs:
   skeptic_gate:
     name: Skeptic Gate
-    runs-on: ${{ fromJson(inputs.runner_labels) }}
+    runs-on: ${{ inputs.fork && fromJson(inputs.runner_labels_fork) || fromJson(inputs.runner_labels) }}
     timeout-minutes: ${{ inputs.job_timeout_minutes }}
     permissions:
       pull-requests: write
@@ -324,6 +330,7 @@ jobs:
           TRIGGER_UPDATED: ${{ steps.post_trigger.outputs.trigger_updated }}
           TRIGGER_SHA: ${{ steps.post_trigger.outputs.trigger_sha }}
           SKEPTIC_BOT_AUTHOR: ${{ vars.SKEPTIC_BOT_AUTHOR || 'github-actions[bot]' }}
+          POLL_TIMEOUT_MINUTES: ${{ inputs.poll_timeout_minutes }}
         run: |
           PR_NUM=$PR_NUM
           set +e
@@ -336,11 +343,12 @@ jobs:
           echo "Only accepting verdicts posted after trigger was updated: $TRIGGER_UPDATED"
           echo "Also filtering by trigger SHA: ${TRIGGER_SHA:0:7}"
 
-          MAX_ATTEMPTS=55   # 55 * 30s = 27.5 min; step timeout-minutes drives the hard cap
+          MAX_ATTEMPTS=$(( (POLL_TIMEOUT_MINUTES * 60) / INTERVAL ))
+          [ "$MAX_ATTEMPTS" -lt 1 ] && MAX_ATTEMPTS=1
           INTERVAL=30
 
           echo "Polling for VERDICT on PR #$PR_NUM (commit ${HEAD_SHA:0:7})..."
-          echo "Max wait: $((MAX_ATTEMPTS * INTERVAL / 60)) minutes"
+          echo "Max wait: $((MAX_ATTEMPTS * INTERVAL / 60)) minutes (poll_timeout_minutes=$POLL_TIMEOUT_MINUTES)"
 
           API_FAILURES=0
           for i in $(seq 1 $MAX_ATTEMPTS); do

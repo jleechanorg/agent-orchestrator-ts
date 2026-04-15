@@ -16,6 +16,12 @@ on:
 
 jobs:
   skeptic_cron:
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      statuses: read
+      checks: read
     uses: jleechanorg/agent-orchestrator/.github/workflows/skeptic-cron-reusable.yml@main
     with:
       # Default: use self-hosted 'mikey' runner for cron/eval.
