@@ -129,10 +129,14 @@ jobs:
           SKEPTIC_CRON_AUTO_MERGE: ${{ inputs.auto_merge }}
           SKEPTIC_MERGE_DENYLIST: ${{ vars.SKEPTIC_MERGE_DENYLIST || '' }}
         run: |
-          set -euo pipefail
+          set -uo pipefail
           MERGED=0
 
+          # Run each PR check in a subshell so a single failure doesn't abort the batch.
+          # Each gh api call has || echo fallbacks for transient errors.
           for PR in $(echo "$PR_JSON" | jq -r '.[] | @base64'); do
+            (
+              set +e
             PR_DATA=$(echo "$PR" | base64 -d)
             PR_NUM=$(echo "$PR_DATA" | jq -r '.number')
             PR_TITLE=$(echo "$PR_DATA" | jq -r '.title')
@@ -494,6 +498,7 @@ jobs:
             else
               echo "PR #${PR_NUM} not yet merge-ready — skipping"
             fi
+          )
           done
 
           echo "merged_count=$MERGED" >> "$GITHUB_OUTPUT"

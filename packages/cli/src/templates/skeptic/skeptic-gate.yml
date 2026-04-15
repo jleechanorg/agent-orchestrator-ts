@@ -21,14 +21,18 @@ concurrency:
   group: green-gate-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: false
 
+permissions:
+  pull-requests: write
+  issues: write
+  contents: read
+  statuses: read
+  checks: read
+
 jobs:
   skeptic_gate:
     uses: jleechanorg/agent-orchestrator/.github/workflows/skeptic-gate-reusable.yml@main
     with:
       pr_number: ${{ inputs.pr_number || github.event.pull_request.number }}
-      # Fork-aware runner: use ubuntu-latest for forked PRs to avoid self-hosted exposure.
-      fork: ${{ github.event.pull_request.head.repo.fork == true }}
+      head_sha: ${{ inputs.head_sha || github.event.pull_request.head.sha }}
       runner_labels: ${{ vars.SELF_HOSTED_RUNNER_LABELS || '["self-hosted","claude"]' }}
-      runner_labels_fork: '["ubuntu-latest"]'
-    secrets:
-      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    secrets: inherit
