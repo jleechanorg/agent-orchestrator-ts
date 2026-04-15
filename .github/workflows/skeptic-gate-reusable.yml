@@ -343,9 +343,9 @@ jobs:
           echo "Only accepting verdicts posted after trigger was updated: $TRIGGER_UPDATED"
           echo "Also filtering by trigger SHA: ${TRIGGER_SHA:0:7}"
 
+          INTERVAL=30
           MAX_ATTEMPTS=$(( (POLL_TIMEOUT_MINUTES * 60) / INTERVAL ))
           [ "$MAX_ATTEMPTS" -lt 1 ] && MAX_ATTEMPTS=1
-          INTERVAL=30
 
           echo "Polling for VERDICT on PR #$PR_NUM (commit ${HEAD_SHA:0:7})..."
           echo "Max wait: $((MAX_ATTEMPTS * INTERVAL / 60)) minutes (poll_timeout_minutes=$POLL_TIMEOUT_MINUTES)"
