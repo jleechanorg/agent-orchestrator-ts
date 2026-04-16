@@ -1,3 +1,8 @@
+---
+name: tdd-evidence-workflow
+description: TDD-driven evidence workflow for generating authoritative failure/fix proof in PRs.
+---
+
 # TDD-Driven Evidence Workflow (Evidence-Driven Development)
 
 This skill operationalizes Test-Driven Development (TDD) as the primary mechanism for generating authentic, authoritative evidence for pull requests.

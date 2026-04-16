@@ -1,6 +1,6 @@
 ---
 name: agent-orchestrator
-description: Use this skill when working in repositories managed by Agent Orchestrator or when the user asks how to use `ao` properly. Covers the default AO workflow: bootstrap with `ao start`, dispatch work with `ao spawn`, inspect progress with `ao status` or `ao session ls`, steer sessions with `ao send`, and recover or clean up sessions safely.
+description: "Use this skill when working in repositories managed by Agent Orchestrator or when the user asks how to use `ao` properly. Covers the default AO workflow: bootstrap with `ao start`, dispatch work with `ao spawn`, inspect progress with `ao status` or `ao session ls`, steer sessions with `ao send`, and recover or clean up sessions safely."
 ---
 
 # Agent Orchestrator
