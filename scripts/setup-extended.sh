@@ -244,9 +244,13 @@ if command -v tailscale &>/dev/null; then
     if [ "$TS_FUNNEL" != "$WEBHOOK_PORT" ]; then
       echo "[tail] Opening TailScale Funnel on port $WEBHOOK_PORT..."
       # Reset and reconfigure funnel on webhook port only
-      tailscale funnel --bg "$WEBHOOK_PORT" 2>/dev/null || \
-        tailscale funnel reset 2>/dev/null && tailscale funnel --bg "$WEBHOOK_PORT" 2>/dev/null || \
-        echo "  WARNING: Could not configure Funnel. Run manually: tailscale funnel --bg $WEBHOOK_PORT"
+      if ! tailscale funnel --bg "$WEBHOOK_PORT" 2>/dev/null; then
+        if tailscale funnel reset 2>/dev/null && tailscale funnel --bg "$WEBHOOK_PORT" 2>/dev/null; then
+          :
+        else
+          echo "  WARNING: Could not configure Funnel. Run manually: tailscale funnel --bg $WEBHOOK_PORT"
+        fi
+      fi
     fi
     FUNNEL_URL=$(tailscale funnel status 2>/dev/null | grep -E "^${WEBHOOK_PORT}" | awk '{print $3}' || echo "")
     if [ -n "$FUNNEL_URL" ]; then
@@ -277,7 +281,15 @@ if [ -z "$WEBHOOK_PID" ]; then
     echo "  WARNING: Webhook server failed to start. Check ~/.agent-orchestrator/webhook-server.log"
   fi
 else
-  echo "[ok] Webhook server already running on port $WEBHOOK_PORT (PID $WEBHOOK_PID)"
+  # Verify the running process is the AO webhook server (not some other process on the port)
+  CMD_LINE=$(ps -p "$WEBHOOK_PID" -o args= 2>/dev/null || true)
+  if echo "$CMD_LINE" | grep -qE "pnpm next|packages/web"; then
+    echo "[ok] Webhook server already running on port $WEBHOOK_PORT (PID $WEBHOOK_PID)"
+  else
+    echo "  ERROR: Port $WEBHOOK_PORT is occupied by a non-AO process (PID $WEBHOOK_PID: $CMD_LINE)"
+    echo "  Cannot start webhook server. Kill the conflicting process first."
+    WEBHOOK_PID=""  # invalidate so we don't write a misleading PID file
+  fi
 fi
 
 # Register GitHub webhooks for all configured repos
@@ -302,7 +314,12 @@ if [ -f "$CONFIG_FILE" ]; then
     SECRET=$(python3 -c "import secrets; print(secrets.token_hex(32))")
   fi
 
-  python3 - "$CONFIG_FILE" "$WEBHOOK_BASE_URL" "$WEBHOOK_API_PATH" "$SECRET" << 'PYEOF' 2>/dev/null || true
+  # Skip webhook registration if we only have a localhost URL (Funnel not available)
+  if [ -z "$WEBHOOK_BASE_URL" ] || echo "$WEBHOOK_BASE_URL" | grep -q "localhost"; then
+    echo "[skip] Funnel/public URL unavailable — webhook registration skipped."
+    echo "  To enable: run 'tailscale funnel --bg $WEBHOOK_PORT' then re-run this script."
+  else
+    python3 - "$CONFIG_FILE" "$WEBHOOK_BASE_URL" "$WEBHOOK_API_PATH" "$SECRET" << 'PYEOF'
 import sys, json, subprocess, urllib.request, urllib.error, os, hmac, hashlib
 
 config_path, base_url, api_path, secret = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
@@ -371,6 +388,7 @@ for project_id, proj_cfg in (cfg.get('projects') or {}).items():
         print(f"  ~ {repo}: {e}")
 
 PYEOF
+  fi  # close localhost skip
 else
   echo "  Skipping webhook registration (no config found)"
 fi

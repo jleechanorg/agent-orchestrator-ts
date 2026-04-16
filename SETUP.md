@@ -335,7 +335,7 @@ GitHub webhooks replace polling with immediate event delivery. When a push or pu
 - Zero API cost when nothing is happening
 
 **Architecture:**
-```
+```text
 GitHub → TailScale Funnel (public URL) → Next.js webhook route → lifecycleManager.check()
 ```
 
@@ -350,9 +350,9 @@ GitHub → TailScale Funnel (public URL) → Next.js webhook route → lifecycle
 # After running setup.sh, the webhook server is started automatically
 # if TailScale is running. To manually start:
 
-cd ~/path/to/agent-orchestrator/packages/web
+cd ~/path/to/agent-orchestrator
 tailscale funnel --bg 3030          # expose port publicly
-pnpm next dev --port 3030 &        # start webhook server
+pnpm --filter @composio/ao-web next dev --port 3030 &  # start webhook server
 
 # Register webhooks for all configured repos (run once per new repo):
 bash scripts/setup-extended.sh
@@ -384,10 +384,13 @@ lsof -i :3030
 tailscale funnel status
 
 # Test webhook locally
+# NOTE: x-hub-signature-256 header is required by the webhook verifier.
+# Compute it with:  echo -n '<payload>' | openssl dgst -sha256 -hmac '<webhook_secret>'
 curl -X POST http://localhost:3030/api/webhooks/github \
   -H "Content-Type: application/json" \
   -H "x-github-event: push" \
   -H "x-github-delivery: test-001" \
+  -H "x-hub-signature-256: sha256=<computed-hmac>" \
   -d '{"ref":"refs/heads/main","repository":{"name":"my-repo","full_name":"owner/my-repo","owner":{"login":"owner"}},"sender":{"login":"owner"}}'
 ```
 
