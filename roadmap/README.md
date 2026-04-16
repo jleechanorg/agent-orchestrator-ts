@@ -4,6 +4,12 @@ Design notes, audits, and rolling status for **jleechanorg/agent-orchestrator**.
 
 ## Recent activity (rolling)
 
+### 2026-04-15
+
+- **AO workers 401 auth failures — FIXED** — Root cause was dual-config-path divergence: `~/.openclaw_prod/agent-orchestrator.yaml` (workers) had `model: gemini-3-flash-preview` while `~/.openclaw/` (CLI) had `MiniMax-M2.7`. The `auton` skill only read `~/.openclaw/`, missing the worker config. Fix: aligned both configs to `MiniMax-M2.7` and updated `auton` skill Step 0 to verify worker config path first. PRs **#454, #452, #444** are now **CLEAN/APPROVED**; **#450, #453** processing via `ao-3907` worker.
+- **Lifecycle-worker confirmed alive** — Workers are running as node processes (`ps aux | grep lifecycle-worker`). Launchd wrapper shows `not running` but workers are alive.
+- **br JSON config corruption** — `br` tool reports **`Invalid JSON at line 425: missing field updated_at`** — beads store corrupted. Tasks tracked via TaskCreate instead.
+
 ### 2026-04-09
 
 - **scm-github / claim-pr** — **`checkoutPR`** now uses **`git checkout -f <branch>`** after fetch so AO-managed bootstrap files (e.g. `.claude/metadata-updater.sh`, `AGENTS.md`) touched during worktree init cannot abort PR branch checkout. PR **#419 merged** (commit **`f1870507`**). Gap: `git fetch --force` still throws "refusing to fetch into branch...checked out at" BEFORE checkout runs — recovery only at checkout stage, not fetch stage. Bead: **bd-anxs** (fetch-stage self-heal).
