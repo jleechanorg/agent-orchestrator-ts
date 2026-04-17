@@ -52,6 +52,11 @@ if command -v python3 >/dev/null 2>&1; then
   normalize_prefixed_command_out=$(python3 - "$command" <<'PY'
 import sys
 
+def deny(reason):
+    print("deny")
+    print(reason)
+    raise SystemExit(0)
+
 def tokenize(source):
     tokens = []
     i = 0
