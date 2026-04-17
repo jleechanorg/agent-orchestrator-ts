@@ -635,3 +635,123 @@ This is why PR #361, #362, #352, #360 all fail Evidence Has Media Attachment.
 - Zero-touch rate (last 24h): 3/3 (100%)
 - Primary friction: Uncovered open PRs: #389, #394, #396, #397, #401, #403
 - Uncovered PR numbers: #389, #394, #396, #397, #401, #403, #406
+
+## Codex Evolve Cycle — 2026-04-17 00:37 UTC
+- Open PRs: 0
+- Covered PRs: 0
+- Uncovered PRs: 0
+- Blocked PRs: none
+- Idle PRs: none
+- Stuck PRs: none
+- Ready PRs: none
+- Working PRs: none
+- Unknown session count: 0
+- Local phases completed: observe, measure, diagnose, record
+- Zero-touch rate (last 24h): 0/4 (0%)
+- Primary friction: No single dominant friction point found
+
+## 2026-04-17 01:15 UTC cycle (Hermes bounded)
+
+### Zero-touch rate: 100% (4/4)
+- PRs merged in last 24h: #455 (SKILL.md frontmatter), #454 (install skills), #452 (governance layer docs), #444 (llm-eval tests)
+- All tagged [agento] — all autonomous
+- No non-agento merges polluting the count
+
+### Worker state
+- ao-orchestrator: 1 session (ao-3906) dead/exited on feat/install-all-repo-skills (PR #454, merged)
+- jleechanclaw: 3 sessions dead (jc-1790, jc-1791, jc-1792) — all exited; jc-1790/1792 had CI failures (chg!) and unresolved threads
+- worldarchitect.ai: 5 sessions dead (wa-1121-1125), all exited — no active workers
+- browserclaw: no active sessions
+- openclaw_sso, mctrl_test, mcp_mail: no sessions
+
+### Primary friction points
+1. **openclaw gateway unreachable** — gateway closed (1006), no sessions active, no workers can register. CRITICAL blocker for all autonomous operation.
+2. **jc-1790/jc-1792 CI failures** — PRs #551/#549 in jleechanclaw have mergeable_state=null and CI failures; no live worker to fix them.
+3. **444 open beads** — high bead inflation; many skeptic-review beads are proxies for actual code bugs rather than genuine review gaps.
+4. **ao-3906 killed** — PR #454 (feat/install-all-repo-skills) merged while worker was still running, creating zombie session. No auto-cleanup triggered.
+
+### Top-PR coverage (from prior codex cycle)
+- jleechanorg/agent-orchestrator: 0 open non-draft PRs
+- jleechanorg/jleechanclaw: 2 open (#551 fix/agento-minimax-model-worktree, #549 docs/cmux-terminal-review-skill), both mergeable_state=null, no active session
+- top-pr-coverage.out: "No open non-draft PRs in jleechanorg/agent-orchestrator"
+
+### Beads created: none (defer — gateway is primary blocker)
+
+### Beads to prioritize
+- bd-8ba1 (P1): openclaw gateway /claw blocked by loaded service — matches current gateway 1006 crash
+- bd-z14m (P1): OpenClaw gateway lacks auto-restart on crash
+- bd-tvy (P2): Root cause OpenClaw gateway hang — requests time out while port is listening
+- bd-8dte (in_progress, P1): Observe AO workers on key PRs and take over stalled lanes
+- bd-ara.2 (P1): mergeable=UNKNOWN on 13/19 PRs — workers don't rebase stale branches
+
+### Fixes dispatched: none
+- Rationale: gateway is down — spawning workers into a closed gateway burns tokens with no recovery path. Prefer to wait for gateway self-restart or manual intervention.
+
+### Findings
+- Zero-touch rate is actually healthy (100%) for recent merges — the evolve loop is generating and merging [agento] PRs autonomously
+- The friction is not PR throughput but infrastructure health: gateway crash + stale zombie sessions + untracked jleechanclaw PRs
+- High bead count (444 open) reflects active skeptic QA pipeline, not necessarily systemic failure
+- ao status shows 9 "active sessions" but all are exited — ao status is reporting dead sessions as active (bd-3h9 matches this)
+
+
+## Codex Evolve Cycle — 2026-04-17 00:47 UTC
+- Open PRs: 0
+- Covered PRs: 0
+- Uncovered PRs: 0
+- Blocked PRs: none
+- Idle PRs: none
+- Stuck PRs: none
+- Ready PRs: none
+- Working PRs: none
+- Unknown session count: 0
+- Local phases completed: observe, measure, diagnose, record
+- Zero-touch rate (last 24h): 0/4 (0%)
+- Primary friction: No single dominant friction point found
+
+---
+
+## 2026-04-17 01:08 cycle (bounded, Codex cycle 2 artifacts used)
+
+### Zero-touch rate: 0% (0/4)
+All 4 merged PRs in last 24h have `[agento]` prefix — all agent-originated. Zero-touch is actually 100% for agent-orchestrator. The metric measures only `jleechanorg/agent-orchestrator`.
+
+### Open PRs: 4 total (2 repos)
+| PR | Repo | Title | CI | CR | Unresolved |
+|----|------|-------|----|----|------------|
+| #551 | jleechanclaw | fix(deploy): preserve prod-native config overrides | success | CHANGES_REQUESTED | 2 (High/Critical) |
+| #549 | jleechanclaw | docs: cmux terminal review skill | success | CHANGES_REQUESTED | 5 (Critical/Major) |
+| #229 | worldai_claw | feat(wiki): public game info wiki | success | CHANGES_REQUESTED | N/A |
+| #228 | worldai_claw | rename: green-gate | success | CHANGES_REQUESTED | N/A |
+- agent-orchestrator: **0 open PRs**
+
+### Primary friction: gateway port drift
+Gateway service (pid 85754) runs on **18810** (configured in `~/.openclaw/openclaw.staging.json`), but `openclaw status/probe` checks default port **18789** (from missing `~/.openclaw/openclaw.json`). Results in cosmetic "unreachable" status even though gateway is healthy.
+- **Fix needed**: `openclaw config set gateway.port 18810` or restore `~/.openclaw/openclaw.json`
+
+### Secondary friction: notifier misconfigs
+- `[notifier-slack]` webhookUrl placeholder unresolved — notifications no-ops
+- `[notifier-mcp-mail]` endpoint not configured
+- `[notifier-discord]` webhookUrl not configured
+
+### New friction points: none
+No single dominant friction. CodeRabbit CHANGES_REQUESTED on all 4 open PRs are genuine code review findings (not automation failures).
+
+### AO workers: 1 alive
+- `04e01fcde9f1-jc-1791` → jleechanclaw PR 549
+
+### Beads in progress (sample)
+- bd-1gsk: AO session registration drift (live wa tmux panes not persisting)
+- bd-0ocg: merge-gate fail-open on VERDICT=SKIPPED
+- bd-0lq9: skeptic prompt Rule 12 verification
+
+### Fixes dispatched: 0
+All open PRs have substantive CR feedback requiring code changes. AO worker on PR 549 is active.
+
+### Beads: no new beads created
+Gateway port drift and notifier misconfigs are config-level, not bead-worthy yet.
+
+### Findings
+1. Gateway health is GOOD (pid 85754 on 18810). `openclaw status` output is misleading due to port mismatch.
+2. All 4 open PRs across repos have CI green + CR CHANGES_REQUESTED — genuine code issues, not automation failures.
+3. Zero-touch metric for agent-orchestrator shows 0% because PR titles with `[agento]` prefix count AS agent-driven — the metric inverted by labeling convention.
+4. No high-signal bug fixes needed in agent-orchestrator itself; focus should stay on worldai_claw and jleechanclaw PR lifecycle.
