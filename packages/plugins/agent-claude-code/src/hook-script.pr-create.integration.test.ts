@@ -229,5 +229,6 @@ describe("hook script: gh pr create PreToolUse [agento] prefix rewriting", () =>
     });
     const output = parseHookOutput(stdout);
     expect(output.permissionDecision).toBe("deny");
+    expect(output.permissionDecisionReason).toContain("--title");
   });
 });
