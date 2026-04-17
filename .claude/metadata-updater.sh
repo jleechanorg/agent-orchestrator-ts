@@ -148,6 +148,10 @@ source = sys.argv[1]
 try:
     tokens = tokenize(source)
 except ValueError:
+    # Deny parse failures if source contains guarded gh commands
+    if "gh" in source and ("pr create" in source or "pr merge" in source):
+        deny(f"Blocked by AO policy: unable to safely parse command containing gh pr create/merge ({sys.exc_info()[1]}).")
+    # Otherwise, fall through as "raw" for non-guarded commands
     print("raw")
     print(source)
     raise SystemExit(0)
@@ -498,6 +502,26 @@ if [[ "$clean_command" =~ ^git[[:space:]]+switch[[:space:]]+-c[[:space:]]+([^[:s
 fi
 
 if [[ "$clean_command" =~ ^git[[:space:]]+switch[[:space:]]+([^[:space:]-]+[/-][^[:space:]]+) ]]; then
+  branch="${BASH_REMATCH[1]}"
+  if [[ -n "$branch" && "$branch" != "HEAD" ]]; then
+    update_metadata_key "branch" "$branch"
+    echo '{"systemMessage": "Updated metadata: branch = '"$branch"'"}'
+    exit 0
+  fi
+fi
+
+# Detect: git checkout <branch> (switching to existing branch without -b)
+if [[ "$clean_command" =~ ^git[[:space:]]+checkout[[:space:]]+([^[:space:]-][^[:space:]]*) ]]; then
+  branch="${BASH_REMATCH[1]}"
+  if [[ -n "$branch" && "$branch" != "HEAD" ]]; then
+    update_metadata_key "branch" "$branch"
+    echo '{"systemMessage": "Updated metadata: branch = '"$branch"'"}'
+    exit 0
+  fi
+fi
+
+# Detect: git switch <branch> (switching to existing branch without -c)
+if [[ "$clean_command" =~ ^git[[:space:]]+switch[[:space:]]+([^[:space:]-][^[:space:]]*) ]]; then
   branch="${BASH_REMATCH[1]}"
   if [[ -n "$branch" && "$branch" != "HEAD" ]]; then
     update_metadata_key "branch" "$branch"
