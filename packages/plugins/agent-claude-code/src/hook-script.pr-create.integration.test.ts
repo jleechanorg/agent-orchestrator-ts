@@ -152,37 +152,37 @@ describe("hook script: gh pr create PreToolUse [agento] prefix rewriting", () =>
       desc: "cd && prefix",
       command: 'cd /repo && gh pr create --title "fix: bug"',
       expectedDecision: "allow",
-      expectedCommandContains: 'cd /repo && gh pr create --title "[agento] fix: bug"',
+      expectedPattern: 'cd /repo && gh pr create --title "[agento] fix: bug"',
     },
     {
       desc: "env prefix",
       command: 'GH_TOKEN=xxx gh pr create --title "fix: bug"',
       expectedDecision: "allow",
-      expectedCommandContains: 'GH_TOKEN=xxx gh pr create --title "[agento] fix: bug"',
+      expectedPattern: 'GH_TOKEN=xxx gh pr create --title "[agento] fix: bug"',
     },
     {
       desc: "multiple cd prefixes",
       command: 'cd /tmp && cd /repo && gh pr create --title "fix: bug"',
       expectedDecision: "allow",
-      expectedCommandContains: '[agento] fix: bug',
+      expectedPattern: '--title "[agento] fix: bug"',
     },
     {
       desc: "title with many spaces",
       command: 'gh pr create --title "fix: long title with many spaces" --body "test"',
       expectedDecision: "allow",
-      expectedCommandContains: '[agento] fix: long title with many spaces',
+      expectedPattern: '--title "[agento] fix: long title with many spaces"',
     },
     {
       desc: "title with special characters",
       command: 'gh pr create --title "fix: bug [WIP] & more" --body "test"',
       expectedDecision: "allow",
-      expectedCommandContains: '[agento] fix: bug [WIP] & more',
+      expectedPattern: '--title "[agento] fix: bug [WIP] & more"',
     },
-  ])("rewrites title with $desc", ({ command, expectedDecision, expectedCommandContains }) => {
+  ])("rewrites title with $desc", ({ command, expectedDecision, expectedPattern }) => {
     const { stdout } = runHook({ command, hookEvent: "PreToolUse" });
     const output = parseHookOutput(stdout);
     expect(output.permissionDecision).toBe(expectedDecision);
-    expect(output.updatedInput?.command).toContain(expectedCommandContains);
+    expect(output.updatedInput?.command).toMatch(new RegExp(expectedPattern.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   });
 
   it("denies gh pr create without --title option", () => {
