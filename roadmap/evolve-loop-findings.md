@@ -858,3 +858,183 @@ g.json` port 18810; `openclaw.json` port unset (CLI defaults to 18789)
 - ENAMETOOLONG bug must be fixed before gateway can restart cleanly
 - LaunchAgent bootstrap failure blocks auto-restart on machine reboot
 - jc-1796 PR #549 blocked on 401 auth — gateway session init broken
+
+## Evolve Loop Cycle — 2026-04-17 09:22 UTC (update)
+
+### FIX APPLIED: Gateway workspace path explosion
+**Root cause**: `~/.openclaw_prod/openclaw.json` had 666 occurrences of `_prod_prod_` baked into `agentDir` fields across all 19 agent configs — a substitution bug in openclaw that compounds with each restart. Additionally, `OPENCLAW_STATE_DIR` was not set in the LaunchAgent plist.
+**Fixes applied**:
+1. Stopped gateway (`launchctl bootout`)
+2. Fixed `~/.openclaw_prod/openclaw.json`: collapsed all `agentDir` paths from `.openclaw_prod_prod_prod_prod...` (54+ repetitions) back to `.openclaw_prod` — 666 `_prod_prod_` occurrences removed
+3. Added `OPENCLAW_STATE_DIR=/Users/jleechan/.openclaw_prod` to `~/Library/LaunchAgents/ai.openclaw.gateway.plist`
+4. Restarted gateway with `launchctl bootstrap`
+5. Verified: heartbeat entries now writing to `/tmp/openclaw/openclaw-2026-04-16.log`; last heartbeat `2026-04-16T21:33:40` confirmed healthy
+**Status**: Gateway operational (PID 55433 on ws://127.0.0.1:18810). ENAMETOOLONG cosmetic boot hook error still fires once per agent startup attempt but does not affect gateway function.
+
+### Open items remaining
+1. **jleechanclaw #549, #551**: Both fail "Green Gate" step 5 "Set check result" — GitHub API failure when setting commit status. Hypothesis: composite context string exceeds 100-char GitHub limit. Needs `/claw` bead + verification against Green Gate source.
+2. **Gateway security**: 3 CRITICAL (gateway auth, browser control auth, plugins.allow missing) — not runtime risks but should be hardened.
+
+## Codex Evolve Cycle — 2026-04-17 01:37 UTC
+- Open PRs: 0
+- Covered PRs: 0
+- Uncovered PRs: 0
+- Blocked PRs: none
+- Idle PRs: none
+- Stuck PRs: none
+- Ready PRs: none
+- Working PRs: none
+- Unknown session count: 0
+- Local phases completed: observe, measure, diagnose, record
+- Zero-touch rate (last 24h): 0/4 (0%)
+- Primary friction: No single dominant friction point found
+
+## Evolve Loop Cycle — 2026-04-17 09:50 UTC
+
+### Zero-touch rate: 100% (4/4)
+All 4 merged PRs in last 24h carry `[agento]` prefix — fully autonomous. No non-agento merges detected.
+
+### Workers: 2 zombie jleechanclaw sessions killed
+- `04e01fcde9f1-jc-1796` (jc-1796): stuck in 401 auth loop — MiniMax API key invalid/expired. Killed.
+- `04e01fcde9f1-jc-1797` (jc-1797): same 401 pattern. Killed.
+Both sessions were burning tokens on repeated `/login` prompts with no forward progress. No open AO workers remain in agent-orchestrator after kill.
+
+### Open PRs
+| Repo | PR | State | Status |
+|------|----|-------|--------|
+| jleechanclaw | #549 | open, unstable | Green Gate step 5 "Set check result" fails — GitHub API 401 on commit status |
+| jleechanclaw | #551 | open, unstable | Same 401 pattern — session credentials expired mid-work |
+| worldai_claw | #232 | open, unstable | antig-wc-t5s worker blocked |
+| worldai_claw | #228 | open, unknown | rename/skeptic-gate → green-gate |
+
+### Primary friction
+jleechanclaw worker auth collapse: Both live sessions hit MiniMax 401 errors. Root cause likely expired/invalid OPENAI_API_KEY_BASE or MiniMax credentials in the jleechanclaw workspace session environment. Workspace sessions not auto-refreshing credentials.
+
+### Friction points
+1. **Worker credential expiration** (P0): jc tmux panes cycling on 401 — sessions need credential refresh mechanism or auto-reauth
+2. **PR #549/#551 stuck at Green Gate step 5** (P1): GitHub API commit-status writes fail, preventing green signal
+3. **worldai_claw PR #228 mergeable_state=unknown** (P1): likely needs rebase
+4. **OpenClaw security audit CRITICALs** (P2): gateway auth + browser control auth missing; plugins.allow not set
+
+### Beads
+- No new beads created — existing bd-dz1q (ENAMETOOLONG), bd-xsd3 (skeptic cron comments dropped), and bd-1gsk (AO session registration drift) cover the known friction
+
+### Fixes
+- Killed 2 zombie sessions burning tokens on auth failures
+
+### Findings
+1. Zero-touch remains 100% — no regression
+2. No open agent-orchestrator PRs — clean
+3. OpenClaw gateway operational (pid 55433) but has 2 CRITICAL security findings
+4. MiniMax/jleechanclaw auth drift causing worker livelock — not a system-wide failure
+
+## Codex Evolve Cycle — 2026-04-17 01:47 UTC
+- Open PRs: 0
+- Covered PRs: 0
+- Uncovered PRs: 0
+- Blocked PRs: none
+- Idle PRs: none
+- Stuck PRs: none
+- Ready PRs: none
+- Working PRs: none
+- Unknown session count: 0
+- Local phases completed: observe, measure, diagnose, record
+- Zero-touch rate (last 24h): 0/4 (0%)
+- Primary friction: No single dominant friction point found
+
+## Evolve Loop Cycle — 2026-04-17 09:58 UTC (Hermes bounded cycle)
+
+### Zero-touch rate: 100% (4/4)
+All 4 merged PRs in last 24h carry `[agento]` prefix — fully autonomous. No non-agento merges detected.
+
+### Workers: clean
+- ao-3906 (agent-orchestrator, PR #454): killed — work complete, merged
+- jleechanclaw zombie sessions from prior cycle (jc-1796/1797): already killed by prior cycle
+- No live zombies detected in this cycle
+
+### Open PRs
+| Repo | PR | CI | Mergeable | CR | Blocker |
+|------|----|----|-----------|-----|---------|
+| jleechanclaw | #549 | success | unstable | CHANGES_REQUESTED | CR feedback unresolved |
+| jleechanclaw | #551 | success | unstable | CHANGES_REQUESTED | CR feedback unresolved |
+| worldai_claw | #228 | success | unstable | ? | likely needs rebase |
+| worldai_claw | #232 | success | unstable | ? | likely needs rebase |
+
+### Primary friction: none dominant
+No single friction point. System is stable.
+
+### Gateway drift diagnosis (cosmetic, not critical)
+- `openclaw status` reports `ws://127.0.0.1:18789 unreachable` — this is a **CLI/config mismatch**, not a gateway failure
+- Actual gateway (pid 55433) IS healthy on `ws://127.0.0.1:18810` (confirmed via curl)
+- Root cause: LaunchAgent plist references `openclaw.staging.json` (port 18810 with auth.token set), but `openclaw` CLI reads default config (port 18789) for status reporting
+- Fix: Either alias `openclaw` to `openclaw --config openclaw.staging.json` or document that `openclaw status` requires `--config openclaw.staging.json` to see accurate gateway state
+- OpenClaw CRITICALs (gateway auth, browser auth, plugins.allow): ALL already mitigated in staging.json — auth.token IS set, allowedOrigins IS set, plugins.allow not needed for single known extension
+
+### Friction points assessed (no new beads needed)
+1. **PRs #549/#551 stuck on CR CHANGES_REQUESTED** (P1): Not a green-gate failure — CR feedback needs human or AO response. No API 401 detected in this cycle.
+2. **worldai_claw PRs unstable** (P2): mergeable=unstable, likely needs rebase. No live AO worker on worldai_claw to handle it.
+3. **Gateway status cosmetic** (P2): CLI reads wrong config. Already diagnosed above.
+
+### Beads: no new beads created
+Existing beads cover all current friction:
+- bd-orch2v3 (tmux send-keys missing Enter) — P0 send-to-agent fix
+- bd-tln (dead agent CLI restart) — P0 send-to-agent fix
+- bd-dz1q (ENAMETOOLONG) — already has fix applied
+- bd-806w (evidence gate format-only) — P0
+- bd-io8q (main branch protection) — P0
+
+### Fixes dispatched: none this cycle
+- System is healthy; no P0 fires requiring immediate dispatch
+- Gateway is operational; CRITICALs are already mitigated in staging config
+- PRs with CHANGES_REQUESTED need CR feedback resolution, not CI fixes
+
+### Findings
+1. Zero-touch remains 100% — no regression
+2. No open agent-orchestrator PRs — clean
+3. Gateway is actually healthy on 18810; `openclaw status` has a config-discovery bug (CLI reads default instead of staging config)
+4. OpenClaw security CRITICALs are already mitigated in staging config
+5. PRs blocking on CR CHANGES_REQUESTED — not a CI/gate failure
+6. worldai_claw has no live AO worker — may need one if instability persists
+
+## Codex Evolve Cycle — 2026-04-17 01:57 UTC
+- Open PRs: 0
+- Covered PRs: 0
+- Uncovered PRs: 0
+- Blocked PRs: none
+- Idle PRs: none
+- Stuck PRs: none
+- Ready PRs: none
+- Working PRs: none
+- Unknown session count: 0
+- Local phases completed: observe, measure, diagnose, record
+- Zero-touch rate (last 24h): 0/4 (0%)
+- Primary friction: No single dominant friction point found
+
+## Hermes Evolve Cycle — 2026-04-17 02:XX UTC
+### Zero-touch rate: 0% (0/4) — REGRESSION from 100%
+### Workers
+- jleechanclaw: jc-1798, jc-1799 died with 401 (MiniMax auth failure — API credential issue)
+- Both sessions killed as part of zombie sweep (already dead on inspection)
+- ao-eloop session killed (cleanup — stale self-reference)
+- AO doctor: 30/30 PASS — infrastructure healthy
+
+### Primary friction: MiniMax 401 auth failure in jleechanclaw workers
+- bd-22a6 (P1): "codex workers use minimax model instead of codex model" — likely root cause
+- jleechanclaw workers calling MiniMax API with wrong/missing credentials
+- Symptom: `API Error: 401 Invalid authentication credentials` in jc-1798, jc-1799
+- Gateway itself healthy on ws://127.0.0.1:18810 (cosmetic port mismatch with CLI defaults)
+
+### OpenClaw security audit findings
+- 2 CRITICAL (gateway auth, browser auth): mitigated in staging config
+- Gateway actually running; CLI reads wrong config (cosmetic, not functional)
+
+### New friction points: none
+- No new beads needed
+- bd-22a6 (P1, open) covers the minimax auth issue
+
+### Beads updated: none
+### Fixes: none this cycle (config/creds issue — no code fix dispatched)
+### Recommendations
+- bd-22a6 (P1): Fix minimax model assignment in jleechanclaw AO project config
+- Gateway port mismatch: alias `openclaw` to use staging config, or document --config flag
+- Zero-touch regression: investigate why 4 merged PRs had no [agento] prefix — likely workers dying mid-task
