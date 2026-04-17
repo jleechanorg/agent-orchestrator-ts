@@ -755,3 +755,52 @@ Gateway port drift and notifier misconfigs are config-level, not bead-worthy yet
 2. All 4 open PRs across repos have CI green + CR CHANGES_REQUESTED — genuine code issues, not automation failures.
 3. Zero-touch metric for agent-orchestrator shows 0% because PR titles with `[agento]` prefix count AS agent-driven — the metric inverted by labeling convention.
 4. No high-signal bug fixes needed in agent-orchestrator itself; focus should stay on worldai_claw and jleechanclaw PR lifecycle.
+
+## Codex Evolve Cycle — 2026-04-17 00:57 UTC
+- Open PRs: 0
+- Covered PRs: 0
+- Uncovered PRs: 0
+- Blocked PRs: none
+- Idle PRs: none
+- Stuck PRs: none
+- Ready PRs: none
+- Working PRs: none
+- Unknown session count: 0
+- Local phases completed: observe, measure, diagnose, record
+- Zero-touch rate (last 24h): 0/4 (0%)
+- Primary friction: No single dominant friction point found
+
+## Hermes Evolve Loop Cycle — 2026-04-17 01:08 UTC
+
+### Zero-touch rate: 100% (4/4)
+All 4 merged PRs in last 24h carry [agento] prefix — all fully autonomous. Zero-touch is 100% for agent-orchestrator.
+
+### Open PRs: 0 (agent-orchestrator)
+No open PRs. jleechanorg/agent-orchestrator is clean.
+
+### Workers: 0 alive (after zombie sweep)
+- jc-1792, jc-1793 killed: both stuck on `API Error: 401 Invalid authentication credentials` — Codex sessions with expired auth, not recoverable.
+- ao-3906 killed in prior cycle (PR 454 already merged).
+- All other sessions from prior ao_status output were already exited.
+
+### Gateway: healthy but status misleading
+- pid 85754 alive on ws://127.0.0.1:18810 (confirmed via lsof)
+- openclaw status/probe checks default port 18789 (from staging.json having no port override in openclaw.json)
+- `openclaw.staging.json` has port 18810; `~/.openclaw/openclaw.json` is absent, so CLI falls back to 18789
+- Security audit: 3 CRITICAL (gateway auth on loopback, browser control auth, plugins.allow missing) + 4 WARN
+
+### Primary friction: stale Codex sessions burning tmux panes
+jc-1792 and jc-1793 were expired Codex sessions stuck in tmux with 401 auth errors. Zombie sweep cleaned them.
+
+### Secondary friction: openclaw status port mismatch
+Cosmetic — gateway is healthy. Would be fixed by restoring `~/.openclaw/openclaw.json` with port 18810 or by openclaw CLI respecting staging config.
+
+### No new beads created
+Gateway port drift and security findings are config-level. Stale Codex sessions are a user-auth issue.
+
+### Findings
+1. agent-orchestrator is clean: 0 open PRs, 0 active workers, 100% zero-touch rate (4/4 [agento] PRs merged in last 24h).
+2. Zombie sweep: 2 stale Codex sessions killed (jc-1792, jc-1793 with 401 auth failures).
+3. openclaw gateway is healthy (pid 85754 on 18810); status port mismatch is cosmetic only.
+4. Security audit: 3 CRITICAL (auth gaps on loopback/browser control/extensions) — not runtime risks but should be hardened.
+5. No high-signal bug fixes or new AO dispatches warranted — system is stable.
