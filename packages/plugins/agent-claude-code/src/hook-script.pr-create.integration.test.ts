@@ -211,7 +211,7 @@ describe("hook script: gh pr create PreToolUse [agento] prefix rewriting", () =>
     expect(output.permissionDecisionReason).toContain("cannot safely analyze chained shell commands");
   });
 
-  it("falls back to bash regex when python3 is unavailable", () => {
+  it("denies when python3 is unavailable", () => {
     const { stdout } = runHook({
       command: 'gh pr create --title "fix: bug" --body "test"',
       hookEvent: "PreToolUse",
