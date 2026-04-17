@@ -87,14 +87,54 @@ describe("hook script: gh pr create", () => {
 });
 
 describe("hook script: gh pr create PreToolUse [agento] prefix rewriting", () => {
-  it("rewrites gh pr create title without [agento] prefix to include it", () => {
-    const { stdout } = runHook({
+  it.each([
+    {
+      desc: "double-quoted title",
       command: 'gh pr create --title "fix: bug" --body "test"',
-      hookEvent: "PreToolUse",
-    });
+      expectedDecision: "allow",
+      expectedTitleForm: '--title "[agento] fix: bug"',
+    },
+    {
+      desc: "single-quoted title",
+      command: "gh pr create --title 'fix: bug' --body 'test'",
+      expectedDecision: "allow",
+      expectedTitleForm: "--title '[agento] fix: bug'",
+    },
+    {
+      desc: "title with spaces (double-quoted)",
+      command: 'gh pr create --title "fix: bug with spaces" --body "test"',
+      expectedDecision: "allow",
+      expectedTitleForm: '--title "[agento] fix: bug with spaces"',
+    },
+    {
+      desc: "-t short option",
+      command: 'gh pr create -t "fix: bug" --body "test"',
+      expectedDecision: "allow",
+      expectedTitleForm: '-t "[agento] fix: bug"',
+    },
+    {
+      desc: "--title= embedded style",
+      command: 'gh pr create --title="fix: bug" --body "test"',
+      expectedDecision: "allow",
+      expectedTitleForm: '--title="[agento] fix: bug"',
+    },
+    {
+      desc: "-t= embedded style",
+      command: 'gh pr create -t="fix: bug" --body "test"',
+      expectedDecision: "allow",
+      expectedTitleForm: '-t="[agento] fix: bug"',
+    },
+    {
+      desc: "-t prefix style",
+      command: 'gh pr create -t"fix: bug" --body "test"',
+      expectedDecision: "allow",
+      expectedTitleForm: '-t"[agento] fix: bug"',
+    },
+  ])("rewrites $desc title to include [agento] prefix", ({ command, expectedDecision, expectedTitleForm }) => {
+    const { stdout } = runHook({ command, hookEvent: "PreToolUse" });
     const output = parseHookOutput(stdout);
-    expect(output.permissionDecision).toBe("allow");
-    expect(output.updatedInput?.command).toContain('[agento] fix: bug');
+    expect(output.permissionDecision).toBe(expectedDecision);
+    expect(output.updatedInput?.command).toMatch(new RegExp(expectedTitleForm.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   });
 
   it("allows gh pr create when title already has [agento] prefix", () => {
@@ -107,64 +147,42 @@ describe("hook script: gh pr create PreToolUse [agento] prefix rewriting", () =>
     expect(output.updatedInput).toBeUndefined();
   });
 
-  it("rewrites title with -t short option", () => {
-    const { stdout } = runHook({
-      command: 'gh pr create -t "fix: bug" --body "test"',
-      hookEvent: "PreToolUse",
-    });
+  it.each([
+    {
+      desc: "cd && prefix",
+      command: 'cd /repo && gh pr create --title "fix: bug"',
+      expectedDecision: "allow",
+      expectedCommandContains: 'cd /repo && gh pr create --title "[agento] fix: bug"',
+    },
+    {
+      desc: "env prefix",
+      command: 'GH_TOKEN=xxx gh pr create --title "fix: bug"',
+      expectedDecision: "allow",
+      expectedCommandContains: 'GH_TOKEN=xxx gh pr create --title "[agento] fix: bug"',
+    },
+    {
+      desc: "multiple cd prefixes",
+      command: 'cd /tmp && cd /repo && gh pr create --title "fix: bug"',
+      expectedDecision: "allow",
+      expectedCommandContains: '[agento] fix: bug',
+    },
+    {
+      desc: "title with many spaces",
+      command: 'gh pr create --title "fix: long title with many spaces" --body "test"',
+      expectedDecision: "allow",
+      expectedCommandContains: '[agento] fix: long title with many spaces',
+    },
+    {
+      desc: "title with special characters",
+      command: 'gh pr create --title "fix: bug [WIP] & more" --body "test"',
+      expectedDecision: "allow",
+      expectedCommandContains: '[agento] fix: bug [WIP] & more',
+    },
+  ])("rewrites title with $desc", ({ command, expectedDecision, expectedCommandContains }) => {
+    const { stdout } = runHook({ command, hookEvent: "PreToolUse" });
     const output = parseHookOutput(stdout);
-    expect(output.permissionDecision).toBe("allow");
-    expect(output.updatedInput?.command).toContain('[agento] fix: bug');
-  });
-
-  it("rewrites title with --title= embedded style", () => {
-    const { stdout } = runHook({
-      command: 'gh pr create --title="fix: bug" --body "test"',
-      hookEvent: "PreToolUse",
-    });
-    const output = parseHookOutput(stdout);
-    expect(output.permissionDecision).toBe("allow");
-    expect(output.updatedInput?.command).toContain('[agento] fix: bug');
-  });
-
-  it("rewrites title with -t= embedded style", () => {
-    const { stdout } = runHook({
-      command: 'gh pr create -t="fix: bug" --body "test"',
-      hookEvent: "PreToolUse",
-    });
-    const output = parseHookOutput(stdout);
-    expect(output.permissionDecision).toBe("allow");
-    expect(output.updatedInput?.command).toContain('[agento] fix: bug');
-  });
-
-  it("rewrites title with -t prefix style", () => {
-    const { stdout } = runHook({
-      command: 'gh pr create -t"fix: bug" --body "test"',
-      hookEvent: "PreToolUse",
-    });
-    const output = parseHookOutput(stdout);
-    expect(output.permissionDecision).toBe("allow");
-    expect(output.updatedInput?.command).toContain('[agento] fix: bug');
-  });
-
-  it("rewrites single-quoted title", () => {
-    const { stdout } = runHook({
-      command: "gh pr create --title 'fix: bug' --body 'test'",
-      hookEvent: "PreToolUse",
-    });
-    const output = parseHookOutput(stdout);
-    expect(output.permissionDecision).toBe("allow");
-    expect(output.updatedInput?.command).toContain('[agento] fix: bug');
-  });
-
-  it("preserves double-quoted title when rewriting", () => {
-    const { stdout } = runHook({
-      command: 'gh pr create --title "fix: bug with spaces" --body "test"',
-      hookEvent: "PreToolUse",
-    });
-    const output = parseHookOutput(stdout);
-    expect(output.permissionDecision).toBe("allow");
-    expect(output.updatedInput?.command).toContain('[agento] fix: bug with spaces');
+    expect(output.permissionDecision).toBe(expectedDecision);
+    expect(output.updatedInput?.command).toContain(expectedCommandContains);
   });
 
   it("denies gh pr create without --title option", () => {
@@ -177,54 +195,20 @@ describe("hook script: gh pr create PreToolUse [agento] prefix rewriting", () =>
     expect(output.permissionDecisionReason).toContain("--title");
   });
 
-  it("rewrites title with cd && prefix", () => {
-    const { stdout } = runHook({
-      command: 'cd /repo && gh pr create --title "fix: bug"',
-      hookEvent: "PreToolUse",
-    });
-    const output = parseHookOutput(stdout);
-    expect(output.permissionDecision).toBe("allow");
-    expect(output.updatedInput?.command).toContain('cd /repo && gh pr create --title "[agento] fix: bug"');
-  });
-
-  it("rewrites title with env prefix", () => {
-    const { stdout } = runHook({
-      command: 'GH_TOKEN=xxx gh pr create --title "fix: bug"',
-      hookEvent: "PreToolUse",
-    });
-    const output = parseHookOutput(stdout);
-    expect(output.permissionDecision).toBe("allow");
-    expect(output.updatedInput?.command).toContain('GH_TOKEN=xxx gh pr create --title "[agento] fix: bug"');
-  });
-
-  it("blocks chained command before gh pr create (&&)", () => {
-    const { stdout } = runHook({
+  it.each([
+    {
+      desc: "(&&)",
       command: 'echo "test" && gh pr create --title "fix"',
-      hookEvent: "PreToolUse",
-    });
-    const output = parseHookOutput(stdout);
-    expect(output.permissionDecision).toBe("deny");
-    expect(output.permissionDecisionReason).toContain("cannot safely analyze chained shell commands");
-  });
-
-  it("blocks chained command before gh pr create (;)", () => {
-    const { stdout } = runHook({
+    },
+    {
+      desc: "(;)",
       command: 'echo "test" ; gh pr create --title "fix"',
-      hookEvent: "PreToolUse",
-    });
+    },
+  ])("blocks chained command before gh pr create $desc", ({ command }) => {
+    const { stdout } = runHook({ command, hookEvent: "PreToolUse" });
     const output = parseHookOutput(stdout);
     expect(output.permissionDecision).toBe("deny");
     expect(output.permissionDecisionReason).toContain("cannot safely analyze chained shell commands");
-  });
-
-  it("allows multiple cd prefixes before gh pr create", () => {
-    const { stdout } = runHook({
-      command: 'cd /tmp && cd /repo && gh pr create --title "fix: bug"',
-      hookEvent: "PreToolUse",
-    });
-    const output = parseHookOutput(stdout);
-    expect(output.permissionDecision).toBe("allow");
-    expect(output.updatedInput?.command).toContain('[agento] fix: bug');
   });
 
   it("falls back to bash regex when python3 is unavailable", () => {
@@ -236,26 +220,6 @@ describe("hook script: gh pr create PreToolUse [agento] prefix rewriting", () =>
     const output = parseHookOutput(stdout);
     expect(output.permissionDecision).toBe("deny");
     expect(output.permissionDecisionReason).toContain("python3");
-  });
-
-  it("preserves spaces in quoted titles during rewrite", () => {
-    const { stdout } = runHook({
-      command: 'gh pr create --title "fix: long title with many spaces" --body "test"',
-      hookEvent: "PreToolUse",
-    });
-    const output = parseHookOutput(stdout);
-    expect(output.permissionDecision).toBe("allow");
-    expect(output.updatedInput?.command).toContain('[agento] fix: long title with many spaces');
-  });
-
-  it("handles title with special characters", () => {
-    const { stdout } = runHook({
-      command: 'gh pr create --title "fix: bug [WIP] & more" --body "test"',
-      hookEvent: "PreToolUse",
-    });
-    const output = parseHookOutput(stdout);
-    expect(output.permissionDecision).toBe("allow");
-    expect(output.updatedInput?.command).toContain('[agento] fix: bug [WIP] & more');
   });
 
   it("rejects malformed title argument", () => {
