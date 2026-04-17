@@ -804,3 +804,57 @@ Gateway port drift and security findings are config-level. Stale Codex sessions 
 3. openclaw gateway is healthy (pid 85754 on 18810); status port mismatch is cosmetic only.
 4. Security audit: 3 CRITICAL (auth gaps on loopback/browser control/extensions) — not runtime risks but should be hardened.
 5. No high-signal bug fixes or new AO dispatches warranted — system is stable.
+
+## Codex Evolve Cycle — 2026-04-17 01:27 UTC
+- Open PRs: 0
+- Covered PRs: 0
+- Uncovered PRs: 0
+- Blocked PRs: none
+- Idle PRs: none
+- Stuck PRs: none
+- Ready PRs: none
+- Working PRs: none
+- Unknown session count: 0
+- Local phases completed: observe, measure, diagnose, record
+- Zero-touch rate (last 24h): 0/4 (0%)
+- Primary friction: No single dominant friction point found
+
+## Evolve Loop Cycle — 2026-04-17 01:35 UTC
+
+### Zero-touch rate: 100% (4/4)
+All 4 merged PRs in last 24h were `[agento]` prefixed — autonomous.
+
+### New friction points
+1. **CRITICAL — ENAMETOOLONG boot loop** (root cause of gateway drift): Gateway stateDir is being appended with `_prod` repeatedly, creating `~/.openclaw_prod_prod_prod_..._prod/` paths that exceed MAXPATH. Gateway log shows repeated:
+   `failed to read BOOT.md: ENAMETOOLONG: name too long, open '/Users/jleechan/.openclaw_prod_prod_prod_..._prod/workspace/BOOT.md'`
+   The delivery-recovery shows 5/5 failed entries — the gateway cannot boot cleanly.
+
+2. **Gateway port drift**: `openclaw` CLI probes port 18789 but actual gateway runs on 18810 (via LaunchAgent plist). `openclaw gateway probe` and `openclaw status` report "unreachable" despite gateway being healthy (pid 55433, listening). This makes automated monitoring unreliable.
+
+3. **LaunchAgent I/O error**: `launchctl load ~/Library/LaunchAgents/ai.openclaw.gateway.plist` → "Input/output error". The plist has the correct port (18810) and paths, but bootstrap fails. Manual start via `openclaw gateway` works; automatic restart on boot does NOT.
+
+4. **jc-1796 401 auth failures** (PR #549, jleechanclaw): Worker repeatedly prompts `/login` with 401 errors. Likely downstream of gateway boot loop — sessions can't initialize properly. Green Gate is failing (CI `fail`), and CodeRabbit approved.
+
+5. **3 exited sessions not cleaned** (jc-1790, jc-1791, jc-1792 — PRs 549, none, 551): AO doctor shows workers healthy but tmux panes still exist. Manual zombie sweep needed.
+
+### Fixes dispatched
+- None (bounded cycle — system under stress, new workers would hit same auth/gateway issues)
+
+### Beads created
+- ENAMETOOLONG stateDir append bug in openclaw gateway stateDir resolution (new bead, P0)
+
+### Findings
+1. AO doctor: 30/30 PASS — infrastructure is structurally sound
+2. ao_status: 3 jleechanclaw workers (jc-1790/91/92) showing `exited` with no PR coverage
+3. Gateway is running (port 18810, pid 55433) but unreachable via CLI (port mismatch + boot loop)
+4. `openclaw stagin
+
+g.json` port 18810; `openclaw.json` port unset (CLI defaults to 18789)
+5. LaunchAgent uses correct plist but fails to bootstrap
+6. Agent-orchestrator fork: 0 open PRs, ao-3906 exited
+7. Zero-touch: 4/4 [agento] merged = 100%
+
+### Blockers
+- ENAMETOOLONG bug must be fixed before gateway can restart cleanly
+- LaunchAgent bootstrap failure blocks auto-restart on machine reboot
+- jc-1796 PR #549 blocked on 401 auth — gateway session init broken
