@@ -804,3 +804,104 @@ Gateway port drift and security findings are config-level. Stale Codex sessions 
 3. openclaw gateway is healthy (pid 85754 on 18810); status port mismatch is cosmetic only.
 4. Security audit: 3 CRITICAL (auth gaps on loopback/browser control/extensions) — not runtime risks but should be hardened.
 5. No high-signal bug fixes or new AO dispatches warranted — system is stable.
+
+## Codex Evolve Cycle — 2026-04-17 01:07 UTC
+- Open PRs: 0
+- Covered PRs: 0
+- Uncovered PRs: 0
+- Blocked PRs: none
+- Idle PRs: none
+- Stuck PRs: none
+- Ready PRs: none
+- Working PRs: none
+- Unknown session count: 0
+- Local phases completed: observe, measure, diagnose, record
+- Zero-touch rate (last 24h): 0/4 (0%)
+- Primary friction: No single dominant friction point found
+
+## Codex Evolve Cycle — 2026-04-17 01:17 UTC
+- Open PRs: 0
+- Covered PRs: 0
+- Uncovered PRs: 0
+- Blocked PRs: none
+- Idle PRs: none
+- Stuck PRs: none
+- Ready PRs: none
+- Working PRs: none
+- Unknown session count: 0
+- Local phases completed: observe, measure, diagnose, record
+- Zero-touch rate (last 24h): 0/4 (0%)
+- Primary friction: No single dominant friction point found
+
+## Hermes Evolve Loop Cycle — 2026-04-17 09:12 UTC
+
+### Zero-touch rate: 100% (4/4)
+All 4 merged PRs in last 24h carry [agento] prefix — all fully autonomous.
+
+### Open PRs: 0 (agent-orchestrator) | 2 open (jleechanclaw)
+- jleechanclaw #549 `[docs(skill): add cmux terminal review skill]` — CI: Green Gate FAIL
+- jleechanclaw #551 `[fix(deploy): preserve prod-native config overrides]` — CI: Green Gate FAIL
+
+### Workers: 0 alive on agent-orchestrator | 3 zombie jleechanclaw sessions
+- ao-3906: killed (PR 454 merged, feat/install-all-repo-skills)
+- jc-1790, jc-1791, jc-1792: exited/zombie (jc-1792 killed this cycle)
+- wa-1121 through wa-1125: exited (worldarchitect.ai, no PRs open)
+- jc-1794: dead session (jc-1794 killed — "Please run /login · API Error: 401")
+- tmux pane `04e01fcde9f1-jc-1794`: 401 auth — orphaned, not recoverable by /claw
+
+### Critical finding: Gateway workspace path explosion (root cause)
+**File**: `/Users/jleechan/.openclaw/logs/gateway.err.log`
+**Symptom**: `ENAMETOOLONG: name too long, mkdir '/Users/jleechan/.openclaw_prod_prod_prod_prod_prod_.../workspace'`
+**Root cause**: `OPENCLAW_STATE_DIR` is NOT set in the LaunchAgent plist. When absent, openclaw derives it from `HOME/.openclaw` and substitutes `_prod` for the `.openclaw` segment. But if the derived path itself contains `openclaw_prod` (from a prior misconfiguration), the substitution runs twice, producing `~/.openclaw_prod_prod_prod_prod_.../workspace`.
+**Impact**: Gateway heartbeat fails every 5 min; boot-md fails for every agent startup attempt.
+**Fix**: Add `OPENCLAW_STATE_DIR=/Users/jleechan/.openclaw_prod` to `~/Library/LaunchAgents/ai.openclaw.gateway.plist` — the launchctl respawn will pick it up.
+
+### Critical finding: Green Gate CI failure on jleechanclaw (#549, #551)
+Both PRs fail Green Gate at step 5 "Set check result". This is the GitHub API call that sets a commit status. Both runs show step 4 (Post gate results comment) success, step 5 failure. The failure message is `Set check result — failure` with no other detail. Likely cause: the Bot is trying to set a status on a commit but the token lacks permission, OR the `context` string is too long (Green Gate uses a composite context name that may hit GitHub's 100-char limit on context strings). Requires a `/claw` bead.
+
+### Secondary: Gateway status misleading (port mismatch)
+Gateway IS alive on ws://127.0.0.1:18810 (confirmed via launchctl print + pid 85754). But `openclaw gateway probe` and `openclaw status` check default port 18789 because `~/.openclaw/openclaw.json` is absent and `openclaw.staging.json` specifies 18810 — the CLI does not inherit the service's config. Cosmetic only; not a runtime problem.
+
+### Security audit findings (openclaw status)
+- CRITICAL: Gateway auth missing on loopback (no gateway.auth token set)
+- CRITICAL: Browser control has no auth (gateway.auth.token unset)
+- WARN: Reverse proxy headers not trusted
+- WARN: State dir is a symlink (/Users/jleechan/.openclaw)
+- WARN: Credentials dir readable by others (mode 755)
+- WARN: Extensions exist but plugins.allow not set
+- INFO: 1 extension discovered (openclaw-mem0) without explicit allowlist
+
+### No new AO dispatches warranted
+- agent-orchestrator: 0 open PRs, clean
+- Focus area: fix jleechanclaw Green Gate failures — these are blocking 2 PRs but are CI-level issues requiring a `/claw` bead
+- Gateway ENAMETOOLONG: config-level fix (add OPENCLAW_STATE_DIR to plist), no PR needed
+
+### Beads: none created
+- Gateway workspace explosion: no bead (config-level, fix is add OPENCLAW_STATE_DIR to plist — one-line fix)
+- jleechanclaw Green Gate: needs diagnosis before creating bead (context string length hypothesis needs verification)
+
+### Findings
+1. agent-orchestrator: 0 open PRs, 0 active workers, 100% zero-touch rate (4/4 [agento] PRs).
+2. **P0 fix**: Add `OPENCLAW_STATE_DIR=/Users/jleechan/.openclaw_prod` to `~/Library/LaunchAgents/ai.openclaw.gateway.plist` and `launchctl kickstart -kp gui/$(id -u)/ai.openclaw.gateway`.
+3. **P1 fix**: Investigate jleechanclaw Green Gate "Set check result" failure on #549/#551 — hypothesis: composite context string exceeds GitHub's 100-char limit.
+4. Gateway security: add `gateway.auth.token` to stop CRITICAL audit warnings.
+5. No new AO workers — system has no healthy PR work requiring agents.
+
+## 2026-04-17 05:25 UTC cycle
+
+### Zero-touch rate: 100% (4/4 merged in last 24h — all [agento])
+### Workers: 2 alive (jc-1794, jc-1795) — both stuck on 401 auth, killed this cycle
+### Primary friction points
+1. **orch-watchdog.sh missing** — launchd plist refs `/Users/jleechan/project_agento/agent-orchestrator/scripts/orch-watchdog.sh` which does not exist. Every 300s the launchd job fires and produces 30+ identical "No such file" stderr lines. Script was never committed to the repo.
+2. **jc workers 401 auth** — jc-1794 (PR #549) and jc-1795 (PR #551) both hit `Invalid authentication credentials` from Claude API mid-session. Sessions are dead but not cleaned up by any watchdog. Root cause: unclear — likely expired session token or Claude API key issue.
+3. **openclaw-mem0 extension fail** — `Cannot find module '@sinclair/typebox'` in extension load. Non-critical (mem0 still functions via native MCP) but logs spam.
+4. **openclaw gateway unreachable** — `gateway closed (1006)` on ws://127.0.0.1:18789 despite launchd reporting running. Needs restart.
+
+### Fixes dispatched
+1. Kill jc-1794, jc-1795 (done)
+2. Create stub `scripts/orch-watchdog.sh` based on `lifecycle-watchdog.sh` pattern
+3. Restart openclaw gateway (`openclaw gateway restart` or launchd bootout+bootstrap)
+4. Fix or disable openclaw-mem0 extension load
+
+### Beads created
+- TBD pending diagnosis
