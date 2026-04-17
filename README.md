@@ -24,6 +24,7 @@ This fork adds **agentic CI infrastructure** on top of the upstream agent-orches
 | Cursor Bugbot | ⚠️ Skipped | ✅ Runs on every PR |
 | Session recovery | ✅ recovery/ scanner + manager | ✅ + stalled-worker-auditor, no-delta-watchdog |
 | Spawn queue | ❌ None | ✅ File-backed admission control, 20-session cap, 30s drain, per-project queues |
+| Pollers | ❌ None | ✅ GitHub PR poller + respawn cap (prevent spam), extensible for trackers |
 | OpenClaw notifier | ❌ None | ✅ Wired for Slack notifications |
 | Beads issue tracker | ❌ None | ✅ SQLite-based local tracker plugin |
 | llm_inspector | ❌ None | ✅ Context overhead analysis + lean mode (-20K tokens/turn) |
