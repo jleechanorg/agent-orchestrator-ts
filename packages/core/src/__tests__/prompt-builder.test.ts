@@ -62,8 +62,54 @@ describe("buildPrompt", () => {
       issueId: "INT-1343",
     });
     expect(result).toContain("Work on issue: INT-1343");
-    // Free-form issueId → branch name is auto-generated (no feat/ prefix guidance)
+    // When trackerDrivenBranching is not set, branch name is auto-generated
     expect(result).toContain("Branch name is auto-generated");
+    expect(result).not.toContain("feat/INT-1343");
+  });
+
+  it("uses tracker branch guidance when trackerDrivenBranching is true", () => {
+    project.tracker = { plugin: "linear" };
+    const result = buildPrompt({
+      project,
+      projectId: "test-app",
+      issueId: "INT-1343",
+      issueContext: "## Linear Issue INT-1343\nTitle: Layered Prompt System",
+      trackerDrivenBranching: true,
+    });
+    expect(result).toContain("Work on issue: INT-1343");
+    // With trackerDrivenBranching=true, branch name links to tracker
+    expect(result).toContain("feat/INT-1343");
+    expect(result).not.toContain("Branch name is auto-generated");
+  });
+
+  it("uses auto-generated branch guidance when trackerDrivenBranching is false even with issueContext", () => {
+    project.tracker = { plugin: "linear" };
+    const result = buildPrompt({
+      project,
+      projectId: "test-app",
+      issueId: "INT-1343",
+      issueContext: "## Linear Issue INT-1343\nTitle: Layered Prompt System",
+      trackerDrivenBranching: false,
+    });
+    expect(result).toContain("Work on issue: INT-1343");
+    // When trackerDrivenBranching=false, branch is auto-generated (issue context irrelevant)
+    expect(result).toContain("Branch name is auto-generated");
+    expect(result).not.toContain("feat/INT-1343");
+  });
+
+  it("uses tracker branch guidance even when issueContext is undefined (generatePrompt failure scenario)", () => {
+    project.tracker = { plugin: "linear" };
+    const result = buildPrompt({
+      project,
+      projectId: "test-app",
+      issueId: "INT-1343",
+      // issueContext deliberately undefined (simulates generatePrompt() failure)
+      trackerDrivenBranching: true,
+    });
+    expect(result).toContain("Work on issue: INT-1343");
+    // Even with missing issueContext, explicit flag ensures tracker-driven branch guidance
+    expect(result).toContain("feat/INT-1343");
+    expect(result).not.toContain("Branch name is auto-generated");
   });
 
   it("includes issue context when provided", () => {
