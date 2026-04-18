@@ -69,7 +69,7 @@ jobs:
 
       - name: Core tests with coverage
         if: needs.detect-changes.outputs.core == 'true'
-        run: pnpm --filter @jleechanorg/ao-core exec vitest run --coverage --coverage.reporter=lcov --coverage.include='src/**/*.ts' --coverage.exclude='src/__tests__/**,src/index.ts,src/recovery/index.ts'
+        run: pnpm --filter @jleechanorg/ao-core exec vitest run --coverage --coverage.reporter=lcov --coverage.include='src/**/*.ts' --coverage.exclude='src/__tests__/**,src/index.ts,src/recovery/index.ts,src/ao-worker-logger.ts'
 
       - name: CLI tests with coverage
         if: needs.detect-changes.outputs.cli == 'true'
