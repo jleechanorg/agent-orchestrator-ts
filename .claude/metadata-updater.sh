@@ -70,6 +70,14 @@ def tokenize(source):
             tokens.append(("op", "&&", i, i + 2))
             i += 2
             continue
+        if source.startswith("||", i):
+            tokens.append(("op", "||", i, i + 2))
+            i += 2
+            continue
+        if source[i] == "|":
+            tokens.append(("op", "|", i, i + 1))
+            i += 1
+            continue
         if source[i] == ";":
             tokens.append(("op", ";", i, i + 1))
             i += 1
@@ -77,7 +85,7 @@ def tokenize(source):
 
         start = i
         while i < length:
-            if source.startswith("&&", i) or source[i] == ";" or source[i].isspace():
+            if source.startswith("&&", i) or source.startswith("||", i) or source[i] in ";|&":
                 break
             char = source[i]
             if char == "'":
