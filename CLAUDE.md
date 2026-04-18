@@ -125,7 +125,7 @@ Do not manually create worktrees, `cd` into directories, or run `claude` directl
 - Verify by checking PR comments for a skeptic bot comment that includes both:
   1) `<!-- skeptic-agent-verdict -->` marker, and
   2) `VERDICT: PASS`.
-- If no VERDICT appears within 3 minutes of triggering, treat it as a **FAILED** gate, not a passed one.
+- If no VERDICT appears within the polling timeout (default 60 minutes, configurable via `poll_timeout_minutes` input in `skeptic-gate-reusable.yml`), treat it as a **FAILED** gate, not a passed one.
 
 ## LLM Evaluation — Shared Utility
 
