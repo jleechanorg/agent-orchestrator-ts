@@ -227,6 +227,10 @@ print(
 PY
     exit 0
   fi
+  if [[ "$normalize_prefixed_command_status" == "deny" ]]; then
+    echo '{}'
+    exit 0
+  fi
   if [[ "$normalize_prefixed_command_status" == "safe" ]]; then
     clean_command="$normalize_prefixed_command_payload"
   fi
@@ -506,7 +510,7 @@ if [[ "$clean_command" =~ ^git[[:space:]]+switch[[:space:]]+-c[[:space:]]+([^[:s
   fi
 fi
 
-if [[ "$clean_command" =~ ^git[[:space:]]+switch[[:space:]]+([^[:space:]-]+[/-][^[:space:]]+) ]]; then
+if [[ "$clean_command" =~ ^git[[:space:]]+switch[[:space:]]+([^[:space:]-][^[:space:]]*)$ ]]; then
   branch="${BASH_REMATCH[1]}"
   if [[ -n "$branch" && "$branch" != "HEAD" ]]; then
     update_metadata_key "branch" "$branch"
