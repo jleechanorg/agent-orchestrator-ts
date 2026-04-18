@@ -24,10 +24,10 @@ jobs:
       - name: Post skeptic trigger comment
         id: post_trigger
         env:
-          GITHUB_TOKEN: \${{ secrets.GITHUB_TOKEN }}
-          HEAD_SHA: \${{ github.event.pull_request.head.sha }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
-          PR_NUM=\${{ github.event.pull_request.number }}
+          PR_NUM=${{ github.event.pull_request.number }}
           TRIGGER_SHA="\$HEAD_SHA"
           BODY=$(printf '%s\n%s' \
             "SKEPTIC_GATE_TRIGGER" \
