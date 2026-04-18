@@ -2,7 +2,7 @@
 
 **Date:** 2026-04-04
 **Governance Failure:** CodeRabbit review not enforced before merge
-**Root Cause:** Gate 3 fallback path in `skeptic-cron.yml` used `&&` instead of `||`, requiring both CR status AND approval comment — allowing PRs through when neither was present.
+**Root Cause:** Gate 3 logic in `skeptic-cron.yml` was inconsistent with `skeptic-gate-reusable.yml` — the cron used `||` (OR) while the reusable workflow used `&&` (AND). This meant partial-signal cases (e.g., CR status without comment) were evaluated differently depending on which path ran.
 
 ---
 
