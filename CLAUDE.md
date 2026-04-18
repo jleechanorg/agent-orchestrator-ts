@@ -117,6 +117,14 @@ Do not manually create worktrees, `cd` into directories, or run `claude` directl
 - "Make skeptic-cron run the LLM in GHA" → WRONG
 - The answer is: fix the AO worker chain above.
 
+## Skeptic Gate Verification
+
+**Rule:** After triggering skeptic (via GHA workflow_dispatch, pull_request event, or cron), always verify a VERDICT comment appeared on the PR before calling the PR "skeptic-passed."
+
+- A GitHub Actions workflow exiting with status "success" does **NOT** mean skeptic passed — the polling step in `skeptic-gate.yml` was historically a broken stub (`echo waiting`).
+- Verify by checking PR comments for `VERDICT: PASS` from the skeptic bot author.
+- If no VERDICT appears within 3 minutes of triggering, treat it as a **FAILED** gate, not a passed one.
+
 ## LLM Evaluation — Shared Utility
 
 **All LLM evaluation (skeptic, verifier, exit-criteria checks) MUST route through `packages/cli/src/lib/llm-eval.ts`.** Never hard-code binary paths (`codex`, `claude`) or `execSync`/`execFileSync` calls in command handlers.
