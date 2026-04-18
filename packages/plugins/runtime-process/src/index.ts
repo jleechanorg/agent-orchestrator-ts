@@ -277,6 +277,18 @@ export function create(): Runtime {
         target: String(entry.process.pid),
       };
     },
+
+    async getRestartCommand(handle: RuntimeHandle): Promise<string> {
+      const entry = processes.get(handle.id);
+      if (!entry?.process) {
+        throw new Error(`getRestartCommand: no process found for session "${handle.id}"`);
+      }
+      const cmd = entry.process.spawnargs.join(" ");
+      if (!cmd) {
+        throw new Error(`getRestartCommand: could not reconstruct command for session "${handle.id}"`);
+      }
+      return cmd;
+    },
   };
 }
 

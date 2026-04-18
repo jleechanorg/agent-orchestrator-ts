@@ -257,6 +257,13 @@ export interface Runtime {
 
   /** Get info needed to attach a human to this session (for Terminal plugin) */
   getAttachInfo?(handle: RuntimeHandle): Promise<AttachInfo>;
+
+  /**
+   * Get the launch command needed to restart this agent session.
+   * Called by ao send / lifecycle when the agent is detected as dead/idle
+   * and needs to be restarted before delivering a message. (bd-tln)
+   */
+  getRestartCommand?(handle: RuntimeHandle): Promise<string>;
 }
 
 export interface RuntimeCreateConfig {

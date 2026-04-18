@@ -301,6 +301,16 @@ export function create(): Runtime {
         command: `tmux attach -t ${handle.id}`,
       };
     },
+
+    async getRestartCommand(handle: RuntimeHandle): Promise<string> {
+      const cmd = handle.data.launchCommand as string | undefined;
+      if (!cmd) {
+        throw new Error(
+          `getRestartCommand: launchCommand not stored in handle.data for session "${handle.id}"`,
+        );
+      }
+      return cmd;
+    },
   };
 }
 
