@@ -130,7 +130,7 @@ projects:
     #     enabled: true                # Enable this poller
     #     interval: 5m                 # Poll interval (e.g., 1m, 5m, 10m, 1h)
     #     repo: org/repo               # Optional: override default repo from projects.<name>.repo
-    #     agent: worker                # Agent role to use for spawned sessions (optional)
+    #     agent: agent-claude-code     # Concrete agent plugin name (e.g., agent-claude-code, agent-codex)
     #     promptTemplate: |            # Prompt template for spawned sessions (optional)
     #       Fix the GitHub PR: {{url}}
     #       PR: {{title}}
