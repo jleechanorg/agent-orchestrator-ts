@@ -81,10 +81,10 @@ jobs:
           touch combined-coverage/lcov.info
 
           if [ -f packages/core/coverage/lcov.info ]; then
-            sed 's|^SF:|SF:packages/core/|' packages/core/coverage/lcov.info >> combined-coverage/lcov.info
+            cat packages/core/coverage/lcov.info >> combined-coverage/lcov.info
           fi
           if [ -f packages/cli/coverage/lcov.info ]; then
-            sed 's|^SF:|SF:packages/cli/|' packages/cli/coverage/lcov.info >> combined-coverage/lcov.info
+            cat packages/cli/coverage/lcov.info >> combined-coverage/lcov.info
           fi
 
       - name: Check diff coverage (80% on changed lines)
