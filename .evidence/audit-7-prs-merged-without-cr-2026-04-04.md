@@ -2,7 +2,9 @@
 
 **Date:** 2026-04-04
 **Governance Failure:** CodeRabbit review not enforced before merge
-**Root Cause:** Gate 3 logic in `skeptic-cron.yml` was inconsistent with `skeptic-gate-reusable.yml` — the cron used `||` (OR) while the reusable workflow used `&&` (AND). This meant partial-signal cases (e.g., CR status without comment) were evaluated differently depending on which path ran.
+**Root Cause:** The 7 PRs merged without CodeRabbit review because jleechan2015 manually merged them directly, bypassing `skeptic-cron.yml` entirely. This incident was not caused by a logic bug in the Gate-3 condition — that condition was already correctly using `&&` (AND) in both `skeptic-cron.yml` and `skeptic-gate-reusable.yml`. The condition correctly blocked zero-signal cases via the `continue` path. The incident was a governance bypass, not a logic failure.
+
+This PR updates the Gate-3 echo message for clarity and adds this audit document for governance record.
 
 ---
 
@@ -12,7 +14,7 @@
 |------|-------|-----------|-----------|
 | #373 | `[agento] fix(harness): add churn-guard PreToolUse hook to block duplicate-file PRs` | 2026-04-04T07:07:43Z | jleechan2015 |
 | #374 | `[agento] fix(metadata-updater): use BASH_REMATCH[2] not [1] in env-strip regex` | 2026-04-04T07:07:43Z | jleechan2015 |
-| #375 | `[agento] fix(evidence-gate): accept both **label**: and **label:** markdown formats` | 2026-04-04T07:07:43Z | jleechan2015 |
+| #375 | `[agento] fix(evidence-gate): accept both **label**: and **label:** Markdown formats` | 2026-04-04T07:07:43Z | jleechan2015 |
 | #376 | `[agento] docs: manager evolve loop architecture design` | 2026-04-04T07:07:43Z | jleechan2015 |
 | #377 | `[agento] test(core): stalled-worker-auditor unit tests` | 2026-04-04T07:07:43Z | jleechan2015 |
 | #378 | `[agento] feat(core): implement manager evolve loop config + prompt injection` | 2026-04-04T07:07:43Z | jleechan2015 |
@@ -27,41 +29,39 @@
 `skeptic-cron.yml` Gate 3 fallback path (lines ~168-197):
 
 ```bash
-# OLD (broken — required BOTH)
-if [ "$CR_STATUS" = "success" ] && [ "$CR_APPROVE_COMMENT" = "APPROVED" ]; then
-    echo "  [GATE-3] CR=APPROVED(status+comment)"
-```
-
-When `LATEST_CR = "none"` (no formal review submitted), the fallback checked CR status on the commit AND an `[approve]` comment after HEAD commit. If **both** were absent (`CR_STATUS=none`, `CR_APPROVE_COMMENT=none`), the `&&` condition failed and the else branch incremented `SKIPPED_NOT_6GREEN` and called `continue` — blocking the PR.
-
-**Note:** The actual merge bypass vector for the 7 PRs was direct manual merge by jleechan2015 bypassing `skeptic-cron.yml` entirely, not the `&&` vs `||` condition. The `||`→`&&` change (this PR) restores consistency with `skeptic-gate-reusable.yml`.
-
-**Fix applied:**
-```bash
-# FIXED (consistent — requires BOTH, matching skeptic-gate-reusable.yml)
+# Gate-3 check (used when LATEST_CR = "none")
 if [ "$CR_STATUS" = "success" ] && [ "$CR_APPROVE_COMMENT" = "APPROVED" ]; then
     echo "  [GATE-3] CR=APPROVED(status AND comment)"
 ```
+
+When `LATEST_CR = "none"` (no formal review submitted), the fallback checks CR status on the commit AND an `[approve]` comment after HEAD commit. If both signals are absent, the else branch increments `SKIPPED_NOT_6GREEN` and calls `continue` — correctly blocking the PR.
+
+**Note:** The 7 PRs were merged by direct manual push by jleechan2015, bypassing the workflow entirely. The Gate-3 condition logic was already correct with `&&` — this PR changes only the echo message for clarity.
+
+**Fix applied (this PR):**
+- Gate-3 echo message updated from `"status+comment"` to `"status AND comment"` for clarity
 
 ---
 
 ## Fix Details
 
 **File:** `.github/workflows/skeptic-cron.yml`
-**Lines changed:** 191, 387
+**Lines changed:** 191 (Step 1 Gate 3), 387 (Step 3 Gate 3)
 
-| Location | Old | New |
-|----------|-----|-----|
-| Step 1 Gate 3 (line 191) | `\|\|` | `&&` |
-| Step 3 Gate 3 (line 387) | `\|\|` | `&&` |
+| Location | Change |
+|----------|--------|
+| Step 1 Gate 3 (line 191) | Echo message: `"status+comment"` → `"status AND comment"` |
+| Step 3 Gate 3 (line 387) | Echo message: `"status+comment"` → `"status AND comment"` |
+
+No boolean logic was changed — the `&&` condition was already in place.
 
 ---
 
 ## Impact
 
-- Before fix: Gate-3 in `skeptic-cron.yml` used `||` (OR) while `skeptic-gate-reusable.yml` used `&&` (AND), causing inconsistent CR evaluation across workflows
-- After fix: Both workflows now require CR status=success **AND** an `[approve]` comment — consistent evaluation across all CodeRabbit signals
-- Formal CR APPROVED review remains the primary path; fallback now correctly enforces both signals
+- This PR updates Gate-3 echo message for clarity; no boolean logic was changed
+- The `&&` (AND) condition in `skeptic-cron.yml` was already consistent with `skeptic-gate-reusable.yml`
+- The 7 PRs bypassed the workflow via direct manual merge, not via a logic gap in Gate-3
 
 ---
 
