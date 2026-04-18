@@ -78,4 +78,5 @@ No boolean logic was changed — the `&&` condition was already in place.
 
 - **Branch:** `feat/audit-and-fix-governance-failure-7-prs-merged-without-cr-app`
 - **Fix commit:** `4ca06ee1`
+- **PR body updated:** 2026-04-18 — corrected summary to reflect no boolean logic change
 - **Author:** ao-novel-daily
