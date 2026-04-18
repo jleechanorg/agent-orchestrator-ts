@@ -28,6 +28,8 @@ interface ProcessEntry {
   process: ChildProcess | null;
   outputBuffer: string[];
   createdAt: number;
+  /** Persisted launch command for restart (survives process exit) */
+  launchCommand: string;
 }
 
 const MAX_OUTPUT_LINES = 1000;
@@ -54,6 +56,7 @@ export function create(): Runtime {
         process: null, // set after spawn — methods guard against null
         outputBuffer: [],
         createdAt: Date.now(),
+        launchCommand: config.launchCommand,
       };
       processes.set(handleId, entry);
 
@@ -141,6 +144,7 @@ export function create(): Runtime {
         data: {
           pid: child.pid,
           createdAt: entry.createdAt,
+          launchCommand: config.launchCommand,
         },
       };
     },
@@ -279,13 +283,11 @@ export function create(): Runtime {
     },
 
     async getRestartCommand(handle: RuntimeHandle): Promise<string> {
-      const entry = processes.get(handle.id);
-      if (!entry?.process) {
-        throw new Error(`getRestartCommand: no process found for session "${handle.id}"`);
-      }
-      const cmd = entry.process.spawnargs.join(" ");
+      const cmd = handle.data.launchCommand as string | undefined;
       if (!cmd) {
-        throw new Error(`getRestartCommand: could not reconstruct command for session "${handle.id}"`);
+        throw new Error(
+          `getRestartCommand: no launchCommand found for session "${handle.id}"`,
+        );
       }
       return cmd;
     },
