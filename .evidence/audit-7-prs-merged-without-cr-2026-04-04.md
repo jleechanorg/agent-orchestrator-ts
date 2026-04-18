@@ -31,7 +31,7 @@ This PR updates the Gate-3 echo message for clarity and adds this audit document
 ```bash
 # Gate-3 check (used when LATEST_CR = "none")
 if [ "$CR_STATUS" = "success" ] && [ "$CR_APPROVE_COMMENT" = "APPROVED" ]; then
-    echo "  [GATE-3] CR=APPROVED(status AND comment)"
+    echo "  [GATE-3] CR=APPROVED(status+comment)"
 ```
 
 When `LATEST_CR = "none"` (no formal review submitted), the fallback checks CR status on the commit AND an `[approve]` comment after HEAD commit. If both signals are absent, the else branch increments `SKIPPED_NOT_6GREEN` and calls `continue` — correctly blocking the PR.
