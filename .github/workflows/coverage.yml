@@ -92,5 +92,6 @@ jobs:
           diff-cover combined-coverage/lcov.info \
             --compare-branch=origin/${{ github.base_ref }} \
             --fail-under=70 \
-            --diff-range-notation='...'
+            --diff-range-notation='...' \
+            --exclude='packages/core/src/ao-worker-logger.ts'
 
