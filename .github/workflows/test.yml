@@ -88,7 +88,7 @@ jobs:
               exit 0
             fi
 
-            VERDICT_JSON=\$(\SKEPTIC_BOT_AUTHOR="\$SKEPTIC_BOT_AUTHOR" \
+            VERDICT_JSON=$(\SKEPTIC_BOT_AUTHOR="$SKEPTIC_BOT_AUTHOR" \
               TRIGGER_SHA="\$TRIGGER_SHA" \
               TRIGGER_UPDATED="\$TRIGGER_UPDATED" \
               gh api repos/\${GITHUB_REPOSITORY}/issues/"\$PR_NUM"/comments \
