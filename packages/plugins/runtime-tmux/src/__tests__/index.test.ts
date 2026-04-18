@@ -789,6 +789,30 @@ describe("runtime.getAttachInfo()", () => {
   });
 });
 
+describe("runtime.getRestartCommand() — bd-tln", () => {
+  it("returns the stored launchCommand", async () => {
+    const runtime = create();
+    const handle = makeHandle("restart-test", 1000, "claude --session my-session");
+
+    const cmd = await runtime.getRestartCommand!(handle);
+
+    expect(cmd).toBe("claude --session my-session");
+  });
+
+  it("throws when launchCommand is not stored", async () => {
+    const runtime = create();
+    const handle: RuntimeHandle = {
+      id: "no-cmd",
+      runtimeName: "tmux",
+      data: { createdAt: 1000 },
+    };
+
+    await expect(runtime.getRestartCommand!(handle)).rejects.toThrow(
+      /launchCommand not stored/,
+    );
+  });
+});
+
 // =============================================================================
 // isAgentAliveInPane — dead-agent detection (bd-tln)
 // =============================================================================

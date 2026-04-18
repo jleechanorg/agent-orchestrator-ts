@@ -141,6 +141,7 @@ export function create(): Runtime {
         data: {
           pid: child.pid,
           createdAt: entry.createdAt,
+          launchCommand: config.launchCommand,
         },
       };
     },
@@ -276,6 +277,16 @@ export function create(): Runtime {
         type: "process",
         target: String(entry.process.pid),
       };
+    },
+
+    async getRestartCommand(handle: RuntimeHandle): Promise<string> {
+      const cmd = handle.data.launchCommand as string | undefined;
+      if (!cmd) {
+        throw new Error(
+          `getRestartCommand: no launchCommand found for session "${handle.id}"`,
+        );
+      }
+      return cmd;
     },
   };
 }
