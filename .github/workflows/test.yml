@@ -24,12 +24,12 @@ jobs:
       - name: Post skeptic trigger comment
         id: post_trigger
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          GITHUB_TOKEN: \${{ secrets.GITHUB_TOKEN }}
+          HEAD_SHA: \${{ github.event.pull_request.head.sha }}
         run: |
-          PR_NUM=${{ github.event.pull_request.number }}
-          echo trigger_updated=$(date -u +%Y-%m-%dT%H:%M:%SZ) >> $GITHUB_OUTPUT
-          echo trigger_sha=$HEAD_SHA >> $GITHUB_OUTPUT
+          PR_NUM=\${{ github.event.pull_request.number }}
+          echo trigger_updated=$(date -u +%Y-%m-%dT%H:%M:%SZ) >> \$GITHUB_OUTPUT
+          echo trigger_sha=\$HEAD_SHA >> \$GITHUB_OUTPUT
       - name: Poll for skeptic VERDICT
         env:
           GITHUB_TOKEN: \${{ secrets.GITHUB_TOKEN }}
