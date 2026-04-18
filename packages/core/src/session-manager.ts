@@ -82,7 +82,7 @@ import {
   getAoManagedSessionWorktreePattern,
 } from "./session-prefixes.js";
 import { applySlashCommandRouting } from "./fork-slash-command-routing.js";
-import { logSpawnStart, logAgentLaunch, logPromptDelivery, logSessionEvent } from "./ao-worker-logger.js";
+import { AOWorkerLogger } from "./ao-worker-logger.js";
 
 const _execFileAsync = promisify(execFile);
 const OPENCODE_DISCOVERY_TIMEOUT_MS = 2_000;
@@ -1052,7 +1052,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
     const { sessionId, tmuxName } = await reserveNextSessionIdentity(project, sessionsDir);
 
     // Log spawn start with initial parameters
-    logSpawnStart(
+    AOWorkerLogger.logSpawnStart(
       sessionId,
       spawnConfig.projectId,
       selection.agentName,
@@ -1199,7 +1199,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       };
 
       // Log agent launch command and system prompt
-      logAgentLaunch(
+      AOWorkerLogger.logAgentLaunch(
         sessionId,
         spawnConfig.projectId,
         selection.agentName,
@@ -1354,7 +1354,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       }
 
       // Log prompt delivery result
-      logPromptDelivery(
+      AOWorkerLogger.logPromptDelivery(
         sessionId,
         spawnConfig.projectId,
         selection.agentName,
@@ -2512,7 +2512,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       const baselineUpdatedAt = await getOpenCodeSessionUpdatedAt();
 
       // Log message being sent
-      logSessionEvent(
+      AOWorkerLogger.logSessionEvent(
         sessionId,
         "unknown", // We don't have projectId easily accessible here
         agentName,
