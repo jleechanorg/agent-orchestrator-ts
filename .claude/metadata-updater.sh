@@ -235,6 +235,10 @@ PY
     clean_command="$normalize_prefixed_command_payload"
   fi
 else
+  # No python3: strip only leading env assignments and cd prefixes.
+  # BUT if the cleaned command contains a guarded gh pr command chained
+  # after any other command (via && or ;), we must deny — the anchored
+  # guards only match leading gh and would miss "echo x && gh pr merge".
   cd_prefix_pattern='^[[:space:]]*cd[[:space:]]+.*[[:space:]]+(&&|;)[[:space:]]+(.*)'
   while true; do
     if [[ "$clean_command" =~ ^[[:space:]]*[A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+(.+)$ ]]; then
@@ -245,6 +249,18 @@ else
       break
     fi
   done
+  # Deny chained guarded commands when python3 is unavailable to parse them safely.
+  if [[ "$clean_command" =~ (&&|;)[[:space:]]*(gh[[:space:]]+pr[[:space:]]+(create|merge)|git[[:space:]]+(checkout[[:space:]]+-b|switch[[:space:]]+-c))[[:space:]] ]] ||
+         [[ "$clean_command" =~ ^(gh[[:space:]]+pr[[:space:]]+(create|merge)|git[[:space:]]+(checkout[[:space:]]+-b|switch[[:space:]]+-c))[[:space:]] ]];
+  then
+    if [[ "$hook_event" == "PreToolUse" ]]; then
+      echo '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"Blocked by AO policy: python3 unavailable — cannot safely parse chained guarded commands (gh pr create/merge, git checkout -b, git switch -c)."}}'
+      exit 0
+    fi
+    # PostToolUse: deny silently for guarded commands, let others pass.
+    echo '{}'
+    exit 0
+  fi
 fi
 
 
