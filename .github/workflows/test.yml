@@ -18,8 +18,8 @@ jobs:
       issues: write
       contents: read
     outputs:
-      trigger_updated: \${{ steps.post_trigger.outputs.trigger_updated }}
-      trigger_sha: \${{ steps.post_trigger.outputs.trigger_sha }}
+      trigger_updated: ${{ steps.post_trigger.outputs.trigger_updated }}
+      trigger_sha: ${{ steps.post_trigger.outputs.trigger_sha }}
     steps:
       - name: Post skeptic trigger comment
         id: post_trigger
@@ -49,10 +49,10 @@ jobs:
 
       - name: Poll for skeptic VERDICT
         env:
-          GITHUB_TOKEN: \${{ secrets.GITHUB_TOKEN }}
-          PR_NUM: \${{ github.event.pull_request.number }}
-          TRIGGER_UPDATED: \${{ steps.post_trigger.outputs.trigger_updated }}
-          TRIGGER_SHA: \${{ steps.post_trigger.outputs.trigger_sha }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUM: ${{ github.event.pull_request.number }}
+          TRIGGER_UPDATED: ${{ steps.post_trigger.outputs.trigger_updated }}
+          TRIGGER_SHA: ${{ steps.post_trigger.outputs.trigger_sha }}
           SKEPTIC_BOT_AUTHOR: github-actions[bot]
         timeout-minutes: 2
         run: |
