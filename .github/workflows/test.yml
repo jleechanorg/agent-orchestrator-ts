@@ -2,7 +2,6 @@ name: Skeptic Gate CI
 on:
   pull_request:
     types: [opened, synchronize, edited, reopened]
-  workflow_dispatch:
 concurrency:
   group: skeptic-gate
   cancel-in-progress: false
@@ -45,7 +44,7 @@ jobs:
           PR_NUM: \${{ github.event.pull_request.number }}
           TRIGGER_UPDATED: \${{ steps.post_trigger.outputs.trigger_updated }}
           TRIGGER_SHA: \${{ steps.post_trigger.outputs.trigger_sha }}
-          SKEPTIC_BOT_AUTHOR: github-actions[bot]
+          SKEPTIC_BOT_AUTHOR: jleechan2015
         timeout-minutes: 2
         run: |
           PR_NUM="$PR_NUM"
@@ -75,11 +74,9 @@ jobs:
               echo "PR closed — exiting"
               exit 0
             fi
-            VERDICT_JSON=$(SKEPTIC_BOT_AUTHOR="$SKEPTIC_BOT_AUTHOR" TRIGGER_SHA="$TRIGGER_SHA" TRIGGER_UPDATED="$TRIGGER_UPDATED" gh api repos/$GITHUB_REPOSITORY/issues/"$PR_NUM"/comments --paginate 2>/dev/null | jq -s --arg author "$SKEPTIC_BOT_AUTHOR" --arg tu "$TRIGGER_UPDATED" --arg ts "$TRIGGER_SHA" 'add | map(select(((.user.login == $author) or (.user.login == "github-actions[bot]")) and (.body | test("VERDICT:"; "i")) and (((.updated_at // "") | if test("\\.[0-9]+Z$") then sub("\\.[0-9]+Z$"; "Z") else . end) >= ($tu | if test("\\.[0-9]+Z$") then sub("\\.[0-9]+Z$"; "Z") else . end)) and (.body | test("skeptic-gate-trigger-" + $ts; "i")))) | last // empty' 2>/dev/null || echo "empty")
-            GH_EXIT=$?
-            if [ "$GH_EXIT" -ne 0 ]; then
+            if ! VERDICT_JSON=$(SKEPTIC_BOT_AUTHOR="$SKEPTIC_BOT_AUTHOR" TRIGGER_SHA="$TRIGGER_SHA" TRIGGER_UPDATED="$TRIGGER_UPDATED" gh api repos/$GITHUB_REPOSITORY/issues/"$PR_NUM"/comments --paginate 2>/dev/null | jq -s --arg author "$SKEPTIC_BOT_AUTHOR" --arg tu "$TRIGGER_UPDATED" --arg ts "$TRIGGER_SHA" 'add | map(select(((.user.login == $author) or (.user.login == "github-actions[bot]")) and (.body | test("VERDICT:"; "i")) and (((.updated_at // "") | if test("\\.[0-9]+Z$") then sub("\\.[0-9]+Z$"; "Z") else . end) >= ($tu | if test("\\.[0-9]+Z$") then sub("\\.[0-9]+Z$"; "Z") else . end)) and (.body | test("skeptic-gate-trigger-" + $ts; "i")))) | last // empty' 2>/dev/null); then
               API_FAILURES=$((API_FAILURES + 1))
-              echo "API warning: verdict lookup failed (exit=$GH_EXIT, attempt $i)"
+              echo "API warning: verdict lookup failed (attempt $i)"
               if [ "$API_FAILURES" -ge 3 ]; then
                 echo "ERROR: Too many consecutive API failures" >&2
                 exit 1

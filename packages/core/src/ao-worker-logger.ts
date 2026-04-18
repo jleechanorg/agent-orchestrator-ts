@@ -16,7 +16,7 @@ export interface WorkerLogEntry {
     branch?: string;
     issueId?: string;
     metadata?: Record<string, unknown>;
-  };
+  } & Record<string, unknown>;
 }
 
 /**
@@ -33,6 +33,19 @@ export class AOWorkerLogger {
   private static isEnabled(): boolean {
     const logLevel = process.env["AO_LOG_LEVEL"]?.trim().toLowerCase();
     return logLevel === "debug" || logLevel === "info";
+  }
+
+  private static isSensitiveLoggingEnabled(): boolean {
+    return process.env["AO_LOG_SENSITIVE"]?.trim().toLowerCase() === "true";
+  }
+
+  private static redactData(data: WorkerLogEntry["data"]): WorkerLogEntry["data"] {
+    if (this.isSensitiveLoggingEnabled()) return data;
+    const redacted = { ...data };
+    if (redacted.prompt !== undefined) redacted.prompt = "[REDACTED]";
+    if (redacted.systemPrompt !== undefined) redacted.systemPrompt = "[REDACTED]";
+    if (redacted.launchCommand !== undefined) redacted.launchCommand = "[REDACTED]";
+    return redacted;
   }
 
   private static getLogDir(projectId: string, branch?: string): string {
@@ -61,8 +74,9 @@ export class AOWorkerLogger {
       const logDir = this.getLogDir(projectId, branch);
       this.ensureLogDir(logDir);
 
+      const logEntry = { ...entry, data: this.redactData(entry.data) };
       const logFile = join(logDir, `${entry.sessionId}.jsonl`);
-      const logLine = JSON.stringify(entry) + "\n";
+      const logLine = JSON.stringify(logEntry) + "\n";
 
       writeFileSync(logFile, logLine, { flag: "a", encoding: "utf-8" });
 
