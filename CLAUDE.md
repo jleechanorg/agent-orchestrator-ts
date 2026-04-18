@@ -122,7 +122,9 @@ Do not manually create worktrees, `cd` into directories, or run `claude` directl
 **Rule:** After triggering skeptic (via GHA workflow_dispatch, pull_request event, or cron), always verify a VERDICT comment appeared on the PR before calling the PR "skeptic-passed."
 
 - A GitHub Actions workflow exiting with status "success" does **NOT** mean skeptic passed — the polling step in `skeptic-gate.yml` was historically a broken stub (`echo waiting`).
-- Verify by checking PR comments for `VERDICT: PASS` from the skeptic bot author.
+- Verify by checking PR comments for a skeptic bot comment that includes both:
+  1) `<!-- skeptic-agent-verdict -->` marker, and
+  2) `VERDICT: PASS`.
 - If no VERDICT appears within 3 minutes of triggering, treat it as a **FAILED** gate, not a passed one.
 
 ## LLM Evaluation — Shared Utility

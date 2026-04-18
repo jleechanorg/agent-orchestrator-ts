@@ -129,8 +129,7 @@ projects:
     #     type: github-pr              # Poller plugin type
     #     enabled: true                # Enable this poller
     #     interval: 5m                 # Poll interval (e.g., 1m, 5m, 10m, 1h)
-    #     repo: org/repo               # Optional: override default repo from projects.<name>.repo
-    #     agent: worker                # Agent role to use for spawned sessions (optional)
+    #     agent: claude               # Agent plugin name (e.g., claude, codex) — omit to use default
     #     promptTemplate: |            # Prompt template for spawned sessions (optional)
     #       Fix the GitHub PR: {{url}}
     #       PR: {{title}}
