@@ -34,7 +34,7 @@ if [ "$CR_STATUS" = "success" ] && [ "$CR_APPROVE_COMMENT" = "APPROVED" ]; then
 
 When `LATEST_CR = "none"` (no formal review submitted), the fallback checked CR status on the commit AND an `[approve]` comment after HEAD commit. If **both** were absent (`CR_STATUS=none`, `CR_APPROVE_COMMENT=none`), the `&&` condition failed and the else branch incremented `SKIPPED_NOT_6GREEN` and called `continue` — blocking the PR.
 
-**Note:** The actual merge bypass vector for the 7 PRs was direct manual merge by jleechan2015 bypassing `skeptic-cron.yml` entirely, not the `&&` vs `||` condition. The `&&`→`||` change was made to achieve consistency across workflows.
+**Note:** The actual merge bypass vector for the 7 PRs was direct manual merge by jleechan2015 bypassing `skeptic-cron.yml` entirely, not the `&&` vs `||` condition. The `||`→`&&` change (this PR) restores consistency with `skeptic-gate-reusable.yml`.
 
 **Fix applied:**
 ```bash
@@ -59,9 +59,9 @@ if [ "$CR_STATUS" = "success" ] && [ "$CR_APPROVE_COMMENT" = "APPROVED" ]; then
 
 ## Impact
 
-- Before fix: PRs with zero CR engagement (no review, no status, no comment) could pass Gate 3
-- After fix: PRs require at minimum a CR status=success **OR** an `[approve]` comment — either signals CR has engaged
-- Formal CR APPROVED review remains the primary path; fallback is now meaningful
+- Before fix: Gate-3 in `skeptic-cron.yml` used `||` (OR) while `skeptic-gate-reusable.yml` used `&&` (AND), causing inconsistent CR evaluation across workflows
+- After fix: Both workflows now require CR status=success **AND** an `[approve]` comment — consistent evaluation across all CodeRabbit signals
+- Formal CR APPROVED review remains the primary path; fallback now correctly enforces both signals
 
 ---
 
@@ -77,5 +77,5 @@ if [ "$CR_STATUS" = "success" ] && [ "$CR_APPROVE_COMMENT" = "APPROVED" ]; then
 ## Metadata
 
 - **Branch:** `feat/audit-and-fix-governance-failure-7-prs-merged-without-cr-app`
-- **Fix commit:** (pending)
+- **Fix commit:** `4ca06ee1`
 - **Author:** ao-novel-daily
