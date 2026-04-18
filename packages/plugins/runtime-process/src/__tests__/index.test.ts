@@ -699,3 +699,63 @@ describe("per-instance isolation", () => {
     expect(await runtime2.isAlive(makeHandle("session-a"))).toBe(true);
   });
 });
+
+// =========================================================================
+// getRestartCommand()
+// =========================================================================
+describe("getRestartCommand()", () => {
+  it("resolves with stored launchCommand after process creation", async () => {
+    const child = createMockChild();
+    mockSpawn.mockReturnValue(child);
+
+    const runtime = create();
+    const config = defaultConfig({ launchCommand: "node server.js" });
+    const handle = await runtime.create(config);
+
+    const cmd = await runtime.getRestartCommand(handle);
+    expect(cmd).toBe("node server.js");
+  });
+
+  it("resolves with stored launchCommand even after process exits", async () => {
+    const child = createMockChild();
+    mockSpawn.mockReturnValue(child);
+
+    const runtime = create();
+    const config = defaultConfig({ launchCommand: "pnpm build" });
+    const handle = await runtime.create(config);
+
+    // Simulate process exit
+    child.exitCode = 0;
+    child.emit("exit", 0, null);
+
+    // Should still be able to retrieve the stored command
+    const cmd = await runtime.getRestartCommand(handle);
+    expect(cmd).toBe("pnpm build");
+  });
+
+  it("throws when launchCommand is not stored in handle.data", async () => {
+    const runtime = create();
+    const handle: RuntimeHandle = {
+      id: "test-session",
+      runtimeName: "process",
+      data: {}, // No launchCommand
+    };
+
+    await expect(runtime.getRestartCommand(handle)).rejects.toThrow(
+      /launchCommand not stored/i,
+    );
+  });
+
+  it("throws when handle.data.launchCommand is empty string", async () => {
+    const runtime = create();
+    const handle: RuntimeHandle = {
+      id: "test-session",
+      runtimeName: "process",
+      data: { launchCommand: "" },
+    };
+
+    await expect(runtime.getRestartCommand(handle)).rejects.toThrow(
+      /launchCommand not stored/i,
+    );
+  });
+});
