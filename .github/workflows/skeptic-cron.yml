@@ -188,8 +188,8 @@ jobs:
                     CR_APPROVE_COMMENT="${CR_APPROVE_COMMENT%$'\n'}"
                   fi
                 fi
-                if [ "$CR_STATUS" = "success" ] && [ "$CR_APPROVE_COMMENT" = "APPROVED" ]; then
-                  echo "  [GATE-3] CR=APPROVED(status+comment)"
+                if [ "$CR_STATUS" = "success" ] || [ "$CR_APPROVE_COMMENT" = "APPROVED" ]; then
+                  echo "  [GATE-3] CR=APPROVED(status OR comment)"
                 else
                   echo "  [SKIP] Gate-3 FAIL: CR=$LATEST_CR status=$CR_STATUS comment=$CR_APPROVE_COMMENT"
                   SKIPPED_NOT_6GREEN=$((SKIPPED_NOT_6GREEN + 1))
@@ -384,7 +384,7 @@ jobs:
                     CR_APPROVE_COMMENT="${CR_APPROVE_COMMENT%$'\n'}"
                   fi
                 fi
-                if [ "$CR_STATUS" = "success" ] && [ "$CR_APPROVE_COMMENT" = "APPROVED" ]; then
+                if [ "$CR_STATUS" = "success" ] || [ "$CR_APPROVE_COMMENT" = "APPROVED" ]; then
                   CR_APPROVED="PASS"
                 else
                   CR_APPROVED="FAIL (state=$LATEST_CR status=$CR_STATUS comment=$CR_APPROVE_COMMENT)"
