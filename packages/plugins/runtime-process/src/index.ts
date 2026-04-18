@@ -28,8 +28,6 @@ interface ProcessEntry {
   process: ChildProcess | null;
   outputBuffer: string[];
   createdAt: number;
-  /** Persisted launch command for restart (survives process exit) */
-  launchCommand: string;
 }
 
 const MAX_OUTPUT_LINES = 1000;
@@ -56,7 +54,6 @@ export function create(): Runtime {
         process: null, // set after spawn — methods guard against null
         outputBuffer: [],
         createdAt: Date.now(),
-        launchCommand: config.launchCommand,
       };
       processes.set(handleId, entry);
 
