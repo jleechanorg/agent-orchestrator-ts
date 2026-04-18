@@ -153,13 +153,8 @@ source = sys.argv[1]
 try:
     tokens = tokenize(source)
 except ValueError:
-    # Deny parse failures if source contains guarded gh commands
-    if "gh" in source and ("pr create" in source or "pr merge" in source):
-        deny(f"Blocked by AO policy: unable to safely parse command containing gh pr create/merge ({sys.exc_info()[1]}).")
-    # Otherwise, fall through as "raw" for non-guarded commands
-    print("raw")
-    print(source)
-    raise SystemExit(0)
+    # Fail-closed: if we cannot parse the command, deny it.
+    deny(f"Blocked by AO policy: unable to parse command ({sys.exc_info()[1]}).")
 
 index = 0
 while index < len(tokens) and tokens[index][0] == "word" and is_assignment(tokens[index][1]):
