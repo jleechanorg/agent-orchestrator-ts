@@ -23,7 +23,7 @@ concurrency:
 
 jobs:
   green_gate:
-    name: Green Gate Orchestrator
+    name: Green Gate
     runs-on: ubuntu-latest
     permissions:
       pull-requests: write
