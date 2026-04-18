@@ -1,5 +1,5 @@
 import { writeFileSync, mkdirSync } from "node:fs";
-import { join, dirname } from "node:path";
+import { join } from "node:path";
 
 export interface WorkerLogEntry {
   timestamp: string;
@@ -24,6 +24,10 @@ export interface WorkerLogEntry {
  * Logs are written to /tmp/agent-orchestrator/{projectId}/{branchName}/
  */
 export class AOWorkerLogger {
+  private constructor() {
+    // Utility class - static methods only
+  }
+
   private static isEnabled(): boolean {
     const logLevel = process.env["AO_LOG_LEVEL"]?.trim().toLowerCase();
     return logLevel === "debug" || logLevel === "info";
