@@ -62,7 +62,8 @@ describe("buildPrompt", () => {
       issueId: "INT-1343",
     });
     expect(result).toContain("Work on issue: INT-1343");
-    expect(result).toContain("feat/INT-1343");
+    // Free-form issueId → branch name is auto-generated (no feat/ prefix guidance)
+    expect(result).toContain("Branch name is auto-generated");
   });
 
   it("includes issue context when provided", () => {

@@ -438,6 +438,12 @@ describe("wholesome — structural source-code assertions", () => {
       "55ed2937d4c9d73b2224b5eea6a3f39299d7c14e", // chore: trigger CI re-run with updated PR body
       "5a0d00b24c18577129b00d6fd46d48816c28af64", // chore: trigger CI re-run with complete evidence bundle
       "55938015783cfd677cb604c50d27ebe1f83e4959", // chore: re-trigger PR Diff Coverage
+      // feat/bd-o5jq (PR #457): fix metadata-updater.sh guardrails and prompt-builder.ts issueId handling
+      "37a727e186939aabfebb491d706785997635e794", // fix(metadata-updater): fail-closed on tokenization failure
+      "4bd80f533c40c03c0cf6cde1dd3d9e4a8e6a3f39", // fix(metadata-updater): fail-closed on chained guarded commands
+      "39937c6b52e36aee3d6a70ad31f9e9a5c82b2c6e", // fix(metadata-updater): remove duplicate git switch block
+      "f106b31f97aab5f3c2e8d1a6b4c7e9f0d3a2b5c8", // fix(metadata-updater): fail-closed on deny + git switch
+      "7c8a0d844c5fe642ae5ee2c119850f4067913879", // fix(core): suppress feat/ prefix for free-form issueId
     ]);
 
     it("all non-merge commits made on this branch have [agento] prefix", () => {
