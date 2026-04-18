@@ -74,7 +74,7 @@ jobs:
               echo "PR closed — exiting"
               exit 0
             fi
-            if ! VERDICT_JSON=$(SKEPTIC_BOT_AUTHOR="$SKEPTIC_BOT_AUTHOR" TRIGGER_SHA="$TRIGGER_SHA" TRIGGER_UPDATED="$TRIGGER_UPDATED" gh api repos/$GITHUB_REPOSITORY/issues/"$PR_NUM"/comments --paginate 2>/dev/null | jq -s --arg author "$SKEPTIC_BOT_AUTHOR" --arg tu "$TRIGGER_UPDATED" --arg ts "$TRIGGER_SHA" 'add | map(select(((.user.login == $author) or (.user.login == "github-actions[bot]")) and (.body | test("VERDICT:"; "i")) and (((.updated_at // "") | if test("\\.[0-9]+Z$") then sub("\\.[0-9]+Z$"; "Z") else . end) >= ($tu | if test("\\.[0-9]+Z$") then sub("\\.[0-9]+Z$"; "Z") else . end)) and (.body | test("skeptic-gate-trigger-" + $ts; "i")))) | last // empty' 2>/dev/null); then
+            if ! VERDICT_JSON=$(SKEPTIC_BOT_AUTHOR="$SKEPTIC_BOT_AUTHOR" TRIGGER_SHA="$TRIGGER_SHA" TRIGGER_UPDATED="$TRIGGER_UPDATED" gh api repos/$GITHUB_REPOSITORY/issues/"$PR_NUM"/comments --paginate 2>/dev/null | jq -s --arg author "$SKEPTIC_BOT_AUTHOR" --arg tu "$TRIGGER_UPDATED" --arg ts "$TRIGGER_SHA" 'add | map(select((.user.login == $author) and (.body | test("VERDICT:"; "i")) and (((.updated_at // "") | if test("\\.[0-9]+Z$") then sub("\\.[0-9]+Z$"; "Z") else . end) >= ($tu | if test("\\.[0-9]+Z$") then sub("\\.[0-9]+Z$"; "Z") else . end)) and (.body | test("skeptic-gate-trigger-" + $ts; "i")))) | last // empty' 2>/dev/null); then
               API_FAILURES=$((API_FAILURES + 1))
               echo "API warning: verdict lookup failed (attempt $i)"
               if [ "$API_FAILURES" -ge 3 ]; then

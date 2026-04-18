@@ -2511,21 +2511,15 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       const baselineActivity = detectActivityFromOutput(baselineOutput) ?? session.activity;
       const baselineUpdatedAt = await getOpenCodeSessionUpdatedAt();
 
-      // Log message being sent
-      AOWorkerLogger.logSessionEvent(
-        sessionId,
-        projectId,
-        agentName,
-        runtimeName,
-        "message_send",
-        {
-          message: transformedMessage,
-          originalMessage: message,
-          messageLength: transformedMessage.length,
-        }
-      );
-
-      await runtimePlugin.sendMessage(handle, transformedMessage);
+      // Log message being sent (only after confirmed delivery)
+      let sendSuccess = false;
+      let sendError: string | undefined;
+      try {
+        await runtimePlugin.sendMessage(handle, transformedMessage);
+        sendSuccess = true;
+      } catch (err) {
+        sendError = err instanceof Error ? err.message : String(err);
+      }
 
       for (let attempt = 1; attempt <= SEND_CONFIRMATION_ATTEMPTS; attempt++) {
         // Sleep before each check (including the first) so the runtime has time
@@ -2545,6 +2539,18 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
           (baselineActivity !== "waiting_input" && activity === "waiting_input");
 
         if (delivered) {
+          AOWorkerLogger.logSessionEvent(
+            sessionId,
+            projectId,
+            agentName,
+            runtimeName,
+            sendSuccess ? "message_send" : "message_send_failure",
+            {
+              messageLength: transformedMessage.length,
+              success: sendSuccess,
+              error: sendError,
+            }
+          );
           return;
         }
 
