@@ -520,19 +520,12 @@ if [[ "$clean_command" =~ ^git[[:space:]]+switch[[:space:]]+([^[:space:]-][^[:sp
 fi
 
 # Detect: git checkout <branch> (switching to existing branch without -b)
+# Only update metadata if arg looks like a branch name (not a file, tag, or SHA)
 if [[ "$clean_command" =~ ^git[[:space:]]+checkout[[:space:]]+([^[:space:]-][^[:space:]]*) ]]; then
   branch="${BASH_REMATCH[1]}"
-  if [[ -n "$branch" && "$branch" != "HEAD" ]]; then
-    update_metadata_key "branch" "$branch"
-    echo '{"systemMessage": "Updated metadata: branch = '"$branch"'"}'
-    exit 0
-  fi
-fi
-
-# Detect: git switch <branch> (switching to existing branch without -c)
-if [[ "$clean_command" =~ ^git[[:space:]]+switch[[:space:]]+([^[:space:]-][^[:space:]]*) ]]; then
-  branch="${BASH_REMATCH[1]}"
-  if [[ -n "$branch" && "$branch" != "HEAD" ]]; then
+  # Skip if it looks like a file (has / or extension), tag (has .), or SHA (all hex)
+  if [[ -n "$branch" && "$branch" != "HEAD" &&
+        ! "$branch" =~ ^.*[/.].*$ && ! "$branch" =~ ^[0-9a-f]+$ ]]; then
     update_metadata_key "branch" "$branch"
     echo '{"systemMessage": "Updated metadata: branch = '"$branch"'"}'
     exit 0
