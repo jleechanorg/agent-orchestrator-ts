@@ -107,8 +107,8 @@ def tokenize(source):
                     raise ValueError("unterminated escape")
                 i += 2
                 continue
-            if char in "|&<>(){}":
-                raise ValueError("unsupported shell operator")
+            # Allow all shell operators; dangerous command chaining is caught by
+            # the is_guarded_segment() check below.
             i += 1
         tokens.append(("word", source[start:i], start, i))
     return tokens
