@@ -121,6 +121,23 @@ projects:
     # orchestratorRules: |
     #   Prefer to batch-spawn related issues together.
 
+    # Pollers — scan external systems for work and spawn fix sessions
+    # bd-awq: PR poller scans GitHub for non-green PRs and spawns sessions.
+    # Respawn cap: max 10 sessions per PR per 12-hour window (prevents spam).
+    # pollers:
+    #   github-pr:
+    #     type: github-pr              # Poller plugin type
+    #     enabled: true                # Enable this poller
+    #     interval: 5m                 # Poll interval (e.g., 1m, 5m, 10m, 1h)
+    #     repo: org/repo               # Optional: override default repo from projects.<name>.repo
+    #     agent: worker                # Agent role to use for spawned sessions (optional)
+    #     promptTemplate: |            # Prompt template for spawned sessions (optional)
+    #       Fix the GitHub PR: {{url}}
+    #       PR: {{title}}
+    #     respawnCap:
+    #       max: 10                    # Max 10 sessions per PR
+    #       window: 12h                # Per 12-hour window
+
     # OpenCode issue session strategy (only for agent: opencode)
     # opencodeIssueSessionStrategy: reuse   # reuse | delete | ignore
 

@@ -1131,6 +1131,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       projectId: spawnConfig.projectId,
       issueId: spawnConfig.issueId,
       issueContext,
+      trackerDrivenBranching: Boolean(!spawnConfig.branch && spawnConfig.issueId && plugins.tracker && resolvedIssue),
       userPrompt: spawnConfig.prompt,
       lineage: spawnConfig.lineage,
       siblings: spawnConfig.siblings,
