@@ -32,13 +32,15 @@ if [ "$CR_STATUS" = "success" ] && [ "$CR_APPROVE_COMMENT" = "APPROVED" ]; then
     echo "  [GATE-3] CR=APPROVED(status+comment)"
 ```
 
-When `LATEST_CR = "none"` (no formal review submitted), the fallback checked CR status on the commit AND an `[approve]` comment after HEAD commit. If **both** were absent (`CR_STATUS=none`, `CR_APPROVE_COMMENT=none`), the `&&` condition failed but the else branch only logged — it didn't block. The PR proceeded to merge.
+When `LATEST_CR = "none"` (no formal review submitted), the fallback checked CR status on the commit AND an `[approve]` comment after HEAD commit. If **both** were absent (`CR_STATUS=none`, `CR_APPROVE_COMMENT=none`), the `&&` condition failed and the else branch incremented `SKIPPED_NOT_6GREEN` and called `continue` — blocking the PR.
+
+**Note:** The actual merge bypass vector for the 7 PRs was direct manual merge by jleechan2015 bypassing `skeptic-cron.yml` entirely, not the `&&` vs `||` condition. The `&&`→`||` change was made to achieve consistency across workflows.
 
 **Fix applied:**
 ```bash
-# NEW (correct — requires EITHER)
-if [ "$CR_STATUS" = "success" ] || [ "$CR_APPROVE_COMMENT" = "APPROVED" ]; then
-    echo "  [GATE-3] CR=APPROVED(status OR comment)"
+# FIXED (consistent — requires BOTH, matching skeptic-gate-reusable.yml)
+if [ "$CR_STATUS" = "success" ] && [ "$CR_APPROVE_COMMENT" = "APPROVED" ]; then
+    echo "  [GATE-3] CR=APPROVED(status AND comment)"
 ```
 
 ---
@@ -50,10 +52,8 @@ if [ "$CR_STATUS" = "success" ] || [ "$CR_APPROVE_COMMENT" = "APPROVED" ]; then
 
 | Location | Old | New |
 |----------|-----|-----|
-| Step 1 Gate 3 (line 191) | `&&` | `\|\|` |
-| Step 3 Gate 3 (line 387) | `&&` | `\|\|` |
-
-**Also updated echo:** `CR=APPROVED(status+comment)` → `CR=APPROVED(status OR comment)` to reflect the new logic.
+| Step 1 Gate 3 (line 191) | `\|\|` | `&&` |
+| Step 3 Gate 3 (line 387) | `\|\|` | `&&` |
 
 ---
 
