@@ -133,6 +133,7 @@ projects:
     #     promptTemplate: |            # Prompt template for spawned sessions (optional)
     #       Fix the GitHub PR: {{url}}
     #       PR: {{title}}
+    #       Session ID: {{id}}         # Supported: {{url}}, {{title}}, {{id}}
     #     respawnCap:
     #       max: 10                    # Max 10 sessions per PR
     #       window: 12h                # Per 12-hour window
