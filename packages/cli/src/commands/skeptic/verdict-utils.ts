@@ -28,6 +28,13 @@ export function buildVerdictLineRe(verdicts: readonly string[]): RegExp {
  *   - blockquote:     > **VERDICT: SKIPPED**  (skeptic-gate.yml SKIPPED fallback)
  *   - markdown-bold:  **VERDICT: FAIL**       (LLM output with bold)
  *   - markdown-hdr:   ## VERDICT: FAIL        (LLM output with ATX headers — bd-qcwl) */
+/** Shared VERDICT matcher for GitHub comment parsing — accepts SKIPPED.
+ * Unlike llm-eval.ts's STRICT_VERDICT_RE (which only accepts PASS|FAIL), this regex
+ * is used for parsing LLM output that may contain "VERDICT: SKIPPED" — which the
+ * model emits when it cannot reach a decision. The SKIPPED path exits 0 in
+ * skeptic-gate.yml so infra failures don't block cron; SKIPPED in llm-eval.ts's
+ * strict chain is treated as missing-a-verdict and triggers fail-closed fallback.
+ * These are two separate concerns (parsing vs. strict internal validation). */
 export const VERDICT_LINE_RE = buildVerdictLineRe(["PASS", "FAIL", "SKIPPED"]);
 
 /** Map a raw VERDICT token to a chalk color name (mirrors skeptic.ts lines 130-132). */
