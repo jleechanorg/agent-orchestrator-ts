@@ -184,8 +184,6 @@ Check orchestrator logs for:
 
 ## References
 
-- **bd-awq**: PR poller plugin implementation
-- **bd-uxs**: Poller Manager architecture
 - **Config:** `projects.<name>.pollers` in `agent-orchestrator.yaml`
 - **Code:** `packages/core/src/poller-manager.ts`
 - **Plugin:** `packages/plugins/poller-github-pr`

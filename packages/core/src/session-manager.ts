@@ -2272,7 +2272,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
     message: string,
     options?: { skipRestore?: boolean; skipRestorePrKickoff?: boolean },
   ): Promise<void> {
-    const { raw, sessionsDir, project } = requireSessionRecord(sessionId);
+    const { raw, sessionsDir, project, projectId } = requireSessionRecord(sessionId);
     const pause = getProjectPause(project);
     const orchestratorId = `${project.sessionPrefix}-orchestrator`;
     if (pause && sessionId !== orchestratorId) {
@@ -2514,7 +2514,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       // Log message being sent
       AOWorkerLogger.logSessionEvent(
         sessionId,
-        "unknown", // We don't have projectId easily accessible here
+        projectId,
         agentName,
         runtimeName,
         "message_send",
