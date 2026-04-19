@@ -330,6 +330,12 @@ export interface Agent {
    */
   readonly promptDelivery?: "inline" | "post-launch";
 
+  /**
+   * True when the agent launch command actually consumes AgentLaunchConfig.systemPromptFile.
+   * Agents without this capability must receive the full composed worker prompt via `prompt`.
+   */
+  readonly supportsSystemPromptFile?: boolean;
+
   /** Get the shell command to launch this agent */
   getLaunchCommand(config: AgentLaunchConfig): string;
 

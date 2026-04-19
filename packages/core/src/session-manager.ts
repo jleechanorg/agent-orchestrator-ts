@@ -11,7 +11,16 @@
  * Reference: scripts/claude-ao-session, scripts/send-to-session
  */
 
-import { statSync, existsSync, readdirSync, writeFileSync, mkdirSync, utimesSync, rmSync } from "node:fs";
+import {
+  statSync,
+  existsSync,
+  readdirSync,
+  writeFileSync,
+  mkdirSync,
+  utimesSync,
+  rmSync,
+  readFileSync,
+} from "node:fs";
 import { execFile } from "node:child_process";
 import { basename, join, resolve } from "node:path";
 import { homedir } from "node:os";
@@ -56,7 +65,6 @@ import {
   listMetadata,
   reserveSessionId,
 } from "./metadata.js";
-import { buildPrompt } from "./prompt-builder.js";
 import {
   getSessionsDir,
   getWorktreesDir,
@@ -82,6 +90,12 @@ import {
   getAoManagedSessionWorktreePattern,
 } from "./session-prefixes.js";
 import { applySlashCommandRouting } from "./fork-slash-command-routing.js";
+import {
+  WORKER_BOOT_PROMPT,
+  agentSupportsPromptFile,
+  buildWorkerPromptArtifact,
+  type WorkerPromptArtifact,
+} from "./prompt-artifact-builder.js";
 
 const _execFileAsync = promisify(execFile);
 const OPENCODE_DISCOVERY_TIMEOUT_MS = 2_000;
@@ -1115,37 +1129,68 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       }
     }
 
-    const isAdHocTask = Boolean(spawnConfig.issueId && plugins.tracker && !resolvedIssue);
-    const promptIssueId = isAdHocTask ? undefined : spawnConfig.issueId;
-    const requestedTask = spawnConfig.prompt ?? (isAdHocTask ? spawnConfig.issueId : undefined);
+    const cleanupFailedSpawn = async (): Promise<void> => {
+      if (
+        plugins.workspace &&
+        shouldDestroyWorkspacePath(project, spawnConfig.projectId, workspacePath)
+      ) {
+        try {
+          await plugins.workspace.destroy(workspacePath, workspaceRepoPath);
+        } catch {
+          /* best effort */
+        }
+      }
+      try {
+        deleteMetadata(sessionsDir, sessionId, false);
+      } catch {
+        /* best effort */
+      }
+    };
+
+    let composedPromptPath: string | undefined;
+    const cleanupPromptArtifact = (): void => {
+      if (!composedPromptPath) return;
+      try {
+        rmSync(composedPromptPath, { force: true });
+      } catch {
+        /* best effort */
+      }
+    };
 
     // Generate prompt with validated issue
     let issueContext: string | undefined;
-    if (promptIssueId && plugins.tracker && resolvedIssue) {
+    const isResolvedTrackerIssue = Boolean(
+      spawnConfig.issueId && plugins.tracker && resolvedIssue,
+    );
+    if (isResolvedTrackerIssue && spawnConfig.issueId && plugins.tracker) {
       try {
-        issueContext = await plugins.tracker.generatePrompt(promptIssueId, project);
+        issueContext = await plugins.tracker.generatePrompt(spawnConfig.issueId, project);
       } catch {
         // Non-fatal: continue without detailed issue context
         // Silently ignore errors - caller can check if issueContext is undefined
       }
     }
 
-    const composedPrompt = buildPrompt({
-      project,
-      projectId: spawnConfig.projectId,
-      issueId: promptIssueId,
-      issueContext,
-      trackerDrivenBranching: Boolean(!spawnConfig.branch && promptIssueId && plugins.tracker && resolvedIssue),
-      userPrompt: requestedTask,
-      lineage: spawnConfig.lineage,
-      siblings: spawnConfig.siblings,
-    });
-    const composedPromptDir = join(getProjectBaseDir(config.configPath, project.path), "prompts");
-    mkdirSync(composedPromptDir, { recursive: true });
-    const composedPromptPath = join(composedPromptDir, `worker-prompt-${sessionId}.md`);
-    writeFileSync(composedPromptPath, composedPrompt, "utf-8");
-    const shortLaunchPrompt = "Begin the assigned AO worker task. Follow the session instructions file.";
-    const launchPrompt = plugins.agent.name === "cursor" ? composedPrompt : shortLaunchPrompt;
+    let promptArtifact: WorkerPromptArtifact;
+    try {
+      promptArtifact = buildWorkerPromptArtifact({
+        agent: plugins.agent,
+        configPath: config.configPath,
+        hasTracker: Boolean(plugins.tracker),
+        issueContext,
+        project,
+        resolvedIssue,
+        sessionId,
+        spawnConfig,
+      });
+      composedPromptPath = promptArtifact.composedPromptPath;
+    } catch (err) {
+      cleanupPromptArtifact();
+      await cleanupFailedSpawn();
+      throw err;
+    }
+
+    const { promptIssueId, requestedTask, launchPrompt } = promptArtifact;
 
     // Get agent launch config and create runtime — clean up workspace on failure
     const opencodeIssueSessionStrategy = project.opencodeIssueSessionStrategy ?? "reuse";
@@ -1218,21 +1263,8 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       });
     } catch (err) {
       // Clean up workspace and reserved ID if agent config or runtime creation failed
-      if (
-        plugins.workspace &&
-        shouldDestroyWorkspacePath(project, spawnConfig.projectId, workspacePath)
-      ) {
-        try {
-          await plugins.workspace.destroy(workspacePath, workspaceRepoPath);
-        } catch {
-          /* best effort */
-        }
-      }
-      try {
-        deleteMetadata(sessionsDir, sessionId, false);
-      } catch {
-        /* best effort */
-      }
+      cleanupPromptArtifact();
+      await cleanupFailedSpawn();
       throw err;
     }
 
@@ -1303,21 +1335,8 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       } catch {
         /* best effort */
       }
-      if (
-        plugins.workspace &&
-        shouldDestroyWorkspacePath(project, spawnConfig.projectId, workspacePath)
-      ) {
-        try {
-          await plugins.workspace.destroy(workspacePath, workspaceRepoPath);
-        } catch {
-          /* best effort */
-        }
-      }
-      try {
-        deleteMetadata(sessionsDir, sessionId, false);
-      } catch {
-        /* best effort */
-      }
+      cleanupPromptArtifact();
+      await cleanupFailedSpawn();
       throw err;
     }
 
@@ -2835,6 +2854,16 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
 
     // 7. Get launch command — try restore command first, fall back to fresh launch
     let launchCommand: string;
+    const restoredPromptFile = session.metadata?.composedPromptPath;
+    const restoredRequestedTask = session.metadata?.requestedTask ?? session.metadata?.userPrompt;
+    let restoredPrompt = restoredRequestedTask;
+    if (restoredPromptFile) {
+      if (agentSupportsPromptFile(plugins.agent)) {
+        restoredPrompt = WORKER_BOOT_PROMPT;
+      } else if (existsSync(restoredPromptFile)) {
+        restoredPrompt = readFileSync(restoredPromptFile, "utf-8");
+      }
+    }
     const agentLaunchConfig = {
       sessionId,
       projectConfig: {
@@ -2848,6 +2877,8 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
         },
       },
       issueId: session.issueId ?? undefined,
+      systemPromptFile: restoredPromptFile,
+      prompt: restoredPrompt,
       permissions: selection.role === "orchestrator" ? "permissionless" : selection.permissions,
       model: selection.model,
       subagent: selection.subagent,

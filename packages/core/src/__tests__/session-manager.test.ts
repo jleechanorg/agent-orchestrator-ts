@@ -12,6 +12,7 @@ import { join } from "node:path";
 import { homedir, tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
 import { createSessionManager, buildInitialPRTaskMessage } from "../session-manager.js";
+import { WORKER_BOOT_PROMPT } from "../prompt-artifact-builder.js";
 import { validateConfig } from "../config.js";
 import {
   writeMetadata,
@@ -207,6 +208,7 @@ beforeEach(() => {
   mockAgent = {
     name: "mock-agent",
     processName: "mock",
+    supportsSystemPromptFile: true,
     getLaunchCommand: vi.fn().mockReturnValue("mock-agent --start"),
     getEnvironment: vi.fn().mockReturnValue({ AGENT_VAR: "1" }),
     detectActivity: vi.fn().mockReturnValue("active"),
@@ -1062,7 +1064,7 @@ describe("spawn", () => {
     expect(mockAgent.getLaunchCommand).toHaveBeenCalledWith(
       expect.objectContaining({
         systemPromptFile: expect.stringContaining("worker-prompt-app-1.md"),
-        prompt: "Begin the assigned AO worker task. Follow the session instructions file.",
+        prompt: WORKER_BOOT_PROMPT,
       }),
     );
 
@@ -1071,8 +1073,83 @@ describe("spawn", () => {
     expect(existsSync(promptPath)).toBe(true);
     expect(readFileSync(promptPath, "utf-8")).toContain("Fix the upload race");
     expect(readMetadata(sessionsDir, session.id)?.userPrompt).toBe("Fix the upload race");
+    expect(readMetadata(sessionsDir, session.id)?.requestedTask).toBe("Fix the upload race");
     expect(readMetadataRaw(sessionsDir, session.id)?.["composedPromptPath"]).toBe(promptPath);
     expect(session.metadata["composedPromptPath"]).toBe(promptPath);
+  });
+
+  it("cleans workspace and metadata when prompt artifact creation fails", async () => {
+    const projectBaseDir = getProjectBaseDir(config.configPath, config.projects["my-app"].path);
+    mkdirSync(projectBaseDir, { recursive: true });
+    writeFileSync(join(projectBaseDir, "prompts"), "not a directory", "utf-8");
+    const managedWsPath = join(getWorktreesDir(config.configPath, config.projects["my-app"].path), "app-1");
+    const managedWorkspace: Workspace = {
+      ...mockWorkspace,
+      create: vi.fn().mockResolvedValue({
+        path: managedWsPath,
+        branch: "feat/TEST-1",
+        sessionId: "app-1",
+        projectId: "my-app",
+      }),
+    };
+    const registryWithManagedWorkspace: PluginRegistry = {
+      ...mockRegistry,
+      get: vi.fn().mockImplementation((slot: string) => {
+        if (slot === "runtime") return mockRuntime;
+        if (slot === "agent") return mockAgent;
+        if (slot === "workspace") return managedWorkspace;
+        return null;
+      }),
+    };
+
+    const sm = createSessionManager({ config, registry: registryWithManagedWorkspace });
+
+    await expect(sm.spawn({ projectId: "my-app", prompt: "Fix prompt creation" })).rejects.toThrow();
+
+    expect(managedWorkspace.destroy).toHaveBeenCalled();
+    expect(mockRuntime.create).not.toHaveBeenCalled();
+    expect(readMetadataRaw(sessionsDir, "app-1")).toBeNull();
+  });
+
+  it("removes prompt artifacts when runtime creation fails", async () => {
+    const failingRuntime: Runtime = {
+      ...mockRuntime,
+      create: vi.fn().mockRejectedValue(new Error("runtime create failed")),
+    };
+    const managedWsPath = join(getWorktreesDir(config.configPath, config.projects["my-app"].path), "app-1");
+    const managedWorkspace: Workspace = {
+      ...mockWorkspace,
+      create: vi.fn().mockResolvedValue({
+        path: managedWsPath,
+        branch: "feat/TEST-1",
+        sessionId: "app-1",
+        projectId: "my-app",
+      }),
+    };
+    const registryWithFailingRuntime: PluginRegistry = {
+      ...mockRegistry,
+      get: vi.fn().mockImplementation((slot: string) => {
+        if (slot === "runtime") return failingRuntime;
+        if (slot === "agent") return mockAgent;
+        if (slot === "workspace") return managedWorkspace;
+        return null;
+      }),
+    };
+
+    const sm = createSessionManager({ config, registry: registryWithFailingRuntime });
+
+    await expect(sm.spawn({ projectId: "my-app", prompt: "Fix runtime cleanup" })).rejects.toThrow(
+      "runtime create failed",
+    );
+
+    const promptPath = join(
+      getProjectBaseDir(config.configPath, config.projects["my-app"].path),
+      "prompts",
+      "worker-prompt-app-1.md",
+    );
+    expect(existsSync(promptPath)).toBe(false);
+    expect(managedWorkspace.destroy).toHaveBeenCalled();
+    expect(readMetadataRaw(sessionsDir, "app-1")).toBeNull();
   });
 
   it("fails on tracker auth errors", async () => {
@@ -1145,7 +1222,7 @@ describe("spawn", () => {
     // Post-launch agents receive the short boot prompt; the full task stays in the prompt file.
     expect(mockRuntime.sendMessage).toHaveBeenCalledWith(
       expect.objectContaining({ id: expect.any(String) }),
-      "Begin the assigned AO worker task. Follow the session instructions file.",
+      WORKER_BOOT_PROMPT,
     );
     const launchArgs = vi.mocked(mockAgent.getLaunchCommand).mock.calls[0][0];
     expect(readFileSync(launchArgs.systemPromptFile!, "utf-8")).toContain("Fix the bug");
@@ -1166,6 +1243,7 @@ describe("spawn", () => {
       ...mockAgent,
       name: "cursor",
       promptDelivery: "post-launch" as const,
+      supportsSystemPromptFile: false,
     };
     const registryWithCursor: PluginRegistry = {
       ...mockRegistry,
@@ -1190,8 +1268,46 @@ describe("spawn", () => {
       expect.objectContaining({ id: expect.any(String) }),
       expect.stringContaining("ao session claim-pr"),
     );
+    expect(mockRuntime.sendMessage).not.toHaveBeenCalledWith(
+      expect.objectContaining({ id: expect.any(String) }),
+      WORKER_BOOT_PROMPT,
+    );
     const launchArgs = vi.mocked(mockAgent.getLaunchCommand).mock.calls[0][0];
     expect(readFileSync(launchArgs.systemPromptFile!, "utf-8")).toContain("Fix cursor prompt delivery");
+    vi.useRealTimers();
+  });
+
+  it("sends the full prompt post-launch for agents without prompt-file support", async () => {
+    vi.useFakeTimers();
+    const postLaunchAgent = {
+      ...mockAgent,
+      name: "minimax",
+      promptDelivery: "post-launch" as const,
+      supportsSystemPromptFile: false,
+    };
+    const registryWithPostLaunch: PluginRegistry = {
+      ...mockRegistry,
+      get: vi.fn().mockImplementation((slot: string) => {
+        if (slot === "runtime") return mockRuntime;
+        if (slot === "agent") return postLaunchAgent;
+        if (slot === "workspace") return mockWorkspace;
+        return null;
+      }),
+    };
+
+    const sm = createSessionManager({ config, registry: registryWithPostLaunch });
+    const spawnPromise = sm.spawn({ projectId: "my-app", prompt: "Fix minimax prompt delivery" });
+    await vi.advanceTimersByTimeAsync(5_000);
+    await spawnPromise;
+
+    expect(mockRuntime.sendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ id: expect.any(String) }),
+      expect.stringContaining("Fix minimax prompt delivery"),
+    );
+    expect(mockRuntime.sendMessage).not.toHaveBeenCalledWith(
+      expect.objectContaining({ id: expect.any(String) }),
+      WORKER_BOOT_PROMPT,
+    );
     vi.useRealTimers();
   });
 
@@ -1218,7 +1334,7 @@ describe("spawn", () => {
 
     expect(mockRuntime.sendMessage).toHaveBeenCalledWith(
       expect.objectContaining({ id: expect.any(String) }),
-      "Begin the assigned AO worker task. Follow the session instructions file.",
+      WORKER_BOOT_PROMPT,
     );
     const launchArgs = vi.mocked(mockAgent.getLaunchCommand).mock.calls[0][0];
     expect(readFileSync(launchArgs.systemPromptFile!, "utf-8")).toContain("ao session claim-pr");
@@ -4267,6 +4383,73 @@ describe("restore", () => {
     expect(meta!["issue"]).toBe("TEST-1");
     expect(meta!["pr"]).toBe("https://github.com/org/my-app/pull/10");
     expect(meta!["createdAt"]).toBe("2025-01-01T00:00:00.000Z");
+  });
+
+  it("threads saved prompt artifacts into fresh restore launches", async () => {
+    const wsPath = join(tmpDir, "ws-app-restore-prompt");
+    mkdirSync(wsPath, { recursive: true });
+    const promptPath = join(tmpDir, "worker-prompt-app-1.md");
+    writeFileSync(promptPath, "Full restored worker prompt\nFix restored assignment", "utf-8");
+
+    writeMetadata(sessionsDir, "app-1", {
+      worktree: wsPath,
+      branch: "feat/TEST-PROMPT",
+      status: "killed",
+      project: "my-app",
+      runtimeHandle: JSON.stringify(makeHandle("rt-old")),
+      requestedTask: "Fix restored assignment",
+      composedPromptPath: promptPath,
+    });
+
+    const sm = createSessionManager({ config, registry: mockRegistry });
+    await sm.restore("app-1");
+
+    expect(mockAgent.getLaunchCommand).toHaveBeenCalledWith(
+      expect.objectContaining({
+        systemPromptFile: promptPath,
+        prompt: WORKER_BOOT_PROMPT,
+      }),
+    );
+  });
+
+  it("restores full prompt text for agents without prompt-file support", async () => {
+    const wsPath = join(tmpDir, "ws-app-restore-no-file-support");
+    mkdirSync(wsPath, { recursive: true });
+    const promptPath = join(tmpDir, "worker-prompt-app-1.md");
+    writeFileSync(promptPath, "Full restored worker prompt\nFix restored minimax assignment", "utf-8");
+    const noFileAgent: Agent = {
+      ...mockAgent,
+      supportsSystemPromptFile: false,
+    };
+    const registryWithNoFileAgent: PluginRegistry = {
+      ...mockRegistry,
+      get: vi.fn().mockImplementation((slot: string) => {
+        if (slot === "runtime") return mockRuntime;
+        if (slot === "agent") return noFileAgent;
+        if (slot === "workspace") return mockWorkspace;
+        return null;
+      }),
+    };
+
+    writeMetadata(sessionsDir, "app-1", {
+      worktree: wsPath,
+      branch: "feat/TEST-PROMPT-NO-FILE",
+      status: "killed",
+      project: "my-app",
+      runtimeHandle: JSON.stringify(makeHandle("rt-old")),
+      requestedTask: "Fix restored minimax assignment",
+      composedPromptPath: promptPath,
+    });
+
+    const sm = createSessionManager({ config, registry: registryWithNoFileAgent });
+    await sm.restore("app-1");
+
+    expect(noFileAgent.getLaunchCommand).toHaveBeenCalledWith(
+      expect.objectContaining({
+        systemPromptFile: promptPath,
+        prompt: expect.stringContaining("Fix restored minimax assignment"),
+      }),
+    );
   });
 
   it("continues restore even if old runtime destroy fails", async () => {

@@ -1065,6 +1065,7 @@ export function createAgentPlugin(config: AgentPluginConfig, overrides?: Partial
     name: config.name,
     processName: config.processName,
     promptDelivery: "post-launch",
+    supportsSystemPromptFile: Boolean(config.systemPromptFlag || config.systemPromptEnvVar),
 
     getLaunchCommand(launchConfig: AgentLaunchConfig): string {
       const parts: string[] = [config.command];

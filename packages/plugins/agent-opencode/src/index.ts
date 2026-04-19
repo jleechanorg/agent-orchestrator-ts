@@ -181,6 +181,7 @@ function createOpenCodeAgent(): Agent {
   return {
     name: "opencode",
     processName: "opencode",
+    supportsSystemPromptFile: true,
 
     getLaunchCommand(config: AgentLaunchConfig): string {
       const options: string[] = [];

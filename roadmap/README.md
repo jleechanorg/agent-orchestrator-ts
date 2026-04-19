@@ -7,6 +7,7 @@ Design notes, audits, and rolling status for **jleechanorg/agent-orchestrator**.
 ### 2026-04-19
 
 - **AO worker prompt audit — TDD fix + smoke proof** — Branch `fix/ao-worker-prompt-audit` persists free-form AO worker tasks as `userPrompt` / `requestedTask`, writes full composed prompts to `composedPromptPath`, and launches Codex with `model_instructions_file` plus a short boot prompt. Cursor keeps full post-launch delivery because it ignores `systemPromptFile`. Verification: full `session-manager` test file, Codex plugin prompt-file tests, core build, web serialization test, web typecheck, and local Codex AO smoke worker `ao-3959` with token absent from process argv.
+- **PR #473 review follow-up** — Addressed CodeRabbit/Codex comments by extracting prompt artifact construction to `packages/core/src/prompt-artifact-builder.ts`, adding explicit `supportsSystemPromptFile` capability, preserving full prompts for agents without prompt-file support, cleaning prompt artifacts on failed spawn paths, and restoring saved prompt metadata on fresh restore launches. Verification: `session-manager` 201/201, core/web typecheck, agent-base/codex tests, and real Codex AO worker `ao-3960`.
 
 ### 2026-04-15
 

@@ -83,6 +83,7 @@ function createAiderAgent(): Agent {
   return {
     name: "aider",
     processName: "aider",
+    supportsSystemPromptFile: true,
 
     getLaunchCommand(config: AgentLaunchConfig): string {
       const parts: string[] = ["aider"];
