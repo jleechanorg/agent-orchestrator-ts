@@ -10,7 +10,11 @@
  */
 
 import { ghJson, ghJsonPaginate, fetchReviews, type ReviewInfo } from "./gh-client.js";
-import { VERDICT_LINE_RE } from "./verdict-utils.js";
+import {
+  escapeRegexLiteral,
+  isFreshPassVerdictContractSatisfied,
+  VERDICT_LINE_RE,
+} from "./verdict-utils.js";
 
 const NIT_PATTERN = /^(nit:|nitpick)/i;
 // GraphQL author.login returns "coderabbitai" (without [bot] suffix) for the CodeRabbit bot.
@@ -81,6 +85,43 @@ function getLatestDecisiveReview(reviews: ReviewInfo[]): ReviewInfo | null {
   );
 }
 
+function extractSkepticRequestId(body: string): string | undefined {
+  const match = body.match(/<!--\s*skeptic-request-id-([A-Za-z0-9_.:-]+)\s*-->/i);
+  return match?.[1];
+}
+
+function hasMatchingWorkflowTrigger(
+  comments: Array<{ body: string; user?: { login: string } }>,
+  verdictBody: string,
+  headSha: string | undefined,
+  requestId: string | undefined,
+): string | undefined {
+  if (!headSha || !requestId) return undefined;
+  const escapedSha = escapeRegexLiteral(headSha);
+  const escapedRequestId = escapeRegexLiteral(requestId);
+  const headShaRe = new RegExp(`<!--\\s*skeptic-head-sha-${escapedSha}\\s*-->`, "i");
+  const requestIdRe = new RegExp(`<!--\\s*skeptic-request-id-${escapedRequestId}\\s*-->`, "i");
+  const triggerTypes = (["gate", "cron"] as const).filter((type) =>
+    new RegExp(`<!--\\s*skeptic-${type}-trigger-${escapedSha}\\s*-->`, "i").test(verdictBody),
+  );
+  if (triggerTypes.length === 0) return undefined;
+
+  for (const type of triggerTypes) {
+    const triggerLabelRe = new RegExp(`SKEPTIC_${type.toUpperCase()}_TRIGGER`, "i");
+    const triggerMarkerRe = new RegExp(`<!--\\s*skeptic-${type}-trigger-${escapedSha}\\s*-->`, "i");
+    const found = comments.some(
+      (comment) =>
+        comment.user?.login?.toLowerCase() === "github-actions[bot]" &&
+        triggerLabelRe.test(comment.body) &&
+        triggerMarkerRe.test(comment.body) &&
+        headShaRe.test(comment.body) &&
+        requestIdRe.test(comment.body),
+    );
+    if (found) return requestId;
+  }
+  return undefined;
+}
+
 export async function fetchMergeGateState(
   owner: string,
   repo: string,
@@ -93,13 +134,16 @@ export async function fetchMergeGateState(
   let noConflicts = false;
   let mergeableRaw: boolean | null = null;
   let checkRuns: CheckRunSummary[] = [];
+  let headSha: string | undefined;
+  let prAuthor: string | undefined;
   try {
     const prData = await ghJson(
       "repos/" + owner + "/" + repo + "/pulls/" + prNumber,
-    ) as { head?: { ref?: string; sha?: string }; mergeable?: boolean; merged?: boolean };
+    ) as { head?: { ref?: string; sha?: string }; mergeable?: boolean; merged?: boolean; user?: { login?: string } };
     mergeableRaw = prData?.mergeable ?? null;
     noConflicts = prData?.mergeable === true || prData?.merged === true;
-    const headSha = prData?.head?.sha;
+    headSha = prData?.head?.sha;
+    prAuthor = prData?.user?.login;
     // Use headSha (immutable commit SHA) to avoid TOCTOU races
     // where the branch moves between status check and merge.
     if (headSha) {
@@ -243,9 +287,12 @@ export async function fetchMergeGateState(
     // ao skeptic verify cannot post (e.g., no API keys in GHA). Matching only
     // skepticBotAuthor would miss those fallback verdicts and cause incorrect
     // null results on subsequent fetchMergeGateState calls.
-    const ACCEPTED_AUTHORS = new Set([skepticBotAuthor, "github-actions[bot]"]);
+    const ACCEPTED_AUTHORS = new Set(
+      [skepticBotAuthor, "github-actions[bot]"].map((login) => login.toLowerCase()),
+    );
     for (const c of comments) {
-      if (c.user?.login && ACCEPTED_AUTHORS.has(c.user.login)) {
+      const authorLogin = c.user?.login?.toLowerCase();
+      if (authorLogin && ACCEPTED_AUTHORS.has(authorLogin)) {
         // Require the skeptic-agent-verdict HTML marker — prevents spoofed verdicts
         // from malicious actors who gain write access to the bot account.
         if (!/<!-- skeptic-agent-verdict -->/i.test(c.body)) continue;
@@ -253,7 +300,21 @@ export async function fetchMergeGateState(
         // VERDICT: PASS and markdown-bold **VERDICT: PASS** variants.
         const m = c.body.match(VERDICT_LINE_RE);
         if (m) {
-          skepticVerdict = m[1].toUpperCase() as "PASS" | "FAIL" | "SKIPPED";
+          const parsedVerdict = m[1].toUpperCase() as "PASS" | "FAIL" | "SKIPPED";
+          const verdictRequestId = extractSkepticRequestId(c.body);
+          const authorIsPrAuthor =
+            typeof prAuthor === "string" &&
+            prAuthor.length > 0 &&
+            authorLogin === prAuthor.toLowerCase();
+          if (authorIsPrAuthor) continue;
+          if (
+            parsedVerdict === "PASS" &&
+            (!isFreshPassVerdictContractSatisfied(c.body, headSha, verdictRequestId) ||
+              !hasMatchingWorkflowTrigger(comments, c.body, headSha, verdictRequestId))
+          ) {
+            continue;
+          }
+          skepticVerdict = parsedVerdict;
           skepticCommentId = c.id;
           // Do NOT break — keep iterating so the last match reflects the newest verdict
         }
@@ -280,5 +341,3 @@ export async function fetchMergeGateState(
     skepticCommentId,
   };
 }
-
-

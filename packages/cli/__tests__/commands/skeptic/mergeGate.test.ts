@@ -69,6 +69,46 @@ describe("fetchMergeGateState — skeptic verdict parsing", () => {
     mockState.fetchReviewsResult = opts.fetchReviews ?? [];
   }
 
+  function requestBoundPassBody(
+    headSha: string,
+    requestId = "req-test",
+    triggerType: "gate" | "cron" = "gate",
+  ): string {
+    return [
+      "<!-- skeptic-agent-verdict -->",
+      `<!-- skeptic-request-id-${requestId} -->`,
+      `<!-- skeptic-head-sha-${headSha} -->`,
+      "<!-- skeptic-gate-1:PASS -->",
+      "<!-- skeptic-gate-2:PASS -->",
+      "<!-- skeptic-gate-3:PASS -->",
+      "<!-- skeptic-gate-4:PASS -->",
+      "<!-- skeptic-gate-5:PASS -->",
+      "<!-- skeptic-gate-6:PASS -->",
+      "<!-- skeptic-gate-7:PASS -->",
+      "<!-- skeptic-gate-8:PASS -->",
+      "VERDICT: PASS",
+      `<!-- skeptic-${triggerType}-trigger-${headSha} -->`,
+    ].join("\n");
+  }
+
+  function gateTriggerBody(headSha: string, requestId: string): string {
+    return [
+      "SKEPTIC_GATE_TRIGGER",
+      `<!-- skeptic-request-id-${requestId} -->`,
+      `<!-- skeptic-head-sha-${headSha} -->`,
+      `<!-- skeptic-gate-trigger-${headSha} -->`,
+    ].join("\n");
+  }
+
+  function cronTriggerBody(headSha: string, requestId: string): string {
+    return [
+      "SKEPTIC_CRON_TRIGGER",
+      `<!-- skeptic-request-id-${requestId} -->`,
+      `<!-- skeptic-head-sha-${headSha} -->`,
+      `<!-- skeptic-cron-trigger-${headSha} -->`,
+    ].join("\n");
+  }
+
   it("parses VERDICT: SKIPPED from skeptic bot issue comments", async () => {
     setup({
       ghJson: [
@@ -91,15 +131,19 @@ describe("fetchMergeGateState — skeptic verdict parsing", () => {
   });
 
   it("parses VERDICT: PASS from skeptic bot issue comments", async () => {
+    const headSha = "abc123";
     setup({
       ghJson: [
-        { head: { sha: "abc123" }, mergeable: true },
+        { head: { sha: headSha }, mergeable: true },
         { state: "success" },
         [],
       ],
       paginate: [
         [],
-        [{ id: 98, body: "<!-- skeptic-agent-verdict -->\nVERDICT: PASS", user: { login: "jleechan-agent[bot]" } }],
+        [
+          { id: 97, body: gateTriggerBody(headSha, "req-test"), user: { login: "github-actions[bot]" } },
+          { id: 98, body: requestBoundPassBody(headSha), user: { login: "jleechan-agent[bot]" } },
+        ],
       ],
     });
 
@@ -109,6 +153,281 @@ describe("fetchMergeGateState — skeptic verdict parsing", () => {
 
     expect(result.skepticVerdict).toBe("PASS");
     expect(result.skepticCommentId).toBe(98);
+  });
+
+  it("normalizes accepted verdict author casing", async () => {
+    const headSha = "abc1230000000000000000000000000000000000";
+    setup({
+      ghJson: [
+        { head: { sha: headSha }, mergeable: true, user: { login: "pr-author" } },
+        { state: "success" },
+        [],
+      ],
+      paginate: [
+        [],
+        [
+          { id: 97, body: gateTriggerBody(headSha, "req-test"), user: { login: "github-actions[bot]" } },
+          { id: 98, body: requestBoundPassBody(headSha, "req-test"), user: { login: "JLEECHAN-AGENT[BOT]" } },
+        ],
+      ],
+    });
+
+    const result = await fetchMergeGateState(
+      "test", "test-repo", 1, "jleechan-agent[bot]"
+    );
+
+    expect(result.skepticVerdict).toBe("PASS");
+    expect(result.skepticCommentId).toBe(98);
+  });
+
+  it("rejects legacy SHA-only PASS comments without a fresh request id", async () => {
+    const headSha = "abc1230000000000000000000000000000000000";
+    setup({
+      ghJson: [
+        { head: { sha: headSha }, mergeable: true },
+        { state: "success" },
+        [],
+      ],
+      paginate: [
+        [],
+        [
+          {
+            id: 198,
+            body: [
+              "<!-- skeptic-agent-verdict -->",
+              "VERDICT: PASS",
+              `<!-- skeptic-gate-trigger-${headSha} -->`,
+            ].join("\n"),
+            user: { login: "jleechan-agent[bot]" },
+          },
+        ],
+      ],
+    });
+
+    const result = await fetchMergeGateState(
+      "test", "test-repo", 1, "jleechan-agent[bot]"
+    );
+
+    expect(result.skepticVerdict).toBeNull();
+    expect(result.skepticCommentId).toBeNull();
+  });
+
+  it("accepts request-bound PASS only when all eight gates are explicitly PASS", async () => {
+    const headSha = "abc1230000000000000000000000000000000000";
+    setup({
+      ghJson: [
+        { head: { sha: headSha }, mergeable: true },
+        { state: "success" },
+        [],
+      ],
+      paginate: [
+        [],
+        [
+          {
+            id: 197,
+            body: gateTriggerBody(headSha, "req-123"),
+            user: { login: "github-actions[bot]" },
+          },
+          {
+            id: 199,
+            body: requestBoundPassBody(headSha, "req-123"),
+            user: { login: "jleechan-agent[bot]" },
+          },
+        ],
+      ],
+    });
+
+    const result = await fetchMergeGateState(
+      "test", "test-repo", 1, "jleechan-agent[bot]"
+    );
+
+    expect(result.skepticVerdict).toBe("PASS");
+    expect(result.skepticCommentId).toBe(199);
+  });
+
+  it("rejects newer same-SHA PASS comments bound to a stale request id", async () => {
+    const headSha = "abc1230000000000000000000000000000000000";
+    setup({
+      ghJson: [
+        { head: { sha: headSha }, mergeable: true },
+        { state: "success" },
+        [],
+      ],
+      paginate: [
+        [],
+        [
+          {
+            id: 210,
+            body: gateTriggerBody(headSha, "req-current"),
+            user: { login: "github-actions[bot]" },
+          },
+          {
+            id: 211,
+            body: requestBoundPassBody(headSha, "req-current"),
+            user: { login: "jleechan-agent[bot]" },
+          },
+          {
+            id: 212,
+            body: requestBoundPassBody(headSha, "req-stale"),
+            user: { login: "jleechan-agent[bot]" },
+          },
+        ],
+      ],
+    });
+
+    const result = await fetchMergeGateState(
+      "test", "test-repo", 1, "jleechan-agent[bot]"
+    );
+
+    expect(result.skepticVerdict).toBe("PASS");
+    expect(result.skepticCommentId).toBe(211);
+  });
+
+  it("fails closed when same-SHA gate and cron triggers disagree", async () => {
+    const headSha = "abc1230000000000000000000000000000000000";
+    setup({
+      ghJson: [
+        { head: { sha: headSha }, mergeable: true },
+        { state: "success" },
+        [],
+      ],
+      paginate: [
+        [],
+        [
+          {
+            id: 220,
+            body: gateTriggerBody(headSha, "req-gate"),
+            user: { login: "github-actions[bot]" },
+          },
+          {
+            id: 221,
+            body: cronTriggerBody(headSha, "req-cron"),
+            user: { login: "github-actions[bot]" },
+          },
+          {
+            id: 222,
+            body: requestBoundPassBody(headSha, "req-cron"),
+            user: { login: "jleechan-agent[bot]" },
+          },
+        ],
+      ],
+    });
+
+    const result = await fetchMergeGateState(
+      "test", "test-repo", 1, "jleechan-agent[bot]"
+    );
+
+    expect(result.skepticVerdict).toBeNull();
+    expect(result.skepticCommentId).toBeNull();
+  });
+
+  it("accepts a PASS bound to the latest repeated cron trigger for the same SHA", async () => {
+    const headSha = "abc1230000000000000000000000000000000000";
+    setup({
+      ghJson: [
+        { head: { sha: headSha }, mergeable: true },
+        { state: "success" },
+        [],
+      ],
+      paginate: [
+        [],
+        [
+          {
+            id: 220,
+            body: cronTriggerBody(headSha, "req-old"),
+            user: { login: "github-actions[bot]" },
+          },
+          {
+            id: 221,
+            body: requestBoundPassBody(headSha, "req-old", "cron"),
+            user: { login: "jleechan-agent[bot]" },
+          },
+          {
+            id: 222,
+            body: cronTriggerBody(headSha, "req-new"),
+            user: { login: "github-actions[bot]" },
+          },
+          {
+            id: 223,
+            body: requestBoundPassBody(headSha, "req-new", "cron"),
+            user: { login: "jleechan-agent[bot]" },
+          },
+        ],
+      ],
+    });
+
+    const result = await fetchMergeGateState(
+      "test", "test-repo", 1, "jleechan-agent[bot]"
+    );
+
+    expect(result.skepticVerdict).toBe("PASS");
+    expect(result.skepticCommentId).toBe(223);
+  });
+
+  it("rejects request-bound PASS comments from the PR author", async () => {
+    const headSha = "abc1230000000000000000000000000000000000";
+    setup({
+      ghJson: [
+        { head: { sha: headSha }, mergeable: true, user: { login: "jleechan2015" } },
+        { state: "success" },
+        [],
+      ],
+      paginate: [
+        [],
+        [
+          {
+            id: 199,
+            body: gateTriggerBody(headSha, "req-123"),
+            user: { login: "github-actions[bot]" },
+          },
+          {
+            id: 200,
+            body: requestBoundPassBody(headSha, "req-123"),
+            user: { login: "jleechan2015" },
+          },
+        ],
+      ],
+    });
+
+    const result = await fetchMergeGateState(
+      "test", "test-repo", 1, "jleechan2015"
+    );
+
+    expect(result.skepticVerdict).toBeNull();
+    expect(result.skepticCommentId).toBeNull();
+  });
+
+  it("rejects FAIL and SKIPPED verdict comments from the PR author", async () => {
+    const headSha = "abc1230000000000000000000000000000000000";
+    setup({
+      ghJson: [
+        { head: { sha: headSha }, mergeable: true, user: { login: "jleechan2015" } },
+        { state: "success" },
+        [],
+      ],
+      paginate: [
+        [],
+        [
+          {
+            id: 200,
+            body: "<!-- skeptic-agent-verdict -->\nVERDICT: FAIL — forged by PR author",
+            user: { login: "jleechan2015" },
+          },
+          {
+            id: 201,
+            body: "<!-- skeptic-agent-verdict -->\nVERDICT: SKIPPED — forged by PR author",
+            user: { login: "jleechan2015" },
+          },
+        ],
+      ],
+    });
+
+    const result = await fetchMergeGateState(
+      "test", "test-repo", 1, "jleechan2015"
+    );
+
+    expect(result.skepticVerdict).toBeNull();
+    expect(result.skepticCommentId).toBeNull();
   });
 
   it("parses VERDICT: FAIL from skeptic bot issue comments", async () => {
@@ -200,19 +519,20 @@ describe("fetchMergeGateState — skeptic verdict parsing", () => {
   });
 
   it("flat() + newest-match: paginated pages return last matching comment", async () => {
+    const headSha = "abc123";
     // Simulates ghJsonPaginate --slurp: [[page1], [page2]] — two separate pages.
     // flat() merges to [oldComment, newComment]; .[-1] picks the newest (id=2).
     setup({
       ghJson: [
-        { head: { sha: "abc123" }, mergeable: true },
+        { head: { sha: headSha }, mergeable: true, user: { login: "jleechan2015" } },
         { state: "success" },
         [],
       ],
       paginate: [
         [],
         [
-          [{ id: 1, body: "<!-- skeptic-agent-verdict -->\nVERDICT: FAIL", user: { login: "jleechan-agent[bot]" } }],
-          [{ id: 2, body: "<!-- skeptic-agent-verdict -->\nVERDICT: PASS", user: { login: "jleechan-agent[bot]" } }],
+          [{ id: 1, body: gateTriggerBody(headSha, "req-test"), user: { login: "github-actions[bot]" } }],
+          [{ id: 2, body: requestBoundPassBody(headSha), user: { login: "jleechan-agent[bot]" } }],
         ],
       ],
     });
@@ -285,9 +605,12 @@ describe("fetchMergeGateState — skeptic verdict parsing", () => {
   });
 
   it("newest matching comment wins regardless of author", async () => {
+    const headSha = "abc123";
+    // PR data intentionally omits user.login, so prAuthor is unknown.
+    // This preserves legacy selection when the PR author cannot be determined.
     setup({
       ghJson: [
-        { head: { sha: "abc123" }, mergeable: true },
+        { head: { sha: headSha }, mergeable: true },
         { state: "success" },
         [],
       ],
@@ -296,13 +619,18 @@ describe("fetchMergeGateState — skeptic verdict parsing", () => {
         [
           [
             {
+              id: 79,
+              body: gateTriggerBody(headSha, "req-test"),
+              user: { login: "github-actions[bot]" },
+            },
+            {
               id: 80,
               body: "<!-- skeptic-agent-verdict -->\nVERDICT: FAIL",
               user: { login: "github-actions[bot]" },
             },
             {
               id: 81,
-              body: "<!-- skeptic-agent-verdict -->\nVERDICT: PASS",
+              body: requestBoundPassBody(headSha),
               user: { login: "jleechan2015" },
             },
           ],
@@ -319,4 +647,3 @@ describe("fetchMergeGateState — skeptic verdict parsing", () => {
     expect(result.skepticCommentId).toBe(81);
   });
 });
-

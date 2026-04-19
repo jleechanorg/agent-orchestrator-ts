@@ -44,6 +44,30 @@ describe("fetchMergeGateState — skeptic verdict parsing", () => {
     mockState.fetchReviewsResult = [];
   });
 
+  function boundPassBody(headSha = "abc123", requestId = "req-debug") {
+    const gates = Array.from(
+      { length: 8 },
+      (_, index) => `<!-- skeptic-gate-${index + 1}:PASS -->`,
+    ).join("\n");
+    return [
+      "<!-- skeptic-agent-verdict -->",
+      `<!-- skeptic-request-id-${requestId} -->`,
+      `<!-- skeptic-head-sha-${headSha} -->`,
+      gates,
+      "VERDICT: PASS",
+      `<!-- skeptic-gate-trigger-${headSha} -->`,
+    ].join("\n");
+  }
+
+  function gateTriggerBody(headSha = "abc123", requestId = "req-debug") {
+    return [
+      "SKEPTIC_GATE_TRIGGER",
+      `<!-- skeptic-request-id-${requestId} -->`,
+      `<!-- skeptic-head-sha-${headSha} -->`,
+      `<!-- skeptic-gate-trigger-${headSha} -->`,
+    ].join("\n");
+  }
+
   /**
    * Actual call order in fetchMergeGateState:
    * ghJson: #1 PR data, #2 commit status, #3 review threads (non-fatal)
@@ -81,15 +105,19 @@ describe("fetchMergeGateState — skeptic verdict parsing", () => {
   });
 
   it("parses VERDICT: PASS from skeptic bot issue comments", async () => {
+    const headSha = "abc123";
     setup({
       ghJson: [
-        { head: { sha: "abc123" }, mergeable: true },
+        { head: { sha: headSha }, mergeable: true },
         { state: "success" },
         [],
       ],
       paginate: [
         [],
-        [{ id: 98, body: "<!-- skeptic-agent-verdict -->\nVERDICT: PASS", user: { login: "jleechan-agent[bot]" } }],
+        [
+          { id: 97, body: gateTriggerBody(headSha), user: { login: "github-actions[bot]" } },
+          { id: 98, body: boundPassBody(headSha), user: { login: "jleechan-agent[bot]" } },
+        ],
       ],
     });
 
@@ -165,19 +193,20 @@ describe("fetchMergeGateState — skeptic verdict parsing", () => {
   });
 
   it("flat() + newest-match: paginated pages return last matching comment", async () => {
+    const headSha = "abc123";
     // Simulates ghJsonPaginate --slurp: [[page1], [page2]] — two separate pages.
     // flat() merges to [oldComment, newComment]; .[-1] picks the newest (id=2).
     setup({
       ghJson: [
-        { head: { sha: "abc123" }, mergeable: true },
+        { head: { sha: headSha }, mergeable: true },
         { state: "success" },
         [],
       ],
       paginate: [
         [],
         [
-          [{ id: 1, body: "<!-- skeptic-agent-verdict -->\nVERDICT: FAIL", user: { login: "jleechan-agent[bot]" } }],
-          [{ id: 2, body: "<!-- skeptic-agent-verdict -->\nVERDICT: PASS", user: { login: "jleechan-agent[bot]" } }],
+          [{ id: 1, body: gateTriggerBody(headSha), user: { login: "github-actions[bot]" } }],
+          [{ id: 2, body: boundPassBody(headSha), user: { login: "jleechan-agent[bot]" } }],
         ],
       ],
     });
@@ -214,4 +243,3 @@ describe("fetchMergeGateState — skeptic verdict parsing", () => {
     expect(result.noConflicts).toBe(true);
   });
 });
-
