@@ -1,4 +1,4 @@
-import { mkdirSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { buildPrompt } from "./prompt-builder.js";
 import { getProjectBaseDir } from "./paths.js";
@@ -59,6 +59,7 @@ export function buildWorkerPromptArtifact(config: WorkerPromptArtifactConfig): W
     "prompts",
   );
   mkdirSync(composedPromptDir, { recursive: true, mode: 0o700 });
+  chmodSync(composedPromptDir, 0o700);
   const composedPromptPath = join(composedPromptDir, `worker-prompt-${config.sessionId}.md`);
   writeFileSync(composedPromptPath, composedPrompt, { encoding: "utf-8", mode: 0o600 });
 

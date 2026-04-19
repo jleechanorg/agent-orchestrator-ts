@@ -1081,6 +1081,23 @@ describe("spawn", () => {
     expect(session.metadata["composedPromptPath"]).toBe(promptPath);
   });
 
+  it("tightens an existing prompt artifact directory before writing", async () => {
+    const projectBaseDir = getProjectBaseDir(config.configPath, config.projects["my-app"].path);
+    const promptDir = join(projectBaseDir, "prompts");
+    mkdirSync(promptDir, { recursive: true });
+    chmodSync(promptDir, 0o755);
+    const sm = createSessionManager({ config, registry: mockRegistry });
+
+    const session = await sm.spawn({ projectId: "my-app", prompt: "Audit prompt permissions" });
+
+    const launchArgs = vi.mocked(mockAgent.getLaunchCommand).mock.calls[0][0];
+    expect(launchArgs.systemPromptFile).toBe(
+      join(promptDir, `worker-prompt-${session.id}.md`),
+    );
+    expect(statSync(promptDir).mode & 0o777).toBe(0o700);
+    expect(statSync(launchArgs.systemPromptFile!).mode & 0o777).toBe(0o600);
+  });
+
   it("cleans workspace and metadata when prompt artifact creation fails", async () => {
     const projectBaseDir = getProjectBaseDir(config.configPath, config.projects["my-app"].path);
     mkdirSync(projectBaseDir, { recursive: true });
