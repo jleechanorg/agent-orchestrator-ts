@@ -88,11 +88,11 @@ jobs:
             # Process when the diff contains any code files (skeptically review the docs).
             # ----------------------------------------------------------------
             PR_BASE_REF=$(echo "$PR_DATA" | jq -r '.base.ref')
-            DIFF_FILES=$(gh api repos/${{ github.repository }}/compare/"${PR_BASE_REF}...${PR_SHA}" \
-              --jq '[.files[].filename] | map(select(test("\\.(js|ts|jsx|tsx|py|rs|go|java|cs|cpp|h|c|mk|toml|yaml|yml|json|xml|sh|bash|ps1|rb|php|swift|kt|gradle)$"; "i") | not))' \
-              2>/dev/null | jq 'length' || echo 0)
-            TOTAL_FILES=$(gh api repos/${{ github.repository }}/compare/"${PR_BASE_REF}...${PR_SHA}" \
-              --jq '.files | length' 2>/dev/null || echo 0)
+            COMPARE_DATA=$(gh api repos/${{ github.repository }}/compare/"${PR_BASE_REF}...${PR_SHA}" \
+              --jq '{total: (.files | length), docs: ([.files[].filename] | map(select(test("\\.(js|ts|jsx|tsx|py|rs|go|java|cs|cpp|h|c|mk|toml|yaml|yml|json|xml|sh|bash|ps1|rb|php|swift|kt|gradle)$"; "i") | not)) | length)}' \
+              2>/dev/null || echo '{"total":0,"docs":0}')
+            DIFF_FILES=$(echo "$COMPARE_DATA" | jq -r '.docs')
+            TOTAL_FILES=$(echo "$COMPARE_DATA" | jq -r '.total')
             if [ "${DIFF_FILES:-0}" -eq "${TOTAL_FILES:-0}" ] && [ "${TOTAL_FILES:-0}" -gt 0 ]; then
               echo "  [SKIP] All ${TOTAL_FILES} file(s) are docs — skeptic evaluation optional"
               SKIPPED_DOCS=$((SKIPPED_DOCS + 1))
@@ -159,7 +159,7 @@ jobs:
                 set +e -o pipefail
                 CR_APPROVE_PIPELINE=$(gh api repos/${{ github.repository }}/issues/"$PR_NUM"/comments \
                   --paginate 2>/dev/null \
-                  | jq -rs --arg since "$HEAD_COMMITTED_AT" 'add | [.[] | select((.user.login == "coderabbitai[bot]" or .user.login == "coderabbitai") and .created_at >= $since and (.body | test("\\[approve\\]"; "i")))] | sort_by(.created_at) | last | if . then "APPROVED" else "none" end' 2>&1)
+                  | jq -rs --arg since "$HEAD_COMMITTED_AT" 'add | [.[] | select((.user.login == "coderabbitai[bot]" or .user.login == "coderabbitai") and .created_at >= $since and (.body | test("^\s*\[approve\]\s*$"; "i")))] | sort_by(.created_at) | last | if . then "APPROVED" else "none" end' 2>&1)
                 CR_APPROVE_EXIT=$?
                 set -e +o pipefail
                 if [ "$CR_APPROVE_EXIT" -eq 0 ]; then
