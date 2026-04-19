@@ -110,11 +110,20 @@ for PR in $(echo "$PR_JSON" | jq -r '.[] | @base64'); do
   fi
   echo "  [3] CR APPROVED:        $CR_APPROVED"
 
-  # 4. Bugbot clean
-  BUGBOT_ERRORS=$(gh api repos/$GITHUB_REPOSITORY/pulls/"$PR_NUM"/comments \
-    --jq '[.[] | select(.user.login == "cursor[bot]" and (.body | test("error"; "i")))] | length' 2>/dev/null || echo 0)
-  BUGBOT_STATUS=$(if [ "$BUGBOT_ERRORS" = "0" ] || [ -z "$BUGBOT_ERRORS" ]; then echo "PASS"; else echo "FAIL ($BUGBOT_ERRORS error(s))"; fi)
-  echo "  [4] Bugbot clean:       $BUGBOT_STATUS"
+  # 4. Bugbot clean — use CI check-run conclusion scoped to HEAD SHA.
+  # Comment scan is unreliable: stale comments from old commits persist.
+  # Fail-closed: only pass on success/neutral/skipped; pass on none (no Bugbot run).
+  BUGBOT_CONCLUSION=$(gh api repos/$GITHUB_REPOSITORY/commits/"$PR_SHA"/check-runs \
+    --paginate 2>/dev/null \
+    | jq -rs '[.[] | .check_runs[]?] | map(select(.name | test("Cursor Bugbot"; "i"))) | sort_by(.completed_at) | last | .conclusion // "none"' \
+    2>/dev/null || echo "none")
+  if [ "$BUGBOT_CONCLUSION" = "success" ] || [ "$BUGBOT_CONCLUSION" = "neutral" ] || [ "$BUGBOT_CONCLUSION" = "skipped" ] || [ "$BUGBOT_CONCLUSION" = "none" ]; then
+    echo "  [4] Bugbot clean:       PASS ($BUGBOT_CONCLUSION)"
+  else
+    echo "  [SKIP] Gate-4 FAIL: bugbot=$BUGBOT_CONCLUSION"
+    SKIPPED_NOT_6GREEN=$((SKIPPED_NOT_6GREEN + 1))
+    continue
+  fi
 
   # 5. Inline comments resolved (GraphQL)
   PR_AUTHOR=$(gh api repos/$GITHUB_REPOSITORY/pulls/"$PR_NUM" --jq '.user.login')
