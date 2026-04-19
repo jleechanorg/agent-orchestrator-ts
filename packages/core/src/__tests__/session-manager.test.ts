@@ -4432,6 +4432,32 @@ describe("restore", () => {
     );
   });
 
+  it("does not pass a missing restored prompt artifact path into fresh launches", async () => {
+    const wsPath = join(tmpDir, "ws-app-restore-missing-prompt");
+    mkdirSync(wsPath, { recursive: true });
+    const missingPromptPath = join(tmpDir, "missing-worker-prompt-app-1.md");
+
+    writeMetadata(sessionsDir, "app-1", {
+      worktree: wsPath,
+      branch: "feat/TEST-MISSING-PROMPT",
+      status: "killed",
+      project: "my-app",
+      runtimeHandle: JSON.stringify(makeHandle("rt-old")),
+      requestedTask: "Fix restored assignment without artifact",
+      composedPromptPath: missingPromptPath,
+    });
+
+    const sm = createSessionManager({ config, registry: mockRegistry });
+    await sm.restore("app-1");
+
+    expect(mockAgent.getLaunchCommand).toHaveBeenCalledWith(
+      expect.objectContaining({
+        systemPromptFile: undefined,
+        prompt: "Fix restored assignment without artifact",
+      }),
+    );
+  });
+
   it("restores full prompt text for agents without prompt-file support", async () => {
     const wsPath = join(tmpDir, "ws-app-restore-no-file-support");
     mkdirSync(wsPath, { recursive: true });

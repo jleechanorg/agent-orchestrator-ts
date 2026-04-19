@@ -2857,10 +2857,12 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
     const restoredPromptFile = session.metadata?.composedPromptPath;
     const restoredRequestedTask = session.metadata?.requestedTask ?? session.metadata?.userPrompt;
     let restoredPrompt = restoredRequestedTask;
-    if (restoredPromptFile) {
+    let restoredSystemPromptFile: string | undefined;
+    if (restoredPromptFile && existsSync(restoredPromptFile)) {
+      restoredSystemPromptFile = restoredPromptFile;
       if (agentSupportsPromptFile(plugins.agent)) {
         restoredPrompt = WORKER_BOOT_PROMPT;
-      } else if (existsSync(restoredPromptFile)) {
+      } else {
         restoredPrompt = readFileSync(restoredPromptFile, "utf-8");
       }
     }
@@ -2877,7 +2879,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
         },
       },
       issueId: session.issueId ?? undefined,
-      systemPromptFile: restoredPromptFile,
+      systemPromptFile: restoredSystemPromptFile,
       prompt: restoredPrompt,
       permissions: selection.role === "orchestrator" ? "permissionless" : selection.permissions,
       model: selection.model,
