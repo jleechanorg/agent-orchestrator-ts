@@ -1,5 +1,5 @@
 import { chmodSync, mkdirSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { buildPrompt } from "./prompt-builder.js";
 import { getProjectBaseDir } from "./paths.js";
 import type { Agent, Issue, ProjectConfig, SessionId, SessionSpawnConfig } from "./types.js";
@@ -10,6 +10,7 @@ export const WORKER_BOOT_PROMPT =
 export interface WorkerPromptArtifact {
   composedPromptPath: string;
   launchPrompt: string;
+  postLaunchPrompt: string;
   promptIssueId: string | undefined;
   requestedTask: string | undefined;
 }
@@ -23,6 +24,7 @@ export interface WorkerPromptArtifactConfig {
   resolvedIssue: Issue | null | undefined;
   sessionId: SessionId;
   spawnConfig: SessionSpawnConfig;
+  composedPromptPath?: string;
 }
 
 export function agentSupportsPromptFile(agent: Agent): boolean {
@@ -31,6 +33,18 @@ export function agentSupportsPromptFile(agent: Agent): boolean {
 
 function launchPromptForAgent(agent: Agent, composedPrompt: string): string {
   return agentSupportsPromptFile(agent) ? WORKER_BOOT_PROMPT : composedPrompt;
+}
+
+export function getWorkerPromptArtifactPath(
+  configPath: string,
+  project: ProjectConfig,
+  sessionId: SessionId,
+): string {
+  return join(
+    getProjectBaseDir(configPath, project.path),
+    "prompts",
+    `worker-prompt-${sessionId}.md`,
+  );
 }
 
 export function buildWorkerPromptArtifact(config: WorkerPromptArtifactConfig): WorkerPromptArtifact {
@@ -54,18 +68,18 @@ export function buildWorkerPromptArtifact(config: WorkerPromptArtifactConfig): W
     siblings: config.spawnConfig.siblings,
   });
 
-  const composedPromptDir = join(
-    getProjectBaseDir(config.configPath, config.project.path),
-    "prompts",
-  );
+  const composedPromptPath =
+    config.composedPromptPath ??
+    getWorkerPromptArtifactPath(config.configPath, config.project, config.sessionId);
+  const composedPromptDir = dirname(composedPromptPath);
   mkdirSync(composedPromptDir, { recursive: true, mode: 0o700 });
   chmodSync(composedPromptDir, 0o700);
-  const composedPromptPath = join(composedPromptDir, `worker-prompt-${config.sessionId}.md`);
   writeFileSync(composedPromptPath, composedPrompt, { encoding: "utf-8", mode: 0o600 });
 
   return {
     composedPromptPath,
     launchPrompt: launchPromptForAgent(config.agent, composedPrompt),
+    postLaunchPrompt: composedPrompt,
     promptIssueId,
     requestedTask,
   };

@@ -94,6 +94,7 @@ import {
   WORKER_BOOT_PROMPT,
   agentSupportsPromptFile,
   buildWorkerPromptArtifact,
+  getWorkerPromptArtifactPath,
   type WorkerPromptArtifact,
 } from "./prompt-artifact-builder.js";
 
@@ -1171,10 +1172,12 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       }
     }
 
+    composedPromptPath = getWorkerPromptArtifactPath(config.configPath, project, sessionId);
     let promptArtifact: WorkerPromptArtifact;
     try {
       promptArtifact = buildWorkerPromptArtifact({
         agent: plugins.agent,
+        composedPromptPath,
         configPath: config.configPath,
         hasTracker: Boolean(plugins.tracker),
         issueContext,
@@ -1190,7 +1193,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       throw err;
     }
 
-    const { promptIssueId, requestedTask, launchPrompt } = promptArtifact;
+    const { promptIssueId, requestedTask, launchPrompt, postLaunchPrompt } = promptArtifact;
 
     // Get agent launch config and create runtime — clean up workspace on failure
     const opencodeIssueSessionStrategy = project.opencodeIssueSessionStrategy ?? "reuse";
@@ -1344,11 +1347,11 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
     // exits after -p, so we send the prompt after it starts in interactive mode).
     // This is intentionally outside the try/catch above — a prompt delivery failure
     // should NOT destroy the session. The agent is running; user can retry with `ao send`.
-    if (plugins.agent.promptDelivery === "post-launch" && agentLaunchConfig.prompt) {
+    if (plugins.agent.promptDelivery === "post-launch" && postLaunchPrompt) {
       try {
         // Wait for agent to start and be ready for input
         await new Promise((resolve) => setTimeout(resolve, 5_000));
-        await plugins.runtime.sendMessage(handle, agentLaunchConfig.prompt);
+        await plugins.runtime.sendMessage(handle, postLaunchPrompt);
       } catch {
         // Non-fatal: agent is running but didn't receive the initial prompt.
         // User can retry with `ao send`.

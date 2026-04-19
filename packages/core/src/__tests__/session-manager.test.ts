@@ -1131,6 +1131,43 @@ describe("spawn", () => {
     expect(readMetadataRaw(sessionsDir, "app-1")).toBeNull();
   });
 
+  it("removes a seeded prompt artifact when prompt writing fails", async () => {
+    const projectBaseDir = getProjectBaseDir(config.configPath, config.projects["my-app"].path);
+    const promptDir = join(projectBaseDir, "prompts");
+    const promptPath = join(promptDir, "worker-prompt-app-1.md");
+    mkdirSync(promptDir, { recursive: true });
+    writeFileSync(promptPath, "partial prompt artifact", "utf-8");
+    chmodSync(promptPath, 0o400);
+    const managedWsPath = join(getWorktreesDir(config.configPath, config.projects["my-app"].path), "app-1");
+    const managedWorkspace: Workspace = {
+      ...mockWorkspace,
+      create: vi.fn().mockResolvedValue({
+        path: managedWsPath,
+        branch: "feat/TEST-1",
+        sessionId: "app-1",
+        projectId: "my-app",
+      }),
+    };
+    const registryWithManagedWorkspace: PluginRegistry = {
+      ...mockRegistry,
+      get: vi.fn().mockImplementation((slot: string) => {
+        if (slot === "runtime") return mockRuntime;
+        if (slot === "agent") return mockAgent;
+        if (slot === "workspace") return managedWorkspace;
+        return null;
+      }),
+    };
+
+    const sm = createSessionManager({ config, registry: registryWithManagedWorkspace });
+
+    await expect(sm.spawn({ projectId: "my-app", prompt: "Fix partial prompt cleanup" })).rejects.toThrow();
+
+    expect(existsSync(promptPath)).toBe(false);
+    expect(managedWorkspace.destroy).toHaveBeenCalled();
+    expect(mockRuntime.create).not.toHaveBeenCalled();
+    expect(readMetadataRaw(sessionsDir, "app-1")).toBeNull();
+  });
+
   it("removes prompt artifacts when runtime creation fails", async () => {
     const failingRuntime: Runtime = {
       ...mockRuntime,
@@ -1218,7 +1255,7 @@ describe("spawn", () => {
     expect(session.branch).not.toBe("main");
   });
 
-  it("sends prompt post-launch when agent.promptDelivery is 'post-launch'", async () => {
+  it("sends the full prompt post-launch when a prompt-file agent needs post-launch delivery", async () => {
     vi.useFakeTimers();
     const postLaunchAgent = {
       ...mockAgent,
@@ -1239,12 +1276,16 @@ describe("spawn", () => {
     await vi.advanceTimersByTimeAsync(5_000);
     await spawnPromise;
 
-    // Post-launch agents receive the short boot prompt; the full task stays in the prompt file.
     expect(mockRuntime.sendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ id: expect.any(String) }),
+      expect.stringContaining("Fix the bug"),
+    );
+    expect(mockRuntime.sendMessage).not.toHaveBeenCalledWith(
       expect.objectContaining({ id: expect.any(String) }),
       WORKER_BOOT_PROMPT,
     );
     const launchArgs = vi.mocked(mockAgent.getLaunchCommand).mock.calls[0][0];
+    expect(launchArgs.prompt).toBe(WORKER_BOOT_PROMPT);
     expect(readFileSync(launchArgs.systemPromptFile!, "utf-8")).toContain("Fix the bug");
     vi.useRealTimers();
   });
@@ -1354,9 +1395,14 @@ describe("spawn", () => {
 
     expect(mockRuntime.sendMessage).toHaveBeenCalledWith(
       expect.objectContaining({ id: expect.any(String) }),
+      expect.stringContaining("ao session claim-pr"),
+    );
+    expect(mockRuntime.sendMessage).not.toHaveBeenCalledWith(
+      expect.objectContaining({ id: expect.any(String) }),
       WORKER_BOOT_PROMPT,
     );
     const launchArgs = vi.mocked(mockAgent.getLaunchCommand).mock.calls[0][0];
+    expect(launchArgs.prompt).toBe(WORKER_BOOT_PROMPT);
     expect(readFileSync(launchArgs.systemPromptFile!, "utf-8")).toContain("ao session claim-pr");
     vi.useRealTimers();
   });
