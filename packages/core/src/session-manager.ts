@@ -1152,7 +1152,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
     const cleanupPromptArtifact = (): void => {
       if (!composedPromptPath) return;
       try {
-        rmSync(composedPromptPath, { force: true });
+        rmSync(composedPromptPath, { force: true, recursive: true });
       } catch {
         /* best effort */
       }

@@ -1136,8 +1136,7 @@ describe("spawn", () => {
     const promptDir = join(projectBaseDir, "prompts");
     const promptPath = join(promptDir, "worker-prompt-app-1.md");
     mkdirSync(promptDir, { recursive: true });
-    writeFileSync(promptPath, "partial prompt artifact", "utf-8");
-    chmodSync(promptPath, 0o400);
+    mkdirSync(promptPath);
     const managedWsPath = join(getWorktreesDir(config.configPath, config.projects["my-app"].path), "app-1");
     const managedWorkspace: Workspace = {
       ...mockWorkspace,
