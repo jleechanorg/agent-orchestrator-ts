@@ -73,7 +73,7 @@ export interface DashboardSession {
   summaryIsFallback: boolean;
   userPrompt: string | null;
   requestedTask: string | null;
-  composedPromptPath: string | null;
+  hasPromptArtifact: boolean;
   createdAt: string;
   lastActivityAt: string;
   pr: DashboardPR | null;

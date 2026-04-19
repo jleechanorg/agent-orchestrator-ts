@@ -179,7 +179,7 @@ describe("sessionToDashboard", () => {
     expect(dashboard.summaryIsFallback).toBe(false);
   });
 
-  it("should expose worker prompt audit metadata as first-class fields", () => {
+  it("should expose worker prompt audit metadata without leaking prompt file paths", () => {
     const coreSession = createCoreSession({
       metadata: {
         userPrompt: "Fix the upload race",
@@ -191,7 +191,9 @@ describe("sessionToDashboard", () => {
 
     expect(dashboard.userPrompt).toBe("Fix the upload race");
     expect(dashboard.requestedTask).toBe("Fix the upload race");
-    expect(dashboard.composedPromptPath).toBe("/tmp/worker-prompt-test-1.md");
+    expect(dashboard.hasPromptArtifact).toBe(true);
+    expect(dashboard).not.toHaveProperty("composedPromptPath");
+    expect(dashboard.metadata).not.toHaveProperty("composedPromptPath");
   });
 
   it("should set summaryIsFallback false when no summary exists", () => {
