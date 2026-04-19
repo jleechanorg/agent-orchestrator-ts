@@ -62,6 +62,9 @@ export function sessionToDashboard(session: Session): DashboardSession {
     issueTitle: null, // Will be enriched by enrichSessionIssueTitle()
     summary,
     summaryIsFallback: agentSummary ? (session.agentInfo?.summaryIsFallback ?? false) : false,
+    userPrompt: session.metadata["userPrompt"] ?? null,
+    requestedTask: session.metadata["requestedTask"] ?? null,
+    composedPromptPath: session.metadata["composedPromptPath"] ?? null,
     createdAt: session.createdAt.toISOString(),
     lastActivityAt: session.lastActivityAt.toISOString(),
     pr: session.pr ? basicPRToDashboard(session.pr) : null,

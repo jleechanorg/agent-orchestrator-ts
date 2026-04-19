@@ -4,6 +4,10 @@ Design notes, audits, and rolling status for **jleechanorg/agent-orchestrator**.
 
 ## Recent activity (rolling)
 
+### 2026-04-19
+
+- **AO worker prompt audit — TDD fix + smoke proof** — Branch `fix/ao-worker-prompt-audit` persists free-form AO worker tasks as `userPrompt` / `requestedTask`, writes full composed prompts to `composedPromptPath`, and launches Codex with `model_instructions_file` plus a short boot prompt. Cursor keeps full post-launch delivery because it ignores `systemPromptFile`. Verification: full `session-manager` test file, Codex plugin prompt-file tests, core build, web serialization test, web typecheck, and local Codex AO smoke worker `ao-3959` with token absent from process argv.
+
 ### 2026-04-15
 
 - **AO workers 401 auth failures — FIXED** — Root cause was dual-config-path divergence: `~/.openclaw_prod/agent-orchestrator.yaml` (workers) had `model: gemini-3-flash-preview` while `~/.openclaw/` (CLI) had `MiniMax-M2.7`. The `auton` skill only read `~/.openclaw/`, missing the worker config. Fix: aligned both configs to `MiniMax-M2.7` and updated `auton` skill Step 0 to verify worker config path first. PRs **#454, #452, #444** are now **CLEAN/APPROVED**; **#450, #453** processing via `ao-3907` worker.

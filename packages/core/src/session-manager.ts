@@ -1115,11 +1115,15 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       }
     }
 
+    const isAdHocTask = Boolean(spawnConfig.issueId && plugins.tracker && !resolvedIssue);
+    const promptIssueId = isAdHocTask ? undefined : spawnConfig.issueId;
+    const requestedTask = spawnConfig.prompt ?? (isAdHocTask ? spawnConfig.issueId : undefined);
+
     // Generate prompt with validated issue
     let issueContext: string | undefined;
-    if (spawnConfig.issueId && plugins.tracker && resolvedIssue) {
+    if (promptIssueId && plugins.tracker && resolvedIssue) {
       try {
-        issueContext = await plugins.tracker.generatePrompt(spawnConfig.issueId, project);
+        issueContext = await plugins.tracker.generatePrompt(promptIssueId, project);
       } catch {
         // Non-fatal: continue without detailed issue context
         // Silently ignore errors - caller can check if issueContext is undefined
@@ -1129,21 +1133,27 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
     const composedPrompt = buildPrompt({
       project,
       projectId: spawnConfig.projectId,
-      issueId: spawnConfig.issueId,
+      issueId: promptIssueId,
       issueContext,
-      trackerDrivenBranching: Boolean(!spawnConfig.branch && spawnConfig.issueId && plugins.tracker && resolvedIssue),
-      userPrompt: spawnConfig.prompt,
+      trackerDrivenBranching: Boolean(!spawnConfig.branch && promptIssueId && plugins.tracker && resolvedIssue),
+      userPrompt: requestedTask,
       lineage: spawnConfig.lineage,
       siblings: spawnConfig.siblings,
     });
+    const composedPromptDir = join(getProjectBaseDir(config.configPath, project.path), "prompts");
+    mkdirSync(composedPromptDir, { recursive: true });
+    const composedPromptPath = join(composedPromptDir, `worker-prompt-${sessionId}.md`);
+    writeFileSync(composedPromptPath, composedPrompt, "utf-8");
+    const shortLaunchPrompt = "Begin the assigned AO worker task. Follow the session instructions file.";
+    const launchPrompt = plugins.agent.name === "cursor" ? composedPrompt : shortLaunchPrompt;
 
     // Get agent launch config and create runtime — clean up workspace on failure
     const opencodeIssueSessionStrategy = project.opencodeIssueSessionStrategy ?? "reuse";
     const reusedOpenCodeSessionId =
-      plugins.agent.name === "opencode" && spawnConfig.issueId
+      plugins.agent.name === "opencode" && promptIssueId
         ? await resolveOpenCodeSessionReuse({
             sessionsDir,
-            criteria: { issueId: spawnConfig.issueId },
+            criteria: { issueId: promptIssueId },
             strategy: opencodeIssueSessionStrategy,
           })
         : undefined;
@@ -1156,8 +1166,9 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
           ...(reusedOpenCodeSessionId ? { opencodeSessionId: reusedOpenCodeSessionId } : {}),
         },
       },
-      issueId: spawnConfig.issueId,
-      prompt: composedPrompt,
+      issueId: promptIssueId,
+      systemPromptFile: composedPromptPath,
+      prompt: launchPrompt,
       permissions: selection.permissions,
       model: selection.model,
       subagent: spawnConfig.subagent ?? selection.subagent,
@@ -1232,7 +1243,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       status: "spawning",
       activity: "active",
       branch,
-      issueId: spawnConfig.issueId ?? null,
+      issueId: promptIssueId ?? null,
       pr: null,
       workspacePath,
       runtimeHandle: handle,
@@ -1241,7 +1252,8 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       lastActivityAt: new Date(),
       metadata: {
         ...(reusedOpenCodeSessionId ? { opencodeSessionId: reusedOpenCodeSessionId } : {}),
-        ...(spawnConfig.prompt ? { userPrompt: spawnConfig.prompt } : {}),
+        ...(requestedTask ? { userPrompt: requestedTask, requestedTask } : {}),
+        composedPromptPath,
       },
     };
 
@@ -1252,13 +1264,15 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
         branch,
         status: "spawning",
         tmuxName, // Store tmux name for mapping
-        issue: spawnConfig.issueId,
+        issue: promptIssueId,
         project: spawnConfig.projectId,
         agent: selection.agentName, // Persist agent name for lifecycle manager
         createdAt: new Date().toISOString(),
         runtimeHandle: JSON.stringify(handle),
         opencodeSessionId: reusedOpenCodeSessionId,
-        userPrompt: spawnConfig.prompt,
+        userPrompt: requestedTask,
+        requestedTask,
+        composedPromptPath,
       });
 
       if (plugins.agent.postLaunchSetup) {
@@ -2760,6 +2774,8 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
         opencodeSessionId: raw["opencodeSessionId"],
         pinnedSummary: raw["pinnedSummary"],
         userPrompt: raw["userPrompt"],
+        requestedTask: raw["requestedTask"],
+        composedPromptPath: raw["composedPromptPath"],
       });
     }
 

@@ -978,7 +978,7 @@ describe("spawn", () => {
     expect(session.issueId).toBe("INT-100");
   });
 
-  it("succeeds with ad-hoc issue string when tracker returns IssueNotFoundError", async () => {
+  it("treats unresolved tracker strings as ad-hoc user prompts", async () => {
     const mockTracker: Tracker = {
       name: "mock-tracker",
       getIssue: vi.fn().mockRejectedValue(new Error("Issue INT-9999 not found")),
@@ -1004,11 +1004,12 @@ describe("spawn", () => {
       registry: registryWithTracker,
     });
 
-    // Ad-hoc issue string should succeed — IssueNotFoundError is gracefully ignored
     const session = await sm.spawn({ projectId: "my-app", issueId: "INT-9999" });
 
-    expect(session.issueId).toBe("INT-9999");
+    expect(session.issueId).toBeNull();
     expect(session.branch).toBe("feat/INT-9999");
+    expect(session.metadata["userPrompt"]).toBe("INT-9999");
+    expect(session.metadata["requestedTask"]).toBe("INT-9999");
     // tracker.branchName and generatePrompt should NOT be called when issue wasn't resolved
     expect(mockTracker.branchName).not.toHaveBeenCalled();
     expect(mockTracker.generatePrompt).not.toHaveBeenCalled();
@@ -1045,10 +1046,33 @@ describe("spawn", () => {
 
     const session = await sm.spawn({ projectId: "my-app", issueId: "fix login bug" });
 
-    expect(session.issueId).toBe("fix login bug");
+    expect(session.issueId).toBeNull();
     expect(session.branch).toBe("feat/fix-login-bug");
+    expect(session.metadata["userPrompt"]).toBe("fix login bug");
+    expect(session.metadata["requestedTask"]).toBe("fix login bug");
     expect(mockTracker.branchName).not.toHaveBeenCalled();
     expect(mockWorkspace.create).toHaveBeenCalled();
+  });
+
+  it("writes composed worker prompt to a file and launches with a short prompt", async () => {
+    const sm = createSessionManager({ config, registry: mockRegistry });
+
+    const session = await sm.spawn({ projectId: "my-app", prompt: "Fix the upload race" });
+
+    expect(mockAgent.getLaunchCommand).toHaveBeenCalledWith(
+      expect.objectContaining({
+        systemPromptFile: expect.stringContaining("worker-prompt-app-1.md"),
+        prompt: "Begin the assigned AO worker task. Follow the session instructions file.",
+      }),
+    );
+
+    const launchArgs = vi.mocked(mockAgent.getLaunchCommand).mock.calls[0][0];
+    const promptPath = launchArgs.systemPromptFile!;
+    expect(existsSync(promptPath)).toBe(true);
+    expect(readFileSync(promptPath, "utf-8")).toContain("Fix the upload race");
+    expect(readMetadata(sessionsDir, session.id)?.userPrompt).toBe("Fix the upload race");
+    expect(readMetadataRaw(sessionsDir, session.id)?.["composedPromptPath"]).toBe(promptPath);
+    expect(session.metadata["composedPromptPath"]).toBe(promptPath);
   });
 
   it("fails on tracker auth errors", async () => {
@@ -1118,11 +1142,13 @@ describe("spawn", () => {
     await vi.advanceTimersByTimeAsync(5_000);
     await spawnPromise;
 
-    // Prompt should be sent via runtime.sendMessage, not included in launch command
+    // Post-launch agents receive the short boot prompt; the full task stays in the prompt file.
     expect(mockRuntime.sendMessage).toHaveBeenCalledWith(
       expect.objectContaining({ id: expect.any(String) }),
-      expect.stringContaining("Fix the bug"),
+      "Begin the assigned AO worker task. Follow the session instructions file.",
     );
+    const launchArgs = vi.mocked(mockAgent.getLaunchCommand).mock.calls[0][0];
+    expect(readFileSync(launchArgs.systemPromptFile!, "utf-8")).toContain("Fix the bug");
     vi.useRealTimers();
   });
 
@@ -1132,6 +1158,41 @@ describe("spawn", () => {
 
     // Default agent (no promptDelivery) should NOT trigger sendMessage for prompt
     expect(mockRuntime.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it("sends the full prompt post-launch for Cursor because Cursor ignores systemPromptFile", async () => {
+    vi.useFakeTimers();
+    const cursorAgent = {
+      ...mockAgent,
+      name: "cursor",
+      promptDelivery: "post-launch" as const,
+    };
+    const registryWithCursor: PluginRegistry = {
+      ...mockRegistry,
+      get: vi.fn().mockImplementation((slot: string) => {
+        if (slot === "runtime") return mockRuntime;
+        if (slot === "agent") return cursorAgent;
+        if (slot === "workspace") return mockWorkspace;
+        return null;
+      }),
+    };
+
+    const sm = createSessionManager({ config, registry: registryWithCursor });
+    const spawnPromise = sm.spawn({ projectId: "my-app", prompt: "Fix cursor prompt delivery" });
+    await vi.advanceTimersByTimeAsync(5_000);
+    await spawnPromise;
+
+    expect(mockRuntime.sendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ id: expect.any(String) }),
+      expect.stringContaining("Fix cursor prompt delivery"),
+    );
+    expect(mockRuntime.sendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ id: expect.any(String) }),
+      expect.stringContaining("ao session claim-pr"),
+    );
+    const launchArgs = vi.mocked(mockAgent.getLaunchCommand).mock.calls[0][0];
+    expect(readFileSync(launchArgs.systemPromptFile!, "utf-8")).toContain("Fix cursor prompt delivery");
+    vi.useRealTimers();
   });
 
   it("sends AO guidance post-launch even when no explicit prompt is provided", async () => {
@@ -1157,8 +1218,10 @@ describe("spawn", () => {
 
     expect(mockRuntime.sendMessage).toHaveBeenCalledWith(
       expect.objectContaining({ id: expect.any(String) }),
-      expect.stringContaining("ao session claim-pr"),
+      "Begin the assigned AO worker task. Follow the session instructions file.",
     );
+    const launchArgs = vi.mocked(mockAgent.getLaunchCommand).mock.calls[0][0];
+    expect(readFileSync(launchArgs.systemPromptFile!, "utf-8")).toContain("ao session claim-pr");
     vi.useRealTimers();
   });
 

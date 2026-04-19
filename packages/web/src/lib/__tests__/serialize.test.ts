@@ -179,6 +179,21 @@ describe("sessionToDashboard", () => {
     expect(dashboard.summaryIsFallback).toBe(false);
   });
 
+  it("should expose worker prompt audit metadata as first-class fields", () => {
+    const coreSession = createCoreSession({
+      metadata: {
+        userPrompt: "Fix the upload race",
+        requestedTask: "Fix the upload race",
+        composedPromptPath: "/tmp/worker-prompt-test-1.md",
+      },
+    });
+    const dashboard = sessionToDashboard(coreSession);
+
+    expect(dashboard.userPrompt).toBe("Fix the upload race");
+    expect(dashboard.requestedTask).toBe("Fix the upload race");
+    expect(dashboard.composedPromptPath).toBe("/tmp/worker-prompt-test-1.md");
+  });
+
   it("should set summaryIsFallback false when no summary exists", () => {
     const coreSession = createCoreSession({
       agentInfo: null,

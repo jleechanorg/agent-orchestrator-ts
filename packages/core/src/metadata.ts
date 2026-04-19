@@ -99,6 +99,8 @@ export function readMetadata(dataDir: string, sessionId: SessionId): SessionMeta
     opencodeSessionId: raw["opencodeSessionId"],
     pinnedSummary: raw["pinnedSummary"],
     userPrompt: raw["userPrompt"],
+    requestedTask: raw["requestedTask"],
+    composedPromptPath: raw["composedPromptPath"],
     repoPath: raw["repoPath"],
   };
 }
@@ -154,6 +156,8 @@ export function writeMetadata(
   if (metadata.repoPath) data["repoPath"] = metadata.repoPath;
   if (metadata.pinnedSummary) data["pinnedSummary"] = metadata.pinnedSummary;
   if (metadata.userPrompt) data["userPrompt"] = metadata.userPrompt;
+  if (metadata.requestedTask) data["requestedTask"] = metadata.requestedTask;
+  if (metadata.composedPromptPath) data["composedPromptPath"] = metadata.composedPromptPath;
 
   atomicWriteFileSync(path, serializeMetadata(data));
 }
