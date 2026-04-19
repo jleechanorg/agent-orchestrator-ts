@@ -4,11 +4,12 @@ import {
   mkdirSync,
   readFileSync,
   rmSync,
+  statSync,
   writeFileSync,
   existsSync,
   utimesSync,
 } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { homedir, tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
 import { createSessionManager, buildInitialPRTaskMessage } from "../session-manager.js";
@@ -1072,6 +1073,8 @@ describe("spawn", () => {
     const promptPath = launchArgs.systemPromptFile!;
     expect(existsSync(promptPath)).toBe(true);
     expect(readFileSync(promptPath, "utf-8")).toContain("Fix the upload race");
+    expect(statSync(dirname(promptPath)).mode & 0o777).toBe(0o700);
+    expect(statSync(promptPath).mode & 0o777).toBe(0o600);
     expect(readMetadata(sessionsDir, session.id)?.userPrompt).toBe("Fix the upload race");
     expect(readMetadata(sessionsDir, session.id)?.requestedTask).toBe("Fix the upload race");
     expect(readMetadataRaw(sessionsDir, session.id)?.["composedPromptPath"]).toBe(promptPath);

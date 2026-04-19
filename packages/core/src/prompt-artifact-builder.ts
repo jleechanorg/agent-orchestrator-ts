@@ -29,7 +29,7 @@ export function agentSupportsPromptFile(agent: Agent): boolean {
   return agent.supportsSystemPromptFile === true;
 }
 
-export function launchPromptForAgent(agent: Agent, composedPrompt: string): string {
+function launchPromptForAgent(agent: Agent, composedPrompt: string): string {
   return agentSupportsPromptFile(agent) ? WORKER_BOOT_PROMPT : composedPrompt;
 }
 
@@ -58,9 +58,9 @@ export function buildWorkerPromptArtifact(config: WorkerPromptArtifactConfig): W
     getProjectBaseDir(config.configPath, config.project.path),
     "prompts",
   );
-  mkdirSync(composedPromptDir, { recursive: true });
+  mkdirSync(composedPromptDir, { recursive: true, mode: 0o700 });
   const composedPromptPath = join(composedPromptDir, `worker-prompt-${config.sessionId}.md`);
-  writeFileSync(composedPromptPath, composedPrompt, "utf-8");
+  writeFileSync(composedPromptPath, composedPrompt, { encoding: "utf-8", mode: 0o600 });
 
   return {
     composedPromptPath,
