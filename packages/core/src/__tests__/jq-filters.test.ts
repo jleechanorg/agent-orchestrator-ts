@@ -19,6 +19,7 @@
  *   ~384-398 (verdict filter).
  */
 
+import { readFileSync } from "node:fs";
 import { describe, it, expect } from "vitest";
 
 // ---------------------------------------------------------------------------
@@ -338,6 +339,8 @@ interface IssueComment {
   id: number;
   user: { login: string };
   body: string;
+  created_at?: string;
+  updated_at?: string;
 }
 
 function jqPriorResultCommentIds(comments: IssueComment[]): number[] {
@@ -531,12 +534,35 @@ function jqVerdictComment(
   comments: IssueComment[],
   botAuthor: string,
   triggerSha: string,
+  requestId = "req-1",
+  prAuthor = "pr-author",
 ): string {
+  const hasEightPassingGates = (body: string): boolean => {
+    for (let gate = 1; gate <= 8; gate += 1) {
+      if (!new RegExp(`<!--\\s*skeptic-gate-${gate}\\s*:\\s*PASS\\s*-->`, "i").test(body)) {
+        return false;
+      }
+    }
+    return true;
+  };
   const matching = comments.filter(
-    (c) =>
-      c.user.login === botAuthor &&
-      /VERDICT:/i.test(c.body) &&
-      new RegExp(`skeptic-cron-trigger-${triggerSha}`, "i").test(c.body),
+    (c) => {
+      const userLogin = c.user.login.toLowerCase();
+      const botLogin = botAuthor.toLowerCase();
+      const prLogin = prAuthor.toLowerCase();
+      const verdictMatch = c.body.match(/^[ \t]*(?:> ?)?(?:#{1,6}[ \t]*)?(?:\*{1,2})?VERDICT:[ \t]*(PASS|FAIL|SKIPPED)(?:\*{1,2})?[ \t]*(?:[-—:].*)?$/im);
+      const verdictType = verdictMatch?.[1]?.toUpperCase();
+      return (
+        (userLogin === botLogin || userLogin === "github-actions[bot]") &&
+        userLogin !== prLogin &&
+        /<!--\s*skeptic-agent-verdict\s*-->/i.test(c.body) &&
+        Boolean(verdictType) &&
+        new RegExp(`<!--\\s*skeptic-cron-trigger-${triggerSha}\\s*-->`, "i").test(c.body) &&
+        new RegExp(`<!--\\s*skeptic-request-id-${requestId}\\s*-->`, "i").test(c.body) &&
+        new RegExp(`<!--\\s*skeptic-head-sha-${triggerSha}\\s*-->`, "i").test(c.body) &&
+        (verdictType !== "PASS" || hasEightPassingGates(c.body))
+      );
+    },
   );
   if (matching.length === 0) return "";
   // Return the body of the last matching comment in the array.
@@ -548,18 +574,52 @@ function jqVerdictComment(
 describe("skeptic-cron.yml — verdict comment filter (SHA-scoped)", () => {
   const SHA_A = "abc1230000000000000000000000000000000000";
   const SHA_B = "def4560000000000000000000000000000000000";
+  const boundPassBody = (sha: string, requestId = "req-1") => [
+    "<!-- skeptic-agent-verdict -->",
+    `<!-- skeptic-request-id-${requestId} -->`,
+    `<!-- skeptic-head-sha-${sha} -->`,
+    "<!-- skeptic-gate-1:PASS -->",
+    "<!-- skeptic-gate-2:PASS -->",
+    "<!-- skeptic-gate-3:PASS -->",
+    "<!-- skeptic-gate-4:PASS -->",
+    "<!-- skeptic-gate-5:PASS -->",
+    "<!-- skeptic-gate-6:PASS -->",
+    "<!-- skeptic-gate-7:PASS -->",
+    "<!-- skeptic-gate-8:PASS -->",
+    "VERDICT: PASS",
+    `<!-- skeptic-cron-trigger-${sha} -->`,
+  ].join("\n");
 
   it("matches verdict comment with matching SHA marker", () => {
     const comments: IssueComment[] = [
-      { id: 100, user: { login: "github-actions[bot]" }, body: `SKEPTIC_CRON_TRIGGER\n<!-- skeptic-cron-trigger-${SHA_A} -->\nVERDICT: PASS` },
+      { id: 100, user: { login: "github-actions[bot]" }, body: boundPassBody(SHA_A) },
       { id: 101, user: { login: "github-actions[bot]" }, body: "Thanks for the PR!" },
     ];
     expect(jqVerdictComment(comments, "github-actions[bot]", SHA_A)).toContain("VERDICT: PASS");
   });
 
+  it("does not match gate-triggered verdicts in the cron path", () => {
+    const comments: IssueComment[] = [
+      {
+        id: 110,
+        user: { login: "github-actions[bot]" },
+        body: boundPassBody(SHA_A).replace(`<!-- skeptic-cron-trigger-${SHA_A} -->`, `<!-- skeptic-gate-trigger-${SHA_A} -->`),
+      },
+    ];
+
+    expect(jqVerdictComment(comments, "github-actions[bot]", SHA_A)).toBe("");
+  });
+
+  it("rejects legacy SHA-only PASS comments without request binding and gate markers", () => {
+    const comments: IssueComment[] = [
+      { id: 150, user: { login: "github-actions[bot]" }, body: `<!-- skeptic-agent-verdict -->\nVERDICT: PASS\n<!-- skeptic-cron-trigger-${SHA_A} -->` },
+    ];
+    expect(jqVerdictComment(comments, "github-actions[bot]", SHA_A)).toBe("");
+  });
+
   it("rejects verdict comment with wrong SHA marker", () => {
     const comments: IssueComment[] = [
-      { id: 200, user: { login: "github-actions[bot]" }, body: `VERDICT: PASS\n<!-- skeptic-cron-trigger-${SHA_B} -->` },
+      { id: 200, user: { login: "github-actions[bot]" }, body: boundPassBody(SHA_B) },
     ];
     expect(jqVerdictComment(comments, "github-actions[bot]", SHA_A)).toBe("");
   });
@@ -573,30 +633,211 @@ describe("skeptic-cron.yml — verdict comment filter (SHA-scoped)", () => {
 
   it("rejects comments from wrong author", () => {
     const comments: IssueComment[] = [
-      { id: 400, user: { login: "jleechan2015" }, body: `VERDICT: PASS\n<!-- skeptic-cron-trigger-${SHA_A} -->` },
+      { id: 400, user: { login: "jleechan2015" }, body: boundPassBody(SHA_A) },
     ];
     expect(jqVerdictComment(comments, "github-actions[bot]", SHA_A)).toBe("");
   });
 
+  it("rejects request-bound PASS comments from the PR author", () => {
+    const comments: IssueComment[] = [
+      { id: 450, user: { login: "jleechan2015" }, body: boundPassBody(SHA_A) },
+    ];
+    expect(jqVerdictComment(comments, "jleechan2015", SHA_A, "req-1", "jleechan2015")).toBe("");
+  });
+
   it("returns the most recent matching comment (highest ID)", () => {
     const comments: IssueComment[] = [
-      { id: 500, user: { login: "github-actions[bot]" }, body: `VERDICT: FAIL\n<!-- skeptic-cron-trigger-${SHA_A} -->` },
-      { id: 501, user: { login: "github-actions[bot]" }, body: `VERDICT: PASS\n<!-- skeptic-cron-trigger-${SHA_A} -->` },
+      { id: 500, user: { login: "github-actions[bot]" }, body: `<!-- skeptic-agent-verdict -->\nVERDICT: FAIL\n<!-- skeptic-cron-trigger-${SHA_A} -->` },
+      { id: 501, user: { login: "github-actions[bot]" }, body: boundPassBody(SHA_A, "req-2") },
     ];
-    expect(jqVerdictComment(comments, "github-actions[bot]", SHA_A)).toContain("VERDICT: PASS");
+    expect(jqVerdictComment(comments, "github-actions[bot]", SHA_A, "req-2")).toContain("VERDICT: PASS");
+  });
+
+  it("matches the current request id when same-SHA PASS comments exist", () => {
+    const comments: IssueComment[] = [
+      { id: 510, user: { login: "github-actions[bot]" }, body: boundPassBody(SHA_A, "req-old") },
+      { id: 511, user: { login: "github-actions[bot]" }, body: boundPassBody(SHA_A, "req-current") },
+    ];
+
+    expect(jqVerdictComment(comments, "github-actions[bot]", SHA_A, "req-current")).toContain("req-current");
+  });
+
+  it("allows explicit FAIL verdicts through without eight PASS gates", () => {
+    const comments: IssueComment[] = [
+      {
+        id: 520,
+        user: { login: "github-actions[bot]" },
+        body: [
+          "<!-- skeptic-agent-verdict -->",
+          "<!-- skeptic-request-id-req-1 -->",
+          `<!-- skeptic-head-sha-${SHA_A} -->`,
+          "VERDICT: FAIL",
+          `<!-- skeptic-cron-trigger-${SHA_A} -->`,
+        ].join("\n"),
+      },
+    ];
+
+    expect(jqVerdictComment(comments, "github-actions[bot]", SHA_A)).toContain("VERDICT: FAIL");
+  });
+
+  it("allows explicit SKIPPED verdicts through without eight PASS gates", () => {
+    const comments: IssueComment[] = [
+      {
+        id: 530,
+        user: { login: "github-actions[bot]" },
+        body: [
+          "<!-- skeptic-agent-verdict -->",
+          "<!-- skeptic-request-id-req-1 -->",
+          `<!-- skeptic-head-sha-${SHA_A} -->`,
+          "VERDICT: SKIPPED",
+          `<!-- skeptic-cron-trigger-${SHA_A} -->`,
+        ].join("\n"),
+      },
+    ];
+
+    expect(jqVerdictComment(comments, "github-actions[bot]", SHA_A)).toContain("VERDICT: SKIPPED");
+  });
+
+  it("uses the anchored verdict line instead of PASS text in reasoning", () => {
+    const comments: IssueComment[] = [
+      {
+        id: 540,
+        user: { login: "github-actions[bot]" },
+        body: [
+          "<!-- skeptic-agent-verdict -->",
+          "<!-- skeptic-request-id-req-1 -->",
+          `<!-- skeptic-head-sha-${SHA_A} -->`,
+          "The criteria for VERDICT: PASS are not met.",
+          "VERDICT: FAIL",
+          `<!-- skeptic-cron-trigger-${SHA_A} -->`,
+        ].join("\n"),
+      },
+    ];
+
+    expect(jqVerdictComment(comments, "github-actions[bot]", SHA_A)).toContain("VERDICT: FAIL");
+  });
+
+  it("normalizes author casing when matching the bot author", () => {
+    const comments: IssueComment[] = [
+      { id: 550, user: { login: "JLeeChan2015" }, body: boundPassBody(SHA_A) },
+    ];
+
+    expect(jqVerdictComment(comments, "jleechan2015", SHA_A)).toContain("VERDICT: PASS");
+  });
+
+  it("normalizes author casing when rejecting PR-authored PASS comments", () => {
+    const comments: IssueComment[] = [
+      { id: 560, user: { login: "JLeeChan2015" }, body: boundPassBody(SHA_A) },
+    ];
+
+    expect(jqVerdictComment(comments, "jleechan2015", SHA_A, "req-1", "jleechan2015")).toBe("");
   });
 
   it("is case-insensitive on VERDICT keyword", () => {
     const comments: IssueComment[] = [
-      { id: 600, user: { login: "github-actions[bot]" }, body: `verdict: pass\n<!-- skeptic-cron-trigger-${SHA_A} -->` },
+      { id: 600, user: { login: "github-actions[bot]" }, body: boundPassBody(SHA_A).replace("VERDICT: PASS", "verdict: pass") },
     ];
     expect(jqVerdictComment(comments, "github-actions[bot]", SHA_A)).not.toBe("");
   });
 
   it("accepts both github-actions[bot] and configured SKEPTIC_BOT_AUTHOR", () => {
     const comments: IssueComment[] = [
-      { id: 700, user: { login: "jleechan2015" }, body: `VERDICT: PASS\n<!-- skeptic-cron-trigger-${SHA_A} -->` },
+      { id: 700, user: { login: "jleechan2015" }, body: boundPassBody(SHA_A) },
     ];
     expect(jqVerdictComment(comments, "jleechan2015", SHA_A)).toContain("VERDICT: PASS");
+  });
+});
+
+describe("skeptic-cron-reusable.yml — request-id freshness contract", () => {
+  const SHA_A = "abc1230000000000000000000000000000000000";
+  const SHA_B = "def4560000000000000000000000000000000000";
+  const workflow = readFileSync(
+    new URL("../../../../.github/workflows/skeptic-cron-reusable.yml", import.meta.url),
+    "utf8",
+  );
+
+  function cronTriggerBody(sha: string, requestId: string): string {
+    return [
+      "SKEPTIC_CRON_TRIGGER",
+      `<!-- skeptic-request-id-${requestId} -->`,
+      `<!-- skeptic-head-sha-${sha} -->`,
+      `<!-- skeptic-cron-trigger-${sha} -->`,
+    ].join("\n");
+  }
+
+  function selectLatestCronRequestId(comments: IssueComment[], sha: string): string {
+    const matching = comments
+      .map((comment) => ({
+        ...comment,
+        requestId:
+          comment.body.match(/<!--\s*skeptic-request-id-([A-Za-z0-9_.:-]+)\s*-->/i)?.[1] ?? "",
+      }))
+      .filter(
+        (comment) =>
+          comment.user.login.toLowerCase() === "github-actions[bot]" &&
+          /SKEPTIC_CRON_TRIGGER/i.test(comment.body) &&
+          new RegExp(`<!--\\s*skeptic-cron-trigger-${sha}\\s*-->`, "i").test(comment.body) &&
+          new RegExp(`<!--\\s*skeptic-head-sha-${sha}\\s*-->`, "i").test(comment.body) &&
+          comment.requestId !== "",
+      )
+      .sort((a, b) =>
+        (a.created_at ?? a.updated_at ?? "").localeCompare(b.created_at ?? b.updated_at ?? ""),
+      );
+
+    return matching.at(-1)?.requestId ?? "";
+  }
+
+  it("reuses or skips unresolved cron request ids before posting a new trigger", () => {
+    expect(workflow).toContain("Existing cron PASS request id for PR");
+    expect(workflow).toContain("Unresolved cron request id exists for PR");
+  });
+
+  it("derives the merge-step request id from cron trigger comments for the current SHA", () => {
+    expect(workflow).toContain('REQUEST_ID=$(echo "$SKEPTIC_RAW" | jq -sr --arg sha "$HEAD_SHA"');
+    expect(workflow).toContain('and (.body | test("SKEPTIC_CRON_TRIGGER"; "i"))');
+    expect(workflow).toContain('and (.body | test("<!--\\\\s*skeptic-cron-trigger-" + $sha + "\\\\s*-->"; "i"))');
+  });
+
+  it("selects the latest cron trigger request id for the current SHA", () => {
+    const comments: IssueComment[] = [
+      {
+        id: 1,
+        user: { login: "github-actions[bot]" },
+        body: cronTriggerBody(SHA_A, "cron-old"),
+        created_at: "2026-04-19T10:00:00Z",
+      },
+      {
+        id: 2,
+        user: { login: "github-actions[bot]" },
+        body: cronTriggerBody(SHA_A, "cron-current"),
+        created_at: "2026-04-19T11:00:00Z",
+      },
+    ];
+
+    expect(selectLatestCronRequestId(comments, SHA_A)).toBe("cron-current");
+  });
+
+  it("does not select request ids from other SHAs or non-cron trigger comments", () => {
+    const comments: IssueComment[] = [
+      {
+        id: 1,
+        user: { login: "github-actions[bot]" },
+        body: cronTriggerBody(SHA_B, "wrong-sha"),
+        created_at: "2026-04-19T11:00:00Z",
+      },
+      {
+        id: 2,
+        user: { login: "github-actions[bot]" },
+        body: [
+          "SKEPTIC_GATE_TRIGGER",
+          "<!-- skeptic-request-id-gate-request -->",
+          `<!-- skeptic-head-sha-${SHA_A} -->`,
+          `<!-- skeptic-gate-trigger-${SHA_A} -->`,
+        ].join("\n"),
+        created_at: "2026-04-19T12:00:00Z",
+      },
+    ];
+
+    expect(selectLatestCronRequestId(comments, SHA_A)).toBe("");
   });
 });

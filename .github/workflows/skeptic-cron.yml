@@ -58,6 +58,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_JSON: ${{ steps.list_prs.outputs.pr_numbers }}
           SKEPTIC_CUSTOM_PROMPT: ${{ vars.SKEPTIC_CUSTOM_PROMPT || '' }}
+          SKEPTIC_BOT_AUTHOR: ${{ vars.SKEPTIC_BOT_AUTHOR || 'github-actions[bot]' }}
         run: |
           TRIGGERED=0
           SKIPPED_DOCS=0
@@ -133,7 +134,6 @@ jobs:
             PR_META=$(gh api repos/${{ github.repository }}/pulls/"$PR_NUM" \
               --jq '{mergeable: .mergeable, merged: .merged}' 2>/dev/null)
             MERGEABLE=$(echo "$PR_META" | jq -r '.mergeable // "unknown"')
-            MERGED_FLAG=$(echo "$PR_META" | jq -r '.merged // false')
             if [ "$MERGEABLE" != "true" ]; then
               echo "  [SKIP] Gate-2 FAIL: mergeable=$MERGEABLE"
               SKIPPED_NOT_6GREEN=$((SKIPPED_NOT_6GREEN + 1))
@@ -216,6 +216,7 @@ jobs:
             # ----------------------------------------------------------------
             PR_AUTHOR=$(gh api repos/${{ github.repository }}/pulls/"$PR_NUM" --jq '.user.login' 2>/dev/null || echo "")
             REPO_NAME="${GITHUB_REPOSITORY#*/}"
+            # shellcheck disable=SC2016
             GQL_RESULT=$(gh api graphql -f query='
               query($owner: String!, $name: String!, $number: Int!) {
                 repository(owner: $owner, name: $name) {
@@ -265,8 +266,72 @@ jobs:
             if [ -n "$SKEPTIC_CUSTOM_PROMPT" ]; then
               CUSTOM_PROMPT_LINE="<!-- skeptic-custom-prompt: ${SKEPTIC_CUSTOM_PROMPT} -->"
             fi
-            BODY=$(printf '%s\n%s\n%s' \
+            COMMENTS_RAW=$(gh api repos/${{ github.repository }}/issues/"$PR_NUM"/comments --paginate 2>/dev/null || echo "[]")
+            PASS_REQUEST_ID=$(echo "$COMMENTS_RAW" | jq -sr \
+              --arg sha "$PR_SHA" \
+              --arg author "$SKEPTIC_BOT_AUTHOR" \
+              --arg pr_author "$PR_AUTHOR" \
+              'add
+              | map(. + {
+                  request_id: (try (.body | capture("<!--\\s*skeptic-request-id-(?<request_id>[A-Za-z0-9_.:-]+)\\s*-->"; "i").request_id) catch ""),
+                  verdict: (try (.body | capture("^[ \\t]*(?:> ?)?(?:#{1,6}[ \\t]*)?(?:\\*{1,2})?VERDICT:[ \\t]*(?<verdict>PASS|FAIL|SKIPPED)(?:\\*{1,2})?[ \\t]*(?:[-—:].*)?$"; "im").verdict | ascii_upcase) catch "")
+                })
+              | map(select(
+                  (((.user.login | ascii_downcase) == ($author | ascii_downcase)) or ((.user.login | ascii_downcase) == "github-actions[bot]"))
+                  and ((.user.login | ascii_downcase) != ($pr_author | ascii_downcase))
+                  and (.body | test("<!--\\s*skeptic-agent-verdict\\s*-->"; "i"))
+                  and (.verdict == "PASS")
+                  and (.body | test("<!--\\s*skeptic-cron-trigger-" + $sha + "\\s*-->"; "i"))
+                  and (.body | test("<!--\\s*skeptic-head-sha-" + $sha + "\\s*-->"; "i"))
+                  and (.request_id != "")
+                  and (all(range(1;9); . as $gate | (.body | test("<!--\\s*skeptic-gate-" + ($gate | tostring) + "\\s*:\\s*PASS\\s*-->"; "i"))))
+                ))
+              | sort_by(.updated_at // .created_at // "")
+              | last.request_id // ""' 2>/dev/null || echo "")
+            if [ -n "$PASS_REQUEST_ID" ]; then
+              echo "  [TRIGGER] Existing cron PASS request id for PR #${PR_NUM} (SHA ${PR_SHA:0:7}); not posting a new trigger"
+              continue
+            fi
+            REQUEST_ID=$(echo "$COMMENTS_RAW" | jq -sr \
+              --arg sha "$PR_SHA" \
+              --arg author "$SKEPTIC_BOT_AUTHOR" \
+              --arg pr_author "$PR_AUTHOR" \
+              'add as $comments
+              | ($comments
+                | map(. + {request_id: (try (.body | capture("<!--\\s*skeptic-request-id-(?<request_id>[A-Za-z0-9_.:-]+)\\s*-->"; "i").request_id) catch "")})
+                | map(select(
+                    (.user.login | ascii_downcase) == "github-actions[bot]"
+                    and (.body | test("SKEPTIC_CRON_TRIGGER"; "i"))
+                    and (.body | test("<!--\\s*skeptic-cron-trigger-" + $sha + "\\s*-->"; "i"))
+                    and (.body | test("<!--\\s*skeptic-head-sha-" + $sha + "\\s*-->"; "i"))
+                    and (.request_id != "")
+                  ))
+                | sort_by(.created_at // .updated_at // "")
+                | reverse
+                | map(select(.request_id as $rid
+                    | ($comments
+                      | map(. + {verdict: (try (.body | capture("^[ \\t]*(?:> ?)?(?:#{1,6}[ \\t]*)?(?:\\*{1,2})?VERDICT:[ \\t]*(?<verdict>PASS|FAIL|SKIPPED)(?:\\*{1,2})?[ \\t]*(?:[-—:].*)?$"; "im").verdict | ascii_upcase) catch "")})
+                      | map(select(
+                          (((.user.login | ascii_downcase) == ($author | ascii_downcase)) or ((.user.login | ascii_downcase) == "github-actions[bot]"))
+                          and ((.user.login | ascii_downcase) != ($pr_author | ascii_downcase))
+                          and (.body | test("<!--\\s*skeptic-agent-verdict\\s*-->"; "i"))
+                          and (.verdict != "")
+                          and (.body | test("<!--\\s*skeptic-cron-trigger-" + $sha + "\\s*-->"; "i"))
+                          and (.body | test("<!--\\s*skeptic-request-id-" + $rid + "\\s*-->"; "i"))
+                          and (.body | test("<!--\\s*skeptic-head-sha-" + $sha + "\\s*-->"; "i"))
+                        ))
+                      | length) == 0))
+                | .[0].request_id) // ""' 2>/dev/null || echo "")
+            if [ -n "$REQUEST_ID" ]; then
+              echo "  [TRIGGER] Unresolved cron request id exists for PR #${PR_NUM} (SHA ${PR_SHA:0:7}); not posting a new trigger"
+              continue
+            else
+              REQUEST_ID="cron-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${PR_NUM}-${PR_SHA:0:12}"
+            fi
+            BODY=$(printf '%s\n%s\n%s\n%s\n%s' \
               "SKEPTIC_CRON_TRIGGER" \
+              "<!-- skeptic-request-id-${REQUEST_ID} -->" \
+              "<!-- skeptic-head-sha-${PR_SHA} -->" \
               "<!-- skeptic-cron-trigger-${PR_SHA} -->" \
               "$CUSTOM_PROMPT_LINE")
             if gh api repos/${{ github.repository }}/issues/"$PR_NUM"/comments \
@@ -402,6 +467,7 @@ jobs:
             # 5. Inline comments resolved (GraphQL)
             PR_AUTHOR=$(gh api repos/${{ github.repository }}/pulls/"$PR_NUM" --jq '.user.login')
             REPO_NAME="${GITHUB_REPOSITORY#*/}"
+            # shellcheck disable=SC2016
             GQL_RESULT=$(gh api graphql -f query='
               query($owner: String!, $name: String!, $number: Int!) {
                 repository(owner: $owner, name: $name) {
@@ -470,30 +536,51 @@ jobs:
             fi
             echo "  [6] Evidence review:    $EVIDENCE_STATUS"
 
-            # 7. Skeptic verdict — look for VERDICT comment from AO worker.
-            # Filter by author + VERDICT: keyword + SHA marker (skeptic-cron-trigger-<SHA>)
-            SKEPTIC_VERDICT=$(gh api repos/${{ github.repository }}/issues/"$PR_NUM"/comments \
-              --paginate \
-              --jq "[.[] | select(.user.login == \"${SKEPTIC_BOT_AUTHOR}\" and (.body | test(\"VERDICT:\"; \"i\")) and (.body | test(\"skeptic-cron-trigger-\" + \"$PR_SHA\"; \"i\"))) | .body] | last // empty" 2>/dev/null || echo "")
-            if echo "$SKEPTIC_VERDICT" | grep -qi "VERDICT: PASS"; then
+            # 7. Skeptic verdict — look for a fresh, request-bound VERDICT from AO worker.
+            # PASS requires marker + request id + exact head SHA + gates 1-8 PASS.
+            SKEPTIC_RAW=$(gh api repos/${{ github.repository }}/issues/"$PR_NUM"/comments \
+              --paginate 2>/dev/null || echo "[]")
+            REQUEST_ID=$(echo "$SKEPTIC_RAW" | jq -sr --arg sha "$PR_SHA" \
+              'add
+              | map(. + {request_id: (try (.body | capture("<!--\\s*skeptic-request-id-(?<request_id>[A-Za-z0-9_.:-]+)\\s*-->"; "i").request_id) catch "")})
+              | map(select(
+                  (.user.login | ascii_downcase) == "github-actions[bot]"
+                  and (.body | test("SKEPTIC_CRON_TRIGGER"; "i"))
+                  and (.body | test("<!--\\s*skeptic-cron-trigger-" + $sha + "\\s*-->"; "i"))
+                  and (.body | test("<!--\\s*skeptic-head-sha-" + $sha + "\\s*-->"; "i"))
+                  and (.request_id != "")
+                ))
+              | sort_by(.created_at // .updated_at // "")
+              | last.request_id // ""' 2>/dev/null || echo "")
+            if [ -z "$REQUEST_ID" ]; then
+              REQUEST_ID="cron-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${PR_NUM}-${PR_SHA:0:12}"
+            fi
+            SKEPTIC_VERDICT_JSON=$(echo "$SKEPTIC_RAW" | jq -s \
+              --arg author "$SKEPTIC_BOT_AUTHOR" \
+              --arg sha "$PR_SHA" \
+              --arg request_id "$REQUEST_ID" \
+              --arg pr_author "$PR_AUTHOR" \
+              'add
+              | map(. + {verdict: (try (.body | capture("^[ \\t]*(?:> ?)?(?:#{1,6}[ \\t]*)?(?:\\*{1,2})?VERDICT:[ \\t]*(?<verdict>PASS|FAIL|SKIPPED)(?:\\*{1,2})?[ \\t]*(?:[-—:].*)?$"; "im").verdict | ascii_upcase) catch "")})
+              | map(select(
+                (.body as $body
+                | (((.user.login | ascii_downcase) == ($author | ascii_downcase)) or ((.user.login | ascii_downcase) == "github-actions[bot]"))
+                and ((.user.login | ascii_downcase) != ($pr_author | ascii_downcase))
+                and ($body | test("<!--\\s*skeptic-agent-verdict\\s*-->"; "i"))
+                and (.verdict != "")
+                and ($body | test("<!--\\s*skeptic-cron-trigger-" + $sha + "\\s*-->"; "i"))
+                and ($body | test("<!--\\s*skeptic-request-id-" + $request_id + "\\s*-->"; "i"))
+                and ($body | test("<!--\\s*skeptic-head-sha-" + $sha + "\\s*-->"; "i"))
+                and ((.verdict != "PASS")
+                     or (all(range(1;9); . as $gate | ($body | test("<!--\\s*skeptic-gate-" + ($gate | tostring) + "\\s*:\\s*PASS\\s*-->"; "i"))))))
+              )) | last // empty' 2>/dev/null || echo "")
+            SKEPTIC_VERDICT_TYPE=$(echo "$SKEPTIC_VERDICT_JSON" | jq -r '.verdict // ""' 2>/dev/null || echo "")
+            if [ "$SKEPTIC_VERDICT_TYPE" = "PASS" ]; then
               SKEPTIC_STATUS="PASS"
-            elif echo "$SKEPTIC_VERDICT" | grep -qi "VERDICT: FAIL"; then
+            elif [ "$SKEPTIC_VERDICT_TYPE" = "FAIL" ]; then
               SKEPTIC_STATUS="FAIL"
             else
-              # Fallback: also check github-actions[bot] author.
-              # Use PR_SHA (captured at trigger time) not HEAD_SHA (refetched below).
-              # The trigger comment was posted with PR_SHA; verdicts are keyed to it.
-              FALLBACK_TRIGGER_RE="skeptic-cron-trigger-${PR_SHA}"
-              SKEPTIC_VERDICT=$(gh api repos/${{ github.repository }}/issues/"$PR_NUM"/comments \
-                --paginate \
-                --jq "[.[] | select((.user.login == \"${SKEPTIC_BOT_AUTHOR}\" or .user.login == \"github-actions[bot]\") and (.body | test(\"VERDICT:\"; \"i\")) and (.body | test(\"$FALLBACK_TRIGGER_RE\"; \"i\"))) | .body] | last // empty" 2>/dev/null || echo "")
-              if echo "$SKEPTIC_VERDICT" | grep -qi "VERDICT: PASS"; then
-                SKEPTIC_STATUS="PASS"
-              elif echo "$SKEPTIC_VERDICT" | grep -qi "VERDICT: FAIL"; then
-                SKEPTIC_STATUS="FAIL"
-              else
-                SKEPTIC_STATUS="FAIL"
-              fi
+              SKEPTIC_STATUS="FAIL"
             fi
             echo "  [7] Skeptic verdict:    $SKEPTIC_STATUS"
 
