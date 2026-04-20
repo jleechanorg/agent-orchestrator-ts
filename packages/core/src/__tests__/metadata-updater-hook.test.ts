@@ -84,4 +84,13 @@ describe("metadata-updater PreToolUse guarded command parsing", () => {
 
     expect(output.hookSpecificOutput?.permissionDecision).toBeUndefined();
   });
+
+  it.each([
+    "gh pr create --title ok --body 'literal $(not a command)'",
+    "gh pr create --title ok --body 'literal `not a command`'",
+  ])("allows direct gh pr create commands with single-quoted literal substitution text: %s", (command) => {
+    const output = runPreTool(command);
+
+    expect(output.hookSpecificOutput?.permissionDecision).not.toBe("deny");
+  });
 });

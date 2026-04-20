@@ -59,12 +59,83 @@ def deny(reason):
     raise SystemExit(0)
 
 GUARDED_SUBSTITUTION_RE = re.compile(
-    r"(?:^|[\s;&|()`])gh\s+pr\s+(?:create|merge)(?:\s|$)",
+    r"(?:^|[\s;&|()\x60])gh\s+pr\s+(?:create|merge)(?:\s|$)",
     re.IGNORECASE,
 )
+COMMAND_SUBSTITUTION_OPEN = "$" + "("
 
 def contains_guarded_command_substitution(source):
-    return ("$(" in source or "`" in source) and bool(GUARDED_SUBSTITUTION_RE.search(source))
+    def has_guarded_body(body):
+        return bool(GUARDED_SUBSTITUTION_RE.search(body))
+
+    def find_command_substitution_end(start):
+        depth = 1
+        i = start
+        in_single = False
+        in_double = False
+        while i < len(source):
+            char = source[i]
+            if char == "\\":
+                i += 2
+                continue
+            if char == "'" and not in_double:
+                in_single = not in_single
+                i += 1
+                continue
+            if char == '"' and not in_single:
+                in_double = not in_double
+                i += 1
+                continue
+            if not in_single and source.startswith(COMMAND_SUBSTITUTION_OPEN, i):
+                depth += 1
+                i += 2
+                continue
+            if not in_single and char == ")":
+                depth -= 1
+                if depth == 0:
+                    return i
+            i += 1
+        return None
+
+    i = 0
+    in_single = False
+    while i < len(source):
+        char = source[i]
+        if char == "\\":
+            i += 2
+            continue
+        if char == "'":
+            in_single = not in_single
+            i += 1
+            continue
+        if in_single:
+            i += 1
+            continue
+        if source.startswith(COMMAND_SUBSTITUTION_OPEN, i):
+            body_start = i + 2
+            body_end = find_command_substitution_end(body_start)
+            if body_end is None:
+                return has_guarded_body(source[body_start:])
+            if has_guarded_body(source[body_start:body_end]):
+                return True
+            i = body_end + 1
+            continue
+        if char == chr(96):
+            body_start = i + 1
+            i = body_start
+            while i < len(source):
+                if source[i] == "\\":
+                    i += 2
+                    continue
+                if source[i] == chr(96):
+                    if has_guarded_body(source[body_start:i]):
+                        return True
+                    break
+                i += 1
+            else:
+                return has_guarded_body(source[body_start:])
+        i += 1
+    return False
 
 def tokenize(source):
     tokens = []
