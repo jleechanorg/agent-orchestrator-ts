@@ -76,7 +76,7 @@ def contains_guarded_command_substitution(source):
         in_double = False
         while i < len(source):
             char = source[i]
-            if char == "\\":
+            if char == "\\" and not in_single:
                 i += 2
                 continue
             if char == "'" and not in_double:
@@ -102,7 +102,7 @@ def contains_guarded_command_substitution(source):
     in_single = False
     while i < len(source):
         char = source[i]
-        if char == "\\":
+        if char == "\\" and not in_single:
             i += 2
             continue
         if char == "'":

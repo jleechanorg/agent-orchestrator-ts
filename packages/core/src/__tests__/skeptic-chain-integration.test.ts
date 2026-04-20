@@ -524,6 +524,18 @@ describe("skeptic chain integration", () => {
       return verdict;
     }
 
+    function workflowFailClosedVerdict(body: string): "PASS" | "FAIL" | "SKIPPED" | null {
+      const verdicts = body.split("\n").flatMap((line): Array<"PASS" | "FAIL" | "SKIPPED"> => {
+        const normalized = line
+          .replace(/^[\s>#*]*/, "")
+          .replace(/^VERDICT:\s*/i, "");
+        if (normalized === line) return [];
+        const token = normalized.split(/[^A-Za-z]+/)[0]?.toUpperCase();
+        return token === "PASS" || token === "FAIL" || token === "SKIPPED" ? [token] : [];
+      });
+      return verdicts.find((token) => token === "FAIL" || token === "SKIPPED") ?? verdicts.find((token) => token === "PASS") ?? null;
+    }
+
     function gatePasses(verdict: "PASS" | "FAIL" | "SKIPPED" | null): boolean {
       return verdict === "PASS";
     }
@@ -699,6 +711,19 @@ describe("skeptic chain integration", () => {
       ].join("\n");
 
       expect(lastAnchoredVerdict(body)).toBe("FAIL");
+    });
+
+    it("fails closed when a selected comment contains FAIL then later PASS without relying on gate markers", () => {
+      const body = [
+        "<!-- skeptic-agent-verdict -->",
+        "VERDICT: FAIL - selected by jq fail branch",
+        "",
+        "Later transcript text:",
+        "VERDICT: PASS",
+      ].join("\n");
+
+      expect(workflowFailClosedVerdict(body)).toBe("FAIL");
+      expect(workflowSource).toContain("BLOCKING_VERDICT=");
     });
   });
 });

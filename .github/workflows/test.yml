@@ -167,9 +167,9 @@ jobs:
             echo "=== Found VERDICT (posted $VERDICT_CREATED) ==="
             echo "$VERDICT_BODY"
 
-            VERDICT=$(
+            BLOCKING_VERDICT=$(
               printf '%s\n' "$VERDICT_BODY" \
-                | grep -Ei '^[[:space:]>#*]*VERDICT:[[:space:]]*(PASS|FAIL|SKIPPED)([[:space:][:punct:]]|$)' \
+                | grep -Ei '^[[:space:]>#*]*VERDICT:[[:space:]]*(FAIL|SKIPPED)([[:space:][:punct:]]|$)' \
                 | tail -n 1 \
                 | awk '{
                     line=$0
@@ -179,6 +179,22 @@ jobs:
                     print toupper(parts[1])
                   }'
             )
+            if [ -n "$BLOCKING_VERDICT" ]; then
+              VERDICT="$BLOCKING_VERDICT"
+            else
+              VERDICT=$(
+                printf '%s\n' "$VERDICT_BODY" \
+                  | grep -Ei '^[[:space:]>#*]*VERDICT:[[:space:]]*PASS([[:space:][:punct:]]|$)' \
+                  | tail -n 1 \
+                  | awk '{
+                      line=$0
+                      sub(/^[[:space:]>#*]*/, "", line)
+                      sub(/^VERDICT:[[:space:]]*/, "", line)
+                      split(line, parts, /[^A-Za-z]+/)
+                      print toupper(parts[1])
+                    }'
+              )
+            fi
 
             if [ "$VERDICT" = "PASS" ]; then
               echo "=== SKEPTIC GATE: PASS ==="
