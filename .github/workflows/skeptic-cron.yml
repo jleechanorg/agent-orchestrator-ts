@@ -170,6 +170,7 @@ jobs:
                 SKIPPED_NOT_6GREEN=$((SKIPPED_NOT_6GREEN + 1))
                 continue
               else
+                # Use PR_SHA (trigger SHA) for CR status/comment check — verdict matching relies on this
                 HEAD_COMMITTED_AT=$(gh api repos/${{ github.repository }}/commits/"$PR_SHA" \
                   --jq '.commit.committer.date // ""' 2>/dev/null || echo "")
                 CR_STATUS=$(gh api repos/${{ github.repository }}/commits/"$PR_SHA"/status \
@@ -339,7 +340,7 @@ jobs:
               fi
             fi
 
-            # 1. CI green
+            # 1. CI green — use fresh HEAD_SHA (current commit may differ from PR_SHA if PR advanced since listing)
             HEAD_SHA=$(gh api repos/${{ github.repository }}/pulls/"$PR_NUM" --jq '.head.sha')
             CI_STATUS=$(gh api repos/${{ github.repository }}/commits/"$HEAD_SHA"/status \
               --jq '.state' 2>/dev/null || echo "error")
@@ -370,6 +371,7 @@ jobs:
               elif [ "$LATEST_CR" != "none" ]; then
                 CR_APPROVED="FAIL (state=$LATEST_CR)"
               else
+                # CR status/comment check uses PR_SHA from listing (trigger SHA) — verdicts are keyed to it
                 HEAD_COMMITTED_AT=$(gh api repos/${{ github.repository }}/commits/"$PR_SHA" \
                   --jq '.commit.committer.date // ""' 2>/dev/null || echo "")
                 CR_STATUS=$(gh api repos/${{ github.repository }}/commits/"$PR_SHA"/status \
