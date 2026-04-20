@@ -126,7 +126,8 @@ jobs:
                   and (.body | test("<!--\\s*skeptic-cron-trigger-" + $sha + "\\s*-->"; "i"))
                   and (.body | test("<!--\\s*skeptic-head-sha-" + $sha + "\\s*-->"; "i"))
                   and (.request_id != "")
-                  and (all(range(1;9); . as $gate | (.body | test("<!--\\s*skeptic-gate-" + ($gate | tostring) + "\\s*:\\s*PASS\\s*-->"; "i"))))
+                  and (($body | match("<!--\\s*skeptic-gate-([1-8])\\s*:\\s*PASS\\s*-->"; "gi") | .captures[0].string) as $matched_gates
+                      | [1,2,3,4,5,6,7,8] | all(. as $g | ($matched_gates | split("") | any(. == ($g | tostring))))))
                 ))
               | sort_by(.updated_at // .created_at // "")
               | last.request_id // ""' 2>/dev/null || echo "")
@@ -488,7 +489,9 @@ jobs:
               | sort_by(.created_at // .updated_at // "")
               | last.request_id // ""' 2>/dev/null || echo "")
             if [ -z "$REQUEST_ID" ]; then
-              REQUEST_ID="cron-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${PR_NUM}-${HEAD_SHA:0:12}"
+              echo "No prior cron trigger request id for PR #${PR_NUM} (SHA ${PR_SHA:0:7}); verdict matching relies on SHA+marker only"
+            else
+              echo "Using prior cron trigger request id: ${REQUEST_ID}"
             fi
             SKEPTIC_VERDICT_JSON=$(echo "$SKEPTIC_RAW" | jq -s \
               --arg author "$SKEPTIC_BOT_AUTHOR" \
