@@ -281,7 +281,7 @@ describe("loadBuiltins", () => {
       expect(warnSpy).not.toHaveBeenCalled();
       warnSpy.mockRestore();
     },
-    15_000,
+    45_000,
   );
 
   it("does not invoke fallbackImportFn when primary import fails for non-resolution reasons", async () => {

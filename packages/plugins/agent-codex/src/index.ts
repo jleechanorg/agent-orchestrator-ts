@@ -770,6 +770,7 @@ function createCodexAgent(): Agent {
   return {
     name: "codex",
     processName: "codex",
+    supportsSystemPromptFile: true,
 
     getLaunchCommand(config: AgentLaunchConfig): string {
       const binary = resolvedBinary ?? "codex";

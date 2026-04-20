@@ -49,6 +49,8 @@ export function resolveProject(
 export function sessionToDashboard(session: Session): DashboardSession {
   const agentSummary = session.agentInfo?.summary;
   const summary = agentSummary ?? session.metadata["summary"] ?? null;
+  const dashboardMetadata = { ...session.metadata };
+  delete dashboardMetadata["composedPromptPath"];
 
   return {
     id: session.id,
@@ -62,10 +64,13 @@ export function sessionToDashboard(session: Session): DashboardSession {
     issueTitle: null, // Will be enriched by enrichSessionIssueTitle()
     summary,
     summaryIsFallback: agentSummary ? (session.agentInfo?.summaryIsFallback ?? false) : false,
+    userPrompt: session.metadata["userPrompt"] ?? null,
+    requestedTask: session.metadata["requestedTask"] ?? null,
+    hasPromptArtifact: Boolean(session.metadata["composedPromptPath"]),
     createdAt: session.createdAt.toISOString(),
     lastActivityAt: session.lastActivityAt.toISOString(),
     pr: session.pr ? basicPRToDashboard(session.pr) : null,
-    metadata: session.metadata,
+    metadata: dashboardMetadata,
   };
 }
 

@@ -330,6 +330,12 @@ export interface Agent {
    */
   readonly promptDelivery?: "inline" | "post-launch";
 
+  /**
+   * True when the agent launch command actually consumes AgentLaunchConfig.systemPromptFile.
+   * Agents without this capability must receive the full composed worker prompt via `prompt`.
+   */
+  readonly supportsSystemPromptFile?: boolean;
+
   /** Get the shell command to launch this agent */
   getLaunchCommand(config: AgentLaunchConfig): string;
 
@@ -1773,6 +1779,10 @@ export interface SessionMetadata {
   pinnedSummary?: string;
   /** User-supplied prompt injected into session context (bd-cx04) */
   userPrompt?: string;
+  /** Original ad-hoc task text used to spawn the worker, if not backed by a tracker issue. */
+  requestedTask?: string;
+  /** Full composed worker prompt artifact written at spawn time for audit/debugging. */
+  composedPromptPath?: string;
 }
 
 // =============================================================================

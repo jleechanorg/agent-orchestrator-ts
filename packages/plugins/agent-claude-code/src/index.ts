@@ -781,6 +781,7 @@ function createClaudeCodeAgent(): Agent {
     name: "claude-code",
     processName: "claude",
     promptDelivery: "post-launch",
+    supportsSystemPromptFile: true,
 
     getLaunchCommand(config: AgentLaunchConfig): string {
       // Note: CLAUDECODE is unset via getEnvironment() (set to ""), not here.

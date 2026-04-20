@@ -287,6 +287,18 @@ describe("getLaunchCommand", () => {
     expect(cmd).toContain("-c model_instructions_file='/tmp/prompt.md'");
   });
 
+  it("combines prompt file instructions with a short launch prompt", () => {
+    const cmd = agent.getLaunchCommand(
+      makeLaunchConfig({
+        systemPromptFile: "/tmp/worker-prompt-sess-1.md",
+        prompt: "Begin the assigned AO worker task. Follow the session instructions file.",
+      }),
+    );
+
+    expect(cmd).toContain("-c model_instructions_file='/tmp/worker-prompt-sess-1.md'");
+    expect(cmd).toContain("-- 'Begin the assigned AO worker task. Follow the session instructions file.'");
+  });
+
   it("prefers systemPromptFile over systemPrompt", () => {
     const cmd = agent.getLaunchCommand(
       makeLaunchConfig({ systemPromptFile: "/tmp/prompt.md", systemPrompt: "Ignored" }),

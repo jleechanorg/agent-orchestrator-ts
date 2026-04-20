@@ -71,6 +71,9 @@ export interface DashboardSession {
   summary: string | null;
   /** True when the summary is a low-quality fallback (e.g. truncated spawn prompt) */
   summaryIsFallback: boolean;
+  userPrompt: string | null;
+  requestedTask: string | null;
+  hasPromptArtifact: boolean;
   createdAt: string;
   lastActivityAt: string;
   pr: DashboardPR | null;
