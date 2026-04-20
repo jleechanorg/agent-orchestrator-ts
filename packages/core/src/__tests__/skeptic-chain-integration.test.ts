@@ -543,6 +543,13 @@ describe("skeptic chain integration", () => {
           user: { login: "some-other-bot" },
           updatedAt: "2026-03-28T12:05:00Z",
         },
+        // Verdict by configured author without skeptic marker — rejected
+        {
+          id: 105,
+          body: `VERDICT: PASS<!-- skeptic-gate-trigger-${TRIGGER_SHA} -->`,
+          user: { login: "jleechan2015" },
+          updatedAt: "2026-03-28T12:05:00Z",
+        },
       ];
 
       const result = jqFilterMatch(comments, "jleechan2015", TRIGGER_SHA, TRIGGER_UPDATED, "req-chain");
