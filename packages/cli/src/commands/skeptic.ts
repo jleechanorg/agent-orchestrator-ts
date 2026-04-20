@@ -35,7 +35,7 @@ const SKEPTIC_BOT_AUTHOR =
 function extractFilesFromDiff(diff: string): string[] {
   const files = new Set<string>();
   for (const line of diff.split("\n")) {
-    const m = line.match(/^[+\-]{3} [ab]\/(.+)$/);
+    const m = line.match(/^[+-]{3}[ \t][ab]\/(.+)$/);
     if (m) files.add(m[1]);
   }
   return Array.from(files);
