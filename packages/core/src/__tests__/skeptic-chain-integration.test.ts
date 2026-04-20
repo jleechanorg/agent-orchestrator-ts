@@ -20,6 +20,7 @@
  */
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
+import { readFileSync } from "node:fs";
 
 // ---------------------------------------------------------------------------
 // Hoisted mocks — vi.hoisted runs before module imports, returning stable
@@ -435,6 +436,8 @@ describe("skeptic chain integration", () => {
   // Test 5: JQ filter match — validates skeptic-gate.yml polling filter
   // -------------------------------------------------------------------------
   describe("skeptic-gate.yml JQ filter", () => {
+    const workflowSource = readFileSync(new URL("../../../../.github/workflows/test.yml", import.meta.url), "utf8");
+
     /**
      * TypeScript re-implementation of skeptic-gate.yml's polling jq filter
      * (workflow line 235). Validates that the filter correctly selects
@@ -519,6 +522,10 @@ describe("skeptic chain integration", () => {
         }
       }
       return verdict;
+    }
+
+    function gatePasses(verdict: "PASS" | "FAIL" | "SKIPPED" | null): boolean {
+      return verdict === "PASS";
     }
 
     it("matches the correct verdict and rejects stale/non-matching comments", () => {
@@ -626,6 +633,18 @@ describe("skeptic chain integration", () => {
 
       expect(result).not.toBeNull();
       expect(result!.id).toBe(200);
+      expect(result!.body).toContain("VERDICT: SKIPPED");
+      expect(gatePasses(lastAnchoredVerdict(result!.body))).toBe(false);
+    });
+
+    it("keeps SKIPPED fail-closed in the workflow shell", () => {
+      expect(workflowSource).not.toMatch(/VERDICT" = "SKIPPED"[\s\S]{0,200}exit 0/);
+    });
+
+    it("tracks PR state and comment API failures independently", () => {
+      expect(workflowSource).toContain("PR_STATE_API_FAILURES=0");
+      expect(workflowSource).toContain("COMMENTS_API_FAILURES=0");
+      expect(workflowSource).not.toMatch(/^[ \t]*API_FAILURES=0$/m);
     });
 
     it("returns null when no matching verdict exists", () => {

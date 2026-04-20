@@ -69,19 +69,20 @@ jobs:
           INTERVAL=15
           MAX_ATTEMPTS=8  # 2 minutes / 15 seconds
 
-          API_FAILURES=0
+          PR_STATE_API_FAILURES=0
+          COMMENTS_API_FAILURES=0
           for i in $(seq 1 "$MAX_ATTEMPTS"); do
             PR_STATE=$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUM}" --jq '.state' 2>&1)
             PR_STATE_EXIT=$?
             if [ "$PR_STATE_EXIT" -ne 0 ]; then
-              API_FAILURES=$((API_FAILURES + 1))
+              PR_STATE_API_FAILURES=$((PR_STATE_API_FAILURES + 1))
               echo "API warning: PR state lookup failed (attempt $i): ${PR_STATE:0:100}"
-              if [ "$API_FAILURES" -ge 3 ]; then
-                echo "ERROR: Too many consecutive API failures" >&2
+              if [ "$PR_STATE_API_FAILURES" -ge 3 ]; then
+                echo "ERROR: Too many consecutive PR state API failures" >&2
                 exit 1
               fi
             else
-              API_FAILURES=0
+              PR_STATE_API_FAILURES=0
             fi
 
             if [ "$PR_STATE" = "closed" ]; then
@@ -93,10 +94,10 @@ jobs:
               --paginate 2>&1)
             GH_EXIT=$?
             if [ "$GH_EXIT" -ne 0 ]; then
-              API_FAILURES=$((API_FAILURES + 1))
+              COMMENTS_API_FAILURES=$((COMMENTS_API_FAILURES + 1))
               echo "API warning: verdict lookup failed (exit=$GH_EXIT, attempt $i): ${RAW_COMMENTS:0:100}"
-              if [ "$API_FAILURES" -ge 3 ]; then
-                echo "ERROR: Too many consecutive API failures" >&2
+              if [ "$COMMENTS_API_FAILURES" -ge 3 ]; then
+                echo "ERROR: Too many consecutive verdict comment API failures" >&2
                 exit 1
               fi
               echo "Attempt $i/$MAX_ATTEMPTS — sleeping ${INTERVAL}s..."
@@ -119,17 +120,17 @@ jobs:
                 | last // empty' 2>/dev/null)
             JQ_EXIT=$?
             if [ "$JQ_EXIT" -ne 0 ]; then
-              API_FAILURES=$((API_FAILURES + 1))
+              COMMENTS_API_FAILURES=$((COMMENTS_API_FAILURES + 1))
               echo "API warning: verdict parsing failed (exit=$JQ_EXIT, attempt $i)"
-              if [ "$API_FAILURES" -ge 3 ]; then
-                echo "ERROR: Too many consecutive API failures" >&2
+              if [ "$COMMENTS_API_FAILURES" -ge 3 ]; then
+                echo "ERROR: Too many consecutive verdict comment parse failures" >&2
                 exit 1
               fi
               echo "Attempt $i/$MAX_ATTEMPTS — sleeping ${INTERVAL}s..."
               sleep "$INTERVAL"
               continue
             fi
-            API_FAILURES=0
+            COMMENTS_API_FAILURES=0
             if [ -z "$VERDICT_JSON" ]; then
               VERDICT_JSON="empty"
             fi
@@ -166,8 +167,8 @@ jobs:
               echo "=== SKEPTIC GATE: FAIL ==="
               exit 1
             elif [ "$VERDICT" = "SKIPPED" ]; then
-              echo "=== SKEPTIC GATE: SKIPPED (infra issue — not blocking) ==="
-              exit 0
+              echo "=== SKEPTIC GATE: SKIPPED (fail closed) ==="
+              exit 1
             else
               echo "WARNING: VERDICT body is malformed — sleeping ${INTERVAL}s before retry"
               sleep "$INTERVAL"
