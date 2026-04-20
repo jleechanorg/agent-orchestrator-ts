@@ -647,6 +647,15 @@ describe("skeptic chain integration", () => {
       expect(workflowSource).not.toMatch(/^[ \t]*API_FAILURES=0$/m);
     });
 
+    it("backs off and skips comment polling after transient PR state API failures", () => {
+      const prStateFailureBlock = workflowSource.match(
+        /if \[ "\$PR_STATE_EXIT" -ne 0 \]; then([\s\S]*?)else/,
+      )?.[1];
+
+      expect(prStateFailureBlock).toContain('sleep "$INTERVAL"');
+      expect(prStateFailureBlock).toContain("continue");
+    });
+
     it("scopes workflow concurrency per PR instead of serializing all skeptic gate runs", () => {
       expect(workflowSource).not.toMatch(/group:\s*skeptic-gate\s*$/m);
       expect(workflowSource).toContain("github.event.pull_request.number");

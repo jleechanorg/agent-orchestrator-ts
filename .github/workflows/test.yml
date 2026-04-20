@@ -85,13 +85,16 @@ jobs:
             if [ "$PR_STATE_EXIT" -ne 0 ]; then
               PR_STATE_API_FAILURES=$((PR_STATE_API_FAILURES + 1))
               echo "API warning: PR state lookup failed (attempt $i): ${PR_STATE:0:100}"
-              if [ "$PR_STATE_API_FAILURES" -ge 3 ]; then
-                echo "ERROR: Too many consecutive PR state API failures" >&2
-                exit 1
+                if [ "$PR_STATE_API_FAILURES" -ge 3 ]; then
+                  echo "ERROR: Too many consecutive PR state API failures" >&2
+                  exit 1
+                fi
+                echo "Attempt $i/$MAX_ATTEMPTS — sleeping ${INTERVAL}s..."
+                sleep "$INTERVAL"
+                continue
+              else
+                PR_STATE_API_FAILURES=0
               fi
-            else
-              PR_STATE_API_FAILURES=0
-            fi
 
             if [ "$PR_STATE" = "closed" ]; then
               echo "PR closed — exiting"
