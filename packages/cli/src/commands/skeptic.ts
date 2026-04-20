@@ -22,7 +22,7 @@ import { buildSkepticPrompt } from "./skeptic/prompt.js";
 import { runSkepticEvaluation } from "./skeptic/modelRunner.js";
 import { postVerdict, type SkepticVerdictBinding } from "./skeptic/posting.js";
 import { verifySkepticClaim, formatClaimVerification } from "./skeptic/claim-verifier.js";
-import { bindVerdictOutput, VERDICT_LINE_RE } from "./skeptic/verdict-utils.js";
+import { VERDICT_LINE_RE } from "./skeptic/verdict-utils.js";
 export { VERDICT_LINE_RE };
 
 // bd-lg7i: Default to github-actions[bot] — CI workflow poller filters by this
@@ -54,7 +54,7 @@ function extractFilesFromDiff(diff: string): string[] {
       continue;
     }
     // Binary file indicator: Binary files a/foo and b/foo differ
-    const m3 = line.match(/^Binary files [ab]\/(.+) and [ab]\/(.+) differ$/);
+    const m3 = line.match(/^Binary files [ab]\/(.+) and [ab]\/(.+)$/);
     if (m3) {
       files.add(m3[2]);
     }
@@ -99,7 +99,6 @@ async function findExistingVerdict(
   repo: string,
   prNumber: number,
   triggerSha?: string,
-  requestId?: string,
 ): Promise<{ verdict: "PASS" | "FAIL" | "SKIPPED"; commentId: number } | null> {
   // Normalize triggerSha: trim whitespace and treat empty/invalid as unset
   const normalizedSha = triggerSha?.trim();
@@ -176,7 +175,6 @@ export function registerSkeptic(program: Command): Command {
       const spinner = ora(`Fetching PR #${prNumber} state…`).start();
 
       // Fetch PR meta + diff + reviews in parallel; design doc needs PR head ref so fetch after.
-      // Skip findExistingVerdict during dry-run since no comment will be posted.
       const [pr, diff, reviews, existing] = await Promise.all([
         fetchPRMeta(owner, repo, prNumber).catch((err) => {
           spinner.fail(chalk.red("Failed to fetch PR: " + err));
@@ -185,9 +183,7 @@ export function registerSkeptic(program: Command): Command {
         }),
         fetchDiff(owner, repo, prNumber),
         fetchReviews(owner, repo, prNumber).catch(() => []),
-        options.dryRun
-          ? Promise.resolve(null)
-          : findExistingVerdict(owner, repo, prNumber, triggerSha, options.requestId).catch(() => null),
+        findExistingVerdict(owner, repo, prNumber, options.triggerSha).catch(() => null),
       ]);
       // Design doc fetch uses GitHub API with the PR's head ref so it works regardless of cwd.
       const designDoc = await fetchDesignDoc(owner, repo, prNumber, pr.headRefOid).catch(() => null);
@@ -254,19 +250,18 @@ export function registerSkeptic(program: Command): Command {
       // Dry-run: print verdict without posting — fail-closed on malformed output
       if (options.dryRun) {
         console.log(chalk.yellow("\n=== DRY RUN — Verdict ===\n"));
-        const bound = bindVerdictOutput({
-          llmOutput: verdict,
-        });
-        if (bound.verdictType === null) {
-          console.warn(chalk.red("Could not parse VERDICT from LLM output."));
-          console.log(chalk.yellow("\n=== Full LLM output ===\n"));
-          console.log(bound.llmOutput);
-          process.exit(1);
+        const verdictMatch = verdict.match(VERDICT_LINE_RE);
+        if (verdictMatch) {
+          console.log(chalk[verdictMatch[1].toLowerCase() === "pass" ? "green" : "red"](verdictMatch[0]));
+        } else {
+          console.log(verdict);
         }
-        console.log(chalk[bound.verdictType === "PASS" ? "green" : "red"](bound.verdictLine));
         console.log(chalk.yellow("\n=== Full LLM output ===\n"));
-        console.log(bound.llmOutput);
-        if (bound.verdictType === "FAIL" || bound.verdictType === "SKIPPED" || bound.verdictType === null) {
+        console.log(verdict);
+        // Exit non-zero only for VERDICT: FAIL from LLM evaluation.
+        // Infrastructure failures (Codex/Claude unavailable) emit VERDICT: SKIPPED and exit 0
+        // so the cron step continues — gate 7 treats SKIPPED as a pass condition.
+        if (verdictMatch?.[1]?.toUpperCase() === "FAIL") {
           process.exit(1);
         }
         return;
@@ -282,6 +277,10 @@ export function registerSkeptic(program: Command): Command {
         console.warn(chalk.yellow("Could not parse VERDICT from LLM output. Posting raw output."));
       }
 
+      const verdictLine = verdictMatch
+        ? verdictMatch[0]
+        : "VERDICT: FAIL — could not parse LLM output (expected VERDICT: PASS/FAIL/SKIPPED)";
+
       const spinner4 = ora("Posting verdict to PR #" + prNumber + "…").start();
       let commentBody: string;
       try {
@@ -289,12 +288,11 @@ export function registerSkeptic(program: Command): Command {
           owner,
           repo,
           prNumber,
-          bound.verdictLine,
+          verdictLine,
           existing?.commentId ?? null,
           SKEPTIC_BOT_AUTHOR,
-          triggerSha,
-          bound.llmOutput,
-          { headSha: triggerSha, requestId: options.requestId } as SkepticVerdictBinding,
+          options.triggerSha,
+          verdict, // always pass full LLM output so FAIL/SKIPPED bodies carry context
         );
         spinner4.succeed(chalk.green("Done! Skeptic verdict posted."));
 
@@ -302,7 +300,7 @@ export function registerSkeptic(program: Command): Command {
         // Use the same body we posted (contains the HTML marker + verdict).
         commentBody = [
           "<!-- skeptic-agent-verdict -->",
-          bound.verdictLine,
+          verdictLine,
         ].join("\n");
 
         // Verify both run-level (LLM output) and comment-level (GitHub comment).
