@@ -450,7 +450,7 @@ jobs:
             --arg title "$TITLE" \
             --arg summary "$SUMMARY" \
             --arg body "$COMMENT_BODY" \
-            '{"name":"Green Gate","head_sha":$head_sha,"status":"completed","conclusion":$conclusion,"output":{"title":$title,"summary":$summary,"text":$body}}' \
+            '{"name":"Green Gate Orchestrator","head_sha":$head_sha,"status":"completed","conclusion":$conclusion,"output":{"title":$title,"summary":$summary,"text":$body}}' \
             > "$PAYLOAD_FILE"
 
           gh api "repos/${GH_REPO}/check-runs" --method POST --input "$PAYLOAD_FILE"

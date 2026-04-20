@@ -50,10 +50,13 @@ function extractFilesFromDiff(diff: string): string[] {
     // git diff --git header: diff --git a/foo.js b/foo.js
     const m2 = line.match(/^diff --git [ab]\/(.+?) [ab]\/(.+)$/);
     if (m2) {
-      // Both sides refer to the same path for regular changes; for renames
-      // the paths differ — use the "new" path (b/ side) since that's what the
-      // working tree would contain after the change.
       files.add(m2[2]);
+      continue;
+    }
+    // Binary file indicator: Binary files a/foo and b/foo differ
+    const m3 = line.match(/^Binary files [ab]\/(.+) and [ab]\/(.+)$/);
+    if (m3) {
+      files.add(m3[2]);
     }
   }
   return Array.from(files);
@@ -68,7 +71,7 @@ function allFilesExcluded(diff: string, excludePatterns: string[]): boolean {
   const files = extractFilesFromDiff(diff);
   if (files.length === 0) return false;
   return files.every((file) =>
-    excludePatterns.some((pattern) => minimatch(file, pattern)),
+    excludePatterns.some((pattern) => minimatch(file, pattern, { dot: true })),
   );
 }
 
