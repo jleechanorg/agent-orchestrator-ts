@@ -85,7 +85,7 @@ jobs:
             GATE_MARKER="green-gate-result-${PR_SHA}"
             GATE_COMMENT=$(gh api repos/${{ github.repository }}/issues/"$PR_NUM"/comments \
               --paginate 2>/dev/null | jq -sr --arg marker "$GATE_MARKER" \
-              '[.[] | select(.user.login == "github-actions[bot]" and (.body | contains($marker)))] | sort_by(.created_at) | last // empty' || echo "")
+              '[.[][] | select(.user.login == "github-actions[bot]" and (.body | contains($marker)))] | sort_by(.created_at) | last // empty' || echo "")
 
             GATE_PASSED=false
             if [ -n "$GATE_COMMENT" ] && echo "$GATE_COMMENT" | jq -e '.body' > /dev/null 2>&1; then
@@ -484,9 +484,10 @@ jobs:
 
             # 7. Skeptic verdict — look for VERDICT comment from AO worker.
             # Filter by either author (SKEPTIC_BOT_AUTHOR or github-actions[bot]) + VERDICT: + SHA marker.
+            # Use jq -sr (slurp) on piped output so all pages are combined before filtering.
             SKEPTIC_VERDICT=$(gh api repos/${{ github.repository }}/issues/"$PR_NUM"/comments \
-              --paginate \
-              --jq "[.[] | select((.user.login == \"${SKEPTIC_BOT_AUTHOR}\" or .user.login == \"github-actions[bot]\") and (.body | test(\"VERDICT:\"; \"i\")) and (.body | test(\"skeptic-cron-trigger-${PR_SHA}\"; \"i\"))) | .body] | last // empty" 2>/dev/null || echo "")
+              --paginate 2>/dev/null \
+              | jq -sr "[.[][] | select((.user.login == \"${SKEPTIC_BOT_AUTHOR}\" or .user.login == \"github-actions[bot]\") and (.body | test(\"VERDICT:\"; \"i\")) and (.body | test(\"skeptic-cron-trigger-${PR_SHA}\"; \"i\"))) | .body] | last // empty" || echo "")
             if echo "$SKEPTIC_VERDICT" | grep -qi "VERDICT: PASS"; then
               SKEPTIC_STATUS="PASS"
             elif echo "$SKEPTIC_VERDICT" | grep -qi "VERDICT: FAIL"; then
