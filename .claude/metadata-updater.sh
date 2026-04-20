@@ -51,6 +51,7 @@ clean_command="$command"
 if command -v python3 >/dev/null 2>&1; then
   normalize_prefixed_command_out=$(python3 - "$command" <<'PY'
 import re
+import shlex
 import sys
 
 def deny(reason):
@@ -59,7 +60,7 @@ def deny(reason):
     raise SystemExit(0)
 
 GUARDED_SUBSTITUTION_RE = re.compile(
-    r"(?:^|[\s;&|()\x60])gh\s+pr\s+(?:create|merge)(?:\s|$)",
+    r"(?:^|[\s;&|()\x60\x22\x27])gh\s+pr\s+(?:create|merge)(?:\s|$)",
     re.IGNORECASE,
 )
 COMMAND_SUBSTITUTION_OPEN = "$" + "("
@@ -228,8 +229,15 @@ def strip_assignments(words):
         index += 1
     return words[index:]
 
+def shell_word_value(word):
+    try:
+        parts = shlex.split(word, posix=True)
+    except ValueError:
+        return word
+    return parts[0] if len(parts) == 1 else word
+
 def is_guarded_segment(words):
-    words = strip_assignments(words)
+    words = [shell_word_value(word) for word in strip_assignments(words)]
     return (
         len(words) >= 3 and words[0] == "gh" and words[1] == "pr" and words[2] in {"create", "merge"}
     )

@@ -46,6 +46,7 @@ describe("metadata-updater PreToolUse guarded command parsing", () => {
     "echo $(gh pr merge --auto 123)",
     "echo `gh pr create --title '[agento] bypass'`",
     'echo $(echo ")" && gh pr merge --auto 123)',
+    'echo $(eval "gh pr merge --auto 123")',
   ])("denies guarded gh commands hidden in command substitution: %s", (command) => {
     const output = runPreTool(command);
 
@@ -58,6 +59,8 @@ describe("metadata-updater PreToolUse guarded command parsing", () => {
   it.each([
     "cd /tmp || gh pr merge 123",
     "cd /tmp | gh pr merge 123",
+    "cd /tmp | 'gh' pr merge 123",
+    'cd /tmp | "gh" pr create --title test --body body',
   ])("denies guarded gh commands after unsafe cd operators: %s", (command) => {
     const output = runPreTool(command);
 
