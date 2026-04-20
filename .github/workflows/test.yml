@@ -12,6 +12,7 @@ jobs:
   # always matches the jq filter in skeptic-cron.yml regardless of workflow name.
   skeptic_gate_check:
     name: Skeptic Gate
+    if: ${{ github.event_name == 'pull_request' }}
     runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || fromJson(vars.SELF_HOSTED_RUNNER_LABELS || '["self-hosted"]') }}
     permissions:
       pull-requests: write

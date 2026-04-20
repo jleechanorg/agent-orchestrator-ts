@@ -204,6 +204,10 @@ while index < len(tokens):
 
     if words and words[0] == "cd":
         if len(words) != 2 or next_op not in {"&&", ";"}:
+            if remaining_segments_contain_guarded(tokens, segment_end + 1):
+                print("deny")
+                print("Blocked by AO policy: cannot safely analyze chained shell commands before gh pr create or gh pr merge. Run the guarded command directly after any env assignments or cd prefixes.")
+                raise SystemExit(0)
             print("raw")
             print(source)
             raise SystemExit(0)
