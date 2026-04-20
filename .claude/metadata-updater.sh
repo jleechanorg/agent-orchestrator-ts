@@ -50,12 +50,21 @@ fi
 clean_command="$command"
 if command -v python3 >/dev/null 2>&1; then
   normalize_prefixed_command_out=$(python3 - "$command" <<'PY'
+import re
 import sys
 
 def deny(reason):
     print("deny")
     print(reason)
     raise SystemExit(0)
+
+GUARDED_SUBSTITUTION_RE = re.compile(
+    r"(?:^|[\s;&|()`])gh\s+pr\s+(?:create|merge)(?:\s|$)",
+    re.IGNORECASE,
+)
+
+def contains_guarded_command_substitution(source):
+    return ("$(" in source or "`" in source) and bool(GUARDED_SUBSTITUTION_RE.search(source))
 
 def tokenize(source):
     tokens = []
@@ -166,6 +175,9 @@ def remaining_segments_contain_guarded(tokens, start_index):
     return False
 
 source = sys.argv[1]
+
+if contains_guarded_command_substitution(source):
+    deny("Blocked by AO policy: command substitution cannot safely hide gh pr create or gh pr merge. Run the guarded command directly.")
 
 try:
     tokens = tokenize(source)

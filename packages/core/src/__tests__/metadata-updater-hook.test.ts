@@ -1,0 +1,62 @@
+import { describe, expect, it } from "vitest";
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, resolve, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
+type HookDecision = {
+  hookSpecificOutput?: {
+    permissionDecision?: string;
+    permissionDecisionReason?: string;
+  };
+};
+
+const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../../..");
+const hookScript = join(repoRoot, ".claude", "metadata-updater.sh");
+
+function runPreTool(command: string): HookDecision {
+  const dataDir = mkdtempSync(join(tmpdir(), "ao-metadata-hook-"));
+  try {
+    const input = JSON.stringify({
+      tool_name: "Bash",
+      tool_input: { command },
+      exit_code: 0,
+      hook_event_name: "PreToolUse",
+    });
+
+    const stdout = execFileSync("/bin/bash", [hookScript], {
+      input,
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        AO_DATA_DIR: dataDir,
+        AO_SESSION: "test-session",
+      },
+    });
+
+    return JSON.parse(stdout || "{}") as HookDecision;
+  } finally {
+    rmSync(dataDir, { recursive: true, force: true });
+  }
+}
+
+describe("metadata-updater PreToolUse guarded command parsing", () => {
+  it.each([
+    "echo $(gh pr merge --auto 123)",
+    "echo `gh pr create --title '[agento] bypass'`",
+  ])("denies guarded gh commands hidden in command substitution: %s", (command) => {
+    const output = runPreTool(command);
+
+    expect(output.hookSpecificOutput?.permissionDecision).toBe("deny");
+    expect(output.hookSpecificOutput?.permissionDecisionReason).toContain(
+      "command substitution cannot safely hide gh pr create or gh pr merge",
+    );
+  });
+
+  it("does not deny unrelated command substitution", () => {
+    const output = runPreTool("echo $(date)");
+
+    expect(output.hookSpecificOutput?.permissionDecision).toBeUndefined();
+  });
+});

@@ -506,6 +506,21 @@ describe("skeptic chain integration", () => {
       ].join("\n");
     }
 
+    function lastAnchoredVerdict(body: string): "PASS" | "FAIL" | "SKIPPED" | null {
+      let verdict: "PASS" | "FAIL" | "SKIPPED" | null = null;
+      for (const line of body.split("\n")) {
+        const normalized = line
+          .replace(/^[\s>#*]*/, "")
+          .replace(/^VERDICT:\s*/i, "");
+        if (normalized === line) continue;
+        const token = normalized.split(/[^A-Za-z]+/)[0]?.toUpperCase();
+        if (token === "PASS" || token === "FAIL" || token === "SKIPPED") {
+          verdict = token;
+        }
+      }
+      return verdict;
+    }
+
     it("matches the correct verdict and rejects stale/non-matching comments", () => {
       const comments = [
         // Old verdict (stale timestamp) — rejected
@@ -626,6 +641,18 @@ describe("skeptic chain integration", () => {
       const result = jqFilterMatch(comments, "jleechan2015", TRIGGER_SHA, TRIGGER_UPDATED, "req-chain");
 
       expect(result).toBeNull();
+    });
+
+    it("uses the last anchored verdict when a comment contains multiple verdict tokens", () => {
+      const body = [
+        "Earlier model transcript:",
+        "VERDICT: PASS",
+        "",
+        "Final reviewed result:",
+        "VERDICT: FAIL — evidence is incomplete",
+      ].join("\n");
+
+      expect(lastAnchoredVerdict(body)).toBe("FAIL");
     });
   });
 });

@@ -13,6 +13,7 @@ import { dirname, join } from "node:path";
 import { homedir, tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
 import { createSessionManager, buildInitialPRTaskMessage } from "../session-manager.js";
+import { AOWorkerLogger } from "../ao-worker-logger.js";
 import { WORKER_BOOT_PROMPT } from "../prompt-artifact-builder.js";
 import { validateConfig } from "../config.js";
 import {
@@ -282,6 +283,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.restoreAllMocks();
   process.env.PATH = originalPath;
   // Clean up hash-based directories in ~/.agent-orchestrator
   const projectBaseDir = getProjectBaseDir(configPath, join(tmpDir, "my-app"));
@@ -2786,6 +2788,7 @@ describe("cleanup", () => {
 
 describe("send", () => {
   it("sends message via runtime.sendMessage and confirms delivery", async () => {
+    const logSpy = vi.spyOn(AOWorkerLogger, "logSessionEvent").mockImplementation(() => {});
     writeMetadata(sessionsDir, "app-1", {
       worktree: "/tmp",
       branch: "main",
@@ -2799,6 +2802,52 @@ describe("send", () => {
     await sm.send("app-1", "Fix the CI failures");
 
     expect(mockRuntime.sendMessage).toHaveBeenCalledWith(makeHandle("rt-1"), "Fix the CI failures");
+    expect(logSpy).toHaveBeenCalledWith(
+      "app-1",
+      "my-app",
+      "mock-agent",
+      "mock",
+      "message_send",
+      expect.objectContaining({
+        message: "Fix the CI failures",
+        originalMessage: "Fix the CI failures",
+        messageLength: "Fix the CI failures".length,
+        success: true,
+      }),
+    );
+  });
+
+  it("logs failed message dispatches with error details", async () => {
+    const logSpy = vi.spyOn(AOWorkerLogger, "logSessionEvent").mockImplementation(() => {});
+    vi.mocked(mockRuntime.sendMessage).mockRejectedValueOnce(new Error("tmux send failed"));
+    writeMetadata(sessionsDir, "app-1", {
+      worktree: "/tmp",
+      branch: "main",
+      status: "working",
+      project: "my-app",
+      runtimeHandle: JSON.stringify(makeHandle("rt-1")),
+    });
+    vi.mocked(mockRuntime.getOutput).mockResolvedValueOnce("before");
+
+    const sm = createSessionManager({ config, registry: mockRegistry });
+    await expect(sm.send("app-1", "Fix the CI failures", { skipRestore: true })).rejects.toThrow(
+      "tmux send failed",
+    );
+
+    expect(logSpy).toHaveBeenCalledWith(
+      "app-1",
+      "my-app",
+      "mock-agent",
+      "mock",
+      "message_send",
+      expect.objectContaining({
+        message: "Fix the CI failures",
+        originalMessage: "Fix the CI failures",
+        messageLength: "Fix the CI failures".length,
+        success: false,
+        error: "tmux send failed",
+      }),
+    );
   });
 
   it("blocks send to worker sessions while the project is globally paused", async () => {

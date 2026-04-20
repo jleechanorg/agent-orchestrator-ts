@@ -145,13 +145,26 @@ jobs:
             echo "=== Found VERDICT (posted $VERDICT_CREATED) ==="
             echo "$VERDICT_BODY"
 
-            if echo "$VERDICT_BODY" | grep -qi "VERDICT: PASS"; then
+            VERDICT=$(
+              printf '%s\n' "$VERDICT_BODY" \
+                | grep -Ei '^[[:space:]>#*]*VERDICT:[[:space:]]*(PASS|FAIL|SKIPPED)([[:space:][:punct:]]|$)' \
+                | tail -n 1 \
+                | awk '{
+                    line=$0
+                    sub(/^[[:space:]>#*]*/, "", line)
+                    sub(/^VERDICT:[[:space:]]*/, "", line)
+                    split(line, parts, /[^A-Za-z]+/)
+                    print toupper(parts[1])
+                  }'
+            )
+
+            if [ "$VERDICT" = "PASS" ]; then
               echo "=== SKEPTIC GATE: PASS ==="
               exit 0
-            elif echo "$VERDICT_BODY" | grep -qi "VERDICT: FAIL"; then
+            elif [ "$VERDICT" = "FAIL" ]; then
               echo "=== SKEPTIC GATE: FAIL ==="
               exit 1
-            elif echo "$VERDICT_BODY" | grep -qi "VERDICT: SKIPPED"; then
+            elif [ "$VERDICT" = "SKIPPED" ]; then
               echo "=== SKEPTIC GATE: SKIPPED (infra issue — not blocking) ==="
               exit 0
             else
