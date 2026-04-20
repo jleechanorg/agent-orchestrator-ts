@@ -49,11 +49,17 @@ export async function runSkepticReviewReaction(params: {
     excludePaths,
   });
 
-  // SKIPPED is a valid non-failure outcome — all-files-excluded early-skip is not
-  // a retryable failure. Only FAIL is a blocking error.
+  // Distinguish all-files-excluded SKIPPED (non-blocking early skip) from
+  // all-models-failed SKIPPED (infra failure — should still be treated as failure
+  // so the orchestrator can surface/notify). The CLI early-skip path includes
+  // "all changed files match exclude-paths" in details; infra-failure SKIPPEDs
+  // come from runSkepticReview's own fallback exhaustion and contain "All models failed".
+  const isEarlySkipSkipped =
+    result.verdict === "SKIPPED" &&
+    result.details.includes("all changed files match exclude-paths");
   return {
     reactionType: reactionKey,
-    success: result.verdict === "PASS" || result.verdict === "SKIPPED",
+    success: result.verdict === "PASS" || isEarlySkipSkipped,
     action: "skeptic-review",
     message: `Skeptic ${result.verdict}: ${result.details.slice(0, 200)}`,
     escalated: false,
