@@ -66,6 +66,19 @@ describe("metadata-updater PreToolUse guarded command parsing", () => {
     );
   });
 
+  it.each([
+    "( gh pr merge --auto 123 )",
+    "{ gh pr create --title test --body body; }",
+    "cat <(gh pr merge --auto 123)",
+  ])("denies guarded gh commands hidden by shell grouping/redirection: %s", (command) => {
+    const output = runPreTool(command);
+
+    expect(output.hookSpecificOutput?.permissionDecision).toBe("deny");
+    expect(output.hookSpecificOutput?.permissionDecisionReason).toContain(
+      "cannot safely analyze chained shell commands",
+    );
+  });
+
   it("does not deny unrelated command substitution", () => {
     const output = runPreTool("echo $(date)");
 

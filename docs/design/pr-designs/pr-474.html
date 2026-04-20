@@ -51,7 +51,7 @@
     <main class="wrap">
       <section class="hero">
         <h1>[agento] feat: preserve local AO logging and evolve docs</h1>
-        <p class="muted"><strong>Repro / Commands</strong><br>- <code>PATH=/Users/jleechan/.nvm/versions/node/v22.22.0/bin:$PATH pnpm exec eslint packages/core/src/ao-worker-logger.ts packages/core/src/__tests__/ao-worker-logger.test.ts packages/core/src/session-manager.ts</code> — PASS with 0 errors; 4 pre-existing non-null assertion warnings in <code>session-manager.ts</code>.<br>- <code>PATH=/Users/jleechan/.nvm/versions/node/v22.22.0/bin:$PATH pnpm --filter @jleechanorg/ao-core test -- --run src/__tests__/ao-worker-logger.test.ts src/__tests__/session-manager.test.ts</code> — PASS, 2 files / 212 tests.<br>- <code>PATH=/Users/jleechan/.nvm/versions/node/v22.22.0/bin:$PATH pnpm --filter @jleechanorg/ao-core build</code> — PASS.<br>- <code>PATH=/Users/jleechan/.nvm/versions/node/v22.22.0/bin:$PATH pnpm --filter @jleechanorg/ao-core exec vitest run --coverage --coverage.reporter=lcov --coverage.include='src/**/*.ts' --coverage.exclude='src/__tests__/**,src/index.ts,src/recovery/index.ts'</code> — PASS, 82 files / 1,522 tests.<br>- <code>/tmp/ao-diff-cover-venv/bin/diff-cover combined-coverage/lcov.info --compare-branch=origin/main --fail-under=70 --diff-range-notation='...'</code> — PASS, 100% diff coverage for changed <code>ao-worker-logger.ts</code> and <code>session-manager.ts</code> lines.<br>- Earlier branch validation: <code>PATH=/Users/jleechan/.nvm/versions/node/v22.22.0/bin:$PATH pnpm -r build</code> — PASS; <code>PATH=/Users/jleechan/.nvm/versions/node/v22.22.0/bin:$PATH pnpm test</code> — PASS after correcting the local <code>main</code> ref to <code>origin/main</code>; core, CLI, and plugin suites passed.</p>
+        <p class="muted"><strong>Repro / Commands</strong><br>- <code>PATH=/Users/jleechan/.nvm/versions/node/v22.22.0/bin:$PATH pnpm exec eslint packages/core/src/ao-worker-logger.ts packages/core/src/__tests__/ao-worker-logger.test.ts packages/core/src/session-manager.ts</code> — PASS with 0 errors; 4 pre-existing non-null assertion warnings in <code>session-manager.ts</code>.<br>- <code>PATH=/Users/jleechan/.nvm/versions/node/v22.22.0/bin:$PATH pnpm --filter @jleechanorg/ao-core test -- --run src/__tests__/ao-worker-logger.test.ts src/__tests__/session-manager.test.ts</code> — PASS, 2 files / 212 tests.<br>- <code>PATH=/Users/jleechan/.nvm/versions/node/v22.22.0/bin:$PATH pnpm --filter @jleechanorg/ao-core build</code> — PASS.<br>- <code>PATH=/Users/jleechan/.nvm/versions/node/v22.22.0/bin:$PATH pnpm --filter @jleechanorg/ao-core exec vitest run --coverage --coverage.reporter=lcov --coverage.include='src/**/*.ts' --coverage.exclude='src/__tests__/**,src/index.ts,src/recovery/index.ts'</code> — PASS, 82 files / 1,522 tests.<br>- <code>/tmp/ao-diff-cover-venv/bin/diff-cover combined-coverage/lcov.info --compare-branch=origin/main --fail-under=70 --diff-range-notation='...'</code> — PASS, 100% diff coverage for changed <code>ao-worker-logger.ts</code> and <code>session-manager.ts</code> lines.<br>- Earlier branch validation: <code>PATH=/Users/jleechan/.nvm/versions/node/v22.22.0/bin:$PATH pnpm -r build</code> — PASS; <code>PATH=/Users/jleechan/.nvm/versions/node/v22.22.0/bin:$PATH pnpm test</code> — PASS after correcting the local <code>main</code> ref to <code>origin/main</code>; core, CLI, and plugin suites passed.<br>- <code>docs/evidence/pr-474/terminal.cast</code> — PASS, red/green artifact shows the old hooks allowing command-substitution and <code>cd || gh pr merge</code> bypass forms, then the current hook denying both forms before rerunning workflow lint and focused tests.</p>
         <p class="muted" style="margin-top:0.5rem">
           PR: <a href="https://github.com/jleechanorg/agent-orchestrator/pull/474">#474</a>
           &nbsp;·&nbsp; Status: <span class="badge badge-open">Open</span>
@@ -68,7 +68,7 @@
 │ PR #474 — agent-orchestrator                    │
 └─────────────────────────────────────────────────── ┘
                   │
-    ▼ 14 file(s) changed
+    ▼ 16 file(s) changed
                   │
 ┌─────────────────────────────────────────────────── ┐
 │ feat: preserve local AO logging and evolve docs │
@@ -78,9 +78,9 @@
         <article class="card">
           <h2>Metadata</h2>
           <div class="stat-grid">
-            <div class="stat"><div class="num">14</div><div class="lbl">Files</div></div>
-            <div class="stat"><div class="num">7</div><div class="lbl">Commits</div></div>
-            <div class="stat"><div class="num" style="color:#2ea043">+1329</div><div class="lbl">Additions</div></div>
+            <div class="stat"><div class="num">16</div><div class="lbl">Files</div></div>
+            <div class="stat"><div class="num">8</div><div class="lbl">Commits</div></div>
+            <div class="stat"><div class="num" style="color:#2ea043">+1653</div><div class="lbl">Additions</div></div>
             <div class="stat"><div class="num" style="color:#cf222e">-25</div><div class="lbl">Deletions</div></div>
           </div>
           <ul style="margin-top:1rem">
@@ -99,6 +99,7 @@
           <thead><tr><th>Package / Path</th><th>Files</th></tr></thead>
           <tbody>
             <tr><td><code>packages/core</code></td><td>6</td></tr>
+<tr><td><code>docs/design</code></td><td>2</td></tr>
 <tr><td><code>roadmap</code></td><td>2</td></tr>
 <tr><td><code>.beads</code></td><td>1</td></tr>
 <tr><td><code>.claude</code></td><td>1</td></tr>
@@ -141,9 +142,21 @@
       <td style="text-align:right;color:#cf222e">-12</td>
     </tr>
 <tr>
+      <td><code>docs/design/pr-designs/pr-474.html</code></td>
+      <td><span class="badge badge-new">added</span></td>
+      <td style="text-align:right;color:#2ea043">+217</td>
+      <td style="text-align:right;color:#cf222e">-0</td>
+    </tr>
+<tr>
+      <td><code>docs/design/pr-designs/pr-474.md</code></td>
+      <td><span class="badge badge-new">added</span></td>
+      <td style="text-align:right;color:#2ea043">+86</td>
+      <td style="text-align:right;color:#cf222e">-0</td>
+    </tr>
+<tr>
       <td><code>docs/evidence/pr-474/terminal.cast</code></td>
       <td><span class="badge badge-new">added</span></td>
-      <td style="text-align:right;color:#2ea043">+15</td>
+      <td style="text-align:right;color:#2ea043">+32</td>
       <td style="text-align:right;color:#cf222e">-0</td>
     </tr>
 <tr>
@@ -197,7 +210,7 @@
 <tr>
       <td><code>roadmap/pr-474-local-main-divergence-design.md</code></td>
       <td><span class="badge badge-new">added</span></td>
-      <td style="text-align:right;color:#2ea043">+34</td>
+      <td style="text-align:right;color:#2ea043">+38</td>
       <td style="text-align:right;color:#cf222e">-0</td>
     </tr>
             

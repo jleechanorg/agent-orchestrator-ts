@@ -95,13 +95,17 @@ def tokenize(source):
             tokens.append(("op", ";", i, i + 1))
             i += 1
             continue
+        if source[i] in "(){}<>":
+            tokens.append(("op", source[i], i, i + 1))
+            i += 1
+            continue
 
         start = i
         while i < length:
             if (
                 source.startswith("&&", i)
                 or source.startswith("||", i)
-                or source[i] in ";|&"
+                or source[i] in ";|&(){}<>"
                 or source[i].isspace()
             ):
                 break
@@ -191,6 +195,10 @@ while index < len(tokens) and tokens[index][0] == "word" and is_assignment(token
 
 while index < len(tokens):
     if tokens[index][0] != "word":
+        if remaining_segments_contain_guarded(tokens, index + 1):
+            print("deny")
+            print("Blocked by AO policy: cannot safely analyze chained shell commands before gh pr create or gh pr merge. Run the guarded command directly after any env assignments or cd prefixes.")
+            raise SystemExit(0)
         print("raw")
         print(source)
         raise SystemExit(0)
