@@ -25,6 +25,10 @@ The PR keeps the local divergence as a normal branch and adds focused hardening 
 - The Skeptic Gate workflow only accepts fresh SHA-bound comments that contain the `<!-- skeptic-agent-verdict -->` marker, preventing ordinary PR notes from satisfying the gate.
 - The workflow extracts the last anchored verdict token, matching the skeptic reviewer’s fail-closed “last verdict wins” behavior.
 
+## Beads Scope
+
+The `.beads/issues.jsonl` diff is intentional because this PR preserves the local branch state that was found on `main`; it is not runtime logic. The relevant PR-474 follow-up edits are the `bd-o4s` reopen timestamp, the `bd-h26a` duplicate closure relationship, and the surrounding local tracker replay entries that were already part of the divergence being moved behind a reviewed PR.
+
 ## Evidence Mapping
 
 - Hook safety: `packages/core/src/__tests__/metadata-updater-hook.test.ts`.
