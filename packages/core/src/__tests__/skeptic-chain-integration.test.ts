@@ -660,6 +660,11 @@ describe("skeptic chain integration", () => {
       expect(workflowSource).toContain('skeptic-gate-" + ($gate | tostring)');
     });
 
+    it("matches verdict lines after hidden markers in jq, matching ao skeptic comment format", () => {
+      expect(workflowSource).toContain('test("(^|\\\\n)[[:space:]>#*]*VERDICT:[[:space:]]*PASS');
+      expect(workflowSource).not.toContain('test("^[[:space:]>#*]*VERDICT:[[:space:]]*PASS');
+    });
+
     it("returns null when no matching verdict exists", () => {
       const comments = [
         {

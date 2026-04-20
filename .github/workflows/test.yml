@@ -127,9 +127,9 @@ jobs:
                     and (.body | test("<!--\\s*skeptic-request-id-" + $request + "\\s*-->"; "i"))
                     and (.body | test("<!--\\s*skeptic-head-sha-" + $ts + "\\s*-->"; "i"))
                     and (.body as $body |
-                      ($body | test("^[[:space:]>#*]*VERDICT:[[:space:]]*(FAIL|SKIPPED)([[:space:][:punct:]]|$)"; "im"))
+                      ($body | test("(^|\\n)[[:space:]>#*]*VERDICT:[[:space:]]*(FAIL|SKIPPED)([[:space:][:punct:]]|$)"; "i"))
                       or (
-                        ($body | test("^[[:space:]>#*]*VERDICT:[[:space:]]*PASS([[:space:][:punct:]]|$)"; "im"))
+                        ($body | test("(^|\\n)[[:space:]>#*]*VERDICT:[[:space:]]*PASS([[:space:][:punct:]]|$)"; "i"))
                         and all(range(1; 9); . as $gate | $body | test("<!--\\s*skeptic-gate-" + ($gate | tostring) + "\\s*:\\s*PASS\\s*-->"; "i"))
                       )
                     )
