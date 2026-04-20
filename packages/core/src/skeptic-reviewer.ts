@@ -120,6 +120,7 @@ async function tryModel(
   model: "codex" | "claude" | "gemini" | "cursor",
   postComment: boolean,
   triggerSha: string | undefined,
+  excludePaths?: string[],
 ): Promise<
   | { result: SkepticReviewResult; infraFailure?: undefined }
   | { result?: undefined; infraFailure: string }
@@ -138,6 +139,9 @@ async function tryModel(
   ];
   if (!postComment) args.push("--dry-run");
   if (triggerSha) args.push("--trigger-sha", triggerSha);
+  if (excludePaths && excludePaths.length > 0) {
+    args.push("--exclude-paths", excludePaths.join(","));
+  }
   args.push("--model", model);
 
   let output: string;
@@ -193,9 +197,11 @@ export async function runSkepticReview(
     model?: "codex" | "claude" | "gemini";
     /** Whether to post the VERDICT comment on the PR (default: true) */
     postComment?: boolean;
+    /** Glob patterns for files to exclude from skeptic evaluation */
+    excludePaths?: string[];
   } = {},
 ): Promise<SkepticReviewResult> {
-  const { model, postComment = true } = options;
+  const { model, postComment = true, excludePaths } = options;
 
   if (!session.pr) {
     return {
@@ -233,7 +239,7 @@ export async function runSkepticReview(
   const infraErrors: string[] = [];
 
   for (const currentModel of chain) {
-    const attempt = await tryModel(session, currentModel, postComment, triggerSha);
+    const attempt = await tryModel(session, currentModel, postComment, triggerSha, excludePaths);
 
     if (attempt.result) {
       // Got a verdict — write report and return

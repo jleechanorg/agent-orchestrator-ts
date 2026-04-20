@@ -41,10 +41,12 @@ export async function runSkepticReviewReaction(params: {
   const rawModel = reactionConfig.skepticModel;
   const skepticModel = isValidSkepticModel(rawModel) ? rawModel : undefined;
   const skepticPostComment = reactionConfig.skepticPostComment ?? true;
+  const excludePaths = reactionConfig.skepticExcludePaths;
 
   const result = await runSkepticReview(session, {
     model: skepticModel,
     postComment: skepticPostComment,
+    excludePaths,
   });
 
   // SKIPPED (all-infra-fail) must not be treated as PASS — it is a non-success

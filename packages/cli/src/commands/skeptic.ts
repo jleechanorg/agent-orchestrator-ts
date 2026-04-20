@@ -12,6 +12,7 @@
  */
 
 import chalk from "chalk";
+import { minimatch } from "minimatch";
 import ora from "ora";
 import type { Command } from "commander";
 import { exec } from "../lib/shell.js";
@@ -29,6 +30,29 @@ export { VERDICT_LINE_RE };
 // GH_SKEPTIC_BOT_AUTHOR env var if posting identity changes.
 const SKEPTIC_BOT_AUTHOR =
   process.env["GH_SKEPTIC_BOT_AUTHOR"] ?? "jleechan2015";
+
+/** Extract file paths from a unified diff string. */
+function extractFilesFromDiff(diff: string): string[] {
+  const files = new Set<string>();
+  for (const line of diff.split("\n")) {
+    const m = line.match(/^[+\-]{3} [ab]\/(.+)$/);
+    if (m) files.add(m[1]);
+  }
+  return Array.from(files);
+}
+
+/**
+ * Returns true if ALL files in the diff match at least one glob pattern.
+ * Empty diff or empty patterns always returns false (never skip).
+ */
+function allFilesExcluded(diff: string, excludePatterns: string[]): boolean {
+  if (excludePatterns.length === 0) return false;
+  const files = extractFilesFromDiff(diff);
+  if (files.length === 0) return false;
+  return files.every((file) =>
+    excludePatterns.some((pattern) => minimatch(file, pattern)),
+  );
+}
 
 async function resolveRepo(options: { repo?: string }): Promise<[string, string]> {
   if (options.repo) {
@@ -104,6 +128,10 @@ export function registerSkeptic(program: Command): Command {
       "--prompt <text>",
       "Custom evaluation prompt — prepended to the default skeptic context. Use for bootstrap PRs (e.g., 'Only verify 6-green gates 1-5, skip gate 7').",
     )
+    .option(
+      "--exclude-paths <patterns>",
+      "Comma-separated glob patterns. If ALL changed files match, post VERDICT: SKIPPED without running LLM evaluation. E.g. '**/*.md,docs/**'",
+    )
     .action(async (options) => {
       const prNumber = parseInt(String(options.pr), 10);
       if (isNaN(prNumber) || prNumber <= 0) {
@@ -139,6 +167,40 @@ export function registerSkeptic(program: Command): Command {
         },
       );
       spinner2.succeed(chalk.green("Merge gate state fetched"));
+
+      // Early SKIP: if all diff files match exclude patterns, post VERDICT: SKIPPED immediately.
+      const excludePatterns = options.excludePaths
+        ? String(options.excludePaths).split(",").map((p) => p.trim()).filter(Boolean)
+        : [];
+      if (excludePatterns.length > 0 && allFilesExcluded(diff, excludePatterns)) {
+        const skipVerdict = "VERDICT: SKIPPED — all changed files match exclude-paths (docs-only PR)";
+        spinner.stop();
+        console.log(chalk.yellow("\n=== SKIP — excluded files ===\n"));
+        console.log(chalk.yellow(skipVerdict));
+
+        if (options.dryRun) {
+          return;
+        }
+
+        const spinner4 = ora("Posting skip verdict to PR…" + prNumber + "…").start();
+        try {
+          await postVerdict(
+            owner,
+            repo,
+            prNumber,
+            skipVerdict,
+            existing?.commentId ?? null,
+            SKEPTIC_BOT_AUTHOR,
+            options.triggerSha,
+            skipVerdict,
+          );
+          spinner4.succeed(chalk.green("Done! Skeptic verdict posted."));
+        } catch (err) {
+          spinner4.fail(chalk.red("Failed to post verdict: " + err));
+          process.exit(1);
+        }
+        return;
+      }
 
       // Build and run evaluation
       const spinner3 = ora("Running skeptic evaluation…").start();
