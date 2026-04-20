@@ -114,12 +114,15 @@ for PR in $(echo "$PR_JSON" | jq -r '.[] | @base64'); do
   # 4. Bugbot clean — use CI check-run conclusion scoped to HEAD SHA.
   # Comment scan is unreliable: stale comments from old commits persist.
   # Fail-closed: only pass on success/neutral/skipped; pass on none (no Bugbot run).
+  # Wrap in ( )+|| so the || catches the pipeline exit code, not just jq's.
+  set +e
   BUGBOT_CONCLUSION=$(gh api "repos/$GITHUB_REPOSITORY/commits/${PR_SHA}/check-runs" \
     --paginate 2>/dev/null \
     | jq -rs '[.[] | .check_runs[]?] | map(select(.name | test("Cursor Bugbot"; "i"))) | sort_by(.completed_at) | last | .conclusion // empty' \
-    2>/dev/null)
+    2>/dev/null || echo "error")
   BUGBOT_CONCLUSION_EXIT=$?
-  if [ $BUGBOT_CONCLUSION_EXIT -ne 0 ] || [ -z "$BUGBOT_CONCLUSION" ]; then
+  set -e
+  if [ $BUGBOT_CONCLUSION_EXIT -ne 0 ] || [ -z "$BUGBOT_CONCLUSION" ] || [ "$BUGBOT_CONCLUSION" = "error" ]; then
     BUGBOT_CONCLUSION="error"
   fi
   if [ "$BUGBOT_CONCLUSION" = "success" ] || [ "$BUGBOT_CONCLUSION" = "neutral" ] || [ "$BUGBOT_CONCLUSION" = "skipped" ] || [ "$BUGBOT_CONCLUSION" = "none" ]; then
@@ -196,11 +199,10 @@ for PR in $(echo "$PR_JSON" | jq -r '.[] | @base64'); do
   echo "  [6] Evidence review:    $EVIDENCE_STATUS"
 
   # 7. Skeptic verdict — look for VERDICT comment from AO worker.
-  # Split comma-separated SKEPTIC_BOT_AUTHOR and test membership in jq.
-  SKEPTIC_AUTHORS_ARR=$(echo "${SKEPTIC_BOT_AUTHOR}" | jq -R 'split(",")' 2>/dev/null)
+  # Test author against comma-separated SKEPTIC_BOT_AUTHOR using regex membership.
   SKEPTIC_VERDICT=$(gh api "repos/$GITHUB_REPOSITORY/issues/$PR_NUM/comments" \
     --paginate 2>/dev/null \
-    | jq -s --arg authors "$SKEPTIC_AUTHORS_ARR" --arg trigger "skeptic-cron-trigger-${PR_SHA}" 'add | [.[] | select(.user.login as $u | ($authors | from_json | index($u))) and (.body | test("VERDICT:"; "i")) and (.body | test($trigger; "i"))) | .body] | last // empty' 2>/dev/null || echo "")
+    | jq -s --arg authors "${SKEPTIC_BOT_AUTHOR}" --arg trigger "skeptic-cron-trigger-${PR_SHA}" 'def is_author: .user.login as $u | ($authors | split(",") | index($u)); add | [.[] | select(is_author and (.body | test("VERDICT:"; "i")) and (.body | test($trigger; "i"))) | .body] | last // empty' 2>/dev/null || echo "")
   if echo "$SKEPTIC_VERDICT" | grep -qi "VERDICT: PASS"; then
     SKEPTIC_STATUS="PASS"
   elif echo "$SKEPTIC_VERDICT" | grep -qi "VERDICT: FAIL"; then
@@ -209,7 +211,7 @@ for PR in $(echo "$PR_JSON" | jq -r '.[] | @base64'); do
     FALLBACK_TRIGGER_RE="skeptic-cron-trigger-${PR_SHA}"
     SKEPTIC_VERDICT=$(gh api "repos/$GITHUB_REPOSITORY/issues/$PR_NUM/comments" \
       --paginate 2>/dev/null \
-      | jq -s --arg authors "$SKEPTIC_AUTHORS_ARR" --arg fallback "$FALLBACK_TRIGGER_RE" 'add | [.[] | select((.user.login as $u | ($authors | from_json | index($u))) or .user.login == "github-actions[bot]") and (.body | test("VERDICT:"; "i")) and (.body | test($fallback; "i"))) | .body] | last // empty' 2>/dev/null || echo "")
+      | jq -s --arg authors "${SKEPTIC_BOT_AUTHOR}" --arg fallback "$FALLBACK_TRIGGER_RE" 'def is_author: .user.login as $u | ($authors | split(",") | index($u)); add | [.[] | select((is_author or .user.login == "github-actions[bot]") and (.body | test("VERDICT:"; "i")) and (.body | test($fallback; "i"))) | .body] | last // empty' 2>/dev/null || echo "")
     if echo "$SKEPTIC_VERDICT" | grep -qi "VERDICT: PASS"; then
       SKEPTIC_STATUS="PASS"
     elif echo "$SKEPTIC_VERDICT" | grep -qi "VERDICT: FAIL"; then
