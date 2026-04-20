@@ -71,7 +71,8 @@ jobs:
           API_FAILURES=0
           for i in $(seq 1 "$MAX_ATTEMPTS"); do
             PR_STATE=$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUM}" --jq '.state' 2>&1)
-            if echo "$PR_STATE" | grep -qi "error\|rate limit\|authentication\|not found\|server error"; then
+            PR_STATE_EXIT=$?
+            if [ "$PR_STATE_EXIT" -ne 0 ]; then
               API_FAILURES=$((API_FAILURES + 1))
               echo "API warning: PR state lookup failed (attempt $i): ${PR_STATE:0:100}"
               if [ "$API_FAILURES" -ge 3 ]; then
@@ -87,11 +88,22 @@ jobs:
               exit 0
             fi
 
-            VERDICT_JSON=$(SKEPTIC_BOT_AUTHOR="$SKEPTIC_BOT_AUTHOR" \
-              TRIGGER_SHA="$TRIGGER_SHA" \
-              TRIGGER_UPDATED="$TRIGGER_UPDATED" \
-              gh api "repos/${GITHUB_REPOSITORY}/issues/${PR_NUM}/comments" \
-                --paginate 2>/dev/null \
+            RAW_COMMENTS=$(gh api "repos/${GITHUB_REPOSITORY}/issues/${PR_NUM}/comments" \
+              --paginate 2>&1)
+            GH_EXIT=$?
+            if [ "$GH_EXIT" -ne 0 ]; then
+              API_FAILURES=$((API_FAILURES + 1))
+              echo "API warning: verdict lookup failed (exit=$GH_EXIT, attempt $i): ${RAW_COMMENTS:0:100}"
+              if [ "$API_FAILURES" -ge 3 ]; then
+                echo "ERROR: Too many consecutive API failures" >&2
+                exit 1
+              fi
+              echo "Attempt $i/$MAX_ATTEMPTS — sleeping ${INTERVAL}s..."
+              sleep "$INTERVAL"
+              continue
+            fi
+
+            VERDICT_JSON=$(printf '%s\n' "$RAW_COMMENTS" \
               | jq -s --arg author "$SKEPTIC_BOT_AUTHOR" \
                 --arg tu "$TRIGGER_UPDATED" --arg ts "$TRIGGER_SHA" \
                 'add
@@ -102,12 +114,11 @@ jobs:
                          >= ($tu | if test("\\.[0-9]+Z$") then sub("\\.[0-9]+Z$"; "Z") else . end))
                     and (.body | test("skeptic-gate-trigger-" + $ts; "i"))
                   ))
-                | last // empty' 2>/dev/null || echo "empty")
-
-            GH_EXIT=$?
-            if [ "$GH_EXIT" -ne 0 ]; then
+                | last // empty' 2>/dev/null)
+            JQ_EXIT=$?
+            if [ "$JQ_EXIT" -ne 0 ]; then
               API_FAILURES=$((API_FAILURES + 1))
-              echo "API warning: verdict lookup failed (exit=$GH_EXIT, attempt $i)"
+              echo "API warning: verdict parsing failed (exit=$JQ_EXIT, attempt $i)"
               if [ "$API_FAILURES" -ge 3 ]; then
                 echo "ERROR: Too many consecutive API failures" >&2
                 exit 1
@@ -115,6 +126,10 @@ jobs:
               echo "Attempt $i/$MAX_ATTEMPTS — sleeping ${INTERVAL}s..."
               sleep "$INTERVAL"
               continue
+            fi
+            API_FAILURES=0
+            if [ -z "$VERDICT_JSON" ]; then
+              VERDICT_JSON="empty"
             fi
 
             if ! echo "$VERDICT_JSON" | jq -e 'if . == null or (.body == null) then empty else .body end | length > 0' >/dev/null 2>&1; then

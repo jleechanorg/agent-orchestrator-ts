@@ -25,7 +25,7 @@ function isEnabled(): boolean {
 }
 
 export function getWorkerLogDir(projectId: string, branch?: string): string {
-  const basePath = "/tmp/agent-orchestrator";
+  const basePath = process.env["AO_WORKER_LOG_DIR"] ?? "/tmp/agent-orchestrator";
   if (branch) {
     const safeBranch = branch.replace(/[^a-zA-Z0-9_-]/g, "_");
     return join(basePath, projectId, safeBranch);
@@ -180,7 +180,10 @@ function logSessionEvent(
       agentType,
       runtime,
       event,
-      data,
+      data: {
+        branch,
+        metadata: data,
+      },
     },
     projectId,
     branch,

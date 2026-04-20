@@ -9,6 +9,7 @@ vi.mock("node:fs", () => ({
 
 describe("AOWorkerLogger", () => {
   const originalLogLevel = process.env["AO_LOG_LEVEL"];
+  const originalWorkerLogDir = process.env["AO_WORKER_LOG_DIR"];
   let consoleErrorSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
@@ -22,6 +23,11 @@ describe("AOWorkerLogger", () => {
       delete process.env["AO_LOG_LEVEL"];
     } else {
       process.env["AO_LOG_LEVEL"] = originalLogLevel;
+    }
+    if (originalWorkerLogDir === undefined) {
+      delete process.env["AO_WORKER_LOG_DIR"];
+    } else {
+      process.env["AO_WORKER_LOG_DIR"] = originalWorkerLogDir;
     }
     consoleErrorSpy.mockRestore();
   });
@@ -38,6 +44,14 @@ describe("AOWorkerLogger", () => {
   it("sanitizes branch names in worker log paths", () => {
     expect(getWorkerLogDir("agent-orchestrator", "feat/a.b/c")).toBe(
       "/tmp/agent-orchestrator/agent-orchestrator/feat_a_b_c",
+    );
+  });
+
+  it("allows overriding the worker log root directory", () => {
+    process.env["AO_WORKER_LOG_DIR"] = "/var/tmp/ao-logs";
+
+    expect(getWorkerLogDir("agent-orchestrator", "feat/a.b/c")).toBe(
+      "/var/tmp/ao-logs/agent-orchestrator/feat_a_b_c",
     );
   });
 
@@ -130,5 +144,32 @@ describe("AOWorkerLogger", () => {
       ),
     ).not.toThrow();
     expect(consoleErrorSpy).toHaveBeenCalled();
+  });
+
+  it("routes custom session event payloads through metadata", () => {
+    process.env["AO_LOG_LEVEL"] = "info";
+
+    AOWorkerLogger.logSessionEvent(
+      "ao-5",
+      "agent-orchestrator",
+      "codex",
+      "tmux",
+      "message_send",
+      { message: "fix tests", messageLength: 9 },
+      "fix/review",
+    );
+
+    const [, line] = vi.mocked(writeFileSync).mock.calls[0] ?? [];
+    const parsed = JSON.parse(String(line));
+    expect(parsed).toMatchObject({
+      event: "message_send",
+      data: {
+        branch: "fix/review",
+        metadata: {
+          message: "fix tests",
+          messageLength: 9,
+        },
+      },
+    });
   });
 });
