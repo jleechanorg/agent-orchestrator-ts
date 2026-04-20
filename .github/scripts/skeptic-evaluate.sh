@@ -118,11 +118,11 @@ for PR in $(echo "$PR_JSON" | jq -r '.[] | @base64'); do
   set +e
   BUGBOT_CONCLUSION=$(gh api "repos/$GITHUB_REPOSITORY/commits/${PR_SHA}/check-runs" \
     --paginate 2>/dev/null \
-    | jq -rs '[.[] | .check_runs[]?] | map(select(.name | test("Cursor Bugbot"; "i"))) | sort_by(.completed_at) | last | .conclusion // empty' \
-    2>/dev/null || echo "error")
+    | jq -rs '[.[] | .check_runs[]?] | map(select(.name | test("Cursor Bugbot"; "i"))) | sort_by(.completed_at) | last | .conclusion // "none"' \
+    2>/dev/null)
   BUGBOT_CONCLUSION_EXIT=$?
   set -e
-  if [ $BUGBOT_CONCLUSION_EXIT -ne 0 ] || [ -z "$BUGBOT_CONCLUSION" ] || [ "$BUGBOT_CONCLUSION" = "error" ]; then
+  if [ $BUGBOT_CONCLUSION_EXIT -ne 0 ]; then
     BUGBOT_CONCLUSION="error"
   fi
   if [ "$BUGBOT_CONCLUSION" = "success" ] || [ "$BUGBOT_CONCLUSION" = "neutral" ] || [ "$BUGBOT_CONCLUSION" = "skipped" ] || [ "$BUGBOT_CONCLUSION" = "none" ]; then
