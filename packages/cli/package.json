@@ -68,6 +68,7 @@
     "@jleechanorg/ao-web": "workspace:*",
     "chalk": "^5.4.0",
     "commander": "^13.0.0",
+    "minimatch": "^10.0.0",
     "ora": "^8.1.0",
     "yaml": "^2.8.3"
   },

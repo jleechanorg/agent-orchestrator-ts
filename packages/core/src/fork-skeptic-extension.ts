@@ -41,17 +41,25 @@ export async function runSkepticReviewReaction(params: {
   const rawModel = reactionConfig.skepticModel;
   const skepticModel = isValidSkepticModel(rawModel) ? rawModel : undefined;
   const skepticPostComment = reactionConfig.skepticPostComment ?? true;
+  const excludePaths = reactionConfig.skepticExcludePaths;
 
   const result = await runSkepticReview(session, {
     model: skepticModel,
     postComment: skepticPostComment,
+    excludePaths,
   });
 
-  // SKIPPED (all-infra-fail) must not be treated as PASS — it is a non-success
-  // state that the orchestrator should surface and retry. Only PASS is success.
+  // Distinguish all-files-excluded SKIPPED (non-blocking early skip) from
+  // all-models-failed SKIPPED (infra failure — should still be treated as failure
+  // so the orchestrator can surface/notify). The CLI early-skip path includes
+  // "all changed files match exclude-paths" in details; infra-failure SKIPPEDs
+  // come from runSkepticReview's own fallback exhaustion and contain "All models failed".
+  const isEarlySkipSkipped =
+    result.verdict === "SKIPPED" &&
+    result.details.includes("all changed files match exclude-paths");
   return {
     reactionType: reactionKey,
-    success: result.verdict === "PASS",
+    success: result.verdict === "PASS" || isEarlySkipSkipped,
     action: "skeptic-review",
     message: `Skeptic ${result.verdict}: ${result.details.slice(0, 200)}`,
     escalated: false,

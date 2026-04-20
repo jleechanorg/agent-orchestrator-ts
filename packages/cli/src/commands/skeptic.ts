@@ -12,6 +12,7 @@
  */
 
 import chalk from "chalk";
+import { minimatch } from "minimatch";
 import ora from "ora";
 import type { Command } from "commander";
 import { exec } from "../lib/shell.js";
@@ -29,6 +30,47 @@ export { VERDICT_LINE_RE };
 // GH_SKEPTIC_BOT_AUTHOR env var if posting identity changes.
 const SKEPTIC_BOT_AUTHOR =
   process.env["GH_SKEPTIC_BOT_AUTHOR"] ?? "jleechan2015";
+
+/** Extract file paths from a unified diff string.
+ *
+ * Handles three unified diff formats:
+ * - Standard:   --- a/foo.js and +++ b/foo.js
+ * - git diff:    diff --git a/foo.js b/foo.js  (shown by git for binary/renamed files)
+ * - git status: rename/copy without content diffs (no header lines)
+ */
+function extractFilesFromDiff(diff: string): string[] {
+  const files = new Set<string>();
+  for (const line of diff.split("\n")) {
+    // Standard unified diff header: --- a/foo.js or +++ b/foo.js
+    const m1 = line.match(/^[+-]{3}[ \t][ab]\/(.+)$/);
+    if (m1) {
+      files.add(m1[1]);
+      continue;
+    }
+    // git diff --git header: diff --git a/foo.js b/foo.js
+    const m2 = line.match(/^diff --git [ab]\/(.+?) [ab]\/(.+)$/);
+    if (m2) {
+      // Both sides refer to the same path for regular changes; for renames
+      // the paths differ — use the "new" path (b/ side) since that's what the
+      // working tree would contain after the change.
+      files.add(m2[2]);
+    }
+  }
+  return Array.from(files);
+}
+
+/**
+ * Returns true if ALL files in the diff match at least one glob pattern.
+ * Empty diff or empty patterns always returns false (never skip).
+ */
+function allFilesExcluded(diff: string, excludePatterns: string[]): boolean {
+  if (excludePatterns.length === 0) return false;
+  const files = extractFilesFromDiff(diff);
+  if (files.length === 0) return false;
+  return files.every((file) =>
+    excludePatterns.some((pattern) => minimatch(file, pattern)),
+  );
+}
 
 async function resolveRepo(options: { repo?: string }): Promise<[string, string]> {
   if (options.repo) {
@@ -104,6 +146,10 @@ export function registerSkeptic(program: Command): Command {
       "--prompt <text>",
       "Custom evaluation prompt — prepended to the default skeptic context. Use for bootstrap PRs (e.g., 'Only verify 6-green gates 1-5, skip gate 7').",
     )
+    .option(
+      "--exclude-paths <patterns>",
+      "Pipe-separated glob patterns (pipe | cannot appear in globs). If ALL changed files match, post VERDICT: SKIPPED without running LLM evaluation. E.g. '**/*.md|docs/**'",
+    )
     .action(async (options) => {
       const prNumber = parseInt(String(options.pr), 10);
       if (isNaN(prNumber) || prNumber <= 0) {
@@ -139,6 +185,40 @@ export function registerSkeptic(program: Command): Command {
         },
       );
       spinner2.succeed(chalk.green("Merge gate state fetched"));
+
+      // Early SKIP: if all diff files match exclude patterns, post VERDICT: SKIPPED immediately.
+      const excludePatterns = options.excludePaths
+        ? String(options.excludePaths).split("|").map((p) => p.trim()).filter(Boolean)
+        : [];
+      if (excludePatterns.length > 0 && allFilesExcluded(diff, excludePatterns)) {
+        const skipVerdict = "VERDICT: SKIPPED — all changed files match exclude-paths (docs-only PR)";
+        spinner.stop();
+        console.log(chalk.yellow("\n=== SKIP — excluded files ===\n"));
+        console.log(chalk.yellow(skipVerdict));
+
+        if (options.dryRun) {
+          return;
+        }
+
+        const spinner4 = ora("Posting skip verdict to PR…" + prNumber + "…").start();
+        try {
+          await postVerdict(
+            owner,
+            repo,
+            prNumber,
+            skipVerdict,
+            existing?.commentId ?? null,
+            SKEPTIC_BOT_AUTHOR,
+            options.triggerSha,
+            skipVerdict,
+          );
+          spinner4.succeed(chalk.green("Done! Skeptic verdict posted."));
+        } catch (err) {
+          spinner4.fail(chalk.red("Failed to post verdict: " + err));
+          process.exit(1);
+        }
+        return;
+      }
 
       // Build and run evaluation
       const spinner3 = ora("Running skeptic evaluation…").start();

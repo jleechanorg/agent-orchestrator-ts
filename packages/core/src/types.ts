@@ -1116,6 +1116,12 @@ export interface ReactionConfig {
   skepticModel?: string;
   /** Skeptic review: post verdict as PR comment (default: true) */
   skepticPostComment?: boolean;
+  /**
+   * Skeptic review: glob patterns for paths to exclude from skeptic
+   * evaluation. If ALL changed files match at least one pattern, the verdict
+   * is SKIPPED rather than running the LLM evaluation.
+   */
+  skepticExcludePaths?: string[];
 }
 
 export interface ReactionResult {

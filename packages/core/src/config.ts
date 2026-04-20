@@ -84,6 +84,7 @@ const ReactionConfigSchema = z.object({
   // bd-skp2: Skeptic review fields
   skepticModel: z.enum(["codex", "claude", "gemini"]).optional(),
   skepticPostComment: z.boolean().optional(),
+  skepticExcludePaths: z.array(z.string()).optional(),
 });
 
 const TrackerConfigSchema = z
