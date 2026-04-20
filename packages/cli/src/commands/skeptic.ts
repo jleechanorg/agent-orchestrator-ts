@@ -54,7 +54,7 @@ function extractFilesFromDiff(diff: string): string[] {
       continue;
     }
     // Binary file indicator: Binary files a/foo and b/foo differ
-    const m3 = line.match(/^Binary files [ab]\/(.+) and [ab]\/(.+) differ$/);
+    const m3 = line.match(/^Binary files [ab]\/(.+) and [ab]\/(.+)$/);
     if (m3) {
       files.add(m3[2]);
     }
