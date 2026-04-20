@@ -21,7 +21,7 @@ The PR keeps the local divergence as a normal branch and adds focused hardening 
 
 - AO worker JSONL logging records launch, prompt-delivery, and message-send events with structured metadata.
 - Message-send telemetry now records success only after the runtime send completes, and records error details when dispatch fails.
-- The metadata hook fails closed for chained guarded `gh pr create` / `gh pr merge` commands, including command substitution, subshell/grouping, process substitution, and unsafe `cd` operator forms that can hide the guarded command. Direct guarded commands with single-quoted literal `$()` / backtick text remain allowed.
+- The metadata hook fails closed for chained guarded `gh pr create` / `gh pr merge` commands, including quote-aware command substitution, subshell/grouping, process substitution, and unsafe `cd` operator forms that can hide the guarded command. Direct guarded commands with single-quoted literal `$()` / backtick text remain allowed.
 - The Skeptic Gate workflow only accepts fresh SHA-bound comments that contain the `<!-- skeptic-agent-verdict -->` marker, preventing ordinary PR notes from satisfying the gate.
 - The workflow extracts the last anchored verdict token, matching the skeptic reviewer’s fail-closed “last verdict wins” behavior.
 

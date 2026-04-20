@@ -90,7 +90,7 @@ def contains_guarded_command_substitution(source):
                 depth += 1
                 i += 2
                 continue
-            if not in_single and char == ")":
+            if not in_single and not in_double and char == ")":
                 depth -= 1
                 if depth == 0:
                     return i
