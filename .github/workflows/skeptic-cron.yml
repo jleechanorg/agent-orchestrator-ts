@@ -306,6 +306,9 @@ jobs:
           # Default to github-actions[bot] — aligns with skeptic-gate.yml.
           # AO worker posts verdict via GITHUB_TOKEN (authenticates as github-actions[bot]).
           SKEPTIC_BOT_AUTHOR: ${{ vars.SKEPTIC_BOT_AUTHOR || 'github-actions[bot]' }}
+          # Safety controls: SKEPTIC_CRON_AUTO_MERGE=false disables auto-merge; SKEPTIC_MERGE_DENYLIST excludes specific PRs.
+          SKEPTIC_CRON_AUTO_MERGE: ${{ vars.SKEPTIC_CRON_AUTO_MERGE || 'true' }}
+          SKEPTIC_MERGE_DENYLIST: ${{ vars.SKEPTIC_MERGE_DENYLIST || '' }}
         run: |
           MERGED=0
 
@@ -506,6 +509,15 @@ jobs:
             fi
 
             if [ "$ALL_PASS" = "true" ]; then
+              # Safety controls: skip if SKEPTIC_CRON_AUTO_MERGE=false or PR is denylisted.
+              if [ "$SKEPTIC_CRON_AUTO_MERGE" = "false" ]; then
+                echo "*** PR #${PR_NUM} is 7-green but SKEPTIC_CRON_AUTO_MERGE=false — skipping ***"
+                continue
+              fi
+              if echo ",$SKEPTIC_MERGE_DENYLIST," | grep -q ",$PR_NUM,"; then
+                echo "*** PR #${PR_NUM} is 7-green but on SKEPTIC_MERGE_DENYLIST — skipping ***"
+                continue
+              fi
               echo ""
               echo "*** PR #${PR_NUM} is 7-green! Merging... ***"
               if [ "$MERGED_FLAG" = "true" ]; then
