@@ -100,13 +100,18 @@ def contains_guarded_command_substitution(source):
 
     i = 0
     in_single = False
+    in_double = False
     while i < len(source):
         char = source[i]
         if char == "\\" and not in_single:
             i += 2
             continue
-        if char == "'":
+        if char == "'" and not in_double:
             in_single = not in_single
+            i += 1
+            continue
+        if char == '"' and not in_single:
+            in_double = not in_double
             i += 1
             continue
         if in_single:
