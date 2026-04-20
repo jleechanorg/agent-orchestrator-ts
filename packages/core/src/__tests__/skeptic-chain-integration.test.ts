@@ -647,6 +647,19 @@ describe("skeptic chain integration", () => {
       expect(workflowSource).not.toMatch(/^[ \t]*API_FAILURES=0$/m);
     });
 
+    it("scopes workflow concurrency per PR instead of serializing all skeptic gate runs", () => {
+      expect(workflowSource).not.toMatch(/group:\s*skeptic-gate\s*$/m);
+      expect(workflowSource).toContain("github.event.pull_request.number");
+    });
+
+    it("keeps the workflow jq filter aligned with request, head, and eight-gate PASS binding", () => {
+      expect(workflowSource).toContain("REQUEST_ID: $" + "{{ steps.post_trigger.outputs.request_id }}");
+      expect(workflowSource).toContain('--arg request "$REQUEST_ID"');
+      expect(workflowSource).toContain('skeptic-request-id-" + $request');
+      expect(workflowSource).toContain('skeptic-head-sha-" + $ts');
+      expect(workflowSource).toContain('skeptic-gate-" + ($gate | tostring)');
+    });
+
     it("returns null when no matching verdict exists", () => {
       const comments = [
         {

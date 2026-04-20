@@ -4,7 +4,7 @@ on:
     types: [opened, synchronize, edited, reopened]
   workflow_dispatch:
 concurrency:
-  group: skeptic-gate
+  group: skeptic-gate-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: false
 jobs:
   # Workflow name kept as "Skeptic Gate CI" to avoid workflow-name collision
@@ -21,6 +21,7 @@ jobs:
     outputs:
       trigger_updated: ${{ steps.post_trigger.outputs.trigger_updated }}
       trigger_sha: ${{ steps.post_trigger.outputs.trigger_sha }}
+      request_id: ${{ steps.post_trigger.outputs.request_id }}
     steps:
       - name: Post skeptic trigger comment
         id: post_trigger
@@ -30,8 +31,11 @@ jobs:
         run: |
           PR_NUM=${{ github.event.pull_request.number }}
           TRIGGER_SHA="$HEAD_SHA"
-          BODY=$(printf '%s\n%s' \
+          REQUEST_ID="gate-${TRIGGER_SHA}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          BODY=$(printf '%s\n%s\n%s\n%s' \
             "SKEPTIC_GATE_TRIGGER" \
+            "<!-- skeptic-request-id-${REQUEST_ID} -->" \
+            "<!-- skeptic-head-sha-${TRIGGER_SHA} -->" \
             "<!-- skeptic-gate-trigger-${TRIGGER_SHA} -->")
 
           TRIGGER_UPDATED=$(gh api -X POST \
@@ -45,8 +49,11 @@ jobs:
             exit 1
           fi
           echo "Trigger posted at: $TRIGGER_UPDATED"
-          echo "trigger_updated=$TRIGGER_UPDATED" >> "$GITHUB_OUTPUT"
-          echo "trigger_sha=$TRIGGER_SHA" >> "$GITHUB_OUTPUT"
+          {
+            echo "trigger_updated=$TRIGGER_UPDATED"
+            echo "trigger_sha=$TRIGGER_SHA"
+            echo "request_id=$REQUEST_ID"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Poll for skeptic VERDICT
         env:
@@ -54,6 +61,7 @@ jobs:
           PR_NUM: ${{ github.event.pull_request.number }}
           TRIGGER_UPDATED: ${{ steps.post_trigger.outputs.trigger_updated }}
           TRIGGER_SHA: ${{ steps.post_trigger.outputs.trigger_sha }}
+          REQUEST_ID: ${{ steps.post_trigger.outputs.request_id }}
           SKEPTIC_BOT_AUTHOR: ${{ vars.SKEPTIC_BOT_AUTHOR || 'jleechan2015' }}
         timeout-minutes: 2
         run: |
@@ -107,7 +115,7 @@ jobs:
 
             VERDICT_JSON=$(printf '%s\n' "$RAW_COMMENTS" \
               | jq -s --arg author "$SKEPTIC_BOT_AUTHOR" \
-                --arg tu "$TRIGGER_UPDATED" --arg ts "$TRIGGER_SHA" \
+                --arg tu "$TRIGGER_UPDATED" --arg ts "$TRIGGER_SHA" --arg request "$REQUEST_ID" \
                 'add
                 | map(select(
                     ((.user.login == $author) or (.user.login == "github-actions[bot]"))
@@ -116,6 +124,15 @@ jobs:
                     and (((.updated_at // "") | if test("\\.[0-9]+Z$") then sub("\\.[0-9]+Z$"; "Z") else . end)
                          >= ($tu | if test("\\.[0-9]+Z$") then sub("\\.[0-9]+Z$"; "Z") else . end))
                     and (.body | test("skeptic-gate-trigger-" + $ts; "i"))
+                    and (.body | test("<!--\\s*skeptic-request-id-" + $request + "\\s*-->"; "i"))
+                    and (.body | test("<!--\\s*skeptic-head-sha-" + $ts + "\\s*-->"; "i"))
+                    and (.body as $body |
+                      ($body | test("^[[:space:]>#*]*VERDICT:[[:space:]]*(FAIL|SKIPPED)([[:space:][:punct:]]|$)"; "im"))
+                      or (
+                        ($body | test("^[[:space:]>#*]*VERDICT:[[:space:]]*PASS([[:space:][:punct:]]|$)"; "im"))
+                        and all(range(1; 9); . as $gate | $body | test("<!--\\s*skeptic-gate-" + ($gate | tostring) + "\\s*:\\s*PASS\\s*-->"; "i"))
+                      )
+                    )
                   ))
                 | last // empty' 2>/dev/null)
             JQ_EXIT=$?
