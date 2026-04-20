@@ -88,6 +88,7 @@ jobs:
               exit 0
             fi
 
+            set -o pipefail
             VERDICT_JSON=$(SKEPTIC_BOT_AUTHOR="$SKEPTIC_BOT_AUTHOR" \
               TRIGGER_SHA="$TRIGGER_SHA" \
               TRIGGER_UPDATED="$TRIGGER_UPDATED" \
@@ -103,9 +104,9 @@ jobs:
                          >= ($tu | if test("\\.[0-9]+Z$") then sub("\\.[0-9]+Z$"; "Z") else . end))
                     and (.body | test("skeptic-gate-trigger-" + $ts; "i"))
                   ))
-                | last // empty' 2>/dev/null || echo "empty")
+                | last // empty' 2>/dev/null)
 
-            GH_EXIT=$?
+            GH_EXIT=${PIPESTATUS[0]}
             if [ "$GH_EXIT" -ne 0 ]; then
               API_FAILURES=$((API_FAILURES + 1))
               echo "API warning: verdict lookup failed (exit=$GH_EXIT, attempt $i)"

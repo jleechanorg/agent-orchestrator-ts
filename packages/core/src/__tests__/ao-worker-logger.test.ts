@@ -70,7 +70,8 @@ describe("ao-worker-logger", () => {
     expect(entry.event).toBe("spawn_start");
     expect(entry.sessionId).toBe("sess-a");
     expect(entry.projectId).toBe("log-test-proj");
-    expect(entry.data.prompt).toBe("do thing");
+    // Prompt should be redacted to avoid persisting sensitive data
+    expect(entry.data.prompt).toMatch(/^\[redacted:\d+ chars\]$/);
     expect(entry.data.branch).toBe("feat/foo-bar");
 
     const today = new Date().toISOString().split("T")[0];
@@ -97,7 +98,8 @@ describe("ao-worker-logger", () => {
     const entry = JSON.parse(readFileSync(f, "utf-8").trim());
     expect(entry.event).toBe("agent_launch");
     expect(entry.data.launchCommand).toBe("claude --print");
-    expect(entry.data.systemPrompt).toBe("sys");
+    // systemPrompt should be redacted to avoid persisting sensitive data
+    expect(entry.data.systemPrompt).toMatch(/^\[redacted:\d+ chars\]$/);
   });
 
   it("logPromptDelivery stores delivery metadata", () => {
@@ -136,6 +138,7 @@ describe("ao-worker-logger", () => {
     process.env.AO_LOG_LEVEL = "info";
     const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     const bad = join(logRoot(), "log-test-proj");
+    mkdirSync(logRoot(), { recursive: true });
     writeFileSync(bad, "not-a-directory");
     logSpawnStart("s5", "log-test-proj", "c", "t", { branch: "z" });
     expect(errSpy).toHaveBeenCalled();

@@ -25,6 +25,11 @@ function isEnabled(): boolean {
   return logLevel === "debug" || logLevel === "info";
 }
 
+function redactForWorkerLog(value: string | undefined): string | undefined {
+  if (value === undefined) return undefined;
+  return `[redacted:${value.length} chars]`;
+}
+
 function getLogDir(projectId: string, branch?: string): string {
   const basePath = join(os.tmpdir(), "agent-orchestrator");
   if (branch) {
@@ -92,7 +97,7 @@ export function logSpawnStart(
     runtime,
     event: "spawn_start",
     data: {
-      prompt: options.prompt,
+      prompt: redactForWorkerLog(options.prompt),
       issueId: options.issueId,
       workspacePath: options.workspacePath,
       branch: options.branch,
@@ -124,7 +129,7 @@ export function logAgentLaunch(
     event: "agent_launch",
     data: {
       launchCommand: options.launchCommand,
-      systemPrompt: options.systemPrompt,
+      systemPrompt: redactForWorkerLog(options.systemPrompt),
       workspacePath: options.workspacePath,
       branch: options.branch,
     },
@@ -154,7 +159,7 @@ export function logPromptDelivery(
     runtime,
     event: "prompt_delivery",
     data: {
-      prompt: options.prompt,
+      prompt: redactForWorkerLog(options.prompt),
       metadata: {
         deliveryMethod: options.deliveryMethod,
         success: options.success,
