@@ -140,7 +140,9 @@ async function tryModel(
   if (!postComment) args.push("--dry-run");
   if (triggerSha) args.push("--trigger-sha", triggerSha);
   if (excludePaths && excludePaths.length > 0) {
-    args.push("--exclude-paths", excludePaths.join(","));
+    for (const p of excludePaths) {
+      args.push("--exclude-paths", p);
+    }
   }
   args.push("--model", model);
 

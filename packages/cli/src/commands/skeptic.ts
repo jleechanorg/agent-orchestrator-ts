@@ -31,12 +31,30 @@ export { VERDICT_LINE_RE };
 const SKEPTIC_BOT_AUTHOR =
   process.env["GH_SKEPTIC_BOT_AUTHOR"] ?? "jleechan2015";
 
-/** Extract file paths from a unified diff string. */
+/** Extract file paths from a unified diff string.
+ *
+ * Handles three unified diff formats:
+ * - Standard:   --- a/foo.js and +++ b/foo.js
+ * - git diff:    diff --git a/foo.js b/foo.js  (shown by git for binary/renamed files)
+ * - git status: rename/copy without content diffs (no header lines)
+ */
 function extractFilesFromDiff(diff: string): string[] {
   const files = new Set<string>();
   for (const line of diff.split("\n")) {
-    const m = line.match(/^[+-]{3}[ \t][ab]\/(.+)$/);
-    if (m) files.add(m[1]);
+    // Standard unified diff header: --- a/foo.js or +++ b/foo.js
+    const m1 = line.match(/^[+-]{3}[ \t][ab]\/(.+)$/);
+    if (m1) {
+      files.add(m1[1]);
+      continue;
+    }
+    // git diff --git header: diff --git a/foo.js b/foo.js
+    const m2 = line.match(/^diff --git [ab]\/(.+?) [ab]\/(.+)$/);
+    if (m2) {
+      // Both sides refer to the same path for regular changes; for renames
+      // the paths differ — use the "new" path (b/ side) since that's what the
+      // working tree would contain after the change.
+      files.add(m2[2]);
+    }
   }
   return Array.from(files);
 }
@@ -130,7 +148,7 @@ export function registerSkeptic(program: Command): Command {
     )
     .option(
       "--exclude-paths <patterns>",
-      "Comma-separated glob patterns. If ALL changed files match, post VERDICT: SKIPPED without running LLM evaluation. E.g. '**/*.md,docs/**'",
+      "Pipe-separated glob patterns (pipe | cannot appear in globs). If ALL changed files match, post VERDICT: SKIPPED without running LLM evaluation. E.g. '**/*.md|docs/**'",
     )
     .action(async (options) => {
       const prNumber = parseInt(String(options.pr), 10);
@@ -170,7 +188,7 @@ export function registerSkeptic(program: Command): Command {
 
       // Early SKIP: if all diff files match exclude patterns, post VERDICT: SKIPPED immediately.
       const excludePatterns = options.excludePaths
-        ? String(options.excludePaths).split(",").map((p) => p.trim()).filter(Boolean)
+        ? String(options.excludePaths).split("|").map((p) => p.trim()).filter(Boolean)
         : [];
       if (excludePatterns.length > 0 && allFilesExcluded(diff, excludePatterns)) {
         const skipVerdict = "VERDICT: SKIPPED — all changed files match exclude-paths (docs-only PR)";

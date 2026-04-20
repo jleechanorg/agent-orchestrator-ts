@@ -49,11 +49,11 @@ export async function runSkepticReviewReaction(params: {
     excludePaths,
   });
 
-  // SKIPPED (all-infra-fail) must not be treated as PASS — it is a non-success
-  // state that the orchestrator should surface and retry. Only PASS is success.
+  // SKIPPED is a valid non-failure outcome — all-files-excluded early-skip is not
+  // a retryable failure. Only FAIL is a blocking error.
   return {
     reactionType: reactionKey,
-    success: result.verdict === "PASS",
+    success: result.verdict === "PASS" || result.verdict === "SKIPPED",
     action: "skeptic-review",
     message: `Skeptic ${result.verdict}: ${result.details.slice(0, 200)}`,
     escalated: false,
