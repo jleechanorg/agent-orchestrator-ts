@@ -267,8 +267,11 @@ jobs:
         run: |
           PR_NUM=$PR_NUM
           TRIGGER_SHA="$HEAD_SHA"
-          BODY=$(printf '%s\n%s' \
+          REQUEST_ID="gate-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${PR_NUM}-${TRIGGER_SHA:0:12}"
+          BODY=$(printf '%s\n%s\n%s\n%s' \
             "SKEPTIC_GATE_TRIGGER" \
+            "<!-- skeptic-request-id-${REQUEST_ID} -->" \
+            "<!-- skeptic-head-sha-${TRIGGER_SHA} -->" \
             "<!-- skeptic-gate-trigger-${TRIGGER_SHA} -->")
 
           # POST with retry for installation REST rate limits (HTTP 403).
@@ -295,6 +298,7 @@ jobs:
           echo "Trigger timestamp (GitHub server): $TRIGGER_UPDATED"
           echo "trigger_updated=$TRIGGER_UPDATED" >> "$GITHUB_OUTPUT"
           echo "trigger_sha=$TRIGGER_SHA" >> "$GITHUB_OUTPUT"
+          echo "request_id=$REQUEST_ID" >> "$GITHUB_OUTPUT"
 
       # ----------------------------------------------------------------
       # Step 2: Poll for VERDICT comment posted by the AO worker.
@@ -308,6 +312,7 @@ jobs:
           HEAD_SHA: ${{ steps.check_6green.outputs.head_sha }}
           TRIGGER_UPDATED: ${{ steps.post_trigger.outputs.trigger_updated }}
           TRIGGER_SHA: ${{ steps.post_trigger.outputs.trigger_sha }}
+          REQUEST_ID: ${{ steps.post_trigger.outputs.request_id }}
           SKEPTIC_BOT_AUTHOR: ${{ vars.SKEPTIC_BOT_AUTHOR || 'github-actions[bot]' }}
         run: |
           PR_NUM=$PR_NUM
@@ -320,6 +325,12 @@ jobs:
           fi
           echo "Only accepting verdicts posted after trigger was updated: $TRIGGER_UPDATED"
           echo "Also filtering by trigger SHA: ${TRIGGER_SHA:0:7}"
+          PR_AUTHOR=$(gh api repos/${{ github.repository }}/pulls/"$PR_NUM" --jq '.user.login // empty' 2>/dev/null || true)
+          if [ -z "$PR_AUTHOR" ]; then
+            echo "ERROR: PR author lookup failed — cannot enforce trusted actor rule"
+            echo "verdict=ERROR" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
 
           INTERVAL=30
           MAX_ATTEMPTS=$(( ${{ inputs.poll_timeout_minutes }} * 60 / INTERVAL ))   # respect poll_timeout_minutes input
@@ -352,6 +363,7 @@ jobs:
               SKEPTIC_BOT_AUTHOR="$SKEPTIC_BOT_AUTHOR" \
               TRIGGER_SHA="$TRIGGER_SHA" \
               TRIGGER_UPDATED="$TRIGGER_UPDATED" \
+              REQUEST_ID="$REQUEST_ID" \
               gh api repos/${{ github.repository }}/issues/"$PR_NUM"/comments \
                 --paginate 2>/dev/null
             )
@@ -361,13 +373,23 @@ jobs:
             else
               VERDICT_JSON=$(echo "$VERDICT_RAW" | jq -s --arg author "$SKEPTIC_BOT_AUTHOR" \
                 --arg tu "$TRIGGER_UPDATED" --arg ts "$TRIGGER_SHA" \
+                --arg request_id "$REQUEST_ID" \
+                --arg pr_author "$PR_AUTHOR" \
                 'add
+                | map(. + {verdict: (try (.body | capture("^[ \\t]*(?:> ?)?(?:#{1,6}[ \\t]*)?(?:\\*{1,2})?VERDICT:[ \\t]*(?<verdict>PASS|FAIL|SKIPPED)(?:\\*{1,2})?[ \\t]*(?:[-—:].*)?$"; "im").verdict | ascii_upcase) catch "")})
                 | map(select(
-                    ((.user.login == $author) or (.user.login == "github-actions[bot]"))
-                    and (.body | test("VERDICT:"; "i"))
+                    (.body as $body
+                    | (((.user.login | ascii_downcase) == ($author | ascii_downcase)) or ((.user.login | ascii_downcase) == "github-actions[bot]"))
+                    and ((.user.login | ascii_downcase) != ($pr_author | ascii_downcase))
+                    and ($body | test("<!--\\s*skeptic-agent-verdict\\s*-->"; "i"))
+                    and (.verdict != "")
                     and (((.updated_at // "") | if test("\\.[0-9]+Z$") then sub("\\.[0-9]+Z$"; "Z") else . end)
                          >= ($tu | if test("\\.[0-9]+Z$") then sub("\\.[0-9]+Z$"; "Z") else . end))
-                    and (.body | test("skeptic-gate-trigger-" + $ts; "i"))
+                    and ($body | test("skeptic-gate-trigger-" + $ts; "i"))
+                    and ($body | test("<!--\\s*skeptic-request-id-" + $request_id + "\\s*-->"; "i"))
+                    and ($body | test("<!--\\s*skeptic-head-sha-" + $ts + "\\s*-->"; "i"))
+                    and ((.verdict != "PASS")
+                         or (all(range(1;9); . as $gate | ($body | test("<!--\\s*skeptic-gate-" + ($gate | tostring) + "\\s*:\\s*PASS\\s*-->"; "i"))))))
                   ))
                 | last // empty' 2>/dev/null || echo "empty")
             fi
@@ -392,23 +414,24 @@ jobs:
             fi
 
             VERDICT_BODY=$(echo "$VERDICT_JSON" | jq -r '.body')
+            VERDICT_TYPE=$(echo "$VERDICT_JSON" | jq -r '.verdict // ""')
             VERDICT_CREATED=$(echo "$VERDICT_JSON" | jq -r '.updated_at')
             echo ""
             echo "=== Found VERDICT (posted $VERDICT_CREATED) ==="
             echo "$VERDICT_BODY"
 
-            if echo "$VERDICT_BODY" | grep -qi "VERDICT: PASS"; then
+            if [ "$VERDICT_TYPE" = "PASS" ]; then
               echo "verdict=PASS" >> "$GITHUB_OUTPUT"
               echo "=== SKEPTIC GATE: PASS ==="
               exit 0
-            elif echo "$VERDICT_BODY" | grep -qi "VERDICT: FAIL"; then
+            elif [ "$VERDICT_TYPE" = "FAIL" ]; then
               echo "verdict=FAIL" >> "$GITHUB_OUTPUT"
               echo "=== SKEPTIC GATE: FAIL ==="
               exit 1
-            elif echo "$VERDICT_BODY" | grep -qi "VERDICT: SKIPPED"; then
+            elif [ "$VERDICT_TYPE" = "SKIPPED" ]; then
               echo "verdict=SKIPPED" >> "$GITHUB_OUTPUT"
-              echo "=== SKEPTIC GATE: SKIPPED (infra issue — not blocking) ==="
-              exit 0
+              echo "=== SKEPTIC GATE: SKIPPED (fail-closed) ==="
+              exit 1
             else
               echo "WARNING: VERDICT body is malformed — sleeping ${INTERVAL}s before retry"
               echo "verdict=UNKNOWN" >> "$GITHUB_OUTPUT"

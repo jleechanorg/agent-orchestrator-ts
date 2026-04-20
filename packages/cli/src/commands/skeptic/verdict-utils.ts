@@ -11,7 +11,7 @@ const VERDICT_LINE_PREFIX =
 const VERDICT_LINE_SUFFIX =
   String.raw`(?:\*{1,2})?[ \t]*(?:[-—:].*)?$`;
 
-function escapeRegexLiteral(token: string): string {
+export function escapeRegexLiteral(token: string): string {
   return token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
@@ -36,6 +36,83 @@ export function buildVerdictLineRe(verdicts: readonly string[]): RegExp {
  * strict chain is treated as missing-a-verdict and triggers fail-closed fallback.
  * These are two separate concerns (parsing vs. strict internal validation). */
 export const VERDICT_LINE_RE = buildVerdictLineRe(["PASS", "FAIL", "SKIPPED"]);
+
+export function hasSkepticRequestId(body: string, requestId?: string): boolean {
+  if (!requestId) return false;
+  const escapedRequestId = escapeRegexLiteral(requestId);
+  return new RegExp(
+    `<!--\\s*skeptic-request-id-${escapedRequestId}\\s*-->`,
+    "i",
+  ).test(body);
+}
+
+export function hasSkepticHeadSha(body: string, headSha: string | undefined): boolean {
+  if (!headSha) return false;
+  const escapedSha = escapeRegexLiteral(headSha);
+  return new RegExp(`<!--\\s*skeptic-head-sha-${escapedSha}\\s*-->`, "i").test(body);
+}
+
+export function hasCompletePassingGateMarkers(body: string): boolean {
+  for (let gate = 1; gate <= 8; gate += 1) {
+    const gateRe = new RegExp(`<!--\\s*skeptic-gate-${gate}\\s*:\\s*PASS\\s*-->`, "i");
+    if (!gateRe.test(body)) return false;
+  }
+  return true;
+}
+
+export function extractSkepticGateMarkers(body: string): string[] {
+  return Array.from(
+    body.matchAll(/<!--\s*skeptic-gate-[1-8]\s*:\s*(?:PASS|FAIL|SKIPPED)\s*-->/gi),
+    (match) => match[0],
+  );
+}
+
+export function isFreshPassVerdictContractSatisfied(
+  body: string,
+  headSha: string | undefined,
+  requestId?: string,
+): boolean {
+  return (
+    hasSkepticRequestId(body, requestId) &&
+    hasSkepticHeadSha(body, headSha) &&
+    hasCompletePassingGateMarkers(body)
+  );
+}
+
+export interface BoundVerdictOutput {
+  verdictLine: string;
+  llmOutput: string;
+  verdictType: Verdict | null;
+}
+
+export function bindVerdictOutput(params: {
+  llmOutput: string;
+  headSha?: string;
+  requestId?: string;
+}): BoundVerdictOutput {
+  const verdictMatch = params.llmOutput.match(VERDICT_LINE_RE);
+  if (!verdictMatch) {
+    const verdictLine = "VERDICT: FAIL — could not parse LLM output (expected VERDICT: PASS/FAIL/SKIPPED)";
+    return {
+      verdictLine,
+      llmOutput: `${params.llmOutput}\n\n${verdictLine}`,
+      verdictType: null,
+    };
+  }
+
+  const verdictType = verdictMatch[1].toUpperCase() as Verdict;
+  const downgradedPass =
+    verdictType === "PASS" &&
+    (!hasCompletePassingGateMarkers(params.llmOutput) || !params.requestId || !params.headSha);
+  const verdictLine = downgradedPass
+    ? "VERDICT: FAIL — PASS missing complete skeptic gate table or request binding"
+    : verdictMatch[0];
+  return {
+    verdictLine,
+    llmOutput: verdictLine === verdictMatch[0] ? params.llmOutput : `${params.llmOutput}\n\n${verdictLine}`,
+    verdictType: downgradedPass ? "FAIL" : verdictType,
+  };
+}
 
 /** Map a raw VERDICT token to a chalk color name (mirrors skeptic.ts lines 130-132). */
 export function getVerdictColor(verdictType: string): "green" | "yellow" | "red" {
