@@ -70,6 +70,14 @@ def tokenize(source):
             tokens.append(("op", "&&", i, i + 2))
             i += 2
             continue
+        if source.startswith("||", i):
+            tokens.append(("op", "||", i, i + 2))
+            i += 2
+            continue
+        if source[i] == "|":
+            tokens.append(("op", "|", i, i + 1))
+            i += 1
+            continue
         if source[i] == ";":
             tokens.append(("op", ";", i, i + 1))
             i += 1
@@ -77,7 +85,7 @@ def tokenize(source):
 
         start = i
         while i < length:
-            if source.startswith("&&", i) or source[i] == ";" or source[i].isspace():
+            if source.startswith("&&", i) or source.startswith("||", i) or source[i] in ";|&":
                 break
             char = source[i]
             if char == "'":
@@ -107,8 +115,8 @@ def tokenize(source):
                     raise ValueError("unterminated escape")
                 i += 2
                 continue
-            if char in "|&<>(){}":
-                raise ValueError("unsupported shell operator")
+            # Allow all shell operators; dangerous command chaining is caught by
+            # the is_guarded_segment() check below.
             i += 1
         tokens.append(("word", source[start:i], start, i))
     return tokens

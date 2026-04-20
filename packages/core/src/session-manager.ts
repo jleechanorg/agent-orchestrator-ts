@@ -97,6 +97,7 @@ import {
   getWorkerPromptArtifactPath,
   type WorkerPromptArtifact,
 } from "./prompt-artifact-builder.js";
+import { AOWorkerLogger } from "./ao-worker-logger.js";
 
 const _execFileAsync = promisify(execFile);
 const OPENCODE_DISCOVERY_TIMEOUT_MS = 2_000;
@@ -1065,6 +1066,18 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
     // Determine session ID — atomically reserve to prevent concurrent collisions
     const { sessionId, tmuxName } = await reserveNextSessionIdentity(project, sessionsDir);
 
+    // Log spawn start with initial parameters
+    AOWorkerLogger.logSpawnStart(
+      sessionId,
+      spawnConfig.projectId,
+      selection.agentName,
+      plugins.runtime.name,
+      {
+        prompt: spawnConfig.prompt,
+        issueId: spawnConfig.issueId,
+      }
+    );
+
     // Determine branch name — explicit branch always takes priority
     let branch: string;
     if (spawnConfig.branch) {
@@ -1244,6 +1257,20 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
         ...getMcpMailEnv(),
       };
 
+      // Log agent launch command and system prompt
+      AOWorkerLogger.logAgentLaunch(
+        sessionId,
+        spawnConfig.projectId,
+        selection.agentName,
+        plugins.runtime.name,
+        {
+          launchCommand,
+          systemPrompt: postLaunchPrompt,
+          workspacePath,
+          branch,
+        },
+      );
+
       handle = await plugins.runtime.create({
         sessionId: tmuxName ?? sessionId, // Use tmux name for runtime if available
         workspacePath,
@@ -1348,14 +1375,34 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
     // This is intentionally outside the try/catch above — a prompt delivery failure
     // should NOT destroy the session. The agent is running; user can retry with `ao send`.
     if (plugins.agent.promptDelivery === "post-launch" && postLaunchPrompt) {
+      let deliverySuccess = false;
+      let deliveryError: string | undefined;
+
       try {
         // Wait for agent to start and be ready for input
         await new Promise((resolve) => setTimeout(resolve, 5_000));
         await plugins.runtime.sendMessage(handle, postLaunchPrompt);
-      } catch {
+        deliverySuccess = true;
+      } catch (err) {
+        deliveryError = err instanceof Error ? err.message : String(err);
         // Non-fatal: agent is running but didn't receive the initial prompt.
         // User can retry with `ao send`.
       }
+
+      // Log prompt delivery result
+      AOWorkerLogger.logPromptDelivery(
+        sessionId,
+        spawnConfig.projectId,
+        selection.agentName,
+        plugins.runtime.name,
+        {
+          prompt: postLaunchPrompt,
+          deliveryMethod: "post-launch",
+          success: deliverySuccess,
+          branch,
+          error: deliveryError,
+        },
+      );
     }
 
     return session;
@@ -2499,6 +2546,20 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       const baselineOutput = await captureOutput(handle);
       const baselineActivity = detectActivityFromOutput(baselineOutput) ?? session.activity;
       const baselineUpdatedAt = await getOpenCodeSessionUpdatedAt();
+
+      // Log message being sent
+      AOWorkerLogger.logSessionEvent(
+        sessionId,
+        "unknown", // We don't have projectId easily accessible here
+        agentName,
+        runtimeName,
+        "message_send",
+        {
+          message: transformedMessage,
+          originalMessage: message,
+          messageLength: transformedMessage.length,
+        }
+      );
 
       await runtimePlugin.sendMessage(handle, transformedMessage);
 
