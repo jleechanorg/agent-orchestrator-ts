@@ -60,7 +60,7 @@ for PR in $(echo "$PR_JSON" | jq -r '.[] | @base64'); do
 
   # 2. No merge conflicts
   PR_DATA2=$(gh api "repos/$GITHUB_REPOSITORY/pulls/${PR_NUM}" \
-    --jq '{mergeable: .mergeable, merged: .merged}' 2>/dev/null)
+    --jq '{mergeable: .mergeable, merged: .merged}' 2>/dev/null || echo '{}')
   MERGEABLE=$(echo "$PR_DATA2" | jq -r '.mergeable // "unknown"')
   MERGED_FLAG=$(echo "$PR_DATA2" | jq -r '.merged // false')
   MERGE_CONFLICT=$(if [ "$MERGEABLE" = "true" ] || [ "$MERGED_FLAG" = "true" ]; then echo "PASS"; else echo "FAIL (mergeable=$MERGEABLE)"; fi)
@@ -116,8 +116,12 @@ for PR in $(echo "$PR_JSON" | jq -r '.[] | @base64'); do
   # Fail-closed: only pass on success/neutral/skipped; pass on none (no Bugbot run).
   BUGBOT_CONCLUSION=$(gh api "repos/$GITHUB_REPOSITORY/commits/${PR_SHA}/check-runs" \
     --paginate 2>/dev/null \
-    | jq -rs '[.[] | .check_runs[]?] | map(select(.name | test("Cursor Bugbot"; "i"))) | sort_by(.completed_at) | last | .conclusion // "none"' \
-    2>/dev/null || echo "none")
+    | jq -rs '[.[] | .check_runs[]?] | map(select(.name | test("Cursor Bugbot"; "i"))) | sort_by(.completed_at) | last | .conclusion // empty' \
+    2>/dev/null)
+  BUGBOT_CONCLUSION_EXIT=$?
+  if [ $BUGBOT_CONCLUSION_EXIT -ne 0 ] || [ -z "$BUGBOT_CONCLUSION" ]; then
+    BUGBOT_CONCLUSION="error"
+  fi
   if [ "$BUGBOT_CONCLUSION" = "success" ] || [ "$BUGBOT_CONCLUSION" = "neutral" ] || [ "$BUGBOT_CONCLUSION" = "skipped" ] || [ "$BUGBOT_CONCLUSION" = "none" ]; then
     BUGBOT_STATUS="PASS"
     echo "  [4] Bugbot clean:       PASS ($BUGBOT_CONCLUSION)"
@@ -128,7 +132,7 @@ for PR in $(echo "$PR_JSON" | jq -r '.[] | @base64'); do
   fi
 
   # 5. Inline comments resolved (GraphQL)
-  PR_AUTHOR=$(gh api "repos/$GITHUB_REPOSITORY/pulls/${PR_NUM}" --jq '.user.login')
+  PR_AUTHOR=$(gh api "repos/$GITHUB_REPOSITORY/pulls/${PR_NUM}" --jq '.user.login' 2>/dev/null || echo "")
   REPO_NAME="${GITHUB_REPOSITORY#*/}"
   set +e
   GQL_RESULT=$(gh api graphql -f query='
@@ -151,7 +155,7 @@ for PR in $(echo "$PR_JSON" | jq -r '.[] | @base64'); do
   ' -f owner="$GITHUB_REPOSITORY_OWNER" -f name="$REPO_NAME" -F number="$PR_NUM" 2>/dev/null)
   GQL_EXIT=$?
   set -e
-  if [ $GQL_EXIT -ne 0 ] || [ -z "$GQL_RESULT" ]; then
+  if [ $GQL_EXIT -ne 0 ] || [ -z "$GQL_RESULT" ] || [ "$(echo "$GQL_RESULT" | jq -r '.errors | length')" -gt 0 ] || [ "$(echo "$GQL_RESULT" | jq -r '.data')" = "null" ]; then
     UNRESOLVED="__GQL_ERROR__"
   elif [ "$(echo "$GQL_RESULT" | jq -r '.data.repository.pullRequest.reviewThreads.pageInfo.hasNextPage')" = "true" ] || [ "$(echo "$GQL_RESULT" | jq -r '[.data.repository.pullRequest.reviewThreads.nodes[].comments.pageInfo.hasNextPage | select(. == true)] | length')" -gt 0 ]; then
     UNRESOLVED="__TRUNCATED__"
@@ -192,9 +196,11 @@ for PR in $(echo "$PR_JSON" | jq -r '.[] | @base64'); do
   echo "  [6] Evidence review:    $EVIDENCE_STATUS"
 
   # 7. Skeptic verdict — look for VERDICT comment from AO worker.
+  # Split comma-separated SKEPTIC_BOT_AUTHOR and test membership in jq.
+  SKEPTIC_AUTHORS_ARR=$(echo "${SKEPTIC_BOT_AUTHOR}" | jq -R 'split(",")' 2>/dev/null)
   SKEPTIC_VERDICT=$(gh api "repos/$GITHUB_REPOSITORY/issues/$PR_NUM/comments" \
     --paginate 2>/dev/null \
-    | jq -s 'add | [.[] | select(.user.login == "'"${SKEPTIC_BOT_AUTHOR}"'" and (.body | test("VERDICT:"; "i")) and (.body | test("skeptic-cron-trigger-'"$PR_SHA"'"; "i"))) | .body] | last // empty' 2>/dev/null || echo "")
+    | jq -s --arg authors "$SKEPTIC_AUTHORS_ARR" --arg trigger "skeptic-cron-trigger-${PR_SHA}" 'add | [.[] | select(.user.login as $u | ($authors | from_json | index($u))) and (.body | test("VERDICT:"; "i")) and (.body | test($trigger; "i"))) | .body] | last // empty' 2>/dev/null || echo "")
   if echo "$SKEPTIC_VERDICT" | grep -qi "VERDICT: PASS"; then
     SKEPTIC_STATUS="PASS"
   elif echo "$SKEPTIC_VERDICT" | grep -qi "VERDICT: FAIL"; then
@@ -203,7 +209,7 @@ for PR in $(echo "$PR_JSON" | jq -r '.[] | @base64'); do
     FALLBACK_TRIGGER_RE="skeptic-cron-trigger-${PR_SHA}"
     SKEPTIC_VERDICT=$(gh api "repos/$GITHUB_REPOSITORY/issues/$PR_NUM/comments" \
       --paginate 2>/dev/null \
-      | jq -s 'add | [.[] | select((.user.login == "'"${SKEPTIC_BOT_AUTHOR}"'" or .user.login == "github-actions[bot]") and (.body | test("VERDICT:"; "i")) and (.body | test("'"$FALLBACK_TRIGGER_RE"'"; "i"))) | .body] | last // empty' 2>/dev/null || echo "")
+      | jq -s --arg authors "$SKEPTIC_AUTHORS_ARR" --arg fallback "$FALLBACK_TRIGGER_RE" 'add | [.[] | select((.user.login as $u | ($authors | from_json | index($u))) or .user.login == "github-actions[bot]") and (.body | test("VERDICT:"; "i")) and (.body | test($fallback; "i"))) | .body] | last // empty' 2>/dev/null || echo "")
     if echo "$SKEPTIC_VERDICT" | grep -qi "VERDICT: PASS"; then
       SKEPTIC_STATUS="PASS"
     elif echo "$SKEPTIC_VERDICT" | grep -qi "VERDICT: FAIL"; then
@@ -233,7 +239,7 @@ for PR in $(echo "$PR_JSON" | jq -r '.[] | @base64'); do
       echo "Already merged — skipping"
     else
       # SHA safety check
-      CURRENT_SHA=$(gh api "repos/$GITHUB_REPOSITORY/pulls/${PR_NUM}" --jq '.head.sha' 2>/dev/null)
+      CURRENT_SHA=$(gh api "repos/$GITHUB_REPOSITORY/pulls/${PR_NUM}" --jq '.head.sha' 2>/dev/null || echo "")
       if [ "$CURRENT_SHA" != "$PR_SHA" ]; then
         echo "HEAD SHA changed ($PR_SHA -> $CURRENT_SHA) — skipping merge (will re-evaluate next cycle)"
         continue
