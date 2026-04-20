@@ -2861,6 +2861,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
     const restoredRequestedTask = session.metadata?.requestedTask ?? session.metadata?.userPrompt;
     let restoredPrompt = restoredRequestedTask;
     let restoredSystemPromptFile: string | undefined;
+    const restoredPromptArtifactMissing = Boolean(restoredPromptFile && !existsSync(restoredPromptFile));
     if (restoredPromptFile && existsSync(restoredPromptFile)) {
       restoredSystemPromptFile = restoredPromptFile;
       if (agentSupportsPromptFile(plugins.agent)) {
@@ -2891,8 +2892,24 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
 
     if (plugins.agent.getRestoreCommand) {
       const restoreCmd = await plugins.agent.getRestoreCommand(session, project);
-      launchCommand = restoreCmd ?? plugins.agent.getLaunchCommand(agentLaunchConfig);
+      if (restoreCmd) {
+        launchCommand = restoreCmd;
+      } else {
+        if (restoredPromptArtifactMissing && !restoredPrompt) {
+          throw new SessionNotRestorableError(
+            sessionId,
+            "prompt artifact is missing and no requested task was persisted",
+          );
+        }
+        launchCommand = plugins.agent.getLaunchCommand(agentLaunchConfig);
+      }
     } else {
+      if (restoredPromptArtifactMissing && !restoredPrompt) {
+        throw new SessionNotRestorableError(
+          sessionId,
+          "prompt artifact is missing and no requested task was persisted",
+        );
+      }
       launchCommand = plugins.agent.getLaunchCommand(agentLaunchConfig);
     }
 

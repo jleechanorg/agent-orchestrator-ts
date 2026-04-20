@@ -4503,6 +4503,31 @@ describe("restore", () => {
     );
   });
 
+  it("fails closed when a tracker-backed restore is missing its only prompt artifact", async () => {
+    const wsPath = join(tmpDir, "ws-app-restore-missing-tracker-prompt");
+    mkdirSync(wsPath, { recursive: true });
+    const missingPromptPath = join(tmpDir, "missing-tracker-worker-prompt-app-1.md");
+
+    writeMetadata(sessionsDir, "app-1", {
+      worktree: wsPath,
+      branch: "feat/TEST-MISSING-TRACKER-PROMPT",
+      status: "killed",
+      project: "my-app",
+      issue: "TEST-42",
+      runtimeHandle: JSON.stringify(makeHandle("rt-old")),
+      composedPromptPath: missingPromptPath,
+    });
+
+    const sm = createSessionManager({ config, registry: mockRegistry });
+
+    await expect(sm.restore("app-1")).rejects.toThrow(SessionNotRestorableError);
+    await expect(sm.restore("app-1")).rejects.toThrow(
+      "prompt artifact is missing and no requested task was persisted",
+    );
+    expect(mockAgent.getLaunchCommand).not.toHaveBeenCalled();
+    expect(mockRuntime.create).not.toHaveBeenCalled();
+  });
+
   it("restores full prompt text for agents without prompt-file support", async () => {
     const wsPath = join(tmpDir, "ws-app-restore-no-file-support");
     mkdirSync(wsPath, { recursive: true });
