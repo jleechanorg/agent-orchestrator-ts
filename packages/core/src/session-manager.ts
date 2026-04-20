@@ -2561,6 +2561,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
             messageLength: transformedMessage.length,
             success: true,
           },
+          session.branch,
         );
       } catch (err) {
         AOWorkerLogger.logSessionEvent(
@@ -2576,6 +2577,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
             success: false,
             error: err instanceof Error ? err.message : String(err),
           },
+          session.branch,
         );
         throw err;
       }

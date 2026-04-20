@@ -2814,6 +2814,7 @@ describe("send", () => {
         messageLength: "Fix the CI failures".length,
         success: true,
       }),
+      "main",
     );
   });
 
@@ -2847,6 +2848,7 @@ describe("send", () => {
         success: false,
         error: "tmux send failed",
       }),
+      "main",
     );
   });
 
