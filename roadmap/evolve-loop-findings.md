@@ -1038,3 +1038,32 @@ Existing beads cover all current friction:
 - bd-22a6 (P1): Fix minimax model assignment in jleechanclaw AO project config
 - Gateway port mismatch: alias `openclaw` to use staging config, or document --config flag
 - Zero-touch regression: investigate why 4 merged PRs had no [agento] prefix — likely workers dying mid-task
+
+## Evolve Loop Cycle — 2026-04-18 21:XX UTC
+### Zero-touch rate: 100% (24/24) — stable, all recent merges are [agento]
+### Workers
+- 4 zombie workers killed (merged/closed PRs): ao-3926 (#461), ao-3929 (#462), ao-3936 (#464 closed), jc-1796 (#552)
+- ao-3939: active on PR #465 CR comments
+- Remaining sessions: ao-3934, ao-3935, ao-3937, jc-1790/1797/1798/1799 (no PR or empty)
+
+### Open PRs
+- PR #470: fix hook + test.yml + pipe operator tokenization — CR pending
+- PR #465: eloop skill + poller docs + ao-worker-logger — 8 CR threads, ao-3939 addressing
+- worldai_claw #228: skeptic-gate→green-gate rename, no updates since Apr 11
+
+### Friction points
+- **PR #464 false claim**: claimed to fix skeptic-gate workflow (replacing echo waiting) but only contained CLAUDE.md/yaml.example docs — closed as misleading
+- **Hook still had gap**: tokenizer absorbed | into word tokens, allowing `echo x | gh pr merge` to bypass guard — CR caught this in #469; fixed in #470
+
+### Fixes
+- Closed #468 and #469 (incomplete hook fix + bad PR claim)
+- Created PR #470 with complete fix: hook operator fix + test.yml YAML + pipe tokenization per CR
+
+### Beads
+- bd-qq15m (2D sprites, worldai_claw): stale
+- bd-vdx47 (openclaw_sso video evidence): stale
+
+### Recommendations
+- PR #470: address CR feedback quickly and merge
+- PR #465: ao-3939 is working CR comments — let it finish or dispatch help
+- worldai_claw #228: needs attention — no activity since Apr 11

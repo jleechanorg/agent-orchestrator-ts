@@ -20,6 +20,7 @@
  */
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
+import { readFileSync } from "node:fs";
 
 // ---------------------------------------------------------------------------
 // Hoisted mocks — vi.hoisted runs before module imports, returning stable
@@ -435,6 +436,8 @@ describe("skeptic chain integration", () => {
   // Test 5: JQ filter match — validates skeptic-gate.yml polling filter
   // -------------------------------------------------------------------------
   describe("skeptic-gate.yml JQ filter", () => {
+    const workflowSource = readFileSync(new URL("../../../../.github/workflows/test.yml", import.meta.url), "utf8");
+
     /**
      * TypeScript re-implementation of skeptic-gate.yml's polling jq filter
      * (workflow line 235). Validates that the filter correctly selects
@@ -506,6 +509,37 @@ describe("skeptic chain integration", () => {
       ].join("\n");
     }
 
+    function lastAnchoredVerdict(body: string): "PASS" | "FAIL" | "SKIPPED" | null {
+      let verdict: "PASS" | "FAIL" | "SKIPPED" | null = null;
+      for (const line of body.split("\n")) {
+        const normalized = line
+          .replace(/^[\s>#*]*/, "")
+          .replace(/^VERDICT:\s*/i, "");
+        if (normalized === line) continue;
+        const token = normalized.split(/[^A-Za-z]+/)[0]?.toUpperCase();
+        if (token === "PASS" || token === "FAIL" || token === "SKIPPED") {
+          verdict = token;
+        }
+      }
+      return verdict;
+    }
+
+    function workflowFailClosedVerdict(body: string): "PASS" | "FAIL" | "SKIPPED" | null {
+      const verdicts = body.split("\n").flatMap((line): Array<"PASS" | "FAIL" | "SKIPPED"> => {
+        const normalized = line
+          .replace(/^[\s>#*]*/, "")
+          .replace(/^VERDICT:\s*/i, "");
+        if (normalized === line) return [];
+        const token = normalized.split(/[^A-Za-z]+/)[0]?.toUpperCase();
+        return token === "PASS" || token === "FAIL" || token === "SKIPPED" ? [token] : [];
+      });
+      return verdicts.find((token) => token === "FAIL" || token === "SKIPPED") ?? verdicts.find((token) => token === "PASS") ?? null;
+    }
+
+    function gatePasses(verdict: "PASS" | "FAIL" | "SKIPPED" | null): boolean {
+      return verdict === "PASS";
+    }
+
     it("matches the correct verdict and rejects stale/non-matching comments", () => {
       const comments = [
         // Old verdict (stale timestamp) — rejected
@@ -541,6 +575,13 @@ describe("skeptic chain integration", () => {
           id: 104,
           body: `VERDICT: PASS<!-- skeptic-gate-trigger-${TRIGGER_SHA} -->`,
           user: { login: "some-other-bot" },
+          updatedAt: "2026-03-28T12:05:00Z",
+        },
+        // Verdict by configured author without skeptic marker — rejected
+        {
+          id: 105,
+          body: `VERDICT: PASS<!-- skeptic-gate-trigger-${TRIGGER_SHA} -->`,
+          user: { login: "jleechan2015" },
           updatedAt: "2026-03-28T12:05:00Z",
         },
       ];
@@ -604,6 +645,45 @@ describe("skeptic chain integration", () => {
 
       expect(result).not.toBeNull();
       expect(result!.id).toBe(200);
+      expect(result!.body).toContain("VERDICT: SKIPPED");
+      expect(gatePasses(lastAnchoredVerdict(result!.body))).toBe(false);
+    });
+
+    it("keeps SKIPPED fail-closed in the workflow shell", () => {
+      expect(workflowSource).not.toMatch(/VERDICT" = "SKIPPED"[\s\S]{0,200}exit 0/);
+    });
+
+    it("tracks PR state and comment API failures independently", () => {
+      expect(workflowSource).toContain("PR_STATE_API_FAILURES=0");
+      expect(workflowSource).toContain("COMMENTS_API_FAILURES=0");
+      expect(workflowSource).not.toMatch(/^[ \t]*API_FAILURES=0$/m);
+    });
+
+    it("backs off and skips comment polling after transient PR state API failures", () => {
+      const prStateFailureBlock = workflowSource.match(
+        /if \[ "\$PR_STATE_EXIT" -ne 0 \]; then([\s\S]*?)else/,
+      )?.[1];
+
+      expect(prStateFailureBlock).toContain('sleep "$INTERVAL"');
+      expect(prStateFailureBlock).toContain("continue");
+    });
+
+    it("scopes workflow concurrency per PR instead of serializing all skeptic gate runs", () => {
+      expect(workflowSource).not.toMatch(/group:\s*skeptic-gate\s*$/m);
+      expect(workflowSource).toContain("github.event.pull_request.number");
+    });
+
+    it("keeps the workflow jq filter aligned with request, head, and eight-gate PASS binding", () => {
+      expect(workflowSource).toContain("REQUEST_ID: $" + "{{ steps.post_trigger.outputs.request_id }}");
+      expect(workflowSource).toContain('--arg request "$REQUEST_ID"');
+      expect(workflowSource).toContain('skeptic-request-id-" + $request');
+      expect(workflowSource).toContain('skeptic-head-sha-" + $ts');
+      expect(workflowSource).toContain('skeptic-gate-" + ($gate | tostring)');
+    });
+
+    it("matches verdict lines after hidden markers in jq, matching ao skeptic comment format", () => {
+      expect(workflowSource).toContain('test("(^|\\\\n)[[:space:]>#*]*VERDICT:[[:space:]]*PASS');
+      expect(workflowSource).not.toContain('test("^[[:space:]>#*]*VERDICT:[[:space:]]*PASS');
     });
 
     it("returns null when no matching verdict exists", () => {
@@ -619,6 +699,31 @@ describe("skeptic chain integration", () => {
       const result = jqFilterMatch(comments, "jleechan2015", TRIGGER_SHA, TRIGGER_UPDATED, "req-chain");
 
       expect(result).toBeNull();
+    });
+
+    it("uses the last anchored verdict when a comment contains multiple verdict tokens", () => {
+      const body = [
+        "Earlier model transcript:",
+        "VERDICT: PASS",
+        "",
+        "Final reviewed result:",
+        "VERDICT: FAIL — evidence is incomplete",
+      ].join("\n");
+
+      expect(lastAnchoredVerdict(body)).toBe("FAIL");
+    });
+
+    it("fails closed when a selected comment contains FAIL then later PASS without relying on gate markers", () => {
+      const body = [
+        "<!-- skeptic-agent-verdict -->",
+        "VERDICT: FAIL - selected by jq fail branch",
+        "",
+        "Later transcript text:",
+        "VERDICT: PASS",
+      ].join("\n");
+
+      expect(workflowFailClosedVerdict(body)).toBe("FAIL");
+      expect(workflowSource).toContain("BLOCKING_VERDICT=");
     });
   });
 });
