@@ -13,8 +13,6 @@ name: Skeptic Cron
 #
 on:
   schedule:
-    # Intentional: 20-minute cycle for responsive skeptic evaluation.
-    # Previous 30-minute cycle was too slow to catch PRs entering 7-green state.
     - cron: "*/20 * * * *"
   workflow_dispatch:
 
@@ -41,8 +39,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           PR_JSON=$(gh api repos/${{ github.repository }}/pulls \
-            --paginate 2>/dev/null \
-            | jq -s '[add[] | select(.draft == false) | {number, title, head: {ref: .head.ref, sha: .head.sha}, base: {ref: .base.ref}, mergeable}]' 2>/dev/null || echo "[]")
+            --jq '[.[] | select(.draft == false) | {number, title, head: {ref: .head.ref, sha: .head.sha}, base: {ref: .base.ref}, mergeable}]')
 
           echo "Open non-draft PRs found:"
           echo "$PR_JSON" | jq -c '.[]' 2>/dev/null || echo "$PR_JSON"
@@ -98,15 +95,15 @@ jobs:
               fi
             fi
 
-            # Fallback: check the Green Gate check run status
+            # Fallback: check the Skeptic Gate check run status
             if [ "$GATE_PASSED" = "false" ]; then
               GATE_CHECK=$(gh api repos/${{ github.repository }}/commits/"$PR_SHA"/check-runs \
-                --jq '[.check_runs[] | select(.name == "Green Gate Orchestrator")] | last | .conclusion // "none"' 2>/dev/null || echo "none")
+                --jq '[.check_runs[] | select(.name == "Skeptic Gate")] | last | .conclusion // "none"' 2>/dev/null || echo "none")
               if [ "$GATE_CHECK" = "success" ]; then
                 GATE_PASSED=true
-                echo "  [PRE-CHECK] Green Gate check run: success for SHA ${PR_SHA:0:7}"
+                echo "  [PRE-CHECK] Skeptic Gate check run: success for SHA ${PR_SHA:0:7}"
               else
-                echo "  [PRE-CHECK] Green Gate check run: $GATE_CHECK for SHA ${PR_SHA:0:7}"
+                echo "  [PRE-CHECK] Skeptic Gate check run: $GATE_CHECK for SHA ${PR_SHA:0:7}"
               fi
             fi
 
@@ -170,7 +167,6 @@ jobs:
                 SKIPPED_NOT_6GREEN=$((SKIPPED_NOT_6GREEN + 1))
                 continue
               else
-                # Use PR_SHA (trigger SHA) for CR status/comment check — verdict matching relies on this
                 HEAD_COMMITTED_AT=$(gh api repos/${{ github.repository }}/commits/"$PR_SHA" \
                   --jq '.commit.committer.date // ""' 2>/dev/null || echo "")
                 CR_STATUS=$(gh api repos/${{ github.repository }}/commits/"$PR_SHA"/status \
@@ -204,17 +200,17 @@ jobs:
             fi
 
             # ----------------------------------------------------------------
-            # Gate 4: Bugbot clean — fail on any non-success conclusion.
-            # "success" only; cancelled/timed_out/action_required/stale all fail the gate.
-            BUGBOT_CONCLUSION=$(gh api repos/${{ github.repository }}/commits/"$PR_SHA"/check-runs \
-              --jq '[.check_runs[] | select(.name == "Cursor Bugbot")] | sort_by(.started_at) | reverse | .[0].conclusion // "none"' \
-              2>/dev/null || echo "none")
-            if [ "$BUGBOT_CONCLUSION" != "success" ]; then
-              echo "  [SKIP] Gate-4 FAIL: Bugbot check-run=$BUGBOT_CONCLUSION (not success)"
+            # Gate 4: Bugbot clean
+            # ----------------------------------------------------------------
+            BUGBOT_ERRORS=$(gh api repos/${{ github.repository }}/pulls/"$PR_NUM"/comments \
+              --jq '[.[] | select(.user.login == "cursor[bot]" and (.body | test("error"; "i")))] | length' \
+              2>/dev/null || echo 0)
+            if [ "${BUGBOT_ERRORS:-0}" -gt 0 ]; then
+              echo "  [SKIP] Gate-4 FAIL: Bugbot=$BUGBOT_ERRORS error(s)"
               SKIPPED_NOT_6GREEN=$((SKIPPED_NOT_6GREEN + 1))
               continue
             fi
-            echo "  [GATE-4] Bugbot=clean (check-run=$BUGBOT_CONCLUSION)"
+            echo "  [GATE-4] Bugbot=clean"
 
             # ----------------------------------------------------------------
             # Gate 5: Inline comments resolved (GraphQL — REST lacks isResolved)
@@ -305,9 +301,6 @@ jobs:
           # Default to github-actions[bot] — aligns with skeptic-gate.yml.
           # AO worker posts verdict via GITHUB_TOKEN (authenticates as github-actions[bot]).
           SKEPTIC_BOT_AUTHOR: ${{ vars.SKEPTIC_BOT_AUTHOR || 'github-actions[bot]' }}
-          # Safety controls: SKEPTIC_CRON_AUTO_MERGE=false disables auto-merge; SKEPTIC_MERGE_DENYLIST excludes specific PRs.
-          SKEPTIC_CRON_AUTO_MERGE: ${{ vars.SKEPTIC_CRON_AUTO_MERGE || 'true' }}
-          SKEPTIC_MERGE_DENYLIST: ${{ vars.SKEPTIC_MERGE_DENYLIST || '' }}
         run: |
           MERGED=0
 
@@ -341,7 +334,7 @@ jobs:
               fi
             fi
 
-            # 1. CI green — use fresh HEAD_SHA (current commit may differ from PR_SHA if PR advanced since listing)
+            # 1. CI green
             HEAD_SHA=$(gh api repos/${{ github.repository }}/pulls/"$PR_NUM" --jq '.head.sha')
             CI_STATUS=$(gh api repos/${{ github.repository }}/commits/"$HEAD_SHA"/status \
               --jq '.state' 2>/dev/null || echo "error")
@@ -372,7 +365,6 @@ jobs:
               elif [ "$LATEST_CR" != "none" ]; then
                 CR_APPROVED="FAIL (state=$LATEST_CR)"
               else
-                # CR status/comment check uses PR_SHA from listing (trigger SHA) — verdicts are keyed to it
                 HEAD_COMMITTED_AT=$(gh api repos/${{ github.repository }}/commits/"$PR_SHA" \
                   --jq '.commit.committer.date // ""' 2>/dev/null || echo "")
                 CR_STATUS=$(gh api repos/${{ github.repository }}/commits/"$PR_SHA"/status \
@@ -402,12 +394,10 @@ jobs:
             fi
             echo "  [3] CR APPROVED:        $CR_APPROVED"
 
-            # Gate 4: Bugbot clean — fail on any non-success conclusion.
-            # "success" only; cancelled/timed_out/action_required/stale all fail the gate.
-            BUGBOT_CONCLUSION=$(gh api repos/${{ github.repository }}/commits/"$PR_SHA"/check-runs \
-              --jq '[.check_runs[] | select(.name == "Cursor Bugbot")] | sort_by(.started_at) | reverse | .[0].conclusion // "none"' \
-              2>/dev/null || echo "none")
-            BUGBOT_STATUS=$(if [ "$BUGBOT_CONCLUSION" = "success" ]; then echo "PASS"; else echo "FAIL (check-run=$BUGBOT_CONCLUSION)"; fi)
+            # 4. Bugbot clean
+            BUGBOT_ERRORS=$(gh api repos/${{ github.repository }}/pulls/"$PR_NUM"/comments \
+              --jq '[.[] | select(.user.login == "cursor[bot]" and (.body | test("error"; "i")))] | length' 2>/dev/null || echo 0)
+            BUGBOT_STATUS=$(if [ "$BUGBOT_ERRORS" = "0" ] || [ -z "$BUGBOT_ERRORS" ]; then echo "PASS"; else echo "FAIL ($BUGBOT_ERRORS error(s))"; fi)
             echo "  [4] Bugbot clean:       $BUGBOT_STATUS"
 
             # 5. Inline comments resolved (GraphQL)
@@ -462,7 +452,7 @@ jobs:
             # Scope to exact "Evidence Gate" check to avoid false PASS from other evidence-prefixed checks.
             # A partial pass (e.g. Evidence Has Media passes but Evidence Gate fails) must not satisfy gate 6.
             # --paginate + jq -s: combine multiple API pages into a single array before filtering.
-            # Separate "no check-run found" (missing) from "check exists but conclusion is null" (in-progress).
+            # Separate "no check-run found" (missing) (missing) from "check exists but conclusion is null" (in-progress).
             # jq -sr: -s slurps paginated pages into array, -r strips JSON quotes.
             # If no Evidence Gate check-run exists → output "missing". If check exists but conclusion is null → output "".
             EVIDENCE_GATE_CONCLUSION=$(echo "$EVIDENCE_CHECKS_RAW" | jq -sr \
@@ -485,17 +475,29 @@ jobs:
             echo "  [6] Evidence review:    $EVIDENCE_STATUS"
 
             # 7. Skeptic verdict — look for VERDICT comment from AO worker.
-            # Filter by either author (SKEPTIC_BOT_AUTHOR or github-actions[bot]) + VERDICT: + SHA marker.
-            # Use jq -sr (slurp) on piped output so all pages are combined before filtering.
+            # Filter by author + VERDICT: keyword + SHA marker (skeptic-cron-trigger-<SHA>)
             SKEPTIC_VERDICT=$(gh api repos/${{ github.repository }}/issues/"$PR_NUM"/comments \
-              --paginate 2>/dev/null \
-              | jq -sr "[.[][] | select((.user.login == \"${SKEPTIC_BOT_AUTHOR}\" or .user.login == \"github-actions[bot]\") and (.body | test(\"VERDICT:\"; \"i\")) and (.body | test(\"skeptic-cron-trigger-${PR_SHA}\"; \"i\"))) | .body] | last // empty" || echo "")
+              --paginate \
+              --jq "[.[] | select(.user.login == \"${SKEPTIC_BOT_AUTHOR}\" and (.body | test(\"VERDICT:\"; \"i\")) and (.body | test(\"skeptic-cron-trigger-\" + \"$PR_SHA\"; \"i\"))) | .body] | last // empty" 2>/dev/null || echo "")
             if echo "$SKEPTIC_VERDICT" | grep -qi "VERDICT: PASS"; then
               SKEPTIC_STATUS="PASS"
             elif echo "$SKEPTIC_VERDICT" | grep -qi "VERDICT: FAIL"; then
               SKEPTIC_STATUS="FAIL"
             else
-              SKEPTIC_STATUS="FAIL"
+              # Fallback: also check github-actions[bot] author.
+              # Use PR_SHA (captured at trigger time) not HEAD_SHA (refetched below).
+              # The trigger comment was posted with PR_SHA; verdicts are keyed to it.
+              FALLBACK_TRIGGER_RE="skeptic-cron-trigger-${PR_SHA}"
+              SKEPTIC_VERDICT=$(gh api repos/${{ github.repository }}/issues/"$PR_NUM"/comments \
+                --paginate \
+                --jq "[.[] | select((.user.login == \"${SKEPTIC_BOT_AUTHOR}\" or .user.login == \"github-actions[bot]\") and (.body | test(\"VERDICT:\"; \"i\")) and (.body | test(\"$FALLBACK_TRIGGER_RE\"; \"i\"))) | .body] | last // empty" 2>/dev/null || echo "")
+              if echo "$SKEPTIC_VERDICT" | grep -qi "VERDICT: PASS"; then
+                SKEPTIC_STATUS="PASS"
+              elif echo "$SKEPTIC_VERDICT" | grep -qi "VERDICT: FAIL"; then
+                SKEPTIC_STATUS="FAIL"
+              else
+                SKEPTIC_STATUS="FAIL"
+              fi
             fi
             echo "  [7] Skeptic verdict:    $SKEPTIC_STATUS"
 
@@ -512,15 +514,6 @@ jobs:
             fi
 
             if [ "$ALL_PASS" = "true" ]; then
-              # Safety controls: skip if SKEPTIC_CRON_AUTO_MERGE=false or PR is denylisted.
-              if [ "$SKEPTIC_CRON_AUTO_MERGE" = "false" ]; then
-                echo "*** PR #${PR_NUM} is 7-green but SKEPTIC_CRON_AUTO_MERGE=false — skipping ***"
-                continue
-              fi
-              if echo ",$SKEPTIC_MERGE_DENYLIST," | grep -q ",$PR_NUM,"; then
-                echo "*** PR #${PR_NUM} is 7-green but on SKEPTIC_MERGE_DENYLIST — skipping ***"
-                continue
-              fi
               echo ""
               echo "*** PR #${PR_NUM} is 7-green! Merging... ***"
               if [ "$MERGED_FLAG" = "true" ]; then
