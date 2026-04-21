@@ -41,8 +41,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           PR_JSON=$(gh api repos/${{ github.repository }}/pulls \
-            --paginate \
-            --jq '[.[] | select(.draft == false) | {number, title, head: {ref: .head.ref, sha: .head.sha}, base: {ref: .base.ref}, mergeable}]')
+            --paginate 2>/dev/null \
+            | jq -s '[add[] | select(.draft == false) | {number, title, head: {ref: .head.ref, sha: .head.sha}, base: {ref: .base.ref}, mergeable}]' 2>/dev/null || echo "[]")
 
           echo "Open non-draft PRs found:"
           echo "$PR_JSON" | jq -c '.[]' 2>/dev/null || echo "$PR_JSON"
@@ -204,15 +204,13 @@ jobs:
             fi
 
             # ----------------------------------------------------------------
-            # Gate 4: Bugbot clean — use Cursor Bugbot check-run conclusion.
-            # Matches green-gate.yml approach: check-run API is authoritative;
-            # text-scanning PR comments for "error" produces false positives.
-            # ----------------------------------------------------------------
+            # Gate 4: Bugbot clean — fail on any non-success conclusion.
+            # "success" only; cancelled/timed_out/action_required/stale all fail the gate.
             BUGBOT_CONCLUSION=$(gh api repos/${{ github.repository }}/commits/"$PR_SHA"/check-runs \
               --jq '[.check_runs[] | select(.name == "Cursor Bugbot")] | sort_by(.started_at) | reverse | .[0].conclusion // "none"' \
               2>/dev/null || echo "none")
-            if [ "$BUGBOT_CONCLUSION" = "failure" ]; then
-              echo "  [SKIP] Gate-4 FAIL: Bugbot check-run=failure"
+            if [ "$BUGBOT_CONCLUSION" != "success" ]; then
+              echo "  [SKIP] Gate-4 FAIL: Bugbot check-run=$BUGBOT_CONCLUSION (not success)"
               SKIPPED_NOT_6GREEN=$((SKIPPED_NOT_6GREEN + 1))
               continue
             fi
@@ -404,11 +402,12 @@ jobs:
             fi
             echo "  [3] CR APPROVED:        $CR_APPROVED"
 
-            # 4. Bugbot clean — use Cursor Bugbot check-run conclusion (matches green-gate.yml)
+            # Gate 4: Bugbot clean — fail on any non-success conclusion.
+            # "success" only; cancelled/timed_out/action_required/stale all fail the gate.
             BUGBOT_CONCLUSION=$(gh api repos/${{ github.repository }}/commits/"$PR_SHA"/check-runs \
               --jq '[.check_runs[] | select(.name == "Cursor Bugbot")] | sort_by(.started_at) | reverse | .[0].conclusion // "none"' \
               2>/dev/null || echo "none")
-            BUGBOT_STATUS=$(if [ "$BUGBOT_CONCLUSION" = "failure" ]; then echo "FAIL (check-run=$BUGBOT_CONCLUSION)"; else echo "PASS (check-run=$BUGBOT_CONCLUSION)"; fi)
+            BUGBOT_STATUS=$(if [ "$BUGBOT_CONCLUSION" = "success" ]; then echo "PASS"; else echo "FAIL (check-run=$BUGBOT_CONCLUSION)"; fi)
             echo "  [4] Bugbot clean:       $BUGBOT_STATUS"
 
             # 5. Inline comments resolved (GraphQL)
