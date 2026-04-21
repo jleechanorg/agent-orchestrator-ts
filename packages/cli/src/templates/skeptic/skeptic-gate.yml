@@ -1,5 +1,9 @@
 name: Skeptic Gate
 
+permissions:
+  contents: write
+  pull-requests: write
+
 # master logic managed by jleechanorg/agent-orchestrator
 # thin-caller implementation to ensure auto-updates of GHA logic.
 
