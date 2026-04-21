@@ -91,7 +91,7 @@ export { createPollerManager } from "./poller-manager.js";
 export type { PollerManagerDeps } from "./poller-manager.js";
 
 // Prompt builder — layered prompt composition
-export { buildPrompt, BASE_AGENT_PROMPT } from "./prompt-builder.js";
+export { buildPrompt, BASE_AGENT_PROMPT, CORE_AGENT_PROMPT, PR_BOILERPLATE } from "./prompt-builder.js";
 export type { PromptBuildConfig } from "./prompt-builder.js";
 
 // Decomposer — LLM-driven task decomposition
