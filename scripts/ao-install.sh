@@ -119,7 +119,9 @@ fi
 # ─── Step 6: Verify lifecycle workers ────────────────────────────────────────
 echo "[6/7] Verifying lifecycle workers..."
 WORKER_COUNT=0
-if launchctl print "gui/$(id -u)/ai.agento.lifecycle-all" >/dev/null 2>&1; then
+if [ "$(uname)" != "Darwin" ]; then
+  echo "  - launchd not available (non-macOS)"
+elif launchctl print "gui/$(id -u)/ai.agento.lifecycle-all" >/dev/null 2>&1; then
   for pid in $PROJECTS; do
     if pgrep -f "lifecycle-worker[[:space:]].*${pid}([[:space:]]|\$)" >/dev/null 2>&1; then
       WORKER_COUNT=$((WORKER_COUNT + 1))
