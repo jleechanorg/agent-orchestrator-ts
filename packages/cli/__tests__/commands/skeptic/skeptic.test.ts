@@ -234,6 +234,25 @@ describe("bindVerdictOutput", () => {
 
     expect(result.verdictLine).toBe("VERDICT: PASS");
   });
+
+  it("keeps PASS unchanged when complete gate markers exist and request/head bindings are omitted", () => {
+    const result = bindVerdictOutput({
+      llmOutput: [
+        "<!-- skeptic-gate-1:PASS -->",
+        "<!-- skeptic-gate-2:PASS -->",
+        "<!-- skeptic-gate-3:PASS -->",
+        "<!-- skeptic-gate-4:PASS -->",
+        "<!-- skeptic-gate-5:PASS -->",
+        "<!-- skeptic-gate-6:PASS -->",
+        "<!-- skeptic-gate-7:PASS -->",
+        "<!-- skeptic-gate-8:PASS -->",
+        "VERDICT: PASS",
+      ].join("\n"),
+    });
+
+    expect(result.verdictLine).toBe("VERDICT: PASS");
+    expect(result.verdictType).toBe("PASS");
+  });
 });
 
 describe("findExistingVerdict — SKIPPED path", () => {
