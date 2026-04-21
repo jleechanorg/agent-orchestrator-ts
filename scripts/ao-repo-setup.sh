@@ -1,5 +1,6 @@
 #!/bin/bash
 # ao-repo-setup.sh — Bootstrap a fresh AO worker node
+# Sets up HERMES_HOME, worktree dir, launchd, and verifies gateway connectivity.
 # Replaces multiple legacy config directories with ~/.hermes_prod/ as sole source.
 # Usage: curl -fsSL https://raw.githubusercontent.com/jleechanorg/agent-orchestrator/main/scripts/ao-repo-setup.sh | bash
 set -euo pipefail
@@ -43,8 +44,8 @@ fi
 # Step 4: Check workspace directory
 WORKTREE_DIR=$(python3 -c "import yaml; c=yaml.safe_load(open('$HERMES_HOME/agent-orchestrator.yaml')); print(c.get('worktreeDir','~/.worktrees'))" 2>/dev/null || echo "~/.worktrees")
 WORKTREE_DIR="${WORKTREE_DIR/#\~/$HOME}"
-WORKTREE_DIR=$(cd "$WORKTREE_DIR" 2>/dev/null && pwd || echo "$HOME/.worktrees")
 mkdir -p "$WORKTREE_DIR"
+WORKTREE_DIR=$(cd "$WORKTREE_DIR" && pwd)
 echo "[4/6] Worktree dir: $WORKTREE_DIR"
 
 # Step 5: Check launchd for lifecycle worker (macOS only)
