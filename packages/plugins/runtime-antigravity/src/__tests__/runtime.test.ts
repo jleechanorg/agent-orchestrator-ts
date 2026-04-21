@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { execFile } from "node:child_process";
 import type { RuntimeHandle } from "@jleechanorg/ao-core";
 
 /** Test-only globals for the mocked CdpClient (see vi.mock below). */
@@ -10,6 +11,11 @@ type CdpTestGlobals = {
 function cdpTest(): typeof globalThis & CdpTestGlobals {
   return globalThis as typeof globalThis & CdpTestGlobals;
 }
+
+// Mock node:child_process — used for PIL availability check in handleAllowPrompt.
+vi.mock("node:child_process", () => ({
+  execFile: vi.fn(),
+}));
 
 // Mock the peekaboo module
 vi.mock("../peekaboo.js", () => ({
@@ -144,6 +150,16 @@ beforeEach(() => {
   cdpTest()._mockCdpEval = undefined;
   // Default: screencapture returns empty buffer (no Allow prompt)
   mockScreencapture.mockResolvedValue(Buffer.alloc(0));
+  // Default: PIL check succeeds — mock execFile (called as callback or returning ChildProcess)
+  vi.mocked(execFile).mockImplementation(((...args: unknown[]) => {
+    const last = args[args.length - 1];
+    if (typeof last === "function") {
+      // callback style — fulfill immediately
+      setImmediate(() => (last as (err: Error | null, stdout: Buffer, stderr: Buffer) => void)(null, Buffer.alloc(0), Buffer.alloc(0)));
+    }
+    // return a mock ChildProcess (for promisify style)
+    return { stdout: Buffer.alloc(0), stderr: Buffer.alloc(0), exitCode: 0, on: vi.fn(), once: vi.fn() } as any;
+  }) as typeof execFile);
 });
 
 // =============================================================================

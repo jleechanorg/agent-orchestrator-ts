@@ -19,6 +19,8 @@ import type {
   RuntimeMetrics,
   AttachInfo,
 } from "@jleechanorg/ao-core";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import * as peekaboo from "./peekaboo.js";
 import { executeWithFallback, type FallbackConfig } from "./fallback.js";
 import { createPoller } from "./poller.js";
@@ -119,9 +121,7 @@ async function handleAllowPrompt(
     // Step 0: Verify PIL is available in the python3 environment.
     // A missing PIL (e.g. bare system python3 with no Pillow) should not cause
     // handleAllowPrompt to throw — the Allow prompt is best-effort.
-    const { execFile: execFileCb } = await import("node:child_process");
-    const { promisify } = await import("node:util");
-    const execFileAsync = promisify(execFileCb);
+    const execFileAsync = promisify(execFile);
 
     try {
       await execFileAsync("python3", ["-c", "from PIL import Image; import numpy"], {
