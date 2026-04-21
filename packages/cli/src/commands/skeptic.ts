@@ -99,6 +99,7 @@ async function findExistingVerdict(
   repo: string,
   prNumber: number,
   triggerSha?: string,
+  requestId?: string,
 ): Promise<{ verdict: "PASS" | "FAIL" | "SKIPPED"; commentId: number } | null> {
   // Normalize triggerSha: trim whitespace and treat empty/invalid as unset
   const normalizedSha = triggerSha?.trim();
@@ -106,22 +107,28 @@ async function findExistingVerdict(
 
   const comments = await fetchIssueComments(owner, repo, prNumber);
   for (const c of comments) {
-    const authorLogin = c.user?.login?.toLowerCase();
-    if (!authorLogin || authorLogin !== SKEPTIC_BOT_AUTHOR.toLowerCase()) continue;
-    // Must start with the HTML marker (not just contain it mid-text).
-    if (!c.body.trim().startsWith("<!-- skeptic-agent-verdict -->")) continue;
-    // Optionally match by requestId (when a specific trigger comment id is known).
-    if (requestId) {
-      const escaped = requestId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-      if (!new RegExp(`<!-- skeptic-request-id-${escaped} -->`, "i").test(c.body)) continue;
-    } else if (validSha) {
-      const escapedSha = validSha.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-      const shaMarker = new RegExp(`<!-- skeptic-(?:gate|cron)-trigger-${escapedSha} -->`);
-      if (!shaMarker.test(c.body)) continue;
-    }
-    const m = c.body.match(VERDICT_LINE_RE);
-    if (m) {
-      return { verdict: m[1].toUpperCase() as "PASS" | "FAIL" | "SKIPPED", commentId: c.id };
+    // Must be from the skeptic bot author — cursor[bot] comments can contain
+    // `<!-- skeptic-agent-verdict -->` as literal text in a bug description,
+    // which would otherwise false-match here.
+    // Only reuse a comment if it was posted for the same trigger SHA —
+    // otherwise editing it leaves the old updated_at and the skeptical gate
+    // workflow rejects it (it filters by updated_at >= TRIGGER_UPDATED).
+    if (/<!-- skeptic-agent-verdict -->/i.test(c.body)) {
+      const escapedSha = validSha?.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const shaMarker = escapedSha
+        ? new RegExp(`<!-- skeptic-(?:gate|cron)-trigger-${escapedSha} -->`)
+        : null;
+      if (!shaMarker || shaMarker.test(c.body)) {
+        // If requestId was provided, also match by it to avoid races on same SHA
+        if (requestId) {
+          const ridMarker = new RegExp(`<!-- skeptic-request-id-.*${requestId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} -->`);
+          if (!ridMarker.test(c.body)) continue;
+        }
+        const m = c.body.match(VERDICT_LINE_RE);
+        if (m) {
+          return { verdict: m[1].toUpperCase() as "PASS" | "FAIL" | "SKIPPED", commentId: c.id };
+        }
+      }
     }
   }
   return null;
@@ -186,7 +193,7 @@ export function registerSkeptic(program: Command): Command {
         fetchReviews(owner, repo, prNumber).catch(() => []),
         options.dryRun
           ? Promise.resolve(null)
-          : findExistingVerdict(owner, repo, prNumber, options.triggerSha).catch(() => null),
+          : findExistingVerdict(owner, repo, prNumber, options.triggerSha, options.requestId).catch(() => null),
       ]);
       // Design doc fetch uses GitHub API with the PR's head ref so it works regardless of cwd.
       const designDoc = await fetchDesignDoc(owner, repo, prNumber, pr.headRefOid).catch(() => null);
@@ -254,11 +261,11 @@ export function registerSkeptic(program: Command): Command {
       if (options.dryRun) {
         console.log(chalk.yellow("\n=== DRY RUN — Verdict ===\n"));
         const verdictMatch = verdict.match(VERDICT_LINE_RE);
-        if (verdictMatch) {
-          console.log(chalk[verdictMatch[1].toLowerCase() === "pass" ? "green" : "red"](verdictMatch[0]));
-        } else {
-          console.log(verdict);
+        if (!verdictMatch) {
+          console.error(chalk.red("Could not parse VERDICT from LLM output."));
+          process.exit(1);
         }
+        console.log(chalk[verdictMatch[1].toLowerCase() === "pass" ? "green" : "red"](verdictMatch[0]));
         console.log(chalk.yellow("\n=== Full LLM output ===\n"));
         console.log(verdict);
         // Exit non-zero only for VERDICT: FAIL from LLM evaluation.
