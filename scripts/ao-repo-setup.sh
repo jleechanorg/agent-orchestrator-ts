@@ -16,7 +16,7 @@ echo
 # Step 1: Verify hermes_prod exists and has config
 if [ ! -f "$HERMES_HOME/agent-orchestrator.yaml" ]; then
     echo "ERROR: $HERMES_HOME/agent-orchestrator.yaml not found."
-    echo "Run 'ao setup' first or ensure hermes_prod is initialized."
+    echo "Run 'ao install' first to initialize hermes_prod."
     exit 1
 fi
 echo "[1/6] Hermes config verified: $HERMES_HOME/agent-orchestrator.yaml"
@@ -41,12 +41,21 @@ else
 fi
 
 # Step 4: Check workspace directory
-WORKTREE_DIR=$(python3 -c "
-import yaml, os
-c = yaml.safe_load(open('$HERMES_HOME/agent-orchestrator.yaml'))
-wt = c.get('worktreeDir', os.path.join(os.environ.get('HOME', ''), '.worktrees'))
-print(os.path.expanduser(wt))
-" 2>/dev/null || echo "$HOME/.worktrees")
+if ! WORKTREE_DIR=$(python3 - <<'PY'
+import os
+import sys
+import yaml
+
+with open(os.environ.get("HERMES_HOME", os.path.join(os.environ["HOME"], ".hermes_prod")) + "/agent-orchestrator.yaml", "r", encoding="utf-8") as fh:
+    config = yaml.safe_load(fh) or {}
+
+worktree_dir = config.get("worktreeDir", os.path.join(os.environ["HOME"], ".worktrees"))
+print(os.path.expanduser(worktree_dir))
+PY
+); then
+  echo "WARNING: Failed to read worktreeDir from config; defaulting to $HOME/.worktrees"
+  WORKTREE_DIR="$HOME/.worktrees"
+fi
 mkdir -p "$WORKTREE_DIR"
 echo "[4/6] Worktree dir: $WORKTREE_DIR"
 
