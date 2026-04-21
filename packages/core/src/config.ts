@@ -216,6 +216,16 @@ const EvolveLoopConfigSchema = z.object({
   zeroTouchWindow: z.enum(["24h", "30d"]).default("24h"),
 });
 
+// Technique config schema (autor research: all techniques converge, SR-prtype is safe default)
+const TechniqueConfigSchema = z.object({
+  default: z.enum(["SR-prtype", "SR-fewshot", "SR", "ET", "PRM", "default"]).default("SR-prtype"),
+  perType: z.record(z.enum(["state-bool", "data-norm", "ci-workflow", "typeddict-schema", "large-arch-refactor", "unknown"]), z.enum(["SR-prtype", "SR-fewshot", "SR", "ET", "PRM", "default"])).optional(),
+  thresholds: z.object({
+    minScoreDiff: z.number().optional(),
+    confidenceN: z.number().optional(),
+  }).optional(),
+});
+
 /** bd-n047: Defaults schema — enabled defaults to true so omitting it is an implicit enable. */
 const AutoMergeDefaultsSchema = z.object({
   enabled: z.boolean().default(true),
@@ -281,6 +291,9 @@ const ProjectConfigSchema = z.object({
 
   // bd-jhv1: Manager evolve loop configuration
   evolveLoop: EvolveLoopConfigSchema.optional(),
+
+  // Technique selection for AO workers (autor research: all techniques converge, SR-prtype default)
+  technique: TechniqueConfigSchema.optional(),
 });
 
 const DefaultPluginsSchema = z.object({

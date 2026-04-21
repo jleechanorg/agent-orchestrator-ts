@@ -1,10 +1,13 @@
 /**
  * Prompt Builder — composes layered prompts for agent sessions.
  *
- * Three layers:
+ * Five layers:
  *   1. BASE_AGENT_PROMPT — constant instructions about session lifecycle, git workflow, PR handling
  *   2. Config-derived context — project name, repo, default branch, tracker info, reaction rules
+ *   2.5. Technique selection — SR-prtype guidance (all techniques converge within rubric noise)
  *   3. User rules — inline agentRules and/or agentRulesFile content
+ *   4. Decomposition context — lineage + siblings
+ *   5. Explicit user prompt (highest priority)
  *
  * buildPrompt() always returns the AO base guidance and project context so
  * bare launches still know about AO-specific commands such as PR claiming.
@@ -75,6 +78,9 @@ export interface PromptBuildConfig {
 
   /** Decomposition context — sibling task descriptions (from decomposer) */
   siblings?: string[];
+
+  /** Technique for this session (from project config or decomposition). Defaults to SR-prtype. */
+  technique?: import("./types.js").TechniqueType;
 }
 
 // =============================================================================
@@ -128,6 +134,47 @@ function buildConfigLayer(config: PromptBuildConfig): string {
 }
 
 // =============================================================================
+// LAYER 2.5: TECHNIQUE SELECTION
+// =============================================================================
+
+/** Technique guidance per type — all converge within rubric noise, SR-prtype is safe default */
+const TECHNIQUE_GUIDANCE: Record<string, string> = {
+  "SR-prtype": `## Technique: Self-Refine with PR-Type Classification (SR-prtype)
+Before writing code, classify the issue into a PR type:
+- state-bool: widening boolean semantics (int 1/0, string '1'/'0' as valid True/False)
+- data-norm: normalizing key names and numeric formats (xp→xp_gained, NaN handling)
+- ci-workflow: GitHub Actions workflow changes (YAML scripting, gate logic)
+- typeddict-schema: TypedDict + validation for previously untyped data structures
+- large-arch-refactor: module extraction, moving functions between files
+
+Apply the corresponding exemplar pattern. Use 3-round self-refine: write code, self-critique, revise.`,
+
+  "SR-fewshot": `## Technique: Self-Refine with Single Exemplar (SR-fewshot)
+Find the most relevant prior PR for this issue type. Use single-exemplar critique.
+Apply 3-round self-refine: write code, self-critique, revise.`,
+
+  "SR": `## Technique: Self-Refine (SR)
+Apply 3-round self-refine: write code, self-critique, revise.`,
+
+  "ET": `## Technique: Extended Thinking (ET)
+Use chain-of-thought reasoning. Show your work step by step before writing code.`,
+
+  "PRM": `## Technique: Process Reward Model (PRM)
+Score each step of your reasoning, not just the final answer. Self-verify each step before proceeding.`,
+
+  "default": `## Technique: Self-Refine with PR-Type Classification (SR-prtype)
+Apply 3-round self-refine with PR-type classification: write code, self-critique, revise.
+Classify the issue type and apply the corresponding pattern.`,
+};
+
+function buildTechniqueLayer(config: PromptBuildConfig): string {
+  // Resolve technique: config > project default > SR-prtype
+  const technique = config.technique ?? config.project.technique?.default ?? "SR-prtype";
+  const guidance = TECHNIQUE_GUIDANCE[technique] ?? TECHNIQUE_GUIDANCE["default"];
+  return guidance;
+}
+
+// =============================================================================
 // LAYER 3: USER RULES
 // =============================================================================
 
@@ -172,6 +219,9 @@ export function buildPrompt(config: PromptBuildConfig): string {
 
   // Layer 2: Config-derived context
   sections.push(buildConfigLayer(config));
+
+  // Layer 2.5: Technique selection (autor research: all converge, SR-prtype is safe default)
+  sections.push(buildTechniqueLayer(config));
 
   // Layer 3: User rules
   if (userRules) {

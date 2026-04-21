@@ -43,6 +43,57 @@ export type SessionStatus =
   | "done"
   | "terminated";
 
+// =============================================================================
+// TECHNIQUE SELECTION
+// =============================================================================
+
+/**
+ * Coding technique used by AO workers.
+ * Based on autor research: all 9 techniques converge within rubric noise (~80-85).
+ * SR-prtype (84.45, n=16) is the safe default — no per-type routing is statistically justified.
+ */
+export type TechniqueType =
+  | "SR-prtype"    // Self-Refine with PR-type classification (best: 84.45, n=16)
+  | "SR-fewshot"   // Self-Refine with single exemplar
+  | "SR"           // Self-Refine (baseline: 81.23, n=15)
+  | "ET"           // Extended Thinking (79.38, n=15)
+  | "PRM"          // Process Reward Model (80.15, n=28)
+  | "default";     // Alias for SR-prtype
+
+/** PR-type taxonomy for technique routing (ZFC: delegated to model API) */
+export type PrType =
+  | "state-bool"
+  | "data-norm"
+  | "ci-workflow"
+  | "typeddict-schema"
+  | "large-arch-refactor"
+  | "unknown";
+
+/**
+ * Per-project technique configuration.
+ * All techniques converge within rubric noise — use defaults unless per-type overrides are proven.
+ */
+export interface TechniqueConfig {
+  /** Default technique for this project (default: SR-prtype) */
+  default: TechniqueType;
+  /** Per-PR-type overrides (none proven yet — all converge within noise) */
+  perType?: Partial<Record<PrType, TechniqueType>>;
+  /** Confidence thresholds for overriding default */
+  thresholds?: {
+    /** Minimum score delta before switching (default: 2.0) */
+    minScoreDiff?: number;
+    /** Number of matched PR evaluations before enabling override (default: 10) */
+    confidenceN?: number;
+  };
+}
+
+/** Result of ZFC-compliant PR-type classification */
+export interface PrTypeClassification {
+  type: PrType;
+  confidence: "high" | "medium" | "low";
+  reasoning?: string;
+}
+
 /** Activity state as detected by the agent plugin */
 export type ActivityState =
   | "active" // agent is processing (thinking, writing code)
@@ -1484,6 +1535,17 @@ export interface ProjectConfig {
    * When enabled, injects 6-phase evolve loop instructions into the orchestrator prompt.
    */
   evolveLoop?: EvolveLoopConfig;
+
+  // =============================================================================
+  // TECHNIQUE SELECTION — AO library
+  // =============================================================================
+
+  /**
+   * Per-project technique configuration for AO workers.
+   * All techniques converge within rubric noise — SR-prtype is the safe default.
+   * Per-type routing requires statistically significant matched-PR evidence.
+   */
+  technique?: TechniqueConfig;
 }
 
 /** Merge gate configuration (bd-uxs.8) */
