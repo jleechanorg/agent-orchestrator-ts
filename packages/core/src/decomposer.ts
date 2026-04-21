@@ -239,6 +239,10 @@ export async function classifyPrType(
   const client = new Anthropic();
   const combined = `${issueTitle}\n\n${issueBody}`.trim();
 
+  if (!combined) {
+    return { type: "unknown", confidence: "low", reasoning: "blank input" };
+  }
+
   try {
     const res = await client.messages.create({
       model,
