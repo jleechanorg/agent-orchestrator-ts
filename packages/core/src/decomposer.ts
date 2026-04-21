@@ -239,12 +239,18 @@ export async function classifyPrType(
   const client = new Anthropic();
   const combined = `${issueTitle}\n\n${issueBody}`.trim();
 
-  const res = await client.messages.create({
-    model,
-    max_tokens: 256,
-    system: PR_TYPE_SYSTEM,
-    messages: [{ role: "user", content: combined }],
-  });
+  let res;
+  try {
+    res = await client.messages.create({
+      model,
+      max_tokens: 256,
+      system: PR_TYPE_SYSTEM,
+      messages: [{ role: "user", content: combined }],
+    });
+  } catch (err) {
+    // Auth, rate-limit, or network failures — return unknown rather than propagating
+    return { type: "unknown", confidence: "low", reasoning: `API call failed: ${err instanceof Error ? err.message : String(err)}` };
+  }
 
   const text = res.content[0].type === "text" ? res.content[0].text.trim() : "{}";
   const jsonMatch = text.match(/\{[\s\S]*\}/);
