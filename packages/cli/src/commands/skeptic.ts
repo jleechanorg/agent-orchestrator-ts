@@ -225,7 +225,7 @@ export function registerSkeptic(program: Command): Command {
             SKEPTIC_BOT_AUTHOR,
             triggerSha,
             skipVerdict,
-            { headSha: options.triggerSha } as SkepticVerdictBinding,
+            { headSha: options.triggerSha, requestId: options.requestId } as SkepticVerdictBinding,
           );
           spinner4.succeed(chalk.green("Done! Skeptic verdict posted."));
         } catch (err) {
@@ -293,7 +293,7 @@ export function registerSkeptic(program: Command): Command {
           SKEPTIC_BOT_AUTHOR,
           options.triggerSha,
           verdict, // always pass full LLM output so FAIL/SKIPPED bodies carry context
-          { headSha: options.triggerSha } as SkepticVerdictBinding,
+          { headSha: options.triggerSha, requestId: options.requestId } as SkepticVerdictBinding,
         );
         spinner4.succeed(chalk.green("Done! Skeptic verdict posted."));
 
