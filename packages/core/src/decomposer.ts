@@ -236,28 +236,24 @@ export async function classifyPrType(
   issueBody: string,
   model = "claude-sonnet-4-20250514",
 ): Promise<PrTypeClassification> {
+  const client = new Anthropic();
   const combined = `${issueTitle}\n\n${issueBody}`.trim();
 
-  if (!combined) {
-    return { type: "unknown", confidence: "low", reasoning: "blank input" };
+  const res = await client.messages.create({
+    model,
+    max_tokens: 256,
+    system: PR_TYPE_SYSTEM,
+    messages: [{ role: "user", content: combined }],
+  });
+
+  const text = res.content[0].type === "text" ? res.content[0].text.trim() : "{}";
+  const jsonMatch = text.match(/\{[\s\S]*\}/);
+
+  if (!jsonMatch) {
+    return { type: "unknown", confidence: "low", reasoning: "no JSON in model response" };
   }
 
   try {
-    const client = new Anthropic();
-    const res = await client.messages.create({
-      model,
-      max_tokens: 256,
-      system: PR_TYPE_SYSTEM,
-      messages: [{ role: "user", content: combined }],
-    });
-
-    const text = res.content?.[0]?.type === "text" ? res.content[0].text.trim() : "{}";
-    const jsonMatch = text.match(/\{[\s\S]*\}/);
-
-    if (!jsonMatch) {
-      return { type: "unknown", confidence: "low", reasoning: "no JSON in model response" };
-    }
-
     const parsed = JSON.parse(jsonMatch[0]) as { type?: string; confidence?: string; reasoning?: string };
     const validTypes: PrType[] = ["state-bool", "data-norm", "ci-workflow", "typeddict-schema", "large-arch-refactor", "unknown"];
     const validConfidences = ["high", "medium", "low"];
@@ -266,11 +262,11 @@ export async function classifyPrType(
     const confidence = validConfidences.includes(parsed.confidence as "high" | "medium" | "low")
       ? (parsed.confidence as "high" | "medium" | "low")
       : "low";
-    const reasoning = typeof parsed.reasoning === "string" ? parsed.reasoning : "parsed from model response";
+    const reasoning = parsed.reasoning ?? "parsed from model response";
 
     return { type, confidence, reasoning };
   } catch {
-    return { type: "unknown", confidence: "low", reasoning: "classification request failed" };
+    return { type: "unknown", confidence: "low", reasoning: "JSON parse failed" };
   }
 }
 
