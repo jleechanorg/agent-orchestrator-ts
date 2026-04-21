@@ -26,6 +26,12 @@ export function getManagedConfigPath(env: ManagedConfigEnvironment = "staging"):
   return (
     getPathOverride("AO_PROD_CONFIG_PATH") ??
     getPathOverride("AO_PRODUCTION_CONFIG_PATH") ??
+    // HERMES_HOME is the canonical AO/Hermes worker config directory (ao-install.sh,
+    // ao-repo-setup.sh, and the launchd plist all use it). Check it first so the
+    // config written by ao-install.sh is auto-discovered without AO_CONFIG_PATH.
+    (process.env.HERMES_HOME
+      ? resolve(process.env.HERMES_HOME, CONFIG_FILENAME)
+      : null) ??
     resolve(homedir(), ".openclaw_prod", CONFIG_FILENAME)
   );
 }
