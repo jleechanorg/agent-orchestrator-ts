@@ -34,11 +34,16 @@ else
     "$AGENT_ORCHESTRATOR_REPO" "$REPO_ROOT" >/dev/null 2>&1
 fi
 
+# Cleanup temp clone on any exit (curl mode only)
+if [ "$MODE" = "curl" ]; then
+  trap 'rm -rf "$REPO_ROOT" 2>/dev/null' EXIT
+fi
+
 SCRIPT_DIR="$REPO_ROOT/scripts"
 
 # ─── Step 1: Install dependencies + build CLI ────────────────────────────────
 echo "[1/7] Running setup.sh (install + build)..."
-bash "$SCRIPT_DIR/setup.sh" 2>&1 | grep -E '^\[ok\]|\[ERROR\]|ERROR|complete' | head -20 || true
+(cd "$REPO_ROOT" && bash "$SCRIPT_DIR/setup.sh") 2>&1 | grep -E '^\[ok\]|\[ERROR\]|ERROR|complete' | head -20 || true
 
 # ─── Step 2: Bootstrap config at hermes_prod ─────────────────────────────────
 echo "[2/7] Bootstrapping AO config at $HERMES_HOME/agent-orchestrator.yaml..."
@@ -125,13 +130,6 @@ if command -v ao &>/dev/null; then
   AO_CONFIG_PATH="$CONFIG_FILE" ao doctor 2>&1 | grep -E '(PASS|WARN|FAIL|Results:)' | tail -5 || true
 else
   echo "  ao CLI not in PATH — run: export PATH=\"\$(npm config get prefix)/bin:\$PATH\""
-fi
-
-# ─── Cleanup on curl mode ────────────────────────────────────────────────────
-if [ "$MODE" = "curl" ]; then
-  echo ""
-  echo "Cleaning up temp clone..."
-  rm -rf "$REPO_ROOT"
 fi
 
 echo ""
