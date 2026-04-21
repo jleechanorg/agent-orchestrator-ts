@@ -396,8 +396,8 @@ async function autoCreateConfig(workingDir: string): Promise<OrchestratorConfig>
 
   // Build config with smart defaults
   const projectId = env.isGitRepo ? basename(workingDir) : "my-project";
-  const repo = env.ownerRepo || "owner/repo";
-  const path = env.isGitRepo ? workingDir : `~/${projectId}`;
+  const repo = env.ownerRepo || undefined;
+  const path = workingDir;
   const defaultBranch = env.defaultBranch || "main";
 
   const agent = "codex";
@@ -423,7 +423,7 @@ async function autoCreateConfig(workingDir: string): Promise<OrchestratorConfig>
       [projectId]: {
         name: projectId,
         sessionPrefix: generateSessionPrefix(projectId),
-        repo,
+        ...(repo ? { repo } : {}),
         path,
         defaultBranch,
         ...(agentRules ? { agentRules } : {}),
@@ -443,9 +443,9 @@ async function autoCreateConfig(workingDir: string): Promise<OrchestratorConfig>
 
   console.log(chalk.green(`✓ Config created: ${outputPath}\n`));
 
-  if (repo === "owner/repo") {
+  if (!repo) {
     console.log(chalk.yellow("⚠ Could not detect GitHub remote."));
-    console.log(chalk.dim("  Update the 'repo' field in the config before spawning agents.\n"));
+    console.log(chalk.dim("  Add a 'repo' field (owner/repo) to the config before spawning agents.\n"));
   }
 
   if (!env.hasTmux) {
@@ -468,6 +468,16 @@ async function addProjectToConfig(
   projectPath: string,
 ): Promise<string> {
   const resolvedPath = resolve(projectPath.replace(/^~/, process.env["HOME"] || ""));
+
+  // Check if this path is already registered under any project name
+  const existingByPath = Object.entries(config.projects).find(
+    ([, p]) => resolve(p.path.replace(/^~/, process.env["HOME"] || "")) === resolvedPath,
+  );
+  if (existingByPath) {
+    console.log(chalk.dim(`  Path already configured as project "${existingByPath[0]}" — skipping add.`));
+    return existingByPath[0];
+  }
+
   let projectId = basename(resolvedPath);
 
   // Avoid overwriting an existing project with the same directory name
@@ -537,7 +547,7 @@ async function addProjectToConfig(
 
   rawConfig.projects[projectId] = {
     name: projectId,
-    repo: ownerRepo || "owner/repo",
+    ...(ownerRepo ? { repo: ownerRepo } : {}),
     path: resolvedPath,
     defaultBranch,
     sessionPrefix: prefix,
@@ -823,6 +833,27 @@ async function runStartup(
       }
       process.exit(code ?? 0);
     });
+
+    // Ensure the dashboard child is killed when the parent exits (e.g. Ctrl+C).
+    // Node.js does not guarantee signal propagation to child processes.
+    // Registering a SIGINT handler suppresses Node's default exit, so we
+    // must call process.exit() ourselves after cleaning up the child.
+    /* c8 ignore start -- signal handlers only fire on process termination */
+    const killDashboard = (): void => {
+      try {
+        dashboardProcess?.kill("SIGTERM");
+      } catch {
+        // already dead
+      }
+    };
+    const killAndExit = (): void => {
+      killDashboard();
+      process.exit();
+    };
+    /* c8 ignore stop */
+    process.on("SIGINT", killAndExit);
+    process.on("SIGTERM", killAndExit);
+    process.on("exit", killDashboard);
   }
 
   // When --no-dashboard is used but lifecycle is started, keep the process alive
@@ -854,29 +885,83 @@ async function runStartup(
 }
 
 /**
- * Stop dashboard server.
- * Uses lsof to find the process listening on the port, then kills it.
- * Best effort — if it fails, just warn the user.
+ * Kill any process listening on the given port.
+ * Returns true if a process was found and killed, false otherwise.
  */
-async function stopDashboard(port: number): Promise<void> {
+async function killOnPort(port: number): Promise<boolean> {
   try {
-    // Find PIDs listening on the port (can be multiple: parent + children)
     const { stdout } = await exec("lsof", ["-ti", `:${port}`]);
     const pids = stdout
       .trim()
       .split("\n")
       .filter((p) => p.length > 0);
-
-    if (pids.length > 0) {
-      // Kill all processes (pass PIDs as separate arguments)
-      await exec("kill", pids);
-      console.log(chalk.green("Dashboard stopped"));
-    } else {
-      console.log(chalk.yellow(`Dashboard not running on port ${port}`));
-    }
+    if (pids.length === 0) return false;
+    await exec("kill", pids);
+    return true;
   } catch {
-    console.log(chalk.yellow("Could not stop dashboard (may not be running)"));
+    return false;
   }
+}
+
+/**
+ * Check whether a process listening on the given port is an AO dashboard
+ * (next-server / node running start-all.js).  Only kill if it matches,
+ * to avoid terminating unrelated services during the port-range scan.
+ */
+async function killDashboardOnPort(port: number): Promise<boolean> {
+  try {
+    const { stdout } = await exec("lsof", ["-ti", `:${port}`]);
+    const pids = stdout
+      .trim()
+      .split("\n")
+      .filter((p) => p.length > 0);
+    if (pids.length === 0) return false;
+
+    // Verify at least one PID is an AO dashboard process
+    const isDashboard = await Promise.all(
+      pids.map(async (pid) => {
+        try {
+          const { stdout: cmdline } = await exec("ps", ["-p", pid, "-o", "args="]);
+          return /next-server|start-all\.js/.test(cmdline);
+        } catch {
+          return false;
+        }
+      }),
+    );
+    if (!isDashboard.some(Boolean)) return false;
+
+    await exec("kill", pids);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Stop dashboard server.
+ * First tries the configured port, then scans nearby ports for orphaned dashboards.
+ * Uses lsof to find processes and kills them.
+ */
+async function stopDashboard(port: number): Promise<void> {
+  // 1. Try the expected port first — no process-name check needed because
+  //    the caller already knows a dashboard was started on this port
+  if (await killOnPort(port)) {
+    console.log(chalk.green("Dashboard stopped"));
+    return;
+  }
+
+  // 2. Fallback: scan nearby ports to find an orphaned dashboard
+  //    that was auto-reassigned when the original port was busy.
+  //    Uses killDashboardOnPort to verify the process is actually an
+  //    AO dashboard before killing, avoiding collateral damage.
+  for (let p = port + 1; p <= port + MAX_PORT_SCAN; p++) {
+    if (await killDashboardOnPort(p)) {
+      console.log(chalk.green(`Dashboard stopped (was on port ${p})`));
+      return;
+    }
+  }
+
+  console.log(chalk.yellow("Could not stop dashboard (may not be running)"));
 }
 
 // =============================================================================

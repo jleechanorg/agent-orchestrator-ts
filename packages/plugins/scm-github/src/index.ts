@@ -1394,7 +1394,7 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
     },
 
     async detectPR(session: Session, project: ProjectConfig): Promise<PRInfo | null> {
-      if (!session.branch) return null;
+      if (!session.branch || !project.repo) return null;
       const [owner, repo] = parseProjectRepo(project.repo);
 
       // Primary: gh pr list --head (GraphQL-backed) — finds PRs regardless of
@@ -1480,6 +1480,9 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
     },
 
     async resolvePR(reference: string, project: ProjectConfig): Promise<PRInfo> {
+      if (!project.repo) {
+        throw new Error("Cannot resolve PR: project has no repo configured");
+      }
       // Use REST API to avoid GraphQL rate limits
       const [owner, repo] = parseProjectRepo(project.repo);
       const raw = await gh(["api", `repos/${owner}/${repo}/pulls/${reference}`]);
