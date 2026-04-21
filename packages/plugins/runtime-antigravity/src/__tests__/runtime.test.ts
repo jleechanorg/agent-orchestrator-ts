@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { execFile } from "node:child_process";
+import type { ChildProcess } from "node:child_process";
 import type { RuntimeHandle } from "@jleechanorg/ao-core";
 
 /** Test-only globals for the mocked CdpClient (see vi.mock below). */
@@ -150,17 +151,33 @@ beforeEach(() => {
   cdpTest()._mockCdpEval = undefined;
   // Default: screencapture returns empty buffer (no Allow prompt)
   mockScreencapture.mockResolvedValue(Buffer.alloc(0));
-  // Default: PIL check succeeds — mock execFile (called as callback or returning ChildProcess)
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  vi.mocked(execFile).mockImplementation(((...args: unknown[]) => {
-    const last = args[args.length - 1];
-    if (typeof last === "function") {
-      // callback style — fulfill immediately
-      setImmediate(() => (last as (err: Error | null, stdout: Buffer, stderr: Buffer) => void)(null, Buffer.alloc(0), Buffer.alloc(0)));
-    }
-    // return a mock ChildProcess (for promisify style)
-    return { stdout: Buffer.alloc(0), stderr: Buffer.alloc(0), exitCode: 0, on: vi.fn(), once: vi.fn() };
-  }) as any);
+  // Default: PIL check succeeds — mock execFile (callback or promisified style)
+  vi.mocked(execFile).mockImplementation(
+    ((
+      file: string,
+      argsOrCallback?: string[] | ((err: Error | null, stdout: Buffer, stderr: Buffer) => void),
+      callback?: (err: Error | null, stdout: Buffer, stderr: Buffer) => void,
+    ): ChildProcess => {
+      // Detect callback style: last arg is function
+      if (typeof argsOrCallback === "function") {
+        setImmediate(() =>
+          argsOrCallback(null, Buffer.alloc(0), Buffer.alloc(0)),
+        );
+      } else if (typeof callback === "function") {
+        setImmediate(() =>
+          callback(null, Buffer.alloc(0), Buffer.alloc(0)),
+        );
+      }
+      // Return mock ChildProcess for promisify style
+      return {
+        stdout: Buffer.alloc(0),
+        stderr: Buffer.alloc(0),
+        exitCode: 0,
+        on: vi.fn(),
+        once: vi.fn(),
+      } as unknown as ChildProcess;
+    }) as typeof execFile,
+  );
 });
 
 // =============================================================================
