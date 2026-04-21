@@ -72,10 +72,10 @@ EOF
 
 for pid in $PROJECTS; do
   echo "  $pid:" >> "$CONFIG_FILE"
+  echo "    repo: jleechanorg/$pid" >> "$CONFIG_FILE"
   echo "    path: ~/project_agento/$pid" >> "$CONFIG_FILE"
   echo "    scm:" >> "$CONFIG_FILE"
   echo "      plugin: github" >> "$CONFIG_FILE"
-  echo "      repo: jleechanorg/$pid" >> "$CONFIG_FILE"
 done
 
 chmod 600 "$CONFIG_FILE"
@@ -85,7 +85,7 @@ echo "  Projects: $(echo "$PROJECTS" | tr ' ' ', ')"
 # ─── Step 3: Link AO skills to user .claude ──────────────────────────────────
 echo "[3/7] Linking AO skills..."
 if [ -f "$SCRIPT_DIR/install-repo-skills.sh" ]; then
-  if ! bash "$SCRIPT_DIR/install-repo-skills.sh" --global 2>&1 | grep -v "^$" || true; then
+  if ! bash "$SCRIPT_DIR/install-repo-skills.sh" --global 2>&1 | grep -v "^$"; then
     echo "  WARNING: skills install had errors (continuing anyway)"
   fi
 fi
