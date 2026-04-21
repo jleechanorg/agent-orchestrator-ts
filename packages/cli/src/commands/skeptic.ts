@@ -20,8 +20,7 @@ import { fetchPRMeta, fetchReviews, fetchDiff, fetchIssueComments, fetchDesignDo
 import { fetchMergeGateState } from "./skeptic/mergeGate.js";
 import { buildSkepticPrompt } from "./skeptic/prompt.js";
 import { runSkepticEvaluation } from "./skeptic/modelRunner.js";
-import { postVerdict } from "./skeptic/posting.js";
-import type { SkepticVerdictBinding } from "./skeptic/posting.js";
+import { postVerdict, type SkepticVerdictBinding } from "./skeptic/posting.js";
 import { verifySkepticClaim, formatClaimVerification } from "./skeptic/claim-verifier.js";
 import { VERDICT_LINE_RE } from "./skeptic/verdict-utils.js";
 export { VERDICT_LINE_RE };
