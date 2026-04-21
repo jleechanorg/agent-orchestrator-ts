@@ -76,9 +76,9 @@ export type PrType =
 export interface TechniqueConfig {
   /** Default technique for this project (default: SR-prtype) */
   default: TechniqueType;
-  /** Reserved for future routing wiring; currently validated but not consumed at runtime. */
+  /** Per-PR-type overrides (none proven yet — all converge within noise) */
   perType?: Partial<Record<PrType, TechniqueType>>;
-  /** Reserved for future routing wiring; currently validated but not consumed at runtime. */
+  /** Confidence thresholds for overriding default */
   thresholds?: {
     /** Minimum score delta before switching (default: 2.0) */
     minScoreDiff?: number;

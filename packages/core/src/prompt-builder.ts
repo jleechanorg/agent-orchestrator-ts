@@ -204,9 +204,7 @@ Classify the issue type and apply the corresponding pattern.`,
 };
 
 function buildTechniqueLayer(config: PromptBuildConfig): string {
-  // Resolve technique: config > project default > SR-prtype.
-  // TechniqueConfig.perType/thresholds remain classification-only placeholders until
-  // routing is wired into the production selection path.
+  // Resolve technique: config > project default > SR-prtype
   const technique = config.technique ?? config.project.technique?.default ?? "SR-prtype";
   const guidance = TECHNIQUE_GUIDANCE[technique] ?? TECHNIQUE_GUIDANCE["default"];
   return guidance;
