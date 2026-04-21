@@ -247,7 +247,7 @@ export async function classifyPrType(
       messages: [{ role: "user", content: combined }],
     });
 
-    const text = res.content[0].type === "text" ? res.content[0].text.trim() : "{}";
+    const text = res.content?.[0]?.type === "text" ? res.content[0].text.trim() : "{}";
     const jsonMatch = text.match(/\{[\s\S]*\}/);
 
     if (!jsonMatch) {
