@@ -236,7 +236,6 @@ export async function classifyPrType(
   issueBody: string,
   model = "claude-sonnet-4-20250514",
 ): Promise<PrTypeClassification> {
-  const client = new Anthropic();
   const combined = `${issueTitle}\n\n${issueBody}`.trim();
 
   if (!combined) {
@@ -244,6 +243,7 @@ export async function classifyPrType(
   }
 
   try {
+    const client = new Anthropic();
     const res = await client.messages.create({
       model,
       max_tokens: 256,
