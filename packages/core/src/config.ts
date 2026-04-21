@@ -20,7 +20,7 @@ import { findManagedConfigFile, getLegacyConfigPaths } from "./config-topology.j
 import { generateSessionPrefix } from "./paths.js";
 
 function inferScmPlugin(project: {
-  repo: string;
+  repo?: string;
   scm?: Record<string, unknown>;
   tracker?: Record<string, unknown>;
 }): "github" | "gitlab" {
@@ -233,7 +233,7 @@ const AutoMergeOverrideSchema = z.union([
 
 const ProjectConfigSchema = z.object({
   name: z.string().optional(),
-  repo: z.string(),
+  repo: z.string().optional(),
   path: z.string(),
   defaultBranch: z.string().default("main"),
   sessionPrefix: z
@@ -358,7 +358,7 @@ function applyProjectDefaults(config: OrchestratorConfig): OrchestratorConfig {
     const inferredPlugin = inferScmPlugin(project);
 
     // Infer SCM from repo if not set
-    if (!project.scm && project.repo.includes("/")) {
+    if (!project.scm && project.repo?.includes("/")) {
       project.scm = { plugin: inferredPlugin };
     }
 
