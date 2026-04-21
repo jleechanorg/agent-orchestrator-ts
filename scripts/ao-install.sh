@@ -46,19 +46,37 @@ _CURL_MODE_CLONE=false
 if [ -d "$AO_REPO_ROOT/.git" ]; then
   REPO_ROOT="$AO_REPO_ROOT"
   echo "  [$MODE] Repo detected: $REPO_ROOT"
-else
+  # Validate existing clone matches expected repo/branch
+  actual_remote=$(git remote get-url origin 2>/dev/null || echo "")
+  if [ "$actual_remote" != "$AGENT_ORCHESTRATOR_REPO" ]; then
+    echo "ERROR: existing clone remote URL does not match expected."
+    echo "  Expected: $AGENT_ORCHESTRATOR_REPO"
+    echo "  Actual:   $actual_remote"
+    echo "Set AO_FORCE_CLONE=1 to remove and reclone."
+    if [ "${AO_FORCE_CLONE:-0}" != "1" ]; then
+      exit 1
+    fi
+    echo "  AO_FORCE_CLONE=1 — removing stale clone..."
+    rm -rf "$AO_REPO_ROOT"
+  else
+    # Sync to expected branch
+    git fetch origin "$AGENT_ORCHESTRATOR_BRANCH" >/dev/null 2>&1 || true
+    current_branch=$(git branch --show-current 2>/dev/null || echo "")
+    if [ "$current_branch" != "$AGENT_ORCHESTRATOR_BRANCH" ]; then
+      git checkout "$AGENT_ORCHESTRATOR_BRANCH" >/dev/null 2>&1 || true
+    fi
+    echo "  Repo validated and synced."
+  fi
+fi
+
+# If directory missing (was removed by AO_FORCE_CLONE), clone fresh
+if [ ! -d "$AO_REPO_ROOT/.git" ]; then
   MODE="curl"
   REPO_ROOT="$AO_REPO_ROOT"
   mkdir -p "$(dirname "$REPO_ROOT")"
-  if [ -e "$REPO_ROOT" ] && [ ! -d "$REPO_ROOT/.git" ]; then
-    echo "ERROR: $REPO_ROOT exists but is not an agent-orchestrator clone"
-    exit 1
-  fi
-  if [ ! -d "$REPO_ROOT/.git" ]; then
-    echo "  [$MODE] Cloning agent-orchestrator to $REPO_ROOT..."
-    git clone --branch "$AGENT_ORCHESTRATOR_BRANCH" \
-      "$AGENT_ORCHESTRATOR_REPO" "$REPO_ROOT" >/dev/null 2>&1
-  fi
+  echo "  [$MODE] Cloning agent-orchestrator to $REPO_ROOT..."
+  git clone --branch "$AGENT_ORCHESTRATOR_BRANCH" \
+    "$AGENT_ORCHESTRATOR_REPO" "$REPO_ROOT" >/dev/null 2>&1
 fi
 
 SCRIPT_DIR="$REPO_ROOT/scripts"
@@ -88,8 +106,13 @@ echo "[2/7] Bootstrapping AO config at $HERMES_HOME/agent-orchestrator.yaml..."
 mkdir -p "$HERMES_HOME"
 CONFIG_FILE="$HERMES_HOME/agent-orchestrator.yaml"
 
-# Write canonical config
-cat >"$CONFIG_FILE" <<EOF
+# Preserve existing config unless AO_OVERWRITE is set
+if [ -f "$CONFIG_FILE" ] && [ "${AO_OVERWRITE:-0}" != "1" ]; then
+  echo "  Existing config found at $CONFIG_FILE"
+  echo "  Set AO_OVERWRITE=1 to force overwrite."
+else
+  # Write canonical config
+  cat >"$CONFIG_FILE" <<EOF
 # Managed AO config — $(date -u +%Y-%m-%dT%H:%M:%SZ)
 # Single source of truth. Do not edit manually for project additions.
 dataDir: ~/.agent-orchestrator
@@ -104,17 +127,17 @@ defaults:
 projects:
 EOF
 
-for pid in $PROJECTS; do
-  echo "  $pid:" >> "$CONFIG_FILE"
-  echo "    path: ~/project_agento/$pid" >> "$CONFIG_FILE"
-  echo "    repo: jleechanorg/$pid" >> "$CONFIG_FILE"
-  echo "    scm:" >> "$CONFIG_FILE"
-  echo "      plugin: github" >> "$CONFIG_FILE"
-done
+  for pid in $PROJECTS; do
+    echo "  $pid:" >> "$CONFIG_FILE"
+    echo "    path: ~/project_agento/$pid" >> "$CONFIG_FILE"
+    echo "    repo: jleechanorg/$pid" >> "$CONFIG_FILE"
+    echo "    scm:" >> "$CONFIG_FILE"
+    echo "      plugin: github" >> "$CONFIG_FILE"
+  done
 
-chmod 600 "$CONFIG_FILE"
-echo "  Config written: $CONFIG_FILE"
-echo "  Projects: $(echo "$PROJECTS" | tr ' ' ', ')"
+  chmod 600 "$CONFIG_FILE"
+  echo "  Config written: $CONFIG_FILE"
+fi
 
 # ─── Step 3: Link AO skills to user .claude ──────────────────────────────────
 echo "[3/7] Linking AO skills..."
