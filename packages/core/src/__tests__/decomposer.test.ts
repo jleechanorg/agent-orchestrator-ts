@@ -121,4 +121,17 @@ describe("classifyPrType", () => {
     const result = await classifyPrType("ci fix", "fix CI");
     expect(result.confidence).toBe("low");
   });
+
+  it("defaults reasoning to fallback for non-string reasoning value", async () => {
+    mockMessagesCreate.mockResolvedValueOnce({
+      content: [
+        {
+          type: "text",
+          text: '{"type":"state-bool","confidence":"high","reasoning":123}',
+        },
+      ],
+    });
+    const result = await classifyPrType("fix bool", "change to bool");
+    expect(result.reasoning).toBe("parsed from model response");
+  });
 });
