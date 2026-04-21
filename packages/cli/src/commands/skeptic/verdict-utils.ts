@@ -107,7 +107,7 @@ export function bindVerdictOutput(params: {
   // Gate markers are the authoritative PASS contract: the LLM must emit all 8.
   const downgradedPass = verdictType === "PASS" && !hasCompletePassingGateMarkers(params.llmOutput);
   const verdictLine = downgradedPass
-    ? "VERDICT: FAIL — PASS missing complete skeptic gate table or request binding"
+    ? "VERDICT: FAIL — PASS missing complete skeptic gate markers"
     : verdictMatch[0];
   return {
     verdictLine,

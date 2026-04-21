@@ -209,8 +209,8 @@ describe("bindVerdictOutput", () => {
       requestId: "req-1",
     });
 
-    expect(result.verdictLine).toBe("VERDICT: FAIL — PASS missing complete skeptic gate table or request binding");
-    expect(result.llmOutput).toContain("VERDICT: FAIL — PASS missing complete skeptic gate table or request binding");
+    expect(result.verdictLine).toBe("VERDICT: FAIL — PASS missing complete skeptic gate markers");
+    expect(result.llmOutput).toContain("VERDICT: FAIL — PASS missing complete skeptic gate markers");
     expect(result.verdictType).toBe("FAIL");
   });
 
