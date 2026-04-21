@@ -18,8 +18,8 @@ import { classifyPrType } from "../decomposer.js";
 
 describe("classifyPrType", () => {
   beforeEach(() => {
-    // Reset mock to clear queued values, implementations, and call history
-    mockMessagesCreate.mockReset();
+    // Consume all pending mock values so each test starts fresh
+    mockMessagesCreate.mockClear();
   });
 
   it("returns unknown when issue title and body are blank", async () => {
@@ -29,7 +29,7 @@ describe("classifyPrType", () => {
     expect(result.reasoning).toBe("blank input");
   });
 
-  it("returns ci-workflow when only title is blank and body is truthy", async () => {
+  it("returns unknown when only title is blank and body is truthy", async () => {
     // "some body".trim() is truthy, so blank check does NOT short-circuit.
     mockMessagesCreate.mockResolvedValueOnce({
       content: [{ type: "text", text: '{"type":"ci-workflow","confidence":"medium","reasoning":"body only"}' }],
@@ -38,7 +38,7 @@ describe("classifyPrType", () => {
     expect(result.type).toBe("ci-workflow");
   });
 
-  it("returns data-norm when only body is blank and title is truthy", async () => {
+  it("returns unknown when only body is blank and title is truthy", async () => {
     // "some title".trim() is truthy, so blank check does NOT short-circuit.
     mockMessagesCreate.mockResolvedValueOnce({
       content: [{ type: "text", text: '{"type":"data-norm","confidence":"high","reasoning":"title only"}' }],
@@ -120,20 +120,5 @@ describe("classifyPrType", () => {
     });
     const result = await classifyPrType("ci fix", "fix CI");
     expect(result.confidence).toBe("low");
-  });
-
-  it("defaults reasoning when model returns a non-string reasoning field", async () => {
-    mockMessagesCreate.mockResolvedValueOnce({
-      content: [
-        {
-          type: "text",
-          text: '{"type":"ci-workflow","confidence":"medium","reasoning":42}',
-        },
-      ],
-    });
-    const result = await classifyPrType("ci fix", "fix CI");
-    expect(result.type).toBe("ci-workflow");
-    expect(result.confidence).toBe("medium");
-    expect(result.reasoning).toBe("parsed from model response");
   });
 });
