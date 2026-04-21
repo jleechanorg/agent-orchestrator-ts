@@ -471,8 +471,9 @@ jobs:
                     and (((.updated_at // "") | if test("\\.[0-9]+Z$") then sub("\\.[0-9]+Z$"; "Z") else . end)
                          >= ($tu | if test("\\.[0-9]+Z$") then sub("\\.[0-9]+Z$"; "Z") else . end))
                     and ($body | test("skeptic-gate-trigger-" + $ts; "i"))
-                    and (($need_request_id == "true" and ($body | test("<!--\\s*skeptic-request-id-" + $request_id + "\\s*-->"; "i")))
-                         or ($need_request_id == "false"))
+                    and (if $need_request_id == "true"
+                         then $body | test("<!--\\s*skeptic-request-id-" + $request_id + "\\s*-->"; "i")
+                         else true end)
                     and ($body | test("<!--\\s*skeptic-head-sha-" + $ts + "\\s*-->"; "i"))
                     and ((.verdict != "PASS")
                          or (all(range(1;9); . as $gate | ($body | test("<!--\\s*skeptic-gate-" + ($gate | tostring) + "\\s*:\\s*PASS\\s*-->"; "i"))))))
