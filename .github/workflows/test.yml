@@ -73,6 +73,17 @@ jobs:
           fi
           echo "Polling for VERDICT on PR #$PR_NUM (trigger SHA ${TRIGGER_SHA:0:7})"
           echo "Only accepting verdicts after: $TRIGGER_UPDATED"
+          echo "REQUEST_ID: $REQUEST_ID"
+
+          # ao skeptic verify runs without REQUEST_ID (local invocation vs GHA).
+          # Make the request-id marker check optional — head-sha + trigger-sha are sufficient
+          # to uniquely identify a verdict for a given PR+SHA.
+          if [ -z "$REQUEST_ID" ] || [ "$REQUEST_ID" = "null" ]; then
+            NEED_REQUEST_ID="false"
+            echo "REQUEST_ID is empty — verdict matching is SHA-only (accepting ao skeptic verify verdicts)"
+          else
+            NEED_REQUEST_ID="true"
+          fi
 
           INTERVAL=15
           MAX_ATTEMPTS=8  # 2 minutes / 15 seconds
@@ -118,7 +129,9 @@ jobs:
 
             VERDICT_JSON=$(printf '%s\n' "$RAW_COMMENTS" \
               | jq -s --arg author "$SKEPTIC_BOT_AUTHOR" \
-                --arg tu "$TRIGGER_UPDATED" --arg ts "$TRIGGER_SHA" --arg request "$REQUEST_ID" \
+                --arg tu "$TRIGGER_UPDATED" --arg ts "$TRIGGER_SHA" \
+                --arg request "$REQUEST_ID" \
+                --arg need_request_id "$NEED_REQUEST_ID" \
                 'add
                 | map(select(
                     ((.user.login == $author) or (.user.login == "github-actions[bot]"))
@@ -127,7 +140,14 @@ jobs:
                     and (((.updated_at // "") | if test("\\.[0-9]+Z$") then sub("\\.[0-9]+Z$"; "Z") else . end)
                          >= ($tu | if test("\\.[0-9]+Z$") then sub("\\.[0-9]+Z$"; "Z") else . end))
                     and (.body | test("skeptic-gate-trigger-" + $ts; "i"))
-                    and (.body | test("<!--\\s*skeptic-request-id-" + $request + "\\s*-->"; "i"))
+                    and (if $need_request_id == "true"
+                         # Accept either GHA format (gate-{run}-{attempt}-{pr}-{sha12})
+                         # or ao-verify format (gate-{sha}-{run}-1).  The comment may
+                         # have been posted by either the cron workflow or a direct
+                         # runSkepticReview call; we match by the gate- prefix so the
+                         # filter doesn't require a specific request-id string.
+                         then .body | test("<!--\\s*skeptic-request-id-gate-[a-zA-Z0-9_-]+\\s*-->"; "i")
+                         else true end)
                     and (.body | test("<!--\\s*skeptic-head-sha-" + $ts + "\\s*-->"; "i"))
                     and (.body as $body |
                       ($body | test("(^|\\n)[[:space:]>#*]*VERDICT:[[:space:]]*(FAIL|SKIPPED)([[:space:][:punct:]]|$)"; "i"))
