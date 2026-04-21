@@ -287,7 +287,7 @@ const DefaultPluginsSchema = z.object({
   runtime: z.string().default("tmux"),
   agent: z.string().default("codex"),
   workspace: z.string().default("worktree"),
-  notifiers: z.array(z.string()).default(["composio", "desktop"]),
+  notifiers: z.array(z.string()).default([]),
   agentConfig: AgentSpecificConfigSchema.optional(),
   modelByCli: z.record(CliModelDefaultsSchema).optional(),
   orchestrator: RoleAgentDefaultsSchema,
