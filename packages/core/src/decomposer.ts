@@ -202,6 +202,75 @@ async function planTree(
 }
 
 // =============================================================================
+// PR-TYPE CLASSIFICATION (ZFC-compliant)
+// =============================================================================
+
+import type { PrType, PrTypeClassification } from "./types.js";
+
+const PR_TYPE_SYSTEM = `You are a PR-type classifier for software issues.
+
+Classify the issue into EXACTLY ONE of these types:
+
+- state-bool: widening boolean semantics (int 1/0, string '1'/'0' as valid True/False)
+- data-norm: normalizing key names and numeric formats (xp→xp_gained, NaN handling)
+- ci-workflow: GitHub Actions workflow changes (YAML scripting, gate logic)
+- typeddict-schema: TypedDict + validation for previously untyped data structures
+- large-arch-refactor: module extraction, moving functions between files
+- unknown: cannot determine from the description
+
+Respond with a JSON object with exactly these fields:
+{
+  "type": "state-bool" | "data-norm" | "ci-workflow" | "typeddict-schema" | "large-arch-refactor" | "unknown",
+  "confidence": "high" | "medium" | "low",
+  "reasoning": "one sentence explaining why this type was chosen"
+}
+
+Respond with ONLY the JSON object. Nothing else.`;
+
+/**
+ * ZFC-compliant PR-type classifier.
+ * Delegates classification to model API — no heuristic scoring, no keyword matching.
+ */
+export async function classifyPrType(
+  issueTitle: string,
+  issueBody: string,
+  model = "claude-sonnet-4-20250514",
+): Promise<PrTypeClassification> {
+  const client = new Anthropic();
+  const combined = `${issueTitle}\n\n${issueBody}`.trim();
+
+  const res = await client.messages.create({
+    model,
+    max_tokens: 256,
+    system: PR_TYPE_SYSTEM,
+    messages: [{ role: "user", content: combined }],
+  });
+
+  const text = res.content[0].type === "text" ? res.content[0].text.trim() : "{}";
+  const jsonMatch = text.match(/\{[\s\S]*\}/);
+
+  if (!jsonMatch) {
+    return { type: "unknown", confidence: "low", reasoning: "no JSON in model response" };
+  }
+
+  try {
+    const parsed = JSON.parse(jsonMatch[0]) as { type?: string; confidence?: string; reasoning?: string };
+    const validTypes: PrType[] = ["state-bool", "data-norm", "ci-workflow", "typeddict-schema", "large-arch-refactor", "unknown"];
+    const validConfidences = ["high", "medium", "low"];
+
+    const type = validTypes.includes(parsed.type as PrType) ? (parsed.type as PrType) : "unknown";
+    const confidence = validConfidences.includes(parsed.confidence as "high" | "medium" | "low")
+      ? (parsed.confidence as "high" | "medium" | "low")
+      : "low";
+    const reasoning = parsed.reasoning ?? "parsed from model response";
+
+    return { type, confidence, reasoning };
+  } catch {
+    return { type: "unknown", confidence: "low", reasoning: "JSON parse failed" };
+  }
+}
+
+// =============================================================================
 // PUBLIC API
 // =============================================================================
 
