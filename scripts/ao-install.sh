@@ -29,14 +29,10 @@ if [ -d "$AO_REPO_ROOT/.git" ]; then
 else
   MODE="curl"
   REPO_ROOT="$(mktemp -d)"
+  trap 'rm -rf "$REPO_ROOT" 2>/dev/null' EXIT
   echo "  Cloning agent-orchestrator to $REPO_ROOT..."
   git clone --branch "$AGENT_ORCHESTRATOR_BRANCH" \
     "$AGENT_ORCHESTRATOR_REPO" "$REPO_ROOT" >/dev/null 2>&1
-fi
-
-# Cleanup temp clone on any exit (curl mode only)
-if [ "$MODE" = "curl" ]; then
-  trap 'rm -rf "$REPO_ROOT" 2>/dev/null' EXIT
 fi
 
 SCRIPT_DIR="$REPO_ROOT/scripts"
@@ -69,10 +65,13 @@ EOF
 
 for pid in $PROJECTS; do
   echo "  $pid:" >> "$CONFIG_FILE"
+  echo "    name: ${pid}" >> "$CONFIG_FILE"
+  echo "    repo: jleechanorg/$pid" >> "$CONFIG_FILE"
   echo "    path: ~/project_agento/$pid" >> "$CONFIG_FILE"
+  echo "    defaultBranch: main" >> "$CONFIG_FILE"
+  echo "    sessionPrefix: ${pid}" >> "$CONFIG_FILE"
   echo "    scm:" >> "$CONFIG_FILE"
   echo "      plugin: github" >> "$CONFIG_FILE"
-  echo "      repo: jleechanorg/$pid" >> "$CONFIG_FILE"
 done
 
 chmod 600 "$CONFIG_FILE"
