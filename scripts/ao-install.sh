@@ -25,9 +25,6 @@ run_filtered() {
 }
 
 HERMES_HOME="${HERMES_HOME:-$HOME/.hermes_prod}"
-# AO config lives in ~/.openclaw_prod/ ( searched by ao CLI config discovery ).
-# Hermes gateway uses its own ~/.hermes_prod/ for gateway-level config.
-OPENCLAW_PROD="${OPENCLAW_PROD:-$HOME/.openclaw_prod}"
 AGENT_ORCHESTRATOR_REPO="${AGENT_ORCHESTRATOR_REPO:-https://github.com/jleechanorg/agent-orchestrator}"
 AGENT_ORCHESTRATOR_BRANCH="${AGENT_ORCHESTRATOR_BRANCH:-main}"
 AO_REPO_ROOT="${AO_REPO_ROOT:-$HOME/project_agento/agent-orchestrator}"
@@ -53,43 +50,39 @@ elif [ -d "$HOME/project_agento/agent-orchestrator/.git" ]; then
   REPO_ROOT="$HOME/project_agento/agent-orchestrator"
   echo "  Repo detected: $REPO_ROOT"
 else
-  # Use stable path for curl mode — we install launchd plists that reference
-  # $REPO_ROOT, so the dir must persist after this script exits.
-  REPO_ROOT="$HOME/project_agento/agent-orchestrator"
-  _CURL_MODE_CLONE=true
-  if ! git clone --branch "$AGENT_ORCHESTRATOR_BRANCH" \
-    "$AGENT_ORCHESTRATOR_REPO" "$REPO_ROOT" 2>&1; then
-    echo "ERROR: git clone failed — check AGENT_ORCHESTRATOR_REPO and network connectivity"
-    exit 1
-  fi
-fi
-
-# Clean up curl-mode clone on any exit (error, interrupt, etc.) since the
-# launchd plists reference $REPO_ROOT which should not exist on a fresh curl install.
-if [ "$_CURL_MODE_CLONE" = "true" ]; then
-  _clone_dir="$REPO_ROOT"
-  trap 'rm -rf "$_clone_dir" 2>/dev/null || true' EXIT
+  MODE="curl"
+  REPO_ROOT="$(mktemp -d)"
+  echo "[0/7] Cloning agent-orchestrator to $REPO_ROOT..."
+  git clone --branch "$AGENT_ORCHESTRATOR_BRANCH" \
+    "$(echo "$AGENT_ORCHESTRATOR_REPO" | sed 's|https://||')" "$REPO_ROOT" >/dev/null 2>&1
 fi
 
 SCRIPT_DIR="$REPO_ROOT/scripts"
 
 # ─── Step 1: Install dependencies + build CLI ────────────────────────────────
 echo "[1/7] Running setup.sh (install + build)..."
-run_filtered '^\[ok\]|\[ERROR\]|ERROR|complete' 20 bash -c "cd \"$REPO_ROOT\" && bash \"$SCRIPT_DIR/setup.sh\""
+bash "$SCRIPT_DIR/setup.sh" 2>&1 | grep -E '^\[ok\]|\[ERROR\]|ERROR|complete' | head -20 || true
 
-# ─── Step 2: Bootstrap AO config at openclaw_prod ────────────────────────────
-echo "[2/7] Bootstrapping AO config at $OPENCLAW_PROD/agent-orchestrator.yaml..."
+# ─── Step 2: Bootstrap config at hermes_prod ─────────────────────────────────
+echo "[2/7] Bootstrapping AO config at $HERMES_HOME/agent-orchestrator.yaml..."
 
-mkdir -p "$OPENCLAW_PROD"
-CONFIG_FILE="$OPENCLAW_PROD/agent-orchestrator.yaml"
+mkdir -p "$HERMES_HOME"
+CONFIG_FILE="$HERMES_HOME/agent-orchestrator.yaml"
 
-# Backup existing config before overwriting
+# Read existing config to preserve projects
+EXISTING_PROJECTS=""
 if [ -f "$CONFIG_FILE" ]; then
-  cp "$CONFIG_FILE" "$CONFIG_FILE.bak-$(date -u +%Y%m%dT%H%M%SZ)"
-  echo "  Config backed up: $CONFIG_FILE.bak"
+  EXISTING_PROJECTS=$(python3 -c "
+import yaml, sys
+try:
+    cfg = yaml.safe_load(open('$CONFIG_FILE')) or {}
+    for pid in (cfg.get('projects') or {}):
+        print(pid)
+except: pass
+" 2>/dev/null || true)
 fi
 
-# Write canonical config
+# Write canonical config (projects from $PROJECTS env, or existing)
 cat >"$CONFIG_FILE" <<EOF
 # Managed AO config — $(date -u +%Y-%m-%dT%H:%M:%SZ)
 # Single source of truth. Do not edit manually for project additions.
@@ -106,20 +99,16 @@ projects:
 EOF
 
 for pid in $PROJECTS; do
-  echo "  ${pid}:" >> "$CONFIG_FILE"
-  echo "    name: ${pid}" >> "$CONFIG_FILE"
-  echo "    repo: jleechanorg/${pid}" >> "$CONFIG_FILE"
-  echo "    path: ~/project_agento/${pid}" >> "$CONFIG_FILE"
-  echo "    defaultBranch: main" >> "$CONFIG_FILE"
-  echo "    sessionPrefix: ${pid}" >> "$CONFIG_FILE"
+  echo "  $pid:" >> "$CONFIG_FILE"
+  echo "    path: ~/project_agento/$pid" >> "$CONFIG_FILE"
   echo "    scm:" >> "$CONFIG_FILE"
   echo "      plugin: github" >> "$CONFIG_FILE"
-  echo "      repo: jleechanorg/${pid}" >> "$CONFIG_FILE"
+  echo "      repo: jleechanorg/$pid" >> "$CONFIG_FILE"
 done
 
 chmod 600 "$CONFIG_FILE"
 echo "  Config written: $CONFIG_FILE"
-echo "  Projects: $(echo "$PROJECTS" | tr ' ' ', ')"
+echo "  Projects: $(echo $PROJECTS | tr ' ' ', ')"
 
 # ─── Step 3: Link AO skills to user .claude ──────────────────────────────────
 echo "[3/7] Linking AO skills..."
@@ -142,7 +131,7 @@ fi
 # ─── Step 5: Run setup-extended.sh (rebuild CLI + launchd + webhook) ─────────
 echo "[5/7] Running setup-extended.sh..."
 if [ -f "$SCRIPT_DIR/setup-extended.sh" ]; then
-  run_filtered '^\[|^ok|^WARNING|═══|complete|Installing' 30 env AO_CONFIG_PATH="$CONFIG_FILE" bash "$SCRIPT_DIR/setup-extended.sh"
+  AO_CONFIG_PATH="$CONFIG_FILE" bash "$SCRIPT_DIR/setup-extended.sh" 2>&1 | grep -E '^\[|^ok|^WARNING|═══|complete|Installing' | head -30 || true
 else
   echo "  setup-extended.sh not found — skipping"
 fi
@@ -150,21 +139,20 @@ fi
 # ─── Step 6: Verify lifecycle workers ────────────────────────────────────────
 echo "[6/7] Verifying lifecycle workers..."
 WORKER_COUNT=0
-
-if ! launchctl print "gui/$(id -u)/ai.agento.lifecycle-all" >/dev/null 2>&1; then
-  echo "  - lifecycle-all service not loaded"
-else
-  for pid in $PROJECTS; do
+for pid in $PROJECTS; do
+  if launchctl print "gui/$(id -u)/ai.agento.lifecycle-all" >/dev/null 2>&1; then
     # The lifecycle-all plist manages all workers; check via pgrep for per-project liveness
-    escaped_pid=$(printf '%s' "$pid" | sed 's/[][().*^$+?{}|\\]/\\&/g')
-    if pgrep -f "lifecycle-worker[[:space:]].*${escaped_pid}([[:space:]]|\$)" >/dev/null 2>&1; then
+    if pgrep -f "lifecycle-worker[[:space:]].*${pid}([[:space:]]|\$)" >/dev/null 2>&1; then
       WORKER_COUNT=$((WORKER_COUNT + 1))
       echo "  + $pid: running"
     else
       echo "  - $pid: not running"
     fi
-  done
-fi
+  else
+    echo "  - lifecycle-all service not loaded"
+    break
+  fi
+done
 
 # ─── Step 7: Final verification via ao doctor ──────────────────────────────────
 echo "[7/7] Running ao doctor..."
@@ -179,9 +167,7 @@ fi
 echo ""
 echo "=== Install Complete ==="
 echo "Config: $CONFIG_FILE"
-# wc -w on BSD macOS pads output right-aligned with spaces; trim twice to be safe
-PROJECT_COUNT=$(echo "$PROJECTS" | wc -w | tr -d ' ' | tr -d ' ')
-echo "Workers running: $WORKER_COUNT/$PROJECT_COUNT"
+echo "Workers running: $WORKER_COUNT/$(echo $PROJECTS | wc -w)"
 echo ""
 echo "Next steps:"
 echo "  AO_CONFIG_PATH=\"$CONFIG_FILE\" ao spawn --project agent-orchestrator 'echo hello'"
