@@ -265,10 +265,10 @@ export function registerSkeptic(program: Command): Command {
         console.log(chalk[verdictMatch[1].toLowerCase() === "pass" ? "green" : "red"](verdictMatch[0]));
         console.log(chalk.yellow("\n=== Full LLM output ===\n"));
         console.log(verdict);
-        // Exit non-zero only for VERDICT: FAIL from LLM evaluation.
-        // Infrastructure failures (Codex/Claude unavailable) emit VERDICT: SKIPPED and exit 0
-        // so the cron step continues — gate 7 treats SKIPPED as a pass condition.
-        if (verdictMatch?.[1]?.toUpperCase() === "FAIL") {
+        // Exit non-zero for FAIL or SKIPPED verdicts (fail-closed).
+        // SKIPPED means infrastructure failure (model unavailable); exit 0 would mask it.
+        const v = verdictMatch?.[1]?.toUpperCase();
+        if (v === "FAIL" || v === "SKIPPED") {
           process.exit(1);
         }
         return;
