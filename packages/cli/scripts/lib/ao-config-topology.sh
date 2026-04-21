@@ -24,10 +24,20 @@ ao_production_config_path() {
   # HERMES_HOME is the canonical AO/Hermes worker config directory (ao-install.sh,
   # ao-repo-setup.sh, and the launchd plist all use it). Check it first so the
   # config written by ao-install.sh is auto-discovered without AO_CONFIG_PATH.
-  if [ -n "${HERMES_HOME:-}" ]; then
+  if [ -n "${HERMES_HOME:-}" ] && [ -f "${HERMES_HOME}/agent-orchestrator.yaml" ]; then
     printf '%s/agent-orchestrator.yaml\n' "$HERMES_HOME"
     return 0
   fi
+  if [ -f "${HOME}/.hermes_prod/agent-orchestrator.yaml" ]; then
+    printf '%s/.hermes_prod/agent-orchestrator.yaml\n' "$HOME"
+    return 0
+  fi
+  if [ -f "${HOME}/.openclaw_prod/agent-orchestrator.yaml" ]; then
+    # Backward-compatibility: preserve discovery of configs written by older ao-install.sh.
+    printf '%s/.openclaw_prod/agent-orchestrator.yaml\n' "$HOME"
+    return 0
+  fi
+  # Default: use .hermes_prod when nothing exists yet.
   printf '%s/.hermes_prod/agent-orchestrator.yaml\n' "${HOME:?HOME is required}"
 }
 
