@@ -151,7 +151,7 @@ fi
 echo ""
 echo "=== Install Complete ==="
 echo "Config: $CONFIG_FILE"
-echo "Workers running: $WORKER_COUNT/$(echo $PROJECTS | wc -w)"
+echo "Workers running: $WORKER_COUNT/$(echo "$PROJECTS" | wc -w)"
 echo ""
 echo "Next steps:"
 echo "  ao spawn --project agent-orchestrator 'echo hello'"
