@@ -5,7 +5,6 @@
 # Or:     bash /tmp/ao-install.sh  (from a clone of agent-orchestrator)
 
 set -euo pipefail
-set -o pipefail
 
 HERMES_HOME="${HERMES_HOME:-$HOME/.hermes_prod}"
 AGENT_ORCHESTRATOR_REPO="${AGENT_ORCHESTRATOR_REPO:-https://github.com/jleechanorg/agent-orchestrator}"
