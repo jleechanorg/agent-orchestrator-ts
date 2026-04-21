@@ -61,7 +61,7 @@ else
 fi
 
 # Step 6: Verify agent-orchestrator repo is accessible
-AO_CLONE_DIR="$HOME/projects/agent-orchestrator"
+AO_CLONE_DIR="${AO_REPO_ROOT:-$HOME/project_agento/agent-orchestrator}"
 if [ -d "$AO_CLONE_DIR/.git" ]; then
     echo "[6/6] Agent-orchestrator repo: $AO_CLONE_DIR (already cloned)"
 else
