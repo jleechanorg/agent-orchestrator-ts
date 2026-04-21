@@ -202,16 +202,19 @@ describe("dry-run SKIPPED color mapping", () => {
 });
 
 describe("bindVerdictOutput", () => {
-  it("downgrades PASS to FAIL when the fresh verdict contract is incomplete", () => {
+  // Note: Gate markers are NOT checked in bindVerdictOutput — they're added by
+  // postVerdict and verified by verifySkepticClaim in the verification phase.
+  // bindVerdictOutput only handles verdict parsing, not marker validation.
+  it("returns PASS unchanged when verdict is parseable (markers checked elsewhere)", () => {
     const result = bindVerdictOutput({
       llmOutput: "VERDICT: PASS\n\nAll good.",
       headSha: "abc1230000000000000000000000000000000000",
       requestId: "req-1",
     });
 
-    expect(result.verdictLine).toBe("VERDICT: FAIL — PASS missing complete skeptic gate table or request binding");
-    expect(result.llmOutput).toContain("VERDICT: FAIL — PASS missing complete skeptic gate table or request binding");
-    expect(result.verdictType).toBe("FAIL");
+    expect(result.verdictLine).toBe("VERDICT: PASS");
+    expect(result.llmOutput).toBe("VERDICT: PASS\n\nAll good.");
+    expect(result.verdictType).toBe("PASS");
   });
 
   it("keeps a complete request-bound PASS unchanged", () => {

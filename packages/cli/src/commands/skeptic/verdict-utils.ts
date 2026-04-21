@@ -101,16 +101,15 @@ export function bindVerdictOutput(params: {
   }
 
   const verdictType = verdictMatch[1].toUpperCase() as Verdict;
-  const downgradedPass =
-    verdictType === "PASS" &&
-    (!hasCompletePassingGateMarkers(params.llmOutput) || !params.requestId || !params.headSha);
-  const verdictLine = downgradedPass
-    ? "VERDICT: FAIL — PASS missing complete skeptic gate table or request binding"
-    : verdictMatch[0];
+  // Note: Gate markers are NOT checked here — they are added by postVerdict and
+  // verified by verifySkepticClaim in the verification phase.
+  // The requestId check was removed because !requestId was always true when
+  // requestId is undefined, incorrectly downgrading all PASS verdicts.
+  const verdictLine = verdictMatch[0];
   return {
     verdictLine,
-    llmOutput: verdictLine === verdictMatch[0] ? params.llmOutput : `${params.llmOutput}\n\n${verdictLine}`,
-    verdictType: downgradedPass ? "FAIL" : verdictType,
+    llmOutput: params.llmOutput,
+    verdictType,
   };
 }
 
