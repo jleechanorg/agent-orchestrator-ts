@@ -202,7 +202,7 @@ describe("dry-run SKIPPED color mapping", () => {
 });
 
 describe("bindVerdictOutput", () => {
-  it("downgrades PASS to FAIL when the fresh verdict contract is incomplete", () => {
+  it("downgrades PASS to FAIL when the LLM output lacks complete gate markers", () => {
     const result = bindVerdictOutput({
       llmOutput: "VERDICT: PASS\n\nAll good.",
       headSha: "abc1230000000000000000000000000000000000",
