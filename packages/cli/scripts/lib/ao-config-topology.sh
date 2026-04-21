@@ -21,7 +21,14 @@ ao_production_config_path() {
     printf '%s\n' "$AO_PRODUCTION_CONFIG_PATH"
     return 0
   fi
-  printf '%s/.openclaw_prod/agent-orchestrator.yaml\n' "${HOME:?HOME is required}"
+  # HERMES_HOME is the canonical AO/Hermes worker config directory (ao-install.sh,
+  # ao-repo-setup.sh, and the launchd plist all use it). Check it first so the
+  # config written by ao-install.sh is auto-discovered without AO_CONFIG_PATH.
+  if [ -n "${HERMES_HOME:-}" ]; then
+    printf '%s/agent-orchestrator.yaml\n' "$HERMES_HOME"
+    return 0
+  fi
+  printf '%s/.hermes_prod/agent-orchestrator.yaml\n' "${HOME:?HOME is required}"
 }
 
 ao_legacy_alias_paths() {
