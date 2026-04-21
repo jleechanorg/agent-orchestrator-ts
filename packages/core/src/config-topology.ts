@@ -32,7 +32,10 @@ export function getManagedConfigPath(env: ManagedConfigEnvironment = "staging"):
     (process.env.HERMES_HOME
       ? resolve(process.env.HERMES_HOME, CONFIG_FILENAME)
       : null) ??
-    resolve(homedir(), ".hermes_prod", CONFIG_FILENAME)
+    resolve(homedir(), ".hermes_prod", CONFIG_FILENAME) ??
+    // Backward-compatibility fallback: preserve discovery of configs written by
+    // older ao-install.sh versions that used .openclaw_prod.
+    resolve(homedir(), ".openclaw_prod", CONFIG_FILENAME)
   );
 }
 
