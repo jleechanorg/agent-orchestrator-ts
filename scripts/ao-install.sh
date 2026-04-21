@@ -31,7 +31,7 @@ else
   REPO_ROOT="$(mktemp -d)"
   echo "[0/7] Cloning agent-orchestrator to $REPO_ROOT..."
   git clone --branch "$AGENT_ORCHESTRATOR_BRANCH" \
-    "$(echo "$AGENT_ORCHESTRATOR_REPO" | sed 's|https://||')" "$REPO_ROOT" >/dev/null 2>&1
+    "$AGENT_ORCHESTRATOR_REPO" "$REPO_ROOT" >/dev/null 2>&1
 fi
 
 SCRIPT_DIR="$REPO_ROOT/scripts"
