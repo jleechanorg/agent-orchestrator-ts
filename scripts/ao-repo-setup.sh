@@ -14,11 +14,10 @@ echo "OpenClaw prod: $OPENCLAW_PROD"
 echo "Repo: $AGENT_ORCHESTRATOR_REPO ($AGENT_ORCHESTRATOR_BRANCH)"
 echo
 
-# Step 1: Verify AO config exists (canonical location is ~/.openclaw_prod/)
-AO_CONFIG="$OPENCLAW_PROD/agent-orchestrator.yaml"
-if [ ! -f "$AO_CONFIG" ]; then
-    echo "ERROR: $AO_CONFIG not found."
-    echo "Run 'ao-install.sh' first to bootstrap the AO config."
+# Step 1: Verify hermes_prod exists and has config
+if [ ! -f "$HERMES_HOME/agent-orchestrator.yaml" ]; then
+    echo "ERROR: $HERMES_HOME/agent-orchestrator.yaml not found."
+    echo "Run 'ao install' first to initialize hermes_prod."
     exit 1
 fi
 echo "[1/6] AO config verified: $AO_CONFIG"
@@ -43,12 +42,21 @@ else
 fi
 
 # Step 4: Check workspace directory
-WORKTREE_DIR=$(python3 -c "
-import yaml, os
-c = yaml.safe_load(open('$HERMES_HOME/agent-orchestrator.yaml'))
-wt = c.get('worktreeDir', os.path.join(os.environ.get('HOME', ''), '.worktrees'))
-print(os.path.expanduser(wt))
-" 2>/dev/null || echo "$HOME/.worktrees")
+if ! WORKTREE_DIR=$(python3 - <<'PY'
+import os
+import sys
+import yaml
+
+with open(os.environ.get("HERMES_HOME", os.path.join(os.environ["HOME"], ".hermes_prod")) + "/agent-orchestrator.yaml", "r", encoding="utf-8") as fh:
+    config = yaml.safe_load(fh) or {}
+
+worktree_dir = config.get("worktreeDir", os.path.join(os.environ["HOME"], ".worktrees"))
+print(os.path.expanduser(worktree_dir))
+PY
+); then
+  echo "WARNING: Failed to read worktreeDir from config; defaulting to $HOME/.worktrees"
+  WORKTREE_DIR="$HOME/.worktrees"
+fi
 mkdir -p "$WORKTREE_DIR"
 echo "[4/6] Worktree dir: $WORKTREE_DIR"
 

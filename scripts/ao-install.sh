@@ -56,9 +56,24 @@ fi
 
 SCRIPT_DIR="$REPO_ROOT/scripts"
 
+# ─── Helper: run a command, filter its output, propagate exit status ──────────
+# Preserves failures from setup scripts while still filtering noisy output.
+run_filter() {
+  local limit="$1"
+  local pattern="$2"
+  shift 2
+  local log_file
+  log_file="$(mktemp)"
+  local status=0
+  "$@" >"$log_file" 2>&1 || status=$?
+  grep -E "$pattern" "$log_file" | head -"$limit" || true
+  rm -f "$log_file"
+  return $status
+}
+
 # ─── Step 1: Install dependencies + build CLI ────────────────────────────────
 echo "[1/7] Running setup.sh (install + build)..."
-bash "$SCRIPT_DIR/setup.sh" 2>&1 | grep -E '^\[ok\]|\[ERROR\]|ERROR|complete' | head -20 || true
+run_filter 20 '^\[ok\]|\[ERROR\]|ERROR|complete' bash "$SCRIPT_DIR/setup.sh"
 
 # ─── Step 2: Bootstrap config at hermes_prod ─────────────────────────────────
 echo "[2/7] Bootstrapping AO config at $HERMES_HOME/agent-orchestrator.yaml..."
@@ -85,9 +100,9 @@ EOF
 for pid in $PROJECTS; do
   echo "  $pid:" >> "$CONFIG_FILE"
   echo "    path: ~/project_agento/$pid" >> "$CONFIG_FILE"
+  echo "    repo: jleechanorg/$pid" >> "$CONFIG_FILE"
   echo "    scm:" >> "$CONFIG_FILE"
   echo "      plugin: github" >> "$CONFIG_FILE"
-  echo "      repo: jleechanorg/$pid" >> "$CONFIG_FILE"
 done
 
 chmod 600 "$CONFIG_FILE"
@@ -115,7 +130,8 @@ fi
 # ─── Step 5: Run setup-extended.sh (rebuild CLI + launchd + webhook) ─────────
 echo "[5/7] Running setup-extended.sh..."
 if [ -f "$SCRIPT_DIR/setup-extended.sh" ]; then
-  AO_CONFIG_PATH="$CONFIG_FILE" bash "$SCRIPT_DIR/setup-extended.sh" 2>&1 | grep -E '^\[|^ok|^WARNING|═══|complete|Installing' | head -30 || true
+  run_filter 30 '^\[|^ok|^WARNING|═══|complete|Installing' \
+    env AO_CONFIG_PATH="$CONFIG_FILE" bash "$SCRIPT_DIR/setup-extended.sh"
 else
   echo "  setup-extended.sh not found — skipping"
 fi
