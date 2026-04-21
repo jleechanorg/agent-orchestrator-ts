@@ -78,7 +78,7 @@ jobs:
           TRIGGER_SHA: ${{ steps.post_trigger.outputs.trigger_sha }}
           REQUEST_ID: ${{ steps.post_trigger.outputs.request_id }}
           SKEPTIC_BOT_AUTHOR: ${{ vars.SKEPTIC_BOT_AUTHOR || 'jleechan2015' }}
-        timeout-minutes: 11  # headroom over POLL_TIMEOUT=10m below
+        timeout-minutes: 5
         run: |
           set +e
 
@@ -112,7 +112,7 @@ jobs:
 
           POLL_TIMEOUT=600  # seconds — MUST match (timeout-minutes - 1min-headroom) * 60
           INTERVAL=15
-          MAX_ATTEMPTS=$((POLL_TIMEOUT / INTERVAL))  # = 40; update POLL_TIMEOUT if INTERVAL changes
+          MAX_ATTEMPTS=20  # 5 minutes / 15 seconds
 
           PR_STATE_API_FAILURES=0
           COMMENTS_API_FAILURES=0
