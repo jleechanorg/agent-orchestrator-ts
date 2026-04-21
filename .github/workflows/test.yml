@@ -144,10 +144,8 @@ jobs:
                          >= ($tu | if test("\\.[0-9]+Z$") then sub("\\.[0-9]+Z$"; "Z") else . end))
                     and (.body | test("skeptic-gate-trigger-" + $ts; "i"))
                     and (if $need_request_id == "true"
-                         # Accept verdicts from ao skeptic verify (no request-id marker)
-                         # and verdicts with any gate- request-id marker (GHA format).
-                         then (.body | test("<!--\\s*skeptic-request-id-[^>]*-->"; "i") | not)
-                         or (.body | test("<!--\\s*skeptic-request-id-gate-[a-zA-Z0-9_-]+\\s*-->"; "i"))
+                         then ((.body | test("<!--\\s*skeptic-request-id-[^>]*-->"; "i") | not)
+                               or (.body | test("<!--\\s*skeptic-request-id-gate-[a-zA-Z0-9_-]+\\s*-->"; "i")))
                          else true end)
                     and (.body | test("<!--\\s*skeptic-head-sha-" + $ts + "\\s*-->"; "i"))
                     and (.body as $body |
