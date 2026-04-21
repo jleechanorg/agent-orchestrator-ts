@@ -5,6 +5,7 @@
 # Or:     bash /tmp/ao-install.sh  (from a clone of agent-orchestrator)
 
 set -euo pipefail
+set -o pipefail
 
 HERMES_HOME="${HERMES_HOME:-$HOME/.hermes_prod}"
 AGENT_ORCHESTRATOR_REPO="${AGENT_ORCHESTRATOR_REPO:-https://github.com/jleechanorg/agent-orchestrator}"
@@ -38,7 +39,14 @@ SCRIPT_DIR="$REPO_ROOT/scripts"
 
 # ─── Step 1: Install dependencies + build CLI ────────────────────────────────
 echo "[1/7] Running setup.sh (install + build)..."
-bash "$SCRIPT_DIR/setup.sh" 2>&1 | grep -E '^\[ok\]|\[ERROR\]|ERROR|complete' | head -20 || true
+SETUP_LOG="$(mktemp)"
+if ! bash "$SCRIPT_DIR/setup.sh" >"$SETUP_LOG" 2>&1; then
+  grep -E '^\[ok\]|\[ERROR\]|ERROR|complete' "$SETUP_LOG" | head -20 || true
+  echo "ERROR: setup.sh failed. See full log at $SETUP_LOG"
+  exit 1
+fi
+grep -E '^\[ok\]|\[ERROR\]|ERROR|complete' "$SETUP_LOG" | head -20 || true
+rm -f "$SETUP_LOG"
 
 # ─── Step 2: Bootstrap config at hermes_prod ─────────────────────────────────
 echo "[2/7] Bootstrapping AO config at $HERMES_HOME/agent-orchestrator.yaml..."
@@ -95,7 +103,14 @@ fi
 # ─── Step 5: Run setup-extended.sh (rebuild CLI + launchd + webhook) ─────────
 echo "[5/7] Running setup-extended.sh..."
 if [ -f "$SCRIPT_DIR/setup-extended.sh" ]; then
-  AO_CONFIG_PATH="$CONFIG_FILE" bash "$SCRIPT_DIR/setup-extended.sh" 2>&1 | grep -E '^\[|^ok|^WARNING|═══|complete|Installing' | head -30 || true
+  EXTENDED_LOG="$(mktemp)"
+  if ! AO_CONFIG_PATH="$CONFIG_FILE" bash "$SCRIPT_DIR/setup-extended.sh" >"$EXTENDED_LOG" 2>&1; then
+    grep -E '^\[|^ok|^WARNING|═══|complete|Installing' "$EXTENDED_LOG" | head -30 || true
+    echo "  WARNING: setup-extended.sh had errors (see above)"
+  else
+    grep -E '^\[|^ok|^WARNING|═══|complete|Installing' "$EXTENDED_LOG" | head -30 || true
+  fi
+  rm -f "$EXTENDED_LOG"
 else
   echo "  setup-extended.sh not found — skipping"
 fi
