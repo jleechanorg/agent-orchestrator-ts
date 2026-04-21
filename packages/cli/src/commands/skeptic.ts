@@ -20,7 +20,7 @@ import { fetchPRMeta, fetchReviews, fetchDiff, fetchIssueComments, fetchDesignDo
 import { fetchMergeGateState } from "./skeptic/mergeGate.js";
 import { buildSkepticPrompt } from "./skeptic/prompt.js";
 import { runSkepticEvaluation } from "./skeptic/modelRunner.js";
-import { postVerdict, type SkepticVerdictBinding } from "./skeptic/posting.js";
+import { postVerdict, SkepticVerdictBinding } from "./skeptic/posting.js";
 import { verifySkepticClaim, formatClaimVerification } from "./skeptic/claim-verifier.js";
 import { VERDICT_LINE_RE } from "./skeptic/verdict-utils.js";
 export { VERDICT_LINE_RE };
@@ -225,7 +225,7 @@ export function registerSkeptic(program: Command): Command {
             SKEPTIC_BOT_AUTHOR,
             triggerSha,
             skipVerdict,
-            { headSha: triggerSha, requestId: options.requestId } as SkepticVerdictBinding,
+            { headSha: options.triggerSha } as SkepticVerdictBinding,
           );
           spinner4.succeed(chalk.green("Done! Skeptic verdict posted."));
         } catch (err) {
@@ -293,6 +293,7 @@ export function registerSkeptic(program: Command): Command {
           SKEPTIC_BOT_AUTHOR,
           options.triggerSha,
           verdict, // always pass full LLM output so FAIL/SKIPPED bodies carry context
+          { headSha: options.triggerSha } as SkepticVerdictBinding,
         );
         spinner4.succeed(chalk.green("Done! Skeptic verdict posted."));
 
