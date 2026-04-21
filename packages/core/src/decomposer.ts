@@ -239,27 +239,21 @@ export async function classifyPrType(
   const client = new Anthropic();
   const combined = `${issueTitle}\n\n${issueBody}`.trim();
 
-  let res;
   try {
-    res = await client.messages.create({
+    const res = await client.messages.create({
       model,
       max_tokens: 256,
       system: PR_TYPE_SYSTEM,
       messages: [{ role: "user", content: combined }],
     });
-  } catch (err) {
-    // Auth, rate-limit, or network failures — return unknown rather than propagating
-    return { type: "unknown", confidence: "low", reasoning: `API call failed: ${err instanceof Error ? err.message : String(err)}` };
-  }
 
-  const text = res.content[0].type === "text" ? res.content[0].text.trim() : "{}";
-  const jsonMatch = text.match(/\{[\s\S]*\}/);
+    const text = res.content[0].type === "text" ? res.content[0].text.trim() : "{}";
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
 
-  if (!jsonMatch) {
-    return { type: "unknown", confidence: "low", reasoning: "no JSON in model response" };
-  }
+    if (!jsonMatch) {
+      return { type: "unknown", confidence: "low", reasoning: "no JSON in model response" };
+    }
 
-  try {
     const parsed = JSON.parse(jsonMatch[0]) as { type?: string; confidence?: string; reasoning?: string };
     const validTypes: PrType[] = ["state-bool", "data-norm", "ci-workflow", "typeddict-schema", "large-arch-refactor", "unknown"];
     const validConfidences = ["high", "medium", "low"];
@@ -272,7 +266,7 @@ export async function classifyPrType(
 
     return { type, confidence, reasoning };
   } catch {
-    return { type: "unknown", confidence: "low", reasoning: "JSON parse failed" };
+    return { type: "unknown", confidence: "low", reasoning: "classification request failed" };
   }
 }
 
