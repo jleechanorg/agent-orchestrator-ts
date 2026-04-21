@@ -1198,6 +1198,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
         resolvedIssue,
         sessionId,
         spawnConfig,
+        skipPrBoilerplate: spawnConfig.skipPrBoilerplate,
       });
       composedPromptPath = promptArtifact.composedPromptPath;
     } catch (err) {

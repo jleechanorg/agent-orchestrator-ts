@@ -257,10 +257,41 @@ describe("BASE_AGENT_PROMPT", () => {
     expect(BASE_AGENT_PROMPT.length).toBeGreaterThan(100);
   });
 
-  it("covers key topics", () => {
+  it("covers core AO session topics", () => {
     expect(BASE_AGENT_PROMPT).toContain("Session Lifecycle");
-    expect(BASE_AGENT_PROMPT).toContain("Git Workflow");
-    expect(BASE_AGENT_PROMPT).toContain("PR Best Practices");
     expect(BASE_AGENT_PROMPT).toContain("ao session claim-pr");
+  });
+});
+
+describe("skipPrBoilerplate", () => {
+  it("omits PR/Git/TDD sections when true", () => {
+    const result = buildPrompt({
+      project,
+      projectId: "test-app",
+      skipPrBoilerplate: true,
+    });
+    expect(result).toContain("Session Lifecycle");
+    expect(result).not.toContain("Git Workflow");
+    expect(result).not.toContain("PR Best Practices");
+    expect(result).not.toContain("TDD Requirement");
+    expect(result).not.toContain("Evidence Bundle");
+  });
+
+  it("includes PR/Git/TDD sections when false", () => {
+    const result = buildPrompt({
+      project,
+      projectId: "test-app",
+      skipPrBoilerplate: false,
+    });
+    expect(result).toContain("Session Lifecycle");
+    expect(result).toContain("Git Workflow");
+    expect(result).toContain("PR Best Practices");
+    expect(result).toContain("TDD Requirement");
+  });
+
+  it("defaults to including PR boilerplate when omitted", () => {
+    const result = buildPrompt({ project, projectId: "test-app" });
+    expect(result).toContain("Git Workflow");
+    expect(result).toContain("PR Best Practices");
   });
 });

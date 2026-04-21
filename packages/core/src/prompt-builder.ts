@@ -18,7 +18,8 @@ import type { ProjectConfig } from "./types.js";
 // LAYER 1: BASE AGENT PROMPT
 // =============================================================================
 
-export const BASE_AGENT_PROMPT = `You are an AI coding agent managed by the Agent Orchestrator (ao).
+/** Core instructions always included for every managed session. */
+const CORE_AGENT_PROMPT = `You are an AI coding agent managed by the Agent Orchestrator (ao).
 
 ## Instruction Hierarchy
 - **Task-specific instructions override base/project rules when they conflict.**
@@ -28,11 +29,17 @@ export const BASE_AGENT_PROMPT = `You are an AI coding agent managed by the Agen
 - When you finish your work, create a PR and push it. The orchestrator will handle CI monitoring and review routing.
 - If you're told to take over or continue work on an existing PR, run \`ao session claim-pr <pr-number-or-url>\` from inside this session before making changes.
 - If CI fails, the orchestrator will send you the failures — fix them and push again.
-- If reviewers request changes, the orchestrator will forward their comments — address each one, push fixes, and reply to the comments.
+- If reviewers request changes, the orchestrator will forward their comments — address each one, push fixes, and reply to the comments.`;
+
+/**
+ * PR/Git/TDD boilerplate — excluded for planning-only and artifact-only workers
+ * that should not create branches, push code, or open PRs.
+ */
+const PR_BOILERPLATE = `
 
 ## Git Workflow & TDD Mandate
 - **TDD Requirement**: You MUST follow a Test-Driven Development (TDD) workflow. Write a failing test first (Red), implement the fix (Green), and then refactor.
-- **Evidence-Driven Development (EDD)**: Use your tests to generate the mandatory evidence artifacts (logs, video .mp4/.gif/.cast). 
+- **Evidence-Driven Development (EDD)**: Use your tests to generate the mandatory evidence artifacts (logs, video .mp4/.gif/.cast).
 - **Proven Authenticity**: Your ## Evidence section must show the TDD cycle: include the initial failing run (to prove existence of the bug/gap) followed by the successful verification run.
 - Always create a feature branch from the default branch (never commit directly to it).
 - Use conventional commit messages (feat:, fix:, chore:, etc.).
@@ -46,6 +53,15 @@ export const BASE_AGENT_PROMPT = `You are an AI coding agent managed by the Agen
 - Link the issue in the PR description so it auto-closes when merged.
 - If the repo has CI checks, make sure they pass before requesting review.
 - Respond to every review comment, even if just to acknowledge it.`;
+
+/**
+ * @deprecated Use buildPrompt() with skipPrBoilerplate option instead.
+ * Exported only for backward compatibility with tests and external consumers.
+ * Note: BASE_AGENT_PROMPT = CORE_AGENT_PROMPT only; PR boilerplate is
+ * conditionally added by buildPrompt(). The full combined prompt is
+ * buildPrompt({ skipPrBoilerplate: false }).
+ */
+export const BASE_AGENT_PROMPT = CORE_AGENT_PROMPT;
 
 // =============================================================================
 // TYPES
@@ -75,6 +91,13 @@ export interface PromptBuildConfig {
 
   /** Decomposition context — sibling task descriptions (from decomposer) */
   siblings?: string[];
+
+  /**
+   * When true, the PR/Git/TDD boilerplate is excluded from the base prompt.
+   * Use for planning-only, artifact-only, or other non-coding workers that
+   * should not attempt to create branches, push code, or open PRs.
+   */
+  skipPrBoilerplate?: boolean;
 }
 
 // =============================================================================
@@ -167,8 +190,12 @@ export function buildPrompt(config: PromptBuildConfig): string {
   const userRules = readUserRules(config.project);
   const sections: string[] = [];
 
-  // Layer 1: Base prompt is always included for every managed session.
-  sections.push(BASE_AGENT_PROMPT);
+  // Layer 1: Core prompt is always included; PR boilerplate is excluded for
+  // planning-only and artifact-only workers that should not push code or open PRs.
+  sections.push(CORE_AGENT_PROMPT);
+  if (!config.skipPrBoilerplate) {
+    sections.push(PR_BOILERPLATE);
+  }
 
   // Layer 2: Config-derived context
   sections.push(buildConfigLayer(config));
