@@ -127,12 +127,10 @@ else
   echo "  ao CLI not in PATH — run: export PATH=\"\$(npm config get prefix)/bin:\$PATH\""
 fi
 
-# ─── Cleanup on curl mode ────────────────────────────────────────────────────
-if [ "$MODE" = "curl" ]; then
-  echo ""
-  echo "Cleaning up temp clone..."
-  rm -rf "$REPO_ROOT"
-fi
+# ─── Keep repo for curl mode ─────────────────────────────────────────────────
+# In curl mode the clone is stored at a stable path (not a temp dir),
+# so we keep it — install-repo-skills.sh creates symlinks into the repo
+# and setup-extended.sh may install launchd jobs pointing to its scripts.
 
 echo ""
 echo "=== Install Complete ==="
