@@ -22,7 +22,7 @@ import { buildSkepticPrompt } from "./skeptic/prompt.js";
 import { runSkepticEvaluation } from "./skeptic/modelRunner.js";
 import { postVerdict, type SkepticVerdictBinding } from "./skeptic/posting.js";
 import { verifySkepticClaim, formatClaimVerification } from "./skeptic/claim-verifier.js";
-import { VERDICT_LINE_RE } from "./skeptic/verdict-utils.js";
+import { bindVerdictOutput, VERDICT_LINE_RE } from "./skeptic/verdict-utils.js";
 export { VERDICT_LINE_RE };
 
 // bd-lg7i: Default to github-actions[bot] — CI workflow poller filters by this
@@ -257,18 +257,15 @@ export function registerSkeptic(program: Command): Command {
       // Dry-run: print verdict without posting — fail-closed on malformed output
       if (options.dryRun) {
         console.log(chalk.yellow("\n=== DRY RUN — Verdict ===\n"));
-        const verdictMatch = verdict.match(VERDICT_LINE_RE);
-        if (!verdictMatch) {
-          console.error(chalk.red("Could not parse VERDICT from LLM output."));
-          process.exit(1);
-        }
-        console.log(chalk[verdictMatch[1].toLowerCase() === "pass" ? "green" : "red"](verdictMatch[0]));
+        const bound = bindVerdictOutput({
+          llmOutput: verdict,
+          headSha: triggerSha,
+          requestId: options.requestId,
+        });
+        console.log(chalk[bound.verdictType === "PASS" ? "green" : "red"](bound.verdictLine));
         console.log(chalk.yellow("\n=== Full LLM output ===\n"));
-        console.log(verdict);
-        // Exit non-zero for FAIL or SKIPPED verdicts (fail-closed).
-        // SKIPPED means infrastructure failure (model unavailable); exit 0 would mask it.
-        const v = verdictMatch?.[1]?.toUpperCase();
-        if (v === "FAIL" || v === "SKIPPED") {
+        console.log(bound.llmOutput);
+        if (bound.verdictType === "FAIL" || bound.verdictType === "SKIPPED") {
           process.exit(1);
         }
         return;
@@ -278,15 +275,13 @@ export function registerSkeptic(program: Command): Command {
       // when gate markers are incomplete.
       const bound = bindVerdictOutput({
         llmOutput: verdict,
+        headSha: triggerSha,
+        requestId: options.requestId,
       });
 
       if (bound.verdictType === null) {
         console.warn(chalk.yellow("Could not parse VERDICT from LLM output. Posting raw output."));
       }
-
-      const verdictLine = verdictMatch
-        ? verdictMatch[0]
-        : "VERDICT: FAIL — could not parse LLM output (expected VERDICT: PASS/FAIL/SKIPPED)";
 
       const spinner4 = ora("Posting verdict to PR #" + prNumber + "…").start();
       let commentBody: string;
@@ -295,11 +290,11 @@ export function registerSkeptic(program: Command): Command {
           owner,
           repo,
           prNumber,
-          verdictLine,
+          bound.verdictLine,
           existing?.commentId ?? null,
           SKEPTIC_BOT_AUTHOR,
           triggerSha,
-          verdict, // always pass full LLM output so FAIL/SKIPPED bodies carry context
+          bound.llmOutput,
           { headSha: triggerSha, requestId: options.requestId } as SkepticVerdictBinding,
         );
         spinner4.succeed(chalk.green("Done! Skeptic verdict posted."));
@@ -308,7 +303,7 @@ export function registerSkeptic(program: Command): Command {
         // Use the same body we posted (contains the HTML marker + verdict).
         commentBody = [
           "<!-- skeptic-agent-verdict -->",
-          verdictLine,
+          bound.verdictLine,
         ].join("\n");
 
         // Verify both run-level (LLM output) and comment-level (GitHub comment).

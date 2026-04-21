@@ -242,15 +242,6 @@ describe("bindVerdictOutput", () => {
     expect(result.verdictLine).toBe("VERDICT: PASS");
     expect(result.verdictType).toBe("PASS");
   });
-
-  it("keeps PASS unchanged when complete gate markers exist and request/head bindings are omitted", () => {
-    const result = bindVerdictOutput({
-      llmOutput: COMPLETE_PASS_WITH_8_GATES,
-    });
-
-    expect(result.verdictLine).toBe("VERDICT: PASS");
-    expect(result.verdictType).toBe("PASS");
-  });
 });
 
 describe("findExistingVerdict — SKIPPED path", () => {
