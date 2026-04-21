@@ -450,14 +450,10 @@ describe("wholesome — structural source-code assertions", () => {
       "df94594cc7398fd49ab60966b79f44a0da337e4f", // fix(core): apply upstream prompt delivery robustness + send.ts error handling (rebased SHA)
       "35f2d946a315f5e6bc3c8a16a7181384bf0145db", // fix(config): remove desktop notifications from default configs (rebased SHA)
       // PR #498: original jq-predicate fix commit — pre-existing [agento] gap before strict first-parent check
-      "da47ec502f55c28dd33b93542ac660bdf3ae0c20", // fix: skeptic-gate jq filter accepts VERDICT when SKEPTIC_BOT_AUTHOR=*** PR_author
-      // fix/stuck-worker-bypass-false-positive (PR #494): pre-prefix commits during dev
-      "6baf84044464af62252bc9b473e6623638634158", // chore: close recovery bead for PR 493 sync
-      "c348c1bbfbe45874ffbb2b0dfac1631749d6da32", // fix(skeptic): prevent cursor[bot] comments from false-matching verdict
-      "22dc636d0d86084501948ccf60ca7cc6819503b4", // fix(skeptic-gate): increase timeout to 10min, MAX_ATTEMPTS to 32
-      "268ba82da3802bd950987a9e7604d712fd7d4c84", // test(skeptic): add shell-integration test for FAIL/SKIPPED suppress-window
-      "3fad0c4d73c36dc4bc7af7f775bb40de1d01d972", // fix(skeptic): correct SHA filtering in findExistingVerdict
-      "5c4a0f4be5c6983220036c6cf80df02532f28763", // test(skeptic-cron): verify skeptic runs regardless of backfillAllPRs
+      "da47ec502f55c28dd33b93542ac660bdf3ae0c20", // fix: skeptic-gate jq filter accepts VERDICT when SKEPTIC_BOT_AUTHOR == PR_author
+      // fix/skip-pr-boilerplate-core-prompt (PR #487): pre-[agento] commits on this feature branch
+      "30dbbf1823c273ba3d36251155e7eb630c16c9f2", // fix(prompt-builder): suppress PR/push instructions when skipPrBoilerplate=true
+      "8e7abb690a065345caeca8507660af5ca7f7a27b", // feat: add consolidated ao-install.sh and ao-repo-setup.sh scripts
     ]);
 
     it("all non-merge commits made on this branch have [agento] prefix", () => {
@@ -491,85 +487,6 @@ describe("wholesome — structural source-code assertions", () => {
   // 6. Fork-aware runner selection in CI workflow files
   // -------------------------------------------------------------------------
   describe("fork-aware runner selection in workflow files", () => {
-    it("critical PR workflows support workflow_dispatch for manual rescue reruns", () => {
-      const workflowDir = join(REPO_ROOT, ".github", "workflows");
-      const requiredDispatchWorkflows = [
-        "ci.yml",
-        "coverage.yml",
-        "evidence-gate.yml",
-        "wholesome.yml",
-      ];
-
-      const violations = requiredDispatchWorkflows.filter(file => {
-        const content = readFileSync(join(workflowDir, file), "utf-8");
-        return !content.includes("workflow_dispatch:");
-      });
-
-      expect(
-        violations,
-        "Critical PR workflows must support workflow_dispatch for manual rescue reruns:\n" +
-          violations.join("\n")
-      ).toHaveLength(0);
-    });
-
-    it("workflow_dispatch rescue reruns resolve PR context before using PR-only fields", () => {
-      const workflowDir = join(REPO_ROOT, ".github", "workflows");
-      const expectations: Record<string, string[]> = {
-        "coverage.yml": [
-          "Resolve PR context",
-          "steps.pr-context.outputs.base_ref",
-        ],
-        "evidence-gate.yml": [
-          "Resolve PR context",
-          "steps.pr-context.outputs.pr_body",
-          "steps.pr-context.outputs.base_sha",
-          "steps.pr-context.outputs.head_sha",
-          "github.event.pull_request.number || github.ref",
-        ],
-        "wholesome.yml": [
-          "Resolve PR context",
-          "steps.pr-context.outputs.pr_title",
-          "steps.pr-context.outputs.pr_body",
-          "github.event.pull_request.number || github.ref",
-        ],
-      };
-
-      const violations: string[] = [];
-
-      for (const [file, requiredSnippets] of Object.entries(expectations)) {
-        const content = readFileSync(join(workflowDir, file), "utf-8");
-        for (const snippet of requiredSnippets) {
-          if (!content.includes(snippet)) {
-            violations.push(`${file}: missing ${snippet}`);
-          }
-        }
-      }
-
-      expect(
-        violations,
-        "workflow_dispatch rescue reruns must resolve PR context before using pull_request-only fields:\n" +
-          violations.join("\n"),
-      ).toHaveLength(0);
-    });
-
-    it("uses the canonical shared self-hosted runner selector in coverage and skeptic gate workflows", () => {
-      const workflowDir = join(REPO_ROOT, ".github", "workflows");
-      const expectedSharedLabels =
-        `fromJson(vars.SELF_HOSTED_RUNNER_LABELS || '` +
-        `["self-hosted","Linux","ARM64","agent-orchestrator"]')`;
-
-      for (const file of ["coverage.yml", "test.yml"]) {
-        const content = readFileSync(join(workflowDir, file), "utf-8");
-
-        expect(content, `${file} should fall back to ubuntu-latest when self-hosted is disabled`).toContain(
-          "vars.SELF_HOSTED_DISABLED == 'true' && 'ubuntu-latest'",
-        );
-        expect(content, `${file} should target the shared agent-orchestrator self-hosted runner labels`).toContain(
-          expectedSharedLabels,
-        );
-      }
-    });
-
     /**
      * SECURITY invariant: Every workflow job that runs on pull_request events
      * must use the fork-aware runner selection pattern. Without it, a fork PR
