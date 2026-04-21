@@ -32,7 +32,7 @@ export function getManagedConfigPath(env: ManagedConfigEnvironment = "staging"):
     (process.env.HERMES_HOME
       ? resolve(process.env.HERMES_HOME, CONFIG_FILENAME)
       : null) ??
-    resolve(homedir(), ".openclaw_prod", CONFIG_FILENAME)
+    resolve(homedir(), ".hermes_prod", CONFIG_FILENAME)
   );
 }
 

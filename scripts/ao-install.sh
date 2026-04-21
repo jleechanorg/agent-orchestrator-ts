@@ -31,7 +31,7 @@ else
   REPO_ROOT="$(mktemp -d)"
   echo "[0/7] Cloning agent-orchestrator to $REPO_ROOT..."
   git clone --branch "$AGENT_ORCHESTRATOR_BRANCH" \
-    "$(echo "$AGENT_ORCHESTRATOR_REPO" | sed 's|https://||')" "$REPO_ROOT" >/dev/null 2>&1
+    "$AGENT_ORCHESTRATOR_REPO" "$REPO_ROOT" >/dev/null 2>&1
 fi
 
 SCRIPT_DIR="$REPO_ROOT/scripts"
@@ -46,20 +46,7 @@ echo "[2/7] Bootstrapping AO config at $HERMES_HOME/agent-orchestrator.yaml..."
 mkdir -p "$HERMES_HOME"
 CONFIG_FILE="$HERMES_HOME/agent-orchestrator.yaml"
 
-# Read existing config to preserve projects
-EXISTING_PROJECTS=""
-if [ -f "$CONFIG_FILE" ]; then
-  EXISTING_PROJECTS=$(python3 -c "
-import yaml, sys
-try:
-    cfg = yaml.safe_load(open('$CONFIG_FILE')) or {}
-    for pid in (cfg.get('projects') or {}):
-        print(pid)
-except: pass
-" 2>/dev/null || true)
-fi
-
-# Write canonical config (projects from $PROJECTS env, or existing)
+# Write canonical config
 cat >"$CONFIG_FILE" <<EOF
 # Managed AO config — $(date -u +%Y-%m-%dT%H:%M:%SZ)
 # Single source of truth. Do not edit manually for project additions.
