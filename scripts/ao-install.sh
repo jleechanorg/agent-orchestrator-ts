@@ -85,7 +85,9 @@ echo "  Projects: $(echo "$PROJECTS" | tr ' ' ', ')"
 # ─── Step 3: Link AO skills to user .claude ──────────────────────────────────
 echo "[3/7] Linking AO skills..."
 if [ -f "$SCRIPT_DIR/install-repo-skills.sh" ]; then
-  bash "$SCRIPT_DIR/install-repo-skills.sh" --global 2>/dev/null || echo "  (skills install skipped)"
+  if ! bash "$SCRIPT_DIR/install-repo-skills.sh" --global 2>&1 | grep -v "^$" || true; then
+    echo "  WARNING: skills install had errors (continuing anyway)"
+  fi
 fi
 
 # ─── Step 4: Verify hermes gateway health ───────────────────────────────────
