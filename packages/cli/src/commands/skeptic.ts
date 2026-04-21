@@ -99,6 +99,7 @@ async function findExistingVerdict(
   repo: string,
   prNumber: number,
   triggerSha?: string,
+  requestId?: string,
 ): Promise<{ verdict: "PASS" | "FAIL" | "SKIPPED"; commentId: number } | null> {
   // Normalize triggerSha: trim whitespace and treat empty/invalid as unset
   const normalizedSha = triggerSha?.trim();
@@ -116,6 +117,11 @@ async function findExistingVerdict(
         ? new RegExp(`<!-- skeptic-(?:gate|cron)-trigger-${escapedSha} -->`)
         : null;
       if (!shaMarker || shaMarker.test(c.body)) {
+        // If requestId was provided, also match by it to avoid races on same SHA
+        if (requestId) {
+          const ridMarker = new RegExp(`<!-- skeptic-request-id-.*${requestId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} -->`);
+          if (!ridMarker.test(c.body)) continue;
+        }
         const m = c.body.match(VERDICT_LINE_RE);
         if (m) {
           return { verdict: m[1].toUpperCase() as "PASS" | "FAIL" | "SKIPPED", commentId: c.id };
@@ -179,7 +185,7 @@ export function registerSkeptic(program: Command): Command {
         fetchReviews(owner, repo, prNumber).catch(() => []),
         options.dryRun
           ? Promise.resolve(null)
-          : findExistingVerdict(owner, repo, prNumber, options.triggerSha).catch(() => null),
+          : findExistingVerdict(owner, repo, prNumber, options.triggerSha, options.requestId).catch(() => null),
       ]);
       // Design doc fetch uses GitHub API with the PR's head ref so it works regardless of cwd.
       const designDoc = await fetchDesignDoc(owner, repo, prNumber, pr.headRefOid).catch(() => null);
@@ -247,11 +253,11 @@ export function registerSkeptic(program: Command): Command {
       if (options.dryRun) {
         console.log(chalk.yellow("\n=== DRY RUN — Verdict ===\n"));
         const verdictMatch = verdict.match(VERDICT_LINE_RE);
-        if (verdictMatch) {
-          console.log(chalk[verdictMatch[1].toLowerCase() === "pass" ? "green" : "red"](verdictMatch[0]));
-        } else {
-          console.log(verdict);
+        if (!verdictMatch) {
+          console.error(chalk.red("Could not parse VERDICT from LLM output."));
+          process.exit(1);
         }
+        console.log(chalk[verdictMatch[1].toLowerCase() === "pass" ? "green" : "red"](verdictMatch[0]));
         console.log(chalk.yellow("\n=== Full LLM output ===\n"));
         console.log(verdict);
         // Exit non-zero only for VERDICT: FAIL from LLM evaluation.
