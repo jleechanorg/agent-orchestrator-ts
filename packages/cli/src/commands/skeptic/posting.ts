@@ -33,6 +33,7 @@ export async function postVerdict(
   const body = [
     "<!-- skeptic-agent-verdict -->",
     binding?.requestId ? `<!-- skeptic-request-id-${binding.requestId} -->` : null,
+    // Always include head-sha when provided, even if updating a comment posted without it.
     binding?.headSha ? `<!-- skeptic-head-sha-${binding.headSha} -->` : null,
     ...gateMarkers,
     "**🤖 Skeptic Agent Verdict (bd-qw6)**",

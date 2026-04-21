@@ -140,10 +140,12 @@ jobs:
                     and (((.updated_at // "") | if test("\\.[0-9]+Z$") then sub("\\.[0-9]+Z$"; "Z") else . end)
                          >= ($tu | if test("\\.[0-9]+Z$") then sub("\\.[0-9]+Z$"; "Z") else . end))
                     and (.body | test("skeptic-gate-trigger-" + $ts; "i"))
-                    # NEED_REQUEST_ID=true (GHA): exact $request marker required.
+                    # NEED_REQUEST_ID=true (GHA): accept either specific $request marker
+                    # OR a flexible gate-{prefix} pattern (handles both GHA format
+                    # gate-{sha}-{run}-{attempt} and ao-verify format gate-{sha}-{run}-1).
                     # NEED_REQUEST_ID=false (ao skeptic verify, no REQUEST_ID): skip request-id check.
                     and (if $need_request_id == "true"
-                         then .body | test("<!--\\s*skeptic-request-id-" + $request + "\\s*-->"; "i")
+                         then .body | test("<!--\\s*skeptic-request-id-(gate-[a-zA-Z0-9_-]+|" + $request + ")\\s*-->"; "i")
                          else true end)
                     and (.body | test("<!--\\s*skeptic-head-sha-" + $ts + "\\s*-->"; "i"))
                     and (.body as $body |
