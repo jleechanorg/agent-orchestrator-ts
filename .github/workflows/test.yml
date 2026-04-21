@@ -63,7 +63,7 @@ jobs:
           TRIGGER_SHA: ${{ steps.post_trigger.outputs.trigger_sha }}
           REQUEST_ID: ${{ steps.post_trigger.outputs.request_id }}
           SKEPTIC_BOT_AUTHOR: ${{ vars.SKEPTIC_BOT_AUTHOR || 'jleechan2015' }}
-        timeout-minutes: 2
+        timeout-minutes: 5
         run: |
           set +e
 
@@ -86,7 +86,7 @@ jobs:
           fi
 
           INTERVAL=15
-          MAX_ATTEMPTS=8  # 2 minutes / 15 seconds
+          MAX_ATTEMPTS=20  # 5 minutes / 15 seconds
 
           PR_STATE_API_FAILURES=0
           COMMENTS_API_FAILURES=0
