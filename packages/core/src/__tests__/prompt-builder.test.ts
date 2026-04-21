@@ -3,7 +3,7 @@ import { mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
-import { buildPrompt, BASE_AGENT_PROMPT } from "../prompt-builder.js";
+import { buildPrompt, BASE_AGENT_PROMPT, CORE_AGENT_PROMPT, PR_BOILERPLATE } from "../prompt-builder.js";
 import type { ProjectConfig } from "../types.js";
 
 let tmpDir: string;
@@ -249,6 +249,46 @@ describe("buildPrompt", () => {
     expect(result).toContain("ci-failed");
     expect(result).not.toContain("approved-and-green");
   });
+
+  it("excludes PR boilerplate when skipPrBoilerplate=true", () => {
+    const result = buildPrompt({
+      project,
+      projectId: "test-app",
+      skipPrBoilerplate: true,
+    });
+    // Should still include core prompt
+    expect(result).toContain(CORE_AGENT_PROMPT);
+    // Should NOT include PR-specific instructions
+    expect(result).not.toContain("When you finish your work, create a PR and push it");
+    expect(result).not.toContain("fix them and push again");
+    expect(result).not.toContain("push fixes");
+    expect(result).not.toContain("## Git Workflow & TDD Mandate");
+    expect(result).not.toContain("## PR Best Practices");
+  });
+
+  it("includes PR boilerplate when skipPrBoilerplate=false", () => {
+    const result = buildPrompt({
+      project,
+      projectId: "test-app",
+      skipPrBoilerplate: false,
+    });
+    // Should include both core and PR boilerplate
+    expect(result).toContain(CORE_AGENT_PROMPT);
+    expect(result).toContain("When you finish your work, create a PR and push it");
+    expect(result).toContain("fix them and push again");
+    expect(result).toContain("## Git Workflow & TDD Mandate");
+    expect(result).toContain("## PR Best Practices");
+  });
+
+  it("includes PR boilerplate by default (skipPrBoilerplate not set)", () => {
+    const result = buildPrompt({
+      project,
+      projectId: "test-app",
+    });
+    expect(result).toContain("When you finish your work, create a PR and push it");
+    expect(result).toContain("## Git Workflow & TDD Mandate");
+    expect(result).toContain("## PR Best Practices");
+  });
 });
 
 describe("BASE_AGENT_PROMPT", () => {
@@ -262,5 +302,42 @@ describe("BASE_AGENT_PROMPT", () => {
     expect(BASE_AGENT_PROMPT).toContain("Git Workflow");
     expect(BASE_AGENT_PROMPT).toContain("PR Best Practices");
     expect(BASE_AGENT_PROMPT).toContain("ao session claim-pr");
+  });
+});
+
+describe("CORE_AGENT_PROMPT", () => {
+  it("is a non-empty string", () => {
+    expect(typeof CORE_AGENT_PROMPT).toBe("string");
+    expect(CORE_AGENT_PROMPT.length).toBeGreaterThan(50);
+  });
+
+  it("does NOT contain PR/push instructions", () => {
+    expect(CORE_AGENT_PROMPT).not.toContain("create a PR and push it");
+    expect(CORE_AGENT_PROMPT).not.toContain("fix them and push again");
+    expect(CORE_AGENT_PROMPT).not.toContain("push fixes");
+    expect(CORE_AGENT_PROMPT).not.toContain("## Git Workflow");
+    expect(CORE_AGENT_PROMPT).not.toContain("## PR Best Practices");
+  });
+
+  it("contains session lifecycle guidance", () => {
+    expect(CORE_AGENT_PROMPT).toContain("Session Lifecycle");
+    expect(CORE_AGENT_PROMPT).toContain("managed session");
+  });
+});
+
+describe("PR_BOILERPLATE", () => {
+  it("is a non-empty string", () => {
+    expect(typeof PR_BOILERPLATE).toBe("string");
+    expect(PR_BOILERPLATE.length).toBeGreaterThan(50);
+  });
+
+  it("contains PR/push instructions", () => {
+    expect(PR_BOILERPLATE).toContain("create a PR and push it");
+    expect(PR_BOILERPLATE).toContain("fix them and push again");
+  });
+
+  it("contains TDD and evidence guidance", () => {
+    expect(PR_BOILERPLATE).toContain("## Git Workflow & TDD Mandate");
+    expect(PR_BOILERPLATE).toContain("## PR Best Practices");
   });
 });

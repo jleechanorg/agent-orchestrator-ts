@@ -18,21 +18,31 @@ import type { ProjectConfig } from "./types.js";
 // LAYER 1: BASE AGENT PROMPT
 // =============================================================================
 
-export const BASE_AGENT_PROMPT = `You are an AI coding agent managed by the Agent Orchestrator (ao).
+/**
+ * Core session guidance — always included.
+ * Does NOT contain PR/push instructions; those are gated by skipPrBoilerplate.
+ */
+export const CORE_AGENT_PROMPT = `You are an AI coding agent managed by the Agent Orchestrator (ao).
 
 ## Instruction Hierarchy
 - **Task-specific instructions override base/project rules when they conflict.**
 
 ## Session Lifecycle
 - You are running inside a managed session. Focus on the assigned task.
-- When you finish your work, create a PR and push it. The orchestrator will handle CI monitoring and review routing.
-- If you're told to take over or continue work on an existing PR, run \`ao session claim-pr <pr-number-or-url>\` from inside this session before making changes.
+- If you're told to take over or continue work on an existing PR, run \`ao session claim-pr <pr-number-or-url>\` from inside this session before making changes.`;
+
+/**
+ * PR-specific boilerplate — gated by skipPrBoilerplate.
+ * Contains all PR/push instructions that should be suppressed for planning-only
+ * and artifact-only workers.
+ */
+export const PR_BOILERPLATE = `When you finish your work, create a PR and push it. The orchestrator will handle CI monitoring and review routing.
 - If CI fails, the orchestrator will send you the failures — fix them and push again.
 - If reviewers request changes, the orchestrator will forward their comments — address each one, push fixes, and reply to the comments.
 
 ## Git Workflow & TDD Mandate
 - **TDD Requirement**: You MUST follow a Test-Driven Development (TDD) workflow. Write a failing test first (Red), implement the fix (Green), and then refactor.
-- **Evidence-Driven Development (EDD)**: Use your tests to generate the mandatory evidence artifacts (logs, video .mp4/.gif/.cast). 
+- **Evidence-Driven Development (EDD)**: Use your tests to generate the mandatory evidence artifacts (logs, video .mp4/.gif/.cast).
 - **Proven Authenticity**: Your ## Evidence section must show the TDD cycle: include the initial failing run (to prove existence of the bug/gap) followed by the successful verification run.
 - Always create a feature branch from the default branch (never commit directly to it).
 - Use conventional commit messages (feat:, fix:, chore:, etc.).
@@ -46,6 +56,14 @@ export const BASE_AGENT_PROMPT = `You are an AI coding agent managed by the Agen
 - Link the issue in the PR description so it auto-closes when merged.
 - If the repo has CI checks, make sure they pass before requesting review.
 - Respond to every review comment, even if just to acknowledge it.`;
+
+/**
+ * Full base agent prompt — composed of CORE_AGENT_PROMPT + PR_BOILERPLATE.
+ * Exported for backward compatibility; prefer CORE_AGENT_PROMPT + PR_BOILERPLATE directly.
+ */
+export const BASE_AGENT_PROMPT = `${CORE_AGENT_PROMPT}
+
+${PR_BOILERPLATE}`;
 
 // =============================================================================
 // TYPES
@@ -75,6 +93,9 @@ export interface PromptBuildConfig {
 
   /** Decomposition context — sibling task descriptions (from decomposer) */
   siblings?: string[];
+
+  /** Skip PR/push boilerplate for planning-only and artifact-only workers */
+  skipPrBoilerplate?: boolean;
 }
 
 // =============================================================================
@@ -167,8 +188,11 @@ export function buildPrompt(config: PromptBuildConfig): string {
   const userRules = readUserRules(config.project);
   const sections: string[] = [];
 
-  // Layer 1: Base prompt is always included for every managed session.
-  sections.push(BASE_AGENT_PROMPT);
+  // Layer 1: Core prompt is always included; PR boilerplate is gated by skipPrBoilerplate.
+  sections.push(CORE_AGENT_PROMPT);
+  if (!config.skipPrBoilerplate) {
+    sections.push(PR_BOILERPLATE);
+  }
 
   // Layer 2: Config-derived context
   sections.push(buildConfigLayer(config));
