@@ -7,6 +7,9 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
   buildVerdictLineRe,
+  hasSkepticRequestId,
+  isFreshPassVerdictContractSatisfied,
+  bindVerdictOutput,
   VERDICT_LINE_RE,
 } from "../../../src/commands/skeptic/verdict-utils.js";
 
@@ -143,6 +146,40 @@ describe("buildVerdictLineRe", () => {
   });
 });
 
+describe("fresh PASS request binding", () => {
+  const headSha = "abc1230000000000000000000000000000000000";
+  const boundPass = (requestId: string) => [
+    "<!-- skeptic-agent-verdict -->",
+    `<!-- skeptic-request-id-${requestId} -->`,
+    `<!-- skeptic-head-sha-${headSha} -->`,
+    "<!-- skeptic-gate-1:PASS -->",
+    "<!-- skeptic-gate-2:PASS -->",
+    "<!-- skeptic-gate-3:PASS -->",
+    "<!-- skeptic-gate-4:PASS -->",
+    "<!-- skeptic-gate-5:PASS -->",
+    "<!-- skeptic-gate-6:PASS -->",
+    "<!-- skeptic-gate-7:PASS -->",
+    "<!-- skeptic-gate-8:PASS -->",
+    "VERDICT: PASS",
+  ].join("\n");
+
+  it("requires the exact expected skeptic request id when provided", () => {
+    const body = boundPass("req-current");
+
+    expect(hasSkepticRequestId(body, "req-current")).toBe(true);
+    expect(hasSkepticRequestId(body, "req-stale")).toBe(false);
+  });
+
+  it("rejects a fresh PASS contract when only a stale request id is present", () => {
+    expect(isFreshPassVerdictContractSatisfied(boundPass("req-stale"), headSha, "req-current")).toBe(false);
+  });
+
+  it("fails closed when no expected request id is supplied", () => {
+    expect(hasSkepticRequestId(boundPass("req-current"))).toBe(false);
+    expect(isFreshPassVerdictContractSatisfied(boundPass("req-current"), headSha)).toBe(false);
+  });
+});
+
 describe("dry-run SKIPPED color mapping", () => {
   // Mirrors production behavior (skeptic.ts line ~130):
   // chalk[verdictMatch[1].toLowerCase() === "pass" ? "green" : "red"]
@@ -161,6 +198,41 @@ describe("dry-run SKIPPED color mapping", () => {
 
   it("FAIL maps to red", () => {
     expect(getVerdictColor("FAIL")).toBe("red");
+  });
+});
+
+describe("bindVerdictOutput", () => {
+  it("downgrades PASS to FAIL when the fresh verdict contract is incomplete", () => {
+    const result = bindVerdictOutput({
+      llmOutput: "VERDICT: PASS\n\nAll good.",
+      headSha: "abc1230000000000000000000000000000000000",
+      requestId: "req-1",
+    });
+
+    expect(result.verdictLine).toBe("VERDICT: FAIL — PASS missing complete skeptic gate table or request binding");
+    expect(result.llmOutput).toContain("VERDICT: FAIL — PASS missing complete skeptic gate table or request binding");
+    expect(result.verdictType).toBe("FAIL");
+  });
+
+  it("keeps a complete request-bound PASS unchanged", () => {
+    const headSha = "abc1230000000000000000000000000000000000";
+    const result = bindVerdictOutput({
+      llmOutput: [
+        "<!-- skeptic-gate-1:PASS -->",
+        "<!-- skeptic-gate-2:PASS -->",
+        "<!-- skeptic-gate-3:PASS -->",
+        "<!-- skeptic-gate-4:PASS -->",
+        "<!-- skeptic-gate-5:PASS -->",
+        "<!-- skeptic-gate-6:PASS -->",
+        "<!-- skeptic-gate-7:PASS -->",
+        "<!-- skeptic-gate-8:PASS -->",
+        "VERDICT: PASS",
+      ].join("\n"),
+      headSha,
+      requestId: "req-1",
+    });
+
+    expect(result.verdictLine).toBe("VERDICT: PASS");
   });
 });
 

@@ -126,6 +126,38 @@ describe("postVerdict", () => {
     expect(state.calls[0]!.body).toContain("<!-- skeptic-cron-trigger-a1b2c3d4 -->");
   });
 
+  it("includes request id, exact head SHA, and eight gate markers for PASS verdicts", async () => {
+    const headSha = "abc1230000000000000000000000000000000000";
+    await postVerdict(
+      "owner",
+      "repo",
+      123,
+      "VERDICT: PASS",
+      null,
+      "jleechan-agent[bot]",
+      headSha,
+      [
+        "<!-- skeptic-gate-1:PASS -->",
+        "<!-- skeptic-gate-2:PASS -->",
+        "<!-- skeptic-gate-3:PASS -->",
+        "<!-- skeptic-gate-4:PASS -->",
+        "<!-- skeptic-gate-5:PASS -->",
+        "<!-- skeptic-gate-6:PASS -->",
+        "<!-- skeptic-gate-7:PASS -->",
+        "<!-- skeptic-gate-8:PASS -->",
+        "VERDICT: PASS",
+      ].join("\n"),
+      { requestId: "req-123", headSha },
+    );
+
+    expect(state.calls[0]!.body).toContain("<!-- skeptic-request-id-req-123 -->");
+    expect(state.calls[0]!.body).toContain("<!-- skeptic-agent-verdict -->");
+    expect(state.calls[0]!.body).toContain(`<!-- skeptic-head-sha-${headSha} -->`);
+    for (let gate = 1; gate <= 8; gate += 1) {
+      expect(state.calls[0]!.body).toContain(`<!-- skeptic-gate-${gate}:PASS -->`);
+    }
+  });
+
   it("omits trigger SHA marker when triggerSha is undefined", async () => {
     await postVerdict(
       "owner",

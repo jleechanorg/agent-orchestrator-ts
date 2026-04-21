@@ -10,6 +10,12 @@ const MAX_LLM_OUTPUT_CHARS = 60_000;
  */
 
 import { patchComment, createComment } from "./gh-client.js";
+import { extractSkepticGateMarkers } from "./verdict-utils.js";
+
+export interface SkepticVerdictBinding {
+  requestId?: string;
+  headSha?: string;
+}
 
 export async function postVerdict(
   owner: string,
@@ -21,9 +27,14 @@ export async function postVerdict(
   triggerSha?: string,
   /** Full LLM output — included in body so explanations are never lost. */
   llmOutput?: string,
+  binding?: SkepticVerdictBinding,
 ): Promise<void> {
+  const gateMarkers = extractSkepticGateMarkers(llmOutput ?? verdict);
   const body = [
     "<!-- skeptic-agent-verdict -->",
+    binding?.requestId ? `<!-- skeptic-request-id-${binding.requestId} -->` : null,
+    binding?.headSha ? `<!-- skeptic-head-sha-${binding.headSha} -->` : null,
+    ...gateMarkers,
     "**🤖 Skeptic Agent Verdict (bd-qw6)**",
     "",
     verdict,

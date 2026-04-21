@@ -50,12 +50,98 @@ fi
 clean_command="$command"
 if command -v python3 >/dev/null 2>&1; then
   normalize_prefixed_command_out=$(python3 - "$command" <<'PY'
+import re
+import shlex
 import sys
 
 def deny(reason):
     print("deny")
     print(reason)
     raise SystemExit(0)
+
+GUARDED_SUBSTITUTION_RE = re.compile(
+    r"(?:^|[\s;&|()\x60\x22\x27])gh\s+pr\s+(?:create|merge)(?:\s|$)",
+    re.IGNORECASE,
+)
+COMMAND_SUBSTITUTION_OPEN = "$" + "("
+
+def contains_guarded_command_substitution(source):
+    def has_guarded_body(body):
+        return bool(GUARDED_SUBSTITUTION_RE.search(body))
+
+    def find_command_substitution_end(start):
+        depth = 1
+        i = start
+        in_single = False
+        in_double = False
+        while i < len(source):
+            char = source[i]
+            if char == "\\" and not in_single:
+                i += 2
+                continue
+            if char == "'" and not in_double:
+                in_single = not in_single
+                i += 1
+                continue
+            if char == '"' and not in_single:
+                in_double = not in_double
+                i += 1
+                continue
+            if not in_single and source.startswith(COMMAND_SUBSTITUTION_OPEN, i):
+                depth += 1
+                i += 2
+                continue
+            if not in_single and not in_double and char == ")":
+                depth -= 1
+                if depth == 0:
+                    return i
+            i += 1
+        return None
+
+    i = 0
+    in_single = False
+    in_double = False
+    while i < len(source):
+        char = source[i]
+        if char == "\\" and not in_single:
+            i += 2
+            continue
+        if char == "'" and not in_double:
+            in_single = not in_single
+            i += 1
+            continue
+        if char == '"' and not in_single:
+            in_double = not in_double
+            i += 1
+            continue
+        if in_single:
+            i += 1
+            continue
+        if source.startswith(COMMAND_SUBSTITUTION_OPEN, i):
+            body_start = i + 2
+            body_end = find_command_substitution_end(body_start)
+            if body_end is None:
+                return has_guarded_body(source[body_start:])
+            if has_guarded_body(source[body_start:body_end]):
+                return True
+            i = body_end + 1
+            continue
+        if char == chr(96):
+            body_start = i + 1
+            i = body_start
+            while i < len(source):
+                if source[i] == "\\":
+                    i += 2
+                    continue
+                if source[i] == chr(96):
+                    if has_guarded_body(source[body_start:i]):
+                        return True
+                    break
+                i += 1
+            else:
+                return has_guarded_body(source[body_start:])
+        i += 1
+    return False
 
 def tokenize(source):
     tokens = []
@@ -70,14 +156,35 @@ def tokenize(source):
             tokens.append(("op", "&&", i, i + 2))
             i += 2
             continue
+        if source.startswith("||", i):
+            tokens.append(("op", "||", i, i + 2))
+            i += 2
+            continue
+        if source[i] == "|":
+            tokens.append(("op", "|", i, i + 1))
+            i += 1
+            continue
+        if source[i] == "&":
+            tokens.append(("op", "&", i, i + 1))
+            i += 1
+            continue
         if source[i] == ";":
             tokens.append(("op", ";", i, i + 1))
+            i += 1
+            continue
+        if source[i] in "(){}<>":
+            tokens.append(("op", source[i], i, i + 1))
             i += 1
             continue
 
         start = i
         while i < length:
-            if source.startswith("&&", i) or source[i] == ";" or source[i].isspace():
+            if (
+                source.startswith("&&", i)
+                or source.startswith("||", i)
+                or source[i] in ";|&(){}<>"
+                or source[i].isspace()
+            ):
                 break
             char = source[i]
             if char == "'":
@@ -107,8 +214,8 @@ def tokenize(source):
                     raise ValueError("unterminated escape")
                 i += 2
                 continue
-            if char in "|&<>(){}":
-                raise ValueError("unsupported shell operator")
+            # Allow all shell operators; dangerous command chaining is caught by
+            # the is_guarded_segment() check below.
             i += 1
         tokens.append(("word", source[start:i], start, i))
     return tokens
@@ -127,8 +234,15 @@ def strip_assignments(words):
         index += 1
     return words[index:]
 
+def shell_word_value(word):
+    try:
+        parts = shlex.split(word, posix=True)
+    except ValueError:
+        return word
+    return parts[0] if len(parts) == 1 else word
+
 def is_guarded_segment(words):
-    words = strip_assignments(words)
+    words = [shell_word_value(word) for word in strip_assignments(words)]
     return (
         len(words) >= 3 and words[0] == "gh" and words[1] == "pr" and words[2] in {"create", "merge"}
     )
@@ -150,6 +264,9 @@ def remaining_segments_contain_guarded(tokens, start_index):
 
 source = sys.argv[1]
 
+if contains_guarded_command_substitution(source):
+    deny("Blocked by AO policy: command substitution cannot safely hide gh pr create or gh pr merge. Run the guarded command directly.")
+
 try:
     tokens = tokenize(source)
 except ValueError:
@@ -162,6 +279,10 @@ while index < len(tokens) and tokens[index][0] == "word" and is_assignment(token
 
 while index < len(tokens):
     if tokens[index][0] != "word":
+        if remaining_segments_contain_guarded(tokens, index + 1):
+            print("deny")
+            print("Blocked by AO policy: cannot safely analyze chained shell commands before gh pr create or gh pr merge. Run the guarded command directly after any env assignments or cd prefixes.")
+            raise SystemExit(0)
         print("raw")
         print(source)
         raise SystemExit(0)
@@ -175,6 +296,10 @@ while index < len(tokens):
 
     if words and words[0] == "cd":
         if len(words) != 2 or next_op not in {"&&", ";"}:
+            if remaining_segments_contain_guarded(tokens, segment_end + 1):
+                print("deny")
+                print("Blocked by AO policy: cannot safely analyze chained shell commands before gh pr create or gh pr merge. Run the guarded command directly after any env assignments or cd prefixes.")
+                raise SystemExit(0)
             print("raw")
             print(source)
             raise SystemExit(0)
