@@ -387,6 +387,16 @@ jobs:
           echo "Max wait: $((MAX_ATTEMPTS * INTERVAL / 60)) minutes"
           echo "REQUEST_ID: $REQUEST_ID"
 
+          # ao skeptic verify runs without REQUEST_ID (local invocation vs GHA).
+          # Make the request-id marker check optional — head-sha + trigger-sha are sufficient
+          # to uniquely identify a verdict for a given PR+SHA.
+          if [ -z "$REQUEST_ID" ] || [ "$REQUEST_ID" = "null" ]; then
+            NEED_REQUEST_ID="false"
+            echo "REQUEST_ID is empty — verdict matching is SHA-only (accepting ao skeptic verify verdicts)"
+          else
+            NEED_REQUEST_ID="true"
+          fi
+
           API_FAILURES=0
           COMMENTS_API_FAILURES=0
           for i in $(seq 1 $MAX_ATTEMPTS); do
@@ -443,6 +453,7 @@ jobs:
               VERDICT_JSON=$(echo "$VERDICT_RAW" | jq -s --arg author "$SKEPTIC_BOT_AUTHOR" \
                 --arg tu "$TRIGGER_UPDATED" --arg ts "$TRIGGER_SHA" \
                 --arg request_id "$REQUEST_ID" \
+                --arg need_request_id "$NEED_REQUEST_ID" \
                 --arg pr_author "$PR_AUTHOR" \
                 'add
                 | map(. + {verdict: (try (.body | capture("^[ \\t]*(?:> ?)?(?:#{1,6}[ \\t]*)?(?:\\*{1,2})?VERDICT:[ \\t]*(?<verdict>PASS|FAIL|SKIPPED)(?:\\*{1,2})?[ \\t]*(?:[-—:].*)?$"; "im").verdict | ascii_upcase) catch "")})
@@ -460,7 +471,8 @@ jobs:
                     and (((.updated_at // "") | if test("\\.[0-9]+Z$") then sub("\\.[0-9]+Z$"; "Z") else . end)
                          >= ($tu | if test("\\.[0-9]+Z$") then sub("\\.[0-9]+Z$"; "Z") else . end))
                     and ($body | test("skeptic-gate-trigger-" + $ts; "i"))
-                    and ($body | test("<!--\\s*skeptic-request-id-" + $request_id + "\\s*-->"; "i"))
+                    and (($need_request_id == "true" and $body | test("<!--\\s*skeptic-request-id-" + $request_id + "\\s*-->"; "i"))
+                         or ($need_request_id == "false"))
                     and ($body | test("<!--\\s*skeptic-head-sha-" + $ts + "\\s*-->"; "i"))
                     and ((.verdict != "PASS")
                          or (all(range(1;9); . as $gate | ($body | test("<!--\\s*skeptic-gate-" + ($gate | tostring) + "\\s*:\\s*PASS\\s*-->"; "i"))))))
