@@ -18,8 +18,8 @@ import { classifyPrType } from "../decomposer.js";
 
 describe("classifyPrType", () => {
   beforeEach(() => {
-    // Consume all pending mock values so each test starts fresh
-    mockMessagesCreate.mockClear();
+    // Reset mock to clear queued values, implementations, and call history
+    mockMessagesCreate.mockReset();
   });
 
   it("returns unknown when issue title and body are blank", async () => {
@@ -29,7 +29,7 @@ describe("classifyPrType", () => {
     expect(result.reasoning).toBe("blank input");
   });
 
-  it("returns unknown when only title is blank and body is truthy", async () => {
+  it("returns ci-workflow when only title is blank and body is truthy", async () => {
     // "some body".trim() is truthy, so blank check does NOT short-circuit.
     mockMessagesCreate.mockResolvedValueOnce({
       content: [{ type: "text", text: '{"type":"ci-workflow","confidence":"medium","reasoning":"body only"}' }],
@@ -38,7 +38,7 @@ describe("classifyPrType", () => {
     expect(result.type).toBe("ci-workflow");
   });
 
-  it("returns unknown when only body is blank and title is truthy", async () => {
+  it("returns data-norm when only body is blank and title is truthy", async () => {
     // "some title".trim() is truthy, so blank check does NOT short-circuit.
     mockMessagesCreate.mockResolvedValueOnce({
       content: [{ type: "text", text: '{"type":"data-norm","confidence":"high","reasoning":"title only"}' }],
