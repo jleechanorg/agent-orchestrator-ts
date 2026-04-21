@@ -25,11 +25,11 @@ echo
 if [ -d "$AO_REPO_ROOT/.git" ]; then
   MODE="repo"
   REPO_ROOT="$AO_REPO_ROOT"
-  echo "[0/7] Repo detected: $REPO_ROOT"
+  echo "  Repo detected: $REPO_ROOT"
 else
   MODE="curl"
   REPO_ROOT="$(mktemp -d)"
-  echo "[0/7] Cloning agent-orchestrator to $REPO_ROOT..."
+  echo "  Cloning agent-orchestrator to $REPO_ROOT..."
   git clone --branch "$AGENT_ORCHESTRATOR_BRANCH" \
     "$AGENT_ORCHESTRATOR_REPO" "$REPO_ROOT" >/dev/null 2>&1
 fi
@@ -109,7 +109,8 @@ if ! launchctl print "gui/$(id -u)/ai.agento.lifecycle-all" >/dev/null 2>&1; the
 else
   for pid in $PROJECTS; do
     # The lifecycle-all plist manages all workers; check via pgrep for per-project liveness
-    if pgrep -f "lifecycle-worker[[:space:]].*${pid}([[:space:]]|\$)" >/dev/null 2>&1; then
+    escaped_pid=$(printf '%s' "$pid" | sed -e 's/[][^$.*/\\]/\\&/g')
+    if pgrep -f "lifecycle-worker[[:space:]].*${escaped_pid}([[:space:]]|\$)" >/dev/null 2>&1; then
       WORKER_COUNT=$((WORKER_COUNT + 1))
       echo "  + $pid: running"
     else
