@@ -151,6 +151,7 @@ beforeEach(() => {
   // Default: screencapture returns empty buffer (no Allow prompt)
   mockScreencapture.mockResolvedValue(Buffer.alloc(0));
   // Default: PIL check succeeds — mock execFile (called as callback or returning ChildProcess)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   vi.mocked(execFile).mockImplementation(((...args: unknown[]) => {
     const last = args[args.length - 1];
     if (typeof last === "function") {
@@ -158,8 +159,8 @@ beforeEach(() => {
       setImmediate(() => (last as (err: Error | null, stdout: Buffer, stderr: Buffer) => void)(null, Buffer.alloc(0), Buffer.alloc(0)));
     }
     // return a mock ChildProcess (for promisify style)
-    return { stdout: Buffer.alloc(0), stderr: Buffer.alloc(0), exitCode: 0, on: vi.fn(), once: vi.fn() } as any;
-  }) as typeof execFile);
+    return { stdout: Buffer.alloc(0), stderr: Buffer.alloc(0), exitCode: 0, on: vi.fn(), once: vi.fn() };
+  }) as any);
 });
 
 // =============================================================================

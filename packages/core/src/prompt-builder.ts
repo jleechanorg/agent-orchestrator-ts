@@ -2,9 +2,10 @@
  * Prompt Builder — composes layered prompts for agent sessions.
  *
  * Three layers:
- *   1. BASE_AGENT_PROMPT — constant instructions about session lifecycle, git workflow, PR handling
- *   2. Config-derived context — project name, repo, default branch, tracker info, reaction rules
- *   3. User rules — inline agentRules and/or agentRulesFile content
+ *   1. CORE_AGENT_PROMPT — session identity, always included
+ *   2. PR_BOILERPLATE — git workflow, PR handling, TDD; excluded when skipPrBoilerplate=true
+ *   3. Config-derived context — project name, repo, default branch, tracker info, reaction rules
+ *   4. User rules — inline agentRules and/or agentRulesFile content
  *
  * buildPrompt() always returns the AO base guidance and project context so
  * bare launches still know about AO-specific commands such as PR claiming.
@@ -32,7 +33,6 @@ const CORE_AGENT_PROMPT = `You are an AI coding agent managed by the Agent Orche
  * that should not create branches, push code, or open PRs.
  */
 const PR_BOILERPLATE = `
-
 ## PR Workflow
 - When you finish your work, create a PR and push it. The orchestrator will handle CI monitoring and review routing.
 - If you're told to take over or continue work on an existing PR, run \`ao session claim-pr <pr-number-or-url>\` from inside this session before making changes.
