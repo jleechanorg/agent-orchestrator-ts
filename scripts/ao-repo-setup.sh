@@ -32,18 +32,23 @@ AO_VERSION=$(ao --version 2>/dev/null || echo "unknown")
 echo "[2/6] AO CLI: $AO_VERSION"
 
 # Step 3: Verify hermes gateway is running
-HERMES_STATUS=$(hermes gateway status 2>&1 || true)
-if ! echo "$HERMES_STATUS" | grep -q "Gateway is running"; then
+if ! command -v hermes &>/dev/null; then
+    echo "WARNING: Hermes CLI not installed (skipping gateway check)"
+elif HERMES_STATUS=$(hermes gateway status 2>&1) && echo "$HERMES_STATUS" | grep -q "Gateway is running"; then
+    echo "[3/6] Hermes gateway: running"
+else
     echo "WARNING: Hermes gateway not running."
     echo "Start with: hermes gateway start"
     echo "Or: ./bin/hermes gateway start"
-else
-    echo "[3/6] Hermes gateway: running"
 fi
 
 # Step 4: Check workspace directory
-WORKTREE_DIR=$(python3 -c "import yaml; c=yaml.safe_load(open('$HERMES_HOME/agent-orchestrator.yaml')); print(c.get('worktreeDir','~/.worktrees'))" 2>/dev/null || echo "~/.worktrees")
-WORKTREE_DIR=$(eval echo "$WORKTREE_DIR")
+WORKTREE_DIR=$(python3 -c "
+import yaml, os
+c = yaml.safe_load(open('$HERMES_HOME/agent-orchestrator.yaml'))
+wt = c.get('worktreeDir', os.path.join(os.environ.get('HOME', ''), '.worktrees'))
+print(os.path.expanduser(wt))
+" 2>/dev/null || echo "$HOME/.worktrees")
 mkdir -p "$WORKTREE_DIR"
 echo "[4/6] Worktree dir: $WORKTREE_DIR"
 
@@ -57,7 +62,7 @@ else
 fi
 
 # Step 6: Verify agent-orchestrator repo is accessible
-AO_CLONE_DIR="$HOME/projects/agent-orchestrator"
+AO_CLONE_DIR="$HOME/project_agento/agent-orchestrator"
 if [ -d "$AO_CLONE_DIR/.git" ]; then
     echo "[6/6] Agent-orchestrator repo: $AO_CLONE_DIR (already cloned)"
 else
