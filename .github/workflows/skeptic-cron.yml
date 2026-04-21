@@ -41,8 +41,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           PR_JSON=$(gh api repos/${{ github.repository }}/pulls \
-            --paginate --slurp 2>/dev/null \
-            | jq -s '[add[] | select(.draft == false) | {number, title, head: {ref: .head.ref, sha: .head.sha}, base: {ref: .base.ref}, mergeable}]' 2>/dev/null || echo "[]")
+            --paginate 2>/dev/null \
+            | jq -s 'add | [.[] | select(.draft == false) | {number, title, head: {ref: .head.ref, sha: .head.sha}, base: {ref: .base.ref}, mergeable}]' 2>/dev/null || echo "[]")
 
           echo "Open non-draft PRs found:"
           echo "$PR_JSON" | jq -c '.[]' 2>/dev/null || echo "$PR_JSON"
