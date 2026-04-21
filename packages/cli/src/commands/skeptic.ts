@@ -271,7 +271,7 @@ export function registerSkeptic(program: Command): Command {
         console.log(chalk[bound.verdictType === "PASS" ? "green" : "red"](bound.verdictLine));
         console.log(chalk.yellow("\n=== Full LLM output ===\n"));
         console.log(bound.llmOutput);
-        if (bound.verdictType === "FAIL" || bound.verdictType === "SKIPPED") {
+        if (bound.verdictType === "FAIL" || bound.verdictType === "SKIPPED" || bound.verdictType === null) {
           process.exit(1);
         }
         return;
