@@ -59,9 +59,14 @@ const PR_BOILERPLATE = `
 /**
  * @deprecated Use buildPrompt() with skipPrBoilerplate option instead.
  * Exported only for backward compatibility with tests and external consumers.
- * Note: BASE_AGENT_PROMPT = CORE_AGENT_PROMPT only; PR boilerplate is
- * conditionally added by buildPrompt(). The full combined prompt is
- * buildPrompt({ skipPrBoilerplate: false }).
+ *
+ * NOTE: BASE_AGENT_PROMPT now contains ONLY CORE_AGENT_PROMPT content
+ * (session identity + instruction hierarchy). It does NOT include
+ * PR/Git/TDD boilerplate. To get the full prompt with boilerplate, use:
+ *   buildPrompt({ project, projectId, issueId, ... })
+ * or for explicit control:
+ *   buildPrompt({ ..., skipPrBoilerplate: false }) // includes PR boilerplate
+ *   buildPrompt({ ..., skipPrBoilerplate: true })  // excludes PR boilerplate
  */
 export const BASE_AGENT_PROMPT = CORE_AGENT_PROMPT;
 

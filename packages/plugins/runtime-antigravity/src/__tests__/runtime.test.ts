@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { execFile } from "node:child_process";
-import type { ChildProcess } from "node:child_process";
+import { execFile, type ChildProcess } from "node:child_process";
 import type { RuntimeHandle } from "@jleechanorg/ao-core";
 
 /** Test-only globals for the mocked CdpClient (see vi.mock below). */
