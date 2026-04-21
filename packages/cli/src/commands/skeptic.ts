@@ -119,7 +119,8 @@ async function findExistingVerdict(
       if (!shaMarker || shaMarker.test(c.body)) {
         // If requestId was provided, also match by it to avoid races on same SHA
         if (requestId) {
-          const ridMarker = new RegExp(`<!-- skeptic-request-id-.*${requestId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} -->`);
+          const escapedRid = requestId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+          const ridMarker = new RegExp(`<!-- skeptic-request-id-${escapedRid} -->`, "i");
           if (!ridMarker.test(c.body)) continue;
         }
         const m = c.body.match(VERDICT_LINE_RE);
@@ -170,6 +171,8 @@ export function registerSkeptic(program: Command): Command {
         process.exit(1);
       }
 
+      // Normalize triggerSha once — used in findExistingVerdict and postVerdict calls
+      const triggerSha = options.triggerSha?.trim();
       const [owner, repo] = await resolveRepo(options);
       const spinner = ora(`Fetching PR #${prNumber} state…`).start();
 
@@ -185,7 +188,7 @@ export function registerSkeptic(program: Command): Command {
         fetchReviews(owner, repo, prNumber).catch(() => []),
         options.dryRun
           ? Promise.resolve(null)
-          : findExistingVerdict(owner, repo, prNumber, options.triggerSha, options.requestId).catch(() => null),
+          : findExistingVerdict(owner, repo, prNumber, triggerSha, options.requestId).catch(() => null),
       ]);
       // Design doc fetch uses GitHub API with the PR's head ref so it works regardless of cwd.
       const designDoc = await fetchDesignDoc(owner, repo, prNumber, pr.headRefOid).catch(() => null);
@@ -225,9 +228,9 @@ export function registerSkeptic(program: Command): Command {
             skipVerdict,
             existing?.commentId ?? null,
             SKEPTIC_BOT_AUTHOR,
-            options.triggerSha,
+            triggerSha,
             skipVerdict,
-            { headSha: options.triggerSha, requestId: options.requestId } as SkepticVerdictBinding,
+            { headSha: triggerSha, requestId: options.requestId } as SkepticVerdictBinding,
           );
           spinner4.succeed(chalk.green("Done! Skeptic verdict posted."));
         } catch (err) {
@@ -289,9 +292,9 @@ export function registerSkeptic(program: Command): Command {
           verdictLine,
           existing?.commentId ?? null,
           SKEPTIC_BOT_AUTHOR,
-          options.triggerSha,
+          triggerSha,
           verdict, // always pass full LLM output so FAIL/SKIPPED bodies carry context
-          { headSha: options.triggerSha, requestId: options.requestId } as SkepticVerdictBinding,
+          { headSha: triggerSha, requestId: options.requestId } as SkepticVerdictBinding,
         );
         spinner4.succeed(chalk.green("Done! Skeptic verdict posted."));
 
