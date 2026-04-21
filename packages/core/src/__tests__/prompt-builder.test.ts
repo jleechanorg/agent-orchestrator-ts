@@ -257,9 +257,12 @@ describe("BASE_AGENT_PROMPT", () => {
     expect(BASE_AGENT_PROMPT.length).toBeGreaterThan(100);
   });
 
-  it("covers core AO session topics", () => {
+  it("covers core AO session topics (excludes PR-specific content)", () => {
     expect(BASE_AGENT_PROMPT).toContain("Session Lifecycle");
-    expect(BASE_AGENT_PROMPT).toContain("ao session claim-pr");
+    expect(BASE_AGENT_PROMPT).toContain("Instruction Hierarchy");
+    // PR-specific content moved to PR_BOILERPLATE
+    expect(BASE_AGENT_PROMPT).not.toContain("Git Workflow");
+    expect(BASE_AGENT_PROMPT).not.toContain("ao session claim-pr");
   });
 });
 

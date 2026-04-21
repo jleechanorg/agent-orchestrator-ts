@@ -25,17 +25,19 @@ const CORE_AGENT_PROMPT = `You are an AI coding agent managed by the Agent Orche
 - **Task-specific instructions override base/project rules when they conflict.**
 
 ## Session Lifecycle
-- You are running inside a managed session. Focus on the assigned task.
-- When you finish your work, create a PR and push it. The orchestrator will handle CI monitoring and review routing.
-- If you're told to take over or continue work on an existing PR, run \`ao session claim-pr <pr-number-or-url>\` from inside this session before making changes.
-- If CI fails, the orchestrator will send you the failures — fix them and push again.
-- If reviewers request changes, the orchestrator will forward their comments — address each one, push fixes, and reply to the comments.`;
+- You are running inside a managed session. Focus on the assigned task.`;
 
 /**
  * PR/Git/TDD boilerplate — excluded for planning-only and artifact-only workers
  * that should not create branches, push code, or open PRs.
  */
 const PR_BOILERPLATE = `
+
+## PR Workflow
+- When you finish your work, create a PR and push it. The orchestrator will handle CI monitoring and review routing.
+- If you're told to take over or continue work on an existing PR, run \`ao session claim-pr <pr-number-or-url>\` from inside this session before making changes.
+- If CI fails, the orchestrator will send you the failures — fix them and push again.
+- If reviewers request changes, the orchestrator will forward their comments — address each one, push fixes, and reply to the comments.
 
 ## Git Workflow & TDD Mandate
 - **TDD Requirement**: You MUST follow a Test-Driven Development (TDD) workflow. Write a failing test first (Red), implement the fix (Green), and then refactor.
