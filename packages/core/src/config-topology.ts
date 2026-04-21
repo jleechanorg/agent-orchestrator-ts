@@ -23,19 +23,27 @@ export function getManagedConfigPath(env: ManagedConfigEnvironment = "staging"):
     );
   }
 
+  // Search order: explicit env override → HERMES_HOME → .hermes_prod → .openclaw_prod (legacy).
+  // Use existsSync so we actually discover files rather than just returning strings.
+  const hermesHomePath =
+    process.env.HERMES_HOME && existsSync(resolve(process.env.HERMES_HOME, CONFIG_FILENAME))
+      ? resolve(process.env.HERMES_HOME, CONFIG_FILENAME)
+      : null;
+  const hermesProdPath = existsSync(resolve(homedir(), ".hermes_prod", CONFIG_FILENAME))
+    ? resolve(homedir(), ".hermes_prod", CONFIG_FILENAME)
+    : null;
+  const openclawProdPath = existsSync(resolve(homedir(), ".openclaw_prod", CONFIG_FILENAME))
+    ? resolve(homedir(), ".openclaw_prod", CONFIG_FILENAME)
+    : null;
+
   return (
     getPathOverride("AO_PROD_CONFIG_PATH") ??
     getPathOverride("AO_PRODUCTION_CONFIG_PATH") ??
-    // HERMES_HOME is the canonical AO/Hermes worker config directory (ao-install.sh,
-    // ao-repo-setup.sh, and the launchd plist all use it). Check it first so the
-    // config written by ao-install.sh is auto-discovered without AO_CONFIG_PATH.
-    (process.env.HERMES_HOME
-      ? resolve(process.env.HERMES_HOME, CONFIG_FILENAME)
-      : null) ??
-    resolve(homedir(), ".hermes_prod", CONFIG_FILENAME) ??
-    // Backward-compatibility fallback: preserve discovery of configs written by
-    // older ao-install.sh versions that used .openclaw_prod.
-    resolve(homedir(), ".openclaw_prod", CONFIG_FILENAME)
+    hermesHomePath ??
+    hermesProdPath ??
+    openclawProdPath ??
+    // Default: use .hermes_prod as the default production path when nothing exists yet.
+    resolve(homedir(), ".hermes_prod", CONFIG_FILENAME)
   );
 }
 
