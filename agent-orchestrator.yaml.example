@@ -151,6 +151,14 @@ projects:
     #     skepticModel: codex
     #     skepticPostComment: true
 
+    # Per-project technique selection (autor research: all techniques converge ~80-85 CI)
+    # SR-prtype is the safe default — no per-type routing statistically justified
+    # technique:
+    #   default: SR-prtype  # safe default for all PR types
+    #   # thresholds:
+    #   #   minScoreDiff: 2.0    # minimum delta before switching from default
+    #   #   confidenceN: 10     # matched PR evaluations needed before override enabled
+
     # bd-n047: Per-project auto-merge override — set enabled: false to disable
     # for this project while keeping it enabled globally, or set enabled: true
     # to re-enable even when defaults.autoMerge.enabled is false.
@@ -244,11 +252,5 @@ projects:
 # SR-prtype (Self-Refine with PR-type classification) is the safe default (84.45, n=16).
 # Per-type routing requires statistically significant matched-PR evidence — none proven yet.
 #
-# technique:
-#   default: SR-prtype  # safe default — all techniques converge, no routing justified
-#   # Per-type overrides (none proven — all converge within rubric noise)
-#   # perType:
-#   #   data-norm: SR-prtype  # was SR-fewshot in error; corrected 2026-04-21
-#   # thresholds:
-#   #   minScoreDiff: 2.0    # minimum delta before switching from default
-#   #   confidenceN: 10     # matched PR evaluations needed before override enabled
+# NOTE: technique config is per-project. See the commented example under projects.my-app above.
+# The example below (at root level) will NOT work — config must be under projects.<name>.technique
