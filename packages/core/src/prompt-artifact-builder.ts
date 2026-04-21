@@ -25,11 +25,6 @@ export interface WorkerPromptArtifactConfig {
   sessionId: SessionId;
   spawnConfig: SessionSpawnConfig;
   composedPromptPath?: string;
-  /**
-   * When true, the PR/Git/TDD boilerplate is excluded from the worker prompt.
-   * Use for planning-only or artifact-only workers.
-   */
-  skipPrBoilerplate?: boolean;
 }
 
 export function agentSupportsPromptFile(agent: Agent): boolean {
@@ -71,7 +66,7 @@ export function buildWorkerPromptArtifact(config: WorkerPromptArtifactConfig): W
     userPrompt: requestedTask,
     lineage: config.spawnConfig.lineage,
     siblings: config.spawnConfig.siblings,
-    skipPrBoilerplate: config.skipPrBoilerplate,
+    skipPrBoilerplate: config.spawnConfig.skipPrBoilerplate,
   });
 
   const composedPromptPath =
