@@ -72,7 +72,7 @@ done
 
 chmod 600 "$CONFIG_FILE"
 echo "  Config written: $CONFIG_FILE"
-echo "  Projects: $(echo $PROJECTS | tr ' ' ', ')"
+echo "  Projects: $(echo "$PROJECTS" | tr ' ' ', ')"
 
 # ─── Step 3: Link AO skills to user .claude ──────────────────────────────────
 echo "[3/7] Linking AO skills..."
@@ -103,20 +103,18 @@ fi
 # ─── Step 6: Verify lifecycle workers ────────────────────────────────────────
 echo "[6/7] Verifying lifecycle workers..."
 WORKER_COUNT=0
-for pid in $PROJECTS; do
-  if launchctl print "gui/$(id -u)/ai.agento.lifecycle-all" >/dev/null 2>&1; then
-    # The lifecycle-all plist manages all workers; check via pgrep for per-project liveness
+if launchctl print "gui/$(id -u)/ai.agento.lifecycle-all" >/dev/null 2>&1; then
+  for pid in $PROJECTS; do
     if pgrep -f "lifecycle-worker[[:space:]].*${pid}([[:space:]]|\$)" >/dev/null 2>&1; then
       WORKER_COUNT=$((WORKER_COUNT + 1))
       echo "  + $pid: running"
     else
       echo "  - $pid: not running"
     fi
-  else
-    echo "  - lifecycle-all service not loaded"
-    break
-  fi
-done
+  done
+else
+  echo "  - lifecycle-all service not loaded"
+fi
 
 # ─── Step 7: Final verification via ao doctor ────────────────────────────────
 echo "[7/7] Running ao doctor..."
