@@ -236,3 +236,19 @@ projects:
 #     threshold: 10m
 #     action: notify
 #     priority: urgent
+
+# =============================================================================
+# TECHNIQUE SELECTION — AO library (autor research: all techniques converge)
+# =============================================================================
+# All 9 autor techniques converge within rubric noise (~80-85 CI overlap).
+# SR-prtype (Self-Refine with PR-type classification) is the safe default (84.45, n=16).
+# Per-type routing requires statistically significant matched-PR evidence — none proven yet.
+#
+# technique:
+#   default: SR-prtype  # safe default — all techniques converge, no routing justified
+#   # Per-type overrides (none proven — all converge within rubric noise)
+#   # perType:
+#   #   data-norm: SR-prtype  # was SR-fewshot in error; corrected 2026-04-21
+#   # thresholds:
+#   #   minScoreDiff: 2.0    # minimum delta before switching from default
+#   #   confidenceN: 10     # matched PR evaluations needed before override enabled
