@@ -28,10 +28,17 @@ if [ -d "$AO_REPO_ROOT/.git" ]; then
   echo "  Repo detected: $REPO_ROOT"
 else
   MODE="curl"
-  REPO_ROOT="$(mktemp -d)"
-  echo "  Cloning agent-orchestrator to $REPO_ROOT..."
-  git clone --branch "$AGENT_ORCHESTRATOR_BRANCH" \
-    "$AGENT_ORCHESTRATOR_REPO" "$REPO_ROOT" >/dev/null 2>&1
+  REPO_ROOT="$AO_REPO_ROOT"
+  mkdir -p "$(dirname "$REPO_ROOT")"
+  if [ -e "$REPO_ROOT" ] && [ ! -d "$REPO_ROOT/.git" ]; then
+    echo "ERROR: $REPO_ROOT exists but is not an agent-orchestrator clone"
+    exit 1
+  fi
+  if [ ! -d "$REPO_ROOT/.git" ]; then
+    echo "  Cloning agent-orchestrator to $REPO_ROOT..."
+    git clone --branch "$AGENT_ORCHESTRATOR_BRANCH" \
+      "$AGENT_ORCHESTRATOR_REPO" "$REPO_ROOT" >/dev/null 2>&1
+  fi
 fi
 
 SCRIPT_DIR="$REPO_ROOT/scripts"
@@ -126,7 +133,7 @@ else
   for pid in $PROJECTS; do
     # The lifecycle-all plist manages all workers; check via pgrep for per-project liveness
     escaped_pid=$(printf '%s' "$pid" | sed -e 's/[][^$.*/\\]/\\&/g')
-    if pgrep -f "lifecycle-worker[[:space:]].*${escaped_pid}([[:space:]]|\$)" >/dev/null 2>&1; then
+    if pgrep -f "lifecycle-worker[[:space:]].*${escaped_pid}([[:space:]]|$)" >/dev/null 2>&1; then
       WORKER_COUNT=$((WORKER_COUNT + 1))
       echo "  + $pid: running"
     else
