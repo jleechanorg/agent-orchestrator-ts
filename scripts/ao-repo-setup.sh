@@ -30,13 +30,14 @@ AO_VERSION=$(ao --version 2>/dev/null || echo "unknown")
 echo "[2/6] AO CLI: $AO_VERSION"
 
 # Step 3: Verify hermes gateway is running
-HERMES_STATUS=$(hermes gateway status 2>&1 || true)
-if ! echo "$HERMES_STATUS" | grep -q "Gateway is running"; then
+if ! command -v hermes &>/dev/null; then
+    echo "WARNING: Hermes CLI not found — skipping gateway check"
+elif HERMES_STATUS=$(hermes gateway status 2>&1) && echo "$HERMES_STATUS" | grep -q "Gateway is running"; then
+    echo "[3/6] Hermes gateway: running"
+else
     echo "WARNING: Hermes gateway not running."
     echo "Start with: hermes gateway start"
     echo "Or: ./bin/hermes gateway start"
-else
-    echo "[3/6] Hermes gateway: running"
 fi
 
 # Step 4: Check workspace directory
