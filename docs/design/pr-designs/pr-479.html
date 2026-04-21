@@ -68,7 +68,7 @@
 │ PR #479 — agent-orchestrator                                       │
 └────────────────────────────────────────────────────────────────────── ┘
                   │
-    ▼ 14 file(s) changed
+    ▼ 19 file(s) changed
                   │
 ┌────────────────────────────────────────────────────────────────────── ┐
 │ feat(ao-library): AO technique library — SR-prtype as safe default │
@@ -78,10 +78,10 @@
         <article class="card">
           <h2>Metadata</h2>
           <div class="stat-grid">
-            <div class="stat"><div class="num">14</div><div class="lbl">Files</div></div>
-            <div class="stat"><div class="num">51</div><div class="lbl">Commits</div></div>
-            <div class="stat"><div class="num" style="color:#2ea043">+772</div><div class="lbl">Additions</div></div>
-            <div class="stat"><div class="num" style="color:#cf222e">-77</div><div class="lbl">Deletions</div></div>
+            <div class="stat"><div class="num">19</div><div class="lbl">Files</div></div>
+            <div class="stat"><div class="num">68</div><div class="lbl">Commits</div></div>
+            <div class="stat"><div class="num" style="color:#2ea043">+833</div><div class="lbl">Additions</div></div>
+            <div class="stat"><div class="num" style="color:#cf222e">-93</div><div class="lbl">Deletions</div></div>
           </div>
           <ul style="margin-top:1rem">
             <li>Author: <code>jleechan2015</code></li>
@@ -98,13 +98,13 @@
         <table>
           <thead><tr><th>Package / Path</th><th>Files</th></tr></thead>
           <tbody>
-            <tr><td><code>packages/core</code></td><td>5</td></tr>
-<tr><td><code>.github/workflows</code></td><td>2</td></tr>
+            <tr><td><code>packages/core</code></td><td>6</td></tr>
+<tr><td><code>packages/cli</code></td><td>4</td></tr>
+<tr><td><code>.github/workflows</code></td><td>3</td></tr>
 <tr><td><code>docs/design</code></td><td>2</td></tr>
 <tr><td><code>.beads</code></td><td>1</td></tr>
 <tr><td><code>agent-orchestrator.yaml.example</code></td><td>1</td></tr>
 <tr><td><code>eslint.config.js</code></td><td>1</td></tr>
-<tr><td><code>packages/cli</code></td><td>1</td></tr>
 <tr><td><code>skills/technique-router</code></td><td>1</td></tr>
           </tbody>
         </table>
@@ -119,20 +119,26 @@
             <tr>
       <td><code>.beads/issues.jsonl</code></td>
       <td>modified</td>
-      <td style="text-align:right;color:#2ea043">+4</td>
+      <td style="text-align:right;color:#2ea043">+3</td>
       <td style="text-align:right;color:#cf222e">-0</td>
     </tr>
 <tr>
       <td><code>.github/workflows/skeptic-cron.yml</code></td>
       <td>modified</td>
-      <td style="text-align:right;color:#2ea043">+12</td>
-      <td style="text-align:right;color:#cf222e">-11</td>
+      <td style="text-align:right;color:#2ea043">+13</td>
+      <td style="text-align:right;color:#cf222e">-12</td>
     </tr>
 <tr>
       <td><code>.github/workflows/skeptic-gate-reusable.yml</code></td>
       <td>modified</td>
       <td style="text-align:right;color:#2ea043">+15</td>
       <td style="text-align:right;color:#cf222e">-1</td>
+    </tr>
+<tr>
+      <td><code>.github/workflows/test.yml</code></td>
+      <td>modified</td>
+      <td style="text-align:right;color:#2ea043">+23</td>
+      <td style="text-align:right;color:#cf222e">-4</td>
     </tr>
 <tr>
       <td><code>agent-orchestrator.yaml.example</code></td>
@@ -143,13 +149,13 @@
 <tr>
       <td><code>docs/design/pr-designs/pr-479.html</code></td>
       <td><span class="badge badge-new">added</span></td>
-      <td style="text-align:right;color:#2ea043">+204</td>
+      <td style="text-align:right;color:#2ea043">+217</td>
       <td style="text-align:right;color:#cf222e">-0</td>
     </tr>
 <tr>
       <td><code>docs/design/pr-designs/pr-479.md</code></td>
       <td><span class="badge badge-new">added</span></td>
-      <td style="text-align:right;color:#2ea043">+84</td>
+      <td style="text-align:right;color:#2ea043">+89</td>
       <td style="text-align:right;color:#cf222e">-0</td>
     </tr>
 <tr>
@@ -159,16 +165,40 @@
       <td style="text-align:right;color:#cf222e">-0</td>
     </tr>
 <tr>
+      <td><code>packages/cli/__tests__/commands/skeptic/skeptic.test.ts</code></td>
+      <td>modified</td>
+      <td style="text-align:right;color:#2ea043">+3</td>
+      <td style="text-align:right;color:#cf222e">-2</td>
+    </tr>
+<tr>
       <td><code>packages/cli/src/commands/skeptic.ts</code></td>
       <td>modified</td>
-      <td style="text-align:right;color:#2ea043">+42</td>
-      <td style="text-align:right;color:#cf222e">-64</td>
+      <td style="text-align:right;color:#2ea043">+51</td>
+      <td style="text-align:right;color:#cf222e">-68</td>
+    </tr>
+<tr>
+      <td><code>packages/cli/src/commands/skeptic/posting.ts</code></td>
+      <td>modified</td>
+      <td style="text-align:right;color:#2ea043">+1</td>
+      <td style="text-align:right;color:#cf222e">-0</td>
+    </tr>
+<tr>
+      <td><code>packages/cli/src/commands/skeptic/verdict-utils.ts</code></td>
+      <td>modified</td>
+      <td style="text-align:right;color:#2ea043">+6</td>
+      <td style="text-align:right;color:#cf222e">-4</td>
     </tr>
 <tr>
       <td><code>packages/core/src/__tests__/decomposer.test.ts</code></td>
       <td><span class="badge badge-new">added</span></td>
       <td style="text-align:right;color:#2ea043">+137</td>
       <td style="text-align:right;color:#cf222e">-0</td>
+    </tr>
+<tr>
+      <td><code>packages/core/src/__tests__/skeptic-chain-integration.test.ts</code></td>
+      <td>modified</td>
+      <td style="text-align:right;color:#2ea043">+1</td>
+      <td style="text-align:right;color:#cf222e">-1</td>
     </tr>
 <tr>
       <td><code>packages/core/src/config.ts</code></td>
