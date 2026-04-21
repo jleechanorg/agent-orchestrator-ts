@@ -46,20 +46,7 @@ echo "[2/7] Bootstrapping AO config at $HERMES_HOME/agent-orchestrator.yaml..."
 mkdir -p "$HERMES_HOME"
 CONFIG_FILE="$HERMES_HOME/agent-orchestrator.yaml"
 
-# Read existing config to preserve projects
-EXISTING_PROJECTS=""
-if [ -f "$CONFIG_FILE" ]; then
-  EXISTING_PROJECTS=$(python3 -c "
-import yaml, sys
-try:
-    cfg = yaml.safe_load(open('$CONFIG_FILE')) or {}
-    for pid in (cfg.get('projects') or {}):
-        print(pid)
-except: pass
-" 2>/dev/null || true)
-fi
-
-# Write canonical config (projects from $PROJECTS env, or existing)
+# Write canonical config
 cat >"$CONFIG_FILE" <<EOF
 # Managed AO config — $(date -u +%Y-%m-%dT%H:%M:%SZ)
 # Single source of truth. Do not edit manually for project additions.
@@ -85,7 +72,7 @@ done
 
 chmod 600 "$CONFIG_FILE"
 echo "  Config written: $CONFIG_FILE"
-echo "  Projects: $(echo $PROJECTS | tr ' ' ', ')"
+echo "  Projects: $(echo "$PROJECTS" | tr ' ' ', ')"
 
 # ─── Step 3: Link AO skills to user .claude ──────────────────────────────────
 echo "[3/7] Linking AO skills..."
@@ -116,8 +103,11 @@ fi
 # ─── Step 6: Verify lifecycle workers ────────────────────────────────────────
 echo "[6/7] Verifying lifecycle workers..."
 WORKER_COUNT=0
-for pid in $PROJECTS; do
-  if launchctl print "gui/$(id -u)/ai.agento.lifecycle-all" >/dev/null 2>&1; then
+
+if ! launchctl print "gui/$(id -u)/ai.agento.lifecycle-all" >/dev/null 2>&1; then
+  echo "  - lifecycle-all service not loaded"
+else
+  for pid in $PROJECTS; do
     # The lifecycle-all plist manages all workers; check via pgrep for per-project liveness
     if pgrep -f "lifecycle-worker[[:space:]].*${pid}([[:space:]]|\$)" >/dev/null 2>&1; then
       WORKER_COUNT=$((WORKER_COUNT + 1))
@@ -125,11 +115,8 @@ for pid in $PROJECTS; do
     else
       echo "  - $pid: not running"
     fi
-  else
-    echo "  - lifecycle-all service not loaded"
-    break
-  fi
-done
+  done
+fi
 
 # ─── Step 7: Final verification via ao doctor ────────────────────────────────
 echo "[7/7] Running ao doctor..."
@@ -149,7 +136,7 @@ fi
 echo ""
 echo "=== Install Complete ==="
 echo "Config: $CONFIG_FILE"
-echo "Workers running: $WORKER_COUNT/$(echo $PROJECTS | wc -w)"
+echo "Workers running: $WORKER_COUNT/$(echo "$PROJECTS" | wc -w)"
 echo ""
 echo "Next steps:"
 echo "  ao spawn --project agent-orchestrator 'echo hello'"
