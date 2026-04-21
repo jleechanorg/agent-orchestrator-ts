@@ -155,6 +155,10 @@ export function registerSkeptic(program: Command): Command {
       "--exclude-paths <patterns>",
       "Pipe-separated glob patterns (pipe | cannot appear in globs). If ALL changed files match, post VERDICT: SKIPPED without running LLM evaluation. E.g. '**/*.md|docs/**'",
     )
+    .option(
+      "--request-id <id>",
+      "Request ID from the skeptic-gate or skeptic-cron trigger comment — included in the VERDICT comment body for SHA + request-id matching (bd-qw6)",
+    )
     .action(async (options) => {
       const prNumber = parseInt(String(options.pr), 10);
       if (isNaN(prNumber) || prNumber <= 0) {
@@ -216,7 +220,7 @@ export function registerSkeptic(program: Command): Command {
             SKEPTIC_BOT_AUTHOR,
             options.triggerSha,
             skipVerdict,
-            { headSha: options.triggerSha } as SkepticVerdictBinding,
+            { headSha: options.triggerSha, requestId: options.requestId } as SkepticVerdictBinding,
           );
           spinner4.succeed(chalk.green("Done! Skeptic verdict posted."));
         } catch (err) {
@@ -280,7 +284,7 @@ export function registerSkeptic(program: Command): Command {
           SKEPTIC_BOT_AUTHOR,
           options.triggerSha,
           verdict, // always pass full LLM output so FAIL/SKIPPED bodies carry context
-          { headSha: options.triggerSha } as SkepticVerdictBinding,
+          { headSha: options.triggerSha, requestId: options.requestId } as SkepticVerdictBinding,
         );
         spinner4.succeed(chalk.green("Done! Skeptic verdict posted."));
 
