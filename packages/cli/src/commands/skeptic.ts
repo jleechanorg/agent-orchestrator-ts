@@ -262,6 +262,12 @@ export function registerSkeptic(program: Command): Command {
           headSha: triggerSha,
           requestId: options.requestId,
         });
+        if (bound.verdictType === null) {
+          console.warn(chalk.red("Could not parse VERDICT from LLM output."));
+          console.log(chalk.yellow("\n=== Full LLM output ===\n"));
+          console.log(bound.llmOutput);
+          process.exit(1);
+        }
         console.log(chalk[bound.verdictType === "PASS" ? "green" : "red"](bound.verdictLine));
         console.log(chalk.yellow("\n=== Full LLM output ===\n"));
         console.log(bound.llmOutput);
