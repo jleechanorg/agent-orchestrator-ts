@@ -544,10 +544,11 @@ jobs:
           elif printf '%s' "$EVIDENCE_SECTION" | grep -qi '[Vv]erdict.*:.*[Ff][Aa][Ii][Ll]'; then
             echo "Verdict: FAIL with present bundle — contradiction; gate passes but this bundle should be re-examined"
 
-          # Check for PENDING verdict — gate passes for feature PRs with ongoing skeptic verification.
+          # Check for PENDING verdict — non-final state, fail closed.
           # The skeptic gate runs asynchronously and will update the verdict when complete.
           elif printf '%s' "$EVIDENCE_SECTION" | grep -qi '[Vv]erdict.*:.*[Pp][Ee][Nn][Dd][Ii][Nn][Gg]'; then
-            echo "Verdict: PENDING — skeptic verification in progress; gate passes"
+            echo "ERROR: Verdict: PENDING is non-final. Wait for PASS/FAIL/SKIPPED."
+            exit 1
 
           # No verdict found — hard requirement, gate fails
           else
