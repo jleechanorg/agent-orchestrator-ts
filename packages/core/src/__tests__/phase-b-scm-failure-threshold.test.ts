@@ -279,7 +279,7 @@ describe("scmFailureThreshold config (Phase B)", () => {
    *
    * Status: "killed"
    */
-  it("should use project override scmFailureThreshold=2 (session killed)", async () => {
+  it("should use project override scmFailureThreshold=2 (session killed via threshold)", async () => {
     vi.mocked(mockRuntime.isAlive).mockResolvedValue(false);
 
     const session = makeSession({
@@ -291,7 +291,10 @@ describe("scmFailureThreshold config (Phase B)", () => {
     vi.mocked(mockSessionManager.list).mockResolvedValue([session]);
     vi.mocked(mockSessionManager.get).mockResolvedValue(session);
 
-    // Config with project override: threshold=2 (default is 3)
+    // Make detectPR throw so step-3 catch fires and increments scmFailureCount.
+    // scmFailureCount=1 → +1=2 ≥ threshold(2) → killed in step-3 catch.
+    vi.mocked(mockScm.detectPR!).mockRejectedValue(new Error("transient SCM failure"));
+
     const configWithOverride: OrchestratorConfig = {
       ...config,
       projects: {
@@ -315,7 +318,7 @@ describe("scmFailureThreshold config (Phase B)", () => {
 
     await lifecycleManager.check("app-1");
 
-    // With override threshold=2: 1+1=2 >= 2 → killed in step-3 catch
+    // With override threshold=2: scmFailureCount=1 → step-3 catch increments to 2 → 2 >= 2 → killed
     expect(lifecycleManager.getStates().get("app-1")).toBe("killed");
   });
 });
