@@ -32,7 +32,29 @@ The fork is 827 commits ahead of upstream — it is actively developed, not a st
 | Bead | Title | Link |
 |------|-------|------|
 | `bd-8kel` | Phase 1: Extract lifecycle-skeptic plugin from lifecycle-manager.ts (~500 LOC) | (plugin refactor epic) |
-| `bd-rstr` | Non-conflicting restructure: audit fork-*.ts, classify upstream-worthy vs fork-only | (new — create) |
+| `bd-3bnk` | Non-conflicting restructure: fork-*.ts audit + config-driven extraction | (tracks this work) |
+
+## Phase A Results (COMPLETED)
+
+**Audit completed 2026-04-22** — all 11 `fork-*.ts` companions audited. Results at `/tmp/fork-audit-report.md`.
+
+| Bucket | LOC | Files | Action |
+|--------|-----|-------|--------|
+| **A: Upstream-worthy** | 228 | 4 files: `fork-skeptic-extension.ts` (67 LOC), `fork-utils.ts` (36 LOC), `fork-dead-agent.ts` (63 LOC), `fork-reaction-retry-policy.ts` (39 LOC) | Prepare upstream PR candidates |
+| **B: Fork-only (companions)** | 1,175 | 6 files | Keep as `fork-*.ts`; extract to plugins |
+| **C: Inline candidate** | 87 | `fork-slash-command-routing.ts` | Keep (re-exported via `utils.ts` — public interface) |
+| **Total** | **1,490** | **11 files** | Zero dead companions |
+
+**Key findings:**
+- Zero dead companions — all 11 are live and imported
+- `fork-utils.ts` has 6+ non-lifecycle consumers — most upstream-worthy
+- Bucket B is dominant (79% of LOC) — plugin extraction target
+- `fork-slash-command-routing.ts` stays as companion (re-exported via `utils.ts`)
+- `fork-reaction-retry-policy.ts` and `fork-skeptic-extension.ts` are cleanest upstream candidates
+
+**Tests:** `packages/core/src/__tests__/fork-companion-audit.test.ts` — 42 tests, all passing.
+
+## Work queue
 
 ## Work queue
 
