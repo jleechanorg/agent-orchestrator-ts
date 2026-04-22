@@ -218,6 +218,52 @@ async function maybeRemoveStaleCheckedOutWorktree(
   }
 }
 
+/**
+ * Reuse an existing branch by creating a worktree and checking it out.
+ * Handles stale-checkout recovery and cleans up the worktree on failure.
+ * Returns true on success, false on checkout failure.
+ */
+async function reuseExistingBranch(
+  repoPath: string,
+  worktreePath: string,
+  branch: string,
+  baseRef: string,
+  worktreeBaseDir: string,
+): Promise<boolean> {
+  await git(repoPath, "worktree", "add", worktreePath, baseRef);
+  let checkoutSucceeded = false;
+  try {
+    await git(worktreePath, "checkout", branch);
+    checkoutSucceeded = true;
+  } catch (checkoutErr: unknown) {
+    const checkoutMsg =
+      checkoutErr instanceof Error ? checkoutErr.message : String(checkoutErr);
+    if (checkoutMsg.includes("already checked out") && checkoutMsg.includes("checked out at")) {
+      try {
+        const removedStale = await maybeRemoveStaleCheckedOutWorktree(repoPath, checkoutMsg, worktreeBaseDir);
+        if (removedStale) {
+          await git(worktreePath, "checkout", branch);
+          checkoutSucceeded = true;
+        }
+        // else: Non-AO worktree holds the branch lock — let the error propagate.
+      } catch {
+        // Fall through to original error path.
+      }
+    }
+    if (!checkoutSucceeded) {
+      try {
+        await git(repoPath, "worktree", "remove", "--force", worktreePath);
+      } catch {
+        // Best-effort cleanup
+      }
+      throw new Error(`Failed to checkout branch "${branch}" in worktree: ${checkoutMsg}`, {
+        cause: checkoutErr,
+      });
+    }
+  }
+  return checkoutSucceeded;
+}
+
 /** Only allow safe characters in path segments to prevent directory traversal */
 const SAFE_PATH_SEGMENT = /^[a-zA-Z0-9_-]+$/;
 
@@ -433,55 +479,20 @@ export function create(config?: Record<string, unknown>): Workspace {
                 }
               } else if (retryMsg.includes("already exists") || retryMsg.includes("A branch named")) {
                 // Ghost was removed but branch already exists — reuse existing branch.
-                // Follow the same branch-reuse path as the branch-exists case below:
-                // create worktree without -b, then checkout the existing branch.
                 try {
-                  await git(repoPath, "worktree", "add", worktreePath, baseRef);
-                  let checkoutSucceeded = false;
-                  try {
-                    await git(worktreePath, "checkout", cfg.branch);
-                    checkoutSucceeded = true;
-                  } catch (checkoutErr: unknown) {
-                    const checkoutMsg =
-                      checkoutErr instanceof Error ? checkoutErr.message : String(checkoutErr);
-                    if (
-                      checkoutMsg.includes("already checked out") &&
-                      checkoutMsg.includes("checked out at")
-                    ) {
-                      try {
-                        const removedStale = await maybeRemoveStaleCheckedOutWorktree(
-                          repoPath,
-                          checkoutMsg,
-                          worktreeBaseDir,
-                        );
-                        if (removedStale) {
-                          await git(worktreePath, "checkout", cfg.branch);
-                          checkoutSucceeded = true;
-                        }
-                      } catch {
-                        // Fall through to original error path.
-                      }
-                    }
-                    if (!checkoutSucceeded) {
-                      try {
-                        await git(repoPath, "worktree", "remove", "--force", worktreePath);
-                      } catch {
-                        // Best-effort cleanup
-                      }
-                      throw new Error(
-                        `Failed to checkout branch "${cfg.branch}" in worktree: ${checkoutMsg}`,
-                        { cause: checkoutErr },
-                      );
-                    }
-                  }
-                } catch (branchReuseErr: unknown) {
-                  const branchReuseMsg =
-                    branchReuseErr instanceof Error
-                      ? branchReuseErr.message
-                      : String(branchReuseErr);
+                  await reuseExistingBranch(
+                    repoPath,
+                    worktreePath,
+                    cfg.branch,
+                    baseRef,
+                    worktreeBaseDir,
+                  );
+                } catch (reuseErr: unknown) {
+                  const reuseErrMsg =
+                    reuseErr instanceof Error ? reuseErr.message : String(reuseErr);
                   throw new Error(
-                    `Failed to create worktree for branch "${cfg.branch}": ${branchReuseMsg}`,
-                    { cause: branchReuseErr },
+                    `Failed to create worktree for branch "${cfg.branch}": ${reuseErrMsg}`,
+                    { cause: reuseErr },
                   );
                 }
               } else {
@@ -500,45 +511,13 @@ export function create(config?: Record<string, unknown>): Workspace {
           }
         } else {
           // Branch already exists — create worktree and check it out
-          await git(repoPath, "worktree", "add", worktreePath, baseRef);
-          let checkoutSucceeded = false;
-          try {
-            await git(worktreePath, "checkout", cfg.branch);
-            checkoutSucceeded = true;
-          } catch (checkoutErr: unknown) {
-            const checkoutMsg =
-              checkoutErr instanceof Error ? checkoutErr.message : String(checkoutErr);
-
-            // bd-xf5: Recover from stale checked-out worktrees that block checkout.
-            // If target branch is checked out in another worktree but that worktree has
-            // no active tmux session, force-remove it and retry checkout once.
-            if (checkoutMsg.includes("already checked out") && checkoutMsg.includes("checked out at")) {
-              try {
-                const removedStale = await maybeRemoveStaleCheckedOutWorktree(repoPath, checkoutMsg, worktreeBaseDir);
-                if (removedStale) {
-                  await git(worktreePath, "checkout", cfg.branch);
-                  checkoutSucceeded = true;
-                }
-                // else: Non-AO worktree holds the branch lock — let the error propagate.
-                // The scm-github checkoutPR call will handle this via its own ref-based
-                // fallback once workspace.create() returns.
-              } catch {
-                // Fall through to original error path.
-              }
-            }
-
-            if (!checkoutSucceeded) {
-              // Checkout failed — remove the orphaned worktree before rethrowing
-              try {
-                await git(repoPath, "worktree", "remove", "--force", worktreePath);
-              } catch {
-                // Best-effort cleanup
-              }
-              throw new Error(`Failed to checkout branch "${cfg.branch}" in worktree: ${checkoutMsg}`, {
-                cause: checkoutErr,
-              });
-            }
-          }
+          await reuseExistingBranch(
+            repoPath,
+            worktreePath,
+            cfg.branch,
+            baseRef,
+            worktreeBaseDir,
+          );
         }
       }
 
