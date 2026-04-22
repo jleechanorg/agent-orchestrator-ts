@@ -16,7 +16,7 @@
 - **Fast wins**: (1) Fork-companion files (`fork-*.ts`) are zero-conflict — they're new files, not modifications. (2) Config-driven behavior in `agent-orchestrator.yaml` merges with zero conflict. (3) New plugin packages (`packages/plugins/notifier-discord/`) have already proven merge-clean. (4) `fork-skeptic-extension.ts`, `fork-claim-verification.ts`, `fork-utils.ts` are upstream-worthy candidates (~298 LOC).
 - **Strategy**: "Companion-first, plugin-second" — isolate fork-specific code into `fork-*.ts` companion files and new plugin packages, avoiding modifications to upstream-touched files. Upstream contributions for genuinely useful fork patterns. Config for behavior where possible.
 - **Top priority**: Audit `fork-*.ts` files, classify what is truly fork-only vs upstream-worthy, then restructure to eliminate inline modifications to upstream files.
-- **Beads**: `bd-8kel` (Phase 1 plugin extraction), new bead `bd-rstr` (non-conflicting restructure audit)
+- **Beads**: `bd-8kel` (Phase 1 plugin extraction), new bead `bd-3bnk` (non-conflicting restructure audit)
 - **Risks**: Without restructure, fork divergence compounds — every upstream commit touching `lifecycle-manager.ts` or `scm-github/src/index.ts` will create growing merge conflicts.
 
 ## Context
@@ -53,6 +53,79 @@ The fork is 827 commits ahead of upstream — it is actively developed, not a st
 - `fork-reaction-retry-policy.ts` and `fork-skeptic-extension.ts` are cleanest upstream candidates
 
 **Tests:** `packages/core/src/__tests__/fork-companion-audit.test.ts` — 42 tests, all passing.
+
+## Phase B Results (COMPLETED)
+
+**Proof-of-concept extracted:** `scmFailureThreshold` from hardcoded `3` to config-driven with three-level precedence.
+
+| File | Change |
+|------|--------|
+| `types.ts` | Added `scmFailureThreshold?: number` to `OrchestratorConfig`, `DefaultPlugins`, `ProjectConfig` |
+| `config.ts` | Added Zod schema fields at all three levels |
+| `lifecycle-manager.ts` | Replaced `const SCM_FAILURE_THRESHOLD = 3` with `project.scmFailureThreshold ?? config.defaults.scmFailureThreshold ?? 3` |
+| `__tests__/phase-b-scm-failure-threshold.test.ts` | **New** — 3 TDD tests, all passing |
+
+**Additional hardcoded behaviors identified** (not yet extracted):
+- `startupGracePeriodMs` (type exists, no YAML key) — low effort
+- OpenCode session reuse hardcoded name — medium effort
+- `send-to-agent` retry cap in fork companion — low effort
+- Rate-limit pause detection in `fork-lifecycle-manager.ts` — low effort
+
+Full report: `/tmp/phase-b-report.md`
+
+## Phase C Results (COMPLETED)
+
+**Plugin extraction candidates identified:**
+
+| Candidate | Package | Slot | Risk |
+|-----------|---------|------|------|
+| `request-merge` reaction | `@jleechanorg/ao-reaction-request-merge` | `reaction` | Low |
+| `parallel-retry` reaction | `@jleechanorg/ao-reaction-parallel-retry` | `reaction` | Low |
+| `respawn-for-review` reaction | `@jleechanorg/ao-reaction-respawn-for-review` | `reaction` | Medium |
+| Rate-limit lifecycle detection | `@jleechanorg/ao-lifecycle-rate-limit` | `lifecycle` | Medium |
+
+**New slots required:** `reaction` and `lifecycle` (not currently in `PluginSlot` type).
+
+**Architecture gap identified:** `PluginRegistry` must support `getContext()` method to inject `sessionManager`, `config`, `notifyHuman`, `createEvent` into reaction handlers.
+
+Full report: `/tmp/phase-c-report.md`
+
+## Phase D Results (COMPLETED)
+
+**Upstream contribution candidates:**
+
+| Priority | File | LOC | Upstream-clean? | Blocker |
+|----------|------|-----|-----------------|---------|
+| 1 | `fork-reaction-retry-policy.ts` | 39 | YES | None |
+| 2 | `fork-utils.ts` | 36 | YES | None |
+| 3 | `fork-skeptic-extension.ts` | 67 | PARTIAL | Config field names are fork-specific |
+| 4 | `fork-dead-agent.ts` | 63 | NO | Lifecycle-manager internal deps |
+
+**Files 1 and 2 are zero-conflict upstream PRs.** File 3 needs upstream config schema discussion. File 4 blocked on deeper integration design.
+
+Full report: `/tmp/phase-d-report.md`
+
+## Phase E Results (COMPLETED)
+
+**Inline modification reduction audit:**
+
+| File | Total LOC | Fork LOC | Fork % | Inline (unisolated) |
+|------|-----------|----------|--------|---------------------|
+| lifecycle-manager.ts | 3,034 | +955 | 31% | ~408 LOC |
+| scm-github/src/index.ts | 2,924 | +1,859 | 64% | ~1,859 LOC |
+| session-manager.ts | 3,095 | +112 | 4% | ~179 LOC |
+
+**Already companion-isolated:** ~1,331 LOC across 11 `fork-*.ts` files — zero upstream merge conflict.
+
+**Top inline extraction targets:**
+1. `logAoAction` call chain (~80 LOC, 5 sites in lifecycle + 5 in scm-github) → `fork-ao-action-log.ts`
+2. `verify6Green` function (~103 LOC) → `fork-verify-6green.ts`
+3. `triggerSkepticReaction` closure (~50 LOC) → `fork-skeptic-reaction.ts`
+4. scm-github bot author filtering (~15 LOC) → config option or companion
+
+**scm-github is highest-value target:** all 1,859 LOC are inline with no companion structure.
+
+Full report: `/tmp/phase-e-report.md`
 
 ## Work queue
 
