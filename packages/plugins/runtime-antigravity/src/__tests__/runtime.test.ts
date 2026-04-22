@@ -456,11 +456,32 @@ describe("runtime.create() — Manager UI flow", () => {
     const runtime = create();
     setupSuccessfulCreateMocks();
 
-    // Override execFile: reject on the PIL availability check call
+    // Override execFile: make the PIL availability check fail via callback error.
     // (python3 -c "from PIL import Image; import numpy")
     // This simulates PIL/Pillow not being installed in the python3 environment.
-    vi.mocked(execFile).mockRejectedValueOnce(
-      new Error("python3: error: no module named PIL"),
+    // We must use mockImplementation to drive the callback path that promisify uses.
+    const pilCheckError = new Error("python3: error: no module named PIL");
+    vi.mocked(execFile).mockImplementation(
+      ((
+        _file: string,
+        _args: string[] | Record<string, unknown> | null | undefined,
+        _options: Record<string, unknown> | null | undefined,
+        callback: (err: Error | null, stdout: Buffer, stderr: Buffer) => void,
+      ): ChildProcess => {
+        // Drive the callback path: error-first style for promisify
+        setImmediate(() => {
+          if (typeof callback === "function") {
+            callback(pilCheckError, Buffer.alloc(0), Buffer.alloc(0));
+          }
+        });
+        return {
+          stdout: Buffer.alloc(0),
+          stderr: Buffer.alloc(0),
+          exitCode: 0,
+          on: vi.fn(),
+          once: vi.fn(),
+        } as unknown as ChildProcess;
+      }) as typeof execFile,
     );
 
     const handle = await runtime.create({
