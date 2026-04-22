@@ -206,6 +206,7 @@ fi
 
 echo ""
 echo "=== Install Complete ==="
+echo "Mode: $MODE"
 echo "Config: $CONFIG_FILE"
 echo "Workers running: $WORKER_COUNT/$(echo "$PROJECTS" | wc -w)"
 echo ""
