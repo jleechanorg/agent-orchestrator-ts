@@ -25,10 +25,13 @@ export function getManagedConfigPath(env: ManagedConfigEnvironment = "staging"):
 
   // Search order: explicit env override → HERMES_HOME → .hermes_prod → .openclaw_prod (legacy).
   // Use existsSync so we actually discover files rather than just returning strings.
-  const hermesHomePath =
-    process.env.HERMES_HOME && existsSync(resolve(process.env.HERMES_HOME, CONFIG_FILENAME))
-      ? resolve(process.env.HERMES_HOME, CONFIG_FILENAME)
-      : null;
+  // Expand ~ to home dir since resolve() does not handle tilde literals.
+  const hermesHomeRaw = process.env.HERMES_HOME ?? "";
+  const hermesHomeExpanded =
+    hermesHomeRaw.startsWith("~")
+      ? resolve(homedir(), hermesHomeRaw.slice(1), CONFIG_FILENAME)
+      : resolve(hermesHomeRaw, CONFIG_FILENAME);
+  const hermesHomePath = hermesHomeRaw ? (existsSync(hermesHomeExpanded) ? hermesHomeExpanded : null) : null;
   const hermesProdPath = existsSync(resolve(homedir(), ".hermes_prod", CONFIG_FILENAME))
     ? resolve(homedir(), ".hermes_prod", CONFIG_FILENAME)
     : null;

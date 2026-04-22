@@ -449,6 +449,8 @@ describe("wholesome — structural source-code assertions", () => {
       "2b3b57ad3ae4dda1b1275000b55011e80461c552", // fix(config): remove desktop notifications from default configs
       "df94594cc7398fd49ab60966b79f44a0da337e4f", // fix(core): apply upstream prompt delivery robustness + send.ts error handling (rebased SHA)
       "35f2d946a315f5e6bc3c8a16a7181384bf0145db", // fix(config): remove desktop notifications from default configs (rebased SHA)
+      // fix/ao-config-hermes-discovery (PR #482): pre-[agento] commit from merged feature branch
+      "8e7abb690a065345caeca8507660af5ca7f7a27b", // feat: add consolidated ao-install.sh and ao-repo-setup.sh scripts
     ]);
 
     it("all non-merge commits made on this branch have [agento] prefix", () => {

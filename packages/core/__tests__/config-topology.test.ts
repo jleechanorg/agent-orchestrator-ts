@@ -227,4 +227,19 @@ describe("config-topology HERMES_HOME discovery chain", () => {
 
     expect(found).toBe(join(hermesHome, "agent-orchestrator.yaml"));
   });
+
+  it("expands tilde in HERMES_HOME before existence check", async () => {
+    const { getManagedConfigPath } = await import("../src/config-topology.js");
+    // Set up a config at ~/.hermes_prod/agent-orchestrator.yaml using the real homedir
+    // but pass HERMES_HOME as a literal "~" string.
+    const hermesProdDir = join(testDir, ".hermes_prod");
+    mkdirSync(hermesProdDir, { recursive: true });
+    writeFileSync(join(hermesProdDir, "agent-orchestrator.yaml"), "projects: {}\n");
+    // Pass ~ literally — the implementation must expand it to the mock homedir.
+    process.env["HERMES_HOME"] = "~/.hermes_prod";
+
+    const path = getManagedConfigPath("production");
+
+    expect(path).toBe(join(hermesProdDir, "agent-orchestrator.yaml"));
+  });
 });
