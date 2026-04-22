@@ -97,7 +97,7 @@ The `parseRateLimitReset` function parses Claude Code / OpenCode terminal output
 ## Test Coverage
 
 A liveness test suite was written at:
-```
+```text
 packages/core/src/__tests__/fork-companion-audit.test.ts
 ```
 

@@ -255,7 +255,7 @@ reactions:
 - `session-manager.ts` — fork has ~112 extra LOC (2,941 vs 2,829)
 
 **The pattern to achieve**:
-```
+```yaml
 # upstream/file.ts — 0 modifications, no merge conflict
 # packages/core/src/fork-some-feature.ts — companion file, no merge conflict
 # packages/plugins/fork-plugin/ — plugin package, no merge conflict
