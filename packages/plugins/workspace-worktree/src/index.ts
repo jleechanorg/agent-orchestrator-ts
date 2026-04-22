@@ -479,22 +479,14 @@ export function create(config?: Record<string, unknown>): Workspace {
                 }
               } else if (retryMsg.includes("already exists") || retryMsg.includes("A branch named")) {
                 // Ghost was removed but branch already exists — reuse existing branch.
-                try {
-                  await reuseExistingBranch(
-                    repoPath,
-                    worktreePath,
-                    cfg.branch,
-                    baseRef,
-                    worktreeBaseDir,
-                  );
-                } catch (reuseErr: unknown) {
-                  const reuseErrMsg =
-                    reuseErr instanceof Error ? reuseErr.message : String(reuseErr);
-                  throw new Error(
-                    `Failed to create worktree for branch "${cfg.branch}": ${reuseErrMsg}`,
-                    { cause: reuseErr },
-                  );
-                }
+                // Let reuseExistingBranch errors propagate directly without double-wrapping.
+                await reuseExistingBranch(
+                  repoPath,
+                  worktreePath,
+                  cfg.branch,
+                  baseRef,
+                  worktreeBaseDir,
+                );
               } else {
                 throw new Error(
                   `Failed to create worktree for branch "${cfg.branch}": ${retryMsg}`,
