@@ -6,6 +6,19 @@
 
 set -euo pipefail
 
+# Run a command, filter its output through grep/head, exit non-zero on command failure.
+run_filtered() {
+  local filter="$1"; local limit="$2"; shift 2
+  local log
+  log="$(mktemp)"
+  if ! "$@" >"$log" 2>&1; then
+    grep -E "$filter" "$log" | head -n "$limit" || true
+    rm -f "$log"; return 1
+  fi
+  grep -E "$filter" "$log" | head -n "$limit" || true
+  rm -f "$log"
+}
+
 HERMES_HOME="${HERMES_HOME:-$HOME/.hermes_prod}"
 AGENT_ORCHESTRATOR_REPO="${AGENT_ORCHESTRATOR_REPO:-https://github.com/jleechanorg/agent-orchestrator}"
 AGENT_ORCHESTRATOR_BRANCH="${AGENT_ORCHESTRATOR_BRANCH:-main}"
@@ -19,15 +32,13 @@ echo
 
 # ─── Step 0: Detect run mode ─────────────────────────────────────────────────
 # Two modes:
-#   MODE=repo    — running from an existing ~/project_agento/agent-orchestrator clone
-#   MODE=curl    — piped from curl, need to clone first
+#   repo  — running from an existing ~/project_agento/agent-orchestrator clone
+#   curl  — piped from curl, need to clone first
 
 if [ -d "$AO_REPO_ROOT/.git" ]; then
-  MODE="repo"
   REPO_ROOT="$AO_REPO_ROOT"
   echo "  Repo detected: $REPO_ROOT"
 else
-  MODE="curl"
   REPO_ROOT="$(mktemp -d)"
   trap 'rm -rf "$REPO_ROOT" 2>/dev/null' EXIT
   echo "  Cloning agent-orchestrator to $REPO_ROOT..."
@@ -39,7 +50,7 @@ SCRIPT_DIR="$REPO_ROOT/scripts"
 
 # ─── Step 1: Install dependencies + build CLI ────────────────────────────────
 echo "[1/7] Running setup.sh (install + build)..."
-(cd "$REPO_ROOT" && bash "$SCRIPT_DIR/setup.sh") 2>&1 | grep -E '^\[ok\]|\[ERROR\]|ERROR|complete' | head -20 || true
+run_filtered '^\[ok\]|\[ERROR\]|ERROR|complete' 20 bash -c "cd \"$REPO_ROOT\" && bash \"$SCRIPT_DIR/setup.sh\""
 
 # ─── Step 2: Bootstrap config at hermes_prod ─────────────────────────────────
 echo "[2/7] Bootstrapping AO config at $HERMES_HOME/agent-orchestrator.yaml..."
@@ -99,7 +110,7 @@ fi
 # ─── Step 5: Run setup-extended.sh (rebuild CLI + launchd + webhook) ─────────
 echo "[5/7] Running setup-extended.sh..."
 if [ -f "$SCRIPT_DIR/setup-extended.sh" ]; then
-  AO_CONFIG_PATH="$CONFIG_FILE" bash "$SCRIPT_DIR/setup-extended.sh" 2>&1 | grep -E '^\[|^ok|^WARNING|═══|complete|Installing' | head -30 || true
+  run_filtered '^\[|^ok|^WARNING|═══|complete|Installing' 30 env AO_CONFIG_PATH="$CONFIG_FILE" bash "$SCRIPT_DIR/setup-extended.sh"
 else
   echo "  setup-extended.sh not found — skipping"
 fi
@@ -113,7 +124,7 @@ if ! launchctl print "gui/$(id -u)/ai.agento.lifecycle-all" >/dev/null 2>&1; the
 else
   for pid in $PROJECTS; do
     # The lifecycle-all plist manages all workers; check via pgrep for per-project liveness
-    escaped_pid=$(printf '%s' "$pid" | sed -e 's/[][^$.*/\\]/\\&/g')
+    escaped_pid=$(printf '%s' "$pid" | sed -e 's/[][]/\\&/g')
     if pgrep -f "lifecycle-worker[[:space:]].*${escaped_pid}([[:space:]]|\$)" >/dev/null 2>&1; then
       WORKER_COUNT=$((WORKER_COUNT + 1))
       echo "  + $pid: running"
@@ -126,7 +137,7 @@ fi
 # ─── Step 7: Final verification via ao doctor ────────────────────────────────
 echo "[7/7] Running ao doctor..."
 if command -v ao &>/dev/null; then
-  AO_CONFIG_PATH="$CONFIG_FILE" ao doctor 2>&1 | grep -E '(PASS|WARN|FAIL|Results:)' | tail -5 || true
+  run_filtered '(PASS|WARN|FAIL|Results:)' 5 env AO_CONFIG_PATH="$CONFIG_FILE" ao doctor
 else
   echo "  ao CLI not in PATH — run: export PATH=\"\$(npm config get prefix)/bin:\$PATH\""
 fi
@@ -137,6 +148,6 @@ echo "Config: $CONFIG_FILE"
 echo "Workers running: $WORKER_COUNT/$(echo "$PROJECTS" | wc -w)"
 echo ""
 echo "Next steps:"
-echo "  ao spawn --project agent-orchestrator 'echo hello'"
-echo "  ao status"
+echo "  AO_CONFIG_PATH=\"$CONFIG_FILE\" ao spawn --project agent-orchestrator 'echo hello'"
+echo "  AO_CONFIG_PATH=\"$CONFIG_FILE\" ao status"
 echo "  cat $CONFIG_FILE"
