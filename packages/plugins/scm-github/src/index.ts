@@ -1359,6 +1359,9 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
     },
 
     async listOpenPRs(project: ProjectConfig): Promise<PRInfo[]> {
+      if (!project.repo) {
+        throw new Error("Cannot list PRs: project has no repo configured");
+      }
       const [owner, repo] = parseProjectRepo(project.repo);
       type RestPull = {
         number: number;

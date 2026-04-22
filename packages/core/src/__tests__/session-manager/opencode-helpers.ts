@@ -45,25 +45,35 @@ export function installMockOpencodeSequence(
   deleteLogPath: string,
   listLogPath?: string,
 ): string {
-  const binDir = join(tmpDir, "mock-bin-sequence");
-  mkdirSync(binDir, { recursive: true });
-  let callCount = 0;
+  const sequencePath = join(binDir, ".list-counter");
+  writeFileSync(sequencePath, "0\n", "utf-8");
 
   const scriptPath = join(binDir, "opencode");
+  const cases = sessionListJsons
+    .map((entry, index) => {
+      const escaped = entry.replace(/'/g, "'\\''");
+      return `if [[ "$idx" == "${index}" ]]; then printf '%s\\n' '${escaped}'; exit 0; fi`;
+    })
+    .join("\n");
+  const final = sessionListJsons.at(-1)?.replace(/'/g, "'\\''") ?? "[]";
+
   writeFileSync(
     scriptPath,
     [
       "#!/usr/bin/env bash",
       "set -euo pipefail",
       'if [[ "$1" == "session" && "$2" == "list" ]]; then',
-      listLogPath ? `  printf '%s\n' "$*" >> '${listLogPath.replace(/'/g, "'\\''")}'` : "",
-      `  idx=$((call_${listLogPath ? "count_seq" : "count"}_$(cat /dev/urandom | tr -dc 'a-z0-9' | head -c 8)))`,
-      `  idx=$((idx % ${sessionListJsons.length}))`,
-      `  printf '%s\n' '${sessionListJsons.map((j) => j.replace(/'/g, "'\\''")).join("'\n'")}'`,
+      listLogPath ? `  printf '%s\\n' "$*" >> '${listLogPath.replace(/'/g, "'\\''")}'` : "",
+      `  seq_file='${sequencePath.replace(/'/g, "'\\''")}'`,
+      '  idx=$(cat "$seq_file")',
+      "  next=$((idx + 1))",
+      '  printf "%s\\n" "$next" > "$seq_file"',
+      `  ${cases}`,
+      `  printf '%s\\n' '${final}'`,
       "  exit 0",
       "fi",
       'if [[ "$1" == "session" && "$2" == "delete" ]]; then',
-      `  printf '%s\n' "$*" >> '${deleteLogPath.replace(/'/g, "'\\''")}'`,
+      `  printf '%s\\n' "$*" >> '${deleteLogPath.replace(/'/g, "'\\''")}'`,
       "  exit 0",
       "fi",
       "exit 1",

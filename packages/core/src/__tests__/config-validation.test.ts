@@ -381,7 +381,7 @@ describe("Config Schema Validation", () => {
     expect(() => validateConfig(config)).toThrow();
   });
 
-  it("requires path, repo, and defaultBranch for each project", () => {
+  it("requires path and defaultBranch (repo optional) for each project", () => {
     const missingPath = {
       projects: {
         proj1: {

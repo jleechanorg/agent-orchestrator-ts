@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { createSessionManager } from "../../session-manager.js";
-import { writeMetadata, readMetadataRaw } from "../../metadata.js";
+import { writeMetadata } from "../../metadata.js";
 import { getSessionsDir } from "../../paths.js";
 import type {
   OrchestratorConfig,
