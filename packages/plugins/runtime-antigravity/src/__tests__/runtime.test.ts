@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { execFile, type ChildProcess } from "node:child_process";
+import { promisify } from "node:util";
 import type { RuntimeHandle } from "@jleechanorg/ao-core";
 
 /** Test-only globals for the mocked CdpClient (see vi.mock below). */
@@ -13,8 +14,28 @@ function cdpTest(): typeof globalThis & CdpTestGlobals {
 }
 
 // Mock node:child_process — used for PIL availability check in handleAllowPrompt.
+// The mock must preserve the [util.promisify.custom] symbol so that promisify(execFile)
+// resolves with { stdout, stderr } instead of the default callback-style result.
+// Symbol.for('util.promisify.builtin') is used instead of Symbol.for('util.promisify.custom')
+// to ensure the symbol is shared across Node.js and the vitest sandbox.
 vi.mock("node:child_process", () => ({
-  execFile: vi.fn(),
+  execFile: Object.assign(vi.fn(), {
+    [Symbol.for("util.promisify.builtin")]: vi.fn(
+      (
+        _file: string,
+        _args: string[] | Record<string, unknown> | null | undefined,
+        _options: Record<string, unknown> | null | undefined,
+        callback: (err: Error | null, stdout: Buffer, stderr: Buffer) => void,
+      ): void => {
+        // Default: successful PIL check — resolve with empty buffers.
+        setImmediate(() => {
+          if (typeof callback === "function") {
+            callback(null, Buffer.alloc(0), Buffer.alloc(0));
+          }
+        });
+      },
+    ),
+  }),
 }));
 
 // Mock the peekaboo module
