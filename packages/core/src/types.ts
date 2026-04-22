@@ -1201,13 +1201,6 @@ export interface OrchestratorConfig {
    */
   startupGracePeriodMs?: number;
 
-  /**
-   * Kill dead-agent sessions after this many consecutive SCM failures.
-   * Prevents worktree destruction on transient SCM errors.
-   * (default: 3)
-   */
-  scmFailureThreshold?: number;
-
   /** Default plugin selections */
   defaults: DefaultPlugins;
 

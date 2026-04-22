@@ -62,7 +62,7 @@ The fork is 827 commits ahead of upstream — it is actively developed, not a st
 |------|--------|
 | `types.ts` | Added `scmFailureThreshold?: number` to `OrchestratorConfig`, `DefaultPlugins`, `ProjectConfig` |
 | `config.ts` | Added Zod schema fields at all three levels |
-| `lifecycle-manager.ts` | Replaced `const SCM_FAILURE_THRESHOLD = 3` with `project.scmFailureThreshold ?? config.scmFailureThreshold ?? 3` |
+| `lifecycle-manager.ts` | Replaced `const SCM_FAILURE_THRESHOLD = 3` with `project.scmFailureThreshold ?? config.defaults.scmFailureThreshold ?? 3` |
 | `__tests__/phase-b-scm-failure-threshold.test.ts` | **New** — 3 TDD tests, all passing |
 
 **Additional hardcoded behaviors identified** (not yet extracted):
@@ -286,7 +286,7 @@ No PRs referenced in this block's work queue.
 
 ## Learnings pointer
 
-- `~/roadmap/learnings-2026-04.md` — section `2026-04-22 — non-conflicting code restructure audit`
+- `roadmap/learnings-2026-04.md` — section `2026-04-22 — non-conflicting code restructure audit`
 
 ## Roadmap pointer
 
