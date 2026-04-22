@@ -13,29 +13,46 @@ function cdpTest(): typeof globalThis & CdpTestGlobals {
   return globalThis as typeof globalThis & CdpTestGlobals;
 }
 
+// Mutable PIL check result shared between the mock and test overrides.
+const _sharedPilState: { pilError?: Error } = {};
+
+function _execFileDefaultCallback(
+  _file: string,
+  argsOrOptionsOrCallback: string[] | Record<string, unknown> | null | undefined | ((err: Error | null, stdout: Buffer, stderr: Buffer) => void),
+  optionsOrCallback: Record<string, unknown> | null | undefined | ((err: Error | null, stdout: Buffer, stderr: Buffer) => void),
+  callback?: (err: Error | null, stdout: Buffer, stderr: Buffer) => void,
+): void {
+  // Resolve the callback from variadic arguments (promisify passes callback as last arg)
+  const cb = typeof callback === "function"
+    ? callback
+    : typeof optionsOrCallback === "function"
+      ? optionsOrCallback
+      : typeof argsOrOptionsOrCallback === "function"
+        ? argsOrOptionsOrCallback
+        : undefined;
+
+  setImmediate(() => {
+    if (cb) {
+      if (_sharedPilState.pilError) {
+        cb(_sharedPilState.pilError, Buffer.alloc(0), Buffer.alloc(0));
+      } else {
+        cb(null, Buffer.alloc(0), Buffer.alloc(0));
+      }
+    }
+  });
+}
+
+// execFile mock implementation used for PIL availability check in handleAllowPrompt.
+// mockImplementation handles all call variants (direct callback or promisified).
+const _currentExecFileImpl = vi.fn(_execFileDefaultCallback);
+
 // Mock node:child_process — used for PIL availability check in handleAllowPrompt.
-// The mock must preserve the [util.promisify.custom] symbol so that promisify(execFile)
-// resolves with { stdout, stderr } instead of the default callback-style result.
-// Symbol.for('util.promisify.builtin') is used instead of Symbol.for('util.promisify.custom')
-// to ensure the symbol is shared across Node.js and the vitest sandbox.
+// Note: we do NOT add the nodejs.util.promisify.custom symbol here, so promisify
+// falls back to the normal callback-based path which works reliably with mocks.
 vi.mock("node:child_process", () => ({
-  execFile: Object.assign(vi.fn(), {
-    [Symbol.for("util.promisify.builtin")]: vi.fn(
-      (
-        _file: string,
-        _args: string[] | Record<string, unknown> | null | undefined,
-        _options: Record<string, unknown> | null | undefined,
-        callback: (err: Error | null, stdout: Buffer, stderr: Buffer) => void,
-      ): void => {
-        // Default: successful PIL check — resolve with empty buffers.
-        setImmediate(() => {
-          if (typeof callback === "function") {
-            callback(null, Buffer.alloc(0), Buffer.alloc(0));
-          }
-        });
-      },
-    ),
-  }),
+  get execFile() {
+    return _currentExecFileImpl;
+  },
 }));
 
 // Mock the peekaboo module
@@ -171,39 +188,9 @@ beforeEach(() => {
   cdpTest()._mockCdpEval = undefined;
   // Default: screencapture returns empty buffer (no Allow prompt)
   mockScreencapture.mockResolvedValue(Buffer.alloc(0));
-  // Default: PIL check succeeds — mock execFile (callback or promisified style)
-  vi.mocked(execFile).mockImplementation(
-    ((
-      _file: string,
-      argsOrOptionsOrCallback?: string[] | Record<string, unknown> | ((err: Error | null, stdout: Buffer, stderr: Buffer) => void),
-      optionsOrCallback?: Record<string, unknown> | ((err: Error | null, stdout: Buffer, stderr: Buffer) => void),
-      callback?: (err: Error | null, stdout: Buffer, stderr: Buffer) => void,
-    ): ChildProcess => {
-      // 4-arg case: promisify(execFile) appends callback as 4th arg when options is provided
-      // execFile("python3", ["-c", "..."], { timeout: 5000 }, generatedCallback)
-      if (typeof callback === "function") {
-        setImmediate(() =>
-          callback(null, Buffer.alloc(0), Buffer.alloc(0)),
-        );
-      } else if (typeof optionsOrCallback === "function") {
-        setImmediate(() =>
-          optionsOrCallback(null, Buffer.alloc(0), Buffer.alloc(0)),
-        );
-      } else if (typeof argsOrOptionsOrCallback === "function") {
-        setImmediate(() =>
-          argsOrOptionsOrCallback(null, Buffer.alloc(0), Buffer.alloc(0)),
-        );
-      }
-      // Return mock ChildProcess for promisify style
-      return {
-        stdout: Buffer.alloc(0),
-        stderr: Buffer.alloc(0),
-        exitCode: 0,
-        on: vi.fn(),
-        once: vi.fn(),
-      } as unknown as ChildProcess;
-    }) as typeof execFile,
-  );
+  // Reset PIL state — execFile mock already has the correct implementation
+  // (reads _sharedPilState.pilError), just need to ensure it's clear.
+  _sharedPilState.pilError = undefined;
 });
 
 // =============================================================================
@@ -477,33 +464,9 @@ describe("runtime.create() — Manager UI flow", () => {
     const runtime = create();
     setupSuccessfulCreateMocks();
 
-    // Override execFile: make the PIL availability check fail via callback error.
-    // (python3 -c "from PIL import Image; import numpy")
-    // This simulates PIL/Pillow not being installed in the python3 environment.
-    // We must use mockImplementation to drive the callback path that promisify uses.
-    const pilCheckError = new Error("python3: error: no module named PIL");
-    vi.mocked(execFile).mockImplementation(
-      ((
-        _file: string,
-        _args: string[] | Record<string, unknown> | null | undefined,
-        _options: Record<string, unknown> | null | undefined,
-        callback: (err: Error | null, stdout: Buffer, stderr: Buffer) => void,
-      ): ChildProcess => {
-        // Drive the callback path: error-first style for promisify
-        setImmediate(() => {
-          if (typeof callback === "function") {
-            callback(pilCheckError, Buffer.alloc(0), Buffer.alloc(0));
-          }
-        });
-        return {
-          stdout: Buffer.alloc(0),
-          stderr: Buffer.alloc(0),
-          exitCode: 0,
-          on: vi.fn(),
-          once: vi.fn(),
-        } as unknown as ChildProcess;
-      }) as typeof execFile,
-    );
+    // Simulate PIL/Pillow not being installed by setting the shared error state.
+    // The global execFile mock reads _sharedPilState.pilError to decide what to do.
+    _sharedPilState.pilError = new Error("python3: error: no module named PIL");
 
     const handle = await runtime.create({
       sessionId: "test-session",
