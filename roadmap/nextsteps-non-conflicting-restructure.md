@@ -129,8 +129,6 @@ Full report: `/tmp/phase-e-report.md`
 
 ## Work queue
 
-## Work queue
-
 ### Phase A: Fork-*.ts Companion Audit
 
 **Goal**: Audit all 11 `fork-*.ts` companion files. Classify each into one of three buckets:
