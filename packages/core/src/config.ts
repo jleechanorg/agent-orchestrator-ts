@@ -311,12 +311,7 @@ const OrchestratorConfigSchema = z.object({
   defaults: DefaultPluginsSchema.default({}),
   projects: z.record(ProjectConfigSchema),
   notifiers: z.record(NotifierConfigSchema).default({}),
-  notificationRouting: z.record(z.array(z.string())).default({
-    urgent: ["desktop", "composio"],
-    action: ["desktop", "composio"],
-    warning: ["composio"],
-    info: ["composio"],
-  }),
+  notificationRouting: z.record(z.array(z.string())).default({}),
   reactions: z.record(ReactionConfigSchema).default({}),
   _hasExplicitGlobalReaction: z.record(z.boolean()).optional(),
   plugins: z.record(z.record(z.unknown())).optional(),
