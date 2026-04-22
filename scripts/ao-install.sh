@@ -2,7 +2,7 @@
 # ao-install.sh — Consolidated AO worker-node install
 # Replaces: setup.sh + bootstrap-openclaw-config.sh + setup-extended.sh
 # Usage: curl -fsSL https://raw.githubusercontent.com/jleechanorg/agent-orchestrator/main/scripts/ao-install.sh | bash
-# Or:     bash /tmp/ao-install.sh  (from a clone of agent-orchestrator)
+# Or:     bash /tmp/ao-install.sh  (run from a clone of agent-orchestrator)
 
 set -euo pipefail
 
