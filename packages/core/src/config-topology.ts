@@ -29,7 +29,7 @@ export function getManagedConfigPath(env: ManagedConfigEnvironment = "staging"):
   const hermesHomeRaw = process.env.HERMES_HOME ?? "";
   const hermesHomeExpanded =
     hermesHomeRaw.startsWith("~")
-      ? resolve(homedir(), hermesHomeRaw.slice(1), CONFIG_FILENAME)
+      ? resolve(homedir(), hermesHomeRaw.slice(1).replace(/^\//, ""), CONFIG_FILENAME)
       : resolve(hermesHomeRaw, CONFIG_FILENAME);
   const hermesHomePath = hermesHomeRaw ? (existsSync(hermesHomeExpanded) ? hermesHomeExpanded : null) : null;
   const hermesProdPath = existsSync(resolve(homedir(), ".hermes_prod", CONFIG_FILENAME))
