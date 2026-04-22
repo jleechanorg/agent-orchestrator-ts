@@ -546,7 +546,7 @@ describe("workspace.create()", () => {
     });
   });
 
-  it("does NOT misclassify branch collision as ghost when worktreePath appears in command string", async () => {
+  it("does NOT misclassify branch collision as ghost when worktree list confirms unregistered path", async () => {
     const ws = create();
     const worktreePath = "/mock-home/.worktrees/myproject/session-1";
 
