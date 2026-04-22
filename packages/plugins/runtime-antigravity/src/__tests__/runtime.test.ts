@@ -452,6 +452,31 @@ describe("runtime.create() — Manager UI flow", () => {
     expect(handle.data["session"]).toBeDefined();
   });
 
+  it("should skip screencapture when PIL is unavailable (graceful early return)", async () => {
+    const runtime = create();
+    setupSuccessfulCreateMocks();
+
+    // Override execFile: reject on the PIL availability check call
+    // (python3 -c "from PIL import Image; import numpy")
+    // This simulates PIL/Pillow not being installed in the python3 environment.
+    vi.mocked(execFile).mockRejectedValueOnce(
+      new Error("python3: error: no module named PIL"),
+    );
+
+    const handle = await runtime.create({
+      sessionId: "test-session",
+      workspacePath: "/tmp/workspace",
+      launchCommand: "do work",
+      environment: {},
+    });
+
+    // screencapture should NOT have been called — handleAllowPrompt should have
+    // returned early after the PIL check failed, before attempting image capture.
+    expect(mockScreencapture).not.toHaveBeenCalled();
+    // create() itself should still succeed — PIL unavailability is best-effort
+    expect(handle.data["session"]).toBeDefined();
+  });
+
   it("should scroll sidebar UP first to find 'Start new conversation' button", async () => {
     const runtime = create();
     setupSuccessfulCreateMocks();
