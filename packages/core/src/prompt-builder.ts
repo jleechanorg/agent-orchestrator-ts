@@ -1,7 +1,7 @@
 /**
  * Prompt Builder — composes layered prompts for agent sessions.
  *
- * Four layers:
+ * Four layers (ordered):
  *   1. CORE_AGENT_PROMPT — session identity, always included
  *   2. PR_BOILERPLATE — git workflow, PR handling, TDD; excluded when skipPrBoilerplate=true
  *   3. Config-derived context — project name, repo, default branch, tracker info, reaction rules
