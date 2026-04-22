@@ -26,9 +26,20 @@ if [ -d "$AO_REPO_ROOT/.git" ]; then
   MODE="repo"
   REPO_ROOT="$AO_REPO_ROOT"
   echo "  [$MODE] Repo detected: $REPO_ROOT"
+  # Normalize a GitHub URL to https://github.com/owner/repo form for comparison.
+  # Handles: git@github.com:..., https://github.com/... (with or without .git suffix),
+  # and ssh://git@github.com/... forms.
+  normalize_gh_url() {
+    printf '%s' "$1" | sed \
+      -e 's|git@github.com:|https://github.com/|' \
+      -e 's|ssh://git@github.com/|https://github.com/|' \
+      -e 's|\.git$||'
+  }
   # Validate existing clone matches expected repo/branch
   actual_remote=$(git -C "$REPO_ROOT" remote get-url origin 2>/dev/null || echo "")
-  if [ "$actual_remote" != "$AGENT_ORCHESTRATOR_REPO" ]; then
+  expected_normalized=$(normalize_gh_url "$AGENT_ORCHESTRATOR_REPO")
+  actual_normalized=$(normalize_gh_url "$actual_remote")
+  if [ "$actual_normalized" != "$expected_normalized" ]; then
     echo "ERROR: existing clone remote URL does not match expected."
     echo "  Expected: $AGENT_ORCHESTRATOR_REPO"
     echo "  Actual:   $actual_remote"
