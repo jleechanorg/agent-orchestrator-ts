@@ -45,6 +45,8 @@ export function installMockOpencodeSequence(
   deleteLogPath: string,
   listLogPath?: string,
 ): string {
+  const binDir = join(tmpDir, "mock-bin-sequence");
+  mkdirSync(binDir, { recursive: true });
   const sequencePath = join(binDir, ".list-counter");
   writeFileSync(sequencePath, "0\n", "utf-8");
 
