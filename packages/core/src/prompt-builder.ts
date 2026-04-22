@@ -32,8 +32,7 @@ const CORE_AGENT_PROMPT = `You are an AI coding agent managed by the Agent Orche
  * PR/Git/TDD boilerplate — excluded for planning-only and artifact-only workers
  * that should not create branches, push code, or open PRs.
  */
-const PR_BOILERPLATE = `
-## PR Workflow
+const PR_BOILERPLATE = `## PR Workflow
 - When you finish your work, create a PR and push it. The orchestrator will handle CI monitoring and review routing.
 - If you're told to take over or continue work on an existing PR, run \`ao session claim-pr <pr-number-or-url>\` from inside this session before making changes.
 - If CI fails, the orchestrator will send you the failures — fix them and push again.

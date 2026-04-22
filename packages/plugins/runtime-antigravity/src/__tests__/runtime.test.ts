@@ -153,18 +153,24 @@ beforeEach(() => {
   // Default: PIL check succeeds — mock execFile (callback or promisified style)
   vi.mocked(execFile).mockImplementation(
     ((
-      file: string,
-      argsOrCallback?: string[] | ((err: Error | null, stdout: Buffer, stderr: Buffer) => void),
+      _file: string,
+      argsOrOptionsOrCallback?: string[] | Record<string, unknown> | ((err: Error | null, stdout: Buffer, stderr: Buffer) => void),
+      optionsOrCallback?: Record<string, unknown> | ((err: Error | null, stdout: Buffer, stderr: Buffer) => void),
       callback?: (err: Error | null, stdout: Buffer, stderr: Buffer) => void,
     ): ChildProcess => {
-      // Detect callback style: last arg is function
-      if (typeof argsOrCallback === "function") {
-        setImmediate(() =>
-          argsOrCallback(null, Buffer.alloc(0), Buffer.alloc(0)),
-        );
-      } else if (typeof callback === "function") {
+      // 4-arg case: promisify(execFile) appends callback as 4th arg when options is provided
+      // execFile("python3", ["-c", "..."], { timeout: 5000 }, generatedCallback)
+      if (typeof callback === "function") {
         setImmediate(() =>
           callback(null, Buffer.alloc(0), Buffer.alloc(0)),
+        );
+      } else if (typeof optionsOrCallback === "function") {
+        setImmediate(() =>
+          optionsOrCallback(null, Buffer.alloc(0), Buffer.alloc(0)),
+        );
+      } else if (typeof argsOrOptionsOrCallback === "function") {
+        setImmediate(() =>
+          argsOrOptionsOrCallback(null, Buffer.alloc(0), Buffer.alloc(0)),
         );
       }
       // Return mock ChildProcess for promisify style
