@@ -129,6 +129,7 @@ interface RespawnForReviewDeps extends ReactionHandlerDeps {
 ```
 
 **Risk Assessment:**
+
 | Risk | Severity | Notes |
 |------|----------|-------|
 | Additional dependency (ProjectObserver) | Medium | Observer must be injectable; this is already available in lifecycle-manager |
@@ -176,6 +177,7 @@ interface LifecycleHooks {
 ```
 
 **Risk Assessment:**
+
 | Risk | Severity | Notes |
 |------|----------|-------|
 | Poll-cycle performance impact | High | Every poll adds one async call; must be fast/fail-fast |
