@@ -27,7 +27,7 @@ if [ -d "$AO_REPO_ROOT/.git" ]; then
   REPO_ROOT="$AO_REPO_ROOT"
   echo "  [$MODE] Repo detected: $REPO_ROOT"
   # Validate existing clone matches expected repo/branch
-  actual_remote=$(git remote get-url origin 2>/dev/null || echo "")
+  actual_remote=$(git -C "$REPO_ROOT" remote get-url origin 2>/dev/null || echo "")
   if [ "$actual_remote" != "$AGENT_ORCHESTRATOR_REPO" ]; then
     echo "ERROR: existing clone remote URL does not match expected."
     echo "  Expected: $AGENT_ORCHESTRATOR_REPO"
@@ -37,13 +37,17 @@ if [ -d "$AO_REPO_ROOT/.git" ]; then
       exit 1
     fi
     echo "  AO_FORCE_CLONE=1 — removing stale clone..."
-    rm -rf "$AO_REPO_ROOT"
+    rm -rf "$REPO_ROOT"
   else
     # Sync to expected branch
-    git fetch origin "$AGENT_ORCHESTRATOR_BRANCH" >/dev/null 2>&1 || true
-    current_branch=$(git branch --show-current 2>/dev/null || echo "")
+    if ! git -C "$REPO_ROOT" fetch origin "$AGENT_ORCHESTRATOR_BRANCH" >/dev/null 2>&1; then
+      echo "  WARNING: fetch failed (offline?) — using existing checkout"
+    fi
+    current_branch=$(git -C "$REPO_ROOT" branch --show-current 2>/dev/null || echo "")
     if [ "$current_branch" != "$AGENT_ORCHESTRATOR_BRANCH" ]; then
-      git checkout "$AGENT_ORCHESTRATOR_BRANCH" >/dev/null 2>&1 || true
+      if ! git -C "$REPO_ROOT" checkout "$AGENT_ORCHESTRATOR_BRANCH" >/dev/null 2>&1; then
+        echo "  WARNING: checkout to $AGENT_ORCHESTRATOR_BRANCH failed — continuing with $current_branch"
+      fi
     fi
     echo "  Repo validated and synced."
   fi
