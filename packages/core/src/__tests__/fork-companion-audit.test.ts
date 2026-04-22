@@ -120,11 +120,6 @@ describe("fork-companion-audit imported by lifecycle-manager.ts", () => {
     "fork-lifecycle-postmerge",
   ];
 
-  it("lifecycle-manager.ts imports fork-lifecycle-postmerge", async () => {
-    const lmSrc = await readFile(resolve(CORE_SRC, "lifecycle-manager.ts"), "utf8");
-    expect(lmSrc).toContain('from "./fork-lifecycle-postmerge.js"');
-  });
-
   for (const file of consumedByLifecycleManager) {
     it(`lifecycle-manager.ts imports ${file}`, async () => {
       const lmSrc = await readFile(resolve(CORE_SRC, "lifecycle-manager.ts"), "utf8");
