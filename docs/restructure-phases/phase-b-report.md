@@ -202,7 +202,7 @@ projects:
 ```
 
 ### Test Results
-```
+```text
 src/__tests__/phase-b-scm-failure-threshold.test.ts
   ✓ should kill session when scmFailureCount >= default threshold (3)
   ✓ should kill session when scmFailureCount=1 with no PR (bd-ara fallback)

@@ -40,7 +40,7 @@
 
 ### Bucket B — Fork-only, keep as companions (~1,175 LOC)
 
-All 7 remaining files are tightly coupled to fork-specific infrastructure:
+All 6 remaining files are tightly coupled to fork-specific infrastructure:
 
 - **`fork-claim-verification.ts`** — GHA skeptic-gate chain (fork-specific workflow)
 - **`fork-reaction-handlers.ts`** — `request-merge` and `parallel-retry` are AO-specific reactions

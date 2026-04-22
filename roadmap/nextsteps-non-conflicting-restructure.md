@@ -36,7 +36,7 @@ The fork is 827 commits ahead of upstream — it is actively developed, not a st
 
 ## Phase A Results (COMPLETED)
 
-**Audit completed 2026-04-22** — all 11 `fork-*.ts` companions audited. Results at `/tmp/fork-audit-report.md`.
+**Audit completed 2026-04-22** — all 11 `fork-*.ts` companions audited. Results at `docs/restructure-phases/fork-audit-report.md`.
 
 | Bucket | LOC | Files | Action |
 |--------|-----|-------|--------|
@@ -71,7 +71,7 @@ The fork is 827 commits ahead of upstream — it is actively developed, not a st
 - `send-to-agent` retry cap in fork companion — low effort
 - Rate-limit pause detection in `fork-lifecycle-manager.ts` — low effort
 
-Full report: `/tmp/phase-b-report.md`
+Full report: `docs/restructure-phases/phase-b-report.md`
 
 ## Phase C Results (COMPLETED)
 
@@ -88,7 +88,7 @@ Full report: `/tmp/phase-b-report.md`
 
 **Architecture gap identified:** `PluginRegistry` must support `getContext()` method to inject `sessionManager`, `config`, `notifyHuman`, `createEvent` into reaction handlers.
 
-Full report: `/tmp/phase-c-report.md`
+Full report: `docs/restructure-phases/phase-c-report.md`
 
 ## Phase D Results (COMPLETED)
 
@@ -103,7 +103,7 @@ Full report: `/tmp/phase-c-report.md`
 
 **Files 1 and 2 are zero-conflict upstream PRs.** File 3 needs upstream config schema discussion. File 4 blocked on deeper integration design.
 
-Full report: `/tmp/phase-d-report.md`
+Full report: `docs/restructure-phases/phase-d-report.md`
 
 ## Phase E Results (COMPLETED)
 
@@ -125,7 +125,7 @@ Full report: `/tmp/phase-d-report.md`
 
 **scm-github is highest-value target:** all 1,859 LOC are inline with no companion structure.
 
-Full report: `/tmp/phase-e-report.md`
+Full report: `docs/restructure-phases/phase-e-report.md`
 
 ## Work queue
 

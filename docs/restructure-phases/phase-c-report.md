@@ -59,6 +59,7 @@ interface ReactionHandlerDeps {
 ```
 
 **Risk Assessment:**
+
 | Risk | Severity | Mitigation |
 |------|----------|------------|
 | Lifecycle-manager coupling to reactionConfig types | Medium | Keep ReactionConfig in types.ts (shared) |
@@ -190,7 +191,7 @@ interface LifecycleHooks {
 **Answer: Yes, with the following path:**
 
 1. **Create new packages:**
-   ```
+   ```text
    packages/
      plugins/
        reaction-request-merge/
@@ -323,7 +324,7 @@ plugins:
 These utilities are tightly coupled to scm-github's implementation. Separating them into distinct plugins would add:
 - Additional plugin-slot pressure (need `scm-utils` slot)
 - Version coupling risk (utilities change with SCM behavior)
-- No clear复用 benefit (no other SCM plugin uses these exact utilities)
+- No clear reuse benefit (no other SCM plugin uses these exact utilities)
 
 **Proposed approach:**
 
