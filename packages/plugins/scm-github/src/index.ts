@@ -1391,7 +1391,7 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
             isDraft: pr.draft,
             author: pr.user.login,
           },
-          project.repo,
+          project.repo!,
         ),
       );
     },

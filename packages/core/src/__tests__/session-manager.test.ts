@@ -1430,7 +1430,10 @@ describe("spawn", () => {
 
     const sm = createSessionManager({ config, registry: registryWithFailingSend });
     const spawnPromise = sm.spawn({ projectId: "my-app", prompt: "Fix the bug" });
+    // Advance through full retry backoff: 3s + 6s + 9s = 18s total
     await vi.advanceTimersByTimeAsync(3_000);
+    await vi.advanceTimersByTimeAsync(6_000);
+    await vi.advanceTimersByTimeAsync(9_000);
     const session = await spawnPromise;
 
     // Session should still be returned successfully despite sendMessage failure
