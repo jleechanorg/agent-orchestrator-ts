@@ -1367,12 +1367,6 @@ export interface ProjectConfig {
   /** Session name prefix (e.g. "app" → "app-1", "app-2") */
   sessionPrefix: string;
 
-  /**
-   * Kill session after this many consecutive SCM failures.
-   * Overrides global scmFailureThreshold. (default: 3)
-   */
-  scmFailureThreshold?: number;
-
   /** Override default runtime */
   runtime?: string;
 

@@ -86,8 +86,10 @@ describe("fork-companion-audit exports", () => {
         // Check the source contains `export { ${name} }` or `export function ${name}`
         // or `export const ${name}` or `export async function ${name}`
         // or `export { ${something} as ${name} }` (re-export aliases)
+        // Escape name in case it contains regex metacharacters (e.g. "a.b" → "a\\.b")
+        const escapedName = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
         const exportPattern = new RegExp(
-          `(?:export\\s+(?:function|const|async\\s+function|class)\\s+${name}|export\\s+\\{\\s*[^}]*\\s+as\\s+${name}\\s*\\}|export\\s+\\{\\s*${name}\\s*\\})`,
+          `(?:export\\s+(?:function|const|async\\s+function|class)\\s+${escapedName}|export\\s+\\{\\s*[^}]*\\s+as\\s+${escapedName}\\s*\\}|export\\s+\\{\\s*${escapedName}\\s*\\})`,
           "m",
         );
         expect(
