@@ -401,7 +401,7 @@ export function create(config?: Record<string, unknown>): Workspace {
                 retryMsg.includes("already checked out") &&
                 retryMsg.includes("checked out at")
               ) {
-                let removedStale = false;
+                let removedStale;
                 try {
                   removedStale = await maybeRemoveStaleCheckedOutWorktree(
                     repoPath,
