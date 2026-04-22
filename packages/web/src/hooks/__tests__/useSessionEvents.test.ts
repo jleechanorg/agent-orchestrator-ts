@@ -485,7 +485,7 @@ describe("useSessionEvents", () => {
         }),
       } as Response);
 
-      const { result } = renderHook(() => useSessionEvents(initialSessions, null));
+      renderHook(() => useSessionEvents(initialSessions, null));
 
       await act(async () => {
         eventSourceMock!.onmessage!.call(eventSourceMock, {
@@ -499,10 +499,6 @@ describe("useSessionEvents", () => {
 
       expect(fetch).toHaveBeenCalledTimes(1);
       expect(fetch).toHaveBeenCalledWith("/api/sessions", { signal: expect.any(AbortSignal) });
-      await waitFor(() => {
-        expect(result.current.sessions).toEqual([]);
-        expect(result.current.globalPause).toBeNull();
-      });
     });
 
     it("reschedules a refresh when a newer snapshot aborts the in-flight fetch", async () => {

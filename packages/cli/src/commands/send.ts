@@ -183,13 +183,8 @@ export function registerSend(program: Command): void {
         }
 
         if (existingSession && sessionManager) {
-          try {
-            await sessionManager.send(session, message);
-            console.log(chalk.green("Message sent and processing"));
-          } catch (err) {
-            console.error(chalk.red(err instanceof Error ? err.message : String(err)));
-            process.exit(1);
-          }
+          await sessionManager.send(session, message);
+          console.log(chalk.green("Message sent and processing"));
           return;
         }
 

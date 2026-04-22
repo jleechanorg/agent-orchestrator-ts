@@ -92,9 +92,6 @@ export function DirectTerminal({
   const [reloading, setReloading] = useState(false);
   const [reloadError, setReloadError] = useState<string | null>(null);
 
-  const buildResizeMessage = (cols: number, rows: number): string =>
-    JSON.stringify({ type: "resize", cols, rows });
-
   // Update URL when fullscreen changes
   useEffect(() => {
     const params = new URLSearchParams(searchParams.toString());
@@ -272,6 +269,9 @@ export function DirectTerminal({
           proxyWsPath: process.env.NEXT_PUBLIC_TERMINAL_WS_PATH,
           directTerminalPort: process.env.NEXT_PUBLIC_DIRECT_TERMINAL_PORT,
         });
+        const buildResizeMessage = (cols: number, rows: number): string =>
+          JSON.stringify({ type: "resize", cols, rows });
+
         const sendTerminalSize = (socket: WebSocket) => {
           socket.send(buildResizeMessage(terminal.cols, terminal.rows));
         };

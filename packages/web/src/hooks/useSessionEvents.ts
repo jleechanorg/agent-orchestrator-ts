@@ -172,7 +172,7 @@ export function useSessionEvents(
           // when SSE snapshots arrive while the hook is idle.
           const compareKey = refreshingRef.current
             ? inFlightMembershipKeyRef.current
-            : createMembershipKey(sessions);
+            : createMembershipKey(sessionsRef.current);
           if (snapshotMembershipKey !== compareKey) {
             if (refreshingRef.current) {
               abortActiveRefresh();

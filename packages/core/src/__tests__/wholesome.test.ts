@@ -444,9 +444,6 @@ describe("wholesome — structural source-code assertions", () => {
       "39937c6b52e36aee3d6a70ad31f9e9a5c82b2c6e", // fix(metadata-updater): remove duplicate git switch block
       "f106b31f97aab5f3c2e8d1a6b4c7e9f0d3a2b5c8", // fix(metadata-updater): fail-closed on deny + git switch
       "7c8a0d844c5fe642ae5ee2c119850f4067913879", // fix(core): suppress feat/ prefix for free-form issueId
-      // PR #489: upstream cherry-picks — immutable history, no [agento] prefix
-      "e5a5e1ff318dedb78a76aa068aa7cde1c73a6cde", // fix(core): apply upstream prompt delivery robustness + send.ts error handling
-      "2b3b57ad3ae4dda1b1275000b55011e80461c552", // fix(config): remove desktop notifications from default configs
     ]);
 
     it("all non-merge commits made on this branch have [agento] prefix", () => {

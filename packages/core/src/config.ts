@@ -20,7 +20,7 @@ import { findManagedConfigFile, getLegacyConfigPaths } from "./config-topology.j
 import { generateSessionPrefix } from "./paths.js";
 
 function inferScmPlugin(project: {
-  repo?: string;
+  repo: string;
   scm?: Record<string, unknown>;
   tracker?: Record<string, unknown>;
 }): "github" | "gitlab" {
@@ -234,7 +234,7 @@ const AutoMergeOverrideSchema = z.union([
 
 const ProjectConfigSchema = z.object({
   name: z.string().optional(),
-  repo: z.string().optional(),
+  repo: z.string(),
   path: z.string(),
   defaultBranch: z.string().default("main"),
   sessionPrefix: z
@@ -287,7 +287,7 @@ const DefaultPluginsSchema = z.object({
   runtime: z.string().default("tmux"),
   agent: z.string().default("codex"),
   workspace: z.string().default("worktree"),
-  notifiers: z.array(z.string()).default([]),
+  notifiers: z.array(z.string()).default(["composio", "desktop"]),
   agentConfig: AgentSpecificConfigSchema.optional(),
   modelByCli: z.record(CliModelDefaultsSchema).optional(),
   orchestrator: RoleAgentDefaultsSchema,
@@ -306,8 +306,8 @@ const OrchestratorConfigSchema = z.object({
   projects: z.record(ProjectConfigSchema),
   notifiers: z.record(NotifierConfigSchema).default({}),
   notificationRouting: z.record(z.array(z.string())).default({
-    urgent: ["composio"],
-    action: ["composio"],
+    urgent: ["desktop", "composio"],
+    action: ["desktop", "composio"],
     warning: ["composio"],
     info: ["composio"],
   }),
@@ -359,7 +359,7 @@ function applyProjectDefaults(config: OrchestratorConfig): OrchestratorConfig {
     const inferredPlugin = inferScmPlugin(project);
 
     // Infer SCM from repo if not set
-    if (!project.scm && project.repo?.includes("/")) {
+    if (!project.scm && project.repo.includes("/")) {
       project.scm = { plugin: inferredPlugin };
     }
 

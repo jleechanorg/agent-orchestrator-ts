@@ -118,9 +118,7 @@ function buildConfigLayer(config: PromptBuildConfig): string {
 
   lines.push("## Project Context");
   lines.push(`- Project: ${project.name ?? projectId}`);
-  if (project.repo) {
-    lines.push(`- Repository: ${project.repo}`);
-  }
+  lines.push(`- Repository: ${project.repo}`);
   lines.push(`- Default branch: ${project.defaultBranch}`);
 
   if (project.tracker) {

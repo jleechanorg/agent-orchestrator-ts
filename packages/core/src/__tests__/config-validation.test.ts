@@ -381,7 +381,7 @@ describe("Config Schema Validation", () => {
     expect(() => validateConfig(config)).toThrow();
   });
 
-  it("requires path and defaultBranch (repo optional) for each project", () => {
+  it("requires path, repo, and defaultBranch for each project", () => {
     const missingPath = {
       projects: {
         proj1: {
@@ -413,8 +413,7 @@ describe("Config Schema Validation", () => {
     };
 
     expect(() => validateConfig(missingPath)).toThrow();
-    // repo is optional — projects without a detected remote should still load
-    expect(() => validateConfig(missingRepo)).not.toThrow();
+    expect(() => validateConfig(missingRepo)).toThrow();
     // missingBranch should work (defaults to "main")
     expect(() => validateConfig(missingBranch)).not.toThrow();
   });

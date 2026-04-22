@@ -205,7 +205,6 @@ function isUnknownJsonFieldError(err: unknown, fieldName: string): boolean {
 }
 
 async function ghIssueViewJson(identifier: string, project: ProjectConfig): Promise<string> {
-  const repo = requireRepo(project);
   const fieldsWithStateReason = "number,title,body,url,state,stateReason,labels,assignees";
   try {
     return await gh([
@@ -213,7 +212,7 @@ async function ghIssueViewJson(identifier: string, project: ProjectConfig): Prom
       "view",
       identifier,
       "--repo",
-      repo,
+      project.repo,
       "--json",
       fieldsWithStateReason,
     ]);
@@ -224,7 +223,7 @@ async function ghIssueViewJson(identifier: string, project: ProjectConfig): Prom
       "view",
       identifier,
       "--repo",
-      repo,
+      project.repo,
       "--json",
       "number,title,body,url,state,labels,assignees",
     ]);
@@ -257,13 +256,6 @@ function mapState(ghState: string, stateReason?: string | null): Issue["state"] 
 // ---------------------------------------------------------------------------
 // Tracker implementation
 // ---------------------------------------------------------------------------
-
-function requireRepo(project: ProjectConfig): string {
-  if (!project.repo) {
-    throw new Error("GitHub tracker requires a 'repo' field in project config");
-  }
-  return project.repo;
-}
 
 function createGitHubTracker(): Tracker {
   return {
@@ -300,7 +292,7 @@ function createGitHubTracker(): Tracker {
         "view",
         identifier,
         "--repo",
-        requireRepo(project),
+        project.repo,
         "--json",
         "state",
       ]);
@@ -310,7 +302,7 @@ function createGitHubTracker(): Tracker {
 
     issueUrl(identifier: string, project: ProjectConfig): string {
       const num = identifier.replace(/^#/, "");
-      return `https://github.com/${requireRepo(project)}/issues/${num}`;
+      return `https://github.com/${project.repo}/issues/${num}`;
     },
 
     issueLabel(url: string, _project: ProjectConfig): string {
@@ -360,7 +352,7 @@ function createGitHubTracker(): Tracker {
         "issue",
         "list",
         "--repo",
-        requireRepo(project),
+        project.repo,
         "--limit",
         String(filters.limit ?? 30),
       ];
@@ -409,13 +401,12 @@ function createGitHubTracker(): Tracker {
       update: IssueUpdate,
       project: ProjectConfig,
     ): Promise<void> {
-      const repo = requireRepo(project);
       // Handle state change — GitHub Issues only supports open/closed.
       // "in_progress" is not a GitHub state, so it is intentionally a no-op.
       if (update.state === "closed") {
-        await gh(["issue", "close", identifier, "--repo", repo]);
+        await gh(["issue", "close", identifier, "--repo", project.repo]);
       } else if (update.state === "open") {
-        await gh(["issue", "reopen", identifier, "--repo", repo]);
+        await gh(["issue", "reopen", identifier, "--repo", project.repo]);
       }
 
       // Handle label removal
@@ -425,7 +416,7 @@ function createGitHubTracker(): Tracker {
           "edit",
           identifier,
           "--repo",
-          repo,
+          project.repo,
           "--remove-label",
           update.removeLabels.join(","),
         ]);
@@ -438,7 +429,7 @@ function createGitHubTracker(): Tracker {
           "edit",
           identifier,
           "--repo",
-          repo,
+          project.repo,
           "--add-label",
           update.labels.join(","),
         ]);
@@ -451,7 +442,7 @@ function createGitHubTracker(): Tracker {
           "edit",
           identifier,
           "--repo",
-          repo,
+          project.repo,
           "--add-assignee",
           update.assignee,
         ]);
@@ -464,7 +455,7 @@ function createGitHubTracker(): Tracker {
           "comment",
           identifier,
           "--repo",
-          repo,
+          project.repo,
           "--body",
           update.comment,
         ]);
@@ -476,7 +467,7 @@ function createGitHubTracker(): Tracker {
         "issue",
         "create",
         "--repo",
-        requireRepo(project),
+        project.repo,
         "--title",
         input.title,
         "--body",
