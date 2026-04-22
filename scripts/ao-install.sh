@@ -3,6 +3,7 @@
 # Replaces: setup.sh + bootstrap-openclaw-config.sh + setup-extended.sh
 # Usage: curl -fsSL https://raw.githubusercontent.com/jleechanorg/agent-orchestrator/main/scripts/ao-install.sh | bash
 # Or:     bash /tmp/ao-install.sh  (run from a clone of agent-orchestrator)
+# Requirements: git, curl, bash 4+, npm (for ao CLI build)
 
 set -euo pipefail
 
