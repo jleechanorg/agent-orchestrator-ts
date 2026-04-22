@@ -51,7 +51,7 @@
     <main class="wrap">
       <section class="hero">
         <h1>[agento] fix: AO worker launch ergonomics from worldarchitect loop evidence</h1>
-        <p class="muted">1. <strong>skipPrBoilerplate for planning-only/artifact-only workers</strong> — planning/artifact-only workers were inheriting generic boilerplate telling them to create PRs and push code, risking drift. Threaded <code>skipPrBoilerplate</code> through <code>SessionSpawnConfig</code> → <code>prompt-artifact-builder</code> → <code>buildPrompt()</code>; when set, omits Git/TDD/PR sections from <code>BASE_AGENT_PROMPT</code>.</p>
+        <p class="muted">All 40 prompt/session tests pass. Pre-existing failures (metadata-updater-hook.test.ts, wholesome.test.ts) confirmed on clean main via git stash &amp;&amp; pnpm test.</p>
         <p class="muted" style="margin-top:0.5rem">
           PR: <a href="https://github.com/jleechanorg/agent-orchestrator/pull/486">#486</a>
           &nbsp;·&nbsp; Status: <span class="badge badge-open">Open</span>
@@ -79,8 +79,8 @@
           <h2>Metadata</h2>
           <div class="stat-grid">
             <div class="stat"><div class="num">8</div><div class="lbl">Files</div></div>
-            <div class="stat"><div class="num">15</div><div class="lbl">Commits</div></div>
-            <div class="stat"><div class="num" style="color:#2ea043">+397</div><div class="lbl">Additions</div></div>
+            <div class="stat"><div class="num">16</div><div class="lbl">Commits</div></div>
+            <div class="stat"><div class="num" style="color:#2ea043">+434</div><div class="lbl">Additions</div></div>
             <div class="stat"><div class="num" style="color:#cf222e">-16</div><div class="lbl">Deletions</div></div>
           </div>
           <ul style="margin-top:1rem">
@@ -114,13 +114,13 @@
             <tr>
       <td><code>docs/design/pr-designs/pr-486.html</code></td>
       <td><span class="badge badge-new">added</span></td>
-      <td style="text-align:right;color:#2ea043">+163</td>
+      <td style="text-align:right;color:#2ea043">+176</td>
       <td style="text-align:right;color:#cf222e">-0</td>
     </tr>
 <tr>
       <td><code>docs/design/pr-designs/pr-486.md</code></td>
       <td><span class="badge badge-new">added</span></td>
-      <td style="text-align:right;color:#2ea043">+66</td>
+      <td style="text-align:right;color:#2ea043">+69</td>
       <td style="text-align:right;color:#cf222e">-0</td>
     </tr>
 <tr>
@@ -150,7 +150,7 @@
 <tr>
       <td><code>packages/plugins/runtime-antigravity/src/__tests__/runtime.test.ts</code></td>
       <td>modified</td>
-      <td style="text-align:right;color:#2ea043">+64</td>
+      <td style="text-align:right;color:#2ea043">+85</td>
       <td style="text-align:right;color:#cf222e">-0</td>
     </tr>
 <tr>

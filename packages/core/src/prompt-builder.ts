@@ -7,8 +7,10 @@
  *   3. Config-derived context — project name, repo, default branch, tracker info, reaction rules
  *   4. User rules — inline agentRules and/or agentRulesFile content
  *
- * buildPrompt() always returns the AO base guidance and project context so
- * bare launches still know about AO-specific commands such as PR claiming.
+ * buildPrompt() returns layered guidance: CORE_AGENT_PROMPT is always included;
+ * PR_BOILERPLATE (git/PR/TDD guidance) is included by default but omitted when
+ * skipPrBoilerplate=true, for planning-only and artifact-only workers that should
+ * not create branches or push code.
  */
 
 import { readFileSync } from "node:fs";
