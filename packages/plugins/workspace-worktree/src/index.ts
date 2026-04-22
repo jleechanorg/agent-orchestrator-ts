@@ -432,6 +432,59 @@ export function create(config?: Record<string, unknown>): Workspace {
                     { cause: errToChain },
                   );
                 }
+              } else if (retryMsg.includes("already exists") || retryMsg.includes("A branch named")) {
+                // Ghost was removed but branch already exists — reuse existing branch.
+                // Follow the same branch-reuse path as the branch-exists case below:
+                // create worktree without -b, then checkout the existing branch.
+                try {
+                  await git(repoPath, "worktree", "add", worktreePath, baseRef);
+                  let checkoutSucceeded = false;
+                  try {
+                    await git(worktreePath, "checkout", cfg.branch);
+                    checkoutSucceeded = true;
+                  } catch (checkoutErr: unknown) {
+                    const checkoutMsg =
+                      checkoutErr instanceof Error ? checkoutErr.message : String(checkoutErr);
+                    if (
+                      checkoutMsg.includes("already checked out") &&
+                      checkoutMsg.includes("checked out at")
+                    ) {
+                      try {
+                        const removedStale = await maybeRemoveStaleCheckedOutWorktree(
+                          repoPath,
+                          checkoutMsg,
+                          worktreeBaseDir,
+                        );
+                        if (removedStale) {
+                          await git(worktreePath, "checkout", cfg.branch);
+                          checkoutSucceeded = true;
+                        }
+                      } catch {
+                        // Fall through to original error path.
+                      }
+                    }
+                    if (!checkoutSucceeded) {
+                      try {
+                        await git(repoPath, "worktree", "remove", "--force", worktreePath);
+                      } catch {
+                        // Best-effort cleanup
+                      }
+                      throw new Error(
+                        `Failed to checkout branch "${cfg.branch}" in worktree: ${checkoutMsg}`,
+                        { cause: checkoutErr },
+                      );
+                    }
+                  }
+                } catch (branchReuseErr: unknown) {
+                  const branchReuseMsg =
+                    branchReuseErr instanceof Error
+                      ? branchReuseErr.message
+                      : String(branchReuseErr);
+                  throw new Error(
+                    `Failed to create worktree for branch "${cfg.branch}": ${branchReuseMsg}`,
+                    { cause: branchReuseErr },
+                  );
+                }
               } else {
                 throw new Error(
                   `Failed to create worktree for branch "${cfg.branch}": ${retryMsg}`,
