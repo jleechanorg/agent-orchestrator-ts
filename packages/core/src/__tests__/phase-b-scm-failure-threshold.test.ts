@@ -302,7 +302,7 @@ describe("scmFailureThreshold config (Phase B)", () => {
           defaultBranch: "main",
           sessionPrefix: "app",
           scm: { plugin: "mock-scm" },
-          // scmFailureThreshold: 2 — THIS FIELD DOES NOT EXIST YET
+          scmFailureThreshold: 2,
         },
       },
     };
