@@ -272,6 +272,8 @@ const ProjectConfigSchema = z.object({
   mergeGate: MergeGateConfigSchema.optional(),
   // Override the global worktree base directory for this project.
   worktreeDir: z.string().optional(),
+  // bd-6jc: Kill session after this many consecutive SCM failures. Overrides global.
+  scmFailureThreshold: z.number().int().min(1).max(100).optional(),
 
   // Persistent spawn queue + active session cap.
   spawnQueue: SpawnQueueConfigSchema.optional(),
@@ -287,13 +289,15 @@ const DefaultPluginsSchema = z.object({
   runtime: z.string().default("tmux"),
   agent: z.string().default("codex"),
   workspace: z.string().default("worktree"),
-  notifiers: z.array(z.string()).default(["composio", "desktop"]),
+  notifiers: z.array(z.string()).default(["composio"]),
   agentConfig: AgentSpecificConfigSchema.optional(),
   modelByCli: z.record(CliModelDefaultsSchema).optional(),
   orchestrator: RoleAgentDefaultsSchema,
   worker: RoleAgentDefaultsSchema,
   // bd-n047: default auto-merge settings for all projects
   autoMerge: AutoMergeDefaultsSchema.optional(),
+  // Phase B: scmFailureThreshold — kills dead-agent sessions after N consecutive SCM failures
+  scmFailureThreshold: z.number().int().min(1).max(100).optional().default(3),
 });
 
 const OrchestratorConfigSchema = z.object({
@@ -302,12 +306,14 @@ const OrchestratorConfigSchema = z.object({
   directTerminalPort: z.number().optional(),
   readyThresholdMs: z.number().nonnegative().default(300_000),
   startupGracePeriodMs: z.number().nonnegative().default(120_000),
+  // bd-6jc: Kill dead-agent sessions after this many consecutive SCM failures.
+  scmFailureThreshold: z.number().int().min(1).max(100).default(3),
   defaults: DefaultPluginsSchema.default({}),
   projects: z.record(ProjectConfigSchema),
   notifiers: z.record(NotifierConfigSchema).default({}),
   notificationRouting: z.record(z.array(z.string())).default({
-    urgent: ["desktop", "composio"],
-    action: ["desktop", "composio"],
+    urgent: ["composio"],
+    action: ["composio"],
     warning: ["composio"],
     info: ["composio"],
   }),
