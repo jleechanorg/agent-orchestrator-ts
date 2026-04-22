@@ -401,35 +401,34 @@ export function create(config?: Record<string, unknown>): Workspace {
                 retryMsg.includes("already checked out") &&
                 retryMsg.includes("checked out at")
               ) {
+                let removedStale = false;
                 try {
-                  const removedStale = await maybeRemoveStaleCheckedOutWorktree(
+                  removedStale = await maybeRemoveStaleCheckedOutWorktree(
                     repoPath,
                     retryMsg,
                     worktreeBaseDir,
                   );
                   if (removedStale) {
                     await git(repoPath, "worktree", "add", "-b", cfg.branch, worktreePath, baseRef);
-                  } else {
-                    // Non-AO worktree holds the branch lock — propagate with retryErr as cause.
-                    throw Object.assign(
-                      new Error(
-                        `Failed to create worktree for branch "${cfg.branch}": ${retryMsg}`,
-                      ),
-                      { cause: retryErr },
-                    );
                   }
                 } catch (secondErr: unknown) {
-                  // secondErr is an Error from maybeRemoveStaleCheckedOutWorktree
-                  // or from the retry git call above. Chain it correctly.
-                  const errToChain =
-                    secondErr instanceof Error
-                      ? secondErr
-                      : new Error(String(secondErr));
+                  // secondErr is from maybeRemoveStaleCheckedOutWorktree itself.
+                  // Chain it to retryMsg (not retryErr) since retryErr is not relevant here.
                   throw Object.assign(
                     new Error(
                       `Failed to create worktree for branch "${cfg.branch}": ${retryMsg}`,
                     ),
-                    { cause: errToChain },
+                    { cause: secondErr },
+                  );
+                }
+                if (!removedStale) {
+                  // Non-AO worktree holds the branch lock — propagate with retryErr as cause.
+                  // Throw here (outside the try/catch) so no double-wrapping occurs.
+                  throw Object.assign(
+                    new Error(
+                      `Failed to create worktree for branch "${cfg.branch}": ${retryMsg}`,
+                    ),
+                    { cause: retryErr },
                   );
                 }
               } else if (retryMsg.includes("already exists") || retryMsg.includes("A branch named")) {
