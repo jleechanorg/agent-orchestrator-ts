@@ -100,7 +100,7 @@ beforeEach(() => {
     name: "mock-scm",
     detectPR: vi.fn().mockResolvedValue(null),
     getReviewDecision: vi.fn().mockResolvedValue("none"),
-    getCISummary: vi.fn().mockResolvedValue("success"),
+    getCISummary: vi.fn().mockResolvedValue("passing"),
     getMergeability: vi.fn().mockResolvedValue({ mergeable: true, noConflicts: true }),
   };
 
@@ -192,7 +192,7 @@ describe("scmFailureThreshold config (Phase B)", () => {
     vi.mocked(mockRuntime.isAlive).mockResolvedValue(false);
 
     const session = makeSession({
-      status: "active",
+      status: "working",
       activity: "active",
       metadata: { scmFailureCount: "3" },
     });
@@ -241,7 +241,7 @@ describe("scmFailureThreshold config (Phase B)", () => {
     vi.mocked(mockRuntime.isAlive).mockResolvedValue(false);
 
     const session = makeSession({
-      status: "active",
+      status: "working",
       activity: "active",
       metadata: { scmFailureCount: "1" },
     });
@@ -283,7 +283,7 @@ describe("scmFailureThreshold config (Phase B)", () => {
     vi.mocked(mockRuntime.isAlive).mockResolvedValue(false);
 
     const session = makeSession({
-      status: "active",
+      status: "working",
       activity: "active",
       metadata: { scmFailureCount: "1" },
     });

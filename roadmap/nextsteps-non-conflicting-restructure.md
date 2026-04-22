@@ -13,7 +13,7 @@
 ## Executive summary
 
 - **Outcome**: Zero upstream commits merge cleanly — structural divergence too deep for cherry-pick. But the fork has non-conflicting paths forward.
-- **Fast wins**: (1) Fork-companion files (`fork-*.ts`) are zero-conflict — they're new files, not modifications. (2) Config-driven behavior in `agent-orchestrator.yaml` merges with zero conflict. (3) New plugin packages (`packages/plugins/notifier-discord/`) have already proven merge-clean. (4) `fork-skeptic-extension.ts`, `fork-claim-verification.ts`, `fork-utils.ts` are upstream-worthy candidates (~298 LOC).
+- **Fast wins**: (1) Fork-companion files (`fork-*.ts`) are zero-conflict — they're new files, not modifications. (2) Config-driven behavior in `agent-orchestrator.yaml` merges with zero conflict. (3) New plugin packages (`packages/plugins/notifier-discord/`) have already proven merge-clean. (4) `fork-skeptic-extension.ts`, `fork-utils.ts` are upstream-worthy candidates; `fork-claim-verification.ts` is Bucket B or A (needs analysis) (~298 LOC combined).
 - **Strategy**: "Companion-first, plugin-second" — isolate fork-specific code into `fork-*.ts` companion files and new plugin packages, avoiding modifications to upstream-touched files. Upstream contributions for genuinely useful fork patterns. Config for behavior where possible.
 - **Top priority**: Audit `fork-*.ts` files, classify what is truly fork-only vs upstream-worthy, then restructure to eliminate inline modifications to upstream files.
 - **Beads**: `bd-8kel` (Phase 1 plugin extraction), new bead `bd-3bnk` (non-conflicting restructure audit)
@@ -56,7 +56,7 @@ The fork is 827 commits ahead of upstream — it is actively developed, not a st
 
 ## Phase B Results (COMPLETED)
 
-**Proof-of-concept extracted:** `scmFailureThreshold` from hardcoded `3` to config-driven with three-level precedence.
+**Proof-of-concept extracted:** `scmFailureThreshold` from hardcoded `3` to config-driven with two-level precedence.
 
 | File | Change |
 |------|--------|
@@ -64,6 +64,11 @@ The fork is 827 commits ahead of upstream — it is actively developed, not a st
 | `config.ts` | Added Zod schema fields at all three levels |
 | `lifecycle-manager.ts` | Replaced `const SCM_FAILURE_THRESHOLD = 3` with `project.scmFailureThreshold ?? config.scmFailureThreshold ?? 3` |
 | `__tests__/phase-b-scm-failure-threshold.test.ts` | **New** — 3 TDD tests, all passing |
+
+**Actual precedence (lifecycle-manager.ts line 599):**
+`project.scmFailureThreshold ?? config.scmFailureThreshold ?? 3`
+
+> Note: `config.defaults.scmFailureThreshold` is defined in Zod schema but NOT currently read by any code. The lifecycle-manager reads `config.scmFailureThreshold` (top-level), not `config.defaults.scmFailureThreshold`. Users who set `defaults.scmFailureThreshold` in YAML will find it silently ignored. Tracking as follow-up.
 
 **Additional hardcoded behaviors identified** (not yet extracted):
 - `startupGracePeriodMs` (type exists, no YAML key) — low effort
@@ -286,7 +291,7 @@ No PRs referenced in this block's work queue.
 
 ## Learnings pointer
 
-- `~/roadmap/learnings-2026-04.md` — section `2026-04-22 — non-conflicting code restructure audit`
+- `roadmap/learnings-2026-04.md` — section `2026-04-22 — non-conflicting code restructure audit`
 
 ## Roadmap pointer
 
