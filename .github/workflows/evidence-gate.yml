@@ -3,11 +3,12 @@ name: Evidence Gate
 on:
   pull_request:
     types: [opened, synchronize, edited, reopened]
+  workflow_dispatch:
 
 # Do not cancel in-progress runs: a second event (e.g. push + Bugbot PR-body edit)
 # would cancel the first job; GitHub surfaces that as a failed check on the same SHA.
 concurrency:
-  group: evidence-gate-${{ github.event.pull_request.number }}
+  group: evidence-gate-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: false
 
 permissions:
@@ -27,16 +28,23 @@ jobs:
     # pull_request events so a stale failed check run cannot be overwritten. Instead of
     # leaving a permanent failure that blocks the PR from showing green, we exit 0.
     # Evidence gate is a pre-merge gate; post-merge it has no function.
-    if: github.event.pull_request.merged == false && github.event.action != 'closed'
+    if: github.event_name == 'workflow_dispatch' || (github.event.pull_request.merged == false && github.event.action != 'closed')
+    env:
+      GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v4.1.1
         with:
           # Fix 3 (bd-7s0d): full history so base...head diff for claim-floor is available
           fetch-depth: 0
 
+      - name: Resolve PR context
+        id: pr-context
+        run: bash scripts/resolve-pr-context.sh
+
       - name: Write PR body to temp file
+        id: pr-body
         env:
-          PR_BODY: ${{ github.event.pull_request.body }}
+          PR_BODY: ${{ steps.pr-context.outputs.pr_body }}
         run: |
           # Use the PR body from the workflow context — available without auth scope
           # Skip gracefully if PR body is empty (valid GitHub state — no evidence bundle)
@@ -52,7 +60,7 @@ jobs:
         id: check
         run: |
           # If body was empty, skip was already set
-          if [ "${{ steps.check.outputs.skip }}" = "true" ]; then
+          if [ "${{ steps.pr-body.outputs.skip }}" = "true" ]; then
             echo "Skipping — empty PR body"
             exit 0
           fi
@@ -136,8 +144,8 @@ jobs:
         run: |
           BODY=$(cat "$RUNNER_TEMP/pr_body.txt")
           CLAIM="${{ steps.claim.outputs.claim }}"
-          BASE_SHA="${{ github.event.pull_request.base.sha }}"
-          HEAD_SHA="${{ github.event.pull_request.head.sha }}"
+          BASE_SHA="${{ steps.pr-context.outputs.base_sha }}"
+          HEAD_SHA="${{ steps.pr-context.outputs.head_sha }}"
 
           case "$CLAIM" in
             documentation-only|unit) ;;
@@ -264,7 +272,7 @@ jobs:
             else
               # Fallback: check skeptic-agent verdict comments via GitHub API
               # Filter by author (app/skeptic-agent) and HTML marker to prevent spoofing
-              SKEPTIC_COMMENT=$(gh api "repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments" \
+              SKEPTIC_COMMENT=$(gh api "repos/${{ github.repository }}/issues/${{ steps.pr-context.outputs.pr_number }}/comments" \
                 --jq '[.[] | select(.user.login == "app/skeptic-agent" and (.body | test("<!--\\s*skeptic-agent-verdict\\s*-->"; "i")))] | .[0].body // ""' 2>/dev/null)
               if printf '%s' "$SKEPTIC_COMMENT" | grep -qiE 'VERDICT:\\s*PASS'; then
                 SKEPTIC_PASSED=true
@@ -296,7 +304,7 @@ jobs:
           # bd-vidcap: detect frontend-touched paths for UI video enforcement (deterministic paths, not LLM routing).
           FRONTEND_TOUCH=false
           if [ "$REQUIRES_STRONG_ARTIFACTS" = "true" ]; then
-            if ! FILES="$(gh api "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files" --paginate --jq '.[].filename' 2>/dev/null)"; then
+            if ! FILES="$(gh api "repos/${{ github.repository }}/pulls/${{ steps.pr-context.outputs.pr_number }}/files" --paginate --jq '.[].filename' 2>/dev/null)"; then
               echo "ERROR: Could not list PR files (required for frontend UI media enforcement on integration+ claims)."
               exit 1
             fi

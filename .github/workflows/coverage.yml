@@ -3,14 +3,37 @@ name: PR Diff Coverage
 on:
   pull_request:
     branches: [main]
+  workflow_dispatch:
 
 concurrency:
   group: coverage-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
+  pr-context:
+    name: Resolve PR context
+    runs-on: ${{ vars.SELF_HOSTED_DISABLED == 'true' && 'ubuntu-latest'
+              || (github.event.pull_request.head.repo.fork && github.event_name == 'pull_request'
+                  && 'ubuntu-latest'
+                  || fromJson(vars.SELF_HOSTED_RUNNER_LABELS || '["self-hosted","Linux","ARM64","agent-orchestrator"]')) }}
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      base_ref: ${{ steps.pr-context.outputs.base_ref }}
+      pr_number: ${{ steps.pr-context.outputs.pr_number }}
+      head_sha: ${{ steps.pr-context.outputs.head_sha }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Resolve PR context
+        id: pr-context
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash scripts/resolve-pr-context.sh
+
   detect-changes:
     name: Detect changed packages
+    needs: [pr-context]
     runs-on: ${{ vars.SELF_HOSTED_DISABLED == 'true' && 'ubuntu-latest'
               || (github.event.pull_request.head.repo.fork && github.event_name == 'pull_request'
                   && 'ubuntu-latest'
@@ -23,6 +46,8 @@ jobs:
       - uses: dorny/paths-filter@v3
         id: filter
         with:
+          base: ${{ needs.pr-context.outputs.base_ref }}
+          ref: ${{ needs.pr-context.outputs.head_sha }}
           filters: |
             core:
               - 'packages/core/**'
@@ -31,7 +56,7 @@ jobs:
 
   diff-coverage:
     name: Diff Coverage (70% on changed code)
-    needs: detect-changes
+    needs: [pr-context, detect-changes]
     if: needs.detect-changes.outputs.core == 'true' || needs.detect-changes.outputs.cli == 'true'
     runs-on: ${{ vars.SELF_HOSTED_DISABLED == 'true' && 'ubuntu-latest'
               || (github.event.pull_request.head.repo.fork && github.event_name == 'pull_request'
@@ -64,7 +89,7 @@ jobs:
 
       - name: Ensure base branch ref is available
         run: |
-          git fetch origin ${{ github.base_ref }}:${{ github.base_ref }}
+          git fetch origin ${{ needs.pr-context.outputs.base_ref }}:${{ needs.pr-context.outputs.base_ref }}
           git branch main origin/main || true
 
       - name: Clean up stale lock files
@@ -96,6 +121,6 @@ jobs:
       - name: Check diff coverage (80% on changed lines)
         run: |
           diff-cover combined-coverage/lcov.info \
-            --compare-branch=origin/${{ github.base_ref }} \
+            --compare-branch=origin/${{ needs.pr-context.outputs.base_ref }} \
             --fail-under=70 \
             --diff-range-notation='...'

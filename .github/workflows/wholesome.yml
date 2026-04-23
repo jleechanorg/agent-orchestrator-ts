@@ -3,14 +3,38 @@ name: Wholesome PR Checks
 on:
   pull_request:
     types: [opened, synchronize, edited, reopened]
+  workflow_dispatch:
 
 # Per-workflow concurrency group prevents cross-workflow blocking when multiple
 # workflows share the same PR number.
 concurrency:
-  group: wholesome-pr-checks-${{ github.event.pull_request.number }}-${{ github.workflow }}
+  group: wholesome-pr-checks-${{ github.event.pull_request.number || github.ref }}-${{ github.workflow }}
   cancel-in-progress: false
 
 jobs:
+  _pr-context:
+    name: Resolve PR context
+    runs-on: ${{ vars.SELF_HOSTED_DISABLED == 'true' && 'ubuntu-latest'
+              || (github.event.pull_request.head.repo.fork && github.event_name == 'pull_request'
+                  && 'ubuntu-latest'
+                  || fromJson(vars.SELF_HOSTED_RUNNER_LABELS || '["self-hosted","Linux","ARM64","agent-orchestrator"]')) }}
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      pr_number: ${{ steps.pr-context.outputs.pr_number }}
+      pr_title: ${{ steps.pr-context.outputs.pr_title }}
+      pr_body: ${{ steps.pr-context.outputs.pr_body }}
+      merged: ${{ steps.pr-context.outputs.merged }}
+      state: ${{ steps.pr-context.outputs.state }}
+    steps:
+      - uses: actions/checkout@v4.1.1
+      - name: Resolve PR context
+        id: pr-context
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash scripts/resolve-pr-context.sh
+
   # bd-fisn: Skip evidence-specific checks for merged/closed PRs.
   # A merged PR stops receiving pull_request events, so stale failed check runs
   # can never be overwritten. These checks are pre-merge gates; post-merge
@@ -19,19 +43,21 @@ jobs:
   # to avoid type coercion issues (merged is a boolean, not a string "true"/"false").
   _merged-guard:
     name: Skip for merged/closed PRs
+    needs: [_pr-context]
     runs-on: ubuntu-latest
     outputs:
-      skip: ${{ github.event.pull_request.merged == true || github.event.action == 'closed' }}
+      skip: ${{ needs._pr-context.outputs.merged == 'true' || needs._pr-context.outputs.state == 'closed' }}
     steps:
       - run: 'echo "check complete"'
 
   pr-title-prefix:
     name: PR Title [agento] Prefix
+    needs: [_pr-context]
     runs-on: ubuntu-latest
     steps:
       - name: Check PR title prefix
         env:
-          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_TITLE: ${{ needs._pr-context.outputs.pr_title }}
         run: |
           # Sanitize PR_TITLE: strip newlines and GitHub annotation commands to prevent log injection
           SAFE_PR_TITLE="$(printf '%s' "$PR_TITLE" | tr -d '\n\r' | sed 's/::/??/g')"
@@ -45,7 +71,7 @@ jobs:
   evidence-section:
     name: Evidence Section Present
     runs-on: ubuntu-latest
-    needs: [_merged-guard]
+    needs: [_pr-context, _merged-guard]
     if: needs._merged-guard.outputs.skip != 'true'
     outputs:
       found: ${{ steps.check.outputs.found }}
@@ -53,7 +79,7 @@ jobs:
       - name: Check for Evidence section in PR body
         id: check
         env:
-          PR_BODY: ${{ github.event.pull_request.body }}
+          PR_BODY: ${{ needs._pr-context.outputs.pr_body }}
         run: |
           BODY="$PR_BODY"
           echo "PR body length: ${#BODY} chars"
@@ -114,7 +140,7 @@ jobs:
   evidence-media-attachment:
     name: Evidence Has Media Attachment
     runs-on: ubuntu-latest
-    needs: [_merged-guard, evidence-section]
+    needs: [_pr-context, _merged-guard, evidence-section]
     # Only meaningful if Evidence section was found
     if: needs._merged-guard.outputs.skip != 'true' && needs.evidence-section.outputs.found == 'true'
     permissions:
@@ -125,7 +151,7 @@ jobs:
     steps:
       - name: Check Evidence Bundle v2 (block-level enforcement)
         env:
-          PR_BODY: ${{ github.event.pull_request.body }}
+          PR_BODY: ${{ needs._pr-context.outputs.pr_body }}
         run: |-
           BODY="$PR_BODY"
 
@@ -167,7 +193,7 @@ jobs:
           # bd-vidcap: frontend file paths for UI video requirement (deterministic globs).
           FRONTEND_TOUCH=false
           if [ "$REQUIRES_STRONG_ARTIFACTS" = "true" ]; then
-            if ! FILES="$(gh api "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files" --paginate --jq '.[].filename' 2>/dev/null)"; then
+            if ! FILES="$(gh api "repos/${{ github.repository }}/pulls/${{ needs._pr-context.outputs.pr_number }}/files" --paginate --jq '.[].filename' 2>/dev/null)"; then
               echo "FAIL: Could not list PR files for frontend detection"
               exit 1
             fi

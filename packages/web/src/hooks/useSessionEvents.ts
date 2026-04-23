@@ -167,10 +167,13 @@ export function useSessionEvents(
 
           const snapshotMembershipKey = createMembershipKey(snapshot.sessions);
 
-          // Only abort when the snapshot differs from the IN-FLIGHT membership
-          // (not the rendered one, which may be stale during an in-flight refresh).
-          // This prevents bursty SSE duplicates from starving the refresh loop.
-          if (snapshotMembershipKey !== inFlightMembershipKeyRef.current) {
+          // Compare against in-flight key if refreshing, otherwise compare
+          // against the current rendered membership to avoid spurious refreshes
+          // when SSE snapshots arrive while the hook is idle.
+          const compareKey = refreshingRef.current
+            ? inFlightMembershipKeyRef.current
+            : createMembershipKey(sessionsRef.current);
+          if (snapshotMembershipKey !== compareKey) {
             if (refreshingRef.current) {
               abortActiveRefresh();
             }

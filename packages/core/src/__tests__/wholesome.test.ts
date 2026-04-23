@@ -444,6 +444,11 @@ describe("wholesome — structural source-code assertions", () => {
       "39937c6b52e36aee3d6a70ad31f9e9a5c82b2c6e", // fix(metadata-updater): remove duplicate git switch block
       "f106b31f97aab5f3c2e8d1a6b4c7e9f0d3a2b5c8", // fix(metadata-updater): fail-closed on deny + git switch
       "7c8a0d844c5fe642ae5ee2c119850f4067913879", // fix(core): suppress feat/ prefix for free-form issueId
+      // PR #489: upstream cherry-picks — immutable history, no [agento] prefix
+      "e5a5e1ff318dedb78a76aa068aa7cde1c73a6cde", // fix(core): apply upstream prompt delivery robustness + send.ts error handling
+      "2b3b57ad3ae4dda1b1275000b55011e80461c552", // fix(config): remove desktop notifications from default configs
+      "df94594cc7398fd49ab60966b79f44a0da337e4f", // fix(core): apply upstream prompt delivery robustness + send.ts error handling (rebased SHA)
+      "35f2d946a315f5e6bc3c8a16a7181384bf0145db", // fix(config): remove desktop notifications from default configs (rebased SHA)
     ]);
 
     it("all non-merge commits made on this branch have [agento] prefix", () => {
@@ -477,6 +482,67 @@ describe("wholesome — structural source-code assertions", () => {
   // 6. Fork-aware runner selection in CI workflow files
   // -------------------------------------------------------------------------
   describe("fork-aware runner selection in workflow files", () => {
+    it("critical PR workflows support workflow_dispatch for manual rescue reruns", () => {
+      const workflowDir = join(REPO_ROOT, ".github", "workflows");
+      const requiredDispatchWorkflows = [
+        "ci.yml",
+        "coverage.yml",
+        "evidence-gate.yml",
+        "wholesome.yml",
+      ];
+
+      const violations = requiredDispatchWorkflows.filter(file => {
+        const content = readFileSync(join(workflowDir, file), "utf-8");
+        return !content.includes("workflow_dispatch:");
+      });
+
+      expect(
+        violations,
+        "Critical PR workflows must support workflow_dispatch for manual rescue reruns:\n" +
+          violations.join("\n")
+      ).toHaveLength(0);
+    });
+
+    it("workflow_dispatch rescue reruns resolve PR context before using PR-only fields", () => {
+      const workflowDir = join(REPO_ROOT, ".github", "workflows");
+      const expectations: Record<string, string[]> = {
+        "coverage.yml": [
+          "Resolve PR context",
+          "steps.pr-context.outputs.base_ref",
+        ],
+        "evidence-gate.yml": [
+          "Resolve PR context",
+          "steps.pr-context.outputs.pr_body",
+          "steps.pr-context.outputs.base_sha",
+          "steps.pr-context.outputs.head_sha",
+          "github.event.pull_request.number || github.ref",
+        ],
+        "wholesome.yml": [
+          "Resolve PR context",
+          "steps.pr-context.outputs.pr_title",
+          "steps.pr-context.outputs.pr_body",
+          "github.event.pull_request.number || github.ref",
+        ],
+      };
+
+      const violations: string[] = [];
+
+      for (const [file, requiredSnippets] of Object.entries(expectations)) {
+        const content = readFileSync(join(workflowDir, file), "utf-8");
+        for (const snippet of requiredSnippets) {
+          if (!content.includes(snippet)) {
+            violations.push(`${file}: missing ${snippet}`);
+          }
+        }
+      }
+
+      expect(
+        violations,
+        "workflow_dispatch rescue reruns must resolve PR context before using pull_request-only fields:\n" +
+          violations.join("\n"),
+      ).toHaveLength(0);
+    });
+
     it("uses the canonical shared self-hosted runner selector in coverage and skeptic gate workflows", () => {
       const workflowDir = join(REPO_ROOT, ".github", "workflows");
       const expectedSharedLabels =
