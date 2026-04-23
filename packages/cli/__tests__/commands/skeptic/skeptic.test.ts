@@ -212,7 +212,7 @@ describe("bindVerdictOutput", () => {
     expect(result.verdictType).toBe("FAIL");
   });
 
-  it("keeps a complete request-bound PASS unchanged", () => {
+  it("keeps a complete gate-bound PASS unchanged", () => {
     const result = bindVerdictOutput({
       llmOutput: [
         "<!-- skeptic-gate-1:PASS -->",
