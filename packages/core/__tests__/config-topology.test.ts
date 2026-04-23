@@ -242,4 +242,17 @@ describe("config-topology HERMES_HOME discovery chain", () => {
 
     expect(path).toBe(join(hermesProdDir, "agent-orchestrator.yaml"));
   });
+
+  it("expands tilde in a custom HERMES_HOME before existence check", async () => {
+    const { getManagedConfigPath } = await import("../src/config-topology.js");
+    const hermesHome = join(testDir, ".custom-hermes-home");
+    mkdirSync(hermesHome, { recursive: true });
+    const hermesConfig = join(hermesHome, "agent-orchestrator.yaml");
+    writeFileSync(hermesConfig, "projects: {}\n");
+    process.env["HERMES_HOME"] = "~/.custom-hermes-home";
+
+    const path = getManagedConfigPath("production");
+
+    expect(path).toBe(hermesConfig);
+  });
 });
