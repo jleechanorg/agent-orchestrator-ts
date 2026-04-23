@@ -450,7 +450,7 @@ jobs:
             # 6. Evidence review (fail-closed)
             # --paginate fetches all review pages so evidence-review-bot approvals on a later
             # page are not missed for long-lived PRs, while .commit_id keeps the match on HEAD.
-            EVIDENCE_APPROVED=$(gh api repos/${{ github.repository }}/pulls/"$PR_NUM"/reviews \
+            EVIDENCE_APPROVED=$(set -o pipefail; gh api repos/${{ github.repository }}/pulls/"$PR_NUM"/reviews \
               --paginate 2>/dev/null \
               | jq -sr '[add[] | select(.user.login == "evidence-review-bot" and .state == "APPROVED" and .commit_id == "'"$PR_SHA"'")] | length' 2>/dev/null || echo 0)
 
