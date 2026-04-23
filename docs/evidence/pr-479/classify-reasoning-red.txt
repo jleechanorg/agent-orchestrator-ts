@@ -1,0 +1,27 @@
+Command: pnpm --filter @jleechanorg/ao-core test -- src/__tests__/decomposer.test.ts
+Date: 2026-04-22
+Result: FAIL
+
+ RUN  v4.0.18 /Users/jleechan/.worktrees/agent-orchestrator/ao-4054/packages/core
+
+ ❯ src/__tests__/decomposer.test.ts (11 tests | 1 failed) 5ms
+     ✓ returns unknown when issue title and body are blank 1ms
+     ✓ returns ci-workflow when only title is blank and body is truthy 0ms
+     ✓ returns data-norm when only body is blank and title is truthy 0ms
+     ✓ returns unknown when model API returns no JSON in response 0ms
+     ✓ returns unknown when model API throws 0ms
+     ✓ returns unknown with parsed-from-model reasoning when content array is empty 0ms
+     ✓ returns unknown with parsed-from-model reasoning when content block is not text 0ms
+     ✓ returns parsed type for valid JSON response 0ms
+     ✓ returns unknown for unrecognized type field 0ms
+     ✓ defaults confidence to low for unrecognized confidence value 0ms
+     × defaults reasoning when model returns a non-string reasoning field 2ms
+
+ FAIL  src/__tests__/decomposer.test.ts > classifyPrType > defaults reasoning when model returns a non-string reasoning field
+AssertionError: expected 42 to be 'parsed from model response' // Object.is equality
+
+- Expected: 
+"parsed from model response"
+
++ Received: 
+42
