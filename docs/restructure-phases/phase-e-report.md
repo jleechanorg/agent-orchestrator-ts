@@ -10,7 +10,7 @@
 
 **Phase E is complete.** The audit quantifies the upstream diff surface across the three most divergent files (lifecycle-manager.ts, scm-github/src/index.ts, session-manager.ts) at 9,053 total LOC. Fork companions already provide isolation for most fork-specific logic. Key remaining inline modifications (logAoAction calls, verify6Green, MCP mail hooks, triggerSkepticReaction) could be extracted as companions to further reduce diff surface.
 
-**Net potential reduction:** ~479 LOC of inline fork logic could be moved to companion files (lifecycle-manager.ts ~283 LOC + scm-github ~196 LOC), reducing lifecycle-manager.ts from 3,034 to ~2,751 LOC and scm-github from 2,924 to ~2,728 LOC.
+**Net potential reduction:** ~376 LOC of inline fork logic could be moved to companion files, reducing lifecycle-manager.ts from 3,034 to ~2,658 LOC and scm-github from 2,924 to ~2,548 LOC.
 
 ---
 
@@ -28,7 +28,6 @@
 ## lifecycle-manager.ts — Fork Code Sections
 
 ### Already companion-isolated (zero upstream diff risk)
-
 These are already imported from fork-*.ts companion files:
 
 | Companion | LOC | Purpose |
@@ -92,4 +91,4 @@ Only fork modification is `fork-slash-command-routing.ts` (87 LOC) — properly 
 
 ---
 
-*Phase E complete — ~479 LOC extractable to companions across 3 divergent files (~283 in lifecycle-manager.ts + ~196 in scm-github/src/index.ts).*
+*Phase E complete — ~376 LOC extractable to companions across 3 divergent files.*

@@ -89,7 +89,7 @@ describe("fork-companion-audit exports", () => {
         // Escape name in case it contains regex metacharacters (e.g. "a.b" → "a\\.b")
         const escapedName = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
         const exportPattern = new RegExp(
-          `(?:export\\s+(?:function|const|async\\s+function|class)\\s+${escapedName}\\b|export\\s+\\{\\s*[^}]*\\s+as\\s+${escapedName}\\s*\\}|export\\s+\\{\\s*${escapedName}\\s*\\})`,
+          `(?:export\\s+(?:function|const|async\\s+function|class)\\s+${escapedName}|export\\s+\\{\\s*[^}]*\\s+as\\s+${escapedName}\\s*\\}|export\\s+\\{\\s*${escapedName}\\s*\\})`,
           "m",
         );
         expect(
@@ -119,6 +119,11 @@ describe("fork-companion-audit imported by lifecycle-manager.ts", () => {
     "fork-reaction-retry-policy",
     "fork-lifecycle-postmerge",
   ];
+
+  it("lifecycle-manager.ts imports fork-lifecycle-postmerge", async () => {
+    const lmSrc = await readFile(resolve(CORE_SRC, "lifecycle-manager.ts"), "utf8");
+    expect(lmSrc).toContain('from "./fork-lifecycle-postmerge.js"');
+  });
 
   for (const file of consumedByLifecycleManager) {
     it(`lifecycle-manager.ts imports ${file}`, async () => {

@@ -297,7 +297,7 @@ const DefaultPluginsSchema = z.object({
   // bd-n047: default auto-merge settings for all projects
   autoMerge: AutoMergeDefaultsSchema.optional(),
   // Phase B: scmFailureThreshold — kills dead-agent sessions after N consecutive SCM failures
-  scmFailureThreshold: z.number().int().min(1).max(100).optional().default(3),
+  scmFailureThreshold: z.number().int().min(1).max(100).default(3).optional(),
 });
 
 const OrchestratorConfigSchema = z.object({
@@ -306,6 +306,8 @@ const OrchestratorConfigSchema = z.object({
   directTerminalPort: z.number().optional(),
   readyThresholdMs: z.number().nonnegative().default(300_000),
   startupGracePeriodMs: z.number().nonnegative().default(120_000),
+  // bd-6jc: Kill dead-agent sessions after this many consecutive SCM failures.
+  scmFailureThreshold: z.number().int().min(1).max(100).default(3),
   defaults: DefaultPluginsSchema.default({}),
   projects: z.record(ProjectConfigSchema),
   notifiers: z.record(NotifierConfigSchema).default({}),

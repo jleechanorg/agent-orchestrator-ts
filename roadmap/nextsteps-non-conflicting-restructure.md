@@ -13,7 +13,7 @@
 ## Executive summary
 
 - **Outcome**: Zero upstream commits merge cleanly — structural divergence too deep for cherry-pick. But the fork has non-conflicting paths forward.
-- **Fast wins**: (1) Fork-companion files (`fork-*.ts`) are zero-conflict — they're new files, not modifications. (2) Config-driven behavior in `agent-orchestrator.yaml` merges with zero conflict. (3) New plugin packages (`packages/plugins/notifier-discord/`) have already proven merge-clean. (4) `fork-skeptic-extension.ts`, `fork-dead-agent.ts`, `fork-reaction-retry-policy.ts`, `fork-utils.ts` are upstream-worthy candidates (~205 LOC).
+- **Fast wins**: (1) Fork-companion files (`fork-*.ts`) are zero-conflict — they're new files, not modifications. (2) Config-driven behavior in `agent-orchestrator.yaml` merges with zero conflict. (3) New plugin packages (`packages/plugins/notifier-discord/`) have already proven merge-clean. (4) `fork-skeptic-extension.ts`, `fork-dead-agent.ts`, `fork-reaction-retry-policy.ts`, `fork-utils.ts` are upstream-worthy candidates (~298 LOC).
 - **Strategy**: "Companion-first, plugin-second" — isolate fork-specific code into `fork-*.ts` companion files and new plugin packages, avoiding modifications to upstream-touched files. Upstream contributions for genuinely useful fork patterns. Config for behavior where possible.
 - **Top priority**: Audit `fork-*.ts` files, classify what is truly fork-only vs upstream-worthy, then restructure to eliminate inline modifications to upstream files.
 - **Beads**: `bd-8kel` (Phase 1 plugin extraction), new bead `bd-3bnk` (non-conflicting restructure audit)
@@ -60,9 +60,9 @@ The fork is 827 commits ahead of upstream — it is actively developed, not a st
 
 | File | Change |
 |------|--------|
-| `types.ts` | Added `scmFailureThreshold?: number` to `DefaultPlugins`, `ProjectConfig` |
+| `types.ts` | Added `scmFailureThreshold?: number` to `OrchestratorConfig`, `DefaultPlugins`, `ProjectConfig` |
 | `config.ts` | Added Zod schema fields at all three levels |
-| `lifecycle-manager.ts` | Replaced `const SCM_FAILURE_THRESHOLD = 3` with `projectConfig?.scmFailureThreshold ?? config.defaults.scmFailureThreshold ?? 3` |
+| `lifecycle-manager.ts` | Replaced `const SCM_FAILURE_THRESHOLD = 3` with `projectConfig?.scmFailureThreshold ?? config.scmFailureThreshold ?? 3` |
 | `__tests__/phase-b-scm-failure-threshold.test.ts` | **New** — 3 TDD tests, all passing |
 
 **Additional hardcoded behaviors identified** (not yet extracted):
@@ -140,13 +140,13 @@ Full report: `docs/restructure-phases/phase-e-report.md`
 | **C: Inline candidates** | Currently inlined in core files but extractable to fork-*.ts | Extract to companion file to reduce core file divergence |
 
 **Files to audit** (`packages/core/src/fork-*.ts`):
-- `fork-skeptic-extension.ts` (67 LOC) — bucket A (upstream-worthy)
+- `fork-skeptic-extension.ts` (59 LOC) — bucket A (upstream-worthy)
 - `fork-claim-verification.ts` (257 LOC) — bucket B (fork-specific GHA workflow integration)
 - `fork-utils.ts` (36 LOC) — bucket A
 - `fork-slash-command-routing.ts` (88 LOC) — bucket B or C
 - `fork-dead-agent.ts` (63 LOC) — bucket A or B
 - `fork-reaction-handlers.ts` (149 LOC) — bucket B (fork-specific reactions)
-- `fork-reaction-retry-policy.ts` (39 LOC) — bucket A (could generalize)
+- `fork-reaction-retry-policy.ts` (40 LOC) — bucket A (could generalize)
 - `fork-reaction-rfr.ts` (282 LOC) — bucket B (fork-specific RFR logic)
 - `fork-lifecycle-manager.ts` (238 LOC) — bucket B (fork-specific)
 - `fork-lifecycle-postmerge.ts` (237 LOC) — bucket B
@@ -227,10 +227,10 @@ reactions:
 **Goal**: Identify fork patterns that are genuinely useful enough to contribute upstream. Upstream contributions = zero future merge conflict.
 
 **Highest-value upstream contribution candidates**:
-1. `fork-reaction-retry-policy.ts` (39 LOC) — general retry/backoff pattern, not fork-specific
+1. `fork-reaction-retry-policy.ts` (40 LOC) — general retry/backoff pattern, not fork-specific
 2. `fork-dead-agent.ts` (63 LOC) — dead agent detection is general
 3. `fork-slash-command-routing.ts` (88 LOC) — useful if generalized
-4. `fork-skeptic-extension.ts` (67 LOC) — skeptic integration design could benefit upstream
+4. `fork-skeptic-extension.ts` (59 LOC) — skeptic integration design could benefit upstream
 
 **Assessment criteria**:
 - Does upstream have equivalent functionality? (if yes → don't contribute)

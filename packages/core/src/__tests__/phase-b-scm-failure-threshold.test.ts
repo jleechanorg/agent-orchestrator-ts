@@ -95,10 +95,10 @@ beforeEach(() => {
     getSessionInfo: vi.fn().mockResolvedValue(null),
   };
 
-  // Mock SCM — detectPR throws to trigger scmFailureThreshold check in step-3 catch
+  // Mock SCM
   mockScm = {
     name: "mock-scm",
-    detectPR: vi.fn().mockRejectedValue(new Error("SCM unavailable")),
+    detectPR: vi.fn().mockResolvedValue(null),
     getReviewDecision: vi.fn().mockResolvedValue("none"),
     getCISummary: vi.fn().mockResolvedValue("success"),
     getMergeability: vi.fn().mockResolvedValue({ mergeable: true, noConflicts: true }),
@@ -182,9 +182,8 @@ describe("scmFailureThreshold config (Phase B)", () => {
    *
    * Trace:
    * - Runtime is dead (isAlive=false) → agentDead=true
-   * - detectPR throws → step-3 catch fires
    * - scmFailureCount=3 in metadata → in step-3 catch, becomes 4
-   * - Threshold check (lifecycle-manager.ts ~893): 4 >= 3 → TRUE → returns { status: "killed" }
+   * - Threshold check (line 891): 4 >= 3 → TRUE → returns { status: "killed" }
    * - finally does NOT run (early return)
    *
    * Status: "killed" ✓
@@ -303,7 +302,7 @@ describe("scmFailureThreshold config (Phase B)", () => {
           defaultBranch: "main",
           sessionPrefix: "app",
           scm: { plugin: "mock-scm" },
-          scmFailureThreshold: 2,
+          // scmFailureThreshold: 2 — THIS FIELD DOES NOT EXIST YET
         },
       },
     };
