@@ -1288,6 +1288,18 @@ describe("scm-github plugin", () => {
   // ---- getPRSummary REST fallback -----------------------------------------
 
   describe("getPRSummary REST fallback", () => {
+    let prevGithubToken: string | undefined;
+
+    beforeEach(() => {
+      prevGithubToken = process.env["GITHUB_TOKEN"];
+      process.env["GITHUB_TOKEN"] = "fake-env-token-for-tests";
+    });
+
+    afterEach(() => {
+      if (prevGithubToken === undefined) delete process.env["GITHUB_TOKEN"];
+      else process.env["GITHUB_TOKEN"] = prevGithubToken;
+    });
+
     it("falls back to REST API when GraphQL is rate-limited", async () => {
       mockGhError("API rate limit exceeded");
       mockGhError("API rate limit exceeded");
@@ -1310,6 +1322,23 @@ describe("scm-github plugin", () => {
       mockGh({ state: "closed", merged: true, title: "Feature", additions: 100, deletions: 20 });
       const summary = await scm.getPRSummary(pr);
       expect(summary.state).toBe("merged");
+    });
+
+    it("uses the describe-level GITHUB_TOKEN setup instead of consuming an auth-token mock", async () => {
+      mockGhError("API rate limit exceeded");
+      mockGhError("API rate limit exceeded");
+      mockGhError("API rate limit exceeded");
+      mockGh({ state: "open", merged: false, title: "Fix bug", additions: 10, deletions: 5 });
+
+      const summary = await scm.getPRSummary(pr);
+
+      expect(summary.state).toBe("open");
+      expect(
+        ghMock.mock.calls.some(
+          ([bin, args]) =>
+            bin === "gh" && Array.isArray(args) && args[0] === "auth" && args[1] === "token",
+        ),
+      ).toBe(false);
     });
   });
 
