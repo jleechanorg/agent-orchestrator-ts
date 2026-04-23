@@ -262,7 +262,7 @@ export async function classifyPrType(
     const confidence = validConfidences.includes(parsed.confidence as "high" | "medium" | "low")
       ? (parsed.confidence as "high" | "medium" | "low")
       : "low";
-    const reasoning = parsed.reasoning ?? "parsed from model response";
+    const reasoning = typeof parsed.reasoning === "string" ? parsed.reasoning : "parsed from model response";
 
     return { type, confidence, reasoning };
   } catch {
