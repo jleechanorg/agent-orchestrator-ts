@@ -13,6 +13,24 @@ function cdpTest(): typeof globalThis & CdpTestGlobals {
 
 // Mutable PIL check result shared between the mock and test overrides.
 const _sharedPilState: { pilError?: Error } = {};
+type ExecFileMockResult = {
+  error?: Error;
+  stdout?: Buffer | string;
+  stderr?: Buffer | string;
+};
+const _sharedExecFileState: { results: ExecFileMockResult[] } = { results: [] };
+
+function _nextExecFileResult(): ExecFileMockResult {
+  return _sharedExecFileState.results.shift()
+    ?? (_sharedPilState.pilError
+      ? { error: _sharedPilState.pilError, stdout: Buffer.alloc(0), stderr: Buffer.alloc(0) }
+      : { stdout: Buffer.alloc(0), stderr: Buffer.alloc(0) });
+}
+
+function _coerceBuffer(value: Buffer | string | undefined): Buffer {
+  if (Buffer.isBuffer(value)) return value;
+  return Buffer.from(value ?? "");
+}
 
 function _execFileDefaultCallback(
   _file: string,
@@ -31,10 +49,11 @@ function _execFileDefaultCallback(
 
   setImmediate(() => {
     if (cb) {
-      if (_sharedPilState.pilError) {
-        cb(_sharedPilState.pilError, Buffer.alloc(0), Buffer.alloc(0));
+      const result = _nextExecFileResult();
+      if (result.error) {
+        cb(result.error, _coerceBuffer(result.stdout), _coerceBuffer(result.stderr));
       } else {
-        cb(null, Buffer.alloc(0), Buffer.alloc(0));
+        cb(null, _coerceBuffer(result.stdout), _coerceBuffer(result.stderr));
       }
     }
   });
@@ -43,13 +62,26 @@ function _execFileDefaultCallback(
 // execFile mock implementation used for PIL availability check in handleAllowPrompt.
 // mockImplementation handles all call variants (direct callback or promisified).
 const _currentExecFileImpl = vi.fn(_execFileDefaultCallback);
+const _execFilePromisifyImpl = vi.fn(async (): Promise<{ stdout: string; stderr: string }> => {
+  const result = _nextExecFileResult();
+  if (result.error) throw result.error;
+  return {
+    stdout: Buffer.isBuffer(result.stdout) ? result.stdout.toString("utf8") : (result.stdout ?? ""),
+    stderr: Buffer.isBuffer(result.stderr) ? result.stderr.toString("utf8") : (result.stderr ?? ""),
+  };
+});
+const _execFileMock = Object.assign(
+  (...args: Parameters<typeof _currentExecFileImpl>): ReturnType<typeof _currentExecFileImpl> =>
+    _currentExecFileImpl(...args),
+  {
+    [Symbol.for("nodejs.util.promisify.custom")]: (..._args: unknown[]) => _execFilePromisifyImpl(),
+  },
+);
 
 // Mock node:child_process — used for PIL availability check in handleAllowPrompt.
-// Note: we do NOT add the nodejs.util.promisify.custom symbol here, so promisify
-// falls back to the normal callback-based path which works reliably with mocks.
 vi.mock("node:child_process", () => ({
   get execFile() {
-    return _currentExecFileImpl;
+    return _execFileMock;
   },
 }));
 
@@ -189,6 +221,8 @@ beforeEach(() => {
   // Reset PIL state — execFile mock already has the correct implementation
   // (reads _sharedPilState.pilError), just need to ensure it's clear.
   _sharedPilState.pilError = undefined;
+  _sharedExecFileState.results = [];
+  _execFilePromisifyImpl.mockClear();
 });
 
 // =============================================================================
@@ -440,6 +474,10 @@ describe("runtime.create() — Manager UI flow", () => {
   it("should handle 'Allow this conversation' directory access prompt via screencapture", async () => {
     const runtime = create();
     setupSuccessfulCreateMocks();
+    _sharedExecFileState.results.push(
+      { stdout: "", stderr: "" },
+      { stdout: "412,278\n", stderr: "" },
+    );
 
     // Override screencapture: return a non-empty buffer (simulates captured image)
     // The actual python3 blue-pixel detection is tested as integration
@@ -455,6 +493,7 @@ describe("runtime.create() — Manager UI flow", () => {
     // handleAllowPrompt is called inside create() — screencapture should have been invoked
     // with the Manager window bounds
     expect(mockScreencapture).toHaveBeenCalled();
+    expect(_mockClickCoordinates).toHaveBeenCalledWith("Antigravity", 1, 412, 278);
     expect(handle.data["session"]).toBeDefined();
   });
 
