@@ -2831,15 +2831,20 @@ describe("scm-github plugin", () => {
   });
 
   describe("REST fallback URL construction", () => {
-    const prevGithubToken = process.env["GITHUB_TOKEN"];
+    let prevGithubToken: string | undefined;
+    let prevGhToken: string | undefined;
 
     beforeEach(() => {
+      prevGithubToken = process.env["GITHUB_TOKEN"];
+      prevGhToken = process.env["GH_TOKEN"];
       process.env["GITHUB_TOKEN"] = "test-token";
     });
 
     afterEach(() => {
       if (prevGithubToken === undefined) delete process.env["GITHUB_TOKEN"];
       else process.env["GITHUB_TOKEN"] = prevGithubToken;
+      if (prevGhToken === undefined) delete process.env["GH_TOKEN"];
+      else process.env["GH_TOKEN"] = prevGhToken;
     });
 
     it("throws for non-gh api commands", async () => {
@@ -3028,6 +3033,27 @@ describe("scm-github plugin", () => {
       expect(ghMock.mock.calls[1]?.[0]).toBe("gh");
       expect(ghMock.mock.calls[1]?.[1]).toEqual(["auth", "token"]);
       expect(ghMock.mock.calls[2]?.[0]).toBe("curl");
+    });
+
+    it("does not leak GH_TOKEN between tests", () => {
+      expect(process.env["GH_TOKEN"]).not.toBe("gh-env-token");
+    });
+
+    it("surfaces retried curl failures instead of the original auth error", async () => {
+      process.env["GITHUB_TOKEN"] = "env-token";
+      ghMock.mockRejectedValueOnce(
+        Object.assign(new Error("Command failed: curl ... returned error: 401"), {
+          stdout: '{"message":"Bad credentials"}',
+        }),
+      );
+      ghMock.mockResolvedValueOnce({ stdout: "gh-auth-token\n" });
+      ghMock.mockRejectedValueOnce(
+        Object.assign(new Error("Command failed: curl ... returned error: 429"), {
+          stdout: '{"message":"API rate limit exceeded"}',
+        }),
+      );
+
+      await expect(ghRestFallback(["api", "repos/owner/repo/pulls"])).rejects.toThrow("429");
     });
   });
 

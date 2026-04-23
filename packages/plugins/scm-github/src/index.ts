@@ -632,17 +632,24 @@ export async function ghRestFallback(args: string[]): Promise<string> {
   try {
     return await executeCurl(token);
   } catch (err) {
+    let finalError: unknown = err;
     if (envToken && isAuthError(err)) {
       try {
         const ghToken = await resolveGhAuthToken();
         if (ghToken && ghToken !== envToken) {
-          return await executeCurl(ghToken);
+          try {
+            return await executeCurl(ghToken);
+          } catch (retryError) {
+            finalError = retryError;
+          }
         }
       } catch {
         // Fall through to the original auth failure when gh auth token is unavailable.
       }
     }
-    throw new Error(`REST fallback failed: ${(err as Error).message}`, { cause: err });
+    throw new Error(`REST fallback failed: ${(finalError as Error).message}`, {
+      cause: finalError,
+    });
   }
 }
 
