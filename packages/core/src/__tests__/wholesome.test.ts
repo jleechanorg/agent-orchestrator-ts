@@ -696,4 +696,11 @@ describe("wholesome — structural source-code assertions", () => {
       ).toHaveLength(0);
     });
   });
+
+  describe("skeptic-cron paginated review pipelines", () => {
+    it("guards paginated review->jq pipelines with pipefail", () => {
+      const workflow = readFileSync(join(REPO_ROOT, ".github", "workflows", "skeptic-cron.yml"), "utf-8");
+      expect(workflow).toContain('EVIDENCE_APPROVED=$(set -o pipefail; gh api repos/${{ github.repository }}/pulls/"$PR_NUM"/reviews \\');
+    });
+  });
 });
