@@ -1933,6 +1933,23 @@ describe("scm-github plugin", () => {
       expect(setTimeoutSpy).toHaveBeenCalled();
     });
 
+    it("retries when a leading 403 would otherwise shadow a later 429 status", async () => {
+      mockGhError("API rate limit exceeded");
+      mockGhError("API rate limit exceeded");
+      mockGhError("API rate limit exceeded");
+      mockGh({ state: "open", merged: false });
+      ghMock.mockRejectedValueOnce(
+        Object.assign(
+          new Error("REST fallback failed: Command failed: curl ... returned error: 403"),
+          { stdout: '{"status":429}' },
+        ),
+      );
+      mockGh([]);
+
+      await expect(scm.getReviews(pr)).resolves.toEqual([]);
+      expect(setTimeoutSpy).toHaveBeenCalled();
+    });
+
     it("does not retry wrapped curl 403 permission errors", async () => {
       mockGhError("API rate limit exceeded");
       mockGhError("API rate limit exceeded");

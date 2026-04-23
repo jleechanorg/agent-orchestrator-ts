@@ -106,7 +106,7 @@ function collectErrorText(error: unknown): string {
 }
 
 function parseHttpStatusCode(error: unknown): number | undefined {
-  const match = collectErrorText(error).match(/\b(?:error|status)\D+(401|403|429)\b/i);
+  const match = collectErrorText(error).match(/\b(?:error|status)\D+(401|429)\b/i);
   if (!match) return undefined;
   return Number(match[1]);
 }
