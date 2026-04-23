@@ -148,12 +148,12 @@ Full report: `docs/restructure-phases/phase-e-report.md`
 - `fork-lifecycle-postmerge.ts` — bucket B
 - `fork-lifecycle-kki-override.ts` — bucket B
 
-**Key question**: Are `fork-lifecycle-manager.ts`, `fork-lifecycle-postmerge.ts`, `fork-lifecycle-kki-override.ts` actually loaded/imported anywhere? If they are dead code, they can be archived.
+**Verified (Phase A complete)**: All 11 companions are live and imported — zero dead companions. `fork-lifecycle-manager.ts`, `fork-lifecycle-postmerge.ts`, and `fork-lifecycle-kki-override.ts` are all consumed by lifecycle-manager.ts.
 
-**Acceptance criteria**:
-- All 11 files audited and bucketed
-- Each bucket has a clear action (contribute upstream / keep as companion / extract from core)
-- Dead companion files identified and archived
+**Acceptance criteria** (Phase A: COMPLETED ✅):
+- All 11 files audited and bucketed ✅
+- Each bucket has a clear action (upstream PR / keep as companion / extract from core) ✅
+- Dead companion files: none found ✅
 
 **Dependencies**: None — pure file audit, can run in parallel with Phase 1 plugin work.
 
