@@ -2760,10 +2760,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       // Fire-and-forget so a long-running LLM evaluation does not block the poll loop.
       if (scopedProjectId) {
         const skepticProject = config.projects[scopedProjectId];
-        // backfillAllPRs controls worker auto-spawn only. Skeptic evaluation must
-        // still run for repos that intentionally disable backfill but rely on the
-        // local skeptic sweep to service existing open PRs.
-        if (skepticProject) {
+        if (skepticProject && skepticProject.backfillAllPRs !== false) {
           void runLocalSkepticCron(
             { registry, sessionManager, observer },
             { projectId: scopedProjectId, project: skepticProject, activeSessions, correlationId },

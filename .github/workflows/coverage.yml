@@ -11,7 +11,10 @@ concurrency:
 jobs:
   detect-changes:
     name: Detect changed packages
-    runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || fromJson(vars.SELF_HOSTED_RUNNER_LABELS || '["self-hosted"]') }}
+    runs-on: ${{ vars.SELF_HOSTED_DISABLED == 'true' && 'ubuntu-latest'
+              || (github.event.pull_request.head.repo.fork && github.event_name == 'pull_request'
+                  && 'ubuntu-latest'
+                  || fromJson(vars.SELF_HOSTED_RUNNER_LABELS || '["self-hosted","Linux","ARM64","agent-orchestrator"]')) }}
     outputs:
       core: ${{ steps.filter.outputs.core }}
       cli: ${{ steps.filter.outputs.cli }}
@@ -30,7 +33,10 @@ jobs:
     name: Diff Coverage (70% on changed code)
     needs: detect-changes
     if: needs.detect-changes.outputs.core == 'true' || needs.detect-changes.outputs.cli == 'true'
-    runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || fromJson(vars.SELF_HOSTED_RUNNER_LABELS || '["self-hosted"]') }}
+    runs-on: ${{ vars.SELF_HOSTED_DISABLED == 'true' && 'ubuntu-latest'
+              || (github.event.pull_request.head.repo.fork && github.event_name == 'pull_request'
+                  && 'ubuntu-latest'
+                  || fromJson(vars.SELF_HOSTED_RUNNER_LABELS || '["self-hosted","Linux","ARM64","agent-orchestrator"]')) }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -93,4 +99,3 @@ jobs:
             --compare-branch=origin/${{ github.base_ref }} \
             --fail-under=70 \
             --diff-range-notation='...'
-

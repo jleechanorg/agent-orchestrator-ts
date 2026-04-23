@@ -11,6 +11,80 @@ function cdpTest(): typeof globalThis & CdpTestGlobals {
   return globalThis as typeof globalThis & CdpTestGlobals;
 }
 
+// Mutable PIL check result shared between the mock and test overrides.
+const _sharedPilState: { pilError?: Error } = {};
+type ExecFileMockResult = {
+  error?: Error;
+  stdout?: Buffer | string;
+  stderr?: Buffer | string;
+};
+const _sharedExecFileState: { results: ExecFileMockResult[] } = { results: [] };
+
+function _nextExecFileResult(): ExecFileMockResult {
+  return _sharedExecFileState.results.shift()
+    ?? (_sharedPilState.pilError
+      ? { error: _sharedPilState.pilError, stdout: Buffer.alloc(0), stderr: Buffer.alloc(0) }
+      : { stdout: Buffer.alloc(0), stderr: Buffer.alloc(0) });
+}
+
+function _coerceBuffer(value: Buffer | string | undefined): Buffer {
+  if (Buffer.isBuffer(value)) return value;
+  return Buffer.from(value ?? "");
+}
+
+function _execFileDefaultCallback(
+  _file: string,
+  argsOrOptionsOrCallback: string[] | Record<string, unknown> | null | undefined | ((err: Error | null, stdout: Buffer, stderr: Buffer) => void),
+  optionsOrCallback: Record<string, unknown> | null | undefined | ((err: Error | null, stdout: Buffer, stderr: Buffer) => void),
+  callback?: (err: Error | null, stdout: Buffer, stderr: Buffer) => void,
+): void {
+  // Resolve the callback from variadic arguments (promisify passes callback as last arg)
+  const cb = typeof callback === "function"
+    ? callback
+    : typeof optionsOrCallback === "function"
+      ? optionsOrCallback
+      : typeof argsOrOptionsOrCallback === "function"
+        ? argsOrOptionsOrCallback
+        : undefined;
+
+  setImmediate(() => {
+    if (cb) {
+      const result = _nextExecFileResult();
+      if (result.error) {
+        cb(result.error, _coerceBuffer(result.stdout), _coerceBuffer(result.stderr));
+      } else {
+        cb(null, _coerceBuffer(result.stdout), _coerceBuffer(result.stderr));
+      }
+    }
+  });
+}
+
+// execFile mock implementation used for PIL availability check in handleAllowPrompt.
+// mockImplementation handles all call variants (direct callback or promisified).
+const _currentExecFileImpl = vi.fn(_execFileDefaultCallback);
+const _execFilePromisifyImpl = vi.fn(async (): Promise<{ stdout: string; stderr: string }> => {
+  const result = _nextExecFileResult();
+  if (result.error) throw result.error;
+  return {
+    stdout: Buffer.isBuffer(result.stdout) ? result.stdout.toString("utf8") : (result.stdout ?? ""),
+    stderr: Buffer.isBuffer(result.stderr) ? result.stderr.toString("utf8") : (result.stderr ?? ""),
+  };
+});
+const _execFileMock = Object.assign(
+  (...args: Parameters<typeof _currentExecFileImpl>): ReturnType<typeof _currentExecFileImpl> =>
+    _currentExecFileImpl(...args),
+  {
+    [Symbol.for("nodejs.util.promisify.custom")]: (..._args: unknown[]) => _execFilePromisifyImpl(),
+  },
+);
+
+// Mock node:child_process — used for PIL availability check in handleAllowPrompt.
+vi.mock("node:child_process", () => ({
+  get execFile() {
+    return _execFileMock;
+  },
+}));
+
 // Mock the peekaboo module
 vi.mock("../peekaboo.js", () => ({
   windowList: vi.fn(),
@@ -144,6 +218,11 @@ beforeEach(() => {
   cdpTest()._mockCdpEval = undefined;
   // Default: screencapture returns empty buffer (no Allow prompt)
   mockScreencapture.mockResolvedValue(Buffer.alloc(0));
+  // Reset PIL state — execFile mock already has the correct implementation
+  // (reads _sharedPilState.pilError), just need to ensure it's clear.
+  _sharedPilState.pilError = undefined;
+  _sharedExecFileState.results = [];
+  _execFilePromisifyImpl.mockClear();
 });
 
 // =============================================================================
@@ -395,6 +474,10 @@ describe("runtime.create() — Manager UI flow", () => {
   it("should handle 'Allow this conversation' directory access prompt via screencapture", async () => {
     const runtime = create();
     setupSuccessfulCreateMocks();
+    _sharedExecFileState.results.push(
+      { stdout: "", stderr: "" },
+      { stdout: "412,278\n", stderr: "" },
+    );
 
     // Override screencapture: return a non-empty buffer (simulates captured image)
     // The actual python3 blue-pixel detection is tested as integration
@@ -410,6 +493,29 @@ describe("runtime.create() — Manager UI flow", () => {
     // handleAllowPrompt is called inside create() — screencapture should have been invoked
     // with the Manager window bounds
     expect(mockScreencapture).toHaveBeenCalled();
+    expect(_mockClickCoordinates).toHaveBeenCalledWith("Antigravity", 1, 412, 278);
+    expect(handle.data["session"]).toBeDefined();
+  });
+
+  it("should skip screencapture when PIL is unavailable (graceful early return)", async () => {
+    const runtime = create();
+    setupSuccessfulCreateMocks();
+
+    // Simulate PIL/Pillow not being installed by setting the shared error state.
+    // The global execFile mock reads _sharedPilState.pilError to decide what to do.
+    _sharedPilState.pilError = new Error("python3: error: no module named PIL");
+
+    const handle = await runtime.create({
+      sessionId: "test-session",
+      workspacePath: "/tmp/workspace",
+      launchCommand: "do work",
+      environment: {},
+    });
+
+    // screencapture should NOT have been called — handleAllowPrompt should have
+    // returned early after the PIL check failed, before attempting image capture.
+    expect(mockScreencapture).not.toHaveBeenCalled();
+    // create() itself should still succeed — PIL unavailability is best-effort
     expect(handle.data["session"]).toBeDefined();
   });
 

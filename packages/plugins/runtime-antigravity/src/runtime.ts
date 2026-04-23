@@ -19,6 +19,8 @@ import type {
   RuntimeMetrics,
   AttachInfo,
 } from "@jleechanorg/ao-core";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import * as peekaboo from "./peekaboo.js";
 import { executeWithFallback, type FallbackConfig } from "./fallback.js";
 import { createPoller } from "./poller.js";
@@ -104,6 +106,8 @@ function hasProgressActivity(elements: PeekabooUIElement[]): boolean {
  * Detection: capture Manager window → find blue pixels (R<120, B>150, B>G+30)
  * → click the rightmost blue button cluster (= "Allow This Conversation").
  *
+ * Falls back gracefully when PIL is not installed in the venv.
+ *
  * @param windowId - Manager window ID
  * @param bounds - Window bounds {x, y, width, height} in screen points
  */
@@ -114,6 +118,20 @@ async function handleAllowPrompt(
   const capturePath = `/tmp/antig_allow_check_${Date.now()}.png`;
 
   try {
+    // Step 0: Verify PIL is available in the python3 environment.
+    // A missing PIL (e.g. bare system python3 with no Pillow) should not cause
+    // handleAllowPrompt to throw — the Allow prompt is best-effort.
+    const execFileAsync = promisify(execFile);
+
+    try {
+      await execFileAsync("python3", ["-c", "from PIL import Image; import numpy"], {
+        timeout: 5_000,
+      });
+    } catch {
+      // PIL not available — skip Allow prompt detection entirely.
+      return;
+    }
+
     // Step 1: Capture the Manager window region
     await peekaboo.screencapture(
       bounds.x, bounds.y, bounds.width, bounds.height,
@@ -124,9 +142,6 @@ async function handleAllowPrompt(
     // Directly translates /antig skill Method 0 pattern:
     //   blue_mask = (B > 150) & (R < 120) & (B > G + 30)
     //   Find rightmost cluster → "Allow This Conversation"
-    const { execFile: execFileCb } = await import("node:child_process");
-    const { promisify } = await import("node:util");
-    const execFileAsync = promisify(execFileCb);
 
     // Detect pixel scale factor: screencapture captures at native resolution,
     // so on 2x Retina displays the pixel count is 2x the point count.

@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>[agento] fix: run skeptic cron when backfill is disabled — Agent Orchestrator</title>
+    <title>[agento] fix: AO worker launch ergonomics from worldarchitect loop evidence — Agent Orchestrator</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;600&family=IBM+Plex+Serif:wght@400;600&family=IBM+Plex+Mono&display=swap" rel="stylesheet" />
@@ -50,12 +50,12 @@
   <body>
     <main class="wrap">
       <section class="hero">
-        <h1>[agento] fix: run skeptic cron when backfill is disabled</h1>
-        <p class="muted">## Summary<br>- decouple local skeptic cron from <code>backfillAllPRs</code> so repos can disable worker backfill without disabling skeptic evaluation<br>- update the lifecycle-manager regression test to assert skepti…</p>
+        <h1>[agento] fix: AO worker launch ergonomics from worldarchitect loop evidence</h1>
+        <p class="muted">All 40 prompt/session tests pass. Pre-existing failures (metadata-updater-hook.test.ts, wholesome.test.ts) confirmed on clean main via git stash &amp;&amp; pnpm test.</p>
         <p class="muted" style="margin-top:0.5rem">
-          PR: <a href="https://github.com/jleechanorg/agent-orchestrator/pull/493">#493</a>
+          PR: <a href="https://github.com/jleechanorg/agent-orchestrator/pull/486">#486</a>
           &nbsp;·&nbsp; Status: <span class="badge badge-open">Open</span>
-          &nbsp;·&nbsp; April 22, 2026
+          &nbsp;·&nbsp; April 21, 2026
           
         </p>
       </section>
@@ -64,30 +64,30 @@
         <article class="card">
           <h2>Architecture</h2>
           <div class="diagram">
-<pre>┌─────────────────────────────────────────────────── ┐
-│ PR #493 — agent-orchestrator                    │
-└─────────────────────────────────────────────────── ┘
+<pre>┌────────────────────────────────────────────────────────────────────── ┐
+│ PR #486 — agent-orchestrator                                       │
+└────────────────────────────────────────────────────────────────────── ┘
                   │
-    ▼ 2 file(s) changed
+    ▼ 8 file(s) changed
                   │
-┌─────────────────────────────────────────────────── ┐
-│ fix: run skeptic cron when backfill is disabled │
-└─────────────────────────────────────────────────── ┘</pre>
+┌────────────────────────────────────────────────────────────────────── ┐
+│ fix: AO worker launch ergonomics from worldarchitect loop evidence │
+└────────────────────────────────────────────────────────────────────── ┘</pre>
           </div>
         </article>
         <article class="card">
           <h2>Metadata</h2>
           <div class="stat-grid">
-            <div class="stat"><div class="num">2</div><div class="lbl">Files</div></div>
-            <div class="stat"><div class="num">1</div><div class="lbl">Commits</div></div>
-            <div class="stat"><div class="num" style="color:#2ea043">+11</div><div class="lbl">Additions</div></div>
-            <div class="stat"><div class="num" style="color:#cf222e">-5</div><div class="lbl">Deletions</div></div>
+            <div class="stat"><div class="num">8</div><div class="lbl">Files</div></div>
+            <div class="stat"><div class="num">16</div><div class="lbl">Commits</div></div>
+            <div class="stat"><div class="num" style="color:#2ea043">+434</div><div class="lbl">Additions</div></div>
+            <div class="stat"><div class="num" style="color:#cf222e">-16</div><div class="lbl">Deletions</div></div>
           </div>
           <ul style="margin-top:1rem">
             <li>Author: <code>jleechan2015</code></li>
-            <li>Created: April 22, 2026</li>
+            <li>Created: April 21, 2026</li>
             
-            <li>Head branch: <code>codex/fix-worldarchitect-skeptic-cron</code></li>
+            <li>Head branch: <code>feat/use-real-evidence-from-worldarchitect-loop-operation-to-impr</code></li>
           </ul>
         </article>
       </section>
@@ -98,7 +98,9 @@
         <table>
           <thead><tr><th>Package / Path</th><th>Files</th></tr></thead>
           <tbody>
-            <tr><td><code>packages/core</code></td><td>2</td></tr>
+            <tr><td><code>packages/core</code></td><td>4</td></tr>
+<tr><td><code>docs/design</code></td><td>2</td></tr>
+<tr><td><code>packages/plugins</code></td><td>2</td></tr>
           </tbody>
         </table>
       </section>
@@ -110,16 +112,52 @@
           <thead><tr><th>File</th><th>Status</th><th style="text-align:right">+</th><th style="text-align:right">−</th></tr></thead>
           <tbody>
             <tr>
-      <td><code>packages/core/src/__tests__/lifecycle-manager.skeptic-cron.test.ts</code></td>
+      <td><code>docs/design/pr-designs/pr-486.html</code></td>
+      <td><span class="badge badge-new">added</span></td>
+      <td style="text-align:right;color:#2ea043">+176</td>
+      <td style="text-align:right;color:#cf222e">-0</td>
+    </tr>
+<tr>
+      <td><code>docs/design/pr-designs/pr-486.md</code></td>
+      <td><span class="badge badge-new">added</span></td>
+      <td style="text-align:right;color:#2ea043">+69</td>
+      <td style="text-align:right;color:#cf222e">-0</td>
+    </tr>
+<tr>
+      <td><code>packages/core/src/__tests__/prompt-builder.test.ts</code></td>
       <td>modified</td>
-      <td style="text-align:right;color:#2ea043">+7</td>
+      <td style="text-align:right;color:#2ea043">+38</td>
       <td style="text-align:right;color:#cf222e">-4</td>
     </tr>
 <tr>
-      <td><code>packages/core/src/lifecycle-manager.ts</code></td>
+      <td><code>packages/core/src/prompt-artifact-builder.ts</code></td>
       <td>modified</td>
-      <td style="text-align:right;color:#2ea043">+4</td>
-      <td style="text-align:right;color:#cf222e">-1</td>
+      <td style="text-align:right;color:#2ea043">+1</td>
+      <td style="text-align:right;color:#cf222e">-0</td>
+    </tr>
+<tr>
+      <td><code>packages/core/src/prompt-builder.ts</code></td>
+      <td>modified</td>
+      <td style="text-align:right;color:#2ea043">+42</td>
+      <td style="text-align:right;color:#cf222e">-9</td>
+    </tr>
+<tr>
+      <td><code>packages/core/src/types.ts</code></td>
+      <td>modified</td>
+      <td style="text-align:right;color:#2ea043">+5</td>
+      <td style="text-align:right;color:#cf222e">-0</td>
+    </tr>
+<tr>
+      <td><code>packages/plugins/runtime-antigravity/src/__tests__/runtime.test.ts</code></td>
+      <td>modified</td>
+      <td style="text-align:right;color:#2ea043">+85</td>
+      <td style="text-align:right;color:#cf222e">-0</td>
+    </tr>
+<tr>
+      <td><code>packages/plugins/runtime-antigravity/src/runtime.ts</code></td>
+      <td>modified</td>
+      <td style="text-align:right;color:#2ea043">+18</td>
+      <td style="text-align:right;color:#cf222e">-3</td>
     </tr>
             
           </tbody>
@@ -131,7 +169,7 @@
       <div class="footer">
         Generated by <code>scripts/generate-pr-design-docs.mjs</code>
         &nbsp;·&nbsp;
-        <a href="https://github.com/jleechanorg/agent-orchestrator/pull/493">View PR #493 on GitHub</a>
+        <a href="https://github.com/jleechanorg/agent-orchestrator/pull/486">View PR #486 on GitHub</a>
       </div>
     </main>
   </body>

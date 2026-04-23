@@ -1,13 +1,16 @@
 /**
  * Prompt Builder — composes layered prompts for agent sessions.
  *
- * Three layers:
- *   1. BASE_AGENT_PROMPT — constant instructions about session lifecycle, git workflow, PR handling
- *   2. Config-derived context — project name, repo, default branch, tracker info, reaction rules
- *   3. User rules — inline agentRules and/or agentRulesFile content
+ * Four layers (ordered):
+ *   1. CORE_AGENT_PROMPT — session identity, always included
+ *   2. PR_BOILERPLATE — git workflow, PR handling, TDD; excluded when skipPrBoilerplate=true
+ *   3. Config-derived context — project name, repo, default branch, tracker info, reaction rules
+ *   4. User rules — inline agentRules and/or agentRulesFile content
  *
- * buildPrompt() always returns the AO base guidance and project context so
- * bare launches still know about AO-specific commands such as PR claiming.
+ * buildPrompt() returns layered guidance: CORE_AGENT_PROMPT is always included;
+ * PR_BOILERPLATE (git/PR/TDD guidance) is included by default but omitted when
+ * skipPrBoilerplate=true, for planning-only and artifact-only workers that should
+ * not create branches or push code.
  */
 
 import { readFileSync } from "node:fs";
@@ -18,13 +21,20 @@ import type { ProjectConfig } from "./types.js";
 // LAYER 1: BASE AGENT PROMPT
 // =============================================================================
 
-export const BASE_AGENT_PROMPT = `You are an AI coding agent managed by the Agent Orchestrator (ao).
+/** Core instructions always included for every managed session. */
+const CORE_AGENT_PROMPT = `You are an AI coding agent managed by the Agent Orchestrator (ao).
 
 ## Instruction Hierarchy
 - **Task-specific instructions override base/project rules when they conflict.**
 
 ## Session Lifecycle
-- You are running inside a managed session. Focus on the assigned task.
+- You are running inside a managed session. Focus on the assigned task.`;
+
+/**
+ * PR/Git/TDD boilerplate — excluded for planning-only and artifact-only workers
+ * that should not create branches, push code, or open PRs.
+ */
+const PR_BOILERPLATE = `## PR Workflow
 - When you finish your work, create a PR and push it. The orchestrator will handle CI monitoring and review routing.
 - If you're told to take over or continue work on an existing PR, run \`ao session claim-pr <pr-number-or-url>\` from inside this session before making changes.
 - If CI fails, the orchestrator will send you the failures — fix them and push again.
@@ -32,7 +42,7 @@ export const BASE_AGENT_PROMPT = `You are an AI coding agent managed by the Agen
 
 ## Git Workflow & TDD Mandate
 - **TDD Requirement**: You MUST follow a Test-Driven Development (TDD) workflow. Write a failing test first (Red), implement the fix (Green), and then refactor.
-- **Evidence-Driven Development (EDD)**: Use your tests to generate the mandatory evidence artifacts (logs, video .mp4/.gif/.cast). 
+- **Evidence-Driven Development (EDD)**: Use your tests to generate the mandatory evidence artifacts (logs, video .mp4/.gif/.cast).
 - **Proven Authenticity**: Your ## Evidence section must show the TDD cycle: include the initial failing run (to prove existence of the bug/gap) followed by the successful verification run.
 - Always create a feature branch from the default branch (never commit directly to it).
 - Use conventional commit messages (feat:, fix:, chore:, etc.).
@@ -46,6 +56,20 @@ export const BASE_AGENT_PROMPT = `You are an AI coding agent managed by the Agen
 - Link the issue in the PR description so it auto-closes when merged.
 - If the repo has CI checks, make sure they pass before requesting review.
 - Respond to every review comment, even if just to acknowledge it.`;
+
+/**
+ * @deprecated Use buildPrompt() with skipPrBoilerplate option instead.
+ * Exported only for backward compatibility with tests and external consumers.
+ *
+ * NOTE: BASE_AGENT_PROMPT now contains ONLY CORE_AGENT_PROMPT content
+ * (session identity + instruction hierarchy). It does NOT include
+ * PR/Git/TDD boilerplate. To get the full prompt with boilerplate, use:
+ *   buildPrompt({ project, projectId, issueId, ... })
+ * or for explicit control:
+ *   buildPrompt({ ..., skipPrBoilerplate: false }) // includes PR boilerplate
+ *   buildPrompt({ ..., skipPrBoilerplate: true })  // excludes PR boilerplate
+ */
+export const BASE_AGENT_PROMPT = CORE_AGENT_PROMPT;
 
 // =============================================================================
 // TYPES
@@ -75,6 +99,13 @@ export interface PromptBuildConfig {
 
   /** Decomposition context — sibling task descriptions (from decomposer) */
   siblings?: string[];
+
+  /**
+   * When true, the PR/Git/TDD boilerplate is excluded from the base prompt.
+   * Use for planning-only, artifact-only, or other non-coding workers that
+   * should not attempt to create branches, push code, or open PRs.
+   */
+  skipPrBoilerplate?: boolean;
 }
 
 // =============================================================================
@@ -167,8 +198,12 @@ export function buildPrompt(config: PromptBuildConfig): string {
   const userRules = readUserRules(config.project);
   const sections: string[] = [];
 
-  // Layer 1: Base prompt is always included for every managed session.
-  sections.push(BASE_AGENT_PROMPT);
+  // Layer 1: Core prompt is always included; PR boilerplate is excluded for
+  // planning-only and artifact-only workers that should not push code or open PRs.
+  sections.push(CORE_AGENT_PROMPT);
+  if (!config.skipPrBoilerplate) {
+    sections.push(PR_BOILERPLATE);
+  }
 
   // Layer 2: Config-derived context
   sections.push(buildConfigLayer(config));

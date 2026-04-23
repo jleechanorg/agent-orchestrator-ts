@@ -212,6 +212,11 @@ export interface SessionSpawnConfig {
   siblings?: string[];
   /** Override the runtime plugin for this session (e.g. "antigravity", "tmux"). Falls back to project config → global default. */
   runtimeOverride?: string;
+  /**
+   * When true, the PR/Git/TDD boilerplate is excluded from the worker prompt.
+   * Use for planning-only or artifact-only workers that should not push code or open PRs.
+   */
+  skipPrBoilerplate?: boolean;
 }
 
 /** Config for creating an orchestrator session */

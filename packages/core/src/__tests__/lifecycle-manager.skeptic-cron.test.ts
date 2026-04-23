@@ -4,7 +4,7 @@
  * Tests verify that the lifecycle-manager poll loop correctly guards the
  * runLocalSkepticCron call:
  * - NOT called when scopedProjectId is undefined
- * - still called when backfillAllPRs is false
+ * - skipped when backfillAllPRs is false
  * - called with correct deps/params when backfillAllPRs is true
  * - called when backfillAllPRs is undefined (opt-out default)
  * - poll loop survives throw from runLocalSkepticCron
@@ -195,7 +195,7 @@ describe("runLocalSkepticCron integration (bd-skp2)", () => {
     }
   });
 
-  it("runLocalSkepticCron still runs when backfillAllPRs is false", async () => {
+  it("runLocalSkepticCron is skipped when backfillAllPRs is false", async () => {
     vi.mocked(mockSessionManager.list).mockResolvedValue([]);
     const configNoBackfill = {
       ...config,
@@ -214,11 +214,8 @@ describe("runLocalSkepticCron integration (bd-skp2)", () => {
     });
     try {
       lm.start(60_000);
-      await vi.waitUntil(() => vi.mocked(mockRunLocalSkepticCron).mock.calls.length > 0, { timeout: 3000 });
-      expect(mockRunLocalSkepticCron).toHaveBeenCalledTimes(1);
-      const [, params] = vi.mocked(mockRunLocalSkepticCron).mock.calls[0]!;
-      expect(params.projectId).toBe("my-app");
-      expect(params.project).toBe(configNoBackfill.projects["my-app"]);
+      await new Promise<void>(r => setTimeout(r, 10));
+      expect(mockRunLocalSkepticCron).not.toHaveBeenCalled();
     } finally {
       lm.stop();
     }
