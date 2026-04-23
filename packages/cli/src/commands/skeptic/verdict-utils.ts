@@ -87,11 +87,6 @@ export interface BoundVerdictOutput {
 
 export function bindVerdictOutput(params: {
   llmOutput: string;
-  // Kept for call-site compatibility — no-op after the requestId/headSha downgrade
-  // path was removed in this PR. Callers still pass these; removing them would be
-  // a breaking API change for external callers.
-  headSha?: string;
-  requestId?: string;
 }): BoundVerdictOutput {
   const verdictMatch = params.llmOutput.match(VERDICT_LINE_RE);
   if (!verdictMatch) {
