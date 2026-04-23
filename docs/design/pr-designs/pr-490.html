@@ -51,8 +51,7 @@
     <main class="wrap">
       <section class="hero">
         <h1>[agento] fix: harden scm REST fallback under rate limits</h1>
-        <p class="muted"><code>GREEN<br>Test Files  1 passed (1)<br>Tests  5 passed | 157 skipped (162)</code></p>
-        <p>This PR now spans four files: the scm-github implementation/tests plus the generated PR 490 design-doc artifacts. The live diff focuses on REST fallback hardening (env-token retry, <code>gh auth token</code> recovery with <code>GITHUB_TOKEN</code> / <code>GH_TOKEN</code> / <code>AO_BOT_GH_TOKEN</code> scrubbed from the subprocess env, curl-wrapped 429 handling, and no-retry 403 permission failures) plus the regression coverage that proves those paths.</p>
+        <p class="muted"><strong>Claim class</strong>: integration<br><strong>Verdict</strong>: PASS</p>
         <p class="muted" style="margin-top:0.5rem">
           PR: <a href="https://github.com/jleechanorg/agent-orchestrator/pull/490">#490</a>
           &nbsp;·&nbsp; Status: <span class="badge badge-open">Open</span>
@@ -80,9 +79,9 @@
           <h2>Metadata</h2>
           <div class="stat-grid">
             <div class="stat"><div class="num">4</div><div class="lbl">Files</div></div>
-            <div class="stat"><div class="num">1</div><div class="lbl">Commits</div></div>
-            <div class="stat"><div class="num" style="color:#2ea043">+645</div><div class="lbl">Additions</div></div>
-            <div class="stat"><div class="num" style="color:#cf222e">-218</div><div class="lbl">Deletions</div></div>
+            <div class="stat"><div class="num">4</div><div class="lbl">Commits</div></div>
+            <div class="stat"><div class="num" style="color:#2ea043">+727</div><div class="lbl">Additions</div></div>
+            <div class="stat"><div class="num" style="color:#cf222e">-215</div><div class="lbl">Deletions</div></div>
           </div>
           <ul style="margin-top:1rem">
             <li>Author: <code>jleechan2015</code></li>
@@ -126,13 +125,13 @@
 <tr>
       <td><code>packages/plugins/scm-github/src/index.ts</code></td>
       <td>modified</td>
-      <td style="text-align:right;color:#2ea043">+125</td>
-      <td style="text-align:right;color:#cf222e">-53</td>
+      <td style="text-align:right;color:#2ea043">+132</td>
+      <td style="text-align:right;color:#cf222e">-54</td>
     </tr>
 <tr>
       <td><code>packages/plugins/scm-github/test/index.test.ts</code></td>
       <td>modified</td>
-      <td style="text-align:right;color:#2ea043">+299</td>
+      <td style="text-align:right;color:#2ea043">+374</td>
       <td style="text-align:right;color:#cf222e">-161</td>
     </tr>
             
