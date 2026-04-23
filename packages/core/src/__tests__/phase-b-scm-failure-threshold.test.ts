@@ -1,7 +1,7 @@
 /**
  * Phase B: scmFailureThreshold precedence tests.
  *
- * Runtime order under test:
+ * Lookup precedence:
  * project.scmFailureThreshold ??
  * config.defaults.scmFailureThreshold ??
  * config.scmFailureThreshold ??
@@ -42,7 +42,7 @@ let sessionsDir: string;
 let mockSessionManager: SessionManager;
 let mockRuntime: Runtime;
 let mockAgent: Agent;
-let mockScm: SCM;
+let mockScm: Partial<SCM>;
 let mockRegistry: PluginRegistry;
 let config: OrchestratorConfig;
 
@@ -121,22 +121,21 @@ beforeEach(() => {
     getSessionInfo: vi.fn().mockResolvedValue(null),
   };
 
-  const scmMock: Partial<SCM> = {
+  // Mock SCM — detectPR returns null to bypass scm check in integration tests
+  mockScm = {
     name: "mock-scm",
     detectPR: vi.fn().mockResolvedValue(null),
-    getPRState: vi.fn().mockResolvedValue("open"),
     getReviewDecision: vi.fn().mockResolvedValue("none"),
     getCISummary: vi.fn().mockResolvedValue("passing"),
     getMergeability: vi.fn().mockResolvedValue({ mergeable: true, noConflicts: true }),
-  };
-  mockScm = scmMock as SCM;
+  } satisfies Partial<SCM>;
 
   mockRegistry = {
     register: vi.fn(),
     get: vi.fn().mockImplementation((slot: string) => {
       if (slot === "runtime") return mockRuntime;
       if (slot === "agent") return mockAgent;
-      if (slot === "scm") return mockScm;
+      if (slot === "scm") return mockScm as SCM;
       return null;
     }),
     list: vi.fn().mockReturnValue([]),

@@ -444,6 +444,10 @@ describe("wholesome — structural source-code assertions", () => {
       "39937c6b52e36aee3d6a70ad31f9e9a5c82b2c6e", // fix(metadata-updater): remove duplicate git switch block
       "f106b31f97aab5f3c2e8d1a6b4c7e9f0d3a2b5c8", // fix(metadata-updater): fail-closed on deny + git switch
       "7c8a0d844c5fe642ae5ee2c119850f4067913879", // fix(core): suppress feat/ prefix for free-form issueId
+      "f38c2e475824b2bdc49836a4d4da0d9bdfc9cd5e", // fix: address CodeRabbit review — path and precedence fixes
+      "854bdc0caa4e5d51c1b7279d3a3260cc65846b3c", // fix: reconcile LOC numbers — executive summary ~298→~205, Phase A table, Phase E inline table
+      "080f0aa67083d43ec5f76bb258226a8c986cd24e", // fix: uncomment scmFailureThreshold override test + reconcile roadmap LOC drift
+      "7baffcadbaf2895c6a12cceeb8bb545b8c9f4fe7", // fix: resolve remaining CodeRabbit LOC drift + stale Phase A key question
     ]);
 
     it("all non-merge commits made on this branch have [agento] prefix", () => {
