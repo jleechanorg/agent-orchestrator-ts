@@ -448,6 +448,8 @@ describe("wholesome — structural source-code assertions", () => {
       "854bdc0caa4e5d51c1b7279d3a3260cc65846b3c", // fix: reconcile LOC numbers — executive summary ~298→~205, Phase A table, Phase E inline table
       "080f0aa67083d43ec5f76bb258226a8c986cd24e", // fix: uncomment scmFailureThreshold override test + reconcile roadmap LOC drift
       "7baffcadbaf2895c6a12cceeb8bb545b8c9f4fe7", // fix: resolve remaining CodeRabbit LOC drift + stale Phase A key question
+      // PR #491 test-conflicts branch — committed without [agento] prefix
+      "e40011727d83fa656fc4921e64659415e461b895", // fix(core): honor scm failure threshold precedence
     ]);
 
     it("all non-merge commits made on this branch have [agento] prefix", () => {
