@@ -14,6 +14,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
 
+import { validateConfig } from "../config.js";
 import { createLifecycleManager } from "../lifecycle-manager.js";
 import { getSessionsDir, getProjectBaseDir } from "../paths.js";
 import { resolveScmFailureThreshold } from "../scm-failure-threshold.js";
@@ -231,6 +232,28 @@ describe("scmFailureThreshold precedence (Phase B)", () => {
         configWithTopLevelFallback,
       ),
     ).toBe(2);
+  });
+
+  it("honors the legacy top-level threshold after schema parsing when defaults omit an override", () => {
+    const validatedConfig = validateConfig({
+      projects: {
+        "my-app": {
+          repo: "org/my-app",
+          path: join(tmpDir, "my-app"),
+        },
+      },
+      scmFailureThreshold: 5,
+      defaults: {
+        runtime: "mock",
+        agent: "mock-agent",
+        workspace: "mock-ws",
+        notifiers: [],
+      },
+    });
+
+    expect(
+      resolveScmFailureThreshold(validatedConfig.projects["my-app"], validatedConfig),
+    ).toBe(5);
   });
 
   it("prefers the project override over defaults and top-level thresholds", () => {
