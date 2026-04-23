@@ -480,6 +480,27 @@ describe("wholesome — structural source-code assertions", () => {
   // 6. Fork-aware runner selection in CI workflow files
   // -------------------------------------------------------------------------
   describe("fork-aware runner selection in workflow files", () => {
+    it("critical PR workflows support workflow_dispatch for manual rescue reruns", () => {
+      const workflowDir = join(REPO_ROOT, ".github", "workflows");
+      const requiredDispatchWorkflows = [
+        "ci.yml",
+        "coverage.yml",
+        "evidence-gate.yml",
+        "wholesome.yml",
+      ];
+
+      const violations = requiredDispatchWorkflows.filter(file => {
+        const content = readFileSync(join(workflowDir, file), "utf-8");
+        return !content.includes("workflow_dispatch:");
+      });
+
+      expect(
+        violations,
+        "Critical PR workflows must support workflow_dispatch for manual rescue reruns:\n" +
+          violations.join("\n")
+      ).toHaveLength(0);
+    });
+
     it("uses the canonical shared self-hosted runner selector in coverage and skeptic gate workflows", () => {
       const workflowDir = join(REPO_ROOT, ".github", "workflows");
       const expectedSharedLabels =

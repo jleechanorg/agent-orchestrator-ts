@@ -3,6 +3,7 @@ name: Evidence Gate
 on:
   pull_request:
     types: [opened, synchronize, edited, reopened]
+  workflow_dispatch:
 
 # Do not cancel in-progress runs: a second event (e.g. push + Bugbot PR-body edit)
 # would cancel the first job; GitHub surfaces that as a failed check on the same SHA.

@@ -3,6 +3,7 @@ name: PR Diff Coverage
 on:
   pull_request:
     branches: [main]
+  workflow_dispatch:
 
 concurrency:
   group: coverage-${{ github.ref }}
