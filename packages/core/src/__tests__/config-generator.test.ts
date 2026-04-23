@@ -255,7 +255,7 @@ describe("generateConfigFromUrl", () => {
       runtime: "tmux",
       agent: "codex",
       workspace: "worktree",
-      notifiers: ["desktop"],
+      notifiers: ["composio"],
       modelByCli: {
         codex: { model: "gpt-5.4" },
       },
