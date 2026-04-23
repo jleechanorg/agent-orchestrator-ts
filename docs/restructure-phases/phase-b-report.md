@@ -37,6 +37,8 @@ Used at lines 723, 891 — kills sessions with dead agents after 3 consecutive S
 defaults:
   scmFailureThreshold: 3  # kills dead-agent sessions after N consecutive SCM failures
 
+scmFailureThreshold: 4  # legacy top-level fallback for repos still using the old key
+
 projects:
   my-project:
     scmFailureThreshold: 5  # per-project override
@@ -160,7 +162,7 @@ reactions:
 
 | # | Behavior | Currently | Config Location Needed | Effort |
 |---|---|---|---|---|
-| 1 | SCM failure threshold | Hardcoded 3 | `defaults.scmFailureThreshold` + `projects[].scmFailureThreshold` | **DONE** |
+| 1 | SCM failure threshold | Hardcoded 3 | `projects[].scmFailureThreshold` → `defaults.scmFailureThreshold` → top-level `scmFailureThreshold` | **DONE** |
 | 2 | Startup grace period | Hardcoded 120s + type | `defaults.startupGracePeriodMs` | Low |
 | 3 | OpenCode session reuse | Hardcoded "opencode" | `defaults.agentSessionReuseStrategy` | Medium |
 | 4 | Send-to-agent retry cap | Hardcoded 3 in fork | `defaults.reactionRetries` | Low |
@@ -179,7 +181,11 @@ The hardcoded `SCM_FAILURE_THRESHOLD = 3` in `lifecycle-manager.ts` has been rep
 const SCM_FAILURE_THRESHOLD = 3;
 
 // AFTER (config-driven):
-const SCM_FAILURE_THRESHOLD = project.scmFailureThreshold ?? config.defaults.scmFailureThreshold ?? 3;
+const SCM_FAILURE_THRESHOLD =
+  project.scmFailureThreshold ??
+  config.defaults.scmFailureThreshold ??
+  config.scmFailureThreshold ??
+  3;
 ```
 
 ### Files Changed
@@ -187,14 +193,16 @@ const SCM_FAILURE_THRESHOLD = project.scmFailureThreshold ?? config.defaults.scm
 | File | Change |
 |------|--------|
 | `packages/core/src/types.ts` | Added `scmFailureThreshold?: number` to `DefaultPlugins` and `ProjectConfig` interfaces |
-| `packages/core/src/config.ts` | Added `scmFailureThreshold: z.number().int().min(1).max(100).default(3).optional()` to `DefaultPluginsSchema`; added `scmFailureThreshold: z.number().int().min(1).max(100).optional()` to `ProjectConfigSchema` |
+| `packages/core/src/config.ts` | Added `scmFailureThreshold` schema support to `DefaultPluginsSchema`, `ProjectConfigSchema`, and top-level `OrchestratorConfigSchema` |
 | `packages/core/src/lifecycle-manager.ts` | Replaced hardcoded constant with config lookup at line 598-599 |
-| `packages/core/src/__tests__/phase-b-scm-failure-threshold.test.ts` | **New test file** — 3 tests verifying threshold behavior with config |
+| `packages/core/src/__tests__/phase-b-scm-failure-threshold.test.ts` | **New test file** — precedence + fallback tests verifying project/defaults/global behavior |
 
 ### YAML Usage
 ```yaml
 defaults:
-  scmFailureThreshold: 3  # global default
+  scmFailureThreshold: 3  # preferred shared default
+
+scmFailureThreshold: 4  # legacy top-level fallback
 
 projects:
   my-app:

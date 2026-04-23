@@ -56,14 +56,14 @@ The fork is 827 commits ahead of upstream — it is actively developed, not a st
 
 ## Phase B Results (COMPLETED)
 
-**Proof-of-concept extracted:** `scmFailureThreshold` from hardcoded `3` to config-driven with three-level precedence.
+**Proof-of-concept extracted:** `scmFailureThreshold` from hardcoded `3` to config-driven with three-level precedence plus a legacy top-level fallback.
 
 | File | Change |
 |------|--------|
 | `types.ts` | Added `scmFailureThreshold?: number` to `OrchestratorConfig`, `DefaultPlugins`, `ProjectConfig` |
 | `config.ts` | Added Zod schema fields at all three levels |
-| `lifecycle-manager.ts` | Replaced `const SCM_FAILURE_THRESHOLD = 3` with `projectConfig?.scmFailureThreshold ?? config.scmFailureThreshold ?? 3` |
-| `__tests__/phase-b-scm-failure-threshold.test.ts` | **New** — 3 TDD tests, all passing |
+| `lifecycle-manager.ts` | Replaced `const SCM_FAILURE_THRESHOLD = 3` with `project.scmFailureThreshold ?? config.defaults.scmFailureThreshold ?? config.scmFailureThreshold ?? 3` |
+| `__tests__/phase-b-scm-failure-threshold.test.ts` | **New** — precedence + fallback TDD tests |
 
 **Additional hardcoded behaviors identified** (not yet extracted):
 - `startupGracePeriodMs` (type exists, no YAML key) — low effort
@@ -110,6 +110,8 @@ Full report: `docs/restructure-phases/phase-d-report.md`
 **Inline modification reduction audit:**
 
 Inline LOC details are in `docs/restructure-phases/phase-e-report.md`. Key figures: lifecycle-manager.ts has ~283 inline LOC extractable; scm-github has ~196 inline LOC; session-manager.ts has minimal inline.
+
+The Phase E summary uses two metrics on purpose: **extractable inline LOC** from the audit snapshot above, and **total fork-over-upstream delta LOC** in the target-file list below. They answer different questions, so they are not expected to match 1:1.
 
 **Already companion-isolated:** ~1,331 LOC across 11 `fork-*.ts` files — zero upstream merge conflict.
 
@@ -223,10 +225,10 @@ reactions:
 **Goal**: Identify fork patterns that are genuinely useful enough to contribute upstream. Upstream contributions = zero future merge conflict.
 
 **Highest-value upstream contribution candidates**:
-1. `fork-reaction-retry-policy.ts` (40 LOC) — general retry/backoff pattern, not fork-specific
-2. `fork-dead-agent.ts` (63 LOC) — dead agent detection is general
-3. `fork-slash-command-routing.ts` (88 LOC) — useful if generalized
-4. `fork-skeptic-extension.ts` (59 LOC) — skeptic integration design could benefit upstream
+1. `fork-reaction-retry-policy.ts` (39 LOC) — general retry/backoff pattern, not fork-specific
+2. `fork-utils.ts` (36 LOC) — already reused beyond lifecycle-manager and easiest to upstream cleanly
+3. `fork-skeptic-extension.ts` (67 LOC) — useful pattern, but upstream config discussion required
+4. `fork-dead-agent.ts` (63 LOC) — dead-agent detection is general, but blocked on internal deps today
 
 **Assessment criteria**:
 - Does upstream have equivalent functionality? (if yes → don't contribute)
@@ -244,7 +246,7 @@ reactions:
 
 **Goal**: For each upstream-touched core file, identify what inline modifications could be moved to fork-*.ts companions, reducing the diff surface.
 
-**Target files**:
+**Target files** (total fork-over-upstream delta LOC):
 - `lifecycle-manager.ts` — fork has ~955 extra LOC over upstream (3,032 vs 2,077)
 - `scm-github/src/index.ts` — fork has ~1,859 extra LOC (2,924 vs 1,065)
 - `spawn.ts` — fork has ~106 extra LOC (490 vs 384)

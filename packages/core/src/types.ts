@@ -1204,6 +1204,7 @@ export interface OrchestratorConfig {
   /**
    * Kill dead-agent sessions after this many consecutive SCM failures.
    * Prevents worktree destruction on transient SCM errors.
+   * Used as the legacy top-level fallback after project/defaults overrides.
    * (default: 3)
    */
   scmFailureThreshold?: number;
@@ -1270,6 +1271,7 @@ export interface DefaultPlugins {
   /**
    * Default threshold for consecutive SCM failures before killing a dead-agent session.
    * Applied to all projects unless overridden per-project.
+   * Preferred over the legacy top-level fallback.
    * (default: 3 — only kills after 3 consecutive SCM failures)
    */
   scmFailureThreshold?: number;
@@ -1484,7 +1486,7 @@ export interface ProjectConfig {
   /**
    * Per-project override for the consecutive SCM failure threshold.
    * Only kills the session after this many consecutive SCM failures when the agent is dead.
-   * Overrides defaults.scmFailureThreshold.
+   * Overrides defaults.scmFailureThreshold and the legacy top-level fallback.
    */
   scmFailureThreshold?: number;
 
