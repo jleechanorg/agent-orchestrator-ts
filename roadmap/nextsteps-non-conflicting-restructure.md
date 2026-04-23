@@ -13,7 +13,7 @@
 ## Executive summary
 
 - **Outcome**: Zero upstream commits merge cleanly — structural divergence too deep for cherry-pick. But the fork has non-conflicting paths forward.
-- **Fast wins**: (1) Fork-companion files (`fork-*.ts`) are zero-conflict — they're new files, not modifications. (2) Config-driven behavior in `agent-orchestrator.yaml` merges with zero conflict. (3) New plugin packages (`packages/plugins/notifier-discord/`) have already proven merge-clean. (4) `fork-skeptic-extension.ts`, `fork-dead-agent.ts`, `fork-reaction-retry-policy.ts`, `fork-utils.ts` are upstream-worthy candidates (~298 LOC).
+- **Fast wins**: (1) Fork-companion files (`fork-*.ts`) are zero-conflict — they're new files, not modifications. (2) Config-driven behavior in `agent-orchestrator.yaml` merges with zero conflict. (3) New plugin packages (`packages/plugins/notifier-discord/`) have already proven merge-clean. (4) `fork-skeptic-extension.ts`, `fork-dead-agent.ts`, `fork-reaction-retry-policy.ts`, `fork-utils.ts` are upstream-worthy candidates (~205 LOC).
 - **Strategy**: "Companion-first, plugin-second" — isolate fork-specific code into `fork-*.ts` companion files and new plugin packages, avoiding modifications to upstream-touched files. Upstream contributions for genuinely useful fork patterns. Config for behavior where possible.
 - **Top priority**: Audit `fork-*.ts` files, classify what is truly fork-only vs upstream-worthy, then restructure to eliminate inline modifications to upstream files.
 - **Beads**: `bd-8kel` (Phase 1 plugin extraction), new bead `bd-3bnk` (non-conflicting restructure audit)
@@ -40,7 +40,7 @@ The fork is 827 commits ahead of upstream — it is actively developed, not a st
 
 | Bucket | LOC | Files | Action |
 |--------|-----|-------|--------|
-| **A: Upstream-worthy** | 228 | 4 files: `fork-skeptic-extension.ts` (67 LOC), `fork-utils.ts` (36 LOC), `fork-dead-agent.ts` (63 LOC), `fork-reaction-retry-policy.ts` (39 LOC) | Prepare upstream PR candidates |
+| **A: Upstream-worthy** | 205 | 4 files: `fork-skeptic-extension.ts`, `fork-utils.ts`, `fork-dead-agent.ts`, `fork-reaction-retry-policy.ts` | Prepare upstream PR candidates |
 | **B: Fork-only (companions)** | 1,175 | 6 files | Keep as `fork-*.ts`; extract to plugins |
 | **C: Inline candidate** | 87 | `fork-slash-command-routing.ts` | Keep (re-exported via `utils.ts` — public interface) |
 | **Total** | **1,490** | **11 files** | Zero dead companions |
@@ -109,11 +109,7 @@ Full report: `docs/restructure-phases/phase-d-report.md`
 
 **Inline modification reduction audit:**
 
-| File | Total LOC | Fork LOC | Fork % | Inline (unisolated) |
-|------|-----------|----------|--------|---------------------|
-| lifecycle-manager.ts | 3,034 | +955 | 31% | ~408 LOC |
-| scm-github/src/index.ts | 2,924 | +1,859 | 64% | ~1,859 LOC |
-| session-manager.ts | 3,095 | +112 | 4% | ~179 LOC |
+Inline LOC details are in `docs/restructure-phases/phase-e-report.md`. Key figures: lifecycle-manager.ts has ~283 inline LOC extractable; scm-github has ~196 inline LOC; session-manager.ts has minimal inline.
 
 **Already companion-isolated:** ~1,331 LOC across 11 `fork-*.ts` files — zero upstream merge conflict.
 
