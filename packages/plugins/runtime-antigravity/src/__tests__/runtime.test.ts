@@ -11,6 +11,48 @@ function cdpTest(): typeof globalThis & CdpTestGlobals {
   return globalThis as typeof globalThis & CdpTestGlobals;
 }
 
+// Mutable PIL check result shared between the mock and test overrides.
+const _sharedPilState: { pilError?: Error } = {};
+
+function _execFileDefaultCallback(
+  _file: string,
+  argsOrOptionsOrCallback: string[] | Record<string, unknown> | null | undefined | ((err: Error | null, stdout: Buffer, stderr: Buffer) => void),
+  optionsOrCallback: Record<string, unknown> | null | undefined | ((err: Error | null, stdout: Buffer, stderr: Buffer) => void),
+  callback?: (err: Error | null, stdout: Buffer, stderr: Buffer) => void,
+): void {
+  // Resolve the callback from variadic arguments (promisify passes callback as last arg)
+  const cb = typeof callback === "function"
+    ? callback
+    : typeof optionsOrCallback === "function"
+      ? optionsOrCallback
+      : typeof argsOrOptionsOrCallback === "function"
+        ? argsOrOptionsOrCallback
+        : undefined;
+
+  setImmediate(() => {
+    if (cb) {
+      if (_sharedPilState.pilError) {
+        cb(_sharedPilState.pilError, Buffer.alloc(0), Buffer.alloc(0));
+      } else {
+        cb(null, Buffer.alloc(0), Buffer.alloc(0));
+      }
+    }
+  });
+}
+
+// execFile mock implementation used for PIL availability check in handleAllowPrompt.
+// mockImplementation handles all call variants (direct callback or promisified).
+const _currentExecFileImpl = vi.fn(_execFileDefaultCallback);
+
+// Mock node:child_process — used for PIL availability check in handleAllowPrompt.
+// Note: we do NOT add the nodejs.util.promisify.custom symbol here, so promisify
+// falls back to the normal callback-based path which works reliably with mocks.
+vi.mock("node:child_process", () => ({
+  get execFile() {
+    return _currentExecFileImpl;
+  },
+}));
+
 // Mock the peekaboo module
 vi.mock("../peekaboo.js", () => ({
   windowList: vi.fn(),
@@ -144,6 +186,9 @@ beforeEach(() => {
   cdpTest()._mockCdpEval = undefined;
   // Default: screencapture returns empty buffer (no Allow prompt)
   mockScreencapture.mockResolvedValue(Buffer.alloc(0));
+  // Reset PIL state — execFile mock already has the correct implementation
+  // (reads _sharedPilState.pilError), just need to ensure it's clear.
+  _sharedPilState.pilError = undefined;
 });
 
 // =============================================================================
@@ -410,6 +455,28 @@ describe("runtime.create() — Manager UI flow", () => {
     // handleAllowPrompt is called inside create() — screencapture should have been invoked
     // with the Manager window bounds
     expect(mockScreencapture).toHaveBeenCalled();
+    expect(handle.data["session"]).toBeDefined();
+  });
+
+  it("should skip screencapture when PIL is unavailable (graceful early return)", async () => {
+    const runtime = create();
+    setupSuccessfulCreateMocks();
+
+    // Simulate PIL/Pillow not being installed by setting the shared error state.
+    // The global execFile mock reads _sharedPilState.pilError to decide what to do.
+    _sharedPilState.pilError = new Error("python3: error: no module named PIL");
+
+    const handle = await runtime.create({
+      sessionId: "test-session",
+      workspacePath: "/tmp/workspace",
+      launchCommand: "do work",
+      environment: {},
+    });
+
+    // screencapture should NOT have been called — handleAllowPrompt should have
+    // returned early after the PIL check failed, before attempting image capture.
+    expect(mockScreencapture).not.toHaveBeenCalled();
+    // create() itself should still succeed — PIL unavailability is best-effort
     expect(handle.data["session"]).toBeDefined();
   });
 

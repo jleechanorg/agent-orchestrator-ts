@@ -477,6 +477,24 @@ describe("wholesome — structural source-code assertions", () => {
   // 6. Fork-aware runner selection in CI workflow files
   // -------------------------------------------------------------------------
   describe("fork-aware runner selection in workflow files", () => {
+    it("uses the canonical shared self-hosted runner selector in coverage and skeptic gate workflows", () => {
+      const workflowDir = join(REPO_ROOT, ".github", "workflows");
+      const expectedSharedLabels =
+        `fromJson(vars.SELF_HOSTED_RUNNER_LABELS || '` +
+        `["self-hosted","Linux","ARM64","agent-orchestrator"]')`;
+
+      for (const file of ["coverage.yml", "test.yml"]) {
+        const content = readFileSync(join(workflowDir, file), "utf-8");
+
+        expect(content, `${file} should fall back to ubuntu-latest when self-hosted is disabled`).toContain(
+          "vars.SELF_HOSTED_DISABLED == 'true' && 'ubuntu-latest'",
+        );
+        expect(content, `${file} should target the shared agent-orchestrator self-hosted runner labels`).toContain(
+          expectedSharedLabels,
+        );
+      }
+    });
+
     /**
      * SECURITY invariant: Every workflow job that runs on pull_request events
      * must use the fork-aware runner selection pattern. Without it, a fork PR
