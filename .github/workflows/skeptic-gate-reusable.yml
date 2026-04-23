@@ -156,49 +156,57 @@ jobs:
           fi
 
           # Gate 3: CR APPROVED — prefer formal review; fall back to status+comment.
-          set +e -o pipefail
-          LATEST_CR_PIPELINE=$(gh api repos/${{ github.repository }}/pulls/"$PR_NUM"/reviews \
-            --paginate 2>/dev/null \
-            | jq -rs 'add | [.[] | select((.user.login == "coderabbitai[bot]" or .user.login == "coderabbitai") and .state != "COMMENTED")] | sort_by(.submitted_at) | last | .state // "none"' 2>&1)
-          LATEST_CR_EXIT=$?
-          set -e +o pipefail
-          if [ $LATEST_CR_EXIT -ne 0 ]; then
-            echo "GATE-3 ERROR: CR review lookup failed (jq exit=$LATEST_CR_EXIT)"
-            ELIGIBLE=false
+          # GitHub Apps/bot authors cannot review their own PRs, so skip the
+          # impossible approval requirement for those PRs.
+          PR_AUTHOR=$(gh api repos/${{ github.repository }}/pulls/"$PR_NUM" \
+            --jq '.user.login // "unknown"' 2>/dev/null || echo "unknown")
+                if echo "$PR_AUTHOR" | grep -qE '^(app/.+|[[:alnum:]_-]+\[bot\])$'; then
+            echo "GATE-3 PASS: author=$PR_AUTHOR (GitHub App — review skipped)"
           else
-            LATEST_CR="${LATEST_CR_PIPELINE%$'\n'}"
-            if [ "$LATEST_CR" = "APPROVED" ]; then
-              echo "GATE-3 PASS: CR=APPROVED"
-            elif [ "$LATEST_CR" != "none" ]; then
-              echo "GATE-3 FAIL: CR=$LATEST_CR"
+            set +e -o pipefail
+            LATEST_CR_PIPELINE=$(gh api repos/${{ github.repository }}/pulls/"$PR_NUM"/reviews \
+              --paginate 2>/dev/null \
+              | jq -rs 'add | [.[] | select((.user.login == "coderabbitai[bot]" or .user.login == "coderabbitai") and .state != "COMMENTED")] | sort_by(.submitted_at) | last | .state // "none"' 2>&1)
+            LATEST_CR_EXIT=$?
+            set -e +o pipefail
+            if [ $LATEST_CR_EXIT -ne 0 ]; then
+              echo "GATE-3 ERROR: CR review lookup failed (jq exit=$LATEST_CR_EXIT)"
               ELIGIBLE=false
             else
-              # Fallback: status + [approve] comment both required
-              HEAD_COMMITTED_AT=$(gh api repos/${{ github.repository }}/commits/"$HEAD_SHA" \
-                --jq '.commit.committer.date // ""' 2>/dev/null || echo "")
-              CR_STATUS=$(gh api repos/${{ github.repository }}/commits/"$HEAD_SHA"/status \
-                --jq '.statuses | map(select(.context == "CodeRabbit")) | sort_by(.updated_at) | last | .state // "none"' \
-                2>/dev/null || echo "none")
-              CR_APPROVE_COMMENT="none"
-              if [ -n "$HEAD_COMMITTED_AT" ]; then
-                set +e -o pipefail
-                CR_APPROVE_PIPELINE=$(gh api repos/${{ github.repository }}/issues/"$PR_NUM"/comments \
-                  --paginate 2>/dev/null \
-                  | jq -rs --arg since "$HEAD_COMMITTED_AT" 'add | [.[] | select((.user.login == "coderabbitai[bot]" or .user.login == "coderabbitai") and .created_at >= $since and (.body | test("^\\s*\\[approve\\]\\s*$"; "i")))] | sort_by(.created_at) | last | if . then "APPROVED" else "none" end' 2>&1)
-                CR_APPROVE_EXIT=$?
-                set -e +o pipefail
-                if [ "$CR_APPROVE_EXIT" -eq 0 ]; then
-                  CR_APPROVE_COMMENT="${CR_APPROVE_PIPELINE%$'\n'}"
-                else
-                  echo "GATE-3 ERROR: CR approve comment lookup failed (exit=$CR_APPROVE_EXIT)"
-                  CR_APPROVE_COMMENT="none"
-                fi
-              fi
-              if [ "$CR_STATUS" = "success" ] && [ "$CR_APPROVE_COMMENT" = "APPROVED" ]; then
-                echo "GATE-3 PASS: CR=APPROVED(status+comment)"
-              else
-                echo "GATE-3 FAIL: CR=$LATEST_CR status=$CR_STATUS comment=$CR_APPROVE_COMMENT"
+              LATEST_CR="${LATEST_CR_PIPELINE%$'\n'}"
+              if [ "$LATEST_CR" = "APPROVED" ]; then
+                echo "GATE-3 PASS: CR=APPROVED"
+              elif [ "$LATEST_CR" != "none" ]; then
+                echo "GATE-3 FAIL: CR=$LATEST_CR"
                 ELIGIBLE=false
+              else
+                # Fallback: status + [approve] comment both required
+                HEAD_COMMITTED_AT=$(gh api repos/${{ github.repository }}/commits/"$HEAD_SHA" \
+                  --jq '.commit.committer.date // ""' 2>/dev/null || echo "")
+                CR_STATUS=$(gh api repos/${{ github.repository }}/commits/"$HEAD_SHA"/status \
+                  --jq '.statuses | map(select(.context == "CodeRabbit")) | sort_by(.updated_at) | last | .state // "none"' \
+                  2>/dev/null || echo "none")
+                CR_APPROVE_COMMENT="none"
+                if [ -n "$HEAD_COMMITTED_AT" ]; then
+                  set +e -o pipefail
+                  CR_APPROVE_PIPELINE=$(gh api repos/${{ github.repository }}/issues/"$PR_NUM"/comments \
+                    --paginate 2>/dev/null \
+                    | jq -rs --arg since "$HEAD_COMMITTED_AT" 'add | [.[] | select((.user.login == "coderabbitai[bot]" or .user.login == "coderabbitai") and .created_at >= $since and (.body | test("^\\s*\\[approve\\]\\s*$"; "i")))] | sort_by(.created_at) | last | if . then "APPROVED" else "none" end' 2>&1)
+                  CR_APPROVE_EXIT=$?
+                  set -e +o pipefail
+                  if [ "$CR_APPROVE_EXIT" -eq 0 ]; then
+                    CR_APPROVE_COMMENT="${CR_APPROVE_PIPELINE%$'\n'}"
+                  else
+                    echo "GATE-3 ERROR: CR approve comment lookup failed (exit=$CR_APPROVE_EXIT)"
+                    CR_APPROVE_COMMENT="none"
+                  fi
+                fi
+                if [ "$CR_STATUS" = "success" ] && [ "$CR_APPROVE_COMMENT" = "APPROVED" ]; then
+                  echo "GATE-3 PASS: CR=APPROVED(status+comment)"
+                else
+                  echo "GATE-3 FAIL: CR=$LATEST_CR status=$CR_STATUS comment=$CR_APPROVE_COMMENT"
+                  ELIGIBLE=false
+                fi
               fi
             fi
           fi
