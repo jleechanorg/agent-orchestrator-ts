@@ -503,6 +503,46 @@ describe("wholesome — structural source-code assertions", () => {
       ).toHaveLength(0);
     });
 
+    it("workflow_dispatch rescue reruns resolve PR context before using PR-only fields", () => {
+      const workflowDir = join(REPO_ROOT, ".github", "workflows");
+      const expectations: Record<string, string[]> = {
+        "coverage.yml": [
+          "Resolve PR context",
+          "steps.pr-context.outputs.base_ref",
+        ],
+        "evidence-gate.yml": [
+          "Resolve PR context",
+          "steps.pr-context.outputs.pr_body",
+          "steps.pr-context.outputs.base_sha",
+          "steps.pr-context.outputs.head_sha",
+          "github.event.pull_request.number || github.ref",
+        ],
+        "wholesome.yml": [
+          "Resolve PR context",
+          "steps.pr-context.outputs.pr_title",
+          "steps.pr-context.outputs.pr_body",
+          "github.event.pull_request.number || github.ref",
+        ],
+      };
+
+      const violations: string[] = [];
+
+      for (const [file, requiredSnippets] of Object.entries(expectations)) {
+        const content = readFileSync(join(workflowDir, file), "utf-8");
+        for (const snippet of requiredSnippets) {
+          if (!content.includes(snippet)) {
+            violations.push(`${file}: missing ${snippet}`);
+          }
+        }
+      }
+
+      expect(
+        violations,
+        "workflow_dispatch rescue reruns must resolve PR context before using pull_request-only fields:\n" +
+          violations.join("\n"),
+      ).toHaveLength(0);
+    });
+
     it("uses the canonical shared self-hosted runner selector in coverage and skeptic gate workflows", () => {
       const workflowDir = join(REPO_ROOT, ".github", "workflows");
       const expectedSharedLabels =
