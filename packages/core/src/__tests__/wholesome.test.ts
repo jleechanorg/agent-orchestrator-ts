@@ -629,5 +629,45 @@ describe("wholesome — structural source-code assertions", () => {
         "\n\nFix: Use github.event.pull_request.head.repo.fork && 'ubuntu-latest' || fromJson(vars.SELF_HOSTED_RUNNER_LABELS) pattern. See PR #273."
       ).toHaveLength(0);
     });
+
+    it("gate workflows page through CR reviews and skip impossible app-authored approvals", () => {
+      const workflowDir = join(REPO_ROOT, ".github", "workflows");
+      const workflowFiles = [
+        "green-gate.yml",
+        "skeptic-cron.yml",
+        "skeptic-cron-reusable.yml",
+        "skeptic-gate-reusable.yml",
+      ];
+      const violations: string[] = [];
+
+      for (const file of workflowFiles) {
+        const content = readFileSync(join(workflowDir, file), "utf-8");
+
+        if (!content.includes('pulls/"$PR_NUM"/reviews')) {
+          violations.push(`${file}: missing Gate 3 reviews lookup`);
+        }
+        if (!content.includes("--paginate")) {
+          violations.push(`${file}: Gate 3 reviews lookup must use --paginate`);
+        }
+        if (!content.includes("author=$PR_AUTHOR (GitHub App — review skipped)") ||
+            !content.includes("^(app/.+|[[:alnum:]_-]+\\[bot\\])$")) {
+          violations.push(`${file}: missing GitHub App/bot review-skip contract`);
+        }
+      }
+
+      expect(
+        violations,
+        "Gate workflows must handle paginated CodeRabbit reviews and auto-pass Gate 3 for GitHub App-authored PRs that cannot self-review."
+      ).toHaveLength(0);
+    });
+
+    it("skeptic gate CI polling stays aligned with reusable gate matching", () => {
+      const content = readFileSync(join(REPO_ROOT, ".github", "workflows", "test.yml"), "utf-8");
+
+      expect(content).toContain("timeout-minutes: 10");
+      expect(content).toContain("NEED_REQUEST_ID");
+      expect(content).toContain("--arg need_request_id \"$NEED_REQUEST_ID\"");
+      expect(content).toContain('if $need_request_id == "true"');
+    });
   });
 });

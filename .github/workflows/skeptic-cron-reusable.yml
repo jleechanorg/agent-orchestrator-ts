@@ -91,17 +91,21 @@ jobs:
             if [ "$(echo "$PR_META" | jq -r '.mergeable')" != "true" ]; then SKIPPED_NOT_6GREEN=$((SKIPPED_NOT_6GREEN + 1)); continue; fi
 
             # Gate 3: CR APPROVED
-            LATEST_CR=$(gh api repos/${{ github.repository }}/pulls/"$PR_NUM"/reviews --paginate 2>/dev/null | jq -rs 'add | [.[] | select((.user.login == "coderabbitai[bot]" or .user.login == "coderabbitai") and .state != "COMMENTED")] | sort_by(.submitted_at) | last | .state // "none"' 2>/dev/null)
-            if [ "$LATEST_CR" != "APPROVED" ]; then
-                # fallback check — scope to comments after current head was committed
-                HEAD_COMMITTED_AT=$(gh api repos/${{ github.repository }}/commits/"$PR_SHA" --jq '.commit.committer.date' 2>/dev/null || echo "")
-                CR_STATUS=$(gh api repos/${{ github.repository }}/commits/"$PR_SHA"/status --jq '.statuses | map(select(.context == "CodeRabbit" and .state == "success")) | length' 2>/dev/null || echo 0)
-                if [ -n "$HEAD_COMMITTED_AT" ]; then
-                  CR_COMMENT=$(gh api repos/${{ github.repository }}/issues/"$PR_NUM"/comments --paginate 2>/dev/null | jq -rs --arg since "$HEAD_COMMITTED_AT" 'add | map(select((.user.login == "coderabbitai[bot]" or .user.login == "coderabbitai") and .created_at >= $since and (.body | test("^\\s*\\[approve\\]\\s*$"; "i")))) | length' 2>/dev/null || echo 0)
-                else
-                  CR_COMMENT=0
+            # GitHub Apps/bot authors cannot review their own PRs, so skip the
+            # impossible approval requirement for those PRs.
+            if ! echo "$PR_AUTHOR" | grep -qE '^(app/.+|[[:alnum:]_-]+\[bot\])$'; then
+                LATEST_CR=$(gh api repos/${{ github.repository }}/pulls/"$PR_NUM"/reviews --paginate 2>/dev/null | jq -rs 'add | [.[] | select((.user.login == "coderabbitai[bot]" or .user.login == "coderabbitai") and .state != "COMMENTED")] | sort_by(.submitted_at) | last | .state // "none"' 2>/dev/null)
+                if [ "$LATEST_CR" != "APPROVED" ]; then
+                    # fallback check — scope to comments after current head was committed
+                    HEAD_COMMITTED_AT=$(gh api repos/${{ github.repository }}/commits/"$PR_SHA" --jq '.commit.committer.date' 2>/dev/null || echo "")
+                    CR_STATUS=$(gh api repos/${{ github.repository }}/commits/"$PR_SHA"/status --jq '.statuses | map(select(.context == "CodeRabbit" and .state == "success")) | length' 2>/dev/null || echo 0)
+                    if [ -n "$HEAD_COMMITTED_AT" ]; then
+                      CR_COMMENT=$(gh api repos/${{ github.repository }}/issues/"$PR_NUM"/comments --paginate 2>/dev/null | jq -rs --arg since "$HEAD_COMMITTED_AT" 'add | map(select((.user.login == "coderabbitai[bot]" or .user.login == "coderabbitai") and .created_at >= $since and (.body | test("^\\s*\\[approve\\]\\s*$"; "i")))) | length' 2>/dev/null || echo 0)
+                    else
+                      CR_COMMENT=0
+                    fi
+                    if [ "$CR_STATUS" -eq 0 ] || [ "$CR_COMMENT" -eq 0 ]; then SKIPPED_NOT_6GREEN=$((SKIPPED_NOT_6GREEN + 1)); continue; fi
                 fi
-                if [ "$CR_STATUS" -eq 0 ] || [ "$CR_COMMENT" -eq 0 ]; then SKIPPED_NOT_6GREEN=$((SKIPPED_NOT_6GREEN + 1)); continue; fi
             fi
 
             # Gate 4: Bugbot
@@ -272,7 +276,9 @@ jobs:
             else
               CR_STATE="${LATEST_CR_RAW%$'\n'}"
             fi
-            if [ "$CR_STATE" = "APPROVED" ]; then
+            if echo "$PR_AUTHOR" | grep -qE '^(app/.+|[[:alnum:]_-]+\[bot\])$'; then
+              CR_APPROVED="PASS (author=$PR_AUTHOR (GitHub App — review skipped))"
+            elif [ "$CR_STATE" = "APPROVED" ]; then
               CR_APPROVED="PASS"
             elif [ "$CR_STATE" != "none" ]; then
               CR_APPROVED="FAIL (state=$CR_STATE)"

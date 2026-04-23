@@ -169,19 +169,29 @@ jobs:
 
           # ----------------------------------------------------------------
           # Gate 3: CR APPROVED (latest CR review is APPROVED)
+          # GitHub Apps/bot authors cannot review their own PRs, so skip the
+          # impossible approval requirement for those PRs.
           # ----------------------------------------------------------------
-          LATEST_CR=$(gh api repos/${{ github.repository }}/pulls/"$PR_NUM"/reviews \
-            --jq '[.[] | select(.user.login == "coderabbitai[bot]" and (.state == "APPROVED" or .state == "CHANGES_REQUESTED"))] | sort_by(.submitted_at) | last | .state // "none"' \
-            2>/dev/null || echo "none")
-          LATEST_CR="${LATEST_CR:-none}"
-
-          if [ "$LATEST_CR" = "APPROVED" ]; then
+          PR_AUTHOR=$(gh api repos/${{ github.repository }}/pulls/"$PR_NUM" \
+            --jq '.user.login' 2>/dev/null || echo "unknown")
+          if echo "$PR_AUTHOR" | grep -qE '^(app/.+|[[:alnum:]_-]+\[bot\])$'; then
             GATE3="PASS"
+            GATE3_DETAIL="author=$PR_AUTHOR (GitHub App — review skipped)"
           else
-            GATE3="FAIL"
-            FAILED_GATES="${FAILED_GATES}3, "
+            LATEST_CR=$(gh api repos/${{ github.repository }}/pulls/"$PR_NUM"/reviews \
+              --paginate \
+              --jq '[.[] | select((.user.login == "coderabbitai[bot]" or .user.login == "coderabbitai") and (.state == "APPROVED" or .state == "CHANGES_REQUESTED"))] | sort_by(.submitted_at) | last | .state // "none"' \
+              2>/dev/null || echo "none")
+            LATEST_CR="${LATEST_CR:-none}"
+
+            if [ "$LATEST_CR" = "APPROVED" ]; then
+              GATE3="PASS"
+            else
+              GATE3="FAIL"
+              FAILED_GATES="${FAILED_GATES}3, "
+            fi
+            GATE3_DETAIL="state=$LATEST_CR"
           fi
-          GATE3_DETAIL="state=$LATEST_CR"
           echo "Gate 3: $GATE3 ($GATE3_DETAIL)"
           GATE_ROWS="${GATE_ROWS}| 3. CR approved | ${GATE3} | ${GATE3_DETAIL} |\n"
 

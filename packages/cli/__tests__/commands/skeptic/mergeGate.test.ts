@@ -180,6 +180,29 @@ describe("fetchMergeGateState — skeptic verdict parsing", () => {
     expect(result.skepticCommentId).toBe(98);
   });
 
+  it("treats GitHub App and bot-authored PRs as Gate 3 review-skipped", async () => {
+    const headSha = "abc1230000000000000000000000000000000000";
+    setup({
+      ghJson: [
+        { head: { sha: headSha }, mergeable: true, user: { login: "app/coderabbitai" } },
+        { state: "success" },
+        [],
+      ],
+      paginate: [
+        [],
+        [],
+      ],
+      fetchReviews: [],
+    });
+
+    const result = await fetchMergeGateState(
+      "test", "test-repo", 1, "jleechan-agent[bot]"
+    );
+
+    expect(result.crApproved).toBe(true);
+    expect(result.crState).toBe("review_skipped_author=app/coderabbitai");
+  });
+
   it("rejects legacy SHA-only PASS comments without a fresh request id", async () => {
     const headSha = "abc1230000000000000000000000000000000000";
     setup({
