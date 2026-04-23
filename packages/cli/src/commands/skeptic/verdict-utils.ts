@@ -87,8 +87,6 @@ export interface BoundVerdictOutput {
 
 export function bindVerdictOutput(params: {
   llmOutput: string;
-  headSha?: string;
-  requestId?: string;
 }): BoundVerdictOutput {
   const verdictMatch = params.llmOutput.match(VERDICT_LINE_RE);
   if (!verdictMatch) {

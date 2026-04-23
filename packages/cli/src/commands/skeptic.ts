@@ -257,8 +257,6 @@ export function registerSkeptic(program: Command): Command {
         console.log(chalk.yellow("\n=== DRY RUN — Verdict ===\n"));
         const bound = bindVerdictOutput({
           llmOutput: verdict,
-          headSha: triggerSha,
-          requestId: options.requestId,
         });
         if (bound.verdictType === null) {
           console.warn(chalk.red("Could not parse VERDICT from LLM output."));
@@ -279,8 +277,6 @@ export function registerSkeptic(program: Command): Command {
       // when gate markers are incomplete.
       const bound = bindVerdictOutput({
         llmOutput: verdict,
-        headSha: triggerSha,
-        requestId: options.requestId,
       });
 
       if (bound.verdictType === null) {

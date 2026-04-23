@@ -205,8 +205,6 @@ describe("bindVerdictOutput", () => {
   it("downgrades PASS to FAIL when the fresh verdict contract is incomplete", () => {
     const result = bindVerdictOutput({
       llmOutput: "VERDICT: PASS\n\nAll good.",
-      headSha: "abc1230000000000000000000000000000000000",
-      requestId: "req-1",
     });
 
     expect(result.verdictLine).toBe("VERDICT: FAIL — PASS missing complete skeptic gate table");
@@ -215,7 +213,6 @@ describe("bindVerdictOutput", () => {
   });
 
   it("keeps a complete request-bound PASS unchanged", () => {
-    const headSha = "abc1230000000000000000000000000000000000";
     const result = bindVerdictOutput({
       llmOutput: [
         "<!-- skeptic-gate-1:PASS -->",
@@ -228,8 +225,6 @@ describe("bindVerdictOutput", () => {
         "<!-- skeptic-gate-8:PASS -->",
         "VERDICT: PASS",
       ].join("\n"),
-      headSha,
-      requestId: "req-1",
     });
 
     expect(result.verdictLine).toBe("VERDICT: PASS");
