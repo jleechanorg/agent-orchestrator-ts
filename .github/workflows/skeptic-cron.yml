@@ -40,9 +40,9 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          PR_JSON=$(gh api repos/${{ github.repository }}/pulls \
+          PR_JSON=$(set -o pipefail; gh api repos/${{ github.repository }}/pulls \
             --paginate 2>/dev/null \
-            | jq -s 'add | [.[] | select(.draft == false) | {number, title, head: {ref: .head.ref, sha: .head.sha}, base: {ref: .base.ref}, mergeable}]' 2>/dev/null || echo "[]")
+            | jq -s 'add | [.[] | select(.draft == false) | {number, title, head: {ref: .head.ref, sha: .head.sha}, base: {ref: .base.ref}, mergeable}]' 2>/dev/null) || echo "[]"
 
           echo "Open non-draft PRs found:"
           echo "$PR_JSON" | jq -c '.[]' 2>/dev/null || echo "$PR_JSON"
@@ -448,10 +448,8 @@ jobs:
             echo "  [5] Comments resolved:   $COMMENTS_STATUS"
 
             # 6. Evidence review (fail-closed)
-            # No --paginate: reviews API returns up to 100/page, sufficient for any PR.
-            # Also filters by .commit_id to ensure approval is for the correct HEAD.
-            # --paginate: fetch all review pages so evidence-review-bot approval on a later
-            # page is not missed for long-lived PRs with many reviews.
+            # --paginate fetches all review pages so evidence-review-bot approvals on a later
+            # page are not missed for long-lived PRs, while .commit_id keeps the match on HEAD.
             EVIDENCE_APPROVED=$(gh api repos/${{ github.repository }}/pulls/"$PR_NUM"/reviews \
               --paginate 2>/dev/null \
               | jq -sr '[add[] | select(.user.login == "evidence-review-bot" and .state == "APPROVED" and .commit_id == "'"$PR_SHA"'")] | length' 2>/dev/null || echo 0)

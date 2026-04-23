@@ -173,8 +173,12 @@ export function registerSkeptic(program: Command): Command {
         process.exit(1);
       }
 
-      // Normalize triggerSha once — used in findExistingVerdict and postVerdict calls
-      const triggerSha = options.triggerSha?.trim();
+      // Normalize triggerSha once — used in findExistingVerdict and postVerdict calls.
+      // Invalid SHA-like input is treated as unset so lookup/post semantics stay aligned.
+      const rawTriggerSha =
+        typeof options.triggerSha === "string" ? options.triggerSha.trim() : undefined;
+      const triggerSha =
+        rawTriggerSha && /^[0-9a-f]{7,40}$/i.test(rawTriggerSha) ? rawTriggerSha : undefined;
       const [owner, repo] = await resolveRepo(options);
       const spinner = ora(`Fetching PR #${prNumber} state…`).start();
 
