@@ -121,4 +121,19 @@ describe("classifyPrType", () => {
     const result = await classifyPrType("ci fix", "fix CI");
     expect(result.confidence).toBe("low");
   });
+
+  it("defaults reasoning when model returns a non-string reasoning field", async () => {
+    mockMessagesCreate.mockResolvedValueOnce({
+      content: [
+        {
+          type: "text",
+          text: '{"type":"ci-workflow","confidence":"medium","reasoning":42}',
+        },
+      ],
+    });
+    const result = await classifyPrType("ci fix", "fix CI");
+    expect(result.type).toBe("ci-workflow");
+    expect(result.confidence).toBe("medium");
+    expect(result.reasoning).toBe("parsed from model response");
+  });
 });
