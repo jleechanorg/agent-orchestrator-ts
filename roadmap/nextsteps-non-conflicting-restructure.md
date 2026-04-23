@@ -13,7 +13,7 @@
 ## Executive summary
 
 - **Outcome**: Zero upstream commits merge cleanly — structural divergence too deep for cherry-pick. But the fork has non-conflicting paths forward.
-- **Fast wins**: (1) Fork-companion files (`fork-*.ts`) are zero-conflict — they're new files, not modifications. (2) Config-driven behavior in `agent-orchestrator.yaml` merges with zero conflict. (3) New plugin packages (`packages/plugins/notifier-discord/`) have already proven merge-clean. (4) `fork-skeptic-extension.ts`, `fork-dead-agent.ts`, `fork-reaction-retry-policy.ts`, `fork-utils.ts` are upstream-worthy candidates (~205 LOC).
+- **Fast wins**: (1) Fork-companion files (`fork-*.ts`) are zero-conflict — they're new files, not modifications. (2) Config-driven behavior in `agent-orchestrator.yaml` merges with zero conflict. (3) New plugin packages (`packages/plugins/notifier-discord/`) have already proven merge-clean. (4) `fork-skeptic-extension.ts`, `fork-utils.ts`, `fork-dead-agent.ts`, `fork-reaction-retry-policy.ts` are upstream-worthy candidates (~205 LOC).
 - **Strategy**: "Companion-first, plugin-second" — isolate fork-specific code into `fork-*.ts` companion files and new plugin packages, avoiding modifications to upstream-touched files. Upstream contributions for genuinely useful fork patterns. Config for behavior where possible.
 - **Top priority**: Audit `fork-*.ts` files, classify what is truly fork-only vs upstream-worthy, then restructure to eliminate inline modifications to upstream files.
 - **Beads**: `bd-8kel` (Phase 1 plugin extraction), new bead `bd-3bnk` (non-conflicting restructure audit)
@@ -136,17 +136,17 @@ Full report: `docs/restructure-phases/phase-e-report.md`
 | **C: Inline candidates** | Currently inlined in core files but extractable to fork-*.ts | Extract to companion file to reduce core file divergence |
 
 **Files to audit** (`packages/core/src/fork-*.ts`):
-- `fork-skeptic-extension.ts` (59 LOC) — bucket A (upstream-worthy)
-- `fork-claim-verification.ts` (257 LOC) — bucket B (fork-specific GHA workflow integration)
-- `fork-utils.ts` (36 LOC) — bucket A
-- `fork-slash-command-routing.ts` (88 LOC) — bucket B or C
-- `fork-dead-agent.ts` (63 LOC) — bucket A or B
-- `fork-reaction-handlers.ts` (149 LOC) — bucket B (fork-specific reactions)
-- `fork-reaction-retry-policy.ts` (40 LOC) — bucket A (could generalize)
-- `fork-reaction-rfr.ts` (282 LOC) — bucket B (fork-specific RFR logic)
-- `fork-lifecycle-manager.ts` (238 LOC) — bucket B (fork-specific)
-- `fork-lifecycle-postmerge.ts` (237 LOC) — bucket B
-- `fork-lifecycle-kki-override.ts` (38 LOC) — bucket B
+- `fork-skeptic-extension.ts` — bucket A (upstream-worthy)
+- `fork-claim-verification.ts` — bucket B (fork-specific GHA workflow integration)
+- `fork-utils.ts` — bucket A
+- `fork-slash-command-routing.ts` — bucket B or C
+- `fork-dead-agent.ts` — bucket A or B
+- `fork-reaction-handlers.ts` — bucket B (fork-specific reactions)
+- `fork-reaction-retry-policy.ts` — bucket A (could generalize)
+- `fork-reaction-rfr.ts` — bucket B (fork-specific RFR logic)
+- `fork-lifecycle-manager.ts` — bucket B (fork-specific)
+- `fork-lifecycle-postmerge.ts` — bucket B
+- `fork-lifecycle-kki-override.ts` — bucket B
 
 **Key question**: Are `fork-lifecycle-manager.ts`, `fork-lifecycle-postmerge.ts`, `fork-lifecycle-kki-override.ts` actually loaded/imported anywhere? If they are dead code, they can be archived.
 

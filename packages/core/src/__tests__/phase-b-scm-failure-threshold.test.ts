@@ -129,7 +129,7 @@ beforeEach(() => {
     claimPR: vi.fn(),
   } as SessionManager;
 
-  // Default config — scmFailureThreshold does NOT exist yet
+  // Default config
   config = {
     configPath,
     port: 3000,
@@ -302,7 +302,7 @@ describe("scmFailureThreshold config (Phase B)", () => {
           defaultBranch: "main",
           sessionPrefix: "app",
           scm: { plugin: "mock-scm" },
-          // scmFailureThreshold: 2 — THIS FIELD DOES NOT EXIST YET
+          scmFailureThreshold: 2,
         },
       },
     };
