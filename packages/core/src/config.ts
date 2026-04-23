@@ -306,8 +306,6 @@ const OrchestratorConfigSchema = z.object({
   directTerminalPort: z.number().optional(),
   readyThresholdMs: z.number().nonnegative().default(300_000),
   startupGracePeriodMs: z.number().nonnegative().default(120_000),
-  // bd-6jc: Kill dead-agent sessions after this many consecutive SCM failures.
-  scmFailureThreshold: z.number().int().min(1).max(100).default(3),
   defaults: DefaultPluginsSchema.default({}),
   projects: z.record(ProjectConfigSchema),
   notifiers: z.record(NotifierConfigSchema).default({}),

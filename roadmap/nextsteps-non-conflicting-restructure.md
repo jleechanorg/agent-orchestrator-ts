@@ -13,7 +13,7 @@
 ## Executive summary
 
 - **Outcome**: Zero upstream commits merge cleanly — structural divergence too deep for cherry-pick. But the fork has non-conflicting paths forward.
-- **Fast wins**: (1) Fork-companion files (`fork-*.ts`) are zero-conflict — they're new files, not modifications. (2) Config-driven behavior in `agent-orchestrator.yaml` merges with zero conflict. (3) New plugin packages (`packages/plugins/notifier-discord/`) have already proven merge-clean. (4) `fork-skeptic-extension.ts`, `fork-dead-agent.ts`, `fork-reaction-retry-policy.ts`, `fork-utils.ts` are upstream-worthy candidates (~298 LOC).
+- **Fast wins**: (1) Fork-companion files (`fork-*.ts`) are zero-conflict — they're new files, not modifications. (2) Config-driven behavior in `agent-orchestrator.yaml` merges with zero conflict. (3) New plugin packages (`packages/plugins/notifier-discord/`) have already proven merge-clean. (4) `fork-skeptic-extension.ts`, `fork-dead-agent.ts`, `fork-reaction-retry-policy.ts`, `fork-utils.ts` are upstream-worthy candidates (~205 LOC).
 - **Strategy**: "Companion-first, plugin-second" — isolate fork-specific code into `fork-*.ts` companion files and new plugin packages, avoiding modifications to upstream-touched files. Upstream contributions for genuinely useful fork patterns. Config for behavior where possible.
 - **Top priority**: Audit `fork-*.ts` files, classify what is truly fork-only vs upstream-worthy, then restructure to eliminate inline modifications to upstream files.
 - **Beads**: `bd-8kel` (Phase 1 plugin extraction), new bead `bd-3bnk` (non-conflicting restructure audit)
@@ -60,9 +60,9 @@ The fork is 827 commits ahead of upstream — it is actively developed, not a st
 
 | File | Change |
 |------|--------|
-| `types.ts` | Added `scmFailureThreshold?: number` to `OrchestratorConfig`, `DefaultPlugins`, `ProjectConfig` |
+| `types.ts` | Added `scmFailureThreshold?: number` to `DefaultPlugins`, `ProjectConfig` |
 | `config.ts` | Added Zod schema fields at all three levels |
-| `lifecycle-manager.ts` | Replaced `const SCM_FAILURE_THRESHOLD = 3` with `projectConfig?.scmFailureThreshold ?? config.scmFailureThreshold ?? 3` |
+| `lifecycle-manager.ts` | Replaced `const SCM_FAILURE_THRESHOLD = 3` with `projectConfig?.scmFailureThreshold ?? config.defaults.scmFailureThreshold ?? 3` |
 | `__tests__/phase-b-scm-failure-threshold.test.ts` | **New** — 3 TDD tests, all passing |
 
 **Additional hardcoded behaviors identified** (not yet extracted):

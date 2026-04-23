@@ -596,7 +596,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     // successful SCM call; only kills after scmFailureThreshold consecutive failures.
     // Use project override if set, otherwise global default (3).
     const projectConfig = config.projects[session.projectId];
-    const SCM_FAILURE_THRESHOLD = projectConfig?.scmFailureThreshold ?? config.scmFailureThreshold ?? 3;
+    const SCM_FAILURE_THRESHOLD = projectConfig?.scmFailureThreshold ?? config.defaults.scmFailureThreshold ?? 3;
     const SCM_FAILURE_COUNT_MAX = 1_000_000; // bd-ara.2: cap overflow from legacy values
     const rawCount = session.metadata["scmFailureCount"];
     let scmFailureCount =
