@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Classifies a GitHub issue/PR description into a PR-type category, then recommends the appropriate autor technique. All classification is delegated to the model API — no heuristic scoring, keyword matching, or hardcoded routing tables.
+Classifies a GitHub issue/PR description into a PR-type category, then recommends the appropriate autor technique. This is **classification-only until routing is wired**: `classifyPrType()` returns PR-type metadata, but technique resolution still happens separately through prompt/config defaults. All classification is delegated to the model API — no heuristic scoring, keyword matching, or hardcoded routing tables.
 
 ## PR Types
 
@@ -17,7 +17,7 @@ Classifies a GitHub issue/PR description into a PR-type category, then recommend
 
 ## Technique Selection (Autor Research — Phase 10)
 
-All 9 autor techniques converge within rubric noise (~80-85 CI overlap). **SR-prtype is the safe default** for all PR types. No per-type routing is statistically justified.
+All 9 autor techniques converge within rubric noise (~80-85 confidence-interval overlap). **SR-prtype is the safe default** for all PR types. No per-type routing is statistically justified.
 
 | Technique | Description | When to use |
 |-----------|-------------|-------------|
@@ -29,7 +29,7 @@ All 9 autor techniques converge within rubric noise (~80-85 CI overlap). **SR-pr
 
 ## Usage
 
-```
+```bash
 /technique-router <issue-title> <issue-body-or-url>
 ```
 
@@ -48,4 +48,4 @@ This skill DOES:
 
 ## Integration
 
-Used by `decomposer.ts`'s `classifyPrType()` function in the AO core library.
+Used by `packages/core/src/decomposer.ts`'s `classifyPrType()` function in the AO core library. That function classifies PR type only; it does not yet select or apply a technique directly.
