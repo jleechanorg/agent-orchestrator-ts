@@ -8,11 +8,14 @@
 set -euo pipefail
 
 # Run a command, filter its output through grep/head, exit non-zero on command failure.
+# stdin is connected to /dev/null to prevent interactive prompts from causing silent hangs
+# (setup.sh enables interactive mode when stdin is a tty, issuing read prompts that write to
+# stderr which gets redirected to the log — leaving the terminal invisible and read waiting).
 run_filtered() {
   local filter="$1"; local limit="$2"; shift 2
   local log
   log="$(mktemp)"
-  if ! "$@" >"$log" 2>&1; then
+  if ! "$@" >"$log" 2>&1 </dev/null; then
     grep -E "$filter" "$log" | head -n "$limit" || true
     rm -f "$log"; return 1
   fi
@@ -21,6 +24,9 @@ run_filtered() {
 }
 
 HERMES_HOME="${HERMES_HOME:-$HOME/.hermes_prod}"
+# AO config lives in ~/.openclaw_prod/ ( searched by ao CLI config discovery ).
+# Hermes gateway uses its own ~/.hermes_prod/ for gateway-level config.
+OPENCLAW_PROD="$HOME/.openclaw_prod"
 AGENT_ORCHESTRATOR_REPO="${AGENT_ORCHESTRATOR_REPO:-https://github.com/jleechanorg/agent-orchestrator}"
 AGENT_ORCHESTRATOR_BRANCH="${AGENT_ORCHESTRATOR_BRANCH:-main}"
 AO_REPO_ROOT="${AO_REPO_ROOT:-$HOME/project_agento/agent-orchestrator}"
@@ -56,11 +62,11 @@ SCRIPT_DIR="$REPO_ROOT/scripts"
 echo "[1/7] Running setup.sh (install + build)..."
 run_filtered '^\[ok\]|\[ERROR\]|ERROR|complete' 20 bash -c "cd \"$REPO_ROOT\" && bash \"$SCRIPT_DIR/setup.sh\""
 
-# ─── Step 2: Bootstrap config at hermes_prod ─────────────────────────────────
-echo "[2/7] Bootstrapping AO config at $HERMES_HOME/agent-orchestrator.yaml..."
+# ─── Step 2: Bootstrap AO config at openclaw_prod ────────────────────────────
+echo "[2/7] Bootstrapping AO config at $OPENCLAW_PROD/agent-orchestrator.yaml..."
 
-mkdir -p "$HERMES_HOME"
-CONFIG_FILE="$HERMES_HOME/agent-orchestrator.yaml"
+mkdir -p "$OPENCLAW_PROD"
+CONFIG_FILE="$OPENCLAW_PROD/agent-orchestrator.yaml"
 
 # Backup existing config before overwriting
 if [ -f "$CONFIG_FILE" ]; then
@@ -144,10 +150,11 @@ else
   done
 fi
 
-# ─── Step 7: Final verification via ao doctor ────────────────────────────────
+# ─── Step 7: Final verification via ao doctor ──────────────────────────────────
 echo "[7/7] Running ao doctor..."
 if command -v ao &>/dev/null; then
-  run_filtered '(PASS|WARN|FAIL|Results:)' 5 env AO_CONFIG_PATH="$CONFIG_FILE" ao doctor
+  # Use || true so set -e doesn't abort when ao doctor exits 1 (common on fresh install with WARNs).
+  run_filtered '(PASS|WARN|FAIL|Results:)' 5 env AO_CONFIG_PATH="$CONFIG_FILE" ao doctor || true
 else
   echo "  ao CLI not in PATH — run: export PATH=\"\$(npm config get prefix)/bin:\$PATH\""
 fi

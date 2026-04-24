@@ -1,25 +1,28 @@
 #!/bin/bash
 # ao-repo-setup.sh — Bootstrap a fresh AO worker node
-# Replaces multiple legacy config directories with ~/.hermes_prod/ as sole source.
+# Replaces multiple legacy config directories with ~/.openclaw_prod/ as canonical location.
 # Usage: curl -fsSL https://raw.githubusercontent.com/jleechanorg/agent-orchestrator/main/scripts/ao-repo-setup.sh | bash
 set -euo pipefail
 
 HERMES_HOME="${HERMES_HOME:-$HOME/.hermes_prod}"
+OPENCLAW_PROD="${OPENCLAW_PROD:-$HOME/.openclaw_prod}"
 AGENT_ORCHESTRATOR_REPO="${AGENT_ORCHESTRATOR_REPO:-https://github.com/jleechanorg/agent-orchestrator}"
 AGENT_ORCHESTRATOR_BRANCH="${AGENT_ORCHESTRATOR_BRANCH:-main}"
 
 echo "=== AO Repo Setup ==="
 echo "Hermes home: $HERMES_HOME"
+echo "OpenClaw prod: $OPENCLAW_PROD"
 echo "Repo: $AGENT_ORCHESTRATOR_REPO ($AGENT_ORCHESTRATOR_BRANCH)"
 echo
 
-# Step 1: Verify hermes_prod exists and has config
-if [ ! -f "$HERMES_HOME/agent-orchestrator.yaml" ]; then
-    echo "ERROR: $HERMES_HOME/agent-orchestrator.yaml not found."
-    echo "Run 'ao setup' first or ensure hermes_prod is initialized."
+# Step 1: Verify AO config exists (canonical location is ~/.openclaw_prod/)
+AO_CONFIG="$OPENCLAW_PROD/agent-orchestrator.yaml"
+if [ ! -f "$AO_CONFIG" ]; then
+    echo "ERROR: $AO_CONFIG not found."
+    echo "Run 'ao-install.sh' first to bootstrap the AO config."
     exit 1
 fi
-echo "[1/6] Hermes config verified: $HERMES_HOME/agent-orchestrator.yaml"
+echo "[1/6] AO config verified: $AO_CONFIG"
 
 # Step 2: Verify ao CLI is installed
 if ! command -v ao &>/dev/null; then
@@ -43,7 +46,7 @@ fi
 # Step 4: Check workspace directory
 WORKTREE_DIR=$(python3 -c "
 import yaml, os
-c = yaml.safe_load(open('$HERMES_HOME/agent-orchestrator.yaml'))
+c = yaml.safe_load(open('$AO_CONFIG'))
 wt = c.get('worktreeDir', os.path.join(os.environ.get('HOME', ''), '.worktrees'))
 print(os.path.expanduser(wt))
 " 2>/dev/null || echo "$HOME/.worktrees")
@@ -69,7 +72,7 @@ fi
 
 echo
 echo "=== Setup Complete ==="
-echo "Hermes config: $HERMES_HOME/agent-orchestrator.yaml"
+echo "AO config: $AO_CONFIG"
 echo "Worktrees: $WORKTREE_DIR"
 echo "AO CLI: $(which ao)"
 echo
