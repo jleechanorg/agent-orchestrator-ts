@@ -558,6 +558,7 @@ describe("workspace.create()", () => {
     mockGitError(
       `Command failed: git worktree add -b feat/TEST-1 ${worktreePath} HEAD\nfatal: A branch named 'feat/TEST-1' already exists.`,
     ); // worktree add -b fails with branch collision (NOT path collision)
+    mockGitSuccess(""); // git worktree list --porcelain (ghost check — worktreePath not registered)
     // Branch-exists recovery: worktree add (without -b) succeeds
     mockGitSuccess(""); // worktree add
     // checkout succeeds
@@ -576,7 +577,7 @@ describe("workspace.create()", () => {
         call[1][0] === "worktree" &&
         call[1][1] === "list",
     );
-    expect(listCall).toBeUndefined();
+    expect(listCall).toBeDefined();
 
     // Verify: branch-exists recovery path was used (worktree add without -b)
     const addCall = mockExecFileAsync.mock.calls.find(
