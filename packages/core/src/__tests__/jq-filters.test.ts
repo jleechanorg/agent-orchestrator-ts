@@ -792,6 +792,10 @@ describe("skeptic-cron-reusable.yml — request-id freshness contract", () => {
     expect(workflow).toContain("Unresolved cron request id exists for PR");
   });
 
+  it("skips trigger when FAIL/SKIPPED verdict already exists for current SHA", () => {
+    expect(workflow).toContain("Existing cron FAIL verdict for PR");
+  });
+
   it("derives the merge-step request id from cron trigger comments for the current SHA", () => {
     expect(workflow).toContain('REQUEST_ID=$(echo "$SKEPTIC_RAW" | jq -sr --arg sha "$HEAD_SHA"');
     expect(workflow).toContain('and (.body | test("SKEPTIC_CRON_TRIGGER"; "i"))');
