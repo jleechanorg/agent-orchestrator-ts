@@ -184,9 +184,18 @@ export async function fetchMergeGateState(
   const latestCR = getLatestDecisiveReview(reviews);
   const crDismissedWithoutApproval = hasUnresolvedDismissedReview(reviews);
 
+  // GitHub Apps/bot authors cannot review their own PRs — skip Gate 3 for these authors.
+  // This aligns CLI behavior with workflow behavior (green-gate.yml, skeptic-cron.yml,
+  // skeptic-gate-reusable.yml all skip Gate 3 for app/.+ and [[:alnum:]_-]+\[bot\]).
+  const APP_OR_BOT_PATTERN = /^(app\/.+|[a-zA-Z0-9_-]+\[bot\])$/i;
+  const isAppOrBotAuthor = typeof prAuthor === "string" && APP_OR_BOT_PATTERN.test(prAuthor);
+
   let crApproved = false;
   let crState = "none";
-  if (latestCR) {
+  if (isAppOrBotAuthor) {
+    crApproved = true;
+    crState = "review_skipped_author=" + prAuthor;
+  } else if (latestCR) {
     crState = latestCR.state;
     crApproved = (latestCR.state ?? "").toLowerCase() === "approved" && !crDismissedWithoutApproval;
   }
