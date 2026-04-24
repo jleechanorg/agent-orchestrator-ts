@@ -92,14 +92,15 @@ projects:
 EOF
 
 for pid in $PROJECTS; do
-  echo "  $pid:" >> "$CONFIG_FILE"
+  echo "  ${pid}:" >> "$CONFIG_FILE"
   echo "    name: ${pid}" >> "$CONFIG_FILE"
-  echo "    repo: jleechanorg/$pid" >> "$CONFIG_FILE"
-  echo "    path: ~/project_agento/$pid" >> "$CONFIG_FILE"
+  echo "    repo: https://github.com/jleechanorg/${pid}" >> "$CONFIG_FILE"
+  echo "    path: ~/project_agento/${pid}" >> "$CONFIG_FILE"
   echo "    defaultBranch: main" >> "$CONFIG_FILE"
   echo "    sessionPrefix: ${pid}" >> "$CONFIG_FILE"
   echo "    scm:" >> "$CONFIG_FILE"
   echo "      plugin: github" >> "$CONFIG_FILE"
+  echo "      repo: jleechanorg/${pid}" >> "$CONFIG_FILE"
 done
 
 chmod 600 "$CONFIG_FILE"
