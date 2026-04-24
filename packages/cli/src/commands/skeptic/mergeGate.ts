@@ -17,7 +17,6 @@ import {
 } from "./verdict-utils.js";
 
 const NIT_PATTERN = /^(nit:|nitpick)/i;
-const APP_OR_BOT_AUTHOR_PATTERN = /^(app\/.+|[\w-]+\[bot\])$/i;
 // GraphQL author.login returns "coderabbitai" (without [bot] suffix) for the CodeRabbit bot.
 // REST API user.login returns "coderabbitai[bot]" — but fetchReviews uses GraphQL, so this is correct.
 const CR_BOT = "coderabbitai";
@@ -187,10 +186,7 @@ export async function fetchMergeGateState(
 
   let crApproved = false;
   let crState = "none";
-  if (prAuthor && APP_OR_BOT_AUTHOR_PATTERN.test(prAuthor)) {
-    crApproved = true;
-    crState = `review_skipped_author=${prAuthor}`;
-  } else if (latestCR) {
+  if (latestCR) {
     crState = latestCR.state;
     crApproved = (latestCR.state ?? "").toLowerCase() === "approved" && !crDismissedWithoutApproval;
   }
