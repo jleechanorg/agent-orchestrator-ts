@@ -382,6 +382,45 @@ describe("workspace.create()", () => {
     );
   });
 
+  it("reports retry checkout error when stale worktree removed but subsequent checkout fails", async () => {
+    const ws = create();
+    const worktreePath = "/mock-home/.worktrees/myproject/session-retry";
+    const staleWorktreePath = "/mock-home/.worktrees/myproject/other-session";
+
+    let checkoutAttempts = 0;
+    mockExecFileAsync.mockImplementation((cmd: string, args: string[], opts?: { cwd?: string }) => {
+      if (cmd === "git" && args[0] === "checkout" && args[1] === "feat/TEST-1" && opts?.cwd === worktreePath) {
+        checkoutAttempts++;
+        if (checkoutAttempts === 1) {
+          // First checkout: stale worktree reference
+          return Promise.reject(new Error(`already exists, already checked out at '${staleWorktreePath}'`));
+        }
+        // Second checkout: retry fails with different error
+        return Promise.reject(new Error("Permission denied"));
+      }
+      // Stale worktree removal succeeds
+      if (cmd === "git" && args[0] === "worktree" && args[1] === "remove") {
+        return Promise.resolve({ stdout: "\n", stderr: "" });
+      }
+      // reuseExistingBranch path: worktree add succeeds (branch already exists)
+      if (cmd === "git" && args[0] === "worktree" && args[1] === "add" && args.includes("-b")) {
+        return Promise.reject(new Error("A branch named 'feat/TEST-1' already exists."));
+      }
+      if (cmd === "git" && args[0] === "worktree" && args[1] === "add" && !args.includes("-b")) {
+        return Promise.resolve({ stdout: "\n", stderr: "" });
+      }
+      // tmux list-sessions: no active session
+      if (cmd === "tmux") {
+        return Promise.resolve({ stdout: "\n", stderr: "" });
+      }
+      return Promise.resolve({ stdout: "\n", stderr: "" });
+    });
+
+    await expect(ws.create(makeCreateConfig({ sessionId: "session-retry" }))).rejects.toThrow(
+      /Failed to checkout branch "feat\/TEST-1" in worktree: Permission denied/,
+    );
+  });
+
   it("still throws on checkout failure even if cleanup fails", async () => {
     const ws = create();
 

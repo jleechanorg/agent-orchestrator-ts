@@ -242,10 +242,19 @@ async function reuseExistingBranch(
       try {
         const removedStale = await maybeRemoveStaleCheckedOutWorktree(repoPath, checkoutMsg, worktreeBaseDir);
         if (removedStale) {
-          await git(worktreePath, "checkout", branch);
-          checkoutSucceeded = true;
+          try {
+            await git(worktreePath, "checkout", branch);
+            checkoutSucceeded = true;
+          } catch (retryErr: unknown) {
+            // Capture retry failure — prefer the actual error over the original stale-checkout error.
+            const retryMsg = retryErr instanceof Error ? retryErr.message : String(retryErr);
+            throw Object.assign(
+              new Error(`Failed to checkout branch "${branch}" in worktree: ${retryMsg}`),
+              { cause: retryErr },
+            );
+          }
         }
-        // else: Non-AO worktree holds the branch lock — let the error propagate.
+        // else: Non-AO worktree holds the branch lock — let the original error propagate.
       } catch {
         // Fall through to original error path.
       }
