@@ -203,11 +203,11 @@ fi
 # ─── Step 7: Final verification via ao doctor ──────────────────────────────────
 echo "[7/7] Running ao doctor..."
 if command -v ao &>/dev/null; then
-  # ao doctor exits non-zero when any health check fails — suppress that to avoid
-  # masking the actual install work; still surface its filtered output for visibility
-  run_filtered '(PASS|WARN|FAIL|Results:)' 5 env AO_CONFIG_PATH="$CONFIG_FILE" ao doctor
+  AO_CONFIG_PATH="$CONFIG_FILE" ao doctor 2>&1 | grep -E '(PASS|WARN|FAIL|Results:)' | tail -5
+  DOCTOR_RESULT=${PIPESTATUS[0]}
 else
-  echo "  ao CLI not in PATH — run: export PATH=\"\$(npm config get prefix)/bin:\$PATH\""
+  echo "  ao CLI not in PATH — run: export PATH=\"$(npm config get prefix)/bin:$PATH\""
+  DOCTOR_RESULT=1
 fi
 
 # ─── Keep repo for curl mode ─────────────────────────────────────────────────
@@ -216,10 +216,18 @@ fi
 # and setup-extended.sh may install launchd jobs pointing to its scripts.
 
 echo ""
-echo "=== Install Complete ==="
-echo "Mode: $MODE"
-echo "Config: $CONFIG_FILE"
-echo "Workers running: $WORKER_COUNT/$(echo "$PROJECTS" | wc -w)"
+if [ "${DOCTOR_RESULT:-0}" -eq 0 ]; then
+  echo "=== Install Complete ==="
+  echo "Mode: $MODE"
+  echo "Config: $CONFIG_FILE"
+  echo "Workers running: $WORKER_COUNT/$(echo "$PROJECTS" | wc -w)"
+else
+  echo "=== Install Failed — ao doctor reported issues ==="
+  echo "Mode: $MODE"
+  echo "Config: $CONFIG_FILE"
+  echo "Workers running: $WORKER_COUNT/$(echo "$PROJECTS" | wc -w)"
+  exit 1
+fi
 echo ""
 echo "Next steps:"
 echo "  AO_CONFIG_PATH=\"$CONFIG_FILE\" ao spawn --project agent-orchestrator 'echo hello'"
