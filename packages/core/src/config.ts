@@ -297,7 +297,7 @@ const DefaultPluginsSchema = z.object({
   // bd-n047: default auto-merge settings for all projects
   autoMerge: AutoMergeDefaultsSchema.optional(),
   // Phase B: scmFailureThreshold — kills dead-agent sessions after N consecutive SCM failures
-  scmFailureThreshold: z.number().int().min(1).max(100).optional(),
+  scmFailureThreshold: z.number().int().min(1).max(100).default(3).optional(),
 });
 
 const OrchestratorConfigSchema = z.object({

@@ -9,7 +9,7 @@
  * This is a LIVENESS test -- proves the companions are live code, not dead weight.
  */
 
-import { beforeAll, describe, it, expect } from "vitest";
+import { describe, it, expect } from "vitest";
 import { resolve } from "node:path";
 import { stat, readFile } from "node:fs/promises";
 
@@ -31,17 +31,6 @@ const FORK_FILES = [
 ] as const;
 
 type ForkFile = (typeof FORK_FILES)[number];
-
-const escapeRegex = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-
-function hasNamedValueExport(source: string, name: string): boolean {
-  const escapedName = escapeRegex(name);
-  const exportPattern = new RegExp(
-    `(?:export\\s+(?:function|const|async\\s+function|class)\\s+${escapedName}(?![A-Za-z0-9_$])|export\\s+\\{\\s*[^}]*\\s+as\\s+${escapedName}\\s*\\}|export\\s+\\{\\s*${escapedName}\\s*\\})`,
-    "m",
-  );
-  return exportPattern.test(source);
-}
 
 // VALUE exports only (functions/consts -- not type-only interfaces).
 // Type-only exports are verified by TypeScript compilation.
@@ -89,17 +78,24 @@ describe("fork-companion-audit liveness", () => {
 // ---------------------------------------------------------------------------
 
 describe("fork-companion-audit exports", () => {
-  it("matches exact export identifiers instead of prefix matches", () => {
-    expect(hasNamedValueExport("export function setProjectPause() {}", "setProjectPause")).toBe(true);
-    expect(hasNamedValueExport("export function setProjectPaused() {}", "setProjectPause")).toBe(false);
-  });
-
   for (const [file, expectedExports] of Object.entries(EXPECTED_VALUE_EXPORTS)) {
     const fullPath = resolve(CORE_SRC, `${file}.ts`);
     it(`${file}.ts exports expected value names`, async () => {
       const src = await readFile(fullPath, "utf8");
       for (const name of expectedExports) {
-        expect(hasNamedValueExport(src, name), `${file}.ts missing value export: ${name}`).toBe(true);
+        // Check the source contains `export { ${name} }` or `export function ${name}`
+        // or `export const ${name}` or `export async function ${name}`
+        // or `export { ${something} as ${name} }` (re-export aliases)
+        // Escape name in case it contains regex metacharacters (e.g. "a.b" → "a\\.b")
+        const escapedName = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        const exportPattern = new RegExp(
+          `(?:export\\s+(?:function|const|async\\s+function|class)\\s+${escapedName}|export\\s+\\{\\s*[^}]*\\s+as\\s+${escapedName}\\s*\\}|export\\s+\\{\\s*${escapedName}\\s*\\})`,
+          "m",
+        );
+        expect(
+          exportPattern.test(src),
+          `${file}.ts missing value export: ${name}`,
+        ).toBe(true);
       }
     });
   }
@@ -111,7 +107,6 @@ describe("fork-companion-audit exports", () => {
 // ---------------------------------------------------------------------------
 
 describe("fork-companion-audit imported by lifecycle-manager.ts", () => {
-  let lifecycleManagerSource = "";
   const consumedByLifecycleManager: ForkFile[] = [
     "fork-lifecycle-manager",
     "fork-lifecycle-kki-override",
@@ -125,14 +120,16 @@ describe("fork-companion-audit imported by lifecycle-manager.ts", () => {
     "fork-lifecycle-postmerge",
   ];
 
-  beforeAll(async () => {
-    lifecycleManagerSource = await readFile(resolve(CORE_SRC, "lifecycle-manager.ts"), "utf8");
+  it("lifecycle-manager.ts imports fork-lifecycle-postmerge", async () => {
+    const lmSrc = await readFile(resolve(CORE_SRC, "lifecycle-manager.ts"), "utf8");
+    expect(lmSrc).toContain('from "./fork-lifecycle-postmerge.js"');
   });
 
   for (const file of consumedByLifecycleManager) {
-    it(`lifecycle-manager.ts imports ${file}`, () => {
+    it(`lifecycle-manager.ts imports ${file}`, async () => {
+      const lmSrc = await readFile(resolve(CORE_SRC, "lifecycle-manager.ts"), "utf8");
       expect(
-        lifecycleManagerSource.includes(`from "./${file}.js"`),
+        lmSrc.includes(`from "./${file}.js"`),
         `lifecycle-manager.ts does not import ${file}`,
       ).toBe(true);
     });

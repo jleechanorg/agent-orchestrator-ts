@@ -243,7 +243,7 @@ export function generateConfigFromUrl(options: GenerateConfigOptions): Record<st
       runtime: "tmux",
       agent: "codex",
       workspace: "worktree",
-      notifiers: ["composio"],
+      notifiers: ["desktop"],
       modelByCli: {
         codex: { model: "gpt-5.4" },
       },

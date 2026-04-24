@@ -70,7 +70,6 @@ import { isPRMerged } from "./fork-lifecycle-kki-override.js";
 import { handleRequestMerge, handleParallelRetry } from "./fork-reaction-handlers.js";
 import { handleRespawnForReview } from "./fork-reaction-rfr.js";
 import { maybeDispatchReviewBacklog } from "./review-backlog.js";
-import { resolveScmFailureThreshold } from "./scm-failure-threshold.js";
 import { getAllSessionPrefixes, isOrchestratorSessionForPrefix } from "./session-prefixes.js";
 import { updateSessionMetadataHelper } from "./fork-utils.js";
 import { checkMergeGate, type MergeGateResult } from "./merge-gate.js";
@@ -595,8 +594,9 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     // transient SCM failures (network blip, rate limit). Count is persisted in
     // session metadata so it survives across poll cycles. Resets to 0 on any
     // successful SCM call; only kills after scmFailureThreshold consecutive failures.
-    // Resolution order: project override → defaults block → top-level fallback → 3.
-    const SCM_FAILURE_THRESHOLD = resolveScmFailureThreshold(project, config);
+    // Use project override if set, otherwise global default (3).
+    const projectConfig = config.projects[session.projectId];
+    const SCM_FAILURE_THRESHOLD = projectConfig?.scmFailureThreshold ?? config.scmFailureThreshold ?? 3;
     const SCM_FAILURE_COUNT_MAX = 1_000_000; // bd-ara.2: cap overflow from legacy values
     const rawCount = session.metadata["scmFailureCount"];
     let scmFailureCount =
