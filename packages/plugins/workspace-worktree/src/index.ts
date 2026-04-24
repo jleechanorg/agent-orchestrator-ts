@@ -257,6 +257,13 @@ async function reuseExistingBranch(
       }
       if (retryErr !== undefined) {
         const retryMsg = retryErr instanceof Error ? retryErr.message : String(retryErr);
+        // Worktree was created by `git worktree add` at line 233 but checkout retry failed.
+        // Clean up the orphaned worktree before propagating the error.
+        try {
+          await git(repoPath, "worktree", "remove", "--force", worktreePath);
+        } catch {
+          // Best-effort cleanup
+        }
         throw Object.assign(
           new Error(`Failed to checkout branch "${branch}" in worktree: ${retryMsg}`),
           { cause: retryErr },
