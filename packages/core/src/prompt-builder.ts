@@ -28,15 +28,16 @@ export const CORE_AGENT_PROMPT = `You are an AI coding agent managed by the Agen
 - **Task-specific instructions override base/project rules when they conflict.**
 
 ## Session Lifecycle
-- You are running inside a managed session. Focus on the assigned task.
-- If you're told to take over or continue work on an existing PR, run \`ao session claim-pr <pr-number-or-url>\` from inside this session before making changes.`;
+- You are running inside a managed session. Focus on the assigned task.`;
 
 /**
  * PR-specific boilerplate — gated by skipPrBoilerplate.
  * Contains all PR/push instructions that should be suppressed for planning-only
  * and artifact-only workers.
  */
-export const PR_BOILERPLATE = `- When you finish your work, create a PR and push it. The orchestrator will handle CI monitoring and review routing.
+export const PR_BOILERPLATE = `## PR Workflow
+- When you finish your work, create a PR and push it. The orchestrator will handle CI monitoring and review routing.
+- If you're told to take over or continue work on an existing PR, run \`ao session claim-pr <pr-number-or-url>\` from inside this session before making changes.
 - If CI fails, the orchestrator will send you the failures — fix them and push again.
 - If reviewers request changes, the orchestrator will forward their comments — address each one, push fixes, and reply to the comments.
 
@@ -58,12 +59,18 @@ export const PR_BOILERPLATE = `- When you finish your work, create a PR and push
 - Respond to every review comment, even if just to acknowledge it.`;
 
 /**
- * Full base agent prompt — composed of CORE_AGENT_PROMPT + PR_BOILERPLATE.
- * Exported for backward compatibility; prefer CORE_AGENT_PROMPT + PR_BOILERPLATE directly.
+ * @deprecated Use buildPrompt() with skipPrBoilerplate option instead.
+ * Exported only for backward compatibility with tests and external consumers.
+ *
+ * NOTE: BASE_AGENT_PROMPT now contains ONLY CORE_AGENT_PROMPT content
+ * (session identity + instruction hierarchy). It does NOT include
+ * PR/Git/TDD boilerplate. To get the full prompt with boilerplate, use:
+ *   buildPrompt({ project, projectId, issueId, ... })
+ * or for explicit control:
+ *   buildPrompt({ ..., skipPrBoilerplate: false }) // includes PR boilerplate
+ *   buildPrompt({ ..., skipPrBoilerplate: true })  // excludes PR boilerplate
  */
-export const BASE_AGENT_PROMPT = `${CORE_AGENT_PROMPT}
-
-${PR_BOILERPLATE}`;
+export const BASE_AGENT_PROMPT = CORE_AGENT_PROMPT;
 
 // =============================================================================
 // TYPES
