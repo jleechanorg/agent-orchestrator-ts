@@ -792,6 +792,79 @@ describe("skeptic-cron-reusable.yml — request-id freshness contract", () => {
     expect(workflow).toContain("Unresolved cron request id exists for PR");
   });
 
+  function failSkippedVerdictCount(
+    comments: IssueComment[],
+    sha: string,
+    author: string,
+    prAuthor: string,
+  ): number {
+    const verdictRe =
+      /^[ \t]*(?:> ?)?(?:#{1,6}[ \t]*)?(?:\*{1,2})?VERDICT:[ \t]*(?<verdict>PASS|FAIL|SKIPPED)(?:\*{1,2})?[ \t]*(?:[-—:].*)?$/im;
+    return comments
+      .map((c) => ({
+        ...c,
+        verdict: (c.body.match(verdictRe)?.groups?.verdict ?? "").toUpperCase(),
+      }))
+      .filter(
+        (c) =>
+          (c.user.login.toLowerCase() === author.toLowerCase() ||
+            c.user.login.toLowerCase() === "github-actions[bot]") &&
+          c.user.login.toLowerCase() !== prAuthor.toLowerCase() &&
+          /<!--\s*skeptic-agent-verdict\s*-->/i.test(c.body) &&
+          (c.verdict === "FAIL" || c.verdict === "SKIPPED") &&
+          new RegExp(`<!--\\s*skeptic-cron-trigger-${sha}\\s*-->`, "i").test(c.body) &&
+          new RegExp(`<!--\\s*skeptic-head-sha-${sha}\\s*-->`, "i").test(c.body),
+      ).length;
+  }
+
+  function verdictComment(sha: string, verdict: "PASS" | "FAIL" | "SKIPPED", requestId = "req-1"): string {
+    return [
+      "<!-- skeptic-agent-verdict -->",
+      `<!-- skeptic-request-id-${requestId} -->`,
+      `<!-- skeptic-head-sha-${sha} -->`,
+      `VERDICT: ${verdict}`,
+      `<!-- skeptic-cron-trigger-${sha} -->`,
+    ].join("\n");
+  }
+
+  it("skips trigger when FAIL/SKIPPED verdict already exists for current SHA", () => {
+    expect(workflow).toContain("Existing cron FAIL/SKIPPED verdict for PR");
+    expect(workflow).toContain('.verdict == "FAIL" or .verdict == "SKIPPED"');
+  });
+
+  it("detects existing FAIL verdict and suppresses retrigger", () => {
+    const comments: IssueComment[] = [
+      { id: 10, user: { login: "github-actions[bot]" }, body: verdictComment(SHA_A, "FAIL") },
+    ];
+    expect(failSkippedVerdictCount(comments, SHA_A, "github-actions[bot]", "pr-author")).toBe(1);
+  });
+
+  it("detects existing SKIPPED verdict and suppresses retrigger", () => {
+    const comments: IssueComment[] = [
+      { id: 11, user: { login: "github-actions[bot]" }, body: verdictComment(SHA_A, "SKIPPED") },
+    ];
+    expect(failSkippedVerdictCount(comments, SHA_A, "github-actions[bot]", "pr-author")).toBe(1);
+  });
+
+  it("does not suppress when existing verdict is PASS", () => {
+    const comments: IssueComment[] = [
+      { id: 12, user: { login: "github-actions[bot]" }, body: verdictComment(SHA_A, "PASS") },
+    ];
+    expect(failSkippedVerdictCount(comments, SHA_A, "github-actions[bot]", "pr-author")).toBe(0);
+  });
+
+  it("does not suppress when FAIL verdict is for a different SHA", () => {
+    const comments: IssueComment[] = [
+      { id: 13, user: { login: "github-actions[bot]" }, body: verdictComment(SHA_B, "FAIL") },
+    ];
+    expect(failSkippedVerdictCount(comments, SHA_A, "github-actions[bot]", "pr-author")).toBe(0);
+  });
+
+  it("does not suppress when no verdict exists", () => {
+    const comments: IssueComment[] = [];
+    expect(failSkippedVerdictCount(comments, SHA_A, "github-actions[bot]", "pr-author")).toBe(0);
+  });
+
   it("derives the merge-step request id from cron trigger comments for the current SHA", () => {
     expect(workflow).toContain('REQUEST_ID=$(echo "$SKEPTIC_RAW" | jq -sr --arg sha "$HEAD_SHA"');
     expect(workflow).toContain('and (.body | test("SKEPTIC_CRON_TRIGGER"; "i"))');
