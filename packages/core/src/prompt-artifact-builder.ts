@@ -68,7 +68,7 @@ export function buildWorkerPromptArtifact(config: WorkerPromptArtifactConfig): W
     userPrompt: requestedTask,
     lineage: config.spawnConfig.lineage,
     siblings: config.spawnConfig.siblings,
-    skipPrBoilerplate: config.skipPrBoilerplate ?? false,
+    skipPrBoilerplate: config.skipPrBoilerplate ?? config.spawnConfig.skipPrBoilerplate ?? false,
   });
 
   const composedPromptPath =
