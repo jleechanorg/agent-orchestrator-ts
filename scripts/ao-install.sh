@@ -203,8 +203,12 @@ fi
 # ─── Step 7: Final verification via ao doctor ──────────────────────────────────
 echo "[7/7] Running ao doctor..."
 if command -v ao &>/dev/null; then
+  # Disable pipefail for the doctor pipeline so a non-zero exit doesn't abort
+  # the script before we capture the result via PIPESTATUS.
+  set +o pipefail
   AO_CONFIG_PATH="$CONFIG_FILE" ao doctor 2>&1 | grep -E '(PASS|WARN|FAIL|Results:)' | tail -5
   DOCTOR_RESULT=${PIPESTATUS[0]}
+  set -o pipefail
 else
   echo "  ao CLI not in PATH — run: export PATH=\"$(npm config get prefix)/bin:$PATH\""
   DOCTOR_RESULT=1
