@@ -162,7 +162,7 @@ fi
 echo ""
 echo "=== Install Complete ==="
 echo "Config: $CONFIG_FILE"
-echo "Workers running: $WORKER_COUNT/$(echo "$PROJECTS" | wc -w)"
+echo "Workers running: $WORKER_COUNT/$(echo "$PROJECTS" | wc -w | tr -d ' ')"
 echo ""
 echo "Next steps:"
 echo "  AO_CONFIG_PATH=\"$CONFIG_FILE\" ao spawn --project agent-orchestrator 'echo hello'"
