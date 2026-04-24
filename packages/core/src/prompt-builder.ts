@@ -1,10 +1,12 @@
 /**
  * Prompt Builder — composes layered prompts for agent sessions.
  *
- * Three layers:
- *   1. BASE_AGENT_PROMPT — constant instructions about session lifecycle, git workflow, PR handling
- *   2. Config-derived context — project name, repo, default branch, tracker info, reaction rules
- *   3. User rules — inline agentRules and/or agentRulesFile content
+ * Two prompt parts:
+ *   1. CORE_AGENT_PROMPT — constant session lifecycle guidance (always included)
+ *   2. PR_BOILERPLATE — PR/push workflow instructions (gated by skipPrBoilerplate)
+ *
+ * These are assembled into the full agent prompt via buildPrompt(), which also
+ * injects config-derived context and user rules.
  *
  * buildPrompt() always returns the AO base guidance and project context so
  * bare launches still know about AO-specific commands such as PR claiming.

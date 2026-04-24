@@ -62,13 +62,17 @@ fi
 mkdir -p "$WORKTREE_DIR"
 echo "[4/6] Worktree dir: $WORKTREE_DIR"
 
-# Step 5: Check launchd for lifecycle worker
+# Step 5: Check launchd for lifecycle worker (Darwin-only)
 # The canonical service is ai.agento.lifecycle-all (uses start-all.sh),
 # NOT the old per-project com.agentorchestrator.lifecycle-* plists.
-if launchctl print "gui/$(id -u)/ai.agento.lifecycle-all" >/dev/null 2>&1; then
-  echo "[5/6] Lifecycle worker: installed via ai.agento.lifecycle-all (launchd)"
+if [[ "$(uname)" == "Darwin" ]]; then
+  if launchctl print "gui/$(id -u)/ai.agento.lifecycle-all" >/dev/null 2>&1; then
+    echo "[5/6] Lifecycle worker: installed via ai.agento.lifecycle-all (launchd)"
+  else
+    echo "[5/6] Lifecycle worker: NOT installed via launchd (run 'ao setup-launchd' or setup-extended.sh)"
+  fi
 else
-  echo "[5/6] Lifecycle worker: NOT installed via launchd (run 'ao setup-launchd' or setup-extended.sh)"
+  echo "[5/6] Lifecycle worker: not applicable (non-Darwin platform)"
 fi
 
 # Step 6: Verify agent-orchestrator repo is accessible
