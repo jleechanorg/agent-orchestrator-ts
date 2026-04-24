@@ -6,6 +6,11 @@
 # Idempotent: skips lifecycle-workers that are already running per project.
 # Pre-flight: validates YAML parses cleanly before attempting to start anything.
 set -euo pipefail
+
+# Prepend .local/bin so gh and other user-local tools are found
+# when launchd inherits the launch-agent PATH.
+export PATH="/Users/jleechan/.local/bin:$PATH"
+
 REPO_ROOT="${AO_REPO_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=./lib/ao-config-topology.sh
