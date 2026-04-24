@@ -78,7 +78,7 @@ jobs:
           echo "Only accepting verdicts after: $TRIGGER_UPDATED"
 
           INTERVAL=15
-          MAX_ATTEMPTS=8  # 2 minutes / 15 seconds
+          MAX_ATTEMPTS=32  # 8 minutes / 15 seconds — ao skeptic verify takes 3-7 min
 
           PR_STATE_API_FAILURES=0
           COMMENTS_API_FAILURES=0
