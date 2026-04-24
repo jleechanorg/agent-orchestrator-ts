@@ -221,7 +221,7 @@ async function maybeRemoveStaleCheckedOutWorktree(
 /**
  * Reuse an existing branch by creating a worktree and checking it out.
  * Handles stale-checkout recovery and cleans up the worktree on failure.
- * Returns true on success, false on checkout failure.
+ * Returns true on success; throws on checkout failure.
  */
 async function reuseExistingBranch(
   repoPath: string,
