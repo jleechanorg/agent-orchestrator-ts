@@ -24,9 +24,9 @@ ao_production_config_path() {
   # HERMES_HOME is the canonical AO/Hermes worker config directory (ao-install.sh,
   # ao-repo-setup.sh, and the launchd plist all use it). Check it first so the
   # config written by ao-install.sh is auto-discovered without AO_CONFIG_PATH.
-  # Tilde-expand HERMES_HOME when it starts with ~ so ~/path works in env vars.
+  # Tilde-expand HERMES_HOME when it starts with literal ~ (not when already $HOME-based).
   local hermes_home_expanded="${HERMES_HOME:-}"
-  if [[ "$hermes_home_expanded" == ~/* ]]; then
+  if [ "${hermes_home_expanded:0:1}" = "~" ]; then
     hermes_home_expanded="${HOME}${hermes_home_expanded:1}"
   fi
   if [ -n "${HERMES_HOME:-}" ] && [ -f "${hermes_home_expanded}/agent-orchestrator.yaml" ]; then
