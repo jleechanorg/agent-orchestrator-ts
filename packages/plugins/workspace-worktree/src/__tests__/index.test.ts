@@ -609,7 +609,8 @@ describe("workspace.create()", () => {
     expect(info.branch).toBe("feat/TEST-1");
     expect(info.path).toBe(worktreePath);
 
-    // Verify: no worktree list call was made (ghost detection should NOT have fired)
+    // Verify: ghost worktree removal (rmSync) was NOT called — only the list call was made
+    // (the list call fires for both path and branch collisions; only rmSync is path-specific)
     const listCall = mockExecFileAsync.mock.calls.find(
       (call) =>
         Array.isArray(call[1]) &&
