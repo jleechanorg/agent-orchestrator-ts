@@ -119,7 +119,9 @@ async function findExistingVerdict(
     // workflow rejects it (it filters by updated_at >= TRIGGER_UPDATED).
     if (/<!-- skeptic-agent-verdict -->/i.test(c.body)) {
       if (requestId && !hasSkepticRequestId(c.body, requestId)) continue;
-      if (validSha && !requestId) continue;
+      // When requestId is set, reject. When only triggerSha is set, fall through
+      // to the SHA-marker check below — don't skip unconditionally.
+      if (requestId && validSha) continue;
       const escapedSha = validSha ? escapeRegexLiteral(validSha) : undefined;
       const shaMarker = escapedSha
         ? new RegExp(`<!-- skeptic-(?:gate|cron)-trigger-${escapedSha} -->`)
