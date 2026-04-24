@@ -42,7 +42,18 @@ else
 fi
 
 # Step 4: Check workspace directory
-WORKTREE_DIR=$(python3 -c "import yaml; c=yaml.safe_load(open('$HERMES_HOME/agent-orchestrator.yaml')); print(c.get('worktreeDir','~/.worktrees'))" 2>/dev/null || echo "~/.worktrees")
+if ! command -v python3 >/dev/null 2>&1; then
+  echo "ERROR: python3 is required to parse the AO config"
+  exit 1
+fi
+if ! python3 -c "import yaml" 2>/dev/null; then
+  echo "ERROR: PyYAML is required (pip install pyyaml)"
+  exit 1
+fi
+WORKTREE_DIR=$(python3 -c "import yaml; c=yaml.safe_load(open('$HERMES_HOME/agent-orchestrator.yaml')); print(c.get('worktreeDir','~/.worktrees'))" 2>/dev/null) || {
+  echo "ERROR: failed to parse $HERMES_HOME/agent-orchestrator.yaml"
+  exit 1
+}
 WORKTREE_DIR="${WORKTREE_DIR/#\~/$HOME}"
 mkdir -p "$WORKTREE_DIR"
 WORKTREE_DIR=$(cd "$WORKTREE_DIR" && pwd)
