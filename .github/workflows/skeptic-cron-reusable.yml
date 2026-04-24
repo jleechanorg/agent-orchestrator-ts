@@ -152,7 +152,7 @@ jobs:
                 ))
               | length' 2>/dev/null || echo 0)
             if [ "${FAIL_VERDICT_COUNT:-0}" -gt 0 ]; then
-              echo "Existing cron FAIL verdict for PR #${PR_NUM} (SHA ${PR_SHA:0:7}); not posting a new trigger"
+              echo "Existing cron FAIL/SKIPPED verdict for PR #${PR_NUM} (SHA ${PR_SHA:0:7}); not posting a new trigger"
               continue
             fi
             REQUEST_ID=$(echo "$COMMENTS_RAW" | jq -sr \

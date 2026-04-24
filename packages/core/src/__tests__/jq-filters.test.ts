@@ -793,7 +793,7 @@ describe("skeptic-cron-reusable.yml — request-id freshness contract", () => {
   });
 
   it("skips trigger when FAIL/SKIPPED verdict already exists for current SHA", () => {
-    expect(workflow).toContain("Existing cron FAIL verdict for PR");
+    expect(workflow).toContain("Existing cron FAIL/SKIPPED verdict for PR");
   });
 
   it("derives the merge-step request id from cron trigger comments for the current SHA", () => {
