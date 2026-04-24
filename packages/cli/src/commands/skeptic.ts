@@ -113,24 +113,23 @@ async function findExistingVerdict(
 
   const comments = await fetchIssueComments(owner, repo, prNumber);
   for (const c of comments) {
-    // Find by HTML marker AND trigger SHA match.
-    // Only reuse a comment if it was posted for the SAME trigger SHA —
-    // otherwise editing it leaves the old updated_at and the skeptical gate
-    // workflow rejects it (it filters by updated_at >= TRIGGER_UPDATED).
-    if (/<!-- skeptic-agent-verdict -->/i.test(c.body)) {
-      if (requestId && !hasSkepticRequestId(c.body, requestId)) continue;
-      // When requestId is set, reject. When only triggerSha is set, fall through
-      // to the SHA-marker check below — don't skip unconditionally.
-      if (requestId && validSha) continue;
-      const escapedSha = validSha ? escapeRegexLiteral(validSha) : undefined;
-      const shaMarker = escapedSha
-        ? new RegExp(`<!-- skeptic-(?:gate|cron)-trigger-${escapedSha} -->`)
-        : null;
-      if (!shaMarker || shaMarker.test(c.body)) {
-        const m = c.body.match(VERDICT_LINE_RE);
-        if (m) {
-          return { verdict: m[1].toUpperCase() as "PASS" | "FAIL" | "SKIPPED", commentId: c.id };
-        }
+    // Must be from the skeptic bot author — cursor[bot] comments can contain
+    // `<!-- skeptic-agent-verdict -->` as literal text in a bug description,
+    // which would otherwise false-match here.
+    if (c.user.login !== SKEPTIC_BOT_AUTHOR) continue;
+    // Must start with the HTML marker (not just contain it mid-text).
+    if (!c.body.trim().startsWith("<!-- skeptic-agent-verdict -->")) continue;
+    // Optionally match by requestId (when a specific trigger comment id is known).
+    if (requestId && !hasSkepticRequestId(c.body, requestId)) continue;
+    if (requestId && validSha) continue;
+    const escapedSha = validSha ? escapeRegexLiteral(validSha) : undefined;
+    const shaMarker = escapedSha
+      ? new RegExp(`<!-- skeptic-(?:gate|cron)-trigger-${escapedSha} -->`)
+      : null;
+    if (!shaMarker || shaMarker.test(c.body)) {
+      const m = c.body.match(VERDICT_LINE_RE);
+      if (m) {
+        return { verdict: m[1].toUpperCase() as "PASS" | "FAIL" | "SKIPPED", commentId: c.id };
       }
     }
   }
