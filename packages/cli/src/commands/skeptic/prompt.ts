@@ -147,7 +147,6 @@ export function buildSkepticPrompt(
     "RULES:",
     "1. Verify each mechanical gate independently, then perform Gate 7 technical review and Gate 8 alignment review — do not trust the status summary alone.",
     "2. CR APPROVED means review state=APPROVED with body_len>0, OR body_len=0 with CR posting 'all good'/'✅'/'No actionable comments' AFTER the APPROVED. IMPORTANT: An APPROVED review with an empty body (body_len=0) is still a valid APPROVED — the empty body does NOT invalidate the approval state.",
-    "2a. Exception: if the PR author is a GitHub App/bot account matching /^(app\\/|[\\w-]+\\[bot\\])$/i, treat Gate 3 as PASS (review skipped). Those authors cannot receive a self-review from CodeRabbit.",
     "3. CR COMMENTED is NOT approval. CR CHANGES_REQUESTED is NOT approval.",
     "4. A dismissed CR review without a subsequent real APPROVED review is a blocker.",
     "5. Bugbot errors always block merge.",

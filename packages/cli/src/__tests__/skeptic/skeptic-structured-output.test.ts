@@ -256,25 +256,6 @@ describe("skeptic structured output", () => {
     });
   });
 
-  describe("Gate 3 bot-author skip guidance", () => {
-    it("tells the skeptic to treat bot-authored PRs as review-skipped and surfaces that state in the summary", () => {
-      const prompt = buildSkepticPrompt(
-        makeMinimalPR({ body: "## Summary\nWorkflow-only gate fixes." }),
-        makePassingState({
-          crApproved: true,
-          crState: "review_skipped_author=github-actions[bot]",
-        }),
-        EMPTY_DIFF,
-        EMPTY_REVIEWS,
-        "# design doc",
-      );
-
-      expect(prompt).toContain("review skipped");
-      expect(prompt).toContain("GitHub App/bot account");
-      expect(prompt).toContain("review skipped (github-actions[bot])");
-    });
-  });
-
   describe("Rule 12 — Goals Section Verification (always active)", () => {
     it("prompt contains Rule 12 goals section check regardless of PR content", () => {
       const prompt = buildSkepticPrompt(
