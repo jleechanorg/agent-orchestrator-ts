@@ -402,11 +402,11 @@ export function create(config?: Record<string, unknown>): Workspace {
         // Only trigger ghost detection when the error mentions the worktree path itself.
         // Guard: if git worktree list fails (e.g., repo corruption), fall through to
         // branch-exists recovery rather than propagating an unguarded error.
+        const normalizedWorktreePath = resolve(worktreePath);
         let isGhostWorktree = false;
         let pathCollisionErr: Error | undefined;
         try {
           const listOutput = await git(repoPath, "worktree", "list", "--porcelain");
-          const normalizedWorktreePath = resolve(worktreePath);
           const isRegistered = listOutput
             .split("\n")
             .some(
@@ -434,8 +434,20 @@ export function create(config?: Record<string, unknown>): Workspace {
           }
           // else: error doesn't mention path → branch collision → isGhostWorktree stays false
         } catch {
-          // worktree list failed (network, git bug, etc.) — fall through to branch-exists recovery.
-          // Only propagate the explicit path-collision error set above.
+          // worktree list failed (network, git bug, etc.) — determine path type from error.
+          // If the error is a path-collision (not branch-collision), we can't proceed safely
+          // because we can't distinguish ghost from registered path. Throw immediately.
+          // Only fall through for ambiguous "already exists" that might be branch-collision.
+          const isPathCollision =
+            msg.includes(`'${normalizedWorktreePath}' already exists`) ||
+            msg.includes(`"${normalizedWorktreePath}" already exists`);
+          if (isPathCollision) {
+            throw new Error(
+              `Failed to create worktree for branch "${cfg.branch}": ${msg} (ghost detection unavailable — list failed)`,
+              { cause: err },
+            );
+          }
+          // else: fall through to branch-exists recovery (could be branch collision).
         }
         if (pathCollisionErr) throw pathCollisionErr;
 

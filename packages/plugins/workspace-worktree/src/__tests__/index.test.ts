@@ -684,7 +684,7 @@ describe("workspace.create()", () => {
     );
   });
 
-  it("falls through to branch-exists recovery when worktree list fails", async () => {
+  it("propagates path-collision error immediately when worktree list fails", async () => {
     const ws = create();
     const worktreePath = "/mock-home/.worktrees/myproject/session-1";
 
@@ -692,7 +692,24 @@ describe("workspace.create()", () => {
     mockGitSuccess(""); // fetch
     mockGitSuccess(""); // git branch --list origin/main — no local conflict
     mockGitError(`fatal: '${worktreePath}' already exists`); // worktree add -b fails with path
-    // git worktree list --porcelain fails (e.g., repo corruption) — fall through to branch-exists recovery
+    // git worktree list --porcelain fails (e.g., repo corruption)
+    // Since error is path-collision, not branch-collision, we cannot safely fall through.
+    mockGitError("fatal: detected dubious ownership");
+
+    await expect(ws.create(makeCreateConfig())).rejects.toThrow(
+      /ghost detection unavailable/,
+    );
+  });
+
+  it("falls through to branch-exists recovery when worktree list fails on ambiguous error", async () => {
+    const ws = create();
+    const worktreePath = "/mock-home/.worktrees/myproject/session-1";
+
+    // git worktree add -b fails with an error that doesn't match path-collision format
+    mockGitSuccess(""); // fetch
+    mockGitSuccess(""); // git branch --list origin/main — no local conflict
+    mockGitError("already exists"); // worktree add -b fails with generic "already exists"
+    // git worktree list --porcelain fails — but error is ambiguous, not a path collision
     mockGitError("fatal: detected dubious ownership");
     // Branch exists recovery: worktree add (without -b) succeeds
     mockGitSuccess(""); // worktree add (branch already exists — reuse it)
@@ -716,8 +733,7 @@ describe("workspace.create()", () => {
     expect(addCall).toBeDefined();
     expect(addCall![1].slice(0, 3)).toEqual(["worktree", "add", worktreePath]);
 
-    // Verify: no filesystem removal was attempted (worktree list failure triggers
-    // branch-exists recovery, not ghost removal)
+    // Verify: no filesystem removal was attempted
     expect(mockRmSync).not.toHaveBeenCalled();
   });
 
