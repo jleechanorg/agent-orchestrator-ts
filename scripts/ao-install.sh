@@ -183,7 +183,9 @@ fi
 # ─── Step 7: Final verification via ao doctor ────────────────────────────────
 echo "[7/7] Running ao doctor..."
 if command -v ao &>/dev/null; then
-  AO_CONFIG_PATH="$CONFIG_FILE" ao doctor 2>&1 | grep -E '(PASS|WARN|FAIL|Results:)' | tail -5
+  # Use pipefail-safe capture: ao doctor exit status is in PIPESTATUS[0]
+  # grep/tail may return non-zero; guard with || true to preserve ao's exit
+  AO_CONFIG_PATH="$CONFIG_FILE" ao doctor 2>&1 | grep -E '(PASS|WARN|FAIL|Results:)' | tail -5 || true
   DOCTOR_RESULT=${PIPESTATUS[0]}
 else
   echo "  ao CLI not in PATH — run: export PATH=\"$(npm config get prefix)/bin:$PATH\""
