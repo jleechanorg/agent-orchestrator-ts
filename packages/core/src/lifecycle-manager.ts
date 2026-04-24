@@ -2762,7 +2762,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       // Fire-and-forget so a long-running LLM evaluation does not block the poll loop.
       if (scopedProjectId) {
         const skepticProject = config.projects[scopedProjectId];
-        if (skepticProject && skepticProject.backfillAllPRs !== false) {
+        if (skepticProject) {
           void runLocalSkepticCron(
             { registry, sessionManager, observer },
             { projectId: scopedProjectId, project: skepticProject, activeSessions, correlationId },
