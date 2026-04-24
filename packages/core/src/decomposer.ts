@@ -238,6 +238,10 @@ export async function classifyPrType(
 ): Promise<PrTypeClassification> {
   const combined = `${issueTitle}\n\n${issueBody}`.trim();
 
+  if (!combined) {
+    return { type: "unknown", confidence: "low", reasoning: "blank input" };
+  }
+
   try {
     const client = new Anthropic();
     const res = await client.messages.create({
@@ -247,7 +251,7 @@ export async function classifyPrType(
       messages: [{ role: "user", content: combined }],
     });
 
-    const text = res.content[0].type === "text" ? res.content[0].text.trim() : "{}";
+    const text = res.content?.[0]?.type === "text" ? res.content[0].text.trim() : "{}";
     const jsonMatch = text.match(/\{[\s\S]*\}/);
 
     if (!jsonMatch) {
