@@ -487,6 +487,85 @@ describe("wholesome — structural source-code assertions", () => {
   // 6. Fork-aware runner selection in CI workflow files
   // -------------------------------------------------------------------------
   describe("fork-aware runner selection in workflow files", () => {
+    it("critical PR workflows support workflow_dispatch for manual rescue reruns", () => {
+      const workflowDir = join(REPO_ROOT, ".github", "workflows");
+      const requiredDispatchWorkflows = [
+        "ci.yml",
+        "coverage.yml",
+        "evidence-gate.yml",
+        "wholesome.yml",
+      ];
+
+      const violations = requiredDispatchWorkflows.filter(file => {
+        const content = readFileSync(join(workflowDir, file), "utf-8");
+        return !content.includes("workflow_dispatch:");
+      });
+
+      expect(
+        violations,
+        "Critical PR workflows must support workflow_dispatch for manual rescue reruns:\n" +
+          violations.join("\n")
+      ).toHaveLength(0);
+    });
+
+    it("workflow_dispatch rescue reruns resolve PR context before using PR-only fields", () => {
+      const workflowDir = join(REPO_ROOT, ".github", "workflows");
+      const expectations: Record<string, string[]> = {
+        "coverage.yml": [
+          "Resolve PR context",
+          "steps.pr-context.outputs.base_ref",
+        ],
+        "evidence-gate.yml": [
+          "Resolve PR context",
+          "steps.pr-context.outputs.pr_body",
+          "steps.pr-context.outputs.base_sha",
+          "steps.pr-context.outputs.head_sha",
+          "github.event.pull_request.number || github.ref",
+        ],
+        "wholesome.yml": [
+          "Resolve PR context",
+          "steps.pr-context.outputs.pr_title",
+          "steps.pr-context.outputs.pr_body",
+          "github.event.pull_request.number || github.ref",
+        ],
+      };
+
+      const violations: string[] = [];
+
+      for (const [file, requiredSnippets] of Object.entries(expectations)) {
+        const content = readFileSync(join(workflowDir, file), "utf-8");
+        for (const snippet of requiredSnippets) {
+          if (!content.includes(snippet)) {
+            violations.push(`${file}: missing ${snippet}`);
+          }
+        }
+      }
+
+      expect(
+        violations,
+        "workflow_dispatch rescue reruns must resolve PR context before using pull_request-only fields:\n" +
+          violations.join("\n"),
+      ).toHaveLength(0);
+    });
+
+    it("uses the canonical shared self-hosted runner selector in coverage and skeptic gate workflows", () => {
+      const workflowDir = join(REPO_ROOT, ".github", "workflows");
+      const expectedSharedLabels =
+        `fromJson(vars.SELF_HOSTED_RUNNER_LABELS || '` +
+        `["self-hosted","Linux","ARM64","agent-orchestrator"]')`;
+
+      for (const file of ["coverage.yml", "test.yml"]) {
+        const content = readFileSync(join(workflowDir, file), "utf-8");
+
+        expect(content, `${file} should fall back to ubuntu-latest when self-hosted is disabled`).toContain(
+          "vars.SELF_HOSTED_DISABLED == 'true' && 'ubuntu-latest'",
+        );
+        expect(content, `${file} should target the shared agent-orchestrator self-hosted runner labels`).toContain(
+          expectedSharedLabels,
+        );
+      }
+    });
+
     /**
      * SECURITY invariant: Every workflow job that runs on pull_request events
      * must use the fork-aware runner selection pattern. Without it, a fork PR
