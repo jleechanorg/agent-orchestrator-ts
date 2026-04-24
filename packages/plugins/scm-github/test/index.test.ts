@@ -2839,30 +2839,24 @@ describe("scm-github plugin", () => {
     });
 
     it("uses curl-based REST fallback for gh pr view instead of re-entering gh api", async () => {
-      const prevGithubToken = process.env["GITHUB_TOKEN"];
       process.env["GITHUB_TOKEN"] = "env-token";
-      try {
-        ghMock
-          .mockRejectedValueOnce(new Error("rate limit"))
-          .mockRejectedValueOnce(new Error("rate limit"))
-          .mockRejectedValueOnce(new Error("rate limit"))
-          .mockResolvedValueOnce({ stdout: JSON.stringify({ state: "open", merged: false }) });
+      ghMock
+        .mockRejectedValueOnce(new Error("rate limit"))
+        .mockRejectedValueOnce(new Error("rate limit"))
+        .mockRejectedValueOnce(new Error("rate limit"))
+        .mockResolvedValueOnce({ stdout: JSON.stringify({ state: "open", merged: false }) });
 
-        const scm = await create({});
-        const result = await scm.getPRState(pr);
+      const scm = await create({});
+      const result = await scm.getPRState(pr);
 
-        expect(result).toBe("open");
-        expect(ghMock).toHaveBeenCalledTimes(4);
-        expect(ghMock.mock.calls[3]?.[0]).toBe("curl");
-        expect(
-          ghMock.mock.calls.some(
-            ([bin, args]) => bin === "gh" && Array.isArray(args) && args[0] === "api",
-          ),
-        ).toBe(false);
-      } finally {
-        if (prevGithubToken === undefined) delete process.env["GITHUB_TOKEN"];
-        else process.env["GITHUB_TOKEN"] = prevGithubToken;
-      }
+      expect(result).toBe("open");
+      expect(ghMock).toHaveBeenCalledTimes(4);
+      expect(ghMock.mock.calls[3]?.[0]).toBe("curl");
+      expect(
+        ghMock.mock.calls.some(
+          ([bin, args]) => bin === "gh" && Array.isArray(args) && args[0] === "api",
+        ),
+      ).toBe(false);
     });
 
     it("does not retry non-rate-limit errors", async () => {

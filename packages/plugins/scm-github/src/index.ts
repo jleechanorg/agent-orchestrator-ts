@@ -973,10 +973,10 @@ async function maybeRemoveStaleCheckedOutWorktree(
 
 /**
  * Shared helper: fetch all check-runs for a commit via the GitHub REST API
- * using `gh api --paginate` to retrieve all pages automatically.
+ * using manual REST pagination to retrieve all pages.
  * Returns a statusCheckRollup-compatible array of entries with name, state, and detailsUrl.
  */
-async function fetchCheckRunsViaRest(repo: string, sha: string, _cwd?: string): Promise<unknown[]> {
+async function fetchCheckRunsViaRest(repo: string, sha: string): Promise<unknown[]> {
   try {
     const checkRuns: unknown[] = [];
     for (let page = 1; ; page++) {
@@ -987,7 +987,7 @@ async function fetchCheckRunsViaRest(repo: string, sha: string, _cwd?: string): 
       checkRuns.push(...pageRuns);
       if (pageRuns.length < 100) break;
     }
-    return checkRuns.map((run) => {
+    return checkRuns.map((run: unknown) => {
       const r = run as Record<string, unknown>;
       return {
         name: r.name,
