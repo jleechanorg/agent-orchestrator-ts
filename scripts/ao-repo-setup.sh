@@ -34,11 +34,11 @@ echo "[2/6] AO CLI: $AO_VERSION"
 
 # Step 3: Verify hermes gateway is running
 if ! command -v hermes &>/dev/null; then
-    echo "WARNING: Hermes CLI not installed (skipping gateway check)"
+    echo "[3/6] WARNING: Hermes CLI not installed (skipping gateway check)"
 elif HERMES_STATUS=$(hermes gateway status 2>&1) && echo "$HERMES_STATUS" | grep -q "Gateway is running"; then
     echo "[3/6] Hermes gateway: running"
 else
-    echo "WARNING: Hermes gateway not running."
+    echo "[3/6] WARNING: Hermes gateway not running."
     echo "Start with: hermes gateway start"
     echo "Or: ./bin/hermes gateway start"
 fi
