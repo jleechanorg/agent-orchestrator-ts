@@ -81,6 +81,9 @@ const RATE_LIMIT_ERROR_PATTERNS = [
   "rate limit exceeded",
   "Too Many Requests",
   "secondary rate limit",
+  // curl REST fallback emits 403 when GitHub rejects a token/scope due to rate limiting
+  "REST fallback failed",
+  "curl returned error: 403",
 ];
 
 const AUTH_ERROR_PATTERNS = [
@@ -495,6 +498,10 @@ function cleanupTempCurlConfig(configPath: string | undefined): void {
   }
 }
 
+// No retry on resolveGhAuthToken — gh auth token is invoked as a fallback after
+// env-token lookup already failed. A second failure here means the gh CLI itself
+// cannot authenticate (e.g., not logged in). Retrying would loop indefinitely with
+// the same result. The caller handles this by falling through without a token.
 async function resolveGhAuthToken(): Promise<string> {
   const env = { ...process.env };
   delete env.GITHUB_TOKEN;
